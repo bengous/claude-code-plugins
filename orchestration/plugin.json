@@ -1,6 +1,6 @@
 {
   "name": "claude-orchestration",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Advanced orchestration system for managing development workflows with worktrees, issues, PR automation, and multi-agent task delegation",
   "author": "Augustin BENGOLEA <bengous@protonmail.com>",
   "license": "MIT",
@@ -14,40 +14,5 @@
     "issues",
     "delegation"
   ],
-  "commands": ["commands"],
-  "hooks": {
-    "PreToolUse": [
-      {
-        "matcher": "Bash",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/hooks/worktree-guard.py",
-            "timeout": 5
-          }
-        ]
-      },
-      {
-        "matcher": "SlashCommand",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/hooks/pr-guard.sh",
-            "timeout": 5
-          }
-        ]
-      }
-    ],
-    "UserPromptSubmit": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/hooks/planmode.sh",
-            "timeout": 5
-          }
-        ]
-      }
-    ]
-  }
+  "commands": ["commands"]
 }
