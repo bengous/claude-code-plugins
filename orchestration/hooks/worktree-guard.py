@@ -19,8 +19,16 @@ try:
 except Exception:
     payload = {}
 
-argv = payload.get("command") or []
-if not argv:
+cmd = payload.get("command")
+if not cmd:
+    sys.exit(0)
+
+# Handle both string and array formats (Claude Code sends strings)
+if isinstance(cmd, str):
+    argv = shlex.split(cmd)
+elif isinstance(cmd, list):
+    argv = cmd
+else:
     sys.exit(0)
 
 BLOCKED = {
