@@ -1,6 +1,6 @@
 {
   "name": "claude-orchestration",
-  "version": "0.14.1",
+  "version": "0.14.2",
   "description": "Advanced orchestration system for managing development workflows with worktrees, issues, PR automation, and multi-agent task delegation",
   "author": "Augustin BENGOLEA <bengous@protonmail.com>",
   "license": "MIT",
