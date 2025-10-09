@@ -1,0 +1,35 @@
+## Approval Flow (when `--confirm` flag is present)
+
+Print the approval block and pause:
+
+```
+APPROVAL NEEDED
+Path: <SIMPLE|MEDIUM|COMPLEX>
+Why:
+  • <reason 1>
+  • <reason 2>
+  • <reason 3 if applicable>
+Plan (concise): <bullets or ≤20 lines YAML showing steps>
+PR target:
+  - SIMPLE/MEDIUM → dev
+  - COMPLEX → sub-PRs to <base-branch>; final <base-branch>→dev (manual)
+
+Reply with one of:
+  approve       - Continue to execution
+  revise: <notes> - Update plan based on feedback
+  cancel        - Abort with no changes
+```
+
+Then write initial state:
+```bash
+echo '{"type":"<type>","base":null,"awaiting":"plan_approval"}' > .claude/run/current.json
+```
+
+Generate run-id and write per-run state (status="awaiting").
+
+Print: `[ORC_WAITING_APPROVAL]`
+
+Wait for user response:
+- **approve**: Print `[ORC_APPROVED]`. Remove `awaiting` from state. Proceed to Phase 2 execution.
+- **revise: <notes>**: Print `[ORC_PLAN_REVISED]`. Update the plan based on feedback, reprint approval block, wait again.
+- **cancel**: Release lock if acquired: `rm -f .claude/run/locks/*.lock 2>/dev/null`. Update per-run state: `jq '.status="aborted"' .claude/run/$RUN_ID.json > .claude/run/$RUN_ID.json.tmp && mv .claude/run/$RUN_ID.json.tmp .claude/run/$RUN_ID.json 2>/dev/null`. Update current: `echo '{"type":"<type>","base":null,"status":"aborted"}' > .claude/run/current.json`. Print `[ORC_ABORTED]`. Stop now. Do not perform any mutations.

@@ -1,0 +1,42 @@
+---
+description: Reopen a closed GitHub issue
+argument-hint: <issue-number> [comment]
+allowed-tools:
+  - Bash("${CLAUDE_PLUGIN_ROOT}/scripts/issue/issue":reopen)
+model: claude-sonnet-4-5
+---
+
+Reopen a previously closed GitHub issue, optionally with a comment explaining why.
+
+**Common patterns:**
+
+```bash
+# Simple reopen
+/issue:reopen 141
+
+# Reopen with reason
+/issue:reopen 141 "Issue not fully resolved, regression found"
+
+# Reopen after new information
+/issue:reopen 145 "New context makes this relevant again"
+```
+
+**Arguments:**
+
+- `<issue-number>` (required) - GitHub issue number to reopen
+- `[comment]` (optional) - Comment explaining why issue is being reopened
+
+**Use cases:**
+
+- Regression discovered after closing
+- Original fix incomplete
+- Issue closed prematurely
+- New information makes issue relevant
+
+**Related commands:**
+
+- `/issue:close` - Close an issue
+- `/issue:comment` - Add comment to issue
+- `/issue:view` - View issue state
+
+!"${CLAUDE_PLUGIN_ROOT}/scripts/issue/issue" reopen $ARGUMENTS
