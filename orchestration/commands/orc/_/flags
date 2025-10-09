@@ -1,0 +1,14 @@
+## Flag Semantics
+
+**`--base <branch>`**
+- **SIMPLE / MEDIUM**: Sets the PR target branch (default: `dev`)
+- **COMPLEX**: Sets the divergence source for the dedicated base branch (default: `dev`)
+  - Final PR remains `<base-branch> → dev` (manual review)
+
+**`--force-path <simple|medium|complex>`**
+- Skips classification and routes directly to the chosen path
+- **Still honors `--confirm`** (i.e., you can force a path and pause for approval)
+
+**`--confirm`**
+- Pauses after plan presentation for user approval
+- Default: proceed immediately without approval pause

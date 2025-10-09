@@ -1,0 +1,3 @@
+## Concurrency Model
+
+Concurrency is scoped by target branch using lock files in `.claude/run/locks/`. Multiple runs may proceed in parallel if they target different branches.
