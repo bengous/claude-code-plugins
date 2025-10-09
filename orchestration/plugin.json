@@ -15,5 +15,5 @@
     "delegation"
   ],
   "commands": ["commands"],
-  "hooks": ["hooks"]
+  "hooks": "./hooks/hooks.json"
 }
