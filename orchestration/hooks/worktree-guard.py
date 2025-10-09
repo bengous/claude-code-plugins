@@ -19,7 +19,14 @@ try:
 except Exception:
     payload = {}
 
-cmd = payload.get("command")
+# Claude Code PreToolUse hook format: {"tool_name": "Bash", "tool_input": {"command": "..."}}
+tool_input = payload.get("tool_input", {})
+cmd = tool_input.get("command") if isinstance(tool_input, dict) else None
+
+if not cmd:
+    # Fallback to top-level "command" key for compatibility
+    cmd = payload.get("command")
+
 if not cmd:
     sys.exit(0)
 
@@ -57,8 +64,8 @@ def match(block):
 
 for block in BLOCKED:
     if match(block):
-        cmd = " ".join(shlex.quote(part) for part in argv)
-        sys.stdout.write(GUIDE.format(cmd=cmd))
+        cmd_str = " ".join(shlex.quote(part) for part in argv)
+        sys.stderr.write(GUIDE.format(cmd=cmd_str))
         sys.exit(2)
 
 sys.exit(0)
