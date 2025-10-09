@@ -1,4 +1,5 @@
 {
+  "description": "Safety hooks for orchestration plugin: blocks raw git worktree commands, enforces PR policies, and requires plan mode for complex tasks",
   "hooks": {
     "PreToolUse": [
       {
