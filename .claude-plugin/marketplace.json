@@ -8,8 +8,11 @@
     {
       "name": "claude-orchestration",
       "description": "Advanced orchestration system for managing development workflows with worktrees, issues, PR automation, and multi-agent task delegation",
-      "version": "0.1.0",
-      "author": "Augustin BENGOLEA <bengous@protonmail.com>",
+      "version": "0.1.1",
+      "author": {
+        "name": "Augustin BENGOLEA",
+        "email": "bengous@protonmail.com"
+      },
       "homepage": "https://github.com/bengous/claude-plugins",
       "license": "MIT",
       "keywords": [
@@ -22,10 +25,7 @@
         "issues",
         "delegation"
       ],
-      "source": {
-        "type": "local",
-        "path": "./orchestration"
-      }
+      "source": "./orchestration"
     }
   ]
 }
