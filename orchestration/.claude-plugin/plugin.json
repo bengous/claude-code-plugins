@@ -1,6 +1,6 @@
 {
   "name": "claude-orchestration",
-  "version": "0.14.0",
+  "version": "0.14.1",
   "description": "Advanced orchestration system for managing development workflows with worktrees, issues, PR automation, and multi-agent task delegation",
   "author": "Augustin BENGOLEA <bengous@protonmail.com>",
   "license": "MIT",
@@ -14,7 +14,7 @@
     "issues",
     "delegation"
   ],
-  "commands": ["commands"],
+  "commands": ["../commands"],
   "hooks": {
     "PreToolUse": [
       {
@@ -27,27 +27,28 @@
             "description": "Blocks raw git worktree commands to enforce managed worktree system"
           }
         ]
-      },
-      {
-        "matcher": "SlashCommand",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/hooks/pr-guard.sh",
-            "timeout": 5,
-            "description": "Enforces COMPLEX orchestration policy for PR creation"
-          }
-        ]
       }
     ],
     "UserPromptSubmit": [
       {
+        "matcher": "^/orc:start\\b",
         "hooks": [
           {
             "type": "command",
             "command": "${CLAUDE_PLUGIN_ROOT}/hooks/planmode.sh",
             "timeout": 5,
             "description": "Enforces plan mode for /orc:start commands"
+          }
+        ]
+      },
+      {
+        "matcher": "^/pr:create\\b",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/hooks/pr-guard.sh",
+            "timeout": 5,
+            "description": "Enforces COMPLEX orchestration policy for PR creation"
           }
         ]
       }
