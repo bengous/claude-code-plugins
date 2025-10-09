@@ -8,7 +8,7 @@
     {
       "name": "claude-orchestration",
       "description": "Advanced orchestration system for managing development workflows with worktrees, issues, PR automation, and multi-agent task delegation",
-      "version": "0.1.2",
+      "version": "0.1.3",
       "author": {
         "name": "Augustin BENGOLEA",
         "email": "bengous@protonmail.com"
