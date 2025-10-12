@@ -1,0 +1,549 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Interactive Git Rebase with AI Assistance
+# Main script for the /rebase command
+
+# ============================================================================
+# INITIALIZATION
+# ============================================================================
+
+# Get script directory
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# Find main repository
+if MAIN_REPO="$(git -C "$SCRIPT_DIR" rev-parse --show-toplevel 2>/dev/null)"; then
+  :
+else
+  MAIN_REPO="$(pwd)"
+fi
+cd "$MAIN_REPO"
+
+# Check dependencies
+if ! command -v jq >/dev/null 2>&1; then
+  echo "Error: jq is required for /rebase" >&2
+  exit 1
+fi
+
+# Source helper libraries
+source "$SCRIPT_DIR/lib/ui.sh"
+source "$SCRIPT_DIR/lib/ai.sh"
+source "$SCRIPT_DIR/lib/conflict.sh"
+
+# State directory
+STATE_DIR="$MAIN_REPO/.claude/rebase"
+STATE_FILE="$STATE_DIR/current.json"
+
+# ============================================================================
+# STATE MANAGEMENT
+# ============================================================================
+
+init_state_dir() {
+  mkdir -p "$STATE_DIR"
+}
+
+save_state() {
+  local state_json="$1"
+  init_state_dir
+  local tmp_file="${STATE_FILE}.tmp.$$"
+  echo "$state_json" | jq '.' > "$tmp_file"
+  mv -f "$tmp_file" "$STATE_FILE"
+}
+
+load_state() {
+  if [[ -f "$STATE_FILE" ]]; then
+    cat "$STATE_FILE"
+  else
+    echo "null"
+  fi
+}
+
+clear_state() {
+  rm -f "$STATE_FILE"
+}
+
+# ============================================================================
+# VALIDATION FUNCTIONS
+# ============================================================================
+
+ensure_clean() {
+  if ! git diff --quiet || ! git diff --cached --quiet; then
+    display_error "Working directory is not clean"
+    echo "Please commit or stash your changes before rebasing." >&2
+    echo >&2
+    echo "Uncommitted changes:" >&2
+    git status --short >&2
+    exit 1
+  fi
+}
+
+validate_range() {
+  local range_spec="$1"
+
+  # Validate that the range specification is valid
+  if ! git rev-parse --verify "${range_spec}" >/dev/null 2>&1; then
+    display_error "Invalid range specification: $range_spec"
+    exit 1
+  fi
+}
+
+# ============================================================================
+# RANGE PARSING
+# ============================================================================
+
+parse_range() {
+  local input="$1"
+
+  # Case 1: Plain number (e.g., "5")
+  if [[ "$input" =~ ^[0-9]+$ ]]; then
+    echo "HEAD~${input}"
+    return
+  fi
+
+  # Case 2: HEAD~N format
+  if [[ "$input" =~ ^HEAD~[0-9]+$ ]]; then
+    echo "$input"
+    return
+  fi
+
+  # Case 3: Range format (X..Y)
+  if [[ "$input" == *..* ]]; then
+    local base="${input%%..*}"
+    if ! git rev-parse --verify "$base" >/dev/null 2>&1; then
+      display_error "Invalid base ref: $base"
+      exit 1
+    fi
+    echo "$base"
+    return
+  fi
+
+  # Case 4: Branch name - rebase current branch onto it
+  if git rev-parse --verify "$input" >/dev/null 2>&1; then
+    # Find merge base between current branch and target
+    local merge_base
+    merge_base=$(git merge-base HEAD "$input" 2>/dev/null || echo "")
+
+    if [[ -z "$merge_base" ]]; then
+      display_error "Cannot find common ancestor with $input"
+      exit 1
+    fi
+
+    echo "$merge_base"
+    return
+  fi
+
+  display_error "Invalid range specification: $input"
+  echo "Usage: /rebase <branch|N|X..Y>" >&2
+  exit 1
+}
+
+# ============================================================================
+# COMMIT OPERATIONS
+# ============================================================================
+
+get_commit_count() {
+  local base="$1"
+  git rev-list --count "${base}..HEAD"
+}
+
+get_commits_json() {
+  local base="$1"
+
+  # Check if there are any commits in the range
+  if [[ -z "$(git log --oneline "${base}..HEAD" 2>/dev/null)" ]]; then
+    echo "[]"
+    return
+  fi
+
+  local commits_json="[]"
+
+  while IFS='|' read -r hash subject; do
+    local commit_obj=$(jq -n \
+      --arg hash "$hash" \
+      --arg subject "$subject" \
+      '{hash: $hash, subject: $subject, action: "pick", new_message: ""}'
+    )
+    commits_json=$(echo "$commits_json" | jq --argjson obj "$commit_obj" '. += [$obj]')
+  done < <(git log --reverse --format="%H|%s" "${base}..HEAD")
+
+  echo "$commits_json"
+}
+
+# ============================================================================
+# BACKUP MANAGEMENT
+# ============================================================================
+
+create_backup() {
+  local timestamp=$(date +%Y%m%d_%H%M%S)
+  local backup_branch="rebase-backup-${timestamp}"
+
+  git branch "$backup_branch"
+  display_success "Created backup branch: $backup_branch"
+}
+
+# ============================================================================
+# INTERACTIVE WORKFLOW
+# ============================================================================
+
+collect_actions() {
+  local commits_json="$1"
+  local commit_count=$(echo "$commits_json" | jq 'length')
+
+  local idx=1
+  local updated_commits="[]"
+
+  while [[ $idx -le $commit_count ]]; do
+    local commit=$(echo "$commits_json" | jq --argjson idx "$((idx - 1))" '.[$idx]')
+    local hash=$(echo "$commit" | jq -r '.hash')
+    local subject=$(echo "$commit" | jq -r '.subject')
+
+    local action=$(prompt_commit_action "$idx" "$hash" "$subject")
+
+    # Handle reword action
+    if [[ "$action" == "reword" ]]; then
+      local new_message=$(suggest_reword "$hash")
+      commit=$(echo "$commit" | jq --arg action "$action" --arg msg "$new_message" \
+        '.action = $action | .new_message = $msg')
+    else
+      commit=$(echo "$commit" | jq --arg action "$action" '.action = $action')
+    fi
+
+    updated_commits=$(echo "$updated_commits" | jq --argjson obj "$commit" '. += [$obj]')
+    ((idx++))
+    echo
+  done
+
+  echo "$updated_commits"
+}
+
+execute_rebase() {
+  local base="$1"
+  local commits_json="$2"
+
+  # Build todo list for git rebase
+  local todo_file=$(mktemp) || {
+    display_error "Failed to create temporary file for rebase"
+    exit 1
+  }
+
+  local commit_count=$(echo "$commits_json" | jq 'length')
+  local idx=0
+
+  while [[ $idx -lt $commit_count ]]; do
+    local commit=$(echo "$commits_json" | jq --argjson idx "$idx" '.[$idx]')
+    local hash=$(echo "$commit" | jq -r '.hash')
+    local action=$(echo "$commit" | jq -r '.action')
+
+    case "$action" in
+      pick)
+        echo "pick $hash" >> "$todo_file"
+        ;;
+      squash)
+        echo "squash $hash" >> "$todo_file"
+        ;;
+      reword)
+        echo "reword $hash" >> "$todo_file"
+        ;;
+      drop)
+        echo "drop $hash" >> "$todo_file"
+        ;;
+    esac
+
+    ((idx++))
+  done
+
+  echo
+  echo -e "${BLUE}Starting rebase...${NC}"
+  echo
+
+  # Execute rebase with custom todo
+  if GIT_SEQUENCE_EDITOR="cp $todo_file" git rebase -i "$base"; then
+    rm -f "$todo_file"
+
+    # Handle reword commits
+    idx=0
+    while [[ $idx -lt $commit_count ]]; do
+      local commit=$(echo "$commits_json" | jq --argjson idx "$idx" '.[$idx]')
+      local action=$(echo "$commit" | jq -r '.action')
+
+      if [[ "$action" == "reword" ]]; then
+        local new_message=$(echo "$commit" | jq -r '.new_message')
+
+        if [[ -n "$new_message" ]]; then
+          # Amend with new message if rebase is paused for reword
+          if detect_conflict; then
+            break
+          fi
+        fi
+      fi
+
+      ((idx++))
+    done
+
+    rm -f "$todo_file"
+
+    if ! detect_conflict; then
+      display_success "Rebase completed successfully!"
+      clear_state
+    else
+      display_conflict_guidance
+      save_state "$(jq -n \
+        --arg status "conflict" \
+        --argjson commits "$commits_json" \
+        '{status: $status, commits: $commits}'
+      )"
+      exit 1
+    fi
+  else
+    rm -f "$todo_file"
+
+    if detect_conflict; then
+      display_conflict_guidance
+      save_state "$(jq -n \
+        --arg status "conflict" \
+        --argjson commits "$commits_json" \
+        '{status: $status, commits: $commits}'
+      )"
+      exit 1
+    else
+      display_error "Rebase failed"
+      exit 1
+    fi
+  fi
+}
+
+# ============================================================================
+# MAIN COMMAND: INTERACTIVE REBASE
+# ============================================================================
+
+interactive_command() {
+  local range_input="$1"
+
+  # Validate clean working directory
+  ensure_clean
+
+  # Parse range
+  local base=$(parse_range "$range_input")
+  validate_range "$base"
+
+  # Check if there are commits to rebase
+  local commit_count=$(get_commit_count "$base")
+
+  if [[ "$commit_count" -eq 0 ]]; then
+    display_warning "No commits to rebase"
+    exit 0
+  fi
+
+  # Create backup
+  create_backup
+
+  # Stage 1: Display commits
+  display_commits_table "$base"
+
+  # Stage 2: Collect actions
+  local commits_json=$(get_commits_json "$base")
+  commits_json=$(collect_actions "$commits_json")
+
+  # Save state
+  save_state "$(jq -n \
+    --arg status "planning" \
+    --argjson commits "$commits_json" \
+    --arg base "$base" \
+    '{status: $status, commits: $commits, base: $base}'
+  )"
+
+  # Stage 3: Display rebase plan
+  local commit_data=()
+  local idx=0
+  local count=$(echo "$commits_json" | jq 'length')
+
+  while [[ $idx -lt $count ]]; do
+    local commit=$(echo "$commits_json" | jq --argjson idx "$idx" '.[$idx]')
+    local hash=$(echo "$commit" | jq -r '.hash')
+    local action=$(echo "$commit" | jq -r '.action')
+    local new_message=$(echo "$commit" | jq -r '.new_message // ""')
+
+    commit_data+=("${hash}|${action}|${new_message}")
+    ((idx++))
+  done
+
+  display_rebase_plan "$base" "${commit_data[@]}"
+
+  # Stage 4: Confirm and execute
+  if ! confirm_plan; then
+    clear_state
+    exit 0
+  fi
+
+  execute_rebase "$base" "$commits_json"
+}
+
+# ============================================================================
+# CONTINUE COMMAND
+# ============================================================================
+
+continue_command() {
+  if ! detect_conflict; then
+    display_error "No rebase in progress"
+    exit 1
+  fi
+
+  # Validate conflicts are resolved
+  if ! validate_resolution; then
+    exit 1
+  fi
+
+  display_banner "Continuing Rebase"
+
+  # Continue the rebase
+  if git rebase --continue; then
+    if ! detect_conflict; then
+      display_success "Rebase completed successfully!"
+      clear_state
+    else
+      display_conflict_guidance
+    fi
+  else
+    if detect_conflict; then
+      display_conflict_guidance
+    else
+      display_error "Failed to continue rebase"
+      exit 1
+    fi
+  fi
+}
+
+# ============================================================================
+# ABORT COMMAND
+# ============================================================================
+
+abort_command() {
+  if ! detect_conflict; then
+    display_error "No rebase in progress"
+    exit 1
+  fi
+
+  display_banner "Aborting Rebase"
+
+  if git rebase --abort; then
+    clear_state
+    display_success "Rebase aborted. Repository restored to original state."
+  else
+    display_error "Failed to abort rebase"
+    exit 1
+  fi
+}
+
+# ============================================================================
+# SKIP COMMAND
+# ============================================================================
+
+skip_command() {
+  if ! detect_conflict; then
+    display_error "No rebase in progress"
+    exit 1
+  fi
+
+  display_banner "Skipping Commit"
+
+  if git rebase --skip; then
+    if ! detect_conflict; then
+      display_success "Rebase completed successfully!"
+      clear_state
+    else
+      display_conflict_guidance
+    fi
+  else
+    if detect_conflict; then
+      display_conflict_guidance
+    else
+      display_error "Failed to skip commit"
+      exit 1
+    fi
+  fi
+}
+
+# ============================================================================
+# STATUS COMMAND
+# ============================================================================
+
+status_command() {
+  display_rebase_status
+}
+
+# ============================================================================
+# USAGE
+# ============================================================================
+
+usage() {
+  cat <<'HELP'
+Usage: /rebase <command> [arguments]
+
+Interactive git rebase with AI assistance
+
+Commands:
+  <branch|N|X..Y>   Start interactive rebase
+  continue          Continue after resolving conflicts
+  abort             Cancel rebase and restore original state
+  skip              Skip current commit
+  status            Show current rebase status
+
+Range Specifications:
+  5                 Rebase last 5 commits (HEAD~5)
+  HEAD~10           Rebase last 10 commits
+  main              Rebase current branch onto main
+  HEAD~10..HEAD~5   Rebase specific range
+
+Actions:
+  pick (p)          Keep commit as-is
+  squash (s)        Combine with previous commit
+  reword (r)        Change commit message (AI suggestions)
+  drop (d)          Remove commit
+
+Examples:
+  /rebase 3                 # Rebase last 3 commits
+  /rebase main              # Rebase onto main branch
+  /rebase HEAD~5..HEAD~2    # Rebase commits 2-5
+
+After conflicts:
+  /rebase:continue          # Continue after resolving
+  /rebase:abort             # Cancel rebase
+  /rebase:skip              # Skip current commit
+
+Safety:
+  - Requires clean working directory
+  - Creates backup branch automatically
+  - Validates all refs before execution
+HELP
+}
+
+# ============================================================================
+# COMMAND ROUTER
+# ============================================================================
+
+main() {
+  local command="${1:-}"
+
+  case "$command" in
+    continue)
+      continue_command
+      ;;
+    abort)
+      abort_command
+      ;;
+    skip)
+      skip_command
+      ;;
+    status)
+      status_command
+      ;;
+    ""|-h|--help|help)
+      usage
+      ;;
+    *)
+      interactive_command "$command"
+      ;;
+  esac
+}
+
+main "$@"
