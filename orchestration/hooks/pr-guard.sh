@@ -16,8 +16,8 @@ fi
 # Extract the slash command being invoked
 command=$(echo "${input}" | jq -r '.tool_input.command // empty')
 
-# Only check /pr:create commands
-if [[ ! "${command}" =~ ^/pr:create ]]; then
+# Only check /claude-orchestration:pr:create commands
+if [[ ! "${command}" =~ ^/claude-orchestration:pr:create ]]; then
 	exit 0
 fi
 
