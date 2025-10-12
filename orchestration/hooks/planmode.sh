@@ -8,8 +8,8 @@ input=$(cat)
 # Extract the user prompt
 prompt=$(echo "${input}" | jq -r '.prompt // empty')
 
-# Check if prompt starts with /orc:start
-if [[ ! "${prompt}" =~ ^/orc:start ]]; then
+# Check if prompt starts with /claude-orchestration:orc:start or /claude-orchestration:orc
+if [[ ! "${prompt}" =~ ^/claude-orchestration:(orc:start|orc) ]]; then
 	# Not an /orc:start command, allow
 	exit 0
 fi
