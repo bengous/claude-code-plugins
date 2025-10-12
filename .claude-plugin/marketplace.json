@@ -26,6 +26,27 @@
         "delegation"
       ],
       "source": "./orchestration"
+    },
+    {
+      "name": "git-tools",
+      "description": "Interactive git commands with AI assistance for commit management and history rewriting",
+      "version": "1.0.0",
+      "author": {
+        "name": "Augustin BENGOLEA",
+        "email": "bengous@protonmail.com"
+      },
+      "homepage": "https://github.com/bengous/claude-code-plugins",
+      "license": "MIT",
+      "keywords": [
+        "git",
+        "rebase",
+        "interactive",
+        "ai",
+        "commit",
+        "history",
+        "automation"
+      ],
+      "source": "./git-tools"
     }
   ]
 }
