@@ -1,9 +1,0 @@
-## Important Constraints
-
-- **No auto-merge to dev for COMPLEX**: Final PR must be manually reviewed and merged
-- **Branch naming**: Use semantic prefixes (feat/, fix/, refactor/, chore/)
-- **Reuse existing tools**: Use `/worktree:*` for isolation, `/pr:create` for PRs
-- **State tracking**: Always write `.claude/run/current.json` after classification
-- **Plan first**: ALWAYS run Phase 1 (classification) before Phase 2 (execution)
-- **Allowed auto-merge:** step → base (COMPLEX)
-- **Forbidden auto-merge:** base → dev (manual review required)
