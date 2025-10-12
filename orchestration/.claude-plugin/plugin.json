@@ -2,7 +2,10 @@
   "name": "claude-orchestration",
   "version": "0.14.2",
   "description": "Advanced orchestration system for managing development workflows with worktrees, issues, PR automation, and multi-agent task delegation",
-  "author": "Augustin BENGOLEA <bengous@protonmail.com>",
+  "author": {
+    "name": "Augustin BENGOLEA",
+    "email": "bengous@protonmail.com"
+  },
   "license": "MIT",
   "keywords": [
     "orchestration",
@@ -14,7 +17,6 @@
     "issues",
     "delegation"
   ],
-  "commands": ["../commands"],
   "hooks": {
     "PreToolUse": [
       {
@@ -31,7 +33,7 @@
     ],
     "UserPromptSubmit": [
       {
-        "matcher": "^/orc:start\\b",
+        "matcher": "^/claude-orchestration:(orc:start|orc)\\b",
         "hooks": [
           {
             "type": "command",
@@ -42,7 +44,7 @@
         ]
       },
       {
-        "matcher": "^/pr:create\\b",
+        "matcher": "^/claude-orchestration:pr:create\\b",
         "hooks": [
           {
             "type": "command",

@@ -7,13 +7,13 @@ You are orchestrating a software development task. Follow these steps:
 
 ## PHASE 1: PLAN MODE - Task Classification
 
-@.claude-plugin/commands/orc/_/concurrency
+@./orc/_/concurrency
 
-@.claude-plugin/commands/orc/_/flags
+@./orc/_/flags
 
-@.claude-plugin/commands/orc/_/classification
+@./orc/_/classification
 
-@.claude-plugin/commands/orc/_/run-state
+@./orc/_/run-state
 
 **Task to classify:** $ARGUMENTS
 
@@ -32,7 +32,7 @@ Generate run-id: `RUN_ID=$(date +%Y-%m-%d-%H%M%S)`
 
 **If `--confirm` flag is present:**
 
-Follow `.claude-plugin/commands/orc/_/approval`.
+Follow `@./orc/_/approval`.
 
 **If `--confirm` flag is NOT present (default):**
 
@@ -44,20 +44,20 @@ Write per-run state with status="planning" and proceed immediately to Phase 2.
 
 Once approved (or if no approval required), execute according to the chosen path.
 
-First, read `.claude-plugin/commands/orc/_/locks`.
+First, read `@./orc/_/locks`.
 
 ### Path A: SIMPLE
 
-Follow `.claude-plugin/commands/orc/_/simple-path`.
+Follow `@./orc/_/simple-path`.
 
 ### Path B: MEDIUM
 
-Follow `.claude-plugin/commands/orc/_/medium-path`.
+Follow `@./orc/_/medium-path`.
 
 ### Path C: COMPLEX
 
-Follow `.claude-plugin/commands/orc/_/complex-path`.
+Follow `@./orc/_/complex-path`.
 
 ---
 
-@.claude-plugin/commands/orc/_/constraints
+@./orc/_/constraints
