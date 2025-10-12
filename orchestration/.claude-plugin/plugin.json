@@ -1,6 +1,6 @@
 {
   "name": "claude-orchestration",
-  "version": "0.14.2",
+  "version": "0.2.1",
   "description": "Advanced orchestration system for managing development workflows with worktrees, issues, PR automation, and multi-agent task delegation",
   "author": {
     "name": "Augustin BENGOLEA",
@@ -27,30 +27,6 @@
             "command": "${CLAUDE_PLUGIN_ROOT}/hooks/worktree-guard.py",
             "timeout": 5,
             "description": "Blocks raw git worktree commands to enforce managed worktree system"
-          }
-        ]
-      }
-    ],
-    "UserPromptSubmit": [
-      {
-        "matcher": "^/claude-orchestration:(orc:start|orc)\\b",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/hooks/planmode.sh",
-            "timeout": 5,
-            "description": "Enforces plan mode for /orc:start commands"
-          }
-        ]
-      },
-      {
-        "matcher": "^/claude-orchestration:pr:create\\b",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/hooks/pr-guard.sh",
-            "timeout": 5,
-            "description": "Enforces COMPLEX orchestration policy for PR creation"
           }
         ]
       }
