@@ -32,9 +32,9 @@ GitHub issue CRUD operations with filtering and label management:
 
 Multi-agent task delegation and coordination:
 
-- `/orc` - Orchestrate tasks with SIMPLE/MEDIUM/COMPLEX routing
+- `/orc` - Orchestrate tasks with BASE/COMPLEX routing
 - Automatic task classification
-- Isolated worktree execution
+- Parallel execution for complex features
 - PR automation
 
 ### PR Workflows (`/pr`)
@@ -66,8 +66,8 @@ After installation, all commands become available through the slash command inte
 # List open issues
 /issue
 
-# Orchestrate a task
-/orc "Add user authentication" --confirm
+# Orchestrate a task with 8-phase workflow
+/orc "Add user authentication"
 ```
 
 ## Architecture
