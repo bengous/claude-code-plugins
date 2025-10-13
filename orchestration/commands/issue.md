@@ -30,4 +30,4 @@ List GitHub issues with optional filters. Defaults to open issues.
 - `/issue:reopen` - Reopen issue
 - `/issue:fetch` - Get actionable issues (internal)
 
-!"/home/b3ngous/projects/claude-plugins/orchestration/scripts/issue/issue" list $ARGUMENTS
+!"${CLAUDE_PLUGIN_ROOT}/scripts/issue/issue" list $ARGUMENTS
