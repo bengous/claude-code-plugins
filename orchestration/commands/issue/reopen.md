@@ -2,7 +2,7 @@
 description: Reopen a closed GitHub issue
 argument-hint: <issue-number> [comment]
 allowed-tools:
-  - Bash("${CLAUDE_PLUGIN_ROOT}/scripts/issue/issue":reopen)
+  - Bash("/home/b3ngous/projects/claude-plugins/orchestration/scripts/issue/issue":reopen)
 model: claude-sonnet-4-5
 ---
 
@@ -39,12 +39,4 @@ Reopen a previously closed GitHub issue, optionally with a comment explaining wh
 - `/issue:comment` - Add comment to issue
 - `/issue:view` - View issue state
 
-**Your task:**
-
-Execute the script to perform the reopen operation:
-
-```bash
-"${CLAUDE_PLUGIN_ROOT}/scripts/issue/issue" reopen $ARGUMENTS
-```
-
-The script is already permitted via allowed-tools. Run it and report the results.
+!"/home/b3ngous/projects/claude-plugins/orchestration/scripts/issue/issue" reopen $ARGUMENTS

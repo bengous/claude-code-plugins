@@ -2,7 +2,7 @@
 description: Adopt existing git worktree into managed system
 argument-hint: <branch> [--name NAME] [--path DIR] [--base dev] [--agent ID]
 allowed-tools:
-  - Bash("${CLAUDE_PLUGIN_ROOT}/scripts/worktree/worktree":attach)
+  - Bash("/home/b3ngous/projects/claude-plugins/orchestration/scripts/worktree/worktree":attach)
 model: claude-sonnet-4-5
 ---
 
@@ -64,12 +64,4 @@ The worktree is now fully managed and appears in `/worktree` list. You can use a
 - `/worktree:doctor` - Check for unmanaged worktrees
 - `/worktree` - List all managed worktrees
 
-**Your task:**
-
-Execute the script to perform the attach operation:
-
-```bash
-"${CLAUDE_PLUGIN_ROOT}/scripts/worktree/worktree" attach $ARGUMENTS
-```
-
-The script is already permitted via allowed-tools. Run it and report the results.
+!"/home/b3ngous/projects/claude-plugins/orchestration/scripts/worktree/worktree" attach $ARGUMENTS

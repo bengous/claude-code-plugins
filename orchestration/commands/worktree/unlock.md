@@ -2,7 +2,7 @@
 description: Release lock on worktree (validates ownership unless --force)
 argument-hint: <name> [--agent ID] [--force]
 allowed-tools:
-  - Bash("${CLAUDE_PLUGIN_ROOT}/scripts/worktree/worktree":unlock)
+  - Bash("/home/b3ngous/projects/claude-plugins/orchestration/scripts/worktree/worktree":unlock)
 model: claude-sonnet-4-5
 ---
 
@@ -54,12 +54,4 @@ Without `--force`:
 - `/worktree:who` - Check current lock owner
 - `/worktree:transfer` - Transfer lock without unlock/relock cycle
 
-**Your task:**
-
-Execute the script to perform the unlock operation:
-
-```bash
-"${CLAUDE_PLUGIN_ROOT}/scripts/worktree/worktree" unlock $ARGUMENTS
-```
-
-The script is already permitted via allowed-tools. Run it and report the results.
+!"/home/b3ngous/projects/claude-plugins/orchestration/scripts/worktree/worktree" unlock $ARGUMENTS
