@@ -2,7 +2,7 @@
 description: Adopt existing git worktree into managed system
 argument-hint: <branch> [--name NAME] [--path DIR] [--base dev] [--agent ID]
 allowed-tools:
-  - Bash("${CLAUDE_PLUGIN_ROOT}/scripts/worktree/worktree":attach)
+  - Bash(*:*)
 model: claude-sonnet-4-5
 ---
 
@@ -64,4 +64,14 @@ The worktree is now fully managed and appears in `/worktree` list. You can use a
 - `/worktree:doctor` - Check for unmanaged worktrees
 - `/worktree` - List all managed worktrees
 
-!"${CLAUDE_PLUGIN_ROOT}/scripts/worktree/worktree" attach $ARGUMENTS
+**Plugin location:** !`realpath ~/.claude/plugins/marketplaces/bengolea-plugins/orchestration 2>/dev/null || echo "/home/b3ngous/projects/claude-plugins/orchestration"`
+
+**Your task:**
+
+Execute the worktree management script:
+
+```bash
+<plugin-location-from-above>/scripts/worktree/worktree attach $ARGUMENTS
+```
+
+Show the full output to the user.
