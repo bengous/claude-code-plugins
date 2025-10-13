@@ -2,7 +2,7 @@
 description: Close a GitHub issue
 argument-hint: <issue-number> [comment]
 allowed-tools:
-  - Bash("~/.claude/plugins/marketplaces/bengolea-plugins/orchestration/scripts/issue/issue":close)
+  - Bash("${CLAUDE_PLUGIN_ROOT}/scripts/issue/issue":close)
 model: claude-sonnet-4-5
 ---
 
@@ -42,4 +42,4 @@ Close a GitHub issue, optionally with a closing comment.
 - `/issue:comment` - Add comment without closing
 - `/issue:view` - View issue state
 
-!"~/.claude/plugins/marketplaces/bengolea-plugins/orchestration/scripts/issue/issue" close $ARGUMENTS
+!"${CLAUDE_PLUGIN_ROOT}/scripts/issue/issue" close $ARGUMENTS

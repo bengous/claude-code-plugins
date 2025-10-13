@@ -2,7 +2,7 @@
 description: Clean up merged or stale worktrees in bulk
 argument-hint: [--merged] [--stale HOURS] [--force]
 allowed-tools:
-  - Bash("~/.claude/plugins/marketplaces/bengolea-plugins/orchestration/scripts/worktree/worktree":prune)
+  - Bash("${CLAUDE_PLUGIN_ROOT}/scripts/worktree/worktree":prune)
 model: claude-sonnet-4-5
 ---
 
@@ -69,4 +69,4 @@ Pruned 2 worktrees
 - `/worktree` - List all worktrees
 - `/worktree:merge` - Merge before pruning
 
-!"~/.claude/plugins/marketplaces/bengolea-plugins/orchestration/scripts/worktree/worktree" prune $ARGUMENTS
+!"${CLAUDE_PLUGIN_ROOT}/scripts/worktree/worktree" prune $ARGUMENTS

@@ -2,7 +2,7 @@
 description: Transfer worktree lock ownership between agents
 argument-hint: <name> --from A --to B
 allowed-tools:
-  - Bash("~/.claude/plugins/marketplaces/bengolea-plugins/orchestration/scripts/worktree/worktree":transfer)
+  - Bash("${CLAUDE_PLUGIN_ROOT}/scripts/worktree/worktree":transfer)
 model: claude-sonnet-4-5
 ---
 
@@ -56,4 +56,4 @@ Transfer lock ownership from one agent to another without unlock/relock cycle. V
 - `/worktree:unlock` - Release lock
 - `/worktree:who` - Check current owner
 
-!"~/.claude/plugins/marketplaces/bengolea-plugins/orchestration/scripts/worktree/worktree" transfer $ARGUMENTS
+!"${CLAUDE_PLUGIN_ROOT}/scripts/worktree/worktree" transfer $ARGUMENTS

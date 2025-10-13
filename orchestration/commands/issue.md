@@ -1,7 +1,7 @@
 ---
 description: GitHub issue CRUD - list issues with filters
 argument-hint: [--state=open|closed] [--label=LABEL] [--priority=high|medium|low]
-allowed-tools: ["Bash(~/.claude/plugins/marketplaces/bengolea-plugins/orchestration/scripts/issue/issue:*)"]
+allowed-tools: ["Bash(${CLAUDE_PLUGIN_ROOT}/scripts/issue/issue:*)"]
 model: claude-sonnet-4-5
 ---
 
@@ -30,4 +30,4 @@ List GitHub issues with optional filters. Defaults to open issues.
 - `/issue:reopen` - Reopen issue
 - `/issue:fetch` - Get actionable issues (internal)
 
-!"~/.claude/plugins/marketplaces/bengolea-plugins/orchestration/scripts/issue/issue" list $ARGUMENTS
+!"${CLAUDE_PLUGIN_ROOT}/scripts/issue/issue" list $ARGUMENTS
