@@ -52,7 +52,7 @@ Locks automatically expire after TTL but file remains. Use `/worktree:who` to ch
 - `/worktree:unlock` - Release lock ownership
 - `/worktree:transfer` - Transfer lock between agents
 
-**Plugin location:** !`realpath ~/.claude/plugins/marketplaces/bengolea-plugins/orchestration 2>/dev/null || echo "/home/b3ngous/projects/claude-plugins/orchestration"`
+**Plugin location:** !`realpath ~/.claude/plugins/marketplaces/bengolea-plugins/orchestration`
 
 **Your task:**
 

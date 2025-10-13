@@ -64,7 +64,7 @@ Use `/worktree:delete <name>` to clean up the worktree and branch.
 - `/worktree:delete` - Clean up after merge
 - `/worktree:prune` - Bulk cleanup of merged worktrees
 
-**Plugin location:** !`realpath ~/.claude/plugins/marketplaces/bengolea-plugins/orchestration 2>/dev/null || echo "/home/b3ngous/projects/claude-plugins/orchestration"`
+**Plugin location:** !`realpath ~/.claude/plugins/marketplaces/bengolea-plugins/orchestration`
 
 **Your task:**
 
