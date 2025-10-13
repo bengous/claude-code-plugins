@@ -2,7 +2,7 @@
 description: Merge worktree branch into target branch (default: dev)
 argument-hint: <name> [--to dev] [--no-ff]
 allowed-tools:
-  - Bash("${CLAUDE_PLUGIN_ROOT}/scripts/worktree/worktree":merge)
+  - Bash("/home/b3ngous/projects/claude-plugins/orchestration/scripts/worktree/worktree":merge)
 model: claude-sonnet-4-5
 ---
 
@@ -64,12 +64,4 @@ Use `/worktree:delete <name>` to clean up the worktree and branch.
 - `/worktree:delete` - Clean up after merge
 - `/worktree:prune` - Bulk cleanup of merged worktrees
 
-**Your task:**
-
-Execute the script to perform the merge operation:
-
-```bash
-"${CLAUDE_PLUGIN_ROOT}/scripts/worktree/worktree" merge $ARGUMENTS
-```
-
-The script is already permitted via allowed-tools. Run it and report the results.
+!"/home/b3ngous/projects/claude-plugins/orchestration/scripts/worktree/worktree" merge $ARGUMENTS

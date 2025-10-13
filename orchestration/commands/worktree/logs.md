@@ -2,7 +2,7 @@
 description: Show event history for a worktree
 argument-hint: <name>
 allowed-tools:
-  - Bash("${CLAUDE_PLUGIN_ROOT}/scripts/worktree/worktree":logs)
+  - Bash("/home/b3ngous/projects/claude-plugins/orchestration/scripts/worktree/worktree":logs)
 model: claude-sonnet-4-5
 ---
 
@@ -71,12 +71,4 @@ If worktree has no log file, outputs: "No logs for \<name\>"
 - `/worktree:annotate` - Add custom tracking metadata
 - `/worktree` - List all worktrees
 
-**Your task:**
-
-Execute the script to perform the logs operation:
-
-```bash
-"${CLAUDE_PLUGIN_ROOT}/scripts/worktree/worktree" logs $ARGUMENTS
-```
-
-The script is already permitted via allowed-tools. Run it and report the results.
+!"/home/b3ngous/projects/claude-plugins/orchestration/scripts/worktree/worktree" logs $ARGUMENTS
