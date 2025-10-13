@@ -2,7 +2,7 @@
 description: Clean up merged or stale worktrees in bulk
 argument-hint: [--merged] [--stale HOURS] [--force]
 allowed-tools:
-  - Bash("/home/b3ngous/projects/claude-plugins/orchestration/scripts/worktree/worktree":prune)
+  - Bash("${CLAUDE_PLUGIN_ROOT}/scripts/worktree/worktree":prune)
 model: claude-sonnet-4-5
 ---
 
@@ -69,4 +69,12 @@ Pruned 2 worktrees
 - `/worktree` - List all worktrees
 - `/worktree:merge` - Merge before pruning
 
-!"/home/b3ngous/projects/claude-plugins/orchestration/scripts/worktree/worktree" prune $ARGUMENTS
+**Your task:**
+
+Execute the script to perform the prune operation:
+
+```bash
+"${CLAUDE_PLUGIN_ROOT}/scripts/worktree/worktree" prune $ARGUMENTS
+```
+
+The script is already permitted via allowed-tools. Run it and report the results.
