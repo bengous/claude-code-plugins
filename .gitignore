@@ -32,3 +32,4 @@ Thumbs.db
 *.tmp
 *.bak
 *.log
+.claude/

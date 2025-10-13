@@ -2,7 +2,7 @@
 description: Lock worktree for exclusive agent access with automatic TTL expiration
 argument-hint: <name> --agent ID [--reason TEXT] [--ttl 6h] [--force]
 allowed-tools:
-  - Bash("${CLAUDE_PLUGIN_ROOT}/scripts/worktree/worktree":lock)
+  - Bash("~/.claude/plugins/marketplaces/bengolea-plugins/orchestration/scripts/worktree/worktree":lock)
 model: claude-sonnet-4-5
 ---
 
@@ -52,4 +52,4 @@ Locks automatically expire after TTL but file remains. Use `/worktree:who` to ch
 - `/worktree:unlock` - Release lock ownership
 - `/worktree:transfer` - Transfer lock between agents
 
-!"${CLAUDE_PLUGIN_ROOT}/scripts/worktree/worktree" lock $ARGUMENTS
+!"~/.claude/plugins/marketplaces/bengolea-plugins/orchestration/scripts/worktree/worktree" lock $ARGUMENTS
