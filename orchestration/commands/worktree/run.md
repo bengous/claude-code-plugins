@@ -2,7 +2,7 @@
 description: Run pnpm script in worktree directory
 argument-hint: <name> <script> [...args]
 allowed-tools:
-  - Bash("${CLAUDE_PLUGIN_ROOT}/scripts/worktree/worktree":run)
+  - Bash("/home/b3ngous/projects/claude-plugins/orchestration/scripts/worktree/worktree":run)
 model: claude-sonnet-4-5
 ---
 
@@ -67,12 +67,4 @@ All arguments after `<script>` are passed to the pnpm script.
 - `/worktree:bootstrap` - Install dependencies first
 - `/worktree:status` - Check worktree state
 
-**Your task:**
-
-Execute the script to perform the run operation:
-
-```bash
-"${CLAUDE_PLUGIN_ROOT}/scripts/worktree/worktree" run $ARGUMENTS
-```
-
-The script is already permitted via allowed-tools. Run it and report the results.
+!"/home/b3ngous/projects/claude-plugins/orchestration/scripts/worktree/worktree" run $ARGUMENTS
