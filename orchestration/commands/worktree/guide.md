@@ -2,7 +2,7 @@
 description: Show workflow patterns and best practices for agent collaboration
 argument-hint:
 allowed-tools:
-  - Bash("${CLAUDE_PLUGIN_ROOT}/scripts/worktree/worktree":guide)
+  - Bash(*:*)
 model: claude-sonnet-4-5
 ---
 
@@ -106,4 +106,14 @@ Create worktree from non-dev branch for staging or hotfix work.
 - `/worktree:create` - Create new worktree
 - `/worktree:delete` - Remove worktree
 
-!"${CLAUDE_PLUGIN_ROOT}/scripts/worktree/worktree" guide $ARGUMENTS
+**Plugin location:** !`realpath ~/.claude/plugins/marketplaces/bengolea-plugins/orchestration 2>/dev/null || echo "/home/b3ngous/projects/claude-plugins/orchestration"`
+
+**Your task:**
+
+Execute the worktree management script:
+
+```bash
+<plugin-location-from-above>/scripts/worktree/worktree guide $ARGUMENTS
+```
+
+Show the full output to the user.

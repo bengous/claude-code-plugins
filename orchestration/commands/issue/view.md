@@ -2,7 +2,7 @@
 description: View detailed information about a specific GitHub issue
 argument-hint: <issue-number>
 allowed-tools:
-  - Bash("${CLAUDE_PLUGIN_ROOT}/scripts/issue/issue":view)
+  - Bash(*:*)
 model: claude-sonnet-4-5
 ---
 
@@ -38,4 +38,14 @@ Display detailed information about a specific GitHub issue including title, desc
 - `/issue:comment` - Add comment to issue
 - `/issue:label` - Manage issue labels
 
-!"${CLAUDE_PLUGIN_ROOT}/scripts/issue/issue" view $ARGUMENTS
+**Plugin location:** !`realpath ~/.claude/plugins/marketplaces/bengolea-plugins/orchestration 2>/dev/null || echo "/home/b3ngous/projects/claude-plugins/orchestration"`
+
+**Your task:**
+
+Execute the issue management script:
+
+```bash
+<plugin-location-from-above>/scripts/issue/issue view $ARGUMENTS
+```
+
+Show the full output to the user.

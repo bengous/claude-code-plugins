@@ -2,7 +2,7 @@
 description: Execute arbitrary command in worktree directory
 argument-hint: <name> -- <command>
 allowed-tools:
-  - Bash("${CLAUDE_PLUGIN_ROOT}/scripts/worktree/worktree":exec)
+  - Bash(*:*)
 model: claude-sonnet-4-5
 ---
 
@@ -58,4 +58,14 @@ The `--` separator is **required** to distinguish worktree name from command.
 - `/worktree:bootstrap` - Install dependencies
 - `/worktree:status` - Check worktree git status
 
-!"${CLAUDE_PLUGIN_ROOT}/scripts/worktree/worktree" exec $ARGUMENTS
+**Plugin location:** !`realpath ~/.claude/plugins/marketplaces/bengolea-plugins/orchestration 2>/dev/null || echo "/home/b3ngous/projects/claude-plugins/orchestration"`
+
+**Your task:**
+
+Execute the worktree management script:
+
+```bash
+<plugin-location-from-above>/scripts/worktree/worktree exec $ARGUMENTS
+```
+
+Show the full output to the user.

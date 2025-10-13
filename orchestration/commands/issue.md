@@ -1,7 +1,8 @@
 ---
 description: GitHub issue CRUD - list issues with filters
 argument-hint: [--state=open|closed] [--label=LABEL] [--priority=high|medium|low]
-allowed-tools: ["Bash(/home/b3ngous/projects/claude-plugins/orchestration/scripts/issue/issue:*)"]
+allowed-tools:
+  - Bash(*:*)
 model: claude-sonnet-4-5
 ---
 
@@ -30,4 +31,14 @@ List GitHub issues with optional filters. Defaults to open issues.
 - `/issue:reopen` - Reopen issue
 - `/issue:fetch` - Get actionable issues (internal)
 
-!"${CLAUDE_PLUGIN_ROOT}/scripts/issue/issue" list $ARGUMENTS
+**Plugin location:** !`realpath ~/.claude/plugins/marketplaces/bengolea-plugins/orchestration 2>/dev/null || echo "/home/b3ngous/projects/claude-plugins/orchestration"`
+
+**Your task:**
+
+Execute the issue management script:
+
+```bash
+<plugin-location-from-above>/scripts/issue/issue list $ARGUMENTS
+```
+
+Show the full output to the user.

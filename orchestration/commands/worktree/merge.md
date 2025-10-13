@@ -2,7 +2,7 @@
 description: Merge worktree branch into target branch (default: dev)
 argument-hint: <name> [--to dev] [--no-ff]
 allowed-tools:
-  - Bash("${CLAUDE_PLUGIN_ROOT}/scripts/worktree/worktree":merge)
+  - Bash(*:*)
 model: claude-sonnet-4-5
 ---
 
@@ -64,4 +64,14 @@ Use `/worktree:delete <name>` to clean up the worktree and branch.
 - `/worktree:delete` - Clean up after merge
 - `/worktree:prune` - Bulk cleanup of merged worktrees
 
-!"${CLAUDE_PLUGIN_ROOT}/scripts/worktree/worktree" merge $ARGUMENTS
+**Plugin location:** !`realpath ~/.claude/plugins/marketplaces/bengolea-plugins/orchestration 2>/dev/null || echo "/home/b3ngous/projects/claude-plugins/orchestration"`
+
+**Your task:**
+
+Execute the worktree management script:
+
+```bash
+<plugin-location-from-above>/scripts/worktree/worktree merge $ARGUMENTS
+```
+
+Show the full output to the user.

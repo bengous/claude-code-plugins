@@ -2,7 +2,7 @@
 description: List GitHub issues with optional filters
 argument-hint: [--state=open|closed|all] [--label=LABEL] [--priority=high|medium|low]
 allowed-tools:
-  - Bash("${CLAUDE_PLUGIN_ROOT}/scripts/issue/issue":list)
+  - Bash(*:*)
 model: claude-sonnet-4-5
 ---
 
@@ -47,4 +47,14 @@ Displays formatted table with:
 - `/issue:view` - View detailed issue information
 - `/issue:fetch` - Get actionable issues
 
-!"${CLAUDE_PLUGIN_ROOT}/scripts/issue/issue" list $ARGUMENTS
+**Plugin location:** !`realpath ~/.claude/plugins/marketplaces/bengolea-plugins/orchestration 2>/dev/null || echo "/home/b3ngous/projects/claude-plugins/orchestration"`
+
+**Your task:**
+
+Execute the issue management script:
+
+```bash
+<plugin-location-from-above>/scripts/issue/issue list $ARGUMENTS
+```
+
+Show the full output to the user.

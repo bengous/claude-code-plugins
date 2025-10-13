@@ -2,7 +2,7 @@
 description: Show detailed git status of a specific worktree
 argument-hint: <name>
 allowed-tools:
-  - Bash("${CLAUDE_PLUGIN_ROOT}/scripts/worktree/worktree":status)
+  - Bash(*:*)
 model: claude-sonnet-4-5
 ---
 
@@ -65,4 +65,14 @@ Clean
 - `/worktree:merge` - Merge worktree branch
 - `/worktree:delete` - Delete worktree
 
-!"${CLAUDE_PLUGIN_ROOT}/scripts/worktree/worktree" status $ARGUMENTS
+**Plugin location:** !`realpath ~/.claude/plugins/marketplaces/bengolea-plugins/orchestration 2>/dev/null || echo "/home/b3ngous/projects/claude-plugins/orchestration"`
+
+**Your task:**
+
+Execute the worktree management script:
+
+```bash
+<plugin-location-from-above>/scripts/worktree/worktree status $ARGUMENTS
+```
+
+Show the full output to the user.

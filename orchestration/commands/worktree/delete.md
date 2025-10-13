@@ -2,7 +2,7 @@
 description: Delete managed worktree (blocks if unmerged or locked unless --force)
 argument-hint: <name> [--keep-branch] [--force]
 allowed-tools:
-  - Bash("${CLAUDE_PLUGIN_ROOT}/scripts/worktree/worktree":delete)
+  - Bash(*:*)
 model: claude-sonnet-4-5
 ---
 
@@ -53,4 +53,14 @@ Using `--force` can lead to data loss if the branch contains unmerged work. Alwa
 - `/worktree:unlock` - Release lock before deletion
 - `/worktree:merge` - Merge worktree before deletion
 
-!"${CLAUDE_PLUGIN_ROOT}/scripts/worktree/worktree" delete $ARGUMENTS
+**Plugin location:** !`realpath ~/.claude/plugins/marketplaces/bengolea-plugins/orchestration 2>/dev/null || echo "/home/b3ngous/projects/claude-plugins/orchestration"`
+
+**Your task:**
+
+Execute the worktree management script:
+
+```bash
+<plugin-location-from-above>/scripts/worktree/worktree delete $ARGUMENTS
+```
+
+Show the full output to the user.

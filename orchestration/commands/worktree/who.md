@@ -2,7 +2,7 @@
 description: Show current lock owner and expiration details
 argument-hint: <name>
 allowed-tools:
-  - Bash("${CLAUDE_PLUGIN_ROOT}/scripts/worktree/worktree":who)
+  - Bash(*:*)
 model: claude-sonnet-4-5
 ---
 
@@ -71,4 +71,14 @@ Worktree my-feature is not locked
 - `/worktree:unlock` - Release lock ownership
 - `/worktree` - List all worktrees with lock status
 
-!"${CLAUDE_PLUGIN_ROOT}/scripts/worktree/worktree" who $ARGUMENTS
+**Plugin location:** !`realpath ~/.claude/plugins/marketplaces/bengolea-plugins/orchestration 2>/dev/null || echo "/home/b3ngous/projects/claude-plugins/orchestration"`
+
+**Your task:**
+
+Execute the worktree management script:
+
+```bash
+<plugin-location-from-above>/scripts/worktree/worktree who $ARGUMENTS
+```
+
+Show the full output to the user.
