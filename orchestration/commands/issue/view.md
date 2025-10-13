@@ -2,7 +2,7 @@
 description: View detailed information about a specific GitHub issue
 argument-hint: <issue-number>
 allowed-tools:
-  - Bash("${CLAUDE_PLUGIN_ROOT}/scripts/issue/issue":view)
+  - Bash("/home/b3ngous/projects/claude-plugins/orchestration/scripts/issue/issue":view)
 model: claude-sonnet-4-5
 ---
 
@@ -38,4 +38,4 @@ Display detailed information about a specific GitHub issue including title, desc
 - `/issue:comment` - Add comment to issue
 - `/issue:label` - Manage issue labels
 
-!"${CLAUDE_PLUGIN_ROOT}/scripts/issue/issue" view $ARGUMENTS
+!"/home/b3ngous/projects/claude-plugins/orchestration/scripts/issue/issue" view $ARGUMENTS

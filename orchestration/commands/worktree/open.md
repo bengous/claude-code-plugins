@@ -2,7 +2,7 @@
 description: Get absolute path and branch name for a managed worktree
 argument-hint: <name>
 allowed-tools:
-  - Bash("${CLAUDE_PLUGIN_ROOT}/scripts/worktree/worktree":open)
+  - Bash("/home/b3ngous/projects/claude-plugins/orchestration/scripts/worktree/worktree":open)
 model: claude-sonnet-4-5
 ---
 
@@ -47,4 +47,4 @@ worktree/123-api-work-subagent1
 - `/worktree:exec` - Execute commands in worktree
 - `/worktree:status` - Show detailed git status
 
-!"${CLAUDE_PLUGIN_ROOT}/scripts/worktree/worktree" open $ARGUMENTS
+!"/home/b3ngous/projects/claude-plugins/orchestration/scripts/worktree/worktree" open $ARGUMENTS
