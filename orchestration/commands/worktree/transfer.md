@@ -56,7 +56,7 @@ Transfer lock ownership from one agent to another without unlock/relock cycle. V
 - `/worktree:unlock` - Release lock
 - `/worktree:who` - Check current owner
 
-**Plugin location:** !`realpath ~/.claude/plugins/marketplaces/bengolea-plugins/orchestration`
+**Plugin location:** !`realpath ~/.claude/plugins/marketplaces/bengolea-plugins/orchestration 2>/dev/null || echo "$HOME/projects/claude-plugins/orchestration"`
 
 **Your task:**
 

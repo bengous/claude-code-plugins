@@ -46,7 +46,7 @@ Returns the created issue number for use with other commands.
 - `/issue:list` - List existing issues
 - `/issue:view` - View issue details
 
-**Plugin location:** !`realpath ~/.claude/plugins/marketplaces/bengolea-plugins/orchestration`
+**Plugin location:** !`realpath ~/.claude/plugins/marketplaces/bengolea-plugins/orchestration 2>/dev/null || echo "$HOME/projects/claude-plugins/orchestration"`
 
 **Your task:**
 

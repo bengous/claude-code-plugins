@@ -41,7 +41,7 @@ This command is primarily used internally by the task orchestration system to po
 - `/issue:list` - List all issues with custom filters
 - `/issue:view` - View specific issue details
 
-**Plugin location:** !`realpath ~/.claude/plugins/marketplaces/bengolea-plugins/orchestration`
+**Plugin location:** !`realpath ~/.claude/plugins/marketplaces/bengolea-plugins/orchestration 2>/dev/null || echo "$HOME/projects/claude-plugins/orchestration"`
 
 **Your task:**
 
