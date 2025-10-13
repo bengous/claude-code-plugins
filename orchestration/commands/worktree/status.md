@@ -2,7 +2,7 @@
 description: Show detailed git status of a specific worktree
 argument-hint: <name>
 allowed-tools:
-  - Bash("/home/b3ngous/projects/claude-plugins/orchestration/scripts/worktree/worktree":status)
+  - Bash("${CLAUDE_PLUGIN_ROOT}/scripts/worktree/worktree":status)
 model: claude-sonnet-4-5
 ---
 
@@ -65,4 +65,12 @@ Clean
 - `/worktree:merge` - Merge worktree branch
 - `/worktree:delete` - Delete worktree
 
-!"/home/b3ngous/projects/claude-plugins/orchestration/scripts/worktree/worktree" status $ARGUMENTS
+**Your task:**
+
+Execute the script to perform the status operation:
+
+```bash
+"${CLAUDE_PLUGIN_ROOT}/scripts/worktree/worktree" status $ARGUMENTS
+```
+
+The script is already permitted via allowed-tools. Run it and report the results.

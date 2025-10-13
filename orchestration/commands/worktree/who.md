@@ -2,7 +2,7 @@
 description: Show current lock owner and expiration details
 argument-hint: <name>
 allowed-tools:
-  - Bash("/home/b3ngous/projects/claude-plugins/orchestration/scripts/worktree/worktree":who)
+  - Bash("${CLAUDE_PLUGIN_ROOT}/scripts/worktree/worktree":who)
 model: claude-sonnet-4-5
 ---
 
@@ -71,4 +71,12 @@ Worktree my-feature is not locked
 - `/worktree:unlock` - Release lock ownership
 - `/worktree` - List all worktrees with lock status
 
-!"/home/b3ngous/projects/claude-plugins/orchestration/scripts/worktree/worktree" who $ARGUMENTS
+**Your task:**
+
+Execute the script to perform the who operation:
+
+```bash
+"${CLAUDE_PLUGIN_ROOT}/scripts/worktree/worktree" who $ARGUMENTS
+```
+
+The script is already permitted via allowed-tools. Run it and report the results.
