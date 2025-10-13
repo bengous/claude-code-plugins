@@ -5,6 +5,37 @@ All notable changes to the Claude Orchestration Plugin will be documented in thi
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.9] - 2025-10-13
+
+### Changed
+- **PORTABILITY FIX**: Removed hardcoded fallback path from all command files
+- All 29 command files now use only marketplace path: `~/.claude/plugins/marketplaces/bengolea-plugins/orchestration`
+- Plugin is now fully portable across all users and installations
+
+### Technical Notes
+
+**The Portability Problem:**
+v0.2.8 had a fallback pattern:
+```markdown
+!`realpath ~/.claude/plugins/.../orchestration 2>/dev/null || echo "/home/b3ngous/projects/claude-plugins/orchestration"`
+```
+
+The fallback path was hardcoded to the developer's local machine, which would break for other users.
+
+**The Solution:**
+Removed the fallback entirely:
+```markdown
+!`realpath ~/.claude/plugins/marketplaces/bengolea-plugins/orchestration`
+```
+
+This works because:
+- Marketplace installations always place plugins at the standard location
+- The `~` expands correctly on all Unix systems
+- No fallback needed for published plugin
+
+**Development Note:**
+For local development with directory-source marketplace, developers can temporarily add their own fallback path to command files for testing.
+
 ## [0.2.8] - 2025-10-13
 
 ### Fixed

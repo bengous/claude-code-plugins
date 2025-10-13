@@ -43,7 +43,7 @@ Add or remove labels on a GitHub issue. Supports atomic operations to modify lab
 - `/issue:view` - View current labels
 - `/issue:list` - Filter by labels
 
-**Plugin location:** !`realpath ~/.claude/plugins/marketplaces/bengolea-plugins/orchestration 2>/dev/null || echo "/home/b3ngous/projects/claude-plugins/orchestration"`
+**Plugin location:** !`realpath ~/.claude/plugins/marketplaces/bengolea-plugins/orchestration`
 
 **Your task:**
 

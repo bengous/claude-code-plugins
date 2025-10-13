@@ -71,7 +71,7 @@ If worktree has no log file, outputs: "No logs for \<name\>"
 - `/worktree:annotate` - Add custom tracking metadata
 - `/worktree` - List all worktrees
 
-**Plugin location:** !`realpath ~/.claude/plugins/marketplaces/bengolea-plugins/orchestration 2>/dev/null || echo "/home/b3ngous/projects/claude-plugins/orchestration"`
+**Plugin location:** !`realpath ~/.claude/plugins/marketplaces/bengolea-plugins/orchestration`
 
 **Your task:**
 

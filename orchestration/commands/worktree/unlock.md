@@ -54,7 +54,7 @@ Without `--force`:
 - `/worktree:who` - Check current lock owner
 - `/worktree:transfer` - Transfer lock without unlock/relock cycle
 
-**Plugin location:** !`realpath ~/.claude/plugins/marketplaces/bengolea-plugins/orchestration 2>/dev/null || echo "/home/b3ngous/projects/claude-plugins/orchestration"`
+**Plugin location:** !`realpath ~/.claude/plugins/marketplaces/bengolea-plugins/orchestration`
 
 **Your task:**
 
