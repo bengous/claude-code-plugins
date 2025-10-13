@@ -2,7 +2,7 @@
 description: List and overview managed worktrees
 argument-hint: [--json]
 allowed-tools:
-  - Bash("/home/b3ngous/projects/claude-plugins/orchestration/scripts/worktree/worktree":list)
+  - Bash("${CLAUDE_PLUGIN_ROOT}/scripts/worktree/worktree":list)
 model: claude-sonnet-4-5
 ---
 
@@ -38,4 +38,4 @@ With `--json`, returns an array of worktree objects including metadata and lock 
 - `/worktree:status` - Show detailed status of specific worktree
 - `/worktree:guide` - Learn workflow patterns and best practices
 
-!"/home/b3ngous/projects/claude-plugins/orchestration/scripts/worktree/worktree" list $ARGUMENTS
+!"${CLAUDE_PLUGIN_ROOT}/scripts/worktree/worktree" list $ARGUMENTS

@@ -2,7 +2,7 @@
 description: Execute arbitrary command in worktree directory
 argument-hint: <name> -- <command>
 allowed-tools:
-  - Bash("/home/b3ngous/projects/claude-plugins/orchestration/scripts/worktree/worktree":exec)
+  - Bash("${CLAUDE_PLUGIN_ROOT}/scripts/worktree/worktree":exec)
 model: claude-sonnet-4-5
 ---
 
@@ -58,4 +58,4 @@ The `--` separator is **required** to distinguish worktree name from command.
 - `/worktree:bootstrap` - Install dependencies
 - `/worktree:status` - Check worktree git status
 
-!"/home/b3ngous/projects/claude-plugins/orchestration/scripts/worktree/worktree" exec $ARGUMENTS
+!"${CLAUDE_PLUGIN_ROOT}/scripts/worktree/worktree" exec $ARGUMENTS
