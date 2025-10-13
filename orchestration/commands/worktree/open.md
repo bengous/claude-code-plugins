@@ -47,7 +47,7 @@ worktree/123-api-work-subagent1
 - `/worktree:exec` - Execute commands in worktree
 - `/worktree:status` - Show detailed git status
 
-**Plugin location:** !`realpath ~/.claude/plugins/marketplaces/bengolea-plugins/orchestration`
+**Plugin location:** !`realpath ~/.claude/plugins/marketplaces/bengolea-plugins/orchestration 2>/dev/null || echo "$HOME/projects/claude-plugins/orchestration"`
 
 **Your task:**
 

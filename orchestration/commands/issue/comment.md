@@ -38,7 +38,7 @@ Add a comment to an existing GitHub issue.
 - `/issue:view` - View issue with existing comments
 - `/issue:close` - Close issue (optionally with comment)
 
-**Plugin location:** !`realpath ~/.claude/plugins/marketplaces/bengolea-plugins/orchestration`
+**Plugin location:** !`realpath ~/.claude/plugins/marketplaces/bengolea-plugins/orchestration 2>/dev/null || echo "$HOME/projects/claude-plugins/orchestration"`
 
 **Your task:**
 

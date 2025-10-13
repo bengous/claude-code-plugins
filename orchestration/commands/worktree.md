@@ -38,7 +38,7 @@ With `--json`, returns an array of worktree objects including metadata and lock 
 - `/worktree:status` - Show detailed status of specific worktree
 - `/worktree:guide` - Learn workflow patterns and best practices
 
-**Plugin location:** !`realpath ~/.claude/plugins/marketplaces/bengolea-plugins/orchestration`
+**Plugin location:** !`realpath ~/.claude/plugins/marketplaces/bengolea-plugins/orchestration 2>/dev/null || echo "$HOME/projects/claude-plugins/orchestration"`
 
 **Your task:**
 
