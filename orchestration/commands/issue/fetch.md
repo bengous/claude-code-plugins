@@ -2,7 +2,7 @@
 description: Fetch actionable issues for task execution (internal use)
 argument-hint:
 allowed-tools:
-  - Bash("~/.claude/plugins/marketplaces/bengolea-plugins/orchestration/scripts/issue/issue":fetch)
+  - Bash("${CLAUDE_PLUGIN_ROOT}/scripts/issue/issue":fetch)
 model: claude-sonnet-4-5
 ---
 
@@ -41,4 +41,4 @@ This command is primarily used internally by the task orchestration system to po
 - `/issue:list` - List all issues with custom filters
 - `/issue:view` - View specific issue details
 
-!"~/.claude/plugins/marketplaces/bengolea-plugins/orchestration/scripts/issue/issue" fetch $ARGUMENTS
+!"${CLAUDE_PLUGIN_ROOT}/scripts/issue/issue" fetch $ARGUMENTS
