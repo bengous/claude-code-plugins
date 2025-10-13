@@ -2,7 +2,7 @@
 description: Create new GitHub issue with labels and metadata
 argument-hint: issue-title="..." [description="..."] [labels="..."] [priority=high|medium|low]
 allowed-tools:
-  - Bash("/home/b3ngous/projects/claude-plugins/orchestration/scripts/issue/issue":create)
+  - Bash("${CLAUDE_PLUGIN_ROOT}/scripts/issue/issue":create)
 model: claude-sonnet-4-5
 ---
 
@@ -46,4 +46,12 @@ Returns the created issue number for use with other commands.
 - `/issue:list` - List existing issues
 - `/issue:view` - View issue details
 
-!"/home/b3ngous/projects/claude-plugins/orchestration/scripts/issue/issue" create $ARGUMENTS
+**Your task:**
+
+Execute the script to perform the create operation:
+
+```bash
+"${CLAUDE_PLUGIN_ROOT}/scripts/issue/issue" create $ARGUMENTS
+```
+
+The script is already permitted via allowed-tools. Run it and report the results.

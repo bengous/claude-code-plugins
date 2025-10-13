@@ -2,7 +2,7 @@
 description: List GitHub issues with optional filters
 argument-hint: [--state=open|closed|all] [--label=LABEL] [--priority=high|medium|low]
 allowed-tools:
-  - Bash("/home/b3ngous/projects/claude-plugins/orchestration/scripts/issue/issue":list)
+  - Bash("${CLAUDE_PLUGIN_ROOT}/scripts/issue/issue":list)
 model: claude-sonnet-4-5
 ---
 
@@ -47,4 +47,12 @@ Displays formatted table with:
 - `/issue:view` - View detailed issue information
 - `/issue:fetch` - Get actionable issues
 
-!"/home/b3ngous/projects/claude-plugins/orchestration/scripts/issue/issue" list $ARGUMENTS
+**Your task:**
+
+Execute the script to perform the list operation:
+
+```bash
+"${CLAUDE_PLUGIN_ROOT}/scripts/issue/issue" list $ARGUMENTS
+```
+
+The script is already permitted via allowed-tools. Run it and report the results.

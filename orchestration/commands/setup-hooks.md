@@ -2,7 +2,7 @@
 description: Install orchestration plugin hooks into project settings
 argument-hint: "[--remove|--force|--dry-run]"
 allowed-tools:
-  - Bash("/home/b3ngous/projects/claude-plugins/orchestration/scripts/setup-hooks.js":*)
+  - Bash("${CLAUDE_PLUGIN_ROOT}/scripts/setup-hooks.js":*)
 model: claude-sonnet-4-5
 ---
 
@@ -65,8 +65,16 @@ git worktree add /tmp/test
 
 **Related:**
 
-- Plugin structure at: `/home/b3ngous/projects/claude-plugins/orchestration/`
+- Plugin structure at: `${CLAUDE_PLUGIN_ROOT}/`
 - Hooks directory: `~/.claude/plugins/.../hooks/`
 - Settings file: `.claude/settings.local.json`
 
-!"/home/b3ngous/projects/claude-plugins/orchestration/scripts/setup-hooks.js" $ARGUMENTS
+**Your task:**
+
+Execute the setup hooks script to install or manage plugin hooks:
+
+```bash
+"${CLAUDE_PLUGIN_ROOT}/scripts/setup-hooks.js" $ARGUMENTS
+```
+
+The script is already permitted via allowed-tools. Run it and report the results.
