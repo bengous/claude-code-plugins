@@ -25,7 +25,6 @@ const SETTINGS_FILE = '.claude/settings.local.json';
 const BACKUP_FILE = '.claude/settings.local.json.backup';
 
 // Hook definitions
-// Note: Using ~ expansion which works in both shell contexts and Claude Code
 const PLUGIN_HOOKS = {
   PreToolUse: [
     {
@@ -33,7 +32,7 @@ const PLUGIN_HOOKS = {
       hooks: [
         {
           type: 'command',
-          command: '~/.claude/plugins/marketplaces/bengolea-plugins/orchestration/hooks/worktree-guard.py',
+          command: `${HOME}/.claude/plugins/marketplaces/bengolea-plugins/orchestration/hooks/worktree-guard.py`,
           timeout: 5,
           description: 'Blocks raw git worktree commands (from plugin)',
         },
