@@ -2,7 +2,7 @@
 description: Create isolated worktree for agent workflows—defaults to dev base branch
 argument-hint: <name> [--issue N] [--base dev] [--agent ID] [--lock] [--install]
 allowed-tools:
-  - Bash("${CLAUDE_PLUGIN_ROOT}/scripts/worktree/worktree":create)
+  - Bash(*:*)
 model: claude-sonnet-4-5
 ---
 
@@ -50,4 +50,14 @@ Create a new managed worktree with optional issue tracking, agent locking, and a
 - `/worktree:open` - Get path and branch for delegation
 - `/worktree:guide` - Learn workflow patterns
 
-!"${CLAUDE_PLUGIN_ROOT}/scripts/worktree/worktree" create $ARGUMENTS
+**Plugin location:** !`realpath ~/.claude/plugins/marketplaces/bengolea-plugins/orchestration 2>/dev/null || echo "/home/b3ngous/projects/claude-plugins/orchestration"`
+
+**Your task:**
+
+Execute the worktree management script:
+
+```bash
+<plugin-location-from-above>/scripts/worktree/worktree create $ARGUMENTS
+```
+
+Show the full output to the user.

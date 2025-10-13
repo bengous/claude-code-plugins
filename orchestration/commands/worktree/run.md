@@ -2,7 +2,7 @@
 description: Run pnpm script in worktree directory
 argument-hint: <name> <script> [...args]
 allowed-tools:
-  - Bash("${CLAUDE_PLUGIN_ROOT}/scripts/worktree/worktree":run)
+  - Bash(*:*)
 model: claude-sonnet-4-5
 ---
 
@@ -67,4 +67,14 @@ All arguments after `<script>` are passed to the pnpm script.
 - `/worktree:bootstrap` - Install dependencies first
 - `/worktree:status` - Check worktree state
 
-!"${CLAUDE_PLUGIN_ROOT}/scripts/worktree/worktree" run $ARGUMENTS
+**Plugin location:** !`realpath ~/.claude/plugins/marketplaces/bengolea-plugins/orchestration 2>/dev/null || echo "/home/b3ngous/projects/claude-plugins/orchestration"`
+
+**Your task:**
+
+Execute the worktree management script:
+
+```bash
+<plugin-location-from-above>/scripts/worktree/worktree run $ARGUMENTS
+```
+
+Show the full output to the user.
