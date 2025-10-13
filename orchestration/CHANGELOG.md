@@ -5,17 +5,23 @@ All notable changes to the Claude Orchestration Plugin will be documented in thi
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.2.2] - 2025-10-13
+## [0.2.3] - 2025-10-13
 
 ### Fixed
-- Replaced `${CLAUDE_PLUGIN_ROOT}` with hardcoded plugin path in all 29 command files
-- Plugin commands now work reliably in external projects without depending on environment variables
-- Removed outdated `orchestration/hooks/hooks.json` that referenced deleted hook scripts
-- Updated hook configuration in plugin.json to use absolute paths
+- Reverted to `${CLAUDE_PLUGIN_ROOT}` variable for proper path resolution
+- Fixed plugin compatibility with directory-source marketplaces
+- Plugin now works correctly when installed from local directory source
 
-### Changed
-- All command files now reference `~/.claude/plugins/marketplaces/bengolea-plugins/orchestration` directly
-- setup-hooks.js updated to use hardcoded paths
+### Technical Notes
+- Hardcoded paths (~/.claude/plugins/...) don't work for directory-source marketplaces
+- ${CLAUDE_PLUGIN_ROOT} is the official Claude Code mechanism for portable plugin paths
+- Plugin now correctly resolves paths regardless of installation method (directory, git, etc.)
+
+## [0.2.2] - 2025-10-13 [DEPRECATED]
+
+### Fixed
+- Attempted fix using hardcoded paths (reverted in 0.2.3)
+- Removed outdated `orchestration/hooks/hooks.json` that referenced deleted hook scripts
 
 ## [0.2.1] - 2025-10-12
 
