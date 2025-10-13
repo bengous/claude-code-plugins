@@ -2,7 +2,7 @@
 description: Release lock on worktree (validates ownership unless --force)
 argument-hint: <name> [--agent ID] [--force]
 allowed-tools:
-  - Bash("${CLAUDE_PLUGIN_ROOT}/scripts/worktree/worktree":unlock)
+  - Bash("~/.claude/plugins/marketplaces/bengolea-plugins/orchestration/scripts/worktree/worktree":unlock)
 model: claude-sonnet-4-5
 ---
 
@@ -54,4 +54,4 @@ Without `--force`:
 - `/worktree:who` - Check current lock owner
 - `/worktree:transfer` - Transfer lock without unlock/relock cycle
 
-!"${CLAUDE_PLUGIN_ROOT}/scripts/worktree/worktree" unlock $ARGUMENTS
+!"~/.claude/plugins/marketplaces/bengolea-plugins/orchestration/scripts/worktree/worktree" unlock $ARGUMENTS
