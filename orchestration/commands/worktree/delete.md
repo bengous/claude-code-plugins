@@ -53,7 +53,7 @@ Using `--force` can lead to data loss if the branch contains unmerged work. Alwa
 - `/worktree:unlock` - Release lock before deletion
 - `/worktree:merge` - Merge worktree before deletion
 
-**Plugin location:** !`realpath ~/.claude/plugins/marketplaces/bengolea-plugins/orchestration`
+**Plugin location:** !`realpath ~/.claude/plugins/marketplaces/bengolea-plugins/orchestration 2>/dev/null || echo "$HOME/projects/claude-plugins/orchestration"`
 
 **Your task:**
 
