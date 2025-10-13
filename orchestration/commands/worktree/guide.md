@@ -2,7 +2,7 @@
 description: Show workflow patterns and best practices for agent collaboration
 argument-hint:
 allowed-tools:
-  - Bash("${CLAUDE_PLUGIN_ROOT}/scripts/worktree/worktree":guide)
+  - Bash("~/.claude/plugins/marketplaces/bengolea-plugins/orchestration/scripts/worktree/worktree":guide)
 model: claude-sonnet-4-5
 ---
 
@@ -106,4 +106,4 @@ Create worktree from non-dev branch for staging or hotfix work.
 - `/worktree:create` - Create new worktree
 - `/worktree:delete` - Remove worktree
 
-!"${CLAUDE_PLUGIN_ROOT}/scripts/worktree/worktree" guide $ARGUMENTS
+!"~/.claude/plugins/marketplaces/bengolea-plugins/orchestration/scripts/worktree/worktree" guide $ARGUMENTS

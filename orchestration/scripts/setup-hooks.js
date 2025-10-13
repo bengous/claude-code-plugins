@@ -25,6 +25,7 @@ const SETTINGS_FILE = '.claude/settings.local.json';
 const BACKUP_FILE = '.claude/settings.local.json.backup';
 
 // Hook definitions
+// Note: Using ~ expansion which works in both shell contexts and Claude Code
 const PLUGIN_HOOKS = {
   PreToolUse: [
     {
@@ -32,33 +33,9 @@ const PLUGIN_HOOKS = {
       hooks: [
         {
           type: 'command',
-          command: `${HOME}/.claude/plugins/marketplaces/bengolea-plugins/orchestration/hooks/worktree-guard.py`,
+          command: '~/.claude/plugins/marketplaces/bengolea-plugins/orchestration/hooks/worktree-guard.py',
           timeout: 5,
           description: 'Blocks raw git worktree commands (from plugin)',
-        },
-      ],
-    },
-  ],
-  UserPromptSubmit: [
-    {
-      matcher: '^/orc:start\\b',
-      hooks: [
-        {
-          type: 'command',
-          command: `${HOME}/.claude/plugins/marketplaces/bengolea-plugins/orchestration/hooks/planmode.sh`,
-          timeout: 5,
-          description: 'Enforces plan mode (from plugin)',
-        },
-      ],
-    },
-    {
-      matcher: '^/pr:create\\b',
-      hooks: [
-        {
-          type: 'command',
-          command: `${HOME}/.claude/plugins/marketplaces/bengolea-plugins/orchestration/hooks/pr-guard.sh`,
-          timeout: 5,
-          description: 'Enforces COMPLEX PR policy (from plugin)',
         },
       ],
     },
@@ -218,10 +195,8 @@ function main() {
       settings.hooks[event] = mergeHooks(settings.hooks[event], hooks);
     }
 
-    console.log('✅ Installed 3 hooks from claude-orchestration plugin');
+    console.log('✅ Installed 1 hook from claude-orchestration plugin');
     console.log('   - PreToolUse:Bash → worktree-guard.py');
-    console.log('   - UserPromptSubmit:/orc:start → planmode.sh');
-    console.log('   - UserPromptSubmit:/pr:create → pr-guard.sh');
   }
 
   // Dry run check
