@@ -5,6 +5,23 @@ All notable changes to the Claude Orchestration Plugin will be documented in thi
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.5] - 2025-10-13
+
+### Fixed
+- **CRITICAL FIX**: Use absolute paths instead of ${CLAUDE_PLUGIN_ROOT}
+- Plugin now works correctly with directory-source marketplaces
+- All command files updated to use actual installation path
+
+### Technical Notes - ${CLAUDE_PLUGIN_ROOT} Issue
+Claude Code has a bug with directory-source marketplaces:
+- Directory source: `/home/b3ngous/projects/claude-plugins`
+- Plugin location: `/home/b3ngous/projects/claude-plugins/orchestration/`
+- But ${CLAUDE_PLUGIN_ROOT} expands to: `~/.claude/plugins/marketplaces/bengolea-plugins/orchestration/` ❌
+
+**Solution**: Use absolute paths matching actual install location.
+This is required until Claude Code properly handles ${CLAUDE_PLUGIN_ROOT}
+for directory-source marketplaces.
+
 ## [0.2.4] - 2025-10-13
 
 ### Changed
