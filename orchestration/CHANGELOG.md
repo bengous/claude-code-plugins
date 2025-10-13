@@ -5,7 +5,48 @@ All notable changes to the Claude Orchestration Plugin will be documented in thi
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.2.5] - 2025-10-13
+## [0.2.7] - 2025-10-13
+
+### Fixed
+- Reverted v0.2.5 hardcoded paths back to ${CLAUDE_PLUGIN_ROOT}
+- All 30 command files now use ${CLAUDE_PLUGIN_ROOT} for portability
+- hooks/hooks.json now uses ${CLAUDE_PLUGIN_ROOT}
+- Plugin now works correctly across different installation methods and locations
+
+### Technical Notes
+**The Problem with v0.2.5:**
+- Hardcoded paths like `/home/b3ngous/projects/claude-plugins/orchestration/...`
+- Would only work on one specific machine/user
+- Not portable across team members or different installations
+
+**The Solution:**
+- Use ${CLAUDE_PLUGIN_ROOT} environment variable (official Claude Code mechanism)
+- Claude Code expands this variable to actual plugin installation location
+- Works for all installation methods: directory-source, git-based, official marketplaces
+- The `!"${CLAUDE_PLUGIN_ROOT}/script" command` pattern auto-executes scripts before command runs
+
+**Important Pattern Documentation:**
+The `!` prefix at end of command files is documented at:
+https://docs.claude.com/en/docs/claude-code/slash-commands#bash-command-execution
+
+```markdown
+!"${CLAUDE_PLUGIN_ROOT}/scripts/worktree/worktree" list $ARGUMENTS
+```
+
+This pattern:
+1. Auto-executes the script when slash command is invoked
+2. Includes the script's output in Claude's context
+3. Requires `allowed-tools` frontmatter to permit the Bash execution
+4. ${CLAUDE_PLUGIN_ROOT} is expanded by Claude Code during plugin load
+
+## [0.2.6] - 2025-10-13 [REVERTED]
+
+### Reverted
+- Incorrectly replaced `!"script"` pattern with manual instructions
+- Misunderstood how bash auto-execution works in slash commands
+- All changes reverted in favor of proper ${CLAUDE_PLUGIN_ROOT} fix
+
+## [0.2.5] - 2025-10-13 [DEPRECATED]
 
 ### Fixed
 - **CRITICAL FIX**: Use absolute paths instead of ${CLAUDE_PLUGIN_ROOT}
