@@ -2,7 +2,7 @@
 description: Add custom metadata to worktree for tracking/automation
 argument-hint: <name> --meta '{...}'
 allowed-tools:
-  - Bash("${CLAUDE_PLUGIN_ROOT}/scripts/worktree/worktree":annotate)
+  - Bash("/home/b3ngous/projects/claude-plugins/orchestration/scripts/worktree/worktree":annotate)
 model: claude-sonnet-4-5
 ---
 
@@ -60,4 +60,4 @@ Use `/worktree --json` to see all worktree metadata including custom fields.
 - `/worktree` - View metadata with `--json` flag
 - `/worktree:logs` - See annotation history
 
-!"${CLAUDE_PLUGIN_ROOT}/scripts/worktree/worktree" annotate $ARGUMENTS
+!"/home/b3ngous/projects/claude-plugins/orchestration/scripts/worktree/worktree" annotate $ARGUMENTS
