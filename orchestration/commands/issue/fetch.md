@@ -2,7 +2,7 @@
 description: Fetch actionable issues for task execution (internal use)
 argument-hint:
 allowed-tools:
-  - Bash("${CLAUDE_PLUGIN_ROOT}/scripts/issue/issue":fetch)
+  - Bash("/home/b3ngous/projects/claude-plugins/orchestration/scripts/issue/issue":fetch)
 model: claude-sonnet-4-5
 ---
 
@@ -41,12 +41,4 @@ This command is primarily used internally by the task orchestration system to po
 - `/issue:list` - List all issues with custom filters
 - `/issue:view` - View specific issue details
 
-**Your task:**
-
-Execute the script to perform the fetch operation:
-
-```bash
-"${CLAUDE_PLUGIN_ROOT}/scripts/issue/issue" fetch $ARGUMENTS
-```
-
-The script is already permitted via allowed-tools. Run it and report the results.
+!"/home/b3ngous/projects/claude-plugins/orchestration/scripts/issue/issue" fetch $ARGUMENTS
