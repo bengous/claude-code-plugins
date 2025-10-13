@@ -67,7 +67,7 @@ All arguments after `<script>` are passed to the pnpm script.
 - `/worktree:bootstrap` - Install dependencies first
 - `/worktree:status` - Check worktree state
 
-**Plugin location:** !`realpath ~/.claude/plugins/marketplaces/bengolea-plugins/orchestration`
+**Plugin location:** !`realpath ~/.claude/plugins/marketplaces/bengolea-plugins/orchestration 2>/dev/null || echo "$HOME/projects/claude-plugins/orchestration"`
 
 **Your task:**
 

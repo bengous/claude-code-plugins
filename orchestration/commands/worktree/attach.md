@@ -64,7 +64,7 @@ The worktree is now fully managed and appears in `/worktree` list. You can use a
 - `/worktree:doctor` - Check for unmanaged worktrees
 - `/worktree` - List all managed worktrees
 
-**Plugin location:** !`realpath ~/.claude/plugins/marketplaces/bengolea-plugins/orchestration`
+**Plugin location:** !`realpath ~/.claude/plugins/marketplaces/bengolea-plugins/orchestration 2>/dev/null || echo "$HOME/projects/claude-plugins/orchestration"`
 
 **Your task:**
 
