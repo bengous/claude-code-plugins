@@ -39,7 +39,7 @@ Reopen a previously closed GitHub issue, optionally with a comment explaining wh
 - `/issue:comment` - Add comment to issue
 - `/issue:view` - View issue state
 
-**Plugin location:** !`realpath ~/.claude/plugins/marketplaces/bengolea-plugins/orchestration 2>/dev/null || echo "/home/b3ngous/projects/claude-plugins/orchestration"`
+**Plugin location:** !`realpath ~/.claude/plugins/marketplaces/bengolea-plugins/orchestration`
 
 **Your task:**
 
