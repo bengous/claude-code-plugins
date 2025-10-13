@@ -2,7 +2,7 @@
 description: Health check all managed worktrees for issues
 argument-hint:
 allowed-tools:
-  - Bash("${CLAUDE_PLUGIN_ROOT}/scripts/worktree/worktree":doctor)
+  - Bash("~/.claude/plugins/marketplaces/bengolea-plugins/orchestration/scripts/worktree/worktree":doctor)
 model: claude-sonnet-4-5
 ---
 
@@ -68,4 +68,4 @@ All worktrees healthy
 - `/worktree:delete` - Remove worktree (use `--force` for broken ones)
 - `/worktree:prune` - Bulk cleanup operations
 
-!"${CLAUDE_PLUGIN_ROOT}/scripts/worktree/worktree" doctor $ARGUMENTS
+!"~/.claude/plugins/marketplaces/bengolea-plugins/orchestration/scripts/worktree/worktree" doctor $ARGUMENTS
