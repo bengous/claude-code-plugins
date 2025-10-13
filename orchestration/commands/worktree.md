@@ -2,7 +2,7 @@
 description: List and overview managed worktrees
 argument-hint: [--json]
 allowed-tools:
-  - Bash("${CLAUDE_PLUGIN_ROOT}/scripts/worktree/worktree":list)
+  - Bash(*:*)
 model: claude-sonnet-4-5
 ---
 
@@ -38,4 +38,14 @@ With `--json`, returns an array of worktree objects including metadata and lock 
 - `/worktree:status` - Show detailed status of specific worktree
 - `/worktree:guide` - Learn workflow patterns and best practices
 
-!"${CLAUDE_PLUGIN_ROOT}/scripts/worktree/worktree" list $ARGUMENTS
+**Plugin location:** !`realpath ~/.claude/plugins/marketplaces/bengolea-plugins/orchestration 2>/dev/null || echo "/home/b3ngous/projects/claude-plugins/orchestration"`
+
+**Your task:**
+
+Execute the worktree management script:
+
+```bash
+<plugin-location-from-above>/scripts/worktree/worktree list $ARGUMENTS
+```
+
+Show the full output to the user.

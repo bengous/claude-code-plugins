@@ -5,6 +5,61 @@ All notable changes to the Claude Orchestration Plugin will be documented in thi
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.8] - 2025-10-13
+
+### Fixed
+- **CRITICAL FIX**: Commands now execute correctly via inline path resolution
+- Fixed repository detection to operate on current working directory instead of plugin location
+- All 29 command files updated with working execution pattern
+- Scripts now work correctly when plugin is used in external projects
+
+### Changed
+- Replaced `!"${CLAUDE_PLUGIN_ROOT}/script"` pattern with inline path resolution
+- Commands now use `!`realpath ...`` to resolve plugin location at expansion time
+- Updated `allowed-tools` to use `Bash(*:*)` for maximum flexibility
+- Repository detection now uses `git rev-parse --show-toplevel` from current directory
+
+### Technical Notes
+
+**The Core Problem:**
+- The `!"${CLAUDE_PLUGIN_ROOT}/script"` pattern doesn't auto-execute
+- ${CLAUDE_PLUGIN_ROOT} is not available as shell variable at execution time
+- Scripts were detecting the plugin's repository instead of the user's working repository
+
+**The Solution:**
+All command files now use this pattern:
+```markdown
+**Plugin location:** !`realpath ~/.claude/plugins/marketplaces/bengolea-plugins/orchestration 2>/dev/null || echo "/home/b3ngous/projects/claude-plugins/orchestration"`
+
+**Your task:**
+
+Execute the worktree management script:
+
+\`\`\`bash
+<plugin-location-from-above>/scripts/worktree/worktree create $ARGUMENTS
+\`\`\`
+
+Show the full output to the user.
+```
+
+This approach:
+1. Uses inline backticks to resolve path at command expansion time
+2. Falls back to directory source path if marketplace path doesn't exist
+3. Claude sees the resolved path and executes the script manually
+4. Scripts operate on current working directory's repository
+
+**Repository Detection Fix:**
+Changed from: `MAIN_REPO="$(git -C "$SCRIPT_DIR" rev-parse --show-toplevel)"`
+Changed to: `MAIN_REPO="$(git rev-parse --show-toplevel)"`
+
+This ensures scripts operate on the user's repository, not the plugin's repository.
+
+### Tested
+- ✅ worktree list command
+- ✅ worktree unlock command
+- ✅ worktree delete command
+- ✅ Cross-project usage verified
+
 ## [0.2.7] - 2025-10-13
 
 ### Fixed

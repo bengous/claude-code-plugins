@@ -2,7 +2,7 @@
 description: Create new GitHub issue with labels and metadata
 argument-hint: issue-title="..." [description="..."] [labels="..."] [priority=high|medium|low]
 allowed-tools:
-  - Bash("${CLAUDE_PLUGIN_ROOT}/scripts/issue/issue":create)
+  - Bash(*:*)
 model: claude-sonnet-4-5
 ---
 
@@ -46,4 +46,14 @@ Returns the created issue number for use with other commands.
 - `/issue:list` - List existing issues
 - `/issue:view` - View issue details
 
-!"${CLAUDE_PLUGIN_ROOT}/scripts/issue/issue" create $ARGUMENTS
+**Plugin location:** !`realpath ~/.claude/plugins/marketplaces/bengolea-plugins/orchestration 2>/dev/null || echo "/home/b3ngous/projects/claude-plugins/orchestration"`
+
+**Your task:**
+
+Execute the issue management script:
+
+```bash
+<plugin-location-from-above>/scripts/issue/issue create $ARGUMENTS
+```
+
+Show the full output to the user.
