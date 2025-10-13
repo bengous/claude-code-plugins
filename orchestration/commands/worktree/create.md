@@ -50,7 +50,7 @@ Create a new managed worktree with optional issue tracking, agent locking, and a
 - `/worktree:open` - Get path and branch for delegation
 - `/worktree:guide` - Learn workflow patterns
 
-**Plugin location:** !`realpath ~/.claude/plugins/marketplaces/bengolea-plugins/orchestration 2>/dev/null || echo "/home/b3ngous/projects/claude-plugins/orchestration"`
+**Plugin location:** !`realpath ~/.claude/plugins/marketplaces/bengolea-plugins/orchestration`
 
 **Your task:**
 

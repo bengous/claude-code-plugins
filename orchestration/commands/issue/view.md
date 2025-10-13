@@ -38,7 +38,7 @@ Display detailed information about a specific GitHub issue including title, desc
 - `/issue:comment` - Add comment to issue
 - `/issue:label` - Manage issue labels
 
-**Plugin location:** !`realpath ~/.claude/plugins/marketplaces/bengolea-plugins/orchestration 2>/dev/null || echo "/home/b3ngous/projects/claude-plugins/orchestration"`
+**Plugin location:** !`realpath ~/.claude/plugins/marketplaces/bengolea-plugins/orchestration`
 
 **Your task:**
 
