@@ -58,7 +58,7 @@ The `--` separator is **required** to distinguish worktree name from command.
 - `/worktree:bootstrap` - Install dependencies
 - `/worktree:status` - Check worktree git status
 
-**Plugin location:** !`realpath ~/.claude/plugins/marketplaces/bengolea-plugins/orchestration 2>/dev/null || echo "/home/b3ngous/projects/claude-plugins/orchestration"`
+**Plugin location:** !`realpath ~/.claude/plugins/marketplaces/bengolea-plugins/orchestration`
 
 **Your task:**
 

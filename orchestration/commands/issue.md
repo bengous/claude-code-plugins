@@ -31,7 +31,7 @@ List GitHub issues with optional filters. Defaults to open issues.
 - `/issue:reopen` - Reopen issue
 - `/issue:fetch` - Get actionable issues (internal)
 
-**Plugin location:** !`realpath ~/.claude/plugins/marketplaces/bengolea-plugins/orchestration 2>/dev/null || echo "/home/b3ngous/projects/claude-plugins/orchestration"`
+**Plugin location:** !`realpath ~/.claude/plugins/marketplaces/bengolea-plugins/orchestration`
 
 **Your task:**
 

@@ -106,7 +106,7 @@ Create worktree from non-dev branch for staging or hotfix work.
 - `/worktree:create` - Create new worktree
 - `/worktree:delete` - Remove worktree
 
-**Plugin location:** !`realpath ~/.claude/plugins/marketplaces/bengolea-plugins/orchestration 2>/dev/null || echo "/home/b3ngous/projects/claude-plugins/orchestration"`
+**Plugin location:** !`realpath ~/.claude/plugins/marketplaces/bengolea-plugins/orchestration`
 
 **Your task:**
 
