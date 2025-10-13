@@ -2,7 +2,7 @@
 description: Manage labels on a GitHub issue
 argument-hint: <issue-number> [--add=LABEL] [--remove=LABEL]
 allowed-tools:
-  - Bash("${CLAUDE_PLUGIN_ROOT}/scripts/issue/issue":label)
+  - Bash("/home/b3ngous/projects/claude-plugins/orchestration/scripts/issue/issue":label)
 model: claude-sonnet-4-5
 ---
 
@@ -43,12 +43,4 @@ Add or remove labels on a GitHub issue. Supports atomic operations to modify lab
 - `/issue:view` - View current labels
 - `/issue:list` - Filter by labels
 
-**Your task:**
-
-Execute the script to perform the label operation:
-
-```bash
-"${CLAUDE_PLUGIN_ROOT}/scripts/issue/issue" label $ARGUMENTS
-```
-
-The script is already permitted via allowed-tools. Run it and report the results.
+!"/home/b3ngous/projects/claude-plugins/orchestration/scripts/issue/issue" label $ARGUMENTS

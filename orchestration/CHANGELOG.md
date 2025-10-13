@@ -5,48 +5,7 @@ All notable changes to the Claude Orchestration Plugin will be documented in thi
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.2.6] - 2025-10-13
-
-### Fixed
-- **CRITICAL FIX**: Replaced non-standard `!"script" command` pattern with documented approach
-- All 29 command files now follow official Claude Code slash command patterns
-- Commands now provide clear instructions for Claude to execute scripts via Bash tool
-- Removed undocumented auto-execution pattern that wasn't working correctly
-
-### Changed
-- Command files now end with "Your task:" section with execution instructions
-- Scripts execute via allowed-tools Bash tool permissions (documented pattern)
-- ${CLAUDE_PLUGIN_ROOT} now correctly resolved through allowed-tools frontmatter
-
-### Technical Notes
-**The Problem:**
-- v0.2.5 used undocumented `!"${CLAUDE_PLUGIN_ROOT}/scripts/..." command $ARGUMENTS` pattern
-- This pattern isn't documented in official Claude Code slash commands reference
-- Official docs show inline bash execution with backticks: `` !`git status` ``
-- The standalone `!` execution line at end of commands wasn't being processed correctly
-
-**The Solution:**
-- Commands now provide explicit instructions: "Execute the script to perform the X operation"
-- allowed-tools frontmatter permits the Bash execution: `Bash("${CLAUDE_PLUGIN_ROOT}/scripts/...":command)`
-- Claude receives clear instructions and executes via standard Bash tool
-- ${CLAUDE_PLUGIN_ROOT} is expanded by Claude Code when loading allowed-tools
-- This follows the documented pattern for plugin command bash execution
-
-**Pattern Change:**
-```markdown
-Before (undocumented):
-!"${CLAUDE_PLUGIN_ROOT}/scripts/worktree/worktree" create $ARGUMENTS
-
-After (documented):
-**Your task:**
-Execute the script to perform the create operation:
-```bash
-"${CLAUDE_PLUGIN_ROOT}/scripts/worktree/worktree" create $ARGUMENTS
-```
-The script is already permitted via allowed-tools. Run it and report the results.
-```
-
-## [0.2.5] - 2025-10-13 [DEPRECATED]
+## [0.2.5] - 2025-10-13
 
 ### Fixed
 - **CRITICAL FIX**: Use absolute paths instead of ${CLAUDE_PLUGIN_ROOT}

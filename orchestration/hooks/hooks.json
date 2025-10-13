@@ -7,7 +7,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/hooks/worktree-guard.py",
+            "command": "/home/b3ngous/projects/claude-plugins/orchestration/hooks/worktree-guard.py",
             "timeout": 5,
             "description": "Blocks raw git worktree commands to enforce managed worktree system"
           }
