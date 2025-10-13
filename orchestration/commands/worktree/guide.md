@@ -2,7 +2,7 @@
 description: Show workflow patterns and best practices for agent collaboration
 argument-hint:
 allowed-tools:
-  - Bash("/home/b3ngous/projects/claude-plugins/orchestration/scripts/worktree/worktree":guide)
+  - Bash("${CLAUDE_PLUGIN_ROOT}/scripts/worktree/worktree":guide)
 model: claude-sonnet-4-5
 ---
 
@@ -106,4 +106,12 @@ Create worktree from non-dev branch for staging or hotfix work.
 - `/worktree:create` - Create new worktree
 - `/worktree:delete` - Remove worktree
 
-!"/home/b3ngous/projects/claude-plugins/orchestration/scripts/worktree/worktree" guide $ARGUMENTS
+**Your task:**
+
+Execute the script to perform the guide operation:
+
+```bash
+"${CLAUDE_PLUGIN_ROOT}/scripts/worktree/worktree" guide $ARGUMENTS
+```
+
+The script is already permitted via allowed-tools. Run it and report the results.

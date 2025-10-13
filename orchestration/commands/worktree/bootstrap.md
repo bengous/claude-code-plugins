@@ -2,7 +2,7 @@
 description: Install dependencies (pnpm install) with lockfile tracking
 argument-hint: <name>
 allowed-tools:
-  - Bash("/home/b3ngous/projects/claude-plugins/orchestration/scripts/worktree/worktree":bootstrap)
+  - Bash("${CLAUDE_PLUGIN_ROOT}/scripts/worktree/worktree":bootstrap)
 model: claude-sonnet-4-5
 ---
 
@@ -59,4 +59,12 @@ pnpm install --frozen-lockfile --prefer-offline
 - `/worktree:run` - Run pnpm scripts after bootstrapping
 - `/worktree:exec` - Execute commands in worktree
 
-!"/home/b3ngous/projects/claude-plugins/orchestration/scripts/worktree/worktree" bootstrap $ARGUMENTS
+**Your task:**
+
+Execute the script to perform the bootstrap operation:
+
+```bash
+"${CLAUDE_PLUGIN_ROOT}/scripts/worktree/worktree" bootstrap $ARGUMENTS
+```
+
+The script is already permitted via allowed-tools. Run it and report the results.
