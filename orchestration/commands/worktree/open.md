@@ -2,7 +2,7 @@
 description: Get absolute path and branch name for a managed worktree
 argument-hint: <name>
 allowed-tools:
-  - Bash("${CLAUDE_PLUGIN_ROOT}/scripts/worktree/worktree":open)
+  - Bash(*:*)
 model: claude-sonnet-4-5
 ---
 
@@ -47,4 +47,14 @@ worktree/123-api-work-subagent1
 - `/worktree:exec` - Execute commands in worktree
 - `/worktree:status` - Show detailed git status
 
-!"${CLAUDE_PLUGIN_ROOT}/scripts/worktree/worktree" open $ARGUMENTS
+**Plugin location:** !`realpath ~/.claude/plugins/marketplaces/bengolea-plugins/orchestration 2>/dev/null || echo "/home/b3ngous/projects/claude-plugins/orchestration"`
+
+**Your task:**
+
+Execute the worktree management script:
+
+```bash
+<plugin-location-from-above>/scripts/worktree/worktree open $ARGUMENTS
+```
+
+Show the full output to the user.
