@@ -68,7 +68,7 @@ All worktrees healthy
 - `/worktree:delete` - Remove worktree (use `--force` for broken ones)
 - `/worktree:prune` - Bulk cleanup operations
 
-**Plugin location:** !`realpath ~/.claude/plugins/marketplaces/bengolea-plugins/orchestration`
+**Plugin location:** !`realpath ~/.claude/plugins/marketplaces/bengolea-plugins/orchestration 2>/dev/null || echo "$HOME/projects/claude-plugins/orchestration"`
 
 **Your task:**
 
