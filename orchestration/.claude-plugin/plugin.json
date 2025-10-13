@@ -16,20 +16,5 @@
     "pr",
     "issues",
     "delegation"
-  ],
-  "hooks": {
-    "PreToolUse": [
-      {
-        "matcher": "Bash",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/hooks/worktree-guard.py",
-            "timeout": 5,
-            "description": "Blocks raw git worktree commands to enforce managed worktree system"
-          }
-        ]
-      }
-    ]
-  }
+  ]
 }
