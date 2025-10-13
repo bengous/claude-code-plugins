@@ -2,7 +2,7 @@
 description: Add comment to a GitHub issue
 argument-hint: <issue-number> <comment-text>
 allowed-tools:
-  - Bash("${CLAUDE_PLUGIN_ROOT}/scripts/issue/issue":comment)
+  - Bash("~/.claude/plugins/marketplaces/bengolea-plugins/orchestration/scripts/issue/issue":comment)
 model: claude-sonnet-4-5
 ---
 
@@ -38,4 +38,4 @@ Add a comment to an existing GitHub issue.
 - `/issue:view` - View issue with existing comments
 - `/issue:close` - Close issue (optionally with comment)
 
-!"${CLAUDE_PLUGIN_ROOT}/scripts/issue/issue" comment $ARGUMENTS
+!"~/.claude/plugins/marketplaces/bengolea-plugins/orchestration/scripts/issue/issue" comment $ARGUMENTS

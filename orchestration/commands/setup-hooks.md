@@ -2,7 +2,7 @@
 description: Install orchestration plugin hooks into project settings
 argument-hint: "[--remove|--force|--dry-run]"
 allowed-tools:
-  - Bash("${CLAUDE_PLUGIN_ROOT}/scripts/setup-hooks.js":*)
+  - Bash("~/.claude/plugins/marketplaces/bengolea-plugins/orchestration/scripts/setup-hooks.js":*)
 model: claude-sonnet-4-5
 ---
 
@@ -15,8 +15,6 @@ Claude Code v2.0.13 doesn't automatically load hooks from plugins. This command 
 **What it installs:**
 
 1. **worktree-guard** (PreToolUse:Bash) - Blocks raw `git worktree` commands
-2. **planmode** (UserPromptSubmit) - Enforces plan mode for `/orc:start`
-3. **pr-guard** (UserPromptSubmit) - Enforces COMPLEX policy for `/pr:create`
 
 **Usage:**
 
@@ -44,10 +42,8 @@ Claude Code v2.0.13 doesn't automatically load hooks from plugins. This command 
 **Example output:**
 
 ```
-✅ Installed 3 hooks from claude-orchestration plugin
+✅ Installed 1 hook from claude-orchestration plugin
    - PreToolUse:Bash → worktree-guard.py
-   - UserPromptSubmit:/orc:start → planmode.sh
-   - UserPromptSubmit:/pr:create → pr-guard.sh
 
 📝 Backup saved: .claude/settings.local.json.backup
 ```
@@ -73,4 +69,4 @@ git worktree add /tmp/test
 - Hooks directory: `~/.claude/plugins/.../hooks/`
 - Settings file: `.claude/settings.local.json`
 
-!"${CLAUDE_PLUGIN_ROOT}/scripts/setup-hooks.js" $ARGUMENTS
+!"~/.claude/plugins/marketplaces/bengolea-plugins/orchestration/scripts/setup-hooks.js" $ARGUMENTS
