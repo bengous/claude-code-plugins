@@ -74,16 +74,16 @@ Mark items as in_progress/completed as you work through them.
 For each chunk in the task breakdown, create an isolated worktree:
 
 ```bash
-/worktree:create <worktree-name> --base <base-branch>
+/orc:wt create <worktree-name> --base <base-branch>
 ```
 
 **Naming convention**: `wt-<chunk-identifier>`
 
 Example:
 ```bash
-/worktree:create wt-backend --base feat/user-auth
-/worktree:create wt-frontend --base feat/user-auth
-/worktree:create wt-database --base feat/user-auth
+/orc:wt create wt-backend --base feat/user-auth
+/orc:wt create wt-frontend --base feat/user-auth
+/orc:wt create wt-database --base feat/user-auth
 ```
 
 ---
@@ -93,7 +93,7 @@ Example:
 After creating each worktree, get its path and branch:
 
 ```bash
-/worktree:open <worktree-name>
+/orc:wt open <worktree-name>
 ```
 
 This returns:
@@ -102,7 +102,7 @@ This returns:
 
 Example:
 ```bash
-/worktree:open wt-backend
+/orc:wt open wt-backend
 # Returns: /home/user/project/.worktrees/wt-backend, branch: wt-backend-branch
 ```
 
