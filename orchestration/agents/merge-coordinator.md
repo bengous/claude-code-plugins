@@ -58,6 +58,52 @@ Mark items as in_progress/completed as you work through sequential merges.
 
 ---
 
+## Worktree Commands Tutorial
+
+You will use the `/orc:wt` dispatcher to manage isolated git worktrees. Here's a quick reference:
+
+### Available Commands
+
+**Core Operations:**
+- `/orc:wt create <name> [--base BRANCH] [--agent ID]` - Create new worktree
+- `/orc:wt open <name>` - Get worktree path and branch
+- `/orc:wt list [--json]` - List all worktrees
+- `/orc:wt delete <name>` - Delete worktree
+- `/orc:wt status <name>` - Show git status
+
+**Lock Operations (for coordination):**
+- `/orc:wt lock <name> [--agent ID] [--ttl DURATION]` - Acquire lock
+- `/orc:wt unlock <name>` - Release lock
+- `/orc:wt who <name>` - Check lock owner
+
+**Maintenance:**
+- `/orc:wt prune [--merged]` - Clean up old worktrees
+- `/orc:wt doctor` - Health check
+
+### Common Patterns for Merge Coordinator
+
+**Check worktree status before merging:**
+```bash
+/orc:wt status wt-backend
+# Shows git status, uncommitted changes, etc.
+```
+
+**Delete worktree after successful merge:**
+```bash
+/orc:wt delete wt-backend
+# Removes worktree directory, branch, and metadata
+```
+
+**List all worktrees to verify cleanup:**
+```bash
+/orc:wt list
+# Should be empty after all merges complete
+```
+
+**Note:** You typically only need `status`, `delete`, and `list`. The planning coordinator handles `create`.
+
+---
+
 ## Context You Will Receive
 
 - **Execution plan**: The YAML plan from planning coordinator (includes merge order, worktree paths, branches)
