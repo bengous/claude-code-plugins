@@ -58,6 +58,53 @@ Mark items as in_progress/completed as you work through them.
 
 ---
 
+## Worktree Commands Tutorial
+
+You will use the `/orc:wt` dispatcher to manage isolated git worktrees. Here's a quick reference:
+
+### Available Commands
+
+**Core Operations:**
+- `/orc:wt create <name> [--base BRANCH] [--agent ID]` - Create new worktree
+- `/orc:wt open <name>` - Get worktree path and branch
+- `/orc:wt list [--json]` - List all worktrees
+- `/orc:wt delete <name>` - Delete worktree
+- `/orc:wt status <name>` - Show git status
+
+**Lock Operations (for coordination):**
+- `/orc:wt lock <name> [--agent ID] [--ttl DURATION]` - Acquire lock
+- `/orc:wt unlock <name>` - Release lock
+- `/orc:wt who <name>` - Check lock owner
+
+**Maintenance:**
+- `/orc:wt prune [--merged]` - Clean up old worktrees
+- `/orc:wt doctor` - Health check
+
+### Common Patterns for Planning Coordinator
+
+**Create worktree from base branch:**
+```bash
+/orc:wt create wt-backend --base feat/user-auth
+```
+
+**Get worktree details (critical for delegation):**
+```bash
+/orc:wt open wt-backend
+# Output format:
+# Line 1: /absolute/path/to/.worktrees/wt-backend
+# Line 2: wt-backend-branch
+```
+
+**List all managed worktrees:**
+```bash
+/orc:wt list --json
+# Returns JSON array with all worktrees and metadata
+```
+
+**Note:** You typically only need `create` and `open`. The merge coordinator handles `delete`.
+
+---
+
 ## Context You Will Receive
 
 - **Task breakdown**: The feature broken into logical chunks (from Phase 5)
