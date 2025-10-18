@@ -4,45 +4,30 @@ Advanced orchestration system for managing development workflows with Claude Cod
 
 ## Features
 
-This plugin provides four integrated command groups for sophisticated development workflow management:
-
-### Worktree Management (`/worktree`)
-
-Isolated development environments with locking, delegation, and lifecycle management:
-
-- `/worktree` - List all managed worktrees
-- `/worktree:create` - Create new isolated worktree
-- `/worktree:delete` - Remove worktree
-- `/worktree:status` - Show detailed status
-- `/worktree:lock/unlock` - Manage locks
-- `/worktree:guide` - Workflow patterns and best practices
-
-### Issue Management (`/issue`)
-
-GitHub issue CRUD operations with filtering and label management:
-
-- `/issue` - List issues with filters
-- `/issue:create` - Create new issue
-- `/issue:view` - View issue details
-- `/issue:comment` - Add comments
-- `/issue:label` - Manage labels
-- `/issue:close/reopen` - Update issue state
+This plugin provides a streamlined command set for sophisticated development workflow management:
 
 ### Orchestration (`/orc`)
 
-Multi-agent task delegation and coordination:
+Multi-agent task delegation and coordination with 8-phase workflow:
 
-- `/orc` - Orchestrate tasks with BASE/COMPLEX routing
+- `/orc <task>` - Orchestrate tasks with BASE/COMPLEX routing
 - Automatic task classification
 - Parallel execution for complex features
-- PR automation
+- Built-in quality review and PR automation
 
-### PR Workflows (`/pr`)
+### Worktree Management (`/orc:wt`)
 
-Pull request creation and management:
+Isolated development environments for the /orc workflow:
 
-- `/pr` - Create or surface PR (idempotent)
-- `/pr:create` - Create PR with custom parameters
+- `/orc:wt list` - List all managed worktrees
+- `/orc:wt create <name>` - Create new isolated worktree
+- `/orc:wt open <name>` - Get worktree path and branch (for delegation)
+- `/orc:wt status <name>` - Show detailed git status
+- `/orc:wt delete <name>` - Remove worktree
+- `/orc:wt lock/unlock <name>` - Manage exclusive access locks
+- `/orc:wt who <name>` - Show lock owner
+- `/orc:wt prune` - Clean up old worktrees
+- `/orc:wt doctor` - Health check all worktrees
 
 ## Installation
 
@@ -54,20 +39,17 @@ Pull request creation and management:
 
 ### Usage
 
-After installation, all commands become available through the slash command interface:
+After installation, commands are available through the slash command interface:
 
 ```bash
-# List worktrees
-/worktree
-
-# Create isolated worktree
-/worktree:create feat/new-feature
-
-# List open issues
-/issue
-
-# Orchestrate a task with 8-phase workflow
+# Orchestrate a feature with 8-phase workflow
 /orc "Add user authentication"
+
+# Manage worktrees directly
+/orc:wt list
+/orc:wt create my-feature --base dev --agent me --lock
+/orc:wt status my-feature
+/orc:wt delete my-feature
 ```
 
 ## Architecture
@@ -82,7 +64,7 @@ The plugin wraps existing shell script backends for maximum reliability:
 
 - Claude Code CLI
 - Git with worktree support
-- GitHub CLI (`gh`) for issue and PR commands
+- `jq` for JSON processing
 
 ## License
 
