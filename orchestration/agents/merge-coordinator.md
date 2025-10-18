@@ -181,14 +181,14 @@ Then continue to next worktree in merge order.
 After all merges complete successfully:
 
 ```bash
-/worktree:delete <worktree-name>
+/orc:wt delete <worktree-name>
 ```
 
 Example:
 ```bash
-/worktree:delete wt-backend
-/worktree:delete wt-frontend
-/worktree:delete wt-database
+/orc:wt delete wt-backend
+/orc:wt delete wt-frontend
+/orc:wt delete wt-database
 ```
 
 **Verify cleanup**: All temporary worktrees should be deleted.
