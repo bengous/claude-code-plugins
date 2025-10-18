@@ -32,10 +32,6 @@ fi
 cd "$MAIN_REPO"
 REPO_NAME="$(basename "$MAIN_REPO")"
 DEFAULT_WORKTREE_ROOT="$(dirname "$MAIN_REPO")/.worktrees/$REPO_NAME"
-STATE_DIR="$MAIN_REPO/.worktree"
-META_DIR="$STATE_DIR/meta"
-LOCK_DIR="$STATE_DIR/locks"
-LOG_DIR="$STATE_DIR/logs"
 
 if mkdir -p "$DEFAULT_WORKTREE_ROOT" >/dev/null 2>&1; then
   PROBE_DIR=$(mktemp -d "$DEFAULT_WORKTREE_ROOT/.probe-XXXXXX" 2>/dev/null || true)
@@ -43,10 +39,10 @@ if mkdir -p "$DEFAULT_WORKTREE_ROOT" >/dev/null 2>&1; then
     rmdir "$PROBE_DIR" >/dev/null 2>&1 || true
     WORKTREE_ROOT="$DEFAULT_WORKTREE_ROOT"
   else
-    WORKTREE_ROOT="$STATE_DIR/workspaces"
+    WORKTREE_ROOT="$MAIN_REPO/.worktree/workspaces"
   fi
 else
-  WORKTREE_ROOT="$STATE_DIR/workspaces"
+  WORKTREE_ROOT="$MAIN_REPO/.worktree/workspaces"
 fi
 
 mkdir -p "$WORKTREE_ROOT" >/dev/null 2>&1 || {
@@ -54,7 +50,6 @@ mkdir -p "$WORKTREE_ROOT" >/dev/null 2>&1 || {
   exit 1
 }
 
-mkdir -p "$META_DIR" "$LOCK_DIR" "$LOG_DIR"
 BRANCH_PREFIX="worktree"
 
 NOW() {
@@ -76,19 +71,30 @@ print(text)
 PY
 }
 
-meta_path() {
-  local name="$1"
-  echo "$META_DIR/${name}.json"
+# Git config helper functions
+wt_set() {
+  local name="$1" key="$2" value="$3"
+  git config --worktree "worktree.wt.${name}.${key}" "$value"
 }
 
-lock_path() {
-  local name="$1"
-  echo "$LOCK_DIR/${name}.lock"
+wt_get() {
+  local name="$1" key="$2"
+  git config --worktree --get "worktree.wt.${name}.${key}" 2>/dev/null || echo ""
 }
 
-log_path() {
+wt_delete() {
   local name="$1"
-  echo "$LOG_DIR/${name}.log"
+  git config --worktree --remove-section "worktree.wt.${name}" 2>/dev/null || true
+}
+
+wt_list_names() {
+  git config --worktree --get-regexp '^worktree\.wt\.' 2>/dev/null | \
+    sed -n 's/^worktree\.wt\.\([^.]*\)\..*$/\1/p' | sort -u
+}
+
+wt_exists() {
+  local name="$1"
+  [[ -n "$(wt_get "$name" "branch")" ]]
 }
 
 worktree_path() {
@@ -98,43 +104,8 @@ worktree_path() {
 
 with_meta() {
   local name="$1"
-  local file="$(meta_path "$name")"
-  if [[ ! -f "$file" ]]; then
+  if ! wt_exists "$name"; then
     echo "Error: worktree '$name' is not managed" >&2
-    exit 1
-  fi
-}
-
-load_meta() {
-  local name="$1"
-  cat "$(meta_path "$name")"
-}
-
-update_meta() {
-  local name="$1"
-  shift
-  local file="$(meta_path "$name")"
-  local tmp="${file}.tmp"
-  jq "$@" "$file" > "$tmp"
-  mv "$tmp" "$file"
-}
-
-write_meta() {
-  local name="$1"
-  local content="$2"
-  local file="$(meta_path "$name")"
-  printf '%s\n' "$content" > "$file"
-}
-
-log_event() {
-  local name="$1" action="$2" message="${3:-}"
-  local file="$(log_path "$name")"
-  printf '[%s] %s %s\n' "$(NOW)" "$action" "$message" >> "$file"
-}
-
-ensure_git_clean() {
-  if ! git diff --quiet || ! git diff --cached --quiet; then
-    echo "Error: repository has uncommitted changes" >&2
     exit 1
   fi
 }
@@ -162,38 +133,60 @@ parse_duration() {
 
 lock_state_json() {
   local name="$1"
-  local file="$(lock_path "$name")"
-  if [[ ! -f "$file" ]]; then
+  local lock_agent
+  lock_agent=$(wt_get "$name" "lock_agent")
+  if [[ -z "$lock_agent" ]]; then
     echo "null"
     return
   fi
+
   local now_ts="$(date -u +%s)"
   local state="active"
-  local expires_ts
-  expires_ts=$(jq -r '.expires_at // ""' "$file")
-  if [[ -n "$expires_ts" ]]; then
+  local lock_since lock_ttl lock_expires_at lock_reason
+  lock_since=$(wt_get "$name" "lock_since")
+  lock_ttl=$(wt_get "$name" "lock_ttl")
+  lock_expires_at=$(wt_get "$name" "lock_expires_at")
+  lock_reason=$(wt_get "$name" "lock_reason")
+
+  if [[ -n "$lock_expires_at" ]]; then
     local exp_ts
-    exp_ts=$(date -d "$expires_ts" +%s 2>/dev/null || echo 0)
+    exp_ts=$(date -d "$lock_expires_at" +%s 2>/dev/null || echo 0)
     if [[ "$exp_ts" -ne 0 && "$exp_ts" -lt "$now_ts" ]]; then
       state="expired"
     fi
   fi
-  jq --arg state "$state" '. + {state: $state}' "$file"
+
+  jq -n \
+    --arg agent "$lock_agent" \
+    --arg since "$lock_since" \
+    --arg ttl "$lock_ttl" \
+    --arg expires "$lock_expires_at" \
+    --arg reason "$lock_reason" \
+    --arg state "$state" ' {
+      agent: $agent,
+      since: $since,
+      ttl: $ttl,
+      expires_at: $expires,
+      reason: $reason,
+      state: $state
+    }
+    | (if $reason == "" then del(.reason) else . end)
+    | (if $expires == "" then del(.expires_at) else . end)
+  '
 }
 
 require_lock_free() {
   local name="$1"
-  local file="$(lock_path "$name")"
-  if [[ -f "$file" ]]; then
-    local lock_json
-    lock_json=$(lock_state_json "$name")
-    if [[ "$lock_json" != "null" ]]; then
-      local state
-      state=$(jq -r '.state' <<<"$lock_json")
-      if [[ "$state" == "active" ]]; then
-        echo "Error: worktree '$name' locked by $(jq -r '.agent' "$file")" >&2
-        exit 1
-      fi
+  local lock_json
+  lock_json=$(lock_state_json "$name")
+  if [[ "$lock_json" != "null" ]]; then
+    local state
+    state=$(jq -r '.state' <<<"$lock_json")
+    if [[ "$state" == "active" ]]; then
+      local agent
+      agent=$(jq -r '.agent' <<<"$lock_json")
+      echo "Error: worktree '$name' locked by $agent" >&2
+      exit 1
     fi
   fi
 }
@@ -221,41 +214,37 @@ lock_command() {
   done
   [[ -n "$agent" ]] || { echo "Error: --agent required" >&2; exit 1; }
   with_meta "$name"
-  local file="$(lock_path "$name")"
-  if [[ -f "$file" ]]; then
-    local lock_json
-    lock_json=$(lock_state_json "$name")
-    if [[ "$lock_json" != "null" ]]; then
-      local state
-      state=$(jq -r '.state' <<<"$lock_json")
-      if [[ "${force_lock:-false}" != "true" && "$state" == "active" ]]; then
-        echo "Error: worktree '$name' already locked" >&2
-        exit 1
-      fi
+
+  # Check for existing lock
+  local lock_json
+  lock_json=$(lock_state_json "$name")
+  if [[ "$lock_json" != "null" ]]; then
+    local state
+    state=$(jq -r '.state' <<<"$lock_json")
+    if [[ "${force_lock:-false}" != "true" && "$state" == "active" ]]; then
+      echo "Error: worktree '$name' already locked" >&2
+      exit 1
     fi
   fi
+
+  # Calculate expiration
   local duration
   duration=$(parse_duration "$ttl")
   local expires
   expires=$(date -u -d "$duration" +"%Y-%m-%dT%H:%M:%SZ" 2>/dev/null || true)
-  jq -n \
-    --arg agent "$agent" \
-    --arg since "$(NOW)" \
-    --arg ttl "$ttl" \
-    --arg reason "$reason" \
-    --arg pid "$$" \
-    --arg expires "$expires" ' {
-      agent: $agent,
-      since: $since,
-      ttl: $ttl,
-      reason: $reason,
-      pid: ($pid | tonumber),
-      expires_at: $expires
-    }
-    | (if $reason == "" then del(.reason) else . end)
-    | (if $expires == "" then del(.expires_at) else . end)
-  ' > "$file"
-  log_event "$name" "lock" "agent=$agent ttl=$ttl"
+
+  # Write lock metadata to git config
+  wt_set "$name" "lock_agent" "$agent"
+  wt_set "$name" "lock_since" "$(NOW)"
+  wt_set "$name" "lock_ttl" "$ttl"
+  if [[ -n "$expires" ]]; then
+    wt_set "$name" "lock_expires_at" "$expires"
+  fi
+  if [[ -n "$reason" ]]; then
+    wt_set "$name" "lock_reason" "$reason"
+  fi
+  wt_set "$name" "updated_at" "$(NOW)"
+
   echo "Locked $name for $agent"
 }
 
@@ -275,19 +264,27 @@ unlock_command() {
     esac
   done
   with_meta "$name"
-  local file="$(lock_path "$name")"
-  if [[ ! -f "$file" ]]; then
+
+  local current_agent
+  current_agent=$(wt_get "$name" "lock_agent")
+  if [[ -z "$current_agent" ]]; then
     echo "No active lock on $name"
     return
   fi
-  local current_agent
-  current_agent=$(jq -r '.agent' "$file")
+
   if [[ "$force" != "true" && -n "$agent" && "$agent" != "$current_agent" ]]; then
     echo "Error: lock owned by $current_agent" >&2
     exit 1
   fi
-  rm -f "$file"
-  log_event "$name" "unlock" "agent=${agent:-$current_agent}"
+
+  # Remove lock metadata from git config
+  git config --worktree --unset "worktree.wt.${name}.lock_agent" 2>/dev/null || true
+  git config --worktree --unset "worktree.wt.${name}.lock_since" 2>/dev/null || true
+  git config --worktree --unset "worktree.wt.${name}.lock_ttl" 2>/dev/null || true
+  git config --worktree --unset "worktree.wt.${name}.lock_expires_at" 2>/dev/null || true
+  git config --worktree --unset "worktree.wt.${name}.lock_reason" 2>/dev/null || true
+  wt_set "$name" "updated_at" "$(NOW)"
+
   echo "Unlocked $name"
 }
 
@@ -301,39 +298,6 @@ who_command() {
   else
     echo "$info" | jq
   fi
-}
-
-transfer_command() {
-  local name="$1"
-  shift
-  local from="" to=""
-  while [[ $# -gt 0 ]]; do
-    case "$1" in
-      --from)
-        from="$2"; shift 2 ;;
-      --to)
-        to="$2"; shift 2 ;;
-      *)
-        echo "Unknown flag: $1" >&2; exit 1 ;;
-    esac
-  done
-  [[ -n "$from" && -n "$to" ]] || { echo "Error: --from and --to required" >&2; exit 1; }
-  with_meta "$name"
-  local file="$(lock_path "$name")"
-  if [[ ! -f "$file" ]]; then
-    echo "Error: worktree '$name' has no lock" >&2
-    exit 1
-  fi
-  local agent
-  agent=$(jq -r '.agent' "$file")
-  if [[ "$agent" != "$from" ]]; then
-    echo "Error: lock owned by $agent" >&2
-    exit 1
-  fi
-  jq --arg to "$to" --arg since "$(NOW)" --arg pid "$$" '.agent=$to | .since=$since | .pid = ($pid | tonumber)' "$file" > "${file}.tmp"
-  mv "${file}.tmp" "$file"
-  log_event "$name" "transfer" "from=$from to=$to"
-  echo "Transferred $name lock from $from to $to"
 }
 
 create_command() {
@@ -388,7 +352,7 @@ create_command() {
 
   local path branch
   path="$(worktree_path "$name")"
-  if [[ -f "$(meta_path "$name")" ]]; then
+  if wt_exists "$name"; then
     echo "Error: worktree name '$name' already managed" >&2
     exit 1
   fi
@@ -419,61 +383,46 @@ create_command() {
   fi
   git worktree add "$path" -b "$branch" "$upstream"
 
-  local now meta
+  local now
   now="$(NOW)"
-  meta=$(jq -n \
-    --arg name "$name" \
-    --arg branch "$branch" \
-    --arg base "$base" \
-    --arg path "$path" \
-    --arg agent "$agent" \
-    --arg created "$now" \
-    --arg issue "$issue" ' {
-      name: $name,
-      branch: $branch,
-      base: $base,
-      path: $path,
-      agent: $agent,
-      issue: $issue,
-      created_at: $created,
-      updated_at: $created,
-      status: {}
-    }
-    | (if $agent == "" then del(.agent) else . end)
-    | (if $issue == "" then del(.issue) else . end)
-  ')
-  write_meta "$name" "$meta"
-  log_event "$name" "create" "branch=$branch base=$base"
+
+  # Write metadata to git config
+  wt_set "$name" "name" "$name"
+  wt_set "$name" "branch" "$branch"
+  wt_set "$name" "base" "$base"
+  wt_set "$name" "path" "$path"
+  wt_set "$name" "created_at" "$now"
+  wt_set "$name" "updated_at" "$now"
+  if [[ -n "$agent" ]]; then
+    wt_set "$name" "agent" "$agent"
+  fi
+  if [[ -n "$issue" ]]; then
+    wt_set "$name" "issue" "$issue"
+  fi
+
   echo "Created worktree $name at $path (branch $branch)"
   if [[ "$do_lock" == "true" && -n "$agent" ]]; then
     lock_command "$name" --agent "$agent"
-  fi
-  if [[ "$do_install" == "true" ]]; then
-    bootstrap_command "$name"
   fi
 }
 
 open_command() {
   local name="$1"
   with_meta "$name"
-  local meta
-  meta=$(load_meta "$name")
   local path branch
-  path=$(jq -r '.path' <<<"$meta")
-  branch=$(jq -r '.branch' <<<"$meta")
-  echo "Path: $path"
-  echo "Branch: $branch"
+  path=$(wt_get "$name" "path")
+  branch=$(wt_get "$name" "branch")
+  echo "$path"
+  echo "$branch"
 }
 
 status_command() {
   local name="$1"
   with_meta "$name"
-  local meta
-  meta=$(load_meta "$name")
   local path branch base
-  path=$(jq -r '.path' <<<"$meta")
-  branch=$(jq -r '.branch' <<<"$meta")
-  base=$(jq -r '.base' <<<"$meta")
+  path=$(wt_get "$name" "path")
+  branch=$(wt_get "$name" "branch")
+  base=$(wt_get "$name" "base")
   if [[ ! -d "$path" ]]; then
     echo "Error: worktree path missing: $path" >&2
     exit 1
@@ -500,24 +449,56 @@ list_command() {
       *) echo "Unknown flag: $1" >&2; exit 1 ;;
     esac
   done
-  local items=()
-  local files=("$META_DIR"/*.json)
-  if [[ ! -e "${files[0]}" ]]; then
-    files=()
+
+  local names
+  names=$(wt_list_names)
+  if [[ -z "$names" ]]; then
+    if [[ "$json" == "true" ]]; then
+      echo '[]'
+    else
+      echo "No managed worktrees"
+    fi
+    return
   fi
-  for file in "${files[@]}"; do
-    local name
-    name="$(basename "$file" .json)"
+
+  local items=()
+  while IFS= read -r name; do
+    [[ -z "$name" ]] && continue
+
+    # Build metadata JSON from git config
+    local meta_json
+    meta_json=$(jq -n \
+      --arg name "$(wt_get "$name" "name")" \
+      --arg branch "$(wt_get "$name" "branch")" \
+      --arg base "$(wt_get "$name" "base")" \
+      --arg path "$(wt_get "$name" "path")" \
+      --arg agent "$(wt_get "$name" "agent")" \
+      --arg issue "$(wt_get "$name" "issue")" \
+      --arg created_at "$(wt_get "$name" "created_at")" \
+      --arg updated_at "$(wt_get "$name" "updated_at")" ' {
+        name: $name,
+        branch: $branch,
+        base: $base,
+        path: $path,
+        agent: $agent,
+        issue: $issue,
+        created_at: $created_at,
+        updated_at: $updated_at
+      }
+      | (if .agent == "" then del(.agent) else . end)
+      | (if .issue == "" then del(.issue) else . end)
+    ')
+
+    # Add lock info if exists
     local lock_json
     lock_json=$(lock_state_json "$name")
-    local item
-    if [[ "$lock_json" == "null" ]]; then
-      item=$(jq '.' "$file")
-    else
-      item=$(jq --argjson lock "$lock_json" '. + {lock:$lock}' "$file")
+    if [[ "$lock_json" != "null" ]]; then
+      meta_json=$(jq --argjson lock "$lock_json" '. + {lock: $lock}' <<<"$meta_json")
     fi
-    items+=("$item")
-  done
+
+    items+=("$meta_json")
+  done <<<"$names"
+
   if [[ "$json" == "true" ]]; then
     if [[ ${#items[@]} -eq 0 ]]; then
       echo '[]'
@@ -525,10 +506,6 @@ list_command() {
       printf '%s\n' "${items[@]}" | jq -s '.'
     fi
   else
-    if [[ ${#items[@]} -eq 0 ]]; then
-      echo "No managed worktrees"
-      return
-    fi
     printf '%-20s %-40s %-10s %-8s\n' "NAME" "PATH" "BRANCH" "LOCK"
     for entry in "${items[@]}"; do
       local name path branch lock_state lock_agent
@@ -560,12 +537,12 @@ delete_command() {
   done
   with_meta "$name"
   require_lock_free "$name"
-  local meta
-  meta=$(load_meta "$name")
+
   local branch path base
-  branch=$(jq -r '.branch' <<<"$meta")
-  path=$(jq -r '.path' <<<"$meta")
-  base=$(jq -r '.base' <<<"$meta")
+  branch=$(wt_get "$name" "branch")
+  path=$(wt_get "$name" "path")
+  base=$(wt_get "$name" "base")
+
   if [[ "$force" != "true" ]]; then
     if ! git merge-base --is-ancestor "$branch" "origin/$base" >/dev/null 2>&1; then
       echo "Warning: branch $branch not merged into $base" >&2
@@ -573,12 +550,15 @@ delete_command() {
       exit 1
     fi
   fi
+
   git worktree remove "$path" --force >/dev/null 2>&1 || rm -rf "$path"
   if [[ "$keep_branch" != "true" ]]; then
     git branch -D "$branch" >/dev/null 2>&1 || true
   fi
-  log_event "$name" "delete" "keep_branch=$keep_branch"
-  rm -f "$(meta_path "$name")" "$(lock_path "$name")"
+
+  # Remove all metadata from git config
+  wt_delete "$name"
+
   echo "Deleted worktree $name"
 }
 
@@ -599,19 +579,23 @@ prune_command() {
 
   local removed=0
   local candidates=0
-  local files=("$META_DIR"/*.json)
-  if [[ ! -e "${files[0]}" ]]; then
-    files=()
+  local names
+  names=$(wt_list_names)
+
+  if [[ -z "$names" ]]; then
+    echo "No managed worktrees"
+    return
   fi
-  for file in "${files[@]}"; do
-    local name
-    name="$(basename "$file" .json)"
-    local meta
-    meta=$(cat "$file")
-    local branch base path
-    branch=$(jq -r '.branch' <<<"$meta")
-    base=$(jq -r '.base' <<<"$meta")
-    path=$(jq -r '.path' <<<"$meta")
+
+  while IFS= read -r name; do
+    [[ -z "$name" ]] && continue
+
+    local branch base updated
+    branch=$(wt_get "$name" "branch")
+    base=$(wt_get "$name" "base")
+    updated=$(wt_get "$name" "updated_at")
+    [[ -z "$updated" ]] && updated=$(wt_get "$name" "created_at")
+
     local should_delete="false"
 
     if [[ "$merged" == "true" ]]; then
@@ -621,8 +605,6 @@ prune_command() {
     fi
 
     if [[ -n "$stale_hours" ]]; then
-      local updated
-      updated=$(jq -r '.updated_at // .created_at' <<<"$meta")
       local updated_ts
       updated_ts=$(date -d "$updated" +%s 2>/dev/null || echo 0)
       local cutoff
@@ -641,7 +623,8 @@ prune_command() {
         ((candidates++))
       fi
     fi
-  done
+  done <<<"$names"
+
   if [[ "$force" == "true" ]]; then
     echo "Pruned $removed worktrees"
   else
@@ -653,194 +636,23 @@ prune_command() {
   fi
 }
 
-exec_command() {
-  local name="$1"
-  shift
-  local separator_found="false"
-  local cmd=()
-  for arg in "$@"; do
-    if [[ "$separator_found" == "false" ]]; then
-      if [[ "$arg" == "--" ]]; then
-        separator_found="true"
-      else
-        echo "Unexpected argument before --: $arg" >&2
-        exit 1
-      fi
-    else
-      cmd+=("$arg")
-    fi
-  done
-  if [[ "$separator_found" == "false" ]]; then
-    echo "Usage: /worktree exec <name> -- <command>" >&2
-    exit 1
-  fi
-  with_meta "$name"
-  local path
-  path=$(jq -r '.path' "$(meta_path "$name")")
-  if [[ ${#cmd[@]} -eq 0 ]]; then
-    echo "Error: no command provided" >&2
-    exit 1
-  fi
-  (cd "$path" && "${cmd[@]}")
-}
-
-run_command() {
-  local name="$1"
-  local script="${2:-}"
-  if [[ -z "$script" ]]; then
-    echo "Usage: /worktree run <name> <script> [...args]" >&2
-    exit 1
-  fi
-  shift 2
-  with_meta "$name"
-  local path
-  path=$(jq -r '.path' "$(meta_path "$name")")
-  pnpm -C "$path" run "$script" "$@"
-}
-
-bootstrap_command() {
-  local name="$1"
-  with_meta "$name"
-  local path meta hash current
-  path=$(jq -r '.path' "$(meta_path "$name")")
-  if [[ ! -f "$MAIN_REPO/pnpm-lock.yaml" ]]; then
-    echo "pnpm-lock.yaml not found in repo root; skipping install" >&2
-    return
-  fi
-  if ! command -v pnpm >/dev/null 2>&1; then
-    echo "Error: pnpm not available" >&2
-    exit 1
-  fi
-  hash="$(sha256sum "$MAIN_REPO/pnpm-lock.yaml" | awk '{print $1}')"
-  current=$(jq -r '.bootstrap.lockfile_sha // ""' "$(meta_path "$name")")
-  if [[ "$hash" == "$current" ]]; then
-    echo "pnpm-lock.yaml unchanged; skipping install"
-    return
-  fi
-  pnpm -C "$path" install --frozen-lockfile --prefer-offline
-  local now
-  now="$(NOW)"
-  update_meta "$name" --arg hash "$hash" --arg now "$now" '.bootstrap.lockfile_sha = $hash | .updated_at = $now'
-  log_event "$name" "bootstrap" "lockfile=$hash"
-  echo "Bootstrapped dependencies for $name"
-}
-
-attach_command() {
-  local branch="$1"
-  shift
-  local name=""
-  local path=""
-  local base="dev"
-  local agent=""
-  while [[ $# -gt 0 ]]; do
-    case "$1" in
-      --name)
-        name="$2"; shift 2 ;;
-      --path)
-        path="$2"; shift 2 ;;
-      --base)
-        base="$2"; shift 2 ;;
-      --agent)
-        agent="$2"; shift 2 ;;
-      *)
-        echo "Unknown flag: $1" >&2
-        exit 1 ;;
-    esac
-  done
-  [[ -n "$branch" ]] || { echo "Error: branch required" >&2; exit 1; }
-  if ! git rev-parse --verify "$branch" >/dev/null 2>&1; then
-    echo "Error: branch $branch not found" >&2
-    exit 1
-  fi
-  if [[ -z "$name" ]]; then
-  local base_slug="$branch"
-  if [[ "$base_slug" == "$BRANCH_PREFIX"/* ]]; then
-    base_slug="${base_slug#${BRANCH_PREFIX}/}"
-  fi
-    name="$(slugify "$base_slug")"
-  else
-    name="$(slugify "$name")"
-  fi
-  [[ -n "$name" ]] || { echo "Error: invalid managed name" >&2; exit 1; }
-  if [[ -z "$path" ]]; then
-    path="$(worktree_path "$name")"
-  fi
-  if [[ -f "$(meta_path "$name")" ]]; then
-    echo "Error: worktree name '$name' already managed" >&2
-    exit 1
-  fi
-  if [[ -e "$path" ]]; then
-    echo "Error: path $path already exists" >&2
-    exit 1
-  fi
-  git worktree add "$path" "$branch"
-  local created meta
-  created="$(NOW)"
-  meta=$(jq -n \
-    --arg name "$name" \
-    --arg branch "$branch" \
-    --arg base "$base" \
-    --arg path "$path" \
-    --arg agent "$agent" \
-    --arg created "$created" ' {
-      name: $name,
-      branch: $branch,
-      base: $base,
-      path: $path,
-      agent: $agent,
-      created_at: $created,
-      updated_at: $created,
-      status: {}
-    }
-    | (if $agent == "" then del(.agent) else . end)
-  ')
-  write_meta "$name" "$meta"
-  log_event "$name" "attach" "branch=$branch"
-  echo "Attached $branch as worktree $name"
-}
-
-annotate_command() {
-  local name="$1"
-  shift
-  local meta_json=""
-  while [[ $# -gt 0 ]]; do
-    case "$1" in
-      --meta)
-        meta_json="$2"; shift 2 ;;
-      *) echo "Unknown flag: $1" >&2; exit 1 ;;
-    esac
-  done
-  [[ -n "$meta_json" ]] || { echo "Error: --meta '{...}' required" >&2; exit 1; }
-  with_meta "$name"
-  jq -n --argjson meta "$meta_json" '$meta' >/dev/null 2>&1 || { echo "Invalid JSON" >&2; exit 1; }
-  local now
-  now="$(NOW)"
-  update_meta "$name" --argjson payload "$meta_json" --arg now "$now" '.metadata = ((.metadata // {}) + $payload) | .updated_at = $now'
-  log_event "$name" "annotate" "payload=${meta_json}"
-  echo "Annotated $name"
-}
-
-logs_command() {
-  local name="$1"
-  local file="$(log_path "$name")"
-  if [[ ! -f "$file" ]]; then
-    echo "No logs for $name"
-    return
-  fi
-  cat "$file"
-}
-
 doctor_command() {
   local issues=0
-  local files=("$META_DIR"/*.json)
-  if [[ ! -e "${files[0]}" ]]; then
-    files=()
+  local names
+  names=$(wt_list_names)
+
+  if [[ -z "$names" ]]; then
+    echo "No managed worktrees"
+    return
   fi
-  for file in "${files[@]}"; do
-    local name path branch
-    name="$(basename "$file" .json)"
-    path=$(jq -r '.path' "$file")
-    branch=$(jq -r '.branch' "$file")
+
+  while IFS= read -r name; do
+    [[ -z "$name" ]] && continue
+
+    local path branch
+    path=$(wt_get "$name" "path")
+    branch=$(wt_get "$name" "branch")
+
     if [[ ! -d "$path" ]]; then
       echo "Missing path for $name: $path"
       ((issues++))
@@ -849,58 +661,13 @@ doctor_command() {
       echo "Branch missing for $name: $branch"
       ((issues++))
     fi
-  done
+  done <<<"$names"
+
   if [[ "$issues" -eq 0 ]]; then
     echo "All worktrees healthy"
   else
     echo "$issues issue(s) detected"
   fi
-}
-
-merge_command() {
-  local name="$1"
-  shift
-  local target="dev"
-  local no_ff="false"
-  while [[ $# -gt 0 ]]; do
-    case "$1" in
-      --to)
-        target="$2"; shift 2 ;;
-      --no-ff)
-        no_ff="true"; shift ;;
-      *) echo "Unknown flag: $1" >&2; exit 1 ;;
-    esac
-  done
-  with_meta "$name"
-  local meta path branch
-  meta=$(load_meta "$name")
-  path=$(jq -r '.path' <<<"$meta")
-  branch=$(jq -r '.branch' <<<"$meta")
-  ensure_git_clean
-  git fetch origin "$target"
-  git checkout "$target"
-  git pull origin "$target"
-  if [[ "$no_ff" == "true" ]]; then
-    git merge "$branch"
-  else
-    if git merge --ff-only "$branch" 2>/dev/null; then
-      :
-    else
-      echo "Fast-forward merge failed; attempting to rebase $branch onto $target" >&2
-      cd "$path"
-      if git rebase "$target" 2>/dev/null; then
-        cd "$MAIN_REPO"
-        git merge --ff-only "$branch"
-      else
-        git rebase --abort >/dev/null 2>&1 || true
-        echo "Error: automatic rebase failed for $branch onto $target" >&2
-        echo "Resolve manually, then rerun /worktree merge with --no-ff if needed." >&2
-        exit 1
-      fi
-    fi
-  fi
-  log_event "$name" "merge" "into=$target"
-  echo "Merged $branch into $target"
 }
 
 usage() {
@@ -911,54 +678,21 @@ Core:
   list [--json]
   status <name>
   open <name>
-  create <name> [--issue N] [--base dev] [--agent ID] [--lock] [--install] [--branch NAME]
+  create <name> [--issue N] [--base dev] [--agent ID] [--lock] [--branch NAME]
   delete <name> [--keep-branch] [--force]
   prune [--merged] [--stale HOURS] [--force]
-  guide
+  doctor
 
 Locks & ownership:
   lock <name> --agent ID [--reason TEXT] [--ttl 6h] [--force]
   unlock <name> [--agent ID] [--force]
   who <name>
-  transfer <name> --from A --to B
-
-Helpers:
-  attach <branch> [--path DIR] [--name NAME] [--base dev] [--agent ID]
-  exec <name> -- <command>
-  run <name> <script> [...args]
-  bootstrap <name>
-  merge <name> [--to dev] [--no-ff]
-  annotate <name> --meta '{...}'
-  logs <name>
-  doctor
 HELP
-}
-
-guide_command() {
-  cat <<'EOF'
-Worktree quick guide:
-
-1. Handle task inline: stay on dev/main unless isolation is requested.
-2. Main agent personal worktree: /worktree create <slug> --lock --agent <you> [--install]
-   - Work inside the returned path; run /worktree status <slug> as needed.
-3. Delegate to subagent: /worktree create <slug> --issue <N> --agent <sub> --lock [--install]
-   - Share "open" output with the subagent. Unlock or transfer when they finish.
-   - Kick off actual work via Task tool: `/task dispatch <issue> worktree=<slug>`.
-
-Check state:
-  /worktree list --json    # Overview of managed worktrees
-  /worktree who <slug>      # Current lock owner + TTL
-
-Clean up after merge:
-  /worktree delete <slug>   # Removes worktree and branch (if merged)
-  /worktree prune --merged --force
-EOF
 }
 
 case "${1:-}" in
   list) shift; list_command "$@" ;;
   create) shift; create_command "$@" ;;
-  attach) shift; attach_command "$@" ;;
   open) shift; open_command "$1" ;;
   status) shift; status_command "$1" ;;
   delete) shift; delete_command "$@" ;;
@@ -966,15 +700,7 @@ case "${1:-}" in
   lock) shift; lock_command "$@" ;;
   unlock) shift; unlock_command "$@" ;;
   who) shift; who_command "$1" ;;
-  transfer) shift; transfer_command "$@" ;;
-  exec) shift; exec_command "$@" ;;
-  run) shift; run_command "$@" ;;
-  bootstrap) shift; bootstrap_command "$1" ;;
-  merge) shift; merge_command "$@" ;;
-  annotate) shift; annotate_command "$@" ;;
-  logs) shift; logs_command "$1" ;;
   doctor) shift; doctor_command "$@" ;;
-  guide) shift; guide_command ;;
   ""|-h|--help|help)
     usage ;;
   *)
