@@ -47,14 +47,14 @@ You are running in an isolated agent context, separate from the parent orchestra
 For each chunk, create an isolated worktree:
 
 ```bash
-/worktree:create <worktree-name> --base <base-branch>
+/orc:wt create <worktree-name> --base <base-branch>
 ```
 
 Example:
 ```bash
-/worktree:create wt-backend --base feat/user-auth
-/worktree:create wt-frontend --base feat/user-auth
-/worktree:create wt-database --base feat/user-auth
+/orc:wt create wt-backend --base feat/user-auth
+/orc:wt create wt-frontend --base feat/user-auth
+/orc:wt create wt-database --base feat/user-auth
 ```
 
 Each worktree gets its own branch from base.
@@ -62,7 +62,7 @@ Each worktree gets its own branch from base.
 After creating each worktree, retrieve its path and branch information:
 
 ```bash
-/worktree:open <worktree-name>
+/orc:wt open <worktree-name>
 ```
 
 This returns:
@@ -73,8 +73,8 @@ You'll need these to pass to implementation agents in the next step.
 
 Example:
 ```bash
-/worktree:create wt-backend --base feat/user-auth
-/worktree:open wt-backend
+/orc:wt create wt-backend --base feat/user-auth
+/orc:wt open wt-backend
 # Returns: /home/user/project/.worktrees/wt-backend, branch: wt-backend-branch
 ```
 
@@ -257,14 +257,14 @@ Wait for merge-resolver to return, then continue to next worktree.
 After all merges complete successfully:
 
 ```bash
-/worktree:delete <worktree-name>
+/orc:wt delete <worktree-name>
 ```
 
 Example:
 ```bash
-/worktree:delete wt-backend
-/worktree:delete wt-frontend
-/worktree:delete wt-database
+/orc:wt delete wt-backend
+/orc:wt delete wt-frontend
+/orc:wt delete wt-database
 ```
 
 ---
