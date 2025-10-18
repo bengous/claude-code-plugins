@@ -259,8 +259,8 @@ Even for simple tasks, you MUST delegate to a subagent using the Task tool. NEVE
    - Files to read (from Phase 2)
 
    Agent will:
-   - Create worktrees using /worktree:create
-   - Get worktree paths/branches using /worktree:open
+   - Create worktrees using /orc:wt create
+   - Get worktree paths/branches using /orc:wt open
    - Analyze file dependencies
    - Return YAML execution plan
 
