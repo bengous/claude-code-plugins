@@ -7,12 +7,10 @@ if ! command -v gh >/dev/null 2>&1; then
   exit 1
 fi
 
-# Get script directory and main repo
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-if MAIN_REPO="$(git -C "$SCRIPT_DIR" rev-parse --show-toplevel 2>/dev/null)"; then
-  :
-else
-  MAIN_REPO="$(cd "$SCRIPT_DIR/../../../.." && pwd)"
+# Use current working directory's git repo
+if ! MAIN_REPO="$(git rev-parse --show-toplevel 2>/dev/null)"; then
+  echo "Error: Not in a git repository" >&2
+  exit 1
 fi
 cd "$MAIN_REPO"
 
