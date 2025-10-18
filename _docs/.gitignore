@@ -1,0 +1,13 @@
+# Ignore downloaded documentation (generated content)
+scraped/*
+
+# Keep the directory structure
+!scraped/.gitkeep
+
+# Ignore external reference repositories (independent git repos)
+references/*
+
+# Keep the directory structure and setup files
+!references/.gitkeep
+!references/README.md
+!references/setup.sh
