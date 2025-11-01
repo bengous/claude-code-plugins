@@ -1,0 +1,21 @@
+{
+  "name": "mermaid-diagrams",
+  "version": "1.0.0",
+  "description": "Create and edit Mermaid diagrams for software engineering work, architectural ideas, and technical documentation",
+  "author": {
+    "name": "Augustin BENGOLEA",
+    "email": "bengous@protonmail.com"
+  },
+  "license": "MIT",
+  "keywords": [
+    "mermaid",
+    "diagrams",
+    "visualization",
+    "documentation",
+    "architecture",
+    "flowchart",
+    "sequence",
+    "class-diagram",
+    "er-diagram"
+  ]
+}
