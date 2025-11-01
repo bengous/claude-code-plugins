@@ -5,6 +5,33 @@ All notable changes to the Claude Orchestration Plugin will be documented in thi
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.0] - 2025-11-01
+
+### Changed
+- **Simplified architecture**: `/orc` command now uses native `git worktree add/remove/list` instead of custom wrappers
+- Updated agent templates (planning-coordinator, merge-coordinator, coordinator) to use git commands directly
+- Improved reliability by using standard git commands instead of custom implementations
+- Updated plugin description and keywords to focus on core orchestration
+- Removed 1,295 lines of backend script code for simpler maintenance
+
+### Removed
+- Utility commands: `/worktree:*`, `/orc:wt`, `/issue:*`, `/pr` (32 command files)
+- Backend scripts: `scripts/worktree/worktree`, `scripts/issue/issue`
+- Hooks system: `hooks/worktree-guard.py`, `hooks/hooks.json`
+- Documentation: worktree, issue, PR, hooks, workflows guides
+
+### Impact
+- **Core `/orc` orchestration workflow unchanged** - same user-facing behavior
+- Implementation now uses standard git/gh commands (more reliable, better LLM compatibility)
+- Removed standalone utility commands - users should use `/orc` for orchestration or native git commands directly
+
+### Rationale
+Custom command wrappers added complexity and LLM inconsistency. Native git commands are:
+- More reliable and consistent
+- Better understood by LLMs
+- Easier to maintain
+- Standard across all environments
+
 ## [0.2.9] - 2025-10-13
 
 ### Changed

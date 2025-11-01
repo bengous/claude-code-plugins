@@ -58,46 +58,34 @@ Mark items as in_progress/completed as you work through sequential merges.
 
 ---
 
-## Worktree Commands Tutorial
+## Git Worktree Commands
 
-You will use the `/orc:wt` dispatcher to manage isolated git worktrees. Here's a quick reference:
+You will use native `git worktree` commands to manage worktree cleanup after merging.
 
 ### Available Commands
 
 **Core Operations:**
-- `/orc:wt create <name> [--base BRANCH] [--agent ID]` - Create new worktree
-- `/orc:wt open <name>` - Get worktree path and branch
-- `/orc:wt list [--json]` - List all worktrees
-- `/orc:wt delete <name>` - Delete worktree
-- `/orc:wt status <name>` - Show git status
-
-**Lock Operations (for coordination):**
-- `/orc:wt lock <name> [--agent ID] [--ttl DURATION]` - Acquire lock
-- `/orc:wt unlock <name>` - Release lock
-- `/orc:wt who <name>` - Check lock owner
-
-**Maintenance:**
-- `/orc:wt prune [--merged]` - Clean up old worktrees
-- `/orc:wt doctor` - Health check
+- `git worktree list` - List all worktrees
+- `git worktree remove <path>` - Delete worktree
+- `git status` (in worktree directory) - Check status
 
 ### Common Patterns for Merge Coordinator
 
 **Check worktree status before merging:**
 ```bash
-/orc:wt status wt-backend
-# Shows git status, uncommitted changes, etc.
+cd <worktree-path>
+git status
 ```
 
 **Delete worktree after successful merge:**
 ```bash
-/orc:wt delete wt-backend
-# Removes worktree directory, branch, and metadata
+git worktree remove <worktree-path>
 ```
 
 **List all worktrees to verify cleanup:**
 ```bash
-/orc:wt list
-# Should be empty after all merges complete
+git worktree list
+# Should show only main worktree after cleanup
 ```
 
 **Note:** You typically only need `status`, `delete`, and `list`. The planning coordinator handles `create`.
@@ -227,14 +215,14 @@ Then continue to next worktree in merge order.
 After all merges complete successfully:
 
 ```bash
-/orc:wt delete <worktree-name>
+git worktree remove <worktree-path>
 ```
 
 Example:
 ```bash
-/orc:wt delete wt-backend
-/orc:wt delete wt-frontend
-/orc:wt delete wt-database
+git worktree remove ../worktrees/wt-backend
+git worktree remove ../worktrees/wt-frontend
+git worktree remove ../worktrees/wt-database
 ```
 
 **Verify cleanup**: All temporary worktrees should be deleted.
