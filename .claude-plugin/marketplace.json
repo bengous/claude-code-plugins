@@ -47,6 +47,29 @@
         "automation"
       ],
       "source": "./git-tools"
+    },
+    {
+      "name": "mermaid-diagrams",
+      "description": "Create and edit Mermaid diagrams for software engineering work, architectural ideas, and technical documentation",
+      "version": "1.0.0",
+      "author": {
+        "name": "Augustin BENGOLEA",
+        "email": "bengous@protonmail.com"
+      },
+      "homepage": "https://github.com/bengous/claude-code-plugins",
+      "license": "MIT",
+      "keywords": [
+        "mermaid",
+        "diagrams",
+        "visualization",
+        "documentation",
+        "architecture",
+        "flowchart",
+        "sequence",
+        "class-diagram",
+        "er-diagram"
+      ],
+      "source": "./mermaid-diagrams"
     }
   ]
 }
