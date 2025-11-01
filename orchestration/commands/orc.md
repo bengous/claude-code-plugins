@@ -259,8 +259,8 @@ Even for simple tasks, you MUST delegate to a subagent using the Task tool. NEVE
    - Files to read (from Phase 2)
 
    Agent will:
-   - Create worktrees using /orc:wt create
-   - Get worktree paths/branches using /orc:wt open
+   - Create worktrees using `git worktree add` commands
+   - Track worktree paths and branches
    - Analyze file dependencies
    - Return YAML execution plan
 
@@ -386,14 +386,14 @@ Launch 3 code-reviewer agents in parallel:
 
 ### 1. Create Pull Request
 
-Create single PR from base branch to dev:
+Create single PR from base branch to dev using `gh` CLI:
 ```bash
-/pr:create --head <prefix>/<name> --base dev --title "..." --body "..."
+gh pr create --head <prefix>/<name> --base dev --title "..." --body "..." --fill
 ```
 
 Example:
 ```
-/pr:create --head feat/user-authentication --base dev
+gh pr create --head feat/user-authentication --base dev --fill
 ```
 
 **Important**: Single PR strategy. No sub-PRs.
@@ -426,9 +426,6 @@ Pre-commit and pre-push hooks automatically run:
 
 **You don't need to run these manually.** They happen automatically on commit/push. If they fail, the commit/push is blocked. The workflow doesn't need to orchestrate quality gates - they're enforced by git hooks.
 
-### Worktree Isolation (COMPLEX Path Only)
-The `worktree-guard.py` hook ensures agents don't run commands in wrong worktrees. This is a **safety mechanism** (blocks dangerous operations), not workflow enforcement.
-
 ### State Management
 Use TodoWrite exclusively for tracking progress. No JSON files, no marker files, no custom state.
 
@@ -440,6 +437,6 @@ Subagents (planning coordinator, implementation agents, merge coordinator) are s
 - Parent receives return message and proceeds
 
 ### Concurrency Model
-No locks needed. Worktrees provide isolation. Trust orchestration not to create duplicate worktrees.
+No locks needed. Git worktrees provide isolation for parallel development. Agents work in separate worktree directories without conflicts.
 
 ---

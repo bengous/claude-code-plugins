@@ -58,50 +58,33 @@ Mark items as in_progress/completed as you work through them.
 
 ---
 
-## Worktree Commands Tutorial
+## Git Worktree Commands
 
-You will use the `/orc:wt` dispatcher to manage isolated git worktrees. Here's a quick reference:
+You will use native `git worktree` commands to manage isolated development environments. Here's a quick reference:
 
 ### Available Commands
 
 **Core Operations:**
-- `/orc:wt create <name> [--base BRANCH] [--agent ID]` - Create new worktree
-- `/orc:wt open <name>` - Get worktree path and branch
-- `/orc:wt list [--json]` - List all worktrees
-- `/orc:wt delete <name>` - Delete worktree
-- `/orc:wt status <name>` - Show git status
-
-**Lock Operations (for coordination):**
-- `/orc:wt lock <name> [--agent ID] [--ttl DURATION]` - Acquire lock
-- `/orc:wt unlock <name>` - Release lock
-- `/orc:wt who <name>` - Check lock owner
-
-**Maintenance:**
-- `/orc:wt prune [--merged]` - Clean up old worktrees
-- `/orc:wt doctor` - Health check
+- `git worktree add <path> -b <branch> <base>` - Create new worktree
+- `git worktree list` - List all worktrees
+- `git worktree remove <path>` - Delete worktree
 
 ### Common Patterns for Planning Coordinator
 
 **Create worktree from base branch:**
 ```bash
-/orc:wt create wt-backend --base feat/user-auth
+git worktree add ../worktrees/wt-backend -b wt-backend-branch feat/user-auth
 ```
 
-**Get worktree details (critical for delegation):**
+**List all worktrees:**
 ```bash
-/orc:wt open wt-backend
-# Output format:
-# Line 1: /absolute/path/to/.worktrees/wt-backend
-# Line 2: wt-backend-branch
+git worktree list
 ```
 
-**List all managed worktrees:**
-```bash
-/orc:wt list --json
-# Returns JSON array with all worktrees and metadata
-```
+**Get worktree path:**
+After creating a worktree, you'll have the path you specified in the `add` command. Store this path for delegation to implementation agents.
 
-**Note:** You typically only need `create` and `open`. The merge coordinator handles `delete`.
+**Note:** Use a consistent naming convention like `../worktrees/wt-<name>` for all worktree paths.
 
 ---
 
@@ -118,42 +101,43 @@ You will use the `/orc:wt` dispatcher to manage isolated git worktrees. Here's a
 
 ### 1. Create Worktrees for Each Chunk
 
-For each chunk in the task breakdown, create an isolated worktree:
+For each chunk in the task breakdown, create an isolated worktree using git worktree:
 
 ```bash
-/orc:wt create <worktree-name> --base <base-branch>
+git worktree add <path> -b <branch-name> <base-branch>
 ```
 
-**Naming convention**: `wt-<chunk-identifier>`
+**Naming convention**:
+- Path: `../worktrees/wt-<chunk-identifier>`
+- Branch: `wt-<chunk-identifier>-branch`
 
 Example:
 ```bash
-/orc:wt create wt-backend --base feat/user-auth
-/orc:wt create wt-frontend --base feat/user-auth
-/orc:wt create wt-database --base feat/user-auth
+git worktree add ../worktrees/wt-backend -b wt-backend-branch feat/user-auth
+git worktree add ../worktrees/wt-frontend -b wt-frontend-branch feat/user-auth
+git worktree add ../worktrees/wt-database -b wt-database-branch feat/user-auth
 ```
 
 ---
 
-### 2. Retrieve Worktree Information
+### 2. Track Worktree Information
 
-After creating each worktree, get its path and branch:
+After creating each worktree, store its path and branch name for delegation:
 
-```bash
-/orc:wt open <worktree-name>
+- Worktree path: The path you specified in the `git worktree add` command
+- Branch name: The branch you created with `-b`
+
+Example tracking:
+```yaml
+wt-backend:
+  path: ../worktrees/wt-backend
+  branch: wt-backend-branch
+wt-frontend:
+  path: ../worktrees/wt-frontend
+  branch: wt-frontend-branch
 ```
 
-This returns:
-- Worktree absolute path: `/path/to/worktree/<worktree-name>`
-- Branch name: `<worktree-name>-branch`
-
-Example:
-```bash
-/orc:wt open wt-backend
-# Returns: /home/user/project/.worktrees/wt-backend, branch: wt-backend-branch
-```
-
-Store this information for each worktree to include in your execution plan.
+Include this information in your execution plan for implementation agents.
 
 ---
 

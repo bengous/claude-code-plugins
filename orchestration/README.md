@@ -4,30 +4,17 @@ Advanced orchestration system for managing development workflows with Claude Cod
 
 ## Features
 
-This plugin provides a streamlined command set for sophisticated development workflow management:
+Multi-agent task orchestration with an 8-phase workflow:
 
 ### Orchestration (`/orc`)
 
-Multi-agent task delegation and coordination with 8-phase workflow:
+Comprehensive task delegation and coordination:
 
 - `/orc <task>` - Orchestrate tasks with BASE/COMPLEX routing
-- Automatic task classification
-- Parallel execution for complex features
-- Built-in quality review and PR automation
-
-### Worktree Management (`/orc:wt`)
-
-Isolated development environments for the /orc workflow:
-
-- `/orc:wt list` - List all managed worktrees
-- `/orc:wt create <name>` - Create new isolated worktree
-- `/orc:wt open <name>` - Get worktree path and branch (for delegation)
-- `/orc:wt status <name>` - Show detailed git status
-- `/orc:wt delete <name>` - Remove worktree
-- `/orc:wt lock/unlock <name>` - Manage exclusive access locks
-- `/orc:wt who <name>` - Show lock owner
-- `/orc:wt prune` - Clean up old worktrees
-- `/orc:wt doctor` - Health check all worktrees
+- Automatic task classification (single vs. parallel agents)
+- Parallel execution for complex features using git worktrees
+- Built-in quality review
+- Automated PR creation
 
 ## Installation
 
@@ -39,32 +26,36 @@ Isolated development environments for the /orc workflow:
 
 ### Usage
 
-After installation, commands are available through the slash command interface:
+After installation, use the `/orc` command to orchestrate feature development:
 
 ```bash
 # Orchestrate a feature with 8-phase workflow
 /orc "Add user authentication"
 
-# Manage worktrees directly
-/orc:wt list
-/orc:wt create my-feature --base dev --agent me --lock
-/orc:wt status my-feature
-/orc:wt delete my-feature
+# The orchestrator will:
+# 1. Explore codebase
+# 2. Ask clarifying questions
+# 3. Design architecture
+# 4. Classify as BASE or COMPLEX
+# 5. Implement (single agent or parallel)
+# 6. Review code quality
+# 7. Create pull request
 ```
 
 ## Architecture
 
-The plugin wraps existing shell script backends for maximum reliability:
+The plugin provides a structured orchestration workflow:
 
-- **Commands**: Markdown files with frontmatter defining behavior
-- **Scripts**: Battle-tested shell scripts providing implementation
-- **Security**: `allowed-tools` restrictions maintain security boundaries
+- **8-Phase Workflow**: From discovery to PR creation
+- **Multi-Agent Coordination**: Parallel execution for complex features
+- **Git Worktree Isolation**: Separate worktrees for parallel development
+- **Quality Review**: Automated code review before PR creation
 
 ## Requirements
 
 - Claude Code CLI
 - Git with worktree support
-- `jq` for JSON processing
+- `gh` CLI for GitHub operations
 
 ## License
 
