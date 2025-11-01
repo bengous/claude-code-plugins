@@ -7,97 +7,65 @@
 1. [Getting Started](getting-started.md) - Quick start guide and installation
 2. [Architecture](architecture.md) - System design and core concepts
 3. [Command Reference](#command-reference) - Complete command documentation
-4. [Workflows](workflows.md) - Common patterns and best practices
-5. [Safety Hooks](hooks.md) - Automatic workflow guards
-6. [Troubleshooting](troubleshooting.md) - Common issues and solutions
 
 ## Command Reference
 
-### Worktree Management
-📁 [Worktree Commands](commands/worktree.md) - 19 commands for isolated development environments
-
-- `/worktree` - List all managed worktrees
-- `/worktree:create` - Create isolated worktree
-- `/worktree:delete` - Remove worktree safely
-- `/worktree:status` - Show detailed status
-- `/worktree:lock/unlock` - Manage exclusive access
-- [+ 14 more commands](commands/worktree.md)
-
-### Issue Management
-🐛 [Issue Commands](commands/issue.md) - 8 commands for GitHub issue operations
-
-- `/issue` - List issues with filters
-- `/issue:create` - Create new issue
-- `/issue:view` - View issue details
-- `/issue:comment` - Add comments
-- `/issue:label` - Manage labels
-- [+ 3 more commands](commands/issue.md)
-
 ### Orchestration
-🎯 [Orchestration Commands](commands/orchestration.md) - Task delegation and coordination
+🎯 [Orchestration Command](commands/orchestration.md) - Multi-agent task delegation and coordination
 
-- `/orc` - Main orchestration command
-- `/orc:start` - Plan and execute with SIMPLE/MEDIUM/COMPLEX routing
-
-### Pull Request Workflows
-🔀 [PR Commands](commands/pr.md) - Pull request automation
-
-- `/pr` - Create or surface PR (idempotent)
-- `/pr:create` - Create PR with custom parameters
+- `/orc <task>` - Main orchestration command with 8-phase workflow
+  - Discovery: Understand requirements
+  - Exploration: Analyze codebase
+  - Clarification: Resolve ambiguities
+  - Architecture: Design approach
+  - Classification: BASE or COMPLEX routing
+  - Implementation: Execute with agents
+  - Quality Review: Code review
+  - PR Creation: Automated pull request
 
 ## Quick Reference
 
-### Common Workflows
+### Usage
 
 ```bash
-# Create issue and start orchestrated task
-/issue:create issue-title="Add dark mode" priority=high
-/orc:start "Implement dark mode toggle" --issue 123 --confirm
+# Orchestrate a feature with full 8-phase workflow
+/orc "Add user authentication"
 
-# Create isolated worktree for feature
-/worktree:create my-feature --issue 123 --agent me --lock --install
-
-# Check worktree status and locks
-/worktree:status
-
-# Create PR from current branch
-/pr:create --base dev
-
-# Clean up completed worktrees
-/worktree:prune --force
+# The orchestrator handles everything:
+# - Codebase exploration
+# - Clarifying questions
+# - Architecture design
+# - Parallel execution (if complex)
+# - Quality review
+# - PR creation
 ```
 
-### Orchestration Paths
+### Execution Paths
 
 | Path | Use Case | Execution |
 |------|----------|-----------|
-| **SIMPLE** | Trivial changes (<30 lines, single file) | Direct work on current branch |
-| **MEDIUM** | Isolated features (single module) | Optional worktree isolation |
-| **COMPLEX** | Multi-step, cross-cutting changes | Dedicated base branch + sub-PRs |
-
-### Safety Features
-
-The plugin includes three automatic safety hooks:
-
-1. **worktree-guard** - Prevents raw git worktree commands
-2. **pr-guard** - Enforces COMPLEX mode PR targeting rules
-3. **planmode** - Ensures /orc:start uses planning phase
-
-Learn more in [Safety Hooks Documentation](hooks.md).
+| **BASE** | Single-agent implementation | One agent implements feature on base branch |
+| **COMPLEX** | Multi-chunk parallel work | Multiple agents in isolated git worktrees, merged sequentially |
 
 ## Key Concepts
 
-### Worktrees
-Git worktrees allow multiple working directories from the same repository. The plugin manages worktrees with:
-- Metadata tracking (`.claude/worktrees/`)
-- Lock management for exclusive access
-- Agent delegation support
-- Automatic cleanup and health checks
+### 8-Phase Workflow
+The `/orc` command follows a structured workflow:
+1. **Discovery**: Understand what needs to be built
+2. **Exploration**: Deep codebase analysis with explorer agents
+3. **Clarification**: Ask user questions to resolve ambiguities
+4. **Architecture**: Design multiple approaches, present options
+5. **Classification**: Determine BASE vs COMPLEX execution
+6. **Implementation**: Execute with single or multiple agents
+7. **Quality Review**: Automated code review
+8. **PR Creation**: Generate pull request with `gh` CLI
 
-### Orchestration
-Intelligent task routing based on complexity:
-- Automatic classification (SIMPLE/MEDIUM/COMPLEX)
-- State persistence (`.claude/run/`)
+### Multi-Agent Coordination
+For complex features, the orchestrator:
+- Spawns planning coordinator to create git worktrees
+- Delegates chunks to parallel implementation agents
+- Merges work sequentially via merge coordinator
+- Ensures isolation and conflict resolution
 - Concurrency control via locks
 - PR workflow automation
 

@@ -47,14 +47,14 @@ You are running in an isolated agent context, separate from the parent orchestra
 For each chunk, create an isolated worktree:
 
 ```bash
-/orc:wt create <worktree-name> --base <base-branch>
+git worktree add <worktree-path> -b <branch-name> <base-branch>
 ```
 
 Example:
 ```bash
-/orc:wt create wt-backend --base feat/user-auth
-/orc:wt create wt-frontend --base feat/user-auth
-/orc:wt create wt-database --base feat/user-auth
+git worktree add ../worktrees/wt-backend -b wt-backend-branch feat/user-auth
+git worktree add ../worktrees/wt-frontend -b wt-frontend-branch feat/user-auth
+git worktree add ../worktrees/wt-database -b wt-database-branch feat/user-auth
 ```
 
 Each worktree gets its own branch from base.
@@ -62,7 +62,7 @@ Each worktree gets its own branch from base.
 After creating each worktree, retrieve its path and branch information:
 
 ```bash
-/orc:wt open <worktree-name>
+git worktree list
 ```
 
 This returns:
@@ -257,14 +257,14 @@ Wait for merge-resolver to return, then continue to next worktree.
 After all merges complete successfully:
 
 ```bash
-/orc:wt delete <worktree-name>
+git worktree remove <worktree-path>
 ```
 
 Example:
 ```bash
-/orc:wt delete wt-backend
-/orc:wt delete wt-frontend
-/orc:wt delete wt-database
+git worktree remove ../worktrees/wt-backend
+git worktree remove ../worktrees/wt-frontend
+git worktree remove ../worktrees/wt-database
 ```
 
 ---
