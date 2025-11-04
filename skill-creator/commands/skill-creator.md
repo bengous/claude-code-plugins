@@ -1,7 +1,7 @@
 ---
 description: Guide for creating effective Claude skills
 allowed-tools:
-  - Skill(*:*)
+  - Read(*:*)
 model: claude-sonnet-4-5
 ---
 
@@ -9,7 +9,7 @@ model: claude-sonnet-4-5
 
 A comprehensive guide for creating effective Claude Code skills, with utilities for initialization, validation, and packaging.
 
-## What This Skill Provides
+## What This Plugin Provides
 
 - **Complete skill creation guide**: Best practices, patterns, and conventions
 - **Reference documentation**: Output patterns and workflow examples
@@ -24,15 +24,18 @@ A comprehensive guide for creating effective Claude Code skills, with utilities 
 
 ## Your Task
 
-Invoke the skill-creator skill to access the complete guide:
+Read and present the complete skill creation guide to the user:
 
 ```
-skill-creator:skill-creator
+Read the file: ${CLAUDE_PLUGIN_ROOT}/SKILL.md
 ```
 
-This will load SKILL.md which contains comprehensive documentation on:
+This file contains comprehensive documentation on:
 - Skill creation best practices
 - Structural conventions
-- Output patterns
+- Output patterns and formatting
 - Workflow examples
 - Quality guidelines
+- Common pitfalls and how to avoid them
+
+After reading SKILL.md, summarize the key sections and let the user know they can ask questions about any specific aspect of skill creation.

@@ -2,7 +2,7 @@
 description: Initialize a new skill
 argument-hint: <name> [--path <dir>]
 allowed-tools:
-  - Bash("${CLAUDE_PLUGIN_ROOT}/scripts/init_skill.py":*)
+  - Bash(*:*)
   - Read(*:*)
 model: claude-sonnet-4-5
 ---
