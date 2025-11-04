@@ -1,0 +1,11 @@
+{
+  "name": "skill-creator",
+  "version": "1.0.0",
+  "description": "Guide for creating effective Claude skills with utilities for initialization, validation, and packaging",
+  "author": {
+    "name": "Anthropic",
+    "email": "support@anthropic.com"
+  },
+  "license": "Apache-2.0",
+  "keywords": ["skills", "development", "creation", "guide", "tooling"]
+}
