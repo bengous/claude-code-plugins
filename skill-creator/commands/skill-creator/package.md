@@ -2,7 +2,7 @@
 description: Package a skill for distribution
 argument-hint: <path> [--output <dir>]
 allowed-tools:
-  - Bash("${CLAUDE_PLUGIN_ROOT}/scripts/package_skill.py":*)
+  - Bash(*:*)
   - Read(*:*)
 model: claude-sonnet-4-5
 ---

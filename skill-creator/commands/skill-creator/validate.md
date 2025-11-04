@@ -2,7 +2,7 @@
 description: Validate skill structure
 argument-hint: <path>
 allowed-tools:
-  - Bash("${CLAUDE_PLUGIN_ROOT}/scripts/quick_validate.py":*)
+  - Bash(*:*)
   - Read(*:*)
 model: claude-sonnet-4-5
 ---
