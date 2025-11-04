@@ -67,6 +67,25 @@
         "er-diagram"
       ],
       "source": "./mermaid-diagrams"
+    },
+    {
+      "name": "skill-creator",
+      "description": "Guide for creating effective Claude skills with utilities for initialization, validation, and packaging",
+      "version": "1.0.0",
+      "author": {
+        "name": "Anthropic",
+        "email": "support@anthropic.com"
+      },
+      "homepage": "https://github.com/bengous/claude-code-plugins",
+      "license": "Apache-2.0",
+      "keywords": [
+        "skills",
+        "development",
+        "creation",
+        "guide",
+        "tooling"
+      ],
+      "source": "./skill-creator"
     }
   ]
 }
