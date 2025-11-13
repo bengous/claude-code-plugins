@@ -9,6 +9,7 @@ Git Tools provides AI-powered interactive git commands that enhance your workflo
 ## Features
 
 - **Interactive Rebase**: Visual, multi-stage rebase workflow with AI-powered commit improvements
+- **Repository Cleanup**: Automated cleanup of stale branches, worktrees, and closed PRs
 - **Smart Commit Messages**: AI suggestions for reword operations following conventional commit patterns
 - **Conflict Guidance**: Step-by-step resolution instructions when conflicts arise
 - **Safety Checks**: Automatic backup branch creation and working directory validation
@@ -22,6 +23,54 @@ This plugin is part of the bengolea-plugins marketplace. To install:
 2. Install the git-tools plugin from the marketplace
 
 ## Commands
+
+### `/analyze-git`
+
+Analyze your git repository for cleanup opportunities. This is a READ-ONLY command that identifies:
+
+- Local branches marked as `[gone]` (remote deleted)
+- Prunable worktrees
+- Dependabot PRs that are closed/merged but still have branches
+- Overall branch inventory
+
+**Usage:**
+```bash
+/git-tools:analyze-git
+```
+
+**Output:**
+- Comprehensive report of cleanup opportunities
+- Branch counts and specific names
+- No modifications performed
+
+**Follow-up:** Use `/git-tools:cleanup-git` after reviewing the analysis.
+
+---
+
+### `/cleanup-git`
+
+Perform git repository cleanup based on `/analyze-git` findings.
+
+**IMPORTANT:** This command performs DESTRUCTIVE operations. Always run `/git-tools:analyze-git` first.
+
+**Usage:**
+```bash
+/git-tools:cleanup-git
+```
+
+**Operations:**
+1. Remove worktrees and delete branches marked as `[gone]`
+2. Prune stale worktrees
+3. Clean up closed/merged dependabot branches
+4. Provide cleanup summary
+
+**Safety:**
+- Preserves main/dev/master branches
+- Preserves current branch
+- Preserves active dependabot PRs (OPEN status)
+- Cannot be easily undone - use with caution
+
+---
 
 ### `/rebase`
 
