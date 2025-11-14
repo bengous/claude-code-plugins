@@ -1,0 +1,151 @@
+---
+description: Test architectural layer (delegates to layer-testing skill)
+argument-hint: <module> <layer> [--coverage <percent>]
+model: sonnet
+---
+
+# Test Layer Command
+
+Explicit wrapper for the layer-testing skill. Use this command to manually trigger layer testing, or just ask naturally and the skill will activate automatically.
+
+---
+
+## Usage
+
+**Explicit invocation:**
+```
+/test-layer <module> <layer> [--coverage <percent>]
+```
+
+**Examples:**
+- `/test-layer photoshoot core` - Test photoshoot/core with default 90% target
+- `/test-layer auth application --coverage 85` - Test auth/application with 85% coverage target
+- `/test-layer user infrastructure` - Test user/infrastructure with default 70% target
+
+**Natural invocation** (skill activates automatically):
+- "Test the core layer of the photoshoot module"
+- "I need comprehensive tests for the application layer"
+- "Generate tests for auth/infrastructure with 80% coverage"
+
+---
+
+## What This Command Does
+
+This command delegates to the **layer-testing skill**, which:
+
+1. **Reads testing strategy** from `.claude/testing-strategy.md`
+2. **Analyzes the target layer** (files, current coverage, what to test)
+3. **Creates isolated worktree** for safe parallel work
+4. **Spawns testing agent** with layer-specific strategy
+5. **Verifies quality gates** (coverage, tests passing, no production changes)
+6. **Provides recommendations** for next steps
+
+---
+
+## Prerequisites
+
+### Required: Testing Strategy File
+
+The layer-testing skill requires `.claude/testing-strategy.md` in your project root.
+
+**If missing**, run:
+```
+/setup-testing-strategy
+```
+
+This will interactively create the strategy file for your project.
+
+**Why required**: Different projects use different architectures (hexagonal, clean, layered, custom). The strategy file defines your project's testing approach, making the skill architecture-agnostic.
+
+---
+
+## Workflow (4 Phases)
+
+### Phase 1: Strategy & Analysis
+- Reads `.claude/testing-strategy.md`
+- Scans target layer directory
+- Categorizes files (testable vs skip)
+- Calculates coverage gap
+- Presents analysis and gets your approval
+
+### Phase 2: Execute
+- Creates worktree: `test/{module}-{layer}-coverage`
+- Spawns testing specialist agent
+- Agent works autonomously in isolation
+- You can continue working in main repository
+
+### Phase 3: Review
+- Verifies 5 quality gates:
+  1. Coverage >= target
+  2. All tests passing
+  3. Zero production code changes
+  4. Type-check passing
+  5. Lint passing
+- Presents comprehensive summary
+
+### Phase 4: Next Steps
+- Recommends next layer to test
+- Provides merge instructions
+- Calculates overall module progress
+
+---
+
+## Your Task
+
+Activate the layer-testing skill with the provided arguments:
+
+**Arguments to pass:**
+- MODULE: `$1` (first argument)
+- LAYER: `$2` (second argument)
+- COVERAGE: Extract from `--coverage` flag if present, otherwise use default from strategy
+
+**Execution:**
+
+Invoke the layer-testing skill and execute it with these arguments, following the skill's 4-phase workflow exactly as documented in:
+
+`orchestration/skills/layer-testing/SKILL.md`
+
+The skill will handle all phases autonomously. Your role is to facilitate the skill activation and pass the correct arguments.
+
+---
+
+## Troubleshooting
+
+**"Testing strategy file not found"**
+→ Run `/setup-testing-strategy` to create one
+
+**"Layer not found: {module}/{layer}"**
+→ Check module and layer names (case-sensitive)
+→ Verify path patterns in strategy file
+
+**"Coverage target unreachable"**
+→ Lower target: `/test-layer {module} {layer} --coverage 70`
+→ Or accept current coverage with justification
+
+**"Worktree path already exists"**
+→ Previous run didn't clean up
+→ Remove it: `rm -rf path` or `git worktree remove path --force`
+
+**"Agent modified production code"**
+→ Quality gate 3 failed
+→ Reject the commit, re-run with stricter instructions
+
+---
+
+## Documentation
+
+**For detailed information:**
+- **Skill documentation**: `orchestration/skills/layer-testing/SKILL.md`
+- **Workflow phases**: `orchestration/skills/layer-testing/references/workflow-phases.md`
+- **Quality gates**: `orchestration/skills/layer-testing/references/quality-gates.md`
+- **Testing patterns**: See example strategies in `orchestration/skills/layer-testing/templates/examples/`
+
+---
+
+## Notes
+
+- This command is just a thin wrapper for explicit invocation
+- The skill can also activate automatically when you ask naturally
+- The skill is architecture-agnostic (hexagonal, clean, layered, custom)
+- All testing logic lives in the skill, not this command
+- The skill creates isolated worktrees for safe parallel work
