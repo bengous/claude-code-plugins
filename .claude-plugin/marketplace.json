@@ -46,6 +46,25 @@
       "source": "./git-tools"
     },
     {
+      "name": "code-quality",
+      "description": "Code quality and cleanup commands for maintaining clean, maintainable code",
+      "version": "1.0.0",
+      "author": {
+        "name": "Augustin BENGOLEA",
+        "email": "bengous@protonmail.com"
+      },
+      "homepage": "https://github.com/bengous/claude-code-plugins",
+      "license": "MIT",
+      "keywords": [
+        "code-quality",
+        "cleanup",
+        "comments",
+        "maintainability",
+        "refactoring"
+      ],
+      "source": "./code-quality"
+    },
+    {
       "name": "mermaid-diagrams",
       "description": "Create and edit Mermaid diagrams for software engineering work, architectural ideas, and technical documentation",
       "version": "1.0.0",
