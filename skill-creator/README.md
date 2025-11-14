@@ -108,7 +108,9 @@ Apache License 2.0 - See LICENSE file for details
 
 ## Author
 
-Anthropic (support@anthropic.com)
+Augustin BENGOLEA (bengous@protonmail.com)
+
+Based on original work by Anthropic, Inc.
 
 ## Contributing
 
