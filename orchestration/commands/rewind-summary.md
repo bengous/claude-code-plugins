@@ -17,7 +17,12 @@ Create a brief summary (5-10 lines max) of what was accomplished AFTER that poin
 **Format:**
 - Use markdown
 - Be concise and actionable
-- End with: "I fixed <WHAT> and now I want you to tackle <I_WILL_SAY_WHATS_NEXT>"
+- End with a transition to next task. Examples:
+  * "Fixed authentication bug. Now let's add rate limiting."
+  * "Implemented user service. Ready to wire up the API endpoints."
+  * "Explored codebase and found N+1 queries. Let's optimize them."
+  * "Refactored payment logic. Now add webhook handlers."
+  * "Investigated database performance. Need schema access to proceed."
 
 **Skip:**
 - Verbose explanations
