@@ -8,7 +8,7 @@ This repository is a **plugin marketplace** for Claude Code. This guide teaches 
 
 ## Core Principle: Keep It Simple
 
-**DO NOT OVER-ENGINEER.** Start minimal. If it's more than 250 lines, simplify. Agent is smart, user provides strategy in external files.
+**DO NOT OVER-ENGINEER - KISS**. If the plugin tool you are working on is getting too big, stop and report to the human. You may be overdoing it.
 
 ---
 
