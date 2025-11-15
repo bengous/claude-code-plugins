@@ -1,6 +1,6 @@
 ---
 description: Test architectural layer (delegates to layer-testing skill)
-argument-hint: <module> <layer> [--coverage <percent>]
+argument-hint: <module> <layer> [playbook] [--coverage <percent>] [--interactive]
 ---
 
 # Test Layer Command
@@ -17,26 +17,27 @@ Explicit wrapper for the layer-testing skill. Use this command to manually trigg
 ```
 
 **Options:**
-- `@FILE` - Use custom playbook file (e.g., `@docs/playbook.md`)
+- `PLAYBOOK_PATH` - Path to custom playbook file (use quotes if path has spaces)
 - `--coverage <percent>` - Override coverage target
 - `--interactive` - Force interactive file selection
 
 **Examples:**
 ```bash
-# Use default strategy file
+# Use default strategy file (.claude/testing-strategy.md)
 /test-layer photoshoot core
 
 # Use custom playbook
-/test-layer auth application @docs/testing-playbook.md
+/test-layer auth application docs/testing-playbook.md
+/test-layer auth application "docs/testing/module-testing-playbook.md"
 
 # Override coverage target
 /test-layer auth application --coverage 85
 
 # Interactive mode with playbook
-/test-layer user infrastructure @playbook.md --interactive
+/test-layer user infrastructure playbook.md --interactive
 
 # All options combined
-/test-layer photoshoot core @docs/guide.md --coverage 100
+/test-layer photoshoot core docs/guide.md --coverage 100
 ```
 
 **Natural invocation** (skill activates automatically):
@@ -114,8 +115,8 @@ Activate the layer-testing skill with the provided arguments:
 **Arguments to pass:**
 - MODULE: `$1` (first argument)
 - LAYER: `$2` (second argument)
-- PLAYBOOK: Extract from `@file` syntax if present (e.g., `@playbook.md`)
-- COVERAGE: Extract from `--coverage` flag if present, otherwise use default (100% ideal)
+- PLAYBOOK: `$3` if it's a file path (e.g., `docs/playbook.md`), otherwise use `.claude/testing-strategy.md`
+- COVERAGE: Extract from `--coverage <N>` flag if present, otherwise use default (100% ideal)
 - INTERACTIVE: Check for `--interactive` flag
 
 **Execution:**
