@@ -433,7 +433,6 @@ Use Task tool to spawn general-purpose agent with minimal prompt:
 ```typescript
 Task({
   subagent_type: 'general-purpose',
-  model: 'sonnet',
   description: 'Test ${MODULE}/${LAYER} coverage',
   prompt: `
 You are testing the ${LAYER} layer of the ${MODULE} module.
