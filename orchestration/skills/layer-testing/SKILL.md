@@ -4,7 +4,7 @@ description: |
   Generate comprehensive tests for architectural layers with interactive guidance and isolated worktrees.
   Use when the user wants to test a specific layer (core, domain, application, infrastructure, boundary)
   in a modular codebase. Reads testing strategy from .claude/testing-strategy.md or custom playbook file.
-  Supports interactive file selection and agent questioning. Handles worktree creation, agent delegation,
+  Supports interactive file selection via conversation. Handles worktree creation, agent delegation,
   and quality verification with 100% coverage as ideal target.
 allowed-tools:
   - Bash(*:*)
@@ -13,7 +13,6 @@ allowed-tools:
   - Glob(*:*)
   - Task(*:*)
   - TodoWrite(*:*)
-  - AskUserQuestion(*:*)
 ---
 
 # Layer Testing Skill
@@ -164,20 +163,25 @@ Extract from guidance:
 - Testing principles and constraints
 - Quality gates and expectations
 
-**Step 3: Parse Arguments**
+**Step 3: Get Testing Parameters**
 
-Expected arguments:
-- `MODULE`: Module name (e.g., "auth", "photoshoot", "user")
-- `LAYER`: Layer name (e.g., "core", "domain", "application", "infrastructure", "boundary")
-- `@FILE`: Optional playbook file (e.g., `@docs/playbook.md`, `@testing-guide.md`)
-- `--coverage <percent>`: Optional coverage target override (default: 100% or from guidance)
-- `--interactive`: Force interactive file selection (optional)
+When invoked via `/test-layer` command, the arguments will be provided in conversation context:
+```
+Testing Request:
+- Module: auth
+- Layer: infrastructure
+- Playbook: docs/testing/playbook.md
+- Coverage Target: 100%
+- Interactive Mode: no
+```
 
-Extract coverage target:
-1. Check for `--coverage` flag in arguments
-2. If present, use that value
-3. Otherwise, look up default in strategy file for this layer type
-4. If not found in strategy, use sensible default (70%)
+If invoked naturally (e.g., "test the auth infrastructure layer"), ask the user for:
+- Module name (required)
+- Layer name (required)
+- Playbook file (optional, default: `.claude/testing-strategy.md`)
+- Coverage target (optional, default: 100%)
+
+Store these parameters for use in subsequent steps.
 
 **Step 4: Verify Structure**
 
@@ -270,65 +274,34 @@ Estimated: ~${TEST_COUNT} tests, ${HOURS} hours
 
 **Step 7: Interactive File Selection**
 
-Use AskUserQuestion to let user choose approach:
+Ask the user which files to test in plain conversation:
 
-```typescript
-AskUserQuestion({
-  questions: [{
-    question: "Which files should we test?",
-    header: "File Selection",
-    multiSelect: false,
-    options: [
-      {
-        label: "All recommended (Files 1-3)",
-        description: "Test all business logic files with 100% coverage target"
-      },
-      {
-        label: "Let me choose file-by-file",
-        description: "I'll decide for each file individually"
-      },
-      {
-        label: "Include utilities (Files 1-4)",
-        description: "Test business logic + helper files"
-      },
-      {
-        label: "Custom selection",
-        description: "I'll specify exactly which files to test"
-      }
-    ]
-  }]
-})
+```
+Which files should I test?
+
+Options:
+1. All recommended (Files 1-3) - Test all business logic with 100% coverage
+2. Include utilities (Files 1-4) - Also test helper files
+3. Custom selection - Specify exactly which files
+4. Skip some - Tell me which ones to skip
+
+Respond with your choice or specify file numbers/names.
 ```
 
-**Step 8: Drill Down (If "file-by-file" selected)**
+**WAIT for user response before proceeding.**
 
-For each testable file, ask individually:
+**Step 8: Drill Down (If needed)**
 
-```typescript
-AskUserQuestion({
-  questions: [{
-    question: "User.ts - Entity with create() method and 3 business methods. Test this file?",
-    header: "User.ts",
-    multiSelect: false,
-    options: [
-      {
-        label: "Yes - 100% coverage",
-        description: "Test all methods, all validation rules"
-      },
-      {
-        label: "Yes - specific methods only",
-        description: "I'll choose which methods to test"
-      },
-      {
-        label: "Skip this file",
-        description: "Not needed right now"
-      }
-    ]
-  }]
-})
+If user requested custom selection or file-by-file review, ask in conversation:
+
+```
+For User.ts (Entity with create() + 3 business methods):
+- Test with 100% coverage?
+- Test specific methods only?
+- Skip this file?
 ```
 
-Repeat for each file the user wants to review.
+Repeat for each file until user is satisfied with the selection.
 
 **Step 9: Finalize Testing Plan**
 

@@ -110,28 +110,37 @@ This will interactively create the strategy file for your project.
 
 ## Your Task
 
-Activate the layer-testing skill with the provided arguments:
+**Step 1: Parse Arguments**
 
-**Arguments to pass:**
+Extract from `$ARGUMENTS`:
 - MODULE: `$1` (first argument)
 - LAYER: `$2` (second argument)
-- PLAYBOOK: `$3` if it's a file path (e.g., `docs/playbook.md`), otherwise use `.claude/testing-strategy.md`
-- COVERAGE: Extract from `--coverage <N>` flag if present, otherwise use default (100% ideal)
+- PLAYBOOK: `$3` if it's a file path, otherwise use `.claude/testing-strategy.md`
+- COVERAGE: Extract from `--coverage <N>` flag if present, otherwise 100
 - INTERACTIVE: Check for `--interactive` flag
 
-**Execution:**
+**Step 2: Invoke Skill**
 
-Invoke the layer-testing skill and execute it with these arguments, following the skill's 4-phase **interactive** workflow exactly as documented in:
+Use the Skill tool to invoke the layer-testing skill:
 
-`orchestration/skills/layer-testing/SKILL.md`
+```
+Skill(skill: "layer-testing")
+```
 
-The skill will:
-1. Read playbook file (if provided) or `.claude/testing-strategy.md`
-2. Analyze files and ASK user which to test (interactive)
-3. Spawn agent with user-selected files
-4. Report results including unreachable code findings
+**Step 3: Provide Context**
 
-Your role is to facilitate the skill activation and pass the correct arguments.
+After invoking the skill, immediately provide the parsed arguments as context:
+
+```
+Testing Request:
+- Module: <MODULE>
+- Layer: <LAYER>
+- Playbook: <PLAYBOOK>
+- Coverage Target: <COVERAGE>%
+- Interactive Mode: <yes/no>
+```
+
+The skill will then execute its 4-phase workflow with these parameters.
 
 ---
 
