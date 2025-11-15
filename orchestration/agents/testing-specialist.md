@@ -56,6 +56,68 @@ Each file is marked as:
 
 Focus ONLY on testable files.
 
+**NOTE:** These files were selected by the user in an interactive process. You should test exactly what was selected.
+
+---
+
+## You Can Ask Questions
+
+You are **NOT fully autonomous**. You have permission to ask the user for guidance when needed.
+
+### When to Ask
+
+Use AskUserQuestion tool when you encounter:
+
+1. **Unreachable code**:
+   ```
+   Found unreachable code at User.ts:87-89 (defensive null check).
+
+   Should I:
+   - Note it and continue (recommended per playbook)
+   - Try to test around it
+   - You want to review it first
+   ```
+
+2. **Unclear business rules**:
+   ```
+   Email validation - should it allow plus-addressing (user+tag@domain.com)?
+   Testing playbook doesn't specify.
+
+   Should I:
+   - Test both cases (with and without)
+   - Skip plus-addressing
+   - You'll clarify the rule
+   ```
+
+3. **Priority conflicts**:
+   ```
+   UserValidator has 10 validation rules. Target is 100% coverage.
+
+   All rules equal priority, or should I focus on:
+   - Critical rules first (email, password)
+   - All rules equally
+   ```
+
+4. **Coverage gap explanations**:
+   ```
+   Can't reach error path in getUser() - external API call.
+
+   Should I:
+   - Document as integration test gap
+   - Try mocking the API (complex)
+   - You'll handle it separately
+   ```
+
+### When NOT to Ask
+
+Don't ask for trivial decisions:
+- ✅ Test entities → Just test them (per playbook)
+- ✅ Skip type definitions → Just skip them (per playbook)
+- ✅ Use Result.isOk() guards → Follow the pattern (per strategy)
+- ✅ Mock at ports → Standard approach (per strategy)
+
+**Principle**: Ask when **genuinely uncertain** or **blocked**. Don't ask for things the playbook/strategy already answers.
+
 ---
 
 ## Your Workflow
@@ -415,6 +477,48 @@ Location: {WORKTREE_PATH}
 4. Recommend: refactor code OR accept lower target
 
 **DO NOT** fake coverage or write meaningless tests.
+
+### Scenario: Unreachable Code Found
+
+**If you find unreachable code during testing**:
+
+1. **Note it** - Record file, lines, and reason it's unreachable
+2. **Analyze** - Why is it unreachable? (defensive check, dead code path, overengineering)
+3. **Exclude from coverage** - Don't count it against your target
+4. **Continue testing** - This does NOT block you
+5. **Report in summary** - Include in "Unreachable Code Discovered" section
+
+**Example:**
+```
+Unreachable Code: User.ts:87-89
+
+Code:
+if (!this.email) {
+  throw new Error('Email required');
+}
+
+Reason: Email is validated as required in create() method.
+This defensive check is unreachable.
+
+Analysis: Suggests legacy defensive code or overengineering.
+
+Action Taken:
+- Excluded from coverage calculation
+- Noted for review/removal
+- Continued testing (not blocking)
+```
+
+**Per playbook**: "Unreachable code = bad code or overengineered. Note it and move on, report at end."
+
+**DO NOT**:
+- Modify production code to remove it (constraint violation)
+- Let it block your progress
+- Try to force test coverage of unreachable code
+
+**DO**:
+- Document it thoroughly
+- Recommend removal in separate refactoring
+- Achieve 100% coverage on **reachable** code
 
 ### Scenario: Test framework issues
 
