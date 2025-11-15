@@ -8,7 +8,6 @@ allowed-tools:
   - Glob(*:*)
   - Grep(*:*)
   - AskUserQuestion(*:*)
-model: sonnet
 ---
 
 # Setup Testing Strategy
