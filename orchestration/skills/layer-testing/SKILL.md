@@ -14,7 +14,6 @@ allowed-tools:
   - Task(*:*)
   - TodoWrite(*:*)
   - AskUserQuestion(*:*)
-model: sonnet
 ---
 
 # Layer Testing Skill
