@@ -1,7 +1,6 @@
 ---
 description: Test architectural layer (delegates to layer-testing skill)
 argument-hint: <module> <layer> [--coverage <percent>]
-model: sonnet
 ---
 
 # Test Layer Command
