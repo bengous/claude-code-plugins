@@ -206,86 +206,154 @@ For ${MODULE}, available layers:
 
 STOP and report error if layer doesn't exist.
 
-**Step 5: Analyze Files**
-
-Scan the layer directory and categorize files based on the testing strategy:
-
-Use Glob to find all files:
-```bash
-find src/modules/${MODULE}/${LAYER} -name "*.ts" -o -name "*.tsx" -o -name "*.js"
-```
-
-For each file, determine:
-- **Testable**: Matches "what to test" patterns from strategy
-- **Skip**: Matches "what to skip" patterns from strategy (events, types, re-exports, existing mocks, tests)
-
-Calculate:
-- Total files count
-- Total LOC (use `wc -l`)
-- Testable files count
-- Skip files count
+**Step 5: Run Coverage First (Pragmatic Fast Path)**
 
 Check for existing tests:
 ```bash
-find src/modules/${MODULE}/${LAYER} -name "*.test.*" -o -path "*/__tests__/*"
+TEST_FILES=$(find src/modules/${MODULE}/${LAYER} -name "*.test.*" -o -path "*/__tests__/*" | wc -l)
 ```
 
-If tests exist, attempt to get coverage (framework-specific):
+**If NO tests exist** (`$TEST_FILES -eq 0`):
+- Skip coverage analysis
+- Jump to Step 6 (File Exploration)
+
+**If tests exist** (`$TEST_FILES -gt 0`):
+
+Detect test framework and run coverage:
 ```bash
-# Example for Vitest
-pnpm test src/modules/${MODULE}/${LAYER} --coverage --reporter=json 2>/dev/null
+# Detect framework
+if [[ -f "vitest.config.ts" ]] || grep -q "vitest" package.json 2>/dev/null; then
+  echo "⏳ Running coverage analysis with Vitest (may take 30-60s)..."
+  pnpm test src/modules/${MODULE}/${LAYER} --coverage --reporter=json --reporter=json-summary 2>&1 | tee /tmp/coverage-output.log
+  COVERAGE_JSON="coverage/coverage-summary.json"
+elif [[ -f "jest.config.js" ]] || grep -q "jest" package.json 2>/dev/null; then
+  echo "⏳ Running coverage analysis with Jest..."
+  pnpm test -- src/modules/${MODULE}/${LAYER} --coverage --coverageReporters=json-summary 2>&1
+  COVERAGE_JSON="coverage/coverage-summary.json"
+else
+  echo "⚠️  Test framework not detected, skipping coverage"
+  # Fallback to file exploration
+fi
 ```
 
-**Step 6: Present Analysis & Ask for File Selection**
+**Parse coverage results:**
+```bash
+if [[ -f "$COVERAGE_JSON" ]]; then
+  # Extract total coverage %
+  TOTAL_COVERAGE=$(jq '.total.lines.pct' "$COVERAGE_JSON")
 
-Show user a comprehensive, categorized analysis:
+  # Get per-file coverage
+  jq -r '.[] | "\(.lines.pct)% \(path)"' "$COVERAGE_JSON" > /tmp/file-coverage.txt
+fi
+```
+
+**Branch based on coverage:**
+
+**If 100% coverage:**
+```
+✅ ALREADY COMPLETE: ${MODULE}/${LAYER}
+
+Coverage: 100% (all lines covered)
+Tests: ${TEST_FILES} test files
+
+This layer is fully tested! 🎉
+
+Options:
+1. Exit (nothing to do)
+2. Verify tests are comprehensive (audit test quality)
+3. Enhance tests (edge cases, error scenarios)
+
+What would you like to do?
+```
+
+STOP and wait for user response. If user chooses "Exit", terminate successfully.
+
+**If 0% coverage or partial (<100%):**
+- Store coverage data for later use
+- Continue to Step 6 (File Exploration)
+- Use coverage to inform recommendations
+
+**If coverage fails:**
+```
+⚠️  Coverage analysis failed (see output above)
+Possible causes: missing dependencies, failing tests, incorrect configuration
+
+Falling back to file-based analysis...
+```
+- Continue to Step 6 (File Exploration)
+- Proceed without coverage data
+
+---
+
+**Step 6: Analyze Files (Informed by Coverage)**
+
+Scan the layer directory and categorize files:
+
+```bash
+find src/modules/${MODULE}/${LAYER} -name "*.ts" ! -name "*.test.*" ! -path "*/__tests__/*"
+```
+
+For each file:
+- Determine testability (matches playbook "what to test" patterns)
+- Check coverage % (if coverage data available from Step 5)
+- Calculate LOC
+- Categorize: Business Logic / Utilities / Framework (Skip)
+
+**If coverage data available:**
+- Cross-reference files with coverage report
+- Identify: 100% covered, partially covered, not covered
+- Show uncovered line ranges for partial files
+
+**Step 7: Present Analysis with Actual Coverage**
+
+Show comprehensive analysis with REAL coverage data:
 
 ```
-📊 Analysis Complete: ${MODULE}/${LAYER}
+📊 Coverage Analysis: ${MODULE}/${LAYER}
 
 Playbook: [file used for guidance]
 Layer Type: [from playbook/strategy]
-Coverage Target: 100% (ideal, gaps documented)
+Current Coverage: 78.5% (ACTUAL from tests, not estimated)
+Target: 100%
+Gap: 21.5%
 
-Found ${TOTAL_FILES} files (${TOTAL_LOC} lines):
+✅ FULLY COVERED (100%):
+  - User.ts (250 LOC) - Entity with create() + validation
+  - UserValidator.ts (80 LOC) - All 5 business rules tested
 
-Business Logic (Recommended for Testing):
-  1. ✅ User.ts (250 LOC) - Entity with create() + validation
-  2. ✅ UserValidator.ts (80 LOC) - 5 business rules
-  3. ✅ UserPolicy.ts (60 LOC) - Authorization logic
+⚠️  PARTIALLY COVERED:
+  - UserPolicy.ts (60 LOC, 45% covered)
+    Uncovered: Lines 12-18, 25-30, 45-50
+  - UserHelpers.ts (40 LOC, 60% covered)
+    Uncovered: Lines 8-12, 20-25
 
-Utilities (Inspect for Logic):
-  4. ⚠️  UserHelpers.ts (40 LOC) - Helper functions (review needed)
+❌ NOT TESTED (0%):
+  - AuthService.ts (120 LOC) - Critical business logic
+  - ValidationRules.ts (90 LOC) - 8 validation functions
 
-Type Definitions (Skip per Playbook):
-  5. ❌ UserStatus.ts (15 LOC) - Enum (no logic)
-  6. ❌ events.ts (25 LOC) - Event definitions
-  7. ❌ types.ts (10 LOC) - Type aliases
+⊘ SKIP (per playbook):
+  - UserStatus.ts (15 LOC) - Enum (no logic)
+  - events.ts (25 LOC) - Event definitions
+  - types.ts (10 LOC) - Type aliases
 
-Based on your playbook principles:
-✅ Recommended: Files 1-3 (business logic - 100% coverage)
-⚠️  Questionable: File 4 (inspect for business logic)
-❌ Skip: Files 5-7 (no business logic per playbook)
-
-Current Coverage: ${CURRENT}% (or "N/A - no tests exist")
-Target: 100% on selected files
-Estimated: ~${TEST_COUNT} tests, ${HOURS} hours
+Recommendation: Focus on 2 untested files + complete 2 partial files
+Estimated Effort: ~40 tests, 2-3 hours
 ```
 
-**Step 7: Interactive File Selection**
+**Step 8: Interactive File Selection**
 
-Ask the user which files to test in plain conversation:
+Ask the user which files to test:
 
 ```
 Which files should I test?
 
 Options:
-1. All recommended (Files 1-3) - Test all business logic with 100% coverage
-2. Include utilities (Files 1-4) - Also test helper files
-3. Custom selection - Specify exactly which files
-4. Skip some - Tell me which ones to skip
+1. All gaps (untested + partial) - Achieve 100% coverage
+2. Untested only - Focus on 0% files first
+3. Partial only - Complete existing tests
+4. Custom selection - Specify exact files/lines
 
-Respond with your choice or specify file numbers/names.
+Respond with your choice or file numbers.
 ```
 
 **WAIT for user response before proceeding.**
