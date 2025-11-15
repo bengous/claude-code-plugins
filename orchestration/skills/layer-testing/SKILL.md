@@ -1,10 +1,11 @@
 ---
 name: layer-testing
 description: |
-  Generate comprehensive tests for architectural layers with isolated worktrees.
+  Generate comprehensive tests for architectural layers with interactive guidance and isolated worktrees.
   Use when the user wants to test a specific layer (core, domain, application, infrastructure, boundary)
-  in a modular codebase. Reads project-specific testing strategy from .claude/testing-strategy.md.
-  Handles worktree creation, agent delegation, and quality verification.
+  in a modular codebase. Reads testing strategy from .claude/testing-strategy.md or custom playbook file.
+  Supports interactive file selection and agent questioning. Handles worktree creation, agent delegation,
+  and quality verification with 100% coverage as ideal target.
 allowed-tools:
   - Bash(*:*)
   - Read(*:*)
@@ -12,6 +13,7 @@ allowed-tools:
   - Glob(*:*)
   - Task(*:*)
   - TodoWrite(*:*)
+  - AskUserQuestion(*:*)
 model: sonnet
 ---
 
@@ -43,17 +45,26 @@ Activate this skill when:
 
 ## Prerequisites
 
-### Required: Testing Strategy File
+### Required: Testing Strategy or Playbook File
 
-This skill requires a `.claude/testing-strategy.md` file in the project root that defines:
-- Layer types and coverage targets
+This skill requires guidance from either:
+- **`.claude/testing-strategy.md`** (default) - Project-wide testing strategy
+- **Custom playbook file** - Passed via `@file` syntax (e.g., `/test-layer auth core @playbook.md`)
+
+The guidance file should define:
+- Layer types and coverage targets (100% ideal)
 - What to test vs skip for each layer
 - Testing patterns and frameworks
 - Architecture-specific rules
+- Agent constraints and quality gates
 
 **If missing**, suggest running: `/setup-testing-strategy`
 
-**Why required**: Different projects have different architectures (hexagonal, clean, layered, custom). The strategy file acts as the "testing ideology" for your specific project, making this skill architecture-agnostic.
+**Playbook syntax**: Users can reference custom playbooks:
+- `/test-layer <module> <layer> @docs/my-playbook.md`
+- `/test-layer <module> <layer> @testing-guide.md`
+
+**Why required**: Different projects have different architectures and philosophies. The guidance file provides principles while you collaborate with the user on specifics.
 
 ### Optional: Git Repository
 
@@ -63,38 +74,43 @@ Project should be a git repository for worktree management. If not, the skill ca
 
 ## Workflow Overview
 
-The skill follows a 4-phase workflow:
+The skill follows a 4-phase **interactive** workflow:
 
-### Phase 1: Strategy & Analysis
-- Read and validate `.claude/testing-strategy.md`
-- Parse arguments (module, layer, coverage override)
+### Phase 1: Strategy & Analysis (INTERACTIVE)
+- Read testing guidance (`.claude/testing-strategy.md` or `@file`)
+- Parse arguments (module, layer, `@playbook`, coverage override)
 - Scan target layer directory
 - Categorize files (testable vs skip based on strategy)
+- **Present analysis and ASK user which files to test**
+- **Let user choose**: all recommended, file-by-file, or custom selection
 - Calculate metrics (LOC, current coverage, gap)
-- Present analysis and get user approval
+- Get final approval on testing plan
 
-### Phase 2: Execute
+### Phase 2: Execute (GUIDED)
 - Create isolated worktree (branch: `test/{module}-{layer}-coverage`)
 - Spawn testing specialist agent with:
-  - Testing strategy from Phase 1
-  - File list and categorization
+  - Testing strategy/playbook from Phase 1
+  - **User-selected file list** (not automatic)
   - Worktree path and branch
-  - Coverage target
-- Agent works autonomously in isolation
+  - Coverage target (100% ideal)
+  - **Permission to ask questions** via AskUserQuestion
+- Agent works in isolation **but can ask for guidance**
 - Wait for agent completion
 
-### Phase 3: Review
+### Phase 3: Review (COLLABORATIVE)
 - Verify agent results against quality gates
-- Check coverage achieved vs target
+- Check coverage achieved vs target (100% ideal, gaps documented)
+- **Review unreachable code findings** (noted, not blocking)
 - Verify zero production code changes
 - Validate all tests passing
-- Present comprehensive summary
+- Present comprehensive summary with gap explanations
 
-### Phase 4: Next Steps
+### Phase 4: Next Steps (ADVISORY)
 - Calculate overall module progress
 - Recommend next layer to test (if applicable)
 - Provide merge instructions
-- Suggest follow-up actions
+- **Suggest reviewing unreachable code** for removal
+- Advise on coverage gaps and next priorities
 
 ---
 
@@ -114,34 +130,49 @@ Immediately create TodoWrite to track progress:
 
 Mark Phase 1 as in_progress.
 
-**Step 2: Read Testing Strategy**
+**Step 2: Read Testing Guidance**
 
-Read `.claude/testing-strategy.md`:
+Check for playbook file reference or use default strategy:
 
 ```bash
-cat .claude/testing-strategy.md
+# Check if @file syntax used in arguments
+if [[ "$ARGS" =~ @([^ ]+) ]]; then
+  PLAYBOOK_FILE="${BASH_REMATCH[1]}"
+
+  # Read custom playbook
+  if [[ -f "$PLAYBOOK_FILE" ]]; then
+    cat "$PLAYBOOK_FILE"
+  else
+    echo "❌ Playbook file not found: $PLAYBOOK_FILE"
+    exit 1
+  fi
+else
+  # Use default strategy file
+  if [[ -f .claude/testing-strategy.md ]]; then
+    cat .claude/testing-strategy.md
+  else
+    echo "❌ No testing strategy found"
+    echo "Run: /setup-testing-strategy"
+    echo "Or provide playbook: /test-layer <module> <layer> @playbook.md"
+    exit 1
+  fi
+fi
 ```
 
-If file doesn't exist:
-```
-❌ Testing strategy file not found
-
-The layer-testing skill requires a testing strategy file to understand
-your project's architecture and testing approach.
-
-Run: /setup-testing-strategy
-
-This will interactively create .claude/testing-strategy.md for your project.
-```
-
-STOP if strategy file missing. DO NOT proceed.
+Extract from guidance:
+- Layer definitions and coverage targets
+- What to test vs skip patterns
+- Testing principles and constraints
+- Quality gates and expectations
 
 **Step 3: Parse Arguments**
 
 Expected arguments:
 - `MODULE`: Module name (e.g., "auth", "photoshoot", "user")
 - `LAYER`: Layer name (e.g., "core", "domain", "application", "infrastructure", "boundary")
-- `--coverage <percent>`: Optional coverage target override (default from strategy file)
+- `@FILE`: Optional playbook file (e.g., `@docs/playbook.md`, `@testing-guide.md`)
+- `--coverage <percent>`: Optional coverage target override (default: 100% or from guidance)
+- `--interactive`: Force interactive file selection (optional)
 
 Extract coverage target:
 1. Check for `--coverage` flag in arguments
@@ -202,43 +233,137 @@ If tests exist, attempt to get coverage (framework-specific):
 pnpm test src/modules/${MODULE}/${LAYER} --coverage --reporter=json 2>/dev/null
 ```
 
-**Step 6: Present Analysis**
+**Step 6: Present Analysis & Ask for File Selection**
 
-Show user a comprehensive analysis:
+Show user a comprehensive, categorized analysis:
 
 ```
 📊 Analysis Complete: ${MODULE}/${LAYER}
 
-Layer Type: [from strategy]
-Coverage Target: ${COVERAGE_TARGET}%
+Playbook: [file used for guidance]
+Layer Type: [from playbook/strategy]
+Coverage Target: 100% (ideal, gaps documented)
 
-Files to Test: ${TESTABLE_COUNT} files (${TESTABLE_LOC} lines)
-Files to Skip: ${SKIP_COUNT} files (${SKIP_LOC} lines)
+Found ${TOTAL_FILES} files (${TOTAL_LOC} lines):
 
-Current Coverage: ${CURRENT_COVERAGE}% (if available, otherwise "N/A - no tests exist")
-Target Coverage: ${COVERAGE_TARGET}%
-Gap: ${GAP}%
+Business Logic (Recommended for Testing):
+  1. ✅ User.ts (250 LOC) - Entity with create() + validation
+  2. ✅ UserValidator.ts (80 LOC) - 5 business rules
+  3. ✅ UserPolicy.ts (60 LOC) - Authorization logic
 
-Testable Files:
-  ✅ File1.ts (${LOC} lines) - [reason from strategy]
-  ✅ File2.ts (${LOC} lines) - [reason from strategy]
-  ...
+Utilities (Inspect for Logic):
+  4. ⚠️  UserHelpers.ts (40 LOC) - Helper functions (review needed)
 
-Skipped Files:
-  ❌ File3.ts - [reason from strategy, e.g., "events (no logic)"]
-  ❌ File4.ts - [reason from strategy, e.g., "type definitions"]
-  ...
+Type Definitions (Skip per Playbook):
+  5. ❌ UserStatus.ts (15 LOC) - Enum (no logic)
+  6. ❌ events.ts (25 LOC) - Event definitions
+  7. ❌ types.ts (10 LOC) - Type aliases
 
-Estimated effort: [based on LOC and current coverage]
+Based on your playbook principles:
+✅ Recommended: Files 1-3 (business logic - 100% coverage)
+⚠️  Questionable: File 4 (inspect for business logic)
+❌ Skip: Files 5-7 (no business logic per playbook)
 
-Ready to proceed?
+Current Coverage: ${CURRENT}% (or "N/A - no tests exist")
+Target: 100% on selected files
+Estimated: ~${TEST_COUNT} tests, ${HOURS} hours
 ```
 
-**Step 7: Get User Approval**
+**Step 7: Interactive File Selection**
+
+Use AskUserQuestion to let user choose approach:
+
+```typescript
+AskUserQuestion({
+  questions: [{
+    question: "Which files should we test?",
+    header: "File Selection",
+    multiSelect: false,
+    options: [
+      {
+        label: "All recommended (Files 1-3)",
+        description: "Test all business logic files with 100% coverage target"
+      },
+      {
+        label: "Let me choose file-by-file",
+        description: "I'll decide for each file individually"
+      },
+      {
+        label: "Include utilities (Files 1-4)",
+        description: "Test business logic + helper files"
+      },
+      {
+        label: "Custom selection",
+        description: "I'll specify exactly which files to test"
+      }
+    ]
+  }]
+})
+```
+
+**Step 8: Drill Down (If "file-by-file" selected)**
+
+For each testable file, ask individually:
+
+```typescript
+AskUserQuestion({
+  questions: [{
+    question: "User.ts - Entity with create() method and 3 business methods. Test this file?",
+    header: "User.ts",
+    multiSelect: false,
+    options: [
+      {
+        label: "Yes - 100% coverage",
+        description: "Test all methods, all validation rules"
+      },
+      {
+        label: "Yes - specific methods only",
+        description: "I'll choose which methods to test"
+      },
+      {
+        label: "Skip this file",
+        description: "Not needed right now"
+      }
+    ]
+  }]
+})
+```
+
+Repeat for each file the user wants to review.
+
+**Step 9: Finalize Testing Plan**
+
+Present final plan based on user selections:
+
+```
+📋 Final Testing Plan
+
+Files Selected for Testing:
+  ✅ User.ts (100% coverage)
+     - create() method (all validation rules)
+     - updateEmail() method
+     - updatePassword() method
+     - isActive getter
+
+  ✅ UserValidator.ts (specific rules)
+     - Email validation rule
+     - (Skip: other 4 rules for now)
+
+  ❌ UserPolicy.ts (skipped per your choice)
+
+Coverage target: 100% on selected scope
+Estimated: ~25 tests, 1-2 hours
+
+Proceed with this plan? [yes/no]
+```
+
+**Step 10: Final Approval**
 
 Wait for user confirmation before creating worktree.
 
 If user declines, mark Phase 1 complete and exit gracefully.
+
+If user approves, proceed to Phase 2 with the **user-selected file list**.
 
 ---
 
@@ -398,12 +523,44 @@ pnpm lint
 
 For detailed quality gate definitions, see [quality-gates.md](references/quality-gates.md).
 
-**Step 3: Analyze Results**
+**Step 3: Analyze Results & Unreachable Code**
 
 Classify outcome:
-- ✅ **Success**: All gates passed, coverage >= target
-- ⚠️ **Partial Success**: Some gates passed, coverage < target but close
-- ❌ **Failure**: Critical gates failed, coverage far from target
+- ✅ **Success**: All gates passed, coverage = 100% (or gaps documented)
+- ⚠️ **Partial Success**: Coverage < 100% with documented reasons (unreachable code, integration complexity)
+- ❌ **Failure**: Critical gates failed (tests failing, production code changed, type errors)
+
+**Unreachable Code Handling:**
+
+If agent reports unreachable code:
+```
+⚠️  Unreachable Code Found:
+
+File: User.ts
+Lines: 87-89
+Code: Defensive null check on required field
+
+Analysis:
+- Field is validated as required in create()
+- Null check is unreachable (dead code)
+- Suggests overengineering or legacy defensive code
+
+Coverage Impact:
+- ✅ Excluded from coverage calculation
+- ✅ Noted in gap documentation
+- ❌ Did NOT modify production code (per constraint)
+
+Recommendation:
+- Review for removal in separate refactoring PR
+- Or document as intentional safety check
+- Coverage: 100% on reachable code
+```
+
+**Decision:** Unreachable code does NOT block the commit. It is:
+1. Noted in summary
+2. Excluded from coverage calculation
+3. Recommended for review/removal
+4. Not blocking (agent continues and reports)
 
 **Step 4: Present Summary**
 
