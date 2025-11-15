@@ -428,32 +428,55 @@ Status: Ready for testing agent
 
 **Step 3: Spawn Testing Agent**
 
-Use Task tool to spawn testing specialist agent:
+Use Task tool to spawn general-purpose agent with minimal prompt:
 
-Read the agent template:
-```
-Read agents/testing-specialist.md
-```
-
-Inject runtime variables:
-- `WORKTREE_PATH` or current directory
-- `MODULE`
-- `LAYER`
-- `COVERAGE_TARGET`
-- Strategy content from Phase 1
-- File list from Phase 1
-
-Spawn agent:
-```
+```typescript
 Task({
   subagent_type: 'general-purpose',
   model: 'sonnet',
   description: 'Test ${MODULE}/${LAYER} coverage',
   prompt: `
-    [Agent template content with variables injected]
+You are testing the ${LAYER} layer of the ${MODULE} module.
+
+**Working directory:** ${WORKTREE_PATH}
+**Branch:** ${BRANCH}
+
+**Testing guidance:** Read the playbook/strategy at: ${PLAYBOOK_PATH}
+
+**Files selected for testing:**
+${FILE_LIST}
+
+**Your mission:**
+1. Read the playbook to understand testing principles and constraints
+2. Explore the codebase to understand existing patterns
+3. Write comprehensive tests for the selected files
+4. Follow the playbook's coverage target (100% ideal, gaps documented)
+5. Never modify production code (tests only)
+6. Handle unreachable code per playbook (note and continue, report at end)
+7. Create a single commit when complete
+
+**You can ask questions** if you encounter:
+- Unreachable code (should you note and continue?)
+- Unclear business rules
+- Priority conflicts
+
+**Report when complete:**
+- Coverage achieved (%, broken down)
+- Tests created (files, count)
+- Production code changes (should be 0)
+- Unreachable code found (documented)
+- Commit hash
+
+The playbook is your guide. Explore the codebase. Ask if uncertain.
   `
 })
 ```
+
+**Key points:**
+- **Minimal prompt** - No prescriptive examples or frameworks
+- **Points to playbook** - Agent reads strategy for specifics
+- **Trusts agent** - Has access to CLAUDE.md, can explore codebase
+- **Universal** - Works with any language, framework, architecture
 
 **Step 4: Monitor Progress**
 
