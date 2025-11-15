@@ -6,6 +6,48 @@ This repository is a **plugin marketplace** for Claude Code. This guide teaches 
 
 ---
 
+## Core Principle: Keep It Simple
+
+**DO NOT OVER-ENGINEER.**
+
+When creating commands, skills, or any plugin feature:
+
+- **Start minimal** - Solve the immediate need, nothing more
+- **Resist adding "just in case" features** - YAGNI (You Aren't Gonna Need It)
+- **Delete ruthlessly** - Remove anything not essential
+- **User provides strategy, not the code** - Use external playbooks/configs, not hardcoded logic
+- **Agent is smart** - Don't hand-hold with verbose examples and explanations
+- **Iterate based on real needs** - Add complexity only when proven necessary
+
+### What "Too Much" Looks Like
+
+❌ **Over-engineered:**
+- 800+ line skills with verbose examples
+- Detailed bash scripts embedded in documentation
+- Multiple conditional branches for edge cases nobody asked for
+- Explaining every possible scenario
+- Defensive programming for hypothetical problems
+
+✅ **Right-sized:**
+- ~100-250 line skills with essential steps only
+- Reference external files (playbooks, templates) for strategy
+- Handle errors when they occur, not preemptively
+- Trust the agent to figure out details
+- Simple workflow orchestration
+
+### Why This Matters
+
+When you over-complicate:
+- User feels misunderstood ("I asked for X, you built a spaceship")
+- Maintenance burden increases exponentially
+- Context windows fill with noise
+- Agent performance degrades (too many instructions)
+- Simple changes become complex refactors
+
+**If you catch yourself writing 500+ lines for something that should be 100 lines, STOP. Simplify.**
+
+---
+
 ## Quick Start: Create Your First Plugin
 
 ### 1. Create Directory Structure
