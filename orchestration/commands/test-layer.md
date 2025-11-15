@@ -14,18 +14,36 @@ Explicit wrapper for the layer-testing skill. Use this command to manually trigg
 
 **Explicit invocation:**
 ```
-/test-layer <module> <layer> [--coverage <percent>]
+/test-layer <module> <layer> [OPTIONS]
 ```
 
+**Options:**
+- `@FILE` - Use custom playbook file (e.g., `@docs/playbook.md`)
+- `--coverage <percent>` - Override coverage target
+- `--interactive` - Force interactive file selection
+
 **Examples:**
-- `/test-layer photoshoot core` - Test photoshoot/core with default 90% target
-- `/test-layer auth application --coverage 85` - Test auth/application with 85% coverage target
-- `/test-layer user infrastructure` - Test user/infrastructure with default 70% target
+```bash
+# Use default strategy file
+/test-layer photoshoot core
+
+# Use custom playbook
+/test-layer auth application @docs/testing-playbook.md
+
+# Override coverage target
+/test-layer auth application --coverage 85
+
+# Interactive mode with playbook
+/test-layer user infrastructure @playbook.md --interactive
+
+# All options combined
+/test-layer photoshoot core @docs/guide.md --coverage 100
+```
 
 **Natural invocation** (skill activates automatically):
-- "Test the core layer of the photoshoot module"
+- "Test the core layer using my playbook file"
 - "I need comprehensive tests for the application layer"
-- "Generate tests for auth/infrastructure with 80% coverage"
+- "Generate tests for auth/infrastructure with my testing guide"
 
 ---
 
@@ -97,15 +115,23 @@ Activate the layer-testing skill with the provided arguments:
 **Arguments to pass:**
 - MODULE: `$1` (first argument)
 - LAYER: `$2` (second argument)
-- COVERAGE: Extract from `--coverage` flag if present, otherwise use default from strategy
+- PLAYBOOK: Extract from `@file` syntax if present (e.g., `@playbook.md`)
+- COVERAGE: Extract from `--coverage` flag if present, otherwise use default (100% ideal)
+- INTERACTIVE: Check for `--interactive` flag
 
 **Execution:**
 
-Invoke the layer-testing skill and execute it with these arguments, following the skill's 4-phase workflow exactly as documented in:
+Invoke the layer-testing skill and execute it with these arguments, following the skill's 4-phase **interactive** workflow exactly as documented in:
 
 `orchestration/skills/layer-testing/SKILL.md`
 
-The skill will handle all phases autonomously. Your role is to facilitate the skill activation and pass the correct arguments.
+The skill will:
+1. Read playbook file (if provided) or `.claude/testing-strategy.md`
+2. Analyze files and ASK user which to test (interactive)
+3. Spawn agent with user-selected files
+4. Report results including unreachable code findings
+
+Your role is to facilitate the skill activation and pass the correct arguments.
 
 ---
 
