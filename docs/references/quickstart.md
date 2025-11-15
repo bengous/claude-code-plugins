@@ -87,6 +87,6 @@ Claude Code automatically detects plugins in your repository. No build step requ
 ---
 
 **Next steps:**
-- [Plugin Structure](./plugin-structure.md) - Understanding the plugin anatomy
+- [Plugin Structure](../../CLAUDE.md#plugin-structure-overview) - Understanding the plugin anatomy
 - [Commands Guide](./commands.md) - Creating more complex commands
 - [Scripts Guide](./scripts.md) - Best practices for backend scripts
