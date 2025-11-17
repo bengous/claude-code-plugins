@@ -1,0 +1,11 @@
+{
+  "name": "claude-utils",
+  "version": "1.0.0",
+  "description": "Utility tools for Claude Code workflows: CLAUDE.md synchronization, documentation maintenance, and development workflow automation",
+  "author": {
+    "name": "Augustin BENGOLEA",
+    "email": "bengous@protonmail.com"
+  },
+  "license": "Apache-2.0",
+  "keywords": ["claude.md", "documentation", "utilities", "workflow", "automation"]
+}

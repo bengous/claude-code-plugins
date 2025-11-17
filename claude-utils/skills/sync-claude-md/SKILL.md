@@ -1,6 +1,16 @@
 ---
 name: sync-claude-md
 description: Synchronize project CLAUDE.md with recent codebase changes by analyzing git history, reviewing against official Anthropic best practices using parallel agents, and proposing comprehensive updates. Use when CLAUDE.md is outdated or doesn't exist.
+allowed-tools:
+  - Bash
+  - Read
+  - Write
+  - Edit
+  - WebFetch
+  - Task
+  - AskUserQuestion
+  - Glob
+  - Grep
 ---
 
 # Sync CLAUDE.md
