@@ -88,27 +88,8 @@
       "source": "./mermaid-diagrams"
     },
     {
-      "name": "skill-creator",
-      "description": "Guide for creating effective Claude skills with utilities for initialization, validation, and packaging",
-      "version": "1.0.0",
-      "author": {
-        "name": "Augustin BENGOLEA",
-        "email": "bengous@protonmail.com"
-      },
-      "homepage": "https://github.com/bengous/claude-code-plugins",
-      "license": "Apache-2.0",
-      "keywords": [
-        "skills",
-        "development",
-        "creation",
-        "guide",
-        "tooling"
-      ],
-      "source": "./skill-creator"
-    },
-    {
-      "name": "claude-utils",
-      "description": "Utility tools for Claude Code workflows: CLAUDE.md synchronization, documentation maintenance, and development workflow automation",
+      "name": "claude-meta-tools",
+      "description": "Meta-tools for Claude Code: maintain documentation (CLAUDE.md sync), create skills, validate skill structure, and extend Claude capabilities",
       "version": "1.0.0",
       "author": {
         "name": "Augustin BENGOLEA",
@@ -119,11 +100,13 @@
       "keywords": [
         "claude.md",
         "documentation",
+        "skills",
+        "creation",
+        "validation",
         "utilities",
-        "workflow",
-        "automation"
+        "workflow"
       ],
-      "source": "./claude-utils"
+      "source": "./claude-meta-tools"
     }
   ]
 }
