@@ -1,0 +1,11 @@
+{
+  "name": "sync-claude-md",
+  "version": "1.0.0",
+  "description": "Synchronize project CLAUDE.md with codebase changes using git analysis and parallel agent review against official best practices",
+  "author": {
+    "name": "Augustin BENGOLEA",
+    "email": "bengous@protonmail.com"
+  },
+  "license": "Apache-2.0",
+  "keywords": ["claude.md", "documentation", "sync", "best-practices", "git-analysis"]
+}
