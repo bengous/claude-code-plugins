@@ -1,13 +1,18 @@
-# Sync CLAUDE.md Plugin
+# Claude Utils Plugin
 
-Automatically synchronize your project's CLAUDE.md file with codebase evolution by analyzing git history, spawning parallel review agents, and validating against official Anthropic best practices.
+Utility tools for Claude Code workflows: documentation maintenance, project automation, and development workflow helpers.
 
 ## Overview
 
-This plugin keeps project-level CLAUDE.md files up-to-date as your codebase evolves. It analyzes git commits since the last CLAUDE.md update, spawns 3 independent review agents to validate against official documentation, and proposes comprehensive updates with user approval.
+This plugin provides utility commands and skills for common Claude Code workflows. Currently includes CLAUDE.md synchronization with plans to expand to other utility functions.
 
-## Features
+## Commands
 
+### `/sync-claude-md`
+
+Synchronize your project's CLAUDE.md file with codebase evolution by analyzing git history, spawning parallel review agents, and validating against official Anthropic best practices.
+
+**Features:**
 - **Git History Analysis**: Automatically detects what changed since last CLAUDE.md update
 - **Smart Context Gathering**: Uses subagents for complex analysis when >10 commits
 - **Parallel Agent Review**: Spawns 3 independent agents to review against official best practices
@@ -16,35 +21,16 @@ This plugin keeps project-level CLAUDE.md files up-to-date as your codebase evol
 - **Context Window Management**: Smart summarization to avoid token limits
 - **New File Creation**: Generates comprehensive CLAUDE.md for new projects
 
-## When to Use
-
-- CLAUDE.md hasn't been updated in many commits
-- Major architectural changes occurred (new libraries, patterns, tools)
-- CLAUDE.md doesn't exist and needs creation
-- You want to validate CLAUDE.md against official best practices
-
-## Usage
-
-### Synchronize Existing CLAUDE.md
-
+**Usage:**
 ```bash
 /sync-claude-md
 ```
 
-The skill will:
-1. Find when CLAUDE.md was last updated
-2. Analyze commits since then
-3. Spawn 3 parallel review agents
-4. Fetch official Anthropic documentation
-5. Generate comprehensive change proposal
-6. Wait for your approval
-7. Apply changes if approved
-
-### Create New CLAUDE.md
-
-If CLAUDE.md doesn't exist, the skill offers:
-1. **Minimal Template**: Basic structure to fill in later
-2. **Comprehensive Analysis**: Full project analysis with complete documentation
+**When to use:**
+- CLAUDE.md hasn't been updated in many commits
+- Major architectural changes occurred (new libraries, patterns, tools)
+- CLAUDE.md doesn't exist and needs creation
+- You want to validate CLAUDE.md against official best practices
 
 ## Workflow
 
@@ -79,6 +65,12 @@ Phase 6: Application
 ├─ Apply changes if approved
 └─ User commits manually
 ```
+
+### Create New CLAUDE.md
+
+If CLAUDE.md doesn't exist, the skill offers:
+1. **Minimal Template**: Basic structure to fill in later
+2. **Comprehensive Analysis**: Full project analysis with complete documentation
 
 ## Example Scenarios
 
@@ -117,29 +109,6 @@ Choose option (1 or 2): 2
 Create this file? (yes/no)
 ```
 
-### Scenario 3: Minor updates needed
-
-```
-User: /sync-claude-md
-
-[3 commits since last update]
-CLAUDE.md is mostly up to date.
-
-Proposed changes:
-- Add command: 'bun run format'
-- Update Important Notes with new library
-
-Apply? (yes/no)
-```
-
-## Configuration
-
-No configuration needed. The skill:
-- Detects project structure automatically
-- Fetches official documentation dynamically
-- Adapts to your git history depth
-- Manages context window automatically
-
 ## Best Practices Enforced
 
 - Technical guidance over vague descriptions
@@ -150,19 +119,21 @@ No configuration needed. The skill:
 - Repository etiquette (branch naming, PR process)
 - Security policies (never commit credentials)
 
-## Error Handling
+## Configuration
 
-- **Missing git repo**: Warns and offers to create anyway
-- **Duplicate CLAUDE.md files**: Warns and asks which to update
-- **Unreachable docs**: Falls back to embedded best practices
-- **Agent failures**: Continues with available agents or direct review
+No configuration needed. The skill:
+- Detects project structure automatically
+- Fetches official documentation dynamically
+- Adapts to your git history depth
+- Manages context window automatically
 
-## Context Window Management
+## Future Utilities
 
-- Monitors token usage throughout
-- Summarizes when >150k tokens used
-- Uses subagents to offload heavy analysis
-- Bailout warning at 180k tokens
+This plugin is designed to grow with additional utility commands:
+- Project scaffolding helpers
+- Common workflow automations
+- Documentation generators
+- Code quality checks
 
 ## License
 
