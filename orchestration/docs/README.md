@@ -1,58 +1,70 @@
 # Claude Orchestration Plugin Documentation
 
-> Advanced orchestration system for managing development workflows with Claude Code
+> Parallel multi-agent orchestration for complex features with git worktree isolation
 
 ## Table of Contents
 
 1. [Workflow Overview](workflow-overview.md) - Visual diagrams and phase details
 2. [Testing Guide](testing-guide.md) - Layer testing with coverage analysis
 
+## When to Use /orc
+
+This plugin is designed for **complex, parallelizable work**. Use it when you need:
+
+- **Multi-module features** - Backend + frontend + database changes
+- **Large refactorings** - Cross-cutting changes across subsystems
+- **Architect consensus** - Multiple Opus instances designing from different angles
+- **Git worktree isolation** - Parallel agents working without conflicts
+
+## When NOT to Use /orc
+
+For simpler tasks, **don't use /orc** - just ask Opus directly:
+
+- Single-file changes
+- Bug fixes with clear scope
+- Features contained in one module
+- Anything a single agent can handle in one session
+- Tasks that can't be split into 2+ independent chunks
+
+The orchestration overhead isn't worth it for simple work.
+
 ## Quick Reference
 
 ### Usage
 
 ```bash
-# Orchestrate a feature with 4-phase workflow
-/orc "Add user authentication"
+# Orchestrate a complex feature with parallel execution
+/orc "Add user authentication with OAuth, database migrations, and frontend UI"
 
 # The orchestrator handles:
-# Phase 1: Understand - Explore codebase, classify
-# Phase 2: Plan - Architecture design, approval
-# Phase 3: Execute - Implementation (single or parallel)
-# Phase 4: Review - Quality review, PR creation
+# Phase 1: Understand & Plan - Explore, define chunks, architect consensus
+# Phase 2: Execute - Parallel implementation in git worktrees
+# Phase 3: Review & Ship - Quality review, PR creation
 ```
-
-### Execution Paths
-
-| Path | Use Case | Execution |
-|------|----------|-----------|
-| **BASE** | Single-agent implementation | One agent implements feature on base branch |
-| **COMPLEX** | Multi-chunk parallel work | Opus architects + parallel agents in git worktrees |
 
 ## Key Concepts
 
-### 4-Phase Workflow (v2.0)
+### 3-Phase Workflow (v2.1)
 
-1. **Understand**: Inline exploration, classify BASE/COMPLEX
-2. **Plan**: Architecture design (inline or Opus architects), single checkpoint
-3. **Execute**: Single agent or parallel worktree agents
-4. **Review**: Quality review, PR creation
+1. **Understand & Plan**: Inline exploration, define chunks, 2-3 Opus architects form consensus, single checkpoint
+2. **Execute**: Planning coordinator creates worktrees, parallel implementation agents, merge coordinator
+3. **Review & Ship**: 1-2 reviewers, PR creation
 
-### Multi-Agent Coordination (COMPLEX path)
+### Multi-Agent Coordination
 
 - Spawn 2-3 Opus architect agents for design consensus
-- Planning coordinator creates git worktrees
+- Planning coordinator creates git worktrees per chunk
 - Parallel implementation agents work in isolation
-- Merge coordinator merges sequentially
+- Merge coordinator merges sequentially, resolves conflicts
 - 1-2 reviewer agents validate quality
 
-### Key Changes in v2.0
+### Key Changes in v2.1
 
-- Reduced from 8 phases to 4
-- Inline exploration (no explorer agents)
-- Architect agents only for COMPLEX path
-- Single checkpoint instead of 3
-- Opus model for architect agents
+- Simplified from 4 phases to 3
+- Removed BASE path (use Opus directly for simple tasks)
+- Always spawns architect agents
+- Always uses git worktrees
+- Single checkpoint before execution
 
 ## Requirements
 
@@ -60,32 +72,18 @@
 - **Git** - Version 2.5+ (worktree support)
 - **GitHub CLI** (`gh`) - For PR creation
 
-## Examples
-
-### BASE Path (Simple Feature)
-
-```bash
-/orc "Add email validation to login form"
-
-# → Inline exploration
-# → Inline architecture design
-# → Single checkpoint: Approve?
-# → Single implementation agent
-# → Quality review
-# → PR created
-```
-
-### COMPLEX Path (Multi-Module Feature)
+## Example
 
 ```bash
 /orc "Refactor authentication system with OAuth support"
 
-# → Inline exploration, classifies as COMPLEX
+# → Inline exploration
+# → Define chunks: API layer, database migrations, frontend components
 # → 2-3 Opus architects design approaches
 # → Form consensus recommendation
 # → Single checkpoint: Approve?
 # → Planning coordinator creates worktrees
-# → Parallel implementation agents
+# → Parallel implementation agents (one per chunk)
 # → Merge coordinator merges sequentially
 # → Quality review
 # → PR created
