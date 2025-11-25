@@ -1,5 +1,5 @@
 ---
-description: Creates execution plan and worktrees for COMPLEX path
+description: Creates execution plan and worktrees
 subagent-type: general-purpose
 ---
 

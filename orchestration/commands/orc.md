@@ -1,34 +1,36 @@
 ---
-description: Guided orchestration with classification and isolation
-argument-hint: <task> [--base <branch>]
+description: Parallel multi-agent orchestration for complex features
+argument-hint: <complex-task>
 ---
 
-# Orchestration Workflow v2
+# Orchestration Workflow v2.1
 
 ## Core Principles
 
+- **Complex work only**: Use for multi-module features requiring parallel execution
 - **Inline exploration**: Explore codebase directly (no explorer agents)
-- **Classify after understanding**: Route to BASE or COMPLEX based on findings
-- **Architect agents for COMPLEX only**: Use Opus 4.5 for design consensus
+- **Multi-architect consensus**: 2-3 Opus agents design from different angles
+- **Git worktree isolation**: Parallel agents work in separate directories
 - **Single checkpoint**: Approve once before execution
+
+> **Note**: For simple tasks (single-module, bug fixes, small features), don't use /orc - just ask Opus directly.
 
 ---
 
-## Phase 1: Understand
+## Phase 1: Understand & Plan
 
-**Goal**: Gather context and classify task complexity
+**Goal**: Gather context, get architect consensus, and get approval
 
 Initial request: $ARGUMENTS
 
 ### Step 1: Create TodoWrite
 
-Before anything else, create a TodoWrite tracking all 4 phases:
+Before anything else, create a TodoWrite tracking all 3 phases:
 
 ```
-- Phase 1: Understand
-- Phase 2: Plan
-- Phase 3: Execute
-- Phase 4: Review
+- Phase 1: Understand & Plan
+- Phase 2: Execute
+- Phase 3: Review & Ship
 ```
 
 Mark Phase 1 as in_progress. Update status throughout workflow.
@@ -60,107 +62,9 @@ If requirements are ambiguous, ask the user:
 
 If clear enough, proceed without stopping.
 
-### Step 4: Classify
+### Step 4: Define Chunks
 
-Based on exploration, classify as **BASE** or **COMPLEX**:
-
-**BASE** - Single-threaded implementation:
-- Cohesive feature in one module/area
-- No clear parallelization benefit
-- Single agent can handle it
-- Examples: Add API endpoint, implement feature, fix bug
-
-**COMPLEX** - Multi-agent parallel implementation:
-- Spans multiple unrelated modules
-- Backend + Frontend + Database changes
-- Can split into independent chunks
-- Worth coordination overhead
-- Examples: Full-stack feature, major refactoring, cross-cutting changes
-
-**If unsure, default to BASE.** Can always escalate if needed.
-
----
-
-## Phase 2: Plan
-
-**Goal**: Design architecture and get approval
-
-Mark Phase 2 as in_progress in TodoWrite.
-
-### Step 1: Create Base Branch
-
-Determine prefix based on task type:
-- `feat/` for new features
-- `fix/` for bug fixes
-- `refactor/` for refactoring
-- `chore/` for maintenance
-
-```bash
-git fetch origin
-git checkout -b <prefix>/<descriptive-name> origin/dev
-```
-
-### Step 2: Architecture Design
-
-#### For BASE Path
-
-Design architecture **inline** (no architect agents):
-
-1. Based on exploration findings, design the approach
-2. Consider existing patterns and conventions
-3. Identify files to create/modify
-4. Present single recommended approach
-
-#### For COMPLEX Path
-
-Spawn **2-3 architect agents in parallel** using Task tool:
-
-```
-Task tool (launch all in same message for parallel execution):
-
-Agent 1 - Minimal Changes:
-  subagent_type: claude-orchestration:architect
-  model: opus
-  prompt: "Design architecture for [feature] with MINIMAL CHANGES focus.
-
-  Feature: [description]
-  Codebase findings: [from exploration]
-  Constraints: [any constraints]
-
-  Focus on smallest diff, maximum code reuse, least disruption."
-
-Agent 2 - Clean Architecture:
-  subagent_type: claude-orchestration:architect
-  model: opus
-  prompt: "Design architecture for [feature] with CLEAN ARCHITECTURE focus.
-
-  Feature: [description]
-  Codebase findings: [from exploration]
-  Constraints: [any constraints]
-
-  Focus on maintainability, clear abstractions, long-term health."
-
-Agent 3 - Pragmatic Balance:
-  subagent_type: claude-orchestration:architect
-  model: opus
-  prompt: "Design architecture for [feature] with PRAGMATIC BALANCE focus.
-
-  Feature: [description]
-  Codebase findings: [from exploration]
-  Constraints: [any constraints]
-
-  Focus on practical trade-offs, ship-ready approach."
-```
-
-**Form consensus** from architect outputs:
-1. Analyze all returned architectures
-2. Identify common elements and divergences
-3. Synthesize ONE recommended approach
-4. Take best ideas from each perspective
-
-### Step 3: Define Chunks (COMPLEX Only)
-
-For COMPLEX path, break feature into independent chunks:
+Break the feature into 2-4 independent chunks:
 
 ```
 Chunk 1: [Name] - [Description]
@@ -175,63 +79,92 @@ Chunk 3: [Name] - [Description]
 
 Ensure chunks have minimal file overlap to avoid merge conflicts.
 
-### Step 4: Present and Get Approval
+### Step 5: Architect Consensus
+
+Spawn **2-3 architect agents in parallel** using Task tool:
+
+```
+Task tool (launch all in same message for parallel execution):
+
+Agent 1 - Minimal Changes:
+  subagent_type: claude-orchestration:architect
+  model: opus
+  prompt: "Design architecture for [feature] with MINIMAL CHANGES focus.
+
+  Feature: [description]
+  Codebase findings: [from exploration]
+  Chunks: [chunk breakdown]
+  Constraints: [any constraints]
+
+  Focus on smallest diff, maximum code reuse, least disruption."
+
+Agent 2 - Clean Architecture:
+  subagent_type: claude-orchestration:architect
+  model: opus
+  prompt: "Design architecture for [feature] with CLEAN ARCHITECTURE focus.
+
+  Feature: [description]
+  Codebase findings: [from exploration]
+  Chunks: [chunk breakdown]
+  Constraints: [any constraints]
+
+  Focus on maintainability, clear abstractions, long-term health."
+
+Agent 3 - Pragmatic Balance:
+  subagent_type: claude-orchestration:architect
+  model: opus
+  prompt: "Design architecture for [feature] with PRAGMATIC BALANCE focus.
+
+  Feature: [description]
+  Codebase findings: [from exploration]
+  Chunks: [chunk breakdown]
+  Constraints: [any constraints]
+
+  Focus on practical trade-offs, ship-ready approach."
+```
+
+**Form consensus** from architect outputs:
+1. Analyze all returned architectures
+2. Identify common elements and divergences
+3. Synthesize ONE recommended approach
+4. Take best ideas from each perspective
+
+### Step 6: Create Base Branch
+
+Determine prefix based on task type:
+- `feat/` for new features
+- `fix/` for bug fixes
+- `refactor/` for refactoring
+- `chore/` for maintenance
+
+```bash
+git fetch origin
+git checkout -b <prefix>/<descriptive-name> origin/dev
+```
+
+### Step 7: Present and Get Approval
 
 Present to user:
-- **Classification**: BASE or COMPLEX
-- **Architecture approach**: Summary of design
-- **For COMPLEX**: Chunk breakdown
+- **Architecture approach**: Consensus summary from architects
+- **Chunk breakdown**: Independent pieces with file assignments
 - **Base branch**: Created branch name
 
 **CHECKPOINT: "Approve execution? (yes/no)"**
 
-- Yes: Proceed to Phase 3
+- Yes: Proceed to Phase 2
 - No: Revise or abort
 
 ---
 
-## Phase 3: Execute
+## Phase 2: Execute
 
-**Goal**: Implement the feature
+**Goal**: Implement the feature in parallel using git worktrees
 
-Mark Phase 3 as in_progress in TodoWrite.
+Mark Phase 2 as in_progress in TodoWrite.
 
 **CRITICAL: You are an orchestrator, not an implementer. Always delegate to subagents.**
 
----
-
-### BASE Path
-
-Spawn single implementation agent:
-
-```
-Task tool:
-  subagent_type: claude-orchestration:implementation
-  prompt: "Implement [feature] on branch [branch-name].
-
-  **Architecture:**
-  [Summary from Phase 2]
-
-  **Files to read first:**
-  [Key files from exploration]
-
-  **Your task:**
-  1. Create internal TodoWrite to track work
-  2. Read files to understand patterns
-  3. Implement following the architecture
-  4. Make commits as you go (git hooks enforce quality)
-  5. Return completion summary
-
-  Remember: You're stateless - include all info in final message."
-```
-
-Wait for agent to return, review summary, proceed to Phase 4.
-
----
-
-### COMPLEX Path
-
-#### Step 1: Planning
+### Step 1: Planning
 
 Spawn planning coordinator:
 
@@ -241,10 +174,10 @@ Task tool:
   prompt: "Create execution plan for parallel implementation.
 
   **Chunks:**
-  [Chunk breakdown from Phase 2]
+  [Chunk breakdown from Phase 1]
 
   **Architecture:**
-  [Consensus approach from Phase 2]
+  [Consensus approach from Phase 1]
 
   **Base branch:** [branch-name]
 
@@ -258,7 +191,7 @@ Coordinator returns execution plan with:
 - File assignments per chunk
 - Merge order
 
-#### Step 2: Parallel Implementation
+### Step 2: Parallel Implementation
 
 Spawn implementation agents **in parallel** (one per chunk):
 
@@ -291,7 +224,7 @@ Review summaries:
 - If ANY blocking errors: STOP, inform user
 - If all successful: Proceed to merging
 
-#### Step 3: Merging
+### Step 3: Merging
 
 Spawn merge coordinator:
 
@@ -315,11 +248,11 @@ Wait for merge coordinator to return.
 
 ---
 
-## Phase 4: Review
+## Phase 3: Review & Ship
 
 **Goal**: Quality validation and PR creation
 
-Mark Phase 4 as in_progress in TodoWrite.
+Mark Phase 3 as in_progress in TodoWrite.
 
 ### Step 1: Quality Review
 
@@ -377,8 +310,8 @@ Mark all TodoWrite items complete.
 
 Present final summary:
 - **What was built**: Feature description
-- **Classification**: BASE or COMPLEX
 - **Key decisions**: Architecture choices
+- **Chunks executed**: Summary of parallel work
 - **Files modified**: List of changes
 - **PR URL**: Link to pull request
 - **Next steps**: Suggested follow-ups
@@ -397,12 +330,13 @@ All subagents are stateless:
 - Communicate ONLY via final return message
 
 ### Concurrency
-Git worktrees provide isolation for COMPLEX parallel work. No locks needed - agents work in separate directories.
+Git worktrees provide isolation for parallel work. No locks needed - agents work in separate directories.
 
-### When to Escalate
-If during execution you realize:
-- BASE should have been COMPLEX: Stop, inform user, restart with COMPLEX
-- More chunks needed: Can add worktrees mid-execution
-- Blocking issue: Stop immediately, don't proceed with partial work
+### When to Stop
+If during execution you encounter:
+- Blocking errors from any agent: Stop, inform user
+- Unresolvable merge conflicts: Stop, inform user
+- Scope creep beyond approved chunks: Stop, inform user
+- HIGH severity review findings: Stop, get user decision
 
 ---

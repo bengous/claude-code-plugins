@@ -5,6 +5,32 @@ All notable changes to the Claude Orchestration Plugin will be documented in thi
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.1.0] - 2025-11-25
+
+### Changed
+- **BREAKING**: Removed BASE path - /orc is now exclusively for complex parallel work
+- Simplified workflow from 4 phases to 3 phases:
+  - Phase 1: Understand & Plan (merged previous phases 1-2)
+  - Phase 2: Execute (parallel worktrees)
+  - Phase 3: Review & Ship
+- Always spawns 2-3 Opus architect agents (no inline design option)
+- Always uses git worktrees (no base branch direct work)
+
+### Removed
+- BASE vs COMPLEX classification logic
+- Single implementation agent path
+- Inline architecture design option
+- "Default to BASE if unsure" guidance
+
+### Notes
+For simple tasks (single-module, bug fixes, small features), use Opus directly without /orc.
+The orchestration overhead is designed for complex, parallelizable work that benefits from:
+- Git worktree isolation for parallel agents
+- Multi-architect consensus on design
+- Coordinated merge process
+
+---
+
 ## [2.0.0] - 2025-11-25
 
 ### Changed

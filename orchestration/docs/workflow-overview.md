@@ -1,106 +1,50 @@
-# Orchestration Workflow Overview (v2.0)
+# Orchestration Workflow Overview (v2.1)
 
 ## Visual Workflow Diagram
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│                    ORCHESTRATION WORKFLOW v2.0 (4 PHASES)                   │
+│                    ORCHESTRATION WORKFLOW v2.1 (3 PHASES)                   │
+│                           COMPLEX-ONLY WORKFLOW                             │
 └─────────────────────────────────────────────────────────────────────────────┘
 
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│ PHASE 1: UNDERSTAND                                                         │
-│ ───────────────────                                                         │
-│ • Create TodoWrite with 4 phases                                            │
-│ • Inline exploration (Glob/Grep/Read) - NO explorer agents                  │
-│ • Ask clarifying questions if ambiguous                                     │
-│ • Classify as BASE or COMPLEX                                               │
+│ PHASE 1: UNDERSTAND & PLAN                                                  │
+│ ──────────────────────────                                                  │
 │                                                                             │
-│ Classification Heuristics:                                                  │
-│   BASE: Single module, cohesive feature, no parallelization benefit         │
-│   COMPLEX: Multi-module, backend+frontend+db, can split into chunks         │
+│ 1. Create TodoWrite with 3 phases                                           │
+│ 2. Inline exploration (Glob/Grep/Read) - NO explorer agents                 │
+│ 3. Ask clarifying questions if ambiguous                                    │
+│ 4. Define 2-4 independent chunks                                            │
 │                                                                             │
-│ NO CHECKPOINT (understanding phase)                                         │
+│ 5. Spawn 2-3 Opus architect agents in parallel:                             │
+│                                                                             │
+│    ┌─────────────────┐  ┌─────────────────┐  ┌─────────────────┐            │
+│    │  Architect 1    │  │  Architect 2    │  │  Architect 3    │            │
+│    │  Minimal        │  │  Clean          │  │  Pragmatic      │            │
+│    │  Changes        │  │  Architecture   │  │  Balance        │            │
+│    └────────┬────────┘  └────────┬────────┘  └────────┬────────┘            │
+│             │                    │                    │                     │
+│             └────────────────────┼────────────────────┘                     │
+│                                  │                                          │
+│                                  ▼                                          │
+│                        Form Consensus                                       │
+│                   (Synthesize ONE approach)                                 │
+│                                                                             │
+│ 6. Create base branch (feat/*, fix/*, etc.)                                 │
+│ 7. Present strategy to user                                                 │
+│                                                                             │
+│ ✋ CHECKPOINT: APPROVE EXECUTION? (yes/no)                                   │
+│    Yes → Phase 2 begins                                                     │
+│    No  → Revise or abort                                                    │
 └────────────────────────────────┬────────────────────────────────────────────┘
                                  │
                                  ▼
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│ PHASE 2: PLAN                                                               │
-│ ─────────────                                                               │
-│ 1. Create base branch: feat/*, fix/*, refactor/*, chore/*                   │
+│ PHASE 2: EXECUTE                                                            │
+│ ────────────────                                                            │
 │                                                                             │
-│ 2. Architecture Design (differs by path):                                   │
-│                                                                             │
-│    ┌─────────────────────────┐    ┌─────────────────────────────────────┐   │
-│    │ BASE PATH               │    │ COMPLEX PATH                        │   │
-│    │ ───────────             │    │ ────────────                        │   │
-│    │ Design inline           │    │ Spawn 2-3 architect agents (Opus)   │   │
-│    │ (no architect agents)   │    │                                     │   │
-│    │                         │    │  ┌────────┐ ┌────────┐ ┌────────┐   │   │
-│    │ Present single          │    │  │Minimal │ │ Clean  │ │Pragmat.│   │   │
-│    │ recommended approach    │    │  │Changes │ │  Arch  │ │Balance │   │   │
-│    │                         │    │  └────────┘ └────────┘ └────────┘   │   │
-│    │                         │    │                                     │   │
-│    │                         │    │  Form consensus: synthesize ONE     │   │
-│    │                         │    │  recommended approach               │   │
-│    └─────────────────────────┘    └─────────────────────────────────────┘   │
-│                                                                             │
-│ 3. For COMPLEX: Define chunk breakdown with file boundaries                 │
-│                                                                             │
-│ 4. Present strategy                                                         │
-│                                                                             │
-│ ✋ CHECKPOINT: APPROVE EXECUTION? (yes/no)                                   │
-│    Yes → Phase 3 begins immediately                                         │
-│    No  → Revise or abort                                                    │
-└────────────────────────────────┬────────────────────────────────────────────┘
-                                 │
-                    ┌────────────┴────────────┐
-                    │                         │
-                    ▼                         ▼
-        ┌─────────────────────┐   ┌─────────────────────┐
-        │   BASE PATH         │   │   COMPLEX PATH      │
-        │   (Single Agent)    │   │   (Multi-Agent)     │
-        └─────────────────────┘   └─────────────────────┘
-
-═════════════════════════════════════════════════════════════════════════════
-                              BASE PATH
-═════════════════════════════════════════════════════════════════════════════
-
-┌─────────────────────────────────────────────────────────────────────────────┐
-│ PHASE 3A: BASE EXECUTE                                                      │
-│ ──────────────────────                                                      │
-│ (Begins immediately after Phase 2 approval)                                 │
-│                                                                             │
-│  **CRITICAL:** Orchestrator MUST delegate (never implements directly)       │
-│                                                                             │
-│  Main Orchestrator                                                          │
-│                                                                             │
-│         │ Spawn single implementation agent                                 │
-│         ▼                                                                   │
-│  ┌──────────────────────────────┐                                           │
-│  │  Implementation Agent        │                                           │
-│  │  ─────────────────────       │                                           │
-│  │  • Creates internal TodoWrite│                                           │
-│  │  • Works on base branch      │                                           │
-│  │  • Implements full feature   │                                           │
-│  │  • Returns completion        │                                           │
-│  └──────────────────────────────┘                                           │
-│                                                                             │
-│         │ Returns completion summary                                        │
-│         ▼                                                                   │
-│  Main Orchestrator                                                          │
-│                                                                             │
-│ NO CHECKPOINT (flows to Phase 4)                                            │
-└────────────────────────────────┬────────────────────────────────────────────┘
-                                 │
-                                 │
-═════════════════════════════════════════════════════════════════════════════
-                           COMPLEX PATH
-═════════════════════════════════════════════════════════════════════════════
-
-┌─────────────────────────────────────────────────────────────────────────────┐
-│ PHASE 3B: COMPLEX EXECUTE                                                   │
-│ ─────────────────────────                                                   │
-│ (Begins immediately after Phase 2 approval)                                 │
+│ **CRITICAL:** Orchestrator MUST delegate (never implements directly)        │
 │                                                                             │
 │ ┌───────────────────────────────────────────────────────────────────────┐   │
 │ │ STEP 1: Planning                                                      │   │
@@ -173,18 +117,13 @@
 │ │   Main Orchestrator                                                   │   │
 │ └───────────────────────────────────────────────────────────────────────┘   │
 │                                                                             │
-│ NO CHECKPOINT (flows to Phase 4)                                            │
+│ NO CHECKPOINT (flows to Phase 3)                                            │
 └────────────────────────────────┬────────────────────────────────────────────┘
-                                 │
-                                 │
-═════════════════════════════════════════════════════════════════════════════
-                         Both paths converge here
-═════════════════════════════════════════════════════════════════════════════
                                  │
                                  ▼
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│ PHASE 4: REVIEW                                                             │
-│ ───────────────                                                             │
+│ PHASE 3: REVIEW & SHIP                                                      │
+│ ──────────────────────                                                      │
 │                                                                             │
 │ 1. Quality Review                                                           │
 │    Spawn 1-2 reviewer agents:                                               │
@@ -206,8 +145,8 @@
 │                                                                             │
 │ 3. Summary                                                                  │
 │    • What was built                                                         │
-│    • Classification used                                                    │
 │    • Key decisions                                                          │
+│    • Chunks executed                                                        │
 │    • Files modified                                                         │
 │    • PR URL                                                                 │
 │                                                                             │
@@ -219,55 +158,48 @@
 
 ## Checkpoint Summary
 
-### v2.0 Checkpoints (Reduced from 3 to 1)
+### v2.1 Checkpoints (1 Essential)
 
 | Phase | Checkpoint | Type |
 |-------|------------|------|
-| Phase 1 | None | Understanding only |
-| Phase 2 | **Approve execution?** | ✋ ESSENTIAL |
-| Phase 3 | None (unless errors) | ⚠️ CONDITIONAL |
-| Phase 4 | None (unless HIGH severity) | ⚠️ CONDITIONAL |
+| Phase 1 | **Approve execution?** | ✋ ESSENTIAL |
+| Phase 2 | None (unless errors) | ⚠️ CONDITIONAL |
+| Phase 3 | None (unless HIGH severity) | ⚠️ CONDITIONAL |
 
 ### Checkpoint Types
 
 **✋ ESSENTIAL** (always stop):
-- **Phase 2**: Approve execution - last gate before costly work
+- **Phase 1**: Approve execution - last gate before costly work
 
 **⚠️ CONDITIONAL** (only if issues):
-- **Phase 3**: Implementation errors (COMPLEX only) - if agents fail
-- **Phase 4**: Quality review - only if HIGH severity bugs found
-
-**✅ REMOVED from v1.x**:
-- ❌ Phase 3: Clarifying questions (now inline in Phase 1)
-- ❌ Phase 4: Architecture approval (now part of Phase 2)
-- ❌ Phase 5: Classification approval (merged into Phase 2)
+- **Phase 2**: Implementation errors - if agents fail
+- **Phase 3**: Quality review - only if HIGH severity bugs found
 
 ---
 
 ## Typical Flows
 
 ### High-Trust Flow
-**Checkpoints**: Phase 2 only = **1 STOP**
+**Checkpoints**: Phase 1 only = **1 STOP**
 
-- Phase 1: Explores, classifies, no stop
-- Phase 2: Presents plan, user approves
-- Phase 3: Implements without issues
-- Phase 4: No HIGH severity → auto-proceeds
+- Phase 1: Explores, architects consensus, user approves
+- Phase 2: Implements without issues
+- Phase 3: No HIGH severity → auto-proceeds to PR
 
 ### Standard Flow with Issues
-**Checkpoints**: Phase 2 + Phase 4 = **2 STOPS**
+**Checkpoints**: Phase 1 + Phase 3 = **2 STOPS**
 
-- Phase 2: User approves execution
-- Phase 4: HIGH severity found → must decide
+- Phase 1: User approves execution
+- Phase 3: HIGH severity found → must decide
 
 ### Error Flow
-**Checkpoints**: Phase 2 + Phase 3 + Phase 4 = **3 STOPS**
+**Checkpoints**: Phase 1 + Phase 2 + Phase 3 = **3 STOPS**
 
-- Phase 2: User approves
-- Phase 3: Agent failures → must retry/abort
-- Phase 4: HIGH severity bugs → must fix
+- Phase 1: User approves
+- Phase 2: Agent failures → must retry/abort
+- Phase 3: HIGH severity bugs → must fix
 
-**AVERAGE**: 1-2 stops (down from 3 in v1.x, down from 7 in v0.x)
+**AVERAGE**: 1-2 stops
 
 ---
 
@@ -278,17 +210,16 @@
 ```
 Main Orchestrator (commands/orc.md)
     │
-    ├─► [COMPLEX only] Architect Agents (2-3, Opus model)
+    ├─► Architect Agents (2-3, Opus model)
     │       └─ Returns architecture proposals → Orchestrator forms consensus
     │
-    ├─► [COMPLEX only] Planning Coordinator
+    ├─► Planning Coordinator
     │       └─ Creates worktrees, returns YAML plan
     │
-    ├─► Implementation Agent(s)
-    │       └─ BASE: 1 agent on base branch
-    │       └─ COMPLEX: N agents in parallel worktrees
+    ├─► Implementation Agents (N, one per chunk)
+    │       └─ Work in parallel worktrees
     │
-    ├─► [COMPLEX only] Merge Coordinator
+    ├─► Merge Coordinator
     │       └─ Merges sequentially, resolves conflicts
     │
     └─► Reviewer Agent(s) (1-2)
@@ -299,13 +230,13 @@ Main Orchestrator (commands/orc.md)
 
 ### Agent Roles
 
-| Agent | When Used | Responsibility |
-|-------|-----------|----------------|
-| **Architect** | COMPLEX only | Design approaches with different focuses |
-| **Planning Coordinator** | COMPLEX only | Create worktrees, return execution plan |
-| **Implementation** | Always | Implement feature/chunk |
-| **Merge Coordinator** | COMPLEX only | Merge worktrees, resolve conflicts |
-| **Reviewer** | Always | Find bugs, quality issues |
+| Agent | Responsibility |
+|-------|----------------|
+| **Architect** | Design approaches with different focuses (Opus model) |
+| **Planning Coordinator** | Create worktrees, return execution plan |
+| **Implementation** | Implement assigned chunk in worktree |
+| **Merge Coordinator** | Merge worktrees, resolve conflicts |
+| **Reviewer** | Find bugs, quality issues |
 
 ### Agent Models
 
@@ -316,69 +247,50 @@ Main Orchestrator (commands/orc.md)
 
 ---
 
-## Key Changes from v1.x
+## Key Changes from v2.0
 
 ### Phase Consolidation
 
-| v1.x (8 phases) | v2.0 (4 phases) |
+| v2.0 (4 phases) | v2.1 (3 phases) |
 |-----------------|-----------------|
-| Phase 1: Discovery | → Phase 1: Understand |
-| Phase 2: Exploration | → Phase 1: Understand |
-| Phase 3: Questions | → Phase 1: Understand |
-| Phase 4: Architecture | → Phase 2: Plan |
-| Phase 5: Classification | → Phase 2: Plan |
-| Phase 6: Implementation | → Phase 3: Execute |
-| Phase 7: Quality Review | → Phase 4: Review |
-| Phase 8: PR & Summary | → Phase 4: Review |
+| Phase 1: Understand | → Phase 1: Understand & Plan |
+| Phase 2: Plan | → Phase 1: Understand & Plan |
+| Phase 3: Execute | → Phase 2: Execute |
+| Phase 4: Review | → Phase 3: Review & Ship |
 
-### Agent Changes
+### Removed: BASE Path
 
-| v1.x | v2.0 |
+v2.1 is **COMPLEX-only**. For simple tasks, use Opus directly without /orc.
+
+| v2.0 | v2.1 |
 |------|------|
-| 2-3 explorer agents | Inline exploration (no agents) |
-| 2-3 architect agents always | Architects for COMPLEX only |
-| Default model for architects | Opus model for architects |
-| 1-3 reviewers | 1-2 reviewers |
-
-### Checkpoint Changes
-
-| v1.x | v2.0 |
-|------|------|
-| 3 essential checkpoints | 1 essential checkpoint |
-| Stop after questions | Questions inline, no stop |
-| Stop for architecture approval | Architecture in Plan phase |
-| Stop for execution approval | Single approval in Phase 2 |
+| BASE + COMPLEX paths | COMPLEX only |
+| Inline architecture design | Always architect agents |
+| Single implementation agent option | Always parallel worktrees |
+| Classification step | No classification needed |
 
 ---
 
 ## Phase Details
 
-### Phase 1: Understand
-- **FIRST STEP:** Create TodoWrite with 4 phases
+### Phase 1: Understand & Plan
+- **FIRST STEP:** Create TodoWrite with 3 phases
 - Inline exploration using Glob/Grep/Read (no explorer agents)
 - Ask clarifying questions if needed (inline, no mandatory stop)
-- Classify as BASE or COMPLEX based on findings
-- **No checkpoint** (understanding phase)
-
-### Phase 2: Plan
+- Define 2-4 independent chunks
+- Spawn 2-3 Opus architect agents, form consensus
 - Create base branch (feat/*, fix/*, etc.)
-- Architecture design:
-  - BASE: Design inline (no architects)
-  - COMPLEX: Spawn 2-3 Opus architect agents, form consensus
-- For COMPLEX: Define chunk breakdown
 - Present strategy
 - **✋ CHECKPOINT**: Approve execution? (ESSENTIAL)
 
-### Phase 3: Execute
+### Phase 2: Execute
 - **CRITICAL:** Orchestrator MUST delegate (never implements directly)
-- BASE: Single implementation agent
-- COMPLEX:
-  - Step 1: Planning coordinator creates worktrees
-  - Step 2: Parallel implementation agents
-  - Step 3: Merge coordinator merges sequentially
+- Step 1: Planning coordinator creates worktrees
+- Step 2: Parallel implementation agents (one per chunk)
+- Step 3: Merge coordinator merges sequentially
 - **⚠️ CONDITIONAL**: Only stop if implementation errors
 
-### Phase 4: Review
+### Phase 3: Review & Ship
 - Spawn 1-2 reviewer agents
 - Categorize findings by severity
 - **⚠️ CONDITIONAL**: Only stop if HIGH severity
@@ -392,10 +304,10 @@ Main Orchestrator (commands/orc.md)
 
 | File | Purpose |
 |------|---------|
-| `commands/orc.md` | Main workflow (4 phases) |
+| `commands/orc.md` | Main workflow (3 phases) |
 | `agents/architect.md` | Architecture design (Opus model) |
 | `agents/planning-coordinator.md` | Worktree creation, execution plan |
-| `agents/implementation.md` | Feature/chunk implementation |
+| `agents/implementation.md` | Chunk implementation in worktree |
 | `agents/merge-coordinator.md` | Sequential merge, conflict resolution |
 
 ---
@@ -405,7 +317,7 @@ Main Orchestrator (commands/orc.md)
 ### Quality Enforcement
 Pre-commit and pre-push hooks automatically run linting, type checking, and tests. **You don't need to run these manually.**
 
-### Worktree Isolation (COMPLEX Only)
+### Worktree Isolation
 Each implementation agent works in an isolated git worktree with its own branch. This enables true parallel development without conflicts.
 
 ### State Management
@@ -424,19 +336,18 @@ All subagents are stateless:
 ```
 /orc "Add user authentication"
 
-Phase 1: UNDERSTAND
-  └─ Explore inline → Classify BASE/COMPLEX
-
-Phase 2: PLAN
-  └─ Create branch
-  └─ Architecture (inline or Opus architects)
+Phase 1: UNDERSTAND & PLAN
+  └─ Explore inline
+  └─ Define chunks
+  └─ Spawn Opus architects → Form consensus
   └─ ✋ CHECKPOINT: Approve?
 
-Phase 3: EXECUTE
-  └─ BASE: 1 implementation agent
-  └─ COMPLEX: Plan → Parallel agents → Merge
+Phase 2: EXECUTE
+  └─ Planning coordinator → Creates worktrees
+  └─ Parallel implementation agents
+  └─ Merge coordinator → Merges sequentially
 
-Phase 4: REVIEW
+Phase 3: REVIEW & SHIP
   └─ 1-2 reviewers
   └─ Create PR
   └─ Done!
