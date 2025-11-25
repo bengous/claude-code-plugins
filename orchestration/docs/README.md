@@ -4,40 +4,22 @@
 
 ## Table of Contents
 
-1. [Getting Started](getting-started.md) - Quick start guide and installation
-2. [Architecture](architecture.md) - System design and core concepts
-3. [Command Reference](#command-reference) - Complete command documentation
-
-## Command Reference
-
-### Orchestration
-🎯 [Orchestration Command](commands/orchestration.md) - Multi-agent task delegation and coordination
-
-- `/orc <task>` - Main orchestration command with 8-phase workflow
-  - Discovery: Understand requirements
-  - Exploration: Analyze codebase
-  - Clarification: Resolve ambiguities
-  - Architecture: Design approach
-  - Classification: BASE or COMPLEX routing
-  - Implementation: Execute with agents
-  - Quality Review: Code review
-  - PR Creation: Automated pull request
+1. [Workflow Overview](workflow-overview.md) - Visual diagrams and phase details
+2. [Testing Guide](testing-guide.md) - Layer testing with coverage analysis
 
 ## Quick Reference
 
 ### Usage
 
 ```bash
-# Orchestrate a feature with full 8-phase workflow
+# Orchestrate a feature with 4-phase workflow
 /orc "Add user authentication"
 
-# The orchestrator handles everything:
-# - Codebase exploration
-# - Clarifying questions
-# - Architecture design
-# - Parallel execution (if complex)
-# - Quality review
-# - PR creation
+# The orchestrator handles:
+# Phase 1: Understand - Explore codebase, classify
+# Phase 2: Plan - Architecture design, approval
+# Phase 3: Execute - Implementation (single or parallel)
+# Phase 4: Review - Quality review, PR creation
 ```
 
 ### Execution Paths
@@ -45,94 +27,80 @@
 | Path | Use Case | Execution |
 |------|----------|-----------|
 | **BASE** | Single-agent implementation | One agent implements feature on base branch |
-| **COMPLEX** | Multi-chunk parallel work | Multiple agents in isolated git worktrees, merged sequentially |
+| **COMPLEX** | Multi-chunk parallel work | Opus architects + parallel agents in git worktrees |
 
 ## Key Concepts
 
-### 8-Phase Workflow
-The `/orc` command follows a structured workflow:
-1. **Discovery**: Understand what needs to be built
-2. **Exploration**: Deep codebase analysis with explorer agents
-3. **Clarification**: Ask user questions to resolve ambiguities
-4. **Architecture**: Design multiple approaches, present options
-5. **Classification**: Determine BASE vs COMPLEX execution
-6. **Implementation**: Execute with single or multiple agents
-7. **Quality Review**: Automated code review
-8. **PR Creation**: Generate pull request with `gh` CLI
+### 4-Phase Workflow (v2.0)
 
-### Multi-Agent Coordination
-For complex features, the orchestrator:
-- Spawns planning coordinator to create git worktrees
-- Delegates chunks to parallel implementation agents
-- Merges work sequentially via merge coordinator
-- Ensures isolation and conflict resolution
-- Concurrency control via locks
-- PR workflow automation
+1. **Understand**: Inline exploration, classify BASE/COMPLEX
+2. **Plan**: Architecture design (inline or Opus architects), single checkpoint
+3. **Execute**: Single agent or parallel worktree agents
+4. **Review**: Quality review, PR creation
 
-### State Management
-The plugin maintains state in `.claude/run/`:
-- `current.json` - Active orchestration state
-- `{RUN_ID}.json` - Per-run historical records
-- `locks/` - Branch locks for concurrency control
+### Multi-Agent Coordination (COMPLEX path)
+
+- Spawn 2-3 Opus architect agents for design consensus
+- Planning coordinator creates git worktrees
+- Parallel implementation agents work in isolation
+- Merge coordinator merges sequentially
+- 1-2 reviewer agents validate quality
+
+### Key Changes in v2.0
+
+- Reduced from 8 phases to 4
+- Inline exploration (no explorer agents)
+- Architect agents only for COMPLEX path
+- Single checkpoint instead of 3
+- Opus model for architect agents
 
 ## Requirements
 
 - **Claude Code CLI** - Latest version
 - **Git** - Version 2.5+ (worktree support)
-- **GitHub CLI** (`gh`) - For issue and PR commands
-
-## Installation
-
-See [Getting Started Guide](getting-started.md) for detailed installation instructions.
+- **GitHub CLI** (`gh`) - For PR creation
 
 ## Examples
 
-### Example 1: Simple Bug Fix
+### BASE Path (Simple Feature)
 
 ```bash
-# Quick fix without orchestration
-git checkout -b fix/login-typo
-# Make changes
-/pr:create --base dev
+/orc "Add email validation to login form"
+
+# → Inline exploration
+# → Inline architecture design
+# → Single checkpoint: Approve?
+# → Single implementation agent
+# → Quality review
+# → PR created
 ```
 
-### Example 2: Medium Feature
+### COMPLEX Path (Multi-Module Feature)
 
 ```bash
-# Feature with isolation
-/orc:start "Add user profile page" --confirm
-# Classifies as MEDIUM
-# Creates worktree if needed
-# Implements feature
-# Creates PR automatically
-```
+/orc "Refactor authentication system with OAuth support"
 
-### Example 3: Complex Refactoring
-
-```bash
-# Multi-step architectural change
-/orc:start "Refactor authentication system" --issue 42 --confirm
-# Classifies as COMPLEX
-# Creates feat/auth-refactor base branch
-# Breaks down into steps:
-#   - Step 1: Core module (PR to base)
-#   - Step 2: OAuth integration (PR to base)
-#   - Step 3: Tests + docs (PR to base)
-# Final PR: base branch → dev
+# → Inline exploration, classifies as COMPLEX
+# → 2-3 Opus architects design approaches
+# → Form consensus recommendation
+# → Single checkpoint: Approve?
+# → Planning coordinator creates worktrees
+# → Parallel implementation agents
+# → Merge coordinator merges sequentially
+# → Quality review
+# → PR created
 ```
 
 ## Support
 
 - **Issues**: [GitHub Issues](https://github.com/bengous/claude-code-plugins/issues)
-- **Discussions**: [GitHub Discussions](https://github.com/bengous/claude-code-plugins/discussions)
 
 ## License
 
-MIT - See [LICENSE](../LICENSE) for details.
+MIT
 
 ---
 
 **Next Steps:**
-- [📖 Getting Started](getting-started.md) - Install and configure the plugin
-- [🏗️ Architecture](architecture.md) - Understand the system design
-- [📚 Workflows](workflows.md) - Learn common development patterns
+- [Workflow Overview](workflow-overview.md) - Detailed phase diagrams
+- [Testing Guide](testing-guide.md) - Layer testing with coverage
