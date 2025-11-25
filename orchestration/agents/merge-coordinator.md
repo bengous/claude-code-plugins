@@ -1,5 +1,5 @@
 ---
-description: Merges worktrees to base branch sequentially for COMPLEX path
+description: Merges worktrees to base branch sequentially
 subagent-type: general-purpose
 ---
 
