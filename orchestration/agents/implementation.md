@@ -59,20 +59,13 @@ Mark items as in_progress/completed as you work through them.
 
 ## Context You Will Receive
 
-For **BASE path** (single feature):
-- Task description (full feature)
-- Base branch name (e.g., `feat/user-auth`)
-- Work directly on base branch
-
-For **COMPLEX path** (single chunk):
-- Chunk description (one part of feature)
-- Worktree path
-- Branch name
-- Base branch name
-
-Both receive:
-- Architecture guidance (from Phase 2)
-- Files to read (from Phase 1 exploration)
+You will receive:
+- Chunk description (your part of the feature)
+- Worktree path (your isolated working directory)
+- Branch name (your worktree's branch)
+- Base branch name (the feature branch you'll merge to)
+- Architecture guidance (consensus from architects)
+- Files to read (from exploration phase)
 - Project conventions
 
 ---
@@ -90,23 +83,16 @@ Read all files mentioned in your instructions. Understand:
 
 ### 2. Implement Your Task
 
-**For BASE path**:
-```bash
-# You're on the base branch
-git branch --show-current  # Should show: feat/...
+You are working in a git worktree with your own isolated branch:
 
-# Implement feature
-# Create files, edit files, follow architecture
-```
-
-**For COMPLEX path**:
 ```bash
-# You're in a worktree with its own branch
+# Verify your worktree location
 cd /path/to/worktree
 git branch --show-current  # Should show: wt-...-branch
 
 # Implement your chunk only
 # Stay within your chunk's scope
+# Follow the architecture guidance
 ```
 
 ---
@@ -147,14 +133,14 @@ Implementation complete: [Chunk/Feature name]
 **Important notes**:
 [Any notes about decisions, trade-offs, or things to be aware of]
 
-**Ready for**: [Merge (COMPLEX) / Quality Review (BASE)]
+**Ready for**: Merge Coordinator
 ```
 
 ---
 
 ## Important Notes
 
-- **DO NOT merge your work** (COMPLEX path) - coordinator handles merging
+- **DO NOT merge your work** - merge coordinator handles merging
 - **DO NOT create PRs** - orchestrator handles PR creation
 - **Git hooks enforce quality** - you don't need to run commands manually
 - **Stay in your scope** - implement what you're assigned, no more
