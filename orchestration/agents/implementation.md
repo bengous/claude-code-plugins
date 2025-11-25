@@ -71,8 +71,8 @@ For **COMPLEX path** (single chunk):
 - Base branch name
 
 Both receive:
-- Architecture guidance (from Phase 4)
-- Files to read (from Phase 2)
+- Architecture guidance (from Phase 2)
+- Files to read (from Phase 1 exploration)
 - Project conventions
 
 ---

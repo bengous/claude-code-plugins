@@ -5,6 +5,43 @@ All notable changes to the Claude Orchestration Plugin will be documented in thi
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.0.0] - 2025-11-25
+
+### Changed
+- **Major workflow redesign**: Reduced from 8 phases to 4 phases
+  - Phase 1: Understand (combines Discovery + Exploration + Questions)
+  - Phase 2: Plan (combines Architecture + Classification)
+  - Phase 3: Execute (Implementation)
+  - Phase 4: Review (Quality Review + PR)
+- **Inline exploration**: Orchestrator explores directly using Glob/Grep/Read instead of spawning explorer agents
+- **Classification after exploration**: Task complexity (BASE/COMPLEX) determined after understanding codebase
+- **Architect agents for COMPLEX only**: Spawn 2-3 Opus 4.5 architects only for complex multi-module features
+- **Form consensus**: Architect outputs synthesized into single recommendation (not all options shown)
+- **Single checkpoint**: Reduced from 3 mandatory checkpoints to 1 (approve before execution)
+
+### Added
+- `agents/architect.md` - New architect agent template with Opus model for design work
+
+### Removed
+- `agents/coordinator.md` - Redundant with separate planning/merge coordinators
+- Explorer agent spawning - Replaced with inline exploration
+- Phases 2-5 from original workflow - Consolidated into new phases 1-2
+
+### Breaking Changes
+- Phase numbering changed completely (8 → 4)
+- Explorer agents no longer spawned
+- Architect agents only spawn for COMPLEX path
+- Fewer user checkpoints during workflow
+
+### Rationale
+Opus 4.5 capabilities allow:
+- Inline exploration without agent overhead
+- Smarter autonomous decisions with fewer checkpoints
+- Better consensus formation from multiple architect perspectives
+- Reduced agent spawns for typical BASE tasks (~4-6 fewer)
+
+---
+
 ## [1.1.0] - 2025-11-01
 
 ### Changed
