@@ -2,7 +2,7 @@
 description: Guide for creating effective Claude skills
 allowed-tools:
   - Read(*:*)
-model: claude-sonnet-4-5
+model: claude-opus-4-5
 ---
 
 # Skill Creator

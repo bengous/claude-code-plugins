@@ -3,7 +3,7 @@ description: Enhance prompts for better agent handoff or ask clarifying question
 argument-hint: "<prompt-text>"
 allowed-tools:
   - AskUserQuestion(*:*)
-model: claude-sonnet-4-5
+model: claude-opus-4-5
 ---
 
 # Meta Prompt Enhancer
