@@ -7,7 +7,7 @@ allowed-tools:
   - Grep(*:*)
   - Glob(*:*)
   - Bash(*:*)
-model: claude-sonnet-4-5
+model: claude-opus-4-5
 ---
 
 # Clean Comments Command

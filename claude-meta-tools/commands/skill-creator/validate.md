@@ -4,7 +4,7 @@ argument-hint: <path>
 allowed-tools:
   - Bash(*:*)
   - Read(*:*)
-model: claude-sonnet-4-5
+model: claude-opus-4-5
 ---
 
 # Validate Skill Structure
