@@ -1,7 +1,7 @@
 {
   "name": "git-tools",
-  "version": "1.0.0",
-  "description": "Interactive git commands with AI assistance for commit management, history rewriting, and repository cleanup",
+  "version": "1.1.0",
+  "description": "Interactive git commands with AI assistance for commit management, history rewriting, PR triage, and repository cleanup",
   "author": {
     "name": "Augustin BENGOLEA",
     "email": "bengous@protonmail.com"
@@ -20,6 +20,9 @@
     "cleanup",
     "branches",
     "worktrees",
-    "dependabot"
+    "dependabot",
+    "pr",
+    "pull-request",
+    "triage"
   ]
 }

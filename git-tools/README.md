@@ -9,6 +9,7 @@ Git Tools provides AI-powered interactive git commands that enhance your workflo
 ## Features
 
 - **Interactive Rebase**: Visual, multi-stage rebase workflow with AI-powered commit improvements
+- **PR Triage**: Analyze open PRs and decide to treat or close with explanatory comments
 - **Repository Cleanup**: Automated cleanup of stale branches, worktrees, and closed PRs
 - **Smart Commit Messages**: AI suggestions for reword operations following conventional commit patterns
 - **Conflict Guidance**: Step-by-step resolution instructions when conflicts arise
@@ -69,6 +70,72 @@ Perform git repository cleanup based on `/analyze-git` findings.
 - Preserves current branch
 - Preserves active dependabot PRs (OPEN status)
 - Cannot be easily undone - use with caution
+
+---
+
+### `/triage`
+
+Analyze an open pull request and decide whether to treat (continue working on it) or close it with an explanatory comment.
+
+**Usage:**
+```bash
+/git-tools:triage 123                              # By PR number
+/git-tools:triage https://github.com/org/repo/pull/123  # By URL
+```
+
+**Analysis Criteria:**
+
+| Factor | What's Evaluated |
+|--------|------------------|
+| Age & Activity | Creation date, last update, staleness |
+| Scope | Files changed, lines added/removed |
+| Review Status | Approvals, change requests, pending reviews |
+| Merge Readiness | Conflicts, CI status, target branch |
+| Relevance | Alignment with current project goals |
+
+**Workflow:**
+
+1. **Gather**: Fetches PR metadata, diff stats, and comments via `gh` CLI
+2. **Analyze**: Evaluates the PR against triage criteria
+3. **Summarize**: Presents structured report with recommendation
+4. **Decide**: Asks you to confirm TREAT or CLOSE
+5. **Execute**:
+   - TREAT: Optionally assign, label, or comment
+   - CLOSE: Posts explanatory comment, then closes PR
+
+**Output Example:**
+```
+## PR Summary: Add dark mode support
+
+**Author:** @contributor | **Created:** 45 days ago | **Last activity:** 30 days ago
+
+**Scope:** +250/-50 lines across 8 files
+
+**Status:**
+- Reviews: changes requested
+- Mergeable: yes
+- CI: passing
+
+**Key observations:**
+- Stale for 30 days with unaddressed review comments
+- Significant scope but well-structured changes
+- No response from author to feedback
+
+**Recommendation:** CLOSE
+**Reason:** Stale PR with unaddressed review feedback
+```
+
+**Close Comment Templates:**
+
+The command includes templates for common close scenarios:
+- Stale PRs (no recent activity)
+- Superseded PRs (work done elsewhere)
+- Scope issues (PR too large to review)
+
+Comments thank the contributor and invite them to reopen if circumstances change.
+
+**Requirements:**
+- GitHub CLI (`gh`) authenticated with repo access
 
 ---
 
@@ -141,6 +208,7 @@ Interactive git rebase with visual planning and AI-powered commit improvements.
 ## Requirements
 
 - Git 2.0+
+- GitHub CLI (`gh`) authenticated for PR operations
 - jq (for JSON processing)
 - Clean working directory for rebase operations
 
