@@ -4,8 +4,8 @@ set -euo pipefail
 # ================================================================
 # settings-manager - Claude Code JSONC settings management
 # ================================================================
-# Portable script using bash + inline node for JSONC parsing.
-# No npm install required - uses system node.
+# Flag-driven script for setting up and managing JSONC settings.
+# Claude handles decision-making; this script handles execution.
 # ================================================================
 
 # Colors
@@ -17,15 +17,14 @@ CYAN='\033[0;36m'
 GRAY='\033[0;90m'
 NC='\033[0m'
 
-# Configuration - can be overridden via env vars or flags
-JSONC_FILE="${SETTINGS_SOURCE:-.claude/__settings.jsonc}"
-JSON_FILE="${SETTINGS_TARGET:-.claude/settings.json}"
+# Configuration
 SCHEMA_URL="https://json.schemastore.org/claude-code-settings.json"
 CACHE_DIR="${HOME}/.cache/claude-settings-manager"
 CACHE_TTL=86400  # 24 hours
 
-# Global mode flag
-GLOBAL_MODE="false"
+# Script location (for --install-global)
+SCRIPT_PATH="${BASH_SOURCE[0]}"
+SCRIPT_DIR="$(cd "$(dirname "$SCRIPT_PATH")" && pwd)"
 
 # ================================================================
 # JSONC Parser (inline node - strips comments)
@@ -41,7 +40,6 @@ strip_jsonc() {
     let i = 0;
 
     while (i < input.length) {
-      // Check for string start
       if (!inString && input[i] === "\"") {
         inString = true;
         stringChar = input[i];
@@ -51,13 +49,11 @@ strip_jsonc() {
       }
 
       if (inString) {
-        // Check for escape
         if (input[i] === "\\" && i + 1 < input.length) {
           result += input[i] + input[i + 1];
           i += 2;
           continue;
         }
-        // Check for string end
         if (input[i] === stringChar) {
           inString = false;
         }
@@ -66,15 +62,12 @@ strip_jsonc() {
         continue;
       }
 
-      // Not in string - check for comments
       if (input[i] === "/" && i + 1 < input.length) {
         if (input[i + 1] === "/") {
-          // Line comment - skip to newline
           while (i < input.length && input[i] !== "\n") i++;
           continue;
         }
         if (input[i + 1] === "*") {
-          // Block comment - skip to */
           i += 2;
           while (i + 1 < input.length && !(input[i] === "*" && input[i + 1] === "/")) i++;
           i += 2;
@@ -86,7 +79,6 @@ strip_jsonc() {
       i++;
     }
 
-    // Parse and re-stringify to normalize
     try {
       const obj = JSON.parse(result);
       console.log(JSON.stringify(obj, null, 2));
@@ -98,120 +90,41 @@ strip_jsonc() {
 }
 
 # ================================================================
-# Repository/Directory Discovery
-# ================================================================
-find_repo_root() {
-  if git rev-parse --show-toplevel 2>/dev/null; then
-    return 0
-  fi
-  # Not in a git repo - check if global mode or explicit paths
-  if [[ "$GLOBAL_MODE" == "true" ]] || [[ "$JSONC_FILE" == /* ]]; then
-    echo ""  # No repo root needed
-    return 0
-  fi
-  echo "Error: Not in a git repository (use --global for global settings)" >&2
-  exit 1
-}
-
-# Get working directory (repo root or current dir for global mode)
-get_working_dir() {
-  if [[ "$GLOBAL_MODE" == "true" ]]; then
-    echo "$HOME"
-  elif [[ "$JSONC_FILE" == /* ]]; then
-    echo "$(dirname "$JSONC_FILE")"
-  else
-    find_repo_root
-  fi
-}
-
-# ================================================================
 # Commands
 # ================================================================
 
-# Detect current project state
-cmd_detect() {
-  local work_dir
-  work_dir=$(get_working_dir)
-  [[ -n "$work_dir" ]] && cd "$work_dir"
-
-  local settings_json_exists="false"
-  local settings_jsonc_exists="false"
-  local lefthook_exists="false"
-  local husky_exists="false"
-  local package_json_exists="false"
-  local gitattributes_exists="false"
-  local chezmoi_exists="false"
-  local global_settings_exists="false"
-  local recommended="lefthook"
-  local is_dotfiles_repo="false"
-
-  [[ -f "$JSON_FILE" ]] && settings_json_exists="true"
-  [[ -f "$JSONC_FILE" ]] && settings_jsonc_exists="true"
-  [[ -f "lefthook.yml" || -f "lefthook.yaml" ]] && lefthook_exists="true"
-  [[ -d ".husky" ]] && husky_exists="true"
-  [[ -f "package.json" ]] && package_json_exists="true"
-  [[ -f ".gitattributes" ]] && gitattributes_exists="true"
-
-  # Detect chezmoi dotfiles repo
-  if [[ -f ".chezmoi.yaml.tmpl" ]] || [[ -f ".chezmoi.toml.tmpl" ]] || [[ -f ".chezmoiroot" ]]; then
-    chezmoi_exists="true"
-    is_dotfiles_repo="true"
-  elif ls dot_* 1>/dev/null 2>&1; then
-    is_dotfiles_repo="true"
-  fi
-
-  # Check for global settings
-  [[ -f "$HOME/.claude/settings.json" ]] && global_settings_exists="true"
-
-  # Recommend based on existing setup
-  if [[ "$is_dotfiles_repo" == "true" ]]; then
-    recommended="chezmoi"
-  elif [[ "$husky_exists" == "true" ]]; then
-    recommended="husky"
-  fi
-
-  cat <<EOF
-{
-  "settings_json_exists": $settings_json_exists,
-  "settings_jsonc_exists": $settings_jsonc_exists,
-  "lefthook_exists": $lefthook_exists,
-  "husky_exists": $husky_exists,
-  "package_json_exists": $package_json_exists,
-  "gitattributes_exists": $gitattributes_exists,
-  "chezmoi_exists": $chezmoi_exists,
-  "is_dotfiles_repo": $is_dotfiles_repo,
-  "global_settings_exists": $global_settings_exists,
-  "recommended_hook_system": "$recommended"
-}
-EOF
-}
-
 # Sync JSONC to JSON
 cmd_sync() {
-  local work_dir
-  work_dir=$(get_working_dir)
+  local source_file=""
+  local target_file=""
 
-  # Resolve paths
-  local source_file="$JSONC_FILE"
-  local target_file="$JSON_FILE"
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --source) source_file="$2"; shift 2 ;;
+      --target) target_file="$2"; shift 2 ;;
+      *) shift ;;
+    esac
+  done
 
-  # If not absolute, make relative to work_dir
-  if [[ "$source_file" != /* ]] && [[ -n "$work_dir" ]]; then
-    source_file="$work_dir/$source_file"
+  if [[ -z "$source_file" ]]; then
+    echo -e "${RED}Error: --source is required${NC}" >&2
+    echo "Usage: settings-manager sync --source PATH --target PATH" >&2
+    exit 1
   fi
-  if [[ "$target_file" != /* ]] && [[ -n "$work_dir" ]]; then
-    target_file="$work_dir/$target_file"
+
+  if [[ -z "$target_file" ]]; then
+    echo -e "${RED}Error: --target is required${NC}" >&2
+    echo "Usage: settings-manager sync --source PATH --target PATH" >&2
+    exit 1
   fi
 
   if [[ ! -f "$source_file" ]]; then
     echo -e "${RED}Error: $source_file not found${NC}" >&2
-    echo "Run /settings-setup to initialize" >&2
     exit 1
   fi
 
   echo -e "${BLUE}Syncing settings...${NC}"
 
-  # Parse JSONC and write JSON
   local tmp_file="${target_file}.tmp.$$"
   mkdir -p "$(dirname "$target_file")"
 
@@ -221,26 +134,26 @@ cmd_sync() {
     exit 1
   fi
 
-  # Atomic write
   mv "$tmp_file" "$target_file"
-
   echo -e "${GREEN}Synced: $source_file -> $target_file${NC}"
 }
 
 # Check if in sync
 cmd_check() {
-  local work_dir
-  work_dir=$(get_working_dir)
+  local source_file=""
+  local target_file=""
 
-  # Resolve paths
-  local source_file="$JSONC_FILE"
-  local target_file="$JSON_FILE"
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --source) source_file="$2"; shift 2 ;;
+      --target) target_file="$2"; shift 2 ;;
+      *) shift ;;
+    esac
+  done
 
-  if [[ "$source_file" != /* ]] && [[ -n "$work_dir" ]]; then
-    source_file="$work_dir/$source_file"
-  fi
-  if [[ "$target_file" != /* ]] && [[ -n "$work_dir" ]]; then
-    target_file="$work_dir/$target_file"
+  if [[ -z "$source_file" ]] || [[ -z "$target_file" ]]; then
+    echo -e "${RED}Error: --source and --target are required${NC}" >&2
+    exit 1
   fi
 
   if [[ ! -f "$source_file" ]]; then
@@ -249,18 +162,16 @@ cmd_check() {
   fi
 
   if [[ ! -f "$target_file" ]]; then
-    echo -e "${YELLOW}Warning: $target_file not found (run /settings-sync)${NC}" >&2
+    echo -e "${YELLOW}Warning: $target_file not found${NC}" >&2
     exit 2
   fi
 
-  # Generate what JSON should be
   local expected
   if ! expected=$(strip_jsonc "$source_file"); then
     echo -e "${RED}Error: Failed to parse JSONC${NC}" >&2
     exit 1
   fi
 
-  # Compare with actual
   local actual
   actual=$(cat "$target_file")
 
@@ -278,13 +189,18 @@ cmd_check() {
 
 # Validate against schema
 cmd_validate() {
-  local work_dir
-  work_dir=$(get_working_dir)
+  local source_file=""
 
-  # Resolve source path
-  local source_file="$JSONC_FILE"
-  if [[ "$source_file" != /* ]] && [[ -n "$work_dir" ]]; then
-    source_file="$work_dir/$source_file"
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --source) source_file="$2"; shift 2 ;;
+      *) shift ;;
+    esac
+  done
+
+  if [[ -z "$source_file" ]]; then
+    echo -e "${RED}Error: --source is required${NC}" >&2
+    exit 1
   fi
 
   if [[ ! -f "$source_file" ]]; then
@@ -294,7 +210,6 @@ cmd_validate() {
 
   echo -e "${BLUE}Validating $source_file...${NC}"
 
-  # Parse JSONC first
   local parsed
   if ! parsed=$(strip_jsonc "$source_file"); then
     echo -e "${RED}JSONC syntax error${NC}" >&2
@@ -303,13 +218,11 @@ cmd_validate() {
 
   echo -e "${GREEN}JSONC syntax: valid${NC}"
 
-  # Fetch schema (with cache)
   mkdir -p "$CACHE_DIR"
   local schema_file="$CACHE_DIR/settings.schema.json"
   local cache_valid="false"
 
   if [[ -f "$schema_file" ]]; then
-    # Get file modification time (cross-platform)
     local file_mtime
     if stat --version 2>/dev/null | grep -q GNU; then
       file_mtime=$(stat -c %Y "$schema_file")
@@ -329,7 +242,7 @@ cmd_validate() {
     if curl -sL --max-time 10 "$SCHEMA_URL" -o "$schema_file.tmp" 2>/dev/null; then
       mv "$schema_file.tmp" "$schema_file"
     else
-      echo -e "${YELLOW}Warning: Could not fetch schema (using cached or skipping)${NC}"
+      echo -e "${YELLOW}Warning: Could not fetch schema${NC}"
       if [[ ! -f "$schema_file" ]]; then
         echo -e "${YELLOW}Schema validation skipped${NC}"
         exit 0
@@ -337,7 +250,6 @@ cmd_validate() {
     fi
   fi
 
-  # Validate with node (basic validation)
   node -e '
     const fs = require("fs");
     const schema = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
@@ -345,7 +257,6 @@ cmd_validate() {
 
     const errors = [];
 
-    // Check for common mistakes
     if (data.permissions) {
       if (!Array.isArray(data.permissions.allow) && data.permissions.allow !== undefined) {
         errors.push("permissions.allow must be an array");
@@ -374,85 +285,123 @@ cmd_validate() {
   ' "$schema_file" "$parsed"
 }
 
-# Setup wizard
+# Setup - flag-driven, no auto-detection
 cmd_setup() {
-  local work_dir
-  work_dir=$(get_working_dir)
-  [[ -n "$work_dir" ]] && cd "$work_dir"
-
-  local force="false"
-  local dry_run="false"
+  local source_path=""
+  local target_path=""
   local hook_system=""
+  local scripts_path=""
+  local install_global="false"
+  local dry_run="false"
+  local force="false"
 
-  # Parse arguments
   while [[ $# -gt 0 ]]; do
     case "$1" in
-      --force) force="true"; shift ;;
-      --dry-run) dry_run="true"; shift ;;
+      --source) source_path="$2"; shift 2 ;;
+      --target) target_path="$2"; shift 2 ;;
       --hook-system) hook_system="$2"; shift 2 ;;
-      *) shift ;;
+      --scripts-path) scripts_path="$2"; shift 2 ;;
+      --install-global) install_global="true"; shift ;;
+      --dry-run) dry_run="true"; shift ;;
+      --force) force="true"; shift ;;
+      --help|-h) cmd_setup_help; exit 0 ;;
+      *) echo -e "${RED}Unknown option: $1${NC}" >&2; cmd_setup_help; exit 1 ;;
     esac
   done
 
-  # Detect hook system if not specified
-  if [[ -z "$hook_system" ]]; then
-    # Check for chezmoi dotfiles repo
-    if [[ "$GLOBAL_MODE" == "true" ]]; then
-      hook_system="chezmoi"
-    elif [[ -f ".chezmoi.yaml.tmpl" ]] || [[ -f ".chezmoi.toml.tmpl" ]] || [[ -f ".chezmoiroot" ]]; then
-      hook_system="chezmoi"
-    elif ls dot_* 1>/dev/null 2>&1; then
-      hook_system="chezmoi"
-    elif [[ -d ".husky" ]]; then
-      hook_system="husky"
-    else
-      hook_system="lefthook"
-    fi
+  # Validate required flags
+  if [[ -z "$source_path" ]]; then
+    echo -e "${RED}Error: --source is required${NC}" >&2
+    cmd_setup_help
+    exit 1
   fi
 
-  # For chezmoi, use the dedicated setup function
-  if [[ "$hook_system" == "chezmoi" ]]; then
-    setup_chezmoi "$dry_run" "$force"
-    return
+  if [[ -z "$target_path" ]]; then
+    echo -e "${RED}Error: --target is required${NC}" >&2
+    cmd_setup_help
+    exit 1
+  fi
+
+  if [[ -z "$hook_system" ]]; then
+    echo -e "${RED}Error: --hook-system is required${NC}" >&2
+    cmd_setup_help
+    exit 1
+  fi
+
+  # Validate hook system
+  case "$hook_system" in
+    lefthook|husky|chezmoi|none) ;;
+    *)
+      echo -e "${RED}Error: Invalid hook system: $hook_system${NC}" >&2
+      echo "Valid options: lefthook, husky, chezmoi, none" >&2
+      exit 1
+      ;;
+  esac
+
+  # Default scripts path based on hook system
+  if [[ -z "$scripts_path" ]]; then
+    case "$hook_system" in
+      chezmoi) scripts_path="dot_local/bin" ;;
+      *) scripts_path="scripts/claude" ;;
+    esac
   fi
 
   echo -e "${BLUE}Setting up Claude Code JSONC settings...${NC}"
   echo ""
+  echo "Configuration:"
+  echo "  Source:      $source_path"
+  echo "  Target:      $target_path"
+  echo "  Hook system: $hook_system"
+  echo "  Scripts:     $scripts_path"
+  [[ "$install_global" == "true" ]] && echo "  Install:     ~/.local/bin/settings-manager"
+  echo ""
 
-  # Create .claude directory
-  mkdir -p .claude
+  # Get directory containing source file
+  local source_dir
+  source_dir="$(dirname "$source_path")"
 
-  # 1. Create __settings.jsonc
-  if [[ -f "$JSONC_FILE" && "$force" != "true" ]]; then
-    echo -e "${YELLOW}Skipping: $JSONC_FILE exists (use --force)${NC}"
+  # 1. Create source JSONC file
+  if [[ -f "$source_path" && "$force" != "true" ]]; then
+    echo -e "${YELLOW}Skipping: $source_path exists (use --force)${NC}"
   else
     if [[ "$dry_run" == "true" ]]; then
-      echo -e "${GRAY}Would create: $JSONC_FILE${NC}"
+      echo -e "${GRAY}Would create: $source_path${NC}"
     else
+      mkdir -p "$source_dir"
+
       local existing_content="{}"
-      if [[ -f "$JSON_FILE" ]]; then
-        existing_content=$(cat "$JSON_FILE")
-        echo -e "${GREEN}Converting existing $JSON_FILE${NC}"
+      if [[ -f "$target_path" ]]; then
+        existing_content=$(cat "$target_path")
+        echo -e "${GREEN}Converting existing $target_path${NC}"
       fi
 
-      # Generate JSONC with header
-      cat > "$JSONC_FILE" << 'HEADER'
-// Claude Code Settings (JSONC - comments allowed)
+      # Determine header based on hook system
+      local header
+      if [[ "$hook_system" == "chezmoi" ]]; then
+        header="// Claude Code Settings (JSONC - comments allowed)
 //
-// This file is the source of truth. Edit this file, not settings.json.
-// Changes sync automatically on commit, or run: npm run claude:sync
+// This file is managed by chezmoi. Edit this file, not the target.
+// Run 'chezmoi apply' to sync changes.
 //
 // Schema: https://json.schemastore.org/claude-code-settings.json
+"
+      else
+        header="// Claude Code Settings (JSONC - comments allowed)
+//
+// This file is the source of truth. Edit this file, not settings.json.
+// Changes sync automatically on commit.
+//
+// Schema: https://json.schemastore.org/claude-code-settings.json
+"
+      fi
 
-HEADER
+      echo "$header" > "$source_path"
 
-      # Append existing content with $schema added
       node -e '
         const input = process.argv[1];
         try {
           const obj = JSON.parse(input);
           obj["$schema"] = "https://json.schemastore.org/claude-code-settings.json";
-          // Move $schema to front
           const ordered = { "$schema": obj["$schema"] };
           for (const key of Object.keys(obj)) {
             if (key !== "$schema") ordered[key] = obj[key];
@@ -461,15 +410,108 @@ HEADER
         } catch {
           console.log("{}");
         }
-      ' "$existing_content" >> "$JSONC_FILE"
+      ' "$existing_content" >> "$source_path"
 
-      echo -e "${GREEN}Created: $JSONC_FILE${NC}"
+      echo -e "${GREEN}Created: $source_path${NC}"
     fi
   fi
 
-  # 2. Create sync script directory and script
-  local sync_script="scripts/claude/settings-sync.sh"
-  mkdir -p "$(dirname "$sync_script")"
+  # 2. Setup based on hook system
+  case "$hook_system" in
+    chezmoi)
+      setup_chezmoi "$source_path" "$target_path" "$scripts_path" "$dry_run" "$force"
+      ;;
+    lefthook)
+      setup_git_hooks "$source_path" "$target_path" "$scripts_path" "lefthook" "$dry_run" "$force"
+      ;;
+    husky)
+      setup_git_hooks "$source_path" "$target_path" "$scripts_path" "husky" "$dry_run" "$force"
+      ;;
+    none)
+      echo -e "${GRAY}Skipping hook setup (--hook-system none)${NC}"
+      ;;
+  esac
+
+  # 3. Install globally if requested
+  if [[ "$install_global" == "true" ]]; then
+    install_to_path "$dry_run"
+  fi
+
+  echo ""
+  echo -e "${GREEN}Setup complete!${NC}"
+  echo ""
+
+  case "$hook_system" in
+    chezmoi)
+      echo "Next steps:"
+      echo "  1. Edit $source_path"
+      echo "  2. Run 'chezmoi apply' to sync"
+      echo "  3. Commit your changes"
+      ;;
+    lefthook|husky)
+      echo "Next steps:"
+      echo "  1. Edit $source_path"
+      echo "  2. Commit - the hook will sync automatically"
+      echo "  3. Run 'settings-manager sync' to sync manually"
+      ;;
+    none)
+      echo "Next steps:"
+      echo "  1. Edit $source_path"
+      echo "  2. Run 'settings-manager sync --source $source_path --target $target_path' to sync"
+      ;;
+  esac
+}
+
+cmd_setup_help() {
+  cat << 'EOF'
+Usage: settings-manager setup [options]
+
+Required flags:
+  --source PATH       Path to create __settings.jsonc
+  --target PATH       Path where settings.json lives/will be generated
+  --hook-system TYPE  Hook system: lefthook | husky | chezmoi | none
+
+Optional flags:
+  --scripts-path PATH Where to put helper scripts (default: scripts/claude)
+  --install-global    Install settings-manager to ~/.local/bin
+  --dry-run           Preview changes without applying
+  --force             Overwrite existing files
+
+Examples:
+  # Regular project with lefthook
+  settings-manager setup \
+    --source .claude/__settings.jsonc \
+    --target .claude/settings.json \
+    --hook-system lefthook
+
+  # Chezmoi dotfiles (global settings)
+  settings-manager setup \
+    --source dot_claude/__settings.jsonc \
+    --target dot_claude/settings.json \
+    --hook-system chezmoi \
+    --install-global
+
+  # Stow dotfiles
+  settings-manager setup \
+    --source claude/__settings.jsonc \
+    --target claude/settings.json \
+    --hook-system lefthook \
+    --scripts-path claude/scripts
+EOF
+}
+
+# Setup for git hooks (lefthook or husky)
+setup_git_hooks() {
+  local source_path="$1"
+  local target_path="$2"
+  local scripts_path="$3"
+  local hook_type="$4"
+  local dry_run="$5"
+  local force="$6"
+
+  # Create sync script
+  local sync_script="$scripts_path/settings-sync.sh"
+  mkdir -p "$scripts_path"
 
   if [[ -f "$sync_script" && "$force" != "true" ]]; then
     echo -e "${YELLOW}Skipping: $sync_script exists${NC}"
@@ -477,24 +519,22 @@ HEADER
     if [[ "$dry_run" == "true" ]]; then
       echo -e "${GRAY}Would create: $sync_script${NC}"
     else
-      cat > "$sync_script" << 'SCRIPT'
+      cat > "$sync_script" << SCRIPT
 #!/usr/bin/env bash
-# Sync .claude/__settings.jsonc to .claude/settings.json
-# Portable: requires bash + node (no npm install)
+# Sync $source_path to $target_path
 set -euo pipefail
 
-REPO_ROOT="$(git rev-parse --show-toplevel)"
-cd "$REPO_ROOT"
+REPO_ROOT="\$(git rev-parse --show-toplevel)"
+cd "\$REPO_ROOT"
 
-JSONC=".claude/__settings.jsonc"
-JSON=".claude/settings.json"
+SOURCE="$source_path"
+TARGET="$target_path"
 
-if [[ ! -f "$JSONC" ]]; then
-  echo "Error: $JSONC not found" >&2
+if [[ ! -f "\$SOURCE" ]]; then
+  echo "Error: \$SOURCE not found" >&2
   exit 1
 fi
 
-# Strip JSONC comments using node
 node -e '
   const fs = require("fs");
   const input = fs.readFileSync(process.argv[1], "utf8");
@@ -504,30 +544,31 @@ node -e '
       inString = true; result += input[i]; i++; continue;
     }
     if (inString) {
-      if (input[i] === "\\" && i + 1 < input.length) { result += input[i] + input[i+1]; i += 2; continue; }
+      if (input[i] === "\\\\" && i + 1 < input.length) { result += input[i] + input[i+1]; i += 2; continue; }
       if (input[i] === "\"") inString = false;
       result += input[i]; i++; continue;
     }
     if (input[i] === "/" && i + 1 < input.length) {
-      if (input[i+1] === "/") { while (i < input.length && input[i] !== "\n") i++; continue; }
+      if (input[i+1] === "/") { while (i < input.length && input[i] !== "\\n") i++; continue; }
       if (input[i+1] === "*") { i += 2; while (i+1 < input.length && !(input[i] === "*" && input[i+1] === "/")) i++; i += 2; continue; }
     }
     result += input[i]; i++;
   }
   const obj = JSON.parse(result);
   console.log(JSON.stringify(obj, null, 2));
-' "$JSONC" > "${JSON}.tmp"
+' "\$SOURCE" > "\${TARGET}.tmp"
 
-mv "${JSON}.tmp" "$JSON"
-echo "Synced: $JSONC -> $JSON"
+mv "\${TARGET}.tmp" "\$TARGET"
+echo "Synced: \$SOURCE -> \$TARGET"
 SCRIPT
       chmod +x "$sync_script"
       echo -e "${GREEN}Created: $sync_script${NC}"
     fi
   fi
 
-  # 3. Create block script
-  local block_script="scripts/git/block-settings-json.sh"
+  # Create block script
+  local block_script
+  block_script="$(dirname "$scripts_path")/git/block-settings-json.sh"
   mkdir -p "$(dirname "$block_script")"
 
   if [[ -f "$block_script" && "$force" != "true" ]]; then
@@ -536,33 +577,31 @@ SCRIPT
     if [[ "$dry_run" == "true" ]]; then
       echo -e "${GRAY}Would create: $block_script${NC}"
     else
-      cat > "$block_script" << 'SCRIPT'
+      local target_pattern
+      target_pattern=$(echo "$target_path" | sed 's/\./\\./g' | sed 's/\//\\\//g')
+      local source_pattern
+      source_pattern=$(echo "$source_path" | sed 's/\./\\./g' | sed 's/\//\\\//g')
+
+      cat > "$block_script" << SCRIPT
 #!/usr/bin/env bash
-# Block direct edits to .claude/settings.json
 set -euo pipefail
 
-# Allow bypass for emergencies
-if [[ "${SETTINGS_BYPASS:-}" == "1" ]]; then
+if [[ "\${SETTINGS_BYPASS:-}" == "1" ]]; then
   exit 0
 fi
 
-REPO_ROOT="$(git rev-parse --show-toplevel)"
-cd "$REPO_ROOT"
+REPO_ROOT="\$(git rev-parse --show-toplevel)"
+cd "\$REPO_ROOT"
 
-# Check if settings.json is staged
-if git diff --cached --name-only | grep -q "^\.claude/settings\.json$"; then
-  # Check if __settings.jsonc is also staged (sync is happening)
-  if git diff --cached --name-only | grep -q "^\.claude/__settings\.jsonc$"; then
-    exit 0  # Both staged = legitimate sync
+if git diff --cached --name-only | grep -q "^${target_pattern}\$"; then
+  if git diff --cached --name-only | grep -q "^${source_pattern}\$"; then
+    exit 0
   fi
 
   echo ""
-  echo "ERROR: Direct edits to .claude/settings.json are blocked."
+  echo "ERROR: Direct edits to $target_path are blocked."
   echo ""
-  echo "Edit .claude/__settings.jsonc instead (supports comments)."
-  echo ""
-  echo "To sync changes:"
-  echo "  npm run claude:sync"
+  echo "Edit $source_path instead (supports comments)."
   echo ""
   echo "Bypass (emergency only):"
   echo "  SETTINGS_BYPASS=1 git commit -m \"...\""
@@ -575,56 +614,32 @@ SCRIPT
     fi
   fi
 
-  # 4. Update hook system
-  if [[ "$hook_system" == "lefthook" ]]; then
-    setup_lefthook "$dry_run" "$force"
+  # Setup hook configuration
+  if [[ "$hook_type" == "lefthook" ]]; then
+    setup_lefthook_config "$source_path" "$sync_script" "$block_script" "$dry_run" "$force"
   else
-    setup_husky "$dry_run" "$force"
+    setup_husky_config "$source_path" "$sync_script" "$block_script" "$dry_run" "$force"
   fi
 
-  # 5. Update .gitattributes
+  # Update .gitattributes
   if [[ "$dry_run" == "true" ]]; then
     echo -e "${GRAY}Would update: .gitattributes${NC}"
   else
-    if ! grep -q "settings.json.*linguist-generated" .gitattributes 2>/dev/null; then
-      echo ".claude/settings.json linguist-generated=true" >> .gitattributes
+    if ! grep -q "$target_path.*linguist-generated" .gitattributes 2>/dev/null; then
+      echo "$target_path linguist-generated=true" >> .gitattributes
       echo -e "${GREEN}Updated: .gitattributes${NC}"
     fi
   fi
-
-  # 6. Update package.json if exists
-  if [[ -f "package.json" ]]; then
-    if [[ "$dry_run" == "true" ]]; then
-      echo -e "${GRAY}Would update: package.json (add claude:sync script)${NC}"
-    else
-      if ! grep -q '"claude:sync"' package.json; then
-        node -e '
-          const fs = require("fs");
-          const pkg = JSON.parse(fs.readFileSync("package.json", "utf8"));
-          pkg.scripts = pkg.scripts || {};
-          pkg.scripts["claude:sync"] = "./scripts/claude/settings-sync.sh";
-          pkg.scripts["claude:sync:check"] = "git diff --exit-code .claude/settings.json";
-          fs.writeFileSync("package.json", JSON.stringify(pkg, null, 2) + "\n");
-        '
-        echo -e "${GREEN}Updated: package.json${NC}"
-      fi
-    fi
-  fi
-
-  echo ""
-  echo -e "${GREEN}Setup complete!${NC}"
-  echo ""
-  echo "Next steps:"
-  echo "  1. Edit .claude/__settings.jsonc"
-  echo "  2. Commit - settings.json syncs automatically"
-  echo "  3. Run /settings-sync to sync manually"
 }
 
-setup_lefthook() {
-  local dry_run="$1"
-  local force="$2"
-  local lefthook_file="lefthook.yml"
+setup_lefthook_config() {
+  local source_path="$1"
+  local sync_script="$2"
+  local block_script="$3"
+  local dry_run="$4"
+  local force="$5"
 
+  local lefthook_file="lefthook.yml"
   [[ -f "lefthook.yaml" ]] && lefthook_file="lefthook.yaml"
 
   if [[ "$dry_run" == "true" ]]; then
@@ -632,25 +647,26 @@ setup_lefthook() {
     return
   fi
 
+  local source_pattern
+  source_pattern=$(echo "$source_path" | sed 's/\./\\\\./g')
+
   if [[ ! -f "$lefthook_file" ]]; then
-    # Create new lefthook.yml
-    cat > "$lefthook_file" << 'YAML'
+    cat > "$lefthook_file" << YAML
 pre-commit:
   jobs:
     - name: block-settings-json
       priority: 0
-      run: ./scripts/git/block-settings-json.sh
+      run: ./$block_script
     - name: sync-settings
       priority: 1
       run: |
-        if git diff --cached --name-only | grep -q "^\.claude/__settings\.jsonc$"; then
-          ./scripts/claude/settings-sync.sh
-          git add .claude/settings.json
+        if git diff --cached --name-only | grep -q "^${source_pattern}\$"; then
+          ./$sync_script
+          git add $target_path
         fi
 YAML
     echo -e "${GREEN}Created: $lefthook_file${NC}"
   else
-    # Check if hooks already exist
     if grep -q "block-settings-json\|sync-settings" "$lefthook_file" 2>/dev/null; then
       if [[ "$force" != "true" ]]; then
         echo -e "${YELLOW}Skipping: hooks already in $lefthook_file (use --force)${NC}"
@@ -658,27 +674,30 @@ YAML
       fi
     fi
 
-    echo -e "${YELLOW}Manual step required: Add to $lefthook_file:${NC}"
-    cat << 'YAML'
+    echo -e "${YELLOW}Manual step: Add to $lefthook_file:${NC}"
+    cat << YAML
 pre-commit:
   jobs:
     - name: block-settings-json
       priority: 0
-      run: ./scripts/git/block-settings-json.sh
+      run: ./$block_script
     - name: sync-settings
       priority: 1
       run: |
-        if git diff --cached --name-only | grep -q "^\.claude/__settings\.jsonc$"; then
-          ./scripts/claude/settings-sync.sh
-          git add .claude/settings.json
+        if git diff --cached --name-only | grep -q "^${source_pattern}\$"; then
+          ./$sync_script
+          git add $target_path
         fi
 YAML
   fi
 }
 
-setup_husky() {
-  local dry_run="$1"
-  local force="$2"
+setup_husky_config() {
+  local source_path="$1"
+  local sync_script="$2"
+  local block_script="$3"
+  local dry_run="$4"
+  local force="$5"
 
   if [[ "$dry_run" == "true" ]]; then
     echo -e "${GRAY}Would update: .husky/pre-commit${NC}"
@@ -688,23 +707,23 @@ setup_husky() {
   mkdir -p .husky
 
   local pre_commit=".husky/pre-commit"
+  local source_pattern
+  source_pattern=$(echo "$source_path" | sed 's/\./\\\\./g')
+
   if [[ ! -f "$pre_commit" ]]; then
-    cat > "$pre_commit" << 'BASH'
+    cat > "$pre_commit" << BASH
 #!/usr/bin/env bash
 
-# Block direct settings.json edits
-./scripts/git/block-settings-json.sh
+./$block_script
 
-# Sync JSONC if changed
-if git diff --cached --name-only | grep -q "^\.claude/__settings\.jsonc$"; then
-  ./scripts/claude/settings-sync.sh
-  git add .claude/settings.json
+if git diff --cached --name-only | grep -q "^${source_pattern}\$"; then
+  ./$sync_script
+  git add $target_path
 fi
 BASH
     chmod +x "$pre_commit"
     echo -e "${GREEN}Created: $pre_commit${NC}"
   else
-    # Check if hooks already exist
     if grep -q "block-settings-json\|settings-sync" "$pre_commit" 2>/dev/null; then
       if [[ "$force" != "true" ]]; then
         echo -e "${YELLOW}Skipping: hooks already in $pre_commit (use --force)${NC}"
@@ -712,102 +731,58 @@ BASH
       fi
     fi
 
-    echo -e "${YELLOW}Manual step required: Add to .husky/pre-commit:${NC}"
-    cat << 'BASH'
-# Block direct settings.json edits
-./scripts/git/block-settings-json.sh
+    echo -e "${YELLOW}Manual step: Add to .husky/pre-commit:${NC}"
+    cat << BASH
+./$block_script
 
-# Sync JSONC if changed
-if git diff --cached --name-only | grep -q "^\.claude/__settings\.jsonc$"; then
-  ./scripts/claude/settings-sync.sh
-  git add .claude/settings.json
+if git diff --cached --name-only | grep -q "^${source_pattern}\$"; then
+  ./$sync_script
+  git add $target_path
 fi
 BASH
   fi
 }
 
-# Setup chezmoi for global settings
+# Setup for chezmoi
 setup_chezmoi() {
-  local dry_run="$1"
-  local force="$2"
+  local source_path="$1"
+  local target_path="$2"
+  local scripts_path="$3"
+  local dry_run="$4"
+  local force="$5"
 
-  echo -e "${BLUE}Setting up chezmoi for global Claude settings...${NC}"
-  echo ""
-
-  # Create dot_claude directory (chezmoi source format)
-  local chezmoi_source_dir="dot_claude"
-  mkdir -p "$chezmoi_source_dir"
-
-  # 1. Create __settings.jsonc in chezmoi source
-  local jsonc_source="$chezmoi_source_dir/__settings.jsonc"
-  if [[ -f "$jsonc_source" && "$force" != "true" ]]; then
-    echo -e "${YELLOW}Skipping: $jsonc_source exists (use --force)${NC}"
-  else
-    if [[ "$dry_run" == "true" ]]; then
-      echo -e "${GRAY}Would create: $jsonc_source${NC}"
-    else
-      local existing_content="{}"
-      if [[ -f "$HOME/.claude/settings.json" ]]; then
-        existing_content=$(cat "$HOME/.claude/settings.json")
-        echo -e "${GREEN}Converting existing ~/.claude/settings.json${NC}"
-      fi
-
-      cat > "$jsonc_source" << 'HEADER'
-// Claude Code Global Settings (JSONC - comments allowed)
-//
-// This file is managed by chezmoi. Edit this file, not ~/.claude/settings.json.
-// Run 'chezmoi apply' to sync changes.
-//
-// Schema: https://json.schemastore.org/claude-code-settings.json
-
-HEADER
-
-      node -e '
-        const input = process.argv[1];
-        try {
-          const obj = JSON.parse(input);
-          obj["$schema"] = "https://json.schemastore.org/claude-code-settings.json";
-          const ordered = { "$schema": obj["$schema"] };
-          for (const key of Object.keys(obj)) {
-            if (key !== "$schema") ordered[key] = obj[key];
-          }
-          console.log(JSON.stringify(ordered, null, 2));
-        } catch {
-          console.log("{}");
-        }
-      ' "$existing_content" >> "$jsonc_source"
-
-      echo -e "${GREEN}Created: $jsonc_source${NC}"
-    fi
-  fi
-
-  # 2. Create run_onchange_ script for chezmoi
+  # Create run_onchange_ script
   local run_script="run_onchange_after_claude-settings.sh.tmpl"
+
   if [[ -f "$run_script" && "$force" != "true" ]]; then
     echo -e "${YELLOW}Skipping: $run_script exists${NC}"
   else
     if [[ "$dry_run" == "true" ]]; then
       echo -e "${GRAY}Would create: $run_script${NC}"
     else
-      cat > "$run_script" << 'TMPL'
+      # Determine the chezmoi include path (source_path without leading ./)
+      local include_path="${source_path#./}"
+
+      cat > "$run_script" << TMPL
 #!/bin/bash
 # Sync Claude Code JSONC settings to JSON
-# Triggered when __settings.jsonc content changes
-# hash: {{ include "dot_claude/__settings.jsonc" | sha256sum }}
+# Triggered when content changes
+# hash: {{ include "$include_path" | sha256sum }}
 
 set -euo pipefail
 
-SOURCE="$HOME/.claude/__settings.jsonc"
-TARGET="$HOME/.claude/settings.json"
+# Resolve target path (chezmoi transforms dot_ to .)
+TARGET_DIR="\$HOME/.claude"
+SOURCE="\$TARGET_DIR/__settings.jsonc"
+TARGET="\$TARGET_DIR/settings.json"
 
-if [[ ! -f "$SOURCE" ]]; then
-  echo "Claude settings source not found: $SOURCE"
+if [[ ! -f "\$SOURCE" ]]; then
+  echo "Claude settings source not found: \$SOURCE"
   exit 0
 fi
 
 echo "Syncing Claude settings..."
 
-# Strip JSONC comments using node
 node -e '
   const fs = require("fs");
   const input = fs.readFileSync(process.argv[1], "utf8");
@@ -817,87 +792,71 @@ node -e '
       inString = true; result += input[i]; i++; continue;
     }
     if (inString) {
-      if (input[i] === "\\" && i + 1 < input.length) { result += input[i] + input[i+1]; i += 2; continue; }
+      if (input[i] === "\\\\" && i + 1 < input.length) { result += input[i] + input[i+1]; i += 2; continue; }
       if (input[i] === "\"") inString = false;
       result += input[i]; i++; continue;
     }
     if (input[i] === "/" && i + 1 < input.length) {
-      if (input[i+1] === "/") { while (i < input.length && input[i] !== "\n") i++; continue; }
+      if (input[i+1] === "/") { while (i < input.length && input[i] !== "\\n") i++; continue; }
       if (input[i+1] === "*") { i += 2; while (i+1 < input.length && !(input[i] === "*" && input[i+1] === "/")) i++; i += 2; continue; }
     }
     result += input[i]; i++;
   }
   const obj = JSON.parse(result);
   console.log(JSON.stringify(obj, null, 2));
-' "$SOURCE" > "${TARGET}.tmp"
+' "\$SOURCE" > "\${TARGET}.tmp"
 
-mv "${TARGET}.tmp" "$TARGET"
-echo "Synced: $SOURCE -> $TARGET"
+mv "\${TARGET}.tmp" "\$TARGET"
+echo "Synced: \$SOURCE -> \$TARGET"
 TMPL
       chmod +x "$run_script"
       echo -e "${GREEN}Created: $run_script${NC}"
     fi
   fi
 
-  # 3. Create .chezmoiignore entry for settings.json (it's generated)
+  # Update .chezmoiignore
+  local target_dir
+  target_dir="$(dirname "$target_path")"
+  local ignore_pattern="$target_dir/settings.json"
+
   if [[ "$dry_run" == "true" ]]; then
     echo -e "${GRAY}Would update: .chezmoiignore${NC}"
   else
-    if ! grep -q "dot_claude/settings.json" .chezmoiignore 2>/dev/null; then
-      echo "dot_claude/settings.json" >> .chezmoiignore
+    if ! grep -q "$ignore_pattern" .chezmoiignore 2>/dev/null; then
+      echo "$ignore_pattern" >> .chezmoiignore
       echo -e "${GREEN}Updated: .chezmoiignore${NC}"
     fi
   fi
+}
 
-  echo ""
-  echo -e "${GREEN}Chezmoi setup complete!${NC}"
-  echo ""
-  echo "Next steps:"
-  echo "  1. Edit dot_claude/__settings.jsonc"
-  echo "  2. Run 'chezmoi apply' to sync to ~/.claude/settings.json"
-  echo "  3. Commit your dotfiles changes"
-  echo ""
-  echo "The run_onchange_ script triggers automatically when"
-  echo "__settings.jsonc content changes during 'chezmoi apply'."
+# Install settings-manager to ~/.local/bin
+install_to_path() {
+  local dry_run="$1"
+  local install_dir="$HOME/.local/bin"
+  local install_path="$install_dir/settings-manager"
+
+  if [[ "$dry_run" == "true" ]]; then
+    echo -e "${GRAY}Would install: $install_path${NC}"
+    return
+  fi
+
+  mkdir -p "$install_dir"
+  cp "$SCRIPT_PATH" "$install_path"
+  chmod +x "$install_path"
+  echo -e "${GREEN}Installed: $install_path${NC}"
+
+  if [[ ":$PATH:" != *":$install_dir:"* ]]; then
+    echo -e "${YELLOW}Note: Add $install_dir to PATH if not already present${NC}"
+  fi
 }
 
 # ================================================================
 # Router
 # ================================================================
-
-# Parse global flags first
-REMAINING_ARGS=()
-while [[ $# -gt 0 ]]; do
-  case "$1" in
-    --source)
-      JSONC_FILE="$2"
-      shift 2
-      ;;
-    --target)
-      JSON_FILE="$2"
-      shift 2
-      ;;
-    --global)
-      GLOBAL_MODE="true"
-      JSONC_FILE="$HOME/.claude/__settings.jsonc"
-      JSON_FILE="$HOME/.claude/settings.json"
-      shift
-      ;;
-    *)
-      REMAINING_ARGS+=("$1")
-      shift
-      ;;
-  esac
-done
-
-# Restore positional parameters
-set -- "${REMAINING_ARGS[@]}"
-
 COMMAND="${1:-help}"
 shift || true
 
 case "$COMMAND" in
-  detect) cmd_detect "$@" ;;
   setup) cmd_setup "$@" ;;
   sync) cmd_sync "$@" ;;
   check) cmd_check "$@" ;;
@@ -906,21 +865,16 @@ case "$COMMAND" in
     echo "Usage: settings-manager <command> [options]"
     echo ""
     echo "Commands:"
-    echo "  detect     Detect current project state (outputs JSON)"
-    echo "  setup      Set up JSONC settings workflow"
-    echo "  sync       Sync __settings.jsonc to settings.json"
+    echo "  setup      Set up JSONC settings workflow (run 'setup --help' for details)"
+    echo "  sync       Sync JSONC to JSON"
     echo "  check      Check if files are in sync"
-    echo "  validate   Validate against schema"
+    echo "  validate   Validate JSONC against schema"
     echo ""
-    echo "Global Options:"
-    echo "  --source PATH  Override source JSONC file path"
-    echo "  --target PATH  Override target JSON file path"
-    echo "  --global       Use global settings (~/.claude/)"
-    echo ""
-    echo "Setup Options:"
-    echo "  --dry-run      Preview changes without applying"
-    echo "  --force        Overwrite existing files"
-    echo "  --hook-system  Force hook system (lefthook|husky|chezmoi)"
+    echo "Examples:"
+    echo "  settings-manager setup --source .claude/__settings.jsonc --target .claude/settings.json --hook-system lefthook"
+    echo "  settings-manager sync --source .claude/__settings.jsonc --target .claude/settings.json"
+    echo "  settings-manager check --source .claude/__settings.jsonc --target .claude/settings.json"
+    echo "  settings-manager validate --source .claude/__settings.jsonc"
     ;;
   *)
     echo "Error: Unknown command: $COMMAND" >&2
