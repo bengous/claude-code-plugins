@@ -1,0 +1,12 @@
+pre-commit:
+  jobs:
+    - name: block-settings-json
+      priority: 0
+      run: ./.claude/git/block-settings-json.sh
+    - name: sync-settings
+      priority: 1
+      run: |
+        if git diff --cached --name-only | grep -q "^\\.claude/__settings\\.jsonc$"; then
+          ./.claude/scripts/settings-sync.sh
+          git add .claude/settings.json
+        fi
