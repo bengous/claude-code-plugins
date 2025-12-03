@@ -1,57 +1,60 @@
 ---
-description: Check if settings.json is in sync with __settings.jsonc
+description: Check if settings are in sync
 allowed-tools:
   - Bash("${CLAUDE_PLUGIN_ROOT}/scripts/settings-manager":*)
+  - Glob(*:*)
+  - Read(*:*)
 model: claude-sonnet-4-5
 ---
 
 # Settings Check Command
 
-Check if `.claude/settings.json` matches what would be generated from `.claude/__settings.jsonc`.
+Check if `settings.json` matches what would be generated from `__settings.jsonc`.
 
-**Usage:**
+## Your Task
+
+### Step 1: Find Settings Files
+
+Look for the JSONC source file:
+- `.claude/__settings.jsonc` (project)
+- `dot_claude/__settings.jsonc` (chezmoi dotfiles)
+- `~/.claude/__settings.jsonc` (global)
+
+### Step 2: Execute Check
+
 ```bash
-/settings-check
+"${CLAUDE_PLUGIN_ROOT}/scripts/settings-manager" check \
+  --source <source_path> \
+  --target <target_path>
 ```
 
-**Exit codes:**
-- `0` - Files are in sync
-- `1` - Files are out of sync (shows diff)
-- `2` - Missing files (source or target)
+### Step 3: Report Result
 
-**Use cases:**
-- CI pipelines to ensure settings weren't directly edited
+**Exit code 0 - In sync:**
+```
+Settings are in sync.
+```
+
+**Exit code 1 - Out of sync:**
+```
+Settings are out of sync!
+
+[Show the diff output from the command]
+
+To fix: Run /settings-sync
+```
+
+**Exit code 2 - Missing files:**
+```
+Missing files:
+- <path> not found
+
+Run /settings-setup to configure the JSONC workflow.
+```
+
+## Use Case
+
+This command is useful for:
+- CI pipelines to verify settings weren't directly edited
 - Pre-commit verification
 - Debugging sync issues
-
-## Instructions for Claude
-
-Execute the check command:
-
-```bash
-"${CLAUDE_PLUGIN_ROOT}/scripts/settings-manager" check
-```
-
-**In sync output:**
-```
-In sync
-```
-
-**Out of sync output:**
-```
-Out of sync
-
-Diff (expected vs actual):
-< expected line
----
-> actual line
-```
-
-**Missing files:**
-```
-Warning: .claude/__settings.jsonc not found
-```
-
-If files are out of sync, suggest running `/settings-sync` to fix.
-
-If __settings.jsonc is missing, suggest running `/settings-setup` first.
