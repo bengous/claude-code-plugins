@@ -10,6 +10,7 @@ Git Tools provides AI-powered interactive git commands that enhance your workflo
 
 - **Interactive Rebase**: Visual, multi-stage rebase workflow with AI-powered commit improvements
 - **PR Triage**: Analyze open PRs and decide to treat or close with explanatory comments
+- **Issue Triage**: Analyze open issues with fact-checking and decide to treat or close
 - **Repository Cleanup**: Automated cleanup of stale branches, worktrees, and closed PRs
 - **Smart Commit Messages**: AI suggestions for reword operations following conventional commit patterns
 - **Conflict Guidance**: Step-by-step resolution instructions when conflicts arise
@@ -133,6 +134,64 @@ The command includes templates for common close scenarios:
 - Scope issues (PR too large to review)
 
 Comments thank the contributor and invite them to reopen if circumstances change.
+
+**Requirements:**
+- GitHub CLI (`gh`) authenticated with repo access
+
+---
+
+### `/issue-triage`
+
+Analyze an open issue and decide whether to treat (continue working on it) or close it with an explanatory comment.
+
+**Usage:**
+```bash
+/git-tools:issue-triage 123                              # By issue number
+/git-tools:issue-triage https://github.com/org/repo/issues/123  # By URL
+```
+
+**Key Differences from PR Triage:**
+
+| Aspect | PR Triage | Issue Triage |
+|--------|-----------|--------------|
+| Fact-checking | Merge conflicts, CI status | Verify issue still exists in codebase |
+| Closure reasons | Comment only | `--reason completed` or `--reason not_planned` |
+| Actions | Assign, label, request changes | Assign, label, milestone, link PRs |
+
+**Analysis Criteria:**
+
+| Factor | What's Evaluated |
+|--------|------------------|
+| Age & Activity | Creation date, last update, staleness |
+| Clarity | Description quality, reproduction steps |
+| Labels & Assignment | Proper categorization, ownership |
+| Relevance | Alignment with current project goals |
+| Validity | Whether issue still exists in codebase |
+
+**Workflow:**
+
+1. **Gather**: Fetches issue metadata, labels, and comments via `gh` CLI
+2. **Fact-check**: Verifies issue is still valid (searches codebase, checks for fixes)
+3. **Analyze**: Evaluates the issue against triage criteria
+4. **Summarize**: Presents structured report with recommendation
+5. **Decide**: Asks you to confirm TREAT or CLOSE
+6. **Execute**:
+   - TREAT: Optionally assign, label, add to milestone, or comment
+   - CLOSE: Posts explanatory comment with appropriate reason
+
+**Close Reasons:**
+
+- `--reason completed`: Issue was fixed or feature implemented
+- `--reason not_planned`: Won't fix, duplicate, cannot reproduce, stale, invalid
+
+**Close Comment Templates:**
+
+The command includes templates for common close scenarios:
+- Already fixed (resolved elsewhere)
+- Duplicate (link to original issue)
+- Cannot reproduce (request more info)
+- Stale (no recent activity)
+- Won't fix (out of scope or by design)
 
 **Requirements:**
 - GitHub CLI (`gh`) authenticated with repo access
