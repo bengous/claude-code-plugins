@@ -1,0 +1,21 @@
+{
+  "name": "claude-settings-manager",
+  "version": "1.0.0",
+  "description": "Manage Claude Code settings with JSONC support (comments in config files)",
+  "author": {
+    "name": "Augustin BENGOLEA",
+    "email": "bengous@protonmail.com"
+  },
+  "homepage": "https://github.com/bengous/claude-code-plugins",
+  "repository": "https://github.com/bengous/claude-code-plugins",
+  "license": "MIT",
+  "keywords": [
+    "settings",
+    "jsonc",
+    "comments",
+    "configuration",
+    "hooks",
+    "lefthook",
+    "husky"
+  ]
+}
