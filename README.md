@@ -1,7 +1,7 @@
 # Claude Code Plugins
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Plugins](https://img.shields.io/badge/plugins-1-blue.svg)](https://github.com/bengous/claude-code-plugins)
+[![Plugins](https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fraw.githubusercontent.com%2Fbengous%2Fclaude-code-plugins%2Fmain%2F.claude-plugin%2Fmarketplace.json&query=%24.plugins.length&label=plugins&color=blue)](https://github.com/bengous/claude-code-plugins)
 
 A curated marketplace of Claude Code plugins for advanced development workflow automation.
 
