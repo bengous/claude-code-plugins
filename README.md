@@ -73,7 +73,7 @@ Advanced orchestration system for managing complex development workflows with in
 
 **Learn More:**
 - [Plugin Homepage](https://github.com/bengous/claude-code-plugins)
-- [Full Command Reference](https://github.com/bengous/claude-code-plugins/tree/master/orchestration/commands)
+- [Full Command Reference](https://github.com/bengous/claude-code-plugins/tree/main/orchestration/commands)
 
 ## Marketplace Structure
 
