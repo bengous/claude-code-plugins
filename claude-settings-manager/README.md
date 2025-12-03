@@ -9,6 +9,7 @@ Claude Code's `settings.json` is strict JSON - no comments allowed. This plugin 
 - Use `__settings.jsonc` as your source of truth (with `//` and `/* */` comments)
 - Auto-sync to `settings.json` via git hooks or chezmoi
 - Block accidental direct edits to `settings.json`
+- Get AI-powered error explanations when validation fails
 
 ## Quick Start
 
@@ -31,6 +32,33 @@ This plugin uses a hybrid approach:
 
 This enables support for any setup: project repos, chezmoi dotfiles, stow dotfiles, or custom configurations.
 
+### AI Error Explanation
+
+When validation fails, the plugin can spawn headless Claude to explain the error:
+
+```
+Validation errors:
+  - Unknown hook event: PreToolCall
+
+┌─ AI Analysis ─────────────────────────────────────┐
+│ The hook event "PreToolCall" is invalid. Claude   │
+│ Code uses "PreToolUse" not "PreToolCall".         │
+│                                                   │
+│ Fix line 12:                                      │
+│   "PreToolUse": [  // was: "PreToolCall"          │
+└───────────────────────────────────────────────────┘
+```
+
+AI explanation is enabled automatically in generated hooks. You can also use it manually:
+
+```bash
+# Via flag
+settings-manager validate --source .claude/__settings.jsonc --ai-explain
+
+# Via environment variable
+SETTINGS_AI_EXPLAIN=1 settings-manager validate --source .claude/__settings.jsonc
+```
+
 ### Supported Repo Types
 
 | Type | Source | Target | Trigger |
@@ -44,9 +72,8 @@ This enables support for any setup: project repos, chezmoi dotfiles, stow dotfil
 | Command | Description |
 |---------|-------------|
 | `/settings-setup` | Interactive wizard - analyzes repo and sets up workflow |
-| `/settings-sync` | Manually sync JSONC to JSON |
-| `/settings-check` | Check if files are in sync (for CI) |
-| `/settings-validate` | Validate against Claude Code schema |
+
+For sync, check, and validate operations, use `settings-manager` directly (see Manual Usage below).
 
 ## Example __settings.jsonc
 
@@ -80,9 +107,9 @@ This enables support for any setup: project repos, chezmoi dotfiles, stow dotfil
 }
 ```
 
-## Manual Usage (Without Slash Commands)
+## Manual Usage
 
-The `settings-manager` script can be used directly:
+The `settings-manager` script can be used directly without slash commands.
 
 ### Setup
 
@@ -133,8 +160,14 @@ settings-manager check \
 ### Validate
 
 ```bash
+# Basic validation
 settings-manager validate \
   --source .claude/__settings.jsonc
+
+# With AI error explanation
+settings-manager validate \
+  --source .claude/__settings.jsonc \
+  --ai-explain
 ```
 
 ## Setup Flags Reference
@@ -200,6 +233,7 @@ SETTINGS_BYPASS=1 git commit -m "Emergency settings fix"
 - Node.js (for JSONC parsing)
 - Git (for hook-based workflows)
 - lefthook, husky, or chezmoi (depending on your setup)
+- Claude Code CLI (optional, for AI error explanations)
 
 ## Troubleshooting
 
@@ -209,6 +243,8 @@ Your `__settings.jsonc` has invalid syntax. Common issues:
 - Trailing comma after last property
 - Missing quotes around keys
 - Unterminated string or comment
+
+With AI explanation enabled, you'll get a detailed fix suggestion.
 
 ### "settings.json blocked"
 
@@ -222,3 +258,9 @@ You edited `settings.json` directly. Options:
 - Lefthook: Run `lefthook install`
 - Husky: Run `npx husky install`
 - Chezmoi: Ensure `run_onchange_` script has execute permission
+
+### AI explanation not showing
+
+- Ensure Claude Code CLI is installed: `which claude`
+- Check the flag: `--ai-explain` or `SETTINGS_AI_EXPLAIN=1`
+- Generated hooks enable this automatically

@@ -190,13 +190,20 @@ cmd_check() {
 # Validate against schema
 cmd_validate() {
   local source_file=""
+  local ai_explain="false"
 
   while [[ $# -gt 0 ]]; do
     case "$1" in
       --source) source_file="$2"; shift 2 ;;
+      --ai-explain) ai_explain="true"; shift ;;
       *) shift ;;
     esac
   done
+
+  # Enable AI explanation via env var
+  if [[ "${SETTINGS_AI_EXPLAIN:-0}" == "1" ]]; then
+    ai_explain="true"
+  fi
 
   if [[ -z "$source_file" ]]; then
     echo -e "${RED}Error: --source is required${NC}" >&2
@@ -210,9 +217,18 @@ cmd_validate() {
 
   echo -e "${BLUE}Validating $source_file...${NC}"
 
+  # Check JSONC syntax
   local parsed
-  if ! parsed=$(strip_jsonc "$source_file"); then
+  local jsonc_error=""
+  if ! parsed=$(strip_jsonc "$source_file" 2>&1); then
+    jsonc_error="$parsed"
     echo -e "${RED}JSONC syntax error${NC}" >&2
+    echo "$jsonc_error" >&2
+
+    # AI explanation for JSONC errors
+    if [[ "$ai_explain" == "true" ]]; then
+      explain_error "$source_file" "JSONC syntax error: $jsonc_error"
+    fi
     exit 1
   fi
 
@@ -250,7 +266,9 @@ cmd_validate() {
     fi
   fi
 
-  node -e '
+  local validation_output
+  local validation_exit_code=0
+  validation_output=$(node -e '
     const fs = require("fs");
     const schema = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
     const data = JSON.parse(process.argv[2]);
@@ -282,7 +300,50 @@ cmd_validate() {
     }
 
     console.log("Schema validation: passed (basic checks)");
-  ' "$schema_file" "$parsed"
+  ' "$schema_file" "$parsed" 2>&1) || validation_exit_code=$?
+
+  echo "$validation_output"
+
+  if [[ $validation_exit_code -ne 0 ]]; then
+    if [[ "$ai_explain" == "true" ]]; then
+      explain_error "$source_file" "$validation_output"
+    fi
+    exit 1
+  fi
+}
+
+# AI-powered error explanation using headless Claude
+explain_error() {
+  local source_file="$1"
+  local error_message="$2"
+
+  if ! command -v claude &>/dev/null; then
+    echo -e "${YELLOW}Note: Install Claude Code CLI for AI-powered error explanations${NC}" >&2
+    return
+  fi
+
+  local file_content
+  file_content=$(cat "$source_file")
+
+  echo ""
+  echo "┌─ AI Analysis ─────────────────────────────────────┐"
+
+  claude -p "You are analyzing a Claude Code settings.json validation error.
+
+Error message:
+$error_message
+
+File content (JSONC):
+$file_content
+
+Provide:
+1. A clear explanation of what's wrong (2-3 sentences)
+2. The exact fix needed (show the corrected line)
+3. The line number if identifiable
+
+Be concise and actionable." --model haiku 2>/dev/null | sed 's/^/│ /'
+
+  echo "└───────────────────────────────────────────────────┘"
 }
 
 # Setup - flag-driven, no auto-detection
@@ -535,6 +596,15 @@ if [[ ! -f "\$SOURCE" ]]; then
   exit 1
 fi
 
+# Validate before sync (with AI explanation on error)
+export SETTINGS_AI_EXPLAIN=1
+if command -v settings-manager &>/dev/null; then
+  if ! settings-manager validate --source "\$SOURCE"; then
+    echo "Fix the validation errors above, then commit again."
+    exit 1
+  fi
+fi
+
 node -e '
   const fs = require("fs");
   const input = fs.readFileSync(process.argv[1], "utf8");
@@ -782,6 +852,15 @@ if [[ ! -f "\$SOURCE" ]]; then
 fi
 
 echo "Syncing Claude settings..."
+
+# Validate before sync (with AI explanation on error)
+export SETTINGS_AI_EXPLAIN=1
+if command -v settings-manager &>/dev/null; then
+  if ! settings-manager validate --source "\$SOURCE"; then
+    echo "Fix the validation errors above, then run: chezmoi apply"
+    exit 1
+  fi
+fi
 
 node -e '
   const fs = require("fs");
