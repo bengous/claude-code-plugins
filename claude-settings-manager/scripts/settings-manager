@@ -17,12 +17,15 @@ CYAN='\033[0;36m'
 GRAY='\033[0;90m'
 NC='\033[0m'
 
-# Configuration
-JSONC_FILE=".claude/__settings.jsonc"
-JSON_FILE=".claude/settings.json"
+# Configuration - can be overridden via env vars or flags
+JSONC_FILE="${SETTINGS_SOURCE:-.claude/__settings.jsonc}"
+JSON_FILE="${SETTINGS_TARGET:-.claude/settings.json}"
 SCHEMA_URL="https://json.schemastore.org/claude-code-settings.json"
-CACHE_DIR=".claude/.schema-cache"
+CACHE_DIR="${HOME}/.cache/claude-settings-manager"
 CACHE_TTL=86400  # 24 hours
+
+# Global mode flag
+GLOBAL_MODE="false"
 
 # ================================================================
 # JSONC Parser (inline node - strips comments)
@@ -95,12 +98,29 @@ strip_jsonc() {
 }
 
 # ================================================================
-# Repository Discovery
+# Repository/Directory Discovery
 # ================================================================
 find_repo_root() {
-  if ! git rev-parse --show-toplevel 2>/dev/null; then
-    echo "Error: Not in a git repository" >&2
-    exit 1
+  if git rev-parse --show-toplevel 2>/dev/null; then
+    return 0
+  fi
+  # Not in a git repo - check if global mode or explicit paths
+  if [[ "$GLOBAL_MODE" == "true" ]] || [[ "$JSONC_FILE" == /* ]]; then
+    echo ""  # No repo root needed
+    return 0
+  fi
+  echo "Error: Not in a git repository (use --global for global settings)" >&2
+  exit 1
+}
+
+# Get working directory (repo root or current dir for global mode)
+get_working_dir() {
+  if [[ "$GLOBAL_MODE" == "true" ]]; then
+    echo "$HOME"
+  elif [[ "$JSONC_FILE" == /* ]]; then
+    echo "$(dirname "$JSONC_FILE")"
+  else
+    find_repo_root
   fi
 }
 
@@ -110,9 +130,9 @@ find_repo_root() {
 
 # Detect current project state
 cmd_detect() {
-  local repo_root
-  repo_root=$(find_repo_root)
-  cd "$repo_root"
+  local work_dir
+  work_dir=$(get_working_dir)
+  [[ -n "$work_dir" ]] && cd "$work_dir"
 
   local settings_json_exists="false"
   local settings_jsonc_exists="false"
@@ -120,7 +140,10 @@ cmd_detect() {
   local husky_exists="false"
   local package_json_exists="false"
   local gitattributes_exists="false"
+  local chezmoi_exists="false"
+  local global_settings_exists="false"
   local recommended="lefthook"
+  local is_dotfiles_repo="false"
 
   [[ -f "$JSON_FILE" ]] && settings_json_exists="true"
   [[ -f "$JSONC_FILE" ]] && settings_jsonc_exists="true"
@@ -129,8 +152,21 @@ cmd_detect() {
   [[ -f "package.json" ]] && package_json_exists="true"
   [[ -f ".gitattributes" ]] && gitattributes_exists="true"
 
+  # Detect chezmoi dotfiles repo
+  if [[ -f ".chezmoi.yaml.tmpl" ]] || [[ -f ".chezmoi.toml.tmpl" ]] || [[ -f ".chezmoiroot" ]]; then
+    chezmoi_exists="true"
+    is_dotfiles_repo="true"
+  elif ls dot_* 1>/dev/null 2>&1; then
+    is_dotfiles_repo="true"
+  fi
+
+  # Check for global settings
+  [[ -f "$HOME/.claude/settings.json" ]] && global_settings_exists="true"
+
   # Recommend based on existing setup
-  if [[ "$husky_exists" == "true" ]]; then
+  if [[ "$is_dotfiles_repo" == "true" ]]; then
+    recommended="chezmoi"
+  elif [[ "$husky_exists" == "true" ]]; then
     recommended="husky"
   fi
 
@@ -142,6 +178,9 @@ cmd_detect() {
   "husky_exists": $husky_exists,
   "package_json_exists": $package_json_exists,
   "gitattributes_exists": $gitattributes_exists,
+  "chezmoi_exists": $chezmoi_exists,
+  "is_dotfiles_repo": $is_dotfiles_repo,
+  "global_settings_exists": $global_settings_exists,
   "recommended_hook_system": "$recommended"
 }
 EOF
@@ -149,12 +188,23 @@ EOF
 
 # Sync JSONC to JSON
 cmd_sync() {
-  local repo_root
-  repo_root=$(find_repo_root)
-  cd "$repo_root"
+  local work_dir
+  work_dir=$(get_working_dir)
 
-  if [[ ! -f "$JSONC_FILE" ]]; then
-    echo -e "${RED}Error: $JSONC_FILE not found${NC}" >&2
+  # Resolve paths
+  local source_file="$JSONC_FILE"
+  local target_file="$JSON_FILE"
+
+  # If not absolute, make relative to work_dir
+  if [[ "$source_file" != /* ]] && [[ -n "$work_dir" ]]; then
+    source_file="$work_dir/$source_file"
+  fi
+  if [[ "$target_file" != /* ]] && [[ -n "$work_dir" ]]; then
+    target_file="$work_dir/$target_file"
+  fi
+
+  if [[ ! -f "$source_file" ]]; then
+    echo -e "${RED}Error: $source_file not found${NC}" >&2
     echo "Run /settings-setup to initialize" >&2
     exit 1
   fi
@@ -162,47 +212,57 @@ cmd_sync() {
   echo -e "${BLUE}Syncing settings...${NC}"
 
   # Parse JSONC and write JSON
-  local tmp_file="${JSON_FILE}.tmp.$$"
-  mkdir -p "$(dirname "$JSON_FILE")"
+  local tmp_file="${target_file}.tmp.$$"
+  mkdir -p "$(dirname "$target_file")"
 
-  if ! strip_jsonc "$JSONC_FILE" > "$tmp_file"; then
+  if ! strip_jsonc "$source_file" > "$tmp_file"; then
     echo -e "${RED}Error: Failed to parse JSONC${NC}" >&2
     rm -f "$tmp_file"
     exit 1
   fi
 
   # Atomic write
-  mv "$tmp_file" "$JSON_FILE"
+  mv "$tmp_file" "$target_file"
 
-  echo -e "${GREEN}Synced: $JSONC_FILE -> $JSON_FILE${NC}"
+  echo -e "${GREEN}Synced: $source_file -> $target_file${NC}"
 }
 
 # Check if in sync
 cmd_check() {
-  local repo_root
-  repo_root=$(find_repo_root)
-  cd "$repo_root"
+  local work_dir
+  work_dir=$(get_working_dir)
 
-  if [[ ! -f "$JSONC_FILE" ]]; then
-    echo -e "${YELLOW}Warning: $JSONC_FILE not found${NC}" >&2
+  # Resolve paths
+  local source_file="$JSONC_FILE"
+  local target_file="$JSON_FILE"
+
+  if [[ "$source_file" != /* ]] && [[ -n "$work_dir" ]]; then
+    source_file="$work_dir/$source_file"
+  fi
+  if [[ "$target_file" != /* ]] && [[ -n "$work_dir" ]]; then
+    target_file="$work_dir/$target_file"
+  fi
+
+  if [[ ! -f "$source_file" ]]; then
+    echo -e "${YELLOW}Warning: $source_file not found${NC}" >&2
     exit 2
   fi
 
-  if [[ ! -f "$JSON_FILE" ]]; then
-    echo -e "${YELLOW}Warning: $JSON_FILE not found (run /settings-sync)${NC}" >&2
+  if [[ ! -f "$target_file" ]]; then
+    echo -e "${YELLOW}Warning: $target_file not found (run /settings-sync)${NC}" >&2
     exit 2
   fi
 
   # Generate what JSON should be
   local expected
-  if ! expected=$(strip_jsonc "$JSONC_FILE"); then
+  if ! expected=$(strip_jsonc "$source_file"); then
     echo -e "${RED}Error: Failed to parse JSONC${NC}" >&2
     exit 1
   fi
 
   # Compare with actual
   local actual
-  actual=$(cat "$JSON_FILE")
+  actual=$(cat "$target_file")
 
   if [[ "$expected" == "$actual" ]]; then
     echo -e "${GREEN}In sync${NC}"
@@ -218,20 +278,25 @@ cmd_check() {
 
 # Validate against schema
 cmd_validate() {
-  local repo_root
-  repo_root=$(find_repo_root)
-  cd "$repo_root"
+  local work_dir
+  work_dir=$(get_working_dir)
 
-  if [[ ! -f "$JSONC_FILE" ]]; then
-    echo -e "${RED}Error: $JSONC_FILE not found${NC}" >&2
+  # Resolve source path
+  local source_file="$JSONC_FILE"
+  if [[ "$source_file" != /* ]] && [[ -n "$work_dir" ]]; then
+    source_file="$work_dir/$source_file"
+  fi
+
+  if [[ ! -f "$source_file" ]]; then
+    echo -e "${RED}Error: $source_file not found${NC}" >&2
     exit 1
   fi
 
-  echo -e "${BLUE}Validating $JSONC_FILE...${NC}"
+  echo -e "${BLUE}Validating $source_file...${NC}"
 
   # Parse JSONC first
   local parsed
-  if ! parsed=$(strip_jsonc "$JSONC_FILE"); then
+  if ! parsed=$(strip_jsonc "$source_file"); then
     echo -e "${RED}JSONC syntax error${NC}" >&2
     exit 1
   fi
@@ -311,9 +376,9 @@ cmd_validate() {
 
 # Setup wizard
 cmd_setup() {
-  local repo_root
-  repo_root=$(find_repo_root)
-  cd "$repo_root"
+  local work_dir
+  work_dir=$(get_working_dir)
+  [[ -n "$work_dir" ]] && cd "$work_dir"
 
   local force="false"
   local dry_run="false"
@@ -329,13 +394,26 @@ cmd_setup() {
     esac
   done
 
-  # Detect if not specified
+  # Detect hook system if not specified
   if [[ -z "$hook_system" ]]; then
-    if [[ -d ".husky" ]]; then
+    # Check for chezmoi dotfiles repo
+    if [[ "$GLOBAL_MODE" == "true" ]]; then
+      hook_system="chezmoi"
+    elif [[ -f ".chezmoi.yaml.tmpl" ]] || [[ -f ".chezmoi.toml.tmpl" ]] || [[ -f ".chezmoiroot" ]]; then
+      hook_system="chezmoi"
+    elif ls dot_* 1>/dev/null 2>&1; then
+      hook_system="chezmoi"
+    elif [[ -d ".husky" ]]; then
       hook_system="husky"
     else
       hook_system="lefthook"
     fi
+  fi
+
+  # For chezmoi, use the dedicated setup function
+  if [[ "$hook_system" == "chezmoi" ]]; then
+    setup_chezmoi "$dry_run" "$force"
+    return
   fi
 
   echo -e "${BLUE}Setting up Claude Code JSONC settings...${NC}"
@@ -648,9 +726,173 @@ BASH
   fi
 }
 
+# Setup chezmoi for global settings
+setup_chezmoi() {
+  local dry_run="$1"
+  local force="$2"
+
+  echo -e "${BLUE}Setting up chezmoi for global Claude settings...${NC}"
+  echo ""
+
+  # Create dot_claude directory (chezmoi source format)
+  local chezmoi_source_dir="dot_claude"
+  mkdir -p "$chezmoi_source_dir"
+
+  # 1. Create __settings.jsonc in chezmoi source
+  local jsonc_source="$chezmoi_source_dir/__settings.jsonc"
+  if [[ -f "$jsonc_source" && "$force" != "true" ]]; then
+    echo -e "${YELLOW}Skipping: $jsonc_source exists (use --force)${NC}"
+  else
+    if [[ "$dry_run" == "true" ]]; then
+      echo -e "${GRAY}Would create: $jsonc_source${NC}"
+    else
+      local existing_content="{}"
+      if [[ -f "$HOME/.claude/settings.json" ]]; then
+        existing_content=$(cat "$HOME/.claude/settings.json")
+        echo -e "${GREEN}Converting existing ~/.claude/settings.json${NC}"
+      fi
+
+      cat > "$jsonc_source" << 'HEADER'
+// Claude Code Global Settings (JSONC - comments allowed)
+//
+// This file is managed by chezmoi. Edit this file, not ~/.claude/settings.json.
+// Run 'chezmoi apply' to sync changes.
+//
+// Schema: https://json.schemastore.org/claude-code-settings.json
+
+HEADER
+
+      node -e '
+        const input = process.argv[1];
+        try {
+          const obj = JSON.parse(input);
+          obj["$schema"] = "https://json.schemastore.org/claude-code-settings.json";
+          const ordered = { "$schema": obj["$schema"] };
+          for (const key of Object.keys(obj)) {
+            if (key !== "$schema") ordered[key] = obj[key];
+          }
+          console.log(JSON.stringify(ordered, null, 2));
+        } catch {
+          console.log("{}");
+        }
+      ' "$existing_content" >> "$jsonc_source"
+
+      echo -e "${GREEN}Created: $jsonc_source${NC}"
+    fi
+  fi
+
+  # 2. Create run_onchange_ script for chezmoi
+  local run_script="run_onchange_after_claude-settings.sh.tmpl"
+  if [[ -f "$run_script" && "$force" != "true" ]]; then
+    echo -e "${YELLOW}Skipping: $run_script exists${NC}"
+  else
+    if [[ "$dry_run" == "true" ]]; then
+      echo -e "${GRAY}Would create: $run_script${NC}"
+    else
+      cat > "$run_script" << 'TMPL'
+#!/bin/bash
+# Sync Claude Code JSONC settings to JSON
+# Triggered when __settings.jsonc content changes
+# hash: {{ include "dot_claude/__settings.jsonc" | sha256sum }}
+
+set -euo pipefail
+
+SOURCE="$HOME/.claude/__settings.jsonc"
+TARGET="$HOME/.claude/settings.json"
+
+if [[ ! -f "$SOURCE" ]]; then
+  echo "Claude settings source not found: $SOURCE"
+  exit 0
+fi
+
+echo "Syncing Claude settings..."
+
+# Strip JSONC comments using node
+node -e '
+  const fs = require("fs");
+  const input = fs.readFileSync(process.argv[1], "utf8");
+  let result = "", inString = false, i = 0;
+  while (i < input.length) {
+    if (!inString && input[i] === "\"") {
+      inString = true; result += input[i]; i++; continue;
+    }
+    if (inString) {
+      if (input[i] === "\\" && i + 1 < input.length) { result += input[i] + input[i+1]; i += 2; continue; }
+      if (input[i] === "\"") inString = false;
+      result += input[i]; i++; continue;
+    }
+    if (input[i] === "/" && i + 1 < input.length) {
+      if (input[i+1] === "/") { while (i < input.length && input[i] !== "\n") i++; continue; }
+      if (input[i+1] === "*") { i += 2; while (i+1 < input.length && !(input[i] === "*" && input[i+1] === "/")) i++; i += 2; continue; }
+    }
+    result += input[i]; i++;
+  }
+  const obj = JSON.parse(result);
+  console.log(JSON.stringify(obj, null, 2));
+' "$SOURCE" > "${TARGET}.tmp"
+
+mv "${TARGET}.tmp" "$TARGET"
+echo "Synced: $SOURCE -> $TARGET"
+TMPL
+      chmod +x "$run_script"
+      echo -e "${GREEN}Created: $run_script${NC}"
+    fi
+  fi
+
+  # 3. Create .chezmoiignore entry for settings.json (it's generated)
+  if [[ "$dry_run" == "true" ]]; then
+    echo -e "${GRAY}Would update: .chezmoiignore${NC}"
+  else
+    if ! grep -q "dot_claude/settings.json" .chezmoiignore 2>/dev/null; then
+      echo "dot_claude/settings.json" >> .chezmoiignore
+      echo -e "${GREEN}Updated: .chezmoiignore${NC}"
+    fi
+  fi
+
+  echo ""
+  echo -e "${GREEN}Chezmoi setup complete!${NC}"
+  echo ""
+  echo "Next steps:"
+  echo "  1. Edit dot_claude/__settings.jsonc"
+  echo "  2. Run 'chezmoi apply' to sync to ~/.claude/settings.json"
+  echo "  3. Commit your dotfiles changes"
+  echo ""
+  echo "The run_onchange_ script triggers automatically when"
+  echo "__settings.jsonc content changes during 'chezmoi apply'."
+}
+
 # ================================================================
 # Router
 # ================================================================
+
+# Parse global flags first
+REMAINING_ARGS=()
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --source)
+      JSONC_FILE="$2"
+      shift 2
+      ;;
+    --target)
+      JSON_FILE="$2"
+      shift 2
+      ;;
+    --global)
+      GLOBAL_MODE="true"
+      JSONC_FILE="$HOME/.claude/__settings.jsonc"
+      JSON_FILE="$HOME/.claude/settings.json"
+      shift
+      ;;
+    *)
+      REMAINING_ARGS+=("$1")
+      shift
+      ;;
+  esac
+done
+
+# Restore positional parameters
+set -- "${REMAINING_ARGS[@]}"
+
 COMMAND="${1:-help}"
 shift || true
 
@@ -670,10 +912,15 @@ case "$COMMAND" in
     echo "  check      Check if files are in sync"
     echo "  validate   Validate against schema"
     echo ""
-    echo "Options:"
+    echo "Global Options:"
+    echo "  --source PATH  Override source JSONC file path"
+    echo "  --target PATH  Override target JSON file path"
+    echo "  --global       Use global settings (~/.claude/)"
+    echo ""
+    echo "Setup Options:"
     echo "  --dry-run      Preview changes without applying"
     echo "  --force        Overwrite existing files"
-    echo "  --hook-system  Force hook system (lefthook|husky)"
+    echo "  --hook-system  Force hook system (lefthook|husky|chezmoi)"
     ;;
   *)
     echo "Error: Unknown command: $COMMAND" >&2
