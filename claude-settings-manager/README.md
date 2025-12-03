@@ -140,6 +140,78 @@ SETTINGS_BYPASS=1 git commit -m "Emergency settings fix"
 /settings-setup --dry-run           # Preview changes
 /settings-setup --force             # Overwrite existing files
 /settings-setup --hook-system husky # Force husky instead of lefthook
+/settings-setup --global            # Global settings with chezmoi
+```
+
+## Global Settings (Dotfiles)
+
+For managing `~/.claude/settings.json` via a dotfiles repo with chezmoi:
+
+### Quick Start (Dotfiles)
+
+```bash
+# In your dotfiles repo
+/settings-setup --global
+```
+
+Or if chezmoi is auto-detected:
+
+```bash
+/settings-setup  # Auto-detects chezmoi dotfiles repo
+```
+
+### How It Works
+
+The plugin creates:
+
+```
+your-dotfiles/
+├── dot_claude/
+│   └── __settings.jsonc              # Edit this (chezmoi source)
+├── run_onchange_after_claude-settings.sh.tmpl  # Sync trigger
+└── .chezmoiignore                    # Ignores generated file
+```
+
+The `run_onchange_` script uses a content hash:
+
+```bash
+# hash: {{ include "dot_claude/__settings.jsonc" | sha256sum }}
+```
+
+This triggers the sync whenever `__settings.jsonc` content changes during `chezmoi apply`.
+
+### Manual Sync (Global)
+
+```bash
+# Using the script directly
+settings-manager --global sync
+
+# Or with explicit paths
+settings-manager sync \
+  --source ~/.claude/__settings.jsonc \
+  --target ~/.claude/settings.json
+```
+
+### Workflow
+
+1. Edit `dot_claude/__settings.jsonc` in your dotfiles
+2. Run `chezmoi apply` (or commit + apply)
+3. The run_onchange script syncs to `~/.claude/settings.json`
+
+### Path Overrides
+
+For custom paths (any scope):
+
+```bash
+# Environment variables
+SETTINGS_SOURCE=/path/to/source.jsonc \
+SETTINGS_TARGET=/path/to/target.json \
+settings-manager sync
+
+# Or CLI flags
+settings-manager sync \
+  --source /path/to/source.jsonc \
+  --target /path/to/target.json
 ```
 
 ## Troubleshooting
