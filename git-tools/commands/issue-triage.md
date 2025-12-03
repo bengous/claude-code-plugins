@@ -1,6 +1,5 @@
 ---
 description: Analyze an open issue and propose to treat or close it
-argument-hint: <issue-number|issue-url>
 allowed-tools:
   - Bash(gh:*)
   - Bash(git:*)
@@ -18,30 +17,44 @@ Analyze an open issue and make a recommendation to either treat (continue workin
 **Usage:**
 
 ```bash
-# By issue number
-/issue-triage 123
-
-# By issue URL
-/issue-triage https://github.com/owner/repo/issues/123
+/issue-triage
 ```
 
 ## Instructions for Claude
 
-**Your task:** Analyze the issue and help the user decide whether to treat or close it.
+**Your task:** List open issues, let the user pick one, then analyze it and help decide whether to treat or close it.
 
-### Step 1: Gather Issue Information
+### Step 1: List Open Issues
 
-Run these commands to gather context:
+Run this command to list all open issues:
 
 ```bash
-# Get issue details
-gh issue view $ARGUMENTS --json title,body,state,author,createdAt,updatedAt,labels,assignees,comments,milestone,projectItems
-
-# Get issue timeline/activity
-gh issue view $ARGUMENTS --comments
+gh issue list --state open --limit 30 --json number,title,author,createdAt,labels,assignees
 ```
 
-### Step 2: Fact-Check the Issue
+Present the issues in a table format:
+
+```
+| # | Title | Labels | Age |
+|---|-------|--------|-----|
+| 123 | Issue title here | `label1` `label2` | X days |
+```
+
+Then use `AskUserQuestion` to ask the user which issue they want to triage. Store the selected issue number for subsequent steps.
+
+### Step 2: Gather Issue Information
+
+Once the user selects an issue, run these commands to gather context:
+
+```bash
+# Get issue details (replace ISSUE_NUMBER with selected issue)
+gh issue view ISSUE_NUMBER --json title,body,state,author,createdAt,updatedAt,labels,assignees,comments,milestone,projectItems
+
+# Get issue timeline/activity
+gh issue view ISSUE_NUMBER --comments
+```
+
+### Step 3: Fact-Check the Issue
 
 Before recommending action, verify the issue is still valid:
 
@@ -57,7 +70,7 @@ Before recommending action, verify the issue is still valid:
    - Search open issues for similar titles/keywords
    - Note any that should be linked or closed as duplicates
 
-### Step 3: Analyze the Issue
+### Step 4: Analyze the Issue
 
 Evaluate based on:
 
@@ -81,7 +94,7 @@ Evaluate based on:
    - Is the feature/fix still needed?
    - Has the relevant code area changed significantly?
 
-### Step 4: Present Summary
+### Step 5: Present Summary
 
 Provide a concise summary with:
 
@@ -108,14 +121,14 @@ Provide a concise summary with:
 **Reason:** [Brief explanation]
 ```
 
-### Step 5: Ask User for Decision
+### Step 6: Ask User for Decision
 
 Use AskUserQuestion to present the options:
 
 - **Treat**: Keep open, add labels, assign someone, or add to milestone
 - **Close**: Close with an appropriate reason
 
-### Step 6: Execute Decision
+### Step 7: Execute Decision
 
 **If TREAT:**
 - Ask what actions to take (label, assign, milestone, comment)
@@ -126,8 +139,8 @@ Use AskUserQuestion to present the options:
 - Show the draft and confirm before posting
 - Execute:
   ```bash
-  gh issue comment $ARGUMENTS --body "<comment>"
-  gh issue close $ARGUMENTS --reason <completed|not_planned>
+  gh issue comment ISSUE_NUMBER --body "<comment>"
+  gh issue close ISSUE_NUMBER --reason <completed|not_planned>
   ```
 
 ### Closure Reasons
