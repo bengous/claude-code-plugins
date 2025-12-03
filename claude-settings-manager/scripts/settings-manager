@@ -736,6 +736,13 @@ pre-commit:
         fi
 YAML
     echo -e "${GREEN}Created: $lefthook_file${NC}"
+    # Auto-install lefthook hooks
+    if command -v lefthook &>/dev/null; then
+      echo -e "${BLUE}Installing lefthook hooks...${NC}"
+      lefthook install
+    else
+      echo -e "${YELLOW}Note: Run 'lefthook install' to activate hooks${NC}"
+    fi
   else
     if grep -q "block-settings-json\|sync-settings" "$lefthook_file" 2>/dev/null; then
       if [[ "$force" != "true" ]]; then
@@ -793,6 +800,13 @@ fi
 BASH
     chmod +x "$pre_commit"
     echo -e "${GREEN}Created: $pre_commit${NC}"
+    # Auto-install husky hooks
+    if command -v npx &>/dev/null; then
+      echo -e "${BLUE}Installing husky hooks...${NC}"
+      npx husky install 2>/dev/null || npx husky init 2>/dev/null || true
+    else
+      echo -e "${YELLOW}Note: Run 'npx husky install' to activate hooks${NC}"
+    fi
   else
     if grep -q "block-settings-json\|settings-sync" "$pre_commit" 2>/dev/null; then
       if [[ "$force" != "true" ]]; then

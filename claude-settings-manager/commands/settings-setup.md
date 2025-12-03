@@ -7,7 +7,7 @@ allowed-tools:
   - Glob(*:*)
   - Grep(*:*)
   - AskUserQuestion(*:*)
-model: claude-sonnet-4-5
+model: claude-opus-4-5
 ---
 
 # Settings Setup Wizard
