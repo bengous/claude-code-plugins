@@ -1,43 +1,63 @@
 ---
-description: Validate __settings.jsonc against Claude Code schema
+description: Validate JSONC settings against schema
 allowed-tools:
   - Bash("${CLAUDE_PLUGIN_ROOT}/scripts/settings-manager":*)
+  - Glob(*:*)
+  - Read(*:*)
 model: claude-sonnet-4-5
 ---
 
 # Settings Validate Command
 
-Validate `.claude/__settings.jsonc` against the official Claude Code settings schema.
+Validate `__settings.jsonc` against the Claude Code settings schema.
 
-**Usage:**
-```bash
-/settings-validate
-```
+## Your Task
 
-**What it checks:**
-1. JSONC syntax validity (proper JSON with comments stripped)
-2. Schema compliance against schemastore.org/claude-code-settings.json
-3. Common configuration mistakes:
-   - `permissions.allow` and `permissions.deny` must be arrays
-   - Hook event names must be valid (PreToolUse, PostToolUse, etc.)
+### Step 1: Find Settings File
 
-## Instructions for Claude
+Look for the JSONC source file:
+- `.claude/__settings.jsonc` (project)
+- `dot_claude/__settings.jsonc` (chezmoi dotfiles)
+- `~/.claude/__settings.jsonc` (global)
 
-Execute the validation command:
+### Step 2: Execute Validation
 
 ```bash
-"${CLAUDE_PLUGIN_ROOT}/scripts/settings-manager" validate
+"${CLAUDE_PLUGIN_ROOT}/scripts/settings-manager" validate \
+  --source <source_path>
 ```
 
-**Success output:**
+### Step 3: Report Result
+
+**JSONC syntax valid + schema valid:**
 ```
-Validating .claude/__settings.jsonc...
-JSONC syntax: valid
-Schema validation: passed (basic checks)
+Validation passed!
+
+- JSONC syntax: valid
+- Schema check: passed
 ```
 
-**Error cases:**
-- JSONC syntax error: Show the error message and line number if possible
-- Schema validation error: List each error and suggest how to fix it
+**JSONC syntax error:**
+```
+JSONC syntax error: <error message>
 
-If the schema fetch fails (network issues), validation continues with cached schema or is skipped with a warning.
+Common issues:
+- Trailing comma after last property
+- Missing quotes around keys
+- Unterminated string or comment
+```
+
+**Schema validation errors:**
+```
+Schema validation errors:
+- <list of errors>
+
+See the Claude Code settings documentation for valid configuration options.
+```
+
+## What It Checks
+
+1. **JSONC Syntax**: Verifies the file is valid JSONC (JSON with comments)
+2. **Schema Compliance**: Validates against `json.schemastore.org/claude-code-settings.json`
+   - `permissions.allow` and `permissions.deny` are arrays
+   - Hook event names are valid (PreToolUse, PostToolUse, etc.)
