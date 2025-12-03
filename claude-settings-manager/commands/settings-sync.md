@@ -1,40 +1,62 @@
 ---
-description: Manually sync __settings.jsonc to settings.json
+description: Sync JSONC settings to JSON
 allowed-tools:
   - Bash("${CLAUDE_PLUGIN_ROOT}/scripts/settings-manager":*)
+  - Glob(*:*)
+  - Read(*:*)
 model: claude-sonnet-4-5
 ---
 
 # Settings Sync Command
 
-Manually sync `.claude/__settings.jsonc` to `.claude/settings.json`.
+Sync `__settings.jsonc` to `settings.json`.
 
-**Usage:**
+## Your Task
+
+### Step 1: Find Settings Files
+
+Look for the JSONC source file in common locations:
+- `.claude/__settings.jsonc` (project)
+- `dot_claude/__settings.jsonc` (chezmoi dotfiles)
+- `~/.claude/__settings.jsonc` (global)
+
+Use Glob to find it:
 ```bash
-/settings-sync
+# Check project first
+ls .claude/__settings.jsonc 2>/dev/null
+
+# Check for chezmoi
+ls dot_claude/__settings.jsonc 2>/dev/null
 ```
 
-**When to use:**
-- After editing `__settings.jsonc` and wanting to see changes immediately
-- If auto-sync on commit isn't working
-- To verify sync works before committing
+### Step 2: Determine Target
 
-## Instructions for Claude
+The target is typically the same path with `settings.json` instead of `__settings.jsonc`:
+- `.claude/__settings.jsonc` -> `.claude/settings.json`
+- `dot_claude/__settings.jsonc` -> `dot_claude/settings.json`
+- `~/.claude/__settings.jsonc` -> `~/.claude/settings.json`
 
-Execute the sync command:
+### Step 3: Execute Sync
 
 ```bash
-"${CLAUDE_PLUGIN_ROOT}/scripts/settings-manager" sync
+"${CLAUDE_PLUGIN_ROOT}/scripts/settings-manager" sync \
+  --source <source_path> \
+  --target <target_path>
 ```
 
-**Success output:**
+### Step 4: Report Result
+
+Show the sync result to the user.
+
+**If source not found:**
 ```
-Syncing settings...
-Synced: .claude/__settings.jsonc -> .claude/settings.json
+No __settings.jsonc found. Run /settings-setup first to configure the JSONC workflow.
 ```
 
-**Error cases:**
-- If `__settings.jsonc` doesn't exist, suggest running `/settings-setup`
-- If JSONC has syntax errors, report the parse error and suggest fixes
+**On success:**
+```
+Synced: <source> -> <target>
+```
 
-Report the result to the user.
+**On parse error:**
+Explain the JSONC syntax error and suggest fixes (common issues: trailing commas, unquoted keys).
