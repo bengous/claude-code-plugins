@@ -726,14 +726,14 @@ pre-commit:
   jobs:
     - name: block-settings-json
       priority: 0
+      glob: "$target_path"
       run: ./$block_script
     - name: sync-settings
       priority: 1
+      glob: "$source_path"
       run: |
-        if git diff --cached --name-only | grep -q "^${source_pattern}\$"; then
-          ./$sync_script
-          git add $target_path
-        fi
+        ./$sync_script
+        git add $target_path
 YAML
     echo -e "${GREEN}Created: $lefthook_file${NC}"
     # Auto-install lefthook hooks
@@ -757,14 +757,14 @@ pre-commit:
   jobs:
     - name: block-settings-json
       priority: 0
+      glob: "$target_path"
       run: ./$block_script
     - name: sync-settings
       priority: 1
+      glob: "$source_path"
       run: |
-        if git diff --cached --name-only | grep -q "^${source_pattern}\$"; then
-          ./$sync_script
-          git add $target_path
-        fi
+        ./$sync_script
+        git add $target_path
 YAML
   fi
 }
@@ -786,14 +786,30 @@ setup_husky_config() {
   local pre_commit=".husky/pre-commit"
   local source_pattern
   source_pattern=$(echo "$source_path" | sed 's/\./\\\\./g')
+  local target_pattern
+  target_pattern=$(echo "$target_path" | sed 's/\./\\\\./g')
 
   if [[ ! -f "$pre_commit" ]]; then
     cat > "$pre_commit" << BASH
-#!/usr/bin/env bash
+#!/usr/bin/env sh
+. "\$(dirname -- "\$0")/_/husky.sh"
 
-./$block_script
+# Only run if settings files are staged
+SETTINGS_JSON_STAGED=\$(git diff --cached --name-only | grep -q "^${target_pattern}\$" && echo "1" || echo "0")
+SETTINGS_JSONC_STAGED=\$(git diff --cached --name-only | grep -q "^${source_pattern}\$" && echo "1" || echo "0")
 
-if git diff --cached --name-only | grep -q "^${source_pattern}\$"; then
+# Exit silently if no settings files staged
+if [ "\$SETTINGS_JSON_STAGED" = "0" ] && [ "\$SETTINGS_JSONC_STAGED" = "0" ]; then
+  exit 0
+fi
+
+# Block direct settings.json edits
+if [ "\$SETTINGS_JSON_STAGED" = "1" ]; then
+  ./$block_script || exit 1
+fi
+
+# Sync if jsonc is staged
+if [ "\$SETTINGS_JSONC_STAGED" = "1" ]; then
   ./$sync_script
   git add $target_path
 fi
@@ -817,9 +833,25 @@ BASH
 
     echo -e "${YELLOW}Manual step: Add to .husky/pre-commit:${NC}"
     cat << BASH
-./$block_script
+#!/usr/bin/env sh
+. "\$(dirname -- "\$0")/_/husky.sh"
 
-if git diff --cached --name-only | grep -q "^${source_pattern}\$"; then
+# Only run if settings files are staged
+SETTINGS_JSON_STAGED=\$(git diff --cached --name-only | grep -q "^${target_pattern}\$" && echo "1" || echo "0")
+SETTINGS_JSONC_STAGED=\$(git diff --cached --name-only | grep -q "^${source_pattern}\$" && echo "1" || echo "0")
+
+# Exit silently if no settings files staged
+if [ "\$SETTINGS_JSON_STAGED" = "0" ] && [ "\$SETTINGS_JSONC_STAGED" = "0" ]; then
+  exit 0
+fi
+
+# Block direct settings.json edits
+if [ "\$SETTINGS_JSON_STAGED" = "1" ]; then
+  ./$block_script || exit 1
+fi
+
+# Sync if jsonc is staged
+if [ "\$SETTINGS_JSONC_STAGED" = "1" ]; then
   ./$sync_script
   git add $target_path
 fi
