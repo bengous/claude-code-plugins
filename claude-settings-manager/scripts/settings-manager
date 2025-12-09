@@ -346,6 +346,485 @@ Be concise and actionable." --model haiku 2>/dev/null | sed 's/^/│ /'
   echo "└───────────────────────────────────────────────────┘"
 }
 
+# ================================================================
+# Schema Extraction Commands
+# ================================================================
+
+# Extract schema from Claude Code npm package
+cmd_schema_extract() {
+  local version="latest"
+  local output_dir="."
+  local format="both"
+
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --version) version="$2"; shift 2 ;;
+      --output-dir) output_dir="$2"; shift 2 ;;
+      --format) format="$2"; shift 2 ;;
+      --help|-h) cmd_schema_extract_help; exit 0 ;;
+      *) echo -e "${RED}Unknown option: $1${NC}" >&2; cmd_schema_extract_help; exit 1 ;;
+    esac
+  done
+
+  # Validate format
+  case "$format" in
+    json|md|both) ;;
+    *) echo -e "${RED}Invalid format: $format (use json, md, or both)${NC}" >&2; exit 1 ;;
+  esac
+
+  mkdir -p "$output_dir"
+  mkdir -p "$CACHE_DIR"
+
+  echo -e "${BLUE}Extracting Claude Code schema...${NC}"
+
+  # Resolve version if "latest"
+  if [[ "$version" == "latest" ]]; then
+    echo -e "${GRAY}Fetching latest version...${NC}"
+    version=$(curl -sL "https://registry.npmjs.org/@anthropic-ai/claude-code/latest" | node -p "JSON.parse(require('fs').readFileSync(0,'utf8')).version" 2>/dev/null)
+    if [[ -z "$version" ]]; then
+      echo -e "${RED}Error: Could not fetch latest version${NC}" >&2
+      exit 1
+    fi
+  fi
+
+  echo -e "${CYAN}Version: $version${NC}"
+
+  # Check cache
+  local cache_file="$CACHE_DIR/describe-strings-$version.json"
+  local cli_cache="$CACHE_DIR/cli-$version.js"
+
+  if [[ -f "$cache_file" ]]; then
+    local file_mtime
+    if stat --version 2>/dev/null | grep -q GNU; then
+      file_mtime=$(stat -c %Y "$cache_file")
+    else
+      file_mtime=$(stat -f %m "$cache_file")
+    fi
+    local now
+    now=$(date +%s)
+    local cache_age=$((now - file_mtime))
+    if [[ $cache_age -lt $CACHE_TTL ]]; then
+      echo -e "${GRAY}Using cached extraction...${NC}"
+      generate_schema_outputs "$cache_file" "$version" "$output_dir" "$format"
+      return
+    fi
+  fi
+
+  # Download and extract cli.js
+  echo -e "${GRAY}Downloading npm package...${NC}"
+  local tarball_url="https://registry.npmjs.org/@anthropic-ai/claude-code/-/claude-code-$version.tgz"
+
+  if ! curl -sL "$tarball_url" | tar -xzf - -O package/cli.js > "$cli_cache" 2>/dev/null; then
+    echo -e "${RED}Error: Failed to download package${NC}" >&2
+    exit 1
+  fi
+
+  if [[ ! -s "$cli_cache" ]]; then
+    echo -e "${RED}Error: cli.js is empty${NC}" >&2
+    exit 1
+  fi
+
+  echo -e "${GREEN}Downloaded: $(wc -c < "$cli_cache" | xargs) bytes${NC}"
+
+  # Extract describe strings using external script
+  echo -e "${GRAY}Extracting .describe() strings...${NC}"
+  extract_describe_strings "$cli_cache" "$version" > "$cache_file"
+
+  if [[ ! -s "$cache_file" ]]; then
+    echo -e "${RED}Error: Extraction failed${NC}" >&2
+    exit 1
+  fi
+
+  local count
+  count=$(node -p "JSON.parse(require('fs').readFileSync('$cache_file','utf8')).totalDescribeStrings")
+  echo -e "${GREEN}Extracted: $count describe strings${NC}"
+
+  generate_schema_outputs "$cache_file" "$version" "$output_dir" "$format"
+}
+
+# Helper: Extract describe strings from cli.js bundle
+extract_describe_strings() {
+  local cli_file="$1"
+  local version="$2"
+
+  node --input-type=module -e "
+import { readFileSync } from 'fs';
+const content = readFileSync('$cli_file', 'utf8');
+
+// Extract all .describe('...') strings
+const describeRegex = /\\.describe\\(['\"]([^'\"]+)['\"]\\)/g;
+const descriptions = new Set();
+let match;
+while ((match = describeRegex.exec(content)) !== null) {
+  descriptions.add(match[1]);
+}
+
+// Try to extract property names with their descriptions
+// Pattern: 'propertyName':S.type().describe('...')
+const propRegex = /['\"]([a-zA-Z_][a-zA-Z0-9_]*)['\"]\s*:\s*[A-Z]\.[a-z]+\\([^)]*\\)(?:\\.[a-z]+\\([^)]*\\))*\\.describe\\(['\"]([^'\"]+)['\"]\\)/g;
+const properties = {};
+while ((match = propRegex.exec(content)) !== null) {
+  properties[match[1]] = match[2];
+}
+
+const result = {
+  version: '$version',
+  extractedAt: new Date().toISOString(),
+  totalDescribeStrings: descriptions.size,
+  propertyMappings: Object.keys(properties).length,
+  descriptions: Array.from(descriptions).sort(),
+  properties: properties
+};
+
+console.log(JSON.stringify(result, null, 2));
+"
+}
+
+# Generate JSON Schema and/or Markdown from extraction
+generate_schema_outputs() {
+  local cache_file="$1"
+  local version="$2"
+  local output_dir="$3"
+  local format="$4"
+
+  # Generate JSON Schema
+  if [[ "$format" == "json" || "$format" == "both" ]]; then
+    local schema_file="$output_dir/claude-code-$version.schema.json"
+    echo -e "${GRAY}Generating JSON Schema...${NC}"
+    generate_json_schema "$cache_file" > "$schema_file"
+    echo -e "${GREEN}Created: $schema_file${NC}"
+  fi
+
+  # Generate Markdown documentation
+  if [[ "$format" == "md" || "$format" == "both" ]]; then
+    local md_file="$output_dir/claude-code-$version-reference.md"
+    echo -e "${GRAY}Generating Markdown documentation...${NC}"
+    generate_markdown_docs "$cache_file" > "$md_file"
+    echo -e "${GREEN}Created: $md_file${NC}"
+  fi
+
+  # Copy raw extraction for debugging (skip if same file)
+  local raw_file="$output_dir/describe-strings-$version.json"
+  if [[ "$cache_file" != "$raw_file" ]]; then
+    cp "$cache_file" "$raw_file"
+    echo -e "${GREEN}Created: $raw_file${NC}"
+  fi
+}
+
+# Helper: Generate JSON Schema from extracted data
+generate_json_schema() {
+  local cache_file="$1"
+  node --input-type=module -e "
+import { readFileSync } from 'fs';
+const data = JSON.parse(readFileSync('$cache_file', 'utf8'));
+
+const schema = {
+  '\$schema': 'http://json-schema.org/draft-07/schema#',
+  '\$id': 'claude-code-extracted-' + data.version,
+  title: 'Claude Code Extracted Schema',
+  description: 'Schema extracted from Claude Code v' + data.version + ' bundle. Auto-generated.',
+  type: 'object',
+  properties: {}
+};
+
+// Add known property mappings to schema
+for (const [prop, desc] of Object.entries(data.properties)) {
+  schema.properties[prop] = { description: desc };
+}
+
+// Categorize descriptions
+const categories = { settings: 0, tools: 0, internal: 0 };
+for (const desc of data.descriptions) {
+  const lower = desc.toLowerCase();
+  if (lower.includes('permission') || lower.includes('hook') || lower.includes('model')) {
+    categories.settings++;
+  } else if (lower.includes('tool') || lower.includes('command') || lower.includes('file_path')) {
+    categories.tools++;
+  } else {
+    categories.internal++;
+  }
+}
+
+schema['x-extracted'] = {
+  version: data.version,
+  extractedAt: data.extractedAt,
+  totalDescribeStrings: data.totalDescribeStrings,
+  propertyMappings: data.propertyMappings,
+  categories,
+  descriptions: data.descriptions
+};
+
+console.log(JSON.stringify(schema, null, 2));
+"
+}
+
+# Helper: Generate Markdown documentation
+generate_markdown_docs() {
+  local cache_file="$1"
+  node --input-type=module -e "
+import { readFileSync } from 'fs';
+const data = JSON.parse(readFileSync('$cache_file', 'utf8'));
+
+let md = \`# Claude Code Schema Reference
+
+Extracted from Claude Code v\${data.version}
+Generated: \${data.extractedAt}
+
+## Summary
+
+- **Total describe strings:** \${data.totalDescribeStrings}
+- **Property mappings found:** \${data.propertyMappings}
+
+## Extracted Property Mappings
+
+| Property | Description |
+|----------|-------------|
+\`;
+
+const sortedProps = Object.entries(data.properties).sort(([a], [b]) => a.localeCompare(b));
+for (const [prop, desc] of sortedProps) {
+  md += \`| \\\`\${prop}\\\` | \${desc.replace(/\\|/g, '\\\\|')} |\\n\`;
+}
+
+// Categorize descriptions
+const categories = {
+  'Settings': [],
+  'Tool Schemas': [],
+  'Internal': []
+};
+
+for (const desc of data.descriptions) {
+  const lower = desc.toLowerCase();
+  if (lower.includes('permission') || lower.includes('hook') || lower.includes('model') ||
+      lower.includes('setting') || lower.includes('api key') || lower.includes('environment')) {
+    categories['Settings'].push(desc);
+  } else if (lower.includes('tool') || lower.includes('bash') || lower.includes('edit') ||
+             lower.includes('command') || lower.includes('file_path') || lower.includes('pattern')) {
+    categories['Tool Schemas'].push(desc);
+  } else {
+    categories['Internal'].push(desc);
+  }
+}
+
+md += \`\\n## All Describe Strings by Category\\n\`;
+
+for (const [category, descs] of Object.entries(categories)) {
+  if (descs.length === 0) continue;
+  md += \`\\n### \${category} (\${descs.length})\\n\\n\`;
+  for (const d of descs.sort()) {
+    md += \`- \${d}\\n\`;
+  }
+}
+
+console.log(md);
+"
+}
+
+cmd_schema_extract_help() {
+  cat << 'EOF'
+Usage: settings-manager schema-extract [options]
+
+Extract Zod schema definitions from Claude Code npm package.
+
+Options:
+  --version VERSION    Version to extract (default: latest)
+  --output-dir PATH    Output directory (default: current dir)
+  --format FORMAT      Output format: json, md, or both (default: both)
+
+Examples:
+  # Extract latest version
+  settings-manager schema-extract
+
+  # Extract specific version
+  settings-manager schema-extract --version 2.0.62
+
+  # Output only Markdown
+  settings-manager schema-extract --format md --output-dir docs/
+
+Output files:
+  - claude-code-{VERSION}.schema.json    JSON Schema (partial)
+  - claude-code-{VERSION}-reference.md   Markdown documentation
+  - describe-strings-{VERSION}.json      Raw extracted data
+EOF
+}
+
+# Compare schemas between versions or against schemastore
+cmd_schema_diff() {
+  local base="schemastore"
+  local compare="latest"
+  local output_format="text"
+
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --base) base="$2"; shift 2 ;;
+      --compare) compare="$2"; shift 2 ;;
+      --json) output_format="json"; shift ;;
+      --help|-h) cmd_schema_diff_help; exit 0 ;;
+      *) echo -e "${RED}Unknown option: $1${NC}" >&2; cmd_schema_diff_help; exit 1 ;;
+    esac
+  done
+
+  echo -e "${BLUE}Comparing schemas...${NC}"
+  echo -e "  Base:    $base"
+  echo -e "  Compare: $compare"
+  echo ""
+
+  mkdir -p "$CACHE_DIR"
+
+  # Get base schema
+  local base_file
+  if [[ "$base" == "schemastore" ]]; then
+    base_file="$CACHE_DIR/schemastore-settings.json"
+    echo -e "${GRAY}Fetching schemastore.org schema...${NC}"
+    if ! curl -sL "$SCHEMA_URL" -o "$base_file" 2>/dev/null; then
+      echo -e "${RED}Error: Could not fetch schemastore schema${NC}" >&2
+      exit 1
+    fi
+  else
+    # Extract from version
+    cmd_schema_extract --version "$base" --output-dir "$CACHE_DIR" --format json >/dev/null 2>&1
+    base_file="$CACHE_DIR/claude-code-$base.schema.json"
+  fi
+
+  # Get compare schema - resolve latest
+  local resolved_compare="$compare"
+  if [[ "$compare" == "latest" ]]; then
+    resolved_compare=$(curl -sL "https://registry.npmjs.org/@anthropic-ai/claude-code/latest" | node -p "JSON.parse(require('fs').readFileSync(0,'utf8')).version" 2>/dev/null)
+  fi
+  cmd_schema_extract --version "$resolved_compare" --output-dir "$CACHE_DIR" --format json >/dev/null 2>&1
+  local compare_file="$CACHE_DIR/claude-code-$resolved_compare.schema.json"
+
+  # Compare using node
+  compare_schemas "$base_file" "$compare_file" "$output_format" "$base" "$resolved_compare"
+}
+
+# Helper: Compare two schema files
+compare_schemas() {
+  local base_file="$1"
+  local compare_file="$2"
+  local output_format="$3"
+  local base_name="$4"
+  local compare_name="$5"
+
+  node -e '
+const fs = require("fs");
+const baseSchema = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
+const compareSchema = JSON.parse(fs.readFileSync(process.argv[2], "utf8"));
+const outputFormat = process.argv[3];
+const baseName = process.argv[4];
+const compareName = process.argv[5];
+
+// Get property names
+const baseProps = new Set(Object.keys(baseSchema.properties || {}));
+const compareProps = new Set(Object.keys(compareSchema.properties || {}));
+
+// Get descriptions - from x-extracted or by extracting from properties
+let baseDescriptions = new Set();
+let compareDescriptions = new Set();
+
+if (baseSchema["x-extracted"] && baseSchema["x-extracted"].descriptions) {
+  baseDescriptions = new Set(baseSchema["x-extracted"].descriptions);
+} else if (baseSchema.properties) {
+  // Extract descriptions from schemastore-style schema
+  for (const [key, val] of Object.entries(baseSchema.properties)) {
+    if (val.description) baseDescriptions.add(val.description);
+  }
+}
+
+if (compareSchema["x-extracted"] && compareSchema["x-extracted"].descriptions) {
+  compareDescriptions = new Set(compareSchema["x-extracted"].descriptions);
+}
+
+// Build result
+const onlyInBase = [...baseProps].filter(p => !compareProps.has(p));
+const onlyInCompare = [...compareProps].filter(p => !baseProps.has(p));
+const inBoth = [...baseProps].filter(p => compareProps.has(p));
+const newDescs = [...compareDescriptions].filter(d => !baseDescriptions.has(d));
+
+const result = {
+  base: baseName,
+  compare: compareName,
+  properties: { onlyInBase, onlyInCompare, inBoth },
+  descriptions: {
+    baseCount: baseDescriptions.size,
+    compareCount: compareDescriptions.size,
+    newCount: newDescs.length,
+    newDescriptions: newDescs
+  }
+};
+
+if (outputFormat === "json") {
+  console.log(JSON.stringify(result, null, 2));
+} else {
+  console.log("## Schema Comparison: " + baseName + " vs " + compareName + "\n");
+
+  // If comparing against schemastore (which has properties but no x-extracted)
+  if (baseName === "schemastore") {
+    console.log("### Schemastore Properties (" + baseProps.size + ")");
+    console.log("These settings are officially documented:\n");
+    [...baseProps].sort().forEach(p => {
+      const desc = baseSchema.properties[p]?.description || "";
+      console.log("  - " + p + (desc ? ": " + desc.substring(0, 60) + (desc.length > 60 ? "..." : "") : ""));
+    });
+    console.log("");
+  }
+
+  // Extracted describe strings from bundle
+  if (compareSchema["x-extracted"]) {
+    const meta = compareSchema["x-extracted"];
+    console.log("### Extracted from " + compareName + " Bundle");
+    console.log("  Total describe strings: " + meta.totalDescribeStrings);
+    console.log("  Property mappings: " + meta.propertyMappings);
+    if (meta.categories) {
+      console.log("  Categories: settings=" + meta.categories.settings +
+                  ", tools=" + meta.categories.tools +
+                  ", internal=" + meta.categories.internal);
+    }
+    console.log("");
+  }
+
+  // Show sample of extracted descriptions that may be undocumented
+  console.log("### Sample Extracted Descriptions");
+  console.log("Settings-related strings found in bundle (may include undocumented options):\n");
+
+  const settingsDescs = [...compareDescriptions].filter(d => {
+    const lower = d.toLowerCase();
+    return lower.includes("permission") || lower.includes("hook") || lower.includes("model") ||
+           lower.includes("setting") || lower.includes("enable") || lower.includes("disable") ||
+           lower.includes("default") || lower.includes("api");
+  }).sort().slice(0, 25);
+
+  settingsDescs.forEach(d => console.log("  - " + d));
+  if (compareDescriptions.size > 25) {
+    console.log("  ... and " + (compareDescriptions.size - 25) + " more (see full extraction)");
+  }
+}
+' "$base_file" "$compare_file" "$output_format" "$base_name" "$compare_name"
+}
+
+cmd_schema_diff_help() {
+  cat << 'EOF'
+Usage: settings-manager schema-diff [options]
+
+Compare schemas between versions or against schemastore.org.
+
+Options:
+  --base VERSION       Base version or "schemastore" (default: schemastore)
+  --compare VERSION    Version to compare (default: latest)
+  --json               Output as JSON instead of text
+
+Examples:
+  # Compare latest against schemastore.org (find undocumented settings)
+  settings-manager schema-diff
+
+  # Compare two versions
+  settings-manager schema-diff --base 2.0.50 --compare 2.0.62
+
+  # Output as JSON
+  settings-manager schema-diff --json
+EOF
+}
+
 # Setup - flag-driven, no auto-detection
 cmd_setup() {
   local source_path=""
@@ -986,20 +1465,26 @@ case "$COMMAND" in
   sync) cmd_sync "$@" ;;
   check) cmd_check "$@" ;;
   validate) cmd_validate "$@" ;;
+  schema-extract) cmd_schema_extract "$@" ;;
+  schema-diff) cmd_schema_diff "$@" ;;
   help|--help|-h)
     echo "Usage: settings-manager <command> [options]"
     echo ""
     echo "Commands:"
-    echo "  setup      Set up JSONC settings workflow (run 'setup --help' for details)"
-    echo "  sync       Sync JSONC to JSON"
-    echo "  check      Check if files are in sync"
-    echo "  validate   Validate JSONC against schema"
+    echo "  setup           Set up JSONC settings workflow (run 'setup --help' for details)"
+    echo "  sync            Sync JSONC to JSON"
+    echo "  check           Check if files are in sync"
+    echo "  validate        Validate JSONC against schema"
+    echo "  schema-extract  Extract schema from Claude Code npm package"
+    echo "  schema-diff     Compare schemas between versions"
     echo ""
     echo "Examples:"
     echo "  settings-manager setup --source .claude/__settings.jsonc --target .claude/settings.json --hook-system lefthook"
     echo "  settings-manager sync --source .claude/__settings.jsonc --target .claude/settings.json"
     echo "  settings-manager check --source .claude/__settings.jsonc --target .claude/settings.json"
     echo "  settings-manager validate --source .claude/__settings.jsonc"
+    echo "  settings-manager schema-extract --version 2.0.62 --output-dir docs/"
+    echo "  settings-manager schema-diff --base schemastore --compare latest"
     ;;
   *)
     echo "Error: Unknown command: $COMMAND" >&2
