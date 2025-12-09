@@ -72,6 +72,7 @@ SETTINGS_AI_EXPLAIN=1 settings-manager validate --source .claude/__settings.json
 | Command | Description |
 |---------|-------------|
 | `/settings-setup` | Interactive wizard - analyzes repo and sets up workflow |
+| `/settings-schema` | Extract and analyze Claude Code settings schema |
 
 For sync, check, and validate operations, use `settings-manager` directly (see Manual Usage below).
 
@@ -168,6 +169,44 @@ settings-manager validate \
 settings-manager validate \
   --source .claude/__settings.jsonc \
   --ai-explain
+```
+
+### Schema Extraction
+
+Extract schema definitions from Claude Code's npm package:
+
+```bash
+# Extract latest version
+settings-manager schema-extract
+
+# Extract specific version
+settings-manager schema-extract --version 2.0.62
+
+# Output to specific directory
+settings-manager schema-extract --output-dir docs/schema/
+
+# Output format: json, md, or both (default)
+settings-manager schema-extract --format md
+```
+
+Output files:
+- `claude-code-{VERSION}.schema.json` - Extracted JSON Schema
+- `claude-code-{VERSION}-reference.md` - Markdown documentation
+- `describe-strings-{VERSION}.json` - Raw extracted data
+
+### Schema Comparison
+
+Compare schemas between versions or against schemastore.org:
+
+```bash
+# Find undocumented settings (compare latest vs schemastore.org)
+settings-manager schema-diff
+
+# Compare two specific versions
+settings-manager schema-diff --base 2.0.50 --compare 2.0.62
+
+# Output as JSON
+settings-manager schema-diff --json
 ```
 
 ## Setup Flags Reference
