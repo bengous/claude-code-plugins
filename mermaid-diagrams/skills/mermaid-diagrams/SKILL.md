@@ -1,6 +1,6 @@
 ---
 name: mermaid-diagrams
-description: Create and edit Mermaid diagrams for software engineering work, architectural ideas, and technical documentation. Use when the user asks to create, edit, or work with Mermaid diagrams. Provides comprehensive syntax references, common pitfalls, styling guidance, and software architecture patterns.
+description: Create Mermaid diagrams. ONLY use when user explicitly says "Mermaid". NOT for general diagrams, schemas, ASCII art, or wireframes.
 ---
 
 # Mermaid Diagrams Skill
@@ -315,7 +315,7 @@ When creating new diagrams:
 2. Build incrementally - test as you go
 3. Add comments explaining the purpose
 4. Use semantic styling (not just decoration)
-5. Think about maintainability
+5. Consider maintainability
 
 ## Integration with Development Workflow
 
