@@ -1,7 +1,7 @@
 {
   "name": "claude-settings-manager",
-  "version": "1.0.0",
-  "description": "Manage Claude Code settings with JSONC support (comments in config files)",
+  "version": "1.1.0",
+  "description": "Manage Claude Code settings with JSONC support and schema extraction",
   "author": {
     "name": "Augustin BENGOLEA",
     "email": "bengous@protonmail.com"
@@ -16,6 +16,8 @@
     "configuration",
     "hooks",
     "lefthook",
-    "husky"
+    "husky",
+    "schema",
+    "documentation"
   ]
 }
