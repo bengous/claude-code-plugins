@@ -1,0 +1,20 @@
+{
+  "name": "git-worktree",
+  "version": "1.0.0",
+  "description": "Enforce consistent git worktree locations at ../<repo>.wt/",
+  "author": {
+    "name": "Augustin BENGOLEA",
+    "email": "bengous@protonmail.com"
+  },
+  "homepage": "https://github.com/bengous/claude-code-plugins",
+  "repository": "https://github.com/bengous/claude-code-plugins",
+  "license": "MIT",
+  "keywords": [
+    "git",
+    "worktree",
+    "organization",
+    "convention",
+    "hooks",
+    "enforcement"
+  ]
+}

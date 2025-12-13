@@ -132,6 +132,26 @@
         "documentation"
       ],
       "source": "./claude-settings-manager"
+    },
+    {
+      "name": "git-worktree",
+      "description": "Enforce consistent git worktree locations at ../<repo>.wt/",
+      "version": "1.0.0",
+      "author": {
+        "name": "Augustin BENGOLEA",
+        "email": "bengous@protonmail.com"
+      },
+      "homepage": "https://github.com/bengous/claude-code-plugins",
+      "license": "MIT",
+      "keywords": [
+        "git",
+        "worktree",
+        "organization",
+        "convention",
+        "hooks",
+        "enforcement"
+      ],
+      "source": "./git-worktree"
     }
   ]
 }
