@@ -1,0 +1,378 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Git worktree convention installer
+# Installs git-wt helper and enforcement hook
+
+readonly BIN_DIR="$HOME/.local/bin"
+readonly CLAUDE_DIR="$HOME/.claude"
+readonly SETTINGS_FILE="$CLAUDE_DIR/settings.json"
+readonly CLAUDE_MD="$CLAUDE_DIR/CLAUDE.md"
+
+readonly GREEN='\033[0;32m'
+readonly YELLOW='\033[0;33m'
+readonly RED='\033[0;31m'
+readonly NC='\033[0m'
+
+info() { echo -e "${GREEN}[+]${NC} $1"; }
+warn() { echo -e "${YELLOW}[!]${NC} $1"; }
+error() { echo -e "${RED}[x]${NC} $1" >&2; }
+
+usage() {
+    cat <<EOF
+Usage: $(basename "$0") <command>
+
+Commands:
+  check     Check installation status
+  install   Install git-wt and hook
+  remove    Remove installation
+
+EOF
+    exit 1
+}
+
+# Embedded git-wt script
+install_git_wt() {
+    cat >"$BIN_DIR/git-wt" <<'SCRIPT'
+#!/usr/bin/env bash
+set -euo pipefail
+
+usage() {
+    cat <<EOF
+Usage: git-wt <name> [branch]
+
+Create a worktree at ../<repo>.wt/<name>/ for the given branch.
+
+Arguments:
+  name    Worktree directory name (required)
+  branch  Branch to checkout (defaults to name)
+
+Examples:
+  git-wt fix-auth              # Creates worktree for branch 'fix-auth'
+  git-wt review-pr-123 main    # Creates worktree on 'main' branch
+  git wt feature/new-api       # Also works as git subcommand
+EOF
+    exit "${1:-1}"
+}
+
+[[ $# -lt 1 || "$1" == "-h" || "$1" == "--help" ]] && usage 0
+
+name="$1"
+branch="${2:-$name}"
+
+repo_root=$(git rev-parse --show-toplevel 2>/dev/null) || {
+    echo "Error: not inside a git repository" >&2
+    exit 1
+}
+
+repo_name=$(basename "$repo_root")
+repo_parent=$(dirname "$repo_root")
+hub="$repo_parent/$repo_name.wt"
+worktree_path="$hub/$name"
+
+if [[ -d "$worktree_path" ]]; then
+    echo "Error: worktree already exists at $worktree_path" >&2
+    exit 1
+fi
+
+mkdir -p "$hub"
+
+echo "Creating worktree at $worktree_path"
+git worktree add "$worktree_path" "$branch"
+
+echo ""
+echo "cd $worktree_path"
+SCRIPT
+    chmod +x "$BIN_DIR/git-wt"
+}
+
+# Embedded git-worktree-hook script
+install_git_worktree_hook() {
+    cat >"$BIN_DIR/git-worktree-hook" <<'SCRIPT'
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Claude Code PreToolUse hook for git worktree add
+# Enforces worktrees at ../<repo>.wt/<name>/ instead of arbitrary locations
+
+command=$(jq -r '.tool_input.command // empty' 2>/dev/null) || exit 0
+
+[[ "$command" =~ ^git[[:space:]]+worktree[[:space:]]+add[[:space:]] ]] || exit 0
+
+path=""
+in_add=false
+for word in $command; do
+    if [[ "$word" == "add" ]]; then
+        in_add=true
+        continue
+    fi
+    if $in_add; then
+        if [[ "$word" =~ ^- ]]; then
+            [[ "$word" =~ ^(-b|-B|--track|--guess-remote)$ ]] && continue
+            continue
+        fi
+        path="$word"
+        break
+    fi
+done
+
+[[ -z "$path" ]] && exit 0
+
+repo_root=$(git rev-parse --show-toplevel 2>/dev/null) || {
+    echo "BLOCKED: git worktree add must be run from inside a git repository" >&2
+    exit 2
+}
+
+repo_name=$(basename "$repo_root")
+repo_parent=$(dirname "$repo_root")
+expected_hub="$repo_parent/$repo_name.wt"
+
+if [[ "$path" == /* ]]; then
+    abs_path="$path"
+else
+    abs_path="$(cd "$repo_root" && realpath -m "$path" 2>/dev/null || echo "$repo_root/$path")"
+fi
+
+if [[ "$abs_path" == "$expected_hub"/* ]]; then
+    exit 0
+fi
+
+cat >&2 <<EOF
+BLOCKED: Worktrees must be created in ../$repo_name.wt/
+
+Use: git-wt <name> [branch]
+Or:  git worktree add ../$repo_name.wt/<name> <branch>
+
+Provided path: $path
+Expected under: $expected_hub/
+EOF
+exit 2
+SCRIPT
+    chmod +x "$BIN_DIR/git-worktree-hook"
+}
+
+# Update CLAUDE.md with convention
+update_claude_md() {
+    local line="- Use \`git-wt <name> [branch]\` helper instead of raw \`git worktree add\`"
+
+    if [[ ! -f "$CLAUDE_MD" ]]; then
+        warn "No $CLAUDE_MD found, creating minimal file"
+        mkdir -p "$CLAUDE_DIR"
+        cat >"$CLAUDE_MD" <<EOF
+# Personal Development Preferences
+
+## Git Workflow
+$line
+EOF
+        return
+    fi
+
+    if grep -q "git-wt" "$CLAUDE_MD"; then
+        info "CLAUDE.md already has git-wt convention"
+        return
+    fi
+
+    # Try to append to Git Workflow section
+    if grep -q "## Git Workflow" "$CLAUDE_MD"; then
+        # Find the line number of ## Git Workflow and the next ## section
+        local start end
+        start=$(grep -n "## Git Workflow" "$CLAUDE_MD" | head -1 | cut -d: -f1)
+        end=$(tail -n +"$((start + 1))" "$CLAUDE_MD" | grep -n "^## " | head -1 | cut -d: -f1)
+
+        if [[ -n "$end" ]]; then
+            # Insert before next section
+            local insert_line=$((start + end - 1))
+            sed -i "${insert_line}i\\${line}" "$CLAUDE_MD"
+        else
+            # No next section, append to end
+            echo "$line" >>"$CLAUDE_MD"
+        fi
+        info "Added git-wt convention to CLAUDE.md Git Workflow section"
+    else
+        # No Git Workflow section, append to end
+        {
+            echo ""
+            echo "## Git Workflow"
+            echo "$line"
+        } >>"$CLAUDE_MD"
+        info "Added Git Workflow section to CLAUDE.md"
+    fi
+}
+
+# Add PreToolUse hook to settings.json
+install_hook() {
+    if [[ ! -f "$SETTINGS_FILE" ]]; then
+        warn "No $SETTINGS_FILE found, creating minimal file"
+        mkdir -p "$CLAUDE_DIR"
+        cat >"$SETTINGS_FILE" <<'EOF'
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "~/.local/bin/git-worktree-hook"
+          }
+        ]
+      }
+    ]
+  }
+}
+EOF
+        info "Created settings.json with worktree hook"
+        return
+    fi
+
+    # Check if hook already exists
+    if grep -q "git-worktree-hook" "$SETTINGS_FILE"; then
+        info "Hook already registered in settings.json"
+        return
+    fi
+
+    # Check if hooks key exists
+    if jq -e '.hooks' "$SETTINGS_FILE" >/dev/null 2>&1; then
+        # Check if PreToolUse exists
+        if jq -e '.hooks.PreToolUse' "$SETTINGS_FILE" >/dev/null 2>&1; then
+            # Append to existing PreToolUse array
+            local tmp
+            tmp=$(mktemp)
+            jq '.hooks.PreToolUse += [{
+                "matcher": "Bash",
+                "hooks": [{
+                    "type": "command",
+                    "command": "~/.local/bin/git-worktree-hook"
+                }]
+            }]' "$SETTINGS_FILE" >"$tmp" && mv "$tmp" "$SETTINGS_FILE"
+        else
+            # Add PreToolUse to hooks
+            local tmp
+            tmp=$(mktemp)
+            jq '.hooks.PreToolUse = [{
+                "matcher": "Bash",
+                "hooks": [{
+                    "type": "command",
+                    "command": "~/.local/bin/git-worktree-hook"
+                }]
+            }]' "$SETTINGS_FILE" >"$tmp" && mv "$tmp" "$SETTINGS_FILE"
+        fi
+    else
+        # Add hooks key
+        local tmp
+        tmp=$(mktemp)
+        jq '. + {
+            "hooks": {
+                "PreToolUse": [{
+                    "matcher": "Bash",
+                    "hooks": [{
+                        "type": "command",
+                        "command": "~/.local/bin/git-worktree-hook"
+                    }]
+                }]
+            }
+        }' "$SETTINGS_FILE" >"$tmp" && mv "$tmp" "$SETTINGS_FILE"
+    fi
+    info "Added PreToolUse hook to settings.json"
+}
+
+cmd_check() {
+    echo "Git Worktree Convention Status"
+    echo "=============================="
+    echo ""
+
+    local all_ok=true
+
+    if [[ -x "$BIN_DIR/git-wt" ]]; then
+        info "git-wt: installed"
+    else
+        warn "git-wt: not installed"
+        all_ok=false
+    fi
+
+    if [[ -x "$BIN_DIR/git-worktree-hook" ]]; then
+        info "git-worktree-hook: installed"
+    else
+        warn "git-worktree-hook: not installed"
+        all_ok=false
+    fi
+
+    if [[ -f "$CLAUDE_MD" ]] && grep -q "git-wt" "$CLAUDE_MD"; then
+        info "CLAUDE.md: has convention"
+    else
+        warn "CLAUDE.md: missing convention"
+        all_ok=false
+    fi
+
+    if [[ -f "$SETTINGS_FILE" ]] && grep -q "git-worktree-hook" "$SETTINGS_FILE"; then
+        info "settings.json: hook registered"
+    else
+        warn "settings.json: hook not registered"
+        all_ok=false
+    fi
+
+    echo ""
+    if $all_ok; then
+        info "All components installed"
+        return 0
+    else
+        warn "Some components missing - run 'install' to fix"
+        return 1
+    fi
+}
+
+cmd_install() {
+    echo "Installing Git Worktree Convention"
+    echo "==================================="
+    echo ""
+
+    mkdir -p "$BIN_DIR"
+
+    install_git_wt
+    info "Installed git-wt to $BIN_DIR/git-wt"
+
+    install_git_worktree_hook
+    info "Installed git-worktree-hook to $BIN_DIR/git-worktree-hook"
+
+    update_claude_md
+    install_hook
+
+    echo ""
+    info "Installation complete!"
+    echo ""
+    echo "Usage:"
+    echo "  git-wt fix-auth              # Creates worktree for branch 'fix-auth'"
+    echo "  git-wt review-pr-123 main    # Creates worktree on 'main' branch"
+    echo "  git wt feature/new-api       # Also works as git subcommand"
+    echo ""
+    echo "Worktrees are created at: ../<repo>.wt/<name>/"
+}
+
+cmd_remove() {
+    echo "Removing Git Worktree Convention"
+    echo "================================="
+    echo ""
+
+    if [[ -f "$BIN_DIR/git-wt" ]]; then
+        rm "$BIN_DIR/git-wt"
+        info "Removed git-wt"
+    fi
+
+    if [[ -f "$BIN_DIR/git-worktree-hook" ]]; then
+        rm "$BIN_DIR/git-worktree-hook"
+        info "Removed git-worktree-hook"
+    fi
+
+    warn "CLAUDE.md and settings.json not modified (manual cleanup if needed)"
+    echo ""
+    info "Removal complete"
+}
+
+[[ $# -lt 1 ]] && usage
+
+case "$1" in
+    check) cmd_check ;;
+    install) cmd_install ;;
+    remove) cmd_remove ;;
+    *) usage ;;
+esac
