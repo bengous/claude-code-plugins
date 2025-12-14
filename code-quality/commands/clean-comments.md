@@ -12,57 +12,51 @@ model: claude-opus-4-5
 
 # Clean Comments Command
 
-Remove all useless comments from files you've touched, keeping only meaningful ones.
+Remove useless comments from files, keeping only meaningful ones.
 
-## What Gets Removed
+<removal_criteria>
+Remove comments that:
+- Restate obvious code behavior (the code already says this)
+- Are commented-out code blocks (use git history instead)
+- Add no information beyond what the code expresses
+- Are redundant with function/variable names
+</removal_criteria>
 
-- Obvious comments that just restate the code
-- Commented-out code
-- Redundant documentation
-- Noise comments that add no value
+<preservation_criteria>
+Keep comments that:
+- Explain non-obvious logic or algorithms
+- Document magic numbers/constants with reasoning
+- Define interfaces, types, or contracts for public APIs
+- Provide important context not evident from code structure
+- Are copyright headers or license blocks
+</preservation_criteria>
 
-## What Gets Kept
-
-- Explanations of non-trivial code logic
-- Documentation of "magic" constants or numbers
-- Interface/type/contract definitions
-- Complex algorithm explanations
-- Important architectural notes
-
-## Instructions for Claude
-
-**Your task:**
-
-1. **Identify modified files:**
-   - If `$ARGUMENTS` provided, use those file patterns
-   - Otherwise, use `git diff --name-only` to find recently modified files
+<workflow>
+1. **Identify files:**
+   - Use `$ARGUMENTS` if provided, otherwise `git diff --name-only`
    - Focus on code files (js, ts, py, go, rs, java, etc.)
 
-2. **For each file:**
-   - Read the file content
-   - Analyze each comment critically
-   - Remove comments that are:
-     - Restating obvious code behavior
-     - Redundant or noise
-     - Commented-out code blocks
-   - Keep comments that:
-     - Explain non-trivial logic or algorithms
-     - Document magic numbers/constants with reasoning
-     - Define interfaces, types, or contracts
-     - Provide important context not evident from code
+2. **Read files in parallel:**
+   - Read multiple files simultaneously when possible
+   - NEVER edit a file you haven't read first
 
-3. **Apply changes:**
-   - Use the Edit tool to remove useless comments
-   - Preserve all meaningful comments
-   - Maintain code formatting and structure
+3. **Evaluate each comment:**
+   - Consider whether it adds value beyond the code itself
+   - Prefer removal when uncertain—removing marginal comments
+     costs little, but keeping noise accumulates technical debt
 
-4. **Report results:**
-   - List files processed
-   - Summarize comments removed vs kept
-   - Highlight any files with no changes needed
+4. **Apply edits:**
+   - Use Edit tool to remove useless comments only
+   - Do NOT add new comments, refactor, or make other changes
+   - Preserve formatting and structure
 
-**Guidelines:**
-- Be aggressive with comment removal - code should be self-documenting
-- When in doubt about a comment's value, prefer removal
-- Never remove copyright headers, license blocks, or JSDoc/docstring API documentation for public interfaces
+5. **Report results:**
+   List files processed with comments removed vs kept counts
+</workflow>
+
+<guidelines>
+- Be aggressive with removal—code should be self-documenting
+- Never remove JSDoc/docstring API documentation for public interfaces
 - Focus on inline comments and implementation details
+- If a file has no useless comments, note it and move on
+</guidelines>
