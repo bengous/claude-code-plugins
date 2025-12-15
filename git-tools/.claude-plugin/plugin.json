@@ -1,6 +1,6 @@
 {
   "name": "git-tools",
-  "version": "1.4.0",
+  "version": "1.5.0",
   "description": "Interactive git commands with AI assistance for commit management, history rewriting, PR/issue triage, and repository cleanup",
   "author": {
     "name": "Augustin BENGOLEA",
