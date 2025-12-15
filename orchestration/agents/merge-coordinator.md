@@ -5,7 +5,9 @@ description: |
 subagent-type: general-purpose
 model: opus
 allowed-tools:
-  - Bash(*:*)
+  - Bash(git:*)
+  - Bash(git-wt:*)
+  - Bash(cd:*)
   - Read(*:*)
   - Edit(*:*)
   - TodoWrite(*:*)
@@ -26,7 +28,7 @@ You are stateless and isolated from the orchestrator. Include ALL information in
 - Identify which chunks completed successfully
 
 ### Sequential Merging
-- Navigate to root worktree (`cd <root.path>`)
+- Run git commands from root worktree using `git -C <root.path>` or chained commands
 - Merge children to root branch one at a time via `git merge <branch>`
 - Follow merge order from execution plan exactly
 
@@ -43,10 +45,10 @@ You are stateless and isolated from the orchestrator. Include ALL information in
 </capabilities>
 
 <constraints>
-- Do NOT implement code - only merge existing work
-- Merge sequentially, never in parallel
+- Merge existing work only — leave implementation to implementation agents
+- Merge sequentially, one branch at a time
 - Children merge to ROOT branch, then root PRs to BASE
-- If unresolvable conflicts encountered, STOP and report
+- Stop and report if conflicts are unresolvable
 - Keep root branch after cleanup - needed for PR creation
 </constraints>
 

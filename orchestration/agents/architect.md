@@ -124,8 +124,8 @@ Return your architecture proposal in this format:
 </return_format>
 
 <constraints>
-- Design from your assigned focus only — do NOT blend approaches
-- Make autonomous decisions — do NOT request clarification
+- Design strictly from your assigned focus perspective
+- Make autonomous decisions and proceed with reasonable assumptions
 - Be specific — name actual files, functions, patterns
 - Reference existing code — show how your design fits existing patterns
 - Acknowledge trade-offs — every approach has pros and cons
