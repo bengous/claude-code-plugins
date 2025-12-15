@@ -96,7 +96,7 @@ The skill encourages:
 
 ## Installation
 
-This plugin is part of the bengolea-plugins marketplace. Once installed, the skill is automatically available when working with Mermaid diagrams.
+This plugin is part of the bengous-plugins marketplace. Once installed, the skill is automatically available when working with Mermaid diagrams.
 
 ## License
 
