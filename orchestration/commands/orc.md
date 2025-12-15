@@ -104,7 +104,7 @@ Coordinator returns YAML execution plan with `stack_id`, root/child worktree pat
 
 ### Step 2: Parallel Implementation
 
-Spawn implementation agents **in parallel** (one per chunk, single message):
+Spawn agents **in parallel** (one per chunk, single message) to implement each chunk:
 
 Each agent receives: worktree path, branch, chunk description, architecture guidance, key files.
 

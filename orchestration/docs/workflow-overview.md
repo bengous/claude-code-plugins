@@ -317,7 +317,6 @@ v2.1+ is **COMPLEX-only**. For simple tasks, use Opus directly without /orc.
 | `commands/orc.md` | Main workflow (3 phases) |
 | `agents/architect.md` | Architecture design (Opus model) |
 | `agents/planning-coordinator.md` | Worktree creation, execution plan |
-| `agents/implementation.md` | Chunk implementation in worktree |
 | `agents/merge-coordinator.md` | Sequential merge, conflict resolution |
 
 ---
