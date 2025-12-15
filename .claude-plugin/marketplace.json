@@ -135,8 +135,8 @@
     },
     {
       "name": "git-worktree",
-      "description": "Enforce consistent git worktree locations at ../<repo>.wt/",
-      "version": "1.0.0",
+      "description": "Git worktree helper with stack support for multi-agent orchestration",
+      "version": "1.1.0",
       "author": {
         "name": "Augustin BENGOLEA",
         "email": "bengous@protonmail.com"
@@ -149,7 +149,10 @@
         "organization",
         "convention",
         "hooks",
-        "enforcement"
+        "enforcement",
+        "orchestration",
+        "multi-agent",
+        "stack"
       ],
       "source": "./git-worktree"
     }
