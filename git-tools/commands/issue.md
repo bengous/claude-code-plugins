@@ -6,6 +6,7 @@ description: Write agent-ready GitHub issues (create new or edit existing)
 
 You are writing a GitHub issue for the current project. The goal is to produce a clear, evidence-backed, agent-ready issue that a smaller model can implement safely.
 
+<project_preflight>
 ## Step 0: Project Preflight (REQUIRED)
 
 Before asking for the issue itself, gather and summarize local rules:
@@ -27,9 +28,11 @@ Before asking for the issue itself, gather and summarize local rules:
      - "Preferred testing strategy for this repo?"
 
 Make sure these rules are reflected in the issue's guardrails, plan, and validation sections.
+</project_preflight>
 
 ---
 
+<mode_selection>
 ## Step 1: Mode Selection
 
 Ask which mode the user wants:
@@ -37,8 +40,6 @@ Ask which mode the user wants:
 **Options:**
 1. **Create** - Write a new issue from scratch.
 2. **Edit** - Rewrite/improve an existing issue by number.
-
----
 
 ## Step 1b: Issue Type
 
@@ -52,15 +53,16 @@ Ask what type of issue this is:
 - Skip "Implementation plan" entirely.
 - Add this block at the top of the issue body:
 ```markdown
-> **Agent Instructions: DO NOT IMPLEMENT**
-> This is a design/discussion issue. Do not write code for this issue.
-> Wait for a follow-up implementation issue after design is approved.
+> **Agent Instructions: DESIGN ONLY**
+> This issue is for design discussion only. Wait for a follow-up implementation issue after design is approved.
 ```
 - Focus on: Goal, Context, Problem, Proposed approaches (plural), Trade-offs, Open questions.
 - Suggest labels based on repo conventions (e.g., `design`, `rfc`, `discussion`).
+</mode_selection>
 
 ---
 
+<gather_input>
 ## Step 2: Gather Input
 
 ### If CREATE mode:
@@ -78,12 +80,16 @@ Then fetch the existing issue:
 REPO="${REPO:-$(gh repo view --json nameWithOwner -q .nameWithOwner)}"
 gh issue view --repo "$REPO" <number> --json title,body,labels
 ```
+</gather_input>
 
 ---
 
+<preflight_research>
 ## Step 3: Preflight Research (REQUIRED)
 
 Before writing the issue, gather evidence. Keep research proportional to size: a quick scan for small issues, deeper investigation for large ones.
+
+**Parallel execution:** Search for relevant files using Glob and Grep simultaneously. Read multiple related files in parallel to gather context efficiently.
 
 1. **Identify the problem and impact**
    - User-facing bug, correctness, performance, flakiness, CI cost, architecture violations, etc.
@@ -105,9 +111,11 @@ Before writing the issue, gather evidence. Keep research proportional to size: a
    REPO="${REPO:-$(gh repo view --json nameWithOwner -q .nameWithOwner)}"
    gh issue list --repo "$REPO" --search "keyword" --state all --limit 10
    ```
+</preflight_research>
 
 ---
 
+<issue_body>
 ## Step 4: Write the Issue Body
 
 Default to the Small Issue Template as the fast path. Only add extra sections or switch to the Large Issue template when the work is broad (multi-file, cross-module, or likely more than a day). Keep detail proportional to size.
@@ -133,7 +141,7 @@ Default to the Small Issue Template as the fast path. Only add extra sections or
      - what to change
      - why
      - expected result
-   - Avoid speculative refactors or "while we're here" additions.
+   - Keep changes focused on the stated goal.
    - If two distinct workstreams appear, split into separate issues.
 
 6. **Validation / test plan**
@@ -159,9 +167,11 @@ Default to the Small Issue Template as the fast path. Only add extra sections or
 
 12. **Related**
    - Links to related issues, postmortems, follow-ups.
+</issue_body>
 
 ---
 
+<quality_checklist>
 ## Step 5: Quality Checklist
 
 Before outputting, run a quick checklist. For small issues, focus on the core items; for large issues, aim to satisfy the full list.
@@ -171,7 +181,7 @@ Before outputting, run a quick checklist. For small issues, focus on the core it
 - [ ] Includes non-goals / guardrails.
 - [ ] Includes acceptance criteria (checkboxes).
 - [ ] Includes validation commands (project quality gates).
-- [ ] Avoids vague language ("maybe", "probably", "should consider").
+- [ ] Uses precise language (no "maybe", "probably", "should consider").
 - [ ] Every plan step names target file, change, and expected result.
 - [ ] Architecture boundaries respected:
   - Dependency direction matches local rules.
@@ -183,9 +193,11 @@ Before outputting, run a quick checklist. For small issues, focus on the core it
 - [ ] No scope mixing: one cohesive change. If not, split issues.
 
 If any item fails, revise before proceeding.
+</quality_checklist>
 
 ---
 
+<output_instructions>
 ## Step 6: Output
 
 ### File location
@@ -217,13 +229,13 @@ gh issue edit --repo "$REPO" <number> --body-file .issues/<number>.md
 ```
 
 ### Safety (MUST)
-- MUST use `--body-file` for `gh issue create/edit`.
-- MUST NOT pass long markdown bodies inline to `--body`.
-  - Inline backticks can be interpreted by the shell and corrupt issue text.
-  - `--body-file` preserves markdown exactly.
+- Use `--body-file` for `gh issue create/edit` to preserve markdown exactly.
+- Inline `--body` with backticks can corrupt issue text due to shell interpretation.
+</output_instructions>
 
 ---
 
+<templates>
 ## Templates
 
 Use the Small Issue Template by default. Use the Large Issue (Epic) template only when the issue is large or complex.
@@ -279,9 +291,11 @@ Use the Small Issue Template by default. Use the Large Issue (Epic) template onl
 
 ## Related
 ```
+</templates>
 
 ---
 
+<style_guidelines>
 ## Style Guidelines
 
 ### Code citations
@@ -310,9 +324,11 @@ Always use checkboxes:
 - [ ] Tests pass: `<project test command>` (and any new tests added).
 - [ ] `<project quality gate command>` succeeds.
 ```
+</style_guidelines>
 
 ---
 
+<example_flow>
 ## Example Flow
 
 ```
@@ -326,3 +342,4 @@ Agent: [Researches codebase]
 Agent: [Writes issue to .issues/draft-rate-limiting.md]
 Agent: [Outputs gh issue create command]
 ```
+</example_flow>
