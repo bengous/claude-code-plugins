@@ -1,8 +1,12 @@
-# Hook System
+---
+paths: "**/hooks/**"
+---
 
-[← Back to Main Guide](../../CLAUDE.md)
+# Hook Patterns
 
 Safety and workflow enforcement through the Claude Code hook system.
+
+> **Note:** This repository does not currently have production hook examples. Patterns below are based on [Claude Code hooks documentation](https://code.claude.com/docs/en/hooks). When implementing hooks, test thoroughly as behavior may vary.
 
 ## Hook Registration
 
@@ -41,12 +45,12 @@ Safety and workflow enforcement through the Claude Code hook system.
 }
 ```
 
-## Available Hook Events
+## Hook Events
 
-| Hook | When | Use For |
-|------|------|---------|
-| `PreToolUse` | Before tool execution | Block dangerous commands |
-| `PostToolUse` | After tool execution | Log operations, trigger follow-ups |
+| Event | When | Use Case |
+|-------|------|----------|
+| `PreToolUse` | Before tool runs | Block dangerous commands |
+| `PostToolUse` | After tool runs | Log operations, trigger follow-ups |
 | `UserPromptSubmit` | User submits prompt | Enforce workflow rules |
 
 ## Hook Implementation
@@ -83,7 +87,7 @@ BLOCKED = [
 for pattern in BLOCKED:
     if len(argv) >= len(pattern):
         if all(argv[i] == pattern[i] for i in range(len(pattern))):
-            sys.stderr.write(f"🚫 Blocked dangerous command\n")
+            sys.stderr.write(f"Blocked dangerous command\n")
             sys.stderr.write(f"Use safe alternative instead\n")
             sys.exit(2)  # Exit 2 = block
 
@@ -106,10 +110,4 @@ export GUARD_BYPASS=1
 git push --force  # Hook checks GUARD_BYPASS and allows
 ```
 
-**Why:** Models learn bypass patterns. Keep hooks strict. Only bypass in backend scripts.
-
----
-
-**Related:**
-- [Scripts Guide](./scripts.md) - Backend implementation patterns
-- [Patterns](./patterns.md) - Architectural patterns
+**Why:** Models learn bypass patterns from training/context. Keep hooks strict. Only bypass in backend scripts that are not visible to the model.
