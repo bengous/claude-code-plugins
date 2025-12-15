@@ -19,7 +19,7 @@ Git Tools provides AI-powered interactive git commands that enhance your workflo
 
 ## Installation
 
-This plugin is part of the bengolea-plugins marketplace. To install:
+This plugin is part of the bengous-plugins marketplace. To install:
 
 1. Add the marketplace to your Claude Code configuration
 2. Install the git-tools plugin from the marketplace
