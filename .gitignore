@@ -1,6 +1,7 @@
-# Claude Code runtime state
-.claude/run/
-.claude/logs/
+# Claude Code runtime state (keep rules/ tracked)
+.claude/*
+!.claude/rules/
+!.claude/CLAUDE.md
 
 # Python
 __pycache__/
@@ -32,4 +33,3 @@ Thumbs.db
 *.tmp
 *.bak
 *.log
-.claude/
