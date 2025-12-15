@@ -16,9 +16,22 @@ allowed-tools:
 
 Orchestrate comprehensive layer testing with coverage analysis and isolated worktrees.
 
----
+<context>
+Coverage-first analysis prevents wasted effort—existing tests may already cover the code you're about to test. Running coverage before writing tests reveals exactly where gaps exist, letting you focus effort on uncovered paths rather than duplicating existing coverage.
 
-## Step 1: Get Parameters
+Isolated worktrees keep testing work separate from your working branch, preventing accidental commits to main development branches and enabling parallel testing of multiple layers.
+</context>
+
+<constraints>
+- Write tests only—never modify production code during testing
+- Stay within the specified layer—do not test adjacent layers
+- Use worktree for all changes—keep working branch clean
+- Follow the testing strategy—do not add tests for explicitly skipped patterns
+</constraints>
+
+<workflow>
+
+1. **Get Parameters**
 
 **From command invocation:**
 ```
@@ -32,27 +45,21 @@ Testing Request:
 **From natural invocation:**
 Ask user for module, layer, playbook path (optional), coverage target (optional).
 
----
-
-## Step 2: Get Testing Strategy
+2. **Get Testing Strategy**
 
 **If playbook provided:**
 ```bash
 Read(${PLAYBOOK_PATH})
 ```
 
-**If no playbook:**
-Ask user to choose:
-```
-No testing strategy found. Choose approach:
+**If no playbook:** Ask user to choose:
 
+<strategy_options>
 1. Hexagonal Architecture - Domain/Application 100%, skip infra schemas
 2. Clean Architecture - Use cases/Entities 100%, skip frameworks
 3. Layered - Services/Logic 100%, skip DTOs/configs
 4. Custom - I'll answer questions about what to test
-
-Select option (1-4):
-```
+</strategy_options>
 
 **If user picks 1-3:** Use template from `skills/layer-testing/templates/`
 
@@ -64,20 +71,18 @@ Select option (1-4):
 
 Store strategy for agent use.
 
----
-
-## Step 3: Run Coverage First
+3. **Run Coverage First**
 
 **Check for existing tests:**
 ```bash
 find src/modules/${MODULE}/${LAYER} -name "*.test.*" -o -path "*/__tests__/*"
 ```
 
-**If NO tests:** Skip to Step 4
+**If NO tests:** Skip to step 4
 
 **If tests exist:**
 
-Detect framework and run coverage:
+Detect framework and run coverage (run these checks in parallel):
 ```bash
 if [[ -f "vitest.config.ts" ]] || grep -q "vitest" package.json; then
   pnpm test src/modules/${MODULE}/${LAYER} --coverage --reporter=json-summary
@@ -107,9 +112,7 @@ If user picks 1, exit successfully.
 
 **If < 100%:** Continue to Step 4
 
----
-
-## Step 4: Analyze Files
+4. **Analyze Files**
 
 Find all files:
 ```bash
@@ -125,9 +128,7 @@ Cross-reference with coverage (if available):
 - Partially covered (<100%, extract uncovered lines)
 - Not tested (0% or not in coverage)
 
----
-
-## Step 5: Present Analysis & Ask User
+5. **Present Analysis & Ask User**
 
 Show results:
 ```
@@ -157,18 +158,14 @@ Which files to test?
 
 Wait for user response.
 
----
-
-## Step 6: Create Worktree
+6. **Create Worktree**
 
 ```bash
 BRANCH="test/${MODULE}-${LAYER}-coverage"
 git worktree add ../worktree-${BRANCH} -b ${BRANCH}
 ```
 
----
-
-## Step 7: Spawn Testing Agent
+7. **Spawn Testing Agent**
 
 ```typescript
 Task({
@@ -197,11 +194,11 @@ Report:
 
 Wait for agent completion.
 
----
+8. **Verify Results**
 
-## Step 8: Verify Results
+<verification>
+Run quality gates before completing:
 
-Run quality gates:
 ```bash
 # 1. Tests pass
 pnpm test ${FILES}
@@ -220,9 +217,10 @@ pnpm typecheck
 pnpm lint
 ```
 
----
+All five gates must pass before proceeding to report.
+</verification>
 
-## Step 9: Report
+9. **Report**
 
 ```
 ✅ Testing Complete: ${MODULE}/${LAYER}
@@ -245,4 +243,4 @@ Next steps:
 - Or: Continue testing other layers
 ```
 
-Done.
+</workflow>
