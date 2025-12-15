@@ -41,6 +41,7 @@ Extract from the raw request:
 6. **Complexity level** — Simple (single action), Medium (multi-step), Complex (multi-file/multi-day)
 
 **Gather concrete context:**
+- Read CLAUDE.md and relevant codebase files in parallel to gather context efficiently.
 - If the request references files, directories, or existing code patterns, use your tools (Read, Grep, Glob, Bash) to verify they exist and gather accurate details.
 - If a `CLAUDE.md` file exists in the project root or parent directories, read it to understand project conventions, style guidelines, and workflow preferences. Incorporate relevant guidelines into the optimized prompt.
 
@@ -89,7 +90,7 @@ Apply Anthropic's official prompt engineering best practices:
 - Skip examples only for truly straightforward tasks
 
 **5. Encourage internal reasoning**
-- For complex tasks, include phrases like "think through this step-by-step" or "consider edge cases before implementing"
+- For complex tasks, include phrases like "reason through this step-by-step" or "consider edge cases before implementing"
 - Use thinking keywords to allocate extended thinking budget:
   - "think" → standard thinking
   - "think hard" → more thinking
