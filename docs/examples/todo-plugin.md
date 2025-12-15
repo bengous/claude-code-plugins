@@ -1,6 +1,6 @@
 # Complete Example: TODO Plugin
 
-[← Back to Main Guide](../../CLAUDE.md)
+[← Back to Main Guide](../../.claude/CLAUDE.md)
 
 A complete, working example of a simple TODO list management plugin.
 
@@ -211,10 +211,3 @@ Make it executable: `chmod +x todo-plugin/scripts/todo/todo`
 # TODO Items:
 #   ✓ #1234567890: Implement authentication
 ```
-
----
-
-**Related:**
-- [Quick Start](../references/quickstart.md) - Step-by-step tutorial
-- [Scripts Guide](../references/scripts.md) - Script patterns used here
-- [Patterns](../references/patterns.md) - Architectural patterns demonstrated
