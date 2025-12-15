@@ -12,5 +12,7 @@ pre-commit:
         git add .claude/settings.json
     - name: validate-marketplace
       priority: 2
-      glob: "**/.claude-plugin/*.json"
+      glob:
+        - ".claude-plugin/*.json"
+        - "*/.claude-plugin/*.json"
       run: ./scripts/validate-marketplace.sh
