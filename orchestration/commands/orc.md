@@ -14,7 +14,7 @@ argument-hint: <complex-task>
 
 > **Note**: For simple tasks (single-module, bug fixes, small features), don't use /orc - just ask Opus directly.
 
-> **Dependency**: Requires `git-worktree` plugin installed (`/plugin install git-worktree@bengolea-plugins` then `/git-worktree:worktree-setup`).
+> **Dependency**: Requires `git-worktree` plugin installed (`/plugin install git-worktree@bengous-plugins` then `/git-worktree:worktree-setup`).
 </principles>
 
 ---

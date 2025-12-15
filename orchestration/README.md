@@ -97,7 +97,7 @@ The orchestration plugin depends on the `git-worktree` plugin for managing workt
 
 ```bash
 # If using the same marketplace
-/plugin install git-worktree@bengolea-plugins
+/plugin install git-worktree@bengous-plugins
 
 # Then run setup to install git-wt helper
 /git-worktree:worktree-setup

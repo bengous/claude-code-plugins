@@ -20,7 +20,7 @@ const flags = {
 
 // Configuration
 const HOME = os.homedir();
-const PLUGIN_PATH = path.join(HOME, '.claude', 'plugins', 'marketplaces', 'bengolea-plugins', 'orchestration');
+const PLUGIN_PATH = path.join(HOME, '.claude', 'plugins', 'marketplaces', 'bengous-plugins', 'orchestration');
 const SETTINGS_FILE = '.claude/settings.local.json';
 const BACKUP_FILE = '.claude/settings.local.json.backup';
 
@@ -32,7 +32,7 @@ const PLUGIN_HOOKS = {
       hooks: [
         {
           type: 'command',
-          command: `${HOME}/.claude/plugins/marketplaces/bengolea-plugins/orchestration/hooks/worktree-guard.py`,
+          command: `${HOME}/.claude/plugins/marketplaces/bengous-plugins/orchestration/hooks/worktree-guard.py`,
           timeout: 5,
           description: 'Blocks raw git worktree commands (from plugin)',
         },

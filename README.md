@@ -11,7 +11,7 @@ A curated marketplace of Claude Code plugins for development workflow automation
 /plugin marketplace add bengous/claude-code-plugins
 
 # Install a plugin
-/plugin install <plugin-name>@bengolea-plugins
+/plugin install <plugin-name>@bengous-plugins
 ```
 
 ## Available Plugins

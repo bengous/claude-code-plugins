@@ -71,18 +71,18 @@ Everything else is noise that becomes stale and misleading over time.
 
 ## Installation
 
-This plugin is part of the `bengolea-plugins` marketplace.
+This plugin is part of the `bengous-plugins` marketplace.
 
 Add to `.claude/settings.json`:
 ```json
 {
-  "enabledPlugins": ["code-quality@bengolea-plugins"]
+  "enabledPlugins": ["code-quality@bengous-plugins"]
 }
 ```
 
 Or install via command:
 ```bash
-/plugin install code-quality@bengolea-plugins
+/plugin install code-quality@bengous-plugins
 ```
 
 ## License
