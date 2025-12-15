@@ -38,3 +38,6 @@ Thumbs.db
 # Local working drafts
 .issues/
 .ideas/
+
+# External reference repos
+.external/
