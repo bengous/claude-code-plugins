@@ -41,3 +41,4 @@ Thumbs.db
 
 # External reference repos
 .external/
+*.zip
