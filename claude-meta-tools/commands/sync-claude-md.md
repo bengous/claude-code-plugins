@@ -6,48 +6,50 @@ description: Synchronize project CLAUDE.md with recent codebase changes by analy
 
 Synchronize your project's CLAUDE.md file with codebase evolution through automated git analysis and parallel agent review.
 
-## Usage
+<context>
+CLAUDE.md serves as project memory for AI assistants. When it becomes outdated:
+- Claude makes decisions based on stale architectural patterns
+- New tools, commands, or conventions go undocumented
+- Team members receive inconsistent AI assistance
 
+This command analyzes git history since the last CLAUDE.md update and proposes comprehensive changes aligned with official Anthropic best practices.
+</context>
+
+<usage>
 ```bash
 /sync-claude-md
 ```
 
-**Natural invocation:**
+Natural invocation:
 - "Sync CLAUDE.md with recent changes"
 - "Update CLAUDE.md to reflect new architecture"
 - "Check if CLAUDE.md needs updating"
+</usage>
 
----
+<workflow>
+1. **Validate environment:**
+   ```bash
+   git rev-parse --is-inside-work-tree 2>/dev/null
+   ```
+   If not a git repo, inform user but offer to create CLAUDE.md anyway.
 
-## Your Task
+2. **Invoke the skill:**
+   ```
+   Skill(skill: "sync-claude-md")
+   ```
+   Provide context: project directory and git repo status.
 
-**Step 1: Validate Environment**
+3. **Verify and report:**
+   - Confirm skill invocation succeeded
+   - Report completion status: success, user rejected changes, or error
+   - If error occurred, surface the failure reason
+</workflow>
 
-Check if we're in a git repository:
-```bash
-git rev-parse --is-inside-work-tree 2>/dev/null
-```
+<constraints>
+- Let the skill manage user approval - it handles the approval workflow
+- Let the skill manage all CLAUDE.md file operations
+- Let the skill instruct users to commit manually
+- Report skill completion status to the user
+</constraints>
 
-If not a git repo, inform user but offer to create CLAUDE.md anyway.
-
-**Step 2: Invoke Skill**
-
-```
-Skill(skill: "sync-claude-md")
-```
-
-**Step 3: Provide Context**
-
-```
-CLAUDE.md Sync Request:
-- Project: [current working directory]
-- Git repo: [yes/no]
-```
-
-Done. The skill handles:
-- Git history analysis
-- Parallel agent review (3 agents)
-- Official documentation validation
-- Change proposal generation
-- User approval workflow
-- File updates
+The skill handles: git history analysis, parallel agent review (3 agents), official documentation validation, change proposal generation, user approval workflow, and file updates.
