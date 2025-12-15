@@ -1,6 +1,6 @@
 ---
 paths:
-  - "marketplace.json"
+  - "**/marketplace.json"
   - "**/plugin.json"
 ---
 

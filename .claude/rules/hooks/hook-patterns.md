@@ -6,7 +6,7 @@ paths: "**/hooks/**"
 
 Safety and workflow enforcement through the Claude Code hook system.
 
-> **Note:** This repository does not currently have production hook examples. Patterns below are based on Claude Code documentation. When implementing hooks, test thoroughly as behavior may vary.
+> **Note:** This repository does not currently have production hook examples. Patterns below are based on [Claude Code hooks documentation](https://code.claude.com/docs/en/hooks). When implementing hooks, test thoroughly as behavior may vary.
 
 ## Hook Registration
 
