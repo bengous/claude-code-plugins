@@ -31,58 +31,18 @@ EOF
     exit 1
 }
 
-# Embedded git-wt script
+# Install git-wt script (copies from plugin to ~/.local/bin)
 install_git_wt() {
-    cat >"$BIN_DIR/git-wt" <<'SCRIPT'
-#!/usr/bin/env bash
-set -euo pipefail
+    local script_dir
+    script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+    local source_script="$script_dir/git-wt"
 
-usage() {
-    cat <<EOF
-Usage: git-wt <name> [branch]
+    if [[ ! -f "$source_script" ]]; then
+        error "git-wt script not found at $source_script"
+        return 1
+    fi
 
-Create a worktree at ../<repo>.wt/<name>/ for the given branch.
-
-Arguments:
-  name    Worktree directory name (required)
-  branch  Branch to checkout (defaults to name)
-
-Examples:
-  git-wt fix-auth              # Creates worktree for branch 'fix-auth'
-  git-wt review-pr-123 main    # Creates worktree on 'main' branch
-  git wt feature/new-api       # Also works as git subcommand
-EOF
-    exit "${1:-1}"
-}
-
-[[ $# -lt 1 || "$1" == "-h" || "$1" == "--help" ]] && usage 0
-
-name="$1"
-branch="${2:-$name}"
-
-repo_root=$(git rev-parse --show-toplevel 2>/dev/null) || {
-    echo "Error: not inside a git repository" >&2
-    exit 1
-}
-
-repo_name=$(basename "$repo_root")
-repo_parent=$(dirname "$repo_root")
-hub="$repo_parent/$repo_name.wt"
-worktree_path="$hub/$name"
-
-if [[ -d "$worktree_path" ]]; then
-    echo "Error: worktree already exists at $worktree_path" >&2
-    exit 1
-fi
-
-mkdir -p "$hub"
-
-echo "Creating worktree at $worktree_path"
-git worktree add "$worktree_path" "$branch"
-
-echo ""
-echo "cd $worktree_path"
-SCRIPT
+    cp "$source_script" "$BIN_DIR/git-wt"
     chmod +x "$BIN_DIR/git-wt"
 }
 
@@ -344,6 +304,11 @@ cmd_install() {
     echo "  git-wt fix-auth              # Creates worktree for branch 'fix-auth'"
     echo "  git-wt review-pr-123 main    # Creates worktree on 'main' branch"
     echo "  git wt feature/new-api       # Also works as git subcommand"
+    echo ""
+    echo "Stack operations (for multi-agent orchestration):"
+    echo "  git-wt --stack '{\"base\":\"main\",\"root\":\"feat\",\"children\":[\"api\",\"ui\"]}'"
+    echo "  git-wt --stack-status"
+    echo "  git-wt --stack-cleanup <stack-id> [--delete-branches]"
     echo ""
     echo "Worktrees are created at: ../<repo>.wt/<name>/"
 }
