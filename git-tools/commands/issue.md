@@ -210,7 +210,10 @@ If the target file already exists, ask before overwriting. If the user wants a n
 ### Write the file
 Save the issue body to the target file.
 
-### Provide the gh command
+<default_to_action>
+### Create or update the GitHub issue
+
+After writing the issue file, execute the `gh` command to create or update the issue. The user invoked this command to create an issue, so complete the full workflow rather than stopping to ask for confirmation.
 
 **For CREATE:**
 ```bash
@@ -228,9 +231,11 @@ REPO="${REPO:-$(gh repo view --json nameWithOwner -q .nameWithOwner)}"
 gh issue edit --repo "$REPO" <number> --body-file .issues/<number>.md
 ```
 
-### Safety (MUST)
-- Use `--body-file` for `gh issue create/edit` to preserve markdown exactly.
-- Inline `--body` with backticks can corrupt issue text due to shell interpretation.
+Report the issue URL to the user after successful creation.
+</default_to_action>
+
+### Formatting safety
+Use `--body-file` for `gh issue create/edit` to preserve markdown exactly. Inline `--body` with backticks can corrupt issue text due to shell interpretation.
 </output_instructions>
 
 ---
@@ -340,6 +345,7 @@ Agent: [Asks: Describe the problem]
 User: We need rate limiting on auth endpoints
 Agent: [Researches codebase]
 Agent: [Writes issue to .issues/draft-rate-limiting.md]
-Agent: [Outputs gh issue create command]
+Agent: [Executes gh issue create command]
+Agent: Created issue #42: https://github.com/org/repo/issues/42
 ```
 </example_flow>
