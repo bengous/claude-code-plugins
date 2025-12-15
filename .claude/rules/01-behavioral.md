@@ -1,7 +1,3 @@
----
-# No paths: field = always loaded (unconditional)
----
-
 # Before You Do Anything
 
 **ALWAYS investigate before implementing.** When asked to create or modify plugins:

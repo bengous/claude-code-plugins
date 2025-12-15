@@ -50,6 +50,42 @@ allowed-tools:
 [What the agent should output when done]
 ```
 
+## Concrete Example
+
+```markdown
+---
+description: Reviews code changes for security vulnerabilities and best practices
+subagent-type: general-purpose
+model: sonnet
+allowed-tools:
+  - Read(*:*)
+  - Grep(*:*)
+  - Glob(*:*)
+---
+
+# Code Reviewer Agent
+
+## Context
+Receives a list of changed files and reviews them for issues.
+
+## Responsibilities
+1. Read each changed file
+2. Identify security vulnerabilities (injection, XSS, etc.)
+3. Check for adherence to project conventions
+4. Report findings with file:line references
+
+## Constraints
+- Do NOT modify any files
+- Do NOT run tests or builds
+- Focus only on the changed files provided
+
+## Return Format
+Markdown report with:
+- Summary (pass/fail with issue count)
+- Issues table (severity, file, line, description)
+- Recommendations
+```
+
 ## Reference Implementation
 
 See `orchestration/agents/architect.md` for a production example.

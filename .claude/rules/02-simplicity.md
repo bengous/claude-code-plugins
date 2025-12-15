@@ -1,7 +1,3 @@
----
-# No paths: field = always loaded (unconditional)
----
-
 # Core Principle: Keep It Simple
 
 **DO NOT OVER-ENGINEER.** If the plugin you're building is getting complex, stop and report to the human. You may be overdoing it.
