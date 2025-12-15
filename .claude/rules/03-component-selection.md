@@ -1,10 +1,6 @@
----
-# No paths: field = always loaded (unconditional)
----
-
 # Component Selection Guide
 
-**Choose the right component for your task:**
+**Choose the right component for your task. Prefer simpler components when possible.**
 
 | Need | Component | When to Use |
 |------|-----------|-------------|
