@@ -88,6 +88,40 @@ After installation, use the `/orc` command to orchestrate complex features:
 - Claude Code CLI
 - Git with worktree support
 - `gh` CLI for GitHub operations
+- `jq` for JSON parsing
+- **git-worktree plugin** (provides `git-wt` helper with stack support)
+
+### Installing git-worktree Plugin
+
+The orchestration plugin depends on the `git-worktree` plugin for managing worktree stacks. Install it first:
+
+```bash
+# If using the same marketplace
+/plugin install git-worktree@bengolea-plugins
+
+# Then run setup to install git-wt helper
+/git-worktree:worktree-setup
+```
+
+This installs:
+- `git-wt` helper with `--stack` support for creating worktree stacks
+- Enforcement hook to ensure consistent worktree locations
+
+### Why git-wt --stack?
+
+The orchestration plugin uses `git-wt --stack` to create all worktrees in a single command:
+
+```bash
+# Single command creates root + all children
+git-wt --stack '{"issue":42,"base":"dev","root":"auth","children":["db","api","ui"]}'
+```
+
+Benefits over manual `git worktree add`:
+- **Single command**: Creates entire stack atomically
+- **JSON output**: Exact paths and branch names for agents
+- **Idempotent**: Retry-safe (returns existing info on collision)
+- **PR targets**: Explicit merge relationships in output
+- **Easy cleanup**: `git-wt --stack-cleanup` removes everything
 
 ## License
 
