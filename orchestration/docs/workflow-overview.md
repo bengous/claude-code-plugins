@@ -1,11 +1,11 @@
-# Orchestration Workflow Overview (v2.1)
+# Orchestration Workflow Overview (v2.2)
 
 ## Visual Workflow Diagram
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│                    ORCHESTRATION WORKFLOW v2.1 (3 PHASES)                   │
-│                           COMPLEX-ONLY WORKFLOW                             │
+│                    ORCHESTRATION WORKFLOW v2.2 (3 PHASES)                   │
+│                  COMPLEX-ONLY WORKFLOW (git-wt --stack)                     │
 └─────────────────────────────────────────────────────────────────────────────┘
 
 ┌─────────────────────────────────────────────────────────────────────────────┐
@@ -57,8 +57,8 @@
 │ │   ┌──────────────────────────────┐                                    │   │
 │ │   │  Planning Coordinator        │                                    │   │
 │ │   │  ─────────────────────       │                                    │   │
-│ │   │  • Creates worktrees         │                                    │   │
-│ │   │  • Gets paths/branches       │                                    │   │
+│ │   │  • git-wt --stack (single)   │                                    │   │
+│ │   │  • Gets JSON with paths      │                                    │   │
 │ │   │  • Analyzes dependencies     │                                    │   │
 │ │   │  • Returns YAML plan         │                                    │   │
 │ │   └──────────────────────────────┘                                    │   │
@@ -106,9 +106,9 @@
 │ │   │  Merge Coordinator           │                                    │   │
 │ │   │  ──────────────────          │                                    │   │
 │ │   │  • Verifies completions      │                                    │   │
-│ │   │  • Merges sequentially       │                                    │   │
+│ │   │  • Merges children → root    │                                    │   │
 │ │   │  • Resolves conflicts inline │                                    │   │
-│ │   │  • Cleans up worktrees       │                                    │   │
+│ │   │  • git-wt --stack-cleanup    │                                    │   │
 │ │   │  • Returns summary           │                                    │   │
 │ │   └──────────────────────────────┘                                    │   │
 │ │          │                                                            │   │
@@ -141,7 +141,7 @@
 │       • MEDIUM/LOW severity → Report but proceed automatically              │
 │                                                                             │
 │ 2. Create PR                                                                │
-│    gh pr create --head <branch> --base dev                                  │
+│    gh pr create --head <root-branch> --base <base-branch>                   │
 │                                                                             │
 │ 3. Summary                                                                  │
 │    • What was built                                                         │
@@ -158,7 +158,7 @@
 
 ## Checkpoint Summary
 
-### v2.1 Checkpoints (1 Essential)
+### v2.2 Checkpoints (1 Essential)
 
 | Phase | Checkpoint | Type |
 |-------|------------|------|
@@ -233,9 +233,9 @@ Main Orchestrator (commands/orc.md)
 | Agent | Responsibility |
 |-------|----------------|
 | **Architect** | Design approaches with different focuses (Opus model) |
-| **Planning Coordinator** | Create worktrees, return execution plan |
+| **Planning Coordinator** | Create worktree stack via git-wt --stack, return execution plan |
 | **Implementation** | Implement assigned chunk in worktree |
-| **Merge Coordinator** | Merge worktrees, resolve conflicts |
+| **Merge Coordinator** | Merge children to root, cleanup via git-wt --stack-cleanup |
 | **Reviewer** | Find bugs, quality issues |
 
 ### Agent Models
@@ -247,9 +247,19 @@ Main Orchestrator (commands/orc.md)
 
 ---
 
-## Key Changes from v2.0
+## Key Changes
 
-### Phase Consolidation
+### v2.2 Changes (from v2.1)
+
+| v2.1 | v2.2 |
+|------|------|
+| Manual `git worktree add` commands | `git-wt --stack` (single command) |
+| Path: `../worktrees/wt-<name>` | Path: `../<repo>.wt/<name>` |
+| Manual worktree tracking | JSON output with paths/branches |
+| Children merge to base | Children merge to root, root PRs to base |
+| Manual `git worktree remove` | `git-wt --stack-cleanup` |
+
+### v2.1 Changes (from v2.0)
 
 | v2.0 (4 phases) | v2.1 (3 phases) |
 |-----------------|-----------------|
@@ -260,10 +270,10 @@ Main Orchestrator (commands/orc.md)
 
 ### Removed: BASE Path
 
-v2.1 is **COMPLEX-only**. For simple tasks, use Opus directly without /orc.
+v2.1+ is **COMPLEX-only**. For simple tasks, use Opus directly without /orc.
 
-| v2.0 | v2.1 |
-|------|------|
+| v2.0 | v2.1+ |
+|------|-------|
 | BASE + COMPLEX paths | COMPLEX only |
 | Inline architecture design | Always architect agents |
 | Single implementation agent option | Always parallel worktrees |
@@ -285,9 +295,9 @@ v2.1 is **COMPLEX-only**. For simple tasks, use Opus directly without /orc.
 
 ### Phase 2: Execute
 - **CRITICAL:** Orchestrator MUST delegate (never implements directly)
-- Step 1: Planning coordinator creates worktrees
+- Step 1: Planning coordinator creates worktree stack (git-wt --stack)
 - Step 2: Parallel implementation agents (one per chunk)
-- Step 3: Merge coordinator merges sequentially
+- Step 3: Merge coordinator merges children to root (git-wt --stack-cleanup)
 - **⚠️ CONDITIONAL**: Only stop if implementation errors
 
 ### Phase 3: Review & Ship
@@ -314,11 +324,21 @@ v2.1 is **COMPLEX-only**. For simple tasks, use Opus directly without /orc.
 
 ## Git Workflow Notes
 
+### Dependency
+Requires `git-worktree` plugin installed. Run `/git-worktree:worktree-setup` to install `git-wt` helper.
+
 ### Quality Enforcement
 Pre-commit and pre-push hooks automatically run linting, type checking, and tests. **You don't need to run these manually.**
 
+### Worktree Stacks (v2.2)
+Uses `git-wt --stack` for worktree management:
+- Single command creates root + all children
+- JSON output with exact paths and branch names
+- Children merge to root, then root PRs to base
+- Cleanup via `git-wt --stack-cleanup`
+
 ### Worktree Isolation
-Each implementation agent works in an isolated git worktree with its own branch. This enables true parallel development without conflicts.
+Each implementation agent works in an isolated git worktree with its own branch. This enables true parallel development without conflicts. Worktrees are created at `../<repo>.wt/`.
 
 ### State Management
 Use TodoWrite exclusively for tracking progress. No JSON files, no marker files, no custom state.
@@ -343,12 +363,14 @@ Phase 1: UNDERSTAND & PLAN
   └─ ✋ CHECKPOINT: Approve?
 
 Phase 2: EXECUTE
-  └─ Planning coordinator → Creates worktrees
-  └─ Parallel implementation agents
-  └─ Merge coordinator → Merges sequentially
+  └─ Planning coordinator → git-wt --stack (creates worktree stack)
+  └─ Parallel implementation agents (in separate worktrees)
+  └─ Merge coordinator → Children merge to root, git-wt --stack-cleanup
 
 Phase 3: REVIEW & SHIP
   └─ 1-2 reviewers
-  └─ Create PR
+  └─ Create PR (root branch → base branch)
   └─ Done!
 ```
+
+**Dependency**: Requires `git-worktree` plugin with `git-wt` helper installed.
