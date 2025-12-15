@@ -3,16 +3,18 @@ description: Parallel multi-agent orchestration for complex features
 argument-hint: <complex-task>
 ---
 
-# Orchestration Workflow v2.1
+# Orchestration Workflow v2.2
 
 <principles>
 - **Complex work only**: Use for multi-module features requiring parallel execution
 - **Inline exploration**: Explore codebase directly (no explorer agents)
 - **Multi-architect consensus**: 2-3 Opus agents design from different angles
-- **Git worktree isolation**: Parallel agents work in separate directories
+- **Git worktree stacks**: Uses `git-wt --stack` for isolated parallel development
 - **Single checkpoint**: Approve once before execution
 
 > **Note**: For simple tasks (single-module, bug fixes, small features), don't use /orc - just ask Opus directly.
+
+> **Dependency**: Requires `git-worktree` plugin installed (`/plugin install git-worktree@bengolea-plugins` then `/git-worktree:worktree-setup`).
 </principles>
 
 ---
@@ -164,7 +166,7 @@ Present to user:
 
 Mark Phase 2 as in_progress in TodoWrite.
 
-**CRITICAL: You are an orchestrator, not an implementer. Always delegate to subagents.**
+**Role clarity**: You are an orchestrator, not an implementer. Delegate to subagents rather than implementing yourself.
 
 ### Step 1: Planning
 
@@ -183,15 +185,19 @@ Task tool:
 
   **Base branch:** [branch-name]
 
+  **Issue number (if any):** [#123 or omit]
+
   **Files to read:** [key files]
 
-  Create worktrees for each chunk and return YAML execution plan."
+  Create worktree stack using git-wt --stack and return YAML execution plan."
 ```
 
 Coordinator returns execution plan with:
-- Worktree paths and branches
+- `stack_id` for cleanup
+- Root worktree (integration point)
+- Child worktree paths and branches
 - File assignments per chunk
-- Merge order
+- Merge order (children merge to root)
 
 ### Step 2: Parallel Implementation
 
@@ -233,20 +239,22 @@ Spawn merge coordinator:
 ```
 Task tool:
   subagent_type: claude-orchestration:merge-coordinator
-  prompt: "Merge all implementations to base branch.
+  prompt: "Merge all implementations to root branch.
 
   **Execution plan:**
-  [YAML from planning coordinator]
+  [YAML from planning coordinator - includes stack_id, root, and chunks]
 
   **Implementation summaries:**
   [Summaries from all agents]
 
-  **Base branch:** [branch-name]
+  **Stack ID:** [stack_id from execution plan]
+  **Root branch:** [root.branch from execution plan]
+  **Base branch:** [base_branch from execution plan]
 
-  Merge sequentially per merge_order. Resolve conflicts inline. Clean up worktrees."
+  Merge children to root sequentially per merge_order. Resolve conflicts inline. Clean up worktrees (keep root branch for PR)."
 ```
 
-Wait for merge coordinator to return.
+Wait for merge coordinator to return. The root branch now contains all integrated changes and is ready for PR.
 
 </phase_2>
 
@@ -297,15 +305,29 @@ Consolidate reviewer findings.
 
 ### Step 3: Create PR
 
+Create PR from root branch to base branch:
+
 ```bash
-gh pr create --head <branch> --base dev --title "[type]: [description]" --body "## Summary
+# Root branch contains all merged chunks
+# Base branch is the original target (e.g., dev or feat/user-auth)
+gh pr create --head <root-branch> --base <base-branch> --title "[type]: [description]" --body "## Summary
 [What was built]
 
 ## Changes
 [Key changes]
 
+## Implementation
+Parallel execution with worktree isolation:
+- Stack ID: [stack_id]
+- Chunks: [list of chunks]
+
 ## Test Plan
 [How to verify]"
+```
+
+**Example:**
+```bash
+gh pr create --head 42-auth --base dev --title "feat: Add user authentication" --body "..."
 ```
 
 ### Step 4: Summary
@@ -315,9 +337,10 @@ Mark all TodoWrite items complete.
 Present final summary:
 - **What was built**: Feature description
 - **Key decisions**: Architecture choices
-- **Chunks executed**: Summary of parallel work
+- **Stack ID**: The worktree stack used (e.g., `42-auth`)
+- **Chunks executed**: Summary of parallel work (with branch names)
 - **Files modified**: List of changes
-- **PR URL**: Link to pull request
+- **PR URL**: Link to pull request (root branch → base branch)
 - **Next steps**: Suggested follow-ups
 
 </phase_3>
@@ -325,6 +348,13 @@ Present final summary:
 ---
 
 <important_notes>
+
+### Git Worktree Stacks
+Uses `git-wt --stack` from the git-worktree plugin:
+- Planning coordinator creates stack with single command
+- JSON output provides exact paths and branch names
+- Children merge to root branch, then root PRs to base
+- Cleanup via `git-wt --stack-cleanup`
 
 ### Git Hooks Handle Quality
 Pre-commit and pre-push hooks automatically run linting, type checking, and tests. You don't need to run these manually.
@@ -336,10 +366,11 @@ All subagents are stateless:
 - Communicate ONLY via final return message
 
 ### Concurrency
-Git worktrees provide isolation for parallel work. No locks needed - agents work in separate directories.
+Git worktree stacks provide isolation for parallel work. No locks needed - agents work in separate directories under `<repo>.wt/`.
 
 ### When to Stop
 If during execution you encounter:
+- `git-wt` not available: Stop, tell user to install git-worktree plugin
 - Blocking errors from any agent: Stop, inform user
 - Unresolvable merge conflicts: Stop, inform user
 - Scope creep beyond approved chunks: Stop, inform user
