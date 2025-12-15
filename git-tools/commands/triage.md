@@ -29,9 +29,17 @@ Analyze an open pull request and make a recommendation to either treat (continue
 
 **Your task:** Analyze the PR and help the user decide whether to treat or close it.
 
-### Step 1: Gather PR Information
+<constraints>
+- Analyze and recommend only - do NOT modify the PR without explicit user approval
+- Stay focused on triage decision - do NOT review code quality or suggest improvements
+- Present summary before taking any action
+</constraints>
 
-Run these commands to gather context:
+<workflow>
+
+1. **Gather PR Information**
+
+Run these gh commands in parallel to gather context efficiently:
 
 ```bash
 # Get PR details (title, body, state, author, dates, labels)
@@ -44,7 +52,7 @@ gh pr diff $ARGUMENTS --stat
 gh pr view $ARGUMENTS --comments
 ```
 
-### Step 2: Analyze the PR
+2. **Analyze the PR**
 
 Evaluate the PR based on:
 
@@ -72,7 +80,7 @@ Evaluate the PR based on:
    - Is the feature/fix still needed?
    - Has the code area changed significantly since?
 
-### Step 3: Present Summary
+3. **Present Summary**
 
 Provide a concise summary with:
 
@@ -97,14 +105,14 @@ Provide a concise summary with:
 **Reason:** [Brief explanation]
 ```
 
-### Step 4: Ask User for Decision
+4. **Ask User for Decision**
 
 Use AskUserQuestion to present the options:
 
 - **Treat**: Keep the PR open, possibly assign someone or request changes
 - **Close**: Close the PR with a comment explaining why
 
-### Step 5: Execute Decision
+5. **Execute Decision**
 
 **If TREAT:**
 - Ask if they want to assign someone, add labels, or leave a comment
@@ -122,7 +130,16 @@ Use AskUserQuestion to present the options:
   gh pr close $ARGUMENTS
   ```
 
-### Comment Templates
+</workflow>
+
+<verification>
+Confirm before completing:
+- PR summary was presented to user with recommendation
+- User decision (treat/close) was explicitly captured via AskUserQuestion
+- Any PR modifications had user approval
+</verification>
+
+<templates>
 
 **Stale PR:**
 ```
@@ -146,3 +163,5 @@ Would you consider breaking this into smaller, focused PRs? That would help us r
 ```
 
 Customize the comment based on the specific situation and your analysis.
+
+</templates>
