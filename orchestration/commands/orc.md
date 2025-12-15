@@ -5,8 +5,7 @@ argument-hint: <complex-task>
 
 # Orchestration Workflow v2.1
 
-## Core Principles
-
+<principles>
 - **Complex work only**: Use for multi-module features requiring parallel execution
 - **Inline exploration**: Explore codebase directly (no explorer agents)
 - **Multi-architect consensus**: 2-3 Opus agents design from different angles
@@ -14,10 +13,11 @@ argument-hint: <complex-task>
 - **Single checkpoint**: Approve once before execution
 
 > **Note**: For simple tasks (single-module, bug fixes, small features), don't use /orc - just ask Opus directly.
+</principles>
 
 ---
 
-## Phase 1: Understand & Plan
+<phase_1 title="Understand & Plan">
 
 **Goal**: Gather context, get architect consensus, and get approval
 
@@ -154,9 +154,11 @@ Present to user:
 - Yes: Proceed to Phase 2
 - No: Revise or abort
 
+</phase_1>
+
 ---
 
-## Phase 2: Execute
+<phase_2 title="Execute">
 
 **Goal**: Implement the feature in parallel using git worktrees
 
@@ -246,9 +248,11 @@ Task tool:
 
 Wait for merge coordinator to return.
 
+</phase_2>
+
 ---
 
-## Phase 3: Review & Ship
+<phase_3 title="Review & Ship">
 
 **Goal**: Quality validation and PR creation
 
@@ -316,9 +320,11 @@ Present final summary:
 - **PR URL**: Link to pull request
 - **Next steps**: Suggested follow-ups
 
+</phase_3>
+
 ---
 
-## Important Notes
+<important_notes>
 
 ### Git Hooks Handle Quality
 Pre-commit and pre-push hooks automatically run linting, type checking, and tests. You don't need to run these manually.
@@ -339,4 +345,4 @@ If during execution you encounter:
 - Scope creep beyond approved chunks: Stop, inform user
 - HIGH severity review findings: Stop, get user decision
 
----
+</important_notes>
