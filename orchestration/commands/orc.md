@@ -207,7 +207,7 @@ Spawn implementation agents **in parallel** (one per chunk):
 Task tool (all in same message for parallel execution):
 
 For each chunk:
-  subagent_type: claude-orchestration:implementation
+  subagent_type: general-purpose
   prompt: "Implement [chunk name] in worktree.
 
   **Worktree path:** [from execution plan]
@@ -223,7 +223,9 @@ For each chunk:
   **Files to read first:**
   [Key files for this chunk]
 
-  Implement your chunk only. Stay in scope. Return completion summary."
+  Implement your chunk only. Stay in scope. Do NOT merge or create PRs.
+
+  Return: changes made (created/modified files), summary, any notes for merge coordinator."
 ```
 
 Wait for ALL agents to complete.
