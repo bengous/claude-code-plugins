@@ -7,20 +7,18 @@ description: Create Mermaid diagrams. ONLY use when user explicitly says "Mermai
 
 This skill helps create clean, well-organized Mermaid diagrams for software engineering and architecture visualization.
 
-## When to Use This Skill
-
-Use this skill when the user wants to:
+<when_to_use>
+Use this skill specifically for creating, editing, fixing, or improving Mermaid diagrams:
 - **Create** new Mermaid diagrams
 - **Edit** existing Mermaid diagrams
 - **Fix** broken or incorrect diagram syntax
 - **Improve** diagram organization or readability
 - **Visualize** software architecture or technical concepts
 
-**Do not use this skill for:**
-- Simply reading or interpreting existing diagrams (no skill needed)
-- Non-technical diagrams (organizational charts, mind maps without code context)
+For simply reading or interpreting existing diagrams, proceed directly without this skill.
+</when_to_use>
 
-## Available Diagram Types
+<diagram_types>
 
 This skill supports all major Mermaid diagram types for software engineering:
 
@@ -31,8 +29,10 @@ This skill supports all major Mermaid diagram types for software engineering:
 5. **State Diagrams** - State machines, workflow states, lifecycle
 6. **C4 Diagrams** - Software architecture (context, container, component)
 7. **Git Graphs** - Branching strategies, version control workflows
+</diagram_types>
 
-## Core References
+<references>
+**Parallel Loading:** When creating diagrams, read `references/gotchas.md` AND the relevant syntax reference file simultaneously. Load multiple template files in parallel when creating complex diagrams.
 
 ### Quick Reference Priority
 
@@ -75,8 +75,9 @@ When creating or editing diagrams, consult references in this order:
 - Visualizing software architecture
 - User mentions specific patterns (microservices, hexagonal, CQRS, etc.)
 - Creating system design diagrams
+</references>
 
-## Templates
+<templates>
 
 Pre-built, well-commented templates are available in `assets/templates/`:
 
@@ -89,8 +90,9 @@ Pre-built, well-commented templates are available in `assets/templates/`:
 - Starting a new complex diagram
 - User wants a well-organized structure
 - Creating diagrams that will grow over time
+</templates>
 
-## Best Practices for Diagram Creation
+<best_practices>
 
 ### 1. Clean Code Organization
 
@@ -158,8 +160,9 @@ Before finalizing any diagram, check:
 - [ ] All blocks (subgraph, loop, alt) properly closed
 - [ ] Unique IDs for all elements
 - [ ] Consistent quote style throughout
+</best_practices>
 
-## Workflow for Creating Diagrams
+<workflow>
 
 ### Step 1: Understand Requirements
 - What concept needs visualization?
@@ -200,8 +203,9 @@ flowchart LR
 - Check for syntax errors
 - Verify it communicates the intended message
 - Add comments for future maintainability
+</workflow>
 
-## Quick Syntax Reminders
+<syntax_reference>
 
 ### Escaping Special Characters
 ```mermaid
@@ -231,8 +235,9 @@ C[getData#40;#41;]  %% getData()
 - `||--||` one-to-one
 - `||--o{` one-to-many
 - `}o--o{` many-to-many
+</syntax_reference>
 
-## Common Use Cases
+<use_cases>
 
 ### API Documentation
 Use sequence diagrams to show request/response flows:
@@ -276,8 +281,9 @@ flowchart TB
     Check -->|Yes| Process
     Check -->|No| Error
 ```
+</use_cases>
 
-## Troubleshooting
+<troubleshooting>
 
 ### Diagram Won't Render
 
@@ -300,8 +306,9 @@ flowchart TB
 
 **Wrong appearance**
 → Verify correct diagram type declaration
+</troubleshooting>
 
-## Tips for AI-Assisted Diagram Editing
+<editing_tips>
 
 When editing existing diagrams:
 1. Preserve the original structure and organization
@@ -316,8 +323,9 @@ When creating new diagrams:
 3. Add comments explaining the purpose
 4. Use semantic styling (not just decoration)
 5. Consider maintainability
+</editing_tips>
 
-## Integration with Development Workflow
+<integration>
 
 Mermaid diagrams work great in:
 - **Documentation** - README.md, docs/ folder
@@ -327,8 +335,9 @@ Mermaid diagrams work great in:
 - **Presentations** - Export as images
 
 They can be version controlled, reviewed, and updated like code!
+</integration>
 
-## Remember
+<summary>
 
 - **Start simple** - Add complexity incrementally
 - **Comment well** - Future you will thank you
@@ -342,3 +351,4 @@ The goal is to create diagrams that are:
 - **Maintainable** - Easy to update later
 - **Navigable** - Easy to understand the code
 - **Correct** - Render without errors
+</summary>
