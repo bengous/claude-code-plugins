@@ -138,7 +138,7 @@
     {
       "name": "git-worktree",
       "description": "Git worktree helper with stack support for multi-agent orchestration",
-      "version": "1.1.0",
+      "version": "1.2.0",
       "author": {
         "name": "Augustin BENGOLEA",
         "email": "bengous@protonmail.com"
