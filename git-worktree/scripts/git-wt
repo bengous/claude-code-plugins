@@ -8,7 +8,8 @@ set -euo pipefail
 #        git-wt --stack-status [stack-id]
 #        git-wt --stack-cleanup [stack-id] [--delete-branches]
 #
-# Creates worktree at ../<repo>.wt/<name>/ tracking <branch> (defaults to <name>)
+# Creates worktree at ../<repo>.wt/<name>/ for <branch> (defaults to <name>).
+# If branch doesn't exist, auto-creates it from HEAD.
 # Can also be invoked as: git wt <name> [branch]
 
 # --- Configuration ---
@@ -16,38 +17,66 @@ STACK_METADATA_FILE=".stack.json"
 
 # --- Helper Functions ---
 
-die() { echo "Error: $*" >&2; exit 1; }
+die() {
+	echo "Error: $*" >&2
+	exit 1
+}
 
 require_jq() {
-    command -v jq &>/dev/null || die "jq is required for stack operations"
+	command -v jq &>/dev/null || die "jq is required for stack operations"
 }
 
 require_git_repo() {
-    repo_root=$(git rev-parse --show-toplevel 2>/dev/null) || die "not inside a git repository"
-    repo_name=$(basename "$repo_root")
-    repo_parent=$(dirname "$repo_root")
-    hub="$repo_parent/$repo_name.wt"
-    stack_file="$hub/$STACK_METADATA_FILE"
+	repo_root=$(git rev-parse --show-toplevel 2>/dev/null) || die "not inside a git repository"
+	repo_name=$(basename "$repo_root")
+	repo_parent=$(dirname "$repo_root")
+	hub="$repo_parent/$repo_name.wt"
+	stack_file="$hub/$STACK_METADATA_FILE"
+}
+
+# Run post-creation setup in a worktree directory
+# - bun install if package.json exists (uses hardlinks from global cache)
+# - mise trust if mise config exists (avoids trust prompts)
+post_worktree_setup() {
+	local worktree_path="$1"
+	[[ -d "$worktree_path" ]] || return 0
+
+	# Node modules setup via bun (fast due to hardlinking from global cache)
+	if [[ -f "$worktree_path/package.json" ]]; then
+		if command -v bun &>/dev/null; then
+			echo "  Setting up node_modules via bun..."
+			(cd "$worktree_path" && bun install --silent) || echo "  Warning: bun install failed"
+		fi
+	fi
+
+	# Mise trust (avoids interactive prompts when entering worktree)
+	if [[ -f "$worktree_path/.mise.toml" ]] || [[ -f "$worktree_path/mise.toml" ]] || \
+	   [[ -f "$worktree_path/.mise.local.toml" ]] || [[ -f "$worktree_path/.tool-versions" ]]; then
+		if command -v mise &>/dev/null; then
+			echo "  Trusting mise config..."
+			(cd "$worktree_path" && mise trust --all --quiet 2>/dev/null) || true
+		fi
+	fi
 }
 
 load_stack_metadata() {
-    if [[ -f "$stack_file" ]]; then
-        cat "$stack_file"
-    else
-        echo '{"version":1,"stacks":{}}'
-    fi
+	if [[ -f "$stack_file" ]]; then
+		cat "$stack_file"
+	else
+		echo '{"version":1,"stacks":{}}'
+	fi
 }
 
 save_stack_metadata() {
-    local data="$1"
-    mkdir -p "$hub"
-    echo "$data" | jq '.' > "$stack_file"
+	local data="$1"
+	mkdir -p "$hub"
+	echo "$data" | jq '.' >"$stack_file"
 }
 
 # --- Usage ---
 
 usage() {
-    cat <<EOF
+	cat <<EOF
 Usage: git-wt [-b|--base <base>] <name> [branch]
        git-wt --stack <json>
        git-wt --stack-status [stack-id]
@@ -57,435 +86,464 @@ Create worktrees at ../<repo>.wt/<name>/ for the given branch.
 
 Single Worktree Mode:
   name    Worktree directory name (required)
-  branch  Branch to checkout (defaults to name)
+  branch  Branch to checkout or create (defaults to name)
+
+  Behavior:
+    - If branch exists locally: checks it out
+    - If branch doesn't exist: creates it from HEAD
+    - Use -b/--base to create from a specific branch instead
 
 Options:
-  -b, --base <base>    Create new branch from <base> instead of checking out existing
+  -b, --base <base>    Create new branch from <base> instead of HEAD
   --stack <json>       Create a stack of worktrees from JSON spec
   --stack-status [id]  Show status of stack(s) as JSON
   --stack-cleanup [id] Remove stack worktrees (add --delete-branches to remove branches)
 
 Examples:
-  git-wt fix-auth                     # Checkout existing branch 'fix-auth'
-  git-wt -b dev gallery feature/foo   # Create 'feature/foo' from 'dev' into 'gallery'
+  git-wt fix/123-bug              # Create 'fix/123-bug' from HEAD (or checkout if exists)
+  git-wt -b dev fix/123-bug       # Create 'fix/123-bug' from 'dev'
+  git-wt gallery feature/foo      # Create 'feature/foo' from HEAD into dir 'gallery'
+  git-wt -b dev gallery feature/x # Create 'feature/x' from 'dev' into dir 'gallery'
 
-  # Stack operations
-  echo '{"base":"dev","root":"gallery","children":["schema","api"]}' | git-wt --stack
-  git-wt --stack '{"issue":42,"base":"dev","root":"gallery","children":["schema","api"]}'
+  # Stack operations (for complex multi-worktree setups)
+  git-wt --stack '{"base":"dev","root":"gallery","children":["schema","api"]}'
   git-wt --stack-status
   git-wt --stack-cleanup 42-gallery --delete-branches
 EOF
-    exit "${1:-1}"
+	exit "${1:-1}"
 }
 
 # --- Stack Creation ---
 
 stack_create() {
-    local json="$1"
-    require_jq
-    require_git_repo
+	local json="$1"
+	require_jq
+	require_git_repo
 
-    # Parse JSON
-    local base root prefix issue
-    base=$(echo "$json" | jq -r '.base // empty') || die "invalid JSON"
-    root=$(echo "$json" | jq -r '.root // empty') || die "invalid JSON"
-    issue=$(echo "$json" | jq -r '.issue // empty')
+	# Parse JSON
+	local base root prefix issue
+	base=$(echo "$json" | jq -r '.base // empty') || die "invalid JSON"
+	root=$(echo "$json" | jq -r '.root // empty') || die "invalid JSON"
+	issue=$(echo "$json" | jq -r '.issue // empty')
 
-    [[ -z "$base" ]] && die "JSON missing required field: base"
-    [[ -z "$root" ]] && die "JSON missing required field: root"
+	[[ -z "$base" ]] && die "JSON missing required field: base"
+	[[ -z "$root" ]] && die "JSON missing required field: root"
 
-    # Determine prefix
-    if [[ -n "$issue" ]]; then
-        prefix="$issue"
-    else
-        prefix=$(date +%Y-%m-%d)
-    fi
+	# Determine prefix
+	if [[ -n "$issue" ]]; then
+		prefix="$issue"
+	else
+		prefix=$(date +%Y-%m-%d)
+	fi
 
-    # Compute branch names
-    local stack_id="${prefix}-${root}"
-    local root_branch="$stack_id"
+	# Compute branch names
+	local stack_id="${prefix}-${root}"
+	local root_branch="$stack_id"
 
-    # Get children
-    local children
-    children=$(echo "$json" | jq -r '.children // [] | .[]') || children=""
+	# Get children
+	local children
+	children=$(echo "$json" | jq -r '.children // [] | .[]') || children=""
 
-    # Check idempotency
-    local metadata
-    metadata=$(load_stack_metadata)
+	# Check idempotency
+	local metadata
+	metadata=$(load_stack_metadata)
 
-    if echo "$metadata" | jq -e ".stacks[\"$stack_id\"]" &>/dev/null; then
-        # Stack exists - output existing info
-        local existing
-        existing=$(echo "$metadata" | jq ".stacks[\"$stack_id\"]")
-        echo "$existing" | jq --arg status "exists" --arg id "$stack_id" \
-            '{status: $status, stack_id: $id} + .'
-        return 0
-    fi
+	if echo "$metadata" | jq -e ".stacks[\"$stack_id\"]" &>/dev/null; then
+		# Stack exists - output existing info
+		local existing
+		existing=$(echo "$metadata" | jq ".stacks[\"$stack_id\"]")
+		echo "$existing" | jq --arg status "exists" --arg id "$stack_id" \
+			'{status: $status, stack_id: $id} + .'
+		return 0
+	fi
 
-    # Prepare output
-    local output
-    output=$(jq -n \
-        --arg status "created" \
-        --arg stack_id "$stack_id" \
-        --arg metadata_path "$stack_file" \
-        '{status: $status, stack_id: $stack_id, metadata_path: $metadata_path, root: null, children: []}')
+	# Prepare output
+	local output
+	output=$(jq -n \
+		--arg status "created" \
+		--arg stack_id "$stack_id" \
+		--arg metadata_path "$stack_file" \
+		'{status: $status, stack_id: $stack_id, metadata_path: $metadata_path, root: null, children: []}')
 
-    local created_count=0
-    local failed_count=0
+	local created_count=0
+	local failed_count=0
 
-    # Create hub directory
-    mkdir -p "$hub"
+	# Create hub directory
+	mkdir -p "$hub"
 
-    # Create root worktree
-    local root_path="$hub/$root"
-    local root_status="created"
-    local root_error=""
+	# Create root worktree
+	local root_path="$hub/$root"
+	local root_status="created"
+	local root_error=""
 
-    if [[ -d "$root_path" ]]; then
-        root_status="exists"
-    elif git show-ref --verify --quiet "refs/heads/$root_branch" 2>/dev/null; then
-        # Branch exists, checkout
-        if git worktree add "$root_path" "$root_branch" >&2 2>/dev/null; then
-            root_status="created"
-            created_count=$((created_count + 1))
-        else
-            root_status="failed"
-            root_error="failed to create worktree"
-            failed_count=$((failed_count + 1))
-        fi
-    else
-        # Create new branch
-        if git worktree add -b "$root_branch" "$root_path" "$base" >&2 2>/dev/null; then
-            root_status="created"
-            created_count=$((created_count + 1))
-        else
-            root_status="failed"
-            root_error="failed to create branch from $base"
-            failed_count=$((failed_count + 1))
-        fi
-    fi
+	if [[ -d "$root_path" ]]; then
+		root_status="exists"
+	elif git show-ref --verify --quiet "refs/heads/$root_branch" 2>/dev/null; then
+		# Branch exists, checkout
+		if git worktree add "$root_path" "$root_branch" >&2 2>/dev/null; then
+			root_status="created"
+			created_count=$((created_count + 1))
+		else
+			root_status="failed"
+			root_error="failed to create worktree"
+			failed_count=$((failed_count + 1))
+		fi
+	else
+		# Create new branch
+		if git worktree add -b "$root_branch" "$root_path" "$base" >&2 2>/dev/null; then
+			root_status="created"
+			created_count=$((created_count + 1))
+		else
+			root_status="failed"
+			root_error="failed to create branch from $base"
+			failed_count=$((failed_count + 1))
+		fi
+	fi
 
-    output=$(echo "$output" | jq \
-        --arg name "$root" \
-        --arg branch "$root_branch" \
-        --arg path "$root_path" \
-        --arg pr_target "$base" \
-        --arg status "$root_status" \
-        --arg error "$root_error" \
-        '.root = {name: $name, branch: $branch, path: $path, pr_target: $pr_target, status: $status, error: (if $error == "" then null else $error end)}')
+	# Run post-creation setup for root worktree (output to stderr to preserve JSON)
+	if [[ "$root_status" == "created" ]]; then
+		post_worktree_setup "$root_path" >&2
+	fi
 
-    # Create child worktrees
-    local children_meta="{}"
+	output=$(echo "$output" | jq \
+		--arg name "$root" \
+		--arg branch "$root_branch" \
+		--arg path "$root_path" \
+		--arg pr_target "$base" \
+		--arg status "$root_status" \
+		--arg error "$root_error" \
+		'.root = {name: $name, branch: $branch, path: $path, pr_target: $pr_target, status: $status, error: (if $error == "" then null else $error end)}')
 
-    for child in $children; do
-        local child_branch="${stack_id}-${child}"
-        local child_path="$hub/$child"
-        local child_status="created"
-        local child_error=""
+	# Create child worktrees
+	local children_meta="{}"
 
-        if [[ -d "$child_path" ]]; then
-            child_status="exists"
-        elif git show-ref --verify --quiet "refs/heads/$child_branch" 2>/dev/null; then
-            if git worktree add "$child_path" "$child_branch" >&2 2>/dev/null; then
-                child_status="created"
-                created_count=$((created_count + 1))
-            else
-                child_status="failed"
-                child_error="failed to create worktree"
-                failed_count=$((failed_count + 1))
-            fi
-        else
-            if git worktree add -b "$child_branch" "$child_path" "$root_branch" >&2 2>/dev/null; then
-                child_status="created"
-                created_count=$((created_count + 1))
-            else
-                child_status="failed"
-                child_error="failed to create branch from $root_branch"
-                failed_count=$((failed_count + 1))
-            fi
-        fi
+	for child in $children; do
+		local child_branch="${stack_id}-${child}"
+		local child_path="$hub/$child"
+		local child_status="created"
+		local child_error=""
 
-        output=$(echo "$output" | jq \
-            --arg name "$child" \
-            --arg branch "$child_branch" \
-            --arg path "$child_path" \
-            --arg pr_target "$root_branch" \
-            --arg status "$child_status" \
-            --arg error "$child_error" \
-            '.children += [{name: $name, branch: $branch, path: $path, pr_target: $pr_target, status: $status, error: (if $error == "" then null else $error end)}]')
+		if [[ -d "$child_path" ]]; then
+			child_status="exists"
+		elif git show-ref --verify --quiet "refs/heads/$child_branch" 2>/dev/null; then
+			if git worktree add "$child_path" "$child_branch" >&2 2>/dev/null; then
+				child_status="created"
+				created_count=$((created_count + 1))
+			else
+				child_status="failed"
+				child_error="failed to create worktree"
+				failed_count=$((failed_count + 1))
+			fi
+		else
+			if git worktree add -b "$child_branch" "$child_path" "$root_branch" >&2 2>/dev/null; then
+				child_status="created"
+				created_count=$((created_count + 1))
+			else
+				child_status="failed"
+				child_error="failed to create branch from $root_branch"
+				failed_count=$((failed_count + 1))
+			fi
+		fi
 
-        children_meta=$(echo "$children_meta" | jq \
-            --arg child "$child" \
-            --arg branch "$child_branch" \
-            '. + {($child): {branch: $branch}}')
-    done
+		# Run post-creation setup for child worktree (output to stderr to preserve JSON)
+		if [[ "$child_status" == "created" ]]; then
+			post_worktree_setup "$child_path" >&2
+		fi
 
-    # Update overall status
-    if [[ $failed_count -gt 0 && $created_count -gt 0 ]]; then
-        output=$(echo "$output" | jq '.status = "partial"')
-    elif [[ $failed_count -gt 0 ]]; then
-        output=$(echo "$output" | jq '.status = "failed"')
-    fi
+		output=$(echo "$output" | jq \
+			--arg name "$child" \
+			--arg branch "$child_branch" \
+			--arg path "$child_path" \
+			--arg pr_target "$root_branch" \
+			--arg status "$child_status" \
+			--arg error "$child_error" \
+			'.children += [{name: $name, branch: $branch, path: $path, pr_target: $pr_target, status: $status, error: (if $error == "" then null else $error end)}]')
 
-    # Save metadata (only if something was created)
-    if [[ $created_count -gt 0 ]] || [[ $root_status == "exists" ]]; then
-        local stack_meta
-        stack_meta=$(jq -n \
-            --arg base "$base" \
-            --arg root_branch "$root_branch" \
-            --arg root_path "$root" \
-            --arg created_at "$(date -Iseconds)" \
-            --argjson children "$children_meta" \
-            '{base: $base, root_branch: $root_branch, root_path: $root_path, created_at: $created_at, children: $children}')
+		children_meta=$(echo "$children_meta" | jq \
+			--arg child "$child" \
+			--arg branch "$child_branch" \
+			'. + {($child): {branch: $branch}}')
+	done
 
-        metadata=$(echo "$metadata" | jq \
-            --arg id "$stack_id" \
-            --argjson stack "$stack_meta" \
-            '.stacks[$id] = $stack')
+	# Update overall status
+	if [[ $failed_count -gt 0 && $created_count -gt 0 ]]; then
+		output=$(echo "$output" | jq '.status = "partial"')
+	elif [[ $failed_count -gt 0 ]]; then
+		output=$(echo "$output" | jq '.status = "failed"')
+	fi
 
-        save_stack_metadata "$metadata"
-    fi
+	# Save metadata (only if something was created)
+	if [[ $created_count -gt 0 ]] || [[ $root_status == "exists" ]]; then
+		local stack_meta
+		stack_meta=$(jq -n \
+			--arg base "$base" \
+			--arg root_branch "$root_branch" \
+			--arg root_path "$root" \
+			--arg created_at "$(date -Iseconds)" \
+			--argjson children "$children_meta" \
+			'{base: $base, root_branch: $root_branch, root_path: $root_path, created_at: $created_at, children: $children}')
 
-    echo "$output" | jq '.'
+		metadata=$(echo "$metadata" | jq \
+			--arg id "$stack_id" \
+			--argjson stack "$stack_meta" \
+			'.stacks[$id] = $stack')
+
+		save_stack_metadata "$metadata"
+	fi
+
+	echo "$output" | jq '.'
 }
 
 # --- Stack Status ---
 
 stack_status() {
-    local stack_id="${1:-}"
-    require_jq
-    require_git_repo
+	local stack_id="${1:-}"
+	require_jq
+	require_git_repo
 
-    local metadata
-    metadata=$(load_stack_metadata)
+	local metadata
+	metadata=$(load_stack_metadata)
 
-    if [[ -n "$stack_id" ]]; then
-        # Single stack status
-        if ! echo "$metadata" | jq -e ".stacks[\"$stack_id\"]" &>/dev/null; then
-            die "stack not found: $stack_id"
-        fi
+	if [[ -n "$stack_id" ]]; then
+		# Single stack status
+		if ! echo "$metadata" | jq -e ".stacks[\"$stack_id\"]" &>/dev/null; then
+			die "stack not found: $stack_id"
+		fi
 
-        local stack
-        stack=$(echo "$metadata" | jq ".stacks[\"$stack_id\"]")
-        output_stack_status "$stack_id" "$stack"
-    else
-        # All stacks
-        local stacks
-        stacks=$(echo "$metadata" | jq -r '.stacks | keys[]')
+		local stack
+		stack=$(echo "$metadata" | jq ".stacks[\"$stack_id\"]")
+		output_stack_status "$stack_id" "$stack"
+	else
+		# All stacks
+		local stacks
+		stacks=$(echo "$metadata" | jq -r '.stacks | keys[]')
 
-        if [[ -z "$stacks" ]]; then
-            echo '{"stacks":[]}'
-            return 0
-        fi
+		if [[ -z "$stacks" ]]; then
+			echo '{"stacks":[]}'
+			return 0
+		fi
 
-        local output='{"stacks":[]}'
-        for id in $stacks; do
-            local stack
-            stack=$(echo "$metadata" | jq ".stacks[\"$id\"]")
-            local status
-            status=$(output_stack_status "$id" "$stack")
-            output=$(echo "$output" | jq --argjson s "$status" '.stacks += [$s]')
-        done
+		local output='{"stacks":[]}'
+		for id in $stacks; do
+			local stack
+			stack=$(echo "$metadata" | jq ".stacks[\"$id\"]")
+			local status
+			status=$(output_stack_status "$id" "$stack")
+			output=$(echo "$output" | jq --argjson s "$status" '.stacks += [$s]')
+		done
 
-        echo "$output" | jq '.'
-    fi
+		echo "$output" | jq '.'
+	fi
 }
 
 output_stack_status() {
-    local stack_id="$1"
-    local stack="$2"
+	local stack_id="$1"
+	local stack="$2"
 
-    local base root_branch root_path
-    base=$(echo "$stack" | jq -r '.base')
-    root_branch=$(echo "$stack" | jq -r '.root_branch')
-    root_path=$(echo "$stack" | jq -r '.root_path')
+	local base root_branch root_path
+	base=$(echo "$stack" | jq -r '.base')
+	root_branch=$(echo "$stack" | jq -r '.root_branch')
+	root_path=$(echo "$stack" | jq -r '.root_path')
 
-    local root_full_path="$hub/$root_path"
-    local root_exists="false"
-    local root_dirty="false"
-    local root_ahead=0
+	local root_full_path="$hub/$root_path"
+	local root_exists="false"
+	local root_dirty="false"
+	local root_ahead=0
 
-    if [[ -d "$root_full_path" ]]; then
-        root_exists="true"
-        if [[ -n $(git -C "$root_full_path" status --porcelain 2>/dev/null) ]]; then
-            root_dirty="true"
-        fi
-        root_ahead=$(git -C "$root_full_path" rev-list --count "$base..$root_branch" 2>/dev/null || echo "0")
-    fi
+	if [[ -d "$root_full_path" ]]; then
+		root_exists="true"
+		if [[ -n $(git -C "$root_full_path" status --porcelain 2>/dev/null) ]]; then
+			root_dirty="true"
+		fi
+		root_ahead=$(git -C "$root_full_path" rev-list --count "$base..$root_branch" 2>/dev/null || echo "0")
+	fi
 
-    local output
-    output=$(jq -n \
-        --arg stack_id "$stack_id" \
-        --arg base "$base" \
-        --arg root_branch "$root_branch" \
-        --arg root_path "$root_full_path" \
-        --argjson root_exists "$root_exists" \
-        --argjson root_dirty "$root_dirty" \
-        --argjson root_ahead "$root_ahead" \
-        '{stack_id: $stack_id, base: $base, root: {branch: $root_branch, path: $root_path, exists: $root_exists, dirty: $root_dirty, commits_ahead: $root_ahead}, children: []}')
+	local output
+	output=$(jq -n \
+		--arg stack_id "$stack_id" \
+		--arg base "$base" \
+		--arg root_branch "$root_branch" \
+		--arg root_path "$root_full_path" \
+		--argjson root_exists "$root_exists" \
+		--argjson root_dirty "$root_dirty" \
+		--argjson root_ahead "$root_ahead" \
+		'{stack_id: $stack_id, base: $base, root: {branch: $root_branch, path: $root_path, exists: $root_exists, dirty: $root_dirty, commits_ahead: $root_ahead}, children: []}')
 
-    # Check children
-    local children
-    children=$(echo "$stack" | jq -r '.children | keys[]' 2>/dev/null) || children=""
+	# Check children
+	local children
+	children=$(echo "$stack" | jq -r '.children | keys[]' 2>/dev/null) || children=""
 
-    for child in $children; do
-        local child_branch child_path_name
-        child_branch=$(echo "$stack" | jq -r ".children[\"$child\"].branch")
-        child_path_name="$child"
+	for child in $children; do
+		local child_branch child_path_name
+		child_branch=$(echo "$stack" | jq -r ".children[\"$child\"].branch")
+		child_path_name="$child"
 
-        local child_full_path="$hub/$child_path_name"
-        local child_exists="false"
-        local child_dirty="false"
-        local child_ahead=0
+		local child_full_path="$hub/$child_path_name"
+		local child_exists="false"
+		local child_dirty="false"
+		local child_ahead=0
 
-        if [[ -d "$child_full_path" ]]; then
-            child_exists="true"
-            if [[ -n $(git -C "$child_full_path" status --porcelain 2>/dev/null) ]]; then
-                child_dirty="true"
-            fi
-            child_ahead=$(git -C "$child_full_path" rev-list --count "$root_branch..$child_branch" 2>/dev/null || echo "0")
-        fi
+		if [[ -d "$child_full_path" ]]; then
+			child_exists="true"
+			if [[ -n $(git -C "$child_full_path" status --porcelain 2>/dev/null) ]]; then
+				child_dirty="true"
+			fi
+			child_ahead=$(git -C "$child_full_path" rev-list --count "$root_branch..$child_branch" 2>/dev/null || echo "0")
+		fi
 
-        output=$(echo "$output" | jq \
-            --arg name "$child" \
-            --arg branch "$child_branch" \
-            --arg path "$child_full_path" \
-            --argjson exists "$child_exists" \
-            --argjson dirty "$child_dirty" \
-            --argjson ahead "$child_ahead" \
-            '.children += [{name: $name, branch: $branch, path: $path, exists: $exists, dirty: $dirty, commits_ahead: $ahead}]')
-    done
+		output=$(echo "$output" | jq \
+			--arg name "$child" \
+			--arg branch "$child_branch" \
+			--arg path "$child_full_path" \
+			--argjson exists "$child_exists" \
+			--argjson dirty "$child_dirty" \
+			--argjson ahead "$child_ahead" \
+			'.children += [{name: $name, branch: $branch, path: $path, exists: $exists, dirty: $dirty, commits_ahead: $ahead}]')
+	done
 
-    echo "$output"
+	echo "$output"
 }
 
 # --- Stack Cleanup ---
 
 stack_cleanup() {
-    local stack_id="${1:-}"
-    local delete_branches="${2:-false}"
-    require_jq
-    require_git_repo
+	local stack_id="${1:-}"
+	local delete_branches="${2:-false}"
+	require_jq
+	require_git_repo
 
-    local metadata
-    metadata=$(load_stack_metadata)
+	local metadata
+	metadata=$(load_stack_metadata)
 
-    [[ -z "$stack_id" ]] && die "stack-id required for cleanup"
+	[[ -z "$stack_id" ]] && die "stack-id required for cleanup"
 
-    if ! echo "$metadata" | jq -e ".stacks[\"$stack_id\"]" &>/dev/null; then
-        die "stack not found: $stack_id"
-    fi
+	if ! echo "$metadata" | jq -e ".stacks[\"$stack_id\"]" &>/dev/null; then
+		die "stack not found: $stack_id"
+	fi
 
-    local stack
-    stack=$(echo "$metadata" | jq ".stacks[\"$stack_id\"]")
+	local stack
+	stack=$(echo "$metadata" | jq ".stacks[\"$stack_id\"]")
 
-    local root_branch root_path
-    root_branch=$(echo "$stack" | jq -r '.root_branch')
-    root_path=$(echo "$stack" | jq -r '.root_path')
+	local root_branch root_path
+	root_branch=$(echo "$stack" | jq -r '.root_branch')
+	root_path=$(echo "$stack" | jq -r '.root_path')
 
-    local removed_worktrees=0
-    local removed_branches=0
-    local errors=()
+	local removed_worktrees=0
+	local removed_branches=0
+	local errors=()
 
-    # Remove children first
-    local children
-    children=$(echo "$stack" | jq -r '.children | keys[]' 2>/dev/null) || children=""
+	# Remove children first
+	local children
+	children=$(echo "$stack" | jq -r '.children | keys[]' 2>/dev/null) || children=""
 
-    for child in $children; do
-        local child_branch
-        child_branch=$(echo "$stack" | jq -r ".children[\"$child\"].branch")
-        local child_full_path="$hub/$child"
+	for child in $children; do
+		local child_branch
+		child_branch=$(echo "$stack" | jq -r ".children[\"$child\"].branch")
+		local child_full_path="$hub/$child"
 
-        # Remove worktree
-        if [[ -d "$child_full_path" ]]; then
-            if git worktree remove --force "$child_full_path" 2>/dev/null; then
-                removed_worktrees=$((removed_worktrees + 1))
-            else
-                errors+=("failed to remove worktree: $child_full_path")
-            fi
-        fi
+		# Remove worktree
+		if [[ -d "$child_full_path" ]]; then
+			if git worktree remove --force "$child_full_path" 2>/dev/null; then
+				removed_worktrees=$((removed_worktrees + 1))
+			else
+				errors+=("failed to remove worktree: $child_full_path")
+			fi
+		fi
 
-        # Remove branch if requested
-        if [[ "$delete_branches" == "true" ]]; then
-            if git show-ref --verify --quiet "refs/heads/$child_branch" 2>/dev/null; then
-                if git branch -D "$child_branch" 2>/dev/null; then
-                    removed_branches=$((removed_branches + 1))
-                else
-                    errors+=("failed to delete branch: $child_branch")
-                fi
-            fi
-        fi
-    done
+		# Remove branch if requested
+		if [[ "$delete_branches" == "true" ]]; then
+			if git show-ref --verify --quiet "refs/heads/$child_branch" 2>/dev/null; then
+				if git branch -D "$child_branch" 2>/dev/null; then
+					removed_branches=$((removed_branches + 1))
+				else
+					errors+=("failed to delete branch: $child_branch")
+				fi
+			fi
+		fi
+	done
 
-    # Remove root
-    local root_full_path="$hub/$root_path"
-    if [[ -d "$root_full_path" ]]; then
-        if git worktree remove --force "$root_full_path" 2>/dev/null; then
-            removed_worktrees=$((removed_worktrees + 1))
-        else
-            errors+=("failed to remove worktree: $root_full_path")
-        fi
-    fi
+	# Remove root
+	local root_full_path="$hub/$root_path"
+	if [[ -d "$root_full_path" ]]; then
+		if git worktree remove --force "$root_full_path" 2>/dev/null; then
+			removed_worktrees=$((removed_worktrees + 1))
+		else
+			errors+=("failed to remove worktree: $root_full_path")
+		fi
+	fi
 
-    if [[ "$delete_branches" == "true" ]]; then
-        if git show-ref --verify --quiet "refs/heads/$root_branch" 2>/dev/null; then
-            if git branch -D "$root_branch" 2>/dev/null; then
-                removed_branches=$((removed_branches + 1))
-            else
-                errors+=("failed to delete branch: $root_branch")
-            fi
-        fi
-    fi
+	if [[ "$delete_branches" == "true" ]]; then
+		if git show-ref --verify --quiet "refs/heads/$root_branch" 2>/dev/null; then
+			if git branch -D "$root_branch" 2>/dev/null; then
+				removed_branches=$((removed_branches + 1))
+			else
+				errors+=("failed to delete branch: $root_branch")
+			fi
+		fi
+	fi
 
-    # Remove from metadata
-    metadata=$(echo "$metadata" | jq "del(.stacks[\"$stack_id\"])")
-    save_stack_metadata "$metadata"
+	# Remove from metadata
+	metadata=$(echo "$metadata" | jq "del(.stacks[\"$stack_id\"])")
+	save_stack_metadata "$metadata"
 
-    # Output result
-    local output
-    output=$(jq -n \
-        --arg stack_id "$stack_id" \
-        --argjson removed_worktrees "$removed_worktrees" \
-        --argjson removed_branches "$removed_branches" \
-        --argjson error_count "${#errors[@]}" \
-        '{stack_id: $stack_id, removed_worktrees: $removed_worktrees, removed_branches: $removed_branches, errors: []}')
+	# Output result
+	local output
+	output=$(jq -n \
+		--arg stack_id "$stack_id" \
+		--argjson removed_worktrees "$removed_worktrees" \
+		--argjson removed_branches "$removed_branches" \
+		--argjson error_count "${#errors[@]}" \
+		'{stack_id: $stack_id, removed_worktrees: $removed_worktrees, removed_branches: $removed_branches, errors: []}')
 
-    for err in "${errors[@]:-}"; do
-        [[ -n "$err" ]] && output=$(echo "$output" | jq --arg e "$err" '.errors += [$e]')
-    done
+	for err in "${errors[@]:-}"; do
+		[[ -n "$err" ]] && output=$(echo "$output" | jq --arg e "$err" '.errors += [$e]')
+	done
 
-    echo "$output" | jq '.'
+	echo "$output" | jq '.'
 }
 
-# --- Single Worktree Mode (original functionality) ---
+# --- Single Worktree Mode ---
 
 single_worktree() {
-    local base="$1"
-    local name="$2"
-    local branch="$3"
+	local base="$1"
+	local name="$2"
+	local branch="$3"
 
-    require_git_repo
+	require_git_repo
 
-    local worktree_path="$hub/$name"
+	local worktree_path="$hub/$name"
 
-    # Check if worktree already exists
-    if [[ -d "$worktree_path" ]]; then
-        die "worktree already exists at $worktree_path"
-    fi
+	# Check if worktree already exists
+	if [[ -d "$worktree_path" ]]; then
+		die "worktree already exists at $worktree_path"
+	fi
 
-    # Create hub directory if needed
-    mkdir -p "$hub"
+	# Create hub directory if needed
+	mkdir -p "$hub"
 
-    # Create the worktree
-    echo "Creating worktree at $worktree_path"
-    if [[ -n "$base" ]]; then
-        git worktree add -b "$branch" "$worktree_path" "$base"
-    else
-        git worktree add "$worktree_path" "$branch"
-    fi
+	# Determine creation strategy and execute
+	if [[ -n "$base" ]]; then
+		# Explicit base: create new branch from specified base
+		echo "Creating worktree at $worktree_path"
+		echo "  Branch: $branch (new, from $base)"
+		git worktree add -b "$branch" "$worktree_path" "$base"
+	elif git show-ref --verify --quiet "refs/heads/$branch"; then
+		# Branch exists locally: check it out
+		echo "Creating worktree at $worktree_path"
+		echo "  Branch: $branch (existing)"
+		git worktree add "$worktree_path" "$branch"
+	else
+		# Branch doesn't exist: create from HEAD
+		echo "Creating worktree at $worktree_path"
+		echo "  Branch: $branch (new, from HEAD)"
+		git worktree add -b "$branch" "$worktree_path" HEAD
+	fi
 
-    echo ""
-    echo "cd $worktree_path"
+	# Run post-creation setup (bun install, mise trust)
+	post_worktree_setup "$worktree_path"
+
+	echo ""
+	echo "cd $worktree_path"
 }
 
 # --- Main ---
@@ -497,65 +555,65 @@ stack_id=""
 delete_branches="false"
 
 while [[ $# -gt 0 ]]; do
-    case "$1" in
-        -h|--help) usage 0 ;;
-        -b|--base)
-            [[ $# -lt 2 ]] && die "$1 requires an argument"
-            base="$2"
-            shift 2
-            ;;
-        --stack)
-            mode="stack-create"
-            if [[ $# -ge 2 && ! "$2" =~ ^- ]]; then
-                stack_json="$2"
-                shift 2
-            else
-                stack_json=$(cat)
-                shift
-            fi
-            ;;
-        --stack-status)
-            mode="stack-status"
-            if [[ $# -ge 2 && ! "$2" =~ ^- ]]; then
-                stack_id="$2"
-                shift 2
-            else
-                shift
-            fi
-            ;;
-        --stack-cleanup)
-            mode="stack-cleanup"
-            if [[ $# -ge 2 && ! "$2" =~ ^- ]]; then
-                stack_id="$2"
-                shift 2
-            else
-                shift
-            fi
-            ;;
-        --delete-branches)
-            delete_branches="true"
-            shift
-            ;;
-        -*) die "unknown option $1" ;;
-        *) break ;;
-    esac
+	case "$1" in
+	-h | --help) usage 0 ;;
+	-b | --base)
+		[[ $# -lt 2 ]] && die "$1 requires an argument"
+		base="$2"
+		shift 2
+		;;
+	--stack)
+		mode="stack-create"
+		if [[ $# -ge 2 && ! "$2" =~ ^- ]]; then
+			stack_json="$2"
+			shift 2
+		else
+			stack_json=$(cat)
+			shift
+		fi
+		;;
+	--stack-status)
+		mode="stack-status"
+		if [[ $# -ge 2 && ! "$2" =~ ^- ]]; then
+			stack_id="$2"
+			shift 2
+		else
+			shift
+		fi
+		;;
+	--stack-cleanup)
+		mode="stack-cleanup"
+		if [[ $# -ge 2 && ! "$2" =~ ^- ]]; then
+			stack_id="$2"
+			shift 2
+		else
+			shift
+		fi
+		;;
+	--delete-branches)
+		delete_branches="true"
+		shift
+		;;
+	-*) die "unknown option $1" ;;
+	*) break ;;
+	esac
 done
 
 case "$mode" in
-    stack-create)
-        [[ -z "$stack_json" ]] && die "--stack requires JSON input"
-        stack_create "$stack_json"
-        ;;
-    stack-status)
-        stack_status "$stack_id"
-        ;;
-    stack-cleanup)
-        stack_cleanup "$stack_id" "$delete_branches"
-        ;;
-    single)
-        [[ $# -lt 1 ]] && usage 1
-        name="$1"
-        branch="${2:-$name}"
-        single_worktree "$base" "$name" "$branch"
-        ;;
+stack-create)
+	[[ -z "$stack_json" ]] && die "--stack requires JSON input"
+	stack_create "$stack_json"
+	;;
+stack-status)
+	stack_status "$stack_id"
+	;;
+stack-cleanup)
+	stack_cleanup "$stack_id" "$delete_branches"
+	;;
+single)
+	[[ $# -lt 1 ]] && usage 1
+	name="$1"
+	branch="${2:-$name}"
+	single_worktree "$base" "$name" "$branch"
+	;;
 esac
