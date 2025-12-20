@@ -86,6 +86,58 @@ Markdown report with:
 - Recommendations
 ```
 
+## Agent Types: Execute vs Teach
+
+Two complementary patterns for delegating work to subagents:
+
+| Type | Purpose | Main agent after |
+|------|---------|------------------|
+| **Execute** | Does the work, returns results | Has answer, can't replicate |
+| **Teach** | Discovers capabilities, returns instructions | Has knowledge, can execute & follow-up |
+
+### Execute Agent
+
+Does the work autonomously and returns synthesized results. Schema/tool costs stay isolated in subagent context.
+
+```markdown
+# Research Agent (Execute)
+
+You execute research queries and return synthesized results.
+
+## Step 1: Find sources
+## Step 2: Execute queries
+## Step 3: Return synthesized answer with citations
+```
+
+**Use when:** Main agent needs results, not capability.
+
+### Teach Agent
+
+Discovers tools/patterns and returns actionable instructions the main agent can execute directly.
+
+```markdown
+# Research Teacher (Teach)
+
+Discover tools and return **exact, copy-paste ready** call syntax.
+
+## Step 1: Discover available tools
+## Step 2: Inspect tool signatures
+## Step 3: Return executable instructions
+
+Example output:
+Setup: `mcp-add "server"` ⚠️ ~16k tokens
+Call: `mcp-exec name="tool" arguments={...}`
+```
+
+**Use when:** Main agent needs to learn and do follow-ups.
+
+### Choosing Between Patterns
+
+- One-shot query → **Execute** (isolates cost, returns answer)
+- Conversational/follow-ups needed → **Teach** (transfers knowledge)
+- Expensive tool discovery → **Teach** (subagent pays cost, main agent learns)
+
 ## Reference Implementation
 
 See `orchestration/agents/architect.md` for a production example.
+See `claude-meta-tools/agents/research-agent.md` (Execute) and `research-teacher.md` (Teach).
