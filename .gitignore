@@ -3,7 +3,9 @@
 !.claude/rules/
 !.claude/CLAUDE.md
 !.claude/git/
+!.claude/scripts/
 !.claude/settings.json
+!.claude/__settings.jsonc
 
 # Python
 __pycache__/
