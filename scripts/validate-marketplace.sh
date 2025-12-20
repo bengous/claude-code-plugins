@@ -27,7 +27,7 @@ else
 fi
 
 pass() { echo -e "  ${GREEN}✓${RESET} $1"; }
-fail() { echo -e "  ${RED}✗${RESET} $1"; ((ERRORS++)); }
+fail() { echo -e "  ${RED}✗${RESET} $1"; ((ERRORS++)) || true; }
 
 # Check dependencies
 if ! command -v jq &>/dev/null; then
@@ -130,6 +130,31 @@ for i in $(seq 0 $((PLUGIN_COUNT - 1))); do
 
   echo ""
 done
+
+# Check README.md versions match marketplace.json
+README_FILE="README.md"
+if [[ -f "$README_FILE" ]]; then
+  echo -e "${BOLD}README.md${RESET}"
+
+  README_ERRORS=0
+  for i in $(seq 0 $((PLUGIN_COUNT - 1))); do
+    MP_NAME=$(jq -r ".plugins[$i].name" "$MARKETPLACE_FILE")
+    MP_VERSION=$(jq -r ".plugins[$i].version // empty" "$MARKETPLACE_FILE")
+
+    # Look for version in README table (pattern: | plugin-name... | X.Y.Z |)
+    if README_VERSION=$(grep -oP "\[$MP_NAME\][^\|]+\|\s*\K[0-9]+\.[0-9]+\.[0-9]+" "$README_FILE" 2>/dev/null); then
+      if [[ "$README_VERSION" != "$MP_VERSION" ]]; then
+        fail "README version mismatch: $MP_NAME ($README_VERSION != $MP_VERSION)"
+        README_ERRORS=1
+      fi
+    fi
+  done
+
+  if [[ $README_ERRORS -eq 0 ]]; then
+    pass "Versions match marketplace.json"
+  fi
+  echo ""
+fi
 
 # Summary
 echo "─────────────────────────────"
