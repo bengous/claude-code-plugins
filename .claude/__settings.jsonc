@@ -249,17 +249,17 @@
   // Enabled Plugins
   // ─────────────────────────────────────────────────────────────────────────
   //
-  // Plugins from this marketplace (bengolea-plugins) and claude-code-plugins.
+  // Plugins from this marketplace (bengous-plugins) and claude-code-plugins.
   // Set to false to disable without removing.
   //
   "enabledPlugins": {
     // This marketplace
-    "claude-meta-tools@bengolea-plugins": true,
-    "claude-orchestration@bengolea-plugins": true,
-    "claude-settings-manager@bengolea-plugins": true,
-    "code-quality@bengolea-plugins": true,
-    "git-tools@bengolea-plugins": true,
-    "mermaid-diagrams@bengolea-plugins": true,
+    "claude-meta-tools@bengous-plugins": true,
+    "claude-orchestration@bengous-plugins": true,
+    "claude-settings-manager@bengous-plugins": true,
+    "code-quality@bengous-plugins": true,
+    "git-tools@bengous-plugins": true,
+    "mermaid-diagrams@bengous-plugins": true,
 
     // claude-code-plugins marketplace
     "code-review@claude-code-plugins": true,
