@@ -1,17 +1,6 @@
 pre-commit:
   jobs:
-    - name: block-settings-json
-      priority: 0
-      glob: ".claude/settings.json"
-      run: ./.claude/git/block-settings-json.sh
-    - name: sync-settings
-      priority: 1
-      glob: ".claude/__settings.jsonc"
-      run: |
-        ./.claude/scripts/settings-sync.sh
-        git add .claude/settings.json
     - name: validate-marketplace
-      priority: 2
       glob:
         - ".claude-plugin/*.json"
         - "*/.claude-plugin/*.json"
