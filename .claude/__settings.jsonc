@@ -1,10 +1,281 @@
-// Claude Code Settings (JSONC - comments allowed)
-//
-// This file is the source of truth. Edit this file, not settings.json.
-// Changes sync automatically on commit.
-//
-// Schema: https://json.schemastore.org/claude-code-settings.json
-
 {
-  "$schema": "https://json.schemastore.org/claude-code-settings.json"
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Git & Output
+  // ─────────────────────────────────────────────────────────────────────────
+  "includeCoAuthoredBy": false,  // Don't add "Co-authored-by: Claude" to commits
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Model & Thinking
+  // ─────────────────────────────────────────────────────────────────────────
+  "model": "opus",                    // Default model for new conversations
+  "alwaysThinkingEnabled": true,      // Extended thinking for complex tasks
+  "hasOpusPlanDefault": true,         // Use Opus for planning mode
+  "autoCompactEnabled": false,        // Manual control over context compaction
+  "autoUpdates": true,
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Permissions
+  // ─────────────────────────────────────────────────────────────────────────
+  //
+  // Philosophy: Auto-allow safe read/exploration commands, explicitly deny
+  // anything that could leak secrets or cause damage.
+  //
+  "permissions": {
+    "defaultMode": "default",
+
+    // Commands that run without confirmation
+    "allow": [
+      // System exploration (read-only)
+      "Bash(tree:*)",
+      "Bash(ls:*)",
+      "Bash(cat:*)",
+      "Bash(find:*)",
+      "Bash(grep:*)",
+
+      // Package manager queries (Arch Linux)
+      "Bash(pacman -Q:*)",   // Query installed packages
+      "Bash(pacman -Ss:*)",  // Search repos
+      "Bash(pacman -Si:*)",  // Package info
+      "Bash(pacman -Ql:*)",  // List package files
+
+      // Git operations (most are safe)
+      "Bash(git:*)",
+      "Bash(gh:*)",
+
+      // Node.js ecosystem
+      "Bash(npm:*)",
+      "Bash(pnpm:*)",
+      "Bash(npx:*)",
+      "Bash(pnpx:*)",
+      "Bash(node:*)",
+
+      // File operations (review changes in git)
+      "Bash(mkdir:*)",
+      "Bash(mv:*)",
+      "Bash(cp:*)",
+      "Bash(rm:*)",
+      "Bash(chmod:*)",
+      "Bash(sed:*)",
+      "Bash(curl:*)",
+      "Bash(bash:*)",
+      "Bash(xargs:*)",
+
+      // Web access for documentation
+      "WebSearch",
+      "WebFetch(domain:github.com)",
+      "WebFetch(domain:code.claude.com)",
+      "WebFetch(domain:www.npmjs.com)"
+    ],
+
+    // Commands that require confirmation
+    "ask": [
+      "Bash(pacman -S:*)",   // Install packages
+      "Bash(pacman -U:*)",   // Install local packages
+      "Bash(pacman -R:*)"    // Remove packages
+    ],
+
+    // ─────────────────────────────────────────────────────────────────────
+    // DENY LIST - Security-critical operations
+    // ─────────────────────────────────────────────────────────────────────
+    //
+    // These commands are NEVER allowed, even with confirmation.
+    // Organized by category for maintainability.
+    //
+    "deny": [
+      // ═══════════════════════════════════════════════════════════════════
+      // Secret/Password Managers
+      // ═══════════════════════════════════════════════════════════════════
+      "Bash(pass :*)",
+      "Bash(pass)",
+      "Bash(bw get:*)",       // Bitwarden CLI
+      "Bash(bw get)",
+      "Bash(bw list:*)",
+      "Bash(bw list)",
+      "Bash(bw export:*)",
+      "Bash(bw export)",
+      "Bash(secret-tool :*)", // GNOME keyring
+      "Bash(secret-tool)",
+      "Bash(keyctl :*)",      // Linux kernel keyring
+      "Bash(keyctl)",
+
+      // ═══════════════════════════════════════════════════════════════════
+      // Encryption/Decryption Tools
+      // ═══════════════════════════════════════════════════════════════════
+      "Bash(age -d :*)",
+      "Bash(age -d)",
+      "Bash(age --decrypt:*)",
+      "Bash(gpg -d :*)",
+      "Bash(gpg -d)",
+      "Bash(gpg --decrypt:*)",
+      "Bash(sops -d :*)",
+      "Bash(sops -d)",
+      "Bash(sops --decrypt:*)",
+      "Bash(openssl enc -d:*)",
+      "Bash(ansible-vault decrypt:*)",
+      "Bash(vault :*)",       // HashiCorp Vault
+      "Bash(vault)",
+
+      // ═══════════════════════════════════════════════════════════════════
+      // Environment & Credential Inspection
+      // ═══════════════════════════════════════════════════════════════════
+      "Bash(env :*)",
+      "Bash(env)",
+      "Bash(printenv :*)",
+      "Bash(printenv)",
+      "Bash(export -p :*)",
+      "Bash(export -p)",
+      "Bash(set :*)",
+      "Bash(set)",
+      "Bash(declare -p:*)",
+      "Bash(history :*)",
+      "Bash(fc -l:*)",
+
+      // ═══════════════════════════════════════════════════════════════════
+      // Cloud & Infrastructure Credentials
+      // ═══════════════════════════════════════════════════════════════════
+      "Bash(aws configure list:*)",
+      "Bash(aws configure get:*)",
+      "Bash(gcloud auth :*)",
+      "Bash(gcloud auth)",
+      "Bash(kubectl config view :*)",
+      "Bash(kubectl config view)",
+      "Bash(docker secret :*)",
+      "Bash(docker secret)",
+      "Bash(git config --get credential :*)",
+      "Bash(git config --get credential)",
+      "Bash(ssh-add -L :*)",
+      "Bash(ssh-add -L)",
+      "Bash(ssh-add -l:*)",
+
+      // ═══════════════════════════════════════════════════════════════════
+      // Sensitive File Reads (via Read tool)
+      // ═══════════════════════════════════════════════════════════════════
+      "Read(~/.ssh/id_*)",
+      "Read(~/.ssh/*_key)",
+      "Read(~/.netrc)",
+      "Read(~/.npmrc)",
+      "Read(~/.pypirc)",
+      "Read(~/.git-credentials)",
+      "Read(~/.aws/credentials)",
+      "Read(~/.aws/config)",
+      "Read(~/.config/gcloud/**)",
+      "Read(~/.kube/config)",
+      "Read(~/.docker/config.json)",
+      "Read(~/.pgpass)",
+      "Read(~/.my.cnf)",
+      "Read(~/.gnupg/**)",
+      "Read(~/.password-store/**)",
+      "Read(~/.config/age/**)",
+
+      // Project secrets
+      "Read(**/.env)",
+      "Read(**/.env.*)",
+      "Read(**/secrets.yml)",
+      "Read(**/secrets.yaml)",
+      "Read(**/vault.yml)",
+      "Read(**/vault.yaml)",
+      "Read(**/credentials.json)",
+      "Read(./secrets/**)",
+
+      // ═══════════════════════════════════════════════════════════════════
+      // Destructive System Commands
+      // ═══════════════════════════════════════════════════════════════════
+      "Bash(sudo:*)",
+      "Bash(rm -rf:*)",
+      "Bash(mkfs:*)",
+      "Bash(fdisk:*)",
+      "Bash(parted:*)",
+      "Bash(shutdown:*)",
+      "Bash(reboot:*)",
+      "Bash(chown -R:*)",
+
+      // ═══════════════════════════════════════════════════════════════════
+      // .env File Access Prevention (all common tools)
+      // ═══════════════════════════════════════════════════════════════════
+      "Bash(cat .env:*)",
+      "Bash(cat ./.env:*)",
+      "Bash(cat ./secrets/:*)",
+      "Bash(less .env:*)",
+      "Bash(less ./.env:*)",
+      "Bash(less ./secrets/:*)",
+      "Bash(more .env:*)",
+      "Bash(more ./.env:*)",
+      "Bash(more ./secrets/:*)",
+      "Bash(head .env:*)",
+      "Bash(head ./.env:*)",
+      "Bash(head ./secrets/:*)",
+      "Bash(tail .env:*)",
+      "Bash(tail ./.env:*)",
+      "Bash(tail ./secrets/:*)",
+      "Bash(strings .env:*)",
+      "Bash(strings ./.env:*)",
+      "Bash(strings ./secrets/:*)",
+      "Bash(grep .env:*)",
+      "Bash(grep ./.env:*)",
+      "Bash(grep ./secrets/:*)",
+      "Bash(awk .env:*)",
+      "Bash(awk ./.env:*)",
+      "Bash(awk ./secrets/:*)",
+      "Bash(sed .env:*)",
+      "Bash(sed ./.env:*)",
+      "Bash(sed ./secrets/:*)",
+      "Bash(nano .env:*)",
+      "Bash(nano ./.env:*)",
+      "Bash(nano ./secrets/:*)",
+      "Bash(vim .env:*)",
+      "Bash(vim ./.env:*)",
+      "Bash(vim ./secrets/:*)",
+      "Bash(nvim .env:*)",
+      "Bash(nvim ./.env:*)",
+      "Bash(nvim ./secrets/:*)",
+      "Bash(vi .env:*)",
+      "Bash(vi ./.env:*)",
+      "Bash(vi ./secrets/:*)",
+      "Bash(code .env:*)",
+      "Bash(code ./.env:*)",
+      "Bash(code ./secrets/:*)",
+      "Bash(cp .env:*::*)",
+      "Bash(cp ./.env:*::*)",
+      "Bash(cp ./secrets/:*::*)",
+      "Bash(mv .env:*::*)",
+      "Bash(mv ./.env:*::*)",
+      "Bash(mv ./secrets/:*::*)"
+    ]
+  },
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Enabled Plugins
+  // ─────────────────────────────────────────────────────────────────────────
+  //
+  // Plugins from this marketplace (bengolea-plugins) and claude-code-plugins.
+  // Set to false to disable without removing.
+  //
+  "enabledPlugins": {
+    // This marketplace
+    "claude-meta-tools@bengolea-plugins": true,
+    "claude-orchestration@bengolea-plugins": true,
+    "claude-settings-manager@bengolea-plugins": true,
+    "code-quality@bengolea-plugins": true,
+    "git-tools@bengolea-plugins": true,
+    "mermaid-diagrams@bengolea-plugins": true,
+
+    // claude-code-plugins marketplace
+    "code-review@claude-code-plugins": true,
+    "commit-commands@claude-code-plugins": true,
+    "feature-dev@claude-code-plugins": true,
+    "frontend-design@claude-code-plugins": true,
+    "plugin-dev@claude-code-plugins": true,
+    "pr-review-toolkit@claude-code-plugins": true,
+    "ralph-wiggum@claude-code-plugins": true,
+
+    // Output styles (learning mode includes explanatory)
+    "explanatory-output-style@claude-code-plugins": true,
+    "learning-output-style@claude-code-plugins": true,
+
+    // LSP integrations
+    "typescript-lsp@claude-plugins-official": true,
+    "vtsls@claude-code-lsps": true
+  }
 }
