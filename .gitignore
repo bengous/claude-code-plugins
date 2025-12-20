@@ -1,7 +1,6 @@
-# Claude Code runtime state (keep rules/, reviews/, CLAUDE.md tracked)
+# Claude Code runtime state (keep rules/ and CLAUDE.md tracked)
 .claude/*
 !.claude/rules/
-!.claude/reviews/
 !.claude/CLAUDE.md
 
 # Python
