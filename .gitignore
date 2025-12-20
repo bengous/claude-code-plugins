@@ -1,7 +1,9 @@
-# Claude Code runtime state (keep rules/ and CLAUDE.md tracked)
+# Claude Code runtime state
 .claude/*
 !.claude/rules/
 !.claude/CLAUDE.md
+!.claude/git/
+!.claude/settings.json
 
 # Python
 __pycache__/
