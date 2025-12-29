@@ -5,7 +5,7 @@ allowed-tools:
   - Read
   - Glob
   - Grep
-  - WebFetch
+  - Bash(curl:*)
   - AskUserQuestion
   - Write
   - Edit
@@ -29,12 +29,11 @@ Evaluate prompts (commands, skills, agent docs) against Claude 4 best practices.
 
 Fetch the latest best practices:
 
-```
-WebFetch: https://platform.claude.com/docs/en/build-with-claude/prompt-engineering/claude-4-best-practices
-Prompt: "Extract all prompt engineering best practices, patterns to follow, and anti-patterns to avoid. Be comprehensive."
+```bash
+curl -s "https://platform.claude.com/docs/en/build-with-claude/prompt-engineering/claude-4-best-practices.md"
 ```
 
-**If WebFetch fails**, read the cached fallback:
+**If curl fails**, read the cached fallback:
 `${CLAUDE_PLUGIN_ROOT}/references/claude4-best-practices.md`
 
 ## Step 3: Analyze
