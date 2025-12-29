@@ -1,11 +1,19 @@
 {
   "name": "claude-meta-tools",
-  "version": "1.6.1",
+  "version": "1.7.0",
   "description": "Meta-tools for Claude Code: maintain documentation (CLAUDE.md sync), create skills, validate skill structure, prompt auditing, and extend Claude capabilities",
   "author": {
     "name": "Augustin BENGOLEA",
     "email": "bengous@protonmail.com"
   },
   "license": "Apache-2.0",
-  "keywords": ["claude.md", "documentation", "skills", "creation", "validation", "utilities", "workflow"]
+  "keywords": [
+    "claude.md",
+    "documentation",
+    "skills",
+    "creation",
+    "validation",
+    "utilities",
+    "workflow"
+  ]
 }
