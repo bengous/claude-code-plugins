@@ -5,6 +5,7 @@ model: sonnet
 allowed-tools:
   - Bash(gh:*)
   - Bash(git:*)
+  - AskUserQuestion
 ---
 
 Monitor CI checks on a PR. When all checks pass, merge the PR and update the local branch to include the merged changes.
@@ -23,25 +24,33 @@ gh pr view <pr> --json number,baseRefName,commits,title
 gh pr checks <pr>
 ```
 
-### 2. Monitor CI
+### 2. Ask merge strategy
+
+Use **AskUserQuestion** to let the user choose:
+
+**Question:** "How should this PR be merged?"
+**Header:** "Merge"
+**Options:**
+1. **Squash** - Combine all commits into one
+2. **Merge** - Keep individual commits
+
+Include the commit count and titles in the question context so the user can make an informed decision.
+
+### 3. Monitor CI
 
 Poll `gh pr checks` until all checks complete. Report status changes as they occur.
 
 **If checks fail:** Stop and report which checks failed. Do not attempt to merge.
 
-### 3. Merge
+### 4. Merge
 
-When all checks pass, merge the PR:
+When all checks pass, merge the PR using the strategy chosen in step 2.
 
-**Merge strategy decision:**
-- Use `--squash` if: single commit, or commit messages are low-quality (fixup, WIP, typo fixes)
-- Use `--merge` if: multiple commits with clear, purposeful messages that tell a story
-
-Execute: `gh pr merge <pr> --delete-branch` with the chosen strategy.
+Execute: `gh pr merge <pr> --delete-branch` with `--squash` or `--merge` accordingly.
 
 **If merge fails:** Report the error (conflicts, branch protection, etc). Do not retry.
 
-### 4. Update local
+### 5. Update local
 
 Checkout the base branch and pull:
 ```bash
@@ -49,6 +58,6 @@ git checkout <baseRefName>
 git pull
 ```
 
-### 5. Report outcome
+### 6. Report outcome
 
 Summarize: PR merged, strategy used, local branch updated.

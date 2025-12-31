@@ -19,8 +19,8 @@ A curated marketplace of Claude Code plugins for development workflow automation
 | Plugin | Version | Description |
 |--------|---------|-------------|
 | [claude-orchestration](orchestration/) | 2.3.0 | Multi-agent orchestration with git worktree isolation |
-| [git-tools](git-tools/) | 1.8.0 | AI-assisted git commands, PR/issue triage, interactive rebase |
-| [code-quality](code-quality/) | 1.2.0 | Code cleanup and maintainability tools |
+| [git-tools](git-tools/) | 1.9.0 | AI-assisted git commands, PR/issue triage, interactive rebase |
+| [code-quality](code-quality/) | 1.3.0 | Code cleanup and maintainability tools |
 | [mermaid-diagrams](mermaid-diagrams/) | 1.0.0 | Create and edit Mermaid diagrams |
 | [claude-meta-tools](claude-meta-tools/) | 1.7.0 | CLAUDE.md sync, research tools, and skill creation utilities |
 | [claude-settings-manager](claude-settings-manager/) | 1.1.0 | JSONC settings management with schema extraction |
