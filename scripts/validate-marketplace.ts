@@ -7,6 +7,16 @@
 import { $ } from "bun";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
+import {
+  validateNameMatch,
+  validateVersionSync,
+  validateRequiredFields,
+  extractVersionFromReadme,
+  validateReadmeVersion,
+  type PluginEntry,
+  type PluginJson,
+  type ValidationResult,
+} from "./lib/marketplace-validation";
 
 // Colors (disabled if not a terminal)
 const isTTY = process.stdout.isTTY;
@@ -23,8 +33,16 @@ const fail = (msg: string) => {
   errors++;
 };
 
+const report = (result: ValidationResult) => {
+  if (result.passed) {
+    pass(result.message);
+  } else {
+    fail(result.message);
+  }
+};
+
 // Get repo root
-const repoRootResult = await $`git rev-parse --show-toplevel`.quiet();
+const repoRootResult = await $`git rev-parse --show-toplevel`.nothrow().quiet();
 if (repoRootResult.exitCode !== 0) {
   console.error("Error: Not in a git repository");
   process.exit(2);
@@ -41,13 +59,6 @@ if (!existsSync(marketplaceFile)) {
 }
 
 // Load and validate marketplace.json
-interface PluginEntry {
-  name: string;
-  source: string;
-  version?: string;
-  description?: string;
-}
-
 interface Marketplace {
   plugins: PluginEntry[];
 }
@@ -87,12 +98,6 @@ for (const mp of marketplace.plugins) {
   }
 
   // Load plugin.json
-  interface PluginJson {
-    name?: string;
-    version?: string;
-    description?: string;
-  }
-
   let pluginJson: PluginJson;
   try {
     pluginJson = await Bun.file(pluginJsonPath).json();
@@ -103,37 +108,13 @@ for (const mp of marketplace.plugins) {
   }
 
   // Check 3: Name matches
-  if (mp.name === pluginJson.name) {
-    pass("Name matches");
-  } else {
-    fail(`Name mismatch: marketplace=${mp.name}, plugin=${pluginJson.name}`);
-  }
+  report(validateNameMatch(mp.name, pluginJson.name));
 
   // Check 4: Version synced
-  if (!mp.version) {
-    fail("Version missing in marketplace.json");
-  } else if (!pluginJson.version) {
-    fail("Version missing in plugin.json");
-  } else if (mp.version === pluginJson.version) {
-    pass(`Version synced (${mp.version})`);
-  } else {
-    fail(`Version mismatch: marketplace=${mp.version}, plugin=${pluginJson.version}`);
-  }
+  report(validateVersionSync(mp.version, pluginJson.version));
 
   // Check 5: Required fields present
-  const missingFields: string[] = [];
-  if (!mp.name) missingFields.push("marketplace:name");
-  if (!mp.version) missingFields.push("marketplace:version");
-  if (!mp.description) missingFields.push("marketplace:description");
-  if (!pluginJson.name) missingFields.push("plugin:name");
-  if (!pluginJson.version) missingFields.push("plugin:version");
-  if (!pluginJson.description) missingFields.push("plugin:description");
-
-  if (missingFields.length === 0) {
-    pass("Required fields present");
-  } else {
-    fail(`Missing fields: ${missingFields.join(", ")}`);
-  }
+  report(validateRequiredFields(mp, pluginJson));
 
   console.log();
 }
@@ -148,14 +129,11 @@ if (existsSync(readmeFile)) {
   for (const mp of marketplace.plugins) {
     if (!mp.version) continue;
 
-    // Match pattern: [plugin-name]... | X.Y.Z |
-    const pattern = new RegExp(`\\[${mp.name}\\][^|]+\\|\\s*([0-9]+\\.[0-9]+\\.[0-9]+)`);
-    const match = readmeContent.match(pattern);
-
-    if (match) {
-      const readmeVersion = match[1];
-      if (readmeVersion !== mp.version) {
-        fail(`README version mismatch: ${mp.name} (${readmeVersion} != ${mp.version})`);
+    const readmeVersion = extractVersionFromReadme(readmeContent, mp.name);
+    if (readmeVersion) {
+      const result = validateReadmeVersion(readmeVersion, mp.version, mp.name);
+      if (!result.passed) {
+        fail(result.message);
         readmeErrors++;
       }
     }

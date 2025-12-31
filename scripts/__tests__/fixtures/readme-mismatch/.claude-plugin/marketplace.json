@@ -1,0 +1,11 @@
+{
+  "name": "test-marketplace",
+  "plugins": [
+    {
+      "name": "plugin-a",
+      "source": "./plugin-a",
+      "version": "2.0.0",
+      "description": "A test plugin"
+    }
+  ]
+}
