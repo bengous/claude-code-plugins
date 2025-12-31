@@ -14,4 +14,4 @@ pre-commit:
       glob:
         - ".claude-plugin/*.json"
         - "*/.claude-plugin/*.json"
-      run: bun ./scripts/validate-marketplace.ts
+      run: ./scripts/validate-marketplace.ts
