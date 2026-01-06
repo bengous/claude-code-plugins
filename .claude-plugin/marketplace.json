@@ -93,8 +93,8 @@
     },
     {
       "name": "claude-meta-tools",
-      "description": "Meta-tools for Claude Code: maintain documentation (CLAUDE.md sync), create skills, validate skill structure, prompt auditing, and extend Claude capabilities",
-      "version": "1.7.2",
+      "description": "Meta-tools for Claude Code: maintain documentation (CLAUDE.md sync), create skills, validate skill structure, prompt coaching/auditing, and extend Claude capabilities",
+      "version": "1.8.0",
       "author": {
         "name": "Augustin BENGOLEA",
         "email": "bengous@protonmail.com"
@@ -108,7 +108,8 @@
         "creation",
         "validation",
         "utilities",
-        "workflow"
+        "workflow",
+        "prompt-coaching"
       ],
       "source": "./claude-meta-tools"
     },
