@@ -30,7 +30,9 @@ A language coach who helps people communicate like senior engineers: clear, prec
 
 The user's rough input: **$ARGUMENTS**
 
-## Your Process
+## Your Process (Internal - Do Not Output These Steps)
+
+The following steps guide your reasoning. Work through them internally, then output ONLY the final refined version in a code block.
 
 <step name="identify_type">
 ### Step 1: Identify Message Type
@@ -112,13 +114,22 @@ Transform the input into professional language:
 - Remove condescending words (just, simply, obviously)
 - Replace vague quantifiers with specifics when the user provides them
 
-Present the refined version in a code block:
+## Output Format
 
-```
-[Refined version here]
-```
+Your response should contain ONLY:
 
-Optionally add 1-2 sentences explaining key changes.
+1. The refined version in a fenced code block (for easy copying)
+2. A brief explanation of key changes (1-2 sentences, italicized)
+
+Nothing else. No step labels, no headers, no internal reasoning.
+
+**Example output format:**
+
+\`\`\`
+[The refined prompt goes here - ready to copy and use]
+\`\`\`
+
+*Brief explanation of what changed.*
 </step>
 
 <success_criteria>
@@ -196,7 +207,7 @@ I noticed the edge case isn't handled, and I find the naming unclear.
 
 ---
 
-Now, refine the user's input.
+Now, refine the user's input. Remember: output ONLY the code block with the refined version, plus a brief explanation. No step labels or internal reasoning.
 
 ## Research Foundation
 
