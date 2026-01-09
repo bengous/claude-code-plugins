@@ -22,7 +22,7 @@ A curated marketplace of Claude Code plugins for development workflow automation
 | [git-tools](git-tools/) | 1.9.0 | AI-assisted git commands, PR/issue triage, interactive rebase |
 | [code-quality](code-quality/) | 1.3.0 | Code cleanup and maintainability tools |
 | [mermaid-diagrams](mermaid-diagrams/) | 1.0.0 | Create and edit Mermaid diagrams |
-| [claude-meta-tools](claude-meta-tools/) | 1.8.0 | CLAUDE.md sync, research tools, prompt coaching, and skill creation |
+| [claude-meta-tools](claude-meta-tools/) | 1.8.1 | CLAUDE.md sync, research tools, prompt coaching, and skill creation |
 | [claude-settings-manager](claude-settings-manager/) | 1.1.0 | JSONC settings management with schema extraction |
 | [git-worktree](git-worktree/) | 1.2.0 | Enforce consistent worktree locations |
 
