@@ -1,0 +1,52 @@
+# =============================================================================
+# Notify Dependent Repo (Cross-repo Dependency Trigger)
+# =============================================================================
+# Deploy to: .github/workflows/notify-dependent.yml in SOURCE repo
+#
+# USE THIS WHEN:
+#   - Another repo depends on specific files in this repo
+#   - Changes to those files should trigger a rebuild in the dependent repo
+#   - Example: CV data changes -> Journal site rebuilds
+#
+# HOW IT WORKS:
+#   When watched files change, triggers workflow_dispatch on dependent repo.
+#   Dependent repo rebuilds with fresh data.
+#
+# TEMPLATE VARIABLES (replace before deployment):
+#   %DEFAULT_BRANCH%         - Your default branch (e.g., main)
+#   %WATCHED_PATH%           - Path pattern to watch (e.g., 'data/cv.yaml')
+#   %DEPENDENT_REPO%         - Target repo (e.g., 'myorg/dependent-repo')
+#   %DEPENDENT_WORKFLOW%     - Workflow file to trigger (e.g., 'deploy.yml')
+#   %DEPENDENT_BRANCH%       - Branch to trigger on (e.g., 'main')
+#   %DEPENDENT_TRIGGER_TOKEN% - Secret name for PAT (e.g., 'DEPENDENT_TRIGGER_TOKEN')
+#
+# PREREQUISITES:
+#   - PAT with Actions: Read and write permission on DEPENDENT repo
+#   - PAT stored as secret in THIS repo
+#   - Dependent repo workflow must accept workflow_dispatch trigger
+# =============================================================================
+
+name: Notify Dependent Repo
+
+on:
+  push:
+    branches: [%DEFAULT_BRANCH%]
+    paths:
+      - '%WATCHED_PATH%'
+
+permissions:
+  contents: read
+
+jobs:
+  trigger-rebuild:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger dependent workflow
+        env:
+          GH_TOKEN: ${{ secrets.%DEPENDENT_TRIGGER_TOKEN% }}
+        run: |
+          echo "Triggering %DEPENDENT_WORKFLOW% in %DEPENDENT_REPO%"
+          gh workflow run %DEPENDENT_WORKFLOW% \
+            --repo %DEPENDENT_REPO% \
+            --ref %DEPENDENT_BRANCH%
+          echo "Workflow triggered successfully"
