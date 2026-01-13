@@ -1,0 +1,94 @@
+# =============================================================================
+# Auto-Update Submodules - Push Model (Parent Repo Workflow)
+# =============================================================================
+# Deploy to: .github/workflows/update-submodules.yml in PARENT repo
+#
+# USE THIS MODEL WHEN:
+#   - Any submodule is private
+#   - You want minimal PAT scope (only parent repo access needed)
+#   - You prefer atomic per-submodule commits
+#
+# HOW IT WORKS:
+#   Submodules push their SHA to parent via repository_dispatch.
+#   Parent updates its gitlink using `git update-index --cacheinfo 160000`.
+#   No submodule checkout required - works with any visibility setting.
+#
+# TEMPLATE VARIABLES (replace before deployment):
+#   %DEFAULT_BRANCH% - Your default branch (e.g., dev, main)
+#
+# PREREQUISITES:
+#   - Each submodule repo has notify-parent.yml workflow
+#   - Each submodule repo has PARENT_REPO_PAT secret
+#   - PAT only needs Contents: Read and write on THIS repo
+# =============================================================================
+
+name: Update Submodule Reference
+
+on:
+  repository_dispatch:
+    types: [submodule-updated]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: submodule-update-${{ github.event.client_payload.submodule_path }}
+  cancel-in-progress: false  # Don't cancel - each update is important
+
+jobs:
+  update-submodule:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Validate payload
+        run: |
+          if [ -z "${{ github.event.client_payload.submodule_path }}" ]; then
+            echo "::error::Missing submodule_path in payload"
+            exit 1
+          fi
+          if [ -z "${{ github.event.client_payload.sha }}" ]; then
+            echo "::error::Missing sha in payload"
+            exit 1
+          fi
+          echo "Updating ${{ github.event.client_payload.submodule_path }} to ${{ github.event.client_payload.sha }}"
+
+      - name: Checkout parent repo
+        uses: actions/checkout@v4
+        with:
+          ref: %DEFAULT_BRANCH%
+          fetch-depth: 1
+
+      - name: Update submodule gitlink
+        id: update
+        run: |
+          SUBMODULE_PATH="${{ github.event.client_payload.submodule_path }}"
+          SUBMODULE_SHA="${{ github.event.client_payload.sha }}"
+
+          # Check if submodule path exists in tree
+          if ! git ls-tree HEAD "$SUBMODULE_PATH" > /dev/null 2>&1; then
+            echo "::error::Submodule path '$SUBMODULE_PATH' not found in repository"
+            exit 1
+          fi
+
+          # Idempotency check - skip if already at this SHA
+          CURRENT_SHA=$(git ls-tree HEAD "$SUBMODULE_PATH" | awk '{print $3}')
+          if [ "$CURRENT_SHA" = "$SUBMODULE_SHA" ]; then
+            echo "Already up to date at $SUBMODULE_SHA"
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          echo "Updating from $CURRENT_SHA to $SUBMODULE_SHA"
+
+          # Update gitlink - mode 160000 is git's special mode for submodule entries
+          git update-index --cacheinfo 160000,"$SUBMODULE_SHA","$SUBMODULE_PATH"
+          echo "changed=true" >> "$GITHUB_OUTPUT"
+
+      - name: Commit and push
+        if: steps.update.outputs.changed == 'true'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          SUBMODULE_NAME=$(basename "${{ github.event.client_payload.submodule_path }}")
+          git commit -m "chore: update $SUBMODULE_NAME submodule"
+          git push origin %DEFAULT_BRANCH%

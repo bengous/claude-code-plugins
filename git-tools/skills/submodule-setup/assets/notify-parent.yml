@@ -1,0 +1,45 @@
+# =============================================================================
+# Notify Parent Repo (Submodule Repo Workflow)
+# =============================================================================
+# Deploy to: .github/workflows/notify-parent.yml in EACH SUBMODULE repo
+#
+# TEMPLATE VARIABLES (replace before deployment):
+#   %PARENT_REPO%    - Full parent repo path (e.g., myorg/myproject)
+#   %DEFAULT_BRANCH% - Your default branch (e.g., dev, main)
+#   %TARGET_DIR%     - Submodule path in parent repo (e.g., apps/journal)
+#
+# PREREQUISITES:
+#   - PARENT_REPO_PAT secret configured in this repo
+#   - PAT must have Contents: Read and write permission on parent repo
+#     (for push model) or repository_dispatch permission (for pull model)
+# =============================================================================
+
+name: Notify Parent Repo
+
+on:
+  push:
+    branches: [%DEFAULT_BRANCH%]
+
+permissions:
+  contents: read
+
+jobs:
+  notify:
+    # Loop guard: don't trigger if this was an automated commit
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger parent repo update
+        uses: peter-evans/repository-dispatch@v3
+        with:
+          token: ${{ secrets.PARENT_REPO_PAT }}
+          repository: %PARENT_REPO%
+          event-type: submodule-updated
+          # Push model requires submodule_path for direct gitlink update
+          # Pull model uses submodule (repo name) for logging only
+          client-payload: |
+            {
+              "submodule_path": "%TARGET_DIR%",
+              "sha": "${{ github.sha }}",
+              "repo": "${{ github.repository }}"
+            }

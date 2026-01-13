@@ -1,0 +1,72 @@
+# =============================================================================
+# Auto-Update Submodules - Pull Model (Parent Repo Workflow)
+# =============================================================================
+# Deploy to: .github/workflows/update-submodules.yml in PARENT repo
+#
+# USE THIS MODEL WHEN:
+#   - All submodules are PUBLIC
+#   - You prefer simpler setup over minimal PAT scope
+#   - You want scheduled fallback sync (every 6 hours)
+#
+# DO NOT USE THIS MODEL WHEN:
+#   - Any submodule is PRIVATE (use update-submodules-push.yml instead)
+#   - PAT cannot have read access to all submodule repos
+#
+# HOW IT WORKS:
+#   Parent periodically pulls latest from all submodules.
+#   Requires PAT with read access to every submodule repository.
+#
+# TEMPLATE VARIABLES (replace before deployment):
+#   %DEFAULT_BRANCH% - Your default branch (e.g., dev, main)
+#
+# PREREQUISITES:
+#   - PARENT_REPO_PAT secret configured with:
+#     - Contents: Read and write on parent repo
+#     - Contents: Read on ALL submodule repos (critical for private submodules)
+#     - Workflows: Read and write (optional but recommended)
+# =============================================================================
+
+name: Auto-Update Submodules
+
+on:
+  repository_dispatch:
+    types: [submodule-updated]
+  schedule:
+    - cron: '0 */6 * * *'  # Fallback sync every 6 hours
+  workflow_dispatch:        # Manual trigger from Actions tab
+
+permissions:
+  contents: write
+
+concurrency:
+  group: submodule-update
+  cancel-in-progress: true
+
+jobs:
+  update:
+    # Loop guard: don't run if triggered by bot (prevents infinite loops)
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout with submodules
+        uses: actions/checkout@v4
+        with:
+          ref: %DEFAULT_BRANCH%
+          submodules: recursive
+          fetch-depth: 0
+          token: ${{ secrets.PARENT_REPO_PAT }}
+
+      - name: Update submodules to latest
+        run: git submodule update --init --recursive --remote
+
+      - name: Commit and push if changed
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          if ! git diff --quiet; then
+            git add .
+            # [skip ci] marker prevents triggering other workflows
+            git commit -m "chore(submodules): auto-update to latest [skip ci]"
+            git push origin %DEFAULT_BRANCH%
+          fi
