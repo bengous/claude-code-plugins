@@ -1,6 +1,7 @@
-| name | description | license |
-|------|-------------|---------|
-| system-architecture | Design systems with appropriate complexity—no more, no less. Use this skill when the user asks to architect applications, design system boundaries, or make structural decisions. Generates pragmatic architectures that solve real problems without premature abstraction. | MIT |
+---
+name: system-architecture
+description: Design systems with appropriate complexity—no more, no less. Use this skill when the user asks to architect applications, design system boundaries, or make structural decisions. Generates pragmatic architectures that solve real problems without premature abstraction.
+---
 
 This skill guides creation of system architectures that match actual requirements, not imagined future needs. Design real structures with clear boundaries, explicit trade-offs, and appropriate complexity.
 
