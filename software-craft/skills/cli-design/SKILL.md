@@ -1,6 +1,7 @@
-| name | description | license |
-|------|-------------|---------|
-| cli-design | Create distinctive, user-respecting command-line interfaces with exceptional UX. Use this skill when the user asks to build CLI tools, scripts, or terminal applications. Generates well-crafted CLIs that follow platform conventions and treat users as humans, not machines. | MIT |
+---
+name: cli-design
+description: Create distinctive, user-respecting command-line interfaces with exceptional UX. Use this skill when the user asks to build CLI tools, scripts, or terminal applications. Generates well-crafted CLIs that follow platform conventions and treat users as humans, not machines.
+---
 
 This skill guides creation of command-line interfaces that respect users' time and intelligence. Implement real working CLIs with exceptional attention to ergonomics, error handling, and composability.
 
