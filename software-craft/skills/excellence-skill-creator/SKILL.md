@@ -7,6 +7,78 @@ This skill guides creation of design-excellence skills—skills that transform C
 
 The user provides: a domain (e.g., "API design", "error messages", "database schemas") and optionally context about what makes generic output unacceptable in that domain.
 
+<excellence_workflow>
+## Workflow: Scaffold → Craft → Audit
+
+This skill orchestrates a 3-pass workflow for maximum skill quality.
+
+### Step 0: Choose Workflow
+
+Use AskUserQuestion to determine the workflow:
+
+| Option | When to Use |
+|--------|-------------|
+| **Full workflow** (Recommended) | Creating a new skill from scratch |
+| **Craft + Audit** | SKILL.md already exists, need content |
+| **Craft only** | Quick iteration, skip validation |
+
+### Pass 1: Scaffold (Optional)
+
+Spawn a subagent to create proper skill structure:
+
+```
+Task(subagent_type: "general-purpose", prompt: "
+  Use /skill-creator:init to scaffold a new skill:
+  - Name: <domain>-design (or <domain> if not a design skill)
+  - Path: software-craft/skills/ (or user-specified path)
+
+  Create only the structure. Do not fill in content.
+")
+```
+
+Skip this pass if:
+- User selected "Craft + Audit" or "Craft only"
+- User says "skip scaffolding"
+- SKILL.md already exists at target path
+
+### Pass 2: Craft (Always)
+
+Apply the excellence methodology from this skill:
+1. Identify domain and anti-slop angle
+2. Fill in each section using templates from `<excellence_structure>`
+3. Reference `<excellence_examples>` for domain inspiration
+4. Follow `<excellence_writing_tips>` for quality
+5. Execute `<excellence_process>` step by step
+
+This is the core pass—it transforms structure into quality content.
+
+### Pass 3: Audit (Optional)
+
+Spawn a subagent to validate the skill:
+
+```
+Task(subagent_type: "general-purpose", prompt: "
+  Use /claude-meta-tools:audit-prompt to audit the skill at:
+  <path-to-skill>/SKILL.md
+
+  Check against Claude 4 best practices.
+  Report issues and suggest fixes.
+  Ask user if they want fixes applied automatically.
+")
+```
+
+Skip this pass if:
+- User selected "Craft only"
+- User says "skip audit"
+
+### Workflow Complete
+
+After all passes, present:
+- Summary of what was created
+- Path to the skill file
+- Suggestion to test by invoking the skill
+</excellence_workflow>
+
 <excellence_philosophy>
 ## Philosophy: What Makes a Design-Excellence Skill
 
@@ -198,21 +270,29 @@ When creating a design-excellence skill, identify:
 <excellence_process>
 ## Creation Process
 
-1. **Identify the domain** and its anti-slop angle. What does generic AI output look like here?
+**If using the full workflow**, the passes handle orchestration. Focus on:
 
-2. **Draft design thinking questions**. What must be decided before implementation?
+1. **During Pass 1 (Scaffold)**: Confirm domain name and output path
+2. **During Pass 2 (Craft)**: Execute these steps:
+   - Identify the domain and its anti-slop angle
+   - Draft design thinking questions
+   - List 3-5 key guidelines with good/bad examples
+   - Name 5-10 anti-patterns Claude tends toward
+   - Define 4-6 success criteria
+   - Add complexity guidance
+   - Write the closing principle
+3. **During Pass 3 (Audit)**: Review findings and apply fixes
 
-3. **List 3-5 key guidelines** with concrete good/bad examples for each.
+**If crafting manually** (no workflow), follow the 8 steps:
 
-4. **Name 5-10 anti-patterns** Claude tends toward in this domain. Be specific.
-
-5. **Define 4-6 success criteria** that distinguish excellent from adequate.
-
-6. **Add complexity guidance** for scaling up/down appropriately.
-
-7. **Write the closing principle**. One memorable sentence.
-
-8. **Test by using it**. Does it actually change Claude's output? If the skill could apply to any domain without changes, it's too generic—push further.
+1. Identify domain and anti-slop angle
+2. Draft design thinking questions
+3. List 3-5 key guidelines with examples
+4. Name 5-10 anti-patterns
+5. Define 4-6 success criteria
+6. Add complexity guidance
+7. Write closing principle
+8. Test by using it
 </excellence_process>
 
 Design-excellence skills are opinionated by design. If your skill reads like documentation, it's not a skill—it's a reference. Skills encode judgment. References encode facts. Know the difference.
