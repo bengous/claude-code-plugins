@@ -1,0 +1,15 @@
+{
+  "name": "plan-review",
+  "version": "1.0.0",
+  "description": "Multi-agent plan review workflow requiring architect and simplifier approval before plan execution",
+  "author": "bengous",
+  "repository": "https://github.com/bengous/claude-code-plugins",
+  "license": "MIT",
+  "keywords": [
+    "plan-mode",
+    "review",
+    "multi-agent",
+    "architecture",
+    "simplification"
+  ]
+}

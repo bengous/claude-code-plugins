@@ -158,6 +158,25 @@
         "stack"
       ],
       "source": "./git-worktree"
+    },
+    {
+      "name": "plan-review",
+      "description": "Multi-agent plan review workflow requiring architect and simplifier approval before plan execution",
+      "version": "1.0.0",
+      "author": {
+        "name": "Augustin BENGOLEA",
+        "email": "bengous@protonmail.com"
+      },
+      "homepage": "https://github.com/bengous/claude-code-plugins",
+      "license": "MIT",
+      "keywords": [
+        "plan-mode",
+        "review",
+        "multi-agent",
+        "architecture",
+        "simplification"
+      ],
+      "source": "./plan-review"
     }
   ]
 }
