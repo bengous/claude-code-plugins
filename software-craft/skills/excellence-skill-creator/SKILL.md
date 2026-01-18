@@ -1,11 +1,29 @@
 ---
 name: excellence-skill-creator
-description: Create opinionated, anti-slop skills that encode taste and push Claude toward high-quality output. Use this skill when writing skills like frontend-design, cli-design, or system-architecture—skills that define what good looks like in a domain. Triggers: "create a skill for [domain]", "anti-slop skill", "opinionated skill", "skill like frontend-design". Not for general skill structure (use skill-creator for that).
+description: Create opinionated, anti-slop skills that encode taste. NOT for: general skill structure, reference guides, procedural docs (use skill-creator instead). USE for: frontend-design, cli-design, system-architecture style skills. Triggers: "anti-slop skill", "opinionated skill", "make Claude less generic", "skill like frontend-design", "design-excellence skill".
 ---
 
-This skill guides creation of design-excellence skills—skills that transform Claude from a generic pattern-matcher into an opinionated craftsperson for a specific domain.
+Design-excellence skills transform Claude from a generic pattern-matcher into an opinionated craftsperson. A skill without strong opinions is just documentation with delusions of grandeur.
 
-The user provides: a domain (e.g., "API design", "error messages", "database schemas") and optionally context about what makes generic output unacceptable in that domain.
+The user provides a domain (e.g., "API design", "error messages", "database schemas") and context about what makes generic output unacceptable. If they can't articulate why generic output fails, help them find that angle first—it's the foundation of everything that follows.
+
+<excellence_philosophy>
+## Philosophy: What Makes a Design-Excellence Skill
+
+A design-excellence skill without these five traits is just documentation pretending to have opinions:
+
+1. **Force intentional choices**: Make Claude commit to a direction before touching the keyboard. Intentional choices produce distinctive output; default choices produce forgettable output.
+
+2. **Encode taste, not just rules**: Rules tell you what's legal. Taste tells you what's *good*. Your skill transmits the judgment of someone who has failed enough times to know what actually matters.
+
+3. **Name the anti-patterns**: Claude knows thousands of patterns. Tell it which ones are tired, overused, or inappropriate for this context. The anti-patterns block is often the most valuable section—it's where your hard-won experience becomes actionable guidance.
+
+4. **Define done**: Success criteria prevent the "good enough" trap. If you can't measure it, Claude will satisfice. Measurable outcomes distinguish excellent from adequate.
+
+5. **Match complexity to context**: A TODO app doesn't need microservices. A landing page doesn't need a design system. A skill that over-engineers simple cases teaches Claude to over-engineer everything.
+
+If your skill reads like it could have been written by anyone, it will produce output that could have been written by anyone. Encode your opinions explicitly.
+</excellence_philosophy>
 
 <excellence_workflow>
 ## Workflow: Scaffold → Craft → Audit
@@ -14,62 +32,59 @@ This skill orchestrates a 3-pass workflow for maximum skill quality.
 
 ### Step 0: Choose Workflow
 
-Use AskUserQuestion to determine the workflow:
+Ask the user which workflow fits their situation:
 
 | Option | When to Use |
 |--------|-------------|
-| **Full workflow** (Recommended) | Creating a new skill from scratch |
-| **Craft + Audit** | SKILL.md already exists, need content |
+| **Full workflow** (default) | Creating a new skill from scratch |
+| **Craft + Audit** | SKILL.md structure exists, need content |
 | **Craft only** | Quick iteration, skip validation |
 
-### Pass 1: Scaffold (Optional)
+Default: Full workflow. If SKILL.md already exists, start with Craft.
 
-Spawn a subagent to create proper skill structure:
+### Pass 1: Scaffold
 
-```
-Task(subagent_type: "general-purpose", prompt: "
-  Use /skill-creator:init to scaffold a new skill:
-  - Name: <domain>-design (or <domain> if not a design skill)
-  - Path: software-craft/skills/ (or user-specified path)
+**When to run**: New skill from scratch. Skip if SKILL.md exists.
 
-  Create only the structure. Do not fill in content.
-")
-```
+Invoke skill-creator init with the domain name. If unavailable, create manually:
 
-Skip this pass if:
-- User selected "Craft + Audit" or "Craft only"
-- User says "skip scaffolding"
-- SKILL.md already exists at target path
-
-### Pass 2: Craft (Always)
-
-Apply the excellence methodology from this skill:
-1. Identify domain and anti-slop angle
-2. Fill in each section using templates from `<excellence_structure>`
-3. Reference `<excellence_examples>` for domain inspiration
-4. Follow `<excellence_writing_tips>` for quality
-5. Execute `<excellence_process>` step by step
-
-This is the core pass—it transforms structure into quality content.
-
-### Pass 3: Audit (Optional)
-
-Spawn a subagent to validate the skill:
-
-```
-Task(subagent_type: "general-purpose", prompt: "
-  Use /claude-meta-tools:audit-prompt to audit the skill at:
-  <path-to-skill>/SKILL.md
-
-  Check against Claude 4 best practices.
-  Report issues and suggest fixes.
-  Ask user if they want fixes applied automatically.
-")
+```yaml
+---
+name: [domain]-design
+description: [What it creates]. NOT for: [exclusions]. USE for: [use cases]. Triggers: [5-7 specific phrases].
+---
 ```
 
-Skip this pass if:
-- User selected "Craft only"
-- User says "skip audit"
+The description format matters: state what it does, what it's NOT for (disambiguation), what it IS for, and specific trigger phrases.
+
+### Pass 2: Craft
+
+**When to run**: Always.
+
+Execute these steps in order:
+
+1. Identify the domain and its anti-slop angle
+2. Draft 4-5 design thinking questions that force real decisions
+3. Write 3-5 guidelines with good/bad example pairs
+4. Name 5-10 specific anti-patterns Claude tends toward in this domain
+5. Define 4-6 measurable success criteria
+6. Add complexity matching guidance (what simple cases need vs complex)
+7. Write a closing principle—one memorable sentence
+8. Use the templates in `<excellence_structure>` as scaffolding
+
+This is the core pass. It transforms structure into opinionated content.
+
+### Pass 3: Audit
+
+**When to run**: Recommended. Skip only for quick iterations.
+
+Invoke the audit-prompt skill on the completed SKILL.md. It checks against Claude 4 best practices and suggests fixes.
+
+If audit-prompt isn't available, manually verify:
+- Triggers are specific (not just "create a skill")
+- Examples show concrete good/bad contrast
+- Each guideline explains "why" not just "what"
+- Anti-patterns name specific behaviors, not vague categories
 
 ### Workflow Complete
 
@@ -79,151 +94,23 @@ After all passes, present:
 - Suggestion to test by invoking the skill
 </excellence_workflow>
 
-<excellence_philosophy>
-## Philosophy: What Makes a Design-Excellence Skill
-
-Design-excellence skills share five traits:
-
-1. **Force intentional choices**: Generic output is the enemy. The skill makes Claude commit to a direction before implementation.
-
-2. **Encode taste, not just rules**: Rules tell you what's legal. Taste tells you what's good. A design-excellence skill transmits the judgment of a senior practitioner.
-
-3. **Name the anti-patterns**: Claude knows many patterns. Tell it which ones are tired, overused, or context-inappropriate. The NEVER block is often the most valuable part.
-
-4. **Define done**: Success criteria prevent the "good enough" trap. Measurable outcomes distinguish excellent from adequate.
-
-5. **Match complexity to context**: A TODO app doesn't need microservices. A landing page doesn't need a design system. Guide appropriate scaling.
-
-The best design-excellence skills read like they were written by a senior practitioner with strong opinions—because they encode those opinions explicitly.
-</excellence_philosophy>
-
 <excellence_structure>
 ## Skill Structure Template
 
-Every design-excellence skill contains these sections:
+Every design-excellence skill contains seven sections:
 
-### 1. Opening Context (3-5 sentences)
+**Frontmatter format**: `description: [What]. NOT for: [exclusions]. USE for: [use cases]. Triggers: [phrases].`
 
-What does the user provide? What will the skill produce? Set expectations.
+1. **Opening Context** - What user provides, what skill produces
+2. **Design Thinking** - Questions that force intentionality before implementation
+3. **Domain Guidelines** - "What to do" with good/bad example pairs
+4. **Anti-Patterns Block** - Explicit patterns to avoid with alternatives
+5. **Success Criteria** - Measurable outcomes defining "done right"
+6. **Complexity Matching** - Guidance on scaling appropriately
+7. **Closing Principle** - One memorable sentence capturing the skill's spirit
 
-```markdown
----
-name: [domain]-design
-description: [One sentence on what it creates]. Use this skill when [trigger conditions]. [What it avoids].
----
-
-This skill guides creation of [domain output] that [quality statement].
-
-The user provides [input type]. They may include [optional context].
-```
-
-### 2. Design Thinking Section
-
-Questions the implementer MUST answer before implementation. Forces intentionality.
-
-```markdown
-<[domain]_design_thinking>
-## Design Thinking
-
-Before [implementing/designing/coding], understand the context:
-
-- **[Key question 1]**: [What this question reveals]
-- **[Key question 2]**: [What this question reveals]
-- **[Key question 3]**: [What this question reveals]
-- **[Key question 4]**: [What this question reveals]
-
-[CRITICAL statement about the core principle]
-
-Then implement [output] that is:
-- [Quality 1]
-- [Quality 2]
-- [Quality 3]
-- [Quality 4]
-</[domain]_design_thinking>
-```
-
-### 3. Domain Guidelines
-
-The "what to do" section. Use `<example_good>` and `<example_bad>` patterns.
-
-```markdown
-<[domain]_guidelines>
-## [Domain] Guidelines
-
-### [Aspect 1]
-[Principle explanation]
-
-<example_good title="[Descriptive title]">
-[Good example with context]
-</example_good>
-
-<example_bad title="[Descriptive title]">
-[Bad example - what to avoid]
-</example_bad>
-
-### [Aspect 2]
-[Continue pattern...]
-</[domain]_guidelines>
-```
-
-### 4. Anti-Patterns Block
-
-Explicit list of what NOT to do. Name the patterns Claude tends toward.
-
-```markdown
-<[domain]_anti_patterns>
-## Patterns to Avoid
-
-Avoid [category 1]:
-- [Specific anti-pattern] → Instead: [better approach]
-- [Specific anti-pattern] → Instead: [better approach]
-
-Avoid [category 2]:
-- [Specific anti-pattern] → Instead: [better approach]
-- [Specific anti-pattern] → Instead: [better approach]
-</[domain]_anti_patterns>
-```
-
-### 5. Success Criteria
-
-Measurable outcomes that define "done right."
-
-```markdown
-<[domain]_success_criteria>
-## Success Criteria
-
-Your [output] is well-designed when:
-
-1. **[Criterion name]**: [Measurable/observable statement]
-2. **[Criterion name]**: [Measurable/observable statement]
-3. **[Criterion name]**: [Measurable/observable statement]
-4. **[Criterion name]**: [Measurable/observable statement]
-</[domain]_success_criteria>
-```
-
-### 6. Complexity Matching
-
-Guidance on scaling the solution appropriately.
-
-```markdown
-<[domain]_complexity>
-## Match Complexity to Scope
-
-[Simple case description] needs [simple approach].
-
-[Complex case description] needs [richer approach].
-
-[Guidance on what NOT to add to simple cases]
-</[domain]_complexity>
-```
-
-### 7. Closing Principle
-
-One memorable sentence that captures the skill's spirit.
-
-```markdown
-The best [outputs] feel like they were [created by X with Y characteristic]. [Instruction to channel that energy].
-```
+For detailed templates with markdown examples, see:
+`references/structure-template.md`
 </excellence_structure>
 
 <excellence_examples>
@@ -232,6 +119,24 @@ The best [outputs] feel like they were [created by X with Y characteristic]. [In
 When creating a design-excellence skill, identify:
 - **The domain**: What is being designed?
 - **The anti-slop angle**: What does generic AI output look like? What makes practitioners cringe?
+
+The table below shows the contrast for common domains:
+
+<example_good title="Strong anti-slop contrast">
+| Domain | Generic | Excellence |
+|--------|---------|------------|
+| Error messages | "An error occurred" | Context + cause + recovery path |
+| API design | Every HTTP verb for CRUD | Consistent resources, clear error contracts |
+</example_good>
+
+<example_bad title="Weak anti-slop contrast">
+| Domain | Generic | Excellence |
+|--------|---------|------------|
+| Code | Bad code | Good code |
+| Design | Ugly design | Pretty design |
+</example_bad>
+
+**Full domain reference**:
 
 | Domain | Generic AI Output | Design Excellence |
 |--------|-------------------|-------------------|
@@ -244,6 +149,103 @@ When creating a design-excellence skill, identify:
 | Documentation | Auto-generated from code | Task-oriented, examples-first, explains the "why" |
 | Commit messages | "Fixed bug" / "Updated files" | Context, motivation, what changed and why |
 </excellence_examples>
+
+<excellence_worked_example>
+## Worked Example: Error Messages Skill
+
+A condensed example showing the pattern in action (~60 lines, real skills should be 150-250):
+
+```markdown
+---
+name: error-messages
+description: Create helpful, actionable error messages that guide users to recovery. Use when building error handling, validation feedback, or failure responses. Triggers: "error message", "error handling", "user-friendly errors", "validation messages".
+---
+
+This skill guides creation of error messages that help users recover, not just inform them something broke.
+
+<error_design_thinking>
+## Design Thinking
+
+Before writing error messages:
+- **Audience**: Developer debugging? End user recovering? Both?
+- **Context**: CLI stderr? API JSON? UI toast?
+- **Recovery**: What can the user actually do about it?
+- **Severity**: Fatal? Retryable? Warning?
+
+Error messages are micro-documentation. Treat them with the same care.
+</error_design_thinking>
+
+<error_guidelines>
+## Guidelines
+
+### Always Include a Recovery Path
+
+<example_good title="Actionable error">
+Error: Cannot connect to database at localhost:5432
+
+Possible causes:
+- PostgreSQL is not running
+- Wrong port (check DATABASE_URL)
+- Firewall blocking connection
+
+Try: pg_isready -h localhost -p 5432
+Docs: https://docs.app.com/troubleshooting/db
+</example_good>
+
+<example_bad title="Dead-end error">
+Error: Connection failed
+</example_bad>
+
+### Name the Specific Problem
+
+<example_good title="Specific error">
+Error: File 'config.yaml' not found in /app/config/
+
+Expected location: /app/config/config.yaml
+Current directory: /app/src/
+
+Did you mean: /app/config/config.yml (found)
+</example_good>
+
+<example_bad title="Vague error">
+Error: Invalid configuration
+</example_bad>
+</error_guidelines>
+
+<error_anti_patterns>
+## Patterns to Avoid
+
+- "An error occurred" → Name the specific error and its cause
+- Stack traces to end users → Log internally, show human message
+- Error codes only → Include human-readable message first
+- "Please try again" without context → Explain what to try differently
+- "Contact support" as first option → Offer self-service recovery first
+</error_anti_patterns>
+
+<error_success_criteria>
+## Success Criteria
+
+1. **Self-diagnosable**: User can identify the cause without external help
+2. **Actionable**: At least one concrete recovery step provided
+3. **Contextual**: Error includes relevant state (paths, values, IDs)
+4. **Appropriate**: Tone matches audience (dev vs end-user)
+</error_success_criteria>
+
+<error_complexity>
+## Match Complexity to Scope
+
+CLI script stderr: One-line message with cause. No docs links, no structured data.
+
+User-facing API: Structured JSON with error code, human message, and documentation URL.
+
+Internal service: Structured logs with correlation IDs, stack traces, request context.
+
+Don't add recovery suggestions to internal errors that users never see. Don't strip context from user-facing errors to "keep it simple."
+</error_complexity>
+```
+
+This example demonstrates all seven sections: frontmatter with triggers, design thinking, guidelines with example pairs, anti-patterns, success criteria, and complexity matching.
+</excellence_worked_example>
 
 <excellence_writing_tips>
 ## Writing Tips
@@ -258,41 +260,53 @@ When creating a design-excellence skill, identify:
 
 **Voice**: Write as the senior practitioner mentoring a capable junior. Confident, opinionated, helpful. No hedging.
 
-**Avoid**:
-- Meta-commentary ("This skill helps you...")
-- Hedging ("Consider maybe...", "You might want to...")
-- Generic advice that applies everywhere ("Write clean code", "Follow best practices")
-- Placeholder text ("Insert example here")
+**What to write instead**:
+
+| Instead of | Write |
+|------------|-------|
+| Meta-commentary ("This skill helps you...") | Jump straight into domain guidance—Claude knows it's reading a skill |
+| Hedging ("Consider maybe...") | Direct imperatives ("Use X", "Apply Y")—skills encode confident opinions |
+| Generic advice ("Write clean code") | Domain-specific guidance ("Extract functions over 20 lines") |
+| Placeholder text ("Insert example here") | Actual examples—Claude may use placeholders literally |
+
+Write like a senior practitioner giving direct advice, not a textbook hedging its bets.
 
 **Test your anti-patterns**: If you can't name 5+ specific anti-patterns Claude tends toward in this domain, you don't know the domain well enough yet.
 </excellence_writing_tips>
 
-<excellence_process>
-## Creation Process
+<excellence_validation>
+## Validating Your Skill
 
-**If using the full workflow**, the passes handle orchestration. Focus on:
+Test with at least 3 diverse prompts in the target domain:
 
-1. **During Pass 1 (Scaffold)**: Confirm domain name and output path
-2. **During Pass 2 (Craft)**: Execute these steps:
-   - Identify the domain and its anti-slop angle
-   - Draft design thinking questions
-   - List 3-5 key guidelines with good/bad examples
-   - Name 5-10 anti-patterns Claude tends toward
-   - Define 4-6 success criteria
-   - Add complexity guidance
-   - Write the closing principle
-3. **During Pass 3 (Audit)**: Review findings and apply fixes
+1. **Invoke the skill** on a real task
+2. **Compare output** against what Claude produces without the skill
+3. **Check anti-patterns** - are they actually being avoided?
+4. **Verify measurability** - can you objectively assess each success criterion?
 
-**If crafting manually** (no workflow), follow the 8 steps:
+If outputs are indistinguishable with/without the skill, your anti-patterns aren't specific enough.
+</excellence_validation>
 
-1. Identify domain and anti-slop angle
-2. Draft design thinking questions
-3. List 3-5 key guidelines with examples
-4. Name 5-10 anti-patterns
-5. Define 4-6 success criteria
-6. Add complexity guidance
-7. Write closing principle
-8. Test by using it
-</excellence_process>
+<excellence_iteration>
+## When the Skill Isn't Working
 
-Design-excellence skills are opinionated by design. If your skill reads like documentation, it's not a skill—it's a reference. Skills encode judgment. References encode facts. Know the difference.
+Symptoms and fixes:
+
+| Symptom | Diagnosis | Fix |
+|---------|-----------|-----|
+| Output looks the same with/without skill | Anti-patterns too vague | Name specific behaviors, not categories. "Avoid bad error messages" → "Avoid 'An error occurred' without context, cause, or recovery path" |
+| Claude ignores sections | Triggers not matching | Add more trigger phrases to description; check if skill is actually loading |
+| Claude over-applies guidance | Complexity matching missing | Add explicit "don't do X for simple cases" guidance |
+| Output feels mechanical | Design thinking questions too generic | Questions should force real decisions, not checkboxes |
+| Anti-patterns aren't avoided | Too many anti-patterns | Prioritize 5-7 specific ones over 15 vague ones |
+
+If you've iterated 3+ times without improvement, the domain may not benefit from an opinionated skill. Some domains genuinely have multiple valid approaches—consider a reference-style skill instead.
+</excellence_iteration>
+
+<excellence_closing>
+## Closing Principle
+
+The test is simple: if removing your skill produces identical output, you wrote documentation. If it produces noticeably worse output, you wrote a skill.
+
+Skills encode judgment. References encode facts. Know the difference, and write accordingly.
+</excellence_closing>
