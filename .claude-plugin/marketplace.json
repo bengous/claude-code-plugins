@@ -199,6 +199,25 @@
         "google"
       ],
       "source": "./agents-bridge"
+    },
+    {
+      "name": "conductor",
+      "description": "Conversational planning skill that produces self-contained implementation plans",
+      "version": "1.0.0",
+      "author": {
+        "name": "Augustin BENGOLEA",
+        "email": "bengous@protonmail.com"
+      },
+      "homepage": "https://github.com/bengous/claude-code-plugins",
+      "license": "MIT",
+      "keywords": [
+        "planning",
+        "architecture",
+        "implementation",
+        "handoff",
+        "research"
+      ],
+      "source": "./conductor"
     }
   ]
 }
