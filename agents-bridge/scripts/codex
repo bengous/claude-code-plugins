@@ -1,0 +1,66 @@
+#!/usr/bin/env bash
+# codex - Wrapper for OpenAI Codex CLI
+#
+# Configuration (environment variables):
+#   CODEX_MODEL       Model override (uses CLI default if unset)
+#   CODEX_REASONING   Reasoning effort: low|medium|high|xhigh
+#   CODEX_SANDBOX     Sandbox mode: read-only|workspace-write|danger-full-access
+#   CODEX_APPROVAL    Approval policy: untrusted|on-failure|on-request|never
+#
+# Usage:
+#   codex                            # Interactive mode
+#   codex "Review this code"         # Interactive with prompt
+#   codex exec "Fix the bug"         # Non-interactive
+#   codex --info                     # Show current config and options
+#   CODEX_MODEL=<model> codex        # Use specific model
+set -euo pipefail
+
+# Find the real codex binary (not this wrapper)
+find_real_binary() {
+	local self="$(realpath "${BASH_SOURCE[0]}")"
+	while IFS= read -r path; do
+		[[ "$(realpath "$path")" != "$self" ]] && { echo "$path"; return 0; }
+	done < <(type -ap codex)
+	return 1
+}
+
+real_codex="$(find_real_binary)" || {
+	echo "Error: codex not found in PATH" >&2
+	exit 1
+}
+
+# Show config and available options
+show_info() {
+	echo "=== Codex CLI Info ==="
+	echo
+	echo "Binary: $real_codex"
+	"$real_codex" --version 2>/dev/null || true
+	echo
+	echo "=== Current Config (~/.codex/config.toml) ==="
+	if [[ -f ~/.codex/config.toml ]]; then
+		grep -E "^(model|model_reasoning_effort)" ~/.codex/config.toml 2>/dev/null || echo "(no model config found)"
+	else
+		echo "(no config file)"
+	fi
+	echo
+	echo "=== Environment Overrides ==="
+	echo "CODEX_MODEL=${CODEX_MODEL:-(not set)}"
+	echo "CODEX_REASONING=${CODEX_REASONING:-(not set)}"
+	echo "CODEX_SANDBOX=${CODEX_SANDBOX:-(not set)}"
+	echo "CODEX_APPROVAL=${CODEX_APPROVAL:-(not set)}"
+	echo
+	echo "=== Available Options (from --help) ==="
+	"$real_codex" --help 2>&1 | grep -E "^\s+-(m|s|a|c)," | head -10 || true
+	exit 0
+}
+
+[[ "${1:-}" == "--info" ]] && show_info
+
+args=()
+
+[[ -n "${CODEX_MODEL:-}" ]] && args+=(-m "$CODEX_MODEL")
+[[ -n "${CODEX_REASONING:-}" ]] && args+=(-c "reasoning_effort=$CODEX_REASONING")
+[[ -n "${CODEX_SANDBOX:-}" ]] && args+=(-s "$CODEX_SANDBOX")
+[[ -n "${CODEX_APPROVAL:-}" ]] && args+=(-a "$CODEX_APPROVAL")
+
+exec "$real_codex" "${args[@]}" "$@"

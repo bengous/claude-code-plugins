@@ -1,0 +1,22 @@
+{
+  "name": "agents-bridge",
+  "version": "1.0.0",
+  "description": "Bridge to external AI agents (Codex, Gemini CLI, etc.) for cross-model collaboration",
+  "author": {
+    "name": "Augustin BENGOLEA",
+    "email": "bengous@protonmail.com"
+  },
+  "homepage": "https://github.com/bengous/claude-code-plugins",
+  "repository": "https://github.com/bengous/claude-code-plugins",
+  "license": "MIT",
+  "keywords": [
+    "agents",
+    "bridge",
+    "codex",
+    "gemini",
+    "cross-model",
+    "collaboration",
+    "openai",
+    "google"
+  ]
+}

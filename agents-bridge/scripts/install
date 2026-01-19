@@ -1,0 +1,23 @@
+#!/usr/bin/env bash
+# Install agent bridge wrappers to ~/.local/bin
+set -euo pipefail
+
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+install_dir="${HOME}/.local/bin"
+
+mkdir -p "$install_dir"
+
+# Install all wrapper scripts
+ln -sf "${script_dir}/codex" "${install_dir}/codex"
+ln -sf "${script_dir}/gemini" "${install_dir}/gemini"
+
+cat <<'EOF'
+Installed: agents-bridge wrappers
+
+  codex   -> OpenAI Codex CLI (with env var config)
+  gemini  -> Google Gemini CLI (with env var config)
+
+Config via env vars:
+  CODEX_MODEL, CODEX_REASONING, CODEX_SANDBOX, CODEX_APPROVAL
+  GEMINI_MODEL, GEMINI_SANDBOX, GEMINI_YOLO
+EOF
