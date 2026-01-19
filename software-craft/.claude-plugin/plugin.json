@@ -1,6 +1,6 @@
 {
   "name": "software-craft",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Opinionated design skills for software excellence: CLI design, system architecture, and more. Skills that push Claude toward intentional, high-quality output instead of generic patterns.",
   "author": {
     "name": "Augustin BENGOLEA",

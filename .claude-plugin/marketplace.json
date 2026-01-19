@@ -222,7 +222,7 @@
     {
       "name": "software-craft",
       "description": "Opinionated design skills for software excellence: CLI design, system architecture, and more",
-      "version": "1.0.0",
+      "version": "1.0.1",
       "author": {
         "name": "Augustin BENGOLEA",
         "email": "bengous@protonmail.com"
