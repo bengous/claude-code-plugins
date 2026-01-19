@@ -1,0 +1,19 @@
+{
+  "name": "conductor",
+  "version": "1.0.0",
+  "description": "Conversational planning skill that produces self-contained implementation plans",
+  "author": {
+    "name": "Augustin BENGOLEA",
+    "email": "bengous@protonmail.com"
+  },
+  "homepage": "https://github.com/bengous/claude-code-plugins",
+  "repository": "https://github.com/bengous/claude-code-plugins",
+  "license": "MIT",
+  "keywords": [
+    "planning",
+    "architecture",
+    "implementation",
+    "handoff",
+    "research"
+  ]
+}
