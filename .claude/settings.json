@@ -1,13 +1,7 @@
 {
   "$schema": "https://json.schemastore.org/claude-code-settings.json",
   "includeCoAuthoredBy": false,
-  "model": "opus",
-  "alwaysThinkingEnabled": true,
-  "hasOpusPlanDefault": true,
-  "autoCompactEnabled": false,
-  "autoUpdates": true,
   "permissions": {
-    "defaultMode": "default",
     "allow": [
       "Bash(tree:*)",
       "Bash(ls:*)",
@@ -38,11 +32,6 @@
       "WebFetch(domain:github.com)",
       "WebFetch(domain:code.claude.com)",
       "WebFetch(domain:www.npmjs.com)"
-    ],
-    "ask": [
-      "Bash(pacman -S:*)",
-      "Bash(pacman -U:*)",
-      "Bash(pacman -R:*)"
     ],
     "deny": [
       "Bash(pass :*)",
@@ -174,25 +163,17 @@
       "Bash(mv .env:*::*)",
       "Bash(mv ./.env:*::*)",
       "Bash(mv ./secrets/:*::*)"
-    ]
+    ],
+    "ask": [
+      "Bash(pacman -S:*)",
+      "Bash(pacman -U:*)",
+      "Bash(pacman -R:*)"
+    ],
+    "defaultMode": "default"
   },
-  "enabledPlugins": {
-    "claude-meta-tools@bengous-plugins": true,
-    "claude-orchestration@bengous-plugins": true,
-    "claude-settings-manager@bengous-plugins": true,
-    "code-quality@bengous-plugins": true,
-    "git-tools@bengous-plugins": true,
-    "mermaid-diagrams@bengous-plugins": true,
-    "code-review@claude-code-plugins": true,
-    "commit-commands@claude-code-plugins": true,
-    "feature-dev@claude-code-plugins": true,
-    "frontend-design@claude-code-plugins": true,
-    "plugin-dev@claude-code-plugins": true,
-    "pr-review-toolkit@claude-code-plugins": true,
-    "ralph-wiggum@claude-code-plugins": true,
-    "explanatory-output-style@claude-code-plugins": true,
-    "learning-output-style@claude-code-plugins": true,
-    "typescript-lsp@claude-plugins-official": true,
-    "vtsls@claude-code-lsps": true
-  }
+  "model": "opus",
+  "alwaysThinkingEnabled": true,
+  "hasOpusPlanDefault": true,
+  "autoCompactEnabled": false,
+  "autoUpdates": true
 }

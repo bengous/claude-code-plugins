@@ -218,6 +218,26 @@
         "research"
       ],
       "source": "./conductor"
+    },
+    {
+      "name": "software-craft",
+      "description": "Opinionated design skills for software excellence: CLI design, system architecture, and more",
+      "version": "1.0.0",
+      "author": {
+        "name": "Augustin BENGOLEA",
+        "email": "bengous@protonmail.com"
+      },
+      "homepage": "https://github.com/bengous/claude-code-plugins",
+      "license": "MIT",
+      "keywords": [
+        "design",
+        "architecture",
+        "cli",
+        "best-practices",
+        "software-craft",
+        "skills"
+      ],
+      "source": "./software-craft"
     }
   ]
 }
