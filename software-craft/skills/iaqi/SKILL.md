@@ -1,12 +1,12 @@
 ---
 name: iaqi
-description: Iteratively improve prompts/skills to target score via parallel reviewer agents. NOT for: one-shot edits, simple fixes, tasks without measurable quality. USE for: skills, prompts, or documents needing iterative refinement with score targets. Triggers: "iterate to 9.0", "quality loop", "IAQI", "reviewer loop", "improve until threshold", "iterative quality".
+description: Iteratively improve artifacts via parallel reviewers with anchor-based drift prevention. NOT for: one-shot edits, simple fixes, tasks without measurable quality. USE for: skills, prompts, commands, agents needing iterative refinement with score targets. Triggers: "iterate to 9.0", "quality loop", "IAQI", "reviewer loop", "improve until threshold", "iterative quality".
 ---
 
-Intent-Anchored Quality Iteration (IAQI) prevents semantic drift during iterative improvement. The problem with naive iteration: each fix optimizes for reviewer preferences rather than original intent. IAQI solves this through anchors.
+Intent-Anchored Quality Iteration (IAQI) prevents semantic drift during iterative improvement. The problem: each iteration risks optimizing for reviewer preferences rather than original intent. IAQI solves this through anchors—semantic checksums verified after every change.
 
 <iaqi_philosophy>
-## Philosophy: The Three-Layer Anchor System
+## Philosophy: The Anchor System
 
 Before iterating, define anchors at three levels:
 
@@ -26,17 +26,266 @@ A good anchor set has:
 </iaqi_philosophy>
 
 <iaqi_workflow>
-## Workflow: The Iteration Loop
+## Workflow: 4-Phase Structure
 
-### Step 0: Define Golden Reference
+Parse arguments from invocation:
+- `artifact-path` (required): file to improve
+- `--reviewers N` (default: 5): parallel reviewer count
+- `--target X.X` (default: 9.0): score threshold for success
+- `--max-iterations N` (default: 7): iteration limit
 
-Before any iteration, capture:
+### Phase 1: UNDERSTAND (human required)
+
+1. Read the artifact thoroughly
+2. Propose an intent statement (1-2 sentences: why this artifact exists, its distinctive quality)
+3. Create a workflow diagram showing the artifact's structure or flow:
+   - Skills: phase/step workflow
+   - Commands: decision tree or execution flow
+   - Agents: interaction pattern
+   - Prompts: section structure
+4. Present to human via AskUserQuestion:
+   - Show intent statement and diagram
+   - Options: "Yes, proceed to anchoring" / "No, let me clarify"
+5. If clarification needed, incorporate feedback and re-present
+6. **Exit**: Understanding locked
+
+### Phase 2: ANCHOR (human required)
+
+1. Based on Phase 1 understanding, propose:
+   - **Immutable anchors** (3-5): Exact phrases that capture the artifact's distinctive voice. These must appear verbatim in every iteration.
+   - **Semantic anchors** (4-6): Core concepts that define what the artifact is about. Wording can change, meaning cannot.
+   - **Structural anchors** (3-5): Organization patterns that serve a purpose (section types, flow patterns).
+   - **Forbidden changes**: What modifications would violate the artifact's intent.
+2. Present to human via AskUserQuestion:
+   - Show all anchor categories
+   - Options: "Approved as-is" / "Let me edit these"
+3. If edits needed, incorporate and re-present
+4. **Exit**: Anchors locked, write to state file
+
+### Phase 3: SCORING SYSTEM (human required)
+
+1. Detect artifact type: skill / command / prompt / agent / doc
+2. Select dimension template from `<iaqi_dimensions>` based on type
+3. Propose:
+   - Dimensions with descriptions (from template, customizable)
+   - Target score (default 9.0)
+   - Non-negotiable dimension (must meet threshold even if overall passes)
+4. Present to human via AskUserQuestion:
+   - Show dimensions table, target, non-negotiable
+   - Options: "Approved" / "Customize dimensions" / "Change target"
+5. If customization needed, incorporate and re-present
+6. **Exit**: Rubric locked, write to state file
+
+### Phase 4: ITERATE (autonomous)
+
+Run the iteration loop until exit condition:
+
+```
+iteration = 0
+
+LOOP:
+  iteration += 1
+
+  IF iteration > max_iterations:
+    HALT("Max iterations reached")
+    Write final report to state file
+    EXIT
+
+  # 1. Spawn reviewers (parallel)
+  Spawn N Task agents in a SINGLE message (parallel execution):
+    - subagent_type: "general-purpose"
+    - model: opus (or configured)
+    - prompt: reviewer template with filled variables
+
+  Wait for all reviewers to complete.
+
+  # 2. Aggregate scores
+  Calculate average per dimension
+  Calculate overall average
+  Check all immutable anchors present (unanimous agreement)
+
+  # 3. Check exit conditions
+  IF average >= target AND all_anchors_present:
+    Write SUCCESS to state file
+    Report final artifact with improvement summary
+    EXIT SUCCESS
+
+  IF any_anchor_missing:
+    HALT("Anchor violation detected")
+    Use AskUserQuestion: "Anchor '[phrase]' is missing. Options:"
+      - "Revert last fix and continue"
+      - "Update anchor (it was wrong)"
+      - "Stop iteration"
+    Handle response accordingly
+
+  IF score_plateau (3 iterations with < 0.1 improvement):
+    HALT("Diminishing returns - scores plateaued")
+    Write report to state file
+    EXIT
+
+  # 4. Apply fixes
+  Collect top fixes from each reviewer
+  Prioritize by:
+    1. Anchor safety (never break immutable anchors)
+    2. Non-negotiable dimension improvement
+    3. Lowest scoring dimension
+  Apply fixes using Edit tool
+  Follow <iaqi_fix_principles>
+
+  # 5. Verify anchors
+  Check all immutable anchors still present after edits
+  IF any anchor lost:
+    Revert the problematic edit
+    Try alternative fix approach
+
+  # 6. Update state file
+  Write iteration details (scores, fixes, anchor status)
+
+  GOTO LOOP
+```
+</iaqi_workflow>
+
+<iaqi_reviewer_template>
+## Reviewer Agent Template
+
+Use this template when spawning reviewer agents. Fill variables before spawning.
+
+```
+You are an IAQI reviewer. Score an artifact against a rubric while verifying anchor preservation.
+
+## Artifact
+Read: $ARTIFACT_PATH
+
+## Context
+This artifact's intent: $INTENT_STATEMENT
+
+## Immutable Anchors (must appear verbatim)
+$IMMUTABLE_ANCHORS
+
+## Scoring Dimensions
+$DIMENSIONS_TABLE
+
+Score each dimension 1-10 based on its description.
+
+## Output Format (exactly)
+
+### Scores
+| Dimension | Score | Notes |
+|-----------|-------|-------|
+$DIMENSION_ROWS
+| **OVERALL** | **X.X** | |
+
+### Anchor Check
+| Anchor | Present? |
+|--------|----------|
+$ANCHOR_ROWS
+
+### Verdict
+**PASS/FAIL** (target: $TARGET_SCORE, all anchors must be present)
+
+### If FAIL: Top Fix
+**Issue**: [most critical problem affecting score]
+**Location**: [file:line or section name]
+**Suggested fix**: [specific improvement, preserving intent]
+```
+</iaqi_reviewer_template>
+
+<iaqi_dimensions>
+## Dimension Templates by Artifact Type
+
+Select the appropriate template based on artifact type. Human can customize during Phase 3.
+
+### Skills
+
+| Dimension | Description |
+|-----------|-------------|
+| Clarity | Instructions unambiguous? Followable without guessing? |
+| Trigger Quality | Keywords specific? Activates correctly? NOT-for disambiguation? |
+| Anti-Slop Power | Pushes away from generic output? Opinionated? Distinctive? |
+| Structure | Well-organized? Proper semantic tags? Logical flow? |
+| Composability | Integrates with other skills/commands? Handles dependencies? |
+| Completeness | Everything needed to execute? No gaps? |
+| Best Practices | Claude 4 positive framing? Explicit instructions? Good examples? |
+
+### Commands
+
+| Dimension | Description |
+|-----------|-------------|
+| Clarity | Steps clear? No ambiguous instructions? |
+| Argument Design | Hints helpful? Defaults sensible? Required vs optional clear? |
+| Error Handling | Failure cases addressed? Graceful degradation? |
+| Tool Usage | Correct tools specified? Appropriate permissions? |
+| Output Quality | Results actionable? Format appropriate for context? |
+| Best Practices | Claude 4 conventions? Positive framing? |
+
+### Prompts
+
+| Dimension | Description |
+|-----------|-------------|
+| Clarity | Intent clear? No ambiguity in request? |
+| Specificity | Concrete enough to act on? Measurable outcomes? |
+| Tone | Appropriate voice? No condescending words? |
+| Structure | Well-organized? Right length for purpose? |
+| Best Practices | Positive framing? Examples where needed? Explicit constraints? |
+
+### Agents
+
+| Dimension | Description |
+|-----------|-------------|
+| Context Clarity | Stateless awareness explained? Role clear? |
+| Responsibilities | Clear scope? Actionable tasks? Boundaries defined? |
+| Constraints | What NOT to do explicit? Guardrails clear? |
+| Return Format | Output structure specified? All required fields documented? |
+| Tool Usage | Correct tools? Appropriate permissions? |
+| Best Practices | Claude 4 patterns? Context efficiency? |
+
+### Documentation
+
+| Dimension | Description |
+|-----------|-------------|
+| Accuracy | Technically correct? Up to date with code? |
+| Clarity | Understandable? Jargon defined? |
+| Completeness | All necessary info? No critical gaps? |
+| Structure | Well-organized? Easy to navigate? |
+| Examples | Concrete? Copy-pasteable? Cover common cases? |
+</iaqi_dimensions>
+
+<iaqi_state_file>
+## State File
+
+**Location**: `<artifact-dir>/.iaqi/<artifact-name>-<YYYY-MM-DD>.md`
+
+Create the `.iaqi/` directory if it doesn't exist. Write state after each phase completes.
+
+### Template
 
 ```markdown
-## Golden Reference
+# IAQI State: [artifact-name]
 
-### Meta-Anchor
-> "[One sentence capturing why this artifact exists]"
+**Date**: YYYY-MM-DD
+**Artifact**: [full-path]
+**Target Score**: X.X/10
+**Max Iterations**: N
+**Reviewers**: N
+**Status**: in_progress | completed | halted
+
+---
+
+## Phase 1: Understanding
+
+### Intent Statement
+> "[1-2 sentences: why this artifact exists, its distinctive quality]"
+
+### Workflow Diagram
+```
+[ASCII or Mermaid diagram]
+```
+
+**Status**: LOCKED
+
+---
+
+## Phase 2: Anchors
 
 ### Immutable Anchors (must appear verbatim)
 1. "[exact phrase 1]"
@@ -44,178 +293,130 @@ Before any iteration, capture:
 ...
 
 ### Semantic Anchors (meaning preserved)
-1. **[Concept]** - [What it means]
+| Concept | Meaning |
+|---------|---------|
+| [name] | [what it means] |
 ...
 
 ### Structural Anchors (organization preserved)
-1. [Pattern/structure to maintain]
+1. [pattern 1]
+2. [pattern 2]
 ...
 
 ### Forbidden Changes
-- [What would violate intent]
+- [what would violate intent]
+...
+
+**Status**: LOCKED
+
+---
+
+## Phase 3: Scoring System
+
+### Artifact Type
+[skill | command | prompt | agent | doc]
+
+### Dimensions
+| Dimension | Description |
+|-----------|-------------|
+| [dim1] | [desc] |
 ...
 
 ### Target Score
-- Overall: X.X/10
-- Non-negotiable dimension: [e.g., Anti-Slop Power ≥ 9.0]
-```
+X.X/10
 
-### Step 1: Pre-Check Anchors
+### Non-Negotiable Dimension
+[dimension] >= Y.Y
 
-Before making changes:
-- [ ] All immutable anchors present verbatim
-- [ ] All semantic anchors present (meaning preserved)
-- [ ] Critical dimension score ≥ previous iteration
+**Status**: LOCKED
 
-### Step 2: Apply Fixes
+---
 
-Based on reviewer feedback, make targeted changes. After each change:
-- Verify no immutable anchor was modified
-- Check semantic anchors still present
-- Document: `[change] - [rationale]`
+## Phase 4: Iteration History
 
-### Step 3: Spawn Parallel Reviewers
-
-Spawn N (typically 5) Opus agents with the reviewer prompt template. Run in parallel for speed.
-
-### Step 4: Aggregate Scores
-
-Collect scores, calculate averages:
-
-```markdown
-| Reviewer | D1 | D2 | D3 | D4 | D5 | D6 | D7 | Overall |
-|----------|----|----|----|----|----|----|----|----|
-| 1 | X | X | X | X | X | X | X | X.X |
+| Iter | Score | Delta | Anchors | Status |
+|------|-------|-------|---------|--------|
+| 0 | X.X | - | OK | baseline |
+| 1 | X.X | +X.X | OK | continue |
 ...
-| **Avg** | X | X | X | X | X | X | X | **X.X** |
+
+### Iteration N Details
+
+**Scores**:
+| Reviewer | D1 | D2 | ... | Overall |
+|----------|----|----|-----|---------|
+| R1 | X | X | ... | X.X |
+...
+| **Avg** | X | X | ... | **X.X** |
+
+**Anchor Check**: All present / VIOLATION: [details]
+
+**Fixes Applied**:
+1. [fix] - [rationale]
+...
+
+---
+
+## Outcome
+
+**Result**: SUCCESS | HALTED | IN_PROGRESS
+**Final Score**: X.X/10
+**Total Iterations**: N
+**Anchors Preserved**: YES | [violations]
 ```
+</iaqi_state_file>
 
-### Step 5: Check Exit Conditions
+<iaqi_fix_principles>
+## Fix Application Principles
 
-**Success** (exit loop):
-- Average score ≥ target
-- All immutable anchors present
-- Non-negotiable dimension ≥ threshold
+When applying fixes during iteration, follow these principles:
 
-**Continue** (loop to Step 2):
-- Score below target
-- Actionable feedback available
+### From audit-prompt: Best Practices Dimension
+The "Best Practices" dimension checks Claude 4 conventions:
+- Positive framing (what TO DO, not just what to avoid)
+- Explicit instructions (no ambiguity)
+- XML semantic tags for structure
+- Concrete examples where helpful
+- Appropriate length (not over-explained)
 
-**Failure** (stop and consult human):
-- Any immutable anchor removed
-- Non-negotiable dimension decreased
-- 5+ iterations without improvement
-- Proposed change would alter core intent
-</iaqi_workflow>
+### From prompt-coach: Intent Preservation
+When rewriting any passage:
+- **Preserve exact meaning**: You're improving expression, not changing ideas
+- **Same content, said better**: Clearer, more precise, same length or shorter
+- **Avoid condescending words**: Never use "just", "simply", "obviously", "clearly", "easy"
+- **Use I-statements in feedback sections**: "I find..." not "You should..."
+- **Be specific**: "Extract functions over 20 lines" not "Write clean code"
 
-<iaqi_reviewer_template>
-## Reviewer Prompt Template
+### Fix Prioritization
+1. **Anchor safety first**: Never break an immutable anchor to fix something else
+2. **Non-negotiable dimension**: If one dimension must meet threshold, prioritize it
+3. **Lowest score**: After safety, address the weakest dimension
+4. **Reviewer consensus**: If multiple reviewers flag the same issue, prioritize it
 
-Use this template for spawning reviewer agents:
-
-```
-Review [artifact name]. Score each dimension 1-10.
-
-Read: [file path]
-
-Dimensions:
-- **Clarity**: Unambiguous? Followable?
-- **Trigger Quality**: Good keywords? Activates correctly?
-- **Anti-Slop Power**: Pushes away from generic? Opinionated?
-- **Structure**: Well-organized? Proper tags? Flow?
-- **Composability**: Integrates with other tools? Handles deps?
-- **Completeness**: Everything needed? Gaps?
-- **Best Practices**: Follows conventions? Positive framing?
-
-Output exactly:
-| Dimension | Score |
-|-----------|-------|
-| Clarity | X |
-| Trigger Quality | X |
-| Anti-Slop Power | X |
-| Structure | X |
-| Composability | X |
-| Completeness | X |
-| Best Practices | X |
-| **OVERALL** | **X.X** |
-
-PASS/FAIL: [PASS if all ≥ threshold, else FAIL]
-If FAIL: [ONE most critical fix with line reference]
-```
-
-Customize dimensions for non-skill artifacts.
-</iaqi_reviewer_template>
-
-<iaqi_anti_patterns>
-## Anti-Patterns
-
-**Semantic Drift**
-- Symptom: Iteration 5 looks nothing like iteration 0
-- Cause: Optimizing for reviewer preferences, not original intent
-- Fix: Check anchors after every change
-
-**Over-Iteration**
-- Symptom: Scores plateau, changes become cosmetic
-- Cause: Diminishing returns past threshold
-- Fix: Exit at first iteration meeting target
-
-**Anchor Violation**
-- Symptom: Immutable phrase modified or removed
-- Cause: "Improving" language without checking anchors
-- Fix: Revert immediately, re-read golden reference
-
-**Reviewer Fatigue**
-- Symptom: Later iterations score lower despite improvements
-- Cause: Reviewers becoming stricter over time
-- Fix: Use fresh agents each iteration
-
-**Score Chasing**
-- Symptom: Changes that game metrics but hurt quality
-- Cause: Optimizing numbers over substance
-- Fix: Non-negotiable dimension as anchor (e.g., Anti-Slop Power)
-</iaqi_anti_patterns>
+### Anti-Patterns
+- **Over-fixing**: Don't rewrite passages that aren't broken
+- **Scope creep**: Don't add new features while fixing quality
+- **Voice drift**: Fixes should sound like the original author, not a committee
+- **Anchor erosion**: Small "improvements" to immutable phrases are still violations
+</iaqi_fix_principles>
 
 <iaqi_success_criteria>
 ## Success Criteria
 
 Your IAQI run succeeded when:
 
-1. **Target Met**: Average score ≥ threshold (typically 9.0)
+1. **Target Met**: Average score >= threshold
 2. **Anchors Preserved**: All immutable phrases present verbatim
 3. **Semantic Integrity**: All meanings preserved (wording may differ)
-4. **Non-Negotiable Held**: Critical dimension didn't decrease
-5. **Efficient**: Reached target in ≤5 iterations
+4. **Non-Negotiable Held**: Critical dimension didn't drop below threshold
+5. **Efficient**: Reached target within max iterations
 
 Signs of a quality IAQI run:
 - Monotonic score improvement (no backsliding)
 - Each iteration has clear rationale
 - Final artifact reads like original author, not committee
+- State file documents the journey
 </iaqi_success_criteria>
-
-<iaqi_complexity>
-## Match Complexity to Context
-
-**Simple artifact** (single prompt, short doc):
-- 2-3 immutable anchors
-- 3 reviewers
-- Target: 8.5/10
-- Max iterations: 3
-
-**Complex artifact** (skill, multi-section doc):
-- 4-5 immutable anchors
-- 5 reviewers
-- Target: 9.0/10
-- Max iterations: 5
-
-**Critical artifact** (core system prompt, foundational skill):
-- 5+ immutable anchors
-- 5 Opus reviewers
-- Target: 9.5/10
-- Max iterations: 7
-- Require human approval at iteration 3
-
-Don't run IAQI on throwaway prompts. The overhead isn't worth it for one-shot tasks.
-</iaqi_complexity>
 
 <iaqi_closing>
 ## Closing Principle
