@@ -30,15 +30,10 @@ Install plan review hooks into `.claude/settings.local.json`.
 
 **Your task:**
 
-Determine the plugin location and execute the setup script:
+Execute the setup script:
 
 ```bash
-PLUGIN_DIR="$(dirname "$(dirname "$(realpath "${BASH_SOURCE[0]:-$0}")")")"
-# Fallback: search for plugin
-if [[ ! -d "$PLUGIN_DIR/scripts" ]]; then
-  PLUGIN_DIR="$(find ~/.claude/plugins -name 'plan-review' -type d 2>/dev/null | head -1)"
-fi
-node "$PLUGIN_DIR/scripts/setup-plan-review.js" $ARGUMENTS
+node "${CLAUDE_PLUGIN_ROOT}/scripts/setup-plan-review.js" $ARGUMENTS
 ```
 
 Run the setup script with the provided arguments.
