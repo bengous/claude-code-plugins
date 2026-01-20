@@ -69,14 +69,12 @@ git worktree add /tmp/test
 - Hooks directory: `~/.claude/plugins/.../hooks/`
 - Settings file: `.claude/settings.local.json`
 
-**Plugin location:** !`realpath ~/.claude/plugins/marketplaces/bengous-plugins/orchestration 2>/dev/null || echo "$HOME/projects/claude-plugins/orchestration"`
-
 **Your task:**
 
 Execute the setup hooks script:
 
 ```bash
-<plugin-location-from-above>/scripts/setup-hooks.js $ARGUMENTS
+node "${CLAUDE_PLUGIN_ROOT}/scripts/setup-hooks.js" $ARGUMENTS
 ```
 
 Show the full output to the user.
