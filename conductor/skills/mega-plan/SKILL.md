@@ -1,6 +1,6 @@
 ---
 name: mega-plan
-description: Turn discussions into executable, self-contained implementation plans. NOT for: quick fixes, single-file changes, bug fixes with known solutions, tasks under 30 minutes, exploratory spikes. USE for: multi-file features, architectural changes, unfamiliar tech requiring research, handoff to future sessions or other agents. Triggers: "plan this feature", "create implementation plan", "mega plan", "write a PLAN.md", "plan before implementing", "thorough planning", "help me design this".
+description: Turn discussions into executable, self-contained implementation plans. USE for: multi-file features, architectural changes, unfamiliar tech requiring research, handoff to future sessions or other agents. SKIP for quick fixes, single-file changes, or tasks under 30 minutes—use lightweight planning instead (see complexity matching). Triggers: "plan this feature", "create implementation plan", "mega plan", "write a PLAN.md", "plan before implementing", "thorough planning", "help me design this".
 ---
 
 # Mega-Plan Skill
@@ -14,7 +14,7 @@ Transform conversations into rock-solid implementation plans. The conversation I
 - **Iterative**: User reviews drafts, suggests changes before finalizing
 </core_philosophy>
 
-<design_thinking>
+<design_decisions>
 ## Questions That Force Decisions
 
 Before exploring solutions, force these choices:
@@ -31,8 +31,8 @@ Before exploring solutions, force these choices:
 - "Is this core to your product or commodity infrastructure?" → Forces build-vs-buy stance
 - "What existing pattern in the codebase is this most similar to?" → Forces reuse consideration
 
-Don't proceed to EXPLORE until the user has committed to answers. Vague answers like "it depends" mean the question wasn't specific enough—rephrase with concrete options.
-</design_thinking>
+Proceed to EXPLORE only after the user commits to specific answers. If responses remain vague ("it depends"), rephrase with concrete options until you receive a clear commitment.
+</design_decisions>
 
 <planning_anti_patterns>
 ## Patterns to Avoid
@@ -97,7 +97,7 @@ A plan is "done right" when:
 - Cross-cutting concerns (auth, logging, error handling)
 - Handoff to another session or agent
 
-When in doubt, use standard. It's easier to skip steps than recover from under-planning.
+When uncertain, default to the standard process. Skipping steps is simpler than recovering from insufficient planning.
 
 **Extended process** (multiple research iterations):
 - Architectural decisions with long-term consequences
@@ -115,7 +115,13 @@ When in doubt, use standard. It's easier to skip steps than recover from under-p
 - Can't estimate if this is 1 hour or 1 week
 - Don't know if existing solutions exist
 
-Don't create a 50-item checklist for adding a button. Don't create a 5-item checklist for a new auth system.
+A 50-item checklist for adding a button is overengineered. A 5-item checklist for an auth system is underspecified.
+
+**For extended sessions** (multi-context window workflows):
+- Save progress periodically to `.claude/plans/draft-<slug>.md`
+- If context approaches limits, write current state before refresh
+- On resume: review the draft plan file and git logs to restore context
+- Claude excels at discovering state from filesystem—leverage this
 </planning_complexity>
 
 <planning_guidelines>
