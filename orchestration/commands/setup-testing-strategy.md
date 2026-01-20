@@ -426,4 +426,4 @@ ls -la $CLAUDE_PLUGIN_ROOT/skills/layer-testing/templates/examples/
 ## Related Commands
 
 - `/test-layer <module> <layer>` - Use the strategy to test a layer
-- View available templates: `ls orchestration/skills/layer-testing/templates/examples/`
+- View available templates: `ls ${CLAUDE_PLUGIN_ROOT}/skills/layer-testing/templates/examples/`
