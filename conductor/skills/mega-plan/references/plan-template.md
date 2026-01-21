@@ -23,6 +23,33 @@ Summary of what exploration found:
 - **Installed dependencies**: [packages relevant to this feature]
 - **Patterns in use**: [architecture patterns, conventions]
 
+**Pointers** (if you need more context):
+- Canonical implementation: `path/to/canonical.ts:L-L` (search anchor: `SYMBOL_NAME`)
+- Usage examples: `rg "Pattern" src/dir/`
+- Related tests: `path/to/__tests__/file.test.ts`
+- Entrypoint: `src/entry.ts` → follows to `src/handlers/`
+
+## Baseline
+
+*Skip this section for greenfield features where nothing exists yet.*
+
+What exists now (observable, not code narration):
+
+- [Current behavior 1 - what the system does today]
+- [Current behavior 2 - relevant to what we're changing]
+
+**Repro** (if applicable):
+```bash
+# Command to observe current behavior
+curl -X POST /api/endpoint
+# Returns: { "current": "response" }
+```
+
+**Must preserve** (invariants):
+- [Behavior that must NOT change]
+- [API compatibility requirement]
+- [Schema stability requirement]
+
 ## Goal
 
 [2-3 sentences describing what this feature accomplishes and why it matters]
@@ -32,6 +59,32 @@ Summary of what exploration found:
 - [Technical constraint 1]
 - [Business/scope constraint 2]
 - [Performance/security constraint 3]
+
+## Scope Boundaries
+
+**Out of scope** (do not implement, do not refactor):
+- [Explicit non-goal 1]
+- [Area not to touch: `path/to/legacy/`]
+- [Feature to defer: "X is for a future PR"]
+
+**Invariants** (must not change):
+- [API compatibility: existing endpoints keep same signatures]
+- [Schema stability: no breaking migrations]
+- [No new dependencies unless explicitly approved]
+
+**Assumptions** (if false, stop and ask):
+- [Assumes X service is running]
+- [Assumes Y config exists]
+
+**Abort conditions** (stop immediately, do not guess):
+- [Tests fail for unrelated reasons]
+- [Build breaks before you made changes]
+- [Discovery reveals architecture incompatible with approach]
+
+**Clarification triggers** (pause and ask user):
+- [Requirements seem ambiguous]
+- [Multiple valid interpretations exist]
+- [Need to modify more than N files outside expected scope]
 
 ## Key Decisions
 
@@ -71,6 +124,15 @@ export const instance = createThing(config);
 ### [Library/Framework 2]
 
 [Same structure as above]
+
+## Acceptance Criteria
+
+*What "done" actually means (not just "tests pass"):*
+
+- [ ] [Specific outcome 1: "User can log in with OAuth"]
+- [ ] [Specific outcome 2: "Session persists across browser refresh"]
+- [ ] [Specific outcome 3: "Error messages are user-friendly, not stack traces"]
+- [ ] [Performance: "Response time <500ms under normal load"]
 
 ## Implementation Checklist
 
@@ -139,15 +201,19 @@ Work through in order. Each step should leave the codebase in a working state.
 | Section | Purpose | What Goes Wrong Without It |
 |---------|---------|---------------------------|
 | **Codebase Context** | Ground implementer in the project | Incompatible choices, reinventing existing code |
+| **Pointers** | Guide exploration when stuck | Agent fans out into many branches, wastes context |
+| **Baseline** | Starting state being changed | Agent builds on false assumptions about current state |
 | **Goal** | Orient the implementer | Wrong thing built, wrong scope |
 | **Constraints** | Boundaries and limits | Over-engineering, missed requirements |
+| **Scope Boundaries** | Prevent over-reach | Scope creep, refactoring things that shouldn't change |
 | **Key Decisions** | Explain WHY, not just WHAT | Second-guessing, changing approach mid-way |
 | **Rejected alternatives** | Prevent re-exploration | Wasted time reconsidering rejected options |
 | **Research Notes** | Working code examples | Broken code, hitting known gotchas |
 | **Gotchas** | Common mistakes to avoid | Hours debugging known issues |
 | **More info** | Self-serve research | Implementer stuck, doesn't know how to learn more |
+| **Acceptance Criteria** | Definition of done | "Tests pass" but feature doesn't actually work |
 | **Checklist** | Granular steps | Skipped steps, lost track, declared done prematurely |
-| **Verification** | Definition of done | Shipped broken/incomplete work |
+| **Verification** | Mechanical checks | Shipped broken/incomplete work |
 
 ---
 

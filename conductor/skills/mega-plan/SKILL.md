@@ -1,6 +1,6 @@
 ---
 name: mega-plan
-description: Turn discussions into executable, self-contained implementation plans. USE for: multi-file features, architectural changes, unfamiliar tech requiring research, handoff to future sessions or other agents. SKIP for quick fixes, single-file changes, or tasks under 30 minutes—use lightweight planning instead (see complexity matching). Triggers: "plan this feature", "create implementation plan", "mega plan", "write a PLAN.md", "plan before implementing", "thorough planning", "help me design this".
+description: Turn discussions into executable, self-contained implementation plans. USE for: multi-file features, architectural changes, unfamiliar tech requiring research, handoff to future sessions or other agents. SKIP for quick fixes, single-file changes, or low-complexity tasks with high discoverability—use lightweight planning instead (see complexity matching). Triggers: "plan this feature", "create implementation plan", "mega plan", "write a PLAN.md", "plan before implementing", "thorough planning", "help me design this".
 ---
 
 # Mega-Plan Skill
@@ -64,6 +64,48 @@ Plans fail when implementers are left guessing. Avoid these patterns:
 - Items with no connection to research → Instead: Reference the relevant research section: "Using pattern from Research Notes section 2"
 </planning_anti_patterns>
 
+<inclusion_framework>
+## What to Include vs Omit
+
+**Every template section is optional.** Include only when it reduces branching or expected regret.
+
+### Include in Plan If:
+
+1. **Reduces branching** - Agent would fork into 3+ approaches without this
+2. **High consequence if wrong** - Mistakes cause broad breakage or wasted edits
+3. **Not discoverable** - Can't be inferred from codebase or CLAUDE.md
+4. **Task-specific delta** - Overrides or extends project-level rules
+5. **Failure mode is non-obvious** - Error messages don't point to the solution
+
+### Omit (Agent Discovers) If:
+
+1. **Single file read reveals it** - package.json shows package manager
+2. **Existing code demonstrates it** - Import style visible in any file
+3. **CLAUDE.md covers it** - Project-wide conventions already documented
+4. **Low consequence** - Wrong inference is easily caught and fixed
+
+### Reference (Don't Duplicate) If:
+
+- Info is project-stable → Point to CLAUDE.md
+- Pattern exists in codebase → "Follow pattern in `file.ts:L-L`"
+
+### Per-Section Decision Criteria
+
+| Section | Include When |
+|---------|--------------|
+| **Baseline** | Bug fix, refactor, or modifying existing behavior |
+| **Scope Boundaries** | Multi-file changes, risk of over-reach |
+| **Acceptance Criteria** | Outcome isn't obvious from tests alone |
+| **Pointers** | Codebase is large or unfamiliar to implementer |
+
+### Practical Test
+
+For each candidate section/item, ask:
+- "Will agent plausibly fork into 3+ approaches?" → Include disambiguation
+- "If agent guesses wrong, does it cause broad breakage?" → Include guardrail
+- "Is this stable across tasks?" → Reference, don't copy
+</inclusion_framework>
+
 <planning_success_criteria>
 ## Success Criteria
 
@@ -75,11 +117,13 @@ A plan is "done right" when:
 
 3. **Research is actionable**: Code snippets compile and run. Gotchas are specific. Doc links point to relevant sections—not just homepages.
 
-4. **Checklist is granular**: 20-100 items, each completable in 5-30 minutes, each naming specific files. No item hides complexity behind vague phrasing.
+4. **Checklist is granular**: 20-100 items, each a single focused unit of work, each naming specific files. No item hides complexity behind vague phrasing.
 
 5. **Verification is observable**: Each phase ends with concrete checks: "tests pass", "endpoint returns 200", not "it works."
 
 6. **Failure paths documented**: The 2-3 most likely failure points include "If X fails, check Y" guidance.
+
+7. **Scope is bounded**: Explicit "out of scope" list prevents over-reach. Agent knows when to stop and ask.
 </planning_success_criteria>
 
 <planning_complexity>
@@ -89,9 +133,9 @@ A plan is "done right" when:
 - Single-file changes with clear requirements
 - Features mirroring existing patterns ("add delete like we have create")
 - Bug fixes where cause and solution are known
-- Tasks completable in under 1 hour
+- Low exploration depth, high discoverability, bounded complexity
 
-**Standard process** (all 6 steps):
+**Standard process** (all 5 steps):
 - Multi-file features touching 3+ areas
 - New integrations requiring library research
 - Cross-cutting concerns (auth, logging, error handling)
@@ -103,16 +147,16 @@ When uncertain, default to the standard process. Skipping steps is simpler than 
 - Architectural decisions with long-term consequences
 - Evaluating multiple technology stacks
 - Features with security/compliance implications
-- Multi-week implementations needing phased delivery
+- High branching factor, multiple unknowns, phased delivery needed
 
 **Signals you're over-planning**:
-- More time researching than implementation would take
+- Research depth exceeds implementation complexity
 - User is waiting for you to just start coding
 - Plan complexity exceeds feature complexity
 
 **Signals you're under-planning**:
 - Unsure which files to modify
-- Can't estimate if this is 1 hour or 1 week
+- Can't estimate scope (single area vs cross-cutting)
 - Don't know if existing solutions exist
 
 A 50-item checklist for adding a button is overengineered. A 5-item checklist for an auth system is underspecified.
@@ -345,11 +389,16 @@ Return to Step 3 if approach needs to change.
 
 ---
 
-## Step 5: DRAFT PLAN
+## Step 5: DRAFT & FINALIZE
 
-**Goal**: Generate PLAN.md draft for user review and iteration.
+**Goal**: Draft plan in conversation, iterate with user, then write final artifact.
+
+### 5a. Draft in Conversation
 
 Generate the plan following the template in `references/plan-template.md`.
+
+Present the draft to user directly in conversation (not as a file yet).
+This allows full tool access for any discovery/verification needed during iteration.
 
 <implementer_context>
 The plan will be executed by an AI agent (or human) who has NO access
@@ -375,38 +424,29 @@ Break down into specific, actionable steps:
 - Include verification steps
 </checklist_guidance>
 
-Present the draft to the user in the conversation. Ask for feedback.
-
----
-
-## Step 6: FINALIZE
-
-**Goal**: Activate plan mode, write the plan, and offer execution options.
-
-### 6a. Iterate on Draft
+### 5b. Iterate on Draft
 
 Incorporate user feedback. Common adjustments:
 - Add missing context or rationale
 - Adjust scope (add/remove items)
 - Reorder or regroup checklist items
 - Add more detail to specific sections
+- Clarify scope boundaries
 
-Repeat until user is satisfied.
+Repeat until user approves the draft.
 
-### 6b. Activate Plan Mode
+### 5c. Enter Plan Mode & Write Final Artifact
 
-Use `EnterPlanMode` tool to enter Claude Code's built-in plan mode.
+Once user approves:
 
-### 6c. Write the Plan
-
-1. Create directory if needed:
+1. Use `EnterPlanMode` tool
+2. Create directory if needed:
    ```bash
    mkdir -p .claude/plans
    ```
+3. Write final plan to `.claude/plans/<feature-slug>.md`
 
-2. Write plan to `.claude/plans/<feature-slug>.md`
-
-### 6d. Exit Plan Mode with Options
+### 5d. Exit Plan Mode with Options
 
 Use `ExitPlanMode` tool and present execution options:
 
@@ -434,8 +474,7 @@ Use `AskUserQuestion` to get user's choice, then act accordingly.
 | EXPLORE | Ground in reality | Codebase + solutions report |
 | PROPOSE | Get direction approval | Approved approach |
 | RESEARCH | Get implementation details | Setup snippets + gotchas |
-| DRAFT | Show plan for review | Draft PLAN.md |
-| FINALIZE | Write and offer execution | Final plan + next steps |
+| DRAFT & FINALIZE | Write plan, iterate, offer execution | Final plan file + next steps |
 
 <planning_closing>
 ## Closing Principle
