@@ -37,7 +37,27 @@ codex exec "prompt"
 
 # Or with overrides (use values from --info)
 CODEX_MODEL=<model> CODEX_REASONING=<level> codex exec "prompt"
+
+# Resume a previous conversation
+codex exec resume <SESSION_ID> "Follow up prompt..."
 ```
+
+## Resuming Conversations
+
+Codex returns a session ID after each run. To continue that conversation:
+
+```bash
+# Previous run returned session ID: abc123xyz
+codex exec resume abc123xyz "Now add tests for the changes you made"
+```
+
+**When to resume:**
+- Follow-up questions about previous work
+- Iterating on generated code
+- Asking for clarifications or modifications
+- Building on prior context
+
+**Important:** Capture the session ID from the previous run's output to enable resumption.
 
 ## Configuration (env vars)
 
