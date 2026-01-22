@@ -31,11 +31,63 @@ INTENT → EXPLORE → [gate] → SCOUT → DRAFT → VALIDATE → PLAN
 - Single user checkpoint (PLAN)
 
 <core_philosophy>
-- **One output**: PLAN.md - no JSON, no state files, no orchestration overhead
+- **One deliverable**: `plan.md` (intermediate artifacts are for resumability and validation)
+- **Lightweight state**: `state.json` exists only to coordinate subagent contract verification
 - **Self-contained**: Implementer needs nothing beyond the plan
 - **Research visible**: User sees findings, guides direction
 - **Iterative**: User reviews drafts, suggests changes before finalizing
 </core_philosophy>
+
+---
+
+## Session State Management
+
+T-plan uses file-based state for contract verification and context sharing.
+
+### Initialize Session (INTENT phase)
+
+```bash
+mkdir -p ".t-plan/${CLAUDE_SESSION_ID}"
+```
+
+### State File
+
+Update `.t-plan/${CLAUDE_SESSION_ID}/state.json` before each subagent phase:
+
+```json
+{
+  "schema_version": 1,
+  "session_id": "${CLAUDE_SESSION_ID}",
+  "phase": "EXPLORE",
+  "draft_version": 0,
+  "validation_version": 0,
+  "created_at": "ISO_TIMESTAMP",
+  "updated_at": "ISO_TIMESTAMP"
+}
+```
+
+### Directory Structure
+
+```
+.t-plan/${CLAUDE_SESSION_ID}/
+  state.json              # Phase tracking
+  intent.md               # Shared context (orchestrator writes)
+  explore.md              # EXPLORE contract output (subagent writes)
+  scout.md                # SCOUT contract output (subagent writes)
+  draft-v001.md           # Versioned drafts (orchestrator writes)
+  validation-v001.json    # VALIDATE contract output (subagent writes)
+  plan.md                 # Final output (orchestrator writes)
+```
+
+### .gitignore Setup
+
+Create `.t-plan/.gitignore` on first session:
+
+```gitignore
+# Ignore all session artifacts
+*
+!.gitignore
+```
 
 ---
 
@@ -90,13 +142,26 @@ Orchestrator thinks: Now I can direct EXPLORE. Proceed.
 
 **Goal**: Understand the codebase relevant to the user's intent.
 
+### Pre-Dispatch (Orchestrator)
+
+1. Write intent to `.t-plan/${CLAUDE_SESSION_ID}/intent.md`
+2. Update state.json: `phase: "EXPLORE"`
+3. Remove stale output: `rm -f .t-plan/${CLAUDE_SESSION_ID}/explore.md`
+
 ### Dispatch Explore Subagent
 
 Use `Task` tool with `subagent_type: "Explore"`:
 
 ```
-<task_prompt>
-Explore the codebase to understand:
+SESSION: .t-plan/${CLAUDE_SESSION_ID}/
+
+READ: .t-plan/${CLAUDE_SESSION_ID}/intent.md
+
+CONTRACT: Write findings to .t-plan/${CLAUDE_SESSION_ID}/explore.md
+          Your output MUST start with a 1-2 line summary referencing
+          at least one concrete detail from intent.md (proof-of-read).
+
+TASK: Explore the codebase to understand:
 1. Tech stack, frameworks, patterns in use
 2. Existing code related to [specific area from INTENT]
 3. Project structure and conventions
@@ -109,12 +174,11 @@ Return INSIGHTS, not just file paths:
 - "Architecture: service layer → repository → database"
 - "Flow: login → validate → create session → store token"
 - "Already installed: better-auth, zod, drizzle"
-</task_prompt>
 ```
 
 ### Expected Output
 
-The subagent should return:
+The subagent should return (and write to `explore.md`):
 - **Key files**: What they do, not just paths
 - **Architecture**: How components connect
 - **Flows**: How data/control moves through the system
@@ -151,17 +215,29 @@ Would you like to continue with normal plan mode instead of thorough planning?"
 
 **Goal**: Find alternatives that might be simpler than the obvious approach.
 
+### Pre-Dispatch (Orchestrator)
+
+1. Update state.json: `phase: "SCOUT"`
+2. Remove stale output: `rm -f .t-plan/${CLAUDE_SESSION_ID}/scout.md`
+
 ### Dispatch Scout Subagent
 
 Use `Task` tool with `subagent_type: "general-purpose"`:
 
 ```
-<task_prompt>
-You are an Alternatives Scout. Given this context:
+SESSION: .t-plan/${CLAUDE_SESSION_ID}/
 
-**Intent**: [from INTENT]
-**Codebase**: [summary from EXPLORE]
-**Installed dependencies**: [list from EXPLORE]
+READ: .t-plan/${CLAUDE_SESSION_ID}/intent.md
+READ: .t-plan/${CLAUDE_SESSION_ID}/explore.md
+
+CONTRACT: Write findings to .t-plan/${CLAUDE_SESSION_ID}/scout.md
+          Start with a 1-line summary referencing explore.md findings (proof-of-read).
+
+TASK: You are an Alternatives Scout. Given this context:
+
+**Intent**: [from intent.md]
+**Codebase**: [from explore.md]
+**Installed dependencies**: [from explore.md]
 
 Search for alternatives to the obvious approach.
 
@@ -180,12 +256,11 @@ RETURN:
 - Alternatives worth considering (often: NONE)
 - For each: what it is, why it's simpler, tradeoffs
 - Or: "No simpler alternatives found. Proceed with [obvious approach]."
-</task_prompt>
 ```
 
 ### Expected Output
 
-Either:
+The subagent writes to `scout.md`:
 - "No simpler alternatives found" (common case)
 - 1-2 alternatives with clear rationale
 
@@ -239,16 +314,28 @@ At this point, the orchestrator has accumulated:
 
 **Goal**: Check the draft approach against official documentation.
 
+### Pre-Dispatch (Orchestrator)
+
+1. Write draft to `.t-plan/${CLAUDE_SESSION_ID}/draft-v{NNN}.md` (e.g., `draft-v001.md`)
+2. Update state.json: `phase: "VALIDATE"`, `draft_version: 1`, `validation_version: 1`
+3. Remove stale output: `rm -f .t-plan/${CLAUDE_SESSION_ID}/validation-v{NNN}.json`
+
 ### Dispatch Validate Subagent
 
 Use `Task` tool with `subagent_type: "general-purpose"`:
 
 ```
-<task_prompt>
-You are a Documentation Validator. Given this draft approach:
+SESSION: .t-plan/${CLAUDE_SESSION_ID}/
 
-**Draft**:
-[paste draft from DRAFT step]
+READ: .t-plan/${CLAUDE_SESSION_ID}/intent.md
+READ: .t-plan/${CLAUDE_SESSION_ID}/explore.md
+READ: .t-plan/${CLAUDE_SESSION_ID}/scout.md (if present)
+READ: .t-plan/${CLAUDE_SESSION_ID}/draft-v001.md
+
+CONTRACT: Write validation to .t-plan/${CLAUDE_SESSION_ID}/validation-v001.json
+          JSON format with draft_version field matching state (proof-of-read).
+
+TASK: You are a Documentation Validator. Given the draft approach in draft-v001.md:
 
 **Technologies involved**: [list from draft]
 
@@ -264,20 +351,39 @@ SOURCE PRIORITY:
 2. Context7 MCP - if library is indexed
 3. Web search + official docs - fallback
 
-RETURN:
-- Confirmation OR corrections for each technology
-- Working code snippets from official docs
-- Gotchas and common mistakes
-- Links to relevant doc sections
-</task_prompt>
+OUTPUT FORMAT (validation-v001.json):
+{
+  "draft_version": 1,
+  "status": "VALID" | "NEEDS_CHANGES",
+  "confirmations": [...],
+  "corrections": [...],
+  "snippets": [...],
+  "gotchas": [...],
+  "doc_links": [...]
+}
 ```
 
 ### Expected Output
 
+The subagent writes to `validation-v{NNN}.json`:
 - **Confirmation**: "Approach aligns with official recommendations"
 - **Corrections**: "Docs recommend X instead of Y because..."
 - **Snippets**: Working code examples
 - **Gotchas**: Common mistakes to avoid
+
+### VALIDATE → DRAFT Revision Loop
+
+If `validation-v{NNN}.json` returns `status: "NEEDS_CHANGES"`:
+
+1. Orchestrator updates the approach and writes `draft-v{NNN+1}.md`
+2. Orchestrator updates state.json:
+   - `phase: "VALIDATE"`
+   - `draft_version: NNN+1`
+   - `validation_version: NNN+1`
+3. Orchestrator removes stale output: `rm -f .t-plan/${CLAUDE_SESSION_ID}/validation-v{NNN+1}.json`
+4. Re-run VALIDATE
+
+Proceed to PLAN only when validation returns `status: "VALID"`.
 
 ---
 
@@ -289,7 +395,7 @@ RETURN:
 
 1. **Incorporate VALIDATE feedback** - Update draft with corrections/snippets
 2. **Enter plan mode** - Use `EnterPlanMode` tool
-3. **Write PLAN.md** - Following the template in `references/plan-template.md`
+3. **Write `.t-plan/${CLAUDE_SESSION_ID}/plan.md`** - Following the template in `references/plan-template.md` (if Plan Mode writes elsewhere, copy the final plan here)
 4. **Present to user** - Single checkpoint for iteration
 
 ### Plan Contents
@@ -313,7 +419,7 @@ Present plan and iterate until user approves:
 ### On Approval
 
 ```
-Plan written to: .claude/plans/<feature-slug>.md
+Plan written to: .t-plan/${CLAUDE_SESSION_ID}/plan.md
 
 How would you like to proceed?
 
