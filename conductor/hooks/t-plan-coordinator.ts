@@ -21,10 +21,11 @@ import {
   getSessionDir,
 } from "./lib/state";
 import {
-  PHASE_MARKER_REGEX,
-  CONTRACT_OUTPUT_REGEX,
-  type Phase,
-} from "./lib/types";
+  detectPhase,
+  resolveContractOutputPath,
+  createInitialState,
+  updateStateForPhase,
+} from "./lib/coordinator-utils";
 
 function main(): never {
   const input = readHookInput();
@@ -40,13 +41,12 @@ function main(): never {
   const prompt = typeof toolInput.prompt === "string" ? toolInput.prompt : "";
 
   // Check for t-plan phase marker in description
-  const phaseMatch = description.match(PHASE_MARKER_REGEX);
-  if (!phaseMatch) {
+  const phase = detectPhase(description);
+  if (!phase) {
     // Not a t-plan Task dispatch
     return allow();
   }
 
-  const phase = phaseMatch[1] as Phase;
   const sessionId = input.session_id;
   const cwd = input.cwd;
 
@@ -64,35 +64,17 @@ function main(): never {
 
   if (!state) {
     // First t-plan dispatch in this session
-    state = {
-      schema_version: 1,
-      session_id: sessionId,
-      phase,
-      draft_version: 0,
-      validation_version: 0,
-      created_at: now,
-      updated_at: now,
-    };
+    state = createInitialState(sessionId, phase, now);
   } else {
     // Update existing state
-    state.phase = phase;
-    state.updated_at = now;
-
-    // VALIDATE phase: increment validation_version to match draft_version
-    if (phase === "VALIDATE") {
-      state.validation_version = state.draft_version;
-    }
+    state = updateStateForPhase(state, phase, now);
   }
 
   writeState(sessionDir, state);
 
   // Truncate stale contract output if CONTRACT_OUTPUT marker is present
-  const contractMatch = prompt.match(CONTRACT_OUTPUT_REGEX);
-  if (contractMatch?.[1]) {
-    const contractPath = contractMatch[1]
-      .replace("${CLAUDE_SESSION_ID}", sessionId)
-      .replace(/^\.\/?/, ""); // Remove leading ./ if present
-
+  const contractPath = resolveContractOutputPath(prompt, sessionId);
+  if (contractPath) {
     const fullPath = join(cwd, contractPath);
 
     // Truncate (create empty file) so subagent must write fresh output
