@@ -40,53 +40,48 @@ INTENT → EXPLORE → [gate] → SCOUT → DRAFT → VALIDATE → PLAN
 
 ---
 
-## Session State Management
+## Protocol Markers (Required for Hook Automation)
 
-T-plan uses file-based state for contract verification and context sharing.
+T-plan uses PreToolUse hooks to automate state management. For this to work, every t-plan Task dispatch must include protocol markers.
 
-### Initialize Session (INTENT phase)
+### Phase Marker (in `description` parameter)
 
-```bash
-mkdir -p ".t-plan/${CLAUDE_SESSION_ID}"
+Include the phase marker to trigger automatic state management:
+
+```
+[T-PLAN PHASE=EXPLORE|SCOUT|VALIDATE]
 ```
 
-### State File
-
-Update `.t-plan/${CLAUDE_SESSION_ID}/state.json` before each subagent phase:
-
-```json
-{
-  "schema_version": 1,
-  "session_id": "${CLAUDE_SESSION_ID}",
-  "phase": "EXPLORE",
-  "draft_version": 0,
-  "validation_version": 0,
-  "created_at": "ISO_TIMESTAMP",
-  "updated_at": "ISO_TIMESTAMP"
-}
+Example Task description:
 ```
+[T-PLAN PHASE=EXPLORE] Explore codebase for authentication patterns
+```
+
+### Contract Output Marker (in `prompt` parameter)
+
+Specify the expected output file:
+
+```
+CONTRACT_OUTPUT: .t-plan/${CLAUDE_SESSION_ID}/explore.md
+```
+
+The hook will:
+1. Create `.t-plan/${CLAUDE_SESSION_ID}/` directory
+2. Update `state.json` with the current phase
+3. Truncate stale contract output (ensures fresh write)
+4. Create `.gitignore` to exclude session artifacts
 
 ### Directory Structure
 
 ```
 .t-plan/${CLAUDE_SESSION_ID}/
-  state.json              # Phase tracking
+  state.json              # Phase tracking (managed by hook)
   intent.md               # Shared context (orchestrator writes)
   explore.md              # EXPLORE contract output (subagent writes)
   scout.md                # SCOUT contract output (subagent writes)
   draft-v001.md           # Versioned drafts (orchestrator writes)
   validation-v001.json    # VALIDATE contract output (subagent writes)
   plan.md                 # Final output (orchestrator writes)
-```
-
-### .gitignore Setup
-
-Create `.t-plan/.gitignore` on first session:
-
-```gitignore
-# Ignore all session artifacts
-*
-!.gitignore
 ```
 
 ---
@@ -144,16 +139,17 @@ Orchestrator thinks: Now I can direct EXPLORE. Proceed.
 
 ### Pre-Dispatch (Orchestrator)
 
-1. Write intent to `.t-plan/${CLAUDE_SESSION_ID}/intent.md`
-2. Update state.json: `phase: "EXPLORE"`
-3. Remove stale output: `rm -f .t-plan/${CLAUDE_SESSION_ID}/explore.md`
+Write intent to `.t-plan/${CLAUDE_SESSION_ID}/intent.md` (state management is automated by hook).
 
 ### Dispatch Explore Subagent
 
 Use `Task` tool with `subagent_type: "Explore"`:
 
+- **description**: `[T-PLAN PHASE=EXPLORE] Explore codebase for [specific area]`
+- **prompt**:
+
 ```
-SESSION: .t-plan/${CLAUDE_SESSION_ID}/
+CONTRACT_OUTPUT: .t-plan/${CLAUDE_SESSION_ID}/explore.md
 
 READ: .t-plan/${CLAUDE_SESSION_ID}/intent.md
 
@@ -215,17 +211,15 @@ Would you like to continue with normal plan mode instead of thorough planning?"
 
 **Goal**: Find alternatives that might be simpler than the obvious approach.
 
-### Pre-Dispatch (Orchestrator)
-
-1. Update state.json: `phase: "SCOUT"`
-2. Remove stale output: `rm -f .t-plan/${CLAUDE_SESSION_ID}/scout.md`
-
 ### Dispatch Scout Subagent
 
 Use `Task` tool with `subagent_type: "general-purpose"`:
 
+- **description**: `[T-PLAN PHASE=SCOUT] Find simpler alternatives`
+- **prompt**:
+
 ```
-SESSION: .t-plan/${CLAUDE_SESSION_ID}/
+CONTRACT_OUTPUT: .t-plan/${CLAUDE_SESSION_ID}/scout.md
 
 READ: .t-plan/${CLAUDE_SESSION_ID}/intent.md
 READ: .t-plan/${CLAUDE_SESSION_ID}/explore.md
@@ -316,16 +310,17 @@ At this point, the orchestrator has accumulated:
 
 ### Pre-Dispatch (Orchestrator)
 
-1. Write draft to `.t-plan/${CLAUDE_SESSION_ID}/draft-v{NNN}.md` (e.g., `draft-v001.md`)
-2. Update state.json: `phase: "VALIDATE"`, `draft_version: 1`, `validation_version: 1`
-3. Remove stale output: `rm -f .t-plan/${CLAUDE_SESSION_ID}/validation-v{NNN}.json`
+Write draft to `.t-plan/${CLAUDE_SESSION_ID}/draft-v{NNN}.md` and update `state.json` with `draft_version: NNN` (validation_version is set automatically by hook).
 
 ### Dispatch Validate Subagent
 
 Use `Task` tool with `subagent_type: "general-purpose"`:
 
+- **description**: `[T-PLAN PHASE=VALIDATE] Validate draft against documentation`
+- **prompt**:
+
 ```
-SESSION: .t-plan/${CLAUDE_SESSION_ID}/
+CONTRACT_OUTPUT: .t-plan/${CLAUDE_SESSION_ID}/validation-v001.json
 
 READ: .t-plan/${CLAUDE_SESSION_ID}/intent.md
 READ: .t-plan/${CLAUDE_SESSION_ID}/explore.md
@@ -376,12 +371,10 @@ The subagent writes to `validation-v{NNN}.json`:
 If `validation-v{NNN}.json` returns `status: "NEEDS_CHANGES"`:
 
 1. Orchestrator updates the approach and writes `draft-v{NNN+1}.md`
-2. Orchestrator updates state.json:
-   - `phase: "VALIDATE"`
-   - `draft_version: NNN+1`
-   - `validation_version: NNN+1`
-3. Orchestrator removes stale output: `rm -f .t-plan/${CLAUDE_SESSION_ID}/validation-v{NNN+1}.json`
-4. Re-run VALIDATE
+2. Orchestrator updates `state.json` with `draft_version: NNN+1`
+3. Re-dispatch VALIDATE with updated version in CONTRACT_OUTPUT path
+
+The PreToolUse hook will automatically set `validation_version` to match `draft_version`.
 
 Proceed to PLAN only when validation returns `status: "VALID"`.
 
@@ -595,3 +588,38 @@ We'll use Zustand for state.
 
 A plan succeeds when the implementer never thinks "I wish they had told me that." The implementer's context window starts empty—encode everything you know.
 </planning_closing>
+
+---
+
+## Manual Fallback (If Hooks Not Installed)
+
+If conductor hooks are not installed (via `/conductor:setup-hooks`), manually manage state:
+
+```bash
+# Before first dispatch
+mkdir -p ".t-plan/${CLAUDE_SESSION_ID}"
+
+# Create .gitignore
+cat > ".t-plan/.gitignore" << 'EOF'
+*
+!.gitignore
+EOF
+
+# Before each subagent dispatch, update state.json
+cat > ".t-plan/${CLAUDE_SESSION_ID}/state.json" << EOF
+{
+  "schema_version": 1,
+  "session_id": "${CLAUDE_SESSION_ID}",
+  "phase": "EXPLORE",
+  "draft_version": 0,
+  "validation_version": 0,
+  "created_at": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+  "updated_at": "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+}
+EOF
+
+# Remove stale output before dispatch
+rm -f ".t-plan/${CLAUDE_SESSION_ID}/explore.md"
+```
+
+Run `/conductor:setup-hooks` to enable automatic state management.

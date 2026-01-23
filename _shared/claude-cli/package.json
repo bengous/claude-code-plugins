@@ -1,0 +1,27 @@
+{
+  "name": "@claude-plugins/claude-cli",
+  "version": "1.0.0",
+  "description": "Lightweight TypeScript/Bun SDK for programmatic Claude CLI control in hooks",
+  "type": "module",
+  "main": "index.ts",
+  "types": "index.ts",
+  "scripts": {
+    "test": "bun test",
+    "typecheck": "bun x tsc --noEmit"
+  },
+  "devDependencies": {
+    "@types/bun": "latest"
+  },
+  "peerDependencies": {
+    "bun": ">=1.0.0"
+  },
+  "keywords": [
+    "claude",
+    "cli",
+    "sdk",
+    "hooks",
+    "bun",
+    "typescript"
+  ],
+  "license": "MIT"
+}

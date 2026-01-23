@@ -7,6 +7,10 @@
 !.claude/settings.json
 !.claude/__settings.jsonc
 
+# Node/Bun
+node_modules/
+bun.lock
+
 # Python
 __pycache__/
 *.py[cod]
