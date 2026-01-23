@@ -1,31 +1,21 @@
 #!/usr/bin/env bun
 /**
- * T-Plan Coordinator Hook (PreToolUse)
+ * T-Plan Coordinator Hook (PreToolUse:Task)
  *
  * Automates state management for t-plan subagent dispatches:
  * 1. Detects Task calls with [T-PLAN PHASE=...] marker
- * 2. Creates/updates .t-plan/{session_id}/state.json
- * 3. Ensures .gitignore exists
- * 4. Truncates stale contract output files
+ * 2. Updates .t-plan/{session_id}/state.json for phase transitions
+ * 3. Truncates stale contract output files
  *
- * This removes manual state management from SKILL.md instructions.
+ * NOTE: Session initialization is handled by t-plan-init.ts (PreToolUse:* once:true).
+ * This hook only handles state updates for phase transitions.
  */
 
-import { mkdirSync, existsSync, writeFileSync } from "fs";
+import { existsSync, writeFileSync } from "fs";
 import { join } from "path";
 import { readHookInput, allow } from "./lib/hooks";
-import {
-  readState,
-  writeState,
-  ensureGitignore,
-  getSessionDir,
-} from "./lib/state";
-import {
-  detectPhase,
-  resolveContractOutputPath,
-  createInitialState,
-  updateStateForPhase,
-} from "./lib/coordinator-utils";
+import { readState, writeState, getSessionDir } from "./lib/state";
+import { detectPhase, resolveContractOutputPath, updateStateForPhase } from "./lib/coordinator-utils";
 
 function main(): never {
   const input = readHookInput();
@@ -49,28 +39,22 @@ function main(): never {
 
   const sessionId = input.session_id;
   const cwd = input.cwd;
-
-  // Determine session directory
   const sessionDir = getSessionDir(cwd, sessionId);
-  const tplanDir = join(cwd, ".t-plan");
 
-  // Ensure directories exist
-  mkdirSync(sessionDir, { recursive: true });
-  ensureGitignore(tplanDir);
-
-  // Read or create state
-  const now = new Date().toISOString();
-  let state = readState(sessionDir);
+  // Read existing state (should be created by t-plan-init.ts)
+  const state = readState(sessionDir);
 
   if (!state) {
-    // First t-plan dispatch in this session
-    state = createInitialState(sessionId, phase, now);
-  } else {
-    // Update existing state
-    state = updateStateForPhase(state, phase, now);
+    // Init hook should have created state - allow but warn
+    // This can happen if init hook hasn't run yet or session directory doesn't exist
+    console.error("Warning: state.json not found, init hook may not have run");
+    return allow();
   }
 
-  writeState(sessionDir, state);
+  // Update state for the new phase
+  const now = new Date().toISOString();
+  const updatedState = updateStateForPhase(state, phase, now);
+  writeState(sessionDir, updatedState);
 
   // Truncate stale contract output if CONTRACT_OUTPUT marker is present
   const contractPath = resolveContractOutputPath(prompt, sessionId);

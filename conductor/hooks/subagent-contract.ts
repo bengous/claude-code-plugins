@@ -14,7 +14,7 @@ import { existsSync, readFileSync, statSync } from "fs";
 import { join } from "path";
 import { readHookInput, allow, block } from "./lib/hooks";
 import { findSessionDir, readState } from "./lib/state";
-import { PHASE_CONTRACTS, type Phase } from "./lib/types";
+import { isSubagentPhase, type SubagentPhase } from "./lib/types";
 import {
   resolveContractFilename,
   validateValidationJson,
@@ -50,15 +50,15 @@ function main(): never {
     return allow();
   }
 
-  const { phase, draft_version, validation_version } = state;
+  const { phase, draft_version } = state;
 
-  // Unknown phase - allow
-  if (!(phase in PHASE_CONTRACTS)) {
+  // Non-subagent phase (e.g., INTENT) - allow
+  if (!isSubagentPhase(phase)) {
     return allow();
   }
 
-  // Resolve contract filename using extracted function
-  const contractResult = resolveContractFilename(phase as Phase, validation_version);
+  // Resolve contract filename using draft_version
+  const contractResult = resolveContractFilename(phase as SubagentPhase, draft_version);
   if ("error" in contractResult) {
     return block(contractResult.error);
   }

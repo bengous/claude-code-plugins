@@ -12,6 +12,11 @@ import {
 import { createTestState } from "./test-utils";
 
 describe("detectPhase", () => {
+  test("detects INTENT phase", () => {
+    const result = detectPhase("[T-PLAN PHASE=INTENT] capture user intent");
+    expect(result).toBe("INTENT");
+  });
+
   test("detects EXPLORE phase", () => {
     const result = detectPhase("[T-PLAN PHASE=EXPLORE] architect");
     expect(result).toBe("EXPLORE");
@@ -134,14 +139,9 @@ describe("createInitialState", () => {
     expect(state.draft_version).toBe(0);
   });
 
-  test("initializes validation_version to 0", () => {
+  test("sets schema_version to 2", () => {
     const state = createInitialState("session-abc", "EXPLORE", "2025-01-01T00:00:00Z");
-    expect(state.validation_version).toBe(0);
-  });
-
-  test("sets schema_version to 1", () => {
-    const state = createInitialState("session-abc", "EXPLORE", "2025-01-01T00:00:00Z");
-    expect(state.schema_version).toBe(1);
+    expect(state.schema_version).toBe(2);
   });
 
   test("sets created_at and updated_at to provided timestamp", () => {
@@ -151,10 +151,14 @@ describe("createInitialState", () => {
     expect(state.updated_at).toBe(timestamp);
   });
 
+  test("handles INTENT as initial phase", () => {
+    const state = createInitialState("session-abc", "INTENT", "2025-01-01T00:00:00Z");
+    expect(state.phase).toBe("INTENT");
+  });
+
   test("handles VALIDATE as initial phase", () => {
     const state = createInitialState("session-abc", "VALIDATE", "2025-01-01T00:00:00Z");
     expect(state.phase).toBe("VALIDATE");
-    expect(state.validation_version).toBe(0); // Not auto-incremented on create
   });
 });
 
@@ -186,19 +190,10 @@ describe("updateStateForPhase", () => {
     expect(updated.session_id).toBe("original-session");
   });
 
-  test("preserves draft_version for non-VALIDATE phases", () => {
+  test("preserves draft_version", () => {
     const original = createTestState({ draft_version: 5 });
     const updated = updateStateForPhase(original, "SCOUT", "2025-01-02T00:00:00Z");
     expect(updated.draft_version).toBe(5);
-  });
-
-  test("VALIDATE sets validation_version to draft_version", () => {
-    const original = createTestState({
-      draft_version: 3,
-      validation_version: 0,
-    });
-    const updated = updateStateForPhase(original, "VALIDATE", "2025-01-02T00:00:00Z");
-    expect(updated.validation_version).toBe(3);
   });
 
   test("VALIDATE preserves draft_version", () => {
@@ -216,12 +211,9 @@ describe("updateStateForPhase", () => {
     expect(original.phase).toBe(originalPhase);
   });
 
-  test("non-VALIDATE does not modify validation_version", () => {
-    const original = createTestState({
-      validation_version: 2,
-      phase: "VALIDATE",
-    });
+  test("handles INTENT phase transition", () => {
+    const original = createTestState({ phase: "INTENT" });
     const updated = updateStateForPhase(original, "EXPLORE", "2025-01-02T00:00:00Z");
-    expect(updated.validation_version).toBe(2);
+    expect(updated.phase).toBe("EXPLORE");
   });
 });

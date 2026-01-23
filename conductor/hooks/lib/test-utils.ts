@@ -52,11 +52,10 @@ export async function setupSessionDir(
  */
 export function createTestState(overrides: Partial<TPlanState> = {}): TPlanState {
   return {
-    schema_version: 1,
+    schema_version: 2,
     session_id: "test-session-123",
     phase: "EXPLORE",
     draft_version: 0,
-    validation_version: 0,
     created_at: "2025-01-01T00:00:00.000Z",
     updated_at: "2025-01-01T00:00:00.000Z",
     ...overrides,

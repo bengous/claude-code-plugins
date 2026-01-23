@@ -5,7 +5,11 @@ argument-hint: [feature description]
 
 # T-Plan (Thorough Plan)
 
-Load and follow the t-plan skill: `${CLAUDE_PLUGIN_ROOT}/skills/t-plan/SKILL.md`
+Invoke the t-plan skill:
+
+```
+Skill(skill: "t-plan")
+```
 
 **Entry detection:**
 - If user provided `$ARGUMENTS` → fresh start, begin at INTENT step
