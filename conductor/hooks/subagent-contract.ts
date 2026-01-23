@@ -15,6 +15,11 @@ import { join } from "path";
 import { readHookInput, allow, block } from "./lib/hooks";
 import { findSessionDir, readState } from "./lib/state";
 import { PHASE_CONTRACTS, type Phase } from "./lib/types";
+import {
+  resolveContractFilename,
+  validateValidationJson,
+  buildPathCandidates,
+} from "./lib/validation";
 
 function main(): never {
   const input = readHookInput();
@@ -24,17 +29,9 @@ function main(): never {
     return allow();
   }
 
-  // Try to find session directory from various path candidates
-  // Check multiple possible path fields (cwd is in HookInput, others may be added by Claude Code)
-  const pathCandidates: string[] = [];
+  // Build path candidates using extracted function
   const inputRecord = input as unknown as Record<string, unknown>;
-  for (const key of ["cwd", "project_root", "repo_root", "workspace_root"]) {
-    const value = inputRecord[key];
-    if (typeof value === "string" && value) {
-      pathCandidates.push(value);
-    }
-  }
-  pathCandidates.push(process.cwd());
+  const pathCandidates = buildPathCandidates(inputRecord, process.cwd());
 
   let sessionDir: string | null = null;
   for (const candidate of pathCandidates) {
@@ -60,20 +57,13 @@ function main(): never {
     return allow();
   }
 
-  // Determine expected contract output
-  let expected = PHASE_CONTRACTS[phase as Phase];
-  if (expected.includes("{version}")) {
-    if (typeof validation_version !== "number" || validation_version < 1) {
-      return block(
-        "CONTRACT UNFULFILLED: state.validation_version must be >= 1 for VALIDATE"
-      );
-    }
-    expected = expected.replace(
-      "{version}",
-      String(validation_version).padStart(3, "0")
-    );
+  // Resolve contract filename using extracted function
+  const contractResult = resolveContractFilename(phase as Phase, validation_version);
+  if ("error" in contractResult) {
+    return block(contractResult.error);
   }
 
+  const expected = contractResult.filename;
   const contractPath = join(sessionDir, expected);
 
   // Check file exists and is non-empty
@@ -97,36 +87,10 @@ function main(): never {
       return block(`CONTRACT UNFULFILLED: ${expected} is not valid JSON`);
     }
 
-    // Check draft_version match
-    const fileDraftVersion = validation.draft_version;
-    const fileDraft =
-      typeof fileDraftVersion === "number"
-        ? fileDraftVersion
-        : parseInt(String(fileDraftVersion), 10);
-    const expectedDraft =
-      typeof draft_version === "number"
-        ? draft_version
-        : parseInt(String(draft_version), 10);
-
-    // parseInt returns NaN for invalid input (never throws)
-    if (isNaN(fileDraft) || isNaN(expectedDraft)) {
-      return block(
-        `CONTRACT UNFULFILLED: draft_version must be an integer ` +
-          `(got ${fileDraftVersion} vs ${draft_version})`
-      );
-    }
-
-    if (fileDraft !== expectedDraft) {
-      return block(
-        `CONTRACT UNFULFILLED: validation draft_version (${fileDraft}) != state (${expectedDraft})`
-      );
-    }
-
-    // Check required 'status' field
-    if (!("status" in validation)) {
-      return block(
-        "CONTRACT UNFULFILLED: validation JSON missing required field 'status'"
-      );
+    // Use extracted validation function
+    const validationResult = validateValidationJson(validation, draft_version);
+    if (!validationResult.valid) {
+      return block(validationResult.error);
     }
   }
 
