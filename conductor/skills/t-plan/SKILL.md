@@ -1,6 +1,23 @@
 ---
 name: t-plan
 description: Thorough planning for complex features using a 6-step orchestrator-subagent workflow. Turn discussions into executable, self-contained implementation plans. USE for: multi-file features, architectural changes, unfamiliar tech requiring research, handoff to future sessions or other agents. SKIP for quick fixes, single-file changes, or low-complexity tasks—use normal plan mode instead. Triggers: "plan this feature", "create implementation plan", "thorough plan", "t-plan", "write a PLAN.md", "plan before implementing", "help me design this".
+hooks:
+  PreToolUse:
+    # Init: runs ONCE on first tool use when skill is active
+    - matcher: "*"
+      once: true
+      hooks:
+        - type: command
+          command: bun "${CLAUDE_PLUGIN_ROOT}/hooks/t-plan-init.ts"
+          timeout: 5
+          description: T-plan session initialization
+    # Coordinator: runs on every Task dispatch with phase marker
+    - matcher: Task
+      hooks:
+        - type: command
+          command: bun "${CLAUDE_PLUGIN_ROOT}/hooks/t-plan-coordinator.ts"
+          timeout: 10
+          description: T-plan state management
 ---
 
 # T-Plan Skill (Thorough Planning)
@@ -42,14 +59,16 @@ INTENT → EXPLORE → [gate] → SCOUT → DRAFT → VALIDATE → PLAN
 
 ## Protocol Markers (Required for Hook Automation)
 
-T-plan uses PreToolUse hooks to automate state management. For this to work, every t-plan Task dispatch must include protocol markers.
+T-plan uses skill-scoped hooks for automated state management:
+- **Init hook** (`once: true`): Creates session directory on first tool use
+- **Coordinator hook**: Updates state.json on Task dispatches with phase markers
 
 ### Phase Marker (in `description` parameter)
 
 Include the phase marker to trigger automatic state management:
 
 ```
-[T-PLAN PHASE=EXPLORE|SCOUT|VALIDATE]
+[T-PLAN PHASE=INTENT|EXPLORE|SCOUT|VALIDATE]
 ```
 
 Example Task description:
@@ -65,11 +84,11 @@ Specify the expected output file:
 CONTRACT_OUTPUT: .t-plan/${CLAUDE_SESSION_ID}/explore.md
 ```
 
-The hook will:
-1. Create `.t-plan/${CLAUDE_SESSION_ID}/` directory
-2. Update `state.json` with the current phase
-3. Truncate stale contract output (ensures fresh write)
-4. Create `.gitignore` to exclude session artifacts
+The coordinator hook will:
+1. Update `state.json` with the current phase
+2. Truncate stale contract output (ensures fresh write)
+
+Note: Session directory and `.gitignore` are created by the init hook on first tool use.
 
 ### Directory Structure
 
@@ -310,7 +329,7 @@ At this point, the orchestrator has accumulated:
 
 ### Pre-Dispatch (Orchestrator)
 
-Write draft to `.t-plan/${CLAUDE_SESSION_ID}/draft-v{NNN}.md` and update `state.json` with `draft_version: NNN` (validation_version is set automatically by hook).
+Write draft to `.t-plan/${CLAUDE_SESSION_ID}/draft-v{NNN}.md` and update `state.json` with `draft_version: NNN`.
 
 ### Dispatch Validate Subagent
 
@@ -374,7 +393,7 @@ If `validation-v{NNN}.json` returns `status: "NEEDS_CHANGES"`:
 2. Orchestrator updates `state.json` with `draft_version: NNN+1`
 3. Re-dispatch VALIDATE with updated version in CONTRACT_OUTPUT path
 
-The PreToolUse hook will automatically set `validation_version` to match `draft_version`.
+The validation filename is derived from `draft_version` (e.g., `validation-v001.json` for `draft_version: 1`).
 
 Proceed to PLAN only when validation returns `status: "VALID"`.
 
@@ -593,33 +612,32 @@ A plan succeeds when the implementer never thinks "I wish they had told me that.
 
 ## Manual Fallback (If Hooks Not Installed)
 
-If conductor hooks are not installed (via `/conductor:setup-hooks`), manually manage state:
+If the skill-scoped hooks are not working, manually manage state:
 
 ```bash
-# Before first dispatch
+# Before first dispatch - create session directory and .gitignore
 mkdir -p ".t-plan/${CLAUDE_SESSION_ID}"
 
-# Create .gitignore
 cat > ".t-plan/.gitignore" << 'EOF'
 *
 !.gitignore
 EOF
 
-# Before each subagent dispatch, update state.json
+# Initialize state.json with INTENT phase
 cat > ".t-plan/${CLAUDE_SESSION_ID}/state.json" << EOF
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "session_id": "${CLAUDE_SESSION_ID}",
-  "phase": "EXPLORE",
+  "phase": "INTENT",
   "draft_version": 0,
-  "validation_version": 0,
   "created_at": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
   "updated_at": "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 }
 EOF
 
+# Before each subagent dispatch, update phase in state.json
 # Remove stale output before dispatch
 rm -f ".t-plan/${CLAUDE_SESSION_ID}/explore.md"
 ```
 
-Run `/conductor:setup-hooks` to enable automatic state management.
+Note: SubagentStop hook for contract verification requires `/conductor:setup-hooks`.

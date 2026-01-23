@@ -47,11 +47,10 @@ export function createInitialState(
   timestamp: string
 ): TPlanState {
   return {
-    schema_version: 1,
+    schema_version: 2,
     session_id: sessionId,
     phase,
     draft_version: 0,
-    validation_version: 0,
     created_at: timestamp,
     updated_at: timestamp,
   };
@@ -60,22 +59,18 @@ export function createInitialState(
 /**
  * Update existing state for a new phase dispatch.
  * Returns a new state object (does not mutate input).
+ *
+ * Note: validation_version was removed in schema v2.
+ * Validation filename is now derived directly from draft_version.
  */
 export function updateStateForPhase(
   state: TPlanState,
   phase: Phase,
   timestamp: string
 ): TPlanState {
-  const updated: TPlanState = {
+  return {
     ...state,
     phase,
     updated_at: timestamp,
   };
-
-  // VALIDATE phase: increment validation_version to match draft_version
-  if (phase === "VALIDATE") {
-    updated.validation_version = state.draft_version;
-  }
-
-  return updated;
 }

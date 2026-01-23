@@ -177,7 +177,7 @@ describe("writeState", () => {
       JSON.stringify(originalState, null, 2)
     );
 
-    const newState = createTestState({ phase: "VALIDATE", validation_version: 1 });
+    const newState = createTestState({ phase: "VALIDATE", draft_version: 1 });
     writeState(sessionDir, newState);
 
     const content = readFileSync(join(sessionDir, "state.json"), "utf8");
