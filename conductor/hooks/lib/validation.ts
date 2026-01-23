@@ -5,15 +5,18 @@
  * These functions contain no side effects (no filesystem, no stdin, no process.exit).
  */
 
-import { PHASE_CONTRACTS, type Phase } from "./types";
+import { PHASE_CONTRACTS, type SubagentPhase } from "./types";
 
 /**
- * Resolve the expected contract filename for a phase.
+ * Resolve the expected contract filename for a subagent phase.
  * For VALIDATE phase, version must be provided and is zero-padded to 3 digits.
+ *
+ * Note: This function expects a SubagentPhase, not the full Phase type.
+ * INTENT phase should be filtered out before calling this.
  */
 export function resolveContractFilename(
-  phase: Phase,
-  validationVersion?: number
+  phase: SubagentPhase,
+  draftVersion?: number
 ): { filename: string } | { error: string } {
   const template = PHASE_CONTRACTS[phase];
 
@@ -21,16 +24,16 @@ export function resolveContractFilename(
     return { filename: template };
   }
 
-  // VALIDATE phase requires version
-  if (typeof validationVersion !== "number" || validationVersion < 1) {
+  // VALIDATE phase requires version derived from draft_version
+  if (typeof draftVersion !== "number" || draftVersion < 1) {
     return {
-      error: "CONTRACT UNFULFILLED: state.validation_version must be >= 1 for VALIDATE",
+      error: "CONTRACT UNFULFILLED: state.draft_version must be >= 1 for VALIDATE",
     };
   }
 
   const filename = template.replace(
     "{version}",
-    String(validationVersion).padStart(3, "0")
+    String(draftVersion).padStart(3, "0")
   );
 
   return { filename };
