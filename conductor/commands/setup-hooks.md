@@ -1,13 +1,17 @@
 ---
-description: Install t-plan contract verification hooks
+description: Install t-plan hooks for automated state management
 argument-hint: "[--remove|--dry-run|--force]"
 allowed-tools:
   - Bash(*:*)
 ---
 
-Install SubagentStop hook for t-plan contract verification.
+Install t-plan hooks for automated state management and contract verification.
 
-**Your task:** Execute `node "${CLAUDE_PLUGIN_ROOT}/scripts/setup-hooks.js" $ARGUMENTS`
+**Your task:** Execute `bun "${CLAUDE_PLUGIN_ROOT}/scripts/setup-hooks.ts" $ARGUMENTS`
+
+This installs two hooks:
+- **PreToolUse:Task** - Automates state.json updates when dispatching t-plan subagents
+- **SubagentStop:\*** - Verifies subagents fulfilled their contract output
 
 Options:
 - `--dry-run` - Preview changes without writing
