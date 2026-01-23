@@ -36,18 +36,18 @@ describe("resolveContractFilename", () => {
   });
 
   describe("VALIDATE phase", () => {
-    test("returns error when version is undefined", () => {
+    test("returns error when draft_version is undefined", () => {
       const result = resolveContractFilename("VALIDATE");
       expect("error" in result).toBe(true);
-      expect((result as { error: string }).error).toContain("validation_version must be >= 1");
+      expect((result as { error: string }).error).toContain("draft_version must be >= 1");
     });
 
-    test("returns error when version is 0", () => {
+    test("returns error when draft_version is 0", () => {
       const result = resolveContractFilename("VALIDATE", 0);
       expect("error" in result).toBe(true);
     });
 
-    test("returns error when version is negative", () => {
+    test("returns error when draft_version is negative", () => {
       const result = resolveContractFilename("VALIDATE", -1);
       expect("error" in result).toBe(true);
     });

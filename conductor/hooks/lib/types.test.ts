@@ -3,9 +3,15 @@
  */
 
 import { describe, test, expect } from "bun:test";
-import { PHASE_MARKER_REGEX, CONTRACT_OUTPUT_REGEX, PHASE_CONTRACTS, type Phase } from "./types";
+import { PHASE_MARKER_REGEX, CONTRACT_OUTPUT_REGEX, PHASE_CONTRACTS, isSubagentPhase, type Phase, type SubagentPhase } from "./types";
 
 describe("PHASE_MARKER_REGEX", () => {
+  test("matches INTENT phase marker", () => {
+    const match = "[T-PLAN PHASE=INTENT]".match(PHASE_MARKER_REGEX);
+    expect(match).not.toBeNull();
+    expect(match![1]).toBe("INTENT");
+  });
+
   test("matches EXPLORE phase marker", () => {
     const match = "[T-PLAN PHASE=EXPLORE]".match(PHASE_MARKER_REGEX);
     expect(match).not.toBeNull();
@@ -94,9 +100,9 @@ describe("PHASE_CONTRACTS", () => {
     expect(PHASE_CONTRACTS.VALIDATE).toBe("validation-v{version}.json");
   });
 
-  test("covers all Phase types", () => {
-    const phases: Phase[] = ["EXPLORE", "SCOUT", "VALIDATE"];
-    for (const phase of phases) {
+  test("covers all SubagentPhase types", () => {
+    const subagentPhases: SubagentPhase[] = ["EXPLORE", "SCOUT", "VALIDATE"];
+    for (const phase of subagentPhases) {
       expect(PHASE_CONTRACTS[phase]).toBeDefined();
     }
   });
@@ -105,5 +111,28 @@ describe("PHASE_CONTRACTS", () => {
     for (const contract of Object.values(PHASE_CONTRACTS)) {
       expect(contract).toMatch(/\.[a-z]+$/);
     }
+  });
+});
+
+describe("isSubagentPhase", () => {
+  test("returns true for EXPLORE", () => {
+    expect(isSubagentPhase("EXPLORE")).toBe(true);
+  });
+
+  test("returns true for SCOUT", () => {
+    expect(isSubagentPhase("SCOUT")).toBe(true);
+  });
+
+  test("returns true for VALIDATE", () => {
+    expect(isSubagentPhase("VALIDATE")).toBe(true);
+  });
+
+  test("returns false for INTENT", () => {
+    expect(isSubagentPhase("INTENT")).toBe(false);
+  });
+
+  test("INTENT is a valid Phase but not a SubagentPhase", () => {
+    const phase: Phase = "INTENT";
+    expect(isSubagentPhase(phase)).toBe(false);
   });
 });
