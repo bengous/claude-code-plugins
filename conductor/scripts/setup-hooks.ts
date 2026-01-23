@@ -2,9 +2,11 @@
 /**
  * T-Plan Hook Installer
  *
- * Registers t-plan hooks into ~/.claude/settings.local.json:
- * - PreToolUse: t-plan-coordinator.ts (automates state management)
- * - SubagentStop: subagent-contract.ts (verifies contract fulfillment)
+ * Registers t-plan SubagentStop hook into ~/.claude/settings.local.json
+ * for contract verification.
+ *
+ * NOTE: PreToolUse hooks (init + coordinator) are now skill-scoped
+ * and defined in skills/t-plan/SKILL.md frontmatter.
  *
  * Usage:
  *   bun setup-hooks.ts [--dry-run] [--force] [--remove]
@@ -41,20 +43,8 @@ const SETTINGS_FILE = join(HOME, ".claude", "settings.local.json");
 const BACKUP_FILE = join(HOME, ".claude", "settings.local.json.backup");
 
 // Hook definitions
+// NOTE: PreToolUse hooks are now skill-scoped in SKILL.md frontmatter
 const PLUGIN_HOOKS: HooksConfig = {
-  PreToolUse: [
-    {
-      matcher: "Task",
-      hooks: [
-        {
-          type: "command",
-          command: `bun "${join(HOOKS_DIR, "t-plan-coordinator.ts")}"`,
-          timeout: 10,
-          description: `T-plan state automation ${PLUGIN_MARKER}`,
-        },
-      ],
-    },
-  ],
   SubagentStop: [
     {
       matcher: "*",
@@ -97,7 +87,6 @@ function main(): void {
 
   // Validate hook scripts exist
   const hookScripts = [
-    join(HOOKS_DIR, "t-plan-coordinator.ts"),
     join(HOOKS_DIR, "subagent-contract.ts"),
   ];
 
@@ -183,9 +172,9 @@ function main(): void {
       settings.hooks[event] = mergeHooks(settings.hooks[event], matchers);
     }
 
-    console.log("Installed 2 hooks from conductor plugin:");
-    console.log("  - PreToolUse:Task -> t-plan-coordinator.ts");
+    console.log("Installed 1 hook from conductor plugin:");
     console.log("  - SubagentStop:* -> subagent-contract.ts");
+    console.log("\nNote: PreToolUse hooks are now skill-scoped in SKILL.md");
   }
 
   // Dry run check
