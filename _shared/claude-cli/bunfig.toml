@@ -1,0 +1,11 @@
+# Bun configuration for Claude CLI SDK
+# https://bun.sh/docs/runtime/bunfig
+
+[install]
+# Use exact versions for reproducibility
+exact = true
+
+[test]
+# Test configuration
+root = "__tests__"
+timeout = 60000
