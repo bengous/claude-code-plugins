@@ -1,12 +1,15 @@
 #!/usr/bin/env bun
 /**
- * T-Plan Session Init Hook (PreToolUse:* with once:true)
+ * T-Plan Session Init Hook (PreToolUse:Skill)
  *
- * Fires on first tool use when t-plan skill is active.
+ * Fires when Skill tool is called. Filters to only act on t-plan skill.
  * Creates session directory and initial state.
  *
- * This hook runs ONCE at the start of a t-plan session, ensuring
- * the session directory exists before the orchestrator writes intent.md.
+ * This hook ensures the session directory exists before the orchestrator
+ * writes intent.md.
+ *
+ * Workaround for GitHub #17688: Skill-scoped hooks don't work in plugins.
+ * Once fixed, migrate back to skill-scoped hooks in SKILL.md frontmatter.
  */
 
 import { join } from "path";
@@ -16,8 +19,21 @@ import { writeState, ensureGitignore, getSessionDir } from "./lib/state";
 function main(): never {
   const input = readHookInput();
 
-  // No input - allow (this shouldn't happen with once:true)
   if (!input) {
+    return allow();
+  }
+
+  // Only process Skill tool calls
+  if (input.tool_name !== "Skill") {
+    return allow();
+  }
+
+  // Check if this is the t-plan skill
+  const toolInput = (input.tool_input ?? {}) as Record<string, unknown>;
+  const skillName = typeof toolInput.skill === "string" ? toolInput.skill : "";
+
+  // Only init for t-plan skill (handles "t-plan" and "conductor:t-plan")
+  if (!skillName.includes("t-plan")) {
     return allow();
   }
 

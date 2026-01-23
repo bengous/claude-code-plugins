@@ -1,23 +1,19 @@
 ---
 name: t-plan
 description: Thorough planning for complex features using a 6-step orchestrator-subagent workflow. Turn discussions into executable, self-contained implementation plans. USE for: multi-file features, architectural changes, unfamiliar tech requiring research, handoff to future sessions or other agents. SKIP for quick fixes, single-file changes, or low-complexity tasks—use normal plan mode instead. Triggers: "plan this feature", "create implementation plan", "thorough plan", "t-plan", "write a PLAN.md", "plan before implementing", "help me design this".
-hooks:
-  PreToolUse:
-    # Init: runs ONCE on first tool use when skill is active
-    - matcher: "*"
-      once: true
-      hooks:
-        - type: command
-          command: bun "${CLAUDE_PLUGIN_ROOT}/hooks/t-plan-init.ts"
-          timeout: 5
-          description: T-plan session initialization
-    # Coordinator: runs on every Task dispatch with phase marker
-    - matcher: Task
-      hooks:
-        - type: command
-          command: bun "${CLAUDE_PLUGIN_ROOT}/hooks/t-plan-coordinator.ts"
-          timeout: 10
-          description: T-plan state management
+# Hooks installed via /conductor:setup-hooks (workaround for GitHub #17688)
+# Skill-scoped hooks don't work in plugins. Once fixed, uncomment below:
+# hooks:
+#   PreToolUse:
+#     - matcher: "*"
+#       once: true
+#       hooks:
+#         - type: command
+#           command: bun "${CLAUDE_PLUGIN_ROOT}/hooks/t-plan-init.ts"
+#     - matcher: Task
+#       hooks:
+#         - type: command
+#           command: bun "${CLAUDE_PLUGIN_ROOT}/hooks/t-plan-coordinator.ts"
 ---
 
 # T-Plan Skill (Thorough Planning)
@@ -59,9 +55,12 @@ INTENT → EXPLORE → [gate] → SCOUT → DRAFT → VALIDATE → PLAN
 
 ## Protocol Markers (Required for Hook Automation)
 
-T-plan uses skill-scoped hooks for automated state management:
-- **Init hook** (`once: true`): Creates session directory on first tool use
-- **Coordinator hook**: Updates state.json on Task dispatches with phase markers
+T-plan uses hooks for automated state management. Run `/conductor:setup-hooks` to install them.
+
+Hooks installed:
+- **PreToolUse:Skill** → Init hook: Creates session directory when t-plan skill is invoked
+- **PreToolUse:Task** → Coordinator hook: Updates state.json on Task dispatches with phase markers
+- **SubagentStop:\*** → Contract hook: Verifies subagents wrote their output files
 
 ### Phase Marker (in `description` parameter)
 
@@ -612,7 +611,7 @@ A plan succeeds when the implementer never thinks "I wish they had told me that.
 
 ## Manual Fallback (If Hooks Not Installed)
 
-If the skill-scoped hooks are not working, manually manage state:
+If you haven't run `/conductor:setup-hooks`, manually manage state:
 
 ```bash
 # Before first dispatch - create session directory and .gitignore
@@ -640,4 +639,4 @@ EOF
 rm -f ".t-plan/${CLAUDE_SESSION_ID}/explore.md"
 ```
 
-Note: SubagentStop hook for contract verification requires `/conductor:setup-hooks`.
+Run `/conductor:setup-hooks` to install all hooks automatically.
