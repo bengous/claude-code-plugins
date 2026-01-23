@@ -2,10 +2,13 @@
 /**
  * T-Plan Hook Installer
  *
- * Registers t-plan hooks into ~/.claude/settings.local.json:
+ * Registers t-plan hooks into ~/.claude/settings.json:
  * - PreToolUse:Skill - Session init (filtered to t-plan skill)
  * - PreToolUse:Task - State management for subagent dispatches
  * - SubagentStop:* - Contract verification
+ *
+ * IMPORTANT: Hooks must be in settings.json, NOT settings.local.json
+ * (hooks in .local don't fire - discovered through testing).
  *
  * Workaround for GitHub #17688: Skill-scoped hooks don't work in plugins.
  * Once fixed, migrate PreToolUse hooks back to SKILL.md frontmatter.
@@ -41,8 +44,9 @@ const { values: flags } = parseArgs({
 const HOME = homedir();
 const PLUGIN_ROOT = process.env.CLAUDE_PLUGIN_ROOT || resolve(dirname(Bun.main), "..");
 const HOOKS_DIR = join(PLUGIN_ROOT, "hooks");
-const SETTINGS_FILE = join(HOME, ".claude", "settings.local.json");
-const BACKUP_FILE = join(HOME, ".claude", "settings.local.json.backup");
+// NOTE: Hooks must be in settings.json, NOT settings.local.json (hooks in .local don't fire)
+const SETTINGS_FILE = join(HOME, ".claude", "settings.json");
+const BACKUP_FILE = join(HOME, ".claude", "settings.json.backup");
 
 // Hook definitions
 // Workaround for GitHub #17688: Skill-scoped hooks don't work in plugins
