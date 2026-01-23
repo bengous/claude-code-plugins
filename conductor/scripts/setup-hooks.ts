@@ -14,6 +14,13 @@ import { existsSync, readFileSync, writeFileSync, mkdirSync, copyFileSync } from
 import { homedir } from "os";
 import { join, dirname, resolve } from "path";
 import { parseArgs } from "util";
+import {
+  PLUGIN_MARKER,
+  isPluginHook,
+  removePluginHooks,
+  mergeHooks,
+  type HooksConfig,
+} from "./lib/hooks-utils";
 
 // Parse command line arguments
 const { values: flags } = parseArgs({
@@ -33,24 +40,7 @@ const HOOKS_DIR = join(PLUGIN_ROOT, "hooks");
 const SETTINGS_FILE = join(HOME, ".claude", "settings.local.json");
 const BACKUP_FILE = join(HOME, ".claude", "settings.local.json.backup");
 
-// Plugin hook marker (used to identify and remove plugin hooks)
-const PLUGIN_MARKER = "(from conductor plugin)";
-
 // Hook definitions
-interface HookConfig {
-  type: "command";
-  command: string;
-  timeout: number;
-  description: string;
-}
-
-interface MatcherConfig {
-  matcher: string;
-  hooks: HookConfig[];
-}
-
-type HooksConfig = Record<string, MatcherConfig[]>;
-
 const PLUGIN_HOOKS: HooksConfig = {
   PreToolUse: [
     {
@@ -99,48 +89,6 @@ function writeJSON(filepath: string, data: unknown): void {
     mkdirSync(dir, { recursive: true });
   }
   writeFileSync(filepath, JSON.stringify(data, null, 2) + "\n", "utf8");
-}
-
-function isPluginHook(hook: HookConfig): boolean {
-  return hook.description?.includes(PLUGIN_MARKER) ?? false;
-}
-
-function removePluginHooks(matchers: MatcherConfig[]): MatcherConfig[] {
-  if (!Array.isArray(matchers)) return matchers;
-
-  return matchers
-    .map((matcher) => ({
-      ...matcher,
-      hooks: matcher.hooks.filter((h) => !isPluginHook(h)),
-    }))
-    .filter((matcher) => matcher.hooks.length > 0);
-}
-
-function mergeHooks(
-  existing: MatcherConfig[] | undefined,
-  plugin: MatcherConfig[]
-): MatcherConfig[] {
-  if (!Array.isArray(existing)) {
-    return plugin;
-  }
-
-  // Remove any existing plugin hooks first
-  const cleaned = removePluginHooks(existing);
-  const result = [...cleaned];
-
-  for (const pluginMatcher of plugin) {
-    const existingMatcher = result.find((m) => m.matcher === pluginMatcher.matcher);
-
-    if (existingMatcher) {
-      // Merge hooks for this matcher
-      existingMatcher.hooks = [...existingMatcher.hooks, ...pluginMatcher.hooks];
-    } else {
-      // Add new matcher
-      result.push(pluginMatcher);
-    }
-  }
-
-  return result;
 }
 
 // Main logic
