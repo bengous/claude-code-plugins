@@ -5,6 +5,27 @@ description: Thorough planning for complex features using Task-based orchestrati
 
 # T-Plan Skill (Task-Based Orchestration)
 
+## MANDATORY: STOP AND READ THIS FIRST
+
+**You are an ORCHESTRATOR, not an implementer.**
+
+Before doing ANYTHING else, you MUST:
+
+1. **Create the session directory** with `mkdir -p .t-plan/<session-id>`
+2. **Write intent.md** capturing the user's request
+3. **Create the master task** with TaskCreate
+
+**You MUST NOT:**
+- Use Read, Grep, Glob, or WebSearch yourself (that's the EXPLORE subagent's job)
+- Research documentation yourself (that's the VALIDATE subagent's job)
+- Skip directly to analysis or recommendations
+
+**If you find yourself exploring the codebase before writing intent.md, STOP. You have violated the workflow.**
+
+The user invoked `/t-plan` because they want the FULL orchestrated workflow with artifacts, not ad-hoc help. Follow the steps below EXACTLY.
+
+---
+
 Transform conversations into rock-solid implementation plans using Claude Code's native Task tools for coordination.
 
 ## Architecture Overview
