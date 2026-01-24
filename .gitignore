@@ -1,6 +1,7 @@
 # Claude Code runtime state
 .claude/*
 .claude-version
+.t-plan/
 !.claude/rules/
 !.claude/CLAUDE.md
 !.claude/git/
