@@ -99,6 +99,9 @@ TaskCreate(
   activeForm: "Planning implementation",
   metadata: {"session_id": "${SESSION_ID}", "phase": "INTENT"}
 )
+
+# Read state before updating (prevents staleness)
+TaskGet(taskId: "master-id")
 TaskUpdate(taskId: "master-id", status: "in_progress")
 ```
 
@@ -117,7 +120,23 @@ Write(file_path: ".t-plan/${SESSION_ID}/intent.md", content: "...")
 
 > "Can I write a focused prompt for the EXPLORE subagent?"
 
-- **NO** -> Clarify with user, loop until yes
+- **NO** -> Clarify using structured question:
+
+```
+AskUserQuestion(questions: [{
+  question: "I need clarification to focus the exploration. What should I prioritize?",
+  header: "Clarify",
+  options: [
+    {label: "Narrow scope", description: "Focus on a specific area or component"},
+    {label: "Define outcome", description: "Clarify what success looks like"},
+    {label: "Add constraints", description: "Specify technical or business limitations"}
+  ],
+  multiSelect: false
+}])
+```
+
+Loop until clarity is sufficient to write a focused EXPLORE prompt.
+
 - **YES** -> Proceed to EXPLORE
 
 ---
@@ -183,6 +202,7 @@ Check:
 # If invalid and attempts < 2:
 #   Re-dispatch with clearer prompt
 # If valid:
+TaskGet(taskId: "explore-task-id")
 TaskUpdate(taskId: "explore-task-id", status: "completed")
 ```
 
@@ -196,7 +216,21 @@ Trivially simple means ALL of:
 - No external dependencies
 - No architectural decisions
 
-**If trivially simple:** Offer to switch to normal plan mode.
+**If trivially simple:** Ask user preference:
+
+```
+AskUserQuestion(questions: [{
+  question: "This task appears straightforward. How would you like to proceed?",
+  header: "Mode",
+  options: [
+    {label: "Continue T-Plan", description: "Proceed with full orchestration workflow"},
+    {label: "Normal plan mode", description: "Exit T-Plan, use standard planning"},
+    {label: "Skip to DRAFT", description: "Skip SCOUT, go directly to DRAFT"}
+  ],
+  multiSelect: false
+}])
+```
+
 **If not trivially simple:** Continue to SCOUT or DRAFT.
 
 ---
@@ -258,6 +292,7 @@ Check:
 
 # Retry if invalid (max 2 attempts)
 # Mark complete when valid
+TaskGet(taskId: "scout-task-id")
 TaskUpdate(taskId: "scout-task-id", status: "completed")
 ```
 
@@ -304,6 +339,7 @@ Write(file_path: ".t-plan/${SESSION_ID}/draft-v001.md", content: """
 """)
 
 # Update master task metadata
+TaskGet(taskId: "master-id")
 TaskUpdate(
   taskId: "master-id",
   metadata: {"draft_version": 1}
@@ -381,6 +417,7 @@ Check:
 - Contains status field ("VALID" or "NEEDS_CHANGES")
 
 # Retry if invalid (max 2 attempts)
+TaskGet(taskId: "validate-task-id")
 TaskUpdate(taskId: "validate-task-id", status: "completed")
 ```
 
@@ -388,7 +425,7 @@ TaskUpdate(taskId: "validate-task-id", status: "completed")
 
 If `status: "NEEDS_CHANGES"`:
 1. Revise draft -> `draft-v002.md`
-2. Update metadata: `TaskUpdate(taskId: "master-id", metadata: {"draft_version": 2})`
+2. Read state, then update: `TaskGet(taskId: "master-id")` followed by `TaskUpdate(taskId: "master-id", metadata: {"draft_version": 2})`
 3. Pre-truncate: `Write(file_path: ".t-plan/${SESSION_ID}/validation-v002.json", content: "")`
 4. Create new VALIDATE task for v002
 5. Repeat until `status: "VALID"`
@@ -420,20 +457,31 @@ Read(file_path: ".t-plan/${SESSION_ID}/validation-vNNN.json")
 Write(file_path: ".t-plan/${SESSION_ID}/plan.md", content: "...")
 
 # Mark master task complete
+TaskGet(taskId: "master-id")
 TaskUpdate(taskId: "master-id", status: "completed")
 ```
 
 ### On Approval
 
-```
-Plan written to: .t-plan/${SESSION_ID}/plan.md
+Plan written to `.t-plan/${SESSION_ID}/plan.md`. Present next steps:
 
-How would you like to proceed?
-
-1. **Execute now** - I'll implement this plan in this session
-2. **Spawn agent** - I'll spawn a Task agent to implement the plan
-3. **Save for later** - Plan is saved; start a fresh session when ready
 ```
+AskUserQuestion(questions: [{
+  question: "Plan is ready. How would you like to proceed?",
+  header: "Next Steps",
+  options: [
+    {label: "Execute now", description: "Implement this plan in current session"},
+    {label: "Spawn agent", description: "Spawn a Task agent to implement"},
+    {label: "Save for later", description: "Plan saved; resume in fresh session"}
+  ],
+  multiSelect: false
+}])
+```
+
+Handle response:
+- **Execute now**: Exit plan mode, begin implementation
+- **Spawn agent**: Create Task with plan.md as context
+- **Save for later**: Report plan location, session complete
 
 ---
 
@@ -454,19 +502,32 @@ for attempt in 1..MAX_ATTEMPTS:
   # Pre-truncate
   Write(file_path: output_file, content: "")
 
-  # Dispatch subagent (must include description parameter)
-  Task(description: "...", subagent_type: "...", prompt: "...")
+  # Dispatch subagent and capture task_id for potential cleanup
+  result = Task(description: "...", subagent_type: "...", prompt: "...", run_in_background: true)
+  bg_task_id = result.task_id
+  TaskOutput(task_id: bg_task_id, block: true)
 
   # Verify
   content = Read(file_path: output_file)
   if valid(content):
-    TaskUpdate(taskId: "task-id", status: "completed")
+    TaskGet(taskId: "tracking-task-id")
+    TaskUpdate(taskId: "tracking-task-id", status: "completed")
     break
   elif attempt == MAX_ATTEMPTS:
-    # Escalate to user
-    "Subagent failed to produce valid output after 2 attempts.
-     Last output: [content preview]
-     How would you like to proceed?"
+    # Stop any stuck background task before escalating
+    TaskStop(task_id: bg_task_id)
+
+    # Escalate with structured options
+    AskUserQuestion(questions: [{
+      question: "Subagent failed after 2 attempts. Last output: [preview]. How to proceed?",
+      header: "Retry Failed",
+      options: [
+        {label: "Manual fix", description: "I'll write the output file myself"},
+        {label: "Skip phase", description: "Continue without this phase's output"},
+        {label: "Abort", description: "Stop T-Plan session"}
+      ],
+      multiSelect: false
+    }])
 ```
 
 ---
@@ -530,14 +591,20 @@ TaskOutput(task_id: "bg-1", block: true)
 TaskOutput(task_id: "bg-2", block: true)
 TaskOutput(task_id: "bg-3", block: true)
 
+# If any task failed or timed out, clean up before proceeding:
+# TaskStop(task_id: "bg-X") for any incomplete background tasks
+
 # Verify each output file
 Read(file_path: ".t-plan/${SESSION_ID}/explore-auth.md")
 Read(file_path: ".t-plan/${SESSION_ID}/explore-db.md")
 Read(file_path: ".t-plan/${SESSION_ID}/explore-api.md")
 
-# Mark tracking tasks complete after verification
+# Mark tracking tasks complete after verification (read state before each update)
+TaskGet(taskId: "auth-task-id")
 TaskUpdate(taskId: "auth-task-id", status: "completed")
+TaskGet(taskId: "db-task-id")
 TaskUpdate(taskId: "db-task-id", status: "completed")
+TaskGet(taskId: "api-task-id")
 TaskUpdate(taskId: "api-task-id", status: "completed")
 
 # Synthesize into unified explore.md
