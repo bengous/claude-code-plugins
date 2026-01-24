@@ -11,12 +11,15 @@ Understand what to test, how to test it, and get user approval before creating w
 
 ### Steps
 
-**1.1 Create TodoWrite**
+**1.1 Create Task List**
 ```
-- Phase 1: Strategy & Analysis (in_progress)
-- Phase 2: Execute (pending)
-- Phase 3: Review (pending)
-- Phase 4: Next Steps (pending)
+TaskCreate(subject: "Phase 1: Strategy & Analysis", description: "...", activeForm: "Analyzing")
+TaskCreate(subject: "Phase 2: Execute", description: "...", activeForm: "Executing")
+TaskCreate(subject: "Phase 3: Review", description: "...", activeForm: "Reviewing")
+TaskCreate(subject: "Phase 4: Next Steps", description: "...", activeForm: "Completing")
+
+TaskGet(taskId: "phase-1-id")
+TaskUpdate(taskId: "phase-1-id", status: "in_progress")
 ```
 
 **1.2 Read Testing Strategy**
@@ -173,8 +176,11 @@ Create isolated worktree and spawn testing agent to implement tests autonomously
 
 ### Steps
 
-**2.1 Update TodoWrite**
-Mark Phase 2 as in_progress.
+**2.1 Update Task Status**
+```
+TaskGet(taskId: "phase-2-id")
+TaskUpdate(taskId: "phase-2-id", status: "in_progress")
+```
 
 **2.2 Determine Repository Root**
 
@@ -352,8 +358,11 @@ Verify agent results against quality gates and present comprehensive summary.
 
 ### Steps
 
-**3.1 Update TodoWrite**
-Mark Phase 3 as in_progress.
+**3.1 Update Task Status**
+```
+TaskGet(taskId: "phase-3-id")
+TaskUpdate(taskId: "phase-3-id", status: "in_progress")
+```
 
 **3.2 Extract Agent Report**
 
@@ -488,8 +497,11 @@ Next Steps:
 3. Re-run agent or adjust expectations
 ```
 
-**3.6 Update TodoWrite**
-Mark Phase 3 complete.
+**3.6 Update Task Status**
+```
+TaskGet(taskId: "phase-3-id")
+TaskUpdate(taskId: "phase-3-id", status: "completed")
+```
 
 ### Troubleshooting
 
@@ -526,8 +538,11 @@ Guide user on merge, next testing targets, and future actions.
 
 ### Steps
 
-**4.1 Update TodoWrite**
-Mark Phase 4 as in_progress.
+**4.1 Update Task Status**
+```
+TaskGet(taskId: "phase-4-id")
+TaskUpdate(taskId: "phase-4-id", status: "in_progress")
+```
 
 **4.2 Calculate Module Progress**
 
@@ -612,8 +627,12 @@ Based on results:
 - If module complete: Suggest next module
 - If patterns observed: Suggest updating strategy file
 
-**4.6 Update TodoWrite**
-Mark Phase 4 and all todos complete.
+**4.6 Update Task Status**
+```
+# Mark Phase 4 complete
+TaskGet(taskId: "phase-4-id")
+TaskUpdate(taskId: "phase-4-id", status: "completed")
+```
 
 ### Troubleshooting
 

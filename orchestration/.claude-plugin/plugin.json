@@ -1,7 +1,7 @@
 {
   "name": "claude-orchestration",
-  "version": "2.4.0",
-  "description": "Parallel multi-agent orchestration for complex features with git-wt --stack worktree isolation",
+  "version": "2.5.0",
+  "description": "Parallel multi-agent orchestration for complex features with Task-based coordination and git-wt --stack worktree isolation",
   "author": {
     "name": "Augustin BENGOLEA",
     "email": "bengous@protonmail.com"
