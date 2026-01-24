@@ -1,9 +1,11 @@
 # Claude Code runtime state
 .claude/*
+.claude-version
 !.claude/rules/
 !.claude/CLAUDE.md
 !.claude/git/
 !.claude/scripts/
+!.claude/commands/
 !.claude/settings.json
 !.claude/__settings.jsonc
 
