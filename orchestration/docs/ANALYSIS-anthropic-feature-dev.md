@@ -1,5 +1,7 @@
 # Analysis: Anthropic's feature-dev Plugin vs Orchestration Plugin
 
+> **Historical Note (2025-01)**: This document references `TodoWrite` which has since been replaced by the `Task*` family of tools (`TaskCreate`, `TaskUpdate`, `TaskGet`, `TaskList`). The architectural insights remain valid.
+
 **Reference**: [Anthropic's feature-dev plugin](https://github.com/anthropics/claude-code/tree/main/plugins/feature-dev)
 
 **Date**: 2025-10-12
