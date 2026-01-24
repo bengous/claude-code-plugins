@@ -1,40 +1,47 @@
 ---
 name: t-plan
-description: Thorough planning for complex features using a 6-step orchestrator-subagent workflow. Turn discussions into executable, self-contained implementation plans. USE for: multi-file features, architectural changes, unfamiliar tech requiring research, handoff to future sessions or other agents. SKIP for quick fixes, single-file changes, or low-complexity tasks—use normal plan mode instead. Triggers: "plan this feature", "create implementation plan", "thorough plan", "t-plan", "write a PLAN.md", "plan before implementing", "help me design this".
-# Hooks installed via /conductor:setup-hooks (workaround for GitHub #17688)
-# Skill-scoped hooks don't work in plugins. Once fixed, uncomment below:
-# hooks:
-#   PreToolUse:
-#     - matcher: "*"
-#       once: true
-#       hooks:
-#         - type: command
-#           command: bun "${CLAUDE_PLUGIN_ROOT}/hooks/t-plan-init.ts"
-#     - matcher: Task
-#       hooks:
-#         - type: command
-#           command: bun "${CLAUDE_PLUGIN_ROOT}/hooks/t-plan-coordinator.ts"
+description: Thorough planning for complex features using Task-based orchestration. Turn discussions into executable, self-contained implementation plans. USE for multi-file features, architectural changes, unfamiliar tech requiring research. SKIP for quick fixes or single-file changes.
 ---
 
-# T-Plan Skill (Thorough Planning)
+# T-Plan Skill (Task-Based Orchestration)
 
-Transform conversations into rock-solid implementation plans using a structured orchestrator-subagent workflow.
+Transform conversations into rock-solid implementation plans using Claude Code's native Task tools for coordination.
 
-## Workflow Overview
+## Architecture Overview
 
 ```
-INTENT → EXPLORE → [gate] → SCOUT → DRAFT → VALIDATE → PLAN
-   ↑         ↑                  ↑       ↑         ↑        ↑
- orch.    subagent           subagent  orch.   subagent  orch.+user
+No hooks required - Task tools handle all coordination natively.
+
+Orchestrator responsibilities:
+- Session initialization (mkdir, .gitignore, current.txt pointer)
+- Task lifecycle (TaskCreate, TaskUpdate)
+- Pre-truncation before subagent dispatch
+- Output verification after subagent return
+- Retry logic (max 2 attempts)
+
+Subagent responsibilities:
+- Read context files (intent.md, explore.md, etc.)
+- Write output files directly (explore.md, scout.md, validation-vNNN.json)
+- Focus on their assigned task
+```
+
+---
+
+## Workflow
+
+```
+INTENT -> EXPLORE -> [gate] -> SCOUT -> DRAFT -> VALIDATE -> PLAN
+   |          |                   |        |          |         |
+ orch.     subagent            subagent  orch.    subagent   orch.+user
 ```
 
 | Step | Actor | Output |
 |------|-------|--------|
 | **INTENT** | Orchestrator | Clear intent (gate: can direct EXPLORE?) |
-| **EXPLORE** | Subagent | Codebase insights (gate: trivial → skip?) |
-| **SCOUT** | Subagent | Alternatives only (no docs) |
+| **EXPLORE** | Subagent | Codebase insights (gate: trivial -> skip?) |
+| **SCOUT** | Subagent (optional) | Alternatives only (no docs) |
 | **DRAFT** | Orchestrator | Initial approach (reads files, synthesizes) |
-| **VALIDATE** | Subagent | Doc validation + snippets |
+| **VALIDATE** | Subagent (required checkpoint) | Doc validation + snippets |
 | **PLAN** | Orchestrator + User | Final plan, iterate until approved |
 
 **Principles:**
@@ -43,111 +50,75 @@ INTENT → EXPLORE → [gate] → SCOUT → DRAFT → VALIDATE → PLAN
 - Two gates: clarity (INTENT), complexity (EXPLORE)
 - Single user checkpoint (PLAN)
 
-<core_philosophy>
-- **One deliverable**: `plan.md` (intermediate artifacts are for resumability and validation)
-- **Lightweight state**: `state.json` exists only to coordinate subagent contract verification
-- **Self-contained**: Implementer needs nothing beyond the plan
-- **Research visible**: User sees findings, guides direction
-- **Iterative**: User reviews drafts, suggests changes before finalizing
-</core_philosophy>
-
 ---
 
-## Protocol Markers (Required for Hook Automation)
-
-T-plan uses hooks for automated state management. Run `/conductor:setup-hooks` to install them.
-
-Hooks installed:
-- **PreToolUse:Skill** → Init hook: Creates session directory when t-plan skill is invoked
-- **PreToolUse:Task** → Coordinator hook: Updates state.json on Task dispatches with phase markers
-- **SubagentStop:\*** → Contract hook: Verifies subagents wrote their output files
-
-### Phase Marker (in `description` parameter)
-
-Include the phase marker to trigger automatic state management:
+## Session Directory Structure
 
 ```
-[T-PLAN PHASE=INTENT|EXPLORE|SCOUT|VALIDATE]
+.t-plan/
++-- current.txt                    # Text pointer: "auth-oauth-20260124-150230"
++-- .gitignore                     # Ignore all session dirs
++-- auth-oauth-20260124-150230/    # Session directory
+    +-- intent.md                  # Orchestrator writes (Step 1)
+    +-- explore.md                 # EXPLORE subagent writes
+    +-- scout.md                   # SCOUT subagent writes (optional)
+    +-- draft-v001.md              # Orchestrator writes (Step 4)
+    +-- draft-v002.md              # Revised if needed
+    +-- validation-v001.json       # VALIDATE subagent writes (optional)
+    +-- validation-v002.json       # Revised if needed
+    +-- plan.md                    # Final output (Step 6)
 ```
 
-Example Task description:
-```
-[T-PLAN PHASE=EXPLORE] Explore codebase for authentication patterns
-```
-
-### Contract Output Marker (in `prompt` parameter)
-
-Specify the expected output file:
-
-```
-CONTRACT_OUTPUT: .t-plan/${CLAUDE_SESSION_ID}/explore.md
-```
-
-The coordinator hook will:
-1. Update `state.json` with the current phase
-2. Truncate stale contract output (ensures fresh write)
-
-Note: Session directory and `.gitignore` are created by the init hook on first tool use.
-
-### Directory Structure
-
-```
-.t-plan/${CLAUDE_SESSION_ID}/
-  state.json              # Phase tracking (managed by hook)
-  intent.md               # Shared context (orchestrator writes)
-  explore.md              # EXPLORE contract output (subagent writes)
-  scout.md                # SCOUT contract output (subagent writes)
-  draft-v001.md           # Versioned drafts (orchestrator writes)
-  validation-v001.json    # VALIDATE contract output (subagent writes)
-  plan.md                 # Final output (orchestrator writes)
-```
+**Session ID format:** `<slug>-<YYYYMMDD-HHMMSS>`
+- Example: `auth-oauth-20260124-150230`
+- If collision, append `-2`, `-3`, etc.
 
 ---
 
 ## Step 1: INTENT [ORCHESTRATOR]
 
-**Goal**: Capture user intent clearly enough to direct exploration.
+**Goal**: Capture user intent and initialize session.
 
-### What to Do
+### Initialize Session
+
+```
+# Create session directory
+SESSION_ID="<slug>-<YYYYMMDD-HHMMSS>"
+Bash(command: "mkdir -p .t-plan/${SESSION_ID}")
+
+# Create .gitignore if not exists
+Write(file_path: ".t-plan/.gitignore", content: "*\n!.gitignore\n")
+
+# Create current.txt pointer
+Write(file_path: ".t-plan/current.txt", content: "${SESSION_ID}")
+
+# Create master task
+TaskCreate(
+  subject: "T-Plan: [brief goal description]",
+  description: "Thorough planning workflow for: [user's request]",
+  activeForm: "Planning implementation",
+  metadata: {"session_id": "${SESSION_ID}", "phase": "INTENT"}
+)
+TaskUpdate(taskId: "master-id", status: "in_progress")
+```
+
+### Capture Intent
 
 1. Capture the user's request in their terms
 2. Clarify ambiguities that would prevent focused exploration
 3. Do NOT assume technologies or solutions
+4. Write intent to `.t-plan/${SESSION_ID}/intent.md`
+
+```
+Write(file_path: ".t-plan/${SESSION_ID}/intent.md", content: "...")
+```
 
 ### Clarity Gate
 
-Before proceeding, ask yourself:
-
 > "Can I write a focused prompt for the EXPLORE subagent?"
 
-- **NO** → Clarify with user, loop until yes
-- **YES** → Proceed to EXPLORE
-
-### Clarification Triggers
-
-Clarify if:
-- The scope is unclear ("add authentication" → OAuth? Session? Which pages?)
-- The target is vague ("make it faster" → Which part? Page load? API? DB?)
-- Multiple interpretations exist
-
-### Example
-
-```
-User: "Add authentication"
-
-Orchestrator thinks: Can I direct EXPLORE specifically? No.
-
-Orchestrator asks: "To focus my exploration:
-- OAuth (Google, GitHub) or username/password?
-- Which pages need protection?
-- Any existing auth patterns in the codebase?"
-
-User: "Google OAuth, protect /dashboard and /settings"
-
-Orchestrator thinks: Now I can direct EXPLORE. Proceed.
-```
-
-**Output**: Clear intent sufficient to guide exploration.
+- **NO** -> Clarify with user, loop until yes
+- **YES** -> Proceed to EXPLORE
 
 ---
 
@@ -155,128 +126,140 @@ Orchestrator thinks: Now I can direct EXPLORE. Proceed.
 
 **Goal**: Understand the codebase relevant to the user's intent.
 
-### Pre-Dispatch (Orchestrator)
-
-Write intent to `.t-plan/${CLAUDE_SESSION_ID}/intent.md` (state management is automated by hook).
-
-### Dispatch Explore Subagent
-
-Use `Task` tool with `subagent_type: "Explore"`:
-
-- **description**: `[T-PLAN PHASE=EXPLORE] Explore codebase for [specific area]`
-- **prompt**:
+### Before: Pre-truncate Output
 
 ```
-CONTRACT_OUTPUT: .t-plan/${CLAUDE_SESSION_ID}/explore.md
+# Ensure clean slate for subagent output
+Write(file_path: ".t-plan/${SESSION_ID}/explore.md", content: "")
 
-READ: .t-plan/${CLAUDE_SESSION_ID}/intent.md
-
-CONTRACT: Write findings to .t-plan/${CLAUDE_SESSION_ID}/explore.md
-          Your output MUST start with a 1-2 line summary referencing
-          at least one concrete detail from intent.md (proof-of-read).
-
-TASK: Explore the codebase to understand:
-1. Tech stack, frameworks, patterns in use
-2. Existing code related to [specific area from INTENT]
-3. Project structure and conventions
-4. Installed dependencies relevant to this task
-
-Focus on: [specific areas from INTENT]
-
-Return INSIGHTS, not just file paths:
-- "src/auth/session.ts handles session management (lines 45-120)"
-- "Architecture: service layer → repository → database"
-- "Flow: login → validate → create session → store token"
-- "Already installed: better-auth, zod, drizzle"
+# Create task for tracking
+TaskCreate(
+  subject: "EXPLORE: [specific area from intent]",
+  description: "Explore codebase to understand architecture and patterns",
+  activeForm: "Exploring codebase",
+  metadata: {"phase": "EXPLORE", "output_file": "explore.md"}
+)
 ```
 
-### Expected Output
+### Dispatch Subagent
 
-The subagent should return (and write to `explore.md`):
-- **Key files**: What they do, not just paths
-- **Architecture**: How components connect
-- **Flows**: How data/control moves through the system
-- **Dependencies**: What's already installed that's relevant
+```
+Task(
+  description: "Explore codebase for [specific area]",
+  subagent_type: "Explore",
+  allowed_tools: ["Read", "Grep", "Glob", "Write"],
+  prompt: """
+    **Context**: Read .t-plan/${SESSION_ID}/intent.md
 
----
+    **Your task**: Explore the codebase to understand:
+    1. Tech stack, frameworks, patterns in use
+    2. Existing code related to [specific area from intent]
+    3. Project structure and conventions
+    4. Installed dependencies relevant to this task
 
-## Complexity Gate [ORCHESTRATOR]
+    **Output**: Write findings to .t-plan/${SESSION_ID}/explore.md
 
-After receiving EXPLORE results, assess:
+    Your output MUST:
+    - Start with 1-2 line summary referencing intent.md (proof-of-read)
+    - Include key files with line references, not just paths
+    - Describe architecture: how components connect
+    - List relevant installed dependencies
+  """
+)
+```
+
+### After: Verify Output
+
+```
+# Read and verify output
+Read(file_path: ".t-plan/${SESSION_ID}/explore.md")
+
+# Verify structure
+Check:
+- File exists and is non-empty
+- Contains proof-of-read (references intent.md content)
+- Has substance (key files, architecture, dependencies)
+
+# If invalid and attempts < 2:
+#   Re-dispatch with clearer prompt
+# If valid:
+TaskUpdate(taskId: "explore-task-id", status: "completed")
+```
+
+### Complexity Gate
 
 > "Is this task trivially simple?"
 
 Trivially simple means ALL of:
 - Single file change
-- Pattern already exists in codebase (copy-paste with modification)
-- No external dependencies involved
-- No architectural decisions needed
+- Pattern already exists in codebase
+- No external dependencies
+- No architectural decisions
 
-**If trivially simple:**
-```
-"Based on exploration, this appears straightforward:
-- Single file: src/components/Button.tsx
-- Pattern exists: similar to existing LoadingButton
-
-Would you like to continue with normal plan mode instead of thorough planning?"
-```
-
-**If not trivially simple:** Continue to SCOUT.
+**If trivially simple:** Offer to switch to normal plan mode.
+**If not trivially simple:** Continue to SCOUT or DRAFT.
 
 ---
 
-## Step 3: SCOUT [SUBAGENT]
+## Step 3: SCOUT [SUBAGENT] (Optional)
 
 **Goal**: Find alternatives that might be simpler than the obvious approach.
 
-### Dispatch Scout Subagent
-
-Use `Task` tool with `subagent_type: "general-purpose"`:
-
-- **description**: `[T-PLAN PHASE=SCOUT] Find simpler alternatives`
-- **prompt**:
+### Before: Pre-truncate Output
 
 ```
-CONTRACT_OUTPUT: .t-plan/${CLAUDE_SESSION_ID}/scout.md
+Write(file_path: ".t-plan/${SESSION_ID}/scout.md", content: "")
 
-READ: .t-plan/${CLAUDE_SESSION_ID}/intent.md
-READ: .t-plan/${CLAUDE_SESSION_ID}/explore.md
-
-CONTRACT: Write findings to .t-plan/${CLAUDE_SESSION_ID}/scout.md
-          Start with a 1-line summary referencing explore.md findings (proof-of-read).
-
-TASK: You are an Alternatives Scout. Given this context:
-
-**Intent**: [from intent.md]
-**Codebase**: [from explore.md]
-**Installed dependencies**: [from explore.md]
-
-Search for alternatives to the obvious approach.
-
-CRITERIA - Only report alternatives that are MEANINGFULLY simpler:
-- Fewer dependencies
-- Less code to write/maintain
-- Better fits existing patterns
-- More mature/stable solution
-
-DO NOT:
-- Query documentation (that's VALIDATE's job)
-- Recommend alternatives that are marginally different
-- Suggest options just to have options
-
-RETURN:
-- Alternatives worth considering (often: NONE)
-- For each: what it is, why it's simpler, tradeoffs
-- Or: "No simpler alternatives found. Proceed with [obvious approach]."
+TaskCreate(
+  subject: "SCOUT: Find simpler alternatives",
+  description: "Search for alternatives to the obvious approach",
+  activeForm: "Scouting alternatives",
+  metadata: {"phase": "SCOUT", "output_file": "scout.md"}
+)
 ```
 
-### Expected Output
+### Dispatch Subagent
 
-The subagent writes to `scout.md`:
-- "No simpler alternatives found" (common case)
-- 1-2 alternatives with clear rationale
+```
+Task(
+  description: "Scout for simpler alternatives",
+  subagent_type: "general-purpose",
+  allowed_tools: ["Read", "Grep", "Glob", "Write"],
+  prompt: """
+    **Context**:
+    - Read .t-plan/${SESSION_ID}/intent.md
+    - Read .t-plan/${SESSION_ID}/explore.md
 
-**No doc queries** - Scout evaluates alternatives, VALIDATE checks docs.
+    **Your task**: Search for alternatives to the obvious approach.
+
+    Only report alternatives that are MEANINGFULLY simpler:
+    - Fewer dependencies
+    - Less code to write/maintain
+    - Better fits existing patterns
+    - More mature/stable solution
+
+    DO NOT query documentation (that's VALIDATE's job).
+
+    **Output**: Write to .t-plan/${SESSION_ID}/scout.md
+
+    Often the correct output is: "No simpler alternatives found. Proceed with [approach]."
+  """
+)
+```
+
+### After: Verify Output
+
+```
+Read(file_path: ".t-plan/${SESSION_ID}/scout.md")
+
+Check:
+- File exists and is non-empty
+- References explore.md findings (proof-of-read)
+
+# Retry if invalid (max 2 attempts)
+# Mark complete when valid
+TaskUpdate(taskId: "scout-task-id", status: "completed")
+```
 
 ---
 
@@ -284,153 +267,166 @@ The subagent writes to `scout.md`:
 
 **Goal**: Synthesize all context and draft an initial approach.
 
-### What You Have
-
-At this point, the orchestrator has accumulated:
-- **Intent**: Clear user goal from Step 1
-- **Codebase insights**: Architecture, patterns, relevant files from Step 2
-- **Alternatives**: Simpler options if any from Step 3
-
 ### What to Do
 
-1. **Read key files as needed** - Targeted reads, not exhaustive
-2. **Synthesize** - Combine intent + codebase + alternatives
-3. **Draft approach** - Outline what will be built and how
+1. Read key files identified by EXPLORE/SCOUT
+2. Synthesize intent + codebase insights + alternatives
+3. Write draft to `.t-plan/${SESSION_ID}/draft-v001.md`
 
-### Draft Structure
+```
+# Read context
+Read(file_path: ".t-plan/${SESSION_ID}/intent.md")
+Read(file_path: ".t-plan/${SESSION_ID}/explore.md")
 
-```markdown
+# Check if scout.md exists before reading
+Glob(pattern: ".t-plan/${SESSION_ID}/scout.md")
+# If found:
+Read(file_path: ".t-plan/${SESSION_ID}/scout.md")
+
+# Read key implementation files as needed
+Read(file_path: "[key files identified by EXPLORE]")
+
+# Write draft
+Write(file_path: ".t-plan/${SESSION_ID}/draft-v001.md", content: """
 ## Approach
 
 **Goal**: [1-2 sentences]
 
 **Key decisions**:
-- [Decision 1]: [Choice] because [rationale]
-- [Decision 2]: [Choice] because [rationale]
+- [Decision 1]: [Choice] because [rationale]. Rejected: [alternatives]
 
 **Files to modify/create**:
 - `path/to/file.ts` - [what changes]
-- `path/to/new.ts` - [what it does]
 
 **Approach outline**:
 1. [High-level step 1]
 2. [High-level step 2]
-3. [High-level step 3]
-```
+""")
 
-**Output**: Draft approach ready for validation.
+# Update master task metadata
+TaskUpdate(
+  taskId: "master-id",
+  metadata: {"draft_version": 1}
+)
+```
 
 ---
 
-## Step 5: VALIDATE [SUBAGENT]
+## Step 5: VALIDATE [SUBAGENT] (Required Checkpoint)
 
 **Goal**: Check the draft approach against official documentation.
 
-### Pre-Dispatch (Orchestrator)
+> **Note**: VALIDATE is required before PLAN. If skipping (e.g., internal refactor with no external APIs),
+> record explicit rationale: `"validation": "N/A - internal refactor, no new APIs"` in the plan.
 
-Write draft to `.t-plan/${CLAUDE_SESSION_ID}/draft-v{NNN}.md` and update `state.json` with `draft_version: NNN`.
-
-### Dispatch Validate Subagent
-
-Use `Task` tool with `subagent_type: "general-purpose"`:
-
-- **description**: `[T-PLAN PHASE=VALIDATE] Validate draft against documentation`
-- **prompt**:
+### Before: Pre-truncate Output
 
 ```
-CONTRACT_OUTPUT: .t-plan/${CLAUDE_SESSION_ID}/validation-v001.json
+Write(file_path: ".t-plan/${SESSION_ID}/validation-v001.json", content: "")
 
-READ: .t-plan/${CLAUDE_SESSION_ID}/intent.md
-READ: .t-plan/${CLAUDE_SESSION_ID}/explore.md
-READ: .t-plan/${CLAUDE_SESSION_ID}/scout.md (if present)
-READ: .t-plan/${CLAUDE_SESSION_ID}/draft-v001.md
-
-CONTRACT: Write validation to .t-plan/${CLAUDE_SESSION_ID}/validation-v001.json
-          JSON format with draft_version field matching state (proof-of-read).
-
-TASK: You are a Documentation Validator. Given the draft approach in draft-v001.md:
-
-**Technologies involved**: [list from draft]
-
-Check against official documentation:
-
-1. Are we using RECOMMENDED patterns?
-2. Any DEPRECATED APIs or anti-patterns?
-3. What are the GOTCHAS or common mistakes?
-4. Provide WORKING setup snippets (not pseudocode)
-
-SOURCE PRIORITY:
-1. Native MCPs (Bun, Next.js, etc.) - most authoritative
-2. Context7 MCP - if library is indexed
-3. Web search + official docs - fallback
-
-OUTPUT FORMAT (validation-v001.json):
-{
-  "draft_version": 1,
-  "status": "VALID" | "NEEDS_CHANGES",
-  "confirmations": [...],
-  "corrections": [...],
-  "snippets": [...],
-  "gotchas": [...],
-  "doc_links": [...]
-}
+TaskCreate(
+  subject: "VALIDATE: Check draft v1 against docs",
+  description: "Validate draft approach against official documentation",
+  activeForm: "Validating approach",
+  metadata: {"phase": "VALIDATE", "draft_version": 1}
+)
 ```
 
-### Expected Output
+### Dispatch Subagent
 
-The subagent writes to `validation-v{NNN}.json`:
-- **Confirmation**: "Approach aligns with official recommendations"
-- **Corrections**: "Docs recommend X instead of Y because..."
-- **Snippets**: Working code examples
-- **Gotchas**: Common mistakes to avoid
+```
+Task(
+  description: "Validate draft v1 against official docs",
+  subagent_type: "general-purpose",
+  allowed_tools: ["Read", "Grep", "Glob", "Write", "WebSearch", "WebFetch"],
+  prompt: """
+    **Context**:
+    - Read .t-plan/${SESSION_ID}/intent.md
+    - Read .t-plan/${SESSION_ID}/explore.md
+    - Check if .t-plan/${SESSION_ID}/scout.md exists, read if present
+    - Read .t-plan/${SESSION_ID}/draft-v001.md
 
-### VALIDATE → DRAFT Revision Loop
+    **Your task**: Validate the draft approach against official documentation.
 
-If `validation-v{NNN}.json` returns `status: "NEEDS_CHANGES"`:
+    Check:
+    - Using RECOMMENDED patterns?
+    - Any DEPRECATED APIs or anti-patterns?
+    - What are the GOTCHAS or common mistakes?
+    - Provide WORKING setup snippets (not pseudocode)
 
-1. Orchestrator updates the approach and writes `draft-v{NNN+1}.md`
-2. Orchestrator updates `state.json` with `draft_version: NNN+1`
-3. Re-dispatch VALIDATE with updated version in CONTRACT_OUTPUT path
+    **Output**: Write to .t-plan/${SESSION_ID}/validation-v001.json
 
-The validation filename is derived from `draft_version` (e.g., `validation-v001.json` for `draft_version: 1`).
+    JSON format:
+    {
+      "draft_version": 1,
+      "status": "VALID" | "NEEDS_CHANGES",
+      "confirmations": ["..."],
+      "corrections": ["..."],
+      "snippets": ["..."],
+      "gotchas": ["..."],
+      "doc_links": ["..."]
+    }
+  """
+)
+```
 
-Proceed to PLAN only when validation returns `status: "VALID"`.
+### After: Verify Output
+
+```
+Read(file_path: ".t-plan/${SESSION_ID}/validation-v001.json")
+
+Check:
+- File is valid JSON
+- Contains draft_version field matching expected version
+- Contains status field ("VALID" or "NEEDS_CHANGES")
+
+# Retry if invalid (max 2 attempts)
+TaskUpdate(taskId: "validate-task-id", status: "completed")
+```
+
+### Validation Loop
+
+If `status: "NEEDS_CHANGES"`:
+1. Revise draft -> `draft-v002.md`
+2. Update metadata: `TaskUpdate(taskId: "master-id", metadata: {"draft_version": 2})`
+3. Pre-truncate: `Write(file_path: ".t-plan/${SESSION_ID}/validation-v002.json", content: "")`
+4. Create new VALIDATE task for v002
+5. Repeat until `status: "VALID"`
 
 ---
 
-## Step 6: PLAN [ORCHESTRATOR + USER] [CHECKPOINT]
+## Step 6: PLAN [ORCHESTRATOR + USER]
 
 **Goal**: Present final plan for user approval.
 
 ### What to Do
 
-1. **Incorporate VALIDATE feedback** - Update draft with corrections/snippets
-2. **Enter plan mode** - Use `EnterPlanMode` tool
-3. **Write `.t-plan/${CLAUDE_SESSION_ID}/plan.md`** - Following the template in `references/plan-template.md` (if Plan Mode writes elsewhere, copy the final plan here)
-4. **Present to user** - Single checkpoint for iteration
+1. Incorporate VALIDATE feedback into final approach
+2. Enter plan mode: `EnterPlanMode()`
+3. Write `.t-plan/${SESSION_ID}/plan.md` following template in `references/plan-template.md`
+4. Present to user, iterate until approved
 
-### Plan Contents
+```
+# Enter plan mode for structured planning
+EnterPlanMode()
 
-Generate plan following template with:
-- Codebase context (from EXPLORE)
-- Goal and constraints (from INTENT)
-- Key decisions with rationale (from DRAFT)
-- Research notes with snippets (from VALIDATE)
-- Implementation checklist (granular, 20-100 items)
-- Verification steps
+# Read all context
+Read(file_path: ".t-plan/${SESSION_ID}/intent.md")
+Read(file_path: ".t-plan/${SESSION_ID}/explore.md")
+Read(file_path: ".t-plan/${SESSION_ID}/draft-vNNN.md")
+Read(file_path: ".t-plan/${SESSION_ID}/validation-vNNN.json")
 
-### User Iteration
+# Write plan following template
+Write(file_path: ".t-plan/${SESSION_ID}/plan.md", content: "...")
 
-Present plan and iterate until user approves:
-- Add missing context
-- Adjust scope
-- Reorder checklist items
-- Clarify scope boundaries
+# Mark master task complete
+TaskUpdate(taskId: "master-id", status: "completed")
+```
 
 ### On Approval
 
 ```
-Plan written to: .t-plan/${CLAUDE_SESSION_ID}/plan.md
+Plan written to: .t-plan/${SESSION_ID}/plan.md
 
 How would you like to proceed?
 
@@ -439,21 +435,134 @@ How would you like to proceed?
 3. **Save for later** - Plan is saved; start a fresh session when ready
 ```
 
-Use `AskUserQuestion` to get user's choice.
+---
+
+## Verification Rules
+
+| Phase | Output | Verification |
+|-------|--------|--------------|
+| EXPLORE | explore.md | exists + non-empty + references intent.md |
+| SCOUT | scout.md | exists + non-empty + references explore.md |
+| VALIDATE | validation-vNNN.json | valid JSON + draft_version matches + status field exists |
+
+### Retry Logic
+
+```
+MAX_ATTEMPTS = 2
+
+for attempt in 1..MAX_ATTEMPTS:
+  # Pre-truncate
+  Write(file_path: output_file, content: "")
+
+  # Dispatch subagent (must include description parameter)
+  Task(description: "...", subagent_type: "...", prompt: "...")
+
+  # Verify
+  content = Read(file_path: output_file)
+  if valid(content):
+    TaskUpdate(taskId: "task-id", status: "completed")
+    break
+  elif attempt == MAX_ATTEMPTS:
+    # Escalate to user
+    "Subagent failed to produce valid output after 2 attempts.
+     Last output: [content preview]
+     How would you like to proceed?"
+```
 
 ---
 
 ## Quick Reference
 
-| Step | Actor | Gate | Output |
-|------|-------|------|--------|
-| INTENT | Orchestrator | Can direct EXPLORE? | Clear intent |
-| EXPLORE | Subagent | — | Codebase insights |
-| — | Orchestrator | Trivially simple? | Skip or continue |
-| SCOUT | Subagent | — | Alternatives (often: none) |
-| DRAFT | Orchestrator | — | Initial approach |
-| VALIDATE | Subagent | — | Doc validation + snippets |
-| PLAN | Orch. + User | User approval | Final PLAN.md |
+| Step | Actor | Task Subject Pattern | Output |
+|------|-------|---------------------|--------|
+| INTENT | Orchestrator | "T-Plan: [goal]" (master) | intent.md |
+| EXPLORE | Subagent | "EXPLORE: [area]" | explore.md |
+| -- | Orchestrator | (complexity gate) | -- |
+| SCOUT | Subagent | "SCOUT: alternatives" | scout.md |
+| DRAFT | Orchestrator | (metadata update) | draft-vNNN.md |
+| VALIDATE | Subagent | "VALIDATE: v{N}" | validation-vNNN.json |
+| PLAN | Orch + User | (task complete) | plan.md |
+
+---
+
+## Parallel Execution Pattern
+
+When tasks have no dependencies, spawn multiple subagents simultaneously:
+
+```
+# Pre-truncate all output files
+Write(file_path: ".t-plan/${SESSION_ID}/explore-auth.md", content: "")
+Write(file_path: ".t-plan/${SESSION_ID}/explore-db.md", content: "")
+Write(file_path: ".t-plan/${SESSION_ID}/explore-api.md", content: "")
+
+# Create tracking tasks
+TaskCreate(subject: "EXPLORE: auth module", description: "...", metadata: {"output_file": "explore-auth.md"})
+TaskCreate(subject: "EXPLORE: database layer", description: "...", metadata: {"output_file": "explore-db.md"})
+TaskCreate(subject: "EXPLORE: API endpoints", description: "...", metadata: {"output_file": "explore-api.md"})
+
+# Spawn all three Explore agents in parallel with run_in_background
+Task(
+  description: "Explore auth module",
+  subagent_type: "Explore",
+  allowed_tools: ["Read", "Grep", "Glob", "Write"],
+  prompt: "Write to explore-auth.md...",
+  run_in_background: true
+) -> returns task_id: "bg-1"
+
+Task(
+  description: "Explore database layer",
+  subagent_type: "Explore",
+  allowed_tools: ["Read", "Grep", "Glob", "Write"],
+  prompt: "Write to explore-db.md...",
+  run_in_background: true
+) -> returns task_id: "bg-2"
+
+Task(
+  description: "Explore API endpoints",
+  subagent_type: "Explore",
+  allowed_tools: ["Read", "Grep", "Glob", "Write"],
+  prompt: "Write to explore-api.md...",
+  run_in_background: true
+) -> returns task_id: "bg-3"
+
+# Collect results using TaskOutput (blocks until each completes)
+TaskOutput(task_id: "bg-1", block: true)
+TaskOutput(task_id: "bg-2", block: true)
+TaskOutput(task_id: "bg-3", block: true)
+
+# Verify each output file
+Read(file_path: ".t-plan/${SESSION_ID}/explore-auth.md")
+Read(file_path: ".t-plan/${SESSION_ID}/explore-db.md")
+Read(file_path: ".t-plan/${SESSION_ID}/explore-api.md")
+
+# Mark tracking tasks complete after verification
+TaskUpdate(taskId: "auth-task-id", status: "completed")
+TaskUpdate(taskId: "db-task-id", status: "completed")
+TaskUpdate(taskId: "api-task-id", status: "completed")
+
+# Synthesize into unified explore.md
+Write(file_path: ".t-plan/${SESSION_ID}/explore.md", content: "[synthesized findings]")
+```
+
+---
+
+## Resume from Artifacts
+
+If session is interrupted and task list is unavailable, resume from artifacts:
+
+```
+# Find latest session
+Read(file_path: ".t-plan/current.txt")  # -> auth-oauth-20260124-150230
+
+# Check what artifacts exist
+Glob(pattern: ".t-plan/auth-oauth-20260124-150230/*")
+
+# Resume from last completed phase:
+# - Has intent.md only -> resume at EXPLORE
+# - Has explore.md -> resume at complexity gate
+# - Has draft-vNNN.md -> resume at VALIDATE
+# - Has validation-vNNN.json with VALID -> resume at PLAN
+```
 
 ---
 
@@ -463,16 +572,16 @@ Use `AskUserQuestion` to get user's choice.
 Before exploring solutions, force these choices:
 
 **Scope decisions**
-- "What's the simplest version that still delivers value?" → Forces MVP boundary
-- "If you could only ship one capability, which?" → Forces prioritization
+- "What's the simplest version that still delivers value?" -> Forces MVP boundary
+- "If you could only ship one capability, which?" -> Forces prioritization
 
 **Quality decisions**
-- "What would make this a failure even if it 'works'?" → Forces success criteria beyond "it runs"
-- "Who's the handoff audience: you tomorrow, a teammate, or a future AI agent?" → Forces documentation depth
+- "What would make this a failure even if it 'works'?" -> Forces success criteria beyond "it runs"
+- "Who's the handoff audience: you tomorrow, a teammate, or a future AI agent?" -> Forces documentation depth
 
 **Build vs integrate decisions**
-- "Is this core to your product or commodity infrastructure?" → Forces build-vs-buy stance
-- "What existing pattern in the codebase is this most similar to?" → Forces reuse consideration
+- "Is this core to your product or commodity infrastructure?" -> Forces build-vs-buy stance
+- "What existing pattern in the codebase is this most similar to?" -> Forces reuse consideration
 </design_decisions>
 
 <planning_anti_patterns>
@@ -481,162 +590,40 @@ Before exploring solutions, force these choices:
 Plans fail when implementers are left guessing. Avoid these patterns:
 
 **Vague action items**
-- "Implement the feature" → Instead: "Create `src/services/feature.ts` with `handleX()` function following pattern in `src/services/auth.ts:45-60`"
-- "Add proper error handling" → Instead: List the 3-5 specific errors, where caught, what happens for each
+- "Implement the feature" -> Instead: "Create `src/services/feature.ts` with `handleX()` function following pattern in `src/services/auth.ts:45-60`"
 
 **Assumed context**
-- "Use the standard approach" → Instead: Name the file containing the pattern and line numbers
-- "Follow existing conventions" → Instead: Specify which file demonstrates the convention
+- "Use the standard approach" -> Instead: Name the file containing the pattern and line numbers
 
 **Pseudocode in research notes**
-- `// handle the thing here` → Instead: Working code snippets from docs that compile and can be adapted
-- "See the docs for details" → Instead: Extract the specific setup snippet and list 2-3 gotchas
+- `// handle the thing here` -> Instead: Working code snippets from docs that compile
 
 **Missing decision rationale**
-- "We chose Zustand" → Instead: "We chose Zustand because [reason]. Rejected Redux (overkill), Context (scaling issues in `CartContext.tsx`)"
+- "We chose Zustand" -> Instead: "We chose Zustand because [reason]. Rejected Redux (overkill), Context (scaling issues)"
 
 **No failure guidance**
-- Assumes happy path only → Instead: Include "If X fails, check Y" for the 2-3 most likely failure points
+- Assumes happy path only -> Instead: Include "If X fails, check Y" for likely failure points
 
 **Scope creep**
-- "Could also add X later" mixed with core items → Instead: Explicit "Out of scope" section; if not in checklist, it doesn't exist
-
-**Orphan checklist items**
-- Items with no connection to research → Instead: Reference the relevant research section
+- "Could also add X later" mixed with core items -> Instead: Explicit "Out of scope" section
 </planning_anti_patterns>
-
-<inclusion_framework>
-## What to Include vs Omit
-
-**Every template section is optional.** Include only when it reduces branching or expected regret.
-
-### Include in Plan If:
-
-1. **Reduces branching** - Agent would fork into 3+ approaches without this
-2. **High consequence if wrong** - Mistakes cause broad breakage or wasted edits
-3. **Not discoverable** - Can't be inferred from codebase or CLAUDE.md
-4. **Task-specific delta** - Overrides or extends project-level rules
-5. **Failure mode is non-obvious** - Error messages don't point to the solution
-
-### Omit (Agent Discovers) If:
-
-1. **Single file read reveals it** - package.json shows package manager
-2. **Existing code demonstrates it** - Import style visible in any file
-3. **CLAUDE.md covers it** - Project-wide conventions already documented
-4. **Low consequence** - Wrong inference is easily caught and fixed
-
-### Reference (Don't Duplicate) If:
-
-- Info is project-stable → Point to CLAUDE.md
-- Pattern exists in codebase → "Follow pattern in `file.ts:L-L`"
-</inclusion_framework>
 
 <planning_success_criteria>
 ## Success Criteria
 
 A plan is "done right" when:
 
-1. **Zero-context executable**: An implementer with only PLAN.md (no conversation history) can complete the work without asking "what did you mean by X?"
+1. **Zero-context executable**: An implementer with only PLAN.md can complete the work without asking "what did you mean by X?"
 
-2. **Decisions are justified**: Every key choice includes rationale AND rejected alternatives. The implementer never wonders "should I try Y instead?"
+2. **Decisions are justified**: Every key choice includes rationale AND rejected alternatives.
 
-3. **Research is actionable**: Code snippets compile and run. Gotchas are specific. Doc links point to relevant sections—not just homepages.
+3. **Research is actionable**: Code snippets compile and run. Gotchas are specific.
 
-4. **Checklist is granular**: 20-100 items, each a single focused unit of work, each naming specific files. No item hides complexity behind vague phrasing.
+4. **Checklist is granular**: 20-100 items, each a single focused unit of work, each naming specific files.
 
 5. **Verification is observable**: Each phase ends with concrete checks: "tests pass", "endpoint returns 200", not "it works."
 
 6. **Failure paths documented**: The 2-3 most likely failure points include "If X fails, check Y" guidance.
 
-7. **Scope is bounded**: Explicit "out of scope" list prevents over-reach. Agent knows when to stop and ask.
+7. **Scope is bounded**: Explicit "out of scope" list prevents over-reach.
 </planning_success_criteria>
-
-<planning_guidelines>
-## Planning Guidelines
-
-### Name Files, Not Concepts
-
-<example_good title="Grounded in codebase">
-- [ ] **Create session service** (`src/services/session.ts`)
-  - Export `createSession(userId: string): Promise<Session>`
-  - Follow pattern in `src/services/auth.ts:45-60`
-  - Expected: `npm run typecheck` passes
-</example_good>
-
-<example_bad title="Abstract">
-- [ ] Implement session management
-- [ ] Make sure it handles edge cases
-</example_bad>
-
-### Include Rejected Alternatives
-
-<example_good title="Decision with context">
-| Decision | Choice | Rationale | Rejected |
-|----------|--------|-----------|----------|
-| State | Zustand | Already in deps, matches `src/stores/` | Redux (overkill), Context (scaling issues in CartContext) |
-</example_good>
-
-<example_bad title="Decision without context">
-We'll use Zustand for state.
-
-*Implementer wonders: "Is Redux better? Should I check?"*
-</example_bad>
-
-### Include Escape Hatches for Known Risks
-
-<example_good title="Failure guidance included">
-- [ ] **Configure OAuth callback**
-  - Register callback URL in Google Console
-  - Expected: Login redirects back with session cookie
-
-  **If "redirect_uri_mismatch" error**:
-  - Check `NEXTAUTH_URL` matches registered URL exactly (including trailing slash)
-  - Google Console changes take ~5 min to propagate
-</example_good>
-
-<example_bad title="No failure guidance">
-- [ ] Configure OAuth callback
-  - Handle the OAuth flow
-  - Expected: Login works
-</example_bad>
-</planning_guidelines>
-
-<planning_closing>
-## Closing Principle
-
-A plan succeeds when the implementer never thinks "I wish they had told me that." The implementer's context window starts empty—encode everything you know.
-</planning_closing>
-
----
-
-## Manual Fallback (If Hooks Not Installed)
-
-If you haven't run `/conductor:setup-hooks`, manually manage state:
-
-```bash
-# Before first dispatch - create session directory and .gitignore
-mkdir -p ".t-plan/${CLAUDE_SESSION_ID}"
-
-cat > ".t-plan/.gitignore" << 'EOF'
-*
-!.gitignore
-EOF
-
-# Initialize state.json with INTENT phase
-cat > ".t-plan/${CLAUDE_SESSION_ID}/state.json" << EOF
-{
-  "schema_version": 2,
-  "session_id": "${CLAUDE_SESSION_ID}",
-  "phase": "INTENT",
-  "draft_version": 0,
-  "created_at": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
-  "updated_at": "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-}
-EOF
-
-# Before each subagent dispatch, update phase in state.json
-# Remove stale output before dispatch
-rm -f ".t-plan/${CLAUDE_SESSION_ID}/explore.md"
-```
-
-Run `/conductor:setup-hooks` to install all hooks automatically.
