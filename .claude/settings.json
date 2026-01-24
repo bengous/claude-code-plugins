@@ -175,5 +175,17 @@
   "alwaysThinkingEnabled": true,
   "hasOpusPlanDefault": true,
   "autoCompactEnabled": false,
-  "autoUpdates": true
+  "autoUpdates": true,
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$CLAUDE_PROJECT_DIR/.claude/hooks/version-tracker.sh\""
+          }
+        ]
+      }
+    ]
+  }
 }
