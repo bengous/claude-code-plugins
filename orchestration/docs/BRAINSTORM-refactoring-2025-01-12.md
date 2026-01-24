@@ -1,5 +1,7 @@
 # Orchestration Plugin Refactoring - Brainstorming Session
 
+> **Historical Note (2025-01)**: This document references `TodoWrite` which has since been replaced by the `Task*` family of tools (`TaskCreate`, `TaskUpdate`, `TaskGet`, `TaskList`). The architectural insights remain valid.
+
 **Date**: 2025-01-12
 **Context**: After analyzing why the orchestration plugin doesn't work (see ANALYSIS-anthropic-feature-dev.md), we brainstormed the ideal architecture combining the best of our orchestration approach with Anthropic's proven feature-dev patterns.
 
