@@ -12,7 +12,7 @@
 │ PHASE 1: UNDERSTAND & PLAN                                                  │
 │ ──────────────────────────                                                  │
 │                                                                             │
-│ 1. Create TodoWrite with 3 phases                                           │
+│ 1. Create task list (TaskCreate) with 3 phases                              │
 │ 2. Inline exploration (Glob/Grep/Read) - NO explorer agents                 │
 │ 3. Ask clarifying questions if ambiguous                                    │
 │ 4. Define 2-4 independent chunks                                            │
@@ -284,7 +284,7 @@ v2.1+ is **COMPLEX-only**. For simple tasks, use Opus directly without /orc.
 ## Phase Details
 
 ### Phase 1: Understand & Plan
-- **FIRST STEP:** Create TodoWrite with 3 phases
+- **FIRST STEP:** Create task list (TaskCreate) with 3 phases
 - Inline exploration using Glob/Grep/Read (no explorer agents)
 - Ask clarifying questions if needed (inline, no mandatory stop)
 - Define 2-4 independent chunks
@@ -340,13 +340,13 @@ Uses `git-wt --stack` for worktree management:
 Each implementation agent works in an isolated git worktree with its own branch. This enables true parallel development without conflicts. Worktrees are created at `../<repo>.wt/`.
 
 ### State Management
-Use TodoWrite exclusively for tracking progress. No JSON files, no marker files, no custom state.
+Use TaskCreate/TaskUpdate/TaskList for tracking progress. Subagent output files go to `.claude/orc-state/`. No marker files.
 
 ### Agent Communication
 All subagents are stateless:
-- Cannot access parent's TodoWrite
+- Cannot access parent's task context
 - Cannot be messaged after spawning
-- Communicate ONLY via final return message
+- Communicate via output files (pre-truncate → dispatch → TaskOutput → verify)
 
 ---
 

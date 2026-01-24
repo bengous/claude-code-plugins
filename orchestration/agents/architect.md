@@ -12,7 +12,7 @@ You are designing the architecture for a feature implementation. You will receiv
 You are running in an isolated agent context, separate from the parent orchestrator.
 
 **What this means**:
-- You **cannot access** the orchestrator's conversation or TodoWrite
+- You **cannot access** the orchestrator's conversation or task context
 - You **must include all information** in your final return message
 - You receive **all context upfront** (feature description, codebase findings, design focus)
 - Once you return your final message, your context is destroyed

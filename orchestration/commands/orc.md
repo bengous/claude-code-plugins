@@ -23,17 +23,34 @@ argument-hint: <complex-task>
 
 Initial request: $ARGUMENTS
 
-### Step 1: Create TodoWrite
+### Step 1: Create Task List
 
-Before anything else, create a TodoWrite tracking all 3 phases:
+Before anything else, create tasks to track all 3 phases:
 
 ```
-- Phase 1: Understand & Plan
-- Phase 2: Execute
-- Phase 3: Review & Ship
-```
+TaskCreate(
+  subject: "Phase 1: Understand & Plan",
+  description: "Explore codebase, get architect consensus, obtain approval",
+  activeForm: "Planning",
+  metadata: {"phase": 1}
+)
+TaskCreate(
+  subject: "Phase 2: Execute",
+  description: "Create worktrees, spawn implementation agents, merge results",
+  activeForm: "Executing",
+  metadata: {"phase": 2}
+)
+TaskCreate(
+  subject: "Phase 3: Review & Ship",
+  description: "Quality review, create PR, present summary",
+  activeForm: "Shipping",
+  metadata: {"phase": 3}
+)
 
-Mark Phase 1 as in_progress. Update status throughout workflow.
+# Mark Phase 1 as in_progress (always read state before updating)
+TaskGet(taskId: "phase-1-id")
+TaskUpdate(taskId: "phase-1-id", status: "in_progress")
+```
 
 ### Step 2: Inline Exploration
 
@@ -60,15 +77,92 @@ Chunk 2: [Name] - [Description]
 
 ### Step 5: Architect Consensus
 
-Spawn **2-3 architect agents in parallel** (single message, parallel execution):
+Spawn **2-3 architect agents in parallel** using the subagent dispatch pattern:
 
-| Agent | Focus | Prompt suffix |
-|-------|-------|---------------|
-| Minimal | Smallest diff, max reuse | "Focus: smallest diff, maximum code reuse, least disruption." |
-| Clean | Maintainability | "Focus: maintainability, clear abstractions, long-term health." |
-| Pragmatic | Ship-ready | "Focus: practical trade-offs, ship-ready approach." |
+#### Before: Pre-truncate output files
+```
+Write(file_path: ".claude/orc-state/architect-minimal.md", content: "")
+Write(file_path: ".claude/orc-state/architect-clean.md", content: "")
+Write(file_path: ".claude/orc-state/architect-pragmatic.md", content: "")
+```
 
-Each agent receives: Feature description, codebase findings, chunk breakdown, constraints.
+#### Dispatch: Spawn all architects in parallel (single message)
+```
+Task(
+  description: "Architect: Minimal changes",
+  subagent_type: "general-purpose",
+  model: "opus",
+  allowed_tools: ["Read", "Grep", "Glob", "Write"],
+  run_in_background: true,
+  prompt: """
+    You are the MINIMAL architect. Focus: smallest diff, maximum code reuse, least disruption.
+
+    Context: [Feature description, codebase findings, chunk breakdown, constraints]
+
+    Write your architecture proposal to .claude/orc-state/architect-minimal.md
+
+    Include: approach overview, file changes per chunk, key decisions with rationale
+  """
+) -> task_id: "bg-1"
+
+Task(
+  description: "Architect: Clean architecture",
+  subagent_type: "general-purpose",
+  model: "opus",
+  allowed_tools: ["Read", "Grep", "Glob", "Write"],
+  run_in_background: true,
+  prompt: """
+    You are the CLEAN architect. Focus: maintainability, clear abstractions, long-term health.
+
+    Context: [Feature description, codebase findings, chunk breakdown, constraints]
+
+    Write your architecture proposal to .claude/orc-state/architect-clean.md
+
+    Include: approach overview, file changes per chunk, key decisions with rationale
+  """
+) -> task_id: "bg-2"
+
+Task(
+  description: "Architect: Pragmatic balance",
+  subagent_type: "general-purpose",
+  model: "opus",
+  allowed_tools: ["Read", "Grep", "Glob", "Write"],
+  run_in_background: true,
+  prompt: """
+    You are the PRAGMATIC architect. Focus: practical trade-offs, ship-ready approach.
+
+    Context: [Feature description, codebase findings, chunk breakdown, constraints]
+
+    Write your architecture proposal to .claude/orc-state/architect-pragmatic.md
+
+    Include: approach overview, file changes per chunk, key decisions with rationale
+  """
+) -> task_id: "bg-3"
+```
+
+#### After: Collect results and verify
+```
+TaskOutput(task_id: "bg-1", block: true)
+TaskOutput(task_id: "bg-2", block: true)
+TaskOutput(task_id: "bg-3", block: true)
+
+# Read and verify each proposal exists and has substance
+Read(file_path: ".claude/orc-state/architect-minimal.md")
+Read(file_path: ".claude/orc-state/architect-clean.md")
+Read(file_path: ".claude/orc-state/architect-pragmatic.md")
+
+# If any proposal is empty/invalid after 2 attempts, escalate
+AskUserQuestion(questions: [{
+  question: "Architect subagent failed. How to proceed?",
+  header: "Retry",
+  options: [
+    {label: "Retry", description: "Re-run with more context"},
+    {label: "Skip", description: "Use available proposals only"},
+    {label: "Abort", description: "Stop orchestration"}
+  ],
+  multiSelect: false
+}])
+```
 
 **Form consensus**: Analyze all proposals → identify common elements → synthesize ONE approach with best ideas from each.
 
@@ -86,6 +180,12 @@ Present: architecture approach, chunk breakdown, base branch.
 
 **CHECKPOINT: "Approve execution? (yes/no)"** → Yes: Phase 2 | No: Revise or abort
 
+```
+# Mark Phase 1 complete
+TaskGet(taskId: "phase-1-id")
+TaskUpdate(taskId: "phase-1-id", status: "completed")
+```
+
 </phase_1>
 
 ---
@@ -94,29 +194,153 @@ Present: architecture approach, chunk breakdown, base branch.
 
 **Goal**: Implement in parallel using git worktrees
 
-Mark Phase 2 as in_progress. Delegate to subagents - orchestrate, don't implement.
+```
+# Mark Phase 2 as in_progress
+TaskGet(taskId: "phase-2-id")
+TaskUpdate(taskId: "phase-2-id", status: "in_progress")
+```
+
+Delegate to subagents - orchestrate, don't implement.
 
 ### Step 1: Planning
 
-Spawn planning coordinator with: chunks, architecture, base branch, issue number (if any).
+#### Before: Pre-truncate output
+```
+Write(file_path: ".claude/orc-state/planning-output.yaml", content: "")
+```
+
+#### Dispatch: Spawn planning coordinator
+```
+Task(
+  description: "Create worktree stack and execution plan",
+  subagent_type: "general-purpose",
+  model: "opus",
+  allowed_tools: ["Bash(git:*)", "Bash(git-wt:*)", "Bash(ls:*)", "Read", "Grep", "Glob", "Write"],
+  run_in_background: true,
+  prompt: """
+    You are the planning coordinator. Create a worktree stack and execution plan.
+
+    Input:
+    - Chunks: [chunk definitions]
+    - Architecture: [consensus approach]
+    - Base branch: [branch name]
+    - Issue number: [if any]
+
+    Write YAML execution plan to .claude/orc-state/planning-output.yaml
+
+    Required: stack_id, base_branch, root.path, root.branch, chunks[].path, chunks[].branch, merge_order
+  """
+) -> task_id: "planning-bg"
+```
+
+#### After: Collect and verify
+```
+TaskOutput(task_id: "planning-bg", block: true)
+Read(file_path: ".claude/orc-state/planning-output.yaml")
+# Verify: valid YAML, has required fields
+```
 
 Coordinator returns YAML execution plan with `stack_id`, root/child worktree paths, branches, file assignments, merge order.
 
 ### Step 2: Parallel Implementation
 
-Spawn agents **in parallel** (one per chunk, single message) to implement each chunk:
+#### Before: Pre-truncate output files (one per chunk)
+```
+Write(file_path: ".claude/orc-state/impl-chunk-1.md", content: "")
+Write(file_path: ".claude/orc-state/impl-chunk-2.md", content: "")
+# ... for each chunk
+```
 
-Each agent receives: worktree path, branch, chunk description, architecture guidance, key files.
+#### Dispatch: Spawn agents in parallel (single message)
+```
+Task(
+  description: "Implement Chunk 1: [name]",
+  subagent_type: "general-purpose",
+  allowed_tools: ["Read", "Write", "Edit", "Grep", "Glob", "Bash(git:*)", "Bash(npm:*)", "Bash(cd:*)"],
+  run_in_background: true,
+  prompt: """
+    You are an implementation agent for Chunk 1.
 
-Agent instructions: Implement assigned chunk only. Stay in scope. Return: files changed, summary, notes for merge coordinator.
+    Worktree path: [from execution plan]
+    Branch: [from execution plan]
+    Chunk description: [what to implement]
+    Architecture guidance: [from consensus]
+    Key files: [from chunk definition]
+
+    Implement assigned chunk only. Stay in scope.
+
+    Write summary to .claude/orc-state/impl-chunk-1.md
+    Include: files changed, implementation summary, notes for merge coordinator
+  """
+) -> task_id: "impl-1"
+
+Task(
+  description: "Implement Chunk 2: [name]",
+  # ... same pattern
+) -> task_id: "impl-2"
+
+# ... for each chunk
+```
+
+#### After: Collect ALL results
+```
+TaskOutput(task_id: "impl-1", block: true)
+TaskOutput(task_id: "impl-2", block: true)
+# ... for each chunk
+
+# Verify each implementation summary exists
+Read(file_path: ".claude/orc-state/impl-chunk-1.md")
+Read(file_path: ".claude/orc-state/impl-chunk-2.md")
+```
 
 Wait for ALL agents. If blocking errors → STOP, inform user. If successful → proceed.
 
 ### Step 3: Merging
 
-Spawn merge coordinator with: execution plan (YAML), implementation summaries, stack_id, root/base branches.
+#### Before: Pre-truncate output
+```
+Write(file_path: ".claude/orc-state/merge-summary.md", content: "")
+```
+
+#### Dispatch: Spawn merge coordinator
+```
+Task(
+  description: "Merge implementations to root branch",
+  subagent_type: "general-purpose",
+  model: "opus",
+  allowed_tools: ["Bash(git:*)", "Bash(git-wt:*)", "Bash(cd:*)", "Read", "Edit", "Write", "TaskCreate", "TaskUpdate", "TaskList", "TaskGet"],
+  run_in_background: true,
+  prompt: """
+    You are the merge coordinator.
+
+    Input:
+    - Execution plan: [from .claude/orc-state/planning-output.yaml]
+    - Implementation summaries: [paths to impl-chunk-N.md files]
+    - Stack ID: [from execution plan]
+    - Root branch: [from execution plan]
+    - Base branch: [target for PR]
+
+    Merge children to root sequentially per merge_order.
+    Resolve conflicts inline. Clean up worktrees (keep root branch for PR).
+
+    Write summary to .claude/orc-state/merge-summary.md
+  """
+) -> task_id: "merge-bg"
+```
+
+#### After: Collect and verify
+```
+TaskOutput(task_id: "merge-bg", block: true)
+Read(file_path: ".claude/orc-state/merge-summary.md")
+```
 
 Merge coordinator: merges children to root sequentially, resolves conflicts, cleans up worktrees (keeps root branch for PR).
+
+```
+# Mark Phase 2 complete
+TaskGet(taskId: "phase-2-id")
+TaskUpdate(taskId: "phase-2-id", status: "completed")
+```
 
 </phase_2>
 
@@ -126,16 +350,67 @@ Merge coordinator: merges children to root sequentially, resolves conflicts, cle
 
 **Goal**: Quality validation and PR creation
 
-Mark Phase 3 as in_progress.
+```
+# Mark Phase 3 as in_progress
+TaskGet(taskId: "phase-3-id")
+TaskUpdate(taskId: "phase-3-id", status: "in_progress")
+```
 
 ### Step 1: Quality Review
 
-Spawn 1-2 reviewer agents. Focus: simplicity/DRY, bugs, code quality. Return findings by severity (HIGH/MEDIUM/LOW).
+#### Before: Pre-truncate output
+```
+Write(file_path: ".claude/orc-state/review-findings.json", content: "")
+```
+
+#### Dispatch: Spawn reviewer agent(s)
+```
+Task(
+  description: "Review merged implementation",
+  subagent_type: "general-purpose",
+  allowed_tools: ["Read", "Grep", "Glob", "Write"],
+  run_in_background: true,
+  prompt: """
+    You are a code reviewer. Focus: simplicity/DRY, bugs, code quality.
+
+    Review: [root branch files]
+
+    Write findings to .claude/orc-state/review-findings.json
+
+    JSON format:
+    {
+      "high": [{"file": "...", "line": N, "issue": "..."}],
+      "medium": [...],
+      "low": [...]
+    }
+  """
+) -> task_id: "review-bg"
+```
+
+#### After: Collect and verify
+```
+TaskOutput(task_id: "review-bg", block: true)
+Read(file_path: ".claude/orc-state/review-findings.json")
+```
 
 ### Step 2: Handle Findings
 
 - HIGH severity → STOP, present to user, get direction
 - MEDIUM/LOW → Report but proceed
+
+```
+# If HIGH severity issues found:
+AskUserQuestion(questions: [{
+  question: "HIGH severity issues found. How to proceed?",
+  header: "Review",
+  options: [
+    {label: "Fix issues", description: "Address HIGH severity before PR"},
+    {label: "Proceed anyway", description: "Create PR with known issues"},
+    {label: "Abort", description: "Do not create PR"}
+  ],
+  multiSelect: false
+}])
+```
 
 ### Step 3: Create PR
 
@@ -147,7 +422,13 @@ gh pr create --head <root-branch> --base <base-branch> \
 
 ### Step 4: Summary
 
-Mark all todos complete. Present: what was built, key decisions, stack ID, chunks, files modified, PR URL, next steps.
+```
+# Mark Phase 3 complete
+TaskGet(taskId: "phase-3-id")
+TaskUpdate(taskId: "phase-3-id", status: "completed")
+```
+
+Present: what was built, key decisions, stack ID, chunks, files modified, PR URL, next steps.
 
 </phase_3>
 
@@ -162,13 +443,21 @@ Uses `git-wt --stack`: creates stack, returns JSON with paths/branches. Children
 Pre-commit/pre-push hooks handle linting, type checking, tests automatically.
 
 ### Subagent Communication
-Subagents are stateless: no TodoWrite access, no follow-up messages, communicate only via final return.
+Subagents are stateless: separate task context, no follow-up messages, communicate only via output files. Use pre-truncate → dispatch → TaskOutput → verify pattern.
+
+### State Directory
+All subagent output goes to `.claude/orc-state/`. Pre-truncate files before dispatch, verify after return.
 
 ### Concurrency
 Worktree stacks provide isolation. Agents work in separate directories under `<repo>.wt/`.
 
 ### When to Stop
 Stop and inform user if: `git-wt` unavailable, blocking agent errors, unresolvable conflicts, scope creep, HIGH severity findings.
+
+### Error Handling
+If a subagent fails after 2 attempts:
+1. `TaskStop(task_id: "bg-X")` to clean up stuck background task
+2. `AskUserQuestion` with structured options (retry, skip, abort)
 
 ### Context Management
 
