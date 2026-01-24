@@ -203,7 +203,7 @@
     {
       "name": "conductor",
       "description": "Conversational planning skill that produces self-contained implementation plans",
-      "version": "1.3.3",
+      "version": "1.3.4",
       "author": {
         "name": "Augustin BENGOLEA",
         "email": "bengous@protonmail.com"
