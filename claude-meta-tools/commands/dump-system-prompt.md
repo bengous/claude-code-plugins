@@ -1,110 +1,74 @@
+---
+description: Extract Claude Code system prompts from cli.js using AST analysis
+allowed-tools:
+  - Bash("${CLAUDE_PLUGIN_ROOT}/scripts/extract-system-prompts.sh":*)
+  - Bash(jq*:*)
+  - Bash(diff*:*)
+  - Read(*:*)
+---
+
 # Dump System Prompt
 
-Extract and save observable system prompt components for version tracking.
+Extract system prompts from Claude Code's `cli.js` using Piebald-AI's AST-based extractor.
+
+## How It Works
+
+This command:
+1. Creates an isolated temp directory
+2. Installs the npm version of `@anthropic-ai/claude-code`
+3. Runs `promptExtractor.js` against `cli.js` to extract prompts via AST parsing
+4. Outputs structured JSON with all extracted prompts
+5. Cleans up the temp directory
+
+## Execute Extraction
+
+Run the extraction script:
+
+```bash
+"${CLAUDE_PLUGIN_ROOT}/scripts/extract-system-prompts.sh"
+```
 
 ## Output Location
 
-Write to: `${CLAUDE_PLUGIN_ROOT}/references/system-prompt-dump.md`
+Prompts are saved to: `.claude-system-prompts/prompts-<version>.json`
 
-## Instructions
+## Post-Extraction
 
-You are being asked to introspect and document your system prompt. Be thorough and systematic.
+After running the script:
 
-### Step 1: Detect Version Info
+1. **Report the results:**
+   - Version extracted
+   - Number of prompts found
+   - File location
 
-Extract any version identifiers you can observe:
-- Model name/ID (e.g., "claude-opus-4-5-20251101")
-- Knowledge cutoff date
-- Any version strings in your prompt
-- Today's date (for the dump timestamp)
+2. **If previous versions exist**, show a diff summary:
+   ```bash
+   # Find all prompt files
+   ls -la .claude-system-prompts/
 
-### Step 2: Document Structure
+   # Compare with previous version if available
+   # jq '.prompts | length' on each file
+   ```
 
-Create a markdown file with these sections, including EVERYTHING you observe:
+3. **Show interesting prompts** (first 500 chars of main system prompt):
+   ```bash
+   jq -r '.prompts[0].pieces[0][:500]' .claude-system-prompts/prompts-*.json | head -20
+   ```
 
-```markdown
-# Claude Code System Prompt Dump
+## Optional: Convert to Markdown
 
-**Dump Date:** [today's date]
-**Model:** [model ID]
-**Knowledge Cutoff:** [date]
+If the user wants individual markdown files, create them:
 
-## 1. Tool Definitions
-
-For each tool, document:
-- Name
-- All parameters (name, type, required, description)
-- Key usage notes from the description
-
-## 2. Core Identity & Behavior
-
-Quote or paraphrase all behavioral instructions:
-- Tone/style rules
-- Professional objectivity guidelines
-- Time estimate policies
-- Communication rules
-
-## 3. Operational Procedures
-
-Document all workflow procedures:
-- Git commit workflow
-- PR creation workflow
-- Code quality rules
-- Security boundaries
-
-## 4. Environment Variables
-
-List all `<env>` content observed.
-
-## 5. MCP Server Instructions
-
-Document instructions from each MCP server.
-
-## 6. XML Tags Observed
-
-List all XML tag types you see in your prompt.
-
-## 7. Strong Anchoring Language
-
-Catalog all IMPORTANT/CRITICAL/NEVER/MUST statements verbatim.
-
-## 8. Injected Context
-
-Document what gets injected via `<system-reminder>`:
-- CLAUDE.md loading pattern
-- Hook output patterns
-- Tool result patterns
-
-## 9. Skills Available
-
-List all skills from the Skill tool description.
-
-## 10. Deferred Tools
-
-List all tools available via ToolSearch.
+```
+.claude-system-prompts/markdown/
+├── 01-main-system-prompt.md
+├── 02-tool-bash.md
+├── 03-tool-read.md
+└── ...
 ```
 
-### Step 3: Write the File
+Each file should contain the reconstructed prompt with interpolation placeholders shown.
 
-Use the Write tool to save to `${REPO_ROOT}/.claude-system-prompt-dump.md`
+## Attribution
 
-### Step 4: Report
-
-After writing, output:
-- File path
-- Approximate line count
-- Suggestion to commit with Claude Code version in message
-
-## Usage Notes
-
-Run this command after Claude Code updates to track prompt changes:
-
-```bash
-# After update
-claude
-> /dump-system-prompt
-> exit
-
-# Check diff
-git diff claude-meta-tools/references/system-prompt-dump.md
-```
+Extraction method vendored from [Piebald-AI/tweakcc](https://github.com/Piebald-AI/tweakcc) (MIT License).
