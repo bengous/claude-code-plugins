@@ -1,7 +1,29 @@
 {
   "$schema": "https://json.schemastore.org/claude-code-settings.json",
   "includeCoAuthoredBy": false,
+  "model": "opus",
+  "alwaysThinkingEnabled": true,
+  "hasOpusPlanDefault": true,
+  "autoCompactEnabled": false,
+  "autoUpdates": true,
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$CLAUDE_PROJECT_DIR/.claude/hooks/version-tracker.sh\""
+          },
+          {
+            "type": "command",
+            "command": "\"$CLAUDE_PROJECT_DIR/.claude/hooks/setup-check.sh\" --quiet"
+          }
+        ]
+      }
+    ]
+  },
   "permissions": {
+    "defaultMode": "default",
     "allow": [
       "Bash(tree:*)",
       "Bash(ls:*)",
@@ -32,6 +54,11 @@
       "WebFetch(domain:github.com)",
       "WebFetch(domain:code.claude.com)",
       "WebFetch(domain:www.npmjs.com)"
+    ],
+    "ask": [
+      "Bash(pacman -S:*)",
+      "Bash(pacman -U:*)",
+      "Bash(pacman -R:*)"
     ],
     "deny": [
       "Bash(pass :*)",
@@ -163,33 +190,6 @@
       "Bash(mv .env:*::*)",
       "Bash(mv ./.env:*::*)",
       "Bash(mv ./secrets/:*::*)"
-    ],
-    "ask": [
-      "Bash(pacman -S:*)",
-      "Bash(pacman -U:*)",
-      "Bash(pacman -R:*)"
-    ],
-    "defaultMode": "default"
-  },
-  "model": "opus",
-  "alwaysThinkingEnabled": true,
-  "hasOpusPlanDefault": true,
-  "autoCompactEnabled": false,
-  "autoUpdates": true,
-  "hooks": {
-    "SessionStart": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "\"$CLAUDE_PROJECT_DIR/.claude/hooks/version-tracker.sh\""
-          },
-          {
-            "type": "command",
-            "command": "\"$CLAUDE_PROJECT_DIR/.claude/hooks/submodule-init.sh\""
-          }
-        ]
-      }
     ]
   }
 }
