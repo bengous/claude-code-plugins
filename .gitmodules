@@ -1,0 +1,3 @@
+[submodule ".external/wshobson-agents"]
+	path = .external/wshobson-agents
+	url = https://github.com/wshobson/agents.git
