@@ -22,6 +22,33 @@
   // Philosophy: Auto-allow safe read/exploration commands, explicitly deny
   // anything that could leak secrets or cause damage.
   //
+  // ─────────────────────────────────────────────────────────────────────────
+  // Hooks - SessionStart checks
+  // ─────────────────────────────────────────────────────────────────────────
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$CLAUDE_PROJECT_DIR/.claude/hooks/version-tracker.sh\""
+          },
+          {
+            "type": "command",
+            "command": "\"$CLAUDE_PROJECT_DIR/.claude/hooks/setup-check.sh\" --quiet"
+          }
+        ]
+      }
+    ]
+  },
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Permissions
+  // ─────────────────────────────────────────────────────────────────────────
+  //
+  // Philosophy: Auto-allow safe read/exploration commands, explicitly deny
+  // anything that could leak secrets or cause damage.
+  //
   "permissions": {
     "defaultMode": "default",
 
@@ -243,6 +270,5 @@
       "Bash(mv ./.env:*::*)",
       "Bash(mv ./secrets/:*::*)"
     ]
-  },
-
+  }
 }
