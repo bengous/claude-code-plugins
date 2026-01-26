@@ -1,0 +1,202 @@
+#!/usr/bin/env bash
+# Sync anthropic-agent-skills marketplace and vendor skills to claude-meta-tools
+set -euo pipefail
+
+readonly MARKETPLACE_REPO="$HOME/.claude/plugins/marketplaces/anthropic-agent-skills"
+readonly VENDOR_TARGET="$HOME/projects/claude-plugins/claude-meta-tools/skills"
+
+# Skills to vendor from official marketplace
+readonly VENDORED_SKILLS=(
+    "skill-creator"
+)
+
+# Colors for output
+readonly RED='\033[0;31m'
+readonly GREEN='\033[0;32m'
+readonly YELLOW='\033[0;33m'
+readonly BLUE='\033[0;34m'
+readonly NC='\033[0m' # No Color
+
+usage() {
+    cat <<EOF
+Usage: $(basename "$0") [OPTIONS]
+
+Sync anthropic-agent-skills marketplace and vendor skills to claude-meta-tools.
+
+Options:
+    --check     Check status only, don't modify anything (default)
+    --pull      Pull updates without prompting
+    --force     Force sync even with local modifications
+    --help      Show this help message
+
+Exit codes:
+    0   Up to date or successfully updated
+    1   Behind upstream (when --check)
+    2   Error (repo missing, diverged, dirty tree)
+EOF
+}
+
+log_info() { echo -e "${BLUE}[INFO]${NC} $*"; }
+log_ok() { echo -e "${GREEN}[OK]${NC} $*"; }
+log_warn() { echo -e "${YELLOW}[WARN]${NC} $*"; }
+log_error() { echo -e "${RED}[ERROR]${NC} $*" >&2; }
+
+check_repo_exists() {
+    if ! git -C "$MARKETPLACE_REPO" rev-parse --is-inside-work-tree &>/dev/null; then
+        log_error "Marketplace not installed at: $MARKETPLACE_REPO"
+        return 2
+    fi
+}
+
+check_clean_tree() {
+    local status
+    status=$(git -C "$MARKETPLACE_REPO" status --porcelain)
+    if [[ -n "$status" ]]; then
+        log_error "Local modifications detected in marketplace repo"
+        echo "$status"
+        return 2
+    fi
+}
+
+fetch_upstream() {
+    log_info "Fetching upstream..."
+    git -C "$MARKETPLACE_REPO" fetch origin --quiet
+}
+
+get_sync_status() {
+    # Returns: "ahead behind" (space-separated)
+    git -C "$MARKETPLACE_REPO" rev-list --left-right --count HEAD...origin/main 2>/dev/null || echo "0 0"
+}
+
+show_changes() {
+    local behind=$1
+    log_info "Behind by $behind commit(s):"
+    echo ""
+    git -C "$MARKETPLACE_REPO" log -n 20 HEAD..origin/main --oneline
+    echo ""
+    log_info "Files changed:"
+    git -C "$MARKETPLACE_REPO" diff --stat HEAD..origin/main
+}
+
+pull_updates() {
+    log_info "Pulling updates..."
+    if ! git -C "$MARKETPLACE_REPO" merge --ff-only origin/main; then
+        log_error "Fast-forward failed - local history has diverged"
+        log_error "Manual resolution required"
+        return 2
+    fi
+    log_ok "Marketplace updated successfully"
+}
+
+vendor_skills() {
+    log_info "Vendoring skills to claude-meta-tools..."
+
+    if [[ ! -d "$VENDOR_TARGET" ]]; then
+        log_warn "Vendor target not found: $VENDOR_TARGET"
+        log_warn "Skipping skill vendoring"
+        return 0
+    fi
+
+    local src_dir="$MARKETPLACE_REPO/skills"
+    local synced=0
+
+    for skill in "${VENDORED_SKILLS[@]}"; do
+        local src="$src_dir/$skill"
+        local dst="$VENDOR_TARGET/$skill"
+
+        if [[ ! -d "$src" ]]; then
+            log_warn "Source skill not found: $src"
+            continue
+        fi
+
+        rm -rf "$dst"
+        cp -r "$src" "$dst"
+        log_ok "Synced: $skill"
+        synced=$((synced + 1))
+    done
+
+    if ((synced > 0)); then
+        log_ok "Vendored $synced skill(s) to claude-meta-tools"
+    fi
+}
+
+main() {
+    local mode="check"
+    local force=false
+
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --check)
+                mode="check"
+                shift
+                ;;
+            --pull)
+                mode="pull"
+                shift
+                ;;
+            --force)
+                force=true
+                shift
+                ;;
+            --help)
+                usage
+                exit 0
+                ;;
+            *)
+                log_error "Unknown option: $1"
+                usage
+                exit 2
+                ;;
+        esac
+    done
+
+    # Precondition checks
+    check_repo_exists || exit $?
+
+    if [[ "$force" != true ]]; then
+        check_clean_tree || exit $?
+    fi
+
+    fetch_upstream
+
+    # Get ahead/behind status
+    local counts ahead behind
+    counts=$(get_sync_status)
+    ahead=$(echo "$counts" | cut -f1)
+    behind=$(echo "$counts" | cut -f2)
+
+    # Handle different states
+    if ((ahead > 0 && behind > 0)); then
+        log_error "Repository has diverged: $ahead ahead, $behind behind"
+        log_error "Manual resolution required"
+        exit 2
+    fi
+
+    if ((ahead > 0)); then
+        log_warn "Local commits exist: $ahead commit(s) ahead of upstream"
+        exit 0
+    fi
+
+    if ((behind == 0)); then
+        log_ok "Marketplace is up to date with upstream"
+        # Still vendor skills in case they're out of sync
+        if [[ "$mode" == "pull" ]]; then
+            vendor_skills
+        fi
+        exit 0
+    fi
+
+    # Behind upstream
+    show_changes "$behind"
+
+    if [[ "$mode" == "check" ]]; then
+        log_warn "Run with --pull to update"
+        exit 1
+    fi
+
+    # Mode is pull
+    pull_updates || exit $?
+    vendor_skills
+}
+
+main "$@"
