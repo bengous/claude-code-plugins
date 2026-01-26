@@ -1,4 +1,5 @@
 pre-commit:
+  piped: true
   jobs:
     - name: block-settings-json
       priority: 0
@@ -15,3 +16,13 @@ pre-commit:
         - ".claude-plugin/*.json"
         - "*/.claude-plugin/*.json"
       run: ./scripts/validate-marketplace.ts
+
+commit-msg:
+  jobs:
+    - name: block-ai-signatures
+      run: ./.claude/git/block-ai-signatures.sh {1}
+
+post-merge:
+  jobs:
+    - name: submodule-update
+      run: ./.claude/git/submodule-update.sh
