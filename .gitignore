@@ -1,16 +1,12 @@
-# Claude Code runtime state
-.claude/*
+# Claude Code - track project config, ignore personal/runtime state
+.claude/memory.json
+.claude/settings.local.json
+.claude/exports/
+.claude/rebase/
 .claude-version
 .t-plan/
 .claude-system-prompts/
 .claude-system-prompt-dump.md
-!.claude/rules/
-!.claude/CLAUDE.md
-!.claude/git/
-!.claude/scripts/
-!.claude/commands/
-!.claude/settings.json
-!.claude/__settings.jsonc
 
 # Node/Bun
 node_modules/
@@ -51,6 +47,5 @@ Thumbs.db
 .issues/
 .ideas/
 
-# External reference repos
-.external/
+# External reference repos (submodules tracked, ignore stray zips)
 *.zip
