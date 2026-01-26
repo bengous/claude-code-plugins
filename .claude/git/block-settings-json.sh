@@ -1,25 +1,18 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-if [[ "${SETTINGS_BYPASS:-}" == "1" ]]; then
-  exit 0
-fi
+[[ "${SETTINGS_BYPASS:-}" == "1" ]] && exit 0
 
-REPO_ROOT="$(git rev-parse --show-toplevel)"
-cd "$REPO_ROOT"
+staged=$(git diff --cached --name-only)
 
-if git diff --cached --name-only | grep -q "^\.claude\/settings\.json$"; then
-  if git diff --cached --name-only | grep -q "^\.claude\/__settings\.jsonc$"; then
-    exit 0
-  fi
+if echo "$staged" | grep -q "^\.claude/settings\.json$"; then
+  # Allow if __settings.jsonc is also staged (sync script ran)
+  echo "$staged" | grep -q "^\.claude/__settings\.jsonc$" && exit 0
 
   echo ""
   echo "ERROR: Direct edits to .claude/settings.json are blocked."
-  echo ""
   echo "Edit .claude/__settings.jsonc instead (supports comments)."
-  echo ""
-  echo "Bypass (emergency only):"
-  echo "  SETTINGS_BYPASS=1 git commit -m \"...\""
+  echo "Bypass (emergency): SETTINGS_BYPASS=1 git commit -m \"...\""
   echo ""
   exit 1
 fi
