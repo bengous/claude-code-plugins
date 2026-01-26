@@ -32,6 +32,19 @@ A curated marketplace of Claude Code plugins for development workflow automation
 
 See each plugin's README for detailed documentation and usage.
 
+## Development Setup
+
+```bash
+# Clone with submodules
+git clone --recurse-submodules https://github.com/bengous/claude-code-plugins.git
+cd claude-code-plugins
+
+# Install tools and hooks
+mise install && lefthook install
+```
+
+Requires [mise](https://mise.jdx.dev) for tool management.
+
 ## License
 
 MIT License - See [LICENSE](LICENSE) for details.
