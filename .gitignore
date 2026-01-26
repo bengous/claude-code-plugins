@@ -2,6 +2,8 @@
 .claude/*
 .claude-version
 .t-plan/
+.claude-system-prompts/
+.claude-system-prompt-dump.md
 !.claude/rules/
 !.claude/CLAUDE.md
 !.claude/git/
