@@ -1,6 +1,6 @@
 {
   "name": "code-quality",
-  "version": "1.3.0",
+  "version": "1.4.0",
   "description": "Code quality and cleanup commands for maintaining clean, maintainable code",
   "author": {
     "name": "Augustin BENGOLEA",
