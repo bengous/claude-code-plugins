@@ -1,6 +1,6 @@
 ---
 description: Review PR comments - fix bad naming, preserve necessary context
-argument-hint: [PR_REFERENCE]
+argument-hint: "[PR_REFERENCE]"
 allowed-tools:
   - Read(*:*)
   - Edit(*:*)
