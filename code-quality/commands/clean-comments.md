@@ -1,7 +1,7 @@
 ---
 name: clean-comments
 description: Make code self-documenting by improving naming and structure. Removes comments that compensate for unclear code.
-argument-hint: [file-pattern] [--apply]
+argument-hint: "[file-pattern] [--apply]"
 allowed-tools:
   - Read(*:*)
   - Edit(*:*)
