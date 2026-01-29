@@ -16,6 +16,15 @@ pre-commit:
         - ".claude-plugin/*.json"
         - "*/.claude-plugin/*.json"
       run: ./scripts/validate-marketplace.ts
+    - name: validate-frontmatter
+      glob:
+        - "*/commands/*.md"
+        - "*/skills/*.md"
+        - "*/agents/*.md"
+        - "*/hooks/*.md"
+        - ".claude/commands/*.md"
+        - ".claude/skills/*.md"
+      run: bun ./scripts/validate-frontmatter.ts
 
 commit-msg:
   jobs:
