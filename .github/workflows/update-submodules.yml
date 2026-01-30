@@ -1,0 +1,47 @@
+# Auto-Update Submodules - Pull Model
+# Periodically pulls latest from all public submodules
+# Requires PARENT_REPO_PAT secret with Contents: Read and write
+
+name: Auto-Update Submodules
+
+on:
+  repository_dispatch:
+    types: [submodule-updated]
+  schedule:
+    - cron: '0 */6 * * *'  # Fallback sync every 6 hours
+  workflow_dispatch:        # Manual trigger from Actions tab
+
+permissions:
+  contents: write
+
+concurrency:
+  group: submodule-update
+  cancel-in-progress: true
+
+jobs:
+  update:
+    # Loop guard: don't run if triggered by bot (prevents infinite loops)
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout with submodules
+        uses: actions/checkout@v4
+        with:
+          ref: dev
+          submodules: recursive
+          fetch-depth: 0
+          token: ${{ secrets.PARENT_REPO_PAT }}
+
+      - name: Update submodules to latest
+        run: git submodule update --init --recursive --remote
+
+      - name: Commit and push if changed
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          if ! git diff --quiet; then
+            git add .
+            git commit -m "chore(submodules): auto-update to latest [skip ci]"
+            git push origin dev
+          fi
