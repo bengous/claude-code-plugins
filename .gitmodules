@@ -1,3 +1,6 @@
 [submodule ".external/wshobson-agents"]
 	path = .external/wshobson-agents
 	url = https://github.com/wshobson/agents.git
+[submodule ".external/agent-browser"]
+	path = .external/agent-browser
+	url = https://github.com/vercel-labs/agent-browser.git
