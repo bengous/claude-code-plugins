@@ -1,6 +1,6 @@
 # Claude Code Built-in Tools Reference
 
-**Last verified:** 2026-01-24
+**Last verified:** 2026-01-27
 **Model:** claude-opus-4-5-20251101
 **Source:** Direct system prompt observation
 
@@ -117,7 +117,6 @@ Launch subagents for complex tasks.
 | `description` | string | Yes | 3-5 word summary |
 | `run_in_background` | boolean | No | Non-blocking execution |
 | `resume` | string | No | Agent ID to resume |
-| `allowed_tools` | array | No | Tools to grant (e.g., `["Bash(git *)"]`) |
 | `max_turns` | number | No | Max API round-trips |
 | `model` | string | No | `sonnet`, `opus`, or `haiku` |
 
@@ -156,7 +155,7 @@ Modify task status, dependencies, and metadata.
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
 | `taskId` | string | Yes | Task ID |
-| `status` | string | No | `pending`, `in_progress`, or `completed` |
+| `status` | string | No | `pending`, `in_progress`, `completed`, or `deleted` |
 | `subject` | string | No | New title |
 | `description` | string | No | New description |
 | `activeForm` | string | No | New spinner text |
@@ -164,6 +163,9 @@ Modify task status, dependencies, and metadata.
 | `metadata` | object | No | Metadata to merge (null deletes key) |
 | `addBlocks` | array | No | Task IDs this blocks |
 | `addBlockedBy` | array | No | Task IDs blocking this |
+
+**Notes:**
+- Setting `status: "deleted"` is a **hard delete** - the task is permanently removed from TaskList, not soft-deleted
 
 ### TaskGet
 
