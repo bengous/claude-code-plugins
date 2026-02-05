@@ -1,0 +1,16 @@
+{
+  "name": "design-studio",
+  "version": "1.0.0",
+  "description": "Generate 5 unique website redesigns using Theo's pattern: one agent, sequential creation, natural differentiation",
+  "author": {
+    "name": "b3ngous"
+  },
+  "license": "MIT",
+  "keywords": [
+    "design",
+    "frontend",
+    "redesign",
+    "website",
+    "ui"
+  ]
+}
