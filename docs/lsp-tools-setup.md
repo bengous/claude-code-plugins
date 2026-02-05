@@ -45,8 +45,19 @@ claude plugin install typescript-lsp     # TypeScript/JS
 
 ### 3. Enable the LSP Tool
 
-The LSP tool is gated behind an environment variable:
+The LSP tool is gated behind a flag. Enable it via settings (recommended) or environment variable:
 
+**Via settings.json (recommended):**
+```json
+// ~/.claude/settings.json
+{
+  "env": {
+    "ENABLE_LSP_TOOL": "1"
+  }
+}
+```
+
+**Via environment variable:**
 ```bash
 # One-time launch
 ENABLE_LSP_TOOL=1 claude
