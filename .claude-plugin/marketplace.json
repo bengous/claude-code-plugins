@@ -238,6 +238,25 @@
         "skills"
       ],
       "source": "./software-craft"
+    },
+    {
+      "name": "design-studio",
+      "description": "Generate 5 unique website redesigns using Theo's pattern: one agent, sequential creation, natural differentiation",
+      "version": "1.0.0",
+      "author": {
+        "name": "Augustin BENGOLEA",
+        "email": "bengous@protonmail.com"
+      },
+      "homepage": "https://github.com/bengous/claude-code-plugins",
+      "license": "MIT",
+      "keywords": [
+        "design",
+        "frontend",
+        "redesign",
+        "website",
+        "ui"
+      ],
+      "source": "./design-studio"
     }
   ]
 }
