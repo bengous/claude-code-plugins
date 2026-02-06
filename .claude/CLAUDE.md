@@ -27,7 +27,7 @@ my-plugin/
 | Rule | Why |
 |------|-----|
 | Only `plugin.json` in `.claude-plugin/` | Extra files cause silent discovery failures |
-| Version sync: `marketplace.json` = `plugin.json` | Mismatch breaks installation |
+| Version sync: `plugin.json` = `marketplace.json` = `README.md` | Pre-commit hook validates all three match |
 | No hardcoded paths | Use `${CLAUDE_PLUGIN_ROOT}` or `git rev-parse` |
 | Repository-scoped state | Global state causes cross-repo contamination |
 | Atomic writes | Direct overwrites corrupt files on interruption |
