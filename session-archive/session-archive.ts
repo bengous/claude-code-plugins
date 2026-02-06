@@ -68,23 +68,31 @@ export function parseArgs(argv: string[]): Options {
     verbose: false,
   };
 
+  function requireArg(flag: string, i: number): string {
+    if (i >= argv.length || argv[i].startsWith("--")) {
+      console.error(`${flag} requires a value`);
+      process.exit(1);
+    }
+    return argv[i];
+  }
+
   for (let i = 0; i < argv.length; i++) {
     switch (argv[i]) {
       case "--days":
-        opts.days = parseInt(argv[++i], 10);
+        opts.days = parseInt(requireArg("--days", ++i), 10);
         if (isNaN(opts.days) || opts.days < 0) {
           console.error("--days requires a non-negative integer");
           process.exit(1);
         }
         break;
       case "--project":
-        opts.project = argv[++i];
+        opts.project = requireArg("--project", ++i);
         break;
       case "--dry-run":
         opts.dryRun = true;
         break;
       case "--unarchive":
-        opts.unarchive = argv[++i];
+        opts.unarchive = requireArg("--unarchive", ++i);
         break;
       case "--list":
         opts.list = true;
@@ -96,7 +104,7 @@ export function parseArgs(argv: string[]): Options {
         opts.hook = true;
         break;
       case "--max":
-        opts.max = parseInt(argv[++i], 10);
+        opts.max = parseInt(requireArg("--max", ++i), 10);
         if (isNaN(opts.max) || opts.max < 0) {
           console.error("--max requires a non-negative integer");
           process.exit(1);
@@ -303,7 +311,14 @@ async function loadArchiveIndex(archiveDir: string): Promise<ArchiveIndex> {
   const indexPath = join(archiveDir, "sessions-index.json");
   try {
     const data = await readFile(indexPath, "utf-8");
-    return JSON.parse(data) as ArchiveIndex;
+    const parsed = JSON.parse(data);
+    if (parsed.version !== 1 || !Array.isArray(parsed.entries)) {
+      return { version: 1, entries: [] };
+    }
+    parsed.entries = parsed.entries.filter(
+      (e: ArchiveEntry) => e.sessionId && isSessionUuid(e.sessionId),
+    );
+    return parsed as ArchiveIndex;
   } catch {
     return { version: 1, entries: [] };
   }
@@ -493,11 +508,13 @@ interface HookInput {
 async function runHookMode(options: Options): Promise<void> {
   useStderrLog();
   let input: HookInput = {};
-  try {
-    const stdinText = await Bun.stdin.text();
-    input = JSON.parse(stdinText);
-  } catch {
-    // Invalid stdin, just archive all
+  if (!Bun.stdin.isTTY) {
+    try {
+      const stdinText = await Bun.stdin.text();
+      input = JSON.parse(stdinText);
+    } catch {
+      // Invalid stdin, just archive all
+    }
   }
 
   const protectedIds = new Set<string>();
@@ -541,6 +558,10 @@ if (import.meta.main) {
 
   // Unarchive mode
   if (options.unarchive) {
+    if (!isSessionUuid(options.unarchive)) {
+      console.error("--unarchive requires a valid session UUID");
+      process.exit(1);
+    }
     if (!options.project) {
       console.error("--unarchive requires --project");
       process.exit(1);
