@@ -201,11 +201,11 @@ If any item fails, revise before proceeding.
 ## Step 6: Output
 
 ### File location
-- **Create mode**: `.issues/draft-<slug>.md`
-- **Edit mode**: `.issues/<number>.md`
+- **Create mode**: `.gh/issues/<slug>.md`
+- **Edit mode**: `.gh/issues/<number>-<slug>.md`
 
 ### Overwrite safety
-If the target file already exists, ask before overwriting. If the user wants a new draft, append `-v2`, `-v3`, etc. to the slug.
+Ensure the target directory exists (`mkdir -p .gh/issues`). If the target file already exists, ask before overwriting. If the user wants a new draft, append `-v2`, `-v3`, etc. to the slug.
 
 ### Write the file
 Save the issue body to the target file.
@@ -221,14 +221,19 @@ REPO="${REPO:-$(gh repo view --json nameWithOwner -q .nameWithOwner)}"
 gh issue create \
   --repo "$REPO" \
   --title "<title>" \
-  --body-file .issues/draft-<slug>.md \
+  --body-file .gh/issues/<slug>.md \
   --label "<label1>,<label2>"
+```
+
+After creation, rename the draft with its GitHub number:
+```bash
+mv .gh/issues/<slug>.md .gh/issues/<number>-<slug>.md
 ```
 
 **For EDIT:**
 ```bash
 REPO="${REPO:-$(gh repo view --json nameWithOwner -q .nameWithOwner)}"
-gh issue edit --repo "$REPO" <number> --body-file .issues/<number>.md
+gh issue edit --repo "$REPO" <number> --body-file .gh/issues/<number>-<slug>.md
 ```
 
 Report the issue URL to the user after successful creation.
@@ -344,8 +349,9 @@ User: Create
 Agent: [Asks: Describe the problem]
 User: We need rate limiting on auth endpoints
 Agent: [Researches codebase]
-Agent: [Writes issue to .issues/draft-rate-limiting.md]
+Agent: [Writes issue to .gh/issues/rate-limiting.md]
 Agent: [Executes gh issue create command]
+Agent: [Renames to .gh/issues/42-rate-limiting.md]
 Agent: Created issue #42: https://github.com/org/repo/issues/42
 ```
 </example_flow>
