@@ -5,6 +5,7 @@
 .claude/rebase/
 .claude-version
 .t-plan/
+plans/
 .claude-system-prompts/
 .claude-system-prompt-dump.md
 
@@ -32,8 +33,8 @@ ehthumbs.db
 Thumbs.db
 
 # IDE
-.vscode/
-.idea/
+.vscode
+.idea
 *.swp
 *.swo
 *~
@@ -46,6 +47,24 @@ Thumbs.db
 # Local working drafts
 .issues/
 .ideas/
+
+# Claude Code sandbox bind mounts
+# The sandbox enforces denyWithinAllow by creating empty read-only files
+# and mounting them as ro bind mounts at protected paths. These exist only
+# during Claude Code sessions and cannot be deleted (they are mount points).
+/HEAD
+/config
+/hooks
+/objects
+/refs
+/.bash_profile
+/.bashrc
+/.profile
+/.zprofile
+/.zshrc
+/.gitconfig
+/.ripgreprc
+/.mcp.json
 
 # External reference repos (submodules tracked, ignore stray zips)
 *.zip
