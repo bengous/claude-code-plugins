@@ -29,7 +29,7 @@
     {
       "name": "git-tools",
       "description": "Interactive git commands with AI assistance for commit management, history rewriting, PR/issue triage, agent-ready issue writing, and submodule automation",
-      "version": "1.11.0",
+      "version": "1.11.1",
       "author": {
         "name": "Augustin BENGOLEA",
         "email": "bengous@protonmail.com"
