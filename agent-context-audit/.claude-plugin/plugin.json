@@ -1,0 +1,21 @@
+{
+  "name": "agent-context-audit",
+  "version": "1.0.0",
+  "description": "Audit CLAUDE.md and AGENTS.md files against research-backed best practices with instruction budget scoring and concrete fix proposals",
+  "author": {
+    "name": "Augustin BENGOLEA",
+    "email": "bengous@protonmail.com"
+  },
+  "homepage": "https://github.com/bengous/claude-code-plugins/tree/main/agent-context-audit",
+  "repository": "https://github.com/bengous/claude-code-plugins",
+  "license": "MIT",
+  "keywords": [
+    "claude-md",
+    "agents-md",
+    "audit",
+    "context",
+    "instruction-budget",
+    "quality",
+    "best-practices"
+  ]
+}
