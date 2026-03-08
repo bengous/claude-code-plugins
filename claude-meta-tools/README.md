@@ -1,6 +1,6 @@
 # Claude Meta-Tools Plugin
 
-v1.13.0
+v1.14.0
 
 Meta-tools for Claude Code: maintain project memory (CLAUDE.md), prompt coaching/auditing, research, and extend Claude's capabilities.
 
@@ -11,6 +11,29 @@ This plugin provides essential tools for working with Claude Code itself - maint
 ## Commands
 
 ### Documentation Maintenance
+
+#### `/demystify`
+
+Explain a complex concept to a smart layperson with analogies, progressive depth, and honest simplification markers. Feynman/Sagan style.
+
+**Features:**
+- **Progressive Revelation**: One-sentence essence -> analogy -> real mechanism -> why it matters -> nuance
+- **Smart Research**: Automatically decides whether to research or explain from knowledge
+- **Mechanism-Mapping Analogies**: Maps how things work, not surface similarities
+- **Honest Simplification**: Explicitly flags what the simplified version hid
+- **Domain-Agnostic**: Works for CS, biology, physics, economics, philosophy -- any complex topic
+
+**Usage:**
+```bash
+/demystify monads
+/demystify how mRNA vaccines work
+/demystify the CAP theorem
+```
+
+**When to use:**
+- You want to understand a concept, not explore codebase implementation (use `/explain` for that)
+- You're explaining something to a non-specialist audience
+- You want analogies and progressive depth, not code references
 
 #### `/sync-claude-md`
 
