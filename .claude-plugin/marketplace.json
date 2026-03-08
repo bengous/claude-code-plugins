@@ -93,8 +93,8 @@
     },
     {
       "name": "claude-meta-tools",
-      "description": "Meta-tools for Claude Code: maintain documentation (CLAUDE.md sync), prompt coaching/auditing, research, and extend Claude capabilities",
-      "version": "1.13.0",
+      "description": "Meta-tools for Claude Code: maintain documentation (CLAUDE.md sync), prompt coaching/auditing, research, concept demystification, and extend Claude capabilities",
+      "version": "1.14.0",
       "author": {
         "name": "Augustin BENGOLEA",
         "email": "bengous@protonmail.com"
@@ -106,7 +106,9 @@
         "documentation",
         "utilities",
         "workflow",
-        "prompt-coaching"
+        "prompt-coaching",
+        "demystify",
+        "explanation"
       ],
       "source": "./claude-meta-tools"
     },
