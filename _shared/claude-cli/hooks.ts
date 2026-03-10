@@ -32,6 +32,22 @@ import type { HookInput } from "./types";
 import { readHookInput } from "./index";
 
 /**
+ * Claude Code hook exit codes.
+ *
+ * - ALLOW (0): The tool call proceeds normally.
+ * - ERROR (1): Non-blocking error — tool still runs, stderr logged in verbose mode.
+ * - BLOCK (2): The tool call is blocked. stderr is shown to Claude as context.
+ */
+export const HOOK_EXIT = {
+	/** Allow the operation to proceed */
+	ALLOW: 0,
+	/** Non-blocking error — tool still runs, stderr logged in verbose mode */
+	ERROR: 1,
+	/** Block the operation (stderr shown to Claude) */
+	BLOCK: 2,
+} as const;
+
+/**
  * Validation result from a hook validator.
  */
 export interface ValidationResult {
@@ -108,12 +124,12 @@ export function createPreToolUseHook(config: PreToolUseHookConfig) {
     async run() {
       const input = readHookInput();
       if (!input) {
-        process.exit(0);
+        process.exit(HOOK_EXIT.ALLOW);
       }
 
       // Check matcher
       if (config.matcher && input.tool_name !== config.matcher) {
-        process.exit(0);
+        process.exit(HOOK_EXIT.ALLOW);
       }
 
       try {
@@ -123,13 +139,13 @@ export function createPreToolUseHook(config: PreToolUseHookConfig) {
           if (result.reason) {
             console.error(result.reason);
           }
-          process.exit(2); // Block
+          process.exit(HOOK_EXIT.BLOCK);
         }
 
-        process.exit(0); // Allow
+        process.exit(HOOK_EXIT.ALLOW); // Allow
       } catch (err) {
         console.error(`HOOK ERROR: ${err}`);
-        process.exit(0); // Allow on error (fail-open)
+        process.exit(HOOK_EXIT.ALLOW); // Allow on error (fail-open)
       }
     },
   };
@@ -159,20 +175,20 @@ export function createPostToolUseHook(config: PostToolUseHookConfig) {
     async run() {
       const input = readHookInput();
       if (!input) {
-        process.exit(0);
+        process.exit(HOOK_EXIT.ALLOW);
       }
 
       // Check matcher
       if (config.matcher && input.tool_name !== config.matcher) {
-        process.exit(0);
+        process.exit(HOOK_EXIT.ALLOW);
       }
 
       try {
         await config.handler(input);
-        process.exit(0);
+        process.exit(HOOK_EXIT.ALLOW);
       } catch (err) {
         console.error(`HOOK ERROR: ${err}`);
-        process.exit(0);
+        process.exit(HOOK_EXIT.ALLOW);
       }
     },
   };
@@ -203,7 +219,7 @@ export function createSubagentStopHook(config: SubagentStopHookConfig) {
     async run() {
       const input = readHookInput();
       if (!input?.session_id) {
-        process.exit(0);
+        process.exit(HOOK_EXIT.ALLOW);
       }
 
       try {
@@ -211,13 +227,13 @@ export function createSubagentStopHook(config: SubagentStopHookConfig) {
 
         if (!contractMet) {
           console.error(`CONTRACT UNFULFILLED: ${config.failureMessage}`);
-          process.exit(2); // Block
+          process.exit(HOOK_EXIT.BLOCK);
         }
 
-        process.exit(0); // Allow
+        process.exit(HOOK_EXIT.ALLOW); // Allow
       } catch (err) {
         console.error(`HOOK ERROR: ${err}`);
-        process.exit(0); // Allow on error
+        process.exit(HOOK_EXIT.ALLOW); // Allow on error
       }
     },
   };
@@ -249,7 +265,7 @@ export function createUserPromptSubmitHook(config: {
     async run() {
       const input = readHookInput();
       if (!input) {
-        process.exit(0);
+        process.exit(HOOK_EXIT.ALLOW);
       }
 
       try {
@@ -259,13 +275,13 @@ export function createUserPromptSubmitHook(config: {
           if (result.reason) {
             console.error(result.reason);
           }
-          process.exit(2);
+          process.exit(HOOK_EXIT.BLOCK);
         }
 
-        process.exit(0);
+        process.exit(HOOK_EXIT.ALLOW);
       } catch (err) {
         console.error(`HOOK ERROR: ${err}`);
-        process.exit(0);
+        process.exit(HOOK_EXIT.ALLOW);
       }
     },
   };
