@@ -46,8 +46,27 @@
         "hooks": [
           {
             "type": "command",
+            "command": "bun \"$CLAUDE_PROJECT_DIR/.claude/hooks/guard-destructive.ts\"",
+            "timeout": 5,
+            "statusMessage": "Checking for destructive commands..."
+          },
+          {
+            "type": "command",
             "command": "bun \"$CLAUDE_PROJECT_DIR/_shared/claude-cli/hooks/guard-main-branch.ts\"",
             "timeout": 5
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bun \"$CLAUDE_PROJECT_DIR/.claude/hooks/format-and-lint.ts\"",
+            "timeout": 30,
+            "statusMessage": "Formatting and linting..."
           }
         ]
       }
