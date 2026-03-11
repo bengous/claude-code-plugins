@@ -43,6 +43,13 @@ my-plugin/
 | Version desync | Different versions | Must match exactly |
 | JSON concatenation | `echo "{...}"` | `jq -n --arg ...` |
 
+## Branching
+
+- All work happens on `dev`. Never commit directly to `main`.
+- `main` is updated only via PR from `dev` (branch protection enforced).
+- Submodule auto-updates target `dev` only (CI workflow).
+- Enforced by: lefthook pre-commit + Claude Code PreToolUse hook + GitHub branch protection.
+
 ## Quick Start
 
 1. Examine reference implementations: `ls git-tools/`
