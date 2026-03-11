@@ -47,6 +47,7 @@ Thumbs.db
 # Local working drafts
 .issues/
 .ideas/
+docs/superpowers/specs/
 
 # Claude Code sandbox bind mounts
 # The sandbox enforces denyWithinAllow by creating empty read-only files
