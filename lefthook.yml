@@ -1,8 +1,11 @@
 pre-commit:
   piped: true
   jobs:
-    - name: block-settings-json
+    - name: block-commit-to-main
       priority: 0
+      run: bun ./.claude/git/block-commit-to-main.ts
+    - name: block-settings-json
+      priority: 1
       glob: ".claude/settings.json"
       run: ./.claude/git/block-settings-json.sh
     - name: sync-settings
