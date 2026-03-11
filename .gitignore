@@ -69,3 +69,6 @@ docs/superpowers/specs/
 
 # External reference repos (submodules tracked, ignore stray zips)
 *.zip
+
+# Hooks library (separate git repo)
+_hooks-lib/
