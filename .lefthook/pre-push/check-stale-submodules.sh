@@ -1,0 +1,1 @@
+../../scripts/check-stale-submodules.sh
