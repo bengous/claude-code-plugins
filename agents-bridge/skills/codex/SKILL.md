@@ -1,4 +1,5 @@
 ---
+name: codex
 description: Invoke OpenAI Codex CLI for cross-model collaboration
 argument-hint: <prompt>
 allowed-tools:
@@ -10,33 +11,20 @@ allowed-tools:
 
 Invoke OpenAI Codex CLI for cross-model collaboration.
 
-## Before Using
+## Current Configuration
 
-**Always run `codex --info` first** to discover:
-- Current default model and reasoning effort
-- Available configuration options
-- Environment variable overrides
-
-Do NOT guess model names from training data.
-
-## Usage
-
-```
-/codex Review the authentication implementation in src/auth/
-/codex What's wrong with this error? <paste error>
-```
+!`codex --info 2>&1 || echo "(codex CLI not found -- install with: npm install -g @openai/codex)"`
 
 ## Execution
 
+Use the configuration above to determine the current default model and available overrides. Do NOT guess model names.
+
 ```bash
-# First: discover current config
-codex --info
+# Run with prompt
+codex exec "$ARGUMENTS"
 
-# Then: run with prompt
-codex exec "prompt"
-
-# Or with overrides (use values from --info)
-CODEX_MODEL=<model> CODEX_REASONING=<level> codex exec "prompt"
+# Or with overrides (use values from Current Configuration above)
+CODEX_MODEL=<model> CODEX_REASONING=<level> codex exec "$ARGUMENTS"
 
 # Resume a previous conversation
 codex exec resume <SESSION_ID> "Follow up prompt..."
@@ -47,8 +35,7 @@ codex exec resume <SESSION_ID> "Follow up prompt..."
 Codex returns a session ID after each run. To continue that conversation:
 
 ```bash
-# Previous run returned session ID: abc123xyz
-codex exec resume abc123xyz "Now add tests for the changes you made"
+codex exec resume <SESSION_ID> "Follow up prompt..."
 ```
 
 **When to resume:**
