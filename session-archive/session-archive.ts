@@ -12,7 +12,7 @@ import {
 } from "node:fs/promises";
 import { join, dirname, basename } from "node:path";
 import { homedir } from "node:os";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 
 // === Constants ===
 const CLAUDE_DIR = join(homedir(), ".claude", "projects");
@@ -24,6 +24,8 @@ const HOOK_MAX_DEFAULT = 20;
 const RECENT_MINUTES = 5;
 const DEFAULT_LOCKFILE = join("/tmp", `session-archive-${process.getuid?.() ?? 1000}.lock`);
 const LOCK_STALE_MS = 120_000; // 2 minutes
+const THROTTLE_MS = 6 * 60 * 60 * 1000; // 6 hours
+const MARKER_PATH = join(homedir(), ".claude", ".session-archive-last-run");
 
 // Diagnostic log -- stderr in hook mode (stdout reserved for JSON response), stdout otherwise
 let log = console.log;
@@ -65,6 +67,7 @@ export interface Options {
   list: boolean;
   stats: boolean;
   hook: boolean;
+  backgroundWorker?: string; // base64-encoded HookInput JSON
   max: number;
   verbose: boolean;
 }
@@ -180,6 +183,9 @@ export function parseArgs(argv: string[]): Options {
         break;
       case "--hook":
         opts.hook = true;
+        break;
+      case "--background-worker":
+        opts.backgroundWorker = requireArg("--background-worker", ++i);
         break;
       case "--max":
         opts.max = parseInt(requireArg("--max", ++i), 10);
@@ -681,54 +687,101 @@ interface HookInput {
 async function runHookMode(options: Options): Promise<void> {
   useStderrLog();
 
-  // Acquire lock — if we can't, another instance is running, bail silently
-  const lockfile = DEFAULT_LOCKFILE;
-  const locked = await acquireLock(lockfile, 5_000);
-  if (!locked) {
-    console.log(JSON.stringify({ suppressOutput: true }));
-    return;
+  // Read stdin payload (fast — small JSON)
+  let input: HookInput = {};
+  if (!Bun.stdin.isTTY) {
+    try {
+      const stdinText = await Bun.stdin.text();
+      input = JSON.parse(stdinText);
+    } catch {
+      // Invalid stdin
+    }
   }
 
-  try {
-    let input: HookInput = {};
-    if (!Bun.stdin.isTTY) {
-      try {
-        const stdinText = await Bun.stdin.text();
-        input = JSON.parse(stdinText);
-      } catch {
-        // Invalid stdin, just archive all
-      }
-    }
+  // Return immediately — Claude Code session unblocked
+  console.log(JSON.stringify({ suppressOutput: true }));
 
+  // Fork heavy work to a detached background process
+  const payload = Buffer.from(JSON.stringify(input)).toString("base64");
+  const scriptPath = new URL(import.meta.url).pathname;
+  Bun.spawn(["bun", scriptPath, "--background-worker", payload], {
+    stdio: ["ignore", "ignore", "ignore"],
+    detached: true,
+  }).unref();
+}
+
+function isThrottled(): boolean {
+  try {
+    if (!existsSync(MARKER_PATH)) return false;
+    const raw = readFileSync(MARKER_PATH, "utf-8");
+    const marker = JSON.parse(raw);
+    const lastRun = new Date(marker.lastRunAt).getTime();
+    if (Number.isNaN(lastRun)) return false;
+    return Date.now() - lastRun < THROTTLE_MS;
+  } catch {
+    return false;
+  }
+}
+
+async function writeMarker(archived: number): Promise<void> {
+  const marker = { lastRunAt: new Date().toISOString(), archived };
+  await writeFile(MARKER_PATH, JSON.stringify(marker) + "\n", "utf-8");
+}
+
+async function runBackgroundWorker(options: Options): Promise<void> {
+  useStderrLog();
+
+  // Layer 2: Throttle — skip if ran recently
+  if (isThrottled()) return;
+
+  // Decode hook input from base64 arg
+  let input: HookInput = {};
+  try {
+    const raw = Buffer.from(options.backgroundWorker!, "base64").toString("utf-8");
+    input = JSON.parse(raw);
+  } catch {
+    // Corrupt payload, proceed with empty input
+  }
+
+  // Acquire lock — if we can't, another instance is running, bail
+  const lockfile = DEFAULT_LOCKFILE;
+  const locked = await acquireLock(lockfile, 5_000);
+  if (!locked) return;
+
+  let totalArchived = 0;
+
+  try {
     const protectedIds = new Set<string>();
-    let projectDir: string | undefined;
 
     if (input.session_id) {
       protectedIds.add(input.session_id);
     }
 
+    // Layer 3: Scope to current project only — no full scan in background mode
     if (input.transcript_path) {
-      projectDir = dirname(input.transcript_path);
+      options.project = dirname(input.transcript_path);
     }
+    if (!options.project) return;
 
-    if (projectDir) {
-      options.project = projectDir;
+    // In background mode, default max to 20 if not explicitly set
+    if (options.max === 0) {
+      options.max = HOOK_MAX_DEFAULT;
     }
 
     const dirs = await getProjectDirs(options);
     for (const dir of dirs) {
       try {
-        await archiveProject(dir, options, protectedIds);
+        const result = await archiveProject(dir, options, protectedIds);
+        totalArchived += result.archived;
       } catch {
-        // Silently continue in hook mode
+        // Silently continue
       }
     }
   } finally {
     await releaseLock(lockfile);
   }
 
-  // Suppress output in hook mode
-  console.log(JSON.stringify({ suppressOutput: true }));
+  await writeMarker(totalArchived);
 }
 
 // === CLI Entry ===
@@ -737,9 +790,15 @@ if (import.meta.main) {
   try {
     const options = parseArgs(Bun.argv.slice(2));
 
-    // Hook mode — always exit 0
+    // Hook mode — fork to background, exit immediately
     if (options.hook) {
       await runHookMode(options);
+      process.exit(0);
+    }
+
+    // Background worker — spawned by hook mode, runs detached
+    if (options.backgroundWorker) {
+      await runBackgroundWorker(options);
       process.exit(0);
     }
 
