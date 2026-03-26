@@ -1,16 +1,15 @@
 # session-archive
 
-Archive old Claude Code session transcripts with zstd compression. Runs automatically on session start via hook, or manually via slash command.
+Archive old Claude Code session transcripts with gzip compression (via Bun built-in). Runs automatically on session start via hook, or manually via slash command.
 
 ## Requirements
 
-- **bun** -- TypeScript runtime
-- **zstd** -- compression (typically 80-90% size reduction on JSONL transcripts)
-- **flock** -- concurrency guard (part of `util-linux`, pre-installed on most Linux)
+- **bun** -- TypeScript runtime (compression and file I/O handled natively)
+- **zstd** -- only needed to restore legacy archives compressed with zstd
 
 ## Setup
 
-### 1. Symlink the slash command
+### 1. Symlink the slash command (optional)
 
 ```bash
 ln -sf ~/projects/claude-plugins/session-archive/session-archive.md ~/.claude/commands/session-archive.md
@@ -26,7 +25,7 @@ ln -sf ~/projects/claude-plugins/session-archive/session-archive.md ~/.claude/co
         "hooks": [
           {
             "type": "command",
-            "command": "~/projects/claude-plugins/session-archive/sessionstart-archive.sh",
+            "command": "bun ~/projects/claude-plugins/session-archive/session-archive.ts --hook",
             "timeout": 10
           }
         ]
@@ -60,12 +59,13 @@ bun ~/projects/claude-plugins/session-archive/session-archive.ts --stats
 
 On every `SessionStart`:
 
-1. `sessionstart-archive.sh` checks that `bun` and `zstd` are available (exits silently if not)
-2. Acquires a file lock (`flock`) to prevent concurrent runs
-3. Reads the session ID from stdin (Claude provides this as JSON) to protect the current session
-4. Archives up to 20 sessions per invocation (oldest first) that are older than 30 days
+1. Acquires a PID-based lockfile (with stale lock detection) to prevent concurrent runs
+2. Reads the session ID from stdin (Claude provides this as JSON) to protect the current session
+3. Archives up to 20 sessions per invocation (oldest first) that are older than 30 days
+4. Compresses JSONL transcripts using `Bun.gzipSync()` (no external tools needed)
 5. Skips active sessions (detected via `/tmp/claude-*/tasks/` symlinks)
 6. Outputs `{"suppressOutput": true}` so Claude doesn't display anything
+7. Always exits 0 in hook mode -- errors are logged to stderr, never crash the session
 
 ## Archive structure
 
@@ -74,9 +74,14 @@ Inside each `~/.claude/projects/<project>/`:
 ```
 archive/
 ├── sessions-index.json           # Index of all archived sessions
-├── <uuid>.jsonl.zst              # Compressed transcript
+├── <uuid>.jsonl.gz               # Gzip-compressed transcript (new)
+├── <uuid>.jsonl.zst              # Zstd-compressed transcript (legacy)
 ├── <uuid>.jsonl                  # Empty transcripts (moved as-is)
 └── <uuid>/                       # Session directory (if present)
 ```
 
-The index tracks original size, compressed size, archive date, and what components each session had (JSONL, directory, or both).
+The index tracks original size, compressed size, archive date, compression format, and what components each session had (JSONL, directory, or both).
+
+## Migration from v1 (zstd)
+
+Existing `.zst` archives are preserved and can still be restored (requires `zstd` CLI). New archives use gzip via Bun's built-in `Bun.gzipSync()`. The `--list` command shows the format for each archived session.
