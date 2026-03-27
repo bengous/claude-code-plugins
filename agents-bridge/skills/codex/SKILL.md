@@ -13,7 +13,7 @@ Invoke OpenAI Codex CLI for cross-model collaboration.
 
 ## Current Configuration
 
-!`codex --info 2>&1 || echo "(codex CLI not found -- install with: npm install -g @openai/codex)"`
+!`"${CLAUDE_PLUGIN_ROOT}/scripts/codex" --info 2>&1 || echo "(codex CLI not found -- install with: npm install -g @openai/codex)"`
 
 ## Execution
 
@@ -21,13 +21,13 @@ Use the configuration above to determine the current default model and available
 
 ```bash
 # Run with prompt
-codex exec "$ARGUMENTS"
+"${CLAUDE_PLUGIN_ROOT}/scripts/codex" exec "$ARGUMENTS"
 
 # Or with overrides (use values from Current Configuration above)
-CODEX_MODEL=<model> CODEX_REASONING=<level> codex exec "$ARGUMENTS"
+CODEX_MODEL=<model> CODEX_REASONING=<level> "${CLAUDE_PLUGIN_ROOT}/scripts/codex" exec "$ARGUMENTS"
 
 # Resume a previous conversation
-codex exec resume <SESSION_ID> "Follow up prompt..."
+"${CLAUDE_PLUGIN_ROOT}/scripts/codex" exec resume <SESSION_ID> "Follow up prompt..."
 ```
 
 ## Resuming Conversations
@@ -35,7 +35,7 @@ codex exec resume <SESSION_ID> "Follow up prompt..."
 Codex returns a session ID after each run. To continue that conversation:
 
 ```bash
-codex exec resume <SESSION_ID> "Follow up prompt..."
+"${CLAUDE_PLUGIN_ROOT}/scripts/codex" exec resume <SESSION_ID> "Follow up prompt..."
 ```
 
 **When to resume:**
@@ -52,8 +52,7 @@ codex exec resume <SESSION_ID> "Follow up prompt..."
 |----------|-------------|
 | `CODEX_MODEL` | Model override |
 | `CODEX_REASONING` | Reasoning effort: `low`, `medium`, `high`, `xhigh` |
-| `CODEX_SANDBOX` | Sandbox mode: `read-only`, `workspace-write`, `danger-full-access` |
-| `CODEX_APPROVAL` | Approval policy: `untrusted`, `on-failure`, `on-request`, `never` |
+| `CODEX_SANDBOX` | Sandbox mode: `read-only`, `workspace-write`, `danger-full-access` (exec only) |
 
 ## When to Use
 
