@@ -4,8 +4,7 @@
 # Configuration (environment variables):
 #   CODEX_MODEL       Model override (uses CLI default if unset)
 #   CODEX_REASONING   Reasoning effort: low|medium|high|xhigh
-#   CODEX_SANDBOX     Sandbox mode: read-only|workspace-write|danger-full-access
-#   CODEX_APPROVAL    Approval policy: untrusted|on-failure|on-request|never
+#   CODEX_SANDBOX     Sandbox mode: read-only|workspace-write|danger-full-access (exec only)
 #
 # Usage:
 #   codex                            # Interactive mode
@@ -46,21 +45,28 @@ show_info() {
 	echo "=== Environment Overrides ==="
 	echo "CODEX_MODEL=${CODEX_MODEL:-(not set)}"
 	echo "CODEX_REASONING=${CODEX_REASONING:-(not set)}"
-	echo "CODEX_SANDBOX=${CODEX_SANDBOX:-(not set)}"
-	echo "CODEX_APPROVAL=${CODEX_APPROVAL:-(not set)}"
-	echo
-	echo "=== Available Options (from --help) ==="
-	"$real_codex" --help 2>&1 | grep -E "^\s+-(m|s|a|c)," | head -10 || true
+	echo "CODEX_SANDBOX=${CODEX_SANDBOX:-(not set, exec only)}"
 	exit 0
 }
 
 [[ "${1:-}" == "--info" ]] && show_info
 
-args=()
+# Build config overrides (these are passed via -c to any subcommand)
+config_args=()
 
-[[ -n "${CODEX_MODEL:-}" ]] && args+=(-m "$CODEX_MODEL")
-[[ -n "${CODEX_REASONING:-}" ]] && args+=(-c "reasoning_effort=$CODEX_REASONING")
-[[ -n "${CODEX_SANDBOX:-}" ]] && args+=(-s "$CODEX_SANDBOX")
-[[ -n "${CODEX_APPROVAL:-}" ]] && args+=(-a "$CODEX_APPROVAL")
+[[ -n "${CODEX_MODEL:-}" ]] && config_args+=(-c "model=\"$CODEX_MODEL\"")
+[[ -n "${CODEX_REASONING:-}" ]] && config_args+=(-c "model_reasoning_effort=\"$CODEX_REASONING\"")
 
-exec "$real_codex" "${args[@]}" "$@"
+# -m/-s only work on exec subcommand, so detect subcommand and inject flags
+cmd="${1:-}"
+case "$cmd" in
+	exec)
+		shift
+		exec_args=()
+		[[ -n "${CODEX_SANDBOX:-}" ]] && exec_args+=(-s "$CODEX_SANDBOX")
+		exec "$real_codex" exec "${config_args[@]}" "${exec_args[@]}" "$@"
+		;;
+	*)
+		exec "$real_codex" "${config_args[@]}" "$@"
+		;;
+esac
