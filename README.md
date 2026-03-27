@@ -29,6 +29,7 @@ A curated marketplace of Claude Code plugins for development workflow automation
 | [agents-bridge](agents-bridge/) | 1.3.1 | Bridge to external AI agents (Codex, Gemini CLI, etc.) for cross-model collaboration |
 | [conductor](conductor/) | 1.3.5 | Conversational planning skill that produces self-contained implementation plans |
 | [software-craft](software-craft/) | 1.0.1 | Opinionated design skills for software excellence: CLI design, system architecture, and more |
+| [plugin-dev](plugin-dev/) | 1.0.0 | Dev tool for syncing Claude Code plugin cache from local sources |
 
 See each plugin's README for detailed documentation and usage.
 

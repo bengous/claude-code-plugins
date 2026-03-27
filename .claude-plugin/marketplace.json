@@ -277,6 +277,26 @@
         "best-practices"
       ],
       "source": "./agent-context-audit"
+    },
+    {
+      "name": "plugin-dev",
+      "description": "Dev tool for syncing Claude Code plugin cache from local sources",
+      "version": "1.0.0",
+      "author": {
+        "name": "Augustin BENGOLEA",
+        "email": "bengous@protonmail.com"
+      },
+      "homepage": "https://github.com/bengous/claude-code-plugins",
+      "license": "MIT",
+      "keywords": [
+        "plugin",
+        "development",
+        "sync",
+        "cache",
+        "marketplace",
+        "devtools"
+      ],
+      "source": "./plugin-dev"
     }
   ]
 }
