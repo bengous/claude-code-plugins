@@ -1,0 +1,393 @@
+#!/usr/bin/env bash
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# plugin-dev - Sync Claude Code plugin cache from local sources
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+#
+# The plugin cache doesn't always refresh after commits/restarts (known bugs).
+# This script clears the cache and copies fresh files from the source directory.
+#
+# Usage:
+#   plugin-dev sync <name>              Sync a plugin (partial name match)
+#   plugin-dev sync --all               Sync all directory-source plugins
+#   plugin-dev status                   Show cache vs source comparison
+#   plugin-dev version                  Print version
+#   plugin-dev --source /path <cmd>     Use a standalone repo as source
+#
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+set -euo pipefail
+
+readonly VERSION="1.0.0"
+readonly PLUGINS_DIR="$HOME/.claude/plugins"
+readonly INSTALLED_JSON="$PLUGINS_DIR/installed_plugins.json"
+readonly MARKETPLACES_JSON="$PLUGINS_DIR/known_marketplaces.json"
+readonly CACHE_DIR="$PLUGINS_DIR/cache"
+
+# Standalone source (set via --source or CWD auto-detection)
+STANDALONE_SOURCE=""
+
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BOLD='\033[1m'
+DIM='\033[2m'
+NC='\033[0m'
+
+log() { echo -e "$*"; }
+log_ok() { echo -e "${GREEN}ok${NC} $*"; }
+log_warn() { echo -e "${YELLOW}!!${NC} $*" >&2; }
+log_err() { echo -e "${RED}err${NC} $*" >&2; }
+
+# ── Dependency check ──────────────────────────────────────────────────────
+
+check_deps() {
+	if ! command -v jq &>/dev/null; then
+		log_err "jq is required but not installed"
+		exit 1
+	fi
+	if [[ ! -f "$INSTALLED_JSON" ]]; then
+		log_err "Plugin registry not found: $INSTALLED_JSON"
+		exit 1
+	fi
+}
+
+# ── Marketplace helpers ───────────────────────────────────────────────────
+
+# Print "name\tpath" for each directory-source marketplace
+find_dir_marketplaces() {
+	# Known marketplaces (directory-source)
+	if [[ -f "$MARKETPLACES_JSON" ]]; then
+		jq -r '
+      to_entries[]
+      | select(.value.source.source == "directory")
+      | [.key, .value.source.path] | @tsv
+    ' "$MARKETPLACES_JSON"
+	fi
+
+	# Standalone source (--source flag or CWD auto-detect)
+	# Skip if already listed as a known marketplace
+	if [[ -n "$STANDALONE_SOURCE" ]]; then
+		local resolved
+		resolved="$(cd "$STANDALONE_SOURCE" && pwd)"
+		local already_listed=false
+		if [[ -f "$MARKETPLACES_JSON" ]]; then
+			while IFS=$'\t' read -r _ kpath; do
+				[[ "$(cd "$kpath" && pwd)" == "$resolved" ]] && already_listed=true
+			done < <(jq -r '
+        to_entries[]
+        | select(.value.source.source == "directory")
+        | [.key, .value.source.path] | @tsv
+      ' "$MARKETPLACES_JSON")
+		fi
+		if [[ "$already_listed" == false ]]; then
+			local name
+			name="$(basename "$STANDALONE_SOURCE")"
+			printf '%s\t%s\n' "$name" "$STANDALONE_SOURCE"
+		fi
+	fi
+}
+
+# Given a marketplace path, print "name\tversion\tsource_dir" for each plugin
+load_marketplace_plugins() {
+	local mkt_path="$1"
+	local manifest="$mkt_path/.claude-plugin/marketplace.json"
+
+	if [[ ! -f "$manifest" ]]; then
+		log_warn "No marketplace.json at $manifest"
+		return 1
+	fi
+
+	jq -r '.plugins[] | [.name, .version, .source] | @tsv' "$manifest"
+}
+
+# ── Plugin resolution ─────────────────────────────────────────────────────
+
+# Find a plugin by partial name match across all marketplaces.
+# Prints "mkt_name\tmkt_path\tplugin_name\tversion\tsource_rel" on success.
+resolve_plugin() {
+	local query="$1"
+	local matches=()
+
+	while IFS=$'\t' read -r mkt_name mkt_path; do
+		while IFS=$'\t' read -r pname pver psrc; do
+			if [[ "$pname" == "$query" ]]; then
+				echo -e "${mkt_name}\t${mkt_path}\t${pname}\t${pver}\t${psrc}"
+				return 0
+			fi
+			if [[ "$pname" == *"$query"* ]]; then
+				matches+=("${mkt_name}\t${mkt_path}\t${pname}\t${pver}\t${psrc}")
+			fi
+		done < <(load_marketplace_plugins "$mkt_path")
+	done < <(find_dir_marketplaces)
+
+	if [[ ${#matches[@]} -eq 0 ]]; then
+		log_err "No plugin matching '${query}'"
+		log "Available plugins:"
+		while IFS=$'\t' read -r mkt_name mkt_path; do
+			while IFS=$'\t' read -r pname _ _; do
+				log "  $pname"
+			done < <(load_marketplace_plugins "$mkt_path")
+		done < <(find_dir_marketplaces)
+		return 1
+	fi
+
+	if [[ ${#matches[@]} -gt 1 ]]; then
+		log_err "Ambiguous match '${query}'. Did you mean:"
+		for m in "${matches[@]}"; do
+			IFS=$'\t' read -r _ _ pname _ _ <<<"$m"
+			log "  $pname"
+		done
+		return 1
+	fi
+
+	echo -e "${matches[0]}"
+}
+
+# ── Sync ──────────────────────────────────────────────────────────────────
+
+sync_plugin() {
+	local mkt_name="$1" mkt_path="$2" plugin_name="$3" version="$4" source_rel="$5"
+
+	# Resolve source directory (marketplace.json source field is relative)
+	local source_dir
+	source_dir="$(cd "$mkt_path" && cd "$(dirname "$source_rel")/$(basename "$source_rel")" && pwd)"
+
+	if [[ ! -d "$source_dir" ]]; then
+		log_err "Source directory not found: $source_dir"
+		return 1
+	fi
+
+	local plugin_key="${plugin_name}@${mkt_name}"
+	local cache_dir="$CACHE_DIR/$mkt_name/$plugin_name/$version"
+
+	# Check for version change — remove old version cache if different
+	local installed_version
+	installed_version=$(jq -r --arg key "$plugin_key" \
+		'.plugins[$key][0].version // empty' "$INSTALLED_JSON")
+
+	if [[ -n "$installed_version" && "$installed_version" != "$version" ]]; then
+		local old_cache="$CACHE_DIR/$mkt_name/$plugin_name/$installed_version"
+		if [[ -d "$old_cache" ]]; then
+			rm -rf "$old_cache"
+		fi
+	fi
+
+	# Clear and copy
+	rm -rf "$cache_dir"
+	mkdir -p "$(dirname "$cache_dir")"
+	cp -a "$source_dir" "$cache_dir"
+
+	# Update installed_plugins.json atomically
+	local git_sha timestamp tmp_json
+	git_sha=$(git -C "$mkt_path" rev-parse HEAD 2>/dev/null || echo "unknown")
+	timestamp=$(date -u +"%Y-%m-%dT%H:%M:%S.000Z")
+	tmp_json=$(mktemp)
+
+	jq --arg key "$plugin_key" \
+		--arg path "$cache_dir" \
+		--arg ver "$version" \
+		--arg sha "$git_sha" \
+		--arg ts "$timestamp" \
+		'.plugins[$key][0] |= (
+       .installPath = $path |
+       .version = $ver |
+       .gitCommitSha = $sha |
+       .lastUpdated = $ts |
+       del(.devMode, .cachedPath)
+     )' "$INSTALLED_JSON" >"$tmp_json"
+
+	mv "$tmp_json" "$INSTALLED_JSON"
+
+	log_ok "${BOLD}${plugin_name}${NC} synced ${DIM}(${version}, ${git_sha:0:7})${NC}"
+}
+
+sync_all() {
+	local count=0
+	while IFS=$'\t' read -r mkt_name mkt_path; do
+		while IFS=$'\t' read -r pname pver psrc; do
+			local plugin_key="${pname}@${mkt_name}"
+			# Only sync plugins that are actually installed
+			if jq -e --arg key "$plugin_key" '.plugins[$key]' "$INSTALLED_JSON" &>/dev/null; then
+				sync_plugin "$mkt_name" "$mkt_path" "$pname" "$pver" "$psrc"
+				count=$((count + 1))
+			fi
+		done < <(load_marketplace_plugins "$mkt_path")
+	done < <(find_dir_marketplaces)
+
+	if [[ $count -eq 0 ]]; then
+		log_warn "No installed directory-source plugins found"
+	else
+		log ""
+		log "Synced ${BOLD}${count}${NC} plugin(s). Restart Claude Code to apply."
+	fi
+}
+
+sync_one() {
+	local query="$1"
+	local match
+	match=$(resolve_plugin "$query") || exit 1
+
+	IFS=$'\t' read -r mkt_name mkt_path pname pver psrc <<<"$match"
+	sync_plugin "$mkt_name" "$mkt_path" "$pname" "$pver" "$psrc"
+	log ""
+	log "Restart Claude Code to apply."
+}
+
+# ── Status ────────────────────────────────────────────────────────────────
+
+show_status() {
+	local found_any=false
+
+	while IFS=$'\t' read -r mkt_name mkt_path; do
+		found_any=true
+		local current_sha
+		current_sha=$(git -C "$mkt_path" rev-parse --short HEAD 2>/dev/null || echo "?")
+
+		log "${BOLD}${mkt_name}${NC} ${DIM}(${mkt_path})${NC}"
+		log "  Source HEAD: ${current_sha}"
+		log ""
+		printf "  %-28s %-12s %-12s %s\n" "Plugin" "Source" "Cached" "Status"
+		log "  $(printf '─%.0s' {1..64})"
+
+		while IFS=$'\t' read -r pname pver psrc; do
+			local plugin_key="${pname}@${mkt_name}"
+			local cached_ver cached_sha status_str
+
+			cached_ver=$(jq -r --arg key "$plugin_key" \
+				'.plugins[$key][0].version // "—"' "$INSTALLED_JSON")
+			cached_sha=$(jq -r --arg key "$plugin_key" \
+				'.plugins[$key][0].gitCommitSha // "—"' "$INSTALLED_JSON")
+
+			# Not installed
+			if [[ "$cached_ver" == "—" ]]; then
+				printf "  %-28s %-12s %-12s %b\n" "$pname" "$pver" "—" "${DIM}not installed${NC}"
+				continue
+			fi
+
+			# Determine staleness
+			local source_dir
+			source_dir="$(cd "$mkt_path" && cd "$(dirname "$psrc")/$(basename "$psrc")" && pwd)"
+			local cache_dir="$CACHE_DIR/$mkt_name/$pname/$cached_ver"
+
+			# Check for devMode remnant
+			local has_devmode
+			has_devmode=$(jq -r --arg key "$plugin_key" \
+				'.plugins[$key][0].devMode // false' "$INSTALLED_JSON")
+
+			if [[ "$has_devmode" == "true" ]]; then
+				status_str="${YELLOW}STALE${NC} ${DIM}(devMode)${NC}"
+			elif [[ "$cached_ver" != "$pver" ]]; then
+				status_str="${YELLOW}STALE${NC} ${DIM}(version)${NC}"
+			elif [[ "${cached_sha:0:7}" != "${current_sha:0:7}" ]]; then
+				status_str="${YELLOW}STALE${NC} ${DIM}(sha)${NC}"
+			elif [[ ! -d "$cache_dir" ]]; then
+				status_str="${RED}MISSING${NC}"
+			else
+				status_str="${GREEN}OK${NC}"
+			fi
+
+			printf "  %-28s %-12s %-12s %b\n" "$pname" "$pver" "$cached_ver" "$status_str"
+		done < <(load_marketplace_plugins "$mkt_path")
+
+		log ""
+	done < <(find_dir_marketplaces)
+
+	if [[ "$found_any" == false ]]; then
+		log "No directory-source marketplaces found."
+		if [[ -z "$STANDALONE_SOURCE" ]]; then
+			log ""
+			log "Tip: run from a plugin repo, or use ${BOLD}--source /path/to/repo${NC}"
+		fi
+	fi
+}
+
+# ── Help ──────────────────────────────────────────────────────────────────
+
+show_help() {
+	cat <<EOF
+plugin-dev ${VERSION} - Sync Claude Code plugin cache from local sources
+
+Usage:
+  plugin-dev sync <name>              Sync a plugin (partial name match)
+  plugin-dev sync --all               Sync all directory-source plugins
+  plugin-dev status                   Show cache vs source comparison
+  plugin-dev version                  Print version
+  plugin-dev --source /path <cmd>     Use a standalone repo as source
+
+Standalone mode:
+  If CWD contains .claude-plugin/marketplace.json, it's used automatically.
+  Use --source to point to a different repo explicitly.
+
+Examples:
+  plugin-dev sync meta                Syncs claude-meta-tools
+  plugin-dev sync --all               Syncs all installed plugins
+  plugin-dev status                   Show what's stale
+  plugin-dev --source ~/my-plugins sync --all
+EOF
+}
+
+# ── Main ──────────────────────────────────────────────────────────────────
+
+main() {
+	# Parse global flags
+	while [[ $# -gt 0 ]]; do
+		case "$1" in
+			--source)
+				if [[ $# -lt 2 ]]; then
+					log_err "--source requires a path argument"
+					exit 1
+				fi
+				STANDALONE_SOURCE="$(cd "$2" && pwd)"
+				if [[ ! -f "$STANDALONE_SOURCE/.claude-plugin/marketplace.json" ]]; then
+					log_err "No .claude-plugin/marketplace.json found in $STANDALONE_SOURCE"
+					exit 1
+				fi
+				shift 2
+				;;
+			*)
+				break
+				;;
+		esac
+	done
+
+	# Auto-detect CWD as standalone source
+	if [[ -z "$STANDALONE_SOURCE" && -f "$PWD/.claude-plugin/marketplace.json" ]]; then
+		STANDALONE_SOURCE="$PWD"
+	fi
+
+	if [[ $# -eq 0 || "$1" == "--help" || "$1" == "-h" ]]; then
+		show_help
+		exit 0
+	fi
+
+	check_deps
+
+	case "$1" in
+		sync)
+			shift
+			if [[ $# -eq 0 ]]; then
+				log_err "Missing argument: plugin name or --all"
+				show_help
+				exit 1
+			fi
+			if [[ "$1" == "--all" ]]; then
+				sync_all
+			else
+				sync_one "$1"
+			fi
+			;;
+		status)
+			show_status
+			;;
+		version)
+			echo "plugin-dev ${VERSION}"
+			;;
+		*)
+			log_err "Unknown command: $1"
+			show_help
+			exit 1
+			;;
+	esac
+}
+
+main "$@"
