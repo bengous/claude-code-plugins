@@ -33,13 +33,3 @@ commit-msg:
   jobs:
     - name: block-ai-signatures
       run: ./.claude/git/block-ai-signatures.sh {1}
-
-pre-push:
-  scripts:
-    "check-stale-submodules.sh":
-      runner: bash
-
-post-merge:
-  jobs:
-    - name: submodule-update
-      run: ./.claude/git/submodule-update.sh
