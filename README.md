@@ -18,7 +18,7 @@ A curated marketplace of Claude Code plugins for development workflow automation
 
 | Plugin | Version | Description |
 |--------|---------|-------------|
-| [claude-orchestration](orchestration/) | 2.5.1 | Parallel multi-agent orchestration for complex features with git-wt --stack worktree isolation |
+| [claude-orchestration](orchestration/) | 2.6.0 | Parallel multi-agent orchestration for complex features with git-wt --stack worktree isolation |
 | [git-tools](git-tools/) | 1.11.1 | Interactive git commands with AI assistance for commit management, history rewriting, PR/issue triage, agent-ready issue writing, and submodule automation |
 | [code-quality](code-quality/) | 1.4.2 | Code quality and cleanup commands for maintaining clean, maintainable code |
 | [mermaid-diagrams](mermaid-diagrams/) | 1.0.0 | Create and edit Mermaid diagrams for software engineering work, architectural ideas, and technical documentation |
