@@ -27,11 +27,6 @@ if command -v lefthook &>/dev/null || mise which lefthook &>/dev/null; then
   fi
 fi
 
-# Check submodules initialized
-if git submodule status 2>/dev/null | grep -q '^-'; then
-  ERRORS+=("submodules not initialized → run: git submodule update --init --recursive")
-fi
-
 # Report
 if [[ ${#ERRORS[@]} -gt 0 ]]; then
   echo "Setup incomplete:"
@@ -39,7 +34,7 @@ if [[ ${#ERRORS[@]} -gt 0 ]]; then
     echo "  - $err"
   done
   echo ""
-  echo "Quick fix: mise install && lefthook install && git submodule update --init --recursive"
+  echo "Quick fix: mise install && lefthook install"
   exit 1
 fi
 
