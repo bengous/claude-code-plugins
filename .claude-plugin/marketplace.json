@@ -297,6 +297,48 @@
         "devtools"
       ],
       "source": "./plugin-dev"
+    },
+    {
+      "name": "git-sweep",
+      "description": "Interactive git branch and worktree cleanup with smart categorization, squash-merge detection, and backup analysis",
+      "version": "1.0.0",
+      "author": {
+        "name": "Augustin BENGOLEA",
+        "email": "bengous@protonmail.com"
+      },
+      "homepage": "https://github.com/bengous/claude-code-plugins",
+      "license": "MIT",
+      "keywords": [
+        "git",
+        "branches",
+        "worktrees",
+        "cleanup",
+        "sweep",
+        "prune",
+        "squash-merge"
+      ],
+      "source": "./git-sweep"
+    },
+    {
+      "name": "ship",
+      "description": "Ship feature branches: strip working files, create PRs, merge to main with GPG signing and squash support",
+      "version": "1.0.0",
+      "author": {
+        "name": "Augustin BENGOLEA",
+        "email": "bengous@protonmail.com"
+      },
+      "homepage": "https://github.com/bengous/claude-code-plugins",
+      "license": "MIT",
+      "keywords": [
+        "git",
+        "ship",
+        "pr",
+        "merge",
+        "gpg",
+        "squash",
+        "workflow"
+      ],
+      "source": "./ship"
     }
   ]
 }
