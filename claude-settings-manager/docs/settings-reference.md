@@ -24,7 +24,7 @@ Complete reference for `settings.json` configuration options.
 | `cleanupPeriodDays` | number | `30` | Days to retain inactive sessions before cleanup |
 | `env` | object | `{}` | Environment variables for all sessions |
 | `includeCoAuthoredBy` | boolean | `true` | Include `co-authored-by Claude` in commits/PRs |
-| `model` | string | — | Override default model (e.g., `claude-sonnet-4-20250514`) |
+| `model` | string | — | Override default model (e.g., `sonnet`) |
 | `outputStyle` | string | — | Output style adjustment (e.g., `"Explanatory"`) |
 | `statusLine` | object | — | Custom status line configuration |
 | `disableAllHooks` | boolean | `false` | Disable all hooks and statusLine execution |
@@ -117,7 +117,7 @@ Hook events: `PreToolUse`, `PostToolUse`, `Notification`, `Stop`
   "$schema": "https://json.schemastore.org/claude-code-settings.json",
 
   // Model override
-  "model": "claude-sonnet-4-20250514",
+  "model": "sonnet",
 
   // Permissions
   "permissions": {

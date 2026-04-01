@@ -3,7 +3,7 @@ description: Transform rough ideas into professionally-phrased prompts - like ha
 argument-hint: "<your rough idea, question, or request>"
 allowed-tools:
   - AskUserQuestion(*:*)
-model: claude-opus-4-5
+model: opus
 ---
 
 # Prompt Coach

@@ -6,7 +6,7 @@ allowed-tools:
   - Read(*:*)
   - Write(*:*)
   - AskUserQuestion(*:*)
-model: claude-opus-4-5
+model: opus
 ---
 
 # Settings Schema Extraction
