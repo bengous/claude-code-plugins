@@ -9,7 +9,7 @@ allowed-tools:
   - AskUserQuestion
   - Write
   - Edit
-model: claude-opus-4-5
+model: opus
 ---
 
 # Prompt Auditor

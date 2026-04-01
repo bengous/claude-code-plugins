@@ -7,7 +7,7 @@ allowed-tools:
   - Grep(*:*)
   - Glob(*:*)
   - AskUserQuestion(*:*)
-model: claude-opus-4-5
+model: opus
 ---
 
 # Issue Triage Command

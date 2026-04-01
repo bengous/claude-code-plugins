@@ -7,7 +7,7 @@ allowed-tools:
   - Glob(*:*)
   - Grep(*:*)
   - AskUserQuestion(*:*)
-model: claude-opus-4-5
+model: opus
 ---
 
 # Settings Setup Wizard

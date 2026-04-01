@@ -8,7 +8,7 @@ allowed-tools:
   - Glob(*:*)
   - Bash(git:*)
   - Bash(gh:*)
-model: claude-opus-4-5
+model: opus
 ---
 
 # Clean PR Comments

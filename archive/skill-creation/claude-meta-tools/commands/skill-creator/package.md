@@ -4,7 +4,7 @@ argument-hint: <path> [--output <dir>]
 allowed-tools:
   - Bash(*:*)
   - Read(*:*)
-model: claude-opus-4-5
+model: opus
 ---
 
 # Package Skill for Distribution
