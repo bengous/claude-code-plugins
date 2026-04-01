@@ -30,6 +30,8 @@ A curated marketplace of Claude Code plugins for development workflow automation
 | [conductor](conductor/) | 1.3.5 | Conversational planning skill that produces self-contained implementation plans |
 | [software-craft](software-craft/) | 1.0.1 | Opinionated design skills for software excellence: CLI design, system architecture, and more |
 | [plugin-dev](plugin-dev/) | 1.0.0 | Dev tool for syncing Claude Code plugin cache from local sources |
+| [git-sweep](git-sweep/) | 1.0.0 | Interactive git branch and worktree cleanup with smart categorization, squash-merge detection, and backup analysis |
+| [ship](ship/) | 1.0.0 | Ship feature branches: strip working files, create PRs, merge to main with GPG signing and squash support |
 
 See each plugin's README for detailed documentation and usage.
 
