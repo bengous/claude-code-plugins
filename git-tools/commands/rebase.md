@@ -3,7 +3,7 @@ description: Interactive git rebase with visual plan and AI-powered commit impro
 argument-hint: <branch|N|X..Y>
 allowed-tools:
   - Bash("${CLAUDE_PLUGIN_ROOT}/scripts/rebase/rebase":*)
-model: claude-opus-4-5
+model: opus
 ---
 
 # Interactive Rebase

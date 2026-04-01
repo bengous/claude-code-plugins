@@ -9,7 +9,7 @@ allowed-tools:
   - Bash(wc:*)
   - Task
   - AskUserQuestion
-model: claude-opus-4-5
+model: opus
 ---
 
 # Skill Review

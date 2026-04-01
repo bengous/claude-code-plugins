@@ -390,7 +390,7 @@ user-invocable: false
 allowed-tools: Read, Grep, Glob
 context: fork
 agent: Explore
-model: claude-sonnet-4-5-20250929
+model: sonnet
 argument-hint: [issue-number] [priority]
 ---
 Your skill instructions here...

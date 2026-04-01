@@ -11,11 +11,11 @@ paths: "**/commands/**/*.md"
 description: Brief description shown in command palette
 argument-hint: <required> [optional] [--flag]
 allowed-tools:
-  - Bash(*:*)                                    # Unrestricted bash
-  - Bash("${CLAUDE_PLUGIN_ROOT}/scripts/*":*)   # Restricted to plugin scripts
+  - Bash(*:*)
+  - Bash("${CLAUDE_PLUGIN_ROOT}/scripts/*":*)
   - Read(*:*)
   - Grep(*:*)
-model: opus                                       # Specify for complex tasks
+model: opus
 ---
 
 # Command Title

@@ -4,7 +4,7 @@ argument-hint: <name> [--path <dir>]
 allowed-tools:
   - Bash(*:*)
   - Read(*:*)
-model: claude-opus-4-5
+model: opus
 ---
 
 # Initialize New Skill

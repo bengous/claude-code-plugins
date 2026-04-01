@@ -3,7 +3,7 @@ description: Install orchestration plugin hooks into project settings
 argument-hint: "[--remove|--force|--dry-run]"
 allowed-tools:
   - Bash(*:*)
-model: claude-sonnet-4-5
+model: sonnet
 ---
 
 Install plugin hooks into `.claude/settings.local.json` for automated workflow enforcement.

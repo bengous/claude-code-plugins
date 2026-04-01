@@ -12,7 +12,7 @@ Agents are **stateless subagents** that receive context once and return results.
 ---
 description: Brief description of what this agent does
 subagent-type: general-purpose
-model: opus                    # or claude-opus-4-5, claude-sonnet-4-5
+model: opus
 allowed-tools:
   - Read(*:*)
   - Grep(*:*)

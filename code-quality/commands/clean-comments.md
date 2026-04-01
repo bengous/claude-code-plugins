@@ -7,7 +7,7 @@ allowed-tools:
   - Grep(*:*)
   - Glob(*:*)
   - Bash(git:*)
-model: claude-opus-4-5
+model: opus
 ---
 
 # Clean Comments
