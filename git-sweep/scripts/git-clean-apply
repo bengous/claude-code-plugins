@@ -1,0 +1,154 @@
+#!/usr/bin/env bun
+
+// git-clean-apply — Execute a cleanup manifest one operation at a time.
+// Outputs structured JSON for consumption by the /clean Claude skill.
+
+import { $ } from "bun";
+
+const SCRIPT = "git-clean-apply";
+
+// ---------------------------------------------------------------------------
+// Types
+// ---------------------------------------------------------------------------
+
+type CleanupManifest = {
+  worktrees: string[];
+  branches: { name: string; force: boolean }[];
+  remote_branches: { remote: string; ref: string }[];
+  prune_remotes: boolean;
+  prune_worktrees: boolean;
+};
+
+type Operation = {
+  type: "worktree-remove" | "branch-delete" | "remote-delete" | "prune-remote" | "prune-worktree";
+  target: string;
+  success: boolean;
+  error: string | null;
+};
+
+type CleanupResult = {
+  ok: boolean;
+  operations: Operation[];
+  summary: { succeeded: number; failed: number };
+};
+
+// ---------------------------------------------------------------------------
+// Git helpers
+// ---------------------------------------------------------------------------
+
+async function git(...args: string[]): Promise<{ stdout: string; stderr: string; exitCode: number }> {
+  const { stdout, stderr, exitCode } = await $`git ${args}`.quiet().nothrow();
+  return { stdout: stdout.toString().trim(), stderr: stderr.toString().trim(), exitCode };
+}
+
+// ---------------------------------------------------------------------------
+// Execution
+// ---------------------------------------------------------------------------
+
+async function execute(manifest: CleanupManifest): Promise<CleanupResult> {
+  const operations: Operation[] = [];
+
+  // 1. Remove worktrees first (must happen before branch deletion)
+  for (const path of manifest.worktrees) {
+    const result = await git("worktree", "remove", "--force", path);
+    operations.push({
+      type: "worktree-remove",
+      target: path,
+      success: result.exitCode === 0,
+      error: result.exitCode === 0 ? null : result.stderr,
+    });
+  }
+
+  // 2. Prune worktree refs
+  if (manifest.prune_worktrees) {
+    const result = await git("worktree", "prune");
+    operations.push({
+      type: "prune-worktree",
+      target: "worktree refs",
+      success: result.exitCode === 0,
+      error: result.exitCode === 0 ? null : result.stderr,
+    });
+  }
+
+  // 3. Delete local branches
+  for (const { name, force } of manifest.branches) {
+    const flag = force ? "-D" : "-d";
+    const result = await git("branch", flag, name);
+    operations.push({
+      type: "branch-delete",
+      target: name,
+      success: result.exitCode === 0,
+      error: result.exitCode === 0 ? null : result.stderr,
+    });
+  }
+
+  // 4. Delete remote branches one at a time
+  for (const { remote, ref } of manifest.remote_branches) {
+    const result = await git("push", remote, "--delete", ref);
+    operations.push({
+      type: "remote-delete",
+      target: `${remote}/${ref}`,
+      success: result.exitCode === 0,
+      error: result.exitCode === 0 ? null : result.stderr,
+    });
+  }
+
+  // 5. Prune remote tracking refs
+  if (manifest.prune_remotes) {
+    const result = await git("remote", "prune", "origin");
+    operations.push({
+      type: "prune-remote",
+      target: "remote tracking refs",
+      success: result.exitCode === 0,
+      error: result.exitCode === 0 ? null : result.stderr,
+    });
+  }
+
+  const succeeded = operations.filter((op) => op.success).length;
+  const failed = operations.filter((op) => !op.success).length;
+
+  return {
+    ok: failed === 0,
+    operations,
+    summary: { succeeded, failed },
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Main
+// ---------------------------------------------------------------------------
+
+async function main(): Promise<CleanupResult | { ok: false; error: string }> {
+  const args = Bun.argv.slice(2);
+
+  let manifestJson: string | null = null;
+
+  for (let i = 0; i < args.length; i++) {
+    switch (args[i]) {
+      case "--manifest":
+        manifestJson = args[++i]!;
+        break;
+      default:
+        return { ok: false, error: `unknown argument: ${args[i]}` };
+    }
+  }
+
+  if (manifestJson === null) {
+    return { ok: false, error: "missing --manifest argument" };
+  }
+
+  let manifest: CleanupManifest;
+  try {
+    manifest = JSON.parse(manifestJson) as CleanupManifest;
+  } catch {
+    return { ok: false, error: "invalid JSON in --manifest" };
+  }
+
+  return execute(manifest);
+}
+
+if (import.meta.main) {
+  const result = await main();
+  console.log(JSON.stringify(result, null, 2));
+  process.exit(result.ok ? 0 : 1);
+}
