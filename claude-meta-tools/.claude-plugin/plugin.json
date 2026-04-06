@@ -1,6 +1,6 @@
 {
   "name": "claude-meta-tools",
-  "version": "1.14.0",
+  "version": "1.15.0",
   "description": "Meta-tools for Claude Code: maintain documentation (CLAUDE.md sync), prompt coaching/auditing, research, concept demystification, and extend Claude capabilities",
   "author": {
     "name": "Augustin BENGOLEA",
