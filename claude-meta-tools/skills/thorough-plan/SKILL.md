@@ -7,6 +7,8 @@ description: >
   valid approaches exist and the right one isn't obvious, (4) user says
   "thorough plan" or invokes /thorough-plan. NOT for trivial tasks where
   the path is obvious — triage will skip exploration in those cases.
+disable-model-invocation: true
+model: opus
 ---
 
 # Thorough Plan
@@ -15,22 +17,18 @@ An adaptive exploration loop that prevents premature planning. Builds context th
 
 This is not a planning framework. It's a **context amplifier**.
 
-## The problem
-
+<context>
 Agents fail at planning in predictable ways:
 - They plan from incomplete briefs and make wrong assumptions
 - They ask questions they could answer by reading the code
 - Or they interrogate exhaustively when the task is straightforward
 
 This skill injects judgment: explore what you can, ask what you must, stop when you know enough.
+</context>
 
-## Workflow
+<workflow>
 
-```
-BRIEF → TRIAGE → [trivial: skip] → EXPLORATION LOOP → SYNTHESIS → planning
-```
-
-### Triage
+## Triage
 
 Read the brief. Evaluate along these dimensions:
 
@@ -43,7 +41,29 @@ Read the brief. Evaluate along these dimensions:
 
 **High on any → enter the exploration loop.** Focus exploration on the dimensions that are actually uncertain.
 
-### Exploration loop
+<example title="Triage assessment">
+Brief: "Add a /sweep command that cleans up stale git branches"
+
+- Ambiguity: low — intent is clear
+- Scope: medium — needs new command + script, touches plugin structure
+- Risk: low — read-only git operations, no data loss
+- Novelty: low — similar commands exist in git-tools/
+
+→ One focused Explore agent on git-tools/ patterns, then proceed to planning. No user questions needed.
+</example>
+
+<example title="Triage assessment — high ambiguity">
+Brief: "Redesign how plugins handle configuration"
+
+- Ambiguity: high — "redesign" could mean anything from a new config format to a complete architecture change
+- Scope: high — touches every plugin
+- Risk: high — breaking change for existing plugins
+- Novelty: medium — depends on what approach is chosen
+
+→ Explore current config patterns across plugins, then ask the user what "redesign" means to them before exploring further.
+</example>
+
+## Exploration loop
 
 This is a loop, not a pipeline. Each iteration:
 
@@ -56,7 +76,7 @@ This is a loop, not a pipeline. Each iteration:
 | Code examples, implementation patterns | research-agent → exa (get_code_context) |
 | Platform constraints, known issues | research-agent → web search |
 
-Dispatch multiple agents in parallel only when the unknowns are truly independent and the parallel cost is justified. A single focused agent is often enough.
+Default to a single agent per iteration. Multi-agent dispatch is the exception — use it only when unknowns are truly independent and the parallel cost is justified.
 
 **2. Assess** — what did you learn? what gaps remain?
 
@@ -69,7 +89,7 @@ Share a brief summary with the user — dense, not verbose. A few lines, not par
 - User answers that open new branches → explore again
 - Remaining unknowns are weak or acceptable → exit loop
 
-### Questioning
+## Questioning
 
 The format adapts to the dependency structure of the unknowns:
 
@@ -80,7 +100,21 @@ The format adapts to the dependency structure of the unknowns:
 
 The test for every question: **would the answer change the plan?** If not, don't ask it.
 
-### Stop criteria
+<example title="Good vs bad questions">
+Bad: "What testing framework do you prefer?"
+→ Answerable by reading the codebase. Explore first.
+
+Bad: "Should I use a modular architecture?"
+→ Too generic. Doesn't change a concrete decision.
+
+Good: "The brief says 'support SSO' — do you mean SAML, OIDC, or both? This determines whether we need one integration or two."
+→ Blocks a structural decision. Can't be resolved by exploration.
+
+Good (grouped): "Two independent questions: (1) Should this be backward-compatible with existing configs, or can we break the format? (2) Do you want this behind a feature flag?"
+→ Independent unknowns, efficient to ask together.
+</example>
+
+## Stop criteria
 
 Exit the loop when you can credibly answer:
 - What needs to change and why
@@ -92,7 +126,7 @@ Not every unknown needs resolution. Distinguish:
 - **Blocking unknowns** — wrong assumption here means wrong plan. Must resolve.
 - **Acceptable unknowns** — state as explicit assumption, revisit during implementation.
 
-### Synthesis
+## Synthesis
 
 Before proceeding to planning, state your understanding conversationally:
 - Key findings from exploration
@@ -104,18 +138,25 @@ No file artifact. This lives in the conversation.
 
 Then proceed to the normal planning flow.
 
+</workflow>
+
 ## Escape hatch
 
 The user can type **`::plan`** at any point to force immediate transition to planning. When this happens: state your current understanding (even if incomplete), list open assumptions, and proceed.
 
-## Anti-patterns
+<constraints>
 
-| Don't | Do instead |
-|-------|-----------|
-| Explore by reflex | Explore only dimensions flagged by triage |
-| Ask what the codebase could answer | Explore first, ask only what exploration can't resolve |
-| Ask generic questions | Every question must have decisional value |
-| Write verbose summaries | A few lines per round. Dense, not decorative |
-| Run a fixed number of rounds | Stop on sufficiency, not on budget |
-| Question exhaustively | Effort proportional to actual ambiguity |
-| Produce intermediate files | No intermediate artifacts. Context builds in conversation. Final planning follows the normal workflow |
+## Principles
+
+| Principle | Rationale |
+|-----------|-----------|
+| Explore only dimensions flagged by triage | Unfocused exploration wastes context and delays planning |
+| Explore before asking the user | The codebase often holds the answer. Reserve user questions for what exploration can't resolve |
+| Every question must have decisional value | A question that wouldn't change the plan is noise |
+| Summaries stay dense: a few lines per round | Verbose reports consume context without adding clarity |
+| Stop on sufficiency, not on a budget | The loop exits when context is adequate, whether that takes 1 iteration or 4 |
+| Effort proportional to actual ambiguity | A clear brief with low risk gets minimal exploration. A vague brief with high scope gets thorough investigation |
+| No intermediate artifacts — context builds in conversation | Final planning follows the normal workflow |
+| Default to one agent per exploration step | Multi-dispatch is justified only when unknowns are truly independent |
+
+</constraints>
