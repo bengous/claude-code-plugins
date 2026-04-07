@@ -322,7 +322,7 @@
     {
       "name": "ship",
       "description": "Ship feature branches: strip working files, create PRs, merge to main with GPG signing and squash support",
-      "version": "1.0.0",
+      "version": "1.0.1",
       "author": {
         "name": "Augustin BENGOLEA",
         "email": "bengous@protonmail.com"
