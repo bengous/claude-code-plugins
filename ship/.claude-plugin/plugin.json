@@ -1,6 +1,6 @@
 {
   "name": "ship",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Ship feature branches: strip working files, create PRs, merge to main with GPG signing and squash support",
   "author": {
     "name": "Augustin BENGOLEA",

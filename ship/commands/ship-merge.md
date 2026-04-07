@@ -9,6 +9,9 @@ allowed-tools:
   - Bash(git worktree remove:*)
   - Bash(git diff --cached:*)
   - Bash(git commit:*)
+  - Bash(git reset:*)
+  - Bash(git status:*)
+  - Bash(git clean:*)
   - Bash(git stash:*)
   - Bash(git -C:*)
   - Bash(gh pr close:*)
@@ -61,8 +64,16 @@ If the dry-run shows `status: "ok"` with files in `removed` (meaning files would
    - "Abort"
 3. If strip: run `"${CLAUDE_PLUGIN_ROOT}/scripts/prep-pr" --force --backup --pr-branch {headRefName}` then
    `git push --force-with-lease origin {headRefName}`
+4. After force-push, sync the worktree to match remote:
+   `git reset --hard origin/{headRefName}`
+   Verify clean state: `git status --porcelain` must be empty.
+   If not clean: `git checkout -- . && git clean -fd`
 
 If dry-run shows `nothing-to-clean`, continue.
+
+**Before continuing:** `git-ship` requires a clean working tree. If any prior step
+(strip, force-push) left dirty state, resolve it now: commit, stash, or
+`git checkout -- . && git clean -fd`.
 
 ### 2. Squash decision
 
@@ -85,7 +96,8 @@ Parse the JSON output.
 If the step is `squash-staged`:
 
 1. Note the `backup_ref` from the output.
-2. Run `git diff --cached --stat` to see staged changes.
+2. Show staged changes — run this in the **current directory** (the feature worktree),
+   NOT in the main worktree: `git diff --cached --stat`
 3. Read the `original_subjects` from the JSON output.
 4. Write a **semantic commit message** -- focus on what was accomplished, not the
    incremental steps. Drop noise like "fix review", "remove unused import".
