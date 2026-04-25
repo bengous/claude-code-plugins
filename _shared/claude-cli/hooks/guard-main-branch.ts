@@ -37,13 +37,41 @@ const BRANCH_MUTATION_PATTERNS: ReadonlyArray<RegExp> = [
 	/git\s+rebase\b/,
 ];
 
-export function getCurrentBranch(): string | null {
+export function getCurrentBranch(cwd?: string): string | null {
 	const result = Bun.spawnSync(["git", "symbolic-ref", "--short", "HEAD"], {
+		cwd,
 		stdout: "pipe",
 		stderr: "pipe",
 	});
 	if (result.exitCode !== 0) return null;
 	return result.stdout.toString().trim();
+}
+
+export function getRepoRoot(cwd?: string): string | null {
+	const result = Bun.spawnSync(["git", "rev-parse", "--show-toplevel"], {
+		cwd,
+		stdout: "pipe",
+		stderr: "pipe",
+	});
+	if (result.exitCode !== 0) return null;
+	return result.stdout.toString().trim();
+}
+
+// Extract the target directory of a leading `cd <path> &&` (or `;`) clause.
+// Returns null if no leading cd is present. Quoted paths are unquoted.
+export function extractCdTarget(cmd: string): string | null {
+	const m = cmd.match(
+		/^\s*cd\s+("(?:[^"\\]|\\.)*"|'[^']*'|[^\s;&]+)\s*(?:&&|;)/,
+	);
+	if (!m) return null;
+	const raw = m[1] as string;
+	if (
+		(raw.startsWith('"') && raw.endsWith('"')) ||
+		(raw.startsWith("'") && raw.endsWith("'"))
+	) {
+		return raw.slice(1, -1);
+	}
+	return raw;
 }
 
 export function isProtectedBranch(branch: string): boolean {
@@ -69,7 +97,20 @@ if (import.meta.main) {
 
 	if (!isBranchMutatingCommand(cmd)) process.exit(HOOK_EXIT.ALLOW);
 
-	const branch = getCurrentBranch();
+	// If the command targets a different repo via a leading `cd`, only enforce
+	// when that repo is the same as the hook's project repo. Other repos have
+	// their own conventions and aren't ours to police.
+	const cdTarget = extractCdTarget(cmd);
+	const effectiveCwd = cdTarget ?? undefined;
+	if (cdTarget) {
+		const targetRoot = getRepoRoot(cdTarget);
+		const projectRoot = getRepoRoot();
+		if (targetRoot && projectRoot && targetRoot !== projectRoot) {
+			process.exit(HOOK_EXIT.ALLOW);
+		}
+	}
+
+	const branch = getCurrentBranch(effectiveCwd);
 	if (!branch || !isProtectedBranch(branch)) process.exit(HOOK_EXIT.ALLOW);
 
 	console.error(`BLOCKED: '${branch}' is a protected branch.`);
