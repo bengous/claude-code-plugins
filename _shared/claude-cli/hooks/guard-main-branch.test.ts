@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { HOOK_EXIT } from "../hooks.ts";
 import {
+	extractCdTarget,
 	isBranchMutatingCommand,
 	isProtectedBranch,
 } from "./guard-main-branch.ts";
@@ -26,6 +27,38 @@ describe("isProtectedBranch", () => {
 
 	test("returns false for fix branches", () => {
 		expect(isProtectedBranch("fix/typo")).toBe(false);
+	});
+});
+
+// -- extractCdTarget ---------------------------------------------------------
+
+describe("extractCdTarget", () => {
+	test("extracts unquoted path before &&", () => {
+		expect(extractCdTarget("cd /tmp/foo && git commit")).toBe("/tmp/foo");
+	});
+
+	test("extracts double-quoted path", () => {
+		expect(extractCdTarget('cd "/tmp/my dir" && git push')).toBe("/tmp/my dir");
+	});
+
+	test("extracts single-quoted path", () => {
+		expect(extractCdTarget("cd '/tmp/foo' && git commit")).toBe("/tmp/foo");
+	});
+
+	test("extracts path before ;", () => {
+		expect(extractCdTarget("cd /tmp/foo; git commit")).toBe("/tmp/foo");
+	});
+
+	test("returns null when no leading cd", () => {
+		expect(extractCdTarget("git commit -m 'test'")).toBeNull();
+	});
+
+	test("returns null when cd is mid-command", () => {
+		expect(extractCdTarget("git commit && cd /tmp")).toBeNull();
+	});
+
+	test("ignores leading whitespace", () => {
+		expect(extractCdTarget("  cd /tmp && git commit")).toBe("/tmp");
 	});
 });
 
