@@ -14,6 +14,13 @@ export interface HookInput {
 	};
 }
 
+export interface UpdatedToolOutputResponse {
+	hookSpecificOutput: {
+		hookEventName: "PostToolUse";
+		updatedToolOutput: string;
+	};
+}
+
 const LINTABLE_EXTENSIONS = new Set([".ts", ".js", ".mjs"]);
 
 export function parseFilePath(raw: string): string | null {
@@ -45,6 +52,25 @@ export function isLintable(filePath: string): boolean {
 	return rel.startsWith(`${HOOKS_LIB_DIR}/src/`);
 }
 
+export function createUpdatedToolOutputResponse(
+	content: string,
+): UpdatedToolOutputResponse {
+	return {
+		hookSpecificOutput: {
+			hookEventName: "PostToolUse",
+			updatedToolOutput: content,
+		},
+	};
+}
+
+async function readTextIfExists(filePath: string): Promise<string | null> {
+	try {
+		return await Bun.file(filePath).text();
+	} catch {
+		return null;
+	}
+}
+
 if (import.meta.main) {
 	const input = await Bun.stdin.text();
 	const filePath = parseFilePath(input);
@@ -52,6 +78,8 @@ if (import.meta.main) {
 	if (!filePath || !isLintable(filePath)) {
 		process.exit(HOOK_EXIT.ALLOW);
 	}
+
+	const beforeContent = await readTextIfExists(filePath);
 
 	// biome includes are relative to config dir, so cd into _hooks-lib
 	// and pass the path relative to that directory
@@ -79,5 +107,14 @@ if (import.meta.main) {
 		if (stderr) console.error(stderr);
 		if (stdout) console.error(stdout);
 		process.exit(HOOK_EXIT.BLOCK);
+	}
+
+	const afterContent = await readTextIfExists(filePath);
+	if (
+		beforeContent !== null &&
+		afterContent !== null &&
+		afterContent !== beforeContent
+	) {
+		console.log(JSON.stringify(createUpdatedToolOutputResponse(afterContent)));
 	}
 }
