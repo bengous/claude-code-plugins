@@ -1,0 +1,40 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main, dev]
+  push:
+    branches: [dev]
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # full history needed for the drift guard
+
+      - name: Set up tools (bun, lefthook via mise)
+        uses: jdx/mise-action@v2
+
+      # Replays the local pre-commit checks server-side, so a `--no-verify`
+      # commit can't slip a version desync or bad frontmatter past review.
+      - name: Validate marketplace (version + structure sync)
+        run: bun ./scripts/validate-marketplace.ts
+
+      - name: Validate plugin frontmatter
+        run: bun ./scripts/validate-frontmatter.ts --all
+
+      # Root cause of the past double-history incident: re-signing branch by
+      # branch severed the common ancestor. Fail loudly if main and dev diverge.
+      - name: Guard against main/dev history divergence
+        run: |
+          git fetch --no-tags origin \
+            +refs/heads/main:refs/remotes/origin/main \
+            +refs/heads/dev:refs/remotes/origin/dev
+          if ! git merge-base origin/main origin/dev >/dev/null; then
+            echo "::error::main and dev have no common ancestor — histories have diverged."
+            exit 1
+          fi
+          echo "main/dev share a common ancestor: $(git merge-base origin/main origin/dev)"

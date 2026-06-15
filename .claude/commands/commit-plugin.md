@@ -89,6 +89,8 @@ Update the version in plugin.json:
 jq --arg v "<new-version>" '.version = $v' <plugin-name>/.claude-plugin/plugin.json > tmp.json && mv tmp.json <plugin-name>/.claude-plugin/plugin.json
 ```
 
+> **Note:** `plugin.json` is the single source of truth for the version. The `sync-versions` pre-commit hook propagates it to `.claude-plugin/marketplace.json` and the `README.md` table and re-stages them automatically — do **not** edit those two files by hand. `validate-marketplace` then runs as a safety net.
+
 ### 6. Stage and Commit
 
 ```bash

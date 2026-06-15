@@ -47,8 +47,8 @@ my-plugin/
 
 - All work happens on `dev`. Never commit directly to `main`.
 - `main` is updated only via PR from `dev` (branch protection enforced).
-- Submodule auto-updates target `dev` only (CI workflow).
-- Enforced by: lefthook pre-commit + Claude Code PreToolUse hook + GitHub branch protection.
+- Signed commits are required on **every** branch via the GitHub ruleset `Require signed commits` (target `~ALL`, rule `required_signatures`, admin bypass). This prevents the mass re-signing that previously severed the `main`/`dev` common ancestor. Rulesets are **not** versioned in this repo — if lost, recreate with `gh api -X POST repos/bengous/claude-code-plugins/rulesets` (alongside the existing `Protect main branch` ruleset; they stack).
+- Enforced by: lefthook pre-commit + Claude Code PreToolUse hook + GitHub branch protection + signed-commits ruleset + server CI (`.github/workflows/ci.yml`: marketplace & frontmatter validation, plus a `main`↔`dev` drift guard).
 
 ## Quick Start
 
