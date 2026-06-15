@@ -102,6 +102,24 @@ export function extractVersionFromReadme(
 }
 
 /**
+ * Rewrite the version in the README markdown table row for a given plugin.
+ * Mirrors extractVersionFromReadme's pattern, capturing the prefix (name cell +
+ * column separator) so only the version token is replaced. Returns the content
+ * unchanged if the plugin has no matching row.
+ */
+export function setVersionInReadme(
+  content: string,
+  pluginName: string,
+  version: string
+): string {
+  const escapedName = pluginName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const pattern = new RegExp(
+    `(\\[${escapedName}\\][^|]+\\|\\s*)[0-9]+\\.[0-9]+\\.[0-9]+`
+  );
+  return content.replace(pattern, `$1${version}`);
+}
+
+/**
  * Validate that README version matches expected version.
  */
 export function validateReadmeVersion(

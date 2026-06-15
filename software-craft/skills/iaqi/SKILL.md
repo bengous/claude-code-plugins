@@ -1,6 +1,6 @@
 ---
 name: iaqi
-description: Iteratively improve artifacts via parallel reviewers with anchor-based drift prevention. NOT for: one-shot edits, simple fixes, tasks without measurable quality. USE for: skills, prompts, commands, agents needing iterative refinement with score targets. Triggers: "iterate to 9.0", "quality loop", "IAQI", "reviewer loop", "improve until threshold", "iterative quality".
+description: 'Iteratively improve artifacts via parallel reviewers with anchor-based drift prevention. NOT for: one-shot edits, simple fixes, tasks without measurable quality. USE for: skills, prompts, commands, agents needing iterative refinement with score targets. Triggers: "iterate to 9.0", "quality loop", "IAQI", "reviewer loop", "improve until threshold", "iterative quality".'
 ---
 
 Intent-Anchored Quality Iteration (IAQI) prevents semantic drift during iterative improvement. The problem: each iteration risks optimizing for reviewer preferences rather than original intent. IAQI solves this through anchors—semantic checksums verified after every change.

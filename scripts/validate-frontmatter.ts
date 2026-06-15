@@ -25,10 +25,13 @@ if (repoRootResult.exitCode !== 0) {
 }
 const repoRoot = repoRootResult.text().trim();
 
-// Get staged .md files matching plugin patterns
-const stagedResult =
-  await $`git diff --cached --name-only --diff-filter=ACMR`.quiet();
-const allStaged = stagedResult.text().trim().split("\n").filter(Boolean);
+// File source: `--all` validates every tracked plugin markdown file (used in
+// CI, where nothing is staged); default validates only staged files (pre-commit).
+const checkAll = process.argv.includes("--all");
+const listResult = checkAll
+  ? await $`git ls-files`.quiet()
+  : await $`git diff --cached --name-only --diff-filter=ACMR`.quiet();
+const candidates = listResult.text().trim().split("\n").filter(Boolean);
 
 // Filter to plugin markdown files (commands, skills, agents, hooks)
 const pluginPatterns = [
@@ -38,7 +41,7 @@ const pluginPatterns = [
   /hooks\/.*\.md$/,
 ];
 
-const mdFiles = allStaged.filter((f) =>
+const mdFiles = candidates.filter((f: string) =>
   pluginPatterns.some((p) => p.test(f))
 );
 

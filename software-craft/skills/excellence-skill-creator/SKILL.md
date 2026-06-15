@@ -1,6 +1,6 @@
 ---
 name: excellence-skill-creator
-description: Create opinionated, anti-slop skills that encode taste. NOT for: general skill structure, reference guides, procedural docs (use skill-creator instead). USE for: frontend-design, cli-design, system-architecture style skills. Triggers: "anti-slop skill", "opinionated skill", "make Claude less generic", "skill like frontend-design", "design-excellence skill".
+description: 'Create opinionated, anti-slop skills that encode taste. NOT for: general skill structure, reference guides, procedural docs (use skill-creator instead). USE for: frontend-design, cli-design, system-architecture style skills. Triggers: "anti-slop skill", "opinionated skill", "make Claude less generic", "skill like frontend-design", "design-excellence skill".'
 ---
 
 Design-excellence skills transform Claude from a generic pattern-matcher into an opinionated craftsperson. A skill without strong opinions is just documentation with delusions of grandeur.

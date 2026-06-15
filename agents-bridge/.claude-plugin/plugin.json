@@ -1,7 +1,7 @@
 {
   "name": "agents-bridge",
-  "version": "1.3.2",
-  "description": "Bridge to external AI agents (Codex, Gemini CLI, etc.) for cross-model collaboration",
+  "version": "1.4.0",
+  "description": "Bridge to the OpenAI Codex CLI for cross-model collaboration",
   "author": {
     "name": "Augustin BENGOLEA",
     "email": "bengous@protonmail.com"
@@ -13,10 +13,8 @@
     "agents",
     "bridge",
     "codex",
-    "gemini",
     "cross-model",
     "collaboration",
-    "openai",
-    "google"
+    "openai"
   ]
 }

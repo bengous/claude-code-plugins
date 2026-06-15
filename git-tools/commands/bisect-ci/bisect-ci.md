@@ -1,6 +1,6 @@
 ---
 description: Bisect GitHub Actions CI runs to identify suspect commit ranges
-argument-hint: [--branch <branch>] [--output <file>] [--limit <num>]
+argument-hint: "[--branch <branch>] [--output <file>] [--limit <num>]"
 allowed-tools: Bash(gh:*), Bash(git:*), Bash(jq:*), Bash(mkdir:*), Write
 tags: [git, debugging, ci]
 ---

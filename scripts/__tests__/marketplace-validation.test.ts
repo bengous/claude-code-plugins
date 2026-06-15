@@ -4,6 +4,7 @@ import {
   validateVersionSync,
   validateRequiredFields,
   extractVersionFromReadme,
+  setVersionInReadme,
   validateReadmeVersion,
   type PluginEntry,
   type PluginJson,
@@ -166,6 +167,44 @@ describe("extractVersionFromReadme", () => {
   test("returns null for empty content", () => {
     const version = extractVersionFromReadme("", "git-tools");
     expect(version).toBeNull();
+  });
+});
+
+describe("setVersionInReadme", () => {
+  test("rewrites the version in a table row", () => {
+    const content = "| [git-tools](git-tools/) | 1.9.0 | Description here |";
+    const result = setVersionInReadme(content, "git-tools", "2.0.0");
+    expect(result).toBe("| [git-tools](git-tools/) | 2.0.0 | Description here |");
+  });
+
+  test("leaves content unchanged when plugin row is absent", () => {
+    const content = "| [other-plugin](other/) | 1.0.0 | Desc |";
+    const result = setVersionInReadme(content, "git-tools", "2.0.0");
+    expect(result).toBe(content);
+  });
+
+  test("rewrites only the targeted row in a multi-line README", () => {
+    const content = `| Plugin | Version | Description |
+|--------|---------|-------------|
+| [plugin-a](a/) | 1.0.0 | Desc A |
+| [plugin-b](b/) | 2.0.0 | Desc B |
+| [plugin-c](c/) | 3.5.1 | Desc C |`;
+    const result = setVersionInReadme(content, "plugin-b", "2.1.0");
+    expect(result).toContain("| [plugin-b](b/) | 2.1.0 | Desc B |");
+    expect(result).toContain("| [plugin-a](a/) | 1.0.0 | Desc A |");
+    expect(result).toContain("| [plugin-c](c/) | 3.5.1 | Desc C |");
+  });
+
+  test("handles plugin names with special regex characters", () => {
+    const content = "| [my-plugin.js](my-plugin/) | 1.0.0 | Desc |";
+    const result = setVersionInReadme(content, "my-plugin.js", "1.2.3");
+    expect(result).toBe("| [my-plugin.js](my-plugin/) | 1.2.3 | Desc |");
+  });
+
+  test("round-trips with extractVersionFromReadme", () => {
+    const content = "| [git-tools](git-tools/) | 1.9.0 | Desc |";
+    const updated = setVersionInReadme(content, "git-tools", "3.1.4");
+    expect(extractVersionFromReadme(updated, "git-tools")).toBe("3.1.4");
   });
 });
 
