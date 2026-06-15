@@ -5,7 +5,7 @@ import {
 	findBoxes,
 	validateVerticalRuns,
 	type CodeBlock,
-} from "./validate-ascii-diagrams.ts";
+} from "../validate-ascii-diagrams.ts";
 
 // ── Helper: run vertical validation on raw diagram lines ─────
 function verticalIssues(diagram: string): string[] {
