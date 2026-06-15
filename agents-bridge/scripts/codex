@@ -1,72 +1,50 @@
-#!/usr/bin/env bash
-# codex - Wrapper for OpenAI Codex CLI
-#
-# Configuration (environment variables):
-#   CODEX_MODEL       Model override (uses CLI default if unset)
-#   CODEX_REASONING   Reasoning effort: low|medium|high|xhigh
-#   CODEX_SANDBOX     Sandbox mode: read-only|workspace-write|danger-full-access (exec only)
-#
-# Usage:
-#   codex                            # Interactive mode
-#   codex "Review this code"         # Interactive with prompt
-#   codex exec "Fix the bug"         # Non-interactive
-#   codex --info                     # Show current config and options
-#   CODEX_MODEL=<model> codex        # Use specific model
-set -euo pipefail
+#!/bin/bash
+package="@openai/codex"
+command="codex"
 
-# Find the real codex binary (not this wrapper)
-find_real_binary() {
-	local self="$(realpath "${BASH_SOURCE[0]}")"
-	while IFS= read -r path; do
-		[[ "$(realpath "$path")" != "$self" ]] && { echo "$path"; return 0; }
-	done < <(type -ap codex)
-	return 1
+if ! node_root="$(mise where node@latest 2>/dev/null)"; then
+  mise use -g node@latest >/dev/null
+  node_root="$(mise where node@latest)"
+fi
+
+node_bin="$node_root/bin/node"
+npx_bin="$node_root/bin/npx"
+
+ensure_bin_runtime() {
+  local bin_path=$1
+  local shebang
+
+  IFS= read -r shebang < "$bin_path"
+
+  if [[ $shebang == "#!"*"/bun"* || $shebang == "#!"*"/env bun"* ]]; then
+    if omarchy-cmd-missing bun; then
+      echo "Installing bun runtime for $package..."
+      omarchy-pkg-add bun
+      hash -r
+    fi
+  fi
 }
 
-real_codex="$(find_real_binary)" || {
-	echo "Error: codex not found in PATH" >&2
-	exit 1
+exec_package_bin() {
+  local package_bin_path=$1
+  shift
+
+  if [[ -n $package_bin_path ]]; then
+    ensure_bin_runtime "$package_bin_path"
+    PATH="$node_root/bin:$PATH" exec "$package_bin_path" "$@"
+  fi
 }
 
-# Show config and available options
-show_info() {
-	echo "=== Codex CLI Info ==="
-	echo
-	echo "Binary: $real_codex"
-	"$real_codex" --version 2>/dev/null || true
-	echo
-	echo "=== Current Config (~/.codex/config.toml) ==="
-	if [[ -f ~/.codex/config.toml ]]; then
-		grep -E "^(model|model_reasoning_effort)" ~/.codex/config.toml 2>/dev/null || echo "(no model config found)"
-	else
-		echo "(no config file)"
-	fi
-	echo
-	echo "=== Environment Overrides ==="
-	echo "CODEX_MODEL=${CODEX_MODEL:-(not set)}"
-	echo "CODEX_REASONING=${CODEX_REASONING:-(not set)}"
-	echo "CODEX_SANDBOX=${CODEX_SANDBOX:-(not set, exec only)}"
-	exit 0
-}
+# Resolve the package bin inside npx, then run it with node@latest available for node shebangs.
+# Some wrappers are aliases, e.g. playwright-cli wraps the playwright bin.
+"$node_bin" "$npx_bin" --yes --prefer-online --package "$package" -- true
 
-[[ "${1:-}" == "--info" ]] && show_info
+package_bin_path=$("$node_bin" "$npx_bin" --yes --package "$package" -- which "$package" 2>/dev/null)
+exec_package_bin "$package_bin_path" "$@"
 
-# Build config overrides (these are passed via -c to any subcommand)
-config_args=()
+# Scoped packages like @openai/codex expose an unscoped bin like codex.
+package_bin_path=$("$node_bin" "$npx_bin" --yes --package "$package" -- which "$command" 2>/dev/null)
+exec_package_bin "$package_bin_path" "$@"
 
-[[ -n "${CODEX_MODEL:-}" ]] && config_args+=(-c "model=\"$CODEX_MODEL\"")
-[[ -n "${CODEX_REASONING:-}" ]] && config_args+=(-c "model_reasoning_effort=\"$CODEX_REASONING\"")
-
-# -m/-s only work on exec subcommand, so detect subcommand and inject flags
-cmd="${1:-}"
-case "$cmd" in
-	exec)
-		shift
-		exec_args=()
-		[[ -n "${CODEX_SANDBOX:-}" ]] && exec_args+=(-s "$CODEX_SANDBOX")
-		exec "$real_codex" exec "${config_args[@]}" "${exec_args[@]}" "$@"
-		;;
-	*)
-		exec "$real_codex" "${config_args[@]}" "$@"
-		;;
-esac
+echo "Could not resolve npm bin for $package / $command" >&2
+exit 127

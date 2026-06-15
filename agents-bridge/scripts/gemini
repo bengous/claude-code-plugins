@@ -1,61 +1,50 @@
-#!/usr/bin/env bash
-# gemini - Wrapper for Google Gemini CLI
-#
-# Configuration (environment variables):
-#   GEMINI_MODEL      Model override (uses CLI default if unset)
-#   GEMINI_SANDBOX    Enable sandbox mode (default: false)
-#   GEMINI_YOLO       Auto-approve all actions (default: false)
-#
-# Usage:
-#   gemini                           # Interactive mode
-#   gemini "Review this code"        # One-shot with prompt
-#   gemini -i "Start here"           # Interactive with initial prompt
-#   gemini --info                    # Show current config and options
-#   GEMINI_MODEL=<model> gemini      # Use specific model
-set -euo pipefail
+#!/bin/bash
+package="@google/gemini-cli"
+command="gemini"
 
-# Find the real gemini binary (not this wrapper)
-find_real_binary() {
-	local self="$(realpath "${BASH_SOURCE[0]}")"
-	while IFS= read -r path; do
-		[[ "$(realpath "$path")" != "$self" ]] && { echo "$path"; return 0; }
-	done < <(type -ap gemini)
-	return 1
+if ! node_root="$(mise where node@latest 2>/dev/null)"; then
+  mise use -g node@latest >/dev/null
+  node_root="$(mise where node@latest)"
+fi
+
+node_bin="$node_root/bin/node"
+npx_bin="$node_root/bin/npx"
+
+ensure_bin_runtime() {
+  local bin_path=$1
+  local shebang
+
+  IFS= read -r shebang < "$bin_path"
+
+  if [[ $shebang == "#!"*"/bun"* || $shebang == "#!"*"/env bun"* ]]; then
+    if omarchy-cmd-missing bun; then
+      echo "Installing bun runtime for $package..."
+      omarchy-pkg-add bun
+      hash -r
+    fi
+  fi
 }
 
-real_gemini="$(find_real_binary)" || {
-	echo "Error: gemini not found in PATH" >&2
-	echo "Install: https://github.com/google-gemini/gemini-cli" >&2
-	exit 1
+exec_package_bin() {
+  local package_bin_path=$1
+  shift
+
+  if [[ -n $package_bin_path ]]; then
+    ensure_bin_runtime "$package_bin_path"
+    PATH="$node_root/bin:$PATH" exec "$package_bin_path" "$@"
+  fi
 }
 
-# Show config and available options
-show_info() {
-	echo "=== Gemini CLI Info ==="
-	echo
-	echo "Binary: $real_gemini"
-	"$real_gemini" --version 2>/dev/null || true
-	echo
-	echo "=== Environment Overrides ==="
-	echo "GEMINI_MODEL=${GEMINI_MODEL:-(not set)}"
-	echo "GEMINI_SANDBOX=${GEMINI_SANDBOX:-(not set)}"
-	echo "GEMINI_YOLO=${GEMINI_YOLO:-(not set)}"
-	echo
-	echo "=== Available Options (from --help) ==="
-	"$real_gemini" --help 2>&1 | grep -E "^\s+-(m|s|y|i)," | head -10 || true
-	echo
-	echo "=== Model Discovery ==="
-	echo "Run 'gemini' then '/model' to list available models"
-	echo "Run 'gemini' then '/settings' to see current settings"
-	exit 0
-}
+# Resolve the package bin inside npx, then run it with node@latest available for node shebangs.
+# Some wrappers are aliases, e.g. playwright-cli wraps the playwright bin.
+"$node_bin" "$npx_bin" --yes --prefer-online --package "$package" -- true
 
-[[ "${1:-}" == "--info" ]] && show_info
+package_bin_path=$("$node_bin" "$npx_bin" --yes --package "$package" -- which "$package" 2>/dev/null)
+exec_package_bin "$package_bin_path" "$@"
 
-args=()
+# Scoped packages like @openai/codex expose an unscoped bin like codex.
+package_bin_path=$("$node_bin" "$npx_bin" --yes --package "$package" -- which "$command" 2>/dev/null)
+exec_package_bin "$package_bin_path" "$@"
 
-[[ -n "${GEMINI_MODEL:-}" ]] && args+=(-m "$GEMINI_MODEL")
-[[ "${GEMINI_SANDBOX:-false}" == "true" ]] && args+=(-s)
-[[ "${GEMINI_YOLO:-false}" == "true" ]] && args+=(-y)
-
-exec "$real_gemini" "${args[@]}" "$@"
+echo "Could not resolve npm bin for $package / $command" >&2
+exit 127
