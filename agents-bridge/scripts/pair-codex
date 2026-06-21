@@ -1,0 +1,70 @@
+#!/usr/bin/env bash
+# pair-codex — thin Codex round primitive for the pair-planning skill.
+#
+# Handles `codex exec` mechanics ONLY: fresh/resume, JSONL capture, clean
+# last-message output, and thread-id extraction. The consensus loop itself
+# lives in SKILL.md — keep orchestration out of here.
+#
+# Usage:
+#   pair-codex fresh  <out_dir> <prompt_file> [label]   # start a session
+#   pair-codex resume <out_dir> <prompt_file> [label]   # continue it by thread id
+#
+# Env:
+#   CODEX_EFFORT   model_reasoning_effort (default: xhigh)
+#
+# Notes:
+#   - Sandbox is read-only. `fresh` sets it; `resume` inherits it (codex exec
+#     resume has no -s flag), so we never re-pass -s on resume.
+#   - Stdin is closed (</dev/null) so `codex exec` never blocks on stdin EOF.
+#   - Fails hard (no silent fallback) on a missing/empty thread id.
+#   - Writes <out_dir>/<label>.{jsonl,last,err} and <out_dir>/thread_id.
+#   - Prints the agent's final message (clean) to stdout for the caller.
+
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+CODEX="${SCRIPT_DIR}/codex"
+EFFORT="${CODEX_EFFORT:-xhigh}"
+
+die() { printf 'pair-codex: %s\n' "${1}" >&2; exit 1; }
+
+command -v jq >/dev/null 2>&1 || die "jq is required but was not found on PATH"
+
+mode="${1:-}"; out_dir="${2:-}"; prompt_file="${3:-}"; label="${4:-}"
+[[ -n "${mode}" && -n "${out_dir}" && -n "${prompt_file}" ]] \
+  || die "usage: pair-codex {fresh|resume} <out_dir> <prompt_file> [label]"
+[[ -f "${prompt_file}" ]] || die "prompt file not found: ${prompt_file}"
+mkdir -p "${out_dir}"
+
+prompt="$(<"${prompt_file}")"
+
+case "${mode}" in
+  fresh)
+    label="${label:-r0}"
+    "${CODEX}" exec --json -o "${out_dir}/${label}.last" \
+      -s read-only -c "model_reasoning_effort=${EFFORT}" \
+      "${prompt}" </dev/null \
+      >"${out_dir}/${label}.jsonl" 2>"${out_dir}/${label}.err" \
+      || die "codex exec (fresh) failed — see ${out_dir}/${label}.err"
+    tid="$(jq -r 'select(.type=="thread.started") | .thread_id // empty' \
+            "${out_dir}/${label}.jsonl" | head -n1)"
+    [[ -n "${tid}" ]] || die "no thread_id in ${out_dir}/${label}.jsonl — cannot resume"
+    printf '%s\n' "${tid}" >"${out_dir}/thread_id"
+    ;;
+  resume)
+    label="${label:-r}"
+    [[ -f "${out_dir}/thread_id" ]] || die "no ${out_dir}/thread_id — run 'fresh' first"
+    tid="$(<"${out_dir}/thread_id")"
+    [[ -n "${tid}" ]] || die "empty thread id in ${out_dir}/thread_id"
+    "${CODEX}" exec resume --json -o "${out_dir}/${label}.last" \
+      -c "model_reasoning_effort=${EFFORT}" \
+      "${tid}" "${prompt}" </dev/null \
+      >"${out_dir}/${label}.jsonl" 2>"${out_dir}/${label}.err" \
+      || die "codex exec resume failed — see ${out_dir}/${label}.err"
+    ;;
+  *)
+    die "unknown mode '${mode}' (use fresh|resume)"
+    ;;
+esac
+
+cat "${out_dir}/${label}.last"

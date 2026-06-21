@@ -1,6 +1,6 @@
 {
   "name": "agents-bridge",
-  "version": "1.5.0",
+  "version": "1.6.0",
   "description": "Bridge to the OpenAI Codex CLI for cross-model collaboration",
   "author": {
     "name": "Augustin BENGOLEA",
