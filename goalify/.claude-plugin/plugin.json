@@ -1,0 +1,21 @@
+{
+  "name": "goalify",
+  "version": "1.0.0",
+  "description": "Convert rough intent into the smallest useful goal payload to hand to a fresh Claude Code agent (new session, subagent, or /loop). Draft-first by default, or interactive question-first.",
+  "author": {
+    "name": "Augustin BENGOLEA",
+    "email": "bengous@protonmail.com"
+  },
+  "homepage": "https://github.com/bengous/claude-code-plugins/tree/main/goalify",
+  "repository": "https://github.com/bengous/claude-code-plugins",
+  "license": "MIT",
+  "keywords": [
+    "goal",
+    "prompt",
+    "intent",
+    "orchestration",
+    "loop",
+    "subagent",
+    "task-spec"
+  ]
+}
