@@ -1,6 +1,6 @@
 {
   "name": "plugin-dev",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Dev tool for syncing Claude Code plugin cache from local sources",
   "author": {
     "name": "Augustin BENGOLEA",

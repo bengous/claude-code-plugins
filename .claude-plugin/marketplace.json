@@ -279,7 +279,7 @@
     {
       "name": "plugin-dev",
       "description": "Dev tool for syncing Claude Code plugin cache from local sources",
-      "version": "1.0.0",
+      "version": "1.1.0",
       "author": {
         "name": "Augustin BENGOLEA",
         "email": "bengous@protonmail.com"
