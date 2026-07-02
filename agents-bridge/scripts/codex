@@ -1,26 +1,50 @@
 #!/bin/bash
+# Thin pass-through to the OpenAI Codex CLI. Resolves the package bin via npx and
+# auto-installs it on first use. Everything after `codex` mechanics is forwarded
+# verbatim to the real CLI.
 package="@openai/codex"
 command="codex"
 
-if ! node_root="$(mise where node@latest 2>/dev/null)"; then
-  mise use -g node@latest >/dev/null
-  node_root="$(mise where node@latest)"
+# Resolve node/npx. Prefer whatever is on PATH (portable); fall back to mise for
+# dev machines that manage node that way; fail clearly if neither is available.
+if node_bin="$(command -v node)" && npx_bin="$(command -v npx)"; then
+  node_bindir="$(dirname "${node_bin}")"
+elif command -v mise >/dev/null 2>&1; then
+  if ! node_root="$(mise where node@latest 2>/dev/null)"; then
+    mise use -g node@latest >/dev/null
+    node_root="$(mise where node@latest)"
+  fi
+  node_bindir="${node_root}/bin"
+  node_bin="${node_bindir}/node"
+  npx_bin="${node_bindir}/npx"
+else
+  echo "Error: no usable node+npx pair and no mise found on PATH." >&2
+  if command -v node >/dev/null 2>&1; then
+    echo "node exists but npx is missing — some distros ship node without npm/npx; install the npm package." >&2
+  else
+    echo "Install Node.js 18.18+ (https://nodejs.org) or a version manager, then retry." >&2
+  fi
+  exit 127
 fi
-
-node_bin="$node_root/bin/node"
-npx_bin="$node_root/bin/npx"
 
 ensure_bin_runtime() {
   local bin_path=$1
   local shebang
 
-  IFS= read -r shebang < "$bin_path"
+  IFS= read -r shebang < "${bin_path}"
 
-  if [[ $shebang == "#!"*"/bun"* || $shebang == "#!"*"/env bun"* ]]; then
-    if omarchy-cmd-missing bun; then
-      echo "Installing bun runtime for $package..."
-      omarchy-pkg-add bun
-      hash -r
+  if [[ ${shebang} == "#!"*"/bun"* || ${shebang} == "#!"*"/env bun"* ]]; then
+    if ! command -v bun >/dev/null 2>&1; then
+      # omarchy dev boxes can auto-install; elsewhere, fail with guidance.
+      if command -v omarchy-pkg-add >/dev/null 2>&1; then
+        echo "Installing bun runtime for ${package}..." >&2
+        omarchy-pkg-add bun
+        hash -r
+      else
+        echo "Error: ${package} needs the 'bun' runtime, which is not installed." >&2
+        echo "Install bun (https://bun.sh) and retry." >&2
+        exit 127
+      fi
     fi
   fi
 }
@@ -29,22 +53,22 @@ exec_package_bin() {
   local package_bin_path=$1
   shift
 
-  if [[ -n $package_bin_path ]]; then
-    ensure_bin_runtime "$package_bin_path"
-    PATH="$node_root/bin:$PATH" exec "$package_bin_path" "$@"
+  if [[ -n ${package_bin_path} ]]; then
+    ensure_bin_runtime "${package_bin_path}"
+    PATH="${node_bindir}:${PATH}" exec "${package_bin_path}" "$@"
   fi
 }
 
-# Resolve the package bin inside npx, then run it with node@latest available for node shebangs.
+# Resolve the package bin inside npx, then run it with node available for node shebangs.
 # Some wrappers are aliases, e.g. playwright-cli wraps the playwright bin.
-"$node_bin" "$npx_bin" --yes --prefer-online --package "$package" -- true
+"${node_bin}" "${npx_bin}" --yes --prefer-online --package "${package}" -- true
 
-package_bin_path=$("$node_bin" "$npx_bin" --yes --package "$package" -- which "$package" 2>/dev/null)
-exec_package_bin "$package_bin_path" "$@"
+package_bin_path=$("${node_bin}" "${npx_bin}" --yes --package "${package}" -- which "${package}" 2>/dev/null)
+exec_package_bin "${package_bin_path}" "$@"
 
 # Scoped packages like @openai/codex expose an unscoped bin like codex.
-package_bin_path=$("$node_bin" "$npx_bin" --yes --package "$package" -- which "$command" 2>/dev/null)
-exec_package_bin "$package_bin_path" "$@"
+package_bin_path=$("${node_bin}" "${npx_bin}" --yes --package "${package}" -- which "${command}" 2>/dev/null)
+exec_package_bin "${package_bin_path}" "$@"
 
-echo "Could not resolve npm bin for $package / $command" >&2
+echo "Could not resolve npm bin for ${package} / ${command}" >&2
 exit 127

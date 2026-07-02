@@ -5,16 +5,16 @@ set -euo pipefail
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 install_dir="${HOME}/.local/bin"
 
-mkdir -p "$install_dir"
+mkdir -p "${install_dir}"
 
-# Install all wrapper scripts
+# Install the codex wrapper (pair-codex is skill-internal, not symlinked)
 ln -sf "${script_dir}/codex" "${install_dir}/codex"
 
 cat <<'EOF'
-Installed: agents-bridge wrappers
+Installed: agents-bridge codex wrapper -> ~/.local/bin/codex
 
-  codex   -> OpenAI Codex CLI (with env var config)
+  codex   -> OpenAI Codex CLI (auto-installs via npx on first use)
 
-Config via env vars:
-  CODEX_MODEL, CODEX_REASONING, CODEX_SANDBOX, CODEX_APPROVAL
+Configure codex through its own flags or ~/.codex/config.toml:
+  -m <model>   -c model_reasoning_effort=<level>   -s <sandbox>
 EOF

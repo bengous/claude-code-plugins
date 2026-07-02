@@ -31,21 +31,30 @@ lives in the conversation, not on disk, so a diff-based review would miss it
 
 1. **Capture the proposal — grounded.** Write to one temp file: the proposal
    verbatim, the problem it solves, any constraints, the questions you most want
-   challenged, and an explicit list of the **real repo file paths** it touches or
-   depends on. Grounding in actual code is the one thing that makes the critique
-   useful; skip it and the review drifts into generic advice.
+   challenged, an explicit list of the **real repo file paths** it touches or
+   depends on, and — if the user gave extra focus (`$ARGUMENTS`) — a final
+   `## Extra focus from the user` section carrying it verbatim. Grounding in
+   actual code is the one thing that makes the critique useful; skip it and the
+   review drifts into generic advice. Everything user-authored goes in the file,
+   never inline in the shell command.
 
    `Write /tmp/critique-proposal.md`
 
-2. **Run Codex read-only** (it is a review; it must not edit). Keep the inline
-   prompt short — the substance is in the file:
+2. **Run Codex read-only** (it is a review; it must not edit). The inline prompt
+   is fully static — the substance, including any user focus, is in the file.
+   Capture JSONL so the thread id can be read back for follow-ups:
 
    ```bash
    "${CLAUDE_PLUGIN_ROOT}/scripts/codex" exec \
      -s read-only \
      -c model_reasoning_effort=xhigh \
-     "You are giving a CRITICAL SECOND OPINION on a proposal made by another AI (Claude), at the user's request. Read /tmp/critique-proposal.md in full, then read the real repo files it lists before judging. Then: (1) briefly confirm what is sound; (2) challenge only what is genuinely weak — correctness bugs, wrong assumptions, missed edge cases, or a simpler/safer/more idiomatic option — grounding every point in the actual code; (3) where a better path exists, describe it concretely and explain WHY (tradeoffs); (4) if it is good as-is, say so plainly and do not invent problems. End with a one-line verdict: SHIP / ADJUST / RECONSIDER. Extra focus from the user: $ARGUMENTS"
+     --json -o /tmp/critique-verdict.md \
+     "You are giving a CRITICAL SECOND OPINION on a proposal made by another AI (Claude), at the user's request. Read /tmp/critique-proposal.md in full — including any 'Extra focus from the user' section — then read the real repo files it lists before judging. Then: (1) briefly confirm what is sound; (2) challenge only what is genuinely weak — correctness bugs, wrong assumptions, missed edge cases, or a simpler/safer/more idiomatic option — grounding every point in the actual code; (3) where a better path exists, describe it concretely and explain WHY (tradeoffs); (4) if it is good as-is, say so plainly and do not invent problems. End with a one-line verdict: SHIP / ADJUST / RECONSIDER." \
+     </dev/null > /tmp/critique.jsonl
    ```
+
+   Codex's verdict lands in `/tmp/critique-verdict.md` (`-o` = final message);
+   `/tmp/critique.jsonl` holds the event stream.
 
 3. **Relay, then verify.** Surface Codex's verdict and reasoning. Then
    **independently check its claims** before acting — confirm a flagged bug is
@@ -56,8 +65,15 @@ lives in the conversation, not on disk, so a diff-based review would miss it
 
 - Model `gpt-5.5`, effort `xhigh`, sandbox `read-only`. Override with codex flags
   (`-m <model>`, `-c model_reasoning_effort=<level>`) if the user asks.
-- Capture the session id from the run header to push back:
-  `"${CLAUDE_PLUGIN_ROOT}/scripts/codex" exec resume <SESSION_ID> "..."`.
+- To push back, parse the thread id from the JSONL (never scrape the header,
+  never `resume --last`) and resume by explicit id:
+
+  ```bash
+  tid="$(jq -r 'select(.type=="thread.started") | .thread_id // empty' \
+          /tmp/critique.jsonl | head -n1)"
+  "${CLAUDE_PLUGIN_ROOT}/scripts/codex" exec resume "${tid}" \
+    - < /tmp/critique-pushback.md
+  ```
 - Each `exec` prints the active model / effort in its header — read it to confirm.
 
 ## Why a file, not an inline prompt
