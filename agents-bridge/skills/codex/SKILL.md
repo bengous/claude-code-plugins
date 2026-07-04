@@ -58,6 +58,15 @@ If you ever pass the prompt as an argument instead, append `</dev/null`:
 with stdin piped-but-open, `codex exec` appends stdin as a `<stdin>` block and
 blocks waiting for EOF even when a prompt argument was given.
 
+**Trusted-directory check.** `codex exec` refuses to start unless its cwd is
+inside a git repo (or a directory previously trusted in codex config), failing
+with `Not inside a trusted directory and --skip-git-repo-check was not
+specified.` You never see this when running from a project checkout; it bites
+when you point `-C` at a scratch/temp workdir (e.g. to isolate parallel
+agents). For throwaway non-git workdirs, pass `--skip-git-repo-check`
+explicitly — and keep the flag off when cwd is a real checkout, the guard is
+useful there.
+
 ### Overrides (codex native flags)
 
 A model or effort the user explicitly asks for **overrides the default above** —
