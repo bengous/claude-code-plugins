@@ -25,7 +25,11 @@ All Codex round-trips go through the helper, never `codex` directly:
 The helper enforces the correct invocation (`--json -o`, stdin closed, read-only,
 thread-id capture, fail-hard). It prints Codex's final message to stdout and
 writes `<dir>/<label>.{jsonl,last,err}` plus `<dir>/thread_id`. Effort defaults
-to `xhigh`; override per call with `CODEX_EFFORT=high` when a round is light.
+to `xhigh`; override per call with `CODEX_EFFORT=high` when a round is light,
+or `CODEX_EFFORT=max` for a genuinely hard round (gpt-5.6 Sol; `ultra` also
+exists but its cost is rarely justified for planning). Planning is
+reasoning-heavy → keep the Sol tier; the model-routing table lives in the
+`codex` skill (`skills/codex/SKILL.md`).
 
 ## 1. Setup + launch Codex in the background
 

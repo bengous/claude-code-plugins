@@ -76,9 +76,9 @@ The wrapper forwards codex's own flags; codex validates and errors if a value is
 wrong:
 
 ```bash
-# e.g. user asked for gpt-5.5 at xhigh effort, read-only sandbox
+# e.g. user asked for gpt-5.6-sol at xhigh effort, read-only sandbox
 "${CLAUDE_PLUGIN_ROOT}/scripts/codex" exec \
-  -m gpt-5.5 \
+  -m gpt-5.6-sol \
   -s read-only \
   -c model_reasoning_effort=xhigh \
   - < /tmp/codex-prompt.md
@@ -86,9 +86,35 @@ wrong:
 
 | Flag | Purpose |
 |------|---------|
-| `-m <model>` | Model — default from the probe above; codex errors on an unknown name |
-| `-c model_reasoning_effort=<level>` | Reasoning effort — common: `low`, `medium`, `high`, `xhigh` (max for gpt-5.x); codex validates |
+| `-m <model>` | Model — default from the probe above; codex errors on an unknown name. gpt-5.6 tiers: `gpt-5.6-sol` (flagship), `gpt-5.6-terra` (balanced), `gpt-5.6-luna` (fast/cheap) |
+| `-c model_reasoning_effort=<level>` | Reasoning effort — common: `low`, `medium`, `high`, `xhigh`; gpt-5.6 Sol adds `max` and `ultra`; codex validates |
 | `-s <mode>` | Sandbox — authoritative set from `codex exec --help`: `read-only`, `workspace-write`, `danger-full-access` |
+
+## Model routing (gpt-5.6 tiers)
+
+Benchmarks from [artificialanalysis.ai](https://artificialanalysis.ai/models)
+(July 2026, effort `max` unless noted — re-check when a new generation ships):
+
+| Tier | Intelligence (AA Index) | Coding (Terminal-Bench v2.1) | Agentic (GDPval-AA Elo) | Speed | $/1M in/out |
+|------|------|------|------|------|------|
+| `gpt-5.6-sol` | 59 | 88.0% (89.5% @ `xhigh`) | 1748 | n/a | $5 / $30 |
+| `gpt-5.6-terra` | 55 | 88.0% | 1593 | 164 tok/s | $2.50 / $15 |
+| `gpt-5.6-luna` | 51 | below top-30 | 1592 | 211 tok/s | $1 / $6 |
+
+Routing rules:
+
+- **Sol** — hard reasoning, architecture, security, adversarial critique, long
+  agentic runs (tops τ³-Banking at 33.0%). Only tier with `max`/`ultra` gains
+  that justify the price.
+- **Terra** — default coding workhorse: **matches Sol on Terminal-Bench at
+  `max` effort for half the price**. Feature work, bug fixes, tests, standard
+  reviews.
+- **Luna** — volume and mechanical work: quick probes, docs, formatting,
+  sub-agent fan-out. Agentic Elo ≈ Terra at 40% of the cost, fastest tier.
+- **Effort dominates tier**: Sol @ `low` scores 1445 Elo — *below* Luna @ `max`
+  (1592). Raising effort on a cheaper tier often beats raising tier at low
+  effort. Pick tier for the capability ceiling, effort for the depth of the
+  single task at hand.
 
 ## Resuming conversations
 
@@ -126,7 +152,9 @@ For reviewing a **committed git diff**, prefer the official `/codex:review` —
 it reads the diff directly. This skill is for ad-hoc prompts and conversation
 context that never hit disk.
 
-**Keep runs bounded.** Use `low`/`medium` effort for quick probes; `xhigh` plus
-a docs MCP can rabbit-hole. To stop a runaway, target the real process
+**Keep runs bounded.** Use `low`/`medium` effort for quick probes (or
+`gpt-5.6-luna` for high-volume/mechanical work); `xhigh` plus a docs MCP can
+rabbit-hole. `ultra` (gpt-5.6 Sol) spawns internal sub-agents and burns far more
+tokens per turn — reserve it for genuinely hard problems the user asked for. To stop a runaway, target the real process
 (`pkill -x codex` / kill its process group) — a `pkill -f 'codex exec'` matches
 this agent's own command line and self-kills.

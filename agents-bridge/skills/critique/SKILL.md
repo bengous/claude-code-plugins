@@ -1,6 +1,6 @@
 ---
 name: critique
-description: Critical second opinion from Codex (gpt-5.5) on a proposal Claude just made — confirms what is sound, challenges what is genuinely weak, and suggests a better path with clear reasoning when one exists. Constructive, not contrarian. Use to cross-check a Claude design, refactor, API, or fix with a non-Claude model before acting on it.
+description: Critical second opinion from Codex (gpt-5.6) on a proposal Claude just made — confirms what is sound, challenges what is genuinely weak, and suggests a better path with clear reasoning when one exists. Constructive, not contrarian. Use to cross-check a Claude design, refactor, API, or fix with a non-Claude model before acting on it.
 argument-hint: [what to critique / extra focus]
 allowed-tools:
   - Bash(*:*)
@@ -10,7 +10,7 @@ allowed-tools:
 
 # Cross-model critique
 
-A second pair of eyes from a non-Claude model (Codex / gpt-5.5) on a proposal
+A second pair of eyes from a non-Claude model (Codex / gpt-5.6) on a proposal
 **Claude just made** — a design, refactor, API, or fix. Goal: a genuine
 cross-model check. Validate what holds up, challenge what is weak, surface a
 better path when one exists. Not a rubber stamp, not reflexive contrarianism.
@@ -63,8 +63,13 @@ lives in the conversation, not on disk, so a diff-based review would miss it
 
 ## Defaults & overrides
 
-- Model `gpt-5.5`, effort `xhigh`, sandbox `read-only`. Override with codex flags
-  (`-m <model>`, `-c model_reasoning_effort=<level>`) if the user asks.
+- Model: the codex config default (no `-m` is passed — currently gpt-5.6; tiers:
+  `gpt-5.6-sol` / `-terra` / `-luna`), effort `xhigh`, sandbox `read-only`.
+  Override with codex flags (`-m <model>`, `-c model_reasoning_effort=<level>`)
+  if the user asks — Sol also accepts `max` and `ultra`, but `ultra` is far more
+  expensive; use it only on explicit request. A critique is adversarial
+  reasoning work → Sol territory; see the routing table in the `codex` skill
+  (`skills/codex/SKILL.md`) before downgrading tiers.
 - To push back, parse the thread id from the JSONL (never scrape the header,
   never `resume --last`) and resume by explicit id:
 
