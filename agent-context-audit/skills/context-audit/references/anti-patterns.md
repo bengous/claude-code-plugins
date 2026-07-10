@@ -56,7 +56,7 @@ Confidence: HIGH (linter config verified to exist)
 
 ### Detection approach
 
-Cross-reference directives against `references/default-behaviors.md`. Additionally, apply the **specificity test**: a directive with zero project-specific tokens (no file paths, tool names, library names, custom terms, concrete commands) is likely generic.
+Cross-reference directives against `default-behaviors.md` (sibling file in this directory). Additionally, apply the **specificity test**: a directive with zero project-specific tokens (no file paths, tool names, library names, custom terms, concrete commands) is likely generic.
 
 ### Common generic phrases
 
