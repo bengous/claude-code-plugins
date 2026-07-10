@@ -15,6 +15,14 @@ Invoke the OpenAI Codex CLI for a second opinion from a non-Claude model. The
 npx on first use (requires `node`/`npx` on PATH, or `mise`). Pass codex's own
 flags directly; the wrapper forwards everything.
 
+The wrapper pins the CLI to an exact version (resolved from `latest` at most
+once per 24 h, cached in `~/.cache/agents-bridge/codex.version`) and falls back
+to the last version that installed successfully when the npm registry is broken
+or unreachable — a bad upstream release cannot kill a run that just worked.
+`AGENTS_BRIDGE_CODEX_VERSION=<x.y.z>` freezes the version explicitly (used by
+long orchestrations); it is the only env var the wrapper reads — codex-native
+settings still go through codex's own flags.
+
 ## Default model
 
 !`grep -E '^(model|model_reasoning_effort)' ~/.codex/config.toml 2>/dev/null || echo "(no ~/.codex/config.toml — codex uses its built-in default; the active model is printed in every 'exec' run header)"`
