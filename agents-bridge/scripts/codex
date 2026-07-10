@@ -59,15 +59,74 @@ exec_package_bin() {
   fi
 }
 
+# Version pinning. Re-resolving the `latest` dist-tag over the network on every
+# invocation means a broken upstream release (missing tarball, yanked version)
+# kills call N+1 even when call N just worked from the local cache — fatal in
+# the middle of a long multi-run orchestration. Instead: resolve `latest` to an
+# exact version at most once per TTL, remember it, and fall back to the last
+# version that actually installed when the registry misbehaves.
+pin_ttl_minutes=$((24 * 60))
+pin_dir="${XDG_CACHE_HOME:-$HOME/.cache}/agents-bridge"
+pin_file="${pin_dir}/codex.version"
+
+resolve_version() {
+  # Explicit pin wins — freezes the tool for a whole orchestration.
+  if [[ -n ${AGENTS_BRIDGE_CODEX_VERSION:-} ]]; then
+    version="${AGENTS_BRIDGE_CODEX_VERSION}"
+    return
+  fi
+
+  local pinned=""
+  [[ -f ${pin_file} ]] && IFS= read -r pinned < "${pin_file}"
+
+  # Fresh pin: reuse it without touching the network.
+  if [[ -n ${pinned} ]] && [[ -n $(find "${pin_file}" -mmin "-${pin_ttl_minutes}" 2>/dev/null) ]]; then
+    version="${pinned}"
+    return
+  fi
+
+  # Stale or missing pin: resolve the current release and prove its tarball
+  # actually installs before adopting it.
+  local npm_bin candidate
+  npm_bin="$(command -v npm)" || npm_bin="${node_bindir}/npm"
+  # Bounded retries: with the registry down, npm's default backoff stalls the
+  # caller ~2 minutes before we can fall back to the cached version.
+  if candidate="$("${npm_bin}" view --fetch-retries=1 --fetch-retry-mintimeout=2000 --fetch-timeout=15000 "${package}" version 2>/dev/null)" \
+      && [[ -n ${candidate} ]] \
+      && "${node_bin}" "${npx_bin}" --yes --package "${package}@${candidate}" -- true 2>/dev/null; then
+    mkdir -p "${pin_dir}"
+    printf '%s\n' "${candidate}" > "${pin_file}.tmp" && mv "${pin_file}.tmp" "${pin_file}"
+    version="${candidate}"
+    return
+  fi
+
+  # Registry unreachable or tarball broken: the last pinned version installed
+  # successfully once, so the npx cache can still serve it.
+  if [[ -n ${pinned} ]]; then
+    echo "Warning: cannot resolve/install latest ${package}; using cached ${pinned} (retry in ${pin_ttl_minutes}m, or pin via AGENTS_BRIDGE_CODEX_VERSION)." >&2
+    touch "${pin_file}"
+    version="${pinned}"
+    return
+  fi
+
+  echo "Error: cannot resolve ${package} from the npm registry and no cached version exists." >&2
+  echo "Retry once the registry is healthy, or pin explicitly: AGENTS_BRIDGE_CODEX_VERSION=<x.y.z>" >&2
+  exit 127
+}
+
+resolve_version
+spec="${package}@${version}"
+
 # Resolve the package bin inside npx, then run it with node available for node shebangs.
 # Some wrappers are aliases, e.g. playwright-cli wraps the playwright bin.
-"${node_bin}" "${npx_bin}" --yes --prefer-online --package "${package}" -- true
+# --prefer-offline: the pinned version is exact, so a cache hit needs no network.
+"${node_bin}" "${npx_bin}" --yes --prefer-offline --package "${spec}" -- true
 
-package_bin_path=$("${node_bin}" "${npx_bin}" --yes --package "${package}" -- which "${package}" 2>/dev/null)
+package_bin_path=$("${node_bin}" "${npx_bin}" --yes --prefer-offline --package "${spec}" -- which "${package}" 2>/dev/null)
 exec_package_bin "${package_bin_path}" "$@"
 
 # Scoped packages like @openai/codex expose an unscoped bin like codex.
-package_bin_path=$("${node_bin}" "${npx_bin}" --yes --package "${package}" -- which "${command}" 2>/dev/null)
+package_bin_path=$("${node_bin}" "${npx_bin}" --yes --prefer-offline --package "${spec}" -- which "${command}" 2>/dev/null)
 exec_package_bin "${package_bin_path}" "$@"
 
 echo "Could not resolve npm bin for ${package} / ${command}" >&2
