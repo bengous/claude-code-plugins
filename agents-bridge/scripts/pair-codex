@@ -13,8 +13,10 @@
 #   CODEX_EFFORT   model_reasoning_effort (default: xhigh)
 #
 # Notes:
-#   - Sandbox is read-only. `fresh` sets it; `resume` inherits it (codex exec
-#     resume has no -s flag), so we never re-pass -s on resume.
+#   - Sandbox is read-only on every run. `codex exec resume` does NOT inherit
+#     the original run's flags (verified on codex v0.144.1: it falls back to
+#     config defaults, e.g. workspace-write) and has no -s flag, so resume
+#     re-passes the sandbox via -c sandbox_mode.
 #   - Stdin is closed (</dev/null) so `codex exec` never blocks on stdin EOF.
 #   - Fails hard (no silent fallback) on a missing/empty thread id.
 #   - Writes <out_dir>/<label>.{jsonl,last,err} and <out_dir>/thread_id.
@@ -57,6 +59,7 @@ case "${mode}" in
     tid="$(<"${out_dir}/thread_id")"
     [[ -n "${tid}" ]] || die "empty thread id in ${out_dir}/thread_id"
     "${CODEX}" exec resume --json -o "${out_dir}/${label}.last" \
+      -c sandbox_mode=read-only \
       -c "model_reasoning_effort=${EFFORT}" \
       "${tid}" "${prompt}" </dev/null \
       >"${out_dir}/${label}.jsonl" 2>"${out_dir}/${label}.err" \

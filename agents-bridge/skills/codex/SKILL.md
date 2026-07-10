@@ -32,7 +32,12 @@ has no "list models" command and `-m` does not enumerate choices, so:
 
 - Use the default unless the user names a specific model. Never guess names from training data.
 - For another model, pass the user's name via `-m`; codex validates server-side and errors clearly on an unknown model (safe to try). Check codex docs if unsure of the exact name.
-- Each `codex exec` run prints the active `model:` / `reasoning effort:` in its header — read it to confirm what ran.
+- Without `--json`, each `codex exec` run prints the active `model:` /
+  `reasoning effort:` / `sandbox:` in its header — read it to confirm what ran.
+  **With `--json` (the default invocation below) the header is suppressed and
+  the event stream carries no config**, so what ran is exactly what you passed
+  on the command line — which is why every resume must re-state its flags (see
+  Follow-ups).
 
 ## Execution
 
@@ -45,22 +50,39 @@ then.
 `$(...)`, quotes and apostrophes; inlined into the shell they break the command
 or execute as substitutions in *this* agent's shell. Codex has a native
 primitive for this: `-` reads the prompt from stdin. Write `$ARGUMENTS` to a
-temp file with the Write tool (no shell involved), then redirect it in:
+temp file with the Write tool (no shell involved), then redirect it in.
+
+**Every first run starts a thread — capture its id.** Follow-ups in the same
+task resume that thread (see Follow-ups below) instead of re-running a fresh
+context-less `exec`, so the id must be captured on the *first* run, not
+retrofitted when you realize you need it. `--json` emits a stable event stream
+whose `thread.started` event carries the id; `-o` saves codex's final message
+(with `--json`, stdout is events, not prose — read the reply from the `-o`
+file). This is the default invocation:
 
 ```bash
 # 1. Write the user's prompt with the Write tool first:
 #    Write  /tmp/codex-prompt.md   <- contents = $ARGUMENTS
-# 2. Then run codex, read-only, prompt from stdin:
+# 2. First run: read-only, prompt from stdin, JSONL captured for the thread id:
 "${CLAUDE_PLUGIN_ROOT}/scripts/codex" exec \
-  -s read-only \
-  - < /tmp/codex-prompt.md
+  -s read-only --json -o /tmp/codex.last \
+  - < /tmp/codex-prompt.md \
+  > /tmp/codex.jsonl
+
+# 3. Read the reply from /tmp/codex.last; keep the thread id for follow-ups:
+tid="$(jq -r 'select(.type=="thread.started") | .thread_id // empty' \
+        /tmp/codex.jsonl | head -n1)"
 ```
+
+Never scrape the id from the human-readable header — the JSONL event is the
+stable interface.
 
 The `- < file` form sidesteps all shell-quoting issues, has no argv size limit,
 and stdin closes at EOF by itself. Use the **same literal path** in the Write
 step and the redirect — do not use `$TMPDIR` in the Write step (the Write tool
 does not expand shell variables, the shell does; the two can diverge). If
-concurrent sessions may run, pick a unique filename per run.
+concurrent sessions may run, pick unique filenames per run (prompt, `.jsonl`
+and `.last` alike).
 
 If you ever pass the prompt as an argument instead, append `</dev/null`:
 with stdin piped-but-open, `codex exec` appends stdin as a `<stdin>` block and
@@ -75,6 +97,40 @@ agents). For throwaway non-git workdirs, pass `--skip-git-repo-check`
 explicitly — and keep the flag off when cwd is a real checkout, the guard is
 useful there.
 
+## Follow-ups: resume by default
+
+Any follow-up that builds on an earlier run in the same task — iterating on its
+findings, pushing back, a review → fix → confirmation pass — **resumes the
+thread** by the captured `$tid`. A fresh `exec` discards everything codex
+already read and re-litigates it from zero.
+
+**Resume does not inherit the first run's flags.** Verified on codex v0.144.1:
+a thread started with `-s read-only` and `model_reasoning_effort=low` resumed
+as `workspace-write (network access enabled)` at `medium` effort — `exec
+resume` falls back to `~/.codex/config.toml` defaults, and it has no `-s` flag
+at all. So **re-state sandbox, effort, and any non-default model on every
+resume**, via `-c sandbox_mode=...` / `-c model_reasoning_effort=...` / `-m`:
+
+```bash
+# Follow-up: Write /tmp/codex-followup.md first, then resume by explicit id.
+# Mirror the first run's settings — `-s X` becomes `-c sandbox_mode=X`, and any
+# `-c` effort / `-m` model repeats verbatim (this example's first run was
+# `-s read-only` with effort low):
+"${CLAUDE_PLUGIN_ROOT}/scripts/codex" exec resume "${tid}" \
+  -c sandbox_mode=read-only \
+  -c model_reasoning_effort=low \
+  --json -o /tmp/codex.last \
+  - < /tmp/codex-followup.md \
+  > /tmp/codex.jsonl
+```
+
+- **Never `resume --last`** — it races across codex runs in the same cwd.
+- The thread id is stable across resumes (`thread.started` re-fires with the
+  same id), so the same capture pipeline keeps working.
+- If you resume without `--json`, read the printed header (`sandbox:`,
+  `reasoning effort:`, `model:`) before trusting the result; with `--json`
+  there is no header, so the flags you pass are the only control.
+
 ### Overrides (codex native flags)
 
 A model or effort the user explicitly asks for **overrides the default above** —
@@ -85,11 +141,14 @@ wrong:
 
 ```bash
 # e.g. user asked for gpt-5.6-sol at xhigh effort, read-only sandbox
+# (still --json -o: overrides don't drop the thread-id capture)
 "${CLAUDE_PLUGIN_ROOT}/scripts/codex" exec \
   -m gpt-5.6-sol \
   -s read-only \
   -c model_reasoning_effort=xhigh \
-  - < /tmp/codex-prompt.md
+  --json -o /tmp/codex.last \
+  - < /tmp/codex-prompt.md \
+  > /tmp/codex.jsonl
 ```
 
 | Flag | Purpose |
@@ -123,32 +182,6 @@ Routing rules:
   (1592). Raising effort on a cheaper tier often beats raising tier at low
   effort. Pick tier for the capability ceiling, effort for the depth of the
   single task at hand.
-
-## Resuming conversations
-
-To continue a conversation you need its **thread id**. Do not scrape it from the
-human-readable header — capture the run as JSONL and parse it, which is stable:
-
-```bash
-# First run — capture JSONL so the thread id can be read back reliably.
-"${CLAUDE_PLUGIN_ROOT}/scripts/codex" exec \
-  -s read-only --json -o /tmp/codex.last \
-  - < /tmp/codex-prompt.md \
-  > /tmp/codex.jsonl
-
-tid="$(jq -r 'select(.type=="thread.started") | .thread_id // empty' \
-        /tmp/codex.jsonl | head -n1)"
-
-# Follow-up — resume by explicit thread id (never `resume --last`; it races
-# across codex runs in the same cwd). `exec resume` has no -s flag; it inherits
-# the original sandbox.
-"${CLAUDE_PLUGIN_ROOT}/scripts/codex" exec resume "${tid}" \
-  - < /tmp/codex-followup.md
-```
-
-`-o <file>` holds codex's final message; the `.jsonl` holds the full event
-stream. **When to resume:** follow-ups on prior work, iterating on generated
-code, clarifications — anything that builds on earlier context.
 
 ## When to Use
 

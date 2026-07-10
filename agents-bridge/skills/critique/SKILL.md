@@ -71,15 +71,22 @@ lives in the conversation, not on disk, so a diff-based review would miss it
   reasoning work → Sol territory; see the routing table in the `codex` skill
   (`skills/codex/SKILL.md`) before downgrading tiers.
 - To push back, parse the thread id from the JSONL (never scrape the header,
-  never `resume --last`) and resume by explicit id:
+  never `resume --last`) and resume by explicit id. **Resume does not inherit
+  the first run's flags** (verified on codex v0.144.1 — it falls back to config
+  defaults, and has no `-s` flag), so re-state sandbox and effort:
 
   ```bash
   tid="$(jq -r 'select(.type=="thread.started") | .thread_id // empty' \
           /tmp/critique.jsonl | head -n1)"
   "${CLAUDE_PLUGIN_ROOT}/scripts/codex" exec resume "${tid}" \
-    - < /tmp/critique-pushback.md
+    -c sandbox_mode=read-only \
+    -c model_reasoning_effort=xhigh \
+    --json -o /tmp/critique-verdict.md \
+    - < /tmp/critique-pushback.md > /tmp/critique.jsonl
   ```
-- Each `exec` prints the active model / effort in its header — read it to confirm.
+- Without `--json`, each `exec` prints the active model / effort / sandbox in
+  its header; with `--json` the header is suppressed — the flags you pass are
+  the only control.
 
 ## Why a file, not an inline prompt
 
