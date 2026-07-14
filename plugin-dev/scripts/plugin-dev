@@ -19,7 +19,7 @@
 
 set -euo pipefail
 
-readonly VERSION="1.1.0"
+readonly VERSION="1.1.1"
 readonly PLUGINS_DIR="$HOME/.claude/plugins"
 readonly INSTALLED_JSON="$PLUGINS_DIR/installed_plugins.json"
 readonly MARKETPLACES_JSON="$PLUGINS_DIR/known_marketplaces.json"
@@ -331,13 +331,10 @@ show_status() {
 
 		while IFS=$'\t' read -r pname pver psrc; do
 			local plugin_key="${pname}@${mkt_name}"
-			local cached_ver cached_sha status_str
+			local cached_ver status_str
 
 			cached_ver=$(jq -r --arg key "$plugin_key" \
 				'.plugins[$key][0].version // "—"' "$INSTALLED_JSON")
-			cached_sha=$(jq -r --arg key "$plugin_key" \
-				'.plugins[$key][0].gitCommitSha // "—"' "$INSTALLED_JSON")
-
 			local enabled_str="no"
 			is_plugin_enabled "$plugin_key" && enabled_str="yes"
 
@@ -361,10 +358,10 @@ show_status() {
 				status_str="${YELLOW}STALE${NC} ${DIM}(devMode)${NC}"
 			elif [[ "$cached_ver" != "$pver" ]]; then
 				status_str="${YELLOW}STALE${NC} ${DIM}(version)${NC}"
-			elif [[ "${cached_sha:0:7}" != "${current_sha:0:7}" ]]; then
-				status_str="${YELLOW}STALE${NC} ${DIM}(sha)${NC}"
 			elif [[ ! -d "$cache_dir" ]]; then
 				status_str="${RED}MISSING${NC}"
+			elif ! diff -qr "$source_dir" "$cache_dir" &>/dev/null; then
+				status_str="${YELLOW}STALE${NC} ${DIM}(content)${NC}"
 			else
 				status_str="${GREEN}OK${NC}"
 			fi

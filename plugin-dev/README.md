@@ -2,7 +2,7 @@
 
 Dev tool for syncing Claude Code plugin cache from local sources.
 
-**Version:** 1.1.0
+**Version:** 1.1.1
 
 ## Why
 
@@ -26,6 +26,9 @@ plugin-dev enable <name>            # Enable a plugin in settings.json (--all fo
 plugin-dev disable <name>           # Disable a plugin in settings.json (--all for every installed)
 plugin-dev version                  # Print version
 ```
+
+`status` compares the cached files with the plugin source. The recorded Git SHA
+is provenance only, so unrelated repository commits do not mark plugins stale.
 
 ### Enabling plugins
 
