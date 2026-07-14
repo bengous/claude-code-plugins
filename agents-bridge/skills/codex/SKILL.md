@@ -114,21 +114,8 @@ sandbox, effort, and any non-default model on every resume**, via
 
 ### Overrides (codex native flags)
 
-A model or effort the user explicitly asks for **overrides the default above** —
-pass it directly (nothing hardcodes the model list); codex validates and errors
-if a value is wrong:
-
-```bash
-# e.g. user asked for gpt-5.6-sol at xhigh effort, read-only sandbox
-# (still --json -o: overrides don't drop the thread-id capture)
-"${CLAUDE_PLUGIN_ROOT}/scripts/codex" exec \
-  -m gpt-5.6-sol \
-  -s read-only \
-  -c model_reasoning_effort=xhigh \
-  --json -o /tmp/codex.last \
-  - < /tmp/codex-prompt.md \
-  > /tmp/codex.jsonl
-```
+A model or effort the user asks for overrides the default — add the flag to
+either block above (nothing hardcodes the model list; codex validates):
 
 | Flag | Purpose |
 |------|---------|
@@ -152,13 +139,9 @@ a wrapper agent:
 
 ## When to Use
 
-- **Code review**: Second opinion from GPT
-- **Debugging**: Different perspective on errors
-- **Architecture**: Cross-validate design decisions
-
-For reviewing a **committed git diff**, prefer the official `/codex:review` —
-it reads the diff directly. This skill is for ad-hoc prompts and conversation
-context that never hit disk.
+Ad-hoc second opinion — code review, debugging, architecture — on prompts and
+conversation context that never hit disk. For a **committed git diff**, prefer
+the official `/codex:review`, which reads the diff directly.
 
 **Keep runs bounded.** Use `low`/`medium` effort for quick probes; high effort
 plus a docs MCP can rabbit-hole. To stop a runaway, target the real process
