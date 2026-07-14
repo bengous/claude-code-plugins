@@ -180,7 +180,7 @@
     {
       "name": "agents-bridge",
       "description": "Bridge to the OpenAI Codex CLI for cross-model collaboration",
-      "version": "1.8.2",
+      "version": "1.8.3",
       "author": {
         "name": "Augustin BENGOLEA",
         "email": "bengous@protonmail.com"
