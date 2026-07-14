@@ -183,6 +183,20 @@ Routing rules:
   effort. Pick tier for the capability ceiling, effort for the depth of the
   single task at hand.
 
+## Inside workflows/subagents (Claude Code)
+
+The Agent/Workflow `model` param takes Claude models only — route codex through
+a wrapper agent:
+
+- Wrapper: a sonnet/low agent that writes a self-contained codex prompt, runs
+  `codex exec` via Bash following this skill's invocation pattern, and returns
+  the report (`schema` for structured output).
+- Label the agent with a `sol:`/`terra:`/`luna:` prefix — the UI shows the
+  wrapper's Claude model, not what codex ran.
+- Codex can exceed Bash's 10-min default timeout → set an explicit timeout or
+  run in background and poll.
+- Parallel codex implementation agents → `isolation: 'worktree'`.
+
 ## When to Use
 
 - **Code review**: Second opinion from GPT
