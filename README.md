@@ -22,14 +22,14 @@ A curated marketplace of Claude Code plugins for development workflow automation
 | [git-tools](git-tools/) | 1.11.1 | Interactive git commands with AI assistance for commit management, history rewriting, PR/issue triage, agent-ready issue writing, and submodule automation |
 | [code-quality](code-quality/) | 1.4.2 | Code quality and cleanup commands for maintaining clean, maintainable code |
 | [mermaid-diagrams](mermaid-diagrams/) | 1.0.0 | Create and edit Mermaid diagrams for software engineering work, architectural ideas, and technical documentation |
-| [claude-meta-tools](claude-meta-tools/) | 1.15.0 | Meta-tools for Claude Code: maintain documentation (CLAUDE.md sync), prompt coaching/auditing, research, concept demystification, and extend Claude capabilities |
+| [claude-meta-tools](claude-meta-tools/) | 1.15.2 | Meta-tools for Claude Code: maintain documentation (CLAUDE.md sync), prompt coaching/auditing, research, concept demystification, and extend Claude capabilities |
 | [claude-settings-manager](claude-settings-manager/) | 1.1.0 | Manage Claude Code settings with JSONC support and schema extraction |
 | [git-worktree](git-worktree/) | 1.2.0 | Git worktree helper with stack support for multi-agent orchestration |
 | [plan-review](plan-review/) | 1.0.1 | Multi-agent plan review workflow requiring architect and simplifier approval before plan execution |
-| [agents-bridge](agents-bridge/) | 1.8.0 | Bridge to the OpenAI Codex CLI for cross-model collaboration |
+| [agents-bridge](agents-bridge/) | 1.8.3 | Bridge to the OpenAI Codex CLI for cross-model collaboration |
 | [conductor](conductor/) | 1.3.5 | Conversational planning skill that produces self-contained implementation plans |
 | [software-craft](software-craft/) | 1.0.1 | Opinionated design skills for software excellence: CLI design, system architecture, and more |
-| [plugin-dev](plugin-dev/) | 1.1.0 | Dev tool for syncing Claude Code plugin cache from local sources |
+| [plugin-dev](plugin-dev/) | 1.1.1 | Dev tool for syncing Claude Code plugin cache from local sources |
 | [git-sweep](git-sweep/) | 1.0.0 | Interactive git branch and worktree cleanup with smart categorization, squash-merge detection, and backup analysis |
 | [ship](ship/) | 1.0.1 | Ship feature branches: strip working files, create PRs, merge to main with GPG signing and squash support |
 
@@ -52,6 +52,15 @@ mise install && lefthook install
 ```
 
 Requires [mise](https://mise.jdx.dev) for tool management.
+
+After committing and pushing a plugin change, deploy exact installed plugins:
+
+```bash
+scripts/publish-live <plugin-name>...
+```
+
+The publisher refuses dirty or unpushed repositories and never installs or
+enables a plugin implicitly.
 
 ## License
 

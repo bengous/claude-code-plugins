@@ -1,6 +1,6 @@
 ---
 name: critique
-description: Critical second opinion from Codex (gpt-5.6) on a proposal Claude just made — confirms what is sound, challenges what is genuinely weak, and suggests a better path with clear reasoning when one exists. Constructive, not contrarian. Use to cross-check a Claude design, refactor, API, or fix with a non-Claude model before acting on it.
+description: Critical second opinion from Codex (OpenAI) on a proposal Claude just made — confirms what is sound, challenges what is genuinely weak, and suggests a better path with clear reasoning when one exists. Constructive, not contrarian. Use to cross-check a Claude design, refactor, API, or fix with a non-Claude model before acting on it.
 argument-hint: [what to critique / extra focus]
 allowed-tools:
   - Bash(*:*)
@@ -10,7 +10,7 @@ allowed-tools:
 
 # Cross-model critique
 
-A second pair of eyes from a non-Claude model (Codex / gpt-5.6) on a proposal
+A second pair of eyes from a non-Claude model (Codex) on a proposal
 **Claude just made** — a design, refactor, API, or fix. Goal: a genuine
 cross-model check. Validate what holds up, challenge what is weak, surface a
 better path when one exists. Not a rubber stamp, not reflexive contrarianism.
@@ -36,13 +36,14 @@ lives in the conversation, not on disk, so a diff-based review would miss it
    `## Extra focus from the user` section carrying it verbatim. Grounding in
    actual code is the one thing that makes the critique useful; skip it and the
    review drifts into generic advice. Everything user-authored goes in the file,
-   never inline in the shell command.
+   never inline in the shell command (quotes/backticks break inline prompts).
 
    `Write /tmp/critique-proposal.md`
 
-2. **Run Codex read-only** (it is a review; it must not edit). The inline prompt
-   is fully static — the substance, including any user focus, is in the file.
-   Capture JSONL so the thread id can be read back for follow-ups:
+2. **Run Codex read-only** (it is a review; it must not edit). The substance,
+   including any user focus, is in the file; the inline prompt only carries the
+   proposal-file path — keep it in sync if you relocate the temp file. Capture
+   JSONL so the thread id can be read back for follow-ups:
 
    ```bash
    "${CLAUDE_PLUGIN_ROOT}/scripts/codex" exec \
@@ -63,26 +64,23 @@ lives in the conversation, not on disk, so a diff-based review would miss it
 
 ## Defaults & overrides
 
-- Model: the codex config default (no `-m` is passed — currently gpt-5.6; tiers:
-  `gpt-5.6-sol` / `-terra` / `-luna`), effort `xhigh`, sandbox `read-only`.
-  Override with codex flags (`-m <model>`, `-c model_reasoning_effort=<level>`)
-  if the user asks — Sol also accepts `max` and `ultra`, but `ultra` is far more
-  expensive; use it only on explicit request. A critique is adversarial
-  reasoning work → Sol territory; see the routing table in the `codex` skill
-  (`skills/codex/SKILL.md`) before downgrading tiers.
+- Model: the codex config default (no `-m` is passed), effort `xhigh`, sandbox
+  `read-only`. Override with codex flags (`-m <model>`,
+  `-c model_reasoning_effort=<level>`) if the user asks. A critique is
+  adversarial reasoning work — don't downgrade the tier.
 - To push back, parse the thread id from the JSONL (never scrape the header,
-  never `resume --last`) and resume by explicit id:
+  never `resume --last`) and resume by explicit id. **Resume does not inherit
+  the first run's flags** (it falls back to config defaults), so re-state
+  sandbox and effort:
 
   ```bash
   tid="$(jq -r 'select(.type=="thread.started") | .thread_id // empty' \
           /tmp/critique.jsonl | head -n1)"
   "${CLAUDE_PLUGIN_ROOT}/scripts/codex" exec resume "${tid}" \
-    - < /tmp/critique-pushback.md
+    -c sandbox_mode=read-only \
+    -c model_reasoning_effort=xhigh \
+    --json -o /tmp/critique-verdict.md \
+    - < /tmp/critique-pushback.md > /tmp/critique.jsonl
   ```
-- Each `exec` prints the active model / effort in its header — read it to confirm.
-
-## Why a file, not an inline prompt
-
-Proposals carry quotes, backticks, parentheses, apostrophes — passing them inline
-through the shell breaks. Put the proposal and the file paths in the temp file;
-keep the shell prompt a short pointer to it.
+- With `--json` the run header is suppressed — the flags you pass are the only
+  control.

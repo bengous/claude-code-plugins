@@ -94,7 +94,7 @@
     {
       "name": "claude-meta-tools",
       "description": "Meta-tools for Claude Code: maintain documentation (CLAUDE.md sync), prompt coaching/auditing, research, concept demystification, and extend Claude capabilities",
-      "version": "1.15.0",
+      "version": "1.15.2",
       "author": {
         "name": "Augustin BENGOLEA",
         "email": "bengous@protonmail.com"
@@ -180,7 +180,7 @@
     {
       "name": "agents-bridge",
       "description": "Bridge to the OpenAI Codex CLI for cross-model collaboration",
-      "version": "1.8.0",
+      "version": "1.8.3",
       "author": {
         "name": "Augustin BENGOLEA",
         "email": "bengous@protonmail.com"
@@ -258,7 +258,7 @@
     {
       "name": "agent-context-audit",
       "description": "Audit CLAUDE.md and AGENTS.md files against research-backed best practices with instruction budget scoring and concrete fix proposals",
-      "version": "1.0.0",
+      "version": "1.0.1",
       "author": {
         "name": "Augustin BENGOLEA",
         "email": "bengous@protonmail.com"
@@ -279,7 +279,7 @@
     {
       "name": "plugin-dev",
       "description": "Dev tool for syncing Claude Code plugin cache from local sources",
-      "version": "1.1.0",
+      "version": "1.1.1",
       "author": {
         "name": "Augustin BENGOLEA",
         "email": "bengous@protonmail.com"

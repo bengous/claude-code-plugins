@@ -53,7 +53,7 @@ The specific version tells Claude something it can't infer. The generic version 
 | Pattern | Why redundant | Keep if... |
 |---------|---------------|------------|
 | "Be concise" | System prompt says this | Never |
-| "Explain your reasoning" | Depends on output style setting | Never — controlled by CLI settings |
+| "Explain your reasoning" | Verbosity is controlled by harness settings | Never — not controllable from context files |
 | "Ask clarifying questions when uncertain" | Default behavior | Never |
 | "Don't make assumptions" | Default behavior | You have a specific assumption-prone area |
 | "Review code before committing" | System prompt covers this | Never |

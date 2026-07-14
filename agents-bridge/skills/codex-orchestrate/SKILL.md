@@ -9,16 +9,16 @@ Claude Code only. Dans Codex natif, utiliser `$slice-runner`.
 
 ## Principe
 
-Claude est **architecte, QA et committeur** ; Codex (gpt-5.6) est **l'exécutant**. Claude découpe le plan en slices séquentielles, impose les interfaces, lance un run Codex par slice, vérifie les gates lui-même, commite. Codex ne committe jamais et ne designe jamais : si Claude laisse Codex inventer une API, N slices produiront N styles.
+Claude est **architecte, QA et committeur** ; Codex est **l'exécutant**. Claude découpe le plan en slices séquentielles, impose les interfaces, lance un run Codex par slice, vérifie les gates lui-même, commite. Codex ne committe jamais et ne designe jamais : si Claude laisse Codex inventer une API, N slices produiront N styles.
 
 ## Routage modèle par slice
 
-Choisir le tier au moment de rédiger le prompt de la slice (table complète : skill `codex` d'agents-bridge) :
+Choisir le tier au moment de rédiger le prompt de la slice :
 
 | Slice | Modèle | Pourquoi |
 |---|---|---|
-| Code standard (features, câblage, refactor spécifié) | `gpt-5.6-terra` | Égale Sol sur Terminal-Bench à effort max, moitié prix. **Défaut.** |
-| Tests, fixes mécaniques pour passer un gate | `gpt-5.6-luna` | Rapide, 40 % du coût de Terra, suffisant sur travail borné |
+| Code standard (features, câblage, refactor spécifié) | `gpt-5.6-terra` | Suffisant sur du code spécifié, nettement moins cher que Sol. **Défaut.** |
+| Tests, fixes mécaniques pour passer un gate | `gpt-5.6-luna` | Le plus rapide et le moins cher, suffisant sur travail borné |
 | Code demandant jugement/rigueur, points délicats denses | `gpt-5.6-sol` | Ceiling supérieur ; seul tier avec `max`/`ultra` |
 
 Effort par défaut : `xhigh`. Les décisions hard (archi, choix d'API) restent le travail de Claude — si une slice en contient une, c'est un défaut de découpage, pas une raison de monter de tier.
@@ -61,26 +61,28 @@ Toujours inclure, dans cet ordre :
 
 Le prompt s'écrit dans un fichier avec l'outil Write (jamais inline dans le
 shell), puis se passe sur stdin via `-`. Modèle, effort et sandbox se passent
-en **flags natifs** — le wrapper est un pur pass-through, il ne lit aucune
-variable d'environnement Codex (`CODEX_MODEL`/`CODEX_REASONING`/`CODEX_SANDBOX`
-seraient silencieusement ignorées et le run tournerait avec les défauts de
-`~/.codex/config.toml`). Seule variable lue, côté bridge :
-`AGENTS_BRIDGE_CODEX_VERSION`, qui fige la version du CLI (pin du pré-vol).
+en **flags natifs** — le wrapper ne lit aucune env var `CODEX_*` (silencieusement
+ignorées → le run tournerait avec les défauts de `~/.codex/config.toml`). Seule
+variable lue : `AGENTS_BRIDGE_CODEX_VERSION` (pin du pré-vol).
 
 ```bash
 # 1. Write /tmp/slice-N-prompt.md  (outil Write — contenu = prompt de la slice)
-# 2. Run, en arrière-plan :
+# 2. Run, en arrière-plan (-C si le cwd n'est pas le repo cible ;
+#    pin = numéro nu, sans le préfixe "codex-cli ") :
 AGENTS_BRIDGE_CODEX_VERSION=0.144.1 \
 "${CLAUDE_PLUGIN_ROOT}/scripts/codex" exec \
+  -C /chemin/repo-cible \
   -m gpt-5.6-terra \
   -c model_reasoning_effort=xhigh \
   -s workspace-write \
   --json -o /tmp/slice-N.last \
-  - < /tmp/slice-N-prompt.md > /tmp/slice-N.jsonl
+  - < /tmp/slice-N-prompt.md > /tmp/slice-N.jsonl 2> /tmp/slice-N.err
 ```
 
-- La forme `- < fichier` élimine tout échappement shell (`$`, backticks,
-  quotes passent intacts) et stdin se ferme à EOF tout seul.
+- La forme `- < fichier` élimine tout échappement shell et stdin se ferme à
+  EOF tout seul (détails : skill `codex`). Garder stderr (`2>`) : les échecs
+  d'environnement (npm, exit 127) n'apparaissent que là. Cible non-git →
+  `--skip-git-repo-check` requis.
 - `run_in_background: true`, timeout ≥ 900 s. Vérifier ~20 s après le lancement que l'output progresse (détecte les blocages immédiats).
 - `-o` reçoit le résumé final de Codex ; le thread id se lit dans le JSONL
   (jamais `resume --last`, il race entre runs) :
@@ -88,7 +90,9 @@ AGENTS_BRIDGE_CODEX_VERSION=0.144.1 \
   tid="$(jq -r 'select(.type=="thread.started") | .thread_id // empty' /tmp/slice-N.jsonl | head -n1)"
   ```
   Corrections → `exec resume "$tid" - < /tmp/slice-N-fix.md` (moins cher qu'un
-  contexte neuf ; `resume` n'a pas de `-s`, il hérite du sandbox d'origine).
+  contexte neuf). **`resume` n'hérite d'aucun flag** — re-passer `-C`, `-m`,
+  `-c sandbox_mode=workspace-write` et l'effort à l'identique, sinon retour aux
+  défauts config (cf. skill `codex`).
 
 ## Protocole d'échec
 

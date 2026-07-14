@@ -1,11 +1,11 @@
 ---
 name: context-audit
-description: |
-  Audit CLAUDE.md and AGENTS.md files against research-backed best practices.
-  Scores instruction budget usage, detects anti-patterns, checks for staleness,
-  and generates concrete fix proposals. Treats CLAUDE.md and AGENTS.md equally.
-  Use when user asks to audit, check, review, or optimize context files.
-  Also use when user mentions "instruction budget" or "context file quality".
+description: >
+  Audits CLAUDE.md and AGENTS.md files against research-backed best practices:
+  instruction budget scoring, anti-pattern detection, staleness checks, and
+  concrete fix proposals. Use when the user asks to audit, check, review, or
+  optimize context files, or mentions "instruction budget" or "context file
+  quality". Treats CLAUDE.md and AGENTS.md identically.
 allowed-tools:
   - Read
   - Glob
@@ -19,459 +19,111 @@ allowed-tools:
 # Context Audit
 
 <context>
-Agent context files (CLAUDE.md, AGENTS.md, .claude/rules/) are always-on prompt context injected at session start. Research established that:
+Context files (CLAUDE.md, AGENTS.md, .claude/rules/) are always-on prompt context. Research baseline: frontier models follow ~150-200 instructions with reasonable consistency; Claude Code's system prompt consumes ~50 slots, leaving ~100-150 for user content. Adherence degrades linearly with instruction count — affecting ALL instructions uniformly — and files that impose unnecessary requirements can reduce task success versus no context file at all. The most effective files are under 100 lines with high directive density.
 
-- Frontier models follow ~150-200 instructions with reasonable consistency
-- Claude Code's system prompt consumes ~50 instruction slots, leaving ~100-150 for user content
-- Instruction adherence degrades linearly as count increases — affecting ALL instructions uniformly
-- Context files that impose unnecessary requirements can reduce task success rates vs no context at all
-- The most effective files are under 100 lines with high directive density
-
-This skill audits context files and produces concrete fix proposals — not just scores, but exact changes with rationale, budget impact estimates, and confidence levels.
-
-The workflow separates **deterministic checks** (file existence, import traversal, symlink detection — high confidence) from **heuristic judgment** (instruction counting, generic advice detection, rewrite proposals — medium confidence). This distinction is labeled in the output.
+Output is concrete fix proposals — exact changes with rationale, budget impact, and confidence — not just scores. Deterministic checks (file existence, import traversal, symlinks) are labeled separately from heuristic judgment (directive counting, generic-advice detection).
 </context>
 
 <constraints>
-- Never auto-commit changes — always require explicit user approval
-- Never delete content without presenting it to the user first
-- Label every finding with its confidence source (deterministic vs heuristic)
-- Use approximate counts (`~N`) for heuristic measurements, not false precision
+- Never auto-commit; never delete content without presenting it to the user first
+- Label every finding deterministic vs heuristic; use `~N` for heuristic counts, not false precision
 - Treat CLAUDE.md and AGENTS.md identically — same methodology, same budget
-- Do not flag Claude Code native references as stale (slash commands, skills, ${CLAUDE_PLUGIN_ROOT}, Task/Agent calls)
-- Read reference files (default-behaviors.md, anti-patterns.md) before running heuristic checks
+- Never flag Claude Code native references as stale — slash commands, skill invocations, `${CLAUDE_PLUGIN_ROOT}` paths, Task/Agent calls (full list in `references/anti-patterns.md`). Exception: `@file` import syntax is native, but missing import targets are still findings (Phase 1 verifies them)
+- Read both reference files before Phase 4
 </constraints>
 
 <workflow>
 
-## Phase 1: Discovery & Import Resolution
-**Type: Deterministic**
+## Phase 1: Discovery & Import Resolution (deterministic)
 
-### 1.1 Find all context files
-
-```bash
-# Repo context files
-find . -name "CLAUDE.md" -o -name "AGENTS.md" -o -name ".claude.local.md" 2>/dev/null | grep -v node_modules | grep -v .git/
-
-# Rules files
-ls .claude/rules/*.md 2>/dev/null
-
-# Global context
-ls ~/.claude/CLAUDE.md 2>/dev/null
-```
-
-### 1.2 Classify each file
+1. Find context files: `CLAUDE.md`, `AGENTS.md`, `CLAUDE.local.md` anywhere in the repo (exclude `node_modules/`, `.git/`), plus `.claude/rules/*.md` and `~/.claude/CLAUDE.md`.
+2. Classify each file:
 
 | Type | Location | Always-on? |
 |------|----------|-----------|
 | Root | `./CLAUDE.md` or `./AGENTS.md` | Yes |
 | Rules (path-scoped) | `.claude/rules/*.md` with `paths:` frontmatter | Only when matching files accessed |
-| Rules (always-on) | `.claude/rules/*.md` without `paths:` frontmatter | Yes |
-| Subdirectory | `packages/*/CLAUDE.md` etc. | Only when files in that dir accessed |
+| Rules (always-on) | `.claude/rules/*.md` without `paths:` | Yes |
+| Subdirectory | `packages/*/CLAUDE.md` etc. | Only when that dir accessed |
 | Global | `~/.claude/CLAUDE.md` | Yes (all projects) |
-| Local override | `.claude.local.md` | Yes (but gitignored) |
+| Local override | `CLAUDE.local.md` | Yes (gitignored) |
 
-Check rules files for `paths:` in YAML frontmatter to classify as scoped vs always-on.
+3. Symlinks: `readlink -f` on CLAUDE.md/AGENTS.md. One symlinked to the other → best practice, audit the canonical file only. Both independent → flag duplication risk, compare `md5sum`.
+4. Resolve `@file` imports recursively (resolve relative to the importing file, verify each target with `test -e`, max depth 5 to catch cycles). Imported files are always-on and count against the importer's budget.
+5. Present a file inventory table: file, type, always-on?, imported by, lines.
 
-### 1.3 Detect symlinks and duplicates
+## Phase 2: Instruction Budget Scoring (heuristic)
 
-```bash
-# Check if any context files are symlinks
-readlink -f ./CLAUDE.md 2>/dev/null
-readlink -f ./AGENTS.md 2>/dev/null
-```
+Count directives — discrete behavioral instructions the model must track — in each always-on file:
 
-If both CLAUDE.md and AGENTS.md exist:
-- If one is a symlink to the other: note as best practice, audit the canonical file only
-- If both are independent files: flag duplication risk, compare content hashes:
-  ```bash
-  md5sum ./CLAUDE.md ./AGENTS.md 2>/dev/null
-  ```
+- Bullet/list item with imperative verb = 1 ("Branch naming: feature/desc, fix/desc" = 1 constraint with examples)
+- Compound bullet = count sub-directives; split on semicolons, comma-separated imperative clauses, period-separated sentences
+- Prescriptive table row = 1 per row
+- Code blocks, headers, non-imperative prose, YAML frontmatter = 0 (a "Run this..." preface IS the directive)
+- `@file` imports: count their directives into the importer's budget
 
-### 1.4 Resolve @file imports
+When unsure whether something is a directive, count it — and flag ambiguous items in the report. Note split rationale for compounds. State confidence: HIGH (clear directives), MEDIUM (some ambiguity), LOW (mostly judgment calls).
 
-For each context file, scan for `@path/to/file` import patterns:
-1. Read the file and extract all `@`-prefixed references that look like file paths
-2. Resolve paths relative to the file's directory
-3. Verify each imported file exists (`test -e`)
-4. Read imported files and recursively check for further imports
-5. Track import depth to detect circular references (max depth: 5)
-6. Mark imported files as "always-on via import" — they count against the root budget
-
-### 1.5 Build file inventory
-
-Present inventory to user:
-
-```
-## File Inventory
-
-| # | File | Type | Always-on? | Imported by | Lines |
-|---|------|------|-----------|-------------|-------|
-| 1 | ./CLAUDE.md | Root | Yes | — | 52 |
-| 2 | .claude/rules/01-behavioral.md | Rules (always-on) | Yes | — | 18 |
-| 3 | .claude/rules/skills/skill-patterns.md | Rules (scoped) | No (paths: **/skills/**) | — | 40 |
-| ...
-```
-
----
-
-## Phase 2: Instruction Budget Scoring
-**Type: Heuristic (LLM judgment)**
-
-Read each always-on file and count directives.
-
-### Counting methodology
-
-A "directive" is a discrete behavioral instruction the model must track:
-
-- **Bullet/list item with imperative verb** = 1 directive
-  - "Use bun over npm" → 1
-  - "Branch naming: feature/description, fix/description" → 1 (single constraint with examples)
-- **Compound bullet** = count sub-directives
-  - "Keep solutions minimal: no speculative features, error handling for impossible cases, or abstractions for one-time operations" → 3 sub-directives
-  - Split on: semicolons, comma-separated imperative clauses, period-separated sentences
-- **Prescriptive table row** = 1 directive per row
-- **Code block** = 0 (reference data, not a directive)
-  - Exception: if prefaced by "Run this..." or "Always execute...", the preface is the directive
-- **Header** = 0 (organizational)
-- **Context paragraph** without imperative verbs = 0 (informational)
-- **YAML frontmatter** = 0
-
-For imported files via `@file`, count their directives and attribute to the importing file's budget.
-
-### Confidence
-
-Directive counting is inherently approximate. Flag ambiguous items:
-- "Is this a directive or context?" — when unclear, count it
-- Compound instructions — note the split rationale
-- State your confidence: HIGH (clear directives), MEDIUM (some ambiguity), LOW (mostly judgment calls)
-
-### Scoring bands
-
-These are heuristic guidelines from research, not hard limits:
+Scoring bands (heuristic guidelines, not hard limits):
 
 | File Type | Comfortable | Elevated | High pressure |
 |-----------|-------------|----------|---------------|
-| Root context file | <80 directives | 80-120 | >120 |
+| Root context file | <80 | 80-120 | >120 |
 | Root + all @imports | <100 | 100-130 | >130 |
 | Rules file (path-scoped) | <30 | 30-50 | >50 |
 | Rules file (always-on) | <20 | 20-40 | >40 |
 | Subdirectory context file | <40 | 40-60 | >60 |
 | **Total always-on surface** | **<100** | **100-150** | **>150** |
 
-The "total always-on surface" is the critical metric — everything Claude loads at session start: root file + @imports + always-on rules + global CLAUDE.md.
-
----
+Total always-on surface is the critical metric: root + @imports + always-on rules + global CLAUDE.md.
 
 ## Phase 3: Deterministic Checks
-**Type: Deterministic (mechanical verification)**
 
-These are factual checks. Run them with high confidence.
+- **3a. Stale paths**: extract paths from backticks and prose; verify with `git ls-files --error-unmatch` then `test -e`. Skip paths with variable interpolation (`${CLAUDE_PLUGIN_ROOT}`, `$VAR`), `~/.claude/` paths, and paths inside illustrative code blocks.
+- **3b. Stale commands**: extract commands from code blocks and inline backticks. For `npm run X` / `bun run X` / `pnpm run X` / `yarn X`, verify the script exists in the nearest package.json; for npx/bunx, verify the package is a dependency. Never flag native references (`references/anti-patterns.md`), git, standard POSIX commands, or commands with variable interpolation.
+- **3c. Linter configs**: detect configured linters/formatters (detection table in `references/anti-patterns.md` §1) — feeds Phase 4 Check 1.
+- **3d. Structure inventory**: `.claude/rules/` file count and `paths:` frontmatter; subdirectory context files; `@file` imports; monorepo signals (multiple package.json excluding `node_modules/`, `packages/`/`apps/` dirs) — feeds Phase 5.
 
-### 3a. Stale file path references
+## Phase 4: Anti-Pattern Detection (heuristic)
 
-Extract paths from backtick-wrapped content and prose. For each path:
+Read `references/default-behaviors.md` and `references/anti-patterns.md`, then run the five checks. Detection keywords, examples, and proposal templates are in the anti-patterns catalog.
 
-```bash
-# Check tracked files
-git ls-files --error-unmatch "path/to/file" 2>/dev/null
+| # | Check | Impact | Trigger | Proposal |
+|---|-------|--------|---------|----------|
+| 1 | Linter overlap | HIGH | Style directive covered by a linter detected in 3c | REMOVE |
+| 2 | Generic advice | MEDIUM | Matches a default behavior AND has zero project-specific tokens | REMOVE |
+| 3 | Verbose content | MEDIUM-HIGH | Directive >30 words; inline code block >10 lines; `@file` import >50 lines; directive density <0.3 (file or section) | REWRITE |
+| 4 | Non-universal instructions | MEDIUM | Directive scoped to <20% of the codebase (subdirectory mentions, "when working on X") — strong MOVE candidate | MOVE to path-scoped rule |
+| 5 | Negative without alternative | MEDIUM | never/don't/avoid with no instead/prefer/use in the same or next line | REWRITE |
 
-# Check untracked files
-test -e "path/to/file"
-```
+## Phase 5: Structural Analysis (mixed)
 
-**Skip these** (valid at runtime, not verifiable now):
-- Paths containing `${CLAUDE_PLUGIN_ROOT}` or other variable interpolation
-- `~/.claude/` paths (user-specific)
-- Paths inside code block examples (illustrative, not references)
+Using Phase 3 inventory:
 
-### 3b. Stale command references
-
-Extract commands from code blocks and inline backticks.
-
-**For package manager commands** (`npm run X`, `bun run X`, `pnpm run X`, `yarn X`):
-```bash
-# Verify script exists in nearest package.json
-cat package.json | grep -q '"X"' 2>/dev/null
-```
-
-**For npx/bunx commands**: verify package in dependencies.
-
-**Do NOT flag as stale:**
-- Slash commands (`/command-name`) — Claude Code native
-- Skill invocations (`Skill(skill: "name")`) — Claude Code native
-- `${CLAUDE_PLUGIN_ROOT}/...` — plugin-relative, resolved at runtime
-- `Task(...)` / `Agent(...)` calls — Claude Code tool syntax
-- `git` commands — always available
-- Standard POSIX commands (`ls`, `cat`, `find`, `test`, etc.) — always available
-- Commands with variable interpolation (`$VARIABLE`, `${VAR}`)
-
-### 3c. Linter config detection
-
-```bash
-# Check for linter/formatter configs
-ls biome.json biome.jsonc 2>/dev/null
-ls .eslintrc* eslint.config.* 2>/dev/null
-ls .prettierrc* prettier.config.* 2>/dev/null
-ls .editorconfig 2>/dev/null
-ls deno.json deno.jsonc 2>/dev/null
-ls ruff.toml 2>/dev/null
-grep -l "tool.ruff\|tool.black" pyproject.toml 2>/dev/null
-```
-
-Record which tools are configured — pass to Phase 4 for overlap detection.
-
-### 3d. Progressive disclosure inventory
-
-- Does `.claude/rules/` exist? How many files? How many have `paths:` frontmatter?
-- Are there subdirectory CLAUDE.md/AGENTS.md files?
-- Does the root file use `@file` imports?
-- Detect monorepo:
-  ```bash
-  # Multiple package.json files
-  find . -name "package.json" -not -path "*/node_modules/*" | wc -l
-  # Workspace directories
-  ls -d packages/ apps/ 2>/dev/null
-  ```
-
----
-
-## Phase 4: Anti-Pattern Detection
-**Type: Heuristic (LLM judgment, informed by Phase 3 results)**
-
-Before running these checks, read both reference files:
-- `references/default-behaviors.md`
-- `references/anti-patterns.md`
-
-### Check 1: Linter overlap (HIGH impact)
-
-Using linter configs detected in Phase 3c, cross-reference with context file content.
-
-For each style directive in the context file, check if it overlaps with a detected linter's domain (see anti-patterns.md for keyword patterns).
-
-Proposal: REMOVE — "Already enforced by [tool] via [config]"
-
-### Check 2: Generic advice (MEDIUM impact)
-
-Compare directives against `default-behaviors.md`. Apply two tests:
-
-1. **Default behavior match**: Does the directive tell Claude to do something it already does?
-2. **Specificity test**: Does the directive contain at least one project-specific token (file path, tool name, library name, custom term, concrete command)?
-
-A directive that matches a default behavior AND has no project-specific tokens is generic advice.
-
-Proposal: REMOVE — "Fails deletion test: Claude already does this by default"
-
-### Check 3: Verbose content (MEDIUM-HIGH impact)
-
-Scan for:
-- Directives >30 words — propose concise rewrite
-- Code blocks >10 lines embedded inline — propose file reference instead
-- `@file` imports of files >50 lines — propose converting to "see X" reference
-- Sections with <0.3 directive density (more prose than directives)
-
-Proposal: REWRITE with concise version, or convert embed to reference
-
-### Check 4: Non-universal instructions (MEDIUM impact)
-
-Scan for directives that reference specific areas of the codebase:
-- Mentions of specific subdirectories (`src/api/`, `packages/ui/`)
-- Conditional language ("when working on X", "for X projects", "if using X")
-- Framework-specific rules that apply to only part of the codebase
-
-Estimate scope: what fraction of files does this directive affect?
-
-Proposal: MOVE to `.claude/rules/[name].md` with `paths:` frontmatter
-
-### Check 5: Negative instructions without alternatives (MEDIUM impact)
-
-Scan for negative keywords (never, don't, avoid, must not) without accompanying positive alternatives (instead, prefer, use, rather) in the same or immediately following line.
-
-Proposal: REWRITE with positive framing and alternative
-
----
-
-## Phase 5: Structural Analysis
-**Type: Mixed (deterministic inventory + heuristic assessment)**
-
-Using Phase 3d results:
-
-### Progressive disclosure assessment
-
-- If root file exceeds ~100 directives AND no `.claude/rules/` or subdirectory files exist:
-  → Recommend progressive disclosure structure
-- If monorepo detected AND no subdirectory context files:
-  → Recommend per-package context files
-- If `@file` imports exist:
-  → Show budget breakdown: root content vs imported content
-
-### Section coverage
-
-Check for high-value sections (from research on what matters most):
-
-| Section | Value | Why |
-|---------|-------|-----|
-| Commands (build/test/lint) | HIGH | Most impactful — saves agent from discovering commands |
-| Testing approach | HIGH | Prevents wrong test framework/patterns |
-| Gotchas/Warnings | HIGH | Prevents repeating debugging sessions |
-| Architecture/Structure | MEDIUM | Helps navigation but agent can often infer |
-| Code style | LOW (if linter exists) | Linter handles this |
-
-Flag missing HIGH-value sections as suggestions (not issues).
-
-### Cross-file assessment
-
-- CLAUDE.md + AGENTS.md without symlink → flag duplication risk
-- Multiple CLAUDE.md files with overlapping content → flag redundancy
-
----
+- Root >~100 directives AND no `.claude/rules/` or subdirectory files → recommend progressive disclosure
+- Monorepo detected AND no subdirectory context files → recommend per-package context files
+- `@file` imports present → show budget breakdown: root vs imported
+- Section coverage — flag missing HIGH-value sections as suggestions (not issues): Commands (build/test/lint) HIGH, Testing approach HIGH, Gotchas/warnings HIGH, Architecture MEDIUM, Code style LOW when a linter exists
+- CLAUDE.md + AGENTS.md unsymlinked, or multiple CLAUDE.md files with overlapping content → flag redundancy
 
 ## Phase 6: Generate Proposals
 
-Consolidate all findings from Phases 2-5 into concrete proposals.
+Consolidate Phases 2-5 into proposals using four action types — REMOVE, MOVE, REWRITE, FLAG — each with exact content, reason, budget impact, confidence, and source phase. Templates in `references/output-format.md`.
 
-### Proposal format
-
-Every proposal uses one of four action types:
-
-```
-REMOVE: Lines X-Y
-Content: "[exact content]"
-Reason: [why — specific anti-pattern or check result]
-Budget impact: Recovers ~N directive slots
-Confidence: HIGH/MEDIUM
-Source: [Phase 3a/3b/4.1/4.2/etc.]
-
-MOVE: Lines X-Y → [target path]
-Content: "[section or directive]"
-Reason: [applies to <20% of codebase / only relevant in specific context]
-Suggested target file:
-  ---
-  paths: [glob pattern]
-  ---
-  [moved content]
-Budget impact: Recovers ~N directive slots from always-on surface
-Confidence: MEDIUM
-Source: [Phase 4.4]
-
-REWRITE: Line X
-Before: "[current version]"
-After: "[proposed version]"
-Reason: [verbose → concise / adds missing alternative / converts embed to reference]
-Budget impact: [token savings / improved adherence]
-Confidence: MEDIUM
-Source: [Phase 4.3/4.5]
-
-FLAG: Line X
-Content: "[content]"
-Issue: [stale path, broken command, ambiguous scope]
-Suggestion: [what to investigate or decide]
-Confidence: HIGH/MEDIUM
-Source: [Phase 3a/3b/5]
-```
-
-### Prioritization
-
-Order proposals by impact:
-1. **Budget recovery** — REMOVE and MOVE proposals that free directive slots
-2. **Correctness** — FLAG proposals for stale references and broken commands
-3. **Efficiency** — REWRITE proposals for verbosity and negative-without-alternative
-4. **Structure** — Suggestions for progressive disclosure and missing sections
-
----
+Prioritize: 1) budget recovery (REMOVE/MOVE), 2) correctness (FLAG stale refs), 3) efficiency (REWRITE), 4) structure suggestions.
 
 ## Phase 7: Output Report
 
-### Tier 1: Executive Summary (always show)
+Three tiers (full templates in `references/output-format.md`):
 
-```
-## Context Audit: [file path]
-
-### Always-On Budget
-Root directives:       ~X  (confidence: HIGH/MEDIUM)
-Via @imports:          ~X  (N files)
-Always-on rules:       ~X  (N files)
-Global CLAUDE.md:      ~X
-────────────────────────────
-Total always-on:       ~X / ~100 recommended   [Comfortable / Elevated / High pressure]
-
-File size: X lines
-
-### Health Checks
-| Check                | Type          | Result | Details |
-|----------------------|---------------|--------|---------|
-| Instruction budget   | Heuristic     | ...    | ~X directives |
-| Stale references     | Deterministic | ...    | N broken paths, M broken commands |
-| Linter overlap       | Mixed         | ...    | N style rules overlap with [tool] |
-| Verbosity            | Heuristic     | ...    | Density: 0.XX (target >0.3) |
-| Progressive disc.    | Deterministic | ...    | N rules files, M path-scoped |
-| Negative w/o alt     | Heuristic     | ...    | N dead-end negatives |
-| Generic advice       | Heuristic     | ...    | N directives fail deletion test |
-
-### Quick Wins (top 3 by budget impact)
-1. [proposal summary] (~N slots recovered)
-2. [proposal summary] (~N slots recovered)
-3. [proposal summary] (~N slots recovered)
-
-Projected after quick wins: ~X / ~100
-```
-
-### Tier 2: Full Proposals
-
-Every proposal with complete detail, grouped by action type. Show confidence level and source phase for each.
-
-### Tier 3: Action Plan
-
-Consolidated execution order:
-
-```
-### Action Plan (N proposals)
-
-#### Phase 1: Remove (HIGH confidence first)
-1. [stale reference removals — deterministic]
-2. [linter overlap removals — high confidence]
-3. [generic advice removals — medium confidence]
-
-#### Phase 2: Move to progressive disclosure
-4. [non-universal instructions → path-scoped rules]
-
-#### Phase 3: Rewrite
-5. [verbose → concise]
-6. [negative → positive with alternative]
-
-#### Phase 4: Manual Review
-7. [FLAG items needing human judgment]
-
-### Projected Budget After All Changes
-Total always-on: ~X / ~100 recommended   [new status]
-```
-
----
+1. **Executive summary** (always show): always-on budget breakdown vs ~100 recommended, health-check table, top-3 quick wins with projected budget
+2. **Full proposals**: every proposal grouped by action type, with confidence and source phase
+3. **Action plan**: execution order — removes (HIGH confidence first), moves, rewrites, manual-review flags — with projected final budget
 
 ## Phase 8: Apply Changes (with approval)
 
-Present the action plan and ask user which proposals to apply:
+Ask the user which proposals to apply: all high-confidence (deterministic fixes only) / quick wins only (top 3 by budget impact) / by category (choose which anti-pattern types) / individually / save report only.
 
-Options:
-1. **Apply all high-confidence proposals** — deterministic fixes only
-2. **Apply quick wins only** — top 3 by budget impact
-3. **Apply by category** — choose which anti-pattern types to fix
-4. **Review individually** — go through proposals one by one
-5. **Save report only** — write report to file, apply nothing
-
-For each approved proposal:
-- Use Edit tool for targeted modifications
-- For MOVE proposals: create the target file with frontmatter, then remove from source
-- Show before/after for each change
-- Never auto-commit
-
-After applying, show updated summary:
-```
-Applied: N proposals
-Skipped: M proposals
-New always-on budget: ~X / ~100 recommended
-
-Consider committing these changes and running /context-audit again to verify.
-```
+For each approved proposal: use Edit for targeted changes; for MOVE, create the target rules file with `paths:` frontmatter before removing from source; show before/after. Never auto-commit. Close with the applied/skipped counts and new budget, and suggest re-running the audit after committing.
 
 </workflow>
