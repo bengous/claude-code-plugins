@@ -15,11 +15,25 @@ Scan, classify, collect user choices, build manifest, hand off to apply.
 
 ## Phase 1: Run audit
 
-Execute the audit script and parse its JSON output:
+Tell the user what is about to happen: if the repo has an `origin`, the audit
+fetches it read-only ("Fetching origin…") to refresh remote-tracking refs — it
+does **not** prune or delete anything. With no origin it stays fully local: no
+network, no ref deletion.
+
+Execute the audit script, capturing exit code, stdout, and stderr. Do NOT
+discard stderr — the failure reason must stay visible:
 
 ```
-audit_json = run `"${CLAUDE_PLUGIN_ROOT}/scripts/git-clean-audit" --include-remote 2>/dev/null`
-parse audit_json as JSON
+run `"${CLAUDE_PLUGIN_ROOT}/scripts/git-clean-audit" --include-remote`
+capture: exit_code, stdout, stderr
+
+# The backend always emits JSON on failures it can catch. Empty or non-JSON
+# stdout means it never started (bun missing, not executable, …) — a case the
+# script itself cannot report. Guard before touching .ok:
+if stdout is empty OR stdout is not valid JSON:
+  STOP — report "audit backend failed" with exit_code and stderr
+
+audit_json = parse stdout as JSON
 
 if audit_json.ok == false:
   STOP — report audit_json.error and audit_json.step
@@ -162,7 +176,7 @@ if backup is empty: skip
 
 for each branch in backup:
   log = run `git log --oneline {audit_json.base}..{branch.name} -5`
-  diff_stat = run `git diff --stat {audit_json.base}...{branch.name} | tail -1`
+  diff_stat = run `git diff --shortstat {audit_json.base}...{branch.name}`
 
   Apply these criteria to recommend DELETE or KEEP:
 
@@ -251,4 +265,18 @@ kept = audit_json.kept
 
 ## Phase 4: Hand off
 
-Invoke `/git-sweep-apply` with the manifest JSON and the kept list.
+Persist the manifest durably so the hand-off survives context compaction, then
+invoke apply (which reads the saved file — no in-session state required):
+
+```
+# Write {manifest, kept} to the fixed repo-scoped path via the audit backend's
+# save mode. It validates the shape and writes atomically (tmp + rename).
+save = run `printf '%s' '{"manifest": {manifest_json}, "kept": {kept_json}}' \
+  | "${CLAUDE_PLUGIN_ROOT}/scripts/git-clean-audit" --save-manifest`
+parse save as JSON
+
+if save.ok == false:
+  STOP — report save.error (manifest was not persisted)
+```
+
+Then invoke `/git-sweep-apply`.
