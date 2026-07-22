@@ -1,12 +1,12 @@
 #!/usr/bin/env bun
 
 // git-clean-audit — Scan git branches and worktrees for cleanup candidates.
-// Outputs structured JSON for consumption by the /clean Claude skill.
+// Emits structured JSON for the git-sweep pipeline (/git-sweep-audit + git-clean-apply).
 
 import { $ } from "bun";
 import { existsSync } from "node:fs";
-
-const SCRIPT = "git-clean-audit";
+import { rename } from "node:fs/promises";
+import { join } from "node:path";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -23,7 +23,7 @@ type BranchInfo = {
 type WorktreeInfo = {
   path: string;
   branch: string | null;
-  reason: "missing-dir" | "broken-ref" | "locked-stale";
+  reason: "missing-dir" | "broken-ref";
 };
 
 type RemoteBranchInfo = {
@@ -51,10 +51,20 @@ type AuditSuccess = {
 type AuditError = {
   ok: false;
   error: string;
-  step: "validate" | "scan-local" | "scan-worktrees" | "scan-remote";
+  step: "validate" | "scan-local" | "scan-worktrees" | "scan-remote" | "internal";
 };
 
 type AuditResult = AuditSuccess | AuditError;
+
+type CleanupManifest = {
+  worktrees: string[];
+  branches: { name: string; force: boolean }[];
+  remote_branches: { remote: string; ref: string }[];
+  prune_remotes: boolean;
+  prune_worktrees: boolean;
+};
+
+type SaveResult = { ok: true; path: string } | { ok: false; error: string };
 
 // ---------------------------------------------------------------------------
 // Git helpers
@@ -128,8 +138,10 @@ async function isSquashMerged(branch: string, base: string): Promise<boolean> {
 // Worktree scanning
 // ---------------------------------------------------------------------------
 
-function parseWorktreeList(porcelain: string): Map<string, string> {
-  // Returns map of branch name -> worktree path
+function parseWorktreeList(porcelain: string, stalePaths: Set<string> = new Set()): Map<string, string> {
+  // Returns map of branch name -> worktree path for ACTIVE worktrees only.
+  // Stale worktree paths are excluded so their branches fall through to the
+  // normal branch classification (merged / orphaned / squash / backup).
   const branchToPath = new Map<string, string>();
   const entries = porcelain.split("\n\n").filter(Boolean);
 
@@ -145,7 +157,7 @@ function parseWorktreeList(porcelain: string): Map<string, string> {
         branch = line.slice(7).replace("refs/heads/", "");
       }
     }
-    if (branch && path) {
+    if (branch && path && !stalePaths.has(path)) {
       branchToPath.set(branch, path);
     }
   }
@@ -199,11 +211,86 @@ async function findStaleWorktrees(porcelain: string): Promise<WorktreeInfo[]> {
 }
 
 // ---------------------------------------------------------------------------
+// Manifest hand-off (durable audit -> apply)
+// ---------------------------------------------------------------------------
+
+function isValidManifest(m: unknown): m is CleanupManifest {
+  if (typeof m !== "object" || m === null) return false;
+  const o = m as Record<string, unknown>;
+  if (!Array.isArray(o.worktrees) || !o.worktrees.every((w) => typeof w === "string")) return false;
+  if (
+    !Array.isArray(o.branches) ||
+    !o.branches.every(
+      (b) =>
+        typeof b === "object" &&
+        b !== null &&
+        typeof (b as { name?: unknown }).name === "string" &&
+        typeof (b as { force?: unknown }).force === "boolean",
+    )
+  ) {
+    return false;
+  }
+  if (
+    !Array.isArray(o.remote_branches) ||
+    !o.remote_branches.every(
+      (r) =>
+        typeof r === "object" &&
+        r !== null &&
+        typeof (r as { remote?: unknown }).remote === "string" &&
+        typeof (r as { ref?: unknown }).ref === "string",
+    )
+  ) {
+    return false;
+  }
+  if (typeof o.prune_remotes !== "boolean") return false;
+  if (typeof o.prune_worktrees !== "boolean") return false;
+  return true;
+}
+
+// Persist {manifest, kept} (read from stdin) to a fixed repo-scoped file so the
+// hand-off to /git-sweep-apply survives context compaction. Atomic: tmp + rename.
+async function saveManifest(): Promise<SaveResult> {
+  const raw = await Bun.stdin.text();
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return { ok: false, error: "invalid JSON on stdin" };
+  }
+  if (typeof parsed !== "object" || parsed === null) {
+    return { ok: false, error: "expected a {manifest, kept} object on stdin" };
+  }
+  const { manifest, kept } = parsed as { manifest?: unknown; kept?: unknown };
+  if (!isValidManifest(manifest)) {
+    return { ok: false, error: "invalid manifest shape" };
+  }
+  if (!Array.isArray(kept) || !kept.every((k) => typeof k === "string")) {
+    return { ok: false, error: "invalid kept list (expected string[])" };
+  }
+
+  const gitDir = await git("rev-parse", "--absolute-git-dir");
+  if (gitDir.exitCode !== 0) {
+    return { ok: false, error: `git rev-parse --absolute-git-dir failed: ${gitDir.stderr}` };
+  }
+
+  const path = join(gitDir.stdout, "git-sweep-manifest.json");
+  const tmp = `${path}.tmp`;
+  await Bun.write(tmp, JSON.stringify({ manifest, kept }, null, 2));
+  await rename(tmp, path);
+  return { ok: true, path };
+}
+
+// ---------------------------------------------------------------------------
 // Main
 // ---------------------------------------------------------------------------
 
-async function main(): Promise<AuditResult> {
+async function main(): Promise<AuditResult | SaveResult> {
   const args = Bun.argv.slice(2);
+
+  // Save-manifest mode: durable hand-off writer, not a scan.
+  if (args.includes("--save-manifest")) {
+    return saveManifest();
+  }
 
   let base = "main";
   let includeRemote = false;
@@ -232,146 +319,183 @@ async function main(): Promise<AuditResult> {
     return { ok: false, error: `base branch '${base}' not found`, step: "validate" };
   }
 
-  // Get current branch (to exclude from cleanup)
-  const currentBranch = (await git("branch", "--show-current")).stdout;
+  try {
+    // Get current branch (to exclude from cleanup)
+    const currentBranch = (await git("branch", "--show-current")).stdout;
 
-  // Get worktree info for cross-referencing
-  const worktreeListRaw = await gitOk("worktree", "list", "--porcelain");
-  const branchWorktreeMap = parseWorktreeList(worktreeListRaw);
+    // Get worktree info for cross-referencing. A failure here is fatal (rather
+    // than silently treating the tree as worktree-free).
+    const worktreeList = await git("worktree", "list", "--porcelain");
+    if (worktreeList.exitCode !== 0) {
+      return { ok: false, error: `git worktree list failed: ${worktreeList.stderr}`, step: "scan-worktrees" };
+    }
+    const worktreeListRaw = worktreeList.stdout;
 
-  // ---------------------------------------------------------------------------
-  // Scan local branches
-  // ---------------------------------------------------------------------------
+    // Identify stale worktrees FIRST, then exclude their paths when building the
+    // active branch->worktree map. This lets a stale worktree's branch flow into
+    // the normal deletion classification instead of being retained as "active".
+    const stale_worktrees = await findStaleWorktrees(worktreeListRaw);
+    const stalePaths = new Set(stale_worktrees.map((w) => w.path));
+    const branchWorktreeMap = parseWorktreeList(worktreeListRaw, stalePaths);
 
-  // Get merged branches
-  const mergedRaw = (await git("branch", "--merged", base, "--format=%(refname:short)")).stdout;
-  const mergedSet = new Set(
-    mergedRaw.split("\n").filter(Boolean).filter((b) => b !== base && b !== currentBranch),
-  );
+    // -------------------------------------------------------------------------
+    // Scan local branches
+    // -------------------------------------------------------------------------
 
-  // Get all local branches
-  const allBranchesRaw = (await git("branch", "--format=%(refname:short)")).stdout;
-  const allBranches = allBranchesRaw.split("\n").filter(Boolean);
+    // Get merged branches (a failed listing is fatal, not an empty result)
+    const mergedResult = await git("branch", "--merged", base, "--format=%(refname:short)");
+    if (mergedResult.exitCode !== 0) {
+      return { ok: false, error: `git branch --merged failed: ${mergedResult.stderr}`, step: "scan-local" };
+    }
+    const mergedSet = new Set(
+      mergedResult.stdout.split("\n").filter(Boolean).filter((b) => b !== base && b !== currentBranch),
+    );
 
-  const kept: string[] = [base];
-  if (currentBranch && currentBranch !== base) {
-    kept.push(currentBranch);
-  }
+    // Get all local branches
+    const allBranchesResult = await git("branch", "--format=%(refname:short)");
+    if (allBranchesResult.exitCode !== 0) {
+      return { ok: false, error: `git branch failed: ${allBranchesResult.stderr}`, step: "scan-local" };
+    }
+    const allBranches = allBranchesResult.stdout.split("\n").filter(Boolean);
 
-  const merged_local: BranchInfo[] = [];
-  const orphaned_worktree: BranchInfo[] = [];
-  const squash_merged: BranchInfo[] = [];
-  const backup: BranchInfo[] = [];
-  const unclassified: string[] = [];
-
-  const maxAgeDate = new Date();
-  maxAgeDate.setDate(maxAgeDate.getDate() - maxAgeDays);
-
-  for (const branch of allBranches) {
-    // Skip protected branches
-    if (branch === base || branch === currentBranch) continue;
-
-    // Skip branches with active worktrees
-    if (branchWorktreeMap.has(branch)) {
-      kept.push(branch);
-      continue;
+    const kept: string[] = [base];
+    if (currentBranch && currentBranch !== base) {
+      kept.push(currentBranch);
     }
 
-    if (mergedSet.has(branch)) {
-      // Category 1 or 2: merged -- check if it's an orphaned worktree branch
-      if (branch.startsWith("worktree-agent-")) {
+    const merged_local: BranchInfo[] = [];
+    const orphaned_worktree: BranchInfo[] = [];
+    const squash_merged: BranchInfo[] = [];
+    const backup: BranchInfo[] = [];
+    const unclassified: string[] = [];
+
+    const maxAgeDate = new Date();
+    maxAgeDate.setDate(maxAgeDate.getDate() - maxAgeDays);
+
+    for (const branch of allBranches) {
+      // Skip protected branches
+      if (branch === base || branch === currentBranch) continue;
+
+      // Skip branches with active worktrees
+      if (branchWorktreeMap.has(branch)) {
+        kept.push(branch);
+        continue;
+      }
+
+      if (mergedSet.has(branch)) {
+        // Category 1 or 2: merged -- check if it's an orphaned worktree branch
+        if (branch.startsWith("worktree-agent-")) {
+          orphaned_worktree.push(await getBranchInfo(branch, base));
+        } else {
+          merged_local.push(await getBranchInfo(branch, base));
+        }
+      } else if (branch.startsWith("backup/")) {
+        // Category 4: backup branch
+        backup.push(await getBranchInfo(branch, base));
+      } else if (branch.startsWith("worktree-agent-")) {
+        // Unmerged worktree-agent branch -- still orphaned
         orphaned_worktree.push(await getBranchInfo(branch, base));
       } else {
-        merged_local.push(await getBranchInfo(branch, base));
-      }
-    } else if (branch.startsWith("backup/")) {
-      // Category 4: backup branch
-      backup.push(await getBranchInfo(branch, base));
-    } else if (branch.startsWith("worktree-agent-")) {
-      // Unmerged worktree-agent branch -- still orphaned
-      orphaned_worktree.push(await getBranchInfo(branch, base));
-    } else {
-      // Candidate for squash-merge detection
-      unclassified.push(branch);
-    }
-  }
-
-  // Squash-merge detection for unclassified branches (gated by max-age)
-  for (const branch of unclassified) {
-    const info = await getBranchInfo(branch, base);
-    const commitDate = new Date(info.last_commit_date);
-
-    if (commitDate >= maxAgeDate && (await isSquashMerged(branch, base))) {
-      squash_merged.push(info);
-    } else {
-      kept.push(branch);
-    }
-  }
-
-  // ---------------------------------------------------------------------------
-  // Scan worktrees
-  // ---------------------------------------------------------------------------
-
-  const stale_worktrees = await findStaleWorktrees(worktreeListRaw);
-
-  // ---------------------------------------------------------------------------
-  // Scan remote branches
-  // ---------------------------------------------------------------------------
-
-  let stale_remote: RemoteBranchInfo[] = [];
-  let stale_tracking: string[] = [];
-
-  if (includeRemote) {
-    // Fetch to get current remote state
-    await git("fetch", "--prune", "origin");
-
-    // Merged remote branches
-    const mergedRemoteRaw = (await git("branch", "-r", "--merged", base, "--format=%(refname:short)")).stdout;
-    const mergedRemotes = mergedRemoteRaw
-      .split("\n")
-      .filter(Boolean)
-      .filter((b) => b.includes("/") && !b.endsWith("/HEAD") && !b.endsWith(`/${base}`));
-
-    // All remote branches
-    const allRemoteRaw = (await git("branch", "-r", "--format=%(refname:short)")).stdout;
-    const allRemotes = allRemoteRaw
-      .split("\n")
-      .filter(Boolean)
-      .filter((b) => !b.endsWith("/HEAD") && !b.endsWith(`/${base}`))
-      .filter((b) => b.includes("/"));
-
-    const mergedRemoteSet = new Set(mergedRemotes);
-
-    for (const remoteBranch of allRemotes) {
-      if (mergedRemoteSet.has(remoteBranch)) {
-        stale_remote.push(await getRemoteBranchInfo(remoteBranch, true));
+        // Candidate for squash-merge detection
+        unclassified.push(branch);
       }
     }
 
-    // Stale tracking refs (after fetch --prune, this should be empty, but check anyway)
-    const pruneResult = await git("remote", "prune", "origin", "--dry-run");
-    if (pruneResult.stdout) {
-      stale_tracking = pruneResult.stdout
-        .split("\n")
-        .filter((line) => line.includes("would prune"))
-        .map((line) => line.replace(/.*would prune\s+/, "").trim());
-    }
-  }
+    // Squash-merge detection for unclassified branches (gated by max-age)
+    for (const branch of unclassified) {
+      const info = await getBranchInfo(branch, base);
+      const commitDate = new Date(info.last_commit_date);
 
-  return {
-    ok: true,
-    base,
-    categories: {
-      merged_local,
-      orphaned_worktree,
-      squash_merged,
-      backup,
-      stale_worktrees,
-      stale_remote,
-      stale_tracking,
-    },
-    kept,
-  };
+      if (commitDate >= maxAgeDate && (await isSquashMerged(branch, base))) {
+        squash_merged.push(info);
+      } else {
+        kept.push(branch);
+      }
+    }
+
+    // -------------------------------------------------------------------------
+    // Scan remote branches (origin-only, non-destructive)
+    // -------------------------------------------------------------------------
+
+    const stale_remote: RemoteBranchInfo[] = [];
+    let stale_tracking: string[] = [];
+
+    if (includeRemote) {
+      // Origin-presence gate: no origin -> fully local, no network, refs intact.
+      const originCheck = await git("remote", "get-url", "origin");
+      if (originCheck.exitCode === 0) {
+        // Non-destructive refresh: update remote-tracking refs WITHOUT pruning
+        // (pruning stays a confirmed apply op) and without clobbering FETCH_HEAD.
+        // Fail-closed: never proceed on stale remote data when offline.
+        const fetchResult = await git("fetch", "--no-prune", "--no-write-fetch-head", "origin");
+        if (fetchResult.exitCode !== 0) {
+          return { ok: false, error: `git fetch origin failed: ${fetchResult.stderr}`, step: "scan-remote" };
+        }
+
+        // Merged remote branches (origin-only: fetch/prune are origin-specific)
+        const mergedRemoteResult = await git("branch", "-r", "--merged", base, "--format=%(refname:short)");
+        if (mergedRemoteResult.exitCode !== 0) {
+          return { ok: false, error: `git branch -r --merged failed: ${mergedRemoteResult.stderr}`, step: "scan-remote" };
+        }
+        const mergedRemotes = mergedRemoteResult.stdout
+          .split("\n")
+          .filter(Boolean)
+          .filter((b) => b.startsWith("origin/") && !b.endsWith("/HEAD") && !b.endsWith(`/${base}`));
+
+        // All remote branches (reject any non-origin prefix)
+        const allRemoteResult = await git("branch", "-r", "--format=%(refname:short)");
+        if (allRemoteResult.exitCode !== 0) {
+          return { ok: false, error: `git branch -r failed: ${allRemoteResult.stderr}`, step: "scan-remote" };
+        }
+        const allRemotes = allRemoteResult.stdout
+          .split("\n")
+          .filter(Boolean)
+          .filter((b) => b.startsWith("origin/") && !b.endsWith("/HEAD") && !b.endsWith(`/${base}`));
+
+        const mergedRemoteSet = new Set(mergedRemotes);
+
+        for (const remoteBranch of allRemotes) {
+          if (mergedRemoteSet.has(remoteBranch)) {
+            stale_remote.push(await getRemoteBranchInfo(remoteBranch, true));
+          }
+        }
+
+        // Stale tracking refs: refs whose upstream is gone. With --no-prune above,
+        // `remote prune --dry-run` reports them honestly (populating stale_tracking
+        // so apply can prune them under confirmation).
+        const pruneResult = await git("remote", "prune", "origin", "--dry-run");
+        if (pruneResult.stdout) {
+          stale_tracking = pruneResult.stdout
+            .split("\n")
+            .filter((line) => line.includes("would prune"))
+            .map((line) => line.replace(/^.*\[would prune\]\s*/, "").trim())
+            .filter(Boolean);
+        }
+      }
+    }
+
+    return {
+      ok: true,
+      base,
+      categories: {
+        merged_local,
+        orphaned_worktree,
+        squash_merged,
+        backup,
+        stale_worktrees,
+        stale_remote,
+        stale_tracking,
+      },
+      kept,
+    };
+  } catch (err) {
+    // Catch-all: any in-process exception still emits one valid AuditError JSON.
+    return {
+      ok: false,
+      error: `internal error: ${err instanceof Error ? err.message : String(err)}`,
+      step: "internal",
+    };
+  }
 }
 
 if (import.meta.main) {

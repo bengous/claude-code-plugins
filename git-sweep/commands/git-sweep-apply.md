@@ -2,6 +2,7 @@
 description: Confirm and execute cleanup manifest. Called by /git-sweep-audit.
 allowed-tools:
   - Bash("${CLAUDE_PLUGIN_ROOT}/scripts/git-clean-apply":*)
+  - Bash(git rev-parse:*)
   - Bash(git branch --list:*)
   - Bash(git branch -r:*)
   - Bash(git worktree list:*)
@@ -14,9 +15,20 @@ Confirm manifest, execute, report results.
 
 ## Inputs
 
-Receives from `/clean-audit`:
-- `manifest`: the CleanupManifest JSON
-- `kept`: list of branch names not selected for deletion
+`/git-sweep-audit` persists `{manifest, kept}` to a fixed repo-scoped file
+before handing off, so this command works from a fresh context (compaction-proof):
+
+```
+manifest_file = run `git rev-parse --absolute-git-dir`/git-sweep-manifest.json
+
+if manifest_file does not exist:
+  STOP — tell user: no pending manifest; run /git-sweep to audit first
+
+read manifest_file → { manifest, kept }
+```
+
+- `manifest`: the CleanupManifest JSON to execute
+- `kept`: branch names automatically retained (protected/current/active/unclassified)
 
 ## Phase 1: Present summary
 
@@ -34,7 +46,7 @@ Display:
   "  Remote branches:  {remote_count}"
   "  Prune refs:       {yes/no based on prune_remotes or prune_worktrees}"
   ""
-  "Keeping: {kept joined by ', '}"
+  "Automatically retained: {kept joined by ', '}"
 ```
 
 Example output:
@@ -45,7 +57,7 @@ Will delete:
   Remote branches:  19
   Prune refs:       yes
 
-Keeping: main
+Automatically retained: main
 ```
 
 ## Phase 2: Confirm
@@ -71,9 +83,20 @@ loop:
 
 ## Phase 3: Execute
 
+Run the apply backend against the saved manifest file. It re-validates the
+manifest shape, executes one operation at a time, and consumes (deletes) the
+file on full success. (`--manifest '{json}'` still works for direct invocation.)
+
 ```
-result = run `"${CLAUDE_PLUGIN_ROOT}/scripts/git-clean-apply" --manifest '{manifest_json}'`
-parse result JSON
+result = run `"${CLAUDE_PLUGIN_ROOT}/scripts/git-clean-apply" --manifest-file "{manifest_file}"`
+capture: stdout, stderr
+
+# Same always-JSON guard as the audit phase: empty / non-JSON stdout means the
+# backend never started.
+if stdout is empty OR stdout is not valid JSON:
+  STOP — report "apply backend failed" with stderr
+
+parse stdout as JSON → result
 ```
 
 ## Phase 4: Report

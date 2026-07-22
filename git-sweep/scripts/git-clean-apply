@@ -1,11 +1,10 @@
 #!/usr/bin/env bun
 
 // git-clean-apply — Execute a cleanup manifest one operation at a time.
-// Outputs structured JSON for consumption by the /clean Claude skill.
+// Consumed by the git-sweep pipeline (/git-sweep-apply, fed by /git-sweep-audit).
 
 import { $ } from "bun";
-
-const SCRIPT = "git-clean-apply";
+import { unlink } from "node:fs/promises";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -39,6 +38,43 @@ type CleanupResult = {
 async function git(...args: string[]): Promise<{ stdout: string; stderr: string; exitCode: number }> {
   const { stdout, stderr, exitCode } = await $`git ${args}`.quiet().nothrow();
   return { stdout: stdout.toString().trim(), stderr: stderr.toString().trim(), exitCode };
+}
+
+// ---------------------------------------------------------------------------
+// Manifest validation
+// ---------------------------------------------------------------------------
+
+function isValidManifest(m: unknown): m is CleanupManifest {
+  if (typeof m !== "object" || m === null) return false;
+  const o = m as Record<string, unknown>;
+  if (!Array.isArray(o.worktrees) || !o.worktrees.every((w) => typeof w === "string")) return false;
+  if (
+    !Array.isArray(o.branches) ||
+    !o.branches.every(
+      (b) =>
+        typeof b === "object" &&
+        b !== null &&
+        typeof (b as { name?: unknown }).name === "string" &&
+        typeof (b as { force?: unknown }).force === "boolean",
+    )
+  ) {
+    return false;
+  }
+  if (
+    !Array.isArray(o.remote_branches) ||
+    !o.remote_branches.every(
+      (r) =>
+        typeof r === "object" &&
+        r !== null &&
+        typeof (r as { remote?: unknown }).remote === "string" &&
+        typeof (r as { ref?: unknown }).ref === "string",
+    )
+  ) {
+    return false;
+  }
+  if (typeof o.prune_remotes !== "boolean") return false;
+  if (typeof o.prune_worktrees !== "boolean") return false;
+  return true;
 }
 
 // ---------------------------------------------------------------------------
@@ -122,29 +158,70 @@ async function main(): Promise<CleanupResult | { ok: false; error: string }> {
   const args = Bun.argv.slice(2);
 
   let manifestJson: string | null = null;
+  let manifestFile: string | null = null;
 
   for (let i = 0; i < args.length; i++) {
     switch (args[i]) {
       case "--manifest":
         manifestJson = args[++i]!;
         break;
+      case "--manifest-file":
+        manifestFile = args[++i]!;
+        break;
       default:
         return { ok: false, error: `unknown argument: ${args[i]}` };
     }
   }
 
-  if (manifestJson === null) {
-    return { ok: false, error: "missing --manifest argument" };
-  }
-
   let manifest: CleanupManifest;
-  try {
-    manifest = JSON.parse(manifestJson) as CleanupManifest;
-  } catch {
-    return { ok: false, error: "invalid JSON in --manifest" };
+  let consumePath: string | null = null;
+
+  if (manifestFile !== null) {
+    // Durable hand-off: file holds {manifest, kept} written by git-clean-audit.
+    let raw: string;
+    try {
+      raw = await Bun.file(manifestFile).text();
+    } catch {
+      return { ok: false, error: `cannot read manifest file: ${manifestFile}` };
+    }
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(raw);
+    } catch {
+      return { ok: false, error: "invalid JSON in manifest file" };
+    }
+    const candidate = (parsed as { manifest?: unknown }).manifest;
+    if (!isValidManifest(candidate)) {
+      return { ok: false, error: "invalid manifest shape in manifest file" };
+    }
+    manifest = candidate;
+    consumePath = manifestFile;
+  } else if (manifestJson !== null) {
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(manifestJson);
+    } catch {
+      return { ok: false, error: "invalid JSON in --manifest" };
+    }
+    if (!isValidManifest(parsed)) {
+      return { ok: false, error: "invalid manifest shape in --manifest" };
+    }
+    manifest = parsed;
+  } else {
+    return { ok: false, error: "missing --manifest or --manifest-file argument" };
   }
 
-  return execute(manifest);
+  const result = await execute(manifest);
+
+  // Consume the durable hand-off file only on a fully successful apply, so a
+  // partial failure leaves it in place for a retry.
+  if (result.ok && consumePath !== null) {
+    try {
+      await unlink(consumePath);
+    } catch {}
+  }
+
+  return result;
 }
 
 if (import.meta.main) {
