@@ -92,7 +92,7 @@ LOOP:
     EXIT
 
   # 1. Spawn reviewers (parallel)
-  Spawn N Task agents in a SINGLE message (parallel execution):
+  Spawn N Agent calls in a SINGLE message (parallel execution):
     - subagent_type: "general-purpose"
     - model: opus (or configured)
     - prompt: reviewer template with filled variables

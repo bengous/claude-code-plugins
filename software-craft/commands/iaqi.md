@@ -2,7 +2,7 @@
 description: Iterative quality improvement loop with parallel reviewers and anchor-based drift prevention
 argument-hint: <artifact-path> [--reviewers N] [--target X.X] [--max-iterations N]
 allowed-tools:
-  - Task
+  - Agent
   - Read
   - Glob
   - Grep
