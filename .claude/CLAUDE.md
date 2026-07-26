@@ -47,27 +47,28 @@ my-plugin/
 
 - All work happens on `dev`. Never commit directly to `main` — commits made while `main` is
   checked out are blocked locally (escape hatch: `MAIN_BYPASS=1`, for recovery only).
-- `main` advances by **fast-forward from `dev`**, never by a merge commit or a rebase:
-  `git push origin dev:main`. Rebase-merging re-signs commits and severs the `main`/`dev`
-  common ancestor, which is the failure this setup exists to prevent.
-- A PR from `dev` is the intended route and the only one non-admins have. The
-  `Protect main branch` ruleset carries a `pull_request` rule, but its bypass actor is the
-  admin role in `always` mode, so an admin's direct fast-forward push succeeds. Treat the
-  PR as convention, not as a guarantee the server will enforce against you.
+- `main` is updated **only via PR from `dev`**, and this is now enforced for everyone: the
+  `Protect main branch` ruleset has no bypass actors, so direct pushes to `main` are refused
+  even for admins. Fast-forwarding `main` by hand is no longer possible.
+- **Merge the PR with a merge commit.** Rebase-merge is disabled at the repo level because it
+  rewrites and re-signs commits, which is exactly what severed the `main`/`dev` common
+  ancestor once already. Squash is available but makes `main`'s history diverge commit-by-commit
+  from `dev`; prefer a merge commit so the two stay comparable.
 - Signed commits are required on **every** branch via the GitHub ruleset `Require signed
-  commits` (target `~ALL`, rule `required_signatures`, same admin bypass).
+  commits` (target `~ALL`, rule `required_signatures`). This one keeps its admin bypass as a
+  recovery hatch.
 - Rulesets are **not** versioned in this repo — if lost, recreate with
   `gh api -X POST repos/bengous/claude-code-plugins/rulesets`. Two exist and they stack:
-  `Protect main branch` (`pull_request`, `non_fast_forward`, `deletion` on `refs/heads/main`)
-  and `Require signed commits`. There is no classic branch protection on `main`; querying
-  `/branches/main/protection` returns 404 by design.
+  `Protect main branch` (`pull_request`, `non_fast_forward`, `deletion` on `refs/heads/main`,
+  no bypass) and `Require signed commits` (admin bypass). There is no classic branch
+  protection on `main`; querying `/branches/main/protection` returns 404 by design.
 - Enforced by: lefthook `pre-commit` (`block-commit-to-main`, version sync, marketplace and
   frontmatter validation) + Claude Code PreToolUse hook (`guard-main-branch.ts`) + the two
   rulesets above + server CI (`.github/workflows/ci.yml`).
-- **CI gap to know about:** the workflow triggers on `pull_request` to `main`/`dev` and on
-  `push` to `dev` only. A direct fast-forward push to `main` runs no CI, so validate on
-  `dev` first and confirm it is green before advancing `main`. The workflow's drift guard
-  checks that `main` and `dev` still share a common ancestor — not that they are identical.
+- CI triggers on `pull_request` to `main`/`dev` and on `push` to `dev` and `main`. `main` is
+  in the push list as a backstop: if a ref update ever reaches it outside the PR path, it
+  still gets validated rather than landing unchecked. The drift guard checks that `main` and
+  `dev` still share a common ancestor — not that they are identical.
 
 ## Quick Start
 

@@ -3,8 +3,11 @@ name: CI
 on:
   pull_request:
     branches: [main, dev]
+  # `main` is included so a ref update that bypasses the PR path still gets
+  # validated server-side. Without it, anything landing on main directly runs
+  # no checks at all.
   push:
-    branches: [dev]
+    branches: [dev, main]
 
 jobs:
   validate:
