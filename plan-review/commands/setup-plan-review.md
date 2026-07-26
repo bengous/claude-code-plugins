@@ -3,7 +3,7 @@ description: Install plan review hooks into project settings
 argument-hint: "[--remove|--dry-run|--force]"
 allowed-tools:
   - Bash(*:*)
-model: haiku
+model: sonnet
 ---
 
 Install plan review hooks into `.claude/settings.local.json`.
