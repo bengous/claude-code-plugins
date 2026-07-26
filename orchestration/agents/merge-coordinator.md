@@ -1,4 +1,5 @@
 ---
+name: merge-coordinator
 description: |
   Merges parallel implementations to root branch with conflict resolution.
   Spawned by /orc orchestrator after implementation agents complete.

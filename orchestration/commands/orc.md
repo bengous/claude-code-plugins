@@ -87,13 +87,14 @@ Write(file_path: ".claude/orc-state/architect-pragmatic.md", content: "")
 ```
 
 #### Dispatch: Spawn all architects in parallel (single message)
+
+Issue all three `Agent` calls in ONE message — that is what makes them run concurrently.
+Tool restrictions and the model come from `agents/architect.md`; do not restate them here.
+
 ```
-Task(
+Agent(
   description: "Architect: Minimal changes",
-  subagent_type: "general-purpose",
-  model: "opus",
-  allowed_tools: ["Read", "Grep", "Glob", "Write"],
-  run_in_background: true,
+  subagent_type: "orchestration:architect",
   prompt: """
     You are the MINIMAL architect. Focus: smallest diff, maximum code reuse, least disruption.
 
@@ -103,14 +104,11 @@ Task(
 
     Include: approach overview, file changes per chunk, key decisions with rationale
   """
-) -> task_id: "bg-1"
+)
 
-Task(
+Agent(
   description: "Architect: Clean architecture",
-  subagent_type: "general-purpose",
-  model: "opus",
-  allowed_tools: ["Read", "Grep", "Glob", "Write"],
-  run_in_background: true,
+  subagent_type: "orchestration:architect",
   prompt: """
     You are the CLEAN architect. Focus: maintainability, clear abstractions, long-term health.
 
@@ -120,14 +118,11 @@ Task(
 
     Include: approach overview, file changes per chunk, key decisions with rationale
   """
-) -> task_id: "bg-2"
+)
 
-Task(
+Agent(
   description: "Architect: Pragmatic balance",
-  subagent_type: "general-purpose",
-  model: "opus",
-  allowed_tools: ["Read", "Grep", "Glob", "Write"],
-  run_in_background: true,
+  subagent_type: "orchestration:architect",
   prompt: """
     You are the PRAGMATIC architect. Focus: practical trade-offs, ship-ready approach.
 
@@ -137,15 +132,14 @@ Task(
 
     Include: approach overview, file changes per chunk, key decisions with rationale
   """
-) -> task_id: "bg-3"
+)
 ```
 
 #### After: Collect results and verify
-```
-TaskOutput(task_id: "bg-1", block: true)
-TaskOutput(task_id: "bg-2", block: true)
-TaskOutput(task_id: "bg-3", block: true)
 
+All three calls return before this step runs.
+
+```
 # Read and verify each proposal exists and has substance
 Read(file_path: ".claude/orc-state/architect-minimal.md")
 Read(file_path: ".claude/orc-state/architect-clean.md")
@@ -211,12 +205,9 @@ Write(file_path: ".claude/orc-state/planning-output.yaml", content: "")
 
 #### Dispatch: Spawn planning coordinator
 ```
-Task(
+Agent(
   description: "Create worktree stack and execution plan",
-  subagent_type: "general-purpose",
-  model: "opus",
-  allowed_tools: ["Bash(git:*)", "Bash(git-wt:*)", "Bash(ls:*)", "Read", "Grep", "Glob", "Write"],
-  run_in_background: true,
+  subagent_type: "orchestration:planning-coordinator",
   prompt: """
     You are the planning coordinator. Create a worktree stack and execution plan.
 
@@ -230,12 +221,11 @@ Task(
 
     Required: stack_id, base_branch, root.path, root.branch, chunks[].path, chunks[].branch, merge_order
   """
-) -> task_id: "planning-bg"
+)
 ```
 
 #### After: Collect and verify
 ```
-TaskOutput(task_id: "planning-bg", block: true)
 Read(file_path: ".claude/orc-state/planning-output.yaml")
 # Verify: valid YAML, has required fields
 ```
@@ -253,11 +243,9 @@ Write(file_path: ".claude/orc-state/impl-chunk-2.md", content: "")
 
 #### Dispatch: Spawn agents in parallel (single message)
 ```
-Task(
+Agent(
   description: "Implement Chunk 1: [name]",
   subagent_type: "general-purpose",
-  allowed_tools: ["Read", "Write", "Edit", "Grep", "Glob", "Bash(git:*)", "Bash(npm:*)", "Bash(cd:*)"],
-  run_in_background: true,
   prompt: """
     You are an implementation agent for Chunk 1.
 
@@ -268,26 +256,24 @@ Task(
     Key files: [from chunk definition]
 
     Implement assigned chunk only. Stay in scope.
+    Touch only files under your assigned worktree path.
 
     Write summary to .claude/orc-state/impl-chunk-1.md
     Include: files changed, implementation summary, notes for merge coordinator
   """
-) -> task_id: "impl-1"
+)
 
-Task(
+Agent(
   description: "Implement Chunk 2: [name]",
+  subagent_type: "general-purpose",
   # ... same pattern
-) -> task_id: "impl-2"
+)
 
-# ... for each chunk
+# ... for each chunk — all in ONE message
 ```
 
 #### After: Collect ALL results
 ```
-TaskOutput(task_id: "impl-1", block: true)
-TaskOutput(task_id: "impl-2", block: true)
-# ... for each chunk
-
 # Verify each implementation summary exists
 Read(file_path: ".claude/orc-state/impl-chunk-1.md")
 Read(file_path: ".claude/orc-state/impl-chunk-2.md")
@@ -304,12 +290,9 @@ Write(file_path: ".claude/orc-state/merge-summary.md", content: "")
 
 #### Dispatch: Spawn merge coordinator
 ```
-Task(
+Agent(
   description: "Merge implementations to root branch",
-  subagent_type: "general-purpose",
-  model: "opus",
-  allowed_tools: ["Bash(git:*)", "Bash(git-wt:*)", "Bash(cd:*)", "Read", "Edit", "Write", "TaskCreate", "TaskUpdate", "TaskList", "TaskGet"],
-  run_in_background: true,
+  subagent_type: "orchestration:merge-coordinator",
   prompt: """
     You are the merge coordinator.
 
@@ -325,12 +308,11 @@ Task(
 
     Write summary to .claude/orc-state/merge-summary.md
   """
-) -> task_id: "merge-bg"
+)
 ```
 
 #### After: Collect and verify
 ```
-TaskOutput(task_id: "merge-bg", block: true)
 Read(file_path: ".claude/orc-state/merge-summary.md")
 ```
 
@@ -365,11 +347,9 @@ Write(file_path: ".claude/orc-state/review-findings.json", content: "")
 
 #### Dispatch: Spawn reviewer agent(s)
 ```
-Task(
+Agent(
   description: "Review merged implementation",
   subagent_type: "general-purpose",
-  allowed_tools: ["Read", "Grep", "Glob", "Write"],
-  run_in_background: true,
   prompt: """
     You are a code reviewer. Focus: simplicity/DRY, bugs, code quality.
 
@@ -384,12 +364,11 @@ Task(
       "low": [...]
     }
   """
-) -> task_id: "review-bg"
+)
 ```
 
 #### After: Collect and verify
 ```
-TaskOutput(task_id: "review-bg", block: true)
 Read(file_path: ".claude/orc-state/review-findings.json")
 ```
 
@@ -443,7 +422,7 @@ Uses `git-wt --stack`: creates stack, returns JSON with paths/branches. Children
 Pre-commit/pre-push hooks handle linting, type checking, tests automatically.
 
 ### Subagent Communication
-Subagents are stateless: separate task context, no follow-up messages, communicate only via output files. Use pre-truncate → dispatch → TaskOutput → verify pattern.
+Subagents are stateless: separate context, no follow-up messages, communicate only via output files. Use pre-truncate → dispatch → verify pattern. Spawn with `Agent`; issue concurrent calls in a single message. Per-call tool restriction is not available — restrictions live in the agent definitions under `agents/`, which is why the coordinators are spawned by `subagent_type` rather than inline.
 
 ### State Directory
 All subagent output goes to `.claude/orc-state/`. Pre-truncate files before dispatch, verify after return.
@@ -455,9 +434,9 @@ Worktree stacks provide isolation. Agents work in separate directories under `<r
 Stop and inform user if: `git-wt` unavailable, blocking agent errors, unresolvable conflicts, scope creep, HIGH severity findings.
 
 ### Error Handling
-If a subagent fails after 2 attempts:
-1. `TaskStop(task_id: "bg-X")` to clean up stuck background task
-2. `AskUserQuestion` with structured options (retry, skip, abort)
+If a subagent fails after 2 attempts, escalate with `AskUserQuestion` using structured
+options (retry, skip, abort). A failed `Agent` call returns without producing its output
+file — detect it in the verify step, not by polling.
 
 ### Context Management
 

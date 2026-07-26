@@ -271,9 +271,9 @@ Read orchestration/agents/testing-specialist.md
 
 Inject variables into template (replace placeholders like `{WORKTREE_PATH}`, `{MODULE}`, etc.).
 
-Use Task tool:
+Use Agent tool:
 ```typescript
-Task({
+Agent({
   subagent_type: 'general-purpose',
   model: 'sonnet',
   description: 'Test ${MODULE}/${LAYER} coverage',

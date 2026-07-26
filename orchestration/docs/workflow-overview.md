@@ -346,7 +346,7 @@ Use TaskCreate/TaskUpdate/TaskList for tracking progress. Subagent output files 
 All subagents are stateless:
 - Cannot access parent's task context
 - Cannot be messaged after spawning
-- Communicate via output files (pre-truncate → dispatch → TaskOutput → verify)
+- Communicate via output files (pre-truncate → dispatch → verify)
 
 ---
 

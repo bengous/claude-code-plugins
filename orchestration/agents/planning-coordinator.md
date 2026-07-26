@@ -1,4 +1,5 @@
 ---
+name: planning-coordinator
 description: |
   Creates execution plan and worktrees for parallel implementation.
   Spawned by /orc orchestrator during Phase 2 planning.

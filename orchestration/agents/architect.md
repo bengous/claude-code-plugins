@@ -1,7 +1,13 @@
 ---
+name: architect
 description: Designs architecture approach for complex features
 subagent-type: general-purpose
 model: opus
+allowed-tools:
+  - Read(*:*)
+  - Grep(*:*)
+  - Glob(*:*)
+  - Write(*:*)
 ---
 
 # Architect Agent

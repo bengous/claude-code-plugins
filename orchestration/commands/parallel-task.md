@@ -2,7 +2,7 @@
 description: Execute bulk modifications across codebase with parallel agents and safety guarantees
 argument-hint: <task-description>
 allowed-tools:
-  - Task
+  - Agent
   - Glob
   - Grep
   - Read
@@ -17,7 +17,7 @@ $ARGUMENTS
 </task>
 
 <tools>
-- **Task**: Spawn explore/worker agents
+- **Agent**: Spawn explore/worker agents
 - **Glob/Grep/Read**: Codebase exploration
 - **AskUserQuestion**: Get approval before execution
 - **Bash**: Run verification commands, git operations
@@ -41,15 +41,15 @@ $ARGUMENTS
 
 Spawn N explore agents analyzing different areas.
 
-**Spawn ALL explore agents in a SINGLE message using parallel Task tool calls:**
+**Spawn ALL explore agents in a SINGLE message using parallel Agent tool calls:**
 
 ```
-Task 1: subagent_type="Explore", model="sonnet", prompt="Analyze [scope1] for [task]. Report: files to change, patterns to follow, risks."
-Task 2: subagent_type="Explore", model="sonnet", prompt="Analyze [scope2] for [task]. Report: files to change, patterns to follow, risks."
+Agent 1: subagent_type="Explore", model="sonnet", prompt="Analyze [scope1] for [task]. Report: files to change, patterns to follow, risks."
+Agent 2: subagent_type="Explore", model="sonnet", prompt="Analyze [scope2] for [task]. Report: files to change, patterns to follow, risks."
 ...
 ```
 
-Use `model="haiku"` for gates or external exploration (web searches, MCP tools).
+`sonnet` is the floor for exploration work; do not route these to a cheaper tier.
 
 Collect reports, identify what to change vs preserve, estimate impact.
 
@@ -63,11 +63,11 @@ Collect reports, identify what to change vs preserve, estimate impact.
 
 Spawn N worker agents with strict scope isolation.
 
-**Spawn ALL worker agents in a SINGLE message using parallel Task tool calls:**
+**Spawn ALL worker agents in a SINGLE message using parallel Agent tool calls:**
 
 ```
-Task 1: subagent_type="general-purpose", model="opus", prompt="[Detailed instructions for scope1]"
-Task 2: subagent_type="general-purpose", model="opus", prompt="[Detailed instructions for scope2]"
+Agent 1: subagent_type="general-purpose", model="opus", prompt="[Detailed instructions for scope1]"
+Agent 2: subagent_type="general-purpose", model="opus", prompt="[Detailed instructions for scope2]"
 ...
 ```
 

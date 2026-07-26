@@ -9,7 +9,7 @@ allowed-tools:
   - Read(*:*)
   - Grep(*:*)
   - Glob(*:*)
-  - Task(*:*)
+  - Agent(*:*)
 ---
 
 # Layer Testing Skill
@@ -168,7 +168,7 @@ git worktree add ../worktree-${BRANCH} -b ${BRANCH}
 7. **Spawn Testing Agent**
 
 ```typescript
-Task({
+Agent({
   subagent_type: 'general-purpose',
   description: 'Test ${MODULE}/${LAYER}',
   prompt: `
