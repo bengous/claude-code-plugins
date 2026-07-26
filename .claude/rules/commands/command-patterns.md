@@ -23,10 +23,14 @@ model: opus
 [Instructions for Claude on how to execute this command]
 ```
 
-**Model options:**
-- `opus` or `claude-opus-4-5` - Complex reasoning, multi-step workflows
-- `sonnet` or `claude-sonnet-4-5` - Moderate complexity
-- Default (no model specified) may use Haiku - only for simple commands
+**Model options** — always use the abstract alias, never a pinned model ID. Pinned IDs go
+stale every generation; the alias resolves to the current model.
+
+- `opus` - Complex reasoning, multi-step workflows
+- `sonnet` - Moderate complexity; this is the floor
+
+Never route to Haiku. Omitting `model:` inherits the session model, which is the right
+default for most commands.
 
 ## Path Resolution
 

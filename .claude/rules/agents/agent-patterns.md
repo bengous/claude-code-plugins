@@ -21,10 +21,13 @@ allowed-tools:
 ---
 ```
 
-**Model options:**
-- `opus` or `claude-opus-4-5` - Complex reasoning, architecture, multi-step tasks
-- `sonnet` or `claude-sonnet-4-5` - Simpler tasks, faster execution
-- `haiku` - Quick, simple operations
+**Model options** — always use the abstract alias, never a pinned model ID. Pinned IDs go
+stale every generation; the alias resolves to the current model.
+
+- `opus` - Complex reasoning, architecture, multi-step tasks
+- `sonnet` - Simpler tasks, faster execution; this is the floor
+
+Never route to Haiku.
 
 ## Agent Structure
 
