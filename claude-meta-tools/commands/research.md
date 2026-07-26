@@ -2,10 +2,10 @@
 description: Research documentation using optimal MCP sources
 argument-hint: "[query]"
 allowed-tools:
-  - Task
+  - Agent
 ---
 
-Call the Task tool with `subagent_type: "claude-meta-tools:research-agent"`.
+Call the Agent tool with `subagent_type: "claude-meta-tools:research-agent"`.
 
 Pass the query exactly as provided: `$ARGUMENTS`
 

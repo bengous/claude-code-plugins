@@ -2,10 +2,10 @@
 description: Learn which MCP tools to use for researching a topic
 argument-hint: "<topic>"
 allowed-tools:
-  - Task
+  - Agent
 ---
 
-Call the Task tool with `subagent_type: "claude-meta-tools:research-teacher"`.
+Call the Agent tool with `subagent_type: "claude-meta-tools:research-teacher"`.
 
 Pass the topic exactly as provided: `$ARGUMENTS`
 

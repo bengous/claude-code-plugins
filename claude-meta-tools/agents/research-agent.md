@@ -8,7 +8,6 @@ allowed-tools:
   - mcp__MCP_DOCKER__mcp-find
   - mcp__MCP_DOCKER__mcp-add
   - mcp__MCP_DOCKER__mcp-exec
-  - mcp__bun__SearchBun
   - WebFetch
   - WebSearch
 ---
@@ -28,7 +27,6 @@ Check if any word in the query matches this table:
 | Keywords | Action |
 |----------|--------|
 | next, nextjs, next.js, SSR, app router, server components | `mcp-add "next-devtools-mcp"` → `mcp-exec name="nextjs_docs" arguments={"query": "...", "category": "guides"}` |
-| bun, bunjs | Use `mcp__bun__SearchBun` directly |
 
 **If matched:** Proceed to Step 2.
 

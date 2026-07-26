@@ -49,9 +49,9 @@ For each file in the workflow, identify:
 1. **Entry point**: What triggers this? (slash command, agent spawn, hook event, function call)
 2. **Argument handling**: How are inputs parsed or interpreted?
 3. **Sequential steps**: Walk through the instructions/code in order
-4. **Tool calls**: What tools does it invoke? (Read, Glob, Grep, Bash, Task, Write, Edit, AskUserQuestion, Skill, etc.)
+4. **Tool calls**: What tools does it invoke? (Read, Glob, Grep, Bash, Agent, Write, Edit, AskUserQuestion, Skill, etc.)
 5. **Decision branches**: Where does flow split? What conditions determine the path?
-6. **Delegations**: Does it spawn sub-agents (Task tool)? If so:
+6. **Delegations**: Does it spawn sub-agents (Agent tool)? If so:
    - Read the agent definition file
    - Trace the agent's own execution path
    - Note what the agent returns

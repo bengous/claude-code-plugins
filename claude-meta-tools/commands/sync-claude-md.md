@@ -1,5 +1,5 @@
 ---
-description: Synchronize project CLAUDE.md with recent codebase changes by analyzing git history, reviewing against official Anthropic best practices using parallel agents, and proposing comprehensive updates. Use when CLAUDE.md is outdated or doesn't exist.
+description: Sync project CLAUDE.md with recent codebase changes. Use when CLAUDE.md is outdated or missing.
 allowed-tools:
   - Bash(git:*)
   - Skill
@@ -38,7 +38,7 @@ Natural invocation:
 
 2. **Invoke the skill:**
    ```
-   Skill(skill: "sync-claude-md")
+   Skill(skill: "claude-meta-tools:sync-claude-md")
    ```
    Provide context: project directory and git repo status.
 
