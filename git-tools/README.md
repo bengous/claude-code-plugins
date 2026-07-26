@@ -26,53 +26,9 @@ This plugin is part of the bengous-plugins marketplace. To install:
 
 ## Commands
 
-### `/analyze-git`
-
-Analyze your git repository for cleanup opportunities. This is a READ-ONLY command that identifies:
-
-- Local branches marked as `[gone]` (remote deleted)
-- Prunable worktrees
-- Dependabot PRs that are closed/merged but still have branches
-- Overall branch inventory
-
-**Usage:**
-```bash
-/git-tools:analyze-git
-```
-
-**Output:**
-- Comprehensive report of cleanup opportunities
-- Branch counts and specific names
-- No modifications performed
-
-**Follow-up:** Use `/git-tools:cleanup-git` after reviewing the analysis.
-
----
-
-### `/cleanup-git`
-
-Perform git repository cleanup based on `/analyze-git` findings.
-
-**IMPORTANT:** This command performs DESTRUCTIVE operations. Always run `/git-tools:analyze-git` first.
-
-**Usage:**
-```bash
-/git-tools:cleanup-git
-```
-
-**Operations:**
-1. Remove worktrees and delete branches marked as `[gone]`
-2. Prune stale worktrees
-3. Clean up closed/merged dependabot branches
-4. Provide cleanup summary
-
-**Safety:**
-- Preserves main/dev/master branches
-- Preserves current branch
-- Preserves active dependabot PRs (OPEN status)
-- Cannot be easily undone - use with caution
-
----
+> Branch and worktree cleanup moved to the `git-sweep` plugin (`/git-sweep`), which
+> supersedes the former `/analyze-git` and `/cleanup-git` commands. See
+> `archive/git-legacy/` for the retired versions.
 
 ### `/triage`
 

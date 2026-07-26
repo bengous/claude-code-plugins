@@ -26,7 +26,7 @@ Is this triggered by the user typing a slash command?
 ## When to Use Each
 
 **Commands** - Entry points for user interaction
-- `/analyze-git` - User wants git analysis
+- `/git-sweep` - User wants stale branch/worktree cleanup
 - `/issue` - User wants to create an issue
 
 **Hooks** - Enforcement and safety
