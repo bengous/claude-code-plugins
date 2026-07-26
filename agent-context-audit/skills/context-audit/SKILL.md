@@ -28,7 +28,7 @@ Output is concrete fix proposals — exact changes with rationale, budget impact
 - Never auto-commit; never delete content without presenting it to the user first
 - Label every finding deterministic vs heuristic; use `~N` for heuristic counts, not false precision
 - Treat CLAUDE.md and AGENTS.md identically — same methodology, same budget
-- Never flag Claude Code native references as stale — slash commands, skill invocations, `${CLAUDE_PLUGIN_ROOT}` paths, Task/Agent calls (full list in `references/anti-patterns.md`). Exception: `@file` import syntax is native, but missing import targets are still findings (Phase 1 verifies them)
+- Never flag Claude Code native references as stale — slash commands, skill invocations, `${CLAUDE_PLUGIN_ROOT}` paths, `Agent` calls (full list in `references/anti-patterns.md`). Exception: `@file` import syntax is native, but missing import targets are still findings (Phase 1 verifies them)
 - Read both reference files before Phase 4
 </constraints>
 

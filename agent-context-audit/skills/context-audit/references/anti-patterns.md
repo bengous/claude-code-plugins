@@ -232,7 +232,7 @@ These patterns are valid Claude Code ecosystem references and must not be flagge
 | `/command-name` | Slash command invocation |
 | `Skill(skill: "name")` | Skill invocation |
 | `${CLAUDE_PLUGIN_ROOT}/...` | Plugin-relative path (resolved at runtime) |
-| `Task(...)` / `Agent(...)` | Subagent tool calls |
+| `Agent(...)` | Subagent tool call |
 | `.claude/rules/`, `.claude/settings.json` | Claude Code config paths |
 | `~/.claude/CLAUDE.md` | Global config path |
 | `CLAUDE.local.md` | Local override file |

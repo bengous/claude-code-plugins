@@ -47,7 +47,7 @@ Present the discovered files to the user and ask which to audit (default: all ro
 ## Step 2: Invoke the audit skill
 
 ```
-Skill(skill: "context-audit")
+Skill(skill: "agent-context-audit:context-audit")
 ```
 
 Pass the list of files to audit. The skill handles all phases: import resolution, budget scoring, deterministic checks, anti-pattern detection, proposal generation, and reporting.

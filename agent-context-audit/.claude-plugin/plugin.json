@@ -1,6 +1,6 @@
 {
   "name": "agent-context-audit",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "Audit CLAUDE.md and AGENTS.md files against research-backed best practices with instruction budget scoring and concrete fix proposals",
   "author": {
     "name": "Augustin BENGOLEA",
