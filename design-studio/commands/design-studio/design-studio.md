@@ -3,7 +3,7 @@ description: Generate 5 unique website designs
 argument-hint: <url> [--port 5173]
 model: opus
 allowed-tools:
-  - Task
+  - Agent
   - Read
   - Write
   - Edit
@@ -201,10 +201,9 @@ DESIGN_REPORT_END
 ### Step 3.2: Spawn Designer
 
 ```
-Task(
+Agent(
   description: "Create 5 unique designs",
-  subagent_type: "general-purpose",
-  model: "opus",
+  subagent_type: "design-studio:designer",
   prompt: [THE INJECTED PROMPT FROM STEP 3.1]
 )
 ```

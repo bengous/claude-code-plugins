@@ -1,4 +1,5 @@
 ---
+name: designer
 description: Creates 5 unique design variants sequentially in a single context
 subagent-type: general-purpose
 model: opus

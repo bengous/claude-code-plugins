@@ -239,7 +239,7 @@
     {
       "name": "design-studio",
       "description": "Generate 5 unique website redesigns using Theo's pattern: one agent, sequential creation, natural differentiation",
-      "version": "1.0.0",
+      "version": "1.0.1",
       "author": {
         "name": "Augustin BENGOLEA",
         "email": "bengous@protonmail.com"
