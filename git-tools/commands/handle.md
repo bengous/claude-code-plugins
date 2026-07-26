@@ -6,7 +6,7 @@ allowed-tools:
   - Read(*:*)
   - Grep(*:*)
   - Glob(*:*)
-  - Task(*:*)
+  - Agent(*:*)
   - EnterPlanMode(*:*)
   - AskUserQuestion(*:*)
 ---
