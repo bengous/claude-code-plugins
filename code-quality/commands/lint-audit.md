@@ -8,7 +8,7 @@ allowed-tools:
   - Grep
   - WebFetch
   - WebSearch
-  - Task
+  - Agent
   - AskUserQuestion
   - mcp__Context7__resolve-library-id
   - mcp__Context7__get-library-docs
@@ -74,10 +74,10 @@ Spawn these when:
 - User asks for "best practices" or "modern approach"
 - Biome explanation lacks context on WHY the rule exists
 
-**Launch 3 subagents in parallel using a single Task tool call:**
+**Launch 3 subagents in parallel using Agent calls in a single message:**
 
 <subagents parallel="true">
-<subagent name="eslint-research" type="Explore" model="haiku">
+<subagent name="eslint-research" type="Explore" model="sonnet">
 Research the ESLint origin of the "$ARGUMENTS" lint rule.
 
 1. WebSearch: "ESLint $ARGUMENTS rule"
@@ -91,7 +91,7 @@ Return:
 - Link to docs
 </subagent>
 
-<subagent name="community-sentiment" type="Explore" model="haiku">
+<subagent name="community-sentiment" type="Explore" model="sonnet">
 Research community opinions on the "$ARGUMENTS" lint rule.
 
 1. WebSearch: "$ARGUMENTS rule controversy github"
@@ -106,7 +106,7 @@ Return:
 - Links to sources
 </subagent>
 
-<subagent name="framework-practices" type="Explore" model="haiku">
+<subagent name="framework-practices" type="Explore" model="sonnet">
 Research framework best practices related to "$ARGUMENTS".
 
 1. Identify which framework this rule applies to (React, Next.js, etc.)
@@ -185,9 +185,8 @@ Structure your report as:
 A well-crafted fix prompt enables autonomous execution with minimal supervision. Include enough context for the subagent to make judgment calls, but constrain scope to prevent over-engineering.
 </context>
 
-If fixes are warranted, generate a subagent prompt following Claude 4 best practices. Include a model recommendation based on fix complexity:
-- `model: haiku` — Simple, mechanical fixes (rename, add import, wrap value)
-- `model: sonnet` — Moderate complexity (pattern changes across files)
+If fixes are warranted, generate a subagent prompt following current prompting guidance. Include a model recommendation based on fix complexity:
+- `model: sonnet` — Simple to moderate (rename, add import, pattern changes across files)
 - `model: opus` — Complex refactoring (architectural changes, judgment-heavy decisions)
 
 ```markdown
