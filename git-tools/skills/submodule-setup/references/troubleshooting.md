@@ -27,6 +27,40 @@ rm -rf <submodule-dir-1> <submodule-dir-2>
 # 5. Delete GitHub repos created during setup
 gh repo delete <org>/<parent>-<submodule-1> --yes
 gh repo delete <org>/<parent>-<submodule-2> --yes
+
+# 6. Remove the shared secret from every repo that survives deletion
+#    (at minimum the parent, which you are keeping)
+gh secret delete PARENT_REPO_PAT --repo <org>/<parent>
+
+# 7. Revoke the fine-grained PAT itself
+#    https://github.com/settings/personal-access-tokens
+```
+
+#### If the workflows were already pushed
+
+Steps 1-4 only fix your local clone. `.github/workflows/update-submodules.yml` runs on a
+6-hour cron (`schedule: '0 */6 * * *'`), and **that cron keeps firing as long as the file
+exists on the remote default branch** — resetting locally is not enough. Once the submodules
+are gone the job fails on every run.
+
+```bash
+# Confirm whether the workflow is still registered
+gh workflow list --all
+
+# If it is, remove the file from the default branch and push
+git rm .github/workflows/update-submodules.yml
+git commit -m "chore: remove submodule sync workflow"
+git push
+```
+
+GitHub deregisters the workflow once the file leaves the default branch; `gh workflow list
+--all` will stop reporting it. Failed runs already recorded stay in the Actions history and
+are inert — they cannot re-trigger. Delete them only if the noise bothers you:
+
+```bash
+gh run list --limit 200 --json databaseId,name \
+  --jq '.[] | select(.name=="Auto-Update Submodules") | .databaseId' \
+| xargs -I{} gh api -X DELETE repos/<org>/<parent>/actions/runs/{}
 ```
 
 ### Partial Rollback (Remove One Submodule)
