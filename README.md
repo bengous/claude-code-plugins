@@ -27,7 +27,7 @@ A curated marketplace of Claude Code plugins for development workflow automation
 | [git-worktree](git-worktree/) | 1.2.0 | Git worktree helper with stack support for multi-agent orchestration |
 | [plan-review](plan-review/) | 1.0.2 | Multi-agent plan review workflow requiring architect and simplifier approval before plan execution |
 | [agents-bridge](agents-bridge/) | 1.8.3 | Bridge to the OpenAI Codex CLI for cross-model collaboration |
-| [conductor](conductor/) | 1.3.5 | Conversational planning skill that produces self-contained implementation plans |
+| [conductor](conductor/) | 1.3.6 | Conversational planning skill that produces self-contained implementation plans |
 | [software-craft](software-craft/) | 1.0.2 | Opinionated design skills for software excellence: CLI design, system architecture, and more |
 | [plugin-dev](plugin-dev/) | 1.1.1 | Dev tool for syncing Claude Code plugin cache from local sources |
 | [git-sweep](git-sweep/) | 1.1.0 | Interactive git branch and worktree cleanup with smart categorization, squash-merge detection, and backup analysis |

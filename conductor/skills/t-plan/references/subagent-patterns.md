@@ -29,10 +29,8 @@ for attempt in 1..MAX_ATTEMPTS:
   # Pre-truncate
   Write(file_path: output_file, content: "")
 
-  # Dispatch subagent and capture task_id for potential cleanup
-  result = Task(description: "...", subagent_type: "...", prompt: "...", run_in_background: true)
-  bg_task_id = result.task_id
-  TaskOutput(task_id: bg_task_id, block: true)
+  # Dispatch subagent; the call returns when the agent finishes
+  Agent(description: "...", subagent_type: "...", prompt: "...")
 
   # Verify
   content = Read(file_path: output_file)
@@ -41,9 +39,6 @@ for attempt in 1..MAX_ATTEMPTS:
     TaskUpdate(taskId: "tracking-task-id", status: "completed")
     break
   elif attempt == MAX_ATTEMPTS:
-    # Stop any stuck background task before escalating
-    TaskStop(task_id: bg_task_id)
-
     # Escalate with structured options
     AskUserQuestion(questions: [{
       question: "Subagent failed after 2 attempts. Last output: [preview]. How to proceed?",
@@ -74,40 +69,26 @@ TaskCreate(subject: "EXPLORE: auth module", description: "...", metadata: {"outp
 TaskCreate(subject: "EXPLORE: database layer", description: "...", metadata: {"output_file": "explore-db.md"})
 TaskCreate(subject: "EXPLORE: API endpoints", description: "...", metadata: {"output_file": "explore-api.md"})
 
-# Spawn all three Explore agents in parallel with run_in_background
-Task(
+# Spawn all three Explore agents in ONE message — that is what makes them concurrent
+Agent(
   description: "Explore auth module",
   subagent_type: "Explore",
-  allowed_tools: ["Read", "Grep", "Glob", "Write"],
-  prompt: "Write to explore-auth.md...",
-  run_in_background: true
-) -> returns task_id: "bg-1"
+  prompt: "Write to explore-auth.md..."
+)
 
-Task(
+Agent(
   description: "Explore database layer",
   subagent_type: "Explore",
-  allowed_tools: ["Read", "Grep", "Glob", "Write"],
-  prompt: "Write to explore-db.md...",
-  run_in_background: true
-) -> returns task_id: "bg-2"
+  prompt: "Write to explore-db.md..."
+)
 
-Task(
+Agent(
   description: "Explore API endpoints",
   subagent_type: "Explore",
-  allowed_tools: ["Read", "Grep", "Glob", "Write"],
-  prompt: "Write to explore-api.md...",
-  run_in_background: true
-) -> returns task_id: "bg-3"
+  prompt: "Write to explore-api.md..."
+)
 
-# Collect results using TaskOutput (blocks until each completes)
-TaskOutput(task_id: "bg-1", block: true)
-TaskOutput(task_id: "bg-2", block: true)
-TaskOutput(task_id: "bg-3", block: true)
-
-# If any task failed or timed out, clean up before proceeding:
-# TaskStop(task_id: "bg-X") for any incomplete background tasks
-
-# Verify each output file
+# All three have returned by this point. Verify each output file
 Read(file_path: ".t-plan/${SESSION_ID}/explore-auth.md")
 Read(file_path: ".t-plan/${SESSION_ID}/explore-db.md")
 Read(file_path: ".t-plan/${SESSION_ID}/explore-api.md")

@@ -1,37 +1,28 @@
 ---
 name: t-plan
-description: Thorough planning for complex features using Task-based orchestration. Turn discussions into executable, self-contained implementation plans. USE for multi-file features, architectural changes, unfamiliar tech requiring research. SKIP for quick fixes or single-file changes.
+description: Thorough planning for complex features via delegated subagents. Turn discussions into executable, self-contained implementation plans. USE for multi-file features, architectural changes, unfamiliar tech requiring research. SKIP for quick fixes or single-file changes.
 ---
 
-# T-Plan Skill (Task-Based Orchestration)
+# T-Plan Skill
 
-## MANDATORY: STOP AND READ THIS FIRST
+You are the orchestrator here, not the implementer. Exploration, alternatives research, and
+documentation validation each belong to a subagent, so the plan is assembled from
+independent findings rather than from one context that already decided the answer.
 
-**You are an ORCHESTRATOR, not an implementer.**
-
-Before doing ANYTHING else, you MUST:
-
-1. **Create the session directory** with `mkdir -p .t-plan/<session-id>`
-2. **Write intent.md** capturing the user's request
-3. **Create the master task** with TaskCreate
-
-**You MUST NOT:**
-- Use Read, Grep, Glob, or WebSearch yourself (that's the EXPLORE subagent's job)
-- Research documentation yourself (that's the VALIDATE subagent's job)
-- Skip directly to analysis or recommendations
-
-**If you find yourself exploring the codebase before writing intent.md, STOP. You have violated the workflow.**
-
-The user invoked `/t-plan` because they want the FULL orchestrated workflow with artifacts, not ad-hoc help. Follow the steps below EXACTLY.
+Start by creating the session directory (`mkdir -p .t-plan/<session-id>`), writing
+`intent.md` to capture the request, and creating the master task with `TaskCreate`. The
+artifacts are the point — the user invoked `/t-plan` for the full orchestrated workflow, not
+ad-hoc help.
 
 ---
 
-Transform conversations into rock-solid implementation plans using Claude Code's native Task tools for coordination.
+Transform conversations into rock-solid implementation plans, coordinating subagents with
+the `Agent` tool and tracking their work with the `Task*` tools.
 
 ## Architecture Overview
 
 ```
-No hooks required - Task tools handle all coordination natively.
+No hooks required - Agent dispatch plus the Task* tools handle all coordination natively.
 
 Orchestrator responsibilities:
 - Session initialization (mkdir, .gitignore, current.txt pointer)
@@ -142,7 +133,7 @@ Write: .t-plan/${SESSION_ID}/explore.md -> ""
 TaskCreate(subject: "EXPLORE: [area]", metadata: {"output_file": "explore.md"})
 
 # Dispatch
-Task(subagent_type: "Explore", allowed_tools: ["Read", "Grep", "Glob", "Write"], prompt: """
+Agent(subagent_type: "Explore", prompt: """
   **Context**: Read .t-plan/${SESSION_ID}/intent.md
 
   **Task**: Explore codebase to understand:
@@ -183,7 +174,7 @@ Write: .t-plan/${SESSION_ID}/scout.md -> ""
 TaskCreate(subject: "SCOUT: alternatives")
 
 # Dispatch
-Task(subagent_type: "general-purpose", allowed_tools: ["Read", "Grep", "Glob", "Write"], prompt: """
+Agent(subagent_type: "general-purpose", prompt: """
   **Context**: Read intent.md and explore.md
 
   **Task**: Search for alternatives MEANINGFULLY simpler:
@@ -247,8 +238,7 @@ Write: .t-plan/${SESSION_ID}/validation-v001.json -> ""
 TaskCreate(subject: "VALIDATE: draft v1")
 
 # Dispatch
-Task(subagent_type: "general-purpose",
-     allowed_tools: ["Read", "Grep", "Glob", "Write", "WebSearch", "WebFetch"],
+Agent(subagent_type: "general-purpose",
      prompt: """
   **Context**: Read intent.md, explore.md, scout.md (if exists), draft-v001.md
 
@@ -305,7 +295,7 @@ TaskUpdate(status: "completed")
 
 Present next steps via AskUserQuestion:
 - **Execute now**: Exit plan mode, begin implementation
-- **Spawn agent**: Create Task with plan.md as context
+- **Spawn agent**: Spawn an Agent with plan.md as context
 - **Save for later**: Report plan location, session complete
 
 ---
