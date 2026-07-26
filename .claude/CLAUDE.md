@@ -45,10 +45,29 @@ my-plugin/
 
 ## Branching
 
-- All work happens on `dev`. Never commit directly to `main`.
-- `main` is updated only via PR from `dev` (branch protection enforced).
-- Signed commits are required on **every** branch via the GitHub ruleset `Require signed commits` (target `~ALL`, rule `required_signatures`, admin bypass). This prevents the mass re-signing that previously severed the `main`/`dev` common ancestor. Rulesets are **not** versioned in this repo — if lost, recreate with `gh api -X POST repos/bengous/claude-code-plugins/rulesets` (alongside the existing `Protect main branch` ruleset; they stack).
-- Enforced by: lefthook pre-commit + Claude Code PreToolUse hook + GitHub branch protection + signed-commits ruleset + server CI (`.github/workflows/ci.yml`: marketplace & frontmatter validation, plus a `main`↔`dev` drift guard).
+- All work happens on `dev`. Never commit directly to `main` — commits made while `main` is
+  checked out are blocked locally (escape hatch: `MAIN_BYPASS=1`, for recovery only).
+- `main` advances by **fast-forward from `dev`**, never by a merge commit or a rebase:
+  `git push origin dev:main`. Rebase-merging re-signs commits and severs the `main`/`dev`
+  common ancestor, which is the failure this setup exists to prevent.
+- A PR from `dev` is the intended route and the only one non-admins have. The
+  `Protect main branch` ruleset carries a `pull_request` rule, but its bypass actor is the
+  admin role in `always` mode, so an admin's direct fast-forward push succeeds. Treat the
+  PR as convention, not as a guarantee the server will enforce against you.
+- Signed commits are required on **every** branch via the GitHub ruleset `Require signed
+  commits` (target `~ALL`, rule `required_signatures`, same admin bypass).
+- Rulesets are **not** versioned in this repo — if lost, recreate with
+  `gh api -X POST repos/bengous/claude-code-plugins/rulesets`. Two exist and they stack:
+  `Protect main branch` (`pull_request`, `non_fast_forward`, `deletion` on `refs/heads/main`)
+  and `Require signed commits`. There is no classic branch protection on `main`; querying
+  `/branches/main/protection` returns 404 by design.
+- Enforced by: lefthook `pre-commit` (`block-commit-to-main`, version sync, marketplace and
+  frontmatter validation) + Claude Code PreToolUse hook (`guard-main-branch.ts`) + the two
+  rulesets above + server CI (`.github/workflows/ci.yml`).
+- **CI gap to know about:** the workflow triggers on `pull_request` to `main`/`dev` and on
+  `push` to `dev` only. A direct fast-forward push to `main` runs no CI, so validate on
+  `dev` first and confirm it is green before advancing `main`. The workflow's drift guard
+  checks that `main` and `dev` still share a common ancestor — not that they are identical.
 
 ## Quick Start
 
