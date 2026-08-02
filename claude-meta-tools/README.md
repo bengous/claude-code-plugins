@@ -59,6 +59,25 @@ Synchronize your project's CLAUDE.md file with codebase evolution by analyzing g
 - CLAUDE.md doesn't exist and needs creation
 - You want to validate CLAUDE.md against official best practices
 
+#### `/revise-claude-md`
+
+Capture the current session's learnings (commands, gotchas, patterns) into CLAUDE.md or `.claude/rules/`.
+
+**Features:**
+- **Session Reflection**: Identifies context that was missing during the session
+- **Smart Placement**: Routes additions to CLAUDE.md, `.claude/rules/<topic>.md`, or personal memory files
+- **Concise Additions**: One line per concept; skips one-off fixes and obvious info
+- **User Approval Gate**: Shows diffs, only edits approved files
+
+**Usage:**
+```bash
+/revise-claude-md
+```
+
+**When to use:**
+- End of a session where non-obvious commands or gotchas were discovered
+- Distinct from `/sync-claude-md`: this captures session learnings; that syncs against codebase/git evolution
+
 ## Use Cases
 
 ### Scenario 1: Maintain Project Documentation
@@ -117,13 +136,17 @@ Phase 6: Application
 ### sync-claude-md
 Comprehensive workflow for maintaining CLAUDE.md files with git analysis and parallel agent review.
 
+### claude-md-improver
+Audits and improves CLAUDE.md files across a repository: scans all memory files (CLAUDE.md, `.claude/rules/`, `@`-imports), evaluates quality against templates, reports, then applies approved targeted updates. For scored instruction-budget audits, defers to `agent-context-audit:context-audit`.
+
 ## Configuration
 
 No configuration needed. All tools:
 - Detect project structure automatically
-- Fetch official documentation dynamically
 - Adapt to context automatically
 - Manage resources efficiently
+
+`/sync-claude-md` additionally fetches official Anthropic documentation dynamically.
 
 ## Future Additions
 
