@@ -308,4 +308,26 @@ describe("subprocess integration", () => {
 		);
 		expect(exitCode).toBe(HOOK_EXIT.ALLOW);
 	});
+
+	// Regression: the project repo must be resolved from CLAUDE_PROJECT_DIR, not
+	// from the hook's cwd. A shell cwd that drifted into the other repo used to
+	// make both roots look identical, re-policing a repo with its own conventions.
+	test("allows cd-prefixed commit on another repo's main when cwd drifted there", async () => {
+		Bun.spawnSync(
+			["git", "--git-dir", `${tmpDir}/.git`, "symbolic-ref", "HEAD", "refs/heads/main"],
+			{ stdout: "pipe", stderr: "pipe" },
+		);
+		const projectDir = `${import.meta.dir}/../../..`;
+		const input = JSON.stringify({
+			tool_input: { command: `cd ${tmpDir} && git commit -m 'x'` },
+		});
+		const proc = Bun.spawn(["bun", hookPath], {
+			stdin: new Blob([input]),
+			stdout: "pipe",
+			stderr: "pipe",
+			cwd: tmpDir,
+			env: { ...process.env, CLAUDE_PROJECT_DIR: projectDir },
+		});
+		expect(await proc.exited).toBe(HOOK_EXIT.ALLOW);
+	});
 });
