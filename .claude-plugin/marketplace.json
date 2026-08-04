@@ -94,7 +94,7 @@
     {
       "name": "claude-meta-tools",
       "description": "Meta-tools for Claude Code: audit and maintain context files (CLAUDE.md/AGENTS.md instruction budget), prompt health checks, documentation sync, research, concept demystification, and extend Claude capabilities",
-      "version": "3.0.1",
+      "version": "3.1.0",
       "author": {
         "name": "Augustin BENGOLEA",
         "email": "bengous@protonmail.com"
