@@ -19,7 +19,7 @@
 
 set -euo pipefail
 
-readonly VERSION="1.1.1"
+readonly VERSION="1.2.0"
 readonly PLUGINS_DIR="$HOME/.claude/plugins"
 readonly INSTALLED_JSON="$PLUGINS_DIR/installed_plugins.json"
 readonly MARKETPLACES_JSON="$PLUGINS_DIR/known_marketplaces.json"
@@ -191,16 +191,15 @@ sync_plugin() {
 	local plugin_key="${plugin_name}@${mkt_name}"
 	local cache_dir="$CACHE_DIR/$mkt_name/$plugin_name/$version"
 
-	# Check for version change — remove old version cache if different
-	local installed_version
-	installed_version=$(jq -r --arg key "$plugin_key" \
-		'.plugins[$key][0].version // empty' "$INSTALLED_JSON")
-
-	if [[ -n "$installed_version" && "$installed_version" != "$version" ]]; then
-		local old_cache="$CACHE_DIR/$mkt_name/$plugin_name/$installed_version"
-		if [[ -d "$old_cache" ]]; then
-			rm -rf "$old_cache"
-		fi
+	# Prune every cached version except the one being synced
+	local versions_dir="$CACHE_DIR/$mkt_name/$plugin_name"
+	if [[ -d "$versions_dir" ]]; then
+		local old
+		for old in "$versions_dir"/*/; do
+			if [[ "$(basename "$old")" != "$version" ]]; then
+				rm -rf "$old"
+			fi
+		done
 	fi
 
 	# Clear and copy
@@ -219,12 +218,25 @@ sync_plugin() {
 		--arg ver "$version" \
 		--arg sha "$git_sha" \
 		--arg ts "$timestamp" \
-		'.plugins[$key][0] |= (
-       .installPath = $path |
-       .version = $ver |
-       .gitCommitSha = $sha |
-       .lastUpdated = $ts |
-       del(.devMode, .cachedPath)
+		'.plugins[$key] = (
+       if .plugins[$key] then
+         .plugins[$key] | .[0] |= (
+           .installPath = $path |
+           .version = $ver |
+           .gitCommitSha = $sha |
+           .lastUpdated = $ts |
+           del(.devMode, .cachedPath)
+         )
+       else
+         [{
+           scope: "user",
+           installPath: $path,
+           version: $ver,
+           installedAt: $ts,
+           lastUpdated: $ts,
+           gitCommitSha: $sha
+         }]
+       end
      )' "$INSTALLED_JSON" >"$tmp_json"
 
 	mv "$tmp_json" "$INSTALLED_JSON"
