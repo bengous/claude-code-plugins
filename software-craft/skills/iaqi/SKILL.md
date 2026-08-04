@@ -371,8 +371,8 @@ X.X/10
 
 When applying fixes during iteration, follow these principles:
 
-### From audit-prompt: Best Practices Dimension
-The "Best Practices" dimension checks Claude 4 conventions:
+### Prompt Best Practices
+When fixing prompt text, check:
 - Positive framing (what TO DO, not just what to avoid)
 - Explicit instructions (no ambiguity)
 - XML semantic tags for structure

@@ -94,7 +94,7 @@
     {
       "name": "claude-meta-tools",
       "description": "Meta-tools for Claude Code: maintain documentation (CLAUDE.md sync), prompt coaching/auditing, research, concept demystification, and extend Claude capabilities",
-      "version": "1.17.0",
+      "version": "2.0.0",
       "author": {
         "name": "Augustin BENGOLEA",
         "email": "bengous@protonmail.com"
@@ -219,7 +219,7 @@
     {
       "name": "software-craft",
       "description": "Opinionated design skills for software excellence: CLI design, system architecture, and more",
-      "version": "1.0.2",
+      "version": "1.0.3",
       "author": {
         "name": "Augustin BENGOLEA",
         "email": "bengous@protonmail.com"

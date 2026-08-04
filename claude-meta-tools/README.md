@@ -1,6 +1,6 @@
 # Claude Meta-Tools Plugin
 
-v1.14.0
+v2.0.0
 
 Meta-tools for Claude Code: maintain project memory (CLAUDE.md), prompt coaching/auditing, research, and extend Claude's capabilities.
 
@@ -77,6 +77,33 @@ Capture the current session's learnings (commands, gotchas, patterns) into CLAUD
 **When to use:**
 - End of a session where non-obvious commands or gotchas were discovered
 - Distinct from `/sync-claude-md`: this captures session learnings; that syncs against codebase/git evolution
+
+### Prompt Tooling
+
+#### `/prompt-health`
+
+Health check for a prompt, command, skill, or agent doc. Two layers, no scores.
+
+**Features:**
+- **Harness staleness (deterministic)**: checks the artifact against Claude Code facts that
+  changed — `ultrathink` as a budget dial, the spawn tool named `Task` rather than `Agent`,
+  `budget_tokens`, assistant prefill, pinned prior-generation model IDs. Reproducible run to run.
+- **Dated patterns (delegated)**: hands off to the native `/claude-api prompt-audit` for
+  pressure language, replaced scaffolds, over-specification, and the proposed diff
+- **Non-interactive and non-mutating**: states assumptions instead of asking, proposes edits
+  without applying them
+
+**Usage:**
+```bash
+/prompt-health path/to/SKILL.md
+/prompt-health "inline prompt text" --model opus-5
+```
+
+**When to use:**
+- Before committing a command, skill, or agent doc you have edited
+- When a prompt was written for an earlier model generation and nobody has re-read it since
+
+**Note:** replaces `/audit-prompt` (removed in v2.0.0 along with its qualitative scorecard).
 
 ## Use Cases
 
