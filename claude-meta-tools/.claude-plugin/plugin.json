@@ -1,6 +1,6 @@
 {
   "name": "claude-meta-tools",
-  "version": "3.0.0",
+  "version": "3.0.1",
   "description": "Meta-tools for Claude Code: audit and maintain context files (CLAUDE.md/AGENTS.md instruction budget), prompt health checks, documentation sync, research, concept demystification, and extend Claude capabilities",
   "author": {
     "name": "Augustin BENGOLEA",
