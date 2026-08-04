@@ -27,8 +27,8 @@ workspace**, under a generated filename whose shape has changed between CLI
 versions, so never predict it. There is no destination argument: without an
 explicit copy instruction in the prompt, the image never leaves that directory.
 
-So before invoking, decide an **absolute** destination path. `$ARGUMENTS` may
-name one after a `->` (`a fox -> ./art/fox.png`); otherwise default to a
+So before invoking, decide an **absolute** destination path. The user's request
+may name one after a `->` (`a fox -> ./art/fox.png`); otherwise default to a
 filename in the cwd. Resolve any relative path the user wrote **against your own
 cwd**, then pass it absolute — the prompt is read inside codex, where a bare
 `./x.png` means something else. `-C` must point at a directory that **contains**
@@ -44,8 +44,8 @@ Write tool, read from stdin via `-`; `--json` + `-o`; thread id from
 
 ```bash
 # 1. Write /tmp/imagegen-prompt.md  <- the image request + the two instructions
-#    below. Strip any `-> destination` off $ARGUMENTS first: it is this skill's
-#    routing syntax, not part of the image description.
+#    below. Strip any `-> destination` off the request first: it is this
+#    skill's routing syntax, not part of the image description.
 #    Pick per-run filenames (prompt, .jsonl, .last) if runs may overlap.
 # 2. Run it. Add --skip-git-repo-check when -C is not inside a git repo.
 "${CLAUDE_PLUGIN_ROOT}/scripts/codex" exec \
