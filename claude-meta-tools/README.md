@@ -1,6 +1,6 @@
 # Claude Meta-Tools Plugin
 
-v3.0.0
+v3.2.0
 
 Meta-tools for Claude Code: maintain project memory (CLAUDE.md), prompt coaching/auditing, research, and extend Claude's capabilities.
 
@@ -34,30 +34,6 @@ Explain a complex concept to a smart layperson with analogies, progressive depth
 - You want to understand a concept, not explore codebase implementation (use `/explain` for that)
 - You're explaining something to a non-specialist audience
 - You want analogies and progressive depth, not code references
-
-#### `/sync-claude-md`
-
-Synchronize your project's CLAUDE.md file with codebase evolution by analyzing git history, spawning parallel review agents, and validating against official Anthropic best practices.
-
-**Features:**
-- **Git History Analysis**: Automatically detects what changed since last CLAUDE.md update
-- **Smart Context Gathering**: Uses subagents for complex analysis when >10 commits
-- **Parallel Agent Review**: Spawns 3 independent agents to review against official best practices
-- **Official Documentation Validation**: Fetches latest Anthropic CLAUDE.md guidance
-- **User Approval Gate**: Never auto-commits; always asks permission
-- **Context Window Management**: Smart summarization to avoid token limits
-- **New File Creation**: Generates comprehensive CLAUDE.md for new projects
-
-**Usage:**
-```bash
-/sync-claude-md
-```
-
-**When to use:**
-- CLAUDE.md hasn't been updated in many commits
-- Major architectural changes occurred (new libraries, patterns, tools)
-- CLAUDE.md doesn't exist and needs creation
-- You want to validate CLAUDE.md against official best practices
 
 #### `/revise-claude-md`
 
@@ -141,12 +117,10 @@ User: /sync-claude-md
 
 [15 commits since last update detected]
 [Analyzes Effect.ts migration, Biome addition, architecture docs]
-[3 agents review against official docs]
 
 Proposed Changes:
-- Add "Effect.ts Integration" section
-- Update "Development Commands" (new lint commands)
-- Add "Repository Etiquette" section
+- Add "Effect.ts Integration" section (Motivated by: a1b2c3d)
+- Update "Development Commands" (new lint commands) (Motivated by: e4f5a6b)
 
 Apply these changes? (yes/no)
 ```
@@ -165,30 +139,27 @@ Phase 2: Context Gathering
 ├─ If >10 commits: Use subagents for analysis
 └─ If ≤10 commits: Direct commit analysis
 
-Phase 3: Parallel Agent Review (3 agents)
-├─ Each agent fetches official Anthropic docs
-├─ Each reviews CLAUDE.md independently
-└─ All report findings
-
-Phase 4: Master Analysis
-├─ Cross-reference 3 agent reports
-├─ Validate against official docs
-├─ Analyze gaps from git history
-└─ Generate change proposal
-
-Phase 5: User Approval
-├─ Present detailed proposal
-└─ Wait for approval (yes/no)
-
-Phase 6: Application
-├─ Apply changes if approved
-└─ User commits manually
+Phase 3: Proposal & Approval
+├─ Draft commit-motivated changes (Motivated by: <sha>)
+├─ Present proposal, wait for approval (yes/no)
+└─ Apply if approved; user commits manually
 ```
 
 ## Skills Included
 
 ### sync-claude-md
-Comprehensive workflow for maintaining CLAUDE.md files with git analysis and parallel agent review.
+
+Maintains CLAUDE.md files by correlating git history since the file last changed with the claims it makes, then proposing commit-motivated updates. Invoke it directly with `/sync-claude-md`, or let Claude load it when you mention an outdated CLAUDE.md.
+
+**Features:**
+- **Git History Analysis**: Automatically detects what changed since last CLAUDE.md update
+- **Smart Context Gathering**: Uses subagents for complex analysis when >10 commits
+- **Commit-Motivated Proposals**: Every proposed change cites the commit(s) that motivate it
+- **User Approval Gate**: Never auto-commits; always asks permission
+
+**When to use:**
+- CLAUDE.md hasn't been updated in many commits
+- Major architectural changes occurred (new libraries, patterns, tools)
 
 ### context-audit
 The repository's single auditor of context files. Discovers CLAUDE.md / AGENTS.md / `.claude/rules/` and their `@`-imports, measures the always-on instruction budget, runs deterministic staleness checks (paths, commands, linter overlap, architecture claims, undocumented env vars), detects six anti-patterns, then proposes REMOVE / MOVE / REWRITE / ADD / FLAG fixes and applies the approved ones. Additions are financed by what the pruning frees and must cite a concrete artefact. No grades, no aggregate score.
@@ -199,8 +170,6 @@ No configuration needed. All tools:
 - Detect project structure automatically
 - Adapt to context automatically
 - Manage resources efficiently
-
-`/sync-claude-md` additionally fetches official Anthropic documentation dynamically.
 
 ## Future Additions
 

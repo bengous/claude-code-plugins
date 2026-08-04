@@ -6,6 +6,7 @@ description: >
   REMOVE/MOVE/REWRITE/ADD fixes after approval. Use when the user asks to audit, check,
   review, optimize, improve, update, or fix context or memory files, or mentions
   "instruction budget", "CLAUDE.md maintenance", or "project memory optimization".
+  For syncing the file's claims against git history since it last changed, use sync-claude-md.
   Treats CLAUDE.md and AGENTS.md identically. For syncing content against recent git
   history use sync-claude-md; for capturing a session's learnings use revise-claude-md.
 allowed-tools:
