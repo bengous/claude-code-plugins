@@ -1,12 +1,11 @@
 ---
-description: Health check for a prompt, command, skill, or agent doc — deterministic Claude Code harness staleness checks, then the native /claude-api prompt-audit for dated patterns
+description: Health check for a prompt, command, skill, or agent doc — deterministic Claude Code harness staleness checks, then the vendored prompt-audit methodology for dated patterns
 argument-hint: "<file-path, glob, or inline prompt> [--model <target-model>]"
 allowed-tools:
   - Read
   - Glob
   - Grep
-  - Bash(rg:*, grep:*, git:*, ls:*, wc:*, head:*)
-  - Skill
+  - Bash(rg:*, grep:*, git:*, ls:*, wc:*, head:*, find:*)
 disallowed-tools:
   - Write
   - Edit
@@ -15,7 +14,7 @@ disallowed-tools:
 # Prompt Health
 
 Two-layer health check of a prompt artifact: a deterministic harness-staleness pass
-(reproducible run to run), then the native `/claude-api prompt-audit` for dated prompting
+(reproducible run to run), then the vendored prompt-audit methodology for dated prompting
 patterns. This command never edits files — findings and the proposed diff are for the caller
 to apply. It is also non-interactive: state assumptions in the report; never stop to ask.
 
@@ -54,23 +53,38 @@ Report every match as `file:line`, the quoted assertion, and what is true instea
 result is reported as `none` plus what was checked — do not compensate with a verdict or
 score.
 
-## Step 3: Dated-pattern audit (delegated)
+## Step 3: Dated-pattern audit (vendored methodology)
 
-Invoke the native audit with the Skill tool: skill `claude-api`, args
-`prompt-audit <scope>` — append the target model when the user passed `--model`. The skill
-executes inline in this context: for a file scope pass the path(s); for inline prompt text,
-state in the args that the scope is the inline text already provided in the conversation. The
-audit is non-interactive: it states its assumptions, scans for dated prompting patterns, and
-produces an audit report plus a proposed diff without applying anything.
+Read `${CLAUDE_PLUGIN_ROOT}/references/prompt-audit.md` and execute its steps in this
+context against the scope from Step 1 — the file path(s), or the inline prompt text already
+provided in the conversation. The scope and target model are already established: use the
+Step 1 scope as the audit's scope, and the `--model` value as the target model when the user
+passed one. The audit is non-interactive: it states its assumptions, scans for dated
+prompting patterns, and produces an audit report plus a proposed diff without applying
+anything.
+
+Do NOT invoke the Skill tool — especially not `claude-api`, which inlines its full doc set
+(~200k tokens); the vendored methodology above is the same audit without that cost.
+
+When the methodology references `shared/model-migration.md` or `shared/prompt-caching.md`,
+resolve them against the local `claude-api` skill install and read them only at the point
+the methodology calls for them — `model-migration.md` only if the audit accompanies a model
+migration, `prompt-caching.md` only when running pattern group 4's cache checks AND the
+scope contains request-assembly code (group 4 has no surface on prose-only artifacts):
+
+1. `~/.claude/plugins/marketplaces/anthropic-agent-skills/skills/claude-api/shared/<file>`
+2. else the newest match of `find /tmp/*/bundled-skills -path '*claude-api/shared/<file>'`
+
+If neither exists, state the assumption in the report and continue without the file.
 
 ## Step 4: Report
 
 Two sections, in order:
 
 1. `## Harness staleness` — the Step 2 findings, or `none`.
-2. The native audit's report and proposed diff, in full — do not summarize, re-rank, or drop
+2. The Step 3 audit report and proposed diff, in full — do not summarize, re-rank, or drop
    findings.
 
-No scores, no grades, no interactive questions. The native audit's per-finding confidence
-levels (High/Medium/Low) are part of its report, not a grade — keep them. The caller applies
-hunks on their own schedule.
+No scores, no grades, no interactive questions. The audit's per-finding confidence levels
+(High/Medium/Low) are part of its report, not a grade — keep them. The caller applies hunks
+on their own schedule.

@@ -10,6 +10,13 @@ readonly VENDORED_SKILLS=(
     "skill-creator"
 )
 
+# Reference files vendored from the claude-code CLI bundle (not in the marketplace repo).
+# Source is ephemeral: /tmp/*/bundled-skills/<version>/<hash>/claude-api/shared/
+readonly VENDORED_REFS_TARGET="$HOME/projects/claude-plugins/claude-meta-tools/references"
+readonly BUNDLED_REF_FILES=(
+    "prompt-audit.md"
+)
+
 # Colors for output
 readonly RED='\033[0;31m'
 readonly GREEN='\033[0;32m'
@@ -120,6 +127,88 @@ vendor_skills() {
     fi
 }
 
+locate_bundled_shared() {
+    # Newest materialized claude-api shared dir from the CLI bundle; empty if absent.
+    # find exits non-zero on unreadable /tmp entries — output is still what we want.
+    find /tmp -maxdepth 7 -type d -path '*/bundled-skills/*/claude-api/shared' 2>/dev/null \
+        | sort -V | tail -1 || true
+}
+
+strip_vendor_header() {
+    # Drop the leading provenance HTML comment, if present
+    awk 'NR==1 && /^<!--/ {inhdr=1} inhdr {if (/-->$/) inhdr=0; next} {print}' "$1"
+}
+
+ref_in_sync() {
+    # dst exists, carries a provenance header, and its body matches src
+    local src="$1" dst="$2"
+    [[ -f "$dst" ]] \
+        && head -1 "$dst" | grep -q '^<!-- vendored-from:' \
+        && diff -q <(strip_vendor_header "$dst") "$src" >/dev/null
+}
+
+check_bundled_refs() {
+    # Returns 0 if vendored refs match the bundle (or bundle absent), 1 on drift
+    local shared_dir
+    shared_dir=$(locate_bundled_shared)
+    if [[ -z "$shared_dir" ]]; then
+        log_warn "CLI bundle not materialized under /tmp — skipping vendored refs check"
+        return 0
+    fi
+
+    local drift=0
+    for file in "${BUNDLED_REF_FILES[@]}"; do
+        local src="$shared_dir/$file" dst="$VENDORED_REFS_TARGET/$file"
+        if [[ ! -f "$src" ]]; then
+            log_warn "Not in bundle: $file"
+            continue
+        fi
+        if ! ref_in_sync "$src" "$dst"; then
+            log_warn "Vendored ref drifted from bundle: $file"
+            drift=1
+        fi
+    done
+    return $drift
+}
+
+vendor_bundled_refs() {
+    local shared_dir
+    shared_dir=$(locate_bundled_shared)
+    if [[ -z "$shared_dir" ]]; then
+        log_warn "CLI bundle not materialized under /tmp — skipping vendored refs sync"
+        return 0
+    fi
+
+    local bundle_version
+    bundle_version=$(echo "$shared_dir" | sed 's|.*/bundled-skills/\([^/]*\)/.*|\1|')
+
+    local synced=0
+    for file in "${BUNDLED_REF_FILES[@]}"; do
+        local src="$shared_dir/$file" dst="$VENDORED_REFS_TARGET/$file"
+        if [[ ! -f "$src" ]]; then
+            log_warn "Not in bundle: $file"
+            continue
+        fi
+        if ref_in_sync "$src" "$dst"; then
+            continue
+        fi
+        {
+            printf '<!-- vendored-from: claude-code bundled skill claude-api (shared/%s)\n' "$file"
+            printf '     bundle-version: %s | synced: %s\n' "$bundle_version" "$(date +%F)"
+            printf '     resync: .claude/scripts/sync-anthropic-skills --pull  (vendor_bundled_refs)\n'
+            printf '     body below this line is byte-identical to the bundle copy -->\n'
+            cat "$src"
+        } > "$dst.tmp"
+        mv "$dst.tmp" "$dst"
+        log_ok "Synced from CLI bundle $bundle_version: $file"
+        synced=$((synced + 1))
+    done
+
+    if ((synced > 0)); then
+        log_ok "Vendored $synced reference file(s) to claude-meta-tools"
+    fi
+}
+
 main() {
     local mode="check"
     local force=false
@@ -182,6 +271,12 @@ main() {
         # Still vendor skills in case they're out of sync
         if [[ "$mode" == "pull" ]]; then
             vendor_skills
+            vendor_bundled_refs
+            exit 0
+        fi
+        if ! check_bundled_refs; then
+            log_warn "Run with --pull to resync vendored refs from the CLI bundle"
+            exit 1
         fi
         exit 0
     fi
@@ -197,6 +292,7 @@ main() {
     # Mode is pull
     pull_updates || exit $?
     vendor_skills
+    vendor_bundled_refs
 }
 
 main "$@"
