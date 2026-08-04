@@ -1,5 +1,5 @@
 ---
-description: Audit CLAUDE.md/AGENTS.md against research-backed best practices with instruction budget scoring
+description: Audit and improve CLAUDE.md, AGENTS.md and .claude/rules/ — instruction budget, stale references, anti-patterns, then approved REMOVE/MOVE/REWRITE/ADD fixes
 argument-hint: "[file-path]"
 allowed-tools:
   - Read
