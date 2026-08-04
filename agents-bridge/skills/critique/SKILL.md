@@ -32,7 +32,7 @@ lives in the conversation, not on disk, so a diff-based review would miss it
 1. **Capture the proposal — grounded.** Write to one temp file: the proposal
    verbatim, the problem it solves, any constraints, the questions you most want
    challenged, an explicit list of the **real repo file paths** it touches or
-   depends on, and — if the user gave extra focus (`$ARGUMENTS`) — a final
+   depends on, and — if the user gave extra focus with the invocation — a final
    `## Extra focus from the user` section carrying it verbatim. Grounding in
    actual code is the one thing that makes the critique useful; skip it and the
    review drifts into generic advice. Everything user-authored goes in the file,

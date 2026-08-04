@@ -45,8 +45,8 @@ then.
 **Pass the prompt via a file on stdin, never inline.** Prompts carry backticks,
 `$(...)`, quotes and apostrophes; inlined into the shell they break the command
 or execute as substitutions in *this* agent's shell. Codex has a native
-primitive for this: `-` reads the prompt from stdin. Write `$ARGUMENTS` to a
-temp file with the Write tool (no shell involved), then redirect it in.
+primitive for this: `-` reads the prompt from stdin. Write the user's request
+to a temp file with the Write tool (no shell involved), then redirect it in.
 
 **Every first run starts a thread — capture its id.** Follow-ups in the same
 task resume that thread (see Follow-ups below), so the id must be captured on
@@ -56,7 +56,7 @@ is events, not prose — read the reply from the `-o` file). Default invocation:
 
 ```bash
 # 1. Write the user's prompt with the Write tool first:
-#    Write  /tmp/codex-prompt.md   <- contents = $ARGUMENTS
+#    Write  /tmp/codex-prompt.md   <- contents = the user's request, verbatim
 # 2. First run: read-only, prompt from stdin, JSONL captured for the thread id.
 #    No effort flag = config default; add -c model_reasoning_effort=low|medium
 #    for quick probes (see "Keep runs bounded"):
