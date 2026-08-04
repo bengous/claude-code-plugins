@@ -1,0 +1,19 @@
+{
+  "name": "understanding",
+  "version": "1.0.0",
+  "description": "Understand a topic or a bug: minimal explanations and root-cause diagnosis",
+  "author": {
+    "name": "Augustin BENGOLEA",
+    "email": "bengous@protonmail.com"
+  },
+  "homepage": "https://github.com/bengous/claude-code-plugins/tree/main/understanding",
+  "repository": "https://github.com/bengous/claude-code-plugins",
+  "license": "MIT",
+  "keywords": [
+    "explain",
+    "troubleshoot",
+    "diagnosis",
+    "pedagogy",
+    "investigation"
+  ]
+}

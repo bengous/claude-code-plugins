@@ -7,7 +7,7 @@ Prompt tooling for Claude Code: write and audit prompts, and introspect how the 
 Since 5.0.0 this plugin is prompt-focused. Instruction-file maintenance moved to
 [context-management](../context-management/), research and fact-checking to
 [research-tools](../research-tools/), `/explain` and `/troubleshoot` to
-[software-craft](../software-craft/).
+[understanding](../understanding/).
 
 ## Commands
 

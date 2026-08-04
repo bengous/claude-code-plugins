@@ -220,7 +220,7 @@
     {
       "name": "software-craft",
       "description": "Opinionated design skills for software excellence: CLI design, system architecture, and more",
-      "version": "1.1.0",
+      "version": "2.0.0",
       "author": {
         "name": "Augustin BENGOLEA",
         "email": "bengous@protonmail.com"
@@ -236,6 +236,25 @@
         "skills"
       ],
       "source": "./software-craft"
+    },
+    {
+      "name": "understanding",
+      "description": "Understand a topic or a bug: minimal explanations and root-cause diagnosis",
+      "version": "1.0.0",
+      "author": {
+        "name": "Augustin BENGOLEA",
+        "email": "bengous@protonmail.com"
+      },
+      "homepage": "https://github.com/bengous/claude-code-plugins",
+      "license": "MIT",
+      "keywords": [
+        "explain",
+        "troubleshoot",
+        "diagnosis",
+        "pedagogy",
+        "investigation"
+      ],
+      "source": "./understanding"
     },
     {
       "name": "design-studio",
