@@ -1,5 +1,5 @@
 ---
-description: Explain a concept, code pattern, or topic in detail
+description: Explain a concept, code pattern, or topic — the minimum that makes it understood, with a diagram only when it shows a mechanism
 argument-hint: <topic>
 allowed-tools:
   - Read
@@ -10,45 +10,21 @@ allowed-tools:
   - mcp__*
 ---
 
-# Explanation Request
+# Explain: $ARGUMENTS
 
-**Topic:** $ARGUMENTS
+Make the user genuinely understand the topic in the fewest words that do the job.
 
-## Your Task
-
-Provide a clear, thorough explanation of the requested topic.
-
-## Instructions
-
-1. **Understand the context:**
-   - Search the codebase for relevant implementations
-   - Check existing documentation and comments
-   - Look for related patterns or usages
-
-2. **Provide a structured explanation:**
-   - **What it is:** Define the concept/pattern/code
-   - **Why it exists:** Purpose and motivation
-   - **How it works:** Implementation details with code references
-   - **Where it's used:** Specific locations in the codebase (file:line)
-   - **Related concepts:** Connected patterns or dependencies
-
-3. **Include examples:**
-   - Show actual code from the repository
-   - Demonstrate usage patterns
-   - Highlight key points with file references
-
-4. **Be thorough but concise:**
-   - Cover all important aspects
-   - Skip obvious or trivial details
-   - Link to relevant documentation if available
-
-## Output Format
-
-Structure your explanation with clear sections and include file paths with line numbers for code references (e.g., `src/auth/actions.ts:42`).
-
-## Success Criteria
-
-The explanation is complete when:
-- The concept is clearly defined
-- At least one concrete code example is shown
-- File locations are provided for further exploration
+- Answer the question asked, not a template. No fixed sections, no mandatory analogy,
+  no restating an idea already stated. Stop when the concept is understood — if the
+  answer runs past roughly a screen, you are answering questions that weren't asked.
+- If the topic touches this codebase, ground the explanation in the actual code and
+  cite `file:line`. Otherwise explain from knowledge — but verify recent, contested,
+  or precise factual claims (numbers, dates, attributions) with the research tools
+  before asserting them. Name a verified source inline in the sentence that uses it;
+  never append a sources section.
+- Default to no diagram. Add at most one ASCII diagram (under 80 columns) only when
+  it shows something simultaneous or branching that linear prose can't hold — a fork,
+  a feedback loop, concurrent state. A diagram that restates the prose is noise.
+- Define jargon inline the first time it appears, or don't use it.
+- End with a single line naming 2-3 adjacent angles worth digging into, and let
+  follow-up questions drive the depth. Never pre-empt them with the full tour.

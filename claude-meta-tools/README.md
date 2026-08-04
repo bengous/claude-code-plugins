@@ -1,6 +1,6 @@
 # Claude Meta-Tools Plugin
 
-v3.2.0
+v4.0.0
 
 Meta-tools for Claude Code: maintain project memory (CLAUDE.md), prompt coaching/auditing, research, and extend Claude's capabilities.
 
@@ -12,28 +12,24 @@ This plugin provides essential tools for working with Claude Code itself - maint
 
 ### Documentation Maintenance
 
-#### `/demystify`
+#### `/explain`
 
-Explain a complex concept to a smart layperson with analogies, progressive depth, and honest simplification markers. Feynman/Sagan style.
+Explain a concept, code pattern, or topic — the minimum that makes it understood. No
+section template, no mandatory analogy: the explanation stops when the concept is
+understood, adds one ASCII diagram only when it shows a mechanism prose handles
+poorly, and ends with 2-3 adjacent angles so follow-up questions drive the depth.
+Grounds in the codebase (`file:line`) when the topic touches it; verifies recent or
+contested claims before asserting them.
 
-**Features:**
-- **Progressive Revelation**: One-sentence essence -> analogy -> real mechanism -> why it matters -> nuance
-- **Smart Research**: Automatically decides whether to research or explain from knowledge
-- **Mechanism-Mapping Analogies**: Maps how things work, not surface similarities
-- **Honest Simplification**: Explicitly flags what the simplified version hid
-- **Domain-Agnostic**: Works for CS, biology, physics, economics, philosophy -- any complex topic
+Replaces the former `/demystify` and `/explain-visual` (removed in 4.0.0): their
+section scaffolds and content quotas generated verbosity instead of understanding.
 
 **Usage:**
 ```bash
-/demystify monads
-/demystify how mRNA vaccines work
-/demystify the CAP theorem
+/explain monads
+/explain the CAP theorem
+/explain how our retry middleware works
 ```
-
-**When to use:**
-- You want to understand a concept, not explore codebase implementation (use `/explain` for that)
-- You're explaining something to a non-specialist audience
-- You want analogies and progressive depth, not code references
 
 #### `/revise-claude-md`
 
