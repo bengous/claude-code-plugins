@@ -143,4 +143,4 @@ Call: `mcp-exec name="tool" arguments={...}`
 ## Reference Implementation
 
 See `orchestration/agents/architect.md` for a production example.
-See `claude-meta-tools/agents/research-agent.md` (Execute) and `research-teacher.md` (Teach).
+See `research-tools/agents/research-agent.md` (Execute) and `research-teacher.md` (Teach).

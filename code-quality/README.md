@@ -60,6 +60,13 @@ items.forEach(item => {
 });
 ```
 
+## Skills
+
+### verify-no-regressions
+
+Verify no behavioral regressions after implementation: spawns parallel subagents for
+semantic diff review and test execution. Moved here from claude-meta-tools in 1.5.0.
+
 ## Philosophy
 
 Good code should be self-documenting. Comments should only exist when:

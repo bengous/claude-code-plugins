@@ -5,7 +5,7 @@ allowed-tools:
   - Agent
 ---
 
-Call the Agent tool with `subagent_type: "claude-meta-tools:research-teacher"`.
+Call the Agent tool with `subagent_type: "research-tools:research-teacher"`.
 
 Pass the topic exactly as provided: `$ARGUMENTS`
 
