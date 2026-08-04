@@ -223,6 +223,40 @@ Confidence: MEDIUM (verify the suggested alternative is correct for this project
 
 ---
 
+## 6. Content Decay
+
+Content that was accurate when written and has silently stopped being so. All five are **FLAG**,
+never automatic removal: the file states something that may still be true, and only the author
+can tell. A decay finding names what it saw and what to check — it does not propose a rewrite.
+
+This is the audit direction, and it is deliberately more cautious than the authoring direction.
+`update-guidelines.md` rules some of the same content — commit-bound notes, one-off fixes — out
+of bounds outright; that is the ADD filter, and it is categorical because nothing is lost by
+declining to write a line. Removing a line already in the file is not symmetric: it may be the
+only trace of a real constraint. Never treat an `update-guidelines.md` prohibition as licence to
+auto-remove existing content.
+
+| Signal | Why it decays | What to check |
+|--------|---------------|---------------|
+| Pinned tech versions in prose ("we use React 18", "Node 20") | The repo upgrades; nothing re-reads the context file | Compare against `package.json`, `.tool-versions`, lockfiles |
+| Uncustomized template placeholders — `<command>`, `<path>`, `<purpose>`, `[describe]` | A template was copied and never filled in | Any placeholder token surviving from `references/templates.md` |
+| Unresolved `TODO` / `FIXME` / `TBD` inside a context file | Instructions are not an issue tracker; a stale TODO reads as a live instruction | Whether the work landed, or belongs in an issue instead |
+| A file literally named `.claude.local.md` | The leading-dot name is never loaded — its content reaches no session | Rename to `CLAUDE.local.md` |
+| Commit-bound notes: PR numbers, incident IDs, "as of the refactor in #412", past-tense narration | A rule's authority is the behavior it prescribes, not the incident that motivated it | Restate as a current rule, or drop it |
+
+### Proposal template
+
+```
+FLAG: Line X
+Content: "[exact content]"
+Issue: Content decay — [which signal above]
+Suggestion: [what to verify, against which source of truth]
+Confidence: MEDIUM (the claim may still hold; only the author can confirm)
+Source: Phase 4.6
+```
+
+---
+
 ## Claude Code Native References (Do NOT Flag)
 
 These patterns are valid Claude Code ecosystem references and must not be flagged as stale or broken:

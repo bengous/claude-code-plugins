@@ -74,13 +74,8 @@ The class name already tells us this.
 
 ### 2. Generic Best Practices
 
-Bad:
-```markdown
-Always write tests for new features.
-Use meaningful variable names.
-```
-
-This is universal advice, not project-specific.
+Anything Claude already does unprompted. The catalog is `default-behaviors.md` — every ADD is
+tested against it before being proposed (Phase 6, rule 4).
 
 ### 3. One-Off Fixes
 
@@ -108,10 +103,9 @@ Auth: JWT with HS256, tokens in `Authorization: Bearer <token>` header.
 
 ## Where to Put It
 
-- `./CLAUDE.md` — team-shared, always-on project context; keep it lean
-- `.claude/rules/<topic>.md` — thematic rule sets (testing, git workflow, style); prefer over growing an already-long root file; add `paths:` frontmatter to load only when matching files are read
-- `<subdir>/CLAUDE.md` — context relevant only to one module or package
-- Personal-only content — gitignored `CLAUDE.local.md` at the project root (loaded alongside CLAUDE.md); to share it across worktrees, use a home-directory file imported via `@path` (e.g. `@~/.claude/my-instructions.md`)
+Placement follows the load-order table in Phase 1 of the skill and the MOVE targets of Check 4.4.
+The one rule that is easy to get wrong: a `.claude/rules/` file **without** `paths:` frontmatter
+loads unconditionally and recovers no budget.
 
 ## Diff Format for Updates
 
