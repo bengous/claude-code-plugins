@@ -46,8 +46,8 @@ two plans are written in parallel and neither side anchors on the other.
    the two sides plan *different tasks* — ambiguous objective/scope, or an
    irreversible high-stakes direction. Never run an upfront questionnaire.
    (Judgment, not a rigid gate.)
-3. **Write the brief** to `"$dir/task.md"`: verbatim `$ARGUMENTS`, needed repo
-   context, and a short **Assumptions** block (scope, constraints, out of
+3. **Write the brief** to `"$dir/task.md"`: the user's task verbatim, needed
+   repo context, and a short **Assumptions** block (scope, constraints, out of
    scope). Both sides plan from this identical brief, so interpretation gaps
    cannot resurface later as phantom OPEN-points.
 4. Write the Codex round-0 prompt to `"$dir/prompt-r0.md"`: tell it to read
