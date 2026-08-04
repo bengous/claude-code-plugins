@@ -1,5 +1,10 @@
 ---
-description: Turn a rough request into a grounded, ready-to-run prompt for another agent
+description: >-
+  Turn a rough request or the preceding conversation into a grounded, ready-to-run prompt for
+  another agent. Use when the user asks to write a prompt, meta-prompt, or briefing for a
+  separate agent session — "write a prompt for another instance", "brief another agent",
+  "prepare a prompt I can copy-paste", "write this up for another session" — or wants to
+  delegate a task just discussed to a fresh instance.
 argument-hint: "<prompt-text> [executor-model]"
 allowed-tools:
   - Read
@@ -17,11 +22,26 @@ Turn the user's rough request into a prompt another agent can execute without fu
 
 **$ARGUMENTS**
 
+No arguments means the request is the task discussed in this conversation — write the prompt
+that hands it off.
+
 ## Order of work
 
-Ground the request, clarify only if grounding left a blocking gap, settle who will run it,
-then emit the prompt in the shape described under **Output contract** at the end of this file.
+Mine the conversation when there is one, ground the request, clarify only if that left a
+blocking gap, settle who will run it, then emit the prompt in the shape described under
+**Output contract** at the end of this file.
 Do not execute the task you are writing the prompt for.
+
+## Mine the conversation
+
+When the request follows a discussion — planning, debugging, a design back-and-forth — the
+conversation holds facts grounding cannot recover: decisions made and the why behind them,
+constraints and anti-patterns the user expressed, prior art they pointed at. Carry those into
+the prompt; the why matters because the executor uses it for judgment calls the prompt cannot
+anticipate. Filter ruthlessly — most of the conversation is irrelevant to the executor.
+
+The executor reads cold. No shorthand from this conversation ("as discussed", "the earlier
+approach") — every reference must resolve for a reader with zero context.
 
 ## Ground the request first
 
@@ -80,7 +100,9 @@ tangled codebase earns a long prompt.
 
 - **Context** — background, verified repo facts, applicable conventions, the executor, and
   anything you could not verify.
-- **Objective** — what to accomplish, stated directly.
+- **Objective** — what to accomplish, stated as an outcome. Leave the approach to the
+  executor unless it was explicitly decided: a step-by-step plan constrains their thinking
+  and goes stale faster than intent.
 - **Constraints** — framed as what to do, each with the reason it matters; explaining why a
   constraint exists outperforms stating it alone. Keep a prohibition only when it is
   load-bearing.

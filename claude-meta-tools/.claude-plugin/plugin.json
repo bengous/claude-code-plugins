@@ -1,7 +1,7 @@
 {
   "name": "claude-meta-tools",
-  "version": "4.0.0",
-  "description": "Meta-tools for Claude Code: audit and maintain context files (CLAUDE.md/AGENTS.md instruction budget), prompt health checks, documentation sync, research, concept explanation, and extend Claude capabilities",
+  "version": "5.0.0",
+  "description": "Prompt tooling for Claude Code: write and audit prompts (meta-prompt, prompt-coach, prompt-health) and introspect how the harness executes them (dump-system-prompt, explain-workflow)",
   "author": {
     "name": "Augustin BENGOLEA",
     "email": "bengous@protonmail.com"
@@ -10,14 +10,11 @@
   "repository": "https://github.com/bengous/claude-code-plugins",
   "license": "Apache-2.0",
   "keywords": [
-    "claude.md",
-    "agents-md",
-    "audit",
-    "instruction-budget",
-    "documentation",
-    "utilities",
-    "workflow",
+    "prompt",
+    "meta-prompt",
+    "prompt-health",
     "prompt-coaching",
-    "explanation"
+    "system-prompt",
+    "workflow"
   ]
 }

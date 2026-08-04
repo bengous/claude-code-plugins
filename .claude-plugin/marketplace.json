@@ -52,7 +52,7 @@
     {
       "name": "code-quality",
       "description": "Code quality and cleanup commands for maintaining clean, maintainable code",
-      "version": "1.4.3",
+      "version": "1.5.0",
       "author": {
         "name": "Augustin BENGOLEA",
         "email": "bengous@protonmail.com"
@@ -93,8 +93,8 @@
     },
     {
       "name": "claude-meta-tools",
-      "description": "Meta-tools for Claude Code: audit and maintain context files (CLAUDE.md/AGENTS.md instruction budget), prompt health checks, documentation sync, research, concept explanation, and extend Claude capabilities",
-      "version": "4.0.0",
+      "description": "Prompt tooling for Claude Code: write and audit prompts (meta-prompt, prompt-coach, prompt-health) and introspect how the harness executes them (dump-system-prompt, explain-workflow)",
+      "version": "5.0.0",
       "author": {
         "name": "Augustin BENGOLEA",
         "email": "bengous@protonmail.com"
@@ -102,15 +102,12 @@
       "homepage": "https://github.com/bengous/claude-code-plugins",
       "license": "Apache-2.0",
       "keywords": [
-        "claude.md",
-        "agents-md",
-        "audit",
-        "instruction-budget",
-        "documentation",
-        "utilities",
-        "workflow",
+        "prompt",
+        "meta-prompt",
+        "prompt-health",
         "prompt-coaching",
-        "explanation"
+        "system-prompt",
+        "workflow"
       ],
       "source": "./claude-meta-tools"
     },
@@ -221,7 +218,7 @@
     {
       "name": "software-craft",
       "description": "Opinionated design skills for software excellence: CLI design, system architecture, and more",
-      "version": "1.0.3",
+      "version": "1.1.0",
       "author": {
         "name": "Augustin BENGOLEA",
         "email": "bengous@protonmail.com"
@@ -339,6 +336,46 @@
         "task-spec"
       ],
       "source": "./goalify"
+    },
+    {
+      "name": "context-management",
+      "description": "Lifecycle of Claude Code instruction files: audit CLAUDE.md/AGENTS.md/.claude/rules instruction budget, capture session learnings, and resync docs with codebase evolution",
+      "version": "1.0.0",
+      "author": {
+        "name": "Augustin BENGOLEA",
+        "email": "bengous@protonmail.com"
+      },
+      "homepage": "https://github.com/bengous/claude-code-plugins",
+      "license": "MIT",
+      "keywords": [
+        "claude.md",
+        "agents-md",
+        "audit",
+        "instruction-budget",
+        "documentation",
+        "context"
+      ],
+      "source": "./context-management"
+    },
+    {
+      "name": "research-tools",
+      "description": "Documentation research through optimal MCP sources and claim verification: research agents, source routing, web and codebase fact-checking",
+      "version": "1.0.0",
+      "author": {
+        "name": "Augustin BENGOLEA",
+        "email": "bengous@protonmail.com"
+      },
+      "homepage": "https://github.com/bengous/claude-code-plugins",
+      "license": "MIT",
+      "keywords": [
+        "research",
+        "documentation",
+        "fact-check",
+        "mcp",
+        "context7",
+        "agents"
+      ],
+      "source": "./research-tools"
     }
   ]
 }

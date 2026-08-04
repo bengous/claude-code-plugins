@@ -5,7 +5,7 @@ allowed-tools:
   - Agent
 ---
 
-Call the Agent tool with `subagent_type: "claude-meta-tools:research-agent"`.
+Call the Agent tool with `subagent_type: "research-tools:research-agent"`.
 
 Pass the query exactly as provided: `$ARGUMENTS`
 

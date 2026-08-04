@@ -1,0 +1,20 @@
+{
+  "name": "context-management",
+  "version": "1.0.0",
+  "description": "Lifecycle of Claude Code instruction files: audit CLAUDE.md/AGENTS.md/.claude/rules instruction budget, capture session learnings, and resync docs with codebase evolution",
+  "author": {
+    "name": "Augustin BENGOLEA",
+    "email": "bengous@protonmail.com"
+  },
+  "homepage": "https://github.com/bengous/claude-code-plugins/tree/main/context-management",
+  "repository": "https://github.com/bengous/claude-code-plugins",
+  "license": "MIT",
+  "keywords": [
+    "claude.md",
+    "agents-md",
+    "audit",
+    "instruction-budget",
+    "documentation",
+    "context"
+  ]
+}
