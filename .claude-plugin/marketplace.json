@@ -93,8 +93,8 @@
     },
     {
       "name": "claude-meta-tools",
-      "description": "Meta-tools for Claude Code: maintain documentation (CLAUDE.md sync), prompt coaching/auditing, research, concept demystification, and extend Claude capabilities",
-      "version": "2.0.0",
+      "description": "Meta-tools for Claude Code: audit and maintain context files (CLAUDE.md/AGENTS.md instruction budget), prompt health checks, documentation sync, research, concept demystification, and extend Claude capabilities",
+      "version": "3.0.0",
       "author": {
         "name": "Augustin BENGOLEA",
         "email": "bengous@protonmail.com"
@@ -103,6 +103,9 @@
       "license": "Apache-2.0",
       "keywords": [
         "claude.md",
+        "agents-md",
+        "audit",
+        "instruction-budget",
         "documentation",
         "utilities",
         "workflow",

@@ -2,7 +2,7 @@
 
 Things Claude already does well without being told. Directives matching these patterns fail the deletion test: "Would removing this cause Claude to make mistakes?" — the answer is almost always no.
 
-Use this reference during Phase 4 (Anti-Pattern Detection) to identify generic advice that wastes instruction budget.
+This list is used in both directions. In Phase 4 (Anti-Pattern Detection) it is evidence for REMOVE: an existing directive matching it wastes instruction budget. In Phase 6 it is the filter every ADD must pass before being proposed — an addition this list would flag is an addition the next audit removes.
 
 ## How to use this list
 

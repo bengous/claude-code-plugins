@@ -32,13 +32,30 @@ Budget impact: [token savings / improved adherence]
 Confidence: MEDIUM
 Source: [Phase 4.3/4.5]
 
+ADD: [target file] → [section name]
+Content: "[proposed content — shape from references/templates.md]"
+Grounded in: [the Phase 3 artefact: undocumented script / env var / package / architecture drift]
+Reason: [what this saves a future agent from re-discovering]
+Budget impact: Costs +N directive slots
+Financed by: [REMOVE/MOVE proposal #X | projected budget headroom]
+Confidence: HIGH/MEDIUM
+Source: [Phase 3b/3d/3e/3f]
+
 FLAG: Line X
 Content: "[content]"
-Issue: [stale path, broken command, ambiguous scope]
+Issue: [stale path, broken command, ambiguous scope, content decay]
 Suggestion: [what to investigate or decide]
 Confidence: HIGH/MEDIUM
-Source: [Phase 3a/3b/5]
+Source: [Phase 3a/3b/4.6/5]
 ```
+
+`Budget impact` is signed against the always-on surface: REMOVE and MOVE recover slots, ADD
+costs them. An ADD with no `Grounded in:` artefact is not a valid proposal.
+
+Any proposal whose validity depends on resolving a FLAG carries `Contingent on: FLAG #N` and its
+budget impact is excluded from the projected total until that FLAG is settled. When including or
+excluding a contingent recovery moves the projection across a band boundary, report both figures
+under a `Sensitivity:` line — the band is what gates ADD, so the ambiguity is decision-relevant.
 
 ## Tier 1: Executive Summary (always show)
 
@@ -56,6 +73,10 @@ Total always-on:       ~X / ~100 recommended   [Comfortable / Elevated / High pr
 File size: X lines
 
 ### Health Checks
+
+`Result` holds a per-check verdict — Pass / Warn / Fail. It is never counted, ratioed, or
+summed: "4/10 passing" is an aggregate score by another name, and the constraint forbids it.
+
 | Check                | Type          | Result | Details |
 |----------------------|---------------|--------|---------|
 | Instruction budget   | Heuristic     | ...    | ~X directives |
@@ -76,7 +97,21 @@ Projected after quick wins: ~X / ~100
 
 ## Tier 2: Full Proposals
 
-Every proposal with complete detail, grouped by action type. Show confidence level and source phase for each.
+Every proposal with complete detail, grouped by action type. Show confidence level and source phase for each. Then, per file and across files:
+
+```
+#### ./CLAUDE.md (Project root, always-on, ~X directives)
+**Issues:** [specific problems found in this file]
+**Recommended additions:** [what is missing, each naming its Phase 3 artefact]
+
+### Cross-file Findings
+[dead @-import targets, missing AGENTS.md bridge, legacy `.claude.local.md` files,
+empty `.claude/rules/`, content duplicated across memory files]
+
+### Deferred Additions
+[additions held back because the projected budget stayed outside the Comfortable band —
+named, with their slot cost, but not offered for application]
+```
 
 ## Tier 3: Action Plan
 
@@ -95,8 +130,11 @@ Every proposal with complete detail, grouped by action type. Show confidence lev
 5. [verbose → concise]
 6. [negative → positive with alternative]
 
-#### Phase 4: Manual Review
-7. [FLAG items needing human judgment]
+#### Phase 4: Financed additions
+7. [ADD proposals, applied last so they land against the real post-pruning budget]
+
+#### Phase 5: Manual Review
+8. [FLAG items needing human judgment]
 
 ### Projected Budget After All Changes
 Total always-on: ~X / ~100 recommended   [new status]

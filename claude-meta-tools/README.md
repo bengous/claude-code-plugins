@@ -1,6 +1,6 @@
 # Claude Meta-Tools Plugin
 
-v2.0.0
+v3.0.0
 
 Meta-tools for Claude Code: maintain project memory (CLAUDE.md), prompt coaching/auditing, research, and extend Claude's capabilities.
 
@@ -105,6 +105,33 @@ Health check for a prompt, command, skill, or agent doc. Two layers, no scores.
 
 **Note:** replaces `/audit-prompt` (removed in v2.0.0 along with its qualitative scorecard).
 
+### Context Files
+
+#### `/context-audit`
+
+Audit and improve CLAUDE.md, AGENTS.md and `.claude/rules/` files.
+
+**Features:**
+- **Instruction budget**: counts directives across the always-on surface (root + `@`-imports +
+  always-on rules + global CLAUDE.md) against the ~100-directive comfortable band
+- **Deterministic checks**: stale paths and commands verified against git and `package.json`,
+  symlink and import resolution, linter overlap, architecture claims, undocumented env vars
+- **Six anti-patterns**: linter overlap, generic advice, verbosity, non-universal scope,
+  dead-end negatives, content decay
+- **Financed additions**: `ADD` proposals must cite a concrete artefact and are budgeted
+  against what the pruning frees — never offered when the projected budget stays over band
+- **No grades**: a directive count is a measurement and is reported; a letter grade is not
+
+**Usage:**
+```bash
+/context-audit                        # every context file in the repo
+/context-audit path/to/CLAUDE.md      # one file
+```
+
+**When to use:**
+- A CLAUDE.md has grown past the point where a new session reads it whole
+- Before adding to a context file, to see whether the budget can afford it
+
 ## Use Cases
 
 ### Scenario 1: Maintain Project Documentation
@@ -163,8 +190,8 @@ Phase 6: Application
 ### sync-claude-md
 Comprehensive workflow for maintaining CLAUDE.md files with git analysis and parallel agent review.
 
-### claude-md-improver
-Audits and improves CLAUDE.md files across a repository: scans all memory files (CLAUDE.md, `.claude/rules/`, `@`-imports), evaluates quality against templates, reports, then applies approved targeted updates. For scored instruction-budget audits, defers to `agent-context-audit:context-audit`.
+### context-audit
+The repository's single auditor of context files. Discovers CLAUDE.md / AGENTS.md / `.claude/rules/` and their `@`-imports, measures the always-on instruction budget, runs deterministic staleness checks (paths, commands, linter overlap, architecture claims, undocumented env vars), detects six anti-patterns, then proposes REMOVE / MOVE / REWRITE / ADD / FLAG fixes and applies the approved ones. Additions are financed by what the pruning frees and must cite a concrete artefact. No grades, no aggregate score.
 
 ## Configuration
 
