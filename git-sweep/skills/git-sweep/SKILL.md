@@ -2,10 +2,10 @@
 name: git-sweep
 description: >
   Clean stale git branches and worktrees interactively. Audits local/remote
-  branches, detects squash-merged and orphaned branches, presents categorized
-  cleanup with user confirmation.
+  branches, proves which ones the base already contains (including after a
+  squash or rebase), frees finished worktrees, and confirms before deleting.
   Use when: "git sweep", "sweep branches", "branch cleanup",
-  "prune stale branches".
+  "prune stale branches", "clean up agent worktrees".
 disable-model-invocation: true
 ---
 

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -83,6 +83,14 @@ async function addCommit(repo: string, filename: string, message: string): Promi
   await git(repo, "commit", "-m", message);
 }
 
+type Kept = { name: string; reason: string; detail: string | null };
+
+const keptNames = (result: Record<string, unknown>): string[] =>
+  (result.kept as Kept[]).map((k) => k.name);
+
+const keptEntry = (result: Record<string, unknown>, name: string): Kept | undefined =>
+  (result.kept as Kept[]).find((k) => k.name === name);
+
 // Run the audit with a git shim prepended to PATH that fails only on the given
 // subcommand (e.g. "worktree list"), delegating everything else to the real git.
 async function runAuditWithFailingGit(
@@ -130,9 +138,10 @@ describe("git-clean-audit", () => {
     const categories = result.categories as Record<string, unknown[]>;
     expect(categories.merged_local).toHaveLength(0);
     expect(categories.orphaned_worktree).toHaveLength(0);
-    expect(categories.squash_merged).toHaveLength(0);
+    expect(categories.content_merged).toHaveLength(0);
     expect(categories.backup).toHaveLength(0);
     expect(categories.stale_worktrees).toHaveLength(0);
+    expect(categories.removable_worktrees).toHaveLength(0);
   });
 
   test("detects merged local branches", async () => {
@@ -167,19 +176,24 @@ describe("git-clean-audit", () => {
     expect(categories.merged_local).toHaveLength(0);
   });
 
-  test("detects unmerged worktree-agent branches as orphaned", async () => {
+  test("offers an unmerged worktree-agent branch once its content is proven", async () => {
     const repo = await makeRepo("orphaned-unmerged");
 
-    // Create a worktree-agent branch with commits (unmerged)
+    // Not an ancestor of main, but squashed onto it: the commits are gone from
+    // main's history while every file it carries is there.
     await git(repo, "checkout", "-b", "worktree-agent-xyz789");
     await addCommit(repo, "agent-work.txt", "agent work");
     await git(repo, "checkout", "main");
+    await git(repo, "merge", "--squash", "worktree-agent-xyz789");
+    await git(repo, "commit", "-m", "squash agent work");
 
     const { result } = await runAudit(repo);
-    const categories = result.categories as Record<string, unknown[]>;
+    const categories = result.categories as Record<string, { name: string; proof: string }[]>;
 
     expect(categories.orphaned_worktree).toHaveLength(1);
-    expect((categories.orphaned_worktree[0] as { name: string }).name).toBe("worktree-agent-xyz789");
+    expect(categories.orphaned_worktree[0]?.name).toBe("worktree-agent-xyz789");
+    expect(categories.orphaned_worktree[0]?.proof).toBe("no-merge-delta");
+    expect(keptNames(result)).not.toContain("worktree-agent-xyz789");
   });
 
   test("detects backup branches", async () => {
@@ -197,7 +211,7 @@ describe("git-clean-audit", () => {
     expect((categories.backup[0] as { ahead: number }).ahead).toBe(1);
   });
 
-  test("detects squash-merged branches", async () => {
+  test("detects squash-merged branches as content_merged", async () => {
     const repo = await makeRepo("squash");
 
     // Create feature branch with 2 commits
@@ -213,8 +227,29 @@ describe("git-clean-audit", () => {
     const { result } = await runAudit(repo);
     const categories = result.categories as Record<string, unknown[]>;
 
-    expect(categories.squash_merged).toHaveLength(1);
-    expect((categories.squash_merged[0] as { name: string }).name).toBe("feature/squashed");
+    expect(categories.content_merged).toHaveLength(1);
+    expect((categories.content_merged[0] as { name: string }).name).toBe("feature/squashed");
+    expect((categories.content_merged[0] as { proof: string }).proof).toBe("no-merge-delta");
+  });
+
+  test("does not claim containment for a squash that was later reverted", async () => {
+    const repo = await makeRepo("squash-reverted");
+
+    await git(repo, "checkout", "-b", "feature/undone");
+    await addCommit(repo, "a.txt", "commit a");
+    await addCommit(repo, "b.txt", "commit b");
+
+    await git(repo, "checkout", "main");
+    await git(repo, "merge", "--squash", "feature/undone");
+    await git(repo, "commit", "-m", "squash merge feature");
+    // The work is taken back out: base no longer holds the content.
+    await git(repo, "revert", "--no-edit", "HEAD");
+
+    const { result } = await runAudit(repo);
+    const categories = result.categories as Record<string, unknown[]>;
+
+    expect(categories.content_merged).toHaveLength(0);
+    expect(keptEntry(result, "feature/undone")?.reason).toBe("unproven");
   });
 
   test("keeps current branch", async () => {
@@ -224,12 +259,12 @@ describe("git-clean-audit", () => {
     await addCommit(repo, "active.txt", "active work");
 
     const { result } = await runAudit(repo);
-    const kept = result.kept as string[];
 
-    expect(kept).toContain("feature/active");
+    expect(keptNames(result)).toContain("feature/active");
+    expect(keptEntry(result, "feature/active")?.reason).toBe("current");
   });
 
-  test("keeps branches with active worktrees", async () => {
+  test("keeps a branch whose worktree holds unmerged work, with the reason", async () => {
     const repo = await makeRepo("worktree-active");
     const wtDir = makeTmpDir("wt-active");
 
@@ -239,9 +274,11 @@ describe("git-clean-audit", () => {
     await git(repo, "worktree", "add", wtDir, "feature/in-worktree");
 
     const { result } = await runAudit(repo);
-    const kept = result.kept as string[];
 
-    expect(kept).toContain("feature/in-worktree");
+    expect(keptNames(result)).toContain("feature/in-worktree");
+    const entry = keptEntry(result, "feature/in-worktree");
+    expect(entry?.reason).toBe("worktree");
+    expect(entry?.detail).toBe(wtDir);
 
     // Cleanup worktree
     await git(repo, "worktree", "remove", wtDir);
@@ -277,7 +314,55 @@ describe("git-clean-audit", () => {
 
     expect(categories.stale_remote).toHaveLength(1);
     expect((categories.stale_remote[0] as { name: string }).name).toBe("origin/feature/remote-done");
-    expect((categories.stale_remote[0] as { merged: boolean }).merged).toBe(true);
+    expect((categories.stale_remote[0] as { proof: string }).proof).toBe("ancestry");
+  });
+
+  test("detects a squash-merged remote branch that ancestry alone would miss", async () => {
+    const { repo } = await makeRepoWithOrigin("remote-squash");
+
+    await git(repo, "checkout", "-b", "feature/remote-squashed");
+    await addCommit(repo, "rs-a.txt", "remote squash a");
+    await addCommit(repo, "rs-b.txt", "remote squash b");
+    await git(repo, "push", "-u", "origin", "feature/remote-squashed");
+
+    // Squash the work onto main: the remote branch is no ancestor of origin/main,
+    // yet every file it carries is there.
+    await git(repo, "checkout", "main");
+    await git(repo, "merge", "--squash", "feature/remote-squashed");
+    await git(repo, "commit", "-m", "squash remote feature");
+    await git(repo, "push", "origin", "main");
+    await git(repo, "branch", "-D", "feature/remote-squashed");
+
+    const { result } = await runAudit(repo, "--include-remote");
+    const stale = (result.categories as Record<string, { name: string; proof: string }[]>).stale_remote;
+
+    const entry = stale.find((b) => b.name === "origin/feature/remote-squashed");
+    expect(entry?.proof).toBe("no-merge-delta");
+  });
+
+  test("judges remote branches against origin/base, not a lagging local base", async () => {
+    const { origin, repo } = await makeRepoWithOrigin("remote-base");
+    const other = makeTmpDir("remote-base-clone");
+
+    // A second clone merges the feature and pushes: origin/main now contains it,
+    // local main in `repo` does not.
+    await git(repo, "checkout", "-b", "feature/pushed-elsewhere");
+    await addCommit(repo, "elsewhere.txt", "work done elsewhere");
+    await git(repo, "push", "-u", "origin", "feature/pushed-elsewhere");
+    await git(repo, "checkout", "main");
+    await git(repo, "branch", "-D", "feature/pushed-elsewhere");
+
+    await git(other, "clone", origin, other);
+    await git(other, "config", "user.email", "test@test.com");
+    await git(other, "config", "user.name", "Test");
+    await git(other, "merge", "origin/feature/pushed-elsewhere");
+    await git(other, "push", "origin", "main");
+
+    const { result } = await runAudit(repo, "--include-remote");
+    const categories = result.categories as Record<string, { name: string }[]>;
+
+    expect(result.remote_base).toBe("origin/main");
+    expect(categories.stale_remote.map((b) => b.name)).toContain("origin/feature/pushed-elsewhere");
   });
 
   test("provides branch metadata (ahead, behind, date, subject)", async () => {
@@ -290,10 +375,48 @@ describe("git-clean-audit", () => {
 
     // Go back to main for the audit
     const { result } = await runAudit(repo);
-    const kept = result.kept as string[];
 
-    // feature/meta is unmerged and not squash-merged, so it's kept
-    expect(kept).toContain("feature/meta");
+    // feature/meta is unmerged and its content is not on main, so it's kept
+    expect(keptNames(result)).toContain("feature/meta");
+    expect(keptEntry(result, "feature/meta")?.reason).toBe("unproven");
+  });
+
+  test("flags the -d refusal when the branch is ahead of its upstream", async () => {
+    const { repo } = await makeRepoWithOrigin("d-refusal");
+
+    await git(repo, "checkout", "-b", "feature/ahead-of-upstream");
+    await addCommit(repo, "d.txt", "pushed work");
+    await git(repo, "push", "-u", "origin", "feature/ahead-of-upstream");
+    // Committed locally, never pushed: the tip is no longer in the upstream,
+    // which is what makes `git branch -d` refuse even when main contains it.
+    await addCommit(repo, "d2.txt", "unpushed work");
+
+    await git(repo, "checkout", "main");
+    await git(repo, "merge", "feature/ahead-of-upstream");
+
+    const { result } = await runAudit(repo);
+    const merged = (result.categories as Record<string, { name: string; d_refusal: string | null }[]>)
+      .merged_local;
+
+    const entry = merged.find((b) => b.name === "feature/ahead-of-upstream");
+    expect(entry).toBeDefined();
+    expect(entry?.d_refusal).toBe("origin/feature/ahead-of-upstream");
+  });
+
+  test("leaves d_refusal null when the upstream still contains the branch", async () => {
+    const { repo } = await makeRepoWithOrigin("d-no-refusal");
+
+    await git(repo, "checkout", "-b", "feature/pushed");
+    await addCommit(repo, "p.txt", "pushed work");
+    await git(repo, "push", "-u", "origin", "feature/pushed");
+    await git(repo, "checkout", "main");
+    await git(repo, "merge", "feature/pushed");
+
+    const { result } = await runAudit(repo);
+    const merged = (result.categories as Record<string, { name: string; d_refusal: string | null }[]>)
+      .merged_local;
+
+    expect(merged.find((b) => b.name === "feature/pushed")?.d_refusal).toBeNull();
   });
 
   // -------------------------------------------------------------------------
@@ -410,7 +533,111 @@ describe("git-clean-audit", () => {
     expect(categories.stale_worktrees.some((w) => w.path === wtDir)).toBe(true);
     // ...AND its branch is classified for deletion instead of being retained.
     expect(categories.merged_local.some((b) => b.name === "feature/wt-stale")).toBe(true);
-    expect(result.kept as string[]).not.toContain("feature/wt-stale");
+    expect(keptNames(result)).not.toContain("feature/wt-stale");
+  });
+
+  // -------------------------------------------------------------------------
+  // Live worktrees: releasable vs held
+  // -------------------------------------------------------------------------
+
+  test("proposes removing a live clean worktree whose branch is contained", async () => {
+    const repo = await makeRepo("wt-removable");
+    const wtDir = makeTmpDir("wt-removable-dir");
+
+    await git(repo, "checkout", "-b", "feature/agent-done");
+    await addCommit(repo, "agent.txt", "agent work");
+    await git(repo, "checkout", "main");
+    await git(repo, "merge", "feature/agent-done");
+    await git(repo, "worktree", "add", wtDir, "feature/agent-done");
+
+    const { result } = await runAudit(repo);
+    const categories = result.categories as Record<
+      string,
+      { name?: string; path?: string; branch?: string; proof?: string }[]
+    >;
+
+    const removable = categories.removable_worktrees.find((w) => w.path === wtDir);
+    expect(removable?.branch).toBe("feature/agent-done");
+    expect(removable?.proof).toBe("ancestry");
+    // The branch must flow into deletion in the SAME pass, not sit in kept.
+    expect(categories.merged_local.some((b) => b.name === "feature/agent-done")).toBe(true);
+    expect(keptNames(result)).not.toContain("feature/agent-done");
+
+    await git(repo, "worktree", "remove", wtDir);
+  });
+
+  test("names the ignored files a worktree removal would destroy", async () => {
+    const repo = await makeRepo("wt-ignored");
+    const wtDir = makeTmpDir("wt-ignored-dir");
+
+    writeFileSync(join(repo, ".gitignore"), ".env\nnode_modules/\n");
+    await git(repo, "add", ".");
+    await git(repo, "commit", "-m", "add gitignore");
+    await git(repo, "checkout", "-b", "feature/has-secrets");
+    await addCommit(repo, "work.txt", "work");
+    await git(repo, "checkout", "main");
+    await git(repo, "merge", "feature/has-secrets");
+    await git(repo, "worktree", "add", wtDir, "feature/has-secrets");
+
+    // Untracked AND ignored: invisible to `git status --porcelain`, deleted
+    // without complaint by `git worktree remove`.
+    writeFileSync(join(wtDir, ".env"), "DB_PASSWORD=secret");
+    mkdirSync(join(wtDir, "node_modules"), { recursive: true });
+    writeFileSync(join(wtDir, "node_modules", "dep.js"), "module.exports = 1");
+
+    const { result } = await runAudit(repo);
+    const removable = (
+      result.categories as Record<
+        string,
+        { path: string; ignored: { files: string[]; dirs: string[]; truncated: boolean } }[]
+      >
+    ).removable_worktrees.find((w) => w.path === wtDir);
+
+    // Still removable — but never silently: the cost is reported.
+    expect(removable).toBeDefined();
+    expect(removable?.ignored.files).toEqual([".env"]);
+    expect(removable?.ignored.dirs).toEqual(["node_modules/"]);
+    expect(removable?.ignored.truncated).toBe(false);
+
+    await git(repo, "worktree", "remove", "--force", wtDir);
+  });
+
+  test("keeps an agent branch carrying unproven work instead of offering it", async () => {
+    const repo = await makeRepo("agent-unproven");
+
+    // The tool creates these and agents normally abandon them empty. This one
+    // was worked on directly, so it holds the only copy of that commit.
+    await git(repo, "checkout", "-b", "worktree-agent-abc123");
+    await addCommit(repo, "only-copy.txt", "work that exists nowhere else");
+    await git(repo, "checkout", "main");
+
+    const { result } = await runAudit(repo);
+    const categories = result.categories as Record<string, { name: string }[]>;
+
+    expect(categories.orphaned_worktree).toHaveLength(0);
+    expect(keptEntry(result, "worktree-agent-abc123")?.reason).toBe("unproven");
+  });
+
+  test("keeps a dirty worktree and says so", async () => {
+    const repo = await makeRepo("wt-dirty");
+    const wtDir = makeTmpDir("wt-dirty-dir");
+
+    await git(repo, "checkout", "-b", "feature/agent-dirty");
+    await addCommit(repo, "agent.txt", "agent work");
+    await git(repo, "checkout", "main");
+    await git(repo, "merge", "feature/agent-dirty");
+    await git(repo, "worktree", "add", wtDir, "feature/agent-dirty");
+    writeFileSync(join(wtDir, "uncommitted.txt"), "work in progress");
+
+    const { result } = await runAudit(repo);
+    const categories = result.categories as Record<string, { path?: string }[]>;
+
+    expect(categories.removable_worktrees).toHaveLength(0);
+    const entry = keptEntry(result, "feature/agent-dirty");
+    expect(entry?.reason).toBe("dirty-worktree");
+    expect(entry?.detail).toBe(wtDir);
+
+    await git(repo, "worktree", "remove", "--force", wtDir);
   });
 
   // -------------------------------------------------------------------------
@@ -420,8 +647,9 @@ describe("git-clean-audit", () => {
   test("--save-manifest writes {manifest, kept} atomically to the git dir", async () => {
     const repo = await makeRepo("save-manifest");
     const manifest = {
+      base: "main",
       worktrees: [],
-      branches: [{ name: "feature/x", force: false }],
+      branches: [{ name: "feature/x", force: false, oid: "a".repeat(40) }],
       remote_branches: [],
       prune_remotes: false,
       prune_worktrees: false,
@@ -434,7 +662,8 @@ describe("git-clean-audit", () => {
       stdout: "pipe",
       stderr: "pipe",
     });
-    proc.stdin.write(JSON.stringify({ manifest, kept: ["main"] }));
+    const kept = [{ name: "main", reason: "base", detail: null }];
+    proc.stdin.write(JSON.stringify({ manifest, kept }));
     await proc.stdin.end();
     const out = JSON.parse((await new Response(proc.stdout).text()).trim());
     const exitCode = await proc.exited;
@@ -443,7 +672,36 @@ describe("git-clean-audit", () => {
     expect(out.ok).toBe(true);
     const saved = JSON.parse(await Bun.file(join(gitDir, "git-sweep-manifest.json")).text());
     expect(saved.manifest.branches[0].name).toBe("feature/x");
-    expect(saved.kept).toEqual(["main"]);
+    expect(saved.kept).toEqual(kept);
+  });
+
+  test("--save-manifest rejects a branch entry with no audited oid", async () => {
+    const repo = await makeRepo("save-manifest-no-oid");
+
+    const proc = Bun.spawn(["bun", "run", SCRIPT, "--save-manifest"], {
+      cwd: repo,
+      stdin: "pipe",
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    proc.stdin.write(
+      JSON.stringify({
+        manifest: {
+          base: "main",
+          worktrees: [],
+          branches: [{ name: "feature/x", force: false }],
+          remote_branches: [],
+          prune_remotes: false,
+          prune_worktrees: false,
+        },
+        kept: [],
+      }),
+    );
+    await proc.stdin.end();
+    const out = JSON.parse((await new Response(proc.stdout).text()).trim());
+
+    expect(await proc.exited).toBe(1);
+    expect(out.ok).toBe(false);
   });
 
   test("--save-manifest rejects an invalid manifest shape", async () => {
