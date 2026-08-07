@@ -33,7 +33,7 @@ A curated marketplace of Claude Code plugins for development workflow automation
 | [software-craft](software-craft/) | 2.0.0 | Opinionated design skills for software excellence: CLI design, system architecture, and more |
 | [understanding](understanding/) | 1.0.0 | Understand a topic or a bug: minimal explanations and root-cause diagnosis |
 | [plugin-dev](plugin-dev/) | 1.2.0 | Dev tool for syncing Claude Code plugin cache from local sources |
-| [git-sweep](git-sweep/) | 1.1.0 | Interactive git branch and worktree cleanup with smart categorization, squash-merge detection, and backup analysis |
+| [git-sweep](git-sweep/) | 2.0.0 | Interactive git branch and worktree cleanup: proves a branch is contained before proposing it, frees finished worktrees, and reports what it kept and why |
 | [ship](ship/) | 1.0.1 | Ship feature branches: strip working files, create PRs, merge to main with GPG signing and squash support |
 
 See each plugin's README for detailed documentation and usage.

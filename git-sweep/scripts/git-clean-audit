@@ -12,12 +12,24 @@ import { join } from "node:path";
 // Types
 // ---------------------------------------------------------------------------
 
+// How strongly we can prove a branch's content is already in the base:
+//   ancestry       — the tip is reachable from base. Nothing is lost, history included.
+//   no-merge-delta — merging it into base would change no file. Content is safe;
+//                    the intermediate commits are not (squash/rebase/cherry-pick).
+//   unproven       — the test did not conclude. NOT a proof of absence.
+type ProofKind = "ancestry" | "no-merge-delta" | "unproven";
+
 type BranchInfo = {
   name: string;
+  oid: string;
   ahead: number;
   behind: number;
   last_commit_date: string;
   last_commit_subject: string;
+  proof: ProofKind;
+  // Ref that `git branch -d` measures against (upstream, else HEAD) when it
+  // would refuse the deletion. null when `-d` is expected to succeed.
+  d_refusal: string | null;
 };
 
 type WorktreeInfo = {
@@ -26,26 +38,48 @@ type WorktreeInfo = {
   reason: "missing-dir" | "broken-ref";
 };
 
+// A live, clean worktree whose branch is already contained in the base: the
+// worktree is the only thing keeping that branch alive.
+type RemovableWorktree = {
+  path: string;
+  branch: string;
+  proof: ProofKind;
+  // Files git never tracked, which removing the worktree destroys for good.
+  // Directories are listed apart: they are usually regenerable build output,
+  // while a loose ignored file is more often a per-worktree secret or note.
+  ignored: { files: string[]; dirs: string[]; truncated: boolean };
+};
+
 type RemoteBranchInfo = {
   name: string;
-  merged: boolean;
+  oid: string;
   last_commit_date: string;
   last_commit_subject: string;
+  proof: ProofKind;
+};
+
+type KeptBranch = {
+  name: string;
+  reason: "base" | "current" | "worktree" | "dirty-worktree" | "unproven" | "too-old";
+  detail: string | null;
 };
 
 type AuditSuccess = {
   ok: true;
   base: string;
+  remote_base: string | null;
   categories: {
     merged_local: BranchInfo[];
     orphaned_worktree: BranchInfo[];
-    squash_merged: BranchInfo[];
+    content_merged: BranchInfo[];
     backup: BranchInfo[];
     stale_worktrees: WorktreeInfo[];
+    removable_worktrees: RemovableWorktree[];
     stale_remote: RemoteBranchInfo[];
     stale_tracking: string[];
   };
-  kept: string[];
+  kept: KeptBranch[];
+  kept_remote: KeptBranch[];
 };
 
 type AuditError = {
@@ -57,9 +91,10 @@ type AuditError = {
 type AuditResult = AuditSuccess | AuditError;
 
 type CleanupManifest = {
+  base: string;
   worktrees: string[];
-  branches: { name: string; force: boolean }[];
-  remote_branches: { remote: string; ref: string }[];
+  branches: { name: string; force: boolean; oid: string }[];
+  remote_branches: { remote: string; ref: string; oid: string }[];
   prune_remotes: boolean;
   prune_worktrees: boolean;
 };
@@ -83,140 +118,248 @@ async function gitOk(...args: string[]): Promise<string> {
   return result.stdout;
 }
 
+// `git merge-tree --write-tree` is the containment proof; it landed in 2.38.
+const MIN_GIT = [2, 38] as const;
+
+async function gitVersionAtLeast(): Promise<{ ok: boolean; found: string }> {
+  const raw = (await git("--version")).stdout;
+  const match = raw.match(/(\d+)\.(\d+)/);
+  if (!match) return { ok: false, found: raw || "unknown" };
+  const [major, minor] = [parseInt(match[1]!, 10), parseInt(match[2]!, 10)];
+  const ok = major > MIN_GIT[0] || (major === MIN_GIT[0] && minor >= MIN_GIT[1]);
+  return { ok, found: `${major}.${minor}` };
+}
+
 // ---------------------------------------------------------------------------
 // Branch metadata
 // ---------------------------------------------------------------------------
 
-async function getBranchInfo(name: string, base: string): Promise<BranchInfo> {
-  const [aheadResult, behindResult, dateResult, subjectResult] = await Promise.all([
+async function getBranchInfo(name: string, base: string, proof: ProofKind): Promise<BranchInfo> {
+  const [oidResult, aheadResult, behindResult, dateResult, subjectResult, dRefusal] = await Promise.all([
+    git("rev-parse", name),
     git("rev-list", "--count", `${base}..${name}`),
     git("rev-list", "--count", `${name}..${base}`),
     git("log", "-1", "--format=%aI", name),
     git("log", "-1", "--format=%s", name),
+    predictDashDRefusal(name),
   ]);
 
   return {
     name,
+    oid: oidResult.stdout,
     ahead: parseInt(aheadResult.stdout, 10) || 0,
     behind: parseInt(behindResult.stdout, 10) || 0,
     last_commit_date: dateResult.stdout,
     last_commit_subject: subjectResult.stdout,
+    proof,
+    d_refusal: dRefusal,
   };
 }
 
-async function getRemoteBranchInfo(name: string, merged: boolean): Promise<RemoteBranchInfo> {
-  const [dateResult, subjectResult] = await Promise.all([
+async function getRemoteBranchInfo(name: string, proof: ProofKind): Promise<RemoteBranchInfo> {
+  const [oidResult, dateResult, subjectResult] = await Promise.all([
+    git("rev-parse", name),
     git("log", "-1", "--format=%aI", name),
     git("log", "-1", "--format=%s", name),
   ]);
 
   return {
     name,
-    merged,
+    oid: oidResult.stdout,
     last_commit_date: dateResult.stdout,
     last_commit_subject: subjectResult.stdout,
+    proof,
   };
 }
 
 // ---------------------------------------------------------------------------
-// Squash-merge detection
+// Containment proofs
 // ---------------------------------------------------------------------------
 
-async function isSquashMerged(branch: string, base: string): Promise<boolean> {
-  try {
-    const mergeBase = await gitOk("merge-base", base, branch);
-    const treeHash = await gitOk("rev-parse", `${branch}^{tree}`);
-    const squashCommit = await gitOk("commit-tree", treeHash, "-p", mergeBase, "-m", "temp");
-    const cherry = await git("cherry", base, squashCommit);
-    return cherry.stdout.startsWith("-");
-  } catch {
-    return false;
-  }
+// Exit 0 = ancestor, 1 = not, anything else = error (treated as "not proven").
+async function isAncestor(ref: string, of: string): Promise<boolean> {
+  return (await git("merge-base", "--is-ancestor", ref, of)).exitCode === 0;
+}
+
+// Would merging `branch` into `base` change any file? Replaces the older
+// commit-tree + `git cherry` patch-id test, which reported "contained" for a
+// squash that was later reverted (patch-id only sees that the patch once
+// landed, never that base still holds it).
+async function hasNoMergeDelta(branch: string, base: string): Promise<boolean> {
+  const merged = await git("merge-tree", "--write-tree", base, branch);
+  // A conflict exits non-zero and still prints a tree — both checks are needed.
+  if (merged.exitCode !== 0) return false;
+  const baseTree = await git("rev-parse", `${base}^{tree}`);
+  if (baseTree.exitCode !== 0) return false;
+  return merged.stdout.split("\n")[0]?.trim() === baseTree.stdout;
+}
+
+async function proveContained(branch: string, base: string): Promise<ProofKind> {
+  if (await isAncestor(branch, base)) return "ancestry";
+  if (await hasNoMergeDelta(branch, base)) return "no-merge-delta";
+  return "unproven";
+}
+
+// `git branch -d` refuses unless the tip is contained in the branch's upstream,
+// or in HEAD when no upstream is set. A branch fully merged into the base still
+// fails when its remote counterpart has diverged — the audit predicts that here
+// so the operation can carry a justified force flag instead of failing at apply.
+async function predictDashDRefusal(branch: string): Promise<string | null> {
+  const upstream = await git("rev-parse", "--abbrev-ref", "--symbolic-full-name", `${branch}@{upstream}`);
+  const target = upstream.exitCode === 0 && upstream.stdout ? upstream.stdout : "HEAD";
+  const check = await git("merge-base", "--is-ancestor", branch, target);
+  // Only a definite "not an ancestor" (exit 1) predicts refusal; an error leaves
+  // the safe flag in place and lets `-d` speak for itself.
+  return check.exitCode === 1 ? target : null;
 }
 
 // ---------------------------------------------------------------------------
 // Worktree scanning
 // ---------------------------------------------------------------------------
 
-function parseWorktreeList(porcelain: string, stalePaths: Set<string> = new Set()): Map<string, string> {
-  // Returns map of branch name -> worktree path for ACTIVE worktrees only.
-  // Stale worktree paths are excluded so their branches fall through to the
-  // normal branch classification (merged / orphaned / squash / backup).
-  const branchToPath = new Map<string, string>();
-  const entries = porcelain.split("\n\n").filter(Boolean);
+type WorktreeEntry = {
+  path: string;
+  branch: string | null;
+  locked: boolean;
+  prunable: boolean;
+  is_main: boolean;
+};
 
-  for (const entry of entries) {
-    const lines = entry.split("\n");
-    let path = "";
-    let branch = "";
-    for (const line of lines) {
-      if (line.startsWith("worktree ")) {
-        path = line.slice(9);
-      }
-      if (line.startsWith("branch ")) {
-        branch = line.slice(7).replace("refs/heads/", "");
-      }
-    }
-    if (branch && path && !stalePaths.has(path)) {
-      branchToPath.set(branch, path);
-    }
-  }
+function parseWorktrees(porcelain: string): WorktreeEntry[] {
+  const entries: WorktreeEntry[] = [];
 
-  return branchToPath;
+  porcelain
+    .split("\n\n")
+    .filter(Boolean)
+    .forEach((block, index) => {
+      let path = "";
+      let branch: string | null = null;
+      let locked = false;
+      let prunable = false;
+
+      for (const line of block.split("\n")) {
+        // `locked` and `prunable` appear bare or followed by a reason.
+        if (line.startsWith("worktree ")) path = line.slice(9);
+        else if (line.startsWith("branch ")) branch = line.slice(7).replace("refs/heads/", "");
+        else if (line === "locked" || line.startsWith("locked ")) locked = true;
+        else if (line === "prunable" || line.startsWith("prunable ")) prunable = true;
+      }
+
+      // The first entry is always the main worktree, which is never a candidate.
+      if (path) entries.push({ path, branch, locked, prunable, is_main: index === 0 });
+    });
+
+  return entries;
 }
 
-async function findStaleWorktrees(porcelain: string): Promise<WorktreeInfo[]> {
+const IGNORED_LIST_CAP = 10;
+
+type WorktreeScan = {
+  stale: WorktreeInfo[];
+  removable: RemovableWorktree[];
+  // Branches held by a worktree we are NOT proposing to touch, with the reason.
+  retained: Map<string, KeptBranch>;
+};
+
+// Splits worktrees three ways: broken (stale), live-but-releasable (removable),
+// and live-and-kept. A branch is only reported as retained when its worktree
+// survives the sweep — otherwise it must flow into normal branch classification
+// so the branch and its worktree are cleaned in the same pass.
+async function scanWorktrees(
+  entries: WorktreeEntry[],
+  base: string,
+  currentWorktree: string,
+): Promise<WorktreeScan> {
   const stale: WorktreeInfo[] = [];
-  const entries = porcelain.split("\n\n").filter(Boolean);
+  const removable: RemovableWorktree[] = [];
+  const retained = new Map<string, KeptBranch>();
 
-  // Skip the first entry (main worktree)
-  for (let i = 1; i < entries.length; i++) {
-    const lines = entries[i]!.split("\n");
-    let path = "";
-    let branch: string | null = null;
-    let isLocked = false;
-    let isPrunable = false;
+  const keep = (branch: string, reason: KeptBranch["reason"], detail: string) =>
+    retained.set(branch, { name: branch, reason, detail });
 
-    for (const line of lines) {
-      if (line.startsWith("worktree ")) {
-        path = line.slice(9);
-      }
-      if (line.startsWith("branch ")) {
-        branch = line.slice(7).replace("refs/heads/", "");
-      }
-      if (line === "locked") {
-        isLocked = true;
-      }
-      if (line.startsWith("prunable")) {
-        isPrunable = true;
-      }
+  for (const entry of entries) {
+    if (entry.is_main) continue;
+
+    if (entry.prunable || !existsSync(entry.path)) {
+      stale.push({ path: entry.path, branch: entry.branch, reason: "missing-dir" });
+      continue;
     }
 
-    if (!path) continue;
-
-    if (isPrunable) {
-      stale.push({ path, branch, reason: "missing-dir" });
-    } else if (!existsSync(path)) {
-      stale.push({ path, branch, reason: "missing-dir" });
-    } else if (isLocked) {
-      // Check if the lock is stale (locked but dir missing or branch gone)
-      const branchCheck = branch ? await git("rev-parse", "--verify", `refs/heads/${branch}`) : { exitCode: 1 };
-      if (branchCheck.exitCode !== 0) {
-        stale.push({ path, branch, reason: "broken-ref" });
+    if (entry.locked) {
+      const branchRef = entry.branch
+        ? await git("rev-parse", "--verify", `refs/heads/${entry.branch}`)
+        : { exitCode: 1 };
+      if (branchRef.exitCode !== 0) {
+        stale.push({ path: entry.path, branch: entry.branch, reason: "broken-ref" });
+      } else if (entry.branch) {
+        // A lock is an explicit "leave this alone".
+        keep(entry.branch, "worktree", `${entry.path} (locked)`);
       }
+      continue;
     }
+
+    // Detached worktrees hold no branch: nothing to classify, nothing to free.
+    if (!entry.branch) continue;
+
+    if (entry.path === currentWorktree) {
+      keep(entry.branch, "worktree", `${entry.path} (current worktree)`);
+      continue;
+    }
+
+    if (entry.branch === base) {
+      keep(entry.branch, "base", entry.path);
+      continue;
+    }
+
+    // --ignored so the scan also sees what `git worktree remove` would delete
+    // without a word: ignored files are untracked, so neither the porcelain
+    // status nor git's own refusal counts them as work worth protecting.
+    const status = await git("-C", entry.path, "status", "--porcelain", "--ignored");
+    if (status.exitCode !== 0) {
+      keep(entry.branch, "worktree", `${entry.path} (status unreadable)`);
+      continue;
+    }
+
+    const lines = status.stdout.split("\n").filter(Boolean);
+    if (lines.some((line) => !line.startsWith("!!"))) {
+      keep(entry.branch, "dirty-worktree", entry.path);
+      continue;
+    }
+
+    const proof = await proveContained(entry.branch, base);
+    if (proof === "unproven") {
+      keep(entry.branch, "worktree", entry.path);
+      continue;
+    }
+
+    const ignoredPaths = lines.map((line) => line.slice(3));
+    const files = ignoredPaths.filter((p) => !p.endsWith("/"));
+    const dirs = ignoredPaths.filter((p) => p.endsWith("/"));
+    removable.push({
+      path: entry.path,
+      branch: entry.branch,
+      proof,
+      ignored: {
+        files: files.slice(0, IGNORED_LIST_CAP),
+        dirs: dirs.slice(0, IGNORED_LIST_CAP),
+        truncated: files.length > IGNORED_LIST_CAP || dirs.length > IGNORED_LIST_CAP,
+      },
+    });
   }
 
-  return stale;
+  return { stale, removable, retained };
 }
 
 // ---------------------------------------------------------------------------
 // Manifest hand-off (durable audit -> apply)
 // ---------------------------------------------------------------------------
 
+const isOid = (v: unknown): v is string => typeof v === "string" && /^[0-9a-f]{7,64}$/.test(v);
+
 function isValidManifest(m: unknown): m is CleanupManifest {
   if (typeof m !== "object" || m === null) return false;
   const o = m as Record<string, unknown>;
+  if (typeof o.base !== "string" || o.base === "") return false;
   if (!Array.isArray(o.worktrees) || !o.worktrees.every((w) => typeof w === "string")) return false;
   if (
     !Array.isArray(o.branches) ||
@@ -225,7 +368,8 @@ function isValidManifest(m: unknown): m is CleanupManifest {
         typeof b === "object" &&
         b !== null &&
         typeof (b as { name?: unknown }).name === "string" &&
-        typeof (b as { force?: unknown }).force === "boolean",
+        typeof (b as { force?: unknown }).force === "boolean" &&
+        isOid((b as { oid?: unknown }).oid),
     )
   ) {
     return false;
@@ -237,7 +381,8 @@ function isValidManifest(m: unknown): m is CleanupManifest {
         typeof r === "object" &&
         r !== null &&
         typeof (r as { remote?: unknown }).remote === "string" &&
-        typeof (r as { ref?: unknown }).ref === "string",
+        typeof (r as { ref?: unknown }).ref === "string" &&
+        isOid((r as { oid?: unknown }).oid),
     )
   ) {
     return false;
@@ -264,8 +409,13 @@ async function saveManifest(): Promise<SaveResult> {
   if (!isValidManifest(manifest)) {
     return { ok: false, error: "invalid manifest shape" };
   }
-  if (!Array.isArray(kept) || !kept.every((k) => typeof k === "string")) {
-    return { ok: false, error: "invalid kept list (expected string[])" };
+  const isKeptBranch = (k: unknown) =>
+    typeof k === "object" &&
+    k !== null &&
+    typeof (k as { name?: unknown }).name === "string" &&
+    typeof (k as { reason?: unknown }).reason === "string";
+  if (!Array.isArray(kept) || !kept.every(isKeptBranch)) {
+    return { ok: false, error: "invalid kept list (expected {name, reason}[])" };
   }
 
   const gitDir = await git("rev-parse", "--absolute-git-dir");
@@ -319,9 +469,21 @@ async function main(): Promise<AuditResult | SaveResult> {
     return { ok: false, error: `base branch '${base}' not found`, step: "validate" };
   }
 
+  // Containment proofs rest on `git merge-tree --write-tree`; without it the
+  // audit would silently under-report instead of proving anything.
+  const version = await gitVersionAtLeast();
+  if (!version.ok) {
+    return {
+      ok: false,
+      error: `git ${MIN_GIT[0]}.${MIN_GIT[1]}+ required for merge-tree containment proofs (found ${version.found})`,
+      step: "validate",
+    };
+  }
+
   try {
     // Get current branch (to exclude from cleanup)
     const currentBranch = (await git("branch", "--show-current")).stdout;
+    const currentWorktree = (await git("rev-parse", "--show-toplevel")).stdout;
 
     // Get worktree info for cross-referencing. A failure here is fatal (rather
     // than silently treating the tree as worktree-free).
@@ -329,14 +491,10 @@ async function main(): Promise<AuditResult | SaveResult> {
     if (worktreeList.exitCode !== 0) {
       return { ok: false, error: `git worktree list failed: ${worktreeList.stderr}`, step: "scan-worktrees" };
     }
-    const worktreeListRaw = worktreeList.stdout;
 
-    // Identify stale worktrees FIRST, then exclude their paths when building the
-    // active branch->worktree map. This lets a stale worktree's branch flow into
-    // the normal deletion classification instead of being retained as "active".
-    const stale_worktrees = await findStaleWorktrees(worktreeListRaw);
-    const stalePaths = new Set(stale_worktrees.map((w) => w.path));
-    const branchWorktreeMap = parseWorktreeList(worktreeListRaw, stalePaths);
+    const worktreeScan = await scanWorktrees(parseWorktrees(worktreeList.stdout), base, currentWorktree);
+    const stale_worktrees = worktreeScan.stale;
+    const removable_worktrees = worktreeScan.removable;
 
     // -------------------------------------------------------------------------
     // Scan local branches
@@ -358,14 +516,14 @@ async function main(): Promise<AuditResult | SaveResult> {
     }
     const allBranches = allBranchesResult.stdout.split("\n").filter(Boolean);
 
-    const kept: string[] = [base];
+    const kept: KeptBranch[] = [{ name: base, reason: "base", detail: null }];
     if (currentBranch && currentBranch !== base) {
-      kept.push(currentBranch);
+      kept.push({ name: currentBranch, reason: "current", detail: null });
     }
 
     const merged_local: BranchInfo[] = [];
     const orphaned_worktree: BranchInfo[] = [];
-    const squash_merged: BranchInfo[] = [];
+    const content_merged: BranchInfo[] = [];
     const backup: BranchInfo[] = [];
     const unclassified: string[] = [];
 
@@ -376,40 +534,69 @@ async function main(): Promise<AuditResult | SaveResult> {
       // Skip protected branches
       if (branch === base || branch === currentBranch) continue;
 
-      // Skip branches with active worktrees
-      if (branchWorktreeMap.has(branch)) {
-        kept.push(branch);
+      // Branches held by a worktree that survives the sweep. Branches whose
+      // worktree is itself removable are absent here on purpose: they fall
+      // through so branch and worktree go in the same pass.
+      const heldBy = worktreeScan.retained.get(branch);
+      if (heldBy) {
+        kept.push(heldBy);
         continue;
       }
 
       if (mergedSet.has(branch)) {
         // Category 1 or 2: merged -- check if it's an orphaned worktree branch
-        if (branch.startsWith("worktree-agent-")) {
-          orphaned_worktree.push(await getBranchInfo(branch, base));
-        } else {
-          merged_local.push(await getBranchInfo(branch, base));
-        }
+        const target = branch.startsWith("worktree-agent-") ? orphaned_worktree : merged_local;
+        target.push(await getBranchInfo(branch, base, "ancestry"));
       } else if (branch.startsWith("backup/")) {
         // Category 4: backup branch
-        backup.push(await getBranchInfo(branch, base));
+        backup.push(await getBranchInfo(branch, base, await proveContained(branch, base)));
       } else if (branch.startsWith("worktree-agent-")) {
-        // Unmerged worktree-agent branch -- still orphaned
-        orphaned_worktree.push(await getBranchInfo(branch, base));
+        // Unmerged worktree-agent branch. The tool creates these and agents
+        // normally abandon them empty; one that still holds unproven commits
+        // was worked on directly and carries the only copy. A name prefix is
+        // no reason to offer a deletion that the same content would forbid on
+        // any other branch, so it is retained like any other unproven branch.
+        const proof = await proveContained(branch, base);
+        const info = await getBranchInfo(branch, base, proof);
+        if (proof === "unproven") {
+          kept.push({
+            name: branch,
+            reason: "unproven",
+            detail: `${info.ahead} commit(s) not proven to be in ${base}`,
+          });
+        } else {
+          orphaned_worktree.push(info);
+        }
       } else {
-        // Candidate for squash-merge detection
+        // Candidate for the content-containment proof
         unclassified.push(branch);
       }
     }
 
-    // Squash-merge detection for unclassified branches (gated by max-age)
+    // Content-containment proof for unclassified branches. The age gate bounds
+    // cost; an old branch is reported as untested, never as proven absent.
     for (const branch of unclassified) {
-      const info = await getBranchInfo(branch, base);
+      const info = await getBranchInfo(branch, base, "unproven");
       const commitDate = new Date(info.last_commit_date);
 
-      if (commitDate >= maxAgeDate && (await isSquashMerged(branch, base))) {
-        squash_merged.push(info);
+      if (commitDate < maxAgeDate) {
+        kept.push({
+          name: branch,
+          reason: "too-old",
+          detail: `older than ${maxAgeDays} days, containment not tested`,
+        });
+        continue;
+      }
+
+      const proof = await proveContained(branch, base);
+      if (proof === "unproven") {
+        kept.push({
+          name: branch,
+          reason: "unproven",
+          detail: `${info.ahead} commit(s) not proven to be in ${base}`,
+        });
       } else {
-        kept.push(branch);
+        content_merged.push({ ...info, proof });
       }
     }
 
@@ -418,7 +605,9 @@ async function main(): Promise<AuditResult | SaveResult> {
     // -------------------------------------------------------------------------
 
     const stale_remote: RemoteBranchInfo[] = [];
+    const kept_remote: KeptBranch[] = [];
     let stale_tracking: string[] = [];
+    let remote_base: string | null = null;
 
     if (includeRemote) {
       // Origin-presence gate: no origin -> fully local, no network, refs intact.
@@ -432,31 +621,49 @@ async function main(): Promise<AuditResult | SaveResult> {
           return { ok: false, error: `git fetch origin failed: ${fetchResult.stderr}`, step: "scan-remote" };
         }
 
-        // Merged remote branches (origin-only: fetch/prune are origin-specific)
-        const mergedRemoteResult = await git("branch", "-r", "--merged", base, "--format=%(refname:short)");
-        if (mergedRemoteResult.exitCode !== 0) {
-          return { ok: false, error: `git branch -r --merged failed: ${mergedRemoteResult.stderr}`, step: "scan-remote" };
-        }
-        const mergedRemotes = mergedRemoteResult.stdout
-          .split("\n")
-          .filter(Boolean)
-          .filter((b) => b.startsWith("origin/") && !b.endsWith("/HEAD") && !b.endsWith(`/${base}`));
+        // Remote branches are judged against origin/<base>, never local <base>:
+        // a local base that lags would under-report, and an unpushed local merge
+        // must never justify deleting the only remote copy of a branch.
+        const remoteBaseRef = `origin/${base}`;
+        const remoteBaseCheck = await git("rev-parse", "--verify", remoteBaseRef);
 
-        // All remote branches (reject any non-origin prefix)
-        const allRemoteResult = await git("branch", "-r", "--format=%(refname:short)");
-        if (allRemoteResult.exitCode !== 0) {
-          return { ok: false, error: `git branch -r failed: ${allRemoteResult.stderr}`, step: "scan-remote" };
-        }
-        const allRemotes = allRemoteResult.stdout
-          .split("\n")
-          .filter(Boolean)
-          .filter((b) => b.startsWith("origin/") && !b.endsWith("/HEAD") && !b.endsWith(`/${base}`));
+        if (remoteBaseCheck.exitCode === 0) {
+          remote_base = remoteBaseRef;
 
-        const mergedRemoteSet = new Set(mergedRemotes);
+          // All remote branches (reject any non-origin prefix)
+          const allRemoteResult = await git("branch", "-r", "--format=%(refname:short)");
+          if (allRemoteResult.exitCode !== 0) {
+            return { ok: false, error: `git branch -r failed: ${allRemoteResult.stderr}`, step: "scan-remote" };
+          }
+          const allRemotes = allRemoteResult.stdout
+            .split("\n")
+            .filter(Boolean)
+            .filter((b) => b.startsWith("origin/") && !b.endsWith("/HEAD") && b !== remoteBaseRef);
 
-        for (const remoteBranch of allRemotes) {
-          if (mergedRemoteSet.has(remoteBranch)) {
-            stale_remote.push(await getRemoteBranchInfo(remoteBranch, true));
+          for (const remoteBranch of allRemotes) {
+            // Ancestry is cheap and age-independent; only the merge-tree proof
+            // is gated, so old ancestor-merged remotes stay reported.
+            if (await isAncestor(remoteBranch, remoteBaseRef)) {
+              stale_remote.push(await getRemoteBranchInfo(remoteBranch, "ancestry"));
+              continue;
+            }
+
+            const info = await getRemoteBranchInfo(remoteBranch, "unproven");
+            if (new Date(info.last_commit_date) < maxAgeDate) {
+              kept_remote.push({
+                name: remoteBranch,
+                reason: "too-old",
+                detail: `older than ${maxAgeDays} days, containment not tested`,
+              });
+            } else if (await hasNoMergeDelta(remoteBranch, remoteBaseRef)) {
+              stale_remote.push({ ...info, proof: "no-merge-delta" });
+            } else {
+              kept_remote.push({
+                name: remoteBranch,
+                reason: "unproven",
+                detail: `not proven to be in ${remoteBaseRef}`,
+              });
+            }
           }
         }
 
@@ -477,16 +684,19 @@ async function main(): Promise<AuditResult | SaveResult> {
     return {
       ok: true,
       base,
+      remote_base,
       categories: {
         merged_local,
         orphaned_worktree,
-        squash_merged,
+        content_merged,
         backup,
         stale_worktrees,
+        removable_worktrees,
         stale_remote,
         stale_tracking,
       },
       kept,
+      kept_remote,
     };
   } catch (err) {
     // Catch-all: any in-process exception still emits one valid AuditError JSON.
