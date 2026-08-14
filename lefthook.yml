@@ -31,6 +31,10 @@ pre-commit:
         - "*/hooks/*.md"
         - ".claude/commands/*.md"
         - ".claude/skills/*.md"
+        # Path-scoped rules: only those under an agents/skills/commands/hooks
+        # directory match the globs above. This catches the rest.
+        - ".claude/rules/*.md"
+        - ".claude/rules/*/*.md"
       run: bun ./scripts/validate-frontmatter.ts
 
 commit-msg:
