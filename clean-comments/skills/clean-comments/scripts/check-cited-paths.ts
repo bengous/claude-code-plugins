@@ -187,11 +187,13 @@ function commentSegments(source: string, file: string): { line: number; text: st
   return out;
 }
 
-// Repos routinely cite their modules by partial path ("core/auth.ts" from one area,
-// "src/data/faq.ts" from another, "sections/Card.astro" from a sibling area). Every
+// Repos routinely cite their modules by partial path: <area>/auth.ts from one zone,
+// <zone>/src/data/faq.ts from another, <siblings>/Card.astro from next door. Every
 // directory down to this depth is a resolution root, and one valid resolution clears a
 // citation. Clearing too eagerly only costs a missed break — which the reading agent
 // still catches — while a false "not found" wastes its context on a fiction.
+// (The examples above wear angle brackets on purpose: a real-looking path in a comment
+// is exactly what this script reports, and it should not flag its own prose.)
 const ROOT_DEPTH = 3;
 
 function resolutionRoots(): string[] {
@@ -218,8 +220,8 @@ function resolutionRoots(): string[] {
 const ROOTS = resolutionRoots();
 
 // Beyond the shared roots, a citation also resolves against any ANCESTOR directory of
-// the citing file: "ui/Carousel.astro" written inside components/sections/ means the
-// sibling area, and no repo-wide root list can guess every such pair.
+// the citing file: <siblings>/Carousel.astro written inside components/sections means
+// the area next door, and no repo-wide root list can guess every such pair.
 function ancestors(file: string): string[] {
   const out: string[] = [];
   let dir = resolve(join(file, ".."));
