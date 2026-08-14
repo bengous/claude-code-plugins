@@ -4,12 +4,7 @@ description: |
   Researches topics using optimal MCP sources. Executes queries and returns synthesized results.
   Use when you need to research documentation for frameworks, libraries, or tools.
 model: sonnet
-allowed-tools:
-  - mcp__MCP_DOCKER__mcp-find
-  - mcp__MCP_DOCKER__mcp-add
-  - mcp__MCP_DOCKER__mcp-exec
-  - WebFetch
-  - WebSearch
+tools: mcp__MCP_DOCKER__mcp-find, mcp__MCP_DOCKER__mcp-add, mcp__MCP_DOCKER__mcp-exec, WebFetch, WebSearch
 ---
 
 # Research Agent

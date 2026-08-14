@@ -1,14 +1,8 @@
 ---
 name: designer
 description: Creates 5 unique design variants sequentially in a single context
-subagent-type: general-purpose
 model: opus
-allowed-tools:
-  - Read(*:*)
-  - Write(*:*)
-  - Edit(*:*)
-  - Bash(agent-browser:*)
-  - Bash(bun:*)
+tools: Read, Write, Edit, Bash
 ---
 
 # Designer Agent

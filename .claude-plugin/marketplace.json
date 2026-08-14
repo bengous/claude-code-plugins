@@ -8,7 +8,7 @@
     {
       "name": "claude-orchestration",
       "description": "Parallel multi-agent orchestration for complex features with Task-based coordination and git-wt --stack worktree isolation",
-      "version": "2.6.1",
+      "version": "2.7.0",
       "author": {
         "name": "Augustin BENGOLEA",
         "email": "bengous@protonmail.com"
@@ -29,7 +29,7 @@
     {
       "name": "git-tools",
       "description": "Interactive git commands with AI assistance for commit management, history rewriting, PR/issue triage, agent-ready issue writing, and submodule automation",
-      "version": "1.11.3",
+      "version": "1.11.4",
       "author": {
         "name": "Augustin BENGOLEA",
         "email": "bengous@protonmail.com"
@@ -160,7 +160,7 @@
     {
       "name": "plan-review",
       "description": "Multi-agent plan review workflow requiring architect and simplifier approval before plan execution",
-      "version": "1.0.2",
+      "version": "1.1.0",
       "author": {
         "name": "Augustin BENGOLEA",
         "email": "bengous@protonmail.com"
@@ -259,7 +259,7 @@
     {
       "name": "design-studio",
       "description": "Generate 5 unique website redesigns using Theo's pattern: one agent, sequential creation, natural differentiation",
-      "version": "1.0.1",
+      "version": "1.1.0",
       "author": {
         "name": "Augustin BENGOLEA",
         "email": "bengous@protonmail.com"
@@ -381,7 +381,7 @@
     {
       "name": "research-tools",
       "description": "Documentation research through optimal MCP sources and claim verification: research agents, source routing, web and codebase fact-checking",
-      "version": "1.0.0",
+      "version": "1.1.0",
       "author": {
         "name": "Augustin BENGOLEA",
         "email": "bengous@protonmail.com"
