@@ -52,7 +52,7 @@
     {
       "name": "code-quality",
       "description": "Code quality and cleanup commands for maintaining clean, maintainable code",
-      "version": "1.5.0",
+      "version": "2.0.0",
       "author": {
         "name": "Augustin BENGOLEA",
         "email": "bengous@protonmail.com"
@@ -397,6 +397,25 @@
         "agents"
       ],
       "source": "./research-tools"
+    },
+    {
+      "name": "clean-comments",
+      "description": "Audit and clean code comments: protects why/constraint comments, hunts comments that lie",
+      "version": "1.0.0",
+      "author": {
+        "name": "Augustin BENGOLEA",
+        "email": "bengous@protonmail.com"
+      },
+      "homepage": "https://github.com/bengous/claude-code-plugins",
+      "license": "MIT",
+      "keywords": [
+        "comments",
+        "code-quality",
+        "audit",
+        "stale-comments",
+        "cleanup"
+      ],
+      "source": "./clean-comments"
     }
   ]
 }

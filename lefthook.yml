@@ -26,6 +26,7 @@ pre-commit:
       glob:
         - "*/commands/*.md"
         - "*/skills/*.md"
+        - "*/skills/*/*.md"
         - "*/agents/*.md"
         - "*/hooks/*.md"
         - ".claude/commands/*.md"

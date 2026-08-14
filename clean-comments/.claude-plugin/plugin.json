@@ -1,0 +1,17 @@
+{
+  "name": "clean-comments",
+  "version": "1.0.0",
+  "description": "Audit and clean code comments: protects why/constraint comments, hunts comments that lie",
+  "author": {
+    "name": "Augustin BENGOLEA",
+    "email": "bengous@protonmail.com"
+  },
+  "license": "MIT",
+  "keywords": [
+    "comments",
+    "code-quality",
+    "audit",
+    "stale-comments",
+    "cleanup"
+  ]
+}

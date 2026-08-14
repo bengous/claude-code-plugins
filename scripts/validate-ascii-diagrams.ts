@@ -7,7 +7,7 @@
  * 2. Left/right │ present on every interior line
  * 3. Lines not exceeding 78 chars
  *
- * Usage: bun scripts/quality/validate-ascii-diagrams.ts [file...]
+ * Usage: bun scripts/validate-ascii-diagrams.ts [file...]
  *   If no files, validates docs/architecture/*.md
  */
 

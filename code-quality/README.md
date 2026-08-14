@@ -4,61 +4,20 @@ Code quality and cleanup commands for maintaining clean, maintainable code.
 
 ## Commands
 
-### `/code-quality:clean-comments`
+### `/code-quality:clean-pr-comments`
 
-Remove useless comments from files you've touched, keeping only meaningful ones.
+Review PR comments: fix bad naming, preserve necessary context.
 
-**Usage:**
-```bash
-/code-quality:clean-comments              # Clean comments in git-modified files
-/code-quality:clean-comments src/**/*.ts  # Clean comments in specific files
-```
+### `/code-quality:lint-audit`
 
-**What gets removed:**
-- Obvious comments that restate the code
-- Commented-out code blocks
-- Redundant documentation
-- Noise comments with no value
+Audit a Biome/ESLint rule: research best practices, analyze violations, generate a fix
+strategy.
 
-**What gets kept:**
-- Explanations of non-trivial code logic
-- Documentation of "magic" constants/numbers
-- Interface/type/contract definitions
-- Complex algorithm explanations
-- Important architectural notes
+### `/code-quality:clean-comments` — moved
 
-**Example:**
-
-Before:
-```typescript
-// Initialize the counter
-let counter = 0;
-
-// Loop through items
-items.forEach(item => {
-  // Increment counter
-  counter++;
-
-  // Magic number for performance tuning - controls batch size
-  if (counter % 100 === 0) {
-    flush();
-  }
-});
-```
-
-After:
-```typescript
-let counter = 0;
-
-items.forEach(item => {
-  counter++;
-
-  // Batch size of 100 optimizes memory usage vs throughput
-  if (counter % 100 === 0) {
-    flush();
-  }
-});
-```
+Moved to the [clean-comments](../clean-comments/) plugin in 2.0.0, where it became a
+skill with a four-action grid, a mechanical path probe, and a hunter agent for
+repo-wide audits.
 
 ## Skills
 
