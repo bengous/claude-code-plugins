@@ -3,21 +3,8 @@ name: planning-coordinator
 description: |
   Creates execution plan and worktrees for parallel implementation.
   Spawned by /orc orchestrator during Phase 2 planning.
-subagent-type: general-purpose
 model: opus
-allowed-tools:
-  - Bash(git:*)
-  - Bash(git-wt:*)
-  - Bash(ls:*)
-  - Bash(cat:*)
-  - Read(*:*)
-  - Grep(*:*)
-  - Glob(*:*)
-  - Write(*:*)
-  - TaskCreate(*:*)
-  - TaskUpdate(*:*)
-  - TaskList(*:*)
-  - TaskGet(*:*)
+tools: Bash, Read, Grep, Glob, Write, TaskCreate, TaskUpdate, TaskList, TaskGet
 ---
 
 # Planning Coordinator Agent

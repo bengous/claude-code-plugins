@@ -4,9 +4,7 @@ description: |
   Discovers MCP tools for a topic and returns exact tool call syntax.
   Teaches the main agent how to research, doesn't do the research itself.
 model: sonnet
-allowed-tools:
-  - mcp__MCP_DOCKER__mcp-find
-  - mcp__MCP_DOCKER__mcp-add
+tools: mcp__MCP_DOCKER__mcp-find, mcp__MCP_DOCKER__mcp-add
 ---
 
 # Research Teacher

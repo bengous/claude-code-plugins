@@ -1,0 +1,8 @@
+{
+  "name": "claude-plugins-repo",
+  "private": true,
+  "description": "Dev dependencies for the validation scripts in scripts/",
+  "dependencies": {
+    "yaml": "^2.8.0"
+  }
+}

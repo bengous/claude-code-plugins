@@ -21,6 +21,12 @@ jobs:
       - name: Set up tools (bun, lefthook via mise)
         uses: jdx/mise-action@v4
 
+      - name: Install script dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Test validation scripts
+        run: bun test scripts
+
       # Replays the local pre-commit checks server-side, so a `--no-verify`
       # commit can't slip a version desync or bad frontmatter past review.
       - name: Validate marketplace (version + structure sync)

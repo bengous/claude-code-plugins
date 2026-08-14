@@ -3,19 +3,8 @@ name: merge-coordinator
 description: |
   Merges parallel implementations to root branch with conflict resolution.
   Spawned by /orc orchestrator after implementation agents complete.
-subagent-type: general-purpose
 model: opus
-allowed-tools:
-  - Bash(git:*)
-  - Bash(git-wt:*)
-  - Bash(cd:*)
-  - Read(*:*)
-  - Edit(*:*)
-  - Write(*:*)
-  - TaskCreate(*:*)
-  - TaskUpdate(*:*)
-  - TaskList(*:*)
-  - TaskGet(*:*)
+tools: Bash, Read, Edit, Write, TaskCreate, TaskUpdate, TaskList, TaskGet
 ---
 
 # Merge Coordinator Agent

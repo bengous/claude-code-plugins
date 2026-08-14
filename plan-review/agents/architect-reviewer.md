@@ -1,17 +1,8 @@
 ---
+name: architect-reviewer
 description: Reviews plans for architectural soundness, challenges decisions, verifies best practices
-subagent-type: general-purpose
 model: opus
-allowed-tools:
-  - Read(*:*)
-  - Grep(*:*)
-  - Glob(*:*)
-  - WebSearch(*:*)
-  - WebFetch(*:*)
-  - mcp__MCP_DOCKER__mcp-find(*:*)
-  - mcp__MCP_DOCKER__mcp-add(*:*)
-  - mcp__MCP_DOCKER__mcp-exec(*:*)
-  - mcp__context7__*(*:*)
+tools: Read, Grep, Glob, WebSearch, WebFetch, mcp__MCP_DOCKER__mcp-find, mcp__MCP_DOCKER__mcp-add, mcp__MCP_DOCKER__mcp-exec, mcp__context7__*
 ---
 
 # Architect Reviewer Agent
