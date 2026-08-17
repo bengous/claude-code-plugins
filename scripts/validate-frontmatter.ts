@@ -1,7 +1,8 @@
 #!/usr/bin/env bun
 /**
  * YAML frontmatter validation script
- * Validates frontmatter in staged plugin markdown files (commands, skills, agents, hooks)
+ * Validates frontmatter in component markdown files (commands, skills, agents,
+ * hooks, path-scoped rules) — staged files by default, the whole repo with --all
  */
 
 import { existsSync } from "node:fs";

@@ -37,6 +37,8 @@ Options:
                        modules relative to a directory this script does not derive.
   --external <regex>   citation to ignore, repeatable. Use it for paths that live
                        outside the repo by design (a ported theme, vendored sources).
+  --count              output comment-line counts per file instead of checking
+                       citations: the hunters' denominator and the guard's estimate
   -h, --help           this text
 
 Resolution: a citation is innocent as soon as it resolves against the repo root, any
@@ -52,6 +54,7 @@ function parseArgs(argv: string[]) {
   const exclude = DEFAULT_EXCLUDE.split(",");
   const roots: string[] = [];
   const external: RegExp[] = [];
+  let count = false;
   let seenPositional = false;
 
   for (let i = 0; i < argv.length; i++) {
@@ -85,6 +88,9 @@ function parseArgs(argv: string[]) {
       case "--external":
         external.push(new RegExp(next()));
         break;
+      case "--count":
+        count = true;
+        break;
       default:
         if (arg.startsWith("-")) {
           console.error(`Error: unknown option ${arg}\n`);
@@ -107,6 +113,7 @@ function parseArgs(argv: string[]) {
     exclude: new Set(exclude),
     roots,
     external,
+    count,
   };
 }
 
@@ -155,8 +162,10 @@ const HASH_LANGS = new Set([
 ]);
 const HTML_LANGS = new Set([".astro", ".vue", ".svelte", ".html", ".md", ".mdx", ".xml"]);
 
-// Extracts the comment segments of a line, strings excluded: a path inside an import or
-// a literal is not a comment, and the compiler already checks it.
+// Extracts the comment segments of a line. Import and require paths stay out because
+// they carry no comment marker — string literals are NOT parsed, so a marker inside a
+// string ("use // x/y.ts") does leak a segment. Accepted: rare, and a false "not
+// found" from it is cheap to dismiss with the line in view.
 function commentSegments(source: string, file: string): { line: number; text: string }[] {
   const ext = file.slice(file.lastIndexOf("."));
   const hash = HASH_LANGS.has(ext);
@@ -242,6 +251,23 @@ function exists(cited: string, file: string): boolean {
 function isExternal(cited: string): boolean {
   const cleaned = cited.replace(/^\.\//, "");
   return opts.external.some((re) => re.test(cleaned));
+}
+
+if (opts.count) {
+  let total = 0;
+  for (const file of collect(opts.repoRoot, [])) {
+    let source: string;
+    try {
+      source = readFileSync(file, "utf8");
+    } catch {
+      continue;
+    }
+    const lines = commentSegments(source, file).length;
+    if (lines > 0) console.log(`${relative(opts.repoRoot, file)}\t${lines}`);
+    total += lines;
+  }
+  console.log(`\n${total} comment lines total.`);
+  process.exit(0);
 }
 
 const broken: { file: string; line: number; cited: string }[] = [];

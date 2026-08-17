@@ -25,7 +25,7 @@ import type {
 export * from "./types";
 export * from "./presets";
 
-/** Default timeout: 55 seconds (under 60s hook limit) */
+/** Default timeout: 55 seconds — fits the default 60s hook timeout; a per-hook `timeout` setting can be far shorter and kills the spawn first */
 const DEFAULT_TIMEOUT = 55_000;
 
 /** Required fields for HookInput validation */

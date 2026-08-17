@@ -16,7 +16,7 @@ plugin judges truth as well as usefulness.
 ## Skill: clean-comments
 
 ```bash
-/clean-comments:clean-comments              # recently changed files, audit only
+/clean-comments:clean-comments              # branch diff vs merge-base, audit only
 /clean-comments:clean-comments src/**/*.ts  # a file pattern
 /clean-comments:clean-comments --diff       # only what git diff shows
 /clean-comments:clean-comments --apply      # apply approved items
@@ -27,16 +27,23 @@ Four actions:
 | The comment... | Action |
 |---|---|
 | Compensates for a bad name, a missing abstraction, a magic number | **REFACTOR** |
-| Carries a why, an external constraint, a trap, a proof | **KEEP** |
+| Carries a why, an external constraint, a trap, a proof, an interface contract, or a higher-level summary of a block or module | **KEEP** |
 | Restates the code, or is a decorative banner | **REMOVE** |
 | Makes a checkable factual claim | **FIX-VERIFY** |
 
 **FIX-VERIFY** is the action classic grids lack. A comment citing a path, a count, a
-state, or a list of consumers is making a claim: check it before judging it. In audit
-mode the skill reports the claim with its counter-proof and never rules alone.
+state, or a list of consumers is making a claim: check it before judging it. Checks
+split in two cost levels: level M (mechanical, one command — a cited path, a cited
+symbol) is open to hunters; level S (semantic — counts, dated states, consumer lists)
+belongs to the strong arbitration pass alone. In audit mode the skill reports the
+claim with its counter-proof and never rules alone.
 
 Audit mode is read-only. Apply mode runs only on approved items. The two never mix in
 one pass.
+
+Fan-out runs under a hard budget: batches sized by content volume (~200k tokens per
+hunter), at most 4 hunters at a time, and a confirmation guard before any scope past
+~1M tokens. A hunter never spawns a subagent.
 
 ## Agent: comment-hunter
 
@@ -65,6 +72,7 @@ exits 0 and writes nothing: an audit probe, not a gate.
 | `--exclude <dir>` | directory to skip, repeatable |
 | `--root <path>` | extra resolution root, repeatable |
 | `--external <regex>` | citation to ignore, repeatable (paths outside the repo by design) |
+| `--count` | comment-line counts per file instead of checking citations |
 
 A citation is cleared as soon as it resolves against the repo root, any ancestor
 directory of the citing file, any directory down to depth 3, or a `--root` you passed.

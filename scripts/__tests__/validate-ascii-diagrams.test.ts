@@ -124,14 +124,14 @@ describe("vertical run gaps", () => {
 		//          col 16
 		// line 0:   │
 		// line 1:   ▼
-		// line 2:   o  ← text char (e.g. from "PreToolUse"), not a gap
+		// line 2:   l  ← text char (e.g. from "PreToolUse"), not a gap
 		// line 3:   │
 		// line 4:   e  ← text char (e.g. from "allowed"), not a gap
 		// line 5:   │
 		const diagram = [
 			atCol(16, "│"),
 			atCol(16, "▼"),
-			" ".repeat(10) + "PreToolUse",  // col 16 = 'o' (text)
+			" ".repeat(10) + "PreToolUse",  // col 16 = 'l' (text)
 			atCol(16, "│"),
 			" ".repeat(13) + "allowed",      // col 16 = 'o' (text)
 			atCol(16, "│"),
@@ -215,9 +215,9 @@ describe("box corners are not orphaned", () => {
 
 describe("real-world: agentic-loop diagram", () => {
 	test("detects misalignment in broken version", () => {
-		// The broken version has ┐ at col 55, but │ below at col 56
+		// The broken version has ┐ at col 54, but │ below at col 56
 		const broken = [
-			"         │ Claude turns │◄────────────────────────────┐",       // ┐ at col 55
+			"         │ Claude turns │◄────────────────────────────┐",       // ┐ at col 54
 			"         └──────┬───────┘                               │",    // │ at col 56
 			"                │                                       │",    // │ at col 56
 			"                ▼                                       │",
@@ -230,7 +230,7 @@ describe("real-world: agentic-loop diagram", () => {
 			"                │                                       │",
 		].join("\n");
 		const issues = verticalIssues(broken);
-		// Should detect: ┐ at col 55 has no vertical below (│ is at 56)
+		// Should detect: ┐ at col 54 has no vertical below (│ is at 56)
 		expect(issues.length).toBeGreaterThan(0);
 		expect(issues.some((m) => m.includes("┐"))).toBe(true);
 	});

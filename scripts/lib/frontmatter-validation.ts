@@ -1,6 +1,5 @@
 /**
- * Pure validation functions for YAML frontmatter validation.
- * No side effects - all functions return FrontmatterResult objects.
+ * Pure validation functions for YAML frontmatter validation. No side effects.
  */
 
 import { parse, YAMLParseError } from "yaml";

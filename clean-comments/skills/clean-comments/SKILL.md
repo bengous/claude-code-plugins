@@ -48,6 +48,22 @@ carry a why or a constraint — those are an asset, not debt.
 - Decorative banners alone never justify a dedicated cleanup pass. They are cosmetic.
 </constraints>
 
+## Budget (non-negotiable)
+
+- Size batches by content volume, not file count: target ~200k tokens of file content
+  per hunter (bytes / 4), never more than ~300k — past that the context is too full
+  and error rates climb.
+- Hunter count = ceil(total volume / 200k). Most repos need 1 to 3 hunters.
+- At most 4 hunters run concurrently.
+- If the estimate exceeds 4 hunters (~1M tokens in scope): STOP. Show the file count,
+  the estimated volume, the comment-line total (probe `--count`), and the hunter
+  count. Launch nothing before the user explicitly confirms. After confirmation, run
+  waves of 4, total announced up front.
+- A hunter NEVER spawns a subagent, and never invokes `claude` through Bash. No
+  exception, including "just to verify".
+- These values are defaults: the user can override them in the prompt, or a repo can
+  override the hunter (see Extension points).
+
 ## The bar
 
 > A comment earns its place if it says what the code cannot: a why, an external
@@ -63,6 +79,8 @@ carry a why or a constraint — those are an asset, not debt.
 | Carries external knowledge (business rule, browser quirk, RFC, incident) | **KEEP** |
 | Carries a trap, an invariant, an order dependency, a "DO NOT" | **KEEP** |
 | Carries a decision, a rejected alternative, an arbitration | **KEEP** |
+| Documents an interface contract for a caller who will not read the implementation (parameters, preconditions, invariants, exceptions) | **KEEP** |
+| Summarizes a block, a whole function or a module at a higher level than the code | **KEEP** |
 | Restates the code, or is a decorative banner | **REMOVE** |
 | Makes a checkable factual claim | **FIX-VERIFY** — check it before you judge it |
 
@@ -82,6 +100,7 @@ REFACTOR   x * 86400000           // ms per day          → const MS_PER_DAY
 KEEP       // FCC requires 30-day retention
 KEEP       // Order matters: auth before session
 KEEP       // Safari bug, see webkit#12345
+KEEP       // Reconciles local drafts with server state; server wins on conflict
 REMOVE     i++;                   // increment i
 REMOVE     // ───────────────  /* ===== Helpers ===== */
 REMOVE     commented-out code blocks (git history holds them)
@@ -108,7 +127,9 @@ workstream, with its own review.
 **Audit** (default) — read-only. Classify, verify, report. No edits.
 
 **Apply** (`--apply`, or explicit user confirmation of an audit) — execute approved
-items only.
+items only. Before every edit, re-read the target line and match the exact comment
+text from the approved item. A mismatch means the file moved since the audit: skip
+the item, report it, never edit blind.
 
 Never mix the two in one pass. An audit that edits as it goes cannot be reviewed.
 
@@ -116,11 +137,20 @@ Never mix the two in one pass. An audit that edits as it goes cannot be reviewed
 
 Parse `$ARGUMENTS`:
 
-- A file pattern → those files.
+- A file pattern → those files. A pattern that covers the whole repo is legitimate,
+  but it goes through the budget guard like any large scope.
 - `--diff` → judge only comments visible in `git diff -U20`, without reading whole
   files. Cheap, good for a pre-commit review.
-- Neither → recently changed files (`git diff --name-only HEAD~5`).
+- Neither → the branch diff:
+  `git diff --name-only $(git merge-base HEAD <target>)..HEAD`, where `<target>` is
+  `git symbolic-ref --short refs/remotes/origin/HEAD` when that branch resolves
+  (`git rev-parse --verify` — a stale local origin/HEAD points to a branch that no
+  longer exists), else `main`. On the target branch itself (empty diff), fall back to
+  `git diff --name-only HEAD~5`.
 - `--apply` → apply mode (see above).
+
+Whatever the scope, the probe (step 1) still runs on the whole repo — it is free.
+Hunters read only the files in scope.
 
 Ask the user for a survives/dies map when the repo has a rewrite in flight, or accept
 one they volunteer.
@@ -142,6 +172,9 @@ of the pass:
 - A broken citation is a stale suspect whose counter-proof is already done.
 - A resolved citation is innocent; do not re-check it by hand.
 
+A second run with `--count` gives the comment-line count per file: the hunters'
+denominator and the guard's estimate, both mechanical.
+
 Blind spots the probe does not cover, and you must: bare filenames with no directory,
 paths inside hidden directories, and paths relative to a project area the probe did not
 derive (pass `--root` for those). Read `--help` for the flags.
@@ -151,17 +184,28 @@ derive (pass `--root` for those). Read `--help` for the flags.
 For every comment in scope, apply the grid. Order the tests:
 
 1. **Deletion test** — delete it: is anything lost that the code does not say? No →
-   REMOVE (paraphrase). Decorative banners fail this test by definition.
-2. **Why test** — does it carry a decision, a rejected alternative, an arbitration?
+   REMOVE (paraphrase). Decorative banners fail this test by definition. Discriminant:
+   a comment that restates ONE line or ONE expression is a paraphrase; a comment that
+   summarizes a BLOCK, a whole FUNCTION or a MODULE at a higher level is an
+   abstraction → KEEP, even though it "restates" the code.
+2. **Contract test** — does it document the interface for a caller who will not read
+   the implementation (parameters, preconditions, invariants, exceptions)? Yes → KEEP.
+3. **Why test** — does it carry a decision, a rejected alternative, an arbitration?
    Yes → KEEP.
-3. **Trap test** — does it carry an external constraint, an invariant, a proof, a past
+4. **Trap test** — does it carry an external constraint, an invariant, a proof, a past
    incident, a "DO NOT"? Yes → KEEP, even if it reads long-winded.
-4. **Truth test** — does it claim something checkable? → FIX-VERIFY.
+5. **Truth test** — does it claim something checkable? → FIX-VERIFY.
 
 When torn: trap > why > paraphrase. A comment that is half useful and half chatty is
-classed on its useful half.
+classed on its useful half. Torn between paraphrase and abstraction → KEEP: an
+abstraction deleted by mistake costs more than a paraphrase kept.
 
 ### Step 3: Verify the claims
+
+Two cost levels. Level M (mechanical, one command: cited path via the probe, cited
+symbol via `rg`) is free and open to hunters. Level S (semantic: counts, dated
+states, consumer lists) belongs to this strong pass alone — hunters flag those
+suspects, they never verify them.
 
 Read-only checks, in the order to reach for them:
 
@@ -179,13 +223,16 @@ Nothing that writes: no `sed -i`, no `>` redirection, no `git add`/`commit`/`che
 
 Small scope (a handful of files) → do it inline.
 
-Large scope (a whole repo, dozens of files) → fan out `comment-hunter` agents over
-batches. Give each hunter:
+Large scope → fan out `comment-hunter` agents under the budget above: batches sized
+by content volume (~200k tokens each), at most 4 hunters at a time, the confirmation
+guard before any fan-out past the threshold. Give each hunter:
 
-- Its batch: absolute path, comment-line count (its denominator), fate tag
-  (`survives` / `dies` / `dies-partial` / `unknown`) when a map exists.
+- Its batch: absolute path, comment-line count from the probe's `--count` output
+  (its denominator), fate tag (`survives` / `dies` / `dies-partial` / `unknown`)
+  when a map exists.
 - The probe output lines that concern its batch.
-- A report path on disk to write its fragment to.
+- A report path on disk to write its fragment to — in a session temp directory,
+  never inside the audited repo.
 
 Each hunter writes its full deliverable to that path and answers in three lines. The
 detail lands verbatim, your context stays light. Then run one strong arbitration pass

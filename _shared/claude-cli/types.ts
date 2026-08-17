@@ -14,8 +14,8 @@ export interface HookInput {
   transcript_path: string;
   /** Current working directory */
   cwd: string;
-  /** Permission mode: "ask" or "allow" */
-  permission_mode: "ask" | "allow";
+  /** Permission mode (e.g. "default", "plan", "acceptEdits") */
+  permission_mode: string;
   /** Name of the hook event */
   hook_event_name: string;
   /** Tool name (PreToolUse, PostToolUse) */
