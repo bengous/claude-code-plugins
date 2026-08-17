@@ -162,10 +162,38 @@ const HASH_LANGS = new Set([
 ]);
 const HTML_LANGS = new Set([".astro", ".vue", ".svelte", ".html", ".md", ".mdx", ".xml"]);
 
-// Extracts the comment segments of a line. Import and require paths stay out because
-// they carry no comment marker — string literals are NOT parsed, so a marker inside a
-// string ("use // x/y.ts") does leak a segment. Accepted: rare, and a false "not
-// found" from it is cheap to dismiss with the line in view.
+// Masks string-literal content with spaces, length-preserving, so a comment marker
+// inside a string never opens a segment. Without this, an unterminated /* inside a
+// glob string turned every remaining line of the file into "comments" and inflated
+// the --count denominators. Per-line only: a template literal spanning lines is not
+// tracked, and an apostrophe in code prose can mask the rest of its own line — either
+// way the damage is one line, never the file.
+function maskStrings(line: string): string {
+  let out = "";
+  let quote: string | null = null;
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i];
+    if (quote) {
+      if (ch === "\\") {
+        out += "  ";
+        i++;
+      } else if (ch === quote) {
+        quote = null;
+        out += ch;
+      } else {
+        out += " ";
+      }
+    } else {
+      if (ch === '"' || ch === "'" || ch === "`") quote = ch;
+      out += ch;
+    }
+  }
+  return out;
+}
+
+// Extracts the comment segments of a line. Markers are searched on the string-masked
+// line (skipped for HTML/Markdown, where quotes are prose, not syntax); the segment
+// text is sliced from the original, indices align because masking preserves length.
 function commentSegments(source: string, file: string): { line: number; text: string }[] {
   const ext = file.slice(file.lastIndexOf("."));
   const hash = HASH_LANGS.has(ext);
@@ -181,12 +209,13 @@ function commentSegments(source: string, file: string): { line: number; text: st
       if (end !== -1) inBlock = false;
       continue;
     }
-    const blockStart = line.indexOf("/*");
+    const masked = html ? line : maskStrings(line);
+    const blockStart = masked.indexOf("/*");
     const starts = [
-      hash ? -1 : line.indexOf("//"),
+      hash ? -1 : masked.indexOf("//"),
       hash ? -1 : blockStart,
-      html ? line.indexOf("<!--") : -1,
-      hash ? line.indexOf("#") : -1,
+      html ? masked.indexOf("<!--") : -1,
+      hash ? masked.indexOf("#") : -1,
     ].filter((i) => i !== -1);
     if (starts.length === 0) continue;
     const start = Math.min(...starts);

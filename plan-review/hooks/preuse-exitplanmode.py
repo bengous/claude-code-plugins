@@ -3,6 +3,8 @@
 PreToolUse hook for ExitPlanMode.
 Blocks plan execution until review status is APPROVED, unless a bypass
 applies: quick marker, plans under the size threshold, or max reviews reached.
+Also allows through when no plan file is found, the file is unreadable, or
+stdin is not JSON — it validates the most recently modified plan file.
 """
 
 import json

@@ -70,7 +70,7 @@ export interface SpawnOptions {
   permissionMode?: PermissionMode;
   /** JSON Schema for structured output validation */
   jsonSchema?: object;
-  /** Timeout in milliseconds (default: 55000, under 60s hook limit) */
+  /** Timeout in milliseconds (default: 55000 — fits the default 60s hook timeout; a per-hook `timeout` setting can be shorter) */
   timeout?: number;
   /** Maximum USD to spend (API users only) */
   maxBudgetUsd?: number;

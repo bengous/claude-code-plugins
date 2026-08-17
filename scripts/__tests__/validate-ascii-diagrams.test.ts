@@ -126,7 +126,7 @@ describe("vertical run gaps", () => {
 		// line 1:   ▼
 		// line 2:   l  ← text char (e.g. from "PreToolUse"), not a gap
 		// line 3:   │
-		// line 4:   e  ← text char (e.g. from "allowed"), not a gap
+		// line 4:   o  ← text char (e.g. from "allowed"), not a gap
 		// line 5:   │
 		const diagram = [
 			atCol(16, "│"),

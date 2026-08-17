@@ -35,13 +35,13 @@ import { readHookInput } from "./index";
  * Claude Code hook exit codes.
  *
  * - ALLOW (0): The tool call proceeds normally.
- * - ERROR (1): Non-blocking error — tool still runs, stderr logged in verbose mode.
+ * - ERROR (1): Non-blocking error — tool still runs, stderr shown to the user.
  * - BLOCK (2): The tool call is blocked. stderr is shown to Claude as context.
  */
 export const HOOK_EXIT = {
 	/** Allow the operation to proceed */
 	ALLOW: 0,
-	/** Non-blocking error — tool still runs, stderr logged in verbose mode */
+	/** Non-blocking error — tool still runs, stderr shown to the user */
 	ERROR: 1,
 	/** Block the operation (stderr shown to Claude) */
 	BLOCK: 2,
@@ -53,7 +53,7 @@ export const HOOK_EXIT = {
 export interface ValidationResult {
   /** Whether to block the operation */
   block: boolean;
-  /** Reason written to stderr when blocking — shown to Claude as context */
+  /** Reason written to stderr when blocking — read by Claude for PreToolUse, shown to the user for UserPromptSubmit */
   reason?: string;
 }
 
