@@ -6,6 +6,7 @@
  * 1. Top/bottom width match
  * 2. Left/right │ present on every interior line
  * 3. Lines not exceeding 78 chars
+ * 4. Vertical runs: orphaned ┐ / ┘ and gaps in │ columns
  *
  * Usage: bun scripts/validate-ascii-diagrams.ts [file...]
  *   If no files, validates docs/architecture/*.md
@@ -198,12 +199,6 @@ function validateBlock(
 
 // ── Vertical connector validation ─────────────────────────
 
-// Characters that form vertical connections in diagrams
-const VERTICAL_CHARS = new Set("│┐┘├┤┬┴┼");
-// Characters that connect downward (expect something below at same column)
-const CONNECTS_DOWN = new Set("│┐┌┬├┤┼");
-// Characters that connect upward (expect something above at same column)
-const CONNECTS_UP = new Set("│┘└┴├┤┼");
 // Characters that are valid as vertical neighbors (including arrowheads)
 const VERTICAL_NEIGHBOR = new Set("│┐┘├┤┬┴┼┌└▼▲");
 

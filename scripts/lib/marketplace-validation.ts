@@ -1,6 +1,5 @@
 /**
- * Pure validation functions for marketplace plugin validation.
- * No side effects - all functions return ValidationResult objects.
+ * Pure validation functions for marketplace plugin validation. No side effects.
  */
 
 export interface PluginEntry {

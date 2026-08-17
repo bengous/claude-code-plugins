@@ -53,7 +53,7 @@ export const HOOK_EXIT = {
 export interface ValidationResult {
   /** Whether to block the operation */
   block: boolean;
-  /** Reason shown to user when blocking */
+  /** Reason written to stderr when blocking — shown to Claude as context */
   reason?: string;
 }
 
@@ -92,12 +92,13 @@ export interface SubagentStopHookConfig {
  *
  * Exit codes:
  * - 0: Allow the operation
- * - 2: Block the operation (reason shown to user via stderr)
+ * - 2: Block the operation (reason on stderr, shown to Claude as context)
  *
  * @example
  * ```typescript
  * #!/usr/bin/env bun
- * import { createPreToolUseHook, spawn, VALIDATE_PRESET, withPreset } from "./_shared/claude-cli";
+ * import { createPreToolUseHook } from "./_shared/claude-cli/hooks";
+ * import { spawn, VALIDATE_PRESET, withPreset } from "./_shared/claude-cli";
  *
  * createPreToolUseHook({
  *   matcher: "Bash",

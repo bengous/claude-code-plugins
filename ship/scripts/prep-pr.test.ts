@@ -473,13 +473,13 @@ describe("prep-pr integration", () => {
       "plans/notes.md": "# Notes",
     });
 
-    // derivePrBranch thinks this IS a PR branch, deriveOriginalBranch produces "feature/fi"
-    // The validation in run() should catch that "feature/fi" doesn't exist
+    // derivePrBranch thinks this IS a PR branch, deriveOriginalBranch produces "feature/fix"
+    // The validation in run() should catch that "feature/fix" doesn't exist
     const result = await runPrepPr(dir, ["--force"]);
 
     expect(result.status).toBe("error");
     expect(result.error).toContain("cannot derive original branch");
-    expect(result.error).toContain("feature/fi");
+    expect(result.error).toContain("feature/fix");
   });
 
   test("false -pr suffix with --pr-branch override succeeds", async () => {

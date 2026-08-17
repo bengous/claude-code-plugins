@@ -20,7 +20,7 @@ export type PresetOptions = Omit<Partial<SpawnOptions>, "prompt">;
 
 /**
  * Preset for read-only exploration agents.
- * Safe for untrusted contexts - cannot modify files.
+ * Cannot modify files: Edit/Write/Bash are disallowed.
  */
 export const EXPLORE_PRESET: PresetOptions = {
   allowedTools: ["Read", "Glob", "Grep"],
@@ -64,7 +64,7 @@ export const RESEARCH_PRESET: PresetOptions = {
 
 /**
  * Preset for implementation agents.
- * Full tool access with Opus model for complex tasks.
+ * File and shell tools with Opus model for complex tasks.
  */
 export const IMPLEMENT_PRESET: PresetOptions = {
   allowedTools: ["Read", "Edit", "Write", "Bash", "Glob", "Grep"],

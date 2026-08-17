@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """
 PreToolUse hook for ExitPlanMode.
-Blocks plan execution until review status is APPROVED.
+Blocks plan execution until review status is APPROVED, unless a bypass
+applies: quick marker, plans under the size threshold, or max reviews reached.
 """
 
 import json

@@ -162,8 +162,10 @@ const HASH_LANGS = new Set([
 ]);
 const HTML_LANGS = new Set([".astro", ".vue", ".svelte", ".html", ".md", ".mdx", ".xml"]);
 
-// Extracts the comment segments of a line, strings excluded: a path inside an import or
-// a literal is not a comment, and the compiler already checks it.
+// Extracts the comment segments of a line. Import and require paths stay out because
+// they carry no comment marker — string literals are NOT parsed, so a marker inside a
+// string ("use // x/y.ts") does leak a segment. Accepted: rare, and a false "not
+// found" from it is cheap to dismiss with the line in view.
 function commentSegments(source: string, file: string): { line: number; text: string }[] {
   const ext = file.slice(file.lastIndexOf("."));
   const hash = HASH_LANGS.has(ext);

@@ -373,7 +373,6 @@ describe("git-clean-audit", () => {
     await git(repo, "checkout", "main");
     await addCommit(repo, "main-advance.txt", "Advance main");
 
-    // Go back to main for the audit
     const { result } = await runAudit(repo);
 
     // feature/meta is unmerged and its content is not on main, so it's kept

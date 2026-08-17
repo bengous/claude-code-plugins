@@ -731,7 +731,7 @@ async function writeMarker(archived: number): Promise<void> {
 async function runBackgroundWorker(options: Options): Promise<void> {
   useStderrLog();
 
-  // Layer 2: Throttle — skip if ran recently
+  // Throttle — skip if ran recently
   if (isThrottled()) return;
 
   // Decode hook input from base64 arg
@@ -757,7 +757,7 @@ async function runBackgroundWorker(options: Options): Promise<void> {
       protectedIds.add(input.session_id);
     }
 
-    // Layer 3: Scope to current project only — no full scan in background mode
+    // Scope to current project only — no full scan in background mode
     if (input.transcript_path) {
       options.project = dirname(input.transcript_path);
     }
