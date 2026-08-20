@@ -130,7 +130,8 @@ a wrapper agent:
 
 - Wrapper: a sonnet/low agent that writes a self-contained codex prompt, runs
   `codex exec` via Bash following this skill's invocation pattern, and returns
-  the report (`schema` for structured output).
+  the report (`schema` for structured output). The wrapper does no reasoning —
+  keep it on sonnet/low whatever the session's default model is.
 - Label the agent with the codex model it runs — the UI shows the wrapper's
   Claude model, not what codex ran.
 - Codex can exceed Bash's 10-min default timeout → set an explicit timeout or
