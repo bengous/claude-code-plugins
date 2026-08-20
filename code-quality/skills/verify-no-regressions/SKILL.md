@@ -30,13 +30,13 @@ Read the work state above to determine what happened:
 
 If nothing changed anywhere, report that and stop.
 
-Spawn the subagents in a **single message**. Tell each agent which diff commands to use based on the work state. Give the semantic reviewers a model that can judge intent, not the cheapest tier; the test runner only shells out, so keep it cheap.
+Spawn the subagents in a **single message**. Tell each agent which diff commands to use based on the work state.
 
-1. **Semantic reviewers** -- split changed files across `$0` agent(s) (default: 1). Each agent:
+1. **Semantic reviewers** (`model: opus` -- judgment-heavy: intent, not syntax) -- split changed files across `$0` agent(s) (default: 1). Each agent:
    - Reads the diff (using the appropriate command for the work state) and current file contents
    - Classifies each change as INTENTIONAL, RISKY (could break callers), or REGRESSION
    - Reports verdict: PASS / NEEDS_REVIEW / FAIL
 
-2. **Test runner** (skip if no test infrastructure) -- one additional agent that runs the test suite and reports PASS / FAIL.
+2. **Test runner** (`model: sonnet` -- runs one command, reports a verdict; skip if no test infrastructure) -- one additional agent that runs the test suite and reports PASS / FAIL.
 
 After all agents complete, synthesize a single report with overall verdict.
