@@ -20,7 +20,7 @@ A curated marketplace of Claude Code plugins for development workflow automation
 |--------|---------|-------------|
 | [claude-orchestration](orchestration/) | 2.7.0 | Parallel multi-agent orchestration for complex features with git-wt --stack worktree isolation |
 | [git-tools](git-tools/) | 1.11.4 | Interactive git commands with AI assistance for commit management, history rewriting, PR/issue triage, agent-ready issue writing, and submodule automation |
-| [code-quality](code-quality/) | 2.0.0 | Code quality and cleanup commands for maintaining clean, maintainable code |
+| [code-quality](code-quality/) | 2.0.1 | Code quality and cleanup commands for maintaining clean, maintainable code |
 | [clean-comments](clean-comments/) | 1.1.1 | Audit and clean code comments: protects why/constraint comments, hunts comments that lie |
 | [mermaid-diagrams](mermaid-diagrams/) | 1.0.0 | Create and edit Mermaid diagrams for software engineering work, architectural ideas, and technical documentation |
 | [claude-meta-tools](claude-meta-tools/) | 5.0.0 | Prompt tooling for Claude Code: write and audit prompts (meta-prompt, prompt-coach, prompt-health) and introspect how the harness executes them (dump-system-prompt, explain-workflow) |

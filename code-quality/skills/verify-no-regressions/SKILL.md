@@ -2,7 +2,7 @@
 name: verify-no-regressions
 argument-hint: "[count] [base-branch]"
 description: >
-  Verify no behavioral regressions after implementation. Spawns parallel sonnet
+  Verify no behavioral regressions after implementation. Spawns parallel
   subagents for semantic diff review + test execution. Use when: user says
   "verify no regressions", "check for regressions", "make sure nothing broke".
 ---
@@ -30,7 +30,7 @@ Read the work state above to determine what happened:
 
 If nothing changed anywhere, report that and stop.
 
-Spawn **sonnet** subagents in a **single message**. Tell each agent which diff commands to use based on the work state.
+Spawn the subagents in a **single message**. Tell each agent which diff commands to use based on the work state. Give the semantic reviewers a model that can judge intent, not the cheapest tier; the test runner only shells out, so keep it cheap.
 
 1. **Semantic reviewers** -- split changed files across `$0` agent(s) (default: 1). Each agent:
    - Reads the diff (using the appropriate command for the work state) and current file contents
