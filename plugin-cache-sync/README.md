@@ -2,7 +2,7 @@
 
 Sync Claude Code plugin cache from local sources.
 
-**Version:** 2.0.0
+**Version:** 2.1.0
 
 ## Why
 
@@ -64,6 +64,23 @@ cd ~/my-plugins && plugin-cache-sync sync --all
 # Explicit source
 plugin-cache-sync --source ~/my-plugins sync --all
 ```
+
+## Automatic checks
+
+A `Stop` hook runs when a turn ends inside a marketplace repo. For each plugin with
+uncommitted changes it runs two deterministic checks, both free and sub-second:
+
+```bash
+claude plugin validate <dir> --strict            # manifest and frontmatter
+claude --plugin-dir <dir> plugin details <name>  # loads from source, prints inventory
+```
+
+A failure exits 2, so the reason reaches Claude and the turn does not end on a broken
+plugin. Results are keyed by a content hash, so an unchanged plugin is never re-checked
+and a warm run costs about 20 ms.
+
+Neither check proves the plugin *behaves*. For that, write eval cases and run
+`claude plugin eval <dir>`.
 
 ## Important
 
