@@ -2,6 +2,25 @@
 
 This repository is a **plugin marketplace** for Claude Code.
 
+## Commands
+
+```bash
+mise install && lefthook install             # one-time setup (bun + lefthook)
+bun test                                     # all suites
+bun test scripts/__tests__/validate-marketplace.test.ts   # single test file
+bun test -t "pattern"                        # single test by name
+bun ./scripts/validate-marketplace.ts        # version + structure sync check
+bun ./scripts/validate-frontmatter.ts --all  # frontmatter check (--all = every tracked file; default = staged only)
+```
+
+Shared validation logic lives in `scripts/lib/`; lefthook `pre-commit` and CI call the same scripts.
+
+## Non-Obvious Directories
+
+- `_shared/claude-cli/` - TypeScript SDK for hook scripts (hook input parsing, agent spawning, guard presets). Used by `.claude/git/` and `.claude/settings.json`. Not a plugin.
+- `archive/` - retired plugins, not listed in `marketplace.json`.
+- `_docs/` - scraped external references, not plugin content.
+
 ## Reference Implementations
 
 | Plugin | Complexity | Learn From |
@@ -28,20 +47,11 @@ my-plugin/
 |------|-----|
 | Only `plugin.json` in `.claude-plugin/` | Extra files cause silent discovery failures |
 | Version sync: `plugin.json` = `marketplace.json` = `README.md` | Pre-commit hook validates all three match |
-| No hardcoded paths | Use `${CLAUDE_PLUGIN_ROOT}` or `git rev-parse` |
-| Repository-scoped state | Global state causes cross-repo contamination |
-| Atomic writes | Direct overwrites corrupt files on interruption |
+| No hardcoded paths | `${CLAUDE_PLUGIN_ROOT}` or `git rev-parse`, never `/home/user/...` |
+| Repository-scoped state | `$REPO_ROOT/.myplugin`, never `$HOME/.myplugin`; global state contaminates other repos |
+| Atomic writes | `jq ... > f.tmp && mv f.tmp f.json`, never `jq ... > f.json`; direct overwrites corrupt files on interruption |
+| Build JSON with `jq -n --arg` | `echo "{...}"` breaks on quoting |
 | Scripts must be executable | `chmod +x` required |
-
-## Common Pitfalls
-
-| Pitfall | Wrong | Right |
-|---------|-------|-------|
-| Hardcoded paths | `/home/user/...` | `${CLAUDE_PLUGIN_ROOT}` |
-| Global state | `$HOME/.myplugin` | `$REPO_ROOT/.myplugin` |
-| Non-atomic writes | `jq ... > f.json` | `jq ... > f.tmp && mv f.tmp f.json` |
-| Version desync | Different versions | Must match exactly |
-| JSON concatenation | `echo "{...}"` | `jq -n --arg ...` |
 
 ## Branching
 
