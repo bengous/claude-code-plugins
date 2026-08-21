@@ -16,6 +16,17 @@
   "autoUpdates": true,
 
   // ─────────────────────────────────────────────────────────────────────────
+  // Plugins
+  // ─────────────────────────────────────────────────────────────────────────
+  //
+  // .claude/CLAUDE.md delegates plugin authoring to /plugin-dev; declare it so
+  // contributors get it. The claude-code-guide agent is built in, not a plugin.
+  //
+  "enabledPlugins": {
+    "plugin-dev@claude-plugins-official": true
+  },
+
+  // ─────────────────────────────────────────────────────────────────────────
   // Permissions
   // ─────────────────────────────────────────────────────────────────────────
   //
