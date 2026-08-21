@@ -1,25 +1,23 @@
 #!/usr/bin/env bash
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-# plugin-dev - Sync Claude Code plugin cache from local sources
+# plugin-cache-sync - Sync Claude Code plugin cache from local sources
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 #
 # The plugin cache doesn't always refresh after commits/restarts (known bugs).
 # This script clears the cache and copies fresh files from the source directory.
 #
 # Usage:
-#   plugin-dev sync <name>              Sync a plugin (partial name match)
-#   plugin-dev sync --all               Sync all directory-source plugins
-#   plugin-dev enable <name>|--all      Enable plugin(s) in settings.json
-#   plugin-dev disable <name>|--all     Disable plugin(s) in settings.json
-#   plugin-dev status                   Show cache vs source comparison
-#   plugin-dev version                  Print version
-#   plugin-dev --source /path <cmd>     Use a standalone repo as source
+#   plugin-cache-sync sync <name>              Sync a plugin (partial name match)
+#   plugin-cache-sync sync --all               Sync all directory-source plugins
+#   plugin-cache-sync status                   Show cache vs source comparison
+#   plugin-cache-sync version                  Print version
+#   plugin-cache-sync --source /path <cmd>     Use a standalone repo as source
 #
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 set -euo pipefail
 
-readonly VERSION="1.2.0"
+readonly VERSION="2.0.0"
 readonly PLUGINS_DIR="$HOME/.claude/plugins"
 readonly INSTALLED_JSON="$PLUGINS_DIR/installed_plugins.json"
 readonly MARKETPLACES_JSON="$PLUGINS_DIR/known_marketplaces.json"
@@ -111,24 +109,6 @@ is_plugin_enabled() {
 	local plugin_key="$1"
 	[[ -f "$SETTINGS_JSON" ]] || return 1
 	[[ "$(jq -r --arg k "$plugin_key" '.enabledPlugins[$k] // false' "$SETTINGS_JSON")" == "true" ]]
-}
-
-# Toggle the plugin key in settings.json's enabledPlugins (atomic write).
-# value is "true" or "false" (passed as a real JSON boolean via --argjson).
-set_plugin_enabled() {
-	local plugin_key="$1" value="$2"
-
-	if [[ ! -f "$SETTINGS_JSON" ]]; then
-		log_err "Settings file not found: $SETTINGS_JSON"
-		return 1
-	fi
-
-	local tmp_json
-	tmp_json=$(mktemp)
-	jq --arg k "$plugin_key" --argjson v "$value" \
-		'.enabledPlugins = ((.enabledPlugins // {}) | .[$k] = $v)' \
-		"$SETTINGS_JSON" >"$tmp_json"
-	mv "$tmp_json" "$SETTINGS_JSON"
 }
 
 # ── Plugin resolution ─────────────────────────────────────────────────────
@@ -245,7 +225,7 @@ sync_plugin() {
 
 	if ! is_plugin_enabled "$plugin_key"; then
 		log_warn "${BOLD}${plugin_name}${NC} is installed but NOT enabled — Claude Code won't load it."
-		log_warn "  enable it:  ${BOLD}plugin-dev enable ${plugin_name}${NC}   (or via /plugin), then restart"
+		log_warn "  enable it:  ${BOLD}claude plugin enable ${plugin_key}${NC}   (or via /plugin), then restart"
 	fi
 }
 
@@ -279,50 +259,6 @@ sync_one() {
 	sync_plugin "$mkt_name" "$mkt_path" "$pname" "$pver" "$psrc"
 	log ""
 	log "Restart Claude Code to apply."
-}
-
-# ── Enable / disable ──────────────────────────────────────────────────────
-
-set_enabled_one() {
-	local query="$1" value="$2"
-	local match
-	match=$(resolve_plugin "$query") || exit 1
-
-	IFS=$'\t' read -r mkt_name _ pname _ _ <<<"$match"
-	local plugin_key="${pname}@${mkt_name}"
-	set_plugin_enabled "$plugin_key" "$value" || exit 1
-
-	if [[ "$value" == "true" ]]; then
-		log_ok "${BOLD}${pname}${NC} enabled"
-	else
-		log_ok "${BOLD}${pname}${NC} disabled"
-	fi
-	log ""
-	log "Restart Claude Code to apply."
-}
-
-set_enabled_all() {
-	local value="$1"
-	local count=0
-	while IFS=$'\t' read -r mkt_name mkt_path; do
-		while IFS=$'\t' read -r pname _ _; do
-			local plugin_key="${pname}@${mkt_name}"
-			# Only toggle plugins that are actually installed
-			if jq -e --arg key "$plugin_key" '.plugins[$key]' "$INSTALLED_JSON" &>/dev/null; then
-				set_plugin_enabled "$plugin_key" "$value" || exit 1
-				count=$((count + 1))
-			fi
-		done < <(load_marketplace_plugins "$mkt_path")
-	done < <(find_dir_marketplaces)
-
-	if [[ $count -eq 0 ]]; then
-		log_warn "No installed directory-source plugins found"
-	else
-		local verb="enabled"
-		[[ "$value" == "false" ]] && verb="disabled"
-		log ""
-		log "${verb^} ${BOLD}${count}${NC} plugin(s). Restart Claude Code to apply."
-	fi
 }
 
 # ── Status ────────────────────────────────────────────────────────────────
@@ -397,29 +333,24 @@ show_status() {
 
 show_help() {
 	cat <<EOF
-plugin-dev ${VERSION} - Sync Claude Code plugin cache from local sources
+plugin-cache-sync ${VERSION} - Sync Claude Code plugin cache from local sources
 
 Usage:
-  plugin-dev sync <name>              Sync a plugin (partial name match)
-  plugin-dev sync --all               Sync all directory-source plugins
-  plugin-dev enable <name>            Enable a plugin in settings.json
-  plugin-dev enable --all             Enable all installed plugins
-  plugin-dev disable <name>           Disable a plugin in settings.json
-  plugin-dev disable --all            Disable all installed plugins
-  plugin-dev status                   Show cache vs source comparison
-  plugin-dev version                  Print version
-  plugin-dev --source /path <cmd>     Use a standalone repo as source
+  plugin-cache-sync sync <name>              Sync a plugin (partial name match)
+  plugin-cache-sync sync --all               Sync all directory-source plugins
+  plugin-cache-sync status                   Show cache vs source comparison
+  plugin-cache-sync version                  Print version
+  plugin-cache-sync --source /path <cmd>     Use a standalone repo as source
 
 Standalone mode:
   If CWD contains .claude-plugin/marketplace.json, it's used automatically.
   Use --source to point to a different repo explicitly.
 
 Examples:
-  plugin-dev sync meta                Syncs claude-meta-tools
-  plugin-dev sync --all               Syncs all installed plugins
-  plugin-dev enable goalify           Enable a freshly-synced plugin
-  plugin-dev status                   Show what's stale and what's enabled
-  plugin-dev --source ~/my-plugins sync --all
+  plugin-cache-sync sync meta                Syncs claude-meta-tools
+  plugin-cache-sync sync --all               Syncs all installed plugins
+  plugin-cache-sync status                   Show what's stale and what's enabled
+  plugin-cache-sync --source ~/my-plugins sync --all
 EOF
 }
 
@@ -473,27 +404,11 @@ main() {
 				sync_one "$1"
 			fi
 			;;
-		enable | disable)
-			local cmd="$1"
-			local value="true"
-			[[ "$cmd" == "disable" ]] && value="false"
-			shift
-			if [[ $# -eq 0 ]]; then
-				log_err "Missing argument: plugin name or --all"
-				show_help
-				exit 1
-			fi
-			if [[ "$1" == "--all" ]]; then
-				set_enabled_all "$value"
-			else
-				set_enabled_one "$1" "$value"
-			fi
-			;;
 		status)
 			show_status
 			;;
 		version)
-			echo "plugin-dev ${VERSION}"
+			echo "plugin-cache-sync ${VERSION}"
 			;;
 		*)
 			log_err "Unknown command: $1"

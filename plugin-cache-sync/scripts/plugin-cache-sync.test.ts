@@ -3,7 +3,7 @@ import { cp, mkdir, mkdtemp, readdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
 
-const script = join(import.meta.dir, "plugin-dev");
+const script = join(import.meta.dir, "plugin-cache-sync");
 const tempDirectories: string[] = [];
 
 async function createFixture(): Promise<{
@@ -11,7 +11,7 @@ async function createFixture(): Promise<{
   home: string;
   repository: string;
 }> {
-  const root = await mkdtemp(join(tmpdir(), "plugin-dev-test-"));
+  const root = await mkdtemp(join(tmpdir(), "plugin-cache-sync-test-"));
   tempDirectories.push(root);
 
   const home = join(root, "home");
@@ -106,7 +106,7 @@ afterEach(async () => {
   );
 });
 
-describe("plugin-dev status", () => {
+describe("plugin-cache-sync status", () => {
   test("ignores a provenance SHA mismatch when cached content matches", async () => {
     const fixture = await createFixture();
 
@@ -127,7 +127,7 @@ describe("plugin-dev status", () => {
   });
 });
 
-describe("plugin-dev sync", () => {
+describe("plugin-cache-sync sync", () => {
   test("creates a complete registry entry for a never-installed plugin", async () => {
     const fixture = await createFixture();
     await Bun.write(
