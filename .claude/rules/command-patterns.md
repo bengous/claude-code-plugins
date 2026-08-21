@@ -4,6 +4,8 @@ paths: "**/commands/**/*.md"
 
 # Command Patterns
 
+`commands/` is the legacy form. Write new work as skills (`skills/<name>/SKILL.md`); see `.claude/CLAUDE.md`. The patterns below apply to existing commands.
+
 ## Command Frontmatter
 
 ```markdown

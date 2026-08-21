@@ -6,7 +6,7 @@ paths: "**/hooks/**"
 
 Safety and workflow enforcement through the Claude Code hook system.
 
-> **Note:** This repository does not currently have production hook examples. Patterns below are based on [Claude Code hooks documentation](https://code.claude.com/docs/en/hooks). When implementing hooks, test thoroughly as behavior may vary.
+> **Note:** For a production plugin example in this repository, see `plugin-cache-sync/hooks/`. Repo-internal hooks live in `.claude/hooks/` and `_shared/claude-cli/hooks/`. Reference: [Claude Code hooks documentation](https://code.claude.com/docs/en/hooks).
 
 ## Hook Registration
 

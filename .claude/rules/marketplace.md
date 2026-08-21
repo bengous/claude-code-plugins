@@ -10,23 +10,7 @@ Publishing and distributing plugins via Claude Code marketplaces.
 
 ## Version Synchronization (CRITICAL)
 
-Both versions **must match exactly**:
-
-```json
-// marketplace.json
-{
-  "plugins": [{
-    "name": "my-plugin",
-    "version": "1.0.0"  // ← Must match
-  }]
-}
-
-// my-plugin/.claude-plugin/plugin.json
-{
-  "name": "my-plugin",
-  "version": "1.0.0"  // ← Must match
-}
-```
+`plugin.json` is the single source of truth for a plugin's version. The pre-commit hook runs `scripts/sync-versions.ts`, which propagates it to the matching entry in `.claude-plugin/marketplace.json` and the matching row in `README.md`. `scripts/validate-marketplace.ts` then verifies all three match.
 
 **Why:** Version mismatch breaks installation and updates.
 
@@ -105,7 +89,7 @@ Or for team installations, add to `.claude/settings.json`:
 
 ## Pre-Publish Checklist
 
-- [ ] Version in `marketplace.json` matches `plugin.json`
+- [ ] Version in `marketplace.json` and `README.md` matches `plugin.json`
 - [ ] Only `plugin.json` exists in `.claude-plugin/`
 - [ ] All scripts are executable (`chmod +x`)
 - [ ] No hardcoded paths in commands or scripts

@@ -21,13 +21,6 @@ Shared validation logic lives in `scripts/lib/`; lefthook `pre-commit` and CI ca
 - `archive/` - retired plugins, not listed in `marketplace.json`.
 - `_docs/` - scraped external references, not plugin content.
 
-## Reference Implementations
-
-| Plugin | Complexity | Learn From |
-|--------|------------|------------|
-| `git-tools/` | Medium | Commands, scripts, state management, GitHub integration |
-| `orchestration/` | Advanced | Agents, skills, hooks, multi-agent coordination |
-
 ## Plugin Structure
 
 ```
@@ -46,17 +39,22 @@ reference files plus `disable-model-invocation` and `paths` frontmatter. Write n
 skills. Never ship both under one name: the plugin registers two entries, the skill wins,
 and the command is dead weight in the always-on budget.
 
-## Critical Rules
+## Component Selection
 
-| Rule | Why |
-|------|-----|
-| Only `plugin.json` in `.claude-plugin/` | Extra files cause silent discovery failures |
-| Version sync: `plugin.json` = `marketplace.json` = `README.md` | Pre-commit hook validates all three match |
-| No hardcoded paths | `${CLAUDE_PLUGIN_ROOT}` or `git rev-parse`, never `/home/user/...` |
-| Repository-scoped state | `$REPO_ROOT/.myplugin`, never `$HOME/.myplugin`; global state contaminates other repos |
-| Atomic writes | `jq ... > f.tmp && mv f.tmp f.json`, never `jq ... > f.json`; direct overwrites corrupt files on interruption |
-| Build JSON with `jq -n --arg` | `echo "{...}"` breaks on quoting |
-| Scripts must be executable | `chmod +x` required |
+Before any plugin work: read a reference implementation (`git-tools/` or `orchestration/`) and search existing plugins for a similar pattern before writing new code.
+
+| Need | Component | When to Use |
+|------|-----------|-------------|
+| User-triggered action | **Command** | User types `/something` to start a workflow |
+| Safety/enforcement | **Hook** | Block dangerous operations, enforce workflow rules |
+| Autonomous subtask | **Agent** | Delegated work that runs independently with its own context |
+| Reusable knowledge | **Skill** | Instructions/patterns agents can invoke for specialized tasks |
+
+If none of the four fits, it is probably a script called by a command.
+
+Keep it simple: a 20-line script beats a 200-line framework. More than 3 files for a simple command means stop and report to the human.
+
+Implementation rules (atomic writes, state layout, path resolution, version sync) live in the path-scoped files under `.claude/rules/`; they load when the matching files are touched.
 
 ## Branching
 
@@ -84,11 +82,3 @@ and the command is dead weight in the always-on budget.
   in the push list as a backstop: if a ref update ever reaches it outside the PR path, it
   still gets validated rather than landing unchecked. The drift guard checks that `main` and
   `dev` still share a common ancestor, not that they are identical.
-
-## Quick Start
-
-1. Examine reference implementations: `ls git-tools/`
-2. Create structure: `mkdir -p my-plugin/.claude-plugin my-plugin/skills/my-skill`
-3. Copy and modify `plugin.json` from reference
-4. Write one skill, test locally
-5. Make scripts executable: `chmod +x scripts/*`

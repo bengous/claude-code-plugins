@@ -34,6 +34,8 @@ mkdir -p "$STATE_DIR"
 - `git rev-parse --show-toplevel` - Works from any subdirectory, no hardcoded paths
 - State in `$REPO_ROOT/.myplugin` - Repository-scoped, not global `$HOME`
 
+Every script must be executable (`chmod +x`); a non-executable script fails silently when a command invokes it.
+
 ## Color Coding
 
 ```bash
