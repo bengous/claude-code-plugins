@@ -8,7 +8,7 @@ Your requirements align with what multiple vendors and independent analyses conv
 
 - Keep “always-on” instruction files **short, specific, and non-redundant**, because larger files consume more context and can reduce adherence. citeturn23view0turn6view0  
 - Favor **stable principles** over volatile procedural detail (especially anything automation already handles), because detail drifts and can “poison” agent context. citeturn16view1turn23view0  
-- Treat the file as a lightweight **constitution** (a small set of values and priorities), not an operations manual—mirroring how “constitutions” are used in practice to shape model/agent behavior at a high level. citeturn5view0turn5view1  
+- Treat the file as a lightweight **constitution** (a small set of values and priorities), not an operations manual, mirroring how “constitutions” are used in practice to shape model/agent behavior at a high level. citeturn5view0turn5view1  
 
 The key design tension is that instruction files can improve consistency, but they can also backfire when they add unnecessary requirements or exploration overhead. A 2026 empirical study evaluating repository context files (e.g., AGENTS.md) found that context files often **reduced task success rates** compared to no repository context and **increased inference cost** (reported as over 20% in their evaluation), concluding that “human-written context files should describe only minimal requirements.” citeturn3view0
 
@@ -100,7 +100,7 @@ Communicate clearly:
 Your “single source of truth + symlinks” approach is consistent with common practice in the instruction-file ecosystem (e.g., guidance recommending symlinks between naming conventions so multiple tools share one set of rules). citeturn16view1turn17view0 The main practical risks are (a) duplicate loading and (b) cross-platform/Git behavior.
 
 Duplicate loading and ordering pitfalls  
-Some environments merge multiple instruction files (and may not guarantee order), so if you symlink **several** recognized filenames to the same content in the same workspace, you may accidentally inject the same instructions multiple times—which is exactly the kind of context bloat that reduces adherence. citeturn6view0turn23view0 To avoid this, prefer a strategy where each environment sees **one** “always-on” file, with other compatibility names only present when necessary and not simultaneously loaded by the same tool. citeturn6view0turn5view3
+Some environments merge multiple instruction files (and may not guarantee order), so if you symlink **several** recognized filenames to the same content in the same workspace, you may accidentally inject the same instructions multiple times, which is exactly the kind of context bloat that reduces adherence. citeturn6view0turn23view0 To avoid this, prefer a strategy where each environment sees **one** “always-on” file, with other compatibility names only present when necessary and not simultaneously loaded by the same tool. citeturn6view0turn5view3
 
 Tool discovery differences  
 Codex has an explicit precedence order and typically includes at most one guidance file per directory as it walks the tree (global scope then per-directory scope, with `AGENTS.override.md` taking precedence). citeturn3view2 GitHub Copilot and VS Code support multiple instruction mechanisms and can combine them (repo-wide + path-specific + agent instructions). citeturn19view0turn6view0 Claude Code similarly loads memory files at session start, with explicit advice to split or import rather than grow the root file. citeturn23view0
@@ -120,10 +120,10 @@ If you later decide to add compatibility for common tooling conventions, do so s
 
 ## Keeping AI.md minimal over time
 
-The strongest empirical and vendor guidance suggests treating these files as a constrained resource—an “instruction budget”—because they are always loaded and can directly lower success rates when they impose unnecessary constraints. citeturn3view0turn23view0turn16view1 A maintenance approach that preserves the “constitution” nature of AI.md is therefore part of correctness, not bureaucracy.
+The strongest empirical and vendor guidance suggests treating these files as a constrained resource, an “instruction budget”, because they are always loaded and can directly lower success rates when they impose unnecessary constraints. citeturn3view0turn23view0turn16view1 A maintenance approach that preserves the “constitution” nature of AI.md is therefore part of correctness, not bureaucracy.
 
 A high-signal, low-bloat update policy  
-Only add to AI.md when a rule is (a) stable across tasks, (b) high-risk if violated, and (c) repeatedly needed—and prefer enforcement in automation when possible. This mirrors Codex guidance to treat `AGENTS.md` as durable behavioral shaping but to pair it with enforcement mechanisms rather than inflating prompt text. citeturn5view3turn6view0
+Only add to AI.md when a rule is (a) stable across tasks, (b) high-risk if violated, and (c) repeatedly needed, and prefer enforcement in automation when possible. This mirrors Codex guidance to treat `AGENTS.md` as durable behavioral shaping but to pair it with enforcement mechanisms rather than inflating prompt text. citeturn5view3turn6view0
 
 Favor progressive disclosure for anything detailed  
 When a rule becomes detailed enough to require examples, file paths, or procedures, move it to a separate doc and reference it from the minimal file so it is only pulled when relevant. citeturn16view0turn23view0 This directly addresses staleness risk (paths drift; procedures change) and helps keep the always-on file within the bounds recommended by vendors. citeturn16view1turn23view0turn5view3

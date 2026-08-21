@@ -9,24 +9,12 @@
 | Autonomous subtask | **Agent** | Delegated work that runs independently with its own context |
 | Reusable knowledge | **Skill** | Instructions/patterns agents can invoke for specialized tasks |
 
-## Decision Tree
-
-```
-Is this triggered by the user typing a slash command?
-├── YES → Command
-└── NO → Does it need to intercept/block operations?
-    ├── YES → Hook
-    └── NO → Is it autonomous work delegated to a subagent?
-        ├── YES → Agent
-        └── NO → Is it reusable knowledge/instructions?
-            ├── YES → Skill
-            └── NO → Probably a script (called by command)
-```
+If none of the four fits, it is probably a script called by a command.
 
 ## When to Use Each
 
 **Commands** - Entry points for user interaction
-- `/git-sweep` - User wants stale branch/worktree cleanup
+- `/rebase` - User wants an interactive rebase
 - `/issue` - User wants to create an issue
 
 **Hooks** - Enforcement and safety
@@ -35,8 +23,9 @@ Is this triggered by the user typing a slash command?
 
 **Agents** - Delegated autonomous work
 - `architect` agent designs implementation approach
-- `implementation` agent writes code based on plan
+- `planning-coordinator` agent creates the execution plan and worktrees
 
 **Skills** - Specialized knowledge injection
 - `layer-testing` skill knows how to test architectural layers
+- `git-sweep` skill knows how to categorize stale branches and worktrees
 - Agents invoke skills when they need domain expertise

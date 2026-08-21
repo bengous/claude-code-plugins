@@ -276,9 +276,9 @@
       "source": "./design-studio"
     },
     {
-      "name": "plugin-dev",
-      "description": "Dev tool for syncing Claude Code plugin cache from local sources",
-      "version": "1.2.0",
+      "name": "plugin-cache-sync",
+      "description": "Sync Claude Code plugin cache from local sources",
+      "version": "2.2.1",
       "author": {
         "name": "Augustin BENGOLEA",
         "email": "bengous@protonmail.com"
@@ -293,7 +293,7 @@
         "marketplace",
         "devtools"
       ],
-      "source": "./plugin-dev"
+      "source": "./plugin-cache-sync"
     },
     {
       "name": "git-sweep",
@@ -361,7 +361,7 @@
     {
       "name": "context-management",
       "description": "Lifecycle of Claude Code instruction files: audit CLAUDE.md/AGENTS.md/.claude/rules instruction budget, capture session learnings, and resync docs with codebase evolution",
-      "version": "1.0.0",
+      "version": "1.1.0",
       "author": {
         "name": "Augustin BENGOLEA",
         "email": "bengous@protonmail.com"
@@ -417,5 +417,6 @@
       ],
       "source": "./clean-comments"
     }
-  ]
+  ],
+  "description": "Personal Claude Code plugins: git workflows, code quality, agent orchestration, and plugin tooling"
 }

@@ -1,15 +1,15 @@
 # Claude Default Behaviors
 
-Things Claude already does well without being told. Directives matching these patterns fail the deletion test: "Would removing this cause Claude to make mistakes?" — the answer is almost always no.
+Things Claude already does well without being told. Directives matching these patterns fail the deletion test: "Would removing this cause Claude to make mistakes?" The answer is almost always no.
 
-This list is used in both directions. In Phase 4 (Anti-Pattern Detection) it is evidence for REMOVE: an existing directive matching it wastes instruction budget. In Phase 6 it is the filter every ADD must pass before being proposed — an addition this list would flag is an addition the next audit removes.
+This list is used in both directions. In Phase 4 (Anti-Pattern Detection) it is evidence for REMOVE: an existing directive matching it wastes instruction budget. In Phase 6 it is the filter every ADD must pass before being proposed: an addition this list would flag is an addition the next audit removes.
 
 ## How to use this list
 
 For each directive in the context file, check if it matches a pattern below. If it does, it is a candidate for REMOVE unless the directive adds **project-specific detail** that the generic behavior doesn't cover.
 
-Example — generic (REMOVE): "Write tests for new features"
-Example — specific (KEEP): "Write tests using Vitest with the test helper in tests/setup.ts"
+Generic example (REMOVE): "Write tests for new features"
+Specific example (KEEP): "Write tests using Vitest with the test helper in tests/setup.ts"
 
 The specific version tells Claude something it can't infer. The generic version tells it what it already does.
 
@@ -19,14 +19,14 @@ The specific version tells Claude something it can't infer. The generic version 
 
 | Pattern | Why redundant | Keep if... |
 |---------|---------------|------------|
-| "Write clean/readable code" | Universal LLM behavior | Never — too vague to be actionable |
+| "Write clean/readable code" | Universal LLM behavior | Never: too vague to be actionable |
 | "Use meaningful variable names" | Default behavior | Never |
 | "Follow existing patterns in the codebase" | Claude pattern-matches from context window | You need a specific pattern called out |
 | "Be consistent with the codebase" | Same as above | Specific consistency rule needed |
 | "Use TypeScript strict mode" | Claude defaults to strict TS | Project uses unusual tsconfig settings |
 | "Prefer functional programming" | Claude adapts to codebase style | Project mixes paradigms and you want to enforce one |
 | "Use async/await over callbacks" | Default in modern JS/TS | Project has legacy callback APIs to avoid |
-| "Destructure imports when possible" | Common default | Never — too minor to consume budget |
+| "Destructure imports when possible" | Common default | Never: too minor to consume budget |
 | "Use const over let" | Default behavior | Never |
 
 ## Error Handling & Safety
@@ -53,7 +53,7 @@ The specific version tells Claude something it can't infer. The generic version 
 | Pattern | Why redundant | Keep if... |
 |---------|---------------|------------|
 | "Be concise" | System prompt says this | Never |
-| "Explain your reasoning" | Verbosity is controlled by harness settings | Never — not controllable from context files |
+| "Explain your reasoning" | Verbosity is controlled by harness settings | Never: not controllable from context files |
 | "Ask clarifying questions when uncertain" | Default behavior | Never |
 | "Don't make assumptions" | Default behavior | You have a specific assumption-prone area |
 | "Review code before committing" | System prompt covers this | Never |
@@ -62,7 +62,7 @@ The specific version tells Claude something it can't infer. The generic version 
 
 | Pattern | Why redundant | Keep if... |
 |---------|---------------|------------|
-| "Keep functions small" | General best practice | Never — too vague |
+| "Keep functions small" | General best practice | Never: too vague |
 | "Don't repeat yourself (DRY)" | Default behavior | Never |
 | "Separate concerns" | Default behavior | You need specific module boundary rules |
 | "Use early returns" | Style preference Claude adapts to | Only if codebase is inconsistent and you want to enforce |

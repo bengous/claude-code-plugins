@@ -58,6 +58,18 @@
         ]
       },
       {
+        // The pre-commit job block-settings-json is the authority; this only
+        // surfaces the same rule at edit time instead of at commit time.
+        "matcher": "Edit|Write|Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bun \"$CLAUDE_PROJECT_DIR/.claude/hooks/guard-settings-json.ts\"",
+            "timeout": 5
+          }
+        ]
+      },
+      {
         "matcher": "ExitPlanMode",
         "hooks": [
           {

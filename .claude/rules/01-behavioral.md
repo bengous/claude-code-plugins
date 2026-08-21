@@ -3,8 +3,7 @@
 **ALWAYS investigate before implementing.** When asked to create or modify plugins:
 
 1. **Read reference implementations first**
-   - `git-tools/` - Production plugin with commands, scripts, state management
-   - `orchestration/` - Advanced plugin with agents, skills, hooks, complex workflows
+   - See the Reference Implementations table in `.claude/CLAUDE.md` (`git-tools/`, `orchestration/`)
    - Examine their structure, patterns, and conventions before writing new code
 
 2. **Search for existing patterns**

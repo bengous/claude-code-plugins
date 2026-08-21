@@ -1,13 +1,13 @@
 ---
-description: Install plugin-dev CLI to PATH
+description: Install plugin-cache-sync CLI to PATH
 allowed-tools:
   - Bash(*:*)
   - Read(*:*)
 ---
 
-# Install plugin-dev
+# Install plugin-cache-sync
 
-Install the `plugin-dev` CLI to `~/.local/bin` so it's available globally.
+Install the `plugin-cache-sync` CLI to `~/.local/bin` so it's available globally.
 
 ## Execution
 
@@ -17,8 +17,8 @@ Run all steps below in order.
 
 ```bash
 OS="$(uname -s)"
-TARGET="${HOME}/.local/bin/plugin-dev"
-SOURCE="${CLAUDE_PLUGIN_ROOT}/scripts/plugin-dev"
+TARGET="${HOME}/.local/bin/plugin-cache-sync"
+SOURCE="${CLAUDE_PLUGIN_ROOT}/scripts/plugin-cache-sync"
 
 mkdir -p "${HOME}/.local/bin"
 
@@ -26,7 +26,7 @@ case "$OS" in
   MINGW*|MSYS*|CYGWIN*)
     cp -f "$SOURCE" "$TARGET"
     chmod +x "$TARGET"
-    echo "Copied: plugin-dev -> $TARGET"
+    echo "Copied: plugin-cache-sync -> $TARGET"
     ;;
   *)
     ln -sf "$SOURCE" "$TARGET"
@@ -48,5 +48,5 @@ fi
 ### Step 3: Confirm
 
 ```bash
-plugin-dev version
+plugin-cache-sync version
 ```

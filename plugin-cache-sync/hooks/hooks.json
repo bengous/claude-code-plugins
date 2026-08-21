@@ -1,0 +1,31 @@
+{
+  "description": "Validates plugins as they are edited, and cold-loads them before the turn ends",
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/check-edited-plugins.sh\" edit",
+            "timeout": 15,
+            "statusMessage": "Validating edited plugin..."
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/check-edited-plugins.sh\" stop",
+            "timeout": 60,
+            "statusMessage": "Checking edited plugins..."
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -1,6 +1,6 @@
 # Context Management Plugin
 
-v1.0.0
+v1.1.0
 
 Lifecycle of Claude Code instruction files: audit the instruction budget of
 CLAUDE.md / AGENTS.md / `.claude/rules/`, capture session learnings, and resync docs with
@@ -8,7 +8,19 @@ codebase evolution.
 
 Extracted from claude-meta-tools 5.0.0.
 
-## Commands
+## Skills
+
+All three are user-invocable only (`disable-model-invocation: true`). Claude never triggers
+them on its own, so their descriptions stay out of your always-on context. Type the slash
+command when you want one.
+
+Each one edits the same files, so pick by what drives the change:
+
+| Skill | What it reads | What it changes |
+|-------|---------------|-----------------|
+| `context-audit` | the context files themselves | quality: budget, anti-patterns, dead references |
+| `revise-claude-md` | the current session | adds what this session showed was missing |
+| `sync-claude-md` | `git log` since the file last changed | claims the commits have outgrown |
 
 ### `/context-audit`
 
@@ -32,21 +44,12 @@ Audit and improve CLAUDE.md, AGENTS.md and `.claude/rules/` files.
 ### `/revise-claude-md`
 
 Capture the current session's learnings (commands, gotchas, patterns) into CLAUDE.md or
-`.claude/rules/`, with smart placement and a user approval gate. Distinct from
-`/sync-claude-md`: this captures session learnings; that syncs against codebase/git evolution.
+`.claude/rules/`, with smart placement and a user approval gate.
 
-## Skills
+### `/sync-claude-md`
 
-### sync-claude-md
-
-Maintains CLAUDE.md files by correlating git history since the file last changed with the
-claims it makes, then proposing commit-motivated updates (`Motivated by: <sha>`). Never
-auto-commits.
-
-### context-audit
-
-The audit methodology behind `/context-audit`: budget measurement, deterministic staleness
-checks, anti-pattern detection, then approved REMOVE / MOVE / REWRITE / ADD / FLAG fixes.
+Correlate git history since CLAUDE.md last changed with the claims it makes, then propose
+commit-motivated updates (`Motivated by: <sha>`). Never auto-commits.
 
 ## License
 

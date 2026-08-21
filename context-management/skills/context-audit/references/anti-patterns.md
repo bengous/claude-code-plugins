@@ -6,7 +6,7 @@ Reference catalog for Phase 4 (Anti-Pattern Detection). Organized by detection t
 
 ## 1. Linter Overlap
 
-**Severity:** HIGH — These directives are enforced by tools and waste budget every session.
+**Severity:** HIGH. These directives are enforced by tools and waste budget every session.
 
 ### Config files that signal linter presence
 
@@ -42,7 +42,7 @@ When a linter config exists, flag context file directives matching these pattern
 REMOVE: Lines X-Y
 Content: "[the style directive]"
 Reason: Already enforced by [tool] via [config file]. Linter rules are deterministic
-  and run automatically — duplicating them in the context file wastes instruction budget
+  and run automatically, so duplicating them in the context file wastes instruction budget
   without improving behavior.
 Budget impact: Recovers ~1 directive slot
 Confidence: HIGH (linter config verified to exist)
@@ -52,7 +52,7 @@ Confidence: HIGH (linter config verified to exist)
 
 ## 2. Generic Advice
 
-**Severity:** MEDIUM — Wastes budget but does not actively mislead.
+**Severity:** MEDIUM. Wastes budget but does not actively mislead.
 
 ### Detection approach
 
@@ -80,20 +80,20 @@ Cross-reference directives against `default-behaviors.md` (sibling file in this 
 ```
 REMOVE: Line X
 Content: "[generic directive]"
-Reason: Fails the deletion test — removing this would not cause Claude to make mistakes.
+Reason: Fails the deletion test: removing this would not cause Claude to make mistakes.
   [Choose one:]
   - Claude already does this by default (see default-behaviors.md)
   - This contains no project-specific information
   - This restates a behavior covered by the system prompt
 Budget impact: Recovers ~1 directive slot
-Confidence: MEDIUM (heuristic judgment — verify directive has no hidden project-specific value)
+Confidence: MEDIUM (heuristic judgment; verify directive has no hidden project-specific value)
 ```
 
 ---
 
 ## 3. Verbose Content
 
-**Severity:** MEDIUM-HIGH — Directly inflates token cost of always-on context.
+**Severity:** MEDIUM-HIGH. Directly inflates token cost of always-on context.
 
 ### Detection signals
 
@@ -108,11 +108,11 @@ Confidence: MEDIUM (heuristic judgment — verify directive has no hidden projec
 **Verbose directive:**
 ```
 REWRITE: Line X
-Before: "[verbose version — N words]"
-After: "[concise version — M words]"
+Before: "[verbose version, N words]"
+After: "[concise version, M words]"
 Reason: Same directive, N% fewer tokens. The concise version preserves all actionable information.
 Budget impact: Token savings (~N-M words), clarity improvement
-Confidence: MEDIUM (rewrite preserves meaning — verify)
+Confidence: MEDIUM (rewrite preserves meaning; verify)
 ```
 
 **Embedded code block:**
@@ -142,7 +142,7 @@ Confidence: HIGH (file size is deterministic)
 
 ## 4. Non-Universal Instructions
 
-**Severity:** MEDIUM — Each wastes budget in sessions where it's irrelevant.
+**Severity:** MEDIUM. Each wastes budget in sessions where it's irrelevant.
 
 ### Detection signals
 
@@ -179,14 +179,14 @@ Suggested file:
   ---
   [moved content]
 Budget impact: Recovers ~N directive slots from always-on surface
-Confidence: MEDIUM (scope estimate is heuristic — verify paths are correct)
+Confidence: MEDIUM (scope estimate is heuristic; verify paths are correct)
 ```
 
 ---
 
 ## 5. Negative Instructions Without Alternatives
 
-**Severity:** MEDIUM — Leaves the agent stuck with no path forward.
+**Severity:** MEDIUM. Leaves the agent stuck with no path forward.
 
 ### Detection pattern
 
@@ -227,10 +227,10 @@ Confidence: MEDIUM (verify the suggested alternative is correct for this project
 
 Content that was accurate when written and has silently stopped being so. All five are **FLAG**,
 never automatic removal: the file states something that may still be true, and only the author
-can tell. A decay finding names what it saw and what to check — it does not propose a rewrite.
+can tell. A decay finding names what it saw and what to check; it does not propose a rewrite.
 
 This is the audit direction, and it is deliberately more cautious than the authoring direction.
-`update-guidelines.md` rules some of the same content — commit-bound notes, one-off fixes — out
+`update-guidelines.md` rules some of the same content (commit-bound notes, one-off fixes) out
 of bounds outright; that is the ADD filter, and it is categorical because nothing is lost by
 declining to write a line. Removing a line already in the file is not symmetric: it may be the
 only trace of a real constraint. Never treat an `update-guidelines.md` prohibition as licence to
@@ -239,9 +239,9 @@ auto-remove existing content.
 | Signal | Why it decays | What to check |
 |--------|---------------|---------------|
 | Pinned tech versions in prose ("we use React 18", "Node 20") | The repo upgrades; nothing re-reads the context file | Compare against `package.json`, `.tool-versions`, lockfiles |
-| Uncustomized template placeholders — `<command>`, `<path>`, `<purpose>`, `[describe]` | A template was copied and never filled in | Any placeholder token surviving from `references/templates.md` |
+| Uncustomized template placeholders: `<command>`, `<path>`, `<purpose>`, `[describe]` | A template was copied and never filled in | Any placeholder token surviving from `references/templates.md` |
 | Unresolved `TODO` / `FIXME` / `TBD` inside a context file | Instructions are not an issue tracker; a stale TODO reads as a live instruction | Whether the work landed, or belongs in an issue instead |
-| A file literally named `.claude.local.md` | The leading-dot name is never loaded — its content reaches no session | Rename to `CLAUDE.local.md` |
+| A file literally named `.claude.local.md` | The leading-dot name is never loaded, so its content reaches no session | Rename to `CLAUDE.local.md` |
 | Commit-bound notes: PR numbers, incident IDs, "as of the refactor in #412", past-tense narration | A rule's authority is the behavior it prescribes, not the incident that motivated it | Restate as a current rule, or drop it |
 
 ### Proposal template
@@ -249,7 +249,7 @@ auto-remove existing content.
 ```
 FLAG: Line X
 Content: "[exact content]"
-Issue: Content decay — [which signal above]
+Issue: Content decay, [which signal above]
 Suggestion: [what to verify, against which source of truth]
 Confidence: MEDIUM (the claim may still hold; only the author can confirm)
 Source: Phase 4.6
