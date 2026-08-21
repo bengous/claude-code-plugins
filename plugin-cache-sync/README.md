@@ -2,7 +2,7 @@
 
 Sync Claude Code plugin cache from local sources.
 
-**Version:** 2.1.0
+**Version:** 2.2.0
 
 ## Why
 
@@ -67,17 +67,21 @@ plugin-cache-sync --source ~/my-plugins sync --all
 
 ## Automatic checks
 
-A `Stop` hook runs when a turn ends inside a marketplace repo. For each plugin with
-uncommitted changes it runs two deterministic checks, both free and sub-second:
+Two hooks check what you edit. Both read the source directory on disk, so they see an
+edit the moment it lands — no sync, no restart, no cache involved.
 
-```bash
-claude plugin validate <dir> --strict            # manifest and frontmatter
-claude --plugin-dir <dir> plugin details <name>  # loads from source, prints inventory
-```
+| Event | Scope | Check | Cost |
+|-------|-------|-------|------|
+| `PostToolUse` on `Edit\|Write` | the plugin holding the written file | `claude plugin validate --strict` | ~0.3 s |
+| `Stop` | every plugin with uncommitted changes | validate, then `claude --plugin-dir <dir> plugin details <name>` | ~1 s cold, ~20 ms warm |
 
-A failure exits 2, so the reason reaches Claude and the turn does not end on a broken
-plugin. Results are keyed by a content hash, so an unchanged plugin is never re-checked
-and a warm run costs about 20 ms.
+A failure exits 2, so the reason reaches Claude, which fixes it and keeps working. The
+turn never ends on a plugin that fails to validate or to load. `Stop` results are keyed
+by a content hash, so an unchanged plugin is never re-checked.
+
+These hooks never write. They do not sync, and they do not make an edit live in the
+running session — nothing can, short of a restart. They answer one question: is what you
+just wrote valid and loadable?
 
 Neither check proves the plugin *behaves*. For that, write eval cases and run
 `claude plugin eval <dir>`.
