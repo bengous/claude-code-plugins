@@ -2,7 +2,10 @@
   "name": "plan-review",
   "version": "1.1.0",
   "description": "Multi-agent plan review workflow requiring architect and simplifier approval before plan execution",
-  "author": "bengous",
+  "author": {
+    "name": "Augustin BENGOLEA",
+    "email": "bengous@protonmail.com"
+  },
   "repository": "https://github.com/bengous/claude-code-plugins",
   "license": "MIT",
   "keywords": [
