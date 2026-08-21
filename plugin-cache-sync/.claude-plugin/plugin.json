@@ -1,6 +1,6 @@
 {
   "name": "plugin-cache-sync",
-  "version": "2.2.0",
+  "version": "2.2.1",
   "description": "Sync Claude Code plugin cache from local sources",
   "author": {
     "name": "Augustin BENGOLEA",

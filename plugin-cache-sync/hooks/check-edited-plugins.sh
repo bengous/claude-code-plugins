@@ -29,10 +29,13 @@ marketplace_root() {
 	[[ -f "$dir/.claude-plugin/marketplace.json" ]] && printf '%s\n' "$dir"
 }
 
+# Mid-edit, a plugin is legitimately incomplete, so --strict is wrong here: it
+# fails a manifest that merely lacks a description. Plain validate still catches
+# malformed JSON and malformed frontmatter, which are broken at any stage.
 validate_plugin() {
 	local path="$1" label="$2"
 	local out
-	if ! out=$(claude plugin validate "$path" --strict 2>&1); then
+	if ! out=$(claude plugin validate "$path" 2>&1); then
 		printf 'Plugin %s failed validation. Fix it before continuing.\n\n%s\n' "$label" "$out" >&2
 		exit 2
 	fi

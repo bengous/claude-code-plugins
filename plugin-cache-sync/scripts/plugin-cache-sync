@@ -17,7 +17,7 @@
 
 set -euo pipefail
 
-readonly VERSION="2.2.0"
+readonly VERSION="2.2.1"
 readonly PLUGINS_DIR="$HOME/.claude/plugins"
 readonly INSTALLED_JSON="$PLUGINS_DIR/installed_plugins.json"
 readonly MARKETPLACES_JSON="$PLUGINS_DIR/known_marketplaces.json"

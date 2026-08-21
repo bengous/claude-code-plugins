@@ -278,7 +278,7 @@
     {
       "name": "plugin-cache-sync",
       "description": "Sync Claude Code plugin cache from local sources",
-      "version": "2.2.0",
+      "version": "2.2.1",
       "author": {
         "name": "Augustin BENGOLEA",
         "email": "bengous@protonmail.com"

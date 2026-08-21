@@ -2,7 +2,7 @@
 
 Sync Claude Code plugin cache from local sources.
 
-**Version:** 2.2.0
+**Version:** 2.2.1
 
 ## Why
 
@@ -72,12 +72,18 @@ edit the moment it lands — no sync, no restart, no cache involved.
 
 | Event | Scope | Check | Cost |
 |-------|-------|-------|------|
-| `PostToolUse` on `Edit\|Write` | the plugin holding the written file | `claude plugin validate --strict` | ~0.3 s |
-| `Stop` | every plugin with uncommitted changes | validate, then `claude --plugin-dir <dir> plugin details <name>` | ~1 s cold, ~20 ms warm |
+| `PostToolUse` on `Edit\|Write` | the plugin holding the written file | `claude plugin validate` | ~0.4 s |
+| `Stop` | every plugin with uncommitted changes | `validate --strict`, then `claude --plugin-dir <dir> plugin details <name>` | ~1 s cold, ~20 ms warm |
 
 A failure exits 2, so the reason reaches Claude, which fixes it and keeps working. The
 turn never ends on a plugin that fails to validate or to load. `Stop` results are keyed
 by a content hash, so an unchanged plugin is never re-checked.
+
+The two levels use different strictness on purpose. Mid-edit a plugin is legitimately
+incomplete, and `--strict` fails a manifest that merely lacks a description — so the
+per-edit check runs plain `validate`, which stays silent on a half-built plugin and still
+fails on malformed JSON or malformed frontmatter. `--strict` belongs at `Stop`, where the
+work is meant to be finished. A file outside any plugin directory exits immediately.
 
 These hooks never write. They do not sync, and they do not make an edit live in the
 running session — nothing can, short of a restart. They answer one question: is what you
