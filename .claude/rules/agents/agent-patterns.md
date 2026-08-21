@@ -18,25 +18,25 @@ tools: Read, Grep, Glob, Bash
 ```
 
 `name` and `description` are **required** (`name`: lowercase + hyphens, no `:`).
-Optional keys: `tools`, `disallowedTools` (camelCase — `disallowed-tools` is a
+Optional keys: `tools`, `disallowedTools` (camelCase; `disallowed-tools` is a
 skill/command key, not an agent key), `model`, `skills`, `memory`, `background`,
 `effort`, `isolation`, `color`, `initialPrompt`, `maxTurns`, `observer`,
 `observerMessage`, `observeSubagents`. `hooks`, `mcpServers` and
 `permissionMode` exist but are **ignored for plugin-shipped agents**.
 
-**Keys that do not exist** (silently ignored — the agent gets ALL tools):
-- `subagent-type:` — that is the Agent tool call parameter, not frontmatter.
-- `allowed-tools:` — skill/command key. The agent key is `tools:`.
+**Keys that do not exist** (silently ignored, the agent gets ALL tools):
+- `subagent-type:` is the Agent tool call parameter, not frontmatter.
+- `allowed-tools:` is a skill/command key. The agent key is `tools:`.
 
 **`tools:` is an availability allowlist, not a permission list.** Bare tool
 names only (comma-separated string or YAML list). Scoped patterns like
 `Bash(git:*)` are parsed and **discarded**: `tools: Bash(git:*)` ≡ `tools: Bash`.
-An agent cannot scope Bash — to restrict commands, use `permissions` in
+An agent cannot scope Bash. To restrict commands, use `permissions` in
 settings, or keep the component as a skill (where `allowed-tools` is a real
 permission rule list). MCP server-level patterns are the one exception:
 `mcp__<server>` and `mcp__<server>__*` are valid entries.
 
-**Model options** — always use the abstract alias, never a pinned model ID. Pinned IDs go
+**Model options**: always use the abstract alias, never a pinned model ID. Pinned IDs go
 stale every generation; the alias resolves to the current model.
 
 - `opus` - Complex reasoning, architecture, multi-step tasks

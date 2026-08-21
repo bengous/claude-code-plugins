@@ -15,8 +15,8 @@ the plan are **provably wrong** versus merely **worth double-checking**.
 Go through the plan and pull out every *concrete, checkable* reference:
 
 - **File / directory paths** → does it exist? Use `Glob` (e.g. `**/<name>`) and
-  `Read`. A path the plan says it will **create** is not a reference to verify —
-  skip it.
+  `Read`. A path the plan says it will **create** is not a reference to verify,
+  so skip it.
 - **Symbols / functions / exports / identifiers** → do they exist where the plan
   implies? Use `Grep`. Search broadly (the plan may name the symbol without its
   exact file) before concluding it is absent.
@@ -26,16 +26,16 @@ Go through the plan and pull out every *concrete, checkable* reference:
 - **Library / API claims** (e.g. "call `getSession()`", "the payload has field
   `X`") → verify only against source/types **vendored in this repo** (read them).
   If the API lives in an uninstalled or external dependency you cannot read,
-  mark it unverifiable — **advisory**, never blocking.
+  mark it unverifiable: **advisory**, never blocking.
 
 ## How to classify
 
 Two buckets, and the line between them is deliberately strict:
 
-- **BLOCKING** — a referenced file or symbol that you **searched for and did not
+- **BLOCKING**: a referenced file or symbol that you **searched for and did not
   find**, with high confidence it is absent. You must have actually run the
   search. "I didn't check" is never blocking.
-- **ADVISORY** — everything else: line-number drift, an API claim you could not
+- **ADVISORY** covers everything else: line-number drift, an API claim you could not
   confirm against vendored source, a reference you are unsure about, anything
   ambiguous, and anything in prose/examples rather than a real target.
 
@@ -49,14 +49,14 @@ Hard rules:
 
 ## Output
 
-Output **only** a single JSON object — no prose, no markdown fences, nothing
+Output **only** a single JSON object. No prose, no markdown fences, nothing
 before or after it:
 
 ```
-{"blocking":["<ref> — <how you checked>", …],"advisory":["<note>", …]}
+{"blocking":["<ref> | <how you checked>", …],"advisory":["<note>", …]}
 ```
 
 Each `blocking` entry names the exact reference and how you verified its absence
-(e.g. `"app/.env.example — Glob '**/.env.example' returned no match"`). Each
+(e.g. `"app/.env.example | Glob '**/.env.example' returned no match"`). Each
 `advisory` entry is a short note. Both arrays may be empty. If nothing is
 checkable, return `{"blocking":[],"advisory":[]}`.

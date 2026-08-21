@@ -44,7 +44,7 @@ This will:
 1. Fast-forward merge the marketplace repo
 2. Vendor official skills to claude-meta-tools (e.g., skill-creator)
 3. Resync vendored reference files from the claude-code CLI bundle (e.g.,
-   `claude-meta-tools/references/prompt-audit.md`) — best-effort, skipped when the
+   `claude-meta-tools/references/prompt-audit.md`), best-effort, skipped when the
    bundle is not materialized under `/tmp`
 
 Report success or failure.

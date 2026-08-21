@@ -23,7 +23,7 @@ model: opus
 [Instructions for Claude on how to execute this command]
 ```
 
-**Model options** — always use the abstract alias, never a pinned model ID. Pinned IDs go
+**Model options**: always use the abstract alias, never a pinned model ID. Pinned IDs go
 stale every generation; the alias resolves to the current model.
 
 - `opus` - Complex reasoning, multi-step workflows

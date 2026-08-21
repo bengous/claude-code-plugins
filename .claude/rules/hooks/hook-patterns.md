@@ -98,9 +98,9 @@ sys.exit(0)  # Exit 0 = allow
 
 | Code | Constant | Behavior |
 |------|----------|----------|
-| `0` | `HOOK_EXIT.ALLOW` | Allow — tool call proceeds normally |
-| `1` | `HOOK_EXIT.ERROR` | Non-blocking error — tool still runs, stderr shown to the user |
-| `2` | `HOOK_EXIT.BLOCK` | Block — tool call is prevented, stderr shown to Claude |
+| `0` | `HOOK_EXIT.ALLOW` | Allow: tool call proceeds normally |
+| `1` | `HOOK_EXIT.ERROR` | Non-blocking error: tool still runs, stderr shown to the user |
+| `2` | `HOOK_EXIT.BLOCK` | Block: tool call is prevented, stderr shown to Claude |
 
 **CRITICAL: `exit 1` does NOT block execution.** Only `exit 2` blocks. This is the most common hook authoring mistake.
 
