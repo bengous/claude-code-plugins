@@ -12,11 +12,11 @@ import { checkKeys, classifyComponent, validateFrontmatter } from "./lib/frontma
 
 // Colors (disabled if not a terminal)
 const isTTY = process.stdout.isTTY;
-const RED = isTTY ? "\x1b[0;31m" : "";
-const GREEN = isTTY ? "\x1b[0;32m" : "";
-const YELLOW = isTTY ? "\x1b[1;33m" : "";
-const BOLD = isTTY ? "\x1b[1m" : "";
-const RESET = isTTY ? "\x1b[0m" : "";
+const RED = isTTY ? "\u001B[0;31m" : "";
+const GREEN = isTTY ? "\u001B[0;32m" : "";
+const YELLOW = isTTY ? "\u001B[1;33m" : "";
+const BOLD = isTTY ? "\u001B[1m" : "";
+const RESET = isTTY ? "\u001B[0m" : "";
 
 // Get repo root
 const repoRootResult = await $`git rev-parse --show-toplevel`.nothrow().quiet();
@@ -37,11 +37,11 @@ const candidates = listResult.text().trim().split("\n").filter(Boolean);
 // Filter to Claude Code markdown files (commands, skills, agents, hooks,
 // path-scoped rules). archive/ holds vendored, frozen plugins — skip it.
 const pluginPatterns = [
-  /commands\/.*\.md$/,
-  /skills\/.*\.md$/,
-  /agents\/.*\.md$/,
-  /hooks\/.*\.md$/,
-  /^\.claude\/rules\/.*\.md$/,
+  /commands\/.*\.md$/u,
+  /skills\/.*\.md$/u,
+  /agents\/.*\.md$/u,
+  /hooks\/.*\.md$/u,
+  /^\.claude\/rules\/.*\.md$/u,
 ];
 
 const mdFiles = candidates.filter(

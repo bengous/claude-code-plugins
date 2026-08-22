@@ -323,8 +323,7 @@ if (import.meta.main) {
 
     for (const block of blocks) {
       if (hasBoxDrawing(block.lines)) {
-        fileIssues.push(...validateBlock(block, file));
-        fileIssues.push(...validateVerticalRuns(block, file));
+        fileIssues.push(...validateBlock(block, file), ...validateVerticalRuns(block, file));
       }
     }
 

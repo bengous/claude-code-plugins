@@ -86,10 +86,10 @@ export function validateRequiredFields(mp: PluginEntry, pluginJson: PluginJson):
  */
 export function extractVersionFromReadme(content: string, pluginName: string): string | null {
   // Match pattern: [plugin-name]... | X.Y.Z
-  const escapedName = pluginName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const pattern = new RegExp(`\\[${escapedName}\\][^|]+\\|\\s*([0-9]+\\.[0-9]+\\.[0-9]+)`);
+  const escapedName = pluginName.replaceAll(/[.*+?^${}()|[\]\\]/gu, "\\$&");
+  const pattern = new RegExp(`\\[${escapedName}\\][^|]+\\|\\s*([0-9]+\\.[0-9]+\\.[0-9]+)`, "u");
   const match = content.match(pattern);
-  return match ? match[1] : null;
+  return match?.[1] ?? null;
 }
 
 /**
@@ -99,8 +99,8 @@ export function extractVersionFromReadme(content: string, pluginName: string): s
  * unchanged if the plugin has no matching row.
  */
 export function setVersionInReadme(content: string, pluginName: string, version: string): string {
-  const escapedName = pluginName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const pattern = new RegExp(`(\\[${escapedName}\\][^|]+\\|\\s*)[0-9]+\\.[0-9]+\\.[0-9]+`);
+  const escapedName = pluginName.replaceAll(/[.*+?^${}()|[\]\\]/gu, "\\$&");
+  const pattern = new RegExp(`(\\[${escapedName}\\][^|]+\\|\\s*)[0-9]+\\.[0-9]+\\.[0-9]+`, "u");
   return content.replace(pattern, `$1${version}`);
 }
 

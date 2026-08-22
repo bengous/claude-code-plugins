@@ -8,7 +8,7 @@ export type ComponentType = "agent" | "skill" | "command" | "rule";
 
 export interface KeyViolation {
   key: string;
-  suggestion?: string;
+  suggestion?: string | undefined;
 }
 
 export interface KeyCheckResult {
@@ -70,23 +70,23 @@ const SKILL_COMMAND_KEYS = new Set([
 // Source: code.claude.com/docs/en/memory#path-specific-rules
 const RULE_KEYS = new Set(["paths"]);
 
-const KEYS_BY_TYPE: Record<ComponentType, Set<string>> = {
+const KEYS_BY_TYPE = {
   agent: AGENT_KEYS,
   skill: SKILL_COMMAND_KEYS,
   command: SKILL_COMMAND_KEYS,
   rule: RULE_KEYS,
-};
+} satisfies Record<ComponentType, Set<string>>;
 
-const REQUIRED_BY_TYPE: Record<ComponentType, string[]> = {
+const REQUIRED_BY_TYPE = {
   agent: ["name", "description"],
   skill: [],
   command: [],
   rule: [],
-};
+} satisfies Record<ComponentType, string[]>;
 
 // Wrong key -> the fix, per component type. These are the drift patterns that
 // motivated key validation; a bare "unknown key" message would not stop them.
-const SUGGESTIONS: Record<ComponentType, Record<string, string>> = {
+const SUGGESTIONS = {
   agent: {
     "allowed-tools": "agents use `tools:` (bare tool names; Bash scopes are discarded)",
     "disallowed-tools": "agents use camelCase `disallowedTools:`",
@@ -99,7 +99,7 @@ const SUGGESTIONS: Record<ComponentType, Record<string, string>> = {
     tools: "skills/commands use `allowed-tools:` (permission rules)",
   },
   rule: {},
-};
+} satisfies Record<ComponentType, Record<string, string>>;
 
 /**
  * Map a repo-relative path to the component type whose key schema applies.
@@ -108,10 +108,10 @@ const SUGGESTIONS: Record<ComponentType, Record<string, string>> = {
  */
 export function classifyComponent(filePath: string): ComponentType | null {
   if (filePath.startsWith("archive/")) return null;
-  if (/^\.claude\/rules\/.*\.md$/.test(filePath)) return "rule";
-  if (/(^|\/)agents\/[^/]+\.md$/.test(filePath)) return "agent";
-  if (/(^|\/)skills\/.*\/SKILL\.md$/.test(filePath)) return "skill";
-  if (/(^|\/)commands\/.*\.md$/.test(filePath)) return "command";
+  if (/^\.claude\/rules\/.*\.md$/u.test(filePath)) return "rule";
+  if (/(^|\/)agents\/[^/]+\.md$/u.test(filePath)) return "agent";
+  if (/(^|\/)skills\/.*\/SKILL\.md$/u.test(filePath)) return "skill";
+  if (/(^|\/)commands\/.*\.md$/u.test(filePath)) return "command";
   return null;
 }
 
@@ -122,10 +122,11 @@ export function classifyComponent(filePath: string): ComponentType | null {
  */
 export function checkKeys(
   type: ComponentType,
+  // oxlint-disable-next-line anti-slop/no-unsafe-dictionary-type -- parsed YAML at the I/O boundary: the unknown keys this function reports are exactly what a closed schema would have dropped.
   frontmatter: Record<string, unknown>,
 ): KeyCheckResult {
   const allowed = KEYS_BY_TYPE[type];
-  const suggestions = SUGGESTIONS[type];
+  const suggestions: Record<string, string> = SUGGESTIONS[type];
   const unknown: KeyViolation[] = [];
 
   for (const key of Object.keys(frontmatter)) {
@@ -143,10 +144,11 @@ export interface FrontmatterResult {
   filePath: string;
   error?: {
     message: string;
-    line?: number;
-    col?: number;
-    code?: string;
+    line?: number | undefined;
+    col?: number | undefined;
+    code?: string | undefined;
   };
+  // oxlint-disable-next-line anti-slop/no-unsafe-dictionary-type -- parsed YAML at the I/O boundary: callers inspect keys, never values.
   frontmatter?: Record<string, unknown>;
 }
 
@@ -155,8 +157,8 @@ export interface FrontmatterResult {
  * Returns null if no frontmatter is present.
  */
 export function extractFrontmatter(content: string): string | null {
-  const match = content.match(/^---\r?\n([\s\S]*?)\r?\n---/);
-  return match ? match[1] : null;
+  const match = content.match(/^---\r?\n([\s\S]*?)\r?\n---/u);
+  return match?.[1] ?? null;
 }
 
 /**

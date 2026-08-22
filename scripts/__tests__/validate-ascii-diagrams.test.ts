@@ -1,11 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import {
-  extractCodeBlocks,
-  findBoxes,
-  validateVerticalRuns,
-  type CodeBlock,
-} from "../validate-ascii-diagrams.ts";
+import { validateVerticalRuns, type CodeBlock } from "../validate-ascii-diagrams.ts";
 
 // ── Helper: run vertical validation on raw diagram lines ─────
 function verticalIssues(diagram: string): string[] {

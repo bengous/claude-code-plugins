@@ -44,8 +44,8 @@ describe("checkKeys — agent", () => {
       "allowed-tools": ["Read"],
     });
     expect(result.unknown).toHaveLength(1);
-    expect(result.unknown[0].key).toBe("allowed-tools");
-    expect(result.unknown[0].suggestion).toContain("tools:");
+    expect(result.unknown[0]?.key).toBe("allowed-tools");
+    expect(result.unknown[0]?.suggestion).toContain("tools:");
   });
 
   test("rejects subagent-type with a removal suggestion", () => {
@@ -55,7 +55,7 @@ describe("checkKeys — agent", () => {
       "subagent-type": "general-purpose",
     });
     expect(result.unknown).toHaveLength(1);
-    expect(result.unknown[0].key).toBe("subagent-type");
+    expect(result.unknown[0]?.key).toBe("subagent-type");
   });
 
   test("rejects hyphenated disallowed-tools, suggests camelCase", () => {
@@ -64,7 +64,7 @@ describe("checkKeys — agent", () => {
       description: "d",
       "disallowed-tools": "WebSearch",
     });
-    expect(result.unknown[0].suggestion).toContain("disallowedTools");
+    expect(result.unknown[0]?.suggestion).toContain("disallowedTools");
   });
 
   test("accepts the full documented key set", () => {
@@ -117,8 +117,8 @@ describe("checkKeys — skill and command (shared schema)", () => {
       description: "d",
       tools: "Read",
     });
-    expect(result.unknown[0].key).toBe("tools");
-    expect(result.unknown[0].suggestion).toContain("allowed-tools");
+    expect(result.unknown[0]?.key).toBe("tools");
+    expect(result.unknown[0]?.suggestion).toContain("allowed-tools");
   });
 
   test("rejects tags at the top level", () => {
@@ -126,7 +126,7 @@ describe("checkKeys — skill and command (shared schema)", () => {
       description: "d",
       tags: ["git"],
     });
-    expect(result.unknown[0].key).toBe("tags");
+    expect(result.unknown[0]?.key).toBe("tags");
   });
 
   test("skills and commands do not require name", () => {
@@ -139,7 +139,7 @@ describe("checkKeys — rule", () => {
   test("accepts paths only", () => {
     expect(checkKeys("rule", { paths: "**/agents/**" }).unknown).toHaveLength(0);
     const bad = checkKeys("rule", { paths: "**", model: "opus" });
-    expect(bad.unknown[0].key).toBe("model");
+    expect(bad.unknown[0]?.key).toBe("model");
   });
 });
 
