@@ -298,7 +298,7 @@
     {
       "name": "git-sweep",
       "description": "Interactive git branch and worktree cleanup: proves a branch is contained before proposing it, frees finished worktrees, and reports what it kept and why",
-      "version": "2.0.0",
+      "version": "2.0.1",
       "author": {
         "name": "Augustin BENGOLEA",
         "email": "bengous@protonmail.com"
@@ -319,7 +319,7 @@
     {
       "name": "ship",
       "description": "Ship feature branches: strip working files, create PRs, merge to main with GPG signing and squash support",
-      "version": "1.0.1",
+      "version": "1.0.2",
       "author": {
         "name": "Augustin BENGOLEA",
         "email": "bengous@protonmail.com"
