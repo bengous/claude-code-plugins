@@ -30,10 +30,10 @@ import { HOOK_EXIT, parseHookInput, stripStringLiterals } from "./guard-destruct
 const PROTECTED_BRANCHES = ["main", "master"] as const;
 
 const BRANCH_MUTATION_PATTERNS: ReadonlyArray<RegExp> = [
-  /git\s+commit\b/,
-  /git\s+push\b/,
-  /git\s+merge\b/,
-  /git\s+rebase\b/,
+  /git\s+commit\b/u,
+  /git\s+push\b/u,
+  /git\s+merge\b/u,
+  /git\s+rebase\b/u,
 ];
 
 export function getCurrentBranch(cwd?: string): string | null {
@@ -59,9 +59,9 @@ export function getRepoRoot(cwd?: string): string | null {
 // Extract the target directory of a leading `cd <path> &&` (or `;`) clause.
 // Returns null if no leading cd is present. Quoted paths are unquoted.
 export function extractCdTarget(cmd: string): string | null {
-  const m = cmd.match(/^\s*cd\s+("(?:[^"\\]|\\.)*"|'[^']*'|[^\s;&]+)\s*(?:&&|;)/);
-  if (!m) return null;
-  const raw = m[1] as string;
+  const m = cmd.match(/^\s*cd\s+("(?:[^"\\]|\\.)*"|'[^']*'|[^\s;&]+)\s*(?:&&|;)/u);
+  const raw = m?.[1];
+  if (raw === undefined) return null;
   if ((raw.startsWith('"') && raw.endsWith('"')) || (raw.startsWith("'") && raw.endsWith("'"))) {
     return raw.slice(1, -1);
   }
@@ -69,7 +69,7 @@ export function extractCdTarget(cmd: string): string | null {
 }
 
 export function isProtectedBranch(branch: string): boolean {
-  return (PROTECTED_BRANCHES as readonly string[]).includes(branch);
+  return PROTECTED_BRANCHES.some((protectedBranch) => protectedBranch === branch);
 }
 
 export function isBranchMutatingCommand(cmd: string): boolean {

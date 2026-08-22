@@ -21,7 +21,7 @@ async function makeStub(opts: { output?: string; exitCode?: number }): Promise<s
   tempDirs.push(dir);
   const bin = join(dir, "claude-stub.sh");
   const exitCode = opts.exitCode ?? 0;
-  const emit = opts.output !== undefined ? `cat <<'STUB_EOF'\n${opts.output}\nSTUB_EOF` : "";
+  const emit = opts.output === undefined ? "" : `cat <<'STUB_EOF'\n${opts.output}\nSTUB_EOF`;
   await writeFile(bin, `#!/usr/bin/env bash\n${emit}\nexit ${exitCode}\n`);
   await chmod(bin, 0o755);
   return bin;
@@ -54,20 +54,25 @@ function reviewerObjectOutput(verdict: { blocking: string[]; advisory: string[] 
   return JSON.stringify({ type: "result", result: JSON.stringify(verdict) });
 }
 
+interface HookPayload {
+  tool_input: { plan?: string };
+  cwd: string;
+}
+
 async function runHook(opts: { plan: string | null; bin?: string; env?: Record<string, string> }) {
-  const payload: { tool_input: { plan?: string }; cwd: string } = {
+  const payload: HookPayload = {
     tool_input: {},
     cwd: process.cwd(),
   };
   if (opts.plan !== null) payload.tool_input.plan = opts.plan;
 
+  const env = { ...process.env };
+  if (opts.bin) env["PLAN_AUDIT_CLAUDE_BIN"] = opts.bin;
+  Object.assign(env, opts.env);
+
   const proc = Bun.spawn(["bun", hookPath], {
     cwd: process.cwd(),
-    env: {
-      ...process.env,
-      ...(opts.bin ? { PLAN_AUDIT_CLAUDE_BIN: opts.bin } : {}),
-      ...(opts.env ?? {}),
-    },
+    env,
     stdin: new Blob([JSON.stringify(payload)]),
     stdout: "pipe",
     stderr: "pipe",

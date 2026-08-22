@@ -55,20 +55,23 @@ export interface HookInput {
 const GUARDED_PATTERN = String.raw`(?:\./)?\.claude/settings\.json(?![\w.\-/])`;
 
 export const WRITE_PATTERNS: ReadonlyArray<readonly [RegExp, string]> = [
-  [new RegExp(String.raw`>>?\s*['"]?${GUARDED_PATTERN}`), "shell redirection"],
-  [new RegExp(String.raw`\bsed\b[^|;&]*-i\b[^|;&]*${GUARDED_PATTERN}`), "sed -i"],
-  [new RegExp(String.raw`\btee\b[^|;&]*${GUARDED_PATTERN}`), "tee"],
+  [new RegExp(String.raw`>>?\s*['"]?${GUARDED_PATTERN}`, "u"), "shell redirection"],
+  [new RegExp(String.raw`\bsed\b[^|;&]*-i\b[^|;&]*${GUARDED_PATTERN}`, "u"), "sed -i"],
+  [new RegExp(String.raw`\btee\b[^|;&]*${GUARDED_PATTERN}`, "u"), "tee"],
   [
     new RegExp(
       String.raw`\b(?:mv|cp|install)\b[^|;&]*\s['"]?${GUARDED_PATTERN}['"]?\s*(?:$|[|;&])`,
+      "u",
     ),
     "mv/cp into the file",
   ],
-  [new RegExp(String.raw`\btruncate\b[^|;&]*${GUARDED_PATTERN}`), "truncate"],
+  [new RegExp(String.raw`\btruncate\b[^|;&]*${GUARDED_PATTERN}`, "u"), "truncate"],
 ];
 
 export function parseHookInput(raw: string): HookInput | null {
   try {
+    // SAFETY: every field of HookInput is optional, so a payload of another
+    // shape reads back as absent fields, never as a wrong-typed value.
     return JSON.parse(raw) as HookInput;
   } catch {
     return null;

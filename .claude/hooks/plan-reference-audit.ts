@@ -15,6 +15,8 @@
  * in plan mode.
  */
 
+/* oxlint-disable anti-slop/no-runtime-typeof, anti-slop/no-unknown-parameters, anti-slop/no-unknown-returns, anti-slop/no-known-value-widening -- this file IS the I/O boundary parser the four rules ask for: it turns untrusted `claude -p` stdout into Review. Their fix (parse before calling) has no earlier place to happen. */
+
 import { HOOK_EXIT } from "./guard-destructive.ts";
 
 export interface Review {
@@ -37,8 +39,15 @@ export interface AdvisoryResponse {
   };
 }
 
-export function parseHookInput(raw: string): { plan: string | null; cwd: string } {
+export interface HookContext {
+  plan: string | null;
+  cwd: string;
+}
+
+export function parseHookInput(raw: string): HookContext {
   try {
+    // SAFETY: both fields land in a `typeof` check below, so a payload of
+    // another shape degrades to `plan: null` and the process cwd.
     const parsed = JSON.parse(raw) as {
       tool_input?: { plan?: unknown };
       cwd?: unknown;
@@ -77,8 +86,8 @@ export function parseReview(text: string): Review | null {
   const trimmed = text.trim();
   const candidates: string[] = [trimmed];
 
-  const fence = trimmed.match(/```(?:json)?\s*([\s\S]*?)```/);
-  if (fence) candidates.push(fence[1].trim());
+  const fence = trimmed.match(/```(?:json)?\s*([\s\S]*?)```/u);
+  if (fence?.[1]) candidates.push(fence[1].trim());
 
   const start = trimmed.indexOf("{");
   const end = trimmed.lastIndexOf("}");
@@ -87,6 +96,8 @@ export function parseReview(text: string): Review | null {
   for (const candidate of candidates) {
     const parsed = tryParse(candidate);
     if (parsed !== null && typeof parsed === "object" && !Array.isArray(parsed)) {
+      // SAFETY: guarded as a non-null, non-array object above; both fields stay
+      // `unknown` and go through asStringArray.
       const obj = parsed as { blocking?: unknown; advisory?: unknown };
       return {
         blocking: asStringArray(obj.blocking),
@@ -102,18 +113,22 @@ export function parseReview(text: string): Review | null {
  * The CLI emits either a single `{type:"result", result}` object or a top-level
  * ARRAY of stream events whose trailing `result` event carries it; handle both.
  */
-export function extractResultText(outer: unknown): string | null {
-  const resultOf = (event: unknown): string | null => {
-    const value = (event as { result?: unknown })?.result;
-    return typeof value === "string" ? value : null;
-  };
+function resultOf(event: unknown): string | null {
+  // SAFETY: the read is optional-chained and the value is checked below, so a
+  // non-object event yields null rather than throwing.
+  const value = (event as { result?: unknown } | null | undefined)?.result;
+  return typeof value === "string" ? value : null;
+}
 
+export function extractResultText(outer: unknown): string | null {
   if (Array.isArray(outer)) {
     for (let i = outer.length - 1; i >= 0; i--) {
       const event = outer[i];
       if (
         event !== null &&
         typeof event === "object" &&
+        // SAFETY: guarded as a non-null object above; `type` stays `unknown`
+        // and is compared, never called.
         (event as { type?: unknown }).type === "result"
       ) {
         return resultOf(event);

@@ -39,25 +39,25 @@ export interface HookInput {
 }
 
 export const BLOCKED_PATTERNS: ReadonlyArray<readonly [RegExp, string]> = [
-  [/rm\s+-rf\b/, "rm -rf"],
-  [/rm\s+-r\s+\//, "rm -r /"],
-  [/git\s+push\s+--force\b/, "git push --force"],
-  [/git\s+push\s+-f\b/, "git push -f"],
-  [/git\s+reset\s+--hard\b/, "git reset --hard"],
-  [/git\s+clean\s+-f/, "git clean -f"],
-  [/git\s+checkout\s+\.$/, "git checkout ."],
-  [/git\s+checkout\s+--\s+\.$/, "git checkout -- ."],
-  [/git\s+restore\s+\.$/, "git restore ."],
-  [/git\s+branch\s+-D\b/, "git branch -D"],
+  [/rm\s+-rf\b/u, "rm -rf"],
+  [/rm\s+-r\s+\//u, "rm -r /"],
+  [/git\s+push\s+--force\b/u, "git push --force"],
+  [/git\s+push\s+-f\b/u, "git push -f"],
+  [/git\s+reset\s+--hard\b/u, "git reset --hard"],
+  [/git\s+clean\s+-f/u, "git clean -f"],
+  [/git\s+checkout\s+\.$/u, "git checkout ."],
+  [/git\s+checkout\s+--\s+\.$/u, "git checkout -- ."],
+  [/git\s+restore\s+\.$/u, "git restore ."],
+  [/git\s+branch\s+-D\b/u, "git branch -D"],
 ];
 
 export function stripStringLiterals(cmd: string): string {
   // Strip heredocs: <<'EOF' ... EOF, <<"EOF" ... EOF, <<EOF ... EOF
-  let stripped = cmd.replace(/<<-?\s*'?(\w+)'?.*?\n[\s\S]*?\n\s*\1/g, "");
+  let stripped = cmd.replaceAll(/<<-?\s*'?(\w+)'?.*?\n[\s\S]*?\n\s*\1/gu, "");
   // Strip double-quoted strings (non-greedy, respecting escapes)
-  stripped = stripped.replace(/"(?:[^"\\]|\\.)*"/g, '""');
+  stripped = stripped.replaceAll(/"(?:[^"\\]|\\.)*"/gu, '""');
   // Strip single-quoted strings (no escapes in single quotes)
-  stripped = stripped.replace(/'[^']*'/g, "''");
+  stripped = stripped.replaceAll(/'[^']*'/gu, "''");
   return stripped;
 }
 
@@ -73,6 +73,9 @@ export function checkCommand(cmd: string): string | null {
 
 export function parseHookInput(raw: string): string | null {
   try {
+    // SAFETY: shape is unchecked on purpose. Every read below is optional, and
+    // a payload that does not match yields null, which the caller treats as
+    // "nothing to block".
     const parsed = JSON.parse(raw) as HookInput;
     return parsed.tool_input?.command ?? null;
   } catch {
