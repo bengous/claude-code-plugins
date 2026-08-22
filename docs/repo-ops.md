@@ -13,7 +13,7 @@ There is no classic branch protection on `main`; querying `/branches/main/protec
 
 ## Local enforcement
 
-- lefthook `pre-commit`: `block-commit-to-main`, `block-settings-json`, `sync-settings`, `sync-versions` (auto-fix), `validate-marketplace`, `validate-frontmatter`. `commit-msg`: `block-ai-signatures`. Escape hatch for recovery only: `MAIN_BYPASS=1`.
+- lefthook `pre-commit`, in order: `block-commit-to-main`, `block-settings-json`, `sync-settings`, `sync-versions` (auto-fix), `validate-marketplace`, `validate-frontmatter`, then the five repo-wide gates `typecheck`, `lint-ts`, `fmt`, `lint-sh`, `check-lint-disables`. `commit-msg`: `block-ai-signatures`. Escape hatch for recovery only: `MAIN_BYPASS=1`.
 - Claude Code PreToolUse hook: `.claude/hooks/guard-main-branch.ts`.
 
 ## CI
