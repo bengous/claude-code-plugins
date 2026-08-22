@@ -26,6 +26,10 @@ export default defineConfig({
     // line is testing. Moving those notes off the line loses that pairing.
     "no-inline-comments": "off",
 
+    // A required `string | undefined` parameter needs an explicit `undefined`
+    // argument. The rule reads the call site only, and its fix breaks the call.
+    "unicorn/no-useless-undefined": ["error", { checkArguments: false }],
+
     "anti-slop/no-chained-type-assertions": "error",
     "anti-slop/no-conditional-empty-object-spread": "error",
     "anti-slop/no-known-value-widening": "error",
