@@ -96,5 +96,3 @@ Run in GitHub Actions:
       --output-format json \
       --max-turns 10
 ```
-
-For programmatic integration, use the `_shared/claude-cli` spawn function with the same options.

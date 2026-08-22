@@ -23,7 +23,6 @@ bun ./scripts/validate-frontmatter.ts --all  # frontmatter (default: staged only
 
 ## Non-Obvious Directories
 
-- `_shared/claude-cli/` - TypeScript SDK for hook scripts and agent spawning (input parsing, `HOOK_EXIT`, guard presets). Not a plugin. The repo's own hooks live in `.claude/hooks/`.
 - `archive/` - retired plugins, not in the marketplace.
 - `_docs/` - scraped external references, not plugin content.
 
