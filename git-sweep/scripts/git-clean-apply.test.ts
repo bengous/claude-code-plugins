@@ -1,3 +1,5 @@
+/* oxlint-disable anti-slop/require-safety-comment-for-type-assertion, anti-slop/no-unsafe-dictionary-type, anti-slop/no-runtime-typeof -- this harness asserts on the JSON that git-clean-apply.ts prints on stdout: the casts and typeof checks ARE the boundary parse, and a closed type here would assert the schema instead of the behaviour. */
+
 import { afterEach, describe, expect, test } from "bun:test";
 import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -8,7 +10,7 @@ const SCRIPT = join(import.meta.dir, "git-clean-apply.ts");
 let tmpDirs: string[] = [];
 
 function makeTmpDir(prefix: string): string {
-  const safe = prefix.replace(/[^a-zA-Z0-9-]/g, "-");
+  const safe = prefix.replaceAll(/[^a-zA-Z0-9-]/gu, "-");
   const dir = mkdtempSync(join(tmpdir(), `git-clean-apply-test-${safe}-`));
   tmpDirs.push(dir);
   return dir;

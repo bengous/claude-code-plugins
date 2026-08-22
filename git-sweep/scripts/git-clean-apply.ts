@@ -55,7 +55,9 @@ async function git(
 // Manifest validation
 // ---------------------------------------------------------------------------
 
-const isOid = (v: unknown): v is string => typeof v === "string" && /^[0-9a-f]{7,64}$/.test(v);
+/* oxlint-disable anti-slop/no-runtime-typeof, anti-slop/no-unknown-parameters, anti-slop/require-safety-comment-for-type-assertion, anti-slop/no-unsafe-dictionary-type -- the block below IS the boundary parser the rules ask for: it validates a manifest read from stdin before anything deletes a branch. Their fix (parse before calling) has no earlier place to happen. */
+
+const isOid = (v: unknown): v is string => typeof v === "string" && /^[0-9a-f]{7,64}$/u.test(v);
 
 function isValidManifest(m: unknown): m is CleanupManifest {
   if (typeof m !== "object" || m === null) return false;
@@ -92,6 +94,8 @@ function isValidManifest(m: unknown): m is CleanupManifest {
   if (typeof o.prune_worktrees !== "boolean") return false;
   return true;
 }
+
+/* oxlint-enable anti-slop/no-runtime-typeof, anti-slop/no-unknown-parameters, anti-slop/require-safety-comment-for-type-assertion, anti-slop/no-unsafe-dictionary-type */
 
 // ---------------------------------------------------------------------------
 // Deduplication
@@ -304,6 +308,8 @@ async function main(): Promise<CleanupResult | { ok: false; error: string }> {
     }
   }
 
+  /* oxlint-disable anti-slop/require-safety-comment-for-type-assertion, anti-slop/no-known-value-widening -- same boundary as isValidManifest above: `parsed` is raw JSON, and `kept` is an opaque passthrough this script re-serialises without ever reading it. */
+
   let manifest: CleanupManifest;
   let consumePath: string | null = null;
   let kept: unknown = [];
@@ -329,7 +335,9 @@ async function main(): Promise<CleanupResult | { ok: false; error: string }> {
     manifest = candidate;
     kept = (parsed as { kept?: unknown }).kept ?? [];
     consumePath = manifestFile;
-  } else if (manifestJson !== null) {
+  } else if (manifestJson === null) {
+    return { ok: false, error: "missing --manifest or --manifest-file argument" };
+  } else {
     let parsed: unknown;
     try {
       parsed = JSON.parse(manifestJson);
@@ -340,9 +348,9 @@ async function main(): Promise<CleanupResult | { ok: false; error: string }> {
       return { ok: false, error: "invalid manifest shape in --manifest" };
     }
     manifest = parsed;
-  } else {
-    return { ok: false, error: "missing --manifest or --manifest-file argument" };
   }
+
+  /* oxlint-enable anti-slop/require-safety-comment-for-type-assertion, anti-slop/no-known-value-widening */
 
   const deduped = dedupeManifest(manifest);
   if ("error" in deduped) {

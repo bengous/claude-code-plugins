@@ -112,22 +112,14 @@ async function git(
   return { stdout: stdout.toString().trim(), stderr: stderr.toString().trim(), exitCode };
 }
 
-async function gitOk(...args: string[]): Promise<string> {
-  const result = await git(...args);
-  if (result.exitCode !== 0) {
-    throw new Error(`git ${args[0]} failed: ${result.stderr}`);
-  }
-  return result.stdout;
-}
-
 // `git merge-tree --write-tree` is the containment proof; it landed in 2.38.
 const MIN_GIT = [2, 38] as const;
 
 async function gitVersionAtLeast(): Promise<{ ok: boolean; found: string }> {
   const raw = (await git("--version")).stdout;
-  const match = raw.match(/(\d+)\.(\d+)/);
+  const match = raw.match(/(\d+)\.(\d+)/u);
   if (!match) return { ok: false, found: raw || "unknown" };
-  const [major, minor] = [parseInt(match[1]!, 10), parseInt(match[2]!, 10)];
+  const [major, minor] = [Math.trunc(Number(match[1]!)), Math.trunc(Number(match[2]!))];
   const ok = major > MIN_GIT[0] || (major === MIN_GIT[0] && minor >= MIN_GIT[1]);
   return { ok, found: `${major}.${minor}` };
 }
@@ -150,8 +142,8 @@ async function getBranchInfo(name: string, base: string, proof: ProofKind): Prom
   return {
     name,
     oid: oidResult.stdout,
-    ahead: parseInt(aheadResult.stdout, 10) || 0,
-    behind: parseInt(behindResult.stdout, 10) || 0,
+    ahead: Math.trunc(Number(aheadResult.stdout)) || 0,
+    behind: Math.trunc(Number(behindResult.stdout)) || 0,
     last_commit_date: dateResult.stdout,
     last_commit_subject: subjectResult.stdout,
     proof,
@@ -362,7 +354,15 @@ async function scanWorktrees(
 // Manifest hand-off (durable audit -> apply)
 // ---------------------------------------------------------------------------
 
-const isOid = (v: unknown): v is string => typeof v === "string" && /^[0-9a-f]{7,64}$/.test(v);
+/* oxlint-disable anti-slop/no-runtime-typeof, anti-slop/no-unknown-parameters, anti-slop/require-safety-comment-for-type-assertion, anti-slop/no-unsafe-dictionary-type -- the block below IS the boundary parser the rules ask for: it validates a manifest read from stdin before anything touches a branch. Their fix (parse before calling) has no earlier place to happen. */
+
+const isOid = (v: unknown): v is string => typeof v === "string" && /^[0-9a-f]{7,64}$/u.test(v);
+
+const isKeptBranch = (k: unknown): boolean =>
+  typeof k === "object" &&
+  k !== null &&
+  typeof (k as { name?: unknown }).name === "string" &&
+  typeof (k as { reason?: unknown }).reason === "string";
 
 function isValidManifest(m: unknown): m is CleanupManifest {
   if (typeof m !== "object" || m === null) return false;
@@ -417,14 +417,11 @@ async function saveManifest(): Promise<SaveResult> {
   if (!isValidManifest(manifest)) {
     return { ok: false, error: "invalid manifest shape" };
   }
-  const isKeptBranch = (k: unknown) =>
-    typeof k === "object" &&
-    k !== null &&
-    typeof (k as { name?: unknown }).name === "string" &&
-    typeof (k as { reason?: unknown }).reason === "string";
-  if (!Array.isArray(kept) || !kept.every(isKeptBranch)) {
+  if (!Array.isArray(kept) || !kept.every((k) => isKeptBranch(k))) {
     return { ok: false, error: "invalid kept list (expected {name, reason}[])" };
   }
+
+  /* oxlint-enable anti-slop/no-runtime-typeof, anti-slop/no-unknown-parameters, anti-slop/require-safety-comment-for-type-assertion, anti-slop/no-unsafe-dictionary-type */
 
   const gitDir = await git("rev-parse", "--absolute-git-dir");
   if (gitDir.exitCode !== 0) {
@@ -463,7 +460,7 @@ async function main(): Promise<AuditResult | SaveResult> {
         includeRemote = true;
         break;
       case "--max-age": {
-        maxAgeDays = parseInt(args[++i]!, 10);
+        maxAgeDays = Math.trunc(Number(args[++i]!));
         break;
       }
       default:
@@ -710,7 +707,7 @@ async function main(): Promise<AuditResult | SaveResult> {
           stale_tracking = pruneResult.stdout
             .split("\n")
             .filter((line) => line.includes("would prune"))
-            .map((line) => line.replace(/^.*\[would prune\]\s*/, "").trim())
+            .map((line) => line.replace(/^.*\[would prune\]\s*/u, "").trim())
             .filter(Boolean);
         }
       }

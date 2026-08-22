@@ -1,3 +1,5 @@
+/* oxlint-disable anti-slop/require-safety-comment-for-type-assertion, anti-slop/no-unsafe-dictionary-type, anti-slop/no-runtime-typeof -- this harness asserts on the JSON that git-clean-audit.ts prints on stdout: the casts and typeof checks ARE the boundary parse, and a closed type here would assert the schema instead of the behaviour. */
+
 import { afterEach, describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -8,7 +10,7 @@ const SCRIPT = join(import.meta.dir, "git-clean-audit.ts");
 let tmpDirs: string[] = [];
 
 function makeTmpDir(prefix: string): string {
-  const safe = prefix.replace(/[^a-zA-Z0-9-]/g, "-");
+  const safe = prefix.replaceAll(/[^a-zA-Z0-9-]/gu, "-");
   const dir = mkdtempSync(join(tmpdir(), `git-clean-audit-test-${safe}-`));
   tmpDirs.push(dir);
   return dir;
@@ -164,7 +166,9 @@ describe("git-clean-audit", () => {
     const categories = result.categories as Record<string, unknown[]>;
 
     expect(categories.merged_local).toHaveLength(1);
-    expect((categories.merged_local[0] as { name: string }).name).toBe("feature/done");
+    expect((categories.merged_local?.[0] as { name: string } | undefined)?.name).toBe(
+      "feature/done",
+    );
   });
 
   test("detects orphaned worktree-agent branches", async () => {
@@ -178,7 +182,7 @@ describe("git-clean-audit", () => {
     const categories = result.categories as Record<string, unknown[]>;
 
     expect(categories.orphaned_worktree).toHaveLength(1);
-    expect((categories.orphaned_worktree[0] as { name: string }).name).toBe(
+    expect((categories.orphaned_worktree?.[0] as { name: string } | undefined)?.name).toBe(
       "worktree-agent-abc123",
     );
     // Should NOT be in merged_local
@@ -200,8 +204,8 @@ describe("git-clean-audit", () => {
     const categories = result.categories as Record<string, { name: string; proof: string }[]>;
 
     expect(categories.orphaned_worktree).toHaveLength(1);
-    expect(categories.orphaned_worktree[0]?.name).toBe("worktree-agent-xyz789");
-    expect(categories.orphaned_worktree[0]?.proof).toBe("no-merge-delta");
+    expect(categories.orphaned_worktree?.[0]?.name).toBe("worktree-agent-xyz789");
+    expect(categories.orphaned_worktree?.[0]?.proof).toBe("no-merge-delta");
     expect(keptNames(result)).not.toContain("worktree-agent-xyz789");
   });
 
@@ -216,8 +220,8 @@ describe("git-clean-audit", () => {
     const categories = result.categories as Record<string, unknown[]>;
 
     expect(categories.backup).toHaveLength(1);
-    expect((categories.backup[0] as { name: string }).name).toBe("backup/some-work");
-    expect((categories.backup[0] as { ahead: number }).ahead).toBe(1);
+    expect((categories.backup?.[0] as { name: string } | undefined)?.name).toBe("backup/some-work");
+    expect((categories.backup?.[0] as { ahead: number } | undefined)?.ahead).toBe(1);
   });
 
   test("detects squash-merged branches as content_merged", async () => {
@@ -237,8 +241,12 @@ describe("git-clean-audit", () => {
     const categories = result.categories as Record<string, unknown[]>;
 
     expect(categories.content_merged).toHaveLength(1);
-    expect((categories.content_merged[0] as { name: string }).name).toBe("feature/squashed");
-    expect((categories.content_merged[0] as { proof: string }).proof).toBe("no-merge-delta");
+    expect((categories.content_merged?.[0] as { name: string } | undefined)?.name).toBe(
+      "feature/squashed",
+    );
+    expect((categories.content_merged?.[0] as { proof: string } | undefined)?.proof).toBe(
+      "no-merge-delta",
+    );
   });
 
   test("does not claim containment for a squash that was later reverted", async () => {
@@ -322,10 +330,10 @@ describe("git-clean-audit", () => {
     const categories = result.categories as Record<string, unknown[]>;
 
     expect(categories.stale_remote).toHaveLength(1);
-    expect((categories.stale_remote[0] as { name: string }).name).toBe(
+    expect((categories.stale_remote?.[0] as { name: string } | undefined)?.name).toBe(
       "origin/feature/remote-done",
     );
-    expect((categories.stale_remote[0] as { proof: string }).proof).toBe("ancestry");
+    expect((categories.stale_remote?.[0] as { proof: string } | undefined)?.proof).toBe("ancestry");
   });
 
   test("detects a squash-merged remote branch that ancestry alone would miss", async () => {
@@ -348,7 +356,7 @@ describe("git-clean-audit", () => {
     const stale = (result.categories as Record<string, { name: string; proof: string }[]>)
       .stale_remote;
 
-    const entry = stale.find((b) => b.name === "origin/feature/remote-squashed");
+    const entry = stale?.find((b) => b.name === "origin/feature/remote-squashed");
     expect(entry?.proof).toBe("no-merge-delta");
   });
 
@@ -374,7 +382,9 @@ describe("git-clean-audit", () => {
     const categories = result.categories as Record<string, { name: string }[]>;
 
     expect(result.remote_base).toBe("origin/main");
-    expect(categories.stale_remote.map((b) => b.name)).toContain("origin/feature/pushed-elsewhere");
+    expect(categories.stale_remote?.map((b) => b.name)).toContain(
+      "origin/feature/pushed-elsewhere",
+    );
   });
 
   test("provides branch metadata (ahead, behind, date, subject)", async () => {
@@ -410,7 +420,7 @@ describe("git-clean-audit", () => {
       result.categories as Record<string, { name: string; d_refusal: string | null }[]>
     ).merged_local;
 
-    const entry = merged.find((b) => b.name === "feature/ahead-of-upstream");
+    const entry = merged?.find((b) => b.name === "feature/ahead-of-upstream");
     expect(entry).toBeDefined();
     expect(entry?.d_refusal).toBe("origin/feature/ahead-of-upstream");
   });
@@ -429,7 +439,7 @@ describe("git-clean-audit", () => {
       result.categories as Record<string, { name: string; d_refusal: string | null }[]>
     ).merged_local;
 
-    expect(merged.find((b) => b.name === "feature/pushed")?.d_refusal).toBeNull();
+    expect(merged?.find((b) => b.name === "feature/pushed")?.d_refusal).toBeNull();
   });
 
   // -------------------------------------------------------------------------
@@ -515,11 +525,11 @@ describe("git-clean-audit", () => {
 
     const { result } = await runAudit(repo, "--include-remote");
     const stale = (result.categories as Record<string, { name: string }[]>).stale_remote;
-    const names = stale.map((b) => b.name);
+    const names = stale?.map((b) => b.name);
 
     expect(names).toContain("origin/feature/shared");
-    expect(names.every((n) => n.startsWith("origin/"))).toBe(true);
-    expect(names.some((n) => n.startsWith("other/"))).toBe(false);
+    expect(names?.every((n) => n.startsWith("origin/"))).toBe(true);
+    expect(names?.some((n) => n.startsWith("other/"))).toBe(false);
   });
 
   // -------------------------------------------------------------------------
@@ -543,9 +553,9 @@ describe("git-clean-audit", () => {
     const categories = result.categories as Record<string, { name?: string; path?: string }[]>;
 
     // Reported as a stale worktree...
-    expect(categories.stale_worktrees.some((w) => w.path === wtDir)).toBe(true);
+    expect(categories.stale_worktrees?.some((w) => w.path === wtDir)).toBe(true);
     // ...AND its branch is classified for deletion instead of being retained.
-    expect(categories.merged_local.some((b) => b.name === "feature/wt-stale")).toBe(true);
+    expect(categories.merged_local?.some((b) => b.name === "feature/wt-stale")).toBe(true);
     expect(keptNames(result)).not.toContain("feature/wt-stale");
   });
 
@@ -569,11 +579,11 @@ describe("git-clean-audit", () => {
       { name?: string; path?: string; branch?: string; proof?: string }[]
     >;
 
-    const removable = categories.removable_worktrees.find((w) => w.path === wtDir);
+    const removable = categories.removable_worktrees?.find((w) => w.path === wtDir);
     expect(removable?.branch).toBe("feature/agent-done");
     expect(removable?.proof).toBe("ancestry");
     // The branch must flow into deletion in the SAME pass, not sit in kept.
-    expect(categories.merged_local.some((b) => b.name === "feature/agent-done")).toBe(true);
+    expect(categories.merged_local?.some((b) => b.name === "feature/agent-done")).toBe(true);
     expect(keptNames(result)).not.toContain("feature/agent-done");
 
     await git(repo, "worktree", "remove", wtDir);
@@ -604,7 +614,7 @@ describe("git-clean-audit", () => {
         string,
         { path: string; ignored: { files: string[]; dirs: string[]; truncated: boolean } }[]
       >
-    ).removable_worktrees.find((w) => w.path === wtDir);
+    ).removable_worktrees?.find((w) => w.path === wtDir);
 
     // Still removable — but never silently: the cost is reported.
     expect(removable).toBeDefined();
