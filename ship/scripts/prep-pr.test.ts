@@ -277,7 +277,7 @@ describe("prep-pr integration", () => {
 
     expect(result.status).toBe("ok");
     expect(result.backup_ref).toBeTruthy();
-    expect(result.backup_ref).toMatch(/^backup\/ship-\d+$/);
+    expect(result.backup_ref).toMatch(/^backup\/ship-\d+$/u);
 
     // Verify backup branch exists
     const ref = result.backup_ref ?? "";
@@ -478,7 +478,7 @@ describe("prep-pr integration", () => {
 
     expect(result.status).toBe("ok");
     expect(result.backup_ref).toBeTruthy();
-    expect(result.backup_ref).toMatch(/^backup\/ship-\d+$/);
+    expect(result.backup_ref).toMatch(/^backup\/ship-\d+$/u);
     const ref = result.backup_ref ?? "";
     expect(await branchExists(dir, ref)).toBe(true);
   });

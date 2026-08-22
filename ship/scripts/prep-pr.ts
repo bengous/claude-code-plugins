@@ -55,6 +55,9 @@ export function parseArgs(argv: string[]): ParsedArgs {
   let i = 0;
   while (i < args.length) {
     const arg = args[i];
+    if (arg === undefined) {
+      break;
+    }
     if (arg === "--force") {
       result.force = true;
     } else if (arg === "--backup") {
@@ -127,7 +130,7 @@ async function findConfigFile(startDir: string): Promise<string | null> {
       return candidate;
     }
     // Stop at git root (check for .git dir or file via readdir)
-    const entries = await readdir(dir).catch(() => []);
+    const entries = await readdir(dir).catch((): string[] => []);
     if (entries.includes(".git")) {
       return null;
     }
@@ -135,6 +138,8 @@ async function findConfigFile(startDir: string): Promise<string | null> {
   }
   return null;
 }
+
+/* oxlint-disable anti-slop/no-unknown-parameters, anti-slop/no-runtime-typeof, anti-slop/require-safety-comment-for-type-assertion, anti-slop/no-unsafe-dictionary-type -- this guard IS the boundary parser the rules ask for: it validates a .shiprc.json read from disk. Their fix (parse before calling) has no earlier place to happen. */
 
 function isValidConfig(value: unknown): value is ShipConfig {
   if (typeof value !== "object" || value === null) {
@@ -147,6 +152,8 @@ function isValidConfig(value: unknown): value is ShipConfig {
   const strip = obj.strip as Record<string, unknown>;
   return Array.isArray(strip.patterns) && strip.patterns.every((p) => typeof p === "string");
 }
+
+/* oxlint-enable anti-slop/no-unknown-parameters, anti-slop/no-runtime-typeof, anti-slop/require-safety-comment-for-type-assertion, anti-slop/no-unsafe-dictionary-type */
 
 type ConfigResult = { ok: true; config: ShipConfig } | { ok: false; error: string } | null; // not found
 
