@@ -46,7 +46,7 @@ Carried by the commands above:
 
 Carried by nobody, so hold them by hand:
 
-- Plugins are self-contained. No import crosses a plugin boundary, or reaches into `scripts/` or `.claude/`. Today `grep -rn 'from "\.\./\.\./' --include='*.ts'` returns nothing outside `archive/`.
+- Plugins are self-contained. No import crosses a plugin boundary, or reaches into `scripts/` or `.claude/`. Today `grep -rn 'from "\.\./\.\./' --include='*.ts' .` returns nothing.
 - Ship sources, never compiled binaries. `bun` is the runtime.
 
 ## Non-Obvious Directories
