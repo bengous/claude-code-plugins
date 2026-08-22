@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-const SCRIPT = join(import.meta.dir, "git-clean-audit");
+const SCRIPT = join(import.meta.dir, "git-clean-audit.ts");
 
 let tmpDirs: string[] = [];
 

@@ -1,7 +1,7 @@
 ---
 description: Strip working files and create a GitHub PR. Called by /ship when no PR exists.
 allowed-tools:
-  - Bash("${CLAUDE_PLUGIN_ROOT}/scripts/prep-pr":*)
+  - Bash("${CLAUDE_PLUGIN_ROOT}/scripts/prep-pr.ts":*)
   - Bash(git push -u origin:*)
   - Bash(git checkout:*)
   - Bash(gh pr create:*)
@@ -26,7 +26,7 @@ Prepare a clean PR branch by stripping working files and creating a GitHub PR.
 Run the prep-pr script in dry-run mode to detect working files:
 
 ```
-dry_run = run `"${CLAUDE_PLUGIN_ROOT}/scripts/prep-pr" --dry-run`
+dry_run = run `"${CLAUDE_PLUGIN_ROOT}/scripts/prep-pr.ts" --dry-run`
 parse dry_run as JSON
 ```
 
@@ -69,8 +69,8 @@ If "Let me choose": present the file list and let the user select which to strip
 
 Based on the user's choice, run the prep-pr script:
 
-- **Strip all**: `"${CLAUDE_PLUGIN_ROOT}/scripts/prep-pr" --force --backup`
-- **Strip selected**: `"${CLAUDE_PLUGIN_ROOT}/scripts/prep-pr" --force --backup -- file1.md file2.md`
+- **Strip all**: `"${CLAUDE_PLUGIN_ROOT}/scripts/prep-pr.ts" --force --backup`
+- **Strip selected**: `"${CLAUDE_PLUGIN_ROOT}/scripts/prep-pr.ts" --force --backup -- file1.md file2.md`
 - **Keep all**: skip the script entirely.
 
 Parse the JSON output. Confirm the backup ref and which files were removed.

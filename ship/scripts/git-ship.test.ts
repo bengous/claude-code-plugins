@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { $ } from "bun";
 
-const SCRIPT = join(import.meta.dir, "git-ship");
+const SCRIPT = join(import.meta.dir, "git-ship.ts");
 
 let tmpDirs: string[] = [];
 

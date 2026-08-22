@@ -1,7 +1,7 @@
 ---
 description: Audit branches/worktrees and collect cleanup choices. Called by /git-sweep.
 allowed-tools:
-  - Bash("${CLAUDE_PLUGIN_ROOT}/scripts/git-clean-audit":*)
+  - Bash("${CLAUDE_PLUGIN_ROOT}/scripts/git-clean-audit.ts":*)
   - Bash(printf:*)
   - Bash(git log:*)
   - Bash(git diff:*)
@@ -27,7 +27,7 @@ Execute the audit script, capturing exit code, stdout, and stderr. Do NOT
 discard stderr — the failure reason must stay visible:
 
 ```
-run `"${CLAUDE_PLUGIN_ROOT}/scripts/git-clean-audit" --include-remote`
+run `"${CLAUDE_PLUGIN_ROOT}/scripts/git-clean-audit.ts" --include-remote`
 capture: exit_code, stdout, stderr
 
 # The backend always emits JSON on failures it can catch. Empty or non-JSON
@@ -292,7 +292,7 @@ invoke apply (which reads the saved file — no in-session state required):
 # Write {manifest, kept} to the fixed repo-scoped path via the audit backend's
 # save mode. It validates the shape and writes atomically (tmp + rename).
 save = run `printf '%s' '{"manifest": {manifest_json}, "kept": {kept_json}}' \
-  | "${CLAUDE_PLUGIN_ROOT}/scripts/git-clean-audit" --save-manifest`
+  | "${CLAUDE_PLUGIN_ROOT}/scripts/git-clean-audit.ts" --save-manifest`
 parse save as JSON
 
 if save.ok == false:

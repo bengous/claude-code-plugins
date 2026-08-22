@@ -10,7 +10,7 @@ import { deriveOriginalBranch, derivePrBranch, errorResult, makeResult, parseArg
 // HELPERS
 // ============================================================================
 
-const SCRIPT_PATH = join(import.meta.dir, "prep-pr");
+const SCRIPT_PATH = join(import.meta.dir, "prep-pr.ts");
 
 async function createTempRepo(): Promise<string> {
   const dir = await mkdtemp(join(tmpdir(), "prep-pr-test-"));
