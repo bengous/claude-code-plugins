@@ -33,7 +33,7 @@ pre-commit:
         - ".claude/skills/*.md"
       run: bun ./scripts/validate-frontmatter.ts
 
-    # The four gates below run over the whole repo, not the staged subset: each
+    # The five gates below run over the whole repo, not the staged subset: each
     # takes well under a second, and CI then replays the exact same commands.
     - name: typecheck
       glob:

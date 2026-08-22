@@ -35,7 +35,8 @@ export default defineConfig({
     // disagree on "12abc" (12 vs NaN) and "0x10" (0 vs 16).
     "unicorn/prefer-number-coercion": "off",
 
-    // CLAUDE.md asks for TODO/FIXME markers on deferred and security work.
+    // Deferred work carries a TODO(#issue) marker in the source, as in
+    // scripts/lint-shell.ts. The rule would reject every one of them.
     "no-warning-comments": "off",
 
     "anti-slop/no-chained-type-assertions": "error",
