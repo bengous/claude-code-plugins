@@ -2,7 +2,7 @@ import { describe, test, expect } from "bun:test";
 import { mkdtempSync, mkdirSync, rmSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { readFile, writeFile } from "node:fs/promises";
+import { writeFile } from "node:fs/promises";
 
 import {
   parseArgs,
@@ -205,7 +205,7 @@ describe("discoverSessions", () => {
     const { dir, uuids } = await createFakeProject(tmp.path);
 
     const sessions = await discoverSessions(dir);
-    const ids = sessions.map((s) => s.sessionId).sort();
+    const ids = sessions.map((s) => s.sessionId).toSorted();
 
     expect(ids).toContain(uuids.withJsonl);
     expect(ids).toContain(uuids.withJsonlAndDir);
@@ -388,8 +388,8 @@ describe("loadArchiveIndex / saveArchiveIndex", () => {
     const loaded = await loadArchiveIndex(tmp.path);
 
     expect(loaded.entries.length).toBe(1);
-    expect(loaded.entries[0].sessionId).toBe(UUID_A);
-    expect(loaded.entries[0].sizeBytes).toBe(1000);
+    expect(loaded.entries[0]?.sessionId).toBe(UUID_A);
+    expect(loaded.entries[0]?.sizeBytes).toBe(1000);
   });
 
   test("filters out entries with invalid session IDs", async () => {
@@ -408,27 +408,27 @@ describe("loadArchiveIndex / saveArchiveIndex", () => {
 
     const index = await loadArchiveIndex(tmp.path);
     expect(index.entries.length).toBe(1);
-    expect(index.entries[0].sessionId).toBe(UUID_A);
+    expect(index.entries[0]?.sessionId).toBe(UUID_A);
   });
 });
 
-describe("archiveProject", () => {
-  function makeOptions(
-    overrides: Partial<import("./session-archive").Options> = {},
-  ): import("./session-archive").Options {
-    return {
-      days: 0,
-      dryRun: false,
-      copy: false,
-      list: false,
-      stats: false,
-      hook: false,
-      max: 0,
-      verbose: false,
-      ...overrides,
-    };
-  }
+function makeOptions(
+  overrides: Partial<import("./session-archive").Options> = {},
+): import("./session-archive").Options {
+  return {
+    days: 0,
+    dryRun: false,
+    copy: false,
+    list: false,
+    stats: false,
+    hook: false,
+    max: 0,
+    verbose: false,
+    ...overrides,
+  };
+}
 
+describe("archiveProject", () => {
   test("archives eligible sessions and updates index", async () => {
     using tmp = tempDir("project-archive");
     const { dir } = await createFakeProject(tmp.path);
@@ -471,7 +471,7 @@ describe("archiveProject", () => {
     const { dir, uuids } = await createFakeProject(tmp.path);
 
     const protectedIds = new Set([uuids.withJsonl, uuids.withJsonlAndDir]);
-    const result = await archiveProject(dir, makeOptions(), protectedIds);
+    await archiveProject(dir, makeOptions(), protectedIds);
 
     const index = await loadArchiveIndex(join(dir, "archive"));
     const archivedIds = index.entries.map((e) => e.sessionId);

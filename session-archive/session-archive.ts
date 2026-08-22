@@ -16,7 +16,7 @@ import { existsSync, readFileSync } from "node:fs";
 
 // === Constants ===
 const CLAUDE_DIR = join(homedir(), ".claude", "projects");
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/;
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/u;
 const SKIP_NAMES = new Set(["memory", "archive", "sessions-index.json"]);
 const DEFAULT_DAYS = 30;
 const HOOK_MAX_DEFAULT = 20;
@@ -92,7 +92,7 @@ export async function acquireLock(
         } else {
           // Lock held by another process — check if PID is alive
           try {
-            const lockPid = parseInt(await readFile(lockfile, "utf-8"), 10);
+            const lockPid = Math.trunc(Number(await readFile(lockfile, "utf-8")));
             if (!isNaN(lockPid)) {
               try {
                 process.kill(lockPid, 0); // signal 0 = check existence
@@ -126,7 +126,7 @@ export async function acquireLock(
 
 export async function releaseLock(lockfile = DEFAULT_LOCKFILE): Promise<void> {
   try {
-    const lockPid = parseInt(await readFile(lockfile, "utf-8"), 10);
+    const lockPid = Math.trunc(Number(await readFile(lockfile, "utf-8")));
     if (lockPid === process.pid) {
       await unlink(lockfile);
     }
@@ -149,17 +149,18 @@ export function parseArgs(argv: string[]): Options {
   };
 
   function requireArg(flag: string, i: number): string {
-    if (i >= argv.length || argv[i].startsWith("--")) {
+    const value = argv[i];
+    if (value === undefined || value.startsWith("--")) {
       console.error(`${flag} requires a value`);
       process.exit(1);
     }
-    return argv[i];
+    return value;
   }
 
   for (let i = 0; i < argv.length; i++) {
     switch (argv[i]) {
       case "--days":
-        opts.days = parseInt(requireArg("--days", ++i), 10);
+        opts.days = Math.trunc(Number(requireArg("--days", ++i)));
         if (isNaN(opts.days) || opts.days < 0) {
           console.error("--days requires a non-negative integer");
           process.exit(1);
@@ -190,7 +191,7 @@ export function parseArgs(argv: string[]): Options {
         opts.backgroundWorker = requireArg("--background-worker", ++i);
         break;
       case "--max":
-        opts.max = parseInt(requireArg("--max", ++i), 10);
+        opts.max = Math.trunc(Number(requireArg("--max", ++i)));
         if (isNaN(opts.max) || opts.max < 0) {
           console.error("--max requires a non-negative integer");
           process.exit(1);
@@ -245,7 +246,7 @@ export async function discoverSessions(projectDir: string): Promise<SessionInfo[
 
     // JSONL files
     if (entry.isFile() && entry.name.endsWith(".jsonl")) {
-      const sessionId = entry.name.replace(/\.jsonl$/, "");
+      const sessionId = entry.name.replace(/\.jsonl$/u, "");
       if (!isSessionUuid(sessionId)) continue;
 
       const filePath = join(projectDir, entry.name);
@@ -301,9 +302,9 @@ async function getActiveSessionIds(projectDir: string): Promise<Set<string>> {
         const target = await readlink(join(tasksDir, entry));
         const projectIdx = target.indexOf(projectName);
         if (projectIdx === -1) continue;
-        const afterProject = target.substring(projectIdx + projectName.length + 1);
+        const afterProject = target.slice(projectIdx + projectName.length + 1);
         const uuid = afterProject.split("/")[0];
-        if (isSessionUuid(uuid)) {
+        if (uuid !== undefined && isSessionUuid(uuid)) {
           activeIds.add(uuid);
         }
       } catch {
@@ -424,6 +425,8 @@ export async function loadArchiveIndex(archiveDir: string): Promise<ArchiveIndex
     parsed.entries = parsed.entries.filter(
       (e: ArchiveEntry) => e.sessionId && isSessionUuid(e.sessionId),
     );
+    // SAFETY: `version === 1` and `Array.isArray(entries)` are checked above,
+    // and every entry passed isSessionUuid on its sessionId.
     return parsed as ArchiveIndex;
   } catch {
     return { version: 1, entries: [] };
@@ -442,12 +445,11 @@ export async function unarchiveSession(uuid: string, projectDir: string): Promis
   const index = await loadArchiveIndex(archiveDir);
 
   const entryIdx = index.entries.findIndex((e) => e.sessionId === uuid);
-  if (entryIdx === -1) {
+  const entry = index.entries[entryIdx];
+  if (entry === undefined) {
     console.error(`Session ${uuid} not found in archive`);
     process.exit(1);
   }
-
-  const entry = index.entries[entryIdx];
 
   // Restore JSONL — handle both gzip (new) and zstd (legacy)
   if (entry.hasJsonl) {
@@ -518,7 +520,7 @@ export async function archiveProject(
 
   const toArchive = sessions
     .filter((s) => shouldArchive(s, cutoffDate, allProtected) && !alreadyArchived.has(s.sessionId))
-    .sort((a, b) => a.mtime.getTime() - b.mtime.getTime());
+    .toSorted((a, b) => a.mtime.getTime() - b.mtime.getTime());
 
   const limited = options.max > 0 ? toArchive.slice(0, options.max) : toArchive;
 
@@ -615,7 +617,7 @@ export function formatBytes(bytes: number): string {
 
 async function getProjectDirs(options: Options): Promise<string[]> {
   if (options.project) {
-    return [options.project.replace(/\/$/, "")];
+    return [options.project.replace(/\/$/u, "")];
   }
 
   if (!existsSync(CLAUDE_DIR)) {
@@ -634,12 +636,12 @@ interface HookInput {
   transcript_path?: string;
 }
 
-async function runHookMode(options: Options): Promise<void> {
+async function runHookMode(): Promise<void> {
   useStderrLog();
 
   // Read stdin payload (fast — small JSON)
   let input: HookInput = {};
-  if (!Bun.stdin.isTTY) {
+  if (!process.stdin.isTTY) {
     try {
       const stdinText = await Bun.stdin.text();
       input = JSON.parse(stdinText);
@@ -742,7 +744,7 @@ if (import.meta.main) {
 
     // Hook mode — fork to background, exit immediately
     if (options.hook) {
-      await runHookMode(options);
+      await runHookMode();
       process.exit(0);
     }
 
