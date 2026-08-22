@@ -24,8 +24,10 @@ jobs:
       - name: Install script dependencies
         run: bun install --frozen-lockfile
 
-      - name: Test validation scripts
-        run: bun test scripts
+      # `bun test` alone skips dot directories, so the repo's own hooks need an
+      # explicit path. Together the two runs cover every test file.
+      - name: Run test suites
+        run: bun test && bun test ./.claude/hooks/*.test.ts
 
       # Replays the local pre-commit checks server-side, so a `--no-verify`
       # commit can't slip a version desync or bad frontmatter past review.
