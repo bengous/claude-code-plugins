@@ -8,14 +8,14 @@ Git Tools provides AI-powered interactive git commands that enhance your workflo
 
 ## Features
 
-- **Interactive Rebase**: Visual, multi-stage rebase workflow with AI-powered commit improvements
+- **Interactive Rebase**: Visual, multi-stage rebase workflow driven by questions instead of an editor
 - **PR Triage**: Analyze open PRs and decide to treat or close with explanatory comments
 - **Issue Triage**: Analyze open issues with fact-checking and decide to treat or close
 - **Repository Cleanup**: Automated cleanup of stale branches, worktrees, and closed PRs
-- **Smart Commit Messages**: AI suggestions for reword operations following conventional commit patterns
+- **Commit Messages**: Claude proposes reword and squash messages, and you pick one
 - **Conflict Guidance**: Step-by-step resolution instructions when conflicts arise
 - **Safety Checks**: Automatic backup branch creation and working directory validation
-- **Visual Feedback**: ASCII graphs showing your rebase plan before execution
+- **Visual Feedback**: A rendered rebase plan, confirmed before execution
 
 ## Installation
 
@@ -156,43 +156,45 @@ The command includes templates for common close scenarios:
 
 ### `/rebase`
 
-Interactive git rebase with visual planning and AI-powered commit improvements.
+Interactive git rebase with visual planning and reworked commit messages.
 
 **Usage:**
 ```bash
-/rebase              # Rebase entire branch from merge-base
-/rebase 5            # Rebase last 5 commits (HEAD~5)
-/rebase abc123       # Rebase from specific commit/branch
-/rebase abc123..def456  # Rebase specific range
+/rebase 5               # The last 5 commits (HEAD~5)
+/rebase main            # Every commit since the merge base with main
+/rebase abc123..def456  # Every commit since abc123
+/rebase continue        # After resolving a conflict
+/rebase skip            # Drop the commit that conflicts
+/rebase abort           # Undo the whole rebase
+/rebase status          # Where a paused rebase stands
 ```
+
+The branch form edits the commits made since the merge base. It does not move
+the branch onto that branch's tip; `git rebase main` does that.
 
 **Workflow:**
 
-1. **Select Range**: Choose what to rebase (entire branch, N commits, or custom range)
-2. **Review Commits**: See all commits in the range with details
-3. **Choose Actions**: For each commit, select:
-   - `pick` (p): Keep commit as-is
-   - `squash` (s): Combine with previous commit
-   - `reword` (r): Edit commit message (AI suggestions provided)
-   - `drop` (d): Remove commit
-4. **Review Plan**: See visual graph of planned changes
-5. **Execute**: Automatic backup branch created, rebase performed
+1. **Plan**: The backend lists the commits in the range, oldest first
+2. **Choose Actions**: For each commit, answer:
+   - `Pick`: Keep commit as-is
+   - `Squash`: Combine with the commit above it
+   - `Reword`: Change the commit message
+   - `Drop`: Remove commit
+3. **Review Plan**: The rendered plan is shown before anything runs
+4. **Execute**: A backup branch is created, then the rebase runs with no editor
 
-**AI Features:**
+**Commit messages:**
 
-- **Reword Suggestions**: When rewording, receive 3 AI-generated options:
-  - Keep original
-  - Improved clarity
-  - Concise version
-  - Or write custom message
-
-- **Smart Squash Messages**: When squashing commits, AI analyzes all commit messages and generates an intelligent combined message following conventional commit patterns
+Claude reads the commit and proposes reword or squash messages: the original,
+a conventional-commit form when the history uses one, and a shorter subject.
+You choose one or write your own — nothing is applied without that answer.
+No separate model is called, and no suggestion is generated that you do not see.
 
 **Safety:**
 
 - Validates working directory is clean before starting
-- Creates automatic backup branch (`backup-<branch>-<timestamp>`)
-- Checks for unpushed commits
+- Creates automatic backup branch (`rebase-backup-<branch>-<timestamp>`)
+- Re-checks the plan against the branch at execution time and refuses a stale one
 - Provides conflict resolution guidance if issues arise
 
 **Example:**
@@ -200,31 +202,24 @@ Interactive git rebase with visual planning and AI-powered commit improvements.
 ```bash
 /rebase 3
 
-# Output:
-# Rebase interactive mode - Last 3 commits
+# Rebase plan — base 19b31bc
 #
-# Commit 1: a1b2c3d Add user authentication
-# Action [p/s/r/d/?]: p
+#   ✎ REWORD b0c153d feat: add parser
+#            └─ message: feat(parser): add the expression parser
+#   ⬆ SQUASH b63623d fix typo
+#            └─ folded into the commit above
+#   ✗ DROP   6d2e3bc chore: wip debug
 #
-# Commit 2: d4e5f6g Fix login bug
-# Action [p/s/r/d/?]: s
+# Summary: 0 pick, 1 squash, 1 reword, 1 drop
 #
-# Commit 3: g7h8i9j Update tests
-# Action [p/s/r/d/?]: r
-#
-# Rebase Plan:
-# ✓ PICK   a1b2c3d Add user authentication
-# ⬆ SQUASH d4e5f6g Fix login bug
-# ✎ REWORD g7h8i9j Update tests
-#
-# Proceed? (y/n)
+# Run this rebase? [Run / Cancel]
 ```
 
 ## Requirements
 
 - Git 2.0+
 - GitHub CLI (`gh`) authenticated for PR operations
-- jq (for JSON processing)
+- jq (for `/bisect-ci`)
 - Clean working directory for rebase operations
 
 ## License
