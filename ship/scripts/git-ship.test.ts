@@ -1,13 +1,10 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { $ } from "bun";
 
-// Support both deployed (git-ship) and chezmoi source (executable_git-ship) names
-const SCRIPT = existsSync(join(import.meta.dir, "git-ship"))
-  ? join(import.meta.dir, "git-ship")
-  : join(import.meta.dir, "executable_git-ship");
+const SCRIPT = join(import.meta.dir, "git-ship");
 
 let tmpDirs: string[] = [];
 

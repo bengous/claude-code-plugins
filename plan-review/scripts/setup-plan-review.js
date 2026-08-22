@@ -3,7 +3,6 @@
  * setup-plan-review.js
  *
  * Installs plan review hooks into .claude/settings.local.json
- * Follows the pattern from orchestration/scripts/setup-hooks.js
  */
 
 const fs = require('fs');

@@ -18,7 +18,7 @@ A curated marketplace of Claude Code plugins for development workflow automation
 
 | Plugin | Version | Description |
 |--------|---------|-------------|
-| [claude-orchestration](orchestration/) | 2.7.0 | Parallel multi-agent orchestration for complex features with git-wt --stack worktree isolation |
+| [claude-orchestration](orchestration/) | 2.8.0 | Parallel multi-agent orchestration for complex features with git-wt --stack worktree isolation |
 | [git-tools](git-tools/) | 1.11.4 | Interactive git commands with AI assistance for commit management, history rewriting, PR/issue triage, agent-ready issue writing, and submodule automation |
 | [code-quality](code-quality/) | 2.0.2 | Code quality and cleanup commands for maintaining clean, maintainable code |
 | [clean-comments](clean-comments/) | 1.1.1 | Audit and clean code comments: protects why/constraint comments, hunts comments that lie |

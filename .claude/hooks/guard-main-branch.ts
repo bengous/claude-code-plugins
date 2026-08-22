@@ -16,7 +16,7 @@
  *       "matcher": "Bash",
  *       "hooks": [{
  *         "type": "command",
- *         "command": "bun _shared/claude-cli/hooks/guard-main-branch.ts",
+ *         "command": "bun .claude/hooks/guard-main-branch.ts",
  *         "timeout": 5
  *       }]
  *     }]
@@ -25,8 +25,11 @@
  * ```
  */
 
-import { HOOK_EXIT } from "../hooks.ts";
-import { parseHookInput, stripStringLiterals } from "./guard-destructive.ts";
+import {
+	HOOK_EXIT,
+	parseHookInput,
+	stripStringLiterals,
+} from "./guard-destructive.ts";
 
 const PROTECTED_BRANCHES = ["main", "master"] as const;
 

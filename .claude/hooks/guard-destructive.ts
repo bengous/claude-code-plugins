@@ -6,6 +6,24 @@
  *
  * Strips quoted strings and heredocs before matching so that commit messages
  * or echo statements describing destructive commands don't trigger the guard.
+ *
+ * @usage
+ * In .claude/settings.json:
+ * ```json
+ * {
+ *   "hooks": {
+ *     "PreToolUse": [{
+ *       "matcher": "Bash",
+ *       "hooks": [{
+ *         "type": "command",
+ *         "command": "bun .claude/hooks/guard-destructive.ts",
+ *         "timeout": 5,
+ *         "statusMessage": "Checking for destructive commands..."
+ *       }]
+ *     }]
+ *   }
+ * }
+ * ```
  */
 
 /**
