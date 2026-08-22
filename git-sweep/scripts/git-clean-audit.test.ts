@@ -1,11 +1,9 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-const SCRIPT = existsSync(join(import.meta.dir, "git-clean-audit"))
-  ? join(import.meta.dir, "git-clean-audit")
-  : join(import.meta.dir, "executable_git-clean-audit");
+const SCRIPT = join(import.meta.dir, "git-clean-audit");
 
 let tmpDirs: string[] = [];
 

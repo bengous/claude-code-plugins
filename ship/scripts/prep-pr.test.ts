@@ -1,5 +1,4 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { existsSync } from "node:fs";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -11,9 +10,7 @@ import { deriveOriginalBranch, derivePrBranch, errorResult, makeResult, parseArg
 // HELPERS
 // ============================================================================
 
-const SCRIPT_PATH = existsSync(join(import.meta.dir, "prep-pr"))
-  ? join(import.meta.dir, "prep-pr")
-  : join(import.meta.dir, "executable_prep-pr");
+const SCRIPT_PATH = join(import.meta.dir, "prep-pr");
 
 async function createTempRepo(): Promise<string> {
   const dir = await mkdtemp(join(tmpdir(), "prep-pr-test-"));
