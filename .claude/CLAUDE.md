@@ -24,10 +24,10 @@ bun x tsgo --noEmit                          # types; fall back to ./node_module
 bun x oxlint                                 # lint (correctness + suspicious + pedantic + anti-slop)
 bun x oxfmt '**/*.ts' '**/*.js'              # format; add --check to verify only
 bun ./scripts/lint-shell.ts                  # shellcheck + shfmt; takes paths, else the whole repo
-bun ./scripts/check-lint-disables.ts         # every lint suppression must say why on its line
+bun ./scripts/check-lint-disables.ts         # gate for the suppression rule below
 ```
 
-All of these run in `pre-commit` and again in CI, with the same arguments.
+The five tooling gates (`tsgo`, `oxlint`, `oxfmt --check`, `lint-shell.ts`, `check-lint-disables.ts`) run in `pre-commit` and again in CI, same arguments both times; `validate-marketplace.ts` too. `pre-commit` runs `validate-frontmatter.ts` on staged files only, CI runs it with `--all`. Neither test command runs in `pre-commit`: `lefthook.yml` declares no test job, so both `bun test` runs are CI-only.
 
 ## Code Standards
 
@@ -41,12 +41,12 @@ That bash boundary binds new code. Scripts already over it move when an issue re
 Carried by the commands above:
 
 - Extensions are mandatory: `.ts`, `.sh`. `tsgo`, `oxlint`, `oxfmt` and `check-lint-disables.ts` select files by extension, so a Bun script named without `.ts` is checked by nothing. `lint-shell.ts` also matches a shell shebang, so bash survives an extensionless name.
-- One root `tsconfig.json` covers every `.ts`: `strict`, plus `noUncheckedIndexedAccess` and `exactOptionalPropertyTypes`. Do not add a second one.
+- One root `tsconfig.json` covers every `.ts` outside `archive/`, `_docs/` and the vendored linter: `strict`, plus `noUncheckedIndexedAccess` and `exactOptionalPropertyTypes`. Do not add a second one.
 - Every lint suppression says why on its own line: `// oxlint-disable-next-line <rule> -- <reason>`. `check-lint-disables.ts` rejects the bare form, `oxlint-` and `eslint-` spellings alike.
 
 Carried by nobody, so hold them by hand:
 
-- Plugins are self-contained. No import crosses a plugin boundary, or reaches into `scripts/` or `.claude/`. Today `grep -rn 'from "\.\./\.\./' --include='*.ts' .` returns nothing.
+- Plugins are self-contained. No import crosses a plugin boundary, or reaches into `scripts/` or `.claude/`. Today all 17 relative imports stay inside their own top-level directory, and none climbs past a single `../`.
 - Ship sources, never compiled binaries. `bun` is the runtime.
 
 ## Non-Obvious Directories
