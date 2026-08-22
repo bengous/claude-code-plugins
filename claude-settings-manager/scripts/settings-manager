@@ -198,7 +198,7 @@ cmd_check() {
   fi
 }
 
-# Validate against schema
+# Validate JSONC syntax, permissions shape and hook event names
 cmd_validate() {
   local source_file=""
   local ai_explain="false"
@@ -251,46 +251,12 @@ cmd_validate() {
 
   echo -e "${GREEN}JSONC syntax: valid${NC}"
 
-  mkdir -p "$CACHE_DIR"
-  local schema_file="$CACHE_DIR/settings.schema.json"
-  local cache_valid="false"
-
-  if [[ -f "$schema_file" ]]; then
-    local file_mtime
-    if stat --version 2>/dev/null | grep -q GNU; then
-      file_mtime=$(stat -c %Y "$schema_file")
-    else
-      file_mtime=$(stat -f %m "$schema_file")
-    fi
-    local now
-    now=$(date +%s)
-    local cache_age=$((now - file_mtime))
-    if [[ $cache_age -lt $CACHE_TTL ]]; then
-      cache_valid="true"
-    fi
-  fi
-
-  if [[ "$cache_valid" != "true" ]]; then
-    echo -e "${GRAY}Fetching schema from schemastore.org...${NC}"
-    if curl -sL --max-time 10 "$SCHEMA_URL" -o "$schema_file.tmp" 2>/dev/null; then
-      mv "$schema_file.tmp" "$schema_file"
-    else
-      echo -e "${YELLOW}Warning: Could not fetch schema${NC}"
-      if [[ ! -f "$schema_file" ]]; then
-        echo -e "${YELLOW}Schema validation skipped${NC}"
-        exit 0
-      fi
-    fi
-  fi
-
   local validation_output
   local validation_exit_code=0
   # The JS body must reach node unexpanded; bash must not touch its $ tokens.
   # shellcheck disable=SC2016
   validation_output=$(node -e '
-    const fs = require("fs");
-    const schema = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
-    const data = JSON.parse(process.argv[2]);
+    const data = JSON.parse(process.argv[1]);
 
     const errors = [];
 
@@ -304,7 +270,18 @@ cmd_validate() {
     }
 
     if (data.hooks) {
-      const validEvents = ["PreToolUse", "PostToolUse", "Notification", "Stop"];
+      // Mirrors properties.hooks of json.schemastore.org/claude-code-settings.json.
+      const validEvents = [
+        "PreToolUse", "PostToolUse", "PostToolUseFailure", "PostToolBatch",
+        "PermissionRequest", "PermissionDenied", "Notification",
+        "UserPromptSubmit", "UserPromptExpansion", "MessageDisplay",
+        "Stop", "StopFailure", "SubagentStart", "SubagentStop",
+        "TaskCreated", "TaskCompleted", "TeammateIdle",
+        "PreCompact", "PostCompact", "Elicitation", "ElicitationResult",
+        "SessionStart", "SessionEnd", "Setup", "InstructionsLoaded",
+        "CwdChanged", "FileChanged", "ConfigChange", "DirectoryAdded",
+        "WorktreeCreate", "WorktreeRemove",
+      ];
       for (const event of Object.keys(data.hooks)) {
         if (!validEvents.includes(event)) {
           errors.push(`Unknown hook event: ${event}`);
@@ -318,8 +295,8 @@ cmd_validate() {
       process.exit(1);
     }
 
-    console.log("Schema validation: passed (basic checks)");
-  ' "$schema_file" "$parsed" 2>&1) || validation_exit_code=$?
+    console.log("Structure checks: passed (permissions arrays, hook event names)");
+  ' "$parsed" 2>&1) || validation_exit_code=$?
 
   echo "$validation_output"
 
@@ -1558,7 +1535,7 @@ case "$COMMAND" in
     echo "  setup           Set up JSONC settings workflow (run 'setup --help' for details)"
     echo "  sync            Sync JSONC to JSON"
     echo "  check           Check if files are in sync"
-    echo "  validate        Validate JSONC against schema"
+    echo "  validate        Check JSONC syntax, permissions and hook events"
     echo "  schema-extract  Extract schema from Claude Code npm package"
     echo "  schema-diff     Compare schemas between versions"
     echo ""
