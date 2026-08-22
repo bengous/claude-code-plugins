@@ -33,6 +33,38 @@ pre-commit:
         - ".claude/skills/*.md"
       run: bun ./scripts/validate-frontmatter.ts
 
+    # The four gates below run over the whole repo, not the staged subset: each
+    # takes well under a second, and CI then replays the exact same commands.
+    - name: typecheck
+      glob:
+        - "*.ts"
+        - "tsconfig.json"
+      run: bun x tsgo --noEmit
+    - name: lint-ts
+      glob:
+        - "*.ts"
+        - "*.js"
+        - "oxlint.config.ts"
+      run: bun x oxlint
+    - name: fmt
+      glob:
+        - "*.ts"
+        - "*.js"
+        - ".oxfmtrc.json"
+      run: bun x oxfmt --check '**/*.ts' '**/*.js'
+    - name: lint-sh
+      glob:
+        - "*.sh"
+        - "*/scripts/*"
+        - "*/hooks/*"
+        - ".claude/git/*"
+      run: bun ./scripts/lint-shell.ts
+    - name: check-lint-disables
+      glob:
+        - "*.ts"
+        - "*.js"
+      run: bun ./scripts/check-lint-disables.ts
+
 commit-msg:
   jobs:
     - name: block-ai-signatures

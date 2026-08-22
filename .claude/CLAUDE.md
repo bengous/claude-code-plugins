@@ -20,12 +20,20 @@ bun test                                     # every suite outside dot directori
 bun test ./.claude/hooks/*.test.ts           # the repo's own hooks; `bun test` skips them
 bun ./scripts/validate-marketplace.ts        # versions + structure
 bun ./scripts/validate-frontmatter.ts --all  # frontmatter (default: staged only)
+bun x tsgo --noEmit                          # types; fall back to ./node_modules/.bin/tsc --noEmit if tsgo rejects a flag
+bun x oxlint                                 # lint (correctness + suspicious + pedantic + anti-slop)
+bun x oxfmt '**/*.ts' '**/*.js'              # format; add --check to verify only
+bun ./scripts/lint-shell.ts                  # shellcheck + shfmt; takes paths, else the whole repo
+bun ./scripts/check-lint-disables.ts         # every lint suppression must say why on its line
 ```
+
+Every lint suppression needs ` -- <reason>` on the same line, or the last command rejects it. All of these run in `pre-commit` and again in CI, with the same arguments.
 
 ## Non-Obvious Directories
 
 - `archive/` - retired plugins, not in the marketplace.
 - `_docs/` - scraped external references, not plugin content.
+- `tools/oxlint/anti-slop/` - vendored lint plugin. Do not edit; re-run the upstream installer (see its README).
 
 ## Branching
 
