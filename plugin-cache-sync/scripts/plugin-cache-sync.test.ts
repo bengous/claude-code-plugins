@@ -17,12 +17,7 @@ async function createFixture(): Promise<{
   const home = join(root, "home");
   const repository = join(root, "marketplace");
   const pluginSource = join(repository, "demo");
-  const cacheDirectory = join(
-    home,
-    ".claude/plugins/cache",
-    basename(repository),
-    "demo/1.0.0",
-  );
+  const cacheDirectory = join(home, ".claude/plugins/cache", basename(repository), "demo/1.0.0");
 
   await mkdir(join(repository, ".claude-plugin"), { recursive: true });
   await mkdir(pluginSource, { recursive: true });
@@ -81,28 +76,21 @@ async function status(home: string, repository: string): Promise<string> {
 }
 
 async function sync(home: string, repository: string): Promise<void> {
-  const child = Bun.spawn(
-    ["bash", script, "--source", repository, "sync", "demo"],
-    {
-      env: { ...process.env, HOME: home },
-      stderr: "pipe",
-      stdout: "pipe",
-    },
-  );
+  const child = Bun.spawn(["bash", script, "--source", repository, "sync", "demo"], {
+    env: { ...process.env, HOME: home },
+    stderr: "pipe",
+    stdout: "pipe",
+  });
   expect(await child.exited).toBe(0);
 }
 
 async function readRegistry(home: string): Promise<any> {
-  return JSON.parse(
-    await Bun.file(join(home, ".claude/plugins/installed_plugins.json")).text(),
-  );
+  return JSON.parse(await Bun.file(join(home, ".claude/plugins/installed_plugins.json")).text());
 }
 
 afterEach(async () => {
   await Promise.all(
-    tempDirectories.splice(0).map((directory) =>
-      rm(directory, { recursive: true, force: true }),
-    ),
+    tempDirectories.splice(0).map((directory) => rm(directory, { recursive: true, force: true })),
   );
 });
 

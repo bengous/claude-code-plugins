@@ -36,7 +36,10 @@ async function git(cwd: string, ...args: string[]): Promise<string> {
   return stdout.toString().trim();
 }
 
-async function runShip(cwd: string, ...args: string[]): Promise<{ exitCode: number; result: Record<string, unknown> }> {
+async function runShip(
+  cwd: string,
+  ...args: string[]
+): Promise<{ exitCode: number; result: Record<string, unknown> }> {
   const { stdout, exitCode } = await $`bun run ${SCRIPT} ${args}`.cwd(cwd).quiet().nothrow();
   const out = stdout.toString().trim();
   try {

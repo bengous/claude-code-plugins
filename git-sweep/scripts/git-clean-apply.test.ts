@@ -34,7 +34,10 @@ async function git(cwd: string, ...args: string[]): Promise<string> {
   return stdout.trim();
 }
 
-async function runApply(cwd: string, ...args: string[]): Promise<{ exitCode: number; result: Record<string, unknown> }> {
+async function runApply(
+  cwd: string,
+  ...args: string[]
+): Promise<{ exitCode: number; result: Record<string, unknown> }> {
   const proc = Bun.spawn(["bun", "run", SCRIPT, ...args], { cwd, stdout: "pipe", stderr: "pipe" });
   const stdout = await new Response(proc.stdout).text();
   const exitCode = await proc.exited;
@@ -141,7 +144,10 @@ describe("git-clean-apply", () => {
     const repo = await makeRepo("manifest-file-bad");
 
     const manifestFile = join(repo, "bad.json");
-    writeFileSync(manifestFile, JSON.stringify({ manifest: { branches: "not-an-array" }, kept: [] }));
+    writeFileSync(
+      manifestFile,
+      JSON.stringify({ manifest: { branches: "not-an-array" }, kept: [] }),
+    );
 
     const { exitCode, result } = await runApply(repo, "--manifest-file", manifestFile);
 
@@ -193,7 +199,10 @@ describe("git-clean-apply", () => {
 
     expect(exitCode).toBe(0);
     expect(result.ok).toBe(true);
-    expect((result.summary as { succeeded: number; failed: number })).toEqual({ succeeded: 1, failed: 0 });
+    expect(result.summary as { succeeded: number; failed: number }).toEqual({
+      succeeded: 1,
+      failed: 0,
+    });
     expect(existsSync(manifestFile)).toBe(false);
   });
 
@@ -380,7 +389,10 @@ describe("git-clean-apply", () => {
     const { exitCode, result } = await runApply(repo, "--manifest-file", manifestFile);
 
     expect(exitCode).toBe(1);
-    expect((result.summary as { succeeded: number; failed: number })).toEqual({ succeeded: 1, failed: 1 });
+    expect(result.summary as { succeeded: number; failed: number }).toEqual({
+      succeeded: 1,
+      failed: 1,
+    });
 
     // The file survives, holding ONLY what is left to do.
     expect(existsSync(manifestFile)).toBe(true);

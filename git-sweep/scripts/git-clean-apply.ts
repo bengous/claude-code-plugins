@@ -44,7 +44,9 @@ type CleanupResult = {
 // Git helpers
 // ---------------------------------------------------------------------------
 
-async function git(...args: string[]): Promise<{ stdout: string; stderr: string; exitCode: number }> {
+async function git(
+  ...args: string[]
+): Promise<{ stdout: string; stderr: string; exitCode: number }> {
   const { stdout, stderr, exitCode } = await $`git ${args}`.quiet().nothrow();
   return { stdout: stdout.toString().trim(), stderr: stderr.toString().trim(), exitCode };
 }

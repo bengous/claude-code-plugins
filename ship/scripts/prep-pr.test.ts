@@ -4,7 +4,13 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { $ } from "bun";
 
-import { deriveOriginalBranch, derivePrBranch, errorResult, makeResult, parseArgs } from "./prep-pr";
+import {
+  deriveOriginalBranch,
+  derivePrBranch,
+  errorResult,
+  makeResult,
+  parseArgs,
+} from "./prep-pr";
 
 // ============================================================================
 // HELPERS
@@ -31,7 +37,11 @@ async function addShipConfig(dir: string, patterns: string[] = ["plans/", "docs/
   await $`git -C ${dir} commit -m "Add .shiprc.json"`.quiet();
 }
 
-async function createFeatureBranch(dir: string, branchName: string, files: Record<string, string>): Promise<void> {
+async function createFeatureBranch(
+  dir: string,
+  branchName: string,
+  files: Record<string, string>,
+): Promise<void> {
   await $`git -C ${dir} checkout -b ${branchName}`.quiet();
   for (const [path, content] of Object.entries(files)) {
     const fullPath = join(dir, path);
@@ -65,7 +75,9 @@ async function runPrepPr(dir: string, args: string[] = []): Promise<PrepPrResult
 }
 
 async function branchExists(dir: string, branch: string): Promise<boolean> {
-  const { exitCode } = await $`git -C ${dir} show-ref --verify --quiet refs/heads/${branch}`.nothrow().quiet();
+  const { exitCode } = await $`git -C ${dir} show-ref --verify --quiet refs/heads/${branch}`
+    .nothrow()
+    .quiet();
   return exitCode === 0;
 }
 
@@ -106,7 +118,15 @@ describe("parseArgs", () => {
   });
 
   test("combines flags, branch, and files", () => {
-    const result = parseArgs(["bun", "script.ts", "--force", "--backup", "develop", "--", "plans/x.md"]);
+    const result = parseArgs([
+      "bun",
+      "script.ts",
+      "--force",
+      "--backup",
+      "develop",
+      "--",
+      "plans/x.md",
+    ]);
     expect(result.force).toBe(true);
     expect(result.backup).toBe(true);
     expect(result.baseBranch).toBe("develop");

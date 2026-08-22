@@ -15,8 +15,24 @@ const SCRIPT = "git-ship";
 type Mode = "worktree" | "repo";
 
 type SuccessResult =
-  | { ok: true; step: "squash-staged"; branch: string; base: string; mode: Mode; original_subjects: string[]; backup_ref: string }
-  | { ok: true; step: "merged"; sha: string; branch: string; base: string; squashed: boolean; mode: Mode }
+  | {
+      ok: true;
+      step: "squash-staged";
+      branch: string;
+      base: string;
+      mode: Mode;
+      original_subjects: string[];
+      backup_ref: string;
+    }
+  | {
+      ok: true;
+      step: "merged";
+      sha: string;
+      branch: string;
+      base: string;
+      squashed: boolean;
+      mode: Mode;
+    }
   | { ok: true; step: "restored"; branch: string; backup_ref: string };
 
 type ErrorResult = {
@@ -44,7 +60,9 @@ type Result = SuccessResult | ErrorResult | DryRunResult;
 // Git helpers
 // ---------------------------------------------------------------------------
 
-async function git(...args: string[]): Promise<{ stdout: string; stderr: string; exitCode: number }> {
+async function git(
+  ...args: string[]
+): Promise<{ stdout: string; stderr: string; exitCode: number }> {
   const { stdout, stderr, exitCode } = await $`git ${args}`.quiet().nothrow();
   return { stdout: stdout.toString().trim(), stderr: stderr.toString().trim(), exitCode };
 }
@@ -73,7 +91,9 @@ async function detectEnvironment(): Promise<{ mode: Mode; mainPath: string }> {
   return { mode: "worktree", mainPath: mainWorktree };
 }
 
-async function validate(base: string): Promise<{ branch: string; mode: Mode; mainPath: string } | ErrorResult> {
+async function validate(
+  base: string,
+): Promise<{ branch: string; mode: Mode; mainPath: string } | ErrorResult> {
   // Clean working directory
   const status = await gitOk("status", "--porcelain");
   if (status !== "") {
@@ -101,9 +121,8 @@ async function fetchAndRebase(base: string): Promise<ErrorResult | null> {
   await git("fetch", "origin", base);
 
   // Rebase onto the latest base
-  const target = (await git("rev-parse", "--verify", `origin/${base}`)).exitCode === 0
-    ? `origin/${base}`
-    : base;
+  const target =
+    (await git("rev-parse", "--verify", `origin/${base}`)).exitCode === 0 ? `origin/${base}` : base;
 
   const rebase = await git("rebase", target);
   if (rebase.exitCode !== 0) {
@@ -114,7 +133,10 @@ async function fetchAndRebase(base: string): Promise<ErrorResult | null> {
   return null;
 }
 
-async function squash(base: string, branch: string): Promise<{ original_subjects: string[]; backup_ref: string } | ErrorResult> {
+async function squash(
+  base: string,
+  branch: string,
+): Promise<{ original_subjects: string[]; backup_ref: string } | ErrorResult> {
   // Find merge base with the local base branch (not origin — we already rebased)
   const mergeBase = await gitOk("merge-base", "HEAD", base);
 
@@ -185,9 +207,10 @@ async function mergeIntoBase(
   }
 
   // Get the sha that base now points to
-  const sha = mode === "worktree"
-    ? await gitOk("-C", mainPath, "rev-parse", base)
-    : await gitOk("rev-parse", base);
+  const sha =
+    mode === "worktree"
+      ? await gitOk("-C", mainPath, "rev-parse", base)
+      : await gitOk("rev-parse", base);
 
   return { sha };
 }
@@ -267,7 +290,12 @@ async function main(): Promise<Result> {
     const continueErr = await continueAfterSquash(base);
     if (continueErr !== null) return continueErr;
 
-    const mergeResult = await mergeWithRetry(validation.branch, base, validation.mode, validation.mainPath);
+    const mergeResult = await mergeWithRetry(
+      validation.branch,
+      base,
+      validation.mode,
+      validation.mainPath,
+    );
     if ("ok" in mergeResult) return mergeResult;
 
     return {

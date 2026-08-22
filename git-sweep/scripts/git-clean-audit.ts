@@ -105,7 +105,9 @@ type SaveResult = { ok: true; path: string } | { ok: false; error: string };
 // Git helpers
 // ---------------------------------------------------------------------------
 
-async function git(...args: string[]): Promise<{ stdout: string; stderr: string; exitCode: number }> {
+async function git(
+  ...args: string[]
+): Promise<{ stdout: string; stderr: string; exitCode: number }> {
   const { stdout, stderr, exitCode } = await $`git ${args}`.quiet().nothrow();
   return { stdout: stdout.toString().trim(), stderr: stderr.toString().trim(), exitCode };
 }
@@ -135,14 +137,15 @@ async function gitVersionAtLeast(): Promise<{ ok: boolean; found: string }> {
 // ---------------------------------------------------------------------------
 
 async function getBranchInfo(name: string, base: string, proof: ProofKind): Promise<BranchInfo> {
-  const [oidResult, aheadResult, behindResult, dateResult, subjectResult, dRefusal] = await Promise.all([
-    git("rev-parse", name),
-    git("rev-list", "--count", `${base}..${name}`),
-    git("rev-list", "--count", `${name}..${base}`),
-    git("log", "-1", "--format=%aI", name),
-    git("log", "-1", "--format=%s", name),
-    predictDashDRefusal(name),
-  ]);
+  const [oidResult, aheadResult, behindResult, dateResult, subjectResult, dRefusal] =
+    await Promise.all([
+      git("rev-parse", name),
+      git("rev-list", "--count", `${base}..${name}`),
+      git("rev-list", "--count", `${name}..${base}`),
+      git("log", "-1", "--format=%aI", name),
+      git("log", "-1", "--format=%s", name),
+      predictDashDRefusal(name),
+    ]);
 
   return {
     name,
@@ -205,7 +208,12 @@ async function proveContained(branch: string, base: string): Promise<ProofKind> 
 // fails when its remote counterpart has diverged — the audit predicts that here
 // so the operation can carry a justified force flag instead of failing at apply.
 async function predictDashDRefusal(branch: string): Promise<string | null> {
-  const upstream = await git("rev-parse", "--abbrev-ref", "--symbolic-full-name", `${branch}@{upstream}`);
+  const upstream = await git(
+    "rev-parse",
+    "--abbrev-ref",
+    "--symbolic-full-name",
+    `${branch}@{upstream}`,
+  );
   const target = upstream.exitCode === 0 && upstream.stdout ? upstream.stdout : "HEAD";
   const check = await git("merge-base", "--is-ancestor", branch, target);
   // Only a definite "not an ancestor" (exit 1) predicts refusal; an error leaves
@@ -489,10 +497,18 @@ async function main(): Promise<AuditResult | SaveResult> {
     // than silently treating the tree as worktree-free).
     const worktreeList = await git("worktree", "list", "--porcelain");
     if (worktreeList.exitCode !== 0) {
-      return { ok: false, error: `git worktree list failed: ${worktreeList.stderr}`, step: "scan-worktrees" };
+      return {
+        ok: false,
+        error: `git worktree list failed: ${worktreeList.stderr}`,
+        step: "scan-worktrees",
+      };
     }
 
-    const worktreeScan = await scanWorktrees(parseWorktrees(worktreeList.stdout), base, currentWorktree);
+    const worktreeScan = await scanWorktrees(
+      parseWorktrees(worktreeList.stdout),
+      base,
+      currentWorktree,
+    );
     const stale_worktrees = worktreeScan.stale;
     const removable_worktrees = worktreeScan.removable;
 
@@ -503,16 +519,27 @@ async function main(): Promise<AuditResult | SaveResult> {
     // Get merged branches (a failed listing is fatal, not an empty result)
     const mergedResult = await git("branch", "--merged", base, "--format=%(refname:short)");
     if (mergedResult.exitCode !== 0) {
-      return { ok: false, error: `git branch --merged failed: ${mergedResult.stderr}`, step: "scan-local" };
+      return {
+        ok: false,
+        error: `git branch --merged failed: ${mergedResult.stderr}`,
+        step: "scan-local",
+      };
     }
     const mergedSet = new Set(
-      mergedResult.stdout.split("\n").filter(Boolean).filter((b) => b !== base && b !== currentBranch),
+      mergedResult.stdout
+        .split("\n")
+        .filter(Boolean)
+        .filter((b) => b !== base && b !== currentBranch),
     );
 
     // Get all local branches
     const allBranchesResult = await git("branch", "--format=%(refname:short)");
     if (allBranchesResult.exitCode !== 0) {
-      return { ok: false, error: `git branch failed: ${allBranchesResult.stderr}`, step: "scan-local" };
+      return {
+        ok: false,
+        error: `git branch failed: ${allBranchesResult.stderr}`,
+        step: "scan-local",
+      };
     }
     const allBranches = allBranchesResult.stdout.split("\n").filter(Boolean);
 
@@ -618,7 +645,11 @@ async function main(): Promise<AuditResult | SaveResult> {
         // Fail-closed: never proceed on stale remote data when offline.
         const fetchResult = await git("fetch", "--no-prune", "--no-write-fetch-head", "origin");
         if (fetchResult.exitCode !== 0) {
-          return { ok: false, error: `git fetch origin failed: ${fetchResult.stderr}`, step: "scan-remote" };
+          return {
+            ok: false,
+            error: `git fetch origin failed: ${fetchResult.stderr}`,
+            step: "scan-remote",
+          };
         }
 
         // Remote branches are judged against origin/<base>, never local <base>:
@@ -633,7 +664,11 @@ async function main(): Promise<AuditResult | SaveResult> {
           // All remote branches (reject any non-origin prefix)
           const allRemoteResult = await git("branch", "-r", "--format=%(refname:short)");
           if (allRemoteResult.exitCode !== 0) {
-            return { ok: false, error: `git branch -r failed: ${allRemoteResult.stderr}`, step: "scan-remote" };
+            return {
+              ok: false,
+              error: `git branch -r failed: ${allRemoteResult.stderr}`,
+              step: "scan-remote",
+            };
           }
           const allRemotes = allRemoteResult.stdout
             .split("\n")

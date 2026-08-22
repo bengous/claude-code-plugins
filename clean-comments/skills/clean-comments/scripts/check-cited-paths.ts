@@ -158,7 +158,17 @@ function collect(dir: string, out: string[]): string[] {
 // shell, but a private field or a URL fragment in TypeScript, and treating it as one
 // there invents citations out of ordinary code.
 const HASH_LANGS = new Set([
-  ".py", ".rb", ".sh", ".bash", ".zsh", ".yml", ".yaml", ".toml", ".pl", ".r", ".ex",
+  ".py",
+  ".rb",
+  ".sh",
+  ".bash",
+  ".zsh",
+  ".yml",
+  ".yaml",
+  ".toml",
+  ".pl",
+  ".r",
+  ".ex",
 ]);
 const HTML_LANGS = new Set([".astro", ".vue", ".svelte", ".html", ".md", ".mdx", ".xml"]);
 

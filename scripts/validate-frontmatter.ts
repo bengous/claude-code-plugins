@@ -8,11 +8,7 @@
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { $ } from "bun";
-import {
-  checkKeys,
-  classifyComponent,
-  validateFrontmatter,
-} from "./lib/frontmatter-validation";
+import { checkKeys, classifyComponent, validateFrontmatter } from "./lib/frontmatter-validation";
 
 // Colors (disabled if not a terminal)
 const isTTY = process.stdout.isTTY;
@@ -49,8 +45,7 @@ const pluginPatterns = [
 ];
 
 const mdFiles = candidates.filter(
-  (f: string) =>
-    !f.startsWith("archive/") && pluginPatterns.some((p) => p.test(f))
+  (f: string) => !f.startsWith("archive/") && pluginPatterns.some((p) => p.test(f)),
 );
 
 if (mdFiles.length === 0) {
@@ -70,9 +65,7 @@ for (const file of mdFiles) {
 
   if (!result.valid && result.error) {
     errors++;
-    const loc = result.error.line
-      ? `:${result.error.line}:${result.error.col}`
-      : "";
+    const loc = result.error.line ? `:${result.error.line}:${result.error.col}` : "";
     console.log(`${RED}✗${RESET} ${file}${loc}`);
     console.log(`  ${result.error.message}`);
     if (result.error.code) {
@@ -92,9 +85,7 @@ for (const file of mdFiles) {
     if (type === "agent") {
       errors++;
       console.log(`${RED}✗${RESET} ${file}`);
-      console.log(
-        `  Agent file has no frontmatter (name and description are required)`
-      );
+      console.log(`  Agent file has no frontmatter (name and description are required)`);
       console.log();
     }
     continue;
@@ -116,19 +107,13 @@ for (const file of mdFiles) {
 }
 
 if (errors === 0) {
-  console.log(
-    `${GREEN}✓${RESET} All ${mdFiles.length} file(s) have valid frontmatter`
-  );
+  console.log(`${GREEN}✓${RESET} All ${mdFiles.length} file(s) have valid frontmatter`);
   process.exit(0);
 } else {
   console.log(`\n${RED}${errors} file(s) with invalid frontmatter${RESET}`);
   console.log(`\n${YELLOW}Common fixes:${RESET}`);
-  console.log(
-    `  - Quote strings with special chars: argument-hint: "[optional]"`
-  );
+  console.log(`  - Quote strings with special chars: argument-hint: "[optional]"`);
   console.log(`  - Escape colons in values: description: "Note: this works"`);
-  console.log(
-    `  - Unknown keys are silently ignored by Claude Code; fix the key, do not keep it`
-  );
+  console.log(`  - Unknown keys are silently ignored by Claude Code; fix the key, do not keep it`);
   process.exit(1);
 }

@@ -122,7 +122,7 @@ export function classifyComponent(filePath: string): ComponentType | null {
  */
 export function checkKeys(
   type: ComponentType,
-  frontmatter: Record<string, unknown>
+  frontmatter: Record<string, unknown>,
 ): KeyCheckResult {
   const allowed = KEYS_BY_TYPE[type];
   const suggestions = SUGGESTIONS[type];
@@ -133,9 +133,7 @@ export function checkKeys(
     unknown.push({ key, suggestion: suggestions[key] });
   }
 
-  const missing = REQUIRED_BY_TYPE[type].filter(
-    (key) => !(key in frontmatter)
-  );
+  const missing = REQUIRED_BY_TYPE[type].filter((key) => !(key in frontmatter));
 
   return { unknown, missing };
 }
@@ -165,10 +163,7 @@ export function extractFrontmatter(content: string): string | null {
  * Validate YAML frontmatter in a file's content.
  * Returns validation result with parsed frontmatter or error details.
  */
-export function validateFrontmatter(
-  filePath: string,
-  content: string
-): FrontmatterResult {
+export function validateFrontmatter(filePath: string, content: string): FrontmatterResult {
   const yaml = extractFrontmatter(content);
 
   if (!yaml) {

@@ -38,14 +38,20 @@ async function git(cwd: string, ...args: string[]): Promise<string> {
   return stdout.trim();
 }
 
-async function runAudit(cwd: string, ...args: string[]): Promise<{ exitCode: number; result: Record<string, unknown> }> {
+async function runAudit(
+  cwd: string,
+  ...args: string[]
+): Promise<{ exitCode: number; result: Record<string, unknown> }> {
   const proc = Bun.spawn(["bun", "run", SCRIPT, ...args], { cwd, stdout: "pipe", stderr: "pipe" });
   const stdout = await new Response(proc.stdout).text();
   const exitCode = await proc.exited;
   try {
     return { exitCode, result: JSON.parse(stdout.trim()) };
   } catch {
-    return { exitCode, result: { ok: false, error: `parse-error: ${stdout.trim()}`, step: "unknown" } };
+    return {
+      exitCode,
+      result: { ok: false, error: `parse-error: ${stdout.trim()}`, step: "unknown" },
+    };
   }
 }
 
@@ -118,7 +124,10 @@ exec ${realGit} "$@"
   try {
     return { exitCode, result: JSON.parse(stdout.trim()) };
   } catch {
-    return { exitCode, result: { ok: false, error: `parse-error: ${stdout.trim()}`, step: "unknown" } };
+    return {
+      exitCode,
+      result: { ok: false, error: `parse-error: ${stdout.trim()}`, step: "unknown" },
+    };
   }
 }
 
@@ -169,7 +178,9 @@ describe("git-clean-audit", () => {
     const categories = result.categories as Record<string, unknown[]>;
 
     expect(categories.orphaned_worktree).toHaveLength(1);
-    expect((categories.orphaned_worktree[0] as { name: string }).name).toBe("worktree-agent-abc123");
+    expect((categories.orphaned_worktree[0] as { name: string }).name).toBe(
+      "worktree-agent-abc123",
+    );
     // Should NOT be in merged_local
     expect(categories.merged_local).toHaveLength(0);
   });
@@ -311,7 +322,9 @@ describe("git-clean-audit", () => {
     const categories = result.categories as Record<string, unknown[]>;
 
     expect(categories.stale_remote).toHaveLength(1);
-    expect((categories.stale_remote[0] as { name: string }).name).toBe("origin/feature/remote-done");
+    expect((categories.stale_remote[0] as { name: string }).name).toBe(
+      "origin/feature/remote-done",
+    );
     expect((categories.stale_remote[0] as { proof: string }).proof).toBe("ancestry");
   });
 
@@ -332,7 +345,8 @@ describe("git-clean-audit", () => {
     await git(repo, "branch", "-D", "feature/remote-squashed");
 
     const { result } = await runAudit(repo, "--include-remote");
-    const stale = (result.categories as Record<string, { name: string; proof: string }[]>).stale_remote;
+    const stale = (result.categories as Record<string, { name: string; proof: string }[]>)
+      .stale_remote;
 
     const entry = stale.find((b) => b.name === "origin/feature/remote-squashed");
     expect(entry?.proof).toBe("no-merge-delta");
@@ -392,8 +406,9 @@ describe("git-clean-audit", () => {
     await git(repo, "merge", "feature/ahead-of-upstream");
 
     const { result } = await runAudit(repo);
-    const merged = (result.categories as Record<string, { name: string; d_refusal: string | null }[]>)
-      .merged_local;
+    const merged = (
+      result.categories as Record<string, { name: string; d_refusal: string | null }[]>
+    ).merged_local;
 
     const entry = merged.find((b) => b.name === "feature/ahead-of-upstream");
     expect(entry).toBeDefined();
@@ -410,8 +425,9 @@ describe("git-clean-audit", () => {
     await git(repo, "merge", "feature/pushed");
 
     const { result } = await runAudit(repo);
-    const merged = (result.categories as Record<string, { name: string; d_refusal: string | null }[]>)
-      .merged_local;
+    const merged = (
+      result.categories as Record<string, { name: string; d_refusal: string | null }[]>
+    ).merged_local;
 
     expect(merged.find((b) => b.name === "feature/pushed")?.d_refusal).toBeNull();
   });

@@ -48,9 +48,7 @@ try {
   process.exit(2);
 }
 
-const readmeContent = existsSync(readmeFile)
-  ? await Bun.file(readmeFile).text()
-  : "";
+const readmeContent = existsSync(readmeFile) ? await Bun.file(readmeFile).text() : "";
 
 let newReadme = readmeContent;
 let marketplaceChanged = false;

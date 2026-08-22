@@ -89,9 +89,7 @@ describe("isSessionUuid", () => {
   });
 
   test("valid UUID with trailing content returns true (regex not end-anchored)", () => {
-    expect(isSessionUuid("123e4567-e89b-12d3-a456-426614174000.jsonl")).toBe(
-      true,
-    );
+    expect(isSessionUuid("123e4567-e89b-12d3-a456-426614174000.jsonl")).toBe(true);
   });
 
   test("returns false for non-UUID strings", () => {
@@ -219,9 +217,7 @@ describe("discoverSessions", () => {
     const { dir, uuids } = await createFakeProject(tmp.path);
 
     const sessions = await discoverSessions(dir);
-    const merged = sessions.find(
-      (s) => s.sessionId === uuids.withJsonlAndDir,
-    );
+    const merged = sessions.find((s) => s.sessionId === uuids.withJsonlAndDir);
 
     expect(merged).toBeDefined();
     expect(merged!.jsonlPath).toBeDefined();
@@ -286,9 +282,7 @@ describe("archiveSession", () => {
     using tmp = tempDir("archive-move");
     const { dir, uuids } = await createFakeProject(tmp.path);
     const sessions = await discoverSessions(dir);
-    const session = sessions.find(
-      (s) => s.sessionId === uuids.withJsonlAndDir,
-    )!;
+    const session = sessions.find((s) => s.sessionId === uuids.withJsonlAndDir)!;
     const archiveDir = join(dir, "archive");
 
     const entry = await archiveSession(session, archiveDir, false, false, false);
@@ -306,9 +300,7 @@ describe("archiveSession", () => {
     using tmp = tempDir("archive-copy");
     const { dir, uuids } = await createFakeProject(tmp.path);
     const sessions = await discoverSessions(dir);
-    const session = sessions.find(
-      (s) => s.sessionId === uuids.withJsonlAndDir,
-    )!;
+    const session = sessions.find((s) => s.sessionId === uuids.withJsonlAndDir)!;
     const archiveDir = join(dir, "archive");
 
     await archiveSession(session, archiveDir, false, true, false);
@@ -421,7 +413,9 @@ describe("loadArchiveIndex / saveArchiveIndex", () => {
 });
 
 describe("archiveProject", () => {
-  function makeOptions(overrides: Partial<import("./session-archive").Options> = {}): import("./session-archive").Options {
+  function makeOptions(
+    overrides: Partial<import("./session-archive").Options> = {},
+  ): import("./session-archive").Options {
     return {
       days: 0,
       dryRun: false,
@@ -598,10 +592,7 @@ describe("hook mode (subprocess)", () => {
       stderr: "pipe",
     });
 
-    const [stdout, exitCode] = await Promise.all([
-      new Response(proc.stdout).text(),
-      proc.exited,
-    ]);
+    const [stdout, exitCode] = await Promise.all([new Response(proc.stdout).text(), proc.exited]);
 
     expect(exitCode).toBe(0);
     expect(stdout.trim()).toBe('{"suppressOutput":true}');

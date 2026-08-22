@@ -148,10 +148,7 @@ function isValidConfig(value: unknown): value is ShipConfig {
   return Array.isArray(strip.patterns) && strip.patterns.every((p) => typeof p === "string");
 }
 
-type ConfigResult =
-  | { ok: true; config: ShipConfig }
-  | { ok: false; error: string }
-  | null; // not found
+type ConfigResult = { ok: true; config: ShipConfig } | { ok: false; error: string } | null; // not found
 
 async function loadConfig(configPath: string | null): Promise<ConfigResult> {
   if (!configPath) {
@@ -160,7 +157,10 @@ async function loadConfig(configPath: string | null): Promise<ConfigResult> {
   try {
     const raw: unknown = await Bun.file(configPath).json();
     if (!isValidConfig(raw)) {
-      return { ok: false, error: ".shiprc.json is malformed -- expected { strip: { patterns: string[] } }" };
+      return {
+        ok: false,
+        error: ".shiprc.json is malformed -- expected { strip: { patterns: string[] } }",
+      };
     }
     return { ok: true, config: raw };
   } catch {
@@ -183,7 +183,9 @@ async function isWorkingTreeClean(): Promise<boolean> {
 }
 
 async function branchExists(branch: string): Promise<boolean> {
-  const { exitCode } = await $`git show-ref --verify --quiet refs/heads/${branch}`.nothrow().quiet();
+  const { exitCode } = await $`git show-ref --verify --quiet refs/heads/${branch}`
+    .nothrow()
+    .quiet();
   return exitCode === 0;
 }
 
@@ -204,9 +206,7 @@ async function getChangedFiles(baseBranch: string, patterns: string[]): Promise<
   const files: string[] = [];
   const range = `${baseBranch}...HEAD`;
   for (const pattern of patterns) {
-    const { stdout } = await $`git diff --name-only ${range} -- ${pattern}`
-      .quiet()
-      .nothrow();
+    const { stdout } = await $`git diff --name-only ${range} -- ${pattern}`.quiet().nothrow();
     const lines = stdout
       .toString()
       .trim()
@@ -265,9 +265,7 @@ async function run(args: ParsedArgs): Promise<PrepPrResult> {
   // 4. Handle existing -pr branch
   const prExists = await branchExists(prBranch);
   if (prExists && !args.force) {
-    return errorResult(
-      `branch '${prBranch}' already exists -- use --force to recreate`,
-    );
+    return errorResult(`branch '${prBranch}' already exists -- use --force to recreate`);
   }
 
   // 5. Find files to strip
