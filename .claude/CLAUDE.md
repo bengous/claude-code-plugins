@@ -27,7 +27,27 @@ bun ./scripts/lint-shell.ts                  # shellcheck + shfmt; takes paths, 
 bun ./scripts/check-lint-disables.ts         # every lint suppression must say why on its line
 ```
 
-Every lint suppression needs ` -- <reason>` on the same line, or the last command rejects it. All of these run in `pre-commit` and again in CI, with the same arguments.
+All of these run in `pre-commit` and again in CI, with the same arguments.
+
+## Code Standards
+
+| Layer | Language | Boundary |
+|-------|----------|----------|
+| Logic | TypeScript on Bun | Parsing, branching, state. Comes with tests. |
+| Glue | bash | Wiring only. Stop at ~150 lines, or at the first `jq` that builds data; past either it is logic. |
+
+That bash boundary binds new code. Scripts already over it move when an issue rewrites them, not before.
+
+Carried by the commands above:
+
+- Extensions are mandatory: `.ts`, `.sh`. `tsgo`, `oxlint`, `oxfmt` and `check-lint-disables.ts` select files by extension, so a Bun script named without `.ts` is checked by nothing. `lint-shell.ts` also matches a shell shebang, so bash survives an extensionless name.
+- One root `tsconfig.json` covers every `.ts`: `strict`, plus `noUncheckedIndexedAccess` and `exactOptionalPropertyTypes`. Do not add a second one.
+- Every lint suppression says why on its own line: `// oxlint-disable-next-line <rule> -- <reason>`. `check-lint-disables.ts` rejects the bare form, `oxlint-` and `eslint-` spellings alike.
+
+Carried by nobody, so hold them by hand:
+
+- Plugins are self-contained. No import crosses a plugin boundary, or reaches into `scripts/` or `.claude/`. Today `grep -rn 'from "\.\./\.\./' --include='*.ts'` returns nothing outside `archive/`.
+- Ship sources, never compiled binaries. `bun` is the runtime.
 
 ## Non-Obvious Directories
 
