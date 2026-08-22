@@ -11,9 +11,7 @@ import { $ } from "bun";
 
 const SHFMT_FLAGS = ["-i", "2", "-ci"] as const;
 
-// TODO(#52): git-tools/scripts/rebase/ is being rewritten in TypeScript by #52.
-// Its 48 shellcheck findings are that issue's, not this linter's.
-const EXCLUDED_PREFIXES = ["archive/", "_docs/", "git-tools/scripts/rebase/"] as const;
+const EXCLUDED_PREFIXES = ["archive/", "_docs/"] as const;
 
 const SHEBANG_RE = /^#!.*\b(?:ba|z|k|da)?sh\b/u;
 
