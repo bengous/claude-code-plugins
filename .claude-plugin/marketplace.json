@@ -29,7 +29,7 @@
     {
       "name": "git-tools",
       "description": "Interactive git commands with AI assistance for commit management, history rewriting, PR/issue triage, agent-ready issue writing, and submodule automation",
-      "version": "1.11.4",
+      "version": "1.12.0",
       "author": {
         "name": "Augustin BENGOLEA",
         "email": "bengous@protonmail.com"
@@ -114,7 +114,7 @@
     {
       "name": "claude-settings-manager",
       "description": "Manage Claude Code settings with JSONC support and schema extraction",
-      "version": "1.1.0",
+      "version": "1.1.1",
       "author": {
         "name": "Augustin BENGOLEA",
         "email": "bengous@protonmail.com"
@@ -156,25 +156,6 @@
         "stack"
       ],
       "source": "./git-worktree"
-    },
-    {
-      "name": "plan-review",
-      "description": "Multi-agent plan review workflow requiring architect and simplifier approval before plan execution",
-      "version": "1.1.0",
-      "author": {
-        "name": "Augustin BENGOLEA",
-        "email": "bengous@protonmail.com"
-      },
-      "homepage": "https://github.com/bengous/claude-code-plugins",
-      "license": "MIT",
-      "keywords": [
-        "plan-mode",
-        "review",
-        "multi-agent",
-        "architecture",
-        "simplification"
-      ],
-      "source": "./plan-review"
     },
     {
       "name": "agents-bridge",
@@ -220,7 +201,7 @@
     {
       "name": "software-craft",
       "description": "Opinionated design skills for software excellence: CLI design, system architecture, and more",
-      "version": "2.0.0",
+      "version": "2.1.0",
       "author": {
         "name": "Augustin BENGOLEA",
         "email": "bengous@protonmail.com"
@@ -298,7 +279,7 @@
     {
       "name": "git-sweep",
       "description": "Interactive git branch and worktree cleanup: proves a branch is contained before proposing it, frees finished worktrees, and reports what it kept and why",
-      "version": "2.0.0",
+      "version": "2.0.1",
       "author": {
         "name": "Augustin BENGOLEA",
         "email": "bengous@protonmail.com"
@@ -319,7 +300,7 @@
     {
       "name": "ship",
       "description": "Ship feature branches: strip working files, create PRs, merge to main with GPG signing and squash support",
-      "version": "1.0.1",
+      "version": "1.0.2",
       "author": {
         "name": "Augustin BENGOLEA",
         "email": "bengous@protonmail.com"

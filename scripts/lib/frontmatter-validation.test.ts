@@ -1,59 +1,33 @@
 import { describe, expect, test } from "bun:test";
-import {
-  checkKeys,
-  classifyComponent,
-  validateFrontmatter,
-} from "./frontmatter-validation";
+import { checkKeys, classifyComponent, validateFrontmatter } from "./frontmatter-validation";
 
 describe("classifyComponent", () => {
   test("excludes archive/ entirely", () => {
-    expect(
-      classifyComponent("archive/effect-tooling/agents/refactorlib-infra.md")
-    ).toBeNull();
-    expect(
-      classifyComponent("archive/effect-tooling/skills/foo/SKILL.md")
-    ).toBeNull();
+    expect(classifyComponent("archive/effect-tooling/agents/refactorlib-infra.md")).toBeNull();
+    expect(classifyComponent("archive/effect-tooling/skills/foo/SKILL.md")).toBeNull();
   });
 
   test("classifies .claude/rules/ before the agents/ pattern", () => {
-    expect(classifyComponent(".claude/rules/agents/agent-patterns.md")).toBe(
-      "rule"
-    );
-    expect(classifyComponent(".claude/rules/publishing/marketplace.md")).toBe(
-      "rule"
-    );
+    expect(classifyComponent(".claude/rules/agents/agent-patterns.md")).toBe("rule");
+    expect(classifyComponent(".claude/rules/publishing/marketplace.md")).toBe("rule");
   });
 
   test("classifies plugin and repo-level agents", () => {
-    expect(classifyComponent("orchestration/agents/architect.md")).toBe(
-      "agent"
-    );
-    expect(classifyComponent(".claude/agents/plan-reference-auditor.md")).toBe(
-      "agent"
-    );
+    expect(classifyComponent("orchestration/agents/architect.md")).toBe("agent");
+    expect(classifyComponent(".claude/agents/plan-reference-auditor.md")).toBe("agent");
   });
 
   test("classifies only SKILL.md as a skill under skills/", () => {
+    expect(classifyComponent("clean-comments/skills/clean-comments/SKILL.md")).toBe("skill");
+    expect(classifyComponent(".claude/skills/validate-plugins/SKILL.md")).toBe("skill");
     expect(
-      classifyComponent("clean-comments/skills/clean-comments/SKILL.md")
-    ).toBe("skill");
-    expect(classifyComponent(".claude/skills/validate-plugins/SKILL.md")).toBe(
-      "skill"
-    );
-    expect(
-      classifyComponent(
-        "context-management/skills/context-audit/references/templates.md"
-      )
+      classifyComponent("context-management/skills/context-audit/references/templates.md"),
     ).toBeNull();
   });
 
   test("classifies commands, nested included", () => {
-    expect(classifyComponent("git-tools/commands/bisect-ci/bisect-ci.md")).toBe(
-      "command"
-    );
-    expect(classifyComponent(".claude/commands/commit-plugin.md")).toBe(
-      "command"
-    );
+    expect(classifyComponent("git-tools/commands/bisect-ci/bisect-ci.md")).toBe("command");
+    expect(classifyComponent(".claude/commands/commit-plugin.md")).toBe("command");
   });
 
   test("returns null for hook markdown and unrelated files", () => {
@@ -70,8 +44,8 @@ describe("checkKeys — agent", () => {
       "allowed-tools": ["Read"],
     });
     expect(result.unknown).toHaveLength(1);
-    expect(result.unknown[0].key).toBe("allowed-tools");
-    expect(result.unknown[0].suggestion).toContain("tools:");
+    expect(result.unknown[0]?.key).toBe("allowed-tools");
+    expect(result.unknown[0]?.suggestion).toContain("tools:");
   });
 
   test("rejects subagent-type with a removal suggestion", () => {
@@ -81,7 +55,7 @@ describe("checkKeys — agent", () => {
       "subagent-type": "general-purpose",
     });
     expect(result.unknown).toHaveLength(1);
-    expect(result.unknown[0].key).toBe("subagent-type");
+    expect(result.unknown[0]?.key).toBe("subagent-type");
   });
 
   test("rejects hyphenated disallowed-tools, suggests camelCase", () => {
@@ -90,7 +64,7 @@ describe("checkKeys — agent", () => {
       description: "d",
       "disallowed-tools": "WebSearch",
     });
-    expect(result.unknown[0].suggestion).toContain("disallowedTools");
+    expect(result.unknown[0]?.suggestion).toContain("disallowedTools");
   });
 
   test("accepts the full documented key set", () => {
@@ -143,8 +117,8 @@ describe("checkKeys — skill and command (shared schema)", () => {
       description: "d",
       tools: "Read",
     });
-    expect(result.unknown[0].key).toBe("tools");
-    expect(result.unknown[0].suggestion).toContain("allowed-tools");
+    expect(result.unknown[0]?.key).toBe("tools");
+    expect(result.unknown[0]?.suggestion).toContain("allowed-tools");
   });
 
   test("rejects tags at the top level", () => {
@@ -152,7 +126,7 @@ describe("checkKeys — skill and command (shared schema)", () => {
       description: "d",
       tags: ["git"],
     });
-    expect(result.unknown[0].key).toBe("tags");
+    expect(result.unknown[0]?.key).toBe("tags");
   });
 
   test("skills and commands do not require name", () => {
@@ -163,11 +137,9 @@ describe("checkKeys — skill and command (shared schema)", () => {
 
 describe("checkKeys — rule", () => {
   test("accepts paths only", () => {
-    expect(checkKeys("rule", { paths: "**/agents/**" }).unknown).toHaveLength(
-      0
-    );
+    expect(checkKeys("rule", { paths: "**/agents/**" }).unknown).toHaveLength(0);
     const bad = checkKeys("rule", { paths: "**", model: "opus" });
-    expect(bad.unknown[0].key).toBe("model");
+    expect(bad.unknown[0]?.key).toBe("model");
   });
 });
 

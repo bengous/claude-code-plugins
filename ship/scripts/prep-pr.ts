@@ -55,6 +55,9 @@ export function parseArgs(argv: string[]): ParsedArgs {
   let i = 0;
   while (i < args.length) {
     const arg = args[i];
+    if (arg === undefined) {
+      break;
+    }
     if (arg === "--force") {
       result.force = true;
     } else if (arg === "--backup") {
@@ -127,7 +130,7 @@ async function findConfigFile(startDir: string): Promise<string | null> {
       return candidate;
     }
     // Stop at git root (check for .git dir or file via readdir)
-    const entries = await readdir(dir).catch(() => []);
+    const entries = await readdir(dir).catch((): string[] => []);
     if (entries.includes(".git")) {
       return null;
     }
@@ -135,6 +138,8 @@ async function findConfigFile(startDir: string): Promise<string | null> {
   }
   return null;
 }
+
+/* oxlint-disable anti-slop/no-unknown-parameters, anti-slop/no-runtime-typeof, anti-slop/require-safety-comment-for-type-assertion, anti-slop/no-unsafe-dictionary-type -- this guard IS the boundary parser the rules ask for: it validates a .shiprc.json read from disk. Their fix (parse before calling) has no earlier place to happen. */
 
 function isValidConfig(value: unknown): value is ShipConfig {
   if (typeof value !== "object" || value === null) {
@@ -148,10 +153,9 @@ function isValidConfig(value: unknown): value is ShipConfig {
   return Array.isArray(strip.patterns) && strip.patterns.every((p) => typeof p === "string");
 }
 
-type ConfigResult =
-  | { ok: true; config: ShipConfig }
-  | { ok: false; error: string }
-  | null; // not found
+/* oxlint-enable anti-slop/no-unknown-parameters, anti-slop/no-runtime-typeof, anti-slop/require-safety-comment-for-type-assertion, anti-slop/no-unsafe-dictionary-type */
+
+type ConfigResult = { ok: true; config: ShipConfig } | { ok: false; error: string } | null; // not found
 
 async function loadConfig(configPath: string | null): Promise<ConfigResult> {
   if (!configPath) {
@@ -160,7 +164,10 @@ async function loadConfig(configPath: string | null): Promise<ConfigResult> {
   try {
     const raw: unknown = await Bun.file(configPath).json();
     if (!isValidConfig(raw)) {
-      return { ok: false, error: ".shiprc.json is malformed -- expected { strip: { patterns: string[] } }" };
+      return {
+        ok: false,
+        error: ".shiprc.json is malformed -- expected { strip: { patterns: string[] } }",
+      };
     }
     return { ok: true, config: raw };
   } catch {
@@ -183,7 +190,9 @@ async function isWorkingTreeClean(): Promise<boolean> {
 }
 
 async function branchExists(branch: string): Promise<boolean> {
-  const { exitCode } = await $`git show-ref --verify --quiet refs/heads/${branch}`.nothrow().quiet();
+  const { exitCode } = await $`git show-ref --verify --quiet refs/heads/${branch}`
+    .nothrow()
+    .quiet();
   return exitCode === 0;
 }
 
@@ -204,9 +213,7 @@ async function getChangedFiles(baseBranch: string, patterns: string[]): Promise<
   const files: string[] = [];
   const range = `${baseBranch}...HEAD`;
   for (const pattern of patterns) {
-    const { stdout } = await $`git diff --name-only ${range} -- ${pattern}`
-      .quiet()
-      .nothrow();
+    const { stdout } = await $`git diff --name-only ${range} -- ${pattern}`.quiet().nothrow();
     const lines = stdout
       .toString()
       .trim()
@@ -265,9 +272,7 @@ async function run(args: ParsedArgs): Promise<PrepPrResult> {
   // 4. Handle existing -pr branch
   const prExists = await branchExists(prBranch);
   if (prExists && !args.force) {
-    return errorResult(
-      `branch '${prBranch}' already exists -- use --force to recreate`,
-    );
+    return errorResult(`branch '${prBranch}' already exists -- use --force to recreate`);
   }
 
   // 5. Find files to strip

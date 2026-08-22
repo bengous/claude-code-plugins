@@ -25,7 +25,7 @@ export interface ValidationResult {
  */
 export function validateNameMatch(
   mpName: string,
-  pluginName: string | undefined
+  pluginName: string | undefined,
 ): ValidationResult {
   if (mpName === pluginName) {
     return { passed: true, message: "Name matches" };
@@ -41,7 +41,7 @@ export function validateNameMatch(
  */
 export function validateVersionSync(
   mpVersion: string | undefined,
-  pluginVersion: string | undefined
+  pluginVersion: string | undefined,
 ): ValidationResult {
   if (!mpVersion) {
     return { passed: false, message: "Version missing in marketplace.json" };
@@ -61,10 +61,7 @@ export function validateVersionSync(
 /**
  * Validate that all required fields are present in both marketplace entry and plugin.json.
  */
-export function validateRequiredFields(
-  mp: PluginEntry,
-  pluginJson: PluginJson
-): ValidationResult {
+export function validateRequiredFields(mp: PluginEntry, pluginJson: PluginJson): ValidationResult {
   const missingFields: string[] = [];
 
   if (!mp.name) missingFields.push("marketplace:name");
@@ -87,17 +84,12 @@ export function validateRequiredFields(
  * Extract version number from README markdown table for a given plugin.
  * Returns null if plugin not found in README.
  */
-export function extractVersionFromReadme(
-  content: string,
-  pluginName: string
-): string | null {
+export function extractVersionFromReadme(content: string, pluginName: string): string | null {
   // Match pattern: [plugin-name]... | X.Y.Z
-  const escapedName = pluginName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const pattern = new RegExp(
-    `\\[${escapedName}\\][^|]+\\|\\s*([0-9]+\\.[0-9]+\\.[0-9]+)`
-  );
+  const escapedName = pluginName.replaceAll(/[.*+?^${}()|[\]\\]/gu, "\\$&");
+  const pattern = new RegExp(`\\[${escapedName}\\][^|]+\\|\\s*([0-9]+\\.[0-9]+\\.[0-9]+)`, "u");
   const match = content.match(pattern);
-  return match ? match[1] : null;
+  return match?.[1] ?? null;
 }
 
 /**
@@ -106,15 +98,9 @@ export function extractVersionFromReadme(
  * column separator) so only the version token is replaced. Returns the content
  * unchanged if the plugin has no matching row.
  */
-export function setVersionInReadme(
-  content: string,
-  pluginName: string,
-  version: string
-): string {
-  const escapedName = pluginName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const pattern = new RegExp(
-    `(\\[${escapedName}\\][^|]+\\|\\s*)[0-9]+\\.[0-9]+\\.[0-9]+`
-  );
+export function setVersionInReadme(content: string, pluginName: string, version: string): string {
+  const escapedName = pluginName.replaceAll(/[.*+?^${}()|[\]\\]/gu, "\\$&");
+  const pattern = new RegExp(`(\\[${escapedName}\\][^|]+\\|\\s*)[0-9]+\\.[0-9]+\\.[0-9]+`, "u");
   return content.replace(pattern, `$1${version}`);
 }
 
@@ -124,7 +110,7 @@ export function setVersionInReadme(
 export function validateReadmeVersion(
   readmeVersion: string,
   expectedVersion: string,
-  pluginName: string
+  pluginName: string,
 ): ValidationResult {
   if (readmeVersion === expectedVersion) {
     return { passed: true, message: "Versions match marketplace.json" };

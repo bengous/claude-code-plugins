@@ -65,7 +65,7 @@ Run a script that archives the prior session's artifacts before the new one begi
     "SessionStart": [
       {
         "type": "command",
-        "command": "bun ~/projects/claude-plugins/session-archive/session-archive.ts --hook",
+        "command": "bun /path/to/claude-code-plugins/session-archive/session-archive.ts --hook",
         "timeout": 10
       }
     ]

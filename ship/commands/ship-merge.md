@@ -1,8 +1,8 @@
 ---
 description: Merge PR branch to main via git-ship, close PR, cleanup. Called by /ship when PR exists.
 allowed-tools:
-  - Bash("${CLAUDE_PLUGIN_ROOT}/scripts/git-ship":*)
-  - Bash("${CLAUDE_PLUGIN_ROOT}/scripts/prep-pr":*)
+  - Bash("${CLAUDE_PLUGIN_ROOT}/scripts/git-ship.ts":*)
+  - Bash("${CLAUDE_PLUGIN_ROOT}/scripts/prep-pr.ts":*)
   - Bash(git checkout:*)
   - Bash(git push:*)
   - Bash(git branch -d:*)
@@ -26,14 +26,14 @@ Merge the PR branch into main locally with GPG signing, close the PR, and clean 
 - Branch: !`git branch --show-current`
 - Repo root: !`git rev-parse --show-toplevel 2>/dev/null`
 - PR info: !`gh pr view --json number,title,url,headRefName,reviewDecision,statusCheckRollup 2>/dev/null`
-- git-ship location: !`test -x "${CLAUDE_PLUGIN_ROOT}/scripts/git-ship" && echo "${CLAUDE_PLUGIN_ROOT}/scripts/git-ship" || echo "missing"`
+- git-ship location: !`test -x "${CLAUDE_PLUGIN_ROOT}/scripts/git-ship.ts" && echo "${CLAUDE_PLUGIN_ROOT}/scripts/git-ship.ts" || echo "missing"`
 - Existing backups: !`git branch --list "backup/ship-*" 2>/dev/null`
 - Worktree info: !`git worktree list 2>/dev/null`
 - Remote branches: !`git branch -r --list "origin/*" 2>/dev/null`
 
 ## Pre-flight
 
-If git-ship location is "missing", tell the user to run `chmod +x "${CLAUDE_PLUGIN_ROOT}/scripts/git-ship"` and stop.
+If git-ship location is "missing", tell the user to run `chmod +x "${CLAUDE_PLUGIN_ROOT}/scripts/git-ship.ts"` and stop.
 
 ## Identifying the PR branch
 
@@ -52,7 +52,7 @@ Run `prep-pr --dry-run` on the PR branch to detect working files using the proje
 
 ```bash
 git checkout {headRefName}
-"${CLAUDE_PLUGIN_ROOT}/scripts/prep-pr" --dry-run
+"${CLAUDE_PLUGIN_ROOT}/scripts/prep-pr.ts" --dry-run
 ```
 
 If the dry-run shows `status: "ok"` with files in `removed` (meaning files would be stripped):
@@ -62,7 +62,7 @@ If the dry-run shows `status: "ok"` with files in `removed` (meaning files would
    - "Strip and force-push"
    - "Skip -- merge as-is"
    - "Abort"
-3. If strip: run `"${CLAUDE_PLUGIN_ROOT}/scripts/prep-pr" --force --backup --pr-branch {headRefName}` then
+3. If strip: run `"${CLAUDE_PLUGIN_ROOT}/scripts/prep-pr.ts" --force --backup --pr-branch {headRefName}` then
    `git push --force-with-lease origin {headRefName}`
 4. After force-push, sync the worktree to match remote:
    `git reset --hard origin/{headRefName}`
@@ -86,7 +86,7 @@ Otherwise, use **AskUserQuestion** with options:
 ### 3. Run git-ship
 
 ```bash
-"${CLAUDE_PLUGIN_ROOT}/scripts/git-ship" [--squash|--no-squash]
+"${CLAUDE_PLUGIN_ROOT}/scripts/git-ship.ts" [--squash|--no-squash]
 ```
 
 Parse the JSON output.
@@ -102,7 +102,7 @@ If the step is `squash-staged`:
 4. Write a **semantic commit message** -- focus on what was accomplished, not the
    incremental steps. Drop noise like "fix review", "remove unused import".
 5. Commit: `git commit -m "<message>"`
-6. Run: `"${CLAUDE_PLUGIN_ROOT}/scripts/git-ship" --continue`
+6. Run: `"${CLAUDE_PLUGIN_ROOT}/scripts/git-ship.ts" --continue`
 
 ### 5. On success (step is "merged")
 

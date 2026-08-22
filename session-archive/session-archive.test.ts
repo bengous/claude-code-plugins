@@ -2,7 +2,7 @@ import { describe, test, expect } from "bun:test";
 import { mkdtempSync, mkdirSync, rmSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { readFile, writeFile } from "node:fs/promises";
+import { writeFile } from "node:fs/promises";
 
 import {
   parseArgs,
@@ -89,9 +89,7 @@ describe("isSessionUuid", () => {
   });
 
   test("valid UUID with trailing content returns true (regex not end-anchored)", () => {
-    expect(isSessionUuid("123e4567-e89b-12d3-a456-426614174000.jsonl")).toBe(
-      true,
-    );
+    expect(isSessionUuid("123e4567-e89b-12d3-a456-426614174000.jsonl")).toBe(true);
   });
 
   test("returns false for non-UUID strings", () => {
@@ -148,6 +146,23 @@ describe("parseArgs", () => {
     const opts = parseArgs(["--hook", "--max", "5"]);
     expect(opts.hook).toBe(true);
     expect(opts.max).toBe(5);
+  });
+
+  // parseArgs exits the process on a bad value, so these run out of process.
+  // An empty value must stay a rejection: read as 0 it would mean "archive
+  // everything now" for --days and "no limit" for --max.
+  test.each([
+    ["--days", "--days requires a non-negative integer"],
+    ["--max", "--max requires a non-negative integer"],
+  ])("%s with an empty value exits 1", async (flag, message) => {
+    const scriptPath = join(import.meta.dir, "session-archive.ts");
+    const source = `import { parseArgs } from ${JSON.stringify(scriptPath)};
+      parseArgs([${JSON.stringify(flag)}, ""]);`;
+    const proc = Bun.spawn(["bun", "-e", source], { stdout: "pipe", stderr: "pipe" });
+    const [stderr, exitCode] = await Promise.all([new Response(proc.stderr).text(), proc.exited]);
+
+    expect(exitCode).toBe(1);
+    expect(stderr).toContain(message);
   });
 });
 
@@ -207,7 +222,7 @@ describe("discoverSessions", () => {
     const { dir, uuids } = await createFakeProject(tmp.path);
 
     const sessions = await discoverSessions(dir);
-    const ids = sessions.map((s) => s.sessionId).sort();
+    const ids = sessions.map((s) => s.sessionId).toSorted();
 
     expect(ids).toContain(uuids.withJsonl);
     expect(ids).toContain(uuids.withJsonlAndDir);
@@ -219,9 +234,7 @@ describe("discoverSessions", () => {
     const { dir, uuids } = await createFakeProject(tmp.path);
 
     const sessions = await discoverSessions(dir);
-    const merged = sessions.find(
-      (s) => s.sessionId === uuids.withJsonlAndDir,
-    );
+    const merged = sessions.find((s) => s.sessionId === uuids.withJsonlAndDir);
 
     expect(merged).toBeDefined();
     expect(merged!.jsonlPath).toBeDefined();
@@ -286,9 +299,7 @@ describe("archiveSession", () => {
     using tmp = tempDir("archive-move");
     const { dir, uuids } = await createFakeProject(tmp.path);
     const sessions = await discoverSessions(dir);
-    const session = sessions.find(
-      (s) => s.sessionId === uuids.withJsonlAndDir,
-    )!;
+    const session = sessions.find((s) => s.sessionId === uuids.withJsonlAndDir)!;
     const archiveDir = join(dir, "archive");
 
     const entry = await archiveSession(session, archiveDir, false, false, false);
@@ -306,9 +317,7 @@ describe("archiveSession", () => {
     using tmp = tempDir("archive-copy");
     const { dir, uuids } = await createFakeProject(tmp.path);
     const sessions = await discoverSessions(dir);
-    const session = sessions.find(
-      (s) => s.sessionId === uuids.withJsonlAndDir,
-    )!;
+    const session = sessions.find((s) => s.sessionId === uuids.withJsonlAndDir)!;
     const archiveDir = join(dir, "archive");
 
     await archiveSession(session, archiveDir, false, true, false);
@@ -396,8 +405,8 @@ describe("loadArchiveIndex / saveArchiveIndex", () => {
     const loaded = await loadArchiveIndex(tmp.path);
 
     expect(loaded.entries.length).toBe(1);
-    expect(loaded.entries[0].sessionId).toBe(UUID_A);
-    expect(loaded.entries[0].sizeBytes).toBe(1000);
+    expect(loaded.entries[0]?.sessionId).toBe(UUID_A);
+    expect(loaded.entries[0]?.sizeBytes).toBe(1000);
   });
 
   test("filters out entries with invalid session IDs", async () => {
@@ -416,25 +425,27 @@ describe("loadArchiveIndex / saveArchiveIndex", () => {
 
     const index = await loadArchiveIndex(tmp.path);
     expect(index.entries.length).toBe(1);
-    expect(index.entries[0].sessionId).toBe(UUID_A);
+    expect(index.entries[0]?.sessionId).toBe(UUID_A);
   });
 });
 
-describe("archiveProject", () => {
-  function makeOptions(overrides: Partial<import("./session-archive").Options> = {}): import("./session-archive").Options {
-    return {
-      days: 0,
-      dryRun: false,
-      copy: false,
-      list: false,
-      stats: false,
-      hook: false,
-      max: 0,
-      verbose: false,
-      ...overrides,
-    };
-  }
+function makeOptions(
+  overrides: Partial<import("./session-archive").Options> = {},
+): import("./session-archive").Options {
+  return {
+    days: 0,
+    dryRun: false,
+    copy: false,
+    list: false,
+    stats: false,
+    hook: false,
+    max: 0,
+    verbose: false,
+    ...overrides,
+  };
+}
 
+describe("archiveProject", () => {
   test("archives eligible sessions and updates index", async () => {
     using tmp = tempDir("project-archive");
     const { dir } = await createFakeProject(tmp.path);
@@ -477,7 +488,7 @@ describe("archiveProject", () => {
     const { dir, uuids } = await createFakeProject(tmp.path);
 
     const protectedIds = new Set([uuids.withJsonl, uuids.withJsonlAndDir]);
-    const result = await archiveProject(dir, makeOptions(), protectedIds);
+    await archiveProject(dir, makeOptions(), protectedIds);
 
     const index = await loadArchiveIndex(join(dir, "archive"));
     const archivedIds = index.entries.map((e) => e.sessionId);
@@ -598,10 +609,7 @@ describe("hook mode (subprocess)", () => {
       stderr: "pipe",
     });
 
-    const [stdout, exitCode] = await Promise.all([
-      new Response(proc.stdout).text(),
-      proc.exited,
-    ]);
+    const [stdout, exitCode] = await Promise.all([new Response(proc.stdout).text(), proc.exited]);
 
     expect(exitCode).toBe(0);
     expect(stdout.trim()).toBe('{"suppressOutput":true}');

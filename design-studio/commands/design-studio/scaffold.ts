@@ -53,7 +53,7 @@ interface ScaffoldResult {
 
 interface ErrorResult {
   error: string;
-  details?: string;
+  details?: string | undefined;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -111,10 +111,7 @@ async function createStateDir(statePath: string): Promise<void> {
   await mkdir(statePath, { recursive: true });
 }
 
-async function startDevServer(
-  projectPath: string,
-  port: number
-): Promise<number | null> {
+async function startDevServer(projectPath: string, port: number): Promise<number | null> {
   // Check if already running
   if (await checkPortInUse(port)) {
     console.error(`Port ${port} already in use, assuming dev server is running`);
@@ -206,4 +203,4 @@ async function main(): Promise<void> {
   }
 }
 
-main();
+await main();

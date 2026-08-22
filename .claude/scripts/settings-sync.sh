@@ -43,7 +43,7 @@ node -e '
   }
   const obj = JSON.parse(result);
   console.log(JSON.stringify(obj, null, 2));
-' "$SOURCE" > "${TARGET}.tmp"
+' "$SOURCE" >"${TARGET}.tmp"
 
 mv "${TARGET}.tmp" "$TARGET"
 echo "Synced: $SOURCE -> $TARGET"

@@ -91,6 +91,22 @@
           }
         ]
       }
+    ],
+    "PostToolUse": [
+      {
+        // oxfmt then oxlint on the file just written, using the root config.
+        // The pre-commit jobs are the authority; this only moves the same
+        // verdict from commit time to edit time.
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bun \"$CLAUDE_PROJECT_DIR/.claude/hooks/format-and-lint.ts\"",
+            "timeout": 30,
+            "statusMessage": "Formatting and linting..."
+          }
+        ]
+      }
     ]
   },
 

@@ -4,13 +4,19 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { $ } from "bun";
 
-import { deriveOriginalBranch, derivePrBranch, errorResult, makeResult, parseArgs } from "./prep-pr";
+import {
+  deriveOriginalBranch,
+  derivePrBranch,
+  errorResult,
+  makeResult,
+  parseArgs,
+} from "./prep-pr";
 
 // ============================================================================
 // HELPERS
 // ============================================================================
 
-const SCRIPT_PATH = join(import.meta.dir, "prep-pr");
+const SCRIPT_PATH = join(import.meta.dir, "prep-pr.ts");
 
 async function createTempRepo(): Promise<string> {
   const dir = await mkdtemp(join(tmpdir(), "prep-pr-test-"));
@@ -31,7 +37,11 @@ async function addShipConfig(dir: string, patterns: string[] = ["plans/", "docs/
   await $`git -C ${dir} commit -m "Add .shiprc.json"`.quiet();
 }
 
-async function createFeatureBranch(dir: string, branchName: string, files: Record<string, string>): Promise<void> {
+async function createFeatureBranch(
+  dir: string,
+  branchName: string,
+  files: Record<string, string>,
+): Promise<void> {
   await $`git -C ${dir} checkout -b ${branchName}`.quiet();
   for (const [path, content] of Object.entries(files)) {
     const fullPath = join(dir, path);
@@ -65,7 +75,9 @@ async function runPrepPr(dir: string, args: string[] = []): Promise<PrepPrResult
 }
 
 async function branchExists(dir: string, branch: string): Promise<boolean> {
-  const { exitCode } = await $`git -C ${dir} show-ref --verify --quiet refs/heads/${branch}`.nothrow().quiet();
+  const { exitCode } = await $`git -C ${dir} show-ref --verify --quiet refs/heads/${branch}`
+    .nothrow()
+    .quiet();
   return exitCode === 0;
 }
 
@@ -106,7 +118,15 @@ describe("parseArgs", () => {
   });
 
   test("combines flags, branch, and files", () => {
-    const result = parseArgs(["bun", "script.ts", "--force", "--backup", "develop", "--", "plans/x.md"]);
+    const result = parseArgs([
+      "bun",
+      "script.ts",
+      "--force",
+      "--backup",
+      "develop",
+      "--",
+      "plans/x.md",
+    ]);
     expect(result.force).toBe(true);
     expect(result.backup).toBe(true);
     expect(result.baseBranch).toBe("develop");
@@ -257,7 +277,7 @@ describe("prep-pr integration", () => {
 
     expect(result.status).toBe("ok");
     expect(result.backup_ref).toBeTruthy();
-    expect(result.backup_ref).toMatch(/^backup\/ship-\d+$/);
+    expect(result.backup_ref).toMatch(/^backup\/ship-\d+$/u);
 
     // Verify backup branch exists
     const ref = result.backup_ref ?? "";
@@ -458,7 +478,7 @@ describe("prep-pr integration", () => {
 
     expect(result.status).toBe("ok");
     expect(result.backup_ref).toBeTruthy();
-    expect(result.backup_ref).toMatch(/^backup\/ship-\d+$/);
+    expect(result.backup_ref).toMatch(/^backup\/ship-\d+$/u);
     const ref = result.backup_ref ?? "";
     expect(await branchExists(dir, ref)).toBe(true);
   });

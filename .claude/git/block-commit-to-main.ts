@@ -5,16 +5,13 @@
  * Delegates branch detection to the shared guard-main-branch module.
  */
 
-import {
-	getCurrentBranch,
-	isProtectedBranch,
-} from "../hooks/guard-main-branch.ts";
+import { getCurrentBranch, isProtectedBranch } from "../hooks/guard-main-branch.ts";
 
 if (process.env["MAIN_BYPASS"] === "1") process.exit(0);
 
 const branch = getCurrentBranch();
 if (branch && isProtectedBranch(branch)) {
-	console.error(`\nERROR: Direct commits to '${branch}' are blocked.`);
-	console.error("Work on 'dev' and merge via PR.\n");
-	process.exit(1);
+  console.error(`\nERROR: Direct commits to '${branch}' are blocked.`);
+  console.error("Work on 'dev' and merge via PR.\n");
+  process.exit(1);
 }
