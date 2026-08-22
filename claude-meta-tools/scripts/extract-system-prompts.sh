@@ -11,7 +11,7 @@ OUTPUT_DIR="$REPO_ROOT/.claude-system-prompts"
 TEMP_DIR=$(mktemp -d)
 
 cleanup() {
-    rm -rf "$TEMP_DIR"
+  rm -rf "$TEMP_DIR"
 }
 trap cleanup EXIT
 

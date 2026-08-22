@@ -1,117 +1,64 @@
-import { afterEach, describe, expect, test } from "bun:test";
-import { mkdir, mkdtemp, rm } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { describe, expect, test } from "bun:test";
 
-const hookPath = join(import.meta.dir, "format-and-lint.ts");
-const tempDirs: string[] = [];
+import { isLintable, parseFilePath, toRepoRelative } from "./format-and-lint.ts";
 
-afterEach(async () => {
-	await Promise.all(
-		tempDirs.splice(0).map((dir) => rm(dir, { recursive: true, force: true })),
-	);
+describe("parseFilePath", () => {
+  test("reads tool_input.file_path", () => {
+    expect(parseFilePath(JSON.stringify({ tool_input: { file_path: "/repo/a.ts" } }))).toBe(
+      "/repo/a.ts",
+    );
+  });
+
+  test("returns null on a payload without a path", () => {
+    expect(parseFilePath(JSON.stringify({ tool_input: {} }))).toBeNull();
+  });
+
+  test("returns null on invalid JSON", () => {
+    expect(parseFilePath("not json")).toBeNull();
+  });
 });
 
-async function createFixture(
-	content: string,
-	options: { lintShouldFail?: boolean } = {},
-) {
-	const dir = await mkdtemp(join(tmpdir(), "claude-format-hook-"));
-	tempDirs.push(dir);
-	await mkdir(join(dir, "_hooks-lib/node_modules/.bin"), { recursive: true });
-	await mkdir(join(dir, "_hooks-lib/src"), { recursive: true });
+describe("toRepoRelative", () => {
+  test("strips the repo root", () => {
+    expect(toRepoRelative("/repo/scripts/a.ts", "/repo")).toBe("scripts/a.ts");
+  });
 
-	await Bun.write(
-		join(dir, "_hooks-lib/node_modules/.bin/biome"),
-		`#!/usr/bin/env bash
-set -euo pipefail
+  test("tolerates a trailing slash on the root", () => {
+    expect(toRepoRelative("/repo/scripts/a.ts", "/repo/")).toBe("scripts/a.ts");
+  });
 
-command="$1"
-file="\${@: -1}"
+  test("returns null for a file outside the repo", () => {
+    expect(toRepoRelative("/elsewhere/a.ts", "/repo")).toBeNull();
+  });
 
-case "$command" in
-	check)
-		if grep -q 'const x=1' "$file"; then
-			printf 'const x = 1;\\n' > "$file"
-		fi
-		;;
-	lint)
-		if [[ "${options.lintShouldFail ? "1" : "0"}" == "1" ]]; then
-			echo "lint failed" >&2
-			exit 1
-		fi
-		exit 0
-		;;
-	*)
-		exit 1
-		;;
-esac
-`,
-	);
+  test("passes a relative path through", () => {
+    expect(toRepoRelative("scripts/a.ts", "/repo")).toBe("scripts/a.ts");
+  });
+});
 
-	await Bun.$`chmod +x ${join(dir, "_hooks-lib/node_modules/.bin/biome")}`;
-	await Bun.write(join(dir, "_hooks-lib/src/example.ts"), content);
+describe("isLintable", () => {
+  test("accepts the four script extensions", () => {
+    for (const path of ["a.ts", "a.js", "a.mjs", "a.cjs"]) {
+      expect(isLintable(path)).toBe(true);
+    }
+  });
 
-	return {
-		dir,
-		filePath: "_hooks-lib/src/example.ts",
-	};
-}
+  test("rejects other extensions", () => {
+    for (const path of ["a.md", "a.json", "a.sh", "a"]) {
+      expect(isLintable(path)).toBe(false);
+    }
+  });
 
-async function runHook(cwd: string, filePath: string) {
-	const proc = Bun.spawn(["bun", hookPath], {
-		cwd,
-		stdin: new Blob([JSON.stringify({ tool_input: { file_path: filePath } })]),
-		stdout: "pipe",
-		stderr: "pipe",
-	});
-	const [stdout, stderr, exitCode] = await Promise.all([
-		new Response(proc.stdout).text(),
-		new Response(proc.stderr).text(),
-		proc.exited,
-	]);
+  test("rejects the paths oxlint ignores", () => {
+    expect(isLintable("archive/plugin/a.ts")).toBe(false);
+    expect(isLintable("_docs/a.ts")).toBe(false);
+    expect(isLintable("node_modules/pkg/a.js")).toBe(false);
+    expect(isLintable("tools/oxlint/anti-slop/index.ts")).toBe(false);
+    expect(isLintable("claude-meta-tools/scripts/prompt-extractor/promptExtractor.js")).toBe(false);
+  });
 
-	return { exitCode, stdout, stderr };
-}
-
-describe("format-and-lint PostToolUse updatedToolOutput", () => {
-	test("emits final file content when formatting changes the file", async () => {
-		const { dir, filePath } = await createFixture("const x=1\n");
-
-		const result = await runHook(dir, join(dir, filePath));
-
-		expect(result.exitCode).toBe(0);
-		expect(result.stderr).toBe("");
-		expect(JSON.parse(result.stdout)).toEqual({
-			hookSpecificOutput: {
-				hookEventName: "PostToolUse",
-				updatedToolOutput: "const x = 1;\n",
-			},
-		});
-		expect(await Bun.file(join(dir, filePath)).text()).toBe("const x = 1;\n");
-	});
-
-	test("omits updatedToolOutput when formatting is idempotent", async () => {
-		const { dir, filePath } = await createFixture("const x = 1;\n");
-
-		const result = await runHook(dir, join(dir, filePath));
-
-		expect(result.exitCode).toBe(0);
-		expect(result.stdout).toBe("");
-		expect(result.stderr).toBe("");
-		expect(await Bun.file(join(dir, filePath)).text()).toBe("const x = 1;\n");
-	});
-
-	test("preserves lint diagnostics and block exit when lint fails", async () => {
-		const { dir, filePath } = await createFixture("const x=1\n", {
-			lintShouldFail: true,
-		});
-
-		const result = await runHook(dir, join(dir, filePath));
-
-		expect(result.exitCode).toBe(2);
-		expect(result.stdout).toBe("");
-		expect(result.stderr).toContain("lint failed");
-		expect(await Bun.file(join(dir, filePath)).text()).toBe("const x = 1;\n");
-	});
+  test("accepts repo source, dot directories included", () => {
+    expect(isLintable("scripts/validate-marketplace.ts")).toBe(true);
+    expect(isLintable(".claude/hooks/guard-destructive.ts")).toBe(true);
+  });
 });

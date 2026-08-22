@@ -70,11 +70,17 @@ export function findBoxes(lines: string[]): Box[] {
     const line = lines[row]!;
     let col = 0;
     while (col < line.length) {
-      if (line[col] !== "┌") { col++; continue; }
+      if (line[col] !== "┌") {
+        col++;
+        continue;
+      }
 
       // Find matching ┐ on same line (nearest)
       const rightIdx = line.indexOf("┐", col + 1);
-      if (rightIdx === -1) { col++; continue; }
+      if (rightIdx === -1) {
+        col++;
+        continue;
+      }
 
       // Verify horizontal line between them
       let validTop = true;
@@ -85,7 +91,10 @@ export function findBoxes(lines: string[]): Box[] {
           break;
         }
       }
-      if (!validTop) { col++; continue; }
+      if (!validTop) {
+        col++;
+        continue;
+      }
 
       // Find matching └ below at same left column
       for (let brow = row + 1; brow < lines.length; brow++) {
@@ -113,10 +122,7 @@ export function findBoxes(lines: string[]): Box[] {
 
 // ── Validate ───────────────────────────────────────────────
 
-function validateBlock(
-  block: CodeBlock,
-  file: string,
-): Issue[] {
+function validateBlock(block: CodeBlock, file: string): Issue[] {
   const issues: Issue[] = [];
   const { lines, startLine } = block;
 
@@ -168,11 +174,7 @@ function validateBlock(
       if (left < line.length) {
         const lch = line[left];
         if (lch !== "│" && lch !== "├") {
-          emit(
-            row + 1,
-            left,
-            `expected │ at col ${left} (left edge), got '${lch}'`,
-          );
+          emit(row + 1, left, `expected │ at col ${left} (left edge), got '${lch}'`);
         }
       } else {
         emit(row + 1, left, `line too short for left edge │ at col ${left}`);
@@ -182,14 +184,14 @@ function validateBlock(
       if (right < line.length) {
         const rch = line[right];
         if (rch !== "│" && rch !== "┤") {
-          emit(
-            row + 1,
-            right,
-            `expected │ at col ${right} (right edge), got '${rch}'`,
-          );
+          emit(row + 1, right, `expected │ at col ${right} (right edge), got '${rch}'`);
         }
       } else {
-        emit(row + 1, right, `line too short for right edge │ at col ${right} (is ${line.length} chars)`);
+        emit(
+          row + 1,
+          right,
+          `line too short for right edge │ at col ${right} (is ${line.length} chars)`,
+        );
       }
     }
   }
@@ -202,103 +204,99 @@ function validateBlock(
 // Characters that are valid as vertical neighbors (including arrowheads)
 const VERTICAL_NEIGHBOR = new Set("│┐┘├┤┬┴┼┌└▼▲");
 
-export function validateVerticalRuns(
-	block: CodeBlock,
-	file: string,
-): Issue[] {
-	const issues: Issue[] = [];
-	const { lines, startLine } = block;
+export function validateVerticalRuns(block: CodeBlock, file: string): Issue[] {
+  const issues: Issue[] = [];
+  const { lines, startLine } = block;
 
-	// Collect columns of box corners so we can skip them
-	const boxes = findBoxes(lines);
-	const boxCorners = new Set<string>();
-	for (const box of boxes) {
-		boxCorners.add(`${box.topRow},${box.left}`);       // ┌
-		boxCorners.add(`${box.topRow},${box.topRight}`);   // ┐
-		boxCorners.add(`${box.bottomRow},${box.left}`);    // └
-		if (box.bottomRight !== -1) {
-			boxCorners.add(`${box.bottomRow},${box.bottomRight}`); // ┘
-		}
-	}
+  // Collect columns of box corners so we can skip them
+  const boxes = findBoxes(lines);
+  const boxCorners = new Set<string>();
+  for (const box of boxes) {
+    boxCorners.add(`${box.topRow},${box.left}`); // ┌
+    boxCorners.add(`${box.topRow},${box.topRight}`); // ┐
+    boxCorners.add(`${box.bottomRow},${box.left}`); // └
+    if (box.bottomRight !== -1) {
+      boxCorners.add(`${box.bottomRow},${box.bottomRight}`); // ┘
+    }
+  }
 
-	const emit = (local: number, col: number, msg: string) =>
-		issues.push({
-			file,
-			blockLine: startLine + local - 1,
-			localLine: local,
-			col,
-			message: msg,
-		});
+  const emit = (local: number, col: number, msg: string) =>
+    issues.push({
+      file,
+      blockLine: startLine + local - 1,
+      localLine: local,
+      col,
+      message: msg,
+    });
 
-	// Check 1: Orphaned ┐ — must have vertical neighbor below
-	// Check 2: Orphaned ┘ — must have vertical neighbor above
-	for (let row = 0; row < lines.length; row++) {
-		const line = lines[row]!;
-		for (let col = 0; col < line.length; col++) {
-			const ch = line[col]!;
+  // Check 1: Orphaned ┐ — must have vertical neighbor below
+  // Check 2: Orphaned ┘ — must have vertical neighbor above
+  for (let row = 0; row < lines.length; row++) {
+    const line = lines[row]!;
+    for (let col = 0; col < line.length; col++) {
+      const ch = line[col]!;
 
-			if (ch === "┐" && !boxCorners.has(`${row},${col}`)) {
-				const below = row + 1 < lines.length ? lines[row + 1]![col] : undefined;
-				if (!below || !VERTICAL_NEIGHBOR.has(below)) {
-					emit(row + 1, col, `┐ at col ${col} has no vertical connector below`);
-				}
-			}
+      if (ch === "┐" && !boxCorners.has(`${row},${col}`)) {
+        const below = row + 1 < lines.length ? lines[row + 1]![col] : undefined;
+        if (!below || !VERTICAL_NEIGHBOR.has(below)) {
+          emit(row + 1, col, `┐ at col ${col} has no vertical connector below`);
+        }
+      }
 
-			if (ch === "┘" && !boxCorners.has(`${row},${col}`)) {
-				const above = row > 0 ? lines[row - 1]![col] : undefined;
-				if (!above || !VERTICAL_NEIGHBOR.has(above)) {
-					emit(row + 1, col, `┘ at col ${col} has no vertical connector above`);
-				}
-			}
-		}
-	}
+      if (ch === "┘" && !boxCorners.has(`${row},${col}`)) {
+        const above = row > 0 ? lines[row - 1]![col] : undefined;
+        if (!above || !VERTICAL_NEIGHBOR.has(above)) {
+          emit(row + 1, col, `┘ at col ${col} has no vertical connector above`);
+        }
+      }
+    }
+  }
 
-	// Check 3: Vertical run gap detection
-	// For each column, find runs of vertical chars. If a column has vertical
-	// chars on lines above and below a gap, the gap line is missing a connector.
-	const maxCol = Math.max(...lines.map((l) => l.length), 0);
-	for (let col = 0; col < maxCol; col++) {
-		// Collect all rows that have a vertical character at this column
-		const rows: number[] = [];
-		for (let row = 0; row < lines.length; row++) {
-			const ch = lines[row]![col];
-			if (ch !== undefined && VERTICAL_NEIGHBOR.has(ch)) {
-				rows.push(row);
-			}
-		}
-		if (rows.length < 3) continue;
+  // Check 3: Vertical run gap detection
+  // For each column, find runs of vertical chars. If a column has vertical
+  // chars on lines above and below a gap, the gap line is missing a connector.
+  const maxCol = Math.max(...lines.map((l) => l.length), 0);
+  for (let col = 0; col < maxCol; col++) {
+    // Collect all rows that have a vertical character at this column
+    const rows: number[] = [];
+    for (let row = 0; row < lines.length; row++) {
+      const ch = lines[row]![col];
+      if (ch !== undefined && VERTICAL_NEIGHBOR.has(ch)) {
+        rows.push(row);
+      }
+    }
+    if (rows.length < 3) continue;
 
-		// Find consecutive pairs with a gap of exactly 1 line between them
-		for (let i = 0; i < rows.length - 1; i++) {
-			const above = rows[i]!;
-			const below = rows[i + 1]!;
-			if (below - above === 2) {
-				// Skip gaps between box closing (└/┘) and box opening (┌/┐).
-				// A blank line between vertically stacked boxes is normal layout.
-				const aboveCh = lines[above]![col]!;
-				const belowCh = lines[below]![col]!;
-				const isBoxTransition =
-					(aboveCh === "└" || aboveCh === "┘") &&
-					(belowCh === "┌" || belowCh === "┐");
-				if (isBoxTransition) continue;
+    // Find consecutive pairs with a gap of exactly 1 line between them
+    for (let i = 0; i < rows.length - 1; i++) {
+      const above = rows[i]!;
+      const below = rows[i + 1]!;
+      if (below - above === 2) {
+        // Skip gaps between box closing (└/┘) and box opening (┌/┐).
+        // A blank line between vertically stacked boxes is normal layout.
+        const aboveCh = lines[above]![col]!;
+        const belowCh = lines[below]![col]!;
+        const isBoxTransition =
+          (aboveCh === "└" || aboveCh === "┘") && (belowCh === "┌" || belowCh === "┐");
+        if (isBoxTransition) continue;
 
-				// Only flag when the gap char is a space or missing (line too short).
-				// Non-space text chars (labels like "allowed") crossing a vertical
-				// column are intentional — not misalignment.
-				const gapRow = above + 1;
-				const gapCh = lines[gapRow]![col];
-				if (gapCh === undefined || gapCh === " ") {
-					emit(
-						gapRow + 1,
-						col,
-						`gap in vertical run at col ${col} (lines ${above + 1} and ${below + 1} have │ but line ${gapRow + 1} does not)`,
-					);
-				}
-			}
-		}
-	}
+        // Only flag when the gap char is a space or missing (line too short).
+        // Non-space text chars (labels like "allowed") crossing a vertical
+        // column are intentional — not misalignment.
+        const gapRow = above + 1;
+        const gapCh = lines[gapRow]![col];
+        if (gapCh === undefined || gapCh === " ") {
+          emit(
+            gapRow + 1,
+            col,
+            `gap in vertical run at col ${col} (lines ${above + 1} and ${below + 1} have │ but line ${gapRow + 1} does not)`,
+          );
+        }
+      }
+    }
+  }
 
-	return issues;
+  return issues;
 }
 
 // ── Main ───────────────────────────────────────────────────
@@ -325,15 +323,16 @@ if (import.meta.main) {
 
     for (const block of blocks) {
       if (hasBoxDrawing(block.lines)) {
-        fileIssues.push(...validateBlock(block, file));
-        fileIssues.push(...validateVerticalRuns(block, file));
+        fileIssues.push(...validateBlock(block, file), ...validateVerticalRuns(block, file));
       }
     }
 
     if (fileIssues.length > 0) {
       console.log(`\n${basename(file)}:`);
       for (const iss of fileIssues) {
-        console.log(`  L${iss.blockLine} (block line ${iss.localLine}), col ${iss.col}: ${iss.message}`);
+        console.log(
+          `  L${iss.blockLine} (block line ${iss.localLine}), col ${iss.col}: ${iss.message}`,
+        );
       }
       total += fileIssues.length;
     }

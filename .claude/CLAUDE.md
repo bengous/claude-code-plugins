@@ -1,94 +1,60 @@
 # Claude Code Plugin Marketplace
 
-This repository is a **plugin marketplace** for Claude Code.
+One directory per plugin, listed in `.claude-plugin/marketplace.json`.
+
+## Plugin Work
+
+Do not reinvent plugin patterns. Delegate:
+
+- `/plugin-dev:create-plugin` and the `plugin-dev` skills (structure, skills, hooks, agents, settings) to build or modify a plugin
+- `plugin-dev:plugin-validator` agent to validate one
+- `claude-code-guide` agent for Claude Code behavior questions
+- Official docs, the fallback when those are not installed: https://code.claude.com/docs/en/plugins
+
+New plugin: add its `marketplace.json` entry and its `README.md` table row by hand; no check catches their absence. Version bumps: edit `plugin.json` only; pre-commit propagates to the existing entry and row.
 
 ## Commands
 
 ```bash
-mise install && lefthook install             # one-time setup (bun + lefthook)
-bun test                                     # all suites
-bun test scripts/__tests__/validate-marketplace.test.ts   # single test file
-bun test -t "pattern"                        # single test by name
-bun ./scripts/validate-marketplace.ts        # version + structure sync check
-bun ./scripts/validate-frontmatter.ts --all  # frontmatter check (--all = every tracked file; default = staged only)
+bun test                                     # every suite outside dot directories
+bun test ./.claude/hooks/*.test.ts           # the repo's own hooks; `bun test` skips them
+bun ./scripts/validate-marketplace.ts        # versions + structure
+bun ./scripts/validate-frontmatter.ts --all  # frontmatter (default: staged only)
+bun x tsgo --noEmit                          # types; fall back to ./node_modules/.bin/tsc --noEmit if tsgo rejects a flag
+bun x oxlint                                 # lint (correctness + suspicious + pedantic + anti-slop)
+bun x oxfmt '**/*.ts' '**/*.js'              # format; add --check to verify only
+bun ./scripts/lint-shell.ts                  # shellcheck + shfmt; takes paths, else the whole repo
+bun ./scripts/check-lint-disables.ts         # gate for the suppression rule below
 ```
 
-Shared validation logic lives in `scripts/lib/`; lefthook `pre-commit` and CI call the same scripts.
+The five tooling gates (`tsgo`, `oxlint`, `oxfmt --check`, `lint-shell.ts`, `check-lint-disables.ts`) run in `pre-commit` and again in CI, same arguments both times; `validate-marketplace.ts` too. `pre-commit` runs `validate-frontmatter.ts` on staged files only, CI runs it with `--all`. Neither test command runs in `pre-commit`: `lefthook.yml` declares no test job, so both `bun test` runs are CI-only.
+
+## Code Standards
+
+| Layer | Language | Boundary |
+|-------|----------|----------|
+| Logic | TypeScript on Bun | Parsing, branching, state. Comes with tests. |
+| Glue | bash | Wiring only. Stop at ~150 lines, or at the first `jq` that builds data; past either it is logic. |
+
+That bash boundary binds new code. Scripts already over it move when an issue rewrites them, not before.
+
+Carried by the commands above:
+
+- Extensions are mandatory: `.ts`, `.sh`. `tsgo`, `oxlint`, `oxfmt` and `check-lint-disables.ts` select files by extension, so a Bun script named without `.ts` is checked by nothing. `lint-shell.ts` also matches a shell shebang, so bash survives an extensionless name.
+- One root `tsconfig.json` covers every `.ts` outside `archive/`, `_docs/` and the vendored linter: `strict`, plus `noUncheckedIndexedAccess` and `exactOptionalPropertyTypes`. Do not add a second one.
+- Every lint suppression says why on its own line: `// oxlint-disable-next-line <rule> -- <reason>`. `check-lint-disables.ts` rejects the bare form, `oxlint-` and `eslint-` spellings alike.
+
+Carried by nobody, so hold them by hand:
+
+- Plugins are self-contained. No import crosses a plugin boundary, or reaches into `scripts/` or `.claude/`. Today all 17 relative imports stay inside their own top-level directory, and none climbs past a single `../`.
+- Ship sources, never compiled binaries. `bun` is the runtime.
 
 ## Non-Obvious Directories
 
-- `_shared/claude-cli/` - TypeScript SDK for hook scripts (hook input parsing, agent spawning, guard presets). Used by `.claude/git/` and `.claude/settings.json`. Not a plugin.
-- `archive/` - retired plugins, not listed in `marketplace.json`.
+- `archive/` - retired plugins, not in the marketplace.
 - `_docs/` - scraped external references, not plugin content.
-
-## Reference Implementations
-
-| Plugin | Complexity | Learn From |
-|--------|------------|------------|
-| `git-tools/` | Medium | Commands, scripts, state management, GitHub integration |
-| `orchestration/` | Advanced | Agents, skills, hooks, multi-agent coordination |
-
-## Plugin Structure
-
-```
-my-plugin/
-├── .claude-plugin/
-│   └── plugin.json        # ONLY file allowed here
-├── skills/                # Slash commands and agent skills (same thing)
-├── scripts/               # Backend implementation
-├── hooks/                 # Optional: safety/enforcement
-└── agents/                # Optional: subagent templates
-```
-
-Since Claude Code 2.x, `commands/x.md` and `skills/x/SKILL.md` both create `/x` and behave
-identically. `commands/` is the legacy form, still loaded; `skills/` adds a directory for
-reference files plus `disable-model-invocation` and `paths` frontmatter. Write new work as
-skills. Never ship both under one name: the plugin registers two entries, the skill wins,
-and the command is dead weight in the always-on budget.
-
-## Critical Rules
-
-| Rule | Why |
-|------|-----|
-| Only `plugin.json` in `.claude-plugin/` | Extra files cause silent discovery failures |
-| Version sync: `plugin.json` = `marketplace.json` = `README.md` | Pre-commit hook validates all three match |
-| No hardcoded paths | `${CLAUDE_PLUGIN_ROOT}` or `git rev-parse`, never `/home/user/...` |
-| Repository-scoped state | `$REPO_ROOT/.myplugin`, never `$HOME/.myplugin`; global state contaminates other repos |
-| Atomic writes | `jq ... > f.tmp && mv f.tmp f.json`, never `jq ... > f.json`; direct overwrites corrupt files on interruption |
-| Build JSON with `jq -n --arg` | `echo "{...}"` breaks on quoting |
-| Scripts must be executable | `chmod +x` required |
+- `tools/oxlint/anti-slop/` - vendored lint plugin. Do not edit; re-run the upstream installer (see its README).
 
 ## Branching
 
-- All work happens on `dev`. Never commit directly to `main`. Commits made while `main` is
-  checked out are blocked locally (escape hatch: `MAIN_BYPASS=1`, for recovery only).
-- `main` is updated **only via PR from `dev`**, and this is now enforced for everyone: the
-  `Protect main branch` ruleset has no bypass actors, so direct pushes to `main` are refused
-  even for admins. Fast-forwarding `main` by hand is no longer possible.
-- **Merge the PR with a merge commit.** Rebase-merge is disabled at the repo level because it
-  rewrites and re-signs commits, which is exactly what severed the `main`/`dev` common
-  ancestor once already. Squash is available but makes `main`'s history diverge commit-by-commit
-  from `dev`; prefer a merge commit so the two stay comparable.
-- Signed commits are required on **every** branch via the GitHub ruleset `Require signed
-  commits` (target `~ALL`, rule `required_signatures`). This one keeps its admin bypass as a
-  recovery hatch.
-- Rulesets are **not** versioned in this repo. If lost, recreate with
-  `gh api -X POST repos/bengous/claude-code-plugins/rulesets`. Two exist and they stack:
-  `Protect main branch` (`pull_request`, `non_fast_forward`, `deletion` on `refs/heads/main`,
-  no bypass) and `Require signed commits` (admin bypass). There is no classic branch
-  protection on `main`; querying `/branches/main/protection` returns 404 by design.
-- Enforced by: lefthook `pre-commit` (`block-commit-to-main`, version sync, marketplace and
-  frontmatter validation) + Claude Code PreToolUse hook (`guard-main-branch.ts`) + the two
-  rulesets above + server CI (`.github/workflows/ci.yml`).
-- CI triggers on `pull_request` to `main`/`dev` and on `push` to `dev` and `main`. `main` is
-  in the push list as a backstop: if a ref update ever reaches it outside the PR path, it
-  still gets validated rather than landing unchecked. The drift guard checks that `main` and
-  `dev` still share a common ancestor, not that they are identical.
-
-## Quick Start
-
-1. Examine reference implementations: `ls git-tools/`
-2. Create structure: `mkdir -p my-plugin/.claude-plugin my-plugin/skills/my-skill`
-3. Copy and modify `plugin.json` from reference
-4. Write one skill, test locally
-5. Make scripts executable: `chmod +x scripts/*`
+Merge PRs to `main` with a merge commit, never squash: the histories must stay comparable. Everything else is enforced by hooks and rulesets; details and recovery: `docs/repo-ops.md`.

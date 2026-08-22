@@ -6,6 +6,9 @@
   "hasOpusPlanDefault": true,
   "autoCompactEnabled": false,
   "autoUpdates": true,
+  "enabledPlugins": {
+    "plugin-dev@claude-plugins-official": true
+  },
   "hooks": {
     "SessionStart": [
       {
@@ -33,7 +36,7 @@
           },
           {
             "type": "command",
-            "command": "bun \"$CLAUDE_PROJECT_DIR/_shared/claude-cli/hooks/guard-main-branch.ts\"",
+            "command": "bun \"$CLAUDE_PROJECT_DIR/.claude/hooks/guard-main-branch.ts\"",
             "timeout": 5
           }
         ]

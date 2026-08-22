@@ -1,120 +1,83 @@
 #!/usr/bin/env bun
 
 /**
- * PostToolUse hook for Edit|Write — runs biome format+lint on edited files.
- * Receives Claude Code tool JSON on stdin.
- * Format errors are auto-fixed. Lint errors block (exit 2), warnings pass.
+ * PostToolUse hook for Edit|Write — formats the edited file with oxfmt, then
+ * lints it with oxlint. Both read the repo-root config.
+ *
+ * Formatting is applied in place. A lint finding blocks (exit 2) so the finding
+ * reaches the agent while the edit is still fresh.
  */
 
+import { join } from "node:path";
 import { HOOK_EXIT } from "./guard-destructive.ts";
 
 export interface HookInput {
-	tool_input: {
-		file_path?: string;
-	};
+  tool_input: {
+    file_path?: string;
+  };
 }
 
-export interface UpdatedToolOutputResponse {
-	hookSpecificOutput: {
-		hookEventName: "PostToolUse";
-		updatedToolOutput: string;
-	};
-}
+const LINTABLE_EXTENSIONS = [".ts", ".js", ".mjs", ".cjs"] as const;
 
-const LINTABLE_EXTENSIONS = new Set([".ts", ".js", ".mjs"]);
+// Mirrors ignorePatterns in oxlint.config.ts and .oxfmtrc.json.
+const SKIPPED_PREFIXES = [
+  "archive/",
+  "_docs/",
+  "node_modules/",
+  "tools/oxlint/anti-slop/",
+  "claude-meta-tools/scripts/prompt-extractor/",
+] as const;
 
 export function parseFilePath(raw: string): string | null {
-	try {
-		const parsed = JSON.parse(raw) as HookInput;
-		return parsed.tool_input?.file_path ?? null;
-	} catch {
-		return null;
-	}
+  try {
+    // SAFETY: `file_path` is optional and read through `?.`, so a payload of
+    // another shape returns null and the hook allows the edit.
+    const parsed = JSON.parse(raw) as HookInput;
+    return parsed.tool_input?.file_path ?? null;
+  } catch {
+    return null;
+  }
 }
 
-// FIXME: hardcoded path — this hook is repo-specific to claude-plugins.
-// Biome config lives inside _hooks-lib/ so we need to know where it is.
-// Will be replaced by a configurable path when hooks move to the framework.
-const HOOKS_LIB_DIR = "_hooks-lib";
-
-function toRelative(filePath: string): string {
-	const cwd = process.cwd();
-	if (filePath.startsWith(cwd)) {
-		return filePath.slice(cwd.length + 1);
-	}
-	return filePath.replace(/^\.\//, "");
+/** Repo-relative path, or null when the file sits outside the repo. */
+export function toRepoRelative(filePath: string, repoRoot: string): string | null {
+  if (!filePath.startsWith("/")) return filePath;
+  const prefix = repoRoot.endsWith("/") ? repoRoot : `${repoRoot}/`;
+  return filePath.startsWith(prefix) ? filePath.slice(prefix.length) : null;
 }
 
-export function isLintable(filePath: string): boolean {
-	const ext = filePath.slice(filePath.lastIndexOf("."));
-	if (!LINTABLE_EXTENSIONS.has(ext)) return false;
-	const rel = toRelative(filePath);
-	return rel.startsWith(`${HOOKS_LIB_DIR}/src/`);
+export function isLintable(relativePath: string): boolean {
+  if (!LINTABLE_EXTENSIONS.some((ext) => relativePath.endsWith(ext))) return false;
+  return !SKIPPED_PREFIXES.some((prefix) => relativePath.startsWith(prefix));
 }
 
-export function createUpdatedToolOutputResponse(
-	content: string,
-): UpdatedToolOutputResponse {
-	return {
-		hookSpecificOutput: {
-			hookEventName: "PostToolUse",
-			updatedToolOutput: content,
-		},
-	};
-}
-
-async function readTextIfExists(filePath: string): Promise<string | null> {
-	try {
-		return await Bun.file(filePath).text();
-	} catch {
-		return null;
-	}
+async function runInRepo(repoRoot: string, args: string[]): Promise<{ ok: boolean; out: string }> {
+  const proc = Bun.spawn(args, { cwd: repoRoot, stdout: "pipe", stderr: "pipe" });
+  const [stdout, stderr, exitCode] = await Promise.all([
+    new Response(proc.stdout).text(),
+    new Response(proc.stderr).text(),
+    proc.exited,
+  ]);
+  return { ok: exitCode === 0, out: `${stdout}${stderr}`.trim() };
 }
 
 if (import.meta.main) {
-	const input = await Bun.stdin.text();
-	const filePath = parseFilePath(input);
+  const repoRoot = process.env["CLAUDE_PROJECT_DIR"] ?? process.cwd();
+  const filePath = parseFilePath(await Bun.stdin.text());
+  const relative = filePath === null ? null : toRepoRelative(filePath, repoRoot);
 
-	if (!filePath || !isLintable(filePath)) {
-		process.exit(HOOK_EXIT.ALLOW);
-	}
+  if (relative === null || !isLintable(relative)) {
+    process.exit(HOOK_EXIT.ALLOW);
+  }
+  if (!(await Bun.file(join(repoRoot, relative)).exists())) {
+    process.exit(HOOK_EXIT.ALLOW);
+  }
 
-	const beforeContent = await readTextIfExists(filePath);
+  await runInRepo(repoRoot, ["bun", "x", "oxfmt", relative]);
+  const lint = await runInRepo(repoRoot, ["bun", "x", "oxlint", relative]);
 
-	// biome includes are relative to config dir, so cd into _hooks-lib
-	// and pass the path relative to that directory
-	const rel = toRelative(filePath);
-	const relativePath = rel.slice(HOOKS_LIB_DIR.length + 1);
-	const biome = "./node_modules/.bin/biome";
-	const cwd = HOOKS_LIB_DIR;
-
-	// Check (format + organizeImports + lint) with auto-fix
-	Bun.spawnSync([biome, "check", "--write", relativePath], {
-		cwd,
-		stdout: "ignore",
-		stderr: "ignore",
-	});
-
-	// Re-lint to block on unfixable errors only
-	const lint = Bun.spawnSync(
-		[biome, "lint", "--diagnostic-level=error", relativePath],
-		{ cwd, stdout: "pipe", stderr: "pipe" },
-	);
-
-	if (lint.exitCode !== 0) {
-		const stderr = lint.stderr.toString();
-		const stdout = lint.stdout.toString();
-		if (stderr) console.error(stderr);
-		if (stdout) console.error(stdout);
-		process.exit(HOOK_EXIT.BLOCK);
-	}
-
-	const afterContent = await readTextIfExists(filePath);
-	if (
-		beforeContent !== null &&
-		afterContent !== null &&
-		afterContent !== beforeContent
-	) {
-		console.log(JSON.stringify(createUpdatedToolOutputResponse(afterContent)));
-	}
+  if (!lint.ok) {
+    console.error(`oxlint rejected ${relative}:\n${lint.out}`);
+    process.exit(HOOK_EXIT.BLOCK);
+  }
 }

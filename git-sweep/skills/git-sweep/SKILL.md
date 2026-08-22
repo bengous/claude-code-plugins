@@ -18,14 +18,14 @@ Route to the correct cleanup phase based on repo state.
 - branch: !`git branch --show-current`
 - repo: !`git rev-parse --show-toplevel | sed 's|.*/||'`
 - worktrees: !`git worktree list`
-- tools: !`test -x "${CLAUDE_PLUGIN_ROOT}/scripts/git-clean-audit" && test -x "${CLAUDE_PLUGIN_ROOT}/scripts/git-clean-apply" && echo "ok" || echo "missing"`
+- tools: !`test -x "${CLAUDE_PLUGIN_ROOT}/scripts/git-clean-audit.ts" && test -x "${CLAUDE_PLUGIN_ROOT}/scripts/git-clean-apply.ts" && echo "ok" || echo "missing"`
 
 ## Routing
 
 ```
 if tools == "missing":
   STOP — tell user: git-clean-audit and/or git-clean-apply not executable.
-  Run: chmod +x "${CLAUDE_PLUGIN_ROOT}/scripts/git-clean-audit" "${CLAUDE_PLUGIN_ROOT}/scripts/git-clean-apply"
+  Run: chmod +x "${CLAUDE_PLUGIN_ROOT}/scripts/git-clean-audit.ts" "${CLAUDE_PLUGIN_ROOT}/scripts/git-clean-apply.ts"
 
 else:
   invoke /git-sweep-audit

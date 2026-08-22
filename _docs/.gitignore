@@ -1,6 +1,9 @@
 # Ignore downloaded documentation (generated content)
 scraped/*
 
+# download-docs.sh writes here by default (OUTPUT_DIR=./downloaded)
+__scraping__/scripts/downloaded/
+
 # Keep the directory structure
 !scraped/.gitkeep
 

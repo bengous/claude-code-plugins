@@ -1,16 +1,16 @@
+/* oxlint-disable anti-slop/require-safety-comment-for-type-assertion, anti-slop/no-unsafe-dictionary-type, anti-slop/no-runtime-typeof -- this harness asserts on the JSON that git-clean-apply.ts prints on stdout: the casts and typeof checks ARE the boundary parse, and a closed type here would assert the schema instead of the behaviour. */
+
 import { afterEach, describe, expect, test } from "bun:test";
 import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-const SCRIPT = existsSync(join(import.meta.dir, "git-clean-apply"))
-  ? join(import.meta.dir, "git-clean-apply")
-  : join(import.meta.dir, "executable_git-clean-apply");
+const SCRIPT = join(import.meta.dir, "git-clean-apply.ts");
 
 let tmpDirs: string[] = [];
 
 function makeTmpDir(prefix: string): string {
-  const safe = prefix.replace(/[^a-zA-Z0-9-]/g, "-");
+  const safe = prefix.replaceAll(/[^a-zA-Z0-9-]/gu, "-");
   const dir = mkdtempSync(join(tmpdir(), `git-clean-apply-test-${safe}-`));
   tmpDirs.push(dir);
   return dir;
@@ -36,7 +36,10 @@ async function git(cwd: string, ...args: string[]): Promise<string> {
   return stdout.trim();
 }
 
-async function runApply(cwd: string, ...args: string[]): Promise<{ exitCode: number; result: Record<string, unknown> }> {
+async function runApply(
+  cwd: string,
+  ...args: string[]
+): Promise<{ exitCode: number; result: Record<string, unknown> }> {
   const proc = Bun.spawn(["bun", "run", SCRIPT, ...args], { cwd, stdout: "pipe", stderr: "pipe" });
   const stdout = await new Response(proc.stdout).text();
   const exitCode = await proc.exited;
@@ -143,7 +146,10 @@ describe("git-clean-apply", () => {
     const repo = await makeRepo("manifest-file-bad");
 
     const manifestFile = join(repo, "bad.json");
-    writeFileSync(manifestFile, JSON.stringify({ manifest: { branches: "not-an-array" }, kept: [] }));
+    writeFileSync(
+      manifestFile,
+      JSON.stringify({ manifest: { branches: "not-an-array" }, kept: [] }),
+    );
 
     const { exitCode, result } = await runApply(repo, "--manifest-file", manifestFile);
 
@@ -195,7 +201,10 @@ describe("git-clean-apply", () => {
 
     expect(exitCode).toBe(0);
     expect(result.ok).toBe(true);
-    expect((result.summary as { succeeded: number; failed: number })).toEqual({ succeeded: 1, failed: 0 });
+    expect(result.summary as { succeeded: number; failed: number }).toEqual({
+      succeeded: 1,
+      failed: 0,
+    });
     expect(existsSync(manifestFile)).toBe(false);
   });
 
@@ -382,7 +391,10 @@ describe("git-clean-apply", () => {
     const { exitCode, result } = await runApply(repo, "--manifest-file", manifestFile);
 
     expect(exitCode).toBe(1);
-    expect((result.summary as { succeeded: number; failed: number })).toEqual({ succeeded: 1, failed: 1 });
+    expect(result.summary as { succeeded: number; failed: number }).toEqual({
+      succeeded: 1,
+      failed: 1,
+    });
 
     // The file survives, holding ONLY what is left to do.
     expect(existsSync(manifestFile)).toBe(true);

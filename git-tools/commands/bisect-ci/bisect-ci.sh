@@ -175,7 +175,7 @@ echo ""
     fi
   done < <(echo "$GIT_LOG")
 
-} > "$OUTPUT_FILE"
+} >"$OUTPUT_FILE"
 
 echo "Results written to: $OUTPUT_FILE"
 echo ""

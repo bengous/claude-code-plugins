@@ -2,6 +2,8 @@
 
 Archive old Claude Code session transcripts with gzip compression (via Bun built-in). Runs automatically on session start via hook, or manually via slash command.
 
+A personal tool, not a marketplace plugin: it has no entry in `.claude-plugin/marketplace.json` and no row in the root `README.md` table. `/plugin install` cannot reach it; wire it by hand as below. Substitute your own clone path for `/path/to/claude-code-plugins`.
+
 ## Requirements
 
 - **bun** -- TypeScript runtime (compression and file I/O handled natively)
@@ -12,7 +14,7 @@ Archive old Claude Code session transcripts with gzip compression (via Bun built
 ### 1. Symlink the slash command (optional)
 
 ```bash
-ln -sf ~/projects/claude-plugins/session-archive/session-archive.md ~/.claude/commands/session-archive.md
+ln -sf /path/to/claude-code-plugins/session-archive/session-archive.md ~/.claude/commands/session-archive.md
 ```
 
 ### 2. Add SessionStart hook to settings.json
@@ -25,7 +27,7 @@ ln -sf ~/projects/claude-plugins/session-archive/session-archive.md ~/.claude/co
         "hooks": [
           {
             "type": "command",
-            "command": "bun ~/projects/claude-plugins/session-archive/session-archive.ts --hook",
+            "command": "bun /path/to/claude-code-plugins/session-archive/session-archive.ts --hook",
             "timeout": 10
           }
         ]
@@ -52,7 +54,7 @@ ln -sf ~/projects/claude-plugins/session-archive/session-archive.md ~/.claude/co
 ### Direct invocation
 
 ```bash
-bun ~/projects/claude-plugins/session-archive/session-archive.ts --stats
+bun /path/to/claude-code-plugins/session-archive/session-archive.ts --stats
 ```
 
 ## How the hook works

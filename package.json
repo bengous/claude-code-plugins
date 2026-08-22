@@ -1,8 +1,24 @@
 {
   "name": "claude-plugins-repo",
   "private": true,
-  "description": "Dev dependencies for the validation scripts in scripts/",
+  "type": "module",
+  "description": "Dev dependencies and tooling config for the TypeScript sources in this marketplace",
+  "scripts": {
+    "typecheck": "tsgo --noEmit",
+    "lint:ts": "oxlint",
+    "fmt": "oxfmt '**/*.ts' '**/*.js'",
+    "fmt:check": "oxfmt --check '**/*.ts' '**/*.js'",
+    "lint:sh": "bun ./scripts/lint-shell.ts"
+  },
   "dependencies": {
     "yaml": "^2.8.0"
+  },
+  "devDependencies": {
+    "@oxlint/plugins": "^1.79.0",
+    "@types/bun": "^1.4.0",
+    "@typescript/native-preview": "7.0.0-dev.20260707.2",
+    "oxfmt": "^0.64.0",
+    "oxlint": "^1.79.0",
+    "typescript": "^7.0.2"
   }
 }

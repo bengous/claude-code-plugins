@@ -59,6 +59,7 @@ function parseArgs(argv: string[]) {
 
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
+    if (arg === undefined) break;
     const next = () => {
       const v = argv[++i];
       if (v === undefined) {
@@ -86,6 +87,7 @@ function parseArgs(argv: string[]) {
         roots.push(next());
         break;
       case "--external":
+        // oxlint-disable-next-line eslint/require-unicode-regexp -- the pattern comes from the caller: forcing `u` would reject the Annex B syntax their shell-typed regex is allowed to use.
         external.push(new RegExp(next()));
         break;
       case "--count":
@@ -106,10 +108,10 @@ function parseArgs(argv: string[]) {
 
   return {
     repoRoot: resolve(repoRoot),
-    ext: ext.split(",").map((e) => `.${e.replace(/^\./, "")}`),
+    ext: ext.split(",").map((e) => `.${e.replace(/^\./u, "")}`),
     citedExt: (citedExt ?? `${ext},${DEFAULT_CITED_EXT}`)
       .split(",")
-      .map((e) => e.replace(/^\./, "")),
+      .map((e) => e.replace(/^\./u, "")),
     exclude: new Set(exclude),
     roots,
     external,
@@ -129,11 +131,11 @@ if (!existsSync(opts.repoRoot)) {
 // (1.2.3). Longest extension first, and nothing word-like after it: regex alternation
 // is ordered, so an unsorted list truncates ".json" to ".js" and ".css" to ".c".
 const citedPathPattern = new RegExp(
-  String.raw`(?:^|[\s\`'"(<\[])((?:\.{0,2}\/)?(?:[\w.@-]+\/)+[\w.-]+\.(?:${[...opts.citedExt]
-    .sort((a, b) => b.length - a.length)
-    .map((e) => e.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))
+  String.raw`(?:^|[\s\x60'"(<\[])((?:\.{0,2}\/)?(?:[\w.@-]+\/)+[\w.-]+\.(?:${[...opts.citedExt]
+    .toSorted((a, b) => b.length - a.length)
+    .map((e) => e.replaceAll(/[.*+?^${}()|[\]\\]/gu, "\\$&"))
     .join("|")}))(?![\w-])`,
-  "g",
+  "gu",
 );
 
 function collect(dir: string, out: string[]): string[] {
@@ -158,7 +160,17 @@ function collect(dir: string, out: string[]): string[] {
 // shell, but a private field or a URL fragment in TypeScript, and treating it as one
 // there invents citations out of ordinary code.
 const HASH_LANGS = new Set([
-  ".py", ".rb", ".sh", ".bash", ".zsh", ".yml", ".yaml", ".toml", ".pl", ".r", ".ex",
+  ".py",
+  ".rb",
+  ".sh",
+  ".bash",
+  ".zsh",
+  ".yml",
+  ".yaml",
+  ".toml",
+  ".pl",
+  ".r",
+  ".ex",
 ]);
 const HTML_LANGS = new Set([".astro", ".vue", ".svelte", ".html", ".md", ".mdx", ".xml"]);
 
@@ -271,14 +283,14 @@ function ancestors(file: string): string[] {
 }
 
 function exists(cited: string, file: string): boolean {
-  const cleaned = cited.replace(/^\.\//, "");
+  const cleaned = cited.replace(/^\.\//u, "");
   if (existsSync(resolve(join(file, ".."), cited))) return true;
   if (ROOTS.some((r) => existsSync(join(opts.repoRoot, r, cleaned)))) return true;
   return ancestors(file).some((a) => existsSync(join(a, cleaned)));
 }
 
 function isExternal(cited: string): boolean {
-  const cleaned = cited.replace(/^\.\//, "");
+  const cleaned = cited.replace(/^\.\//u, "");
   return opts.external.some((re) => re.test(cleaned));
 }
 

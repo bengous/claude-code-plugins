@@ -1,7 +1,7 @@
 ---
 description: Confirm and execute cleanup manifest. Called by /git-sweep-audit.
 allowed-tools:
-  - Bash("${CLAUDE_PLUGIN_ROOT}/scripts/git-clean-apply":*)
+  - Bash("${CLAUDE_PLUGIN_ROOT}/scripts/git-clean-apply.ts":*)
   - Bash(git rev-parse:*)
   - Bash(git branch:*)
   - Bash(git worktree list:*)
@@ -99,7 +99,7 @@ manifest shape, executes one operation at a time, and consumes (deletes) the
 file on full success. (`--manifest '{json}'` still works for direct invocation.)
 
 ```
-result = run `"${CLAUDE_PLUGIN_ROOT}/scripts/git-clean-apply" --manifest-file "{manifest_file}"`
+result = run `"${CLAUDE_PLUGIN_ROOT}/scripts/git-clean-apply.ts" --manifest-file "{manifest_file}"`
 capture: stdout, stderr
 
 # Same always-JSON guard as the audit phase: empty / non-JSON stdout means the

@@ -18,7 +18,7 @@
         "matcher": "Edit",
         "hooks": [{
           "type": "command",
-          "command": "bun scripts/validation/format-and-lint.ts",
+          "command": "bun \"$CLAUDE_PROJECT_DIR/.claude/hooks/format-and-lint.ts\"",
           "timeout": 30,
           "statusMessage": "Formatting and linting..."
         }]
@@ -95,7 +95,7 @@ Run formatting and linting on every file that Claude edits or writes. Block if t
   "matcher": "Edit|Write",
   "hooks": [{
     "type": "command",
-    "command": "bun scripts/validation/format-and-lint.ts",
+    "command": "bun \"$CLAUDE_PROJECT_DIR/.claude/hooks/format-and-lint.ts\"",
     "timeout": 30,
     "statusMessage": "Formatting and linting..."
   }]
@@ -105,7 +105,8 @@ Run formatting and linting on every file that Claude edits or writes. Block if t
 The script:
 
 ```typescript
-// scripts/validation/format-and-lint.ts
+// A sketch of that hook. The repo's own is .claude/hooks/format-and-lint.ts,
+// which blocks with exit 2 rather than a `decision` payload.
 const input = await Bun.stdin.json();
 const filePath: string = input.tool_input?.file_path;
 

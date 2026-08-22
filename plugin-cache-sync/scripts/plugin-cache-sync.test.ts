@@ -17,12 +17,7 @@ async function createFixture(): Promise<{
   const home = join(root, "home");
   const repository = join(root, "marketplace");
   const pluginSource = join(repository, "demo");
-  const cacheDirectory = join(
-    home,
-    ".claude/plugins/cache",
-    basename(repository),
-    "demo/1.0.0",
-  );
+  const cacheDirectory = join(home, ".claude/plugins/cache", basename(repository), "demo/1.0.0");
 
   await mkdir(join(repository, ".claude-plugin"), { recursive: true });
   await mkdir(pluginSource, { recursive: true });
@@ -81,28 +76,21 @@ async function status(home: string, repository: string): Promise<string> {
 }
 
 async function sync(home: string, repository: string): Promise<void> {
-  const child = Bun.spawn(
-    ["bash", script, "--source", repository, "sync", "demo"],
-    {
-      env: { ...process.env, HOME: home },
-      stderr: "pipe",
-      stdout: "pipe",
-    },
-  );
+  const child = Bun.spawn(["bash", script, "--source", repository, "sync", "demo"], {
+    env: { ...process.env, HOME: home },
+    stderr: "pipe",
+    stdout: "pipe",
+  });
   expect(await child.exited).toBe(0);
 }
 
 async function readRegistry(home: string): Promise<any> {
-  return JSON.parse(
-    await Bun.file(join(home, ".claude/plugins/installed_plugins.json")).text(),
-  );
+  return JSON.parse(await Bun.file(join(home, ".claude/plugins/installed_plugins.json")).text());
 }
 
 afterEach(async () => {
   await Promise.all(
-    tempDirectories.splice(0).map((directory) =>
-      rm(directory, { recursive: true, force: true }),
-    ),
+    tempDirectories.splice(0).map((directory) => rm(directory, { recursive: true, force: true })),
   );
 });
 
@@ -142,9 +130,9 @@ describe("plugin-cache-sync sync", () => {
     expect(entry.scope).toBe("user");
     expect(entry.installPath).toBe(fixture.cacheDirectory);
     expect(entry.version).toBe("1.0.0");
-    expect(entry.installedAt).toMatch(/^\d{4}-\d{2}-\d{2}T/);
-    expect(entry.lastUpdated).toMatch(/^\d{4}-\d{2}-\d{2}T/);
-    expect(entry.gitCommitSha).toMatch(/^[0-9a-f]{40}$/);
+    expect(entry.installedAt).toMatch(/^\d{4}-\d{2}-\d{2}T/u);
+    expect(entry.lastUpdated).toMatch(/^\d{4}-\d{2}-\d{2}T/u);
+    expect(entry.gitCommitSha).toMatch(/^[0-9a-f]{40}$/u);
   });
 
   test("updates an existing entry without dropping fields it does not manage", async () => {
@@ -176,7 +164,7 @@ describe("plugin-cache-sync sync", () => {
     expect(entry.scope).toBe("user");
     expect(entry.installedAt).toBe("2026-01-01T00:00:00.000Z");
     expect(entry.lastUpdated).not.toBe("2026-01-01T00:00:00.000Z");
-    expect(entry.gitCommitSha).toMatch(/^[0-9a-f]{40}$/);
+    expect(entry.gitCommitSha).toMatch(/^[0-9a-f]{40}$/u);
     expect(entry.devMode).toBeUndefined();
     expect(entry.cachedPath).toBeUndefined();
   });
@@ -189,6 +177,6 @@ describe("plugin-cache-sync sync", () => {
 
     await sync(fixture.home, fixture.repository);
 
-    expect((await readdir(versionsDirectory)).sort()).toEqual(["1.0.0"]);
+    expect((await readdir(versionsDirectory)).toSorted()).toEqual(["1.0.0"]);
   });
 });

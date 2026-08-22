@@ -43,11 +43,11 @@ export const GUARDED_PATH = ".claude/settings.json";
 export const SOURCE_PATH = ".claude/__settings.jsonc";
 
 export interface HookInput {
-	tool_name?: string;
-	tool_input?: {
-		file_path?: string;
-		command?: string;
-	};
+  tool_name?: string;
+  tool_input?: {
+    file_path?: string;
+    command?: string;
+  };
 }
 
 // Matches the guarded path only when it ends there, so `.claude/settings.json.tmp`
@@ -55,78 +55,72 @@ export interface HookInput {
 const GUARDED_PATTERN = String.raw`(?:\./)?\.claude/settings\.json(?![\w.\-/])`;
 
 export const WRITE_PATTERNS: ReadonlyArray<readonly [RegExp, string]> = [
-	[
-		new RegExp(String.raw`>>?\s*['"]?${GUARDED_PATTERN}`),
-		"shell redirection",
-	],
-	[
-		new RegExp(String.raw`\bsed\b[^|;&]*-i\b[^|;&]*${GUARDED_PATTERN}`),
-		"sed -i",
-	],
-	[new RegExp(String.raw`\btee\b[^|;&]*${GUARDED_PATTERN}`), "tee"],
-	[
-		new RegExp(
-			String.raw`\b(?:mv|cp|install)\b[^|;&]*\s['"]?${GUARDED_PATTERN}['"]?\s*(?:$|[|;&])`,
-		),
-		"mv/cp into the file",
-	],
-	[
-		new RegExp(String.raw`\btruncate\b[^|;&]*${GUARDED_PATTERN}`),
-		"truncate",
-	],
+  [new RegExp(String.raw`>>?\s*['"]?${GUARDED_PATTERN}`, "u"), "shell redirection"],
+  [new RegExp(String.raw`\bsed\b[^|;&]*-i\b[^|;&]*${GUARDED_PATTERN}`, "u"), "sed -i"],
+  [new RegExp(String.raw`\btee\b[^|;&]*${GUARDED_PATTERN}`, "u"), "tee"],
+  [
+    new RegExp(
+      String.raw`\b(?:mv|cp|install)\b[^|;&]*\s['"]?${GUARDED_PATTERN}['"]?\s*(?:$|[|;&])`,
+      "u",
+    ),
+    "mv/cp into the file",
+  ],
+  [new RegExp(String.raw`\btruncate\b[^|;&]*${GUARDED_PATTERN}`, "u"), "truncate"],
 ];
 
 export function parseHookInput(raw: string): HookInput | null {
-	try {
-		return JSON.parse(raw) as HookInput;
-	} catch {
-		return null;
-	}
+  try {
+    // SAFETY: every field of HookInput is optional, so a payload of another
+    // shape reads back as absent fields, never as a wrong-typed value.
+    return JSON.parse(raw) as HookInput;
+  } catch {
+    return null;
+  }
 }
 
 export function projectDir(env: Record<string, string | undefined>): string {
-	const dir = env["CLAUDE_PROJECT_DIR"];
-	return dir && isAbsolute(dir) ? dir : process.cwd();
+  const dir = env["CLAUDE_PROJECT_DIR"];
+  return dir && isAbsolute(dir) ? dir : process.cwd();
 }
 
 export function isGuardedFile(filePath: string, root: string): boolean {
-	return resolve(root, filePath) === resolve(root, GUARDED_PATH);
+  return resolve(root, filePath) === resolve(root, GUARDED_PATH);
 }
 
 export function checkCommand(cmd: string): string | null {
-	for (const [pattern, label] of WRITE_PATTERNS) {
-		if (pattern.test(cmd)) return label;
-	}
-	return null;
+  for (const [pattern, label] of WRITE_PATTERNS) {
+    if (pattern.test(cmd)) return label;
+  }
+  return null;
 }
 
 export function blockMessage(how: string): string {
-	return [
-		`BLOCKED: ${GUARDED_PATH} is generated — direct writes are not allowed (${how}).`,
-		`Edit ${SOURCE_PATH} instead (it supports comments).`,
-		"The pre-commit sync regenerates the JSON, or run ./.claude/scripts/settings-sync.sh.",
-	].join("\n");
+  return [
+    `BLOCKED: ${GUARDED_PATH} is generated — direct writes are not allowed (${how}).`,
+    `Edit ${SOURCE_PATH} instead (it supports comments).`,
+    "The pre-commit sync regenerates the JSON, or run ./.claude/scripts/settings-sync.sh.",
+  ].join("\n");
 }
 
 if (import.meta.main) {
-	if (process.env["SETTINGS_BYPASS"] === "1") process.exit(HOOK_EXIT.ALLOW);
+  if (process.env["SETTINGS_BYPASS"] === "1") process.exit(HOOK_EXIT.ALLOW);
 
-	const input = parseHookInput(await Bun.stdin.text());
-	if (!input) process.exit(HOOK_EXIT.ALLOW);
+  const input = parseHookInput(await Bun.stdin.text());
+  if (!input) process.exit(HOOK_EXIT.ALLOW);
 
-	const root = projectDir(process.env);
-	const { file_path: filePath, command } = input.tool_input ?? {};
+  const root = projectDir(process.env);
+  const { file_path: filePath, command } = input.tool_input ?? {};
 
-	if (filePath && isGuardedFile(filePath, root)) {
-		console.error(blockMessage(`${input.tool_name ?? "Edit"} tool`));
-		process.exit(HOOK_EXIT.BLOCK);
-	}
+  if (filePath && isGuardedFile(filePath, root)) {
+    console.error(blockMessage(`${input.tool_name ?? "Edit"} tool`));
+    process.exit(HOOK_EXIT.BLOCK);
+  }
 
-	if (command) {
-		const how = checkCommand(command);
-		if (how) {
-			console.error(blockMessage(how));
-			process.exit(HOOK_EXIT.BLOCK);
-		}
-	}
+  if (command) {
+    const how = checkCommand(command);
+    if (how) {
+      console.error(blockMessage(how));
+      process.exit(HOOK_EXIT.BLOCK);
+    }
+  }
 }
