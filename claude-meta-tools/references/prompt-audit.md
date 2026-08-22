@@ -1,6 +1,7 @@
 <!-- vendored-from: claude-code bundled skill claude-api (shared/prompt-audit.md)
      bundle-version: 2.1.221 | synced: 2026-08-04
-     resync: .claude/scripts/sync-anthropic-skills --pull  (vendor_bundled_refs)
+     resync: overwrite the body with skills/claude-api/shared/prompt-audit.md
+     from the anthropic-agent-skills marketplace clone, and keep this header
      body below this line is byte-identical to the bundle copy -->
 # Prompt Audit — Finding and Removing Dated Prompting Patterns
 
