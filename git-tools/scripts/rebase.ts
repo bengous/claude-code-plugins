@@ -64,8 +64,14 @@ type Success =
       head: string;
       commits: number;
     }
-  | { ok: true; step: "completed"; from: "continue" | "skip"; head: string }
-  | { ok: true; step: "aborted" }
+  | {
+      ok: true;
+      step: "completed";
+      from: "continue" | "skip";
+      head: string;
+      backup_ref: string | null;
+    }
+  | { ok: true; step: "aborted"; backup_ref: string | null }
   | { ok: true; step: "status"; state: RebaseState }
   | { ok: true; step: "usage"; usage: string };
 
@@ -76,6 +82,7 @@ type Failure = {
   detail: string | null;
   state: RebaseState | null;
   guidance: string[] | null;
+  backup_ref: string | null;
 };
 
 type Result = Success | Failure;
@@ -120,11 +127,19 @@ async function gitOk(...args: string[]): Promise<string> {
 }
 
 function fail(step: Phase, error: string, detail: string | null = null): Failure {
-  return { ok: false, step, error, detail, state: null, guidance: null };
+  return { ok: false, step, error, detail, state: null, guidance: null, backup_ref: null };
 }
 
-function conflictFailure(step: Phase, state: RebaseState): Failure {
-  return { ok: false, step, error: "conflict", detail: null, state, guidance: [...GUIDANCE] };
+function conflictFailure(step: Phase, state: RebaseState, backupRef: string | null): Failure {
+  return {
+    ok: false,
+    step,
+    error: "conflict",
+    detail: null,
+    state,
+    guidance: [...GUIDANCE],
+    backup_ref: backupRef,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -154,6 +169,63 @@ async function conflictedFiles(): Promise<ConflictedFile[]> {
     files.push({ path, markers: await countMarkers(path) });
   }
   return files;
+}
+
+type Stop = { kind: "exec-failed"; command: string } | { kind: "conflict" } | { kind: "other" };
+
+/**
+ * Why a paused rebase stopped. git only pauses after an `exec` when that exec
+ * returned non-zero, and `git rebase --continue` moves to the next entry rather
+ * than replaying it, so a trailing exec in `done` means a message was lost.
+ */
+async function stopReason(state: RebaseState): Promise<Stop> {
+  const mergeDir = await gitOk("rev-parse", "--git-path", "rebase-merge");
+  const donePath = join(mergeDir, "done");
+  if (existsSync(donePath)) {
+    const done = (await readFile(donePath, "utf8")).split("\n").filter((line) => line !== "");
+    const last = done.at(-1) ?? "";
+    if (last.startsWith("exec ")) return { kind: "exec-failed", command: last.slice(5) };
+  }
+  if (state.conflicted.length > 0) return { kind: "conflict" };
+  return { kind: "other" };
+}
+
+async function stopFailure(
+  step: Phase,
+  state: RebaseState,
+  stderr: string,
+  backupRef: string | null,
+): Promise<Failure> {
+  if (!state.in_progress) {
+    return { ...fail(step, "rebase-failed", stderr), backup_ref: backupRef };
+  }
+  const stop = await stopReason(state);
+  if (stop.kind === "conflict") return conflictFailure(step, state, backupRef);
+  if (stop.kind === "exec-failed") {
+    const detail =
+      `${stderr}\n\nThe command that failed was: ${stop.command}\n` +
+      "It sets a commit message, and git skips a failed exec instead of replaying it, " +
+      "so continuing would drop that message. Undo with /rebase abort, fix the cause, " +
+      "then run /rebase again.";
+    return {
+      ok: false,
+      step,
+      error: "exec-failed",
+      detail: detail.trim(),
+      state,
+      guidance: null,
+      backup_ref: backupRef,
+    };
+  }
+  return {
+    ok: false,
+    step,
+    error: "rebase-stopped",
+    detail: stderr,
+    state,
+    guidance: null,
+    backup_ref: backupRef,
+  };
 }
 
 async function readState(): Promise<RebaseState> {
@@ -373,25 +445,45 @@ function parsePlan(input: string): Parsed<Plan> {
 
 /* oxlint-enable anti-slop/no-runtime-typeof, anti-slop/no-unknown-parameters, anti-slop/no-unsafe-dictionary-type, anti-slop/require-safety-comment-for-type-assertion -- back to typed values. */
 
-function checkSteps(steps: Step[], commits: Commit[]): string | null {
+/**
+ * `plan-stale` means the branch moved and the plan must be rebuilt;
+ * `plan-invalid` means the steps themselves are wrong and rebuilding changes
+ * nothing. Telling the caller to start over on an invalid plan loops forever.
+ */
+type PlanFault = { code: "plan-stale" | "plan-invalid"; detail: string };
+
+function checkSteps(steps: Step[], commits: Commit[]): PlanFault | null {
   if (steps.length !== commits.length) {
-    return `plan covers ${steps.length} commits, the range holds ${commits.length}`;
+    return {
+      code: "plan-stale",
+      detail: `plan covers ${steps.length} commits, the range holds ${commits.length}`,
+    };
   }
   for (const [index, step] of steps.entries()) {
-    if (step.hash !== commits[index]?.hash) {
-      return `plan.steps[${index}] is not the commit at that position any more`;
+    const hash = commits[index]?.hash ?? "";
+    if (hash !== step.hash && !hash.startsWith(step.hash)) {
+      return {
+        code: "plan-stale",
+        detail: `plan.steps[${index}] is not the commit at that position any more`,
+      };
     }
   }
   const firstKept = steps.find((step) => step.action !== "drop");
   if (firstKept !== undefined && firstKept.action === "squash") {
-    return "the first commit that is kept cannot be squashed: nothing precedes it";
+    return {
+      code: "plan-invalid",
+      detail: "the first commit that is kept cannot be squashed: nothing precedes it",
+    };
   }
   for (const [index, step] of steps.entries()) {
     if (step.action === "reword" && (step.message === null || step.message.trim() === "")) {
-      return `steps[${index}] rewords without a message`;
+      return { code: "plan-invalid", detail: `steps[${index}] rewords without a message` };
     }
     if ((step.action === "pick" || step.action === "drop") && step.message !== null) {
-      return `steps[${index}] carries a message but its action is ${step.action}`;
+      return {
+        code: "plan-invalid",
+        detail: `steps[${index}] carries a message but its action is ${step.action}`,
+      };
     }
   }
   return null;
@@ -408,9 +500,12 @@ async function requireRepo(step: Phase): Promise<Failure | null> {
 }
 
 async function requireClean(step: Phase): Promise<Failure | null> {
-  const status = await gitOk("status", "--porcelain");
-  if (status !== "") return fail(step, "dirty-worktree", status);
-  return null;
+  // Tracked files only: git rebase leaves untracked files alone, so refusing on
+  // them would block a rebase git itself accepts.
+  const unstaged = await git("diff", "--quiet");
+  const staged = await git("diff", "--cached", "--quiet");
+  if (unstaged.exitCode === 0 && staged.exitCode === 0) return null;
+  return fail(step, "dirty-worktree", await gitOk("status", "--porcelain", "-uno"));
 }
 
 async function requireNoRebase(step: Phase): Promise<Failure | null> {
@@ -486,11 +581,28 @@ async function applyMode(input: string, dryRun: boolean): Promise<Result> {
   const base = await resolveCommit(plan.base);
   if (base === null) return fail("apply", "invalid-plan", `unknown base: ${plan.base}`);
 
-  const commits = await collectCommits(base);
-  const mismatch = checkSteps(plan.steps, commits);
-  if (mismatch !== null) return fail("apply", "plan-stale", mismatch);
+  // Without this, a base that HEAD does not descend from turns the rebase into a
+  // transplant onto that base, while the plan still reads as a list of picks.
+  const ancestor = await git("merge-base", "--is-ancestor", base, "HEAD");
+  if (ancestor.exitCode !== 0) {
+    return fail(
+      "apply",
+      "base-not-ancestor",
+      `${plan.base} is not an ancestor of HEAD. Rebasing onto it would move the branch instead of editing its commits.`,
+    );
+  }
 
-  const planText = renderPlan(await gitOk("rev-parse", "--short", base), commits, plan.steps);
+  const commits = await collectCommits(base);
+  const fault = checkSteps(plan.steps, commits);
+  if (fault !== null) return fail("apply", fault.code, fault.detail);
+
+  // The plan may carry abbreviated hashes; the todo gets the resolved ones.
+  const steps = plan.steps.map((step, index) => ({
+    ...step,
+    hash: commits[index]?.hash ?? step.hash,
+  }));
+
+  const planText = renderPlan(await gitOk("rev-parse", "--short", base), commits, steps);
   if (dryRun) return { ok: true, step: "dry-run", plan_text: planText };
 
   const branch = await gitOk("branch", "--show-current");
@@ -506,8 +618,9 @@ async function applyMode(input: string, dryRun: boolean): Promise<Result> {
   const dir = await messageDir();
   await rm(dir, { recursive: true, force: true });
   await mkdir(dir, { recursive: true });
+  await writeFile(join(dir, "backup-ref"), `${backupRef}\n`);
   const todoPath = join(dir, "todo");
-  await writeFile(todoPath, `${(await buildTodo(plan.steps, dir)).join("\n")}\n`);
+  await writeFile(todoPath, `${(await buildTodo(steps, dir)).join("\n")}\n`);
 
   // GIT_EDITOR=true keeps squash and reword from opening an editor; the `exec`
   // lines set the final messages afterwards.
@@ -521,9 +634,8 @@ async function applyMode(input: string, dryRun: boolean): Promise<Result> {
     .nothrow();
 
   const state = await readState();
-  if (state.in_progress) return conflictFailure("apply", state);
-  if (run.exitCode !== 0) {
-    return fail("apply", "rebase-failed", run.stderr.toString().trim());
+  if (run.exitCode !== 0 || state.in_progress) {
+    return stopFailure("apply", state, run.stderr.toString().trim(), backupRef);
   }
 
   await rm(dir, { recursive: true, force: true });
@@ -545,19 +657,37 @@ async function stagedMarkers(): Promise<string | null> {
   return null;
 }
 
+/** The ref the apply that started this rebase left behind, if it is still there. */
+async function readBackupRef(): Promise<string | null> {
+  const path = join(await messageDir(), "backup-ref");
+  if (!existsSync(path)) return null;
+  const ref = (await readFile(path, "utf8")).trim();
+  return ref === "" ? null : ref;
+}
+
 async function resumeMode(mode: "continue" | "skip"): Promise<Result> {
   const repoError = await requireRepo(mode);
   if (repoError !== null) return repoError;
 
   const before = await readState();
   if (!before.in_progress) return fail(mode, "no-rebase-in-progress");
+  const backupRef = await readBackupRef();
+
+  // Neither --continue nor --skip replays a failed exec, so resuming here would
+  // silently drop the message it was setting.
+  const stop = await stopReason(before);
+  if (stop.kind === "exec-failed") {
+    return stopFailure(mode, before, "", backupRef);
+  }
 
   if (mode === "continue") {
     if (before.conflicted.length > 0) {
-      return { ...conflictFailure(mode, before), error: "unresolved-conflicts" };
+      return { ...conflictFailure(mode, before, backupRef), error: "unresolved-conflicts" };
     }
     const marked = await stagedMarkers();
-    if (marked !== null) return fail(mode, "conflict-markers-staged", marked);
+    if (marked !== null) {
+      return { ...fail(mode, "conflict-markers-staged", marked), backup_ref: backupRef };
+    }
   }
 
   const run = await $`git rebase ${mode === "continue" ? "--continue" : "--skip"}`
@@ -566,11 +696,18 @@ async function resumeMode(mode: "continue" | "skip"): Promise<Result> {
     .nothrow();
 
   const after = await readState();
-  if (after.in_progress) return conflictFailure(mode, after);
-  if (run.exitCode !== 0) return fail(mode, "rebase-failed", run.stderr.toString().trim());
+  if (run.exitCode !== 0 || after.in_progress) {
+    return stopFailure(mode, after, run.stderr.toString().trim(), backupRef);
+  }
 
   await rm(await messageDir(), { recursive: true, force: true });
-  return { ok: true, step: "completed", from: mode, head: await gitOk("rev-parse", "HEAD") };
+  return {
+    ok: true,
+    step: "completed",
+    from: mode,
+    head: await gitOk("rev-parse", "HEAD"),
+    backup_ref: backupRef,
+  };
 }
 
 async function abortMode(): Promise<Result> {
@@ -579,12 +716,15 @@ async function abortMode(): Promise<Result> {
 
   const state = await readState();
   if (!state.in_progress) return fail("abort", "no-rebase-in-progress");
+  const backupRef = await readBackupRef();
 
   const run = await git("rebase", "--abort");
-  if (run.exitCode !== 0) return fail("abort", "abort-failed", run.stderr);
+  if (run.exitCode !== 0) {
+    return { ...fail("abort", "abort-failed", run.stderr), backup_ref: backupRef };
+  }
 
   await rm(await messageDir(), { recursive: true, force: true });
-  return { ok: true, step: "aborted" };
+  return { ok: true, step: "aborted", backup_ref: backupRef };
 }
 
 async function statusMode(): Promise<Result> {
@@ -596,6 +736,14 @@ async function statusMode(): Promise<Result> {
 // ---------------------------------------------------------------------------
 // Main
 // ---------------------------------------------------------------------------
+
+/** An unrecognised flag must stop the run: silently ignoring `--dryrun` rewrites history. */
+function rejectExtra(step: Phase, rest: string[], allowed: string[]): Failure | null {
+  const unknown = rest.filter((arg) => !allowed.includes(arg));
+  if (unknown.length === 0) return null;
+  const accepted = allowed.length === 0 ? "none" : allowed.join(", ");
+  return fail(step, "unknown-argument", `${unknown.join(" ")}\n\nAccepted here: ${accepted}`);
+}
 
 async function main(): Promise<Result> {
   const args = Bun.argv.slice(2);
@@ -611,20 +759,26 @@ async function main(): Promise<Result> {
     case "plan": {
       const spec = args[1];
       if (spec === undefined) return fail("plan", "missing-range", USAGE);
-      return planMode(spec);
+      const extra = rejectExtra("plan", args.slice(2), []);
+      return extra ?? planMode(spec);
     }
     case "apply": {
-      return applyMode(await Bun.stdin.text(), args.includes("--dry-run"));
+      const rest = args.slice(1);
+      const extra = rejectExtra("apply", rest, ["--dry-run"]);
+      return extra ?? applyMode(await Bun.stdin.text(), rest.includes("--dry-run"));
     }
     case "continue":
     case "skip": {
-      return resumeMode(mode);
+      const extra = rejectExtra(mode, args.slice(1), []);
+      return extra ?? resumeMode(mode);
     }
     case "abort": {
-      return abortMode();
+      const extra = rejectExtra("abort", args.slice(1), []);
+      return extra ?? abortMode();
     }
     case "status": {
-      return statusMode();
+      const extra = rejectExtra("status", args.slice(1), []);
+      return extra ?? statusMode();
     }
     default: {
       return fail("validate", "unknown-mode", `${mode}\n\n${USAGE}`);

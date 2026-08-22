@@ -251,7 +251,7 @@ describe("apply validation", () => {
       steps: [step(list[0] ?? "", "squash"), step(list[1] ?? "", "pick")],
     };
     const { result } = await run(repo, ["apply"], JSON.stringify(plan));
-    expect(result.error).toBe("plan-stale");
+    expect(result.error).toBe("plan-invalid");
     expect(result.detail).toContain("cannot be squashed");
   });
 
@@ -263,6 +263,7 @@ describe("apply validation", () => {
       steps: [step(list[0] ?? "", "reword")],
     };
     const { result } = await run(repo, ["apply"], JSON.stringify(plan));
+    expect(result.error).toBe("plan-invalid");
     expect(result.detail).toContain("rewords without a message");
   });
 
@@ -274,7 +275,74 @@ describe("apply validation", () => {
       steps: [step(list[0] ?? "", "pick", "a message that would be ignored")],
     };
     const { result } = await run(repo, ["apply"], JSON.stringify(plan));
+    expect(result.error).toBe("plan-invalid");
     expect(result.detail).toContain("carries a message");
+  });
+
+  test("accepts an abbreviated hash instead of calling the plan stale", async () => {
+    const repo = await makeRepo("short-hash", ["initial commit", "a"]);
+    const list = await hashes(repo, 1);
+    const plan = {
+      base: await git(repo, "rev-parse", "HEAD~1"),
+      steps: [step((list[0] ?? "").slice(0, 8), "reword", "feat: a")],
+    };
+    const { exitCode, result } = await run(repo, ["apply"], JSON.stringify(plan));
+    expect(exitCode).toBe(0);
+    expect(result.step).toBe("applied");
+    expect(await logSubjects(repo)).toEqual(["feat: a", "initial commit"]);
+  });
+
+  test("refuses a base that HEAD does not descend from", async () => {
+    // Regression: `base: main` after main advanced turned the rebase into a
+    // transplant onto main, while the plan still read as a list of picks.
+    const repo = await makeRepo("transplant", ["initial commit"]);
+    await git(repo, "checkout", "-b", "feature");
+    await Bun.write(join(repo, "feature.txt"), "work\n");
+    await git(repo, "add", ".");
+    await git(repo, "commit", "-m", "feat: the feature");
+    const forked = await git(repo, "rev-parse", "HEAD");
+
+    await git(repo, "checkout", "main");
+    await Bun.write(join(repo, "moved.txt"), "moved\n");
+    await git(repo, "add", ".");
+    await git(repo, "commit", "-m", "chore: main moved on");
+    await git(repo, "checkout", "feature");
+
+    const list = await hashes(repo, 1);
+    const plan = { base: "main", steps: [step(list[0] ?? "", "pick")] };
+
+    const { exitCode, result } = await run(repo, ["apply"], JSON.stringify(plan));
+    expect(exitCode).toBe(1);
+    expect(result.error).toBe("base-not-ancestor");
+    expect(await git(repo, "rev-parse", "HEAD")).toBe(forked);
+    expect(await git(repo, "branch", "--list")).not.toContain("rebase-backup");
+  });
+
+  test("accepts untracked files, which git rebase accepts too", async () => {
+    const repo = await makeRepo("untracked", ["initial commit", "a"]);
+    await Bun.write(join(repo, "scratch.json"), "{}\n");
+    const list = await hashes(repo, 1);
+    const plan = {
+      base: await git(repo, "rev-parse", "HEAD~1"),
+      steps: [step(list[0] ?? "", "reword", "feat: a")],
+    };
+    const { exitCode, result } = await run(repo, ["apply"], JSON.stringify(plan));
+    expect(exitCode).toBe(0);
+    expect(result.step).toBe("applied");
+    expect(await Bun.file(join(repo, "scratch.json")).exists()).toBe(true);
+  });
+
+  test("still refuses a tracked file with uncommitted changes", async () => {
+    const repo = await makeRepo("tracked-dirty", ["initial commit", "a"]);
+    await Bun.write(join(repo, "file-0.txt"), "edited\n");
+    const list = await hashes(repo, 1);
+    const plan = {
+      base: await git(repo, "rev-parse", "HEAD~1"),
+      steps: [step(list[0] ?? "", "pick")],
+    };
+    const { result } = await run(repo, ["apply"], JSON.stringify(plan));
+    expect(result.error).toBe("dirty-worktree");
+    expect(result.detail).toContain("file-0.txt");
   });
 });
 
@@ -460,10 +528,98 @@ describe("conflicts", () => {
     expect(await logSubjects(repo)).toEqual(["A: one", "initial commit"]);
   });
 
+  test("reports the conflict backup ref, and carries it through continue", async () => {
+    const repo = await makeConflictRepo("backup-ref");
+    const paused = await startConflict(repo);
+    const backup = paused.backup_ref as string;
+    expect(backup).toStartWith("rebase-backup-main-");
+
+    await Bun.write(join(repo, "f.txt"), "three\n");
+    await git(repo, "add", "f.txt");
+
+    const { result } = await run(repo, ["continue"]);
+    expect(result.step).toBe("completed");
+    expect(result.backup_ref).toBe(backup);
+  });
+
   test("continue and abort refuse when no rebase is running", async () => {
     const repo = await makeRepo("idle", ["initial commit"]);
     expect((await run(repo, ["continue"])).result.error).toBe("no-rebase-in-progress");
     expect((await run(repo, ["abort"])).result.error).toBe("no-rebase-in-progress");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// A message that cannot be applied
+// ---------------------------------------------------------------------------
+
+/** A repo whose commit-msg hook rejects any subject that is not conventional. */
+async function makePickyRepo(prefix: string): Promise<string> {
+  const repo = await makeRepo(prefix, ["initial commit", "old subject"]);
+  const hook = join(repo, ".git", "hooks", "commit-msg");
+  await Bun.write(hook, '#!/bin/sh\ngrep -q "^feat" "$1" || { echo "hook: refused"; exit 1; }\n');
+  await $`chmod +x ${hook}`.quiet();
+  return repo;
+}
+
+async function startRejectedReword(repo: string): Promise<Record<string, unknown>> {
+  const list = await hashes(repo, 1);
+  const plan = {
+    base: await git(repo, "rev-parse", "HEAD~1"),
+    steps: [step(list[0] ?? "", "reword", "chore: the hook rejects this")],
+  };
+  const { result } = await run(repo, ["apply"], JSON.stringify(plan));
+  return result;
+}
+
+describe("failed exec", () => {
+  test("is reported as exec-failed with git's stderr, never as a conflict", async () => {
+    // Regression: the state was read before the exit code, so a rejected amend
+    // came back as "conflict" with an empty file list and git's stderr dropped.
+    const repo = await makePickyRepo("exec-apply");
+    const result = await startRejectedReword(repo);
+
+    expect(result.ok).toBe(false);
+    expect(result.error).toBe("exec-failed");
+    expect(result.detail).toContain("hook: refused");
+    expect(result.detail).toContain("/rebase abort");
+    expect(result.backup_ref).toStartWith("rebase-backup-main-");
+
+    const state = result.state as Record<string, unknown>;
+    expect(state.in_progress).toBe(true);
+    expect(state.conflicted).toEqual([]);
+  });
+
+  test("continue refuses instead of finishing without the message", async () => {
+    // Regression: continue returned "completed" while the reword was silently
+    // skipped, because git does not replay a failed exec.
+    const repo = await makePickyRepo("exec-continue");
+    await startRejectedReword(repo);
+
+    const { exitCode, result } = await run(repo, ["continue"]);
+    expect(exitCode).toBe(1);
+    expect(result.error).toBe("exec-failed");
+    expect(result.step).toBe("continue");
+    expect(await git(repo, "log", "-1", "--format=%s")).not.toBe("chore: the hook rejects this");
+  });
+
+  test("skip refuses too, for the same reason", async () => {
+    const repo = await makePickyRepo("exec-skip");
+    await startRejectedReword(repo);
+
+    const { exitCode, result } = await run(repo, ["skip"]);
+    expect(exitCode).toBe(1);
+    expect(result.error).toBe("exec-failed");
+  });
+
+  test("abort undoes it and reports the backup ref", async () => {
+    const repo = await makePickyRepo("exec-abort");
+    const failure = await startRejectedReword(repo);
+
+    const { result } = await run(repo, ["abort"]);
+    expect(result.step).toBe("aborted");
+    expect(result.backup_ref).toBe(failure.backup_ref);
+    expect(await logSubjects(repo)).toEqual(["old subject", "initial commit"]);
   });
 });
 
@@ -491,5 +647,27 @@ describe("routing", () => {
     const repo = await makeRepo("no-range", ["initial commit"]);
     const { result } = await run(repo, ["plan"]);
     expect(result.error).toBe("missing-range");
+  });
+
+  test("rejects a misspelt --dry-run instead of rewriting history", async () => {
+    const repo = await makeRepo("dryrun-typo", ["initial commit", "a"]);
+    const head = await git(repo, "rev-parse", "HEAD");
+    const list = await hashes(repo, 1);
+    const plan = {
+      base: await git(repo, "rev-parse", "HEAD~1"),
+      steps: [step(list[0] ?? "", "reword", "feat: a")],
+    };
+
+    const { exitCode, result } = await run(repo, ["apply", "--dryrun"], JSON.stringify(plan));
+    expect(exitCode).toBe(1);
+    expect(result.error).toBe("unknown-argument");
+    expect(result.detail).toContain("--dryrun");
+    expect(await git(repo, "rev-parse", "HEAD")).toBe(head);
+  });
+
+  test("rejects a stray argument on a follow-up mode", async () => {
+    const repo = await makeRepo("stray-arg", ["initial commit"]);
+    const { result } = await run(repo, ["status", "--verbose"]);
+    expect(result.error).toBe("unknown-argument");
   });
 });

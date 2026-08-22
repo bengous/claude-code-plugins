@@ -3,6 +3,7 @@ description: Interactive git rebase with a visual plan and reworked commit messa
 argument-hint: <branch|N|X..Y> | continue | skip | abort | status
 allowed-tools:
   - Bash("${CLAUDE_PLUGIN_ROOT}/scripts/rebase.ts":*)
+  - Bash(printf:*)
   - Bash(git log:*)
   - Bash(git show:*)
   - AskUserQuestion
@@ -38,6 +39,11 @@ run `"${CLAUDE_PLUGIN_ROOT}/scripts/rebase.ts" {argument}`
 
 Report `step` on success. On `ok: false`, report `error` and `detail`; when
 `guidance` is present, print every line of it. Then stop — no other phase runs.
+
+`exec-failed` on `continue` or `skip` means a commit message was never applied
+and neither mode can replay it. Say so, and offer `/rebase abort` — never retry
+the same mode. `backup_ref`, when set, names the branch that still holds the
+history as it was before the rebase started.
 
 ## Phase 1: Plan
 
@@ -135,8 +141,17 @@ run `printf '%s' '{"base": "{plan.base}", "steps": {steps_json}}' \
 ```
 
 Print `plan_text` verbatim — that is the visual plan. On `ok: false`, report
-`error` and `detail` and stop; `plan-stale` means the branch moved since Phase
-1, so start over.
+`error` and `detail`, then:
+
+```
+plan-stale         the branch moved since Phase 1 — start over at Phase 1
+plan-invalid       the steps break a rule; detail says which. Fix them in
+                   Phase 4 and re-run this phase. Do NOT restart Phase 1:
+                   the plan is not stale and a fresh one repeats the fault.
+base-not-ancestor  the base is not behind HEAD; that is a transplant, not an
+                   edit. Start over at Phase 1 to get a real base.
+invalid-plan       the JSON is malformed — rebuild it in Phase 4
+```
 
 Then ask once with `AskUserQuestion`: "Run this rebase?" — Run / Cancel. On
 Cancel, stop and change nothing.
@@ -158,16 +173,34 @@ if result.error == "conflict":
   line of result.guidance. Stop there: the user resolves, then runs
   /rebase continue. Do NOT resolve the conflict without being asked to.
 
+if result.error == "exec-failed":
+  A commit message could not be applied and the rebase is paused mid-way.
+  Print detail verbatim. Do NOT suggest /rebase continue: it skips the
+  failed step and the message is lost for good. The way out is
+  /rebase abort, then fix the cause, then /rebase again.
+
+if result.error == "rebase-stopped":
+  The rebase paused for a reason that is neither a conflict nor a message.
+  Print detail — it holds git's own stderr — and let the user decide.
+
 any other error:
-  Report error and detail. The branch is untouched unless a backup_ref was
-  reported, in which case `git reset --hard {backup_ref}` restores it.
+  Report error and detail. The branch is untouched unless backup_ref is set,
+  in which case `git reset --hard {backup_ref}` restores it.
 ```
+
+`backup_ref` is reported on every result once the backup exists, failures
+included, so the way back is always in the last message the user saw.
 
 ## Safety
 
-- The plan is refused unless the working directory is clean.
+- The plan is refused while tracked files have uncommitted changes. Untracked
+  files are left alone, as `git rebase` leaves them alone.
 - A backup branch (`rebase-backup-<branch>-<timestamp>`) is created before the
-  first commit is rewritten, and it is reported back.
+  first commit is rewritten, and it is reported on every later result.
+- The base must be an ancestor of HEAD, so the rebase edits the branch instead
+  of moving it somewhere else.
 - The plan is re-checked against the branch at execution time; a plan whose
   commits moved is rejected instead of applied to the wrong ones.
 - Conflicts pause the rebase and leave it resumable. Nothing auto-resolves.
+- A commit message that cannot be applied stops the run and says so. It is
+  never reported as success.
