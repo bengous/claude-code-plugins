@@ -22,6 +22,10 @@ export default defineConfig({
     "max-lines-per-function": "off",
     "max-depth": "off",
 
+    // The ASCII-diagram fixtures annotate each array line with the column the
+    // line is testing. Moving those notes off the line loses that pairing.
+    "no-inline-comments": "off",
+
     "anti-slop/no-chained-type-assertions": "error",
     "anti-slop/no-conditional-empty-object-spread": "error",
     "anti-slop/no-known-value-widening": "error",
