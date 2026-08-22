@@ -16,7 +16,8 @@ New plugin: add its `marketplace.json` entry and its `README.md` table row by ha
 ## Commands
 
 ```bash
-bun test                                     # all suites
+bun test                                     # every suite outside dot directories
+bun test ./.claude/hooks/*.test.ts           # the repo's own hooks; `bun test` skips them
 bun ./scripts/validate-marketplace.ts        # versions + structure
 bun ./scripts/validate-frontmatter.ts --all  # frontmatter (default: staged only)
 ```
