@@ -30,6 +30,9 @@ export default defineConfig({
     // argument. The rule reads the call site only, and its fix breaks the call.
     "unicorn/no-useless-undefined": ["error", { checkArguments: false }],
 
+    // CLAUDE.md asks for TODO/FIXME markers on deferred and security work.
+    "no-warning-comments": "off",
+
     "anti-slop/no-chained-type-assertions": "error",
     "anti-slop/no-conditional-empty-object-spread": "error",
     "anti-slop/no-known-value-widening": "error",

@@ -20,11 +20,10 @@ NC='\033[0m'
 # Configuration
 SCHEMA_URL="https://json.schemastore.org/claude-code-settings.json"
 CACHE_DIR="${HOME}/.cache/claude-settings-manager"
-CACHE_TTL=86400  # 24 hours
+CACHE_TTL=86400 # 24 hours
 
 # Script location (for --install-global)
 SCRIPT_PATH="${BASH_SOURCE[0]}"
-SCRIPT_DIR="$(cd "$(dirname "$SCRIPT_PATH")" && pwd)"
 
 # ================================================================
 # JSONC Parser (inline node - strips comments)
@@ -100,8 +99,14 @@ cmd_sync() {
 
   while [[ $# -gt 0 ]]; do
     case "$1" in
-      --source) source_file="$2"; shift 2 ;;
-      --target) target_file="$2"; shift 2 ;;
+      --source)
+        source_file="$2"
+        shift 2
+        ;;
+      --target)
+        target_file="$2"
+        shift 2
+        ;;
       *) shift ;;
     esac
   done
@@ -128,7 +133,7 @@ cmd_sync() {
   local tmp_file="${target_file}.tmp.$$"
   mkdir -p "$(dirname "$target_file")"
 
-  if ! strip_jsonc "$source_file" > "$tmp_file"; then
+  if ! strip_jsonc "$source_file" >"$tmp_file"; then
     echo -e "${RED}Error: Failed to parse JSONC${NC}" >&2
     rm -f "$tmp_file"
     exit 1
@@ -145,8 +150,14 @@ cmd_check() {
 
   while [[ $# -gt 0 ]]; do
     case "$1" in
-      --source) source_file="$2"; shift 2 ;;
-      --target) target_file="$2"; shift 2 ;;
+      --source)
+        source_file="$2"
+        shift 2
+        ;;
+      --target)
+        target_file="$2"
+        shift 2
+        ;;
       *) shift ;;
     esac
   done
@@ -194,8 +205,14 @@ cmd_validate() {
 
   while [[ $# -gt 0 ]]; do
     case "$1" in
-      --source) source_file="$2"; shift 2 ;;
-      --ai-explain) ai_explain="true"; shift ;;
+      --source)
+        source_file="$2"
+        shift 2
+        ;;
+      --ai-explain)
+        ai_explain="true"
+        shift
+        ;;
       *) shift ;;
     esac
   done
@@ -268,6 +285,8 @@ cmd_validate() {
 
   local validation_output
   local validation_exit_code=0
+  # The JS body must reach node unexpanded; bash must not touch its $ tokens.
+  # shellcheck disable=SC2016
   validation_output=$(node -e '
     const fs = require("fs");
     const schema = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
@@ -358,18 +377,37 @@ cmd_schema_extract() {
 
   while [[ $# -gt 0 ]]; do
     case "$1" in
-      --version) version="$2"; shift 2 ;;
-      --output-dir) output_dir="$2"; shift 2 ;;
-      --format) format="$2"; shift 2 ;;
-      --help|-h) cmd_schema_extract_help; exit 0 ;;
-      *) echo -e "${RED}Unknown option: $1${NC}" >&2; cmd_schema_extract_help; exit 1 ;;
+      --version)
+        version="$2"
+        shift 2
+        ;;
+      --output-dir)
+        output_dir="$2"
+        shift 2
+        ;;
+      --format)
+        format="$2"
+        shift 2
+        ;;
+      --help | -h)
+        cmd_schema_extract_help
+        exit 0
+        ;;
+      *)
+        echo -e "${RED}Unknown option: $1${NC}" >&2
+        cmd_schema_extract_help
+        exit 1
+        ;;
     esac
   done
 
   # Validate format
   case "$format" in
-    json|md|both) ;;
-    *) echo -e "${RED}Invalid format: $format (use json, md, or both)${NC}" >&2; exit 1 ;;
+    json | md | both) ;;
+    *)
+      echo -e "${RED}Invalid format: $format (use json, md, or both)${NC}" >&2
+      exit 1
+      ;;
   esac
 
   mkdir -p "$output_dir"
@@ -414,7 +452,7 @@ cmd_schema_extract() {
   echo -e "${GRAY}Downloading npm package...${NC}"
   local tarball_url="https://registry.npmjs.org/@anthropic-ai/claude-code/-/claude-code-$version.tgz"
 
-  if ! curl -sL "$tarball_url" | tar -xzf - -O package/cli.js > "$cli_cache" 2>/dev/null; then
+  if ! curl -sL "$tarball_url" | tar -xzf - -O package/cli.js >"$cli_cache" 2>/dev/null; then
     echo -e "${RED}Error: Failed to download package${NC}" >&2
     exit 1
   fi
@@ -424,11 +462,11 @@ cmd_schema_extract() {
     exit 1
   fi
 
-  echo -e "${GREEN}Downloaded: $(wc -c < "$cli_cache" | xargs) bytes${NC}"
+  echo -e "${GREEN}Downloaded: $(wc -c <"$cli_cache" | xargs) bytes${NC}"
 
   # Extract describe strings using external script
   echo -e "${GRAY}Extracting .describe() strings...${NC}"
-  extract_describe_strings "$cli_cache" "$version" > "$cache_file"
+  extract_describe_strings "$cli_cache" "$version" >"$cache_file"
 
   if [[ ! -s "$cache_file" ]]; then
     echo -e "${RED}Error: Extraction failed${NC}" >&2
@@ -491,7 +529,7 @@ generate_schema_outputs() {
   if [[ "$format" == "json" || "$format" == "both" ]]; then
     local schema_file="$output_dir/claude-code-$version.schema.json"
     echo -e "${GRAY}Generating JSON Schema...${NC}"
-    generate_json_schema "$cache_file" > "$schema_file"
+    generate_json_schema "$cache_file" >"$schema_file"
     echo -e "${GREEN}Created: $schema_file${NC}"
   fi
 
@@ -499,7 +537,7 @@ generate_schema_outputs() {
   if [[ "$format" == "md" || "$format" == "both" ]]; then
     local md_file="$output_dir/claude-code-$version-reference.md"
     echo -e "${GRAY}Generating Markdown documentation...${NC}"
-    generate_markdown_docs "$cache_file" > "$md_file"
+    generate_markdown_docs "$cache_file" >"$md_file"
     echo -e "${GREEN}Created: $md_file${NC}"
   fi
 
@@ -621,7 +659,7 @@ console.log(md);
 }
 
 cmd_schema_extract_help() {
-  cat << 'EOF'
+  cat <<'EOF'
 Usage: settings-manager schema-extract [options]
 
 Extract Zod schema definitions from Claude Code npm package.
@@ -656,11 +694,27 @@ cmd_schema_diff() {
 
   while [[ $# -gt 0 ]]; do
     case "$1" in
-      --base) base="$2"; shift 2 ;;
-      --compare) compare="$2"; shift 2 ;;
-      --json) output_format="json"; shift ;;
-      --help|-h) cmd_schema_diff_help; exit 0 ;;
-      *) echo -e "${RED}Unknown option: $1${NC}" >&2; cmd_schema_diff_help; exit 1 ;;
+      --base)
+        base="$2"
+        shift 2
+        ;;
+      --compare)
+        compare="$2"
+        shift 2
+        ;;
+      --json)
+        output_format="json"
+        shift
+        ;;
+      --help | -h)
+        cmd_schema_diff_help
+        exit 0
+        ;;
+      *)
+        echo -e "${RED}Unknown option: $1${NC}" >&2
+        cmd_schema_diff_help
+        exit 1
+        ;;
     esac
   done
 
@@ -803,7 +857,7 @@ if (outputFormat === "json") {
 }
 
 cmd_schema_diff_help() {
-  cat << 'EOF'
+  cat <<'EOF'
 Usage: settings-manager schema-diff [options]
 
 Compare schemas between versions or against schemastore.org.
@@ -837,15 +891,43 @@ cmd_setup() {
 
   while [[ $# -gt 0 ]]; do
     case "$1" in
-      --source) source_path="$2"; shift 2 ;;
-      --target) target_path="$2"; shift 2 ;;
-      --hook-system) hook_system="$2"; shift 2 ;;
-      --scripts-path) scripts_path="$2"; shift 2 ;;
-      --install-global) install_global="true"; shift ;;
-      --dry-run) dry_run="true"; shift ;;
-      --force) force="true"; shift ;;
-      --help|-h) cmd_setup_help; exit 0 ;;
-      *) echo -e "${RED}Unknown option: $1${NC}" >&2; cmd_setup_help; exit 1 ;;
+      --source)
+        source_path="$2"
+        shift 2
+        ;;
+      --target)
+        target_path="$2"
+        shift 2
+        ;;
+      --hook-system)
+        hook_system="$2"
+        shift 2
+        ;;
+      --scripts-path)
+        scripts_path="$2"
+        shift 2
+        ;;
+      --install-global)
+        install_global="true"
+        shift
+        ;;
+      --dry-run)
+        dry_run="true"
+        shift
+        ;;
+      --force)
+        force="true"
+        shift
+        ;;
+      --help | -h)
+        cmd_setup_help
+        exit 0
+        ;;
+      *)
+        echo -e "${RED}Unknown option: $1${NC}" >&2
+        cmd_setup_help
+        exit 1
+        ;;
     esac
   done
 
@@ -870,7 +952,7 @@ cmd_setup() {
 
   # Validate hook system
   case "$hook_system" in
-    lefthook|husky|chezmoi|none) ;;
+    lefthook | husky | chezmoi | none) ;;
     *)
       echo -e "${RED}Error: Invalid hook system: $hook_system${NC}" >&2
       echo "Valid options: lefthook, husky, chezmoi, none" >&2
@@ -935,8 +1017,10 @@ cmd_setup() {
 "
       fi
 
-      echo "$header" > "$source_path"
+      echo "$header" >"$source_path"
 
+      # The JS body must reach node unexpanded; bash must not touch its $ tokens.
+      # shellcheck disable=SC2016
       node -e '
         const input = process.argv[1];
         try {
@@ -950,7 +1034,7 @@ cmd_setup() {
         } catch {
           console.log("{}");
         }
-      ' "$existing_content" >> "$source_path"
+      ' "$existing_content" >>"$source_path"
 
       echo -e "${GREEN}Created: $source_path${NC}"
     fi
@@ -988,7 +1072,7 @@ cmd_setup() {
       echo "  2. Run 'chezmoi apply' to sync"
       echo "  3. Commit your changes"
       ;;
-    lefthook|husky)
+    lefthook | husky)
       echo "Next steps:"
       echo "  1. Edit $source_path"
       echo "  2. Commit - the hook will sync automatically"
@@ -1003,7 +1087,7 @@ cmd_setup() {
 }
 
 cmd_setup_help() {
-  cat << 'EOF'
+  cat <<'EOF'
 Usage: settings-manager setup [options]
 
 Required flags:
@@ -1059,7 +1143,7 @@ setup_git_hooks() {
     if [[ "$dry_run" == "true" ]]; then
       echo -e "${GRAY}Would create: $sync_script${NC}"
     else
-      cat > "$sync_script" << SCRIPT
+      cat >"$sync_script" <<SCRIPT
 #!/usr/bin/env bash
 # Sync $source_path to $target_path
 set -euo pipefail
@@ -1131,7 +1215,7 @@ SCRIPT
       local source_pattern
       source_pattern=$(echo "$source_path" | sed 's/\./\\./g' | sed 's/\//\\\//g')
 
-      cat > "$block_script" << SCRIPT
+      cat >"$block_script" <<SCRIPT
 #!/usr/bin/env bash
 set -euo pipefail
 
@@ -1175,7 +1259,7 @@ SCRIPT
     echo -e "${GRAY}Would update: .gitattributes${NC}"
   else
     if ! grep -q "$target_path.*linguist-generated" .gitattributes 2>/dev/null; then
-      echo "$target_path linguist-generated=true" >> .gitattributes
+      echo "$target_path linguist-generated=true" >>.gitattributes
       echo -e "${GREEN}Updated: .gitattributes${NC}"
     fi
   fi
@@ -1197,10 +1281,10 @@ setup_lefthook_config() {
   fi
 
   local source_pattern
-  source_pattern=$(echo "$source_path" | sed 's/\./\\\\./g')
+  source_pattern="${source_path//./\\\\.}"
 
   if [[ ! -f "$lefthook_file" ]]; then
-    cat > "$lefthook_file" << YAML
+    cat >"$lefthook_file" <<YAML
 pre-commit:
   jobs:
     - name: block-settings-json
@@ -1231,7 +1315,7 @@ YAML
     fi
 
     echo -e "${YELLOW}Manual step: Add to $lefthook_file:${NC}"
-    cat << YAML
+    cat <<YAML
 pre-commit:
   jobs:
     - name: block-settings-json
@@ -1264,12 +1348,12 @@ setup_husky_config() {
 
   local pre_commit=".husky/pre-commit"
   local source_pattern
-  source_pattern=$(echo "$source_path" | sed 's/\./\\\\./g')
+  source_pattern="${source_path//./\\\\.}"
   local target_pattern
-  target_pattern=$(echo "$target_path" | sed 's/\./\\\\./g')
+  target_pattern="${target_path//./\\\\.}"
 
   if [[ ! -f "$pre_commit" ]]; then
-    cat > "$pre_commit" << BASH
+    cat >"$pre_commit" <<BASH
 #!/usr/bin/env sh
 . "\$(dirname -- "\$0")/_/husky.sh"
 
@@ -1311,7 +1395,7 @@ BASH
     fi
 
     echo -e "${YELLOW}Manual step: Add to .husky/pre-commit:${NC}"
-    cat << BASH
+    cat <<BASH
 #!/usr/bin/env sh
 . "\$(dirname -- "\$0")/_/husky.sh"
 
@@ -1358,7 +1442,7 @@ setup_chezmoi() {
       # Determine the chezmoi include path (source_path without leading ./)
       local include_path="${source_path#./}"
 
-      cat > "$run_script" << TMPL
+      cat >"$run_script" <<TMPL
 #!/bin/bash
 # Sync Claude Code JSONC settings to JSON
 # Triggered when content changes
@@ -1427,7 +1511,7 @@ TMPL
     echo -e "${GRAY}Would update: .chezmoiignore${NC}"
   else
     if ! grep -q "$ignore_pattern" .chezmoiignore 2>/dev/null; then
-      echo "$ignore_pattern" >> .chezmoiignore
+      echo "$ignore_pattern" >>.chezmoiignore
       echo -e "${GREEN}Updated: .chezmoiignore${NC}"
     fi
   fi
@@ -1467,7 +1551,7 @@ case "$COMMAND" in
   validate) cmd_validate "$@" ;;
   schema-extract) cmd_schema_extract "$@" ;;
   schema-diff) cmd_schema_diff "$@" ;;
-  help|--help|-h)
+  help | --help | -h)
     echo "Usage: settings-manager <command> [options]"
     echo ""
     echo "Commands:"
