@@ -30,6 +30,11 @@ export default defineConfig({
     // argument. The rule reads the call site only, and its fix breaks the call.
     "unicorn/no-useless-undefined": ["error", { checkArguments: false }],
 
+    // Its fix is not behaviour-preserving: parseInt("") is NaN but Number("")
+    // is 0, which turns a rejected CLI argument into a valid zero. They also
+    // disagree on "12abc" (12 vs NaN) and "0x10" (0 vs 16).
+    "unicorn/prefer-number-coercion": "off",
+
     // CLAUDE.md asks for TODO/FIXME markers on deferred and security work.
     "no-warning-comments": "off",
 

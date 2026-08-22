@@ -119,7 +119,7 @@ async function gitVersionAtLeast(): Promise<{ ok: boolean; found: string }> {
   const raw = (await git("--version")).stdout;
   const match = raw.match(/(\d+)\.(\d+)/u);
   if (!match) return { ok: false, found: raw || "unknown" };
-  const [major, minor] = [Math.trunc(Number(match[1]!)), Math.trunc(Number(match[2]!))];
+  const [major, minor] = [parseInt(match[1]!, 10), parseInt(match[2]!, 10)];
   const ok = major > MIN_GIT[0] || (major === MIN_GIT[0] && minor >= MIN_GIT[1]);
   return { ok, found: `${major}.${minor}` };
 }
@@ -142,8 +142,8 @@ async function getBranchInfo(name: string, base: string, proof: ProofKind): Prom
   return {
     name,
     oid: oidResult.stdout,
-    ahead: Math.trunc(Number(aheadResult.stdout)) || 0,
-    behind: Math.trunc(Number(behindResult.stdout)) || 0,
+    ahead: parseInt(aheadResult.stdout, 10) || 0,
+    behind: parseInt(behindResult.stdout, 10) || 0,
     last_commit_date: dateResult.stdout,
     last_commit_subject: subjectResult.stdout,
     proof,
@@ -460,7 +460,7 @@ async function main(): Promise<AuditResult | SaveResult> {
         includeRemote = true;
         break;
       case "--max-age": {
-        maxAgeDays = Math.trunc(Number(args[++i]!));
+        maxAgeDays = parseInt(args[++i]!, 10);
         break;
       }
       default:

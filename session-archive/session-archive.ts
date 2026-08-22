@@ -92,7 +92,7 @@ export async function acquireLock(
         } else {
           // Lock held by another process — check if PID is alive
           try {
-            const lockPid = Math.trunc(Number(await readFile(lockfile, "utf-8")));
+            const lockPid = parseInt(await readFile(lockfile, "utf-8"), 10);
             if (!isNaN(lockPid)) {
               try {
                 process.kill(lockPid, 0); // signal 0 = check existence
@@ -126,7 +126,7 @@ export async function acquireLock(
 
 export async function releaseLock(lockfile = DEFAULT_LOCKFILE): Promise<void> {
   try {
-    const lockPid = Math.trunc(Number(await readFile(lockfile, "utf-8")));
+    const lockPid = parseInt(await readFile(lockfile, "utf-8"), 10);
     if (lockPid === process.pid) {
       await unlink(lockfile);
     }
@@ -160,7 +160,7 @@ export function parseArgs(argv: string[]): Options {
   for (let i = 0; i < argv.length; i++) {
     switch (argv[i]) {
       case "--days":
-        opts.days = Math.trunc(Number(requireArg("--days", ++i)));
+        opts.days = parseInt(requireArg("--days", ++i), 10);
         if (isNaN(opts.days) || opts.days < 0) {
           console.error("--days requires a non-negative integer");
           process.exit(1);
@@ -191,7 +191,7 @@ export function parseArgs(argv: string[]): Options {
         opts.backgroundWorker = requireArg("--background-worker", ++i);
         break;
       case "--max":
-        opts.max = Math.trunc(Number(requireArg("--max", ++i)));
+        opts.max = parseInt(requireArg("--max", ++i), 10);
         if (isNaN(opts.max) || opts.max < 0) {
           console.error("--max requires a non-negative integer");
           process.exit(1);

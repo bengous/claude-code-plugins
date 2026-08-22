@@ -153,7 +153,7 @@ const { values } = parseArgs({
 });
 
 async function main(): Promise<void> {
-  const port = Math.trunc(Number(values.port!));
+  const port = parseInt(values.port!, 10);
   const projectPath = values.project!;
   const statePath = values.state!;
 

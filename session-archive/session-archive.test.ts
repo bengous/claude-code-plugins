@@ -147,6 +147,23 @@ describe("parseArgs", () => {
     expect(opts.hook).toBe(true);
     expect(opts.max).toBe(5);
   });
+
+  // parseArgs exits the process on a bad value, so these run out of process.
+  // An empty value must stay a rejection: read as 0 it would mean "archive
+  // everything now" for --days and "no limit" for --max.
+  test.each([
+    ["--days", "--days requires a non-negative integer"],
+    ["--max", "--max requires a non-negative integer"],
+  ])("%s with an empty value exits 1", async (flag, message) => {
+    const scriptPath = join(import.meta.dir, "session-archive.ts");
+    const source = `import { parseArgs } from ${JSON.stringify(scriptPath)};
+      parseArgs([${JSON.stringify(flag)}, ""]);`;
+    const proc = Bun.spawn(["bun", "-e", source], { stdout: "pipe", stderr: "pipe" });
+    const [stderr, exitCode] = await Promise.all([new Response(proc.stderr).text(), proc.exited]);
+
+    expect(exitCode).toBe(1);
+    expect(stderr).toContain(message);
+  });
 });
 
 describe("shouldArchive", () => {
