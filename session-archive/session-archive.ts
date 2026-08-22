@@ -16,8 +16,7 @@ import { existsSync, readFileSync } from "node:fs";
 
 // === Constants ===
 const CLAUDE_DIR = join(homedir(), ".claude", "projects");
-const UUID_RE =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/;
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/u;
 const SKIP_NAMES = new Set(["memory", "archive", "sessions-index.json"]);
 const DEFAULT_DAYS = 30;
 const HOOK_MAX_DEFAULT = 20;
@@ -74,7 +73,10 @@ export interface Options {
 
 // === Lockfile ===
 
-export async function acquireLock(lockfile = DEFAULT_LOCKFILE, timeoutMs = 5_000): Promise<boolean> {
+export async function acquireLock(
+  lockfile = DEFAULT_LOCKFILE,
+  timeoutMs = 5_000,
+): Promise<boolean> {
   const deadline = Date.now() + timeoutMs;
   const pid = process.pid.toString();
 
@@ -147,11 +149,12 @@ export function parseArgs(argv: string[]): Options {
   };
 
   function requireArg(flag: string, i: number): string {
-    if (i >= argv.length || argv[i].startsWith("--")) {
+    const value = argv[i];
+    if (value === undefined || value.startsWith("--")) {
       console.error(`${flag} requires a value`);
       process.exit(1);
     }
-    return argv[i];
+    return value;
   }
 
   for (let i = 0; i < argv.length; i++) {
@@ -243,7 +246,7 @@ export async function discoverSessions(projectDir: string): Promise<SessionInfo[
 
     // JSONL files
     if (entry.isFile() && entry.name.endsWith(".jsonl")) {
-      const sessionId = entry.name.replace(/\.jsonl$/, "");
+      const sessionId = entry.name.replace(/\.jsonl$/u, "");
       if (!isSessionUuid(sessionId)) continue;
 
       const filePath = join(projectDir, entry.name);
@@ -284,9 +287,7 @@ export async function discoverSessions(projectDir: string): Promise<SessionInfo[
   return Array.from(sessionMap.values());
 }
 
-async function getActiveSessionIds(
-  projectDir: string,
-): Promise<Set<string>> {
+async function getActiveSessionIds(projectDir: string): Promise<Set<string>> {
   const activeIds = new Set<string>();
   const uid = process.getuid?.() ?? 1000;
   const projectName = basename(projectDir);
@@ -301,11 +302,9 @@ async function getActiveSessionIds(
         const target = await readlink(join(tasksDir, entry));
         const projectIdx = target.indexOf(projectName);
         if (projectIdx === -1) continue;
-        const afterProject = target.substring(
-          projectIdx + projectName.length + 1,
-        );
+        const afterProject = target.slice(projectIdx + projectName.length + 1);
         const uuid = afterProject.split("/")[0];
-        if (isSessionUuid(uuid)) {
+        if (uuid !== undefined && isSessionUuid(uuid)) {
           activeIds.add(uuid);
         }
       } catch {
@@ -354,12 +353,9 @@ export async function archiveSession(
   if (dryRun) {
     if (verbose) {
       const parts: string[] = [];
-      if (session.jsonlPath)
-        parts.push(`${formatBytes(session.sizeBytes)} JSONL`);
+      if (session.jsonlPath) parts.push(`${formatBytes(session.sizeBytes)} JSONL`);
       if (session.dirPath) parts.push("+ dir");
-      log(
-        `  [dry-run] Would archive ${session.sessionId} (${parts.join(" ")})`,
-      );
+      log(`  [dry-run] Would archive ${session.sessionId} (${parts.join(" ")})`);
     }
     return entry;
   }
@@ -369,29 +365,17 @@ export async function archiveSession(
   // Compress or move JSONL
   if (session.jsonlPath) {
     if (session.sizeBytes > 0) {
-      const archivePath = join(
-        archiveDir,
-        `${session.sessionId}.jsonl.gz`,
-      );
+      const archivePath = join(archiveDir, `${session.sessionId}.jsonl.gz`);
       try {
-        entry.compressedSizeBytes = await compressSession(
-          session.jsonlPath,
-          archivePath,
-          copy,
-        );
+        entry.compressedSizeBytes = await compressSession(session.jsonlPath, archivePath, copy);
         if (verbose) {
-          const ratio = (
-            (entry.compressedSizeBytes / session.sizeBytes) *
-            100
-          ).toFixed(1);
+          const ratio = ((entry.compressedSizeBytes / session.sizeBytes) * 100).toFixed(1);
           log(
             `  Compressed ${session.sessionId}.jsonl (${formatBytes(session.sizeBytes)} -> ${formatBytes(entry.compressedSizeBytes)}, ${ratio}%)`,
           );
         }
       } catch (err) {
-        console.error(
-          `  Failed to compress ${session.sessionId}: ${err}`,
-        );
+        console.error(`  Failed to compress ${session.sessionId}: ${err}`);
         throw err;
       }
     } else {
@@ -441,36 +425,31 @@ export async function loadArchiveIndex(archiveDir: string): Promise<ArchiveIndex
     parsed.entries = parsed.entries.filter(
       (e: ArchiveEntry) => e.sessionId && isSessionUuid(e.sessionId),
     );
+    // SAFETY: `version === 1` and `Array.isArray(entries)` are checked above,
+    // and every entry passed isSessionUuid on its sessionId.
     return parsed as ArchiveIndex;
   } catch {
     return { version: 1, entries: [] };
   }
 }
 
-export async function saveArchiveIndex(
-  archiveDir: string,
-  index: ArchiveIndex,
-): Promise<void> {
+export async function saveArchiveIndex(archiveDir: string, index: ArchiveIndex): Promise<void> {
   const indexPath = join(archiveDir, "sessions-index.json");
   const tmpPath = indexPath + ".tmp";
   await writeFile(tmpPath, JSON.stringify(index, null, 2) + "\n", "utf-8");
   await rename(tmpPath, indexPath);
 }
 
-export async function unarchiveSession(
-  uuid: string,
-  projectDir: string,
-): Promise<void> {
+export async function unarchiveSession(uuid: string, projectDir: string): Promise<void> {
   const archiveDir = join(projectDir, "archive");
   const index = await loadArchiveIndex(archiveDir);
 
   const entryIdx = index.entries.findIndex((e) => e.sessionId === uuid);
-  if (entryIdx === -1) {
+  const entry = index.entries[entryIdx];
+  if (entry === undefined) {
     console.error(`Session ${uuid} not found in archive`);
     process.exit(1);
   }
-
-  const entry = index.entries[entryIdx];
 
   // Restore JSONL — handle both gzip (new) and zstd (legacy)
   if (entry.hasJsonl) {
@@ -489,24 +468,15 @@ export async function unarchiveSession(
       // Legacy zstd — requires zstd CLI
       const zstdPath = Bun.which("zstd");
       if (!zstdPath) {
-        console.error(
-          `Cannot restore ${uuid}: archived with zstd but zstd is not installed`,
-        );
+        console.error(`Cannot restore ${uuid}: archived with zstd but zstd is not installed`);
         process.exit(1);
       }
-      const result =
-        await Bun.$`zstd -d --rm -q ${zstPath} -o ${targetPath}`
-          .nothrow()
-          .quiet();
+      const result = await Bun.$`zstd -d --rm -q ${zstPath} -o ${targetPath}`.nothrow().quiet();
       if (result.exitCode !== 0) {
-        console.error(
-          `Failed to decompress ${uuid}: ${result.stderr.toString()}`,
-        );
+        console.error(`Failed to decompress ${uuid}: ${result.stderr.toString()}`);
         process.exit(1);
       }
-      log(
-        `Restored ${uuid}.jsonl (${formatBytes(entry.sizeBytes)}, legacy zstd)`,
-      );
+      log(`Restored ${uuid}.jsonl (${formatBytes(entry.sizeBytes)}, legacy zstd)`);
     } else if (existsSync(emptyPath)) {
       await rename(emptyPath, targetPath);
       log(`Restored ${uuid}.jsonl (empty)`);
@@ -543,25 +513,16 @@ export async function archiveProject(
   // Load existing archive index to skip already-archived sessions
   const archiveDir = join(projectDir, "archive");
   const existingIndex = await loadArchiveIndex(archiveDir);
-  const alreadyArchived = new Set(
-    existingIndex.entries.map((e) => e.sessionId),
-  );
+  const alreadyArchived = new Set(existingIndex.entries.map((e) => e.sessionId));
 
   const allProtected = new Set([...protectedIds, ...activeIds]);
-  const cutoffDate = new Date(
-    Date.now() - options.days * 24 * 60 * 60 * 1000,
-  );
+  const cutoffDate = new Date(Date.now() - options.days * 24 * 60 * 60 * 1000);
 
   const toArchive = sessions
-    .filter(
-      (s) =>
-        shouldArchive(s, cutoffDate, allProtected) &&
-        !alreadyArchived.has(s.sessionId),
-    )
-    .sort((a, b) => a.mtime.getTime() - b.mtime.getTime());
+    .filter((s) => shouldArchive(s, cutoffDate, allProtected) && !alreadyArchived.has(s.sessionId))
+    .toSorted((a, b) => a.mtime.getTime() - b.mtime.getTime());
 
-  const limited =
-    options.max > 0 ? toArchive.slice(0, options.max) : toArchive;
+  const limited = options.max > 0 ? toArchive.slice(0, options.max) : toArchive;
 
   if (limited.length === 0) {
     return { archived: 0, skipped: sessions.length, errors: 0 };
@@ -577,9 +538,7 @@ export async function archiveProject(
     }
   }
 
-  const index = options.dryRun
-    ? { version: 1 as const, entries: [] }
-    : existingIndex;
+  const index = options.dryRun ? { version: 1 as const, entries: [] } : existingIndex;
   let archived = 0;
   let errors = 0;
 
@@ -619,9 +578,7 @@ async function listArchived(projectDir: string): Promise<void> {
     return;
   }
 
-  log(
-    `\n${basename(projectDir)}: ${index.entries.length} archived session(s)`,
-  );
+  log(`\n${basename(projectDir)}: ${index.entries.length} archived session(s)`);
   for (const entry of index.entries) {
     const date = new Date(entry.originalMtime).toLocaleDateString();
     const parts: string[] = [date];
@@ -653,17 +610,14 @@ async function showStats(
 export function formatBytes(bytes: number): string {
   if (bytes === 0) return "0 B";
   const units = ["B", "KB", "MB", "GB"];
-  const i = Math.min(
-    Math.floor(Math.log(bytes) / Math.log(1024)),
-    units.length - 1,
-  );
+  const i = Math.min(Math.floor(Math.log(bytes) / Math.log(1024)), units.length - 1);
   const value = bytes / Math.pow(1024, i);
   return `${value.toFixed(i === 0 ? 0 : 1)} ${units[i]}`;
 }
 
 async function getProjectDirs(options: Options): Promise<string[]> {
   if (options.project) {
-    return [options.project.replace(/\/$/, "")];
+    return [options.project.replace(/\/$/u, "")];
   }
 
   if (!existsSync(CLAUDE_DIR)) {
@@ -672,9 +626,7 @@ async function getProjectDirs(options: Options): Promise<string[]> {
   }
 
   const entries = await readdir(CLAUDE_DIR, { withFileTypes: true });
-  return entries
-    .filter((e) => e.isDirectory())
-    .map((e) => join(CLAUDE_DIR, e.name));
+  return entries.filter((e) => e.isDirectory()).map((e) => join(CLAUDE_DIR, e.name));
 }
 
 // === Hook Mode ===
@@ -684,12 +636,12 @@ interface HookInput {
   transcript_path?: string;
 }
 
-async function runHookMode(options: Options): Promise<void> {
+async function runHookMode(): Promise<void> {
   useStderrLog();
 
   // Read stdin payload (fast — small JSON)
   let input: HookInput = {};
-  if (!Bun.stdin.isTTY) {
+  if (!process.stdin.isTTY) {
     try {
       const stdinText = await Bun.stdin.text();
       input = JSON.parse(stdinText);
@@ -792,7 +744,7 @@ if (import.meta.main) {
 
     // Hook mode — fork to background, exit immediately
     if (options.hook) {
-      await runHookMode(options);
+      await runHookMode();
       process.exit(0);
     }
 
@@ -850,9 +802,7 @@ if (import.meta.main) {
 
       if (grandCount > 0) {
         const grandRatio =
-          grandTotal > 0
-            ? ((1 - grandCompressed / grandTotal) * 100).toFixed(1)
-            : "0";
+          grandTotal > 0 ? ((1 - grandCompressed / grandTotal) * 100).toFixed(1) : "0";
         log(
           `\nTotal: ${grandCount} sessions, ${formatBytes(grandTotal)} -> ${formatBytes(grandCompressed)} (${grandRatio}% saved)`,
         );
@@ -880,9 +830,7 @@ if (import.meta.main) {
     }
 
     if (options.verbose || options.dryRun) {
-      log(
-        `\nDone: ${totalArchived} archived, ${totalSkipped} skipped, ${totalErrors} errors`,
-      );
+      log(`\nDone: ${totalArchived} archived, ${totalSkipped} skipped, ${totalErrors} errors`);
     }
   } catch (err) {
     // Top-level safety net — never crash the hook

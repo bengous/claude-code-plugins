@@ -1,13 +1,12 @@
-import { describe, expect, test, beforeAll, afterAll } from "bun:test";
+import { describe, expect, test, afterAll } from "bun:test";
 import { $ } from "bun";
 import { mkdtemp, rm, cp } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join, dirname } from "node:path";
-import { fileURLToPath } from "node:url";
+import { join } from "node:path";
 
-const __dirname = dirname(fileURLToPath(import.meta.url));
-const scriptPath = join(__dirname, "..", "validate-marketplace.ts");
-const fixturesDir = join(__dirname, "fixtures");
+const testDir = import.meta.dirname;
+const scriptPath = join(testDir, "..", "validate-marketplace.ts");
+const fixturesDir = join(testDir, "fixtures");
 
 /**
  * Helper to set up a test environment with a fixture

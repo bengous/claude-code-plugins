@@ -261,7 +261,7 @@ paths:
 
 Keep one topic per file (e.g. `testing.md`, `api-design.md`). The root CLAUDE.md keeps only always-relevant context.
 
-The `paths:` frontmatter is optional: with it, the rule loads only when Claude reads matching files. Without it, the rule loads unconditionally at the same priority as `.claude/CLAUDE.md` — the split saves no context, it only improves organization.
+The `paths:` frontmatter is optional: with it, the rule loads only when Claude reads matching files. Without it, the rule loads unconditionally at the same priority as `.claude/CLAUDE.md`: the split saves no context, it only improves organization.
 
 ---
 

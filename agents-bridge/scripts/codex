@@ -31,7 +31,7 @@ ensure_bin_runtime() {
   local bin_path=$1
   local shebang
 
-  IFS= read -r shebang < "${bin_path}"
+  IFS= read -r shebang <"${bin_path}"
 
   if [[ ${shebang} == "#!"*"/bun"* || ${shebang} == "#!"*"/env bun"* ]]; then
     if ! command -v bun >/dev/null 2>&1; then
@@ -77,7 +77,7 @@ resolve_version() {
   fi
 
   local pinned=""
-  [[ -f ${pin_file} ]] && IFS= read -r pinned < "${pin_file}"
+  [[ -f ${pin_file} ]] && IFS= read -r pinned <"${pin_file}"
 
   # Fresh pin: reuse it without touching the network.
   if [[ -n ${pinned} ]] && [[ -n $(find "${pin_file}" -mmin "-${pin_ttl_minutes}" 2>/dev/null) ]]; then
@@ -91,11 +91,11 @@ resolve_version() {
   npm_bin="$(command -v npm)" || npm_bin="${node_bindir}/npm"
   # Bounded retries: with the registry down, npm's default backoff stalls the
   # caller ~2 minutes before we can fall back to the cached version.
-  if candidate="$("${npm_bin}" view --fetch-retries=1 --fetch-retry-mintimeout=2000 --fetch-timeout=15000 "${package}" version 2>/dev/null)" \
-      && [[ -n ${candidate} ]] \
-      && "${node_bin}" "${npx_bin}" --yes --package "${package}@${candidate}" -- true 2>/dev/null; then
+  if candidate="$("${npm_bin}" view --fetch-retries=1 --fetch-retry-mintimeout=2000 --fetch-timeout=15000 "${package}" version 2>/dev/null)" &&
+    [[ -n ${candidate} ]] &&
+    "${node_bin}" "${npx_bin}" --yes --package "${package}@${candidate}" -- true 2>/dev/null; then
     mkdir -p "${pin_dir}"
-    printf '%s\n' "${candidate}" > "${pin_file}.tmp" && mv "${pin_file}.tmp" "${pin_file}"
+    printf '%s\n' "${candidate}" >"${pin_file}.tmp" && mv "${pin_file}.tmp" "${pin_file}"
     version="${candidate}"
     return
   fi

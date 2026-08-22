@@ -16,6 +16,17 @@
   "autoUpdates": true,
 
   // ─────────────────────────────────────────────────────────────────────────
+  // Plugins
+  // ─────────────────────────────────────────────────────────────────────────
+  //
+  // .claude/CLAUDE.md delegates plugin authoring to /plugin-dev; declare it so
+  // contributors get it. The claude-code-guide agent is built in, not a plugin.
+  //
+  "enabledPlugins": {
+    "plugin-dev@claude-plugins-official": true
+  },
+
+  // ─────────────────────────────────────────────────────────────────────────
   // Permissions
   // ─────────────────────────────────────────────────────────────────────────
   //
@@ -52,7 +63,19 @@
           },
           {
             "type": "command",
-            "command": "bun \"$CLAUDE_PROJECT_DIR/_shared/claude-cli/hooks/guard-main-branch.ts\"",
+            "command": "bun \"$CLAUDE_PROJECT_DIR/.claude/hooks/guard-main-branch.ts\"",
+            "timeout": 5
+          }
+        ]
+      },
+      {
+        // The pre-commit job block-settings-json is the authority; this only
+        // surfaces the same rule at edit time instead of at commit time.
+        "matcher": "Edit|Write|Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bun \"$CLAUDE_PROJECT_DIR/.claude/hooks/guard-settings-json.ts\"",
             "timeout": 5
           }
         ]
@@ -71,6 +94,9 @@
     ],
     "PostToolUse": [
       {
+        // oxfmt then oxlint on the file just written, using the root config.
+        // The pre-commit jobs are the authority; this only moves the same
+        // verdict from commit time to edit time.
         "matcher": "Edit|Write",
         "hooks": [
           {

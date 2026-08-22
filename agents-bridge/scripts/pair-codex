@@ -28,13 +28,19 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CODEX="${SCRIPT_DIR}/codex"
 EFFORT="${CODEX_EFFORT:-xhigh}"
 
-die() { printf 'pair-codex: %s\n' "${1}" >&2; exit 1; }
+die() {
+  printf 'pair-codex: %s\n' "${1}" >&2
+  exit 1
+}
 
 command -v jq >/dev/null 2>&1 || die "jq is required but was not found on PATH"
 
-mode="${1:-}"; out_dir="${2:-}"; prompt_file="${3:-}"; label="${4:-}"
-[[ -n "${mode}" && -n "${out_dir}" && -n "${prompt_file}" ]] \
-  || die "usage: pair-codex {fresh|resume} <out_dir> <prompt_file> [label]"
+mode="${1:-}"
+out_dir="${2:-}"
+prompt_file="${3:-}"
+label="${4:-}"
+[[ -n "${mode}" && -n "${out_dir}" && -n "${prompt_file}" ]] ||
+  die "usage: pair-codex {fresh|resume} <out_dir> <prompt_file> [label]"
 [[ -f "${prompt_file}" ]] || die "prompt file not found: ${prompt_file}"
 mkdir -p "${out_dir}"
 
@@ -46,10 +52,10 @@ case "${mode}" in
     "${CODEX}" exec --json -o "${out_dir}/${label}.last" \
       -s read-only -c "model_reasoning_effort=${EFFORT}" \
       "${prompt}" </dev/null \
-      >"${out_dir}/${label}.jsonl" 2>"${out_dir}/${label}.err" \
-      || die "codex exec (fresh) failed — see ${out_dir}/${label}.err"
+      >"${out_dir}/${label}.jsonl" 2>"${out_dir}/${label}.err" ||
+      die "codex exec (fresh) failed — see ${out_dir}/${label}.err"
     tid="$(jq -r 'select(.type=="thread.started") | .thread_id // empty' \
-            "${out_dir}/${label}.jsonl" | head -n1)"
+      "${out_dir}/${label}.jsonl" | head -n1)"
     [[ -n "${tid}" ]] || die "no thread_id in ${out_dir}/${label}.jsonl — cannot resume"
     printf '%s\n' "${tid}" >"${out_dir}/thread_id"
     ;;
@@ -62,8 +68,8 @@ case "${mode}" in
       -c sandbox_mode=read-only \
       -c "model_reasoning_effort=${EFFORT}" \
       "${tid}" "${prompt}" </dev/null \
-      >"${out_dir}/${label}.jsonl" 2>"${out_dir}/${label}.err" \
-      || die "codex exec resume failed — see ${out_dir}/${label}.err"
+      >"${out_dir}/${label}.jsonl" 2>"${out_dir}/${label}.err" ||
+      die "codex exec resume failed — see ${out_dir}/${label}.err"
     ;;
   *)
     die "unknown mode '${mode}' (use fresh|resume)"

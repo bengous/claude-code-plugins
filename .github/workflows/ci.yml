@@ -18,14 +18,33 @@ jobs:
         with:
           fetch-depth: 0 # full history needed for the drift guard
 
-      - name: Set up tools (bun, lefthook via mise)
+      - name: Set up tools (bun, lefthook, shellcheck, shfmt via mise)
         uses: jdx/mise-action@v4
 
       - name: Install script dependencies
         run: bun install --frozen-lockfile
 
-      - name: Test validation scripts
-        run: bun test scripts
+      # `bun test` alone skips dot directories, so the repo's own hooks need an
+      # explicit path. Together the two runs cover every test file.
+      - name: Run test suites
+        run: bun test && bun test ./.claude/hooks/*.test.ts
+
+      # The five gates below are the same commands the pre-commit jobs run, so a
+      # `--no-verify` commit gets the identical verdict here.
+      - name: Typecheck (tsgo)
+        run: bun x tsgo --noEmit
+
+      - name: Lint TypeScript (oxlint)
+        run: bun x oxlint
+
+      - name: Check formatting (oxfmt)
+        run: bun x oxfmt --check '**/*.ts' '**/*.js'
+
+      - name: Lint shell (shellcheck + shfmt)
+        run: bun ./scripts/lint-shell.ts
+
+      - name: Refuse unjustified lint suppressions
+        run: bun ./scripts/check-lint-disables.ts
 
       # Replays the local pre-commit checks server-side, so a `--no-verify`
       # commit can't slip a version desync or bad frontmatter past review.

@@ -20,10 +20,10 @@ import {
 
 // Colors (disabled if not a terminal)
 const isTTY = process.stdout.isTTY;
-const GREEN = isTTY ? "\x1b[0;32m" : "";
-const RED = isTTY ? "\x1b[0;31m" : "";
-const BOLD = isTTY ? "\x1b[1m" : "";
-const RESET = isTTY ? "\x1b[0m" : "";
+const GREEN = isTTY ? "\u001B[0;32m" : "";
+const RED = isTTY ? "\u001B[0;31m" : "";
+const BOLD = isTTY ? "\u001B[1m" : "";
+const RESET = isTTY ? "\u001B[0m" : "";
 
 let errors = 0;
 

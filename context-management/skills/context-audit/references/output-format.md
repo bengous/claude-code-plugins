@@ -7,7 +7,7 @@ Templates for Phase 6 (Generate Proposals) and Phase 7 (Output Report).
 ```
 REMOVE: Lines X-Y
 Content: "[exact content]"
-Reason: [why — specific anti-pattern or check result]
+Reason: [why: specific anti-pattern or check result]
 Budget impact: Recovers ~N directive slots
 Confidence: HIGH/MEDIUM
 Source: [Phase 3a/3b/4.1/4.2/etc.]
@@ -33,7 +33,7 @@ Confidence: MEDIUM
 Source: [Phase 4.3/4.5]
 
 ADD: [target file] → [section name]
-Content: "[proposed content — shape from references/templates.md]"
+Content: "[proposed content, shape from references/templates.md]"
 Grounded in: [the Phase 3 artefact: undocumented script / env var / package / architecture drift]
 Reason: [what this saves a future agent from re-discovering]
 Budget impact: Costs +N directive slots
@@ -55,7 +55,7 @@ costs them. An ADD with no `Grounded in:` artefact is not a valid proposal.
 Any proposal whose validity depends on resolving a FLAG carries `Contingent on: FLAG #N` and its
 budget impact is excluded from the projected total until that FLAG is settled. When including or
 excluding a contingent recovery moves the projection across a band boundary, report both figures
-under a `Sensitivity:` line — the band is what gates ADD, so the ambiguity is decision-relevant.
+under a `Sensitivity:` line, because the band is what gates ADD, so the ambiguity is decision-relevant.
 
 ## Tier 1: Executive Summary (always show)
 
@@ -74,7 +74,7 @@ File size: X lines
 
 ### Health Checks
 
-`Result` holds a per-check verdict — Pass / Warn / Fail. It is never counted, ratioed, or
+`Result` holds a per-check verdict: Pass / Warn / Fail. It is never counted, ratioed, or
 summed: "4/10 passing" is an aggregate score by another name, and the constraint forbids it.
 
 | Check                | Type          | Result | Details |
@@ -109,7 +109,7 @@ Every proposal with complete detail, grouped by action type. Show confidence lev
 empty `.claude/rules/`, content duplicated across memory files]
 
 ### Deferred Additions
-[additions held back because the projected budget stayed outside the Comfortable band —
+[additions held back because the projected budget stayed outside the Comfortable band,
 named, with their slot cost, but not offered for application]
 ```
 
@@ -119,9 +119,9 @@ named, with their slot cost, but not offered for application]
 ### Action Plan (N proposals)
 
 #### Phase 1: Remove (HIGH confidence first)
-1. [stale reference removals — deterministic]
-2. [linter overlap removals — high confidence]
-3. [generic advice removals — medium confidence]
+1. [stale reference removals: deterministic]
+2. [linter overlap removals: high confidence]
+3. [generic advice removals: medium confidence]
 
 #### Phase 2: Move to progressive disclosure
 4. [non-universal instructions → path-scoped rules]

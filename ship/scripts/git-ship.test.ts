@@ -1,18 +1,17 @@
+/* oxlint-disable anti-slop/no-unsafe-dictionary-type -- this harness asserts on the JSON that git-ship.ts prints on stdout: a closed type here would assert the schema instead of the behaviour. */
+
 import { afterEach, describe, expect, test } from "bun:test";
-import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { $ } from "bun";
 
-// Support both deployed (git-ship) and chezmoi source (executable_git-ship) names
-const SCRIPT = existsSync(join(import.meta.dir, "git-ship"))
-  ? join(import.meta.dir, "git-ship")
-  : join(import.meta.dir, "executable_git-ship");
+const SCRIPT = join(import.meta.dir, "git-ship.ts");
 
 let tmpDirs: string[] = [];
 
 function makeTmpDir(prefix: string): string {
-  const safe = prefix.replace(/[^a-zA-Z0-9-]/g, "-");
+  const safe = prefix.replaceAll(/[^a-zA-Z0-9-]/gu, "-");
   const dir = mkdtempSync(join(tmpdir(), `git-ship-test-${safe}-`));
   tmpDirs.push(dir);
   return dir;
@@ -39,7 +38,10 @@ async function git(cwd: string, ...args: string[]): Promise<string> {
   return stdout.toString().trim();
 }
 
-async function runShip(cwd: string, ...args: string[]): Promise<{ exitCode: number; result: Record<string, unknown> }> {
+async function runShip(
+  cwd: string,
+  ...args: string[]
+): Promise<{ exitCode: number; result: Record<string, unknown> }> {
   const { stdout, exitCode } = await $`bun run ${SCRIPT} ${args}`.cwd(cwd).quiet().nothrow();
   const out = stdout.toString().trim();
   try {
@@ -78,7 +80,7 @@ async function makeRepoWithOrigin(prefix: string): Promise<{ origin: string; rep
 async function makeFeatureBranch(repo: string, branch: string, commits: string[]): Promise<void> {
   await git(repo, "checkout", "-b", branch);
   for (const msg of commits) {
-    const filename = `${msg.replace(/\s+/g, "-").toLowerCase()}.txt`;
+    const filename = `${msg.replaceAll(/\s+/gu, "-").toLowerCase()}.txt`;
     await Bun.write(join(repo, filename), msg);
     await git(repo, "add", ".");
     await git(repo, "commit", "-m", msg);
@@ -90,7 +92,7 @@ async function advanceMain(repo: string, commits: string[]): Promise<void> {
   const currentBranch = await git(repo, "branch", "--show-current");
   await git(repo, "checkout", "main");
   for (const msg of commits) {
-    const filename = `main-${msg.replace(/\s+/g, "-").toLowerCase()}.txt`;
+    const filename = `main-${msg.replaceAll(/\s+/gu, "-").toLowerCase()}.txt`;
     await Bun.write(join(repo, filename), msg);
     await git(repo, "add", ".");
     await git(repo, "commit", "-m", msg);

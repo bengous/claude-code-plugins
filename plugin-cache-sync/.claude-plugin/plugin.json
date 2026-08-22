@@ -1,0 +1,20 @@
+{
+  "name": "plugin-cache-sync",
+  "version": "2.2.1",
+  "description": "Sync Claude Code plugin cache from local sources",
+  "author": {
+    "name": "Augustin BENGOLEA",
+    "email": "bengous@protonmail.com"
+  },
+  "homepage": "https://github.com/bengous/claude-code-plugins",
+  "repository": "https://github.com/bengous/claude-code-plugins",
+  "license": "MIT",
+  "keywords": [
+    "plugin",
+    "development",
+    "sync",
+    "cache",
+    "marketplace",
+    "devtools"
+  ]
+}

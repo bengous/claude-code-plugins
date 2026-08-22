@@ -74,7 +74,7 @@ The class name already tells us this.
 
 ### 2. Generic Best Practices
 
-Anything Claude already does unprompted. The catalog is `default-behaviors.md` — every ADD is
+Anything Claude already does unprompted. The catalog is `default-behaviors.md`; every ADD is
 tested against it before being proposed (Phase 6, rule 4).
 
 ### 3. One-Off Fixes
