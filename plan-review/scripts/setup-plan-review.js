@@ -80,7 +80,7 @@ function readJSON(filepath) {
     if (error.code === "ENOENT") {
       return null;
     }
-    throw new Error(`Failed to parse ${filepath}: ${error.message}`);
+    throw new Error(`Failed to parse ${filepath}: ${error.message}`, { cause: error });
   }
 }
 
@@ -150,11 +150,11 @@ function main() {
 
   // Read or create settings
   let settings = readJSON(SETTINGS_FILE);
-  if (!settings) {
+  if (settings) {
+    console.log("Settings file found");
+  } else {
     console.log("Creating new settings file");
     settings = {};
-  } else {
-    console.log("Settings file found");
   }
 
   // Initialize hooks object

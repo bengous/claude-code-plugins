@@ -23,5 +23,5 @@
     "forceConsistentCasingInFileNames": true
   },
   "include": ["**/*.ts"],
-  "exclude": ["node_modules", "archive", "_docs"]
+  "exclude": ["node_modules", "archive", "_docs", "tools/oxlint/anti-slop"]
 }

@@ -53,7 +53,7 @@ interface ScaffoldResult {
 
 interface ErrorResult {
   error: string;
-  details?: string;
+  details?: string | undefined;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -153,7 +153,7 @@ const { values } = parseArgs({
 });
 
 async function main(): Promise<void> {
-  const port = parseInt(values.port!, 10);
+  const port = Math.trunc(Number(values.port!));
   const projectPath = values.project!;
   const statePath = values.state!;
 
@@ -203,4 +203,4 @@ async function main(): Promise<void> {
   }
 }
 
-main();
+await main();
