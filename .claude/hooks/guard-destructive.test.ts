@@ -1,6 +1,10 @@
 import { describe, expect, test } from "bun:test";
-import { HOOK_EXIT } from "../hooks.ts";
-import { checkCommand, parseHookInput, stripStringLiterals } from "./guard-destructive.ts";
+import {
+	checkCommand,
+	HOOK_EXIT,
+	parseHookInput,
+	stripStringLiterals,
+} from "./guard-destructive.ts";
 
 // -- parseHookInput ----------------------------------------------------------
 

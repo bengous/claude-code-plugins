@@ -36,7 +36,7 @@
           },
           {
             "type": "command",
-            "command": "bun \"$CLAUDE_PROJECT_DIR/_shared/claude-cli/hooks/guard-main-branch.ts\"",
+            "command": "bun \"$CLAUDE_PROJECT_DIR/.claude/hooks/guard-main-branch.ts\"",
             "timeout": 5
           }
         ]

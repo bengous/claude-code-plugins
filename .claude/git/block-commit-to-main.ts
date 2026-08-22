@@ -8,7 +8,7 @@
 import {
 	getCurrentBranch,
 	isProtectedBranch,
-} from "../../_shared/claude-cli/hooks/guard-main-branch.ts";
+} from "../hooks/guard-main-branch.ts";
 
 if (process.env["MAIN_BYPASS"] === "1") process.exit(0);
 

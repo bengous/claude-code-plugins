@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { HOOK_EXIT } from "../hooks.ts";
+import { HOOK_EXIT } from "./guard-destructive.ts";
 import {
 	extractCdTarget,
 	isBranchMutatingCommand,
@@ -317,7 +317,7 @@ describe("subprocess integration", () => {
 			["git", "--git-dir", `${tmpDir}/.git`, "symbolic-ref", "HEAD", "refs/heads/main"],
 			{ stdout: "pipe", stderr: "pipe" },
 		);
-		const projectDir = `${import.meta.dir}/../../..`;
+		const projectDir = `${import.meta.dir}/../..`;
 		const input = JSON.stringify({
 			tool_input: { command: `cd ${tmpDir} && git commit -m 'x'` },
 		});
