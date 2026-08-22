@@ -6,6 +6,10 @@ set -euo pipefail
 # ================================================================
 # Flag-driven script for setting up and managing JSONC settings.
 # Claude handles decision-making; this script handles execution.
+#
+# FIXME(#47): rewrite this script in TypeScript at the next real change.
+# It wraps 6 inline `node -e` blocks, 3 of which carry their own copy of
+# the JSONC parser.
 # ================================================================
 
 # Colors
