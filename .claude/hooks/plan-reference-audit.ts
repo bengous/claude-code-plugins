@@ -142,6 +142,8 @@ export function extractResultText(outer: unknown): string | null {
   return null;
 }
 
+/* oxlint-enable anti-slop/no-runtime-typeof, anti-slop/no-unknown-parameters, anti-slop/no-unknown-returns, anti-slop/no-known-value-widening */
+
 /** Unwrap `claude -p --output-format json` stdout, then parse the verdict. */
 export function extractReview(rawStdout: string): Review | null {
   const outer = tryParse(rawStdout);
