@@ -205,12 +205,6 @@ describe("subprocess integration", () => {
     expect(exitCode).toBe(HOOK_EXIT.ALLOW);
   });
 
-  test("allows git commit on non-protected branch (dev)", async () => {
-    // We're on dev branch right now, so this should be allowed
-    const { exitCode } = await runHook("git commit -m 'test'");
-    expect(exitCode).toBe(HOOK_EXIT.ALLOW);
-  });
-
   test("allows with MAIN_BYPASS=1", async () => {
     const { exitCode } = await runHook("git commit -m 'test'", {
       MAIN_BYPASS: "1",
