@@ -329,6 +329,22 @@ describe("archiveSession", () => {
     expect(existsSync(join(dir, UUID_B))).toBe(true);
   });
 
+  test("copy mode: a vanished directory rejects instead of half-archiving", async () => {
+    using tmp = tempDir("archive-copy-missing");
+    const dir = join(tmp.path, "project");
+    mkdirSync(dir, { recursive: true });
+    const session = {
+      sessionId: UUID_C,
+      dirPath: join(dir, UUID_C),
+      mtime: OLD_DATE,
+      sizeBytes: 0,
+    };
+
+    await expect(
+      archiveSession(session, join(dir, "archive"), false, true, false),
+    ).rejects.toThrow();
+  });
+
   test("dry-run: no files created", async () => {
     using tmp = tempDir("archive-dry");
     const { dir, uuids } = await createFakeProject(tmp.path);

@@ -9,6 +9,7 @@ import {
   readFile,
   writeFile,
   unlink,
+  cp,
 } from "node:fs/promises";
 import { join, dirname, basename } from "node:path";
 import { homedir } from "node:os";
@@ -397,11 +398,7 @@ export async function archiveSession(
   if (session.dirPath) {
     const archiveDirPath = join(archiveDir, session.sessionId);
     if (copy) {
-      // Recursive copy via Bun shell
-      const { default: $ } = await import("bun").then((m) => ({
-        default: m.$,
-      }));
-      await $`cp -r ${session.dirPath} ${archiveDirPath}`.quiet().nothrow();
+      await cp(session.dirPath, archiveDirPath, { recursive: true });
     } else {
       await rename(session.dirPath, archiveDirPath);
     }
