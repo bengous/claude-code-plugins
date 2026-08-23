@@ -9,6 +9,7 @@ Do not reinvent plugin patterns. Delegate:
 - `/plugin-dev:create-plugin` and the `plugin-dev` skills (structure, skills, hooks, agents, settings) to build or modify a plugin
 - `plugin-dev:plugin-validator` agent to validate one
 - `claude-code-guide` agent for Claude Code behavior questions
+- Live doc search: the `claude-code-docs` MCP server (user scope, https://code.claude.com/docs/mcp)
 - Official docs, the fallback when those are not installed: https://code.claude.com/docs/en/plugins
 
 New plugin: add its `marketplace.json` entry and its `README.md` table row by hand; no check catches their absence. Version bumps: edit `plugin.json` only; pre-commit propagates to the existing entry and row.
