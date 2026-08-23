@@ -29,7 +29,7 @@ bun x oxfmt '**/*.ts' '**/*.js' '**/*.mjs' '**/*.cjs'  # format; add --check to 
 bun ./scripts/lint-shell.ts                            # shellcheck + shfmt; takes paths, else the whole repo
 ```
 
-The six tooling gates (`check-lint-config.ts`, `tsgo`, `oxlint`, `oxfmt --check`, `lint-shell.ts`, `check-lint-disables.ts`) run in `pre-commit` and again in CI, same arguments both times; `validate-marketplace.ts` too. `pre-commit` runs `validate-frontmatter.ts` on staged files only, CI runs it with `--all`. Neither test command runs in `pre-commit`: `lefthook.yml` declares no test job, so both `bun test` runs are CI-only.
+Everything above also runs in `pre-commit` and CI except `bun test`: `lefthook.yml` declares no test job, so run the tests yourself before pushing. Job list, order, and argument differences: `docs/repo-ops.md`.
 
 ## Code Standards
 
@@ -43,7 +43,7 @@ That bash boundary binds new code. Scripts already over it move when an issue re
 Carried by the commands above:
 
 - Extensions are mandatory: `.ts`, `.sh`. `tsgo`, `oxlint`, `oxfmt` and `check-lint-disables.ts` select files by extension, so a Bun script named without `.ts` is checked by nothing. `lint-shell.ts` also matches a shell shebang, so bash survives an extensionless name.
-- One root `tsconfig.json` covers every `.ts` outside `archive/`, `_docs/` and the vendored linter: `strict`, plus `noUncheckedIndexedAccess` and `exactOptionalPropertyTypes`. Do not add a second one.
+- One root `tsconfig.json` covers every `.ts` outside `archive/` and the vendored linter: `strict`, plus `noUncheckedIndexedAccess` and `exactOptionalPropertyTypes`. Do not add a second one.
 - Every lint suppression says why on its own line: `// oxlint-disable-next-line <rule> -- <reason>`. `check-lint-disables.ts` rejects the bare form, `oxlint-` and `eslint-` spellings alike.
 
 Carried by nobody, so hold them by hand:
@@ -54,32 +54,17 @@ Carried by nobody, so hold them by hand:
 ## Non-Obvious Directories
 
 - `archive/` - retired plugins, not in the marketplace.
-- `_docs/` - scraped external references, not plugin content.
 - `tools/oxlint/anti-slop/` - vendored lint plugin. Do not edit; re-run the upstream installer (see its README).
 
 ## Branching
 
-`dev` is the working trunk; `main` is the release channel consumers install from, moved only by the human, by fast-forward (`git push origin dev:main`). History is linear everywhere: no merge commits, server-enforced. `origin/dev` is the source of truth; every local `dev` is a cache that goes stale each time someone else lands.
+`dev` is the working trunk; `main` is the release channel consumers install from, moved only by the human, by fast-forward. History is linear everywhere: no merge commits, server-enforced. `origin/dev` is the source of truth; every local `dev` is a cache that goes stale each time someone else lands.
 
 Two lanes; the agent judges by scope, the user can override:
 
-- Inline — one concern, small diff: `git pull --ff-only` first, commit directly on `dev`, `git push origin dev` when validated. Rejected push: `git pull --rebase`, push again.
-- Branch — several concerns, big work (large feature, large skill), or parallel agents: `feature/`|`fix/` branch, pushed, PR targeting `dev`, agent review per PR.
-
-During a feature the branch ignores `dev`. Review rounds land on the branch; no routine rebase. Rebase mid-feature only to pick up a commit the feature needs, or to defuse a real conflict.
-
-Landing a branch is remote-first, once, at the end, from any checkout or worktree:
-
-```bash
-git fetch origin
-git rebase origin/dev
-git push origin <branch>:dev
-```
-
-Rejected push (`origin/dev` moved in between): repeat both commands. The pushed head SHA reaching `dev` is what marks the PR merged, so never rebase between the last reviewed push of the branch and this landing; if the SHA changed anyway, `gh pr close` with the integration SHA. Never use the GitHub merge button.
-
-`Closes #N` fires only on `main` (the default branch): issues close at release, or by hand with the SHA.
+- Inline — one concern, small diff: commit directly on `dev`.
+- Branch — several concerns, big work (large feature, large skill), or parallel agents: `feature/`|`fix/` branch, pushed, PR targeting `dev`, agent review per PR. During a feature the branch ignores `dev`; rebase mid-feature only to pick up a commit the feature needs, or to defuse a real conflict.
 
 Review: agents review each other's PRs; the human reviews contracts and tests at the end of a chantier and before each release.
 
-Details and recovery: `docs/repo-ops.md`.
+Before any push or release: follow `docs/repo-ops.md`; landing is remote-first.

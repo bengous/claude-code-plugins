@@ -1,6 +1,6 @@
-# Repo Ops: Branch Protection
+# Repo Ops
 
-Recovery and enforcement details for `main`/`dev`. Day-to-day rules live in `AGENTS.md`.
+Procedures, enforcement, and recovery for `main`/`dev`. The branching model and the lane choice live in `AGENTS.md`; every git procedure lives here.
 
 ## GitHub rulesets
 
@@ -27,7 +27,8 @@ There is no classic branch protection; querying `/branches/main/protection` retu
 ## Local enforcement
 
 - lefthook `pre-commit`, 12 jobs in order: `block-commit-to-main`, `block-settings-json`, `sync-settings`, `sync-versions` (auto-fix), `validate-marketplace`, `validate-frontmatter`, then the six repo-wide gates `lint-config`, `typecheck`, `lint-ts`, `fmt`, `lint-sh`, `check-lint-disables`. Only the mutating jobs are order-bound: they run before the jobs that validate what they wrote. `commit-msg`: 1 job, `block-ai-signatures`. Escape hatch for recovery only: `MAIN_BYPASS=1`.
-- Claude Code PreToolUse hook: `.claude/hooks/guard-main-branch.ts`.
+- CI parity: the six tooling gates and `validate-marketplace.ts` run again in CI with the same arguments. `validate-frontmatter.ts` runs on staged files in `pre-commit`, with `--all` in CI. Neither test command runs in `pre-commit`: `lefthook.yml` declares no test job, so both `bun test` runs are CI-only.
+- Claude Code PreToolUse hooks: `.claude/hooks/guard-main-branch.ts` (no commit/push on a `main` checkout), `.claude/hooks/guard-git-push.ts` (no push targeting `main`, no force push targeting `dev` — the rulesets accept both, so only the hook refuses them agent-side).
 
 ## CI
 
