@@ -1,32 +1,36 @@
----
-description: Strip working files and create a GitHub PR. Called by /ship when no PR exists.
-allowed-tools:
-  - Bash("${CLAUDE_PLUGIN_ROOT}/scripts/prep-pr.ts":*)
-  - Bash(git push -u origin:*)
-  - Bash(git checkout:*)
-  - Bash(gh pr create:*)
----
-
 # Ship Prep
 
 Prepare a clean PR branch by stripping working files and creating a GitHub PR.
 
-## Context
+Paths: this file lives in `<plugin>/skills/ship/`; the backends live in
+`<plugin>/scripts/` -- two directories above this file.
 
-- Branch: !`git branch --show-current`
-- Repo root: !`git rev-parse --show-toplevel 2>/dev/null`
-- Working tree: !`git status --short`
-- Commits vs main: !`git log --oneline main..HEAD 2>/dev/null`
-- Diff stats: !`git diff --stat main...HEAD 2>/dev/null`
-- Local branches: !`git branch --list 2>/dev/null`
-- Config: !`cat .shiprc.json 2>/dev/null`
+Two standing rules:
+
+- Keep every Bash call inside the command heads SKILL.md pre-approves. No
+  `; echo $?` suffix, no ad-hoc `grep`/`head` -- each extra head falls outside
+  the approval and triggers a permission prompt. A failing command already
+  reports its exit code in the tool result.
+- STOP means stop: report the stated message and end the turn. Do not read the
+  backend source, run substitute git commands, or strip files, push, or create
+  the PR by hand.
+
+## Gather context
+
+Reuse `branch` and `config` from the router's Inputs already in context. Then
+run each as one plain command, nothing appended:
+
+- Working tree: `git status --short`
+- Commits vs main: `git log --oneline main..HEAD`
+- Diff stats: `git diff --stat main...HEAD`
+- Local branches: `git branch --list`
 
 ## Phase 0: Dry-run
 
 Run the prep-pr script in dry-run mode to detect working files:
 
 ```
-dry_run = run `"${CLAUDE_PLUGIN_ROOT}/scripts/prep-pr.ts" --dry-run`
+dry_run = run `"<plugin>/scripts/prep-pr.ts" --dry-run`
 parse dry_run as JSON
 ```
 
@@ -69,8 +73,8 @@ If "Let me choose": present the file list and let the user select which to strip
 
 Based on the user's choice, run the prep-pr script:
 
-- **Strip all**: `"${CLAUDE_PLUGIN_ROOT}/scripts/prep-pr.ts" --force --backup`
-- **Strip selected**: `"${CLAUDE_PLUGIN_ROOT}/scripts/prep-pr.ts" --force --backup -- file1.md file2.md`
+- **Strip all**: `"<plugin>/scripts/prep-pr.ts" --force --backup`
+- **Strip selected**: `"<plugin>/scripts/prep-pr.ts" --force --backup -- file1.md file2.md`
 - **Keep all**: skip the script entirely.
 
 Parse the JSON output. Confirm the backup ref and which files were removed.
@@ -130,10 +134,10 @@ git checkout {original-branch}
 ### 8. Ask about next step
 
 Use **AskUserQuestion** with options:
-- "Merge now (invoke /ship-merge)"
+- "Merge now"
 - "Wait for review"
 
-If "Merge now": instruct to invoke `/ship-merge`.
+If "Merge now": Read `merge.md` -- same directory as this file -- and follow it.
 
 ## Rules
 

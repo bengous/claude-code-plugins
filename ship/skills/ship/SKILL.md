@@ -7,33 +7,68 @@ description: >
   Use when: "ship", "prep pr", "create pr", "open pr", "merge to main",
   "submit for review", "push for review", "ship this branch".
 disable-model-invocation: true
+allowed-tools:
+  - Bash("${CLAUDE_PLUGIN_ROOT}/scripts/prep-pr.ts":*)
+  - Bash("${CLAUDE_PLUGIN_ROOT}/scripts/git-ship.ts":*)
+  - Bash(test:*)
+  - Bash(echo:*)
+  - Bash(cat:*)
+  - Bash(ls:*)
+  - Bash(git branch:*)
+  - Bash(git rev-parse:*)
+  - Bash(git status:*)
+  - Bash(git log:*)
+  - Bash(git diff:*)
+  - Bash(git checkout:*)
+  - Bash(git commit:*)
+  - Bash(git reset:*)
+  - Bash(git clean:*)
+  - Bash(git stash:*)
+  - Bash(git push:*)
+  - Bash(git worktree list:*)
+  - Bash(git worktree remove:*)
+  - Bash(git -C:*)
+  - Bash(gh pr view:*)
+  - Bash(gh pr create:*)
+  - Bash(gh pr close:*)
+  - Read
+  - Write
+  - Grep
+  - Glob
 ---
 
 # Ship
 
-Unified workflow for shipping a feature branch. Detects where you are in the
-lifecycle and dispatches to the right phase.
+Route to the correct shipping phase based on repo state. The phase files
+`setup.md`, `prep.md` and `merge.md` live in this skill's base directory.
 
-## Context
+## Inputs
 
-- Branch: !`git branch --show-current`
-- PR: !`gh pr view --json number,headRefName 2>/dev/null`
-- Repo root: !`git rev-parse --show-toplevel 2>/dev/null`
-- Config: !`cat .shiprc.json 2>/dev/null`
+- branch: !`git branch --show-current`
+- repo: !`git rev-parse --show-toplevel 2>/dev/null || echo "none"`
+- pr: !`gh pr view --json number,headRefName 2>/dev/null || echo "none"`
+- config: !`cat .shiprc.json 2>/dev/null || echo "none"`
+- tools: !`test -x "${CLAUDE_PLUGIN_ROOT}/scripts/prep-pr.ts" && test -x "${CLAUDE_PLUGIN_ROOT}/scripts/git-ship.ts" && echo "ok" || echo "missing"`
 
-## Decision tree
+## Routing
 
-Based on the context above, take exactly one path:
+```
+if tools == "missing":
+  STOP — tell user: prep-pr and/or git-ship not executable.
+  Run: chmod +x "${CLAUDE_PLUGIN_ROOT}/scripts/prep-pr.ts" "${CLAUDE_PLUGIN_ROOT}/scripts/git-ship.ts"
 
-### No `.shiprc.json` found (Config = none)
+if repo == "none":
+  STOP — tell user: not inside a git repository.
 
-Invoke `/ship-setup` to interactively create the config for this project.
-After setup completes, re-evaluate the context and continue to the appropriate phase.
+if config == "none":
+  Read setup.md and follow it
+  (setup hands off to prep.md or merge.md itself — do not continue below)
 
-### No PR exists (PR = none)
+if pr == "none":
+  Read prep.md and follow it
+else:
+  Read merge.md and follow it
+```
 
-Invoke `/ship-prep` to strip working files and create a PR.
-
-### PR exists
-
-Invoke `/ship-merge` to merge the PR branch into main.
+The merge phase detects and resumes an interrupted squash itself (staged
+changes plus a `refs/ship-backup/<branch>` ref). Do not short-circuit here.

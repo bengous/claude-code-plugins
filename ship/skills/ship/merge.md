@@ -1,39 +1,52 @@
----
-description: Merge PR branch to main via git-ship, close PR, cleanup. Called by /ship when PR exists.
-allowed-tools:
-  - Bash("${CLAUDE_PLUGIN_ROOT}/scripts/git-ship.ts":*)
-  - Bash("${CLAUDE_PLUGIN_ROOT}/scripts/prep-pr.ts":*)
-  - Bash(git checkout:*)
-  - Bash(git push:*)
-  - Bash(git branch -d:*)
-  - Bash(git worktree remove:*)
-  - Bash(git diff --cached:*)
-  - Bash(git commit:*)
-  - Bash(git reset:*)
-  - Bash(git status:*)
-  - Bash(git clean:*)
-  - Bash(git stash:*)
-  - Bash(git -C:*)
-  - Bash(gh pr close:*)
----
-
 # Ship Merge
 
 Merge the PR branch into main locally with GPG signing, close the PR, and clean up.
 
-## Context
+Paths: this file lives in `<plugin>/skills/ship/`; the backends live in
+`<plugin>/scripts/` -- two directories above this file.
 
-- Branch: !`git branch --show-current`
-- Repo root: !`git rev-parse --show-toplevel 2>/dev/null`
-- PR info: !`gh pr view --json number,title,url,headRefName,reviewDecision,statusCheckRollup 2>/dev/null`
-- git-ship location: !`test -x "${CLAUDE_PLUGIN_ROOT}/scripts/git-ship.ts" && echo "${CLAUDE_PLUGIN_ROOT}/scripts/git-ship.ts" || echo "missing"`
-- Existing backups: !`git branch --list "backup/ship-*" 2>/dev/null`
-- Worktree info: !`git worktree list 2>/dev/null`
-- Remote branches: !`git branch -r --list "origin/*" 2>/dev/null`
+Two standing rules:
 
-## Pre-flight
+- Keep every Bash call inside the command heads SKILL.md pre-approves. No
+  `; echo $?` suffix, no ad-hoc `grep`/`head` -- each extra head falls outside
+  the approval and triggers a permission prompt. A failing command already
+  reports its exit code in the tool result.
+- STOP means stop: report the stated message and end the turn. Do not read the
+  backend source, run substitute git commands, or merge, force-push, or delete
+  anything by hand.
 
-If git-ship location is "missing", tell the user to run `chmod +x "${CLAUDE_PLUGIN_ROOT}/scripts/git-ship.ts"` and stop.
+## Gather context
+
+Reuse `branch` from the router's Inputs, then run each as one plain command,
+nothing appended:
+
+- PR info: `gh pr view --json number,title,url,headRefName,reviewDecision,statusCheckRollup`
+- Current branch: `git branch --show-current` (prep may have moved branches)
+- Existing backups: `git branch --list "backup/ship-*"`
+- Worktree info: `git worktree list`
+- Remote branches: `git branch -r --list "origin/*"`
+
+## Resume check
+
+An interrupted squash leaves staged changes plus a `refs/ship-backup/{branch}`
+ref (the ref alone proves nothing -- it survives successful merges):
+
+```
+run `git status --porcelain`
+run `git rev-parse --verify refs/ship-backup/{branch}`
+
+if staged changes exist AND the backup ref resolves:
+  an earlier squash was interrupted before its commit.
+  AskUserQuestion:
+    header:   "Resume"
+    question: "A staged squash from an earlier run exists. Resume it?"
+    options:  "Resume (commit, then --continue)"
+              | "Restore the branch (undo the squash)"
+              | "Abort"
+  Resume  -> jump to step 4 (squash-staged), starting at the commit message
+  Restore -> run `"<plugin>/scripts/git-ship.ts" --restore`, report, STOP
+  Abort   -> STOP, nothing changed
+```
 
 ## Identifying the PR branch
 
@@ -52,7 +65,7 @@ Run `prep-pr --dry-run` on the PR branch to detect working files using the proje
 
 ```bash
 git checkout {headRefName}
-"${CLAUDE_PLUGIN_ROOT}/scripts/prep-pr.ts" --dry-run
+"<plugin>/scripts/prep-pr.ts" --dry-run
 ```
 
 If the dry-run shows `status: "ok"` with files in `removed` (meaning files would be stripped):
@@ -62,7 +75,7 @@ If the dry-run shows `status: "ok"` with files in `removed` (meaning files would
    - "Strip and force-push"
    - "Skip -- merge as-is"
    - "Abort"
-3. If strip: run `"${CLAUDE_PLUGIN_ROOT}/scripts/prep-pr.ts" --force --backup --pr-branch {headRefName}` then
+3. If strip: run `"<plugin>/scripts/prep-pr.ts" --force --backup --pr-branch {headRefName}` then
    `git push --force-with-lease origin {headRefName}`
 4. After force-push, sync the worktree to match remote:
    `git reset --hard origin/{headRefName}`
@@ -86,7 +99,7 @@ Otherwise, use **AskUserQuestion** with options:
 ### 3. Run git-ship
 
 ```bash
-"${CLAUDE_PLUGIN_ROOT}/scripts/git-ship.ts" [--squash|--no-squash]
+"<plugin>/scripts/git-ship.ts" [--squash|--no-squash]
 ```
 
 Parse the JSON output.
@@ -102,7 +115,7 @@ If the step is `squash-staged`:
 4. Write a **semantic commit message** -- focus on what was accomplished, not the
    incremental steps. Drop noise like "fix review", "remove unused import".
 5. Commit: `git commit -m "<message>"`
-6. Run: `"${CLAUDE_PLUGIN_ROOT}/scripts/git-ship.ts" --continue`
+6. Run: `"<plugin>/scripts/git-ship.ts" --continue`
 
 ### 5. On success (step is "merged")
 

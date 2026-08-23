@@ -34,7 +34,7 @@ A curated marketplace of Claude Code plugins for development workflow automation
 | [understanding](understanding/) | 1.0.0 | Understand a topic or a bug: minimal explanations and root-cause diagnosis |
 | [plugin-cache-sync](plugin-cache-sync/) | 2.2.1 | Sync Claude Code plugin cache from local sources |
 | [git-sweep](git-sweep/) | 3.1.0 | Interactive git branch and worktree cleanup: proves a branch is contained before proposing it, frees finished worktrees, and reports what it kept and why |
-| [ship](ship/) | 1.0.2 | Ship feature branches: strip working files, create PRs, merge to main with GPG signing and squash support |
+| [ship](ship/) | 2.0.0 | Ship feature branches: strip working files, create PRs, merge to main with GPG signing and squash support |
 
 See each plugin's README for detailed documentation and usage.
 
