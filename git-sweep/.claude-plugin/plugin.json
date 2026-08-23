@@ -1,6 +1,6 @@
 {
   "name": "git-sweep",
-  "version": "2.0.1",
+  "version": "3.0.0",
   "description": "Interactive git branch and worktree cleanup: proves a branch is contained before proposing it, frees finished worktrees, and reports what it kept and why",
   "author": {
     "name": "Augustin BENGOLEA",

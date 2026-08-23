@@ -1,19 +1,19 @@
----
-description: Audit branches/worktrees and collect cleanup choices. Called by /git-sweep.
-allowed-tools:
-  - Bash("${CLAUDE_PLUGIN_ROOT}/scripts/git-clean-audit.ts":*)
-  - Bash(printf:*)
-  - Bash(git log:*)
-  - Bash(git diff:*)
-  - Bash(git symbolic-ref:*)
-  - Read
-  - Grep
-  - Glob
----
-
 # Git Sweep Audit
 
 Scan, classify, collect user choices, build manifest, hand off to apply.
+
+Paths: this file lives in `<plugin>/skills/git-sweep/`; the backends live in
+`<plugin>/scripts/` — two directories above this file.
+
+Two standing rules:
+
+- Keep every Bash call inside the command heads SKILL.md pre-approves. No
+  `; echo $?` suffix, no ad-hoc `grep`/`head` — each extra head falls outside
+  the approval and triggers a permission prompt. A failing command already
+  reports its exit code in the tool result.
+- STOP means stop: report the stated message and end the turn. Do not read the
+  backend source, run substitute git commands, or reach a verdict by hand —
+  "the audit could not run" is the honest outcome, not "nothing to clean".
 
 ## Phase 1: Run audit
 
@@ -27,14 +27,17 @@ Execute the audit script, capturing exit code, stdout, and stderr. Do NOT
 discard stderr — the failure reason must stay visible:
 
 ```
-run `"${CLAUDE_PLUGIN_ROOT}/scripts/git-clean-audit.ts" --include-remote`
-capture: exit_code, stdout, stderr
+run `"<plugin>/scripts/git-clean-audit.ts" --include-remote`
+  (one plain command, nothing appended;
+   when the router's Inputs carry a non-empty `base`, add `--base {base}`)
+capture: stdout, stderr
 
 # The backend always emits JSON on failures it can catch. Empty or non-JSON
 # stdout means it never started (bun missing, not executable, …) — a case the
 # script itself cannot report. Guard before touching .ok:
 if stdout is empty OR stdout is not valid JSON:
-  STOP — report "audit backend failed" with exit_code and stderr
+  STOP — report "audit backend failed" with the exit code from the tool
+         result and stderr
 
 audit_json = parse stdout as JSON
 
@@ -45,12 +48,21 @@ audit_json = parse stdout as JSON
 # a feature branch it would make that branch the base, and the real trunk would
 # then appear under "Merged" with "Delete all" as the recommended answer.
 if audit_json.ok == false AND audit_json.error contains "base branch":
-  trunk = `git symbolic-ref --short refs/remotes/origin/HEAD` with "origin/" stripped
-          else the first of main, master, trunk whose BRANCH exists:
+  # A base the user named is their decision: never substitute another.
+  if the user supplied `base`:
+    STOP — tell user: branch {base} does not exist locally
+  candidates = [`git symbolic-ref --short refs/remotes/origin/HEAD`
+                  with "origin/" stripped]
+               then main, master, trunk
+  # origin/HEAD is a candidate, not a proof: it goes stale and can name a
+  # branch that no longer exists anywhere. Every candidate must pass the
+  # existence check before it may become the base.
+  trunk = first candidate whose BRANCH exists:
             `git rev-parse --verify refs/heads/{name}`
             (the bare name would also match a tag, which could be anywhere)
   if no trunk was found:
-    STOP — tell user: no trunk branch found; re-run with `--base <branch>`
+    STOP — tell user: no trunk branch found; re-run as `/git-sweep <branch>`,
+           naming the trunk
   re-run the audit with `--base {trunk}` and use that result
 
 if audit_json.ok == false:
@@ -286,17 +298,17 @@ kept = audit_json.kept
 ## Phase 4: Hand off
 
 Persist the manifest durably so the hand-off survives context compaction, then
-invoke apply (which reads the saved file — no in-session state required):
+move to apply (which reads the saved file — no in-session state required):
 
 ```
 # Write {manifest, kept} to the fixed repo-scoped path via the audit backend's
 # save mode. It validates the shape and writes atomically (tmp + rename).
 save = run `printf '%s' '{"manifest": {manifest_json}, "kept": {kept_json}}' \
-  | "${CLAUDE_PLUGIN_ROOT}/scripts/git-clean-audit.ts" --save-manifest`
+  | "<plugin>/scripts/git-clean-audit.ts" --save-manifest`
 parse save as JSON
 
 if save.ok == false:
   STOP — report save.error (manifest was not persisted)
 ```
 
-Then invoke `/git-sweep-apply`.
+Then Read `apply.md` — same directory as this file — and follow it.

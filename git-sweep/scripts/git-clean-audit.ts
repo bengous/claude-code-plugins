@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
 
 // git-clean-audit — Scan git branches and worktrees for cleanup candidates.
-// Emits structured JSON for the git-sweep pipeline (/git-sweep-audit + git-clean-apply).
+// Emits structured JSON for the git-sweep skill (audit phase, feeding git-clean-apply).
 
 import { $ } from "bun";
 import { existsSync } from "node:fs";
@@ -401,7 +401,7 @@ function isValidManifest(m: unknown): m is CleanupManifest {
 }
 
 // Persist {manifest, kept} (read from stdin) to a fixed repo-scoped file so the
-// hand-off to /git-sweep-apply survives context compaction. Atomic: tmp + rename.
+// hand-off to the apply phase survives context compaction. Atomic: tmp + rename.
 async function saveManifest(): Promise<SaveResult> {
   const raw = await Bun.stdin.text();
   let parsed: unknown;

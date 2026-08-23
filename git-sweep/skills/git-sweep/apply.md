@@ -1,22 +1,23 @@
----
-description: Confirm and execute cleanup manifest. Called by /git-sweep-audit.
-allowed-tools:
-  - Bash("${CLAUDE_PLUGIN_ROOT}/scripts/git-clean-apply.ts":*)
-  - Bash(git rev-parse:*)
-  - Bash(git branch:*)
-  - Bash(git worktree list:*)
-  - Read
-  - Write
----
-
 # Git Sweep Apply
 
 Confirm manifest, execute, report results.
 
+Paths: this file lives in `<plugin>/skills/git-sweep/`; the backends live in
+`<plugin>/scripts/` — two directories above this file.
+
+Two standing rules:
+
+- Keep every Bash call inside the command heads SKILL.md pre-approves. No
+  `; echo $?` suffix, no ad-hoc `grep`/`head` — each extra head falls outside
+  the approval and triggers a permission prompt. A failing command already
+  reports its exit code in the tool result.
+- STOP means stop: report the stated message and end the turn. Do not read the
+  backend source, run substitute git commands, or improvise deletions by hand.
+
 ## Inputs
 
-`/git-sweep-audit` persists `{manifest, kept}` to a fixed repo-scoped file
-before handing off, so this command works from a fresh context (compaction-proof):
+The audit phase persists `{manifest, kept}` to a fixed repo-scoped file before
+handing off, so this phase works from a fresh context (compaction-proof):
 
 ```
 manifest_file = run `git rev-parse --absolute-git-dir`/git-sweep-manifest.json
@@ -99,7 +100,7 @@ manifest shape, executes one operation at a time, and consumes (deletes) the
 file on full success. (`--manifest '{json}'` still works for direct invocation.)
 
 ```
-result = run `"${CLAUDE_PLUGIN_ROOT}/scripts/git-clean-apply.ts" --manifest-file "{manifest_file}"`
+result = run `"<plugin>/scripts/git-clean-apply.ts" --manifest-file "{manifest_file}"`
 capture: stdout, stderr
 
 # Same always-JSON guard as the audit phase: empty / non-JSON stdout means the
@@ -159,8 +160,8 @@ if result.manifest_remaining exists:
   Display:
     "{result.manifest_remaining.operations} operation(s) still pending in"
     "{result.manifest_remaining.path}"
-    "Run /git-sweep to re-audit (it overwrites this file), or /git-sweep-apply"
-    "to retry as-is once the cause above is fixed."
+    "Run /git-sweep once the cause above is fixed — it detects this file and"
+    "offers to retry it as-is, or to re-audit (which overwrites it)."
 ```
 
 ## Phase 5: Final state

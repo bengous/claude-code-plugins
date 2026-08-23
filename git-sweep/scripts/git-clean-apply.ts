@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
 
 // git-clean-apply — Execute a cleanup manifest one operation at a time.
-// Consumed by the git-sweep pipeline (/git-sweep-apply, fed by /git-sweep-audit).
+// Consumed by the git-sweep skill (apply phase, fed by the audit phase).
 
 import { $ } from "bun";
 import { rename, unlink } from "node:fs/promises";
