@@ -16,6 +16,7 @@ Git Tools provides AI-powered interactive git commands that enhance your workflo
 - **Conflict Guidance**: Step-by-step resolution instructions when conflicts arise
 - **Safety Checks**: Automatic backup branch creation and working directory validation
 - **Visual Feedback**: A rendered rebase plan, confirmed before execution
+- **Linear Flow**: Doctrine and setup for the dev-trunk/main-release fast-forward model
 
 ## Installation
 
@@ -214,6 +215,11 @@ No separate model is called, and no suggestion is generated that you do not see.
 #
 # Run this rebase? [Run / Cancel]
 ```
+
+## Skills
+
+- **submodule-setup**: Migrate branches to submodules with GitHub Actions sync automation.
+- **linear-flow**: Doctrine for the linear model — `dev` as working trunk, `main` as fast-forward release pointer, no merge commits. Includes repo bootstrap (rulesets, CI ancestor guard).
 
 ## Requirements
 
