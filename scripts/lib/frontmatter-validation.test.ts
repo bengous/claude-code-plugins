@@ -14,7 +14,7 @@ describe("classifyComponent", () => {
 
   test("classifies plugin and repo-level agents", () => {
     expect(classifyComponent("orchestration/agents/architect.md")).toBe("agent");
-    expect(classifyComponent(".claude/agents/plan-reference-auditor.md")).toBe("agent");
+    expect(classifyComponent(".claude/agents/example.md")).toBe("agent");
   });
 
   test("classifies only SKILL.md as a skill under skills/", () => {

@@ -25,13 +25,14 @@ in the repo.
 
 ## Why archived
 
-**Superseded by an in-repo hook.** `.claude/hooks/plan-reference-audit.ts` is the live
-`ExitPlanMode` gate. It spawns the `plan-reference-auditor` agent to check a plan's file
-paths and symbols against the real codebase, denies only on a reference that provably does
-not exist, and fails open on any spawn or parse error. The Python hook asked a different
-question: it globbed `.claude/plans/*.md`, took the most recently modified file, and demanded
-a `## Plan Review Status` section reading `APPROVED` before it would let the plan through.
-Two gates on one tool call is one too many, and the TypeScript one covers the real usage.
+**Superseded by an in-repo hook, itself later retired.** At archival, `.claude/hooks/plan-reference-audit.ts`
+became the live `ExitPlanMode` gate. It spawned the `plan-reference-auditor` agent to check a plan's
+file paths and symbols against the real codebase, denied only on a reference that provably did not
+exist, and failed open on any spawn or parse error. The Python hook asked a different question: it
+globbed `.claude/plans/*.md`, took the most recently modified file, and demanded a `## Plan Review
+Status` section reading `APPROVED` before it would let the plan through. Two gates on one tool call
+is one too many, and the TypeScript one covered the real usage. That hook and its agent were removed
+from the repo on 2026-08-23; nothing gates `ExitPlanMode` today.
 
 **Last Python in the tree.** The repo standardises on TypeScript and shell. Retiring this
 plugin removes `preuse-exitplanmode.py`, the only remaining `.py` file outside `archive/` and
