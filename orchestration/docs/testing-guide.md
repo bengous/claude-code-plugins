@@ -672,7 +672,7 @@ Ready to proceed? [yes]
 🌳 Worktree Created
 
 Branch: test/photoshoot-core-coverage
-Location: /home/user/projects/moment-photographie-photoshoot-core
+Location: ~/projects/moment-photographie-photoshoot-core
 Status: Ready for testing agent
 ```
 
@@ -680,7 +680,7 @@ Status: Ready for testing agent
 ```
 🤖 Testing Agent Spawned
 
-Working in: /home/user/projects/moment-photographie-photoshoot-core
+Working in: ~/projects/moment-photographie-photoshoot-core
 Target: 90% coverage
 Strategy: Core/Domain layer testing
 
@@ -713,7 +713,7 @@ Total: 53 tests, 700 lines of test code
   Hash: abc123de
   Message: "test(photoshoot): add core layer comprehensive tests"
 
-📍 Location: /home/user/projects/moment-photographie-photoshoot-core
+📍 Location: ~/projects/moment-photographie-photoshoot-core
 ```
 
 ### Phase 5: Next Steps

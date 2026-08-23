@@ -81,6 +81,43 @@ export function validateRequiredFields(mp: PluginEntry, pluginJson: PluginJson):
 }
 
 /**
+ * Validate that a plugin's `.claude-plugin/` holds nothing but `plugin.json`.
+ * Callers check that `plugin.json` itself exists before reading the directory.
+ */
+export function validatePluginDirContents(entries: ReadonlyArray<string>): ValidationResult {
+  const extras = entries.filter((entry) => entry !== "plugin.json").toSorted();
+  if (extras.length === 0) {
+    return { passed: true, message: "Only plugin.json in .claude-plugin/" };
+  }
+  return {
+    passed: false,
+    message: `Extra files in .claude-plugin/: ${extras.join(", ")}`,
+  };
+}
+
+export interface HardcodedPath {
+  line: number;
+  text: string;
+}
+
+const HARDCODED_HOME_RE = /(?:\/home\/|\/Users\/)[a-zA-Z]+/u;
+
+/**
+ * Find machine-specific home paths in shipped plugin code. A plugin carrying
+ * one works only on the author's machine, and consumers install the source
+ * verbatim.
+ */
+export function findHardcodedPaths(content: string): ReadonlyArray<HardcodedPath> {
+  const found: HardcodedPath[] = [];
+  for (const [index, text] of content.split("\n").entries()) {
+    if (HARDCODED_HOME_RE.test(text)) {
+      found.push({ line: index + 1, text: text.trim() });
+    }
+  }
+  return found;
+}
+
+/**
  * Extract version number from README markdown table for a given plugin.
  * Returns null if plugin not found in README.
  */

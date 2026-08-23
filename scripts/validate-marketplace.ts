@@ -5,12 +5,14 @@
  */
 
 import { $ } from "bun";
-import { existsSync } from "node:fs";
+import { existsSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import {
   validateNameMatch,
   validateVersionSync,
   validateRequiredFields,
+  validatePluginDirContents,
+  findHardcodedPaths,
   extractVersionFromReadme,
   validateReadmeVersion,
   type PluginEntry,
@@ -71,6 +73,12 @@ try {
   process.exit(2);
 }
 
+// Shipped plugin code, listed once and filtered per plugin below. Only what git
+// tracks ships, so an untracked scratch file is not the marketplace's problem.
+const trackedFiles = (await $`git ls-files -z`.quiet().text()).split("\0").filter(Boolean);
+const SHIPPED_TEXT_EXTENSIONS = [".ts", ".sh", ".md", ".json", ".js", ".mjs", ".cjs"];
+const isShippedText = (path: string) => SHIPPED_TEXT_EXTENSIONS.some((ext) => path.endsWith(ext));
+
 console.log(`${BOLD}Validating marketplace plugins...${RESET}\n`);
 
 // Validate each plugin
@@ -115,6 +123,24 @@ for (const mp of marketplace.plugins) {
 
   // Check 5: Required fields present
   report(validateRequiredFields(mp, pluginJson));
+
+  // Check 6: .claude-plugin/ holds nothing but plugin.json
+  report(validatePluginDirContents(readdirSync(join(pluginDir, ".claude-plugin"))));
+
+  // Check 7: no machine-specific home paths in shipped code
+  const prefix = `${mp.source.replace(/^\.\//u, "")}/`;
+  let hardcoded = 0;
+  for (const file of trackedFiles) {
+    if (!file.startsWith(prefix) || !isShippedText(file)) continue;
+    const content = await Bun.file(join(repoRoot, file)).text();
+    for (const hit of findHardcodedPaths(content)) {
+      fail(`Hardcoded path: ${file}:${hit.line}: ${hit.text}`);
+      hardcoded++;
+    }
+  }
+  if (hardcoded === 0) {
+    pass("No hardcoded paths");
+  }
 
   console.log();
 }

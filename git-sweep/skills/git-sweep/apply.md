@@ -66,7 +66,7 @@ Will delete:
 Retained (base main is never deleted):
   main                    — base
   dev                     — current
-  feature/live-work       — dirty-worktree: /home/user/p/.wt/live
+  feature/live-work       — dirty-worktree: ~/p/.wt/live
   research/state-of-art   — unproven: 1 commit(s) not proven to be in main
 ```
 

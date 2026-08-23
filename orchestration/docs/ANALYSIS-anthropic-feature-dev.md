@@ -116,7 +116,7 @@ orchestration/
 
 **Why it fails**:
 1. `@` imports resolve relative to PROJECT `.claude/commands/`, not plugin location
-2. When plugin is installed, paths like `./_/classification` look for `/home/user/project/.claude/commands/_/classification`
+2. When plugin is installed, paths like `./_/classification` look for `~/project/.claude/commands/_/classification`
 3. Files don't exist there, so Claude improvises
 
 **Evidence from test**:

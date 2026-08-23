@@ -3,6 +3,8 @@ import {
   validateNameMatch,
   validateVersionSync,
   validateRequiredFields,
+  validatePluginDirContents,
+  findHardcodedPaths,
   extractVersionFromReadme,
   setVersionInReadme,
   validateReadmeVersion,
@@ -129,6 +131,63 @@ describe("validateRequiredFields", () => {
     expect(result.message).toContain("plugin:name");
     expect(result.message).toContain("plugin:version");
     expect(result.message).toContain("plugin:description");
+  });
+});
+
+describe("validatePluginDirContents", () => {
+  test("passes when only plugin.json is present", () => {
+    const result = validatePluginDirContents(["plugin.json"]);
+    expect(result.passed).toBe(true);
+  });
+
+  test("fails and names every extra file", () => {
+    const result = validatePluginDirContents(["plugin.json", "marketplace.json", "notes.md"]);
+    expect(result.passed).toBe(false);
+    expect(result.message).toContain("marketplace.json");
+    expect(result.message).toContain("notes.md");
+  });
+
+  test("does not report plugin.json as an extra", () => {
+    const result = validatePluginDirContents(["plugin.json", "notes.md"]);
+    expect(result.message).not.toContain("plugin.json,");
+  });
+});
+
+describe("findHardcodedPaths", () => {
+  test("finds a Linux home path with its line number", () => {
+    const hits = findHardcodedPaths('const root = "/home/alice/work";');
+    expect(hits).toEqual([{ line: 1, text: 'const root = "/home/alice/work";' }]);
+  });
+
+  test("finds a macOS home path", () => {
+    expect(findHardcodedPaths("cd /Users/bob/repo")).toHaveLength(1);
+  });
+
+  test("reports the line number of a later match", () => {
+    const hits = findHardcodedPaths("const a = 1;\nconst b = 2;\ncd /home/carol");
+    expect(hits[0]?.line).toBe(3);
+  });
+
+  test("finds every offending line", () => {
+    expect(findHardcodedPaths("/home/alice\nok\n/Users/bob")).toHaveLength(2);
+  });
+
+  test("ignores portable paths", () => {
+    const content = [
+      "const root = process.env.HOME;",
+      'const dir = join(repoRoot, "plugins");',
+      "cd ${CLAUDE_PLUGIN_ROOT}",
+      "~/.claude/settings.json",
+    ].join("\n");
+    expect(findHardcodedPaths(content)).toEqual([]);
+  });
+
+  test("ignores /home and /Users without a user segment", () => {
+    expect(findHardcodedPaths("mkdir /home\nls /Users/")).toEqual([]);
+  });
+
+  test("returns nothing for empty content", () => {
+    expect(findHardcodedPaths("")).toEqual([]);
   });
 });
 
