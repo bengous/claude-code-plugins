@@ -25,8 +25,17 @@ afterEach(() => {
   tmpDirs = [];
 });
 
+// Isolated from the developer's global/system git config: a real sweep.* key
+// there would silently change what these tests assert.
+const GIT_ISOLATION = { GIT_CONFIG_GLOBAL: "/dev/null", GIT_CONFIG_NOSYSTEM: "1" };
+
 async function git(cwd: string, ...args: string[]): Promise<string> {
-  const proc = Bun.spawn(["git", ...args], { cwd, stdout: "pipe", stderr: "pipe" });
+  const proc = Bun.spawn(["git", ...args], {
+    cwd,
+    stdout: "pipe",
+    stderr: "pipe",
+    env: { ...process.env, ...GIT_ISOLATION },
+  });
   const stdout = await new Response(proc.stdout).text();
   const exitCode = await proc.exited;
   if (exitCode !== 0) {
@@ -40,7 +49,12 @@ async function runApply(
   cwd: string,
   ...args: string[]
 ): Promise<{ exitCode: number; result: Record<string, unknown> }> {
-  const proc = Bun.spawn(["bun", "run", SCRIPT, ...args], { cwd, stdout: "pipe", stderr: "pipe" });
+  const proc = Bun.spawn(["bun", "run", SCRIPT, ...args], {
+    cwd,
+    stdout: "pipe",
+    stderr: "pipe",
+    env: { ...process.env, ...GIT_ISOLATION },
+  });
   const stdout = await new Response(proc.stdout).text();
   const exitCode = await proc.exited;
   try {
@@ -237,6 +251,23 @@ describe("git-clean-apply", () => {
   // -------------------------------------------------------------------------
   // Guards the manifest cannot waive
   // -------------------------------------------------------------------------
+
+  test("refuses to delete a protected branch even when the manifest asks", async () => {
+    const repo = await makeRepo("protected-backstop");
+
+    // dev sits in the default protected set; the audit would never emit this
+    // entry, so it stands in for a hallucinated or hand-edited manifest.
+    await git(repo, "branch", "dev");
+    const oid = await git(repo, "rev-parse", "refs/heads/dev");
+    const path = writeManifest(repo, { branches: [{ name: "dev", force: false, oid }] });
+
+    const { result } = await runApply(repo, "--manifest-file", path);
+
+    const op = opFor(result, "dev");
+    expect(op?.success).toBe(false);
+    expect(op?.error).toContain("protected");
+    expect(await git(repo, "rev-parse", "refs/heads/dev")).toBe(oid);
+  });
 
   test("refuses to delete the base branch even when the manifest asks", async () => {
     const repo = await makeRepo("guard-base");

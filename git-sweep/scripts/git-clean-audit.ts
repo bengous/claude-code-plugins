@@ -8,6 +8,15 @@ import { existsSync } from "node:fs";
 import { rename } from "node:fs/promises";
 import { join } from "node:path";
 
+import {
+  buildProtectedSet,
+  localBranchExists,
+  originHeadTarget,
+  POSITIVE_INT,
+  readSweepConfig,
+  resolveBase,
+} from "./sweep-config.ts";
+
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
@@ -122,85 +131,6 @@ async function gitVersionAtLeast(): Promise<{ ok: boolean; found: string }> {
   const [major, minor] = [parseInt(match[1]!, 10), parseInt(match[2]!, 10)];
   const ok = major > MIN_GIT[0] || (major === MIN_GIT[0] && minor >= MIN_GIT[1]);
   return { ok, found: `${major}.${minor}` };
-}
-
-// ---------------------------------------------------------------------------
-// Configuration (git config sweep.*) and base resolution
-// ---------------------------------------------------------------------------
-
-const DEFAULT_AGENT_PREFIX = "worktree-agent-";
-const DEFAULT_BACKUP_PREFIX = "backup/";
-const DEFAULT_MAX_AGE_DAYS = 180;
-// Never proposed for deletion, local or remote, whatever the audit proves:
-// a trunk being contained in the base is by design, not staleness.
-const DEFAULT_PROTECTED = ["main", "master", "trunk", "dev", "develop"];
-
-type SweepConfig = {
-  base: string | null;
-  protect: string[];
-  agentPrefix: string;
-  backupPrefix: string;
-  maxAgeDays: number;
-};
-
-const POSITIVE_INT = /^[1-9]\d*$/u;
-
-async function readSweepConfig(): Promise<SweepConfig | { error: string }> {
-  const [base, protect, agentPrefix, backupPrefix, maxAge] = await Promise.all([
-    git("config", "--get", "sweep.base"),
-    git("config", "--get-all", "sweep.protect"),
-    git("config", "--get", "sweep.agentPrefix"),
-    git("config", "--get", "sweep.backupPrefix"),
-    git("config", "--get", "sweep.maxAgeDays"),
-  ]);
-
-  let maxAgeDays = DEFAULT_MAX_AGE_DAYS;
-  if (maxAge.exitCode === 0) {
-    if (!POSITIVE_INT.test(maxAge.stdout)) {
-      return {
-        error: `invalid sweep.maxAgeDays '${maxAge.stdout}' (expected a positive integer)`,
-      };
-    }
-    maxAgeDays = parseInt(maxAge.stdout, 10);
-  }
-
-  return {
-    base: base.exitCode === 0 && base.stdout ? base.stdout : null,
-    protect: protect.exitCode === 0 ? protect.stdout.split("\n").filter(Boolean) : [],
-    agentPrefix:
-      agentPrefix.exitCode === 0 && agentPrefix.stdout ? agentPrefix.stdout : DEFAULT_AGENT_PREFIX,
-    backupPrefix:
-      backupPrefix.exitCode === 0 && backupPrefix.stdout
-        ? backupPrefix.stdout
-        : DEFAULT_BACKUP_PREFIX,
-    maxAgeDays,
-  };
-}
-
-async function localBranchExists(name: string): Promise<boolean> {
-  // refs/heads/ in full: the bare name would also match a tag.
-  return (await git("rev-parse", "--verify", `refs/heads/${name}`)).exitCode === 0;
-}
-
-async function originHeadTarget(): Promise<string | null> {
-  const head = await git("symbolic-ref", "--short", "refs/remotes/origin/HEAD");
-  return head.exitCode === 0 && head.stdout.startsWith("origin/")
-    ? head.stdout.slice("origin/".length)
-    : null;
-}
-
-// origin/HEAD goes stale and can name a branch that no longer exists anywhere:
-// every candidate must pass the existence check before it may become the base.
-// Never falls back to HEAD — from a feature branch that would make the real
-// trunk look deletable.
-async function resolveBase(configBase: string | null, originHead: string | null) {
-  const candidates = [configBase, originHead, "main", "master", "trunk"].filter(
-    (c): c is string => c !== null,
-  );
-  for (const name of candidates) {
-    if (await localBranchExists(name)) return name;
-  }
-  return null;
 }
 
 // ---------------------------------------------------------------------------
@@ -386,11 +316,8 @@ async function scanWorktrees(
       continue;
     }
 
-    if (entry.branch === base) {
-      keep(entry.branch, "base", entry.path);
-      continue;
-    }
-
+    // The base is a member of protectedBranches; kept already lists it with
+    // its own reason.
     if (protectedBranches.has(entry.branch)) {
       keep(entry.branch, "protected", entry.path);
       continue;
@@ -574,6 +501,15 @@ async function main(): Promise<AuditResult | SaveResult> {
 
   const originHead = await originHeadTarget();
 
+  // A configured sweep.base is as explicit as --base: verified, never substituted.
+  if (config.base !== null && !(await localBranchExists(config.base))) {
+    return {
+      ok: false,
+      error: `configured sweep.base '${config.base}' not found`,
+      step: "validate",
+    };
+  }
+
   let base: string;
   if (baseArg === null) {
     const resolved = await resolveBase(config.base, originHead);
@@ -582,20 +518,16 @@ async function main(): Promise<AuditResult | SaveResult> {
     }
     base = resolved;
   } else {
-    // An explicitly named base is the caller's decision: verified, never substituted.
-    const baseCheck = await git("rev-parse", "--verify", baseArg);
-    if (baseCheck.exitCode !== 0) {
+    // An explicitly named base is the caller's decision: verified as a branch
+    // (a tag, an OID or HEAD would silently shift every containment proof),
+    // never substituted.
+    if (!(await localBranchExists(baseArg))) {
       return { ok: false, error: `base branch '${baseArg}' not found`, step: "validate" };
     }
     base = baseArg;
   }
 
-  const protectedBranches = new Set([
-    base,
-    ...(originHead === null ? [] : [originHead]),
-    ...DEFAULT_PROTECTED,
-    ...config.protect,
-  ]);
+  const protectedBranches = buildProtectedSet(base, originHead, config);
 
   // Containment proofs rest on `git merge-tree --write-tree`; without it the
   // audit would silently under-report instead of proving anything.

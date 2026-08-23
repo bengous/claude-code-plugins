@@ -69,3 +69,16 @@ Read audit.md and follow it
 
 The audit phase handles all "nothing to clean" detection itself
 (local branches, remote branches, worktrees). Do not short-circuit here.
+
+## Configuration (git config, all optional)
+
+- `sweep.base` — trunk to audit against when no argument is given
+- `sweep.protect` (multi-valued) — extra branches never proposed for deletion
+- `sweep.unprotect` (multi-valued) — lift names from the default protected
+  set (main, master, trunk, dev, develop); the audited base stays protected
+- `sweep.agentPrefix` / `sweep.backupPrefix` — classification prefixes
+  (defaults `worktree-agent-`, `backup/`; they must not overlap)
+- `sweep.maxAgeDays` — age bound for the containment test (default 180)
+
+Suggest the right key when a repo needs it (custom trunk name, other branch
+conventions); never set one without the user asking.

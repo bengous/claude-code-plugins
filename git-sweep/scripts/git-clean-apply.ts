@@ -6,6 +6,8 @@
 import { $ } from "bun";
 import { rename, unlink } from "node:fs/promises";
 
+import { buildProtectedSet, originHeadTarget, readProtectionConfig } from "./sweep-config.ts";
+
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
@@ -153,6 +155,15 @@ async function execute(
 
   const currentBranch = (await git("branch", "--show-current")).stdout;
 
+  // Backstop for the audit-time trunk protection: the manifest crosses an LLM
+  // hand-off and survives as an editable file, so the layer that deletes must
+  // re-refuse protected branches on its own.
+  const protectedBranches = buildProtectedSet(
+    manifest.base,
+    await originHeadTarget(),
+    await readProtectionConfig(),
+  );
+
   // 1. Remove worktrees first (must happen before branch deletion). No --force:
   // a worktree that became dirty since the audit must fail loudly, not be wiped.
   for (const path of manifest.worktrees) {
@@ -197,6 +208,10 @@ async function execute(
       fail(`refusing to delete the checked-out branch '${name}'`);
       continue;
     }
+    if (protectedBranches.has(name)) {
+      fail(`refusing to delete the protected branch '${name}' (sweep.unprotect can lift it)`);
+      continue;
+    }
 
     // The audit proved containment for THIS commit; if the branch moved since,
     // that proof no longer covers what would be deleted.
@@ -232,6 +247,16 @@ async function execute(
         target,
         success: false,
         error: `refusing to delete the base branch '${ref}' on ${remote}`,
+      });
+      continue;
+    }
+    if (protectedBranches.has(ref)) {
+      remaining.remote_branches.push(entry);
+      operations.push({
+        type: "remote-delete",
+        target,
+        success: false,
+        error: `refusing to delete the protected branch '${ref}' on ${remote} (sweep.unprotect can lift it)`,
       });
       continue;
     }
