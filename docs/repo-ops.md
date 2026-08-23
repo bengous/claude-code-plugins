@@ -15,9 +15,12 @@ There is no classic branch protection; querying `/branches/main/protection` retu
 
 ## Fast-forward flow
 
-`main` is a delayed pointer on `dev`'s history, never a divergent branch:
+`main` is a delayed pointer on `dev`'s history, never a divergent branch. `origin/dev` is the source of truth; local `dev` checkouts are caches:
 
-- Land a branch: rebase on `dev`, then `git merge --ff-only <branch>` from the checkout holding `dev`. The later push of `dev` (end of validated task) makes GitHub mark the matching PR merged, because the same SHAs reach the base branch. The GitHub merge button is never used; rebasing locally keeps commits signed by the author's key (GitHub-side rebase would strip signatures and trip `Require signed commits`).
+- Land a branch (remote-first, once, when validated): `git fetch origin`, `git rebase origin/dev`, `git push origin <branch>:dev` — from any checkout or worktree. A rejected push means `origin/dev` moved in between: repeat both commands; the loop converges because the branch is finished. GitHub marks the PR merged because the reviewed head SHA reaches the base; a rebase after the last reviewed push of the branch breaks that detection — then `gh pr close` with the integration SHA. The GitHub merge button is never used; rebasing locally keeps commits signed by the author's key (GitHub-side rebase would strip signatures and trip `Require signed commits`).
+- Refresh a stale local `dev` after a landing: `git pull --ff-only` from the checkout holding `dev`. Never land through a local `dev` that might be stale — that is how a fast-forward publish turns into a rejected push and a hand-recovered rebase.
+- Inline work on `dev`: `git pull --ff-only` first, commit, `git push origin dev` when validated; on rejection `git pull --rebase`, push again.
+- Issue footers: `Closes #N` fires on `main` (the default branch), not on `dev`. Issues referencing landed commits stay open until the release push, or are closed by hand with the SHA.
 - Release: `git push origin dev:main`, once the head's `validate` run is green. CI runs on push heads only, so the releasable commits are exactly the SHAs that were once a pushed `dev` head; with a red head, either release the last green SHA (`git push origin <sha>:main`) or land a fix commit and release that. The rulesets guarantee this is the only kind of push `main` accepts.
 - Force pushes happen only on feature branches (`--force-with-lease` after a rebase), never on `dev` or `main`.
 

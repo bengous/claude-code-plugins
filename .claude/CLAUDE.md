@@ -58,18 +58,26 @@ Carried by nobody, so hold them by hand:
 
 ## Branching
 
-`dev` is the working trunk; `main` is the release channel consumers install from, moved only by the human, by fast-forward (`git push origin dev:main`). History is linear everywhere: no merge commits, server-enforced.
+`dev` is the working trunk; `main` is the release channel consumers install from, moved only by the human, by fast-forward (`git push origin dev:main`). History is linear everywhere: no merge commits, server-enforced. `origin/dev` is the source of truth; every local `dev` is a cache that goes stale each time someone else lands.
 
 Two lanes; the agent judges by scope, the user can override:
 
-- Inline — one concern, small diff: commit directly on `dev`, atomic and curated.
+- Inline — one concern, small diff: `git pull --ff-only` first, commit directly on `dev`, `git push origin dev` when validated. Rejected push: `git pull --rebase`, push again.
 - Branch — several concerns, big work (large feature, large skill), or parallel agents: `feature/`|`fix/` branch, pushed, PR targeting `dev`, agent review per PR.
 
-Landing a branch: rebase on `dev`, then `git merge --ff-only <branch>` from the checkout holding `dev`. A session running in that checkout lands on its own, without asking; only a worktree session hands the merge over. Pushing `dev` then marks the PR merged; never use the GitHub merge button.
+During a feature the branch ignores `dev`. Review rounds land on the branch; no routine rebase. Rebase mid-feature only to pick up a commit the feature needs, or to defuse a real conflict.
 
-Push `dev` to origin when the task is done and validated (gates pass, acceptance criteria met) — not per commit, and the push is never the landing mechanism itself.
+Landing a branch is remote-first, once, at the end, from any checkout or worktree:
 
-Worktree sessions (`claude -w`) cannot move `dev`: it is checked out in the main checkout and git refuses. From a worktree: commit on the worktree branch, hand the `--ff-only` to the main checkout; a small fix needs no branch push and no PR.
+```bash
+git fetch origin
+git rebase origin/dev
+git push origin <branch>:dev
+```
+
+Rejected push (`origin/dev` moved in between): repeat both commands. The pushed head SHA reaching `dev` is what marks the PR merged, so never rebase between the last reviewed push of the branch and this landing; if the SHA changed anyway, `gh pr close` with the integration SHA. Never use the GitHub merge button.
+
+`Closes #N` fires only on `main` (the default branch): issues close at release, or by hand with the SHA.
 
 Review: agents review each other's PRs; the human reviews contracts and tests at the end of a chantier and before each release.
 
