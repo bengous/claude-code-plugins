@@ -44,14 +44,18 @@ pre-commit:
       glob:
         - "*.ts"
         - "*.js"
+        - "*.mjs"
+        - "*.cjs"
         - "oxlint.config.ts"
       run: bun x oxlint
     - name: fmt
       glob:
         - "*.ts"
         - "*.js"
+        - "*.mjs"
+        - "*.cjs"
         - ".oxfmtrc.json"
-      run: bun x oxfmt --check '**/*.ts' '**/*.js'
+      run: bun x oxfmt --check '**/*.ts' '**/*.js' '**/*.mjs' '**/*.cjs'
     - name: lint-sh
       glob:
         - "*.sh"
@@ -63,6 +67,8 @@ pre-commit:
       glob:
         - "*.ts"
         - "*.js"
+        - "*.mjs"
+        - "*.cjs"
       run: bun ./scripts/check-lint-disables.ts
 
 commit-msg:

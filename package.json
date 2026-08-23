@@ -6,8 +6,8 @@
   "scripts": {
     "typecheck": "tsgo --noEmit",
     "lint:ts": "oxlint",
-    "fmt": "oxfmt '**/*.ts' '**/*.js'",
-    "fmt:check": "oxfmt --check '**/*.ts' '**/*.js'",
+    "fmt": "oxfmt '**/*.ts' '**/*.js' '**/*.mjs' '**/*.cjs'",
+    "fmt:check": "oxfmt --check '**/*.ts' '**/*.js' '**/*.mjs' '**/*.cjs'",
     "lint:sh": "bun ./scripts/lint-shell.ts"
   },
   "dependencies": {

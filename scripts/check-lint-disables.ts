@@ -19,6 +19,8 @@ const EXCLUDED_PREFIXES = [
   "tools/oxlint/anti-slop/",
 ] as const;
 
+const CHECKED_EXTENSIONS = [".ts", ".js", ".mjs", ".cjs"] as const;
+
 // oxlint honours the eslint- spelling too, so both have to be gated.
 const DIRECTIVE_RE = /\b(?:ox|es)lint-disable(?:-next-line|-line)?\b/u;
 const JUSTIFIED_RE = /\s--\s+\S/u;
@@ -39,9 +41,9 @@ export function findOffences(path: string, contents: string): Offence[] {
   return offences;
 }
 
-function isCandidate(path: string): boolean {
+export function isCandidate(path: string): boolean {
   if (EXCLUDED_PREFIXES.some((prefix) => path.startsWith(prefix))) return false;
-  return path.endsWith(".ts") || path.endsWith(".js");
+  return CHECKED_EXTENSIONS.some((extension) => path.endsWith(extension));
 }
 
 async function trackedFiles(): Promise<string[]> {

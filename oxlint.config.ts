@@ -39,6 +39,20 @@ export default defineConfig({
     // scripts/lint-shell.ts. The rule would reject every one of them.
     "no-warning-comments": "off",
 
+    // Option semantics are inverted here: `true` bans the directive, `false`
+    // allows it unconditionally. Spelling the policy out keeps it alive if
+    // `pedantic` is ever lowered, which would otherwise drop it with no diff.
+    "typescript/ban-ts-comment": [
+      "error",
+      {
+        "ts-check": false,
+        "ts-expect-error": "allow-with-description",
+        "ts-ignore": true,
+        "ts-nocheck": true,
+        minimumDescriptionLength: 3,
+      },
+    ],
+
     "anti-slop/no-chained-type-assertions": "error",
     "anti-slop/no-conditional-empty-object-spread": "error",
     "anti-slop/no-known-value-widening": "error",

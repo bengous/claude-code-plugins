@@ -38,7 +38,7 @@ jobs:
         run: bun x oxlint
 
       - name: Check formatting (oxfmt)
-        run: bun x oxfmt --check '**/*.ts' '**/*.js'
+        run: bun x oxfmt --check '**/*.ts' '**/*.js' '**/*.mjs' '**/*.cjs'
 
       - name: Lint shell (shellcheck + shfmt)
         run: bun ./scripts/lint-shell.ts
