@@ -664,6 +664,113 @@ describe("git-clean-audit", () => {
   });
 
   // -------------------------------------------------------------------------
+  // Trunk protection, base resolution, sweep.* config
+  // -------------------------------------------------------------------------
+
+  test("never proposes a protected trunk, local or remote", async () => {
+    const { repo } = await makeRepoWithOrigin("protected-trunk");
+
+    // dev is the working trunk: main is its ancestor by design, on both sides.
+    await git(repo, "checkout", "-b", "dev");
+    await addCommit(repo, "dev.txt", "dev work");
+    await git(repo, "push", "-u", "origin", "dev");
+
+    const { result } = await runAudit(repo, "--base", "dev", "--include-remote");
+    const categories = result.categories as Record<string, { name: string }[]>;
+
+    expect(categories.merged_local).toHaveLength(0);
+    expect(categories.stale_remote).toHaveLength(0);
+    expect(keptEntry(result, "main")?.reason).toBe("protected");
+    const keptRemote = result.kept_remote as Kept[];
+    expect(keptRemote.find((k) => k.name === "origin/main")?.reason).toBe("protected");
+  });
+
+  test("honours sweep.protect for a custom branch", async () => {
+    const repo = await makeRepo("sweep-protect");
+
+    await git(repo, "checkout", "-b", "release");
+    await git(repo, "checkout", "main");
+    await git(repo, "config", "sweep.protect", "release");
+
+    const { result } = await runAudit(repo);
+    const categories = result.categories as Record<string, unknown[]>;
+
+    expect(categories.merged_local).toHaveLength(0);
+    expect(keptEntry(result, "release")?.reason).toBe("protected");
+  });
+
+  test("resolves the base itself when none is given", async () => {
+    const repo = await makeRepo("resolve-master");
+    await git(repo, "branch", "-m", "main", "master");
+
+    const { exitCode, result } = await runAudit(repo);
+
+    expect(exitCode).toBe(0);
+    expect(result.base).toBe("master");
+  });
+
+  test("skips a stale origin/HEAD candidate that no longer exists", async () => {
+    const { repo } = await makeRepoWithOrigin("stale-origin-head");
+    await git(repo, "symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/gone");
+
+    const { exitCode, result } = await runAudit(repo);
+
+    expect(exitCode).toBe(0);
+    expect(result.base).toBe("main");
+  });
+
+  test("sweep.base wins over the default candidates", async () => {
+    const repo = await makeRepo("sweep-base");
+    await git(repo, "checkout", "-b", "work");
+    await git(repo, "checkout", "main");
+    await git(repo, "config", "sweep.base", "work");
+
+    const { result } = await runAudit(repo);
+
+    expect(result.base).toBe("work");
+  });
+
+  test("errors when no trunk candidate exists", async () => {
+    const repo = await makeRepo("no-trunk");
+    await git(repo, "branch", "-m", "main", "wip");
+
+    const { exitCode, result } = await runAudit(repo);
+
+    expect(exitCode).toBe(1);
+    expect(result.ok).toBe(false);
+    expect(result.error).toContain("no trunk branch found");
+  });
+
+  test("rejects an invalid --max-age instead of dropping the age gate", async () => {
+    const repo = await makeRepo("bad-max-age");
+
+    const { exitCode, result } = await runAudit(repo, "--max-age", "abc");
+
+    expect(exitCode).toBe(1);
+    expect(result.ok).toBe(false);
+    expect(result.step).toBe("validate");
+  });
+
+  test("honours custom prefixes from git config", async () => {
+    const repo = await makeRepo("custom-prefixes");
+    await git(repo, "config", "sweep.agentPrefix", "wt-");
+    await git(repo, "config", "sweep.backupPrefix", "save/");
+
+    await git(repo, "checkout", "-b", "wt-abc");
+    await git(repo, "checkout", "-b", "save/old");
+    await addCommit(repo, "save.txt", "saved work");
+    await git(repo, "checkout", "main");
+
+    const { result } = await runAudit(repo);
+    const categories = result.categories as Record<string, { name: string }[]>;
+
+    expect(categories.orphaned_worktree?.map((b) => b.name)).toContain("wt-abc");
+    expect(categories.backup?.map((b) => b.name)).toContain("save/old");
+    // The former defaults no longer classify anything on their own.
+    expect(categories.merged_local).toHaveLength(0);
+  });
+
+  // -------------------------------------------------------------------------
   // Durable manifest hand-off (--save-manifest)
   // -------------------------------------------------------------------------
 
