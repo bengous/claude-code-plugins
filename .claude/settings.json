@@ -9,6 +9,9 @@
   "enabledPlugins": {
     "plugin-dev@claude-plugins-official": true
   },
+  "enabledMcpjsonServers": [
+    "claude-code-docs"
+  ],
   "hooks": {
     "SessionStart": [
       {

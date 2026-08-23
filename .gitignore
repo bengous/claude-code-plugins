@@ -64,7 +64,6 @@ docs/superpowers/specs/
 /.zshrc
 /.gitconfig
 /.ripgreprc
-/.mcp.json
 
 # External reference repos (submodules tracked, ignore stray zips)
 *.zip
