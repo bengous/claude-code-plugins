@@ -41,7 +41,10 @@ export interface HookInput {
 export const BLOCKED_PATTERNS: ReadonlyArray<readonly [RegExp, string]> = [
   [/rm\s+-rf\b/u, "rm -rf"],
   [/rm\s+-r\s+\//u, "rm -r /"],
-  [/git\s+push\s+--force\b/u, "git push --force"],
+  // (?![-\w]) keeps --force-with-lease/--force-if-includes out of the match:
+  // the branch lanes require --force-with-lease on feature branches, and
+  // guard-git-push.ts denies every force flavor that targets dev.
+  [/git\s+push\s+--force(?![-\w])/u, "git push --force"],
   [/git\s+push\s+-f\b/u, "git push -f"],
   [/git\s+reset\s+--hard\b/u, "git reset --hard"],
   [/git\s+clean\s+-f/u, "git clean -f"],

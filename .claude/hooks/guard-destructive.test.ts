@@ -105,6 +105,8 @@ describe("checkCommand allows safe commands", () => {
     "bun run validate",
     "git push origin main",
     "git push origin feature/branch",
+    "git push --force-with-lease origin feature/branch",
+    "git push --force-if-includes --force-with-lease origin feature/branch",
     "git checkout main",
     "git checkout -b feature/new",
     "git checkout feature/branch",

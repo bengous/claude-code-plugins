@@ -75,6 +75,13 @@
             "type": "command",
             "command": "bun \"$CLAUDE_PROJECT_DIR/.claude/hooks/guard-main-branch.ts\"",
             "timeout": 5
+          },
+          {
+            // The GitHub rulesets accept a fast-forward push to main and a
+            // linear force push to dev; this hook refuses both agent-side.
+            "type": "command",
+            "command": "bun \"$CLAUDE_PROJECT_DIR/.claude/hooks/guard-git-push.ts\"",
+            "timeout": 5
           }
         ]
       },
