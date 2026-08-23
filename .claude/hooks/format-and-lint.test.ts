@@ -51,7 +51,6 @@ describe("isLintable", () => {
 
   test("rejects the paths oxlint ignores", () => {
     expect(isLintable("archive/plugin/a.ts")).toBe(false);
-    expect(isLintable("_docs/a.ts")).toBe(false);
     expect(isLintable("node_modules/pkg/a.js")).toBe(false);
     expect(isLintable("tools/oxlint/anti-slop/index.ts")).toBe(false);
     expect(isLintable("claude-meta-tools/scripts/prompt-extractor/promptExtractor.js")).toBe(false);

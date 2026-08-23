@@ -11,7 +11,7 @@ import { $ } from "bun";
 
 const SHFMT_FLAGS = ["-i", "2", "-ci"] as const;
 
-const EXCLUDED_PREFIXES = ["archive/", "_docs/"] as const;
+const EXCLUDED_PREFIXES = ["archive/"] as const;
 
 const SHEBANG_RE = /^#!.*\b(?:ba|z|k|da)?sh\b/u;
 

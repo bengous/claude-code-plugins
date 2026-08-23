@@ -12,12 +12,7 @@
 
 import { $ } from "bun";
 
-const EXCLUDED_PREFIXES = [
-  "archive/",
-  "_docs/",
-  "node_modules/",
-  "tools/oxlint/anti-slop/",
-] as const;
+const EXCLUDED_PREFIXES = ["archive/", "node_modules/", "tools/oxlint/anti-slop/"] as const;
 
 const CHECKED_EXTENSIONS = [".ts", ".js", ".mjs", ".cjs"] as const;
 

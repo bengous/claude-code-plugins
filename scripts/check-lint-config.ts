@@ -55,7 +55,6 @@ const REQUIRED_JS_PLUGINS: JsPluginEntry[] = [
 
 const ALLOWED_IGNORE_PATTERNS = new Set([
   "archive/**",
-  "_docs/**",
   "node_modules/**",
   "tools/oxlint/anti-slop/**",
   "claude-meta-tools/scripts/prompt-extractor/promptExtractor.js",

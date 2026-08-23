@@ -24,7 +24,7 @@ const repoRoot = join(import.meta.dir, "..");
 
 const GOOD_CATEGORIES = { correctness: "error", suspicious: "error", pedantic: "error" };
 const GOOD_PLUGINS = [{ name: "anti-slop", specifier: "./tools/oxlint/anti-slop/index.ts" }];
-const GOOD_PATTERNS = ["archive/**", "_docs/**", "node_modules/**"];
+const GOOD_PATTERNS = ["archive/**", "node_modules/**"];
 
 describe("checkCategories", () => {
   test("passes when the three categories are errors", () => {

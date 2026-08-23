@@ -25,7 +25,6 @@ describe("isCandidate", () => {
 
   test("rejects excluded prefixes whatever the extension", () => {
     expect(isCandidate("archive/a.mjs")).toBe(false);
-    expect(isCandidate("_docs/a.cjs")).toBe(false);
     expect(isCandidate("node_modules/a.js")).toBe(false);
     expect(isCandidate("tools/oxlint/anti-slop/index.ts")).toBe(false);
   });

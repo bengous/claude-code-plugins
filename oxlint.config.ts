@@ -3,7 +3,6 @@ import { defineConfig } from "oxlint";
 export default defineConfig({
   ignorePatterns: [
     "archive/**",
-    "_docs/**",
     "node_modules/**",
     // Vendored third party, upstream owns the style.
     "tools/oxlint/anti-slop/**",
