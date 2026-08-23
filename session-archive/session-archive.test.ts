@@ -257,7 +257,7 @@ describe("compressSession", () => {
   test("compresses and returns size, deletes original", async () => {
     using tmp = tempDir("compress");
     const src = join(tmp.path, "test.jsonl");
-    const dst = join(tmp.path, "test.jsonl.gz");
+    const dst = join(tmp.path, "test.jsonl.zst");
     await Bun.write(src, LARGE_JSONL);
 
     const compressedSize = await compressSession(src, dst, false);
@@ -271,7 +271,7 @@ describe("compressSession", () => {
   test("keepOriginal=true preserves source", async () => {
     using tmp = tempDir("keep");
     const src = join(tmp.path, "test.jsonl");
-    const dst = join(tmp.path, "test.jsonl.gz");
+    const dst = join(tmp.path, "test.jsonl.zst");
     await Bun.write(src, LARGE_JSONL);
 
     await compressSession(src, dst, true);
@@ -283,13 +283,13 @@ describe("compressSession", () => {
   test("roundtrip: decompress matches original", async () => {
     using tmp = tempDir("roundtrip");
     const src = join(tmp.path, "test.jsonl");
-    const dst = join(tmp.path, "test.jsonl.gz");
+    const dst = join(tmp.path, "test.jsonl.zst");
     await Bun.write(src, JSONL_CONTENT);
 
     await compressSession(src, dst, false);
 
     const compressed = await Bun.file(dst).arrayBuffer();
-    const decompressed = Bun.gunzipSync(new Uint8Array(compressed));
+    const decompressed = Bun.zstdDecompressSync(new Uint8Array(compressed));
     expect(new TextDecoder().decode(decompressed)).toBe(JSONL_CONTENT);
   });
 });
@@ -304,9 +304,9 @@ describe("archiveSession", () => {
 
     const entry = await archiveSession(session, archiveDir, false, false, false);
 
-    expect(entry.format).toBe("gzip");
+    expect(entry.format).toBe("zstd");
     expect(entry.compressedSizeBytes).toBeGreaterThan(0);
-    expect(existsSync(join(archiveDir, `${UUID_B}.jsonl.gz`))).toBe(true);
+    expect(existsSync(join(archiveDir, `${UUID_B}.jsonl.zst`))).toBe(true);
     expect(existsSync(join(archiveDir, UUID_B, "subagent.jsonl"))).toBe(true);
     // originals gone
     expect(existsSync(join(dir, `${UUID_B}.jsonl`))).toBe(false);
@@ -323,7 +323,7 @@ describe("archiveSession", () => {
     await archiveSession(session, archiveDir, false, true, false);
 
     // archive exists
-    expect(existsSync(join(archiveDir, `${UUID_B}.jsonl.gz`))).toBe(true);
+    expect(existsSync(join(archiveDir, `${UUID_B}.jsonl.zst`))).toBe(true);
     // originals still present
     expect(existsSync(join(dir, `${UUID_B}.jsonl`))).toBe(true);
     expect(existsSync(join(dir, UUID_B))).toBe(true);
@@ -359,7 +359,7 @@ describe("archiveSession", () => {
     const entry = await archiveSession(session, archiveDir, false, false, false);
 
     expect(existsSync(join(archiveDir, `${UUID_D}.jsonl`))).toBe(true);
-    expect(existsSync(join(archiveDir, `${UUID_D}.jsonl.gz`))).toBe(false);
+    expect(existsSync(join(archiveDir, `${UUID_D}.jsonl.zst`))).toBe(false);
     expect(entry.compressedSizeBytes).toBe(0);
   });
 });
@@ -508,8 +508,8 @@ describe("archiveProject", () => {
 });
 
 describe("unarchiveSession", () => {
-  test("restores gzip-compressed session", async () => {
-    using tmp = tempDir("unarchive-gz");
+  test("restores zstd-compressed session", async () => {
+    using tmp = tempDir("unarchive-zst");
     const { dir, uuids } = await createFakeProject(tmp.path);
 
     // Archive first
@@ -533,6 +533,38 @@ describe("unarchiveSession", () => {
     // Index updated
     const index = await loadArchiveIndex(archiveDir);
     expect(index.entries.length).toBe(0);
+  });
+
+  test("restores a legacy gzip archive", async () => {
+    using tmp = tempDir("unarchive-legacy-gz");
+    const dir = join(tmp.path, "project");
+    mkdirSync(dir, { recursive: true });
+    const archiveDir = join(dir, "archive");
+    mkdirSync(archiveDir, { recursive: true });
+
+    const compressed = Bun.gzipSync(new TextEncoder().encode(JSONL_CONTENT));
+    await Bun.write(join(archiveDir, `${UUID_C}.jsonl.gz`), compressed);
+    await saveArchiveIndex(archiveDir, {
+      version: 1,
+      entries: [
+        {
+          sessionId: UUID_C,
+          archivedAt: new Date().toISOString(),
+          originalMtime: OLD_DATE.toISOString(),
+          sizeBytes: JSONL_CONTENT.length,
+          compressedSizeBytes: compressed.byteLength,
+          hasDirectory: false,
+          hasJsonl: true,
+          format: "gzip",
+        },
+      ],
+    });
+
+    await unarchiveSession(UUID_C, dir);
+
+    const content = await Bun.file(join(dir, `${UUID_C}.jsonl`)).text();
+    expect(content).toBe(JSONL_CONTENT);
+    expect(existsSync(join(archiveDir, `${UUID_C}.jsonl.gz`))).toBe(false);
   });
 
   test("restores empty session", async () => {

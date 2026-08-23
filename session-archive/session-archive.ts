@@ -324,7 +324,7 @@ export async function compressSession(
   keepOriginal: boolean,
 ): Promise<number> {
   const data = await Bun.file(jsonlPath).arrayBuffer();
-  const compressed = Bun.gzipSync(new Uint8Array(data));
+  const compressed = Bun.zstdCompressSync(new Uint8Array(data));
   await Bun.write(archivePath, compressed);
   if (!keepOriginal) {
     await unlink(jsonlPath);
@@ -347,7 +347,7 @@ export async function archiveSession(
     compressedSizeBytes: 0,
     hasDirectory: !!session.dirPath,
     hasJsonl: !!session.jsonlPath,
-    format: "gzip",
+    format: "zstd",
   };
 
   if (dryRun) {
@@ -365,7 +365,7 @@ export async function archiveSession(
   // Compress or move JSONL
   if (session.jsonlPath) {
     if (session.sizeBytes > 0) {
-      const archivePath = join(archiveDir, `${session.sessionId}.jsonl.gz`);
+      const archivePath = join(archiveDir, `${session.sessionId}.jsonl.zst`);
       try {
         entry.compressedSizeBytes = await compressSession(session.jsonlPath, archivePath, copy);
         if (verbose) {
@@ -458,25 +458,18 @@ export async function unarchiveSession(uuid: string, projectDir: string): Promis
     const emptyPath = join(archiveDir, `${uuid}.jsonl`);
     const targetPath = join(projectDir, `${uuid}.jsonl`);
 
-    if (existsSync(gzPath)) {
+    if (existsSync(zstPath)) {
+      const compressed = await Bun.file(zstPath).arrayBuffer();
+      const decompressed = Bun.zstdDecompressSync(new Uint8Array(compressed));
+      await Bun.write(targetPath, decompressed);
+      await unlink(zstPath);
+      log(`Restored ${uuid}.jsonl (${formatBytes(entry.sizeBytes)})`);
+    } else if (existsSync(gzPath)) {
       const compressed = await Bun.file(gzPath).arrayBuffer();
       const decompressed = Bun.gunzipSync(new Uint8Array(compressed));
       await Bun.write(targetPath, decompressed);
       await unlink(gzPath);
-      log(`Restored ${uuid}.jsonl (${formatBytes(entry.sizeBytes)})`);
-    } else if (existsSync(zstPath)) {
-      // Legacy zstd — requires zstd CLI
-      const zstdPath = Bun.which("zstd");
-      if (!zstdPath) {
-        console.error(`Cannot restore ${uuid}: archived with zstd but zstd is not installed`);
-        process.exit(1);
-      }
-      const result = await Bun.$`zstd -d --rm -q ${zstPath} -o ${targetPath}`.nothrow().quiet();
-      if (result.exitCode !== 0) {
-        console.error(`Failed to decompress ${uuid}: ${result.stderr.toString()}`);
-        process.exit(1);
-      }
-      log(`Restored ${uuid}.jsonl (${formatBytes(entry.sizeBytes)}, legacy zstd)`);
+      log(`Restored ${uuid}.jsonl (${formatBytes(entry.sizeBytes)}, gzip)`);
     } else if (existsSync(emptyPath)) {
       await rename(emptyPath, targetPath);
       log(`Restored ${uuid}.jsonl (empty)`);
