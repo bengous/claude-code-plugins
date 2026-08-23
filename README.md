@@ -40,7 +40,6 @@ See each plugin's README for detailed documentation and usage.
 
 ## Documentation
 
-- [LSP Tools Setup](docs/lsp-tools-setup.md) - Enable semantic code navigation with Language Server Protocol
 - [Plugin Design Philosophy](docs/plugin-design-philosophy.md) - Design principles for Claude Code plugins
 
 ## Development Setup
