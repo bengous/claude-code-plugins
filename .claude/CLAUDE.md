@@ -57,4 +57,10 @@ Carried by nobody, so hold them by hand:
 
 ## Branching
 
-Merge PRs to `main` with a merge commit, never squash: the histories must stay comparable. Everything else is enforced by hooks and rulesets; details and recovery: `docs/repo-ops.md`.
+`dev` is the working trunk; `main` is the release channel consumers install from, moved only by fast-forward (`git push origin dev:main`). History is linear everywhere: no merge commits, server-enforced.
+
+- Small single-concern change: commit directly on `dev`, atomic and curated.
+- Big work (large feature, large skill), several concerns, or parallel agents: branch or PR stack targeting `dev`, agent review per PR, then land with rebase + ff push (`git push origin <branch>:dev`). The push marks the PR merged; never use the GitHub merge button.
+- Review: agents review each other's PRs; the human reviews contracts and tests at the end of a chantier and before each release.
+
+Details and recovery: `docs/repo-ops.md`.
