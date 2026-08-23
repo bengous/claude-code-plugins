@@ -47,6 +47,3 @@ survive the repo going ESM.
 
 - `.claude-plugin/marketplace.json` — the `plan-review` entry was removed.
 - `README.md` — the `plan-review` row was removed from the plugin table.
-
-`docs/code-organization-audit.md` still names this plugin: it is a frozen record of the audit
-that led here, so its references are historical by design and were left as written.

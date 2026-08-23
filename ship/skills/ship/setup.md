@@ -39,7 +39,7 @@ Present your findings with a justification for each pattern. For example:
 
 > I found these directories that look like working artifacts:
 > - `plans/` -- development plans and design docs
-> - `docs/superpowers/` -- skill/plugin documentation drafts
+> - `notes/` -- working notes and scratch documentation
 >
 > These would be stripped from PR branches. Your source code stays untouched.
 
@@ -55,7 +55,7 @@ Write `.shiprc.json` at the repo root:
 ```json
 {
   "strip": {
-    "patterns": ["plans/", "docs/superpowers/"]
+    "patterns": ["plans/", "notes/"]
   }
 }
 ```
