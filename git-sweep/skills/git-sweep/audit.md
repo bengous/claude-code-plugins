@@ -41,32 +41,15 @@ if stdout is empty OR stdout is not valid JSON:
 
 audit_json = parse stdout as JSON
 
-# The default base is `main`. A repo whose trunk is named otherwise fails
-# validation — resolve the real trunk and retry once before giving up.
-#
-# NEVER fall back to HEAD. It names the checked-out branch, not the trunk: from
-# a feature branch it would make that branch the base, and the real trunk would
-# then appear under "Merged" with "Delete all" as the recommended answer.
-if audit_json.ok == false AND audit_json.error contains "base branch":
-  # A base the user named is their decision: never substitute another.
-  if the user supplied `base`:
-    STOP — tell user: branch {base} does not exist locally
-  candidates = [`git symbolic-ref --short refs/remotes/origin/HEAD`
-                  with "origin/" stripped]
-               then main, master, trunk
-  # origin/HEAD is a candidate, not a proof: it goes stale and can name a
-  # branch that no longer exists anywhere. Every candidate must pass the
-  # existence check before it may become the base.
-  trunk = first candidate whose BRANCH exists:
-            `git rev-parse --verify refs/heads/{name}`
-            (the bare name would also match a tag, which could be anywhere)
-  if no trunk was found:
-    STOP — tell user: no trunk branch found; re-run as `/git-sweep <branch>`,
-           naming the trunk
-  re-run the audit with `--base {trunk}` and use that result
-
+# The backend resolves the trunk itself when no base is given (git config
+# sweep.base, then origin/HEAD, then main/master/trunk — each checked for
+# existence, never HEAD) and reports its choice in audit_json.base. A named
+# base that does not exist is its error too. Report backend errors verbatim;
+# do not resolve, substitute, or retry a base here.
 if audit_json.ok == false:
   STOP — report audit_json.error and audit_json.step
+         (for "no trunk branch found": suggest re-running as
+          `/git-sweep <branch>`, naming the trunk)
 
 categories = audit_json.categories
 
@@ -177,7 +160,7 @@ names is what made the previous version unreadable:
 
 ```
 kept (local)   | Branch | Reason |
-  base | current | worktree:{detail} | dirty-worktree:{detail}
+  base | current | protected | worktree:{detail} | dirty-worktree:{detail}
   | unproven:{detail} | too-old:{detail}
 
 kept_remote    | Remote branch | Reason |   (only if non-empty)

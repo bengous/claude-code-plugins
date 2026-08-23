@@ -37,7 +37,8 @@ Route to the correct cleanup phase based on repo state. The phase files
 
 - base: $ARGUMENTS
   (optional: the base branch to audit against, e.g. `/git-sweep dev`;
-  empty means the backend default, `main`)
+  empty lets the backend resolve the trunk: git config sweep.base,
+  then origin/HEAD, then main/master/trunk)
 - branch: !`git branch --show-current`
 - repo: !`git rev-parse --show-toplevel`
 - worktrees: !`git worktree list`
