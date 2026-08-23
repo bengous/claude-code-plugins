@@ -54,15 +54,15 @@ jobs:
       - name: Validate plugin frontmatter
         run: bun ./scripts/validate-frontmatter.ts --all
 
-      # Root cause of the past double-history incident: re-signing branch by
-      # branch severed the common ancestor. Fail loudly if main and dev diverge.
-      - name: Guard against main/dev history divergence
+      # main is a delayed fast-forward pointer on dev's history: releases move it
+      # with `git push origin dev:main`. Fail loudly if main ever leaves that line.
+      - name: Guard main as a strict prefix of dev
         run: |
           git fetch --no-tags origin \
             +refs/heads/main:refs/remotes/origin/main \
             +refs/heads/dev:refs/remotes/origin/dev
-          if ! git merge-base origin/main origin/dev >/dev/null; then
-            echo "::error::main and dev have no common ancestor — histories have diverged."
+          if ! git merge-base --is-ancestor origin/main origin/dev; then
+            echo "::error::main is not an ancestor of dev — main must stay a fast-forward prefix of dev."
             exit 1
           fi
-          echo "main/dev share a common ancestor: $(git merge-base origin/main origin/dev)"
+          echo "main is an ancestor of dev: $(git rev-parse origin/main)"
