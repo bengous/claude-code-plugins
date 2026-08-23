@@ -1,9 +1,9 @@
 #!/usr/bin/env bun
 
-import { parseArgs } from "util";
+import { parseArgs } from "node:util";
 import { $ } from "bun";
-import { mkdir, exists, writeFile } from "fs/promises";
-import { join } from "path";
+import { mkdir, exists, writeFile } from "node:fs/promises";
+import { join } from "node:path";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Templates
