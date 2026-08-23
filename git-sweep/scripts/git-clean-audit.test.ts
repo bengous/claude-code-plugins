@@ -30,7 +30,12 @@ afterEach(() => {
 // ---------------------------------------------------------------------------
 
 async function git(cwd: string, ...args: string[]): Promise<string> {
-  const proc = Bun.spawn(["git", ...args], { cwd, stdout: "pipe", stderr: "pipe" });
+  const proc = Bun.spawn(["git", ...args], {
+    cwd,
+    stdout: "pipe",
+    stderr: "pipe",
+    env: { ...process.env, ...GIT_ISOLATION },
+  });
   const stdout = await new Response(proc.stdout).text();
   const exitCode = await proc.exited;
   if (exitCode !== 0) {
@@ -40,11 +45,20 @@ async function git(cwd: string, ...args: string[]): Promise<string> {
   return stdout.trim();
 }
 
+// Isolated from the developer's global/system git config: a real sweep.* key
+// there would silently change what these tests assert.
+const GIT_ISOLATION = { GIT_CONFIG_GLOBAL: "/dev/null", GIT_CONFIG_NOSYSTEM: "1" };
+
 async function runAudit(
   cwd: string,
   ...args: string[]
 ): Promise<{ exitCode: number; result: Record<string, unknown> }> {
-  const proc = Bun.spawn(["bun", "run", SCRIPT, ...args], { cwd, stdout: "pipe", stderr: "pipe" });
+  const proc = Bun.spawn(["bun", "run", SCRIPT, ...args], {
+    cwd,
+    stdout: "pipe",
+    stderr: "pipe",
+    env: { ...process.env, ...GIT_ISOLATION },
+  });
   const stdout = await new Response(proc.stdout).text();
   const exitCode = await proc.exited;
   try {
@@ -119,7 +133,7 @@ exec ${realGit} "$@"
     cwd,
     stdout: "pipe",
     stderr: "pipe",
-    env: { ...process.env, PATH: `${shimDir}:${process.env.PATH}` },
+    env: { ...process.env, ...GIT_ISOLATION, PATH: `${shimDir}:${process.env.PATH}` },
   });
   const stdout = await new Response(proc.stdout).text();
   const exitCode = await proc.exited;
@@ -751,7 +765,7 @@ describe("git-clean-audit", () => {
     expect(result.step).toBe("validate");
   });
 
-  test("honours custom prefixes from git config", async () => {
+  test("honours custom prefixes from git config, replacing the defaults", async () => {
     const repo = await makeRepo("custom-prefixes");
     await git(repo, "config", "sweep.agentPrefix", "wt-");
     await git(repo, "config", "sweep.backupPrefix", "save/");
@@ -760,14 +774,76 @@ describe("git-clean-audit", () => {
     await git(repo, "checkout", "-b", "save/old");
     await addCommit(repo, "save.txt", "saved work");
     await git(repo, "checkout", "main");
+    // Carries the DEFAULT agent prefix: with a custom prefix set it must be
+    // classified as an ordinary merged branch, not as an agent branch.
+    await git(repo, "branch", "worktree-agent-old");
 
     const { result } = await runAudit(repo);
     const categories = result.categories as Record<string, { name: string }[]>;
 
-    expect(categories.orphaned_worktree?.map((b) => b.name)).toContain("wt-abc");
+    expect(categories.orphaned_worktree?.map((b) => b.name)).toEqual(["wt-abc"]);
     expect(categories.backup?.map((b) => b.name)).toContain("save/old");
-    // The former defaults no longer classify anything on their own.
-    expect(categories.merged_local).toHaveLength(0);
+    expect(categories.merged_local?.map((b) => b.name)).toEqual(["worktree-agent-old"]);
+  });
+
+  test("rejects overlapping agent and backup prefixes", async () => {
+    const repo = await makeRepo("prefix-overlap");
+    await git(repo, "config", "sweep.agentPrefix", "wt-agent-");
+    await git(repo, "config", "sweep.backupPrefix", "wt-");
+
+    const { exitCode, result } = await runAudit(repo);
+
+    expect(exitCode).toBe(1);
+    expect(result.ok).toBe(false);
+    expect(result.step).toBe("validate");
+    expect(result.error).toContain("overlap");
+  });
+
+  test("errors when sweep.base names a missing branch instead of substituting", async () => {
+    const repo = await makeRepo("sweep-base-missing");
+    await git(repo, "config", "sweep.base", "gone");
+
+    const { exitCode, result } = await runAudit(repo);
+
+    expect(exitCode).toBe(1);
+    expect(result.ok).toBe(false);
+    expect(result.error).toContain("sweep.base 'gone'");
+  });
+
+  test("rejects an explicit --base that is not a local branch", async () => {
+    const repo = await makeRepo("base-not-branch");
+    await git(repo, "tag", "v1");
+
+    for (const target of ["HEAD", "v1"]) {
+      const { exitCode, result } = await runAudit(repo, "--base", target);
+      expect(exitCode).toBe(1);
+      expect(result.error).toContain(`base branch '${target}' not found`);
+    }
+  });
+
+  test("sweep.unprotect lifts a default so a dead trunk name can be swept", async () => {
+    const repo = await makeRepo("unprotect");
+    await git(repo, "branch", "master");
+
+    const withDefault = await runAudit(repo);
+    expect(keptEntry(withDefault.result, "master")?.reason).toBe("protected");
+
+    await git(repo, "config", "sweep.unprotect", "master");
+    const { result } = await runAudit(repo);
+    const categories = result.categories as Record<string, { name: string }[]>;
+
+    expect(categories.merged_local?.map((b) => b.name)).toContain("master");
+    expect(keptNames(result)).not.toContain("master");
+  });
+
+  test("resolves develop when it is the only trunk candidate", async () => {
+    const repo = await makeRepo("resolve-develop");
+    await git(repo, "branch", "-m", "main", "develop");
+
+    const { exitCode, result } = await runAudit(repo);
+
+    expect(exitCode).toBe(0);
+    expect(result.base).toBe("develop");
   });
 
   // -------------------------------------------------------------------------

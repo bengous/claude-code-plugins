@@ -142,8 +142,9 @@ A failed operation is not always a problem to retry — read the error:
   The containment proof no longer covers it. Re-audit, never force by hand.
 - `stale info` on a remote delete — someone pushed to that branch since the
   audit. The lease did its job. Re-audit.
-- `refusing to delete the base branch` / `the checked-out branch` — a backend
-  guard fired. Report it as such; the manifest was wrong.
+- `refusing to delete the base branch` / `the checked-out branch` /
+  `the protected branch` — a backend guard fired. Report it as such; the
+  manifest was wrong (protected trunks never come from a real audit).
 - `contains modified or untracked files` on a worktree — uncommitted work is
   there. Say where, and leave it.
 - `used by worktree at ...` — the branch is still checked out somewhere the

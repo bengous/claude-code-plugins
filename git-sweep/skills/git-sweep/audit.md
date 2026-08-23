@@ -120,7 +120,8 @@ stale_worktrees      | Path | Branch | Reason |   (missing-dir, broken-ref)
 merged_local         | Branch | Last commit | Subject | Deletion |
 
 orphaned_worktree    | Branch | Ahead | Last commit | Subject | Proof | Deletion |
-  `worktree-agent-*` branches with no worktree. Leftover from parallel agents,
+  Branches carrying the agent prefix (`sweep.agentPrefix`, default
+  `worktree-agent-`) with no worktree. Leftover from parallel agents,
   normally empty — an `unproven` one with `ahead` > 0 was worked on directly
   and holds the only copy of that work.
 
@@ -148,7 +149,8 @@ for each branch in backup:
   diff_stat = run `git diff --shortstat {audit_json.base}...{branch.name}`
 
   Recommend DELETE when the work is visibly superseded on the base, or the
-  name marks a temporary save (backup/ship-*, backup/pre-*) with no recent
+  name under the backup prefix (`sweep.backupPrefix`, default `backup/`)
+  marks a temporary save — e.g. ship-* or pre-* suffixes — with no recent
   activity. Recommend KEEP when it carries files or work you cannot find on
   the base, or it was touched in the last days.
 
