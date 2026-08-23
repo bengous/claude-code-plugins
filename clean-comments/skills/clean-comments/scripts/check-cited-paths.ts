@@ -14,7 +14,7 @@
 // directory, and a path relative to a project area this script did not derive (pass
 // --root for that one).
 
-import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, statSync, type Dirent } from "node:fs";
 import { join, relative, resolve } from "node:path";
 
 const DEFAULT_EXT =
@@ -138,18 +138,26 @@ const citedPathPattern = new RegExp(
   "gu",
 );
 
+// A directory entry reports a symlink as a symlink, never as its target, so only a
+// symlink still costs a stat. Following one is deliberate: a symlinked directory is
+// part of the tree, and a broken symlink belongs to neither branch.
+function classify(entry: Dirent, full: string): "dir" | "file" | "broken" {
+  if (entry.isDirectory()) return "dir";
+  if (!entry.isSymbolicLink()) return "file";
+  try {
+    return statSync(full).isDirectory() ? "dir" : "file";
+  } catch {
+    return "broken";
+  }
+}
+
 function collect(dir: string, out: string[]): string[] {
-  for (const entry of readdirSync(dir)) {
-    const full = join(dir, entry);
-    let st;
-    try {
-      st = statSync(full);
-    } catch {
-      continue; // broken symlink
-    }
-    if (st.isDirectory()) {
-      if (!opts.exclude.has(entry)) collect(full, out);
-    } else if (opts.ext.some((e) => entry.endsWith(e))) {
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    const full = join(dir, entry.name);
+    const kind = classify(entry, full);
+    if (kind === "dir") {
+      if (!opts.exclude.has(entry.name)) collect(full, out);
+    } else if (kind === "file" && opts.ext.some((e) => entry.name.endsWith(e))) {
       out.push(full);
     }
   }
@@ -250,15 +258,11 @@ function resolutionRoots(): string[] {
   const derived = [""];
   const walk = (dir: string, rel: string, depth: number): void => {
     if (depth > ROOT_DEPTH) return;
-    for (const entry of readdirSync(dir)) {
-      if (opts.exclude.has(entry) || entry.startsWith(".")) continue;
-      const full = join(dir, entry);
-      try {
-        if (!statSync(full).isDirectory()) continue;
-      } catch {
-        continue;
-      }
-      const next = rel ? join(rel, entry) : entry;
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      if (opts.exclude.has(entry.name) || entry.name.startsWith(".")) continue;
+      const full = join(dir, entry.name);
+      if (classify(entry, full) !== "dir") continue;
+      const next = rel ? join(rel, entry.name) : entry.name;
       derived.push(next);
       walk(full, next, depth + 1);
     }
