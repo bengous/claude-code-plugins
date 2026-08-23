@@ -1,6 +1,6 @@
 # Repo Ops: Branch Protection
 
-Recovery and enforcement details for `main`/`dev`. Day-to-day rules live in `.claude/CLAUDE.md`.
+Recovery and enforcement details for `main`/`dev`. Day-to-day rules live in `AGENTS.md`.
 
 ## GitHub rulesets
 
