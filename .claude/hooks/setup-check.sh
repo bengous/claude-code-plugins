@@ -6,6 +6,7 @@ set -euo pipefail
 
 QUIET="${1:-}"
 REPO_ROOT="$(git rev-parse --show-toplevel)"
+GIT_COMMON_DIR="$(git rev-parse --path-format=absolute --git-common-dir)"
 ERRORS=()
 
 # Check mise
@@ -22,7 +23,7 @@ fi
 
 # Check lefthook hooks installed
 if command -v lefthook &>/dev/null || mise which lefthook &>/dev/null; then
-  if [[ ! -f "$REPO_ROOT/.git/hooks/pre-commit" ]] || ! grep -q "lefthook" "$REPO_ROOT/.git/hooks/pre-commit" 2>/dev/null; then
+  if [[ ! -f "$GIT_COMMON_DIR/hooks/pre-commit" ]] || ! grep -q "lefthook" "$GIT_COMMON_DIR/hooks/pre-commit" 2>/dev/null; then
     ERRORS+=("lefthook hooks not installed → run: lefthook install")
   fi
 fi
