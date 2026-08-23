@@ -414,8 +414,7 @@ export async function archiveSession(
 export async function loadArchiveIndex(archiveDir: string): Promise<ArchiveIndex> {
   const indexPath = join(archiveDir, "sessions-index.json");
   try {
-    const data = await readFile(indexPath, "utf-8");
-    const parsed = JSON.parse(data);
+    const parsed = await Bun.file(indexPath).json();
     if (parsed.version !== 1 || !Array.isArray(parsed.entries)) {
       return { version: 1, entries: [] };
     }
@@ -433,7 +432,7 @@ export async function loadArchiveIndex(archiveDir: string): Promise<ArchiveIndex
 export async function saveArchiveIndex(archiveDir: string, index: ArchiveIndex): Promise<void> {
   const indexPath = join(archiveDir, "sessions-index.json");
   const tmpPath = indexPath + ".tmp";
-  await writeFile(tmpPath, JSON.stringify(index, null, 2) + "\n", "utf-8");
+  await Bun.write(tmpPath, JSON.stringify(index, null, 2) + "\n");
   await rename(tmpPath, indexPath);
 }
 
@@ -667,7 +666,7 @@ function isThrottled(): boolean {
 
 async function writeMarker(archived: number): Promise<void> {
   const marker = { lastRunAt: new Date().toISOString(), archived };
-  await writeFile(MARKER_PATH, JSON.stringify(marker) + "\n", "utf-8");
+  await Bun.write(MARKER_PATH, JSON.stringify(marker) + "\n");
 }
 
 async function runBackgroundWorker(options: Options): Promise<void> {
