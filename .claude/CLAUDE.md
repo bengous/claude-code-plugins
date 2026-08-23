@@ -13,6 +13,8 @@ Do not reinvent plugin patterns. Delegate:
 
 New plugin: add its `marketplace.json` entry and its `README.md` table row by hand; no check catches their absence. Version bumps: edit `plugin.json` only; pre-commit propagates to the existing entry and row.
 
+Testing a plugin from source (launch flags, permission modes, transcript checks): `docs/plugin-testing.md`.
+
 ## Commands
 
 ```bash
