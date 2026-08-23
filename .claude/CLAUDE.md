@@ -47,7 +47,7 @@ Carried by the commands above:
 
 Carried by nobody, so hold them by hand:
 
-- Plugins are self-contained. No import crosses a plugin boundary, or reaches into `scripts/` or `.claude/`. Today all 17 relative imports stay inside their own top-level directory, and none climbs past a single `../`.
+- Plugins are self-contained. No import crosses a plugin boundary, or reaches into `scripts/` or `.claude/`. Today every relative import stays inside its own top-level directory, and none climbs past a single `../`.
 - Ship sources, never compiled binaries. `bun` is the runtime.
 
 ## Non-Obvious Directories
