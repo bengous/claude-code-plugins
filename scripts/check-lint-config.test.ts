@@ -8,11 +8,15 @@ import {
   checkCommandParity,
   checkIgnorePatterns,
   checkJsPlugins,
+  checkVendoredIntegrity,
   ciCommands,
+  digestTree,
   EXPECTED_COMMANDS,
   lefthookCommands,
+  parseManifest,
   registeredRuleNames,
   sortKeys,
+  UNMANIFESTED,
   unifiedDiff,
 } from "./check-lint-config.ts";
 
@@ -154,6 +158,61 @@ describe("checkCommandParity", () => {
     const lefthook = await Bun.file(join(repoRoot, "lefthook.yml")).text();
     const ci = await Bun.file(join(repoRoot, ".github/workflows/ci.yml")).text();
     expect(checkCommandParity(lefthookCommands(lefthook), ciCommands(ci))).toEqual([]);
+  });
+});
+
+describe("parseManifest", () => {
+  test("reads the sha256sum format and skips blank lines", () => {
+    const digest = "a".repeat(64);
+    expect(parseManifest(`${digest}  anti-slop/index.ts\n\n`)).toEqual([
+      { path: "anti-slop/index.ts", sha256: digest },
+    ]);
+  });
+
+  test("keeps README.md out of the manifest", async () => {
+    const text = await Bun.file(join(repoRoot, "tools/oxlint/CHECKSUMS.sha256")).text();
+    const paths = parseManifest(text).map((entry) => entry.path);
+    expect(paths).not.toContain("anti-slop/README.md");
+    expect(paths).toContain("anti-slop/LICENSE");
+    expect(UNMANIFESTED.has("anti-slop/README.md")).toBe(true);
+  });
+});
+
+describe("checkVendoredIntegrity", () => {
+  const recorded = [
+    { path: "anti-slop/index.ts", sha256: "a".repeat(64) },
+    { path: "anti-slop/LICENSE", sha256: "b".repeat(64) },
+  ];
+
+  test("passes when every file matches its checksum", () => {
+    expect(checkVendoredIntegrity(recorded, [...recorded])).toEqual([]);
+  });
+
+  test("fails a vendored file whose content changed", () => {
+    const edited = [{ path: "anti-slop/index.ts", sha256: "c".repeat(64) }, recorded[1]!];
+    expect(checkVendoredIntegrity(recorded, edited).join("\n")).toContain("no longer matches");
+  });
+
+  test("fails a file added to the pack but never listed", () => {
+    const extra = [...recorded, { path: "anti-slop/rules/smuggled.ts", sha256: "d".repeat(64) }];
+    expect(checkVendoredIntegrity(recorded, extra).join("\n")).toContain("missing from CHECKSUMS");
+  });
+
+  test("fails a listed file the repo dropped", () => {
+    expect(checkVendoredIntegrity(recorded, [recorded[0]!]).join("\n")).toContain(
+      "no longer tracks",
+    );
+  });
+
+  test("the real manifest matches the real vendored tree", async () => {
+    const vendoredRoot = join(repoRoot, "tools/oxlint");
+    const listed = parseManifest(await Bun.file(join(vendoredRoot, "CHECKSUMS.sha256")).text());
+    const actual = await digestTree(
+      vendoredRoot,
+      listed.map((entry) => entry.path),
+    );
+    expect(checkVendoredIntegrity(listed, actual)).toEqual([]);
+    expect(listed).toHaveLength(20);
   });
 });
 

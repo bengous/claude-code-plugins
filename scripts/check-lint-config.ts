@@ -15,8 +15,14 @@
  *
  * `--update` never belongs in `lefthook.yml` or `ci.yml`; the parity check
  * below refuses it there.
+ *
+ * The vendored pack is frozen the other way, against
+ * `tools/oxlint/CHECKSUMS.sha256`. That manifest is derived from the upstream
+ * tree at the SHA pinned in the pack's README, never from the local files, so
+ * `--update` does not touch it: see that README for the bump procedure.
  */
 
+import { $ } from "bun";
 import { readdir } from "node:fs/promises";
 import { join } from "node:path";
 import { parse } from "yaml";
@@ -298,6 +304,63 @@ interface CiFile {
   jobs?: { validate?: { steps?: CiStep[] } };
 }
 
+export interface ManifestEntry {
+  path: string;
+  sha256: string;
+}
+
+/** Repo-owned: it holds the pinned upstream SHA and the bump procedure, not upstream text. */
+export const UNMANIFESTED = new Set(["anti-slop/README.md"]);
+
+export function parseManifest(text: string): ManifestEntry[] {
+  const entries: ManifestEntry[] = [];
+  for (const line of text.split("\n")) {
+    const match = /^([0-9a-f]{64}) {2}(\S.*)$/u.exec(line);
+    if (match?.[1] !== undefined && match[2] !== undefined) {
+      entries.push({ path: match[2], sha256: match[1] });
+    }
+  }
+  return entries;
+}
+
+export async function digestTree(root: string, paths: string[]): Promise<ManifestEntry[]> {
+  const entries: ManifestEntry[] = [];
+  for (const path of paths) {
+    const hasher = new Bun.CryptoHasher("sha256");
+    hasher.update(await Bun.file(join(root, path)).bytes());
+    entries.push({ path, sha256: hasher.digest("hex") });
+  }
+  return entries;
+}
+
+/**
+ * `sha256sum -c` on its own tolerates files the manifest never listed, so the
+ * two sets are compared both ways: a smuggled rule file has to fail too.
+ */
+export function checkVendoredIntegrity(
+  recorded: ManifestEntry[],
+  actual: ManifestEntry[],
+): string[] {
+  const failures: string[] = [];
+  const digests = new Map(actual.map((entry) => [entry.path, entry.sha256]));
+  const listed = new Set(recorded.map((entry) => entry.path));
+
+  for (const entry of recorded) {
+    const digest = digests.get(entry.path);
+    if (digest === undefined) {
+      failures.push(`CHECKSUMS.sha256 lists ${entry.path}, which the repo no longer tracks`);
+    } else if (digest !== entry.sha256) {
+      failures.push(`${entry.path} no longer matches its recorded checksum`);
+    }
+  }
+  for (const entry of actual) {
+    if (!listed.has(entry.path)) {
+      failures.push(`${entry.path} is vendored but missing from CHECKSUMS.sha256`);
+    }
+  }
+  return failures;
+}
+
 export function lefthookCommands(source: string): string[] {
   const parsed: LefthookFile = parse(source);
   const jobs = parsed["pre-commit"]?.jobs ?? [];
@@ -329,6 +392,13 @@ if (import.meta.main) {
     .map((entry) => entry.slice(0, -".ts".length));
   const indexSource = await Bun.file(join(repoRoot, "tools/oxlint/anti-slop/index.ts")).text();
 
+  const vendoredRoot = join(repoRoot, "tools/oxlint");
+  const tracked = (await $`git ls-files tools/oxlint/anti-slop`.cwd(repoRoot).quiet().text())
+    .split("\n")
+    .filter(Boolean)
+    .map((path) => path.slice("tools/oxlint/".length))
+    .filter((path) => !UNMANIFESTED.has(path));
+
   const failures = [
     ...checkCategories(config.categories ?? {}),
     ...checkJsPlugins(config.jsPlugins ?? []),
@@ -339,6 +409,20 @@ if (import.meta.main) {
       ciCommands(await Bun.file(join(repoRoot, ".github/workflows/ci.yml")).text()),
     ),
   ];
+
+  const manifest = Bun.file(join(vendoredRoot, "CHECKSUMS.sha256"));
+  if (await manifest.exists()) {
+    failures.push(
+      ...checkVendoredIntegrity(
+        parseManifest(await manifest.text()),
+        await digestTree(vendoredRoot, tracked),
+      ),
+    );
+  } else {
+    failures.push(
+      "tools/oxlint/CHECKSUMS.sha256 is missing; derive it from the pinned upstream tree",
+    );
+  }
 
   const snapshot = Bun.file(snapshotPath);
   if (await snapshot.exists()) {
