@@ -89,7 +89,7 @@ Keep `main` in the CI `push` trigger list: a ref update reaching it outside the 
 
 ## 4. Repo CLAUDE.md
 
-Add a Branching section stating, in the repo's own words: the two branch roles, the threshold rule, landing (`git push origin <branch>:dev`, never the merge button), release (`git push origin dev:main`), and where the review layers sit. Keep it under 10 lines; the doctrine lives in this skill.
+Add a Branching section stating, in the repo's own words: the two branch roles, the threshold rule, landing (`git push origin <branch>:dev`, never the merge button), release (`git push origin dev:main`), where the review layers sit, and the recovery rule (rejected push: rebase on the remote tip and retry, never force `dev`/`main`). Keep it under 12 lines: agents must not need this skill after setup, since it is user-invocable only.
 
 ## 5. Verify
 

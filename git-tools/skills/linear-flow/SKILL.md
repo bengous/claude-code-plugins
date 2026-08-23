@@ -1,6 +1,7 @@
 ---
 name: linear-flow
-description: This skill should be used when the user asks to "set up linear flow", "apply the linear workflow", "land this branch", "release to main", "push dev to main", asks how work should reach dev or main in a repo using this model, or wants a repo migrated to the dev-trunk/main-release fast-forward model with no merge commits.
+description: Migrate a repo to the dev-trunk/main-release fast-forward model (no merge commits) and load its doctrine. One-shot setup; day-to-day rules live in each repo's CLAUDE.md afterwards.
+disable-model-invocation: true
 ---
 
 # Linear Flow
