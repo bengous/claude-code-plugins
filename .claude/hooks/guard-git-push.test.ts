@@ -272,6 +272,9 @@ describe("subprocess integration", () => {
           `mkdir -p "${tmpDir}"`,
           `cd "${tmpDir}"`,
           "git init -q",
+          // CI runners carry no git identity; the commit below needs one.
+          'git config user.email "test@test.com"',
+          'git config user.name "Test"',
           "git commit --allow-empty -m init -q",
         ].join(" && "),
       ],
