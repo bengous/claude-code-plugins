@@ -61,7 +61,11 @@ Carried by nobody, so hold them by hand:
 `dev` is the working trunk; `main` is the release channel consumers install from, moved only by fast-forward (`git push origin dev:main`). History is linear everywhere: no merge commits, server-enforced.
 
 - Small single-concern change: commit directly on `dev`, atomic and curated.
-- Big work (large feature, large skill), several concerns, or parallel agents: branch or PR stack targeting `dev`, agent review per PR, then land with rebase + ff push (`git push origin <branch>:dev`). The push marks the PR merged; never use the GitHub merge button.
+- Big work (large feature, large skill), several concerns, or parallel agents: branch or PR stack targeting `dev`, agent review per PR.
 - Review: agents review each other's PRs; the human reviews contracts and tests at the end of a chantier and before each release.
+
+Landing is local: rebase on `dev`, then fast-forward `dev` (`git merge --ff-only <branch>` from the checkout holding `dev`). Pushing to origin is a separate publish step, done when the user asks — never a default part of landing. For a PR, the eventual push of `dev` marks it merged; never use the GitHub merge button.
+
+Worktree sessions cannot move `dev`: it is checked out in the main checkout and git refuses (`git branch -f` and local push alike). Commit on the worktree branch, then hand the fast-forward to the main checkout.
 
 Details and recovery: `docs/repo-ops.md`.
