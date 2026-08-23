@@ -58,14 +58,19 @@ Carried by nobody, so hold them by hand:
 
 ## Branching
 
-`dev` is the working trunk; `main` is the release channel consumers install from, moved only by fast-forward (`git push origin dev:main`). History is linear everywhere: no merge commits, server-enforced.
+`dev` is the working trunk; `main` is the release channel consumers install from, moved only by the human, by fast-forward (`git push origin dev:main`). History is linear everywhere: no merge commits, server-enforced.
 
-- Small single-concern change: commit directly on `dev`, atomic and curated.
-- Big work (large feature, large skill), several concerns, or parallel agents: branch or PR stack targeting `dev`, agent review per PR.
-- Review: agents review each other's PRs; the human reviews contracts and tests at the end of a chantier and before each release.
+Two lanes; the agent judges by scope, the user can override:
 
-Landing is local: rebase on `dev`, then fast-forward `dev` (`git merge --ff-only <branch>` from the checkout holding `dev`). Pushing to origin is a separate publish step, done when the user asks — never a default part of landing. For a PR, the eventual push of `dev` marks it merged; never use the GitHub merge button.
+- Inline — one concern, small diff: commit directly on `dev`, atomic and curated.
+- Branch — several concerns, big work (large feature, large skill), or parallel agents: `feature/`|`fix/` branch, pushed, PR targeting `dev`, agent review per PR.
 
-Worktree sessions cannot move `dev`: it is checked out in the main checkout and git refuses (`git branch -f` and local push alike). Commit on the worktree branch, then hand the fast-forward to the main checkout.
+Landing a branch: rebase on `dev`, then `git merge --ff-only <branch>` from the checkout holding `dev`. A session running in that checkout lands on its own, without asking; only a worktree session hands the merge over. Pushing `dev` then marks the PR merged; never use the GitHub merge button.
+
+Push `dev` to origin when the task is done and validated (gates pass, acceptance criteria met) — not per commit, and the push is never the landing mechanism itself.
+
+Worktree sessions (`claude -w`) cannot move `dev`: it is checked out in the main checkout and git refuses. From a worktree: commit on the worktree branch, hand the `--ff-only` to the main checkout; a small fix needs no branch push and no PR.
+
+Review: agents review each other's PRs; the human reviews contracts and tests at the end of a chantier and before each release.
 
 Details and recovery: `docs/repo-ops.md`.

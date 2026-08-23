@@ -16,7 +16,7 @@ There is no classic branch protection; querying `/branches/main/protection` retu
 
 `main` is a delayed pointer on `dev`'s history, never a divergent branch:
 
-- Land a branch: rebase on `dev`, then `git push origin <branch>:dev`. GitHub marks the matching PR merged because the same SHAs reach the base branch. The GitHub merge button is never used; rebasing locally keeps commits signed by the author's key (GitHub-side rebase would strip signatures and trip `Require signed commits`).
+- Land a branch: rebase on `dev`, then `git merge --ff-only <branch>` from the checkout holding `dev`. The later push of `dev` (end of validated task) makes GitHub mark the matching PR merged, because the same SHAs reach the base branch. The GitHub merge button is never used; rebasing locally keeps commits signed by the author's key (GitHub-side rebase would strip signatures and trip `Require signed commits`).
 - Release: `git push origin dev:main`. The rulesets guarantee this is the only kind of push `main` accepts.
 - Force pushes happen only on feature branches (`--force-with-lease` after a rebase), never on `dev` or `main`.
 
