@@ -33,8 +33,19 @@ pre-commit:
         - ".claude/skills/*.md"
       run: bun ./scripts/validate-frontmatter.ts
 
-    # The five gates below run over the whole repo, not the staged subset: each
+    # The six gates below run over the whole repo, not the staged subset: each
     # takes well under a second, and CI then replays the exact same commands.
+    - name: lint-config
+      glob:
+        - "oxlint.config.ts"
+        - "scripts/check-lint-config.ts"
+        - "scripts/check-lint-config.test.ts"
+        - "tools/oxlint/lint-contract.json"
+        - "tools/oxlint/CHECKSUMS.sha256"
+        - "tools/oxlint/anti-slop/**"
+        - ".github/workflows/ci.yml"
+        - "lefthook.yml"
+      run: bun ./scripts/check-lint-config.ts
     - name: typecheck
       glob:
         - "*.ts"

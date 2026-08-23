@@ -18,18 +18,18 @@ Testing a plugin from source (launch flags, permission modes, transcript checks)
 ## Commands
 
 ```bash
-bun test                                     # every suite outside dot directories
-bun test ./.claude/hooks/*.test.ts           # the repo's own hooks; `bun test` skips them
-bun ./scripts/validate-marketplace.ts        # versions + structure
-bun ./scripts/validate-frontmatter.ts --all  # frontmatter (default: staged only)
-bun x tsgo --noEmit                          # types; fall back to ./node_modules/.bin/tsc --noEmit if tsgo rejects a flag
-bun x oxlint                                 # lint (correctness + suspicious + pedantic + anti-slop)
-bun x oxfmt '**/*.ts' '**/*.js'              # format; add --check to verify only
-bun ./scripts/lint-shell.ts                  # shellcheck + shfmt; takes paths, else the whole repo
-bun ./scripts/check-lint-disables.ts         # gate for the suppression rule below
+bun test                                               # every suite outside dot directories
+bun test ./.claude/hooks/*.test.ts                     # the repo's own hooks; `bun test` skips them
+bun ./scripts/validate-marketplace.ts                  # versions + structure
+bun ./scripts/validate-frontmatter.ts --all            # frontmatter (default: staged only)
+bun x tsgo --noEmit                                    # types; fall back to ./node_modules/.bin/tsc --noEmit if tsgo rejects a flag
+bun x oxlint                                           # lint (correctness + suspicious + pedantic + anti-slop)
+bun x oxfmt '**/*.ts' '**/*.js' '**/*.mjs' '**/*.cjs'  # format; add --check to verify only
+bun ./scripts/lint-shell.ts                            # shellcheck + shfmt; takes paths, else the whole repo
+bun ./scripts/check-lint-disables.ts                   # gate for the suppression rule below
 ```
 
-The five tooling gates (`tsgo`, `oxlint`, `oxfmt --check`, `lint-shell.ts`, `check-lint-disables.ts`) run in `pre-commit` and again in CI, same arguments both times; `validate-marketplace.ts` too. `pre-commit` runs `validate-frontmatter.ts` on staged files only, CI runs it with `--all`. Neither test command runs in `pre-commit`: `lefthook.yml` declares no test job, so both `bun test` runs are CI-only.
+The six tooling gates (`check-lint-config.ts`, `tsgo`, `oxlint`, `oxfmt --check`, `lint-shell.ts`, `check-lint-disables.ts`) run in `pre-commit` and again in CI, same arguments both times; `validate-marketplace.ts` too. `pre-commit` runs `validate-frontmatter.ts` on staged files only, CI runs it with `--all`. Neither test command runs in `pre-commit`: `lefthook.yml` declares no test job, so both `bun test` runs are CI-only.
 
 ## Code Standards
 

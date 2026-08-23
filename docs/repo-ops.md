@@ -22,7 +22,7 @@ There is no classic branch protection; querying `/branches/main/protection` retu
 
 ## Local enforcement
 
-- lefthook `pre-commit`, in order: `block-commit-to-main`, `block-settings-json`, `sync-settings`, `sync-versions` (auto-fix), `validate-marketplace`, `validate-frontmatter`, then the five repo-wide gates `typecheck`, `lint-ts`, `fmt`, `lint-sh`, `check-lint-disables`. `commit-msg`: `block-ai-signatures`. Escape hatch for recovery only: `MAIN_BYPASS=1`.
+- lefthook `pre-commit`, 12 jobs in order: `block-commit-to-main`, `block-settings-json`, `sync-settings`, `sync-versions` (auto-fix), `validate-marketplace`, `validate-frontmatter`, then the six repo-wide gates `lint-config`, `typecheck`, `lint-ts`, `fmt`, `lint-sh`, `check-lint-disables`. Only the mutating jobs are order-bound: they run before the jobs that validate what they wrote. `commit-msg`: 1 job, `block-ai-signatures`. Escape hatch for recovery only: `MAIN_BYPASS=1`.
 - Claude Code PreToolUse hook: `.claude/hooks/guard-main-branch.ts`.
 
 ## CI

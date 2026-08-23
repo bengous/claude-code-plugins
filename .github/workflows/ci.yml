@@ -29,8 +29,11 @@ jobs:
       - name: Run test suites
         run: bun test && bun test ./.claude/hooks/*.test.ts
 
-      # The five gates below are the same commands the pre-commit jobs run, so a
+      # The six gates below are the same commands the pre-commit jobs run, so a
       # `--no-verify` commit gets the identical verdict here.
+      - name: Check lint configuration
+        run: bun ./scripts/check-lint-config.ts
+
       - name: Typecheck (tsgo)
         run: bun x tsgo --noEmit
 
