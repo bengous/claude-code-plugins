@@ -3,7 +3,7 @@ name: codex
 description: Invoke OpenAI Codex CLI for cross-model collaboration
 argument-hint: <prompt>
 allowed-tools:
-  - Bash(*:*)
+  - Bash(*)
   - Read(*:*)
   - Write(*:*)
 ---
@@ -20,14 +20,49 @@ install if npm breaks). `AGENTS_BRIDGE_CODEX_VERSION=<x.y.z>` freezes it
 explicitly — the only env var the wrapper reads; everything codex-native goes
 through codex's own flags.
 
-## Default model
+## Models
+
+Configured default (`~/.codex/config.toml`):
 
 !`grep -E '^(model|model_reasoning_effort)' ~/.codex/config.toml 2>/dev/null || echo "(no ~/.codex/config.toml — codex uses its built-in default; the active model is printed in every 'exec' run header)"`
 
-That is the **default** — and the only model name the skill can confirm; never
-guess names from training data. For another model, pass the user's name via
-`-m` — codex validates server-side and errors clearly on an unknown model
-(safe to try).
+Models the installed CLI accepts right now:
+
+<codex_available_models>
+```!
+# Live model list, injected once at skill load (~0.1 s).
+# visibility != "list" hides codex-internal models (auto-review, reserve).
+# Two constraints from the injected-command permission check:
+# - No brace near a quote anywhere in this block, comments included: that
+#   is "expansion obfuscation", and allowed-tools cannot override it. Hence
+#   + concatenation in jq. CLAUDE_PLUGIN_ROOT is substituted before the check.
+# - The allowed-tools Bash rule must match the codex call: Bash(*) does,
+#   Bash(*:*) does not (it reads as a literal-star prefix).
+# Never exit non-zero: a failed injected command aborts the whole skill.
+"${CLAUDE_PLUGIN_ROOT}/scripts/codex" debug models 2>/dev/null |
+  jq -r '.models[]
+    | select(.visibility == "list")
+    | .slug + " | default effort: " + .default_reasoning_level
+      + " | efforts: " + ([.supported_reasoning_levels[].effort] | join(","))
+      + " | " + .description' || true
+```
+</codex_available_models>
+
+Pass a slug from that block, never a name from training data. An empty block
+means the CLI was unreachable: pass no `-m` and let the configured default run.
+
+The default invocation below passes no `-m` and no effort flag, so it inherits
+the configured default. When a run needs another tier, pick from this table and
+pass both flags:
+
+| Work | Model | Effort |
+|------|-------|--------|
+| Coding, judgment, hard review | `gpt-5.6-sol` | `xhigh` |
+| Audit, security review, and coding | `gpt-daybreak-blue-latest` | `xhigh` |
+| Gates, tests, research, bounded work | `gpt-5.6-luna` | `max` |
+
+The other listed models are older tiers. Use one only when the user names it.
+Check that the effort you pass appears in that model's `efforts:` list.
 
 Without `--json`, each run prints the active `model:` / `reasoning effort:` /
 `sandbox:` in its header — read it to confirm what ran. **With `--json` (the
@@ -115,12 +150,13 @@ sandbox, effort, and any non-default model on every resume**, via
 ### Overrides (codex native flags)
 
 A model or effort the user asks for overrides the default — add the flag to
-either block above (nothing hardcodes the model list; codex validates):
+either block above (the model list is injected from the CLI, never hardcoded;
+codex validates):
 
 | Flag | Purpose |
 |------|---------|
-| `-m <model>` | Model — default from the probe above; codex errors on an unknown name |
-| `-c model_reasoning_effort=<level>` | Reasoning effort — common: `low`, `medium`, `high`, `xhigh` (some models add more); codex validates |
+| `-m <model>` | Model — a slug from `<codex_available_models>`; codex errors on an unknown name |
+| `-c model_reasoning_effort=<level>` | Reasoning effort — a level from that model's `efforts:` field in `<codex_available_models>`; codex validates |
 | `-s <mode>` | Sandbox — `read-only`, `workspace-write`, `danger-full-access` |
 
 ## Inside workflows/subagents (Claude Code)

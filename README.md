@@ -28,7 +28,7 @@ A curated marketplace of Claude Code plugins for development workflow automation
 | [research-tools](research-tools/) | 1.1.0 | Documentation research through optimal MCP sources and claim verification: research agents, source routing, web and codebase fact-checking |
 | [claude-settings-manager](claude-settings-manager/) | 1.1.1 | Manage Claude Code settings with JSONC support and schema extraction |
 | [git-worktree](git-worktree/) | 1.2.0 | Git worktree helper with stack support for multi-agent orchestration |
-| [agents-bridge](agents-bridge/) | 1.9.2 | Bridge to the OpenAI Codex CLI for cross-model collaboration |
+| [agents-bridge](agents-bridge/) | 1.10.0 | Bridge to the OpenAI Codex CLI for cross-model collaboration |
 | [conductor](conductor/) | 1.3.6 | Conversational planning skill that produces self-contained implementation plans |
 | [software-craft](software-craft/) | 2.1.0 | Opinionated design skills for software excellence: CLI design, system architecture, and more |
 | [understanding](understanding/) | 1.0.0 | Understand a topic or a bug: minimal explanations and root-cause diagnosis |
