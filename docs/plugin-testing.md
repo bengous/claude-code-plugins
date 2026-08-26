@@ -57,6 +57,18 @@ Transcripts live at `~/.claude/projects/<cwd-slug>/<session-id>.jsonl`.
 - `` !`cmd` `` interpolation works in `SKILL.md`. The permission check walks
   every head of a compound command; its error names the blocking part
   (`test` in `test -f … && echo …`), the rest already passed.
+- A fenced ```` ```! ```` block runs its whole body as one bash script:
+  multi-line pipelines and `#` comments work, and only stdout reaches the
+  model. A non-zero exit aborts the skill; end the pipeline with `|| true`.
+- That permission check also applies the Bash tool's shell-safety
+  heuristics, and `allowed-tools` cannot override them. A brace next to a
+  quote is "expansion obfuscation"; a backslash-newline is "backslash-escaped
+  whitespace". Either aborts the skill before the model runs, with the reason
+  in the transcript's `<local-command-stderr>` row, not on stderr.
+- `Bash(*:*)` does not grant a bundled-script call: `:*` is a trailing
+  wildcard, so it reads as `Bash(* *)`, a literal-star prefix. `Bash(*)` is
+  the match-all form; `Bash(${CLAUDE_PLUGIN_ROOT}/scripts/x *)` the narrow
+  one. Auto-approving modes hide the gap; only `default` mode shows it.
 - `${CLAUDE_PLUGIN_ROOT}` is substituted in `SKILL.md` at load, never in a
   file the model opens with `Read`. Sibling phase files must locate the
   plugin root relative to the skill base directory the harness prints.
