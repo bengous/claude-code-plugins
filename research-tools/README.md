@@ -1,6 +1,6 @@
 # Research Tools Plugin
 
-v1.2.0
+v1.2.1
 
 Documentation research through optimal MCP sources and claim verification.
 

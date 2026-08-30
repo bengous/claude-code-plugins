@@ -52,7 +52,7 @@ lines into context instead of whole pages.
    `cat` of a whole page costs hundreds of lines; use it only when the page is short (`wc -l` first).
 4. To date a behavior, map a changelog line to its version with `awk`, which keeps the last `Update label` seen before each match:
    ```
-   awk '/Update label=/{v=$0} /Glob.*Grep|Grep.*Glob/{print v; print}' /en/changelog.mdx
+   awk '/Update label=/{v=\$0} /Glob.*Grep|Grep.*Glob/{print v; print}' /en/changelog.mdx
    ```
    Then open the matching `/en/whats-new/` digest for the surrounding context.
 5. Quote the doc verbatim when the wording carries the answer (a version number, a default, an exact flag). Paraphrase only the surrounding explanation. End with the URL form `https://code.claude.com/docs/en/<page>#<anchor>` and the version numbers you found.
@@ -67,7 +67,7 @@ lines into context instead of whole pages.
 ## Fallbacks without the MCP server
 
 - `WebFetch` `https://code.claude.com/docs/llms.txt` to list pages, then fetch `https://code.claude.com/docs/en/<page>`.
-- For version archaeology, `WebFetch` `https://raw.githubusercontent.com/anthropics/claude-code/main/CHANGELOG.md`; its versions are `## 2.1.x` markdown headings, so `awk '/^## /{v=$0} /<term>/{print v; print}'` works on a local copy.
+- For version archaeology, `WebFetch` `https://raw.githubusercontent.com/anthropics/claude-code/main/CHANGELOG.md`; its versions are `## 2.1.x` markdown headings, so `awk '/^## /{v=\$0} /<term>/{print v; print}'` works on a local copy.
 - The `claude-code-guide` subagent answers behavior questions from the docs when you need a summary rather than a citation.
 
 ## Example
