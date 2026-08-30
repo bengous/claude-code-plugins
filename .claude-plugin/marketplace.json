@@ -362,7 +362,7 @@
     {
       "name": "research-tools",
       "description": "Documentation research through optimal MCP sources and claim verification: research agents, source routing, web and codebase fact-checking",
-      "version": "1.1.0",
+      "version": "1.2.0",
       "author": {
         "name": "Augustin BENGOLEA",
         "email": "bengous@protonmail.com"
