@@ -299,27 +299,6 @@
       "source": "./git-sweep"
     },
     {
-      "name": "ship",
-      "description": "Ship feature branches: strip working files, create PRs, merge to main with GPG signing and squash support",
-      "version": "2.0.0",
-      "author": {
-        "name": "Augustin BENGOLEA",
-        "email": "bengous@protonmail.com"
-      },
-      "homepage": "https://github.com/bengous/claude-code-plugins",
-      "license": "MIT",
-      "keywords": [
-        "git",
-        "ship",
-        "pr",
-        "merge",
-        "gpg",
-        "squash",
-        "workflow"
-      ],
-      "source": "./ship"
-    },
-    {
       "name": "goalify",
       "description": "Convert rough intent into the smallest useful goal payload to hand to a fresh Claude Code agent (new session, subagent, or /loop), draft-first or interactive question-first",
       "version": "1.0.0",
