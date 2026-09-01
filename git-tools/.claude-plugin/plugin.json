@@ -1,7 +1,7 @@
 {
   "name": "git-tools",
-  "version": "1.13.1",
-  "description": "Interactive git commands with AI assistance for commit management, history rewriting, PR/issue triage, and repository cleanup",
+  "version": "2.0.0",
+  "description": "Git and GitHub protocols: rebase and squash without an editor, agent-ready issues, issue and PR triage, CI-gated linear merge, submodule automation",
   "author": {
     "name": "Augustin BENGOLEA",
     "email": "bengous@protonmail.com"
@@ -11,19 +11,14 @@
   "license": "MIT",
   "keywords": [
     "git",
+    "github",
     "rebase",
-    "interactive",
-    "ai",
-    "commit",
-    "history",
-    "automation",
-    "cleanup",
-    "branches",
-    "worktrees",
-    "dependabot",
-    "pr",
-    "pull-request",
+    "squash",
+    "issue",
     "triage",
-    "issue"
+    "pull-request",
+    "merge",
+    "linear-history",
+    "submodules"
   ]
 }

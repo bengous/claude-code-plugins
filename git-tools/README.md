@@ -1,159 +1,41 @@
 # Git Tools Plugin
 
-Interactive git commands with AI assistance for commit management and history rewriting.
+Git and GitHub protocols for Claude Code: history rewriting without an editor, agent-ready issues, issue and PR triage, CI-gated merge.
 
-## Overview
+## Skills
 
-Git Tools provides AI-powered interactive git commands that enhance your workflow with intelligent suggestions, visual feedback, and safety guardrails.
+| Skill | Invocation | What it does |
+|-------|------------|--------------|
+| `issue` | `/git-tools:issue [number] <request>` | Writes or rewrites an issue as a prompt for another agent: Problem, Evidence, Hints, Done when, Out of scope. |
+| `triage` | `/git-tools:triage [number\|url]` | Verifies an issue or PR against the current code, gives a one-word verdict with proof, then implements, keeps, or closes on your decision. |
+| `await-merge` | `/git-tools:await-merge [pr]` | Watches the checks, merges by squash or rebase (never a merge commit), fast-forwards the local base branch. |
+| `commit-close` | `/git-tools:commit-close [issue]` | Commits with a `Closes #N` trailer; the number comes from the argument or the branch name. |
+| `linear-flow` | `/git-tools:linear-flow` | Doctrine and bootstrap for the dev-trunk/main-release fast-forward model. |
+| `submodule-setup` | on request | Migrates branches to submodules with GitHub Actions sync. |
 
-## Features
+`issue` and `triage` invoke themselves when the request matches; the other four are manual.
 
-- **Interactive Rebase**: Visual, multi-stage rebase workflow driven by questions instead of an editor
-- **PR Triage**: Analyze open PRs and decide to treat or close with explanatory comments
-- **Issue Triage**: Analyze open issues with fact-checking and decide to treat or close
-- **Repository Cleanup**: Automated cleanup of stale branches, worktrees, and closed PRs
-- **Commit Messages**: Claude proposes reword and squash messages, and you pick one
-- **Conflict Guidance**: Step-by-step resolution instructions when conflicts arise
-- **Safety Checks**: Automatic backup branch creation and working directory validation
-- **Visual Feedback**: A rendered rebase plan, confirmed before execution
-- **Linear Flow**: Doctrine and setup for the dev-trunk/main-release fast-forward model
+### Issue shape
 
-## Installation
+```markdown
+## Problem      what is observed and what is wanted, no solution
+## Evidence     one fact per bullet, each anchored: path:line + symbol, or a commit
+## Hints        where to start, traps, boundaries; suggestions, never a plan
+## Done when    observable checkboxes, including the project's validation command
+## Out of scope what not to touch on the way (omitted when empty)
+```
 
-This plugin is part of the bengous-plugins marketplace. To install:
+The reader is a different agent in a fresh session. The issue proves the problem; the reader plans.
 
-1. Add the marketplace to your Claude Code configuration
-2. Install the git-tools plugin from the marketplace
+### Triage verdicts
+
+| Issue | PR |
+|---|---|
+| `valid`, `fixed`, `outdated`, `duplicate`, `unclear` | `mergeable`, `needs-rebase`, `superseded`, `stale`, `unclear` |
+
+Close comments are one to three sentences of fact: what was verified and the commit, issue, or PR that settles it.
 
 ## Commands
-
-> Branch and worktree cleanup moved to the `git-sweep` plugin (`/git-sweep`), which
-> supersedes the former `/analyze-git` and `/cleanup-git` commands. See
-> `archive/git-legacy/` for the retired versions.
-
-### `/triage`
-
-Analyze an open pull request and decide whether to treat (continue working on it) or close it with an explanatory comment.
-
-**Usage:**
-```bash
-/git-tools:triage 123                              # By PR number
-/git-tools:triage https://github.com/org/repo/pull/123  # By URL
-```
-
-**Analysis Criteria:**
-
-| Factor | What's Evaluated |
-|--------|------------------|
-| Age & Activity | Creation date, last update, staleness |
-| Scope | Files changed, lines added/removed |
-| Review Status | Approvals, change requests, pending reviews |
-| Merge Readiness | Conflicts, CI status, target branch |
-| Relevance | Alignment with current project goals |
-
-**Workflow:**
-
-1. **Gather**: Fetches PR metadata, diff stats, and comments via `gh` CLI
-2. **Analyze**: Evaluates the PR against triage criteria
-3. **Summarize**: Presents structured report with recommendation
-4. **Decide**: Asks you to confirm TREAT or CLOSE
-5. **Execute**:
-   - TREAT: Optionally assign, label, or comment
-   - CLOSE: Posts explanatory comment, then closes PR
-
-**Output Example:**
-```
-## PR Summary: Add dark mode support
-
-**Author:** @contributor | **Created:** 45 days ago | **Last activity:** 30 days ago
-
-**Scope:** +250/-50 lines across 8 files
-
-**Status:**
-- Reviews: changes requested
-- Mergeable: yes
-- CI: passing
-
-**Key observations:**
-- Stale for 30 days with unaddressed review comments
-- Significant scope but well-structured changes
-- No response from author to feedback
-
-**Recommendation:** CLOSE
-**Reason:** Stale PR with unaddressed review feedback
-```
-
-**Close Comment Templates:**
-
-The command includes templates for common close scenarios:
-- Stale PRs (no recent activity)
-- Superseded PRs (work done elsewhere)
-- Scope issues (PR too large to review)
-
-Comments thank the contributor and invite them to reopen if circumstances change.
-
-**Requirements:**
-- GitHub CLI (`gh`) authenticated with repo access
-
----
-
-### `/issue-triage`
-
-Analyze an open issue and decide whether to treat (continue working on it) or close it with an explanatory comment.
-
-**Usage:**
-```bash
-/git-tools:issue-triage 123                              # By issue number
-/git-tools:issue-triage https://github.com/org/repo/issues/123  # By URL
-```
-
-**Key Differences from PR Triage:**
-
-| Aspect | PR Triage | Issue Triage |
-|--------|-----------|--------------|
-| Fact-checking | Merge conflicts, CI status | Verify issue still exists in codebase |
-| Closure reasons | Comment only | `--reason completed` or `--reason not_planned` |
-| Actions | Assign, label, request changes | Assign, label, milestone, link PRs |
-
-**Analysis Criteria:**
-
-| Factor | What's Evaluated |
-|--------|------------------|
-| Age & Activity | Creation date, last update, staleness |
-| Clarity | Description quality, reproduction steps |
-| Labels & Assignment | Proper categorization, ownership |
-| Relevance | Alignment with current project goals |
-| Validity | Whether issue still exists in codebase |
-
-**Workflow:**
-
-1. **Gather**: Fetches issue metadata, labels, and comments via `gh` CLI
-2. **Fact-check**: Verifies issue is still valid (searches codebase, checks for fixes)
-3. **Analyze**: Evaluates the issue against triage criteria
-4. **Summarize**: Presents structured report with recommendation
-5. **Decide**: Asks you to confirm TREAT or CLOSE
-6. **Execute**:
-   - TREAT: Optionally assign, label, add to milestone, or comment
-   - CLOSE: Posts explanatory comment with appropriate reason
-
-**Close Reasons:**
-
-- `--reason completed`: Issue was fixed or feature implemented
-- `--reason not_planned`: Won't fix, duplicate, cannot reproduce, stale, invalid
-
-**Close Comment Templates:**
-
-The command includes templates for common close scenarios:
-- Already fixed (resolved elsewhere)
-- Duplicate (link to original issue)
-- Cannot reproduce (request more info)
-- Stale (no recent activity)
-- Won't fix (out of scope or by design)
-
-**Requirements:**
-- GitHub CLI (`gh`) authenticated with repo access
-
----
 
 ### `/rebase`
 
@@ -216,16 +98,18 @@ No separate model is called, and no suggestion is generated that you do not see.
 # Run this rebase? [Run / Cancel]
 ```
 
-## Skills
+### `/squash`
 
-- **submodule-setup**: Migrate branches to submodules with GitHub Actions sync automation.
-- **linear-flow**: Doctrine for the linear model — `dev` as working trunk, `main` as fast-forward release pointer, no merge commits. Includes repo bootstrap (rulesets, CI ancestor guard).
+Squash commits by pattern, by hash list, or the last N, without opening an editor. See the command's argument hint.
+
+## Retired
+
+Branch and worktree cleanup lives in the `git-sweep` plugin. `bisect-ci`, `claude-review`, `handle`, and `issue-triage` are gone: the first sits in `archive/git-legacy/`, the second is covered by the built-in `/code-review`, the last two merged into `triage`.
 
 ## Requirements
 
-- Git 2.0+
-- GitHub CLI (`gh`) authenticated for PR operations
-- jq (for `/bisect-ci`)
+- Git 2.23+ (`git switch`)
+- GitHub CLI (`gh`) authenticated for issue and PR operations
 - Clean working directory for rebase operations
 
 ## License

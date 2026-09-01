@@ -10,6 +10,7 @@ commands/
   analyze-git.md    # read-only branch/worktree cleanup report
   cleanup-git.md    # destructive counterpart to analyze-git
   plan-with-wt.md   # plan-mode approval phrase + worktree steps
+  bisect-ci/        # GitHub Actions run to commit mapping, bash + jq
 ```
 
 ## Why archived
@@ -34,6 +35,13 @@ mode." alongside worktree instructions. Plan mode is now entered via the `EnterP
 tool, and worktree isolation is available through `EnterWorktree` and the `git-worktree`
 plugin, so the mechanism it existed to trigger is gone. It had no references anywhere in the
 repo at archival time.
+
+**`bisect-ci`** mapped GitHub Actions runs to commits and printed the suspect range
+between the last success and the first failure. Retired with two dead ends: the script
+indexed runs by 8-character SHAs while `git log --oneline` yields 7, so no commit ever
+matched a run, and the workflow name `CI` plus the "validator package" filter came from
+one specific project. It had no user for months. The idea, a protocol for a CI bisect,
+stays here in case it is rebuilt in TypeScript.
 
 ## Consumers updated at archival
 
