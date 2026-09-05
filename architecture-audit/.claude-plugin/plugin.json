@@ -1,0 +1,20 @@
+{
+  "name": "architecture-audit",
+  "version": "1.0.0",
+  "description": "Architecture audit that grants the existing code no authority: derive the requirements, design the minimal from-scratch architecture, then classify every component KEEP / SIMPLIFY / REPLACE / DELETE",
+  "author": {
+    "name": "Augustin BENGOLEA",
+    "email": "bengous@protonmail.com"
+  },
+  "homepage": "https://github.com/bengous/claude-code-plugins/tree/main/architecture-audit",
+  "repository": "https://github.com/bengous/claude-code-plugins",
+  "license": "MIT",
+  "keywords": [
+    "architecture",
+    "audit",
+    "greenfield",
+    "rewrite",
+    "simplification",
+    "technical-debt"
+  ]
+}
