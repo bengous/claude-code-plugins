@@ -24,6 +24,16 @@ command claude --permission-mode default --plugin-dir <repo>/<plugin>
 - The flag adds, it never replaces. Installed plugins, external ones included,
   stay loaded beside what it reads from disk — so a plugin that is both
   installed and passed to the flag registers its skills twice.
+- A skill that rewrites history needs a clean tree, and the tree that holds
+  the skill under edit is dirty by definition. Run the session in a second
+  worktree (`git worktree add /tmp/t <branch>`) while `--plugin-dir` keeps
+  pointing at the edited source. One fresh branch per run: a rerun on a
+  branch the first run rewrote no longer finds its hashes.
+- Reproduce a git mechanism in a scratch repo before editing the skill:
+  three `git commit -qm` and one `git rebase -i` under
+  `-c sequence.editor=cat` show the real todo format (here
+  `pick <hash> # <subject>`) and settle a question in seconds that a
+  full session answers in minutes.
 
 ## Permission modes are not equal tests
 
@@ -79,6 +89,21 @@ Transcripts live at `~/.claude/projects/<cwd-slug>/<session-id>.jsonl`.
   wildcard, so it reads as `Bash(* *)`, a literal-star prefix. `Bash(*)` is
   the match-all form; `Bash(${CLAUDE_PLUGIN_ROOT}/scripts/x *)` the narrow
   one. Auto-approving modes hide the gap; only `default` mode shows it.
+- An `allow` rule stops at a leading environment assignment.
+  `Bash(git rebase:*)` never matches `GIT_SEQUENCE_EDITOR=x git rebase`, in
+  `default` mode it prompts every time; only a fixed known-safe list
+  (`NODE_ENV`-style) is stripped, and `deny`/`ask` rules match past any
+  assignment. Keep the executable first: `git -c sequence.editor=x rebase`
+  matches `Bash(git -c sequence.editor=:*)` (measured on git 1.0.1).
+  Source: https://code.claude.com/docs/en/permissions#process-wrappers.
+- The session exports `GIT_EDITOR=true`. It outranks `-c core.editor`, so a
+  `core.editor="cp msg"` override never runs and a squash keeps git's
+  concatenated message. Set the message from the todo instead:
+  `sed -e '/^squash <h>/a exec git commit --amend -F <file>'`.
+- `$(...)` in a command prompts in `default` mode even under a matching rule
+  ("Contains command_substitution"). The model copies example commands as
+  written, so `git branch backup-$(date +%s)` in a skill is a prompt on
+  every run.
 - `${CLAUDE_PLUGIN_ROOT}` is substituted in `SKILL.md` at load, never in a
   file the model opens with `Read`. Sibling phase files must locate the
   plugin root relative to the skill base directory the harness prints.
@@ -89,6 +114,17 @@ Transcripts live at `~/.claude/projects/<cwd-slug>/<session-id>.jsonl`.
 - An installed plugin is the source tree copied verbatim into
   `~/.claude/plugins/cache/<marketplace>/<plugin>/<version>/`, executable
   bits included. A layout that works under `--plugin-dir` works installed.
+
+## Prompt audit
+
+`/claude-api prompt-audit "<plugin>/skills"` finds text written for an
+older model or an older backend: fossil sentences, hardcoded depths, gold
+outputs the model copies, descriptions without a trigger clause. One pass
+over `git/skills` found the `rebase` fossil and three `squash` defects.
+Run it on a plugin before its release bump; apply only the hunks the test
+session above confirms. Skills here are written by agents under the owner's
+prompting, so no line carries an author's measured intent: a recent commit
+date does not exempt a pattern, numeric length caps included.
 
 ## Install and update
 
