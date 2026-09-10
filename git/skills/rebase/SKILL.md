@@ -40,7 +40,7 @@ Report `step` on success. On `ok: false`, report `error` and `detail`; when
 `guidance` is present, print every line of it. Then stop — no other phase runs.
 
 `exec-failed` on `continue` or `skip` means a commit message was never applied
-and neither mode can replay it. Say so, and offer `/rebase abort` — never retry
+and neither mode can replay it. Say so, and offer `/git:rebase abort` — never retry
 the same mode. `backup_ref`, when set, names the branch that still holds the
 history as it was before the rebase started.
 
@@ -59,7 +59,7 @@ if plan.ok == false:
   STOP — report plan.error and plan.detail:
     not-a-git-repo             the command needs a git repository
     dirty-worktree             commit or stash first; detail lists the files
-    rebase-already-in-progress finish it with /rebase continue, skip or abort
+    rebase-already-in-progress finish it with /git:rebase continue, skip or abort
     invalid-range              detail says which revision was rejected
 
 if plan.commits is empty:
@@ -132,15 +132,19 @@ message rules — the backend rejects anything else:
 A `message` always names the commit that exists **after** that step: for a
 squash, that is the combined commit.
 
-## Phase 5: Validate the plan
+## Phase 5: Execute
 
 ```
 run `printf '%s' '{"base": "{plan.base}", "steps": {steps_json}}' \
-  | "${CLAUDE_PLUGIN_ROOT}/scripts/rebase.ts" apply --dry-run`
+  | "${CLAUDE_PLUGIN_ROOT}/scripts/rebase.ts" apply`
 ```
 
-Print `plan_text` verbatim — that is the visual plan. On `ok: false`, report
-`error` and `detail`, then:
+No question and no dry run before it: every action in the plan is an answer
+from Phase 3, the backend re-checks the plan against the branch before the
+first rewrite, and the backup branch it creates keeps the old history. The
+result carries `plan_text`, the visual plan: print it verbatim.
+
+On `ok: false`, report `error` and `detail`, then:
 
 ```
 plan-stale         the branch moved since Phase 1 — start over at Phase 1
@@ -152,12 +156,8 @@ base-not-ancestor  the base is not behind HEAD; that is a transplant, not an
 invalid-plan       the JSON is malformed — rebuild it in Phase 4
 ```
 
-No question here: every action in the plan is an answer from Phase 3, and
-the backup branch of Phase 6 keeps the old history.
-
-## Phase 6: Execute
-
-Same call without `--dry-run`.
+Those four fire before the backup exists, so the branch is untouched. The
+outcomes below come after it:
 
 ```
 if result.ok == true:
@@ -169,13 +169,13 @@ if result.error == "conflict":
   The rebase paused at commit {state.current} of {state.total}.
   List state.conflicted — "{path} ({markers} conflicts)" — then print every
   line of result.guidance. Stop there: the user resolves, then runs
-  /rebase continue. Do NOT resolve the conflict without being asked to.
+  /git:rebase continue. Do NOT resolve the conflict without being asked to.
 
 if result.error == "exec-failed":
   A commit message could not be applied and the rebase is paused mid-way.
-  Print detail verbatim. Do NOT suggest /rebase continue: it skips the
+  Print detail verbatim. Do NOT suggest /git:rebase continue: it skips the
   failed step and the message is lost for good. The way out is
-  /rebase abort, then fix the cause, then /rebase again.
+  /git:rebase abort, then fix the cause, then /git:rebase again.
 
 if result.error == "rebase-stopped":
   The rebase paused for a reason that is neither a conflict nor a message.

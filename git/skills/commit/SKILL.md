@@ -16,7 +16,7 @@ allowed-tools: Bash(git status:*), Bash(git diff:*), Bash(git log:*), Bash(git b
 
 ## Task
 
-1. **Scope.** Something staged: commit that, leave the rest alone. Nothing staged: stage what forms one commit from the diff above, leave the rest. A file that carries a secret is never staged, whatever the diff shows: `.env` and its variants, a private key, a credentials or token file. Name it and stop.
+1. **Scope.** Something staged: commit that, leave the rest alone. Nothing staged: stage what forms one commit from the diff above, leave the rest. The diff omits untracked files; they appear as `??` in the status, and a new file that the diff's changes import belongs to the same commit. A file that carries a secret is never staged, whatever the diff shows: `.env` and its variants, a private key, a credentials or token file. Name it and stop.
 2. **Issue.** A number in `$ARGUMENTS`, else the leading number of the branch name (`fix/123-popover` is 123). `--no-close`, or no number in either place: no trailer, and no question. Otherwise the last line of the body is `Closes #<n>`.
 3. **Message.** Follow the convention visible in the recent commits above. Subject in the imperative, no trailing period. The body says why, never what the diff shows.
 4. **One batch.** Stage and commit in a single tool batch, with nothing in between.

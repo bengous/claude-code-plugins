@@ -3,106 +3,87 @@ name: squash
 description: Squash git commits by pattern, hash list, or the last N, without opening an editor. Use when the user asks to squash, fold, or combine commits, or to collapse fixup and WIP commits.
 argument-hint: --pattern <regex> | --hashes <h1,h2,...> | --range <N> [--dry-run]
 allowed-tools:
-  - Bash(git status:*)
+  - Bash("${CLAUDE_PLUGIN_ROOT}/scripts/rebase.ts":*)
+  - Bash(printf:*)
   - Bash(git log:*)
-  - Bash(git branch:*)
-  - Bash(git reset:*)
-  - Bash(git commit:*)
-  - Bash(git -c sequence.editor=:*)
   - Bash(git rev-parse:*)
   - AskUserQuestion
-  - Write
 ---
 
 # Squash
 
-Squash commits by pattern, hash list, or the last N. No editor opens: git's sequence editor runs a `sed` script and its commit editor copies a prepared message.
+Fold a run of commits into one. The rebase backend of this plugin does the
+rewrite: it builds the todo, sets the editors inside its own process, creates
+a timestamped backup branch, re-checks the plan against the branch, and leaves
+a conflict resumable. This skill only chooses which commits fold.
 
 ## Arguments
 
-$ARGUMENTS
+`$ARGUMENTS`
 
-## Usage Examples
+| Mode | Selection |
+|---|---|
+| `--range N` | the last N commits, folded into the oldest |
+| `--hashes h1,h2,...` | the listed commits, folded into the oldest of them |
+| `--pattern <regex>` | every commit whose subject matches, case-insensitive, folded into the oldest match |
+| `--dry-run` | validate and print the plan, rewrite nothing |
 
-```bash
-# Squash all commits matching a pattern (e.g., "shellcheck", "fix:", "WIP")
-/squash --pattern "shellcheck"
+## Protocol
 
-# Squash specific commits by hash
-/squash --hashes "abc123,def456,ghi789"
+1. **Range.** `--range N`: the range is `N`. Otherwise the range is the branch:
+   `origin/dev` when it exists, else the remote default branch
+   (`git rev-parse --abbrev-ref origin/HEAD`). No remote at all, or on that
+   branch itself: ask how far back to look, and use `N`.
 
-# Squash last N commits (simple case, all contiguous)
-/squash --range 5
+   ```
+   run `"${CLAUDE_PLUGIN_ROOT}/scripts/rebase.ts" plan {range}`
+   ```
 
-# Dry run to preview (no changes)
-/squash --pattern "test" --dry-run
-```
+   On `ok: false`, report `error` and `detail` and stop: `dirty-worktree`
+   lists the files to commit or stash first, `rebase-already-in-progress`
+   points at `/git:rebase continue|skip|abort`.
 
-## How It Works
+2. **Targets.** From `plan.commits`, oldest first: the commits whose hash
+   starts with a listed hash, or whose subject matches the pattern. Fewer
+   than two targets: say so and stop. A listed hash outside the range: name
+   it and stop.
 
-1. Analyze commits and identify targets to squash
-2. Show the plan and the combined message; no question, the backup branch
-   of step 3 keeps the old history
-3. Create the backup branch
-4. Execute the rebase
+   The targets must be consecutive. The backend folds a `squash` into the
+   commit right above it, never across a kept commit: with `fixA, other,
+   fixB` the second fix would fold into `other`. Non-consecutive targets:
+   list the commits sitting between them and stop; `/git:rebase` on the
+   range is the tool for that case.
 
-## Mode Details
+3. **Message.** Read each target with `git log -1 --format=%B <hash>` and
+   compose one message for the combined commit: a subject in the convention
+   of `git log --oneline -10`, then the bodies that still hold. Print it.
 
-**Pattern mode:**
-- Pattern matching is **case-insensitive**
-- First matching commit becomes the base (keep)
-- All subsequent matching commits are squashed into it
-- Non-matching commits in between are preserved
+4. **Steps.** One step per commit of the range, in the order of
+   `plan.commits`:
 
-**Hashes mode:**
-- First hash is the base (keep)
-- Remaining hashes are squashed into first
-- The order given is the order applied
+   ```
+   pick         every commit outside the targets, message null
+   pick         the oldest target, message null
+   squash       every later target; message null, except the LAST one,
+                which carries the combined message
+   ```
 
-**Range mode:**
-- Simple `git reset --soft HEAD~N` + new commit
-- All N commits must be contiguous at HEAD
-- Fast and safe for simple cases
+5. **Apply.**
 
-## Requirements
+   ```
+   run `printf '%s' '{"base": "{plan.base}", "steps": {steps_json}}' \
+     | "${CLAUDE_PLUGIN_ROOT}/scripts/rebase.ts" apply [--dry-run]`
+   ```
 
-- Clean working directory (no uncommitted changes)
-- Must be on a branch (not detached HEAD)
+   With `--dry-run` in `$ARGUMENTS`, pass it through: print `plan_text` and
+   stop. Without it, the backend rewrites and reports. On `ok: true`: the
+   new tip, `result.commits` commits on the branch, and `backup_ref`, with
+   `git branch -D {backup_ref}` as the way to drop it once the history looks
+   right.
 
-## Implementation
-
-Parse the arguments and execute the appropriate strategy:
-
-**For --range N:**
-```bash
-# Backup first, always; no command substitution in the name, it would force
-# a permission prompt
-git branch squash-backup-<branch> HEAD
-
-# Soft reset and recommit
-git reset --soft HEAD~N
-git commit -m "<message composed from the N messages, shown in the preview>"
-# The subject follows the convention of `git log --oneline -10`.
-```
-
-**For --pattern or --hashes:**
-```bash
-# 1. List the commits of the branch, no fixed depth. The base is origin/dev
-#    when it exists, else the remote default branch (git rev-parse
-#    --abbrev-ref origin/HEAD). On that branch itself, ask how far back to look.
-git log --oneline <base>..HEAD
-
-# 2. Find the base commit (oldest matching)
-# 3. Write the combined message to a file outside the repo, then run this
-#    command; change only the hash list, the last hash, the file path and
-#    the base. Hashes are the short ones step 1 printed. The exec line sets the message: GIT_EDITOR is already set in
-#    the session, so a core.editor override never reaches the squash.
-git -c sequence.editor="sed -i -E -e '/^pick (<h2>|<h3>)/s/^pick/squash/' \
-    -e '/^squash <h3>/a exec git commit --amend -F <msgfile>'" \
-    -c core.editor=true rebase -i <base>^
-```
-
-**Always:**
-1. Verify clean working directory first: `git status --porcelain`
-2. Show the plan and the combined message, then execute
-3. Report the new commit hash and the backup branch
+   On `ok: false`: `plan-stale` means the branch moved, start over at step 1;
+   `conflict` pauses the rebase, print every line of `guidance` and stop, the
+   user resolves and runs `/git:rebase continue`; `exec-failed` means the
+   message was not applied, offer `/git:rebase abort`, never `continue`. Any
+   other error: report `error` and `detail`; `backup_ref`, when set, restores
+   the branch with `git reset --hard`.

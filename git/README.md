@@ -26,13 +26,13 @@ Interactive git rebase with visual planning and reworked commit messages.
 
 **Usage:**
 ```bash
-/rebase 5               # The last 5 commits (HEAD~5)
-/rebase main            # Every commit since the merge base with main
-/rebase abc123..def456  # Every commit since abc123
-/rebase continue        # After resolving a conflict
-/rebase skip            # Drop the commit that conflicts
-/rebase abort           # Undo the whole rebase
-/rebase status          # Where a paused rebase stands
+/git:rebase 5               # The last 5 commits (HEAD~5)
+/git:rebase main            # Every commit since the merge base with main
+/git:rebase abc123..def456  # Every commit since abc123
+/git:rebase continue        # After resolving a conflict
+/git:rebase skip            # Drop the commit that conflicts
+/git:rebase abort           # Undo the whole rebase
+/git:rebase status          # Where a paused rebase stands
 ```
 
 The branch form edits the commits made since the merge base. It does not move
@@ -66,7 +66,7 @@ No separate model is called, and no suggestion is generated that you do not see.
 **Example:**
 
 ```bash
-/rebase 3
+/git:rebase 3
 
 # Rebase plan — base 19b31bc
 #
@@ -81,7 +81,11 @@ No separate model is called, and no suggestion is generated that you do not see.
 
 ### `squash`
 
-Squash commits by pattern, by hash list, or the last N, without opening an editor. See the skill's argument hint.
+Squash commits by pattern, by hash list, or the last N, without opening an editor. The same backend as `rebase` does the rewrite, so the backup branch, the plan check and the conflict follow-ups (`/git:rebase continue|skip|abort`) are the same. The targets must be consecutive: the backend folds a commit into the one right above it, never across a kept commit. `--dry-run` prints the plan and rewrites nothing.
+
+## Migrating from git-tools
+
+`git` is the local half of the retired `git-tools` plugin (`github-flow` holds the networked half, `repo-bootstrap` the one-shot setup). `commit-close` is folded into `commit`. A machine that still has `git-tools` installed loads its skills beside these: run `claude plugin uninstall git-tools` first.
 
 ## Requirements
 
