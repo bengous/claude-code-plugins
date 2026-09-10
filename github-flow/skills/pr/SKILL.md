@@ -53,7 +53,7 @@ Measured on `git diff --stat <base>...HEAD`. A change to a shared module (kernel
 
 First line, when there is an issue: `Closes #N.`
 
-**Why.** The problem observed, or the cause for a fix, then what the change does about it. One to three sentences each. A visual change carries a Before/After pair here: `**Before**, <where>:` then `![<what the reader sees>](./before.png)`, the same for After. The alt text names what is in the picture, not the file.
+**Why.** The problem observed, or the cause for a fix, then what the change does about it. A visual change carries a Before/After pair here: `**Before**, <where>:` then `![<what the reader sees>](./before.png)`, the same for After. The alt text names what is in the picture, not the file.
 
 **What.** One bullet per file or group of files: the path, then what it owns now. The non-obvious choice gets its reason in the same bullet. The bullet that carries the risk comes first.
 
@@ -61,7 +61,7 @@ First line, when there is an issue: `Closes #N.`
 
 **The code that matters.** Large only. One bold-led paragraph per non-obvious decision: what was tried, what was measured, why this form won, with the snippet the decision hangs on. Skip a decision the diff explains on its own.
 
-**Ask.** One to three lines: what the reviewer decides, and what the author read but could not run. A question, not a claim: "Confirm `LanguageSwitcherIsland` keeps its behaviour: read, not executed."
+**Ask.** What the reviewer decides, and what the author read but could not run. A question, not a claim: "Confirm `LanguageSwitcherIsland` keeps its behaviour: read, not executed."
 
 **Checks.** What ran, with its numbers: the command, passes, failures. A failure that predates the branch is named with its location and its cause. Tests added by the branch are listed apart, each with whether it was seen failing before the change; unknown is written as unknown. Nothing ran this session: run the validation commands from step 3, then report. Never a check that did not run.
 

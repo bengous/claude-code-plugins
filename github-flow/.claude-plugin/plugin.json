@@ -1,6 +1,6 @@
 {
   "name": "github-flow",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "GitHub lifecycle through gh: agent-ready issues, review-ready PRs with attached images, issue and PR triage, CI-gated linear merge, commit-push-PR in one step",
   "author": {
     "name": "Augustin BENGOLEA",

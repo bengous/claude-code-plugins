@@ -48,7 +48,7 @@ Ask nothing else unless the request cannot be located in the code at all.
 ## Out of scope
 ```
 
-**Problem.** What is observed and what is wanted, one to three sentences. No cause, no solution.
+**Problem.** What is observed and what is wanted. No cause, no solution.
 
 **Evidence.** One bullet per fact, each with its anchor. Quote the exact line when it is short. Include the reproduction command when one exists. Link related issues, PRs, and commits here; there is no separate "Related" section.
 

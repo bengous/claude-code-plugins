@@ -67,4 +67,4 @@ Decide the fate of one issue or PR from the current code. Never state something 
 
 ## Comments
 
-A comment is one to three sentences of fact: what was verified, the commit, issue, or PR that settles it, what would reopen it. For a superseded PR, name the integrating commit and what of the PR it carries. No thanks, no boilerplate, no invitation to contribute.
+A comment states facts only: what was verified, the commit, issue, or PR that settles it, what would reopen it. For a superseded PR, name the integrating commit and what of the PR it carries. No thanks, no boilerplate, no invitation to contribute.
