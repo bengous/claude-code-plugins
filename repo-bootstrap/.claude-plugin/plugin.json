@@ -1,6 +1,6 @@
 {
   "name": "repo-bootstrap",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "One-shot repo setup: the dev-trunk/main-release linear model, branches migrated to submodules with GitHub Actions sync",
   "author": {
     "name": "Augustin BENGOLEA",
