@@ -33,7 +33,7 @@ trunk
 | `gh stack view [--short\|--json]` | State: `✓` merged, `◎` queued, `○` open, `⚠` needs rebase. |
 | `gh stack sync [--prune]` | Fetches, reconciles with GitHub, fast-forwards the trunk, cascade-rebases, pushes atomically with `--force-with-lease`. Creates no PR. |
 | `gh stack rebase [--downstack\|--upstack\|--no-trunk]` | Cascade rebase: each layer receives the tip of the previous one, after a trunk fetch unless `--no-trunk`. `--continue` after conflicts, `--abort` restores everything. |
-| `gh stack merge [n] [--merge\|--squash\|--rebase] [--yes]` | Atomic landing, all or nothing, up to the chosen PR. With a merge queue, the stack joins the queue and lands when the queue processes it. |
+| `gh stack merge [n] [--merge\|--squash\|--rebase] [--yes]` | Atomic landing, all or nothing, up to the chosen PR. `--squash` squashes each PR into one commit, not the stack into one: a three-layer stack lands as three commits, bottom to top, each suffixed `(#N)`. With a merge queue, the stack joins the queue and lands when the queue processes it. |
 | `gh stack checkout <n\|PR\|URL\|branch>` | Fetches a stack from GitHub, even one never tracked locally. |
 | `gh stack modify` | TUI: drop, fold, insert, reorder, rename, applied together on confirm. Then `submit` when PRs are affected. |
 | `gh stack link <n\|branch> <branch…>` | Stacks without local tracking; pushes the branches and opens the missing PRs. `n` first appends to the top of stack `n`. Two arguments minimum: it cannot create a one-PR stack. |
@@ -67,7 +67,7 @@ trunk
 | `local stack composition differs from remote` after a `link` | `gh stack link` writes GitHub only. `gh stack unstack --local`, then `gh stack checkout <n>` to re-import. Expected once per layer in the worktree flow, not an incident. |
 | `switching to branch <b>: … already used by worktree` | A `gh stack` command that switches branches (`init`, `add`, `checkout`) cannot take a branch a worktree holds. Remove the worktree first: `git worktree remove --force <path>`, the branch survives. |
 | A failed `gh stack` command that still wrote local tracking | Measured on `init`: the retry says `already exists in a stack` while `view` shows the stack. Read `gh stack view` before retrying; clear with `gh stack unstack --local`. |
-| Merged branches lying around | `gh stack sync --prune`. |
+| Merged branches lying around | `gh stack sync --prune`. It deletes the local branches and drops their `origin/…` tracking refs, so `git branch -r` looks clean while the branches are still on GitHub. Delete those on the forge, or turn on the repository's delete-branch-on-merge, which is off by default. |
 | Branch rewritten by another session | `git fetch origin && git reset --hard origin/<that-branch>`. Never `origin/<trunk>`: the stack would vanish. |
 | Any manual history rewrite | Save the ref first (`backup/<branch>-<sha>`), `--force-with-lease` only. |
 
