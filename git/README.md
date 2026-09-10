@@ -46,15 +46,13 @@ the branch onto that branch's tip; `git rebase main` does that.
    - `Squash`: Combine with the commit above it
    - `Reword`: Change the commit message
    - `Drop`: Remove commit
-3. **Plan**: The rendered plan is shown; no second question, the answers above are the plan
-4. **Execute**: A backup branch is created, then the rebase runs with no editor
+3. **Execute**: A backup branch is created, the rebase runs with no editor, and the rendered plan is printed with the result
 
 **Commit messages:**
 
 Claude reads the commit and proposes reword or squash messages: the original,
 a conventional-commit form when the history uses one, and a shorter subject.
-You choose one or write your own — nothing is applied without that answer.
-No separate model is called, and no suggestion is generated that you do not see.
+You choose one or write your own; nothing is applied without that answer.
 
 **Safety:**
 
@@ -82,10 +80,6 @@ No separate model is called, and no suggestion is generated that you do not see.
 ### `squash`
 
 Squash commits by pattern, by hash list, or the last N, without opening an editor. The same backend as `rebase` does the rewrite, so the backup branch, the plan check and the conflict follow-ups (`/git:rebase continue|skip|abort`) are the same. The targets must be consecutive: the backend folds a commit into the one right above it, never across a kept commit. `--dry-run` prints the plan and rewrites nothing.
-
-## Migrating from git-tools
-
-`git` is the local half of the retired `git-tools` plugin (`github-flow` holds the networked half, `repo-bootstrap` the one-shot setup). `commit-close` is folded into `commit`. A machine that still has `git-tools` installed loads its skills beside these: run `claude plugin uninstall git-tools` first.
 
 ## Requirements
 

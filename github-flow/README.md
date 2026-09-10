@@ -16,7 +16,7 @@ GitHub lifecycle for Claude Code through `gh`: agent-ready issues, review-ready 
 
 No skill asks before it publishes, closes or merges: an orchestrating agent has nobody to answer. `--dry-run` does the whole job and prints what would be sent instead of sending it; rerun without it to send.
 
-`github-flow` replaces the networked half of the retired `git-tools` plugin and depends on `git` for the local half. A machine that still has `git-tools` installed loads two `issue` and two `triage` skills: run `claude plugin uninstall git-tools` first.
+`github-flow` depends on the `git` plugin, installed with it.
 
 ### PR shape
 
