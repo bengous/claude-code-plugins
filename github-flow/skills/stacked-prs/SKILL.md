@@ -33,7 +33,7 @@ trunk
 | `gh stack view [--short\|--json]` | State: `✓` merged, `◎` queued, `○` open, `⚠` needs rebase. |
 | `gh stack sync [--prune]` | Fetches, reconciles with GitHub, fast-forwards the trunk, cascade-rebases, pushes atomically with `--force-with-lease`. Creates no PR. |
 | `gh stack rebase [--downstack\|--upstack\|--no-trunk]` | Cascade rebase: each layer receives the tip of the previous one, after a trunk fetch unless `--no-trunk`. `--continue` after conflicts, `--abort` restores everything. |
-| `gh stack merge [n] [--merge\|--squash\|--rebase] [--yes]` | Atomic landing, all or nothing, up to the chosen PR. `--squash` squashes each PR into one commit, not the stack into one: a three-layer stack lands as three commits, bottom to top, each suffixed `(#N)`. With a merge queue, the stack joins the queue and lands when the queue processes it. |
+| `gh stack merge [n] [--merge\|--squash\|--rebase] [--yes]` | Atomic landing, all or nothing, up to the chosen PR. One method for the whole operation, never per PR. `--squash` squashes each PR into one commit, not the stack into one: three layers land as three commits, each suffixed `(#N)`. `--rebase` keeps every commit of every layer, in order. With a merge queue, the stack joins the queue and lands when the queue processes it. |
 | `gh stack checkout <n\|PR\|URL\|branch>` | Fetches a stack from GitHub, even one never tracked locally. |
 | `gh stack modify` | TUI: drop, fold, insert, reorder, rename, applied together on confirm. Then `submit` when PRs are affected. |
 | `gh stack link <n\|branch> <branch…>` | Stacks without local tracking; pushes the branches and opens the missing PRs. `n` first appends to the top of stack `n`. Two arguments minimum: it cannot create a one-PR stack. |
@@ -53,7 +53,9 @@ trunk
 
 - Draft or ready. `submit --auto` (and every non-interactive terminal) creates new PRs as drafts. `--open` switches every existing PR to ready, not only the new ones: do not add it by reflex.
 - Title and body. Without an editor they come from the commit message: write the commit body as a PR body.
-- Merge method. `merge` remembers the last one used; set it once per repository and keep it.
+- Merge method. `merge` remembers the last one used; set it once per repository and keep it. It applies to the whole operation: a stack cannot squash one layer and replay another in a single `merge`. Two ways out, and they are not equivalent:
+  - Shape the layer before landing, then land once. Squash the commits of that one branch (`/git:squash`, or `git rebase -i` on it), `gh stack submit`, then `gh stack merge --rebase`. The landing stays atomic.
+  - Land in steps, one method each: `gh stack merge <pr> --rebase`, then `gh stack merge <next-pr> --squash`, then the rest. Measured: each step retargets the PRs above it and the layers keep the history their own step gave them. The price is atomicity, which is the whole point of a stack: a step that fails leaves the layers below it already on the trunk.
 - Local/GitHub divergence. `sync` resolves it only in an interactive terminal (remote as source of truth, or delete the GitHub stack then `submit`). Non-interactive, `sync` stops without pushing: intended, do not force.
 
 ## Repair
