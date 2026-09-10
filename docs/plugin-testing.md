@@ -14,6 +14,16 @@ command claude --permission-mode default --plugin-dir <repo>/<plugin>
   does not check for `--permission-mode` before doing so.
 - `--plugin-dir` reads the plugin source at process launch. No version bump,
   no cache write, no `plugin-cache-sync`.
+- Since 2.1.265 the flag also accepts a folder of plugins: every child with a
+  manifest loads, and children added or removed while running are picked up.
+  It does nothing on this repo's root, whose `.claude-plugin/` holds only
+  `marketplace.json` — the root is read as a plugin candidate and no child
+  loads. Measured by diffing transcripts with and without the flag: identical.
+  Pass one `--plugin-dir` per plugin here, or point it at a folder that
+  carries no `.claude-plugin/`.
+- The flag adds, it never replaces. Installed plugins, external ones included,
+  stay loaded beside what it reads from disk — so a plugin that is both
+  installed and passed to the flag registers its skills twice.
 
 ## Permission modes are not equal tests
 
@@ -79,3 +89,27 @@ Transcripts live at `~/.claude/projects/<cwd-slug>/<session-id>.jsonl`.
 - An installed plugin is the source tree copied verbatim into
   `~/.claude/plugins/cache/<marketplace>/<plugin>/<version>/`, executable
   bits included. A layout that works under `--plugin-dir` works installed.
+
+## Install and update
+
+`bengous-plugins` is registered as a `directory` source pointing at this
+working tree, so the catalog is the tree and there is no fetch step.
+
+- An install is a copy, not a link: `git/README.md` holds inode 59059395 here
+  and 59085089 in the cache. An installed plugin is therefore frozen at the
+  state it was installed from, and a later `git switch` does not reach it.
+- Update detection reads the catalog's `version` field and nothing else.
+  Rewrite a `SKILL.md` in full, leave `plugin.json` at the same version, and
+  the cache stays untouched. Bump the version, then run
+  `claude plugin update <name>` and restart. Each version lands in its own
+  directory, so `1.0.0/` and `1.0.1/` coexist.
+- Plugin state lives in four places, none of which `--plugin-dir` writes to:
+  `~/.claude/settings.json` for `enabledPlugins` and `extraKnownMarketplaces`,
+  `known_marketplaces.json` for where each catalog is read,
+  `installed_plugins.json` for version, path and scope, and `cache/` for the
+  copies.
+- Unresolved: whether an interactive session auto-updates from a `directory`
+  marketplace. `bengous-plugins` carries `autoUpdate: true`, yet four `-p`
+  sessions left a pending bump uninstalled, one with
+  `FORCE_AUTOUPDATE_PLUGINS=1`. Headless may skip the background updater.
+  Until someone measures an interactive session, update by hand.
