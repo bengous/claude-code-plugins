@@ -1,7 +1,7 @@
 ---
 name: issue
 description: Write or rewrite a GitHub issue as a context-rich prompt for another agent. Proves the problem with evidence from the code, gives hints instead of a plan, ends with observable acceptance criteria. Use when the user asks to file, write, draft, open, or rewrite an issue.
-argument-hint: "[issue-number] <what is wrong or wanted>"
+argument-hint: "[--dry-run] [issue-number] <what is wrong or wanted>"
 allowed-tools: Bash(gh repo view:*), Bash(gh issue view:*), Bash(gh issue list:*), Bash(gh issue create:*), Bash(gh issue edit:*), Bash(gh label list:*), Bash(git log:*), Read, Grep, Glob
 ---
 
@@ -13,6 +13,7 @@ An issue is a prompt with context. Its reader is a different agent, in a fresh s
 
 `$ARGUMENTS`
 
+- `--dry-run`: do everything but the publish step; print the title, the labels and the body instead.
 - Starts with a number: rewrite that issue. Fetch it with `gh issue view <n> --json title,body,labels,url`, keep the facts that still hold, drop the rest.
 - Anything else: the request for a new issue.
 - Empty: ask one question, "What is wrong, or what do you want?", then continue.
@@ -24,7 +25,7 @@ Ask nothing else unless the request cannot be located in the code at all.
 1. **Project constraints.** Read the repo's `AGENTS.md` or `CLAUDE.md` for two things only: the validation commands, and the boundaries the reader must respect. They go in *Done when* and *Hints*.
 2. **Evidence.** Locate the code the request touches. Read it before citing it. Each fact gets an anchor the reader can jump to: `path:line` plus the symbol name, or a commit hash. Run `git log --oneline -10 -- <file>` when history explains the current state. Search once for a duplicate: `gh issue list --search "<keywords>" --state all --limit 10`; link a match in *Evidence* and say so to the user.
 3. **Body.** Fill the template below. Size follows the problem: a small bug fits in fifteen lines.
-4. **Publish.** No question before it: the skill is the guard, and a caller that wants a look first asks for one. Labels only from `gh label list`. Write the body to a temporary file outside the repo, then:
+4. **Publish.** No question before it: the skill is the guard, and a caller that wants a look first passes `--dry-run`. Labels only from `gh label list`. Write the body to a temporary file outside the repo, then:
 
    ```bash
    gh issue create --title "<title>" --body-file <tmp> --label "<a>,<b>"
