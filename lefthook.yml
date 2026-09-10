@@ -31,6 +31,7 @@ pre-commit:
         - "*/hooks/*.md"
         - ".claude/commands/*.md"
         - ".claude/skills/*.md"
+        - ".claude/rules/*.md"
       run: bun ./scripts/validate-frontmatter.ts
 
     # The six gates below run over the whole repo, not the staged subset: each

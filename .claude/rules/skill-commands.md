@@ -18,4 +18,10 @@ recipes in `docs/plugin-testing.md` → Skill mechanics worth knowing.
   `-c core.editor` and `EDITOR`. Feed text through a file (`-F`, `--body-file`)
   or an `exec` line.
 - `description` ends with a "Use when ..." clause naming the user intents;
-  a bare capability summary under-triggers.
+  a bare capability summary under-triggers. A skill with
+  `disable-model-invocation: true` needs none: its description never reaches
+  the model.
+- A skill whose effect leaves the machine or rewrites history without an
+  undo (close, merge, push to a shared branch) carries
+  `disable-model-invocation: true`: a natural-language request must not
+  trigger it by accident.
