@@ -8,13 +8,15 @@ GitHub lifecycle for Claude Code through `gh`: agent-ready issues, review-ready 
 |-------|------------|--------------|
 | `issue` | `/github-flow:issue [--dry-run] [number] <request>` | Writes or rewrites an issue as a prompt for another agent: Problem, Evidence, Hints, Done when, Out of scope. |
 | `pr` | `/github-flow:pr [--dry-run] [image.png#alt ...] [notes]` | Pushes the branch and opens or updates its PR with a body sized to the diff; images go up through `gh --attach`. |
-| `triage` | `/github-flow:triage [--dry-run] [number\|url]` | Verifies an issue or PR against the current code, gives a one-word verdict with proof, then closes or comments as the verdict fixes; valid work is reported, not implemented. |
+| `triage` | `/github-flow:triage [--dry-run] [number\|url]` | Verifies an issue or PR against the current code, gives a one-word verdict with proof, then closes or comments as the verdict fixes; valid work is reported, not implemented. Manual. |
 | `await-merge` | `/github-flow:await-merge [--dry-run] [--rebase] [pr]` | Watches the checks, merges by squash (`--rebase` for atomic commits, never a merge commit), fast-forwards the local base branch. |
-| `commit-push-pr` | `/github-flow:commit-push-pr [issue] [images] [notes]` | Chains `git:commit` then `pr`. Needs the `git` plugin. |
+| `commit-push-pr` | `/github-flow:commit-push-pr [issue] [images] [notes]` | Chains `git:commit` then `github-flow:pr`. |
 
-`issue`, `pr`, and `triage` invoke themselves when the request matches; `await-merge` and `commit-push-pr` are manual.
+`issue` and `pr` invoke themselves when the request matches. `triage`, `await-merge` and `commit-push-pr` run only on an explicit call: each one closes, merges or pushes, and "check issue 12" must not close issue 12.
 
 No skill asks before it publishes, closes or merges: an orchestrating agent has nobody to answer. `--dry-run` does the whole job and prints what would be sent instead of sending it; rerun without it to send.
+
+`github-flow` replaces the networked half of the retired `git-tools` plugin and depends on `git` for the local half. A machine that still has `git-tools` installed loads two `issue` and two `triage` skills: run `claude plugin uninstall git-tools` first.
 
 ### PR shape
 

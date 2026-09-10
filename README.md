@@ -20,7 +20,7 @@ A curated marketplace of Claude Code plugins for development workflow automation
 |--------|---------|-------------|
 | [claude-orchestration](orchestration/) | 2.8.0 | Parallel multi-agent orchestration for complex features with git-wt --stack worktree isolation |
 | [git](git/) | 1.1.0 | Local history without an editor: commit with an optional issue-closing trailer, interactive rebase, squash by pattern or hash |
-| [github-flow](github-flow/) | 1.1.1 | GitHub lifecycle through gh: agent-ready issues, review-ready PRs with attached images, issue and PR triage, CI-gated linear merge, commit-push-PR in one step |
+| [github-flow](github-flow/) | 1.2.0 | GitHub lifecycle through gh: agent-ready issues, review-ready PRs with attached images, issue and PR triage, CI-gated linear merge, commit-push-PR in one step |
 | [repo-bootstrap](repo-bootstrap/) | 1.0.0 | One-shot repo setup: the dev-trunk/main-release linear model, branches migrated to submodules with GitHub Actions sync |
 | [code-quality](code-quality/) | 2.0.2 | Code quality and cleanup commands for maintaining clean, maintainable code |
 | [clean-comments](clean-comments/) | 1.1.2 | Audit and clean code comments: protects why/constraint comments, hunts comments that lie |

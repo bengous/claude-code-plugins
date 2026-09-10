@@ -12,11 +12,11 @@ allowed-tools: Bash(gh pr view:*), Bash(gh pr checks:*), Bash(gh pr merge:*), Ba
 
 2. **Strategy.** Squash: the commits become one. `--rebase` in `$ARGUMENTS`: the commits land as they are, for a branch whose every commit is atomic. No question; the caller knows its commits. Never a merge commit; the history stays linear.
 
-   `--dry-run`: print the target, the strategy and the commit subjects, then stop before step 3.
-
 3. **Watch.** `gh pr checks <n> --watch --fail-fast`. A failing check: report its name and stop. No retry, no merge. No checks reported: say so and continue.
 
-4. **Merge.** `gh pr merge <n> --squash|--rebase --delete-branch`. An error: report it verbatim and stop.
+   `--dry-run`: print the target, the strategy, the commit subjects and the check state, then stop. The watch is the fact the merge depends on, so the preview includes it.
+
+4. **Merge.** `gh pr merge <n> --squash|--rebase --delete-branch`. An error: report it verbatim and stop. A merge has no undo short of a revert, so the target is never guessed: step 1 takes the number from `$ARGUMENTS` or from the current branch, nothing else.
 
 5. **Local.** `git switch <baseRefName>` then `git pull --ff-only`.
 

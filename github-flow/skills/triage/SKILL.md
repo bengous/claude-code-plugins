@@ -2,6 +2,7 @@
 name: triage
 description: "Verify an open GitHub issue or PR against the current code and act on the verdict: close or comment with a factual proof, or report work that is still valid. Use when the user asks to triage, verify, check, handle, or clean up an issue, a PR, or the tracker."
 argument-hint: "[--dry-run] [number|url]"
+disable-model-invocation: true
 allowed-tools: Bash(gh issue:*), Bash(gh pr:*), Bash(git log:*), Bash(git show:*), Bash(git diff:*), Read, Grep, Glob
 ---
 
@@ -49,7 +50,7 @@ Decide the fate of one issue or PR from the current code. Never state something 
    Action: <closed as <reason> | commented | none>
    ```
 
-6. **Execute** the action the verdict fixes. No question: a wrong close reopens in one command, and a caller that wants a look first passes `--dry-run`.
+6. **Execute** the action the verdict fixes. No question: the skill runs only on an explicit call, so the caller has already chosen the effect, and a caller that wants a look first passes `--dry-run`.
 
    | Verdict | Action |
    |---|---|

@@ -13,7 +13,7 @@ A PR body is a review brief. Its reader is a different agent, in a fresh session
 
 `$ARGUMENTS`
 
-- `--dry-run`: do everything but the publish step; print the title, the base, the body and the attachments instead. The push still happens.
+- `--dry-run`: no push, no publish; print the title, the base, the body and the attachments instead.
 - Paths ending in `.png`, `.jpg`, `.gif`, `.mp4`, `.mov`: files to attach. Alt text may follow the path after `#`.
 - The rest: what the reviewer should know, kept as facts in the body.
 - Empty: everything comes from the branch.
@@ -21,7 +21,7 @@ A PR body is a review brief. Its reader is a different agent, in a fresh session
 ## Protocol
 
 1. **Branch.** `git branch --show-current`. On `dev`, `main`, or the repo's default branch: stop, show `git status --short`, ask for a branch name. Uncommitted changes: stop and say so; the commit comes first (`/git:commit`).
-2. **Base.** `dev` when `origin/dev` exists, else `gh repo view --json defaultBranchRef`. Push with `git push -u origin HEAD`. A rejected push: report it verbatim and stop; never force.
+2. **Base.** `dev` when `origin/dev` exists, else `gh repo view --json defaultBranchRef`. Without `--dry-run`, push with `git push -u origin HEAD`. A rejected push: report it verbatim and stop; never force.
 3. **Evidence.** Read before citing.
    - `git log --oneline <base>..HEAD` and `git diff --stat <base>...HEAD`: the size, the files.
    - Tests added by the branch: `git diff --stat <base>...HEAD -- '*test*'`.
@@ -38,7 +38,7 @@ A PR body is a review brief. Its reader is a different agent, in a fresh session
    gh pr edit <n> --title "<title>" --body-file <tmp> --attach './after.png#<alt>'
    ```
 
-   `--body-file` keeps the markdown intact. A `![alt](./file.png)` in the body is rewritten to the uploaded asset, and the alt text in the body wins. The image files stay outside the repo; `--attach` is their only path to GitHub. Report the title, the URL, and the out-of-scope files if any.
+   `--body-file` keeps the markdown intact. A `![alt](<path>)` in the body is rewritten to the uploaded asset when `<path>` is the same string as in `--attach`, and the alt text in the body wins. The image files stay outside the repo, so both strings are the absolute path of the capture, not `./before.png`; `--attach` is their only path to GitHub. Report the title, the URL, and the out-of-scope files if any.
 
 ## Size
 
