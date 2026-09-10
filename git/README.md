@@ -46,7 +46,7 @@ the branch onto that branch's tip; `git rebase main` does that.
    - `Squash`: Combine with the commit above it
    - `Reword`: Change the commit message
    - `Drop`: Remove commit
-3. **Review Plan**: The rendered plan is shown before anything runs
+3. **Plan**: The rendered plan is shown; no second question, the answers above are the plan
 4. **Execute**: A backup branch is created, then the rebase runs with no editor
 
 **Commit messages:**
@@ -77,8 +77,6 @@ No separate model is called, and no suggestion is generated that you do not see.
 #   ✗ DROP   6d2e3bc chore: wip debug
 #
 # Summary: 0 pick, 1 squash, 1 reword, 1 drop
-#
-# Run this rebase? [Run / Cancel]
 ```
 
 ### `squash`

@@ -132,7 +132,7 @@ message rules — the backend rejects anything else:
 A `message` always names the commit that exists **after** that step: for a
 squash, that is the combined commit.
 
-## Phase 5: Confirm the plan
+## Phase 5: Validate the plan
 
 ```
 run `printf '%s' '{"base": "{plan.base}", "steps": {steps_json}}' \
@@ -152,13 +152,12 @@ base-not-ancestor  the base is not behind HEAD; that is a transplant, not an
 invalid-plan       the JSON is malformed — rebuild it in Phase 4
 ```
 
-Then ask once with `AskUserQuestion`: "Run this rebase?" — Run / Cancel. On
-Cancel, stop and change nothing.
+No question here: every action in the plan is an answer from Phase 3, and
+the backup branch of Phase 6 keeps the old history.
 
 ## Phase 6: Execute
 
-Same call without `--dry-run`. Say first that a backup branch is created, so
-nothing is lost.
+Same call without `--dry-run`.
 
 ```
 if result.ok == true:

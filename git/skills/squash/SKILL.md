@@ -1,7 +1,7 @@
 ---
 name: squash
 description: Squash git commits by pattern, hash list, or the last N, without opening an editor. Use when the user asks to squash, fold, or combine commits, or to collapse fixup and WIP commits.
-argument-hint: --pattern <regex> | --hashes <h1,h2,...> | --range <N> [--backup] [--dry-run]
+argument-hint: --pattern <regex> | --hashes <h1,h2,...> | --range <N> [--dry-run]
 allowed-tools:
   - Bash(git status:*)
   - Bash(git log:*)
@@ -34,9 +34,6 @@ $ARGUMENTS
 # Squash last N commits (simple case, all contiguous)
 /squash --range 5
 
-# Add --backup to create backup branch automatically
-/squash --pattern "refactor" --backup
-
 # Dry run to preview (no changes)
 /squash --pattern "test" --dry-run
 ```
@@ -44,10 +41,10 @@ $ARGUMENTS
 ## How It Works
 
 1. Analyze commits and identify targets to squash
-2. Show preview of what will be squashed
-3. Ask for confirmation using AskUserQuestion
-4. (Optional) Create backup branch
-5. Execute the rebase
+2. Show the plan and the combined message; no question, the backup branch
+   of step 3 keeps the old history
+3. Create the backup branch
+4. Execute the rebase
 
 ## Mode Details
 
@@ -78,8 +75,8 @@ Parse the arguments and execute the appropriate strategy:
 
 **For --range N:**
 ```bash
-# Create backup if requested; no command substitution in the name, it would
-# force a permission prompt
+# Backup first, always; no command substitution in the name, it would force
+# a permission prompt
 git branch squash-backup-<branch> HEAD
 
 # Soft reset and recommit
@@ -107,5 +104,5 @@ git -c sequence.editor="sed -i -E -e '/^pick (<h2>|<h3>)/s/^pick/squash/' \
 
 **Always:**
 1. Verify clean working directory first: `git status --porcelain`
-2. Show preview and get user confirmation before executing
-3. Report success with the new commit hash
+2. Show the plan and the combined message, then execute
+3. Report the new commit hash and the backup branch
