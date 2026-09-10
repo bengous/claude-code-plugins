@@ -10,8 +10,9 @@ GitHub lifecycle for Claude Code through `gh`: agent-ready issues, review-ready 
 | `pr` | `/github-flow:pr [image.png#alt ...] [notes]` | Pushes the branch and opens or updates its PR with a body sized to the diff; images go up through `gh --attach`. |
 | `triage` | `/github-flow:triage [number\|url]` | Verifies an issue or PR against the current code, gives a one-word verdict with proof, then implements, keeps, or closes on your decision. |
 | `await-merge` | `/github-flow:await-merge [pr]` | Watches the checks, merges by squash or rebase (never a merge commit), fast-forwards the local base branch. |
+| `commit-push-pr` | `/github-flow:commit-push-pr [issue] [images] [notes]` | Chains `git:commit` then `pr`. Needs the `git` plugin. |
 
-`issue`, `pr`, and `triage` invoke themselves when the request matches; `await-merge` is manual.
+`issue`, `pr`, and `triage` invoke themselves when the request matches; `await-merge` and `commit-push-pr` are manual.
 
 ### PR shape
 
@@ -47,6 +48,7 @@ Close comments are one to three sentences of fact: what was verified and the com
 ## Requirements
 
 - GitHub CLI (`gh`) authenticated
+- The `git` plugin, for `commit-push-pr` only
 
 ## License
 

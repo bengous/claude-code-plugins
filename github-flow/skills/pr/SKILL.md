@@ -19,7 +19,7 @@ A PR body is a review brief. Its reader is a different agent, in a fresh session
 
 ## Protocol
 
-1. **Branch.** `git branch --show-current`. On `dev`, `main`, or the repo's default branch: stop, show `git status --short`, ask for a branch name. Uncommitted changes: stop and say so; the commit comes first (`/git-history:commit`).
+1. **Branch.** `git branch --show-current`. On `dev`, `main`, or the repo's default branch: stop, show `git status --short`, ask for a branch name. Uncommitted changes: stop and say so; the commit comes first (`/git:commit`).
 2. **Base.** `dev` when `origin/dev` exists, else `gh repo view --json defaultBranchRef`. Push with `git push -u origin HEAD`. A rejected push: report it verbatim and stop; never force.
 3. **Evidence.** Read before citing.
    - `git log --oneline <base>..HEAD` and `git diff --stat <base>...HEAD`: the size, the files.

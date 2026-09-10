@@ -1,4 +1,5 @@
 ---
+name: squash
 description: Squash git commits by pattern or hash without opening an editor
 argument-hint: --pattern <regex> | --hashes <h1,h2,...> | --range <N> [--backup] [--dry-run]
 allowed-tools:

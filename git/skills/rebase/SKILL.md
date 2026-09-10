@@ -1,4 +1,5 @@
 ---
+name: rebase
 description: Interactive git rebase with a visual plan and reworked commit messages
 argument-hint: <branch|N|X..Y> | continue | skip | abort | status
 allowed-tools:
@@ -7,7 +8,6 @@ allowed-tools:
   - Bash(git log:*)
   - Bash(git show:*)
   - AskUserQuestion
-model: opus
 ---
 
 # Interactive Rebase

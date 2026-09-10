@@ -27,8 +27,8 @@
       "source": "./orchestration"
     },
     {
-      "name": "git-history",
-      "description": "Local history without an editor: commit, commit closing an issue, interactive rebase, squash by pattern or hash",
+      "name": "git",
+      "description": "Local history without an editor: commit with an optional issue-closing trailer, interactive rebase, squash by pattern or hash",
       "version": "1.0.0",
       "author": {
         "name": "Augustin BENGOLEA",
@@ -43,11 +43,11 @@
         "squash",
         "history"
       ],
-      "source": "./git-history"
+      "source": "./git"
     },
     {
       "name": "github-flow",
-      "description": "GitHub lifecycle through gh: agent-ready issues, review-ready PRs with attached images, issue and PR triage, CI-gated linear merge",
+      "description": "GitHub lifecycle through gh: agent-ready issues, review-ready PRs with attached images, issue and PR triage, CI-gated linear merge, commit-push-PR in one step",
       "version": "1.0.0",
       "author": {
         "name": "Augustin BENGOLEA",

@@ -1,7 +1,7 @@
 {
-  "name": "git-history",
+  "name": "git",
   "version": "1.0.0",
-  "description": "Local history without an editor: commit, commit closing an issue, interactive rebase, squash by pattern or hash",
+  "description": "Local history without an editor: commit with an optional issue-closing trailer, interactive rebase, squash by pattern or hash",
   "author": {
     "name": "Augustin BENGOLEA",
     "email": "bengous@protonmail.com"

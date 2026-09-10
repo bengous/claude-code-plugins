@@ -1,19 +1,26 @@
-# Git History Plugin
+# Git Plugin
 
-Local history for Claude Code, without an editor: commit, commit closing an issue, interactive rebase, squash.
+Local git for Claude Code, without an editor: commit, interactive rebase, squash. Nothing here reaches the network.
+
+Its siblings own the rest: `github-flow` for anything through `gh`, `git-sweep` for branch and worktree cleanup, `git-worktree` for the `git-wt` helper, `repo-bootstrap` for one-shot repo setup.
 
 ## Skills
 
 | Skill | Invocation | What it does |
 |-------|------------|--------------|
-| `commit` | `/git-history:commit [subject hint]` | Commits what is staged with a message that follows the repo's convention. |
-| `commit-close` | `/git-history:commit-close [issue]` | Commits with a `Closes #N` trailer; the number comes from the argument or the branch name. |
+| `commit` | `/git:commit [issue] [--no-close]` | Commits with a message that follows the repo's convention, and a `Closes #N` trailer when the argument or the branch name carries a number. |
+| `rebase` | `/git:rebase <branch\|N\|X..Y>` | Interactive rebase with a visual plan and reworked messages, no editor. |
+| `squash` | `/git:squash --pattern\|--hashes\|--range` | Squashes commits by pattern, hash list, or the last N, no editor. |
 
-Both are manual.
+All three invoke themselves when the request matches.
 
-## Commands
+### Closing an issue
 
-### `/rebase`
+The number comes from the argument first, then from the head of the branch name: `fix/123-popover` gives `Closes #123`. Neither, or `--no-close`: no trailer and no question. GitHub closes the issue when the commit reaches the default branch, so on any other branch the skill says so once.
+
+Nothing staged: `commit` stages what forms one commit and leaves the rest. A file carrying a secret is never staged.
+
+### `rebase`
 
 Interactive git rebase with visual planning and reworked commit messages.
 
@@ -74,14 +81,19 @@ No separate model is called, and no suggestion is generated that you do not see.
 # Run this rebase? [Run / Cancel]
 ```
 
-### `/squash`
+### `squash`
 
-Squash commits by pattern, by hash list, or the last N, without opening an editor. See the command's argument hint.
+Squash commits by pattern, by hash list, or the last N, without opening an editor. See the skill's argument hint.
 
 ## Requirements
 
 - Git 2.23+ (`git switch`)
 - Clean working directory for rebase operations
+
+## See also
+
+`commit-push-pr` chains `commit` and then `pr`; it lives in `github-flow`, next to
+the `pr` skill it calls.
 
 ## License
 
