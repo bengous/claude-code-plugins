@@ -11,8 +11,9 @@ GitHub lifecycle for Claude Code through `gh`: agent-ready issues, review-ready 
 | `triage` | `/github-flow:triage [--dry-run] [number\|url]` | Verifies an issue or PR against the current code, gives a one-word verdict with proof, then closes or comments as the verdict fixes; valid work is reported, not implemented. Manual. |
 | `await-merge` | `/github-flow:await-merge [--dry-run] [--rebase] [pr]` | Watches the checks, merges by squash (`--rebase` for atomic commits, never a merge commit), fast-forwards the local base branch. |
 | `commit-push-pr` | `/github-flow:commit-push-pr [issue] [images] [notes]` | Chains `git:commit` then `github-flow:pr`. |
+| `stacked-prs` | `/github-flow:stacked-prs [subcommand \| symptom]` | Runs a stack of PRs with `gh stack`: the cycle, the rules the CLI does not enforce, the repair table, and a worktree per layer cut from the top of the stack with its handoff symlinked in. |
 
-`issue` and `pr` invoke themselves when the request matches. `triage`, `await-merge` and `commit-push-pr` run only on an explicit call: each one closes, merges or pushes, and "check issue 12" must not close issue 12.
+`issue`, `pr` and `stacked-prs` invoke themselves when the request matches. `triage`, `await-merge` and `commit-push-pr` run only on an explicit call: each one closes, merges or pushes, and "check issue 12" must not close issue 12.
 
 No skill asks before it publishes, closes or merges: an orchestrating agent has nobody to answer. `--dry-run` does the whole job and prints what would be sent instead of sending it; rerun without it to send.
 
@@ -49,9 +50,14 @@ The reader is a different agent in a fresh session. The issue proves the problem
 
 Close comments are one to three sentences of fact: what was verified and the commit, issue, or PR that settles it.
 
+### Stacked PRs
+
+`stacked-prs` documents `gh stack` (the `github/gh-stack` extension): one PR per layer, each based on the layer below, landed atomically bottom to top. It carries the rules the CLI leaves to the caller (branch from the top, one checkout per session, verify content after every rebase, nothing on the trunk before landing) and a repair table keyed by symptom. `scripts/worktree-handoff.ts <branch> --base origin/<top>` cuts a worktree for a parallel session: it symlinks the gitignored orchestration folder (`.gh/` by default) so the session finds its handoff and its checklist writes come back to the main checkout, adds the folder to `info/exclude`, and installs dependencies from the lockfile. The handoff template lives in `skills/stacked-prs/assets/`.
+
 ## Requirements
 
 - GitHub CLI (`gh`) authenticated
+- The `gh stack` extension (`gh extension install github/gh-stack`), for `stacked-prs` only
 - The `git` plugin, for `commit-push-pr` only
 
 ## License
