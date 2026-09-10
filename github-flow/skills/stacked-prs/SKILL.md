@@ -36,7 +36,7 @@ trunk
 | `gh stack merge [n] [--merge\|--squash\|--rebase] [--yes]` | Atomic landing, all or nothing, up to the chosen PR. With a merge queue, the stack joins the queue and lands when the queue processes it. |
 | `gh stack checkout <n\|PR\|URL\|branch>` | Fetches a stack from GitHub, even one never tracked locally. |
 | `gh stack modify` | TUI: drop, fold, insert, reorder, rename, applied together on confirm. Then `submit` when PRs are affected. |
-| `gh stack link [n] <branches\|PRs…>` | Stacks without local tracking; pushes the branches and opens the missing PRs. `n` first appends to the top of stack `n`. |
+| `gh stack link <n\|branch> <branch…>` | Stacks without local tracking; pushes the branches and opens the missing PRs. `n` first appends to the top of stack `n`. Two arguments minimum: it cannot create a one-PR stack. |
 | `gh stack unstack [--local]` | Undoes the stack on GitHub, locally, or both. |
 | `up`, `down`, `top`, `bottom`, `trunk`, `switch` | Navigation inside the stack. |
 
@@ -64,19 +64,24 @@ trunk
 | Empty PR, "No commits between" | The code is already on the trunk. Move the base under the commit to review, or remove it from the trunk. |
 | Commit stuck under someone else's | `gh stack modify` (reorder, drop). Otherwise `git rebase --onto <base> <excluded-commit> <branch>`, then rule 4. |
 | Stack created elsewhere (other machine, colleague) | `gh stack checkout <PR>`. |
+| `local stack composition differs from remote` after a `link` | `gh stack link` writes GitHub only. `gh stack unstack --local`, then `gh stack checkout <n>` to re-import. Expected once per layer in the worktree flow, not an incident. |
+| `switching to branch <b>: … already used by worktree` | A `gh stack` command that switches branches (`init`, `add`, `checkout`) cannot take a branch a worktree holds. Remove the worktree first: `git worktree remove --force <path>`, the branch survives. |
+| A failed `gh stack` command that still wrote local tracking | Measured on `init`: the retry says `already exists in a stack` while `view` shows the stack. Read `gh stack view` before retrying; clear with `gh stack unstack --local`. |
 | Merged branches lying around | `gh stack sync --prune`. |
 | Branch rewritten by another session | `git fetch origin && git reset --hard origin/<that-branch>`. Never `origin/<trunk>`: the stack would vanish. |
 | Any manual history rewrite | Save the ref first (`backup/<branch>-<sha>`), `--force-with-lease` only. |
 
 ## Parallel sessions: worktrees and handoffs
 
-A handoff is one agent session dedicated to one layer, 40 to 90 lines, six fixed sections (template: `assets/handoff-template.md`): required reading, input required from the user, pre-flight, file scope, traps, deliverables. Handoffs live in a gitignored orchestration folder (convention `.gh/`), with a `README.md` that carries the session order and says which source wins on contradiction.
+A handoff is one agent session dedicated to one layer, 40 to 90 lines, six fixed sections (template: `assets/handoff-template.md`): required reading, input required from the user, pre-flight, file scope, traps, deliverables. Handoffs live in a gitignored orchestration folder (convention `.gh/`), with a `README.md` that carries the session order and says which source wins on contradiction. That `README.md` is orchestrator-owned: it is one file symlinked into every worktree, so sessions report their state and the orchestrator writes the line. Two sessions ticking it at once race on the same file.
 
 ```bash
 "${CLAUDE_PLUGIN_ROOT}/scripts/worktree-handoff.ts" <branch> --base origin/<top> [--link .env.local] [--install '<cmd>']
 ```
 
-The script creates the branch and the worktree from the given base, symlinks the orchestration files (what the session writes there comes back to the main checkout), installs the dependencies from the lockfile (`--install ''` to skip, `--install '<cmd>'` to override), and refuses to run without `--base`, from a worktree, without a handoff, or on a branch already taken. Options: `--dir`, `--path`, `--handoff`, `--link` (repeatable), `--install`. The call is not pre-approved: `--install` runs its value through the shell, so the user confirms each invocation.
+The script creates the branch and the worktree from the given base, symlinks the orchestration files (what the session writes there comes back to the main checkout), installs the dependencies from the lockfile, and refuses to run without `--base`, from a worktree, without a handoff, or on a branch already taken. Options: `--dir`, `--path`, `--handoff`, `--link` (repeatable), `--install`. The skill does not pre-approve the call: `--install` runs its value through the shell, so the permission rules of the session decide whether it prompts.
+
+Pass `--install ''` only when the verification gate needs no dependencies. A worktree never shares the main checkout's `node_modules`, and the failure is misleading: measured on this repo, `bun run check` in a dependency-less worktree died on `GET https://registry.npmjs.org/tsgo - 404`, not on a missing dependency.
 
 It prints one JSON object. On `ok: true`, report `worktree`, `linked`, `links_missing` when not empty, then print `launch` and `cleanup` verbatim. On `ok: false`, report `error` and `detail` and stop:
 
@@ -91,4 +96,11 @@ It prints one JSON object. On `ok: true`, report `worktree`, `linked`, `links_mi
 | `install-failed` | The install command's own output is above; fix it or pass `--install ''`. |
 | `handoff-not-visible` | The symlink did not land; `detail` is the expected path inside the worktree. |
 
-Inside the worktree, the session commits and pushes its branch, without `gh stack add`. From the main checkout, `gh stack link <n> <branch>` appends it to the top of stack `n` and opens its PR with the right base. After the session: `git worktree remove --force <path>`, the branch survives.
+Inside the worktree, the session commits and pushes its branch, without `gh stack add`. Then, from the main checkout, remove the worktree first (`git worktree remove --force <path>`, the branch survives) and attach the layer:
+
+| Layer | Move |
+|---|---|
+| The first one | No stack and no `n` exist yet, and `link` needs two arguments. `gh stack init <branch>` then `gh stack submit --auto`. The GitHub stack object appears only with the second PR. |
+| Every next one | `gh stack link <n> <branch>` appends it to the top of stack `n` and opens its PR with the right base. |
+
+`link` writes GitHub and never local tracking, so the local stack falls behind at every layer. Re-import before the next layer: `gh stack unstack --local`, then `gh stack checkout <n>`. That is the normal cycle of this flow, not a repair. Check `gh stack view` before cutting the next worktree.

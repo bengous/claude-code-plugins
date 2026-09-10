@@ -3,6 +3,10 @@
 Mission: execute issue #N. Prerequisite: <previous layer finished; the
 worktree base is the top of the stack, not the epic branch>.
 
+Every issue reference below is optional. With no issue tracker in play, drop
+the `#N` from the title, state the mission in one sentence here, and replace
+the issue lines of Required reading and Deliverables with the local spec.
+
 ## Required reading, in this order
 
 1. <local epic (draft in the orchestration folder): direction and guardrails>
