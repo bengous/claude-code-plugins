@@ -1,0 +1,20 @@
+{
+  "name": "repo-bootstrap",
+  "version": "1.0.0",
+  "description": "One-shot repo setup: the dev-trunk/main-release linear model, branches migrated to submodules with GitHub Actions sync",
+  "author": {
+    "name": "Augustin BENGOLEA",
+    "email": "bengous@protonmail.com"
+  },
+  "homepage": "https://github.com/bengous/claude-code-plugins",
+  "repository": "https://github.com/bengous/claude-code-plugins",
+  "license": "MIT",
+  "keywords": [
+    "git",
+    "github",
+    "setup",
+    "linear-history",
+    "rulesets",
+    "submodules"
+  ]
+}

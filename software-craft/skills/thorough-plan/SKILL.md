@@ -47,9 +47,9 @@ Brief: "Add a /sweep command that cleans up stale git branches"
 - Ambiguity: low — intent is clear
 - Scope: medium — needs new command + script, touches plugin structure
 - Risk: low — read-only git operations, no data loss
-- Novelty: low — similar commands exist in git-tools/
+- Novelty: low — similar commands exist in git-history/
 
-→ One focused Explore agent on git-tools/ patterns, then proceed to planning. No user questions needed.
+→ One focused Explore agent on git-history/ patterns, then proceed to planning. No user questions needed.
 </example>
 
 <example title="Triage assessment — high ambiguity">

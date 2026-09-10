@@ -288,7 +288,7 @@ Execute a skill.
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
-| `skill` | string | Yes | Skill name (e.g., `commit`, `git-tools:issue`) |
+| `skill` | string | Yes | Skill name (e.g., `commit`, `github-flow:issue`) |
 | `args` | string | No | Arguments for the skill |
 
 ---
