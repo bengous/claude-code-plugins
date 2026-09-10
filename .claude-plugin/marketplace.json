@@ -29,7 +29,7 @@
     {
       "name": "git",
       "description": "Local history without an editor: commit with an optional issue-closing trailer, interactive rebase, squash by pattern or hash",
-      "version": "1.0.0",
+      "version": "1.0.1",
       "author": {
         "name": "Augustin BENGOLEA",
         "email": "bengous@protonmail.com"

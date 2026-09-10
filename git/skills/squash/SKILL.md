@@ -1,6 +1,6 @@
 ---
 name: squash
-description: Squash git commits by pattern or hash without opening an editor
+description: Squash git commits by pattern, hash list, or the last N, without opening an editor. Use when the user asks to squash, fold, or combine commits, or to collapse fixup and WIP commits.
 argument-hint: --pattern <regex> | --hashes <h1,h2,...> | --range <N> [--backup] [--dry-run]
 allowed-tools:
   - Bash(git status:*)
@@ -8,14 +8,15 @@ allowed-tools:
   - Bash(git branch:*)
   - Bash(git reset:*)
   - Bash(git commit:*)
-  - Bash(git rebase:*)
+  - Bash(git -c sequence.editor=:*)
   - Bash(git rev-parse:*)
   - AskUserQuestion
+  - Write
 ---
 
-# Git Squash (No Editor)
+# Squash
 
-Squash git commits interactively without vim. Supports pattern matching, specific hashes, or simple ranges.
+Squash commits by pattern, hash list, or the last N. No editor opens: git's sequence editor runs a `sed` script and its commit editor copies a prepared message.
 
 ## Arguments
 
@@ -46,7 +47,7 @@ $ARGUMENTS
 2. Show preview of what will be squashed
 3. Ask for confirmation using AskUserQuestion
 4. (Optional) Create backup branch
-5. Execute rebase using `GIT_SEQUENCE_EDITOR` (no vim!)
+5. Execute the rebase
 
 ## Mode Details
 
@@ -59,7 +60,7 @@ $ARGUMENTS
 **Hashes mode:**
 - First hash is the base (keep)
 - Remaining hashes are squashed into first
-- Order matters!
+- The order given is the order applied
 
 **Range mode:**
 - Simple `git reset --soft HEAD~N` + new commit
@@ -77,22 +78,31 @@ Parse the arguments and execute the appropriate strategy:
 
 **For --range N:**
 ```bash
-# Create backup if requested
-git branch backup-$(date +%s) HEAD
+# Create backup if requested; no command substitution in the name, it would
+# force a permission prompt
+git branch squash-backup-<branch> HEAD
 
 # Soft reset and recommit
 git reset --soft HEAD~N
-git commit -m "Squashed N commits"
+git commit -m "<message composed from the N messages, shown in the preview>"
+# The subject follows the convention of `git log --oneline -10`.
 ```
 
 **For --pattern or --hashes:**
 ```bash
-# 1. List commits to find matches
-git log --oneline HEAD~50..HEAD
+# 1. List the commits of the branch, no fixed depth. The base is origin/dev
+#    when it exists, else the remote default branch (git rev-parse
+#    --abbrev-ref origin/HEAD). On that branch itself, ask how far back to look.
+git log --oneline <base>..HEAD
 
 # 2. Find the base commit (oldest matching)
-# 3. Generate a sed script that changes "pick" to "squash" for target commits
-# 4. Execute: GIT_SEQUENCE_EDITOR="sed -i '<script>'" git rebase -i <base>^
+# 3. Write the combined message to a file outside the repo, then run this
+#    command; change only the hash list, the last hash, the file path and
+#    the base. Hashes are the short ones step 1 printed. The exec line sets the message: GIT_EDITOR is already set in
+#    the session, so a core.editor override never reaches the squash.
+git -c sequence.editor="sed -i -E -e '/^pick (<h2>|<h3>)/s/^pick/squash/' \
+    -e '/^squash <h3>/a exec git commit --amend -F <msgfile>'" \
+    -c core.editor=true rebase -i <base>^
 ```
 
 **Always:**

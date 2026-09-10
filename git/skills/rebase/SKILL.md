@@ -1,6 +1,6 @@
 ---
 name: rebase
-description: Interactive git rebase with a visual plan and reworked commit messages
+description: Interactive rebase of the current branch with a visual plan and reworked commit messages, no editor. Use when the user asks to rebase, rewrite, reorder, reword, or clean up commits, or to continue, skip, or abort a paused rebase.
 argument-hint: <branch|N|X..Y> | continue | skip | abort | status
 allowed-tools:
   - Bash("${CLAUDE_PLUGIN_ROOT}/scripts/rebase.ts":*)
@@ -24,9 +24,8 @@ Rewrite the commits of the current branch: keep, squash, reword or drop each one
 | `continue` \| `skip` \| `abort` \| `status` | act on a rebase that stopped on a conflict |
 
 The backend never opens an editor and never prompts. It prints one JSON object
-per call; you ask the questions and feed the answers back in. **You** write the
-message suggestions in Phase 3 — no separate model is called, and nothing here
-invents a suggestion the user did not see.
+per call; you ask the questions and feed the answers back in. You write the
+message suggestions in Phase 3, and the user sees every one before it is used.
 
 ## Phase 0: Follow-ups
 
