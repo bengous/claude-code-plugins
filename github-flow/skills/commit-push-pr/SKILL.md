@@ -10,7 +10,7 @@ disable-model-invocation: true
 Two skills, in order. Neither one is reimplemented here.
 
 1. **Commit.** Run `git:commit`, with the number from `$ARGUMENTS` when it holds one. Nothing to commit: say so and continue.
-2. **PR.** Run `pr` with the rest of `$ARGUMENTS`. It owns the branch check, the push, the body, the images and the confirmation.
+2. **PR.** Run `pr` with the rest of `$ARGUMENTS`. It owns the branch check, the push, the body and the images.
 
 A failure in either step stops the chain and is reported verbatim.
 
