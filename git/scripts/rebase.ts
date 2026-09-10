@@ -1,10 +1,10 @@
 #!/usr/bin/env bun
 
-// rebase — Backend for the /rebase command.
+// rebase — Backend for the /git:rebase command.
 //
 // Plans an interactive rebase over the repository the caller stands in, renders
 // the plan, then executes it without ever opening an editor. Every mode prints
-// one JSON object on stdout; the /rebase command asks the user and feeds the
+// one JSON object on stdout; the /git:rebase command asks the user and feeds the
 // answers back in as a plan on stdin.
 
 import { $ } from "bun";
@@ -92,17 +92,17 @@ const GUIDANCE = [
   "Conflict markers are <<<<<<< HEAD (yours), ======= (separator), >>>>>>> commit (incoming).",
   "Remove every marker once you keep the changes you want.",
   "Stage the resolved files: git add <file>",
-  "Resume: /rebase continue",
-  "Or drop the current commit with /rebase skip, or undo everything with /rebase abort.",
+  "Resume: /git:rebase continue",
+  "Or drop the current commit with /git:rebase skip, or undo everything with /git:rebase abort.",
 ] as const;
 
-const USAGE = `Usage: /rebase <branch|N|X..Y>
+const USAGE = `Usage: /git:rebase <branch|N|X..Y>
 
   N          the last N commits (HEAD~N)
   <rev>      every commit since the merge base with <rev>
   X..Y       every commit since X
 
-Follow-up: /rebase continue | skip | abort | status`;
+Follow-up: /git:rebase continue | skip | abort | status`;
 
 // ---------------------------------------------------------------------------
 // Git helpers
@@ -205,8 +205,8 @@ async function stopFailure(
     const detail =
       `${stderr}\n\nThe command that failed was: ${stop.command}\n` +
       "It sets a commit message, and git skips a failed exec instead of replaying it, " +
-      "so continuing would drop that message. Undo with /rebase abort, fix the cause, " +
-      "then run /rebase again.";
+      "so continuing would drop that message. Undo with /git:rebase abort, fix the cause, " +
+      "then run /git:rebase again.";
     return {
       ok: false,
       step,

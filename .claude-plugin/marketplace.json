@@ -27,9 +27,49 @@
       "source": "./orchestration"
     },
     {
-      "name": "git-tools",
-      "description": "Git and GitHub protocols: rebase and squash without an editor, agent-ready issues, issue and PR triage, CI-gated linear merge, submodule automation",
-      "version": "2.0.0",
+      "name": "git",
+      "description": "Local history without an editor: commit with an optional issue-closing trailer, interactive rebase, squash by pattern or hash",
+      "version": "1.1.0",
+      "author": {
+        "name": "Augustin BENGOLEA",
+        "email": "bengous@protonmail.com"
+      },
+      "homepage": "https://github.com/bengous/claude-code-plugins",
+      "license": "MIT",
+      "keywords": [
+        "git",
+        "commit",
+        "rebase",
+        "squash",
+        "history"
+      ],
+      "source": "./git"
+    },
+    {
+      "name": "github-flow",
+      "description": "GitHub lifecycle through gh: agent-ready issues, review-ready PRs with attached images, issue and PR triage, CI-gated linear merge, commit-push-PR in one step",
+      "version": "1.2.0",
+      "author": {
+        "name": "Augustin BENGOLEA",
+        "email": "bengous@protonmail.com"
+      },
+      "homepage": "https://github.com/bengous/claude-code-plugins",
+      "license": "MIT",
+      "keywords": [
+        "github",
+        "gh",
+        "issue",
+        "triage",
+        "pull-request",
+        "merge",
+        "linear-history"
+      ],
+      "source": "./github-flow"
+    },
+    {
+      "name": "repo-bootstrap",
+      "description": "One-shot repo setup: the dev-trunk/main-release linear model, branches migrated to submodules with GitHub Actions sync",
+      "version": "1.0.1",
       "author": {
         "name": "Augustin BENGOLEA",
         "email": "bengous@protonmail.com"
@@ -39,16 +79,12 @@
       "keywords": [
         "git",
         "github",
-        "rebase",
-        "squash",
-        "issue",
-        "triage",
-        "pull-request",
-        "merge",
+        "setup",
         "linear-history",
+        "rulesets",
         "submodules"
       ],
-      "source": "./git-tools"
+      "source": "./repo-bootstrap"
     },
     {
       "name": "code-quality",

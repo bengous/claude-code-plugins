@@ -472,7 +472,7 @@ describe("conflicts", () => {
     expect(conflicted.map((file) => file.path)).toEqual(["f.txt"]);
     expect(conflicted[0]?.markers).toBe(1);
 
-    expect((result.guidance as string[]).join(" ")).toContain("/rebase continue");
+    expect((result.guidance as string[]).join(" ")).toContain("/git:rebase continue");
   });
 
   test("status reports the paused rebase, then reports none once aborted", async () => {
@@ -582,7 +582,7 @@ describe("failed exec", () => {
     expect(result.ok).toBe(false);
     expect(result.error).toBe("exec-failed");
     expect(result.detail).toContain("hook: refused");
-    expect(result.detail).toContain("/rebase abort");
+    expect(result.detail).toContain("/git:rebase abort");
     expect(result.backup_ref).toStartWith("rebase-backup-main-");
 
     const state = result.state as Record<string, unknown>;
@@ -633,7 +633,7 @@ describe("routing", () => {
     const { exitCode, result } = await run(repo, []);
     expect(exitCode).toBe(0);
     expect(result.step).toBe("usage");
-    expect(result.usage).toContain("/rebase <branch|N|X..Y>");
+    expect(result.usage).toContain("/git:rebase <branch|N|X..Y>");
   });
 
   test("rejects an unknown mode", async () => {
