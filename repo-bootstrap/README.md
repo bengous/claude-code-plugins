@@ -9,7 +9,7 @@ One-shot repository setup for Claude Code. Each skill runs once per repo; the da
 | `linear-flow` | `/repo-bootstrap:linear-flow` | Doctrine and bootstrap for the dev-trunk/main-release fast-forward model: rulesets, CI ancestor guard, CLAUDE.md section. |
 | `submodule-setup` | on request | Migrates branches to submodules with GitHub Actions sync. |
 
-`submodule-setup` invokes itself when the request matches; `linear-flow` is manual.
+Both skills run only on an explicit call: one-shot setup is never something to trigger from a passing request, and a manual skill costs no context in the sessions that never use it.
 
 ## Requirements
 

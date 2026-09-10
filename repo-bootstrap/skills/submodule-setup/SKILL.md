@@ -1,6 +1,7 @@
 ---
 name: submodule-setup
 description: This skill should be used when the user asks to "set up submodules", "migrate branches to submodules", "automate submodule sync", "create submodule architecture", "convert branches to repos", or mentions setting up git submodules with GitHub Actions automation for multi-repo synchronization.
+disable-model-invocation: true
 ---
 
 # Submodule Setup
