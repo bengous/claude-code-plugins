@@ -30,15 +30,14 @@ A PR body is a review brief. Its reader is a different agent, in a fresh session
    - What ran this session, with its numbers.
 4. **Images.** A change the reader sees (a page, a view, a component, a stylesheet) gets a Before/After pair when `$ARGUMENTS` gave none. The browser tool of the session captures the base state (the live page, else the base branch served) and the branch, one state per file, outside the repo. No reachable base: After alone, and the caption says so. A change with no visible result gets no image.
 5. **Body.** Pick the size from step 3, fill the sections below. The title follows the convention of `git log --oneline -10`.
-6. **Confirm.** Show the title, the base, the full body, the attachments. Files the issue puts out of scope are listed first; the user decides. One question: create (or update), or change something.
-7. **Publish.** Body in a temporary file outside the repo. A PR already open on the branch (`gh pr view --json number`) is edited, else one is created:
+6. **Publish.** No question before it: the skill is the guard, and a caller that wants a look first asks for one. Files the issue puts out of scope go in *Ask*, so the reviewer decides. Body in a temporary file outside the repo. A PR already open on the branch (`gh pr view --json number`) is edited, else one is created:
 
    ```bash
    gh pr create --base <base> --title "<title>" --body-file <tmp> --attach './before.png#<alt>'
    gh pr edit <n> --title "<title>" --body-file <tmp> --attach './after.png#<alt>'
    ```
 
-   `--body-file` keeps the markdown intact. A `![alt](./file.png)` in the body is rewritten to the uploaded asset, and the alt text in the body wins. The image files stay outside the repo; `--attach` is their only path to GitHub. Report the URL.
+   `--body-file` keeps the markdown intact. A `![alt](./file.png)` in the body is rewritten to the uploaded asset, and the alt text in the body wins. The image files stay outside the repo; `--attach` is their only path to GitHub. Report the title, the URL, and the out-of-scope files if any.
 
 ## Size
 

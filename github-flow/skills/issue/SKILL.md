@@ -24,15 +24,14 @@ Ask nothing else unless the request cannot be located in the code at all.
 1. **Project constraints.** Read the repo's `AGENTS.md` or `CLAUDE.md` for two things only: the validation commands, and the boundaries the reader must respect. They go in *Done when* and *Hints*.
 2. **Evidence.** Locate the code the request touches. Read it before citing it. Each fact gets an anchor the reader can jump to: `path:line` plus the symbol name, or a commit hash. Run `git log --oneline -10 -- <file>` when history explains the current state. Search once for a duplicate: `gh issue list --search "<keywords>" --state all --limit 10`; link a match in *Evidence* and say so to the user.
 3. **Body.** Fill the template below. Size follows the problem: a small bug fits in fifteen lines.
-4. **Confirm.** Show the title and the full body. Ask one question: create (or update), or change something. Suggest labels only from `gh label list`.
-5. **Publish.** Write the body to a temporary file outside the repo, then:
+4. **Publish.** No question before it: the skill is the guard, and a caller that wants a look first asks for one. Labels only from `gh label list`. Write the body to a temporary file outside the repo, then:
 
    ```bash
    gh issue create --title "<title>" --body-file <tmp> --label "<a>,<b>"
    gh issue edit <n> --body-file <tmp>
    ```
 
-   `--body-file` keeps the markdown intact; inline `--body` breaks on backticks. Report the URL.
+   `--body-file` keeps the markdown intact; inline `--body` breaks on backticks. Report the title and the URL.
 
 ## Template
 
