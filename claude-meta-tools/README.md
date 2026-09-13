@@ -12,7 +12,7 @@ moved to [understanding](../understanding/), `/prompt-health` is covered by the 
 `/claude-api prompt-audit`, `/prompt-coach` and `/dump-system-prompt` were dropped (the npm
 package ships a native binary since Claude Code 2.1.113, so there is no `cli.js` to parse).
 
-## Commands
+## Skills
 
 ### `/meta-prompt`
 

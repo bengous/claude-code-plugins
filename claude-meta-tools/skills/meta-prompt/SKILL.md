@@ -1,15 +1,8 @@
 ---
-description: >-
-  Turn a rough request or the preceding conversation into a clean prompt for another agent,
-  carrying the user's intention at the user's level of certainty. Use when the user asks to
-  write a prompt, meta-prompt, briefing, or handoff for a separate agent session — "write a
-  prompt for another instance", "brief another agent", "prepare a prompt I can copy-paste",
-  "write this up for another session" — or wants to delegate a task just discussed.
+name: meta-prompt
+description: Turn a rough request or the preceding conversation into a clean prompt for another agent, carrying the user's intention at the user's level of certainty. Use when the user asks to write a prompt, meta-prompt, briefing, or handoff for a separate agent session, or wants to delegate a task just discussed to a fresh instance.
 argument-hint: "<rough request>"
-allowed-tools:
-  - Read
-  - Grep
-  - Glob
+allowed-tools: Read, Grep, Glob
 ---
 
 # Meta Prompt
