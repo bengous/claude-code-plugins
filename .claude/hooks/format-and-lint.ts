@@ -20,12 +20,7 @@ export interface HookInput {
 const LINTABLE_EXTENSIONS = [".ts", ".js", ".mjs", ".cjs"] as const;
 
 // Mirrors ignorePatterns in oxlint.config.ts and .oxfmtrc.json.
-const SKIPPED_PREFIXES = [
-  "archive/",
-  "node_modules/",
-  "tools/oxlint/anti-slop/",
-  "claude-meta-tools/scripts/prompt-extractor/",
-] as const;
+const SKIPPED_PREFIXES = ["archive/", "node_modules/", "tools/oxlint/anti-slop/"] as const;
 
 export function parseFilePath(raw: string): string | null {
   try {

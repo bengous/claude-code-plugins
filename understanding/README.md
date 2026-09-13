@@ -1,10 +1,12 @@
 # Understanding Plugin
 
-v1.0.0
+v1.1.0
 
-Understand a topic or a bug: minimal explanations and root-cause diagnosis.
+Understand a topic, a bug, or a Claude Code workflow: minimal explanations, root-cause
+diagnosis, execution traces.
 
-Moved from software-craft 1.1.0 (originally claude-meta-tools).
+`/explain` and `/troubleshoot` moved from software-craft 1.1.0 (originally claude-meta-tools).
+`/explain-workflow` moved from claude-meta-tools 6.0.0.
 
 ## Commands
 
@@ -27,6 +29,17 @@ statements, then reports Root Cause / Evidence / Context / Next Steps.
 
 ```bash
 /troubleshoot login form silently drops the session cookie
+```
+
+### `/explain-workflow`
+
+Trace the execution flow of a Claude Code command, skill, or agent: every tool call,
+branch, delegation, and script, followed into its source file, rendered as an ASCII flow
+diagram with `file:line` references. Not a concept explanation; use `/explain` for that.
+
+```bash
+/explain-workflow git:commit
+/explain-workflow plans/release-pipeline.md
 ```
 
 ## License

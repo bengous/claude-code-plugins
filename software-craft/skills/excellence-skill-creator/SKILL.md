@@ -78,9 +78,9 @@ This is the core pass. It transforms structure into opinionated content.
 
 **When to run**: Recommended. Skip only for quick iterations.
 
-Run the /prompt-health command (claude-meta-tools) on the completed SKILL.md. It runs deterministic Claude Code harness staleness checks, then delegates to /claude-api prompt-audit for dated prompting patterns and a proposed diff.
+Run `/claude-api prompt-audit <path to SKILL.md>` on the completed SKILL.md. It reports dated prompting patterns with a proposed diff.
 
-If prompt-health isn't available, manually verify:
+If the claude-api skill isn't available, manually verify:
 - Triggers are specific (not just "create a skill")
 - Examples show concrete good/bad contrast
 - Each guideline explains "why" not just "what"

@@ -1,133 +1,81 @@
 ---
 description: >-
-  Turn a rough request or the preceding conversation into a grounded, ready-to-run prompt for
-  another agent. Use when the user asks to write a prompt, meta-prompt, or briefing for a
-  separate agent session — "write a prompt for another instance", "brief another agent",
-  "prepare a prompt I can copy-paste", "write this up for another session" — or wants to
-  delegate a task just discussed to a fresh instance.
-argument-hint: "<prompt-text> [executor-model]"
+  Turn a rough request or the preceding conversation into a clean prompt for another agent,
+  carrying the user's intention at the user's level of certainty. Use when the user asks to
+  write a prompt, meta-prompt, briefing, or handoff for a separate agent session — "write a
+  prompt for another instance", "brief another agent", "prepare a prompt I can copy-paste",
+  "write this up for another session" — or wants to delegate a task just discussed.
+argument-hint: "<rough request>"
 allowed-tools:
   - Read
   - Grep
   - Glob
-  - AskUserQuestion
-model: opus
 ---
 
-# Meta Prompt Enhancer
+# Meta Prompt
 
-Turn the user's rough request into a prompt another agent can execute without further context.
+Write the prompt another agent will receive. The prompt carries the user's intention, at the
+user's level of certainty. It is not a plan.
 
 ## Input
 
 **$ARGUMENTS**
 
-No arguments means the request is the task discussed in this conversation — write the prompt
-that hands it off.
+No arguments: the request is the task discussed in this conversation.
 
-## Order of work
+## Preserve intention and certainty
 
-Mine the conversation when there is one, ground the request, clarify only if that left a
-blocking gap, settle who will run it, then emit the prompt in the shape described under
-**Output contract** at the end of this file.
-Do not execute the task you are writing the prompt for.
+The executor treats everything in the prompt as the user's own words. So nothing enters the
+prompt that the user did not decide.
+
+- A directive the user stated ("use this lib", "do it like X", "not in that file") is kept as
+  a directive, in the user's terms.
+- Everything the user left open stays open. Never pick an approach, a library, a file layout,
+  a sequence of steps, or a scope the user did not pick. Never add requirements, acceptance
+  criteria, or examples the user did not give.
+- When the request reads as exploration (confused ideas, "I'm not sure", "let's think
+  about"), say so in the prompt: the executor is to think it through with the user before
+  implementing.
+- Questions go into the prompt, under **Open**, for the executor to ask. Do not ask them here.
 
 ## Mine the conversation
 
-When the request follows a discussion — planning, debugging, a design back-and-forth — the
-conversation holds facts grounding cannot recover: decisions made and the why behind them,
-constraints and anti-patterns the user expressed, prior art they pointed at. Carry those into
-the prompt; the why matters because the executor uses it for judgment calls the prompt cannot
-anticipate. Filter ruthlessly — most of the conversation is irrelevant to the executor.
+When the request follows a discussion, the conversation holds facts the executor needs:
+decisions made and why, constraints and anti-patterns the user expressed, prior art they
+pointed at. Carry those in, filtered to what bears on the task. The executor reads cold: no
+shorthand from this conversation ("as discussed", "the earlier approach"). Every reference
+resolves for a reader with zero context.
 
-The executor reads cold. No shorthand from this conversation ("as discussed", "the earlier
-approach") — every reference must resolve for a reader with zero context.
+## Verify references
 
-## Ground the request first
+Check with Grep, Glob, and Read that each file, symbol, or convention the request names
+exists. Pick up the conventions in `CLAUDE.md`, `AGENTS.md`, and `.claude/rules/` that bear
+on the task, unless the harness already put them in context.
 
-A handoff prompt that cites paths, functions, or conventions that do not exist is worse than a
-vague one — the receiving agent trusts it and acts on it. So verify before asserting:
+Report what you found as facts: "exists at path", "does not exist", "already done in
+path", "unverified". When the repo contradicts the request, state the contradiction under
+**Context** and keep the request as the user made it. Retargeting is the executor's
+conversation with the user, not yours.
 
-- Confirm any file, symbol, or pattern the request names actually exists, with Grep/Glob/Read.
-- Pick up the project's instruction files (`CLAUDE.md`, `AGENTS.md`, `.claude/rules/`) and carry
-  over the conventions bearing on this task. Check what the harness already put in context
-  before re-reading them.
-- Cite real paths and real line numbers. Where you could not verify something, label it
-  unverified in the prompt rather than asserting it.
+## Clean the language
 
-**When grounding contradicts the request, grounding wins.** If the thing already exists, is
-already partly built, is named differently, or does not exist at all, retarget the prompt at
-the true state and say so in your rationale line. Name anything you deliberately left out of
-scope. Retargeting to fit reality is not scope creep; writing a prompt for work that is already
-done is the actual failure.
+Full sentences, no verbal tics, no filler, same content. When the user's request is already
+clear, the cleaned request is most of the output.
 
-## Clarify only when the answer changes the work
+Do not execute the task you are writing the prompt for.
 
-If the request is executable after grounding, write the prompt.
+## Output
 
-If grounding leaves a gap that no further reading can close, call `AskUserQuestion` once — up to
-four questions, leading with the one whose answer would change the architecture or approach.
-That tool call replaces the prompt for this turn; emit the prompt after the answers arrive.
-Phrase each question so it can be answered by choosing among a few concrete options, and carry
-the evidence you found into the question itself.
+Your entire response is the prompt. No preamble, no fence, no rationale, no closing line.
+Sections in this order, each omitted when empty:
 
-Detail you can resolve by reading the repo is not a question. Read it instead.
+**Request** — the cleaned request, in the user's words as far as they were clear.
 
-## Establish who will run it
+**Decided** — the user's explicit directives, quoted.
 
-Prompting guidance differs per model, and the verification rule inverts between them. Use the
-executor the user names, otherwise assume an Opus-class agent. State the executor in the
-emitted prompt either way, so the next reader can correct it.
+**Open** — what the user left undecided or wants to explore, and what the executor should
+ask or think through with the user before acting.
 
-- **Opus-class executor:** omit verification scaffolding. It verifies its own work and
-  self-corrects by default; instructions to double-check compound with that behavior and waste
-  tokens. Constrain scope explicitly instead, and state that subagents are not for
-  double-checking its own work — it over-delegates by default, independent of cost.
-- **Fable-class executor on a task spanning multiple context windows or many tool-call cycles:**
-  make self-verification explicit — a checking method at a stated interval, verified by
-  fresh-context subagents against the specification.
-- **Sonnet-class executor:** state scope explicitly. It will not generalize an instruction from
-  one item to another or infer requests you did not make.
-
-Never instruct the receiving agent to echo, transcribe, or explain its internal reasoning as
-response text. On Fable-class models this can trigger a refusal and force a fallback.
-
-## Shape of the enhanced prompt
-
-Include what the executor needs and nothing more. Length tracks the complexity of the work and
-what grounding turned up — not the length of the user's request. A one-line request about a
-tangled codebase earns a long prompt.
-
-- **Context** — background, verified repo facts, applicable conventions, the executor, and
-  anything you could not verify.
-- **Objective** — what to accomplish, stated as an outcome. Leave the approach to the
-  executor unless it was explicitly decided: a step-by-step plan constrains their thinking
-  and goes stale faster than intent.
-- **Constraints** — framed as what to do, each with the reason it matters; explaining why a
-  constraint exists outperforms stating it alone. Keep a prohibition only when it is
-  load-bearing.
-- **Expected output** — the concrete deliverable.
-- **Acceptance criteria** — what *done* means. Always include these; they are not verification
-  scaffolding and belong in every prompt regardless of executor.
-- **Examples** — 3-5 when the output has a shape the executor could plausibly get wrong,
-  omitted otherwise.
-
-Wrap the top-level sections in semantic tags and keep prose and lists inside them in markdown.
-
-Preserve the user's intent. Add rigour, not new requirements.
-
-## Output contract
-
-Your entire response is:
-
-````
-[Enhanced prompt]
-````
-
-*→ [One-sentence rationale]*
-
-The fenced block comes first with no preamble, followed by one italic line beginning `→` naming
-what you added or retargeted. Fence the prompt with **four** backticks, so that examples or code
-inside it can use ordinary three-backtick blocks without terminating the outer fence early.
-
-The sole alternative to this shape is a single `AskUserQuestion` call, per the clarify step above.
+**Context** — what the executor cannot recover on its own: facts from the conversation, the
+existence checks for what the request names, the conventions that bear on the task. Label
+anything unverified. Do not investigate the task itself; that is the executor's work.

@@ -1,56 +1,31 @@
 # Claude Meta-Tools Plugin
 
-v5.0.0
+v6.0.0
 
-Prompt tooling for Claude Code: write and audit prompts, and introspect how the harness executes them.
+Meta tooling for Claude Code: write prompts that prompt better.
 
 Since 5.0.0 this plugin is prompt-focused. Instruction-file maintenance moved to
 [context-management](../context-management/), research and fact-checking to
 [research-tools](../research-tools/), `/explain` and `/troubleshoot` to
-[understanding](../understanding/).
+[understanding](../understanding/). 6.0.0 narrowed it to `/meta-prompt`: `/explain-workflow`
+moved to [understanding](../understanding/), `/prompt-health` is covered by the native
+`/claude-api prompt-audit`, `/prompt-coach` and `/dump-system-prompt` were dropped (the npm
+package ships a native binary since Claude Code 2.1.113, so there is no `cli.js` to parse).
 
 ## Commands
 
 ### `/meta-prompt`
 
-Turn a rough request — or the preceding conversation — into a grounded, ready-to-run prompt
-for another agent. Verifies every path and symbol it cites against the repo, retargets when
-grounding contradicts the request, mines conversation decisions when invoked as a handoff,
-and tailors verification scaffolding to the executor model.
+Turn a rough request — or the preceding conversation — into a clean prompt for another
+agent, carrying the user's intention at the user's level of certainty. Explicit directives
+stay directives, open points stay open for the executor to ask, references are verified
+against the repo and reported as facts. No plan, no model inference, no fence or rationale
+around the output: the response is the prompt.
 
 ```bash
 /meta-prompt add rate limiting to the API gateway
 /meta-prompt            # no arguments: hand off the task discussed in this session
 ```
-
-### `/prompt-coach`
-
-Rephrase rough ideas into clear, professional language — and name the weak patterns so you
-learn from them.
-
-### `/prompt-health`
-
-Health check for a prompt, command, skill, or agent doc. Two layers, no scores:
-
-- **Harness staleness (deterministic)**: checks the artifact against Claude Code facts that
-  changed — `ultrathink` as a budget dial, the spawn tool named `Task` rather than `Agent`,
-  `budget_tokens`, assistant prefill, pinned prior-generation model IDs.
-- **Dated patterns (delegated)**: hands off to the vendored prompt-audit methodology for
-  pressure language, replaced scaffolds, over-specification, and the proposed diff.
-
-```bash
-/prompt-health path/to/SKILL.md
-/prompt-health "inline prompt text" --model opus-5
-```
-
-### `/dump-system-prompt`
-
-Extract Claude Code system prompts from `cli.js` using AST analysis. Backed by
-`scripts/extract-system-prompts.sh` and `scripts/track-prompt-versions.sh`.
-
-### `/explain-workflow`
-
-Trace and visualize the execution flow of a Claude Code command, skill, or agent workflow.
 
 ## License
 

@@ -1,7 +1,7 @@
 {
   "name": "understanding",
-  "version": "1.0.0",
-  "description": "Understand a topic or a bug: minimal explanations and root-cause diagnosis",
+  "version": "1.1.0",
+  "description": "Understand a topic, a bug, or a Claude Code workflow: minimal explanations, root-cause diagnosis, execution traces",
   "author": {
     "name": "Augustin BENGOLEA",
     "email": "bengous@protonmail.com"
@@ -14,6 +14,7 @@
     "troubleshoot",
     "diagnosis",
     "pedagogy",
-    "investigation"
+    "investigation",
+    "workflow-trace"
   ]
 }

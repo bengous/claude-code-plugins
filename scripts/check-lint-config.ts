@@ -57,7 +57,6 @@ const ALLOWED_IGNORE_PATTERNS = new Set([
   "archive/**",
   "node_modules/**",
   "tools/oxlint/anti-slop/**",
-  "claude-meta-tools/scripts/prompt-extractor/promptExtractor.js",
 ]);
 
 const ANTI_SLOP_PREFIX = "anti-slop/";

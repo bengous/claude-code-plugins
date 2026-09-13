@@ -10,7 +10,6 @@ if [[ -f "$VERSION_FILE" ]]; then
   PREVIOUS=$(cat "$VERSION_FILE")
   if [[ "$CURRENT" != "$PREVIOUS" ]]; then
     echo "Claude version changed: $PREVIOUS -> $CURRENT"
-    echo "Consider running /dump-system-prompt to track prompt changes"
     echo "$CURRENT" >"$VERSION_FILE"
   fi
 else

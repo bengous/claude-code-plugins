@@ -379,7 +379,7 @@ When fixing prompt text, check:
 - Concrete examples where helpful
 - Appropriate length (not over-explained)
 
-### From prompt-coach: Intent Preservation
+### Intent Preservation
 When rewriting any passage:
 - **Preserve exact meaning**: You're improving expression, not changing ideas
 - **Same content, said better**: Clearer, more precise, same length or shorter

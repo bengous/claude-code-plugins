@@ -6,8 +6,6 @@
 .claude-version
 .t-plan/
 plans/
-.claude-system-prompts/
-.claude-system-prompt-dump.md
 
 # Node/Bun
 node_modules/

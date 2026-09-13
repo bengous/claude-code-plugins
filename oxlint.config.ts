@@ -6,7 +6,6 @@ export default defineConfig({
     "node_modules/**",
     // Vendored third party, upstream owns the style.
     "tools/oxlint/anti-slop/**",
-    "claude-meta-tools/scripts/prompt-extractor/promptExtractor.js",
   ],
   jsPlugins: [{ name: "anti-slop", specifier: "./tools/oxlint/anti-slop/index.ts" }],
   categories: {

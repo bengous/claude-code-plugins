@@ -130,8 +130,8 @@
     },
     {
       "name": "claude-meta-tools",
-      "description": "Prompt tooling for Claude Code: write and audit prompts (meta-prompt, prompt-coach, prompt-health) and introspect how the harness executes them (dump-system-prompt, explain-workflow)",
-      "version": "5.0.0",
+      "description": "Meta tooling for Claude Code: write prompts that prompt better (meta-prompt)",
+      "version": "6.0.0",
       "author": {
         "name": "Augustin BENGOLEA",
         "email": "bengous@protonmail.com"
@@ -141,10 +141,7 @@
       "keywords": [
         "prompt",
         "meta-prompt",
-        "prompt-health",
-        "prompt-coaching",
-        "system-prompt",
-        "workflow"
+        "handoff"
       ],
       "source": "./claude-meta-tools"
     },
@@ -238,7 +235,7 @@
     {
       "name": "software-craft",
       "description": "Opinionated design skills for software excellence: CLI design, system architecture, and more",
-      "version": "2.1.0",
+      "version": "2.1.1",
       "author": {
         "name": "Augustin BENGOLEA",
         "email": "bengous@protonmail.com"
@@ -257,8 +254,8 @@
     },
     {
       "name": "understanding",
-      "description": "Understand a topic or a bug: minimal explanations and root-cause diagnosis",
-      "version": "1.0.0",
+      "description": "Understand a topic, a bug, or a Claude Code workflow: minimal explanations, root-cause diagnosis, execution traces",
+      "version": "1.1.0",
       "author": {
         "name": "Augustin BENGOLEA",
         "email": "bengous@protonmail.com"
@@ -270,7 +267,8 @@
         "troubleshoot",
         "diagnosis",
         "pedagogy",
-        "investigation"
+        "investigation",
+        "workflow-trace"
       ],
       "source": "./understanding"
     },

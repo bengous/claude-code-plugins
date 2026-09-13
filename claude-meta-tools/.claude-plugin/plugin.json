@@ -1,7 +1,7 @@
 {
   "name": "claude-meta-tools",
-  "version": "5.0.0",
-  "description": "Prompt tooling for Claude Code: write and audit prompts (meta-prompt, prompt-coach, prompt-health) and introspect how the harness executes them (dump-system-prompt, explain-workflow)",
+  "version": "6.0.0",
+  "description": "Meta tooling for Claude Code: write prompts that prompt better (meta-prompt)",
   "author": {
     "name": "Augustin BENGOLEA",
     "email": "bengous@protonmail.com"
@@ -12,9 +12,6 @@
   "keywords": [
     "prompt",
     "meta-prompt",
-    "prompt-health",
-    "prompt-coaching",
-    "system-prompt",
-    "workflow"
+    "handoff"
   ]
 }
