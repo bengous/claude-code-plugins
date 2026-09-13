@@ -41,9 +41,9 @@ resolves for a reader with zero context.
 
 ## Verify references
 
-Check with Grep, Glob, and Read that each file, symbol, or convention the request names
-exists. Pick up the conventions in `CLAUDE.md`, `AGENTS.md`, and `.claude/rules/` that bear
-on the task, unless the harness already put them in context.
+Check that each file, symbol, or convention the request names exists. Pick up the
+conventions in `CLAUDE.md`, `AGENTS.md`, and `.claude/rules/` that bear on the task, unless
+the harness already put them in context.
 
 Report what you found as facts: "exists at path", "does not exist", "already done in
 path", "unverified". When the repo contradicts the request, state the contradiction under
@@ -59,8 +59,8 @@ Do not execute the task you are writing the prompt for.
 
 ## Output
 
-Your entire response is the prompt. No preamble, no fence, no rationale, no closing line.
-Sections in this order, each omitted when empty:
+Your entire response is the prompt: the user pastes it into another session as-is, so no
+preamble, no fence, no rationale, no closing line. Sections in this order, each omitted when empty:
 
 **Request** — the cleaned request, in the user's words as far as they were clear.
 
