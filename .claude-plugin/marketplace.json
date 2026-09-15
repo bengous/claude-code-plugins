@@ -214,28 +214,9 @@
       "source": "./agents-bridge"
     },
     {
-      "name": "conductor",
-      "description": "Conversational planning skill that produces self-contained implementation plans",
-      "version": "1.3.6",
-      "author": {
-        "name": "Augustin BENGOLEA",
-        "email": "bengous@protonmail.com"
-      },
-      "homepage": "https://github.com/bengous/claude-code-plugins",
-      "license": "MIT",
-      "keywords": [
-        "planning",
-        "architecture",
-        "implementation",
-        "handoff",
-        "research"
-      ],
-      "source": "./conductor"
-    },
-    {
       "name": "software-craft",
       "description": "Opinionated design skills for software excellence: CLI design, system architecture, and more",
-      "version": "2.1.1",
+      "version": "3.0.0",
       "author": {
         "name": "Augustin BENGOLEA",
         "email": "bengous@protonmail.com"
@@ -431,6 +412,28 @@
         "technical-debt"
       ],
       "source": "./architecture-audit"
+    },
+    {
+      "name": "vellum",
+      "description": "Plan at the frontiers and review the plan in the browser: open choices settled first, interfaces and files before mechanics, vertical slices each closed by a check; at ExitPlanMode the plan and its mockups open in a page where the reviewer comments text or approves, and the answer reaches Claude as a prompt",
+      "version": "1.0.0",
+      "author": {
+        "name": "Augustin BENGOLEA",
+        "email": "bengous@protonmail.com"
+      },
+      "homepage": "https://github.com/bengous/claude-code-plugins",
+      "license": "MIT",
+      "keywords": [
+        "planning",
+        "browser-review",
+        "function-hooks",
+        "plan-mode",
+        "design",
+        "interfaces",
+        "vertical-slices",
+        "review"
+      ],
+      "source": "./vellum"
     }
   ],
   "description": "Personal Claude Code plugins: git workflows, code quality, agent orchestration, and plugin tooling"

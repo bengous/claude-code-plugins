@@ -24,6 +24,11 @@ jobs:
       - name: Install script dependencies
         run: bun install --frozen-lockfile
 
+      # The vellum plugin carries its own runtime dependencies (preact, remark),
+      # installed the way Claude Code installs them at the plugin's cache.
+      - name: Install vellum dependencies
+        run: bun install --cwd vellum --frozen-lockfile --ignore-scripts
+
       # `bun test` alone skips dot directories, so the repo's own hooks need an
       # explicit path. Together the two runs cover every test file.
       - name: Run test suites
@@ -41,7 +46,7 @@ jobs:
         run: bun x oxlint
 
       - name: Check formatting (oxfmt)
-        run: bun x oxfmt --check '**/*.ts' '**/*.js' '**/*.mjs' '**/*.cjs'
+        run: bun x oxfmt --check '**/*.ts' '**/*.tsx' '**/*.js' '**/*.mjs' '**/*.cjs'
 
       - name: Lint shell (shellcheck + shfmt)
         run: bun ./scripts/lint-shell.ts
@@ -56,6 +61,9 @@ jobs:
 
       - name: Validate plugin frontmatter
         run: bun ./scripts/validate-frontmatter.ts --all
+
+      - name: Validate the vellum hooks module
+        run: CLAUDE_CODE_ENABLE_FUNCTION_HOOKS=1 claude plugin validate vellum
 
       # main is a delayed fast-forward pointer on dev's history: releases move it
       # with `git push origin dev:main`. Fail loudly if main ever leaves that line.

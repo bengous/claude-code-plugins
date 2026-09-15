@@ -58,6 +58,7 @@ const ALLOWED_IGNORE_PATTERNS = new Set([
   "archive/**",
   "node_modules/**",
   "tools/oxlint/anti-slop/**",
+  "vellum/types/**",
 ]);
 
 const ANTI_SLOP_PREFIX = "anti-slop/";
@@ -89,8 +90,8 @@ export const EXPECTED_COMMANDS: CommandPair[] = [
   },
   {
     gate: "fmt",
-    lefthook: "bun x oxfmt --check '**/*.ts' '**/*.js' '**/*.mjs' '**/*.cjs'",
-    ci: "bun x oxfmt --check '**/*.ts' '**/*.js' '**/*.mjs' '**/*.cjs'",
+    lefthook: "bun x oxfmt --check '**/*.ts' '**/*.tsx' '**/*.js' '**/*.mjs' '**/*.cjs'",
+    ci: "bun x oxfmt --check '**/*.ts' '**/*.tsx' '**/*.js' '**/*.mjs' '**/*.cjs'",
     difference: null,
   },
   {
@@ -116,6 +117,12 @@ export const EXPECTED_COMMANDS: CommandPair[] = [
     lefthook: "bun ./scripts/validate-frontmatter.ts",
     ci: "bun ./scripts/validate-frontmatter.ts --all",
     difference: "staged files locally, the whole repo in CI (scripts/validate-frontmatter.ts)",
+  },
+  {
+    gate: "validate-vellum",
+    lefthook: "CLAUDE_CODE_ENABLE_FUNCTION_HOOKS=1 claude plugin validate vellum",
+    ci: "CLAUDE_CODE_ENABLE_FUNCTION_HOOKS=1 claude plugin validate vellum",
+    difference: null,
   },
 ];
 

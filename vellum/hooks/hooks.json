@@ -1,0 +1,4 @@
+{
+  "description": "Opens the plan in the browser at ExitPlanMode after /vellum:plan, and delivers the review as a prompt",
+  "modules": ["./register.ts"]
+}

@@ -1,0 +1,22 @@
+{
+  "name": "vellum",
+  "version": "1.0.0",
+  "description": "Plan at the frontiers and review the plan in the browser: open choices settled first, interfaces and files before mechanics, vertical slices each closed by a check; at ExitPlanMode the plan and its mockups open in a page where the reviewer comments text or approves, and the answer reaches Claude as a prompt",
+  "author": {
+    "name": "Augustin BENGOLEA",
+    "email": "bengous@protonmail.com"
+  },
+  "homepage": "https://github.com/bengous/claude-code-plugins/tree/main/vellum",
+  "repository": "https://github.com/bengous/claude-code-plugins",
+  "license": "MIT",
+  "keywords": [
+    "planning",
+    "browser-review",
+    "function-hooks",
+    "plan-mode",
+    "design",
+    "interfaces",
+    "vertical-slices",
+    "review"
+  ]
+}

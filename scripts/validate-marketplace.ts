@@ -88,7 +88,18 @@ try {
 // tracks ships, so an untracked scratch file is not the marketplace's problem.
 const trackedFiles = (await $`git ls-files -z`.quiet().text()).split("\0").filter(Boolean);
 
-const SHIPPED_TEXT_EXTENSIONS = [".ts", ".sh", ".md", ".json", ".js", ".mjs", ".cjs"];
+const SHIPPED_TEXT_EXTENSIONS = [
+  ".ts",
+  ".tsx",
+  ".sh",
+  ".md",
+  ".json",
+  ".js",
+  ".mjs",
+  ".cjs",
+  ".html",
+  ".css",
+];
 
 const isShippedText = (path: string) => SHIPPED_TEXT_EXTENSIONS.some((ext) => path.endsWith(ext));
 

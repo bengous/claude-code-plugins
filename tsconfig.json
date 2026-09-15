@@ -1,6 +1,6 @@
 {
   "compilerOptions": {
-    "lib": ["ESNext"],
+    "lib": ["ESNext", "DOM", "DOM.Iterable"],
     "target": "ESNext",
     "module": "Preserve",
     "moduleResolution": "bundler",
@@ -12,6 +12,8 @@
     "verbatimModuleSyntax": true,
     "allowImportingTsExtensions": true,
     "resolveJsonModule": true,
+    "jsx": "react-jsx",
+    "jsxImportSource": "preact",
 
     "strict": true,
     "noUncheckedIndexedAccess": true,
@@ -22,6 +24,6 @@
     "useUnknownInCatchVariables": true,
     "forceConsistentCasingInFileNames": true
   },
-  "include": ["**/*.ts"],
+  "include": ["**/*.ts", "**/*.tsx"],
   "exclude": ["node_modules", "archive", "tools/oxlint/anti-slop"]
 }

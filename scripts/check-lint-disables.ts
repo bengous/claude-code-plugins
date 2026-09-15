@@ -14,7 +14,7 @@ import { workingTreeFiles } from "./lib/working-tree-files.ts";
 
 const EXCLUDED_PREFIXES = ["archive/", "node_modules/", "tools/oxlint/anti-slop/"] as const;
 
-const CHECKED_EXTENSIONS = [".ts", ".js", ".mjs", ".cjs"] as const;
+const CHECKED_EXTENSIONS = [".ts", ".tsx", ".js", ".mjs", ".cjs"] as const;
 
 // oxlint honours the eslint- spelling too, so both have to be gated.
 const DIRECTIVE_RE = /\b(?:ox|es)lint-disable(?:-next-line|-line)?\b/u;

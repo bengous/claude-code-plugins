@@ -3,6 +3,7 @@
   "sortImports": true,
   "ignorePatterns": [
     "archive/**",
-    "tools/oxlint/anti-slop/**"
+    "tools/oxlint/anti-slop/**",
+    "vellum/types/**"
   ]
 }

@@ -573,7 +573,7 @@ describe("unarchiveSession", () => {
     const archiveDir = join(dir, "archive");
     mkdirSync(archiveDir, { recursive: true });
 
-    const compressed = Bun.gzipSync(new TextEncoder().encode(JSONL_CONTENT));
+    const compressed = Bun.gzipSync(JSONL_CONTENT);
     await Bun.write(join(archiveDir, `${UUID_C}.jsonl.gz`), compressed);
     await saveArchiveIndex(archiveDir, {
       version: 1,

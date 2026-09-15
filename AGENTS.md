@@ -25,10 +25,13 @@ bun ./scripts/validate-marketplace.ts                  # versions + structure
 bun ./scripts/validate-frontmatter.ts --all            # frontmatter (default: staged only)
 bun x tsgo --noEmit                                    # types; fall back to ./node_modules/.bin/tsc --noEmit if tsgo rejects a flag
 bun x oxlint                                           # lint (correctness + suspicious + pedantic + anti-slop)
-bun x oxfmt '**/*.ts' '**/*.js' '**/*.mjs' '**/*.cjs'  # format; add --check to verify only
+bun x oxfmt '**/*.ts' '**/*.tsx' '**/*.js' '**/*.mjs' '**/*.cjs'  # format; add --check to verify only
 bun ./scripts/lint-shell.ts                            # shellcheck + shfmt; takes paths, else the whole repo
-bun ./scripts/run-gates.ts                             # every gate, as CI runs it
+CLAUDE_CODE_ENABLE_FUNCTION_HOOKS=1 claude plugin validate vellum   # the hooks module: what it hooks and calls
+bun ./scripts/run-gates.ts                             # every gate, as CI runs it; installs vellum's dependencies first
 ```
+
+`vellum/` carries `package.json` + `bun.lock`: `bun install --cwd vellum --frozen-lockfile` before its tests or its server, as Claude Code does at the plugin's cache.
 
 Everything above also runs in `pre-push` and CI; `pre-commit` runs all of it except `bun test`. Job list, order, and argument differences: `docs/repo-ops.md`.
 
@@ -43,7 +46,7 @@ That bash boundary binds new code. Scripts already over it move when an issue re
 
 Carried by the commands above:
 
-- Extensions are mandatory: `.ts`, `.sh`. `tsgo`, `oxlint`, `oxfmt` and `check-lint-disables.ts` select files by extension, so a Bun script named without `.ts` is checked by nothing. `lint-shell.ts` also matches a shell shebang, so bash survives an extensionless name.
+- Extensions are mandatory: `.ts`, `.tsx`, `.sh`. `tsgo`, `oxlint`, `oxfmt` and `check-lint-disables.ts` select files by extension, so a Bun script named without `.ts` is checked by nothing. `lint-shell.ts` also matches a shell shebang, so bash survives an extensionless name.
 - One root `tsconfig.json` covers every `.ts` outside `archive/` and the vendored linter: `strict`, plus `noUncheckedIndexedAccess` and `exactOptionalPropertyTypes`. Do not add a second one.
 - Every lint suppression says why on its own line: `// oxlint-disable-next-line <rule> -- <reason>`. `check-lint-disables.ts` rejects the bare form, `oxlint-` and `eslint-` spellings alike.
 

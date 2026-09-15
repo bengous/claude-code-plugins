@@ -43,6 +43,16 @@ async function runGate(repoRoot: string, gate: string, command: string): Promise
 if (import.meta.main) {
   const repoRoot = join(import.meta.dir, "..");
 
+  const install = await $`bun install --cwd vellum --frozen-lockfile --ignore-scripts`
+    .cwd(repoRoot)
+    .nothrow()
+    .quiet();
+
+  if (install.exitCode !== 0) {
+    console.error(`vellum dependencies: ${install.stdout.toString()}${install.stderr.toString()}`);
+    process.exit(1);
+  }
+
   const results = await Promise.all(
     EXPECTED_COMMANDS.map((pair) => runGate(repoRoot, pair.gate, pair.ci)),
   );

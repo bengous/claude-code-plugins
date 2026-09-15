@@ -50,11 +50,13 @@ pre-commit:
     - name: typecheck
       glob:
         - "*.ts"
+        - "*.tsx"
         - "tsconfig.json"
       run: bun x tsgo --noEmit
     - name: lint-ts
       glob:
         - "*.ts"
+        - "*.tsx"
         - "*.js"
         - "*.mjs"
         - "*.cjs"
@@ -63,11 +65,12 @@ pre-commit:
     - name: fmt
       glob:
         - "*.ts"
+        - "*.tsx"
         - "*.js"
         - "*.mjs"
         - "*.cjs"
         - ".oxfmtrc.json"
-      run: bun x oxfmt --check '**/*.ts' '**/*.js' '**/*.mjs' '**/*.cjs'
+      run: bun x oxfmt --check '**/*.ts' '**/*.tsx' '**/*.js' '**/*.mjs' '**/*.cjs'
     - name: lint-sh
       glob:
         - "*.sh"
@@ -78,10 +81,18 @@ pre-commit:
     - name: check-lint-disables
       glob:
         - "*.ts"
+        - "*.tsx"
         - "*.js"
         - "*.mjs"
         - "*.cjs"
       run: bun ./scripts/check-lint-disables.ts
+    # The engine reads the hooks module's source and reports what it hooks and
+    # calls; the flag is needed until function hooks ship publicly.
+    - name: validate-vellum
+      glob:
+        - "vellum/hooks/*"
+        - "vellum/.claude-plugin/*"
+      run: CLAUDE_CODE_ENABLE_FUNCTION_HOOKS=1 claude plugin validate vellum
 
 commit-msg:
   jobs:

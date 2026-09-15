@@ -34,7 +34,7 @@ export interface Rewriter {
   argv: string[];
 }
 
-const OXFMT_EXTENSIONS = [".ts", ".js", ".mjs", ".cjs"] as const;
+const OXFMT_EXTENSIONS = [".ts", ".tsx", ".js", ".mjs", ".cjs"] as const;
 
 // Mirrors SHFMT_FLAGS in scripts/lint-shell.ts.
 const SHFMT_FLAGS = ["-i", "2", "-ci"] as const;

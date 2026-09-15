@@ -194,6 +194,52 @@ skills do: the debug log says `Read hooks.json for plugin <name>` and
 - A hook that publishes (a PR comment) has no dry run; its live test is the
   PR it lands on, opened from a `--plugin-dir` session.
 
+## Testing a hooks module (function hooks)
+
+A plugin whose `hooks/hooks.json` names `modules` is a hooks module: one
+TypeScript file exporting `register(on, options)`, run by the engine in an
+environment of its own. Measured on 2.1.272 with `vellum`.
+
+- Launch with `CLAUDE_CODE_ENABLE_FUNCTION_HOOKS=1` until function hooks ship
+  publicly. Without it the module never loads and the plugin's skills run as
+  if it were not there; with it the debug log says
+  `hooks module <name> loaded (worker, environment 1, tier user); events: ...`.
+- `CLAUDE_CODE_ENABLE_FUNCTION_HOOKS=1 claude plugin validate <plugin>` reads
+  the module's source and prints what it hooks (`skill.prompt{skill=...}`)
+  and every `$` call with the function that makes it. It needs no login and
+  runs in the repo's gates. Run it first: a hook the engine does not list is a
+  hook that will not fire.
+- `/plugin-types <plugin>/types` writes the contract of the running build;
+  regenerate it after each Claude Code update. It runs headless too:
+  `claude -p --setting-sources project "/plugin-types <plugin>/types"`. Keep
+  `claude-code.d.ts` only; the `-mcp` and `-plugins` files describe the
+  developer's own session.
+- A plugin with `package.json` + `bun.lock` gets `bun install
+  --frozen-lockfile --ignore-scripts` at its cache when installed. Under
+  `--plugin-dir` nothing installs: run `bun install --cwd <plugin>` yourself,
+  as `scripts/run-gates.ts` does for `vellum`.
+- Saving a file under `--plugin-dir` reloads the module: `register` runs
+  again in a fresh environment and every pending timer of the old one dies.
+  State the module must keep across a reload goes to `$.store`.
+- `claude plugin test <dir>` runs `*.test.ts` files that import
+  `claude-code/testing` in the engine's environment. Two limits on 2.1.272:
+  its `$` has no `classic` noun, so a `classic.PermissionRequest` hook cannot
+  be raised from a test; and `bun test` at the repo root picks the same
+  `*.test.ts` files up and fails on the import. `vellum` tests its module with
+  `bun test` instead: `register` is called with a recording `on` and a `$`
+  answered from memory (`vellum/hooks/register.test.ts`).
+- A hook answers within its dispatch's budget, about ten seconds. What must
+  wait for a person (a browser decision) is polled by `$.clock.every` and
+  handed to the session by `$.prompt.submit`, which runs once the session is
+  idle. The prompt shows as `Prompt from the <plugin> plugin`, framed by
+  Claude Code as a message to address; a text that points at a file the
+  session can read worked on Opus 5 and Sonnet 5 (`spike-results.md` in
+  `plans/2026-09-15/plan-review-rewrite/`, facts 5 to 9).
+- `$.process.run` reads the whole output, so a server started from a hook
+  must be spawned detached by a launcher that relays one line and exits.
+  Nothing tells a detached process that the session ended: give it a
+  heartbeat from `$.clock.every` and let it exit when the beat stops.
+
 ## Prompt audit
 
 `/claude-api prompt-audit "<plugin>/skills"` finds text written for an
