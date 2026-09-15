@@ -1,43 +1,21 @@
-import type { FinalDir, ProjectPath, Version, WipDir } from "./workspace/paths.ts";
+import type { ProjectPath } from "./domain/paths.ts";
+import type { PlanWorkspace } from "./domain/workspace.ts";
 
-export type PlanWorkspace =
-  | { readonly kind: "drafting"; readonly dir: WipDir }
-  | {
-      readonly kind: "inReview";
-      readonly dir: WipDir;
-      readonly version: Version;
-      readonly finalizeError: string | null;
-    }
-  | { readonly kind: "changesRequested"; readonly dir: WipDir; readonly version: Version }
-  | { readonly kind: "approvedPending"; readonly dir: WipDir; readonly version: Version }
-  | {
-      readonly kind: "finalizing";
-      readonly from: WipDir;
-      readonly to: FinalDir;
-      readonly version: Version;
-    }
-  | { readonly kind: "approved"; readonly dir: FinalDir; readonly version: Version };
+/**
+ * What crosses HTTP between the hooks module, the server and the page, and what crosses a
+ * plugin boundary. Everything here is JSON. The domain types it carries are re-exported,
+ * never redefined.
+ */
+
+export type { Anchor, Annotation } from "./domain/feedback.ts";
+
+export type { Decision } from "./domain/review.ts";
+
+export type { Pending, PlanWorkspace } from "./domain/workspace.ts";
 
 export type MediaType = "text/markdown" | "text/html" | `image/${string}`;
 
 export type DocRef = { readonly path: ProjectPath; readonly mediaType: MediaType };
-
-export type Anchor =
-  | { readonly kind: "global" }
-  | {
-      readonly kind: "text";
-      readonly quote: string;
-      readonly prefix: string;
-      readonly suffix: string;
-      readonly lines: readonly [number, number];
-    };
-
-export type Annotation = {
-  readonly id: string;
-  readonly doc: ProjectPath;
-  readonly anchor: Anchor;
-  readonly body: string;
-};
 
 export type ReviewView = {
   readonly workspace: PlanWorkspace;
@@ -45,18 +23,7 @@ export type ReviewView = {
   readonly docs: readonly DocRef[];
 };
 
-export type Pending =
-  | { readonly kind: "none" }
-  | { readonly kind: "feedback"; readonly version: Version; readonly path: ProjectPath }
-  | { readonly kind: "approved"; readonly version: Version };
-
-export type Decision =
-  | { readonly kind: "approve" }
-  | { readonly kind: "feedback"; readonly annotations: readonly Annotation[] };
-
 export type GateInput = { readonly plan: string; readonly planFilePath: string };
-
-export type FinalizeInput = { readonly version: Version };
 
 export type LinkRoots = { readonly project: string; readonly planDir: string };
 

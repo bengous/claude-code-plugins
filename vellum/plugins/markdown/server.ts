@@ -1,8 +1,8 @@
 import { isAbsolute, join, normalize, relative } from "node:path";
 
+import { parseProjectPath } from "../../src/domain/paths.ts";
 import type { DocRef, LinkRoots, ServerPlugin } from "../../src/protocol.ts";
 import { mediaTypeOf } from "../../src/protocol.ts";
-import { parseProjectPath } from "../../src/workspace/paths.ts";
 
 /** A Markdown link target, an `<img src>`, or a path in backticks: the skill lists artifacts by path. */
 const LINK_TARGETS = /(?:\]\(|<img[^>]*\ssrc="|`)([^)"`\s]+)/gu;

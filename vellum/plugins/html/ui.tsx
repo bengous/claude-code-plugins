@@ -1,4 +1,4 @@
-import { fileUrl } from "../../ui/state.ts";
+import { fileUrl } from "../../ui/api.ts";
 import type { RendererProps, UiPlugin } from "../index.ts";
 
 function HtmlDoc(props: RendererProps): preact.JSX.Element {

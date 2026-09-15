@@ -44,9 +44,9 @@ The status bar reads `vellum: plan vN under review` while the page waits. A suba
 ```
 hooks/register.ts     the hooks module: skill.prompt and classic.PermissionRequest on ExitPlanMode
 src/cli.ts            `start` spawns `serve` detached; `serve` is the review server
-src/server/           routes, review state, the page bundled by Bun.serve from ui/index.html
-src/workspace/        plans/<date>/ directories, versions, slug, rename and link rewrite
-src/feedback/         the feedback file Claude reads
+src/domain/           pure: paths, workspace states, decisions, the feedback text, slug, links
+src/app/review.ts     the use case: read, decide, apply
+src/adapters/         http (routes, the page bundled by Bun.serve from ui/index.html), fs, browser
 ui/                   the Preact page: document list, decision bar, comments, text anchoring
 plugins/              rendering plugins (markdown, html, image); a third party sends a PR
 types/claude-code.d.ts the function hooks contract, written by `/plugin-types vellum/types`

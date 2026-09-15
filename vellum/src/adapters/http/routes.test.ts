@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { parseWipDir } from "../workspace/paths.ts";
+import { parseWipDir } from "../../domain/paths.ts";
 import { startServer } from "./serve.ts";
 import type { Started } from "./serve.ts";
 

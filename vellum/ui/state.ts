@@ -1,11 +1,8 @@
 import { computed, signal } from "@preact/signals";
 
+import type { ProjectPath } from "../src/domain/paths.ts";
 import type { Annotation, Decision, DocRef, PlanWorkspace, ReviewView } from "../src/protocol.ts";
-import type { ProjectPath } from "../src/workspace/paths.ts";
-
-const token = location.pathname.split("/")[2] ?? "";
-
-export const base = `/t/${token}`;
+import { fetchReview, postDecision, subscribe } from "./api.ts";
 
 export const review = signal<ReviewView | null>(null);
 
@@ -39,43 +36,30 @@ export const currentDoc = computed<DocRef | null>(
 /** Decisions are taken on `inReview` only; every other state locks the page. */
 export const locked = computed(() => review.value?.workspace.kind !== "inReview");
 
-export function fileUrl(path: ProjectPath): string {
-  return `${base}/files/${path}`;
-}
-
-function api(path: string, init?: RequestInit): Promise<Response> {
-  return fetch(`/api/${path}`, {
-    ...init,
-    headers: { "x-vellum-token": token, "content-type": "application/json" },
-  });
+function versionOf(workspace: PlanWorkspace | undefined): number | null {
+  return workspace === undefined || workspace.kind === "drafting" ? null : workspace.version;
 }
 
 export async function loadReview(): Promise<void> {
-  const response = await api("review");
+  const fetched = await fetchReview();
 
-  if (!response.ok) {
-    error.value = `GET /api/review failed: ${response.status}`;
+  if (!fetched.ok) {
+    error.value = `GET /api/review failed: ${fetched.status}`;
 
     return;
   }
 
   const previous = review.value?.workspace;
-  // SAFETY: the server's own `ReviewView`, serialized by `Response.json` in routes.ts.
-  const next = (await response.json()) as ReviewView;
-  review.value = next;
+  review.value = fetched.value;
 
-  if (versionOf(previous) !== versionOf(next.workspace)) annotations.value = [];
-}
-
-function versionOf(workspace: PlanWorkspace | undefined): number | null {
-  return workspace === undefined || workspace.kind === "drafting" ? null : workspace.version;
+  if (versionOf(previous) !== versionOf(fetched.value.workspace)) annotations.value = [];
 }
 
 export async function decide(decision: Decision): Promise<void> {
-  const response = await api("decision", { method: "POST", body: JSON.stringify(decision) });
+  const status = await postDecision(decision);
 
-  if (response.status === 409) error.value = "This version was already decided.";
-  else if (!response.ok) error.value = `POST /api/decision failed: ${response.status}`;
+  if (status === 409) error.value = "This version was already decided.";
+  else if (status >= 300) error.value = `POST /api/decision failed: ${status}`;
   await loadReview();
 }
 
@@ -103,9 +87,7 @@ export function step(direction: 1 | -1): void {
 }
 
 export function listen(): void {
-  const events = new EventSource(`${base}/events`);
-
-  events.addEventListener("message", () => {
+  subscribe(() => {
     void loadReview();
   });
 }

@@ -1,9 +1,9 @@
 import { realpath } from "node:fs/promises";
 import { join, sep } from "node:path";
 
-import type { Anchor, Annotation, Decision, GateInput, PlanWorkspace } from "../protocol.ts";
-import { parseProjectPath, parseVersion } from "../workspace/paths.ts";
-import type { Review } from "./review.ts";
+import type { Review } from "../../app/review.ts";
+import { parseProjectPath, parseVersion } from "../../domain/paths.ts";
+import type { Anchor, Annotation, Decision, GateInput, PlanWorkspace } from "../../protocol.ts";
 
 export const TOKEN_HEADER = "x-vellum-token";
 

@@ -1,10 +1,28 @@
-import type { Annotation } from "../protocol.ts";
-import type { Version } from "../workspace/paths.ts";
+import type { ProjectPath, Version } from "./paths.ts";
+
+/** Where a comment points: the document as a whole, or a quote with its context and source lines. */
+export type Anchor =
+  | { readonly kind: "global" }
+  | {
+      readonly kind: "text";
+      readonly quote: string;
+      readonly prefix: string;
+      readonly suffix: string;
+      readonly lines: readonly [number, number];
+    };
+
+export type Annotation = {
+  readonly id: string;
+  readonly doc: ProjectPath;
+  readonly anchor: Anchor;
+  readonly body: string;
+};
 
 function indent(body: string): string {
   return body.trim().split("\n").join("\n   ");
 }
 
+/** The text Claude reads: one numbered item per comment, the place first, the comment under it. */
 export function formatFeedback(annotations: readonly Annotation[], version: Version): string {
   const items = annotations.map((annotation, index) => {
     const { anchor } = annotation;

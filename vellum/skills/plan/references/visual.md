@@ -8,7 +8,7 @@ A rough HTML page of the actual screen settles what three paragraphs would only 
 
 ## Flows and states
 
-A sequence with more than three actors, or a state machine, can be a Mermaid block in the plan. State the same facts in text next to it: a diagram supplements the prose, it is never the only place a fact lives. When the order of steps already tells the story, a numbered list beats a diagram.
+A sequence with more than three actors, or a state machine, can be a Mermaid block in the plan, with the same facts stated in the text next to it. When the order of steps already tells the story, a numbered list beats a diagram.
 
 ## What stays text
 

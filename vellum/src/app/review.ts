@@ -1,22 +1,20 @@
 import { dirname, join, relative } from "node:path";
 
-import { formatFeedback } from "../feedback/format.ts";
-import type {
-  Decision,
-  DocRef,
-  GateInput,
-  Pending,
-  PlanWorkspace,
-  ReviewView,
-  ServerPlugin,
-} from "../protocol.ts";
-import { finalize as renameWorkspace } from "../workspace/finalize.ts";
-import { rewriteLinks } from "../workspace/links.ts";
-import type { FinalDir, ProjectPath, Version, WipDir } from "../workspace/paths.ts";
-import { parseProjectPath } from "../workspace/paths.ts";
-import { readWorkspace, versionFile } from "../workspace/read.ts";
-import type { Memory } from "./transitions.ts";
-import { decideOn, gateVersion, pendingOf, slugFor, workspaceOf } from "./transitions.ts";
+import {
+  exists,
+  finalize as renameWorkspace,
+  readText,
+  readWorkspace,
+  writeText,
+} from "../adapters/fs.ts";
+import { formatFeedback } from "../domain/feedback.ts";
+import { rewriteLinks } from "../domain/links.ts";
+import type { FinalDir, ProjectPath, Version, WipDir } from "../domain/paths.ts";
+import type { Decision } from "../domain/review.ts";
+import { decideOn, gateVersion, slugFor } from "../domain/review.ts";
+import type { Memory, Pending, PlanWorkspace } from "../domain/workspace.ts";
+import { pendingOf, projectPath, versionFile, workspaceOf } from "../domain/workspace.ts";
+import type { DocRef, GateInput, ReviewView, ServerPlugin } from "../protocol.ts";
 
 export type ReviewOptions = {
   readonly project: string;
@@ -32,7 +30,7 @@ export type FinalizeResult =
   | { readonly ok: true; readonly workspace: PlanWorkspace; readonly plan: string }
   | { readonly ok: false; readonly workspace: PlanWorkspace };
 
-/** Reads the directory, lets `transitions.ts` decide, applies: files, memory, listeners. */
+/** The use case: reads the directory, lets the domain decide, applies: files, memory, listeners. */
 export class Review {
   private memory: Memory = { kind: "none" };
 
@@ -65,15 +63,11 @@ export class Review {
   }
 
   private planDoc(version: Version, dir: WipDir | FinalDir = this.options.workdir): ProjectPath {
-    const parsed = parseProjectPath(`${dir}${versionFile(version)}`);
-
-    if (!parsed.ok) throw new Error(parsed.error);
-
-    return parsed.value;
+    return projectPath(`${dir}${versionFile(version)}`);
   }
 
-  private async planText(version: Version, dir?: WipDir | FinalDir): Promise<string> {
-    return await Bun.file(join(this.options.project, this.planDoc(version, dir))).text();
+  private planText(version: Version, dir?: WipDir | FinalDir): Promise<string> {
+    return readText(this.options.project, this.planDoc(version, dir));
   }
 
   private async notify(): Promise<PlanWorkspace> {
@@ -96,7 +90,7 @@ export class Review {
     const gated = gateVersion(workspace, latestText, input.plan);
 
     if (gated.kind === "kept") return gated.version;
-    await Bun.write(join(this.options.project, this.planDoc(gated.version)), input.plan);
+    await writeText(this.options.project, this.planDoc(gated.version), input.plan);
     this.memory = { kind: "none" };
     await this.notify();
 
@@ -113,7 +107,7 @@ export class Review {
       this.memory = decided.memory;
     } else if (decision.kind === "feedback") {
       const text = formatFeedback(decision.annotations, decided.version);
-      await Bun.write(join(this.options.project, decided.path), text);
+      await writeText(this.options.project, decided.path, text);
     }
 
     return { ok: true, workspace: await this.notify() };
@@ -176,7 +170,7 @@ export class Review {
       for (const doc of plugin.linkedDocs?.(plan, roots) ?? []) {
         if (seen.has(doc.path)) continue;
 
-        if (!(await Bun.file(join(project, doc.path)).exists())) continue;
+        if (!(await exists(project, doc.path))) continue;
         seen.add(doc.path);
         docs.push(doc);
       }

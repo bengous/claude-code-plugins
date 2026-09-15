@@ -1,11 +1,12 @@
 import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
 
-import { serverPlugins } from "../../plugins/server.ts";
-import index from "../../ui/index.html";
-import type { WipDir } from "../workspace/paths.ts";
-import { REVIEW_DIR } from "../workspace/read.ts";
-import { Review } from "./review.ts";
+import { serverPlugins } from "../../../plugins/server.ts";
+import index from "../../../ui/index.html";
+import { Review } from "../../app/review.ts";
+import type { WipDir } from "../../domain/paths.ts";
+import { REVIEW_DIR } from "../../domain/workspace.ts";
+import { openInBrowser } from "../browser.ts";
 import { createHandler } from "./routes.ts";
 
 export type ServeOptions = {
@@ -25,17 +26,6 @@ export type Started = {
 export const HEARTBEAT_GRACE_MS = 90_000;
 
 const WATCHDOG_PERIOD_MS = 5_000;
-
-/** Best effort: the URL is also logged in the session, for a host with no opener or no display. */
-function openInBrowser(url: string): void {
-  const opener = process.platform === "darwin" ? "open" : "xdg-open";
-
-  try {
-    Bun.spawn([opener, url], { stdio: ["ignore", "ignore", "ignore"], detached: true }).unref();
-  } catch (cause) {
-    console.error(`vellum: could not open the browser with ${opener}: ${String(cause)}`);
-  }
-}
 
 export async function startServer(options: ServeOptions): Promise<Started> {
   await mkdir(join(options.project, options.workdir, REVIEW_DIR), { recursive: true });

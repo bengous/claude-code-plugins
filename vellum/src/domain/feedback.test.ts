@@ -1,8 +1,8 @@
 /* oxlint-disable anti-slop/require-safety-comment-for-type-assertion -- fixtures and expectations here are branded values (Version, ProjectPath, WipDir) written as literals: the brand is the parser's to grant, and the test is what checks the parser. */
 import { expect, test } from "bun:test";
 
-import type { Annotation } from "../protocol.ts";
-import { formatFeedback } from "./format.ts";
+import type { Annotation } from "./feedback.ts";
+import { formatFeedback } from "./feedback.ts";
 
 const DOC = "plans/2026-09-15/wip-4c2a9d93/.review/v2.md" as never;
 

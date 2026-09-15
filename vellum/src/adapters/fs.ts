@@ -1,11 +1,40 @@
 import { readdir, rename, stat } from "node:fs/promises";
 import { join } from "node:path";
 
-import { rewriteLinks } from "./links.ts";
-import type { FinalDir, ParseResult, Slug, WipDir } from "./paths.ts";
-import { dateOf, parseFinalDir } from "./paths.ts";
+import { rewriteLinks } from "../domain/links.ts";
+import type { FinalDir, ParseResult, ProjectPath, Slug, WipDir } from "../domain/paths.ts";
+import { dateOf, parseFinalDir } from "../domain/paths.ts";
+import type { DiskWorkspace } from "../domain/workspace.ts";
+import { REVIEW_DIR, workspaceFromListing } from "../domain/workspace.ts";
+
+/** The file system under the project root: every read and write of the review lives here. */
 
 const TEXT_PROBE_BYTES = 8192;
+
+export async function readWorkspace(
+  project: string,
+  dir: WipDir | FinalDir,
+): Promise<ParseResult<DiskWorkspace>> {
+  const names = await readdir(join(project, dir, REVIEW_DIR)).catch((): string[] => []);
+
+  return workspaceFromListing(dir, new Set(names));
+}
+
+export function readText(project: string, path: ProjectPath): Promise<string> {
+  return Bun.file(join(project, path)).text();
+}
+
+export async function writeText(project: string, path: ProjectPath, text: string): Promise<void> {
+  await Bun.write(join(project, path), text);
+}
+
+export function exists(project: string, path: ProjectPath): Promise<boolean> {
+  return Bun.file(join(project, path)).exists();
+}
+
+async function isDir(project: string, path: string): Promise<boolean> {
+  return (await stat(join(project, path)).catch(() => null))?.isDirectory() ?? false;
+}
 
 async function freeTarget(
   project: string,
@@ -27,10 +56,6 @@ async function freeTarget(
       return parsed;
     }
   }
-}
-
-async function isDir(project: string, path: string): Promise<boolean> {
-  return (await stat(join(project, path)).catch(() => null))?.isDirectory() ?? false;
 }
 
 async function isText(path: string): Promise<boolean> {

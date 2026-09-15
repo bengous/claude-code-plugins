@@ -11,9 +11,9 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { finalize } from "./finalize.ts";
-import { parseWipDir } from "./paths.ts";
-import { slugFromTitle } from "./slug.ts";
+import { parseWipDir } from "../domain/paths.ts";
+import { slugFromTitle } from "../domain/slug.ts";
+import { finalize, readWorkspace } from "./fs.ts";
 
 const WIP = "plans/2026-09-15/wip-4c2a9d93/";
 
@@ -37,6 +37,18 @@ function run(root: string): ReturnType<typeof finalize> {
 
   return finalize(root, from.value, slug.value);
 }
+
+describe("readWorkspace", () => {
+  test("reads the state off the .review/ listing; a missing listing is drafting", async () => {
+    const root = fixture();
+    const from = parseWipDir(WIP);
+
+    if (!from.ok) throw new Error(from.error);
+    expect(await readWorkspace(root, from.value)).toMatchObject({ value: { kind: "inReview" } });
+    const empty = mkdtempSync(join(tmpdir(), "vellum-empty-"));
+    expect(await readWorkspace(empty, from.value)).toMatchObject({ value: { kind: "drafting" } });
+  });
+});
 
 describe("finalize", () => {
   test("renames to the slug and rewrites links in text files, binaries intact", async () => {

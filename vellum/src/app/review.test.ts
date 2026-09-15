@@ -5,10 +5,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { serverPlugins } from "../../plugins/server.ts";
-import { parseWipDir } from "../workspace/paths.ts";
+import { parseWipDir } from "../domain/paths.ts";
 import { Review } from "./review.ts";
 
-/** The applying side: the pure decisions are covered in `transitions.test.ts`. */
+/** The applying side: the pure decisions are covered in `src/domain/review.test.ts`. */
 
 const WIP = "plans/2026-09-15/wip-4c2a9d93/";
 

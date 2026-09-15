@@ -1,8 +1,8 @@
 /* oxlint-disable anti-slop/require-safety-comment-for-type-assertion -- fixtures and expectations here are branded values (Version, ProjectPath, WipDir) written as literals: the brand is the parser's to grant, and the test is what checks the parser. */
 import { describe, expect, test } from "bun:test";
 
-import type { PlanWorkspace } from "../protocol.ts";
-import { decideOn, gateVersion, pendingOf, slugFor, workspaceOf } from "./transitions.ts";
+import { decideOn, gateVersion, slugFor } from "./review.ts";
+import type { PlanWorkspace } from "./workspace.ts";
 
 const DIR = "plans/2026-09-15/wip-4c2a9d93/" as never;
 
@@ -16,45 +16,6 @@ const changesRequested: PlanWorkspace = { kind: "changesRequested", dir: DIR, ve
 
 const approvedPending: PlanWorkspace = { kind: "approvedPending", dir: DIR, version: V1 };
 
-describe("workspaceOf", () => {
-  test.each([
-    ["none", { kind: "none" }, inReview],
-    ["approvedPending", { kind: "approvedPending", version: V1 }, approvedPending],
-    [
-      "finalizeError",
-      { kind: "finalizeError", version: V1, error: "EACCES" },
-      { ...inReview, finalizeError: "EACCES" },
-    ],
-  ] as const)("overlays %s on a plan under review", (_name, memory, expected) => {
-    expect(workspaceOf(inReview, memory, DIR)).toEqual(expected);
-  });
-
-  test("the approved memory wins over the directory, which was renamed", () => {
-    const memory = {
-      kind: "approved",
-      version: V1,
-      dir: "plans/2026-09-15/notes/" as never,
-    } as const;
-
-    expect(workspaceOf(drafting, memory, DIR)).toEqual({
-      kind: "approved",
-      dir: memory.dir,
-      version: V1,
-    });
-  });
-});
-
-describe("pendingOf", () => {
-  test.each([
-    [drafting, { kind: "none" }],
-    [inReview, { kind: "none" }],
-    [changesRequested, { kind: "feedback", version: V1, path: `${DIR}.review/v1.feedback.md` }],
-    [approvedPending, { kind: "approved", version: V1 }],
-  ] as const)("reads what $kind leaves pending", (workspace, expected) => {
-    expect(pendingOf(workspace)).toEqual(expected as never);
-  });
-});
-
 describe("gateVersion", () => {
   test("the first plan is v1", () => {
     expect(gateVersion(drafting, null, "# P\n")).toEqual({ kind: "recorded", version: V1 });
@@ -64,15 +25,11 @@ describe("gateVersion", () => {
     expect(gateVersion(inReview, "# P\n", "# P\n")).toEqual({ kind: "kept", version: V1 });
   });
 
-  test("the same text after a feedback is a new round", () => {
-    expect(gateVersion(changesRequested, "# P\n", "# P\n")).toEqual({
-      kind: "recorded",
-      version: 2 as never,
-    });
-  });
-
-  test("a new text is the next version", () => {
-    expect(gateVersion(inReview, "# P\n", "# Q\n")).toEqual({
+  test.each([
+    ["the same text after a feedback", changesRequested, "# P\n"],
+    ["a new text", inReview, "# Q\n"],
+  ] as const)("%s is the next version", (_name, workspace, plan) => {
+    expect(gateVersion(workspace, "# P\n", plan)).toEqual({
       kind: "recorded",
       version: 2 as never,
     });

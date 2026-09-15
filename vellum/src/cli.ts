@@ -2,8 +2,8 @@
 
 import { parseArgs } from "node:util";
 
-import { startServer } from "./server/serve.ts";
-import { parseWipDir } from "./workspace/paths.ts";
+import { startServer } from "./adapters/http/serve.ts";
+import { parseWipDir } from "./domain/paths.ts";
 
 const { values, positionals } = parseArgs({
   allowPositionals: true,

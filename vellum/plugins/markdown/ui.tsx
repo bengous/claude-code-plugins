@@ -7,12 +7,13 @@ import remarkParse from "remark-parse";
 import remarkRehype from "remark-rehype";
 import { unified } from "unified";
 
-import { parseProjectPath } from "../../src/workspace/paths.ts";
+import { parseProjectPath } from "../../src/domain/paths.ts";
 import type { TextAnchor } from "../../ui/anchoring.ts";
 import { anchorFromSelection, rangeFor } from "../../ui/anchoring.ts";
+import { fileUrl } from "../../ui/api.ts";
 import { Composer } from "../../ui/composer.tsx";
 import { paint } from "../../ui/highlights.ts";
-import { docs, fileUrl, select } from "../../ui/state.ts";
+import { docs, select } from "../../ui/state.ts";
 import type { RendererProps, UiPlugin } from "../index.ts";
 
 /** Every block element keeps its source lines as `data-lines="start-end"`. */

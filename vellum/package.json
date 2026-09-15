@@ -4,11 +4,11 @@
   "type": "module",
   "description": "Runtime dependencies of the vellum review server and its browser page",
   "dependencies": {
-    "@preact/signals": "^2.5.1",
-    "preact": "^10.28.3",
-    "remark-gfm": "^4.0.1",
-    "remark-parse": "^11.0.0",
-    "remark-rehype": "^11.1.2",
-    "unified": "^11.0.5"
+    "@preact/signals": "2.11.2",
+    "preact": "10.29.8",
+    "remark-gfm": "4.0.1",
+    "remark-parse": "11.0.0",
+    "remark-rehype": "11.1.2",
+    "unified": "11.0.5"
   }
 }
