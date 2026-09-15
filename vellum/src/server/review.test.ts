@@ -5,15 +5,20 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { serverPlugins } from "../../plugins/server.ts";
-import type { WipDir } from "../workspace/paths.ts";
 import { parseWipDir } from "../workspace/paths.ts";
 import { Review } from "./review.ts";
+
+/** The applying side: the pure decisions are covered in `transitions.test.ts`. */
 
 const WIP = "plans/2026-09-15/wip-4c2a9d93/";
 
 const PLAN = `# Notification settings\n\nSee [mockup](${WIP}mockup.html) and [missing](${WIP}nope.html).\n`;
 
-type Setup = { readonly review: Review; readonly root: string; readonly workdir: WipDir };
+const FINAL = "plans/2026-09-15/notification-settings/";
+
+const V1 = 1 as never;
+
+type Setup = { readonly review: Review; readonly root: string };
 
 function setup(): Setup {
   const root = mkdtempSync(join(tmpdir(), "vellum-review-"));
@@ -26,109 +31,89 @@ function setup(): Setup {
   return {
     review: new Review({ project: root, workdir: workdir.value, plugins: serverPlugins }),
     root,
-    workdir: workdir.value,
   };
 }
 
+/** A review with `plan` gated as v1. */
+async function gated(plan = PLAN, planFilePath = "plans/p.md"): Promise<Setup> {
+  const s = setup();
+  await s.review.gate({ plan, planFilePath });
+
+  return s;
+}
+
+const GENERAL_NO = {
+  id: "a",
+  doc: `${WIP}.review/v1.md` as never,
+  anchor: { kind: "global" },
+  body: "No.",
+} as const;
+
+function read(root: string, path: string): string {
+  return readFileSync(join(root, path), "utf8");
+}
+
 describe("Review", () => {
-  test("gate writes v1, the same text keeps v1, a new text makes v2", async () => {
-    const { review, root } = setup();
-    expect(await review.gate({ plan: PLAN, planFilePath: "plans/p.md" })).toBe(1 as never);
-    expect(await review.gate({ plan: PLAN, planFilePath: "plans/p.md" })).toBe(1 as never);
+  test("gate writes vN.md and answers the version", async () => {
+    const { review, root } = await gated();
     expect(await review.gate({ plan: `${PLAN}more\n`, planFilePath: "plans/p.md" })).toBe(
       2 as never,
     );
-    expect(readFileSync(join(root, WIP, ".review/v2.md"), "utf8")).toBe(`${PLAN}more\n`);
+    expect(read(root, `${WIP}.review/v2.md`)).toBe(`${PLAN}more\n`);
   });
 
-  test("the same text after a feedback is a new version, and the old pending is gone", async () => {
-    const { review } = setup();
-    await review.gate({ plan: PLAN, planFilePath: "plans/p.md" });
+  test("feedback writes the file the pending names, and the version is decided", async () => {
+    const { review, root } = await gated();
+    const first = await review.decide({ kind: "feedback", annotations: [GENERAL_NO] });
+    expect(first).toMatchObject({ ok: true, workspace: { kind: "changesRequested" } });
+    const path = `${WIP}.review/v1.feedback.md` as never;
+    expect(await review.pending()).toEqual({ kind: "feedback", version: V1, path });
+    expect(read(root, `${WIP}.review/v1.feedback.md`)).toContain("No.");
+    expect((await review.decide({ kind: "approve" })).ok).toBe(false);
+  });
+
+  test("the same text after a feedback opens a new round, and nothing is pending", async () => {
+    const { review } = await gated();
     await review.decide({ kind: "feedback", annotations: [] });
-    expect(review.pendingNow().kind).toBe("feedback");
     expect(await review.gate({ plan: PLAN, planFilePath: "plans/p.md" })).toBe(2 as never);
-    expect(review.pendingNow()).toEqual({ kind: "none" });
-    expect((await review.workspace()).kind).toBe("inReview");
+    expect(await review.pending()).toEqual({ kind: "none" });
   });
 
-  test("a failed finalize clears the pending approval until the reviewer retries", async () => {
-    const { review } = setup();
-    await review.gate({ plan: "???\n", planFilePath: "plans/???.md" });
+  test("approve then finalize renames the directory and rewrites the plan's links", async () => {
+    const { review, root } = await gated();
     await review.decide({ kind: "approve" });
-    const result = await review.finalize(1 as never);
-    expect(result.ok).toBe(false);
-    expect(result.workspace).toMatchObject({ kind: "inReview", finalizeError: expect.any(String) });
-    expect(review.pendingNow()).toEqual({ kind: "none" });
+    expect(await review.pending()).toEqual({ kind: "approved", version: V1 });
+    const result = await review.finalize(V1);
+
+    if (!result.ok) throw new Error("finalize failed");
+    expect(result.workspace).toEqual({ kind: "approved", dir: FINAL as never, version: V1 });
+    expect(result.plan).toContain(`${FINAL}mockup.html`);
+    expect(read(root, `${FINAL}.review/v1.md`)).toBe(result.plan);
+    expect((await review.view()).plan?.text).toBe(result.plan);
+  });
+
+  test("finalize is refused without an approval", async () => {
+    const { review } = await gated();
+    expect(await review.finalize(V1)).toMatchObject({ ok: false, workspace: { kind: "inReview" } });
+  });
+
+  test("a failed finalize shows its error, leaves nothing pending, and takes a retry", async () => {
+    const { review } = await gated("???\n", "plans/???.md");
+    await review.decide({ kind: "approve" });
+    const result = await review.finalize(V1);
+    expect(result).toMatchObject({
+      ok: false,
+      workspace: { kind: "inReview", finalizeError: expect.any(String) },
+    });
+    expect(await review.pending()).toEqual({ kind: "none" });
     expect((await review.decide({ kind: "approve" })).workspace.kind).toBe("approvedPending");
   });
 
   test("view lists the plan and the linked docs that exist", async () => {
-    const { review } = setup();
-    await review.gate({ plan: PLAN, planFilePath: "plans/p.md" });
+    const { review } = await gated();
     const view = await review.view();
     expect(view.workspace.kind).toBe("inReview");
     expect(view.plan?.doc).toBe(`${WIP}.review/v1.md` as never);
     expect(view.docs).toEqual([{ path: `${WIP}mockup.html` as never, mediaType: "text/html" }]);
-  });
-
-  test("feedback writes the file, sets pending, and a second decision is refused", async () => {
-    const { review, root } = setup();
-    await review.gate({ plan: PLAN, planFilePath: "plans/p.md" });
-
-    const first = await review.decide({
-      kind: "feedback",
-      annotations: [
-        { id: "a", doc: `${WIP}.review/v1.md` as never, anchor: { kind: "global" }, body: "No." },
-      ],
-    });
-
-    expect(first.ok).toBe(true);
-    expect(first.workspace.kind).toBe("changesRequested");
-    expect(readFileSync(join(root, WIP, ".review/v1.feedback.md"), "utf8")).toContain("No.");
-    expect(review.pendingNow()).toEqual({
-      kind: "feedback",
-      version: 1 as never,
-      path: `${WIP}.review/v1.feedback.md` as never,
-    });
-    expect((await review.decide({ kind: "approve" })).ok).toBe(false);
-  });
-
-  test("approve then finalize renames the directory and rewrites the plan's links", async () => {
-    const { review, root } = setup();
-    await review.gate({ plan: PLAN, planFilePath: "plans/p.md" });
-    const decided = await review.decide({ kind: "approve" });
-    expect(decided.workspace.kind).toBe("approvedPending");
-    expect(review.pendingNow()).toEqual({ kind: "approved", version: 1 as never });
-
-    const result = await review.finalize(1 as never);
-
-    if (!result.ok) throw new Error("finalize failed");
-    expect(result.workspace).toEqual({
-      kind: "approved",
-      dir: "plans/2026-09-15/notification-settings/" as never,
-      version: 1 as never,
-    });
-    expect(result.plan).toContain("plans/2026-09-15/notification-settings/mockup.html");
-    expect(
-      readFileSync(join(root, "plans/2026-09-15/notification-settings/.review/v1.md"), "utf8"),
-    ).toBe(result.plan);
-    expect((await review.view()).plan?.text).toBe(result.plan);
-  });
-
-  test("finalize without an approval is refused and leaves the review open", async () => {
-    const { review } = setup();
-    await review.gate({ plan: PLAN, planFilePath: "plans/p.md" });
-    const result = await review.finalize(1 as never);
-    expect(result.ok).toBe(false);
-    expect(result.workspace.kind).toBe("inReview");
-  });
-
-  test("a plan without a heading takes the plan file's name", async () => {
-    const { review } = setup();
-    await review.gate({ plan: "no heading\n", planFilePath: "plans/plan-quiet-otter.md" });
-    await review.decide({ kind: "approve" });
-    const result = await review.finalize(1 as never);
-    expect(result.ok).toBe(true);
-    expect(result.workspace).toMatchObject({ dir: "plans/2026-09-15/plan-quiet-otter/" });
   });
 });

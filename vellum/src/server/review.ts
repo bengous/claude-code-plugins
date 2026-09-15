@@ -13,23 +13,16 @@ import type {
 import { finalize as renameWorkspace } from "../workspace/finalize.ts";
 import { rewriteLinks } from "../workspace/links.ts";
 import type { FinalDir, ProjectPath, Version, WipDir } from "../workspace/paths.ts";
-import { parseProjectPath, parseVersion } from "../workspace/paths.ts";
-import { feedbackFile, readWorkspace, versionFile } from "../workspace/read.ts";
-import { slugFromFileName, slugFromTitle } from "../workspace/slug.ts";
+import { parseProjectPath } from "../workspace/paths.ts";
+import { readWorkspace, versionFile } from "../workspace/read.ts";
+import type { Memory } from "./transitions.ts";
+import { decideOn, gateVersion, pendingOf, slugFor, workspaceOf } from "./transitions.ts";
 
 export type ReviewOptions = {
   readonly project: string;
   readonly workdir: WipDir;
   readonly plugins: readonly ServerPlugin[];
 };
-
-/** What the directory cannot say: the steps between Approve and the rename, and a rename that failed. */
-type Memory =
-  | { readonly kind: "none" }
-  | { readonly kind: "approvedPending"; readonly version: Version }
-  | { readonly kind: "finalizing"; readonly version: Version; readonly to: FinalDir }
-  | { readonly kind: "finalizeError"; readonly version: Version; readonly error: string }
-  | { readonly kind: "approved"; readonly version: Version; readonly dir: FinalDir };
 
 export type DecisionResult =
   | { readonly ok: true; readonly workspace: PlanWorkspace }
@@ -39,10 +32,9 @@ export type FinalizeResult =
   | { readonly ok: true; readonly workspace: PlanWorkspace; readonly plan: string }
   | { readonly ok: false; readonly workspace: PlanWorkspace };
 
+/** Reads the directory, lets `transitions.ts` decide, applies: files, memory, listeners. */
 export class Review {
   private memory: Memory = { kind: "none" };
-
-  private pending: Pending = { kind: "none" };
 
   private planFilePath: string | null = null;
 
@@ -60,39 +52,16 @@ export class Review {
     return this.listeners.size;
   }
 
-  public pendingNow(): Pending {
-    return this.pending;
-  }
-
   public async workspace(): Promise<PlanWorkspace> {
-    const { memory } = this;
-
-    if (memory.kind === "approved") {
-      return { kind: "approved", dir: memory.dir, version: memory.version };
-    }
-
-    if (memory.kind === "finalizing") {
-      return {
-        kind: "finalizing",
-        from: this.options.workdir,
-        to: memory.to,
-        version: memory.version,
-      };
-    }
-
     const disk = await readWorkspace(this.options.project, this.options.workdir);
 
     if (!disk.ok) throw new Error(disk.error);
 
-    if (disk.value.kind === "inReview" && memory.kind === "approvedPending") {
-      return { kind: "approvedPending", dir: disk.value.dir, version: disk.value.version };
-    }
+    return workspaceOf(disk.value, this.memory, this.options.workdir);
+  }
 
-    if (disk.value.kind === "inReview" && memory.kind === "finalizeError") {
-      return { ...disk.value, finalizeError: memory.error };
-    }
-
-    return disk.value;
+  public async pending(): Promise<Pending> {
+    return pendingOf(await this.workspace());
   }
 
   private planDoc(version: Version, dir: WipDir | FinalDir = this.options.workdir): ProjectPath {
@@ -107,67 +76,47 @@ export class Review {
     return await Bun.file(join(this.options.project, this.planDoc(version, dir))).text();
   }
 
-  private latestVersion(workspace: PlanWorkspace): Version | null {
-    return workspace.kind === "drafting" ? null : workspace.version;
-  }
-
-  private async notify(): Promise<void> {
+  private async notify(): Promise<PlanWorkspace> {
     const workspace = await this.workspace();
 
     for (const listener of this.listeners) listener(workspace);
+
+    return workspace;
   }
 
-  /**
-   * Records the submitted plan as the next version. The same text as a version still under review
-   * keeps its number (a repeated call, or the approval's second call); after a feedback the
-   * resubmission is a new round, artifacts may have changed while the text did not.
-   */
   public async gate(input: GateInput): Promise<Version> {
     const workspace = await this.workspace();
-    const latest = this.latestVersion(workspace);
     this.planFilePath = input.planFilePath;
 
-    if (
-      latest !== null &&
-      workspace.kind !== "changesRequested" &&
-      (await this.planText(latest)) === input.plan
-    ) {
-      return latest;
-    }
+    const latestText =
+      workspace.kind === "drafting" || workspace.kind === "finalizing"
+        ? null
+        : await this.planText(workspace.version, workspace.dir);
 
-    const next = parseVersion((latest ?? 0) + 1);
+    const gated = gateVersion(workspace, latestText, input.plan);
 
-    if (!next.ok) throw new Error(next.error);
-    await Bun.write(join(this.options.project, this.planDoc(next.value)), input.plan);
+    if (gated.kind === "kept") return gated.version;
+    await Bun.write(join(this.options.project, this.planDoc(gated.version)), input.plan);
     this.memory = { kind: "none" };
-    this.pending = { kind: "none" };
     await this.notify();
 
-    return next.value;
+    return gated.version;
   }
 
   public async decide(decision: Decision): Promise<DecisionResult> {
     const workspace = await this.workspace();
+    const decided = decideOn(workspace, decision);
 
-    if (workspace.kind !== "inReview") return { ok: false, workspace };
+    if (decided.kind === "refused") return { ok: false, workspace };
 
-    if (decision.kind === "approve") {
-      this.memory = { kind: "approvedPending", version: workspace.version };
-      this.pending = { kind: "approved", version: workspace.version };
-    } else {
-      const path = parseProjectPath(`${workspace.dir}${feedbackFile(workspace.version)}`);
-
-      if (!path.ok) throw new Error(path.error);
-      await Bun.write(
-        join(this.options.project, path.value),
-        formatFeedback(decision.annotations, workspace.version),
-      );
-      this.pending = { kind: "feedback", version: workspace.version, path: path.value };
+    if (decided.kind === "approve") {
+      this.memory = decided.memory;
+    } else if (decision.kind === "feedback") {
+      const text = formatFeedback(decision.annotations, decided.version);
+      await Bun.write(join(this.options.project, decided.path), text);
     }
 
-    await this.notify();
-
-    return { ok: true, workspace: await this.workspace() };
+    return { ok: true, workspace: await this.notify() };
   }
 
   public async finalize(version: Version): Promise<FinalizeResult> {
@@ -178,23 +127,17 @@ export class Review {
     }
 
     const plan = await this.planText(version);
-
-    const slug = slugFromTitle(plan).ok
-      ? slugFromTitle(plan)
-      : slugFromFileName(this.planFilePath ?? "plan.md");
+    const slug = slugFor(plan, this.planFilePath);
 
     if (!slug.ok) return this.failFinalize(version, slug.error);
     const renamed = await renameWorkspace(this.options.project, before.dir, slug.value);
 
     if (!renamed.ok) return this.failFinalize(version, renamed.error);
-
     this.memory = { kind: "approved", version, dir: renamed.value };
-    this.pending = { kind: "none" };
-    await this.notify();
 
     return {
       ok: true,
-      workspace: await this.workspace(),
+      workspace: await this.notify(),
       plan: rewriteLinks(plan, before.dir, renamed.value),
     };
   }
@@ -202,22 +145,19 @@ export class Review {
   /** The reviewer sees the error and retries from the page; until then nothing is pending. */
   private async failFinalize(version: Version, error: string): Promise<FinalizeResult> {
     this.memory = { kind: "finalizeError", version, error };
-    this.pending = { kind: "none" };
-    await this.notify();
 
-    return { ok: false, workspace: await this.workspace() };
+    return { ok: false, workspace: await this.notify() };
   }
 
   public async view(): Promise<ReviewView> {
     const workspace = await this.workspace();
-    const version = this.latestVersion(workspace);
 
-    if (version === null || workspace.kind === "finalizing") {
+    if (workspace.kind === "drafting" || workspace.kind === "finalizing") {
       return { workspace, plan: null, docs: [] };
     }
 
-    const doc = this.planDoc(version, workspace.dir);
-    const text = await this.planText(version, workspace.dir);
+    const doc = this.planDoc(workspace.version, workspace.dir);
+    const text = await this.planText(workspace.version, workspace.dir);
 
     return { workspace, plan: { doc, text }, docs: await this.linkedDocs(text, doc) };
   }

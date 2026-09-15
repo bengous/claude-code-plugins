@@ -160,7 +160,7 @@ async function api(context: RouteContext, request: Request, route: string): Prom
 
   if (route === "GET /api/review") return Response.json(await review.view());
 
-  if (route === "GET /api/pending") return Response.json(review.pendingNow());
+  if (route === "GET /api/pending") return Response.json(await review.pending());
 
   if (route === "POST /api/heartbeat") {
     context.heartbeat();

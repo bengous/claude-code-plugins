@@ -52,7 +52,7 @@ plugins/              rendering plugins (markdown, html, image); a third party s
 types/claude-code.d.ts the function hooks contract, written by `/plugin-types vellum/types`
 ```
 
-Development: `bun install --cwd vellum`, `bun test vellum`, `CLAUDE_CODE_ENABLE_FUNCTION_HOOKS=1 claude plugin validate vellum`, then a session with `--plugin-dir vellum`; see `docs/plugin-testing.md` at the repository root.
+Development: `bun install --cwd vellum`, `bun test vellum`, `CLAUDE_CODE_ENABLE_FUNCTION_HOOKS=1 claude plugin validate vellum`, then a session with `--plugin-dir vellum`; see `docs/plugin-testing.md` at the repository root. The map of the code and where it goes next: `docs/architecture.md` in this directory.
 
 ## Sources
 
