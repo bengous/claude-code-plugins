@@ -9,6 +9,9 @@ import type { Block, GrillPosts, GrillState } from "./protocol.ts";
 
 const ID = "grill";
 
+/** What "Take it" answers: Claude wrote the recommendation, so its text never goes back to it. */
+const TAKEN = "As recommended.";
+
 /** The server's word on the grill, loaded again at every workspace event; `null` before the first answer. */
 const grill = signal<GrillState | null>(null);
 
@@ -143,7 +146,7 @@ function QuestionCard(props: CardProps): preact.JSX.Element {
           <span class="label">Recommended</span>
           <span class="text">{block.rec}</span>
           {block.open && (
-            <button class="btn small" type="button" onClick={() => props.onAnswer(block.rec)}>
+            <button class="btn small" type="button" onClick={() => props.onAnswer(TAKEN)}>
               Take it
             </button>
           )}

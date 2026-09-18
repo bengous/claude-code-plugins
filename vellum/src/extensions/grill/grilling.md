@@ -2,7 +2,9 @@
 
 Interview the reviewer relentlessly until you reach a shared understanding. Map this as a **design tree**: every decision branches into the decisions that hang off it.
 
-Work the tree in **rounds**. The **frontier** is every decision whose prerequisites are already settled: the questions you can ask _now_ without guessing at answers you haven't heard yet. Ask the whole frontier in one round: call `mcp__vellum__grill_ask` once with every question and your recommended answer, then end your turn in one short line. The reviewer answers in the review page, never in the terminal; their round arrives as a prompt of `Qn: ...` lines.
+Work the tree in **rounds**. The **frontier** is every decision whose prerequisites are already settled: the questions you can ask _now_ without guessing at answers you haven't heard yet. Ask the whole frontier in one round: call `mcp__vellum__grill_ask` once with every question and your recommended answer, then end your turn in one short line. The reviewer answers in the review page, never in the terminal; their round arrives as a prompt of `Qn: ...` lines, answers only, since the questions are already in your context. `Qn: As recommended.` takes your recommendation as you wrote it.
+
+Write a recommendation in your own voice: what you would choose and why ("I recommend the local server: ..."). Never write it as the reviewer's answer ("No, leave it.", "If you say yes..."): the reviewer speaks for themselves, in their field.
 
 Each round the reviewer answers reshapes the tree: settled decisions push the frontier outward and unblock questions that depended on them. Recompute the frontier and ask the next round. A question whose answer depends on another question still open in this round belongs to a _later_ round, not this one.
 

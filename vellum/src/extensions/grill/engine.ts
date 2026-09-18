@@ -44,7 +44,7 @@ function post<Name extends keyof GrillPosts>(
 const ASK: ExtensionTool = {
   name: "grill_ask",
   description:
-    "Ask one round of the open grill in the review page. q: one [title, question, recommendation] per question; the page numbers them.",
+    'Ask one round of the open grill in the review page. q: one [title, question, recommendation] per question; the page numbers them. A recommendation is in your voice ("I recommend ..."), never the reviewer\'s answer.',
   inputSchema: {
     type: "object",
     properties: {
