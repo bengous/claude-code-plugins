@@ -20,10 +20,11 @@ src/core/server/domain/        pure, no IO: paths, workspace, review, feedback, 
 src/core/server/cli.ts         the entry point: `start` spawns `serve` detached
 src/core/protocol.ts           what crosses HTTP and an extension boundary; JSON
 src/core/extension.ts          the contract an extension fills: PageExtension, ServerExtension
+                               (EngineExtension lives with the hooks module, core/engine/extension.ts)
 src/core/page/                 the Preact page
-src/extensions/<id>/           one extension, a file per place it plugs in: page.tsx, server.ts;
+src/extensions/<id>/           one extension, a file per place it plugs in: page.tsx, server.ts, engine.ts;
                                its own messages in protocol.ts, its boundary in parse.ts
-src/extensions/page.ts, server.ts  the two registries, the only way the core reaches an extension
+src/extensions/page.ts, server.ts, engine.ts  the three registries, the only way the core reaches an extension
 ```
 
 Dependencies point toward `src/core/server/domain/`, held by `src/boundaries.spec.ts`. The rules of each
@@ -41,7 +42,7 @@ and is tested (`extensions.md` names the ones to copy), never a snippet kept in 
 bun install --cwd vellum                                            # once; Claude Code does it at the plugin's cache
 bun test vellum                                                     # the server's and the page's `*.spec.ts` suites
 bun test vellum/src/core/server/domain/slug.spec.ts                 # one suite; `-t <pattern>` filters by test name
-CLAUDE_CODE_ENABLE_FUNCTION_HOOKS=1 claude plugin test vellum       # the hooks module's `src/core/engine/*.test.ts`, through the engine's kit
+CLAUDE_CODE_ENABLE_FUNCTION_HOOKS=1 claude plugin test vellum       # the hooks module's `*.test.ts` (core/engine, extensions/<id>), through the engine's kit
 CLAUDE_CODE_ENABLE_FUNCTION_HOOKS=1 claude plugin validate vellum   # what the hooks module hooks and calls
 CLAUDE_CODE_ENABLE_FUNCTION_HOOKS=1 command claude --permission-mode default --plugin-dir vellum   # a live session from source
 bun vellum/src/core/server/cli.ts serve --session <id> --project <dir> --workdir plans/<date>/wip-<sid8>/   # the server alone, for page work; the trailing slash is required

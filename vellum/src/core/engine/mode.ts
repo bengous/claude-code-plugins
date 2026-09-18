@@ -57,6 +57,9 @@ export type State =
  */
 export type Settle = (host: Host, from: State) => Promise<void>;
 
+/** The extensions' part of a poll, run after the core's relay; `register.ts` owns the registry. */
+export type Ticks = (host: Host, live: Live) => Promise<void>;
+
 export function sessionKey(id: SessionId): string {
   return `session:${id}`;
 }
@@ -104,7 +107,7 @@ function stopTimers(state: State): void {
 }
 
 /** Enters the mode: one poll a second until it closes. A failed poll is logged and retried. */
-async function enter(host: Host, live: Live, settle: Settle): Promise<State> {
+async function enter(host: Host, live: Live, settle: Settle, ticks: Ticks): Promise<State> {
   let relayed: Relayed = parseRelayed(
     await host.storeGet(relayedKey(live.session.id)),
     live.session.workdir,
@@ -122,6 +125,7 @@ async function enter(host: Host, live: Live, settle: Settle): Promise<State> {
         relayed = ticked.relayed;
 
         if (ticked.approved) await settle(host, entered);
+        else await ticks(host, live);
       })
       .catch((cause: unknown) => {
         host.log(`the review poll failed: ${String(cause)}`);
@@ -161,11 +165,16 @@ export async function close(host: Host, state: State): Promise<State> {
 }
 
 /** `session.start`: the module reloaded, so pick the mode back up when the server still answers. */
-export async function restore(host: Host, state: State, settle: Settle): Promise<State> {
+export async function restore(
+  host: Host,
+  state: State,
+  settle: Settle,
+  ticks: Ticks,
+): Promise<State> {
   const id = sessionId(await host.sessionId());
   const live = await restored(host, await storedSession(host, id));
 
-  return live === null ? state : enter(host, live, settle);
+  return live === null ? state : enter(host, live, settle, ticks);
 }
 
 /**
@@ -174,7 +183,12 @@ export async function restore(host: Host, state: State, settle: Settle): Promise
  * changes the session id, so the live server of another id is left to its heartbeat and a
  * new one takes over.
  */
-export async function connect(host: Host, state: State, settle: Settle): Promise<State> {
+export async function connect(
+  host: Host,
+  state: State,
+  settle: Settle,
+  ticks: Ticks,
+): Promise<State> {
   const id = sessionId(await host.sessionId());
   const current = state.kind === "idle" ? null : state.live;
 
@@ -188,5 +202,5 @@ export async function connect(host: Host, state: State, settle: Settle): Promise
 
   if (live === null) return { kind: "idle" };
 
-  return enter(host, live, settle);
+  return enter(host, live, settle, ticks);
 }

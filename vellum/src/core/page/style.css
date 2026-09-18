@@ -157,10 +157,12 @@ iframe { border: 0; width: 100%; height: 100%; display: block; background: #fff;
 .grill-q .num { font: 700 0.72rem var(--ui); letter-spacing: 0.04em; color: #fff; background: var(--ask); border-radius: 9px; padding: 1px 8px; }
 .grill-q .topic { font-weight: 600; }
 .grill-q .ask { margin: 0 0 10px; white-space: pre-wrap; }
-.grill-q .rec { display: flex; align-items: center; gap: 10px; background: var(--tint); border-radius: 6px; padding: 8px 10px; font-size: 0.92rem; }
+.grill-q .rec { display: flex; align-items: center; gap: 10px; background: var(--tint); border-radius: 6px; padding: 8px 10px; margin-bottom: 10px; font-size: 0.92rem; }
+.grill-q textarea { min-height: 64px; border-color: var(--ask); }
 .grill-q .rec .label { font: 600 0.7rem var(--ui); text-transform: uppercase; letter-spacing: 0.06em; color: var(--graphite); }
 .grill-q .rec .text { flex: 1; white-space: pre-wrap; }
-.grill-foot { position: sticky; bottom: 0; background: var(--sheet); border-top: 1px solid var(--rule); padding: 10px 30px; display: flex; gap: 8px; align-items: center; }
+.grill-foot { position: sticky; bottom: 0; background: var(--sheet); border-top: 1px solid var(--rule); padding: 10px 30px; }
+.grill-foot .row { align-items: center; gap: 8px; }
 .grill-foot .note { flex: 1; color: var(--graphite); font-size: 0.85rem; }
 .popover { position: absolute; width: 300px; background: var(--sheet); border: 1px solid var(--ink); border-radius: 8px; box-shadow: 0 6px 20px rgba(24, 34, 45, 0.18); padding: 10px; font: 0.88rem var(--ui); z-index: 2; }
 .popover .quote { color: var(--graphite); font-style: italic; margin-bottom: 6px; }

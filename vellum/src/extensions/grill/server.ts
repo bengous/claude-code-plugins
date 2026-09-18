@@ -2,13 +2,23 @@ import type { Route, RouteKey, ServerContext, ServerExtension } from "../../core
 import type { PlanWorkspace } from "../../core/protocol.ts";
 import type { ProjectPath } from "../../core/server/domain/paths.ts";
 import { projectPath } from "../../core/server/domain/workspace.ts";
-import { grillFile, grillFileName, grillNumber, parseCloseReason, parseSubject } from "./parse.ts";
-import type { Block, GrillState, Suggestion } from "./protocol.ts";
+import {
+  grillFile,
+  grillFileName,
+  grillNumber,
+  parseCloseReason,
+  parseQuestions,
+  parseReply,
+  parseSubject,
+} from "./parse.ts";
+import type { Asked, Block, GrillState, Suggestion } from "./protocol.ts";
 import {
   appendFooter,
   appendPrompt,
+  appendQuestions,
   header,
   isClosed,
+  nextQuestion,
   phaseOf,
   REVIEWER,
   reviewerRound,
@@ -18,6 +28,9 @@ import {
 
 /** A transcript of the plan's directory, read: the one with the highest number is the current one. */
 type Transcript = { readonly n: number; readonly file: ProjectPath; readonly doc: string };
+
+/** What a change makes of the transcript: the file to write, and the answer once it is written. */
+type Written = { readonly doc: string; readonly answer: Response };
 
 /** A link the page may follow: http, mailto, a fragment or a relative path; any other scheme runs code. */
 const SAFE_HREF = /^(?:https?:|mailto:|[^:]*(?:[/?#]|$))/iu;
@@ -99,20 +112,34 @@ function routes(context: ServerContext): Readonly<Record<RouteKey, Route>> {
     return done;
   };
 
-  /** Reads the current transcript at write time: after an approval the directory has moved. */
-  const change = (apply: (doc: string) => string): Promise<Response> =>
+  /**
+   * Reads the current transcript at write time: after an approval the directory has moved.
+   * `apply` answers a refusal to write nothing; with no grill open, `none` is the answer.
+   */
+  const change = (
+    apply: (doc: string) => Written | Response,
+    none: () => Response = () => new Response(null, NO_CONTENT),
+  ): Promise<Response> =>
     inOrder(async () => {
       const workspace = await workspaceIfAny(context);
 
       if (workspace === null) return refused("the plan's directory is gone");
       const current = await latest(context, workspace.dir);
 
-      if (current === null || isClosed(current.doc)) return new Response(null, NO_CONTENT);
-      await context.writeText(current.file, apply(current.doc));
+      if (current === null || isClosed(current.doc)) return none();
+      const applied = apply(current.doc);
+
+      if (applied instanceof Response) return applied;
+      await context.writeText(current.file, applied.doc);
       await context.notify();
 
-      return new Response(null, NO_CONTENT);
+      return applied.answer;
     });
+
+  const written = (doc: string): Written => ({
+    doc,
+    answer: new Response(null, NO_CONTENT),
+  });
 
   return {
     "GET state": async () => {
@@ -156,7 +183,37 @@ function routes(context: ServerContext): Readonly<Record<RouteKey, Route>> {
 
       return reason === null
         ? badRequest()
-        : await change((doc) => appendFooter(doc, reason, new Date()));
+        : await change((doc) => written(appendFooter(doc, reason, new Date())));
+    },
+
+    "POST ask": async (request) => {
+      const questions = parseQuestions(await request.json().catch(() => null));
+
+      if (questions === null) return badRequest();
+
+      return await change(
+        (doc) => {
+          const first = nextQuestion(doc);
+          const asked: Asked = { first, last: first + questions.length - 1 };
+
+          return { doc: appendQuestions(doc, questions), answer: Response.json(asked) };
+        },
+        () => refused("no grill is open"),
+      );
+    },
+
+    "POST reply": async (request) => {
+      const text = parseReply(await request.json().catch(() => null));
+
+      if (text === null) return badRequest();
+
+      return await change(
+        (doc) =>
+          phaseOf(doc) === "waiting"
+            ? written(appendPrompt(doc, REVIEWER, text))
+            : refused("Claude is working: the round is not open yet"),
+        () => refused("no grill is open"),
+      );
     },
 
     "GET blocks": async (request) => {

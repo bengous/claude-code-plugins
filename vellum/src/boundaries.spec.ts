@@ -4,8 +4,8 @@ import { dirname, join, relative, resolve } from "node:path";
 
 /**
  * What `.claude/rules/` says of the tree, held by a test: the domain does no IO, the hooks
- * module imports nothing of ours, the page never sees the server, and an extension is a
- * folder the core reaches through two registries.
+ * module imports nothing of ours but the engine registry, the page never sees the server, and
+ * an extension is a folder the core reaches through three registries.
  */
 
 const ROOT = join(import.meta.dir, "..");
@@ -24,9 +24,13 @@ const PAGE_SURFACE = [
   "state.ts",
 ];
 
+/** The one import of ours the hooks module loads, from `register.ts` alone. */
+const ENGINE_REGISTRY = "../../extensions/engine.ts";
+
 const HALVES = [
   { file: "page.tsx", type: "PageExtension", registry: "page.ts" },
   { file: "server.ts", type: "ServerExtension", registry: "server.ts" },
+  { file: "engine.ts", type: "EngineExtension", registry: "engine.ts" },
 ];
 
 function sources(dir: string): string[] {
@@ -46,6 +50,13 @@ function imports(file: string): string[] {
   return [...readFileSync(file, "utf8").matchAll(/(?:\bfrom|\bimport)\s*\(?\s*"([^"]+)"/gu)].map(
     (m) => m[1] ?? "",
   );
+}
+
+/** What the file loads at run time: the transpiler drops every type-only import. */
+function valueImports(file: string): string[] {
+  return new Bun.Transpiler({ loader: "ts" })
+    .scanImports(readFileSync(file, "utf8"))
+    .map(({ path }) => path);
 }
 
 function short(path: string): string {
@@ -87,14 +98,24 @@ describe("dependency direction", () => {
   test("core/engine runs on claude-code and its own siblings alone; the rest reaches it as types only", () => {
     // The transpiler drops a type-only import, so `import type … from "../protocol.ts"`
     // never shows here, and a value import from anywhere but a sibling does.
-    const transpiler = new Bun.Transpiler({ loader: "ts" });
-
     const stray = sources("src/core/engine").flatMap((file) =>
-      transpiler
-        .scanImports(readFileSync(file, "utf8"))
-        .filter(({ path }) => path !== "claude-code" && !/^\.\/[a-z-]+\.ts$/u.test(path))
-        .map(({ path, kind }) => `${short(file)} imports ${path} (${kind})`),
+      valueImports(file)
+        .filter((path) => path !== "claude-code" && !/^\.\/[a-z-]+\.ts$/u.test(path))
+        .filter((path) => !(file.endsWith("/register.ts") && path === ENGINE_REGISTRY))
+        .map((path) => `${short(file)} imports ${path}`),
     );
+
+    expect(stray).toEqual([]);
+  });
+
+  test("an engine half runs on its own folder alone: the hooks module loads nothing of the server or the page", () => {
+    const stray = sources("src/extensions")
+      .filter((file) => file.endsWith("/engine.ts") && dirname(file) !== EXTENSIONS)
+      .flatMap((file) =>
+        valueImports(file)
+          .filter((path) => !/^\.\/[a-z-]+\.ts$/u.test(path))
+          .map((path) => `${short(file)} imports ${path}`),
+      );
 
     expect(stray).toEqual([]);
   });
@@ -124,13 +145,14 @@ describe("extensions", () => {
     expect(stray).toEqual([]);
   });
 
-  test("core/ reaches the extensions through the two registries alone", () => {
+  test("core/ reaches the extensions through the three registries alone", () => {
     const reaching = relativeImports("src/core")
       .filter(({ target }) => target.startsWith(`${EXTENSIONS}/`))
       .map(({ file, target }) => `${short(file)} imports ${short(target)}`)
       .toSorted();
 
     expect(reaching).toEqual([
+      "src/core/engine/register.ts imports src/extensions/engine.ts",
       "src/core/page/app.tsx imports src/extensions/page.ts",
       "src/core/server/adapters/http/serve.ts imports src/extensions/server.ts",
     ]);
@@ -152,7 +174,7 @@ describe("extensions", () => {
         const present = HALVES.filter(({ file }) => existsSync(join(EXTENSIONS, id, file)));
 
         if (present.length === 0)
-          return [`src/extensions/${id} holds neither page.tsx nor server.ts`];
+          return [`src/extensions/${id} holds no page.tsx, server.ts or engine.ts`];
 
         return present.flatMap(({ file, type, registry }) => {
           const path = join(EXTENSIONS, id, file);

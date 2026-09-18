@@ -1,8 +1,19 @@
 import type { EngineInterface, Register } from "claude-code";
 
+import { engineExtensions } from "../../extensions/engine.ts";
+import type { EngineContext, EngineExtension } from "./extension.ts";
 import type { Host } from "./host.ts";
 import { checkVerdict, lockFailed, lockVerdict } from "./lock.ts";
-import { close, connect, restore, type Settle, type State, suspend } from "./mode.ts";
+import {
+  close,
+  connect,
+  type Live,
+  restore,
+  type Settle,
+  type State,
+  suspend,
+  type Ticks,
+} from "./mode.ts";
 import { editedPath, type GateWire, sessionId } from "./parse.ts";
 import { submitPlan, submitResult } from "./relay.ts";
 
@@ -16,6 +27,12 @@ const SUBMIT = {
     "Submit plan.md from the vellum working directory for review in the browser. Call it once the plan and its artifacts are ready; the answer says whether to end your turn.",
   inputSchema: { type: "object" },
 };
+
+const NOT_PLANNING = "no vellum planning in progress; run /vellum:start";
+
+const EXTENSION_TOOLS = engineExtensions.flatMap((extension) =>
+  (extension.tools ?? []).map((tool) => ({ extension, tool })),
+);
 
 const UNREACHABLE: GateWire = {
   error: "the vellum review server is not answering; run /vellum:start again",
@@ -42,22 +59,61 @@ function hostOf($: EngineInterface): Host {
   };
 }
 
+function contextOf(host: Host, live: Live, extension: EngineExtension): EngineContext {
+  return { host, live, api: live.server.extension(extension.id) };
+}
+
+/**
+ * Hands one event to every extension, in registry order. An extension that throws is logged
+ * and the next one runs: no extension may stop the core's own hook, or another extension.
+ */
+async function handed(
+  host: Host,
+  live: Live,
+  event: string,
+  hand: (extension: EngineExtension, context: EngineContext) => Promise<void> | undefined,
+): Promise<void> {
+  for (const extension of engineExtensions) {
+    try {
+      await hand(extension, contextOf(host, live, extension));
+    } catch (cause) {
+      host.log(`${extension.id} failed on ${event}: ${String(cause)}`);
+    }
+  }
+}
+
+const ticks: Ticks = (host, live) =>
+  handed(host, live, "tick", (extension, context) => extension.tick?.(context));
+
 export const register: Register = (on) => {
   let state: State = { kind: "idle" };
 
   const settle: Settle = async (host, from) => {
-    if (state === from) state = await close(host, from);
+    if (state !== from || from.kind === "idle") return;
+    await handed(host, from.live, "closing", (extension, context) =>
+      extension.closing?.(context, "approved"),
+    );
+    state = await close(host, from);
   };
 
   on("session.start", async ($, e, next) => {
     await $.tool.register(SUBMIT);
-    state = await restore(hostOf($), state, settle);
+
+    for (const { tool } of EXTENSION_TOOLS) {
+      await $.tool.register({
+        name: tool.name,
+        description: tool.description,
+        inputSchema: tool.inputSchema,
+      });
+    }
+
+    state = await restore(hostOf($), state, settle, ticks);
 
     return next(e);
   });
 
   on("skill.prompt", { skill: START_SKILL }, async ($, e, next) => {
-    state = await connect(hostOf($), state, settle);
+    state = await connect(hostOf($), state, settle, ticks);
     const result = await next(e);
 
     if (state.kind === "idle") return result;
@@ -79,7 +135,15 @@ export const register: Register = (on) => {
         ? "no vellum planning in progress"
         : `vellum planning closed; ${state.live.session.workdir} is kept`;
 
-    state = await close(hostOf($), state);
+    const host = hostOf($);
+
+    if (state.kind === "live") {
+      await handed(host, state.live, "closing", (extension, context) =>
+        extension.closing?.(context, "stop"),
+      );
+    }
+
+    state = await close(host, state);
     const result = await next(e);
 
     return { text: `${result.text}\n\n${line}` };
@@ -119,9 +183,45 @@ export const register: Register = (on) => {
   }).catch((_, e, next) => (state.kind === "idle" ? next(e) : lockFailed(next.error.kind)));
 
   on("tool.call", { tool: "mcp__vellum__submit" }, async ($) => {
-    if (state.kind === "idle") return { deny: "no vellum planning in progress; run /vellum:start" };
+    if (state.kind === "idle") return { deny: NOT_PLANNING };
 
     return submitResult(await submitPlan(hostOf($), state.live, "record").catch(() => UNREACHABLE));
+  });
+
+  // The extensions' tools and refusals share the one unmatched hook the engine allows: a
+  // matcher must be a literal written in this file, and an extension's tool name is not one.
+  on("tool.call", async ($, e, next) => {
+    // The generated contract's tool names predate AskUserQuestion, so the name is read as a string.
+    const name: string = e.tool;
+    const owned = EXTENSION_TOOLS.find(({ tool }) => `mcp__vellum__${tool.name}` === name);
+
+    if (owned !== undefined) {
+      if (state.kind === "idle") return { deny: NOT_PLANNING };
+
+      return await owned.tool.call(contextOf(hostOf($), state.live, owned.extension), e);
+    }
+
+    if (state.kind === "idle") return next(e);
+
+    const refusal = engineExtensions
+      .map((extension) => extension.refuses?.[name])
+      .find((reason) => reason !== undefined);
+
+    return refusal === undefined ? next(e) : { deny: refusal };
+  });
+
+  // Vellum's own relays come through here too: `$.prompt.submit` skips the calling hook alone.
+  // The server already wrote what they carry, so an extension never hears of them.
+  on("prompt.submit", async ($, e, next) => {
+    const own = e.origin.kind === "plugin" && e.origin.name === "vellum";
+
+    if (state.kind === "live" && !own) {
+      await handed(hostOf($), state.live, "prompted", (extension, context) =>
+        extension.prompted?.(context, { text: e.text, origin: e.origin }),
+      );
+    }
+
+    return next(e);
   });
 
   // The turn's end is the deterministic submit: the reviewer sees each new plan.md the moment
@@ -130,9 +230,14 @@ export const register: Register = (on) => {
   on("turn.complete", async ($, e, next) => {
     const result = await next(e);
 
-    if (state.kind === "live" && e.reason === "answer" && e.agentId === undefined) {
-      await submitPlan(hostOf($), state.live, "keep").catch(() => UNREACHABLE);
-    }
+    if (state.kind !== "live" || e.agentId !== undefined) return result;
+    const host = hostOf($);
+
+    if (e.reason === "answer") await submitPlan(host, state.live, "keep").catch(() => UNREACHABLE);
+
+    await handed(host, state.live, "answered", (extension, context) =>
+      extension.answered?.(context, { text: result.text, reason: e.reason }),
+    );
 
     return result;
   });

@@ -7,7 +7,8 @@ paths:
 # Tests
 
 - Two suffixes, two runners: `*.spec.ts` for the server's and the page's `bun:test` suites,
-  `*.test.ts` beside the hooks module, in `src/core/engine/`, for its kit tests. `claude plugin
+  `*.test.ts` for the hooks module's kit tests, in `src/core/engine/` and, for an engine half,
+  `src/extensions/<id>/engine.test.ts`. `claude plugin
   test` collects every `*.test.ts` under the plugin root and loads the module
   `<root>/hooks/hooks.json` names, so a `bun:test` suite named `*.test.ts` anywhere in the
   plugin fails its run.

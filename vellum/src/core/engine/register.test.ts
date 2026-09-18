@@ -38,7 +38,7 @@ describe("session.start", () => {
     const seen = world(on);
 
     expect(await $.session.start(SESSION)).toEqual({ cwd: CWD });
-    expect(seen.tools).toEqual(["submit"]);
+    expect(seen.tools).toContain("submit");
     expect(seen.commands).toEqual([]);
   });
 

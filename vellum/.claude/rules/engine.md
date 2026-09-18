@@ -6,9 +6,10 @@ paths:
 
 # The hooks module
 
-`hooks/hooks.json` is what Claude Code reads, and it names `src/core/engine/register.ts`. Seven
+`hooks/hooks.json` is what Claude Code reads, and it names `src/core/engine/register.ts`. Eight
 files there, each importing `claude-code`, a sibling `./<name>.ts`, or `import type` from
-`../protocol.ts`, and nothing else. Held by `src/boundaries.spec.ts`.
+`../protocol.ts`, and nothing else; `register.ts` alone also loads `../../extensions/engine.ts`,
+the registry of the engine halves. Held by `src/boundaries.spec.ts`.
 
 ```
 register.ts  the engine adapter: the one `let state`, one hook per event, and `hostOf`
@@ -18,6 +19,7 @@ lock.ts      the policy: lockVerdict, checkVerdict; pure
 relay.ts     what the poll says and what it remembers: prompts, Relayed, tick
 server.ts    the review server's client: every route, the token header, the launcher
 parse.ts     the boundary: unknown to types, and the only place a brand is minted
+extension.ts `EngineExtension`, the contract an extension's `engine.ts` fills; types only
 ```
 
 The module holds the vellum mode, a mode of its own: the native plan mode never enters the
@@ -88,6 +90,15 @@ loop. `/vellum:start` enters it, Approve in the page or `/vellum:stop` leaves it
   server, and an approval drops the record: the next plan's batches count from one again.
   The approval's prompt names the reviewer's notes file first when the pending carries one; the
   module reads the path and never the file.
+- An extension never calls `on(...)`: the engine takes one hooks module per plugin and one
+  unmatched hook per event. `register.ts` keeps every event and hands it to the engine halves in
+  registry order, each with an `EngineContext` (`Host`, `Live`, its own routes on the server),
+  never `$`. A half that throws is logged and the next one runs. Its tools are registered at
+  `session.start` and served by the one unmatched `tool.call` hook, which dispatches on
+  `e.tool`, since a matcher must be a literal written in `register.ts`; the same hook denies
+  what a half `refuses` while `live`. The poll runs the halves' `tick` after its own relay,
+  handed to `mode.ts` as `ticks` the way `settle` is.
+- An extension's store records are keyed `<id>:<session id>`.
 - Tests run under the engine's own `$` (`claude plugin test vellum`, the `*.test.ts` files beside the module):
   `bun test` cannot host that environment. The world beneath the module is answered by the
   kit's `mock.clock` and the `on(...)` hooks of `fixtures/`. Nothing else is faked.

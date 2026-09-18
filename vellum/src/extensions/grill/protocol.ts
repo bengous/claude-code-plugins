@@ -44,8 +44,16 @@ export type Block =
 
 export type CloseReason = "page" | "stop" | "approved";
 
+/** A question as the tool and the route take it: `[title, question, recommendation]`. */
+export type QuestionTriple = readonly [title: string, ask: string, rec: string];
+
+/** What `POST ask` answers: the numbers the questions took, which run across the whole grill. */
+export type Asked = { readonly first: number; readonly last: number };
+
 /** The body each `POST /api/x/grill/<name>` takes, by route name. */
 export type GrillPosts = {
   readonly open: { readonly subject: string };
   readonly close: { readonly reason: CloseReason };
+  readonly ask: { readonly q: readonly QuestionTriple[] };
+  readonly reply: { readonly text: string };
 };

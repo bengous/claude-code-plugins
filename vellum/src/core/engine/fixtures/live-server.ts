@@ -16,12 +16,21 @@ const LIVE = {
   "/api/open": () => reply(204, null),
 } satisfies Record<string, Route>;
 
+/** Where the extensions' routes live. The core's world serves none: each extension's fixtures bring its own. */
+const EXTENSIONS = "/api/x/";
+
 export function liveServer(on: On, routes: Record<string, Route> = {}): string[] {
   const paths: string[] = [];
   const served = new Map([...Object.entries(LIVE), ...Object.entries(routes)]);
 
   on("http.fetch", async (_, e) => {
     const { pathname, port } = new URL(e.url);
+
+    // A live server answers 404 there, and `paths` stays what the core itself asked.
+    if (pathname.startsWith(EXTENSIONS) && !served.has(pathname) && Number(port) === SERVER.port) {
+      return { value: reply(404, null) };
+    }
+
     paths.push(pathname);
 
     const answer =

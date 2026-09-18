@@ -122,9 +122,13 @@ function GrillAction(): preact.JSX.Element {
   );
 }
 
-function QuestionCard(props: {
+type CardProps = {
   readonly block: Extract<Block, { kind: "question" }>;
-}): preact.JSX.Element {
+  readonly answer: string;
+  readonly onAnswer: (text: string) => void;
+};
+
+function QuestionCard(props: CardProps): preact.JSX.Element {
   const { block } = props;
 
   return (
@@ -138,7 +142,20 @@ function QuestionCard(props: {
         <div class="rec">
           <span class="label">Recommended</span>
           <span class="text">{block.rec}</span>
+          {block.open && (
+            <button class="btn small" type="button" onClick={() => props.onAnswer(block.rec)}>
+              Take it
+            </button>
+          )}
         </div>
+      )}
+      {block.open && (
+        <textarea
+          aria-label={`Answer to ${block.id}`}
+          placeholder={`Answer ${block.id}`}
+          value={props.answer}
+          onInput={(event) => props.onAnswer(event.currentTarget.value)}
+        />
       )}
     </div>
   );
@@ -147,8 +164,28 @@ function QuestionCard(props: {
 function GrillDoc(props: RendererProps): preact.JSX.Element {
   const { path, modified } = props.doc;
   const [blocks, setBlocks] = useState<readonly Block[]>([]);
+  /** The reviewer's typing, by question id; `""` keys what goes beside the questions. */
+  const [answers, setAnswers] = useState<ReadonlyMap<string, string>>(new Map());
   const state = grill.value;
-  const current = state?.kind === "open" && state.file === path;
+  const current = state?.kind === "open" && state.file === path ? state : null;
+  const answer = (id: string, text: string): void => setAnswers(new Map(answers).set(id, text));
+
+  const typed = (id: string): string => answers.get(id)?.trim() ?? "";
+
+  const round = [
+    ...blocks.flatMap((block) =>
+      block.kind === "question" && block.open && typed(block.id) !== ""
+        ? [`${block.id}: ${typed(block.id)}`]
+        : [],
+    ),
+    ...(typed("") === "" ? [] : [typed("")]),
+  ].join("\n\n");
+
+  const send = async (): Promise<void> => {
+    const response = await post("reply", { text: round });
+
+    if (response.ok) setAnswers(new Map());
+  };
 
   useEffect(() => {
     void extensionRequest(ID, `blocks?file=${encodeURIComponent(path)}`).then(async (response) => {
@@ -167,16 +204,48 @@ function GrillDoc(props: RendererProps): preact.JSX.Element {
             // oxlint-disable-next-line react/no-danger -- the transcript's Markdown arrives rendered, since the page bundles no Markdown parser for it; `toHtml` in grill/server.ts is what makes it safe to insert.
             <div key={index} dangerouslySetInnerHTML={{ __html: block.html }} />
           ) : (
-            <QuestionCard key={block.id} block={block} />
+            <QuestionCard
+              key={block.id}
+              block={block}
+              answer={answers.get(block.id) ?? ""}
+              onAnswer={(text) => answer(block.id, text)}
+            />
           ),
         )}
       </div>
-      {current && (
+      {current !== null && (
         <div class="grill-foot">
-          <span class="note">The grill stays open until you end it.</span>
-          <button class="btn" type="button" onClick={closeGrill}>
-            End grill
-          </button>
+          {current.phase === "waiting" && (
+            <textarea
+              aria-label="Anything else for Claude"
+              placeholder="Anything else. Ctrl+Enter sends."
+              value={answers.get("") ?? ""}
+              onInput={(event) => answer("", event.currentTarget.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter" && (event.ctrlKey || event.metaKey) && round !== "") {
+                  void send();
+                }
+              }}
+            />
+          )}
+          <div class="row">
+            <span class="note">
+              {current.phase === "waiting"
+                ? "Answers go to Claude once the current turn ends."
+                : "Claude is working. Fields come back with its next round."}
+            </span>
+            <button class="btn" type="button" onClick={closeGrill}>
+              End grill
+            </button>
+            <button
+              class="btn send"
+              type="button"
+              disabled={current.phase !== "waiting" || round === ""}
+              onClick={() => void send()}
+            >
+              Send answers
+            </button>
+          </div>
         </div>
       )}
     </div>

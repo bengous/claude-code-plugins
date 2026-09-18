@@ -1,5 +1,6 @@
 import type { HttpInit, HttpResponse } from "claude-code";
 
+import type { ExtensionApi } from "./extension.ts";
 import type { Host } from "./host.ts";
 import type { ServerInfo } from "./mode.ts";
 import {
@@ -32,6 +33,7 @@ export type ReviewServer = {
   pending: () => Promise<PendingWire>;
   open: () => Promise<void>;
   heartbeat: () => Promise<void>;
+  extension: (id: string) => ExtensionApi;
 };
 
 function api(host: Host, info: ServerInfo, path: string, init?: HttpInit): Promise<HttpResponse> {
@@ -65,6 +67,10 @@ export function reach(host: Host, info: ServerInfo): ReviewServer {
     pending: () => api(host, info, "/api/pending").then((response) => parsePending(response.text)),
     open: () => told("/api/open"),
     heartbeat: () => told("/api/heartbeat"),
+    extension: (id) => ({
+      get: (path) => api(host, info, `/api/x/${id}/${path}`),
+      post: (path, json) => api(host, info, `/api/x/${id}/${path}`, { method: "POST", body: json }),
+    }),
   };
 }
 

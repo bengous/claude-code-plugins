@@ -94,6 +94,50 @@ describe("opening a grill", () => {
   });
 });
 
+describe("a round", () => {
+  const Q = [["Tool names", "Prefix them?", "Yes."]] as const;
+
+  test("ask writes the questions under Claude's voice and answers their numbers", async () => {
+    const { dir, post, get } = await grilling();
+    await post("open", { subject: "auth" });
+
+    const asked = await post("ask", { q: [...Q, ...Q] });
+
+    expect(await asked.json()).toEqual({ first: 1, last: 2 });
+    expect(readFileSync(join(dir, WIP, "grill-1.md"), "utf8")).toContain(
+      "### Claude\n\n❓ **Q1** - **Tool names**: Prefix them?\n\n➡️ Yes.\n\n---\n",
+    );
+    expect(await (await get("state")).json()).toMatchObject({ phase: "waiting", reviewer: null });
+  });
+
+  test("reply writes the reviewer's round, which the state hands to the engine", async () => {
+    const { post, get } = await grilling();
+    await post("open", { subject: "auth" });
+    await post("ask", { q: Q });
+
+    expect((await post("reply", { text: "Q1: yes" })).status).toBe(204);
+    expect(await (await get("state")).json()).toMatchObject({
+      phase: "working",
+      reviewer: { round: 2, text: "Q1: yes" },
+    });
+  });
+
+  test("reply is refused while Claude works, and empty", async () => {
+    const { post } = await grilling();
+    await post("open", { subject: "auth" });
+
+    expect((await post("reply", { text: "too early" })).status).toBe(409);
+    expect((await post("reply", { text: " " })).status).toBe(400);
+  });
+
+  test("ask and reply are refused with no grill open", async () => {
+    const { post } = await grilling();
+
+    expect((await post("ask", { q: Q })).status).toBe(409);
+    expect((await post("reply", { text: "x" })).status).toBe(409);
+  });
+});
+
 describe("closing a grill", () => {
   test("writes the footer with its reason, and the state reads none", async () => {
     const { dir, post, get } = await grilling();

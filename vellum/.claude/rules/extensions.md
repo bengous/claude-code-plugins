@@ -9,15 +9,13 @@ paths:
 An extension is a folder, `src/extensions/<id>/`, with one file per place where it plugs into
 the core: `page.tsx` declares a `PageExtension` (its renderers, its actions in the decision
 bar), `server.ts` a `ServerExtension` (its `linkedDocs`, its routes). Both types live in
-`src/core/extension.ts`. `markdown`, `html`, `image` and `grill` are extensions like the next ones. A third half, `engine.ts`, lands with
-`grill`, the first extension the hooks module calls; until then no extension touches
-`src/core/engine/`.
+`src/core/extension.ts`. `markdown`, `html`, `image` and `grill` are extensions like the next ones.
 
 - Read the code before this text, smallest first: `image/page.tsx` is a whole extension,
   `markdown/server.ts` a server half, `html/pick.ts` with `pick.spec.ts` a helper and its
   test. They compile and they are tested, so they cannot drift; copy their shape.
 - To add one: the folder, its halves, and one line per registry (`src/extensions/page.ts`,
-  `src/extensions/server.ts`). A half is `export const <name>: PageExtension = { id: "<id>", … }`
+  `src/extensions/server.ts`, `src/extensions/engine.ts`). A half is `export const <name>: PageExtension = { id: "<id>", … }`
   (or `ServerExtension`), and its `id` is the folder's name. Nothing else in `src/core/`
   changes; when something must, the core lacks a place to plug into, and that is the change
   to propose first.
@@ -31,6 +29,10 @@ bar), `server.ts` a `ServerExtension` (its `linkedDocs`, its routes). Both types
   the page through `notify`. The page half calls its routes with `extensionRequest`.
 - An extension owns its messages: `<id>/protocol.ts` types what crosses its routes, and
   `<id>/parse.ts` is its boundary parser. `src/core/protocol.ts` learns nothing of them.
+- An engine half loads its own folder and nothing else: the hooks module must never pull the
+  server or the page in. It reaches `core/engine/` as types, talks to its server half through
+  `context.api`, and parses what comes back in its `parse.ts`. Its kit tests are
+  `<id>/engine.test.ts`, its fake routes `<id>/fixtures/`: the core's world serves none.
 - A helper and its `*.spec.ts` live in the folder, beside the half that uses them: its choice
   is a pure function tested with `bun test`, its DOM part a thin adapter, since the page has
   no DOM implementation to test against.
