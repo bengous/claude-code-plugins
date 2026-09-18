@@ -3,10 +3,6 @@ import type { Live } from "./mode.ts";
 import type { GateWire, PendingWire, SessionId, Workdir } from "./parse.ts";
 import type { Unchanged } from "./server.ts";
 
-// Named here for the feedback prompt; `register.ts` writes the matcher as a literal, since the
-// loader reads matchers from that file's source and cannot follow an import.
-const SUBMIT_TOOL = "mcp__vellum__submit";
-
 /**
  * What `$.store` keeps under `relayed:<id>`: how many drafting batches and which feedback
  * version the poll already named, for one working directory. Batch numbers restart with the
@@ -28,17 +24,17 @@ export function relayedKey(id: SessionId): string {
 function draftsPrompt(batches: Extract<PendingWire, { kind: "drafts" }>["batches"]): string {
   const paths = batches.map((batch) => batch.path).join(", ");
 
-  return `Drafting feedback from the vellum review page: read ${paths}, revise the files they name, then continue the plan.`;
+  return `Drafting feedback: read ${paths}.`;
 }
 
 function feedbackPrompt(pending: Extract<PendingWire, { kind: "feedback" }>): string {
-  return `Plan review v${pending.version}: changes requested. Read ${pending.path}, revise plan.md and the files it names, then call ${SUBMIT_TOOL} again.`;
+  return `Changes requested on v${pending.version}: read ${pending.path}.`;
 }
 
 function approvedPrompt(pending: Extract<PendingWire, { kind: "approved" }>): string {
-  const notes = pending.notes === null ? "" : ` Read ${pending.notes} first: the reviewer's notes.`;
+  const notes = pending.notes === null ? "" : ` Read ${pending.notes} first.`;
 
-  return `Plan v${pending.version} approved.${notes} It lives at ${pending.dir}. Implement it here or in a fresh session.`;
+  return `Plan v${pending.version} approved, at ${pending.dir}.${notes}`;
 }
 
 /**
@@ -56,14 +52,14 @@ export async function submitPlan(host: Host, live: Live, unchanged: Unchanged): 
   return gate;
 }
 
-/** What the model reads from `submit`: `kept` means the browser already shows this very text. */
+/**
+ * What the model reads from `submit`. A kept version reads as a recorded one: the model ends
+ * its turn on both, and the skill `start` already says the review arrives as a prompt.
+ */
 export function submitResult(gate: GateWire): { result: string } | { deny: string } {
-  if ("error" in gate) return { deny: gate.error };
-  const held = gate.kept ? "is already under review" : "is under review";
-
-  return {
-    result: `Plan v${gate.version} ${held} in the browser. End your turn; the review arrives as a prompt.`,
-  };
+  return "error" in gate
+    ? { deny: gate.error }
+    : { result: `Plan v${gate.version} under review. End your turn.` };
 }
 
 /** Hands the session a prompt; `false` when another plugin dropped it, so the next tick retries. */

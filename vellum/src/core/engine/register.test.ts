@@ -261,8 +261,7 @@ describe("tool.call mcp__vellum__submit", () => {
     await $.skill.prompt(START_PROMPT);
 
     expect(await $.tool.call({ tool: submit })).toEqual({
-      result:
-        "Plan v1 is under review in the browser. End your turn; the review arrives as a prompt.",
+      result: "Plan v1 under review. End your turn.",
     });
 
     expect(seen.statuses.at(-1)).toBe("plan v1 under review");
@@ -621,9 +620,7 @@ describe("the decision comes back as a prompt", () => {
     await tick(seen);
     await tick(seen);
 
-    expect(seen.prompts).toEqual([
-      `Plan review v1: changes requested. Read ${feedback}, revise plan.md and the files it names, then call mcp__vellum__submit again.`,
-    ]);
+    expect(seen.prompts).toEqual([`Changes requested on v1: read ${feedback}.`]);
 
     const from = seen.paths.length;
     await tick(seen);
@@ -639,9 +636,7 @@ describe("the decision comes back as a prompt", () => {
     await $.skill.prompt(START_PROMPT);
     await tick(seen);
 
-    expect(seen.prompts).toEqual([
-      `Plan v2 approved. It lives at ${FINAL}. Implement it here or in a fresh session.`,
-    ]);
+    expect(seen.prompts).toEqual([`Plan v2 approved, at ${FINAL}.`]);
 
     const from = seen.paths.length;
     await seen.clock.advance(HEARTBEAT_MS);
@@ -650,15 +645,13 @@ describe("the decision comes back as a prompt", () => {
     expect(seen.store.has(`session:${SESSION_ID}`)).toBe(false);
   });
 
-  test("an approval with notes names the notes file before the directory", async ($, on) => {
+  test("an approval with notes says to read the notes file first", async ($, on) => {
     const notes = `${FINAL}.review/v2.notes.md`;
     const seen = world(on, { routes: { "/api/pending": () => reply(200, approved(2, notes)) } });
     await $.skill.prompt(START_PROMPT);
     await tick(seen);
 
-    expect(seen.prompts).toEqual([
-      `Plan v2 approved. Read ${notes} first: the reviewer's notes. It lives at ${FINAL}. Implement it here or in a fresh session.`,
-    ]);
+    expect(seen.prompts).toEqual([`Plan v2 approved, at ${FINAL}. Read ${notes} first.`]);
   });
 
   test("a drafting batch is named once, and the next batches in one prompt", async ($, on) => {

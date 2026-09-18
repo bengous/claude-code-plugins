@@ -108,7 +108,7 @@ sequenceDiagram
   B->>S: POST /api/decision (feedback | approve, with the reviewer's edit or none)
   S->>S: an edit is vN+1: plan.md, then .review/vN+1.md; approve → notes file, links rewritten, directory renamed
   S-->>B: SSE workspace
-  M->>CC: $.prompt.submit (feedback file path | "Plan vN approved. Read <notes file> first. It lives at <dir>.")
+  M->>CC: $.prompt.submit ("Changes requested on vN: read <path>." | "Plan vN approved, at <dir>. Read <notes file> first.")
 ```
 
 ## A grill

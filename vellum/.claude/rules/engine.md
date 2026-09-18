@@ -101,8 +101,10 @@ loop. `/vellum:start` enters it, Approve in the page or `/vellum:stop` leaves it
   was already named (the drafting count, the feedback version) goes to `$.store` under the
   working directory it belongs to, so nothing is said twice across a reload or a restarted
   server, and an approval drops the record: the next plan's batches count from one again.
-  The approval's prompt names the reviewer's notes file first when the pending carries one; the
-  module reads the path and never the file.
+  The approval's prompt says to read the reviewer's notes file first when the pending carries
+  one; the module reads the path and never the file. Each of these prompts is the fact and its
+  object, nothing else: the skill `start` already says what to do with a feedback, a drafting
+  batch and an approval, so the prompt does not say it again.
 - An extension never calls `on(...)`: the engine takes one hooks module per plugin and one
   unmatched hook per event. `register.ts` keeps every event and hands it to the engine halves in
   registry order, each with an `EngineContext` (`Host`, `Live`, its own routes on the server),

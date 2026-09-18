@@ -308,7 +308,9 @@ under the rule on `$` below.
   again replaces it, with no warning and no duplicate in the typeahead.
 - A registered tool's result text is what the model acts on:
   `Plan vN is under review in the browser. End your turn; the review arrives
-  as a prompt.` ended Opus 5's turn every time.
+  as a prompt.` ended Opus 5's turn every time. `vellum` now answers the
+  shorter `Plan vN under review. End your turn.`, whose effect on the turn is
+  not measured in a live session yet.
 
 ### What the contract and the docs say
 

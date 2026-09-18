@@ -66,17 +66,12 @@ describe("lockVerdict", () => {
 });
 
 describe("submitResult", () => {
-  test("a recorded version tells the model to end its turn", () => {
+  test("a version tells the model to end its turn, recorded or kept: it acts the same on both", () => {
     expect(submitResult({ version: 1, kept: false })).toEqual({
-      result:
-        "Plan v1 is under review in the browser. End your turn; the review arrives as a prompt.",
+      result: "Plan v1 under review. End your turn.",
     });
-  });
-
-  test("a kept version says the plan is already under review", () => {
     expect(submitResult({ version: 2, kept: true })).toEqual({
-      result:
-        "Plan v2 is already under review in the browser. End your turn; the review arrives as a prompt.",
+      result: "Plan v2 under review. End your turn.",
     });
   });
 
