@@ -158,4 +158,8 @@ export const grillEngine: EngineExtension = {
     await post(context, "answer", turn);
   },
   tick,
+  // The server writes the footer where the plan lives now: after an approval, the renamed directory.
+  closing: async (context, reason) => {
+    await post(context, "close", { reason });
+  },
 };

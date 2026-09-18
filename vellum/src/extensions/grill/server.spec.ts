@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { existsSync, mkdtempSync, readFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -16,6 +16,8 @@ const running: Started[] = [];
 type Grilling = {
   readonly dir: string;
   readonly get: (name: string) => Promise<Response>;
+  /** Gates `plan.md` as v1 and approves it: the working directory is renamed. */
+  readonly decide: () => Promise<void>;
   readonly post: <Name extends keyof GrillPosts>(
     name: Name,
     body: GrillPosts[Name],
@@ -35,8 +37,15 @@ async function grilling(): Promise<Grilling> {
   const url = (name: string): string =>
     `http://127.0.0.1:${started.server.port}/api/x/grill/${name}`;
 
+  const core = (path: string, body: string): Promise<Response> =>
+    fetch(`http://127.0.0.1:${started.server.port}/api/${path}`, { method: "POST", headers, body });
+
   return {
     dir,
+    decide: async () => {
+      await core("gate", "{}");
+      await core("decision", JSON.stringify({ kind: "approve", edit: null, notes: "" }));
+    },
     get: (name) => fetch(url(name), { headers }),
     post: (name, body) => fetch(url(name), { method: "POST", headers, body: JSON.stringify(body) }),
   };
@@ -199,6 +208,29 @@ describe("closing a grill", () => {
 
     expect((await post("close", { reason: "stop" })).status).toBe(204);
     expect(existsSync(join(dir, WIP, "grill-1.md"))).toBe(false);
+  });
+});
+
+describe("after the approval", () => {
+  test("close writes the footer in the renamed directory, and brings no wip- back", async () => {
+    const { dir, post, decide } = await grilling();
+    await post("open", { subject: "auth" });
+    writeFileSync(join(dir, WIP, "plan.md"), "# Auth plan\n");
+    await decide();
+
+    expect((await post("close", { reason: "approved" })).status).toBe(204);
+    expect(readdirSync(join(dir, "plans/2026-09-17"))).toEqual(["auth-plan"]);
+    expect(readFileSync(join(dir, "plans/2026-09-17/auth-plan/grill-1.md"), "utf8")).toMatch(
+      /\nClosed .+ · approved\n$/u,
+    );
+  });
+
+  test("no grill opens on an approved plan", async () => {
+    const { dir, post, decide } = await grilling();
+    writeFileSync(join(dir, WIP, "plan.md"), "# Auth plan\n");
+    await decide();
+
+    expect((await post("open", { subject: "late" })).status).toBe(409);
   });
 });
 

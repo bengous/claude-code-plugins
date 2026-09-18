@@ -9,7 +9,8 @@ paths:
 An extension is a folder, `src/extensions/<id>/`, with one file per place where it plugs into
 the core: `page.tsx` declares a `PageExtension` (its renderers, its actions in the decision
 bar), `server.ts` a `ServerExtension` (its `linkedDocs`, its routes). Both types live in
-`src/core/extension.ts`. `markdown`, `html`, `image` and `grill` are extensions like the next ones. A third half,
+`src/core/extension.ts`. `markdown`, `html`, `image` and `grill` are extensions like the next
+ones. A third half,
 `engine.ts`, declares an `EngineExtension` (`src/core/engine/extension.ts`): tools, refusals
 and the engine events the core hands it. `grill` is the one extension with all three.
 
@@ -40,7 +41,7 @@ and the engine events the core hands it. `grill` is the one extension with all t
   no DOM implementation to test against.
 - A new document kind is a new extension, never a branch in an existing renderer.
 - An option or a flag exists when someone asked to turn it, never in advance. Config files,
-  manifests and `enabled` land with `grill`; their design is `docs/architecture.md`
+  manifests and `enabled` are not designed yet; where the question stands is `docs/architecture.md`
   § Extensions.
 - `src/boundaries.spec.ts` fails, naming the file, when any of this is broken. An import it
   refuses is in the wrong place, not a rule to loosen.

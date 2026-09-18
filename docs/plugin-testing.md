@@ -325,7 +325,10 @@ absent from the public docs: the `.d.ts` is their only reference.
   fires for subagents too.
 - `$.tool.register` (`ToolSpec`) declares `mcp__<plugin>__<name>`; a
   `tool.call` hook on that name serves it by returning `{ result }` without
-  `next`, and a call no hook answers fails. `$.command.register`
+  `next`, and a call no hook answers fails. An unmatched `tool.call` hook that
+  compares `e.tool` serves it as well (measured in the kit, `claude plugin
+  test`), which is how a module serves tools whose names are not literals in
+  its registering file. `$.command.register`
   (`CommandSpec`) declares `/<name>`, served by a `command.run` hook returning
   `{ text }`. Both reject until `session.start`, whose first raise is awaited,
   so registering there lists them by turn one (`'session.start'`). `/clear`

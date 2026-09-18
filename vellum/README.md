@@ -16,7 +16,7 @@ Replaces `plan-frontiers` and `software-craft:thorough-plan`.
 `/vellum:start` triggers itself when a design choice is open, a change crosses several modules or interfaces, or a refactor reshapes a contract. Three moves:
 
 1. Size the ceremony. A one-sentence diff gets no plan. A fuzzy idea gets a throwaway first, after the few questions that pin down what it must show.
-2. Settle the open choices in question rounds, each question with a recommended answer. Only a question whose answer changes the architecture, an interface or the scope is asked; the rest becomes a recorded assumption. `assume` closes a round.
+2. Settle the open choices in a grill, in the review page. Claude suggests one with `mcp__vellum__grill_suggest`; you start it, or not. Only a question whose answer changes the architecture, an interface or the scope is asked; the rest becomes a recorded assumption.
 3. Write the plan to `plan.md`, ordered by probability of revision: decisions, interfaces, files, slices with their check, out of scope, then mechanics. Then call `mcp__vellum__submit`.
 
 References, loaded one at a time: `program-design.md` (signatures, call-stack and file trees, command interfaces, contracts), `slices.md` (vertical order, sizing, implementation notes), `visual.md` (when a mockup or a diagram earns its place).
@@ -34,6 +34,12 @@ References, loaded one at a time: `program-design.md` (signatures, call-stack an
 7. **Approve** renames the directory to the slug of the plan's title (`-2` on collision, `plan` without a title), rewrites the links in every text file of it, and submits a prompt naming the final directory. The mode closes and the lock lifts. **Approve with notes…** takes a note for Claude: it is kept in `.review/vN.notes.md`, never in the plan, and the prompt names that file first, so Claude reads it before it acts. An approval that carries an edit writes that file too, to tell Claude to read `plan.md` again. With unsent comments, either button first warns that approving discards them.
 8. The unsent comments and the unsent edit are saved in `.review/draft.json` at every change. A reload restores them, in any browser, since the file is the server's; a decision that lands removes it.
 
+### A grill
+
+The **Grill** button opens a grill on a subject you type; when Claude suggested one, the button is lit and a banner carries its reason and its subject, which you may change. Claude never opens a grill. Each one is a file of the working directory, `grill-<n>.md`, listed with the other artifacts and carried to the final directory by the approval. From its opening to its end it keeps every prompt and every final text of Claude word for word; Vellum's own relayed prompts are left out.
+
+Claude asks a round with `mcp__vellum__grill_ask`. The page draws each question as a card: its number, its topic, the question, and the recommendation with **Take it**, which fills the field and sends nothing. **Send answers** writes your round to the file, and Claude receives it once its turn ends. **End grill** closes the file with a footer; so do `/vellum:stop` and the approval. While the mode is live `AskUserQuestion` is refused: the page is your one channel. One grill is open at a time.
+
 `/vellum:stop` leaves the mode without a plan; the directory is kept. `/clear`, and a `/resume` that lands in another session, suspend it: timers stopped, the session's record kept, so resuming that session later finds its directory. The status bar reads `vellum: planning`, then `vellum: plan vN under review`.
 
 ## Agent
@@ -48,26 +54,28 @@ The plugin installs a hooks module that refuses writes and spawns a process. The
 
 | Hook | Matcher | What it does |
 |---|---|---|
-| `session.start` | | Registers the `submit` tool, and picks the mode back up when the stored server still answers. |
+| `session.start` | | Registers the `submit`, `grill_suggest` and `grill_ask` tools, and picks the mode back up when the stored server still answers. |
 | `skill.prompt` | `skill=vellum:start` | Enters the mode: reaches or starts the server, then appends the working directory and the page's link to the skill's text. |
 | `skill.prompt` | `skill=vellum:stop` | Leaves the mode and says which directory is kept. |
 | `command.run` | `command=clear\|resume` | Suspends the mode after the command ran, when the session id changed: timers stopped, the record kept. |
 | `tool.check` | | The lock. Its `.catch` denies whatever the failure, so a hook that throws or overruns cannot open it. |
 | `tool.call` | `tool=mcp__vellum__submit` | Gates the plan and names the version, without running a tool. |
-| `turn.complete` | | Gates `plan.md` after a main-loop turn answered while the mode is live; an unchanged text is kept. |
+| `tool.call` | | Serves `mcp__vellum__grill_suggest` and `mcp__vellum__grill_ask`, and refuses `AskUserQuestion` while the mode is live; every other call passes on. |
+| `prompt.submit` | | While the mode is live, hands each prompt to the open grill's transcript, Vellum's own relays left out, then passes it on unchanged. |
+| `turn.complete` | | Gates `plan.md` after a main-loop turn answered while the mode is live; an unchanged text is kept. Hands the main loop's final text to the open grill's transcript. |
 
 ### What it calls on `$`
 
 | Call | What for |
 |---|---|
-| `$.tool.register` | The `submit` tool, at the session's start. |
+| `$.tool.register` | The `submit` tool and the two grill tools, at the session's start. |
 | `$.session.id` | Which session the mode belongs to; a `/clear` mints a new one. |
 | `$.session.cwd` | Where the session runs now, to resolve a relative path the lock reads. |
 | `$.store.get`, `$.store.set`, `$.store.delete` | The session's server and what the poll already relayed, so a module reload repeats neither. |
 | `$.http.fetch` | Every call to the review server, with the token header. |
 | `$.process.run` | Spawns the detached server, `bun src/core/server/cli.ts start`. |
 | `$.clock.every` | The poll, once a second, and the heartbeat that keeps the server alive. |
-| `$.prompt.submit` | Hands Claude a drafting batch, a feedback or the approval, once the session is idle. |
+| `$.prompt.submit` | Hands Claude a drafting batch, a feedback, the approval or a grill round the reviewer wrote, once the session is idle. |
 | `$.ui.status` | The line under the prompt: planning, then the version under review. |
 | `$.ui.log` | Errors only: a server that did not start, a poll that failed, a prompt another plugin dropped. |
 

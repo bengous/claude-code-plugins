@@ -9,7 +9,13 @@ import {
   tick,
   world,
 } from "../../core/engine/fixtures/index.ts";
-import { TURN_ABORTED, TURN_ANSWERED, TURN_OF_AGENT } from "../../core/engine/fixtures/index.ts";
+import {
+  approved,
+  STOP_PROMPT,
+  TURN_ABORTED,
+  TURN_ANSWERED,
+  TURN_OF_AGENT,
+} from "../../core/engine/fixtures/index.ts";
 import { GRILL_FILE, grillRoutes, openState } from "./fixtures/grill-routes.ts";
 
 tier("user");
@@ -234,5 +240,32 @@ describe("AskUserQuestion", () => {
     expect(await $.tool.call({ tool: ASK_USER, questions: [] })).toEqual({
       result: "asked",
     });
+  });
+});
+
+describe("closing from the session", () => {
+  test("/vellum:stop closes the grill once, before the mode", async ($, on) => {
+    const grill = grillRoutes(() => ({ kind: "none" }));
+    world(on, grill);
+    await $.skill.prompt(START_PROMPT);
+    await $.skill.prompt(STOP_PROMPT);
+    await $.skill.prompt(STOP_PROMPT);
+
+    expect(grill.posted).toEqual([["close", JSON.stringify({ reason: "stop" })]]);
+  });
+
+  test("the approval closes it once, after its prompt entered", async ($, on) => {
+    const grill = grillRoutes(() => ({ kind: "none" }));
+
+    const seen = world(on, {
+      routes: { ...grill.routes, "/api/pending": () => reply(200, approved(1)) },
+    });
+
+    await $.skill.prompt(START_PROMPT);
+    await tick(seen);
+    await tick(seen);
+
+    expect(seen.prompts).toHaveLength(1);
+    expect(grill.posted).toEqual([["close", JSON.stringify({ reason: "approved" })]]);
   });
 });
