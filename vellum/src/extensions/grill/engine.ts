@@ -6,6 +6,7 @@ import type {
 } from "../../core/engine/extension.ts";
 import type { Live } from "../../core/engine/mode.ts";
 import {
+  NO_GRILL_OPEN,
   type Cursor,
   parseAsked,
   parseCursor,
@@ -78,13 +79,11 @@ const ASK: ExtensionTool = {
       };
     }
 
-    return {
-      deny:
-        response.status === 409
-          ? `no grill open: suggest one with ${SUGGEST_TOOL}`
-          : (parseError(parseJson(response.text)) ??
-            `the review server answered ${response.status}`),
-    };
+    const error = parseError(parseJson(response.text));
+
+    if (error === NO_GRILL_OPEN) return { deny: `no grill open: suggest one with ${SUGGEST_TOOL}` };
+
+    return { deny: error ?? `the review server answered ${response.status}` };
   },
 };
 

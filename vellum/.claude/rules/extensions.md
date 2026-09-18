@@ -43,6 +43,9 @@ and the engine events the core hands it. `grill` is the one extension with all t
   server or the page in. It reaches `core/engine/` as types, talks to its server half through
   `context.api`, and parses what comes back in its `parse.ts`. Its kit tests are
   `<id>/engine.test.ts`, its fake routes `<id>/fixtures/`: the core's world serves none.
+- A file whose structure is read off its lines never takes a text as it comes: `grill`'s
+  transcript quotes Claude's text (`quoted` in `transcript.ts`), or a heading typed in an answer
+  speaks for the reviewer, opens a round or closes the grill.
 - A helper and its `*.spec.ts` live in the folder, beside the half that uses them: its choice
   is a pure function tested with `bun test`, its DOM part a thin adapter, since the page has
   no DOM implementation to test against.

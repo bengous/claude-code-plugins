@@ -11,7 +11,11 @@ export type Polled = { readonly open: boolean; readonly relays: readonly Relay[]
 
 /** The boundary of `grill`: what a request carries arrives as `unknown` and is parsed here, once. */
 
-const GRILL_FILE = /^grill-(\d+)\.md$/u;
+/** No leading zero: `grillFile(grillNumber(name))` must give the name back, or the transcript read is not the one listed. */
+const GRILL_FILE = /^grill-([1-9]\d*)\.md$/u;
+
+/** What `POST ask` and `POST reply` refuse with; the engine reads it to name the way to a grill. */
+export const NO_GRILL_OPEN = "no grill is open";
 
 /** `grill-<n>.md`, the one name a grill's transcript has at the root of the plan's directory. */
 export function grillFile(n: number): string {

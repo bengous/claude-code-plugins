@@ -219,13 +219,26 @@ describe("grill_ask", () => {
   test("with no grill open it is refused, and names the way to one", async ($, on) => {
     world(
       on,
-      grillRoutes(() => NO_GRILL, { ask: () => reply(409, { error: "none" }) }),
+      grillRoutes(() => NO_GRILL, { ask: () => reply(409, { error: "no grill is open" }) }),
     );
 
     await $.skill.prompt(START_PROMPT);
 
     expect(await $.tool.call({ tool: ASK, q: Q })).toEqual({
       deny: "no grill open: suggest one with mcp__vellum__grill_suggest",
+    });
+  });
+
+  test('a refusal that is not "no grill" reaches the model as the server said it', async ($, on) => {
+    const gone = { ask: () => reply(409, { error: "the plan's directory is gone" }) };
+    world(
+      on,
+      grillRoutes(() => NO_GRILL, gone),
+    );
+    await $.skill.prompt(START_PROMPT);
+
+    expect(await $.tool.call({ tool: ASK, q: Q })).toEqual({
+      deny: "the plan's directory is gone",
     });
   });
 
@@ -312,6 +325,20 @@ describe("what the transcript hears of the session", () => {
 
     expect(grill.posted).toEqual([
       ["answer", JSON.stringify({ text: "done", reason: "aborted", own: true })],
+    ]);
+  });
+
+  test("the transcript gets the turn's answer, not what another plugin shows beneath it", async ($, on) => {
+    const grill = grillRoutes(() => NO_GRILL);
+    world(on, grill);
+    on("turn.complete", () => ({ text: "TL;DR of a peer plugin" }));
+    await $.skill.prompt(START_PROMPT);
+    await $.prompt.submit({ text: "Reviewer: x", wait: false, origin: VELLUM });
+    await $.turn.start({ text: "Reviewer: x", turnId: "t1" });
+    await $.turn.complete(TURN_ANSWERED);
+
+    expect(grill.posted).toEqual([
+      ["answer", JSON.stringify({ text: "done", reason: "answer", own: true })],
     ]);
   });
 

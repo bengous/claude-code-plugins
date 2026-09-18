@@ -6,6 +6,7 @@ import {
   grillFile,
   grillFileName,
   grillNumber,
+  NO_GRILL_OPEN,
   parseAnswer,
   parseCloseReason,
   parseEvent,
@@ -76,7 +77,11 @@ async function latest(
   context: ServerContext,
   dir: PlanWorkspace["dir"],
 ): Promise<Transcript | null> {
-  const numbers = (await context.listFiles(dir))
+  // A directory that is gone holds no transcript: the listing rejects there, and a gate or a
+  // route must refuse, not fail.
+  const listed = await context.listFiles(dir).catch(() => []);
+
+  const numbers = listed
     .map((doc) => (doc.path.startsWith(dir) ? grillNumber(doc.path.slice(dir.length)) : null))
     .filter((n) => n !== null);
 
@@ -95,7 +100,7 @@ const NO_CURSOR = -1;
 
 function cursorOf(url: string): Cursor {
   const query = new URL(url).searchParams;
-  const after = Number(query.get("after") ?? NO_CURSOR);
+  const after = Number(query.get("after") || NO_CURSOR);
 
   return { name: query.get("file"), after: Number.isInteger(after) ? after : NO_CURSOR };
 }
@@ -250,7 +255,7 @@ function routes(context: ServerContext): Readonly<Record<RouteKey, Route>> {
 
           return { doc: appendQuestions(doc, questions), answer: Response.json(asked) };
         },
-        () => refused("no grill is open"),
+        () => refused(NO_GRILL_OPEN),
       );
     },
 
@@ -283,7 +288,7 @@ function routes(context: ServerContext): Readonly<Record<RouteKey, Route>> {
             ? refused("no question is open, and the note is empty")
             : written(replied);
         },
-        () => refused("no grill is open"),
+        () => refused(NO_GRILL_OPEN),
       );
     },
 

@@ -274,7 +274,7 @@ export const register: Register = (on) => {
     if (e.reason === "answer") await submitPlan(host, state.live, "keep").catch(() => UNREACHABLE);
 
     await handed(host, state.live, "answered", (extension, context) =>
-      extension.answered?.(context, { text: result.text, reason: e.reason, own }),
+      extension.answered?.(context, { text: e.answer, reason: e.reason, own }),
     );
 
     return result;

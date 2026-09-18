@@ -178,7 +178,9 @@ function GrillDoc(props: RendererProps): preact.JSX.Element {
   const [answers, setAnswers] = useState<ReadonlyMap<string, string>>(new Map());
   const state = grill.value;
   const current = state?.kind === "open" && state.file === path ? state : null;
-  const answer = (id: string, text: string): void => setAnswers(new Map(answers).set(id, text));
+
+  const answer = (id: string, text: string): void =>
+    setAnswers((kept) => new Map(kept).set(id, text));
 
   const typed = (id: string): string => answers.get(id)?.trim() ?? "";
 
@@ -206,7 +208,7 @@ function GrillDoc(props: RendererProps): preact.JSX.Element {
   }, [path, modified]);
 
   return (
-    <div class="grill">
+    <div class="grill-doc">
       <div class="plan">
         {blocks.map((block, index) =>
           block.kind === "html" ? (

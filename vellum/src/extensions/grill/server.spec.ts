@@ -1,5 +1,12 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { existsSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  renameSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -361,5 +368,35 @@ describe("the blocks the page draws", () => {
     expect(html).toContain('<a href="#">a</a>');
     expect(html).toContain('href="https://x.dev"');
     expect(html).toContain('href="./d.md"');
+  });
+});
+
+describe("names and cursors from outside", () => {
+  test("a transcript named with a leading zero is not one, so it hides no open grill", async () => {
+    const { dir, post, get } = await grilling();
+    await post("open", { subject: "auth" });
+    writeFileSync(join(dir, WIP, "grill-02.md"), "# Grill: stray\n");
+
+    expect(await (await get("state")).json()).toMatchObject({
+      kind: "open",
+      file: `${WIP}grill-1.md`,
+    });
+  });
+
+  test("an empty cursor is no cursor: the opening is still due", async () => {
+    const { post, get } = await grilling();
+    await post("open", { subject: "auth" });
+
+    expect(await (await get("state?after=&file=grill-1.md")).json()).toMatchObject({
+      relays: [{ kind: "opened", seq: 0 }],
+    });
+  });
+
+  test("with the plan's directory gone the routes refuse, they do not fail", async () => {
+    const { dir, get, post } = await grilling();
+    renameSync(join(dir, WIP), join(dir, "plans/2026-09-17/elsewhere"));
+
+    expect((await get("state")).status).toBeLessThan(500);
+    expect((await post("ask", { q: [["T", "A?", "R"]] })).status).toBe(409);
   });
 });

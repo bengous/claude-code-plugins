@@ -29,7 +29,7 @@ function project(): string {
 describe("the watchdog", () => {
   test("without a heartbeat the server holds while a stream is open, and expires once the last one closed", async () => {
     let expired = 0;
-    const watchdog = { graceMs: 40, periodMs: 10, expire: () => (expired += 1) };
+    const watchdog = { graceMs: 40, tabHoldMs: 10_000, periodMs: 10, expire: () => (expired += 1) };
     const started = await startServer({ project: project(), workdir: wipDir(), port: 0, watchdog });
     const tab = new AbortController();
     const stream = await fetch(`${started.url}events`, { signal: tab.signal });
@@ -42,6 +42,25 @@ describe("the watchdog", () => {
     started.stop();
 
     expect(expired).toBeGreaterThan(0);
+  });
+});
+
+describe("a server its module left", () => {
+  test("a tab that still listens holds it for a while, not for good", async () => {
+    let expired = 0;
+    const watchdog = { graceMs: 20, tabHoldMs: 100, periodMs: 10, expire: () => (expired += 1) };
+    const started = await startServer({ project: project(), workdir: wipDir(), port: 0, watchdog });
+    const tab = new AbortController();
+    const stream = await fetch(`${started.url}events`, { signal: tab.signal });
+    await stream.body?.getReader().read();
+    await Bun.sleep(60);
+
+    expect(expired, "past the grace, the tab holds").toBe(0);
+    await Bun.sleep(120);
+    tab.abort();
+    started.stop();
+
+    expect(expired, "past the tab's hold, nothing does").toBeGreaterThan(0);
   });
 });
 

@@ -115,6 +115,14 @@ async function relaunched(host: Host, stored: Session): Promise<Found> {
 
   if (launched.kind !== "up") return launched;
   const { server } = launched;
+  const kept = reach(host, stored.server);
+
+  // Another port means the kept one was taken, which is evidence the kept server is up, not
+  // gone: one probe had failed. It is kept, since the reviewer's tab talks to it; the rival
+  // nobody beats or listens to expires by itself.
+  if (server.info.port !== stored.server.port && (await kept.alive())) {
+    return { kind: "up", session: stored, server: kept };
+  }
 
   return { kind: "up", session: { ...stored, server: server.info }, server };
 }

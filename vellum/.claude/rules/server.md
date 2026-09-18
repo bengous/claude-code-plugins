@@ -42,7 +42,9 @@ write under the project root, `http/routes.ts` bodies, paths and status codes,
   rename and with the memory set, so `workspace().dir` is the final directory. No module has to
   be alive for it, and an extension that throws there leaves the plan approved.
 - The module's heartbeat or a reviewer's tab keeps the server: the watchdog expires it once the
-  last heartbeat is past the grace and no event stream is open. `routes.ts` counts the streams,
+  last heartbeat is past the grace and no event stream is open. A tab holds it for a bounded
+  time only (`tabHoldMs`): a `/clear` or a revive on another port leaves a server its module
+  never beats again, and a tab still listening to it must not keep it for good. `routes.ts` counts the streams,
   since the review's own listeners include one `serve.ts` keeps for itself; the same count
   decides whether `POST /api/open` and a gate open the browser.
 - `--token` and `--port` revive a server where its tabs expect it. A port taken meanwhile binds

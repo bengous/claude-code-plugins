@@ -474,6 +474,24 @@ describe("a server that stops answering", () => {
     expect(seen.paths).toContain("/api/pending");
   });
 
+  test("a kept server that missed one probe is kept: a rival on another port is not adopted", async ($, on) => {
+    let probes = 0;
+    const rival = { ...SERVER, port: SERVER.port + 1, token: "rival" };
+
+    const seen = world(on, {
+      stored: storedSession(),
+      routes: { "/api/review": () => ((probes += 1) === 1 ? null : reply(200, {})) },
+      launch: () => ({ value: { exitCode: 0, stdout: JSON.stringify(rival), stderr: "" } }),
+    });
+
+    await $.session.start(SESSION);
+    await tick(seen);
+
+    expect(seen.runs).toHaveLength(1);
+    expect(seen.store.get(`session:${SESSION_ID}`)).toMatchObject({ server: SERVER });
+    expect(seen.paths).toContain("/api/pending");
+  });
+
   test("/vellum:stop during a revival resurrects nothing", async ($, on) => {
     let down = false;
 

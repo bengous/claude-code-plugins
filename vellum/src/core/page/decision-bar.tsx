@@ -78,6 +78,8 @@ type Notes = {
   readonly kind: "notes";
   readonly text: string;
   readonly agreed: readonly Annotation[];
+  /** The hold the reviewer was warned of on the way here; another one brings the warning back. */
+  readonly warned: string | null;
 };
 
 /**
@@ -214,7 +216,8 @@ export function DecisionBar(props: BarProps): preact.JSX.Element {
   };
 
   const proceed = (next: Next): void => {
-    if (next.kind === "notes") setPopover({ kind: "notes", text: "", agreed: annotations.value });
+    if (next.kind === "notes")
+      setPopover({ kind: "notes", text: "", agreed: annotations.value, warned: hold });
     else approve(next.kind === "noted" ? next.notes.text : "");
   };
 
@@ -225,8 +228,9 @@ export function DecisionBar(props: BarProps): preact.JSX.Element {
   const ask = (next: Next): void => {
     const unsent = annotations.value;
     const agreed = next.kind === "noted" && next.notes.agreed === unsent;
+    const warned = hold === null || (next.kind === "noted" && next.notes.warned === hold);
 
-    if (agreed || (unsent.length === 0 && hold === null)) proceed(next);
+    if ((agreed || unsent.length === 0) && warned) proceed(next);
     else setPopover({ kind: "warn", next });
   };
 

@@ -37,6 +37,11 @@ const FOOTER = /\n---\n\nClosed \d{4}-\d{2}-\d{2} \d{2}:\d{2} · ([a-z]+)\n$/u;
 /** As `appendQuestions` writes it, and as Claude types it by hand: a dash of any length, the colon or none. */
 const QUESTION = /^❓\s*\*\*(Q\d+)\*\*\s*[-–—]\s*\*\*(.+?)\*\*:?\s*(.*)$/u;
 
+/** Every question's number, read as `QUESTION` reads a question: one reader, or a hand-typed number is reused. */
+const ASKED = /^❓\s*\*\*Q(\d+)\*\*/gmu;
+
+const EVENT = /^_\(session: .*\)_$/u;
+
 const RECOMMENDATION = /^➡️ ?(.*)$/u;
 
 const RULE = /^\s*-{3,}\s*$/u;
@@ -81,9 +86,7 @@ export function appendEvent(doc: string, command: string): string {
 
 /** Numbers run across the whole grill: the next one follows the highest already asked. */
 export function nextQuestion(doc: string): number {
-  return (
-    Math.max(0, ...[...doc.matchAll(/^❓ \*\*Q(\d+)\*\*/gmu)].map((match) => Number(match[1]))) + 1
-  );
+  return Math.max(0, ...[...doc.matchAll(ASKED)].map((match) => Number(match[1]))) + 1;
 }
 
 /** Opens a round: the questions under Claude's voice, each closed by a rule. */
@@ -165,15 +168,29 @@ export function appendReply(doc: string, answers: readonly Answer[], note: strin
 }
 
 /**
+ * Claude's text as a quotation: the file's structure is read off its lines, so a heading, an
+ * event or a footer inside the text would speak for the reviewer, open a round or close the
+ * grill. A backslash keeps each one text, and Markdown draws it as it was typed.
+ */
+function quoted(text: string): string {
+  return text
+    .replaceAll(/^(?=#|_\(session: )/gmu, "\\")
+    .replaceAll(/^(?=-{3,}\s*\n\s*\nClosed )/gmu, "\\");
+}
+
+/**
  * Claude's final text, kept only when its turn belongs to the grill: `own`, a turn a vellum
  * relay started, or the turn that just asked the round the file ends on. A turn the terminal
  * started is not the grill's, whatever the file's last voice is.
  */
 export function appendAnswer(doc: string, text: string, reason: string, own: boolean): string {
   const ended = reason === "answer" ? "" : `_(turn ${reason})_`;
-  const body = [text.trim(), ended].filter((part) => part !== "").join("\n\n");
+  const body = [quoted(text.trim()), ended].filter((part) => part !== "").join("\n\n");
 
-  if (RULE.test(doc.trimEnd().split("\n").at(-1) ?? "")) {
+  // An event line after the round changes nothing: Claude has still said nothing under it.
+  const spoken = doc.split("\n").findLast((line) => line.trim() !== "" && !EVENT.test(line));
+
+  if (RULE.test(spoken ?? "")) {
     return body === "" ? doc : `${doc}\n${body}\n`;
   }
 

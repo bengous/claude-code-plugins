@@ -12,9 +12,14 @@ import { openInBrowser } from "../browser.ts";
 import { watchFiles } from "../fs.ts";
 import { createHandler } from "./routes.ts";
 
-/** When the server gives up: `expire` runs once nothing has kept it for `graceMs`. */
+/**
+ * When the server gives up: `expire` runs once nothing has kept it for `graceMs`. A tab keeps it
+ * no longer than `tabHoldMs` past the last heartbeat: a `/clear` or a revive on another port
+ * leaves a server its module never beats again, and the reviewer's tab still listens to it.
+ */
 export type Watchdog = {
   readonly graceMs: number;
+  readonly tabHoldMs: number;
   readonly periodMs: number;
   readonly expire: () => void;
 };
@@ -45,6 +50,7 @@ export type Started = {
 
 const WATCHDOG: Watchdog = {
   graceMs: 90_000,
+  tabHoldMs: 15 * 60_000,
   periodMs: 5_000,
   expire: () => process.exit(0),
 };
@@ -147,11 +153,13 @@ export async function startServer(options: ServeOptions): Promise<Started> {
 
   const { server, token, handler } = bound;
   url = `http://127.0.0.1:${server.port}/t/${token}/`;
-  const { graceMs, periodMs, expire } = options.watchdog ?? WATCHDOG;
+  const { graceMs, tabHoldMs, periodMs, expire } = options.watchdog ?? WATCHDOG;
 
-  // The module's heartbeat or a reviewer's tab: either one keeps the server.
+  // The module's heartbeat keeps the server; a reviewer's tab does too, for a while.
   const watchdog = setInterval(() => {
-    if (Date.now() - lastHeartbeat > graceMs && handler.openStreams() === 0) expire();
+    const silent = Date.now() - lastHeartbeat;
+
+    if (silent > graceMs && (handler.openStreams() === 0 || silent > tabHoldMs)) expire();
   }, periodMs);
 
   return {
