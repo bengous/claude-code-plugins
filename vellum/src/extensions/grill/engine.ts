@@ -12,6 +12,7 @@ import {
   parseQuestions,
   parseRelay,
   parseRelayedRound,
+  parseSuggestion,
   type Relay,
   type RelayedRound,
 } from "./parse.ts";
@@ -75,6 +76,36 @@ const ASK: ExtensionTool = {
   },
 };
 
+const SUGGEST: ExtensionTool = {
+  name: "grill_suggest",
+  description:
+    "Suggest a grill to the reviewer in the review page: the subject, and in one sentence why the choices need them. The reviewer starts it, or not.",
+  inputSchema: {
+    type: "object",
+    properties: { subject: { type: "string" }, reason: { type: "string" } },
+    required: ["subject", "reason"],
+  },
+  call: async (context, input): Promise<ToolAnswer> => {
+    const suggestion = parseSuggestion(input);
+
+    if (suggestion === null) return { deny: "subject and reason must both be non-empty strings" };
+    const response = await post(context, "suggest", suggestion);
+
+    if (response.ok) {
+      return { result: "Suggested. End your turn; the reviewer opens the grill from the page." };
+    }
+
+    const error = parseError(parseJson(response.text));
+
+    return {
+      deny:
+        response.status === 409 && error !== null
+          ? `${error}: ask with ${ASK_TOOL}`
+          : `the review server answered ${response.status}`,
+    };
+  },
+};
+
 /** Round 1 is the reviewer's gesture in the page, so Claude is told what it means; the next ones go as written. */
 function relayPrompt(
   context: EngineContext,
@@ -114,7 +145,7 @@ async function tick(context: EngineContext): Promise<void> {
 
 export const grillEngine: EngineExtension = {
   id: "grill",
-  tools: [ASK],
+  tools: [SUGGEST, ASK],
   // The page is the reviewer's one channel while live, so the terminal's question tool is closed.
   refuses: {
     AskUserQuestion: `vellum is live: suggest a grill with ${SUGGEST_TOOL}, or ask inside an open grill with ${ASK_TOOL}`,

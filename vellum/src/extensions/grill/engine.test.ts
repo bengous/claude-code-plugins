@@ -137,6 +137,36 @@ describe("grill_ask", () => {
   });
 });
 
+describe("grill_suggest", () => {
+  const SUGGEST = "mcp__vellum__grill_suggest";
+
+  const IDEA = { subject: "auth", reason: "three choices change the contract" };
+
+  test("hands the subject and the reason to the page, and ends the turn", async ($, on) => {
+    const grill = grillRoutes(() => ({ kind: "none" }));
+    world(on, grill);
+    await $.skill.prompt(START_PROMPT);
+
+    expect(await $.tool.call({ tool: SUGGEST, ...IDEA })).toEqual({
+      result: "Suggested. End your turn; the reviewer opens the grill from the page.",
+    });
+    expect(grill.posted).toEqual([["suggest", JSON.stringify(IDEA)]]);
+  });
+
+  test("is refused while a grill is open, and names the tool to ask with", async ($, on) => {
+    const open = { suggest: () => reply(409, { error: "grill-1.md is open" }) };
+    world(
+      on,
+      grillRoutes(() => openState(1, "x"), open),
+    );
+    await $.skill.prompt(START_PROMPT);
+
+    expect(await $.tool.call({ tool: SUGGEST, ...IDEA })).toEqual({
+      deny: "grill-1.md is open: ask with mcp__vellum__grill_ask",
+    });
+  });
+});
+
 describe("word for word", () => {
   test("a prompt typed in the terminal is written under the user's voice", async ($, on) => {
     const grill = grillRoutes(() => ({ kind: "none" }));

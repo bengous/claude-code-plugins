@@ -12,6 +12,7 @@ import {
   parseQuestions,
   parseReply,
   parseSubject,
+  parseSuggestion,
 } from "./parse.ts";
 import type { Asked, Block, GrillState, Suggestion } from "./protocol.ts";
 import {
@@ -151,6 +152,25 @@ function routes(context: ServerContext): Readonly<Record<RouteKey, Route>> {
       if (workspace === null) return refused("the plan's directory is gone");
 
       return Response.json(stateOf(await latest(context, workspace.dir), suggestion));
+    },
+
+    "POST suggest": async (request) => {
+      const suggested = parseSuggestion(await request.json().catch(() => null));
+      const workspace = await workspaceIfAny(context);
+
+      if (suggested === null) return badRequest();
+
+      if (workspace === null) return refused("the plan's directory is gone");
+      const current = await latest(context, workspace.dir);
+
+      if (current !== null && !isClosed(current.doc)) {
+        return refused(`${grillFile(current.n)} is open`);
+      }
+
+      suggestion = suggested;
+      await context.notify();
+
+      return new Response(null, NO_CONTENT);
     },
 
     "POST open": async (request) => {

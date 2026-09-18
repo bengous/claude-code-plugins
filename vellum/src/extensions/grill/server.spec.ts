@@ -94,6 +94,28 @@ describe("opening a grill", () => {
   });
 });
 
+describe("a suggestion", () => {
+  const IDEA = { subject: "auth", reason: "three choices change the contract" };
+
+  test("is kept for the page until a grill opens", async () => {
+    const { post, get } = await grilling();
+
+    expect((await post("suggest", IDEA)).status).toBe(204);
+    expect(await (await get("state")).json()).toEqual({ kind: "none", suggestion: IDEA });
+    await post("open", { subject: "auth" });
+    await post("close", { reason: "page" });
+    expect(await (await get("state")).json()).toEqual({ kind: "none", suggestion: null });
+  });
+
+  test("is refused while a grill is open, and without a reason", async () => {
+    const { post } = await grilling();
+
+    expect((await post("suggest", { ...IDEA, reason: "" })).status).toBe(400);
+    await post("open", { subject: "auth" });
+    expect(await (await post("suggest", IDEA)).json()).toEqual({ error: "grill-1.md is open" });
+  });
+});
+
 describe("a round", () => {
   const Q = [["Tool names", "Prefix them?", "Yes."]] as const;
 

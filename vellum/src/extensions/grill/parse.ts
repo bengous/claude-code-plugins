@@ -1,6 +1,13 @@
 import type { PromptOrigin } from "claude-code";
 
-import type { Asked, CloseReason, GrillPosts, Question, ReviewerRound } from "./protocol.ts";
+import type {
+  Asked,
+  CloseReason,
+  GrillPosts,
+  Question,
+  ReviewerRound,
+  Suggestion,
+} from "./protocol.ts";
 
 /** What `$.store` keeps under `grill:<session id>`: the reviewer's round the poll already relayed. */
 export type RelayedRound = { readonly file: string; readonly round: number };
@@ -58,6 +65,14 @@ function text(value: unknown): string | null {
 /** `POST open`: the subject the reviewer typed, never empty. */
 export function parseSubject(body: unknown): string | null {
   return isRecord(body) ? text(body.subject) : null;
+}
+
+/** A `grill_suggest` call and `POST suggest`: a subject and a reason, neither empty. */
+export function parseSuggestion(input: unknown): Suggestion | null {
+  const subject = isRecord(input) ? text(input.subject) : null;
+  const reason = isRecord(input) ? text(input.reason) : null;
+
+  return subject === null || reason === null ? null : { subject, reason };
 }
 
 export function parseCloseReason(body: unknown): CloseReason | null {

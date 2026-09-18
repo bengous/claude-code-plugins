@@ -18,9 +18,9 @@ Three moves in order: explore or prototype, settle the choices, then plan. The p
 
 ## 2. Settle the open choices
 
-Ask in rounds: every question whose prerequisites are settled, numbered, each with a recommended answer. A question is asked only when the answer would change the architecture, an interface or the scope. Anything else: take the recommended option and record it in the plan under Assumptions.
+The choices are settled in a grill, in the review page, never by questions in the terminal. You do not start one: call `mcp__vellum__grill_suggest` with the subject and, in one sentence, why the choices need the reviewer, then end your turn. The reviewer starts the grill from the page, with your subject or their own, or does not. Once it is open, a prompt names the transcript and the instructions to read; you ask each round with `mcp__vellum__grill_ask`, and the reviewer ends the grill. `AskUserQuestion` is refused while vellum is live.
 
-`assume` from the reviewer closes the round: every remaining question becomes an assumption. A question the reviewer leaves open on purpose stays in the plan, named, with the option you would take.
+A question is asked only when the answer would change the architecture, an interface or the scope. Anything else: take the recommended option and record it in the plan under Assumptions. Without a grill, every open choice becomes an assumption, or a question left open in the plan, named, with the option you would take.
 
 ## 3. Write the plan, ordered by probability of revision
 
