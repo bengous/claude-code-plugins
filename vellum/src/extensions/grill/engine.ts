@@ -22,6 +22,12 @@ const ASK_TOOL = "mcp__vellum__grill_ask";
 
 const SUGGEST_TOOL = "mcp__vellum__grill_suggest";
 
+/** Claude holds every round in its context, and the transcript's path since the opening: the fact alone is news. */
+const ENDED_PROMPT = "The reviewer ended the grill.";
+
+/** Rounds count from 1, so 0 records that the end of the file's grill was told. */
+const ENDED = 0;
+
 function relayedKey(sessionId: string): string {
   return `grill:${sessionId}`;
 }
@@ -110,37 +116,64 @@ const SUGGEST: ExtensionTool = {
 function relayPrompt(
   context: EngineContext,
   subject: string,
-  reviewer: NonNullable<Relay["reviewer"]>,
+  reviewer: NonNullable<Extract<Relay, { kind: "open" }>["reviewer"]>,
 ): string {
   return reviewer.round === 1
     ? `The reviewer opened a grill in ${reviewer.file} on: ${subject}. Read ${context.host.pluginRoot}/src/extensions/grill/grilling.md, then ask the first round with ${ASK_TOOL}.`
     : reviewer.text;
 }
 
+/** What one poll has to tell Claude, and the record that says it was told. */
+type News = { readonly told: RelayedRound; readonly prompt: string };
+
+function newsOf(context: EngineContext, relay: Relay | null): News | null {
+  if (relay === null) return null;
+
+  if (relay.kind === "ended") {
+    return { told: { file: relay.file, round: ENDED }, prompt: ENDED_PROMPT };
+  }
+
+  const { reviewer, subject } = relay;
+
+  return reviewer === null
+    ? null
+    : {
+        told: { file: reviewer.file, round: reviewer.round },
+        prompt: relayPrompt(context, subject, reviewer),
+      };
+}
+
 /**
- * Relays each round the reviewer wrote, once. The round already relayed is kept in `$.store`, and
- * the rounds are on the server's disk: a reloaded module or a restarted server repeats none.
+ * Relays each round the reviewer wrote, once, then the end of a grill they closed from the page.
+ * What was told is kept in `$.store`, and the rounds are on the server's disk: a reloaded module
+ * or a restarted server repeats nothing.
  */
 async function tick(context: EngineContext): Promise<void> {
   const { host, live, api } = context;
-  const relay = parseRelay(parseJson((await api.get("state")).text));
+  const news = newsOf(context, parseRelay(parseJson((await api.get("state")).text)));
 
-  if (relay === null || relay.reviewer === null) return;
-  const { file, round } = relay.reviewer;
+  if (news === null) return;
   const key = relayedKey(live.session.id);
   const relayed = parseRelayedRound(await host.storeGet(key));
+  const { file, round } = news.told;
 
   if (relayed?.file === file && relayed.round === round) return;
-  const result = await host.submitPrompt(relayPrompt(context, relay.subject, relay.reviewer));
+
+  // An end is told only to the session that relayed a round of that grill: after a `/clear`,
+  // an old transcript of the directory means nothing to the new context.
+  if (round === ENDED && relayed?.file !== file) return;
+  const result = await host.submitPrompt(news.prompt);
 
   if (result.drop !== undefined) {
-    host.log(`the grill round was dropped: ${result.drop}`);
+    host.log(`the grill prompt was dropped: ${result.drop}`);
 
     return;
   }
 
-  const next: RelayedRound = { file, round };
-  await host.storeSet(key, next);
+  await host.storeSet(key, news.told);
+
+  // The path is the harness's to show, never the model's to read again.
+  if (round === ENDED) host.log(`grill closed from the page; ${file} is kept`);
 }
 
 export const grillEngine: EngineExtension = {

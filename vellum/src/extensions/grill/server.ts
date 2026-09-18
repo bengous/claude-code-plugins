@@ -20,6 +20,7 @@ import {
   appendFooter,
   appendPrompt,
   appendQuestions,
+  closedBy,
   header,
   isClosed,
   nextQuestion,
@@ -89,8 +90,11 @@ async function latest(
 }
 
 function stateOf(current: Transcript | null, suggestion: Suggestion | null): GrillState {
-  if (current === null || isClosed(current.doc)) return { kind: "none", suggestion };
+  if (current === null) return { kind: "none", suggestion, closed: null };
   const { file, doc } = current;
+  const reason = closedBy(doc);
+
+  if (reason !== null) return { kind: "none", suggestion, closed: { file, reason } };
   const round = reviewerRound(doc);
 
   return {

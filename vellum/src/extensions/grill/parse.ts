@@ -12,11 +12,17 @@ import type {
 /** What `$.store` keeps under `grill:<session id>`: the reviewer's round the poll already relayed. */
 export type RelayedRound = { readonly file: string; readonly round: number };
 
-/** What the poll reads off `GET state`, brands left to the server: the subject and the round to relay. */
-export type Relay = {
-  readonly subject: string;
-  readonly reviewer: (Omit<ReviewerRound, "file"> & { readonly file: string }) | null;
-};
+/**
+ * What the poll reads off `GET state`, brands left to the server: the round to relay, or a
+ * grill the reviewer ended from the page, the one end Claude cannot know of.
+ */
+export type Relay =
+  | {
+      readonly kind: "open";
+      readonly subject: string;
+      readonly reviewer: (Omit<ReviewerRound, "file"> & { readonly file: string }) | null;
+    }
+  | { readonly kind: "ended"; readonly file: string };
 
 /** The boundary of `grill`: what a request carries arrives as `unknown` and is parsed here, once. */
 
@@ -140,17 +146,29 @@ export function parseError(value: unknown): string | null {
   return isRecord(value) && typeof value.error === "string" ? value.error : null;
 }
 
-/** `GET state` as the poll needs it; `null` when no grill is open. */
+/** `GET state` as the poll needs it; `null` when there is nothing to tell Claude. */
 export function parseRelay(value: unknown): Relay | null {
-  if (!isRecord(value) || value.kind !== "open" || typeof value.subject !== "string") return null;
-  const { reviewer, subject } = value;
+  if (!isRecord(value)) return null;
+  const { closed, reviewer, subject } = value;
+
+  if (value.kind === "none") {
+    return isRecord(closed) && closed.reason === "page" && typeof closed.file === "string"
+      ? { kind: "ended", file: closed.file }
+      : null;
+  }
+
+  if (value.kind !== "open" || typeof subject !== "string") return null;
 
   return isRecord(reviewer) &&
     typeof reviewer.file === "string" &&
     typeof reviewer.round === "number" &&
     typeof reviewer.text === "string"
-    ? { subject, reviewer: { file: reviewer.file, round: reviewer.round, text: reviewer.text } }
-    : { subject, reviewer: null };
+    ? {
+        kind: "open",
+        subject,
+        reviewer: { file: reviewer.file, round: reviewer.round, text: reviewer.text },
+      }
+    : { kind: "open", subject, reviewer: null };
 }
 
 export function parseRelayedRound(value: unknown): RelayedRound | null {

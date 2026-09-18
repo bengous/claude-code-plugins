@@ -92,6 +92,47 @@ describe("the reviewer's rounds reach Claude", () => {
   });
 });
 
+/** `GET state` once the last grill of the directory is closed, by whom the footer says. */
+function ended(reason: string) {
+  return { kind: "none", suggestion: null, closed: { file: GRILL_FILE, reason } };
+}
+
+describe("a grill the reviewer ended from the page", () => {
+  const told = { [`grill:${SESSION_ID}`]: { file: GRILL_FILE, round: 2 } };
+
+  test("is told to Claude once, as the fact alone, and the path goes to the log", async ($, on) => {
+    const seen = world(on, { ...grillRoutes(() => ended("page")), stored: told });
+
+    await $.skill.prompt(START_PROMPT);
+    await tick(seen);
+    await tick(seen);
+
+    expect(seen.prompts).toEqual(["The reviewer ended the grill."]);
+    expect(seen.logs.at(-1)).toBe(`grill closed from the page; ${GRILL_FILE} is kept`);
+  });
+
+  test("an end the session caused itself is not told", async ($, on) => {
+    const seen = world(on, { ...grillRoutes(() => ended("stop")), stored: told });
+
+    await $.skill.prompt(START_PROMPT);
+    await tick(seen);
+
+    expect(seen.prompts).toEqual([]);
+  });
+
+  test("a session that relayed no round of that grill hears nothing of it", async ($, on) => {
+    const seen = world(
+      on,
+      grillRoutes(() => ended("page")),
+    );
+
+    await $.skill.prompt(START_PROMPT);
+    await tick(seen);
+
+    expect(seen.prompts).toEqual([]);
+  });
+});
+
 describe("grill_ask", () => {
   test("a tool $.tool.register registered is served by the unmatched tool.call hook", async ($, on) => {
     const grill = grillRoutes(() => openState(1, "x"), {

@@ -21,7 +21,7 @@ const ROUND = /^## Round (\d+)\n\n### ([^\n]+)\n/gmu;
 
 const ANSWER = `\n### ${CLAUDE}\n\n`;
 
-const FOOTER = /\n---\n\nClosed \d{4}-\d{2}-\d{2} \d{2}:\d{2} · [a-z]+\n$/u;
+const FOOTER = /\n---\n\nClosed \d{4}-\d{2}-\d{2} \d{2}:\d{2} · ([a-z]+)\n$/u;
 
 /** As `appendQuestions` writes it, and as Claude types it by hand: a dash of any length, the colon or none. */
 const QUESTION = /^❓\s*\*\*(Q\d+)\*\*\s*[-–—]\s*\*\*(.+?)\*\*:?\s*(.*)$/u;
@@ -55,6 +55,11 @@ export function appendPrompt(doc: string, author: string, text: string): string 
 
 export function isClosed(doc: string): boolean {
   return FOOTER.test(doc);
+}
+
+/** The reason the footer gives; `null` while the grill is open. */
+export function closedBy(doc: string): string | null {
+  return FOOTER.exec(doc)?.[1] ?? null;
 }
 
 /** Working while the last round has no answer after its prompt. */

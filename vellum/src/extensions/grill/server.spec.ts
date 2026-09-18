@@ -110,10 +110,10 @@ describe("a suggestion", () => {
     const { post, get } = await grilling();
 
     expect((await post("suggest", IDEA)).status).toBe(204);
-    expect(await (await get("state")).json()).toEqual({ kind: "none", suggestion: IDEA });
+    expect(await (await get("state")).json()).toMatchObject({ kind: "none", suggestion: IDEA });
     await post("open", { subject: "auth" });
     await post("close", { reason: "page" });
-    expect(await (await get("state")).json()).toEqual({ kind: "none", suggestion: null });
+    expect(await (await get("state")).json()).toMatchObject({ kind: "none", suggestion: null });
   });
 
   test("is refused while a grill is open, and without a reason", async () => {
@@ -200,7 +200,11 @@ describe("closing a grill", () => {
 
     expect((await post("close", { reason: "page" })).status).toBe(204);
     expect(readFileSync(join(dir, WIP, "grill-1.md"), "utf8")).toMatch(/\nClosed .+ · page\n$/u);
-    expect(await (await get("state")).json()).toEqual({ kind: "none", suggestion: null });
+    expect(await (await get("state")).json()).toEqual({
+      kind: "none",
+      suggestion: null,
+      closed: { file: `${WIP}grill-1.md`, reason: "page" },
+    });
   });
 
   test("with none open it answers 204 and writes nothing", async () => {

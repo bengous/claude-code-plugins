@@ -133,12 +133,15 @@ sequenceDiagram
   P->>S: POST /api/x/grill/reply {text}, round n by Reviewer
   M->>C: $.prompt.submit (the reply, once)
   P->>S: POST /api/x/grill/close, or the module's on /vellum:stop and on the approval
+  M->>C: $.prompt.submit ("The reviewer ended the grill.", once, for a close from the page alone)
 ```
 
 The file is the queue and the state: the server writes every round, the module writes nothing,
 and what is open, who speaks next and which round waits for the relay are read off
 `grill-<n>.md` (`extensions/grill/transcript.ts`). The module keeps one record of its own, in
-`$.store`: the reviewer's round it already relayed. The suggestion alone lives in the server's
+`$.store`: the reviewer's round it already relayed, or that the grill's end was told. A prompt
+carries what Claude does not hold and nothing else: a round goes as the reviewer wrote it, never
+with the questions again, and the end goes as the fact alone, the transcript's path to `$.ui.log`. The suggestion alone lives in the server's
 memory. A prompt Vellum itself submits comes back through its own `prompt.submit` hook, since
 `$.prompt.submit` skips the calling hook alone; its origin (`plugin`, `vellum`) keeps it out of
 the transcript, where the server already wrote what it carries.

@@ -14,7 +14,12 @@ export type ReviewerRound = {
 };
 
 export type GrillState =
-  | { readonly kind: "none"; readonly suggestion: Suggestion | null }
+  | {
+      readonly kind: "none";
+      readonly suggestion: Suggestion | null;
+      /** The last grill of the directory, closed: the engine tells Claude of an end it did not cause. */
+      readonly closed: { readonly file: ProjectPath; readonly reason: string } | null;
+    }
   | {
       readonly kind: "open";
       readonly file: ProjectPath;
