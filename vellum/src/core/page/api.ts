@@ -65,7 +65,13 @@ export async function postDecision(decision: Decision): Promise<number> {
   return response.status;
 }
 
-/** Calls `onWorkspace` at every workspace event the server pushes. */
-export function subscribe(onWorkspace: () => void): void {
-  new EventSource(`${base}/events`).addEventListener("message", onWorkspace);
+/**
+ * Calls `onWorkspace` at every workspace event the server pushes. `EventSource` reconnects by
+ * itself: `onDown` at each attempt that fails, `onUp` once the stream is open again.
+ */
+export function subscribe(onWorkspace: () => void, onDown: () => void, onUp: () => void): void {
+  const events = new EventSource(`${base}/events`);
+  events.addEventListener("message", onWorkspace);
+  events.addEventListener("error", onDown);
+  events.addEventListener("open", onUp);
 }

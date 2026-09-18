@@ -29,6 +29,15 @@ write under the project root, `http/routes.ts` bodies, paths and status codes,
 - `http/serve.ts` binds the `ServerContext` of `src/core/extension.ts` to the review and to
   `fs.ts`, and mounts each extension's routes under `/api/x/<id>/`; `routes.ts` looks them up
   after its own, behind the same token check, and knows none by name.
+- The module's heartbeat or a reviewer's tab keeps the server: the watchdog expires it once the
+  last heartbeat is past the grace and no event stream is open. `routes.ts` counts the streams,
+  since the review's own listeners include one `serve.ts` keeps for itself; the same count
+  decides whether `POST /api/open` and a gate open the browser.
+- `--token` and `--port` revive a server where its tabs expect it. A port taken meanwhile binds
+  another one under a new token, never the kept one: the event stream's URL carries the token,
+  so whoever took the port reads it from every tab that reconnects. `--existing` refuses a
+  working directory that is gone (`WorkdirGone`, exit 3, relayed by the launcher) instead of
+  creating it.
 - A new domain concept gets its address in `domain/` before its first line.
 - A version is a text somebody handed over for review, Claude through `gate` or the reviewer
   through a decision that carries an `Edit`. `decideOn` decides all of it, purely: the version

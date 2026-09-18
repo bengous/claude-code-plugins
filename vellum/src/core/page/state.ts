@@ -57,6 +57,8 @@ export const showChanges = signal(false);
 
 export const error = signal<string | null>(null);
 
+export const connection = signal<"up" | "down">("up");
+
 export const planDoc = computed<DocRef | null>(() => {
   const plan = review.value?.plan;
 
@@ -281,7 +283,13 @@ export async function start(): Promise<void> {
     error.value = `GET /api/draft failed: ${saved.status}. Nothing is saved until a reload succeeds.`;
   }
 
-  subscribe(() => {
-    void loadReview();
-  });
+  subscribe(
+    () => void loadReview(),
+    () => {
+      connection.value = "down";
+    },
+    () => {
+      connection.value = "up";
+    },
+  );
 }

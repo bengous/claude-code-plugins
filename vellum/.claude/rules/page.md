@@ -50,6 +50,10 @@ no build step, so what the page imports costs nothing at `cli start`.
   the text on screen, the bar prints its count, and the plan's renderer marks it while
   "Changes since" is on. On Done the same `lineDiff` shifts the plan's comments through
   `shiftAnnotations`, so a feedback only ever names lines of the text it is sent with.
+- `EventSource` reconnects by itself, so the page polls nothing: `subscribe` reports `error`
+  and `open`, `connection` keeps `up | down`, and the bar draws the lost-connection banner while
+  `down`. A server revived on the same port and token clears it with no reload; past thirty
+  seconds the banner names `/vellum:start`, the one way to a link that works.
 - The server watches the working directory, so every file Claude writes reaches the page as a
   workspace event. A renderer loads its document through `docUrl`, whose query is the file's
   `modified`: a rewrite reloads that document alone, and nothing else remounts.

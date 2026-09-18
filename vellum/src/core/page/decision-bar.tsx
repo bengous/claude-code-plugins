@@ -5,6 +5,7 @@ import type { Annotation, PlanWorkspace } from "../protocol.ts";
 import { countChanges } from "../protocol.ts";
 import {
   annotations,
+  connection,
   decide,
   edited,
   editing,
@@ -158,6 +159,28 @@ function UnsentWarning(props: WarningProps): preact.JSX.Element {
   );
 }
 
+// A server revived on another port never answers this tab again: past this, only a new link does.
+const NEW_LINK_HINT_MS = 30_000;
+
+function ConnectionLost(): preact.JSX.Element {
+  const [late, setLate] = useState(false);
+
+  useEffect(() => {
+    const timer = setTimeout(() => setLate(true), NEW_LINK_HINT_MS);
+
+    return () => clearTimeout(timer);
+  }, []);
+
+  return (
+    <div class="banner err" role="status">
+      <span>
+        Connection to the review server lost. Retrying…
+        {late && " Run /vellum:start for a new link."}
+      </span>
+    </div>
+  );
+}
+
 type BarProps = {
   /** The extensions' actions, handed down by `app.tsx`: the one file that reads the registry. */
   readonly actions: readonly ComponentType[];
@@ -260,6 +283,7 @@ export function DecisionBar(props: BarProps): preact.JSX.Element {
           />
         )}
       </div>
+      {connection.value === "down" && <ConnectionLost />}
       {banner !== null && (
         <div class={`banner ${banner.tone}`}>
           <span>{banner.text}</span>

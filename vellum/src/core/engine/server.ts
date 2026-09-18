@@ -24,6 +24,17 @@ const START_TIMEOUT_MS = 5_000;
  */
 export type Unchanged = "record" | "keep";
 
+/** A transport error or a status outside the contract; a prompt the engine dropped is not one. */
+export class ServerDown extends Error {}
+
+const EXIT_WORKDIR_GONE = 3;
+
+/** What the launcher did: `gone` is a revival whose working directory an approval renamed, or someone removed. */
+export type Launched =
+  | { readonly kind: "up"; readonly server: ReviewServer }
+  | { readonly kind: "gone" }
+  | { readonly kind: "failed" };
+
 /** The review server's client: every route, the token header and the page's address. */
 export type ReviewServer = {
   readonly info: ServerInfo;
@@ -64,7 +75,17 @@ export function reach(host: Host, info: ServerInfo): ReviewServer {
       api(host, info, "/api/gate", { method: "POST", body: JSON.stringify({ unchanged }) }).then(
         parseGate,
       ),
-    pending: () => api(host, info, "/api/pending").then((response) => parsePending(response.text)),
+    pending: () =>
+      api(host, info, "/api/pending").then(
+        (response) => {
+          if (!response.ok) throw new ServerDown(`GET /api/pending answered ${response.status}`);
+
+          return parsePending(response.text);
+        },
+        (cause: unknown) => {
+          throw new ServerDown(String(cause));
+        },
+      ),
     open: () => told("/api/open"),
     heartbeat: () => told("/api/heartbeat"),
     extension: (id) => ({
@@ -74,13 +95,17 @@ export function reach(host: Host, info: ServerInfo): ReviewServer {
   };
 }
 
-/** Spawns the detached server on the working directory; `null` when the launcher could not. */
+/**
+ * Spawns the detached server on the working directory. `kept` revives one: the port and the
+ * token the reviewer's tab knows, on a directory that must still be there.
+ */
 export async function start(
   host: Host,
   id: SessionId,
   project: ProjectDir,
   workdir: Workdir,
-): Promise<ReviewServer | null> {
+  kept: ServerInfo | null,
+): Promise<Launched> {
   const argv = [
     "bun",
     `${host.pluginRoot}/src/core/server/cli.ts`,
@@ -91,6 +116,7 @@ export async function start(
     project,
     "--workdir",
     workdir,
+    ...(kept === null ? [] : ["--port", String(kept.port), "--token", kept.token, "--existing"]),
   ];
 
   try {
@@ -99,13 +125,14 @@ export async function start(
     if (run.exitCode === 0) {
       const info = parseServerInfo(parseJson(run.stdout));
 
-      return info === null ? null : reach(host, info);
+      return info === null ? { kind: "failed" } : { kind: "up", server: reach(host, info) };
     }
 
+    if (run.exitCode === EXIT_WORKDIR_GONE) return { kind: "gone" };
     host.log(`the review server did not start: ${run.stderr.trim()}`);
   } catch (cause) {
     host.log(`the review server did not start: ${String(cause)}`);
   }
 
-  return null;
+  return { kind: "failed" };
 }

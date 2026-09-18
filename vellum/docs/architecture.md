@@ -163,13 +163,19 @@ stateDiagram-v2
   idle --> live: skill.prompt, server reached
   idle --> live: session.start, the stored server answers
   live --> live: another session id, server restarted
+  live --> live: three polls the server failed, revived on its port and token
+  live --> lost: the revival failed, or the working directory is gone
+  idle --> lost: session.start or skill.prompt, the stored server dead and not revived
+  lost --> live: the slow retry, or skill.prompt, revived it
+  lost --> idle: skill.prompt vellum:stop, command.run clear
   live --> idle: approval prompt entered
   live --> idle: skill.prompt vellum:stop
   live --> idle: command.run clear, or resume to another session
   idle --> idle: nothing starts
 ```
 
-`live` allows the file tools inside the working directory and denies them under the project
+`lost` keeps the lock and the session with no server behind them: a failure never opens the
+repository. `live` allows the file tools inside the working directory and denies them under the project
 outside it, serves
 `mcp__vellum__submit`, and polls `GET /api/pending` once a second until it closes: drafting
 batches, then the review's decision, each relayed as a prompt.

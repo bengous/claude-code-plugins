@@ -30,8 +30,21 @@ loop. `/vellum:start` enters it, Approve in the page or `/vellum:stop` leaves it
   never across an import; $ is always spelled $.noun.event(...) at the call site". Passing one
   noun is refused the same way ("$.store is used as a value"). `hostOf($)` is built inside
   each hook, so a timer keeps the host of the dispatch that started it.
-- One `State` union (`idle | live`), never several nullables. A new feature adds a variant,
-  not a flag. Before writing `let x: T | null`, name the state `null` stands for.
+- One `State` union (`idle | live | lost`), never several nullables. A new feature adds a
+  variant, not a flag. Before writing `let x: T | null`, name the state `null` stands for.
+- A server that dies comes back where it was. `pending` throws `ServerDown` on a transport
+  error or a status outside the contract, and nothing else counts: a prompt the engine dropped
+  proves nothing about the server. The third `ServerDown` in a row asks `revive`, once;
+  `session.start` and `/vellum:start` revive a stored server that no longer answers the same
+  way. A revival is `start` with the kept port, the kept token and `--existing`, so the
+  reviewer's tab reconnects by itself and a directory an approval renamed is never recreated
+  empty. `register.ts` checks `state === from` before and after the launch: a `/clear`, a
+  `/vellum:stop` or a new way in wins, and the server started for nothing exits alone.
+- A revival that fails is `lost`, never `idle`: the lock opens outside the mode, so a failure
+  must not hand Claude the repository. `lost` keeps the session, the lock reads it through
+  `sessionOf` as it does while `live`, the status says why (`server lost, retrying`, or
+  `working directory gone, run /vellum:stop`), a slow timer asks `revive` again, and
+  `/vellum:stop` is the way out.
 - `session.start` registers the tool `submit` (`mcp__vellum__submit`, the model's "the plan
   is written" signal), served by a `tool.call` hook that answers without `next`. Its matcher
   must be a string literal, or `claude plugin validate` prints the expression instead of the

@@ -2,7 +2,7 @@
 
 import { parseArgs } from "node:util";
 
-import { startServer } from "./adapters/http/serve.ts";
+import { EXIT_WORKDIR_GONE, startServer, WorkdirGone } from "./adapters/http/serve.ts";
 import { parseWipDir } from "./domain/paths.ts";
 
 const { values, positionals } = parseArgs({
@@ -12,6 +12,8 @@ const { values, positionals } = parseArgs({
     project: { type: "string" },
     workdir: { type: "string" },
     port: { type: "string" },
+    token: { type: "string" },
+    existing: { type: "boolean" },
   },
 });
 
@@ -21,7 +23,7 @@ const { session, project, workdir } = values;
 
 if (session === undefined || project === undefined || workdir === undefined) {
   console.error(
-    "usage: cli.ts start|serve --session <id> --project <dir> --workdir <dir> [--port <n>]",
+    "usage: cli.ts start|serve --session <id> --project <dir> --workdir <dir> [--port <n> --token <t>] [--existing]",
   );
   process.exit(2);
 }
@@ -38,6 +40,12 @@ if (command === "serve") {
     project,
     workdir: dir.value,
     port: Number(values.port ?? 0),
+    token: values.token,
+    existing: values.existing === true,
+  }).catch((cause: unknown) => {
+    if (!(cause instanceof WorkdirGone)) throw cause;
+    console.error(cause.message);
+    process.exit(EXIT_WORKDIR_GONE);
   });
 
   console.log(
@@ -58,7 +66,7 @@ if (command === "serve") {
 
     if (done) {
       console.error("vellum serve exited before announcing its port");
-      process.exit(1);
+      process.exit((await child.exited) === EXIT_WORKDIR_GONE ? EXIT_WORKDIR_GONE : 1);
     }
 
     buffered += decoder.decode(value);

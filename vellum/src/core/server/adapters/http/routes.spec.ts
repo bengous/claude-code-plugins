@@ -92,7 +92,7 @@ function drafting(): Drafting {
   mkdirSync(join(dir, WIP, ".review"), { recursive: true });
   const review = new Review({ project: dir, workdir: wipDir(), extensions: serverExtensions });
 
-  const handler = createHandler({
+  const { handle } = createHandler({
     token: "t",
     project: dir,
     review,
@@ -103,7 +103,7 @@ function drafting(): Drafting {
   });
 
   const call = (method: string, path: string, body: string | null): Promise<Response> =>
-    handler(new Request(`http://x${path}`, { method, headers: { [TOKEN_HEADER]: "t" }, body }));
+    handle(new Request(`http://x${path}`, { method, headers: { [TOKEN_HEADER]: "t" }, body }));
 
   const decide: Drafting["decide"] = (decision) =>
     call("POST", "/api/decision", JSON.stringify(decision));
@@ -247,11 +247,11 @@ describe("routes", () => {
     expect((await post("/api/finalize", JSON.stringify({ version: 1 }))).status).toBe(404);
   });
 
-  test("open reaches the browser only while no tab listens", async () => {
+  test("open reaches the browser while no tab listens, the server's own listener aside", async () => {
     let opened = 0;
     const review = new Review({ project: root, workdir: wipDir(), extensions: serverExtensions });
 
-    const handler = createHandler({
+    const { handle } = createHandler({
       token: "t",
       project: root,
       review,
@@ -262,13 +262,15 @@ describe("routes", () => {
     });
 
     const open = (): Promise<Response> =>
-      handler(
+      handle(
         new Request("http://x/api/open", { method: "POST", headers: { [TOKEN_HEADER]: "t" } }),
       );
 
+    review.subscribe(() => {});
+
     expect((await open()).status).toBe(204);
     expect(opened).toBe(1);
-    review.subscribe(() => {});
+    await handle(new Request("http://x/t/t/events"));
     await open();
     expect(opened).toBe(1);
   });

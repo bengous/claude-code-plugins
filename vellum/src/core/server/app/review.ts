@@ -66,10 +66,6 @@ export class Review {
     return () => this.listeners.delete(listener);
   }
 
-  public get listenerCount(): number {
-    return this.listeners.size;
-  }
-
   public async workspace(): Promise<PlanWorkspace> {
     const disk = await readWorkspace(this.options.project, this.options.workdir);
 

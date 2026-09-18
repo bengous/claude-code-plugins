@@ -1,3 +1,4 @@
+import { existsSync } from "node:fs";
 import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
 
@@ -11,11 +12,28 @@ import { openInBrowser } from "../browser.ts";
 import { listFiles, readTextIfAny, watchFiles, writeText } from "../fs.ts";
 import { createHandler } from "./routes.ts";
 
+/** When the server gives up: `expire` runs once nothing has kept it for `graceMs`. */
+export type Watchdog = {
+  readonly graceMs: number;
+  readonly periodMs: number;
+  readonly expire: () => void;
+};
+
 export type ServeOptions = {
   readonly project: string;
   readonly workdir: WipDir;
+  /** Taken meanwhile: another port is bound, under a new token. */
   readonly port: number;
+  /** The token a revived server keeps, so the reviewer's tab finds its page again. */
+  readonly token?: string | undefined;
+  /** A revived server never creates its directory: an approval may have renamed it. */
+  readonly existing?: boolean;
+  readonly watchdog?: Watchdog;
 };
+
+export class WorkdirGone extends Error {}
+
+export const EXIT_WORKDIR_GONE = 3;
 
 export type Started = {
   readonly server: Bun.Server<undefined>;
@@ -25,9 +43,11 @@ export type Started = {
   readonly stop: () => void;
 };
 
-export const HEARTBEAT_GRACE_MS = 90_000;
-
-const WATCHDOG_PERIOD_MS = 5_000;
+const WATCHDOG: Watchdog = {
+  graceMs: 90_000,
+  periodMs: 5_000,
+  expire: () => process.exit(0),
+};
 
 /**
  * `extensions/html/frame.ts` for the sandboxed mockups, built once: the page bundle never loads it.
@@ -59,9 +79,16 @@ function extensionRoutes(context: ServerContext): ReadonlyMap<string, Route> {
   );
 }
 
+function isPortTaken(cause: unknown): boolean {
+  return cause instanceof Error && "code" in cause && cause.code === "EADDRINUSE";
+}
+
 export async function startServer(options: ServeOptions): Promise<Started> {
+  if (options.existing === true && !existsSync(join(options.project, options.workdir))) {
+    throw new WorkdirGone(`${options.workdir} is gone`);
+  }
+
   await mkdir(join(options.project, options.workdir, REVIEW_DIR), { recursive: true });
-  const token = crypto.randomUUID();
   const frameScript = await buildFrameScript();
 
   const review = new Review({
@@ -80,8 +107,7 @@ export async function startServer(options: ServeOptions): Promise<Started> {
   let lastHeartbeat = Date.now();
   let url = "";
 
-  const handler = createHandler({
-    token,
+  const context = {
     project: options.project,
     review,
     frameScript,
@@ -98,22 +124,43 @@ export async function startServer(options: ServeOptions): Promise<Started> {
     heartbeat: () => {
       lastHeartbeat = Date.now();
     },
-  });
+  };
 
-  const server = Bun.serve({
-    hostname: "127.0.0.1",
-    port: options.port,
-    idleTimeout: 0,
-    development: false,
-    routes: { [`/t/${token}/`]: index },
-    fetch: handler,
-  });
+  const bind = (port: number, token: string) => {
+    const handler = createHandler({ ...context, token });
 
+    const server = Bun.serve({
+      hostname: "127.0.0.1",
+      port,
+      idleTimeout: 0,
+      development: false,
+      routes: { [`/t/${token}/`]: index },
+      fetch: handler.handle,
+    });
+
+    return { server, token, handler };
+  };
+
+  const bound = ((): ReturnType<typeof bind> => {
+    try {
+      return bind(options.port, options.token ?? crypto.randomUUID());
+    } catch (cause) {
+      if (!isPortTaken(cause)) throw cause;
+
+      // The stream's URL carries the token, so whoever took the port reads it from every tab
+      // that reconnects: the kept token goes with the kept port.
+      return bind(0, crypto.randomUUID());
+    }
+  })();
+
+  const { server, token, handler } = bound;
   url = `http://127.0.0.1:${server.port}/t/${token}/`;
+  const { graceMs, periodMs, expire } = options.watchdog ?? WATCHDOG;
 
+  // The module's heartbeat or a reviewer's tab: either one keeps the server.
   const watchdog = setInterval(() => {
-    if (Date.now() - lastHeartbeat > HEARTBEAT_GRACE_MS) process.exit(0);
-  }, WATCHDOG_PERIOD_MS);
+    if (Date.now() - lastHeartbeat > graceMs && handler.openStreams() === 0) expire();
+  }, periodMs);
 
   return {
     server,
