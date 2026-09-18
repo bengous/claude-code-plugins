@@ -25,7 +25,7 @@ export function removedLabel(count: number): string {
   return `${count} ${count === 1 ? "line" : "lines"} removed`;
 }
 
-const BLOCK_TAGS = new Set([
+export const BLOCK_TAGS: ReadonlySet<string> = new Set([
   "p",
   "li",
   "h1",

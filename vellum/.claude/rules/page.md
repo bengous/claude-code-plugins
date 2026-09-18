@@ -7,7 +7,8 @@ paths:
 # The page and its renderers
 
 `src/core/page/` is the Preact page: `api.ts` the client (token, routes, SSE), `state.ts` the store of
-signals, `*.tsx` the components, `anchoring.ts` and `highlights.ts` the text selection,
+signals, `kit.tsx` the components every other `.tsx` draws with, `*.tsx` the rest of them,
+`style.css` and `fonts/` the design system, `anchoring.ts` and `highlights.ts` the text selection,
 `editor.tsx` and `caret.ts` the plan's source editor. The renderers are the page halves of
 the extensions; what an extension is and how one is added is `extensions.md`, which loads
 with the same files. One bundle is a browser's: `Bun.serve` builds it from
@@ -19,6 +20,19 @@ no build step, so what the page imports costs nothing at `cli start`.
   and on the domain's pure `paths.ts`. `src/core/server/` never imports the page beyond
   `index.html`. What an extension may import, and how one is added: `extensions.md`. Held by
   `src/boundaries.spec.ts`.
+- `style.css` is the one place a colour is written: its `:root` and its dark block, which
+  redefines every base token. Every other surface derives with `color-mix()`, and every size
+  is a token of the three scales (`--t-*`, `--s-*`, `--r-*`). Two families, one rule: prose is
+  `--serif` (Literata), code and literals (a path, a version, the diff count, a key) are
+  `--mono` (JetBrains Mono), and the chrome reads as prose. The fonts ship in `fonts/`, each
+  under the bundler's inlining threshold, so they arrive inside the CSS chunk.
+- A button, badge, chip, banner or popover is drawn through `kit.tsx`, never through a class
+  spelled at the call; `kit.tsx` is in `PAGE_SURFACE`, so an extension draws with the same
+  five. A token consumed outside CSS (Mermaid's `themeVariables`, the frame's overlay) parses
+  neither `color-mix()` nor the `oklab()` the browser serializes once computed: it goes through
+  `srgb()`, which yields sRGB, and the consumer redraws on the `dark` signal of `state.ts`.
+- A commented block carries a fillet in the sheet's margin: `markdown/marked.ts` chooses,
+  purely, the innermost block of each commented line, and `page.tsx` toggles `marked` on it.
 - Everything crossing `/api` is JSON and typed in `src/core/protocol.ts`; a new field lands there
   first. What crosses `/api/x/<id>/` is the extension's own, typed in its `protocol.ts`.
 - `app.tsx` is the one file that reads the registry: it picks the renderer and hands the
@@ -72,5 +86,6 @@ no build step, so what the page imports costs nothing at `cli start`.
   before the whole table for a `tr`, never directly under `ul`, `ol`, `tbody` or `tr`.
 - An HTML file is served with a sandboxed CSP, so the page cannot reach into it: `html/frame.ts`
   runs inside the mockup and owns the selection there, the page only sends it the method, the
-  Ctrl state and the selectors already commented. `html/messages.ts` is the contract both sides
-  import; every message crosses with the target `"*"` and each side checks `event.source`.
+  Ctrl state, the selectors already commented and the theme, four tokens resolved to sRGB since
+  its shadow root reads none of the page's properties. `html/messages.ts` is the contract both
+  sides import; every message crosses with the target `"*"` and each side checks `event.source`.

@@ -1,3 +1,4 @@
+import { Button } from "./kit.tsx";
 import type { InputMethod } from "./state.ts";
 import { currentDoc, inputMethod, locked, planDoc, review, showChanges, split } from "./state.ts";
 
@@ -67,9 +68,9 @@ export function Tools(props: ToolsProps): preact.JSX.Element {
       {editable && (
         <>
           <span class="sep" />
-          <button class="btn small" type="button" onClick={props.onEdit}>
+          <Button size="sm" onClick={props.onEdit}>
             Edit
-          </button>
+          </Button>
         </>
       )}
       {since !== null && (

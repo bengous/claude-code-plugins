@@ -416,7 +416,7 @@
     {
       "name": "vellum",
       "description": "Plan at the frontiers and review the plan in the browser: open choices settled first, interfaces and files before mechanics, vertical slices each closed by a check; /vellum:start opens a planning mode of its own where Claude writes the plan and its mockups, the reviewer comments text, HTML elements and diagrams in a page or approves, and the answer reaches Claude as a prompt",
-      "version": "0.5.1",
+      "version": "0.6.0",
       "author": {
         "name": "Augustin BENGOLEA",
         "email": "bengous@protonmail.com"

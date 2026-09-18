@@ -19,8 +19,17 @@ export type FrameToPage =
   | { readonly type: "vellum:unpick" }
   | { readonly type: "vellum:holding"; readonly holding: boolean };
 
+/** The page's tokens the frame's overlay draws with, resolved to sRGB: its shadow root reads none of the page's properties. */
+export type FrameTheme = {
+  readonly redline: string;
+  readonly marker: string;
+  readonly sheet: string;
+  readonly ink: string;
+};
+
 export type PageToFrame =
   | { readonly type: "vellum:method"; readonly method: "select" | "pinpoint" }
   | { readonly type: "vellum:holding"; readonly holding: boolean }
   | { readonly type: "vellum:comments"; readonly selectors: readonly string[] }
+  | { readonly type: "vellum:theme"; readonly theme: FrameTheme }
   | { readonly type: "vellum:clear" };

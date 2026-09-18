@@ -2,6 +2,7 @@ import { useState } from "preact/hooks";
 
 import type { Anchor, Annotation, Mark } from "../protocol.ts";
 import { DELETE_SENTENCE, QUICK_LABELS } from "../protocol.ts";
+import { Button } from "./kit.tsx";
 import {
   addAnnotation,
   annotations,
@@ -118,14 +119,13 @@ export function Comments(): preact.JSX.Element {
           onInput={(event) => setDraft(event.currentTarget.value)}
         />
         <div class="row">
-          <button
-            class="btn small"
-            type="button"
+          <Button
+            size="sm"
             disabled={locked.value || doc === null || draft.trim() === ""}
             onClick={add}
           >
             Add comment
-          </button>
+          </Button>
         </div>
       </div>
     </aside>

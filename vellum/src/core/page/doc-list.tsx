@@ -1,4 +1,5 @@
 import type { DocRef } from "../protocol.ts";
+import { Badge } from "./kit.tsx";
 import { annotations, currentDoc, docs, editing, planDoc, select } from "./state.ts";
 
 function kindOf(doc: DocRef): string {
@@ -30,7 +31,7 @@ export function DocList(): preact.JSX.Element {
     >
       <span class="name">{name}</span>
       <span class="kind">{kind}</span>
-      {count(doc.path) > 0 && <span class="badge">{count(doc.path)}</span>}
+      {count(doc.path) > 0 && <Badge>{count(doc.path)}</Badge>}
     </button>
   );
 

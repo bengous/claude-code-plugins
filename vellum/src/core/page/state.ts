@@ -29,6 +29,15 @@ export const current = signal<ProjectPath | null>(null);
 
 export const split = signal(false);
 
+const darkScheme = window.matchMedia("(prefers-color-scheme: dark)");
+
+/** Whether the page draws its dark theme: what resolves tokens outside CSS redraws at each change. */
+export const dark = signal(darkScheme.matches);
+
+darkScheme.addEventListener("change", (event) => {
+  dark.value = event.matches;
+});
+
 export type InputMethod = "select" | "pinpoint";
 
 export const inputMethod = signal<InputMethod>("select");

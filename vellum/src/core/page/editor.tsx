@@ -2,6 +2,7 @@ import { useEffect, useRef } from "preact/hooks";
 
 import type { Version } from "../server/domain/paths.ts";
 import { offsetOfLine } from "./caret.ts";
+import { Button } from "./kit.tsx";
 import { editing, finishEdit } from "./state.ts";
 
 /** The session the editor opened on: `version` and `base` do not change while it is open. */
@@ -35,24 +36,23 @@ export function Editor(props: EditorProps): preact.JSX.Element {
       <div class="tools">
         <span>Editing the source of v{props.version}</span>
         <span class="spacer" />
-        <button
-          class="btn small"
-          type="button"
+        <Button
+          size="sm"
           onClick={() => {
             editing.value = null;
           }}
         >
           Cancel
-        </button>
-        <button
-          class="btn small send"
-          type="button"
+        </Button>
+        <Button
+          size="sm"
+          variant="send"
           onClick={() =>
             finishEdit(props.version, props.base, textarea.current?.value ?? props.base)
           }
         >
           Done
-        </button>
+        </Button>
       </div>
       <div class="panes">
         <div class="editor">

@@ -11,14 +11,15 @@ import { elementRelation, labelOf, selectorOf, targetIndex } from "./pick.ts";
 
 const TEXT_LIMIT = 120;
 
+/** The colours are the page's tokens, posted resolved with `vellum:theme` and set on the layer. */
 const STYLE = `
 .box { position: absolute; box-sizing: border-box; }
-.wash { background: rgba(194, 59, 34, 0.1); }
-.adding { border: 2px dashed #c23b22; }
-.chosen { border: 2px solid #c23b22; background: rgba(194, 59, 34, 0.06); }
-.comment { border: 2px solid #c8a52a; background: rgba(243, 222, 109, 0.25); }
+.wash { background: color-mix(in srgb, var(--redline) 10%, transparent); }
+.adding { border: 2px dashed var(--redline); }
+.chosen { border: 2px solid var(--redline); background: color-mix(in srgb, var(--redline) 6%, transparent); }
+.comment { border: 2px solid color-mix(in srgb, var(--marker) 70%, var(--ink)); background: color-mix(in srgb, var(--marker) 25%, transparent); }
 .label { position: absolute; left: -2px; top: -20px; padding: 3px 6px; border-radius: 3px;
-  font: 600 11px/1 ui-monospace, Menlo, monospace; background: #c23b22; color: #fff; white-space: nowrap; }
+  font: 600 11px/1 ui-monospace, Menlo, monospace; background: var(--redline); color: var(--sheet); white-space: nowrap; }
 `;
 
 let method: "select" | "pinpoint" = "select";
@@ -220,6 +221,12 @@ function onMessage(event: MessageEvent): void {
   if (message.type === "vellum:holding") setHolding(message.holding);
 
   if (message.type === "vellum:comments") commented = message.selectors;
+
+  if (message.type === "vellum:theme") {
+    for (const [name, value] of Object.entries(message.theme)) {
+      layer.style.setProperty(`--${name}`, value);
+    }
+  }
 
   if (message.type === "vellum:clear") chosen = [];
   draw();

@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from "preact/hooks";
 
 import type { Annotation, PlanWorkspace } from "../protocol.ts";
 import { countChanges } from "../protocol.ts";
+import { Badge, Banner, Button, Popover } from "./kit.tsx";
 import {
   annotations,
   connection,
@@ -17,7 +18,7 @@ import {
 
 type Status = { readonly label: string; readonly tone: "" | "sent" | "ok" | "err" };
 
-type Banner = {
+type Notice = {
   readonly text: string;
   readonly tone: "sent" | "ok" | "err";
   readonly retry: boolean;
@@ -38,7 +39,7 @@ function statusOf(workspace: PlanWorkspace): Status {
   }
 }
 
-function bannerOf(workspace: PlanWorkspace): Banner | null {
+function noticeOf(workspace: PlanWorkspace): Notice | null {
   switch (workspace.kind) {
     case "drafting":
       return null;
@@ -92,9 +93,12 @@ type Next =
   | { readonly kind: "noted"; readonly notes: Notes };
 
 /** The one popover under the bar: the notes, or the warning that stands before `next`. */
-type Popover = { readonly kind: "closed" } | Notes | { readonly kind: "warn"; readonly next: Next };
+type BarPopover =
+  | { readonly kind: "closed" }
+  | Notes
+  | { readonly kind: "warn"; readonly next: Next };
 
-const CLOSED: Popover = { kind: "closed" };
+const CLOSED: BarPopover = { kind: "closed" };
 
 type NotesProps = {
   readonly text: string;
@@ -110,7 +114,7 @@ function ApprovalNotes(props: NotesProps): preact.JSX.Element {
   useEffect(() => textarea.current?.focus(), []);
 
   return (
-    <div class="popover pop-bar" role="dialog" aria-label="Approval notes">
+    <Popover label="Approval notes" class="pop-bar">
       <label for="approval-notes">Notes for Claude, read before its first action</label>
       <textarea
         id="approval-notes"
@@ -123,14 +127,14 @@ function ApprovalNotes(props: NotesProps): preact.JSX.Element {
         }}
       />
       <div class="row">
-        <button class="btn small" type="button" onClick={props.onCancel}>
+        <Button size="sm" onClick={props.onCancel}>
           Cancel
-        </button>
-        <button class="btn small" type="button" onClick={props.onApprove}>
+        </Button>
+        <Button size="sm" onClick={props.onApprove}>
           Approve <kbd>Ctrl</kbd> <kbd>↵</kbd>
-        </button>
+        </Button>
       </div>
-    </div>
+    </Popover>
   );
 }
 
@@ -146,7 +150,7 @@ function ApprovalWarning(props: WarningProps): preact.JSX.Element {
   const one = props.count === 1;
 
   return (
-    <div class="popover pop-bar" role="dialog" aria-label="Before approving">
+    <Popover label="Before approving" class="pop-bar">
       {props.count > 0 && (
         <>
           <div class="warn-text">
@@ -157,14 +161,14 @@ function ApprovalWarning(props: WarningProps): preact.JSX.Element {
       )}
       {props.hold !== null && <div class="warn-text">{props.hold}; approving ends it.</div>}
       <div class="row">
-        <button class="btn small" type="button" onClick={props.onCancel}>
+        <Button size="sm" onClick={props.onCancel}>
           Cancel
-        </button>
-        <button class="btn small send" type="button" onClick={props.onApprove}>
+        </Button>
+        <Button size="sm" variant="send" onClick={props.onApprove}>
           Approve anyway
-        </button>
+        </Button>
       </div>
-    </div>
+    </Popover>
   );
 }
 
@@ -181,12 +185,12 @@ function ConnectionLost(): preact.JSX.Element {
   }, []);
 
   return (
-    <div class="banner err" role="status">
+    <Banner kind="err">
       <span>
         Connection to the review server lost. Retrying…
         {late && " Run /vellum:start for a new link."}
       </span>
-    </div>
+    </Banner>
   );
 }
 
@@ -199,11 +203,11 @@ export function DecisionBar(props: BarProps): preact.JSX.Element {
   const view = review.value;
   const workspace = view?.workspace;
   const status = workspace === undefined ? null : statusOf(workspace);
-  const banner = workspace === undefined ? null : bannerOf(workspace);
+  const notice = workspace === undefined ? null : noticeOf(workspace);
   const count = annotations.value.length;
   const since = view?.plan?.previous?.version;
   const changed = planChanges.value === null ? null : countChanges(planChanges.value);
-  const [popover, setPopover] = useState<Popover>(CLOSED);
+  const [popover, setPopover] = useState<BarPopover>(CLOSED);
   const close = (): void => setPopover(CLOSED);
   const frozen = locked.value || editing.value !== null;
   const hold = view?.held ?? null;
@@ -254,35 +258,24 @@ export function DecisionBar(props: BarProps): preact.JSX.Element {
         ))}
         {workspace?.kind !== "drafting" && (
           <>
-            <button
-              class="btn"
-              type="button"
-              disabled={frozen || stuck}
-              onClick={() => ask({ kind: "approve" })}
-            >
+            <Button disabled={frozen || stuck} onClick={() => ask({ kind: "approve" })}>
               Approve
-            </button>
-            <button
-              class="btn"
-              type="button"
-              disabled={frozen || stuck}
-              onClick={() => ask({ kind: "notes" })}
-            >
+            </Button>
+            <Button disabled={frozen || stuck} onClick={() => ask({ kind: "notes" })}>
               Approve with notes…
-            </button>
+            </Button>
           </>
         )}
-        <button
-          class="btn send"
-          type="button"
+        <Button
+          variant="send"
           disabled={frozen || hold !== null || (count === 0 && edited.value === null)}
           title={hold === null ? undefined : `${hold}; end it first`}
           onClick={() =>
             void decide({ kind: "feedback", edit: edited.value, annotations: annotations.value })
           }
         >
-          Send feedback {count > 0 && <span class="badge">{count}</span>}
-        </button>
+          Send feedback {count > 0 && <Badge>{count}</Badge>}
+        </Button>
         {popover.kind === "notes" && !frozen && (
           <ApprovalNotes
             text={popover.text}
@@ -301,34 +294,32 @@ export function DecisionBar(props: BarProps): preact.JSX.Element {
         )}
       </div>
       {connection.value === "down" && <ConnectionLost />}
-      {banner !== null && (
-        <div class={`banner ${banner.tone}`}>
-          <span>{banner.text}</span>
-          {banner.retry && (
-            <button
-              class="btn small"
-              type="button"
+      {notice !== null && (
+        <Banner kind={notice.tone}>
+          <span>{notice.text}</span>
+          {notice.retry && (
+            <Button
+              size="sm"
               disabled={editing.value !== null}
               onClick={() => void decide({ kind: "approve", edit: null, notes: "" })}
             >
               Retry approval
-            </button>
+            </Button>
           )}
-        </div>
+        </Banner>
       )}
       {error.value !== null && (
-        <div class="banner err">
+        <Banner kind="err">
           <span>{error.value}</span>
-          <button
-            class="btn small"
-            type="button"
+          <Button
+            size="sm"
             onClick={() => {
               error.value = null;
             }}
           >
             Dismiss
-          </button>
-        </div>
+          </Button>
+        </Banner>
       )}
     </>
   );

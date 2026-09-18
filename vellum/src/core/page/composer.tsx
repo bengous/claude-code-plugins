@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "preact/hooks";
 
 import type { Mark, QuickLabel } from "../protocol.ts";
 import { QUICK_LABELS } from "../protocol.ts";
+import { Button, Chip, Popover } from "./kit.tsx";
 
 /** One chosen place, as the popover shows it: what it says, and where it is. */
 export type Pick = { readonly key: string; readonly text: string; readonly where: string };
@@ -33,12 +34,7 @@ export function Composer(props: ComposerProps): preact.JSX.Element {
   useEffect(() => textarea.current?.focus(), [places]);
 
   return (
-    <div
-      class={props.through ? "popover through" : "popover"}
-      role="dialog"
-      aria-label="New comment"
-      style={{ top: `${props.top}px`, left: `${props.left}px` }}
-    >
+    <Popover label="New comment" through={props.through} top={props.top} left={props.left}>
       {props.picks.map((pick) => (
         <div class="quote" key={pick.key}>
           “{pick.text}” · {pick.where}
@@ -46,19 +42,17 @@ export function Composer(props: ComposerProps): preact.JSX.Element {
       ))}
       <div class="labels">
         {LABELS.map((label) => (
-          <button
-            class="chip"
-            type="button"
+          <Chip
             key={label}
             onClick={() => props.onSubmit({ kind: "label", label, body: body.trim() })}
           >
             {QUICK_LABELS[label].name}
-          </button>
+          </Chip>
         ))}
         <span class="spacer" />
-        <button class="chip del" type="button" onClick={() => props.onSubmit({ kind: "delete" })}>
+        <Chip tone="del" onClick={() => props.onSubmit({ kind: "delete" })}>
           Delete this
-        </button>
+        </Chip>
       </div>
       <textarea
         rows={3}
@@ -69,18 +63,18 @@ export function Composer(props: ComposerProps): preact.JSX.Element {
         onInput={(event) => setBody(event.currentTarget.value)}
       />
       <div class="row">
-        <button class="btn small" type="button" onClick={props.onCancel}>
+        <Button size="sm" onClick={props.onCancel}>
           Cancel
-        </button>
-        <button
-          class="btn small send"
-          type="button"
+        </Button>
+        <Button
+          size="sm"
+          variant="send"
           disabled={body.trim() === ""}
           onClick={() => props.onSubmit({ kind: "comment", body: body.trim() })}
         >
           Add comment
-        </button>
+        </Button>
       </div>
-    </div>
+    </Popover>
   );
 }

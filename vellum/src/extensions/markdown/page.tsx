@@ -8,11 +8,13 @@ import { passageFromRange, passageFromSelection, rangeFor } from "../../core/pag
 import { docUrl, fileUrl } from "../../core/page/api.ts";
 import { Composer } from "../../core/page/composer.tsx";
 import { paint } from "../../core/page/highlights.ts";
-import { activeMethod, docs, holding, locked, select } from "../../core/page/state.ts";
+import { srgb } from "../../core/page/kit.tsx";
+import { activeMethod, dark, docs, holding, locked, select } from "../../core/page/state.ts";
 import type { Passage } from "../../core/protocol.ts";
 import { parseProjectPath } from "../../core/server/domain/paths.ts";
 import type { Changes, RemovedRun } from "./changes.ts";
 import { changesOf, removedLabel } from "./changes.ts";
+import { markedIndices } from "./marked.ts";
 import type { Target } from "./pinpoint.ts";
 import { boxOf, diagramPassage, rangeOf, targetAt, toggled } from "./pinpoint.ts";
 import { toTree } from "./tree.ts";
@@ -177,7 +179,25 @@ async function drawDiagrams(root: HTMLElement): Promise<void> {
     securityLevel: "strict",
     // A failed render throws before it cleans up: the figure shows the error, and body stays clean.
     suppressErrorRendering: true,
-    theme: window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "default",
+    theme: "base",
+    themeVariables: {
+      background: srgb("--sheet"),
+      mainBkg: srgb("--tint"),
+      primaryColor: srgb("--tint"),
+      primaryTextColor: srgb("--ink"),
+      primaryBorderColor: srgb("--graphite"),
+      secondaryColor: srgb("--sheet"),
+      tertiaryColor: srgb("--sheet"),
+      nodeBorder: srgb("--graphite"),
+      lineColor: srgb("--graphite"),
+      textColor: srgb("--ink"),
+      clusterBkg: srgb("--sheet"),
+      clusterBorder: srgb("--rule"),
+      edgeLabelBackground: srgb("--sheet"),
+      titleColor: srgb("--ink"),
+      fontFamily: getComputedStyle(document.documentElement).getPropertyValue("--mono").trim(),
+      fontSize: "13px",
+    },
   });
 
   for (const figure of figures) {
@@ -271,6 +291,21 @@ function MarkdownDoc(props: RendererProps): preact.JSX.Element {
       }
     };
 
+    /** The block holding a commented passage carries a fillet in the sheet's margin. */
+    const fillet = (passages: readonly Passage[]): void => {
+      const blocks = [...root.querySelectorAll<HTMLElement>("[data-lines]")];
+
+      const marked = markedIndices(
+        blocks.map((block) => ({
+          tag: block.tagName.toLowerCase(),
+          lines: block.dataset.lines ?? "",
+        })),
+        passages.map((passage) => passage.lines),
+      );
+
+      blocks.forEach((block, index) => block.classList.toggle("marked", marked.has(index)));
+    };
+
     const commented = props.annotations.flatMap((annotation) =>
       annotation.anchor.kind === "text" ? annotation.anchor.passages : [],
     );
@@ -281,20 +316,24 @@ function MarkdownDoc(props: RendererProps): preact.JSX.Element {
     paint("vellum-draft", rangesOf(picked));
     box("commented", commented);
     box("picked", picked);
+    fillet(commented);
 
     return () => {
       paint("vellum-comment", []);
       paint("vellum-draft", []);
       box("commented", []);
       box("picked", []);
+      fillet([]);
     };
   }, [props.annotations, draft, content]);
+
+  const night = dark.value;
 
   useEffect(() => {
     const root = container.current;
 
     if (root !== null) void drawDiagrams(root);
-  }, [content]);
+  }, [content, night]);
 
   const onMouseUp = (): void => {
     const root = container.current;

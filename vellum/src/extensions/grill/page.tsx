@@ -3,6 +3,7 @@ import { useEffect, useState } from "preact/hooks";
 
 import type { PageExtension, RendererProps } from "../../core/extension.ts";
 import { extensionRequest } from "../../core/page/api.ts";
+import { Button } from "../../core/page/kit.tsx";
 import { error, review, select } from "../../core/page/state.ts";
 import { grillNumber } from "./parse.ts";
 import type { Block, GrillPosts, GrillState } from "./protocol.ts";
@@ -84,14 +85,14 @@ function GrillAction(): preact.JSX.Element {
           Grill open · {state.phase === "working" ? "Claude is working" : nameOf(state.file)}
         </span>
       )}
-      <button
-        class={suggestion === null ? "btn grill" : "btn grill lit"}
-        type="button"
+      <Button
+        variant="grill"
+        class={suggestion === null ? undefined : "lit"}
         disabled={state?.kind !== "none" || view?.workspace.kind === "approved"}
         onClick={() => setBanner(shown ? "dismissed" : "open")}
       >
         Grill
-      </button>
+      </Button>
       {shown && (
         <div class="grill-banner">
           {suggestion !== null && (
@@ -108,17 +109,12 @@ function GrillAction(): preact.JSX.Element {
               if (event.key === "Enter" && subject.trim() !== "") start();
             }}
           />
-          <button
-            class="btn small send"
-            type="button"
-            disabled={subject.trim() === ""}
-            onClick={start}
-          >
+          <Button size="sm" variant="send" disabled={subject.trim() === ""} onClick={start}>
             Start grilling
-          </button>
-          <button class="btn small" type="button" onClick={() => setBanner("dismissed")}>
+          </Button>
+          <Button size="sm" onClick={() => setBanner("dismissed")}>
             Dismiss
-          </button>
+          </Button>
         </div>
       )}
     </>
@@ -147,9 +143,9 @@ function QuestionCard(props: CardProps): preact.JSX.Element {
           <span class="label">Recommended</span>
           <span class="text">{block.rec}</span>
           {props.onAnswer !== null && (
-            <button class="btn small" type="button" onClick={() => props.onAnswer?.(TAKEN)}>
+            <Button size="sm" onClick={() => props.onAnswer?.(TAKEN)}>
               Take it
-            </button>
+            </Button>
           )}
         </div>
       )}
@@ -246,12 +242,10 @@ function GrillDoc(props: RendererProps): preact.JSX.Element {
                 ? "An empty field takes the recommendation. Answers go to Claude once its turn ends."
                 : "No question is open. A note goes to Claude once its turn ends."}
             </span>
-            <button class="btn" type="button" onClick={closeGrill}>
-              End grill
-            </button>
-            <button class="btn send" type="button" disabled={!sendable} onClick={() => void send()}>
+            <Button onClick={closeGrill}>End grill</Button>
+            <Button variant="send" disabled={!sendable} onClick={() => void send()}>
               Send answers
-            </button>
+            </Button>
           </div>
         </div>
       )}

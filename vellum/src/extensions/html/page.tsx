@@ -3,9 +3,10 @@ import { useEffect, useRef, useState } from "preact/hooks";
 import type { RendererProps, PageExtension } from "../../core/extension.ts";
 import { docUrl } from "../../core/page/api.ts";
 import { Composer } from "../../core/page/composer.tsx";
-import { activeMethod, holding, locked } from "../../core/page/state.ts";
+import { srgb } from "../../core/page/kit.tsx";
+import { activeMethod, dark, holding, locked } from "../../core/page/state.ts";
 import type { ElementRef } from "../../core/protocol.ts";
-import type { FrameToPage, PageToFrame, PickBox } from "./messages.ts";
+import type { FrameTheme, FrameToPage, PageToFrame, PickBox } from "./messages.ts";
 
 type Draft = {
   readonly elements: readonly [ElementRef, ...ElementRef[]];
@@ -24,6 +25,15 @@ function under(frame: HTMLIFrameElement, box: PickBox): { top: number; left: num
   return { top: top + box.height + 8, left: Math.max(8, box.left + rect.left - paneRect.left) };
 }
 
+function themeOf(): FrameTheme {
+  return {
+    redline: srgb("--redline"),
+    marker: srgb("--marker"),
+    sheet: srgb("--sheet"),
+    ink: srgb("--ink"),
+  };
+}
+
 function HtmlDoc(props: RendererProps): preact.JSX.Element {
   const frame = useRef<HTMLIFrameElement>(null);
   const [draft, setDraft] = useState<Draft | null>(null);
@@ -31,6 +41,7 @@ function HtmlDoc(props: RendererProps): preact.JSX.Element {
   // On a locked page the frame is told `select`, where it picks nothing and outlines nothing.
   const method = activeMethod.value ?? "select";
   const held = holding.value;
+  const night = dark.value;
 
   const selectors = props.annotations.flatMap((annotation) =>
     annotation.anchor.kind === "element"
@@ -48,6 +59,8 @@ function HtmlDoc(props: RendererProps): preact.JSX.Element {
   }, [method]);
 
   useEffect(() => post({ type: "vellum:holding", holding: held }), [held]);
+
+  useEffect(() => post({ type: "vellum:theme", theme: themeOf() }), [night]);
 
   useEffect(
     () => post({ type: "vellum:comments", selectors }),
@@ -92,6 +105,7 @@ function HtmlDoc(props: RendererProps): preact.JSX.Element {
         sandbox="allow-scripts"
         src={docUrl(props.doc)}
         onLoad={() => {
+          post({ type: "vellum:theme", theme: themeOf() });
           post({ type: "vellum:method", method });
           post({ type: "vellum:comments", selectors });
         }}

@@ -20,6 +20,7 @@ const PAGE_SURFACE = [
   "api.ts",
   "composer.tsx",
   "highlights.ts",
+  "kit.tsx",
   "selection.ts",
   "state.ts",
 ];
