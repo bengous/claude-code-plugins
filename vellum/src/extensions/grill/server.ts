@@ -8,7 +8,7 @@ import {
   grillNumber,
   parseAnswer,
   parseCloseReason,
-  parsePrompt,
+  parseEvent,
   parseQuestions,
   parseReply,
   parseSubject,
@@ -18,15 +18,15 @@ import type { Asked, Block, GrillState, Suggestion } from "./protocol.ts";
 import {
   appendAnswer,
   appendFooter,
-  appendPrompt,
+  appendEvent,
+  appendReply,
   appendQuestions,
   closedBy,
   header,
   isClosed,
   nextQuestion,
   phaseOf,
-  REVIEWER,
-  reviewerRound,
+  reviewerEntry,
   segmentsOf,
   subjectOf,
 } from "./transcript.ts";
@@ -95,7 +95,7 @@ function stateOf(current: Transcript | null, suggestion: Suggestion | null): Gri
   const reason = closedBy(doc);
 
   if (reason !== null) return { kind: "none", suggestion, closed: { file, reason } };
-  const round = reviewerRound(doc);
+  const round = reviewerEntry(doc);
 
   return {
     kind: "open",
@@ -196,8 +196,7 @@ function routes(context: ServerContext): Readonly<Record<RouteKey, Route>> {
 
         const file = projectPath(`${workspace.dir}${grillFile((current?.n ?? 0) + 1)}`);
         const session = /wip-([0-9a-f]{8})\/$/u.exec(workspace.dir)?.[1] ?? "";
-        const opened = header(subject, session, new Date());
-        await context.writeText(file, appendPrompt(opened, REVIEWER, `Grill me on: ${subject}`));
+        await context.writeText(file, header(subject, session, new Date()));
         suggestion = null;
         await context.notify();
 
@@ -210,7 +209,9 @@ function routes(context: ServerContext): Readonly<Record<RouteKey, Route>> {
 
       return reason === null
         ? badRequest()
-        : await change((doc) => written(appendFooter(doc, reason, new Date())));
+        : await change((doc) =>
+            written(appendFooter(appendReply(doc, [], "") ?? doc, reason, new Date())),
+          );
     },
 
     "POST ask": async (request) => {
@@ -229,12 +230,12 @@ function routes(context: ServerContext): Readonly<Record<RouteKey, Route>> {
       );
     },
 
-    "POST prompt": async (request) => {
-      const prompt = parsePrompt(await request.json().catch(() => null));
+    "POST event": async (request) => {
+      const event = parseEvent(await request.json().catch(() => null));
 
-      return prompt === null
+      return event === null
         ? badRequest()
-        : await change((doc) => written(appendPrompt(doc, prompt.author, prompt.text)));
+        : await change((doc) => written(appendEvent(doc, event.command)));
     },
 
     "POST answer": async (request) => {
@@ -246,15 +247,18 @@ function routes(context: ServerContext): Readonly<Record<RouteKey, Route>> {
     },
 
     "POST reply": async (request) => {
-      const text = parseReply(await request.json().catch(() => null));
+      const reply = parseReply(await request.json().catch(() => null));
 
-      if (text === null) return badRequest();
+      if (reply === null) return badRequest();
 
       return await change(
-        (doc) =>
-          phaseOf(doc) === "waiting"
-            ? written(appendPrompt(doc, REVIEWER, text))
-            : refused("Claude is working: the round is not open yet"),
+        (doc) => {
+          const replied = appendReply(doc, reply.answers, reply.note);
+
+          return replied === null
+            ? refused("no question is open, and the note is empty")
+            : written(replied);
+        },
         () => refused("no grill is open"),
       );
     },

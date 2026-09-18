@@ -1,5 +1,3 @@
-import type { PromptOrigin } from "claude-code";
-
 import type {
   Asked,
   CloseReason,
@@ -50,15 +48,6 @@ export function grillFileName(raw: string | null): string | null {
   return grillNumber(name) === null ? null : name;
 }
 
-/** The voice a prompt speaks under: the person at any of their keyboards is `User`. */
-export function authorOf(origin: PromptOrigin): string {
-  if (origin.kind === "composer" || origin.kind === "bridge" || origin.kind === "sdk") {
-    return "User";
-  }
-
-  return origin.kind === "plugin" ? `Plugin ${origin.name}` : origin.kind;
-}
-
 /* oxlint-disable anti-slop/no-runtime-typeof, anti-slop/no-unknown-parameters, anti-slop/no-unsafe-dictionary-type, anti-slop/no-unknown-returns, anti-slop/no-known-value-widening -- the block below IS the boundary parser the rules ask for: it validates the JSON bodies the page and the hooks module post, and there is no earlier place to parse them. */
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
@@ -88,17 +77,23 @@ export function parseCloseReason(body: unknown): CloseReason | null {
   return reason === "page" || reason === "stop" || reason === "approved" ? reason : null;
 }
 
-/** `POST reply`: the reviewer's round, never empty. */
-export function parseReply(body: unknown): string | null {
-  return isRecord(body) ? text(body.text) : null;
+/** `POST reply`: the answers the reviewer typed, by question id, and what they wrote beside them. */
+export function parseReply(body: unknown): GrillPosts["reply"] | null {
+  if (!isRecord(body) || !Array.isArray(body.answers) || typeof body.note !== "string") return null;
+
+  const answers = body.answers.map((answer: unknown) =>
+    isRecord(answer) && typeof answer.id === "string" && typeof answer.text === "string"
+      ? { id: answer.id, text: answer.text }
+      : null,
+  );
+
+  return answers.every((answer) => answer !== null) ? { answers, note: body.note } : null;
 }
 
-export function parsePrompt(body: unknown): GrillPosts["prompt"] | null {
-  const written = isRecord(body) ? text(body.text) : null;
+export function parseEvent(body: unknown): GrillPosts["event"] | null {
+  const command = isRecord(body) ? text(body.command) : null;
 
-  return isRecord(body) && typeof body.author === "string" && written !== null
-    ? { author: body.author, text: written }
-    : null;
+  return command === null ? null : { command };
 }
 
 /** An empty text is a turn that ended without one: the transcript says so, so it is kept. */

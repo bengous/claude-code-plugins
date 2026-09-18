@@ -128,7 +128,8 @@ function GrillAction(): preact.JSX.Element {
 type CardProps = {
   readonly block: Extract<Block, { kind: "question" }>;
   readonly answer: string;
-  readonly onAnswer: (text: string) => void;
+  /** `null` once the question is answered, or the grill closed: the card takes nothing. */
+  readonly onAnswer: ((text: string) => void) | null;
 };
 
 function QuestionCard(props: CardProps): preact.JSX.Element {
@@ -145,19 +146,25 @@ function QuestionCard(props: CardProps): preact.JSX.Element {
         <div class="rec">
           <span class="label">Recommended</span>
           <span class="text">{block.rec}</span>
-          {block.open && (
-            <button class="btn small" type="button" onClick={() => props.onAnswer(TAKEN)}>
+          {props.onAnswer !== null && (
+            <button class="btn small" type="button" onClick={() => props.onAnswer?.(TAKEN)}>
               Take it
             </button>
           )}
         </div>
       )}
-      {block.open && (
+      {block.answer !== null && (
+        <div class="answer">
+          <span class="label">Your answer</span>
+          <span class="text">{block.answer}</span>
+        </div>
+      )}
+      {props.onAnswer !== null && (
         <textarea
           aria-label={`Answer to ${block.id}`}
-          placeholder={`Answer ${block.id}`}
+          placeholder={`Answer ${block.id}, or leave empty to take the recommendation`}
           value={props.answer}
-          onInput={(event) => props.onAnswer(event.currentTarget.value)}
+          onInput={(event) => props.onAnswer?.(event.currentTarget.value)}
         />
       )}
     </div>
@@ -175,17 +182,17 @@ function GrillDoc(props: RendererProps): preact.JSX.Element {
 
   const typed = (id: string): string => answers.get(id)?.trim() ?? "";
 
-  const round = [
-    ...blocks.flatMap((block) =>
-      block.kind === "question" && block.open && typed(block.id) !== ""
-        ? [`${block.id}: ${typed(block.id)}`]
-        : [],
-    ),
-    ...(typed("") === "" ? [] : [typed("")]),
-  ].join("\n\n");
+  const open = blocks.flatMap((block) =>
+    block.kind === "question" && block.answer === null ? [block.id] : [],
+  );
+
+  const sendable = current !== null && (open.length > 0 || typed("") !== "");
 
   const send = async (): Promise<void> => {
-    const response = await post("reply", { text: round });
+    const response = await post("reply", {
+      answers: open.map((id) => ({ id, text: typed(id) })),
+      note: typed(""),
+    });
 
     if (response.ok) setAnswers(new Map());
   };
@@ -211,41 +218,36 @@ function GrillDoc(props: RendererProps): preact.JSX.Element {
               key={block.id}
               block={block}
               answer={answers.get(block.id) ?? ""}
-              onAnswer={(text) => answer(block.id, text)}
+              onAnswer={
+                current !== null && block.answer === null ? (text) => answer(block.id, text) : null
+              }
             />
           ),
         )}
       </div>
       {current !== null && (
         <div class="grill-foot">
-          {current.phase === "waiting" && (
-            <textarea
-              aria-label="Anything else for Claude"
-              placeholder="Anything else. Ctrl+Enter sends."
-              value={answers.get("") ?? ""}
-              onInput={(event) => answer("", event.currentTarget.value)}
-              onKeyDown={(event) => {
-                if (event.key === "Enter" && (event.ctrlKey || event.metaKey) && round !== "") {
-                  void send();
-                }
-              }}
-            />
-          )}
+          <textarea
+            aria-label="Anything else for Claude"
+            placeholder="Anything else. Ctrl+Enter sends."
+            value={answers.get("") ?? ""}
+            onInput={(event) => answer("", event.currentTarget.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter" && (event.ctrlKey || event.metaKey) && sendable) {
+                void send();
+              }
+            }}
+          />
           <div class="row">
             <span class="note">
-              {current.phase === "waiting"
-                ? "Answers go to Claude once the current turn ends."
-                : "Claude is working. Fields come back with its next round."}
+              {open.length > 0
+                ? "An empty field takes the recommendation. Answers go to Claude once its turn ends."
+                : "No question is open. A note goes to Claude once its turn ends."}
             </span>
             <button class="btn" type="button" onClick={closeGrill}>
               End grill
             </button>
-            <button
-              class="btn send"
-              type="button"
-              disabled={current.phase !== "waiting" || round === ""}
-              onClick={() => void send()}
-            >
+            <button class="btn send" type="button" disabled={!sendable} onClick={() => void send()}>
               Send answers
             </button>
           </div>

@@ -5,7 +5,6 @@ import type {
   ToolAnswer,
 } from "../../core/engine/extension.ts";
 import {
-  authorOf,
   parseAsked,
   parseError,
   parseJson,
@@ -25,8 +24,10 @@ const SUGGEST_TOOL = "mcp__vellum__grill_suggest";
 /** Claude holds every round in its context, and the transcript's path since the opening: the fact alone is news. */
 const ENDED_PROMPT = "The reviewer ended the grill.";
 
-/** Rounds count from 1, so 0 records that the end of the file's grill was told. */
-const ENDED = 0;
+/** The reviewer's entries count from 0, the opening, so -1 records that the grill's end was told. */
+const ENDED = -1;
+
+const OPENING = 0;
 
 function relayedKey(sessionId: string): string {
   return `grill:${sessionId}`;
@@ -112,13 +113,13 @@ const SUGGEST: ExtensionTool = {
   },
 };
 
-/** Round 1 is the reviewer's gesture in the page, so Claude is told what it means; the next ones go as written. */
+/** The opening is the reviewer's gesture in the page, so Claude is told what it means; a reply goes as written. */
 function relayPrompt(
   context: EngineContext,
   subject: string,
   reviewer: NonNullable<Extract<Relay, { kind: "open" }>["reviewer"]>,
 ): string {
-  return reviewer.round === 1
+  return reviewer.round === OPENING
     ? `The reviewer opened a grill in ${reviewer.file} on: ${subject}. Read ${context.host.pluginRoot}/src/extensions/grill/grilling.md, then ask the first round with ${ASK_TOOL}.`
     : reviewer.text;
 }
@@ -183,9 +184,12 @@ export const grillEngine: EngineExtension = {
   refuses: {
     AskUserQuestion: `vellum is live: suggest a grill with ${SUGGEST_TOOL}, or ask inside an open grill with ${ASK_TOOL}`,
   },
-  // Word for word: the server writes both only while a grill is open, so nothing is kept here.
+  // A command of the session is the harness's, kept as an event; what the reviewer types in the
+  // terminal is not the grill's. The server writes only while a grill is open.
   prompted: async (context, prompt) => {
-    await post(context, "prompt", { author: authorOf(prompt.origin), text: prompt.text });
+    if (prompt.text.trimStart().startsWith("/")) {
+      await post(context, "event", { command: prompt.text });
+    }
   },
   answered: async (context, turn) => {
     await post(context, "answer", turn);

@@ -3,7 +3,7 @@ import { reply, WORKDIR } from "../../../core/engine/fixtures/index.ts";
 
 export const GRILL_FILE = `${WORKDIR}grill-1.md`;
 
-/** `GET state` of an open grill whose last reviewer's round waits for the relay. */
+/** `GET state` of an open grill whose reviewer's entry waits for the relay: 0 is the opening, n their nth reply. */
 export function openState(round: number, text: string) {
   return {
     kind: "open",
@@ -26,7 +26,7 @@ export function grillRoutes(
   answers: Readonly<Record<string, Route>> = {},
 ): GrillRoutes {
   const posted: [name: string, body: string][] = [];
-  const names = ["ask", "suggest", "prompt", "answer", "close"];
+  const names = ["ask", "suggest", "event", "answer", "close"];
 
   const post =
     (name: string): Route =>

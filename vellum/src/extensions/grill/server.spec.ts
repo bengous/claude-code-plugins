@@ -56,26 +56,26 @@ afterEach(() => {
 });
 
 describe("opening a grill", () => {
-  test("writes grill-1.md with the reviewer's gesture as round 1", async () => {
+  test("writes grill-1.md, its header alone: the subject is the reviewer's gesture", async () => {
     const { dir, post, get } = await grilling();
 
     const opened = await post("open", { subject: "auth" });
 
     expect(opened.status).toBe(201);
     expect(await opened.json()).toEqual({ file: `${WIP}grill-1.md` });
-    expect(readFileSync(join(dir, WIP, "grill-1.md"), "utf8")).toEndWith(
-      "· session c95eaf71\n\n## Round 1\n\n### Reviewer\n\nGrill me on: auth\n",
+    expect(readFileSync(join(dir, WIP, "grill-1.md"), "utf8")).toMatch(
+      /^# Grill: auth\n\nStarted .+ · session c95eaf71\n$/u,
     );
     expect(await (await get("state")).json()).toMatchObject({ kind: "open", phase: "working" });
   });
 
-  test("the state names the reviewer's round for the engine to relay", async () => {
+  test("the state names the opening for the engine to relay", async () => {
     const { post, get } = await grilling();
     await post("open", { subject: "auth" });
 
     expect(await (await get("state")).json()).toMatchObject({
       subject: "auth",
-      reviewer: { file: `${WIP}grill-1.md`, round: 1, text: "Grill me on: auth" },
+      reviewer: { file: `${WIP}grill-1.md`, round: 0, text: "" },
     });
   });
 
@@ -126,9 +126,9 @@ describe("a suggestion", () => {
 });
 
 describe("a round", () => {
-  const Q = [["Tool names", "Prefix them?", "Yes."]] as const;
+  const Q = [["Tool names", "Prefix them?", "I recommend yes."]] as const;
 
-  test("ask writes the questions under Claude's voice and answers their numbers", async () => {
+  test("ask opens a round under Claude's voice and answers the questions' numbers", async () => {
     const { dir, post, get } = await grilling();
     await post("open", { subject: "auth" });
 
@@ -136,58 +136,70 @@ describe("a round", () => {
 
     expect(await asked.json()).toEqual({ first: 1, last: 2 });
     expect(readFileSync(join(dir, WIP, "grill-1.md"), "utf8")).toContain(
-      "### Claude\n\n❓ **Q1** - **Tool names**: Prefix them?\n\n➡️ Yes.\n\n---\n",
+      "## Round 1\n\n### Claude\n\n❓ **Q1** - **Tool names**: Prefix them?\n\n➡️ I recommend yes.\n\n---\n",
     );
     expect(await (await get("state")).json()).toMatchObject({ phase: "waiting", reviewer: null });
   });
 
-  test("reply writes the reviewer's round, which the state hands to the engine", async () => {
+  test("reply closes every open question, the empty ones by default, and hands the engine the text", async () => {
     const { post, get } = await grilling();
     await post("open", { subject: "auth" });
-    await post("ask", { q: Q });
+    await post("ask", { q: [...Q, ...Q] });
 
-    expect((await post("reply", { text: "Q1: yes" })).status).toBe(204);
+    expect((await post("reply", { answers: [{ id: "Q2", text: "no" }], note: "" })).status).toBe(
+      204,
+    );
     expect(await (await get("state")).json()).toMatchObject({
       phase: "working",
-      reviewer: { round: 2, text: "Q1: yes" },
+      reviewer: { round: 1, text: "Q1: As recommended, by default.\n\nQ2: no" },
     });
   });
 
-  test("reply is refused while Claude works, and empty", async () => {
-    const { post } = await grilling();
+  test("a session command lands between the ask and the reply, and the round still takes it", async () => {
+    const { post, get } = await grilling();
     await post("open", { subject: "auth" });
+    await post("ask", { q: Q });
+    await post("event", { command: "/vellum:start" });
+    await post("answer", { text: "Welcome back.", reason: "answer" });
 
-    expect((await post("reply", { text: "too early" })).status).toBe(409);
-    expect((await post("reply", { text: " " })).status).toBe(400);
+    expect((await post("reply", { answers: [{ id: "Q1", text: "yes" }], note: "" })).status).toBe(
+      204,
+    );
+    const blocks = await get(`blocks?file=${WIP}grill-1.md`);
+    expect(await blocks.json()).toContainEqual(
+      expect.objectContaining({ id: "Q1", answer: "yes" }),
+    );
   });
 
-  test("ask and reply are refused with no grill open", async () => {
+  test("reply is refused with nothing to say, and with no grill open", async () => {
     const { post } = await grilling();
 
-    expect((await post("ask", { q: Q })).status).toBe(409);
-    expect((await post("reply", { text: "x" })).status).toBe(409);
+    expect((await post("reply", { answers: [], note: "x" })).status).toBe(409);
+    await post("open", { subject: "auth" });
+    expect((await post("reply", { answers: [], note: " " })).status).toBe(409);
+    expect((await post("ask", { q: [] })).status).toBe(400);
   });
 });
 
-describe("word for word", () => {
-  test("a prompt and a final text are written in the order they came", async () => {
+describe("what the transcript keeps", () => {
+  test("Claude's text under the opening, a session command as an event, in the order they came", async () => {
     const { dir, post } = await grilling();
     await post("open", { subject: "auth" });
 
     await Promise.all([
       post("answer", { text: "Two facts first.", reason: "answer" }),
-      post("prompt", { author: "User", text: "go on" }),
+      post("event", { command: "/compact" }),
     ]);
 
     expect(readFileSync(join(dir, WIP, "grill-1.md"), "utf8")).toEndWith(
-      "### Claude\n\nTwo facts first.\n\n## Round 2\n\n### User\n\ngo on\n",
+      "### Claude\n\nTwo facts first.\n\n_(session: /compact)_\n",
     );
   });
 
   test("with no grill open nothing is written", async () => {
     const { dir, post } = await grilling();
 
-    expect((await post("prompt", { author: "User", text: "hello" })).status).toBe(204);
+    expect((await post("event", { command: "/clear" })).status).toBe(204);
     expect((await post("answer", { text: "hi", reason: "answer" })).status).toBe(204);
     expect(existsSync(join(dir, WIP, "grill-1.md"))).toBe(false);
   });
@@ -205,6 +217,17 @@ describe("closing a grill", () => {
       suggestion: null,
       closed: { file: `${WIP}grill-1.md`, reason: "page" },
     });
+  });
+
+  test("a question still open takes the recommendation by default, above the footer", async () => {
+    const { dir, post } = await grilling();
+    await post("open", { subject: "auth" });
+    await post("ask", { q: [["Tool names", "Prefix them?", "I recommend yes."]] });
+    await post("close", { reason: "page" });
+
+    expect(readFileSync(join(dir, WIP, "grill-1.md"), "utf8")).toMatch(
+      /### Reviewer\n\nQ1: As recommended, by default\.\n\n---\n\nClosed .+ · page\n$/u,
+    );
   });
 
   test("with none open it answers 204 and writes nothing", async () => {
@@ -246,7 +269,7 @@ describe("the blocks the page draws", () => {
     const blocks = await get(`blocks?file=${encodeURIComponent(`${WIP}grill-1.md`)}`);
 
     expect(await blocks.json()).toEqual([
-      { kind: "html", html: expect.stringContaining("<h3>Reviewer</h3>") },
+      { kind: "html", html: expect.stringContaining("<h1>Grill: auth</h1>") },
     ]);
     expect((await get("blocks?file=../../../etc/passwd")).status).toBe(404);
     expect((await get("blocks?file=grill-9.md")).status).toBe(404);

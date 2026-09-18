@@ -6,7 +6,7 @@ export type Question = { readonly title: string; readonly ask: string; readonly 
 
 export type Suggestion = { readonly subject: string; readonly reason: string };
 
-/** A round the reviewer wrote: what the engine relays, once. */
+/** An entry of the reviewer Claude has not answered: `round` 0 is the opening, `n` their nth reply. What the engine relays, once. */
 export type ReviewerRound = {
   readonly file: ProjectPath;
   readonly round: number;
@@ -25,13 +25,13 @@ export type GrillState =
       readonly file: ProjectPath;
       readonly subject: string;
       readonly phase: "working" | "waiting";
-      /** The last round the reviewer wrote; `null` once Claude answered under it. */
+      /** The reviewer's last entry; `null` once Claude answered under it. */
       readonly reviewer: ReviewerRound | null;
     };
 
 /**
  * What the page draws. A question crosses as data, never as rendered Markdown: the page draws a
- * card with its number, its topic, the recommendation and, while `open`, its field. The `❓`
+ * card with its number, its topic, the recommendation, and its answer or its field. The `❓`
  * and `➡️` markers stay in the file, where they carry the parsing, and the page never prints them.
  */
 export type Block =
@@ -43,8 +43,8 @@ export type Block =
       readonly title: string;
       readonly ask: string;
       readonly rec: string;
-      /** Asked in the round that waits for the reviewer: the card takes an answer. */
-      readonly open: boolean;
+      /** The reviewer's answer, read beside its question; `null` while the card takes one. */
+      readonly answer: string | null;
     };
 
 export type CloseReason = "page" | "stop" | "approved";
@@ -61,9 +61,13 @@ export type GrillPosts = {
   readonly close: { readonly reason: CloseReason };
   readonly ask: { readonly q: readonly QuestionTriple[] };
   readonly suggest: Suggestion;
-  readonly reply: { readonly text: string };
-  /** A prompt that entered the session, under the voice the transcript gives its origin. */
-  readonly prompt: { readonly author: string; readonly text: string };
+  /** Closes every open question: one left out of `answers` takes the recommendation by default. */
+  readonly reply: {
+    readonly answers: readonly { readonly id: string; readonly text: string }[];
+    readonly note: string;
+  };
+  /** A command of the session (`/vellum:start`, `/clear`): the harness's, written as an event. */
+  readonly event: { readonly command: string };
   /** The main loop's final text, and why the turn ended. */
   readonly answer: { readonly text: string; readonly reason: string };
 };

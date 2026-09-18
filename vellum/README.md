@@ -36,9 +36,9 @@ References, loaded one at a time: `program-design.md` (signatures, call-stack an
 
 ### A grill
 
-The **Grill** button opens a grill on a subject you type; when Claude suggested one, the button is lit and a banner carries its reason and its subject, which you may change. Claude never opens a grill. Each one is a file of the working directory, `grill-<n>.md`, listed with the other artifacts and carried to the final directory by the approval. From its opening to its end it keeps every prompt and every final text of Claude word for word; Vellum's own relayed prompts are left out.
+The **Grill** button opens a grill on a subject you type; when Claude suggested one, the button is lit and a banner carries its reason and its subject, which you may change. Claude never opens a grill. Each one is a file of the working directory, `grill-<n>.md`, listed with the other artifacts and carried to the final directory by the approval. It keeps the rounds: Claude's questions, your answers beside them, and what Claude says in the turns of the grill. A command of the session (`/vellum:start`, `/clear`) is kept as an event line; what you type in the terminal is not the grill's.
 
-Claude asks a round with `mcp__vellum__grill_ask`. The page draws each question as a card: its number, its topic, the question, and the recommendation with **Take it**, which fills the field with `As recommended.` and sends nothing: Claude wrote the recommendation, so its text never goes back to it. **Send answers** writes your round to the file, and Claude receives it once its turn ends. **End grill** closes the file with a footer and tells Claude, in one sentence, that the grill ended; `/vellum:stop` and the approval close it too. While the mode is live `AskUserQuestion` is refused: the page is your one channel. One grill is open at a time.
+Claude asks a round with `mcp__vellum__grill_ask`. The page draws each question as a card: its number, its topic, the question, and the recommendation with **Take it**, which fills the field with `As recommended.` and sends nothing: Claude wrote the recommendation, so its text never goes back to it. **Send answers** closes every open question: a field left empty takes the recommendation, marked as taken by default. Your reply is written in the round of its questions, and Claude receives the answers alone once its turn ends. A question stays open until you send, whatever happens in the session meanwhile. **End grill** closes the file with a footer and tells Claude, in one sentence, that the grill ended; `/vellum:stop` and the approval close it too. While the mode is live `AskUserQuestion` is refused: the page is your one channel. One grill is open at a time.
 
 `/vellum:stop` leaves the mode without a plan; the directory is kept. `/clear`, and a `/resume` that lands in another session, suspend it: timers stopped, the session's record kept, so resuming that session later finds its directory. The status bar reads `vellum: planning`, then `vellum: plan vN under review`.
 
@@ -61,7 +61,7 @@ The plugin installs a hooks module that refuses writes and spawns a process. The
 | `tool.check` | | The lock. Its `.catch` denies whatever the failure, so a hook that throws or overruns cannot open it. |
 | `tool.call` | `tool=mcp__vellum__submit` | Gates the plan and names the version, without running a tool. |
 | `tool.call` | | Serves `mcp__vellum__grill_suggest` and `mcp__vellum__grill_ask`, and refuses `AskUserQuestion` while the mode is live; every other call passes on. |
-| `prompt.submit` | | While the mode is live, hands each prompt to the open grill's transcript, Vellum's own relays left out, then passes it on unchanged. |
+| `prompt.submit` | | While the mode is live, hands a command of the session to the open grill's transcript as an event, Vellum's own relays left out, then passes every prompt on unchanged. |
 | `turn.complete` | | Gates `plan.md` after a main-loop turn answered while the mode is live; an unchanged text is kept. Hands the main loop's final text to the open grill's transcript. |
 
 ### What it calls on `$`

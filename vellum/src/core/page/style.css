@@ -159,6 +159,9 @@ iframe { border: 0; width: 100%; height: 100%; display: block; background: #fff;
 .grill-q .topic { font-weight: 600; }
 .grill-q .ask { margin: 0 0 10px; white-space: pre-wrap; }
 .grill-q .rec { display: flex; align-items: center; gap: 10px; background: var(--tint); border-radius: 6px; padding: 8px 10px; margin-bottom: 10px; font-size: 0.92rem; }
+.grill-q .answer { display: flex; align-items: baseline; gap: 10px; border-left: 3px solid var(--ok); padding: 4px 10px; font-size: 0.95rem; }
+.grill-q .answer .label { font: 600 0.7rem var(--ui); text-transform: uppercase; letter-spacing: 0.06em; color: var(--ok); white-space: nowrap; }
+.grill-q .answer .text { white-space: pre-wrap; }
 .grill-q textarea { min-height: 64px; border-color: var(--ask); }
 .grill-q .rec .label { font: 600 0.7rem var(--ui); text-transform: uppercase; letter-spacing: 0.06em; color: var(--graphite); }
 .grill-q .rec .text { flex: 1; white-space: pre-wrap; }

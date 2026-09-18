@@ -32,7 +32,7 @@ describe("the reviewer's rounds reach Claude", () => {
   test("the opening is relayed once, as what the gesture means", async ($, on) => {
     const seen = world(
       on,
-      grillRoutes(() => openState(1, "Grill me on: auth")),
+      grillRoutes(() => openState(0, "")),
     );
 
     await $.skill.prompt(START_PROMPT);
@@ -44,13 +44,13 @@ describe("the reviewer's rounds reach Claude", () => {
         /^The reviewer opened a grill in .+grill-1\.md on: auth\. Read .+\/src\/extensions\/grill\/grilling\.md, then ask the first round with mcp__vellum__grill_ask\.$/u,
       ),
     ]);
-    expect(seen.store.get(`grill:${SESSION_ID}`)).toEqual({ file: GRILL_FILE, round: 1 });
+    expect(seen.store.get(`grill:${SESSION_ID}`)).toEqual({ file: GRILL_FILE, round: 0 });
   });
 
   test("a reloaded module does not relay the opening again", async ($, on) => {
     const seen = world(on, {
-      ...grillRoutes(() => openState(1, "Grill me on: auth")),
-      stored: { ...storedSession(), [`grill:${SESSION_ID}`]: { file: GRILL_FILE, round: 1 } },
+      ...grillRoutes(() => openState(0, "")),
+      stored: { ...storedSession(), [`grill:${SESSION_ID}`]: { file: GRILL_FILE, round: 0 } },
     });
 
     await $.session.start(SESSION);
@@ -60,7 +60,7 @@ describe("the reviewer's rounds reach Claude", () => {
   });
 
   test("an answered round is relayed once, as the reviewer wrote it", async ($, on) => {
-    let round = 1;
+    let round = 0;
 
     const seen = world(
       on,
@@ -69,11 +69,11 @@ describe("the reviewer's rounds reach Claude", () => {
 
     await $.skill.prompt(START_PROMPT);
     await tick(seen);
-    round = 2;
+    round = 1;
     await tick(seen);
     await tick(seen);
 
-    expect(seen.prompts.slice(1)).toEqual(["round 2"]);
+    expect(seen.prompts.slice(1)).toEqual(["round 1"]);
   });
 
   test("a dropped round is not remembered, so the next tick retries", async ($, on) => {
@@ -214,14 +214,15 @@ describe("grill_suggest", () => {
   });
 });
 
-describe("word for word", () => {
-  test("a prompt typed in the terminal is written under the user's voice", async ($, on) => {
+describe("what the transcript hears of the session", () => {
+  test("a session command is kept as an event; what is typed in the terminal is not the grill's", async ($, on) => {
     const grill = grillRoutes(() => ({ kind: "none" }));
     world(on, grill);
     await $.skill.prompt(START_PROMPT);
     await $.prompt.submit({ text: "go on", wait: false, origin: { kind: "composer" } });
+    await $.prompt.submit({ text: "/compact", wait: false, origin: { kind: "composer" } });
 
-    expect(grill.posted).toEqual([["prompt", JSON.stringify({ author: "User", text: "go on" })]]);
+    expect(grill.posted).toEqual([["event", JSON.stringify({ command: "/compact" })]]);
   });
 
   test("a round vellum relays is not written again: the server already holds it", async ($, on) => {
@@ -230,13 +231,10 @@ describe("word for word", () => {
     await $.skill.prompt(START_PROMPT);
     await tick(seen);
 
-    await $.prompt.submit({ text: "x", wait: false, origin: { kind: "plugin", name: "vellum" } });
-    await $.prompt.submit({ text: "y", wait: false, origin: { kind: "plugin", name: "other" } });
+    await $.prompt.submit({ text: "/x", wait: false, origin: { kind: "plugin", name: "vellum" } });
 
-    expect(seen.prompts).toEqual(["Q1: yes", "x", "y"]);
-    expect(grill.posted).toEqual([
-      ["prompt", JSON.stringify({ author: "Plugin other", text: "y" })],
-    ]);
+    expect(seen.prompts).toEqual(["Q1: yes", "/x"]);
+    expect(grill.posted).toEqual([]);
   });
 
   test("the main loop's final text is written, an interrupted turn too", async ($, on) => {

@@ -123,18 +123,25 @@ sequenceDiagram
   M->>S: POST /api/x/grill/suggest
   S-->>P: workspace event, the Grill button lit
   P->>S: POST /api/x/grill/open {subject}
-  S->>S: writes grill-1.md, round 1 by Reviewer
+  S->>S: writes grill-1.md, its header
   M->>S: tick: GET /api/x/grill/state
   M->>C: $.prompt.submit (the opening, once)
   C->>M: tool.call grill_ask {q}
-  M->>S: POST /api/x/grill/ask, questions appended
+  M->>S: POST /api/x/grill/ask, a round opened
   C->>M: turn.complete
   M->>S: POST /api/x/grill/answer, the final text under the questions
-  P->>S: POST /api/x/grill/reply {text}, round n by Reviewer
+  P->>S: POST /api/x/grill/reply {answers, note}, written in the round of its questions
   M->>C: $.prompt.submit (the reply, once)
   P->>S: POST /api/x/grill/close, or the module's on /vellum:stop and on the approval
   M->>C: $.prompt.submit ("The reviewer ended the grill.", once, for a close from the page alone)
 ```
+
+A round is Claude's: `grill_ask` alone opens one, and the reviewer's reply is written in it, so
+an answer is read beside its question. A reply closes every open question, the ones left empty
+with "As recommended, by default."; so does the end of the grill. A question is open until a
+reply answers it, whatever happened since: a command of the session (`/vellum:start`, `/clear`)
+is the harness's, written as an event line that opens and closes nothing. What the reviewer
+types in the terminal, and what Claude answers to it, are not the grill's and are not written.
 
 The file is the queue and the state: the server writes every round, the module writes nothing,
 and what is open, who speaks next and which round waits for the relay are read off
