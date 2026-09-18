@@ -293,7 +293,7 @@ describe("closing from the session", () => {
     expect(grill.posted).toEqual([["close", JSON.stringify({ reason: "stop" })]]);
   });
 
-  test("the approval closes it once, after its prompt entered", async ($, on) => {
+  test("an approval closes nothing from here: the server ended the grill at the rename", async ($, on) => {
     const grill = grillRoutes(() => ({ kind: "none" }));
 
     const seen = world(on, {
@@ -305,6 +305,6 @@ describe("closing from the session", () => {
     await tick(seen);
 
     expect(seen.prompts).toHaveLength(1);
-    expect(grill.posted).toEqual([["close", JSON.stringify({ reason: "approved" })]]);
+    expect(grill.posted).toEqual([]);
   });
 });

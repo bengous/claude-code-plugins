@@ -52,6 +52,8 @@ export type ReviewView = {
     readonly previous: { readonly version: Version; readonly text: string } | null;
   } | null;
   readonly docs: readonly DocRef[];
+  /** What the first extension that holds the review says holds it, for the greyed button and the approval's warning. */
+  readonly held: string | null;
 };
 
 export type LinkRoots = { readonly project: string; readonly planDir: string };

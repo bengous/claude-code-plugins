@@ -34,6 +34,10 @@ no build step, so what the page imports costs nothing at `cli start`.
   holds a draft to as well. A renderer never reads `inputMethod`: it reads `activeMethod`, which
   is `null` on a locked page, so no composer opens there, and `addAnnotation` returns when
   locked, as `select` does while the editor is open. A comment nobody can send is a silent loss.
+- `review.held` is what holds the review, or `null`. Held, Send feedback is disabled with the
+  reason as its title, and every way to an approval goes through the warning popover, which
+  says the approval ends what holds it. The bar prints the reason and never reads which
+  extension gave it.
 - `start` is the page's one way in, and its order is the rule: the saved draft into the signals,
   then the first load, then the saving effect, then the event stream. Nothing may `PUT` a draft
   before the restore, or every reload replaces the file with the page's empty state. After it,

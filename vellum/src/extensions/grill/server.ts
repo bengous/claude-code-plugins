@@ -106,19 +106,36 @@ function stateOf(current: Transcript | null, suggestion: Suggestion | null): Gri
   };
 }
 
+/** The grill that is open now, read as `GET state` reads it; `null` with none, or with no directory. */
+async function openGrill(context: ServerContext): Promise<Transcript | null> {
+  const workspace = await workspaceIfAny(context);
+  const current = workspace === null ? null : await latest(context, workspace.dir);
+
+  return current === null || isClosed(current.doc) ? null : current;
+}
+
+/** Every open question takes its recommendation by default, then the footer. */
+function ended(doc: string, reason: string): string {
+  return appendFooter(appendReply(doc, [], "") ?? doc, reason, new Date());
+}
+
+async function holds(context: ServerContext): Promise<string | null> {
+  const open = await openGrill(context);
+
+  return open === null ? null : `${grillFile(open.n)} is open`;
+}
+
+/** Runs inside the review's queue, after the rename: the footer lands in the final directory, module alive or not. */
+async function approved(context: ServerContext): Promise<void> {
+  const open = await openGrill(context);
+
+  if (open !== null) await context.writeText(open.file, ended(open.doc, "approved"));
+}
+
 function routes(context: ServerContext): Readonly<Record<RouteKey, Route>> {
   // Kept in memory: a restarted server loses it, and Claude may suggest again.
   let suggestion: Suggestion | null = null;
-  // One grill is open at a time, so one chain orders every write: a prompt and an answer that
-  // land together must not overwrite each other.
-  let writing: Promise<unknown> = Promise.resolve();
-
-  const inOrder = (work: () => Promise<Response>): Promise<Response> => {
-    const done = writing.then(work);
-    writing = done.catch(() => null);
-
-    return done;
-  };
+  const { inOrder } = context;
 
   /**
    * Reads the current transcript at write time: after an approval the directory has moved.
@@ -207,11 +224,7 @@ function routes(context: ServerContext): Readonly<Record<RouteKey, Route>> {
     "POST close": async (request) => {
       const reason = parseCloseReason(await request.json().catch(() => null));
 
-      return reason === null
-        ? badRequest()
-        : await change((doc) =>
-            written(appendFooter(appendReply(doc, [], "") ?? doc, reason, new Date())),
-          );
+      return reason === null ? badRequest() : await change((doc) => written(ended(doc, reason)));
     },
 
     "POST ask": async (request) => {
@@ -277,4 +290,4 @@ function routes(context: ServerContext): Readonly<Record<RouteKey, Route>> {
   };
 }
 
-export const grillServer: ServerExtension = { id: "grill", routes };
+export const grillServer: ServerExtension = { id: "grill", routes, holds, approved };

@@ -9,7 +9,7 @@ import { Review } from "../../app/review.ts";
 import type { WipDir } from "../../domain/paths.ts";
 import { REVIEW_DIR } from "../../domain/workspace.ts";
 import { openInBrowser } from "../browser.ts";
-import { listFiles, readTextIfAny, watchFiles, writeText } from "../fs.ts";
+import { watchFiles } from "../fs.ts";
 import { createHandler } from "./routes.ts";
 
 /** When the server gives up: `expire` runs once nothing has kept it for `graceMs`. */
@@ -111,15 +111,7 @@ export async function startServer(options: ServeOptions): Promise<Started> {
     project: options.project,
     review,
     frameScript,
-    extensionRoutes: extensionRoutes({
-      workspace: () => review.workspace(),
-      listFiles: (dir) => listFiles(options.project, dir),
-      readText: (path) => readTextIfAny(options.project, path),
-      writeText: (path, text) => writeText(options.project, path, text),
-      notify: async () => {
-        await review.notify();
-      },
-    }),
+    extensionRoutes: extensionRoutes(review.context),
     openBrowser: () => openInBrowser(url),
     heartbeat: () => {
       lastHeartbeat = Date.now();

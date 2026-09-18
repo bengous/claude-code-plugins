@@ -11,13 +11,25 @@ import { toHtml } from "./server.ts";
 
 const WIP = "plans/2026-09-17/wip-c95eaf71/";
 
+const NOTE = {
+  id: "a",
+  doc: `${WIP}plan.md`,
+  anchor: { kind: "global" },
+  mark: { kind: "comment", body: "no" },
+};
+
+const HELD = "grill-1.md is open: the plan is submitted once the reviewer ends it";
+
 const running: Started[] = [];
 
 type Grilling = {
   readonly dir: string;
   readonly get: (name: string) => Promise<Response>;
-  /** Gates `plan.md` as v1 and approves it: the working directory is renamed. */
-  readonly decide: () => Promise<void>;
+  /** `POST /api/gate`, then `POST /api/decision` with an approval: the two calls the core takes. */
+  readonly gate: () => Promise<Response>;
+  readonly approve: () => Promise<Response>;
+  readonly feedback: () => Promise<Response>;
+  readonly view: () => Promise<{ readonly held: string | null }>;
   readonly post: <Name extends keyof GrillPosts>(
     name: Name,
     body: GrillPosts[Name],
@@ -42,10 +54,15 @@ async function grilling(): Promise<Grilling> {
 
   return {
     dir,
-    decide: async () => {
-      await core("gate", "{}");
-      await core("decision", JSON.stringify({ kind: "approve", edit: null, notes: "" }));
-    },
+    gate: () => core("gate", "{}"),
+    approve: () => core("decision", JSON.stringify({ kind: "approve", edit: null, notes: "" })),
+    feedback: () =>
+      core("decision", JSON.stringify({ kind: "feedback", edit: null, annotations: [NOTE] })),
+    view: async () =>
+      // SAFETY: the server's own `ReviewView`, serialized by `Response.json` in routes.ts.
+      (await (
+        await fetch(`http://127.0.0.1:${started.server.port}/api/review`, { headers })
+      ).json()) as { readonly held: string | null },
     get: (name) => fetch(url(name), { headers }),
     post: (name, body) => fetch(url(name), { method: "POST", headers, body: JSON.stringify(body) }),
   };
@@ -238,24 +255,74 @@ describe("closing a grill", () => {
   });
 });
 
-describe("after the approval", () => {
-  test("close writes the footer in the renamed directory, and brings no wip- back", async () => {
-    const { dir, post, decide } = await grilling();
-    await post("open", { subject: "auth" });
+describe("an open grill holds the review", () => {
+  test("a gate is refused with the file's name, at the turn's end and from submit alike", async () => {
+    const { dir, post, gate, view } = await grilling();
     writeFileSync(join(dir, WIP, "plan.md"), "# Auth plan\n");
-    await decide();
+    await post("open", { subject: "auth" });
+    const refused = await gate();
 
-    expect((await post("close", { reason: "approved" })).status).toBe(204);
+    expect(refused.status).toBe(409);
+    expect(await refused.json()).toEqual({ error: HELD });
+    expect(existsSync(join(dir, WIP, ".review/v1.md"))).toBe(false);
+    expect((await view()).held).toBe("grill-1.md is open");
+  });
+
+  test("a drafting comment and a feedback are refused, until the reviewer ends the grill", async () => {
+    const { dir, post, gate, feedback, view } = await grilling();
+    writeFileSync(join(dir, WIP, "plan.md"), "# Auth plan\n");
+    await post("open", { subject: "auth" });
+
+    expect((await feedback()).status, "drafting").toBe(409);
+    await post("close", { reason: "page" });
+    await gate();
+    await post("open", { subject: "again" });
+
+    expect((await feedback()).status, "under review").toBe(409);
+    await post("close", { reason: "page" });
+
+    expect((await view()).held).toBeNull();
+    expect((await feedback()).status).toBe(200);
+  });
+
+  test("a gate and an open launched together never leave a version the grill did not see", async () => {
+    const { dir, post, gate } = await grilling();
+    writeFileSync(join(dir, WIP, "plan.md"), "# Auth plan\n");
+    const [opened, gated] = await Promise.all([post("open", { subject: "auth" }), gate()]);
+
+    expect(opened.status).toBe(201);
+    expect(existsSync(join(dir, WIP, ".review/v1.md"))).toBe(gated.status === 200);
+  });
+});
+
+describe("the approval", () => {
+  test("with no module alive, the server ends the grill: defaults and the footer, in the renamed directory", async () => {
+    const { dir, post, gate, approve } = await grilling();
+    writeFileSync(join(dir, WIP, "plan.md"), "# Auth plan\n");
+    await gate();
+    await post("open", { subject: "auth" });
+    await post("ask", { q: [["Store", "Which store?", "Redis"]] });
+
+    expect((await approve()).status).toBe(200);
     expect(readdirSync(join(dir, "plans/2026-09-17"))).toEqual(["auth-plan"]);
     expect(readFileSync(join(dir, "plans/2026-09-17/auth-plan/grill-1.md"), "utf8")).toMatch(
-      /\nClosed .+ · approved\n$/u,
+      /Q1: As recommended, by default\.\n\n---\n\nClosed .+ · approved\n$/u,
     );
   });
 
+  test("`approved` is the server's reason alone: the close route refuses it", async () => {
+    const { post } = await grilling();
+    await post("open", { subject: "auth" });
+
+    // @ts-expect-error -- the route's body names `page` and `stop` only.
+    expect((await post("close", { reason: "approved" })).status).toBe(400);
+  });
+
   test("no grill opens on an approved plan", async () => {
-    const { dir, post, decide } = await grilling();
+    const { dir, post, gate, approve } = await grilling();
     writeFileSync(join(dir, WIP, "plan.md"), "# Auth plan\n");
-    await decide();
+    await gate();
+    await approve();
 
     expect((await post("open", { subject: "late" })).status).toBe(409);
   });

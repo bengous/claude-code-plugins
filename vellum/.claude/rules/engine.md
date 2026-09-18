@@ -110,7 +110,11 @@ loop. `/vellum:start` enters it, Approve in the page or `/vellum:stop` leaves it
   `session.start` and served by the one unmatched `tool.call` hook, which dispatches on
   `e.tool`, since a matcher must be a literal written in `register.ts`; the same hook denies
   what a half `refuses` while `live`. The poll runs the halves' `tick` after its own relay,
-  handed to `mode.ts` as `ticks` the way `settle` is.
+  handed to `mode.ts` as `ticks` the way `settle` is. `closing` is `/vellum:stop` alone: an
+  approval is closed on the server, by the extension's `approved`, so a suspended module leaves
+  nothing open.
+- The module keeps no copy of what holds the review. A gate the server refuses is the refusal
+  it already reads: `submit` denies with the server's reason, and the turn's end says nothing.
 - An extension's store records are keyed `<id>:<session id>`.
 - Tests run under the engine's own `$` (`claude plugin test vellum`, the `*.test.ts` files beside the module):
   `bun test` cannot host that environment. The world beneath the module is answered by the

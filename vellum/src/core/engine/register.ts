@@ -93,10 +93,7 @@ export const register: Register = (on) => {
   let state: State = { kind: "idle" };
 
   const settle: Settle = async (host, from) => {
-    if (state !== from || from.kind !== "live") return;
-    await handed(host, from.live, "closing", (extension, context) =>
-      extension.closing?.(context, "approved"),
-    );
+    if (state !== from) return;
     state = await close(host, from);
   };
 
@@ -154,7 +151,7 @@ export const register: Register = (on) => {
 
     if (state.kind === "live") {
       await handed(host, state.live, "closing", (extension, context) =>
-        extension.closing?.(context, "stop"),
+        extension.closing?.(context),
       );
     }
 

@@ -1,4 +1,4 @@
-import type { ServerExtension } from "../../extension.ts";
+import type { ServerContext, ServerExtension } from "../../extension.ts";
 import type { DocRef, ReviewView } from "../../protocol.ts";
 import {
   finalize as renameWorkspace,
@@ -52,13 +52,52 @@ export type GateOptions = { readonly unchanged: "record" | "keep" };
 
 const RECORD_UNCHANGED: GateOptions = { unchanged: "record" };
 
+const HELD_GATE = "the plan is submitted once the reviewer ends it";
+
 /** The use case: reads the directory, lets the domain decide, applies: files, memory, listeners. */
 export class Review {
   private memory: Memory = { kind: "none" };
 
   private readonly listeners = new Set<(workspace: PlanWorkspace) => void>();
 
-  public constructor(private readonly options: ReviewOptions) {}
+  private queue: Promise<unknown> = Promise.resolve();
+
+  /** What every extension reads and writes through: bound here, since `holds` and `approved` are called here. */
+  public readonly context: ServerContext;
+
+  public constructor(private readonly options: ReviewOptions) {
+    const { project } = options;
+
+    this.context = {
+      workspace: () => this.workspace(),
+      listFiles: (dir) => listFiles(project, dir),
+      readText: (path) => readTextIfAny(project, path),
+      writeText: (path, text) => writeText(project, path, text),
+      notify: async () => {
+        await this.notify();
+      },
+      inOrder: (work) => this.inOrder(work),
+    };
+  }
+
+  /** One chain for every mutation, so a gate never writes its version under a grill that opened meanwhile. */
+  private inOrder<T>(work: () => Promise<T>): Promise<T> {
+    const done = this.queue.then(work);
+    this.queue = done.catch(() => null);
+
+    return done;
+  }
+
+  /** The first extension that holds the review says what holds it. */
+  private async held(): Promise<string | null> {
+    for (const extension of this.options.extensions) {
+      const reason = (await extension.holds?.(this.context)) ?? null;
+
+      if (reason !== null) return reason;
+    }
+
+    return null;
+  }
 
   public subscribe(listener: (workspace: PlanWorkspace) => void): () => void {
     this.listeners.add(listener);
@@ -125,7 +164,14 @@ export class Review {
   }
 
   /** The plan the model wrote is the version under review; the same text keeps its number. */
-  public async gate(options: GateOptions = RECORD_UNCHANGED): Promise<GateResult> {
+  public gate(options: GateOptions = RECORD_UNCHANGED): Promise<GateResult> {
+    return this.inOrder(() => this.gateInOrder(options));
+  }
+
+  private async gateInOrder(options: GateOptions): Promise<GateResult> {
+    const held = await this.held();
+
+    if (held !== null) return { ok: false, error: `${held}: ${HELD_GATE}` };
     const workspace = await this.workspace();
 
     if (workspace.kind === "approved") {
@@ -155,8 +201,16 @@ export class Review {
     return { ok: true, version: gated.version, kept: false };
   }
 
-  public async decide(decision: Decision): Promise<DecisionResult> {
+  public decide(decision: Decision): Promise<DecisionResult> {
+    return this.inOrder(() => this.decideInOrder(decision));
+  }
+
+  private async decideInOrder(decision: Decision): Promise<DecisionResult> {
     const workspace = await this.workspace();
+
+    if (decision.kind === "feedback" && (await this.held()) !== null) {
+      return { ok: false, workspace };
+    }
 
     const latestText =
       workspace.kind === "drafting" ? null : await this.planText(workspace.version, workspace.dir);
@@ -215,6 +269,13 @@ export class Review {
     const notes = final.ok && final.value.kind === "approved" && final.value.notes;
     this.memory = { kind: "approved", version, dir: renamed.value, notes };
 
+    for (const extension of this.options.extensions) {
+      // The plan is approved whatever an extension fails to close: the rename is done.
+      await extension.approved?.(this.context).catch((cause: unknown) => {
+        console.error(`${extension.id} failed on approved: ${String(cause)}`);
+      });
+    }
+
     return { ok: true, workspace: await this.notify() };
   }
 
@@ -235,7 +296,9 @@ export class Review {
     const workspace = await this.workspace();
     const listed = await listFiles(this.options.project, workspace.dir);
 
-    if (workspace.kind === "drafting") return { workspace, plan: null, docs: listed };
+    const held = await this.held();
+
+    if (workspace.kind === "drafting") return { workspace, plan: null, docs: listed, held };
 
     const doc = this.planDoc(workspace.version, workspace.dir);
     const text = await this.planText(workspace.version, workspace.dir);
@@ -249,7 +312,7 @@ export class Review {
     const files = listed.filter((file) => file.path !== draft);
     const linked = await this.linkedDocs(text, doc, workspace.dir, files);
 
-    return { workspace, plan: { doc, text, previous }, docs: [...files, ...linked] };
+    return { workspace, plan: { doc, text, previous }, docs: [...files, ...linked], held };
   }
 
   private async linkedDocs(

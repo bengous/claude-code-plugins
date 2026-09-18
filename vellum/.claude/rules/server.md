@@ -26,9 +26,21 @@ write under the project root, `http/routes.ts` bodies, paths and status codes,
 - `src/core/protocol.ts` is the one place a value crossing HTTP or an extension boundary is
   typed; it re-exports the domain types it carries, never redefines them. What an extension
   hands the core is typed beside it, in `src/core/extension.ts`.
-- `http/serve.ts` binds the `ServerContext` of `src/core/extension.ts` to the review and to
-  `fs.ts`, and mounts each extension's routes under `/api/x/<id>/`; `routes.ts` looks them up
-  after its own, behind the same token check, and knows none by name.
+- `Review` binds the `ServerContext` of `src/core/extension.ts` to itself and to `fs.ts`, since
+  it is `Review` that calls an extension's `holds` and `approved`; `http/serve.ts` hands the same
+  context to each extension's routes and mounts them under `/api/x/<id>/`; `routes.ts` looks them
+  up after its own, behind the same token check, and knows none by name.
+- An extension may hold the review: `holds` answers what holds it, or `null`. Held has one
+  meaning, so there is no list of what is blocked: `gate` is refused with the reason before
+  `plan.md` is read (the 409 the module already reads), a feedback is refused, a drafting comment
+  with it since it is a decision too, and an approval goes through. `ReviewView.held` carries the
+  reason to the page. The core names no extension: it appends what a gate means to the reason.
+- One queue orders every mutation: `gate`, `decide`, and an extension's writes through
+  `ServerContext.inOrder`. A gate that checked the hold writes its version before a grill that
+  opened meanwhile, never after. `holds` and `approved` run inside the queue and never call it.
+- An approval closes what an extension left open on the server, through `approved`, after the
+  rename and with the memory set, so `workspace().dir` is the final directory. No module has to
+  be alive for it, and an extension that throws there leaves the plan approved.
 - The module's heartbeat or a reviewer's tab keeps the server: the watchdog expires it once the
   last heartbeat is past the grace and no event stream is open. `routes.ts` counts the streams,
   since the review's own listeners include one `serve.ts` keeps for itself; the same count

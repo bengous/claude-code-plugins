@@ -132,7 +132,8 @@ sequenceDiagram
   M->>S: POST /api/x/grill/answer, the final text under the questions
   P->>S: POST /api/x/grill/reply {answers, note}, written in the round of its questions
   M->>C: $.prompt.submit (the reply, once)
-  P->>S: POST /api/x/grill/close, or the module's on /vellum:stop and on the approval
+  P->>S: POST /api/x/grill/close, or the module's on /vellum:stop
+  P->>S: POST /api/decision approve, the server ends the grill after the rename (approved)
   M->>C: $.prompt.submit ("The reviewer ended the grill.", once, for a close from the page alone)
 ```
 
@@ -233,7 +234,7 @@ constraints below are why. The contract is `src/core/extension.ts`, types only, 
 | Half | File | Declares | Reached from |
 |---|---|---|---|
 | page | `<id>/page.tsx` | a `PageExtension`: its renderers, tried in registry order, and its actions in the decision bar | `core/page/app.tsx`, through `extensions/page.ts` |
-| server | `<id>/server.ts` | a `ServerExtension`: `linkedDocs`, pure, candidates in and links out; its routes, mounted at `/api/x/<id>/`, their IO through a `ServerContext` | `core/server/adapters/http/serve.ts`, through `extensions/server.ts` |
+| server | `<id>/server.ts` | a `ServerExtension`: `linkedDocs`, pure, candidates in and links out; its routes, mounted at `/api/x/<id>/`, their IO through a `ServerContext`; `holds`, what holds the review; `approved`, what it closes after the rename | `core/server/adapters/http/serve.ts`, through `extensions/server.ts` |
 | engine | `<id>/engine.ts` | an `EngineExtension`: tools, refusals, and handlers for a prompt, a finished turn, a poll and the mode's end | `core/engine/register.ts`, through `extensions/engine.ts` |
 
 `src/boundaries.spec.ts` holds the layout: an extension imports `core/` and its own folder,

@@ -33,8 +33,6 @@ export type ExtensionTool = {
   readonly call: (context: EngineContext, input: unknown) => Promise<ToolAnswer>;
 };
 
-export type CloseReason = "stop" | "approved";
-
 export type Prompted = { readonly text: string; readonly origin: PromptOrigin };
 
 export type Answered = { readonly text: string; readonly reason: string };
@@ -50,5 +48,6 @@ export type EngineExtension = {
   readonly answered?: (context: EngineContext, turn: Answered) => Promise<void>;
   /** Once per poll while live, after the core's relay; a throw is logged and the poll goes on. */
   readonly tick?: (context: EngineContext) => Promise<void>;
-  readonly closing?: (context: EngineContext, reason: CloseReason) => Promise<void>;
+  /** `/vellum:stop`, the one end the module causes: an approval is closed on the server. */
+  readonly closing?: (context: EngineContext) => Promise<void>;
 };

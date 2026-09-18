@@ -297,6 +297,29 @@ describe("tool.call mcp__vellum__submit", () => {
   });
 });
 
+describe("a review an open grill holds", () => {
+  const HELD = "grill-2.md is open: the plan is submitted once the reviewer ends it";
+
+  const held = { routes: { "/api/gate": () => reply(409, { error: HELD }) } };
+
+  test("submit is refused with the reason the server gives", async ($, on) => {
+    world(on, held);
+    await $.skill.prompt(START_PROMPT);
+
+    expect(await $.tool.call({ tool: "mcp__vellum__submit" })).toEqual({ deny: HELD });
+  });
+
+  test("the turn's end says nothing: no status, no log, no prompt", async ($, on) => {
+    const seen = world(on, held);
+    on("turn.complete", (_, e) => ({ text: e.answer }));
+    await $.skill.prompt(START_PROMPT);
+    await $.turn.complete(TURN_ANSWERED);
+
+    expect(seen.paths).toContain("/api/gate");
+    expect([seen.statuses.at(-1), seen.logs, seen.prompts]).toEqual(["planning", [], []]);
+  });
+});
+
 describe("turn.complete", () => {
   test("a turn that answers while live submits plan.md, and keeps an unchanged text", async ($, on) => {
     const bodies: (string | undefined)[] = [];

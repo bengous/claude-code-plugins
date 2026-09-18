@@ -47,6 +47,11 @@ export type ServerContext = {
   readonly writeText: (path: ProjectPath, text: string) => Promise<void>;
   /** Tells the page the workspace again: what the watcher cannot see, or no longer watches. */
   readonly notify: () => Promise<void>;
+  /**
+   * The review's one queue: a gate, a decision and an extension's write never interleave.
+   * `holds` and `approved` already run inside it, so calling it from them would wait forever.
+   */
+  readonly inOrder: <T>(work: () => Promise<T>) => Promise<T>;
 };
 
 export type Route = (request: Request) => Promise<Response>;
@@ -62,4 +67,8 @@ export type ServerExtension = {
   readonly linkedDocs?: (plan: string, roots: LinkRoots) => readonly DocLink[];
   /** Keys are `"GET <name>"` or `"POST <name>"`. */
   readonly routes?: (context: ServerContext) => Readonly<Record<RouteKey, Route>>;
+  /** What holds the review, or `null`. Held: no gate, no feedback, and the approval warns. */
+  readonly holds?: (context: ServerContext) => Promise<string | null>;
+  /** After the rename of an approval, on the server: what the extension must close, it closes here. */
+  readonly approved?: (context: ServerContext) => Promise<void>;
 };

@@ -8,7 +8,8 @@ paths:
 
 An extension is a folder, `src/extensions/<id>/`, with one file per place where it plugs into
 the core: `page.tsx` declares a `PageExtension` (its renderers, its actions in the decision
-bar), `server.ts` a `ServerExtension` (its `linkedDocs`, its routes). Both types live in
+bar), `server.ts` a `ServerExtension` (its `linkedDocs`, its routes, what `holds` the review,
+what it closes once `approved`). Both types live in
 `src/core/extension.ts`. `markdown`, `html`, `image` and `grill` are extensions like the next
 ones. A third half,
 `engine.ts`, declares an `EngineExtension` (`src/core/engine/extension.ts`): tools, refusals
@@ -26,7 +27,9 @@ and the engine events the core hands it. `grill` is the one extension with all t
   `src/core/page/` it imports the files `PAGE_SURFACE` lists in `src/boundaries.spec.ts`: one
   more is a decision to take, not a convenience.
 - A server half's routes are mounted at `/api/x/<id>/<name>`, behind the token, and do their IO
-  through the `ServerContext` that `serve.ts` binds: an extension never imports an adapter.
+  through the `ServerContext` that `Review` binds: an extension never imports an adapter. A
+  route that writes goes through `inOrder`, the review's one queue, and keeps no queue of its
+  own; `holds` and `approved` are called from inside that queue and write directly.
   `workspace().dir` moves at the approval, so a route resolves it at each write and never keeps
   it. What the watcher cannot see (a state kept in memory, a write after the approval) reaches
   the page through `notify`. The page half calls its routes with `extensionRequest`.

@@ -47,7 +47,8 @@ export type Block =
       readonly answer: string | null;
     };
 
-export type CloseReason = "page" | "stop" | "approved";
+/** Who ended a grill from outside the approval: the reviewer in the page, or `/vellum:stop`. The approval's footer is the server's own. */
+export type CloseReason = "page" | "stop";
 
 /** A question as the tool and the route take it: `[title, question, recommendation]`. */
 export type QuestionTriple = readonly [title: string, ask: string, rec: string];

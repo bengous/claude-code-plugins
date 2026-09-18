@@ -74,7 +74,7 @@ export function parseCloseReason(body: unknown): CloseReason | null {
   if (!isRecord(body)) return null;
   const { reason } = body;
 
-  return reason === "page" || reason === "stop" || reason === "approved" ? reason : null;
+  return reason === "page" || reason === "stop" ? reason : null;
 }
 
 /** `POST reply`: the answers the reviewer typed, by question id, and what they wrote beside them. */

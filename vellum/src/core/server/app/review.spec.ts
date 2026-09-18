@@ -12,6 +12,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { serverExtensions } from "../../../extensions/server.ts";
+import type { ServerExtension } from "../../extension.ts";
 import { parseWipDir } from "../domain/paths.ts";
 import { Review } from "./review.ts";
 
@@ -29,7 +30,7 @@ const V1 = 1 as never;
 
 type Setup = { readonly review: Review; readonly root: string };
 
-function setup(): Setup {
+function setup(extensions: readonly ServerExtension[] = serverExtensions): Setup {
   const root = mkdtempSync(join(tmpdir(), "vellum-review-"));
   mkdirSync(join(root, WIP, ".review"), { recursive: true });
   writeFileSync(join(root, WIP, "mockup.html"), "<p>hi</p>");
@@ -38,7 +39,7 @@ function setup(): Setup {
   if (!workdir.ok) throw new Error(workdir.error);
 
   return {
-    review: new Review({ project: root, workdir: workdir.value, extensions: serverExtensions }),
+    review: new Review({ project: root, workdir: workdir.value, extensions }),
     root,
   };
 }
@@ -329,5 +330,112 @@ describe("Review", () => {
         { batch: 2, path: `${WIP}.review/v0.feedback-2.md` as never },
       ],
     });
+  });
+});
+
+type Holding = { reason: string | null; readonly extension: ServerExtension };
+
+/** Holds the review while `reason` is set. */
+function holding(): Holding {
+  const hold: Holding = {
+    reason: null,
+    extension: { id: "holder", holds: () => Promise.resolve(hold.reason) },
+  };
+
+  return hold;
+}
+
+describe("a review an extension holds", () => {
+  test("a gate is refused with the reason, and records no version", async () => {
+    const hold = holding();
+    const { review, root } = setup([hold.extension]);
+    writeFileSync(join(root, WIP, "plan.md"), PLAN);
+    hold.reason = "grill-2.md is open";
+
+    expect(await review.gate()).toEqual({
+      ok: false,
+      error: "grill-2.md is open: the plan is submitted once the reviewer ends it",
+    });
+    expect(existsSync(join(root, WIP, ".review/v1.md"))).toBe(false);
+  });
+
+  test("a feedback is refused, under review and while drafting alike", async () => {
+    const hold = holding();
+    const { review, root } = setup([hold.extension]);
+    hold.reason = "grill-1.md is open";
+
+    expect((await review.decide(SAY_NO)).ok).toBe(false);
+    hold.reason = null;
+    writeFileSync(join(root, WIP, "plan.md"), PLAN);
+    await review.gate();
+    hold.reason = "grill-1.md is open";
+
+    expect((await review.decide(SAY_NO)).ok).toBe(false);
+    expect(existsSync(join(root, WIP, ".review/v1.feedback.md"))).toBe(false);
+  });
+
+  test("the view carries the reason, and `null` once nothing holds", async () => {
+    const hold = holding();
+    const { review } = setup([hold.extension]);
+    hold.reason = "grill-1.md is open";
+
+    expect((await review.view()).held).toBe("grill-1.md is open");
+    hold.reason = null;
+
+    expect((await review.view()).held).toBeNull();
+  });
+
+  test("an approval goes through, and `approved` runs after the rename, on the final directory", async () => {
+    const seen: string[] = [];
+
+    const closer: ServerExtension = {
+      id: "closer",
+      holds: () => Promise.resolve("grill-1.md is open"),
+      approved: async (context) => void seen.push((await context.workspace()).dir),
+    };
+
+    const { review, root } = setup([closer]);
+    writeFileSync(join(root, WIP, ".review/v1.md"), PLAN);
+
+    expect((await review.decide(APPROVE)).ok).toBe(true);
+    expect(seen).toEqual([FINAL]);
+  });
+
+  test("an `approved` that throws leaves the plan approved", async () => {
+    const broken: ServerExtension = {
+      id: "broken",
+      approved: () => Promise.reject(new Error("disk full")),
+    };
+
+    const { review, root } = setup([broken]);
+    writeFileSync(join(root, WIP, ".review/v1.md"), PLAN);
+
+    expect((await review.decide(APPROVE)).workspace.kind).toBe("approved");
+  });
+
+  test("a write an extension queues during a gate lands after the version is written", async () => {
+    const versionWasThere: boolean[] = [];
+    let root = "";
+
+    const opener: ServerExtension = {
+      id: "opener",
+      holds: (context) => {
+        void context.inOrder(() => {
+          versionWasThere.push(existsSync(join(root, WIP, ".review/v1.md")));
+
+          return Promise.resolve();
+        });
+
+        return Promise.resolve(null);
+      },
+    };
+
+    const made = setup([opener]);
+    ({ root } = made);
+    writeFileSync(join(root, WIP, "plan.md"), PLAN);
+    await made.review.gate();
+    await made.review.context.inOrder(() => Promise.resolve());
+
+    expect(versionWasThere).toEqual([true]);
   });
 });
