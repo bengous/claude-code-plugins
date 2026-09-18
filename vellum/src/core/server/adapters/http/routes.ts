@@ -1,6 +1,7 @@
 import { realpath } from "node:fs/promises";
 import { join, sep } from "node:path";
 
+import type { Route } from "../../../extension.ts";
 import type {
   Anchor,
   Annotation,
@@ -25,6 +26,8 @@ export type RouteContext = {
   readonly review: Review;
   /** `extensions/html/frame.ts`, built; every HTML file served carries a tag that loads it. */
   readonly frameScript: string;
+  /** The extensions' own routes, keyed as `api` keys its own: `POST /api/x/<id>/<name>`. */
+  readonly extensionRoutes: ReadonlyMap<string, Route>;
   readonly openBrowser: () => void;
   readonly heartbeat: () => void;
 };
@@ -316,7 +319,11 @@ async function api(context: RouteContext, request: Request, route: string): Prom
     return new Response(null, { status: (await review.saveDraft(draft)) ? 204 : 409 });
   }
 
-  return new Response("not found", { status: 404 });
+  const extensionRoute = context.extensionRoutes.get(route);
+
+  return extensionRoute === undefined
+    ? new Response("not found", { status: 404 })
+    : await extensionRoute(request);
 }
 
 /** Everything but the page itself, which `Bun.serve` routes to the bundled HTML. */

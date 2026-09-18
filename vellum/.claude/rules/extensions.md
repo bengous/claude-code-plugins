@@ -7,9 +7,9 @@ paths:
 # Extensions
 
 An extension is a folder, `src/extensions/<id>/`, with one file per place where it plugs into
-the core: `page.tsx` declares a `PageExtension` (its renderers), `server.ts` a
-`ServerExtension` (its `linkedDocs`). Both types live in `src/core/extension.ts`. `markdown`,
-`html` and `image` are extensions like the next ones. A third half, `engine.ts`, lands with
+the core: `page.tsx` declares a `PageExtension` (its renderers, its actions in the decision
+bar), `server.ts` a `ServerExtension` (its `linkedDocs`, its routes). Both types live in
+`src/core/extension.ts`. `markdown`, `html`, `image` and `grill` are extensions like the next ones. A third half, `engine.ts`, lands with
 `grill`, the first extension the hooks module calls; until then no extension touches
 `src/core/engine/`.
 
@@ -24,6 +24,13 @@ the core: `page.tsx` declares a `PageExtension` (its renderers), `server.ts` a
 - An extension imports `src/core/` and its own folder, never `../<another>/`. From
   `src/core/page/` it imports the files `PAGE_SURFACE` lists in `src/boundaries.spec.ts`: one
   more is a decision to take, not a convenience.
+- A server half's routes are mounted at `/api/x/<id>/<name>`, behind the token, and do their IO
+  through the `ServerContext` that `serve.ts` binds: an extension never imports an adapter.
+  `workspace().dir` moves at the approval, so a route resolves it at each write and never keeps
+  it. What the watcher cannot see (a state kept in memory, a write after the approval) reaches
+  the page through `notify`. The page half calls its routes with `extensionRequest`.
+- An extension owns its messages: `<id>/protocol.ts` types what crosses its routes, and
+  `<id>/parse.ts` is its boundary parser. `src/core/protocol.ts` learns nothing of them.
 - A helper and its `*.spec.ts` live in the folder, beside the half that uses them: its choice
   is a pure function tested with `bun test`, its DOM part a thin adapter, since the page has
   no DOM implementation to test against.

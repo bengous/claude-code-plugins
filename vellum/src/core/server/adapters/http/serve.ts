@@ -2,12 +2,13 @@ import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
 
 import { serverExtensions } from "../../../../extensions/server.ts";
+import type { Route, ServerContext } from "../../../extension.ts";
 import index from "../../../page/index.html";
 import { Review } from "../../app/review.ts";
 import type { WipDir } from "../../domain/paths.ts";
 import { REVIEW_DIR } from "../../domain/workspace.ts";
 import { openInBrowser } from "../browser.ts";
-import { watchFiles } from "../fs.ts";
+import { listFiles, readTextIfAny, watchFiles, writeText } from "../fs.ts";
 import { createHandler } from "./routes.ts";
 
 export type ServeOptions = {
@@ -45,6 +46,19 @@ async function buildFrameScript(): Promise<string> {
   return await output.text();
 }
 
+/** Every extension's routes under its own prefix, so no two extensions can claim one path. */
+function extensionRoutes(context: ServerContext): ReadonlyMap<string, Route> {
+  return new Map(
+    serverExtensions.flatMap((extension) =>
+      Object.entries(extension.routes?.(context) ?? {}).map(([key, route]) => {
+        const [method, name] = key.split(" ");
+
+        return [`${method} /api/x/${extension.id}/${name}`, route] as const;
+      }),
+    ),
+  );
+}
+
 export async function startServer(options: ServeOptions): Promise<Started> {
   await mkdir(join(options.project, options.workdir, REVIEW_DIR), { recursive: true });
   const token = crypto.randomUUID();
@@ -71,6 +85,15 @@ export async function startServer(options: ServeOptions): Promise<Started> {
     project: options.project,
     review,
     frameScript,
+    extensionRoutes: extensionRoutes({
+      workspace: () => review.workspace(),
+      listFiles: (dir) => listFiles(options.project, dir),
+      readText: (path) => readTextIfAny(options.project, path),
+      writeText: (path, text) => writeText(options.project, path, text),
+      notify: async () => {
+        await review.notify();
+      },
+    }),
     openBrowser: () => openInBrowser(url),
     heartbeat: () => {
       lastHeartbeat = Date.now();

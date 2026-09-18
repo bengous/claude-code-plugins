@@ -95,6 +95,8 @@ function Panes(): preact.JSX.Element {
   );
 }
 
+const actions = pageExtensions.flatMap((extension) => extension.actions ?? []);
+
 function App(): preact.JSX.Element {
   useEffect(() => {
     void start();
@@ -132,7 +134,7 @@ function App(): preact.JSX.Element {
 
   return (
     <div class="app">
-      <DecisionBar />
+      <DecisionBar actions={actions} />
       <div class="body">
         <DocList />
         <Panes />

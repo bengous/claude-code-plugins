@@ -1,3 +1,4 @@
+import type { ComponentType } from "preact";
 import { useEffect, useRef, useState } from "preact/hooks";
 
 import type { Annotation, PlanWorkspace } from "../protocol.ts";
@@ -157,7 +158,12 @@ function UnsentWarning(props: WarningProps): preact.JSX.Element {
   );
 }
 
-export function DecisionBar(): preact.JSX.Element {
+type BarProps = {
+  /** The extensions' actions, handed down by `app.tsx`: the one file that reads the registry. */
+  readonly actions: readonly ComponentType[];
+};
+
+export function DecisionBar(props: BarProps): preact.JSX.Element {
   const view = review.value;
   const workspace = view?.workspace;
   const status = workspace === undefined ? null : statusOf(workspace);
@@ -205,6 +211,9 @@ export function DecisionBar(): preact.JSX.Element {
         )}
         {status !== null && <span class={`status ${status.tone}`}>{status.label}</span>}
         <span class="spacer" />
+        {props.actions.map((Action, index) => (
+          <Action key={index} />
+        ))}
         {workspace?.kind !== "drafting" && (
           <>
             <button

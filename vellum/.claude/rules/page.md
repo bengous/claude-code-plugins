@@ -20,7 +20,10 @@ no build step, so what the page imports costs nothing at `cli start`.
   `index.html`. What an extension may import, and how one is added: `extensions.md`. Held by
   `src/boundaries.spec.ts`.
 - Everything crossing `/api` is JSON and typed in `src/core/protocol.ts`; a new field lands there
-  first.
+  first. What crosses `/api/x/<id>/` is the extension's own, typed in its `protocol.ts`.
+- `app.tsx` is the one file that reads the registry: it picks the renderer and hands the
+  extensions' `actions` to the decision bar, which draws them before its own buttons. An action
+  that follows the workspace reads `review` and loads its own state again at every change.
 - The page draws in every state, `drafting` included: `review.docs` is the working directory's
   renderable files, the plan at the head once there is one. Comments are taken while
   `inReview` and while `drafting`, so `locked` names two states, not one, and Approve is drawn

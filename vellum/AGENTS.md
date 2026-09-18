@@ -21,7 +21,8 @@ src/core/server/cli.ts         the entry point: `start` spawns `serve` detached
 src/core/protocol.ts           what crosses HTTP and an extension boundary; JSON
 src/core/extension.ts          the contract an extension fills: PageExtension, ServerExtension
 src/core/page/                 the Preact page
-src/extensions/<id>/           one extension, a file per place it plugs in: page.tsx, server.ts
+src/extensions/<id>/           one extension, a file per place it plugs in: page.tsx, server.ts;
+                               its own messages in protocol.ts, its boundary in parse.ts
 src/extensions/page.ts, server.ts  the two registries, the only way the core reaches an extension
 ```
 

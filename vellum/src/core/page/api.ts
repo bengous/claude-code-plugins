@@ -23,6 +23,11 @@ function request(path: string, init?: RequestInit): Promise<Response> {
   });
 }
 
+/** An extension's own route, `/api/x/<id>/<path>`, behind the same token. */
+export function extensionRequest(id: string, path: string, init?: RequestInit): Promise<Response> {
+  return request(`x/${id}/${path}`, init);
+}
+
 export type Fetched<T> =
   | { readonly ok: true; readonly value: T }
   | { readonly ok: false; readonly status: number };

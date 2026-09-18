@@ -97,6 +97,7 @@ function drafting(): Drafting {
     project: dir,
     review,
     frameScript: "",
+    extensionRoutes: new Map(),
     openBrowser: () => {},
     heartbeat: () => {},
   });
@@ -255,6 +256,7 @@ describe("routes", () => {
       project: root,
       review,
       frameScript: "",
+      extensionRoutes: new Map(),
       openBrowser: () => (opened += 1),
       heartbeat: () => {},
     });
