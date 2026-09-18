@@ -6,7 +6,7 @@ paths:
 
 # The hooks module
 
-`hooks/hooks.json` is what Claude Code reads, and it names `src/core/engine/register.ts`. Eight
+`hooks/hooks.json` is what Claude Code reads, and it names `src/core/engine/register.ts`. Nine
 files there, each importing `claude-code`, a sibling `./<name>.ts`, or `import type` from
 `../protocol.ts`, and nothing else; `register.ts` alone also loads `../../extensions/engine.ts`,
 the registry of the engine halves. Held by `src/boundaries.spec.ts`.
@@ -16,6 +16,7 @@ register.ts  the engine adapter: the one `let state`, one hook per event, and `h
 host.ts      `Host`, the port: one member per `$` call, named for the call
 mode.ts      the machine: State, Session, Live, and restore / connect / close
 lock.ts      the policy: lockVerdict, checkVerdict; pure
+turn.ts      whose turn runs: Turns, prompted / started / completed, ownOf; pure
 relay.ts     what the poll says and what it remembers: prompts, Relayed, tick
 server.ts    the review server's client: every route, the token header, the launcher
 parse.ts     the boundary: unknown to types, and the only place a brand is minted
@@ -118,11 +119,21 @@ loop. `/vellum:start` enters it, Approve in the page or `/vellum:stop` leaves it
 - The module keeps no copy of what holds the review. A gate the server refuses is the refusal
   it already reads: `submit` denies with the server's reason, and the turn's end says nothing.
 - `turn.start` carries no origin (`TurnStartInput` is a text and a turn id), so whose turn it
-  is goes through two hooks: `prompt.submit` notes the origin of the last prompt that entered,
-  `turn.start` takes the note for its turn and clears it, `turn.complete` hands `own` to the
-  halves' `answered`. A prompt typed over a running turn changes the next turn's note, never the
-  running one's. The note is memory on purpose: a reload loses it and that turn's text is
-  written nowhere, which is the safe side.
+  is comes from `prompt.submit`, through `turn.ts`: `prompt.submit` notes the last prompt that
+  entered with its origin, before `next(e)`; `turn.start` takes the note, and the turn is
+  vellum's own when its text holds the noted text of a vellum relay; `turn.complete` of that
+  turn id hands `own` to the halves' `answered`. It is the one thing the module knows that the
+  server does not, and it is not a variant of `State`: it says who started a turn, nothing
+  about what is allowed. Two facts, the waiting note and the running turn, since a prompt may
+  enter while a turn runs; each is a union of its own, never a nullable. `register.ts` resets
+  it wherever the mode leaves `live` (approval, `/vellum:stop`, the `/clear` and `/resume`
+  suspension, a revival) and ignores it outside `live`.
+- Every miss of `turn.ts` falls on one side, a turn whose text is written nowhere: a reload
+  between the hooks, a text a hook beneath rewrote, and the known one, a relay and a typed
+  prompt that wait together, which leave one note, the last. It is one note and never a
+  registry: a text identifies a prompt, not a submission. The match is `includes`, not
+  equality, because how the engine frames a plugin's prompt in `turn.start`'s text is not
+  measured; an empty note matches nothing.
 - A text enters Claude's context only when Claude does something different because of it.
   Anything else goes to `$.ui.status`, `$.ui.log` or the page. A prompt names its object and
   repeats nothing Claude wrote or already read, and every relay keeps the plugin's origin.

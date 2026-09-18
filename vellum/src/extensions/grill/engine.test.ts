@@ -37,7 +37,11 @@ const VELLUM = { kind: "plugin", name: "vellum" } as const;
 
 const COMPOSER = { kind: "composer" } as const;
 
-const TURN = { text: "", turnId: "t1" };
+const TURN = { text: "Reviewer: x", turnId: "t1" };
+
+const TYPED_TURN = { text: "and the weather?", turnId: "t2" };
+
+const TYPED_ANSWERED = { ...TURN_ANSWERED, turnId: "t2" };
 
 const Q = [["Tool names", "Prefix the tools with the extension's id?", "Yes."]];
 
@@ -320,11 +324,43 @@ describe("what the transcript hears of the session", () => {
     await $.turn.start(TURN);
     await $.prompt.submit({ text: "and the weather?", wait: false, origin: COMPOSER });
     await $.turn.complete(TURN_ANSWERED);
-    await $.turn.start(TURN);
-    await $.turn.complete(TURN_ANSWERED);
+    await $.turn.start(TYPED_TURN);
+    await $.turn.complete(TYPED_ANSWERED);
 
     expect(grill.posted.map(([, body]) => body)).toEqual([
       JSON.stringify({ text: "done", reason: "answer", own: true }),
+      JSON.stringify({ text: "done", reason: "answer", own: false }),
+    ]);
+  });
+
+  test("a relay and a typed prompt that enter before either turn: the turn on the typed text is not own", async ($, on) => {
+    const grill = grillRoutes(() => NO_GRILL);
+    world(on, grill);
+    on("turn.complete", (_, e) => ({ text: e.answer }));
+    await $.skill.prompt(START_PROMPT);
+    await $.prompt.submit({ text: "Reviewer: x", wait: false, origin: VELLUM });
+    await $.prompt.submit({ text: "and the weather?", wait: false, origin: COMPOSER });
+    await $.turn.start(TYPED_TURN);
+    await $.turn.complete(TYPED_ANSWERED);
+
+    expect(grill.posted).toEqual([
+      ["answer", JSON.stringify({ text: "done", reason: "answer", own: false })],
+    ]);
+  });
+
+  test("/vellum:stop forgets the note: a turn of the next mode is not own", async ($, on) => {
+    const grill = grillRoutes(() => NO_GRILL);
+    world(on, grill);
+    on("turn.complete", (_, e) => ({ text: e.answer }));
+    await $.skill.prompt(START_PROMPT);
+    await $.prompt.submit({ text: "Reviewer: x", wait: false, origin: VELLUM });
+    await $.skill.prompt(STOP_PROMPT);
+    await $.skill.prompt(START_PROMPT);
+    await $.turn.start(TURN);
+    await $.turn.complete(TURN_ANSWERED);
+
+    expect(grill.posted.at(-1)).toEqual([
+      "answer",
       JSON.stringify({ text: "done", reason: "answer", own: false }),
     ]);
   });

@@ -160,8 +160,9 @@ proves no human wrote it, and it must never reach Claude as the user's own words
 suggestion alone lives in the server's memory.
 
 Claude's final text is written when its turn is the grill's own: `prompt.submit` notes the
-origin of the last prompt that entered, `turn.start` takes that note for its turn, since it
-carries no origin itself, and `turn.complete` hands `own` to the transcript. A turn the terminal
+last prompt that entered and its origin, `turn.start`, which carries no origin itself, takes
+that note when its text holds the noted one, and `turn.complete` hands `own` to the transcript
+(`core/engine/turn.ts`, pure). A turn the terminal
 started writes nothing, whatever the file's last voice is; the turn that just asked a round
 closes it either way. While a grill is open the status line says `grill open, answer in the
 page`: the warning for a prompt typed in the terminal, outside the context. A prompt Vellum itself submits comes back through its own `prompt.submit` hook, since
