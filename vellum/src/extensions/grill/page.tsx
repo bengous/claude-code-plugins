@@ -258,6 +258,7 @@ export const grillPage: PageExtension = {
     {
       accepts: (doc) => doc.mediaType === "text/markdown" && grillNumber(nameOf(doc.path)) !== null,
       component: GrillDoc,
+      comments: false,
     },
   ],
   actions: [GrillAction],

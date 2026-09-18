@@ -2,6 +2,7 @@ import { render } from "preact";
 import { useEffect, useRef } from "preact/hooks";
 
 import { pageExtensions } from "../../extensions/page.ts";
+import type { Renderer } from "../extension.ts";
 import type { DocRef } from "../protocol.ts";
 import { lineAtTop } from "./caret.ts";
 import { Comments } from "./comments.tsx";
@@ -25,13 +26,24 @@ import {
 } from "./state.ts";
 import { Tools } from "./tools.tsx";
 
+function rendererOf(doc: DocRef): Renderer | undefined {
+  return pageExtensions
+    .flatMap((extension) => extension.renderers ?? [])
+    .find((candidate) => candidate.accepts(doc));
+}
+
+/** Whether what is on screen takes comments: the document's renderer says, and the plan beside it always does. */
+function takesComments(): boolean {
+  const doc = currentDoc.value;
+  const besidePlan = split.value && planDoc.value !== null && doc?.path !== planDoc.value.path;
+
+  return doc === null || besidePlan || rendererOf(doc)?.comments !== false;
+}
+
 function Doc(props: { readonly doc: DocRef }): preact.JSX.Element {
   const { doc } = props;
   const isPlan = doc.path === planDoc.value?.path;
-
-  const renderer = pageExtensions
-    .flatMap((extension) => extension.renderers ?? [])
-    .find((candidate) => candidate.accepts(doc));
+  const renderer = rendererOf(doc);
 
   if (renderer === undefined) return <div class="waiting">No renderer for {doc.mediaType}</div>;
   const Component = renderer.component;
@@ -86,7 +98,7 @@ function Panes(): preact.JSX.Element {
   return (
     <div class="docs">
       {head}
-      <Tools onEdit={startEdit} />
+      <Tools onEdit={startEdit} comments={takesComments()} />
       <div class="panes" ref={panes}>
         {beside && split.value && plan !== null && <Doc doc={plan} />}
         <Doc doc={doc} />
@@ -138,7 +150,7 @@ function App(): preact.JSX.Element {
       <div class="body">
         <DocList />
         <Panes />
-        <Comments />
+        {takesComments() && <Comments />}
       </div>
     </div>
   );

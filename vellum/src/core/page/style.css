@@ -80,6 +80,7 @@ kbd { font: 600 0.75rem var(--ui); border: 1px solid var(--rule); border-bottom-
 .doc-head .path { color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .edited { font: 600 0.72rem var(--ui); background: #fbf3c9; color: var(--warn); border-radius: 9px; padding: 1px 8px; white-space: nowrap; }
 .toggle { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; }
+.tools:empty { display: none; }
 .tools { display: flex; align-items: center; gap: 10px; padding: 6px 14px; border-bottom: 1px solid var(--rule); font-size: 0.84rem; color: var(--graphite); background: var(--tint); }
 .seg { display: inline-flex; border: 1px solid var(--rule); border-radius: 7px; padding: 2px; background: var(--sheet); }
 .seg button { font: 600 0.8rem var(--ui); padding: 3px 10px; border: 0; border-radius: 5px; background: transparent; color: var(--graphite); cursor: pointer; }

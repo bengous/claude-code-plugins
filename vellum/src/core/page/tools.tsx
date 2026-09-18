@@ -11,7 +11,13 @@ const METHODS: readonly (readonly [InputMethod, string])[] = [
  * while an artifact shows, Edit while the plan under review shows, Changes since while the plan
  * is drawn and has a version before it.
  */
-export function Tools(props: { readonly onEdit: () => void }): preact.JSX.Element {
+type ToolsProps = {
+  readonly onEdit: () => void;
+  /** Whether what is on screen takes comments, as `app.tsx` reads it off the renderer. */
+  readonly comments: boolean;
+};
+
+export function Tools(props: ToolsProps): preact.JSX.Element {
   const plan = planDoc.value;
   const doc = currentDoc.value;
   const beside = plan !== null && doc !== null && doc.path !== plan.path;
@@ -20,7 +26,10 @@ export function Tools(props: { readonly onEdit: () => void }): preact.JSX.Elemen
   const since = planDrawn ? (review.value?.plan?.previous?.version ?? null) : null;
 
   const commentable =
-    doc?.mediaType === "text/markdown" || doc?.mediaType === "text/html" || (beside && split.value);
+    props.comments &&
+    (doc?.mediaType === "text/markdown" ||
+      doc?.mediaType === "text/html" ||
+      (beside && split.value));
 
   const pinpointable = commentable && !locked.value;
 
