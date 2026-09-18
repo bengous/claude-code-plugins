@@ -115,6 +115,15 @@ loop. `/vellum:start` enters it, Approve in the page or `/vellum:stop` leaves it
   nothing open.
 - The module keeps no copy of what holds the review. A gate the server refuses is the refusal
   it already reads: `submit` denies with the server's reason, and the turn's end says nothing.
+- `turn.start` carries no origin (`TurnStartInput` is a text and a turn id), so whose turn it
+  is goes through two hooks: `prompt.submit` notes the origin of the last prompt that entered,
+  `turn.start` takes the note for its turn and clears it, `turn.complete` hands `own` to the
+  halves' `answered`. A prompt typed over a running turn changes the next turn's note, never the
+  running one's. The note is memory on purpose: a reload loses it and that turn's text is
+  written nowhere, which is the safe side.
+- A text enters Claude's context only when Claude does something different because of it.
+  Anything else goes to `$.ui.status`, `$.ui.log` or the page. A prompt names its object and
+  repeats nothing Claude wrote or already read, and every relay keeps the plugin's origin.
 - An extension's store records are keyed `<id>:<session id>`.
 - Tests run under the engine's own `$` (`claude plugin test vellum`, the `*.test.ts` files beside the module):
   `bun test` cannot host that environment. The world beneath the module is answered by the

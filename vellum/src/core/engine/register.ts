@@ -86,6 +86,9 @@ async function handed(
   }
 }
 
+/** `nextIsOwn`: the last prompt that entered was a vellum relay. `own`: the running turn started on one. */
+type Turn = { readonly nextIsOwn: boolean; readonly own: boolean };
+
 const ticks: Ticks = (host, live) =>
   handed(host, live, "tick", (extension, context) => extension.tick?.(context));
 
@@ -105,6 +108,11 @@ export const register: Register = (on) => {
   };
 
   const wiring: Wiring = { settle, ticks, revive };
+
+  // Whose turn it is. `turn.start` carries no origin, so `prompt.submit` notes the origin of the
+  // last prompt that entered and `turn.start` takes it for its turn. A reload between the hooks
+  // loses the note, and that turn's text is written nowhere: the safe side.
+  let turn: Turn = { nextIsOwn: false, own: false };
 
   on("session.start", async ($, e, next) => {
     await $.tool.register(SUBMIT);
@@ -232,12 +240,19 @@ export const register: Register = (on) => {
   // The server already wrote what they carry, so an extension never hears of them.
   on("prompt.submit", async ($, e, next) => {
     const own = e.origin.kind === "plugin" && e.origin.name === "vellum";
+    turn = { ...turn, nextIsOwn: own };
 
     if (state.kind === "live" && !own) {
       await handed(hostOf($), state.live, "prompted", (extension, context) =>
         extension.prompted?.(context, { text: e.text, origin: e.origin }),
       );
     }
+
+    return next(e);
+  });
+
+  on("turn.start", (_, e, next) => {
+    turn = { nextIsOwn: false, own: turn.nextIsOwn };
 
     return next(e);
   });
@@ -254,7 +269,7 @@ export const register: Register = (on) => {
     if (e.reason === "answer") await submitPlan(host, state.live, "keep").catch(() => UNREACHABLE);
 
     await handed(host, state.live, "answered", (extension, context) =>
-      extension.answered?.(context, { text: result.text, reason: e.reason }),
+      extension.answered?.(context, { text: result.text, reason: e.reason, own: turn.own }),
     );
 
     return result;

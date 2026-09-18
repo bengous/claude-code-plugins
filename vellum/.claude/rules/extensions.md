@@ -33,6 +33,10 @@ and the engine events the core hands it. `grill` is the one extension with all t
   `workspace().dir` moves at the approval, so a route resolves it at each write and never keeps
   it. What the watcher cannot see (a state kept in memory, a write after the approval) reaches
   the page through `notify`. The page half calls its routes with `extensionRequest`.
+- What an engine half relays is a cursor over entries the server numbers, never "the last one":
+  `grill` asks `state?after=<seq>&file=<name>` and submits every entry past it, in order, the
+  cursor written after each. A rule that reads the file's last voice loses a reply whenever two
+  land between two polls.
 - An extension owns its messages: `<id>/protocol.ts` types what crosses its routes, and
   `<id>/parse.ts` is its boundary parser. `src/core/protocol.ts` learns nothing of them.
 - An engine half loads its own folder and nothing else: the hooks module must never pull the

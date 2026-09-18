@@ -1,26 +1,13 @@
-import type {
-  Asked,
-  CloseReason,
-  GrillPosts,
-  Question,
-  ReviewerRound,
-  Suggestion,
-} from "./protocol.ts";
-
-/** What `$.store` keeps under `grill:<session id>`: the reviewer's round the poll already relayed. */
-export type RelayedRound = { readonly file: string; readonly round: number };
+import type { Asked, CloseReason, GrillPosts, Question, Relay, Suggestion } from "./protocol.ts";
 
 /**
- * What the poll reads off `GET state`, brands left to the server: the round to relay, or a
- * grill the reviewer ended from the page, the one end Claude cannot know of.
+ * What `$.store` keeps under `grill:<session id>`: the last entry the poll submitted, of which
+ * transcript, and whether this session's Claude was already pointed at `grilling.md`.
  */
-export type Relay =
-  | {
-      readonly kind: "open";
-      readonly subject: string;
-      readonly reviewer: (Omit<ReviewerRound, "file"> & { readonly file: string }) | null;
-    }
-  | { readonly kind: "ended"; readonly file: string };
+export type Cursor = { readonly file: string; readonly seq: number; readonly taught: boolean };
+
+/** What the poll reads off `GET state`: whether a grill is open, and the entries past the cursor. */
+export type Polled = { readonly open: boolean; readonly relays: readonly Relay[] };
 
 /** The boundary of `grill`: what a request carries arrives as `unknown` and is parsed here, once. */
 
@@ -98,8 +85,11 @@ export function parseEvent(body: unknown): GrillPosts["event"] | null {
 
 /** An empty text is a turn that ended without one: the transcript says so, so it is kept. */
 export function parseAnswer(body: unknown): GrillPosts["answer"] | null {
-  return isRecord(body) && typeof body.text === "string" && typeof body.reason === "string"
-    ? { text: body.text, reason: body.reason }
+  return isRecord(body) &&
+    typeof body.text === "string" &&
+    typeof body.reason === "string" &&
+    typeof body.own === "boolean"
+    ? { text: body.text, reason: body.reason, own: body.own }
     : null;
 }
 
@@ -141,34 +131,42 @@ export function parseError(value: unknown): string | null {
   return isRecord(value) && typeof value.error === "string" ? value.error : null;
 }
 
-/** `GET state` as the poll needs it; `null` when there is nothing to tell Claude. */
-export function parseRelay(value: unknown): Relay | null {
-  if (!isRecord(value)) return null;
-  const { closed, reviewer, subject } = value;
+function parseRelay(value: unknown): Relay | null {
+  if (!isRecord(value) || typeof value.seq !== "number") return null;
+  const { kind, seq, name, subject } = value;
 
-  if (value.kind === "none") {
-    return isRecord(closed) && closed.reason === "page" && typeof closed.file === "string"
-      ? { kind: "ended", file: closed.file }
-      : null;
-  }
+  if (kind === "reply")
+    return typeof value.text === "string" ? { kind, seq, text: value.text } : null;
 
-  if (value.kind !== "open" || typeof subject !== "string") return null;
+  if (typeof name !== "string") return null;
 
-  return isRecord(reviewer) &&
-    typeof reviewer.file === "string" &&
-    typeof reviewer.round === "number" &&
-    typeof reviewer.text === "string"
-    ? {
-        kind: "open",
-        subject,
-        reviewer: { file: reviewer.file, round: reviewer.round, text: reviewer.text },
-      }
-    : { kind: "open", subject, reviewer: null };
+  if (kind === "ended") return { kind, seq, name };
+
+  return kind === "opened" && seq === 0 && typeof subject === "string"
+    ? { kind, seq, name, subject }
+    : null;
 }
 
-export function parseRelayedRound(value: unknown): RelayedRound | null {
-  return isRecord(value) && typeof value.file === "string" && typeof value.round === "number"
-    ? { file: value.file, round: value.round }
+/** `GET state` as the poll needs it; an entry it cannot read stops the list, so none is skipped. */
+export function parsePolled(value: unknown): Polled | null {
+  if (!isRecord(value) || !Array.isArray(value.relays)) return null;
+  const relays = value.relays.map((relay: unknown) => parseRelay(relay));
+  const unread = relays.indexOf(null);
+
+  return {
+    open: value.kind === "open",
+    relays: relays
+      .slice(0, unread === -1 ? relays.length : unread)
+      .filter((relay) => relay !== null),
+  };
+}
+
+export function parseCursor(value: unknown): Cursor | null {
+  return isRecord(value) &&
+    typeof value.file === "string" &&
+    typeof value.seq === "number" &&
+    typeof value.taught === "boolean"
+    ? { file: value.file, seq: value.seq, taught: value.taught }
     : null;
 }
 /* oxlint-enable anti-slop/no-runtime-typeof, anti-slop/no-unknown-parameters, anti-slop/no-unsafe-dictionary-type, anti-slop/no-unknown-returns, anti-slop/no-known-value-widening */

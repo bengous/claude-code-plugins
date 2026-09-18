@@ -6,11 +6,10 @@ import {
   appendFooter,
   appendQuestions,
   appendReply,
-  closedBy,
   header,
   isClosed,
   phaseOf,
-  reviewerEntry,
+  relaysOf,
   segmentsOf,
   subjectOf,
   unanswered,
@@ -22,7 +21,11 @@ const STYLE = { title: "Style", ask: "bright or plain?", rec: "I recommend brigh
 
 const opened = header("auth", "4c2a9d93", AT);
 
-const asked = appendAnswer(appendQuestions(opened, [STYLE, STYLE]), "Asked.", "answer");
+const OWN = true;
+
+const NOT_OWN = false;
+
+const asked = appendAnswer(appendQuestions(opened, [STYLE, STYLE]), "Asked.", "answer", OWN);
 
 /** Each question of the file with its answer, in order. */
 function answers(doc: string): (string | null)[] {
@@ -66,39 +69,81 @@ describe("a round", () => {
 });
 
 describe("Claude's final text", () => {
-  test("is kept under the opening, under a reply, and under the round its turn asked", () => {
+  test("of a turn a vellum relay started is kept, under the opening and under a reply", () => {
     const replied = appendReply(asked, [], "") ?? "";
 
-    expect(appendAnswer(opened, "Two facts first.", "answer")).toEndWith(
+    expect(appendAnswer(opened, "Two facts first.", "answer", OWN)).toEndWith(
       "\n### Claude\n\nTwo facts first.\n",
     );
-    expect(appendAnswer(replied, "The frontier is empty.", "answer")).toEndWith(
+    expect(appendAnswer(replied, "The frontier is empty.", "answer", OWN)).toEndWith(
       "by default.\n\n### Claude\n\nThe frontier is empty.\n",
     );
   });
 
-  test("of a turn that answered the terminal is not the grill's", () => {
-    expect(appendAnswer(asked, "Sure, here is the weather.", "answer")).toBe(asked);
+  test("of a turn the terminal started writes nothing, a reply waiting or not", () => {
+    const replied = appendReply(asked, [], "") ?? "";
+
+    expect(appendAnswer(replied, "Sure, here is the weather.", "answer", NOT_OWN)).toBe(replied);
+    expect(appendAnswer(asked, "Sure, here is the weather.", "answer", NOT_OWN)).toBe(asked);
+  });
+
+  test("closes the round its turn just asked, whoever started the turn", () => {
+    const round = appendQuestions(opened, [STYLE]);
+
+    expect(appendAnswer(round, "Asked.", "answer", NOT_OWN)).toBe(`${round}\nAsked.\n`);
   });
 
   test("an interrupted turn says so", () => {
-    expect(appendAnswer(opened, "partial", "aborted")).toEndWith(
+    expect(appendAnswer(opened, "partial", "aborted", OWN)).toEndWith(
       "### Claude\n\npartial\n\n_(turn aborted)_\n",
     );
   });
 });
 
 describe("what the engine relays", () => {
-  test("the opening while Claude said nothing, then each reply until Claude speaks under it", () => {
-    const replied = appendReply(asked, [{ id: "Q1", text: "plain" }], "and hurry") ?? "";
+  const NAME = "grill-2.md";
 
-    expect(reviewerEntry(opened)).toEqual({ round: 0, text: "" });
-    expect(reviewerEntry(asked)).toBeNull();
-    expect(reviewerEntry(replied)).toEqual({
-      round: 1,
-      text: "Q1: plain\n\nQ2: As recommended, by default.\n\nNote: and hurry",
-    });
-    expect(reviewerEntry(appendQuestions(replied, [STYLE]))).toBeNull();
+  const once = appendReply(asked, [{ id: "Q1", text: "plain" }], "and hurry") ?? "";
+
+  const twice = appendReply(appendQuestions(once, [STYLE]), [], "one more thing") ?? "";
+
+  test("the opening is entry 0, and names the file and the subject", () => {
+    expect(relaysOf(opened, NAME, -1)).toEqual([
+      { kind: "opened", seq: 0, name: NAME, subject: "auth" },
+    ]);
+    expect(relaysOf(opened, NAME, 0)).toEqual([]);
+  });
+
+  test("a reply goes as the reviewer's: the note first, then the answers they typed, never a default", () => {
+    expect(relaysOf(once, NAME, 0)).toEqual([
+      { kind: "reply", seq: 1, text: "Reviewer: and hurry\n\nQ1: plain" },
+    ]);
+  });
+
+  test("a reply with nothing typed is one line", () => {
+    expect(relaysOf(appendReply(asked, [], "") ?? "", NAME, 0)).toEqual([
+      { kind: "reply", seq: 1, text: "Reviewer: all open questions as recommended." },
+    ]);
+  });
+
+  test("two replies before one poll both come out, in order, and Claude's voice after one cancels nothing", () => {
+    const spoken = appendAnswer(twice, "Noted.", "answer", OWN);
+
+    expect(relaysOf(spoken, NAME, 0).map((relay) => relay.seq)).toEqual([1, 2]);
+    expect(relaysOf(spoken, NAME, 1)).toEqual([
+      { kind: "reply", seq: 2, text: "Reviewer: one more thing" },
+    ]);
+  });
+
+  test("the end comes after the replies still due, and only when the reviewer ended it from the page", () => {
+    expect(relaysOf(appendFooter(twice, "page", AT), NAME, 1).map((relay) => relay.kind)).toEqual([
+      "reply",
+      "ended",
+    ]);
+    expect(relaysOf(appendFooter(twice, "page", AT), NAME, 2)).toEqual([
+      { kind: "ended", seq: 3, name: NAME },
+    ]);
+    expect(relaysOf(appendFooter(twice, "stop", AT), NAME, 2)).toEqual([]);
   });
 
   test("the phase is working while an entry waits for Claude", () => {
@@ -108,11 +153,11 @@ describe("what the engine relays", () => {
 });
 
 describe("the footer", () => {
-  test("closes the file and says who closed it; a rule inside an answer does not", () => {
-    expect(closedBy(appendFooter(asked, "page", AT))).toBe("page");
-    expect(isClosed(appendAnswer(opened, "a\n\n---\n\nClosed questions below", "answer"))).toBe(
-      false,
-    );
+  test("closes the file; a rule inside an answer does not", () => {
+    const ruled = appendAnswer(opened, "a\n\n---\n\nClosed questions below", "answer", OWN);
+
+    expect(isClosed(appendFooter(asked, "page", AT))).toBe(true);
+    expect(isClosed(ruled)).toBe(false);
     expect(subjectOf(opened)).toBe("auth");
   });
 });
@@ -143,7 +188,7 @@ describe("the page's segments", () => {
     const typed =
       "❓ **Q1** – **Riding times**: day or night?\n\n➡️ *Both*\n\n---\n\nYour answers?";
 
-    expect(segmentsOf(appendAnswer(opened, typed, "answer")).slice(1)).toEqual([
+    expect(segmentsOf(appendAnswer(opened, typed, "answer", OWN)).slice(1)).toEqual([
       {
         kind: "question",
         id: "Q1",

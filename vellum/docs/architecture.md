@@ -124,17 +124,17 @@ sequenceDiagram
   S-->>P: workspace event, the Grill button lit
   P->>S: POST /api/x/grill/open {subject}
   S->>S: writes grill-1.md, its header
-  M->>S: tick: GET /api/x/grill/state
-  M->>C: $.prompt.submit (the opening, once)
+  M->>S: tick: GET /api/x/grill/state?after=<seq>&file=<name>
+  M->>C: $.prompt.submit (the opening, entry 0)
   C->>M: tool.call grill_ask {q}
   M->>S: POST /api/x/grill/ask, a round opened
   C->>M: turn.complete
-  M->>S: POST /api/x/grill/answer, the final text under the questions
+  M->>S: POST /api/x/grill/answer {text, reason, own}, the final text under the questions
   P->>S: POST /api/x/grill/reply {answers, note}, written in the round of its questions
-  M->>C: $.prompt.submit (the reply, once)
+  M->>C: $.prompt.submit (each reply past the cursor, in order, "Reviewer: ...")
   P->>S: POST /api/x/grill/close, or the module's on /vellum:stop
   P->>S: POST /api/decision approve, the server ends the grill after the rename (approved)
-  M->>C: $.prompt.submit ("The reviewer ended the grill.", once, for a close from the page alone)
+  M->>C: $.prompt.submit ("The reviewer ended grill-1.md.", the last entry, for a close from the page alone)
 ```
 
 A round is Claude's: `grill_ask` alone opens one, and the reviewer's reply is written in it, so
@@ -145,12 +145,26 @@ is the harness's, written as an event line that opens and closes nothing. What t
 types in the terminal, and what Claude answers to it, are not the grill's and are not written.
 
 The file is the queue and the state: the server writes every round, the module writes nothing,
-and what is open, who speaks next and which round waits for the relay are read off
-`grill-<n>.md` (`extensions/grill/transcript.ts`). The module keeps one record of its own, in
-`$.store`: the reviewer's round it already relayed, or that the grill's end was told. A prompt
-carries what Claude does not hold and nothing else: a round goes as the reviewer wrote it, never
-with the questions again, and the end goes as the fact alone, the transcript's path to `$.ui.log`. The suggestion alone lives in the server's
-memory. A prompt Vellum itself submits comes back through its own `prompt.submit` hook, since
+and what is open, who speaks next and what waits for the relay are read off `grill-<n>.md`
+(`extensions/grill/transcript.ts`). `relaysOf` numbers the entries in file order: 0 the opening,
+1..n the reviewer's replies, n+1 the end when the footer says `page`. The module keeps one
+record of its own, in `$.store`: its cursor, `{ file, seq, taught }`. Each poll asks for the
+entries past it and submits them one by one, the cursor written after each, so two replies
+between two polls both go and nothing Claude says cancels one. The file serves the human, the
+prompt serves the agent, and they no longer share a text: a prompt names its object
+(`grill-2.md`) and repeats nothing Claude wrote or read. A reply goes under `Reviewer:`, the
+note first, then the typed answers, never a default; `grilling.md` is named at the first grill
+of a session alone (`taught`); the end names the file, its path goes to `$.ui.log`. Every relay
+keeps the plugin's origin: the lock lets Claude write `grill-<n>.md`, so a `Reviewer` block
+proves no human wrote it, and it must never reach Claude as the user's own words. The
+suggestion alone lives in the server's memory.
+
+Claude's final text is written when its turn is the grill's own: `prompt.submit` notes the
+origin of the last prompt that entered, `turn.start` takes that note for its turn, since it
+carries no origin itself, and `turn.complete` hands `own` to the transcript. A turn the terminal
+started writes nothing, whatever the file's last voice is; the turn that just asked a round
+closes it either way. While a grill is open the status line says `grill open, answer in the
+page`: the warning for a prompt typed in the terminal, outside the context. A prompt Vellum itself submits comes back through its own `prompt.submit` hook, since
 `$.prompt.submit` skips the calling hook alone; its origin (`plugin`, `vellum`) keeps it out of
 the transcript, where the server already wrote what it carries.
 

@@ -4,32 +4,37 @@ import type {
   ExtensionTool,
   ToolAnswer,
 } from "../../core/engine/extension.ts";
+import type { Live } from "../../core/engine/mode.ts";
 import {
+  type Cursor,
   parseAsked,
+  parseCursor,
   parseError,
   parseJson,
+  parsePolled,
   parseQuestions,
-  parseRelay,
-  parseRelayedRound,
   parseSuggestion,
-  type Relay,
-  type RelayedRound,
 } from "./parse.ts";
-import type { GrillPosts } from "./protocol.ts";
+import type { GrillPosts, Relay } from "./protocol.ts";
 
 const ASK_TOOL = "mcp__vellum__grill_ask";
 
 const SUGGEST_TOOL = "mcp__vellum__grill_suggest";
 
-/** Claude holds every round in its context, and the transcript's path since the opening: the fact alone is news. */
-const ENDED_PROMPT = "The reviewer ended the grill.";
+/** What the person at the terminal must know, and the agent must not read: a prompt typed there is not the grill's. */
+const STATUS_OPEN = "grill open, answer in the page";
 
-/** The reviewer's entries count from 0, the opening, so -1 records that the grill's end was told. */
-const ENDED = -1;
+const STATUS_PLANNING = "planning";
 
-const OPENING = 0;
+const NO_CURSOR: Cursor = { file: "", seq: -1, taught: false };
 
-function relayedKey(sessionId: string): string {
+/**
+ * The modes whose status line says a grill is open. Keyed by the mode's own `Live`, so a reload
+ * or a new way in, which both reset the line to `planning`, say it again.
+ */
+const statusShown = new WeakSet<Live>();
+
+function cursorKey(sessionId: string): string {
   return `grill:${sessionId}`;
 }
 
@@ -45,7 +50,7 @@ function post<Name extends keyof GrillPosts>(
 const ASK: ExtensionTool = {
   name: "grill_ask",
   description:
-    'Ask one round of the open grill in the review page. q: one [title, question, recommendation] per question; the page numbers them. A recommendation is in your voice ("I recommend ..."), never the reviewer\'s answer.',
+    "Ask one round of the open grill in the review page. q: one [title, question, recommendation] per question; the page numbers them.",
   inputSchema: {
     type: "object",
     properties: {
@@ -113,68 +118,68 @@ const SUGGEST: ExtensionTool = {
   },
 };
 
-/** The opening is the reviewer's gesture in the page, so Claude is told what it means; a reply goes as written. */
-function relayPrompt(
-  context: EngineContext,
-  subject: string,
-  reviewer: NonNullable<Extract<Relay, { kind: "open" }>["reviewer"]>,
-): string {
-  return reviewer.round === OPENING
-    ? `The reviewer opened a grill in ${reviewer.file} on: ${subject}. Read ${context.host.pluginRoot}/src/extensions/grill/grilling.md, then ask the first round with ${ASK_TOOL}.`
-    : reviewer.text;
+/**
+ * A prompt names its object and repeats nothing Claude wrote or read: the guide is named at the
+ * first grill of a session alone, and a reply goes as the server worded it, under `Reviewer:`.
+ */
+function promptOf(context: EngineContext, relay: Relay, taught: boolean): string {
+  if (relay.kind === "reply") return relay.text;
+
+  if (relay.kind === "ended") return `The reviewer ended ${relay.name}.`;
+  const opened = `The reviewer opened ${relay.name} on: ${relay.subject}.`;
+
+  return taught
+    ? opened
+    : `${opened} Read ${context.host.pluginRoot}/src/extensions/grill/grilling.md, then ask with ${ASK_TOOL}.`;
 }
 
-/** What one poll has to tell Claude, and the record that says it was told. */
-type News = { readonly told: RelayedRound; readonly prompt: string };
+function showStatus({ host, live }: EngineContext, open: boolean): void {
+  if (open === statusShown.has(live)) return;
+  host.status(open ? STATUS_OPEN : STATUS_PLANNING);
 
-function newsOf(context: EngineContext, relay: Relay | null): News | null {
-  if (relay === null) return null;
-
-  if (relay.kind === "ended") {
-    return { told: { file: relay.file, round: ENDED }, prompt: ENDED_PROMPT };
-  }
-
-  const { reviewer, subject } = relay;
-
-  return reviewer === null
-    ? null
-    : {
-        told: { file: reviewer.file, round: reviewer.round },
-        prompt: relayPrompt(context, subject, reviewer),
-      };
+  if (open) statusShown.add(live);
+  else statusShown.delete(live);
 }
 
 /**
- * Relays each round the reviewer wrote, once, then the end of a grill they closed from the page.
- * What was told is kept in `$.store`, and the rounds are on the server's disk: a reloaded module
- * or a restarted server repeats nothing.
+ * Submits every entry past the cursor, one by one and in order, the cursor written after each:
+ * a dropped prompt stops there and the next poll retries it. The entries are on the server's
+ * disk and the cursor in `$.store`, so a reloaded module or a revived server repeats nothing.
  */
 async function tick(context: EngineContext): Promise<void> {
   const { host, live, api } = context;
-  const news = newsOf(context, parseRelay(parseJson((await api.get("state")).text)));
+  const key = cursorKey(live.session.id);
+  let cursor = parseCursor(await host.storeGet(key)) ?? NO_CURSOR;
+  const query = `after=${cursor.seq}&file=${encodeURIComponent(cursor.file)}`;
+  const polled = parsePolled(parseJson((await api.get(`state?${query}`)).text));
 
-  if (news === null) return;
-  const key = relayedKey(live.session.id);
-  const relayed = parseRelayedRound(await host.storeGet(key));
-  const { file, round } = news.told;
+  if (polled === null) return;
+  showStatus(context, polled.open);
 
-  if (relayed?.file === file && relayed.round === round) return;
+  // A closed grill this session relayed nothing of: after a `/clear`, an old transcript of the
+  // directory means nothing to the new context.
+  if (!polled.open && polled.relays[0]?.kind === "opened") return;
 
-  // An end is told only to the session that relayed a round of that grill: after a `/clear`,
-  // an old transcript of the directory means nothing to the new context.
-  if (round === ENDED && relayed?.file !== file) return;
-  const result = await host.submitPrompt(news.prompt);
+  for (const relay of polled.relays) {
+    const result = await host.submitPrompt(promptOf(context, relay, cursor.taught));
 
-  if (result.drop !== undefined) {
-    host.log(`the grill prompt was dropped: ${result.drop}`);
+    if (result.drop !== undefined) {
+      host.log(`the grill prompt was dropped: ${result.drop}`);
 
-    return;
+      return;
+    }
+
+    cursor = {
+      file: relay.kind === "reply" ? cursor.file : relay.name,
+      seq: relay.seq,
+      taught: cursor.taught || relay.kind === "opened",
+    };
+
+    await host.storeSet(key, cursor);
+
+    // The path is the harness's to show, never the model's to read again.
+    if (relay.kind === "ended") host.log(`grill closed from the page; ${relay.name} is kept`);
   }
-
-  await host.storeSet(key, news.told);
-
-  // The path is the harness's to show, never the model's to read again.
-  if (round === ENDED) host.log(`grill closed from the page; ${file} is kept`);
 }
 
 export const grillEngine: EngineExtension = {

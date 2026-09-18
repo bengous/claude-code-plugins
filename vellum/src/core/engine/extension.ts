@@ -35,7 +35,12 @@ export type ExtensionTool = {
 
 export type Prompted = { readonly text: string; readonly origin: PromptOrigin };
 
-export type Answered = { readonly text: string; readonly reason: string };
+/** `own`: a vellum relay started the turn, so its text answers the reviewer, not the terminal. */
+export type Answered = {
+  readonly text: string;
+  readonly reason: string;
+  readonly own: boolean;
+};
 
 export type EngineExtension = {
   readonly id: string;

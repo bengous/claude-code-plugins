@@ -1,4 +1,4 @@
-import type { Question } from "./protocol.ts";
+import type { Question, Relay } from "./protocol.ts";
 
 /**
  * The transcript as text: every function takes the file and returns the file. What the page and
@@ -14,9 +14,6 @@ export type Segment =
 
 /** An answer the reviewer typed for one question, by its id (`Q3`). */
 export type Answer = { readonly id: string; readonly text: string };
-
-/** A reviewer's entry Claude has not answered yet: `round` 0 is the opening, `n` their nth reply. */
-export type Entry = { readonly round: number; readonly text: string };
 
 /** What a question the reviewer left empty is answered with, when its round is sent or the grill ends. */
 export const TAKEN_BY_DEFAULT = "As recommended, by default.";
@@ -48,6 +45,10 @@ const ANSWER_LINE = /^(Q\d+): /u;
 
 const NOTE = "Note: ";
 
+const REVIEWER_PREFIX = "Reviewer: ";
+
+const ALL_AS_RECOMMENDED = "all open questions as recommended.";
+
 function pad(n: number): string {
   return String(n).padStart(2, "0");
 }
@@ -67,11 +68,6 @@ export function subjectOf(doc: string): string {
 
 export function isClosed(doc: string): boolean {
   return FOOTER.test(doc);
-}
-
-/** The reason the footer gives; `null` while the grill is open. */
-export function closedBy(doc: string): string | null {
-  return FOOTER.exec(doc)?.[1] ?? null;
 }
 
 export function appendFooter(doc: string, reason: string, date: Date): string {
@@ -169,42 +165,61 @@ export function appendReply(doc: string, answers: readonly Answer[], note: strin
 }
 
 /**
- * Claude's final text, kept only when its turn belongs to the grill: it answers the opening or
- * a reply, or it closes the turn that asked a round. A turn that answered the terminal is not
- * the grill's, and the file holds no prompt it would answer.
+ * Claude's final text, kept only when its turn belongs to the grill: `own`, a turn a vellum
+ * relay started, or the turn that just asked the round the file ends on. A turn the terminal
+ * started is not the grill's, whatever the file's last voice is.
  */
-export function appendAnswer(doc: string, text: string, reason: string): string {
+export function appendAnswer(doc: string, text: string, reason: string, own: boolean): string {
   const ended = reason === "answer" ? "" : `_(turn ${reason})_`;
   const body = [text.trim(), ended].filter((part) => part !== "").join("\n\n");
-  const claude = doc.lastIndexOf(CLAUDE_VOICE);
 
-  if (claude > doc.lastIndexOf(REVIEWER_VOICE)) {
-    return RULE.test(doc.trimEnd().split("\n").at(-1) ?? "") && body !== ""
-      ? `${doc}\n${body}\n`
-      : doc;
+  if (RULE.test(doc.trimEnd().split("\n").at(-1) ?? "")) {
+    return body === "" ? doc : `${doc}\n${body}\n`;
   }
 
-  return `${doc}${CLAUDE_VOICE}${body === "" ? "_(no text)_" : body}\n`;
+  return own ? `${doc}${CLAUDE_VOICE}${body === "" ? "_(no text)_" : body}\n` : doc;
+}
+
+/** A reply as the agent reads it: the note first, then the answers the reviewer typed. A default never goes: `grilling.md` says an absent question took the recommendation. */
+function replyText(reply: string): string {
+  const { answers, note } = partsOf(reply);
+
+  const typed = answers
+    .filter((answer) => answer.text !== TAKEN_BY_DEFAULT)
+    .map((answer) => `${answer.id}: ${answer.text}`);
+
+  const parts = [note, ...typed].filter((part) => part !== "");
+
+  return `${REVIEWER_PREFIX}${parts.length === 0 ? ALL_AS_RECOMMENDED : parts.join("\n\n")}`;
 }
 
 /**
- * What the engine has to relay: the opening while Claude said nothing yet, then the reviewer's
- * last reply while no voice of Claude follows it.
+ * What the engine submits, past its cursor and in file order. Nothing Claude says cancels an
+ * entry, and the end comes after the replies still due.
+ *
+ * FIXME: the lock lets Claude write in the working directory, so a `Reviewer` block it forged
+ * is relayed under the prefix. It stays attributed to the plugin, never to the user.
  */
-export function reviewerEntry(doc: string): Entry | null {
+export function relaysOf(doc: string, name: string, after: number): Relay[] {
   const all = replies(doc);
-  const last = all.at(-1);
 
-  if (last === undefined) return doc.includes(CLAUDE_VOICE) ? null : { round: 0, text: "" };
+  const entries: Relay[] = [
+    { kind: "opened", seq: 0, name, subject: subjectOf(doc) },
+    ...all.map((reply, index): Relay => ({
+      kind: "reply",
+      seq: index + 1,
+      text: replyText(reply[1] ?? ""),
+    })),
+  ];
 
-  return doc.includes(CLAUDE_VOICE, last.index)
-    ? null
-    : { round: all.length, text: (last[1] ?? "").trim() };
+  if (FOOTER.exec(doc)?.[1] === "page") entries.push({ kind: "ended", seq: all.length + 1, name });
+
+  return entries.filter((entry) => entry.seq > after);
 }
 
-/** Working while an entry of the reviewer waits for Claude. */
+/** Working while the reviewer spoke last: the opening, or a reply no voice of Claude follows. */
 export function phaseOf(doc: string): Phase {
-  return reviewerEntry(doc) === null ? "waiting" : "working";
+  return doc.includes(CLAUDE_VOICE, replies(doc).at(-1)?.index ?? 0) ? "waiting" : "working";
 }
 
 function lineText(lines: readonly string[]): string {

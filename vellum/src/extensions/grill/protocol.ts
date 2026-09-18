@@ -6,27 +6,34 @@ export type Question = { readonly title: string; readonly ask: string; readonly 
 
 export type Suggestion = { readonly subject: string; readonly reason: string };
 
-/** An entry of the reviewer Claude has not answered: `round` 0 is the opening, `n` their nth reply. What the engine relays, once. */
-export type ReviewerRound = {
-  readonly file: ProjectPath;
-  readonly round: number;
-  readonly text: string;
-};
+/**
+ * One entry the engine submits. `seq` runs in file order: 0 the opening, 1..n the reviewer's
+ * replies, n+1 the end, told only when the reviewer ended the grill from the page. The text is
+ * the agent's, not the file's.
+ */
+export type Relay =
+  | {
+      readonly kind: "opened";
+      readonly seq: 0;
+      readonly name: string;
+      readonly subject: string;
+    }
+  | { readonly kind: "reply"; readonly seq: number; readonly text: string }
+  | { readonly kind: "ended"; readonly seq: number; readonly name: string };
 
+/** `relays` are the entries of the last grill past the cursor `GET state` was asked with, in order. */
 export type GrillState =
   | {
       readonly kind: "none";
       readonly suggestion: Suggestion | null;
-      /** The last grill of the directory, closed: the engine tells Claude of an end it did not cause. */
-      readonly closed: { readonly file: ProjectPath; readonly reason: string } | null;
+      readonly relays: readonly Relay[];
     }
   | {
       readonly kind: "open";
       readonly file: ProjectPath;
       readonly subject: string;
       readonly phase: "working" | "waiting";
-      /** The reviewer's last entry; `null` once Claude answered under it. */
-      readonly reviewer: ReviewerRound | null;
+      readonly relays: readonly Relay[];
     };
 
 /**
@@ -69,6 +76,6 @@ export type GrillPosts = {
   };
   /** A command of the session (`/vellum:start`, `/clear`): the harness's, written as an event. */
   readonly event: { readonly command: string };
-  /** The main loop's final text, and why the turn ended. */
-  readonly answer: { readonly text: string; readonly reason: string };
+  /** The main loop's final text, why the turn ended, and whether a vellum relay started it. */
+  readonly answer: { readonly text: string; readonly reason: string; readonly own: boolean };
 };

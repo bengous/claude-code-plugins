@@ -63,6 +63,7 @@ export function world(on: On, options: WorldOptions = {}): World {
   skillText(on);
 
   on("session.start", (_, e) => ({ cwd: e.cwd }));
+  on("turn.start", (_, e) => ({ turnId: e.turnId }));
   on("session.id", () => ({ value: built.id }));
   on("session.cwd", () =>
     built.refuseCwd === undefined ? { value: CWD } : { deny: built.refuseCwd },

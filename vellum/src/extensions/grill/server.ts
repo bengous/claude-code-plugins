@@ -21,12 +21,11 @@ import {
   appendEvent,
   appendReply,
   appendQuestions,
-  closedBy,
   header,
   isClosed,
   nextQuestion,
   phaseOf,
-  reviewerEntry,
+  relaysOf,
   segmentsOf,
   subjectOf,
 } from "./transcript.ts";
@@ -89,21 +88,32 @@ async function latest(
   return doc === null ? null : { n, file, doc };
 }
 
-function stateOf(current: Transcript | null, suggestion: Suggestion | null): GrillState {
-  if (current === null) return { kind: "none", suggestion, closed: null };
-  const { file, doc } = current;
-  const reason = closedBy(doc);
+/** The engine's cursor, as `GET state?after=<seq>&file=<name>` carries it; the page sends none. */
+type Cursor = { readonly name: string | null; readonly after: number };
 
-  if (reason !== null) return { kind: "none", suggestion, closed: { file, reason } };
-  const round = reviewerEntry(doc);
+const NO_CURSOR = -1;
 
-  return {
-    kind: "open",
-    file,
-    subject: subjectOf(doc),
-    phase: phaseOf(doc),
-    reviewer: round === null ? null : { file, ...round },
-  };
+function cursorOf(url: string): Cursor {
+  const query = new URL(url).searchParams;
+  const after = Number(query.get("after") ?? NO_CURSOR);
+
+  return { name: query.get("file"), after: Number.isInteger(after) ? after : NO_CURSOR };
+}
+
+function stateOf(
+  current: Transcript | null,
+  suggestion: Suggestion | null,
+  cursor: Cursor,
+): GrillState {
+  if (current === null) return { kind: "none", suggestion, relays: [] };
+  const { n, file, doc } = current;
+  const name = grillFile(n);
+  // A cursor kept for another transcript says nothing of this one.
+  const relays = relaysOf(doc, name, cursor.name === name ? cursor.after : NO_CURSOR);
+
+  return isClosed(doc)
+    ? { kind: "none", suggestion, relays }
+    : { kind: "open", file, subject: subjectOf(doc), phase: phaseOf(doc), relays };
 }
 
 /** The grill that is open now, read as `GET state` reads it; `null` with none, or with no directory. */
@@ -167,12 +177,13 @@ function routes(context: ServerContext): Readonly<Record<RouteKey, Route>> {
   });
 
   return {
-    "GET state": async () => {
+    "GET state": async (request) => {
       const workspace = await workspaceIfAny(context);
 
       if (workspace === null) return refused("the plan's directory is gone");
+      const current = await latest(context, workspace.dir);
 
-      return Response.json(stateOf(await latest(context, workspace.dir), suggestion));
+      return Response.json(stateOf(current, suggestion, cursorOf(request.url)));
     },
 
     "POST suggest": async (request) => {
@@ -256,7 +267,7 @@ function routes(context: ServerContext): Readonly<Record<RouteKey, Route>> {
 
       return answer === null
         ? badRequest()
-        : await change((doc) => written(appendAnswer(doc, answer.text, answer.reason)));
+        : await change((doc) => written(appendAnswer(doc, answer.text, answer.reason, answer.own)));
     },
 
     "POST reply": async (request) => {

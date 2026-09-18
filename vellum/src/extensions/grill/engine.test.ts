@@ -16,7 +16,14 @@ import {
   TURN_ANSWERED,
   TURN_OF_AGENT,
 } from "../../core/engine/fixtures/index.ts";
-import { GRILL_FILE, grillRoutes, openState } from "./fixtures/grill-routes.ts";
+import {
+  endedGrill,
+  GRILL_NAME,
+  grillRoutes,
+  NO_GRILL,
+  openGrill,
+} from "./fixtures/grill-routes.ts";
+import type { Relay } from "./protocol.ts";
 
 tier("user");
 
@@ -26,13 +33,21 @@ const ASK = "mcp__vellum__grill_ask";
 // `tool.call` for all the same; the cast borrows the MCP name type, whose input is open, and changes no value.
 const ASK_USER = "AskUserQuestion" as `mcp__${string}__${string}`;
 
+const VELLUM = { kind: "plugin", name: "vellum" } as const;
+
+const COMPOSER = { kind: "composer" } as const;
+
+const TURN = { text: "", turnId: "t1" };
+
 const Q = [["Tool names", "Prefix the tools with the extension's id?", "Yes."]];
 
-describe("the reviewer's rounds reach Claude", () => {
-  test("the opening is relayed once, as what the gesture means", async ($, on) => {
+const CURSOR = `grill:${SESSION_ID}`;
+
+describe("the reviewer's entries reach Claude", () => {
+  test("the first opening of a session names the file, the subject and the guide, once", async ($, on) => {
     const seen = world(
       on,
-      grillRoutes(() => openState(0, "")),
+      grillRoutes(() => openGrill()),
     );
 
     await $.skill.prompt(START_PROMPT);
@@ -41,16 +56,31 @@ describe("the reviewer's rounds reach Claude", () => {
 
     expect(seen.prompts).toEqual([
       expect.stringMatching(
-        /^The reviewer opened a grill in .+grill-1\.md on: auth\. Read .+\/src\/extensions\/grill\/grilling\.md, then ask the first round with mcp__vellum__grill_ask\.$/u,
+        /^The reviewer opened grill-1\.md on: auth\. Read .+\/src\/extensions\/grill\/grilling\.md, then ask with mcp__vellum__grill_ask\.$/u,
       ),
     ]);
-    expect(seen.store.get(`grill:${SESSION_ID}`)).toEqual({ file: GRILL_FILE, round: 0 });
+    expect(seen.store.get(CURSOR)).toEqual({ file: GRILL_NAME, seq: 0, taught: true });
+  });
+
+  test("a later grill of the session names no guide: Claude read it", async ($, on) => {
+    const second: Relay = { kind: "opened", seq: 0, name: "grill-2.md", subject: "cache" };
+
+    const seen = world(on, {
+      ...grillRoutes(() => ({ open: true, relays: [second] })),
+      stored: { ...storedSession(), [CURSOR]: { file: GRILL_NAME, seq: 3, taught: true } },
+    });
+
+    await $.session.start(SESSION);
+    await tick(seen);
+
+    expect(seen.prompts).toEqual(["The reviewer opened grill-2.md on: cache."]);
+    expect(seen.store.get(CURSOR)).toEqual({ file: "grill-2.md", seq: 0, taught: true });
   });
 
   test("a reloaded module does not relay the opening again", async ($, on) => {
     const seen = world(on, {
-      ...grillRoutes(() => openState(0, "")),
-      stored: { ...storedSession(), [`grill:${SESSION_ID}`]: { file: GRILL_FILE, round: 0 } },
+      ...grillRoutes(() => openGrill()),
+      stored: { ...storedSession(), [CURSOR]: { file: GRILL_NAME, seq: 0, taught: true } },
     });
 
     await $.session.start(SESSION);
@@ -59,71 +89,81 @@ describe("the reviewer's rounds reach Claude", () => {
     expect(seen.prompts).toEqual([]);
   });
 
-  test("an answered round is relayed once, as the reviewer wrote it", async ($, on) => {
-    let round = 0;
+  test("two replies before one poll both go out, in order, as the server worded them", async ($, on) => {
+    let grill = openGrill();
 
     const seen = world(
       on,
-      grillRoutes(() => openState(round, `round ${round}`)),
+      grillRoutes(() => grill),
     );
 
     await $.skill.prompt(START_PROMPT);
     await tick(seen);
-    round = 1;
+    grill = openGrill("Reviewer: and hurry\n\nQ1: plain", "Reviewer: one more thing");
     await tick(seen);
     await tick(seen);
 
-    expect(seen.prompts.slice(1)).toEqual(["round 1"]);
+    expect(seen.prompts.slice(1)).toEqual([
+      "Reviewer: and hurry\n\nQ1: plain",
+      "Reviewer: one more thing",
+    ]);
+    expect(seen.store.get(CURSOR)).toMatchObject({ seq: 2 });
   });
 
-  test("a dropped round is not remembered, so the next tick retries", async ($, on) => {
-    const seen = world(
-      on,
-      grillRoutes(() => openState(2, "Q1: yes")),
-    );
+  test("a dropped entry does not move the cursor, so the next tick retries", async ($, on) => {
+    const seen = world(on, {
+      ...grillRoutes(() => openGrill("Reviewer: Q1: yes")),
+      stored: { ...storedSession(), [CURSOR]: { file: GRILL_NAME, seq: 0, taught: true } },
+    });
 
-    await $.skill.prompt(START_PROMPT);
+    await $.session.start(SESSION);
     seen.drop = "busy";
     await tick(seen);
     seen.drop = undefined;
     await tick(seen);
 
-    expect(seen.prompts).toEqual(["Q1: yes"]);
+    expect(seen.prompts).toEqual(["Reviewer: Q1: yes"]);
   });
 });
 
-/** `GET state` once the last grill of the directory is closed, by whom the footer says. */
-function ended(reason: string) {
-  return { kind: "none", suggestion: null, closed: { file: GRILL_FILE, reason } };
-}
-
 describe("a grill the reviewer ended from the page", () => {
-  const told = { [`grill:${SESSION_ID}`]: { file: GRILL_FILE, round: 2 } };
+  const told = { ...storedSession(), [CURSOR]: { file: GRILL_NAME, seq: 1, taught: true } };
 
-  test("is told to Claude once, as the fact alone, and the path goes to the log", async ($, on) => {
-    const seen = world(on, { ...grillRoutes(() => ended("page")), stored: told });
+  test("is told once and names the file; the path goes to the log", async ($, on) => {
+    const seen = world(on, { ...grillRoutes(() => endedGrill("Reviewer: x")), stored: told });
 
-    await $.skill.prompt(START_PROMPT);
+    await $.session.start(SESSION);
     await tick(seen);
     await tick(seen);
 
-    expect(seen.prompts).toEqual(["The reviewer ended the grill."]);
-    expect(seen.logs.at(-1)).toBe(`grill closed from the page; ${GRILL_FILE} is kept`);
+    expect(seen.prompts).toEqual(["The reviewer ended grill-1.md."]);
+    expect(seen.logs.at(-1)).toBe("grill closed from the page; grill-1.md is kept");
+  });
+
+  test("the end goes after the replies still due", async ($, on) => {
+    const grill = endedGrill("Reviewer: x", "Reviewer: last word");
+    const seen = world(on, { ...grillRoutes(() => grill), stored: told });
+
+    await $.session.start(SESSION);
+    await tick(seen);
+
+    expect(seen.prompts).toEqual(["Reviewer: last word", "The reviewer ended grill-1.md."]);
   });
 
   test("an end the session caused itself is not told", async ($, on) => {
-    const seen = world(on, { ...grillRoutes(() => ended("stop")), stored: told });
+    const stopped = { open: false, relays: openGrill("Reviewer: x").relays };
+    const seen = world(on, { ...grillRoutes(() => stopped), stored: told });
 
-    await $.skill.prompt(START_PROMPT);
+    await $.session.start(SESSION);
     await tick(seen);
 
     expect(seen.prompts).toEqual([]);
   });
 
-  test("a session that relayed no round of that grill hears nothing of it", async ($, on) => {
+  test("a session that relayed nothing of that grill hears nothing of it", async ($, on) => {
     const seen = world(
       on,
-      grillRoutes(() => ended("page")),
+      grillRoutes(() => endedGrill("Reviewer: x")),
     );
 
     await $.skill.prompt(START_PROMPT);
@@ -133,9 +173,30 @@ describe("a grill the reviewer ended from the page", () => {
   });
 });
 
+describe("the status under the prompt", () => {
+  test("says where to answer while a grill is open, once, and goes back to planning after it", async ($, on) => {
+    let grill = openGrill();
+
+    const seen = world(
+      on,
+      grillRoutes(() => grill),
+    );
+
+    await $.skill.prompt(START_PROMPT);
+    await tick(seen);
+    await tick(seen);
+
+    expect(seen.statuses).toEqual(["planning", "grill open, answer in the page"]);
+    grill = endedGrill();
+    await tick(seen);
+
+    expect(seen.statuses.at(-1)).toBe("planning");
+  });
+});
+
 describe("grill_ask", () => {
   test("a tool $.tool.register registered is served by the unmatched tool.call hook", async ($, on) => {
-    const grill = grillRoutes(() => openState(1, "x"), {
+    const grill = grillRoutes(() => openGrill("Reviewer: x"), {
       ask: () => reply(200, { first: 3, last: 3 }),
     });
 
@@ -154,7 +215,7 @@ describe("grill_ask", () => {
   test("with no grill open it is refused, and names the way to one", async ($, on) => {
     world(
       on,
-      grillRoutes(() => ({ kind: "none" }), { ask: () => reply(409, { error: "none" }) }),
+      grillRoutes(() => NO_GRILL, { ask: () => reply(409, { error: "none" }) }),
     );
 
     await $.skill.prompt(START_PROMPT);
@@ -165,7 +226,7 @@ describe("grill_ask", () => {
   });
 
   test("a round that is not made of triples is refused before it reaches the server", async ($, on) => {
-    const grill = grillRoutes(() => openState(1, "x"));
+    const grill = grillRoutes(() => openGrill("Reviewer: x"));
     world(on, grill);
     await $.skill.prompt(START_PROMPT);
 
@@ -190,7 +251,7 @@ describe("grill_suggest", () => {
   const IDEA = { subject: "auth", reason: "three choices change the contract" };
 
   test("hands the subject and the reason to the page, and ends the turn", async ($, on) => {
-    const grill = grillRoutes(() => ({ kind: "none" }));
+    const grill = grillRoutes(() => NO_GRILL);
     world(on, grill);
     await $.skill.prompt(START_PROMPT);
 
@@ -204,7 +265,7 @@ describe("grill_suggest", () => {
     const open = { suggest: () => reply(409, { error: "grill-1.md is open" }) };
     world(
       on,
-      grillRoutes(() => openState(1, "x"), open),
+      grillRoutes(() => openGrill("Reviewer: x"), open),
     );
     await $.skill.prompt(START_PROMPT);
 
@@ -216,7 +277,7 @@ describe("grill_suggest", () => {
 
 describe("what the transcript hears of the session", () => {
   test("a session command is kept as an event; what is typed in the terminal is not the grill's", async ($, on) => {
-    const grill = grillRoutes(() => ({ kind: "none" }));
+    const grill = grillRoutes(() => NO_GRILL);
     world(on, grill);
     await $.skill.prompt(START_PROMPT);
     await $.prompt.submit({ text: "go on", wait: false, origin: { kind: "composer" } });
@@ -225,34 +286,63 @@ describe("what the transcript hears of the session", () => {
     expect(grill.posted).toEqual([["event", JSON.stringify({ command: "/compact" })]]);
   });
 
-  test("a round vellum relays is not written again: the server already holds it", async ($, on) => {
-    const grill = grillRoutes(() => openState(2, "Q1: yes"));
+  test("an entry vellum relays is not written again: the server already holds it", async ($, on) => {
+    const grill = grillRoutes(() => NO_GRILL);
     const seen = world(on, grill);
     await $.skill.prompt(START_PROMPT);
-    await tick(seen);
 
-    await $.prompt.submit({ text: "/x", wait: false, origin: { kind: "plugin", name: "vellum" } });
+    await $.prompt.submit({ text: "/x", wait: false, origin: VELLUM });
 
-    expect(seen.prompts).toEqual(["Q1: yes", "/x"]);
+    expect(seen.prompts).toEqual(["/x"]);
     expect(grill.posted).toEqual([]);
   });
 
-  test("the main loop's final text is written, an interrupted turn too", async ($, on) => {
-    const grill = grillRoutes(() => ({ kind: "none" }));
+  test("a turn a vellum relay started is the grill's own, an interrupted one too", async ($, on) => {
+    const grill = grillRoutes(() => NO_GRILL);
+    world(on, grill);
+    on("turn.complete", (_, e) => ({ text: e.answer }));
+    await $.skill.prompt(START_PROMPT);
+    await $.prompt.submit({ text: "Reviewer: x", wait: false, origin: VELLUM });
+    await $.turn.start(TURN);
+    await $.turn.complete(TURN_ABORTED);
+
+    expect(grill.posted).toEqual([
+      ["answer", JSON.stringify({ text: "done", reason: "aborted", own: true })],
+    ]);
+  });
+
+  test("a turn the terminal started is not, even typed over a relay's turn", async ($, on) => {
+    const grill = grillRoutes(() => NO_GRILL);
+    world(on, grill);
+    on("turn.complete", (_, e) => ({ text: e.answer }));
+    await $.skill.prompt(START_PROMPT);
+    await $.prompt.submit({ text: "Reviewer: x", wait: false, origin: VELLUM });
+    await $.turn.start(TURN);
+    await $.prompt.submit({ text: "and the weather?", wait: false, origin: COMPOSER });
+    await $.turn.complete(TURN_ANSWERED);
+    await $.turn.start(TURN);
+    await $.turn.complete(TURN_ANSWERED);
+
+    expect(grill.posted.map(([, body]) => body)).toEqual([
+      JSON.stringify({ text: "done", reason: "answer", own: true }),
+      JSON.stringify({ text: "done", reason: "answer", own: false }),
+    ]);
+  });
+
+  test("a turn with no prompt before it, as after a reload, is not the grill's own", async ($, on) => {
+    const grill = grillRoutes(() => NO_GRILL);
     world(on, grill);
     on("turn.complete", (_, e) => ({ text: e.answer }));
     await $.skill.prompt(START_PROMPT);
     await $.turn.complete(TURN_ANSWERED);
-    await $.turn.complete(TURN_ABORTED);
 
-    expect(grill.posted.map(([, body]) => body)).toEqual([
-      JSON.stringify({ text: "done", reason: "answer" }),
-      JSON.stringify({ text: "done", reason: "aborted" }),
+    expect(grill.posted).toEqual([
+      ["answer", JSON.stringify({ text: "done", reason: "answer", own: false })],
     ]);
   });
 
   test("a subagent's turn is not", async ($, on) => {
-    const grill = grillRoutes(() => ({ kind: "none" }));
+    const grill = grillRoutes(() => NO_GRILL);
     world(on, grill);
     on("turn.complete", (_, e) => ({ text: e.answer }));
     await $.skill.prompt(START_PROMPT);
@@ -284,7 +374,7 @@ describe("AskUserQuestion", () => {
 
 describe("closing from the session", () => {
   test("/vellum:stop closes the grill once, before the mode", async ($, on) => {
-    const grill = grillRoutes(() => ({ kind: "none" }));
+    const grill = grillRoutes(() => NO_GRILL);
     world(on, grill);
     await $.skill.prompt(START_PROMPT);
     await $.skill.prompt(STOP_PROMPT);
@@ -294,7 +384,7 @@ describe("closing from the session", () => {
   });
 
   test("an approval closes nothing from here: the server ended the grill at the rename", async ($, on) => {
-    const grill = grillRoutes(() => ({ kind: "none" }));
+    const grill = grillRoutes(() => NO_GRILL);
 
     const seen = world(on, {
       routes: { ...grill.routes, "/api/pending": () => reply(200, approved(1)) },

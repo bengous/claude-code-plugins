@@ -1,4 +1,4 @@
 {
-  "description": "Holds the vellum planning mode: refuses writes under the project and outside the working directory, serves the submit tool and the two grill tools, refuses AskUserQuestion while live, records the rounds of an open grill and the commands of the session as events, submits the plan when a turn ends, closes on the stop skill, suspends on /clear and /resume, and delivers the review and the reviewer's grill replies as prompts",
+  "description": "Holds the vellum planning mode: refuses writes under the project and outside the working directory, serves the submit tool and the two grill tools, refuses AskUserQuestion while live, records the rounds of an open grill and the commands of the session as events, notes which turns its own relays started, submits the plan when a turn ends, revives a review server that died, closes on the stop skill, suspends on /clear and /resume, and delivers the review and the reviewer's grill replies as prompts",
   "modules": ["../src/core/engine/register.ts"]
 }

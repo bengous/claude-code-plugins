@@ -86,13 +86,23 @@ describe("opening a grill", () => {
     expect(await (await get("state")).json()).toMatchObject({ kind: "open", phase: "working" });
   });
 
-  test("the state names the opening for the engine to relay", async () => {
+  test("the state hands the engine the opening, until its cursor is past it", async () => {
     const { post, get } = await grilling();
     await post("open", { subject: "auth" });
+    const opening = { kind: "opened", seq: 0, name: "grill-1.md", subject: "auth" };
 
-    expect(await (await get("state")).json()).toMatchObject({
-      subject: "auth",
-      reviewer: { file: `${WIP}grill-1.md`, round: 0, text: "" },
+    expect(await (await get("state")).json()).toMatchObject({ relays: [opening] });
+    expect(await (await get("state?after=0&file=grill-1.md")).json()).toMatchObject({ relays: [] });
+  });
+
+  test("a cursor kept for another file counts for nothing", async () => {
+    const { post, get } = await grilling();
+    await post("open", { subject: "auth" });
+    await post("close", { reason: "stop" });
+    await post("open", { subject: "again" });
+
+    expect(await (await get("state?after=4&file=grill-1.md")).json()).toMatchObject({
+      relays: [{ kind: "opened", seq: 0, name: "grill-2.md", subject: "again" }],
     });
   });
 
@@ -155,7 +165,7 @@ describe("a round", () => {
     expect(readFileSync(join(dir, WIP, "grill-1.md"), "utf8")).toContain(
       "## Round 1\n\n### Claude\n\n❓ **Q1** - **Tool names**: Prefix them?\n\n➡️ I recommend yes.\n\n---\n",
     );
-    expect(await (await get("state")).json()).toMatchObject({ phase: "waiting", reviewer: null });
+    expect(await (await get("state")).json()).toMatchObject({ phase: "waiting" });
   });
 
   test("reply closes every open question, the empty ones by default, and hands the engine the text", async () => {
@@ -166,9 +176,9 @@ describe("a round", () => {
     expect((await post("reply", { answers: [{ id: "Q2", text: "no" }], note: "" })).status).toBe(
       204,
     );
-    expect(await (await get("state")).json()).toMatchObject({
+    expect(await (await get("state?after=0&file=grill-1.md")).json()).toMatchObject({
       phase: "working",
-      reviewer: { round: 1, text: "Q1: As recommended, by default.\n\nQ2: no" },
+      relays: [{ kind: "reply", seq: 1, text: "Reviewer: Q2: no" }],
     });
   });
 
@@ -177,7 +187,7 @@ describe("a round", () => {
     await post("open", { subject: "auth" });
     await post("ask", { q: Q });
     await post("event", { command: "/vellum:start" });
-    await post("answer", { text: "Welcome back.", reason: "answer" });
+    await post("answer", { text: "Welcome back.", reason: "answer", own: false });
 
     expect((await post("reply", { answers: [{ id: "Q1", text: "yes" }], note: "" })).status).toBe(
       204,
@@ -204,7 +214,7 @@ describe("what the transcript keeps", () => {
     await post("open", { subject: "auth" });
 
     await Promise.all([
-      post("answer", { text: "Two facts first.", reason: "answer" }),
+      post("answer", { text: "Two facts first.", reason: "answer", own: true }),
       post("event", { command: "/compact" }),
     ]);
 
@@ -217,7 +227,7 @@ describe("what the transcript keeps", () => {
     const { dir, post } = await grilling();
 
     expect((await post("event", { command: "/clear" })).status).toBe(204);
-    expect((await post("answer", { text: "hi", reason: "answer" })).status).toBe(204);
+    expect((await post("answer", { text: "hi", reason: "answer", own: true })).status).toBe(204);
     expect(existsSync(join(dir, WIP, "grill-1.md"))).toBe(false);
   });
 });
@@ -229,10 +239,10 @@ describe("closing a grill", () => {
 
     expect((await post("close", { reason: "page" })).status).toBe(204);
     expect(readFileSync(join(dir, WIP, "grill-1.md"), "utf8")).toMatch(/\nClosed .+ · page\n$/u);
-    expect(await (await get("state")).json()).toEqual({
+    expect(await (await get("state?after=0&file=grill-1.md")).json()).toEqual({
       kind: "none",
       suggestion: null,
-      closed: { file: `${WIP}grill-1.md`, reason: "page" },
+      relays: [{ kind: "ended", seq: 1, name: "grill-1.md" }],
     });
   });
 
