@@ -9,7 +9,9 @@ paths:
 An extension is a folder, `src/extensions/<id>/`, with one file per place where it plugs into
 the core: `page.tsx` declares a `PageExtension` (its renderers, its actions in the decision
 bar), `server.ts` a `ServerExtension` (its `linkedDocs`, its routes). Both types live in
-`src/core/extension.ts`. `markdown`, `html`, `image` and `grill` are extensions like the next ones.
+`src/core/extension.ts`. `markdown`, `html`, `image` and `grill` are extensions like the next ones. A third half,
+`engine.ts`, declares an `EngineExtension` (`src/core/engine/extension.ts`): tools, refusals
+and the engine events the core hands it. `grill` is the one extension with all three.
 
 - Read the code before this text, smallest first: `image/page.tsx` is a whole extension,
   `markdown/server.ts` a server half, `html/pick.ts` with `pick.spec.ts` a helper and its

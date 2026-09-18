@@ -1,4 +1,6 @@
-import type { Asked, CloseReason, Question, ReviewerRound } from "./protocol.ts";
+import type { PromptOrigin } from "claude-code";
+
+import type { Asked, CloseReason, GrillPosts, Question, ReviewerRound } from "./protocol.ts";
 
 /** What `$.store` keeps under `grill:<session id>`: the reviewer's round the poll already relayed. */
 export type RelayedRound = { readonly file: string; readonly round: number };
@@ -35,6 +37,15 @@ export function grillFileName(raw: string | null): string | null {
   return grillNumber(name) === null ? null : name;
 }
 
+/** The voice a prompt speaks under: the person at any of their keyboards is `User`. */
+export function authorOf(origin: PromptOrigin): string {
+  if (origin.kind === "composer" || origin.kind === "bridge" || origin.kind === "sdk") {
+    return "User";
+  }
+
+  return origin.kind === "plugin" ? `Plugin ${origin.name}` : origin.kind;
+}
+
 /* oxlint-disable anti-slop/no-runtime-typeof, anti-slop/no-unknown-parameters, anti-slop/no-unsafe-dictionary-type, anti-slop/no-unknown-returns, anti-slop/no-known-value-widening -- the block below IS the boundary parser the rules ask for: it validates the JSON bodies the page and the hooks module post, and there is no earlier place to parse them. */
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
@@ -59,6 +70,21 @@ export function parseCloseReason(body: unknown): CloseReason | null {
 /** `POST reply`: the reviewer's round, never empty. */
 export function parseReply(body: unknown): string | null {
   return isRecord(body) ? text(body.text) : null;
+}
+
+export function parsePrompt(body: unknown): GrillPosts["prompt"] | null {
+  const written = isRecord(body) ? text(body.text) : null;
+
+  return isRecord(body) && typeof body.author === "string" && written !== null
+    ? { author: body.author, text: written }
+    : null;
+}
+
+/** An empty text is a turn that ended without one: the transcript says so, so it is kept. */
+export function parseAnswer(body: unknown): GrillPosts["answer"] | null {
+  return isRecord(body) && typeof body.text === "string" && typeof body.reason === "string"
+    ? { text: body.text, reason: body.reason }
+    : null;
 }
 
 function parseQuestion(value: unknown): Question | null {

@@ -138,6 +138,30 @@ describe("a round", () => {
   });
 });
 
+describe("word for word", () => {
+  test("a prompt and a final text are written in the order they came", async () => {
+    const { dir, post } = await grilling();
+    await post("open", { subject: "auth" });
+
+    await Promise.all([
+      post("answer", { text: "Two facts first.", reason: "answer" }),
+      post("prompt", { author: "User", text: "go on" }),
+    ]);
+
+    expect(readFileSync(join(dir, WIP, "grill-1.md"), "utf8")).toEndWith(
+      "### Claude\n\nTwo facts first.\n\n## Round 2\n\n### User\n\ngo on\n",
+    );
+  });
+
+  test("with no grill open nothing is written", async () => {
+    const { dir, post } = await grilling();
+
+    expect((await post("prompt", { author: "User", text: "hello" })).status).toBe(204);
+    expect((await post("answer", { text: "hi", reason: "answer" })).status).toBe(204);
+    expect(existsSync(join(dir, WIP, "grill-1.md"))).toBe(false);
+  });
+});
+
 describe("closing a grill", () => {
   test("writes the footer with its reason, and the state reads none", async () => {
     const { dir, post, get } = await grilling();

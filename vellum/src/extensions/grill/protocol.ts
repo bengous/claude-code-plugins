@@ -56,4 +56,8 @@ export type GrillPosts = {
   readonly close: { readonly reason: CloseReason };
   readonly ask: { readonly q: readonly QuestionTriple[] };
   readonly reply: { readonly text: string };
+  /** A prompt that entered the session, under the voice the transcript gives its origin. */
+  readonly prompt: { readonly author: string; readonly text: string };
+  /** The main loop's final text, and why the turn ended. */
+  readonly answer: { readonly text: string; readonly reason: string };
 };

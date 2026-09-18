@@ -6,13 +6,16 @@ import {
   grillFile,
   grillFileName,
   grillNumber,
+  parseAnswer,
   parseCloseReason,
+  parsePrompt,
   parseQuestions,
   parseReply,
   parseSubject,
 } from "./parse.ts";
 import type { Asked, Block, GrillState, Suggestion } from "./protocol.ts";
 import {
+  appendAnswer,
   appendFooter,
   appendPrompt,
   appendQuestions,
@@ -200,6 +203,22 @@ function routes(context: ServerContext): Readonly<Record<RouteKey, Route>> {
         },
         () => refused("no grill is open"),
       );
+    },
+
+    "POST prompt": async (request) => {
+      const prompt = parsePrompt(await request.json().catch(() => null));
+
+      return prompt === null
+        ? badRequest()
+        : await change((doc) => written(appendPrompt(doc, prompt.author, prompt.text)));
+    },
+
+    "POST answer": async (request) => {
+      const answer = parseAnswer(await request.json().catch(() => null));
+
+      return answer === null
+        ? badRequest()
+        : await change((doc) => written(appendAnswer(doc, answer.text, answer.reason)));
     },
 
     "POST reply": async (request) => {

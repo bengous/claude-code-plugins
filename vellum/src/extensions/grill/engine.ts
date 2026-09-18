@@ -5,6 +5,7 @@ import type {
   ToolAnswer,
 } from "../../core/engine/extension.ts";
 import {
+  authorOf,
   parseAsked,
   parseError,
   parseJson,
@@ -114,5 +115,16 @@ async function tick(context: EngineContext): Promise<void> {
 export const grillEngine: EngineExtension = {
   id: "grill",
   tools: [ASK],
+  // The page is the reviewer's one channel while live, so the terminal's question tool is closed.
+  refuses: {
+    AskUserQuestion: `vellum is live: suggest a grill with ${SUGGEST_TOOL}, or ask inside an open grill with ${ASK_TOOL}`,
+  },
+  // Word for word: the server writes both only while a grill is open, so nothing is kept here.
+  prompted: async (context, prompt) => {
+    await post(context, "prompt", { author: authorOf(prompt.origin), text: prompt.text });
+  },
+  answered: async (context, turn) => {
+    await post(context, "answer", turn);
+  },
   tick,
 };
