@@ -24,6 +24,6 @@
     "useUnknownInCatchVariables": true,
     "forceConsistentCasingInFileNames": true
   },
-  "include": ["**/*.ts", "**/*.tsx"],
-  "exclude": ["node_modules", "archive", "tools/oxlint/anti-slop"]
+  "include": ["**/*.ts", "**/*.tsx", ".claude/**/*.ts"],
+  "exclude": ["node_modules", "archive", "tools/oxlint/anti-slop", ".claude/worktrees"]
 }

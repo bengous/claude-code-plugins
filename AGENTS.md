@@ -48,7 +48,7 @@ That bash boundary binds new code. Scripts already over it move when an issue re
 Carried by the commands above:
 
 - Extensions are mandatory: `.ts`, `.tsx`, `.sh`. `tsgo`, `oxlint`, `oxfmt` and `check-lint-disables.ts` select files by extension, so a Bun script named without `.ts` is checked by nothing. `lint-shell.ts` also matches a shell shebang, so bash survives an extensionless name.
-- One root `tsconfig.json` covers every `.ts` outside `archive/` and the vendored linter: `strict`, plus `noUncheckedIndexedAccess` and `exactOptionalPropertyTypes`. Do not add a second one.
+- One root `tsconfig.json` covers every tracked `.ts` outside `archive/` and the vendored linter: `strict`, plus `noUncheckedIndexedAccess` and `exactOptionalPropertyTypes`. Do not add a second one. Its wildcards skip every directory whose name starts with a dot, so `.claude/` is included by name, and `.claude/worktrees/` excluded, or the check takes whole copies of the repository. A new dot directory that holds TypeScript gets its own `include` entry: `scripts/typecheck-coverage.test.ts` fails, naming the files, while a tracked one is left out. `oxlint`, `oxfmt` and `check-lint-disables.ts` walk dot directories by themselves.
 - Every lint suppression says why on its own line: `// oxlint-disable-next-line <rule> -- <reason>`. `check-lint-disables.ts` rejects the bare form, `oxlint-` and `eslint-` spellings alike.
 
 Carried by nobody, so hold them by hand:

@@ -15,6 +15,7 @@ import { dirname, join } from "node:path";
 import { $ } from "bun";
 
 import { diffHunks, parseHookInput, rewritersFor, toRepoRelative } from "./format-on-edit.ts";
+import type { Rewriter } from "./format-on-edit.ts";
 
 describe("parseHookInput", () => {
   test("returns null on invalid JSON", () => {
@@ -35,7 +36,7 @@ describe("toRepoRelative", () => {
 describe("rewritersFor", () => {
   test("sends the four script extensions through oxfmt, oxlint --fix, oxfmt, which skip what their config ignores", () => {
     for (const path of ["a.ts", "a.js", "a.mjs", "a.cjs", "archive/plugin/a.ts"]) {
-      const oxfmt = {
+      const oxfmt: Rewriter = {
         tool: "oxfmt",
         argv: ["bun", "x", "oxfmt", "--no-error-on-unmatched-pattern", path],
       };

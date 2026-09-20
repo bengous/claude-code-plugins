@@ -36,7 +36,7 @@ const BRANCH_MUTATION_PATTERNS: ReadonlyArray<RegExp> = [
   /git\s+rebase\b/u,
 ];
 
-export function getCurrentBranch(cwd?: string): string | null {
+export function getCurrentBranch(cwd: string = process.cwd()): string | null {
   const result = Bun.spawnSync(["git", "symbolic-ref", "--short", "HEAD"], {
     cwd,
     stdout: "pipe",
