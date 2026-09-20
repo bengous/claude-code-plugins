@@ -44,6 +44,11 @@ and the engine events the core hands it. `grill` is the one extension with all t
   which takes anything, and the page half casts to that name. A cast to a wider type that
   happens to hold the field (a whole `GrillState` for a `{ file }`) compiles, and hands the next
   reader an `undefined` typed `string`.
+- What an extension does not produce itself is parsed, never cast: a request's body, a message
+  from a window that runs the model's scripts, a file. The parser takes `unknown`, returns the
+  type or `null`, and builds its result field by field, so nothing unnamed rides along;
+  `html/parse.ts` with `parse.spec.ts` is the smallest to copy, lint-disable block included. A
+  cast with its `SAFETY:` is kept for a reply of the extension's own server half.
 - An engine half loads its own folder and nothing else: the hooks module must never pull the
   server or the page in. It reaches `core/engine/` as types, talks to its server half through
   `context.api`, and parses what comes back in its `parse.ts`. Its kit tests are

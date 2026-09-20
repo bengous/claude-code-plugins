@@ -6,7 +6,8 @@ import { Composer } from "../../core/page/composer.tsx";
 import { srgb } from "../../core/page/kit.tsx";
 import { activeMethod, dark, holding, locked } from "../../core/page/state.ts";
 import type { ElementRef } from "../../core/protocol.ts";
-import type { FrameTheme, FrameToPage, PageToFrame, PickBox } from "./messages.ts";
+import type { FrameTheme, PageToFrame, PickBox } from "./messages.ts";
+import { parseFrameToPage } from "./parse.ts";
 
 type Draft = {
   readonly elements: readonly [ElementRef, ...ElementRef[]];
@@ -70,8 +71,9 @@ function HtmlDoc(props: RendererProps): preact.JSX.Element {
   useEffect(() => {
     const onMessage = (event: MessageEvent): void => {
       if (event.source !== frame.current?.contentWindow) return;
-      // SAFETY: the frame's own `FrameToPage`, from the window this renderer mounted.
-      const message = event.data as FrameToPage;
+      const message = parseFrameToPage(event.data);
+
+      if (message === null) return;
 
       if (message.type === "vellum:unpick") setDraft(null);
 

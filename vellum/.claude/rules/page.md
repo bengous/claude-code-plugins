@@ -108,3 +108,7 @@ no build step, so what the page imports costs nothing at `cli start`.
   Ctrl state, the selectors already commented and the theme, four tokens resolved to sRGB since
   its shadow root reads none of the page's properties. `html/messages.ts` is the contract both
   sides import; every message crosses with the target `"*"` and each side checks `event.source`.
+  That check proves the window, not the sender: `frameTag` in `http/routes.ts` adds `frame.js` to
+  every HTML file served, so the mockup's own scripts, the model's, post from the same window.
+  The page reads a frame's message through `parseFrameToPage` of `html/parse.ts` and drops what
+  is not a whole `FrameToPage`; `frame.ts` casts, since the sender it verified is the page.
