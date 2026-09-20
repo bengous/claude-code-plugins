@@ -9,8 +9,8 @@ import { docUrl, fileUrl } from "../../core/page/api.ts";
 import { Composer } from "../../core/page/composer.tsx";
 import { paint } from "../../core/page/highlights.ts";
 import { srgb } from "../../core/page/kit.tsx";
-import { activeMethod, dark, docs, holding, locked, select } from "../../core/page/state.ts";
-import type { Passage } from "../../core/protocol.ts";
+import { activeMethod, dark, docs, error, holding, locked, select } from "../../core/page/state.ts";
+import type { DocRef, Passage } from "../../core/protocol.ts";
 import { parseProjectPath } from "../../core/server/domain/paths.ts";
 import type { Changes, RemovedRun } from "./changes.ts";
 import { changesOf, removedLabel } from "./changes.ts";
@@ -222,11 +222,11 @@ async function drawDiagrams(root: HTMLElement, night: boolean): Promise<void> {
       if (figure.dataset.source === source) figure.innerHTML = svg;
     } catch (cause) {
       const text = document.createElement("pre");
-      const error = document.createElement("p");
+      const failure = document.createElement("p");
       text.textContent = source;
-      error.className = "diagram-error";
-      error.textContent = String(cause);
-      figure.replaceChildren(text, error);
+      failure.className = "diagram-error";
+      failure.textContent = String(cause);
+      figure.replaceChildren(text, failure);
     }
   }
 }
@@ -256,6 +256,20 @@ function onClick(event: MouseEvent): void {
   select(target.path);
 }
 
+/** The document's text, or `null` with the failure in the banner: an error page is not the document. */
+async function sourceOf(doc: DocRef): Promise<string | null> {
+  try {
+    const response = await fetch(docUrl(doc));
+
+    if (response.ok) return await response.text();
+    error.value = `GET ${doc.path} failed: ${response.status}`;
+  } catch (cause) {
+    error.value = `GET ${doc.path} failed: ${String(cause)}`;
+  }
+
+  return null;
+}
+
 function MarkdownDoc(props: RendererProps): preact.JSX.Element {
   const [text, setText] = useState<string | null>(null);
   const [drafted, setDraft] = useState<Draft | null>(null);
@@ -277,9 +291,9 @@ function MarkdownDoc(props: RendererProps): preact.JSX.Element {
   }, [shown, props.changes]);
 
   useEffect(() => {
-    void fetch(docUrl(props.doc))
-      .then((response) => response.text())
-      .then(setText);
+    void sourceOf(props.doc).then((source) => {
+      if (source !== null) setText(source);
+    });
   }, [props.doc.path, props.doc.modified]);
 
   useEffect(() => {

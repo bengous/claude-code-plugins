@@ -37,6 +37,8 @@ paths:
   `// @ts-expect-error -- <reason>` line in the suite beside it, on the code that must not
   compile. The typecheck gate reads the suites, and a directive with nothing under it fails
   the gate, so the day the type loosens the suite says so. `grill/server.spec.ts` holds two:
-  the body of `close`, the reply to `open`.
+  the body of `close`, the reply to `open`. `core/page/kit.spec.ts` holds the kit's: a component
+  is a function, so a suite calls it with props and reads the vnode it returns, with no DOM. The
+  directive sits on a line that also runs, so the test says what the refused code would do.
 - `src/boundaries.spec.ts` holds the dependency direction; an import that fails it is in the
   wrong layer, not a test to loosen.

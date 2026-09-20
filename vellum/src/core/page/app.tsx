@@ -80,7 +80,7 @@ function Panes(): preact.JSX.Element {
     return (
       <div class="docs">
         {head}
-        <Editor version={session.version} base={session.base} line={session.line} />
+        <Editor session={session} />
       </div>
     );
   }

@@ -28,7 +28,11 @@ no build step, so what the page imports costs nothing at `cli start`.
   under the bundler's inlining threshold, so they arrive inside the CSS chunk.
 - A button, badge, chip, tag, banner, popover or chevron is drawn through `kit.tsx`, never through
   one of its classes spelled at the call; `kit.tsx` is in `PAGE_SURFACE`, so an extension draws
-  with the same seven. A `Chip` is a button; what shows a label and takes no click is a `Tag`. A token consumed outside CSS (Mermaid's `themeVariables`, the frame's overlay) parses
+  with the same seven. A `Chip` is a button; what shows a label and takes no click is a `Tag`.
+  The types hold part of it, locked in `kit.spec.ts`: `ChipProps` takes no `class`, and neither
+  takes `className`. `ButtonProps` takes a `class`, joined to the kit's own, for a state the kit
+  has no prop for (`lit` in `grill/page.tsx`): there a kit class spelled at the call compiles,
+  and only a reader refuses it. A token consumed outside CSS (Mermaid's `themeVariables`, the frame's overlay) parses
   neither `color-mix()` nor the `oklab()` the browser serializes once computed: it goes through
   `srgb()`, which yields sRGB, and the consumer redraws on the `dark` signal of `state.ts`.
 - A commented block carries a fillet in the sheet's margin: `markdown/marked.ts` chooses,
@@ -61,7 +65,8 @@ no build step, so what the page imports costs nothing at `cli start`.
   `(max-width: 900px)`, the threshold `style.css` repeats in the media query where an open panel
   lays over the document.
 - The page draws in every state, `drafting` included: `review.docs` is the working directory's
-  renderable files, the plan at the head once there is one. Comments are taken while
+  renderable files, the plan at the head once there is one. A reader finds the plan by
+  `planDoc`'s path, as `DocList` does, never by its place in `docs`. Comments are taken while
   `inReview` and while `drafting`, so `locked` names two states, not one, and Approve is drawn
   only where a version exists. `locked` reads `takesComments`, the domain's predicate the server
   holds a draft to as well. A renderer never reads `inputMethod`: it reads `activeMethod`, which
@@ -78,7 +83,9 @@ no build step, so what the page imports costs nothing at `cli start`.
   together change in one `batch`.
 - An unsent edit is an `Edit`: a text with the version it edits. The stamp is taken when the
   editor opens, and `Editor` keeps that version and its base text for its whole session: a
-  version that lands under an open editor must not restamp it. Every load settles the edit
+  version that lands under an open editor must not restamp it. They travel as one `EditSession`,
+  from `editing` to `Editor` to `finishEdit`, never unpacked: the base and the typed text are two
+  strings, and swapped they compile, invert the line diff and record the old text as the edit. Every load settles the edit
   through `editOnLoad` (kept, landed, stale), a restored one included, which is why the restore
   comes before the first load. The editor never closes by itself and nothing Claude does clears
   the reviewer's comments: a stale edit is dropped with a banner, never silently, and Done on a
@@ -94,6 +101,12 @@ no build step, so what the page imports costs nothing at `cli start`.
 - The server watches the working directory, so every file Claude writes reaches the page as a
   workspace event. A renderer loads its document through `docUrl`, whose query is the file's
   `modified`: a rewrite reloads that document alone, and nothing else remounts.
+- What the reviewer waits on fails in the banner, through `error` of `state.ts`, as the core's
+  own requests do: a write (`post` in `grill/page.tsx`) and a document's load (`sourceOf` in
+  `markdown/page.tsx`). A load checks `response.ok` before it reads the body, or the server's
+  error page is drawn as the document and takes comments. A read that only refreshes what is on
+  screen may fail in silence, since the next workspace event reads again:
+  `loadState` in `grill/page.tsx`.
 - A `mermaid` block reaches the page as an empty `figure` carrying its lines and its source, and
   Mermaid fills it after the mount: the figure is the one place a renderer writes DOM that Preact
   does not own, and `data-source` is both what a comment on it quotes and what a late render

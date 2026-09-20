@@ -204,12 +204,13 @@ export function openEditor(line: number): void {
 }
 
 /**
- * Done, with the version and the text the editor opened on: the comments follow their lines
+ * Done, with the session the editor opened on and the text typed: the comments follow their lines
  * through the edit, and an edit back to the version's text is no edit. When another version
  * arrived meanwhile, or this one was decided elsewhere, the editor stays open: the typing must
  * stay reachable.
  */
-export function finishEdit(version: Version, base: string, text: string): void {
+export function finishEdit(session: EditSession, text: string): void {
+  const { version, base } = session;
   const view = review.value;
 
   if (view === null || view.plan === null || view.workspace.kind === "drafting") return;

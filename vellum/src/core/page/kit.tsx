@@ -121,7 +121,7 @@ let brush: CanvasRenderingContext2D | null = null;
  * element Chrome serializes `oklab(…)`. Mermaid and the sandboxed frame refuse both; the pixel of
  * a 1×1 canvas is the one path that yields sRGB whatever the colour space.
  */
-export function srgb(token: string): string {
+export function srgb(token: `--${string}`): string {
   brush ??= document.createElement("canvas").getContext("2d", { willReadFrequently: true });
 
   if (brush === null) throw new Error(`no 2d canvas context to resolve ${token} with`);

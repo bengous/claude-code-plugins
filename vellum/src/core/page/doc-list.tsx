@@ -24,7 +24,7 @@ function count(path: string): number {
 
 export function DocList(): preact.JSX.Element {
   const plan = planDoc.value;
-  const linked = plan === null ? docs.value : docs.value.slice(1);
+  const linked = docs.value.filter((doc) => doc.path !== plan?.path);
 
   const item = (doc: DocRef, name: string, kind: string): preact.JSX.Element => (
     <button
