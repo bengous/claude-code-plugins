@@ -345,6 +345,29 @@ function MarkdownDoc(props: RendererProps): preact.JSX.Element {
     if (root !== null) void drawDiagrams(root, night);
   }, [content, night]);
 
+  // A position is taken from a rect once: whatever reflows the sheet (the comments panel folding,
+  // the window, a diagram drawn late) leaves it pointing at other text, so it is taken again.
+  useEffect(() => {
+    const root = container.current;
+
+    if (root === null) return;
+
+    const observer = new ResizeObserver(() => {
+      setWash(null);
+      setDraft((current) => {
+        const last = current?.chosen.at(-1);
+
+        return current === null || last === undefined || !last.element.isConnected
+          ? current
+          : draftUnder(root, current.chosen, last.element.getBoundingClientRect());
+      });
+    });
+
+    observer.observe(root);
+
+    return () => observer.disconnect();
+  }, [content === null]);
+
   const onMouseUp = (): void => {
     const root = container.current;
 

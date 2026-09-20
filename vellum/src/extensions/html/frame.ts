@@ -252,6 +252,11 @@ window.addEventListener("blur", () => hold(false));
 
 window.addEventListener("scroll", draw, true);
 
-window.addEventListener("resize", draw);
+// The page places its composer from the box of a pick: a reflow moves the box, so it is sent again.
+window.addEventListener("resize", () => {
+  draw();
+
+  if (chosen.length > 0) sendPick();
+});
 
 window.addEventListener("message", onMessage);
