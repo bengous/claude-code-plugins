@@ -5,7 +5,7 @@ import { pageExtensions } from "../../extensions/page.ts";
 import type { Renderer } from "../extension.ts";
 import type { DocRef } from "../protocol.ts";
 import { lineAtTop } from "./caret.ts";
-import { Comments } from "./comments.tsx";
+import { Comments, CommentsHandle } from "./comments.tsx";
 import { DecisionBar } from "./decision-bar.tsx";
 import { DocList } from "./doc-list.tsx";
 import { Editor } from "./editor.tsx";
@@ -151,6 +151,7 @@ function App(): preact.JSX.Element {
         <DocList />
         <Panes />
         {takesComments() && <Comments />}
+        {takesComments() && <CommentsHandle />}
       </div>
     </div>
   );

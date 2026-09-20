@@ -26,9 +26,9 @@ no build step, so what the page imports costs nothing at `cli start`.
   `--serif` (Literata), code and literals (a path, a version, the diff count, a key) are
   `--mono` (JetBrains Mono), and the chrome reads as prose. The fonts ship in `fonts/`, each
   under the bundler's inlining threshold, so they arrive inside the CSS chunk.
-- A button, badge, chip, tag, banner or popover is drawn through `kit.tsx`, never through a
-  class spelled at the call; `kit.tsx` is in `PAGE_SURFACE`, so an extension draws with the same
-  six. A `Chip` is a button; what shows a label and takes no click is a `Tag`. A token consumed outside CSS (Mermaid's `themeVariables`, the frame's overlay) parses
+- A button, badge, chip, tag, banner, popover or chevron is drawn through `kit.tsx`, never through
+  a class spelled at the call; `kit.tsx` is in `PAGE_SURFACE`, so an extension draws with the same
+  seven. A `Chip` is a button; what shows a label and takes no click is a `Tag`. A token consumed outside CSS (Mermaid's `themeVariables`, the frame's overlay) parses
   neither `color-mix()` nor the `oklab()` the browser serializes once computed: it goes through
   `srgb()`, which yields sRGB, and the consumer redraws on the `dark` signal of `state.ts`.
 - A commented block carries a fillet in the sheet's margin: `markdown/marked.ts` chooses,
@@ -41,6 +41,12 @@ no build step, so what the page imports costs nothing at `cli start`.
 - A renderer that declares `comments: false` draws a document the reviewer answers in place, as
   a grill's transcript: `app.tsx` then draws no input method and no comments panel, unless the
   plan shows beside it. The unsent comments stay in the signals, and the bar keeps their count.
+- The comments panel folds, on `commentsOpen` of `state.ts`: `comments.tsx` puts `folded` on the
+  panel, whose CSS takes its width to zero, and draws `CommentsHandle`, the control `app.tsx`
+  places on the panel's edge inside `.body`. The panel stays mounted, since the general composer
+  holds its half-typed text in a `useState`, and the handle's badge is the unfiltered total, the
+  one count a folded panel still shows. The signal starts on `(max-width: 900px)`, the threshold
+  `style.css` repeats in the media query where an open panel lays over the document.
 - The page draws in every state, `drafting` included: `review.docs` is the working directory's
   renderable files, the plan at the head once there is one. Comments are taken while
   `inReview` and while `drafting`, so `locked` names two states, not one, and Approve is drawn

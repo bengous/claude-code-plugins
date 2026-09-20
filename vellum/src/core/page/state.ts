@@ -29,6 +29,13 @@ export const current = signal<ProjectPath | null>(null);
 
 export const split = signal(false);
 
+/**
+ * Whether the comments panel takes its width: open when the window is wide, folded when narrow,
+ * read again at every load. The 900px threshold is `style.css`'s media query as well, since no
+ * `@media` reads a CSS property: whoever moves one moves the other.
+ */
+export const commentsOpen = signal(!window.matchMedia("(max-width: 900px)").matches);
+
 const darkScheme = window.matchMedia("(prefers-color-scheme: dark)");
 
 /** Whether the page draws its dark theme: what resolves tokens outside CSS redraws at each change. */

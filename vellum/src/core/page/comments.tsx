@@ -2,10 +2,11 @@ import { useState } from "preact/hooks";
 
 import type { Anchor, Annotation, Mark } from "../protocol.ts";
 import { DELETE_SENTENCE, QUICK_LABELS } from "../protocol.ts";
-import { Button, Tag } from "./kit.tsx";
+import { Badge, Button, Chevron, Tag } from "./kit.tsx";
 import {
   addAnnotation,
   annotations,
+  commentsOpen,
   currentDoc,
   editing,
   locked,
@@ -79,6 +80,30 @@ function Card(props: { readonly annotation: Annotation }): preact.JSX.Element {
   );
 }
 
+/**
+ * The fold control, on the panel's edge, which it follows. Folded, it is the only trace left of
+ * the panel, so it carries the total: neither `Comments` nor the decision bar filters by document.
+ */
+export function CommentsHandle(): preact.JSX.Element {
+  const count = annotations.value.length;
+
+  return (
+    <button
+      type="button"
+      class="handle"
+      aria-controls="comments"
+      aria-expanded={commentsOpen.value}
+      aria-label={`Comments (${count})`}
+      onClick={() => {
+        commentsOpen.value = !commentsOpen.value;
+      }}
+    >
+      {count > 0 && <Badge>{count}</Badge>}
+      <Chevron />
+    </button>
+  );
+}
+
 export function Comments(): preact.JSX.Element {
   const [draft, setDraft] = useState("");
   const doc = currentDoc.value;
@@ -96,7 +121,12 @@ export function Comments(): preact.JSX.Element {
   };
 
   return (
-    <aside class="comments" aria-label="Comments" inert={editing.value !== null}>
+    <aside
+      id="comments"
+      class={commentsOpen.value ? "comments" : "comments folded"}
+      aria-label="Comments"
+      inert={editing.value !== null}
+    >
       <header>
         Comments <span>{list.length}</span>
       </header>

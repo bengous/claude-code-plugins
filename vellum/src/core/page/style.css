@@ -41,6 +41,7 @@
   --lh-title: 1.18;
   --mono-optical: 0.92em;
   --measure: 68ch;
+  --comments-width: 310px;
 
   --s-1: 4px;
   --s-2: 8px;
@@ -113,7 +114,7 @@ button:focus-visible, textarea:focus-visible { outline: 2px solid var(--redline)
 .banner.err { border-left-color: var(--redline); background: color-mix(in oklab, var(--redline) 10%, var(--sheet)); }
 .banner code { font-family: var(--mono); font-size: var(--mono-optical); }
 
-.body { flex: 1; min-height: 0; display: flex; }
+.body { flex: 1; min-height: 0; display: flex; position: relative; }
 .rail { width: 220px; flex: none; border-right: 1px solid var(--rule); padding: var(--s-3) var(--s-2); overflow: auto; display: flex; flex-direction: column; gap: 2px; background: var(--tint); }
 .rail h5 { font: 650 var(--t-12)/1 var(--serif); color: var(--graphite); margin: var(--s-3) var(--s-2) var(--s-1); }
 .rail button { font: 500 var(--t-13)/1.4 var(--serif); background: transparent; border: 0; color: var(--ink); cursor: pointer; text-align: left; padding: var(--s-1) var(--s-2); border-radius: var(--r-sm); display: flex; align-items: center; gap: var(--s-2); transition: background var(--transition); }
@@ -246,10 +247,15 @@ textarea { width: 100%; font: var(--t-14)/1.45 var(--serif); border: 1px solid v
 .chip { font: 650 var(--t-12)/1.5 var(--serif); border: 1px solid var(--rule); border-radius: var(--r-pill); padding: 1px var(--s-2); background: var(--tint); color: var(--ink); cursor: pointer; }
 .chip.del { border-color: var(--redline); color: var(--redline); background: transparent; }
 
-.comments { width: 310px; flex: none; border-left: 1px solid var(--rule); display: flex; flex-direction: column; background: var(--tint); }
+.comments { width: var(--comments-width); flex: none; border-left: 1px solid var(--rule); display: flex; flex-direction: column; background: var(--tint); overflow: hidden; transition: width var(--transition); }
+.comments.folded { width: 0; border-left-width: 0; }
+/* The panel stays mounted while it folds, so its contents keep their width instead of reflowing to zero. */
+.comments > * { width: var(--comments-width); flex: none; }
 .comments header { padding: var(--s-2) var(--s-3); font-weight: 650; border-bottom: 1px solid var(--rule); display: flex; justify-content: space-between; }
 .comments header span { color: var(--graphite); font-weight: 500; font-size: var(--t-13); }
 .list { flex: 1; overflow: auto; padding: var(--s-2); display: flex; flex-direction: column; gap: var(--s-2); }
+/* Not `.list`: that rule's `flex: 1` has the same specificity as `.comments > *`, and line order would decide. The list grows with its cards and stops; nothing grows, so the free space falls under the composer. */
+.comments .list { flex: 0 1 auto; }
 .card { background: var(--sheet); border: 1px solid var(--rule); border-radius: var(--r-md); padding: var(--s-2); font-size: var(--t-13); line-height: 1.45; }
 .card .where { color: var(--graphite); font: var(--t-12)/1.4 var(--mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .card .quote { font-style: italic; margin: var(--s-1) 0; }
@@ -258,10 +264,18 @@ textarea { width: 100%; font: var(--t-14)/1.45 var(--serif); border: 1px solid v
 .card .actions { display: flex; gap: var(--s-2); margin-top: var(--s-1); }
 .card .actions button { font: 500 var(--t-12)/1.4 var(--serif); border: 0; background: none; color: var(--graphite); padding: 0; cursor: pointer; text-decoration: underline; }
 .none { color: var(--graphite); font-size: var(--t-13); padding: var(--s-2); }
-.global { border-top: 1px solid var(--rule); padding: var(--s-2) var(--s-3); }
+.global { border-top: 1px solid var(--rule); border-bottom: 1px solid var(--rule); padding: var(--s-2) var(--s-3); }
 .global label { display: block; font-size: var(--t-12); color: var(--graphite); margin-bottom: var(--s-1); }
 
+.handle { position: absolute; z-index: 3; top: 50%; right: var(--comments-width); width: var(--s-6); height: calc(var(--s-8) + var(--s-10)); transform: translateY(-50%); display: flex; align-items: center; justify-content: center; padding: 0; cursor: pointer; border: 1px solid var(--rule); border-right: 0; border-radius: var(--r-md) 0 0 var(--r-md); background: var(--sheet); color: var(--graphite); transition: right var(--transition), color var(--transition); }
+.handle:hover { color: var(--ink); }
+.handle[aria-expanded="false"] { right: 0; }
+.handle[aria-expanded="false"] .chevron { transform: rotate(180deg); }
+/* Pinned to the top left corner: the overhang goes toward the document, never toward the window's edge, where a folded handle would have it cut. The ring lifts it off the text behind. */
+.handle .badge { position: absolute; top: calc(var(--s-2) * -1); left: calc(var(--s-3) * -1); min-width: 0; padding: 0 var(--s-1); box-shadow: 0 0 0 2px var(--sheet); }
+.handle .chevron { width: var(--s-3); height: var(--s-3); transition: transform var(--transition); }
+
 @media (max-width: 900px) {
-  .comments { display: none; }
+  .comments { position: absolute; top: 0; right: 0; bottom: 0; z-index: 2; box-shadow: var(--shadow); }
   .rail { width: 160px; }
 }

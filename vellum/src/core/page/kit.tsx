@@ -2,7 +2,8 @@ import type { ComponentChildren, JSX } from "preact";
 
 /**
  * The page's components, each one a class of `style.css` spelled in one place: what every
- * button, badge, chip, tag, banner and popover of the core and of the extensions is drawn with.
+ * button, badge, chip, tag, banner, popover and chevron of the core and of the extensions is
+ * drawn with.
  */
 
 export type ButtonProps = Omit<
@@ -93,6 +94,22 @@ export function Popover(props: {
     >
       {props.children}
     </div>
+  );
+}
+
+/** The page's one icon: `currentColor`, sized by the class that holds it, rotated to point. */
+export function Chevron(): JSX.Element {
+  return (
+    <svg class="chevron" viewBox="0 0 10 10" aria-hidden="true">
+      <path
+        d="M3.5 1.5 L7 5 L3.5 8.5"
+        fill="none"
+        stroke="currentColor"
+        stroke-width="1.6"
+        stroke-linecap="round"
+        stroke-linejoin="round"
+      />
+    </svg>
   );
 }
 
