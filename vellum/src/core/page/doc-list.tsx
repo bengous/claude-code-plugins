@@ -2,12 +2,16 @@ import type { DocRef } from "../protocol.ts";
 import { Badge } from "./kit.tsx";
 import { annotations, currentDoc, docs, editing, planDoc, select } from "./state.ts";
 
+function imageKind(_mediaType: `image/${string}`): string {
+  return "Image";
+}
+
 function kindOf(doc: DocRef): string {
   if (doc.mediaType === "text/markdown") return "Markdown";
 
   if (doc.mediaType === "text/html") return "HTML";
 
-  return "Image";
+  return imageKind(doc.mediaType);
 }
 
 function nameOf(doc: DocRef): string {

@@ -15,7 +15,7 @@ import {
   parseSubject,
   parseSuggestion,
 } from "./parse.ts";
-import type { Asked, Block, GrillState, Suggestion } from "./protocol.ts";
+import type { Asked, Block, GrillState, Opened, Suggestion } from "./protocol.ts";
 import {
   appendAnswer,
   appendFooter,
@@ -233,7 +233,9 @@ function routes(context: ServerContext): Readonly<Record<RouteKey, Route>> {
         suggestion = null;
         await context.notify();
 
-        return Response.json({ file }, { status: 201 });
+        const opened: Opened = { file };
+
+        return Response.json(opened, { status: 201 });
       });
     },
 

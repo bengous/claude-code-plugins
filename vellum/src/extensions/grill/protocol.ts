@@ -63,6 +63,9 @@ export type QuestionTriple = readonly [title: string, ask: string, rec: string];
 /** What `POST ask` answers: the numbers the questions took, which run across the whole grill. */
 export type Asked = { readonly first: number; readonly last: number };
 
+/** What `POST open` answers: the file the grill was written to, and nothing of its state. */
+export type Opened = { readonly file: ProjectPath };
+
 /** The body each `POST /api/x/grill/<name>` takes, by route name. */
 export type GrillPosts = {
   readonly open: { readonly subject: string };

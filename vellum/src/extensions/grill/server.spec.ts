@@ -13,7 +13,7 @@ import { join } from "node:path";
 import { startServer } from "../../core/server/adapters/http/serve.ts";
 import type { Started } from "../../core/server/adapters/http/serve.ts";
 import { parseWipDir } from "../../core/server/domain/paths.ts";
-import type { GrillPosts } from "./protocol.ts";
+import type { GrillPosts, Opened } from "./protocol.ts";
 import { toHtml } from "./server.ts";
 
 const WIP = "plans/2026-09-17/wip-c95eaf71/";
@@ -111,6 +111,15 @@ describe("opening a grill", () => {
     expect(await (await get("state?after=4&file=grill-1.md")).json()).toMatchObject({
       relays: [{ kind: "opened", seq: 0, name: "grill-2.md", subject: "again" }],
     });
+  });
+
+  test("the reply to `open` is an `Opened`: the file, and nothing of the grill's state", async () => {
+    const { post } = await grilling();
+
+    const opened: Opened = await (await post("open", { subject: "auth" })).json();
+
+    // @ts-expect-error -- `subject` and `phase` cross `GET state`, never the reply to `open`.
+    expect(opened.subject).toBeUndefined();
   });
 
   test("a second grill is refused while one is open, and takes the next number after it", async () => {

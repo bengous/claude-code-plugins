@@ -39,6 +39,11 @@ and the engine events the core hands it. `grill` is the one extension with all t
   land between two polls.
 - An extension owns its messages: `<id>/protocol.ts` types what crosses its routes, and
   `<id>/parse.ts` is its boundary parser. `src/core/protocol.ts` learns nothing of them.
+  A route's reply has its own name there, which both ends import (`Opened`, `Asked` in
+  `grill/protocol.ts`): the server half builds a constant of that type before `Response.json`,
+  which takes anything, and the page half casts to that name. A cast to a wider type that
+  happens to hold the field (a whole `GrillState` for a `{ file }`) compiles, and hands the next
+  reader an `undefined` typed `string`.
 - An engine half loads its own folder and nothing else: the hooks module must never pull the
   server or the page in. It reaches `core/engine/` as types, talks to its server half through
   `context.api`, and parses what comes back in its `parse.ts`. Its kit tests are

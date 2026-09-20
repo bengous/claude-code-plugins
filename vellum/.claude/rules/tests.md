@@ -33,5 +33,10 @@ paths:
 - The kit cannot raise one case: the lock's overrun. `mock.clock` lets a wait held past a
   hook's budget go, and a test's own budget is shorter still, so a hook that outruns the
   dispatch is measured in a live session instead (`docs/plugin-testing.md`).
+- A rule only the type system holds is locked where it is tested: a
+  `// @ts-expect-error -- <reason>` line in the suite beside it, on the code that must not
+  compile. The typecheck gate reads the suites, and a directive with nothing under it fails
+  the gate, so the day the type loosens the suite says so. `grill/server.spec.ts` holds two:
+  the body of `close`, the reply to `open`.
 - `src/boundaries.spec.ts` holds the dependency direction; an import that fails it is in the
   wrong layer, not a test to loosen.

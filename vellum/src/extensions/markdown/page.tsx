@@ -100,7 +100,9 @@ function toVNode(node: RootContent, key: number, changes: Changes | null): Compo
     });
   }
 
-  const attributes = Object.entries(node.properties).flatMap(([name, value]) => {
+  const attributes: readonly (readonly [string, string])[] = Object.entries(
+    node.properties,
+  ).flatMap(([name, value]) => {
     if (value === undefined || value === null || value === false) return [];
     const text = Array.isArray(value) ? value.join(" ") : value === true ? "" : String(value);
 

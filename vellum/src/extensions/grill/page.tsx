@@ -6,7 +6,7 @@ import { extensionRequest } from "../../core/page/api.ts";
 import { Button } from "../../core/page/kit.tsx";
 import { error, review, select } from "../../core/page/state.ts";
 import { grillNumber } from "./parse.ts";
-import type { Block, GrillPosts, GrillState } from "./protocol.ts";
+import type { Block, GrillPosts, GrillState, Opened } from "./protocol.ts";
 
 const ID = "grill";
 
@@ -45,8 +45,8 @@ async function openGrill(subject: string): Promise<void> {
   const response = await post("open", { subject });
 
   if (!response.ok) return;
-  // SAFETY: the server's own `{ file }`, a `ProjectPath` it built, serialized in grill/server.ts.
-  const { file } = (await response.json()) as Extract<GrillState, { kind: "open" }>;
+  // SAFETY: the server's own `Opened`, a `ProjectPath` it built, serialized in grill/server.ts.
+  const { file } = (await response.json()) as Opened;
   select(file);
 }
 

@@ -35,6 +35,17 @@ no build step, so what the page imports costs nothing at `cli start`.
   purely, the innermost block of each commented line, and `page.tsx` toggles `marked` on it.
 - Everything crossing `/api` is JSON and typed in `src/core/protocol.ts`; a new field lands there
   first. What crosses `/api/x/<id>/` is the extension's own, typed in its `protocol.ts`.
+- A chain of tests over a union of `src/core/protocol.ts` ends on a function whose parameter is
+  the members left, never on a bare `return`: `kindOf` in `doc-list.tsx` hands what is neither
+  Markdown nor HTML to `imageKind`, which takes `` `image/${string}` ``, so a member added to
+  `MediaType` stops compiling there instead of being labelled an image. A `Record` cannot hold
+  this union, one member is a template literal.
+- `strict` lets through an `any` that a library's overload returns, and oxlint reads no types:
+  `response.json()`, `JSON.parse`, and `Object.fromEntries` over pairs that lost their tuple type,
+  which an array literal returned from a callback does. The constant that receives one carries
+  its type: `attributes` in `markdown/page.tsx` is annotated as pairs, or `given` is `any` and
+  spreads into the props of every node. To check a doubt, `const probe: number = <value>` must
+  fail `bun x tsgo --noEmit`.
 - `app.tsx` is the one file that reads the registry: it picks the renderer and hands the
   extensions' `actions` to the decision bar, which draws them before its own buttons. An action
   that follows the workspace reads `review` and loads its own state again at every change.
