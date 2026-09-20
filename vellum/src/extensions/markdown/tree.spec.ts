@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 
 import type { Root, RootContent } from "hast";
 
+import { parseLines } from "../../core/page/anchoring.ts";
 import { toTree } from "./tree.ts";
 
 function linesOf(text: string, tag: string): unknown[] {
@@ -34,6 +35,15 @@ function spanClasses(text: string): unknown[] {
 }
 
 describe("toTree", () => {
+  test("what it writes in `data-lines` is what `parseLines` reads", () => {
+    const written = linesOf("A paragraph\nof two lines.\n\nAnother.\n", "p");
+
+    expect(written.map((value) => parseLines(String(value)))).toEqual([
+      [1, 2],
+      [4, 4],
+    ]);
+  });
+
   test("a list item's lines stop before its nested list", () => {
     expect(linesOf("- First item\n  - Nested one\n  - Nested two\n- Second item\n", "li")).toEqual([
       "1-1",

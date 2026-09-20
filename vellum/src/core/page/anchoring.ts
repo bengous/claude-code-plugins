@@ -10,12 +10,23 @@ function offsetIn(container: Node, node: Node, offset: number): number {
   return range.toString().length;
 }
 
-function linesOf(node: Node): [number, number] | null {
-  const element = node instanceof Element ? node : node.parentElement;
-  const value = element?.closest<HTMLElement>("[data-lines]")?.dataset.lines;
-  const match = value === null || value === undefined ? null : /^(\d+)-(\d+)$/u.exec(value);
+/**
+ * A `data-lines` value, `start-end`, as its two source lines; `null` for anything else. The one
+ * reader of the format a renderer writes on each block: `markdown/tree.ts` is its producer today.
+ */
+export function parseLines(value: string | undefined): readonly [number, number] | null {
+  const [, start, end] = (value === undefined ? null : /^(\d+)-(\d+)$/u.exec(value)) ?? [];
 
-  return match === null ? null : [Number(match[1]), Number(match[2])];
+  if (start === undefined || end === undefined) return null;
+
+  // `parseInt` takes a string only, where `Number` takes an `undefined` and answers `NaN`.
+  return [Number.parseInt(start, 10), Number.parseInt(end, 10)];
+}
+
+function linesOf(node: Node): readonly [number, number] | null {
+  const element = node instanceof Element ? node : node.parentElement;
+
+  return parseLines(element?.closest<HTMLElement>("[data-lines]")?.dataset.lines);
 }
 
 /** The selection inside `container`, as a passage; `null` when empty or outside. */

@@ -1,3 +1,4 @@
+import { parseLines } from "../../core/page/anchoring.ts";
 import type { Relation } from "../../core/page/selection.ts";
 import { nextSelection } from "../../core/page/selection.ts";
 import type { Passage } from "../../core/protocol.ts";
@@ -190,16 +191,16 @@ export function diagramPassage(
   lines: string | undefined,
   source: string | undefined,
 ): Passage | null {
-  const match = lines === undefined ? null : /^(\d+)-(\d+)$/u.exec(lines);
+  const parsed = parseLines(lines);
 
   const quote = source
     ?.split("\n")
     .find((line) => line.trim() !== "")
     ?.trim();
 
-  if (match === null || quote === undefined) return null;
+  if (parsed === null || quote === undefined) return null;
 
-  return { quote, prefix: "", suffix: "", lines: [Number(match[1]), Number(match[2])] };
+  return { quote, prefix: "", suffix: "", lines: parsed };
 }
 
 /** The text of `element` as a range; a list item stops before its first nested list. */

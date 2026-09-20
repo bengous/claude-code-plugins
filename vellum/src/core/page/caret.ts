@@ -1,5 +1,7 @@
 /** Where the editor opens: the source line of the block the reviewer was reading, as a caret offset. */
 
+import { parseLines } from "./anchoring.ts";
+
 /** The offset of the first character of the 1-based `line` of `text`; the end of the text for a line past it. */
 export function offsetOfLine(text: string, line: number): number {
   let offset = 0;
@@ -23,7 +25,7 @@ export function lineAtTop(panes: Element): number {
   let line = 1;
 
   for (const element of panes.querySelectorAll<HTMLElement>(".plan [data-lines]")) {
-    line = Number(/^\d+/u.exec(element.dataset.lines ?? "")?.[0] ?? line);
+    line = parseLines(element.dataset.lines)?.[0] ?? line;
 
     if (element.getBoundingClientRect().top >= top) return line;
   }

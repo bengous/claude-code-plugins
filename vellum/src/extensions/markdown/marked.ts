@@ -1,3 +1,4 @@
+import { parseLines } from "../../core/page/anchoring.ts";
 import { BLOCK_TAGS } from "./changes.ts";
 
 /** A rendered block as the DOM shows it: its tag and its `data-lines`. */
@@ -16,11 +17,11 @@ export function markedIndices(
   passages: readonly (readonly [number, number])[],
 ): ReadonlySet<number> {
   const spans = blocks.map(({ tag, lines }) => {
-    const match = /^(\d+)-(\d+)$/u.exec(lines);
+    const parsed = parseLines(lines);
 
-    return match === null || !DOM_BLOCK_TAGS.has(tag)
+    return parsed === null || !DOM_BLOCK_TAGS.has(tag)
       ? null
-      : { start: Number(match[1]), end: Number(match[2]) };
+      : { start: parsed[0], end: parsed[1] };
   });
 
   const marked = new Set<number>();

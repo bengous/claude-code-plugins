@@ -107,6 +107,12 @@ no build step, so what the page imports costs nothing at `cli start`.
   error page is drawn as the document and takes comments. A read that only refreshes what is on
   screen may fail in silence, since the next workspace event reads again:
   `loadState` in `grill/page.tsx`.
+- A block says its source lines in `data-lines="start-end"`: `markdown/tree.ts` writes it,
+  `parseLines` of `anchoring.ts` is the one place it is read, and `tree.spec.ts` holds the two
+  together. Every reader calls it, the pure helpers of `markdown/` included: a second copy of
+  the pattern is a second format. A captured group becomes a number through `Number.parseInt`,
+  which takes a string only; `Number(match[1])` compiles on the `undefined` that
+  `noUncheckedIndexedAccess` had just named, and answers `NaN`.
 - A `mermaid` block reaches the page as an empty `figure` carrying its lines and its source, and
   Mermaid fills it after the mount: the figure is the one place a renderer writes DOM that Preact
   does not own, and `data-source` is both what a comment on it quotes and what a late render

@@ -1,5 +1,6 @@
 import type { Element, Root } from "hast";
 
+import { parseLines } from "../../core/page/anchoring.ts";
 import type { DiffRun, LineDiff } from "../../core/protocol.ts";
 
 /**
@@ -53,12 +54,11 @@ type Block = {
 function blocksOf(node: Root | Element, parent: Block | null, table: Element | null): Block[] {
   return node.children.flatMap((child) => {
     if (child.type !== "element") return [];
-    const lines = /^(\d+)-(\d+)$/u.exec(String(child.properties.dataLines));
+    const lines = parseLines(String(child.properties.dataLines));
     const within = child.tagName === "table" ? child : table;
 
     if (lines === null || !BLOCK_TAGS.has(child.tagName)) return blocksOf(child, null, within);
-    const start = Number(lines[1]);
-    const end = Number(lines[2]);
+    const [start, end] = lines;
 
     const item =
       child.tagName === "p" &&
