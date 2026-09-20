@@ -46,10 +46,23 @@ function writePlugin(root: string, name: string, version: string, declared = nam
   );
 }
 
-/** `commit.gpgsign` is on globally here: a suite must not reach for a real key. */
+/**
+ * A scratch repo every git command can write in: a CI runner carries no identity, and
+ * `commit.gpgsign` and `tag.gpgsign` are on globally here, so a suite must reach for no real key.
+ * Repo config rather than flags per call, so a command added later carries neither.
+ */
+async function initRepo(repo: string): Promise<void> {
+  mkdirSync(repo);
+  await $`git -C ${repo} init -q -b dev`.quiet();
+  await $`git -C ${repo} config user.email t@t`.quiet();
+  await $`git -C ${repo} config user.name t`.quiet();
+  await $`git -C ${repo} config commit.gpgsign false`.quiet();
+  await $`git -C ${repo} config tag.gpgsign false`.quiet();
+}
+
 async function commit(repo: string, message: string, date: string): Promise<void> {
   await $`git -C ${repo} add -A`.quiet();
-  await $`git -C ${repo} -c user.email=t@t -c user.name=t -c commit.gpgsign=false commit -q -m ${message} --date=${date}`
+  await $`git -C ${repo} commit -q -m ${message} --date=${date}`
     .env({ ...process.env, GIT_COMMITTER_DATE: date })
     .quiet();
 }
@@ -62,8 +75,7 @@ async function commit(repo: string, message: string, date: string): Promise<void
 async function buildRepo(): Promise<string> {
   const repo = join(scratch, "repo");
 
-  mkdirSync(repo);
-  await $`git -C ${repo} init -q -b dev`.quiet();
+  await initRepo(repo);
   writePlugin(repo, "alpha", "1.0.0");
   writePlugin(repo, "beta", "2.0.0");
   writeFileSync(join(repo, "README.md"), "root\n");
@@ -82,7 +94,7 @@ async function buildRepo(): Promise<string> {
   const ahead = (await $`git -C ${repo} rev-parse work`.quiet().text()).trim();
 
   await $`git -C ${repo} update-ref refs/original/refs/heads/main ${ahead}`.quiet();
-  await $`git -C ${repo} tag --no-sign -m backup backup/before-rebase ${ahead}`.quiet();
+  await $`git -C ${repo} tag -m backup backup/before-rebase ${ahead}`.quiet();
 
   return repo;
 }
@@ -289,8 +301,7 @@ describe("plugin-sources", () => {
     const repo = join(scratch, "declaring");
     const config = join(scratch, "config");
 
-    mkdirSync(repo);
-    await $`git -C ${repo} init -q -b dev`.quiet();
+    await initRepo(repo);
     writePlugin(repo, "orchestration", "2.8.1", "claude-orchestration");
     await commit(repo, "init", "2026-01-01T00:00:00Z");
 
