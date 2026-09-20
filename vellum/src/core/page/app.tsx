@@ -150,8 +150,12 @@ function App(): preact.JSX.Element {
       <div class="body">
         <DocList />
         <Panes />
-        {takesComments() && <Comments />}
-        {takesComments() && <CommentsHandle />}
+        {takesComments() && (
+          <>
+            <Comments />
+            <CommentsHandle />
+          </>
+        )}
       </div>
     </div>
   );

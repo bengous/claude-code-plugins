@@ -128,6 +128,7 @@ button:focus-visible, textarea:focus-visible { outline: 2px solid var(--redline)
 kbd { font: 600 var(--t-12)/1.4 var(--mono); border: 1px solid var(--rule); border-bottom-width: 2px; border-radius: var(--r-sm); padding: 0 var(--s-1); background: var(--sheet); color: var(--ink); }
 .badge { display: inline-block; min-width: 1.5em; padding: 0 var(--s-2); border-radius: var(--r-pill); background: var(--redline); color: var(--sheet); font: 650 var(--t-12)/1.5 var(--serif); text-align: center; }
 .btn.send .badge { background: var(--sheet); color: var(--redline); }
+.chevron { width: 1em; height: 1em; transition: transform var(--transition); }
 
 .docs { flex: 1; min-width: 0; display: flex; flex-direction: column; }
 .doc-head { display: flex; align-items: center; gap: var(--s-2); padding: var(--s-2) var(--s-3); border-bottom: 1px solid var(--rule); font-size: var(--t-13); color: var(--graphite); }
@@ -150,7 +151,7 @@ iframe { border: 0; width: 100%; height: 100%; display: block; background: var(-
 .editor { flex: 1; display: flex; }
 .editor textarea { flex: 1; border: 0; border-radius: 0; resize: none; padding: var(--s-4) var(--s-6); font: var(--t-14)/var(--lh-code) var(--mono); background: var(--field); }
 .editor textarea:focus-visible { outline-offset: -2px; }
-.rail[inert], .comments[inert] { opacity: 0.45; }
+.rail[inert], .comments[inert]:not(.folded) { opacity: 0.45; }
 
 .plan { padding: var(--s-6) var(--s-6) var(--s-10); font: var(--t-16)/var(--lh-prose) var(--serif); }
 .plan h1 { font: 650 var(--t-31)/var(--lh-title) var(--serif); letter-spacing: -0.015em; margin: 0 0 var(--s-3); }
@@ -249,13 +250,12 @@ textarea { width: 100%; font: var(--t-14)/1.45 var(--serif); border: 1px solid v
 
 .comments { width: var(--comments-width); flex: none; border-left: 1px solid var(--rule); display: flex; flex-direction: column; background: var(--tint); overflow: hidden; transition: width var(--transition); }
 .comments.folded { width: 0; border-left-width: 0; }
-/* The panel stays mounted while it folds, so its contents keep their width instead of reflowing to zero. */
-.comments > * { width: var(--comments-width); flex: none; }
+/* The panel stays mounted while it folds, so its contents keep their width, the panel's minus its border, instead of reflowing to zero. */
+.comments > * { width: calc(var(--comments-width) - 1px); flex: none; }
 .comments header { padding: var(--s-2) var(--s-3); font-weight: 650; border-bottom: 1px solid var(--rule); display: flex; justify-content: space-between; }
 .comments header span { color: var(--graphite); font-weight: 500; font-size: var(--t-13); }
-.list { flex: 1; overflow: auto; padding: var(--s-2); display: flex; flex-direction: column; gap: var(--s-2); }
-/* Not `.list`: that rule's `flex: 1` has the same specificity as `.comments > *`, and line order would decide. The list grows with its cards and stops; nothing grows, so the free space falls under the composer. */
-.comments .list { flex: 0 1 auto; }
+/* The one child that shrinks: a list that cannot shrink cannot scroll. Nothing grows, so the free space falls under the composer. */
+.comments .list { flex: 0 1 auto; overflow: auto; padding: var(--s-2); display: flex; flex-direction: column; gap: var(--s-2); }
 .card { background: var(--sheet); border: 1px solid var(--rule); border-radius: var(--r-md); padding: var(--s-2); font-size: var(--t-13); line-height: 1.45; }
 .card .where { color: var(--graphite); font: var(--t-12)/1.4 var(--mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .card .quote { font-style: italic; margin: var(--s-1) 0; }
@@ -273,7 +273,7 @@ textarea { width: 100%; font: var(--t-14)/1.45 var(--serif); border: 1px solid v
 .handle[aria-expanded="false"] .chevron { transform: rotate(180deg); }
 /* Pinned to the top left corner: the overhang goes toward the document, never toward the window's edge, where a folded handle would have it cut. The ring lifts it off the text behind. */
 .handle .badge { position: absolute; top: calc(var(--s-2) * -1); left: calc(var(--s-3) * -1); min-width: 0; padding: 0 var(--s-1); box-shadow: 0 0 0 2px var(--sheet); }
-.handle .chevron { width: var(--s-3); height: var(--s-3); transition: transform var(--transition); }
+.handle .chevron { width: var(--s-3); height: var(--s-3); }
 
 @media (max-width: 900px) {
   .comments { position: absolute; top: 0; right: 0; bottom: 0; z-index: 2; box-shadow: var(--shadow); }

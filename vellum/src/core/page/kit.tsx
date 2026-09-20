@@ -97,7 +97,7 @@ export function Popover(props: {
   );
 }
 
-/** The page's one icon: `currentColor`, sized by the class that holds it, rotated to point. */
+/** The page's one icon: `currentColor`, the size of the text beside it unless its holder sets one, rotated to point. */
 export function Chevron(): JSX.Element {
   return (
     <svg class="chevron" viewBox="0 0 10 10" aria-hidden="true">

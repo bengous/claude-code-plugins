@@ -125,7 +125,7 @@ export function Comments(): preact.JSX.Element {
       id="comments"
       class={commentsOpen.value ? "comments" : "comments folded"}
       aria-label="Comments"
-      inert={editing.value !== null}
+      inert={editing.value !== null || !commentsOpen.value}
     >
       <header>
         Comments <span>{list.length}</span>
