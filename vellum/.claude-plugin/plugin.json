@@ -1,6 +1,6 @@
 {
   "name": "vellum",
-  "version": "0.6.0",
+  "version": "0.7.0",
   "description": "Plan at the frontiers and review the plan in the browser: open choices settled first, interfaces and files before mechanics, vertical slices each closed by a check; /vellum:start opens a planning mode of its own where Claude writes the plan and its mockups, the reviewer comments text, HTML elements and diagrams in a page or approves, answers Claude's grill on the open choices in that page, recorded word for word beside the plan, and the answer reaches Claude as a prompt",
   "author": {
     "name": "Augustin BENGOLEA",
