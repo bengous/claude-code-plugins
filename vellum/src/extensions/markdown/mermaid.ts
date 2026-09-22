@@ -43,6 +43,18 @@ export function themeOf(night: boolean, font: Font) {
   };
 }
 
+/**
+ * The narrowest a drawn diagram shrinks to, or `null` for no floor. `baseVal` is typed as a
+ * `DOMRect` by `lib.dom.d.ts`, yet #162 reports it `null` in Firefox.
+ */
+export function minWidthOf(viewBox: {
+  readonly baseVal: { readonly width: number } | null;
+}): string | null {
+  const width = viewBox.baseVal?.width ?? 0;
+
+  return width > 0 ? `${Math.round(width * SCALE_FLOOR)}px` : null;
+}
+
 /** Mermaid draws in the page after the mount; its bundle loads on the first diagram only. */
 export async function drawDiagrams(root: HTMLElement, night: boolean): Promise<void> {
   const figures = [...root.querySelectorAll<HTMLElement>("figure.mermaid")];
@@ -71,10 +83,9 @@ export async function drawDiagrams(root: HTMLElement, night: boolean): Promise<v
       if (figure.dataset.source !== source) continue;
       figure.innerHTML = svg;
       const drawn = figure.querySelector("svg");
-      const width = drawn?.viewBox.baseVal.width ?? 0;
+      const floor = drawn === null ? null : minWidthOf(drawn.viewBox);
 
-      if (drawn !== null && width > 0)
-        drawn.style.minWidth = `${Math.round(width * SCALE_FLOOR)}px`;
+      if (drawn !== null && floor !== null) drawn.style.minWidth = floor;
     } catch (cause) {
       const text = document.createElement("pre");
       const failure = document.createElement("p");

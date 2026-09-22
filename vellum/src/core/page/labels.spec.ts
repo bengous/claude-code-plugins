@@ -6,6 +6,7 @@ import type { Labelled } from "./labels.ts";
 import {
   dirLabels,
   docLabel,
+  docLabeller,
   nameParts,
   pathLabel,
   planLabel,
@@ -132,6 +133,47 @@ describe("docLabel", () => {
 
     expect(docLabel(transcript, view)).toEqual({ name: "grill-1.md", dir: null });
     expect(pathLabel(transcript, view)).toBe("grill-1.md");
+  });
+});
+
+describe("docLabeller", () => {
+  const listed = [
+    doc(`${WIP}maquettes/apres/f.html`),
+    doc(`${WIP}maquettes/avant/f.html`),
+    doc("vellum/docs/architecture.md", "cited"),
+    doc("docs/testing.md", "cited"),
+  ];
+
+  test("labels the plan, and each group's folders against its own group alone", () => {
+    const labelOf = docLabeller(reviewing(listed));
+
+    expect([PLAN, ...listed].map((one) => labelOf(one))).toEqual([
+      { name: "Plan v3", dir: null },
+      { name: "f.html", dir: "apres" },
+      { name: "f.html", dir: "avant" },
+      { name: "architecture.md", dir: "vellum/docs" },
+      { name: "testing.md", dir: "docs" },
+    ]);
+  });
+
+  test("reads the listed documents up front, never once per line", () => {
+    let reads = 0;
+
+    const view: Labelled = {
+      workspace: IN_REVIEW,
+      get docs() {
+        reads += 1;
+
+        return listed;
+      },
+    };
+
+    const labelOf = docLabeller(view);
+    const upFront = reads;
+
+    for (const one of listed) labelOf(one);
+
+    expect(reads).toBe(upFront);
   });
 });
 

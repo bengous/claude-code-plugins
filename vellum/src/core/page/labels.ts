@@ -1,4 +1,11 @@
-import type { Anchor, GroupedDoc, Passage, PlanWorkspace, ReviewView } from "../protocol.ts";
+import type {
+  Anchor,
+  DocGroup,
+  GroupedDoc,
+  Passage,
+  PlanWorkspace,
+  ReviewView,
+} from "../protocol.ts";
 
 /**
  * What the page names, purely: a document, a place in it, a quote of it. The server's names
@@ -75,14 +82,24 @@ function folderOf(doc: GroupedDoc, planDir: string): string {
  * from the other cited files.
  */
 export function docLabel(doc: GroupedDoc, view: Labelled): DocLabel {
-  if (doc.group === "plan") return { name: `Plan ${planLabel(view.workspace)}`, dir: null };
+  return docLabeller(view)(doc);
+}
+
+/** `docLabel` for every line of the rail: each group's folders are labelled once, not once a line. */
+export function docLabeller(view: Labelled): (doc: GroupedDoc) => DocLabel {
   const planDir = planDirOf(view);
 
-  const labels = dirLabels(
-    view.docs.filter((other) => other.group === doc.group).map((other) => folderOf(other, planDir)),
-  );
+  const folders = (group: DocGroup): ReadonlyMap<string, string> =>
+    dirLabels(
+      view.docs.filter((other) => other.group === group).map((other) => folderOf(other, planDir)),
+    );
 
-  return { name: basename(doc.path), dir: labels.get(folderOf(doc, planDir)) ?? null };
+  const labels = { artifact: folders("artifact"), cited: folders("cited") };
+
+  return (doc) =>
+    doc.group === "plan"
+      ? { name: `Plan ${planLabel(view.workspace)}`, dir: null }
+      : { name: basename(doc.path), dir: labels[doc.group].get(folderOf(doc, planDir)) ?? null };
 }
 
 /** What the document's head and a card call `doc`: `Plan v2`, an artifact's path beside the plan, a cited file's path. */

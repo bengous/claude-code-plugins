@@ -77,6 +77,12 @@ export function dragRange(event: MouseEvent): Range | null {
   return event.button === 0 ? selectedRange() : null;
 }
 
+/**
+ * The attribute a renderer sets on its sheet, the document it draws from Markdown source lines:
+ * the core finds the sheet by this name, never by a renderer's class.
+ */
+export const SHEET_ATTRIBUTE = "data-sheet";
+
 /** Where a key comes from: the Markdown sheet, a mockup's frame, or anywhere else in the page. */
 export type KeyOrigin = "sheet" | "frame" | "elsewhere";
 
@@ -101,14 +107,15 @@ export function isSwitchKey(press: KeyPress): boolean {
 
 /**
  * Field by field: a spread copies none of a KeyboardEvent's fields, which are getters. `from` is
- * read off the path: through the sheet's `article`, or up to the window of a framed document.
+ * read off the path: through the sheet, or up to the window of a framed document.
  */
 export function keyPressOf(event: KeyboardEvent): KeyPress {
   // The path's first node, not `target`: an open shadow root retargets a key typed in its input
   // to its host.
   const path = event.composedPath();
   const [origin] = path;
-  const inSheet = path.some((node) => node instanceof Element && node.matches("article.plan"));
+  const sheet = `[${SHEET_ATTRIBUTE}]`;
+  const inSheet = path.some((node) => node instanceof Element && node.matches(sheet));
 
   return {
     key: event.key,

@@ -1,7 +1,7 @@
 import type { DocGroup, GroupedDoc } from "../protocol.ts";
 import type { ProjectPath } from "../server/domain/paths.ts";
 import { Badge, Handle } from "./kit.tsx";
-import { docLabel, nameParts, planLabel } from "./labels.ts";
+import { docLabeller, nameParts, planLabel } from "./labels.ts";
 import { annotations, currentDoc, docs, editing, railOpen, review, select } from "./state.ts";
 
 function count(path: string): number {
@@ -69,11 +69,12 @@ export function DocList(): preact.JSX.Element {
   const plan = docs.value.find((doc) => doc.group === "plan");
   const artifacts = inGroup(docs.value, "artifact");
   const cited = inGroup(docs.value, "cited");
+  const view = review.value;
+  const labelOf = view === null ? null : docLabeller(view);
 
   // The name's stem alone is cut when the room is short: the extension says what the line opens.
   const item = (doc: GroupedDoc): preact.JSX.Element => {
-    const view = review.value;
-    const label = view === null ? null : docLabel(doc, view);
+    const label = labelOf === null ? null : labelOf(doc);
     const { stem, ext } = nameParts(label?.name ?? doc.path);
 
     return (
@@ -88,7 +89,7 @@ export function DocList(): preact.JSX.Element {
           <span class="stem">{stem}</span>
           {ext !== "" && <span class="ext">{ext}</span>}
         </span>
-        {label?.dir !== null && label !== null && (
+        {label !== null && label.dir !== null && (
           <span class="dir" title={label.dir}>
             {label.dir}
           </span>

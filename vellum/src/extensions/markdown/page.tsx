@@ -7,7 +7,7 @@ import { Composer } from "../../core/page/composer.tsx";
 import { paint } from "../../core/page/highlights.ts";
 import type { Rect } from "../../core/page/place.ts";
 import { windowOf } from "../../core/page/place.ts";
-import { dragRange, selectedRange, toggled } from "../../core/page/selection.ts";
+import { dragRange, SHEET_ATTRIBUTE, selectedRange, toggled } from "../../core/page/selection.ts";
 import {
   commenting,
   dark,
@@ -544,6 +544,7 @@ function MarkdownDoc(props: RendererProps): preact.JSX.Element {
   return (
     <>
       <article
+        {...{ [SHEET_ATTRIBUTE]: "" }}
         class={adding ? "plan adding" : "plan"}
         ref={container}
         tabIndex={-1}
