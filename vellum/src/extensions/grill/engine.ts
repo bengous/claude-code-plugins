@@ -25,7 +25,7 @@ const SUGGEST_TOOL = "mcp__vellum__grill_suggest";
 /** What the person at the terminal must know, and the agent must not read: a prompt typed there is not the grill's. */
 const SEGMENT_OPEN = "grill · open";
 
-const NO_CURSOR: Cursor = { file: "", seq: -1, taught: false };
+const NO_CURSOR: Cursor = { file: "", seq: -1, taught: false, declined: null };
 
 /** The modes whose last poll found a grill open, keyed by the mode's own `Live`: a new way in starts with none. */
 const grillOpen = new WeakSet<Live>();
@@ -85,7 +85,7 @@ const ASK: ExtensionTool = {
 const SUGGEST: ExtensionTool = {
   name: "grill_suggest",
   description:
-    "Suggest a grill to the reviewer in the review page of a vellum planning session: the subject, and in one sentence why the choices need them. It opens nothing: end your turn, and the reviewer starts it from the page, or not. Refused outside vellum planning, and while a grill is open.",
+    "Suggest a grill to the reviewer in the review page of a vellum planning session: the subject, and in one sentence why the choices need them. It opens nothing: end your turn, and the reviewer starts it from the page, or declines it; a decline arrives as a prompt. Refused outside vellum planning, and while a grill is open.",
   inputSchema: {
     type: "object",
     properties: { subject: { type: "string" }, reason: { type: "string" } },
@@ -131,6 +131,7 @@ function promptOf(context: EngineContext, relay: Relay, taught: boolean): string
  * Submits every entry past the cursor, one by one and in order, the cursor written after each:
  * a dropped prompt stops there and the next poll retries it. The entries are on the server's
  * disk and the cursor in `$.store`, so a reloaded module or a revived server repeats nothing.
+ * A decline goes after the entries, so the end of a grill is told before it.
  */
 async function tick(context: EngineContext): Promise<void> {
   const { host, live, api } = context;
@@ -146,9 +147,9 @@ async function tick(context: EngineContext): Promise<void> {
 
   // A closed grill this session relayed nothing of: after a `/clear`, an old transcript of the
   // directory means nothing to the new context.
-  if (!polled.open && polled.relays[0]?.kind === "opened") return;
+  const stale = !polled.open && polled.relays[0]?.kind === "opened";
 
-  for (const relay of polled.relays) {
+  for (const relay of stale ? [] : polled.relays) {
     const result = await host.submitPrompt(promptOf(context, relay, cursor.taught));
 
     if (result.drop !== undefined) {
@@ -161,6 +162,7 @@ async function tick(context: EngineContext): Promise<void> {
       file: relay.kind === "reply" ? cursor.file : relay.name,
       seq: relay.seq,
       taught: cursor.taught || relay.kind === "opened",
+      declined: cursor.declined,
     };
 
     await host.storeSet(key, cursor);
@@ -168,6 +170,18 @@ async function tick(context: EngineContext): Promise<void> {
     // The path is the harness's to show, never the model's to read again.
     if (relay.kind === "ended") host.log(`grill closed from the page; ${relay.name} is kept`);
   }
+
+  if (polled.open || polled.declined === null || polled.declined.id === cursor.declined) return;
+  const { id, subject } = polled.declined;
+  const result = await host.submitPrompt(`The reviewer declined the grill on: ${subject}.`);
+
+  if (result.drop !== undefined) {
+    host.log(`the grill prompt was dropped: ${result.drop}`);
+
+    return;
+  }
+
+  await host.storeSet(key, { ...cursor, declined: id });
 }
 
 export const grillEngine: EngineExtension = {

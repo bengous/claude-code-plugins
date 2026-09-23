@@ -120,7 +120,9 @@ const banner = signal<"auto" | "open" | "dismissed">("auto");
 const subjectTyped = signal<string | null>(null);
 
 function suggestionOf(state: GrillState | null): Suggestion | null {
-  return state?.kind === "none" ? state.suggestion : null;
+  return state?.kind === "none" && state.proposal?.kind === "pending"
+    ? state.proposal.suggestion
+    : null;
 }
 
 function bannerShown(state: GrillState | null): boolean {

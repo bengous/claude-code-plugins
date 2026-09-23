@@ -1,13 +1,20 @@
 import type { Route } from "../../../core/engine/fixtures/index.ts";
 import { reply, WORKDIR } from "../../../core/engine/fixtures/index.ts";
-import type { Relay } from "../protocol.ts";
+import type { Proposal, Relay } from "../protocol.ts";
 
 export const GRILL_NAME = "grill-1.md";
 
 export const OPENED: Relay = { kind: "opened", seq: 0, name: GRILL_NAME, subject: "auth" };
 
-/** Every entry of the last grill, in file order: the route cuts them at the module's cursor, as the server does. */
-export type Grill = { readonly open: boolean; readonly relays: readonly Relay[] };
+/**
+ * Every entry of the last grill, in file order: the route cuts them at the module's cursor, as
+ * the server does. The proposal slot is read with no grill open, as the server serves it.
+ */
+export type Grill = {
+  readonly open: boolean;
+  readonly relays: readonly Relay[];
+  readonly proposal?: Proposal;
+};
 
 export const NO_GRILL: Grill = { open: false, relays: [] };
 
@@ -25,6 +32,13 @@ export function endedGrill(...replies: string[]): Grill {
     open: false,
     relays: [...relays, { kind: "ended", seq: relays.length, name: GRILL_NAME }],
   };
+}
+
+export const DECLINED_ID = "5b1f0e2a-9c4d-4f7e-8a31-2d6c7b9e0f14";
+
+/** The same grill, with the slot holding a proposal the reviewer declined. */
+export function declined(grill: Grill, subject: string): Grill {
+  return { ...grill, proposal: { kind: "declined", declined: { id: DECLINED_ID, subject } } };
 }
 
 export type GrillRoutes = {
@@ -55,7 +69,7 @@ export function grillRoutes(
     };
 
   const state: Route = (_, query) => {
-    const { open, relays } = grill();
+    const { open, relays, proposal = null } = grill();
     const after = query.get("file") === nameOf(relays) ? Number(query.get("after")) : -1;
     const due = relays.filter((relay) => relay.seq > after);
 
@@ -69,7 +83,7 @@ export function grillRoutes(
             phase: "working",
             relays: due,
           }
-        : { kind: "none", suggestion: null, relays: due },
+        : { kind: "none", proposal, relays: due },
     );
   };
 

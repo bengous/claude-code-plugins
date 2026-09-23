@@ -120,8 +120,12 @@ sequenceDiagram
   participant S as vellum serve
   participant P as page
   C->>M: tool.call grill_suggest {subject, reason}
-  M->>S: POST /api/x/grill/suggest
+  M->>S: POST /api/x/grill/suggest, the slot pending under a new id
   S-->>P: workspace event, the Grill button lit
+  opt the reviewer declines it instead
+    P->>S: POST /api/x/grill/decline {id}, the slot declined
+    M->>C: $.prompt.submit ("The reviewer declined the grill on: <subject>.")
+  end
   P->>S: POST /api/x/grill/open {subject}
   S->>S: writes grill-1.md, its header
   M->>S: tick: GET /api/x/grill/state?after=<seq>&file=<name>
@@ -148,7 +152,7 @@ The file is the queue and the state: the server writes every round, the module w
 and what is open, who speaks next and what waits for the relay are read off `grill-<n>.md`
 (`extensions/grill/transcript.ts`). `relaysOf` numbers the entries in file order: 0 the opening,
 1..n the reviewer's replies, n+1 the end when the footer says `page`. The module keeps one
-record of its own, in `$.store`: its cursor, `{ file, seq, taught }`. Each poll asks for the
+record of its own, in `$.store`: its cursor, `{ file, seq, taught, declined }`. Each poll asks for the
 entries past it and submits them one by one, the cursor written after each, so two replies
 between two polls both go and nothing Claude says cancels one. The file serves the human, the
 prompt serves the agent, and they no longer share a text: a prompt names its object
@@ -156,8 +160,13 @@ prompt serves the agent, and they no longer share a text: a prompt names its obj
 note first, then the typed answers, never a default; `grilling.md` is named at the first grill
 of a session alone (`taught`); the end names the file, its path goes to `$.ui.log`. Every relay
 keeps the plugin's origin: the lock lets Claude write `grill-<n>.md`, so a `Reviewer` block
-proves no human wrote it, and it must never reach Claude as the user's own words. The
-suggestion alone lives in the server's memory.
+proves no human wrote it, and it must never reach Claude as the user's own words.
+
+The proposal alone lives in the server's memory, in one slot: `grill_suggest` fills it under a
+random id, a decline from the page turns it declined, a new proposal replaces either, and
+opening a grill empties it. With no grill open the poll reads the slot after the entries, and
+a declined proposal whose id is not the cursor's `declined` goes to Claude as the fact, "The
+reviewer declined the grill on: <subject>.", the cursor written after it.
 
 Claude's final text is written when its turn is the grill's own: `prompt.submit` notes the
 last prompt that entered and its origin, `turn.start`, which carries no origin itself, takes

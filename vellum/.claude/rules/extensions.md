@@ -36,7 +36,11 @@ the engine events the core hands it, and its segment of the band above the promp
 - What an engine half relays is a cursor over entries the server numbers, never "the last one":
   `grill` asks `state?after=<seq>&file=<name>` and submits every entry past it, in order, the
   cursor written after each. A rule that reads the file's last voice loses a reply whenever two
-  land between two polls.
+  land between two polls. What the server keeps in memory is relayed by id, never by a flag:
+  `grill`'s one proposal slot is pending, declined or empty, each proposal under a random id,
+  and the cursor keeps the id of the last decline it submitted, after the entries. A new
+  proposal replaces a decline not yet told, and opening a grill empties the slot; a restarted
+  server loses the slot and mints new ids, so nothing is told twice.
 - An extension owns its messages: `<id>/protocol.ts` types what crosses its routes, and
   `<id>/parse.ts` is its boundary parser. `src/core/protocol.ts` learns nothing of them.
   A route's reply has its own name there, which both ends import (`Opened`, `Asked` in

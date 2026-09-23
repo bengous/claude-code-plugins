@@ -13,7 +13,7 @@ import { join } from "node:path";
 import { startServer } from "../../core/server/adapters/http/serve.ts";
 import type { Started } from "../../core/server/adapters/http/serve.ts";
 import { parseWipDir } from "../../core/server/domain/paths.ts";
-import type { GrillPosts, Opened } from "./protocol.ts";
+import type { GrillPosts, GrillState, Opened, Proposal } from "./protocol.ts";
 import { toHtml } from "./server.ts";
 
 const WIP = "plans/2026-09-17/wip-c95eaf71/";
@@ -73,6 +73,24 @@ async function grilling(): Promise<Grilling> {
     get: (name) => fetch(url(name), { headers }),
     post: (name, body) => fetch(url(name), { method: "POST", headers, body: JSON.stringify(body) }),
   };
+}
+
+/** The slot `GET state` reads with no grill open: pending, declined, or `null`. */
+async function slot(get: Grilling["get"]): Promise<Proposal | null> {
+  // SAFETY: the server's own `GrillState`, serialized by `Response.json` in grill/server.ts.
+  const state = (await (await get("state")).json()) as GrillState;
+
+  if (state.kind === "open") throw new Error("a grill is open");
+
+  return state.proposal;
+}
+
+async function pendingId(get: Grilling["get"]): Promise<string> {
+  const proposal = await slot(get);
+
+  if (proposal?.kind !== "pending") throw new Error("no proposal is pending");
+
+  return proposal.suggestion.id;
 }
 
 afterEach(() => {
@@ -146,17 +164,58 @@ describe("opening a grill", () => {
   });
 });
 
-describe("a suggestion", () => {
+describe("the proposal", () => {
   const IDEA = { subject: "auth", reason: "three choices change the contract" };
 
-  test("is kept for the page until a grill opens", async () => {
+  test("is pending, under an id the server gave it", async () => {
     const { post, get } = await grilling();
 
     expect((await post("suggest", IDEA)).status).toBe(204);
-    expect(await (await get("state")).json()).toMatchObject({ kind: "none", suggestion: IDEA });
+    expect(await slot(get)).toEqual({
+      kind: "pending",
+      suggestion: { id: expect.any(String), ...IDEA },
+    });
+  });
+
+  test("a decline turns it declined, under its id and its subject", async () => {
+    const { post, get } = await grilling();
+    await post("suggest", IDEA);
+    const id = await pendingId(get);
+
+    expect((await post("decline", { id })).status).toBe(204);
+    expect(await slot(get)).toEqual({ kind: "declined", declined: { id, subject: "auth" } });
+  });
+
+  test("a decline of a proposal that is no longer the pending one answers 409", async () => {
+    const { post, get } = await grilling();
+    await post("suggest", IDEA);
+    const stale = await pendingId(get);
+    await post("suggest", { ...IDEA, subject: "cache" });
+    const refused = await post("decline", { id: stale });
+
+    expect(refused.status).toBe(409);
+    expect(await refused.json()).toEqual({ error: "no such proposal" });
+  });
+
+  test("opening a grill empties the slot, a decline Claude has not heard included", async () => {
+    const { post, get } = await grilling();
+    await post("suggest", IDEA);
+    await post("decline", { id: await pendingId(get) });
     await post("open", { subject: "auth" });
     await post("close", { reason: "page" });
-    expect(await (await get("state")).json()).toMatchObject({ kind: "none", suggestion: null });
+
+    expect(await slot(get)).toBeNull();
+  });
+
+  test("a new proposal replaces a decline, under a new id", async () => {
+    const { post, get } = await grilling();
+    await post("suggest", IDEA);
+    const declined = await pendingId(get);
+    await post("decline", { id: declined });
+    await post("suggest", { ...IDEA, subject: "cache" });
+
+    expect(await slot(get)).toMatchObject({ kind: "pending", suggestion: { subject: "cache" } });
+    expect(await pendingId(get)).not.toBe(declined);
   });
 
   test("is refused while a grill is open, and without a reason", async () => {
@@ -257,7 +316,7 @@ describe("closing a grill", () => {
     expect(readFileSync(join(dir, WIP, "grill-1.md"), "utf8")).toMatch(/\nClosed .+ · page\n$/u);
     expect(await (await get("state?after=0&file=grill-1.md")).json()).toEqual({
       kind: "none",
-      suggestion: null,
+      proposal: null,
       relays: [{ kind: "ended", seq: 1, name: "grill-1.md" }],
     });
   });

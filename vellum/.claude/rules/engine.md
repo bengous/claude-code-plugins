@@ -185,7 +185,10 @@ loop. `/vellum:start` enters it, Approve in the page or `/vellum:stop` leaves it
 - A text enters Claude's context only when Claude does something different because of it.
   Anything else goes to the band, `$.ui.log` or the page. A prompt names its object and
   repeats nothing Claude wrote or already read, and every relay keeps the plugin's origin.
-- An extension's store records are keyed `<id>:<session id>`.
+- An extension's store records are keyed `<id>:<session id>`, one record per extension: what it
+  learns to remember joins that record, as `grill`'s cursor carries the id of the last decline
+  it relayed beside its last entry. A record of an older shape fails its parser and starts over;
+  the key is the session's, so only a plugin updated in the middle of a session replays anything.
 - Tests run under the engine's own `$` (`claude plugin test vellum`, the `*.test.ts` files beside the module):
   `bun test` cannot host that environment. The world beneath the module is answered by the
   kit's `mock.clock` and the `on(...)` hooks of `fixtures/`. Nothing else is faked.

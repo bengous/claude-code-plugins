@@ -19,6 +19,8 @@ import {
   TURN_OF_AGENT,
 } from "../../core/engine/fixtures/index.ts";
 import {
+  declined,
+  DECLINED_ID,
   endedGrill,
   GRILL_NAME,
   grillRoutes,
@@ -65,7 +67,12 @@ describe("the reviewer's entries reach Claude", () => {
         /^The reviewer opened grill-1\.md on: auth\. Read .+\/src\/extensions\/grill\/grilling\.md, then ask with mcp__vellum__grill_ask\.$/u,
       ),
     ]);
-    expect(seen.store.get(CURSOR)).toEqual({ file: GRILL_NAME, seq: 0, taught: true });
+    expect(seen.store.get(CURSOR)).toEqual({
+      file: GRILL_NAME,
+      seq: 0,
+      taught: true,
+      declined: null,
+    });
   });
 
   test("a later grill of the session names no guide: Claude read it", async ($, on) => {
@@ -73,20 +80,31 @@ describe("the reviewer's entries reach Claude", () => {
 
     const seen = world(on, {
       ...grillRoutes(() => ({ open: true, relays: [second] })),
-      stored: { ...storedSession(), [CURSOR]: { file: GRILL_NAME, seq: 3, taught: true } },
+      stored: {
+        ...storedSession(),
+        [CURSOR]: { file: GRILL_NAME, seq: 3, taught: true, declined: null },
+      },
     });
 
     await $.session.start(SESSION);
     await tick(seen);
 
     expect(seen.prompts).toEqual(["The reviewer opened grill-2.md on: cache."]);
-    expect(seen.store.get(CURSOR)).toEqual({ file: "grill-2.md", seq: 0, taught: true });
+    expect(seen.store.get(CURSOR)).toEqual({
+      file: "grill-2.md",
+      seq: 0,
+      taught: true,
+      declined: null,
+    });
   });
 
   test("a reloaded module does not relay the opening again", async ($, on) => {
     const seen = world(on, {
       ...grillRoutes(() => openGrill()),
-      stored: { ...storedSession(), [CURSOR]: { file: GRILL_NAME, seq: 0, taught: true } },
+      stored: {
+        ...storedSession(),
+        [CURSOR]: { file: GRILL_NAME, seq: 0, taught: true, declined: null },
+      },
     });
 
     await $.session.start(SESSION);
@@ -119,7 +137,10 @@ describe("the reviewer's entries reach Claude", () => {
   test("a dropped entry does not move the cursor, so the next tick retries", async ($, on) => {
     const seen = world(on, {
       ...grillRoutes(() => openGrill("Reviewer: Q1: yes")),
-      stored: { ...storedSession(), [CURSOR]: { file: GRILL_NAME, seq: 0, taught: true } },
+      stored: {
+        ...storedSession(),
+        [CURSOR]: { file: GRILL_NAME, seq: 0, taught: true, declined: null },
+      },
     });
 
     await $.session.start(SESSION);
@@ -133,7 +154,10 @@ describe("the reviewer's entries reach Claude", () => {
 });
 
 describe("a grill the reviewer ended from the page", () => {
-  const told = { ...storedSession(), [CURSOR]: { file: GRILL_NAME, seq: 1, taught: true } };
+  const told = {
+    ...storedSession(),
+    [CURSOR]: { file: GRILL_NAME, seq: 1, taught: true, declined: null },
+  };
 
   test("is told once and names the file; the path goes to the log", async ($, on) => {
     const seen = world(on, { ...grillRoutes(() => endedGrill("Reviewer: x")), stored: told });
@@ -176,6 +200,61 @@ describe("a grill the reviewer ended from the page", () => {
     await tick(seen);
 
     expect(seen.prompts).toEqual([]);
+  });
+});
+
+describe("a proposal the reviewer declined", () => {
+  const told = {
+    ...storedSession(),
+    [CURSOR]: { file: GRILL_NAME, seq: 1, taught: true, declined: null },
+  };
+
+  test("is told once, as the fact and its subject", async ($, on) => {
+    const seen = world(on, { ...grillRoutes(() => declined(NO_GRILL, "cache")), stored: told });
+
+    await $.session.start(SESSION);
+    await tick(seen);
+    await tick(seen);
+
+    expect(seen.prompts).toEqual(["The reviewer declined the grill on: cache."]);
+    expect(seen.store.get(CURSOR)).toMatchObject({ declined: DECLINED_ID });
+  });
+
+  test("goes after the end of a grill still due", async ($, on) => {
+    const grill = declined(endedGrill("Reviewer: x"), "cache");
+    const seen = world(on, { ...grillRoutes(() => grill), stored: told });
+
+    await $.session.start(SESSION);
+    await tick(seen);
+
+    expect(seen.prompts).toEqual([
+      "The reviewer ended grill-1.md.",
+      "The reviewer declined the grill on: cache.",
+    ]);
+  });
+
+  test("is told even when the last grill is one this session heard nothing of", async ($, on) => {
+    const seen = world(
+      on,
+      grillRoutes(() => declined(endedGrill("Reviewer: x"), "cache")),
+    );
+
+    await $.skill.prompt(START_PROMPT);
+    await tick(seen);
+
+    expect(seen.prompts).toEqual(["The reviewer declined the grill on: cache."]);
+  });
+
+  test("a dropped decline does not move the cursor, so the next tick retries", async ($, on) => {
+    const seen = world(on, { ...grillRoutes(() => declined(NO_GRILL, "cache")), stored: told });
+
+    await $.session.start(SESSION);
+    seen.drop = "busy";
+    await tick(seen);
+    seen.drop = undefined;
+    await tick(seen);
+
+    expect(seen.prompts).toEqual(["The reviewer declined the grill on: cache."]);
   });
 });
 

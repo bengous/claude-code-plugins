@@ -4,7 +4,21 @@ import type { ProjectPath } from "../../core/server/domain/paths.ts";
 
 export type Question = { readonly title: string; readonly ask: string; readonly rec: string };
 
-export type Suggestion = { readonly subject: string; readonly reason: string };
+/** A proposal of Claude's, under the id the server gave it. */
+export type Suggestion = { readonly id: string; readonly subject: string; readonly reason: string };
+
+/** What `grill_suggest` sends; the server gives the id. */
+export type Suggested = { readonly subject: string; readonly reason: string };
+
+export type Declined = { readonly id: string; readonly subject: string };
+
+/**
+ * The server's one proposal slot: `grill_suggest` fills it, a decline turns it declined, a new
+ * proposal replaces either, and opening a grill empties it.
+ */
+export type Proposal =
+  | { readonly kind: "pending"; readonly suggestion: Suggestion }
+  | { readonly kind: "declined"; readonly declined: Declined };
 
 /**
  * One entry the engine submits. `seq` runs in file order: 0 the opening, 1..n the reviewer's
@@ -25,7 +39,7 @@ export type Relay =
 export type GrillState =
   | {
       readonly kind: "none";
-      readonly suggestion: Suggestion | null;
+      readonly proposal: Proposal | null;
       readonly relays: readonly Relay[];
     }
   | {
@@ -76,7 +90,9 @@ export type GrillPosts = {
   readonly open: { readonly subject: string };
   readonly close: { readonly reason: CloseReason };
   readonly ask: { readonly q: readonly QuestionTriple[] };
-  readonly suggest: Suggestion;
+  readonly suggest: Suggested;
+  /** Refused unless `id` names the pending proposal: a tab kept since cannot decline a newer one. */
+  readonly decline: { readonly id: string };
   /** Closes every open question: one left out of `answers` takes the recommendation by default. */
   readonly reply: {
     readonly answers: readonly { readonly id: string; readonly text: string }[];

@@ -9,13 +9,14 @@ import {
   NO_GRILL_OPEN,
   parseAnswer,
   parseCloseReason,
+  parseDecline,
   parseEvent,
   parseQuestions,
   parseReply,
   parseSubject,
   parseSuggestion,
 } from "./parse.ts";
-import type { Asked, Block, GrillState, Opened, Suggestion } from "./protocol.ts";
+import type { Asked, Block, GrillState, Opened, Proposal } from "./protocol.ts";
 import {
   appendAnswer,
   appendFooter,
@@ -114,17 +115,17 @@ function cursorOf(url: string): Cursor {
 
 function stateOf(
   current: Transcript | null,
-  suggestion: Suggestion | null,
+  proposal: Proposal | null,
   cursor: Cursor,
 ): GrillState {
-  if (current === null) return { kind: "none", suggestion, relays: [] };
+  if (current === null) return { kind: "none", proposal, relays: [] };
   const { n, file, doc } = current;
   const name = grillFile(n);
   // A cursor kept for another transcript says nothing of this one.
   const relays = relaysOf(doc, name, cursor.name === name ? cursor.after : NO_CURSOR);
 
   return isClosed(doc)
-    ? { kind: "none", suggestion, relays }
+    ? { kind: "none", proposal, relays }
     : { kind: "open", file, subject: subjectOf(doc), phase: phaseOf(doc), relays };
 }
 
@@ -155,8 +156,9 @@ async function approved(context: ServerContext): Promise<void> {
 }
 
 function routes(context: ServerContext): Readonly<Record<RouteKey, Route>> {
-  // Kept in memory: a restarted server loses it, and Claude may suggest again.
-  let suggestion: Suggestion | null = null;
+  // Kept in memory: a restarted server loses it, and Claude may suggest again. Each proposal
+  // takes a random id, so a restarted server never reuses one the engine already relayed.
+  let proposal: Proposal | null = null;
   const { inOrder } = context;
 
   /**
@@ -195,26 +197,49 @@ function routes(context: ServerContext): Readonly<Record<RouteKey, Route>> {
       if (workspace === null) return refused("the plan's directory is gone");
       const current = await latest(context, workspace.dir);
 
-      return Response.json(stateOf(current, suggestion, cursorOf(request.url)));
+      return Response.json(stateOf(current, proposal, cursorOf(request.url)));
     },
 
     "POST suggest": async (request) => {
       const suggested = parseSuggestion(await request.json().catch(() => null));
-      const workspace = await workspaceIfAny(context);
 
       if (suggested === null) return badRequest();
 
-      if (workspace === null) return refused("the plan's directory is gone");
-      const current = await latest(context, workspace.dir);
+      return await inOrder(async () => {
+        const workspace = await workspaceIfAny(context);
 
-      if (current !== null && !isClosed(current.doc)) {
-        return refused(`${grillFile(current.n)} is open`);
-      }
+        if (workspace === null) return refused("the plan's directory is gone");
+        const current = await latest(context, workspace.dir);
 
-      suggestion = suggested;
-      await context.notify();
+        if (current !== null && !isClosed(current.doc)) {
+          return refused(`${grillFile(current.n)} is open`);
+        }
 
-      return new Response(null, NO_CONTENT);
+        proposal = { kind: "pending", suggestion: { id: crypto.randomUUID(), ...suggested } };
+        await context.notify();
+
+        return new Response(null, NO_CONTENT);
+      });
+    },
+
+    "POST decline": async (request) => {
+      const decline = parseDecline(await request.json().catch(() => null));
+
+      if (decline === null) return badRequest();
+
+      return await inOrder(async () => {
+        if (proposal?.kind !== "pending" || proposal.suggestion.id !== decline.id) {
+          return refused("no such proposal");
+        }
+
+        proposal = {
+          kind: "declined",
+          declined: { id: decline.id, subject: proposal.suggestion.subject },
+        };
+        await context.notify();
+
+        return new Response(null, NO_CONTENT);
+      });
     },
 
     "POST open": async (request) => {
@@ -237,7 +262,7 @@ function routes(context: ServerContext): Readonly<Record<RouteKey, Route>> {
         const file = projectPath(`${workspace.dir}${grillFile((current?.n ?? 0) + 1)}`);
         const session = /wip-([0-9a-f]{8})\/$/u.exec(workspace.dir)?.[1] ?? "";
         await context.writeText(file, header(subject, session, new Date()));
-        suggestion = null;
+        proposal = null;
         await context.notify();
 
         const opened: Opened = { file };

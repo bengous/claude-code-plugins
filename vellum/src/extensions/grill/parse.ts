@@ -1,13 +1,32 @@
-import type { Asked, CloseReason, GrillPosts, Question, Relay, Suggestion } from "./protocol.ts";
+import type {
+  Asked,
+  CloseReason,
+  Declined,
+  GrillPosts,
+  Question,
+  Relay,
+  Suggested,
+} from "./protocol.ts";
 
 /**
  * What `$.store` keeps under `grill:<session id>`: the last entry the poll submitted, of which
- * transcript, and whether this session's Claude was already pointed at `grilling.md`.
+ * transcript, whether this session's Claude was already pointed at `grilling.md`, and the id of
+ * the last decline it relayed.
  */
-export type Cursor = { readonly file: string; readonly seq: number; readonly taught: boolean };
+export type Cursor = {
+  readonly file: string;
+  readonly seq: number;
+  readonly taught: boolean;
+  readonly declined: string | null;
+};
 
-/** What the poll reads off `GET state`: whether a grill is open, and the entries past the cursor. */
-export type Polled = { readonly open: boolean; readonly relays: readonly Relay[] };
+/**
+ * What the poll reads off `GET state`: whether a grill is open, the entries past the cursor, and
+ * with none open, the proposal the slot holds declined.
+ */
+export type Polled =
+  | { readonly open: true; readonly relays: readonly Relay[] }
+  | { readonly open: false; readonly relays: readonly Relay[]; readonly declined: Declined | null };
 
 /** The boundary of `grill`: what a request carries arrives as `unknown` and is parsed here, once. */
 
@@ -54,11 +73,16 @@ export function parseSubject(body: unknown): string | null {
 }
 
 /** A `grill_suggest` call and `POST suggest`: a subject and a reason, neither empty. */
-export function parseSuggestion(input: unknown): Suggestion | null {
+export function parseSuggestion(input: unknown): Suggested | null {
   const subject = isRecord(input) ? text(input.subject) : null;
   const reason = isRecord(input) ? text(input.reason) : null;
 
   return subject === null || reason === null ? null : { subject, reason };
+}
+
+/** `POST decline`: the id of the proposal the page showed. */
+export function parseDecline(body: unknown): GrillPosts["decline"] | null {
+  return isRecord(body) && typeof body.id === "string" && body.id !== "" ? { id: body.id } : null;
 }
 
 export function parseCloseReason(body: unknown): CloseReason | null {
@@ -151,26 +175,39 @@ function parseRelay(value: unknown): Relay | null {
     : null;
 }
 
+/** The slot's proposal when the reviewer declined it; a pending one, or none, is `null`. */
+function parseDeclined(proposal: unknown): Declined | null {
+  if (!isRecord(proposal) || proposal.kind !== "declined" || !isRecord(proposal.declined)) {
+    return null;
+  }
+
+  const { id, subject } = proposal.declined;
+
+  return typeof id === "string" && typeof subject === "string" ? { id, subject } : null;
+}
+
 /** `GET state` as the poll needs it; an entry it cannot read stops the list, so none is skipped. */
 export function parsePolled(value: unknown): Polled | null {
   if (!isRecord(value) || !Array.isArray(value.relays)) return null;
-  const relays = value.relays.map((relay: unknown) => parseRelay(relay));
-  const unread = relays.indexOf(null);
+  const parsed = value.relays.map((relay: unknown) => parseRelay(relay));
+  const unread = parsed.indexOf(null);
 
-  return {
-    open: value.kind === "open",
-    relays: relays
-      .slice(0, unread === -1 ? relays.length : unread)
-      .filter((relay) => relay !== null),
-  };
+  const relays = parsed
+    .slice(0, unread === -1 ? parsed.length : unread)
+    .filter((relay) => relay !== null);
+
+  return value.kind === "open"
+    ? { open: true, relays }
+    : { open: false, relays, declined: parseDeclined(value.proposal) };
 }
 
 export function parseCursor(value: unknown): Cursor | null {
   return isRecord(value) &&
     typeof value.file === "string" &&
     typeof value.seq === "number" &&
-    typeof value.taught === "boolean"
-    ? { file: value.file, seq: value.seq, taught: value.taught }
+    typeof value.taught === "boolean" &&
+    (typeof value.declined === "string" || value.declined === null)
+    ? { file: value.file, seq: value.seq, taught: value.taught, declined: value.declined }
     : null;
 }
 /* oxlint-enable anti-slop/no-runtime-typeof, anti-slop/no-unknown-parameters, anti-slop/no-unsafe-dictionary-type, anti-slop/no-unknown-returns, anti-slop/no-known-value-widening */
