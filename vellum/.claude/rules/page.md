@@ -115,7 +115,8 @@ no build step, so what the page imports costs nothing at `cli start`.
   open, a popover up (`popoverUp` of the kit) or a field focused, `showModal()` would take the
   focus and make the page inert, so the next Enter of a comment would answer the modal. A
   proposal that lands there is put off at once, a dot on the Grill button (`askingOn` and
-  `modalOf` in `grill/modal.ts`, pure); on an approved page none shows, whatever the server holds.
+  `modalOf` in `grill/modal.ts`, pure), and so is one that lands while the modal is up: what the
+  modal shows never changes under the reviewer. On an approved page none shows, whatever the server holds.
   An extension's own button computes its greyed state and its `title` itself (`GrillAction`).
   A notice of kind `err` is `role="alert"`, the others `role="status"`; a literal in one comes
   as `{ code }` and is drawn in `<code>`. In `approved` the bar draws no button.

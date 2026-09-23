@@ -4,7 +4,7 @@ import { useEffect } from "preact/hooks";
 import { Button, Dialog, popoverUp } from "../../core/page/kit.tsx";
 import { editing } from "../../core/page/state.ts";
 import type { Asking } from "./modal.ts";
-import { askingOn, modalOf, pendingOf } from "./modal.ts";
+import { askingOn, dotOf, modalOf, pendingOf, putOff } from "./modal.ts";
 import type { GrillState } from "./protocol.ts";
 
 const asking = signal<Asking>({ kind: "auto" });
@@ -12,13 +12,10 @@ const asking = signal<Asking>({ kind: "auto" });
 /** The subject typed over the modal's, by the proposal it was typed on, `null` for the blank one. */
 const subjectTyped = signal<{ readonly id: string | null; readonly text: string } | null>(null);
 
-/** No editor open, no popover up, and no field outside a modal holding the focus. */
+/** No editor open, no popover up, and no field holding the focus: `askingOn` asks it with no modal up. */
 function quiet(): boolean {
   const active = document.activeElement;
-
-  const typing =
-    (active instanceof HTMLInputElement || active instanceof HTMLTextAreaElement) &&
-    active.closest("dialog") === null;
+  const typing = active instanceof HTMLInputElement || active instanceof HTMLTextAreaElement;
 
   return editing.peek() === null && !popoverUp() && !typing;
 }
@@ -28,18 +25,19 @@ export function GrillButton(props: {
   readonly state: GrillState | null;
   readonly why: string | null;
 }): preact.JSX.Element {
-  const pending = pendingOf(props.state);
-  const now = asking.value;
-  const putOff = pending !== null && now.kind === "later" && now.id === pending.id;
+  const waiting = dotOf(props.state, asking.value);
 
   return (
     <Button
       variant="grill"
-      class={putOff ? "grill-later" : undefined}
+      class={waiting === null ? undefined : "grill-later"}
       disabled={props.why !== null}
-      title={props.why ?? (putOff ? `Claude suggests a grill on: ${pending.subject}` : undefined)}
+      title={
+        props.why ??
+        (waiting === null ? undefined : `Claude suggests a grill on: ${waiting.subject}`)
+      }
       onClick={() => {
-        asking.value = { kind: "asked" };
+        asking.value = { kind: "asked", on: pendingOf(props.state) };
       }}
     >
       Grill
@@ -69,7 +67,7 @@ export function Proposal(props: ProposalProps): preact.JSX.Element | null {
     asking.value = askingOn(state, asking.peek(), quiet());
   }, [state?.kind, landed]);
 
-  const modal = modalOf(state, asking.value, props.approved, quiet());
+  const modal = modalOf(state, asking.value, props.approved);
 
   if (modal.kind === "hidden") return null;
   const id = modal.kind === "proposal" ? modal.suggestion.id : null;
@@ -78,13 +76,13 @@ export function Proposal(props: ProposalProps): preact.JSX.Element | null {
   const subject = typed !== null && typed.id === id ? typed.text : given;
   const title = id === null ? "Start a grill" : "Claude suggests a grill";
 
-  const putOff = (): void => {
-    asking.value = id === null ? { kind: "auto" } : { kind: "later", id };
+  const later = (): void => {
+    asking.value = putOff(state);
   };
 
   const start = (): void => {
     if (why !== null || subject.trim() === "") return;
-    putOff();
+    later();
 
     void props.onStart(subject.trim()).then((opened) => {
       if (opened) subjectTyped.value = null;
@@ -95,7 +93,7 @@ export function Proposal(props: ProposalProps): preact.JSX.Element | null {
     <Dialog
       label={title}
       class="grill-dialog"
-      onCancel={putOff}
+      onCancel={later}
       below={
         <>
           <kbd>Enter</kbd> to start <kbd>Esc</kbd> {id === null ? "to cancel" : "for later"}
@@ -124,11 +122,11 @@ export function Proposal(props: ProposalProps): preact.JSX.Element | null {
       />
       <div class="row">
         {id === null ? (
-          <Button onClick={putOff}>Cancel</Button>
+          <Button onClick={later}>Cancel</Button>
         ) : (
           <Button
             onClick={() => {
-              putOff();
+              later();
               props.onDecline(id);
             }}
           >

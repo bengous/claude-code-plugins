@@ -135,6 +135,21 @@ test("the Grill button with no proposal opens it blank, Start greyed until a sub
   await expect(page.locator(".bar .status")).toHaveText("Held · grill-2.md is open");
 });
 
+test("a proposal landing on the blank modal leaves it as typed, and waits on the dot", async ({
+  page,
+  vellum,
+}) => {
+  await openVellum(page, vellum);
+  await grillButton(page).click();
+  const blank = page.getByRole("dialog", { name: "Start a grill" });
+  await blank.getByRole("textbox").fill("Where do drafts live?");
+  await vellum.grill.suggest(SUBJECT, REASON);
+  await expect.poll(() => dotted(page)).toBe(true);
+
+  await expect(blank.getByRole("textbox")).toHaveValue("Where do drafts live?");
+  await expect(blank.getByRole("button", { name: "Cancel" })).toBeVisible();
+});
+
 test("Start is greyed with the Grill button's reason, and Enter opens nothing", async ({
   page,
   vellum,
