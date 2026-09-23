@@ -632,6 +632,20 @@ test.describe("the band", () => {
     await expect(grillButton(page)).toHaveCount(0);
   });
 
+  test("an approval takes it and the panel away, the grill's state refused or not", async ({
+    page,
+    vellum,
+  }) => {
+    await asking(page, vellum);
+    await page.route("**/api/x/grill/state*", (route) => route.fulfill({ status: 500 }));
+    await page.locator(".bar").getByRole("button", { name: "Approve", exact: true }).click();
+    await page.getByRole("button", { name: "Approve anyway" }).click();
+    await expect(page.locator(".bar .status")).toHaveText("Approved");
+
+    await expect(band(page)).toHaveCount(0);
+    await expect(panel(page)).toHaveCount(0);
+  });
+
   test("a transcript load that failed is read again at the next workspace event", async ({
     page,
     vellum,

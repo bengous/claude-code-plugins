@@ -37,6 +37,9 @@ const refused = signal(false);
 /** What the Grill button and the modal read: no state past a refused read, which puts the modal on screen off. */
 const read = computed(() => (refused.value ? null : grill.value));
 
+/** What the band and the panel draw: the state kept, and none once approved, since the approval closed the grill. */
+const drawn = computed(() => (review.value?.workspace.kind === "approved" ? null : grill.value));
+
 /** The open grill's blocks, which the band and the panel draw alike: one load per write of its file. */
 const transcript = signal<{ readonly path: string; readonly blocks: readonly Block[] } | null>(
   null,
@@ -240,7 +243,7 @@ function GrillAction(): preact.JSX.Element | null {
     void loadState();
   }, [view]);
 
-  return view?.workspace.kind === "approved" || grill.value?.kind === "open" ? null : (
+  return view?.workspace.kind === "approved" || drawn.value?.kind === "open" ? null : (
     <GrillButton state={state} why={grillWhy(state)} />
   );
 }
@@ -282,12 +285,12 @@ function GrillBand(props: {
 }
 
 function GrillNotice(): preact.JSX.Element {
-  const kept = grill.value;
+  const shown = drawn.value;
   const state = read.value;
 
   return (
     <>
-      {kept?.kind === "open" && <GrillBand state={kept} />}
+      {shown?.kind === "open" && <GrillBand state={shown} />}
       <Proposal
         state={state}
         approved={review.value?.workspace.kind === "approved"}
@@ -512,7 +515,7 @@ function OpenGrill(props: {
 
 /** Beside the document pane while a grill is open: its rounds, its fields and its foot. */
 function GrillPanel(): preact.JSX.Element | null {
-  const state = grill.value;
+  const state = drawn.value;
 
   return state?.kind === "open" ? <OpenGrill key={state.file} state={state} /> : null;
 }
@@ -528,5 +531,5 @@ export const grillPage: PageExtension = {
   ],
   actions: [GrillAction],
   notices: [GrillNotice],
-  panel: { shown: () => grill.value?.kind === "open", component: GrillPanel },
+  panel: { shown: () => drawn.value?.kind === "open", component: GrillPanel },
 };

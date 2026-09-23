@@ -228,7 +228,8 @@ no build step, so what the page imports costs nothing at `cli start`.
   refreshes what is on screen may fail in silence, since the next workspace event reads again:
   `loadState` in `grill/page.tsx`, which keeps the state it read last, and the open transcript's
   blocks with it, so the grill's panel and its band stay as the reviewer left them, the Grill
-  button hidden behind the band, while the Grill button and the modal read none past a refused
+  button hidden behind the band, but for an approved page, where the approval closed the grill
+  (`drawn`), while the Grill button and the modal read none past a refused
   read (`read`), which puts the modal on screen off onto the dot. `decide` answers whether the server took the decision, and
   the notes popover closes on that alone: a failure leaves the note where it was typed.
 - In the Markdown renderer the notice says the failure and the sheet says the state it leaves: a
