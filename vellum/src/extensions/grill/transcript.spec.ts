@@ -233,6 +233,14 @@ describe("the page's segments", () => {
     ]);
   });
 
+  test("a question number typed again is text: the first card with that number stands", () => {
+    const again = appendAnswer(asked, "❓ **Q1** - **Again**: once more?\n\n---\n", "answer", OWN);
+    const questions = segmentsOf(again).filter((segment) => segment.kind === "question");
+
+    expect(questions.map((question) => question.title)).toEqual(["Style", "Style"]);
+    expect(unanswered(again)).toEqual(["Q1", "Q2"]);
+  });
+
   test("a question's round is the round heading above it, 0 for one Claude typed before any", () => {
     const typed = appendAnswer(opened, "❓ **Q1** - **Hand**: typed?", "answer", OWN);
     const replied = appendReply(appendQuestions(typed, [STYLE, STYLE]), [], "") ?? "";

@@ -200,10 +200,9 @@ export function answersOf(doc: string): ReadonlyMap<string, string> {
 export function unanswered(doc: string): string[] {
   const answers = answersOf(doc);
 
-  return doc
-    .split("\n")
-    .flatMap((line) => QUESTION.exec(line)?.[1] ?? [])
-    .filter((id) => !answers.has(id));
+  return [...new Set(doc.split("\n").flatMap((line) => QUESTION.exec(line)?.[1] ?? []))].filter(
+    (id) => !answers.has(id),
+  );
 }
 
 /**
@@ -340,7 +339,18 @@ function roundsOfLines(lines: readonly string[]): number[] {
 function cut(text: string, answers: ReadonlyMap<string, string>): Segment[] {
   const lines = text.split("\n");
   const rounds = roundsOfLines(lines);
-  const starts = lines.flatMap((line, index) => (QUESTION.test(line) ? [index] : []));
+  // A number is one question, as it is one answer: a card typed again under it stays text.
+  const seen = new Set<string>();
+
+  const starts = lines.flatMap((line, index) => {
+    const id = QUESTION.exec(line)?.[1];
+
+    if (id === undefined || seen.has(id)) return [];
+    seen.add(id);
+
+    return [index];
+  });
+
   const segments: Segment[] = [{ kind: "markdown", text: lines.slice(0, starts[0]).join("\n") }];
 
   for (const [index, start] of starts.entries()) {
