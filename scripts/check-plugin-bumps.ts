@@ -41,9 +41,9 @@ export type SourceDir = string & { readonly __brand: "SourceDir" };
 /** A `plugin.json` `version`, non-empty. */
 export type Version = string & { readonly __brand: "Version" };
 
-/** One line git hands a pre-push hook; `null` stands for git's zero oid. */
+/** A pushed-ref line that moves main; a null `remote` is git's zero oid, a remote without main. */
 export interface PushedRef {
-  readonly local: CommitId | null;
+  readonly local: CommitId;
   readonly remoteRef: RefName;
   readonly remote: CommitId | null;
 }
@@ -54,12 +54,10 @@ export interface Unbumped {
   readonly version: Version;
 }
 
-/** What this guard reads of the marketplace file. */
 interface CatalogFile {
-  readonly plugins: readonly { readonly name: string; readonly source: string }[];
+  readonly plugins: readonly { readonly name?: string; readonly source: string }[];
 }
 
-/** What this guard reads of a plugin manifest. */
 interface ManifestFile {
   readonly version?: string;
 }
@@ -88,30 +86,21 @@ function git(repo: PluginDir, args: readonly string[]): string {
   return result.stdout.toString();
 }
 
-/** Git's own output, for the calls whose failure is an answer: no such commit, no such path. */
-function gitOrNull(repo: PluginDir, args: readonly string[]): string | null {
-  const result = spawnGit(repo, args);
-
-  return result.exitCode === 0 ? result.stdout.toString() : null;
-}
-
-/** The one constructor of `CommitId`. */
 export function commitAt(repo: PluginDir, ref: string): CommitId {
-  const oid = gitOrNull(repo, [
+  const result = spawnGit(repo, [
     "rev-parse",
     "--verify",
     "--quiet",
     "--end-of-options",
     `${ref}^{commit}`,
-  ])?.trim();
+  ]);
 
-  if (oid === undefined) throw new Error(`no commit ${JSON.stringify(ref)} in ${repo}`);
+  if (result.exitCode !== 0) throw new Error(`no commit ${JSON.stringify(ref)} in ${repo}`);
 
   // SAFETY: the brand states git resolved the ref to a commit the repository holds, checked above.
-  return oid as CommitId;
+  return result.stdout.toString().trim() as CommitId;
 }
 
-/** The one constructor of `RefName`. */
 function refNameOf(text: string): RefName {
   if (!/^refs\/\S+$/u.test(text)) throw new Error(`not a full ref: ${JSON.stringify(text)}`);
 
@@ -119,15 +108,13 @@ function refNameOf(text: string): RefName {
   return text as RefName;
 }
 
-/** The one constructor of `MarketplaceName`. */
-function marketplaceNameOf(text: string, where: string): MarketplaceName {
-  if (text === "") throw new Error(`${where}: a plugin entry has an empty name`);
+function marketplaceNameOf(text: string | undefined, where: string): MarketplaceName {
+  if (text === undefined || text === "") throw new Error(`${where} has no name`);
 
   // SAFETY: the brand states a non-empty entry name, checked above.
   return text as MarketplaceName;
 }
 
-/** The one constructor of `SourceDir`. */
 function sourceDirOf(text: string, where: string): SourceDir {
   const dir = text.startsWith("./") ? text.slice("./".length).replace(/\/$/u, "") : "";
 
@@ -139,7 +126,6 @@ function sourceDirOf(text: string, where: string): SourceDir {
   return dir as SourceDir;
 }
 
-/** The one constructor of `Version`. */
 function versionOf(text: string | undefined, where: string): Version {
   if (text === undefined || text === "") {
     throw new Error(`${where}: version ${JSON.stringify(text)} is missing or empty`);
@@ -151,9 +137,7 @@ function versionOf(text: string | undefined, where: string): Version {
 
 const MAIN = refNameOf("refs/heads/main");
 
-function oidAt(repo: PluginDir, oid: string, missing: string): CommitId | null {
-  if (ZERO_OID.test(oid)) return null;
-
+function pushedCommit(repo: PluginDir, oid: string, missing: string): CommitId {
   try {
     return commitAt(repo, oid);
   } catch (error) {
@@ -162,9 +146,9 @@ function oidAt(repo: PluginDir, oid: string, missing: string): CommitId | null {
 }
 
 /**
- * The lines to `refs/heads/main` among those git hands a pre-push hook. A line
- * to another ref is dropped before its oids are read: a forced push to a branch
- * whose remote tip was never fetched carries an oid this repository lacks.
+ * The lines that move `refs/heads/main` among those git hands a pre-push hook.
+ * Any other line, a deletion of main included, is dropped before its oids are
+ * read: its remote oid can be a commit this repository never fetched.
  */
 export function parsePushedRefs(repo: PluginDir, lines: string): readonly PushedRef[] {
   return lines
@@ -179,27 +163,26 @@ export function parsePushedRefs(repo: PluginDir, lines: string): readonly Pushed
 
       const ref = refNameOf(remoteRef);
 
-      if (ref !== MAIN) return [];
+      if (ref !== MAIN || ZERO_OID.test(local)) return [];
 
       return [
         {
-          local: oidAt(repo, local, `the pushed commit ${local} is not in ${repo}`),
+          local: pushedCommit(repo, local, `the pushed commit ${local} is not in ${repo}`),
           remoteRef: ref,
-          remote: oidAt(
-            repo,
-            remote,
-            `${ref} is at ${remote} on the remote, a commit this repository does not have: fetch origin first`,
-          ),
+          remote: ZERO_OID.test(remote)
+            ? null
+            : pushedCommit(
+                repo,
+                remote,
+                `${ref} is at ${remote} on the remote, a commit this repository does not have: fetch origin first`,
+              ),
         },
       ];
     });
 }
 
-/** A file's JSON at a commit, or null when the commit does not hold it. */
-function jsonAt<Content>(repo: PluginDir, commit: CommitId, path: string): Content | null {
-  const text = gitOrNull(repo, ["show", `${commit}:${path}`]);
-
-  if (text === null) return null;
+function jsonAt<Content>(repo: PluginDir, commit: CommitId, path: string): Content {
+  const text = git(repo, ["show", `${commit}:${path}`]);
 
   try {
     return JSON.parse(text);
@@ -212,57 +195,59 @@ function catalogAt(repo: PluginDir, commit: CommitId): readonly CatalogEntry[] {
   const where = `${CATALOG} at ${commit}`;
   const catalog = jsonAt<CatalogFile>(repo, commit, CATALOG);
 
-  if (!Array.isArray(catalog?.plugins)) throw new Error(`${where}: missing, or no plugins array`);
+  if (!Array.isArray(catalog.plugins)) throw new Error(`${where}: no plugins array`);
 
   return catalog.plugins.map((entry) => ({
-    name: marketplaceNameOf(entry.name, where),
+    name: marketplaceNameOf(
+      entry.name,
+      `${where}: the entry with source ${JSON.stringify(entry.source)}`,
+    ),
     source: sourceDirOf(entry.source, where),
   }));
 }
 
-function versionAt(repo: PluginDir, commit: CommitId, source: SourceDir): Version | null {
+function versionAt(repo: PluginDir, commit: CommitId, source: SourceDir): Version {
   const path = `${source}/${MANIFEST}`;
-  const manifest = jsonAt<ManifestFile>(repo, commit, path);
 
-  return manifest === null ? null : versionOf(manifest.version, `${path} at ${commit}`);
+  return versionOf(jsonAt<ManifestFile>(repo, commit, path).version, `${path} at ${commit}`);
 }
 
 /**
- * Each plugin of `head`'s catalog whose directory differs between `base` and
- * `head` while its `plugin.json` version is the same on both.
+ * Each plugin both catalogs list whose directory changed between `base` and
+ * `head` while its `plugin.json` version did not. A plugin is matched by its
+ * entry's name, so a directory that moved is compared with where it was.
  */
 export function unbumped(repo: PluginDir, base: CommitId, head: CommitId): readonly Unbumped[] {
   const changed = git(repo, ["diff", "--name-only", "--no-renames", "-z", base, head])
     .split("\0")
     .filter((path) => path !== "");
 
+  const released = new Map(catalogAt(repo, base).map(({ name, source }) => [name, source]));
+
   return catalogAt(repo, head).flatMap(({ name, source }) => {
-    if (!changed.some((path) => path.startsWith(`${source}/`))) return [];
+    const releasedSource = released.get(name);
 
-    const released = versionAt(repo, base, source);
+    if (releasedSource === undefined) return [];
 
-    if (released === null) return [];
+    const dirs = [`${source}/`, `${releasedSource}/`];
 
-    const current = versionAt(repo, head, source);
+    if (!changed.some((path) => dirs.some((dir) => path.startsWith(dir)))) return [];
 
-    if (current === null) throw new Error(`${name}: no ${source}/${MANIFEST} at ${head}`);
+    const version = versionAt(repo, head, source);
 
-    return released === current ? [{ name, source, version: current }] : [];
+    return versionAt(repo, base, releasedSource) === version ? [{ name, source, version }] : [];
   });
 }
 
-/** What a push releases: each line to main but a deletion, which pushes no code. */
 function releasesIn(pushed: readonly PushedRef[]): readonly Release[] {
-  return pushed.flatMap(({ local, remoteRef, remote }) => {
-    if (local === null) return [];
-
+  return pushed.map(({ local, remoteRef, remote }) => {
     if (remote === null) {
       throw new Error(
         `${remoteRef} does not exist on the remote (null remote oid), so no release to compare with`,
       );
     }
 
-    return [{ base: remote, head: local }];
+    return { base: remote, head: local };
   });
 }
 

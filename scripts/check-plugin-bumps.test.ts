@@ -165,6 +165,45 @@ describe("unbumped", () => {
     expect(found(commit("Change example again"))).toEqual([]);
   });
 
+  test("names a plugin whose directory moved, under its new source", () => {
+    renameSync(join(repo, "orchestration"), join(repo, "orch"));
+    write("orch/skill.md", "changed\n");
+    catalog([EXAMPLE, { name: "claude-orchestration", source: "./orch" }]);
+
+    expect(found(commit("Move orchestration"))).toEqual([
+      { name: "claude-orchestration", source: "orch", version: "1.0.0" },
+    ]);
+  });
+
+  test("passes a plugin the base holds but does not list", () => {
+    manifest("unlisted", "0.1.0");
+    base = commit("Add an unlisted plugin");
+    write("unlisted/skill.md", "listed now\n");
+    catalog([EXAMPLE, ORCHESTRATION, { name: "unlisted", source: "./unlisted" }]);
+
+    expect(found(commit("List it"))).toEqual([]);
+  });
+
+  test("refuses an entry with no name", () => {
+    write("example/skill.md", "changed\n");
+    write(
+      ".claude-plugin/marketplace.json",
+      JSON.stringify({ plugins: [{ source: "./example" }] }),
+    );
+    const head = commit("Drop the name");
+
+    expect(() => unbumped(repo, base, head)).toThrow('source "./example" has no name');
+  });
+
+  test("refuses a plugin.json git cannot read, rather than take it for absent", () => {
+    write("example/skill.md", "changed\n");
+    const head = commit("Change example");
+    const blob = git("rev-parse", `${base}:example/.claude-plugin/plugin.json`);
+    rmSync(join(repo, ".git/objects", blob.slice(0, 2), blob.slice(2)));
+
+    expect(() => unbumped(repo, base, head)).toThrow("example/.claude-plugin/plugin.json");
+  });
+
   test("names the marketplace entry, not the directory", () => {
     write("orchestration/skill.md", "changed\n");
 
@@ -190,10 +229,14 @@ describe("parsePushedRefs", () => {
     expect(pushed(`refs/heads/dev ${base} refs/heads/dev ${unknown}\n`)).toEqual([]);
   });
 
-  test("reads the zero oid of a deletion as null", () => {
-    expect(pushed(`(delete) ${ZERO} refs/heads/main ${base}\n`)).toEqual([
-      { local: null, remoteRef: "refs/heads/main", remote: base },
-    ]);
+  test("drops a deletion of main without reading its remote oid", () => {
+    const unknown = "1".repeat(40);
+
+    expect(
+      pushed(
+        `(delete) ${ZERO} refs/heads/main ${unknown}\nrefs/heads/dev ${base} refs/heads/dev ${base}\n`,
+      ),
+    ).toEqual([]);
   });
 
   test("refuses a malformed line, naming it", () => {
