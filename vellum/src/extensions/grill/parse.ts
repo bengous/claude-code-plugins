@@ -131,15 +131,27 @@ export function parseAnswer(body: unknown): GrillPosts["answer"] | null {
     : null;
 }
 
-/** A title on one line: the transcript writes it on its question's line. */
+/**
+ * A title its question's line can hold: the transcript writes it there between `**`, and reads it
+ * up to the first `**` after one character at least, so an empty title, a `**` in it or a `*` at
+ * its end would cut it where Claude did not.
+ */
+function titleText(value: unknown): string | null {
+  return typeof value === "string" &&
+    value.trim() !== "" &&
+    !LINE_BREAK.test(value) &&
+    !value.includes("**") &&
+    !value.endsWith("*")
+    ? value
+    : null;
+}
+
 function parseQuestion(value: unknown): Question | null {
   if (!Array.isArray(value) || value.length !== 3) return null;
-  const [title, ask, rec]: unknown[] = value;
+  const [raw, ask, rec]: unknown[] = value;
+  const title = titleText(raw);
 
-  return typeof title === "string" &&
-    !LINE_BREAK.test(title) &&
-    typeof ask === "string" &&
-    typeof rec === "string"
+  return title !== null && typeof ask === "string" && typeof rec === "string"
     ? { title, ask, rec }
     : null;
 }

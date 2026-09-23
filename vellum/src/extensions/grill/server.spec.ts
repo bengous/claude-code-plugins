@@ -303,6 +303,18 @@ describe("a round", () => {
     expect(readFileSync(join(dir, WIP, "grill-1.md"), "utf8")).toBe(before);
   });
 
+  test("a title its question's line cannot hold, empty, holding ** or ending in *, is a bad request", async () => {
+    const { dir, post } = await grilling();
+    await post("open", { subject: "auth" });
+    const before = readFileSync(join(dir, WIP, "grill-1.md"), "utf8");
+
+    for (const title of ["", " ", "Use **bold** here", "a*"]) {
+      expect((await post("ask", { q: [[title, "Bright?", "Bright."]] })).status).toBe(400);
+    }
+
+    expect(readFileSync(join(dir, WIP, "grill-1.md"), "utf8")).toBe(before);
+  });
+
   test("reply is refused with nothing to say, and with no grill open", async () => {
     const { post } = await grilling();
 
