@@ -708,6 +708,42 @@ test.describe("a round in the panel", () => {
     await expect(page.getByRole("alert")).toHaveCount(0);
   });
 
+  test("after a send, Send round waits for the transcript to show it: a click in between sends nothing", async ({
+    page,
+    vellum,
+  }) => {
+    await asking(page, vellum);
+    await page.route("**/api/x/grill/blocks*", (route) => route.fulfill({ status: 500 }));
+    const replied = page.waitForResponse("**/api/x/grill/reply");
+    await sendRound(page).click();
+    await replied;
+    await expect(page.getByRole("alert")).toContainText("could not be loaded");
+
+    await expect(sendRound(page)).toBeDisabled();
+    await page.unroute("**/api/x/grill/blocks*");
+    vellum.writeFile("notes.md", "One.");
+    await expect.poll(() => statesOf(page)).toEqual(["default", "default"]);
+  });
+
+  test("End grill clicked while Send round is out sends the note once", async ({
+    page,
+    vellum,
+  }) => {
+    await asking(page, vellum);
+    await panel(page).getByRole("textbox", { name: "Anything else for Claude" }).fill("Keep it.");
+    await page.route("**/api/x/grill/reply", async (route) => {
+      await new Promise((done) => {
+        setTimeout(done, 400);
+      });
+      await route.continue();
+    });
+    await sendRound(page).click();
+    await band(page).getByRole("button", { name: "End grill" }).click();
+    await expect(band(page)).toHaveCount(0);
+
+    expect(JSON.stringify((await vellum.grill.state()).json).split("Keep it.")).toHaveLength(2);
+  });
+
   test("Claude's text between rounds still reads in the panel", async ({ page, vellum }) => {
     await asking(page, vellum);
     await claudeSays(vellum, "Round 1 is on the page.");

@@ -249,7 +249,8 @@ no build step, so what the page imports costs nothing at `cli start`.
   transcript's text, then every round's questions as chips over the one question they pick, an
   open one with its two choices, an answered one read-only (`roundsOf` in `grill/rounds.ts`,
   pure, on the blocks as served); its send says how many open questions it takes as
-  recommended. While Claude works on a round the panel carries a `role="status"` line, and a
+  recommended. Send round and End grill wait on one reply (`replying`), from the click until the
+  transcript shows it, so neither sends what is typed twice nor over blocks read before it. While Claude works on a round the panel carries a `role="status"` line, and a
   round that lands shows its first open question, scrolled into view.
 - A block says its source lines in `data-lines="start-end"`: `markdown/tree.ts` writes it,
   `parseLines` of `anchoring.ts` is the one place it is read, and `tree.spec.ts` holds the two

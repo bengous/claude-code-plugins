@@ -51,6 +51,19 @@ const transcript = signal<{
   readonly blocks: readonly Block[];
 } | null>(null);
 
+/**
+ * The reply out, or sent and not yet read back, with the write of the transcript it was sent
+ * over: Send round and End grill wait on it alike, or the one clicked second sends what is typed
+ * again, and a send over blocks that do not show the last reply yet closes nothing it sees.
+ */
+const replying = signal<{ readonly over: string | null; readonly out: boolean } | null>(null);
+
+const replyPending = computed(() => {
+  const pending = replying.value;
+
+  return pending !== null && (pending.out || pending.over === transcript.value?.write);
+});
+
 /** The write of the open transcript last asked for: an older load that lands after it is dropped. */
 let transcriptAsked: string | null = null;
 
@@ -203,18 +216,31 @@ function sendable(path: string, open: readonly string[]): boolean {
 /** The round's choices go as a reply, an untouched question taking the recommendation by default; `true` once the server took it. */
 async function send(path: string, open: readonly string[]): Promise<boolean> {
   const own = typedOn(path);
+  const over = transcript.peek()?.write ?? null;
+  replying.value = { over, out: true };
 
   const taken = await reply(
     open.map((id) => ({ id, text: own.answers[id]?.trim() ?? "" })),
     own.note.trim(),
   );
 
-  if (taken) {
-    const { [path]: _gone, ...rest } = typed.value.grill;
-    setTyped({ grill: rest });
-  }
+  batch(() => {
+    replying.value = taken ? { over, out: false } : null;
+
+    if (taken) {
+      const { [path]: _gone, ...rest } = typed.value.grill;
+      setTyped({ grill: rest });
+    }
+  });
 
   return taken;
+}
+
+/** Why Send round and End grill wait, in their title; `undefined` while they can go. */
+function replyWhy(blocks: readonly Block[] | null): string | undefined {
+  if (blocks === null) return "Loading the grill";
+
+  return replyPending.value ? "Waiting for the grill to show your reply" : undefined;
 }
 
 /** End grill: what is typed goes first, as a send does, then the close. */
@@ -271,8 +297,8 @@ function GrillBand(props: {
       </span>
       <Button
         size="sm"
-        disabled={blocks === null || ending}
-        title={blocks === null ? "Loading the grill" : undefined}
+        disabled={blocks === null || ending || replyPending.value}
+        title={replyWhy(blocks)}
         onClick={() => {
           if (ending) return;
           setEnding(true);
@@ -547,8 +573,6 @@ function OpenGrill(props: {
   const own = typedOn(path);
   const [picked, setPicked] = useState<string | null>(null);
   const view = roundsOf(blocks, own.answers, picked);
-  /** A send in flight: a second click would send what is typed again. */
-  const [sending, setSending] = useState(false);
 
   const answer = (id: string, text: string): void =>
     setTyped({
@@ -560,12 +584,10 @@ function OpenGrill(props: {
 
   const open = openIn(blocks);
   // Before the blocks land, no question reads as open, and a send would close the answers typed by default.
-  const live = loaded !== null && !sending && sendable(path, open);
+  const live = loaded !== null && !replyPending.value && sendable(path, open);
 
   const sendNow = (): void => {
-    if (!live) return;
-    setSending(true);
-    void send(path, open).finally(() => setSending(false));
+    if (live && !replyPending.peek()) void send(path, open);
   };
 
   const round = useRef<HTMLDivElement>(null);
@@ -631,12 +653,7 @@ function OpenGrill(props: {
               : "No question is open. A note goes to Claude once its turn ends."}
           </p>
           <div class="row">
-            <Button
-              variant="send"
-              disabled={!live}
-              title={loaded === null ? "Loading the grill" : undefined}
-              onClick={sendNow}
-            >
+            <Button variant="send" disabled={!live} title={replyWhy(loaded)} onClick={sendNow}>
               {view.send}
             </Button>
           </div>
