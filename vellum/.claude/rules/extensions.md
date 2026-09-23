@@ -62,7 +62,9 @@ the engine events the core hands it, and its segment of the band above the promp
 - A file whose structure is read off its lines never takes a text as it comes: `grill`'s
   transcript quotes Claude's text (`quoted` in `transcript.ts`), or a heading typed in an answer
   speaks for the reviewer, opens a round or closes the grill, and quotes a question's texts
-  further (`quotedQuestion`), or a rule, a `❓` or a `➡️` line cuts its card. A text written as
+  further (`quotedQuestion`), or a rule, a `❓` or a `➡️` line cuts its card. It quotes the
+  reviewer's answers and note too (`quotedReviewer`, reversed for the page and for Claude), or a
+  `### ` line in an answer cuts the reply relayed and a `Q3: ` line in a note answers Q3. A text written as
   one line, a grill's subject in its header or a question's title on its line, is refused at the
   parser when it holds a line break.
 - An extension with states, rounds or a lifecycle starts with a table, before any code: the

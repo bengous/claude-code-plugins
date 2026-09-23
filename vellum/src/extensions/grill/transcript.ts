@@ -73,6 +73,17 @@ const REVIEWER_PREFIX = "Reviewer: ";
 
 const ALL_AS_RECOMMENDED = "all open questions as recommended.";
 
+/**
+ * A line of the reviewer's text that a reader of the file could take for its own: a voice, a
+ * round, an event, a footer, a rule, a question, a recommendation, an answer or the note, behind
+ * any backslashes the reviewer typed.
+ */
+const REVIEWER_MARKER = String.raw`(?=#|_\(session: |❓|➡|Q\d+: |Note: |[^\S\n\r\u2028\u2029]*-{3,}\s*$)`;
+
+const REVIEWER_LINE = new RegExp(String.raw`^(\\*)${REVIEWER_MARKER}`, "gmu");
+
+const REVIEWER_QUOTED = new RegExp(String.raw`^\\(\\*)${REVIEWER_MARKER}`, "gmu");
+
 function pad(n: number): string {
   return String(n).padStart(2, "0");
 }
@@ -151,13 +162,26 @@ function partsOf(reply: string): Parts {
   return { answers, note };
 }
 
-/** Every answer of the file, by question id; the first one stands. */
+/**
+ * The reviewer's text as the file keeps it: one backslash more before each line a reader could
+ * take for the file's own, so `unquotedReviewer` gives it back whole.
+ */
+function quotedReviewer(text: string): string {
+  return text.replaceAll(REVIEWER_LINE, "\\$1");
+}
+
+/** The reviewer's text as they typed it, for the page and for Claude. */
+function unquotedReviewer(text: string): string {
+  return text.replaceAll(REVIEWER_QUOTED, "$1");
+}
+
+/** Every answer of the file, by question id, as the reviewer typed it; the first one stands. */
 export function answersOf(doc: string): ReadonlyMap<string, string> {
   const answers = new Map<string, string>();
 
   for (const reply of replies(doc)) {
     for (const { id, text } of partsOf(reply[1] ?? "").answers) {
-      if (!answers.has(id)) answers.set(id, text);
+      if (!answers.has(id)) answers.set(id, unquotedReviewer(text));
     }
   }
 
@@ -184,11 +208,11 @@ export function appendReply(
   answers: readonly TypedAnswer[],
   note: string,
 ): string | null {
-  const typed = new Map(answers.map(({ id, text }) => [id, text.trim()]));
+  const typed = new Map(answers.map(({ id, text }) => [id, quotedReviewer(text.trim())]));
 
   const lines = unanswered(doc).map((id) => `${id}: ${typed.get(id) || TAKEN_BY_DEFAULT}`);
 
-  if (note.trim() !== "") lines.push(`${NOTE}${note.trim()}`);
+  if (note.trim() !== "") lines.push(`${NOTE}${quotedReviewer(note.trim())}`);
 
   return lines.length === 0 ? null : `${doc}${REVIEWER_VOICE}${lines.join("\n\n")}\n`;
 }
@@ -241,9 +265,9 @@ function replyText(reply: string): string {
 
   const typed = answers
     .filter((answer) => answer.text !== TAKEN_BY_DEFAULT)
-    .map((answer) => `${answer.id}: ${answer.text}`);
+    .map((answer) => `${answer.id}: ${unquotedReviewer(answer.text)}`);
 
-  const parts = [note, ...typed].filter((part) => part !== "");
+  const parts = [unquotedReviewer(note), ...typed].filter((part) => part !== "");
 
   return `${REVIEWER_PREFIX}${parts.length === 0 ? ALL_AS_RECOMMENDED : parts.join("\n\n")}`;
 }
@@ -364,7 +388,7 @@ export function segmentsOf(doc: string): Segment[] {
   const shown = body.replaceAll(REPLY, (_, reply: string) => {
     const { note } = partsOf(reply);
 
-    return note === "" ? "" : `### Reviewer\n\n${note}\n\n`;
+    return note === "" ? "" : `### Reviewer\n\n${quotedQuestion(unquotedReviewer(note))}\n\n`;
   });
 
   return [...opened, ...cut(shown, answersOf(doc)), ...closed];
