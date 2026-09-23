@@ -1,7 +1,7 @@
 import type { Locator, Page, Route } from "@playwright/test";
 
 import type { Reply, Vellum } from "./harness.ts";
-import { axe, boxOf, contrast, expect, openVellum, test } from "./harness.ts";
+import { axe, boxOf, contrast, expect, openVellum, settled, test } from "./harness.ts";
 
 /**
  * Claude's proposal is a modal over the page, never opened under a typing: Esc puts it off onto
@@ -36,6 +36,7 @@ function dotted(page: Page): Promise<boolean> {
 
 /** A text's colour against a surface's background: tokens written in hex, which the browser serializes as `rgb(…)`. */
 async function ratio(text: Locator, surface: Locator): Promise<number> {
+  await settled(text.page());
   const color = await text.evaluate((element) => getComputedStyle(element).color);
   const background = await surface.evaluate((element) => getComputedStyle(element).backgroundColor);
 
@@ -334,8 +335,10 @@ test("the modal's words read on their surfaces, light and dark: axe sees none in
 });
 
 /** The page's sheet, then the same sheet under the modal's backdrop, each as a luminance painted on a canvas. */
-function dimming(page: Page): Promise<{ readonly sheet: number; readonly under: number }> {
-  return page.locator("dialog.dialog").evaluate((dialog) => {
+async function dimming(page: Page): Promise<{ readonly sheet: number; readonly under: number }> {
+  await settled(page);
+
+  return await page.locator("dialog.dialog").evaluate((dialog) => {
     const app = document.querySelector(".app");
     const canvas = document.createElement("canvas");
     const context = canvas.getContext("2d");
@@ -847,8 +850,10 @@ function band(page: Page): Locator {
 }
 
 /** A colour as a canvas paints it, `rgb(…)`: a `color-mix()` computes to `oklab(…)`, which `contrast` cannot read. */
-function painted(element: Locator, property: "color" | "backgroundColor"): Promise<string> {
-  return element.evaluate((node, key) => {
+async function painted(element: Locator, property: "color" | "backgroundColor"): Promise<string> {
+  await settled(element.page());
+
+  return await element.evaluate((node, key) => {
     const context = document.createElement("canvas").getContext("2d");
 
     if (context === null) throw new Error("no 2d context");
@@ -862,6 +867,8 @@ function painted(element: Locator, property: "color" | "backgroundColor"): Promi
 
 /** A text's contrast on the nearest box that paints a background, its own or an ancestor's, both as a canvas paints them. */
 async function onItsSurface(text: Locator): Promise<number> {
+  await settled(text.page());
+
   const [color, background] = await text.evaluate((node) => {
     const context = document.createElement("canvas").getContext("2d");
 

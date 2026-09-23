@@ -161,6 +161,21 @@ test("axe finds no contrast to fault on the plan under review", async ({ page, v
   expect(contrastFaults).toEqual([]);
 });
 
+test("axe after a theme switch waits for the page's transitions to end", async ({
+  page,
+  vellum,
+}) => {
+  await reviewV1(page, vellum);
+  await page.emulateMedia({ colorScheme: "light" });
+  const approve = page.locator(".bar").getByRole("button", { name: "Approve", exact: true });
+  await expect(approve).toHaveCSS("color", "rgb(22, 32, 42)");
+  // Stretched far past the 120 ms the page runs, so a measure taken during it cannot pass by luck.
+  await page.addStyleTag({ content: ":root { --transition: 1500ms linear !important; }" });
+  await page.emulateMedia({ colorScheme: "dark" });
+
+  expect(await axe(page, ".bar")).toEqual([]);
+});
+
 test("the fields: their placeholder reads, their border shows", async ({ page, vellum }) => {
   await reviewV1(page, vellum);
   const field = page.locator("#global");

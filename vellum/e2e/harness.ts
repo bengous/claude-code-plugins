@@ -308,10 +308,27 @@ type AxeResults = {
 };
 
 /**
- * Runs axe-core in the main frame, over the whole document or the elements `within` selects, and
- * returns the violations, trimmed to what an assertion reads.
+ * Waits for the page's CSS transitions to end: a colour read right after a theme switch is a text
+ * halfway between the two themes, over the new theme's background (`--transition` in style.css).
+ * A transition cancelled by the next one settles too.
+ */
+export async function settled(page: Page): Promise<void> {
+  await page.evaluate(() =>
+    Promise.allSettled(
+      document
+        .getAnimations()
+        .filter((animation) => animation instanceof CSSTransition)
+        .map((animation) => animation.finished),
+    ),
+  );
+}
+
+/**
+ * Runs axe-core in the main frame, over the whole document or the elements `within` selects, once
+ * the page's transitions have ended, and returns the violations, trimmed to what an assertion reads.
  */
 export async function axe(page: Page, within?: string): Promise<readonly Violation[]> {
+  await settled(page);
   await page.evaluate(AXE);
   const context = within === undefined ? "document" : JSON.stringify({ include: [within] });
 
