@@ -163,6 +163,7 @@ kbd { font: 600 var(--t-12)/1.4 var(--mono); border: 1px solid var(--rule); bord
 .btn .badge { line-height: 1.2; }
 .btn.send .badge { background: var(--sheet); color: var(--redline); }
 .chevron { width: 1em; height: 1em; transition: transform var(--transition); }
+.gear { display: block; width: 1.15em; height: 1.15em; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
 
 .docs { flex: 1; min-width: 0; display: flex; flex-direction: column; }
 .doc-head { display: flex; align-items: center; gap: var(--s-2); padding: var(--s-2) var(--s-3); border-bottom: 1px solid var(--rule); font-size: var(--t-13); color: var(--graphite); }
@@ -355,6 +356,31 @@ iframe { border: 0; width: 100%; height: 100%; display: block; background: var(-
 .dialog::backdrop { background: var(--scrim); }
 .dialog-card { width: min(470px, 100%); background: var(--sheet); border-radius: var(--r-md); box-shadow: var(--shadow); padding: var(--s-6) var(--s-6) var(--s-4); font: var(--t-14)/var(--lh-chrome) var(--serif); }
 .dialog-card .row { margin-top: var(--s-4); }
+.settings .dialog-card { width: min(760px, 100%); height: min(520px, 100%); padding: 0; display: flex; flex-direction: column; overflow: hidden; }
+.settings-head { display: flex; align-items: center; justify-content: space-between; padding: var(--s-3) var(--s-4); border-bottom: 1px solid var(--rule); }
+.settings-head h2 { margin: 0; font-size: var(--t-16); }
+.settings-body { flex: 1; display: grid; grid-template-columns: 200px 1fr; min-height: 0; }
+.settings-nav { display: flex; flex-direction: column; gap: 2px; padding: var(--s-3); border-right: 1px solid var(--rule); background: var(--tint); overflow: auto; }
+.settings-nav h3 { margin: var(--s-2) 0 var(--s-1); font-size: var(--t-12); font-weight: 650; color: var(--graphite); text-transform: uppercase; letter-spacing: 0.05em; }
+.settings-nav hr { width: 100%; border: 0; border-top: 1px solid var(--rule); margin: var(--s-2) 0; }
+.settings-nav button { font: 600 var(--t-13)/1.3 var(--serif); text-align: left; padding: var(--s-1) var(--s-2); border: 0; border-radius: var(--r-sm); background: transparent; color: var(--ink); cursor: pointer; }
+.settings-nav button:hover { background: color-mix(in oklab, var(--sheet) 60%, transparent); }
+.settings-nav button[aria-current="page"] { background: var(--sheet); box-shadow: inset 2px 0 0 var(--redline); }
+.settings-panel { padding: var(--s-4) var(--s-6); overflow: auto; }
+.settings-panel > h3 { margin: 0 0 var(--s-4); font-size: var(--t-16); }
+.settings-group h4 { margin: 0 0 var(--s-2); font-size: var(--t-12); font-weight: 650; color: var(--graphite); text-transform: uppercase; letter-spacing: 0.05em; }
+.settings-rows { border: 1px solid var(--rule); border-radius: var(--r-md); padding: 0 var(--s-3); }
+.srow { display: flex; align-items: center; justify-content: space-between; gap: var(--s-4); padding: var(--s-3) 0; }
+.srow + .srow { border-top: 1px solid var(--rule); }
+.srow-label { font-weight: 600; }
+.srow-desc { font-size: var(--t-12); color: var(--graphite); }
+.srow-control { display: inline-flex; align-items: center; gap: var(--s-2); }
+.srow-control code, .settings-error code { font: var(--t-12)/1.5 var(--mono); }
+.settings-error { margin: 0; padding: var(--s-3) 0; color: var(--redline); }
+@media (max-width: 600px) {
+  .settings-body { grid-template-columns: 1fr; grid-template-rows: auto 1fr; }
+  .settings-nav { border-right: 0; border-bottom: 1px solid var(--rule); }
+}
 /* Its own surface: over the backdrop no text token reads at 4.5:1 in both themes. */
 .dialog-below { display: flex; align-items: center; gap: var(--s-1); padding: 2px var(--s-3); border-radius: var(--r-pill); background: var(--sheet); color: var(--graphite); font-size: var(--t-12); }
 .dialog-below kbd + kbd { margin-left: var(--s-2); }

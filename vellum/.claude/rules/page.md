@@ -27,9 +27,9 @@ no build step, so what the page imports costs nothing at `cli start`.
   `--serif` (Literata), code and literals (a path, a version, the diff count, a key) are
   `--mono` (JetBrains Mono), and the chrome reads as prose. The fonts ship in `fonts/`, each
   under the bundler's inlining threshold, so they arrive inside the CSS chunk.
-- A button, badge, chip, tag, banner, popover, dialog, chevron, handle or switch is drawn through
+- A button, badge, chip, tag, banner, popover, dialog, chevron, gear, handle or switch is drawn through
   `kit.tsx`, never through one of its classes spelled at the call; `kit.tsx` is in `PAGE_SURFACE`,
-  so an extension draws with the same ten. A `Chip` is a button; what shows a label and takes no click is a `Tag`.
+  so an extension draws with the same eleven. A `Chip` is a button; what shows a label and takes no click is a `Tag`.
   The types hold part of it, locked in `kit.spec.ts`: `ChipProps` takes no `class`, and neither
   takes `className`. `ButtonProps` takes a `class`, joined to the kit's own, for a state the kit
   has no prop for (`grill-later` in `grill/proposal.tsx`): there a kit class spelled at the call compiles,
@@ -127,6 +127,13 @@ no build step, so what the page imports costs nothing at `cli start`.
   review is held: <reason>.`), since a reason reads as a clause, then says the approval ends it. The
   core draws no notice of it, `noticesOf` takes no hold: the extension that holds draws its own,
   the grill's band. The bar prints the reason and never reads which extension gave it.
+- Settings are a `Dialog` the bar's gear opens, drawn while the bar has buttons: `settings/`
+  holds it. `SETTINGS` of `settings/sections.ts` is the one list of sections, in the order drawn,
+  each under a `group` heading or, with none, after every group; a new setting is an entry there
+  and a `Body` built from `SettingsGroup` and `SettingsRow` of `settings/rows.tsx`, and the shell
+  changes for none. About Vellum reads `vellumBuild` of `state.ts`, fetched once by `start`; the
+  server read it at its own start, and a failure is that route's 500, shown in the section, never
+  the server's.
 - What the page says of its state is derived, in `notices.ts`, pure and held by
   `notices.spec.ts`: `noticesOf` the column under the bar, `statusOf` the pill, `decisionsOf`
   the three buttons of the core, greyed or not and why, the reason in each `title`. Nothing

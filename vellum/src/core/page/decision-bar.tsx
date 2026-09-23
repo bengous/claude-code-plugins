@@ -3,9 +3,10 @@ import { useEffect, useState } from "preact/hooks";
 
 import type { Annotation } from "../protocol.ts";
 import { countChanges } from "../protocol.ts";
-import { Badge, Banner, Button, Popover } from "./kit.tsx";
+import { Badge, Banner, Button, Gear, Popover } from "./kit.tsx";
 import type { Notice } from "./notices.ts";
 import { decisionsOf, statusOf } from "./notices.ts";
+import { Settings } from "./settings/settings.tsx";
 import {
   annotations,
   connection,
@@ -166,6 +167,7 @@ export function DecisionBar(props: BarProps): preact.JSX.Element {
   const [popover, setPopover] = useState<BarPopover>(CLOSED);
   /** A decision in flight: the notes popover stays open and its Approve waits, so nothing is sent twice. */
   const [sending, setSending] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const close = (): void => setPopover(CLOSED);
   const title = titleOf(planText.value);
 
@@ -288,6 +290,17 @@ export function DecisionBar(props: BarProps): preact.JSX.Element {
           Send feedback {count > 0 && <Badge>{count}</Badge>}
         </Button>
       )}
+      {drawn && (
+        <Button
+          aria-label="Settings"
+          aria-haspopup="dialog"
+          title="Settings"
+          onClick={() => setSettingsOpen(true)}
+        >
+          <Gear />
+        </Button>
+      )}
+      {settingsOpen && <Settings onClose={() => setSettingsOpen(false)} />}
       {popover.kind === "notes" && editing.value === null && (
         <ApprovalNotes
           text={popover.text}

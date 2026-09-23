@@ -674,6 +674,7 @@ describe("start", () => {
     expect(server.calls).toEqual([
       "GET /api/draft",
       "GET /api/review",
+      "GET /api/vellum-build",
       "EventSource /t/tok/events",
       "PUT /api/draft",
     ]);

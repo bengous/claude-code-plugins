@@ -1,4 +1,4 @@
-import type { Decision, DocRef, Draft, ReviewView } from "../protocol.ts";
+import type { Decision, DocRef, Draft, ReviewView, VellumBuild } from "../protocol.ts";
 import type { ProjectPath } from "../server/domain/paths.ts";
 
 /** The page's side of the HTTP contract: the token from the URL, the routes, the event stream. */
@@ -44,6 +44,23 @@ export async function fetchReview(): Promise<Fetched<ReviewView>> {
 
   // SAFETY: the server's own `ReviewView`, serialized by `Response.json` in routes.ts.
   return { ok: true, value: (await response.json()) as ReviewView };
+}
+
+/** The running plugin's version and commit; refused with the server's reason when it could not read them. */
+export async function fetchVellumBuild(): Promise<Fetched<VellumBuild>> {
+  const response = await request("vellum-build");
+
+  if (response.status === 500) {
+    // SAFETY: the server's own `{ error }`, serialized by `Response.json` in routes.ts.
+    const { error } = (await response.json()) as { readonly error: string };
+
+    return { ok: false, status: response.status, reason: error };
+  }
+
+  if (!response.ok) return { ok: false, status: response.status, reason: null };
+
+  // SAFETY: the server's own `VellumBuild`, parsed at its start and serialized by `Response.json`.
+  return { ok: true, value: (await response.json()) as VellumBuild };
 }
 
 /** The unsent work the server keeps for a reload, `null` when it keeps none; refused with its reason when it cannot be read. */
