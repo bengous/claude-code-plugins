@@ -62,7 +62,7 @@ const ASK: ExtensionTool = {
 
     if (questions === null) {
       return {
-        deny: "q must be a non-empty array of [title, question, recommendation], each title one line of plain text: not empty, no **, not ending in *",
+        deny: "q must be a non-empty array of [title, question, recommendation], each title one line of plain text: not empty, no **, not ending in *, and each question with a recommendation",
       };
     }
 

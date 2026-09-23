@@ -315,6 +315,18 @@ describe("a round", () => {
     expect(readFileSync(join(dir, WIP, "grill-1.md"), "utf8")).toBe(before);
   });
 
+  test("a question with no recommendation, empty or spaces only, is a bad request", async () => {
+    const { dir, post } = await grilling();
+    await post("open", { subject: "auth" });
+    const before = readFileSync(join(dir, WIP, "grill-1.md"), "utf8");
+
+    for (const rec of ["", "   ", " \n "]) {
+      expect((await post("ask", { q: [["Style", "Bright?", rec]] })).status).toBe(400);
+    }
+
+    expect(readFileSync(join(dir, WIP, "grill-1.md"), "utf8")).toBe(before);
+  });
+
   test("reply is refused with nothing to say, and with no grill open", async () => {
     const { post } = await grilling();
 

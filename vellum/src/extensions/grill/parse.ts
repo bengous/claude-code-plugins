@@ -146,12 +146,13 @@ function titleText(value: unknown): string | null {
     : null;
 }
 
+/** A recommendation, never blank: an answer left out takes it by default, and a blank one names none. */
 function parseQuestion(value: unknown): Question | null {
   if (!Array.isArray(value) || value.length !== 3) return null;
   const [raw, ask, rec]: unknown[] = value;
   const title = titleText(raw);
 
-  return title !== null && typeof ask === "string" && typeof rec === "string"
+  return title !== null && typeof ask === "string" && typeof rec === "string" && rec.trim() !== ""
     ? { title, ask, rec }
     : null;
 }

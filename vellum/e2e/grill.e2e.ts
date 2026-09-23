@@ -782,7 +782,7 @@ test.describe("a round in the panel", () => {
     vellum,
   }) => {
     await vellum.grill.open(SUBJECT);
-    await vellum.grill.ask([["Store", "Which store?", ""]]);
+    await claudeSays(vellum, "❓ **Q1** - **Store**: Which store?\n\n---\n");
     await openVellum(page, vellum);
     await expect(chips(page)).toHaveCount(1);
 

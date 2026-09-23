@@ -67,7 +67,9 @@ the engine events the core hands it, and its segment of the band above the promp
   `### ` line in an answer cuts the reply relayed and a `Q3: ` line in a note answers Q3. A text written as
   one line, a grill's subject in its header or a question's title on its line, is refused at the
   parser when it holds a line break, and a title too when its line's reader would cut it: empty,
-  holding `**` or ending in `*` (`titleText` in `grill/parse.ts`); a text that shares its first line with a marker, a
+  holding `**` or ending in `*` (`titleText` in `grill/parse.ts`), and a question with a blank
+  recommendation, which an answer left out takes by default (a hand-typed question with no `➡️`
+  is still read, its field alone); a text that shares its first line with a marker, a
   question's text and its recommendation, takes `\n` for every break, since that line is read by
   `\n` alone.
 - An extension with states, rounds or a lifecycle starts with a table, before any code: the
