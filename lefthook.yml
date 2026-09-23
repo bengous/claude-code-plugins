@@ -114,7 +114,8 @@ commit-msg:
 # `git diff HEAD @{push}` lists no file, and fails it when the branch has no
 # upstream and origin/HEAD names no local branch.
 # `use_stdin` hands the script git's pushed-ref lines: a push of deletions
-# alone skips the gates, and a push to main meets the version guard.
+# alone skips the gates, a push to main meets the version guard, and a push to
+# dev meets the e2e gate.
 pre-push:
   jobs:
     - name: gates-and-tests

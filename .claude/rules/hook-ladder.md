@@ -7,6 +7,7 @@ paths:
   - "scripts/run-gates.ts"
   - "scripts/check-lint-config.ts"
   - "scripts/check-plugin-bumps.ts"
+  - "scripts/check-e2e-green.ts"
 ---
 
 # Hook ladder
@@ -55,13 +56,15 @@ agent meets any finding left once, at the end of its turn, not on each edit.
 - A new gate is one `EXPECTED_COMMANDS` entry in
   `scripts/check-lint-config.ts`. `lint-config` then demands its pre-commit job
   and its CI step; Stop and pre-push run it through `run-gates.ts`.
-  The exception is a check of the push to `main`: the release guard,
-  `scripts/check-plugin-bumps.ts --pre-push`, is one line of
-  `.lefthook/pre-push/gates-and-tests.sh`, fed git's pushed-ref lines. As an
-  entry it would run at every Stop and on every push, red from each plugin
-  change to its release-time bump. `checkCommandParity` reads only the
-  pre-commit `run` lines and CI's `validate` steps, so that line needs nothing
-  there.
+  The exception is a check of what a push moves: the release guard,
+  `scripts/check-plugin-bumps.ts --pre-push`, on a push to `main`, and the
+  e2e gate, `scripts/check-e2e-green.ts`, on a push to `dev`, are each one
+  line of `.lefthook/pre-push/gates-and-tests.sh`, fed git's pushed-ref
+  lines. As an entry the release guard would run at every Stop and on every
+  push, red from each plugin change to its release-time bump; the e2e gate
+  needs the network and an `e2e` run that already happened.
+  `checkCommandParity` reads only the pre-commit `run` lines and CI's
+  `validate` steps, so those lines need nothing there.
 - Tests stay out of Stop: the two `bun test` runs take about 30 s here, the
   gates under 3 s. pre-push and CI run them.
 
@@ -90,5 +93,5 @@ Known ceilings:
   released that way leaves its red in the parent's checkout without a parent
   block; pre-commit and pre-push still catch it.
 - pre-push's gates and tests check the working tree, not the pushed commits.
-  Only the release guard reads the pushed commits, and only on a push to
-  `main`.
+  Only the release guard, on a push to `main`, and the e2e gate, on a push to
+  `dev`, read the pushed commits.
