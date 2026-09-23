@@ -444,12 +444,15 @@ test.describe("the sheet", () => {
     await panel.locator(".grill-sheet").evaluate((sheet) => sheet.scrollTo(0, 0));
     await page.locator(".handle.left").focus();
 
-    while (
-      (await page.evaluate(() => document.activeElement?.getAttribute("aria-label"))) !==
-      "Next question, Q2"
-    ) {
+    const focusedLabel = (): Promise<string | null | undefined> =>
+      page.evaluate(() => document.activeElement?.getAttribute("aria-label"));
+
+    for (let presses = 0; presses < 80 && (await focusedLabel()) !== "Next question, Q2";) {
       await page.keyboard.press("Tab");
+      presses += 1;
     }
+
+    expect(await focusedLabel()).toBe("Next question, Q2");
 
     const focused = await page.evaluate(() => {
       const rect = document.activeElement?.getBoundingClientRect();
