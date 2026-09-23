@@ -307,12 +307,16 @@ type AxeResults = {
   }[];
 };
 
-/** Runs axe-core in the main frame and returns the violations, trimmed to what an assertion reads. */
-export async function axe(page: Page): Promise<readonly Violation[]> {
+/**
+ * Runs axe-core in the main frame, over the whole document or the elements `within` selects, and
+ * returns the violations, trimmed to what an assertion reads.
+ */
+export async function axe(page: Page, within?: string): Promise<readonly Violation[]> {
   await page.evaluate(AXE);
+  const context = within === undefined ? "document" : JSON.stringify({ include: [within] });
 
   const result = await page.evaluate<AxeResults>(
-    `axe.run(document, { runOnly: { type: "tag", values: ${JSON.stringify(AXE_TAGS)} } })`,
+    `axe.run(${context}, { runOnly: { type: "tag", values: ${JSON.stringify(AXE_TAGS)} } })`,
   );
 
   return result.violations.map((violation) => ({

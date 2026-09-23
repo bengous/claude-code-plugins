@@ -49,15 +49,16 @@ test("v2 with its changes draws the marks", async ({ page, vellum }) => {
   expect(errors).toEqual([]);
 });
 
-test("a grill draws its cards", async ({ page, vellum }) => {
+test("a grill draws its cards in its panel", async ({ page, vellum }) => {
   const errors = pageErrors(page);
   await vellum.gate();
   await vellum.grill.open("Where do drafts live?");
   await vellum.grill.ask(QUESTIONS);
   await openVellum(page, vellum);
-  await page.locator("#rail button", { hasText: "grill-1.md" }).click();
 
-  await expect(page.locator(".grill-q")).toHaveCount(2);
+  await expect(page.getByRole("complementary", { name: "Grill" }).locator(".grill-q")).toHaveCount(
+    2,
+  );
   expect(errors).toEqual([]);
 });
 

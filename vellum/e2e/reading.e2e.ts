@@ -27,15 +27,18 @@ function claudeSays(vellum: Vellum, text: string): Promise<Reply> {
   return vellum.api("x/grill/answer", { text, reason: "answer", own: true });
 }
 
-/** Opens a grill with one round asked, and the page on its transcript. */
+function grillPanel(page: Page): Locator {
+  return page.getByRole("complementary", { name: "Grill" });
+}
+
+/** Opens a grill with one round asked, and the page on the plan, the round in the panel. */
 async function grilling(page: Page, vellum: Vellum): Promise<void> {
   await vellum.gate();
   await vellum.grill.open("The coverage of the page");
   await vellum.grill.ask(ROUND_1);
   await claudeSays(vellum, "Round 1 is on the page.");
   await openVellum(page, vellum);
-  await page.locator("#rail button", { hasText: "grill-2.md" }).click();
-  await expect(page.locator(".grill-q")).toHaveCount(2);
+  await expect(grillPanel(page).locator(".grill-q")).toHaveCount(2);
 }
 
 function scrollOf(locator: Locator): Promise<{ readonly scroll: number; readonly client: number }> {
@@ -152,14 +155,13 @@ test.describe("the transcript", () => {
     await expect(page.locator(".grill-q h4")).toHaveCount(8);
   });
 
-  test("Take it is reachable beside the plan at 1024, and greyed under a typed answer", async ({
+  test("Take it is reachable in the panel at 1024, and greyed under a typed answer", async ({
     page,
     vellum,
   }) => {
     await page.setViewportSize({ width: 1024, height: 768 });
     await grilling(page, vellum);
-    await page.locator(".tools [role=switch]", { hasText: "Beside the plan" }).click();
-    const card = page.locator(".grill-q").first();
+    const card = grillPanel(page).locator(".grill-q").first();
     const takeIt = card.getByRole("button", { name: "Take it" });
     await takeIt.evaluate((button) => button.scrollIntoView({ block: "center" }));
     await expect(takeIt).toBeEnabled();
@@ -180,11 +182,11 @@ test.describe("the transcript", () => {
 
   test("Ctrl+Enter in a card's field sends the answers", async ({ page, vellum }) => {
     await grilling(page, vellum);
-    const field = page.locator(".grill-q").nth(1).locator("textarea");
+    const field = grillPanel(page).getByRole("textbox", { name: "Answer to Q2" });
     await field.fill("The plugin's own package.json.");
     await field.press("Control+Enter");
 
-    await expect(page.locator(".grill-q .answer")).toHaveCount(2);
+    await expect(grillPanel(page).locator(".grill-q .answer")).toHaveCount(2);
     const state = JSON.stringify((await vellum.grill.state()).json);
     expect(state).toContain("Q2: The plugin's own package.json.");
   });
@@ -193,8 +195,8 @@ test.describe("the transcript", () => {
     await grilling(page, vellum);
 
     const [card, field] = [
-      await boxOf(page.locator(".grill-q").first()),
-      await boxOf(page.locator(".grill-foot textarea")),
+      await boxOf(grillPanel(page).locator(".grill-q").first()),
+      await boxOf(grillPanel(page).locator(".grill-foot textarea")),
     ];
 
     expect(Math.abs(card.width - field.width)).toBeLessThanOrEqual(2);

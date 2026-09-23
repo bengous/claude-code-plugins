@@ -6,10 +6,10 @@ import { extensionRequest } from "../../core/page/api.ts";
 import { Button } from "../../core/page/kit.tsx";
 import {
   connection,
+  docs,
   editing,
   fail,
   review,
-  select,
   setTyped,
   succeed,
   typed,
@@ -18,7 +18,7 @@ import type { Typed } from "../../core/protocol.ts";
 import { declineFailure, footerOf } from "./labels.ts";
 import { grillNumber } from "./parse.ts";
 import { GrillButton, Proposal } from "./proposal.tsx";
-import type { Block, GrillPosts, GrillState, Opened } from "./protocol.ts";
+import type { Block, GrillPosts, GrillState } from "./protocol.ts";
 
 const ID = "grill";
 
@@ -114,16 +114,9 @@ async function decline(id: string): Promise<boolean> {
   return response.ok || response.status === 409;
 }
 
-/** `true` once the grill opened, its transcript selected. */
+/** `true` once the grill opened; the document pane keeps what it shows, the panel comes beside it. */
 async function openGrill(subject: string): Promise<boolean> {
-  const response = await post("open", { subject });
-
-  if (!response.ok) return false;
-  // SAFETY: the server's own `Opened`, a `ProjectPath` it built, serialized in grill/server.ts.
-  const { file } = (await response.json()) as Opened;
-  select(file);
-
-  return true;
+  return (await post("open", { subject })).ok;
 }
 
 /** `true` once the server took it: the typing it carried can go. */
@@ -175,10 +168,12 @@ function GrillNotice(): preact.JSX.Element | null {
   );
 }
 
+type QuestionBlock = Extract<Block, { kind: "question" }>;
+
 type CardProps = {
-  readonly block: Extract<Block, { kind: "question" }>;
+  readonly block: QuestionBlock;
   readonly answer: string;
-  /** `null` once the question is answered, or the grill closed: the card takes nothing. */
+  /** `null` once the question is answered, and in the document pane: the card takes nothing. */
   readonly onAnswer: ((text: string) => void) | null;
   /** Ctrl+Enter in the card's field, as in the foot's; `null` while nothing can be sent. */
   readonly onSend: (() => void) | null;
@@ -233,15 +228,79 @@ function QuestionCard(props: CardProps): preact.JSX.Element {
   );
 }
 
+/** The transcript's blocks, loaded again at each write of the file: `modified` changes with it. */
+function useBlocks(path: string, modified: number): readonly Block[] {
+  const [blocks, setBlocks] = useState<readonly Block[]>([]);
+
+  useEffect(() => {
+    void blocksOf(path).then((loaded) => {
+      if (loaded !== null) setBlocks(loaded);
+    });
+  }, [path, modified]);
+
+  return blocks;
+}
+
+/** The blocks in the file's order; `card` draws a question, read-only in the document pane, answered in the panel. */
+function Transcript(props: {
+  readonly blocks: readonly Block[];
+  readonly card: (block: QuestionBlock) => preact.JSX.Element;
+}): preact.JSX.Element {
+  return (
+    <>
+      {props.blocks.map((block, index) =>
+        block.kind === "opened" ? (
+          <div key={index}>
+            <h1>Grill: {block.subject}</h1>
+            <p class="grill-when">Started {block.at}</p>
+          </div>
+        ) : block.kind === "closed" ? (
+          <div key={index}>
+            <hr />
+            <p class="grill-when">
+              {footerOf(block.reason)} · {block.at}
+            </p>
+          </div>
+        ) : block.kind === "html" ? (
+          // The server rendered it with raw HTML escaped and unsafe links cut: `toHtml`.
+          // oxlint-disable-next-line react/no-danger -- the transcript's Markdown arrives rendered, since the page bundles no Markdown parser for it; `toHtml` in grill/server.ts is what makes it safe to insert.
+          <div key={index} dangerouslySetInnerHTML={{ __html: block.html }} />
+        ) : (
+          props.card(block)
+        ),
+      )}
+    </>
+  );
+}
+
+/** Any `grill-<n>.md`, open or closed, as a document: the panel is the one place a grill is answered. */
+function GrillDoc(props: RendererProps): preact.JSX.Element {
+  const blocks = useBlocks(props.doc.path, props.doc.modified);
+
+  return (
+    <div class="grill-doc">
+      <div class="plan">
+        <Transcript
+          blocks={blocks}
+          card={(block) => (
+            <QuestionCard key={block.id} block={block} answer="" onAnswer={null} onSend={null} />
+          )}
+        />
+      </div>
+    </div>
+  );
+}
+
 const NOTHING_TYPED: Typed["grill"][string] = { answers: {}, note: "" };
 
-function GrillDoc(props: RendererProps): preact.JSX.Element {
-  const { path, modified } = props.doc;
-  const [blocks, setBlocks] = useState<readonly Block[]>([]);
-  /** The reviewer's typing on this transcript, in the draft: it survives the pane and a reload. */
+function OpenGrill(props: {
+  readonly state: Extract<GrillState, { kind: "open" }>;
+}): preact.JSX.Element {
+  const { file: path, phase } = props.state;
+  const modified = docs.value.find((doc) => doc.path === path)?.modified ?? 0;
+  const blocks = useBlocks(path, modified);
+  /** The reviewer's typing on this transcript, in the draft: it survives the panel and a reload. */
   const own = typed.value.grill[path] ?? NOTHING_TYPED;
-  const state = grill.value;
-  const current = state?.kind === "open" && state.file === path ? state : null;
 
   const answer = (id: string, text: string): void =>
     setTyped({
@@ -262,7 +321,7 @@ function GrillDoc(props: RendererProps): preact.JSX.Element {
     block.kind === "question" && block.answer === null ? [block.id] : [],
   );
 
-  const sendable = current !== null && (open.length > 0 || own.note.trim() !== "");
+  const sendable = open.length > 0 || own.note.trim() !== "";
 
   const send = async (): Promise<boolean> => {
     const taken = await reply(
@@ -280,12 +339,6 @@ function GrillDoc(props: RendererProps): preact.JSX.Element {
     if (sendable && !(await send())) return;
     await post("close", { reason: "page" });
   };
-
-  useEffect(() => {
-    void blocksOf(path).then((loaded) => {
-      if (loaded !== null) setBlocks(loaded);
-    });
-  }, [path, modified]);
 
   const sheet = useRef<HTMLDivElement>(null);
   const openBefore = useRef(0);
@@ -308,44 +361,27 @@ function GrillDoc(props: RendererProps): preact.JSX.Element {
   }, [firstOpen, open.length]);
 
   return (
-    <div class="grill-doc" ref={sheet}>
-      <div class="plan">
-        {blocks.map((block, index) =>
-          block.kind === "opened" ? (
-            <div key={index}>
-              <h1>Grill: {block.subject}</h1>
-              <p class="grill-when">Started {block.at}</p>
-            </div>
-          ) : block.kind === "closed" ? (
-            <div key={index}>
-              <hr />
-              <p class="grill-when">
-                {footerOf(block.reason)} · {block.at}
-              </p>
-            </div>
-          ) : block.kind === "html" ? (
-            // The server rendered it with raw HTML escaped and unsafe links cut: `toHtml`.
-            // oxlint-disable-next-line react/no-danger -- the transcript's Markdown arrives rendered, since the page bundles no Markdown parser for it; `toHtml` in grill/server.ts is what makes it safe to insert.
-            <div key={index} dangerouslySetInnerHTML={{ __html: block.html }} />
-          ) : (
-            <QuestionCard
-              key={block.id}
-              block={block}
-              answer={own.answers[block.id] ?? ""}
-              onAnswer={
-                current !== null && block.answer === null ? (text) => answer(block.id, text) : null
-              }
-              onSend={sendable ? () => void send() : null}
-            />
-          ),
-        )}
-        {current?.phase === "working" && (
-          <p class="grill-working" role="status">
-            Claude is working. The next round appears here.
-          </p>
-        )}
-      </div>
-      {current !== null && (
+    <aside class="grill-panel" aria-label="Grill">
+      <div class="grill-sheet" ref={sheet}>
+        <div class="plan">
+          <Transcript
+            blocks={blocks}
+            card={(block) => (
+              <QuestionCard
+                key={block.id}
+                block={block}
+                answer={own.answers[block.id] ?? ""}
+                onAnswer={block.answer === null ? (text) => answer(block.id, text) : null}
+                onSend={sendable ? () => void send() : null}
+              />
+            )}
+          />
+          {phase === "working" && (
+            <p class="grill-working" role="status">
+              Claude is working. The next round appears here.
+            </p>
+          )}
+        </div>
         <div class="grill-foot">
           <textarea
             aria-label="Anything else for Claude"
@@ -358,21 +394,28 @@ function GrillDoc(props: RendererProps): preact.JSX.Element {
               }
             }}
           />
+          <p class="note">
+            {open.length > 0
+              ? "An empty field takes the recommendation. Answers go to Claude once its turn ends."
+              : "No question is open. A note goes to Claude once its turn ends."}
+          </p>
           <div class="row">
-            <span class="note">
-              {open.length > 0
-                ? "An empty field takes the recommendation. Answers go to Claude once its turn ends."
-                : "No question is open. A note goes to Claude once its turn ends."}
-            </span>
             <Button onClick={() => void end()}>End grill</Button>
             <Button variant="send" disabled={!sendable} onClick={() => void send()}>
               Send answers
             </Button>
           </div>
         </div>
-      )}
-    </div>
+      </div>
+    </aside>
   );
+}
+
+/** Beside the document pane while a grill is open: its rounds, its fields and its foot. */
+function GrillPanel(): preact.JSX.Element | null {
+  const state = grill.value;
+
+  return state?.kind === "open" ? <OpenGrill key={state.file} state={state} /> : null;
 }
 
 export const grillPage: PageExtension = {
@@ -386,4 +429,5 @@ export const grillPage: PageExtension = {
   ],
   actions: [GrillAction],
   notices: [GrillNotice],
+  panel: { shown: () => grill.value?.kind === "open", component: GrillPanel },
 };

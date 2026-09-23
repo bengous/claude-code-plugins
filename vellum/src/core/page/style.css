@@ -45,7 +45,8 @@
   --mono-optical: 0.92em;
   --measure: 39.375rem;
   --comments-width: 310px;
-  --grill-foot: calc(var(--s-10) * 3 + var(--s-1));
+  --grill-width: clamp(340px, 28vw, 440px);
+  --grill-foot: calc(var(--s-10) * 4);
   --rail-width: clamp(220px, 16vw, 300px);
 
   --s-1: 4px;
@@ -178,7 +179,6 @@ kbd { font: 600 var(--t-12)/1.4 var(--mono); border: 1px solid var(--rule); bord
 .panes { flex: 1; min-height: 0; display: flex; padding-inline: var(--s-6); }
 .pane { flex: 1; min-width: 0; overflow: auto; position: relative; }
 .pane + .pane { border-left: 1px solid var(--rule); }
-.pane:has(.grill-doc) { scroll-padding-bottom: var(--grill-foot); }
 iframe { border: 0; width: 100%; height: 100%; display: block; background: var(--field); }
 .image { padding: var(--s-6); }
 /* An image lies on paper whatever the theme: a transparent diagram in dark ink stays readable, a capture keeps its edge. */
@@ -278,12 +278,15 @@ iframe { border: 0; width: 100%; height: 100%; display: block; background: var(-
 .grill-subject { display: block; width: 100%; field-sizing: content; resize: none; font: 600 var(--t-20)/1.25 var(--serif); padding: 2px 0 var(--s-1); border: 0; border-radius: 0; border-bottom: 2px dashed var(--ask); background: transparent; color: var(--ink); }
 .grill-subject:focus { outline: none; border-bottom-style: solid; }
 .grill-subject::placeholder { font-style: italic; font-weight: 400; }
-.grill-doc { min-height: 100%; display: flex; flex-direction: column; }
+/* The right gutter holds the comments' handle, open or folded, as the panes' gutter does. */
+.grill-panel { width: var(--grill-width); flex: none; display: flex; flex-direction: column; border-left: 1px solid var(--rule); background: var(--tint); padding-right: var(--s-6); }
+.grill-sheet { flex: 1; min-height: 0; overflow: auto; display: flex; flex-direction: column; scroll-padding-bottom: var(--grill-foot); }
+.grill-panel .plan { flex: 1; padding: var(--s-4) var(--s-4) var(--s-6); }
+.grill-panel .plan h1 { font-size: var(--t-20); }
 .grill-working { color: var(--graphite); font-style: italic; max-width: var(--measure); }
 .grill-when { color: var(--graphite); font-size: var(--t-13); }
-.grill-doc .plan { flex: 1; }
-.grill-doc .plan h2 { font: 600 var(--t-16)/var(--lh-title) var(--serif); color: var(--graphite); border-top: 1px solid var(--rule); padding-top: var(--s-3); margin-top: var(--s-8); }
-.grill-doc .plan h3 { font: 650 var(--t-13)/1.4 var(--serif); color: var(--ask); margin: var(--s-3) 0 0; }
+.grill-doc .plan h2, .grill-panel .plan h2 { font: 600 var(--t-16)/var(--lh-title) var(--serif); color: var(--graphite); border-top: 1px solid var(--rule); padding-top: var(--s-3); margin-top: var(--s-8); }
+.grill-doc .plan h3, .grill-panel .plan h3 { font: 650 var(--t-13)/1.4 var(--serif); color: var(--ask); margin: var(--s-3) 0 0; }
 .grill-q { font-family: var(--serif); border: 1px solid var(--rule); border-left: 3px solid var(--ask); border-radius: var(--r-md); padding: var(--s-3) var(--s-4); margin: var(--s-4) 0; background: var(--field); max-width: var(--measure); }
 .grill-q .head { display: flex; align-items: baseline; gap: var(--s-2); margin: 0 0 var(--s-2); font: inherit; }
 .grill-q .num { font: 650 var(--t-12)/1.5 var(--mono); color: var(--sheet); background: var(--ask); border-radius: var(--r-pill); padding: 1px var(--s-2); }
@@ -300,11 +303,11 @@ iframe { border: 0; width: 100%; height: 100%; display: block; background: var(-
 .grill-q .answer .text { white-space: pre-wrap; }
 .grill-q textarea { min-height: 64px; border-color: var(--ask); }
 .grill-q .rec .label { font: 650 var(--t-12)/1.4 var(--serif); color: var(--graphite); }
-/* The foot's height is the token the pane pads its scroll with: a focused control never lands under it. Its field and its row keep the cards' measure. */
-.grill-foot { position: sticky; bottom: 0; height: var(--grill-foot); display: flex; flex-direction: column; background: var(--sheet); border-top: 1px solid var(--rule); padding: var(--s-2) var(--s-6); }
-.grill-foot textarea { flex: 1; min-height: 0; resize: none; max-width: var(--measure); }
-.grill-foot .row { flex: none; align-items: center; gap: var(--s-2); max-width: var(--measure); }
-.grill-foot .note { flex: 1; color: var(--graphite); font-size: var(--t-13); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* The foot's height is the token the sheet pads its scroll with: a focused control never lands under it. Its field keeps the cards' width. */
+.grill-foot { position: sticky; bottom: 0; flex: none; height: var(--grill-foot); display: flex; flex-direction: column; gap: var(--s-1); background: var(--tint); border-top: 1px solid var(--rule); padding: var(--s-2) var(--s-4); }
+.grill-foot textarea { flex: 1; min-height: 0; resize: none; }
+.grill-foot .note { flex: none; margin: 0; color: var(--graphite); font-size: var(--t-13); }
+.grill-foot .row { flex: none; margin-top: 0; }
 /* The element spans the window, transparent: the card and the line under it sit in it, and a click beside them lands on the element, as on the backdrop. */
 .dialog { width: 100%; max-width: none; height: 100%; max-height: none; margin: 0; padding: var(--s-4); border: 0; background: transparent; color: var(--ink); }
 .dialog[open] { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: var(--s-3); }

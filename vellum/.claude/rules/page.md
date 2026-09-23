@@ -67,9 +67,10 @@ no build step, so what the page imports costs nothing at `cli start`.
   exist; a shown panel it omits comes after, right of the documents. A panel draws its own
   element and width, and keeps a gutter on its right for the comments' handle, as `.panes` keeps
   one for both handles.
-- A renderer that declares `comments: false` draws a document the reviewer answers in place, as
-  a grill's transcript: `app.tsx` then draws no switch and no comments panel, unless the
-  plan shows beside it. The unsent comments stay in the signals, and the bar keeps their count.
+- A renderer that declares `comments: false` draws a document that takes no comment, as a
+  grill's transcript, read-only since the grill's panel is where it is answered: `app.tsx` then
+  draws no switch and no comments panel, unless the plan shows beside it. The unsent comments
+  stay in the signals, and the bar keeps their count.
 - Both side panels fold, each on a signal of `state.ts`: the comments panel on `commentsOpen`,
   the document rail on `railOpen`. `comments.tsx` and `doc-list.tsx` put `folded` on their panel
   and draw its control, `CommentsHandle` and `RailHandle`, both through the kit's `Handle`, which
@@ -219,8 +220,8 @@ no build step, so what the page imports costs nothing at `cli start`.
   is reading. `waitingText` in `markdown/sheet.ts` chooses, purely, and `MarkdownDoc` draws it in
   the one `.waiting` line it already had. No other renderer has that state: a grill's transcript
   whose blocks failed to load stays an empty sheet under the notice. While Claude works on a
-  round the transcript's sheet carries a `role="status"` line, and a round that lands scrolls to
-  its first open card.
+  round the grill's panel carries a `role="status"` line, and a round that lands scrolls the
+  panel to its first open card.
 - A block says its source lines in `data-lines="start-end"`: `markdown/tree.ts` writes it,
   `parseLines` of `anchoring.ts` is the one place it is read, and `tree.spec.ts` holds the two
   together. Every reader calls it, the pure helpers of `markdown/` included: a second copy of

@@ -22,7 +22,7 @@ export type RendererProps = {
 
 export type Renderer = {
   readonly accepts: (doc: DocRef) => boolean;
-  /** `false` for a document the reviewer answers in place: no switch, no comments panel. */
+  /** `false` for a document that takes no comment, as a grill's transcript: no switch, no comments panel. */
   readonly comments?: false;
   readonly component: ComponentType<RendererProps>;
 };
@@ -40,7 +40,7 @@ export type PageExtension = {
   readonly actions?: readonly ComponentType[];
   /** Drawn in the notices column under the bar, in the flow, after the core's own: the grill's proposal, a modal. */
   readonly notices?: readonly ComponentType[];
-  /** Placed among the panes by `panesOf` of `page/panes.ts`. */
+  /** Placed among the panes by `panesOf` of `page/panes.ts`: the grill's, while one is open. */
   readonly panel?: Panel;
 };
 

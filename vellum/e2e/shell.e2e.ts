@@ -392,8 +392,8 @@ test.describe("the sheet", () => {
       ["Timer", "Is 30 s right for the replay timer?", "Yes, with backoff."],
     ]);
     await openVellum(page, vellum);
-    await page.locator("#rail button", { hasText: "grill-1.md" }).click();
-    await expect(page.locator(".grill-q")).toHaveCount(6);
+    const panel = page.getByRole("complementary", { name: "Grill" });
+    await expect(panel.locator(".grill-q")).toHaveCount(6);
     await page.locator(".handle.left").focus();
 
     for (let takeIts = 0; takeIts < 3;) {
@@ -411,7 +411,7 @@ test.describe("the sheet", () => {
       return { x: rect.x, y: rect.y, width: rect.width, height: rect.height };
     });
 
-    const foot = await boxOf(page.locator(".grill-foot"));
+    const foot = await boxOf(panel.locator(".grill-foot"));
 
     expect(focused.y + focused.height).toBeLessThanOrEqual(foot.y);
   });

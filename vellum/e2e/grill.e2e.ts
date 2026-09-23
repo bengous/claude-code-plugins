@@ -1,10 +1,12 @@
 import type { Locator, Page, Route } from "@playwright/test";
 
+import type { Vellum } from "./harness.ts";
 import { axe, boxOf, contrast, expect, openVellum, test } from "./harness.ts";
 
 /**
  * Claude's proposal is a modal over the page, never opened under a typing: Esc puts it off onto
  * the Grill button, Decline reaches the server, and the Grill button opens the same modal blank.
+ * An open grill is a panel right of the document pane, which the rail keeps choosing.
  */
 
 test.use({ fixture: "grill-real" });
@@ -12,6 +14,11 @@ test.use({ fixture: "grill-real" });
 const SUBJECT = "The coverage of the page";
 
 const REASON = "three choices change the interface";
+
+const ROUND = [
+  ["Storage", "IndexedDB or localStorage for the drafts?", "IndexedDB: no 5 MB cap."],
+  ["Conflicts", "Who wins a conflict?", "The inspector, field by field."],
+] as const;
 
 function grillButton(page: Page): Locator {
   return page.locator(".bar").getByRole("button", { name: "Grill", exact: true });
@@ -357,4 +364,121 @@ test("the backdrop dims the page, light and dark", async ({ page, vellum }) => {
 
     expect(under).toBeLessThan(sheet);
   }
+});
+
+function panel(page: Page): Locator {
+  return page.getByRole("complementary", { name: "Grill" });
+}
+
+/** A grill open on the plan with a round of two questions, and the page drawn on it. */
+async function asking(page: Page, vellum: Vellum): Promise<void> {
+  await vellum.grill.open(SUBJECT);
+  await vellum.grill.ask(ROUND);
+  await openVellum(page, vellum);
+  await expect(panel(page).locator(".grill-q")).toHaveCount(2);
+}
+
+/** Whether `right` starts where `left` ends, or past it. */
+async function rightOf(right: Locator, left: Locator): Promise<boolean> {
+  const [a, b] = [await boxOf(left), await boxOf(right)];
+
+  return b.x >= a.x + a.width - 1;
+}
+
+test.describe("the panel", () => {
+  test("Start opens the grill in a panel right of the document pane", async ({ page, vellum }) => {
+    await openVellum(page, vellum);
+    await vellum.grill.suggest(SUBJECT, REASON);
+    await proposal(page).getByRole("button", { name: "Start" }).click();
+    await expect(panel(page)).toBeVisible();
+
+    expect(await rightOf(panel(page), page.locator("#doc"))).toBe(true);
+  });
+
+  test("Start leaves the document pane on what it shows", async ({ page, vellum }) => {
+    await openVellum(page, vellum);
+    await page.locator("#rail button", { hasText: "pourquoi-issue-139.md" }).click();
+    await vellum.grill.suggest(SUBJECT, REASON);
+    await proposal(page).getByRole("button", { name: "Start" }).click();
+    await expect(panel(page)).toBeVisible();
+
+    await expect(page.locator("#rail button[aria-current]")).toContainText("pourquoi-issue-139");
+  });
+
+  test("selecting an artifact in the rail keeps the panel", async ({ page, vellum }) => {
+    await asking(page, vellum);
+    await page.locator("#rail button", { hasText: "pourquoi-issue-139.md" }).click();
+
+    await expect(page.locator("#doc .doc-head")).toContainText("pourquoi-issue-139.md");
+    await expect(panel(page).locator(".grill-q")).toHaveCount(2);
+  });
+
+  test("an answer typed and sent in the panel reaches the server, and Claude works", async ({
+    page,
+    vellum,
+  }) => {
+    await asking(page, vellum);
+    await panel(page).getByRole("textbox", { name: "Answer to Q1" }).fill("One store per form.");
+    await panel(page).getByRole("button", { name: "Send answers" }).click();
+
+    await expect
+      .poll(async () => (await vellum.grill.state()).json)
+      .toMatchObject({ kind: "open", phase: "working" });
+    expect(JSON.stringify((await vellum.grill.state()).json)).toContain("Q1: One store per form.");
+  });
+
+  test("its sheet and the sheet's scrollbar stop before the comments' handle", async ({
+    page,
+    vellum,
+  }) => {
+    await asking(page, vellum);
+    const handle = await boxOf(page.locator(".handle.right"));
+    const sheet = await boxOf(panel(page).locator(".grill-sheet"));
+
+    expect(sheet.x + sheet.width).toBeLessThanOrEqual(handle.x);
+  });
+
+  test("appearing, it folds the comments panel and leaves its handle", async ({ page, vellum }) => {
+    await openVellum(page, vellum);
+    await expect(page.locator("#comments")).not.toHaveAttribute("inert");
+    await vellum.grill.open(SUBJECT);
+    await expect(panel(page)).toBeVisible();
+
+    await expect(page.locator("#comments")).toHaveAttribute("inert", "");
+    await expect(page.locator(".handle.right")).toHaveAttribute("aria-expanded", "false");
+  });
+
+  test("the transcript in the document pane is read-only: no field, no foot", async ({
+    page,
+    vellum,
+  }) => {
+    await asking(page, vellum);
+    await page.locator("#rail button", { hasText: "grill-2.md" }).click();
+    await expect(page.locator("#doc .grill-q")).toHaveCount(2);
+
+    await expect(page.locator("#doc textarea")).toHaveCount(0);
+    await expect(page.locator("#doc .grill-q .btn")).toHaveCount(0);
+    await expect(page.locator("#doc .grill-foot")).toHaveCount(0);
+  });
+
+  test("Beside the plan still splits the document pane, left of the panel", async ({
+    page,
+    vellum,
+  }) => {
+    await asking(page, vellum);
+    await page.locator("#rail button", { hasText: "pourquoi-issue-139.md" }).click();
+    await page.locator(".tools [role=switch]", { hasText: "Beside the plan" }).click();
+
+    await expect(page.locator("#doc .pane")).toHaveCount(2);
+    expect(await rightOf(panel(page), page.locator("#doc"))).toBe(true);
+  });
+
+  test("axe finds nothing to fault on the panel, light and dark", async ({ page, vellum }) => {
+    await asking(page, vellum);
+
+    for (const colorScheme of ["light", "dark"] as const) {
+      await page.emulateMedia({ colorScheme });
+      expect(await axe(page, ".grill-panel")).toEqual([]);
+    }
+  });
 });

@@ -1,4 +1,4 @@
-import type { Page } from "@playwright/test";
+import type { Locator, Page } from "@playwright/test";
 
 import type { Vellum } from "./harness.ts";
 import { commentOn, dragText, expect, openVellum, reviewV1, test } from "./harness.ts";
@@ -78,14 +78,26 @@ test.describe("what is typed comes back after a reload", () => {
   });
 });
 
-/** A grill opened on the fixture's plan, its first round asked, the transcript shown. */
+/** The open grill's panel, beside the document pane. */
+function grillPanel(page: Page): Locator {
+  return page.getByRole("complementary", { name: "Grill" });
+}
+
+function answerField(page: Page, id: string): Locator {
+  return grillPanel(page).getByRole("textbox", { name: `Answer to ${id}` });
+}
+
+function noteField(page: Page): Locator {
+  return grillPanel(page).getByRole("textbox", { name: "Anything else for Claude" });
+}
+
+/** A grill opened on the fixture's plan, its first round asked, drawn in the panel. */
 async function roundOne(page: Page, vellum: Vellum): Promise<void> {
   await vellum.gate();
   await vellum.grill.open("Where do drafts live?");
   await vellum.grill.ask(ROUND);
   await openVellum(page, vellum);
-  await page.locator("#rail button", { hasText: "grill-2.md" }).click();
-  await expect(page.locator(".grill-q")).toHaveCount(3);
+  await expect(grillPanel(page).locator(".grill-q")).toHaveCount(3);
 }
 
 test.describe("the grill's answers", () => {
@@ -93,33 +105,25 @@ test.describe("the grill's answers", () => {
 
   test("survive a trip to another document", async ({ page, vellum }) => {
     await roundOne(page, vellum);
-    await page
-      .locator(".grill-q")
-      .nth(0)
-      .locator("textarea")
-      .fill("IndexedDB, one store per form.");
-    await page.locator(".grill-q").nth(1).locator("textarea").fill("The inspector.");
+    await answerField(page, "Q1").fill("IndexedDB, one store per form.");
+    await answerField(page, "Q2").fill("The inspector.");
     await page.locator("#rail button", { hasText: "pourquoi-issue-139.md" }).click();
-    await expect(page.locator(".grill-q")).toHaveCount(0);
-    await page.locator("#rail button", { hasText: "grill-2.md" }).click();
+    await expect(page.locator("#doc .doc-head")).toContainText("pourquoi-issue-139.md");
 
-    await expect(page.locator(".grill-q").nth(0).locator("textarea")).toHaveValue(
-      "IndexedDB, one store per form.",
-    );
-    await expect(page.locator(".grill-q").nth(1).locator("textarea")).toHaveValue("The inspector.");
+    await expect(answerField(page, "Q1")).toHaveValue("IndexedDB, one store per form.");
+    await expect(answerField(page, "Q2")).toHaveValue("The inspector.");
   });
 
   test("survive a reload, the note too", async ({ page, vellum }) => {
     await roundOne(page, vellum);
-    await page.locator(".grill-q").nth(0).locator("textarea").fill("IndexedDB.");
-    await page.locator(".grill-foot textarea").fill("Explain the issue first.");
+    await answerField(page, "Q1").fill("IndexedDB.");
+    await noteField(page).fill("Explain the issue first.");
     await expect.poll(async () => (await vellum.api("draft")).status).toBe(200);
     await page.reload();
     await page.locator(".bar .brand").waitFor();
-    await page.locator("#rail button", { hasText: "grill-2.md" }).click();
 
-    await expect(page.locator(".grill-q").nth(0).locator("textarea")).toHaveValue("IndexedDB.");
-    await expect(page.locator(".grill-foot textarea")).toHaveValue("Explain the issue first.");
+    await expect(answerField(page, "Q1")).toHaveValue("IndexedDB.");
+    await expect(noteField(page)).toHaveValue("Explain the issue first.");
   });
 
   test("go with a grill Claude closed: the approval asks about nothing", async ({
@@ -127,9 +131,9 @@ test.describe("the grill's answers", () => {
     vellum,
   }) => {
     await roundOne(page, vellum);
-    await page.locator(".grill-q").nth(1).locator("textarea").fill("The inspector.");
+    await answerField(page, "Q2").fill("The inspector.");
     await vellum.grill.close("stop");
-    await expect(page.locator(".grill-foot")).toHaveCount(0);
+    await expect(grillPanel(page)).toHaveCount(0);
     await page.getByRole("button", { name: "Approve", exact: true }).click();
 
     await expect(page.getByRole("dialog")).toHaveCount(0);
@@ -138,14 +142,14 @@ test.describe("the grill's answers", () => {
 
   test("End grill sends the two answers typed, then ends", async ({ page, vellum }) => {
     await roundOne(page, vellum);
-    await page.locator(".grill-q").nth(1).locator("textarea").fill("The inspector.");
-    await page.locator(".grill-q").nth(2).locator("textarea").fill("Every 30 s as well.");
-    await page.getByRole("button", { name: "End grill" }).click();
+    await answerField(page, "Q2").fill("The inspector.");
+    await answerField(page, "Q3").fill("Every 30 s as well.");
+    await grillPanel(page).getByRole("button", { name: "End grill" }).click();
 
-    await expect(page.locator(".grill-foot")).toHaveCount(0);
-    await expect(page.locator(".grill-q").nth(1).locator(".answer .text")).toHaveText(
-      "The inspector.",
-    );
+    await expect(grillPanel(page)).toHaveCount(0);
+    await page.locator("#rail button", { hasText: "grill-2.md" }).click();
+    const q2 = page.locator("#doc .grill-q").nth(1);
+    await expect(q2.locator(".answer .text")).toHaveText("The inspector.");
     const state = await vellum.grill.state();
     expect(JSON.stringify(state.json)).toContain("Q2: The inspector.\\n\\nQ3: Every 30 s as well.");
     expect(JSON.stringify(state.json)).toContain('"kind":"ended"');

@@ -239,44 +239,45 @@ test.describe("the grill", () => {
     await vellum.grill.open("Where do drafts live?");
     await vellum.grill.ask(ROUND_1);
     await openVellum(page, vellum);
-    await page.locator("#rail button", { hasText: "grill-2.md" }).click();
+    const panel = page.getByRole("complementary", { name: "Grill" });
     await page.route("**/api/x/grill/reply", (route) => route.fulfill({ status: 409, body: "" }));
-    await page.locator(".grill-q").nth(0).locator("textarea").fill("IndexedDB.");
-    await page.getByRole("button", { name: "Send answers" }).click();
+    await panel.getByRole("textbox", { name: "Answer to Q1" }).fill("IndexedDB.");
+    await panel.getByRole("button", { name: "Send answers" }).click();
     const banner = page.locator(".banner.err", { hasText: "refused" });
     await expect(banner).toBeVisible();
 
     await claudeSays(vellum, "Still asking.");
-    await expect(page.locator(".grill-doc .plan")).toContainText("Still asking.");
+    await expect(panel.locator(".plan")).toContainText("Still asking.");
     await expect(banner).toBeVisible();
   });
 
-  test("the sheet says Claude is working, and a round lands in view", async ({ page, vellum }) => {
+  test("the panel says Claude is working, and a round lands in view", async ({ page, vellum }) => {
     await vellum.gate();
     await vellum.grill.suggest("The coverage of the page", "three choices");
     await openVellum(page, vellum);
     await page.getByRole("dialog").getByRole("button", { name: "Start" }).click();
 
-    const working = page.locator(".grill-doc [role=status]");
+    const panel = page.getByRole("complementary", { name: "Grill" });
+    const working = panel.getByRole("status");
     await expect(working).toBeVisible();
     await expect(page.locator(".bar .status")).toHaveText("Held · grill-2.md is open");
     await vellum.grill.ask(ROUND_1);
     await claudeSays(vellum, "Round 1 is on the page.");
-    await expect(page.locator(".grill-q")).toHaveCount(3);
+    await expect(panel.locator(".grill-q")).toHaveCount(3);
     await expect(working).toHaveCount(0);
 
-    const pane = page.locator(".pane").last();
-    await pane.evaluate((element) => element.scrollTo(0, element.scrollHeight));
-    await page.locator(".grill-q").nth(2).locator("textarea").fill("On the online event only.");
-    await page.getByRole("button", { name: "Send answers" }).click();
+    const sheet = panel.locator(".grill-sheet");
+    await sheet.evaluate((element) => element.scrollTo(0, element.scrollHeight));
+    await panel.getByRole("textbox", { name: "Answer to Q3" }).fill("On the online event only.");
+    await panel.getByRole("button", { name: "Send answers" }).click();
     await expect(working).toBeVisible();
     await vellum.grill.ask(ROUND_2);
     await claudeSays(vellum, "Round 2 is on the page.");
-    await expect(page.locator(".grill-q")).toHaveCount(6);
+    await expect(panel.locator(".grill-q")).toHaveCount(6);
 
-    const q4 = await boxOf(page.locator(".grill-q").nth(3));
-    const foot = await boxOf(page.locator(".grill-foot"));
-    const window = await boxOf(pane);
+    const q4 = await boxOf(panel.locator(".grill-q").nth(3));
+    const foot = await boxOf(panel.locator(".grill-foot"));
+    const window = await boxOf(sheet);
     expect(q4.y).toBeGreaterThanOrEqual(window.y - 1);
     expect(q4.y + 40).toBeLessThanOrEqual(foot.y);
   });

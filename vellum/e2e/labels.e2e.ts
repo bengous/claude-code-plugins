@@ -253,12 +253,13 @@ test.describe("beside the plan", () => {
     await vellum.grill.ask(ROUND_1);
     await openVellum(page, vellum);
     await page.locator("#rail button", { hasText: "grill-2.md" }).click();
-    await expect(page.locator(".grill-q")).toHaveCount(2);
+    await expect(page.locator("#doc .grill-q")).toHaveCount(2);
   }
 
   test("the general box comments the plan, not the transcript", async ({ page, vellum }) => {
     await grilling(page, vellum);
     await page.locator(".tools [role=switch]", { hasText: "Beside the plan" }).click();
+    await page.locator(".handle.right").click();
     await expect(page.locator(".global label")).toHaveText("Comment on Plan v1");
     await page.locator("#global").fill("The plan says nothing of the issue.");
     await page.getByRole("button", { name: "Add comment" }).click();
