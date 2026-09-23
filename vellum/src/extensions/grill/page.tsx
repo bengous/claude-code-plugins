@@ -604,19 +604,15 @@ function OpenGrill(props: {
   };
 
   const round = useRef<HTMLDivElement>(null);
-  const openBefore = useRef(0);
+  const firstOpen = open[0] ?? null;
 
-  // A round that lands, or leaves, shows its first open question again: the pick was the last round's.
+  // A round that lands, or leaves, moves the first open question: the pick was the last round's.
   useEffect(() => {
-    const landed = openBefore.current === 0 && open.length > 0;
-    const left = openBefore.current > 0 && open.length === 0;
-    openBefore.current = open.length;
-
-    if (landed || left) setPicked(null);
+    setPicked(null);
 
     // The reviewer reads at the bottom, under the foot: the round comes into view.
-    if (landed) round.current?.scrollIntoView({ block: "start" });
-  }, [open.length]);
+    if (firstOpen !== null) round.current?.scrollIntoView({ block: "start" });
+  }, [firstOpen]);
 
   return (
     <aside class="grill-panel" aria-label="Grill">

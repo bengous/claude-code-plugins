@@ -759,6 +759,24 @@ test.describe("a round in the panel", () => {
     expect(JSON.stringify((await vellum.grill.state()).json).split("Keep it.")).toHaveLength(2);
   });
 
+  test("a round that lands as many questions as the last shows its first, not the last pick", async ({
+    page,
+    vellum,
+  }) => {
+    await asking(page, vellum);
+    await chip(page, "Q2").click();
+    await page.route("**/api/x/grill/blocks*", (route) => route.fulfill({ status: 500 }));
+    const replied = page.waitForResponse("**/api/x/grill/reply");
+    await sendRound(page).click();
+    await replied;
+    await vellum.grill.ask(ROUND);
+    await page.unroute("**/api/x/grill/blocks*");
+    vellum.writeFile("notes.md", "One.");
+    await expect(chips(page)).toHaveCount(4);
+
+    await expect(shown(page).locator(".num")).toHaveText("Q3");
+  });
+
   test("Claude's text between rounds still reads in the panel", async ({ page, vellum }) => {
     await asking(page, vellum);
     await claudeSays(vellum, "Round 1 is on the page.");
