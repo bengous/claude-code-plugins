@@ -576,8 +576,15 @@ test.describe("the band", () => {
     await asking(page, vellum);
     await panel(page).getByRole("button", { name: "Send answers" }).click();
 
-    await expect(band(page).locator(".count")).toHaveCount(0);
+    await expect(band(page).locator(".count")).toHaveText("");
     await expect(band(page).locator(".subject")).toHaveText(`Grill · ${SUBJECT}`);
+  });
+
+  test("its live region is the count alone, never End grill", async ({ page, vellum }) => {
+    await asking(page, vellum);
+
+    await expect(band(page).getByRole("status")).toHaveText("2 questions waiting");
+    await expect(page.getByRole("status").filter({ hasText: "End grill" })).toHaveCount(0);
   });
 
   test("its End grill, the page's one, sends what is typed, then ends", async ({

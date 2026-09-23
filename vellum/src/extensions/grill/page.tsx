@@ -257,11 +257,14 @@ function GrillBand(props: {
   const [ending, setEnding] = useState(false);
 
   return (
-    <div class="grill-band" role="status">
+    <div class="grill-band">
       <span class="subject" title={subject}>
         Grill · {subject}
       </span>
-      {waiting !== null && <span class="count">{waiting}</span>}
+      {/* The band's one live region, drawn empty with no question waiting: a status added with its text is not read out. */}
+      <span class="count" role="status">
+        {waiting}
+      </span>
       <Button
         size="sm"
         disabled={blocks === null || ending}
