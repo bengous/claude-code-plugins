@@ -777,6 +777,19 @@ test.describe("a round in the panel", () => {
     await expect(shown(page).locator(".num")).toHaveText("Q3");
   });
 
+  test("a question Claude gave no recommendation offers Your answer alone", async ({
+    page,
+    vellum,
+  }) => {
+    await vellum.grill.open(SUBJECT);
+    await vellum.grill.ask([["Store", "Which store?", ""]]);
+    await openVellum(page, vellum);
+    await expect(chips(page)).toHaveCount(1);
+
+    await expect(shown(page).getByRole("radio")).toHaveCount(0);
+    await expect(shown(page).getByRole("textbox", { name: "Your answer to Q1" })).toBeVisible();
+  });
+
   test("Claude's text between rounds still reads in the panel", async ({ page, vellum }) => {
     await asking(page, vellum);
     await claudeSays(vellum, "Round 1 is on the page.");

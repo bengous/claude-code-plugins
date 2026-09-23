@@ -396,6 +396,35 @@ function OpenQuestion(props: OpenQuestionProps): preact.JSX.Element {
   const mine = own.trim() !== "";
   const name = `grill-${block.id}`;
 
+  const answerField = (
+    <textarea
+      ref={field}
+      id={`${name}-field`}
+      aria-label={`Your answer to ${block.id}`}
+      value={own}
+      onInput={(event) => {
+        setChoice("own");
+        props.onType(event.currentTarget.value);
+      }}
+      onKeyDown={(event) => {
+        if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) props.onSend();
+      }}
+    />
+  );
+
+  // With no recommendation there is nothing to choose: "As recommended." would name none.
+  if (block.rec === "") {
+    return (
+      <div class="grill-q">
+        <QuestionHead block={block} />
+        <div class="grill-choice alone">
+          <label for={`${name}-field`}>Your answer</label>
+          {answerField}
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div class="grill-q">
       <QuestionHead block={block} />
@@ -407,7 +436,7 @@ function OpenQuestion(props: OpenQuestionProps): preact.JSX.Element {
             name={name}
             checked={recommended}
             disabled={mine}
-            aria-describedby={block.rec === "" ? undefined : `${name}-rec-text`}
+            aria-describedby={`${name}-rec-text`}
             onClick={() => {
               setChoice("recommended");
               props.onType(AS_RECOMMENDED);
@@ -419,14 +448,12 @@ function OpenQuestion(props: OpenQuestionProps): preact.JSX.Element {
           >
             Recommended
           </label>
-          {block.rec !== "" && (
-            // oxlint-disable-next-line react/no-danger -- as the question: rendered by `toHtml` in grill/server.ts.
-            <div
-              id={`${name}-rec-text`}
-              class="text"
-              dangerouslySetInnerHTML={{ __html: block.rec }}
-            />
-          )}
+          {/* oxlint-disable-next-line react/no-danger -- as the question: rendered by `toHtml` in grill/server.ts. */}
+          <div
+            id={`${name}-rec-text`}
+            class="text"
+            dangerouslySetInnerHTML={{ __html: block.rec }}
+          />
         </div>
         <div class="grill-choice">
           <input
@@ -441,18 +468,7 @@ function OpenQuestion(props: OpenQuestionProps): preact.JSX.Element {
             }}
           />
           <label for={`${name}-own`}>Your answer</label>
-          <textarea
-            ref={field}
-            aria-label={`Your answer to ${block.id}`}
-            value={own}
-            onInput={(event) => {
-              setChoice("own");
-              props.onType(event.currentTarget.value);
-            }}
-            onKeyDown={(event) => {
-              if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) props.onSend();
-            }}
-          />
+          {answerField}
         </div>
       </div>
     </div>

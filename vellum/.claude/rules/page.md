@@ -248,7 +248,7 @@ no build step, so what the page imports costs nothing at `cli start`.
   the one `.waiting` line it already had. No other renderer has that state: a grill's transcript
   whose blocks failed to load stays an empty sheet under the notice. The grill's panel draws the
   transcript's text, then every round's questions as chips over the one question they pick, an
-  open one with its two choices, an answered one read-only (`roundsOf` in `grill/rounds.ts`,
+  open one with its two choices, or its field alone when Claude gave no recommendation, an answered one read-only (`roundsOf` in `grill/rounds.ts`,
   pure, on the blocks as served); its send says how many open questions it takes as
   recommended. Send round and End grill wait on one reply (`replying`), from the click until the
   transcript shows it, so neither sends what is typed twice nor over blocks read before it. While Claude works on a round the panel carries a `role="status"` line, and a

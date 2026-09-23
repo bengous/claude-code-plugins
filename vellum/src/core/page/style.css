@@ -330,6 +330,8 @@ iframe { border: 0; width: 100%; height: 100%; display: block; background: var(-
 .grill-choice label { font: 650 var(--t-12)/1.4 var(--serif); color: var(--graphite); cursor: pointer; }
 .grill-choice input:disabled + label { cursor: not-allowed; }
 .grill-choice .text, .grill-choice textarea { grid-column: 2; }
+.grill-choice.alone { grid-template-columns: 1fr; }
+.grill-choice.alone textarea { grid-column: 1; }
 .grill-choice .text p { margin: 0; }
 .grill-choice .text p + p { margin-top: var(--s-2); }
 .grill-nav { display: flex; align-items: center; gap: var(--s-2); }
