@@ -49,6 +49,16 @@ const SKIPPED = e2eRun(15, 105, "completed", "skipped");
 
 const VALIDATE: CheckRun = { ...GREEN, id: 100, name: "validate" };
 
+const WINDOW_RUNNING: CheckRun = {
+  ...e2eRun(16, 106, "in_progress", null),
+  name: "e2e (light-1024)",
+};
+
+const WINDOW_RED: CheckRun = {
+  ...e2eRun(17, 107, "completed", "failure"),
+  name: "e2e (light-1024)",
+};
+
 function listed(...runs: CheckRun[]): CheckRuns {
   return { kind: "listed", runs };
 }
@@ -199,6 +209,28 @@ describe("refusalFor", () => {
       reason: "it has no green e2e check run (found: failure, cancelled)",
       next: "Re-run its red windows and the e2e after them: gh run rerun 13 --failed.",
     });
+  });
+
+  test("waits for a window still in progress, e2e not created yet", () => {
+    expect(refusalFor(listed(SKIPPED, WINDOW_RUNNING))).toEqual({
+      reason: "it has no green e2e check run (found: skipped)",
+      next: "Wait for the run in progress: gh run watch 16.",
+    });
+  });
+
+  test("waits for a window re-running after a red e2e", () => {
+    expect(
+      refusalFor(listed(FAILED, { ...WINDOW_RUNNING, detailsUrl: FAILED.detailsUrl })),
+    ).toEqual({
+      reason: "it has no green e2e check run (found: failure)",
+      next: "Wait for the run in progress: gh run watch 13.",
+    });
+  });
+
+  test("reads a red window as no e2e run", () => {
+    expect(refusalFor(listed(WINDOW_RED))?.next).toStartWith(
+      `Start a run on that commit: ${START_A_RUN}`,
+    );
   });
 
   test("refuses a run in progress that links no workflow run, naming it", () => {

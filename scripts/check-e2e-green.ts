@@ -19,6 +19,8 @@ const DEV = "refs/heads/dev";
 
 const CHECK = "e2e";
 
+const WINDOW = /^e2e \(.+\)$/u;
+
 const START_A_RUN =
   "gh pr edit <branch> --add-label e2e, <branch> being the branch of its pull request, or gh workflow run ci.yml --ref <branch> for a branch with none";
 
@@ -121,7 +123,11 @@ export function refusalFor(checkRuns: CheckRuns): Refusal | null {
 
   const found = runs.map((run) => run.conclusion ?? run.status).join(", ");
   const reason = `it has no green ${CHECK} check run (found: ${found === "" ? "none" : found})`;
-  const running = runs.find((run) => run.status !== "completed");
+
+  // `e2e` is created once every window is done: until then, a window's run is the one going.
+  const running = checkRuns.runs.find(
+    (run) => (run.name === CHECK || WINDOW.test(run.name)) && run.status !== "completed",
+  );
 
   if (running !== undefined) {
     return {

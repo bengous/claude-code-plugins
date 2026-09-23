@@ -98,8 +98,8 @@ jobs:
 
   # Vellum's browser suite, `vellum/e2e/*.e2e.ts`: a job per window of `WINDOWS` in
   # `vellum/e2e/playwright.config.ts`, since it wants a Chromium and takes seconds per file.
-  # `scripts/e2e-windows.test.ts` holds the list equal to the config's. `check-lint-config.ts`
-  # reads `validate` alone.
+  # `scripts/e2e-windows.test.ts` holds the list equal to the config's. `check-e2e-green.ts`
+  # reads a running `e2e (<window>)` by that name. `check-lint-config.ts` reads `validate` alone.
   e2e-window:
     name: e2e (${{ matrix.window }})
     if: >-
@@ -132,6 +132,8 @@ jobs:
         run: bunx --bun playwright install --with-deps chromium
         working-directory: vellum
 
+      # 4 workers, not Playwright's default of half the runner's 4 vCPU: measured faster in #194
+      # (`docs/repo-ops/checks.md`, Which suite runs on which trigger).
       - name: Run the browser suite at one window
         run: bun run --cwd vellum e2e -- --project=${{ matrix.window }} --workers=4
 
