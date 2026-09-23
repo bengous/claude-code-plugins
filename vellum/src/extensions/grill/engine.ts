@@ -94,7 +94,10 @@ const SUGGEST: ExtensionTool = {
   call: async (context, input): Promise<ToolAnswer> => {
     const suggestion = parseSuggestion(input);
 
-    if (suggestion === null) return { deny: "subject and reason must both be non-empty strings" };
+    if (suggestion === null) {
+      return { deny: "subject and reason must both be non-empty strings, the subject on one line" };
+    }
+
     const response = await post(context, "suggest", suggestion);
 
     if (response.ok) {

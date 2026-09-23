@@ -122,7 +122,7 @@ export function Proposal(props: ProposalProps): preact.JSX.Element | null {
         onInput={(event) => {
           subjectTyped.value = {
             id,
-            text: event.currentTarget.value.replaceAll(/\s*\n\s*/gu, " "),
+            text: event.currentTarget.value.replaceAll(/\s*[\n\r\u2028\u2029]\s*/gu, " "),
           };
         }}
         onKeyDown={(event) => {

@@ -59,7 +59,8 @@ the engine events the core hands it, and its segment of the band above the promp
   `<id>/engine.test.ts`, its fake routes `<id>/fixtures/`: the core's world serves none.
 - A file whose structure is read off its lines never takes a text as it comes: `grill`'s
   transcript quotes Claude's text (`quoted` in `transcript.ts`), or a heading typed in an answer
-  speaks for the reviewer, opens a round or closes the grill.
+  speaks for the reviewer, opens a round or closes the grill. A text written as one line, a
+  grill's subject in its header, is refused at the parser when it holds a line break.
 - An extension with states, rounds or a lifecycle starts with a table, before any code: the
   states, the events, and one owner per fact. The server owns what is allowed and says it
   through `holds`; the module owns whether a server and a lock exist; a file owns its content.

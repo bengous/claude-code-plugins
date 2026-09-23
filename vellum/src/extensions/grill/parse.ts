@@ -33,6 +33,9 @@ export type Polled =
 /** No leading zero: `grillFile(grillNumber(name))` must give the name back, or the transcript read is not the one listed. */
 const GRILL_FILE = /^grill-([1-9]\d*)\.md$/u;
 
+/** Every break a multiline pattern's `^` matches after: a subject holding one could forge a block of the transcript. */
+const LINE_BREAK = /[\n\r\u2028\u2029]/u;
+
 /** What `POST ask` and `POST reply` refuse with; the engine reads it to name the way to a grill. */
 export const NO_GRILL_OPEN = "no grill is open";
 
@@ -67,14 +70,21 @@ function text(value: unknown): string | null {
   return typeof value === "string" && value.trim() !== "" ? value.trim() : null;
 }
 
-/** `POST open`: the subject the reviewer typed, never empty. */
+/** A subject, never empty and on one line: the transcript's header writes it as one. */
+function subjectText(value: unknown): string | null {
+  const subject = text(value);
+
+  return subject === null || LINE_BREAK.test(subject) ? null : subject;
+}
+
+/** `POST open`: the subject the reviewer typed. */
 export function parseSubject(body: unknown): string | null {
-  return isRecord(body) ? text(body.subject) : null;
+  return isRecord(body) ? subjectText(body.subject) : null;
 }
 
 /** A `grill_suggest` call and `POST suggest`: a subject and a reason, neither empty. */
 export function parseSuggestion(input: unknown): Suggested | null {
-  const subject = isRecord(input) ? text(input.subject) : null;
+  const subject = isRecord(input) ? subjectText(input.subject) : null;
   const reason = isRecord(input) ? text(input.reason) : null;
 
   return subject === null || reason === null ? null : { subject, reason };

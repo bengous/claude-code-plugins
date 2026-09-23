@@ -190,6 +190,18 @@ test("the Grill button with no proposal opens it blank, Start greyed until a sub
   await expect(page.locator(".bar .status")).toHaveText("Held · grill-2.md is open");
 });
 
+test("a subject typed over lines is one line, as the transcript's header", async ({
+  page,
+  vellum,
+}) => {
+  await openVellum(page, vellum);
+  await grillButton(page).click();
+  const field = page.getByRole("dialog", { name: "Start a grill" }).getByRole("textbox");
+  await field.fill("Where do\ndrafts live?");
+
+  await expect(field).toHaveValue("Where do drafts live?");
+});
+
 test("a proposal landing on the blank modal leaves it as typed, and waits on the dot", async ({
   page,
   vellum,

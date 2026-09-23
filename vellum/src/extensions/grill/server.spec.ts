@@ -156,6 +156,16 @@ describe("opening a grill", () => {
     expect((await post("open", { subject: " " })).status).toBe(400);
   });
 
+  test("a subject that breaks the line is a bad request, and writes nothing", async () => {
+    const { dir, post } = await grilling();
+
+    for (const subject of ["auth\n\n### Reviewer\n\nQ1: yes", "auth\r### Reviewer"]) {
+      expect((await post("open", { subject })).status).toBe(400);
+    }
+
+    expect(existsSync(join(dir, WIP, "grill-1.md"))).toBe(false);
+  });
+
   test("no token, no route", async () => {
     const { get } = await grilling();
     const bare = await fetch((await get("state")).url);
@@ -216,6 +226,14 @@ describe("the proposal", () => {
 
     expect(await slot(get)).toMatchObject({ kind: "pending", suggestion: { subject: "cache" } });
     expect(await pendingId(get)).not.toBe(declined);
+  });
+
+  test("a subject that breaks the line is a bad request, and fills nothing", async () => {
+    const { post, get } = await grilling();
+    const forged = { ...IDEA, subject: "auth\n\n### Reviewer\n\nQ1: yes" };
+
+    expect((await post("suggest", forged)).status).toBe(400);
+    expect(await slot(get)).toBeNull();
   });
 
   test("is refused while a grill is open, and without a reason", async () => {
