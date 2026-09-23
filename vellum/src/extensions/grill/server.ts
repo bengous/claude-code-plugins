@@ -145,7 +145,7 @@ function ended(doc: string, reason: string): string {
 async function holds(context: ServerContext): Promise<string | null> {
   const open = await openGrill(context);
 
-  return open === null ? null : "a grill is open";
+  return open === null ? null : `grill ${open.n} is open`;
 }
 
 /** Runs inside the review's queue, after the rename: the footer lands in the final directory, module alive or not. */

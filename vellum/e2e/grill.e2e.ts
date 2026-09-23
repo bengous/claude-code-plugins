@@ -250,7 +250,7 @@ test("the Grill button with no proposal opens it blank, Start greyed until a sub
   await expect(start).toBeDisabled();
   await blank.getByPlaceholder("What should Claude grill you on?").fill("Where do drafts live?");
   await start.click();
-  await expect(page.locator(".bar .status")).toHaveText("Held · a grill is open");
+  await expect(page.locator(".bar .status")).toHaveText("Held · grill 2 is open");
 });
 
 test("a subject typed over lines is one line, as the transcript's header", async ({

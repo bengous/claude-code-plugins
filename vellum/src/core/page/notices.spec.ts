@@ -98,7 +98,7 @@ describe("noticesOf", () => {
 
   test("a held review draws no notice: the pill and Send feedback's title carry the reason", () => {
     // @ts-expect-error -- the core's notices take no hold: the pill, Send feedback's title and the holder's own notice say it.
-    expect(keys({ ...quiet, held: "a grill is open" })).toEqual([]);
+    expect(keys({ ...quiet, held: "grill 1 is open" })).toEqual([]);
   });
 
   test("the workspace's own notice: a failed rename retries, a feedback waits, an approval names the folder", () => {
@@ -152,7 +152,7 @@ describe("statusOf", () => {
     [drafting, null, "Drafting", "neutral"],
     [{ ...drafting, batches: 2 }, null, "Drafting · 2 sent", "neutral"],
     [inReview, null, "In review", "neutral"],
-    [inReview, "a grill is open", "Held · a grill is open", "neutral"],
+    [inReview, "grill 1 is open", "Held · grill 1 is open", "neutral"],
     [{ ...inReview, finalizeError: "EACCES" }, null, "Approval failed", "err"],
     [changesRequested, null, "Feedback sent", "sent"],
     [approved, null, "Approved", "ok"],
@@ -206,9 +206,9 @@ describe("decisionsOf", () => {
   });
 
   test("a hold greys the feedback alone, with the reason", () => {
-    const { approve, feedback } = decisionsOf({ ...live, held: "a grill is open" });
+    const { approve, feedback } = decisionsOf({ ...live, held: "grill 1 is open" });
     expect(approve.disabled).toBe(false);
-    expect(feedback).toEqual({ disabled: true, title: "a grill is open; end it first" });
+    expect(feedback).toEqual({ disabled: true, title: "grill 1 is open; end it first" });
   });
 
   test("nothing to send greys the feedback, and names what to do, the typed text included", () => {

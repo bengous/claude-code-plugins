@@ -25,7 +25,7 @@ const NOTE = {
   mark: { kind: "comment", body: "no" },
 };
 
-const HELD = "a grill is open: the plan is submitted once the reviewer ends it";
+const HELD = "grill 1 is open: the plan is submitted once the reviewer ends it";
 
 const running: Started[] = [];
 
@@ -368,7 +368,16 @@ describe("an open grill holds the review", () => {
     expect(refused.status).toBe(409);
     expect(await refused.json()).toEqual({ error: HELD });
     expect(existsSync(join(dir, WIP, ".review/v1.md"))).toBe(false);
-    expect((await view()).held).toBe("a grill is open");
+    expect((await view()).held).toBe("grill 1 is open");
+  });
+
+  test("each grill holds it under its own number, so the page can tell a second hold from the first", async () => {
+    const { post, view } = await grilling();
+    await post("open", { subject: "auth" });
+    await post("close", { reason: "page" });
+    await post("open", { subject: "again" });
+
+    expect((await view()).held).toBe("grill 2 is open");
   });
 
   test("a drafting comment and a feedback are refused, until the reviewer ends the grill", async () => {

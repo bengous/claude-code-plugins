@@ -426,11 +426,11 @@ describe("a review an extension holds", () => {
     const hold = holding();
     const { review, root } = setup([hold.extension]);
     writeFileSync(join(root, WIP, "plan.md"), PLAN);
-    hold.reason = "a grill is open";
+    hold.reason = "grill 1 is open";
 
     expect(await review.gate()).toEqual({
       ok: false,
-      error: "a grill is open: the plan is submitted once the reviewer ends it",
+      error: "grill 1 is open: the plan is submitted once the reviewer ends it",
     });
     expect(existsSync(join(root, WIP, ".review/v1.md"))).toBe(false);
   });
@@ -438,13 +438,13 @@ describe("a review an extension holds", () => {
   test("a feedback is refused, under review and while drafting alike", async () => {
     const hold = holding();
     const { review, root } = setup([hold.extension]);
-    hold.reason = "a grill is open";
+    hold.reason = "grill 1 is open";
 
     expect((await review.decide(SAY_NO)).ok).toBe(false);
     hold.reason = null;
     writeFileSync(join(root, WIP, "plan.md"), PLAN);
     await review.gate();
-    hold.reason = "a grill is open";
+    hold.reason = "grill 1 is open";
 
     expect((await review.decide(SAY_NO)).ok).toBe(false);
     expect(existsSync(join(root, WIP, ".review/v1.feedback.md"))).toBe(false);
@@ -453,9 +453,9 @@ describe("a review an extension holds", () => {
   test("the view carries the reason, and `null` once nothing holds", async () => {
     const hold = holding();
     const { review } = setup([hold.extension]);
-    hold.reason = "a grill is open";
+    hold.reason = "grill 1 is open";
 
-    expect((await review.view()).held).toBe("a grill is open");
+    expect((await review.view()).held).toBe("grill 1 is open");
     hold.reason = null;
 
     expect((await review.view()).held).toBeNull();
@@ -466,7 +466,7 @@ describe("a review an extension holds", () => {
 
     const closer: ServerExtension = {
       id: "closer",
-      holds: () => Promise.resolve("a grill is open"),
+      holds: () => Promise.resolve("grill 1 is open"),
       approved: async (context) => void seen.push((await context.workspace()).dir),
     };
 
