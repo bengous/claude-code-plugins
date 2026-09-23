@@ -202,7 +202,7 @@ describe("the band above the prompt", () => {
 });
 
 describe("grill_ask", () => {
-  test("a tool $.tool.register registered is served by the unmatched tool.call hook", async ($, on) => {
+  test("a tool $.tool.register registered is served by the extensions' tool.call hook", async ($, on) => {
     const grill = grillRoutes(() => openGrill("Reviewer: x"), {
       ask: () => reply(200, { first: 3, last: 3 }),
     });

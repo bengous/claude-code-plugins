@@ -52,6 +52,16 @@ loop. `/vellum:start` enters it, Approve in the page or `/vellum:stop` leaves it
   is written" signal), served by a `tool.call` hook that answers without `next`. Its matcher
   must be a string literal, or `claude plugin validate` prints the expression instead of the
   name.
+- A hook of vellum's targets vellum's own tools. A hook with no matcher applies to every agent
+  of the session, subagents included, from the module's load, whether the mode is live or not.
+  An unmatched `tool.call` hook wraps every tool call, and a worktree-isolated agent's shell
+  loses its working directory inside it ([Hook runtime](../../../docs/plugin-testing/hook-runtime.md)
+  § Tools, commands and modes), so every `tool.call` hook names its tools, each as a string:
+  a RegExp in the list runs the hook for every call in a live session, though the kit honours
+  it. A built-in the generated contract lacks (`AskUserQuestion`) is written as a string under
+  a `@ts-expect-error`, which fails the typecheck the day the contract names it. The lock is the one
+  unmatched tool hook left: it must see every file tool, and a `tool.check` hook leaves
+  isolation whole.
 - The way out is the skill `vellum:stop`, closed on its own `skill.prompt` hook, not
   `$.command.register`: a registered command takes the global namespace (`/stop`), and
   `disable-model-invocation` keeps this one the reviewer's to run. The hook appends its line
@@ -146,9 +156,11 @@ loop. `/vellum:start` enters it, Approve in the page or `/vellum:stop` leaves it
   unmatched hook per event. `register.ts` keeps every event and hands it to the engine halves in
   registry order, each with an `EngineContext` (`Host`, `Live`, its own routes on the server),
   never `$`. A half that throws is logged and the next one runs. Its tools are registered at
-  `session.start` and served by the one unmatched `tool.call` hook, which dispatches on
-  `e.tool`, since a matcher must be a literal written in `register.ts`; the same hook denies
-  what a half `refuses` while `live`. The poll runs the halves' `tick` after its own relay,
+  `session.start` and served by the extensions' `tool.call` hook, which dispatches on
+  `e.tool`; the same hook denies what a half `refuses` while `live`. Its matcher is a literal
+  written in `register.ts` that lists every half's tools and refusals, and `register.spec.ts`
+  holds it equal to the registry, so a half's new tool fails that suite until the literal
+  names it. The poll runs the halves' `tick` after its own relay,
   handed to `mode.ts` as `ticks` the way `settle` is. `closing` is `/vellum:stop` alone: an
   approval is closed on the server, by the extension's `approved`, so a suspended module leaves
   nothing open.

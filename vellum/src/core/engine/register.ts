@@ -292,29 +292,35 @@ export const register: Register = (on) => {
     return submitResult(await submitPlan(hostOf($), state.live, "record").catch(() => UNREACHABLE));
   });
 
-  // The extensions' tools and refusals share the one unmatched hook the engine allows: a
-  // matcher must be a literal written in this file, and an extension's tool name is not one.
-  on("tool.call", async ($, e, next) => {
-    // The generated contract's tool names predate AskUserQuestion, so the name is read as a string.
-    const name: string = e.tool;
-    const owned = EXTENSION_TOOLS.find(({ tool }) => `mcp__vellum__${tool.name}` === name);
+  // Matched, never open: an unmatched `tool.call` hook wraps every tool call of every agent in
+  // the session, and a worktree-isolated agent's shell loses its working directory inside it.
+  // The literal is the registry's tools and refusals, held equal to it by `register.spec.ts`.
+  on(
+    "tool.call",
+    // @ts-expect-error -- the generated contract's tool names predate AskUserQuestion, and a RegExp in the list runs the hook for every tool call in a live session.
+    { tool: ["mcp__vellum__grill_suggest", "mcp__vellum__grill_ask", "AskUserQuestion"] },
+    async ($, e, next) => {
+      // The generated contract's tool names predate AskUserQuestion, so the name is read as a string.
+      const name: string = e.tool;
+      const owned = EXTENSION_TOOLS.find(({ tool }) => `mcp__vellum__${tool.name}` === name);
 
-    if (owned !== undefined) {
-      if (state.kind === "idle") return { deny: NOT_PLANNING };
+      if (owned !== undefined) {
+        if (state.kind === "idle") return { deny: NOT_PLANNING };
 
-      if (state.kind === "lost") return { deny: UNREACHABLE.error };
+        if (state.kind === "lost") return { deny: UNREACHABLE.error };
 
-      return await owned.tool.call(contextOf(hostOf($), state.live, owned.extension), e);
-    }
+        return await owned.tool.call(contextOf(hostOf($), state.live, owned.extension), e);
+      }
 
-    if (state.kind !== "live") return next(e);
+      if (state.kind !== "live") return next(e);
 
-    const refusal = engineExtensions
-      .map((extension) => extension.refuses?.[name])
-      .find((reason) => reason !== undefined);
+      const refusal = engineExtensions
+        .map((extension) => extension.refuses?.[name])
+        .find((reason) => reason !== undefined);
 
-    return refusal === undefined ? next(e) : { deny: refusal };
-  });
+      return refusal === undefined ? next(e) : { deny: refusal };
+    },
+  );
 
   // Vellum's own relays come through here too: `$.prompt.submit` skips the calling hook alone.
   // The server already wrote what they carry, so an extension never hears of them.

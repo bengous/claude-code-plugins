@@ -7,7 +7,8 @@ paths:
 
 # Tests
 
-- Three suffixes, three runners: `*.spec.ts` for the server's and the page's `bun:test` suites,
+- Three suffixes, three runners: `*.spec.ts` for the `bun:test` suites (the server's, the
+  page's, and `src/core/engine/register.spec.ts`, which reads `register.ts` as text),
   `*.test.ts` for the hooks module's kit tests, in `src/core/engine/` and, for an engine half,
   `src/extensions/<id>/engine.test.ts`, and `*.e2e.ts` for the browser suite in `e2e/`, which
   Playwright runs (`bun run --cwd vellum e2e`) and neither of the other two collects. `claude plugin

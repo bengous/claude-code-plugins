@@ -263,11 +263,14 @@ yet.
 
 ### What the engine allows
 
-Claude Code takes one hooks module per plugin and one hook per event in it, so an extension
+Claude Code takes one hooks module per plugin and one hook per event and matcher in it, so an extension
 never calls `on(...)`: `core/engine/register.ts` keeps every event and calls the extensions'
 handlers, imported by value through `../../extensions/engine.ts`, each handed a `Host`. A
-`tool.call` matcher must be a literal written in `register.ts`, so the extensions' tools go
-through the one unmatched `tool.call` hook, which dispatches on `e.tool`. The engine rule of
+hook of vellum's targets vellum's own tools: a hook with no matcher applies to every agent of
+the session, and an unmatched `tool.call` hook takes the working directory from every
+worktree-isolated agent's shell. So the extensions' tools and refusals go through one
+`tool.call` hook whose matcher lists them, a literal written in `register.ts` as a matcher must
+be, held equal to the registry by `register.spec.ts`; the hook dispatches on `e.tool`. The engine rule of
 `boundaries.spec.ts` allows siblings alone, and that one registry for `register.ts`. No module path may leave the plugin, so no third party ever has an
 engine half: no dynamic loading, no versioned API. The measurements, which hold for every
 plugin: [Hook tests](../../docs/plugin-testing/hooks.md).

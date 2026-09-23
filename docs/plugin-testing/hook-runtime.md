@@ -106,6 +106,20 @@
   `disable-model-invocation: true` so only the person runs it, closed on the
   plugin's own `skill.prompt` hook.
 
+- A `tool.call` hook with no matcher breaks worktree isolation, in every
+  session where its plugin is enabled, from the module's load. It wraps every
+  tool call of every agent, and a subagent spawned with `isolation: worktree`
+  runs its Bash inside the hook's `next(e)`, where the engine loses the agent's
+  working directory: each call is refused ("The working-directory isolation
+  context for this agent was lost"), and the debug log reads `[worktree]
+  blocked shell exec after cwd-override loss`. A module whose one hook is
+  `on("tool.call", ($, e, next) => next(e))` is enough; the same session
+  without it runs the agent's `pwd` under `.claude/worktrees/agent-…`. A
+  matcher that lists the plugin's tools as strings leaves isolation whole, and
+  so does an unmatched `tool.check` hook. A RegExp in that list does not: the
+  kit honours it, but a live session ran the hook for every tool call.
+  Measured in `claude -p` sessions, one isolated subagent running `pwd`.
+
 - A registered tool's result text is what the model acts on:
   `Plan vN is under review in the browser. End your turn; the review arrives
   as a prompt.` ended Opus 5's turn every time. `vellum` now answers the
@@ -151,8 +165,8 @@ absent from the public docs: the `.d.ts` is their only reference.
   `tool.call` hook on that name serves it by returning `{ result }` without
   `next`, and a call no hook answers fails. An unmatched `tool.call` hook that
   compares `e.tool` serves it as well (measured in the kit, `claude plugin
-  test`), which is how a module serves tools whose names are not literals in
-  its registering file. `$.command.register`
+  test`), but breaks worktree isolation (§ Tools, commands and modes): list
+  the names in a matcher instead. `$.command.register`
   (`CommandSpec`) declares `/<name>`, served by a `command.run` hook returning
   `{ text }`. Both reject until `session.start`, whose first raise is awaited,
   so registering there lists them by turn one (`'session.start'`). `/clear`
