@@ -282,6 +282,12 @@ iframe { border: 0; width: 100%; height: 100%; display: block; background: var(-
 .grill-subject { display: block; width: 100%; field-sizing: content; resize: none; font: 600 var(--t-20)/1.25 var(--serif); padding: 2px 0 var(--s-1); border: 0; border-radius: 0; border-bottom: 2px dashed var(--ask); background: transparent; color: var(--ink); }
 .grill-subject:focus { outline: none; border-bottom-style: solid; }
 .grill-subject::placeholder { font-style: italic; font-weight: 400; }
+.grill-band { display: flex; align-items: center; gap: var(--s-3); padding: var(--s-2) var(--s-3); background: var(--ask); color: var(--sheet); font-size: var(--t-14); }
+.grill-band .subject { flex: 1; font-weight: 650; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.grill-band .count { flex: none; white-space: nowrap; font-size: var(--t-13); }
+.grill-band .btn { flex: none; border-color: color-mix(in oklab, var(--sheet) 60%, transparent); color: var(--sheet); }
+.grill-band .btn:hover:not(:disabled) { background: color-mix(in oklab, var(--sheet) 16%, var(--ask)); }
+.grill-band .btn:focus-visible { outline-color: var(--sheet); }
 .grill-panel { width: var(--grill-width); flex: none; display: flex; flex-direction: column; border-left: 1px solid var(--rule); background: var(--tint); padding-inline: var(--gutter-start) var(--gutter-end); }
 .grill-sheet { flex: 1; min-height: 0; overflow: auto; display: flex; flex-direction: column; scroll-padding-bottom: var(--grill-foot); }
 .grill-panel .plan { flex: 1; padding: var(--s-4) var(--s-4) var(--s-6); }

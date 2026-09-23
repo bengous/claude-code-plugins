@@ -15,7 +15,7 @@ import {
   typed,
 } from "../../core/page/state.ts";
 import type { Typed } from "../../core/protocol.ts";
-import { declineFailure, footerOf } from "./labels.ts";
+import { declineFailure, footerOf, waitingOf } from "./labels.ts";
 import { grillNumber } from "./parse.ts";
 import { GrillButton, Proposal } from "./proposal.tsx";
 import type { Block, GrillPosts, GrillState } from "./protocol.ts";
@@ -36,6 +36,14 @@ const refused = signal(false);
 
 /** What the Grill button and the modal read: no state past a refused read, which puts the modal on screen off. */
 const read = computed(() => (refused.value ? null : grill.value));
+
+/** The open grill's blocks, which the band and the panel draw alike: one load per write of its file. */
+const transcript = signal<{ readonly path: string; readonly blocks: readonly Block[] } | null>(
+  null,
+);
+
+/** The write of the open transcript last asked for: a workspace event that did not write it loads nothing. */
+let transcriptAsked: string | null = null;
 
 function nameOf(path: string): string {
   return path.split("/").at(-1) ?? path;
@@ -68,6 +76,32 @@ async function loadState(): Promise<void> {
     grill.value = state;
     refused.value = false;
   });
+
+  if (state.kind === "open") await loadTranscript(state.file);
+}
+
+async function loadTranscript(path: string): Promise<void> {
+  const write = `${path}@${docs.peek().find((doc) => doc.path === path)?.modified ?? 0}`;
+
+  if (write === transcriptAsked) return;
+  transcriptAsked = write;
+  const blocks = await blocksOf(path);
+
+  if (blocks !== null && transcriptAsked === write) transcript.value = { path, blocks };
+}
+
+/** The blocks of the open transcript at `path`, `[]` until they land. */
+function blocksOn(path: string): readonly Block[] {
+  const loaded = transcript.value;
+
+  return loaded?.path === path ? loaded.blocks : [];
+}
+
+/** The questions no reply closed yet, by their number. */
+function openIn(blocks: readonly Block[]): string[] {
+  return blocks.flatMap((block) =>
+    block.kind === "question" && block.answer === null ? [block.id] : [],
+  );
 }
 
 /** The transcript's blocks, or `null` with the failure in the notices: the reviewer waits on them. */
@@ -145,7 +179,42 @@ async function reply(
   return (await post("reply", { answers, note })).ok;
 }
 
-/** Why the Grill button is greyed, in its title; `null` while a grill can open. */
+const NOTHING_TYPED: Typed["grill"][string] = { answers: {}, note: "" };
+
+/** The reviewer's typing on a transcript, in the draft: it survives the panel and a reload. */
+function typedOn(path: string): Typed["grill"][string] {
+  return typed.value.grill[path] ?? NOTHING_TYPED;
+}
+
+/** Whether a send writes anything: an open question, which an empty field answers, or a note. */
+function sendable(path: string, open: readonly string[]): boolean {
+  return open.length > 0 || typedOn(path).note.trim() !== "";
+}
+
+/** What is typed goes as a reply, an empty field taking the recommendation; `true` once the server took it. */
+async function send(path: string, open: readonly string[]): Promise<boolean> {
+  const own = typedOn(path);
+
+  const taken = await reply(
+    open.map((id) => ({ id, text: own.answers[id]?.trim() ?? "" })),
+    own.note.trim(),
+  );
+
+  if (taken) {
+    const { [path]: _gone, ...rest } = typed.value.grill;
+    setTyped({ grill: rest });
+  }
+
+  return taken;
+}
+
+/** End grill: what is typed goes first, as a send does, then the close. */
+async function end(path: string, open: readonly string[]): Promise<void> {
+  if (sendable(path, open) && !(await send(path, open))) return;
+  await post("close", { reason: "page" });
+}
+
+/** Why the Grill button is greyed, in its title; `null` while a grill can open. It hides while one is. */
 function grillWhy(state: GrillState | null): string | null {
   if (connection.value === "down") return "The connection to the review server is lost";
 
@@ -154,9 +223,7 @@ function grillWhy(state: GrillState | null): string | null {
   if (review.value?.workspace.kind === "changesRequested")
     return "Waiting for Claude's next version";
 
-  if (state === null) return "Loading the review";
-
-  return state.kind === "open" ? `${nameOf(state.file)} is already open` : null;
+  return state === null ? "Loading the review" : null;
 }
 
 function GrillAction(): preact.JSX.Element | null {
@@ -167,22 +234,47 @@ function GrillAction(): preact.JSX.Element | null {
     void loadState();
   }, [view]);
 
-  return view?.workspace.kind === "approved" ? null : (
+  return view?.workspace.kind === "approved" || grill.value?.kind === "open" ? null : (
     <GrillButton state={state} why={grillWhy(state)} />
   );
 }
 
-function GrillNotice(): preact.JSX.Element | null {
+/** Above the page while a grill is open: its subject, the questions that wait for the reviewer, and End grill. */
+function GrillBand(props: {
+  readonly state: Extract<GrillState, { kind: "open" }>;
+}): preact.JSX.Element {
+  const { file, subject } = props.state;
+  const open = openIn(blocksOn(file));
+  const waiting = waitingOf(open.length);
+
+  return (
+    <div class="grill-band" role="status">
+      <span class="subject" title={subject}>
+        Grill · {subject}
+      </span>
+      {waiting !== null && <span class="count">{waiting}</span>}
+      <Button size="sm" onClick={() => void end(file, open)}>
+        End grill
+      </Button>
+    </div>
+  );
+}
+
+function GrillNotice(): preact.JSX.Element {
+  const kept = grill.value;
   const state = read.value;
 
   return (
-    <Proposal
-      state={state}
-      approved={review.value?.workspace.kind === "approved"}
-      why={grillWhy(state)}
-      onStart={openGrill}
-      onDecline={decline}
-    />
+    <>
+      {kept?.kind === "open" && <GrillBand state={kept} />}
+      <Proposal
+        state={state}
+        approved={review.value?.workspace.kind === "approved"}
+        why={grillWhy(state)}
+        onStart={openGrill}
+        onDecline={decline}
+      />
+    </>
   );
 }
 
@@ -309,16 +401,12 @@ function GrillDoc(props: RendererProps): preact.JSX.Element {
   );
 }
 
-const NOTHING_TYPED: Typed["grill"][string] = { answers: {}, note: "" };
-
 function OpenGrill(props: {
   readonly state: Extract<GrillState, { kind: "open" }>;
 }): preact.JSX.Element {
   const { file: path, phase } = props.state;
-  const modified = docs.value.find((doc) => doc.path === path)?.modified ?? 0;
-  const blocks = useBlocks(path, modified);
-  /** The reviewer's typing on this transcript, in the draft: it survives the panel and a reload. */
-  const own = typed.value.grill[path] ?? NOTHING_TYPED;
+  const blocks = blocksOn(path);
+  const own = typedOn(path);
 
   const answer = (id: string, text: string): void =>
     setTyped({
@@ -328,35 +416,8 @@ function OpenGrill(props: {
   const note = (text: string): void =>
     setTyped({ grill: { ...typed.value.grill, [path]: { ...own, note: text } } });
 
-  const forget = (): void => {
-    const { [path]: _gone, ...rest } = typed.value.grill;
-    setTyped({ grill: rest });
-  };
-
-  const answered = (id: string): string => own.answers[id]?.trim() ?? "";
-
-  const open = blocks.flatMap((block) =>
-    block.kind === "question" && block.answer === null ? [block.id] : [],
-  );
-
-  const sendable = open.length > 0 || own.note.trim() !== "";
-
-  const send = async (): Promise<boolean> => {
-    const taken = await reply(
-      open.map((id) => ({ id, text: answered(id) })),
-      own.note.trim(),
-    );
-
-    if (taken) forget();
-
-    return taken;
-  };
-
-  /** What is typed goes first, as a reply; an empty field takes the recommendation, as a send does. */
-  const end = async (): Promise<void> => {
-    if (sendable && !(await send())) return;
-    await post("close", { reason: "page" });
-  };
+  const open = openIn(blocks);
+  const live = sendable(path, open);
 
   const sheet = useRef<HTMLDivElement>(null);
   const openBefore = useRef(0);
@@ -390,7 +451,7 @@ function OpenGrill(props: {
                 block={block}
                 answer={own.answers[block.id] ?? ""}
                 onAnswer={block.answer === null ? (text) => answer(block.id, text) : null}
-                onSend={sendable ? () => void send() : null}
+                onSend={live ? () => void send(path, open) : null}
               />
             )}
           />
@@ -407,8 +468,8 @@ function OpenGrill(props: {
             value={own.note}
             onInput={(event) => note(event.currentTarget.value)}
             onKeyDown={(event) => {
-              if (event.key === "Enter" && (event.ctrlKey || event.metaKey) && sendable) {
-                void send();
+              if (event.key === "Enter" && (event.ctrlKey || event.metaKey) && live) {
+                void send(path, open);
               }
             }}
           />
@@ -418,8 +479,7 @@ function OpenGrill(props: {
               : "No question is open. A note goes to Claude once its turn ends."}
           </p>
           <div class="row">
-            <Button onClick={() => void end()}>End grill</Button>
-            <Button variant="send" disabled={!sendable} onClick={() => void send()}>
+            <Button variant="send" disabled={!live} onClick={() => void send(path, open)}>
               Send answers
             </Button>
           </div>

@@ -6,7 +6,8 @@ import { axe, boxOf, contrast, expect, openVellum, test } from "./harness.ts";
 /**
  * Claude's proposal is a modal over the page, never opened under a typing: Esc puts it off onto
  * the Grill button, Decline reaches the server, and the Grill button opens the same modal blank.
- * An open grill is a panel right of the document pane, which the rail keeps choosing.
+ * An open grill is a panel right of the document pane, which the rail keeps choosing, and a band
+ * above the page that carries its subject, the questions waiting and End grill.
  */
 
 test.use({ fixture: "grill-real" });
@@ -525,6 +526,178 @@ test.describe("the panel", () => {
     for (const colorScheme of ["light", "dark"] as const) {
       await page.emulateMedia({ colorScheme });
       expect(await axe(page, ".grill-panel")).toEqual([]);
+    }
+  });
+});
+
+/** Longer than the band is wide at 1920: its end must be cut, never wrapped. */
+const LONG_SUBJECT = Array.from(
+  { length: 6 },
+  () => "which tool covers which class of defect in the page, where the suite runs,",
+).join(" ");
+
+function band(page: Page): Locator {
+  return page.locator(".grill-band");
+}
+
+/** A colour as a canvas paints it, `rgb(…)`: a `color-mix()` computes to `oklab(…)`, which `contrast` cannot read. */
+function painted(element: Locator, property: "color" | "backgroundColor"): Promise<string> {
+  return element.evaluate((node, key) => {
+    const context = document.createElement("canvas").getContext("2d");
+
+    if (context === null) throw new Error("no 2d context");
+    context.fillStyle = getComputedStyle(node)[key];
+    context.fillRect(0, 0, 1, 1);
+    const [r = 0, g = 0, b = 0] = context.getImageData(0, 0, 1, 1).data;
+
+    return `rgb(${r}, ${g}, ${b})`;
+  }, property);
+}
+
+/** How many lines a text runs over: a range over it gives one box per line. */
+function linesOf(text: Locator): Promise<number> {
+  return text.evaluate((element) => {
+    const range = document.createRange();
+    range.selectNodeContents(element);
+
+    return new Set([...range.getClientRects()].map((rect) => Math.round(rect.top))).size;
+  });
+}
+
+test.describe("the band", () => {
+  test("says the grill's subject and how many questions wait", async ({ page, vellum }) => {
+    await asking(page, vellum);
+
+    await expect(band(page).locator(".subject")).toHaveText(`Grill · ${SUBJECT}`);
+    await expect(band(page).locator(".count")).toHaveText("2 questions waiting");
+  });
+
+  test("says no count once the round is sent", async ({ page, vellum }) => {
+    await asking(page, vellum);
+    await panel(page).getByRole("button", { name: "Send answers" }).click();
+
+    await expect(band(page).locator(".count")).toHaveCount(0);
+    await expect(band(page).locator(".subject")).toHaveText(`Grill · ${SUBJECT}`);
+  });
+
+  test("its End grill, the page's one, sends what is typed, then ends", async ({
+    page,
+    vellum,
+  }) => {
+    await asking(page, vellum);
+    await panel(page).getByRole("textbox", { name: "Answer to Q1" }).fill("One store per form.");
+    await expect(page.getByRole("button", { name: "End grill" })).toHaveCount(1);
+    await band(page).getByRole("button", { name: "End grill" }).click();
+
+    await expect(band(page)).toHaveCount(0);
+    await expect(panel(page)).toHaveCount(0);
+    const state = JSON.stringify((await vellum.grill.state()).json);
+    expect(state).toContain("Q1: One store per form.");
+    expect(state).toContain('"kind":"ended"');
+  });
+
+  test("the Grill button hides while it shows, and comes back once the grill ends", async ({
+    page,
+    vellum,
+  }) => {
+    await asking(page, vellum);
+
+    await expect(grillButton(page)).toHaveCount(0);
+    await vellum.grill.close();
+    await expect(band(page)).toHaveCount(0);
+    await expect(grillButton(page)).toBeVisible();
+  });
+
+  test("refused reads of the grill's state keep it as it was, the Grill button still hidden", async ({
+    page,
+    vellum,
+  }) => {
+    await asking(page, vellum);
+    await band(page).evaluate((element: HTMLElement) => {
+      element.dataset["kept"] = "yes";
+    });
+    await page.route("**/api/x/grill/state*", (route) => route.fulfill({ status: 500 }));
+    await readAfter(page, 500, () => vellum.writeFile("notes.md", "One."));
+    await readAfter(page, 500, () => vellum.writeFile("notes.md", "Two."));
+
+    await expect(band(page)).toHaveAttribute("data-kept", "yes");
+    await expect(band(page).locator(".count")).toHaveText("2 questions waiting");
+    await expect(grillButton(page)).toHaveCount(0);
+  });
+
+  test("a long subject is cut on its one line, and End grill stays in the band", async ({
+    page,
+    vellum,
+  }) => {
+    await vellum.grill.open(LONG_SUBJECT);
+    await vellum.grill.ask(ROUND);
+    await openVellum(page, vellum);
+    const subject = band(page).locator(".subject");
+    await expect(band(page).locator(".count")).toHaveText("2 questions waiting");
+
+    expect(await subject.evaluate((element) => element.scrollWidth > element.clientWidth)).toBe(
+      true,
+    );
+    await expect(subject).toHaveCSS("text-overflow", "ellipsis");
+    expect([await linesOf(subject), await linesOf(band(page).locator(".count"))]).toEqual([1, 1]);
+    const [box, end] = [await boxOf(band(page)), await boxOf(band(page).getByRole("button"))];
+    expect(end.x + end.width).toBeLessThanOrEqual(box.x + box.width);
+    expect(end.y + end.height).toBeLessThanOrEqual(box.y + box.height);
+  });
+
+  test("axe finds nothing to fault on it, light and dark", async ({ page, vellum }) => {
+    await asking(page, vellum);
+
+    for (const colorScheme of ["light", "dark"] as const) {
+      await page.emulateMedia({ colorScheme });
+      expect(await axe(page, ".grill-band")).toEqual([]);
+    }
+  });
+
+  test("its words read on its colour, light and dark", async ({ page, vellum }) => {
+    await asking(page, vellum);
+    const end = band(page).getByRole("button", { name: "End grill" });
+
+    for (const colorScheme of ["light", "dark"] as const) {
+      await page.emulateMedia({ colorScheme });
+      expect(await ratio(band(page).locator(".subject"), band(page))).toBeGreaterThanOrEqual(4.5);
+      expect(await ratio(band(page).locator(".count"), band(page))).toBeGreaterThanOrEqual(4.5);
+      expect(await ratio(end, band(page))).toBeGreaterThanOrEqual(4.5);
+    }
+  });
+
+  test("its End grill still reads under the pointer, light and dark", async ({ page, vellum }) => {
+    await asking(page, vellum);
+    const end = band(page).getByRole("button", { name: "End grill" });
+    await end.hover();
+
+    for (const colorScheme of ["light", "dark"] as const) {
+      await page.emulateMedia({ colorScheme });
+      await expect
+        .poll(async () =>
+          contrast(await painted(end, "color"), await painted(end, "backgroundColor")),
+        )
+        .toBeGreaterThanOrEqual(4.5);
+    }
+  });
+
+  test("its End grill's focus ring shows on its colour, light and dark", async ({
+    page,
+    vellum,
+  }) => {
+    await asking(page, vellum);
+    const end = band(page).getByRole("button", { name: "End grill" });
+    await end.focus();
+
+    for (const colorScheme of ["light", "dark"] as const) {
+      await page.emulateMedia({ colorScheme });
+      const ring = await end.evaluate((element) => getComputedStyle(element).outlineColor);
+
+      const surface = await band(page).evaluate(
+        (element) => getComputedStyle(element).backgroundColor,
+      );
+
+      expect(contrast(ring, surface)).toBeGreaterThanOrEqual(3);
     }
   });
 });

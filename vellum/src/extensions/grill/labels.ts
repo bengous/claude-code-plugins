@@ -12,6 +12,13 @@ export function footerOf(reason: CloseReason | "approved"): string {
   }
 }
 
+/** What the band says of the questions that wait for the reviewer; `null` when none does. */
+export function waitingOf(count: number): string | null {
+  if (count === 0) return null;
+
+  return count === 1 ? "1 question waiting" : `${count} questions waiting`;
+}
+
 /** What a Decline that failed says: a 409 is a proposal no longer pending, answered from another tab or replaced by Claude's next. */
 export function declineFailure(status: number | null): string {
   if (status === null) {

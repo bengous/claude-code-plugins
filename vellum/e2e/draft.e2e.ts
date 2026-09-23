@@ -144,7 +144,7 @@ test.describe("the grill's answers", () => {
     await roundOne(page, vellum);
     await answerField(page, "Q2").fill("The inspector.");
     await answerField(page, "Q3").fill("Every 30 s as well.");
-    await grillPanel(page).getByRole("button", { name: "End grill" }).click();
+    await page.locator(".grill-band").getByRole("button", { name: "End grill" }).click();
 
     await expect(grillPanel(page)).toHaveCount(0);
     await page.locator("#rail button", { hasText: "grill-2.md" }).click();

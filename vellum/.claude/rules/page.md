@@ -127,7 +127,9 @@ no build step, so what the page imports costs nothing at `cli start`.
   (`succeed`); the stale editor derives from `editing` and the version, so its notice leaves
   with the editor; a card's Delete leaves an `undo` for a while. `app.tsx` draws the column with
   `Notices`, the core's first, then each extension's `notices` components: the grill's proposal
-  is one, a `Dialog`, shown while it is mounted. A modal never opens under a typing: the editor
+  is one, a `Dialog`, shown while it is mounted, and its band another, drawn while a grill is
+  open: the subject, the questions that wait for the reviewer, and End grill, the page's one. The
+  band carries the grill, so the Grill button hides meanwhile. A modal never opens under a typing: the editor
   open, a popover up (`popoverUp` of the kit) or a field focused, `showModal()` would take the
   focus and make the page inert, so the next Enter of a comment would answer the modal. A
   proposal that lands there is put off at once, a dot on the Grill button (`askingOn` and
@@ -220,8 +222,9 @@ no build step, so what the page imports costs nothing at `cli start`.
   `response.ok` before it reads the body, or the server's error page is drawn as the document and
   takes comments, and it catches, or an aborted request reaches nobody. A read that only
   refreshes what is on screen may fail in silence, since the next workspace event reads again:
-  `loadState` in `grill/page.tsx`, which keeps the state it read last, so the grill's panel
-  stays as the reviewer left it, while the Grill button and the modal read none past a refused
+  `loadState` in `grill/page.tsx`, which keeps the state it read last, and the open transcript's
+  blocks with it, so the grill's panel and its band stay as the reviewer left them, the Grill
+  button hidden behind the band, while the Grill button and the modal read none past a refused
   read (`read`), which puts the modal on screen off onto the dot. `decide` answers whether the server took the decision, and
   the notes popover closes on that alone: a failure leaves the note where it was typed.
 - In the Markdown renderer the notice says the failure and the sheet says the state it leaves: a
