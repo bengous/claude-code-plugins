@@ -66,7 +66,9 @@ the engine events the core hands it, and its segment of the band above the promp
   reviewer's answers and note too (`quotedReviewer`, reversed for the page and for Claude), or a
   `### ` line in an answer cuts the reply relayed and a `Q3: ` line in a note answers Q3. A text written as
   one line, a grill's subject in its header or a question's title on its line, is refused at the
-  parser when it holds a line break.
+  parser when it holds a line break; a text that shares its first line with a marker, a
+  question's text and its recommendation, takes `\n` for every break, since that line is read by
+  `\n` alone.
 - An extension with states, rounds or a lifecycle starts with a table, before any code: the
   states, the events, and one owner per fact. The server owns what is allowed and says it
   through `holds`; the module owns whether a server and a lock exist; a file owns its content.

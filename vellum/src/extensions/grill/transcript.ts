@@ -231,10 +231,12 @@ function quoted(text: string): string {
 /**
  * A question's text as a quotation, and more than Claude's: a line that opens a question, gives
  * a recommendation or closes a card would cut the question where Claude did not. A backslash
- * escapes no emoji in Markdown, so those two go as an entity, which it draws as the emoji.
+ * escapes no emoji in Markdown, so those two go as an entity, which it draws as the emoji. Every
+ * break becomes `\n`: the `❓` and `➡️` lines are read by `\n`, and a CR or a line separator on
+ * their first line would end the question's line where its reader does not.
  */
 function quotedQuestion(text: string): string {
-  return quoted(text)
+  return quoted(text.replaceAll(/\r\n?|[\u2028\u2029]/gu, "\n"))
     .replaceAll(/^([^\S\n\r\u2028\u2029]*)(?=-{3,}\s*$)/gmu, "$1\\")
     .replaceAll(/^❓/gmu, "&#x2753;")
     .replaceAll(/^➡/gmu, "&#x27A1;");

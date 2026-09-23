@@ -325,6 +325,28 @@ describe("a question's texts cannot speak for anyone else", () => {
   });
 });
 
+describe("a question's line breaks", () => {
+  test("a CR or a line separator on the first line of its question keeps its card and its answer", () => {
+    for (const ask of ["Which store?\r\nRedis or pg.", "Which\u2028store?", "Which\rstore?"]) {
+      const doc = appendQuestions(opened, [{ title: "Store", ask, rec: "Redis." }, STYLE]);
+
+      expect(unanswered(doc)).toEqual(["Q1", "Q2"]);
+      expect(segmentsOf(doc).filter((segment) => segment.kind === "question")).toHaveLength(2);
+    }
+  });
+
+  test("a CR on the first line of its recommendation keeps the recommendation", () => {
+    const doc = appendQuestions(opened, [
+      { title: "Store", ask: "Which?", rec: "Redis.\r\nFor the TTL." },
+    ]);
+
+    const [question] = segmentsOf(doc).filter((segment) => segment.kind === "question");
+
+    expect(question?.rec).toBe("Redis.\nFor the TTL.");
+    expect(question?.ask).toBe("Which?");
+  });
+});
+
 describe("the reviewer's text keeps the file's structure", () => {
   const MARKED = "first\n### Notes\nQ2: mine\nNote: not the note\n---\n\\### typed so\nlast";
 
