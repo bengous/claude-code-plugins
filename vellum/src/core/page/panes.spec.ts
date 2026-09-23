@@ -38,6 +38,7 @@ describe("panesOf", () => {
       DOCS_PANE,
       "notes",
     ]);
+    expect(ids(panesOf([DOCS_PANE], [NOTES, GRILL]))).toEqual([DOCS_PANE, "notes", "grill"]);
   });
 
   test("a duplicate, an unknown id and a panel not shown are dropped", () => {
