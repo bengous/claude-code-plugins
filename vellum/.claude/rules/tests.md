@@ -36,6 +36,14 @@ paths:
   CI records no trace (`trace` in `e2e/playwright.config.ts` reads `CI`): no step uploads one,
   and recording one costs about a fifth of each test (#195). A local run keeps a failing test's
   trace, so a test red in CI is read after reproducing it locally, on its file and project.
+- A step waits for what the next one acts on, not for what caused it. What an effect applies
+  after a render (a `Dialog`'s `showModal()` and its listeners, a block's `tabindex` once
+  Comment is on) lands a frame or more after the signal: under CI's load an action taken on the
+  signal alone misses it, and only there. So a click on a backdrop waits for the dialog to be
+  visible, a Tab into the sheet for a block with `tabindex="0"`. A position measured to be clicked
+  is not measured during a transition: the test emulates `reducedMotion: "reduce"`, which
+  `style.css` honours, unless the motion is its subject. A local run passes such a race; two
+  cores reproduce CI's pace: `taskset -c 0-1 bun run --cwd vellum e2e -- --project=<window> --workers=4`.
 - One behaviour per test, under fifteen lines, data in view: helpers hide the plumbing; the
   version, the path, the text the case turns on stay in the test.
 - Before the code of a slice, its tests are listed one line each and agreed, written first,

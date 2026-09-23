@@ -23,6 +23,8 @@ function focused(page: Page): Promise<string> {
 
 /** Tab from the switch until the focus enters the sheet, at most ten times. */
 async function tabIntoSheet(page: Page): Promise<void> {
+  // The blocks become Tab stops in an effect after the switch's render, not with it.
+  await expect(page.locator("article.plan h1[tabindex='0']")).toBeAttached();
   await page.locator(".tools [role=switch]", { hasText: "Comment" }).focus();
 
   for (let i = 0; i < 10; i += 1) {
