@@ -7,7 +7,9 @@ import { axe, boxOf, contrast, expect, openVellum, test } from "./harness.ts";
  * Claude's proposal is a modal over the page, never opened under a typing: Esc puts it off onto
  * the Grill button, Decline reaches the server, and the Grill button opens the same modal blank.
  * An open grill is a panel right of the document pane, which the rail keeps choosing, and a band
- * above the page that carries its subject, the questions waiting and End grill.
+ * above the page that carries its subject, its round, the questions waiting and End grill. A
+ * round in the panel is its questions as chips over one question at a time, Recommended or Your
+ * answer.
  */
 
 test.use({ fixture: "grill-real" });
@@ -772,26 +774,43 @@ function linesOf(text: Locator): Promise<number> {
 }
 
 test.describe("the band", () => {
-  test("says the grill's subject and how many questions wait", async ({ page, vellum }) => {
+  test("says the grill's subject, its round and how many questions wait", async ({
+    page,
+    vellum,
+  }) => {
     await asking(page, vellum);
 
     await expect(band(page).locator(".subject")).toHaveText(`Grill · ${SUBJECT}`);
-    await expect(band(page).locator(".count")).toHaveText("2 questions waiting");
+    await expect(band(page).locator(".count")).toHaveText("round 1 · 2 questions waiting");
   });
 
-  test("says no count once the round is sent", async ({ page, vellum }) => {
+  test("says the round alone once it is sent", async ({ page, vellum }) => {
     await asking(page, vellum);
     await sendRound(page).click();
 
-    await expect(band(page).locator(".count")).toHaveText("");
+    await expect(band(page).locator(".count")).toHaveText("round 1");
     await expect(band(page).locator(".subject")).toHaveText(`Grill · ${SUBJECT}`);
   });
 
   test("its live region is the count alone, never End grill", async ({ page, vellum }) => {
     await asking(page, vellum);
 
-    await expect(band(page).getByRole("status")).toHaveText("2 questions waiting");
+    await expect(band(page).getByRole("status")).toHaveText("round 1 · 2 questions waiting");
     await expect(page.getByRole("status").filter({ hasText: "End grill" })).toHaveCount(0);
+  });
+
+  test("says the last round asked", async ({ page, vellum }) => {
+    await twoRounds(page, vellum);
+
+    await expect(band(page).locator(".count")).toHaveText("round 2 · 2 questions waiting");
+  });
+
+  test("says no round before the first", async ({ page, vellum }) => {
+    await vellum.grill.open(SUBJECT);
+    await openVellum(page, vellum);
+    await expect(band(page).locator(".subject")).toHaveText(`Grill · ${SUBJECT}`);
+
+    await expect(band(page).locator(".count")).toHaveText("");
   });
 
   test("its End grill, the page's one, sends what is typed, then ends", async ({
@@ -837,7 +856,7 @@ test.describe("the band", () => {
     await readAfter(page, 500, () => vellum.writeFile("notes.md", "Two."));
 
     await expect(band(page)).toHaveAttribute("data-kept", "yes");
-    await expect(band(page).locator(".count")).toHaveText("2 questions waiting");
+    await expect(band(page).locator(".count")).toHaveText("round 1 · 2 questions waiting");
     await expect(grillButton(page)).toHaveCount(0);
   });
 
@@ -946,7 +965,7 @@ test.describe("the band", () => {
     await vellum.grill.ask(ROUND);
     await openVellum(page, vellum);
     const subject = band(page).locator(".subject");
-    await expect(band(page).locator(".count")).toHaveText("2 questions waiting");
+    await expect(band(page).locator(".count")).toHaveText("round 1 · 2 questions waiting");
 
     expect(await subject.evaluate((element) => element.scrollWidth > element.clientWidth)).toBe(
       true,

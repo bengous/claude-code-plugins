@@ -14,11 +14,14 @@ export function footerOf(reason: CloseReason | "approved"): string {
   }
 }
 
-/** What the band says of the questions that wait for the reviewer; `null` when none does. */
-export function waitingOf(count: number): string | null {
-  if (count === 0) return null;
+/** What the band says after the subject: the round the grill stands in, 0 before the first, and the questions that wait for the reviewer; `null` with neither. */
+export function progressOf(round: number, waiting: number): string | null {
+  const parts = [
+    round === 0 ? null : `round ${round}`,
+    waiting === 0 ? null : `${waiting} ${waiting === 1 ? "question" : "questions"} waiting`,
+  ].filter((part) => part !== null);
 
-  return count === 1 ? "1 question waiting" : `${count} questions waiting`;
+  return parts.length === 0 ? null : parts.join(" · ");
 }
 
 /** What a Decline that failed says: a 409 is a proposal no longer pending, answered from another tab or replaced by Claude's next. */

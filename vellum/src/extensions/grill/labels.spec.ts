@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import { answerOf, chipTitle, declineFailure, footerOf, waitingOf } from "./labels.ts";
+import { answerOf, chipTitle, declineFailure, footerOf, progressOf } from "./labels.ts";
 
 describe("footerOf", () => {
   test("names who ended the grill, never the reason's code", () => {
@@ -20,11 +20,13 @@ describe("declineFailure", () => {
   });
 });
 
-describe("waitingOf", () => {
-  test("counts the questions that wait for the reviewer, and says nothing of none", () => {
-    expect(waitingOf(0)).toBeNull();
-    expect(waitingOf(1)).toBe("1 question waiting");
-    expect(waitingOf(2)).toBe("2 questions waiting");
+describe("progressOf", () => {
+  test("says the round and the questions that wait for the reviewer, and nothing of none", () => {
+    expect(progressOf(2, 2)).toBe("round 2 · 2 questions waiting");
+    expect(progressOf(1, 1)).toBe("round 1 · 1 question waiting");
+    expect(progressOf(2, 0)).toBe("round 2");
+    expect(progressOf(0, 1)).toBe("1 question waiting");
+    expect(progressOf(0, 0)).toBeNull();
   });
 });
 

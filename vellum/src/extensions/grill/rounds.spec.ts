@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
 import type { Chip } from "./rounds.ts";
-import { roundsOf } from "./rounds.ts";
+import { roundNow, roundsOf } from "./rounds.ts";
 import { blocksOf } from "./server.ts";
 
 /** A real grill, closed: three rounds, Q1 to Q8, answers of every kind. */
@@ -101,5 +101,13 @@ describe("the send", () => {
 
   test("with no question open, sends a note", () => {
     expect(roundsOf(SENT, NOTHING_TYPED, null).send).toBe("Send note");
+  });
+});
+
+describe("the round the grill stands in", () => {
+  test("is the last one asked, 0 before the first", () => {
+    expect(roundNow(SENT)).toBe(3);
+    expect(roundNow(ASKING)).toBe(3);
+    expect(roundNow(SENT.filter((block) => block.kind !== "question"))).toBe(0);
   });
 });

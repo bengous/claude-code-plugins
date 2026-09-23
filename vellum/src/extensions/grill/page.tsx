@@ -15,12 +15,12 @@ import {
   typed,
 } from "../../core/page/state.ts";
 import type { Typed } from "../../core/protocol.ts";
-import { answerOf, chipTitle, declineFailure, footerOf, waitingOf } from "./labels.ts";
+import { answerOf, chipTitle, declineFailure, footerOf, progressOf } from "./labels.ts";
 import { grillNumber } from "./parse.ts";
 import { GrillButton, Proposal } from "./proposal.tsx";
 import { AS_RECOMMENDED } from "./protocol.ts";
 import type { Block, GrillPosts, GrillState } from "./protocol.ts";
-import { roundsOf } from "./rounds.ts";
+import { roundNow, roundsOf } from "./rounds.ts";
 import type { QuestionBlock, Rounds } from "./rounds.ts";
 
 const ID = "grill";
@@ -248,14 +248,14 @@ function GrillAction(): preact.JSX.Element | null {
   );
 }
 
-/** Above the page while a grill is open: its subject, the questions that wait for the reviewer, and End grill. */
+/** Above the page while a grill is open: its subject, its round, the questions that wait for the reviewer, and End grill. */
 function GrillBand(props: {
   readonly state: Extract<GrillState, { kind: "open" }>;
 }): preact.JSX.Element {
   const { file, subject } = props.state;
   const blocks = blocksOn(file);
   const open = openIn(blocks ?? []);
-  const waiting = waitingOf(open.length);
+  const progress = progressOf(roundNow(blocks ?? []), open.length);
   /** An end in flight: a second click would send what is typed again. */
   const [ending, setEnding] = useState(false);
 
@@ -264,9 +264,9 @@ function GrillBand(props: {
       <span class="subject" title={subject}>
         Grill · {subject}
       </span>
-      {/* The band's one live region, drawn empty with no question waiting: a status added with its text is not read out. */}
+      {/* The band's one live region, drawn empty with nothing to say: a status added with its text is not read out. */}
       <span class="count" role="status">
-        {waiting}
+        {progress}
       </span>
       <Button
         size="sm"

@@ -78,3 +78,8 @@ export function roundsOf(
     send: sendOf(open.length, waiting.length),
   };
 }
+
+/** The round the grill stands in: the last one asked, 0 before the first. */
+export function roundNow(blocks: readonly Block[]): number {
+  return blocks.findLast((block) => block.kind === "question")?.round ?? 0;
+}
