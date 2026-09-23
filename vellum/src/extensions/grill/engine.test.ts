@@ -226,11 +226,18 @@ describe("a proposal the reviewer declined", () => {
 
     await $.session.start(SESSION);
     await tick(seen);
+    await tick(seen);
 
     expect(seen.prompts).toEqual([
       "The reviewer ended grill-1.md.",
       "The reviewer declined the grill on: cache.",
     ]);
+    expect(seen.store.get(CURSOR)).toEqual({
+      file: GRILL_NAME,
+      seq: 2,
+      taught: true,
+      declined: DECLINED_ID,
+    });
   });
 
   test("is told even when the last grill is one this session heard nothing of", async ($, on) => {
