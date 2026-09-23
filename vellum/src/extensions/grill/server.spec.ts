@@ -365,6 +365,19 @@ describe("what the transcript keeps", () => {
     expect(await (await get("state")).json()).toMatchObject({ phase: "working" });
   });
 
+  test("an asking turn that ends after End grill and a new Start writes nothing into the new grill", async () => {
+    const { dir, post } = await grilling();
+    await post("open", { subject: "auth" });
+    await post("ask", { q: [["Tool names", "Prefix them?", "I recommend yes."]] });
+    await post("close", { reason: "page" });
+    await post("open", { subject: "storage" });
+    await post("reply", { answers: [], note: "Start with the cache." });
+    const before = readFileSync(join(dir, WIP, "grill-2.md"), "utf8");
+    await post("answer", { text: "Asked.", reason: "answer", own: false, asked: true });
+
+    expect(readFileSync(join(dir, WIP, "grill-2.md"), "utf8")).toBe(before);
+  });
+
   test("an answer that does not say whether its turn asked a round is refused", async () => {
     const { post } = await grilling();
     await post("open", { subject: "auth" });

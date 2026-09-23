@@ -251,10 +251,16 @@ function quotedQuestion(text: string): string {
     .replaceAll(/^➡/gmu, "&#x27A1;");
 }
 
-/** Where the last round's questions end: at the first reply that follows them, else at the end of the file. */
-function roundEnd(doc: string): number {
+/**
+ * Where the last round's questions end: at the first reply that follows them, else at the end of
+ * the file. `null` with no round: while a turn runs it alone asks, so the round it asked is in a
+ * grill that closed since.
+ */
+function roundEnd(doc: string): number | null {
   const round = [...doc.matchAll(ROUND)].at(-1)?.index;
-  const reply = round === undefined ? -1 : doc.indexOf(REVIEWER_VOICE, round);
+
+  if (round === undefined) return null;
+  const reply = doc.indexOf(REVIEWER_VOICE, round);
 
   return reply === -1 ? doc.length : reply;
 }
@@ -262,8 +268,9 @@ function roundEnd(doc: string): number {
 /**
  * Claude's final text, kept only when its turn belongs to the grill: the turn that asked a round,
  * whoever started it, closes that round, before any reply sent meanwhile, since the reply still
- * waits for Claude; a turn a vellum relay started speaks in a voice of its own. A turn the
- * terminal started is not the grill's, whatever the file's last voice is.
+ * waits for Claude, and writes nothing once that round's grill closed; a turn a vellum relay
+ * started speaks in a voice of its own. A turn the terminal started is not the grill's, whatever
+ * the file's last voice is.
  */
 export function appendAnswer(doc: string, turn: GrillPosts["answer"]): string {
   const ended = turn.reason === "answer" ? "" : `_(turn ${turn.reason})_`;
@@ -272,7 +279,7 @@ export function appendAnswer(doc: string, turn: GrillPosts["answer"]): string {
   if (turn.asked) {
     const at = roundEnd(doc);
 
-    return body === "" ? doc : `${doc.slice(0, at)}\n${body}\n${doc.slice(at)}`;
+    return body === "" || at === null ? doc : `${doc.slice(0, at)}\n${body}\n${doc.slice(at)}`;
   }
 
   return turn.own ? `${doc}${CLAUDE_VOICE}${body === "" ? "_(no text)_" : body}\n` : doc;

@@ -120,6 +120,12 @@ describe("Claude's final text", () => {
     expect(appendAnswer(round, said("Sure, here is the weather.", { own: false }))).toBe(round);
   });
 
+  test("of the turn that asked goes nowhere once its grill closed: the next grill has no round", () => {
+    const next = appendReply(header("storage", "4c2a9d93", AT), [], "Start with the cache.") ?? "";
+
+    expect(appendAnswer(next, said("Asked.", { asked: true }))).toBe(next);
+  });
+
   test("an interrupted turn says so", () => {
     expect(appendAnswer(opened, said("partial", { reason: "aborted" }))).toEndWith(
       "### Claude\n\npartial\n\n_(turn aborted)_\n",
