@@ -7,29 +7,15 @@ import { rename, unlink } from "node:fs/promises";
 
 import { $ } from "bun";
 
+import { type CleanupManifest, parseManifest } from "./manifest.ts";
 import { buildProtectedSet, originHeadTarget, readProtectionConfig } from "./sweep-config.ts";
 
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
 
-type CleanupManifest = {
-  base: string;
-  worktrees: string[];
-  branches: { name: string; force: boolean; oid: string }[];
-  remote_branches: { remote: string; ref: string; oid: string }[];
-  prune_remotes: boolean;
-  prune_worktrees: boolean;
-};
-
 type Operation = {
-  type:
-    | "worktree-remove"
-    | "branch-delete"
-    | "remote-delete"
-    | "prune-remote"
-    | "prune-worktree"
-    | "manifest-rewrite";
+  type: "worktree-remove" | "branch-delete" | "remote-delete" | "prune-remote" | "manifest-rewrite";
   target: string;
   success: boolean;
   error: string | null;
@@ -58,59 +44,6 @@ async function git(
 
   return { stdout: stdout.toString().trim(), stderr: stderr.toString().trim(), exitCode };
 }
-
-// ---------------------------------------------------------------------------
-// Manifest validation
-// ---------------------------------------------------------------------------
-
-/* oxlint-disable anti-slop/no-runtime-typeof, anti-slop/no-unknown-parameters, anti-slop/require-safety-comment-for-type-assertion, anti-slop/no-unsafe-dictionary-type -- the block below IS the boundary parser the rules ask for: it validates a manifest read from stdin before anything deletes a branch. Their fix (parse before calling) has no earlier place to happen. */
-
-const isOid = (v: unknown): v is string => typeof v === "string" && /^[0-9a-f]{7,64}$/u.test(v);
-
-function isValidManifest(m: unknown): m is CleanupManifest {
-  if (typeof m !== "object" || m === null) return false;
-  const o = m as Record<string, unknown>;
-
-  if (typeof o.base !== "string" || o.base === "") return false;
-
-  if (!Array.isArray(o.worktrees) || !o.worktrees.every((w) => typeof w === "string")) return false;
-
-  if (
-    !Array.isArray(o.branches) ||
-    !o.branches.every(
-      (b) =>
-        typeof b === "object" &&
-        b !== null &&
-        typeof (b as { name?: unknown }).name === "string" &&
-        typeof (b as { force?: unknown }).force === "boolean" &&
-        isOid((b as { oid?: unknown }).oid),
-    )
-  ) {
-    return false;
-  }
-
-  if (
-    !Array.isArray(o.remote_branches) ||
-    !o.remote_branches.every(
-      (r) =>
-        typeof r === "object" &&
-        r !== null &&
-        typeof (r as { remote?: unknown }).remote === "string" &&
-        typeof (r as { ref?: unknown }).ref === "string" &&
-        isOid((r as { oid?: unknown }).oid),
-    )
-  ) {
-    return false;
-  }
-
-  if (typeof o.prune_remotes !== "boolean") return false;
-
-  if (typeof o.prune_worktrees !== "boolean") return false;
-
-  return true;
-}
-
-/* oxlint-enable anti-slop/no-runtime-typeof, anti-slop/no-unknown-parameters, anti-slop/require-safety-comment-for-type-assertion, anti-slop/no-unsafe-dictionary-type */
 
 // ---------------------------------------------------------------------------
 // Deduplication
@@ -169,7 +102,6 @@ async function execute(
     branches: [],
     remote_branches: [],
     prune_remotes: false,
-    prune_worktrees: false,
   };
 
   const currentBranch = (await git("branch", "--show-current")).stdout;
@@ -198,21 +130,7 @@ async function execute(
     });
   }
 
-  // 2. Prune worktree refs
-  if (manifest.prune_worktrees) {
-    const result = await git("worktree", "prune");
-    const success = result.exitCode === 0;
-
-    if (!success) remaining.prune_worktrees = true;
-    operations.push({
-      type: "prune-worktree",
-      target: "worktree refs",
-      success,
-      error: success ? null : result.stderr,
-    });
-  }
-
-  // 3. Delete local branches
+  // 2. Delete local branches
   for (const entry of manifest.branches) {
     const { name, force, oid } = entry;
 
@@ -261,7 +179,7 @@ async function execute(
     operations.push({ type: "branch-delete", target: name, success: true, error: null });
   }
 
-  // 4. Delete remote branches one at a time, each under a lease on the commit
+  // 3. Delete remote branches one at a time, each under a lease on the commit
   // the audit judged: if anyone pushed to that branch since, the delete is
   // refused instead of silently discarding their work.
   for (const entry of manifest.remote_branches) {
@@ -311,7 +229,7 @@ async function execute(
     });
   }
 
-  // 5. Prune remote tracking refs
+  // 4. Prune remote tracking refs
   if (manifest.prune_remotes) {
     const result = await git("remote", "prune", "origin");
     const success = result.exitCode === 0;
@@ -336,11 +254,7 @@ async function execute(
 
 function countOperations(m: CleanupManifest): number {
   return (
-    m.worktrees.length +
-    m.branches.length +
-    m.remote_branches.length +
-    (m.prune_remotes ? 1 : 0) +
-    (m.prune_worktrees ? 1 : 0)
+    m.worktrees.length + m.branches.length + m.remote_branches.length + (m.prune_remotes ? 1 : 0)
   );
 }
 
@@ -367,7 +281,7 @@ async function main(): Promise<CleanupResult | { ok: false; error: string }> {
     }
   }
 
-  /* oxlint-disable anti-slop/require-safety-comment-for-type-assertion, anti-slop/no-known-value-widening -- same boundary as isValidManifest above: `parsed` is raw JSON, and `kept` is an opaque passthrough this script re-serialises without ever reading it. */
+  /* oxlint-disable anti-slop/no-runtime-typeof, anti-slop/require-safety-comment-for-type-assertion, anti-slop/no-known-value-widening -- `parsed` is raw JSON, parseManifest checks the manifest in it, and `kept` is an opaque passthrough this script re-serialises without ever reading it. */
 
   let manifest: CleanupManifest;
   let consumePath: string | null = null;
@@ -391,10 +305,14 @@ async function main(): Promise<CleanupResult | { ok: false; error: string }> {
       return { ok: false, error: "invalid JSON in manifest file" };
     }
 
-    const candidate = (parsed as { manifest?: unknown }).manifest;
+    if (typeof parsed !== "object" || parsed === null) {
+      return { ok: false, error: "the manifest file does not hold a {manifest, kept} object" };
+    }
 
-    if (!isValidManifest(candidate)) {
-      return { ok: false, error: "invalid manifest shape in manifest file" };
+    const candidate = parseManifest((parsed as { manifest?: unknown }).manifest);
+
+    if ("error" in candidate) {
+      return { ok: false, error: `invalid manifest in manifest file: ${candidate.error}` };
     }
 
     manifest = candidate;
@@ -411,14 +329,16 @@ async function main(): Promise<CleanupResult | { ok: false; error: string }> {
       return { ok: false, error: "invalid JSON in --manifest" };
     }
 
-    if (!isValidManifest(parsed)) {
-      return { ok: false, error: "invalid manifest shape in --manifest" };
+    const candidate = parseManifest(parsed);
+
+    if ("error" in candidate) {
+      return { ok: false, error: `invalid manifest in --manifest: ${candidate.error}` };
     }
 
-    manifest = parsed;
+    manifest = candidate;
   }
 
-  /* oxlint-enable anti-slop/require-safety-comment-for-type-assertion, anti-slop/no-known-value-widening */
+  /* oxlint-enable anti-slop/no-runtime-typeof, anti-slop/require-safety-comment-for-type-assertion, anti-slop/no-known-value-widening */
 
   const deduped = dedupeManifest(manifest);
 

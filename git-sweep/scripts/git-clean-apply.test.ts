@@ -105,7 +105,6 @@ type ManifestParts = {
   branches?: { name: string; force: boolean; oid: string }[];
   remote_branches?: { remote: string; ref: string; oid: string }[];
   prune_remotes?: boolean;
-  prune_worktrees?: boolean;
 };
 
 // Writes a {manifest, kept} hand-off file and returns its path.
@@ -120,7 +119,6 @@ function writeManifest(repo: string, parts: ManifestParts, name = "manifest.json
         branches: [],
         remote_branches: [],
         prune_remotes: false,
-        prune_worktrees: false,
         ...parts,
       },
       kept: [{ name: "main", reason: "base", detail: null }],
@@ -350,6 +348,68 @@ describe("git-clean-apply", () => {
     expect(existsSync(join(dirtyDir, "wip.txt"))).toBe(true);
 
     await git(repo, "worktree", "remove", "--force", dirtyDir);
+  });
+
+  test("removes only the chosen worktrees whose directory is gone", async () => {
+    const repo = await makeRepo("worktree-chosen");
+    const chosenDir = makeTmpDir("wt-chosen");
+    const declinedDir = makeTmpDir("wt-declined");
+
+    await git(repo, "worktree", "add", "-b", "feature/chosen", chosenDir);
+    await git(repo, "worktree", "add", "-b", "feature/declined", declinedDir);
+    rmSync(chosenDir, { recursive: true, force: true });
+    rmSync(declinedDir, { recursive: true, force: true });
+
+    const manifestFile = writeManifest(repo, { worktrees: [chosenDir] });
+    const { result } = await runApply(repo, "--manifest-file", manifestFile);
+
+    expect(opFor(result, chosenDir)?.success).toBe(true);
+    const listed = await git(repo, "worktree", "list", "--porcelain");
+    expect(listed.split("\n").filter((line) => line.startsWith("worktree "))).toHaveLength(2);
+    expect(listed).toContain("branch refs/heads/feature/declined");
+  });
+
+  test("keeps a worktree locked since the audit in the hand-off", async () => {
+    const repo = await makeRepo("worktree-locked");
+    const lockedDir = makeTmpDir("wt-locked");
+
+    await git(repo, "worktree", "add", "-b", "feature/locked", lockedDir);
+    await git(repo, "worktree", "lock", "--reason", "in use", lockedDir);
+
+    const manifestFile = writeManifest(repo, { worktrees: [lockedDir] });
+    const { result } = await runApply(repo, "--manifest-file", manifestFile);
+
+    expect(opFor(result, lockedDir)?.error).toContain("locked");
+    expect(existsSync(lockedDir)).toBe(true);
+    expect(result.manifest_remaining).toMatchObject({ operations: 1 });
+
+    await git(repo, "worktree", "unlock", lockedDir);
+  });
+
+  test("refuses a manifest carrying a field it does not know", async () => {
+    const repo = await makeRepo("manifest-unknown-field");
+    const path = join(repo, "manifest.json");
+
+    writeFileSync(
+      path,
+      JSON.stringify({
+        manifest: {
+          base: "main",
+          worktrees: [],
+          branches: [],
+          remote_branches: [],
+          prune_remotes: false,
+          prune_worktrees: true,
+        },
+        kept: [],
+      }),
+    );
+
+    const { exitCode, result } = await runApply(repo, "--manifest-file", path);
+
+    expect(exitCode).toBe(1);
+    expect(result.error).toContain("prune_worktrees");
+    expect(existsSync(path)).toBe(true);
   });
 
   // -------------------------------------------------------------------------

@@ -1168,7 +1168,6 @@ describe("git-clean-audit", () => {
       branches: [{ name: "feature/x", force: false, oid: "a".repeat(40) }],
       remote_branches: [],
       prune_remotes: false,
-      prune_worktrees: false,
     };
 
     const gitDir = await git(repo, "rev-parse", "--absolute-git-dir");
@@ -1211,7 +1210,6 @@ describe("git-clean-audit", () => {
           branches: [{ name: "feature/x", force: false }],
           remote_branches: [],
           prune_remotes: false,
-          prune_worktrees: false,
         },
         kept: [],
       }),

@@ -49,7 +49,7 @@ Display:
   "  Worktrees:        {wt_count}"
   "  Local branches:   {br_safe + br_force} ({br_safe} safe, {br_force} force)"
   "  Remote branches:  {remote_count}"
-  "  Prune refs:       {yes/no based on prune_remotes or prune_worktrees}"
+  "  Prune refs:       {yes/no based on prune_remotes}"
   ""
   "Retained (base {manifest.base} is never deleted):"
   one line per kept entry: "  {name} — {reason}{: detail if present}"
@@ -127,7 +127,7 @@ group result.operations by type:
   failures  = operations where success == false
 
 # Execution order, so the report reads like the run.
-for each type in ["worktree-remove", "prune-worktree", "branch-delete", "remote-delete", "prune-remote", "manifest-rewrite"]:
+for each type in ["worktree-remove", "branch-delete", "remote-delete", "prune-remote", "manifest-rewrite"]:
   if any successes of this type:
     list them with checkmark
   if any failures of this type:
@@ -150,6 +150,9 @@ A failed operation is not always a problem to retry — read the error:
   manifest was wrong (protected trunks never come from a real audit).
 - `contains modified or untracked files` on a worktree — uncommitted work is
   there. Say where, and leave it.
+- `cannot remove a locked working tree` — someone locked it since the audit,
+  which asks to leave it alone. Retrying cannot succeed: re-audit, and the
+  worktree shows up under `kept_worktrees` with its lock reason.
 - `used by worktree at ...` — the branch is still checked out somewhere the
   manifest did not remove. The audit builds this pair together; seeing it means
   the worktree was skipped while its branch was kept. Re-audit.

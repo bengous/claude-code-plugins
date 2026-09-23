@@ -9,6 +9,7 @@ import { join } from "node:path";
 
 import { $ } from "bun";
 
+import { parseManifest } from "./manifest.ts";
 import {
   buildProtectedSet,
   localBranchExists,
@@ -106,15 +107,6 @@ type AuditError = {
 };
 
 type AuditResult = AuditSuccess | AuditError;
-
-type CleanupManifest = {
-  base: string;
-  worktrees: string[];
-  branches: { name: string; force: boolean; oid: string }[];
-  remote_branches: { remote: string; ref: string; oid: string }[];
-  prune_remotes: boolean;
-  prune_worktrees: boolean;
-};
 
 type SaveResult = { ok: true; path: string } | { ok: false; error: string };
 
@@ -480,58 +472,13 @@ async function scanWorktrees(
 // Manifest hand-off (durable audit -> apply)
 // ---------------------------------------------------------------------------
 
-/* oxlint-disable anti-slop/no-runtime-typeof, anti-slop/no-unknown-parameters, anti-slop/require-safety-comment-for-type-assertion, anti-slop/no-unsafe-dictionary-type, anti-slop/no-known-value-widening -- the block below IS the boundary parser the rules ask for: it validates a manifest read from stdin before anything touches a branch. Their fix (parse before calling) has no earlier place to happen. */
-
-const isOid = (v: unknown): v is string => typeof v === "string" && /^[0-9a-f]{7,64}$/u.test(v);
+/* oxlint-disable anti-slop/no-runtime-typeof, anti-slop/no-unknown-parameters, anti-slop/require-safety-comment-for-type-assertion -- the block below IS the boundary parser the rules ask for: it reads the {manifest, kept} envelope from stdin, the manifest through parseManifest, before anything is written. Their fix (parse before calling) has no earlier place to happen. */
 
 const isKeptBranch = (k: unknown): boolean =>
   typeof k === "object" &&
   k !== null &&
   typeof (k as { name?: unknown }).name === "string" &&
   typeof (k as { reason?: unknown }).reason === "string";
-
-function isValidManifest(m: unknown): m is CleanupManifest {
-  if (typeof m !== "object" || m === null) return false;
-  const o = m as Record<string, unknown>;
-
-  if (typeof o.base !== "string" || o.base === "") return false;
-
-  if (!Array.isArray(o.worktrees) || !o.worktrees.every((w) => typeof w === "string")) return false;
-
-  if (
-    !Array.isArray(o.branches) ||
-    !o.branches.every(
-      (b) =>
-        typeof b === "object" &&
-        b !== null &&
-        typeof (b as { name?: unknown }).name === "string" &&
-        typeof (b as { force?: unknown }).force === "boolean" &&
-        isOid((b as { oid?: unknown }).oid),
-    )
-  ) {
-    return false;
-  }
-
-  if (
-    !Array.isArray(o.remote_branches) ||
-    !o.remote_branches.every(
-      (r) =>
-        typeof r === "object" &&
-        r !== null &&
-        typeof (r as { remote?: unknown }).remote === "string" &&
-        typeof (r as { ref?: unknown }).ref === "string" &&
-        isOid((r as { oid?: unknown }).oid),
-    )
-  ) {
-    return false;
-  }
-
-  if (typeof o.prune_remotes !== "boolean") return false;
-
-  if (typeof o.prune_worktrees !== "boolean") return false;
-
-  return true;
-}
 
 // Persist {manifest, kept} (read from stdin) to a fixed repo-scoped file so the
 // hand-off to the apply phase survives context compaction. Atomic: tmp + rename.
@@ -549,17 +496,18 @@ async function saveManifest(): Promise<SaveResult> {
     return { ok: false, error: "expected a {manifest, kept} object on stdin" };
   }
 
-  const { manifest, kept } = parsed as { manifest?: unknown; kept?: unknown };
+  const { manifest: rawManifest, kept } = parsed as { manifest?: unknown; kept?: unknown };
+  const manifest = parseManifest(rawManifest);
 
-  if (!isValidManifest(manifest)) {
-    return { ok: false, error: "invalid manifest shape" };
+  if ("error" in manifest) {
+    return { ok: false, error: `invalid manifest: ${manifest.error}` };
   }
 
   if (!Array.isArray(kept) || !kept.every((k) => isKeptBranch(k))) {
     return { ok: false, error: "invalid kept list (expected {name, reason}[])" };
   }
 
-  /* oxlint-enable anti-slop/no-runtime-typeof, anti-slop/no-unknown-parameters, anti-slop/require-safety-comment-for-type-assertion, anti-slop/no-unsafe-dictionary-type, anti-slop/no-known-value-widening */
+  /* oxlint-enable anti-slop/no-runtime-typeof, anti-slop/no-unknown-parameters, anti-slop/require-safety-comment-for-type-assertion */
 
   const gitDir = await git("rev-parse", "--absolute-git-dir");
 

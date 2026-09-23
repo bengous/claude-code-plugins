@@ -75,8 +75,7 @@ manifest = {
   worktrees: [],
   branches: [],
   remote_branches: [],
-  prune_remotes: false,
-  prune_worktrees: false
+  prune_remotes: false
 }
 ```
 
@@ -243,7 +242,8 @@ items 4 at a time, each a yes/no on one item ("Delete {name}?" — "Delete" /
 ```
 removable_worktrees / stale_worktrees:
   chosen paths → manifest.worktrees
-  manifest.prune_worktrees = true if any chosen
+  // `git worktree remove` drops each registration: no repo-wide prune, which
+  // would also drop the stale worktrees the user chose to keep.
 
 merged_local / orphaned_worktree / content_merged / backup:
   chosen branches → manifest.branches += { name, force: (d_refusal != null), oid }
@@ -295,7 +295,6 @@ total_ops = len(manifest.worktrees)
            + len(manifest.branches)
            + len(manifest.remote_branches)
            + (1 if manifest.prune_remotes)
-           + (1 if manifest.prune_worktrees)
 
 if total_ops == 0:
   STOP — tell user: no operations selected, nothing to do
