@@ -107,9 +107,11 @@ async function post<Name extends keyof GrillPosts>(
   return response;
 }
 
-/** `true` once the server declined it. */
+/** `true` once the proposal no longer waits on the reviewer: declined, or already answered or replaced (409). */
 async function decline(id: string): Promise<boolean> {
-  return (await post("decline", { id }, declineFailure)).ok;
+  const response = await post("decline", { id }, declineFailure);
+
+  return response.ok || response.status === 409;
 }
 
 /** `true` once the grill opened, its transcript selected. */

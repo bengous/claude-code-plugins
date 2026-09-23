@@ -107,6 +107,14 @@ describe("Start or Decline, in flight", () => {
     expect(dotOf(PENDING, refused)).toEqual(IDEA);
   });
 
+  test("a proposal that lands meanwhile waits on the dot, never opens", () => {
+    expect(askingOn(NEXT, answering(PENDING, "p1"), true)).toEqual({ kind: "later", id: "p2" });
+  });
+
+  test("once the slot holds nothing pending, asks nothing more: the next proposal opens", () => {
+    expect(askingOn(DECLINED, answering(PENDING, "p1"), true)).toEqual(AUTO);
+  });
+
   test("on a proposal replaced meanwhile, leaves the new one on the dot, refused or not", () => {
     const answered = answering(NEXT, "p1");
 

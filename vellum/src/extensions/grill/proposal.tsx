@@ -52,7 +52,7 @@ export type ProposalProps = {
   readonly why: string | null;
   /** `true` once the grill opened: the subject typed can go. */
   readonly onStart: (subject: string) => Promise<boolean>;
-  /** `true` once the server declined it. */
+  /** `true` once the proposal no longer waits: declined, or already answered or replaced. */
   readonly onDecline: (id: string) => Promise<boolean>;
 };
 
@@ -81,14 +81,14 @@ export function Proposal(props: ProposalProps): preact.JSX.Element | null {
     asking.value = putOff(state);
   };
 
-  /** The modal closes at the click; a request that fails puts the proposal back on the dot. */
+  /** The modal closes at the click; a request that did not land puts the proposal back on the dot. */
   const answer = (request: Promise<boolean>): Promise<boolean> => {
     asking.value = answering(state, id);
 
-    return request.then((taken) => {
-      if (!taken && id !== null) asking.value = answerFailed(asking.peek(), id);
+    return request.then((settled) => {
+      if (!settled && id !== null) asking.value = answerFailed(asking.peek(), id);
 
-      return taken;
+      return settled;
     });
   };
 

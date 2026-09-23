@@ -44,7 +44,7 @@ export function answering(state: GrillState | null, id: string | null): Asking {
   return id !== null && pendingOf(state)?.id === id ? { kind: "answered", id } : putOff(state);
 }
 
-/** The answer to `id` failed: the proposal waits on the dot, unless something newer took its place. */
+/** The answer to `id` did not land: the proposal waits on the dot, unless something newer took its place. */
 export function answerFailed(asking: Asking, id: string): Asking {
   return asking.kind === "answered" && asking.id === id ? { kind: "later", id } : asking;
 }
@@ -63,15 +63,31 @@ function keptOn(state: GrillState | null, on: Suggestion | null): Asking {
 }
 
 /**
+ * What a new state does to the answer to `id`, sent or refused as no longer pending: it holds
+ * while the slot holds `id`, and ends with a slot that holds nothing pending. A proposal the slot
+ * holds in its place waits on the dot, whichever reached the page first, the refusal or that
+ * proposal: the reviewer just answered the modal, and it does not open again under their hands.
+ */
+function answeredOn(state: GrillState | null, id: string): Asking {
+  const pending = pendingOf(state);
+
+  if (state === null || pending?.id === id) return { kind: "answered", id };
+
+  return pending === null ? AUTO : { kind: "later", id: pending.id };
+}
+
+/**
  * What a new state does to the page's answer: a proposal that lands opens the modal on a quiet
  * page, and on a typing is put off at once, so the modal opens neither under the reviewer's
  * hands nor once they stop. `quiet`: no editor open, no popover up, no field focused.
  */
 export function askingOn(state: GrillState | null, asking: Asking, quiet: boolean): Asking {
   if (asking.kind === "asked") return keptOn(state, asking.on);
+
+  if (asking.kind === "answered") return answeredOn(state, asking.id);
   const pending = pendingOf(state);
 
-  if (pending === null || (asking.kind !== "auto" && asking.id === pending.id)) return asking;
+  if (pending === null || (asking.kind === "later" && asking.id === pending.id)) return asking;
 
   return quiet ? { kind: "asked", on: pending } : { kind: "later", id: pending.id };
 }

@@ -1,4 +1,4 @@
-import type { Locator, Page } from "@playwright/test";
+import type { Locator, Page, Route } from "@playwright/test";
 
 import { axe, boxOf, contrast, expect, openVellum, test } from "./harness.ts";
 
@@ -108,20 +108,75 @@ test("a decline in flight draws no dot", async ({ page, vellum }) => {
   expect(await dotted(page)).toBe(false);
 });
 
-test("a decline of a proposal replaced meanwhile says so, and the new one waits on the dot", async ({
+/** Holds the page's requests to `url` until the returned call lets them through, in order. */
+async function hold(page: Page, url: string): Promise<() => Promise<void>> {
+  const held: Route[] = [];
+  let holding = true;
+
+  await page.route(url, async (route) => {
+    if (holding) held.push(route);
+    else await route.continue();
+  });
+
+  return async () => {
+    holding = false;
+
+    for (const route of held.splice(0)) await route.continue();
+  };
+}
+
+const NEXT_SUBJECT = "The budget of the page";
+
+const REPLACED = "Claude's proposal was already answered or replaced.";
+
+test("a decline of a proposal replaced before the click says so, and the new one waits on the dot", async ({
   page,
   vellum,
 }) => {
   await openVellum(page, vellum);
   await vellum.grill.suggest(SUBJECT, REASON);
   await expect(proposal(page)).toBeVisible();
-  await vellum.grill.suggest("The budget of the page", REASON);
+  await vellum.grill.suggest(NEXT_SUBJECT, REASON);
+  await expect.poll(() => dotted(page)).toBe(true);
   await proposal(page).getByRole("button", { name: "Decline" }).click();
 
-  await expect(page.getByRole("alert")).toHaveText(
-    "Claude's proposal was already answered or replaced.",
-  );
+  await expect(page.getByRole("alert")).toHaveText(REPLACED);
   await expect.poll(() => dotted(page)).toBe(true);
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+});
+
+test("a proposal that replaced the one declined, seen once the decline is refused, waits on the dot", async ({
+  page,
+  vellum,
+}) => {
+  await openVellum(page, vellum);
+  await vellum.grill.suggest(SUBJECT, REASON);
+  await expect(proposal(page)).toBeVisible();
+  const release = await hold(page, "**/x/grill/state");
+  await vellum.grill.suggest(NEXT_SUBJECT, REASON);
+  await proposal(page).getByRole("button", { name: "Decline" }).click();
+  await expect(page.getByRole("alert")).toHaveText(REPLACED);
+  await release();
+
+  await expect.poll(() => dotted(page)).toBe(true);
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+});
+
+test("a proposal seen while a decline is in flight waits on the dot", async ({ page, vellum }) => {
+  await openVellum(page, vellum);
+  await vellum.grill.suggest(SUBJECT, REASON);
+  await expect(proposal(page)).toBeVisible();
+  const state = await hold(page, "**/x/grill/state");
+  const decline = await hold(page, "**/x/grill/decline");
+  await vellum.grill.suggest(NEXT_SUBJECT, REASON);
+  await proposal(page).getByRole("button", { name: "Decline" }).click();
+  await state();
+  await expect.poll(() => dotted(page)).toBe(true);
+  await decline();
+
+  await expect(page.getByRole("alert")).toHaveText(REPLACED);
+  await expect.poll(() => dotted(page)).toBe(true);
+  await expect(page.getByRole("dialog")).toHaveCount(0);
 });
 
 test("a proposal declined elsewhere leaves the modal", async ({ page, vellum }) => {
