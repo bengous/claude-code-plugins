@@ -113,8 +113,8 @@ commit-msg:
 # A script job, not a run job: lefthook 2.1.12 skips a pre-push run job when
 # `git diff HEAD @{push}` lists no file, and fails it when the branch has no
 # upstream and origin/HEAD names no local branch.
-# `use_stdin` hands the script git's pushed-ref lines, so a push of deletions
-# alone skips the gates.
+# `use_stdin` hands the script git's pushed-ref lines: a push of deletions
+# alone skips the gates, and a push to main meets the version guard.
 pre-push:
   jobs:
     - name: gates-and-tests

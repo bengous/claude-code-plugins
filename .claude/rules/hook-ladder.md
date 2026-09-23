@@ -6,6 +6,7 @@ paths:
   - ".lefthook/**"
   - "scripts/run-gates.ts"
   - "scripts/check-lint-config.ts"
+  - "scripts/check-plugin-bumps.ts"
 ---
 
 # Hook ladder
@@ -54,6 +55,13 @@ agent meets any finding left once, at the end of its turn, not on each edit.
 - A new gate is one `EXPECTED_COMMANDS` entry in
   `scripts/check-lint-config.ts`. `lint-config` then demands its pre-commit job
   and its CI step; Stop and pre-push run it through `run-gates.ts`.
+  The exception is a check of the push to `main`: the release guard,
+  `scripts/check-plugin-bumps.ts --pre-push`, is one line of
+  `.lefthook/pre-push/gates-and-tests.sh`, fed git's pushed-ref lines. As an
+  entry it would run at every Stop and on every push, red from each plugin
+  change to its release-time bump. `checkCommandParity` reads only the
+  pre-commit `run` lines and CI's `validate` steps, so that line needs nothing
+  there.
 - Tests stay out of Stop: the two `bun test` runs take about 30 s here, the
   gates under 3 s. pre-push and CI run them.
 
@@ -81,4 +89,6 @@ Known ceilings:
   release caps that at one block per verdict. A non-isolated subagent
   released that way leaves its red in the parent's checkout without a parent
   block; pre-commit and pre-push still catch it.
-- pre-push checks the working tree, not the pushed commits.
+- pre-push's gates and tests check the working tree, not the pushed commits.
+  Only the release guard reads the pushed commits, and only on a push to
+  `main`.
