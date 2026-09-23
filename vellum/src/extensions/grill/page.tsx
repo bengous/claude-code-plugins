@@ -248,14 +248,15 @@ function GrillAction(): preact.JSX.Element | null {
   );
 }
 
-/** Above the page while a grill is open: its subject, its round, the questions that wait for the reviewer, and End grill. */
+/** Above the page while a grill is open: its subject, its round, the questions the reviewer has not touched, and End grill. */
 function GrillBand(props: {
   readonly state: Extract<GrillState, { kind: "open" }>;
 }): preact.JSX.Element {
   const { file, subject } = props.state;
   const blocks = blocksOn(file);
   const open = openIn(blocks ?? []);
-  const progress = progressOf(roundNow(blocks ?? []), open.length);
+  const { waiting } = roundsOf(blocks ?? [], typedOn(file).answers, null);
+  const progress = progressOf(roundNow(blocks ?? []), waiting);
   /** An end in flight: a second click would send what is typed again. */
   const [ending, setEnding] = useState(false);
 

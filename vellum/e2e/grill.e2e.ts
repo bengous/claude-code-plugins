@@ -843,6 +843,17 @@ test.describe("the band", () => {
     await expect(page.getByRole("status").filter({ hasText: "End grill" })).toHaveCount(0);
   });
 
+  test("counts the questions the draft leaves untouched, as the chips do", async ({
+    page,
+    vellum,
+  }) => {
+    await asking(page, vellum);
+    await shown(page).getByRole("radio", { name: "Recommended" }).click();
+
+    await expect(band(page).locator(".count")).toHaveText("round 1 · 1 question waiting");
+    await expect(sendRound(page)).toHaveText("Send round · 1 taken as recommended");
+  });
+
   test("says the last round asked", async ({ page, vellum }) => {
     await twoRounds(page, vellum);
 

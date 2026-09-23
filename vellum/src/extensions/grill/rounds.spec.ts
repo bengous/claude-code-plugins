@@ -99,6 +99,12 @@ describe("the send", () => {
     expect(send({ Q7: "Every push.", Q8: "As recommended." })).toBe("Send round");
   });
 
+  test("counts as waiting the open questions the draft leaves untouched, as the chips", () => {
+    expect(roundsOf(ASKING, NOTHING_TYPED, null).waiting).toBe(2);
+    expect(roundsOf(ASKING, { Q7: "As recommended.", Q8: " " }, null).waiting).toBe(1);
+    expect(roundsOf(SENT, NOTHING_TYPED, null).waiting).toBe(0);
+  });
+
   test("with no question open, sends a note", () => {
     expect(roundsOf(SENT, NOTHING_TYPED, null).send).toBe("Send note");
   });

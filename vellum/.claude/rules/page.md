@@ -136,7 +136,7 @@ no build step, so what the page imports costs nothing at `cli start`.
   with the editor; a card's Delete leaves an `undo` for a while. `app.tsx` draws the column with
   `Notices`, the core's first, then each extension's `notices` components: the grill's proposal
   is one, a `Dialog`, shown while it is mounted, and its band another, drawn while a grill is
-  open: the subject, the round, the questions that wait for the reviewer, and End grill, the page's one. Its
+  open: the subject, the round, the questions that wait for the reviewer, open and untouched in the draft as the chips count them, and End grill, the page's one. Its
   count alone is `role="status"`, drawn empty with none waiting, so a new count is read out and
   End grill never is. The band carries the grill, so the Grill button hides meanwhile. A modal never opens under a typing: the editor
   open, a popover up (`popoverUp` of the kit) or a field focused, `showModal()` would take the
