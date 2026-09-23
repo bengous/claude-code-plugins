@@ -332,6 +332,8 @@ test.describe("the rail's handle", () => {
     page,
     vellum,
   }) => {
+    // The rail lands at once: the line is measured where it is clicked, 50 ms into the guard's window.
+    await page.emulateMedia({ reducedMotion: "reduce" });
     await reviewV1(page, vellum);
     const handle = page.locator(".handle.left");
     await handle.click();
