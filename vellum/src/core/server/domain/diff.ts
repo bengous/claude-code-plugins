@@ -93,46 +93,112 @@ export function shiftLines(
   return [shiftLine(diff, lines[0]), shiftLine(diff, lines[1])];
 }
 
+function wordsOf(line: string): ReadonlySet<string> {
+  return new Set(line.toLowerCase().match(/[\p{L}\p{N}]+/gu));
+}
+
+function sharedWords(left: ReadonlySet<string>, right: ReadonlySet<string>): number {
+  return [...left].filter((word) => right.has(word)).length;
+}
+
 /**
- * Whether `line` of the text before is in a removed run no added run follows: the quote that
- * sat there is gone. A removed run an added run follows is a replacement, which `shiftLine`
- * maps to the lines that took its place.
+ * Which lines of a removed run the added run after it replaced. Each added line replaces one, in
+ * order, so where fewer lines were added than removed the others were removed outright: the
+ * replaced ones are those sharing the most words with the added lines, the first ones on a tie.
  */
-function removedAt(diff: LineDiff, line: number): boolean {
-  return diff.some(
-    (run, index) =>
-      run.kind === "removed" &&
-      run.before <= line &&
-      line < run.before + run.lines.length &&
-      diff[index + 1]?.kind !== "added",
-  );
+function replacedIn(removed: readonly string[], added: readonly string[]): readonly boolean[] {
+  if (added.length >= removed.length) return removed.map(() => true);
+
+  const addedWords = added.map((line) => wordsOf(line));
+
+  const likeness = removed.map((line) => {
+    const words = wordsOf(line);
+
+    return addedWords.map((other) => sharedWords(words, other));
+  });
+
+  // best[i][j]: the most words shared, pairing the first j added lines with the first i removed.
+  const best = [[0, ...added.map(() => -Infinity)]];
+
+  for (const [i, row] of likeness.entries()) {
+    const previous = best[i] ?? [];
+    best.push(
+      previous.map((skip, j) =>
+        j === 0 ? 0 : Math.max(skip, (previous[j - 1] ?? -Infinity) + (row[j - 1] ?? 0)),
+      ),
+    );
+  }
+
+  const replaced = removed.map(() => false);
+  let j = added.length;
+
+  for (let i = removed.length; i > 0 && j > 0; i -= 1) {
+    const previous = best[i - 1] ?? [];
+    const paired = (previous[j - 1] ?? -Infinity) + (likeness[i - 1]?.[j - 1] ?? 0);
+
+    if (paired > (previous[j] ?? -Infinity)) {
+      replaced[i - 1] = true;
+      j -= 1;
+    }
+  }
+
+  return replaced;
 }
 
-function removedLines(diff: LineDiff, lines: readonly [number, number]): boolean {
-  return removedAt(diff, lines[0]) || removedAt(diff, lines[1]);
+/** A line diff as the annotations read it: its runs, and the lines of the text before it took away. */
+type LineMap = { readonly runs: LineDiff; readonly gone: ReadonlySet<number> };
+
+/**
+ * A removed line no added line replaced is gone: the quote that sat there is gone. A replaced
+ * one is not, and `shiftLine` maps it to the lines that took its place.
+ */
+function lineMap(before: string, after: string): LineMap {
+  const runs = lineDiff(before, after);
+  const afterLines = after.split("\n");
+
+  const gone = runs.flatMap((run, index) => {
+    if (run.kind !== "removed") return [];
+    const next = runs[index + 1];
+
+    const added =
+      next?.kind === "added" ? afterLines.slice(next.after - 1, next.after - 1 + next.count) : [];
+
+    const replaced = replacedIn(run.lines, added);
+
+    return run.lines.flatMap((_, offset) =>
+      replaced[offset] === true ? [] : [run.before + offset],
+    );
+  });
+
+  return { runs, gone: new Set(gone) };
 }
 
-function removedWithin(diff: LineDiff, lines: readonly [number, number]): boolean {
-  return Array.from({ length: lines[1] - lines[0] + 1 }, (_, index) => lines[0] + index).some(
-    (line) => removedAt(diff, line),
-  );
+function removedLines(map: LineMap, lines: readonly [number, number]): boolean {
+  return map.gone.has(lines[0]) || map.gone.has(lines[1]);
+}
+
+function removedWithin(map: LineMap, lines: readonly [number, number]): boolean {
+  for (const line of map.gone) {
+    if (lines[0] <= line && line <= lines[1]) return true;
+  }
+
+  return false;
 }
 
 /**
- * Where a passage stands while an edit is unsent, read from the diff of the text it lives on to
- * the version's: on lines the version holds, or on lines that replaced them; over a line only the
- * edit holds, one `removedAt` finds; or `removed`, its lines the version's. Derived at each Done
- * and Discard edit, never stored: the draft keeps `Passage.removed` alone.
+ * Where a passage stands while an edit is unsent, read from the text it lives on to the
+ * version's: on the version's lines, or on lines that replaced them; over a line only the edit
+ * holds; or `removed`, its lines the version's. Derived at each Done, never stored: the draft
+ * keeps `Passage.removed` alone.
  */
 type Standing = "version" | "edit" | "removed";
 
-function standingOf(passage: Passage, toVersion: LineDiff): Standing {
+function standingOf(passage: Passage, toVersion: LineMap): Standing {
   if (passage.removed) return "removed";
 
   return removedWithin(toVersion, passage.lines) ? "edit" : "version";
 }
 
-/** Each text passage of `doc` becomes what `map` returns, and a comment left with no passage goes. */
 function mapPassages(
   annotations: readonly Annotation[],
   doc: ProjectPath,
@@ -170,55 +236,52 @@ export function shiftAnnotations(
   doc: ProjectPath,
   texts: EditTexts,
 ): readonly Annotation[] {
-  const edit = lineDiff(texts.base, texts.text);
-  const toVersion = lineDiff(texts.base, texts.version);
-  const fromVersion = lineDiff(texts.version, texts.text);
+  const edit = lineMap(texts.base, texts.text);
+  const toVersion = lineMap(texts.base, texts.version);
+  const fromVersion = lineMap(texts.version, texts.text);
 
   return mapPassages(annotations, doc, (passage) => {
     switch (standingOf(passage, toVersion)) {
       case "removed":
         return removedLines(fromVersion, passage.lines)
           ? [passage]
-          : [{ ...passage, removed: false, lines: shiftLines(fromVersion, passage.lines) }];
+          : [{ ...passage, removed: false, lines: shiftLines(fromVersion.runs, passage.lines) }];
       case "edit":
         return removedWithin(edit, passage.lines)
           ? []
-          : [{ ...passage, lines: shiftLines(edit, passage.lines) }];
+          : [{ ...passage, lines: shiftLines(edit.runs, passage.lines) }];
       case "version":
         return removedLines(edit, passage.lines)
-          ? [{ ...passage, removed: true, lines: shiftLines(toVersion, passage.lines) }]
-          : [{ ...passage, lines: shiftLines(edit, passage.lines) }];
+          ? [{ ...passage, removed: true, lines: shiftLines(toVersion.runs, passage.lines) }]
+          : [{ ...passage, lines: shiftLines(edit.runs, passage.lines) }];
     }
   });
 }
 
+/** The two texts of a Discard edit: the version's, and the edit's it gives up. */
+export type DiscardTexts = { readonly version: string; readonly edit: string };
+
 /**
- * Discard edit, the reverse, which a Done that types the version's text back matches: the
- * passages on the version's lines are shifted by the diff back to its text, the removed ones are
- * removed no more, their lines intact, and one over a line only the edit holds goes with the
- * edit. A comment left with no passage goes whole.
+ * Discard edit is a Done that types the version's text back: the passages on the version's lines
+ * come back to it, the removed ones are removed no more, their lines intact, and one over a line
+ * only the edit holds goes with the edit. A comment left with no passage goes whole.
  */
 export function unshiftAnnotations(
   annotations: readonly Annotation[],
   doc: ProjectPath,
-  diff: LineDiff,
+  texts: DiscardTexts,
 ): readonly Annotation[] {
-  return mapPassages(annotations, doc, (passage) => {
-    switch (standingOf(passage, diff)) {
-      case "removed":
-        return [{ ...passage, removed: false }];
-      case "edit":
-        return [];
-      case "version":
-        return [{ ...passage, lines: shiftLines(diff, passage.lines) }];
-    }
+  return shiftAnnotations(annotations, doc, {
+    version: texts.version,
+    base: texts.edit,
+    text: texts.version,
   });
 }
 
 export function goneWithEdit(
   annotations: readonly Annotation[],
   doc: ProjectPath,
-  diff: LineDiff,
+  texts: DiscardTexts,
 ): number {
-  return annotations.length - unshiftAnnotations(annotations, doc, diff).length;
+  return annotations.length - unshiftAnnotations(annotations, doc, texts).length;
 }

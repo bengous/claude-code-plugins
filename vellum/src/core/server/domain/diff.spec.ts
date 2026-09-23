@@ -170,17 +170,12 @@ describe("shiftAnnotations", () => {
     ]);
   });
 
-  test("a passage on a line only an earlier edit added goes with the Done that removes it, and nothing brings it back", () => {
-    const version = "a\nb\nc\n";
-    const second = "a\nb\nc\nZ\n";
-    const edit = { version, base: "a\nNEW\nb\nc\n", text: second };
-    const done = shiftAnnotations([deleteAt(PLAN, [2, 2])], PLAN, edit);
-    const third = shiftAnnotations(done, PLAN, { version, base: second, text: `${second}W\n` });
-    const discarded = unshiftAnnotations(done, PLAN, lineDiff(second, version));
-    expect([done, third, discarded]).toEqual([[], [], []]);
+  test("a passage on a line only an earlier edit added goes with the Done that removes it", () => {
+    const edit = { version: "a\nb\nc\n", base: "a\nNEW\nb\nc\n", text: "a\nb\nc\nZ\n" };
+    expect(shiftAnnotations([deleteAt(PLAN, [2, 2])], PLAN, edit)).toEqual([]);
   });
 
-  test("a Done that types the version's text back drops a passage on a line only the edit held, as Discard edit does", () => {
+  test("a Done that types the version's text back drops a passage on a line only the edit held", () => {
     const edit = { version: "a\nb\nc\n", base: "a\nNEW\nb\nc\n", text: "a\nb\nc\n" };
     expect(shiftAnnotations([deleteAt(PLAN, [2, 2])], PLAN, edit)).toEqual([]);
   });
@@ -223,11 +218,24 @@ describe("shiftAnnotations", () => {
     ]);
   });
 
+  test("a line added below a line the edit replaced is the edit's, though the diff puts both in one run", () => {
+    const edit = { version: "a\nb\nc\n", base: "a\nB\nNEW\nc\n", text: "a\nB\nc\n" };
+    expect(shiftAnnotations([deleteAt(PLAN, [3, 3])], PLAN, edit)).toEqual([]);
+  });
+
+  test("a line added to a plan with no final newline is the edit's, and the version's last line stays the version's", () => {
+    const edit = { version: "a\nb\nc", base: "a\nb\nc\nNEW", text: "a\nb\nc" };
+    const comments = [deleteAt(PLAN, [4, 4]), { ...deleteAt(PLAN, [3, 3]), id: "b" }];
+    expect(shiftAnnotations(comments, PLAN, edit)).toEqual([
+      { ...deleteAt(PLAN, [3, 3]), id: "b" },
+    ]);
+  });
+
   test("a passage already removed stays removed when its text comes back elsewhere, and Discard edit puts it back on its line", () => {
     const version = "a\nb\nc\nd\n";
     const edit = { version, base: "a\nc\nd\n", text: "a\nc\nd\nb\n" };
     const done = shiftAnnotations([deleteAt(PLAN, [2, 2], true)], PLAN, edit);
-    const discarded = unshiftAnnotations(done, PLAN, lineDiff(edit.text, version));
+    const discarded = unshiftAnnotations(done, PLAN, { version, edit: edit.text });
     expect([done, discarded]).toEqual([[deleteAt(PLAN, [2, 2], true)], [deleteAt(PLAN, [2, 2])]]);
   });
 
@@ -256,7 +264,7 @@ describe("unshiftAnnotations", () => {
     );
 
     expect(shifted).toEqual([deleteAt(PLAN, [2, 2], true), { ...deleteAt(PLAN, [4, 4]), id: "b" }]);
-    expect(unshiftAnnotations(shifted, PLAN, lineDiff(after, before))).toEqual([
+    expect(unshiftAnnotations(shifted, PLAN, { version: before, edit: after })).toEqual([
       deleteAt(PLAN, [2, 2]),
       { ...deleteAt(PLAN, [4, 4]), id: "b" },
     ]);
@@ -264,21 +272,37 @@ describe("unshiftAnnotations", () => {
 
   test("another document's annotation comes back unchanged", () => {
     const other = [deleteAt(ARTIFACT, [41, 41], true)];
-    expect(unshiftAnnotations(other, PLAN, TWO_ABOVE)).toEqual(other);
+    expect(
+      unshiftAnnotations(other, PLAN, { version: VERSION, edit: `n1\nn2\n${VERSION}` }),
+    ).toEqual(other);
   });
 
   test("a passage on a line only the edit holds goes with the edit, not onto the version's next line", () => {
-    const back = lineDiff("a\nNEW\nb\nc\n", "a\nb\nc\n");
+    const back = { version: "a\nb\nc\n", edit: "a\nNEW\nb\nc\n" };
     expect(unshiftAnnotations([deleteAt(PLAN, [2, 2])], PLAN, back)).toEqual([]);
   });
 
   test("a passage whose range holds a line only the edit holds goes too, though both its ends are the version's", () => {
-    const back = lineDiff("a\nNEW\nb\nc\n", "a\nb\nc\n");
+    const back = { version: "a\nb\nc\n", edit: "a\nNEW\nb\nc\n" };
     expect(unshiftAnnotations([deleteAt(PLAN, [1, 3])], PLAN, back)).toEqual([]);
   });
 
+  test("of a line added above a line the edit replaced, the added one goes and the replaced one comes back on the version's line", () => {
+    const back = { version: "a\nb\nc\n", edit: "a\nNEW\nB\nc\n" };
+    const comments = [deleteAt(PLAN, [2, 2]), { ...deleteAt(PLAN, [3, 3]), id: "b" }];
+    expect(unshiftAnnotations(comments, PLAN, back)).toEqual([
+      { ...deleteAt(PLAN, [2, 2]), id: "b" },
+    ]);
+  });
+
+  test("with no word to tell them apart, the first lines of a longer run are the replaced ones", () => {
+    const back = { version: "a\nb\nc\n", edit: "a\nX\nY\nc\n" };
+    const comments = [deleteAt(PLAN, [2, 2]), { ...deleteAt(PLAN, [3, 3]), id: "b" }];
+    expect(unshiftAnnotations(comments, PLAN, back)).toEqual([deleteAt(PLAN, [2, 2])]);
+  });
+
   test("a comment with a passage on a line only the edit holds loses that passage alone", () => {
-    const back = lineDiff("a\nNEW\nb\nc\n", "a\nb\nc\n");
+    const back = { version: "a\nb\nc\n", edit: "a\nNEW\nb\nc\n" };
     expect(unshiftAnnotations([deleteAtBoth("a", [2, 2], [4, 4])], PLAN, back)).toEqual([
       deleteAt(PLAN, [3, 3]),
     ]);
@@ -287,14 +311,14 @@ describe("unshiftAnnotations", () => {
 
 describe("goneWithEdit", () => {
   test("counts the comments Discard edit takes whole, not one that keeps a passage", () => {
-    const back = lineDiff("a\nNEW\nb\nc\n", "a\nb\nc\n");
+    const back = { version: "a\nb\nc\n", edit: "a\nNEW\nb\nc\n" };
     const comments = [deleteAt(PLAN, [2, 2]), deleteAtBoth("b", [2, 2], [4, 4])];
     expect(goneWithEdit(comments, PLAN, back)).toBe(1);
   });
 
   test("a passage only partly on the edit's lines goes whole, and is counted", () => {
     const version = "t1\nt2\nt3\n\np5\np6\n\nt8\n";
-    const back = lineDiff(version.replace("p6\n", "p6\nADDED\n"), version);
+    const back = { version, edit: version.replace("p6\n", "p6\nADDED\n") };
     const paragraph = [deleteAt(PLAN, [5, 7])];
     expect([
       unshiftAnnotations(paragraph, PLAN, back),

@@ -351,7 +351,7 @@ export const goneOnDiscard = computed(() => {
 
   return edit === null || plan === null
     ? 0
-    : goneWithEdit(annotations.value, plan.doc, lineDiff(edit.text, plan.text));
+    : goneWithEdit(annotations.value, plan.doc, { version: plan.text, edit: edit.text });
 });
 
 /**
@@ -365,11 +365,10 @@ export function discardEdit(): void {
   if (edit === null || plan === null) return;
 
   batch(() => {
-    annotations.value = unshiftAnnotations(
-      annotations.value,
-      plan.doc,
-      lineDiff(edit.text, plan.text),
-    );
+    annotations.value = unshiftAnnotations(annotations.value, plan.doc, {
+      version: plan.text,
+      edit: edit.text,
+    });
     edited.value = null;
     clearUndo();
   });

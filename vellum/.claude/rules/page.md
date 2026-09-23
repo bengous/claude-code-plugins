@@ -164,22 +164,24 @@ no build step, so what the page imports costs nothing at `cli start`.
   "Changes since" is on. On Done `shiftAnnotations` moves the plan's comments through the edit,
   from the three texts of the session (the version's, the one the editor opened on, the one
   typed), so a feedback only ever names lines of the text it is sent with. A passage stands in
-  one of three places, which `standingOf` in `diff.ts` reads for Done and Discard edit alike,
-  derived and never stored: on the version's lines, over a line only the edit holds (one
-  `removedAt` finds in the diff to the version's text), or `removed`. A passage on a line the
-  edit replaced is on the version's lines and follows the replacement; one on the version's
-  lines whose lines the edit removed outright is `removed` and takes the version's lines,
-  whatever edit it was made on, and the card, the feedback and the sheet say so, the sheet by
-  marking nothing; a `removed` passage is judged against the version again at each Done, and
-  comes back once its text does. A passage over a line only the edit holds has no version's
-  lines to take, so it is never `removed`: it goes with the first Done that removes any of its
-  lines, and a comment left with no passage goes whole. That Done asks nothing, since the text
-  it took was the reviewer's own and no version held it. Discard edit is `discardEdit`, the
-  reverse through `unshiftAnnotations` and the diff back to the version's text, which a Done
-  that types the version's text back matches: a passage over a line only the edit holds goes
-  with it, and a comment left with no passage goes whole. Its confirmation counts those
-  comments before the click (`goneOnDiscard`), since Discard edit clears Delete's undo and no
-  notice after it could bring them back. The editor closes through `closeEditor` alone, Done and Cancel alike, on the line
+  one of three places, which `standingOf` in `diff.ts` reads, derived and never stored: on the
+  version's lines, over a line only the edit holds, or `removed`. A removed line is replaced
+  when an added run follows its run, one removed line per added line, the ones sharing the
+  most words with them, the first on a tie (`replacedIn`); the rest of the run is removed
+  outright (`lineMap`). So a line added beside a line the edit changed, or below the last line
+  of a plan with no final newline, is the edit's. A passage on a line the edit replaced is on
+  the version's lines and follows the replacement; one on the version's lines whose lines the
+  edit removed outright is `removed` and takes the version's lines, whatever edit it was made
+  on, and the card, the feedback and the sheet say so, the sheet by marking nothing; a
+  `removed` passage is judged against the version again at each Done, and comes back once its
+  text does. A passage over a line only the edit holds has no version's lines to take, so it
+  is never `removed`: it goes with the first Done that removes any of its lines, and a comment
+  left with no passage goes whole. That Done asks nothing, since the text it took was the
+  reviewer's own and no version held it. Discard edit is `discardEdit` through
+  `unshiftAnnotations`, a Done that types the version's text back: a passage over a line only
+  the edit holds goes with it, and a comment left with no passage goes whole. Its confirmation
+  counts those comments before the click (`goneOnDiscard`), since Discard edit clears Delete's
+  undo and no notice after it could bring them back. The editor closes through `closeEditor` alone, Done and Cancel alike, on the line
   under the caret: `resume` carries it, the plan's renderer scrolls to its block once the diagrams are drawn and the images decoded,
   and `Tools` gives the focus back to Edit. While the editor is open the comments panel stays
   readable and scrolls: its actions are disabled, not the panel.
