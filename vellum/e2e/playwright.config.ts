@@ -18,7 +18,9 @@ export default defineConfig({
   // Scrollbars drawn, as Chrome on Linux draws them: the one thing a fold handle can cover.
   use: {
     browserName: "chromium",
-    trace: "retain-on-failure",
+    // CI uploads no trace and recording one costs about a fifth of each test (#195): a CI
+    // failure is reproduced locally, where the failing test's trace is kept.
+    trace: process.env.CI === undefined ? "retain-on-failure" : "off",
     launchOptions: { ignoreDefaultArgs: ["--hide-scrollbars"] },
   },
   projects: WINDOWS.map(({ name, width, height, colorScheme }) => ({

@@ -30,6 +30,9 @@ paths:
   its own file and project (`-- <file> --project=<name>`), never by rerunning the suite; the
   whole suite runs once on `light-1440` before a push, and at the five windows in CI only, a job
   per window (`--project=<name>`), on request: the `e2e` label on a PR, or `workflow_dispatch`.
+  CI records no trace (`trace` in `e2e/playwright.config.ts` reads `CI`): no step uploads one,
+  and recording one costs about a fifth of each test (#195). A local run keeps a failing test's
+  trace, so a test red in CI is read after reproducing it locally, on its file and project.
 - One behaviour per test, under fifteen lines, data in view: helpers hide the plumbing; the
   version, the path, the text the case turns on stay in the test.
 - Before the code of a slice, its tests are listed one line each and agreed, written first,
