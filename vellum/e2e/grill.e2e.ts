@@ -953,6 +953,45 @@ test.describe("the panel's phases", () => {
     await expect(panelEnd(page)).toBeVisible();
   });
 
+  test("a page loaded while Claude works names its round once the transcript loads, never the first", async ({
+    page,
+    vellum,
+  }) => {
+    await vellum.grill.open(SUBJECT);
+    await vellum.grill.ask(ROUND);
+    await vellum.api("x/grill/reply", { answers: [], note: "" });
+    // Never answered: the transcript stays unloaded until the route goes.
+    await page.route("**/api/x/grill/blocks*", () => null);
+    await openVellum(page, vellum);
+    await expect(panel(page)).toBeVisible();
+
+    await expect(phaseLine(page)).toHaveText("");
+    await page.unroute("**/api/x/grill/blocks*");
+    vellum.writeFile("notes.md", "One.");
+    await expect(phaseLine(page)).toHaveText("Claude is preparing round 2.");
+  });
+
+  test("a phase read before its transcript waits for it: the round drawn keeps its send", async ({
+    page,
+    vellum,
+  }) => {
+    await asking(page, vellum);
+    await page.route("**/api/x/grill/blocks*", () => null);
+
+    const idle = page.waitForResponse(
+      async (response) =>
+        response.url().includes("/x/grill/state") && (await response.text()).includes('"idle"'),
+    );
+
+    await vellum.api("x/grill/reply", { answers: [], note: "" });
+    await vellum.grill.answer("The frontier is empty.");
+    await idle;
+    await page.waitForTimeout(300);
+
+    await expect(phaseLine(page)).toHaveText("");
+    await expect(sendRound(page)).toBeVisible();
+  });
+
   test("axe finds nothing to fault on the working, idle and stopped screens, light and dark", async ({
     page,
     vellum,

@@ -260,7 +260,9 @@ no build step, so what the page imports costs nothing at `cli start`.
   round that lands shows its first open question, scrolled into view. Between the text and the
   chips the panel carries its one live region, `role="status"`, drawn empty while a round waits
   for the reviewer, and says the grill's phase, which is the server's (`GrillState.open.phase`),
-  never derived from the blocks (`phaseText` in `grill/labels.ts`): while Claude works, the round
+  never derived from the blocks (`phaseText` in `grill/labels.ts`). It is drawn with the blocks
+  loaded for it, which keep the phase of their state, and not before: a newer phase over older
+  blocks named the first round at a reload and took the send from a round still drawn open. While Claude works, the round
   it prepares; once its turn ended with no question open (`idle`), a card under Claude's last
   words whose primary action is End grill, the foot with its note behind Add a note, unless the
   draft holds a note; a turn cut short (`stopped`), the same card with End grill secondary and

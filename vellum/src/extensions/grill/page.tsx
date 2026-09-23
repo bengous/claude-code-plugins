@@ -29,7 +29,7 @@ import {
 import { grillNumber } from "./parse.ts";
 import { GrillButton, Proposal } from "./proposal.tsx";
 import { AS_RECOMMENDED } from "./protocol.ts";
-import type { Block, GrillPosts, GrillState } from "./protocol.ts";
+import type { Block, GrillPosts, GrillState, Phase } from "./protocol.ts";
 import { roundNow, roundsOf } from "./rounds.ts";
 import type { QuestionBlock, Rounds } from "./rounds.ts";
 
@@ -53,12 +53,15 @@ const drawn = computed(() => (review.value?.workspace.kind === "approved" ? null
 /**
  * The open grill's blocks, which the band and the panel draw alike, with the write they were read
  * at: a workspace event that did not write the file loads nothing, and any other loads it, a
- * load still out included, since that one may fail.
+ * load still out included, since that one may fail. They keep the phase of the state they were
+ * loaded for, which the panel draws with them: a phase read before its blocks land would name a
+ * round, or take a send away, over blocks that do not show it yet.
  */
 const transcript = signal<{
   readonly path: string;
   readonly write: string;
   readonly blocks: readonly Block[];
+  readonly phase: Phase;
 } | null>(null);
 
 /**
@@ -117,17 +120,19 @@ async function loadState(): Promise<void> {
     if (state.kind === "open" && state.file !== ended.peek()?.file) ended.value = null;
   });
 
-  if (state.kind === "open") await loadTranscript(state.file);
+  if (state.kind === "open") await loadTranscript(state.file, state.phase);
 }
 
-async function loadTranscript(path: string): Promise<void> {
+async function loadTranscript(path: string, phase: Phase): Promise<void> {
   const write = `${path}@${docs.peek().find((doc) => doc.path === path)?.modified ?? 0}`;
 
   if (transcript.peek()?.write === write) return;
   transcriptAsked = write;
   const blocks = await blocksOf(path);
 
-  if (blocks !== null && transcriptAsked === write) transcript.value = { path, write, blocks };
+  if (blocks !== null && transcriptAsked === write) {
+    transcript.value = { path, write, blocks, phase };
+  }
 }
 
 /** The blocks of the open transcript at `path`, `null` until they land. */
@@ -135,6 +140,13 @@ function blocksOn(path: string): readonly Block[] | null {
   const loaded = transcript.value;
 
   return loaded?.path === path ? loaded.blocks : null;
+}
+
+/** The phase the blocks of `path` were loaded with, `null` until they land. */
+function phaseOn(path: string): Phase | null {
+  const loaded = transcript.value;
+
+  return loaded?.path === path ? loaded.phase : null;
 }
 
 /** The transcript's blocks, or `null` with the failure in the notices: the reviewer waits on them. */
@@ -676,8 +688,9 @@ function RoundView(props: {
 function OpenGrill(props: {
   readonly state: Extract<GrillState, { kind: "open" }>;
 }): preact.JSX.Element {
-  const { file: path, phase } = props.state;
+  const { file: path } = props.state;
   const loaded = blocksOn(path);
+  const phase = phaseOn(path);
   const blocks = loaded ?? [];
   const own = typedOn(path);
   const [picked, setPicked] = useState<string | null>(null);
@@ -729,8 +742,8 @@ function OpenGrill(props: {
         <div class="plan">
           <Transcript blocks={blocks} card={() => null} />
           {/* The panel's one live region, drawn empty while a round is open: a status added with its text is not read out. */}
-          <div class={`grill-phase ${phase}`}>
-            <p role="status">{phaseText(phase, roundNow(blocks))}</p>
+          <div class={`grill-phase ${phase ?? ""}`}>
+            <p role="status">{phase === null ? "" : phaseText(phase, roundNow(blocks))}</p>
             {phase === "idle" && (
               <div class="row">
                 <EndGrill file={path} look="primary" />
