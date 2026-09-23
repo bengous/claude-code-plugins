@@ -1364,8 +1364,13 @@ test.describe("the band", () => {
     const out = page.waitForRequest("**/api/x/grill/blocks*");
     await vellum.grill.answer("Round 1 is on the page.", { asked: true });
     await out;
-    await readAfter(page, 200, () => vellum.writeFile("notes.md", "One."));
-    await page.waitForTimeout(300);
+
+    const reread = page.waitForResponse(
+      (response) => response.url().includes("/x/grill/blocks") && response.status() === 200,
+    );
+
+    vellum.writeFile("notes.md", "One.");
+    await reread;
     held.resolve();
 
     await expect(page.getByRole("alert")).toContainText("could not be loaded");
