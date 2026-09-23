@@ -26,7 +26,7 @@ A job its `if:` skips still leaves a check run on the SHA, concluded `skipped`: 
 The two requests:
 
 - The `e2e` label on a pull request whose head is in this repository: `gh pr edit <branch> --add-label e2e`. It runs `validate` and `e2e` on the pull request's head. On a fork's pull request it runs `validate` alone, as any other label does: the fork's run gets a read-only token, which cannot take the label off.
-- `gh workflow run ci.yml --ref <branch>`, on any ref: `validate` and `e2e`. GitHub reads the `workflow_dispatch` trigger from the default branch's `ci.yml`, so it answers once a release has carried it to `main`. Its checks stay out of a pull request's checks list, but they are check runs on the ref's head, which is what the e2e gate reads.
+- `gh workflow run ci.yml --ref <branch>`, on any ref: `validate` and `e2e`. GitHub reads the `workflow_dispatch` trigger from the default branch's `ci.yml`, so it answers once a release has carried it to `main`. Whether its checks show in a pull request's checks list is not measured: the first dispatch after a release measures it. They are check runs on the ref's head either way, which is what the e2e gate reads.
 
 ## Which suite runs on which trigger
 
