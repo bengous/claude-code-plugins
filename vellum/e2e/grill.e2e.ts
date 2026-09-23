@@ -184,3 +184,39 @@ test("the modal's words read on their surfaces, light and dark: axe sees none in
     expect(await ratio(below, below)).toBeGreaterThanOrEqual(4.5);
   }
 });
+
+/** The page's sheet, then the same sheet under the modal's backdrop, each as a luminance painted on a canvas. */
+function dimming(page: Page): Promise<{ readonly sheet: number; readonly under: number }> {
+  return page.locator("dialog.dialog").evaluate((dialog) => {
+    const app = document.querySelector(".app");
+    const canvas = document.createElement("canvas");
+    const context = canvas.getContext("2d");
+
+    if (app === null || context === null) throw new Error("no .app, or no 2d context");
+
+    const paint = (color: string): number => {
+      context.fillStyle = color;
+      context.fillRect(0, 0, 1, 1);
+      const [r = 0, g = 0, b = 0] = context.getImageData(0, 0, 1, 1).data;
+
+      return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+    };
+
+    const sheet = paint(getComputedStyle(app).backgroundColor);
+
+    return { sheet, under: paint(getComputedStyle(dialog, "::backdrop").backgroundColor) };
+  });
+}
+
+test("the backdrop dims the page, light and dark", async ({ page, vellum }) => {
+  await openVellum(page, vellum);
+  await vellum.grill.suggest(SUBJECT, REASON);
+  await expect(proposal(page)).toBeVisible();
+
+  for (const colorScheme of ["light", "dark"] as const) {
+    await page.emulateMedia({ colorScheme });
+    const { sheet, under } = await dimming(page);
+
+    expect(under).toBeLessThan(sheet);
+  }
+});

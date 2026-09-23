@@ -59,6 +59,7 @@
   --r-md: 8px;
   --r-pill: 999px;
   --shadow: 0 6px 20px color-mix(in oklab, var(--ink) 18%, transparent);
+  --scrim: color-mix(in oklab, var(--ink) 42%, transparent);
   --transition: 120ms ease;
   color-scheme: light;
 }
@@ -82,6 +83,7 @@
     --wash-marker: color-mix(in oklab, var(--marker) 32%, transparent);
     --field: color-mix(in oklab, var(--sheet) 88%, black);
     --shadow: 0 6px 20px color-mix(in oklab, black 45%, transparent);
+    --scrim: color-mix(in oklab, black 55%, transparent);
     color-scheme: dark;
   }
 }
@@ -306,7 +308,7 @@ iframe { border: 0; width: 100%; height: 100%; display: block; background: var(-
 /* The element spans the window, transparent: the card and the line under it sit in it, and a click beside them lands on the element, as on the backdrop. */
 .dialog { width: 100%; max-width: none; height: 100%; max-height: none; margin: 0; padding: var(--s-4); border: 0; background: transparent; color: var(--ink); }
 .dialog[open] { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: var(--s-3); }
-.dialog::backdrop { background: color-mix(in oklab, var(--ink) 42%, transparent); }
+.dialog::backdrop { background: var(--scrim); }
 .dialog-card { width: min(470px, 100%); background: var(--sheet); border-radius: var(--r-md); box-shadow: var(--shadow); padding: var(--s-6) var(--s-6) var(--s-4); font: var(--t-14)/var(--lh-chrome) var(--serif); }
 .dialog-card .row { margin-top: var(--s-4); }
 /* Its own surface: over the backdrop no text token reads at 4.5:1 in both themes. */
