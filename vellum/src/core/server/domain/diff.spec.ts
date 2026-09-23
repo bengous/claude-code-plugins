@@ -170,6 +170,67 @@ describe("shiftAnnotations", () => {
     ]);
   });
 
+  test("a passage on a line only an earlier edit added goes with the Done that removes it, and nothing brings it back", () => {
+    const version = "a\nb\nc\n";
+    const second = "a\nb\nc\nZ\n";
+    const edit = { version, base: "a\nNEW\nb\nc\n", text: second };
+    const done = shiftAnnotations([deleteAt(PLAN, [2, 2])], PLAN, edit);
+    const third = shiftAnnotations(done, PLAN, { version, base: second, text: `${second}W\n` });
+    const discarded = unshiftAnnotations(done, PLAN, lineDiff(second, version));
+    expect([done, third, discarded]).toEqual([[], [], []]);
+  });
+
+  test("a Done that types the version's text back drops a passage on a line only the edit held, as Discard edit does", () => {
+    const edit = { version: "a\nb\nc\n", base: "a\nNEW\nb\nc\n", text: "a\nb\nc\n" };
+    expect(shiftAnnotations([deleteAt(PLAN, [2, 2])], PLAN, edit)).toEqual([]);
+  });
+
+  test("a passage over a line only the edit holds is never marked removed: it goes when the edit removes its version line", () => {
+    const edit = { version: "a\nb\nc\n", base: "a\nb\nNEW\nc\n", text: "a\nNEW\nc\n" };
+    expect(shiftAnnotations([deleteAt(PLAN, [2, 3])], PLAN, edit)).toEqual([]);
+  });
+
+  test("a passage goes when the edit removes a line inside it that only the edit held, though both its ends stay", () => {
+    const edit = { version: "a\nb\nc\n", base: "a\nNEW\nb\nc\n", text: "a\nb\nc\nZ\n" };
+    expect(shiftAnnotations([deleteAt(PLAN, [1, 3])], PLAN, edit)).toEqual([]);
+  });
+
+  test("a comment with a passage on a line only the edit held loses that passage alone when a Done removes the line", () => {
+    const edit = { version: "a\nb\nc\n", base: "a\nNEW\nb\nc\n", text: "a\nb\nc\nZ\n" };
+    expect(shiftAnnotations([deleteAtBoth("a", [2, 2], [4, 4])], PLAN, edit)).toEqual([
+      deleteAt(PLAN, [3, 3]),
+    ]);
+  });
+
+  test("a line only the edit holds is told by the diff, not by its text: an added copy of a version line goes too", () => {
+    const edit = { version: "a\nb\nc\n", base: "a\nc\nb\nc\n", text: "a\nb\nc\nZ\n" };
+    expect(shiftAnnotations([deleteAt(PLAN, [2, 2])], PLAN, edit)).toEqual([]);
+  });
+
+  test("a passage on a line only the edit holds follows it through a Done that keeps it, and goes with the next that removes it", () => {
+    const version = "a\nb\nc\n";
+    const second = "x\na\nNEW\nb\nc\n";
+    const edit = { version, base: "a\nNEW\nb\nc\n", text: second };
+    const kept = shiftAnnotations([deleteAt(PLAN, [2, 2])], PLAN, edit);
+    const removed = shiftAnnotations(kept, PLAN, { version, base: second, text: "x\na\nb\nc\n" });
+    expect([kept, removed]).toEqual([[deleteAt(PLAN, [3, 3])], []]);
+  });
+
+  test("a passage on a line an earlier edit replaced is the version's: a Done that removes it marks it removed on the replaced line", () => {
+    const edit = { version: "a\nb\nc\n", base: "a\nB\nc\n", text: "a\nc\n" };
+    expect(shiftAnnotations([deleteAt(PLAN, [2, 2])], PLAN, edit)).toEqual([
+      deleteAt(PLAN, [2, 2], true),
+    ]);
+  });
+
+  test("a passage already removed stays removed when its text comes back elsewhere, and Discard edit puts it back on its line", () => {
+    const version = "a\nb\nc\nd\n";
+    const edit = { version, base: "a\nc\nd\n", text: "a\nc\nd\nb\n" };
+    const done = shiftAnnotations([deleteAt(PLAN, [2, 2], true)], PLAN, edit);
+    const discarded = unshiftAnnotations(done, PLAN, lineDiff(edit.text, version));
+    expect([done, discarded]).toEqual([[deleteAt(PLAN, [2, 2], true)], [deleteAt(PLAN, [2, 2])]]);
+  });
+
   test("another document's annotation and a global one come back unchanged", () => {
     const general: Annotation = {
       id: "g",
@@ -229,5 +290,15 @@ describe("goneWithEdit", () => {
     const back = lineDiff("a\nNEW\nb\nc\n", "a\nb\nc\n");
     const comments = [deleteAt(PLAN, [2, 2]), deleteAtBoth("b", [2, 2], [4, 4])];
     expect(goneWithEdit(comments, PLAN, back)).toBe(1);
+  });
+
+  test("a passage only partly on the edit's lines goes whole, and is counted", () => {
+    const version = "t1\nt2\nt3\n\np5\np6\n\nt8\n";
+    const back = lineDiff(version.replace("p6\n", "p6\nADDED\n"), version);
+    const paragraph = [deleteAt(PLAN, [5, 7])];
+    expect([
+      unshiftAnnotations(paragraph, PLAN, back),
+      goneWithEdit(paragraph, PLAN, back),
+    ]).toEqual([[], 1]);
   });
 });

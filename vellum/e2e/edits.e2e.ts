@@ -7,10 +7,11 @@ import type { Vellum } from "./harness.ts";
 import { boxOf, commentOn, expect, openVellum, readFixture, reviewV1, test } from "./harness.ts";
 
 /**
- * Edits and changes: a comment on a text the edit removed says so and moves nowhere, Discard
- * edit is the reverse of Done and says first which comments go with the edit, the editor hands
- * back the place and the focus, Ctrl+Enter is Done, the comments stay readable meanwhile, and a
- * code block says which lines changed.
+ * Edits and changes: a comment on a text the edit removed says so and moves nowhere, unless only
+ * the edit held its line, and then it goes with the Done; Discard edit is the reverse of Done
+ * and says first which comments go with the edit, the editor hands back the place and the focus,
+ * Ctrl+Enter is Done, the comments stay readable meanwhile, and a code block says which lines
+ * changed.
  */
 
 async function openEditor(page: Page): Promise<void> {
@@ -90,6 +91,27 @@ test.describe("a comment on a text the edit removes", () => {
     await page.getByRole("button", { name: /Send feedback/u }).click();
     await expect(page.locator(".bar .status")).toHaveText("Feedback sent");
     expect(feedbackOf(vellum)).toContain("(removed by the reviewer's edit)");
+  });
+
+  test("goes with the Done that removes it when only the edit held its line, and Discard edit brings nothing back", async ({
+    page,
+    vellum,
+  }) => {
+    const mine = "One line the reviewer wrote.";
+    await reviewV1(page, vellum);
+    await editPlan(page, (text) => text.replace("## Decisions\n", `${mine}\n\n## Decisions\n`));
+    await page.getByRole("button", { name: "Done" }).click();
+    await commentOn(page);
+    await commentBlock(page, page.locator("article.plan p", { hasText: mine }), "Why here?");
+    await page.locator(".tools [role=switch]", { hasText: "Comment" }).click();
+
+    await editPlan(page, (text) => `${text.replace(`${mine}\n\n`, "")}\nAnother line.\n`);
+    await page.getByRole("button", { name: "Done" }).click();
+    await expect(page.locator(".comments .card")).toHaveCount(0);
+    await page.getByRole("button", { name: "Discard edit" }).click();
+    await page.getByRole("button", { name: "Discard", exact: true }).click();
+    await expect(page.locator(".doc-head .edited")).toHaveCount(0);
+    await expect(page.locator(".comments .card")).toHaveCount(0);
   });
 });
 

@@ -118,17 +118,34 @@ function removedWithin(diff: LineDiff, lines: readonly [number, number]): boolea
   );
 }
 
+/**
+ * Where a passage stands while an edit is unsent, read from the diff of the text it lives on to
+ * the version's: on lines the version holds, or on lines that replaced them; over a line only the
+ * edit holds, one `removedAt` finds; or `removed`, its lines the version's. Derived at each Done
+ * and Discard edit, never stored: the draft keeps `Passage.removed` alone.
+ */
+type Standing = "version" | "edit" | "removed";
+
+function standingOf(passage: Passage, toVersion: LineDiff): Standing {
+  if (passage.removed) return "removed";
+
+  return removedWithin(toVersion, passage.lines) ? "edit" : "version";
+}
+
+/** Each text passage of `doc` becomes what `map` returns, and a comment left with no passage goes. */
 function mapPassages(
   annotations: readonly Annotation[],
   doc: ProjectPath,
-  map: (passage: Passage) => Passage,
+  map: (passage: Passage) => readonly Passage[],
 ): readonly Annotation[] {
-  return annotations.map((annotation) => {
-    if (annotation.doc !== doc || annotation.anchor.kind !== "text") return annotation;
-    const [first, ...rest] = annotation.anchor.passages;
-    const passages = [map(first), ...rest.map((passage) => map(passage))] as const;
+  return annotations.flatMap((annotation) => {
+    if (annotation.doc !== doc || annotation.anchor.kind !== "text") return [annotation];
 
-    return { ...annotation, anchor: { kind: "text", passages } };
+    const [first, ...rest] = annotation.anchor.passages.flatMap((passage) => map(passage));
+
+    return first === undefined
+      ? []
+      : [{ ...annotation, anchor: { kind: "text", passages: [first, ...rest] } }];
   });
 }
 
@@ -140,11 +157,13 @@ export type EditTexts = {
 };
 
 /**
- * Done: the text passages of `doc`'s annotations follow their lines through the edit. One whose
- * lines the edit removed is marked `removed` and takes the version's lines, whatever edit it was
- * made on, so the feedback and Discard edit read them as the version's; one already removed is
- * judged against the version again, and comes back on its new line once its text does. Every
- * other annotation is returned as is.
+ * Done: the text passages of `doc`'s annotations follow their lines through the edit. One on the
+ * version's lines whose lines the edit removed is marked `removed` and takes the version's lines,
+ * whatever edit it was made on, so the feedback and Discard edit read them as the version's; one
+ * already removed is judged against the version again, and comes back on its new line once its
+ * text does. One over a line only the edit holds has no version's lines to take: it goes once the
+ * edit removes any of its lines, and a comment left with no passage goes whole. Every other
+ * annotation is returned as is.
  */
 export function shiftAnnotations(
   annotations: readonly Annotation[],
@@ -156,43 +175,43 @@ export function shiftAnnotations(
   const fromVersion = lineDiff(texts.version, texts.text);
 
   return mapPassages(annotations, doc, (passage) => {
-    if (passage.removed) {
-      return removedLines(fromVersion, passage.lines)
-        ? passage
-        : { ...passage, removed: false, lines: shiftLines(fromVersion, passage.lines) };
+    switch (standingOf(passage, toVersion)) {
+      case "removed":
+        return removedLines(fromVersion, passage.lines)
+          ? [passage]
+          : [{ ...passage, removed: false, lines: shiftLines(fromVersion, passage.lines) }];
+      case "edit":
+        return removedWithin(edit, passage.lines)
+          ? []
+          : [{ ...passage, lines: shiftLines(edit, passage.lines) }];
+      case "version":
+        return removedLines(edit, passage.lines)
+          ? [{ ...passage, removed: true, lines: shiftLines(toVersion, passage.lines) }]
+          : [{ ...passage, lines: shiftLines(edit, passage.lines) }];
     }
-
-    return removedLines(edit, passage.lines)
-      ? { ...passage, removed: true, lines: shiftLines(toVersion, passage.lines) }
-      : { ...passage, lines: shiftLines(edit, passage.lines) };
   });
 }
 
 /**
- * Discard edit, the reverse: the passages not removed are shifted by the diff back to the
- * version's text, and the removed ones are removed no more, their lines intact. A passage over
- * a line only the edit holds, one `removedAt` finds in the diff back, goes with the edit, and a
- * comment left with no passage goes whole.
+ * Discard edit, the reverse, which a Done that types the version's text back matches: the
+ * passages on the version's lines are shifted by the diff back to its text, the removed ones are
+ * removed no more, their lines intact, and one over a line only the edit holds goes with the
+ * edit. A comment left with no passage goes whole.
  */
 export function unshiftAnnotations(
   annotations: readonly Annotation[],
   doc: ProjectPath,
   diff: LineDiff,
 ): readonly Annotation[] {
-  return annotations.flatMap((annotation) => {
-    if (annotation.doc !== doc || annotation.anchor.kind !== "text") return [annotation];
-
-    const [first, ...rest] = annotation.anchor.passages.flatMap((passage) => {
-      if (passage.removed) return [{ ...passage, removed: false }];
-
-      return removedWithin(diff, passage.lines)
-        ? []
-        : [{ ...passage, lines: shiftLines(diff, passage.lines) }];
-    });
-
-    return first === undefined
-      ? []
-      : [{ ...annotation, anchor: { kind: "text", passages: [first, ...rest] } }];
+  return mapPassages(annotations, doc, (passage) => {
+    switch (standingOf(passage, diff)) {
+      case "removed":
+        return [{ ...passage, removed: false }];
+      case "edit":
+        return [];
+      case "version":
+        return [{ ...passage, lines: shiftLines(diff, passage.lines) }];
+    }
   });
 }
 
