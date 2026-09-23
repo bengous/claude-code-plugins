@@ -1,3 +1,4 @@
+import type { ChildProcessByStdio } from "node:child_process";
 import { spawn } from "node:child_process";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
@@ -65,17 +66,38 @@ export type Vellum = {
   stop(): Promise<void>;
 };
 
-/** The first line of `stream` matching `pattern`; the reader closes on it and the rest drains unread. */
-function firstLine(stream: Readable, pattern: RegExp): Promise<string> {
+/** What a child printed until now, each line with the milliseconds since its spawn. */
+type Heard = { readonly since: number; readonly lines: string[] };
+
+/**
+ * The first line of `child`'s `name` stream matching `pattern`; the reader closes on it and the
+ * rest drains unread. Past 20 s it fails with every line either stream printed and whether the
+ * child exited: the one start timeout seen in CI (#207) carried nothing to find its cause by.
+ */
+function firstLine(
+  child: ChildProcessByStdio<null, Readable, Readable>,
+  name: "stdout" | "stderr",
+  pattern: RegExp,
+  heard: Heard,
+): Promise<string> {
+  const stream = child[name];
+
   return new Promise((found, reject) => {
     const lines = createInterface({ input: stream });
 
-    const timer = setTimeout(
-      () => reject(new Error(`no line matching ${pattern} within 20 s`)),
-      20_000,
-    );
+    const timer = setTimeout(() => {
+      const exit = child.exitCode ?? child.signalCode ?? "still running";
+      const printed = heard.lines.length === 0 ? "nothing" : heard.lines.join("\n  ");
+      reject(
+        new Error(
+          `no line matching ${pattern} on ${name} within 20 s; exit: ${exit}; printed:\n  ${printed}`,
+        ),
+      );
+    }, 20_000);
 
     lines.on("line", (line) => {
+      heard.lines.push(`${Math.round(performance.now() - heard.since)} ms ${name}: ${line}`);
+
       if (!pattern.test(line)) return;
       clearTimeout(timer);
       lines.close();
@@ -94,6 +116,8 @@ export async function startVellum(
   fixture: string,
   options: { readonly minutes?: number } = {},
 ): Promise<Vellum> {
+  const heard: Heard = { since: performance.now(), lines: [] };
+
   const child = spawn(
     "bun",
     [
@@ -119,8 +143,11 @@ export async function startVellum(
     gone = true;
   });
 
-  const url = await firstLine(child.stdout, /^http/u);
-  const copied = await firstLine(child.stderr, /copied to /u);
+  const [url, copied] = await Promise.all([
+    firstLine(child, "stdout", /^http/u, heard),
+    firstLine(child, "stderr", /copied to /u, heard),
+  ]);
+
   const workdir = /copied to (.+?); pid/u.exec(copied)?.[1];
 
   if (workdir === undefined) throw new Error(`preview.ts named no working copy: ${copied}`);
