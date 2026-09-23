@@ -96,11 +96,11 @@ async function loadTranscript(path: string): Promise<void> {
   else transcript.value = { path, blocks };
 }
 
-/** The blocks of the open transcript at `path`, `[]` until they land. */
-function blocksOn(path: string): readonly Block[] {
+/** The blocks of the open transcript at `path`, `null` until they land. */
+function blocksOn(path: string): readonly Block[] | null {
   const loaded = transcript.value;
 
-  return loaded?.path === path ? loaded.blocks : [];
+  return loaded?.path === path ? loaded.blocks : null;
 }
 
 /** The questions no reply closed yet, by their number. */
@@ -250,7 +250,8 @@ function GrillBand(props: {
   readonly state: Extract<GrillState, { kind: "open" }>;
 }): preact.JSX.Element {
   const { file, subject } = props.state;
-  const open = openIn(blocksOn(file));
+  const blocks = blocksOn(file);
+  const open = openIn(blocks ?? []);
   const waiting = waitingOf(open.length);
 
   return (
@@ -259,7 +260,12 @@ function GrillBand(props: {
         Grill · {subject}
       </span>
       {waiting !== null && <span class="count">{waiting}</span>}
-      <Button size="sm" onClick={() => void end(file, open)}>
+      <Button
+        size="sm"
+        disabled={blocks === null}
+        title={blocks === null ? "Loading the grill" : undefined}
+        onClick={() => void end(file, open)}
+      >
         End grill
       </Button>
     </div>
@@ -411,7 +417,7 @@ function OpenGrill(props: {
   readonly state: Extract<GrillState, { kind: "open" }>;
 }): preact.JSX.Element {
   const { file: path, phase } = props.state;
-  const blocks = blocksOn(path);
+  const blocks = blocksOn(path) ?? [];
   const own = typedOn(path);
 
   const answer = (id: string, text: string): void =>

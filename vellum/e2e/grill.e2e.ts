@@ -639,6 +639,27 @@ test.describe("the band", () => {
     await expect(panel(page).locator(".plan")).toContainText("Round 1 is on the page.");
   });
 
+  test("End grill waits for the transcript, so no answer typed is closed unread", async ({
+    page,
+    vellum,
+  }) => {
+    await asking(page, vellum);
+    await panel(page).getByRole("textbox", { name: "Answer to Q1" }).fill("One store per form.");
+    await expect
+      .poll(async () => JSON.stringify((await vellum.api("draft")).json))
+      .toContain("form.");
+    await page.route("**/api/x/grill/blocks*", (route) => route.fulfill({ status: 500 }));
+    await page.reload();
+    const end = band(page).getByRole("button", { name: "End grill" });
+    await expect(end).toBeDisabled();
+    await page.unroute("**/api/x/grill/blocks*");
+    vellum.writeFile("notes.md", "One.");
+    await end.click();
+
+    const state = async (): Promise<string> => JSON.stringify((await vellum.grill.state()).json);
+    await expect.poll(state).toContain("Q1: One store per form.");
+  });
+
   test("a long subject is cut on its one line, and End grill stays in the band", async ({
     page,
     vellum,
