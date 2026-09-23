@@ -15,7 +15,7 @@ Write a plan the way its reviewer reads it, then review it in the browser. The s
 `/vellum:start` triggers itself when a design choice is open, a change crosses several modules or interfaces, or a refactor reshapes a contract. Three moves:
 
 1. Size the ceremony. A one-sentence diff gets no plan. A fuzzy idea gets a throwaway first, after the few questions that pin down what it must show.
-2. Settle the open choices in a grill, in the review page. Claude suggests one with `mcp__vellum__grill_suggest`; you start it, or not. Only a question whose answer changes the architecture, an interface or the scope is asked; the rest becomes a recorded assumption.
+2. Settle the open choices in a grill, in the review page. Claude suggests one with `mcp__vellum__grill_suggest`; you start it, or decline it, and a decline reaches Claude as a prompt. Only a question whose answer changes the architecture, an interface or the scope is asked; the rest becomes a recorded assumption.
 3. Write the plan to `plan.md`, ordered by probability of revision: decisions, interfaces, files, slices with their check, out of scope, then mechanics. Then call `mcp__vellum__submit`.
 
 References, loaded one at a time: `program-design.md` (signatures, call-stack and file trees, command interfaces, contracts), `slices.md` (vertical order, sizing, implementation notes), `visual.md` (when a mockup or a diagram earns its place).
