@@ -45,7 +45,7 @@ The table holds ([CI](#ci)), and so does the gate below; the `workflow_dispatch`
 
 - #192, first, landed: the gate below, the landing order in [Git procedures](git.md), and the inline-lane rule in `AGENTS.md`.
 - #193, after #192, landed: the triggers of the table, and the gate's refusal naming the label. In that order, there was never a window with no e2e at all.
-- #194, after #193, landed: one job per window (`--project=<window>`), behind one aggregate check still named `e2e`, the one the gate reads, and the gate's re-run command for it. From the first window's start to `e2e`'s end, a full run takes 214 s at 2 workers per window (run 35859029915, one window starting 20 s after the others) and 196 s at 4 (run 35859775898), so each window runs on 4. Every window's suite step was shorter at 4: 135 to 151 s, against 158 to 161 s at 2.
+- #194, after #193, landed: one job per window (`--project=<window>`), behind one aggregate check still named `e2e`, the one the gate reads, and the gate's re-run command for it. From the first window's start to `e2e`'s end, a full run takes 214 s at 2 workers per window (run 35859029915, a single run, one window starting 20 s after the others) and 188 to 209 s at 4 (runs 35859775898, 35860625035, 35862961821), so each window runs on 4. A window's suite step takes 94 to 169 s at 4 across those three runs, against 158 to 161 s at 2: the gain is smaller than the spread between runs at 4, and the spread at 2 is not measured.
 - #195: the fixed cost each test pays, measured, then cut.
 - #196: `labels.e2e.ts` "a mockup's element by its label" timed out at `light-1024` in run 35831750016, which turned `dev` red at 38298fb. It is a finding of this work, not part of the decision.
 
@@ -59,7 +59,7 @@ Why:
 
 - The cost. Run 35834032446 (push to `dev`, 947e49c) took 803 s for `e2e`, 767 s of it the suite (`Running 620 tests using 2 workers`, `612 passed (12.8m)`), and 57 s for `validate`.
 - The reruns. A merge train runs `e2e` twice per landing, once on the PR sync and once on the `dev` push (#168, comment on runs #359–#370). A release runs it again on a SHA already tested: 947e49c ran in 35834032446 (`dev`) and again in 35834555129 (`main`, 823 s).
-- The time goes per test, not per window. In 35834032446 the median test took 2.3 s, and a short one takes as long, since each test starts its own `preview.ts` (`vellum/e2e/harness.ts`). Each window's results span 148 to 153 s on 2 workers, after 31 s of setup. One job per window takes a full run to 196 s (#194 above).
+- The time goes per test, not per window. In 35834032446 the median test took 2.3 s, and a short one takes as long, since each test starts its own `preview.ts` (`vellum/e2e/harness.ts`). Each window's results span 148 to 153 s on 2 workers, after 31 s of setup. One job per window takes a full run to 188 to 209 s (#194 above).
 - No `concurrency` group. `e2e` runs only on request, and a new request must never kill a running one. `validate` must finish on every `dev` head, since [Git procedures](git.md) Release releases only a green one.
 - `e2e` stays non-required on `main`: with the gate, every landed SHA that touched the e2e paths was already tested.
 
