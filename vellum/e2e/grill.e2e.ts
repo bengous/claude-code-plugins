@@ -625,6 +625,20 @@ test.describe("the band", () => {
     await expect(grillButton(page)).toHaveCount(0);
   });
 
+  test("a transcript load that failed is read again at the next workspace event", async ({
+    page,
+    vellum,
+  }) => {
+    await asking(page, vellum);
+    await page.route("**/api/x/grill/blocks*", (route) => route.fulfill({ status: 500 }));
+    await vellum.grill.answer("Round 1 is on the page.");
+    await expect(page.getByRole("alert")).toContainText("could not be loaded");
+    await page.unroute("**/api/x/grill/blocks*");
+    vellum.writeFile("notes.md", "One.");
+
+    await expect(panel(page).locator(".plan")).toContainText("Round 1 is on the page.");
+  });
+
   test("a long subject is cut on its one line, and End grill stays in the band", async ({
     page,
     vellum,

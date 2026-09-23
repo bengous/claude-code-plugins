@@ -42,7 +42,10 @@ const transcript = signal<{ readonly path: string; readonly blocks: readonly Blo
   null,
 );
 
-/** The write of the open transcript last asked for: a workspace event that did not write it loads nothing. */
+/**
+ * The write of the open transcript loaded, or on its way: a workspace event that did not write it
+ * loads nothing. A load that failed leaves none, so the next event reads again.
+ */
 let transcriptAsked: string | null = null;
 
 function nameOf(path: string): string {
@@ -87,7 +90,10 @@ async function loadTranscript(path: string): Promise<void> {
   transcriptAsked = write;
   const blocks = await blocksOf(path);
 
-  if (blocks !== null && transcriptAsked === write) transcript.value = { path, blocks };
+  if (transcriptAsked !== write) return;
+
+  if (blocks === null) transcriptAsked = null;
+  else transcript.value = { path, blocks };
 }
 
 /** The blocks of the open transcript at `path`, `[]` until they land. */
