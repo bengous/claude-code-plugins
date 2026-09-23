@@ -133,7 +133,7 @@ jobs:
         working-directory: vellum
 
       - name: Run the browser suite at one window
-        run: bun run --cwd vellum e2e -- --project=${{ matrix.window }}
+        run: bun run --cwd vellum e2e -- --project=${{ matrix.window }} --workers=4
 
   # The one check the pre-push gate reads, `scripts/check-e2e-green.ts`: green when every window
   # is. Asked of the same requests as the windows, so a run nobody asked leaves it `skipped`,
