@@ -1,3 +1,4 @@
+import { batch } from "@preact/signals";
 import { render } from "preact";
 import { useEffect, useRef } from "preact/hooks";
 
@@ -16,6 +17,7 @@ import {
   addAnnotation,
   annotations,
   commentsOpen,
+  commentsSnap,
   currentDoc,
   edited,
   editing,
@@ -148,7 +150,12 @@ function App(): preact.JSX.Element {
 
   // Four columns do not fit a laptop: a panel appearing takes the comments' room, their handle kept.
   useEffect(() => {
-    if (panelShown) commentsOpen.value = false;
+    if (!panelShown) return;
+
+    batch(() => {
+      commentsOpen.value = false;
+      commentsSnap.value = true;
+    });
   }, [panelShown]);
 
   useEffect(() => {

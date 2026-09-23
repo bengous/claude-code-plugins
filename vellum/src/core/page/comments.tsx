@@ -1,3 +1,4 @@
+import { batch } from "@preact/signals";
 import { Fragment } from "preact";
 import { useEffect, useRef, useState } from "preact/hooks";
 
@@ -9,6 +10,7 @@ import {
   addAnnotation,
   annotations,
   commentsOpen,
+  commentsSnap,
   docs,
   editing,
   focused,
@@ -218,7 +220,10 @@ export function CommentsHandle(): preact.JSX.Element {
       name="Comments"
       label={`Comments (${count})`}
       onToggle={() => {
-        commentsOpen.value = !commentsOpen.value;
+        batch(() => {
+          commentsSnap.value = false;
+          commentsOpen.value = !commentsOpen.value;
+        });
       }}
     >
       {count > 0 && <Badge>{count}</Badge>}
@@ -234,6 +239,7 @@ export function Comments(props: { readonly doc: GroupedDoc | null }): preact.JSX
   const view = review.value;
   const name = doc === null || view === null ? "" : pathLabel(doc, view);
   const known = useRef<ReadonlySet<string> | null>(null);
+  const folded = commentsOpen.value ? "comments" : "comments folded";
 
   // A comment added scrolls the list to its card: the reviewer sees it land. Several at once are
   // a load (the draft, after the panel mounted empty), which keeps the list where it is.
@@ -262,7 +268,7 @@ export function Comments(props: { readonly doc: GroupedDoc | null }): preact.JSX
   return (
     <aside
       id="comments"
-      class={commentsOpen.value ? "comments" : "comments folded"}
+      class={commentsSnap.value ? `${folded} snap` : folded}
       aria-label="Comments"
       inert={!commentsOpen.value}
     >

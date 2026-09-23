@@ -79,6 +79,13 @@ export const split = signal(false);
  */
 export const commentsOpen = signal(true);
 
+/**
+ * The comments' last fold was the layout's, not the reviewer's: it is drawn at once. A panel is
+ * known only once its extension loaded, after the first render, and a slide then reads as the
+ * page jumping. The handle clears it, so the reviewer's own folds slide.
+ */
+export const commentsSnap = signal(false);
+
 /** Whether the document rail takes its width: open at every load, whatever the window's width. */
 export const railOpen = signal(true);
 

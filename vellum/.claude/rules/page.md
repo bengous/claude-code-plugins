@@ -79,7 +79,11 @@ no build step, so what the page imports costs nothing at `cli start`.
   lines never reflow while it moves. A fold never unmounts a panel; a renderer with
   `comments: false` still unmounts the comments panel, as above. An extension's panel appearing
   folds the comments panel, its handle kept, since four columns do not fit a laptop: `app.tsx`
-  does it, as layout, and no extension writes `commentsOpen`. Folded, a panel is `inert`: what leaves the screen hides pixels, not
+  does it, as layout, and no extension writes `commentsOpen`. That fold is drawn at once, with
+  no slide (`commentsSnap`, which the handle clears so the reviewer's own folds slide): a panel
+  is known only once its extension has loaded, after the first render, so a page loaded with a
+  grill open shows the comments open until then, and a slide there reads as the page jumping.
+  `shell.e2e.ts` records every width transition of `#comments` to hold it. Folded, a panel is `inert`: what leaves the screen hides pixels, not
   focus. The comments handle's badge is the unfiltered total, the one count a folded panel still
   shows. The rail's carries none, though folded the rail hides each document's count and any
   document Claude writes meanwhile: it opens at every load, and only the reviewer folds it.

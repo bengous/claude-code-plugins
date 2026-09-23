@@ -334,6 +334,8 @@ textarea::placeholder, input::placeholder { color: var(--graphite); }
 
 .comments { width: var(--comments-width); flex: none; border-left: 1px solid var(--rule); display: flex; flex-direction: column; background: var(--tint); overflow: hidden; transition: width var(--transition); }
 .comments.folded { width: 0; border-left-width: 0; }
+.comments.snap { transition: none; }
+.comments.snap + .handle.right { transition-property: color; }
 /* The panel stays mounted while it folds, so its contents keep their width, the panel's minus its border, instead of reflowing to zero. */
 .comments > * { width: calc(var(--comments-width) - 1px); flex: none; }
 .comments header { padding: var(--s-2) var(--s-3); font-weight: 650; border-bottom: 1px solid var(--rule); display: flex; justify-content: space-between; }

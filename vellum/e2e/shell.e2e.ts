@@ -340,6 +340,53 @@ async function recordCommentsClass(page: Page): Promise<void> {
   });
 }
 
+/** Records each width transition `#comments` runs, by the class it runs to, from before the page's scripts run. */
+async function recordCommentsSlides(page: Page): Promise<void> {
+  await page.addInitScript(() => {
+    const slid: string[] = [];
+
+    document.addEventListener("transitionrun", (event) => {
+      const { target } = event;
+
+      if (!(target instanceof Element) || target.id !== "comments") return;
+
+      if (event.propertyName !== "width") return;
+      slid.push(target.className);
+      document.documentElement.dataset["commentsSlid"] = slid.join(" | ");
+    });
+  });
+}
+
+function commentsWidth(page: Page): Promise<number> {
+  return page.locator("#comments").evaluate((element) => element.getBoundingClientRect().width);
+}
+
+test.describe("with a grill open at load", () => {
+  test("the comments fold once the grill is known, at once, with no slide", async ({
+    page,
+    vellum,
+  }) => {
+    await recordCommentsSlides(page);
+    await vellum.gate();
+    await vellum.grill.open("Where do drafts live?");
+    await openVellum(page, vellum);
+    await expect.poll(() => commentsWidth(page)).toBe(0);
+
+    await expect(page.locator("html")).not.toHaveAttribute("data-comments-slid");
+  });
+
+  test("the handle still slides them open", async ({ page, vellum }) => {
+    await recordCommentsSlides(page);
+    await vellum.gate();
+    await vellum.grill.open("Where do drafts live?");
+    await openVellum(page, vellum);
+    await expect.poll(() => commentsWidth(page)).toBe(0);
+    await page.locator(".handle.right").click();
+
+    await expect(page.locator("html")).toHaveAttribute("data-comments-slid", "comments");
+  });
+});
+
 test.describe("in a window 900px wide", () => {
   test.use({ viewport: { width: 900, height: 600 } });
 
