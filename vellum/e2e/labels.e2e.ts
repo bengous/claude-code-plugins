@@ -73,6 +73,8 @@ test.describe("what a card says", () => {
     await commentOn(page);
     const frame = page.frameLocator(".pane iframe").last();
     await frame.locator("h1").click();
+    // Control pressed while the mockup still holds the focus is dropped at the frame's blur.
+    await expect(page.locator(".popover textarea")).toBeFocused();
     // Control held first: the composer lets the pointer through before the click is checked.
     await page.keyboard.down("Control");
     await frame.locator("label[for=notes]").click();
