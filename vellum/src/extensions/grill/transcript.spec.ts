@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
+import type { Answer } from "./protocol.ts";
 import {
   appendAnswer,
   appendEvent,
@@ -28,10 +29,15 @@ const NOT_OWN = false;
 const asked = appendAnswer(appendQuestions(opened, [STYLE, STYLE]), "Asked.", "answer", OWN);
 
 /** Each question of the file with its answer, in order. */
-function answers(doc: string): (string | null)[] {
+function answers(doc: string): Answer[] {
   return segmentsOf(doc).flatMap((segment) =>
     segment.kind === "question" ? [segment.answer] : [],
   );
+}
+
+/** Each question of the file with its round, in order. */
+function rounds(doc: string): number[] {
+  return segmentsOf(doc).flatMap((segment) => (segment.kind === "question" ? [segment.round] : []));
 }
 
 describe("a round", () => {
@@ -171,8 +177,8 @@ describe("the page's segments", () => {
       { kind: "markdown", text: "\n## Round 1\n\n### Claude\n" },
     ]);
     expect(segments.slice(2)).toEqual([
-      { kind: "question", id: "Q1", ...STYLE, answer: null },
-      { kind: "question", id: "Q2", ...STYLE, answer: null },
+      { kind: "question", id: "Q1", round: 1, ...STYLE, answer: { kind: "open" } },
+      { kind: "question", id: "Q2", round: 1, ...STYLE, answer: { kind: "open" } },
       { kind: "markdown", text: "\nAsked.\n" },
     ]);
     expect(JSON.stringify(segments)).not.toMatch(/❓|➡️/u);
@@ -181,7 +187,10 @@ describe("the page's segments", () => {
   test("an answer is read beside its question, and of a reply only the note stays as text", () => {
     const replied = appendReply(asked, [{ id: "Q1", text: "plain\nfor now" }], "and hurry") ?? "";
 
-    expect(answers(replied)).toEqual(["plain\nfor now", "As recommended, by default."]);
+    expect(answers(replied)).toEqual([
+      { kind: "typed", text: "plain\nfor now" },
+      { kind: "default" },
+    ]);
     expect(segmentsOf(replied).at(-1)).toEqual({
       kind: "markdown",
       text: "\nAsked.\n\n### Reviewer\n\nand hurry\n\n",
@@ -196,13 +205,39 @@ describe("the page's segments", () => {
       {
         kind: "question",
         id: "Q1",
+        round: 0,
         title: "Riding times",
         ask: "day or night?",
         rec: "*Both*",
-        answer: null,
+        answer: { kind: "open" },
       },
       { kind: "markdown", text: "\nYour answers?\n" },
     ]);
+  });
+
+  test("an answer is one of four kinds: open, taken by default, the recommendation chosen, typed", () => {
+    const three = appendQuestions(opened, [STYLE, STYLE, STYLE]);
+
+    const chosen = [
+      { id: "Q1", text: "As recommended." },
+      { id: "Q2", text: "plain" },
+    ];
+
+    const replied = appendQuestions(appendReply(three, chosen, "") ?? "", [STYLE]);
+
+    expect(answers(replied)).toEqual([
+      { kind: "recommended" },
+      { kind: "typed", text: "plain" },
+      { kind: "default" },
+      { kind: "open" },
+    ]);
+  });
+
+  test("a question's round is the round heading above it, 0 for one Claude typed before any", () => {
+    const typed = appendAnswer(opened, "❓ **Q1** - **Hand**: typed?", "answer", OWN);
+    const replied = appendReply(appendQuestions(typed, [STYLE, STYLE]), [], "") ?? "";
+
+    expect(rounds(appendQuestions(replied, [STYLE]))).toEqual([0, 1, 1, 2]);
   });
 });
 

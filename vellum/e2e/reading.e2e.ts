@@ -155,6 +155,28 @@ test.describe("the transcript", () => {
     await expect(page.locator(".grill-q h4")).toHaveCount(8);
   });
 
+  test("an answer reads as the reviewer's own, or as the recommendation chosen or by default", async ({
+    page,
+    vellum,
+  }) => {
+    await reviewV1(page, vellum);
+    await page.locator("#rail button", { hasText: "grill-1.md" }).click();
+    const labels = page.locator(".grill-q .answer .label");
+    await expect(labels).toHaveCount(8);
+
+    await expect(labels).toHaveText([
+      "Your answer",
+      "Your answer",
+      "Your answer",
+      "Your answer",
+      "By default",
+      "By default",
+      "By default",
+      "By default",
+    ]);
+    await expect(page.locator(".grill-q .answer .text").first()).toHaveText("As recommended.");
+  });
+
   test("Take it is reachable in the panel at 1024, and greyed under a typed answer", async ({
     page,
     vellum,

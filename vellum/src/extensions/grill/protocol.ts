@@ -50,10 +50,20 @@ export type GrillState =
       readonly relays: readonly Relay[];
     };
 
+/** A reply's answer that takes the recommendation by choice, where an answer left out takes it by default. */
+export const AS_RECOMMENDED = "As recommended.";
+
+/** A question's answer as the file holds it: none yet, the recommendation by default or by choice, or the reviewer's own words. */
+export type Answer =
+  | { readonly kind: "open" }
+  | { readonly kind: "default" }
+  | { readonly kind: "recommended" }
+  | { readonly kind: "typed"; readonly text: string };
+
 /**
- * What the page draws. A question crosses as a card's parts: its number, its topic, the question
- * and the recommendation as HTML the server rendered from the file's Markdown with the same
- * `toHtml` as the text between the cards, and its answer or its field. The `❓` and `➡️` markers
+ * What the page draws. A question crosses as a card's parts: its number, its round, its topic,
+ * the question and the recommendation as HTML the server rendered from the file's Markdown with
+ * the same `toHtml` as the text between the cards, and its answer. The `❓` and `➡️` markers
  * stay in the file, where they carry the parsing, and the page never prints them.
  */
 export type Block =
@@ -64,13 +74,14 @@ export type Block =
       readonly kind: "question";
       /** `Q3`, the number that runs across the whole grill. */
       readonly id: string;
+      /** The `## Round n` it was asked in; 0 for a question Claude typed before the first. */
+      readonly round: number;
       readonly title: string;
       /** Inline HTML, never raw Markdown: the page inserts it as it inserts an `html` block. */
       readonly ask: string;
       /** As `ask`; `""` when Claude gave none. */
       readonly rec: string;
-      /** The reviewer's answer, read beside its question; `null` while the card takes one. */
-      readonly answer: string | null;
+      readonly answer: Answer;
     };
 
 /** Who ended a grill from outside the approval: the reviewer in the page, or `/vellum:stop`. The approval's footer is the server's own. */

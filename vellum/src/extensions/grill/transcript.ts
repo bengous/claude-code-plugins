@@ -1,4 +1,5 @@
-import type { CloseReason, Question, Relay } from "./protocol.ts";
+import { AS_RECOMMENDED } from "./protocol.ts";
+import type { Answer, CloseReason, Question, Relay } from "./protocol.ts";
 
 /**
  * The transcript as text: every function takes the file and returns the file. What the page and
@@ -15,10 +16,15 @@ export type Segment =
   | { readonly kind: "opened"; readonly subject: string; readonly at: string }
   | { readonly kind: "closed"; readonly at: string; readonly reason: CloseReason | "approved" }
   | { readonly kind: "markdown"; readonly text: string }
-  | ({ readonly kind: "question"; readonly id: string; readonly answer: string | null } & Question);
+  | ({
+      readonly kind: "question";
+      readonly id: string;
+      readonly round: number;
+      readonly answer: Answer;
+    } & Question);
 
-/** An answer the reviewer typed for one question, by its id (`Q3`). */
-export type Answer = { readonly id: string; readonly text: string };
+/** An answer the reviewer sent for one question, by its id (`Q3`). */
+export type TypedAnswer = { readonly id: string; readonly text: string };
 
 /** What a question the reviewer left empty is answered with, when its round is sent or the grill ends. */
 export const TAKEN_BY_DEFAULT = "As recommended, by default.";
@@ -49,6 +55,9 @@ const QUESTION = /^❓\s*\*\*(Q\d+)\*\*\s*[-–—]\s*\*\*(.+?)\*\*:?\s*(.*)$/u;
 
 /** Every question's number, read as `QUESTION` reads a question: one reader, or a hand-typed number is reused. */
 const ASKED = /^❓\s*\*\*Q(\d+)\*\*/gmu;
+
+/** As `appendQuestions` writes it; quoted text cannot, its `#` escaped. */
+const ROUND_HEADING = /^## Round (\d+)$/u;
 
 const EVENT = /^_\(session: .*\)_$/u;
 
@@ -121,7 +130,7 @@ function replies(doc: string): RegExpExecArray[] {
   return [...doc.matchAll(REPLY)];
 }
 
-type Parts = { readonly answers: readonly Answer[]; readonly note: string };
+type Parts = { readonly answers: readonly TypedAnswer[]; readonly note: string };
 
 /** One reply as its parts: an answer runs from its `Qn: ` line to the next one, or to the note. */
 function partsOf(reply: string): Parts {
@@ -170,7 +179,11 @@ export function unanswered(doc: string): string[] {
  * one the reviewer left empty takes the recommendation, and says it did so by default. `null`
  * when there is nothing to write.
  */
-export function appendReply(doc: string, answers: readonly Answer[], note: string): string | null {
+export function appendReply(
+  doc: string,
+  answers: readonly TypedAnswer[],
+  note: string,
+): string | null {
   const typed = new Map(answers.map(({ id, text }) => [id, text.trim()]));
 
   const lines = unanswered(doc).map((id) => `${id}: ${typed.get(id) || TAKEN_BY_DEFAULT}`);
@@ -268,9 +281,31 @@ function lineText(lines: readonly string[]): string {
   return lines.join("\n").trim();
 }
 
+/** An answer's text as the file wrote it, by its kind; `undefined` while no reply gave one. */
+function answerOf(text: string | undefined): Answer {
+  if (text === undefined) return { kind: "open" };
+
+  if (text === TAKEN_BY_DEFAULT) return { kind: "default" };
+
+  return text === AS_RECOMMENDED ? { kind: "recommended" } : { kind: "typed", text };
+}
+
+/** The round each line stands in: the last `## Round n` above it, 0 before the first. */
+function roundsOfLines(lines: readonly string[]): number[] {
+  const rounds: number[] = [];
+
+  for (const line of lines) {
+    const heading = ROUND_HEADING.exec(line)?.[1];
+    rounds.push(heading === undefined ? (rounds.at(-1) ?? 0) : Number.parseInt(heading, 10));
+  }
+
+  return rounds;
+}
+
 /** A question runs from its `❓` line to the rule that closes it; what follows is Markdown again. */
 function cut(text: string, answers: ReadonlyMap<string, string>): Segment[] {
   const lines = text.split("\n");
+  const rounds = roundsOfLines(lines);
   const starts = lines.flatMap((line, index) => (QUESTION.test(line) ? [index] : []));
   const segments: Segment[] = [{ kind: "markdown", text: lines.slice(0, starts[0]).join("\n") }];
 
@@ -288,10 +323,11 @@ function cut(text: string, answers: ReadonlyMap<string, string>): Segment[] {
       {
         kind: "question",
         id,
+        round: rounds[start] ?? 0,
         title,
         ask: lineText([ask, ...asked]),
         rec: rec === -1 ? "" : lineText([recommended, ...body.slice(rec + 1)]),
-        answer: answers.get(id) ?? null,
+        answer: answerOf(answers.get(id)),
       },
       { kind: "markdown", text: lines.slice(end + 1, next).join("\n") },
     );

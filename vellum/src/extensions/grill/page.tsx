@@ -15,15 +15,13 @@ import {
   typed,
 } from "../../core/page/state.ts";
 import type { Typed } from "../../core/protocol.ts";
-import { declineFailure, footerOf, waitingOf } from "./labels.ts";
+import { answerOf, declineFailure, footerOf, waitingOf } from "./labels.ts";
 import { grillNumber } from "./parse.ts";
 import { GrillButton, Proposal } from "./proposal.tsx";
+import { AS_RECOMMENDED } from "./protocol.ts";
 import type { Block, GrillPosts, GrillState } from "./protocol.ts";
 
 const ID = "grill";
-
-/** What "Take it" answers: Claude wrote the recommendation, so its text never goes back to it. */
-const TAKEN = "As recommended.";
 
 /**
  * The server's last word on the grill, loaded again at every workspace event; `null` before the
@@ -109,7 +107,7 @@ function blocksOn(path: string): readonly Block[] | null {
 /** The questions no reply closed yet, by their number. */
 function openIn(blocks: readonly Block[]): string[] {
   return blocks.flatMap((block) =>
-    block.kind === "question" && block.answer === null ? [block.id] : [],
+    block.kind === "question" && block.answer.kind === "open" ? [block.id] : [],
   );
 }
 
@@ -316,6 +314,7 @@ type CardProps = {
 /** Take it fills an empty field: over a typed answer it is greyed, so a click never replaces the typing. */
 function QuestionCard(props: CardProps): preact.JSX.Element {
   const { block } = props;
+  const answer = answerOf(block.answer);
 
   return (
     <div class="grill-q">
@@ -334,17 +333,17 @@ function QuestionCard(props: CardProps): preact.JSX.Element {
             <Button
               size="sm"
               disabled={props.answer.trim() !== ""}
-              onClick={() => props.onAnswer?.(TAKEN)}
+              onClick={() => props.onAnswer?.(AS_RECOMMENDED)}
             >
               Take it
             </Button>
           )}
         </div>
       )}
-      {block.answer !== null && (
+      {answer !== null && (
         <div class="answer">
-          <span class="label">Your answer</span>
-          <span class="text">{block.answer}</span>
+          <span class="label">{answer.label}</span>
+          <span class="text">{answer.text}</span>
         </div>
       )}
       {props.onAnswer !== null && (
@@ -474,7 +473,7 @@ function OpenGrill(props: {
                 key={block.id}
                 block={block}
                 answer={own.answers[block.id] ?? ""}
-                onAnswer={block.answer === null ? (text) => answer(block.id, text) : null}
+                onAnswer={block.answer.kind === "open" ? (text) => answer(block.id, text) : null}
                 onSend={live ? () => void send(path, open) : null}
               />
             )}

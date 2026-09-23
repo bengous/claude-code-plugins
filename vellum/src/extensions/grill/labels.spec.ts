@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import { declineFailure, footerOf, waitingOf } from "./labels.ts";
+import { answerOf, declineFailure, footerOf, waitingOf } from "./labels.ts";
 
 describe("footerOf", () => {
   test("names who ended the grill, never the reason's code", () => {
@@ -25,5 +25,20 @@ describe("waitingOf", () => {
     expect(waitingOf(0)).toBeNull();
     expect(waitingOf(1)).toBe("1 question waiting");
     expect(waitingOf(2)).toBe("2 questions waiting");
+  });
+});
+
+describe("answerOf", () => {
+  test("reads an answer by its kind, and says which the reviewer never chose", () => {
+    expect(answerOf({ kind: "open" })).toBeNull();
+    expect(answerOf({ kind: "default" })).toEqual({ label: "By default", text: "As recommended." });
+    expect(answerOf({ kind: "recommended" })).toEqual({
+      label: "Your answer",
+      text: "As recommended.",
+    });
+    expect(answerOf({ kind: "typed", text: "plain" })).toEqual({
+      label: "Your answer",
+      text: "plain",
+    });
   });
 });

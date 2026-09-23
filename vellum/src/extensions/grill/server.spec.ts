@@ -287,7 +287,7 @@ describe("a round", () => {
     );
     const blocks = await get(`blocks?file=${WIP}grill-1.md`);
     expect(await blocks.json()).toContainEqual(
-      expect.objectContaining({ id: "Q1", answer: "yes" }),
+      expect.objectContaining({ id: "Q1", answer: { kind: "typed", text: "yes" } }),
     );
   });
 
@@ -479,7 +479,8 @@ describe("the blocks the page draws", () => {
       title: "Store",
       ask: "<p>Which store: <code>redis</code> or <code>pg</code>?</p>\n",
       rec: "<p><code>redis</code>, for the TTL.</p>\n",
-      answer: null,
+      round: 1,
+      answer: { kind: "open" },
     });
   });
 
