@@ -120,6 +120,34 @@ test("a proposal landing on a typing opens nothing: the typing goes on, the dot 
   await expect(proposal(page)).toHaveCount(0);
 });
 
+test("a proposal landing while the plan's editor is open, no field focused, opens nothing", async ({
+  page,
+  vellum,
+}) => {
+  await openVellum(page, vellum);
+  await page.locator(".tools").getByRole("button", { name: "Edit", exact: true }).click();
+  await page.locator(".editor textarea").blur();
+  await vellum.grill.suggest(SUBJECT, REASON);
+  await expect.poll(() => dotted(page)).toBe(true);
+
+  await expect(proposal(page)).toHaveCount(0);
+});
+
+test("a proposal landing while a popover is up, no field focused, opens nothing", async ({
+  page,
+  vellum,
+}) => {
+  await openVellum(page, vellum);
+  await page.locator("#global").fill("One general remark.");
+  await page.getByRole("button", { name: "Add comment" }).click();
+  await page.getByRole("button", { name: "Approve", exact: true }).click();
+  await expect(page.getByRole("button", { name: "Cancel" })).toBeFocused();
+  await vellum.grill.suggest(SUBJECT, REASON);
+  await expect.poll(() => dotted(page)).toBe(true);
+
+  await expect(proposal(page)).toHaveCount(0);
+});
+
 test("the Grill button with no proposal opens it blank, Start greyed until a subject is typed", async ({
   page,
   vellum,
