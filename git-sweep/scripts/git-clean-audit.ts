@@ -17,6 +17,16 @@ import {
   readSweepConfig,
   resolveBase,
 } from "./sweep-config.ts";
+import {
+  type BranchHold,
+  type KeptWorktree,
+  type LinkedWorktree,
+  parseWorktreeList,
+  type StaleWorktree,
+  type Triage,
+  type TriageContext,
+  triageWorktree,
+} from "./worktrees.ts";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -44,12 +54,6 @@ type BranchInfo = {
   d_refusal: string | null;
 };
 
-type WorktreeInfo = {
-  path: string;
-  branch: string | null;
-  reason: "missing-dir" | "broken-ref";
-};
-
 // A live, clean worktree whose branch is already contained in the base: the
 // worktree is the only thing keeping that branch alive.
 type RemovableWorktree = {
@@ -72,7 +76,7 @@ type RemoteBranchInfo = {
 
 type KeptBranch = {
   name: string;
-  reason: "base" | "current" | "worktree" | "dirty-worktree" | "unproven" | "too-old" | "protected";
+  reason: "base" | "current" | BranchHold["reason"] | "unproven" | "too-old";
   detail: string | null;
 };
 
@@ -85,12 +89,13 @@ type AuditSuccess = {
     orphaned_worktree: BranchInfo[];
     content_merged: BranchInfo[];
     backup: BranchInfo[];
-    stale_worktrees: WorktreeInfo[];
+    stale_worktrees: StaleWorktree[];
     removable_worktrees: RemovableWorktree[];
     stale_remote: RemoteBranchInfo[];
     stale_tracking: string[];
   };
   kept: KeptBranch[];
+  kept_worktrees: KeptWorktree[];
   kept_remote: KeptBranch[];
 };
 
@@ -364,146 +369,111 @@ async function predictDashDRefusal(branch: string): Promise<string | null> {
 // Worktree scanning
 // ---------------------------------------------------------------------------
 
-type WorktreeEntry = {
-  path: string;
-  branch: string | null;
-  locked: boolean;
-  prunable: boolean;
-  is_main: boolean;
-};
-
-function parseWorktrees(porcelain: string): WorktreeEntry[] {
-  const entries: WorktreeEntry[] = [];
-
-  porcelain
-    .split("\n\n")
-    .filter(Boolean)
-    .forEach((block, index) => {
-      let path = "";
-      let branch: string | null = null;
-      let locked = false;
-      let prunable = false;
-
-      for (const line of block.split("\n")) {
-        // `locked` and `prunable` appear bare or followed by a reason.
-        if (line.startsWith("worktree ")) path = line.slice(9);
-        else if (line.startsWith("branch ")) branch = line.slice(7).replace("refs/heads/", "");
-        else if (line === "locked" || line.startsWith("locked ")) locked = true;
-        else if (line === "prunable" || line.startsWith("prunable ")) prunable = true;
-      }
-
-      // The first entry is always the main worktree, which is never a candidate.
-      if (path) entries.push({ path, branch, locked, prunable, is_main: index === 0 });
-    });
-
-  return entries;
-}
-
 const IGNORED_LIST_CAP = 10;
 
 type WorktreeScan = {
-  stale: WorktreeInfo[];
+  stale: StaleWorktree[];
   removable: RemovableWorktree[];
+  kept: KeptWorktree[];
   // Branches held by a worktree we are NOT proposing to touch, with the reason.
   retained: Map<string, KeptBranch>;
 };
 
-// Splits worktrees three ways: broken (stale), live-but-releasable (removable),
-// and live-and-kept. A branch is only reported as retained when its worktree
-// survives the sweep — otherwise it must flow into normal branch classification
-// so the branch and its worktree are cleaned in the same pass.
-async function scanWorktrees(
-  entries: WorktreeEntry[],
+type WorktreeVerdict =
+  | Exclude<Triage, { kind: "inspect" }>
+  | { kind: "removable"; worktree: RemovableWorktree };
+
+// A live, clean worktree on a branch is removable once that branch is proven
+// contained; anything else keeps it, and so its branch.
+async function inspectWorktree(
+  path: string,
+  branch: string,
   base: string,
-  currentWorktree: string,
-  protectedBranches: Set<string>,
   github: GithubProver | null,
-): Promise<WorktreeScan> {
-  const stale: WorktreeInfo[] = [];
-  const removable: RemovableWorktree[] = [];
-  const retained = new Map<string, KeptBranch>();
+): Promise<WorktreeVerdict> {
+  const held = (reason: BranchHold["reason"], detail: string): WorktreeVerdict => ({
+    kind: "held",
+    hold: { name: branch, reason, detail },
+  });
 
-  const keep = (branch: string, reason: KeptBranch["reason"], detail: string) =>
-    retained.set(branch, { name: branch, reason, detail });
+  // --ignored so the scan also sees what `git worktree remove` would delete
+  // without a word: ignored files are untracked, so neither the porcelain
+  // status nor git's own refusal counts them as work worth protecting.
+  const status = await git("-C", path, "status", "--porcelain", "--ignored");
 
-  for (const entry of entries) {
-    if (entry.is_main) continue;
+  if (status.exitCode !== 0) return held("worktree", `${path} (status unreadable)`);
 
-    if (entry.prunable || !existsSync(entry.path)) {
-      stale.push({ path: entry.path, branch: entry.branch, reason: "missing-dir" });
-      continue;
-    }
+  const lines = status.stdout.split("\n").filter(Boolean);
 
-    if (entry.locked) {
-      const branchRef = entry.branch
-        ? await git("rev-parse", "--verify", `refs/heads/${entry.branch}`)
-        : { exitCode: 1 };
+  if (lines.some((line) => !line.startsWith("!!"))) return held("dirty-worktree", path);
 
-      if (branchRef.exitCode !== 0) {
-        stale.push({ path: entry.path, branch: entry.branch, reason: "broken-ref" });
-      } else if (entry.branch) {
-        // A lock is an explicit "leave this alone".
-        keep(entry.branch, "worktree", `${entry.path} (locked)`);
-      }
+  const proof = await proveContained(branch, base, github);
 
-      continue;
-    }
+  if (proof === "unproven") return held("worktree", path);
 
-    // Detached worktrees hold no branch: nothing to classify, nothing to free.
-    if (!entry.branch) continue;
+  const ignoredPaths = lines.map((line) => line.slice(3));
+  const files = ignoredPaths.filter((p) => !p.endsWith("/"));
+  const dirs = ignoredPaths.filter((p) => p.endsWith("/"));
 
-    if (entry.path === currentWorktree) {
-      keep(entry.branch, "worktree", `${entry.path} (current worktree)`);
-      continue;
-    }
-
-    // The base is a member of protectedBranches; kept already lists it with
-    // its own reason.
-    if (protectedBranches.has(entry.branch)) {
-      keep(entry.branch, "protected", entry.path);
-      continue;
-    }
-
-    // --ignored so the scan also sees what `git worktree remove` would delete
-    // without a word: ignored files are untracked, so neither the porcelain
-    // status nor git's own refusal counts them as work worth protecting.
-    const status = await git("-C", entry.path, "status", "--porcelain", "--ignored");
-
-    if (status.exitCode !== 0) {
-      keep(entry.branch, "worktree", `${entry.path} (status unreadable)`);
-      continue;
-    }
-
-    const lines = status.stdout.split("\n").filter(Boolean);
-
-    if (lines.some((line) => !line.startsWith("!!"))) {
-      keep(entry.branch, "dirty-worktree", entry.path);
-      continue;
-    }
-
-    const proof = await proveContained(entry.branch, base, github);
-
-    if (proof === "unproven") {
-      keep(entry.branch, "worktree", entry.path);
-      continue;
-    }
-
-    const ignoredPaths = lines.map((line) => line.slice(3));
-    const files = ignoredPaths.filter((p) => !p.endsWith("/"));
-    const dirs = ignoredPaths.filter((p) => p.endsWith("/"));
-    removable.push({
-      path: entry.path,
-      branch: entry.branch,
+  return {
+    kind: "removable",
+    worktree: {
+      path,
+      branch,
       proof,
       ignored: {
         files: files.slice(0, IGNORED_LIST_CAP),
         dirs: dirs.slice(0, IGNORED_LIST_CAP),
         truncated: files.length > IGNORED_LIST_CAP || dirs.length > IGNORED_LIST_CAP,
       },
-    });
+    },
+  };
+}
+
+// A branch is only reported as retained when its worktree survives the sweep —
+// otherwise it must flow into normal branch classification so the branch and
+// its worktree are cleaned in the same pass.
+async function scanWorktrees(
+  worktrees: LinkedWorktree[],
+  context: TriageContext,
+  base: string,
+  github: GithubProver | null,
+): Promise<WorktreeScan> {
+  const scan: WorktreeScan = { stale: [], removable: [], kept: [], retained: new Map() };
+
+  for (const worktree of worktrees) {
+    const triage = triageWorktree(worktree, context);
+
+    const verdict =
+      triage.kind === "inspect"
+        ? await inspectWorktree(triage.path, triage.branch, base, github)
+        : triage;
+
+    switch (verdict.kind) {
+      case "stale":
+        scan.stale.push(verdict.worktree);
+        break;
+      case "removable":
+        scan.removable.push(verdict.worktree);
+        break;
+      case "kept":
+        scan.kept.push(verdict.worktree);
+
+        if (verdict.hold !== null) scan.retained.set(verdict.hold.name, verdict.hold);
+        break;
+      case "held":
+        scan.retained.set(verdict.hold.name, verdict.hold);
+        break;
+      case "skipped":
+        break;
+      default: {
+        const unreachable: never = verdict;
+        throw new Error(`unhandled worktree verdict: ${JSON.stringify(unreachable)}`);
+      }
+    }
   }
 
-  return { stale, removable, retained };
+  return scan;
 }
 
 // ---------------------------------------------------------------------------
@@ -732,11 +702,16 @@ async function main(): Promise<AuditResult | SaveResult> {
       };
     }
 
+    const linkedWorktrees = parseWorktreeList(worktreeList.stdout);
+
+    if ("error" in linkedWorktrees) {
+      return { ok: false, error: linkedWorktrees.error, step: "scan-worktrees" };
+    }
+
     const worktreeScan = await scanWorktrees(
-      parseWorktrees(worktreeList.stdout),
+      linkedWorktrees,
+      { currentWorktree, protectedBranches, directoryExists: existsSync },
       base,
-      currentWorktree,
-      protectedBranches,
       github,
     );
 
@@ -995,6 +970,7 @@ async function main(): Promise<AuditResult | SaveResult> {
         stale_tracking,
       },
       kept,
+      kept_worktrees: worktreeScan.kept,
       kept_remote,
     };
   } catch (err) {

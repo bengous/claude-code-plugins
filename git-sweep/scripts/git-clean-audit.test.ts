@@ -120,6 +120,23 @@ const keptNames = (result: Record<string, unknown>): string[] =>
 const keptEntry = (result: Record<string, unknown>, name: string): Kept | undefined =>
   (result.kept as Kept[]).find((k) => k.name === name);
 
+type KeptWorktree = { path: string; branch: string | null; reason: string; detail: string | null };
+
+// Each fixture below has one linked worktree, so counts stand in for paths:
+// git may spell a temporary path differently (a symlinked tmpdir) than the test.
+const worktreeCounts = (result: Record<string, unknown>) => {
+  const categories = result.categories as Record<string, unknown[]>;
+
+  return {
+    stale: categories.stale_worktrees?.length,
+    removable: categories.removable_worktrees?.length,
+    kept: (result.kept_worktrees as KeptWorktree[]).length,
+  };
+};
+
+const onlyKeptWorktree = (result: Record<string, unknown>): KeptWorktree | undefined =>
+  (result.kept_worktrees as KeptWorktree[])[0];
+
 // Run the audit with a git shim prepended to PATH that fails only on the given
 // subcommand (e.g. "worktree list"), delegating everything else to the real git.
 async function runAuditWithFailingGit(
@@ -767,6 +784,100 @@ describe("git-clean-audit", () => {
     // ...AND its branch is classified for deletion instead of being retained.
     expect(categories.merged_local?.some((b) => b.name === "feature/wt-stale")).toBe(true);
     expect(keptNames(result)).not.toContain("feature/wt-stale");
+  });
+
+  describe("worktrees the audit leaves alone", () => {
+    test("reports a locked detached worktree with its lock reason", async () => {
+      const repo = await makeRepo("locked-detached");
+      const wtDir = makeTmpDir("locked-detached-dir");
+
+      await git(repo, "worktree", "add", "--detach", wtDir);
+      await git(repo, "worktree", "lock", "--reason", "plugin catalog", wtDir);
+
+      const { result } = await runAudit(repo);
+
+      expect(worktreeCounts(result)).toEqual({ stale: 0, removable: 0, kept: 1 });
+      expect(onlyKeptWorktree(result)).toMatchObject({
+        branch: null,
+        reason: "locked",
+        detail: "lock reason: plugin catalog",
+      });
+    });
+
+    test("keeps a locked worktree whose branch ref is gone", async () => {
+      const repo = await makeRepo("locked-gone");
+      const wtDir = makeTmpDir("locked-gone-dir");
+
+      await git(repo, "worktree", "add", "-b", "feature/gone", wtDir);
+      await git(repo, "worktree", "lock", wtDir);
+      await git(repo, "update-ref", "-d", "refs/heads/feature/gone");
+
+      const { result } = await runAudit(repo);
+
+      expect(worktreeCounts(result)).toEqual({ stale: 0, removable: 0, kept: 1 });
+      expect(onlyKeptWorktree(result)).toMatchObject({ branch: "feature/gone", reason: "locked" });
+    });
+
+    test("says a locked worktree lost its directory, and keeps its branch", async () => {
+      const repo = await makeRepo("locked-missing");
+      const wtDir = makeTmpDir("locked-missing-dir");
+
+      await git(repo, "worktree", "add", "-b", "feature/locked-missing", wtDir);
+      await git(repo, "worktree", "lock", wtDir);
+      rmSync(wtDir, { recursive: true, force: true });
+
+      const { result } = await runAudit(repo);
+      const categories = result.categories as Record<string, { name?: string }[]>;
+
+      expect(worktreeCounts(result)).toEqual({ stale: 0, removable: 0, kept: 1 });
+      expect(onlyKeptWorktree(result)?.detail).toBe("directory missing");
+      expect(categories.merged_local?.some((b) => b.name === "feature/locked-missing")).toBe(false);
+      expect(keptEntry(result, "feature/locked-missing")?.reason).toBe("worktree");
+    });
+
+    test("keeps the contained branch of a live locked worktree", async () => {
+      const repo = await makeRepo("locked-live");
+      const wtDir = makeTmpDir("locked-live-dir");
+
+      await git(repo, "worktree", "add", "-b", "feature/locked-live", wtDir);
+      await git(repo, "worktree", "lock", "--reason", "in use", wtDir);
+
+      const { result } = await runAudit(repo);
+      const categories = result.categories as Record<string, { name?: string }[]>;
+
+      expect(worktreeCounts(result)).toEqual({ stale: 0, removable: 0, kept: 1 });
+      expect(categories.merged_local?.some((b) => b.name === "feature/locked-live")).toBe(false);
+      expect(keptEntry(result, "feature/locked-live")?.reason).toBe("worktree");
+    });
+
+    test("keeps a prunable worktree whose directory is still on disk, and its branch", async () => {
+      const repo = await makeRepo("prunable-present");
+      const wtDir = makeTmpDir("prunable-present-dir");
+
+      await git(repo, "worktree", "add", "-b", "feature/lost-link", wtDir);
+      rmSync(join(wtDir, ".git"));
+
+      const { result } = await runAudit(repo);
+      const categories = result.categories as Record<string, { name?: string }[]>;
+
+      expect(worktreeCounts(result)).toEqual({ stale: 0, removable: 0, kept: 1 });
+      expect(onlyKeptWorktree(result)?.reason).toBe("prunable");
+      expect(categories.merged_local?.some((b) => b.name === "feature/lost-link")).toBe(false);
+      expect(keptEntry(result, "feature/lost-link")?.reason).toBe("worktree");
+    });
+
+    test("reports a worktree whose branch has no commit", async () => {
+      const repo = await makeRepo("unborn");
+      const wtDir = makeTmpDir("unborn-dir");
+
+      await git(repo, "worktree", "add", "-b", "feature/gone", wtDir);
+      await git(repo, "update-ref", "-d", "refs/heads/feature/gone");
+
+      const { result } = await runAudit(repo);
+
+      expect(worktreeCounts(result)).toEqual({ stale: 0, removable: 0, kept: 1 });
+      expect(onlyKeptWorktree(result)).toMatchObject({ branch: "feature/gone", reason: "unborn" });
+    });
   });
 
   // -------------------------------------------------------------------------

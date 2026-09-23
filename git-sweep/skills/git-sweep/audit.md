@@ -121,7 +121,9 @@ removable_worktrees  | Worktree | Branch | Proof | Untracked files lost |
   disposable `node_modules/` and a `data/` holding a local database look
   identical until you read the name.
 
-stale_worktrees      | Path | Branch | Reason |   (missing-dir, broken-ref)
+stale_worktrees      | Path | Branch |
+  Registered worktrees whose directory is gone. Removing one drops its
+  registration only; there are no files left to lose.
 
 merged_local         | Branch | Last commit | Subject | Deletion |
 
@@ -172,6 +174,19 @@ without its reason does not tell the user why the branch stayed:
 kept (local)   | Branch | Reason |
   base | current | protected | worktree:{detail} | dirty-worktree:{detail}
   | unproven:{detail} | too-old:{detail}
+
+kept_worktrees | Worktree | Branch | Reason |   (only if non-empty)
+  Display only — it is not carried into the hand-off. Say what each reason
+  means, and the way out when there is one:
+  locked:{detail}  a lock asks to leave it alone, and git refuses to remove
+                   it. With "directory missing", the lock outlived its
+                   checkout: `git worktree unlock` then `git worktree remove`.
+  prunable:{detail}  the directory is on disk but git lost its link to it
+                   (its `.git` file is gone). `git worktree prune` drops the
+                   registration, of every prunable worktree at once, and
+                   leaves the directory: look inside first.
+  unborn:{detail}  its branch has no commit: deleted under it, or an orphan
+                   not committed yet. Look before removing it by hand.
 
 kept_remote    | Remote branch | Reason |   (only if non-empty)
   Display only — it is not carried into the hand-off.
@@ -257,8 +272,8 @@ if any branch was dropped:
       them needs the worktree removed first — `git branch -d` refuses while
       it stands."
     from stale_worktrees — "Kept: {names}. Their worktree directory is gone
-      but its registration still holds the branch; `git worktree prune`
-      releases it."
+      but its registration still holds the branch; `git worktree remove
+      <path>` releases it."
 ```
 
 Say it in that turn: these branches are in neither the manifest nor `kept`
