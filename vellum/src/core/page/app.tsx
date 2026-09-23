@@ -11,7 +11,7 @@ import { DecisionBar, Notices } from "./decision-bar.tsx";
 import { DocList, RailHandle } from "./doc-list.tsx";
 import { Editor } from "./editor.tsx";
 import { pathLabel } from "./labels.ts";
-import { PANE_ORDER, panesOf } from "./panes.ts";
+import { DOCS_PANE, guttersOf, PANE_ORDER, panesOf } from "./panes.ts";
 import { isSwitchKey, keyPressOf } from "./selection.ts";
 import {
   addAnnotation,
@@ -196,11 +196,18 @@ function App(): preact.JSX.Element {
       <div class="body">
         <DocList />
         <RailHandle />
-        {panes.map((pane) => {
-          if (pane.kind === "docs") return <Panes key="docs" />;
-          const Component = pane.panel.component;
+        {panes.map((pane, index) => {
+          const gutters = guttersOf(index, panes.length);
+          const Component = pane.kind === "docs" ? Panes : pane.panel.component;
 
-          return <Component key={pane.id} />;
+          return (
+            <div
+              key={pane.kind === "docs" ? DOCS_PANE : pane.id}
+              class={`slot${gutters.start ? " gutter-start" : ""}${gutters.end ? " gutter-end" : ""}`}
+            >
+              <Component />
+            </div>
+          );
         })}
         {takesComments() && (
           <>

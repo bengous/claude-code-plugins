@@ -175,8 +175,12 @@ kbd { font: 600 var(--t-12)/1.4 var(--mono); border: 1px solid var(--rule); bord
 .switch[aria-checked="true"] .track { background: var(--redline); border-color: var(--redline); }
 .switch[aria-checked="true"] .track::after { left: calc(100% - var(--s-3) - 1px); background: var(--sheet); }
 .sep { width: 1px; align-self: stretch; background: var(--rule); }
-/* The gutter: the panes, their scrollbars, a mockup's frame and the fillets stop before the handles, which sit in it. */
-.panes { flex: 1; min-height: 0; display: flex; padding-inline: var(--s-6); }
+/* A pane's slot draws no box: it hands its pane the gutters its place keeps, left of the first pane for the rail's handle, right of the last for the comments'. */
+.slot { display: contents; --gutter-start: 0px; --gutter-end: 0px; }
+.slot.gutter-start { --gutter-start: var(--s-6); }
+.slot.gutter-end { --gutter-end: var(--s-6); }
+/* The gutters: the panes, their scrollbars, a mockup's frame and the fillets stop before the handles, which sit in them. */
+.panes { flex: 1; min-height: 0; display: flex; padding-inline: var(--gutter-start) var(--gutter-end); }
 .pane { flex: 1; min-width: 0; overflow: auto; position: relative; }
 .pane + .pane { border-left: 1px solid var(--rule); }
 iframe { border: 0; width: 100%; height: 100%; display: block; background: var(--field); }
@@ -278,8 +282,7 @@ iframe { border: 0; width: 100%; height: 100%; display: block; background: var(-
 .grill-subject { display: block; width: 100%; field-sizing: content; resize: none; font: 600 var(--t-20)/1.25 var(--serif); padding: 2px 0 var(--s-1); border: 0; border-radius: 0; border-bottom: 2px dashed var(--ask); background: transparent; color: var(--ink); }
 .grill-subject:focus { outline: none; border-bottom-style: solid; }
 .grill-subject::placeholder { font-style: italic; font-weight: 400; }
-/* The right gutter holds the comments' handle, open or folded, as the panes' gutter does. */
-.grill-panel { width: var(--grill-width); flex: none; display: flex; flex-direction: column; border-left: 1px solid var(--rule); background: var(--tint); padding-right: var(--s-6); }
+.grill-panel { width: var(--grill-width); flex: none; display: flex; flex-direction: column; border-left: 1px solid var(--rule); background: var(--tint); padding-inline: var(--gutter-start) var(--gutter-end); }
 .grill-sheet { flex: 1; min-height: 0; overflow: auto; display: flex; flex-direction: column; scroll-padding-bottom: var(--grill-foot); }
 .grill-panel .plan { flex: 1; padding: var(--s-4) var(--s-4) var(--s-6); }
 .grill-panel .plan h1 { font-size: var(--t-20); }

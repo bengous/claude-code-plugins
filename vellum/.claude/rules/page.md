@@ -65,8 +65,11 @@ no build step, so what the page imports costs nothing at `cli start`.
   document pane (`Panes`, where the rail's choice and `split` show) and each extension's `panel`
   while its `shown()` holds. The order is data, `PANE_ORDER`, written nowhere else until settings
   exist; a shown panel it omits comes after, right of the documents. A panel draws its own
-  element and width, and keeps a gutter on its right for the comments' handle, as `.panes` keeps
-  one for both handles.
+  element and width. The gutters go by place, never by pane: the rail's handle sits left of the
+  first pane and the comments' right of the last, whichever pane is there (`guttersOf`, pure).
+  `app.tsx` draws each pane in a slot of `display: contents` that hands it `--gutter-start` and
+  `--gutter-end`, and the pane pads with them where it scrolls: `.panes` for the documents,
+  `.grill-panel` for the grill.
 - A renderer that declares `comments: false` draws a document that takes no comment, as a
   grill's transcript, read-only since the grill's panel is where it is answered: `app.tsx` then
   draws no switch and no comments panel, unless the plan shows beside it. The unsent comments

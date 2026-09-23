@@ -26,3 +26,11 @@ export function panesOf(order: readonly string[], shown: readonly ShownPanel[]):
     return panel === undefined ? [] : [{ kind: "panel", id, panel }];
   });
 }
+
+/** The sides of a pane that keep a gutter for a handle. */
+export type Gutters = { readonly start: boolean; readonly end: boolean };
+
+/** The rail's handle sits left of the first pane and the comments' right of the last, whichever pane is there. */
+export function guttersOf(index: number, count: number): Gutters {
+  return { start: index === 0, end: index === count - 1 };
+}
