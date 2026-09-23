@@ -56,6 +56,33 @@ describe("readVellumBuild", () => {
     } as never);
   });
 
+  test("of two entries on this root, the one updated last gives the commit", async () => {
+    const OLDER = "40449a2b0000000000000000000000000000beef";
+
+    const { root } = installed((path) => ({
+      plugins: {
+        "vellum@m": [
+          {
+            scope: "project",
+            installPath: path,
+            gitCommitSha: OLDER,
+            lastUpdated: "2026-08-11T20:51:31.862Z",
+          },
+          {
+            scope: "user",
+            installPath: path,
+            gitCommitSha: SHA,
+            lastUpdated: "2026-08-14T14:11:37.724Z",
+          },
+        ],
+      },
+    }));
+
+    const built = await readVellumBuild(root);
+
+    expect(built.ok && built.value.commit).toBe(SHA as never);
+  });
+
   test("an installs file of another shape reads as no entry, and the error says so", async () => {
     const { root } = installed(() => ({ plugins: "none" }));
     const built = await readVellumBuild(root);

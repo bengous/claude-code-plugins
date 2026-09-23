@@ -46,7 +46,9 @@ function manifestVersion(text: string): ParseResult<string> {
 }
 
 /** Every `{ installPath, gitCommitSha }` of the file; a shape it does not have lists none. */
-function installEntries(text: string): readonly { installPath: string; sha: string | null }[] {
+function installEntries(
+  text: string,
+): readonly { installPath: string; sha: string | null; lastUpdated: string }[] {
   const installs = parseJson(text);
   const plugins = isRecord(installs) ? installs["plugins"] : undefined;
   const lists = isRecord(plugins) ? Object.values(plugins) : [];
@@ -59,6 +61,7 @@ function installEntries(text: string): readonly { installPath: string; sha: stri
             {
               installPath: entry["installPath"],
               sha: typeof entry["gitCommitSha"] === "string" ? entry["gitCommitSha"] : null,
+              lastUpdated: typeof entry["lastUpdated"] === "string" ? entry["lastUpdated"] : "",
             },
           ]
         : [],
@@ -66,24 +69,30 @@ function installEntries(text: string): readonly { installPath: string; sha: stri
 }
 /* oxlint-enable anti-slop/no-runtime-typeof, anti-slop/no-unknown-parameters, anti-slop/no-unsafe-dictionary-type, anti-slop/no-unknown-returns, anti-slop/no-known-value-widening, anti-slop/require-safety-comment-for-type-assertion */
 
-/** The `gitCommitSha` Claude Code recorded for this root, both paths compared through their links. */
+/**
+ * The `gitCommitSha` Claude Code recorded for this root, both paths compared through their links.
+ * Scopes share one cache path, each entry with its own SHA: the files there are the last update's.
+ */
 async function installedSha(root: string): Promise<ParseResult<string>> {
   const configDir = process.env["CLAUDE_CONFIG_DIR"] ?? join(homedir(), ".claude");
   const text = await readText(join(configDir, "plugins", "installed_plugins.json"));
 
   if (!text.ok) return text;
+  const entries = installEntries(text.value);
 
-  for (const entry of installEntries(text.value)) {
-    const path = await realpath(entry.installPath).catch(() => entry.installPath);
+  const paths = await Promise.all(
+    entries.map(async (entry) => await realpath(entry.installPath).catch(() => entry.installPath)),
+  );
 
-    if (path === root) {
-      return entry.sha === null
-        ? { ok: false, error: "the entry has no gitCommitSha" }
-        : { ok: true, value: entry.sha };
-    }
-  }
+  const latest = entries
+    .filter((_, index) => paths[index] === root)
+    .toSorted((a, b) => b.lastUpdated.localeCompare(a.lastUpdated))[0];
 
-  return { ok: false, error: "no entry" };
+  if (latest === undefined) return { ok: false, error: "no entry" };
+
+  return latest.sha === null
+    ? { ok: false, error: "the entry has no gitCommitSha" }
+    : { ok: true, value: latest.sha };
 }
 
 /** The server's environment but git's own variables: a `GIT_DIR` there would name its repository for any root. */
