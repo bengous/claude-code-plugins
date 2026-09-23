@@ -9,7 +9,9 @@ export type Asking =
    * The modal is up, on the proposal it opened on, or blank (`null`) from the Grill button. What
    * it shows never changes under the reviewer: a proposal that lands meanwhile waits on the dot.
    */
-  | { readonly kind: "asked"; readonly on: Suggestion | null };
+  | { readonly kind: "asked"; readonly on: Suggestion | null }
+  /** Started or declined from the modal, the request in flight: no modal and no dot for it. */
+  | { readonly kind: "answered"; readonly id: string };
 
 export type Modal =
   | { readonly kind: "hidden" }
@@ -35,6 +37,19 @@ export function putOff(state: GrillState | null): Asking {
 }
 
 /**
+ * Start or Decline clicked on the modal opened on `id`, `null` for the blank one: the proposal
+ * answered draws nothing while the request is out; one that replaced it meanwhile waits on the dot.
+ */
+export function answering(state: GrillState | null, id: string | null): Asking {
+  return id !== null && pendingOf(state)?.id === id ? { kind: "answered", id } : putOff(state);
+}
+
+/** The answer to `id` failed: the proposal waits on the dot, unless something newer took its place. */
+export function answerFailed(asking: Asking, id: string): Asking {
+  return asking.kind === "answered" && asking.id === id ? { kind: "later", id } : asking;
+}
+
+/**
  * What the modal on screen becomes at a new state: a grill that opens ends it, a load that
  * failed hides it as Esc would, and the proposal it shows, answered elsewhere, takes it along.
  * A proposal that lands meanwhile changes nothing.
@@ -56,7 +71,7 @@ export function askingOn(state: GrillState | null, asking: Asking, quiet: boolea
   if (asking.kind === "asked") return keptOn(state, asking.on);
   const pending = pendingOf(state);
 
-  if (pending === null || (asking.kind === "later" && asking.id === pending.id)) return asking;
+  if (pending === null || (asking.kind !== "auto" && asking.id === pending.id)) return asking;
 
   return quiet ? { kind: "asked", on: pending } : { kind: "later", id: pending.id };
 }
@@ -81,6 +96,7 @@ export function dotOf(state: GrillState | null, asking: Asking): Suggestion | nu
 
   switch (asking.kind) {
     case "auto":
+    case "answered":
       return null;
     case "later":
       return asking.id === pending.id ? pending : null;

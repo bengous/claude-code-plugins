@@ -94,7 +94,34 @@ test("Decline reaches the server, and leaves no dot", async ({ page, vellum }) =
       kind: "none",
       proposal: { kind: "declined", declined: { subject: SUBJECT } },
     });
+  await expect.poll(() => dotted(page)).toBe(false);
+});
+
+test("a decline in flight draws no dot", async ({ page, vellum }) => {
+  await openVellum(page, vellum);
+  await vellum.grill.suggest(SUBJECT, REASON);
+  // Never answered: the decline stays in flight until the page closes.
+  await page.route("**/x/grill/decline", () => null);
+  await proposal(page).getByRole("button", { name: "Decline" }).click();
+  await expect(proposal(page)).toHaveCount(0);
+
   expect(await dotted(page)).toBe(false);
+});
+
+test("a decline of a proposal replaced meanwhile says so, and the new one waits on the dot", async ({
+  page,
+  vellum,
+}) => {
+  await openVellum(page, vellum);
+  await vellum.grill.suggest(SUBJECT, REASON);
+  await expect(proposal(page)).toBeVisible();
+  await vellum.grill.suggest("The budget of the page", REASON);
+  await proposal(page).getByRole("button", { name: "Decline" }).click();
+
+  await expect(page.getByRole("alert")).toHaveText(
+    "Claude's proposal was already answered or replaced.",
+  );
+  await expect.poll(() => dotted(page)).toBe(true);
 });
 
 test("a proposal declined elsewhere leaves the modal", async ({ page, vellum }) => {
@@ -178,7 +205,7 @@ test("a proposal landing on the blank modal leaves it as typed, and waits on the
   await expect(blank.getByRole("button", { name: "Cancel" })).toBeVisible();
 });
 
-test("Start is greyed with the Grill button's reason, and Enter opens nothing", async ({
+test("Start and Decline are greyed with the Grill button's reason, and Enter opens nothing", async ({
   page,
   vellum,
 }) => {
@@ -194,6 +221,7 @@ test("Start is greyed with the Grill button's reason, and Enter opens nothing", 
 
   await expect(start).toHaveAttribute("title", /connection/u);
   await expect(start).toBeDisabled();
+  await expect(proposal(page).getByRole("button", { name: "Decline" })).toBeDisabled();
   await proposal(page).getByRole("textbox").press("Enter");
   expect(opens).toEqual([]);
 });

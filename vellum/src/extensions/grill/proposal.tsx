@@ -4,7 +4,7 @@ import { useEffect } from "preact/hooks";
 import { Button, Dialog, popoverUp } from "../../core/page/kit.tsx";
 import { editing } from "../../core/page/state.ts";
 import type { Asking } from "./modal.ts";
-import { askingOn, dotOf, modalOf, pendingOf, putOff } from "./modal.ts";
+import { answerFailed, answering, askingOn, dotOf, modalOf, pendingOf, putOff } from "./modal.ts";
 import type { GrillState } from "./protocol.ts";
 
 const asking = signal<Asking>({ kind: "auto" });
@@ -48,11 +48,12 @@ export function GrillButton(props: {
 export type ProposalProps = {
   readonly state: GrillState | null;
   readonly approved: boolean;
-  /** Why Start is greyed, the Grill button's reason; `null` while a grill can open. */
+  /** Why Start and Decline are greyed, the Grill button's reason; `null` while a grill can open. */
   readonly why: string | null;
   /** `true` once the grill opened: the subject typed can go. */
   readonly onStart: (subject: string) => Promise<boolean>;
-  readonly onDecline: (id: string) => void;
+  /** `true` once the server declined it. */
+  readonly onDecline: (id: string) => Promise<boolean>;
 };
 
 /**
@@ -80,11 +81,21 @@ export function Proposal(props: ProposalProps): preact.JSX.Element | null {
     asking.value = putOff(state);
   };
 
+  /** The modal closes at the click; a request that fails puts the proposal back on the dot. */
+  const answer = (request: Promise<boolean>): Promise<boolean> => {
+    asking.value = answering(state, id);
+
+    return request.then((taken) => {
+      if (!taken && id !== null) asking.value = answerFailed(asking.peek(), id);
+
+      return taken;
+    });
+  };
+
   const start = (): void => {
     if (why !== null || subject.trim() === "") return;
-    later();
 
-    void props.onStart(subject.trim()).then((opened) => {
+    void answer(props.onStart(subject.trim())).then((opened) => {
       if (opened) subjectTyped.value = null;
     });
   };
@@ -125,10 +136,9 @@ export function Proposal(props: ProposalProps): preact.JSX.Element | null {
           <Button onClick={later}>Cancel</Button>
         ) : (
           <Button
-            onClick={() => {
-              later();
-              props.onDecline(id);
-            }}
+            disabled={why !== null}
+            title={why ?? undefined}
+            onClick={() => void answer(props.onDecline(id))}
           >
             Decline
           </Button>

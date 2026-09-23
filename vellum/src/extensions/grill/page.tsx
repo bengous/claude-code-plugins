@@ -15,7 +15,7 @@ import {
   typed,
 } from "../../core/page/state.ts";
 import type { Typed } from "../../core/protocol.ts";
-import { footerOf } from "./labels.ts";
+import { declineFailure, footerOf } from "./labels.ts";
 import { grillNumber } from "./parse.ts";
 import { GrillButton, Proposal } from "./proposal.tsx";
 import type { Block, GrillPosts, GrillState, Opened } from "./protocol.ts";
@@ -75,10 +75,20 @@ async function blocksOf(path: string): Promise<Block[] | null> {
   return null;
 }
 
+/** What a post that failed says, from the status the server answered; `null` when it did not answer. */
+type Failed = (status: number | null) => string;
+
+function sendFailure(status: number | null): string {
+  return status === null
+    ? "The grill did not reach the server. What you typed is kept."
+    : `The grill was refused: the server answered ${status}.`;
+}
+
 /** What the reviewer waits on: a refusal or a server that did not answer is a failure the notices show. */
 async function post<Name extends keyof GrillPosts>(
   path: Name,
   body: GrillPosts[Name],
+  failed: Failed = sendFailure,
 ): Promise<Response> {
   const response = await extensionRequest(ID, path, {
     method: "POST",
@@ -86,15 +96,20 @@ async function post<Name extends keyof GrillPosts>(
   }).catch(() => null);
 
   if (response === null) {
-    fail("send", "The grill did not reach the server. What you typed is kept.");
+    fail("send", failed(null));
 
     return Response.error();
   }
 
   if (response.ok) succeed("send");
-  else fail("send", `The grill was refused: the server answered ${response.status}.`);
+  else fail("send", failed(response.status));
 
   return response;
+}
+
+/** `true` once the server declined it. */
+async function decline(id: string): Promise<boolean> {
+  return (await post("decline", { id }, declineFailure)).ok;
 }
 
 /** `true` once the grill opened, its transcript selected. */
@@ -153,7 +168,7 @@ function GrillNotice(): preact.JSX.Element | null {
       approved={review.value?.workspace.kind === "approved"}
       why={grillWhy(state)}
       onStart={openGrill}
-      onDecline={(id) => void post("decline", { id })}
+      onDecline={decline}
     />
   );
 }

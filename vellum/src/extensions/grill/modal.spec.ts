@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 
 import type { ProjectPath } from "../../core/server/domain/paths.ts";
 import type { Asking } from "./modal.ts";
-import { askingOn, dotOf, modalOf, putOff } from "./modal.ts";
+import { answerFailed, answering, askingOn, dotOf, modalOf, putOff } from "./modal.ts";
 import type { GrillState, Suggestion } from "./protocol.ts";
 
 const IDEA: Suggestion = { id: "p1", subject: "auth", reason: "three choices" };
@@ -88,6 +88,30 @@ describe("Esc, Cancel or the backdrop", () => {
   test("puts off what the slot holds pending, or nothing", () => {
     expect(putOff(NEXT)).toEqual({ kind: "later", id: "p2" });
     expect(putOff(NONE)).toEqual(AUTO);
+  });
+});
+
+describe("Start or Decline, in flight", () => {
+  test("draws no modal and no dot; the proposal does not open again", () => {
+    const answered = answering(PENDING, "p1");
+
+    expect(modalOf(PENDING, answered, false)).toEqual({ kind: "hidden" });
+    expect(dotOf(PENDING, answered)).toBeNull();
+    expect(askingOn(PENDING, answered, true)).toEqual(answered);
+  });
+
+  test("once refused, puts the proposal back on the dot", () => {
+    const refused = answerFailed(answering(PENDING, "p1"), "p1");
+
+    expect(refused).toEqual({ kind: "later", id: "p1" });
+    expect(dotOf(PENDING, refused)).toEqual(IDEA);
+  });
+
+  test("on a proposal replaced meanwhile, leaves the new one on the dot, refused or not", () => {
+    const answered = answering(NEXT, "p1");
+
+    expect(answered).toEqual({ kind: "later", id: "p2" });
+    expect(answerFailed(answered, "p1")).toEqual(answered);
   });
 });
 
