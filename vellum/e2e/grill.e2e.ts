@@ -1364,16 +1364,17 @@ test.describe("the band", () => {
     const out = page.waitForRequest("**/api/x/grill/blocks*");
     await vellum.grill.answer("Round 1 is on the page.", { asked: true });
     await out;
+    vellum.writeFile("notes.md", "One.");
+    // Shown while the first load is still held: only a read asked for meanwhile can draw it.
+    await expect(panel(page).locator(".plan")).toContainText("Round 1 is on the page.");
 
-    const reread = page.waitForResponse(
-      (response) => response.url().includes("/x/grill/blocks") && response.status() === 200,
+    const refused = page.waitForResponse(
+      (response) => response.url().includes("/x/grill/blocks") && response.status() === 500,
     );
 
-    vellum.writeFile("notes.md", "One.");
-    await reread;
     held.resolve();
+    await refused;
 
-    await expect(page.getByRole("alert")).toContainText("could not be loaded");
     await expect(panel(page).locator(".plan")).toContainText("Round 1 is on the page.");
   });
 
