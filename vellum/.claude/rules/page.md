@@ -185,6 +185,11 @@ no build step, so what the page imports costs nothing at `cli start`.
   then held by it, so a text typed through `As recommended.` stays the reviewer's. `unsentTyped` names what a decision would throw; Send feedback
   and Approve put the warning first when it is not empty, and a decision that lands clears it. Cancel of the editor
   over a changed text asks first; End grill sends what is typed as a reply before it closes.
+  Closed, it selects the plan in the document pane and leaves a notice of the grill's own,
+  `ok`, that counts the questions the grill settled (`endedOf` in `grill/labels.ts`) and opens
+  the transcript in the document pane; the notice is page state (`ended` in `grill/page.tsx`),
+  gone when dismissed, when a new grill opens and once approved, and `/vellum:stop` and the
+  approval, which end a grill without End grill, leave none.
 - An unsent edit is an `Edit`: a text with the version it edits. The stamp is taken when the
   editor opens, and `Editor` keeps that version and its base text for its whole session: a
   version that lands under an open editor must not restamp it. They travel as one `EditSession`,

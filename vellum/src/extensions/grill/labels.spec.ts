@@ -1,6 +1,14 @@
 import { describe, expect, test } from "bun:test";
 
-import { answerOf, chipTitle, declineFailure, footerOf, phaseText, progressOf } from "./labels.ts";
+import {
+  answerOf,
+  chipTitle,
+  declineFailure,
+  endedOf,
+  footerOf,
+  phaseText,
+  progressOf,
+} from "./labels.ts";
 
 describe("footerOf", () => {
   test("names who ended the grill, never the reason's code", () => {
@@ -63,5 +71,13 @@ describe("phaseText", () => {
     expect(phaseText("asking", 1)).toBe("");
     expect(phaseText("idle", 1)).toBe("Claude has no question open.");
     expect(phaseText("stopped", 1)).toBe("Claude's turn was interrupted. Add a note to continue.");
+  });
+});
+
+describe("endedOf", () => {
+  test("counts the grill's decisions, and says Claude is back on the plan", () => {
+    expect(endedOf(8)).toBe("Grill ended: 8 decisions. Claude is back on the plan.");
+    expect(endedOf(1)).toBe("Grill ended: 1 decision. Claude is back on the plan.");
+    expect(endedOf(0)).toBe("Grill ended: 0 decisions. Claude is back on the plan.");
   });
 });

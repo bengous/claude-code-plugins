@@ -1000,6 +1000,108 @@ test.describe("the panel's phases", () => {
   });
 });
 
+function endedNotice(page: Page): Locator {
+  return page.locator(".banner", { hasText: "Grill ended" });
+}
+
+/** The page on an artifact, so a return to the plan shows. */
+async function onArtifact(page: Page): Promise<void> {
+  await page.locator("#rail button", { hasText: "pourquoi-issue-139.md" }).click();
+  await expect(page.locator("#doc .doc-head")).toContainText("pourquoi-issue-139.md");
+}
+
+test.describe("the end of a grill", () => {
+  test("End grill on the idle screen selects the plan, and a notice counts the decisions", async ({
+    page,
+    vellum,
+  }) => {
+    await answered(page, vellum);
+    await onArtifact(page);
+    await panelEnd(page).click();
+
+    await expect(panel(page)).toHaveCount(0);
+    await expect(page.locator("#rail .plate")).toHaveAttribute("aria-current", "page");
+    await expect(endedNotice(page)).toContainText(
+      "Grill ended: 2 decisions. Claude is back on the plan.",
+    );
+  });
+
+  test("the band's End grill returns to the plan as well, the open questions counted", async ({
+    page,
+    vellum,
+  }) => {
+    await asking(page, vellum);
+    await onArtifact(page);
+    await band(page).getByRole("button", { name: "End grill" }).click();
+
+    await expect(page.locator("#rail .plate")).toHaveAttribute("aria-current", "page");
+    await expect(endedNotice(page)).toContainText("Grill ended: 2 decisions.");
+  });
+
+  test("the notice opens the transcript in the document pane, and stays", async ({
+    page,
+    vellum,
+  }) => {
+    await answered(page, vellum);
+    await panelEnd(page).click();
+    await endedNotice(page).getByRole("button", { name: "Read the transcript" }).click();
+
+    await expect(page.locator("#doc .doc-head")).toContainText("grill-2.md");
+    await expect(page.locator("#doc .grill-q")).toHaveCount(2);
+    await expect(endedNotice(page)).toBeVisible();
+  });
+
+  test("the notice goes when dismissed", async ({ page, vellum }) => {
+    await answered(page, vellum);
+    await panelEnd(page).click();
+    await endedNotice(page).getByRole("button", { name: "Dismiss" }).click();
+
+    await expect(endedNotice(page)).toHaveCount(0);
+  });
+
+  test("the notice goes when a new grill opens", async ({ page, vellum }) => {
+    await answered(page, vellum);
+    await panelEnd(page).click();
+    await expect(endedNotice(page)).toBeVisible();
+    await vellum.grill.open("The budget of the page");
+
+    await expect(panel(page)).toBeVisible();
+    await expect(endedNotice(page)).toHaveCount(0);
+  });
+
+  test("a grill /vellum:stop ended draws no notice, and the document pane stays", async ({
+    page,
+    vellum,
+  }) => {
+    await answered(page, vellum);
+    await onArtifact(page);
+    await vellum.grill.close("stop");
+    await expect(panel(page)).toHaveCount(0);
+
+    await expect(endedNotice(page)).toHaveCount(0);
+    await expect(page.locator("#doc .doc-head")).toContainText("pourquoi-issue-139.md");
+  });
+
+  test("axe finds nothing to fault on the notice, and its words read, light and dark", async ({
+    page,
+    vellum,
+  }) => {
+    await answered(page, vellum);
+    await panelEnd(page).click();
+    const notice = endedNotice(page);
+    await expect(notice).toBeVisible();
+    await readable(page, [
+      notice.locator("span").first(),
+      ...(await notice.getByRole("button").all()),
+    ]);
+
+    for (const colorScheme of ["light", "dark"] as const) {
+      await page.emulateMedia({ colorScheme });
+      expect(await axe(page, ".banner.ok")).toEqual([]);
+    }
+  });
+});
+
 /** Longer than the band is wide at 1920: its end must be cut, never wrapped. */
 const LONG_SUBJECT = Array.from(
   { length: 6 },

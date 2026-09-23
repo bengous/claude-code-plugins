@@ -3,20 +3,29 @@ import { useEffect, useRef, useState } from "preact/hooks";
 
 import type { PageExtension, RendererProps } from "../../core/extension.ts";
 import { extensionRequest } from "../../core/page/api.ts";
-import { Button, Chip } from "../../core/page/kit.tsx";
+import { Banner, Button, Chip } from "../../core/page/kit.tsx";
 import {
   connection,
   docs,
   editing,
   fail,
   review,
+  select,
   setTyped,
   succeed,
   typed,
 } from "../../core/page/state.ts";
 import type { Typed } from "../../core/protocol.ts";
 import type { ProjectPath } from "../../core/server/domain/paths.ts";
-import { answerOf, chipTitle, declineFailure, footerOf, phaseText, progressOf } from "./labels.ts";
+import {
+  answerOf,
+  chipTitle,
+  declineFailure,
+  endedOf,
+  footerOf,
+  phaseText,
+  progressOf,
+} from "./labels.ts";
 import { grillNumber } from "./parse.ts";
 import { GrillButton, Proposal } from "./proposal.tsx";
 import { AS_RECOMMENDED } from "./protocol.ts";
@@ -65,6 +74,12 @@ const replyPending = computed(() => {
   return pending !== null && (pending.out || pending.over === transcript.value?.write);
 });
 
+/**
+ * The grill this page ended with End grill, and how many questions it settled: its notice shows
+ * until dismissed or until a new grill opens. `/vellum:stop` and the approval leave none.
+ */
+const ended = signal<{ readonly file: ProjectPath; readonly decisions: number } | null>(null);
+
 /** The write of the open transcript last asked for: an older load that lands after it is dropped. */
 let transcriptAsked: string | null = null;
 
@@ -98,6 +113,8 @@ async function loadState(): Promise<void> {
   batch(() => {
     grill.value = state;
     refused.value = false;
+
+    if (state.kind === "open" && state.file !== ended.peek()?.file) ended.value = null;
   });
 
   if (state.kind === "open") await loadTranscript(state.file);
@@ -243,10 +260,27 @@ function replyWhy(blocks: readonly Block[] | null): string | undefined {
   return replyPending.value ? "Waiting for the grill to show your reply" : undefined;
 }
 
-/** End grill: what is typed goes first, as a send does, then the close. */
-async function end(path: string, open: readonly string[]): Promise<void> {
+/**
+ * End grill: what is typed goes first, as a send does, then the close; the document pane returns
+ * to the plan, under a notice that counts the questions the grill settled, every one answered once
+ * it is closed.
+ */
+async function end(path: ProjectPath, blocks: readonly Block[]): Promise<void> {
+  const { open } = roundsOf(blocks, typedOn(path).answers, null);
+
   if (sendable(path, open) && !(await send(path, open))) return;
-  await post("close", { reason: "page" });
+
+  if (!(await post("close", { reason: "page" })).ok) return;
+  const plan = docs.peek().find((doc) => doc.group === "plan");
+
+  batch(() => {
+    ended.value = {
+      file: path,
+      decisions: blocks.filter((block) => block.kind === "question").length,
+    };
+
+    if (plan !== undefined) select(plan.path);
+  });
 }
 
 /** An end in flight, from the band or the panel: a second click would send what is typed again. */
@@ -263,7 +297,6 @@ function EndGrill(props: {
 }): preact.JSX.Element {
   const { file, look } = props;
   const blocks = blocksOn(file);
-  const { open } = roundsOf(blocks ?? [], typedOn(file).answers, null);
 
   return (
     <Button
@@ -275,7 +308,7 @@ function EndGrill(props: {
       onClick={() => {
         if (blocks === null || ending.peek()) return;
         ending.value = true;
-        void end(file, open).finally(() => {
+        void end(file, blocks).finally(() => {
           ending.value = false;
         });
       }}
@@ -333,12 +366,37 @@ function GrillBand(props: {
   );
 }
 
+/** What End grill leaves, with the way back to the transcript; gone with the approval, which moved it. */
+function EndedNotice(): preact.JSX.Element | null {
+  const notice = ended.value;
+
+  if (notice === null || review.value?.workspace.kind === "approved") return null;
+
+  return (
+    <Banner
+      kind="ok"
+      action={{
+        label: "Dismiss",
+        run: () => {
+          ended.value = null;
+        },
+      }}
+    >
+      <span>{endedOf(notice.decisions)}</span>
+      <Button size="sm" onClick={() => select(notice.file)}>
+        Read the transcript
+      </Button>
+    </Banner>
+  );
+}
+
 function GrillNotice(): preact.JSX.Element {
   const shown = drawn.value;
   const state = read.value;
 
   return (
     <>
+      <EndedNotice />
       {shown?.kind === "open" && <GrillBand state={shown} />}
       <Proposal
         state={state}
