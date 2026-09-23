@@ -1,4 +1,4 @@
-import { signal } from "@preact/signals";
+import { batch, computed, signal } from "@preact/signals";
 import { useEffect, useRef, useState } from "preact/hooks";
 
 import type { PageExtension, RendererProps } from "../../core/extension.ts";
@@ -25,8 +25,17 @@ const ID = "grill";
 /** What "Take it" answers: Claude wrote the recommendation, so its text never goes back to it. */
 const TAKEN = "As recommended.";
 
-/** The server's word on the grill, loaded again at every workspace event; `null` before the first answer. */
+/**
+ * The server's last word on the grill, loaded again at every workspace event; `null` before the
+ * first answer. A refused read keeps it, so the panel stays as the reviewer left it.
+ */
 const grill = signal<GrillState | null>(null);
+
+/** Whether the last read of the state was refused. */
+const refused = signal(false);
+
+/** What the Grill button and the modal read: no state past a refused read, which puts the modal on screen off. */
+const read = computed(() => (refused.value ? null : grill.value));
 
 function nameOf(path: string): string {
   return path.split("/").at(-1) ?? path;
@@ -45,11 +54,20 @@ function forgetClosed(state: GrillState): void {
 async function loadState(): Promise<void> {
   const response = await extensionRequest(ID, "state");
 
-  // SAFETY: the server's own `GrillState`, serialized by `Response.json` in grill/server.ts.
-  const state = response.ok ? ((await response.json()) as GrillState) : null;
+  if (!response.ok) {
+    refused.value = true;
 
-  if (state !== null) forgetClosed(state);
-  grill.value = state;
+    return;
+  }
+
+  // SAFETY: the server's own `GrillState`, serialized by `Response.json` in grill/server.ts.
+  const state = (await response.json()) as GrillState;
+  forgetClosed(state);
+
+  batch(() => {
+    grill.value = state;
+    refused.value = false;
+  });
 }
 
 /** The transcript's blocks, or `null` with the failure in the notices: the reviewer waits on them. */
@@ -143,7 +161,7 @@ function grillWhy(state: GrillState | null): string | null {
 
 function GrillAction(): preact.JSX.Element | null {
   const view = review.value;
-  const state = grill.value;
+  const state = read.value;
 
   useEffect(() => {
     void loadState();
@@ -155,7 +173,7 @@ function GrillAction(): preact.JSX.Element | null {
 }
 
 function GrillNotice(): preact.JSX.Element | null {
-  const state = grill.value;
+  const state = read.value;
 
   return (
     <Proposal

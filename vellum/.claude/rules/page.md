@@ -217,7 +217,9 @@ no build step, so what the page imports costs nothing at `cli start`.
   `response.ok` before it reads the body, or the server's error page is drawn as the document and
   takes comments, and it catches, or an aborted request reaches nobody. A read that only
   refreshes what is on screen may fail in silence, since the next workspace event reads again:
-  `loadState` in `grill/page.tsx`. `decide` answers whether the server took the decision, and
+  `loadState` in `grill/page.tsx`, which keeps the state it read last, so the grill's panel
+  stays as the reviewer left it, while the Grill button and the modal read none past a refused
+  read (`read`), which puts the modal on screen off onto the dot. `decide` answers whether the server took the decision, and
   the notes popover closes on that alone: a failure leaves the note where it was typed.
 - In the Markdown renderer the notice says the failure and the sheet says the state it leaves: a
   first load that failed prints it where the wait was, a failed reload keeps the text the reviewer

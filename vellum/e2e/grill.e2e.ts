@@ -385,6 +385,33 @@ async function rightOf(right: Locator, left: Locator): Promise<boolean> {
   return b.x >= a.x + a.width - 1;
 }
 
+/** Runs `write`, then waits for the page's next read of the grill's state, answered `status`. */
+async function readAfter(page: Page, status: number, write: () => void): Promise<void> {
+  const read = page.waitForResponse(
+    (response) => response.url().includes("/x/grill/state") && response.status() === status,
+  );
+
+  write();
+  await read;
+}
+
+test("a refused read puts the modal off onto the dot, where it stays at the next read", async ({
+  page,
+  vellum,
+}) => {
+  await openVellum(page, vellum);
+  await vellum.grill.suggest(SUBJECT, REASON);
+  await expect(proposal(page)).toBeVisible();
+  await page.route("**/api/x/grill/state*", (route) => route.fulfill({ status: 500 }), {
+    times: 1,
+  });
+  await readAfter(page, 500, () => vellum.writeFile("notes.md", "One."));
+  await readAfter(page, 200, () => vellum.writeFile("notes.md", "Two."));
+
+  await expect(proposal(page)).toHaveCount(0);
+  await expect.poll(() => dotted(page)).toBe(true);
+});
+
 test.describe("the panel", () => {
   test("Start opens the grill in a panel right of the document pane", async ({ page, vellum }) => {
     await openVellum(page, vellum);
@@ -446,6 +473,25 @@ test.describe("the panel", () => {
 
     await expect(page.locator("#comments")).toHaveAttribute("inert", "");
     await expect(page.locator(".handle.right")).toHaveAttribute("aria-expanded", "false");
+  });
+
+  test("a refused read of the grill's state keeps the panel and the comments as they were", async ({
+    page,
+    vellum,
+  }) => {
+    await asking(page, vellum);
+    await page.locator(".handle.right").click();
+    await panel(page).evaluate((element: HTMLElement) => {
+      element.dataset["kept"] = "yes";
+    });
+    await page.route("**/api/x/grill/state*", (route) => route.fulfill({ status: 500 }), {
+      times: 1,
+    });
+    await readAfter(page, 500, () => vellum.writeFile("notes.md", "One."));
+    await readAfter(page, 200, () => vellum.writeFile("notes.md", "Two."));
+
+    await expect(panel(page)).toHaveAttribute("data-kept", "yes");
+    await expect(page.locator("#comments")).not.toHaveAttribute("inert");
   });
 
   test("the transcript in the document pane is read-only: no field, no foot", async ({
