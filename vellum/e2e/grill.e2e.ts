@@ -660,6 +660,31 @@ test.describe("the band", () => {
     await expect(panel(page).locator(".plan")).toContainText("Round 1 is on the page.");
   });
 
+  test("an event that lands while a transcript load is out reads it again, that load failing", async ({
+    page,
+    vellum,
+  }) => {
+    await asking(page, vellum);
+    const held = Promise.withResolvers<void>();
+    await page.route(
+      "**/api/x/grill/blocks*",
+      async (route) => {
+        await held.promise;
+        await route.fulfill({ status: 500 });
+      },
+      { times: 1 },
+    );
+    const out = page.waitForRequest("**/api/x/grill/blocks*");
+    await vellum.grill.answer("Round 1 is on the page.");
+    await out;
+    await readAfter(page, 200, () => vellum.writeFile("notes.md", "One."));
+    await page.waitForTimeout(300);
+    held.resolve();
+
+    await expect(page.getByRole("alert")).toContainText("could not be loaded");
+    await expect(panel(page).locator(".plan")).toContainText("Round 1 is on the page.");
+  });
+
   test("End grill waits for the transcript, so no answer typed is closed unread", async ({
     page,
     vellum,

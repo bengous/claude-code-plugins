@@ -40,15 +40,18 @@ const read = computed(() => (refused.value ? null : grill.value));
 /** What the band and the panel draw: the state kept, and none once approved, since the approval closed the grill. */
 const drawn = computed(() => (review.value?.workspace.kind === "approved" ? null : grill.value));
 
-/** The open grill's blocks, which the band and the panel draw alike: one load per write of its file. */
-const transcript = signal<{ readonly path: string; readonly blocks: readonly Block[] } | null>(
-  null,
-);
-
 /**
- * The write of the open transcript loaded, or on its way: a workspace event that did not write it
- * loads nothing. A load that failed leaves none, so the next event reads again.
+ * The open grill's blocks, which the band and the panel draw alike, with the write they were read
+ * at: a workspace event that did not write the file loads nothing, and any other loads it, a
+ * load still out included, since that one may fail.
  */
+const transcript = signal<{
+  readonly path: string;
+  readonly write: string;
+  readonly blocks: readonly Block[];
+} | null>(null);
+
+/** The write of the open transcript last asked for: an older load that lands after it is dropped. */
 let transcriptAsked: string | null = null;
 
 function nameOf(path: string): string {
@@ -89,14 +92,11 @@ async function loadState(): Promise<void> {
 async function loadTranscript(path: string): Promise<void> {
   const write = `${path}@${docs.peek().find((doc) => doc.path === path)?.modified ?? 0}`;
 
-  if (write === transcriptAsked) return;
+  if (transcript.peek()?.write === write) return;
   transcriptAsked = write;
   const blocks = await blocksOf(path);
 
-  if (transcriptAsked !== write) return;
-
-  if (blocks === null) transcriptAsked = null;
-  else transcript.value = { path, blocks };
+  if (blocks !== null && transcriptAsked === write) transcript.value = { path, write, blocks };
 }
 
 /** The blocks of the open transcript at `path`, `null` until they land. */
