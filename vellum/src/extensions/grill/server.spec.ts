@@ -258,7 +258,7 @@ describe("a round", () => {
     expect(readFileSync(join(dir, WIP, "grill-1.md"), "utf8")).toContain(
       "## Round 1\n\n### Claude\n\n❓ **Q1** - **Tool names**: Prefix them?\n\n➡️ I recommend yes.\n\n---\n",
     );
-    expect(await (await get("state")).json()).toMatchObject({ phase: "waiting" });
+    expect(await (await get("state")).json()).toMatchObject({ phase: "asking" });
   });
 
   test("reply closes every open question, the empty ones by default, and hands the engine the text", async () => {

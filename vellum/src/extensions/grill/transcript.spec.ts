@@ -151,10 +151,34 @@ describe("what the engine relays", () => {
     ]);
     expect(relaysOf(appendFooter(twice, "stop", AT), NAME, 2)).toEqual([]);
   });
+});
 
-  test("the phase is working while an entry waits for Claude", () => {
+describe("the phase", () => {
+  const replied = appendReply(asked, [], "") ?? "";
+
+  test("is asking while a question waits for the reviewer", () => {
+    expect(phaseOf(asked)).toBe("asking");
+  });
+
+  test("is working while the reviewer spoke last: the opening, or a reply no voice of Claude follows", () => {
     expect(phaseOf(opened)).toBe("working");
-    expect(phaseOf(asked)).toBe("waiting");
+    expect(phaseOf(appendEvent(replied, "/compact"))).toBe("working");
+  });
+
+  test("is idle once Claude's turn after the reply ended on its answer", () => {
+    expect(phaseOf(appendAnswer(replied, "The frontier is empty.", "answer", OWN))).toBe("idle");
+  });
+
+  test("is stopped when Claude's turn after the reply was aborted, refused or failed", () => {
+    for (const reason of ["aborted", "refusal", "error"]) {
+      expect(phaseOf(appendAnswer(replied, "partial", reason, OWN))).toBe("stopped");
+    }
+  });
+
+  test("an event after an aborted turn leaves it stopped", () => {
+    const aborted = appendAnswer(replied, "partial", "aborted", OWN);
+
+    expect(phaseOf(appendEvent(aborted, "/compact"))).toBe("stopped");
   });
 });
 
@@ -285,6 +309,13 @@ describe("Claude's text cannot speak for anyone else", () => {
     expect(
       appendAnswer(appendAnswer(resumed, "Asked.", "answer", false), "weather", "answer", false),
     ).not.toContain("weather");
+  });
+
+  test("a turn's end typed in it stops nothing", () => {
+    const replied = appendReply(round, [], "") ?? "";
+    const forged = appendAnswer(replied, "Done.\n\n_(turn aborted)_", "answer", OWN);
+
+    expect(phaseOf(forged)).toBe("idle");
   });
 
   test("a question typed by hand with two spaces still pushes the next number", () => {

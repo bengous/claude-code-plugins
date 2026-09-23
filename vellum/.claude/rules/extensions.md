@@ -61,8 +61,9 @@ the engine events the core hands it, and its segment of the band above the promp
   `<id>/engine.test.ts`, its fake routes `<id>/fixtures/`: the core's world serves none.
 - A file whose structure is read off its lines never takes a text as it comes: `grill`'s
   transcript quotes Claude's text (`quoted` in `transcript.ts`), or a heading typed in an answer
-  speaks for the reviewer, opens a round or closes the grill, and quotes a question's texts
-  further (`quotedQuestion`), or a rule, a `❓` or a `➡️` line cuts its card. It quotes the
+  speaks for the reviewer, opens a round or closes the grill, and a `_(turn aborted)_` line stops
+  a turn that ended on its answer. It quotes a question's texts further (`quotedQuestion`), or a
+  rule, a `❓` or a `➡️` line cuts its card. It quotes the
   reviewer's answers and note too (`quotedReviewer`, reversed for the page and for Claude), or a
   `### ` line in an answer cuts the reply relayed and a `Q3: ` line in a note answers Q3. A text written as
   one line, a grill's subject in its header or a question's title on its line, is refused at the
@@ -74,7 +75,9 @@ the engine events the core hands it, and its segment of the band above the promp
   `\n` alone.
 - An extension with states, rounds or a lifecycle starts with a table, before any code: the
   states, the events, and one owner per fact. The server owns what is allowed and says it
-  through `holds`; the module owns whether a server and a lock exist; a file owns its content.
+  through `holds`; the module owns whether a server and a lock exist; a file owns its content,
+  and what is read off it: a grill's phase is the server's reading of the transcript (`phaseOf`),
+  handed to the page in `GET state`, never derived again from the blocks.
   A fact with two owners drifts at the first reload.
 - An extension's classes in `core/page/style.css` carry its id as a prefix (`.grill-doc`,
   `.grill-q`): the stylesheet is global, and a bare `.grill` also styled the `.btn.grill` button.

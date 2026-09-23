@@ -35,6 +35,13 @@ export type Relay =
   | { readonly kind: "reply"; readonly seq: number; readonly text: string }
   | { readonly kind: "ended"; readonly seq: number; readonly name: string };
 
+/**
+ * Where an open grill stands, read off its file: a question waits for the reviewer (`asking`),
+ * the reviewer spoke last (`working`), or Claude did, its turn ended on its answer (`idle`) or
+ * cut short, aborted, refused or failed (`stopped`).
+ */
+export type Phase = "working" | "asking" | "idle" | "stopped";
+
 /** `relays` are the entries of the last grill past the cursor `GET state` was asked with, in order. */
 export type GrillState =
   | {
@@ -46,7 +53,7 @@ export type GrillState =
       readonly kind: "open";
       readonly file: ProjectPath;
       readonly subject: string;
-      readonly phase: "working" | "waiting";
+      readonly phase: Phase;
       readonly relays: readonly Relay[];
     };
 

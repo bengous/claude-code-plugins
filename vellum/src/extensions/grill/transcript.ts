@@ -1,12 +1,10 @@
 import { AS_RECOMMENDED } from "./protocol.ts";
-import type { Answer, CloseReason, Question, Relay } from "./protocol.ts";
+import type { Answer, CloseReason, Phase, Question, Relay } from "./protocol.ts";
 
 /**
  * The transcript as text: every function takes the file and returns the file. What the page and
  * the hooks module need to know is read off it, so the file is the only state a grill has.
  */
-
-export type Phase = "working" | "waiting";
 
 /**
  * The file cut for the page: its opening and its end as data, so the page says them in its own
@@ -60,6 +58,9 @@ const ASKED = /^❓\s*\*\*Q(\d+)\*\*/gmu;
 const ROUND_HEADING = /^## Round (\d+)$/u;
 
 const EVENT = /^_\(session: .*\)_$/u;
+
+/** As `appendAnswer` writes a turn that did not end on Claude's answer; quoted text cannot, its `_` escaped. */
+const TURN_CUT = /^_\(turn [^)\n]*\)_$/u;
 
 const RECOMMENDATION = /^➡️ ?(.*)$/u;
 
@@ -226,12 +227,13 @@ export function appendReply(
 
 /**
  * Claude's text as a quotation: the file's structure is read off its lines, so a heading, an
- * event or a footer inside the text would speak for the reviewer, open a round or close the
- * grill. A backslash keeps each one text, and Markdown draws it as it was typed.
+ * event, a turn's end or a footer inside the text would speak for the reviewer, open a round,
+ * stop the turn or close the grill. A backslash keeps each one text, and Markdown draws it as it
+ * was typed.
  */
 function quoted(text: string): string {
   return text
-    .replaceAll(/^(?=#|_\(session: )/gmu, "\\")
+    .replaceAll(/^(?=#|_\((?:session: |turn ))/gmu, "\\")
     .replaceAll(/^(?=-{3,}\s*\n\s*\nClosed )/gmu, "\\");
 }
 
@@ -305,9 +307,22 @@ export function relaysOf(doc: string, name: string, after: number): Relay[] {
   return entries.filter((entry) => entry.seq > after);
 }
 
-/** Working while the reviewer spoke last: the opening, or a reply no voice of Claude follows. */
+/**
+ * Asking while a question waits for the reviewer; working while the reviewer spoke last, the
+ * opening or a reply no voice of Claude follows; else Claude's last voice says how its turn ended.
+ */
 export function phaseOf(doc: string): Phase {
-  return doc.includes(CLAUDE_VOICE, replies(doc).at(-1)?.index ?? 0) ? "waiting" : "working";
+  if (unanswered(doc).length > 0) return "asking";
+  const voice = doc.lastIndexOf(CLAUDE_VOICE);
+
+  if (voice === -1 || voice < (replies(doc).at(-1)?.index ?? 0)) return "working";
+
+  const said = doc
+    .slice(voice)
+    .split("\n")
+    .findLast((line) => line.trim() !== "" && !EVENT.test(line));
+
+  return TURN_CUT.test(said ?? "") ? "stopped" : "idle";
 }
 
 function lineText(lines: readonly string[]): string {
