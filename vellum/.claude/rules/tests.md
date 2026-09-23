@@ -27,7 +27,8 @@ paths:
   machine and per pinned version (`bun run --cwd vellum e2e:install`); CI runs the suite in its
   own job, and no hook does, since it takes seconds per file. A red e2e test is reproduced on
   its own file and project (`-- <file> --project=<name>`), never by rerunning the suite; the
-  whole suite runs once on `light-1440` before a push, and at the five windows in CI only.
+  whole suite runs once on `light-1440` before a push, and at the five windows in CI only, on
+  request: the `e2e` label on a PR, or `workflow_dispatch`.
 - One behaviour per test, under fifteen lines, data in view: helpers hide the plumbing; the
   version, the path, the text the case turns on stay in the test.
 - Before the code of a slice, its tests are listed one line each and agreed, written first,

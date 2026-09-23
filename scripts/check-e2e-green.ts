@@ -19,9 +19,8 @@ const DEV = "refs/heads/dev";
 
 const CHECK = "e2e";
 
-// Until #193 lands, a pull request's run is the only one that executes `e2e`.
 const START_A_RUN =
-  "git push --force-with-lease origin <branch>, the branch of its pull request, whose CI run executes e2e";
+  "gh pr edit <branch> --add-label e2e, <branch> being the branch of its pull request, or gh workflow run ci.yml --ref <branch> for a branch with none";
 
 // The local ref is the source as typed, `HEAD@{1 day ago}` included: only the
 // last three fields are free of spaces.
@@ -112,7 +111,7 @@ export function refusalFor(checkRuns: CheckRuns): Refusal | null {
   if (checkRuns.kind === "unreadable") {
     return {
       reason: `gh could not list its check runs: ${checkRuns.error}`,
-      next: `If GitHub has never seen that commit, start a run on it: ${START_A_RUN}.`,
+      next: `If GitHub has never seen that commit, push its branch, then start a run on it: ${START_A_RUN}.`,
     };
   }
 
@@ -131,7 +130,10 @@ export function refusalFor(checkRuns: CheckRuns): Refusal | null {
     };
   }
 
-  const [newest] = runs.toSorted((left, right) => right.id - left.id);
+  // A run nobody asked `e2e` of skips it, and its re-run replays the same event: skipped again.
+  const [newest] = runs
+    .filter((run) => run.conclusion !== "skipped")
+    .toSorted((left, right) => right.id - left.id);
 
   if (newest === undefined) return { reason, next: `Start a run on that commit: ${START_A_RUN}.` };
 

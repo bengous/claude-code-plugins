@@ -23,7 +23,9 @@ const SCRIPT = join(import.meta.dir, "check-e2e-green.ts");
 
 const ZERO = "0".repeat(40);
 
-const START_A_RUN = "git push --force-with-lease origin <branch>";
+const START_A_RUN = "gh pr edit <branch> --add-label e2e";
+
+const DISPATCH = "gh workflow run ci.yml --ref <branch>";
 
 function e2eRun(run: number, job: number, status: string, conclusion: string | null): CheckRun {
   return {
@@ -42,6 +44,8 @@ const CANCELLED = e2eRun(12, 102, "completed", "cancelled");
 const FAILED = e2eRun(13, 103, "completed", "failure");
 
 const RUNNING = e2eRun(14, 104, "in_progress", null);
+
+const SKIPPED = e2eRun(15, 105, "completed", "skipped");
 
 const VALIDATE: CheckRun = { ...GREEN, id: 100, name: "validate" };
 
@@ -166,6 +170,21 @@ describe("refusalFor", () => {
 
     expect(refusal?.reason).toBe("it has no green e2e check run (found: none)");
     expect(refusal?.next).toStartWith(`Start a run on that commit: ${START_A_RUN}`);
+    expect(refusal?.next).toContain(DISPATCH);
+  });
+
+  test("asks for a run on a SHA whose every e2e was skipped", () => {
+    const refusal = refusalFor(listed(SKIPPED));
+
+    expect(refusal?.reason).toBe("it has no green e2e check run (found: skipped)");
+    expect(refusal?.next).toStartWith(`Start a run on that commit: ${START_A_RUN}`);
+  });
+
+  test("re-runs the newest red job, passing over a newer skipped one", () => {
+    expect(refusalFor(listed(FAILED, SKIPPED))).toEqual({
+      reason: "it has no green e2e check run (found: failure, skipped)",
+      next: "Re-run it: gh run rerun --job 103.",
+    });
   });
 
   test("waits for a run still in progress, naming its workflow run", () => {
@@ -196,6 +215,7 @@ describe("refusalFor", () => {
     const refusal = refusalFor({ kind: "unreadable", error: "gh: HTTP 401: Bad credentials" });
 
     expect(refusal?.reason).toBe("gh could not list its check runs: gh: HTTP 401: Bad credentials");
+    expect(refusal?.next).toContain("push its branch");
     expect(refusal?.next).toContain(START_A_RUN);
   });
 });

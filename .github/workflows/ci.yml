@@ -3,14 +3,27 @@ name: CI
 on:
   pull_request:
     branches: [main, dev]
+    types: [opened, synchronize, reopened, labeled]
   # `main` is included so a ref update that bypasses the PR path still gets
   # validated server-side. Without it, anything landing on main directly runs
   # no checks at all.
   push:
     branches: [dev, main]
+  workflow_dispatch:
 
+permissions:
+  contents: read
+
+# `e2e` runs on request only: the `e2e` label on a pull request, or a dispatch. The label
+# works on a pull request from this repository alone: a fork's gets a read-only token,
+# which cannot take the label off. No concurrency group: a request never cancels another.
 jobs:
   validate:
+    # Any other label changes no code, and the push's own run already validated the head.
+    if: >-
+      github.event.action != 'labeled'
+      || (github.event.label.name == 'e2e'
+      && github.event.pull_request.head.repo.full_name == github.repository)
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -89,6 +102,11 @@ jobs:
   # Vellum's browser suite, `vellum/e2e/*.e2e.ts`: a job of its own, since it wants a
   # Chromium and takes seconds per file. `check-lint-config.ts` reads `validate` alone.
   e2e:
+    if: >-
+      github.event_name == 'workflow_dispatch'
+      || (github.event.action == 'labeled'
+      && github.event.label.name == 'e2e'
+      && github.event.pull_request.head.repo.full_name == github.repository)
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -111,3 +129,22 @@ jobs:
 
       - name: Run the browser suite
         run: bun run --cwd vellum e2e
+
+  # The label asks for one run: it comes off as that run starts, so the next request is a new
+  # label. A job of its own, so the suite's job keeps a read-only token; a re-run of the same
+  # run finds the label gone already.
+  unlabel:
+    if: >-
+      github.event.action == 'labeled'
+      && github.event.label.name == 'e2e'
+      && github.event.pull_request.head.repo.full_name == github.repository
+      && github.run_attempt == 1
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write
+    steps:
+      - name: Take the e2e label off the pull request
+        run: gh api --method DELETE --silent "repos/${GITHUB_REPOSITORY}/issues/${PR}/labels/e2e"
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ github.event.pull_request.number }}
