@@ -385,8 +385,14 @@ type OpenQuestionProps = {
 function OpenQuestion(props: OpenQuestionProps): preact.JSX.Element {
   const { block, typing } = props;
   const field = useRef<HTMLTextAreaElement>(null);
-  const recommended = typing === undefined || typing === AS_RECOMMENDED;
-  const own = recommended ? "" : typing;
+
+  // Read off the draft once: a text typed through `As recommended.` is still the reviewer's own.
+  const [choice, setChoice] = useState<"recommended" | "own">(
+    typing === undefined || typing === AS_RECOMMENDED ? "recommended" : "own",
+  );
+
+  const recommended = choice === "recommended";
+  const own = recommended ? "" : (typing ?? "");
   const mine = own.trim() !== "";
   const name = `grill-${block.id}`;
 
@@ -402,7 +408,10 @@ function OpenQuestion(props: OpenQuestionProps): preact.JSX.Element {
             checked={recommended}
             disabled={mine}
             aria-describedby={block.rec === "" ? undefined : `${name}-rec-text`}
-            onClick={() => props.onType(AS_RECOMMENDED)}
+            onClick={() => {
+              setChoice("recommended");
+              props.onType(AS_RECOMMENDED);
+            }}
           />
           <label
             for={`${name}-rec`}
@@ -427,6 +436,7 @@ function OpenQuestion(props: OpenQuestionProps): preact.JSX.Element {
             checked={!recommended}
             onClick={() => {
               if (recommended) props.onType("");
+              setChoice("own");
               field.current?.focus();
             }}
           />
@@ -435,7 +445,10 @@ function OpenQuestion(props: OpenQuestionProps): preact.JSX.Element {
             ref={field}
             aria-label={`Your answer to ${block.id}`}
             value={own}
-            onInput={(event) => props.onType(event.currentTarget.value)}
+            onInput={(event) => {
+              setChoice("own");
+              props.onType(event.currentTarget.value);
+            }}
             onKeyDown={(event) => {
               if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) props.onSend();
             }}

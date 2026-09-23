@@ -634,6 +634,21 @@ test.describe("a round in the panel", () => {
     await expect(shown(page).getByRole("radio", { name: "Recommended" })).toBeEnabled();
   });
 
+  test("an answer typed through `As recommended.` keeps every letter, and Your answer", async ({
+    page,
+    vellum,
+  }) => {
+    await asking(page, vellum);
+    const field = shown(page).getByRole("textbox", { name: "Your answer to Q1" });
+    await field.pressSequentially("As recommended. But one store.");
+    await expect(field).toHaveValue("As recommended. But one store.");
+    await field.fill("As recommended.x");
+    await field.press("Backspace");
+
+    await expect(field).toHaveValue("As recommended.");
+    await expect(shown(page).getByRole("radio", { name: "Your answer" })).toBeChecked();
+  });
+
   test("after a send the chips say what each question took: an answer, or the recommendation by default", async ({
     page,
     vellum,

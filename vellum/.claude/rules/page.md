@@ -181,7 +181,8 @@ no build step, so what the page imports costs nothing at `cli start`.
   takes the recommendation by default; `As recommended.` (`AS_RECOMMENDED` of
   `grill/protocol.ts`), the reviewer chose it; any other text is their own. The panel's two
   choices write it, Recommended the default, and a text of the reviewer's own greys Recommended,
-  so a click never throws the typing. `unsentTyped` names what a decision would throw; Send feedback
+  so a click never throws the typing. The choice is read off the draft when the question shows,
+  then held by it, so a text typed through `As recommended.` stays the reviewer's. `unsentTyped` names what a decision would throw; Send feedback
   and Approve put the warning first when it is not empty, and a decision that lands clears it. Cancel of the editor
   over a changed text asks first; End grill sends what is typed as a reply before it closes.
 - An unsent edit is an `Edit`: a text with the version it edits. The stamp is taken when the
