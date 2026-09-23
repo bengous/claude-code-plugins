@@ -294,7 +294,6 @@ iframe { border: 0; width: 100%; height: 100%; display: block; background: var(-
 .grill-sheet { flex: 1; min-height: 0; overflow: auto; display: flex; flex-direction: column; scroll-padding-bottom: var(--grill-foot); }
 .grill-panel .plan { flex: 1; padding: var(--s-4) var(--s-4) var(--s-6); }
 .grill-panel .plan h1 { font-size: var(--t-20); }
-/* Where the grill stands, under Claude's last word: a line while Claude works, a card once its turn ended, nothing while a round is open. */
 .grill-phase { max-width: var(--measure); }
 .grill-phase p { margin: 0; }
 .grill-phase.working p { color: var(--graphite); font-style: italic; margin-top: var(--s-4); }
