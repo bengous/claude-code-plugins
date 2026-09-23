@@ -227,6 +227,13 @@ describe("refusalFor", () => {
     });
   });
 
+  test("reads a green window as no green e2e", () => {
+    expect(refusalFor(listed(FAILED, { ...WINDOW_RED, conclusion: "success" }))).toEqual({
+      reason: "it has no green e2e check run (found: failure)",
+      next: "Re-run its red windows and the e2e after them: gh run rerun 13 --failed.",
+    });
+  });
+
   test("reads a red window as no e2e run", () => {
     expect(refusalFor(listed(WINDOW_RED))?.next).toStartWith(
       `Start a run on that commit: ${START_A_RUN}`,
