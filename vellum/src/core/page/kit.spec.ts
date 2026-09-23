@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import type { PopoverProps } from "./kit.tsx";
+import type { DialogProps, PopoverProps } from "./kit.tsx";
 import { Button, Chip, Handle } from "./kit.tsx";
 
 describe("the kit owns its classes", () => {
@@ -24,6 +24,13 @@ describe("the kit owns its classes", () => {
     const trap: PopoverProps = { label: "New comment", children: "x" };
 
     expect("onClose" in trap).toBe(false);
+  });
+
+  test("a dialog closes: `onCancel` is no option", () => {
+    // @ts-expect-error -- `DialogProps` requires `onCancel`: a modal Escape cannot close traps the page.
+    const trap: DialogProps = { label: "Claude suggests a grill", children: "x" };
+
+    expect("onCancel" in trap).toBe(false);
   });
 
   test("a handle's class names its side, and its accessible name is its label, else its name", () => {

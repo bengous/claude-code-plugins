@@ -27,12 +27,12 @@ no build step, so what the page imports costs nothing at `cli start`.
   `--serif` (Literata), code and literals (a path, a version, the diff count, a key) are
   `--mono` (JetBrains Mono), and the chrome reads as prose. The fonts ship in `fonts/`, each
   under the bundler's inlining threshold, so they arrive inside the CSS chunk.
-- A button, badge, chip, tag, banner, popover, chevron, handle or switch is drawn through `kit.tsx`,
-  never through one of its classes spelled at the call; `kit.tsx` is in `PAGE_SURFACE`, so an
-  extension draws with the same nine. A `Chip` is a button; what shows a label and takes no click is a `Tag`.
+- A button, badge, chip, tag, banner, popover, dialog, chevron, handle or switch is drawn through
+  `kit.tsx`, never through one of its classes spelled at the call; `kit.tsx` is in `PAGE_SURFACE`,
+  so an extension draws with the same ten. A `Chip` is a button; what shows a label and takes no click is a `Tag`.
   The types hold part of it, locked in `kit.spec.ts`: `ChipProps` takes no `class`, and neither
   takes `className`. `ButtonProps` takes a `class`, joined to the kit's own, for a state the kit
-  has no prop for (`lit` in `grill/page.tsx`): there a kit class spelled at the call compiles,
+  has no prop for (`grill-later` in `grill/proposal.tsx`): there a kit class spelled at the call compiles,
   and only a reader refuses it. A token consumed outside CSS (Mermaid's `themeVariables`, the frame's overlay) parses
   neither `color-mix()` nor the `oklab()` the browser serializes once computed: it goes through
   `srgb()`, which yields sRGB, and the consumer redraws on the `dark` signal of `state.ts`.
@@ -110,9 +110,12 @@ no build step, so what the page imports costs nothing at `cli start`.
   `fail` of `state.ts`, one per operation, and the next success of that operation removes it
   (`succeed`); the stale editor derives from `editing` and the version, so its notice leaves
   with the editor; a card's Delete leaves an `undo` for a while. `app.tsx` draws the column with
-  `Notices`, the core's first, then each extension's `notices` components: the grill's
-  suggestion is one, in the flow, its field on its own line, Escape closing it; the field takes
-  the focus when the Grill button opens the banner, not when a suggestion arrives under a typing.
+  `Notices`, the core's first, then each extension's `notices` components: the grill's proposal
+  is one, a `Dialog`, shown while it is mounted. A modal never opens under a typing: the editor
+  open, a popover up (`popoverUp` of the kit) or a field focused, `showModal()` would take the
+  focus and make the page inert, so the next Enter of a comment would answer the modal. A
+  proposal that lands there is put off at once, a dot on the Grill button (`askingOn` and
+  `modalOf` in `grill/modal.ts`, pure); on an approved page none shows, whatever the server holds.
   An extension's own button computes its greyed state and its `title` itself (`GrillAction`).
   A notice of kind `err` is `role="alert"`, the others `role="status"`; a literal in one comes
   as `{ code }` and is drawn in `<code>`. In `approved` the bar draws no button.

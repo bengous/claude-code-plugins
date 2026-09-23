@@ -6,7 +6,7 @@ import { boxOf, expect, openVellum, readFixture, reviewV1, test } from "./harnes
 /**
  * The notices derive from the state: a greyed button says why, the pill says what holds the
  * review, a failed request is a banner in the reviewer's words, a banner leaves with its cause,
- * and the grill's suggestion and its rounds arrive where the reviewer looks.
+ * and the grill's rounds arrive where the reviewer looks.
  */
 
 const ROUND_1 = [
@@ -214,50 +214,6 @@ test.describe("a deleted card", () => {
 test.describe("the grill", () => {
   test.use({ fixture: "grill-real" });
 
-  test("its suggestion is a banner in the flow that leaves the focus where it is, and Escape closes it", async ({
-    page,
-    vellum,
-  }) => {
-    await vellum.gate();
-    await openVellum(page, vellum);
-    await page.locator("#global").fill("Overall: ");
-    await vellum.grill.suggest("The coverage of the page", "three choices change the interface");
-
-    const banner = page.locator(".banner", { hasText: "Claude suggests a grill" });
-    await expect(banner).toBeVisible();
-    const field = banner.getByRole("textbox");
-    await expect(field).toHaveValue("The coverage of the page");
-    await page.keyboard.type("no.");
-    await expect(page.locator("#global")).toHaveValue("Overall: no.");
-    const [bannerBox, head] = [await boxOf(banner), await boxOf(page.locator(".doc-head"))];
-    expect(head.y).toBeGreaterThanOrEqual(bannerBox.y + bannerBox.height);
-    const fieldBox = await boxOf(field);
-    expect(fieldBox.width).toBeGreaterThan(bannerBox.width * 0.6);
-
-    await field.click();
-    await page.keyboard.press("Escape");
-    await expect(banner).toHaveCount(0);
-    await page.getByRole("button", { name: "Grill", exact: true }).click();
-    await expect(banner.getByRole("textbox")).toBeFocused();
-  });
-
-  test("Start grilling is greyed with the Grill button's reason, and Enter opens nothing", async ({
-    page,
-    vellum,
-  }) => {
-    await vellum.gate();
-    await vellum.grill.suggest("The coverage of the page", "three choices");
-    await openVellum(page, vellum);
-    await openEditor(page);
-
-    const start = page.getByRole("button", { name: "Start grilling" });
-    await expect(start).toBeDisabled();
-    await expect(start).toHaveAttribute("title", /Done/u);
-    await page.locator(".banner").getByRole("textbox").press("Enter");
-    await expect(page.locator(".bar .status")).toHaveText("In review");
-    expect(JSON.stringify((await vellum.grill.state()).json)).toContain('"kind":"none"');
-  });
-
   test("a grill the server cannot be reached for is a banner, and no error escapes", async ({
     page,
     vellum,
@@ -268,7 +224,7 @@ test.describe("the grill", () => {
     const errors: string[] = [];
     page.on("pageerror", (error) => errors.push(error.message));
     await page.route("**/api/x/grill/open", (route) => route.abort());
-    await page.getByRole("button", { name: "Start grilling" }).click();
+    await page.getByRole("dialog").getByRole("button", { name: "Start" }).click();
 
     await expect(page.locator(".banner.err")).toContainText("did not reach the server");
     await expect(page.locator(".bar .status")).toHaveText("In review");
@@ -299,7 +255,7 @@ test.describe("the grill", () => {
     await vellum.gate();
     await vellum.grill.suggest("The coverage of the page", "three choices");
     await openVellum(page, vellum);
-    await page.getByRole("button", { name: "Start grilling" }).click();
+    await page.getByRole("dialog").getByRole("button", { name: "Start" }).click();
 
     const working = page.locator(".grill-doc [role=status]");
     await expect(working).toBeVisible();

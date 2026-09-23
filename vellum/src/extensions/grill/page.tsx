@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from "preact/hooks";
 
 import type { PageExtension, RendererProps } from "../../core/extension.ts";
 import { extensionRequest } from "../../core/page/api.ts";
-import { Banner, Button } from "../../core/page/kit.tsx";
+import { Button } from "../../core/page/kit.tsx";
 import {
   connection,
   editing,
@@ -17,7 +17,8 @@ import {
 import type { Typed } from "../../core/protocol.ts";
 import { footerOf } from "./labels.ts";
 import { grillNumber } from "./parse.ts";
-import type { Block, GrillPosts, GrillState, Opened, Suggestion } from "./protocol.ts";
+import { GrillButton, Proposal } from "./proposal.tsx";
+import type { Block, GrillPosts, GrillState, Opened } from "./protocol.ts";
 
 const ID = "grill";
 
@@ -96,13 +97,16 @@ async function post<Name extends keyof GrillPosts>(
   return response;
 }
 
-async function openGrill(subject: string): Promise<void> {
+/** `true` once the grill opened, its transcript selected. */
+async function openGrill(subject: string): Promise<boolean> {
   const response = await post("open", { subject });
 
-  if (!response.ok) return;
+  if (!response.ok) return false;
   // SAFETY: the server's own `Opened`, a `ProjectPath` it built, serialized in grill/server.ts.
   const { file } = (await response.json()) as Opened;
   select(file);
+
+  return true;
 }
 
 /** `true` once the server took it: the typing it carried can go. */
@@ -111,25 +115,6 @@ async function reply(
   note: string,
 ): Promise<boolean> {
   return (await post("reply", { answers, note })).ok;
-}
-
-/** What the reviewer did with the banner: `auto` shows it while Claude suggests a grill. */
-const banner = signal<"auto" | "open" | "dismissed">("auto");
-
-/** The subject typed over the suggestion's; `null` while the suggestion's stands. */
-const subjectTyped = signal<string | null>(null);
-
-function suggestionOf(state: GrillState | null): Suggestion | null {
-  return state?.kind === "none" && state.proposal?.kind === "pending"
-    ? state.proposal.suggestion
-    : null;
-}
-
-function bannerShown(state: GrillState | null): boolean {
-  return (
-    state?.kind === "none" &&
-    (banner.value === "open" || (banner.value === "auto" && suggestionOf(state) !== null))
-  );
 }
 
 /** Why the Grill button is greyed, in its title; `null` while a grill can open. */
@@ -154,97 +139,23 @@ function GrillAction(): preact.JSX.Element | null {
     void loadState();
   }, [view]);
 
-  if (view?.workspace.kind === "approved") return null;
-  const why = grillWhy(state);
-
-  return (
-    <Button
-      variant="grill"
-      class={suggestionOf(state) === null ? undefined : "lit"}
-      disabled={why !== null}
-      title={why ?? undefined}
-      onClick={() => {
-        banner.value = bannerShown(state) ? "dismissed" : "open";
-      }}
-    >
-      Grill
-    </Button>
-  );
-}
-
-/**
- * The suggestion, or the subject asked for: a banner in the flow, its field on a line of its
- * own. The field takes the focus when the Grill button opened the banner, never when a
- * suggestion arrives under a typing. Start grilling is greyed for the Grill button's reasons.
- */
-function SuggestionBanner(props: {
-  readonly suggestion: Suggestion | null;
-  readonly why: string | null;
-}): preact.JSX.Element {
-  const field = useRef<HTMLInputElement>(null);
-  const subject = subjectTyped.value ?? props.suggestion?.subject ?? "";
-  const { why } = props;
-
-  useEffect(() => {
-    if (banner.peek() === "open") field.current?.focus();
-  }, []);
-
-  const start = (): void => {
-    if (why !== null || subject.trim() === "") return;
-    banner.value = "auto";
-    subjectTyped.value = null;
-    void openGrill(subject.trim());
-  };
-
-  const dismiss = (): void => {
-    banner.value = "dismissed";
-  };
-
-  return (
-    <Banner kind="info">
-      {props.suggestion !== null && (
-        <span>
-          <strong>Claude suggests a grill:</strong> {props.suggestion.reason}
-        </span>
-      )}
-      <div class="grill-subject">
-        <input
-          ref={field}
-          aria-label="Subject of the grill"
-          placeholder="What should Claude grill you on?"
-          value={subject}
-          onInput={(event) => {
-            subjectTyped.value = event.currentTarget.value;
-          }}
-          onKeyDown={(event) => {
-            if (event.key === "Enter") start();
-
-            if (event.key === "Escape") dismiss();
-          }}
-        />
-        <Button
-          size="sm"
-          variant="send"
-          disabled={why !== null || subject.trim() === ""}
-          title={why ?? undefined}
-          onClick={start}
-        >
-          Start grilling
-        </Button>
-        <Button size="sm" onClick={dismiss}>
-          Dismiss
-        </Button>
-      </div>
-    </Banner>
+  return view?.workspace.kind === "approved" ? null : (
+    <GrillButton state={state} why={grillWhy(state)} />
   );
 }
 
 function GrillNotice(): preact.JSX.Element | null {
   const state = grill.value;
 
-  return bannerShown(state) ? (
-    <SuggestionBanner suggestion={suggestionOf(state)} why={grillWhy(state)} />
-  ) : null;
+  return (
+    <Proposal
+      state={state}
+      approved={review.value?.workspace.kind === "approved"}
+      why={grillWhy(state)}
+      onStart={openGrill}
+      onDecline={(id) => void post("decline", { id })}
+    />
+  );
 }
 
 type CardProps = {

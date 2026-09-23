@@ -3,8 +3,8 @@ import { useEffect, useRef } from "preact/hooks";
 
 /**
  * The page's components, each one a class of `style.css` spelled in one place: what every
- * button, badge, chip, tag, banner, popover, chevron, handle and switch of the core and of the
- * extensions is drawn with.
+ * button, badge, chip, tag, banner, popover, dialog, chevron, handle and switch of the core and
+ * of the extensions is drawn with.
  */
 
 export type ButtonProps = Omit<
@@ -101,6 +101,13 @@ export type PopoverProps = {
   readonly children: ComponentChildren;
 };
 
+let popovers = 0;
+
+/** Whether a popover is up: a modal opened over one would take the focus from what it holds. */
+export function popoverUp(): boolean {
+  return popovers > 0;
+}
+
 /**
  * At the opening the focus enters: on the `autofocus` element, else the first focusable one. It
  * scrolls nothing: the popover is placed where it is seen, and a focus that scrolls would move the
@@ -111,6 +118,14 @@ export function Popover(props: PopoverProps): JSX.Element {
   const box = props.box ?? own;
   const latest = useRef(props);
   latest.current = props;
+
+  useEffect(() => {
+    popovers += 1;
+
+    return () => {
+      popovers -= 1;
+    };
+  }, []);
 
   useEffect(() => {
     const element = box.current;
@@ -173,6 +188,76 @@ export function Popover(props: PopoverProps): JSX.Element {
     >
       {props.children}
     </div>
+  );
+}
+
+export type DialogProps = {
+  /** What the dialog is, for assistive technology. */
+  readonly label: string;
+  readonly class?: string;
+  /** Escape, a click on the backdrop, or a close the page did not ask for. */
+  readonly onCancel: () => void;
+  /** Under the card, on the backdrop: the shortcuts. */
+  readonly below?: ComponentChildren;
+  readonly children: ComponentChildren;
+};
+
+/**
+ * A modal `<dialog>`, shown while it is mounted: `showModal()` on mount, `close()` on unmount.
+ * The browser dims the page, makes it inert, keeps the focus inside and gives it back to the
+ * opener at the close. The dialog element spans the window and the card sits in it, so a click
+ * on the backdrop lands on the element itself; it counts when the pointer went down there too,
+ * and a drag that starts in the card closes nothing.
+ */
+export function Dialog(props: DialogProps): JSX.Element {
+  const box = useRef<HTMLDialogElement>(null);
+  const latest = useRef(props);
+  latest.current = props;
+
+  useEffect(() => {
+    const element = box.current;
+
+    if (element === null) return;
+    element.showModal();
+    let downOnBackdrop = false;
+
+    // Prevented, so Preact stays the one to close it; a close that gets through anyway is a
+    // cancel too, so the element and the page never disagree.
+    const onCancel = (event: Event): void => {
+      event.preventDefault();
+      latest.current.onCancel();
+    };
+
+    const onClose = (): void => latest.current.onCancel();
+
+    const onPointerDown = (event: PointerEvent): void => {
+      downOnBackdrop = event.target === element;
+    };
+
+    const onClick = (event: MouseEvent): void => {
+      if (downOnBackdrop && event.target === element) latest.current.onCancel();
+      downOnBackdrop = false;
+    };
+
+    element.addEventListener("cancel", onCancel);
+    element.addEventListener("close", onClose);
+    element.addEventListener("pointerdown", onPointerDown);
+    element.addEventListener("click", onClick);
+
+    return () => {
+      element.removeEventListener("cancel", onCancel);
+      element.removeEventListener("close", onClose);
+      element.removeEventListener("pointerdown", onPointerDown);
+      element.removeEventListener("click", onClick);
+      element.close();
+    };
+  }, []);
+
+  return (
+    <dialog ref={box} class={classes("dialog", props.class)} aria-label={props.label}>
+      <div class="dialog-card">{props.children}</div>
+      {props.below !== undefined && <div class="dialog-below">{props.below}</div>}
+    </dialog>
   );
 }
 

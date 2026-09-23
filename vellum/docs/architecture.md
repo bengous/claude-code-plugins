@@ -121,7 +121,7 @@ sequenceDiagram
   participant P as page
   C->>M: tool.call grill_suggest {subject, reason}
   M->>S: POST /api/x/grill/suggest, the slot pending under a new id
-  S-->>P: workspace event, the Grill button lit
+  S-->>P: workspace event, the modal over the page, or the Grill button's dot under a typing
   opt the reviewer declines it instead
     P->>S: POST /api/x/grill/decline {id}, the slot declined
     M->>C: $.prompt.submit ("The reviewer declined the grill on: <subject>.")

@@ -269,8 +269,13 @@ iframe { border: 0; width: 100%; height: 100%; display: block; background: var(-
 .popover.through { opacity: 0.35; pointer-events: none; }
 .btn.grill { border-color: var(--ask); color: var(--ask); }
 .btn.grill.lit { background: var(--ask); color: var(--sheet); }
-.grill-subject { flex-basis: 100%; display: flex; gap: var(--s-2); align-items: center; }
-.grill-subject input { flex: 1; min-width: 0; font: inherit; padding: var(--s-1) var(--s-2); border: 1px solid var(--edge); border-radius: var(--r-sm); background: var(--field); color: var(--ink); }
+.btn.grill.grill-later { position: relative; }
+.btn.grill.grill-later::after { content: ""; position: absolute; top: calc(var(--s-1) * -1); right: calc(var(--s-1) * -1); width: var(--s-3); height: var(--s-3); border-radius: 50%; background: var(--ask); border: 2px solid var(--sheet); }
+.grill-dialog .dialog-card { border-top: 4px solid var(--ask); }
+.grill-who { font: 650 var(--t-13)/1.4 var(--serif); color: var(--ask); margin: 0 0 var(--s-1); }
+.grill-subject { display: block; width: 100%; field-sizing: content; resize: none; font: 600 var(--t-20)/1.25 var(--serif); padding: 2px 0 var(--s-1); border: 0; border-radius: 0; border-bottom: 2px dashed var(--ask); background: transparent; color: var(--ink); }
+.grill-subject:focus { outline: none; border-bottom-style: solid; }
+.grill-subject::placeholder { font-style: italic; font-weight: 400; }
 .grill-doc { min-height: 100%; display: flex; flex-direction: column; }
 .grill-working { color: var(--graphite); font-style: italic; max-width: var(--measure); }
 .grill-when { color: var(--graphite); font-size: var(--t-13); }
@@ -298,6 +303,15 @@ iframe { border: 0; width: 100%; height: 100%; display: block; background: var(-
 .grill-foot textarea { flex: 1; min-height: 0; resize: none; max-width: var(--measure); }
 .grill-foot .row { flex: none; align-items: center; gap: var(--s-2); max-width: var(--measure); }
 .grill-foot .note { flex: 1; color: var(--graphite); font-size: var(--t-13); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* The element spans the window, transparent: the card and the line under it sit in it, and a click beside them lands on the element, as on the backdrop. */
+.dialog { width: 100%; max-width: none; height: 100%; max-height: none; margin: 0; padding: var(--s-4); border: 0; background: transparent; color: var(--ink); }
+.dialog[open] { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: var(--s-3); }
+.dialog::backdrop { background: color-mix(in oklab, var(--ink) 42%, transparent); }
+.dialog-card { width: min(470px, 100%); background: var(--sheet); border-radius: var(--r-md); box-shadow: var(--shadow); padding: var(--s-6) var(--s-6) var(--s-4); font: var(--t-14)/var(--lh-chrome) var(--serif); }
+.dialog-card .row { margin-top: var(--s-4); }
+/* Its own surface: over the backdrop no text token reads at 4.5:1 in both themes. */
+.dialog-below { display: flex; align-items: center; gap: var(--s-1); padding: 2px var(--s-3); border-radius: var(--r-pill); background: var(--sheet); color: var(--graphite); font-size: var(--t-12); }
+.dialog-below kbd + kbd { margin-left: var(--s-2); }
 .popover { position: absolute; width: 300px; background: var(--sheet); border: 1px solid var(--rule); border-radius: var(--r-md); box-shadow: var(--shadow); padding: var(--s-3); font: var(--t-13)/var(--lh-chrome) var(--serif); z-index: 2; }
 .popover .quote { color: var(--graphite); font-style: italic; margin-bottom: var(--s-2); }
 .popover .quote .where { white-space: nowrap; }

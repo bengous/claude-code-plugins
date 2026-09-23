@@ -8,7 +8,7 @@ import type { Readable } from "node:stream";
 import type { Locator, Page } from "@playwright/test";
 import { expect, test as base } from "@playwright/test";
 
-import type { CloseReason, QuestionTriple } from "../src/extensions/grill/protocol.ts";
+import type { CloseReason, GrillState, QuestionTriple } from "../src/extensions/grill/protocol.ts";
 
 /**
  * The browser suite's harness: `preview.ts` started on a copy of a fixture, its API driven
@@ -45,6 +45,8 @@ export type Vellum = {
   writeFile(name: string, text: string): void;
   readonly grill: {
     suggest(subject: string, reason: string): Promise<Reply>;
+    /** Declines the pending proposal under the id the server gave it, as another tab's Decline would. */
+    decline(): Promise<Reply>;
     open(subject: string): Promise<Reply>;
     ask(questions: readonly QuestionTriple[]): Promise<Reply>;
     answer(text: string, own?: boolean): Promise<Reply>;
@@ -144,6 +146,16 @@ export async function startVellum(
     },
     grill: {
       suggest: (subject, reason) => api("x/grill/suggest", { subject, reason }),
+      decline: async () => {
+        // SAFETY: the server's own `GrillState`, serialized by `Response.json` in grill/server.ts.
+        const state = (await api("x/grill/state")).json as GrillState;
+
+        if (state.kind === "open" || state.proposal?.kind !== "pending") {
+          throw new Error("no proposal is pending");
+        }
+
+        return api("x/grill/decline", { id: state.proposal.suggestion.id });
+      },
       open: (subject) => api("x/grill/open", { subject }),
       ask: (questions) => api("x/grill/ask", { q: questions }),
       answer: (text, own = true) => api("x/grill/answer", { text, reason: "end_turn", own }),
