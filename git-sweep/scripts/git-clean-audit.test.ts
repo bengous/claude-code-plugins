@@ -112,6 +112,20 @@ async function addCommit(repo: string, filename: string, message: string): Promi
   await git(repo, "commit", "-m", message);
 }
 
+// Commits what is staged with both dates set in the past.
+async function commitDaysAgo(repo: string, message: string, days: number): Promise<void> {
+  const date = new Date(Date.now() - days * 86_400_000).toISOString();
+
+  const proc = Bun.spawn(["git", "commit", "-m", message], {
+    cwd: repo,
+    stdout: "pipe",
+    stderr: "pipe",
+    env: { ...process.env, ...GIT_ISOLATION, GIT_AUTHOR_DATE: date, GIT_COMMITTER_DATE: date },
+  });
+
+  if ((await proc.exited) !== 0) throw new Error(await new Response(proc.stderr).text());
+}
+
 type Kept = { name: string; reason: string; detail: string | null };
 
 const keptNames = (result: Record<string, unknown>): string[] =>
@@ -778,7 +792,7 @@ describe("git-clean-audit", () => {
     await git(repo, "merge", "feature/wt-stale");
     await git(repo, "worktree", "add", wtDir, "feature/wt-stale");
 
-    // Remove the worktree directory out from under git -> stale (missing-dir)
+    // Remove the worktree directory out from under git: a stale registration.
     rmSync(wtDir, { recursive: true, force: true });
 
     const { result } = await runAudit(repo);
@@ -882,6 +896,82 @@ describe("git-clean-audit", () => {
 
       expect(worktreeCounts(result)).toEqual({ stale: 0, removable: 0, kept: 1 });
       expect(onlyKeptWorktree(result)).toMatchObject({ branch: "feature/gone", reason: "unborn" });
+    });
+  });
+
+  describe("worktrees and the branches they stand on", () => {
+    test("holds the branch of the main worktree when the audit runs from a linked one", async () => {
+      const repo = await makeRepo("main-held");
+      const wtDir = makeTmpDir("main-held-linked");
+
+      await git(repo, "checkout", "-b", "feature/x");
+      await addCommit(repo, "x.txt", "x work");
+      await git(repo, "checkout", "main");
+      await git(repo, "merge", "feature/x");
+      await git(repo, "checkout", "feature/x");
+      await git(repo, "worktree", "add", wtDir, "main");
+
+      const { result } = await runAudit(wtDir);
+
+      expect(categoryNames(result)).not.toContain("feature/x");
+      expect(keptEntry(result, "feature/x")?.reason).toBe("worktree");
+    });
+
+    test("audits a bare repository", async () => {
+      const repo = await makeRepo("bare-source");
+      const bare = makeTmpDir("bare");
+
+      await git(repo, "checkout", "-b", "feature/done");
+      await addCommit(repo, "done.txt", "done work");
+      await git(repo, "checkout", "main");
+      await git(repo, "merge", "feature/done");
+      await git(bare, "clone", "--bare", repo, ".");
+
+      const { result } = await runAudit(bare);
+
+      expect(result.ok).toBe(true);
+      expect(categoryNames(result)).toContain("feature/done");
+    });
+
+    test("proves a branch in a clean worktree once, behind the age gate", async () => {
+      const repo = await makeRepo("old-in-worktree");
+      const wtDir = makeTmpDir("old-in-worktree-dir");
+
+      await git(repo, "checkout", "-b", "feature/old");
+      writeFileSync(join(repo, "old.txt"), "old work");
+      await git(repo, "add", ".");
+      await commitDaysAgo(repo, "old work", 400);
+      await git(repo, "checkout", "main");
+      await git(repo, "merge", "--squash", "feature/old");
+      await git(repo, "commit", "-m", "squash of feature/old");
+      await git(repo, "worktree", "add", wtDir, "feature/old");
+
+      const { result } = await runAudit(repo);
+
+      expect(worktreeCounts(result).removable).toBe(0);
+      expect(keptEntry(result, "feature/old")?.reason).toBe("worktree");
+    });
+
+    test("reports a worktree whose HEAD git cannot resolve, and audits the rest", async () => {
+      const repo = await makeRepo("corrupt-head");
+      const wtDir = makeTmpDir("corrupt-head-dir");
+
+      await git(repo, "worktree", "add", "-b", "feature/corrupt", wtDir);
+
+      const adminDir = join(await git(repo, "rev-parse", "--git-common-dir"), "worktrees");
+
+      const [name] = (await git(repo, "worktree", "list", "--porcelain"))
+        .split("\n")
+        .filter((line) => line.startsWith("worktree "))
+        .slice(1)
+        .map((line) => line.split("/").pop());
+
+      writeFileSync(join(repo, adminDir, name!, "HEAD"), "garbage\n");
+
+      const { result } = await runAudit(repo);
+
+      expect(result.ok).toBe(true);
+      expect(onlyKeptWorktree(result)).toMatchObject({ reason: "unreadable", branch: null });
     });
   });
 
@@ -1222,6 +1312,7 @@ describe("git-clean-audit", () => {
     const manifest = {
       base: "main",
       worktrees: [],
+      stale_worktrees: [],
       branches: [{ name: "feature/x", force: false, oid: "a".repeat(40) }],
       remote_branches: [],
       prune_remotes: false,
@@ -1264,6 +1355,7 @@ describe("git-clean-audit", () => {
         manifest: {
           base: "main",
           worktrees: [],
+          stale_worktrees: [],
           branches: [{ name: "feature/x", force: false }],
           remote_branches: [],
           prune_remotes: false,

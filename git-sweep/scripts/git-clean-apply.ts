@@ -3,10 +3,11 @@
 // git-clean-apply — Execute a cleanup manifest one operation at a time.
 // Consumed by the git-sweep skill (apply phase, fed by the audit phase).
 
+import { existsSync } from "node:fs";
 import { rename, unlink } from "node:fs/promises";
 
 import { git, localRef } from "./git.ts";
-import { type CleanupManifest, parseManifest } from "./manifest.ts";
+import { type CleanupManifest, type KeptEntry, parseHandoff, parseManifest } from "./manifest.ts";
 import { buildProtectedSet, originHeadTarget, readProtectionConfig } from "./sweep-config.ts";
 
 // ---------------------------------------------------------------------------
@@ -64,7 +65,13 @@ function dedupeManifest(m: CleanupManifest): CleanupManifest | { error: string }
 
   if ("error" in remote_branches) return remote_branches;
 
-  return { ...m, worktrees: [...new Set(m.worktrees)], branches, remote_branches };
+  return {
+    ...m,
+    worktrees: [...new Set(m.worktrees)],
+    stale_worktrees: [...new Set(m.stale_worktrees)],
+    branches,
+    remote_branches,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -82,6 +89,7 @@ async function execute(
   const remaining: CleanupManifest = {
     base: manifest.base,
     worktrees: [],
+    stale_worktrees: [],
     branches: [],
     remote_branches: [],
     prune_remotes: false,
@@ -111,6 +119,27 @@ async function execute(
       success,
       error: success ? null : result.stderr,
     });
+  }
+
+  // Stale registrations: `git worktree remove` on a directory that came back
+  // (a remount, a move undone) would delete it with its ignored files, which
+  // the audit never listed because it saw no directory.
+  for (const path of manifest.stale_worktrees) {
+    let error: string | null = null;
+
+    if (existsSync(path)) {
+      error = `the directory is back since the audit: ${path}; re-run /git-sweep`;
+    } else {
+      const result = await git("worktree", "remove", path);
+
+      // A registration already dropped (gc, or a prune by hand) is the goal reached.
+      if (result.exitCode !== 0 && !result.stderr.includes("is not a working tree")) {
+        error = result.stderr;
+      }
+    }
+
+    if (error !== null) remaining.stale_worktrees.push(path);
+    operations.push({ type: "worktree-remove", target: path, success: error === null, error });
   }
 
   // 2. Delete local branches
@@ -191,21 +220,23 @@ async function execute(
       continue;
     }
 
-    // The short name for --delete: with the full ref, a branch already gone
-    // answers "stale info" like one pushed to since the audit, where the short
-    // name answers "remote ref does not exist". A remote tag of the same name
-    // makes the short name ambiguous, which git refuses.
+    // The full ref on both sides: a short --delete is resolved by the remote,
+    // so "heads/dev" would delete dev past the protection check above, under a
+    // lease on a ref the push never touches.
     const result = await git(
       "push",
       `--force-with-lease=${localRef(ref)}:${oid}`,
       remote,
       "--delete",
-      ref,
+      localRef(ref),
     );
 
-    // A ref the remote no longer has is the goal already reached, not a failure:
-    // the lease guards a ref that exists, and retrying can only fail the same way.
-    const success = result.exitCode === 0 || result.stderr.includes("remote ref does not exist");
+    // A full-ref delete of a branch already gone is refused as "stale info", like
+    // one pushed to since the audit: ls-remote tells them apart. Gone is the goal
+    // reached, and retrying could only fail the same way.
+    const success =
+      result.exitCode === 0 ||
+      (await git("ls-remote", "--exit-code", remote, localRef(ref))).exitCode === 2;
 
     if (!success) remaining.remote_branches.push(entry);
     operations.push({
@@ -241,7 +272,11 @@ async function execute(
 
 function countOperations(m: CleanupManifest): number {
   return (
-    m.worktrees.length + m.branches.length + m.remote_branches.length + (m.prune_remotes ? 1 : 0)
+    m.worktrees.length +
+    m.stale_worktrees.length +
+    m.branches.length +
+    m.remote_branches.length +
+    (m.prune_remotes ? 1 : 0)
   );
 }
 
@@ -268,11 +303,9 @@ async function main(): Promise<CleanupResult | { ok: false; error: string }> {
     }
   }
 
-  /* oxlint-disable anti-slop/no-runtime-typeof, anti-slop/require-safety-comment-for-type-assertion, anti-slop/no-known-value-widening -- `parsed` is raw JSON, parseManifest checks the manifest in it, and `kept` is an opaque passthrough this script re-serialises without ever reading it. */
-
   let manifest: CleanupManifest;
   let consumePath: string | null = null;
-  let kept: unknown = [];
+  let kept: KeptEntry[] = [];
 
   if (manifestFile !== null) {
     // Durable hand-off: file holds {manifest, kept} written by git-clean-audit.
@@ -292,18 +325,11 @@ async function main(): Promise<CleanupResult | { ok: false; error: string }> {
       return { ok: false, error: "invalid JSON in manifest file" };
     }
 
-    if (typeof parsed !== "object" || parsed === null) {
-      return { ok: false, error: "the manifest file does not hold a {manifest, kept} object" };
-    }
+    const handoff = parseHandoff(parsed);
 
-    const candidate = parseManifest((parsed as { manifest?: unknown }).manifest);
-
-    if ("error" in candidate) {
-      return { ok: false, error: `invalid manifest in manifest file: ${candidate.error}` };
-    }
-
-    manifest = candidate;
-    kept = (parsed as { kept?: unknown }).kept ?? [];
+    if ("error" in handoff) return { ok: false, error: `manifest file: ${handoff.error}` };
+    manifest = handoff.manifest;
+    kept = handoff.kept;
     consumePath = manifestFile;
   } else if (manifestJson === null) {
     return { ok: false, error: "missing --manifest or --manifest-file argument" };
@@ -324,8 +350,6 @@ async function main(): Promise<CleanupResult | { ok: false; error: string }> {
 
     manifest = candidate;
   }
-
-  /* oxlint-enable anti-slop/no-runtime-typeof, anti-slop/require-safety-comment-for-type-assertion, anti-slop/no-known-value-widening */
 
   const deduped = dedupeManifest(manifest);
 

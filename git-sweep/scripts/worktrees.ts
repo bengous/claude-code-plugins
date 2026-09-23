@@ -1,14 +1,19 @@
-// Reads `git worktree list --porcelain` into one typed state per linked
-// worktree, and decides what the audit may propose for it. Pure: the audit
+// Reads `git worktree list --porcelain` into one typed state per worktree,
+// and decides what the audit may propose for each linked one. Pure: the audit
 // supplies git's output and the filesystem check, and runs the inspection
-// (status, containment proof) that a live worktree on a branch still needs.
+// (status) that a live worktree on a branch still needs.
+
+import { LOCAL_REFS, localRef } from "./git.ts";
 
 export type WorktreeHead =
   | { kind: "branch"; branch: string }
   // HEAD names a branch that has no commit: deleted under the worktree, or an
   // orphan branch not committed to yet. git lists it with a zero HEAD.
   | { kind: "unborn"; branch: string }
-  | { kind: "detached" };
+  | { kind: "detached" }
+  // git could not resolve HEAD at all (a corrupt HEAD file): a zero HEAD with
+  // neither a branch nor a detached line.
+  | { kind: "unreadable" };
 
 // git never reports a locked worktree as prunable, so the three are exclusive.
 export type Registration =
@@ -22,15 +27,32 @@ export type LinkedWorktree = {
   registration: Registration;
 };
 
+export type MainWorktree = { path: string; head: WorktreeHead | { kind: "bare" } };
+
+export type WorktreeList = { main: MainWorktree; linked: LinkedWorktree[] };
+
 const ZERO_OID = /^0+$/u;
 
-function parseBlock(block: string): LinkedWorktree | { error: string } {
-  let path: string | null = null;
-  let oid: string | null = null;
-  let branch: string | null = null;
-  let detached = false;
-  let lock: { reason: string | null } | null = null;
-  let prune: { reason: string | null } | null = null;
+type Entry = {
+  path: string | null;
+  oid: string | null;
+  branch: string | null;
+  detached: boolean;
+  bare: boolean;
+  lock: { reason: string | null } | null;
+  prune: { reason: string | null } | null;
+};
+
+function readEntry(block: string): Entry {
+  const entry: Entry = {
+    path: null,
+    oid: null,
+    branch: null,
+    detached: false,
+    bare: false,
+    lock: null,
+    prune: null,
+  };
 
   for (const line of block.split("\n")) {
     const space = line.indexOf(" ");
@@ -39,45 +61,64 @@ function parseBlock(block: string): LinkedWorktree | { error: string } {
 
     switch (key) {
       case "worktree":
-        path = value;
+        entry.path = value;
         break;
       case "HEAD":
-        oid = value;
+        entry.oid = value;
         break;
       case "branch":
-        branch = value?.replace(/^refs\/heads\//u, "") ?? null;
+        entry.branch = value?.startsWith(LOCAL_REFS) ? value.slice(LOCAL_REFS.length) : value;
         break;
       case "detached":
-        detached = true;
+        entry.detached = true;
+        break;
+      case "bare":
+        entry.bare = true;
         break;
       case "locked":
-        lock = { reason: value };
+        entry.lock = { reason: value };
         break;
       case "prunable":
-        prune = { reason: value };
+        entry.prune = { reason: value };
         break;
       default:
         break;
     }
   }
 
-  if (path === null) return { error: `worktree entry without a path: ${block}` };
+  return entry;
+}
 
-  if (oid === null) return { error: `worktree ${path} has no HEAD line` };
+function headOf(entry: Entry, path: string): WorktreeHead | { error: string } {
+  if (entry.oid === null) return { error: `worktree ${path} has no HEAD line` };
+  const zero = ZERO_OID.test(entry.oid);
+
+  if (entry.branch !== null) {
+    return zero
+      ? { kind: "unborn", branch: entry.branch }
+      : { kind: "branch", branch: entry.branch };
+  }
+
+  if (entry.detached) return { kind: "detached" };
+
+  if (zero) return { kind: "unreadable" };
+
+  return { error: `worktree ${path} has neither a branch nor a detached HEAD` };
+}
+
+function parseLinked(block: string): LinkedWorktree | { error: string } {
+  const entry = readEntry(block);
+
+  if (entry.path === null) return { error: `worktree entry without a path: ${block}` };
+  const { path, lock, prune } = entry;
 
   if (lock !== null && prune !== null) {
     return { error: `worktree ${path} is reported both locked and prunable` };
   }
 
-  let head: WorktreeHead;
+  const head = headOf(entry, path);
 
-  if (branch !== null) {
-    head = ZERO_OID.test(oid) ? { kind: "unborn", branch } : { kind: "branch", branch };
-  } else if (detached) {
-    head = { kind: "detached" };
-  } else {
-    return { error: `worktree ${path} has neither a branch nor a detached HEAD` };
-  }
+  if ("error" in head) return head;
 
   let registration: Registration = { kind: "active" };
 
@@ -87,18 +128,44 @@ function parseBlock(block: string): LinkedWorktree | { error: string } {
   return { path, head, registration };
 }
 
-// The first entry is always the main worktree, which is never a candidate.
-export function parseWorktreeList(porcelain: string): LinkedWorktree[] | { error: string } {
-  const worktrees: LinkedWorktree[] = [];
+function parseMain(block: string): MainWorktree | { error: string } {
+  const entry = readEntry(block);
 
-  for (const block of porcelain.split("\n\n").filter(Boolean).slice(1)) {
-    const parsed = parseBlock(block);
+  if (entry.path === null) return { error: `worktree entry without a path: ${block}` };
+
+  if (entry.bare) return { path: entry.path, head: { kind: "bare" } };
+  const head = headOf(entry, entry.path);
+
+  return "error" in head ? head : { path: entry.path, head };
+}
+
+// The first entry is always the main worktree: never a candidate, but the
+// branch it stands on is held like any other.
+export function parseWorktreeList(porcelain: string): WorktreeList | { error: string } {
+  const [first, ...rest] = porcelain.split("\n\n").filter(Boolean);
+
+  if (first === undefined) return { error: "git worktree list printed no worktree" };
+  const main = parseMain(first);
+
+  if ("error" in main) return main;
+  const linked: LinkedWorktree[] = [];
+
+  for (const block of rest) {
+    const parsed = parseLinked(block);
 
     if ("error" in parsed) return parsed;
-    worktrees.push(parsed);
+    linked.push(parsed);
   }
 
-  return worktrees;
+  return { main, linked };
+}
+
+// `git branch -d` refuses a branch checked out in the main worktree too, and
+// the audit may run from a linked one.
+export function holdMainBranch(main: MainWorktree): BranchHold | null {
+  return main.head.kind === "branch"
+    ? { name: main.head.branch, reason: "worktree", detail: `${main.path} (main worktree)` }
+    : null;
 }
 
 // Registered, its directory gone: `git worktree remove` drops the registration.
@@ -108,7 +175,7 @@ export type StaleWorktree = { path: string; branch: string | null };
 export type KeptWorktree = {
   path: string;
   branch: string | null;
-  reason: "locked" | "prunable" | "unborn";
+  reason: "locked" | "prunable" | "unborn" | "unreadable";
   detail: string | null;
 };
 
@@ -127,7 +194,8 @@ export type Triage =
   | { kind: "inspect"; path: string; branch: string };
 
 export type TriageContext = {
-  currentWorktree: string;
+  // null in a bare repository, which has no work tree of its own.
+  currentWorktree: string | null;
   protectedBranches: ReadonlySet<string>;
   directoryExists: (path: string) => boolean;
 };
@@ -145,6 +213,12 @@ function triageActive(path: string, head: WorktreeHead, context: TriageContext):
   switch (head.kind) {
     case "detached":
       return { kind: "skipped" };
+    case "unreadable":
+      return {
+        kind: "kept",
+        worktree: { path, branch: null, reason: "unreadable", detail: "HEAD cannot be resolved" },
+        hold: null,
+      };
     case "unborn":
       return {
         kind: "kept",
@@ -152,7 +226,7 @@ function triageActive(path: string, head: WorktreeHead, context: TriageContext):
           path,
           branch: head.branch,
           reason: "unborn",
-          detail: `refs/heads/${head.branch} has no commit`,
+          detail: `${localRef(head.branch)} has no commit`,
         },
         hold: null,
       };
@@ -178,7 +252,7 @@ function triageActive(path: string, head: WorktreeHead, context: TriageContext):
 
 export function triageWorktree(worktree: LinkedWorktree, context: TriageContext): Triage {
   const { path, head, registration } = worktree;
-  const branch = head.kind === "detached" ? null : head.branch;
+  const branch = head.kind === "branch" || head.kind === "unborn" ? head.branch : null;
   const present = context.directoryExists(path);
 
   // Only an existing branch can be deleted, so only it needs holding.

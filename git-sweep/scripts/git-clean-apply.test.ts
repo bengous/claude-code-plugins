@@ -102,6 +102,7 @@ async function addCommit(repo: string, filename: string, message: string): Promi
 type ManifestParts = {
   base?: string;
   worktrees?: string[];
+  stale_worktrees?: string[];
   branches?: { name: string; force: boolean; oid: string }[];
   remote_branches?: { remote: string; ref: string; oid: string }[];
   prune_remotes?: boolean;
@@ -116,6 +117,7 @@ function writeManifest(repo: string, parts: ManifestParts, name = "manifest.json
       manifest: {
         base: "main",
         worktrees: [],
+        stale_worktrees: [],
         branches: [],
         remote_branches: [],
         prune_remotes: false,
@@ -360,7 +362,7 @@ describe("git-clean-apply", () => {
     rmSync(chosenDir, { recursive: true, force: true });
     rmSync(declinedDir, { recursive: true, force: true });
 
-    const manifestFile = writeManifest(repo, { worktrees: [chosenDir] });
+    const manifestFile = writeManifest(repo, { stale_worktrees: [chosenDir] });
     const { result } = await runApply(repo, "--manifest-file", manifestFile);
 
     expect(opFor(result, chosenDir)?.success).toBe(true);
@@ -386,6 +388,63 @@ describe("git-clean-apply", () => {
     await git(repo, "worktree", "unlock", lockedDir);
   });
 
+  test("refuses a stale worktree whose directory is back, and leaves it whole", async () => {
+    const repo = await makeRepo("stale-back");
+    const wtDir = makeTmpDir("stale-back-dir");
+
+    await git(repo, "worktree", "add", "-b", "feature/back", wtDir);
+    writeFileSync(join(wtDir, ".env"), "SECRET=1");
+    await git(repo, "config", "core.excludesFile", "/dev/null");
+    writeFileSync(join(wtDir, ".gitignore"), ".env\n");
+
+    const manifestFile = writeManifest(repo, { stale_worktrees: [wtDir] });
+    const { result } = await runApply(repo, "--manifest-file", manifestFile);
+
+    expect(opFor(result, wtDir)?.error).toContain("back since the audit");
+    expect(existsSync(join(wtDir, ".env"))).toBe(true);
+    expect(result.manifest_remaining).toMatchObject({ operations: 1 });
+  });
+
+  test("counts a stale worktree already unregistered as done", async () => {
+    const repo = await makeRepo("stale-pruned");
+    const wtDir = makeTmpDir("stale-pruned-dir");
+
+    await git(repo, "worktree", "add", "-b", "feature/pruned", wtDir);
+    rmSync(wtDir, { recursive: true, force: true });
+    await git(repo, "worktree", "prune");
+
+    const manifestFile = writeManifest(repo, { stale_worktrees: [wtDir] });
+    const { result } = await runApply(repo, "--manifest-file", manifestFile);
+
+    expect(opFor(result, wtDir)?.success).toBe(true);
+    expect(existsSync(manifestFile)).toBe(false);
+  });
+
+  test("refuses a hand-off whose kept list is malformed", async () => {
+    const repo = await makeRepo("kept-malformed");
+    const path = join(repo, "manifest.json");
+
+    writeFileSync(
+      path,
+      JSON.stringify({
+        manifest: {
+          base: "main",
+          worktrees: [],
+          stale_worktrees: [],
+          branches: [],
+          remote_branches: [],
+          prune_remotes: false,
+        },
+        kept: [{ name: "main" }],
+      }),
+    );
+
+    const { exitCode, result } = await runApply(repo, "--manifest-file", path);
+
+    expect(exitCode).toBe(1);
+    expect(result.error).toContain("kept");
+  });
+
   test("refuses a manifest carrying a field it does not know", async () => {
     const repo = await makeRepo("manifest-unknown-field");
     const path = join(repo, "manifest.json");
@@ -396,6 +455,7 @@ describe("git-clean-apply", () => {
         manifest: {
           base: "main",
           worktrees: [],
+          stale_worktrees: [],
           branches: [],
           remote_branches: [],
           prune_remotes: false,
@@ -466,6 +526,19 @@ describe("git-clean-apply", () => {
     // Their commit survives.
     const remoteRefs = await git(repo, "ls-remote", "--heads", "origin");
     expect(remoteRefs).toContain("feature/busy");
+  });
+
+  test("deletes on the remote exactly the branch it checked, never what a prefixed name resolves to", async () => {
+    const { origin, repo } = await makeRepoWithOrigin("remote-exact");
+    const oid = await git(repo, "rev-parse", "main");
+
+    const manifestFile = writeManifest(repo, {
+      remote_branches: [{ remote: "origin", ref: "heads/main", oid }],
+    });
+
+    await runApply(repo, "--manifest-file", manifestFile);
+
+    expect(await git(origin, "rev-parse", "--verify", "refs/heads/main")).toBe(oid);
   });
 
   test("counts a remote delete as done when the ref is already gone", async () => {

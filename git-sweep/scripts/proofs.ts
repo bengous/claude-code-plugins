@@ -16,14 +16,13 @@ export type Proven = "ancestry" | "no-merge-delta" | "merged-pr";
 export type ProofKind = Proven | "unproven";
 
 // Exit 0 = ancestor, 1 = not, anything else = error (treated as "not proven").
-export async function isAncestor(ref: Ref, of: Ref): Promise<boolean> {
+async function isAncestor(ref: Ref, of: Ref): Promise<boolean> {
   return (await git("merge-base", "--is-ancestor", ref, of)).exitCode === 0;
 }
 
-// Would merging `ref` into `base` change any file? Replaces the older
-// commit-tree + `git cherry` patch-id test, which reported "contained" for a
-// squash that was later reverted (patch-id only sees that the patch once
-// landed, never that base still holds it).
+// Would merging `ref` into `base` change any file? A tree comparison, not a
+// patch-id one: patch-id only sees that a patch once landed, so it would call a
+// squash the base later reverted "contained".
 async function hasNoMergeDelta(ref: Ref, base: Ref): Promise<boolean> {
   const merged = await git("merge-tree", "--write-tree", base, ref);
 
@@ -171,18 +170,14 @@ export async function proveContained(
 // audit predicts that here so the operation can carry a justified force flag
 // instead of failing at apply. Returns what -d would measure against.
 export async function predictDashDRefusal(branch: string): Promise<string | null> {
-  const [upstream, upstreamShort] = (
+  const [upstream = "", upstreamShort = ""] = (
     await gitRead("for-each-ref", "--format=%(upstream)%00%(upstream:short)", localRef(branch))
   ).split("\0");
 
   const upstreamResolves =
-    upstream !== undefined &&
-    upstream !== "" &&
-    (await git("rev-parse", "--verify", "--quiet", upstream)).exitCode === 0;
+    upstream !== "" && (await git("rev-parse", "--verify", "--quiet", upstream)).exitCode === 0;
 
-  const [target, label] = upstreamResolves
-    ? [upstream, upstreamShort ?? upstream]
-    : ["HEAD", "HEAD"];
+  const [target, label] = upstreamResolves ? [upstream, upstreamShort] : ["HEAD", "HEAD"];
 
   const check = await git("merge-base", "--is-ancestor", localRef(branch), target);
 

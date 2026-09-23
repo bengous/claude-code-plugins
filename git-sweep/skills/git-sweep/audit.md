@@ -61,7 +61,9 @@ categories = audit_json.categories
 # Branches held by a removable worktree are counted twice here (see 2a): this
 # number gates "is there anything to do", it is not an operation count.
 if every category is empty:
-  STOP — tell user: repo is clean, nothing to do
+  if audit_json.kept_worktrees is non-empty:
+    show the kept_worktrees table of 2a, with the way out of each reason
+  STOP — tell user: nothing to clean
 ```
 
 ## Phase 2: Report the findings, then ask once
@@ -73,6 +75,7 @@ re-check, at execution time, that it is deleting the commit the audit judged:
 manifest = {
   base: audit_json.base,
   worktrees: [],
+  stale_worktrees: [],
   branches: [],
   remote_branches: [],
   prune_remotes: false
@@ -122,7 +125,9 @@ removable_worktrees  | Worktree | Branch | Proof | Untracked files lost |
 
 stale_worktrees      | Path | Branch |
   Registered worktrees whose directory is gone. Removing one drops its
-  registration only; there are no files left to lose.
+  registration, and with it the worktree's index and HEAD under .git. A
+  directory moved by hand is re-attached with `git worktree repair <new path>`
+  instead; apply refuses an entry whose directory is back.
 
 merged_local         | Branch | Last commit | Subject | Deletion |
 
@@ -154,8 +159,9 @@ category where a verdict is worth more than a row:
 
 ```
 for each branch in backup:
-  log       = run `git log --oneline {audit_json.base}..{branch.name} -5`
-  diff_stat = run `git diff --shortstat {audit_json.base}...{branch.name}`
+  # Full refs: a tag named like the base or the branch would stand in for it.
+  log       = run `git log --oneline refs/heads/{audit_json.base}..refs/heads/{branch.name} -5`
+  diff_stat = run `git diff --shortstat refs/heads/{audit_json.base}...refs/heads/{branch.name}`
 
   Recommend DELETE when the work is visibly superseded on the base, or the
   name under the backup prefix (`sweep.backupPrefix`, default `backup/`)
@@ -240,8 +246,10 @@ items 4 at a time, each a yes/no on one item ("Delete {name}?" — "Delete" /
 ### 2c. Map the answers onto the manifest
 
 ```
-removable_worktrees / stale_worktrees:
+removable_worktrees:
   chosen paths → manifest.worktrees
+stale_worktrees:
+  chosen paths → manifest.stale_worktrees
   // `git worktree remove` drops each registration: no repo-wide prune, which
   // would also drop the stale worktrees the user chose to keep.
 
@@ -263,7 +271,7 @@ Then enforce the worktree coupling, both ways:
 ```
 for each branch in manifest.branches held by a worktree listed in
 removable_worktrees OR stale_worktrees:
-  if that worktree path is NOT in manifest.worktrees:
+  if that worktree path is in neither manifest.worktrees nor manifest.stale_worktrees:
     drop the branch from manifest.branches
 
 if any branch was dropped:
@@ -292,6 +300,7 @@ nothing to re-check at apply time.
 
 ```
 total_ops = len(manifest.worktrees)
+           + len(manifest.stale_worktrees)
            + len(manifest.branches)
            + len(manifest.remote_branches)
            + (1 if manifest.prune_remotes)

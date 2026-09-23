@@ -34,6 +34,8 @@ export async function gitRead(...args: string[]): Promise<string> {
   return result.stdout;
 }
 
+export const LOCAL_REFS = "refs/heads/";
+
 declare const RefBrand: unique symbol;
 
 // A full ref name. git resolves a short name through refs/tags before
@@ -43,7 +45,7 @@ export type Ref = string & { readonly [RefBrand]: true };
 
 // SAFETY: the refs/heads/ prefix is what makes the string a full ref, and these
 // two constructors are the only places a Ref is minted.
-export const localRef = (branch: string): Ref => `refs/heads/${branch}` as Ref;
+export const localRef = (branch: string): Ref => `${LOCAL_REFS}${branch}` as Ref;
 
 // `remoteBranch` as git prints it short: `origin/feature`.
 // SAFETY: same invariant as localRef, under refs/remotes/.

@@ -90,6 +90,20 @@ export function settleLocal(route: Route, proof: ProofKind, unprovenDetail: stri
   return { kind: route === "agent" ? "orphaned_worktree" : "content_merged", proof };
 }
 
+// A branch standing in a clean worktree is proven once, as a branch, with its
+// age gate: the worktree is removable exactly when that proof holds, and
+// otherwise holds the branch. An unproven backup is listed, never proven, so it
+// is held too.
+export type WorktreeSettlement = { placement: Placement; removableBy: Proven | null };
+
+export function settleInWorktree(placement: Placement, worktreePath: string): WorktreeSettlement {
+  if (placement.kind === "kept" || placement.proof === "unproven") {
+    return { placement: kept("worktree", worktreePath), removableBy: null };
+  }
+
+  return { placement, removableBy: placement.proof };
+}
+
 export type RemotePlacement = { kind: "kept"; kept: Kept } | { kind: "stale"; proof: Proven };
 
 export type RemoteTriage = RemotePlacement | { kind: "prove" };

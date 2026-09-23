@@ -39,7 +39,7 @@ read manifest_file → { manifest, kept }
 
 ```
 Count operations:
-  wt_count     = len(manifest.worktrees)
+  wt_count     = len(manifest.worktrees) + len(manifest.stale_worktrees)
   br_safe      = count where force == false in manifest.branches
   br_force     = count where force == true in manifest.branches
   remote_count = len(manifest.remote_branches)
@@ -84,7 +84,7 @@ loop:
 
   if "Review details":
     Show full manifest:
-      - each worktree path
+      - each worktree path, the stale ones marked as such
       - each branch with force flag
       - each remote branch
     continue loop  // ask again after review
@@ -142,14 +142,17 @@ A failed operation is not always a problem to retry — read the error:
   The containment proof no longer covers it. Re-audit, never force by hand.
 - `stale info` on a remote delete — someone pushed to that branch since the
   audit. The lease did its job. Re-audit.
-- `remote ref does not exist` — never appears: someone deleted that branch on
-  the remote between the audit and the run, so the backend counts the delete as
-  a success and the entry leaves the manifest.
+- A branch someone deleted on the remote between the audit and the run never
+  shows as a failure: the backend confirms it is gone and counts the delete as a
+  success. So does a stale worktree whose registration is already gone.
 - `refusing to delete the base branch` / `the checked-out branch` /
   `the protected branch` — a backend guard fired. Report it as such; the
   manifest was wrong (protected trunks never come from a real audit).
 - `contains modified or untracked files` on a worktree — uncommitted work is
   there. Say where, and leave it.
+- `the directory is back since the audit` on a stale worktree — the directory
+  it was registered for exists again (a remount, a move undone), and removing it
+  would delete it with its ignored files. Re-audit.
 - `cannot remove a locked working tree` — someone locked it since the audit,
   which asks to leave it alone. Retrying cannot succeed: re-audit, and the
   worktree shows up under `kept_worktrees` with its lock reason.

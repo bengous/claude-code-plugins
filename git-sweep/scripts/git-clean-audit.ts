@@ -10,14 +10,25 @@ import { join } from "node:path";
 import {
   type Kept,
   type Placement,
+  type Route,
+  settleInWorktree,
   settleLocal,
   settleRemote,
   tooOld,
   triageLocal,
   triageRemote,
 } from "./classify.ts";
-import { git, GitError, gitRead, listRefs, localRef, type Ref, remoteRef } from "./git.ts";
-import { parseManifest } from "./manifest.ts";
+import {
+  git,
+  GitError,
+  gitRead,
+  listRefs,
+  LOCAL_REFS,
+  localRef,
+  type Ref,
+  remoteRef,
+} from "./git.ts";
+import { parseHandoff } from "./manifest.ts";
 import {
   type GithubProver,
   makeGithubProver,
@@ -37,13 +48,14 @@ import {
 } from "./sweep-config.ts";
 import {
   type BranchHold,
+  holdMainBranch,
   type KeptWorktree,
-  type LinkedWorktree,
   parseWorktreeList,
   type StaleWorktree,
   type Triage,
   type TriageContext,
   triageWorktree,
+  type WorktreeList,
 } from "./worktrees.ts";
 
 // ---------------------------------------------------------------------------
@@ -134,13 +146,15 @@ async function gitVersionAtLeast(): Promise<{ ok: boolean; found: string }> {
 // Branch metadata
 // ---------------------------------------------------------------------------
 
+type LastCommit = { date: string; subject: string };
+
 function count(raw: string): number {
   if (!/^\d+$/u.test(raw)) throw new Error(`expected a commit count, got '${raw}'`);
 
   return parseInt(raw, 10);
 }
 
-async function lastCommit(ref: Ref): Promise<{ date: string; subject: string }> {
+async function lastCommit(ref: Ref): Promise<LastCommit> {
   const [date, subject] = (await gitRead("log", "-1", "--format=%cI%x00%s", ref)).split("\0");
 
   if (date === undefined || subject === undefined) throw new Error(`no commit on ${ref}`);
@@ -148,14 +162,14 @@ async function lastCommit(ref: Ref): Promise<{ date: string; subject: string }> 
   return { date, subject };
 }
 
-async function branchMeta(branch: string, base: Ref): Promise<BranchMeta> {
+async function branchMeta(branch: string, base: Ref, known?: LastCommit): Promise<BranchMeta> {
   const ref = localRef(branch);
 
   const [oid, ahead, behind, last, dRefusal] = await Promise.all([
     gitRead("rev-parse", ref),
     gitRead("rev-list", "--count", `${base}..${ref}`),
     gitRead("rev-list", "--count", `${ref}..${base}`),
-    lastCommit(ref),
+    known ?? lastCommit(ref),
     predictDashDRefusal(branch),
   ]);
 
@@ -188,26 +202,23 @@ async function remoteMeta(remoteBranch: string): Promise<RemoteMeta> {
 
 const IGNORED_LIST_CAP = 10;
 
+// A live, clean worktree on a branch: removable with its branch, or holding
+// it, once the branch itself is classified.
+type Candidate = { path: string; branch: string; ignored: RemovableWorktree["ignored"] };
+
 type WorktreeScan = {
   stale: StaleWorktree[];
-  removable: RemovableWorktree[];
   kept: KeptWorktree[];
   // Branches held by a worktree we are NOT proposing to touch, with the reason.
   retained: Map<string, BranchHold>;
+  candidates: Map<string, Candidate>;
 };
 
 type WorktreeVerdict =
   | Exclude<Triage, { kind: "inspect" }>
-  | { kind: "removable"; worktree: RemovableWorktree };
+  | { kind: "candidate"; candidate: Candidate };
 
-// A live, clean worktree on a branch is removable once that branch is proven
-// contained; anything else keeps it, and so its branch.
-async function inspectWorktree(
-  path: string,
-  branch: string,
-  base: Ref,
-  github: GithubProver | null,
-): Promise<WorktreeVerdict> {
+async function inspectWorktree(path: string, branch: string): Promise<WorktreeVerdict> {
   const held = (reason: BranchHold["reason"], detail: string): WorktreeVerdict => ({
     kind: "held",
     hold: { name: branch, reason, detail },
@@ -224,20 +235,15 @@ async function inspectWorktree(
 
   if (lines.some((line) => !line.startsWith("!!"))) return held("dirty-worktree", path);
 
-  const proof = await proveContained(localRef(branch), base, github);
-
-  if (proof === "unproven") return held("worktree", path);
-
   const ignoredPaths = lines.map((line) => line.slice(3));
   const files = ignoredPaths.filter((p) => !p.endsWith("/"));
   const dirs = ignoredPaths.filter((p) => p.endsWith("/"));
 
   return {
-    kind: "removable",
-    worktree: {
+    kind: "candidate",
+    candidate: {
       path,
       branch,
-      proof,
       ignored: {
         files: files.slice(0, IGNORED_LIST_CAP),
         dirs: dirs.slice(0, IGNORED_LIST_CAP),
@@ -250,28 +256,21 @@ async function inspectWorktree(
 // A branch is only reported as retained when its worktree survives the sweep —
 // otherwise it must flow into normal branch classification so the branch and
 // its worktree are cleaned in the same pass.
-async function scanWorktrees(
-  worktrees: LinkedWorktree[],
-  context: TriageContext,
-  base: Ref,
-  github: GithubProver | null,
-): Promise<WorktreeScan> {
-  const scan: WorktreeScan = { stale: [], removable: [], kept: [], retained: new Map() };
+async function scanWorktrees(list: WorktreeList, context: TriageContext): Promise<WorktreeScan> {
+  const scan: WorktreeScan = { stale: [], kept: [], retained: new Map(), candidates: new Map() };
+  const mainHold = holdMainBranch(list.main);
 
-  for (const worktree of worktrees) {
+  if (mainHold !== null) scan.retained.set(mainHold.name, mainHold);
+
+  for (const worktree of list.linked) {
     const triage = triageWorktree(worktree, context);
 
     const verdict =
-      triage.kind === "inspect"
-        ? await inspectWorktree(triage.path, triage.branch, base, github)
-        : triage;
+      triage.kind === "inspect" ? await inspectWorktree(triage.path, triage.branch) : triage;
 
     switch (verdict.kind) {
       case "stale":
         scan.stale.push(verdict.worktree);
-        break;
-      case "removable":
-        scan.removable.push(verdict.worktree);
         break;
       case "kept":
         scan.kept.push(verdict.worktree);
@@ -280,6 +279,9 @@ async function scanWorktrees(
         break;
       case "held":
         scan.retained.set(verdict.hold.name, verdict.hold);
+        break;
+      case "candidate":
+        scan.candidates.set(verdict.candidate.branch, verdict.candidate);
         break;
       case "skipped":
         break;
@@ -303,6 +305,7 @@ type LocalScan = {
   content_merged: BranchInfo[];
   backup: BranchInfo[];
   kept: KeptBranch[];
+  removable_worktrees: RemovableWorktree[];
 };
 
 type ScanInput = {
@@ -313,14 +316,13 @@ type ScanInput = {
   now: Date;
 };
 
+// Each branch is classified once: the cheap facts, then the age gate for the
+// content route, then the proof; a branch standing in a clean worktree takes
+// its worktree along or is held by it.
 async function scanLocal(
-  input: ScanInput & {
-    currentBranch: string;
-    held: ReadonlyMap<string, BranchHold>;
-    config: SweepConfig;
-  },
+  input: ScanInput & { currentBranch: string; worktrees: WorktreeScan; config: SweepConfig },
 ): Promise<LocalScan> {
-  const { base, currentBranch, maxAgeDays, github, now } = input;
+  const { base, currentBranch, maxAgeDays, github, now, worktrees } = input;
   const baseRef = localRef(base);
 
   const scan: LocalScan = {
@@ -329,6 +331,7 @@ async function scanLocal(
     content_merged: [],
     backup: [],
     kept: [{ name: base, reason: "base", detail: null }],
+    removable_worktrees: [],
   };
 
   if (currentBranch !== "" && currentBranch !== base) {
@@ -336,47 +339,57 @@ async function scanLocal(
   }
 
   const context = {
-    held: input.held,
+    held: worktrees.retained,
     protectedBranches: input.protectedBranches,
-    merged: new Set(await listRefs("refs/heads/", `--merged=${baseRef}`)),
+    merged: new Set(await listRefs(LOCAL_REFS, `--merged=${baseRef}`)),
     agentPrefix: input.config.agentPrefix,
     backupPrefix: input.config.backupPrefix,
   };
 
-  const place = async (branch: string, placement: Placement, known?: BranchMeta) => {
-    if (placement.kind === "kept") {
-      scan.kept.push({ name: branch, ...placement.kept });
+  const classify = async (
+    branch: string,
+    route: Route,
+  ): Promise<[Placement, BranchMeta | null]> => {
+    const last = await lastCommit(localRef(branch));
 
-      return;
+    if (route === "content") {
+      const old = tooOld({ lastCommit: new Date(last.date), maxAgeDays, now });
+
+      if (old !== null) return [{ kind: "kept", kept: old }, null];
     }
 
-    const meta = known ?? (await branchMeta(branch, baseRef));
-    scan[placement.kind].push({ ...meta, proof: placement.proof });
+    const meta = await branchMeta(branch, baseRef, last);
+    const proof = await proveContained(localRef(branch), baseRef, github);
+    const unproven = `${meta.ahead} commit(s) not proven to be in ${base}`;
+
+    return [settleLocal(route, proof, unproven), meta];
   };
 
-  for (const branch of await listRefs("refs/heads/")) {
+  for (const branch of await listRefs(LOCAL_REFS)) {
     if (branch === base || branch === currentBranch) continue;
     const triage = triageLocal(branch, context);
 
-    if (triage.kind === "placed") {
-      await place(branch, triage.placement);
-      continue;
-    }
+    let [placement, meta]: [Placement, BranchMeta | null] =
+      triage.kind === "placed" ? [triage.placement, null] : await classify(branch, triage.route);
 
-    const meta = await branchMeta(branch, baseRef);
+    const candidate = worktrees.candidates.get(branch);
 
-    if (triage.route === "content") {
-      const old = tooOld({ lastCommit: new Date(meta.last_commit_date), maxAgeDays, now });
+    if (candidate !== undefined) {
+      const settled = settleInWorktree(placement, candidate.path);
+      placement = settled.placement;
 
-      if (old !== null) {
-        await place(branch, { kind: "kept", kept: old });
-        continue;
+      if (settled.removableBy !== null) {
+        scan.removable_worktrees.push({ ...candidate, proof: settled.removableBy });
       }
     }
 
-    const proof = await proveContained(localRef(branch), baseRef, github);
-    const unproven = `${meta.ahead} commit(s) not proven to be in ${base}`;
-    await place(branch, settleLocal(triage.route, proof, unproven), meta);
+    if (placement.kind === "kept") {
+      scan.kept.push({ name: branch, ...placement.kept });
+      continue;
+    }
+
+    meta ??= await branchMeta(branch, baseRef);
+    scan[placement.kind].push({ ...meta, proof: placement.proof });
   }
 
   return scan;
@@ -477,14 +490,6 @@ async function scanRemote(input: ScanInput): Promise<RemoteScan> {
 // Manifest hand-off (durable audit -> apply)
 // ---------------------------------------------------------------------------
 
-/* oxlint-disable anti-slop/no-runtime-typeof, anti-slop/no-unknown-parameters, anti-slop/require-safety-comment-for-type-assertion -- the block below IS the boundary parser the rules ask for: it reads the {manifest, kept} envelope from stdin, the manifest through parseManifest, before anything is written. Their fix (parse before calling) has no earlier place to happen. */
-
-const isKeptBranch = (k: unknown): boolean =>
-  typeof k === "object" &&
-  k !== null &&
-  typeof (k as { name?: unknown }).name === "string" &&
-  typeof (k as { reason?: unknown }).reason === "string";
-
 // Persist {manifest, kept} (read from stdin) to a fixed repo-scoped file so the
 // hand-off to the apply phase survives context compaction. Atomic: tmp + rename.
 async function saveManifest(): Promise<SaveResult> {
@@ -497,22 +502,9 @@ async function saveManifest(): Promise<SaveResult> {
     return { ok: false, error: "invalid JSON on stdin" };
   }
 
-  if (typeof parsed !== "object" || parsed === null) {
-    return { ok: false, error: "expected a {manifest, kept} object on stdin" };
-  }
+  const handoff = parseHandoff(parsed);
 
-  const { manifest: rawManifest, kept } = parsed as { manifest?: unknown; kept?: unknown };
-  const manifest = parseManifest(rawManifest);
-
-  if ("error" in manifest) {
-    return { ok: false, error: `invalid manifest: ${manifest.error}` };
-  }
-
-  if (!Array.isArray(kept) || !kept.every((k) => isKeptBranch(k))) {
-    return { ok: false, error: "invalid kept list (expected {name, reason}[])" };
-  }
-
-  /* oxlint-enable anti-slop/no-runtime-typeof, anti-slop/no-unknown-parameters, anti-slop/require-safety-comment-for-type-assertion */
+  if ("error" in handoff) return { ok: false, error: handoff.error };
 
   const gitDir = await git("rev-parse", "--absolute-git-dir");
 
@@ -522,7 +514,7 @@ async function saveManifest(): Promise<SaveResult> {
 
   const path = join(gitDir.stdout, "git-sweep-manifest.json");
   const tmp = `${path}.tmp`;
-  await Bun.write(tmp, JSON.stringify({ manifest, kept }, null, 2));
+  await Bun.write(tmp, JSON.stringify(handoff, null, 2));
   await rename(tmp, path);
 
   return { ok: true, path };
@@ -626,22 +618,23 @@ async function audit(args: AuditArgs, advance: (step: AuditStep) => void): Promi
 
   advance("scan-worktrees");
   const currentBranch = await gitRead("branch", "--show-current");
-  const currentWorktree = await gitRead("rev-parse", "--show-toplevel");
-  const linkedWorktrees = parseWorktreeList(await gitRead("worktree", "list", "--porcelain"));
+  // A bare repository has no work tree of its own: nothing is current.
+  const toplevel = await git("rev-parse", "--show-toplevel");
+  const currentWorktree = toplevel.exitCode === 0 ? toplevel.stdout : null;
+  const worktreeList = parseWorktreeList(await gitRead("worktree", "list", "--porcelain"));
 
-  if ("error" in linkedWorktrees) {
-    return { ok: false, error: linkedWorktrees.error, step: "scan-worktrees" };
+  if ("error" in worktreeList) {
+    return { ok: false, error: worktreeList.error, step: "scan-worktrees" };
   }
 
-  const worktrees = await scanWorktrees(
-    linkedWorktrees,
-    { currentWorktree, protectedBranches, directoryExists: existsSync },
-    localRef(base),
-    github,
-  );
+  const worktrees = await scanWorktrees(worktreeList, {
+    currentWorktree,
+    protectedBranches,
+    directoryExists: existsSync,
+  });
 
   advance("scan-local");
-  const local = await scanLocal({ ...scanInput, currentBranch, held: worktrees.retained, config });
+  const local = await scanLocal({ ...scanInput, currentBranch, worktrees, config });
 
   advance("scan-remote");
 
@@ -659,7 +652,7 @@ async function audit(args: AuditArgs, advance: (step: AuditStep) => void): Promi
       content_merged: local.content_merged,
       backup: local.backup,
       stale_worktrees: worktrees.stale,
-      removable_worktrees: worktrees.removable,
+      removable_worktrees: local.removable_worktrees,
       stale_remote: remote.stale_remote,
       stale_tracking: remote.stale_tracking,
     },

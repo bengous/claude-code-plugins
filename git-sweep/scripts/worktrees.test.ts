@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
 import {
+  holdMainBranch,
   type LinkedWorktree,
   parseWorktreeList,
   type Registration,
@@ -21,14 +22,25 @@ const parsedOne = (block: string): LinkedWorktree => {
   const parsed = parseWorktreeList(listOf(block));
 
   if ("error" in parsed) throw new Error(parsed.error);
-  expect(parsed).toHaveLength(1);
+  expect(parsed.linked).toHaveLength(1);
 
-  return parsed[0]!;
+  return parsed.linked[0]!;
 };
 
 describe("parseWorktreeList", () => {
-  test("skips the main worktree", () => {
-    expect(parseWorktreeList(listOf())).toEqual([]);
+  test("reads the main worktree apart from the linked ones", () => {
+    expect(parseWorktreeList(listOf())).toEqual({
+      main: { path: "/repo", head: { kind: "branch", branch: "main" } },
+      linked: [],
+    });
+    expect(parseWorktreeList("worktree /repo.git\nbare\n")).toEqual({
+      main: { path: "/repo.git", head: { kind: "bare" } },
+      linked: [],
+    });
+  });
+
+  test("reads a HEAD git could not resolve as unreadable, not as an error", () => {
+    expect(parsedOne(`worktree /wt\nHEAD ${ZERO}`).head).toEqual({ kind: "unreadable" });
   });
 
   test("reads a branch, a detached HEAD and a branch with no commit", () => {
@@ -62,6 +74,8 @@ describe("parseWorktreeList", () => {
   });
 
   test("refuses an entry git cannot produce instead of guessing", () => {
+    expect(parseWorktreeList("")).toHaveProperty("error");
+
     for (const block of [
       `worktree /wt\nHEAD ${OID}\ndetached\nlocked\nprunable gone`,
       `worktree /wt\nHEAD ${OID}`,
@@ -83,6 +97,15 @@ const worktree = (head: WorktreeHead, registration: Registration, path = "/wt") 
   path,
   head,
   registration,
+});
+
+describe("holdMainBranch", () => {
+  test("holds the branch the main worktree stands on, and nothing for a bare one", () => {
+    expect(
+      holdMainBranch({ path: "/repo", head: { kind: "branch", branch: "feature/x" } }),
+    ).toEqual({ name: "feature/x", reason: "worktree", detail: "/repo (main worktree)" });
+    expect(holdMainBranch({ path: "/repo.git", head: { kind: "bare" } })).toBe(null);
+  });
 });
 
 describe("triageWorktree", () => {
@@ -152,6 +175,16 @@ describe("triageWorktree", () => {
     });
     expect(triageWorktree(worktree({ kind: "detached" }, active), context(true))).toEqual({
       kind: "skipped",
+    });
+    expect(triageWorktree(worktree({ kind: "unreadable" }, active), context(true))).toEqual({
+      kind: "kept",
+      worktree: {
+        path: "/wt",
+        branch: null,
+        reason: "unreadable",
+        detail: "HEAD cannot be resolved",
+      },
+      hold: null,
     });
   });
 

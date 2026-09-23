@@ -2,13 +2,14 @@
 
 import { describe, expect, test } from "bun:test";
 
-import { parseManifest } from "./manifest.ts";
+import { parseHandoff, parseManifest } from "./manifest.ts";
 
 const OID = "a".repeat(40);
 
 const valid = {
   base: "main",
   worktrees: ["/wt"],
+  stale_worktrees: ["/gone"],
   branches: [{ name: "feature/x", force: false, oid: OID }],
   remote_branches: [{ remote: "origin", ref: "feature/x", oid: OID }],
   prune_remotes: true,
@@ -46,6 +47,23 @@ describe("parseManifest", () => {
     expect(
       errorOf({ ...valid, branches: [{ name: "feature/x", force: false, oid: "abc1234" }] }),
     ).toContain("branches[0].oid");
+  });
+
+  test("refuses a branch name git would read as an option", () => {
+    expect(errorOf({ ...valid, branches: [{ name: "-D", force: false, oid: OID }] })).toContain(
+      "branches[0].name",
+    );
+    expect(
+      errorOf({ ...valid, remote_branches: [{ remote: "origin", ref: "--all", oid: OID }] }),
+    ).toContain("remote_branches[0].ref");
+  });
+
+  test("reads the hand-off, kept list included", () => {
+    const kept = [{ name: "main", reason: "base", detail: null }];
+
+    expect<unknown>(parseHandoff({ manifest: valid, kept })).toEqual({ manifest: valid, kept });
+    expect(parseHandoff({ manifest: valid, kept: [{ name: "main" }] })).toHaveProperty("error");
+    expect(parseHandoff({ manifest: valid })).toHaveProperty("error");
   });
 
   test("names the field that is missing or of the wrong type", () => {
