@@ -161,7 +161,8 @@ function App(): preact.JSX.Element {
   useEffect(() => {
     void start();
 
-    const held = (event: KeyboardEvent): void => {
+    // A pointer event carries the modifiers too: a Control pressed before a focus change sends no key event after it.
+    const held = (event: KeyboardEvent | PointerEvent): void => {
       holding.value = event.ctrlKey || event.metaKey;
     };
 
@@ -176,12 +177,14 @@ function App(): preact.JSX.Element {
     document.addEventListener("keydown", held);
     document.addEventListener("keydown", flip);
     document.addEventListener("keyup", held);
+    document.addEventListener("pointermove", held);
     window.addEventListener("blur", release);
 
     return () => {
       document.removeEventListener("keydown", held);
       document.removeEventListener("keydown", flip);
       document.removeEventListener("keyup", held);
+      document.removeEventListener("pointermove", held);
       window.removeEventListener("blur", release);
     };
   }, []);

@@ -77,6 +77,7 @@ test.describe("what a card says", () => {
     await expect(page.locator(".popover textarea")).toBeFocused();
     // Control held first: the composer lets the pointer through before the click is checked.
     await page.keyboard.down("Control");
+    await expect(page.locator(".popover")).toHaveClass(/through/u);
     await frame.locator("label[for=notes]").click();
     await page.keyboard.up("Control");
     await expect(page.locator(".popover .quote")).toHaveCount(2);
@@ -84,6 +85,27 @@ test.describe("what a card says", () => {
     await page.keyboard.press("Control+Enter");
 
     await expect(page.locator(".comments .card .where")).toHaveText("mockup.html · h1, label");
+  });
+
+  test("a Control held from before the first click adds what the composer covers", async ({
+    page,
+    vellum,
+  }) => {
+    await reviewV1(page, vellum);
+    await page.locator("#rail button", { hasText: "mockup.html" }).click();
+    await commentOn(page);
+    const frame = page.frameLocator(".pane iframe").last();
+    const label = frame.locator("label[for=notes]");
+    await page.keyboard.down("Control");
+    await frame.locator("h1").click();
+    await expect(page.locator(".popover textarea")).toBeFocused();
+    // No key event follows the focus moves: the pointer is what says Control is still down.
+    const box = await boxOf(label);
+    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+    await label.click();
+    await page.keyboard.up("Control");
+
+    await expect(page.locator(".popover .quote")).toHaveCount(2);
   });
 });
 
