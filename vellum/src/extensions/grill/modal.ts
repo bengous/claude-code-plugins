@@ -79,7 +79,7 @@ function answeredOn(state: GrillState | null, id: string): Asking {
 /**
  * What a new state does to the page's answer: a proposal that lands opens the modal on a quiet
  * page, and on a typing is put off at once, so the modal opens neither under the reviewer's
- * hands nor once they stop. `quiet`: no editor open, no popover up, no field focused.
+ * hands nor once they stop. `quiet`: no editor open, no popover or other modal up, no field focused.
  */
 export function askingOn(state: GrillState | null, asking: Asking, quiet: boolean): Asking {
   if (asking.kind === "asked") return keptOn(state, asking.on);

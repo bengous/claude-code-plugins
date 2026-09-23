@@ -209,10 +209,25 @@ export type DialogProps = {
  * on the backdrop lands on the element itself; it counts when the pointer went down there too,
  * and a drag that starts in the card closes nothing.
  */
+let dialogs = 0;
+
+/** Whether a modal is up: another opened over it would stack and take its focus. */
+export function dialogUp(): boolean {
+  return dialogs > 0;
+}
+
 export function Dialog(props: DialogProps): JSX.Element {
   const box = useRef<HTMLDialogElement>(null);
   const latest = useRef(props);
   latest.current = props;
+
+  useEffect(() => {
+    dialogs += 1;
+
+    return () => {
+      dialogs -= 1;
+    };
+  }, []);
 
   useEffect(() => {
     const element = box.current;

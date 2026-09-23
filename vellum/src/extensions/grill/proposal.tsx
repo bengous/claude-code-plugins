@@ -1,7 +1,7 @@
 import { signal } from "@preact/signals";
 import { useEffect } from "preact/hooks";
 
-import { Button, Dialog, popoverUp } from "../../core/page/kit.tsx";
+import { Button, Dialog, dialogUp, popoverUp } from "../../core/page/kit.tsx";
 import { editing } from "../../core/page/state.ts";
 import type { Asking } from "./modal.ts";
 import { answerFailed, answering, askingOn, dotOf, modalOf, pendingOf, putOff } from "./modal.ts";
@@ -12,12 +12,12 @@ const asking = signal<Asking>({ kind: "auto" });
 /** The subject typed over the modal's, by the proposal it was typed on, `null` for the blank one. */
 const subjectTyped = signal<{ readonly id: string | null; readonly text: string } | null>(null);
 
-/** No editor open, no popover up, and no field holding the focus: `askingOn` asks it with no modal up. */
+/** No editor open, no popover or other modal up, and no field holding the focus: `askingOn` asks it with no modal of its own up. */
 function quiet(): boolean {
   const active = document.activeElement;
   const typing = active instanceof HTMLInputElement || active instanceof HTMLTextAreaElement;
 
-  return editing.peek() === null && !popoverUp() && !typing;
+  return editing.peek() === null && !popoverUp() && !dialogUp() && !typing;
 }
 
 /** A dot while a proposal was put off; greyed for the reasons a grill cannot open, in its title. */

@@ -10,7 +10,6 @@ import type {
   Mark,
   ReviewView,
   Typed,
-  VellumBuild,
 } from "../protocol.ts";
 import {
   editOnLoad,
@@ -23,22 +22,11 @@ import {
   unshiftAnnotations,
 } from "../protocol.ts";
 import type { ProjectPath, Version } from "../server/domain/paths.ts";
-import {
-  fetchDraft,
-  fetchReview,
-  fetchVellumBuild,
-  postDecision,
-  putDraft,
-  subscribe,
-} from "./api.ts";
-import type { Fetched } from "./api.ts";
+import { fetchDraft, fetchReview, postDecision, putDraft, subscribe } from "./api.ts";
 import type { Failure } from "./notices.ts";
 import { NEW_LINK_HINT_MS, noticesOf } from "./notices.ts";
 
 export const review = signal<ReviewView | null>(null);
-
-/** The running plugin's version and commit, fetched once at load; `null` until it answers. */
-export const vellumBuild = signal<Fetched<VellumBuild> | null>(null);
 
 /** The comments not sent yet: a send clears them, and nothing Claude does may. */
 export const annotations = signal<readonly Annotation[]>([]);
@@ -259,16 +247,6 @@ function settleEdit(view: ReviewView): void {
 
   // Landed: the loaded version is the edit, and the comments' lines were shifted to its text already.
   annotations.value = landedAnnotations(annotations.value, workspace.dir, edit);
-}
-
-async function loadVellumBuild(): Promise<void> {
-  const unanswered: Fetched<VellumBuild> = {
-    ok: false,
-    status: 0,
-    reason: "the server did not answer",
-  };
-
-  vellumBuild.value = await fetchVellumBuild().catch(() => unanswered);
 }
 
 async function loadReview(): Promise<void> {
@@ -510,7 +488,6 @@ export async function start(): Promise<void> {
   }
 
   await loadReview();
-  void loadVellumBuild();
 
   if (saved.ok) {
     let saving = Promise.resolve();

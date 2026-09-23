@@ -1,11 +1,23 @@
 import type { JSX } from "preact";
+import { useEffect, useState } from "preact/hooks";
 
-import { vellumBuild } from "../state.ts";
+import type { VellumBuild } from "../../protocol.ts";
+import type { Fetched } from "../api.ts";
+import { fetchVellumBuild } from "../api.ts";
 import { SettingsGroup, SettingsRow } from "./rows.tsx";
 
-/** The running plugin's version and commit, as the server read them at its start. */
+/**
+ * The running plugin's version and commit, read at each opening: a server revived under the same
+ * tab after an update is another build, and a failed read is tried again.
+ */
 export function AboutVellum(): JSX.Element {
-  const build = vellumBuild.value;
+  const [build, setBuild] = useState<Fetched<VellumBuild> | null>(null);
+
+  useEffect(() => {
+    void fetchVellumBuild().then(setBuild, (cause: unknown) =>
+      setBuild({ ok: false, status: 0, reason: `The build could not be read: ${String(cause)}` }),
+    );
+  }, []);
 
   if (build !== null && !build.ok) {
     return (
@@ -25,7 +37,7 @@ export function AboutVellum(): JSX.Element {
         <code>{value?.version ?? ""}</code>
       </SettingsRow>
       <SettingsRow label="Commit" description="The commit this copy of Vellum comes from.">
-        <code title={value?.commit}>{value?.commit.slice(0, 8) ?? ""}</code>
+        <code>{value?.commit ?? ""}</code>
       </SettingsRow>
     </SettingsGroup>
   );

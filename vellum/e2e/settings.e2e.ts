@@ -45,7 +45,7 @@ test("About Vellum is the current section and shows the version and the commit",
   const about = settings(page).getByRole("region", { name: "About Vellum" });
   await expect(about.locator(".srow", { hasText: "Version" }).locator("code")).toHaveText(version);
   await expect(about.locator(".srow", { hasText: "Commit" }).locator("code")).toHaveText(
-    /^[0-9a-f]{8}$/u,
+    /^[0-9a-f]{40}$/u,
   );
 });
 
@@ -92,6 +92,31 @@ test("with the notes popover up, the gear closes it and opens the modal", async 
   await gear(page).click();
   await expect(page.locator(".popover")).toHaveCount(0);
   await expect(settings(page)).toBeVisible();
+});
+
+test("from the keyboard, the gear closes the notes popover before the modal opens", async ({
+  page,
+  vellum,
+}) => {
+  await reviewV1(page, vellum);
+  await page.getByRole("button", { name: "Approve with notes…" }).click();
+  await expect(page.locator(".popover")).toBeVisible();
+  await gear(page).focus();
+  await page.keyboard.press("Enter");
+  await expect(settings(page)).toBeVisible();
+  await expect(page.locator(".popover")).toHaveCount(0);
+});
+
+test("a grill proposal landing while Settings is open opens nothing: the dot waits", async ({
+  page,
+  vellum,
+}) => {
+  await reviewV1(page, vellum);
+  await gear(page).click();
+  await expect(settings(page)).toBeVisible();
+  await vellum.grill.suggest("The coverage of the page", "three choices change the interface");
+  await expect(page.locator(".bar .btn.grill.grill-later")).toHaveCount(1);
+  await expect(page.getByRole("dialog", { name: "Claude suggests a grill" })).toHaveCount(0);
 });
 
 test("axe finds nothing to fault on the modal, light and dark", async ({ page, vellum }) => {

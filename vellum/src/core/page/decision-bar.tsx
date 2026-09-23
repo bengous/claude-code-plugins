@@ -295,7 +295,10 @@ export function DecisionBar(props: BarProps): preact.JSX.Element {
           aria-label="Settings"
           aria-haspopup="dialog"
           title="Settings"
-          onClick={() => setSettingsOpen(true)}
+          onClick={() => {
+            close();
+            setSettingsOpen(true);
+          }}
         >
           <Gear />
         </Button>

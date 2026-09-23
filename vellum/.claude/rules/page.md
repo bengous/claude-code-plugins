@@ -131,9 +131,10 @@ no build step, so what the page imports costs nothing at `cli start`.
   holds it. `SETTINGS` of `settings/sections.ts` is the one list of sections, in the order drawn,
   each under a `group` heading or, with none, after every group; a new setting is an entry there
   and a `Body` built from `SettingsGroup` and `SettingsRow` of `settings/rows.tsx`, and the shell
-  changes for none. About Vellum reads `vellumBuild` of `state.ts`, fetched once by `start`; the
-  server read it at its own start, and a failure is that route's 500, shown in the section, never
-  the server's.
+  changes for none. About Vellum fetches the build at each opening, since a server revived under
+  the same tab is another build; the server read it at its own start, and a failure is that
+  route's 500, shown in the section, never the server's. A `Dialog` counts itself (`dialogUp` of
+  the kit), and the grill's `quiet` reads it, so a proposal never stacks its modal on another.
 - What the page says of its state is derived, in `notices.ts`, pure and held by
   `notices.spec.ts`: `noticesOf` the column under the bar, `statusOf` the pill, `decisionsOf`
   the three buttons of the core, greyed or not and why, the reason in each `title`. Nothing
