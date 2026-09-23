@@ -10,8 +10,8 @@
  * It checks each line whose remote ref is `refs/heads/dev`, over the diff from
  * its remote oid to its local oid, with no fetch. A push to any other ref, or
  * one that touches no e2e path, passes without calling `gh`. Exit 1 names the
- * commit, the reason and the command that starts a run; a `gh` failure refuses
- * too. The pre-push hook runs it, outside `EXPECTED_COMMANDS`:
+ * commit, the reason and the next command: start a run, wait for one, or re-run
+ * a red one. A `gh` failure refuses too. The pre-push hook runs it, outside `EXPECTED_COMMANDS`:
  * `.claude/rules/hook-ladder.md` says why.
  */
 
@@ -28,6 +28,8 @@ const START_A_RUN =
 const PUSHED_REF_LINE = /^.+ ([0-9a-f]{40}|[0-9a-f]{64}) (refs\/\S+) ([0-9a-f]{40}|[0-9a-f]{64})$/u;
 
 const ZERO_OID = /^0+$/u;
+
+const WORKFLOW_RUN = /\/actions\/runs\/(\d+)\/job\//u;
 
 // Decided in #168, and owned here alone: what the browser suite loads. A new
 // directory under `vellum/` is inside until it is listed as left out.
@@ -55,14 +57,23 @@ export interface PushToDev {
 
 /** A check run as `gh api` lists it, reduced to what the gate reads. */
 export interface CheckRun {
+  /** The Actions job's id, the one `gh run rerun --job` takes. */
+  readonly id: number;
   readonly name: string;
   readonly status: string;
   readonly conclusion: string | null;
+  readonly detailsUrl: string | null;
 }
 
 export type CheckRuns =
   | { readonly kind: "listed"; readonly runs: readonly CheckRun[] }
   | { readonly kind: "unreadable"; readonly error: string };
+
+/** Why a commit stays off dev, and the command that moves it on. */
+export interface Refusal {
+  readonly reason: string;
+  readonly next: string;
+}
 
 export function isE2ePath(path: string): boolean {
   return included.some((glob) => glob.match(path)) && !excluded.some((glob) => glob.match(path));
@@ -86,10 +97,23 @@ export function parsePushedRefs(lines: string): readonly PushToDev[] {
     });
 }
 
-/** Why the runs of a commit do not let it reach dev, or null when one of them is green. */
-export function refusalReason(checkRuns: CheckRuns): string | null {
+function workflowRunOf(run: CheckRun): string {
+  const [, id] = WORKFLOW_RUN.exec(run.detailsUrl ?? "") ?? [];
+
+  if (id === undefined) {
+    throw new Error(`check run ${run.id} links no workflow run: ${String(run.detailsUrl)}`);
+  }
+
+  return id;
+}
+
+/** What keeps a commit off dev given its check runs, or null when one of them is green. */
+export function refusalFor(checkRuns: CheckRuns): Refusal | null {
   if (checkRuns.kind === "unreadable") {
-    return `gh could not list its check runs: ${checkRuns.error}`;
+    return {
+      reason: `gh could not list its check runs: ${checkRuns.error}`,
+      next: `If GitHub has never seen that commit, start a run on it: ${START_A_RUN}.`,
+    };
   }
 
   const runs = checkRuns.runs.filter((run) => run.name === CHECK);
@@ -97,8 +121,21 @@ export function refusalReason(checkRuns: CheckRuns): string | null {
   if (runs.some((run) => run.conclusion === "success")) return null;
 
   const found = runs.map((run) => run.conclusion ?? run.status).join(", ");
+  const reason = `it has no green ${CHECK} check run (found: ${found === "" ? "none" : found})`;
+  const running = runs.find((run) => run.status !== "completed");
 
-  return `it has no green ${CHECK} check run (found: ${found === "" ? "none" : found})`;
+  if (running !== undefined) {
+    return {
+      reason,
+      next: `Wait for the run in progress: gh run watch ${workflowRunOf(running)}.`,
+    };
+  }
+
+  const [newest] = runs.toSorted((left, right) => right.id - left.id);
+
+  if (newest === undefined) return { reason, next: `Start a run on that commit: ${START_A_RUN}.` };
+
+  return { reason, next: `Re-run it: gh run rerun --job ${newest.id}.` };
 }
 
 function spawnGit(args: readonly string[]) {
@@ -138,15 +175,20 @@ function checkRunsOf(commit: string): CheckRuns {
       "--paginate",
       `repos/{owner}/{repo}/commits/${commit}/check-runs?filter=all&per_page=100`,
       "--jq",
-      ".check_runs[] | {name, status, conclusion}",
+      ".check_runs[] | {id, name, status, conclusion, detailsUrl: .details_url}",
     ],
-    { stdout: "pipe", stderr: "pipe" },
+    {
+      // Either variable makes gh indent and color its jq results, one line no longer one run.
+      env: { ...process.env, CLICOLOR_FORCE: "0", GH_FORCE_TTY: "" },
+      stdout: "pipe",
+      stderr: "pipe",
+    },
   );
 
   if (result.exitCode !== 0) return { kind: "unreadable", error: result.stderr.toString().trim() };
 
-  // jq writes each of the three keys, null when GitHub left it out, and a run
-  // with a field missing can only fail to read as green.
+  // jq writes each key, null when GitHub left it out, and a run with a field
+  // missing can only fail to read as green.
   return {
     kind: "listed",
     runs: result.stdout
@@ -163,15 +205,15 @@ function refusalOf(push: PushToDev): string | null {
 
   if (first === undefined) return null;
 
-  const reason = refusalReason(checkRunsOf(push.local));
+  const refusal = refusalFor(checkRunsOf(push.local));
 
-  if (reason === null) return null;
+  if (refusal === null) return null;
 
   const more = touched.length > 1 ? ` and ${touched.length - 1} more e2e paths` : "";
 
   return [
-    `${DEV} at ${push.local} touches ${first}${more}, and ${reason}.`,
-    `Start a run on that commit: ${START_A_RUN}. Push to dev again once it is green.`,
+    `${DEV} at ${push.local} touches ${first}${more}, and ${refusal.reason}.`,
+    `${refusal.next} Push to dev again once it is green.`,
   ].join("\n");
 }
 

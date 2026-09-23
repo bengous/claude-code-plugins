@@ -16,20 +16,34 @@ import {
   type CheckRuns,
   isE2ePath,
   parsePushedRefs,
-  refusalReason,
+  refusalFor,
 } from "./check-e2e-green.ts";
 
 const SCRIPT = join(import.meta.dir, "check-e2e-green.ts");
 
 const ZERO = "0".repeat(40);
 
-const GREEN: CheckRun = { name: "e2e", status: "completed", conclusion: "success" };
+const START_A_RUN = "git push --force-with-lease origin <branch>";
 
-const CANCELLED: CheckRun = { name: "e2e", status: "completed", conclusion: "cancelled" };
+function e2eRun(run: number, job: number, status: string, conclusion: string | null): CheckRun {
+  return {
+    id: job,
+    name: "e2e",
+    status,
+    conclusion,
+    detailsUrl: `https://github.com/owner/repo/actions/runs/${run}/job/${job}`,
+  };
+}
 
-const FAILED: CheckRun = { name: "e2e", status: "completed", conclusion: "failure" };
+const GREEN = e2eRun(11, 101, "completed", "success");
 
-const RUNNING: CheckRun = { name: "e2e", status: "in_progress", conclusion: null };
+const CANCELLED = e2eRun(12, 102, "completed", "cancelled");
+
+const FAILED = e2eRun(13, 103, "completed", "failure");
+
+const RUNNING = e2eRun(14, 104, "in_progress", null);
+
+const VALIDATE: CheckRun = { ...GREEN, id: 100, name: "validate" };
 
 function listed(...runs: CheckRun[]): CheckRuns {
   return { kind: "listed", runs };
@@ -115,6 +129,14 @@ describe("parsePushedRefs", () => {
     ).toEqual([]);
   });
 
+  test("keeps the dev line after a line to another ref", () => {
+    expect(
+      parsePushedRefs(
+        `refs/heads/x ${local} refs/heads/x ${remote}\nrefs/heads/x ${local} refs/heads/dev ${remote}\n`,
+      ),
+    ).toEqual([{ local, remote }]);
+  });
+
   test("ignores a deletion of dev", () => {
     expect(parsePushedRefs(`(delete) ${ZERO} refs/heads/dev ${remote}\n`)).toEqual([]);
   });
@@ -134,31 +156,47 @@ describe("parsePushedRefs", () => {
   });
 });
 
-describe("refusalReason", () => {
+describe("refusalFor", () => {
   test("passes one green run whatever the others say", () => {
-    expect(refusalReason(listed(CANCELLED, GREEN, FAILED, RUNNING))).toBeNull();
+    expect(refusalFor(listed(CANCELLED, GREEN, FAILED, RUNNING))).toBeNull();
   });
 
-  test("refuses a SHA with no e2e run", () => {
-    expect(refusalReason(listed())).toBe("it has no green e2e check run (found: none)");
+  test("asks for a run on a SHA with none", () => {
+    const refusal = refusalFor(listed());
+
+    expect(refusal?.reason).toBe("it has no green e2e check run (found: none)");
+    expect(refusal?.next).toStartWith(`Start a run on that commit: ${START_A_RUN}`);
   });
 
-  test("refuses runs that are cancelled, failed or still running, naming each", () => {
-    expect(refusalReason(listed(CANCELLED, FAILED, RUNNING))).toBe(
-      "it has no green e2e check run (found: cancelled, failure, in_progress)",
-    );
+  test("waits for a run still in progress, naming its workflow run", () => {
+    expect(refusalFor(listed(FAILED, RUNNING))).toEqual({
+      reason: "it has no green e2e check run (found: failure, in_progress)",
+      next: "Wait for the run in progress: gh run watch 14.",
+    });
+  });
+
+  test("re-runs the newest job when every run ended red", () => {
+    expect(refusalFor(listed(FAILED, CANCELLED))).toEqual({
+      reason: "it has no green e2e check run (found: failure, cancelled)",
+      next: "Re-run it: gh run rerun --job 103.",
+    });
+  });
+
+  test("refuses a run in progress that links no workflow run, naming it", () => {
+    expect(() => refusalFor(listed({ ...RUNNING, detailsUrl: null }))).toThrow("104");
   });
 
   test("counts only the check named e2e", () => {
-    expect(
-      refusalReason(listed({ name: "validate", status: "completed", conclusion: "success" })),
-    ).toBe("it has no green e2e check run (found: none)");
+    expect(refusalFor(listed(VALIDATE))?.reason).toBe(
+      "it has no green e2e check run (found: none)",
+    );
   });
 
   test("refuses when gh could not list the runs, saying so", () => {
-    expect(refusalReason({ kind: "unreadable", error: "gh: HTTP 401: Bad credentials" })).toBe(
-      "gh could not list its check runs: gh: HTTP 401: Bad credentials",
-    );
+    const refusal = refusalFor({ kind: "unreadable", error: "gh: HTTP 401: Bad credentials" });
+
+    expect(refusal?.reason).toBe("gh could not list its check runs: gh: HTTP 401: Bad credentials");
+    expect(refusal?.next).toContain(START_A_RUN);
   });
 });
 
@@ -206,10 +244,10 @@ describe("the command", () => {
     return existsSync(path) ? readFileSync(path, "utf8") : "";
   }
 
-  function run(stdin: string) {
+  function run(stdin: string, env: Record<string, string> = {}) {
     const result = Bun.spawnSync([process.execPath, SCRIPT], {
       cwd: repo,
-      env: { ...process.env, PATH: `${join(root, "bin")}:${process.env["PATH"] ?? ""}` },
+      env: { ...process.env, ...env, PATH: `${join(root, "bin")}:${process.env["PATH"] ?? ""}` },
       stdin: Buffer.from(stdin),
       stdout: "pipe",
       stderr: "pipe",
@@ -236,17 +274,54 @@ describe("the command", () => {
 
   afterEach(() => rmSync(root, { recursive: true, force: true }));
 
-  test("refuses a push to dev that touches an e2e path while its SHA has no green e2e", () => {
+  test("refuses a push to dev that touches an e2e path while its SHA has no e2e run", () => {
     write("vellum/src/core/page/app.tsx", "changed\n");
     const head = commit("Change the page");
-    ghLists(CANCELLED, { name: "validate", status: "completed", conclusion: "success" });
+    ghLists(VALIDATE);
     const result = run(`refs/heads/feature/x ${head} refs/heads/dev ${base}\n`);
 
     expect(result.code).toBe(1);
     expect(result.err).toContain(`refs/heads/dev at ${head} touches vellum/src/core/page/app.tsx`);
-    expect(result.err).toContain("it has no green e2e check run (found: cancelled)");
-    expect(result.err).toContain("git push --force-with-lease origin <branch>");
+    expect(result.err).toContain("it has no green e2e check run (found: none)");
+    expect(result.err).toContain(START_A_RUN);
     expect(ghCalls()).toContain(`repos/{owner}/{repo}/commits/${head}/check-runs`);
+  });
+
+  test("names the job to re-run when the SHA's e2e ended red", () => {
+    write("vellum/src/core/page/app.tsx", "changed\n");
+    const head = commit("Change the page");
+    ghLists(CANCELLED);
+    const result = run(`refs/heads/feature/x ${head} refs/heads/dev ${base}\n`);
+
+    expect(result.code).toBe(1);
+    expect(result.err).toContain("it has no green e2e check run (found: cancelled)");
+    expect(result.err).toContain("Re-run it: gh run rerun --job 102.");
+  });
+
+  test("asks gh for every page and every attempt of the SHA's check runs", () => {
+    write("vellum/src/core/page/app.tsx", "changed\n");
+    const head = commit("Change the page");
+    ghLists(GREEN);
+    run(`refs/heads/feature/x ${head} refs/heads/dev ${base}\n`);
+
+    expect(ghCalls().split(" ")).toContain("--paginate");
+    expect(ghCalls()).toContain("filter=all");
+  });
+
+  test("reads gh's output when the pusher forces its colors", () => {
+    write("vellum/src/core/page/app.tsx", "changed\n");
+    const head = commit("Change the page");
+    // What gh does with either variable set: its jq results come out indented.
+    fakeGh(
+      `if [ "\${CLICOLOR_FORCE:-0}" != 0 ] || [ -n "\${GH_FORCE_TTY:-}" ]; then printf '{\\n  "id": 101\\n}\\n'; exit 0; fi\ncat <<'EOF'\n${JSON.stringify(GREEN)}\nEOF`,
+    );
+
+    expect(
+      run(`refs/heads/feature/x ${head} refs/heads/dev ${base}\n`, {
+        CLICOLOR_FORCE: "1",
+        GH_FORCE_TTY: "1",
+      }),
+    ).toEqual({ code: 0, err: "" });
   });
 
   test("passes a push to dev whose SHA has one green e2e beside a cancelled and a failed one", () => {
