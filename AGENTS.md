@@ -30,7 +30,7 @@ bun ./scripts/lint-shell.ts                            # shellcheck + shfmt; tak
 CLAUDE_CODE_ENABLE_FUNCTION_HOOKS=1 claude plugin validate vellum   # the hooks module: what it hooks and calls
 CLAUDE_CODE_ENABLE_FUNCTION_HOOKS=1 claude plugin test vellum       # the hooks module's kit tests, vellum/src/core/engine/*.test.ts
 bun ./scripts/run-gates.ts                             # every gate of CI's `validate` job, as CI runs it; installs vellum's dependencies first
-bun run --cwd vellum e2e                               # vellum's browser suite, CI's `e2e` job; Chromium once per machine: `bun run --cwd vellum e2e:install`
+bun run --cwd vellum e2e                               # vellum's browser suite, CI's `e2e` jobs, one per window; Chromium once per machine: `bun run --cwd vellum e2e:install`
 ```
 
 `vellum/` carries `package.json` + `bun.lock`: `bun install --cwd vellum --frozen-lockfile` before its tests or its server, as Claude Code does at the plugin's cache.

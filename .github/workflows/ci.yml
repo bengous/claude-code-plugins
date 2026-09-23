@@ -96,15 +96,23 @@ jobs:
           fi
           echo "main is an ancestor of dev: $(git rev-parse origin/main)"
 
-  # Vellum's browser suite, `vellum/e2e/*.e2e.ts`: a job of its own, since it wants a
-  # Chromium and takes seconds per file. `check-lint-config.ts` reads `validate` alone.
-  e2e:
+  # Vellum's browser suite, `vellum/e2e/*.e2e.ts`: a job per window of `WINDOWS` in
+  # `vellum/e2e/playwright.config.ts`, since it wants a Chromium and takes seconds per file.
+  # `scripts/e2e-windows.test.ts` holds the list equal to the config's. `check-lint-config.ts`
+  # reads `validate` alone.
+  e2e-window:
+    name: e2e (${{ matrix.window }})
     if: >-
       github.event_name == 'workflow_dispatch'
       || (github.event.action == 'labeled'
       && github.event.label.name == 'e2e'
       && github.event.pull_request.head.repo.full_name == github.repository)
     runs-on: ubuntu-latest
+    strategy:
+      # A red window must not cancel the others: each says something of its own.
+      fail-fast: false
+      matrix:
+        window: [light-1440, dark-1440, light-1024, light-1280, light-1920]
     steps:
       - name: Checkout
         uses: actions/checkout@v5
@@ -124,8 +132,30 @@ jobs:
         run: bunx --bun playwright install --with-deps chromium
         working-directory: vellum
 
-      - name: Run the browser suite
-        run: bun run --cwd vellum e2e
+      - name: Run the browser suite at one window
+        run: bun run --cwd vellum e2e -- --project=${{ matrix.window }}
+
+  # The one check the pre-push gate reads, `scripts/check-e2e-green.ts`: green when every window
+  # is. Asked of the same requests as the windows, so a run nobody asked leaves it `skipped`,
+  # which the gate reads as no run; `always()` lets a red or cancelled window turn it red.
+  e2e:
+    needs: e2e-window
+    if: >-
+      always()
+      && (github.event_name == 'workflow_dispatch'
+      || (github.event.action == 'labeled'
+      && github.event.label.name == 'e2e'
+      && github.event.pull_request.head.repo.full_name == github.repository))
+    runs-on: ubuntu-latest
+    steps:
+      - name: Fail unless every window passed
+        run: |
+          if [ "$WINDOWS" != success ]; then
+            echo "::error::The windows ended ${WINDOWS}; the red one is named among this run's e2e jobs."
+            exit 1
+          fi
+        env:
+          WINDOWS: ${{ needs.e2e-window.result }}
 
   # The label asks for one run: it comes off as that run starts, so the next request is a new
   # label. A job of its own, so the suite's job keeps a read-only token; a re-run of the same

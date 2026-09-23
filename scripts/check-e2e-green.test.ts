@@ -180,10 +180,10 @@ describe("refusalFor", () => {
     expect(refusal?.next).toStartWith(`Start a run on that commit: ${START_A_RUN}`);
   });
 
-  test("re-runs the newest red job, passing over a newer skipped one", () => {
+  test("re-runs the failed jobs of the newest red run, passing over a newer skipped one", () => {
     expect(refusalFor(listed(FAILED, SKIPPED))).toEqual({
       reason: "it has no green e2e check run (found: failure, skipped)",
-      next: "Re-run it: gh run rerun --job 103.",
+      next: "Re-run its red windows and the e2e after them: gh run rerun 13 --failed.",
     });
   });
 
@@ -194,10 +194,10 @@ describe("refusalFor", () => {
     });
   });
 
-  test("re-runs the newest job when every run ended red", () => {
+  test("re-runs the failed jobs of the newest run when every run ended red", () => {
     expect(refusalFor(listed(FAILED, CANCELLED))).toEqual({
       reason: "it has no green e2e check run (found: failure, cancelled)",
-      next: "Re-run it: gh run rerun --job 103.",
+      next: "Re-run its red windows and the e2e after them: gh run rerun 13 --failed.",
     });
   });
 
@@ -307,7 +307,7 @@ describe("the command", () => {
     expect(ghCalls()).toContain(`repos/{owner}/{repo}/commits/${head}/check-runs`);
   });
 
-  test("names the job to re-run when the SHA's e2e ended red", () => {
+  test("names the workflow run to re-run when the SHA's e2e ended red", () => {
     write("vellum/src/core/page/app.tsx", "changed\n");
     const head = commit("Change the page");
     ghLists(CANCELLED);
@@ -315,7 +315,7 @@ describe("the command", () => {
 
     expect(result.code).toBe(1);
     expect(result.err).toContain("it has no green e2e check run (found: cancelled)");
-    expect(result.err).toContain("Re-run it: gh run rerun --job 102.");
+    expect(result.err).toContain("gh run rerun 12 --failed.");
   });
 
   test("asks gh for every page and every attempt of the SHA's check runs", () => {

@@ -56,7 +56,7 @@ export interface PushToDev {
 
 /** A check run as `gh api` lists it, reduced to what the gate reads. */
 export interface CheckRun {
-  /** The Actions job's id, the one `gh run rerun --job` takes. */
+  /** The Actions job's id: a later job has a larger one. */
   readonly id: number;
   readonly name: string;
   readonly status: string;
@@ -137,7 +137,11 @@ export function refusalFor(checkRuns: CheckRuns): Refusal | null {
 
   if (newest === undefined) return { reason, next: `Start a run on that commit: ${START_A_RUN}.` };
 
-  return { reason, next: `Re-run it: gh run rerun --job ${newest.id}.` };
+  // `e2e` only reads the windows' results: re-running it alone would read the same red window.
+  return {
+    reason,
+    next: `Re-run its red windows and the e2e after them: gh run rerun ${workflowRunOf(newest)} --failed.`,
+  };
 }
 
 function spawnGit(args: readonly string[]) {

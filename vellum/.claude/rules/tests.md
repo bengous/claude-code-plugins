@@ -18,17 +18,18 @@ paths:
   harness is `e2e/harness.ts`: the `vellum` fixture starts `preview.ts` on a copy of the fixture
   `test.use({ fixture })` names (`rich` by default), one server per test, and drives it through
   the API as the hooks module does (`gate`, `grill.*`); `axe` and `contrast` are its two measures.
-  `e2e/playwright.config.ts` runs every suite at the audit's five windows. A test whose subject
+  `e2e/playwright.config.ts` runs every suite at the audit's five windows, and CI's matrix
+  names each one (`scripts/e2e-windows.test.ts` holds the two lists equal). A test whose subject
   is another width sets it with `test.use({ viewport })`, before `page.goto`, since `readWindow`
   reads the width once per load, and runs on `light-1440` alone (`test.skip` on
   `info.project.name`): its viewport replaces every project's. A test ends with the
   page in a state the fixture documents, never with a screenshot compared to a golden file: a
   pixel diff says that something moved, an assertion says what. Chromium is installed once per
-  machine and per pinned version (`bun run --cwd vellum e2e:install`); CI runs the suite in its
-  own job, and no hook does, since it takes seconds per file. A red e2e test is reproduced on
+  machine and per pinned version (`bun run --cwd vellum e2e:install`); CI runs the suite in jobs
+  of its own, and no hook does, since it takes seconds per file. A red e2e test is reproduced on
   its own file and project (`-- <file> --project=<name>`), never by rerunning the suite; the
-  whole suite runs once on `light-1440` before a push, and at the five windows in CI only, on
-  request: the `e2e` label on a PR, or `workflow_dispatch`.
+  whole suite runs once on `light-1440` before a push, and at the five windows in CI only, a job
+  per window (`--project=<name>`), on request: the `e2e` label on a PR, or `workflow_dispatch`.
 - One behaviour per test, under fifteen lines, data in view: helpers hide the plumbing; the
   version, the path, the text the case turns on stay in the test.
 - Before the code of a slice, its tests are listed one line each and agreed, written first,
