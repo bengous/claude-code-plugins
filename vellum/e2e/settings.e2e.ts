@@ -75,6 +75,7 @@ test("Escape closes it and gives the focus back to the gear", async ({ page, vel
 test("a click on the backdrop closes it, and so does Close", async ({ page, vellum }) => {
   await openVellum(page, vellum);
   await gear(page).click();
+  await expect(settings(page)).toBeVisible();
   await page.mouse.click(8, 400);
   await expect(settings(page)).toHaveCount(0);
   await gear(page).click();
