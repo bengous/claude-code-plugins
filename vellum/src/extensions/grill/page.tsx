@@ -196,9 +196,15 @@ async function reply(
 
 const NOTHING_TYPED: Typed["grill"][string] = { answers: {}, note: "" };
 
+/**
+ * The draft's grill typings: `setTyped` keeps their reference when another field changes, so the
+ * band and the panel, reading them here, are not drawn again at each key typed elsewhere.
+ */
+const grillTyped = computed(() => typed.value.grill);
+
 /** The reviewer's typing on a transcript, in the draft: it survives the panel and a reload. */
 function typedOn(path: string): Typed["grill"][string] {
-  return typed.value.grill[path] ?? NOTHING_TYPED;
+  return grillTyped.value[path] ?? NOTHING_TYPED;
 }
 
 /** Whether a send writes anything: an open question, which the recommendation answers by default, or a note. */
