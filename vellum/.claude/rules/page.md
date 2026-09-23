@@ -118,7 +118,8 @@ no build step, so what the page imports costs nothing at `cli start`.
 - `review.held` is what holds the review, or `null`, in the holder's words (`holds` of the
   grill answers `a grill is open`). Held, the pill reads `Held · <reason>` (`statusOf`), in
   review only, Send feedback is disabled with the reason as its title, and every way to an
-  approval goes through the warning popover, which says the approval ends what holds it. The
+  approval goes through the warning popover, which frames the reason in its own sentence (`The
+  review is held: <reason>.`), since a reason reads as a clause, then says the approval ends it. The
   core draws no notice of it, `noticesOf` takes no hold: the extension that holds draws its own,
   the grill's band. The bar prints the reason and never reads which extension gave it.
 - What the page says of its state is derived, in `notices.ts`, pure and held by

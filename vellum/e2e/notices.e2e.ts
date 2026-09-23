@@ -115,6 +115,20 @@ test.describe("the decisions", () => {
     await expect(page.locator(".banner.ok code")).toContainText("plans/");
   });
 
+  test("the approval's warning says the review is held, in the holder's words", async ({
+    page,
+    vellum,
+  }) => {
+    await reviewV1(page, vellum);
+    await vellum.grill.open("Where do drafts live?");
+    await expect(page.locator(".bar .status")).toHaveText("Held · a grill is open");
+    await page.locator(".bar").getByRole("button", { name: "Approve", exact: true }).click();
+    const warning = page.getByRole("dialog", { name: "Before approving" });
+
+    await expect(warning.locator(".warn-text")).toHaveText("The review is held: a grill is open.");
+    await expect(warning).toContainText("Approving ends it.");
+  });
+
   test("the notes popover puts Approve first", async ({ page, vellum }) => {
     await reviewV1(page, vellum);
     await page.getByRole("button", { name: "Approve with notes…" }).click();

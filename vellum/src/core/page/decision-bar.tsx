@@ -134,7 +134,7 @@ function Warning(props: WarningProps): preact.JSX.Element {
       {props.typed.length > 0 && <div>{verb} discards it.</div>}
       {props.hold !== null && (
         <>
-          <div class="warn-text">{props.hold}.</div>
+          <div class="warn-text">The review is held: {props.hold}.</div>
           <div>Approving ends it.</div>
         </>
       )}
