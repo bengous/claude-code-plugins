@@ -1,5 +1,5 @@
 import { AS_RECOMMENDED } from "./protocol.ts";
-import type { Answer, CloseReason } from "./protocol.ts";
+import type { Answer, CloseReason, Phase } from "./protocol.ts";
 import type { ChipState } from "./rounds.ts";
 
 /** What the transcript's foot says of its end, in the reviewer's words; the file keeps the reason's code. */
@@ -22,6 +22,22 @@ export function progressOf(round: number, waiting: number): string | null {
   ].filter((part) => part !== null);
 
   return parts.length === 0 ? null : parts.join(" · ");
+}
+
+/** The panel's live line, by where the grill stands and the last round asked: empty while a round waits for the reviewer, since the round says it. */
+export function phaseText(phase: Phase, round: number): string {
+  switch (phase) {
+    case "working":
+      return round === 0
+        ? "Claude is preparing the first round."
+        : `Claude is preparing round ${round + 1}.`;
+    case "asking":
+      return "";
+    case "idle":
+      return "Claude has no question open.";
+    case "stopped":
+      return "Claude's turn was interrupted. Add a note to continue.";
+  }
 }
 
 /** What a Decline that failed says: a 409 is a proposal no longer pending, answered from another tab or replaced by Claude's next. */

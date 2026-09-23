@@ -15,7 +15,8 @@ import {
   typed,
 } from "../../core/page/state.ts";
 import type { Typed } from "../../core/protocol.ts";
-import { answerOf, chipTitle, declineFailure, footerOf, progressOf } from "./labels.ts";
+import type { ProjectPath } from "../../core/server/domain/paths.ts";
+import { answerOf, chipTitle, declineFailure, footerOf, phaseText, progressOf } from "./labels.ts";
 import { grillNumber } from "./parse.ts";
 import { GrillButton, Proposal } from "./proposal.tsx";
 import { AS_RECOMMENDED } from "./protocol.ts";
@@ -248,6 +249,42 @@ async function end(path: string, open: readonly string[]): Promise<void> {
   await post("close", { reason: "page" });
 }
 
+/** An end in flight, from the band or the panel: a second click would send what is typed again. */
+const ending = signal(false);
+
+/**
+ * End grill, the page's one way to end it, drawn in the band and on the panel once Claude's
+ * turn ended: greyed until the transcript loads, so no answer typed is closed unread, while a
+ * reply waits to show in it, and while an end is in flight.
+ */
+function EndGrill(props: {
+  readonly file: ProjectPath;
+  readonly look: "band" | "primary" | "secondary";
+}): preact.JSX.Element {
+  const { file, look } = props;
+  const blocks = blocksOn(file);
+  const { open } = roundsOf(blocks ?? [], typedOn(file).answers, null);
+
+  return (
+    <Button
+      size={look === "band" ? "sm" : "md"}
+      variant={look === "primary" ? "grill" : "default"}
+      class={look === "primary" ? "lit" : undefined}
+      disabled={blocks === null || ending.value || replyPending.value}
+      title={replyWhy(blocks)}
+      onClick={() => {
+        if (blocks === null || ending.peek()) return;
+        ending.value = true;
+        void end(file, open).finally(() => {
+          ending.value = false;
+        });
+      }}
+    >
+      {look === "band" ? "End grill" : "End grill and return to plan"}
+    </Button>
+  );
+}
+
 /** Why the Grill button is greyed, in its title; `null` while a grill can open. It hides while one is. */
 function grillWhy(state: GrillState | null): string | null {
   if (connection.value === "down") return "The connection to the review server is lost";
@@ -279,10 +316,8 @@ function GrillBand(props: {
 }): preact.JSX.Element {
   const { file, subject } = props.state;
   const blocks = blocksOn(file);
-  const { open, waiting } = roundsOf(blocks ?? [], typedOn(file).answers, null);
+  const { waiting } = roundsOf(blocks ?? [], typedOn(file).answers, null);
   const progress = progressOf(roundNow(blocks ?? []), waiting);
-  /** An end in flight: a second click would send what is typed again. */
-  const [ending, setEnding] = useState(false);
 
   return (
     <div class="grill-band">
@@ -293,18 +328,7 @@ function GrillBand(props: {
       <span class="count" role="status">
         {progress}
       </span>
-      <Button
-        size="sm"
-        disabled={blocks === null || ending || replyPending.value}
-        title={replyWhy(blocks)}
-        onClick={() => {
-          if (ending) return;
-          setEnding(true);
-          void end(file, open).finally(() => setEnding(false));
-        }}
-      >
-        End grill
-      </Button>
+      <EndGrill file={file} look="band" />
     </div>
   );
 }
@@ -600,6 +624,11 @@ function OpenGrill(props: {
   const own = typedOn(path);
   const [picked, setPicked] = useState<string | null>(null);
   const view = roundsOf(blocks, own.answers, picked);
+  /** Add a note clicked on the idle screen, where the note waits behind End grill. */
+  const [noting, setNoting] = useState(false);
+  const noteField = useRef<HTMLTextAreaElement>(null);
+  // A note in the draft is never hidden: the idle screen shows the foot that holds it.
+  const footShown = phase !== "idle" || noting || own.note.trim() !== "";
 
   const answer = (id: string, text: string): void =>
     setTyped({
@@ -628,11 +657,34 @@ function OpenGrill(props: {
     if (firstOpen !== null) round.current?.scrollIntoView({ block: "start" });
   }, [firstOpen]);
 
+  useEffect(() => {
+    if (phase !== "idle") setNoting(false);
+  }, [phase]);
+
+  useEffect(() => {
+    if (noting) noteField.current?.focus();
+  }, [noting]);
+
   return (
     <aside class="grill-panel" aria-label="Grill">
       <div class="grill-sheet">
         <div class="plan">
           <Transcript blocks={blocks} card={() => null} />
+          {/* The panel's one live region, drawn empty while a round is open: a status added with its text is not read out. */}
+          <div class={`grill-phase ${phase}`}>
+            <p role="status">{phaseText(phase, roundNow(blocks))}</p>
+            {phase === "idle" && (
+              <div class="row">
+                <EndGrill file={path} look="primary" />
+                {!footShown && <Button onClick={() => setNoting(true)}>Add a note</Button>}
+              </div>
+            )}
+            {phase === "stopped" && (
+              <div class="row">
+                <EndGrill file={path} look="secondary" />
+              </div>
+            )}
+          </div>
           {view.rounds.length > 0 && (
             <div class="grill-round" ref={round}>
               <RoundView
@@ -654,33 +706,31 @@ function OpenGrill(props: {
               />
             </div>
           )}
-          {phase === "working" && (
-            <p class="grill-working" role="status">
-              Claude is working. The next round appears here.
+        </div>
+        {footShown && (
+          <div class="grill-foot">
+            <textarea
+              ref={noteField}
+              aria-label="Anything else for Claude"
+              placeholder="Anything else. Ctrl+Enter sends."
+              value={own.note}
+              onInput={(event) => note(event.currentTarget.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) sendNow();
+              }}
+            />
+            <p class="note">
+              {open.length > 0
+                ? "Answers go to Claude once its turn ends."
+                : "No question is open. A note goes to Claude once its turn ends."}
             </p>
-          )}
-        </div>
-        <div class="grill-foot">
-          <textarea
-            aria-label="Anything else for Claude"
-            placeholder="Anything else. Ctrl+Enter sends."
-            value={own.note}
-            onInput={(event) => note(event.currentTarget.value)}
-            onKeyDown={(event) => {
-              if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) sendNow();
-            }}
-          />
-          <p class="note">
-            {open.length > 0
-              ? "Answers go to Claude once its turn ends."
-              : "No question is open. A note goes to Claude once its turn ends."}
-          </p>
-          <div class="row">
-            <Button variant="send" disabled={!live} title={replyWhy(loaded)} onClick={sendNow}>
-              {view.send}
-            </Button>
+            <div class="row">
+              <Button variant="send" disabled={!live} title={replyWhy(loaded)} onClick={sendNow}>
+                {view.send}
+              </Button>
+            </div>
           </div>
-        </div>
+        )}
       </div>
     </aside>
   );

@@ -834,6 +834,172 @@ test.describe("a round in the panel", () => {
   });
 });
 
+/** The panel's live line: where the grill stands, empty while a round waits for the reviewer. */
+function phaseLine(page: Page): Locator {
+  return panel(page).locator(".grill-phase").getByRole("status");
+}
+
+function panelEnd(page: Page): Locator {
+  return panel(page).getByRole("button", { name: "End grill and return to plan" });
+}
+
+function noteField(page: Page): Locator {
+  return panel(page).getByRole("textbox", { name: "Anything else for Claude" });
+}
+
+/** The round of `asking` sent, then Claude's turn ended with no round, as the harness ends it unless `turn` says otherwise. */
+async function answered(
+  page: Page,
+  vellum: Vellum,
+  turn: Parameters<Vellum["grill"]["answer"]>[1] = {},
+): Promise<void> {
+  await asking(page, vellum);
+  await sendRound(page).click();
+  await expect(phaseLine(page)).toHaveText("Claude is preparing round 2.");
+  await vellum.grill.answer("The frontier is empty.", turn);
+}
+
+/** Each text reads on its surface, light then dark, polled: a button's colours move in a transition. */
+async function readable(page: Page, texts: readonly Locator[]): Promise<void> {
+  for (const colorScheme of ["light", "dark"] as const) {
+    await page.emulateMedia({ colorScheme });
+
+    for (const text of texts) {
+      await expect.poll(() => onItsSurface(text)).toBeGreaterThanOrEqual(4.5);
+    }
+  }
+}
+
+/** Axe over the panel, light then dark. */
+async function faultless(page: Page): Promise<void> {
+  for (const colorScheme of ["light", "dark"] as const) {
+    await page.emulateMedia({ colorScheme });
+    expect(await axe(page, ".grill-panel")).toEqual([]);
+  }
+}
+
+test.describe("the panel's phases", () => {
+  test("before the first round, it says Claude prepares it", async ({ page, vellum }) => {
+    await vellum.grill.open(SUBJECT);
+    await openVellum(page, vellum);
+
+    await expect(phaseLine(page)).toHaveText("Claude is preparing the first round.");
+  });
+
+  test("a round open says nothing; sent, it says Claude prepares the next", async ({
+    page,
+    vellum,
+  }) => {
+    await asking(page, vellum);
+    await expect(phaseLine(page)).toHaveText("");
+    await sendRound(page).click();
+
+    await expect(phaseLine(page)).toHaveText("Claude is preparing round 2.");
+  });
+
+  test("Claude's turn ended with no round: End grill is the panel's primary action, under Claude's last word", async ({
+    page,
+    vellum,
+  }) => {
+    await answered(page, vellum);
+    await expect(phaseLine(page)).toHaveText("Claude has no question open.");
+    const grillColour = await band(page).evaluate((node) => getComputedStyle(node).backgroundColor);
+
+    await expect(panel(page).locator(".plan")).toContainText("The frontier is empty.");
+    await expect(panelEnd(page)).toHaveCSS("background-color", grillColour);
+    await expect(noteField(page)).toHaveCount(0);
+  });
+
+  test("Add a note opens the note, focused, and the note sets Claude to work", async ({
+    page,
+    vellum,
+  }) => {
+    await answered(page, vellum);
+    await panel(page).getByRole("button", { name: "Add a note" }).click();
+    await expect(noteField(page)).toBeFocused();
+    await noteField(page).fill("One more branch: the audit trail.");
+    await sendRound(page).click();
+
+    await expect(phaseLine(page)).toHaveText("Claude is preparing round 2.");
+    await expect
+      .poll(async () => (await vellum.grill.state()).json)
+      .toMatchObject({
+        phase: "working",
+      });
+  });
+
+  test("a note typed there comes back with the page, its field shown", async ({ page, vellum }) => {
+    await answered(page, vellum);
+    await panel(page).getByRole("button", { name: "Add a note" }).click();
+    await noteField(page).fill("One more branch.");
+    await expect
+      .poll(async () => JSON.stringify((await vellum.api("draft")).json))
+      .toContain("One more branch.");
+    await page.reload();
+
+    await expect(noteField(page)).toHaveValue("One more branch.");
+  });
+
+  test("an interrupted turn says so, with the note to continue and End grill", async ({
+    page,
+    vellum,
+  }) => {
+    await answered(page, vellum, { reason: "aborted" });
+
+    await expect(phaseLine(page)).toHaveText(
+      "Claude's turn was interrupted. Add a note to continue.",
+    );
+    await expect(noteField(page)).toBeVisible();
+    await expect(panelEnd(page)).toBeVisible();
+  });
+
+  test("axe finds nothing to fault on the working, idle and stopped screens, light and dark", async ({
+    page,
+    vellum,
+  }) => {
+    await answered(page, vellum);
+    await expect(panelEnd(page)).toBeVisible();
+    await faultless(page);
+    await panel(page).getByRole("button", { name: "Add a note" }).click();
+    await noteField(page).fill("Go on.");
+    await sendRound(page).click();
+    await expect(phaseLine(page)).toHaveText("Claude is preparing round 2.");
+    await faultless(page);
+    await vellum.grill.answer("Reading the note", { reason: "aborted" });
+    await expect(phaseLine(page)).toHaveText(/interrupted/u);
+    await faultless(page);
+  });
+
+  test("the idle screen's words and buttons read on their surfaces, light and dark", async ({
+    page,
+    vellum,
+  }) => {
+    await answered(page, vellum);
+    await expect(phaseLine(page)).toHaveText("Claude has no question open.");
+
+    await readable(page, [
+      phaseLine(page),
+      panelEnd(page),
+      panel(page).getByRole("button", { name: "Add a note" }),
+    ]);
+  });
+
+  test("the working and stopped screens' words read on their surfaces, light and dark", async ({
+    page,
+    vellum,
+  }) => {
+    await vellum.grill.open(SUBJECT);
+    await openVellum(page, vellum);
+    await expect(phaseLine(page)).toHaveText(/preparing/u);
+    await readable(page, [phaseLine(page)]);
+    await page.emulateMedia({ colorScheme: "light" });
+    await vellum.grill.answer("Two facts first", { reason: "aborted" });
+    await expect(phaseLine(page)).toHaveText(/interrupted/u);
+
+    await readable(page, [phaseLine(page), panelEnd(page)]);
+  });
+});
+
 /** Longer than the band is wide at 1920: its end must be cut, never wrapped. */
 const LONG_SUBJECT = Array.from(
   { length: 6 },

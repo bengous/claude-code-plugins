@@ -294,7 +294,14 @@ iframe { border: 0; width: 100%; height: 100%; display: block; background: var(-
 .grill-sheet { flex: 1; min-height: 0; overflow: auto; display: flex; flex-direction: column; scroll-padding-bottom: var(--grill-foot); }
 .grill-panel .plan { flex: 1; padding: var(--s-4) var(--s-4) var(--s-6); }
 .grill-panel .plan h1 { font-size: var(--t-20); }
-.grill-working { color: var(--graphite); font-style: italic; max-width: var(--measure); }
+/* Where the grill stands, under Claude's last word: a line while Claude works, a card once its turn ended, nothing while a round is open. */
+.grill-phase { max-width: var(--measure); }
+.grill-phase p { margin: 0; }
+.grill-phase.working p { color: var(--graphite); font-style: italic; margin-top: var(--s-4); }
+.grill-phase.idle, .grill-phase.stopped { display: grid; gap: var(--s-3); margin-top: var(--s-4); padding: var(--s-3) var(--s-4); border: 1px solid var(--rule); border-left: 3px solid var(--graphite); border-radius: var(--r-md); background: var(--field); }
+.grill-phase.idle { border-color: var(--ok); background: color-mix(in oklab, var(--ok) 8%, var(--field)); }
+.grill-phase.idle p, .grill-phase.stopped p { font-weight: 650; }
+.grill-phase .row { justify-content: flex-start; flex-wrap: wrap; margin-top: 0; }
 .grill-when { color: var(--graphite); font-size: var(--t-13); }
 .grill-doc .plan h2, .grill-panel .plan h2 { font: 600 var(--t-16)/var(--lh-title) var(--serif); color: var(--graphite); border-top: 1px solid var(--rule); padding-top: var(--s-3); margin-top: var(--s-8); }
 .grill-doc .plan h3, .grill-panel .plan h3 { font: 650 var(--t-13)/1.4 var(--serif); color: var(--ask); margin: var(--s-3) 0 0; }

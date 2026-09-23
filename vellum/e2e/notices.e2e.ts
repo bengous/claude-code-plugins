@@ -287,18 +287,18 @@ test.describe("the grill", () => {
 
     const panel = page.getByRole("complementary", { name: "Grill" });
     const working = panel.getByRole("status");
-    await expect(working).toBeVisible();
+    await expect(working).toHaveText("Claude is preparing the first round.");
     await expect(page.locator(".bar .status")).toHaveText("Held · grill 2 is open");
     await vellum.grill.ask(ROUND_1);
     await vellum.grill.answer("Round 1 is on the page.", { asked: true });
     await expect(panel.locator(".grill-chips .chip")).toHaveCount(3);
-    await expect(working).toHaveCount(0);
+    await expect(working).toHaveText("");
 
     const sheet = panel.locator(".grill-sheet");
     await sheet.evaluate((element) => element.scrollTo(0, element.scrollHeight));
     await panel.getByRole("textbox", { name: "Your answer to Q1" }).fill("IndexedDB only.");
     await panel.getByRole("button", { name: /^Send round/u }).click();
-    await expect(working).toBeVisible();
+    await expect(working).toHaveText("Claude is preparing round 2.");
     await sheet.evaluate((element) => element.scrollTo(0, 0));
     await vellum.grill.ask(ROUND_2);
     await vellum.grill.answer("Round 2 is on the page.", { asked: true });

@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import { answerOf, chipTitle, declineFailure, footerOf, progressOf } from "./labels.ts";
+import { answerOf, chipTitle, declineFailure, footerOf, phaseText, progressOf } from "./labels.ts";
 
 describe("footerOf", () => {
   test("names who ended the grill, never the reason's code", () => {
@@ -50,5 +50,18 @@ describe("chipTitle", () => {
     expect(chipTitle("answered")).toBe("Answered");
     expect(chipTitle("default")).toBe("Taken as recommended, by default");
     expect(chipTitle("waiting")).toBe("Waiting: a send takes it as recommended");
+  });
+});
+
+describe("phaseText", () => {
+  test("says which round Claude prepares while it works", () => {
+    expect(phaseText("working", 0)).toBe("Claude is preparing the first round.");
+    expect(phaseText("working", 2)).toBe("Claude is preparing round 3.");
+  });
+
+  test("says nothing while a round is open, and how Claude's turn ended once it did", () => {
+    expect(phaseText("asking", 1)).toBe("");
+    expect(phaseText("idle", 1)).toBe("Claude has no question open.");
+    expect(phaseText("stopped", 1)).toBe("Claude's turn was interrupted. Add a note to continue.");
   });
 });

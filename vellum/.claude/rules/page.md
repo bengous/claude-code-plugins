@@ -136,7 +136,7 @@ no build step, so what the page imports costs nothing at `cli start`.
   with the editor; a card's Delete leaves an `undo` for a while. `app.tsx` draws the column with
   `Notices`, the core's first, then each extension's `notices` components: the grill's proposal
   is one, a `Dialog`, shown while it is mounted, and its band another, drawn while a grill is
-  open: the subject, the round, the questions that wait for the reviewer, open and untouched in the draft as the chips count them, and End grill, the page's one. Its
+  open: the subject, the round, the questions that wait for the reviewer, open and untouched in the draft as the chips count them, and End grill. End grill is one component, `EndGrill` in `grill/page.tsx`, which the panel draws too once Claude's turn ended, with one end in flight for the page. Its
   count alone is `role="status"`, drawn empty with none waiting, so a new count is read out and
   End grill never is. The band carries the grill, so the Grill button hides meanwhile. A modal never opens under a typing: the editor
   open, a popover up (`popoverUp` of the kit) or a field focused, `showModal()` would take the
@@ -251,8 +251,15 @@ no build step, so what the page imports costs nothing at `cli start`.
   open one with its two choices, or its field alone when Claude gave no recommendation, an answered one read-only (`roundsOf` in `grill/rounds.ts`,
   pure, on the blocks as served); its send says how many open questions it takes as
   recommended. Send round and End grill wait on one reply (`replying`), from the click until the
-  transcript shows it, so neither sends what is typed twice nor over blocks read before it. While Claude works on a round the panel carries a `role="status"` line, and a
-  round that lands shows its first open question, scrolled into view.
+  transcript shows it, so neither sends what is typed twice nor over blocks read before it. A
+  round that lands shows its first open question, scrolled into view. Between the text and the
+  chips the panel carries its one live region, `role="status"`, drawn empty while a round waits
+  for the reviewer, and says the grill's phase, which is the server's (`GrillState.open.phase`),
+  never derived from the blocks (`phaseText` in `grill/labels.ts`): while Claude works, the round
+  it prepares; once its turn ended with no question open (`idle`), a card under Claude's last
+  words whose primary action is End grill, the foot with its note behind Add a note, unless the
+  draft holds a note; a turn cut short (`stopped`), the same card with End grill secondary and
+  the foot shown, the note being the way on.
 - A block says its source lines in `data-lines="start-end"`: `markdown/tree.ts` writes it,
   `parseLines` of `anchoring.ts` is the one place it is read, and `tree.spec.ts` holds the two
   together. Every reader calls it, the pure helpers of `markdown/` included: a second copy of
