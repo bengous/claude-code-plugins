@@ -257,7 +257,7 @@ constraints below are why. The contract is `src/core/extension.ts`, types only, 
 
 | Half | File | Declares | Reached from |
 |---|---|---|---|
-| page | `<id>/page.tsx` | a `PageExtension`: its renderers, tried in registry order, and its actions in the decision bar | `core/page/app.tsx`, through `extensions/page.ts` |
+| page | `<id>/page.tsx` | a `PageExtension`: its renderers, tried in registry order, its actions in the decision bar, its notices under it, and its panel, a pane `panesOf` places beside the document pane | `core/page/app.tsx`, through `extensions/page.ts` |
 | server | `<id>/server.ts` | a `ServerExtension`: `linkedDocs`, pure, candidates in and links out; its routes, mounted at `/api/x/<id>/`, their IO through a `ServerContext`; `holds`, what holds the review; `approved`, what it closes after the rename | `core/server/adapters/http/serve.ts`, through `extensions/server.ts` |
 | engine | `<id>/engine.ts` | an `EngineExtension`: tools, refusals, and handlers for a prompt, a finished turn, a poll and the mode's end | `core/engine/register.ts`, through `extensions/engine.ts` |
 
@@ -316,7 +316,7 @@ The crossroads a feature used to edit, and the place `grill` opened for each:
 | Crossroads | Place opened |
 |---|---|
 | `core/server/adapters/http/routes.ts` | `ServerExtension.routes`, mounted under `/api/x/<id>/` behind the token |
-| `core/page/app.tsx`, `core/page/state.ts` | `PageExtension.actions`, drawn in the decision bar |
+| `core/page/app.tsx`, `core/page/state.ts` | `PageExtension.actions`, drawn in the decision bar; `PageExtension.panel`, a pane beside the documents, in the order `PANE_ORDER` of `core/page/panes.ts` holds |
 | `core/engine/register.ts` | `EngineExtension`: tools, refusals, prompted, answered, tick, closing |
 | `core/protocol.ts` | an extension's messages live in its own `protocol.ts` |
 

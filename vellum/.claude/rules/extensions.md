@@ -8,7 +8,8 @@ paths:
 
 An extension is a folder, `src/extensions/<id>/`, with one file per place where it plugs into
 the core: `page.tsx` declares a `PageExtension` (its renderers, its actions in the decision
-bar), `server.ts` a `ServerExtension` (its `linkedDocs`, its routes, what `holds` the review,
+bar, its notices under the bar, its panel beside the document pane, placed by `panesOf`),
+`server.ts` a `ServerExtension` (its `linkedDocs`, its routes, what `holds` the review,
 what it closes once `approved`). Both types live in
 `src/core/extension.ts`. `markdown`, `html`, `image` and `grill` are extensions like the next
 ones. A third half,

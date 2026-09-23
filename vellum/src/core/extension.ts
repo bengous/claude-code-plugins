@@ -27,6 +27,12 @@ export type Renderer = {
   readonly component: ComponentType<RendererProps>;
 };
 
+/** A pane the core draws beside the document pane while `shown()` holds; keyed by its extension's id. */
+export type Panel = {
+  readonly shown: () => boolean;
+  readonly component: ComponentType;
+};
+
 export type PageExtension = {
   readonly id: string;
   readonly renderers?: readonly Renderer[];
@@ -34,6 +40,8 @@ export type PageExtension = {
   readonly actions?: readonly ComponentType[];
   /** Drawn in the notices column under the bar, in the flow, after the core's own: the grill's proposal, a modal. */
   readonly notices?: readonly ComponentType[];
+  /** Placed among the panes by `panesOf` of `page/panes.ts`. */
+  readonly panel?: Panel;
 };
 
 /**

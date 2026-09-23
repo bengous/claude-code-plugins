@@ -10,10 +10,12 @@ import { DecisionBar, Notices } from "./decision-bar.tsx";
 import { DocList, RailHandle } from "./doc-list.tsx";
 import { Editor } from "./editor.tsx";
 import { pathLabel } from "./labels.ts";
+import { PANE_ORDER, panesOf } from "./panes.ts";
 import { isSwitchKey, keyPressOf } from "./selection.ts";
 import {
   addAnnotation,
   annotations,
+  commentsOpen,
   currentDoc,
   edited,
   editing,
@@ -132,7 +134,23 @@ const actions = pageExtensions.flatMap((extension) => extension.actions ?? []);
 
 const extraNotices = pageExtensions.flatMap((extension) => extension.notices ?? []);
 
+const panels = pageExtensions.flatMap(({ id, panel }) =>
+  panel === undefined ? [] : [{ id, panel }],
+);
+
 function App(): preact.JSX.Element {
+  const panes = panesOf(
+    PANE_ORDER,
+    panels.filter(({ panel }) => panel.shown()),
+  );
+
+  const panelShown = panes.some((pane) => pane.kind === "panel");
+
+  // Four columns do not fit a laptop: a panel appearing takes the comments' room, their handle kept.
+  useEffect(() => {
+    if (panelShown) commentsOpen.value = false;
+  }, [panelShown]);
+
   useEffect(() => {
     void start();
 
@@ -171,7 +189,12 @@ function App(): preact.JSX.Element {
       <div class="body">
         <DocList />
         <RailHandle />
-        <Panes />
+        {panes.map((pane) => {
+          if (pane.kind === "docs") return <Panes key="docs" />;
+          const Component = pane.panel.component;
+
+          return <Component key={pane.id} />;
+        })}
         {takesComments() && (
           <>
             <Comments doc={commented()} />

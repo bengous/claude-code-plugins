@@ -61,6 +61,12 @@ no build step, so what the page imports costs nothing at `cli start`.
 - `app.tsx` is the one file that reads the registry: it picks the renderer and hands the
   extensions' `actions` to the decision bar, which draws them before its own buttons. An action
   that follows the workspace reads `review` and loads its own state again at every change.
+- The body is panes, left to right in the order `panesOf` of `panes.ts` gives, purely: the
+  document pane (`Panes`, where the rail's choice and `split` show) and each extension's `panel`
+  while its `shown()` holds. The order is data, `PANE_ORDER`, written nowhere else until settings
+  exist; a shown panel it omits comes after, right of the documents. A panel draws its own
+  element and width, and keeps a gutter on its right for the comments' handle, as `.panes` keeps
+  one for both handles.
 - A renderer that declares `comments: false` draws a document the reviewer answers in place, as
   a grill's transcript: `app.tsx` then draws no switch and no comments panel, unless the
   plan shows beside it. The unsent comments stay in the signals, and the bar keeps their count.
@@ -70,7 +76,9 @@ no build step, so what the page imports costs nothing at `cli start`.
   `app.tsx` places on the panel's edge inside `.body`. The comments panel's CSS takes its width
   to zero; the rail slides out by the left, a negative `margin-left` that `.app` clips, so its
   lines never reflow while it moves. A fold never unmounts a panel; a renderer with
-  `comments: false` still unmounts the comments panel, as above. Folded, a panel is `inert`: what leaves the screen hides pixels, not
+  `comments: false` still unmounts the comments panel, as above. An extension's panel appearing
+  folds the comments panel, its handle kept, since four columns do not fit a laptop: `app.tsx`
+  does it, as layout, and no extension writes `commentsOpen`. Folded, a panel is `inert`: what leaves the screen hides pixels, not
   focus. The comments handle's badge is the unfiltered total, the one count a folded panel still
   shows. The rail's carries none, though folded the rail hides each document's count and any
   document Claude writes meanwhile: it opens at every load, and only the reviewer folds it.
