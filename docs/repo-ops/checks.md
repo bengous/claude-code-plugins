@@ -19,3 +19,48 @@ The checks run as a ladder, from each edit to CI: the Claude Code post-edit fixe
 Triggers on `pull_request` to `main`/`dev` and on `push` to `dev` and `main`. `main` is in the push list as a backstop: a ref update reaching it outside the release path still gets validated. The guard checks that `main` is an ancestor of `dev` (`git merge-base --is-ancestor`): `main` must always be a fast-forward prefix of `dev`.
 
 Two jobs. `validate` is the ladder above, and the one `scripts/check-lint-config.ts` reads for parity. `e2e` runs vellum's browser suite (`bun run --cwd vellum e2e`) after Playwright installs its Chromium with the runner's system libraries (`playwright install --with-deps`, which wants root: locally, `bun run --cwd vellum e2e:install` installs the browser alone). No hook runs the suite: it takes seconds per file, and `pre-push` already runs every gate.
+
+Both jobs still run on every trigger above. What replaces this, and in which order: [Which suite runs on which trigger](#which-suite-runs-on-which-trigger).
+
+## Which suite runs on which trigger
+
+Decided in #168. `e2e` runs on request, no longer on every push. A local gate on the push to `dev` keeps a change to the browser suite's paths from landing untested.
+
+| Trigger | `validate` | `e2e` |
+|---|---|---|
+| PR push, any commit | yes | no |
+| Push to `dev` | yes, never cancelled | no |
+| Push to `main` | yes, the backstop | no |
+| One-shot `e2e` label on a PR | yes | yes, five windows; the workflow removes the label |
+| `workflow_dispatch`, any ref | yes | yes, five windows |
+
+None of it holds yet: [CI](#ci) describes what runs today. Each change is its own issue, and each brings this section to the present tense when it lands:
+
+- #192, first: the gate below, the landing order in [Git procedures](git.md), and the inline-lane rule in `AGENTS.md`. It works with today's PR runs, which already put an `e2e` check on each branch head.
+- #193, after #192: the triggers of the table. In that order, there is never a window with no e2e at all.
+- #194: one job per window (`--project=<window>`), behind one aggregate check still named `e2e`, the one the gate reads. It measures the matrix's wall time.
+- #195: the fixed cost each test pays, measured, then cut.
+- #196: `labels.e2e.ts` "a mockup's element by its label" timed out at `light-1024` in run 35831750016, which turned `dev` red at 38298fb. It is a finding of this work, not part of the decision.
+
+The gate:
+
+- A push to `dev` whose range touches the e2e paths needs a green `e2e` check on the exact SHA it pushes. A lefthook `pre-push` script refuses it otherwise, on the model of `scripts/check-plugin-bumps.ts --pre-push`, and reads the SHA's check runs through `gh api`. It fails closed, with the reason and the command that triggers a run. `--no-verify` is the recovery hatch. It is no `EXPECTED_COMMANDS` entry: it needs the network and a run that already happened.
+- The e2e paths have one owner, the gate script. They cover `vellum/**`, `docs/plugin-testing.md` (cited by the fixtures, asserted by `labels.e2e.ts`), `mise.toml` and `.github/workflows/ci.yml`. They leave out what the suite never loads: `vellum/src/core/engine/**`, `vellum/src/extensions/*/engine.ts`, `vellum/hooks/`, `vellum/skills/`, `vellum/agents/`, `*.spec.ts` and `*.test.ts`. A new directory under `vellum/` is inside by default. Of the 120 commits in `3850659^..947e49c`, 48 touch none of these paths.
+- Landing: the rebased branch is pushed first, `e2e` runs on that SHA and turns green, then `git push origin <branch>:dev`, the order [Git procedures](git.md) already uses. A commit that touches the e2e paths goes through a branch, not the inline lane: the check needs a pushed ref to run on.
+
+Why:
+
+- The cost. Run 35834032446 (push to `dev`, 947e49c) took 803 s for `e2e`, 767 s of it the suite (`Running 620 tests using 2 workers`, `612 passed (12.8m)`), and 57 s for `validate`.
+- The reruns. A merge train runs `e2e` twice per landing, once on the PR sync and once on the `dev` push (#168, comment on runs #359–#370). A release runs it again on a SHA already tested: 947e49c ran in 35834032446 (`dev`) and again in 35834555129 (`main`, 823 s).
+- The time goes per test, not per window. In 35834032446 the median test took 2.3 s, and a short one takes as long, since each test starts its own `preview.ts` (`vellum/e2e/harness.ts`). Each window's results span 148 to 153 s on 2 workers, after 31 s of setup: that is the matrix's estimate, which #194 replaces with a measurement.
+- No `concurrency` group. `e2e` runs only on request, and a new request must never kill a running one. `validate` must finish on every `dev` head, since [Git procedures](git.md) Release releases only a green one.
+- `e2e` stays non-required on `main`: with the gate, every landed SHA that touched the e2e paths was already tested.
+
+Rejected:
+
+- `--only-changed`: Playwright follows the test files' imports, and those never reach the spawned server or the page bundle.
+- Caching the browser: Playwright's CI guide advises against it, and the install took 23 s in 35834032446.
+- A required check on `dev`: it would block the inline lane, and every SHA whose range the path list skips.
+- A merge queue: GitHub rewrites the commits, which strips their signatures ([Git procedures](git.md), Why fast-forward).
+- A filter per zone: `core/page`, `core/server` and the markdown rendering are loaded by every test file.
+- Fewer windows: the matrix takes away the wall-time reason to drop any.
