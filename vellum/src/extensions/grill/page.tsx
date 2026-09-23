@@ -347,8 +347,8 @@ type OpenQuestionProps = {
   /** The draft's typing for it: absent takes the recommendation by default, `As recommended.` chooses it. */
   readonly typing: string | undefined;
   readonly onType: (text: string) => void;
-  /** Ctrl+Enter in the field, as in the foot's; `null` while nothing can be sent. */
-  readonly onSend: (() => void) | null;
+  /** Ctrl+Enter in the field, as in the foot's. */
+  readonly onSend: () => void;
 };
 
 /**
@@ -410,7 +410,7 @@ function OpenQuestion(props: OpenQuestionProps): preact.JSX.Element {
             value={own}
             onInput={(event) => props.onType(event.currentTarget.value)}
             onKeyDown={(event) => {
-              if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) props.onSend?.();
+              if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) props.onSend();
             }}
           />
         </div>
@@ -541,10 +541,13 @@ function OpenGrill(props: {
   readonly state: Extract<GrillState, { kind: "open" }>;
 }): preact.JSX.Element {
   const { file: path, phase } = props.state;
-  const blocks = blocksOn(path) ?? [];
+  const loaded = blocksOn(path);
+  const blocks = loaded ?? [];
   const own = typedOn(path);
   const [picked, setPicked] = useState<string | null>(null);
   const view = roundsOf(blocks, own.answers, picked);
+  /** A send in flight: a second click would send what is typed again. */
+  const [sending, setSending] = useState(false);
 
   const answer = (id: string, text: string): void =>
     setTyped({
@@ -555,7 +558,15 @@ function OpenGrill(props: {
     setTyped({ grill: { ...typed.value.grill, [path]: { ...own, note: text } } });
 
   const open = openIn(blocks);
-  const live = sendable(path, open);
+  // Before the blocks land, no question reads as open, and a send would close the answers typed by default.
+  const live = loaded !== null && !sending && sendable(path, open);
+
+  const sendNow = (): void => {
+    if (!live) return;
+    setSending(true);
+    void send(path, open).finally(() => setSending(false));
+  };
+
   const round = useRef<HTMLDivElement>(null);
   const openBefore = useRef(0);
 
@@ -588,7 +599,7 @@ function OpenGrill(props: {
                       block={block}
                       typing={own.answers[block.id]}
                       onType={(text) => answer(block.id, text)}
-                      onSend={live ? () => void send(path, open) : null}
+                      onSend={sendNow}
                     />
                   ) : (
                     <QuestionCard key={block.id} block={block} />
@@ -610,9 +621,7 @@ function OpenGrill(props: {
             value={own.note}
             onInput={(event) => note(event.currentTarget.value)}
             onKeyDown={(event) => {
-              if (event.key === "Enter" && (event.ctrlKey || event.metaKey) && live) {
-                void send(path, open);
-              }
+              if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) sendNow();
             }}
           />
           <p class="note">
@@ -621,7 +630,12 @@ function OpenGrill(props: {
               : "No question is open. A note goes to Claude once its turn ends."}
           </p>
           <div class="row">
-            <Button variant="send" disabled={!live} onClick={() => void send(path, open)}>
+            <Button
+              variant="send"
+              disabled={!live}
+              title={loaded === null ? "Loading the grill" : undefined}
+              onClick={sendNow}
+            >
               {view.send}
             </Button>
           </div>

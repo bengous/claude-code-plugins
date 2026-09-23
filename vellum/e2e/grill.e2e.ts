@@ -664,6 +664,50 @@ test.describe("a round in the panel", () => {
     await expect(shown(page).locator(".answer .label")).toHaveText("By default");
   });
 
+  test("Send round waits for the transcript, so no answer typed is closed unread", async ({
+    page,
+    vellum,
+  }) => {
+    await asking(page, vellum);
+    await shown(page).getByRole("textbox", { name: "Your answer to Q1" }).fill("One store.");
+    await panel(page).getByRole("textbox", { name: "Anything else for Claude" }).fill("And hurry.");
+    await expect
+      .poll(async () => JSON.stringify((await vellum.api("draft")).json))
+      .toContain("hurry");
+    await page.route("**/api/x/grill/blocks*", (route) => route.fulfill({ status: 500 }));
+    await page.reload();
+    await expect(sendRound(page)).toBeDisabled();
+    await page.unroute("**/api/x/grill/blocks*");
+    vellum.writeFile("notes.md", "One.");
+    await sendRound(page).click();
+
+    await expect
+      .poll(async () => JSON.stringify((await vellum.grill.state()).json))
+      .toContain("Q1: One store.");
+  });
+
+  test("Send round clicked twice sends once: the note reaches Claude once", async ({
+    page,
+    vellum,
+  }) => {
+    await asking(page, vellum);
+    await panel(page)
+      .getByRole("textbox", { name: "Anything else for Claude" })
+      .fill("Keep the audit trail.");
+    await page.route("**/api/x/grill/reply", async (route) => {
+      await new Promise((done) => {
+        setTimeout(done, 300);
+      });
+      await route.continue();
+    });
+    await sendRound(page).dblclick();
+    await expect.poll(statesOf.bind(null, page)).toEqual(["default", "default"]);
+
+    const state = JSON.stringify((await vellum.grill.state()).json);
+    expect(state.split("Keep the audit trail.")).toHaveLength(2);
+    await expect(page.getByRole("alert")).toHaveCount(0);
+  });
+
   test("Claude's text between rounds still reads in the panel", async ({ page, vellum }) => {
     await asking(page, vellum);
     await claudeSays(vellum, "Round 1 is on the page.");
