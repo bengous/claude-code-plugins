@@ -93,6 +93,8 @@
 }
 * { box-sizing: border-box; }
 html, body, #root { height: 100%; }
+/* The page never scrolls itself, its panes do: Mermaid measures a diagram in a box it appends to body, which overflowed the page and flashed a scrollbar that shifted it by its width. */
+html, body { overflow: hidden; }
 body { margin: 0; background: var(--desk); color: var(--ink); font: var(--t-14)/var(--lh-chrome) var(--serif); -webkit-font-smoothing: antialiased; }
 button:focus-visible, textarea:focus-visible, a:focus-visible { outline: 2px solid var(--redline); outline-offset: 2px; }
 .skip { position: absolute; top: -100px; left: var(--s-3); z-index: 4; padding: var(--s-1) var(--s-2); background: var(--sheet); border: 1px solid var(--edge); border-radius: var(--r-sm); color: var(--ink); font: 650 var(--t-13)/1.2 var(--serif); text-decoration: none; }

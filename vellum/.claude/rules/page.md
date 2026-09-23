@@ -263,6 +263,9 @@ no build step, so what the page imports costs nothing at `cli start`.
   Mermaid fills it after the mount: the figure is the one place a renderer writes DOM that Preact
   does not own, and `data-source` is both what a comment on it quotes and what a late render
   checks before it writes. Its comment boxes the figure, since the SVG holds no text to highlight.
+  Mermaid measures each diagram in a box it appends to `body`: the page itself never scrolls
+  (`html, body` in `style.css`), or that box flashes a scrollbar that shifts the whole page by
+  its width while a diagram renders. `shell.e2e.ts` samples the root's scrollbar at every frame.
 - A removed run is drawn as a `details.removed` that holds no text node: its label and its old
   source are attributes, drawn by CSS `content: attr()`. So it takes no pick, and never enters
   the quote search of `anchoring.ts`. `markdown/changes.ts` chooses, purely,

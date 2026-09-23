@@ -54,6 +54,36 @@ function fillet(block: Locator): Promise<{ readonly x: number; readonly y: numbe
   });
 }
 
+/** What the page's root scrollbar measured at its widest, sampled at every frame since the load. */
+type RootBar = { widest: number };
+
+test("the page itself never scrolls, a diagram being drawn included: no scrollbar flashes at its edge", async ({
+  page,
+  vellum,
+}) => {
+  await page.addInitScript(() => {
+    const seen: RootBar = { widest: 0 };
+    // SAFETY: the test's own property on the window, set here before any script of the page runs.
+    (window as Window & { rootBar?: RootBar }).rootBar = seen;
+
+    const sample = (): void => {
+      seen.widest = Math.max(seen.widest, innerWidth - document.documentElement.clientWidth);
+      requestAnimationFrame(sample);
+    };
+
+    requestAnimationFrame(sample);
+  });
+  await reviewV1(page, vellum);
+  await expect(page.locator(".plan figure.mermaid svg")).toHaveCount(2);
+
+  // SAFETY: `rootBar` is the property the init script above set on this window.
+  const widest = await page.evaluate(
+    () => (window as Window & { rootBar?: RootBar }).rootBar?.widest,
+  );
+
+  expect(widest).toBe(0);
+});
+
 test.describe("the handles have a gutter", () => {
   test("the pane, its scrollbar and a mockup stop before the handles", async ({ page, vellum }) => {
     await reviewV1(page, vellum);
