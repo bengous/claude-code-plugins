@@ -18,12 +18,9 @@ permissions:
 # works on a pull request from this repository alone: a fork's gets a read-only token,
 # which cannot take the label off. No concurrency group: a request never cancels another.
 jobs:
+  # No `if:`, whatever the label: a job an `if:` skips reports success to a required check,
+  # and `main` requires `validate`, so a skipped one beside a red one could hide it.
   validate:
-    # Any other label changes no code, and the push's own run already validated the head.
-    if: >-
-      github.event.action != 'labeled'
-      || (github.event.label.name == 'e2e'
-      && github.event.pull_request.head.repo.full_name == github.repository)
     runs-on: ubuntu-latest
     steps:
       - name: Checkout

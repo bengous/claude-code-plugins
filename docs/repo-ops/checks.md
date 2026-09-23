@@ -19,13 +19,13 @@ The checks run as a ladder, from each edit to CI: the Claude Code post-edit fixe
 
 Triggers on `pull_request` to `main`/`dev` (opened, synchronize, reopened, labeled), on `push` to `dev` and `main`, and on `workflow_dispatch`. `main` is in the push list as a backstop: a ref update reaching it outside the release path still gets validated. The guard checks that `main` is an ancestor of `dev` (`git merge-base --is-ancestor`): `main` must always be a fast-forward prefix of `dev`.
 
-Three jobs, each behind an `if:` that follows the table of [Which suite runs on which trigger](#which-suite-runs-on-which-trigger). `validate` is the ladder above, and the one `scripts/check-lint-config.ts` reads for parity: it runs on every trigger but a label other than `e2e`, whose run changes no code. `e2e` runs vellum's browser suite (`bun run --cwd vellum e2e`) after Playwright installs its Chromium with the runner's system libraries (`playwright install --with-deps`, which wants root: locally, `bun run --cwd vellum e2e:install` installs the browser alone), on request only. No hook runs the suite: it takes seconds per file, and `pre-push` already runs every gate. `unlabel` takes the `e2e` label off the pull request as that run starts, so the label asks for one run and the next request is a new label. The workflow's token reads contents only; `unlabel` alone gets `pull-requests: write`, and a re-run of the same run skips it, the label being gone already.
+Three jobs, following the table of [Which suite runs on which trigger](#which-suite-runs-on-which-trigger). `validate` is the ladder above, and the one `scripts/check-lint-config.ts` reads for parity: it runs on every event, any label included, with no `if:`. A job its `if:` skips reports success to a required check (GitHub's [Troubleshooting required status checks](https://docs.github.com/en/pull-requests/collaborating-with-pull-requests/collaborating-on-repositories-with-code-quality-features/troubleshooting-required-status-checks)), and `main` requires `validate` ([GitHub branch protections](protections.md)): a skipped `validate` beside a red one could hide it, where a real run per label costs under a minute. `e2e` runs vellum's browser suite (`bun run --cwd vellum e2e`) after Playwright installs its Chromium with the runner's system libraries (`playwright install --with-deps`, which wants root: locally, `bun run --cwd vellum e2e:install` installs the browser alone), on request only. No hook runs the suite: it takes seconds per file, and `pre-push` already runs every gate. `unlabel` takes the `e2e` label off the pull request as that run starts, so the label asks for one run and the next request is a new label. The workflow's token reads contents only; `unlabel` alone gets `pull-requests: write`, and a re-run of the same run skips it, the label being gone already.
 
-A job its `if:` skips still leaves a check run on the SHA, concluded `skipped`: most SHAs carry a `skipped` `e2e`, which the e2e gate reads as no run.
+A job its `if:` skips still leaves a check run on the SHA, concluded `skipped`: most SHAs carry a `skipped` `e2e` and a `skipped` `unlabel`; the e2e gate reads a `skipped` `e2e` as no run.
 
 The two requests:
 
-- The `e2e` label on a pull request whose head is in this repository: `gh pr edit <branch> --add-label e2e`. It runs `validate` and `e2e` on the pull request's head. On a fork's pull request it does nothing: the fork's run gets a read-only token, which cannot take the label off.
+- The `e2e` label on a pull request whose head is in this repository: `gh pr edit <branch> --add-label e2e`. It runs `validate` and `e2e` on the pull request's head. On a fork's pull request it runs `validate` alone, as any other label does: the fork's run gets a read-only token, which cannot take the label off.
 - `gh workflow run ci.yml --ref <branch>`, on any ref: `validate` and `e2e`. GitHub reads the `workflow_dispatch` trigger from the default branch's `ci.yml`, so it answers once a release has carried it to `main`. Its checks stay out of a pull request's checks list, but they are check runs on the ref's head, which is what the e2e gate reads.
 
 ## Which suite runs on which trigger
@@ -38,6 +38,7 @@ Decided in #168. `e2e` runs on request, no longer on every push. A local gate on
 | Push to `dev` | yes, never cancelled | no |
 | Push to `main` | yes, the backstop | no |
 | One-shot `e2e` label on a PR | yes | yes, five windows; the workflow removes the label |
+| Any other label on a PR | yes, never skipped | no |
 | `workflow_dispatch`, any ref | yes | yes, five windows |
 
 The table holds ([CI](#ci)), and so does the gate below; the `workflow_dispatch` row answers once a release has carried `ci.yml` to `main`. Each change is its own issue, and each brings this section to the present tense when it lands:
