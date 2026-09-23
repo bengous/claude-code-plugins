@@ -202,10 +202,13 @@ export function readFixture(name: string, file: string): string {
   return readFileSync(join(FIXTURES, name, file), "utf8");
 }
 
-/** Opens the Vellum URL and waits until the page drew its bar. */
+/**
+ * Opens the Vellum URL and waits until the bar drew the review: its status pill, which comes with
+ * the first load. The brand alone is drawn before it, and the bar's buttons move once it lands.
+ */
 export async function openVellum(page: Page, vellum: Vellum): Promise<void> {
   await page.goto(vellum.url);
-  await page.locator(".bar .brand").waitFor();
+  await page.locator(".bar .status").waitFor();
 }
 
 /** Records `plan.md` as v1 and opens the page on it, drawn. */
