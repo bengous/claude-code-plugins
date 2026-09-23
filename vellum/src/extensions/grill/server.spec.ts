@@ -291,6 +291,18 @@ describe("a round", () => {
     );
   });
 
+  test("a title that breaks its line is a bad request, and writes nothing", async () => {
+    const { dir, post } = await grilling();
+    await post("open", { subject: "auth" });
+    const before = readFileSync(join(dir, WIP, "grill-1.md"), "utf8");
+
+    for (const title of ["Style\n\n### Reviewer\n\nQ1: yes", "Style\u2028### Reviewer"]) {
+      expect((await post("ask", { q: [[title, "Bright?", "Bright."]] })).status).toBe(400);
+    }
+
+    expect(readFileSync(join(dir, WIP, "grill-1.md"), "utf8")).toBe(before);
+  });
+
   test("reply is refused with nothing to say, and with no grill open", async () => {
     const { post } = await grilling();
 

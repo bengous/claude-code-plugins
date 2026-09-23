@@ -61,7 +61,9 @@ const ASK: ExtensionTool = {
     const questions = parseQuestions(input);
 
     if (questions === null) {
-      return { deny: "q must be a non-empty array of [title, question, recommendation]" };
+      return {
+        deny: "q must be a non-empty array of [title, question, recommendation], each title on one line",
+      };
     }
 
     const q = questions.map(({ title, ask, rec }) => [title, ask, rec] as const);

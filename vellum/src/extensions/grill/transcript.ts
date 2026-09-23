@@ -99,7 +99,10 @@ export function nextQuestion(doc: string): number {
   return Math.max(0, ...[...doc.matchAll(ASKED)].map((match) => Number(match[1]))) + 1;
 }
 
-/** Opens a round: the questions under Claude's voice, each closed by a rule. */
+/**
+ * Opens a round: the questions under Claude's voice, each closed by a rule. A question's texts are
+ * quoted as Claude's own; its title comes on one line, as the parser takes it.
+ */
 export function appendQuestions(doc: string, questions: readonly Question[]): string {
   const first = nextQuestion(doc);
   const n = (doc.match(ROUND)?.length ?? 0) + 1;
@@ -107,7 +110,7 @@ export function appendQuestions(doc: string, questions: readonly Question[]): st
   const round = questions
     .map(
       (question, index) =>
-        `❓ **Q${first + index}** - **${question.title}**: ${question.ask}\n\n➡️ ${question.rec}\n\n---\n`,
+        `❓ **Q${first + index}** - **${question.title}**: ${quotedQuestion(question.ask)}\n\n➡️ ${quotedQuestion(question.rec)}\n\n---\n`,
     )
     .join("\n");
 
@@ -186,6 +189,18 @@ function quoted(text: string): string {
   return text
     .replaceAll(/^(?=#|_\(session: )/gmu, "\\")
     .replaceAll(/^(?=-{3,}\s*\n\s*\nClosed )/gmu, "\\");
+}
+
+/**
+ * A question's text as a quotation, and more than Claude's: a line that opens a question, gives
+ * a recommendation or closes a card would cut the question where Claude did not. A backslash
+ * escapes no emoji in Markdown, so those two go as an entity, which it draws as the emoji.
+ */
+function quotedQuestion(text: string): string {
+  return quoted(text)
+    .replaceAll(/^([^\S\n\r\u2028\u2029]*)(?=-{3,}\s*$)/gmu, "$1\\")
+    .replaceAll(/^❓/gmu, "&#x2753;")
+    .replaceAll(/^➡/gmu, "&#x27A1;");
 }
 
 /**

@@ -131,11 +131,15 @@ export function parseAnswer(body: unknown): GrillPosts["answer"] | null {
     : null;
 }
 
+/** A title on one line: the transcript writes it on its question's line. */
 function parseQuestion(value: unknown): Question | null {
   if (!Array.isArray(value) || value.length !== 3) return null;
   const [title, ask, rec]: unknown[] = value;
 
-  return typeof title === "string" && typeof ask === "string" && typeof rec === "string"
+  return typeof title === "string" &&
+    !LINE_BREAK.test(title) &&
+    typeof ask === "string" &&
+    typeof rec === "string"
     ? { title, ask, rec }
     : null;
 }
