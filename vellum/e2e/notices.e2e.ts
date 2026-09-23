@@ -1,6 +1,5 @@
 import type { Page } from "@playwright/test";
 
-import type { Reply, Vellum } from "./harness.ts";
 import { boxOf, expect, openVellum, readFixture, reviewV1, test } from "./harness.ts";
 
 /**
@@ -30,11 +29,6 @@ async function addGeneralComment(page: Page, text: string): Promise<void> {
 async function openEditor(page: Page): Promise<void> {
   await page.locator(".tools").getByRole("button", { name: "Edit", exact: true }).click();
   await expect(page.locator(".editor textarea")).toBeFocused();
-}
-
-/** Claude's final text for a turn of the grill, as the hooks module posts it. */
-function claudeSays(vellum: Vellum, text: string): Promise<Reply> {
-  return vellum.api("x/grill/answer", { text, reason: "answer", own: true });
 }
 
 test.describe("the decisions", () => {
@@ -280,7 +274,7 @@ test.describe("the grill", () => {
     const banner = page.locator(".banner.err", { hasText: "refused" });
     await expect(banner).toBeVisible();
 
-    await claudeSays(vellum, "Still asking.");
+    await vellum.grill.answer("Still asking.", { asked: true });
     await expect(panel.locator(".plan")).toContainText("Still asking.");
     await expect(banner).toBeVisible();
   });
@@ -296,7 +290,7 @@ test.describe("the grill", () => {
     await expect(working).toBeVisible();
     await expect(page.locator(".bar .status")).toHaveText("Held · grill 2 is open");
     await vellum.grill.ask(ROUND_1);
-    await claudeSays(vellum, "Round 1 is on the page.");
+    await vellum.grill.answer("Round 1 is on the page.", { asked: true });
     await expect(panel.locator(".grill-chips .chip")).toHaveCount(3);
     await expect(working).toHaveCount(0);
 
@@ -307,7 +301,7 @@ test.describe("the grill", () => {
     await expect(working).toBeVisible();
     await sheet.evaluate((element) => element.scrollTo(0, 0));
     await vellum.grill.ask(ROUND_2);
-    await claudeSays(vellum, "Round 2 is on the page.");
+    await vellum.grill.answer("Round 2 is on the page.", { asked: true });
     await expect(panel.locator(".grill-chips .chip")).toHaveCount(6);
 
     const q4 = await boxOf(panel.locator(".grill-round .grill-q"));

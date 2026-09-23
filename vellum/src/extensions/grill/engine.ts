@@ -30,6 +30,9 @@ const NO_CURSOR: Cursor = { file: "", seq: -1, taught: false, declined: null };
 /** The modes whose last poll found a grill open, keyed by the mode's own `Live`: a new way in starts with none. */
 const grillOpen = new WeakSet<Live>();
 
+/** The modes whose running turn asked a round: its text goes with that round, before a reply sent meanwhile. */
+const askedIn = new WeakSet<Live>();
+
 function cursorKey(sessionId: string): string {
   return `grill:${sessionId}`;
 }
@@ -71,6 +74,8 @@ const ASK: ExtensionTool = {
     const asked = response.ok ? parseAsked(parseJson(response.text)) : null;
 
     if (asked !== null) {
+      askedIn.add(context.live);
+
       return {
         result: `Asked Q${asked.first}–Q${asked.last}, in order. End your turn in one short line; answers arrive as "Qn: ..." lines.`,
       };
@@ -204,7 +209,8 @@ export const grillEngine: EngineExtension = {
     }
   },
   answered: async (context, turn) => {
-    await post(context, "answer", turn);
+    const asked = askedIn.delete(context.live);
+    await post(context, "answer", { ...turn, asked });
   },
   tick,
   segment: ({ live }) => (grillOpen.has(live) ? SEGMENT_OPEN : null),

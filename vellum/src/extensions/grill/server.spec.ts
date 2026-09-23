@@ -280,7 +280,7 @@ describe("a round", () => {
     await post("open", { subject: "auth" });
     await post("ask", { q: Q });
     await post("event", { command: "/vellum:start" });
-    await post("answer", { text: "Welcome back.", reason: "answer", own: false });
+    await post("answer", { text: "Welcome back.", reason: "answer", own: false, asked: false });
 
     expect((await post("reply", { answers: [{ id: "Q1", text: "yes" }], note: "" })).status).toBe(
       204,
@@ -343,7 +343,7 @@ describe("what the transcript keeps", () => {
     await post("open", { subject: "auth" });
 
     await Promise.all([
-      post("answer", { text: "Two facts first.", reason: "answer", own: true }),
+      post("answer", { text: "Two facts first.", reason: "answer", own: true, asked: false }),
       post("event", { command: "/compact" }),
     ]);
 
@@ -352,11 +352,36 @@ describe("what the transcript keeps", () => {
     );
   });
 
+  test("the asking turn's text goes with its round, before a reply sent meanwhile, and Claude is still working", async () => {
+    const { dir, post, get } = await grilling();
+    await post("open", { subject: "auth" });
+    await post("ask", { q: [["Tool names", "Prefix them?", "I recommend yes."]] });
+    await post("reply", { answers: [], note: "" });
+    await post("answer", { text: "Asked.", reason: "answer", own: true, asked: true });
+
+    expect(readFileSync(join(dir, WIP, "grill-1.md"), "utf8")).toEndWith(
+      "---\n\nAsked.\n\n### Reviewer\n\nQ1: As recommended, by default.\n",
+    );
+    expect(await (await get("state")).json()).toMatchObject({ phase: "working" });
+  });
+
+  test("an answer that does not say whether its turn asked a round is refused", async () => {
+    const { post } = await grilling();
+    await post("open", { subject: "auth" });
+
+    // @ts-expect-error -- `asked` is part of every answer: the route cannot place the text without it.
+    expect((await post("answer", { text: "Asked.", reason: "answer", own: true })).status).toBe(
+      400,
+    );
+  });
+
   test("with no grill open nothing is written", async () => {
     const { dir, post } = await grilling();
 
     expect((await post("event", { command: "/clear" })).status).toBe(204);
-    expect((await post("answer", { text: "hi", reason: "answer", own: true })).status).toBe(204);
+    expect(
+      (await post("answer", { text: "hi", reason: "answer", own: true, asked: false })).status,
+    ).toBe(204);
     expect(existsSync(join(dir, WIP, "grill-1.md"))).toBe(false);
   });
 });

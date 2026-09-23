@@ -466,7 +466,7 @@ describe("what the transcript hears of the session", () => {
     await $.turn.complete(TURN_ABORTED);
 
     expect(grill.posted).toEqual([
-      ["answer", JSON.stringify({ text: "done", reason: "aborted", own: true })],
+      ["answer", JSON.stringify({ text: "done", reason: "aborted", own: true, asked: false })],
     ]);
   });
 
@@ -480,7 +480,7 @@ describe("what the transcript hears of the session", () => {
     await $.turn.complete(TURN_ANSWERED);
 
     expect(grill.posted).toEqual([
-      ["answer", JSON.stringify({ text: "done", reason: "answer", own: true })],
+      ["answer", JSON.stringify({ text: "done", reason: "answer", own: true, asked: false })],
     ]);
   });
 
@@ -497,8 +497,8 @@ describe("what the transcript hears of the session", () => {
     await $.turn.complete(TYPED_ANSWERED);
 
     expect(grill.posted.map(([, body]) => body)).toEqual([
-      JSON.stringify({ text: "done", reason: "answer", own: true }),
-      JSON.stringify({ text: "done", reason: "answer", own: false }),
+      JSON.stringify({ text: "done", reason: "answer", own: true, asked: false }),
+      JSON.stringify({ text: "done", reason: "answer", own: false, asked: false }),
     ]);
   });
 
@@ -513,7 +513,7 @@ describe("what the transcript hears of the session", () => {
     await $.turn.complete(TYPED_ANSWERED);
 
     expect(grill.posted).toEqual([
-      ["answer", JSON.stringify({ text: "done", reason: "answer", own: false })],
+      ["answer", JSON.stringify({ text: "done", reason: "answer", own: false, asked: false })],
     ]);
   });
 
@@ -530,7 +530,7 @@ describe("what the transcript hears of the session", () => {
 
     expect(grill.posted.at(-1)).toEqual([
       "answer",
-      JSON.stringify({ text: "done", reason: "answer", own: false }),
+      JSON.stringify({ text: "done", reason: "answer", own: false, asked: false }),
     ]);
   });
 
@@ -542,7 +542,42 @@ describe("what the transcript hears of the session", () => {
     await $.turn.complete(TURN_ANSWERED);
 
     expect(grill.posted).toEqual([
-      ["answer", JSON.stringify({ text: "done", reason: "answer", own: false })],
+      ["answer", JSON.stringify({ text: "done", reason: "answer", own: false, asked: false })],
+    ]);
+  });
+
+  test("the turn that asked a round says so with its text, and the next turn does not", async ($, on) => {
+    const grill = grillRoutes(() => openGrill(), { ask: () => reply(200, { first: 1, last: 1 }) });
+    world(on, grill);
+    on("turn.complete", (_, e) => ({ text: e.answer }));
+    await $.skill.prompt(START_PROMPT);
+    await $.prompt.submit({ text: "Reviewer: x", wait: false, origin: VELLUM });
+    await $.turn.start(TURN);
+    await $.tool.call({ tool: ASK, q: Q });
+    await $.turn.complete(TURN_ANSWERED);
+    await $.turn.start(TYPED_TURN);
+    await $.turn.complete(TYPED_ANSWERED);
+
+    expect(grill.posted.filter(([name]) => name === "answer")).toEqual([
+      ["answer", JSON.stringify({ text: "done", reason: "answer", own: true, asked: true })],
+      ["answer", JSON.stringify({ text: "done", reason: "answer", own: false, asked: false })],
+    ]);
+  });
+
+  test("a round the server refused asks nothing", async ($, on) => {
+    const grill = grillRoutes(() => NO_GRILL, {
+      ask: () => reply(409, { error: "no grill is open" }),
+    });
+
+    world(on, grill);
+    on("turn.complete", (_, e) => ({ text: e.answer }));
+    await $.skill.prompt(START_PROMPT);
+    await $.tool.call({ tool: ASK, q: Q });
+    await $.turn.complete(TURN_ANSWERED);
+
+    expect(grill.posted.at(-1)).toEqual([
+      "answer",
+      JSON.stringify({ text: "done", reason: "answer", own: false, asked: false }),
     ]);
   });
 

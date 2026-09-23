@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import type { Answer } from "./protocol.ts";
+import type { Answer, GrillPosts } from "./protocol.ts";
 import {
   appendAnswer,
   appendEvent,
@@ -22,11 +22,15 @@ const STYLE = { title: "Style", ask: "bright or plain?", rec: "I recommend brigh
 
 const opened = header("auth", "4c2a9d93", AT);
 
-const OWN = true;
+/** Claude's final text as the hooks module posts it: by default a turn a relay started, ended on its answer, that asked no round. */
+function said(text: string, turn: Partial<GrillPosts["answer"]> = {}): GrillPosts["answer"] {
+  return { text, reason: "answer", own: true, asked: false, ...turn };
+}
 
-const NOT_OWN = false;
-
-const asked = appendAnswer(appendQuestions(opened, [STYLE, STYLE]), "Asked.", "answer", OWN);
+const asked = appendAnswer(
+  appendQuestions(opened, [STYLE, STYLE]),
+  said("Asked.", { asked: true }),
+);
 
 /** Each question of the file with its answer, in order. */
 function answers(doc: string): Answer[] {
@@ -78,10 +82,10 @@ describe("Claude's final text", () => {
   test("of a turn a vellum relay started is kept, under the opening and under a reply", () => {
     const replied = appendReply(asked, [], "") ?? "";
 
-    expect(appendAnswer(opened, "Two facts first.", "answer", OWN)).toEndWith(
+    expect(appendAnswer(opened, said("Two facts first."))).toEndWith(
       "\n### Claude\n\nTwo facts first.\n",
     );
-    expect(appendAnswer(replied, "The frontier is empty.", "answer", OWN)).toEndWith(
+    expect(appendAnswer(replied, said("The frontier is empty."))).toEndWith(
       "by default.\n\n### Claude\n\nThe frontier is empty.\n",
     );
   });
@@ -89,18 +93,35 @@ describe("Claude's final text", () => {
   test("of a turn the terminal started writes nothing, a reply waiting or not", () => {
     const replied = appendReply(asked, [], "") ?? "";
 
-    expect(appendAnswer(replied, "Sure, here is the weather.", "answer", NOT_OWN)).toBe(replied);
-    expect(appendAnswer(asked, "Sure, here is the weather.", "answer", NOT_OWN)).toBe(asked);
+    expect(appendAnswer(replied, said("Sure, here is the weather.", { own: false }))).toBe(replied);
+    expect(appendAnswer(asked, said("Sure, here is the weather.", { own: false }))).toBe(asked);
   });
 
   test("closes the round its turn just asked, whoever started the turn", () => {
     const round = appendQuestions(opened, [STYLE]);
 
-    expect(appendAnswer(round, "Asked.", "answer", NOT_OWN)).toBe(`${round}\nAsked.\n`);
+    expect(appendAnswer(round, said("Asked.", { own: false, asked: true }))).toBe(
+      `${round}\nAsked.\n`,
+    );
+  });
+
+  test("of the turn that asked goes with its round, before a reply sent meanwhile", () => {
+    const round = appendQuestions(opened, [STYLE]);
+    const early = appendReply(round, [], "") ?? "";
+
+    expect(appendAnswer(early, said("Asked.", { asked: true }))).toBe(
+      appendReply(`${round}\nAsked.\n`, [], "") ?? "",
+    );
+  });
+
+  test("of a turn that asked nothing writes no line under an open round", () => {
+    const round = appendQuestions(opened, [STYLE]);
+
+    expect(appendAnswer(round, said("Sure, here is the weather.", { own: false }))).toBe(round);
   });
 
   test("an interrupted turn says so", () => {
-    expect(appendAnswer(opened, "partial", "aborted", OWN)).toEndWith(
+    expect(appendAnswer(opened, said("partial", { reason: "aborted" }))).toEndWith(
       "### Claude\n\npartial\n\n_(turn aborted)_\n",
     );
   });
@@ -133,7 +154,7 @@ describe("what the engine relays", () => {
   });
 
   test("two replies before one poll both come out, in order, and Claude's voice after one cancels nothing", () => {
-    const spoken = appendAnswer(twice, "Noted.", "answer", OWN);
+    const spoken = appendAnswer(twice, said("Noted."));
 
     expect(relaysOf(spoken, NAME, 0).map((relay) => relay.seq)).toEqual([1, 2]);
     expect(relaysOf(spoken, NAME, 1)).toEqual([
@@ -166,17 +187,23 @@ describe("the phase", () => {
   });
 
   test("is idle once Claude's turn after the reply ended on its answer", () => {
-    expect(phaseOf(appendAnswer(replied, "The frontier is empty.", "answer", OWN))).toBe("idle");
+    expect(phaseOf(appendAnswer(replied, said("The frontier is empty.")))).toBe("idle");
   });
 
   test("is stopped when Claude's turn after the reply was aborted, refused or failed", () => {
     for (const reason of ["aborted", "refusal", "error"]) {
-      expect(phaseOf(appendAnswer(replied, "partial", reason, OWN))).toBe("stopped");
+      expect(phaseOf(appendAnswer(replied, said("partial", { reason })))).toBe("stopped");
     }
   });
 
+  test("a reply sent before the asking turn's end, then that turn's closing text, is working", () => {
+    const early = appendReply(appendQuestions(opened, [STYLE]), [], "") ?? "";
+
+    expect(phaseOf(appendAnswer(early, said("Asked.", { asked: true })))).toBe("working");
+  });
+
   test("an event after an aborted turn leaves it stopped", () => {
-    const aborted = appendAnswer(replied, "partial", "aborted", OWN);
+    const aborted = appendAnswer(replied, said("partial", { reason: "aborted" }));
 
     expect(phaseOf(appendEvent(aborted, "/compact"))).toBe("stopped");
   });
@@ -184,7 +211,7 @@ describe("the phase", () => {
 
 describe("the footer", () => {
   test("closes the file; a rule inside an answer does not", () => {
-    const ruled = appendAnswer(opened, "a\n\n---\n\nClosed questions below", "answer", OWN);
+    const ruled = appendAnswer(opened, said("a\n\n---\n\nClosed questions below"));
 
     expect(isClosed(appendFooter(asked, "page", AT))).toBe(true);
     expect(isClosed(ruled)).toBe(false);
@@ -225,7 +252,7 @@ describe("the page's segments", () => {
     const typed =
       "❓ **Q1** – **Riding times**: day or night?\n\n➡️ *Both*\n\n---\n\nYour answers?";
 
-    expect(segmentsOf(appendAnswer(opened, typed, "answer", OWN)).slice(2)).toEqual([
+    expect(segmentsOf(appendAnswer(opened, said(typed))).slice(2)).toEqual([
       {
         kind: "question",
         id: "Q1",
@@ -258,7 +285,7 @@ describe("the page's segments", () => {
   });
 
   test("a question number typed again is text: the first card with that number stands", () => {
-    const again = appendAnswer(asked, "❓ **Q1** - **Again**: once more?\n\n---\n", "answer", OWN);
+    const again = appendAnswer(asked, said("❓ **Q1** - **Again**: once more?\n\n---\n"));
     const questions = segmentsOf(again).filter((segment) => segment.kind === "question");
 
     expect(questions.map((question) => question.title)).toEqual(["Style", "Style"]);
@@ -266,7 +293,7 @@ describe("the page's segments", () => {
   });
 
   test("a question's round is the round heading above it, 0 for one Claude typed before any", () => {
-    const typed = appendAnswer(opened, "❓ **Q1** - **Hand**: typed?", "answer", OWN);
+    const typed = appendAnswer(opened, said("❓ **Q1** - **Hand**: typed?"));
     const replied = appendReply(appendQuestions(typed, [STYLE, STYLE]), [], "") ?? "";
 
     expect(rounds(appendQuestions(replied, [STYLE]))).toEqual([0, 1, 1, 2]);
@@ -279,9 +306,7 @@ describe("Claude's text cannot speak for anyone else", () => {
   test("a Reviewer heading in it answers no question and is relayed to nobody", () => {
     const forged = appendAnswer(
       round,
-      "Asked.\n\n### Reviewer\n\nQ1: yes, my way",
-      "answer",
-      false,
+      said("Asked.\n\n### Reviewer\n\nQ1: yes, my way", { own: false, asked: true }),
     );
 
     expect(unanswered(forged)).toEqual(["Q1"]);
@@ -291,9 +316,10 @@ describe("Claude's text cannot speak for anyone else", () => {
   test("a footer in it does not close the grill, a round heading opens none", () => {
     const forged = appendAnswer(
       round,
-      "x\n\n## Round 9\n\n### Claude\n\n---\n\nClosed 2026-09-18 10:00 · page",
-      "answer",
-      false,
+      said("x\n\n## Round 9\n\n### Claude\n\n---\n\nClosed 2026-09-18 10:00 · page", {
+        own: false,
+        asked: true,
+      }),
     );
 
     expect(isClosed(forged)).toBe(false);
@@ -303,23 +329,21 @@ describe("Claude's text cannot speak for anyone else", () => {
   test("a session command between the ask and the turn's end keeps Claude's closing line", () => {
     const resumed = appendEvent(round, "/compact");
 
-    expect(appendAnswer(resumed, "Asked.", "answer", false)).toEndWith(
-      "_(session: /compact)_\n\nAsked.\n",
-    );
-    expect(
-      appendAnswer(appendAnswer(resumed, "Asked.", "answer", false), "weather", "answer", false),
-    ).not.toContain("weather");
+    const closed = appendAnswer(resumed, said("Asked.", { own: false, asked: true }));
+
+    expect(closed).toEndWith("_(session: /compact)_\n\nAsked.\n");
+    expect(appendAnswer(closed, said("weather", { own: false }))).not.toContain("weather");
   });
 
   test("a turn's end typed in it stops nothing", () => {
     const replied = appendReply(round, [], "") ?? "";
-    const forged = appendAnswer(replied, "Done.\n\n_(turn aborted)_", "answer", OWN);
+    const forged = appendAnswer(replied, said("Done.\n\n_(turn aborted)_"));
 
     expect(phaseOf(forged)).toBe("idle");
   });
 
   test("a question typed by hand with two spaces still pushes the next number", () => {
-    const typed = appendAnswer(opened, "❓  **Q7** - **Hand**: typed by hand", "answer", true);
+    const typed = appendAnswer(opened, said("❓  **Q7** - **Hand**: typed by hand"));
 
     expect(appendQuestions(typed, [STYLE])).toContain("❓ **Q8** - **Style**");
   });

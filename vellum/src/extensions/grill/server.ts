@@ -306,7 +306,7 @@ function routes(context: ServerContext): Readonly<Record<RouteKey, Route>> {
 
       return answer === null
         ? badRequest()
-        : await change((doc) => written(appendAnswer(doc, answer.text, answer.reason, answer.own)));
+        : await change((doc) => written(appendAnswer(doc, answer)));
     },
 
     "POST reply": async (request) => {

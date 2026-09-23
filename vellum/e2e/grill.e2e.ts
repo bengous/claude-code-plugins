@@ -1,6 +1,6 @@
 import type { Locator, Page, Route } from "@playwright/test";
 
-import type { Reply, Vellum } from "./harness.ts";
+import type { Vellum } from "./harness.ts";
 import { axe, boxOf, contrast, expect, openVellum, settled, test } from "./harness.ts";
 
 /**
@@ -564,11 +564,6 @@ const THREE = [
   ["Replay", "When is the queue replayed?", "On the online event."],
 ] as const;
 
-/** Claude's final text for a turn of the grill, as the hooks module posts it at the turn's end. */
-function claudeSays(vellum: Vellum, text: string): Promise<Reply> {
-  return vellum.api("x/grill/answer", { text, reason: "answer", own: true });
-}
-
 /** Round 1 sent (Q1 typed, Q2 chosen, Q3 by default), round 2 open (Q4, Q5), the page drawn on it. */
 async function twoRounds(page: Page, vellum: Vellum): Promise<void> {
   const answers = [
@@ -785,7 +780,7 @@ test.describe("a round in the panel", () => {
     vellum,
   }) => {
     await vellum.grill.open(SUBJECT);
-    await claudeSays(vellum, "❓ **Q1** - **Store**: Which store?\n\n---\n");
+    await vellum.grill.answer("❓ **Q1** - **Store**: Which store?\n\n---\n");
     await openVellum(page, vellum);
     await expect(chips(page)).toHaveCount(1);
 
@@ -795,9 +790,9 @@ test.describe("a round in the panel", () => {
 
   test("Claude's text between rounds still reads in the panel", async ({ page, vellum }) => {
     await asking(page, vellum);
-    await claudeSays(vellum, "Round 1 is on the page.");
+    await vellum.grill.answer("Round 1 is on the page.", { asked: true });
     await sendRound(page).click();
-    await claudeSays(vellum, "The frontier is empty.");
+    await vellum.grill.answer("The frontier is empty.");
 
     await expect(panel(page).locator(".plan")).toContainText("Round 1 is on the page.");
     await expect(panel(page).locator(".plan")).toContainText("The frontier is empty.");
@@ -1024,7 +1019,7 @@ test.describe("the band", () => {
   }) => {
     await asking(page, vellum);
     await page.route("**/api/x/grill/blocks*", (route) => route.fulfill({ status: 500 }));
-    await vellum.grill.answer("Round 1 is on the page.");
+    await vellum.grill.answer("Round 1 is on the page.", { asked: true });
     await expect(page.getByRole("alert")).toContainText("could not be loaded");
     await page.unroute("**/api/x/grill/blocks*");
     vellum.writeFile("notes.md", "One.");
@@ -1047,7 +1042,7 @@ test.describe("the band", () => {
       { times: 1 },
     );
     const out = page.waitForRequest("**/api/x/grill/blocks*");
-    await vellum.grill.answer("Round 1 is on the page.");
+    await vellum.grill.answer("Round 1 is on the page.", { asked: true });
     await out;
     await readAfter(page, 200, () => vellum.writeFile("notes.md", "One."));
     await page.waitForTimeout(300);

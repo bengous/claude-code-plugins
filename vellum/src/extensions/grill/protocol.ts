@@ -118,6 +118,14 @@ export type GrillPosts = {
   };
   /** A command of the session (`/vellum:start`, `/clear`): the harness's, written as an event. */
   readonly event: { readonly command: string };
-  /** The main loop's final text, why the turn ended, and whether a vellum relay started it. */
-  readonly answer: { readonly text: string; readonly reason: string; readonly own: boolean };
+  /**
+   * The main loop's final text, why the turn ended, whether a vellum relay started it, and
+   * whether it asked a round: that round's text, which goes with it.
+   */
+  readonly answer: {
+    readonly text: string;
+    readonly reason: string;
+    readonly own: boolean;
+    readonly asked: boolean;
+  };
 };

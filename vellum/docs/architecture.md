@@ -133,7 +133,7 @@ sequenceDiagram
   C->>M: tool.call grill_ask {q}
   M->>S: POST /api/x/grill/ask, a round opened
   C->>M: turn.complete
-  M->>S: POST /api/x/grill/answer {text, reason, own}, the final text under the questions
+  M->>S: POST /api/x/grill/answer {text, reason, own, asked}, the asking turn's text with its round
   P->>S: POST /api/x/grill/reply {answers, note}, written in the round of its questions
   M->>C: $.prompt.submit (each reply past the cursor, in order, "Reviewer: ...")
   P->>S: POST /api/x/grill/close, or the module's on /vellum:stop
@@ -173,8 +173,12 @@ Claude's final text is written when its turn is the grill's own: `prompt.submit`
 last prompt that entered and its origin, `turn.start`, which carries no origin itself, takes
 that note when its text holds the noted one, and `turn.complete` hands `own` to the transcript
 (`core/engine/turn.ts`, pure). A turn the terminal
-started writes nothing, whatever the file's last voice is; the turn that just asked a round
-closes it either way. While a grill is open the band above the prompt says `grill · open`: a
+started writes nothing, whatever the file's last voice is; the turn that asked a round closes it
+either way, `asked` in the post: the grill's engine half marks the turn whose `grill_ask` the
+server took, so its text goes with the round, before a reply the reviewer sent meanwhile, which
+still waits for Claude. The file also says where the grill stands, `phaseOf`: `asking` while a
+question is open, `working` while the reviewer spoke last, then `idle` or `stopped` by how
+Claude's last turn ended, `_(turn aborted)_` and the like written by the server. While a grill is open the band above the prompt says `grill · open`: a
 prompt typed in the terminal is outside the grill. A prompt Vellum itself submits comes back through its own `prompt.submit` hook, since
 `$.prompt.submit` skips the calling hook alone; its origin (`plugin`, `vellum`) keeps it out of
 the transcript, where the server already wrote what it carries.

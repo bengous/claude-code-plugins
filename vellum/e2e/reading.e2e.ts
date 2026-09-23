@@ -1,6 +1,6 @@
 import type { Locator, Page } from "@playwright/test";
 
-import type { Reply, Vellum } from "./harness.ts";
+import type { Vellum } from "./harness.ts";
 import { boxOf, expect, openVellum, reviewV1, test } from "./harness.ts";
 
 /**
@@ -23,10 +23,6 @@ const ROUND_1 = [
   ],
 ] as const;
 
-function claudeSays(vellum: Vellum, text: string): Promise<Reply> {
-  return vellum.api("x/grill/answer", { text, reason: "answer", own: true });
-}
-
 function grillPanel(page: Page): Locator {
   return page.getByRole("complementary", { name: "Grill" });
 }
@@ -36,7 +32,7 @@ async function grilling(page: Page, vellum: Vellum): Promise<void> {
   await vellum.gate();
   await vellum.grill.open("The coverage of the page");
   await vellum.grill.ask(ROUND_1);
-  await claudeSays(vellum, "Round 1 is on the page.");
+  await vellum.grill.answer("Round 1 is on the page.", { asked: true });
   await openVellum(page, vellum);
   await expect(grillPanel(page).locator(".grill-chips .chip")).toHaveCount(2);
 }

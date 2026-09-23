@@ -8,7 +8,12 @@ import type { Readable } from "node:stream";
 import type { Locator, Page } from "@playwright/test";
 import { expect, test as base } from "@playwright/test";
 
-import type { CloseReason, GrillState, QuestionTriple } from "../src/extensions/grill/protocol.ts";
+import type {
+  CloseReason,
+  GrillPosts,
+  GrillState,
+  QuestionTriple,
+} from "../src/extensions/grill/protocol.ts";
 
 /**
  * The browser suite's harness: `preview.ts` started on a copy of a fixture, its API driven
@@ -49,7 +54,11 @@ export type Vellum = {
     decline(): Promise<Reply>;
     open(subject: string): Promise<Reply>;
     ask(questions: readonly QuestionTriple[]): Promise<Reply>;
-    answer(text: string, own?: boolean): Promise<Reply>;
+    /**
+     * Claude's final text, as the hooks module posts it at the turn's end: by default a turn a
+     * relay started, ended on its answer (`answer`, the engine's reason), that asked no round.
+     */
+    answer(text: string, turn?: Partial<Omit<GrillPosts["answer"], "text">>): Promise<Reply>;
     close(reason?: CloseReason): Promise<Reply>;
     state(): Promise<Reply>;
   };
@@ -158,7 +167,8 @@ export async function startVellum(
       },
       open: (subject) => api("x/grill/open", { subject }),
       ask: (questions) => api("x/grill/ask", { q: questions }),
-      answer: (text, own = true) => api("x/grill/answer", { text, reason: "end_turn", own }),
+      answer: (text, turn = {}) =>
+        api("x/grill/answer", { text, reason: "answer", own: true, asked: false, ...turn }),
       close: (reason = "page") => api("x/grill/close", { reason }),
       state: () => api("x/grill/state"),
     },

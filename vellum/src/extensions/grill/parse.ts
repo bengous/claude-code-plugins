@@ -126,8 +126,9 @@ export function parseAnswer(body: unknown): GrillPosts["answer"] | null {
   return isRecord(body) &&
     typeof body.text === "string" &&
     typeof body.reason === "string" &&
-    typeof body.own === "boolean"
-    ? { text: body.text, reason: body.reason, own: body.own }
+    typeof body.own === "boolean" &&
+    typeof body.asked === "boolean"
+    ? { text: body.text, reason: body.reason, own: body.own, asked: body.asked }
     : null;
 }
 

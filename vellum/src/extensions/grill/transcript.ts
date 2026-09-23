@@ -1,5 +1,5 @@
 import { AS_RECOMMENDED } from "./protocol.ts";
-import type { Answer, CloseReason, Phase, Question, Relay } from "./protocol.ts";
+import type { Answer, CloseReason, GrillPosts, Phase, Question, Relay } from "./protocol.ts";
 
 /**
  * The transcript as text: every function takes the file and returns the file. What the page and
@@ -251,23 +251,31 @@ function quotedQuestion(text: string): string {
     .replaceAll(/^➡/gmu, "&#x27A1;");
 }
 
+/** Where the last round's questions end: at the first reply that follows them, else at the end of the file. */
+function roundEnd(doc: string): number {
+  const round = [...doc.matchAll(ROUND)].at(-1)?.index;
+  const reply = round === undefined ? -1 : doc.indexOf(REVIEWER_VOICE, round);
+
+  return reply === -1 ? doc.length : reply;
+}
+
 /**
- * Claude's final text, kept only when its turn belongs to the grill: `own`, a turn a vellum
- * relay started, or the turn that just asked the round the file ends on. A turn the terminal
- * started is not the grill's, whatever the file's last voice is.
+ * Claude's final text, kept only when its turn belongs to the grill: the turn that asked a round,
+ * whoever started it, closes that round, before any reply sent meanwhile, since the reply still
+ * waits for Claude; a turn a vellum relay started speaks in a voice of its own. A turn the
+ * terminal started is not the grill's, whatever the file's last voice is.
  */
-export function appendAnswer(doc: string, text: string, reason: string, own: boolean): string {
-  const ended = reason === "answer" ? "" : `_(turn ${reason})_`;
-  const body = [quoted(text.trim()), ended].filter((part) => part !== "").join("\n\n");
+export function appendAnswer(doc: string, turn: GrillPosts["answer"]): string {
+  const ended = turn.reason === "answer" ? "" : `_(turn ${turn.reason})_`;
+  const body = [quoted(turn.text.trim()), ended].filter((part) => part !== "").join("\n\n");
 
-  // An event line after the round changes nothing: Claude has still said nothing under it.
-  const spoken = doc.split("\n").findLast((line) => line.trim() !== "" && !EVENT.test(line));
+  if (turn.asked) {
+    const at = roundEnd(doc);
 
-  if (RULE.test(spoken ?? "")) {
-    return body === "" ? doc : `${doc}\n${body}\n`;
+    return body === "" ? doc : `${doc.slice(0, at)}\n${body}\n${doc.slice(at)}`;
   }
 
-  return own ? `${doc}${CLAUDE_VOICE}${body === "" ? "_(no text)_" : body}\n` : doc;
+  return turn.own ? `${doc}${CLAUDE_VOICE}${body === "" ? "_(no text)_" : body}\n` : doc;
 }
 
 /** A reply as the agent reads it: the note first, then the answers the reviewer typed. A default never goes: `grilling.md` says an absent question took the recommendation. */
