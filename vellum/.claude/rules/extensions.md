@@ -44,9 +44,10 @@ the engine events the core hands it, and its segment of the band above the promp
   server loses the slot and mints new ids, so nothing is told twice.
 - An extension owns its messages: `<id>/protocol.ts` types what crosses its routes, and
   `<id>/parse.ts` is its boundary parser. `src/core/protocol.ts` learns nothing of them.
-  A route's reply has its own name there, which both ends import (`Opened`, `Asked` in
-  `grill/protocol.ts`): the server half builds a constant of that type before `Response.json`,
-  which takes anything, and the page half casts to that name. A cast to a wider type that
+  A route's reply has its own name there, which both ends import (`GrillState`, `Block` in
+  `grill/protocol.ts`): the server half types what it hands to `Response.json`, which takes
+  anything (`stateOf` and `blocksOf` in `grill/server.ts`), and the page half casts to that
+  name (`loadState` and `blocksOf` in `grill/page.tsx`). A cast to a wider type that
   happens to hold the field (a whole `GrillState` for a `{ file }`) compiles, and hands the next
   reader an `undefined` typed `string`.
 - What an extension does not produce itself is parsed, never cast: a request's body, a message
