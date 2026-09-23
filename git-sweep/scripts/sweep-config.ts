@@ -1,15 +1,7 @@
 // Shared by git-clean-audit and git-clean-apply: sweep.* configuration,
 // trunk candidates, and the protected-branch set both layers must agree on.
 
-import { $ } from "bun";
-
-async function git(
-  ...args: string[]
-): Promise<{ stdout: string; stderr: string; exitCode: number }> {
-  const { stdout, stderr, exitCode } = await $`git ${args}`.quiet().nothrow();
-
-  return { stdout: stdout.toString().trim(), stderr: stderr.toString().trim(), exitCode };
-}
+import { git, localRef } from "./git.ts";
 
 const DEFAULT_AGENT_PREFIX = "worktree-agent-";
 
@@ -97,8 +89,7 @@ export async function readSweepConfig(): Promise<SweepConfig | { error: string }
 }
 
 export async function localBranchExists(name: string): Promise<boolean> {
-  // refs/heads/ in full: the bare name would also match a tag.
-  return (await git("rev-parse", "--verify", `refs/heads/${name}`)).exitCode === 0;
+  return (await git("rev-parse", "--verify", "--quiet", localRef(name))).exitCode === 0;
 }
 
 export async function originHeadTarget(): Promise<string | null> {

@@ -7,9 +7,25 @@ import { existsSync } from "node:fs";
 import { rename } from "node:fs/promises";
 import { join } from "node:path";
 
-import { $ } from "bun";
-
+import {
+  type Kept,
+  type Placement,
+  settleLocal,
+  settleRemote,
+  tooOld,
+  triageLocal,
+  triageRemote,
+} from "./classify.ts";
+import { git, GitError, gitRead, listRefs, localRef, type Ref, remoteRef } from "./git.ts";
 import { parseManifest } from "./manifest.ts";
+import {
+  type GithubProver,
+  makeGithubProver,
+  predictDashDRefusal,
+  type ProofKind,
+  type Proven,
+  proveContained,
+} from "./proofs.ts";
 import {
   buildProtectedSet,
   localBranchExists,
@@ -17,6 +33,7 @@ import {
   POSITIVE_INT,
   readSweepConfig,
   resolveBase,
+  type SweepConfig,
 } from "./sweep-config.ts";
 import {
   type BranchHold,
@@ -33,53 +50,44 @@ import {
 // Types
 // ---------------------------------------------------------------------------
 
-// How strongly we can prove a branch's content is already in the base:
-//   ancestry       — the tip is reachable from base. Nothing is lost, history included.
-//   no-merge-delta — merging it into base would change no file. Content is safe;
-//                    the intermediate commits are not (squash/rebase/cherry-pick).
-//   merged-pr      — GitHub merged this tip into the base through a pull request.
-//                    Says nothing about whether the base still holds the content.
-//   unproven       — the test did not conclude. NOT a proof of absence.
-type ProofKind = "ancestry" | "no-merge-delta" | "merged-pr" | "unproven";
-
-type BranchInfo = {
+type BranchMeta = {
   name: string;
   oid: string;
   ahead: number;
   behind: number;
+  // Committer date: a rebase or an amend is activity, which an author date
+  // carried over from an older commit would hide from the age gate.
   last_commit_date: string;
   last_commit_subject: string;
-  proof: ProofKind;
-  // Ref that `git branch -d` measures against (upstream, else HEAD) when it
-  // would refuse the deletion. null when `-d` is expected to succeed.
+  // What `git branch -d` measures against (upstream, else HEAD) when it would
+  // refuse the deletion. null when `-d` is expected to succeed.
   d_refusal: string | null;
 };
+
+type BranchInfo = BranchMeta & { proof: ProofKind };
 
 // A live, clean worktree whose branch is already contained in the base: the
 // worktree is the only thing keeping that branch alive.
 type RemovableWorktree = {
   path: string;
   branch: string;
-  proof: ProofKind;
+  proof: Proven;
   // Files git never tracked, which removing the worktree destroys for good.
   // Directories are listed apart: they are usually regenerable build output,
   // while a loose ignored file is more often a per-worktree secret or note.
   ignored: { files: string[]; dirs: string[]; truncated: boolean };
 };
 
-type RemoteBranchInfo = {
+type RemoteMeta = {
   name: string;
   oid: string;
   last_commit_date: string;
   last_commit_subject: string;
-  proof: ProofKind;
 };
 
-type KeptBranch = {
-  name: string;
-  reason: "base" | "current" | BranchHold["reason"] | "unproven" | "too-old";
-  detail: string | null;
-};
+type RemoteBranchInfo = RemoteMeta & { proof: Proven };
+
+type KeptBranch = { name: string } & Kept;
 
 type AuditSuccess = {
   ok: true;
@@ -100,37 +108,13 @@ type AuditSuccess = {
   kept_remote: KeptBranch[];
 };
 
-type AuditError = {
-  ok: false;
-  error: string;
-  step: "validate" | "scan-local" | "scan-worktrees" | "scan-remote" | "internal";
-};
+type AuditStep = "validate" | "scan-local" | "scan-worktrees" | "scan-remote" | "internal";
+
+type AuditError = { ok: false; error: string; step: AuditStep };
 
 type AuditResult = AuditSuccess | AuditError;
 
 type SaveResult = { ok: true; path: string } | { ok: false; error: string };
-
-// ---------------------------------------------------------------------------
-// Git helpers
-// ---------------------------------------------------------------------------
-
-async function git(
-  ...args: string[]
-): Promise<{ stdout: string; stderr: string; exitCode: number }> {
-  // git translates the messages the audit parses (`[would prune]`); LC_ALL=C pins them.
-  const { stdout, stderr, exitCode } = await $`git ${args}`
-    .env({ ...process.env, LC_ALL: "C" })
-    .quiet()
-    .nothrow();
-
-  return { stdout: stdout.toString().trim(), stderr: stderr.toString().trim(), exitCode };
-}
-
-async function gh(...args: string[]): Promise<{ stdout: string; exitCode: number }> {
-  const { stdout, exitCode } = await $`gh ${args}`.quiet().nothrow();
-
-  return { stdout: stdout.toString().trim(), exitCode };
-}
 
 // `git merge-tree --write-tree` is the containment proof; it landed in 2.38.
 const MIN_GIT = [2, 38] as const;
@@ -150,211 +134,52 @@ async function gitVersionAtLeast(): Promise<{ ok: boolean; found: string }> {
 // Branch metadata
 // ---------------------------------------------------------------------------
 
-async function getBranchInfo(name: string, base: string, proof: ProofKind): Promise<BranchInfo> {
-  const [oidResult, aheadResult, behindResult, dateResult, subjectResult, dRefusal] =
-    await Promise.all([
-      git("rev-parse", name),
-      git("rev-list", "--count", `${base}..${name}`),
-      git("rev-list", "--count", `${name}..${base}`),
-      git("log", "-1", "--format=%aI", name),
-      git("log", "-1", "--format=%s", name),
-      predictDashDRefusal(name),
-    ]);
+function count(raw: string): number {
+  if (!/^\d+$/u.test(raw)) throw new Error(`expected a commit count, got '${raw}'`);
+
+  return parseInt(raw, 10);
+}
+
+async function lastCommit(ref: Ref): Promise<{ date: string; subject: string }> {
+  const [date, subject] = (await gitRead("log", "-1", "--format=%cI%x00%s", ref)).split("\0");
+
+  if (date === undefined || subject === undefined) throw new Error(`no commit on ${ref}`);
+
+  return { date, subject };
+}
+
+async function branchMeta(branch: string, base: Ref): Promise<BranchMeta> {
+  const ref = localRef(branch);
+
+  const [oid, ahead, behind, last, dRefusal] = await Promise.all([
+    gitRead("rev-parse", ref),
+    gitRead("rev-list", "--count", `${base}..${ref}`),
+    gitRead("rev-list", "--count", `${ref}..${base}`),
+    lastCommit(ref),
+    predictDashDRefusal(branch),
+  ]);
 
   return {
-    name,
-    oid: oidResult.stdout,
-    ahead: parseInt(aheadResult.stdout, 10) || 0,
-    behind: parseInt(behindResult.stdout, 10) || 0,
-    last_commit_date: dateResult.stdout,
-    last_commit_subject: subjectResult.stdout,
-    proof,
+    name: branch,
+    oid,
+    ahead: count(ahead),
+    behind: count(behind),
+    last_commit_date: last.date,
+    last_commit_subject: last.subject,
     d_refusal: dRefusal,
   };
 }
 
-async function getRemoteBranchInfo(name: string, proof: ProofKind): Promise<RemoteBranchInfo> {
-  const [oidResult, dateResult, subjectResult] = await Promise.all([
-    git("rev-parse", name),
-    git("log", "-1", "--format=%aI", name),
-    git("log", "-1", "--format=%s", name),
-  ]);
+async function remoteMeta(remoteBranch: string): Promise<RemoteMeta> {
+  const ref = remoteRef(remoteBranch);
+  const [oid, last] = await Promise.all([gitRead("rev-parse", ref), lastCommit(ref)]);
 
   return {
-    name,
-    oid: oidResult.stdout,
-    last_commit_date: dateResult.stdout,
-    last_commit_subject: subjectResult.stdout,
-    proof,
+    name: remoteBranch,
+    oid,
+    last_commit_date: last.date,
+    last_commit_subject: last.subject,
   };
-}
-
-// ---------------------------------------------------------------------------
-// Containment proofs
-// ---------------------------------------------------------------------------
-
-// Exit 0 = ancestor, 1 = not, anything else = error (treated as "not proven").
-async function isAncestor(ref: string, of: string): Promise<boolean> {
-  return (await git("merge-base", "--is-ancestor", ref, of)).exitCode === 0;
-}
-
-// Would merging `branch` into `base` change any file? Replaces the older
-// commit-tree + `git cherry` patch-id test, which reported "contained" for a
-// squash that was later reverted (patch-id only sees that the patch once
-// landed, never that base still holds it).
-async function hasNoMergeDelta(branch: string, base: string): Promise<boolean> {
-  const merged = await git("merge-tree", "--write-tree", base, branch);
-
-  // A conflict exits non-zero and still prints a tree — both checks are needed.
-  if (merged.exitCode !== 0) return false;
-  const baseTree = await git("rev-parse", `${base}^{tree}`);
-
-  if (baseTree.exitCode !== 0) return false;
-
-  return merged.stdout.split("\n")[0]?.trim() === baseTree.stdout;
-}
-
-// A squash or rebase merge that the base has since edited defeats both proofs
-// above: the tip is no longer an ancestor and a three-way merge conflicts.
-// GitHub still knows which pull requests carry that tip.
-type GithubProver = (ref: string) => Promise<boolean>;
-
-type PullRef = { number: number; merged_at: string | null; base: { ref: string } };
-
-const REVERTS_COMMIT = /This reverts commit ([0-9a-f]{40})/gu;
-
-/* oxlint-disable anti-slop/no-runtime-typeof -- this IS the boundary parser the rule asks for: it validates one entry of the GitHub REST payload before any proof reads it, and gh hands that payload over as text, so there is no earlier place to parse. */
-function isPullRef(value: unknown): value is PullRef {
-  if (typeof value !== "object" || value === null) return false;
-
-  if (!("number" in value) || typeof value.number !== "number") return false;
-
-  if (
-    !("merged_at" in value) ||
-    (value.merged_at !== null && typeof value.merged_at !== "string")
-  ) {
-    return false;
-  }
-
-  if (!("base" in value) || typeof value.base !== "object" || value.base === null) return false;
-
-  return "ref" in value.base && typeof value.base.ref === "string";
-}
-
-/* oxlint-enable anti-slop/no-runtime-typeof -- end of the GitHub payload parser. */
-
-// Any non-zero exit is "no signal", never an error: an unknown commit answers
-// HTTP 422, and a missing or unauthenticated gh answers the same way.
-async function pullsFor(repo: string, sha: string): Promise<PullRef[]> {
-  const response = await gh("api", `repos/${repo}/commits/${sha}/pulls`);
-
-  if (response.exitCode !== 0) return [];
-
-  try {
-    const parsed: unknown = JSON.parse(response.stdout);
-
-    return Array.isArray(parsed) ? parsed.filter((entry) => isPullRef(entry)) : [];
-  } catch {
-    return [];
-  }
-}
-
-// A merged pull request the base later reverted proves nothing. The revert is
-// found by `git revert`'s own message, within the window that already bounds
-// the containment test: a branch young enough to be tested has a younger revert.
-async function revertedPullNumbers(
-  repo: string,
-  base: string,
-  maxAgeDays: number,
-): Promise<Set<number>> {
-  const refs = [base];
-  const remoteBase = `origin/${base}`;
-
-  if ((await git("rev-parse", "--verify", remoteBase)).exitCode === 0) refs.push(remoteBase);
-
-  const reverted = new Set<number>();
-  const log = await git("log", ...refs, `--since=${maxAgeDays} days ago`, "--format=%B");
-
-  if (log.exitCode !== 0) return reverted;
-
-  for (const [, sha] of log.stdout.matchAll(REVERTS_COMMIT)) {
-    for (const pull of await pullsFor(repo, sha!)) reverted.add(pull.number);
-  }
-
-  return reverted;
-}
-
-// The repo probe and the revert scan run once, on the first still-unproven
-// branch, and never again — a repo with nothing unproven pays nothing.
-function makeGithubProver(base: string, maxAgeDays: number): GithubProver {
-  let context: Promise<{ repo: string; reverted: Set<number> } | null> | null = null;
-
-  const resolveContext = async () => {
-    // Same gate as the remote scan: no origin -> fully local, no network.
-    if ((await git("remote", "get-url", "origin")).exitCode !== 0) return null;
-
-    // gh resolves owner/repo from the remote itself, so ssh, https and
-    // `insteadOf` rewrites all work with no URL parsing here. The charset of
-    // the capture is also what makes the value safe in an API path.
-    const view = await gh("repo", "view", "--json", "nameWithOwner");
-
-    if (view.exitCode !== 0) return null;
-
-    const repo = view.stdout.match(/"nameWithOwner"\s*:\s*"([\w.-]+\/[\w.-]+)"/u)?.[1];
-
-    if (repo === undefined) return null;
-
-    return { repo, reverted: await revertedPullNumbers(repo, base, maxAgeDays) };
-  };
-
-  return async (ref: string) => {
-    context ??= resolveContext();
-    const resolved = await context;
-
-    if (resolved === null) return false;
-    const tip = await git("rev-parse", ref);
-
-    if (tip.exitCode !== 0) return false;
-
-    return (await pullsFor(resolved.repo, tip.stdout)).some(
-      (pull) =>
-        pull.merged_at !== null && pull.base.ref === base && !resolved.reverted.has(pull.number),
-    );
-  };
-}
-
-async function proveContained(
-  branch: string,
-  base: string,
-  github: GithubProver | null,
-): Promise<ProofKind> {
-  if (await isAncestor(branch, base)) return "ancestry";
-
-  if (await hasNoMergeDelta(branch, base)) return "no-merge-delta";
-
-  if (github !== null && (await github(branch))) return "merged-pr";
-
-  return "unproven";
-}
-
-// `git branch -d` refuses unless the tip is contained in the branch's upstream,
-// or in HEAD when no upstream is set. A branch fully merged into the base still
-// fails when its remote counterpart has diverged — the audit predicts that here
-// so the operation can carry a justified force flag instead of failing at apply.
-async function predictDashDRefusal(branch: string): Promise<string | null> {
-  const upstream = await git(
-    "rev-parse",
-    "--abbrev-ref",
-    "--symbolic-full-name",
-    `${branch}@{upstream}`,
-  );
-
-  const target = upstream.exitCode === 0 && upstream.stdout ? upstream.stdout : "HEAD";
-  const check = await git("merge-base", "--is-ancestor", branch, target);
-
-  // Only a definite "not an ancestor" (exit 1) predicts refusal; an error leaves
-  // the safe flag in place and lets `-d` speak for itself.
-  return check.exitCode === 1 ? target : null;
 }
 
 // ---------------------------------------------------------------------------
@@ -368,7 +193,7 @@ type WorktreeScan = {
   removable: RemovableWorktree[];
   kept: KeptWorktree[];
   // Branches held by a worktree we are NOT proposing to touch, with the reason.
-  retained: Map<string, KeptBranch>;
+  retained: Map<string, BranchHold>;
 };
 
 type WorktreeVerdict =
@@ -380,7 +205,7 @@ type WorktreeVerdict =
 async function inspectWorktree(
   path: string,
   branch: string,
-  base: string,
+  base: Ref,
   github: GithubProver | null,
 ): Promise<WorktreeVerdict> {
   const held = (reason: BranchHold["reason"], detail: string): WorktreeVerdict => ({
@@ -399,7 +224,7 @@ async function inspectWorktree(
 
   if (lines.some((line) => !line.startsWith("!!"))) return held("dirty-worktree", path);
 
-  const proof = await proveContained(branch, base, github);
+  const proof = await proveContained(localRef(branch), base, github);
 
   if (proof === "unproven") return held("worktree", path);
 
@@ -428,7 +253,7 @@ async function inspectWorktree(
 async function scanWorktrees(
   worktrees: LinkedWorktree[],
   context: TriageContext,
-  base: string,
+  base: Ref,
   github: GithubProver | null,
 ): Promise<WorktreeScan> {
   const scan: WorktreeScan = { stale: [], removable: [], kept: [], retained: new Map() };
@@ -463,6 +288,186 @@ async function scanWorktrees(
         throw new Error(`unhandled worktree verdict: ${JSON.stringify(unreachable)}`);
       }
     }
+  }
+
+  return scan;
+}
+
+// ---------------------------------------------------------------------------
+// Local branch scanning
+// ---------------------------------------------------------------------------
+
+type LocalScan = {
+  merged_local: BranchInfo[];
+  orphaned_worktree: BranchInfo[];
+  content_merged: BranchInfo[];
+  backup: BranchInfo[];
+  kept: KeptBranch[];
+};
+
+type ScanInput = {
+  base: string;
+  protectedBranches: ReadonlySet<string>;
+  maxAgeDays: number;
+  github: GithubProver | null;
+  now: Date;
+};
+
+async function scanLocal(
+  input: ScanInput & {
+    currentBranch: string;
+    held: ReadonlyMap<string, BranchHold>;
+    config: SweepConfig;
+  },
+): Promise<LocalScan> {
+  const { base, currentBranch, maxAgeDays, github, now } = input;
+  const baseRef = localRef(base);
+
+  const scan: LocalScan = {
+    merged_local: [],
+    orphaned_worktree: [],
+    content_merged: [],
+    backup: [],
+    kept: [{ name: base, reason: "base", detail: null }],
+  };
+
+  if (currentBranch !== "" && currentBranch !== base) {
+    scan.kept.push({ name: currentBranch, reason: "current", detail: null });
+  }
+
+  const context = {
+    held: input.held,
+    protectedBranches: input.protectedBranches,
+    merged: new Set(await listRefs("refs/heads/", `--merged=${baseRef}`)),
+    agentPrefix: input.config.agentPrefix,
+    backupPrefix: input.config.backupPrefix,
+  };
+
+  const place = async (branch: string, placement: Placement, known?: BranchMeta) => {
+    if (placement.kind === "kept") {
+      scan.kept.push({ name: branch, ...placement.kept });
+
+      return;
+    }
+
+    const meta = known ?? (await branchMeta(branch, baseRef));
+    scan[placement.kind].push({ ...meta, proof: placement.proof });
+  };
+
+  for (const branch of await listRefs("refs/heads/")) {
+    if (branch === base || branch === currentBranch) continue;
+    const triage = triageLocal(branch, context);
+
+    if (triage.kind === "placed") {
+      await place(branch, triage.placement);
+      continue;
+    }
+
+    const meta = await branchMeta(branch, baseRef);
+
+    if (triage.route === "content") {
+      const old = tooOld({ lastCommit: new Date(meta.last_commit_date), maxAgeDays, now });
+
+      if (old !== null) {
+        await place(branch, { kind: "kept", kept: old });
+        continue;
+      }
+    }
+
+    const proof = await proveContained(localRef(branch), baseRef, github);
+    const unproven = `${meta.ahead} commit(s) not proven to be in ${base}`;
+    await place(branch, settleLocal(triage.route, proof, unproven), meta);
+  }
+
+  return scan;
+}
+
+// ---------------------------------------------------------------------------
+// Remote branch scanning (origin only, non-destructive)
+// ---------------------------------------------------------------------------
+
+type RemoteScan = {
+  stale_remote: RemoteBranchInfo[];
+  kept_remote: KeptBranch[];
+  stale_tracking: string[];
+  remote_base: string | null;
+};
+
+async function scanRemote(input: ScanInput): Promise<RemoteScan> {
+  const { base, protectedBranches, maxAgeDays, github, now } = input;
+
+  const scan: RemoteScan = {
+    stale_remote: [],
+    kept_remote: [],
+    stale_tracking: [],
+    remote_base: null,
+  };
+
+  // Origin-presence gate: no origin -> fully local, no network, refs intact.
+  if ((await git("remote", "get-url", "origin")).exitCode !== 0) return scan;
+
+  // Non-destructive refresh: update remote-tracking refs WITHOUT pruning
+  // (pruning stays a confirmed apply op) and without clobbering FETCH_HEAD.
+  // Fail-closed: never proceed on stale remote data when offline.
+  await gitRead("fetch", "--no-prune", "--no-write-fetch-head", "origin");
+
+  // Stale tracking refs: refs whose upstream is gone. With --no-prune above,
+  // `remote prune --dry-run` reports them honestly (populating stale_tracking
+  // so apply can prune them under confirmation). Read before the remote scan:
+  // a ref the upstream no longer has must never be proposed for deletion on
+  // that upstream, which fails with `remote ref does not exist`.
+  scan.stale_tracking = (await gitRead("remote", "prune", "origin", "--dry-run"))
+    .split("\n")
+    .filter((line) => line.includes("would prune"))
+    .map((line) => line.replace(/^.*\[would prune\]\s*/u, "").trim())
+    .filter(Boolean);
+
+  const staleTracking = new Set(scan.stale_tracking);
+
+  // Remote branches are judged against origin/<base>, never local <base>:
+  // a local base that lags would under-report, and an unpushed local merge
+  // must never justify deleting the only remote copy of a branch.
+  const remoteBase = `origin/${base}`;
+  const remoteBaseRef = remoteRef(remoteBase);
+
+  if ((await git("rev-parse", "--verify", "--quiet", remoteBaseRef)).exitCode !== 0) return scan;
+  scan.remote_base = remoteBase;
+
+  const context = {
+    protectedBranches,
+    merged: new Set(await listRefs("refs/remotes/origin/", `--merged=${remoteBaseRef}`)),
+  };
+
+  for (const branch of await listRefs("refs/remotes/origin/")) {
+    const remoteBranch = `origin/${branch}`;
+
+    if (branch === "HEAD" || branch === base || staleTracking.has(remoteBranch)) continue;
+    const triage = triageRemote(branch, context);
+
+    if (triage.kind === "kept") {
+      scan.kept_remote.push({ name: remoteBranch, ...triage.kept });
+      continue;
+    }
+
+    const meta = await remoteMeta(remoteBranch);
+
+    if (triage.kind === "stale") {
+      scan.stale_remote.push({ ...meta, proof: triage.proof });
+      continue;
+    }
+
+    const old = tooOld({ lastCommit: new Date(meta.last_commit_date), maxAgeDays, now });
+
+    if (old !== null) {
+      scan.kept_remote.push({ name: remoteBranch, ...old });
+      continue;
+    }
+
+    const proof = await proveContained(remoteRef(remoteBranch), remoteBaseRef, github);
+    const placement = settleRemote(proof, remoteBase);
+
+    if (placement.kind === "kept") scan.kept_remote.push({ name: remoteBranch, ...placement.kept });
+    else scan.stale_remote.push({ ...meta, proof: placement.proof });
   }
 
   return scan;
@@ -527,94 +532,79 @@ async function saveManifest(): Promise<SaveResult> {
 // Main
 // ---------------------------------------------------------------------------
 
-async function main(): Promise<AuditResult | SaveResult> {
-  const args = Bun.argv.slice(2);
+type AuditArgs = { base: string | null; includeRemote: boolean; maxAge: number | null };
 
-  // Save-manifest mode: durable hand-off writer, not a scan.
-  if (args.includes("--save-manifest")) {
-    return saveManifest();
-  }
-
-  let baseArg: string | null = null;
-  let includeRemote = false;
-  let maxAgeArg: number | null = null;
+function parseArgs(args: string[]): AuditArgs | { error: string } {
+  const parsed: AuditArgs = { base: null, includeRemote: false, maxAge: null };
 
   for (let i = 0; i < args.length; i++) {
     switch (args[i]) {
       case "--base": {
         const value = args[++i];
 
-        if (value === undefined) {
-          return { ok: false, error: "missing value for --base", step: "validate" };
-        }
-
-        baseArg = value;
+        if (value === undefined) return { error: "missing value for --base" };
+        parsed.base = value;
         break;
       }
 
       case "--include-remote":
-        includeRemote = true;
+        parsed.includeRemote = true;
         break;
       case "--max-age": {
         const value = args[++i];
 
         if (value === undefined || !POSITIVE_INT.test(value)) {
-          return {
-            ok: false,
-            error: `invalid --max-age '${value ?? ""}' (expected a positive integer)`,
-            step: "validate",
-          };
+          return { error: `invalid --max-age '${value ?? ""}' (expected a positive integer)` };
         }
 
-        maxAgeArg = parseInt(value, 10);
+        parsed.maxAge = parseInt(value, 10);
         break;
       }
 
       default:
-        return { ok: false, error: `unknown argument: ${args[i]}`, step: "validate" };
+        return { error: `unknown argument: ${args[i]}` };
     }
   }
 
+  return parsed;
+}
+
+// An explicitly named base is the caller's decision: verified as a branch (a
+// tag, an OID or HEAD would silently shift every containment proof), never
+// substituted. So is a configured sweep.base.
+async function chooseBase(
+  baseArg: string | null,
+  config: SweepConfig,
+  originHead: string | null,
+): Promise<{ base: string } | { error: string }> {
+  if (config.base !== null && !(await localBranchExists(config.base))) {
+    return { error: `configured sweep.base '${config.base}' not found` };
+  }
+
+  if (baseArg !== null) {
+    return (await localBranchExists(baseArg))
+      ? { base: baseArg }
+      : { error: `base branch '${baseArg}' not found` };
+  }
+
+  const resolved = await resolveBase(config.base, originHead);
+
+  return resolved === null
+    ? { error: "no trunk branch found; pass --base <branch>" }
+    : { base: resolved };
+}
+
+async function audit(args: AuditArgs, advance: (step: AuditStep) => void): Promise<AuditResult> {
   const config = await readSweepConfig();
 
-  if ("error" in config) {
-    return { ok: false, error: config.error, step: "validate" };
-  }
+  if ("error" in config) return { ok: false, error: config.error, step: "validate" };
 
-  const maxAgeDays = maxAgeArg ?? config.maxAgeDays;
-
+  const maxAgeDays = args.maxAge ?? config.maxAgeDays;
   const originHead = await originHeadTarget();
+  const chosen = await chooseBase(args.base, config, originHead);
 
-  // A configured sweep.base is as explicit as --base: verified, never substituted.
-  if (config.base !== null && !(await localBranchExists(config.base))) {
-    return {
-      ok: false,
-      error: `configured sweep.base '${config.base}' not found`,
-      step: "validate",
-    };
-  }
-
-  let base: string;
-
-  if (baseArg === null) {
-    const resolved = await resolveBase(config.base, originHead);
-
-    if (resolved === null) {
-      return { ok: false, error: "no trunk branch found; pass --base <branch>", step: "validate" };
-    }
-
-    base = resolved;
-  } else {
-    // An explicitly named base is the caller's decision: verified as a branch
-    // (a tag, an OID or HEAD would silently shift every containment proof),
-    // never substituted.
-    if (!(await localBranchExists(baseArg))) {
-      return { ok: false, error: `base branch '${baseArg}' not found`, step: "validate" };
-    }
-
-    base = baseArg;
-  }
-
+  if ("error" in chosen) return { ok: false, error: chosen.error, step: "validate" };
+  const { base } = chosen;
   const protectedBranches = buildProtectedSet(base, originHead, config);
 
   // Containment proofs rest on `git merge-tree --write-tree`; without it the
@@ -631,298 +621,75 @@ async function main(): Promise<AuditResult | SaveResult> {
 
   // --include-remote is already the audit's network opt-in; the GitHub proof
   // rides on it rather than adding a second flag.
-  const github = includeRemote ? makeGithubProver(base, maxAgeDays) : null;
+  const github = args.includeRemote ? makeGithubProver(base, maxAgeDays) : null;
+  const scanInput: ScanInput = { base, protectedBranches, maxAgeDays, github, now: new Date() };
+
+  advance("scan-worktrees");
+  const currentBranch = await gitRead("branch", "--show-current");
+  const currentWorktree = await gitRead("rev-parse", "--show-toplevel");
+  const linkedWorktrees = parseWorktreeList(await gitRead("worktree", "list", "--porcelain"));
+
+  if ("error" in linkedWorktrees) {
+    return { ok: false, error: linkedWorktrees.error, step: "scan-worktrees" };
+  }
+
+  const worktrees = await scanWorktrees(
+    linkedWorktrees,
+    { currentWorktree, protectedBranches, directoryExists: existsSync },
+    localRef(base),
+    github,
+  );
+
+  advance("scan-local");
+  const local = await scanLocal({ ...scanInput, currentBranch, held: worktrees.retained, config });
+
+  advance("scan-remote");
+
+  const remote: RemoteScan = args.includeRemote
+    ? await scanRemote(scanInput)
+    : { stale_remote: [], kept_remote: [], stale_tracking: [], remote_base: null };
+
+  return {
+    ok: true,
+    base,
+    remote_base: remote.remote_base,
+    categories: {
+      merged_local: local.merged_local,
+      orphaned_worktree: local.orphaned_worktree,
+      content_merged: local.content_merged,
+      backup: local.backup,
+      stale_worktrees: worktrees.stale,
+      removable_worktrees: worktrees.removable,
+      stale_remote: remote.stale_remote,
+      stale_tracking: remote.stale_tracking,
+    },
+    kept: local.kept,
+    kept_worktrees: worktrees.kept,
+    kept_remote: remote.kept_remote,
+  };
+}
+
+async function main(): Promise<AuditResult | SaveResult> {
+  const argv = Bun.argv.slice(2);
+
+  // Save-manifest mode: durable hand-off writer, not a scan.
+  if (argv.includes("--save-manifest")) return saveManifest();
+
+  const args = parseArgs(argv);
+
+  if ("error" in args) return { ok: false, error: args.error, step: "validate" };
+
+  // A git command that must succeed and does not is reported against the
+  // phase it broke; anything else is a bug, and still one valid AuditError.
+  let step: AuditStep = "validate";
 
   try {
-    // Get current branch (to exclude from cleanup)
-    const currentBranch = (await git("branch", "--show-current")).stdout;
-    const currentWorktree = (await git("rev-parse", "--show-toplevel")).stdout;
-
-    // Get worktree info for cross-referencing. A failure here is fatal (rather
-    // than silently treating the tree as worktree-free).
-    const worktreeList = await git("worktree", "list", "--porcelain");
-
-    if (worktreeList.exitCode !== 0) {
-      return {
-        ok: false,
-        error: `git worktree list failed: ${worktreeList.stderr}`,
-        step: "scan-worktrees",
-      };
-    }
-
-    const linkedWorktrees = parseWorktreeList(worktreeList.stdout);
-
-    if ("error" in linkedWorktrees) {
-      return { ok: false, error: linkedWorktrees.error, step: "scan-worktrees" };
-    }
-
-    const worktreeScan = await scanWorktrees(
-      linkedWorktrees,
-      { currentWorktree, protectedBranches, directoryExists: existsSync },
-      base,
-      github,
-    );
-
-    const stale_worktrees = worktreeScan.stale;
-    const removable_worktrees = worktreeScan.removable;
-
-    // -------------------------------------------------------------------------
-    // Scan local branches
-    // -------------------------------------------------------------------------
-
-    // Get merged branches (a failed listing is fatal, not an empty result)
-    const mergedResult = await git("branch", "--merged", base, "--format=%(refname:short)");
-
-    if (mergedResult.exitCode !== 0) {
-      return {
-        ok: false,
-        error: `git branch --merged failed: ${mergedResult.stderr}`,
-        step: "scan-local",
-      };
-    }
-
-    const mergedSet = new Set(
-      mergedResult.stdout
-        .split("\n")
-        .filter(Boolean)
-        .filter((b) => b !== base && b !== currentBranch),
-    );
-
-    // Get all local branches
-    const allBranchesResult = await git("branch", "--format=%(refname:short)");
-
-    if (allBranchesResult.exitCode !== 0) {
-      return {
-        ok: false,
-        error: `git branch failed: ${allBranchesResult.stderr}`,
-        step: "scan-local",
-      };
-    }
-
-    const allBranches = allBranchesResult.stdout.split("\n").filter(Boolean);
-
-    const kept: KeptBranch[] = [{ name: base, reason: "base", detail: null }];
-
-    if (currentBranch && currentBranch !== base) {
-      kept.push({ name: currentBranch, reason: "current", detail: null });
-    }
-
-    const merged_local: BranchInfo[] = [];
-    const orphaned_worktree: BranchInfo[] = [];
-    const content_merged: BranchInfo[] = [];
-    const backup: BranchInfo[] = [];
-    const unclassified: string[] = [];
-
-    const maxAgeDate = new Date();
-    maxAgeDate.setDate(maxAgeDate.getDate() - maxAgeDays);
-
-    for (const branch of allBranches) {
-      // base and current are already in kept with their own reasons
-      if (branch === base || branch === currentBranch) continue;
-
-      // Branches held by a worktree that survives the sweep. Branches whose
-      // worktree is itself removable are absent here on purpose: they fall
-      // through so branch and worktree go in the same pass.
-      const heldBy = worktreeScan.retained.get(branch);
-
-      if (heldBy) {
-        kept.push(heldBy);
-        continue;
-      }
-
-      if (protectedBranches.has(branch)) {
-        kept.push({ name: branch, reason: "protected", detail: null });
-        continue;
-      }
-
-      if (mergedSet.has(branch)) {
-        // Category 1 or 2: merged -- check if it's an orphaned worktree branch
-        const target = branch.startsWith(config.agentPrefix) ? orphaned_worktree : merged_local;
-        target.push(await getBranchInfo(branch, base, "ancestry"));
-      } else if (branch.startsWith(config.backupPrefix)) {
-        // Category 4: backup branch
-        backup.push(await getBranchInfo(branch, base, await proveContained(branch, base, github)));
-      } else if (branch.startsWith(config.agentPrefix)) {
-        // Unmerged worktree-agent branch. The tool creates these and agents
-        // normally abandon them empty; one that still holds unproven commits
-        // was worked on directly and carries the only copy. A name prefix is
-        // no reason to offer a deletion that the same content would forbid on
-        // any other branch, so it is retained like any other unproven branch.
-        const proof = await proveContained(branch, base, github);
-        const info = await getBranchInfo(branch, base, proof);
-
-        if (proof === "unproven") {
-          kept.push({
-            name: branch,
-            reason: "unproven",
-            detail: `${info.ahead} commit(s) not proven to be in ${base}`,
-          });
-        } else {
-          orphaned_worktree.push(info);
-        }
-      } else {
-        // Candidate for the content-containment proof
-        unclassified.push(branch);
-      }
-    }
-
-    // Content-containment proof for unclassified branches. The age gate bounds
-    // cost; an old branch is reported as untested, never as proven absent.
-    for (const branch of unclassified) {
-      const info = await getBranchInfo(branch, base, "unproven");
-      const commitDate = new Date(info.last_commit_date);
-
-      if (commitDate < maxAgeDate) {
-        kept.push({
-          name: branch,
-          reason: "too-old",
-          detail: `older than ${maxAgeDays} days, containment not tested`,
-        });
-        continue;
-      }
-
-      const proof = await proveContained(branch, base, github);
-
-      if (proof === "unproven") {
-        kept.push({
-          name: branch,
-          reason: "unproven",
-          detail: `${info.ahead} commit(s) not proven to be in ${base}`,
-        });
-      } else {
-        content_merged.push({ ...info, proof });
-      }
-    }
-
-    // -------------------------------------------------------------------------
-    // Scan remote branches (origin-only, non-destructive)
-    // -------------------------------------------------------------------------
-
-    const stale_remote: RemoteBranchInfo[] = [];
-    const kept_remote: KeptBranch[] = [];
-    let stale_tracking: string[] = [];
-    let remote_base: string | null = null;
-
-    if (includeRemote) {
-      // Origin-presence gate: no origin -> fully local, no network, refs intact.
-      const originCheck = await git("remote", "get-url", "origin");
-
-      if (originCheck.exitCode === 0) {
-        // Non-destructive refresh: update remote-tracking refs WITHOUT pruning
-        // (pruning stays a confirmed apply op) and without clobbering FETCH_HEAD.
-        // Fail-closed: never proceed on stale remote data when offline.
-        const fetchResult = await git("fetch", "--no-prune", "--no-write-fetch-head", "origin");
-
-        if (fetchResult.exitCode !== 0) {
-          return {
-            ok: false,
-            error: `git fetch origin failed: ${fetchResult.stderr}`,
-            step: "scan-remote",
-          };
-        }
-
-        // Stale tracking refs: refs whose upstream is gone. With --no-prune above,
-        // `remote prune --dry-run` reports them honestly (populating stale_tracking
-        // so apply can prune them under confirmation). Read before the remote scan:
-        // a ref the upstream no longer has must never be proposed for deletion on
-        // that upstream, which fails with `remote ref does not exist`.
-        const pruneResult = await git("remote", "prune", "origin", "--dry-run");
-
-        if (pruneResult.stdout) {
-          stale_tracking = pruneResult.stdout
-            .split("\n")
-            .filter((line) => line.includes("would prune"))
-            .map((line) => line.replace(/^.*\[would prune\]\s*/u, "").trim())
-            .filter(Boolean);
-        }
-
-        const staleTracking = new Set(stale_tracking);
-
-        // Remote branches are judged against origin/<base>, never local <base>:
-        // a local base that lags would under-report, and an unpushed local merge
-        // must never justify deleting the only remote copy of a branch.
-        const remoteBaseRef = `origin/${base}`;
-        const remoteBaseCheck = await git("rev-parse", "--verify", remoteBaseRef);
-
-        if (remoteBaseCheck.exitCode === 0) {
-          remote_base = remoteBaseRef;
-
-          // All remote branches (reject any non-origin prefix)
-          const allRemoteResult = await git("branch", "-r", "--format=%(refname:short)");
-
-          if (allRemoteResult.exitCode !== 0) {
-            return {
-              ok: false,
-              error: `git branch -r failed: ${allRemoteResult.stderr}`,
-              step: "scan-remote",
-            };
-          }
-
-          const allRemotes = allRemoteResult.stdout
-            .split("\n")
-            .filter(Boolean)
-            .filter((b) => b.startsWith("origin/") && !b.endsWith("/HEAD") && b !== remoteBaseRef)
-            .filter((b) => !staleTracking.has(b));
-
-          for (const remoteBranch of allRemotes) {
-            if (protectedBranches.has(remoteBranch.slice("origin/".length))) {
-              kept_remote.push({ name: remoteBranch, reason: "protected", detail: null });
-              continue;
-            }
-
-            // Ancestry is cheap and age-independent; only the merge-tree proof
-            // is gated, so old ancestor-merged remotes stay reported.
-            if (await isAncestor(remoteBranch, remoteBaseRef)) {
-              stale_remote.push(await getRemoteBranchInfo(remoteBranch, "ancestry"));
-              continue;
-            }
-
-            const info = await getRemoteBranchInfo(remoteBranch, "unproven");
-
-            if (new Date(info.last_commit_date) < maxAgeDate) {
-              kept_remote.push({
-                name: remoteBranch,
-                reason: "too-old",
-                detail: `older than ${maxAgeDays} days, containment not tested`,
-              });
-            } else {
-              const proof = await proveContained(remoteBranch, remoteBaseRef, github);
-
-              if (proof === "unproven") {
-                kept_remote.push({
-                  name: remoteBranch,
-                  reason: "unproven",
-                  detail: `not proven to be in ${remoteBaseRef}`,
-                });
-              } else {
-                stale_remote.push({ ...info, proof });
-              }
-            }
-          }
-        }
-      }
-    }
-
-    return {
-      ok: true,
-      base,
-      remote_base,
-      categories: {
-        merged_local,
-        orphaned_worktree,
-        content_merged,
-        backup,
-        stale_worktrees,
-        removable_worktrees,
-        stale_remote,
-        stale_tracking,
-      },
-      kept,
-      kept_worktrees: worktreeScan.kept,
-      kept_remote,
-    };
+    return await audit(args, (next) => {
+      step = next;
+    });
   } catch (err) {
-    // Catch-all: any in-process exception still emits one valid AuditError JSON.
+    if (err instanceof GitError) return { ok: false, error: err.message, step };
+
     return {
       ok: false,
       error: `internal error: ${err instanceof Error ? err.message : String(err)}`,

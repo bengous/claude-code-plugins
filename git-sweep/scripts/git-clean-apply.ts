@@ -5,8 +5,7 @@
 
 import { rename, unlink } from "node:fs/promises";
 
-import { $ } from "bun";
-
+import { git, localRef } from "./git.ts";
 import { type CleanupManifest, parseManifest } from "./manifest.ts";
 import { buildProtectedSet, originHeadTarget, readProtectionConfig } from "./sweep-config.ts";
 
@@ -28,22 +27,6 @@ type CleanupResult = {
   // Present when a partial failure left operations behind in the hand-off file.
   manifest_remaining?: { path: string; operations: number };
 };
-
-// ---------------------------------------------------------------------------
-// Git helpers
-// ---------------------------------------------------------------------------
-
-async function git(
-  ...args: string[]
-): Promise<{ stdout: string; stderr: string; exitCode: number }> {
-  // git translates the errors apply parses (`remote ref does not exist`); LC_ALL=C pins them.
-  const { stdout, stderr, exitCode } = await $`git ${args}`
-    .env({ ...process.env, LC_ALL: "C" })
-    .quiet()
-    .nothrow();
-
-  return { stdout: stdout.toString().trim(), stderr: stderr.toString().trim(), exitCode };
-}
 
 // ---------------------------------------------------------------------------
 // Deduplication
@@ -157,7 +140,7 @@ async function execute(
 
     // The audit proved containment for THIS commit; if the branch moved since,
     // that proof no longer covers what would be deleted.
-    const head = await git("rev-parse", "--verify", `refs/heads/${name}`);
+    const head = await git("rev-parse", "--verify", localRef(name));
 
     if (head.exitCode !== 0) {
       fail(`branch no longer exists: ${head.stderr}`);
@@ -208,9 +191,13 @@ async function execute(
       continue;
     }
 
+    // The short name for --delete: with the full ref, a branch already gone
+    // answers "stale info" like one pushed to since the audit, where the short
+    // name answers "remote ref does not exist". A remote tag of the same name
+    // makes the short name ambiguous, which git refuses.
     const result = await git(
       "push",
-      `--force-with-lease=refs/heads/${ref}:${oid}`,
+      `--force-with-lease=${localRef(ref)}:${oid}`,
       remote,
       "--delete",
       ref,

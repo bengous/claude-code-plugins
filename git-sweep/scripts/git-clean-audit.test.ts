@@ -134,6 +134,11 @@ const worktreeCounts = (result: Record<string, unknown>) => {
   };
 };
 
+const categoryNames = (result: Record<string, unknown>): string[] =>
+  Object.values(result.categories as Record<string, { name?: string; branch?: string }[]>)
+    .flat()
+    .map((entry) => entry.name ?? entry.branch ?? "");
+
 const onlyKeptWorktree = (result: Record<string, unknown>): KeptWorktree | undefined =>
   (result.kept_worktrees as KeptWorktree[])[0];
 
@@ -877,6 +882,58 @@ describe("git-clean-audit", () => {
 
       expect(worktreeCounts(result)).toEqual({ stale: 0, removable: 0, kept: 1 });
       expect(onlyKeptWorktree(result)).toMatchObject({ branch: "feature/gone", reason: "unborn" });
+    });
+  });
+
+  describe("names git could resolve to another ref", () => {
+    test("judges containment against the base branch, not a tag of the same name", async () => {
+      const repo = await makeRepo("tag-like-base");
+
+      await git(repo, "checkout", "-b", "feature/unmerged");
+      await addCommit(repo, "work.txt", "unmerged work");
+      await git(repo, "checkout", "main");
+      await git(repo, "tag", "main", "feature/unmerged");
+
+      const { result } = await runAudit(repo);
+
+      expect(categoryNames(result)).not.toContain("feature/unmerged");
+      expect(categoryNames(result)).not.toContain("heads/main");
+      expect(keptEntry(result, "feature/unmerged")?.reason).toBe("unproven");
+    });
+
+    test("reports a branch under its own name and tip when a tag shares the name", async () => {
+      const repo = await makeRepo("tag-like-branch");
+
+      await git(repo, "checkout", "-b", "feature/x");
+      await addCommit(repo, "x.txt", "x work");
+      await git(repo, "checkout", "main");
+      await git(repo, "merge", "feature/x");
+      await git(repo, "tag", "feature/x", "main~1");
+
+      const { result } = await runAudit(repo);
+
+      const merged = (result.categories as Record<string, { name: string; oid: string }[]>)
+        .merged_local;
+
+      expect(merged?.map((b) => b.name)).toEqual(["feature/x"]);
+      expect(merged?.[0]?.oid).toBe(await git(repo, "rev-parse", "refs/heads/feature/x"));
+    });
+
+    test("tests a branch rewritten recently even when its commit was authored long ago", async () => {
+      const repo = await makeRepo("rebased-old");
+
+      await git(repo, "checkout", "-b", "feature/rebased");
+      writeFileSync(join(repo, "old.txt"), "old work");
+      await git(repo, "add", ".");
+      await git(repo, "commit", "-m", "old work", "--date=400 days ago");
+      await git(repo, "checkout", "main");
+      await git(repo, "merge", "--squash", "feature/rebased");
+      await git(repo, "commit", "-m", "squash of feature/rebased");
+
+      const { result } = await runAudit(repo);
+      const content = (result.categories as Record<string, { name: string }[]>).content_merged;
+
+      expect(content?.map((b) => b.name)).toContain("feature/rebased");
     });
   });
 
