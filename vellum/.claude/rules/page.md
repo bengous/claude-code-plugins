@@ -33,7 +33,10 @@ no build step, so what the page imports costs nothing at `cli start`.
   The types hold part of it, locked in `kit.spec.ts`: `ChipProps` takes no `class`, and neither
   takes `className`. `ButtonProps` takes a `class`, joined to the kit's own, for a state the kit
   has no prop for (`grill-later` in `grill/proposal.tsx`): there a kit class spelled at the call compiles,
-  and only a reader refuses it. A token consumed outside CSS (Mermaid's `themeVariables`, the frame's overlay) parses
+  and only a reader refuses it. A `Chip`'s state the kit has no `tone` for rides on a `data-`
+  attribute its extension's CSS reads under the extension's prefix (`data-state` in
+  `.grill-chips`), and says it in words in its `title`, since a colour says nothing to a screen
+  reader. A token consumed outside CSS (Mermaid's `themeVariables`, the frame's overlay) parses
   neither `color-mix()` nor the `oklab()` the browser serializes once computed: it goes through
   `srgb()`, which yields sRGB, and the consumer redraws on the `dark` signal of `state.ts`.
 - A commented block carries a fillet in the sheet's margin: `markdown/marked.ts` chooses,
@@ -174,7 +177,11 @@ no build step, so what the page imports costs nothing at `cli start`.
   itself. A typing whose field is gone goes with it, or the warning would name what nobody can
   see or clear: a grill's answers once the server says no grill is open on the transcript
   (`forgetClosed` in `grill/page.tsx`), the editor's typing once its version is no longer under
-  review (`settleEditorTyping`). `unsentTyped` names what a decision would throw; Send feedback
+  review (`settleEditorTyping`). A grill's answer keeps the draft's shape: absent, the question
+  takes the recommendation by default; `As recommended.` (`AS_RECOMMENDED` of
+  `grill/protocol.ts`), the reviewer chose it; any other text is their own. The panel's two
+  choices write it, Recommended the default, and a text of the reviewer's own greys Recommended,
+  so a click never throws the typing. `unsentTyped` names what a decision would throw; Send feedback
   and Approve put the warning first when it is not empty, and a decision that lands clears it. Cancel of the editor
   over a changed text asks first; End grill sends what is typed as a reply before it closes.
 - An unsent edit is an `Edit`: a text with the version it edits. The stamp is taken when the
@@ -238,9 +245,12 @@ no build step, so what the page imports costs nothing at `cli start`.
   first load that failed prints it where the wait was, a failed reload keeps the text the reviewer
   is reading. `waitingText` in `markdown/sheet.ts` chooses, purely, and `MarkdownDoc` draws it in
   the one `.waiting` line it already had. No other renderer has that state: a grill's transcript
-  whose blocks failed to load stays an empty sheet under the notice. While Claude works on a
-  round the grill's panel carries a `role="status"` line, and a round that lands scrolls the
-  panel to its first open card.
+  whose blocks failed to load stays an empty sheet under the notice. The grill's panel draws the
+  transcript's text, then every round's questions as chips over the one question they pick, an
+  open one with its two choices, an answered one read-only (`roundsOf` in `grill/rounds.ts`,
+  pure, on the blocks as served); its send says how many open questions it takes as
+  recommended. While Claude works on a round the panel carries a `role="status"` line, and a
+  round that lands shows its first open question, scrolled into view.
 - A block says its source lines in `data-lines="start-end"`: `markdown/tree.ts` writes it,
   `parseLines` of `anchoring.ts` is the one place it is read, and `tree.spec.ts` holds the two
   together. Every reader calls it, the pure helpers of `markdown/` included: a second copy of

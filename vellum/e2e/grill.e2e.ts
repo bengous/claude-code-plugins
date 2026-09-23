@@ -1,6 +1,6 @@
 import type { Locator, Page, Route } from "@playwright/test";
 
-import type { Vellum } from "./harness.ts";
+import type { Reply, Vellum } from "./harness.ts";
 import { axe, boxOf, contrast, expect, openVellum, test } from "./harness.ts";
 
 /**
@@ -371,12 +371,34 @@ function panel(page: Page): Locator {
   return page.getByRole("complementary", { name: "Grill" });
 }
 
+function chips(page: Page): Locator {
+  return panel(page).locator(".grill-chips").getByRole("button");
+}
+
+function chip(page: Page, id: string): Locator {
+  return panel(page).locator(".grill-chips").getByRole("button", { name: id, exact: true });
+}
+
+/** The one question the panel shows, under the chips. */
+function shown(page: Page): Locator {
+  return panel(page).locator(".grill-round .grill-q");
+}
+
+function sendRound(page: Page): Locator {
+  return panel(page).getByRole("button", { name: /^Send (round|note)/u });
+}
+
+/** Each chip's state, in order: answered, default or waiting. */
+function statesOf(page: Page): Promise<(string | undefined)[]> {
+  return chips(page).evaluateAll((all: HTMLElement[]) => all.map((node) => node.dataset["state"]));
+}
+
 /** A grill open on the plan with a round of two questions, and the page drawn on it. */
 async function asking(page: Page, vellum: Vellum): Promise<void> {
   await vellum.grill.open(SUBJECT);
   await vellum.grill.ask(ROUND);
   await openVellum(page, vellum);
-  await expect(panel(page).locator(".grill-q")).toHaveCount(2);
+  await expect(chips(page)).toHaveCount(2);
 }
 
 /** Whether `right` starts where `left` ends, or past it. */
@@ -438,7 +460,7 @@ test.describe("the panel", () => {
     await page.locator("#rail button", { hasText: "pourquoi-issue-139.md" }).click();
 
     await expect(page.locator("#doc .doc-head")).toContainText("pourquoi-issue-139.md");
-    await expect(panel(page).locator(".grill-q")).toHaveCount(2);
+    await expect(chips(page)).toHaveCount(2);
   });
 
   test("an answer typed and sent in the panel reaches the server, and Claude works", async ({
@@ -446,8 +468,10 @@ test.describe("the panel", () => {
     vellum,
   }) => {
     await asking(page, vellum);
-    await panel(page).getByRole("textbox", { name: "Answer to Q1" }).fill("One store per form.");
-    await panel(page).getByRole("button", { name: "Send answers" }).click();
+    await panel(page)
+      .getByRole("textbox", { name: "Your answer to Q1" })
+      .fill("One store per form.");
+    await sendRound(page).click();
 
     await expect
       .poll(async () => (await vellum.grill.state()).json)
@@ -530,6 +554,160 @@ test.describe("the panel", () => {
   });
 });
 
+const THREE = [
+  ...ROUND,
+  ["Replay", "When is the queue replayed?", "On the online event."],
+] as const;
+
+/** Claude's final text for a turn of the grill, as the hooks module posts it at the turn's end. */
+function claudeSays(vellum: Vellum, text: string): Promise<Reply> {
+  return vellum.api("x/grill/answer", { text, reason: "answer", own: true });
+}
+
+/** Round 1 sent (Q1 typed, Q2 chosen, Q3 by default), round 2 open (Q4, Q5), the page drawn on it. */
+async function twoRounds(page: Page, vellum: Vellum): Promise<void> {
+  const answers = [
+    { id: "Q1", text: "One store per form." },
+    { id: "Q2", text: "As recommended." },
+  ];
+
+  await vellum.grill.open(SUBJECT);
+  await vellum.grill.ask(THREE);
+  await vellum.api("x/grill/reply", { answers, note: "" });
+  await vellum.grill.ask(ROUND);
+  await openVellum(page, vellum);
+  await expect(chips(page)).toHaveCount(5);
+}
+
+test.describe("a round in the panel", () => {
+  test("is its questions as chips, waiting, over the first one, Recommended chosen by default", async ({
+    page,
+    vellum,
+  }) => {
+    await asking(page, vellum);
+
+    await expect(chips(page)).toHaveText(["Q1", "Q2"]);
+    expect(await statesOf(page)).toEqual(["waiting", "waiting"]);
+    await expect(chip(page, "Q1")).toHaveAttribute("aria-current", "true");
+    await expect(shown(page).locator(".topic")).toHaveText("Storage");
+    await expect(shown(page).getByRole("radio", { name: "Recommended" })).toBeChecked();
+    await expect(panel(page).locator(".grill-q")).toHaveCount(1);
+  });
+
+  test("Next, Previous and a chip walk its questions, one at a time", async ({ page, vellum }) => {
+    await asking(page, vellum);
+    await panel(page).getByRole("button", { name: "Next question, Q2" }).click();
+    await expect(shown(page).locator(".topic")).toHaveText("Conflicts");
+    await panel(page).getByRole("button", { name: "Previous question, Q1" }).click();
+    await expect(shown(page).locator(".topic")).toHaveText("Storage");
+    await chip(page, "Q2").click();
+
+    await expect(shown(page).locator(".topic")).toHaveText("Conflicts");
+    await expect(chip(page, "Q2")).toHaveAttribute("aria-current", "true");
+  });
+
+  test("Send round says how many it takes as recommended, one fewer for each choice", async ({
+    page,
+    vellum,
+  }) => {
+    await asking(page, vellum);
+    await expect(sendRound(page)).toHaveText("Send round · 2 taken as recommended");
+    await shown(page).getByRole("radio", { name: "Recommended" }).click();
+
+    await expect(sendRound(page)).toHaveText("Send round · 1 taken as recommended");
+    expect(await statesOf(page)).toEqual(["answered", "waiting"]);
+  });
+
+  test("Recommended is greyed while Your answer holds a text: a click never throws the typing", async ({
+    page,
+    vellum,
+  }) => {
+    await asking(page, vellum);
+    const field = shown(page).getByRole("textbox", { name: "Your answer to Q1" });
+    await field.fill("One store per form.");
+
+    await expect(shown(page).getByRole("radio", { name: "Your answer" })).toBeChecked();
+    await expect(shown(page).getByRole("radio", { name: "Recommended" })).toBeDisabled();
+    await field.fill("");
+    await expect(shown(page).getByRole("radio", { name: "Recommended" })).toBeEnabled();
+  });
+
+  test("after a send the chips say what each question took: an answer, or the recommendation by default", async ({
+    page,
+    vellum,
+  }) => {
+    await vellum.grill.open(SUBJECT);
+    await vellum.grill.ask(THREE);
+    await openVellum(page, vellum);
+    await shown(page).getByRole("textbox", { name: "Your answer to Q1" }).fill("One store.");
+    await chip(page, "Q2").click();
+    await shown(page).getByRole("radio", { name: "Recommended" }).click();
+    await sendRound(page).click();
+
+    await expect.poll(() => statesOf(page)).toEqual(["answered", "answered", "default"]);
+    await expect(shown(page)).toHaveCount(0);
+  });
+
+  test("an answered question, opened from its chip, reads its answer and takes nothing", async ({
+    page,
+    vellum,
+  }) => {
+    await twoRounds(page, vellum);
+    await chip(page, "Q1").click();
+
+    await expect(shown(page).locator(".answer .text")).toHaveText("One store per form.");
+    await expect(shown(page).getByRole("radio")).toHaveCount(0);
+    await expect(shown(page).getByRole("textbox")).toHaveCount(0);
+    await chip(page, "Q3").click();
+    await expect(shown(page).locator(".answer .label")).toHaveText("By default");
+  });
+
+  test("Claude's text between rounds still reads in the panel", async ({ page, vellum }) => {
+    await asking(page, vellum);
+    await claudeSays(vellum, "Round 1 is on the page.");
+    await sendRound(page).click();
+    await claudeSays(vellum, "The frontier is empty.");
+
+    await expect(panel(page).locator(".plan")).toContainText("Round 1 is on the page.");
+    await expect(panel(page).locator(".plan")).toContainText("The frontier is empty.");
+    await expect(chips(page)).toHaveCount(2);
+  });
+
+  test("axe finds nothing to fault on two rounds, a question open or answered, light and dark", async ({
+    page,
+    vellum,
+  }) => {
+    await twoRounds(page, vellum);
+
+    for (const picked of ["Q4", "Q1"]) {
+      await chip(page, picked).click();
+
+      for (const colorScheme of ["light", "dark"] as const) {
+        await page.emulateMedia({ colorScheme });
+        expect(await axe(page, ".grill-panel")).toEqual([]);
+      }
+    }
+  });
+
+  test("each chip's words read on its colour, and each choice's on its own, light and dark", async ({
+    page,
+    vellum,
+  }) => {
+    await twoRounds(page, vellum);
+    const texts = [chip(page, "Q1"), chip(page, "Q3"), chip(page, "Q4"), chip(page, "Q5")];
+    const labels = shown(page).locator(".grill-choice label");
+    texts.push(labels.first(), labels.last());
+
+    for (const colorScheme of ["light", "dark"] as const) {
+      await page.emulateMedia({ colorScheme });
+
+      for (const text of texts) {
+        expect(await onItsSurface(text)).toBeGreaterThanOrEqual(4.5);
+      }
+    }
+  });
+});
+
 /** Longer than the band is wide at 1920: its end must be cut, never wrapped. */
 const LONG_SUBJECT = Array.from(
   { length: 6 },
@@ -554,6 +732,35 @@ function painted(element: Locator, property: "color" | "backgroundColor"): Promi
   }, property);
 }
 
+/** A text's contrast on the nearest box that paints a background, its own or an ancestor's, both as a canvas paints them. */
+async function onItsSurface(text: Locator): Promise<number> {
+  const [color, background] = await text.evaluate((node) => {
+    const context = document.createElement("canvas").getContext("2d");
+
+    if (context === null) throw new Error("no 2d context");
+
+    const paint = (css: string): readonly number[] => {
+      context.clearRect(0, 0, 1, 1);
+      context.fillStyle = css;
+      context.fillRect(0, 0, 1, 1);
+
+      return [...context.getImageData(0, 0, 1, 1).data];
+    };
+
+    let surface: Element = node;
+
+    while (paint(getComputedStyle(surface).backgroundColor)[3] === 0 && surface.parentElement) {
+      surface = surface.parentElement;
+    }
+
+    const rgb = (css: string): string => `rgb(${paint(css).slice(0, 3).join(", ")})`;
+
+    return [rgb(getComputedStyle(node).color), rgb(getComputedStyle(surface).backgroundColor)];
+  });
+
+  return contrast(color, background);
+}
+
 /** How many lines a text runs over: a range over it gives one box per line. */
 function linesOf(text: Locator): Promise<number> {
   return text.evaluate((element) => {
@@ -574,7 +781,7 @@ test.describe("the band", () => {
 
   test("says no count once the round is sent", async ({ page, vellum }) => {
     await asking(page, vellum);
-    await panel(page).getByRole("button", { name: "Send answers" }).click();
+    await sendRound(page).click();
 
     await expect(band(page).locator(".count")).toHaveText("");
     await expect(band(page).locator(".subject")).toHaveText(`Grill · ${SUBJECT}`);
@@ -592,7 +799,9 @@ test.describe("the band", () => {
     vellum,
   }) => {
     await asking(page, vellum);
-    await panel(page).getByRole("textbox", { name: "Answer to Q1" }).fill("One store per form.");
+    await panel(page)
+      .getByRole("textbox", { name: "Your answer to Q1" })
+      .fill("One store per form.");
     await expect(page.getByRole("button", { name: "End grill" })).toHaveCount(1);
     await band(page).getByRole("button", { name: "End grill" }).click();
 
@@ -690,7 +899,9 @@ test.describe("the band", () => {
     vellum,
   }) => {
     await asking(page, vellum);
-    await panel(page).getByRole("textbox", { name: "Answer to Q1" }).fill("One store per form.");
+    await panel(page)
+      .getByRole("textbox", { name: "Your answer to Q1" })
+      .fill("One store per form.");
     await expect
       .poll(async () => JSON.stringify((await vellum.api("draft")).json))
       .toContain("form.");

@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import { answerOf, declineFailure, footerOf, waitingOf } from "./labels.ts";
+import { answerOf, chipTitle, declineFailure, footerOf, waitingOf } from "./labels.ts";
 
 describe("footerOf", () => {
   test("names who ended the grill, never the reason's code", () => {
@@ -40,5 +40,13 @@ describe("answerOf", () => {
       label: "Your answer",
       text: "plain",
     });
+  });
+});
+
+describe("chipTitle", () => {
+  test("says in words what a chip's colour says", () => {
+    expect(chipTitle("answered")).toBe("Answered");
+    expect(chipTitle("default")).toBe("Taken as recommended, by default");
+    expect(chipTitle("waiting")).toBe("Waiting: a send takes it as recommended");
   });
 });

@@ -142,8 +142,9 @@ sequenceDiagram
 ```
 
 A round is Claude's: `grill_ask` alone opens one, and the reviewer's reply is written in it, so
-an answer is read beside its question. A reply closes every open question, the ones left empty
-with "As recommended, by default."; so does the end of the grill. A question is open until a
+an answer is read beside its question. A reply closes every open question, the ones the
+reviewer left untouched with "As recommended, by default.", where "As recommended." is the
+recommendation chosen; so does the end of the grill. A question is open until a
 reply answers it, whatever happened since: a command of the session (`/vellum:start`, `/clear`)
 is the harness's, written as an event line that opens and closes nothing. What the reviewer
 types in the terminal, and what Claude answers to it, are not the grill's and are not written.

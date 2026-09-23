@@ -6,8 +6,8 @@ import { boxOf, expect, openVellum, reviewV1, test } from "./harness.ts";
 /**
  * The sheet, the transcript and the image: a task list tells the truth, an image beside the plan
  * loads and fits, a wide diagram keeps a readable scale, nothing scrolls the pane sideways, a
- * backticked name is a link, a card's Markdown is drawn, its recommendation stacks, its field
- * sends, and a capture opens at its real size.
+ * backticked name is a link, a card's Markdown is drawn, its answer reads by its kind, its
+ * recommendation fits, its field sends, and a capture opens at its real size.
  */
 
 const ROUND_1 = [
@@ -38,7 +38,7 @@ async function grilling(page: Page, vellum: Vellum): Promise<void> {
   await vellum.grill.ask(ROUND_1);
   await claudeSays(vellum, "Round 1 is on the page.");
   await openVellum(page, vellum);
-  await expect(grillPanel(page).locator(".grill-q")).toHaveCount(2);
+  await expect(grillPanel(page).locator(".grill-chips .chip")).toHaveCount(2);
 }
 
 function scrollOf(locator: Locator): Promise<{ readonly scroll: number; readonly client: number }> {
@@ -177,38 +177,37 @@ test.describe("the transcript", () => {
     await expect(page.locator(".grill-q .answer .text").first()).toHaveText("As recommended.");
   });
 
-  test("Take it is reachable in the panel at 1024, and greyed under a typed answer", async ({
+  test("Recommended is reachable in the panel at 1024, its text within the card", async ({
     page,
     vellum,
   }) => {
     await page.setViewportSize({ width: 1024, height: 768 });
     await grilling(page, vellum);
-    const card = grillPanel(page).locator(".grill-q").first();
-    const takeIt = card.getByRole("button", { name: "Take it" });
-    await takeIt.evaluate((button) => button.scrollIntoView({ block: "center" }));
-    await expect(takeIt).toBeEnabled();
+    const card = grillPanel(page).locator(".grill-round .grill-q");
+    const recommended = card.getByRole("radio", { name: "Recommended" });
+    await recommended.evaluate((radio) => radio.scrollIntoView({ block: "center" }));
 
-    const hit = await takeIt.evaluate((button) => {
-      const box = button.getBoundingClientRect();
+    const hit = await recommended.evaluate((radio) => {
+      const box = radio.getBoundingClientRect();
 
-      return document.elementFromPoint(box.x + box.width / 2, box.y + box.height / 2) === button;
+      return document.elementFromPoint(box.x + box.width / 2, box.y + box.height / 2) === radio;
     });
 
     expect(hit).toBe(true);
-    const [text, frame] = [await boxOf(card.locator(".rec .text")), await boxOf(card)];
+    const [text, frame] = [await boxOf(card.locator(".grill-choice .text")), await boxOf(card)];
     expect(text.x + text.width).toBeLessThanOrEqual(frame.x + frame.width);
-
-    await card.locator("textarea").fill("The geometry alone.");
-    await expect(takeIt).toBeDisabled();
   });
 
-  test("Ctrl+Enter in a card's field sends the answers", async ({ page, vellum }) => {
+  test("Ctrl+Enter in an answer's field sends the round", async ({ page, vellum }) => {
     await grilling(page, vellum);
-    const field = grillPanel(page).getByRole("textbox", { name: "Answer to Q2" });
+    await grillPanel(page).getByRole("button", { name: "Next question, Q2" }).click();
+    const field = grillPanel(page).getByRole("textbox", { name: "Your answer to Q2" });
     await field.fill("The plugin's own package.json.");
     await field.press("Control+Enter");
 
-    await expect(grillPanel(page).locator(".grill-q .answer")).toHaveCount(2);
+    await expect(grillPanel(page).locator('.grill-chips .chip[data-state="default"]')).toHaveCount(
+      1,
+    );
     const state = JSON.stringify((await vellum.grill.state()).json);
     expect(state).toContain("Q2: The plugin's own package.json.");
   });
@@ -217,7 +216,7 @@ test.describe("the transcript", () => {
     await grilling(page, vellum);
 
     const [card, field] = [
-      await boxOf(grillPanel(page).locator(".grill-q").first()),
+      await boxOf(grillPanel(page).locator(".grill-round .grill-q")),
       await boxOf(grillPanel(page).locator(".grill-foot textarea")),
     ];
 

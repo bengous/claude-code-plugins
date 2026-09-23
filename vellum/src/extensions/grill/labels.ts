@@ -1,5 +1,6 @@
 import { AS_RECOMMENDED } from "./protocol.ts";
 import type { Answer, CloseReason } from "./protocol.ts";
+import type { ChipState } from "./rounds.ts";
 
 /** What the transcript's foot says of its end, in the reviewer's words; the file keeps the reason's code. */
 export function footerOf(reason: CloseReason | "approved"): string {
@@ -42,5 +43,17 @@ export function answerOf(answer: Answer): { readonly label: string; readonly tex
       return { label: "Your answer", text: AS_RECOMMENDED };
     case "typed":
       return { label: "Your answer", text: answer.text };
+  }
+}
+
+/** A chip's state in words, in its `title`: its colour alone says nothing to a screen reader. */
+export function chipTitle(state: ChipState): string {
+  switch (state) {
+    case "answered":
+      return "Answered";
+    case "default":
+      return "Taken as recommended, by default";
+    case "waiting":
+      return "Waiting: a send takes it as recommended";
   }
 }

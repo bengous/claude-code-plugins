@@ -83,8 +83,14 @@ function grillPanel(page: Page): Locator {
   return page.getByRole("complementary", { name: "Grill" });
 }
 
-function answerField(page: Page, id: string): Locator {
-  return grillPanel(page).getByRole("textbox", { name: `Answer to ${id}` });
+/** The field of the one question the panel shows, once its chip picked it. */
+async function answerField(page: Page, id: string): Promise<Locator> {
+  await grillPanel(page)
+    .locator(".grill-chips")
+    .getByRole("button", { name: id, exact: true })
+    .click();
+
+  return grillPanel(page).getByRole("textbox", { name: `Your answer to ${id}` });
 }
 
 function noteField(page: Page): Locator {
@@ -97,7 +103,7 @@ async function roundOne(page: Page, vellum: Vellum): Promise<void> {
   await vellum.grill.open("Where do drafts live?");
   await vellum.grill.ask(ROUND);
   await openVellum(page, vellum);
-  await expect(grillPanel(page).locator(".grill-q")).toHaveCount(3);
+  await expect(grillPanel(page).locator(".grill-chips .chip")).toHaveCount(3);
 }
 
 test.describe("the grill's answers", () => {
@@ -105,24 +111,24 @@ test.describe("the grill's answers", () => {
 
   test("survive a trip to another document", async ({ page, vellum }) => {
     await roundOne(page, vellum);
-    await answerField(page, "Q1").fill("IndexedDB, one store per form.");
-    await answerField(page, "Q2").fill("The inspector.");
+    await (await answerField(page, "Q1")).fill("IndexedDB, one store per form.");
+    await (await answerField(page, "Q2")).fill("The inspector.");
     await page.locator("#rail button", { hasText: "pourquoi-issue-139.md" }).click();
     await expect(page.locator("#doc .doc-head")).toContainText("pourquoi-issue-139.md");
 
-    await expect(answerField(page, "Q1")).toHaveValue("IndexedDB, one store per form.");
-    await expect(answerField(page, "Q2")).toHaveValue("The inspector.");
+    await expect(await answerField(page, "Q1")).toHaveValue("IndexedDB, one store per form.");
+    await expect(await answerField(page, "Q2")).toHaveValue("The inspector.");
   });
 
   test("survive a reload, the note too", async ({ page, vellum }) => {
     await roundOne(page, vellum);
-    await answerField(page, "Q1").fill("IndexedDB.");
+    await (await answerField(page, "Q1")).fill("IndexedDB.");
     await noteField(page).fill("Explain the issue first.");
     await expect.poll(async () => (await vellum.api("draft")).status).toBe(200);
     await page.reload();
     await page.locator(".bar .brand").waitFor();
 
-    await expect(answerField(page, "Q1")).toHaveValue("IndexedDB.");
+    await expect(await answerField(page, "Q1")).toHaveValue("IndexedDB.");
     await expect(noteField(page)).toHaveValue("Explain the issue first.");
   });
 
@@ -131,7 +137,7 @@ test.describe("the grill's answers", () => {
     vellum,
   }) => {
     await roundOne(page, vellum);
-    await answerField(page, "Q2").fill("The inspector.");
+    await (await answerField(page, "Q2")).fill("The inspector.");
     await vellum.grill.close("stop");
     await expect(grillPanel(page)).toHaveCount(0);
     await page.getByRole("button", { name: "Approve", exact: true }).click();
@@ -142,8 +148,8 @@ test.describe("the grill's answers", () => {
 
   test("End grill sends the two answers typed, then ends", async ({ page, vellum }) => {
     await roundOne(page, vellum);
-    await answerField(page, "Q2").fill("The inspector.");
-    await answerField(page, "Q3").fill("Every 30 s as well.");
+    await (await answerField(page, "Q2")).fill("The inspector.");
+    await (await answerField(page, "Q3")).fill("Every 30 s as well.");
     await page.locator(".grill-band").getByRole("button", { name: "End grill" }).click();
 
     await expect(grillPanel(page)).toHaveCount(0);

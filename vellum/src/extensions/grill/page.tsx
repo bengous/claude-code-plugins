@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from "preact/hooks";
 
 import type { PageExtension, RendererProps } from "../../core/extension.ts";
 import { extensionRequest } from "../../core/page/api.ts";
-import { Button } from "../../core/page/kit.tsx";
+import { Button, Chip } from "../../core/page/kit.tsx";
 import {
   connection,
   docs,
@@ -15,11 +15,13 @@ import {
   typed,
 } from "../../core/page/state.ts";
 import type { Typed } from "../../core/protocol.ts";
-import { answerOf, declineFailure, footerOf, waitingOf } from "./labels.ts";
+import { answerOf, chipTitle, declineFailure, footerOf, waitingOf } from "./labels.ts";
 import { grillNumber } from "./parse.ts";
 import { GrillButton, Proposal } from "./proposal.tsx";
 import { AS_RECOMMENDED } from "./protocol.ts";
 import type { Block, GrillPosts, GrillState } from "./protocol.ts";
+import { roundsOf } from "./rounds.ts";
+import type { QuestionBlock, Rounds } from "./rounds.ts";
 
 const ID = "grill";
 
@@ -193,12 +195,12 @@ function typedOn(path: string): Typed["grill"][string] {
   return typed.value.grill[path] ?? NOTHING_TYPED;
 }
 
-/** Whether a send writes anything: an open question, which an empty field answers, or a note. */
+/** Whether a send writes anything: an open question, which the recommendation answers by default, or a note. */
 function sendable(path: string, open: readonly string[]): boolean {
   return open.length > 0 || typedOn(path).note.trim() !== "";
 }
 
-/** What is typed goes as a reply, an empty field taking the recommendation; `true` once the server took it. */
+/** The round's choices go as a reply, an untouched question taking the recommendation by default; `true` once the server took it. */
 async function send(path: string, open: readonly string[]): Promise<boolean> {
   const own = typedOn(path);
 
@@ -300,63 +302,119 @@ function GrillNotice(): preact.JSX.Element {
   );
 }
 
-type QuestionBlock = Extract<Block, { kind: "question" }>;
-
-type CardProps = {
-  readonly block: QuestionBlock;
-  readonly answer: string;
-  /** `null` once the question is answered, and in the document pane: the card takes nothing. */
-  readonly onAnswer: ((text: string) => void) | null;
-  /** Ctrl+Enter in the card's field, as in the foot's; `null` while nothing can be sent. */
-  readonly onSend: (() => void) | null;
-};
-
-/** Take it fills an empty field: over a typed answer it is greyed, so a click never replaces the typing. */
-function QuestionCard(props: CardProps): preact.JSX.Element {
+function QuestionHead(props: { readonly block: QuestionBlock }): preact.JSX.Element {
   const { block } = props;
-  const answer = answerOf(block.answer);
 
   return (
-    <div class="grill-q">
+    <>
       <h4 class="head">
         <span class="num">{block.id}</span>
         <span class="topic">{block.title}</span>
       </h4>
       {/* oxlint-disable-next-line react/no-danger -- the question arrives rendered, by the same `toHtml` of grill/server.ts as the blocks between the cards. */}
       <div class="ask" dangerouslySetInnerHTML={{ __html: block.ask }} />
+    </>
+  );
+}
+
+/** A question as the transcript holds it: its recommendation, and its answer once a reply gave one. It takes nothing. */
+function QuestionCard(props: { readonly block: QuestionBlock }): preact.JSX.Element {
+  const { block } = props;
+  const answer = answerOf(block.answer);
+
+  return (
+    <div class="grill-q">
+      <QuestionHead block={block} />
       {block.rec !== "" && (
         <div class="rec">
           <span class="label">Recommended</span>
           {/* oxlint-disable-next-line react/no-danger -- as the question above: rendered by `toHtml` in grill/server.ts. */}
           <div class="text" dangerouslySetInnerHTML={{ __html: block.rec }} />
-          {props.onAnswer !== null && (
-            <Button
-              size="sm"
-              disabled={props.answer.trim() !== ""}
-              onClick={() => props.onAnswer?.(AS_RECOMMENDED)}
-            >
-              Take it
-            </Button>
-          )}
         </div>
       )}
       {answer !== null && (
-        <div class="answer">
+        <div class={`answer ${block.answer.kind}`}>
           <span class="label">{answer.label}</span>
           <span class="text">{answer.text}</span>
         </div>
       )}
-      {props.onAnswer !== null && (
-        <textarea
-          aria-label={`Answer to ${block.id}`}
-          placeholder={`Answer ${block.id}, or leave empty to take the recommendation`}
-          value={props.answer}
-          onInput={(event) => props.onAnswer?.(event.currentTarget.value)}
-          onKeyDown={(event) => {
-            if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) props.onSend?.();
-          }}
-        />
-      )}
+    </div>
+  );
+}
+
+type OpenQuestionProps = {
+  readonly block: QuestionBlock;
+  /** The draft's typing for it: absent takes the recommendation by default, `As recommended.` chooses it. */
+  readonly typing: string | undefined;
+  readonly onType: (text: string) => void;
+  /** Ctrl+Enter in the field, as in the foot's; `null` while nothing can be sent. */
+  readonly onSend: (() => void) | null;
+};
+
+/**
+ * An open question and its two choices. Recommended is chosen by default; a text of the
+ * reviewer's own greys it, so a click never throws the typing.
+ */
+function OpenQuestion(props: OpenQuestionProps): preact.JSX.Element {
+  const { block, typing } = props;
+  const field = useRef<HTMLTextAreaElement>(null);
+  const recommended = typing === undefined || typing === AS_RECOMMENDED;
+  const own = recommended ? "" : typing;
+  const mine = own.trim() !== "";
+  const name = `grill-${block.id}`;
+
+  return (
+    <div class="grill-q">
+      <QuestionHead block={block} />
+      <div class="grill-choices" role="radiogroup" aria-label={`Answer to ${block.id}`}>
+        <div class="grill-choice">
+          <input
+            type="radio"
+            id={`${name}-rec`}
+            name={name}
+            checked={recommended}
+            disabled={mine}
+            aria-describedby={block.rec === "" ? undefined : `${name}-rec-text`}
+            onClick={() => props.onType(AS_RECOMMENDED)}
+          />
+          <label
+            for={`${name}-rec`}
+            title={mine ? "Clear your answer to take the recommendation" : undefined}
+          >
+            Recommended
+          </label>
+          {block.rec !== "" && (
+            // oxlint-disable-next-line react/no-danger -- as the question: rendered by `toHtml` in grill/server.ts.
+            <div
+              id={`${name}-rec-text`}
+              class="text"
+              dangerouslySetInnerHTML={{ __html: block.rec }}
+            />
+          )}
+        </div>
+        <div class="grill-choice">
+          <input
+            type="radio"
+            id={`${name}-own`}
+            name={name}
+            checked={!recommended}
+            onClick={() => {
+              if (recommended) props.onType("");
+              field.current?.focus();
+            }}
+          />
+          <label for={`${name}-own`}>Your answer</label>
+          <textarea
+            ref={field}
+            aria-label={`Your answer to ${block.id}`}
+            value={own}
+            onInput={(event) => props.onType(event.currentTarget.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) props.onSend?.();
+            }}
+          />
+        </div>
+      </div>
     </div>
   );
 }
@@ -374,10 +432,10 @@ function useBlocks(path: string, modified: number): readonly Block[] {
   return blocks;
 }
 
-/** The blocks in the file's order; `card` draws a question, read-only in the document pane, answered in the panel. */
+/** The blocks in the file's order; `card` draws a question, or `null` where the questions are drawn apart. */
 function Transcript(props: {
   readonly blocks: readonly Block[];
-  readonly card: (block: QuestionBlock) => preact.JSX.Element;
+  readonly card: (block: QuestionBlock) => preact.JSX.Element | null;
 }): preact.JSX.Element {
   return (
     <>
@@ -415,12 +473,67 @@ function GrillDoc(props: RendererProps): preact.JSX.Element {
       <div class="plan">
         <Transcript
           blocks={blocks}
-          card={(block) => (
-            <QuestionCard key={block.id} block={block} answer="" onAnswer={null} onSend={null} />
-          )}
+          card={(block) => <QuestionCard key={block.id} block={block} />}
         />
       </div>
     </div>
+  );
+}
+
+/** The chips of every round, and the one question they pick, with its neighbours. */
+function RoundView(props: {
+  readonly view: Rounds;
+  readonly onPick: (id: string) => void;
+  readonly question: (block: QuestionBlock) => preact.JSX.Element;
+}): preact.JSX.Element {
+  const { view } = props;
+  const { current, previous, next } = view;
+
+  return (
+    <>
+      <div class="grill-chips">
+        {view.rounds.map((round) => (
+          <div key={round.n} class="group">
+            {round.n > 0 && <span class="label">Round {round.n}</span>}
+            {round.chips.map((chip) => (
+              <Chip
+                key={chip.id}
+                data-state={chip.state}
+                title={chipTitle(chip.state)}
+                aria-current={chip.id === current?.id ? "true" : undefined}
+                onClick={() => props.onPick(chip.id)}
+              >
+                {chip.id}
+              </Chip>
+            ))}
+          </div>
+        ))}
+      </div>
+      {current !== null && props.question(current)}
+      {current !== null && (
+        <div class="grill-nav">
+          {previous !== null && (
+            <Button
+              size="sm"
+              aria-label={`Previous question, ${previous}`}
+              onClick={() => props.onPick(previous)}
+            >
+              ‹ {previous}
+            </Button>
+          )}
+          <span class="spacer" />
+          {next !== null && (
+            <Button
+              size="sm"
+              aria-label={`Next question, ${next}`}
+              onClick={() => props.onPick(next)}
+            >
+              {next} ›
+            </Button>
+          )}
+        </div>
+      )}
+    </>
   );
 }
 
@@ -430,6 +543,8 @@ function OpenGrill(props: {
   const { file: path, phase } = props.state;
   const blocks = blocksOn(path) ?? [];
   const own = typedOn(path);
+  const [picked, setPicked] = useState<string | null>(null);
+  const view = roundsOf(blocks, own.answers, picked);
 
   const answer = (id: string, text: string): void =>
     setTyped({
@@ -441,43 +556,47 @@ function OpenGrill(props: {
 
   const open = openIn(blocks);
   const live = sendable(path, open);
-
-  const sheet = useRef<HTMLDivElement>(null);
+  const round = useRef<HTMLDivElement>(null);
   const openBefore = useRef(0);
-  const firstOpen = open[0] ?? null;
 
-  // A round that lands scrolls to its first card: the reviewer reads at the bottom, under the foot.
+  // A round that lands, or leaves, shows its first open question again: the pick was the last round's.
   useEffect(() => {
     const landed = openBefore.current === 0 && open.length > 0;
+    const left = openBefore.current > 0 && open.length === 0;
     openBefore.current = open.length;
 
-    if (!landed || firstOpen === null) return;
+    if (landed || left) setPicked(null);
 
-    for (const card of sheet.current?.querySelectorAll<HTMLElement>(".grill-q") ?? []) {
-      if (card.querySelector(".num")?.textContent === firstOpen) {
-        card.scrollIntoView({ block: "start" });
-
-        return;
-      }
-    }
-  }, [firstOpen, open.length]);
+    // The reviewer reads at the bottom, under the foot: the round comes into view.
+    if (landed) round.current?.scrollIntoView({ block: "start" });
+  }, [open.length]);
 
   return (
     <aside class="grill-panel" aria-label="Grill">
-      <div class="grill-sheet" ref={sheet}>
+      <div class="grill-sheet">
         <div class="plan">
-          <Transcript
-            blocks={blocks}
-            card={(block) => (
-              <QuestionCard
-                key={block.id}
-                block={block}
-                answer={own.answers[block.id] ?? ""}
-                onAnswer={block.answer.kind === "open" ? (text) => answer(block.id, text) : null}
-                onSend={live ? () => void send(path, open) : null}
+          <Transcript blocks={blocks} card={() => null} />
+          {view.rounds.length > 0 && (
+            <div class="grill-round" ref={round}>
+              <RoundView
+                view={view}
+                onPick={setPicked}
+                question={(block) =>
+                  block.answer.kind === "open" ? (
+                    <OpenQuestion
+                      key={block.id}
+                      block={block}
+                      typing={own.answers[block.id]}
+                      onType={(text) => answer(block.id, text)}
+                      onSend={live ? () => void send(path, open) : null}
+                    />
+                  ) : (
+                    <QuestionCard key={block.id} block={block} />
+                  )
+                }
               />
-            )}
-          />
+            </div>
+          )}
           {phase === "working" && (
             <p class="grill-working" role="status">
               Claude is working. The next round appears here.
@@ -498,12 +617,12 @@ function OpenGrill(props: {
           />
           <p class="note">
             {open.length > 0
-              ? "An empty field takes the recommendation. Answers go to Claude once its turn ends."
+              ? "Answers go to Claude once its turn ends."
               : "No question is open. A note goes to Claude once its turn ends."}
           </p>
           <div class="row">
             <Button variant="send" disabled={!live} onClick={() => void send(path, open)}>
-              Send answers
+              {view.send}
             </Button>
           </div>
         </div>

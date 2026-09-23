@@ -303,15 +303,37 @@ iframe { border: 0; width: 100%; height: 100%; display: block; background: var(-
 .grill-q .ask { margin: 0 0 var(--s-2); }
 .grill-q .ask p, .grill-q .rec .text p { margin: 0; }
 .grill-q .ask p + p, .grill-q .rec .text p + p { margin-top: var(--s-2); }
-/* Stacked: the label over the text at the card's full width, Take it under it, at the right. */
-.grill-q .rec { display: grid; grid-template-columns: 1fr auto; gap: var(--s-1) var(--s-2); background: var(--tint); border: 1px solid var(--rule); border-radius: var(--r-md); padding: var(--s-2) var(--s-3); margin-bottom: var(--s-2); font-size: var(--t-14); }
-.grill-q .rec .label, .grill-q .rec .text { grid-column: 1 / -1; }
-.grill-q .rec .btn { grid-column: 2; justify-self: end; }
+.grill-q .rec { display: grid; gap: var(--s-1); background: var(--tint); border: 1px solid var(--rule); border-radius: var(--r-md); padding: var(--s-2) var(--s-3); margin-bottom: var(--s-2); font-size: var(--t-14); }
 .grill-q .answer { display: flex; align-items: baseline; gap: var(--s-2); border-left: 3px solid var(--ok); padding: var(--s-1) var(--s-2); font-size: var(--t-14); }
 .grill-q .answer .label { font: 650 var(--t-12)/1.4 var(--serif); color: var(--ok); white-space: nowrap; }
 .grill-q .answer .text { white-space: pre-wrap; }
+.grill-q .answer.default { border-left-color: var(--graphite); }
+.grill-q .answer.default .label { color: var(--graphite); }
 .grill-q textarea { min-height: 64px; border-color: var(--ask); }
 .grill-q .rec .label { font: 650 var(--t-12)/1.4 var(--serif); color: var(--graphite); }
+/* Below the text of the rounds: every round's questions as chips, the one they pick, its neighbours. */
+.grill-round { max-width: var(--measure); margin-top: var(--s-6); padding-top: var(--s-4); border-top: 1px solid var(--rule); }
+.grill-chips { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s-2) var(--s-4); }
+.grill-chips .group { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s-1); }
+.grill-chips .label { font: 650 var(--t-12)/1.5 var(--serif); color: var(--graphite); margin-right: var(--s-1); }
+.grill-chips .chip { font-family: var(--mono); }
+.grill-chips .chip:hover:not([aria-current]) { border-color: var(--edge); }
+.grill-chips .chip[data-state="answered"] { background: color-mix(in oklab, var(--ok) 16%, var(--sheet)); border-color: var(--ok); }
+.grill-chips .chip[data-state="default"] { color: var(--graphite); }
+.grill-chips .chip[data-state="waiting"] { background: var(--sheet); border-color: var(--ask); color: var(--ask); }
+.grill-chips .chip[aria-current] { background: var(--ask); border-color: var(--ask); color: var(--sheet); }
+/* Two choices, each a box: its radio and its label on a line, the recommendation or the field under the label. */
+.grill-choices { display: grid; gap: var(--s-2); }
+.grill-choice { display: grid; grid-template-columns: auto 1fr; align-items: baseline; gap: var(--s-1) var(--s-2); border: 1px solid var(--rule); border-radius: var(--r-md); padding: var(--s-2) var(--s-3); background: var(--tint); font-size: var(--t-14); }
+.grill-choice:has(input:checked) { border-color: var(--ask); background: color-mix(in oklab, var(--ask) 8%, var(--field)); }
+.grill-choice input { margin: 0; accent-color: var(--ask); }
+.grill-choice label { font: 650 var(--t-12)/1.4 var(--serif); color: var(--graphite); cursor: pointer; }
+.grill-choice input:disabled + label { cursor: not-allowed; }
+.grill-choice .text, .grill-choice textarea { grid-column: 2; }
+.grill-choice .text p { margin: 0; }
+.grill-choice .text p + p { margin-top: var(--s-2); }
+.grill-nav { display: flex; align-items: center; gap: var(--s-2); }
+.grill-nav .btn { font-family: var(--mono); }
 /* The foot's height is the token the sheet pads its scroll with: a focused control never lands under it. Its field keeps the cards' width. */
 .grill-foot { position: sticky; bottom: 0; flex: none; height: var(--grill-foot); display: flex; flex-direction: column; gap: var(--s-1); background: var(--tint); border-top: 1px solid var(--rule); padding: var(--s-2) var(--s-4); }
 .grill-foot textarea { flex: 1; min-height: 0; resize: none; }

@@ -49,16 +49,19 @@ test("v2 with its changes draws the marks", async ({ page, vellum }) => {
   expect(errors).toEqual([]);
 });
 
-test("a grill draws its cards in its panel", async ({ page, vellum }) => {
+test("a grill draws its round in its panel: a chip per question, one question shown", async ({
+  page,
+  vellum,
+}) => {
   const errors = pageErrors(page);
   await vellum.gate();
   await vellum.grill.open("Where do drafts live?");
   await vellum.grill.ask(QUESTIONS);
   await openVellum(page, vellum);
+  const panel = page.getByRole("complementary", { name: "Grill" });
 
-  await expect(page.getByRole("complementary", { name: "Grill" }).locator(".grill-q")).toHaveCount(
-    2,
-  );
+  await expect(panel.locator(".grill-chips .chip")).toHaveCount(2);
+  await expect(panel.locator(".grill-q")).toHaveCount(1);
   expect(errors).toEqual([]);
 });
 

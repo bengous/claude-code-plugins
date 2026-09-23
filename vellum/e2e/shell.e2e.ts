@@ -440,14 +440,15 @@ test.describe("the sheet", () => {
     ]);
     await openVellum(page, vellum);
     const panel = page.getByRole("complementary", { name: "Grill" });
-    await expect(panel.locator(".grill-q")).toHaveCount(6);
+    await expect(panel.locator(".grill-chips .chip")).toHaveCount(6);
+    await panel.locator(".grill-sheet").evaluate((sheet) => sheet.scrollTo(0, 0));
     await page.locator(".handle.left").focus();
 
-    for (let takeIts = 0; takeIts < 3;) {
+    while (
+      (await page.evaluate(() => document.activeElement?.getAttribute("aria-label"))) !==
+      "Next question, Q2"
+    ) {
       await page.keyboard.press("Tab");
-
-      if ((await page.evaluate(() => document.activeElement?.textContent?.trim())) === "Take it")
-        takeIts += 1;
     }
 
     const focused = await page.evaluate(() => {

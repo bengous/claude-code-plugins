@@ -275,8 +275,8 @@ test.describe("the grill", () => {
     await openVellum(page, vellum);
     const panel = page.getByRole("complementary", { name: "Grill" });
     await page.route("**/api/x/grill/reply", (route) => route.fulfill({ status: 409, body: "" }));
-    await panel.getByRole("textbox", { name: "Answer to Q1" }).fill("IndexedDB.");
-    await panel.getByRole("button", { name: "Send answers" }).click();
+    await panel.getByRole("textbox", { name: "Your answer to Q1" }).fill("IndexedDB.");
+    await panel.getByRole("button", { name: /^Send round/u }).click();
     const banner = page.locator(".banner.err", { hasText: "refused" });
     await expect(banner).toBeVisible();
 
@@ -297,19 +297,20 @@ test.describe("the grill", () => {
     await expect(page.locator(".bar .status")).toHaveText("Held · grill 2 is open");
     await vellum.grill.ask(ROUND_1);
     await claudeSays(vellum, "Round 1 is on the page.");
-    await expect(panel.locator(".grill-q")).toHaveCount(3);
+    await expect(panel.locator(".grill-chips .chip")).toHaveCount(3);
     await expect(working).toHaveCount(0);
 
     const sheet = panel.locator(".grill-sheet");
     await sheet.evaluate((element) => element.scrollTo(0, element.scrollHeight));
-    await panel.getByRole("textbox", { name: "Answer to Q3" }).fill("On the online event only.");
-    await panel.getByRole("button", { name: "Send answers" }).click();
+    await panel.getByRole("textbox", { name: "Your answer to Q1" }).fill("IndexedDB only.");
+    await panel.getByRole("button", { name: /^Send round/u }).click();
     await expect(working).toBeVisible();
+    await sheet.evaluate((element) => element.scrollTo(0, 0));
     await vellum.grill.ask(ROUND_2);
     await claudeSays(vellum, "Round 2 is on the page.");
-    await expect(panel.locator(".grill-q")).toHaveCount(6);
+    await expect(panel.locator(".grill-chips .chip")).toHaveCount(6);
 
-    const q4 = await boxOf(panel.locator(".grill-q").nth(3));
+    const q4 = await boxOf(panel.locator(".grill-round .grill-q"));
     const foot = await boxOf(panel.locator(".grill-foot"));
     const window = await boxOf(sheet);
     expect(q4.y).toBeGreaterThanOrEqual(window.y - 1);
