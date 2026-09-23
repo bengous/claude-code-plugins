@@ -29,7 +29,6 @@ const noop = (): void => {};
 
 const quiet = {
   workspace: inReview,
-  held: null,
   connection: "up" as const,
   downSince: null,
   editing: null,
@@ -97,9 +96,9 @@ describe("noticesOf", () => {
     expect(keys({ ...quiet, editing, workspace: drafting })).toEqual([]);
   });
 
-  test("a held review is an info notice that carries the reason", () => {
-    expect(text({ ...quiet, held: "grill-1.md is open" }, "held")).toContain("grill-1.md is open");
-    expect(noticesOf({ ...quiet, held: "grill-1.md is open" })[0]?.kind).toBe("info");
+  test("a held review draws no notice: the pill and Send feedback's title carry the reason", () => {
+    // @ts-expect-error -- the core's notices take no hold: the pill, Send feedback's title and the holder's own notice say it.
+    expect(keys({ ...quiet, held: "a grill is open" })).toEqual([]);
   });
 
   test("the workspace's own notice: a failed rename retries, a feedback waits, an approval names the folder", () => {
@@ -142,9 +141,9 @@ describe("noticesOf", () => {
 
   test("an undo is the last notice, with its action", () => {
     const undo = { label: "Undo", run: noop };
-    const held = { ...quiet, held: "grill-1.md is open", undo };
-    expect(keys(held)).toEqual(["held", "undo"]);
-    expect(noticesOf(held).at(-1)?.action).toBe(undo);
+    const failed = { ...quiet, failures: [{ op: "decision" as const, text: "x" }], undo };
+    expect(keys(failed)).toEqual(["failure:decision", "undo"]);
+    expect(noticesOf(failed).at(-1)?.action).toBe(undo);
   });
 });
 
@@ -153,7 +152,7 @@ describe("statusOf", () => {
     [drafting, null, "Drafting", "neutral"],
     [{ ...drafting, batches: 2 }, null, "Drafting · 2 sent", "neutral"],
     [inReview, null, "In review", "neutral"],
-    [inReview, "grill-1.md is open", "Held · grill-1.md is open", "neutral"],
+    [inReview, "a grill is open", "Held · a grill is open", "neutral"],
     [{ ...inReview, finalizeError: "EACCES" }, null, "Approval failed", "err"],
     [changesRequested, null, "Feedback sent", "sent"],
     [approved, null, "Approved", "ok"],
@@ -207,9 +206,9 @@ describe("decisionsOf", () => {
   });
 
   test("a hold greys the feedback alone, with the reason", () => {
-    const { approve, feedback } = decisionsOf({ ...live, held: "grill-1.md is open" });
+    const { approve, feedback } = decisionsOf({ ...live, held: "a grill is open" });
     expect(approve.disabled).toBe(false);
-    expect(feedback).toEqual({ disabled: true, title: "grill-1.md is open; end it first" });
+    expect(feedback).toEqual({ disabled: true, title: "a grill is open; end it first" });
   });
 
   test("nothing to send greys the feedback, and names what to do, the typed text included", () => {

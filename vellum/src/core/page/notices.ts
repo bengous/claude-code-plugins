@@ -88,10 +88,9 @@ function workspaceNotice(workspace: PlanWorkspace, retry: (() => void) | null): 
   }
 }
 
-/** The core's notices, in the order the column draws them. */
+/** The core's notices, in the order the column draws them. A hold is the pill's and Send feedback's to say, and its holder's. */
 export function noticesOf(input: {
   readonly workspace: PlanWorkspace | null;
-  readonly held: string | null;
   readonly connection: "up" | "down";
   /** How long the connection has been down, in ms; `null` while it is up. */
   readonly downSince: number | null;
@@ -125,14 +124,6 @@ export function noticesOf(input: {
   const stale = staleEditor(input.editing, input.workspace);
 
   if (stale !== null) notices.push({ key: "stale-editor", kind: "err", text: [stale] });
-
-  if (input.held !== null) {
-    notices.push({
-      key: "held",
-      kind: "info",
-      text: [`The review is held: ${input.held}. Send feedback resumes once it ends.`],
-    });
-  }
 
   const own =
     input.workspace === null

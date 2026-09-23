@@ -150,18 +150,21 @@ test.describe("the decisions", () => {
 });
 
 test.describe("the pill", () => {
-  test("says what holds the review, and a banner says it too", async ({ page, vellum }) => {
+  test("says what holds the review, as Send feedback's title does, and no banner repeats it", async ({
+    page,
+    vellum,
+  }) => {
     await reviewV1(page, vellum);
     await addGeneralComment(page, "Say which store holds the attachments.");
     await vellum.grill.open("Where do drafts live?");
 
-    await expect(page.locator(".bar .status")).toHaveText("Held · grill-1.md is open");
+    await expect(page.locator(".bar .status")).toHaveText("Held · a grill is open");
     await expect(page.locator(".bar .status")).toHaveCount(1);
-    await expect(page.locator(".banner", { hasText: "grill-1.md" })).toBeVisible();
     await expect(page.getByRole("button", { name: /Send feedback/u })).toHaveAttribute(
       "title",
-      /grill-1\.md is open/u,
+      "a grill is open; end it first",
     );
+    await expect(page.locator(".banner")).toHaveCount(0);
   });
 
   test("in drafting, a feedback sent is said, and counted", async ({ page, vellum }) => {
@@ -260,7 +263,7 @@ test.describe("the grill", () => {
     const panel = page.getByRole("complementary", { name: "Grill" });
     const working = panel.getByRole("status");
     await expect(working).toBeVisible();
-    await expect(page.locator(".bar .status")).toHaveText("Held · grill-2.md is open");
+    await expect(page.locator(".bar .status")).toHaveText("Held · a grill is open");
     await vellum.grill.ask(ROUND_1);
     await claudeSays(vellum, "Round 1 is on the page.");
     await expect(panel.locator(".grill-q")).toHaveCount(3);

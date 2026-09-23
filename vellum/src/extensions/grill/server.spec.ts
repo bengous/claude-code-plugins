@@ -25,7 +25,7 @@ const NOTE = {
   mark: { kind: "comment", body: "no" },
 };
 
-const HELD = "grill-1.md is open: the plan is submitted once the reviewer ends it";
+const HELD = "a grill is open: the plan is submitted once the reviewer ends it";
 
 const running: Started[] = [];
 
@@ -359,7 +359,7 @@ describe("closing a grill", () => {
 });
 
 describe("an open grill holds the review", () => {
-  test("a gate is refused with the file's name, at the turn's end and from submit alike", async () => {
+  test("a gate is refused with the reason, at the turn's end and from submit alike", async () => {
     const { dir, post, gate, view } = await grilling();
     writeFileSync(join(dir, WIP, "plan.md"), "# Auth plan\n");
     await post("open", { subject: "auth" });
@@ -368,7 +368,7 @@ describe("an open grill holds the review", () => {
     expect(refused.status).toBe(409);
     expect(await refused.json()).toEqual({ error: HELD });
     expect(existsSync(join(dir, WIP, ".review/v1.md"))).toBe(false);
-    expect((await view()).held).toBe("grill-1.md is open");
+    expect((await view()).held).toBe("a grill is open");
   });
 
   test("a drafting comment and a feedback are refused, until the reviewer ends the grill", async () => {

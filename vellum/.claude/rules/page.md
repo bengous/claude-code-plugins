@@ -115,10 +115,12 @@ no build step, so what the page imports costs nothing at `cli start`.
   never reads `commentSwitch`: it reads `commenting`, false on a locked page, so no composer
   opens there, and `addAnnotation` returns when locked, as `select` does while the editor is
   open. A comment nobody can send is a silent loss.
-- `review.held` is what holds the review, or `null`. Held, the pill reads `Held · <reason>`
-  (`statusOf`), a notice says it, Send feedback is disabled with the reason as its title, and
-  every way to an approval goes through the warning popover, which says the approval ends what
-  holds it. The bar prints the reason and never reads which extension gave it.
+- `review.held` is what holds the review, or `null`, in the holder's words (`holds` of the
+  grill answers `a grill is open`). Held, the pill reads `Held · <reason>` (`statusOf`), in
+  review only, Send feedback is disabled with the reason as its title, and every way to an
+  approval goes through the warning popover, which says the approval ends what holds it. The
+  core draws no notice of it, `noticesOf` takes no hold: the extension that holds draws its own,
+  the grill's band. The bar prints the reason and never reads which extension gave it.
 - What the page says of its state is derived, in `notices.ts`, pure and held by
   `notices.spec.ts`: `noticesOf` the column under the bar, `statusOf` the pill, `decisionsOf`
   the three buttons of the core, greyed or not and why, the reason in each `title`. Nothing

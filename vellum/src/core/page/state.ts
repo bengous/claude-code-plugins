@@ -555,7 +555,6 @@ export async function start(): Promise<void> {
 export const notices = computed(() =>
   noticesOf({
     workspace: review.value?.workspace ?? null,
-    held: review.value?.held ?? null,
     connection: connection.value,
     downSince: downFor.value,
     editing: editing.value,
