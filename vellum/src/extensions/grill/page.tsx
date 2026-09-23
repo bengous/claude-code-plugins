@@ -119,13 +119,6 @@ function blocksOn(path: string): readonly Block[] | null {
   return loaded?.path === path ? loaded.blocks : null;
 }
 
-/** The questions no reply closed yet, by their number. */
-function openIn(blocks: readonly Block[]): string[] {
-  return blocks.flatMap((block) =>
-    block.kind === "question" && block.answer.kind === "open" ? [block.id] : [],
-  );
-}
-
 /** The transcript's blocks, or `null` with the failure in the notices: the reviewer waits on them. */
 async function blocksOf(path: string): Promise<Block[] | null> {
   try {
@@ -280,8 +273,7 @@ function GrillBand(props: {
 }): preact.JSX.Element {
   const { file, subject } = props.state;
   const blocks = blocksOn(file);
-  const open = openIn(blocks ?? []);
-  const { waiting } = roundsOf(blocks ?? [], typedOn(file).answers, null);
+  const { open, waiting } = roundsOf(blocks ?? [], typedOn(file).answers, null);
   const progress = progressOf(roundNow(blocks ?? []), waiting);
   /** An end in flight: a second click would send what is typed again. */
   const [ending, setEnding] = useState(false);
@@ -611,7 +603,7 @@ function OpenGrill(props: {
   const note = (text: string): void =>
     setTyped({ grill: { ...typed.value.grill, [path]: { ...own, note: text } } });
 
-  const open = openIn(blocks);
+  const { open } = view;
   // Before the blocks land, no question reads as open, and a send would close the answers typed by default.
   const live = loaded !== null && !replyPending.value && sendable(path, open);
 

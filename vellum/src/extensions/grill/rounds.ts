@@ -19,6 +19,8 @@ export type Rounds = {
   readonly current: QuestionBlock | null;
   readonly previous: string | null;
   readonly next: string | null;
+  /** The questions no reply closed yet, in order: what a send or End grill closes. */
+  readonly open: readonly string[];
   /** The open questions the draft leaves untouched, the chips still waiting: what a send takes as recommended. */
   readonly waiting: number;
   /** The send button's words: how many open questions it takes as recommended. */
@@ -77,6 +79,7 @@ export function roundsOf(
     current,
     previous: at > 0 ? (questions[at - 1]?.id ?? null) : null,
     next: at === -1 ? null : (questions[at + 1]?.id ?? null),
+    open: open.map((block) => block.id),
     waiting: waiting.length,
     send: sendOf(open.length, waiting.length),
   };
