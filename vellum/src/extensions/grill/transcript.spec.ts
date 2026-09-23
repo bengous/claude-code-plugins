@@ -354,7 +354,7 @@ describe("the reviewer's text keeps the file's structure", () => {
     const replied = appendReply(asked, [{ id: "Q1", text: MARKED }], "") ?? "";
 
     expect(relaysOf(replied, "grill-1.md", 0)).toEqual([
-      { kind: "reply", seq: 1, text: `Reviewer: Q1: ${MARKED}` },
+      { kind: "reply", seq: 1, text: `Reviewer: Q1: ${MARKED.replace("\nQ2:", "\n\\Q2:")}` },
     ]);
     expect(answers(replied)).toEqual([{ kind: "typed", text: MARKED }, { kind: "default" }]);
   });
@@ -367,10 +367,23 @@ describe("the reviewer's text keeps the file's structure", () => {
 
     expect(isClosed(replied)).toBe(false);
     expect(relaysOf(replied, "grill-1.md", 0)).toEqual([
-      { kind: "reply", seq: 1, text: `Reviewer: ${note}` },
+      { kind: "reply", seq: 1, text: `Reviewer: ${note.replace("\nQ3:", "\n\\Q3:")}` },
     ]);
     expect(unanswered(appendQuestions(replied, [STYLE]))).toEqual(["Q3"]);
     expect(appendQuestions(replied, [STYLE])).toContain("\n## Round 2\n");
+  });
+
+  test("a line that starts like an answer reaches Claude with a backslash, never as that answer", () => {
+    const because = [{ id: "Q1", text: "Plain, because:\nQ2: it follows" }];
+    const replied = appendReply(asked, because, "Q3: in advance") ?? "";
+
+    expect(relaysOf(replied, "grill-1.md", 0)).toEqual([
+      {
+        kind: "reply",
+        seq: 1,
+        text: "Reviewer: \\Q3: in advance\n\nQ1: Plain, because:\n\\Q2: it follows",
+      },
+    ]);
   });
 
   test("a note is drawn as typed: a question's number stays text, a heading takes its backslash", () => {

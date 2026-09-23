@@ -170,9 +170,17 @@ function quotedReviewer(text: string): string {
   return text.replaceAll(REVIEWER_LINE, "\\$1");
 }
 
-/** The reviewer's text as they typed it, for the page and for Claude. */
+/** The reviewer's text as they typed it, for the page. */
 function unquotedReviewer(text: string): string {
   return text.replaceAll(REVIEWER_QUOTED, "$1");
+}
+
+/**
+ * The reviewer's text as Claude reads it: as typed, but for a line that starts like an answer,
+ * which keeps a backslash, or Claude would take it for that question's answer (`grilling.md`).
+ */
+function relayedReviewer(text: string): string {
+  return unquotedReviewer(text).replaceAll(/^(\\*)(?=Q\d+: )/gmu, "\\$1");
 }
 
 /** Every answer of the file, by question id, as the reviewer typed it; the first one stands. */
@@ -267,9 +275,9 @@ function replyText(reply: string): string {
 
   const typed = answers
     .filter((answer) => answer.text !== TAKEN_BY_DEFAULT)
-    .map((answer) => `${answer.id}: ${unquotedReviewer(answer.text)}`);
+    .map((answer) => `${answer.id}: ${relayedReviewer(answer.text)}`);
 
-  const parts = [unquotedReviewer(note), ...typed].filter((part) => part !== "");
+  const parts = [relayedReviewer(note), ...typed].filter((part) => part !== "");
 
   return `${REVIEWER_PREFIX}${parts.length === 0 ? ALL_AS_RECOMMENDED : parts.join("\n\n")}`;
 }
