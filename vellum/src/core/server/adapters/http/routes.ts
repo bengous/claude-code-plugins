@@ -15,11 +15,13 @@ import type {
   PassageKind,
   PlanWorkspace,
   Typed,
+  VellumBuild,
   WordsContext,
 } from "../../../protocol.ts";
 import type { GateOptions, Review } from "../../app/review.ts";
 import { isQuickLabel } from "../../domain/feedback.ts";
 import { parseProjectPath, parseVersion } from "../../domain/paths.ts";
+import type { ParseResult } from "../../domain/paths.ts";
 import { DRAFT_FILE } from "../../domain/workspace.ts";
 
 export const TOKEN_HEADER = "x-vellum-token";
@@ -34,6 +36,8 @@ export type RouteContext = {
   readonly extensionRoutes: ReadonlyMap<string, Route>;
   readonly openBrowser: () => void;
   readonly heartbeat: () => void;
+  /** Read once at start; a failure is this route's answer, never the server's. */
+  readonly vellumBuild: ParseResult<VellumBuild>;
 };
 
 /**
@@ -367,6 +371,14 @@ async function api(
   if (route === "GET /api/review") return Response.json(await review.view());
 
   if (route === "GET /api/pending") return Response.json(await review.poll());
+
+  if (route === "GET /api/vellum-build") {
+    const build = context.vellumBuild;
+
+    return build.ok
+      ? Response.json(build.value)
+      : Response.json({ error: build.error }, { status: 500 });
+  }
 
   if (route === "POST /api/heartbeat") {
     context.heartbeat();

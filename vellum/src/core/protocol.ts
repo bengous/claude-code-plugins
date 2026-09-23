@@ -39,6 +39,8 @@ export {
   landedAnnotations,
 } from "./server/domain/review.ts";
 
+export type { CommitSha, PluginVersion, VellumBuild } from "./server/domain/vellum-build.ts";
+
 export type { Pending, PlanWorkspace } from "./server/domain/workspace.ts";
 
 export { takesComments } from "./server/domain/workspace.ts";

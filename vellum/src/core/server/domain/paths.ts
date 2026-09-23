@@ -4,7 +4,7 @@ export type ParseResult<T> =
 
 declare const brand: unique symbol;
 
-type Branded<T, Name extends string> = T & { readonly [brand]: Name };
+export type Branded<T, Name extends string> = T & { readonly [brand]: Name };
 
 /** `plans/<date>/wip-<sid8>/`, relative to the project root, trailing slash kept. */
 export type WipDir = Branded<string, "WipDir">;

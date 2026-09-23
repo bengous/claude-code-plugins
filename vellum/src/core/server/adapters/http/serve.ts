@@ -10,6 +10,7 @@ import type { FinalDir, WipDir } from "../../domain/paths.ts";
 import { REVIEW_DIR } from "../../domain/workspace.ts";
 import { openInBrowser } from "../browser.ts";
 import { watchFiles } from "../fs.ts";
+import { PLUGIN_ROOT, readVellumBuild } from "../vellum-build.ts";
 import { createHandler } from "./routes.ts";
 
 /**
@@ -98,6 +99,7 @@ export async function startServer(options: ServeOptions): Promise<Started> {
 
   await mkdir(join(options.project, options.workdir, REVIEW_DIR), { recursive: true });
   const frameScript = await buildFrameScript();
+  const vellumBuild = await readVellumBuild(PLUGIN_ROOT);
 
   const review = new Review({
     project: options.project,
@@ -123,6 +125,7 @@ export async function startServer(options: ServeOptions): Promise<Started> {
     project: options.project,
     review,
     frameScript,
+    vellumBuild,
     extensionRoutes: extensionRoutes(review.context),
     openBrowser: () => openInBrowser(url),
     heartbeat: () => {

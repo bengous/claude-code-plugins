@@ -45,6 +45,8 @@ const EMPTY_DRAFT = { annotations: [], edit: null, typed: TYPED };
 
 const DRAFT_PATH = `${WIP}.review/draft.json`;
 
+const NO_BUILD = { ok: false, error: "no commit for /vellum: no installed_plugins.json" } as const;
+
 let started: Started;
 
 let root: string;
@@ -111,6 +113,7 @@ function drafting(): Drafting {
     extensionRoutes: new Map(),
     openBrowser: () => {},
     heartbeat: () => {},
+    vellumBuild: NO_BUILD,
   });
 
   const call = (method: string, path: string, body: string | null): Promise<Response> =>
@@ -254,6 +257,39 @@ describe("routes", () => {
     expect(await kept.json()).toEqual({ version: 1, kept: true });
   });
 
+  test("vellum-build answers this plugin's version and a full commit, behind the token", async () => {
+    const manifest = await Bun.file(
+      join(import.meta.dir, "../../../../../.claude-plugin/plugin.json"),
+    ).json();
+
+    expect((await fetch(url("/api/vellum-build"))).status).toBe(401);
+    const response = await fetch(url("/api/vellum-build"), { headers: headers() });
+    expect(response.status).toBe(200);
+    const build = await response.json();
+    expect(build.version).toBe(manifest.version);
+    expect(build.commit).toMatch(/^[0-9a-f]{40}$/u);
+  });
+
+  test("a build the server could not read answers 500 with its reason", async () => {
+    const { handle } = createHandler({
+      token: "t",
+      project: root,
+      review: new Review({ project: root, workdir: wipDir(), extensions: serverExtensions }),
+      frameScript: "",
+      extensionRoutes: new Map(),
+      openBrowser: () => {},
+      heartbeat: () => {},
+      vellumBuild: NO_BUILD,
+    });
+
+    const response = await handle(
+      new Request("http://x/api/vellum-build", { headers: { [TOKEN_HEADER]: "t" } }),
+    );
+
+    expect(response.status).toBe(500);
+    expect(await response.json()).toEqual({ error: NO_BUILD.error });
+  });
+
   test("the finalize route is gone", async () => {
     expect((await post("/api/finalize", JSON.stringify({ version: 1 }))).status).toBe(404);
   });
@@ -270,6 +306,7 @@ describe("routes", () => {
       extensionRoutes: new Map(),
       openBrowser: () => (opened += 1),
       heartbeat: () => {},
+      vellumBuild: NO_BUILD,
     });
 
     const open = (): Promise<Response> =>
