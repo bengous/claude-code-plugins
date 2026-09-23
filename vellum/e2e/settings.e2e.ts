@@ -49,6 +49,20 @@ test("About Vellum is the current section and shows the version and the commit",
   );
 });
 
+test("the version and the commit select by hand, for a copy", async ({ page, vellum }) => {
+  await openVellum(page, vellum);
+  await gear(page).click();
+  const about = settings(page).getByRole("region", { name: "About Vellum" });
+
+  for (const row of ["Version", "Commit"]) {
+    const value = about.locator(".srow", { hasText: row }).locator("code");
+    await value.click({ clickCount: 3 });
+    expect((await page.evaluate(() => getSelection()?.toString() ?? "")).trim()).toBe(
+      (await value.textContent()) ?? "",
+    );
+  }
+});
+
 test("Escape closes it and gives the focus back to the gear", async ({ page, vellum }) => {
   await openVellum(page, vellum);
   await gear(page).click();
