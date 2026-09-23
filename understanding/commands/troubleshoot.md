@@ -1,6 +1,7 @@
 ---
 description: Diagnose root cause of a bug/issue (investigation only, no code changes)
 argument-hint: <problem-description>
+disable-model-invocation: true
 allowed-tools:
   - Read
   - Glob

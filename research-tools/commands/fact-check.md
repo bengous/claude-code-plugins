@@ -1,6 +1,7 @@
 ---
 description: Verify claims using web search and report findings with sources
 argument-hint: "<claim-to-verify>"
+disable-model-invocation: true
 model: sonnet
 allowed-tools:
   - WebSearch

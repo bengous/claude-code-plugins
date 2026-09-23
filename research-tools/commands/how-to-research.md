@@ -1,6 +1,7 @@
 ---
 description: Learn which MCP tools to use for researching a topic
 argument-hint: "<topic>"
+disable-model-invocation: true
 allowed-tools:
   - Agent
 ---

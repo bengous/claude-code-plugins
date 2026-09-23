@@ -236,7 +236,7 @@
     {
       "name": "understanding",
       "description": "Understand a topic, a bug, or a Claude Code workflow: minimal explanations, root-cause diagnosis, execution traces",
-      "version": "1.1.1",
+      "version": "1.1.2",
       "author": {
         "name": "Augustin BENGOLEA",
         "email": "bengous@protonmail.com"
@@ -357,7 +357,7 @@
     {
       "name": "research-tools",
       "description": "Documentation research through optimal MCP sources and claim verification: research agents, source routing, web and codebase fact-checking",
-      "version": "1.2.2",
+      "version": "1.2.3",
       "author": {
         "name": "Augustin BENGOLEA",
         "email": "bengous@protonmail.com"

@@ -1,6 +1,7 @@
 ---
 description: Verify claims about the codebase by searching code and optionally the web
 argument-hint: "<claim-about-code>"
+disable-model-invocation: true
 model: opus
 allowed-tools:
   - Grep

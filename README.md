@@ -27,12 +27,12 @@ A curated marketplace of Claude Code plugins for development workflow automation
 | [mermaid-diagrams](mermaid-diagrams/) | 1.0.1 | Create and edit Mermaid diagrams for software engineering work, architectural ideas, and technical documentation |
 | [claude-meta-tools](claude-meta-tools/) | 6.0.0 | Meta tooling for Claude Code: write prompts that prompt better (meta-prompt) |
 | [context-management](context-management/) | 2.0.1 | Lifecycle of Claude Code instruction files: audit CLAUDE.md/AGENTS.md/.claude/rules instruction budget, capture session learnings, and resync docs with codebase evolution |
-| [research-tools](research-tools/) | 1.2.2 | Documentation research through optimal MCP sources and claim verification: research agents, source routing, web and codebase fact-checking |
+| [research-tools](research-tools/) | 1.2.3 | Documentation research through optimal MCP sources and claim verification: research agents, source routing, web and codebase fact-checking |
 | [claude-settings-manager](claude-settings-manager/) | 1.1.3 | Manage Claude Code settings with JSONC support and schema extraction |
 | [git-worktree](git-worktree/) | 1.2.2 | Git worktree helper with stack support for multi-agent orchestration |
 | [agents-bridge](agents-bridge/) | 1.11.1 | Bridge to the OpenAI Codex CLI for cross-model collaboration |
 | [software-craft](software-craft/) | 3.0.1 | Opinionated design skills for software excellence: CLI design, system architecture, and more. Skills that push Claude toward intentional, high-quality output instead of generic patterns. |
-| [understanding](understanding/) | 1.1.1 | Understand a topic, a bug, or a Claude Code workflow: minimal explanations, root-cause diagnosis, execution traces |
+| [understanding](understanding/) | 1.1.2 | Understand a topic, a bug, or a Claude Code workflow: minimal explanations, root-cause diagnosis, execution traces |
 | [design-studio](design-studio/) | 1.1.2 | Generate 5 unique website redesigns using Theo's pattern: one agent, sequential creation, natural differentiation |
 | [plugin-cache-sync](plugin-cache-sync/) | 2.2.2 | Sync Claude Code plugin cache from local sources |
 | [git-sweep](git-sweep/) | 3.2.1 | Interactive git branch and worktree cleanup: proves a branch is contained before proposing it, frees finished worktrees, and reports what it kept and why |

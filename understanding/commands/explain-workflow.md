@@ -1,6 +1,7 @@
 ---
 description: Trace and visualize the execution flow of a Claude Code command, skill, or agent workflow
 argument-hint: <command-name, skill-name, file-path, or workflow description>
+disable-model-invocation: true
 allowed-tools:
   - Read
   - Glob
