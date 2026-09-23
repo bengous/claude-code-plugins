@@ -1,6 +1,6 @@
 /* oxlint-disable anti-slop/require-safety-comment-for-type-assertion -- expectations here are branded values (PluginVersion, CommitSha) written as literals: the brand is the parser's to grant, and the test is what checks the parser. */
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, symlinkSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -8,16 +8,27 @@ import { readVellumBuild } from "./vellum-build.ts";
 
 const SHA = "0f9634d417d4307b2b8e3f63829899ea691bdd6e";
 
-const kept = process.env["CLAUDE_CONFIG_DIR"];
+const KEPT = process.env["CLAUDE_CONFIG_DIR"];
+
+const bases: string[] = [];
 
 afterEach(() => {
-  if (kept === undefined) delete process.env["CLAUDE_CONFIG_DIR"];
-  else process.env["CLAUDE_CONFIG_DIR"] = kept;
+  if (KEPT === undefined) delete process.env["CLAUDE_CONFIG_DIR"];
+  else process.env["CLAUDE_CONFIG_DIR"] = KEPT;
+
+  for (const base of bases.splice(0)) rmSync(base, { recursive: true, force: true });
 });
+
+function git(cwd: string, ...args: string[]): string {
+  return Bun.spawnSync(["git", ...args], { cwd, env: { PATH: process.env["PATH"] ?? "" } })
+    .stdout.toString()
+    .trim();
+}
 
 /** A plugin copy outside any repository, and a config dir whose installs file says `installs`. */
 function installed(installs: (root: string) => object) {
   const base = mkdtempSync(join(tmpdir(), "vellum-build-"));
+  bases.push(base);
   const root = join(base, "cache", "vellum", "0.13.0");
   mkdirSync(join(root, ".claude-plugin"), { recursive: true });
   writeFileSync(join(root, ".claude-plugin", "plugin.json"), '{ "version": "0.13.0" }');
@@ -28,8 +39,10 @@ function installed(installs: (root: string) => object) {
   writeFileSync(file, JSON.stringify(installs(root)));
   process.env["CLAUDE_CONFIG_DIR"] = join(base, "config");
 
-  return { root, link };
+  return { base, root, link };
 }
+
+const WITHOUT_SHA = (root: string) => ({ plugins: { "vellum@m": [{ installPath: root }] } });
 
 describe("readVellumBuild", () => {
   test("the install entry of this root gives the commit, the root reached through a link", async () => {
@@ -48,5 +61,24 @@ describe("readVellumBuild", () => {
     const built = await readVellumBuild(root);
 
     expect(!built.ok && built.error).toContain("installed_plugins.json: no entry");
+  });
+
+  test("a repository around the copy that does not track it gives no commit", async () => {
+    const { base, root } = installed(WITHOUT_SHA);
+    git(base, "init", "-q");
+    git(
+      base,
+      "-c",
+      "user.name=t",
+      "-c",
+      "user.email=t@t",
+      "commit",
+      "-q",
+      "--allow-empty",
+      "-m",
+      "dotfiles",
+    );
+
+    expect((await readVellumBuild(root)).ok).toBe(false);
   });
 });

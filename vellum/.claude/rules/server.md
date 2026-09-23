@@ -11,7 +11,9 @@ immutable data: no `node:*`, no `bun`, no adapter, app or page import. `app/revi
 one use case: read through the adapter, decide in the domain, apply files, memory and
 listeners. `adapters/` are plain modules, no interface, no injection: `fs.ts` every read and
 write under the project root, `http/routes.ts` bodies, paths and status codes,
-`http/serve.ts` binding and the page bundle, `browser.ts` the opener. Direction held by
+`http/serve.ts` binding and the page bundle, `browser.ts` the opener, `vellum-build.ts` the
+plugin's own version and commit, read once at start from outside the project (`plugin.json`,
+Claude Code's `installed_plugins.json`, `git` with its `GIT_*` variables cleared). Direction held by
 `src/boundaries.spec.ts`.
 
 - Decide, then apply. Read everything first, take the decision as a pure function of plain

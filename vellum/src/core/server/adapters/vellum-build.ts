@@ -3,11 +3,13 @@ import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 
 import type { ParseResult } from "../domain/paths.ts";
-import { parseCommitSha, vellumBuildOf } from "../domain/vellum-build.ts";
+import { installedCommit, vellumBuildOf } from "../domain/vellum-build.ts";
 import type { VellumBuild } from "../domain/vellum-build.ts";
 
 /** The plugin's folder, the one holding `.claude-plugin/`: this file sits four levels under it. */
 export const PLUGIN_ROOT = resolve(import.meta.dir, "../../../..");
+
+const MANIFEST = ".claude-plugin/plugin.json";
 
 function reason(cause: unknown): string {
   return cause instanceof Error ? cause.message : String(cause);
@@ -65,7 +67,7 @@ function installEntries(text: string): readonly { installPath: string; sha: stri
 /* oxlint-enable anti-slop/no-runtime-typeof, anti-slop/no-unknown-parameters, anti-slop/no-unsafe-dictionary-type, anti-slop/no-unknown-returns, anti-slop/no-known-value-widening, anti-slop/require-safety-comment-for-type-assertion */
 
 /** The `gitCommitSha` Claude Code recorded for this root, both paths compared through their links. */
-async function installedCommit(root: string): Promise<ParseResult<string>> {
+async function installedSha(root: string): Promise<ParseResult<string>> {
   const configDir = process.env["CLAUDE_CONFIG_DIR"] ?? join(homedir(), ".claude");
   const text = await readText(join(configDir, "plugins", "installed_plugins.json"));
 
@@ -84,18 +86,28 @@ async function installedCommit(root: string): Promise<ParseResult<string>> {
   return { ok: false, error: "no entry" };
 }
 
-async function gitHead(root: string): Promise<ParseResult<string>> {
+/** The server's environment but git's own variables: a `GIT_DIR` there would name its repository for any root. */
+function gitEnv(): Record<string, string> {
+  return Object.fromEntries(
+    Object.entries(process.env).flatMap(([name, value]) =>
+      name.startsWith("GIT_") || value === undefined ? [] : [[name, value]],
+    ),
+  );
+}
+
+async function git(root: string, ...args: readonly string[]): Promise<ParseResult<string>> {
   try {
-    const git = Bun.spawn(["git", "-C", root, "rev-parse", "HEAD"], {
+    const run = Bun.spawn(["git", "-C", root, ...args], {
       stdin: "ignore",
       stdout: "pipe",
       stderr: "pipe",
+      env: gitEnv(),
     });
 
     const [stdout, stderr, exitCode] = await Promise.all([
-      new Response(git.stdout).text(),
-      new Response(git.stderr).text(),
-      git.exited,
+      new Response(run.stdout).text(),
+      new Response(run.stderr).text(),
+      run.exited,
     ]);
 
     return exitCode === 0 ? { ok: true, value: stdout } : { ok: false, error: stderr.trim() };
@@ -104,14 +116,25 @@ async function gitHead(root: string): Promise<ParseResult<string>> {
   }
 }
 
+/**
+ * HEAD of the repository that tracks this copy. `git -C` climbs to any repository around the
+ * root, a dotfiles one holding `~/.claude` included: its HEAD is not this plugin's commit.
+ */
+async function gitHead(root: string): Promise<ParseResult<string>> {
+  const tracked = await git(root, "ls-files", "--error-unmatch", MANIFEST);
+
+  if (!tracked.ok) return { ok: false, error: `${MANIFEST} is not tracked: ${tracked.error}` };
+
+  return await git(root, "rev-parse", "HEAD");
+}
+
 /** Never throws: what fails is the answer of `GET /api/vellum-build`, never the server's start. */
 export async function readVellumBuild(pluginRoot: string): Promise<ParseResult<VellumBuild>> {
   const root = await realpath(pluginRoot).catch(() => pluginRoot);
-  const manifest = await readText(join(root, ".claude-plugin", "plugin.json"));
+  const manifest = await readText(join(root, MANIFEST));
   const version = manifest.ok ? manifestVersion(manifest.value) : manifest;
-  const installed = await installedCommit(root);
-  const settled = installed.ok && parseCommitSha(installed.value).ok;
-  const head = settled ? installed : await gitHead(root);
+  const installed = await installedSha(root);
+  const head = installedCommit(installed).ok ? null : await gitHead(root);
 
   return vellumBuildOf({ pluginRoot: root, version, installed, head });
 }

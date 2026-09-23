@@ -14,9 +14,9 @@ hooks/hooks.json               Claude Code's folder: it names the hooks module, 
 skills/start, skills/stop      the way in and the way out
 src/core/engine/               the engine adapter: register.ts spells `$`, the rest takes a `Host`
         │ HTTP, token header
-src/core/server/adapters/      http/routes.ts, http/serve.ts, fs.ts, browser.ts: every IO
+src/core/server/adapters/      http/routes.ts, http/serve.ts, fs.ts, browser.ts, vellum-build.ts: every IO
 src/core/server/app/review.ts  the use case: read, decide, apply
-src/core/server/domain/        pure, no IO: paths, workspace, review, feedback, diff, slug, links
+src/core/server/domain/        pure, no IO: paths, workspace, review, feedback, diff, slug, links, vellum-build
 src/core/server/cli.ts         the entry point: `start` spawns `serve` detached
 src/core/server/preview.ts     the page alone on any directory of documents: a working copy, served, taken away
 src/core/protocol.ts           what crosses HTTP and an extension boundary; JSON

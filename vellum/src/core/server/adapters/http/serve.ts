@@ -98,8 +98,11 @@ export async function startServer(options: ServeOptions): Promise<Started> {
   }
 
   await mkdir(join(options.project, options.workdir, REVIEW_DIR), { recursive: true });
-  const frameScript = await buildFrameScript();
-  const vellumBuild = await readVellumBuild(PLUGIN_ROOT);
+
+  const [frameScript, vellumBuild] = await Promise.all([
+    buildFrameScript(),
+    readVellumBuild(PLUGIN_ROOT),
+  ]);
 
   const review = new Review({
     project: options.project,

@@ -16,8 +16,8 @@ export type BuildSources = {
   readonly version: ParseResult<string>;
   /** `gitCommitSha` of Claude Code's install entry for this root. */
   readonly installed: ParseResult<string>;
-  /** The stdout of `git rev-parse HEAD` in the plugin root. */
-  readonly head: ParseResult<string>;
+  /** The stdout of `git rev-parse HEAD` in the plugin root; `null` when not read, the install entry having answered. */
+  readonly head: ParseResult<string> | null;
 };
 
 const PLUGIN_VERSION = /^\d+\.\d+\.\d+$/u;
@@ -38,13 +38,22 @@ export function parseCommitSha(raw: string): ParseResult<CommitSha> {
     : { ok: false, error: `not a commit SHA (40 lowercase hex): ${raw}` };
 }
 
+/** The install entry's commit, which wins over the head: the adapter reads the head only when this fails. */
+export function installedCommit(installed: ParseResult<string>): ParseResult<CommitSha> {
+  return installed.ok ? parseCommitSha(installed.value) : installed;
+}
+
+function headCommit(head: ParseResult<string> | null): ParseResult<CommitSha> {
+  if (head === null) return { ok: false, error: "not read" };
+
+  return head.ok ? parseCommitSha(head.value.trim()) : head;
+}
+
 function commitOf(sources: BuildSources): ParseResult<CommitSha> {
-  const installed = sources.installed.ok
-    ? parseCommitSha(sources.installed.value)
-    : sources.installed;
+  const installed = installedCommit(sources.installed);
 
   if (installed.ok) return installed;
-  const head = sources.head.ok ? parseCommitSha(sources.head.value.trim()) : sources.head;
+  const head = headCommit(sources.head);
 
   return head.ok
     ? head
