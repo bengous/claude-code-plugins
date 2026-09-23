@@ -146,6 +146,19 @@ test.describe("the grill's answers", () => {
     await expect(page.locator(".bar .status")).toHaveText("Approved");
   });
 
+  test("End grill while drafting returns to plan.md, the plan before any version", async ({
+    page,
+    vellum,
+  }) => {
+    await vellum.grill.open("Where do drafts live?");
+    await openVellum(page, vellum);
+    await page.locator("#rail button", { hasText: "pourquoi-issue-139.md" }).click();
+    await page.locator(".grill-band").getByRole("button", { name: "End grill" }).click();
+
+    await expect(page.locator(".bar .status")).toHaveText("Drafting");
+    await expect(page.locator("#rail .plate")).toHaveAttribute("aria-current", "page");
+  });
+
   test("End grill sends the two answers typed, then ends", async ({ page, vellum }) => {
     await roundOne(page, vellum);
     await (await answerField(page, "Q2")).fill("The inspector.");
