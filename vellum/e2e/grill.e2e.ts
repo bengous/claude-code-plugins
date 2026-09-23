@@ -660,6 +660,27 @@ test.describe("the band", () => {
     await expect.poll(state).toContain("Q1: One store per form.");
   });
 
+  test("End grill clicked twice ends once: the note reaches Claude once", async ({
+    page,
+    vellum,
+  }) => {
+    await asking(page, vellum);
+    const note = panel(page).getByRole("textbox", { name: "Anything else for Claude" });
+    await note.fill("Keep the audit trail.");
+    await page.route("**/api/x/grill/reply", async (route) => {
+      await new Promise((done) => {
+        setTimeout(done, 300);
+      });
+      await route.continue();
+    });
+    await band(page).getByRole("button", { name: "End grill" }).dblclick();
+    await expect(band(page)).toHaveCount(0);
+
+    const state = JSON.stringify((await vellum.grill.state()).json);
+    expect(state.split("Keep the audit trail.")).toHaveLength(2);
+    await expect(page.getByRole("alert")).toHaveCount(0);
+  });
+
   test("a long subject is cut on its one line, and End grill stays in the band", async ({
     page,
     vellum,

@@ -253,6 +253,8 @@ function GrillBand(props: {
   const blocks = blocksOn(file);
   const open = openIn(blocks ?? []);
   const waiting = waitingOf(open.length);
+  /** An end in flight: a second click would send what is typed again. */
+  const [ending, setEnding] = useState(false);
 
   return (
     <div class="grill-band" role="status">
@@ -262,9 +264,13 @@ function GrillBand(props: {
       {waiting !== null && <span class="count">{waiting}</span>}
       <Button
         size="sm"
-        disabled={blocks === null}
+        disabled={blocks === null || ending}
         title={blocks === null ? "Loading the grill" : undefined}
-        onClick={() => void end(file, open)}
+        onClick={() => {
+          if (ending) return;
+          setEnding(true);
+          void end(file, open).finally(() => setEnding(false));
+        }}
       >
         End grill
       </Button>
