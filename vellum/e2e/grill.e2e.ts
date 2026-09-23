@@ -859,13 +859,14 @@ async function answered(
   await vellum.grill.answer("The frontier is empty.", turn);
 }
 
-/** Each text reads on its surface, light then dark, polled: a button's colours move in a transition. */
+/** Each text reads on its surface, light then dark, once the theme switch's transitions end. */
 async function readable(page: Page, texts: readonly Locator[]): Promise<void> {
   for (const colorScheme of ["light", "dark"] as const) {
     await page.emulateMedia({ colorScheme });
+    await settled(page);
 
     for (const text of texts) {
-      await expect.poll(() => onItsSurface(text)).toBeGreaterThanOrEqual(4.5);
+      expect(await onItsSurface(text)).toBeGreaterThanOrEqual(4.5);
     }
   }
 }
@@ -1021,6 +1022,18 @@ test.describe("the panel's phases", () => {
       panelEnd(page),
       panel(page).getByRole("button", { name: "Add a note" }),
     ]);
+  });
+
+  test("the idle screen's contrast after a theme switch waits for the page's transitions", async ({
+    page,
+    vellum,
+  }) => {
+    await answered(page, vellum);
+    await expect(phaseLine(page)).toHaveText("Claude has no question open.");
+    // Stretched far past the 120 ms the page runs, so a measure taken during it cannot pass by luck.
+    await page.addStyleTag({ content: ":root { --transition: 1500ms linear !important; }" });
+
+    await readable(page, [panelEnd(page), panel(page).getByRole("button", { name: "Add a note" })]);
   });
 
   test("the working and stopped screens' words read on their surfaces, light and dark", async ({
