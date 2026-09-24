@@ -49,12 +49,6 @@ describe("planLabel", () => {
     expect(planLabel(IN_REVIEW)).toBe("v3");
   });
 
-  test("changes requested keeps the version that was decided", () => {
-    expect(planLabel({ kind: "changesRequested", dir: WIP as never, version: 2 as never })).toBe(
-      "v2",
-    );
-  });
-
   test("once approved it prints the approved version", () => {
     const dir = "plans/2026-09-15/notification-settings/" as never;
     expect(planLabel({ kind: "approved", dir, version: 4 as never, notes: false })).toBe("v4");

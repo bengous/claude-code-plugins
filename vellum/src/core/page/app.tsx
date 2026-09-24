@@ -134,6 +134,8 @@ function Panes(): preact.JSX.Element {
 
 const actions = pageExtensions.flatMap((extension) => extension.actions ?? []);
 
+const shares = pageExtensions.flatMap(({ send }) => (send === undefined ? [] : [send]));
+
 const extraNotices = pageExtensions.flatMap((extension) => extension.notices ?? []);
 
 const panels = pageExtensions.flatMap(({ id, panel }) =>
@@ -194,7 +196,7 @@ function App(): preact.JSX.Element {
       <a class="skip" href="#doc">
         Skip to document
       </a>
-      <DecisionBar actions={actions} />
+      <DecisionBar actions={actions} shares={shares} />
       <Notices extensions={extraNotices} />
       <div class="body">
         <DocList />

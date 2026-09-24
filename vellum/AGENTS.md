@@ -14,7 +14,7 @@ hooks/hooks.json               Claude Code's folder: it names the hooks module, 
 skills/start, skills/stop      the way in and the way out
 src/core/engine/               the engine adapter: register.ts spells `$`, the rest takes a `Host`
         │ HTTP, token header, down; the server's stdout, up
-src/core/server/adapters/      http/routes.ts, http/serve.ts, fs.ts, browser.ts, vellum-build.ts: every IO
+src/core/server/adapters/      http/routes.ts, http/serve.ts, fs.ts, draft.ts, browser.ts, vellum-build.ts: every IO
 src/core/server/app/review.ts  the use case: read, decide, apply
 src/core/server/domain/        pure, no IO: paths, workspace, channel, review, feedback, diff, slug, links, vellum-build
 src/core/server/cli.ts         the entry point: `serve`, which the hooks module spawns and reads
@@ -73,8 +73,8 @@ not one, and since the server writes `.review/` and an edited `plan.md` where it
 of a source document reaches the next run, never the one in flight.
 
 The copy carries `.review/`, so the page opens where the source left the review: `drafting` on a
-directory that has none, `inReview v<last>` on a final plan, `changesRequested v<n>` where the last
-version was refused, and there the page takes no comment. The source's own `.review/draft.json`
+directory that has none, `inReview v<last>` on any plan, final or not, with the batches sent on
+that version counted, and the page takes comments in both. The source's own `.review/draft.json`
 stays behind, its annotations naming the paths of a directory nobody serves here. Run the command
 from the repository root: the project is the current directory, and anywhere else the plan's cited
 files resolve against the wrong root and `plans/` is made where you stand. Ctrl-C, `SIGTERM`, the

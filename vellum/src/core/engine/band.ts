@@ -16,8 +16,6 @@ function planSegment(stage: StageWire): string {
       return "plan draft";
     case "inReview":
       return `plan v${stage.version} · in review`;
-    case "changesRequested":
-      return `plan v${stage.version} · changes requested`;
     case "approved":
       return `plan v${stage.version} · approved`;
   }

@@ -1,6 +1,13 @@
-import type { Route, RouteKey, ServerContext, ServerExtension } from "../../core/extension.ts";
-import type { PlanWorkspace } from "../../core/protocol.ts";
+import type {
+  Route,
+  RouteKey,
+  SentBatch,
+  ServerContext,
+  ServerExtension,
+} from "../../core/extension.ts";
+import type { Draft, PlanWorkspace } from "../../core/protocol.ts";
 import type { ProjectPath } from "../../core/server/domain/paths.ts";
+import { parseProjectPath } from "../../core/server/domain/paths.ts";
 import { projectPath } from "../../core/server/domain/workspace.ts";
 import {
   grillFile,
@@ -12,11 +19,11 @@ import {
   parseDecline,
   parseEvent,
   parseQuestions,
-  parseReply,
   parseSubject,
   parseSuggestion,
+  parseWait,
 } from "./parse.ts";
-import type { Asked, Block, GrillState, Opened, Proposal } from "./protocol.ts";
+import type { Asked, Block, GrillState, Opened, Proposal, Waited } from "./protocol.ts";
 import { ASK_TOOL } from "./protocol.ts";
 import {
   appendAnswer,
@@ -32,6 +39,7 @@ import {
   relaysOf,
   segmentsOf,
   subjectOf,
+  unanswered,
 } from "./transcript.ts";
 
 /** A transcript of the plan's directory, read: the one with the highest number is the current one. */
@@ -43,6 +51,55 @@ type Transcript = { readonly n: number; readonly file: ProjectPath; readonly doc
  * the session ended itself is not.
  */
 type Written = { readonly doc: string; readonly answer: Response; readonly told: boolean };
+
+/**
+ * How long `POST wait` holds before it answers that the round is still open: under the 30 s at
+ * which the engine cuts every `$.http.fetch` (`docs/plugin-testing/hook-runtime.md`).
+ */
+const WAIT_HOLD_MS = 25_000;
+
+/** What a Send's part closed of a round, between its section and its entry: the questions, the reply as Claude reads it. */
+type Closing = {
+  readonly file: ProjectPath;
+  readonly ids: readonly string[];
+  readonly reply: string;
+};
+
+/** A round a Send closed, under the entry that carried it: what a waiting `grill_ask` returns. */
+type Closed = {
+  readonly file: ProjectPath;
+  readonly ids: ReadonlySet<string>;
+  readonly seq: number;
+  readonly text: string;
+};
+
+/**
+ * What the server keeps of the Sends while it runs, per review: a restarted one keeps nothing,
+ * and a wait it cannot answer from the transcript alone reads as ended, so the entry goes to
+ * Claude through the channel instead.
+ */
+type Memory = {
+  closing: Closing | null;
+  readonly closed: Closed[];
+  /** The waits held now, each woken to read again once a write may have closed its round. */
+  readonly waiting: Set<() => void>;
+};
+
+const memories = new WeakMap<ServerContext, Memory>();
+
+function memoryOf(context: ServerContext): Memory {
+  const known = memories.get(context);
+
+  if (known !== undefined) return known;
+  const made: Memory = { closing: null, closed: [], waiting: new Set() };
+  memories.set(context, made);
+
+  return made;
+}
+
+function wake(memory: Memory): void {
+  for (const waiter of memory.waiting) waiter();
+}
 
 /** A link the page may follow: http, mailto, a fragment or a relative path; any other scheme runs code. */
 const SAFE_HREF = /^(?:https?:|mailto:|[^:]*(?:[/?#]|$))/iu;
@@ -156,9 +213,35 @@ async function openGrill(context: ServerContext): Promise<Transcript | null> {
   return current === null || isClosed(current.doc) ? null : current;
 }
 
-/** Every open question takes its recommendation by default, then the footer. */
-function ended(doc: string, reason: string): string {
-  return appendFooter(appendReply(doc, [], "") ?? doc, reason, new Date());
+type Typing = Draft["typed"]["grill"][string];
+
+const NOTHING_TYPED: Typing = { answers: {}, note: "" };
+
+/** What the reviewer typed on a transcript, as the draft keeps it by the transcript's path. */
+function typingOn(draft: Draft | null, file: ProjectPath): Typing {
+  return draft?.typed.grill[file] ?? NOTHING_TYPED;
+}
+
+/** The reviewer's reply as the transcript writes it: the answers typed, and the note. */
+function replied(doc: string, typing: Typing): string | null {
+  const answers = Object.entries(typing.answers).map(([id, text]) => ({ id, text }));
+
+  return appendReply(doc, answers, typing.note);
+}
+
+/** The questions the typing leaves open, which a Send or an end takes by default. */
+function untouched(doc: string, typing: Typing): readonly string[] {
+  return unanswered(doc).filter((id) => (typing.answers[id]?.trim() ?? "") === "");
+}
+
+/** The last reply of the file as Claude reads it. */
+function lastReply(doc: string, name: string): string {
+  return relaysOf(doc, name, -1).findLast((relay) => relay.kind === "reply")?.text ?? "";
+}
+
+/** What is typed goes as the reply, every question it leaves open by default, then the footer. */
+function ended(doc: string, reason: string, typing: Typing = NOTHING_TYPED): string {
+  return appendFooter(replied(doc, typing) ?? doc, reason, new Date());
 }
 
 async function holds(context: ServerContext): Promise<string | null> {
@@ -172,6 +255,66 @@ async function approved(context: ServerContext): Promise<void> {
   const open = await openGrill(context);
 
   if (open !== null) await context.writeText(open.file, ended(open.doc, "approved"));
+  wake(memoryOf(context));
+}
+
+async function unansweredOf(context: ServerContext, draft: Draft): Promise<number> {
+  const open = await openGrill(context);
+
+  return open === null ? 0 : untouched(open.doc, typingOn(draft, open.file)).length;
+}
+
+/**
+ * The grill's part of a Send: the reply the draft holds for the open grill, which closes every
+ * open question, one left untouched by default, as the reply Claude reads. Remembered until
+ * `sent` names the entry that carried it.
+ */
+async function section(context: ServerContext, draft: Draft): Promise<string | null> {
+  const memory = memoryOf(context);
+  memory.closing = null;
+  const open = await openGrill(context);
+
+  if (open === null) return null;
+  const doc = replied(open.doc, typingOn(draft, open.file));
+
+  if (doc === null) return null;
+  await context.writeText(open.file, doc);
+  const name = grillFile(open.n);
+  const reply = lastReply(doc, name);
+  memory.closing = { file: open.file, ids: unanswered(open.doc), reply };
+
+  return `## Grill\n\n\`${name}\`\n\n${reply}`;
+}
+
+/** The Send that carried a reply answers the waits on its round: its entry's number, and what `grill_ask` returns. */
+function sent(context: ServerContext, batch: SentBatch): Promise<void> {
+  const memory = memoryOf(context);
+  const { closing } = memory;
+  memory.closing = null;
+
+  if (closing === null) return Promise.resolve();
+  const more = batch.more ? `\n\nComments and choices: read ${batch.file}.` : "";
+  const { file, ids, reply } = closing;
+  memory.closed.push({ file, ids: new Set(ids), seq: batch.seq, text: `${reply}${more}` });
+  wake(memory);
+
+  return Promise.resolve();
+}
+
+/**
+ * Where the round asked in `file` from question `first` stands: answered by a Send the server
+ * saw, closed any other way (End grill, the approval, a Send before a restart), or still open.
+ */
+async function waitedOn(context: ServerContext, file: ProjectPath, first: number): Promise<Waited> {
+  const id = `Q${first}`;
+  const closed = memoryOf(context).closed.find((one) => one.file === file && one.ids.has(id));
+
+  if (closed !== undefined) return { kind: "answered", seq: closed.seq, text: closed.text };
+  const doc = await context.readText(file);
+
+  return doc === null || isClosed(doc) || !unanswered(doc).includes(id)
+    ? { kind: "ended" }
+    : { kind: "open" };
 }
 
 function routes(context: ServerContext): Readonly<Record<RouteKey, Route>> {
@@ -185,7 +328,7 @@ function routes(context: ServerContext): Readonly<Record<RouteKey, Route>> {
    * `apply` answers a refusal to write nothing; with no grill open, `none` is the answer.
    */
   const change = (
-    apply: (doc: string) => Written | Response,
+    apply: (current: Transcript) => Written | Response,
     none: () => Response = () => new Response(null, NO_CONTENT),
   ): Promise<Response> =>
     inOrder(async () => {
@@ -195,12 +338,13 @@ function routes(context: ServerContext): Readonly<Record<RouteKey, Route>> {
       const current = await latest(context, workspace.dir);
 
       if (current === null || isClosed(current.doc)) return none();
-      const applied = apply(current.doc);
+      const applied = apply(current);
 
       if (applied instanceof Response) return applied;
       await context.writeText(current.file, applied.doc);
 
       if (applied.told) await tell(context, grillFile(current.n), current.doc, applied.doc);
+      wake(memoryOf(context));
       await context.notify();
 
       return applied.answer;
@@ -299,12 +443,16 @@ function routes(context: ServerContext): Readonly<Record<RouteKey, Route>> {
       });
     },
 
+    // End grill: what the page saved for the grill goes as its reply, told before the end.
     "POST close": async (request) => {
       const reason = parseCloseReason(await request.json().catch(() => null));
 
-      return reason === null
-        ? badRequest()
-        : await change((doc) => written(ended(doc, reason), reason === "page"));
+      if (reason === null) return badRequest();
+      const draft = reason === "page" ? await context.draft() : null;
+
+      return await change(({ doc, file }) =>
+        written(ended(doc, reason, typingOn(draft, file)), reason === "page"),
+      );
     },
 
     "POST ask": async (request) => {
@@ -313,9 +461,9 @@ function routes(context: ServerContext): Readonly<Record<RouteKey, Route>> {
       if (questions === null) return badRequest();
 
       return await change(
-        (doc) => {
+        ({ doc, file }) => {
           const first = nextQuestion(doc);
-          const asked: Asked = { first, last: first + questions.length - 1 };
+          const asked: Asked = { first, last: first + questions.length - 1, file };
 
           return {
             doc: appendQuestions(doc, questions),
@@ -327,12 +475,40 @@ function routes(context: ServerContext): Readonly<Record<RouteKey, Route>> {
       );
     },
 
+    // Read in the queue, so a Send's step is seen whole: its reply and the entry that carried it.
+    "POST wait": async (request) => {
+      const body = parseWait(await request.json().catch(() => null));
+      const file = body === null ? null : parseProjectPath(body.file);
+
+      if (body === null || file?.ok !== true) return badRequest();
+      const memory = memoryOf(context);
+      const until = Date.now() + WAIT_HOLD_MS;
+
+      for (;;) {
+        const waited = await inOrder(() => waitedOn(context, file.value, body.first));
+        const left = until - Date.now();
+
+        if (waited.kind !== "open" || left <= 0) return Response.json(waited);
+
+        await new Promise<void>((resolve) => {
+          const woken = (): void => {
+            clearTimeout(timer);
+            memory.waiting.delete(woken);
+            resolve();
+          };
+
+          const timer = setTimeout(woken, left);
+          memory.waiting.add(woken);
+        });
+      }
+    },
+
     "POST event": async (request) => {
       const event = parseEvent(await request.json().catch(() => null));
 
       return event === null
         ? badRequest()
-        : await change((doc) => written(appendEvent(doc, event.command)));
+        : await change(({ doc }) => written(appendEvent(doc, event.command)));
     },
 
     "POST answer": async (request) => {
@@ -340,24 +516,7 @@ function routes(context: ServerContext): Readonly<Record<RouteKey, Route>> {
 
       return answer === null
         ? badRequest()
-        : await change((doc) => written(appendAnswer(doc, answer)));
-    },
-
-    "POST reply": async (request) => {
-      const reply = parseReply(await request.json().catch(() => null));
-
-      if (reply === null) return badRequest();
-
-      return await change(
-        (doc) => {
-          const replied = appendReply(doc, reply.answers, reply.note);
-
-          return replied === null
-            ? refused("no question is open, and the note is empty")
-            : written(replied, true);
-        },
-        () => refused(NO_GRILL_OPEN),
-      );
+        : await change(({ doc }) => written(appendAnswer(doc, answer)));
     },
 
     "GET blocks": async (request) => {
@@ -374,4 +533,12 @@ function routes(context: ServerContext): Readonly<Record<RouteKey, Route>> {
   };
 }
 
-export const grillServer: ServerExtension = { id: "grill", routes, holds, approved };
+export const grillServer: ServerExtension = {
+  id: "grill",
+  routes,
+  holds,
+  approved,
+  unanswered: unansweredOf,
+  section,
+  sent,
+};

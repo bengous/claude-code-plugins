@@ -1,7 +1,21 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+
 import type { Locator, Page, Route } from "@playwright/test";
 
 import type { Vellum } from "./harness.ts";
-import { axe, boxOf, contrast, expect, openVellum, settled, test } from "./harness.ts";
+import {
+  axe,
+  beforeSending,
+  boxOf,
+  contrast,
+  expect,
+  openVellum,
+  sendAll,
+  sendButton,
+  settled,
+  test,
+} from "./harness.ts";
 
 /**
  * Claude's proposal is a modal over the page, never opened under a typing: Esc puts it off onto
@@ -9,7 +23,7 @@ import { axe, boxOf, contrast, expect, openVellum, settled, test } from "./harne
  * An open grill is a panel right of the document pane, which the rail keeps choosing, and a band
  * above the page that carries its subject, its round, the questions waiting and End grill. A
  * round in the panel is its questions as chips over one question at a time, Recommended or Your
- * answer.
+ * answer, neither chosen until the reviewer picks one; the answers leave with the bar's one Send.
  */
 
 test.use({ fixture: "grill-real" });
@@ -389,8 +403,13 @@ function shown(page: Page): Locator {
   return panel(page).locator(".grill-round .grill-q");
 }
 
-function sendRound(page: Page): Locator {
-  return panel(page).getByRole("button", { name: /^Send (round|note)/u });
+function allRecommended(page: Page): Locator {
+  return panel(page).getByRole("button", { name: "All recommended" });
+}
+
+/** The transcript `grill.open` wrote: the fixture holds `grill-1.md`, closed. */
+function transcript(vellum: Vellum): string {
+  return readFileSync(join(vellum.workdir, "grill-2.md"), "utf8");
 }
 
 /** Each chip's state, in order: answered, default or waiting. */
@@ -468,7 +487,7 @@ test.describe("the panel", () => {
     await expect(chips(page)).toHaveCount(2);
   });
 
-  test("an answer typed and sent in the panel reaches the server, and Claude works", async ({
+  test("an answer typed in the panel leaves with the bar's Send, one batch, and Claude works", async ({
     page,
     vellum,
   }) => {
@@ -476,12 +495,13 @@ test.describe("the panel", () => {
     await panel(page)
       .getByRole("textbox", { name: "Your answer to Q1" })
       .fill("One store per form.");
-    await sendRound(page).click();
+    await sendAll(page, true);
 
     await expect
       .poll(async () => (await vellum.grill.state()).json)
       .toMatchObject({ kind: "open", phase: "working" });
-    expect(JSON.stringify((await vellum.channel()).json)).toContain("Q1: One store per form.");
+    expect(vellum.batches()).toEqual(["v1.feedback-1.md"]);
+    expect(vellum.batch("v1.feedback-1.md")).toContain("Q1: One store per form.");
   });
 
   test("its sheet and the sheet's scrollbar stop before the comments' handle", async ({
@@ -566,21 +586,18 @@ const THREE = [
 
 /** Round 1 sent (Q1 typed, Q2 chosen, Q3 by default), round 2 open (Q4, Q5), the page drawn on it. */
 async function twoRounds(page: Page, vellum: Vellum): Promise<void> {
-  const answers = [
-    { id: "Q1", text: "One store per form." },
-    { id: "Q2", text: "As recommended." },
-  ];
+  const answers = { Q1: "One store per form.", Q2: "As recommended." };
 
   await vellum.grill.open(SUBJECT);
   await vellum.grill.ask(THREE);
-  await vellum.api("x/grill/reply", { answers, note: "" });
+  await vellum.send({ answers });
   await vellum.grill.ask(ROUND);
   await openVellum(page, vellum);
   await expect(chips(page)).toHaveCount(5);
 }
 
 test.describe("a round in the panel", () => {
-  test("is its questions as chips, waiting, over the first one, Recommended chosen by default", async ({
+  test("is its questions as chips, waiting, over the first one, neither choice checked", async ({
     page,
     vellum,
   }) => {
@@ -590,7 +607,8 @@ test.describe("a round in the panel", () => {
     expect(await statesOf(page)).toEqual(["waiting", "waiting"]);
     await expect(chip(page, "Q1")).toHaveAttribute("aria-current", "true");
     await expect(shown(page).locator(".topic")).toHaveText("Storage");
-    await expect(shown(page).getByRole("radio", { name: "Recommended" })).toBeChecked();
+    await expect(shown(page).getByRole("radio", { name: "Recommended" })).not.toBeChecked();
+    await expect(shown(page).getByRole("radio", { name: "Your answer" })).not.toBeChecked();
     await expect(panel(page).locator(".grill-q")).toHaveCount(1);
   });
 
@@ -606,16 +624,46 @@ test.describe("a round in the panel", () => {
     await expect(chip(page, "Q2")).toHaveAttribute("aria-current", "true");
   });
 
-  test("Send round says how many it takes as recommended, one fewer for each choice", async ({
+  test("choosing Recommended answers the question, and the bar's Send counts it", async ({
     page,
     vellum,
   }) => {
     await asking(page, vellum);
-    await expect(sendRound(page)).toHaveText("Send round · 2 taken as recommended");
+    await expect(sendButton(page)).toHaveText("Send");
     await shown(page).getByRole("radio", { name: "Recommended" }).click();
 
-    await expect(sendRound(page)).toHaveText("Send round · 1 taken as recommended");
+    await expect(sendButton(page)).toHaveText("Send 1");
     expect(await statesOf(page)).toEqual(["answered", "waiting"]);
+  });
+
+  test("with a question unanswered the bar asks before any request, and Cancel sends nothing", async ({
+    page,
+    vellum,
+  }) => {
+    await asking(page, vellum);
+    const posted: string[] = [];
+    page.on("request", (request) => posted.push(request.url()));
+    await shown(page).getByRole("radio", { name: "Recommended" }).click();
+    await sendButton(page).click();
+
+    await expect(beforeSending(page)).toContainText("1 question has no answer.");
+    await beforeSending(page).getByRole("button", { name: "Cancel" }).click();
+    expect(posted.filter((url) => url.endsWith("/api/send"))).toEqual([]);
+    expect(vellum.batches()).toEqual([]);
+  });
+
+  test("All recommended chooses the recommendation for every question left untouched", async ({
+    page,
+    vellum,
+  }) => {
+    await asking(page, vellum);
+    await shown(page).getByRole("textbox", { name: "Your answer to Q1" }).fill("One store.");
+    await allRecommended(page).click();
+
+    expect(await statesOf(page)).toEqual(["answered", "answered"]);
+    await chip(page, "Q2").click();
+    await expect(shown(page).getByRole("radio", { name: "Recommended" })).toBeChecked();
+    await expect(allRecommended(page)).toBeDisabled();
   });
 
   test("Recommended is greyed while Your answer holds a text: a click never throws the typing", async ({
@@ -657,7 +705,7 @@ test.describe("a round in the panel", () => {
     await shown(page).getByRole("textbox", { name: "Your answer to Q1" }).fill("One store.");
     await chip(page, "Q2").click();
     await shown(page).getByRole("radio", { name: "Recommended" }).click();
-    await sendRound(page).click();
+    await sendAll(page, true);
 
     await expect.poll(() => statesOf(page)).toEqual(["answered", "answered", "default"]);
     await expect(shown(page)).toHaveCount(0);
@@ -677,84 +725,71 @@ test.describe("a round in the panel", () => {
     await expect(shown(page).locator(".answer .label")).toHaveText("By default");
   });
 
-  test("Send round waits for the transcript, so no answer typed is closed unread", async ({
+  test("a Send before the transcript loads still asks: the server counts what is left unanswered", async ({
     page,
     vellum,
   }) => {
-    await asking(page, vellum);
-    await shown(page).getByRole("textbox", { name: "Your answer to Q1" }).fill("One store.");
-    await panel(page).getByRole("textbox", { name: "Anything else for Claude" }).fill("And hurry.");
-    await expect
-      .poll(async () => JSON.stringify((await vellum.api("draft")).json))
-      .toContain("hurry");
+    await vellum.grill.open(SUBJECT);
+    await vellum.grill.ask(ROUND);
     await page.route("**/api/x/grill/blocks*", (route) => route.fulfill({ status: 500 }));
-    await page.reload();
-    await expect(sendRound(page)).toBeDisabled();
-    await page.unroute("**/api/x/grill/blocks*");
-    vellum.writeFile("notes.md", "One.");
-    await sendRound(page).click();
+    await openVellum(page, vellum);
+    await commentOnArtifact(page, "No.");
+    await sendButton(page).click();
 
-    await expect
-      .poll(async () => JSON.stringify((await vellum.channel()).json))
-      .toContain("Q1: One store.");
+    await expect(beforeSending(page)).toContainText("2 questions have no answer.");
+    expect(vellum.batches()).toEqual([]);
   });
 
-  test("Send round clicked twice sends once: the note reaches Claude once", async ({
-    page,
-    vellum,
-  }) => {
+  test("Send clicked twice sends once: one batch", async ({ page, vellum }) => {
     await asking(page, vellum);
-    await panel(page)
-      .getByRole("textbox", { name: "Anything else for Claude" })
-      .fill("Keep the audit trail.");
-    await page.route("**/api/x/grill/reply", async (route) => {
+    await allRecommended(page).click();
+    await noteField(page).fill("Keep the audit trail.");
+    await page.route("**/api/send", async (route) => {
       await new Promise((done) => {
         setTimeout(done, 300);
       });
       await route.continue();
     });
-    await sendRound(page).dblclick();
-    await expect.poll(statesOf.bind(null, page)).toEqual(["default", "default"]);
+    await sendButton(page).dblclick();
+    await expect.poll(() => statesOf(page)).toEqual(["answered", "answered"]);
 
-    const told = JSON.stringify((await vellum.channel()).json);
-    expect(told.split("Keep the audit trail.")).toHaveLength(2);
+    await expect.poll(() => vellum.batches()).toEqual(["v1.feedback-1.md"]);
+    expect(transcript(vellum).split("Keep the audit trail.")).toHaveLength(2);
     await expect(page.getByRole("alert")).toHaveCount(0);
   });
 
-  test("after a send, Send round waits for the transcript to show it: a click in between sends nothing", async ({
+  test("after a Send the bar has nothing left to send, and the round is closed", async ({
     page,
     vellum,
   }) => {
     await asking(page, vellum);
-    await page.route("**/api/x/grill/blocks*", (route) => route.fulfill({ status: 500 }));
-    const replied = page.waitForResponse("**/api/x/grill/reply");
-    await sendRound(page).click();
-    await replied;
-    await expect(page.getByRole("alert")).toContainText("could not be loaded");
+    await allRecommended(page).click();
+    await sendAll(page);
 
-    await expect(sendRound(page)).toBeDisabled();
-    await page.unroute("**/api/x/grill/blocks*");
-    vellum.writeFile("notes.md", "One.");
-    await expect.poll(() => statesOf(page)).toEqual(["default", "default"]);
+    await expect(shown(page)).toHaveCount(0);
+    await expect(sendButton(page)).toBeDisabled();
+    await expect(sendButton(page)).toHaveAttribute("title", /comment/iu);
   });
 
-  test("End grill clicked while Send round is out sends the note once", async ({
+  test("End grill waits while a Send is out: the note is written once", async ({
     page,
     vellum,
   }) => {
     await asking(page, vellum);
-    await panel(page).getByRole("textbox", { name: "Anything else for Claude" }).fill("Keep it.");
-    await page.route("**/api/x/grill/reply", async (route) => {
+    await allRecommended(page).click();
+    await noteField(page).fill("Keep it.");
+    await page.route("**/api/send", async (route) => {
       await new Promise((done) => {
         setTimeout(done, 400);
       });
       await route.continue();
     });
-    await sendRound(page).click();
+    await sendButton(page).click();
+
+    await expect(band(page).getByRole("button", { name: "End grill" })).toBeDisabled();
     await band(page).getByRole("button", { name: "End grill" }).click();
     await expect(band(page)).toHaveCount(0);
-
-    expect(JSON.stringify((await vellum.channel()).json).split("Keep it.")).toHaveLength(2);
+    expect(transcript(vellum).split("Keep it.")).toHaveLength(2);
   });
 
   test("a round that lands as many questions as the last shows its first, not the last pick", async ({
@@ -764,8 +799,8 @@ test.describe("a round in the panel", () => {
     await asking(page, vellum);
     await chip(page, "Q2").click();
     await page.route("**/api/x/grill/blocks*", (route) => route.fulfill({ status: 500 }));
-    const replied = page.waitForResponse("**/api/x/grill/reply");
-    await sendRound(page).click();
+    const replied = page.waitForResponse("**/api/send");
+    await sendAll(page, true);
     await replied;
     await vellum.grill.ask(ROUND);
     await page.unroute("**/api/x/grill/blocks*");
@@ -791,7 +826,7 @@ test.describe("a round in the panel", () => {
   test("Claude's text between rounds still reads in the panel", async ({ page, vellum }) => {
     await asking(page, vellum);
     await vellum.grill.answer("Round 1 is on the page.", { asked: true });
-    await sendRound(page).click();
+    await sendAll(page, true);
     await vellum.grill.answer("The frontier is empty.");
 
     await expect(panel(page).locator(".plan")).toContainText("Round 1 is on the page.");
@@ -834,6 +869,79 @@ test.describe("a round in the panel", () => {
   });
 });
 
+/** A general comment on the grill fixture's artifact, the comments panel unfolded for it. */
+async function commentOnArtifact(page: Page, text: string): Promise<void> {
+  await page.locator("#rail button", { hasText: "pourquoi-issue-139.md" }).click();
+  await page.locator(".handle.right").click();
+  await expect(page.locator("#comments")).not.toHaveAttribute("inert");
+  await page.locator("#global").fill(text);
+  await page.getByRole("button", { name: "Add comment" }).click();
+}
+
+/** The kinds of the channel's entries, in order: what reached Claude, and by which path. */
+async function kinds(vellum: Vellum): Promise<readonly string[]> {
+  // SAFETY: the server's own `ChannelLine[]`, serialized by `Response.json` in routes.ts.
+  const lines = (await vellum.channel()).json as readonly { readonly entry: { kind: string } }[];
+
+  return lines.map(({ entry }) => entry.kind);
+}
+
+test.describe("the one Send", () => {
+  test("an answer and a comment on an artifact leave with one click: one batch, one entry", async ({
+    page,
+    vellum,
+  }) => {
+    await asking(page, vellum);
+    await shown(page).getByRole("textbox", { name: "Your answer to Q1" }).fill("One store.");
+    await chip(page, "Q2").click();
+    await shown(page).getByRole("radio", { name: "Recommended" }).click();
+    await commentOnArtifact(page, "Cut the second half.");
+    await expect(sendButton(page)).toHaveText("Send 3");
+    await sendAll(page);
+
+    await expect.poll(() => vellum.batches()).toEqual(["v1.feedback-1.md"]);
+    const batch = vellum.batch("v1.feedback-1.md");
+    expect(batch).toMatch(
+      /## Grill[\s\S]*Q1: One store\.[\s\S]*## Comments[\s\S]*Cut the second half\./u,
+    );
+    expect(await kinds(vellum)).toEqual(["text", "sent"]);
+  });
+
+  test("Send now sends the comment alone, and the round stays open, its answer kept", async ({
+    page,
+    vellum,
+  }) => {
+    await asking(page, vellum);
+    const answer = shown(page).getByRole("textbox", { name: "Your answer to Q1" });
+    await answer.fill("One store.");
+    await commentOnArtifact(page, "Cut the second half.");
+    await page.locator(".comments .card").getByRole("button", { name: "Send now" }).click();
+
+    await expect.poll(() => vellum.batches()).toEqual(["v1.feedback-1.md"]);
+    expect(vellum.batch("v1.feedback-1.md")).not.toContain("## Grill");
+    await expect(page.locator(".comments .card")).toHaveCount(0);
+    expect((await vellum.grill.state()).json).toMatchObject({ phase: "asking" });
+    await expect(answer).toHaveValue("One store.");
+  });
+
+  test("a grill_ask waiting on the round gets the Send as its answer, the batch named for the rest", async ({
+    page,
+    vellum,
+  }) => {
+    await asking(page, vellum);
+    const waiting = vellum.grill.wait(1);
+    await allRecommended(page).click();
+    await commentOnArtifact(page, "Cut the second half.");
+    await sendAll(page);
+
+    expect((await waiting).json).toEqual({
+      kind: "answered",
+      seq: 2,
+      text: `Reviewer: Q1: As recommended.\n\nQ2: As recommended.\n\nComments and choices: read ${vellum.dir}.review/v1.feedback-1.md.`,
+    });
+  });
+});
+
 /** The panel's live line: where the grill stands, empty while a round waits for the reviewer. */
 function phaseLine(page: Page): Locator {
   return panel(page).locator(".grill-phase").getByRole("status");
@@ -854,7 +962,7 @@ async function answered(
   turn: Parameters<Vellum["grill"]["answer"]>[1] = {},
 ): Promise<void> {
   await asking(page, vellum);
-  await sendRound(page).click();
+  await sendAll(page, true);
   await expect(phaseLine(page)).toHaveText("Claude is preparing round 2.");
   await vellum.grill.answer("The frontier is empty.", turn);
 }
@@ -893,7 +1001,7 @@ test.describe("the panel's phases", () => {
   }) => {
     await asking(page, vellum);
     await expect(phaseLine(page)).toHaveText("");
-    await sendRound(page).click();
+    await sendAll(page, true);
 
     await expect(phaseLine(page)).toHaveText("Claude is preparing round 2.");
   });
@@ -919,7 +1027,7 @@ test.describe("the panel's phases", () => {
     await panel(page).getByRole("button", { name: "Add a note" }).click();
     await expect(noteField(page)).toBeFocused();
     await noteField(page).fill("One more branch: the audit trail.");
-    await sendRound(page).click();
+    await sendAll(page);
 
     await expect(phaseLine(page)).toHaveText("Claude is preparing round 2.");
     await expect
@@ -960,7 +1068,7 @@ test.describe("the panel's phases", () => {
   }) => {
     await vellum.grill.open(SUBJECT);
     await vellum.grill.ask(ROUND);
-    await vellum.api("x/grill/reply", { answers: [], note: "" });
+    await vellum.send();
     // Never answered: the transcript stays unloaded until the route goes.
     await page.route("**/api/x/grill/blocks*", () => null);
     await openVellum(page, vellum);
@@ -972,7 +1080,7 @@ test.describe("the panel's phases", () => {
     await expect(phaseLine(page)).toHaveText("Claude is preparing round 2.");
   });
 
-  test("a phase read before its transcript waits for it: the round drawn keeps its send", async ({
+  test("a phase read before its transcript waits for it: the round drawn keeps its choices", async ({
     page,
     vellum,
   }) => {
@@ -984,13 +1092,13 @@ test.describe("the panel's phases", () => {
         response.url().includes("/x/grill/state") && (await response.text()).includes('"idle"'),
     );
 
-    await vellum.api("x/grill/reply", { answers: [], note: "" });
+    await vellum.send();
     await vellum.grill.answer("The frontier is empty.");
     await idle;
     await page.waitForTimeout(300);
 
     await expect(phaseLine(page)).toHaveText("");
-    await expect(sendRound(page)).toBeVisible();
+    await expect(allRecommended(page)).toBeVisible();
   });
 
   test("axe finds nothing to fault on the working, idle and stopped screens, light and dark", async ({
@@ -1002,7 +1110,7 @@ test.describe("the panel's phases", () => {
     await faultless(page);
     await panel(page).getByRole("button", { name: "Add a note" }).click();
     await noteField(page).fill("Go on.");
-    await sendRound(page).click();
+    await sendAll(page);
     await expect(phaseLine(page)).toHaveText("Claude is preparing round 2.");
     await faultless(page);
     await vellum.grill.answer("Reading the note", { reason: "aborted" });
@@ -1234,7 +1342,7 @@ test.describe("the band", () => {
 
   test("says the round alone once it is sent", async ({ page, vellum }) => {
     await asking(page, vellum);
-    await sendRound(page).click();
+    await sendAll(page, true);
 
     await expect(band(page).locator(".count")).toHaveText("round 1");
     await expect(band(page).locator(".subject")).toHaveText(`Grill · ${SUBJECT}`);
@@ -1255,7 +1363,6 @@ test.describe("the band", () => {
     await shown(page).getByRole("radio", { name: "Recommended" }).click();
 
     await expect(band(page).locator(".count")).toHaveText("round 1 · 1 question waiting");
-    await expect(sendRound(page)).toHaveText("Send round · 1 taken as recommended");
   });
 
   test("says the last round asked", async ({ page, vellum }) => {
@@ -1408,7 +1515,7 @@ test.describe("the band", () => {
     await asking(page, vellum);
     const note = panel(page).getByRole("textbox", { name: "Anything else for Claude" });
     await note.fill("Keep the audit trail.");
-    await page.route("**/api/x/grill/reply", async (route) => {
+    await page.route("**/api/x/grill/close", async (route) => {
       await new Promise((done) => {
         setTimeout(done, 300);
       });

@@ -180,9 +180,6 @@ function parseStage(value: unknown): StageWire | null {
 
   if (value.kind === "inReview") return { kind: "inReview", version: value.version };
 
-  if (value.kind === "changesRequested")
-    return { kind: "changesRequested", version: value.version };
-
   if (value.kind === "approved") return { kind: "approved", version: value.version };
 
   return null;

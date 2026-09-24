@@ -2,7 +2,7 @@ import type { ChildProcessByStdio } from "node:child_process";
 import { spawn } from "node:child_process";
 import { mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
-import { dirname, join, resolve } from "node:path";
+import { dirname, join, relative, resolve } from "node:path";
 import { createInterface } from "node:readline";
 import type { Readable } from "node:stream";
 
@@ -37,17 +37,35 @@ export type Json =
 
 export type Reply = { readonly status: number; readonly json: Json };
 
+/** What the page's draft holds for the grill, by question id, and the comments beside it. */
+export type Typing = {
+  readonly answers?: Readonly<Record<string, string>>;
+  readonly note?: string;
+  readonly comments?: readonly Json[];
+};
+
 export type Vellum = {
   readonly url: string;
   readonly origin: string;
   readonly token: string;
   /** The scratch copy `preview.ts` serves, absolute. */
   readonly workdir: string;
+  /** The same, as the server names it: relative to the repository, its trailing slash kept. */
+  readonly dir: string;
   api(path: string, body?: Json, method?: "GET" | "POST" | "PUT"): Promise<Reply>;
   /** Records `plan.md` as the next version, as the hooks module does at the end of a turn. */
   gate(): Promise<Reply>;
   /** Every entry of the channel, what reaches Claude, as `GET /api/channel` serves it to the hooks module. */
   channel(): Promise<Reply>;
+  /**
+   * The reviewer's Send without the page: the draft saved as the page saves it, the typing on
+   * the open grill's transcript, then `POST /api/send` of all of it, the defaults taken.
+   */
+  send(typing?: Typing): Promise<Reply>;
+  /** The batches the review wrote, oldest first, by name. */
+  batches(): readonly string[];
+  /** A batch's text, as Claude reads it. */
+  batch(name: string): string;
   /** Replaces the served `plan.md`, as Claude's revision would. */
   writePlan(text: string): void;
   writeFile(name: string, text: string): void;
@@ -64,6 +82,8 @@ export type Vellum = {
     answer(text: string, turn?: Partial<Omit<GrillPosts["answer"], "text">>): Promise<Reply>;
     close(reason?: CloseReason): Promise<Reply>;
     state(): Promise<Reply>;
+    /** `POST wait` on the round whose first question is `first`, as a waiting `grill_ask` holds it. */
+    wait(first: number): Promise<Reply>;
   };
   stop(): Promise<void>;
 };
@@ -153,6 +173,7 @@ export async function startVellum(
   const workdir = /copied to (.+?); pid/u.exec(copied)?.[1];
 
   if (workdir === undefined) throw new Error(`preview.ts named no working copy: ${copied}`);
+  const dir = `${relative(ROOT, workdir)}/`;
   const parsed = new URL(url);
   const token = parsed.pathname.split("/")[2] ?? "";
   const { origin } = parsed;
@@ -170,14 +191,42 @@ export async function startVellum(
     return { status: response.status, json: text === "" ? null : parseLoosely(text) };
   };
 
+  /** The open grill's transcript, as the server names it. */
+  const openGrill = async (): Promise<string> => {
+    // SAFETY: the server's own `GrillState`, serialized by `Response.json` in grill/server.ts.
+    const state = (await api("x/grill/state")).json as GrillState;
+
+    if (state.kind !== "open") throw new Error("no grill is open");
+
+    return state.file;
+  };
+
+  const review = (): string => join(workdir, ".review");
+
   return {
     url,
     origin,
     token,
     workdir,
+    dir,
     api,
     gate: () => api("gate", { unchanged: "record" }),
     channel: () => api("channel?after=0"),
+    send: async ({ answers = {}, note = "", comments = [] } = {}) => {
+      const grill = (await api("x/grill/state")).json;
+      // SAFETY: the server's own `GrillState`, serialized by `Response.json` in grill/server.ts.
+      const open = (grill as GrillState).kind === "open" ? await openGrill() : null;
+      const typing = open === null ? {} : { [open]: { answers, note } };
+      const typed = { general: "", composer: {}, grill: typing, editor: null };
+      await api("draft", { annotations: comments, edit: null, typed }, "PUT");
+
+      return api("send", { items: "all", takeDefaults: true });
+    },
+    batches: () =>
+      readdirSync(review())
+        .filter((name) => /^v\d+\.feedback-\d+\.md$/u.test(name))
+        .toSorted((a, b) => a.localeCompare(b, "en", { numeric: true })),
+    batch: (name) => readFileSync(join(review(), name), "utf8"),
     writePlan: (text) => writeFileSync(join(workdir, "plan.md"), text),
     writeFile: (name, text) => {
       mkdirSync(dirname(join(workdir, name)), { recursive: true });
@@ -201,6 +250,7 @@ export async function startVellum(
         api("x/grill/answer", { text, reason: "answer", own: true, asked: false, ...turn }),
       close: (reason = "page") => api("x/grill/close", { reason }),
       state: () => api("x/grill/state"),
+      wait: async (first) => api("x/grill/wait", { file: await openGrill(), first }),
     },
     // A test may stop the server itself, to cut the connection: the fixture's stop is then a no-op.
     stop: () =>
@@ -232,14 +282,30 @@ export function readFixture(name: string, file: string): string {
   return readFileSync(join(FIXTURES, name, file), "utf8");
 }
 
-/** The one feedback file the review wrote, as Claude reads it. */
+/** The one batch the review wrote, as Claude reads it. */
 export function feedbackOf(vellum: Vellum): string {
-  const review = join(vellum.workdir, ".review");
-  const name = readdirSync(review).find((file) => file.includes("feedback"));
+  const [name, ...more] = vellum.batches();
 
-  if (name === undefined) throw new Error("no feedback file");
+  if (name === undefined || more.length > 0) throw new Error(`not one batch: ${vellum.batches()}`);
 
-  return readFileSync(join(review, name), "utf8");
+  return vellum.batch(name);
+}
+
+/** The warning the bar puts before a Send: questions it would take by default, a typed text it would throw. */
+export function beforeSending(page: Page): Locator {
+  return page.getByRole("dialog", { name: "Before sending" });
+}
+
+/** The bar's Send; `anyway` when the test knows the bar asks first, and agrees. */
+export async function sendAll(page: Page, anyway = false): Promise<void> {
+  await sendButton(page).click();
+
+  if (anyway) await beforeSending(page).getByRole("button", { name: "Send anyway" }).click();
+}
+
+/** The bar's Send, its count in its badge. */
+export function sendButton(page: Page): Locator {
+  return page.locator(".bar").getByRole("button", { name: /^Send\b/u });
 }
 
 /**

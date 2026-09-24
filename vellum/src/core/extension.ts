@@ -5,6 +5,7 @@ import type {
   ChannelEntry,
   DocLink,
   DocRef,
+  Draft,
   LineDiff,
   LinkRoots,
   PlanWorkspace,
@@ -34,9 +35,21 @@ export type Panel = {
   readonly component: ComponentType;
 };
 
+/** What an extension adds to the Send the bar draws, read at each render. */
+export type SendShare = {
+  /** Its items `Send (n)` counts: the grill's questions answered. */
+  readonly count: number;
+  /** Its questions a Send would take by default: the bar asks before it sends. */
+  readonly unanswered: number;
+  /** Something of its own a Send carries that `count` leaves out: the grill's note. */
+  readonly more: boolean;
+};
+
 export type PageExtension = {
   readonly id: string;
   readonly renderers?: readonly Renderer[];
+  /** Its part of the one Send: the bar counts it, and asks about what it would take by default. */
+  readonly send?: () => SendShare;
   /** Drawn in the decision bar, before the decision's own buttons, in registry order. */
   readonly actions?: readonly ComponentType[];
   /** Drawn in the notices column under the bar, in the flow, after the core's own: the grill's proposal, a modal. */
@@ -69,6 +82,16 @@ export type ServerContext = {
    * writes they tell of.
    */
   readonly relay: (entry: ChannelEntry) => Promise<number>;
+  /** The page's unsent work as it was last saved; `null` when there is none, or none it can read. */
+  readonly draft: () => Promise<Draft | null>;
+};
+
+/** A batch a Send wrote, as each extension hears of it once its entry is in the channel. */
+export type SentBatch = {
+  readonly file: ProjectPath;
+  readonly seq: number;
+  /** Whether the batch holds more than this extension's section: comments, an edit, another's part. */
+  readonly more: boolean;
 };
 
 export type Route = (request: Request) => Promise<Response>;
@@ -85,8 +108,21 @@ export type ServerExtension = {
   readonly linkedDocs?: (plan: string, roots: LinkRoots) => readonly DocLink[];
   /** Keys are `"GET <name>"` or `"POST <name>"`. */
   readonly routes?: (context: ServerContext) => Readonly<Record<RouteKey, Route>>;
-  /** What holds the review, or `null`. Held: no gate, no feedback, and the approval warns. */
+  /** What holds the review, or `null`. Held: no version is recorded, and the approval warns; a Send goes. */
   readonly holds?: (context: ServerContext) => Promise<string | null>;
   /** After the rename of an approval, on the server: what the extension must close, it closes here. */
   readonly approved?: (context: ServerContext) => Promise<void>;
+  /**
+   * What a Send of the whole draft would take by default: questions the draft leaves unanswered.
+   * The Send is refused with the total, unless the reviewer takes the defaults.
+   */
+  readonly unanswered?: (context: ServerContext, draft: Draft) => Promise<number>;
+  /**
+   * Its part of a Send of the whole draft, heading included, written into the batch before the
+   * comments; `null` when it has none, and then it wrote nothing. Runs inside the Send's step of
+   * the queue, before the batch is written: what the part closes, it closes here.
+   */
+  readonly section?: (context: ServerContext, draft: Draft) => Promise<string | null>;
+  /** Every Send, once its batch is written and its entry is in the channel, in the same step. */
+  readonly sent?: (context: ServerContext, batch: SentBatch) => Promise<void>;
 };

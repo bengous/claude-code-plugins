@@ -1,7 +1,7 @@
 import type { FinalDir, ProjectPath, Version } from "./paths.ts";
 import { parseFinalDir, parseProjectPath, parseVersion } from "./paths.ts";
 import type { PlanWorkspace } from "./workspace.ts";
-import { notesFile, projectPath, REVIEW_DIR } from "./workspace.ts";
+import { batchOf, notesFile, projectPath, REVIEW_DIR } from "./workspace.ts";
 
 /**
  * What reaches Claude, one line per entry, appended and never cut: an entry's number is its line
@@ -19,9 +19,6 @@ export const CHANNEL_FILE = `${REVIEW_DIR}/channel.jsonl`;
  * keys what it relayed by it, since a new working directory at the same path is another channel.
  */
 export const CHANNEL_ID_FILE = `${REVIEW_DIR}/channel.id`;
-
-/** A feedback file of `.review/`: `v0.feedback-<k>.md` while drafting, `v<N>.feedback.md` after. */
-const FEEDBACK_FILE = /^v(\d+)\.feedback(?:-(\d+))?\.md$/u;
 
 /**
  * One thing the reviewer did that Claude must hear of. The core words `sent` and `approved`; an
@@ -117,17 +114,11 @@ export function channelAfter(text: string, after: number): ChannelLine[] {
     });
 }
 
-/** `v<N>` then `k`, so the batches before the first version come first, in the order sent. */
-function feedbackOrder(name: string): readonly [number, number] | null {
-  const match = FEEDBACK_FILE.exec(name);
-
-  return match === null ? null : [Number(match[1]), Number(match[2] ?? 0)];
-}
-
 /**
- * The entries the directory implies and the channel lacks: a `sent` for each feedback file no
- * entry names, and the approval of an approved directory. A write that landed while its entry did
- * not (a failed append, a server killed between the two) is told at the next start.
+ * The entries the directory implies and the channel lacks: a `sent` for each batch no entry names,
+ * by version then in the order sent, and the approval of an approved directory. A write that
+ * landed while its entry did not (a failed append, a server killed between the two) is told at
+ * the next start.
  */
 export function untold(
   workspace: PlanWorkspace,
@@ -138,14 +129,14 @@ export function untold(
 
   const sent = [...names]
     .flatMap((name) => {
-      const order = feedbackOrder(name);
+      const order = batchOf(name);
 
       return order === null
         ? []
         : [{ order, file: projectPath(`${workspace.dir}${REVIEW_DIR}/${name}`) }];
     })
     .filter(({ file }) => !named.has(file))
-    .toSorted((a, b) => a.order[0] - b.order[0] || a.order[1] - b.order[1])
+    .toSorted((a, b) => a.order.version - b.order.version || a.order.batch - b.order.batch)
     .map(({ file }): ChannelEntry => ({ kind: "sent", file }));
 
   if (workspace.kind !== "approved" || lines.some(({ entry }) => entry.kind === "approved")) {

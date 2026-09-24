@@ -11,12 +11,15 @@ import {
   annotations,
   commentsOpen,
   commentsSnap,
+  connection,
   docs,
   editing,
   focused,
   locked,
   removeAnnotation,
   review,
+  send,
+  sending,
   setTyped,
   typed,
   updateAnnotation,
@@ -94,7 +97,7 @@ function MarkWords(props: { readonly mark: Mark }): preact.JSX.Element {
  * A comment's words, reopened in place: every keystroke with words in it goes to the annotation
  * itself, so the store never holds an empty comment and a reload keeps the last words; the card
  * keeps the field's text, so that it can be cleared, and `open`. While the editor is open the
- * actions are off, the card readable.
+ * actions are off, the card readable. Send now sends this comment alone, and leaves the round.
  */
 function CardWords(props: { readonly annotation: Annotation }): preact.JSX.Element {
   const { annotation } = props;
@@ -127,6 +130,13 @@ function CardWords(props: { readonly annotation: Annotation }): preact.JSX.Eleme
             )}
             <button type="button" disabled={off} onClick={() => removeAnnotation(annotation.id)}>
               Delete
+            </button>
+            <button
+              type="button"
+              disabled={off || sending.value || connection.value === "down"}
+              onClick={() => void send([annotation.id], false)}
+            >
+              Send now
             </button>
           </div>
         )}

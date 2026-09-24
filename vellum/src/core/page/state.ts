@@ -22,7 +22,7 @@ import {
   unshiftAnnotations,
 } from "../protocol.ts";
 import type { ProjectPath, Version } from "../server/domain/paths.ts";
-import { fetchDraft, fetchReview, postDecision, putDraft, subscribe } from "./api.ts";
+import { fetchDraft, fetchReview, postDecision, postSend, putDraft, subscribe } from "./api.ts";
 import type { Failure } from "./notices.ts";
 import { NEW_LINK_HINT_MS, noticesOf } from "./notices.ts";
 
@@ -42,31 +42,42 @@ function nameOf(path: string): string {
   return path.split("/").at(-1) ?? path;
 }
 
-/** What an action would throw: every typed text, named by where it is on screen. */
-export const unsentTyped = computed<readonly { readonly where: string; readonly text: string }[]>(
-  () => {
-    const { general, composer, grill, editor } = typed.value;
-    const found: { readonly where: string; readonly text: string }[] = [];
+export type Unsent = readonly { readonly where: string; readonly text: string }[];
 
-    if (general.trim() !== "") found.push({ where: "the general box", text: general });
+/** What a Send would throw: every typed text, named by where it is on screen, but the grill's answers, which leave with it. */
+export const strayTyped = computed<Unsent>(() => {
+  const { general, composer, editor } = typed.value;
+  const found: { readonly where: string; readonly text: string }[] = [];
 
-    for (const [path, body] of Object.entries(composer)) {
-      if (body.trim() !== "") found.push({ where: `a comment on ${nameOf(path)}`, text: body });
+  if (general.trim() !== "") found.push({ where: "the general box", text: general });
+
+  for (const [path, body] of Object.entries(composer)) {
+    if (body.trim() !== "") found.push({ where: `a comment on ${nameOf(path)}`, text: body });
+  }
+
+  if (editor !== null) found.push({ where: "the editor", text: editor.text });
+
+  return found;
+});
+
+/** What an approval would throw: every typed text, the grill's answers included. */
+export const unsentTyped = computed<Unsent>(() => {
+  const found = [...strayTyped.value];
+
+  for (const [path, entry] of Object.entries(typed.value.grill)) {
+    const texts = [...Object.values(entry.answers), entry.note].filter((t) => t.trim() !== "");
+
+    if (texts.length > 0) {
+      const at = found.findIndex(({ where }) => where === "the editor");
+      found.splice(at === -1 ? found.length : at, 0, {
+        where: `the answers in ${nameOf(path)}`,
+        text: texts.join("\n"),
+      });
     }
+  }
 
-    for (const [path, entry] of Object.entries(grill)) {
-      const texts = [...Object.values(entry.answers), entry.note].filter((t) => t.trim() !== "");
-
-      if (texts.length > 0) {
-        found.push({ where: `the answers in ${nameOf(path)}`, text: texts.join("\n") });
-      }
-    }
-
-    if (editor !== null) found.push({ where: "the editor", text: editor.text });
-
-    return found;
-  },
-);
+  return found;
+});
 
 /** The document shown; `null` is the plan. */
 export const current = signal<ProjectPath | null>(null);
@@ -203,7 +214,7 @@ export const currentDoc = computed<GroupedDoc | null>(() => {
   return list.find((doc) => doc.path === current.value) ?? planDoc.value ?? list[0] ?? null;
 });
 
-/** Comments are taken on a plan under review and while drafting; every other state locks the page. */
+/** Comments are taken on a plan under review and while drafting; an approved one locks the page. */
 export const locked = computed(() => {
   const workspace = review.value?.workspace;
 
@@ -282,6 +293,17 @@ function settleEditorTyping(view: ReviewView): void {
   setTyped({ editor: null });
 }
 
+/** Clears what a decision or a Send of all took: the comments, the edit, what is typed. */
+function clearDraft(): void {
+  batch(() => {
+    annotations.value = [];
+    edited.value = null;
+    typed.value = EMPTY_TYPED;
+    clearUndo();
+    succeed("decision");
+  });
+}
+
 /** `true` once the server took the decision; a refusal or a server that did not answer is a failure the notices show. */
 export async function decide(decision: Decision): Promise<boolean> {
   const status = await postDecision(decision).catch(() => null);
@@ -295,19 +317,95 @@ export async function decide(decision: Decision): Promise<boolean> {
   if (status === 409) fail("decision", "This version was already decided.");
   else if (status >= 300) {
     fail("decision", `Not sent: the server answered ${status}. Your comments are kept.`);
-  } else {
-    batch(() => {
-      annotations.value = [];
-      edited.value = null;
-      typed.value = EMPTY_TYPED;
-      clearUndo();
-      succeed("decision");
-    });
-  }
+  } else clearDraft();
 
   await loadReview();
 
   return status < 300;
+}
+
+/** A Send in flight: every way to one waits, so nothing is sent twice. */
+export const sending = signal(false);
+
+/** Writes the draft as the page shows it and answers whether the server kept it; `start` binds it. */
+let flushDraft: () => Promise<boolean> = () => Promise.resolve(false);
+
+/** The draft written now, as the page shows it: what the server reads next is what is on screen. `true` once kept. */
+export function writeDraft(): Promise<boolean> {
+  return flushDraft();
+}
+
+export type Sent =
+  | { readonly kind: "sent" }
+  | { readonly kind: "unanswered"; readonly count: number }
+  | { readonly kind: "failed" };
+
+const REFUSED: Readonly<Record<"approved" | "empty" | "stale" | "unreadable", string>> = {
+  approved: "Not sent: the plan is approved.",
+  empty: "Not sent: the server's draft held nothing to send. Your comments are kept.",
+  stale: "Not sent: your edit is of a version no longer under review. Your comments are kept.",
+  unreadable: "Not sent: the saved draft cannot be read. Your comments are kept in this tab.",
+};
+
+/**
+ * One Send. The server sends the draft it keeps, so the page writes it first, as it shows it.
+ * `all` takes every comment, the edit and what is typed, the grill's answers included; ids take
+ * those comments alone and leave the rest. A round left with questions unanswered answers their
+ * count, for the page to ask before it takes the defaults.
+ */
+export async function send(items: "all" | readonly string[], takeDefaults: boolean): Promise<Sent> {
+  if (sending.peek()) return { kind: "failed" };
+  sending.value = true;
+
+  try {
+    if (!(await writeDraft())) {
+      fail(
+        "decision",
+        "Not sent: your comments are not saved on the server. They are kept in this tab.",
+      );
+
+      return { kind: "failed" };
+    }
+
+    const refs = items === "all" ? "all" : items.map((id) => ({ kind: "annotation" as const, id }));
+    const posted = await postSend({ items: refs, takeDefaults }).catch(() => null);
+
+    if (posted === null) {
+      fail("decision", "The Send did not reach the server. Your comments are kept in this tab.");
+
+      return { kind: "failed" };
+    }
+
+    const { status, answer } = posted;
+
+    if (status === 409 && answer !== null && "reason" in answer) {
+      if (answer.reason === "unanswered") return { kind: "unanswered", count: answer.count };
+      fail("decision", REFUSED[answer.reason]);
+
+      return { kind: "failed" };
+    }
+
+    if (status >= 300) {
+      fail("decision", `Not sent: the server answered ${status}. Your comments are kept.`);
+
+      return { kind: "failed" };
+    }
+
+    if (items === "all") clearDraft();
+    else {
+      batch(() => {
+        annotations.value = annotations.value.filter(({ id }) => !items.includes(id));
+        clearUndo();
+        succeed("decision");
+      });
+    }
+
+    await loadReview();
+
+    return { kind: "sent" };
+  } finally {
+    sending.value = false;
+  }
 }
 
 /** Edit: the editor opens on the version under review, on the unsent edit of it when there is one. */
@@ -430,8 +528,8 @@ export function select(path: ProjectPath): void {
   if (path === planDoc.value?.path) split.value = false;
 }
 
-/** Never rejects: the saves are chained, and one rejection would silence every save after it. */
-async function saveDraft(draft: Draft): Promise<void> {
+/** Never rejects: the saves are chained, and one rejection would silence every save after it. `true` once kept. */
+async function saveDraft(draft: Draft): Promise<boolean> {
   try {
     const status = await putDraft(draft);
 
@@ -440,9 +538,17 @@ async function saveDraft(draft: Draft): Promise<void> {
         "draft",
         `Your comments are kept in this tab, not saved: the server answered ${status}.`,
       );
-    } else succeed("draft");
+
+      return false;
+    }
+
+    succeed("draft");
+
+    return true;
   } catch {
     fail("draft", "Your comments are kept in this tab, not saved: the server did not answer.");
+
+    return false;
   }
 }
 
@@ -490,7 +596,7 @@ export async function start(): Promise<void> {
   await loadReview();
 
   if (saved.ok) {
-    let saving = Promise.resolve();
+    let saving = Promise.resolve(true);
     let pending: ReturnType<typeof setTimeout> | null = null;
     let written = typed.peek();
 
@@ -500,6 +606,12 @@ export async function start(): Promise<void> {
       pending = null;
       written = unsent.typed;
       saving = saving.then(() => saveDraft(unsent));
+    };
+
+    flushDraft = () => {
+      write({ annotations: annotations.peek(), edit: edited.peek(), typed: typed.peek() });
+
+      return saving;
     };
 
     effect(() => {

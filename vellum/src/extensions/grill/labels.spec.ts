@@ -57,7 +57,7 @@ describe("chipTitle", () => {
   test("says in words what a chip's colour says", () => {
     expect(chipTitle("answered")).toBe("Answered");
     expect(chipTitle("default")).toBe("Taken as recommended, by default");
-    expect(chipTitle("waiting")).toBe("Waiting: a send takes it as recommended");
+    expect(chipTitle("waiting")).toBe("Waiting for your answer");
   });
 });
 

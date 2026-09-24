@@ -18,7 +18,7 @@ mode.ts      the machine: State, Session, Live, and restore / connect / close
 lock.ts      the policy: lockVerdict, checkVerdict; pure
 place.ts     where a path lands: placed, landed; asks the host's `stat`
 turn.ts      whose turn runs: Turns, prompted / started / completed, ownOf; pure
-relay.ts     what the channel says and what it remembers: prompts, Relayed, follow
+relay.ts     what the channel says and what it remembers: prompts, Relayed, follow, the waits' claims
 band.ts      what the band above the prompt says: the plan's segment, then the extensions', then the link; pure
 server.ts    the review server's client: every route, the token header, the launcher, the reader of its stdout
 parse.ts     the boundary: unknown to types, and the only place a brand is minted
@@ -145,6 +145,15 @@ loop. `/vellum:start` enters it, Approve in the page or `/vellum:stop` leaves it
   arrives on the server's stdout and is handed to the session by `$.prompt.submit`, which,
   called while a turn runs, resolves once that prompt's own turn starts: the relays run in a
   queue of their own, never in the loop that reads the child.
+- A tool call may wait for the reviewer instead (`grill_ask`): it keeps one `$.http.fetch` in
+  flight at all times, each held by the server under the engine's 30 s cut, so the budget never
+  runs (a promise awaited alone overruns it). It says `waiting` on its `ToolContext`, and from
+  then on the tenure's follower holds every entry its tool `awaits` (`claim` in `relay.ts`)
+  until the call ends: an entry the call returned (`ToolAnswer.returns`, marked unless Escape
+  aborted the call as it answered) is never relayed, and the others go once the call ended. The
+  hold is what keeps one Send from reaching Claude twice: its line on stdout and the server's
+  answer to the wait come by two paths, in either order. After Escape the call's `$` fail, its
+  wait ends, and what it held goes through the channel.
 - Everything the reviewer sends reaches Claude as an entry of the channel,
   `.review/channel.jsonl`, numbered by its line (`server.md`). One follower per session in a
   module's environment relays each entry once and in order (`follow` in `relay.ts`): it belongs to
@@ -185,7 +194,10 @@ loop. `/vellum:start` enters it, Approve in the page or `/vellum:stop` leaves it
   registry order, each with an `EngineContext` (`Host`, `Live`, its own routes on the server),
   never `$`. A half that throws is logged and the next one runs. Its tools are registered at
   `session.start` and served by the extensions' `tool.call` hook, which dispatches on
-  `e.tool`; the same hook denies what a half `refuses` while `live`. Its matcher is a literal
+  `e.tool`; the same hook denies what a half `refuses` while `live`. That hook carries a
+  `.catch`, since a `tool.call` hook that throws or overruns falls to the engine's permission
+  prompt, then to "no tool.call hook answered": a call that failed while waiting answers
+  `The reviewer's answer will arrive as a prompt`, any other a deny naming the failure. Its matcher is a literal
   written in `register.ts` that lists every half's tools and refusals, and `register.spec.ts`
   holds it equal to the registry, so a half's new tool fails that suite until the literal
   names it. Each `stage` line runs the halves' `staged`, handed to `mode.ts` as `staged` the
@@ -205,11 +217,12 @@ loop. `/vellum:start` enters it, Approve in the page or `/vellum:stop` leaves it
   it wherever the mode leaves `live` (approval, `/vellum:stop`, the `/clear` and `/resume`
   suspension, a revival) and ignores it outside `live`.
 - An engine half may know a fact of the running turn the server cannot read off its file; it
-  keeps it in memory, keyed by the mode's `Live`: `grill` marks the turn whose `grill_ask` the server took
-  (`askedIn`, a `WeakSet` in `grill/engine.ts`) and clears the mark at `answered`, which posts it
-  as `asked`, so that turn's closing text is written with its round even after a reply the
-  reviewer sent meanwhile. A reload between the two loses the mark: the text then goes where a
-  turn that asked nothing writes it.
+  keeps it in memory, keyed by the mode's `Live`: `grill` marks the turn whose `grill_ask` the
+  server took and no answer came back to (`askedIn`, a `WeakSet` in `grill/engine.ts`) and clears
+  the mark at `answered`, which posts it as `asked`, so the text of a turn cut short is written
+  with its round even after a reply the reviewer sent meanwhile; a turn the answer came back to
+  (`repliedIn`) is the grill's own, its text written after the reply. A reload between the two
+  loses the mark: the text then goes where a turn that asked nothing writes it.
 - Every miss of `turn.ts` falls on one side, a turn whose text is written nowhere: a reload
   between the hooks, a text a hook beneath rewrote, and the known one, a relay and a typed
   prompt that wait together, which leave one note, the last. It is one note and never a

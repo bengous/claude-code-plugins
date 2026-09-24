@@ -150,15 +150,20 @@ function wordsOf(mark: Mark): string {
 }
 
 /**
- * Which round the comments belong to: a version under review, or a batch sent while drafting.
- * `editedFrom` is the version the reviewer edited to make this one, `null` when it is Claude's.
+ * What a batch was sent on, and its number there: a version under review, or none yet while
+ * drafting. `editedFrom` is the version the reviewer edited to make this one, `null` when it is Claude's.
  */
-export type FeedbackHeading =
-  | { readonly kind: "review"; readonly version: Version; readonly editedFrom: Version | null }
+export type BatchHeading =
+  | {
+      readonly kind: "review";
+      readonly version: Version;
+      readonly batch: number;
+      readonly editedFrom: Version | null;
+    }
   | { readonly kind: "draft"; readonly batch: number };
 
 /** A removed passage names the version its lines belong to: the one the reviewer edited. */
-function linesOf(passage: Passage, heading: FeedbackHeading): string {
+function linesOf(passage: Passage, heading: BatchHeading): string {
   const lines = `lines ${passage.lines[0]}–${passage.lines[1]}`;
 
   if (!passage.removed) return lines;
@@ -177,7 +182,7 @@ function whichOf(context: WordsContext): string {
 }
 
 /** Where each anchored place is, one string each; a global anchor has none. */
-function placesOf(anchor: Anchor, heading: FeedbackHeading): readonly string[] {
+function placesOf(anchor: Anchor, heading: BatchHeading): readonly string[] {
   if (anchor.kind === "global") return [];
 
   if (anchor.kind === "text") {
@@ -196,9 +201,9 @@ function placesOf(anchor: Anchor, heading: FeedbackHeading): readonly string[] {
 }
 
 /** The heading, then what Claude must know before the items: the plan on disk is the reviewer's own text. */
-function openingOf(heading: FeedbackHeading): readonly string[] {
+function openingOf(heading: BatchHeading): readonly string[] {
   if (heading.kind === "draft") return [`# Drafting feedback ${heading.batch}`];
-  const title = `# Plan review: changes requested (v${heading.version})`;
+  const title = `# Plan review: batch ${heading.batch} on v${heading.version}`;
 
   if (heading.editedFrom === null) return [title];
   const { version, editedFrom } = heading;
@@ -230,10 +235,15 @@ export function formatNotes(
     : `${[`# Plan approved: the reviewer's notes (v${version})`, ...paragraphs].join("\n\n")}\n`;
 }
 
-/** The text Claude reads: one numbered item per annotation, the place first, the mark in words under it. */
-export function formatFeedback(
+/**
+ * The text Claude reads of one Send: the heading, the extensions' sections as they worded them,
+ * then the comments, one numbered item each, the place first, the mark in words under it. A part
+ * with nothing in it is left out.
+ */
+export function formatBatch(
+  heading: BatchHeading,
+  sections: readonly string[],
   annotations: readonly Annotation[],
-  heading: FeedbackHeading,
 ): string {
   const items = annotations.map((annotation, index) => {
     const doc = `\`${annotation.doc}\``;
@@ -249,5 +259,7 @@ export function formatFeedback(
     return `${index + 1}. ${where}\n   ${indent(wordsOf(annotation.mark))}`;
   });
 
-  return `${[...openingOf(heading), ...items].join("\n\n")}\n`;
+  const comments = items.length === 0 ? [] : ["## Comments", ...items];
+
+  return `${[...openingOf(heading), ...sections.map((section) => section.trim()), ...comments].join("\n\n")}\n`;
 }

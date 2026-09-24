@@ -4,14 +4,7 @@ import type { FinalDir, ParseResult, ProjectPath, Slug, Version, WipDir } from "
 import { parseVersion } from "./paths.ts";
 import { slugFromFileName, slugFromTitle } from "./slug.ts";
 import type { PlanWorkspace } from "./workspace.ts";
-import {
-  draftFeedbackFile,
-  feedbackFile,
-  notesFile,
-  PLAN_FILE,
-  projectPath,
-  versionFile,
-} from "./workspace.ts";
+import { notesFile, PLAN_FILE, projectPath, versionFile } from "./workspace.ts";
 
 /**
  * The decisions of a review, as pure functions of plain values. The application reads the
@@ -66,14 +59,15 @@ export function draftIsEmpty(draft: Draft): boolean {
   return draft.annotations.length === 0 && draft.edit === null && typedIsEmpty(draft.typed);
 }
 
-/** `edit` is `null` when the reviewer changed nothing, `notes` empty when they left none. */
-export type Decision =
-  | { readonly kind: "approve"; readonly edit: Edit | null; readonly notes: string }
-  | {
-      readonly kind: "feedback";
-      readonly edit: Edit | null;
-      readonly annotations: readonly Annotation[];
-    };
+/**
+ * The one decision left to the bar beside a Send: the approval. `edit` is `null` when the reviewer
+ * changed nothing, `notes` empty when they left none.
+ */
+export type Decision = {
+  readonly kind: "approve";
+  readonly edit: Edit | null;
+  readonly notes: string;
+};
 
 /**
  * What a reload makes of the page's unsent edit. `landed`: the loaded version is the edit
@@ -121,8 +115,8 @@ export type Gated =
 
 /**
  * Which version a submitted plan is: the one under review keeps its number when the text is
- * the same. After a feedback the submission is a new version even with the same text: the
- * page stays locked until one arrives, and an artifact revised alone must reopen the review.
+ * the same. Once the reviewer sent a batch on it, the submission is a new version even with the
+ * same text: an artifact revised alone must reopen the review.
  */
 export function gateVersion(
   workspace: PlanWorkspace,
@@ -130,7 +124,7 @@ export function gateVersion(
   plan: string,
 ): Gated {
   const latest = workspace.kind === "drafting" ? null : workspace.version;
-  const kept = latest !== null && workspace.kind !== "changesRequested" && latestText === plan;
+  const kept = workspace.kind === "inReview" && workspace.batches === 0 && latestText === plan;
 
   return latest !== null && kept
     ? { kind: "kept", version: latest }
@@ -147,68 +141,126 @@ export type Decided =
       readonly edit: Written | null;
       /** `null` writes nothing, so a retry keeps the notes file the first attempt wrote. */
       readonly notes: Written | null;
-    }
-  | {
-      readonly kind: "feedback";
-      readonly version: Version;
-      readonly edit: Written | null;
-      readonly path: ProjectPath;
-      readonly editedFrom: Version | null;
-      /** The decision's annotations, the plan's retargeted to `vN+1.md` when `edit` is not `null`. */
-      readonly annotations: readonly Annotation[];
-    }
-  | { readonly kind: "draftFeedback"; readonly path: ProjectPath; readonly batch: number };
+    };
 
 /**
- * A plan is approved under review and nowhere else. A feedback is taken there too, and while
- * drafting, where it opens the next batch: the reviewer speaks before the first version.
- * The reviewer's edit is the next version, and the decision applies to it: `vN.md` stays what
- * Claude submitted. An edit equal to the version's text is no edit, no version exists to edit
- * while drafting, and an edit of another version than the one under review is refused.
- * An approval's notes file says the plan was edited, then what the reviewer noted.
+ * What the reviewer's edit makes of the version under review: the next version, holding the
+ * edit's text, which the decision or the Send applies to; `vN.md` stays what Claude submitted.
+ * An edit equal to the version's text is no edit, and an edit of another version is stale.
+ */
+function editOf(
+  workspace: Extract<PlanWorkspace, { kind: "inReview" }>,
+  latestText: string | null,
+  edit: Edit | null,
+): { readonly version: Version; readonly edit: Written | null } | "stale" {
+  const { dir, version: reviewed } = workspace;
+
+  if (edit !== null && edit.version !== reviewed) return "stale";
+  const edited = edit?.text === latestText ? null : (edit?.text ?? null);
+
+  if (edited === null) return { version: reviewed, edit: null };
+  const version = nextVersion(reviewed);
+
+  return { version, edit: { path: versionPath(dir, version), text: edited } };
+}
+
+/**
+ * A plan is approved under review and nowhere else. The reviewer's edit is the next version, and
+ * the approval applies to it. Its notes file says the plan was edited, then what the reviewer noted.
  */
 export function decideOn(
   workspace: PlanWorkspace,
   latestText: string | null,
   decision: Decision,
 ): Decided {
-  if (workspace.kind === "drafting" && decision.kind === "feedback" && decision.edit === null) {
-    const batch = workspace.batches + 1;
+  if (workspace.kind !== "inReview") return { kind: "refused" };
+  const edited = editOf(workspace, latestText, decision.edit);
 
-    return {
-      kind: "draftFeedback",
-      path: projectPath(`${workspace.dir}${draftFeedbackFile(batch)}`),
-      batch,
+  if (edited === "stale") return { kind: "refused" };
+  const { version, edit } = edited;
+  const editedFrom = edit === null ? null : workspace.version;
+  const text = formatNotes(version, editedFrom, decision.notes);
+  const path = projectPath(`${workspace.dir}${notesFile(version)}`);
+
+  return { kind: "approve", version, edit, notes: text === null ? null : { path, text } };
+}
+
+/** A comment of the draft, named by its id: the one "Send now" takes. */
+export type DraftItemRef = { readonly kind: "annotation"; readonly id: string };
+
+/**
+ * What a Send takes from the draft: `all` of it, the open round and the edit included, or the
+ * items named, which leave the round and the edit where they are.
+ */
+export type SendItems = "all" | readonly DraftItemRef[];
+
+export type SendRequest = { readonly items: SendItems; readonly takeDefaults: boolean };
+
+/** What a Send writes, decided before the extensions write their part. */
+export type Sending =
+  | { readonly kind: "refused"; readonly reason: "approved" | "stale" }
+  | {
+      readonly kind: "send";
+      /** The version the batch is sent on: the edit's once it lands, `null` while drafting. */
+      readonly version: Version | null;
+      readonly edit: Written | null;
+      readonly editedFrom: Version | null;
+      /** The comments sent, the plan's retargeted to the edit's version. */
+      readonly annotations: readonly Annotation[];
+      /** What the draft keeps. */
+      readonly rest: Draft;
     };
+
+const EMPTY_DRAFT: Draft = { annotations: [], edit: null, typed: EMPTY_TYPED };
+
+/**
+ * A Send takes comments before the first version and on the version under review. `all` takes
+ * the whole draft, and its edit lands as the next version, the batch sent on it; named items
+ * leave the rest of the draft. A Send changes no stage: the page takes comments after it.
+ */
+export function sendOn(
+  workspace: PlanWorkspace,
+  latestText: string | null,
+  draft: Draft,
+  items: SendItems,
+): Sending {
+  if (workspace.kind === "approved") return { kind: "refused", reason: "approved" };
+  const named = items === "all" ? null : new Set(items.map((item) => item.id));
+  const sent = draft.annotations.filter((annotation) => named?.has(annotation.id) ?? true);
+
+  if (named !== null) {
+    const rest = { ...draft, annotations: draft.annotations.filter((a) => !named.has(a.id)) };
+    const version = workspace.kind === "drafting" ? null : workspace.version;
+
+    return { kind: "send", version, edit: null, editedFrom: null, annotations: sent, rest };
   }
 
-  if (workspace.kind !== "inReview") return { kind: "refused" };
+  if (workspace.kind === "drafting") {
+    return draft.edit === null
+      ? {
+          kind: "send",
+          version: null,
+          edit: null,
+          editedFrom: null,
+          annotations: sent,
+          rest: EMPTY_DRAFT,
+        }
+      : { kind: "refused", reason: "stale" };
+  }
+
+  const edited = editOf(workspace, latestText, draft.edit);
+
+  if (edited === "stale") return { kind: "refused", reason: "stale" };
+  const { version, edit } = edited;
   const { dir, version: reviewed } = workspace;
 
-  if (decision.edit !== null && decision.edit.version !== reviewed) return { kind: "refused" };
-  const edited = decision.edit?.text === latestText ? null : (decision.edit?.text ?? null);
-  const version = edited === null ? reviewed : nextVersion(reviewed);
-  const edit = edited === null ? null : { path: versionPath(dir, version), text: edited };
-  const editedFrom = edit === null ? null : reviewed;
-
-  if (decision.kind === "approve") {
-    const text = formatNotes(version, editedFrom, decision.notes);
-    const path = projectPath(`${dir}${notesFile(version)}`);
-
-    return { kind: "approve", version, edit, notes: text === null ? null : { path, text } };
-  }
-
   return {
-    kind: "feedback",
+    kind: "send",
     version,
     edit,
-    path: projectPath(`${dir}${feedbackFile(version)}`),
-    editedFrom,
-    annotations: retargetAnnotations(
-      decision.annotations,
-      versionPath(dir, reviewed),
-      versionPath(dir, version),
-    ),
+    editedFrom: edit === null ? null : reviewed,
+    annotations: retargetAnnotations(sent, versionPath(dir, reviewed), versionPath(dir, version)),
+    rest: EMPTY_DRAFT,
   };
 }
 

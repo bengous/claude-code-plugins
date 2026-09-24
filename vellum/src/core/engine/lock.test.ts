@@ -2,7 +2,6 @@ import { describe, expect, test, tier } from "claude-code/testing";
 
 import {
   approved,
-  changesRequested,
   CHANNEL,
   channelLine,
   CWD,
@@ -363,10 +362,7 @@ describe("parseServerLine", () => {
   test("the workspace is read as the band draws it: its kind, and the version once there is one", () => {
     expect(stageOf(JSON.stringify(DRAFTING))).toEqual({ kind: "drafting" });
     expect(stageOf(JSON.stringify(inReview(2)))).toEqual({ kind: "inReview", version: 2 });
-    expect(stageOf(JSON.stringify(changesRequested(2)))).toEqual({
-      kind: "changesRequested",
-      version: 2,
-    });
+    expect(stageOf('{"kind":"changesRequested","version":2}'), "a stage that is gone").toBeNull();
     expect(JSON.parse(JSON.stringify(stage(inReview(2))))).toMatchObject({ type: "stage" });
   });
 

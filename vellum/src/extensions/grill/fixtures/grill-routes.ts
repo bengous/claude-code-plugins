@@ -16,20 +16,26 @@ export type GrillRoutes = {
   readonly posted: [name: string, body: string][];
 };
 
-/** The grill routes a review server answers, and every body the module posted there, by route name. */
+/**
+ * The grill routes a review server answers, and every body the module posted there, by route
+ * name: 204 unless `answers` names the route, and a route that answers `null` is one the server
+ * does not answer, so the module's call rejects.
+ */
 export function grillRoutes(
   grill: () => Grill,
   answers: Readonly<Record<string, Route>> = {},
 ): GrillRoutes {
   const posted: [name: string, body: string][] = [];
-  const names = ["ask", "suggest", "event", "answer", "close"];
+  const names = ["ask", "wait", "suggest", "event", "answer", "close"];
 
   const post =
     (name: string): Route =>
     (body, query) => {
       posted.push([name, body ?? ""]);
 
-      return answers[name]?.(body, query) ?? reply(204, null);
+      const answer = answers[name];
+
+      return answer === undefined ? reply(204, null) : answer(body, query);
     };
 
   const state: Route = () => {

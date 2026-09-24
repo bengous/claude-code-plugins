@@ -1,7 +1,7 @@
 import { batch, computed, signal } from "@preact/signals";
 import { useEffect, useRef, useState } from "preact/hooks";
 
-import type { PageExtension, RendererProps } from "../../core/extension.ts";
+import type { PageExtension, RendererProps, SendShare } from "../../core/extension.ts";
 import { extensionRequest } from "../../core/page/api.ts";
 import { Banner, Button, Chip } from "../../core/page/kit.tsx";
 import {
@@ -11,9 +11,11 @@ import {
   fail,
   review,
   select,
+  sending,
   setTyped,
   succeed,
   typed,
+  writeDraft,
 } from "../../core/page/state.ts";
 import type { Typed } from "../../core/protocol.ts";
 import type { ProjectPath } from "../../core/server/domain/paths.ts";
@@ -63,19 +65,6 @@ const transcript = signal<{
   readonly blocks: readonly Block[];
   readonly phase: Phase;
 } | null>(null);
-
-/**
- * The reply out, or sent and not yet read back, with the write of the transcript it was sent
- * over: Send round and End grill wait on it alike, or the one clicked second sends what is typed
- * again, and a send over blocks that do not show the last reply yet closes nothing it sees.
- */
-const replying = signal<{ readonly over: string | null; readonly out: boolean } | null>(null);
-
-const replyPending = computed(() => {
-  const pending = replying.value;
-
-  return pending !== null && (pending.out || pending.over === transcript.value?.write);
-});
 
 /**
  * The grill this page ended with End grill, and how many questions it settled: its notice shows
@@ -216,14 +205,6 @@ async function openGrill(subject: string): Promise<boolean> {
   return (await post("open", { subject })).ok;
 }
 
-/** `true` once the server took it: the typing it carried can go. */
-async function reply(
-  answers: readonly { id: string; text: string }[],
-  note: string,
-): Promise<boolean> {
-  return (await post("reply", { answers, note })).ok;
-}
-
 const NOTHING_TYPED: Typed["grill"][string] = { answers: {}, note: "" };
 
 /**
@@ -237,50 +218,33 @@ function typedOn(path: string): Typed["grill"][string] {
   return grillTyped.value[path] ?? NOTHING_TYPED;
 }
 
-/** Whether a send writes anything: an open question, which the recommendation answers by default, or a note. */
-function sendable(path: string, open: readonly string[]): boolean {
-  return open.length > 0 || typedOn(path).note.trim() !== "";
-}
+/**
+ * The grill's part of the one Send, from the open grill's blocks and the draft's typing: the
+ * questions answered, the ones a Send would take by default, and a note. Before the blocks land
+ * it names none, and the server's own count asks in its place.
+ */
+function share(): SendShare {
+  const state = drawn.value;
 
-/** The round's choices go as a reply, an untouched question taking the recommendation by default; `true` once the server took it. */
-async function send(path: string, open: readonly string[]): Promise<boolean> {
-  const own = typedOn(path);
-  const over = transcript.peek()?.write ?? null;
-  replying.value = { over, out: true };
+  if (state?.kind !== "open") return { count: 0, unanswered: 0, more: false };
+  const own = typedOn(state.file);
+  const { open, waiting } = roundsOf(blocksOn(state.file) ?? [], own.answers, null);
 
-  const taken = await reply(
-    open.map((id) => ({ id, text: own.answers[id]?.trim() ?? "" })),
-    own.note.trim(),
-  );
-
-  batch(() => {
-    replying.value = taken ? { over, out: false } : null;
-
-    if (taken) {
-      const { [path]: _gone, ...rest } = typed.value.grill;
-      setTyped({ grill: rest });
-    }
-  });
-
-  return taken;
-}
-
-/** Why Send round and End grill wait, in their title; `undefined` while they can go. */
-function replyWhy(blocks: readonly Block[] | null): string | undefined {
-  if (blocks === null) return "Loading the grill";
-
-  return replyPending.value ? "Waiting for the grill to show your reply" : undefined;
+  return { count: open.length - waiting, unanswered: waiting, more: own.note.trim() !== "" };
 }
 
 /**
- * End grill: what is typed goes first, as a send does, then the close; the document pane returns
- * to the plan, under a notice that counts the questions the grill settled, every one answered once
- * it is closed.
+ * End grill: the draft is written first, since the server ends the grill with what it holds for
+ * the round as the reply, a question left untouched by default; the document pane returns to the
+ * plan, under a notice that counts the questions the grill settled, every one answered once it is
+ * closed.
  */
 async function end(path: ProjectPath, blocks: readonly Block[]): Promise<void> {
-  const { open } = roundsOf(blocks, typedOn(path).answers, null);
+  if (!(await writeDraft())) {
+    fail("send", "The grill was not ended: what you typed is not saved on the server.");
 
-  if (sendable(path, open) && !(await send(path, open))) return;
+    return;
+  }
 
   if (!(await post("close", { reason: "page" })).ok) return;
   const plan = docs.peek().find((doc) => doc.group === "plan");
@@ -301,7 +265,7 @@ const ending = signal(false);
 /**
  * End grill, the page's one way to end it, drawn in the band and on the panel once Claude's
  * turn ended: greyed until the transcript loads, so no answer typed is closed unread, while a
- * reply waits to show in it, and while an end is in flight.
+ * Send is out, and while an end is in flight.
  */
 function EndGrill(props: {
   readonly file: ProjectPath;
@@ -315,8 +279,8 @@ function EndGrill(props: {
       size={look === "band" ? "sm" : "md"}
       variant={look === "primary" ? "grill" : "default"}
       class={look === "primary" ? "lit" : undefined}
-      disabled={blocks === null || ending.value || replyPending.value}
-      title={replyWhy(blocks)}
+      disabled={blocks === null || ending.value || sending.value}
+      title={blocks === null ? "Loading the grill" : undefined}
       onClick={() => {
         if (blocks === null || ending.peek()) return;
         ending.value = true;
@@ -335,9 +299,6 @@ function grillWhy(state: GrillState | null): string | null {
   if (connection.value === "down") return "The connection to the review server is lost";
 
   if (editing.value !== null) return "Finish editing (Done) first";
-
-  if (review.value?.workspace.kind === "changesRequested")
-    return "Waiting for Claude's next version";
 
   return state === null ? "Loading the review" : null;
 }
@@ -463,26 +424,30 @@ function QuestionCard(props: { readonly block: QuestionBlock }): preact.JSX.Elem
 
 type OpenQuestionProps = {
   readonly block: QuestionBlock;
-  /** The draft's typing for it: absent takes the recommendation by default, `As recommended.` chooses it. */
+  /** The draft's typing for it: absent is no answer yet, `As recommended.` chooses the recommendation. */
   readonly typing: string | undefined;
   readonly onType: (text: string) => void;
-  /** Ctrl+Enter in the field, as in the foot's. */
-  readonly onSend: () => void;
 };
 
+/** What the reviewer chose for a question: nothing yet, the recommendation, or words of their own. */
+type Choice = "none" | "recommended" | "own";
+
+/** Read off the draft once: a text typed through `As recommended.` is still the reviewer's own. */
+function choiceOf(typing: string | undefined): Choice {
+  if (typing === undefined) return "none";
+
+  return typing === AS_RECOMMENDED ? "recommended" : "own";
+}
+
 /**
- * An open question and its two choices. Recommended is chosen by default; a text of the
- * reviewer's own greys it, so a click never throws the typing.
+ * An open question and its two choices, neither chosen until the reviewer picks one: a
+ * recommendation checked in advance ends up accepted unread. A text of the reviewer's own greys
+ * Recommended, so a click never throws the typing.
  */
 function OpenQuestion(props: OpenQuestionProps): preact.JSX.Element {
   const { block, typing } = props;
   const field = useRef<HTMLTextAreaElement>(null);
-
-  // Read off the draft once: a text typed through `As recommended.` is still the reviewer's own.
-  const [choice, setChoice] = useState<"recommended" | "own">(
-    typing === undefined || typing === AS_RECOMMENDED ? "recommended" : "own",
-  );
-
+  const [choice, setChoice] = useState<Choice>(choiceOf(typing));
   const recommended = choice === "recommended";
   const own = recommended ? "" : (typing ?? "");
   const mine = own.trim() !== "";
@@ -497,9 +462,6 @@ function OpenQuestion(props: OpenQuestionProps): preact.JSX.Element {
       onInput={(event) => {
         setChoice("own");
         props.onType(event.currentTarget.value);
-      }}
-      onKeyDown={(event) => {
-        if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) props.onSend();
       }}
     />
   );
@@ -552,9 +514,9 @@ function OpenQuestion(props: OpenQuestionProps): preact.JSX.Element {
             type="radio"
             id={`${name}-own`}
             name={name}
-            checked={!recommended}
+            checked={choice === "own"}
             onClick={() => {
-              if (recommended) props.onType("");
+              if (choice !== "own") props.onType("");
               setChoice("own");
               field.current?.focus();
             }}
@@ -709,12 +671,19 @@ function OpenGrill(props: {
   const note = (text: string): void =>
     setTyped({ grill: { ...typed.value.grill, [path]: { ...own, note: text } } });
 
-  const { open } = view;
-  // Before the blocks land, no question reads as open, and a send would close the answers typed by default.
-  const live = loaded !== null && !replyPending.value && sendable(path, open);
+  const { open, waiting } = view;
+  /** Bumped by All recommended: the question shown is drawn again, its choice read off the draft. */
+  const [chosenAll, setChosenAll] = useState(0);
 
-  const sendNow = (): void => {
-    if (live && !replyPending.peek()) void send(path, open);
+  /** Every question still untouched takes the recommendation, chosen: the reviewer read them all. */
+  const allRecommended = (): void => {
+    const untouched = open.filter((id) => (own.answers[id]?.trim() ?? "") === "");
+    const chosen = Object.fromEntries(untouched.map((id) => [id, AS_RECOMMENDED]));
+
+    setTyped({
+      grill: { ...typed.value.grill, [path]: { ...own, answers: { ...own.answers, ...chosen } } },
+    });
+    setChosenAll((count) => count + 1);
   };
 
   const round = useRef<HTMLDivElement>(null);
@@ -764,11 +733,10 @@ function OpenGrill(props: {
                 question={(block) =>
                   block.answer.kind === "open" ? (
                     <OpenQuestion
-                      key={block.id}
+                      key={`${block.id}-${chosenAll}`}
                       block={block}
                       typing={own.answers[block.id]}
                       onType={(text) => answer(block.id, text)}
-                      onSend={sendNow}
                     />
                   ) : (
                     <QuestionCard key={block.id} block={block} />
@@ -783,23 +751,26 @@ function OpenGrill(props: {
             <textarea
               ref={noteField}
               aria-label="Anything else for Claude"
-              placeholder="Anything else. Ctrl+Enter sends."
+              placeholder="Anything else for Claude."
               value={own.note}
               onInput={(event) => note(event.currentTarget.value)}
-              onKeyDown={(event) => {
-                if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) sendNow();
-              }}
             />
             <p class="note">
               {open.length > 0
-                ? "Answers go to Claude once its turn ends."
-                : "No question is open. A note goes to Claude once its turn ends."}
+                ? "Your answers and your note leave with Send, in the bar."
+                : "No question is open. A note leaves with Send, in the bar."}
             </p>
-            <div class="row">
-              <Button variant="send" disabled={!live} title={replyWhy(loaded)} onClick={sendNow}>
-                {view.send}
-              </Button>
-            </div>
+            {open.length > 0 && (
+              <div class="row">
+                <Button
+                  disabled={loaded === null || waiting === 0}
+                  title={waiting === 0 ? "Every question has an answer" : undefined}
+                  onClick={allRecommended}
+                >
+                  All recommended
+                </Button>
+              </div>
+            )}
           </div>
         )}
       </div>
@@ -825,5 +796,6 @@ export const grillPage: PageExtension = {
   ],
   actions: [GrillAction],
   notices: [GrillNotice],
+  send: share,
   panel: { shown: () => drawn.value?.kind === "open", component: GrillPanel },
 };

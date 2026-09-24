@@ -112,8 +112,9 @@ no build step, so what the page imports costs nothing at `cli start`.
   `markdown/links.ts`, three answers read in order: a listed document named in full, then the
   working copy, which selects the plan, then a listed document the name only ends. So `plan.md`
   selects the plan as it does while `drafting`, and a link the page holds no document for keeps
-  the new tab its anchor carries. Comments are taken while `inReview` and while `drafting`, so
-  `locked` names two states, not one, and Approve is drawn only where a version exists. `locked`
+  the new tab its anchor carries. Comments are taken while `inReview` and while `drafting`, a
+  Send changing neither, so `locked` names the approval alone, and Approve is drawn only where a
+  version exists. `locked`
   reads `takesComments`, the domain's predicate the server holds a draft to as well. A renderer
   never reads `commentSwitch`: it reads `commenting`, false on a locked page, so no composer
   opens there, and `addAnnotation` returns when locked, as `select` does while the editor is
@@ -122,8 +123,8 @@ no build step, so what the page imports costs nothing at `cli start`.
   grill answers `grill 2 is open`, by the transcript's number). The reason is also the hold's
   identity: the approval notes remember the one they warned of, and a reason that differs brings
   the warning back, so a second grill must not read as the first. Held, the pill reads `Held · <reason>` (`statusOf`), in
-  review only, Send feedback is disabled with the reason as its title, and every way to an
-  approval goes through the warning popover, which frames the reason in its own sentence (`The
+  review only, Send stays live, since a hold refuses Claude's versions and never the reviewer's
+  word, and every way to an approval goes through the warning popover, which frames the reason in its own sentence (`The
   review is held: <reason>.`), since a reason reads as a clause, then says the approval ends it. The
   core draws no notice of it, `noticesOf` takes no hold: the extension that holds draws its own,
   the grill's band. The bar prints the reason and never reads which extension gave it.
@@ -186,13 +187,18 @@ no build step, so what the page imports costs nothing at `cli start`.
   see or clear: a grill's answers once the server says no grill is open on the transcript
   (`forgetClosed` in `grill/page.tsx`), the editor's typing once its version is no longer under
   review (`settleEditorTyping`). A grill's answer keeps the draft's shape: absent, the question
-  takes the recommendation by default; `As recommended.` (`AS_RECOMMENDED` of
-  `grill/protocol.ts`), the reviewer chose it; any other text is their own. The panel's two
-  choices write it, Recommended the default, and a text of the reviewer's own greys Recommended,
-  so a click never throws the typing. The choice is read off the draft when the question shows,
-  then held by it, so a text typed through `As recommended.` stays the reviewer's. `unsentTyped` names what a decision would throw; Send feedback
-  and Approve put the warning first when it is not empty, and a decision that lands clears it. Cancel of the editor
-  over a changed text asks first; End grill sends what is typed as a reply before it closes.
+  is no answer, which a Send takes by default only once the bar asked; `As recommended.`
+  (`AS_RECOMMENDED` of `grill/protocol.ts`), the reviewer chose it; any other text is their own.
+  The panel's two choices write it, neither checked until the reviewer picks one, since a
+  recommendation checked in advance ends up accepted unread; All recommended writes it for every
+  question left untouched; and a text of the reviewer's own greys Recommended, so a click never
+  throws the typing. The choice is read off the draft when the question shows, then held by it,
+  so a text typed through `As recommended.` stays the reviewer's; All recommended draws the
+  question again to read it. `unsentTyped` names what an approval would throw, `strayTyped` what
+  a Send would, the grill's answers leaving with it; each decision puts the warning first when
+  its list is not empty, and one that lands clears it. Cancel of the editor over a changed text
+  asks first; End grill writes the draft, and the server ends the grill with what it holds for
+  the round as the reply.
   Closed, it selects the plan in the document pane and leaves a notice of the grill's own,
   `ok`, that counts the questions the grill settled (`endedOf` in `grill/labels.ts`) and opens
   the transcript in the document pane; the notice is page state (`ended` in `grill/page.tsx`),
@@ -255,6 +261,16 @@ no build step, so what the page imports costs nothing at `cli start`.
   (`drawn`), while the Grill button and the modal read none past a refused
   read (`read`), which puts the modal on screen off onto the dot. `decide` answers whether the server took the decision, and
   the notes popover closes on that alone: a failure leaves the note where it was typed.
+- There is one Send, `send` of `state.ts`: the bar's `Send (n)`, whose `n` counts the comments,
+  the edit as 1, and each extension's share (`PageExtension.send`, `SendShare`: the grill's
+  questions answered), which `app.tsx` hands the bar; and a card's Send now, which sends that
+  comment alone and leaves the round. The server sends the draft it keeps, so `send` writes the
+  draft first (`writeDraft`), then posts, then takes out of the page what left: everything for
+  `all`, the comment for Send now. With questions an extension would take by default, the bar
+  asks first (`n questions have no answer`), before any request, and a second click takes the
+  recommendations; a count the page had not read yet (blocks still loading) comes back as the
+  server's 409 and opens the same warning. `sending` greys Send, Send now and End grill while one
+  is out, so nothing is sent twice.
 - In the Markdown renderer the notice says the failure and the sheet says the state it leaves: a
   first load that failed prints it where the wait was, a failed reload keeps the text the reviewer
   is reading. `waitingText` in `markdown/sheet.ts` chooses, purely, and `MarkdownDoc` draws it in
@@ -262,15 +278,14 @@ no build step, so what the page imports costs nothing at `cli start`.
   whose blocks failed to load stays an empty sheet under the notice. The grill's panel draws the
   transcript's text, then every round's questions as chips over the one question they pick, an
   open one with its two choices, or its field alone when Claude gave no recommendation, an answered one read-only (`roundsOf` in `grill/rounds.ts`,
-  pure, on the blocks as served); its send says how many open questions it takes as
-  recommended. Send round and End grill wait on one reply (`replying`), from the click until the
-  transcript shows it, so neither sends what is typed twice nor over blocks read before it. A
-  round that lands shows its first open question, scrolled into view. Between the text and the
+  pure, on the blocks as served); its foot holds the note and All recommended, and says that both
+  leave with the bar's Send. End grill waits for the transcript to load, so no answer typed is
+  closed unread. A round that lands shows its first open question, scrolled into view. Between the text and the
   chips the panel carries its one live region, `role="status"`, drawn empty while a round waits
   for the reviewer, and says the grill's phase, which is the server's (`GrillState.open.phase`),
   never derived from the blocks (`phaseText` in `grill/labels.ts`). It is drawn with the blocks
   loaded for it, which keep the phase of their state, and not before: a newer phase over older
-  blocks named the first round at a reload and took the send from a round still drawn open. While Claude works, the round
+  blocks named the first round at a reload and took the choices from a round still drawn open. While Claude works, the round
   it prepares; once its turn ended with no question open (`idle`), a card under Claude's last
   words whose primary action is End grill, the foot with its note behind Add a note, unless the
   draft holds a note; a turn cut short (`stopped`), the same card with End grill secondary and

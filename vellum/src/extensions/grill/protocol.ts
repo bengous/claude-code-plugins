@@ -79,8 +79,18 @@ export type CloseReason = "page" | "stop";
 /** A question as the tool and the route take it: `[title, question, recommendation]`. */
 export type QuestionTriple = readonly [title: string, ask: string, rec: string];
 
-/** What `POST ask` answers: the numbers the questions took, which run across the whole grill. */
-export type Asked = { readonly first: number; readonly last: number };
+/** What `POST ask` answers: the numbers the questions took, which run across the whole grill, and its file. */
+export type Asked = { readonly first: number; readonly last: number; readonly file: string };
+
+/**
+ * What `POST wait` answers: the Send that closed the round, its entry's number and the text
+ * `grill_ask` returns; the round closed without one (End grill, the approval), whose answers reach
+ * Claude through the channel; or the round still open once the hold ran out.
+ */
+export type Waited =
+  | { readonly kind: "answered"; readonly seq: number; readonly text: string }
+  | { readonly kind: "ended" }
+  | { readonly kind: "open" };
 
 /** What `POST open` answers: the file the grill was written to, and nothing of its state. */
 export type Opened = { readonly file: ProjectPath };
@@ -93,11 +103,8 @@ export type GrillPosts = {
   readonly suggest: Suggested;
   /** Refused unless `id` names the pending proposal: a tab kept since cannot decline a newer one. */
   readonly decline: { readonly id: string };
-  /** Closes every open question: one left out of `answers` takes the recommendation by default. */
-  readonly reply: {
-    readonly answers: readonly { readonly id: string; readonly text: string }[];
-    readonly note: string;
-  };
+  /** Held until the round whose first question is `first` closes, or for the hold at most. */
+  readonly wait: { readonly file: string; readonly first: number };
   /** A command of the session (`/vellum:start`, `/clear`): the harness's, written as an event. */
   readonly event: { readonly command: string };
   /**

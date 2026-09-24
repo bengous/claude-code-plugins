@@ -3,6 +3,7 @@ import type {
   EngineExtension,
   ExtensionTool,
   ToolAnswer,
+  ToolContext,
 } from "../../core/engine/extension.ts";
 import type { Live } from "../../core/engine/mode.ts";
 import {
@@ -13,6 +14,7 @@ import {
   parseJson,
   parseQuestions,
   parseSuggestion,
+  parseWaited,
 } from "./parse.ts";
 import { ASK_TOOL, type GrillPosts } from "./protocol.ts";
 
@@ -24,8 +26,14 @@ const SEGMENT_OPEN = "grill · open";
 /** The modes whose last read found a grill open, keyed by the mode's own `Live`: a new way in starts with none. */
 const grillOpen = new WeakSet<Live>();
 
-/** The modes whose running turn asked a round: its text goes with that round, before a reply sent meanwhile. */
+/** The modes whose running turn asked a round no answer came back to: its text goes with that round, before a reply sent meanwhile. */
 const askedIn = new WeakSet<Live>();
+
+/** The modes whose running turn got a round's answer as the tool's result: its text answers the reviewer. */
+const repliedIn = new WeakSet<Live>();
+
+const CLOSED_WITHOUT_SEND =
+  "The round was closed from the page: what the reviewer sent arrives as a prompt. End your turn.";
 
 function post<Name extends keyof GrillPosts>(
   context: EngineContext,
@@ -35,11 +43,37 @@ function post<Name extends keyof GrillPosts>(
   return context.api.post(name, JSON.stringify(body));
 }
 
+/**
+ * Holds the call until the round closes, one `POST wait` in flight at a time: the engine cuts
+ * each at 30 s and counts no hook time while one is out (`docs/plugin-testing/hook-runtime.md`).
+ * A Send that closes the round comes back as the result, under its entry's number; a round
+ * closed without one comes back as a prompt. A wait that fails throws: the core's `.catch`
+ * answers Claude, and what the round gets reaches it through the channel.
+ */
+async function waitFor(context: ToolContext, file: string, first: number): Promise<ToolAnswer> {
+  for (;;) {
+    const response = await post(context, "wait", { file, first });
+    const waited = response.ok ? parseWaited(parseJson(response.text)) : null;
+
+    if (waited === null) {
+      throw new Error(`POST wait answered ${response.status}: ${response.text.slice(0, 200)}`);
+    }
+
+    if (waited.kind === "open") continue;
+    askedIn.delete(context.live);
+
+    if (waited.kind === "ended") return { result: CLOSED_WITHOUT_SEND };
+    repliedIn.add(context.live);
+
+    return { result: waited.text, returns: waited.seq };
+  }
+}
+
 /** Kept small on purpose: a tool's schema rides in every request. */
 const ASK: ExtensionTool = {
   name: "grill_ask",
   description:
-    "Ask one round of the open grill of a vellum planning session; the reviewer answers in the review page and the reply arrives as a prompt. q: one [title, question, recommendation] per question; title is one line of plain text, question and recommendation are Markdown; the page numbers them across the whole grill. Refused outside vellum planning, and when no grill is open: only the reviewer opens one, after grill_suggest or on their own.",
+    "Ask one round of the open grill of a vellum planning session, and wait: the reviewer answers in the review page, and their reply is this call's result. q: one [title, question, recommendation] per question; title is one line of plain text, question and recommendation are Markdown; the page numbers them across the whole grill. Refused outside vellum planning, and when no grill is open: only the reviewer opens one, after grill_suggest or on their own.",
   inputSchema: {
     type: "object",
     properties: {
@@ -50,6 +84,8 @@ const ASK: ExtensionTool = {
     },
     required: ["q"],
   },
+  // A round is answered by the reviewer's Send, one batch, which the call returns.
+  awaits: (entry) => entry.kind === "sent",
   call: async (context, input): Promise<ToolAnswer> => {
     const questions = parseQuestions(input);
 
@@ -65,10 +101,9 @@ const ASK: ExtensionTool = {
 
     if (asked !== null) {
       askedIn.add(context.live);
+      context.waiting();
 
-      return {
-        result: `Asked Q${asked.first}–Q${asked.last}, in order. End your turn in one short line; answers arrive as "Qn: ..." lines.`,
-      };
+      return await waitFor(context, asked.file, asked.first);
     }
 
     const error = parseError(parseJson(response.text));
@@ -138,7 +173,8 @@ export const grillEngine: EngineExtension = {
   },
   answered: async (context, turn) => {
     const asked = askedIn.delete(context.live);
-    await post(context, "answer", { ...turn, asked });
+    const own = repliedIn.delete(context.live) || turn.own;
+    await post(context, "answer", { ...turn, own, asked });
   },
   staged,
   segment: ({ live }) => (grillOpen.has(live) ? SEGMENT_OPEN : null),

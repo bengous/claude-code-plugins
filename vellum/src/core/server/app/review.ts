@@ -6,7 +6,9 @@ import type {
   DocRef,
   GroupedDoc,
   ReviewView,
+  SendRefusal,
 } from "../../protocol.ts";
+import { readDraft } from "../adapters/draft.ts";
 import {
   appendText,
   finalize as renameWorkspace,
@@ -27,14 +29,22 @@ import {
   channelAfter,
   untold,
 } from "../domain/channel.ts";
-import type { FeedbackHeading } from "../domain/feedback.ts";
-import { formatFeedback } from "../domain/feedback.ts";
+import { formatBatch } from "../domain/feedback.ts";
 import type { FinalDir, ProjectPath, Version, WipDir } from "../domain/paths.ts";
 import { parseVersion } from "../domain/paths.ts";
-import type { Decision, Draft } from "../domain/review.ts";
-import { decideOn, draftIsEmpty, gateVersion, slugFor } from "../domain/review.ts";
+import type { Decision, Draft, SendRequest } from "../domain/review.ts";
+import {
+  decideOn,
+  draftIsEmpty,
+  EMPTY_TYPED,
+  gateVersion,
+  sendOn,
+  slugFor,
+} from "../domain/review.ts";
 import type { Memory, PlanWorkspace } from "../domain/workspace.ts";
 import {
+  batchesOf,
+  batchFile,
   DRAFT_FILE,
   notesFile,
   PLAN_FILE,
@@ -56,6 +66,11 @@ export type ReviewOptions = {
 export type DecisionResult =
   | { readonly ok: true; readonly workspace: PlanWorkspace }
   | { readonly ok: false; readonly workspace: PlanWorkspace };
+
+/** What a Send did: the batch written and its entry's number, or why nothing was written. */
+export type SendResult =
+  | { readonly ok: true; readonly file: ProjectPath; readonly seq: number }
+  | { readonly ok: false; readonly refusal: SendRefusal };
 
 /** What `submit` reads: the version the plan is, or why the browser has nothing to show. */
 export type GateResult =
@@ -104,6 +119,11 @@ export class Review {
       },
       inOrder: (work) => this.inOrder(work),
       relay: (entry) => this.relay(entry),
+      draft: async () => {
+        const draft = await this.draft();
+
+        return draft === "unreadable" ? null : draft;
+      },
     };
   }
 
@@ -208,9 +228,14 @@ export class Review {
     return readText(this.options.project, this.planDoc(version, dir));
   }
 
-  /** The page's unsent work as it was last saved, `null` when there is none: stored, never read into. */
-  public draft(): Promise<string | null> {
-    return readTextIfAny(this.options.project, this.draftDoc());
+  /**
+   * The page's unsent work as it was last saved, `null` when there is none, through the one parser
+   * a `PUT` goes through: a draft of an older shape is `unreadable`, never read half-way.
+   */
+  public async draft(): Promise<Draft | "unreadable" | null> {
+    const saved = await readTextIfAny(this.options.project, this.draftDoc());
+
+    return saved === null ? null : (readDraft(saved) ?? "unreadable");
   }
 
   /**
@@ -291,10 +316,6 @@ export class Review {
   private async decideInOrder(decision: Decision): Promise<DecisionResult> {
     const workspace = await this.workspace();
 
-    if (decision.kind === "feedback" && (await this.held()) !== null) {
-      return { ok: false, workspace };
-    }
-
     const latestText =
       workspace.kind === "drafting" ? null : await this.planText(workspace.version, workspace.dir);
 
@@ -304,35 +325,117 @@ export class Review {
     const { project, workdir } = this.options;
 
     // `plan.md` first: if the version's write fails, the next gate records the edit as the next version.
-    if (decided.kind !== "draftFeedback" && decided.edit !== null) {
+    if (decided.edit !== null) {
       await writeText(project, projectPath(`${workdir}${PLAN_FILE}`), decided.edit.text);
       await writeText(project, decided.edit.path, decided.edit.text);
     }
 
     // Before the rename, which rewrites its links and carries it to the final directory.
-    if (decided.kind === "approve" && decided.notes !== null) {
-      await writeText(project, decided.notes.path, decided.notes.text);
-    }
+    if (decided.notes !== null) await writeText(project, decided.notes.path, decided.notes.text);
 
     // Before the rename too, or the draft ships in the final directory.
     await removeFile(project, this.draftDoc());
 
-    if (decided.kind === "approve") return await this.approve(decided.version);
+    return await this.approve(decided.version);
+  }
 
-    if (decision.kind === "feedback") {
-      const heading: FeedbackHeading =
-        decided.kind === "draftFeedback"
-          ? { kind: "draft", batch: decided.batch }
-          : { kind: "review", version: decided.version, editedFrom: decided.editedFrom };
+  /**
+   * One Send: what the saved draft holds, or the items named, as the next batch of the version
+   * under review. It changes no stage and is never held: the page takes comments after it.
+   */
+  public send(request: SendRequest): Promise<SendResult> {
+    return this.inOrder(() => this.sendInOrder(request));
+  }
 
-      const annotations =
-        decided.kind === "draftFeedback" ? decision.annotations : decided.annotations;
+  /**
+   * The extensions write their part first, the grill's reply closing its round, then the batch,
+   * then its entry, then each extension hears of it: all in one step of the queue, so the entry a
+   * waiting `grill_ask` returns is the batch that holds its reply.
+   */
+  private async sendInOrder({ items, takeDefaults }: SendRequest): Promise<SendResult> {
+    const workspace = await this.workspace();
 
-      await writeText(project, decided.path, formatFeedback(annotations, heading));
-      await this.relay({ kind: "sent", file: decided.path });
+    if (workspace.kind === "approved") return { ok: false, refusal: { reason: "approved" } };
+    const stored = await this.draft();
+
+    if (stored === "unreadable") return { ok: false, refusal: { reason: "unreadable" } };
+    const draft = stored ?? { annotations: [], edit: null, typed: EMPTY_TYPED };
+    const all = items === "all";
+    const { extensions } = this.options;
+
+    if (all && !takeDefaults) {
+      let count = 0;
+
+      for (const extension of extensions) {
+        count += (await extension.unanswered?.(this.context, draft)) ?? 0;
+      }
+
+      if (count > 0) return { ok: false, refusal: { reason: "unanswered", count } };
     }
 
-    return { ok: true, workspace: await this.notify() };
+    const latestText =
+      workspace.kind === "drafting" ? null : await this.planText(workspace.version, workspace.dir);
+
+    const decided = sendOn(workspace, latestText, draft, items);
+
+    if (decided.kind === "refused") return { ok: false, refusal: { reason: decided.reason } };
+    const sections: { readonly id: string; readonly text: string }[] = [];
+
+    for (const extension of all ? extensions : []) {
+      const text = await extension.section?.(this.context, draft);
+
+      if (text !== undefined && text !== null) sections.push({ id: extension.id, text });
+    }
+
+    const { annotations, edit } = decided;
+
+    if (annotations.length === 0 && edit === null && sections.length === 0) {
+      return { ok: false, refusal: { reason: "empty" } };
+    }
+
+    const { project, workdir } = this.options;
+
+    // `plan.md` first: if the version's write fails, the next gate records the edit as the next version.
+    if (edit !== null) {
+      await writeText(project, projectPath(`${workdir}${PLAN_FILE}`), edit.text);
+      await writeText(project, edit.path, edit.text);
+    }
+
+    const { version, editedFrom } = decided;
+    const batch = batchesOf(await listReview(project, workspace.dir), version) + 1;
+    const file = projectPath(`${workspace.dir}${batchFile(version, batch)}`);
+
+    const heading =
+      version === null
+        ? { kind: "draft" as const, batch }
+        : { kind: "review" as const, version, batch, editedFrom };
+
+    const parts = sections.map(({ text }) => text);
+    await writeText(project, file, formatBatch(heading, parts, annotations));
+    await this.keepDraft(decided.rest);
+    const seq = await this.relay({ kind: "sent", file });
+    const comments = annotations.length > 0 || edit !== null;
+
+    for (const extension of extensions) {
+      const more = comments || sections.some(({ id }) => id !== extension.id);
+
+      // The batch is sent whatever an extension fails to do with it: its entry is in the channel.
+      await extension.sent?.(this.context, { file, seq, more }).catch((cause: unknown) => {
+        console.error(`${extension.id} failed on sent: ${String(cause)}`);
+      });
+    }
+
+    await this.notify();
+
+    return { ok: true, file, seq };
+  }
+
+  /** What the draft keeps after a Send: the file goes with the last of it. */
+  private async keepDraft(rest: Draft): Promise<void> {
+    const { project } = this.options;
+
+    if (draftIsEmpty(rest)) await removeFile(project, this.draftDoc());
+    else await writeText(project, this.draftDoc(), JSON.stringify(rest));
   }
 
   /**

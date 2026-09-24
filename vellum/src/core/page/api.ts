@@ -1,4 +1,12 @@
-import type { Decision, DocRef, Draft, ReviewView, VellumBuild } from "../protocol.ts";
+import type {
+  Decision,
+  DocRef,
+  Draft,
+  ReviewView,
+  SendAnswer,
+  SendRequest,
+  VellumBuild,
+} from "../protocol.ts";
 import type { ProjectPath } from "../server/domain/paths.ts";
 
 /** The page's side of the HTTP contract: the token from the URL, the routes, the event stream. */
@@ -92,6 +100,18 @@ export async function postDecision(decision: Decision): Promise<number> {
   const response = await request("decision", { method: "POST", body: JSON.stringify(decision) });
 
   return response.status;
+}
+
+/** The Send's status, with its answer when the server gave one: a batch, or why it wrote none. */
+export async function postSend(
+  sending: SendRequest,
+): Promise<{ readonly status: number; readonly answer: SendAnswer | null }> {
+  const response = await request("send", { method: "POST", body: JSON.stringify(sending) });
+
+  // SAFETY: the server's own `SendAnswer`, serialized by `Response.json` in routes.ts; a 400 is text.
+  const answer = (await response.json().catch(() => null)) as SendAnswer | null;
+
+  return { status: response.status, answer };
 }
 
 /**

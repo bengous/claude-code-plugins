@@ -58,6 +58,8 @@ const EMPTY_DRAFT = { annotations: [], edit: null, typed: TYPED };
 
 const DRAFT_PATH = `${WIP}.review/draft.json`;
 
+const ALL = { items: "all", takeDefaults: false };
+
 const NO_BUILD = { ok: false, error: "no commit for /vellum: no installed_plugins.json" } as const;
 
 let started: Started;
@@ -96,8 +98,9 @@ type Drafting = {
     readonly kind: string;
     readonly edit?: unknown;
     readonly notes?: unknown;
-    readonly annotations?: unknown;
   }) => Promise<Response>;
+  // oxlint-disable-next-line anti-slop/no-unknown-parameters -- an unparsed Send is the case under test: the route's parser is what grants the type.
+  readonly sendBody: (body: unknown) => Promise<Response>;
   // oxlint-disable-next-line anti-slop/no-unknown-parameters -- an unparsed annotation is the case under test: the route's parser is what grants the type.
   readonly send: (annotation: {
     readonly anchor: unknown;
@@ -113,7 +116,7 @@ type Drafting = {
   readonly channel: (after: string) => Promise<Response>;
 };
 
-/** A review still drafting, behind its own handler: a feedback sent there writes `v0.feedback-<n>.md`. */
+/** A review still drafting, behind its own handler: a Send there writes `v0.feedback-<n>.md`. */
 function drafting(): Drafting {
   const dir = mkdtempSync(join(tmpdir(), "vellum-decision-"));
   mkdirSync(join(dir, WIP, ".review"), { recursive: true });
@@ -141,17 +144,20 @@ function drafting(): Drafting {
 
   const getDraft = (): Promise<Response> => call("GET", "/api/draft", null);
 
-  const send: Drafting["send"] = (annotation) =>
-    decide({
-      kind: "feedback",
-      edit: null,
-      annotations: [{ id: "a", doc: `${WIP}mockup.html`, ...annotation }],
-    });
+  const sendBody: Drafting["sendBody"] = (body) => call("POST", "/api/send", JSON.stringify(body));
+
+  /** The annotation saved in the draft, as the page saves it, then the whole draft sent. */
+  const send: Drafting["send"] = async (annotation) => {
+    const annotations = [{ id: "a", doc: `${WIP}mockup.html`, ...annotation }];
+    const saved = await putDraft({ ...EMPTY_DRAFT, annotations });
+
+    return saved.status >= 300 ? saved : await sendBody(ALL);
+  };
 
   const channel = (after: string): Promise<Response> =>
     call("GET", `/api/channel?after=${after}`, null);
 
-  return { dir, review, decide, send, putDraft, getDraft, channel };
+  return { dir, review, decide, sendBody, send, putDraft, getDraft, channel };
 }
 
 /** The same review once `plan.md` was gated as v1. */
@@ -340,7 +346,7 @@ describe("routes", () => {
     expect(opened).toBe(1);
   });
 
-  test("a decision carries an element anchor; an element without a selector is refused", async () => {
+  test("a Send carries an element anchor; an element without a selector is refused", async () => {
     const { dir, send } = drafting();
     expect((await send({ anchor: CARD, mark: BIGGER })).status).toBe(200);
     expect(await Bun.file(join(dir, WIP, ".review/v0.feedback-1.md")).text()).toContain(
@@ -372,7 +378,7 @@ describe("routes", () => {
     expect((await send({ anchor, mark: BIGGER })).status).toBe(400);
   });
 
-  test("a decision with a label mark round-trips to the feedback file, its sentence alone", async () => {
+  test("a label mark round-trips to the batch, its sentence alone", async () => {
     const { dir, send } = drafting();
     const mark = { kind: "label", label: "verify", body: "Bun.serve or the watcher?" };
     expect((await send({ anchor: CARD, mark })).status).toBe(200);
@@ -395,14 +401,45 @@ describe("routes", () => {
 
   test("edit is null, or a version and a text: missing or malformed is refused", async () => {
     const { decide } = drafting();
-    expect((await decide({ kind: "feedback", annotations: [] })).status).toBe(400);
     expect((await decide({ kind: "approve" })).status).toBe(400);
     expect((await decide({ kind: "approve", edit: "# Q\n" })).status).toBe(400);
     expect((await decide({ kind: "approve", edit: { version: 0, text: "# Q\n" } })).status).toBe(
       400,
     );
     expect((await decide({ kind: "approve", edit: { version: 1 } })).status).toBe(400);
-    expect((await decide({ kind: "feedback", edit: null, annotations: [] })).status).toBe(200);
+    expect((await decide({ ...APPROVE, edit: null })).status).toBe(409);
+  });
+
+  test("a feedback is no decision any more: a Send is", async () => {
+    const { decide } = drafting();
+    expect((await decide({ kind: "feedback", edit: null })).status).toBe(400);
+  });
+
+  test("a Send names all or the items of the draft, and whether it takes the defaults", async () => {
+    const { sendBody } = drafting();
+
+    for (const body of [
+      {},
+      { items: "all" },
+      { items: "some", takeDefaults: false },
+      { items: [], takeDefaults: false },
+      { items: [{ kind: "annotation" }], takeDefaults: false },
+      { items: [{ kind: "choice", id: "a" }], takeDefaults: false },
+    ]) {
+      expect((await sendBody(body)).status, JSON.stringify(body)).toBe(400);
+    }
+
+    expect(await (await sendBody(ALL)).json()).toEqual({ reason: "empty" });
+    const one = { items: [{ kind: "annotation", id: "a" }], takeDefaults: false };
+    expect((await sendBody(one)).status).toBe(409);
+  });
+
+  test("a Send answers its batch and the entry's number, and leaves the page taking comments", async () => {
+    const { dir, send, putDraft } = await underReview();
+    const sent = await send({ anchor: CARD, mark: BIGGER });
+    expect(await sent.json()).toEqual({ file: `${WIP}.review/v1.feedback-1.md`, seq: 1 });
+    expect((await putDraft(DRAFT)).status).toBe(204);
+    expect(existsSync(join(dir, DRAFT_PATH))).toBe(true);
   });
 
   test("an approve without notes, or with notes that are no string, is refused", async () => {
@@ -538,13 +575,6 @@ describe("routes", () => {
     expect(existsSync(join(dir, WIP))).toBe(false);
   });
 
-  test("after a feedback a draft with content is refused, and no draft.json is left", async () => {
-    const { dir, decide, putDraft } = await underReview();
-    expect((await decide({ kind: "feedback", edit: null, annotations: [] })).status).toBe(200);
-    expect((await putDraft(DRAFT)).status).toBe(409);
-    expect(existsSync(join(dir, DRAFT_PATH))).toBe(false);
-  });
-
   test("two identical PUTs leave one file with each annotation once", async () => {
     const { dir, putDraft } = drafting();
     await putDraft(DRAFT);
@@ -603,33 +633,6 @@ describe("routes", () => {
   });
 
   test("decision round-trips over HTTP, and approve finalizes at once", async () => {
-    const bad = await fetch(url("/api/decision"), {
-      method: "POST",
-      headers: headers(),
-      body: JSON.stringify({ kind: "feedback", edit: null, annotations: [{ id: 1 }] }),
-    });
-
-    expect(bad.status).toBe(400);
-
-    const empty = await fetch(url("/api/decision"), {
-      method: "POST",
-      headers: headers(),
-      body: JSON.stringify({
-        kind: "feedback",
-        edit: null,
-        annotations: [
-          {
-            id: "a",
-            doc: `${WIP}.review/v1.md`,
-            anchor: { kind: "text", passages: [] },
-            mark: { kind: "comment", body: "x" },
-          },
-        ],
-      }),
-    });
-
-    expect(empty.status).toBe(400);
-
     const approve = await post("/api/decision", JSON.stringify(APPROVE));
     expect(approve.status).toBe(200);
 
@@ -641,7 +644,7 @@ describe("routes", () => {
 });
 
 describe("the channel", () => {
-  test("a feedback sent is an entry naming its file, under the next number", async () => {
+  test("a batch sent is an entry naming its file, under the next number", async () => {
     const made = drafting();
     await made.send({ anchor: CARD, mark: BIGGER });
     await made.send({ anchor: CARD, mark: BIGGER });

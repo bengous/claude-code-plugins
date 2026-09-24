@@ -34,7 +34,15 @@ export type {
 
 export { DELETE_SENTENCE, QUICK_LABELS } from "./server/domain/feedback.ts";
 
-export type { Decision, Draft, Edit, Typed } from "./server/domain/review.ts";
+export type {
+  Decision,
+  Draft,
+  DraftItemRef,
+  Edit,
+  SendItems,
+  SendRequest,
+  Typed,
+} from "./server/domain/review.ts";
 
 export {
   draftIsEmpty,
@@ -70,6 +78,18 @@ export type ServerLine =
 export type GateAnswer =
   | { readonly version: Version; readonly kept: boolean }
   | { readonly error: string };
+
+/**
+ * Why `POST /api/send` wrote nothing: open questions no answer takes and the Send did not take the
+ * defaults, an approved plan, nothing to send, an edit of a version no longer under review, or a
+ * saved draft the server cannot read.
+ */
+export type SendRefusal =
+  | { readonly reason: "unanswered"; readonly count: number }
+  | { readonly reason: "approved" | "empty" | "stale" | "unreadable" };
+
+/** What `POST /api/send` answers: the batch written and its entry's number, or why none was. */
+export type SendAnswer = { readonly file: ProjectPath; readonly seq: number } | SendRefusal;
 
 export type MediaType = "text/markdown" | "text/html" | `image/${string}`;
 

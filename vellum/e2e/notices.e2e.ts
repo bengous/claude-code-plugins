@@ -1,6 +1,15 @@
 import type { Page } from "@playwright/test";
 
-import { boxOf, expect, openVellum, readFixture, reviewV1, test } from "./harness.ts";
+import {
+  boxOf,
+  expect,
+  openVellum,
+  readFixture,
+  reviewV1,
+  sendAll,
+  sendButton,
+  test,
+} from "./harness.ts";
 
 /**
  * The notices derive from the state: a greyed button says why, the pill says what holds the
@@ -45,22 +54,20 @@ test.describe("the decisions", () => {
     const approve = page.locator(".bar").getByRole("button", { name: "Approve", exact: true });
     await expect(approve).toBeDisabled();
     await expect(approve).toHaveAttribute("title", /connection/iu);
-    await expect(
-      page.locator(".bar").getByRole("button", { name: /Send feedback/u }),
-    ).toBeDisabled();
+    await expect(sendButton(page)).toBeDisabled();
     await expect(page.locator("#approval-notes")).toHaveValue(
       "Keep the audit trail: drafts stay 30 days.",
     );
   });
 
-  test("a 500 on the decision is a banner in plain words, and the comments stay", async ({
+  test("a 500 on the Send is a banner in plain words, and the comments stay", async ({
     page,
     vellum,
   }) => {
     await reviewV1(page, vellum);
     await addGeneralComment(page, "Say which store holds the attachments.");
-    await page.route("**/api/decision", (route) => route.fulfill({ status: 500, body: "boom" }));
-    await page.getByRole("button", { name: /Send feedback/u }).click();
+    await page.route("**/api/send", (route) => route.fulfill({ status: 500, body: "boom" }));
+    await sendAll(page);
 
     const banner = page.locator(".banner.err");
     await expect(banner).toHaveAttribute("role", "alert");
@@ -72,9 +79,8 @@ test.describe("the decisions", () => {
 
   test("a greyed button says why in its title", async ({ page, vellum }) => {
     await reviewV1(page, vellum);
-    const feedback = page.getByRole("button", { name: /Send feedback/u });
-    await expect(feedback).toBeDisabled();
-    await expect(feedback).toHaveAttribute("title", /comment/iu);
+    await expect(sendButton(page)).toBeDisabled();
+    await expect(sendButton(page)).toHaveAttribute("title", /comment/iu);
 
     await openEditor(page);
     const approve = page.locator(".bar").getByRole("button", { name: "Approve", exact: true });
@@ -85,19 +91,36 @@ test.describe("the decisions", () => {
     await expect(grill).toHaveAttribute("title", /Done/u);
   });
 
-  test("after a feedback they wait for the next version, Grill too", async ({ page, vellum }) => {
+  test("after a Send nothing waits for the next version: Approve and Grill stay live", async ({
+    page,
+    vellum,
+  }) => {
     await reviewV1(page, vellum);
     await addGeneralComment(page, "No.");
-    await page.getByRole("button", { name: /Send feedback/u }).click();
-    await expect(page.locator(".bar .status")).toHaveText("Feedback sent");
+    await sendAll(page);
+    await expect(page.locator(".bar .status")).toHaveText("In review · 1 sent");
 
-    const grill = page.getByRole("button", { name: "Grill", exact: true });
-    await expect(grill).toBeDisabled();
-    await expect(grill).toHaveAttribute("title", /next version/iu);
-    await expect(page.getByRole("button", { name: "Approve", exact: true })).toHaveAttribute(
-      "title",
-      /next version/iu,
-    );
+    await expect(page.getByRole("button", { name: "Grill", exact: true })).toBeEnabled();
+    await expect(page.getByRole("button", { name: "Approve", exact: true })).toBeEnabled();
+  });
+
+  test("two Sends on v2 are two batches, and the page takes comments after each", async ({
+    page,
+    vellum,
+  }) => {
+    await vellum.gate();
+    vellum.writePlan(readFixture("rich-v2", "plan.md"));
+    await reviewV1(page, vellum);
+    await addGeneralComment(page, "First batch.");
+    await sendAll(page);
+    await expect(page.locator(".comments .card")).toHaveCount(0);
+    await addGeneralComment(page, "Second batch.");
+    await sendAll(page);
+
+    await expect.poll(() => vellum.batches()).toEqual(["v2.feedback-1.md", "v2.feedback-2.md"]);
+    expect(vellum.batch("v2.feedback-2.md")).toContain("Second batch.");
+    await expect(page.locator(".bar .status")).toHaveText("In review · 2 sent");
+    await expect(page.locator("#global")).toBeEnabled();
   });
 
   test("approved draws no button", async ({ page, vellum }) => {
@@ -175,7 +198,7 @@ test.describe("the decisions", () => {
 });
 
 test.describe("the pill", () => {
-  test("says what holds the review, as Send feedback's title does, and no banner repeats it", async ({
+  test("says what holds the review, no banner repeats it, and Send still goes", async ({
     page,
     vellum,
   }) => {
@@ -185,19 +208,16 @@ test.describe("the pill", () => {
 
     await expect(page.locator(".bar .status")).toHaveText("Held · grill 1 is open");
     await expect(page.locator(".bar .status")).toHaveCount(1);
-    await expect(page.getByRole("button", { name: /Send feedback/u })).toHaveAttribute(
-      "title",
-      "grill 1 is open; end it first",
-    );
+    await expect(sendButton(page)).toBeEnabled();
     await expect(page.locator(".banner")).toHaveCount(0);
   });
 
-  test("in drafting, a feedback sent is said, and counted", async ({ page, vellum }) => {
+  test("in drafting, a batch sent is said, and counted", async ({ page, vellum }) => {
     await openVellum(page, vellum);
     await addGeneralComment(page, "Start with the conflict dialog.");
-    await page.getByRole("button", { name: /Send feedback/u }).click();
+    await sendAll(page);
 
-    await expect(page.locator(".banner.sent")).toContainText("sent to Claude");
+    await expect(page.locator(".banner.sent")).toContainText("Sent to Claude");
     await expect(page.locator(".bar .status")).toHaveText("Drafting · 1 sent");
   });
 });
@@ -259,7 +279,7 @@ test.describe("the grill", () => {
     expect(errors).toEqual([]);
   });
 
-  test("a refused reply stays in the banner while the transcript loads again", async ({
+  test("a refused Send stays in the banner while the transcript loads again", async ({
     page,
     vellum,
   }) => {
@@ -268,10 +288,10 @@ test.describe("the grill", () => {
     await vellum.grill.ask(ROUND_1);
     await openVellum(page, vellum);
     const panel = page.getByRole("complementary", { name: "Grill" });
-    await page.route("**/api/x/grill/reply", (route) => route.fulfill({ status: 409, body: "" }));
+    await page.route("**/api/send", (route) => route.fulfill({ status: 500, body: "" }));
     await panel.getByRole("textbox", { name: "Your answer to Q1" }).fill("IndexedDB.");
-    await panel.getByRole("button", { name: /^Send round/u }).click();
-    const banner = page.locator(".banner.err", { hasText: "refused" });
+    await sendAll(page, true);
+    const banner = page.locator(".banner.err", { hasText: "Not sent" });
     await expect(banner).toBeVisible();
 
     await vellum.grill.answer("Still asking.", { asked: true });
@@ -297,7 +317,7 @@ test.describe("the grill", () => {
     const sheet = panel.locator(".grill-sheet");
     await sheet.evaluate((element) => element.scrollTo(0, element.scrollHeight));
     await panel.getByRole("textbox", { name: "Your answer to Q1" }).fill("IndexedDB only.");
-    await panel.getByRole("button", { name: /^Send round/u }).click();
+    await sendAll(page, true);
     await expect(working).toHaveText("Claude is preparing round 2.");
     await sheet.evaluate((element) => element.scrollTo(0, 0));
     await vellum.grill.ask(ROUND_2);

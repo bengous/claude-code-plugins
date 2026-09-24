@@ -9,7 +9,7 @@ const WIP = "plans/2026-09-24/wip-4c2a9d93/";
 
 const FINAL = "plans/2026-09-24/auth/";
 
-const SENT: ChannelEntry = { kind: "sent", file: `${WIP}.review/v1.feedback.md` as never };
+const SENT: ChannelEntry = { kind: "sent", file: `${WIP}.review/v1.feedback-1.md` as never };
 
 const APPROVED: ChannelEntry = {
   kind: "approved",
@@ -92,13 +92,26 @@ describe("the channel file", () => {
 });
 
 describe("untold", () => {
-  test("names each feedback file no entry names, the batches first, in the order sent", () => {
-    const names = new Set(["v2.md", "v1.feedback.md", "v0.feedback-2.md", "v0.feedback-1.md"]);
+  test("names each batch no entry names, by version then in the order sent", () => {
+    const names = new Set([
+      "v2.md",
+      "v2.feedback-10.md",
+      "v2.feedback-2.md",
+      "v1.feedback-1.md",
+      "v0.feedback-2.md",
+      "v0.feedback-1.md",
+    ]);
 
     expect(untold(IN_REVIEW, names, [{ seq: 1, entry: sent("v0.feedback-1.md") }])).toEqual([
       sent("v0.feedback-2.md"),
-      sent("v1.feedback.md"),
+      sent("v1.feedback-1.md"),
+      sent("v2.feedback-2.md"),
+      sent("v2.feedback-10.md"),
     ]);
+  });
+
+  test("a feedback file with no batch number is no batch", () => {
+    expect(untold(IN_REVIEW, new Set(["v1.feedback.md"]), [])).toEqual([]);
   });
 
   test("tells the approval of an approved directory whose channel lacks it", () => {
@@ -116,6 +129,6 @@ describe("untold", () => {
   });
 
   test("a directory whose channel names every file tells nothing", () => {
-    expect(untold(IN_REVIEW, new Set(["v1.feedback.md"]), [{ seq: 1, entry: SENT }])).toEqual([]);
+    expect(untold(IN_REVIEW, new Set(["v1.feedback-1.md"]), [{ seq: 1, entry: SENT }])).toEqual([]);
   });
 });

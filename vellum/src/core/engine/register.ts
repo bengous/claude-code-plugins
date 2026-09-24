@@ -2,7 +2,7 @@ import type { EngineInterface, Register } from "claude-code";
 
 import { engineExtensions } from "../../extensions/engine.ts";
 import { type Band, liveBand, lostBand } from "./band.ts";
-import type { EngineContext, EngineExtension } from "./extension.ts";
+import type { EngineContext, EngineExtension, ToolContext } from "./extension.ts";
 import type { Host } from "./host.ts";
 import { checkVerdict, lockFailed, lockVerdict } from "./lock.ts";
 import {
@@ -23,7 +23,7 @@ import {
 } from "./mode.ts";
 import { editedPath, type GateWire, sessionId, type StageWire } from "./parse.ts";
 import { landed } from "./place.ts";
-import { submitPlan, submitResult } from "./relay.ts";
+import { type Claim, submitPlan, submitResult } from "./relay.ts";
 import { completed, NO_TURN, ownOf, prompted, started, type Turns } from "./turn.ts";
 
 const START_SKILL = "vellum:start";
@@ -33,11 +33,15 @@ const STOP_SKILL = "vellum:stop";
 const SUBMIT = {
   name: "submit",
   description:
-    "Submit plan.md from the vellum working directory for review in the browser, before the turn ends. The turn's end submits it anyway, but only when its text changed; after changes were requested, this tool also records an unchanged plan.md as the next version. Answers with the version under review. Refused, with the reason, outside a vellum planning session (entered by /vellum:start), when plan.md is missing, when the plan is approved, or while a grill is open.",
+    "Submit plan.md from the vellum working directory for review in the browser, before the turn ends. The turn's end submits it anyway, but only when its text changed; once the reviewer sent a batch on the version under review, this tool also records an unchanged plan.md as the next version. Answers with the version under review. Refused, with the reason, outside a vellum planning session (entered by /vellum:start), when plan.md is missing, when the plan is approved, or while a grill is open.",
   inputSchema: { type: "object" },
 };
 
 const NOT_PLANNING = "no vellum planning in progress; run /vellum:start";
+
+/** What Claude reads when a call that waited for the reviewer failed: the answer comes all the same. */
+const ANSWER_BY_PROMPT =
+  "The reviewer's answer will arrive as a prompt, once they send it. End your turn.";
 
 const EXTENSION_TOOLS = engineExtensions.flatMap((extension) =>
   (extension.tools ?? []).map((tool) => ({ extension, tool })),
@@ -195,6 +199,11 @@ export const register: Register = (on) => {
   // Reset wherever the mode leaves `live`, and ignored outside it: see `turn.ts`.
   let turns: Turns = NO_TURN;
 
+  // The waits of the extensions' tool calls, by the call's id, and the calls that failed while
+  // waiting: their `.catch` answers Claude that the answer comes as a prompt.
+  const waits = new Map<string, Claim>();
+  const failedWaiting = new Set<string>();
+
   on("session.start", async ($, e, next) => {
     await $.tool.register(SUBMIT);
 
@@ -321,6 +330,8 @@ export const register: Register = (on) => {
   // Matched, never open: an unmatched `tool.call` hook wraps every tool call of every agent in
   // the session, and a worktree-isolated agent's shell loses its working directory inside it.
   // The literal is the registry's tools and refusals, held equal to it by `register.spec.ts`.
+  // A call that waits ends its wait however it ends; one the engine gave up on (a throw, an
+  // overrun, Escape) answers from `.catch`, and what it held reaches Claude through the channel.
   on(
     "tool.call",
     // @ts-expect-error -- the generated contract's tool names predate AskUserQuestion, and a RegExp in the list runs the hook for every tool call in a live session.
@@ -334,8 +345,35 @@ export const register: Register = (on) => {
         if (state.kind === "idle") return { deny: NOT_PLANNING };
 
         if (state.kind === "lost") return { deny: UNREACHABLE.error };
+        const { live } = state;
+        const { tool, extension } = owned;
+        const id = e.tool_use_id;
 
-        return await owned.tool.call(contextOf(hostOf($), state.live, owned.extension), e);
+        const context: ToolContext = {
+          ...contextOf(hostOf($), live, extension),
+          waiting: () => {
+            if (tool.awaits !== undefined && !waits.has(id)) {
+              waits.set(id, live.tenure.follower.claim(tool.awaits));
+            }
+          },
+        };
+
+        try {
+          const answer = await tool.call(context, e);
+
+          if ("deny" in answer) return { deny: answer.deny };
+
+          // An Escape that landed as the answer came: the result reaches nobody, the entry goes.
+          if ("returns" in answer && !next.signal.aborted) waits.get(id)?.returned(answer.returns);
+
+          return { result: answer.result };
+        } catch (cause) {
+          if (waits.has(id)) failedWaiting.add(id);
+          throw cause;
+        } finally {
+          waits.get(id)?.close();
+          waits.delete(id);
+        }
       }
 
       if (state.kind !== "live") return next(e);
@@ -346,7 +384,22 @@ export const register: Register = (on) => {
 
       return refusal === undefined ? next(e) : { deny: refusal };
     },
-  );
+  ).catch((_, e, next) => {
+    const id = e.tool_use_id;
+    // Still open after an overrun: the hook's code may run on, and what it returns late is not heard.
+    const overrun = waits.get(id);
+    overrun?.close();
+    waits.delete(id);
+
+    if (overrun !== undefined || failedWaiting.delete(id)) return { result: ANSWER_BY_PROMPT };
+    const name: string = e.tool;
+
+    if (!EXTENSION_TOOLS.some(({ tool }) => `mcp__vellum__${tool.name}` === name)) return next(e);
+
+    return {
+      deny: `vellum failed on ${name} (${next.error.message ?? next.error.kind}); retry the call`,
+    };
+  });
 
   // Vellum's own relays come through here too: `$.prompt.submit` skips the calling hook alone.
   // The server already wrote what they carry, so an extension never hears of them.

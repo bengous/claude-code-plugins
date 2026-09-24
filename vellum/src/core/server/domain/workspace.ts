@@ -20,10 +20,6 @@ export function versionFile(version: Version): string {
   return `${REVIEW_DIR}/v${version}.md`;
 }
 
-export function feedbackFile(version: Version): string {
-  return `${REVIEW_DIR}/v${version}.feedback.md`;
-}
-
 /** What the reviewer tells Claude with an approval; it stays beside the version it approves. */
 export function notesFile(version: Version): string {
   return `${REVIEW_DIR}/v${version}.notes.md`;
@@ -32,15 +28,31 @@ export function notesFile(version: Version): string {
 /** The page's unsent work, kept for a reload; a decision that lands removes it. */
 export const DRAFT_FILE = `${REVIEW_DIR}/draft.json`;
 
-/** A batch of comments sent before the first version; `v0` sorts under no version. */
-export function draftFeedbackFile(batch: number): string {
-  return `${REVIEW_DIR}/v0.feedback-${batch}.md`;
+/**
+ * What one Send wrote, numbered under the version it was sent on: `v0` before the first version,
+ * which sorts under every version. A Send changes no stage, so a version takes any number of them.
+ */
+export function batchFile(version: Version | null, batch: number): string {
+  return `${REVIEW_DIR}/v${version ?? 0}.feedback-${batch}.md`;
+}
+
+const BATCH = /^v(\d+)\.feedback-([1-9]\d*)\.md$/u;
+
+/** The version and the number a batch's file name says; `null` for any other name. */
+export function batchOf(name: string): { readonly version: number; readonly batch: number } | null {
+  const match = BATCH.exec(name);
+
+  return match === null ? null : { version: Number(match[1]), batch: Number(match[2]) };
+}
+
+/** How many batches the listing holds for `version`, `null` for the ones sent before the first. */
+export function batchesOf(names: ReadonlySet<string>, version: Version | null): number {
+  return [...names].filter((name) => batchOf(name)?.version === (version ?? 0)).length;
 }
 
 /**
  * The directory's listing overlaid with the memory; the two agree on every variant. `batches`
- * counts the drafting feedback sent before the first version; it stays on `inReview`, since a
- * batch sent in the second before the gate is still Claude's to read.
+ * counts the Sends on the version under review, the ones before the first version while drafting.
  */
 export type PlanWorkspace =
   | { readonly kind: "drafting"; readonly dir: WipDir; readonly batches: number }
@@ -51,7 +63,6 @@ export type PlanWorkspace =
       readonly batches: number;
       readonly finalizeError: string | null;
     }
-  | { readonly kind: "changesRequested"; readonly dir: WipDir; readonly version: Version }
   | {
       readonly kind: "approved";
       readonly dir: FinalDir;
@@ -73,16 +84,6 @@ export type Memory =
       readonly dir: FinalDir;
       readonly notes: boolean;
     };
-
-const DRAFT_FEEDBACK = /^v0\.feedback-\d+\.md$/u;
-
-function draftBatches(names: ReadonlySet<string>): number {
-  let batches = 0;
-
-  for (const name of names) if (DRAFT_FEEDBACK.test(name)) batches += 1;
-
-  return batches;
-}
 
 function latestVersion(names: ReadonlySet<string>): Version | null {
   let latest: Version | null = null;
@@ -120,22 +121,14 @@ export function workspaceFromListing(
         };
   }
 
-  if (latest === null) {
-    return { ok: true, value: { kind: "drafting", dir: wip.value, batches: draftBatches(names) } };
-  }
+  const batches = batchesOf(names, latest);
 
-  return names.has(`v${latest}.feedback.md`)
-    ? { ok: true, value: { kind: "changesRequested", dir: wip.value, version: latest } }
-    : {
-        ok: true,
-        value: {
-          kind: "inReview",
-          dir: wip.value,
-          version: latest,
-          batches: draftBatches(names),
-          finalizeError: null,
-        },
-      };
+  if (latest === null) return { ok: true, value: { kind: "drafting", dir: wip.value, batches } };
+
+  return {
+    ok: true,
+    value: { kind: "inReview", dir: wip.value, version: latest, batches, finalizeError: null },
+  };
 }
 
 /** The workspace as the page and the hooks module see it: the directory, overlaid with the memory. */
@@ -152,8 +145,8 @@ export function workspaceOf(disk: PlanWorkspace, memory: Memory): PlanWorkspace 
 }
 
 /**
- * Comments are taken before the first version and on a version under review. In any other state
- * nothing the reviewer adds could be sent, and no decision would remove a draft that holds it.
+ * Comments are taken before the first version and on a version under review: everywhere but
+ * approved, where nothing the reviewer adds could be sent, and no decision would remove a draft.
  */
 export function takesComments(workspace: PlanWorkspace): boolean {
   return workspace.kind === "drafting" || workspace.kind === "inReview";

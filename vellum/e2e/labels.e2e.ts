@@ -9,6 +9,7 @@ import {
   feedbackOf,
   openVellum,
   reviewV1,
+  sendAll,
   test,
 } from "./harness.ts";
 
@@ -172,13 +173,13 @@ function openOptions(page: Page, vellum: Vellum): Promise<FrameLocator> {
   return openMockup(page, vellum, "options.html", OPTIONS);
 }
 
-/** Adds the comment the composer holds, then sends the feedback. */
+/** Adds the comment the composer holds, then sends it. */
 async function sendComment(page: Page, text: string): Promise<void> {
   await expect(page.locator(".popover textarea")).toBeFocused();
   await page.keyboard.type(text);
   await page.keyboard.press("Control+Enter");
-  await page.getByRole("button", { name: /Send feedback/u }).click();
-  await expect(page.locator(".bar .status")).toHaveText("Feedback sent");
+  await sendAll(page);
+  await expect(page.locator(".bar .status")).toHaveText("In review · 1 sent");
 }
 
 test.describe("what Claude reads of a mockup's element", () => {
