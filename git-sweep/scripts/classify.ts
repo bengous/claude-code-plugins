@@ -123,8 +123,16 @@ export function triageRemote(
   return { kind: "prove" };
 }
 
-export function settleRemote(proof: ProofKind, remoteBase: string): RemotePlacement {
-  return proof === "unproven"
-    ? { kind: "kept", kept: { reason: "unproven", detail: `not proven to be in ${remoteBase}` } }
-    : { kind: "stale", proof };
+export function settleRemote(
+  proof: ProofKind,
+  remoteBase: string,
+  report: string | null,
+): RemotePlacement {
+  if (proof !== "unproven") return { kind: "stale", proof };
+  const detail = `not proven to be in ${remoteBase}`;
+
+  return {
+    kind: "kept",
+    kept: { reason: "unproven", detail: report === null ? detail : `${detail}; ${report}` },
+  };
 }

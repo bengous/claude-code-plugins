@@ -359,10 +359,10 @@ async function scanLocal(
     }
 
     const meta = await branchMeta(branch, baseRef, last);
-    const proof = await proveContained(localRef(branch), baseRef, github);
+    const { proof, report } = await proveContained(localRef(branch), branch, baseRef, github);
     const unproven = `${meta.ahead} commit(s) not proven to be in ${base}`;
 
-    return [settleLocal(route, proof, unproven), meta];
+    return [settleLocal(route, proof, report === null ? unproven : `${unproven}; ${report}`), meta];
   };
 
   for (const branch of await listRefs(LOCAL_REFS)) {
@@ -476,8 +476,14 @@ async function scanRemote(input: ScanInput): Promise<RemoteScan> {
       continue;
     }
 
-    const proof = await proveContained(remoteRef(remoteBranch), remoteBaseRef, github);
-    const placement = settleRemote(proof, remoteBase);
+    const { proof, report } = await proveContained(
+      remoteRef(remoteBranch),
+      branch,
+      remoteBaseRef,
+      github,
+    );
+
+    const placement = settleRemote(proof, remoteBase, report);
 
     if (placement.kind === "kept") scan.kept_remote.push({ name: remoteBranch, ...placement.kept });
     else scan.stale_remote.push({ ...meta, proof: placement.proof });

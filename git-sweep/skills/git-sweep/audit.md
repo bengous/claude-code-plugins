@@ -23,10 +23,15 @@ does **not** prune or delete anything. With no origin it stays fully local: no
 network, no ref deletion. Proving containment runs `git merge-tree`, which
 leaves unreachable tree objects behind; no ref moves, and `git gc` collects them.
 
-With `gh` installed and the repo on GitHub, the audit also asks the GitHub API
-which pull requests carry each still-unproven branch tip. Read-only, no writes.
-Without `gh`, off GitHub, or without `--include-remote`, it makes no GitHub call
-and the verdicts are the purely local ones.
+With `gh` installed and the repo on GitHub, the audit also looks for a merged
+pull request behind each still-unproven branch: by branch name, in one listing
+of the pull requests merged within the age window, and by tip. Git then checks
+that the pull request's landing commit is in the base and that the branch adds
+nothing to the pull request's head: every commit has its patch there, or the
+tip is a head the pull request had before a force-push. It may fetch a deleted
+head from `refs/pull/<n>/head`, with no ref written. Read-only on GitHub, no
+writes. Without `gh`, off GitHub, or without `--include-remote`, it makes no
+GitHub call and the verdicts are the purely local ones.
 
 Execute the audit script, capturing exit code, stdout, and stderr. Keep
 stderr, since the failure reason must stay visible:
@@ -99,7 +104,7 @@ flag from the category. When it is set, show why next to the branch:
 |---------|-----|---------|
 | `ancestry` | contained by ancestry | nothing is lost, history included |
 | `no-merge-delta` | no merge delta | the content is on the base; the intermediate commits are not |
-| `merged-pr` | merged by GitHub PR | GitHub merged this tip into the base through a pull request; it does not exclude a revert whose message lacks `This reverts commit` |
+| `merged-pr` | merged by GitHub PR | the branch adds nothing to a merged pull request whose landing commit is in the base, whatever its landing (fast-forward, squash, stack); it does not exclude a revert whose message lacks `This reverts commit` |
 | `unproven` | unproven | the test did not conclude — this is **not** proof of absence |
 
 ### 2a. Show every non-empty category
@@ -140,8 +145,8 @@ orphaned_worktree    | Branch | Ahead | Last commit | Subject | Proof | Deletion
 content_merged       | Branch | Ahead | Behind | Subject | Deletion |
   Say plainly: their content is on {base} (no merge delta), but their commits
   are not — squash, rebase or cherry-pick. A `merged-pr` row says something
-  narrower: GitHub merged that tip into the base through a pull request, and
-  the base may have edited the content since.
+  narrower: a pull request carrying all of that branch's work landed in the
+  base, and the base may have edited the content since.
 
 stale_remote         | Remote branch | Last commit | Subject | Proof |
   Remote refs carry no `d_refusal` and no force flag — deletion is by lease.
@@ -179,6 +184,14 @@ without its reason does not tell the user why the branch stayed:
 kept (local)   | Branch | Reason |
   base | current | protected | worktree:{detail} | dirty-worktree:{detail}
   | unproven:{detail} | too-old:{detail}
+  When a merged pull request was found but did not prove the branch, the
+  unproven detail ends with a report against its head, the same on kept_remote:
+    "…; PR #151: 8/9 commits match its head, 1 modified (3432efd feat: x), 0 missing"
+  modified: a commit whose patch differs from its twin in the head, as a
+  conflict resolved at landing leaves it. missing: a commit the head does not
+  carry, added after the merge or dropped from the pull request. Start any
+  look at that branch with those commits, `git show <sha>` against the pull
+  request's head; the matching ones are already in it.
 
 kept_worktrees | Worktree | Branch | Reason |   (only if non-empty)
   Display only — it is not carried into the hand-off. Say what each reason

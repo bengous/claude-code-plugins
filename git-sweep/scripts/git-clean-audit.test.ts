@@ -202,7 +202,16 @@ exec ${realGit} "$@"
 // git and, when fixtures are given, a `gh` serving them from files. `null`
 // writes no `gh` at all, so the binary is genuinely absent rather than failing.
 // Invoking bun by absolute path is what lets PATH hold nothing else.
-type GhFixtures = { nameWithOwner: string | null; pulls: Record<string, unknown[]> };
+//   pulls        — `api repos/.../commits/<sha>/pulls`, by sha
+//   merged       — `pr list`, the merged pull requests
+//   forcePushes  — `api graphql`, by pull request number: the former heads, as
+//                  the audit's `--jq` prints them, one oid per line
+type GhFixtures = {
+  nameWithOwner: string | null;
+  pulls: Record<string, unknown[]>;
+  merged?: unknown[];
+  forcePushes?: Record<number, string[]>;
+};
 
 async function runAuditWithGh(
   cwd: string,
@@ -227,18 +236,31 @@ async function runAuditWithGh(
       writeFileSync(join(shimDir, `${sha}.json`), JSON.stringify(pulls));
     }
 
+    if (fixtures.merged !== undefined) {
+      writeFileSync(join(shimDir, "merged.json"), JSON.stringify(fixtures.merged));
+    }
+
+    for (const [number, heads] of Object.entries(fixtures.forcePushes ?? {})) {
+      writeFileSync(join(shimDir, `force-pushes-${number}.txt`), heads.join("\n"));
+    }
+
     // Absolute shebang and bash builtins only: PATH holds no `env` and no `cat`.
     writeFileSync(
       join(shimDir, "gh"),
       `#!/bin/bash
-if [[ "$1" == "repo" ]]; then
-  f="${shimDir}/repo-view.json"
-elif [[ "$1" == "api" ]]; then
-  sha="\${2#*/commits/}"
-  f="${shimDir}/\${sha%/pulls}.json"
-else
-  exit 1
-fi
+case "$1 $2" in
+  "repo view") f="${shimDir}/repo-view.json" ;;
+  "pr list") f="${shimDir}/merged.json" ;;
+  "api graphql")
+    [[ "$*" =~ number=([0-9]+) ]] || exit 1
+    f="${shimDir}/force-pushes-\${BASH_REMATCH[1]}.txt"
+    ;;
+  "api repos/"*)
+    sha="\${2#*/commits/}"
+    f="${shimDir}/\${sha%/pulls}.json"
+    ;;
+  *) exit 1 ;;
+esac
 [[ -f "$f" ]] || {
   echo "gh: no fixture for $*" >&2
   exit 1
@@ -286,7 +308,9 @@ const BASE_LINES = "line1\nline2\nline3\n";
 
 const WITH_A = `${BASE_LINES}branch A\n`;
 
-const WITH_AB = `${WITH_A}branch B\n`;
+// Several lines, so a conflict resolved on one of them leaves a patch that
+// range-diff still pairs with the original.
+const WITH_AB = `${WITH_A}${["B1", "B2", "B3", "B4", "B5", "B6"].map((line) => `branch ${line}\n`).join("")}`;
 
 const MAIN_REWROTE = WITH_AB.replace("branch A", "main rewrote A");
 
@@ -334,11 +358,76 @@ async function makeMergedThenEdited(
   return { origin, repo };
 }
 
-const mergedPull = (number: number, base = "main") => ({
+// One entry of `gh pr list --json number,headRefName,headRefOid,mergeCommit`.
+const listedPull = (number: number, head: string, landing: string) => ({
   number,
-  merged_at: "2026-09-10T12:01:27Z",
-  base: { ref: base },
+  headRefName: MERGED_BRANCH,
+  headRefOid: head,
+  mergeCommit: { oid: landing },
 });
+
+// One entry of the REST `commits/{sha}/pulls` answer; `landing` null is a pull
+// request that never merged.
+const restPull = (number: number, head: string, landing: string | null) => ({
+  number,
+  merged_at: landing === null ? null : "2026-09-10T12:01:27Z",
+  head: { ref: MERGED_BRANCH, sha: head },
+  merge_commit_sha: landing,
+});
+
+const RESOLVED_B = WITH_AB.replace("branch B4", "branch B4, resolved");
+
+// Another checkout lands the pushed branch while `repo` keeps its pre-rebase
+// copy: main moves, A and B are rebased onto it (B resolved differently when a
+// conflict is simulated), the result becomes PR #number's head, lands, and the
+// branch is deleted on origin. Main then rewrites A, which defeats both local
+// proofs. `repo` pulls main only, so a squash-landed head is not local.
+async function landElsewhere(
+  origin: string,
+  repo: string,
+  number: number,
+  how: { landing: "fast-forward" | "squash"; resolveB: boolean },
+): Promise<{ head: string; landing: string }> {
+  await git(repo, "push", "-u", "origin", MERGED_BRANCH);
+
+  const [a = "", b = ""] = (
+    await git(repo, "rev-list", "--reverse", `main..${MERGED_BRANCH}`)
+  ).split("\n");
+
+  const other = makeTmpDir("land-elsewhere");
+  await git(other, "clone", origin, other);
+  await git(other, "config", "user.email", "test@test.com");
+  await git(other, "config", "user.name", "Test");
+  await commitFile(other, "other.txt", "unrelated\n", "main: unrelated work");
+  await git(other, "checkout", "-b", "rebased");
+  await git(other, "cherry-pick", a);
+
+  if (how.resolveB) await commitFile(other, "f.txt", RESOLVED_B, "feature: add B");
+  else await git(other, "cherry-pick", b);
+
+  const head = await git(other, "rev-parse", "HEAD");
+  await git(other, "push", "-f", "origin", `rebased:refs/heads/${MERGED_BRANCH}`);
+  await git(other, "push", "origin", `rebased:refs/pull/${number}/head`);
+  await git(other, "checkout", "main");
+
+  if (how.landing === "fast-forward") {
+    await git(other, "merge", "--ff-only", "rebased");
+  } else {
+    await git(other, "merge", "--squash", "rebased");
+    await git(other, "commit", "-m", `feature (#${number})`);
+  }
+
+  const landing = await git(other, "rev-parse", "HEAD");
+  const landed = how.resolveB ? RESOLVED_B : WITH_AB;
+  await commitFile(other, "f.txt", landed.replace("branch A", "main rewrote A"), "main: rewrite A");
+  await git(other, "push", "origin", "main");
+  await git(other, "push", "origin", "--delete", MERGED_BRANCH);
+
+  await git(repo, "fetch", "origin", "main");
+  await git(repo, "merge", "--ff-only", "origin/main");
+
+  return { head, landing };
+}
 
 type Proven = { name: string; proof: string };
 
@@ -1396,10 +1485,11 @@ describe("git-clean-audit", () => {
   test("proves containment for a squash-merged branch the base later edited", async () => {
     const { repo } = await makeMergedThenEdited("gh-squash-edited", "squash");
     const tip = await git(repo, "rev-parse", MERGED_BRANCH);
+    const landing = await git(repo, "rev-parse", "main~1");
 
     const { result } = await runAuditWithGh(
       repo,
-      { nameWithOwner: "acme/repo", pulls: { [tip]: [mergedPull(3)] } },
+      { nameWithOwner: "acme/repo", pulls: {}, merged: [listedPull(3, tip, landing)] },
       "--include-remote",
     );
 
@@ -1407,27 +1497,31 @@ describe("git-clean-audit", () => {
     expect(keptNames(result)).not.toContain(MERGED_BRANCH);
   });
 
-  test("proves containment for a rebase-merged branch the base later edited", async () => {
+  // No merged pull request carries the local name: only the lookup by tip finds it.
+  test("proves containment for a rebase-merged branch renamed locally", async () => {
     const { repo } = await makeMergedThenEdited("gh-rebase-edited", "cherry-pick");
-    const tip = await git(repo, "rev-parse", MERGED_BRANCH);
+    await git(repo, "branch", "-m", MERGED_BRANCH, "local/renamed");
+    const tip = await git(repo, "rev-parse", "local/renamed");
+    const landing = await git(repo, "rev-parse", "main~1");
 
     const { result } = await runAuditWithGh(
       repo,
-      { nameWithOwner: "acme/repo", pulls: { [tip]: [mergedPull(4)] } },
+      { nameWithOwner: "acme/repo", pulls: { [tip]: [restPull(4, tip, landing)] }, merged: [] },
       "--include-remote",
     );
 
-    expect(provenEntry(result, "content_merged", MERGED_BRANCH)?.proof).toBe("merged-pr");
+    expect(provenEntry(result, "content_merged", "local/renamed")?.proof).toBe("merged-pr");
   });
 
   test("proves containment for a branch behind the merged tip", async () => {
     const { repo } = await makeMergedThenEdited("gh-behind", "squash");
+    const head = await git(repo, "rev-parse", MERGED_BRANCH);
+    const landing = await git(repo, "rev-parse", "main~1");
     await git(repo, "branch", "-f", MERGED_BRANCH, `${MERGED_BRANCH}~1`);
-    const tip = await git(repo, "rev-parse", MERGED_BRANCH);
 
     const { result } = await runAuditWithGh(
       repo,
-      { nameWithOwner: "acme/repo", pulls: { [tip]: [mergedPull(8)] } },
+      { nameWithOwner: "acme/repo", pulls: {}, merged: [listedPull(8, head, landing)] },
       "--include-remote",
     );
 
@@ -1437,7 +1531,7 @@ describe("git-clean-audit", () => {
   test("proves containment for a branch whose remote counterpart is gone", async () => {
     const { origin, repo } = await makeBaseAndBranch("gh-remote-deleted");
     await git(repo, "push", "-u", "origin", MERGED_BRANCH);
-    await squashMerge(repo);
+    const landing = await squashMerge(repo);
     await commitFile(repo, "f.txt", MAIN_REWROTE, "main: rewrite A");
     await git(repo, "push", "origin", "main");
     await git(origin, "update-ref", "-d", `refs/heads/${MERGED_BRANCH}`);
@@ -1445,7 +1539,7 @@ describe("git-clean-audit", () => {
 
     const { result } = await runAuditWithGh(
       repo,
-      { nameWithOwner: "acme/repo", pulls: { [tip]: [mergedPull(11)] } },
+      { nameWithOwner: "acme/repo", pulls: {}, merged: [listedPull(11, tip, landing)] },
       "--include-remote",
     );
 
@@ -1463,7 +1557,8 @@ describe("git-clean-audit", () => {
       repo,
       {
         nameWithOwner: "acme/repo",
-        pulls: { [tip]: [mergedPull(9)], [squashSha]: [mergedPull(9)] },
+        pulls: { [squashSha]: [restPull(9, tip, squashSha)] },
+        merged: [listedPull(9, tip, squashSha)],
       },
       "--include-remote",
     );
@@ -1471,38 +1566,69 @@ describe("git-clean-audit", () => {
     expect(keptEntry(result, MERGED_BRANCH)?.reason).toBe("unproven");
   });
 
-  test("keeps a branch whose pull request targeted another base", async () => {
-    const { repo } = await makeMergedThenEdited("gh-other-base", "squash");
-    const tip = await git(repo, "rev-parse", MERGED_BRANCH);
-
-    const { result } = await runAuditWithGh(
-      repo,
-      { nameWithOwner: "acme/repo", pulls: { [tip]: [mergedPull(10, "staging")] } },
-      "--include-remote",
-    );
-
-    expect(keptEntry(result, MERGED_BRANCH)?.reason).toBe("unproven");
-  });
-
-  test("keeps a branch pushed after its pull request merged", async () => {
-    const { repo } = await makeBaseAndBranch("gh-pushed-after");
-    await squashMerge(repo);
-    await git(repo, "push", "origin", "main");
-    await git(repo, "checkout", MERGED_BRANCH);
-    await commitFile(repo, "f.txt", `${WITH_AB}after merge C\n`, "feature: add C");
+  test("keeps a branch whose pull request's landing commit is not in the base", async () => {
+    const { repo } = await makeBaseAndBranch("gh-other-base");
+    await git(repo, "checkout", "-b", "staging");
+    const landing = await squashMerge(repo);
     await git(repo, "checkout", "main");
     const tip = await git(repo, "rev-parse", MERGED_BRANCH);
 
     const { result } = await runAuditWithGh(
       repo,
-      { nameWithOwner: "acme/repo", pulls: { [tip]: [] } },
+      { nameWithOwner: "acme/repo", pulls: {}, merged: [listedPull(10, tip, landing)] },
       "--include-remote",
     );
 
     expect(keptEntry(result, MERGED_BRANCH)?.reason).toBe("unproven");
   });
 
-  test("keeps a branch whose tip GitHub does not know", async () => {
+  // The upper pull request of a stack targets the lower branch, and its landing
+  // commit lands there first: the base holds it only once the lower one lands.
+  test("proves a stacked pull request once its landing commit reaches the base", async () => {
+    const { repo } = await makeBaseAndBranch("gh-stack");
+    const tip = await git(repo, "rev-parse", MERGED_BRANCH);
+    await git(repo, "checkout", "-b", "feature/lower");
+    const landing = await squashMerge(repo);
+    await commitFile(repo, "f.txt", MAIN_REWROTE, "lower: rewrite A");
+    await git(repo, "checkout", "main");
+
+    const fixtures = {
+      nameWithOwner: "acme/repo",
+      pulls: {},
+      merged: [listedPull(30, tip, landing)],
+    };
+
+    const before = await runAuditWithGh(repo, fixtures, "--include-remote");
+    expect(keptEntry(before.result, MERGED_BRANCH)?.reason).toBe("unproven");
+
+    await git(repo, "merge", "--ff-only", "feature/lower");
+    const after = await runAuditWithGh(repo, fixtures, "--include-remote");
+
+    expect(provenEntry(after.result, "content_merged", MERGED_BRANCH)?.proof).toBe("merged-pr");
+  });
+
+  test("keeps a branch with a commit added after its pull request merged, and names it", async () => {
+    const { repo } = await makeBaseAndBranch("gh-pushed-after");
+    const head = await git(repo, "rev-parse", MERGED_BRANCH);
+    const landing = await squashMerge(repo);
+    await git(repo, "push", "origin", "main");
+    await git(repo, "checkout", MERGED_BRANCH);
+    await commitFile(repo, "f.txt", `${WITH_AB}after merge C\n`, "feature: add C");
+    await git(repo, "checkout", "main");
+
+    const { result } = await runAuditWithGh(
+      repo,
+      { nameWithOwner: "acme/repo", pulls: {}, merged: [listedPull(12, head, landing)] },
+      "--include-remote",
+    );
+
+    expect(keptEntry(result, MERGED_BRANCH)?.reason).toBe("unproven");
+    expect(keptEntry(result, MERGED_BRANCH)?.detail).toMatch(
+      /PR #12: 0\/1 commits match its head, 0 modified, 1 missing \([0-9a-f]+ feature: add C\)$/u,
+    );
+  });
+
+  test("keeps a branch GitHub knows no merged pull request for, with no report", async () => {
     const { repo } = await makeBaseAndBranch("gh-unknown-tip");
     await squashMerge(repo);
     await git(repo, "push", "origin", "main");
@@ -1513,11 +1639,15 @@ describe("git-clean-audit", () => {
     // No fixture for the tip: the shim exits 1, which is the HTTP 422 answer.
     const { result } = await runAuditWithGh(
       repo,
-      { nameWithOwner: "acme/repo", pulls: {} },
+      { nameWithOwner: "acme/repo", pulls: {}, merged: [] },
       "--include-remote",
     );
 
-    expect(keptEntry(result, MERGED_BRANCH)?.reason).toBe("unproven");
+    expect(keptEntry(result, MERGED_BRANCH)).toEqual({
+      name: MERGED_BRANCH,
+      reason: "unproven",
+      detail: "3 commit(s) not proven to be in main",
+    });
   });
 
   test("keeps a branch whose pull request is still open", async () => {
@@ -1530,10 +1660,7 @@ describe("git-clean-audit", () => {
 
     const { result } = await runAuditWithGh(
       repo,
-      {
-        nameWithOwner: "acme/repo",
-        pulls: { [tip]: [{ number: 13, merged_at: null, base: { ref: "main" } }] },
-      },
+      { nameWithOwner: "acme/repo", pulls: { [tip]: [restPull(13, tip, null)] }, merged: [] },
       "--include-remote",
     );
 
@@ -1546,7 +1673,7 @@ describe("git-clean-audit", () => {
 
     const { result } = await runAuditWithGh(
       repo,
-      { nameWithOwner: "acme/repo", pulls: { [tip]: [] } },
+      { nameWithOwner: "acme/repo", pulls: { [tip]: [] }, merged: [] },
       "--include-remote",
     );
 
@@ -1556,15 +1683,15 @@ describe("git-clean-audit", () => {
   test("gives a remote branch the same merged-pr proof as its local twin", async () => {
     const { repo } = await makeBaseAndBranch("gh-remote-twin");
     await git(repo, "push", "-u", "origin", MERGED_BRANCH);
-    await squashMerge(repo);
+    const landing = await squashMerge(repo);
     await commitFile(repo, "f.txt", MAIN_REWROTE, "main: rewrite A");
     await git(repo, "push", "origin", "main");
-    // Local tip and origin/<branch> are the same commit: one fixture key.
+    // Local tip and origin/<branch> are the same commit, under the same name.
     const tip = await git(repo, "rev-parse", MERGED_BRANCH);
 
     const { result } = await runAuditWithGh(
       repo,
-      { nameWithOwner: "acme/repo", pulls: { [tip]: [mergedPull(11)] } },
+      { nameWithOwner: "acme/repo", pulls: {}, merged: [listedPull(11, tip, landing)] },
       "--include-remote",
     );
 
@@ -1573,10 +1700,130 @@ describe("git-clean-audit", () => {
     expect(provenEntry(result, "stale_remote", `origin/${MERGED_BRANCH}`)?.proof).toBe("merged-pr");
   });
 
+  describe("a branch rebased and landed from another checkout", () => {
+    test("is proven when every local commit has its patch in the pull request's head", async () => {
+      const { origin, repo } = await makeBaseAndBranch("gh-clean-rebase");
+
+      const { head, landing } = await landElsewhere(origin, repo, 20, {
+        landing: "fast-forward",
+        resolveB: false,
+      });
+
+      const { result } = await runAuditWithGh(
+        repo,
+        { nameWithOwner: "acme/repo", pulls: {}, merged: [listedPull(20, head, landing)] },
+        "--include-remote",
+      );
+
+      expect(provenEntry(result, "content_merged", MERGED_BRANCH)?.proof).toBe("merged-pr");
+    });
+
+    test("is kept once a commit was added after the landing, which the report names", async () => {
+      const { origin, repo } = await makeBaseAndBranch("gh-rebase-then-commit");
+
+      const { head, landing } = await landElsewhere(origin, repo, 20, {
+        landing: "fast-forward",
+        resolveB: false,
+      });
+
+      await git(repo, "checkout", MERGED_BRANCH);
+      await commitFile(repo, "c.txt", "local C\n", "feature: add C");
+      await git(repo, "checkout", "main");
+
+      const { result } = await runAuditWithGh(
+        repo,
+        { nameWithOwner: "acme/repo", pulls: {}, merged: [listedPull(20, head, landing)] },
+        "--include-remote",
+      );
+
+      expect(keptEntry(result, MERGED_BRANCH)?.reason).toBe("unproven");
+      expect(keptEntry(result, MERGED_BRANCH)?.detail).toMatch(
+        /; PR #20: 2\/3 commits match its head, 0 modified, 1 missing \([0-9a-f]+ feature: add C\)$/u,
+      );
+    });
+
+    test("is proven after a conflict when the local tip is a former head", async () => {
+      const { origin, repo } = await makeBaseAndBranch("gh-conflict-former-head");
+      const tip = await git(repo, "rev-parse", MERGED_BRANCH);
+
+      const { head, landing } = await landElsewhere(origin, repo, 21, {
+        landing: "squash",
+        resolveB: true,
+      });
+
+      const { result } = await runAuditWithGh(
+        repo,
+        {
+          nameWithOwner: "acme/repo",
+          pulls: {},
+          merged: [listedPull(21, head, landing)],
+          forcePushes: { 21: [tip] },
+        },
+        "--include-remote",
+      );
+
+      expect(provenEntry(result, "content_merged", MERGED_BRANCH)?.proof).toBe("merged-pr");
+    });
+
+    test("is kept after a conflict when the local tip was never a head", async () => {
+      const { origin, repo } = await makeBaseAndBranch("gh-conflict-never-head");
+
+      const { head, landing } = await landElsewhere(origin, repo, 21, {
+        landing: "squash",
+        resolveB: true,
+      });
+
+      const { result } = await runAuditWithGh(
+        repo,
+        {
+          nameWithOwner: "acme/repo",
+          pulls: {},
+          merged: [listedPull(21, head, landing)],
+          forcePushes: { 21: [] },
+        },
+        "--include-remote",
+      );
+
+      expect(keptEntry(result, MERGED_BRANCH)?.reason).toBe("unproven");
+      expect(keptEntry(result, MERGED_BRANCH)?.detail).toMatch(
+        /; PR #21: 1\/2 commits match its head, 1 modified \([0-9a-f]+ feature: add B\), 0 missing$/u,
+      );
+    });
+
+    test("is kept when the former head holds a commit the pull request dropped", async () => {
+      const { origin, repo } = await makeBaseAndBranch("gh-dropped-commit");
+      await git(repo, "checkout", MERGED_BRANCH);
+      await commitFile(repo, "x.txt", "dropped\n", "feature: add X");
+      await git(repo, "checkout", "main");
+      const tip = await git(repo, "rev-parse", MERGED_BRANCH);
+
+      const { head, landing } = await landElsewhere(origin, repo, 22, {
+        landing: "squash",
+        resolveB: false,
+      });
+
+      const { result } = await runAuditWithGh(
+        repo,
+        {
+          nameWithOwner: "acme/repo",
+          pulls: {},
+          merged: [listedPull(22, head, landing)],
+          forcePushes: { 22: [tip] },
+        },
+        "--include-remote",
+      );
+
+      expect(keptEntry(result, MERGED_BRANCH)?.reason).toBe("unproven");
+      expect(keptEntry(result, MERGED_BRANCH)?.detail).toMatch(
+        /1 missing \([0-9a-f]+ feature: add X\)$/u,
+      );
+    });
+  });
+
   test("keeps today's verdicts with no gh, a failing gh, or a repo that is not on GitHub", async () => {
     const { repo } = await makeMergedThenEdited("gh-absent", "squash");
     const tip = await git(repo, "rev-parse", MERGED_BRANCH);
-    const winning = { [tip]: [mergedPull(3)] };
+    const winning = [listedPull(3, tip, await git(repo, "rev-parse", "main~1"))];
 
     const noBinary = await runAuditWithGh(repo, null, "--include-remote");
     expect(keptEntry(noBinary.result, MERGED_BRANCH)?.reason).toBe("unproven");
@@ -1592,7 +1839,7 @@ describe("git-clean-audit", () => {
     // The repo probe alone gates the proof: winning pull data never gets read.
     const notOnGithub = await runAuditWithGh(
       repo,
-      { nameWithOwner: null, pulls: winning },
+      { nameWithOwner: null, pulls: {}, merged: winning },
       "--include-remote",
     );
 
@@ -1605,7 +1852,8 @@ describe("git-clean-audit", () => {
 
     const { result } = await runAuditWithGh(repo, {
       nameWithOwner: "acme/repo",
-      pulls: { [tip]: [mergedPull(3)] },
+      pulls: {},
+      merged: [listedPull(3, tip, await git(repo, "rev-parse", "main~1"))],
     });
 
     expect(keptEntry(result, MERGED_BRANCH)?.reason).toBe("unproven");

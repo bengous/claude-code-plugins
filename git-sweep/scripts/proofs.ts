@@ -8,8 +8,9 @@ import { git, gitRead, localRef, type Ref, remoteRef } from "./git.ts";
 //   ancestry       — the tip is reachable from base. Nothing is lost, history included.
 //   no-merge-delta — merging it into base would change no file. Content is safe;
 //                    the intermediate commits are not (squash/rebase/cherry-pick).
-//   merged-pr      — GitHub merged this tip into the base through a pull request.
-//                    Says nothing about whether the base still holds the content.
+//   merged-pr      — the tip adds nothing to a merged pull request whose landing
+//                    commit is in the base. Says nothing about whether the base
+//                    still holds the content.
 //   unproven       — the test did not conclude. NOT a proof of absence.
 export type Proven = "ancestry" | "no-merge-delta" | "merged-pr";
 
@@ -36,13 +37,30 @@ async function hasNoMergeDelta(ref: Ref, base: Ref): Promise<boolean> {
 }
 
 // A squash or rebase merge that the base has since edited defeats both proofs
-// above: the tip is no longer an ancestor and a three-way merge conflicts.
-// GitHub still knows which pull requests carry that tip.
-export type GithubProver = (ref: Ref) => Promise<boolean>;
+// above, and so does a branch rebased and landed from another checkout: the
+// local tip is no longer an ancestor and a three-way merge conflicts. The
+// merged pull request links the two, compared against its head, never against
+// the base, so the revert trap on hasNoMergeDelta stays out.
+export type GithubVerdict = { proven: true } | { proven: false; report: string | null };
 
-type PullRef = { number: number; merged_at: string | null; base: { ref: string } };
+export type GithubProver = (ref: Ref, branch: string, base: Ref) => Promise<GithubVerdict>;
+
+type MergedPull = { number: number; headRefName: string; headRefOid: string; mergeCommit: string };
+
+// One entry of `gh pr list --json number,headRefName,headRefOid,mergeCommit`.
+type ListedPull = Omit<MergedPull, "mergeCommit"> & { mergeCommit: { oid: string } };
+
+// One entry of the REST `commits/{sha}/pulls` answer.
+type PullRef = {
+  number: number;
+  merged_at: string | null;
+  head: { ref: string; sha: string };
+  merge_commit_sha: string | null;
+};
 
 const REVERTS_COMMIT = /This reverts commit ([0-9a-f]{40})/gu;
+
+const OID = /^[0-9a-f]{40}$/u;
 
 async function gh(...args: string[]): Promise<{ stdout: string; exitCode: number }> {
   const { stdout, exitCode } = await $`gh ${args}`.quiet().nothrow();
@@ -50,7 +68,31 @@ async function gh(...args: string[]): Promise<{ stdout: string; exitCode: number
   return { stdout: stdout.toString().trim(), exitCode };
 }
 
-/* oxlint-disable anti-slop/no-runtime-typeof -- this IS the boundary parser the rule asks for: it validates one entry of the GitHub REST payload before any proof reads it, and gh hands that payload over as text, so there is no earlier place to parse. */
+/* oxlint-disable anti-slop/no-runtime-typeof -- this IS the boundary parser the rule asks for: it validates the GitHub payloads before any proof reads them, and gh hands them over as text, so there is no earlier place to parse. */
+
+// The oids become git arguments: only a full hex sha passes.
+const isOid = (value: unknown): value is string => typeof value === "string" && OID.test(value);
+
+function isListedPull(value: unknown): value is ListedPull {
+  if (typeof value !== "object" || value === null) return false;
+
+  if (!("number" in value) || typeof value.number !== "number") return false;
+
+  if (!("headRefName" in value) || typeof value.headRefName !== "string") return false;
+
+  if (!("headRefOid" in value) || !isOid(value.headRefOid)) return false;
+
+  if (
+    !("mergeCommit" in value) ||
+    typeof value.mergeCommit !== "object" ||
+    value.mergeCommit === null
+  ) {
+    return false;
+  }
+
+  return "oid" in value.mergeCommit && isOid(value.mergeCommit.oid);
+}
+
 function isPullRef(value: unknown): value is PullRef {
   if (typeof value !== "object" || value === null) return false;
 
@@ -63,27 +105,177 @@ function isPullRef(value: unknown): value is PullRef {
     return false;
   }
 
-  if (!("base" in value) || typeof value.base !== "object" || value.base === null) return false;
+  if (
+    !("merge_commit_sha" in value) ||
+    (value.merge_commit_sha !== null && !isOid(value.merge_commit_sha))
+  ) {
+    return false;
+  }
 
-  return "ref" in value.base && typeof value.base.ref === "string";
+  if (!("head" in value) || typeof value.head !== "object" || value.head === null) return false;
+
+  return (
+    "ref" in value.head &&
+    typeof value.head.ref === "string" &&
+    "sha" in value.head &&
+    isOid(value.head.sha)
+  );
 }
 
 /* oxlint-enable anti-slop/no-runtime-typeof -- end of the GitHub payload parser. */
+
+// Text that does not parse is no signal, like a failed call.
+function parseList<T>(text: string, isEntry: (value: unknown) => value is T): T[] {
+  try {
+    const parsed: unknown = JSON.parse(text);
+
+    return Array.isArray(parsed) ? parsed.filter((entry) => isEntry(entry)) : [];
+  } catch {
+    return [];
+  }
+}
+
+const fromRest = (pull: PullRef): MergedPull | null =>
+  pull.merged_at === null || pull.merge_commit_sha === null
+    ? null
+    : {
+        number: pull.number,
+        headRefName: pull.head.ref,
+        headRefOid: pull.head.sha,
+        mergeCommit: pull.merge_commit_sha,
+      };
 
 // Any non-zero exit is "no signal", never an error: an unknown commit answers
 // HTTP 422, and a missing or unauthenticated gh answers the same way.
 async function pullsFor(repo: string, sha: string): Promise<PullRef[]> {
   const response = await gh("api", `repos/${repo}/commits/${sha}/pulls`);
 
-  if (response.exitCode !== 0) return [];
+  return response.exitCode === 0 ? parseList(response.stdout, isPullRef) : [];
+}
 
-  try {
-    const parsed: unknown = JSON.parse(response.stdout);
+// One call for the whole audit, bounded by the window that already bounds the
+// containment test: a branch young enough to be tested merged inside it.
+async function mergedByBranch(
+  repo: string,
+  maxAgeDays: number,
+): Promise<Map<string, MergedPull[]>> {
+  const since = new Date(Date.now() - maxAgeDays * 86_400_000).toISOString().slice(0, 10);
 
-    return Array.isArray(parsed) ? parsed.filter((entry) => isPullRef(entry)) : [];
-  } catch {
-    return [];
+  const response = await gh(
+    "pr",
+    "list",
+    "--repo",
+    repo,
+    "--state",
+    "merged",
+    "--search",
+    `merged:>=${since}`,
+    "--limit",
+    "1000",
+    "--json",
+    "number,headRefName,headRefOid,mergeCommit",
+  );
+
+  const byBranch = new Map<string, MergedPull[]>();
+
+  if (response.exitCode !== 0) return byBranch;
+
+  for (const { mergeCommit, ...listed } of parseList(response.stdout, isListedPull)) {
+    const pull = { ...listed, mergeCommit: mergeCommit.oid };
+    byBranch.set(pull.headRefName, [...(byBranch.get(pull.headRefName) ?? []), pull]);
   }
+
+  return byBranch;
+}
+
+const FORCE_PUSHES = `query($owner: String!, $name: String!, $number: Int!) {
+  repository(owner: $owner, name: $name) {
+    pullRequest(number: $number) {
+      timelineItems(itemTypes: HEAD_REF_FORCE_PUSHED_EVENT, first: 100) {
+        nodes { ... on HeadRefForcePushedEvent { beforeCommit { oid } } }
+      }
+    }
+  }
+}`;
+
+// Every head the pull request had before a force-push replaced it. gh's own
+// jq flattens the nesting, one oid per line.
+async function formerHeads(repo: string, number: number): Promise<Set<string>> {
+  const [owner = "", name = ""] = repo.split("/");
+
+  const response = await gh(
+    "api",
+    "graphql",
+    "-f",
+    `query=${FORCE_PUSHES}`,
+    "-f",
+    `owner=${owner}`,
+    "-f",
+    `name=${name}`,
+    "-F",
+    `number=${number}`,
+    "--jq",
+    ".data.repository.pullRequest.timelineItems.nodes[].beforeCommit.oid // empty",
+  );
+
+  return new Set(
+    response.exitCode === 0 ? response.stdout.split("\n").filter((oid) => isOid(oid)) : [],
+  );
+}
+
+async function hasCommit(oid: string): Promise<boolean> {
+  return (await git("rev-parse", "--verify", "--quiet", `${oid}^{commit}`)).exitCode === 0;
+}
+
+// A deleted branch's head stays fetchable from the pull request's own ref.
+async function ensureHead(pull: MergedPull): Promise<boolean> {
+  if (await hasCommit(pull.headRefOid)) return true;
+  await git("fetch", "--no-write-fetch-head", "origin", `refs/pull/${pull.number}/head`);
+
+  return hasCommit(pull.headRefOid);
+}
+
+// Every commit of the tip has its patch in the head, or the tip is behind it.
+async function cherryClean(head: string, tip: string): Promise<boolean> {
+  const cherry = await git("cherry", head, tip);
+
+  return cherry.exitCode === 0 && !cherry.stdout.split("\n").some((line) => line.startsWith("+"));
+}
+
+// The tip's commits, as `<short sha> <subject>`, sorted by how they meet the head.
+type RangeDiff = { matched: number; modified: string[]; missing: string[] };
+
+const RANGE_DIFF_LINE =
+  /^\s*(?:\d+|-):\s+(?:[0-9a-f]+|-+) ([=!<>])\s+(?:\d+|-):\s+([0-9a-f]+|-+) (.*)$/u;
+
+// Read from the tip's side: `=` a commit with its twin in the head, `!` one a
+// conflict changed, `>` one the head does not carry. `<`, a head commit the tip
+// lacks, also counts the base commits a rebase brought in, so it says nothing.
+async function rangeDiff(head: string, tip: string): Promise<RangeDiff | null> {
+  const output = await git("range-diff", "--no-color", "--no-patch", `${head}...${tip}`);
+
+  if (output.exitCode !== 0) return null;
+  const diff: RangeDiff = { matched: 0, modified: [], missing: [] };
+
+  for (const line of output.stdout.split("\n")) {
+    const [, marker, sha, subject] = RANGE_DIFF_LINE.exec(line) ?? [];
+    const commit = `${sha} ${subject}`;
+
+    if (marker === "=") diff.matched += 1;
+    else if (marker === "!") diff.modified.push(commit);
+    else if (marker === ">") diff.missing.push(commit);
+  }
+
+  return diff;
+}
+
+const listed = (label: string, commits: string[]): string =>
+  commits.length === 0 ? `0 ${label}` : `${commits.length} ${label} (${commits.join(", ")})`;
+
+function describeDiff(pull: MergedPull, diff: RangeDiff): string {
+  const total = diff.matched + diff.modified.length + diff.missing.length;
+
+  return `PR #${pull.number}: ${diff.matched}/${total} commits match its head, ${listed("modified", diff.modified)}, ${listed("missing", diff.missing)}`;
 }
 
 // A merged pull request the base later reverted proves nothing. The revert is
@@ -111,12 +303,22 @@ async function revertedPullNumbers(
   return reverted;
 }
 
-// The repo probe and the revert scan run once, on the first still-unproven
-// branch, and never again — a repo with nothing unproven pays nothing.
-export function makeGithubProver(base: string, maxAgeDays: number): GithubProver {
-  let context: Promise<{ repo: string; reverted: Set<number> } | null> | null = null;
+type GithubContext = {
+  repo: string;
+  reverted: Set<number>;
+  byBranch: Map<string, MergedPull[]>;
+};
 
-  const resolveContext = async () => {
+const NO_SIGNAL: GithubVerdict = { proven: false, report: null };
+
+// The repo probe, the revert scan and the merged list run once, on the first
+// still-unproven branch, and never again — a repo with nothing unproven pays
+// nothing.
+export function makeGithubProver(base: string, maxAgeDays: number): GithubProver {
+  let context: Promise<GithubContext | null> | null = null;
+  const forcePushes = new Map<number, Promise<Set<string>>>();
+
+  const resolveContext = async (): Promise<GithubContext | null> => {
     // Same gate as the remote scan: no origin -> fully local, no network.
     if ((await git("remote", "get-url", "origin")).exitCode !== 0) return null;
 
@@ -131,37 +333,93 @@ export function makeGithubProver(base: string, maxAgeDays: number): GithubProver
 
     if (repo === undefined) return null;
 
-    return { repo, reverted: await revertedPullNumbers(repo, base, maxAgeDays) };
+    return {
+      repo,
+      reverted: await revertedPullNumbers(repo, base, maxAgeDays),
+      byBranch: await mergedByBranch(repo, maxAgeDays),
+    };
   };
 
-  return async (ref: Ref) => {
+  const wasHead = async (repo: string, pull: MergedPull, tip: string): Promise<boolean> => {
+    let heads = forcePushes.get(pull.number);
+
+    if (heads === undefined) {
+      heads = formerHeads(repo, pull.number);
+      forcePushes.set(pull.number, heads);
+    }
+
+    return (await heads).has(tip);
+  };
+
+  return async (ref: Ref, branch: string, landingBase: Ref) => {
     context ??= resolveContext();
     const resolved = await context;
 
-    if (resolved === null) return false;
+    if (resolved === null) return NO_SIGNAL;
     const tip = await git("rev-parse", ref);
 
-    if (tip.exitCode !== 0) return false;
+    if (tip.exitCode !== 0) return NO_SIGNAL;
 
-    return (await pullsFor(resolved.repo, tip.stdout)).some(
-      (pull) =>
-        pull.merged_at !== null && pull.base.ref === base && !resolved.reverted.has(pull.number),
-    );
+    // By name first; the tip lookup still finds a branch renamed locally.
+    const byTip = (await pullsFor(resolved.repo, tip.stdout)).map((found) => fromRest(found));
+    const candidates = new Map<number, MergedPull>();
+
+    for (const pull of [...(resolved.byBranch.get(branch) ?? []), ...byTip]) {
+      if (pull !== null) candidates.set(pull.number, pull);
+    }
+
+    let best: { pull: MergedPull; diff: RangeDiff } | null = null;
+
+    for (const pull of candidates.values()) {
+      if (resolved.reverted.has(pull.number)) continue;
+
+      // The landing commit is the head itself after a fast-forward and a
+      // commit GitHub recreated after a squash or a stacked merge: in every
+      // case, and whatever the pull request's base, it is what the base holds.
+      if (
+        (await git("merge-base", "--is-ancestor", pull.mergeCommit, landingBase)).exitCode !== 0
+      ) {
+        continue;
+      }
+
+      if (!(await ensureHead(pull))) continue;
+
+      if (await cherryClean(pull.headRefOid, tip.stdout)) return { proven: true };
+      const diff = await rangeDiff(pull.headRefOid, tip.stdout);
+
+      if (diff === null) continue;
+
+      // A former head was in the pull request as a whole, whatever conflicts
+      // the landing rebase resolved; a commit dropped from it since is not.
+      if (diff.missing.length === 0 && (await wasHead(resolved.repo, pull, tip.stdout))) {
+        return { proven: true };
+      }
+
+      if (best === null || diff.matched > best.diff.matched) best = { pull, diff };
+    }
+
+    return { proven: false, report: best === null ? null : describeDiff(best.pull, best.diff) };
   };
 }
 
+export type Containment = { proof: ProofKind; report: string | null };
+
 export async function proveContained(
   ref: Ref,
+  branch: string,
   base: Ref,
   github: GithubProver | null,
-): Promise<ProofKind> {
-  if (await isAncestor(ref, base)) return "ancestry";
+): Promise<Containment> {
+  if (await isAncestor(ref, base)) return { proof: "ancestry", report: null };
 
-  if (await hasNoMergeDelta(ref, base)) return "no-merge-delta";
+  if (await hasNoMergeDelta(ref, base)) return { proof: "no-merge-delta", report: null };
 
-  if (github !== null && (await github(ref))) return "merged-pr";
+  if (github === null) return { proof: "unproven", report: null };
+  const verdict = await github(ref, branch, base);
 
-  return "unproven";
+  return verdict.proven
+    ? { proof: "merged-pr", report: null }
+    : { proof: "unproven", report: verdict.report };
 }
 
 // `git branch -d` refuses unless the tip is contained in the branch's upstream,

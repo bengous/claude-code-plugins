@@ -113,11 +113,18 @@ describe("remote branches", () => {
   });
 
   test("settles a proof against the remote base", () => {
-    expect(settleRemote("unproven", "origin/main")).toEqual({
+    expect(settleRemote("unproven", "origin/main", null)).toEqual({
       kind: "kept",
       kept: { reason: "unproven", detail: "not proven to be in origin/main" },
     });
-    expect(settleRemote("merged-pr", "origin/main")).toEqual({
+    expect(settleRemote("unproven", "origin/main", "PR #4: 1/2 commits match")).toEqual({
+      kind: "kept",
+      kept: {
+        reason: "unproven",
+        detail: "not proven to be in origin/main; PR #4: 1/2 commits match",
+      },
+    });
+    expect(settleRemote("merged-pr", "origin/main", null)).toEqual({
       kind: "stale",
       proof: "merged-pr",
     });
