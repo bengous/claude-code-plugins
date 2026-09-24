@@ -1,10 +1,16 @@
-import { readdirSync, readFileSync } from "node:fs";
-import { join } from "node:path";
-
 import type { Locator, Page } from "@playwright/test";
 
 import type { Vellum } from "./harness.ts";
-import { boxOf, commentOn, expect, openVellum, readFixture, reviewV1, test } from "./harness.ts";
+import {
+  boxOf,
+  commentOn,
+  expect,
+  feedbackOf,
+  openVellum,
+  readFixture,
+  reviewV1,
+  test,
+} from "./harness.ts";
 
 /**
  * Edits and changes: a comment on a text the edit removed says so and moves nowhere, unless only
@@ -34,15 +40,6 @@ async function editPlan(page: Page, change: (text: string) => string): Promise<v
   await openEditor(page);
   const area = page.locator(".editor textarea");
   await area.fill(change(await area.inputValue()));
-}
-
-function feedbackOf(vellum: Vellum): string {
-  const review = join(vellum.workdir, ".review");
-  const name = readdirSync(review).find((file) => file.includes("feedback"));
-
-  if (name === undefined) throw new Error("no feedback file");
-
-  return readFileSync(join(review, name), "utf8");
 }
 
 async function reviewV2(page: Page, vellum: Vellum): Promise<void> {

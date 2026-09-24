@@ -1,15 +1,25 @@
-import type { Locator, Page } from "@playwright/test";
+import type { FrameLocator, Locator, Page } from "@playwright/test";
 
 import type { Vellum } from "./harness.ts";
-import { boxOf, commentOn, dragText, expect, openVellum, reviewV1, test } from "./harness.ts";
+import {
+  boxOf,
+  commentOn,
+  dragText,
+  expect,
+  feedbackOf,
+  openVellum,
+  reviewV1,
+  test,
+} from "./harness.ts";
 
 /**
  * What the page names: a card says the plan's version and a line, a code block is quoted by
- * its first line, a diagram by its kind, a mockup's element by its label; the rail tells two
- * documents apart and keeps a long name's extension; a card leads to its passage and the list
- * to a new card; beside the plan, each Markdown sheet keeps its own highlights whatever the other
- * paints or clears; the general box beside the plan comments the plan; the transcript's foot says
- * who ended the grill.
+ * its first line, a diagram by its kind, a mockup's element by its label; the feedback names a
+ * mockup's element by the heading it sits under, its role and name and its opening tag; the rail
+ * tells two documents apart and keeps a long name's extension; a card leads to its passage and
+ * the list to a new card; beside the plan, each Markdown sheet keeps its own highlights whatever
+ * the other paints or clears; the general box beside the plan comments the plan; the
+ * transcript's foot says who ended the grill.
  */
 
 const ROUND_1 = [
@@ -106,6 +116,79 @@ test.describe("what a card says", () => {
     await page.keyboard.up("Control");
 
     await expect(page.locator(".popover .quote")).toHaveCount(2);
+  });
+});
+
+/** A mockup whose gear shows no text, named by its `aria-label`, under the heading "Option D". */
+const OPTIONS = `<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Settings</title><style>.gear-btn { padding: 12px; }</style></head>
+<body>
+<h1>Settings, four options</h1>
+<section>
+  <h2>Option D</h2>
+  <p>The gear, then the gear.</p>
+  <button class="btn gear-btn" type="button" aria-haspopup="dialog" aria-label="Settings" id="open-settings" title="Settings"><svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6"/></svg></button>
+</section>
+</body>
+</html>
+`;
+
+async function openOptions(page: Page, vellum: Vellum): Promise<FrameLocator> {
+  vellum.writeFile("options.html", OPTIONS);
+  await reviewV1(page, vellum);
+  await page.locator("#rail button", { hasText: "options.html" }).click();
+  await commentOn(page);
+
+  return page.frameLocator(".pane iframe").last();
+}
+
+/** Adds the comment the composer holds, then sends the feedback. */
+async function sendComment(page: Page, text: string): Promise<void> {
+  await expect(page.locator(".popover textarea")).toBeFocused();
+  await page.keyboard.type(text);
+  await page.keyboard.press("Control+Enter");
+  await page.getByRole("button", { name: /Send feedback/u }).click();
+  await expect(page.locator(".bar .status")).toHaveText("Feedback sent");
+}
+
+test.describe("what Claude reads of a mockup's element", () => {
+  test("an icon button: its name, the heading it sits under and its opening tag, and no empty quote", async ({
+    page,
+    vellum,
+  }) => {
+    const frame = await openOptions(page, vellum);
+    // On its padding: the icon under the pointer is an element of its own.
+    await frame.locator("#open-settings").click({ position: { x: 3, y: 3 } });
+    await sendComment(page, "A tooltip on the gear?");
+
+    expect(feedbackOf(vellum)).toContain(
+      'element `button#open-settings`, button "Settings" under "Option D", `<button class="btn gear-btn" type="button" aria-haspopup="dialog" aria-label="Settings" id="open-settings" title="Settings">`\n   A tooltip on the gear?\n',
+    );
+  });
+
+  test("a heading: the one before it, and its text quoted once", async ({ page, vellum }) => {
+    const frame = await openOptions(page, vellum);
+    await frame.locator("h2").click();
+    await sendComment(page, "Name the option.");
+
+    expect(feedbackOf(vellum)).toContain(
+      'element `body > section > h2`, under "Settings, four options", `<h2>`: "Option D"\n',
+    );
+  });
+
+  test("dragged words: quoted with the characters that tell them from their twin", async ({
+    page,
+    vellum,
+  }) => {
+    const frame = await openOptions(page, vellum);
+    // "The gear, then the gear.": the second "gear" is at 19.
+    await dragText(page, frame.locator("p"), 19, 23);
+    await sendComment(page, "Which gear?");
+
+    expect(feedbackOf(vellum)).toContain(
+      'element `body > section > p`, under "Option D", `<p>`: "gear" (after "The gear, then the ")\n',
+    );
   });
 });
 

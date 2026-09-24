@@ -29,11 +29,24 @@ const PRO = {
   text: "Pro",
   label: "div.card",
   context: { prefix: "", suffix: "", repeated: false },
+  description: { heading: "Plans", role: "", name: "", openingTag: '<div class="card">' },
 };
 
 const CARD = { kind: "element", elements: [PRO] };
 
-const PRO_WITHOUT_CONTEXT = { selector: PRO.selector, text: PRO.text, label: PRO.label };
+const PRO_WITHOUT_CONTEXT = {
+  selector: PRO.selector,
+  text: PRO.text,
+  label: PRO.label,
+  description: PRO.description,
+};
+
+const PRO_WITHOUT_DESCRIPTION = {
+  selector: PRO.selector,
+  text: PRO.text,
+  label: PRO.label,
+  context: PRO.context,
+};
 
 const ON_MOCKUP = { id: "a", doc: `${WIP}mockup.html`, anchor: CARD, mark: BIGGER };
 
@@ -327,7 +340,7 @@ describe("routes", () => {
     const { dir, send } = drafting();
     expect((await send({ anchor: CARD, mark: BIGGER })).status).toBe(200);
     expect(await Bun.file(join(dir, WIP, ".review/v0.feedback-1.md")).text()).toContain(
-      'element `#pricing > div.card` (div.card): "Pro"',
+      'element `#pricing > div.card`, under "Plans", `<div class="card">`: "Pro"',
     );
     const unnamed = { kind: "element", elements: [{ text: "Pro" }] };
     expect((await send({ anchor: unnamed, mark: BIGGER })).status).toBe(400);
@@ -336,6 +349,12 @@ describe("routes", () => {
   test("an element without the context of its words is refused", async () => {
     const { send } = drafting();
     const anchor = { kind: "element", elements: [PRO_WITHOUT_CONTEXT] };
+    expect((await send({ anchor, mark: BIGGER })).status).toBe(400);
+  });
+
+  test("an element without what it is is refused", async () => {
+    const { send } = drafting();
+    const anchor = { kind: "element", elements: [PRO_WITHOUT_DESCRIPTION] };
     expect((await send({ anchor, mark: BIGGER })).status).toBe(400);
   });
 
@@ -464,6 +483,16 @@ describe("routes", () => {
   test("a saved draft whose mockup comment has no context for its words is refused on read", async () => {
     const { dir, getDraft } = drafting();
     const anchor = { kind: "element", elements: [PRO_WITHOUT_CONTEXT] };
+    const draft = { ...DRAFT, annotations: [{ ...ON_MOCKUP, anchor }] };
+    writeFileSync(join(dir, DRAFT_PATH), JSON.stringify(draft));
+    const read = await getDraft();
+    expect(read.status).toBe(409);
+    expect(await read.json()).toEqual({ error: UNREADABLE_DRAFT });
+  });
+
+  test("a saved draft whose mockup comment does not say what its element is is refused on read", async () => {
+    const { dir, getDraft } = drafting();
+    const anchor = { kind: "element", elements: [PRO_WITHOUT_DESCRIPTION] };
     const draft = { ...DRAFT, annotations: [{ ...ON_MOCKUP, anchor }] };
     writeFileSync(join(dir, DRAFT_PATH), JSON.stringify(draft));
     const read = await getDraft();

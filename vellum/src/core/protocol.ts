@@ -20,6 +20,7 @@ export {
 export type {
   Anchor,
   Annotation,
+  ElementDescription,
   ElementRef,
   Mark,
   Passage,

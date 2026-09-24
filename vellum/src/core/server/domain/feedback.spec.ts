@@ -1,8 +1,8 @@
 /* oxlint-disable anti-slop/require-safety-comment-for-type-assertion -- fixtures and expectations here are branded values (Version, ProjectPath, WipDir) written as literals: the brand is the parser's to grant, and the test is what checks the parser. */
 import { expect, test } from "bun:test";
 
-import type { Annotation, WordsContext } from "./feedback.ts";
-import { formatFeedback, formatNotes } from "./feedback.ts";
+import type { Annotation, ElementRef, WordsContext } from "./feedback.ts";
+import { describeElement, formatFeedback, formatNotes } from "./feedback.ts";
 
 const DOC = "plans/2026-09-15/wip-4c2a9d93/.review/v2.md" as never;
 
@@ -111,7 +111,22 @@ test("formatFeedback lists the passages of a comment that points to several plac
   );
 });
 
-test("formatFeedback names the selector, the label and the text of an element anchor", () => {
+/** A card under the heading "Plans", with no name of its own: its text is what it shows. */
+const CARD = { heading: "Plans", role: "", name: "", openingTag: '<div class="card">' } as const;
+
+const GEAR_TAG =
+  '<button class="btn gear-btn" type="button" aria-haspopup="dialog" aria-label="Settings" id="open-settings" title="Settings">';
+
+function onElement(element: ElementRef): Annotation {
+  return {
+    id: "a",
+    doc: DOC,
+    anchor: { kind: "element", elements: [element] },
+    mark: { kind: "comment", body: "A tooltip on the gear?" },
+  };
+}
+
+test("formatFeedback names an element by its selector, then what it is, then quotes its text", () => {
   const annotation: Annotation = {
     id: "a",
     doc: DOC,
@@ -123,6 +138,7 @@ test("formatFeedback names the selector, the label and the text of an element an
           text: "Pro — $29/mo",
           label: "div.card",
           context: CLICKED,
+          description: CARD,
         },
       ],
     },
@@ -133,11 +149,71 @@ test("formatFeedback names the selector, the label and the text of an element an
     [
       "# Plan review: changes requested (v2)",
       "",
-      `1. \`${DOC}\` element \`section#pricing > div.card:nth-of-type(2)\` (div.card): "Pro — $29/mo"`,
+      `1. \`${DOC}\` element \`section#pricing > div.card:nth-of-type(2)\`, under "Plans", \`<div class="card">\`: "Pro — $29/mo"`,
       "   The price must stand out.",
       "",
     ].join("\n"),
   );
+});
+
+test("an icon button reads as its role and name, the heading it sits under and its opening tag, with no empty quote", () => {
+  const gear: ElementRef = {
+    selector: "button#open-settings",
+    text: "",
+    label: "button#open-settings",
+    context: CLICKED,
+    description: { heading: "Option D", role: "button", name: "Settings", openingTag: GEAR_TAG },
+  };
+
+  expect(formatFeedback([onElement(gear)], V2)).toBe(
+    [
+      "# Plan review: changes requested (v2)",
+      "",
+      `1. \`${DOC}\` element \`button#open-settings\`, button "Settings" under "Option D", \`${GEAR_TAG}\``,
+      "   A tooltip on the gear?",
+      "",
+    ].join("\n"),
+  );
+});
+
+test("a name the quote already says is left out, its role with it", () => {
+  const save: ElementRef = {
+    selector: "body > main > button",
+    text: "Save draft",
+    label: "button",
+    context: CLICKED,
+    description: { heading: "", role: "button", name: "Save draft", openingTag: "<button>" },
+  };
+
+  expect(formatFeedback([onElement(save)], V2)).toContain(
+    'element `body > main > button`, `<button>`: "Save draft"\n',
+  );
+});
+
+test("a heading or a name is written as a string whose end a quote inside cannot hide", () => {
+  const plan: ElementRef = {
+    selector: "a#pro",
+    text: "",
+    label: "a#pro",
+    context: CLICKED,
+    description: { heading: 'The "Pro" plan', role: "link", name: 'Pick "Pro"', openingTag: "<a>" },
+  };
+
+  expect(formatFeedback([onElement(plan)], V2)).toContain(
+    'element `a#pro`, link "Pick \\"Pro\\"" under "The \\"Pro\\" plan", `<a>`\n',
+  );
+});
+
+test("describeElement names what it has: a name without a role, a heading alone, a tag alone", () => {
+  const tag = "<div>";
+
+  expect(describeElement({ heading: "", role: "", name: "Pricing", openingTag: tag })).toBe(
+    '"Pricing", `<div>`',
+  );
+  expect(describeElement({ heading: "Plans", role: "", name: "", openingTag: tag })).toBe(
+    'under "Plans", `<div>`',
+  );
+  expect(describeElement({ heading: "", role: "", name: "", openingTag: tag })).toBe("`<div>`");
 });
 
 test("formatFeedback gives each element of a comment its own bullet", () => {
@@ -152,12 +228,14 @@ test("formatFeedback gives each element of a comment its own bullet", () => {
           text: "Starter $9/mo",
           label: "div.card",
           context: CLICKED,
+          description: CARD,
         },
         {
           selector: "#pricing > div.card:nth-of-type(2)",
           text: "Pro $29/mo",
           label: "div.card",
           context: CLICKED,
+          description: CARD,
         },
       ],
     },
@@ -169,8 +247,8 @@ test("formatFeedback gives each element of a comment its own bullet", () => {
       "# Plan review: changes requested (v2)",
       "",
       `1. \`${DOC}\``,
-      '   - element `#pricing > div.card:nth-of-type(1)` (div.card): "Starter $9/mo"',
-      '   - element `#pricing > div.card:nth-of-type(2)` (div.card): "Pro $29/mo"',
+      '   - element `#pricing > div.card:nth-of-type(1)`, under "Plans", `<div class="card">`: "Starter $9/mo"',
+      '   - element `#pricing > div.card:nth-of-type(2)`, under "Plans", `<div class="card">`: "Pro $29/mo"',
       "   The price must stand out on both cards.",
       "",
     ].join("\n"),
@@ -291,13 +369,23 @@ test("formatNotes with an edit and a note gives the edit line, then the note", (
   );
 });
 
+const HINT = { heading: "", role: "", name: "", openingTag: '<p class="hint">' } as const;
+
 function onHint(context: WordsContext): Annotation {
   return {
     id: "a",
     doc: DOC,
     anchor: {
       kind: "element",
-      elements: [{ selector: "body > main > p.hint", text: "Save", label: "p.hint", context }],
+      elements: [
+        {
+          selector: "body > main > p.hint",
+          text: "Save",
+          label: "p.hint",
+          context,
+          description: HINT,
+        },
+      ],
     },
     mark: { kind: "comment", body: "Rename this button." },
   };
@@ -311,7 +399,7 @@ test("formatFeedback says which word a drag took, when the element holds it more
   };
 
   expect(formatFeedback([onHint(context)], V2)).toContain(
-    'element `body > main > p.hint` (p.hint): "Save" (after "draft on this device. ")\n',
+    'element `body > main > p.hint`, `<p class="hint">`: "Save" (after "draft on this device. ")\n',
   );
 });
 
@@ -319,20 +407,20 @@ test("formatFeedback names what follows a repeated word the element starts with"
   const context = { prefix: "", suffix: " keeps a draft on this device.", repeated: true };
 
   expect(formatFeedback([onHint(context)], V2)).toContain(
-    '(p.hint): "Save" (before " keeps a draft on this device.")\n',
+    '`<p class="hint">`: "Save" (before " keeps a draft on this device.")\n',
   );
 });
 
 test("formatFeedback gives no context for a word the element holds once", () => {
   const context = { prefix: "draft on this device. ", suffix: " again.", repeated: false };
 
-  expect(formatFeedback([onHint(context)], V2)).toContain('(p.hint): "Save"\n');
+  expect(formatFeedback([onHint(context)], V2)).toContain('`<p class="hint">`: "Save"\n');
 });
 
 test("formatFeedback writes the context as a string whose end a quote inside cannot hide", () => {
   const context = { prefix: 'Click "Save" to keep it, then ', suffix: " again.", repeated: true };
 
   expect(formatFeedback([onHint(context)], V2)).toContain(
-    '(p.hint): "Save" (after "Click \\"Save\\" to keep it, then ")\n',
+    '`<p class="hint">`: "Save" (after "Click \\"Save\\" to keep it, then ")\n',
   );
 });

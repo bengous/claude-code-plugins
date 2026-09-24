@@ -311,3 +311,6 @@ no build step, so what the page imports costs nothing at `cli start`.
   mockup is the model's own document under review, and at worst the switch flips under the reviewer.
   The page reads a frame's message through `parseFrameToPage` of `html/parse.ts` and drops what
   is not a whole `FrameToPage`; `frame.ts` casts, since the sender it verified is the page.
+  What an element is for Claude, the heading before it, its role and accessible name and its
+  opening tag, is read in the frame too, once per pick (`descriptionOf` of `html/describe.ts`),
+  and crosses as `ElementRef.description`; the page shows the `label` of `pick.ts`, never it.

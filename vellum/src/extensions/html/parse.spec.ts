@@ -8,6 +8,7 @@ const CARD = {
   text: "Pro, 12 € a month",
   label: "div",
   context: { prefix: "", suffix: "", repeated: false },
+  description: { heading: "Plans", role: "", name: "", openingTag: '<div class="card">' },
 };
 
 const BOX = { top: 40, left: 8, width: 320, height: 96 };
@@ -21,10 +22,25 @@ describe("parseFrameToPage", () => {
 
   test("a field the contract does not name is left behind", () => {
     const context = { ...CARD.context, offset: 4 };
-    const element = { ...CARD, html: "<b>", context };
+    const description = { ...CARD.description, level: 2 };
+    const element = { ...CARD, html: "<b>", context, description };
     const pick = { type: "vellum:pick", elements: [element], box: BOX, by: "x" };
 
     expect(parseFrameToPage(pick)).toEqual({ type: "vellum:pick", elements: [CARD], box: BOX });
+  });
+
+  test("an element needs what it is: the heading before it, its role, its name, its opening tag", () => {
+    const { description, ...bare } = CARD;
+
+    const unreadable = [
+      bare,
+      { ...CARD, description: { ...description, name: null } },
+      { ...CARD, description: { heading: "Plans", role: "", name: "" } },
+    ];
+
+    for (const element of unreadable) {
+      expect(parseFrameToPage({ type: "vellum:pick", elements: [element], box: BOX })).toBeNull();
+    }
   });
 
   test("a pick without elements is refused: the mockup's own script can post one", () => {

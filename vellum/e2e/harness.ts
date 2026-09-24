@@ -1,6 +1,6 @@
 import type { ChildProcessByStdio } from "node:child_process";
 import { spawn } from "node:child_process";
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { dirname, join, resolve } from "node:path";
 import { createInterface } from "node:readline";
@@ -227,6 +227,16 @@ function parseLoosely(text: string): Json {
 
 export function readFixture(name: string, file: string): string {
   return readFileSync(join(FIXTURES, name, file), "utf8");
+}
+
+/** The one feedback file the review wrote, as Claude reads it. */
+export function feedbackOf(vellum: Vellum): string {
+  const review = join(vellum.workdir, ".review");
+  const name = readdirSync(review).find((file) => file.includes("feedback"));
+
+  if (name === undefined) throw new Error("no feedback file");
+
+  return readFileSync(join(review, name), "utf8");
 }
 
 /**

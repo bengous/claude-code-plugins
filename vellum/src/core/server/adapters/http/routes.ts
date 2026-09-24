@@ -8,6 +8,7 @@ import type {
   Decision,
   Draft,
   Edit,
+  ElementDescription,
   ElementRef,
   GateAnswer,
   Mark,
@@ -93,12 +94,30 @@ function parseWordsContext(value: unknown): WordsContext | null {
   return { prefix: value.prefix, suffix: value.suffix, repeated: value.repeated };
 }
 
+function parseElementDescription(value: unknown): ElementDescription | null {
+  if (
+    !isRecord(value) ||
+    typeof value.heading !== "string" ||
+    typeof value.role !== "string" ||
+    typeof value.name !== "string" ||
+    typeof value.openingTag !== "string"
+  ) {
+    return null;
+  }
+
+  const { heading, role, name, openingTag } = value;
+
+  return { heading, role, name, openingTag };
+}
+
 function parseElementRef(value: unknown): ElementRef | null {
   const context = isRecord(value) ? parseWordsContext(value.context) : null;
+  const description = isRecord(value) ? parseElementDescription(value.description) : null;
 
   if (
     !isRecord(value) ||
     context === null ||
+    description === null ||
     typeof value.selector !== "string" ||
     value.selector === "" ||
     typeof value.text !== "string" ||
@@ -107,7 +126,7 @@ function parseElementRef(value: unknown): ElementRef | null {
     return null;
   }
 
-  return { selector: value.selector, text: value.text, label: value.label, context };
+  return { selector: value.selector, text: value.text, label: value.label, context, description };
 }
 
 function parsePassageKind(value: unknown): PassageKind | null {

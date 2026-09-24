@@ -1,4 +1,4 @@
-import type { ElementRef, WordsContext } from "../../core/protocol.ts";
+import type { ElementDescription, ElementRef, WordsContext } from "../../core/protocol.ts";
 import type { FrameToPage, PickBox } from "./messages.ts";
 
 /**
@@ -21,15 +21,27 @@ function parseContext(value: unknown): WordsContext | null {
     : null;
 }
 
+function parseDescription(value: unknown): ElementDescription | null {
+  return isRecord(value) &&
+    typeof value.heading === "string" &&
+    typeof value.role === "string" &&
+    typeof value.name === "string" &&
+    typeof value.openingTag === "string"
+    ? { heading: value.heading, role: value.role, name: value.name, openingTag: value.openingTag }
+    : null;
+}
+
 function parseElement(value: unknown): ElementRef | null {
   const context = isRecord(value) ? parseContext(value.context) : null;
+  const description = isRecord(value) ? parseDescription(value.description) : null;
 
   return isRecord(value) &&
     context !== null &&
+    description !== null &&
     typeof value.selector === "string" &&
     typeof value.text === "string" &&
     typeof value.label === "string"
-    ? { selector: value.selector, text: value.text, label: value.label, context }
+    ? { selector: value.selector, text: value.text, label: value.label, context, description }
     : null;
 }
 

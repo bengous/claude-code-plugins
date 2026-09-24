@@ -1,22 +1,17 @@
 import { offsetIn } from "../../core/page/anchoring.ts";
 import { dragRange, isSwitchKey, keyPressOf, toggled } from "../../core/page/selection.ts";
-import type { ElementRef, WordsContext } from "../../core/protocol.ts";
+import type { ElementDescription, ElementRef, WordsContext } from "../../core/protocol.ts";
+import { descriptionOf } from "./describe.ts";
 import type { CommentedPlace, FrameToPage, PageToFrame } from "./messages.ts";
 import type { Step } from "./pick.ts";
 import { labelOf, selectorOf, targetIndex } from "./pick.ts";
-import { CLICK_CONTEXT, contextOf, quoted, wordsIn } from "./words.ts";
+import { CLICK_CONTEXT, contextOf, quoted, TEXT_LIMIT, wordsIn } from "./words.ts";
 
 /**
  * Injected into every HTML file the server serves, so it runs inside the sandboxed mockup:
  * it owns hovering and selection there, and reports the chosen elements and the `C` key to the
  * page.
  */
-
-/**
- * A click quotes this much of its element, which may hold a whole page. A drag quotes its whole
- * text: the reviewer chose each word of it.
- */
-const TEXT_LIMIT = 120;
 
 /** The colours are the page's tokens, posted resolved with `vellum:theme` and set on the layer; a commented mark is two-toned, the marker inside an outline, so it holds on a surface of any theme; the hover's outline shows on a coloured surface its wash does not. */
 const STYLE = `
@@ -33,12 +28,17 @@ const STYLE = `
 /** The label's height above its box: an element closer to the frame's top carries it below. */
 const LABEL_HEIGHT = 20;
 
-/** The element a comment names, and what of it was chosen: all of it on a click, the text and where it sits on a drag. */
+/**
+ * The element a comment names, and what of it was chosen: all of it on a click, the text and
+ * where it sits on a drag. What it is is read once, at the pick: a scroll resends the pick every
+ * frame.
+ */
 type Pick = {
   readonly element: Element;
   readonly range: Range;
   readonly text: string;
   readonly context: WordsContext;
+  readonly description: ElementDescription;
 };
 
 let commenting = false;
@@ -114,6 +114,7 @@ function refOf(pick: Pick): ElementRef {
     text: pick.text,
     label: labelOf(stepOf(pick.element)),
     context: pick.context,
+    description: pick.description,
   };
 }
 
@@ -129,7 +130,13 @@ function clickPick(element: Element): Pick {
   const range = document.createRange();
   range.selectNode(element);
 
-  return { element, range, text: clickText(element), context: CLICK_CONTEXT };
+  return {
+    element,
+    range,
+    text: clickText(element),
+    context: CLICK_CONTEXT,
+    description: descriptionOf(element),
+  };
 }
 
 function boxAt(rect: DOMRect, kind: string, label: string | null): HTMLElement {
@@ -289,7 +296,7 @@ function onMouseUp(event: MouseEvent): void {
   const start = offsetIn(element, range.startContainer, range.startOffset);
   const context = contextOf(element.textContent ?? "", start, start + range.toString().length);
   document.getSelection()?.removeAllRanges();
-  choose({ element, range, text, context }, event);
+  choose({ element, range, text, context, description: descriptionOf(element) }, event);
 }
 
 /**

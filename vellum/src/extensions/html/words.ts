@@ -14,6 +14,12 @@ import type { WordsContext } from "../../core/protocol.ts";
 /** A click picks the whole element: no words to place. */
 export const CLICK_CONTEXT: WordsContext = { prefix: "", suffix: "", repeated: false };
 
+/**
+ * A click quotes this much of its element, which may hold a whole page, and an element's name
+ * and heading are cut there too. A drag quotes its whole text: the reviewer chose each word of it.
+ */
+export const TEXT_LIMIT = 120;
+
 /** What a comment quotes of `text`: every run of whitespace one space, none at the ends. */
 export function quoted(text: string): string {
   return text.replaceAll(/\s+/gu, " ").trim();

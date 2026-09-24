@@ -215,13 +215,28 @@ describe("whereOf", () => {
     ).toBe("lines 3–5, line 9");
   });
 
-  test("an element by its label, never its selector", () => {
+  test("an element by its label, never its selector nor what the feedback says of it", () => {
+    const h1 = { heading: "", role: "heading", name: "Roof", openingTag: "<h1>" };
+    const notes = { heading: "Roof", role: "", name: "", openingTag: '<label for="notes">' };
+
     expect(
       whereOf({
         kind: "element",
         elements: [
-          { selector: "body > main > h1", text: "Roof", label: "h1", context: CLICKED },
-          { selector: "label:nth-of-type(2)", text: "Notes", label: "label", context: CLICKED },
+          {
+            selector: "body > main > h1",
+            text: "Roof",
+            label: "h1",
+            context: CLICKED,
+            description: h1,
+          },
+          {
+            selector: "label:nth-of-type(2)",
+            text: "Notes",
+            label: "label",
+            context: CLICKED,
+            description: notes,
+          },
         ],
       }),
     ).toBe("h1, label");

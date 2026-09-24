@@ -26,13 +26,45 @@ export type WordsContext = {
   readonly repeated: boolean;
 };
 
-/** One element of a rendered document: where it sits, what it shows, what to call it. */
+/**
+ * What an element is, read off the document it sits in, so a reader knows it without opening
+ * that document: the nearest heading before it, its ARIA role and accessible name, its opening
+ * tag. `""` for what the element has none of.
+ */
+export type ElementDescription = {
+  readonly heading: string;
+  readonly role: string;
+  readonly name: string;
+  readonly openingTag: string;
+};
+
+/**
+ * One element of a rendered document: where it sits, what it shows, what the page calls it
+ * (`label`), and what it is (`description`), which Claude reads.
+ */
 export type ElementRef = {
   readonly selector: string;
   readonly text: string;
   readonly label: string;
   readonly context: WordsContext;
+  readonly description: ElementDescription;
 };
+
+/**
+ * An element in words: its role and name, the heading it sits under, its opening tag, each part
+ * it has. A heading and a name are JSON strings, whose end a quote inside cannot hide.
+ */
+export function describeElement(description: ElementDescription): string {
+  const { heading, role, name, openingTag } = description;
+
+  const named =
+    name === "" ? [] : [role === "" ? JSON.stringify(name) : `${role} ${JSON.stringify(name)}`];
+
+  const under = heading === "" ? [] : [`under ${JSON.stringify(heading)}`];
+  const phrase = [...named, ...under].join(" ");
+
+  return [phrase, `\`${openingTag}\``].filter((part) => part !== "").join(", ");
+}
 
 /** Where a comment points: the document as a whole, passages of it, or elements of it. */
 export type Anchor =
@@ -135,10 +167,13 @@ function placesOf(anchor: Anchor, heading: FeedbackHeading): readonly string[] {
     return anchor.passages.map((passage) => `${linesOf(passage, heading)}: "${passage.quote}"`);
   }
 
-  return anchor.elements.map(
-    (element) =>
-      `element \`${element.selector}\` (${element.label}): "${element.text}"${whichOf(element.context)}`,
-  );
+  return anchor.elements.map((element) => {
+    const { description, text } = element;
+    const said = description.name === text ? { ...description, name: "" } : description;
+    const quote = text === "" ? "" : `: "${text}"${whichOf(element.context)}`;
+
+    return `element \`${element.selector}\`, ${describeElement(said)}${quote}`;
+  });
 }
 
 /** The heading, then what Claude must know before the items: the plan on disk is the reviewer's own text. */
