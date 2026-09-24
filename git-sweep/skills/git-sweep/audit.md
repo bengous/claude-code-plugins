@@ -24,13 +24,16 @@ network, no ref deletion. Proving containment runs `git merge-tree`, which
 leaves unreachable tree objects behind; no ref moves, and `git gc` collects them.
 
 With `gh` installed and the repo on GitHub, the audit also looks for a merged
-pull request behind each still-unproven branch: by branch name, in one listing
-of the pull requests merged within the age window, and by tip. Git then checks
-that the pull request's landing commit is in the base and that the branch adds
-nothing to the pull request's head: every commit has its patch there, or the
-tip is a head the pull request had before a force-push and each of its commits
-has a twin among the pull request's own. A merge commit the head lacks keeps the
-branch unproven, since neither comparison reads a merge. It may fetch a deleted
+pull request behind each still-unproven branch: by branch name, then by tip.
+Git then checks that the pull request's landing commit is in the base (or in
+`origin/<base>`, for a local branch whose base was not pulled yet) and that the
+branch adds nothing to the pull request's head: every commit has its patch
+there, or the tip is a head the pull request had before a force-push and each
+of its commits has a twin among the pull request's own. A twin may differ, as a
+conflict resolved at landing leaves it, or as the author trimmed it on the pull
+request after that push: the pull request's final content is what counts. A
+merge commit the head lacks keeps the branch unproven, since neither comparison
+reads a merge. It may fetch a deleted
 head from `refs/pull/<n>/head`, with no ref written. Read-only on GitHub, no
 writes. Without `gh`, off GitHub, or without `--include-remote`, it makes no
 GitHub call and the verdicts are the purely local ones.
@@ -106,7 +109,7 @@ flag from the category. When it is set, show why next to the branch:
 |---------|-----|---------|
 | `ancestry` | contained by ancestry | nothing is lost, history included |
 | `no-merge-delta` | no merge delta | the content is on the base; the intermediate commits are not |
-| `merged-pr` | merged by GitHub PR | the branch adds nothing to a merged pull request whose landing commit is in the base, whatever its landing (fast-forward, squash, stack); it does not exclude a revert whose message lacks `This reverts commit` |
+| `merged-pr` | merged by GitHub PR | a merged pull request whose landing commit is in the base holds every commit of the branch, whatever its landing (fast-forward, squash, stack); a commit the pull request changed after the branch was pushed to it counts as held; it does not exclude a revert whose message lacks `This reverts commit` |
 | `unproven` | unproven | the test did not conclude — this is **not** proof of absence |
 
 ### 2a. Show every non-empty category

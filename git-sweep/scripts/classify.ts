@@ -96,8 +96,17 @@ export function settleLocal(route: Route, proof: ProofKind, unprovenDetail: stri
 // is held too.
 export type WorktreeSettlement = { placement: Placement; removableBy: Proven | null };
 
+// A kept branch's own detail, such as the report of an unproven one, rides
+// along with the path.
 export function settleInWorktree(placement: Placement, worktreePath: string): WorktreeSettlement {
-  if (placement.kind === "kept" || placement.proof === "unproven") {
+  if (placement.kind === "kept") {
+    const { detail } = placement.kept;
+    const held = detail === null ? worktreePath : `${worktreePath} (${detail})`;
+
+    return { placement: kept("worktree", held), removableBy: null };
+  }
+
+  if (placement.proof === "unproven") {
     return { placement: kept("worktree", worktreePath), removableBy: null };
   }
 

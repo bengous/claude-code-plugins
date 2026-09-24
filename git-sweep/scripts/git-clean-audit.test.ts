@@ -203,8 +203,8 @@ exec ${realGit} "$@"
 // writes no `gh` at all, so the binary is genuinely absent rather than failing.
 // Invoking bun by absolute path is what lets PATH hold nothing else.
 //   pulls        — `api repos/.../commits/<sha>/pulls`, by sha
-//   merged       — `pr list`, the merged pull requests
-//   history      — `api graphql`, by pull request number: its commit count and
+//   merged       — `pr list`, the merged pull requests, served per `--head`
+//   history     — `api graphql`, by pull request number: its commit count and
 //                  former heads, as the audit's `--jq` prints them
 type PullHistory = { commits: number; formerHeads: string[] };
 
@@ -238,8 +238,16 @@ async function runAuditWithGh(
       writeFileSync(join(shimDir, `${sha}.json`), JSON.stringify(pulls));
     }
 
-    if (fixtures.merged !== undefined) {
-      writeFileSync(join(shimDir, "merged.json"), JSON.stringify(fixtures.merged));
+    const mergedByHead = Map.groupBy(
+      fixtures.merged ?? [],
+      (pull) => (pull as { headRefName: string }).headRefName,
+    );
+
+    for (const [head, merged] of mergedByHead) {
+      writeFileSync(
+        join(shimDir, `merged-${head.replaceAll("/", "_")}.json`),
+        JSON.stringify(merged),
+      );
     }
 
     for (const [number, { commits, formerHeads }] of Object.entries(fixtures.history ?? {})) {
@@ -255,7 +263,11 @@ async function runAuditWithGh(
       `#!/bin/bash
 case "$1 $2" in
   "repo view") f="${shimDir}/repo-view.json" ;;
-  "pr list") f="${shimDir}/merged.json" ;;
+  "pr list")
+    [[ "$*" =~ --head\\ ([^ ]+) ]] || exit 1
+    head="\${BASH_REMATCH[1]}"
+    f="${shimDir}/merged-\${head//\\//_}.json"
+    ;;
   "api graphql")
     [[ "$*" =~ number=([0-9]+) ]] || exit 1
     f="${shimDir}/history-\${BASH_REMATCH[1]}.txt"
@@ -612,7 +624,7 @@ describe("git-clean-audit", () => {
     expect(keptNames(result)).toContain("feature/in-worktree");
     const entry = keptEntry(result, "feature/in-worktree");
     expect(entry?.reason).toBe("worktree");
-    expect(entry?.detail).toBe(wtDir);
+    expect(entry?.detail).toBe(`${wtDir} (1 commit(s) not proven to be in main)`);
 
     // Cleanup worktree
     await git(repo, "worktree", "remove", wtDir);
@@ -1835,6 +1847,90 @@ describe("git-clean-audit", () => {
       expect(keptEntry(result, MERGED_BRANCH)?.reason).toBe("unproven");
       expect(keptEntry(result, MERGED_BRANCH)?.detail).toMatch(
         /1 missing \([0-9a-f]+ feature: add X\)$/u,
+      );
+    });
+
+    // range-diff prints no subject for a commit that has none: the line must
+    // still count, or the dropped commit would never be missing.
+    test("is kept when the dropped commit has an empty message", async () => {
+      const { origin, repo } = await makeBaseAndBranch("gh-dropped-no-subject");
+      await git(repo, "checkout", MERGED_BRANCH);
+      writeFileSync(join(repo, "x.txt"), "dropped\n");
+      await git(repo, "add", "x.txt");
+      await git(repo, "commit", "--allow-empty-message", "-m", "");
+      await git(repo, "checkout", "main");
+      const tip = await git(repo, "rev-parse", MERGED_BRANCH);
+
+      const { head, landing } = await landElsewhere(origin, repo, 25, {
+        landing: "squash",
+        resolveB: true,
+      });
+
+      const { result } = await runAuditWithGh(
+        repo,
+        {
+          nameWithOwner: "acme/repo",
+          pulls: {},
+          merged: [listedPull(25, head, landing)],
+          history: { 25: { commits: 2, formerHeads: [tip] } },
+        },
+        "--include-remote",
+      );
+
+      expect(keptEntry(result, MERGED_BRANCH)?.reason).toBe("unproven");
+      expect(keptEntry(result, MERGED_BRANCH)?.detail).toMatch(/1 missing \([0-9a-f]+\)$/u);
+    });
+
+    // The merge button lands on GitHub: until this clone pulls, only
+    // origin/<base> holds the landing commit.
+    test("is proven from origin/<base> while the local base lags", async () => {
+      const { origin, repo } = await makeBaseAndBranch("gh-local-base-lags");
+      const lagging = await git(repo, "rev-parse", "main");
+
+      const { head, landing } = await landElsewhere(origin, repo, 26, {
+        landing: "squash",
+        resolveB: false,
+      });
+
+      await git(repo, "reset", "--hard", lagging);
+
+      const { result } = await runAuditWithGh(
+        repo,
+        { nameWithOwner: "acme/repo", pulls: {}, merged: [listedPull(26, head, landing)] },
+        "--include-remote",
+      );
+
+      expect(provenEntry(result, "content_merged", MERGED_BRANCH)?.proof).toBe("merged-pr");
+    });
+
+    // The stale worktree this proof exists for holds its branch: the report
+    // must survive the hold.
+    test("keeps the report on a branch its clean worktree holds", async () => {
+      const { origin, repo } = await makeBaseAndBranch("gh-report-in-worktree");
+
+      const { head, landing } = await landElsewhere(origin, repo, 27, {
+        landing: "fast-forward",
+        resolveB: false,
+      });
+
+      const wtDir = makeTmpDir("gh-report-wt");
+      await git(repo, "worktree", "add", wtDir, MERGED_BRANCH);
+      await commitFile(wtDir, "c.txt", "local C\n", "feature: add C");
+
+      const { result } = await runAuditWithGh(
+        repo,
+        {
+          nameWithOwner: "acme/repo",
+          pulls: {},
+          merged: [listedPull(27, head, landing)],
+          history: { 27: { commits: 2, formerHeads: [] } },
+        },
+        "--include-remote",
+      );
+
+      expect(keptEntry(result, MERGED_BRANCH)?.reason).toBe("worktree");
+      expect(keptEntry(result, MERGED_BRANCH)?.detail).toMatch(
+        /\(3 commit\(s\) not proven to be in main; PR #27: 2\/3 commits match its head, 0 modified, 1 missing \([0-9a-f]+ feature: add C\)\)$/u,
       );
     });
 

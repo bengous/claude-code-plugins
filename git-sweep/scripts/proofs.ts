@@ -8,8 +8,9 @@ import { git, gitRead, localRef, type Ref, remoteRef } from "./git.ts";
 //   ancestry       — the tip is reachable from base. Nothing is lost, history included.
 //   no-merge-delta — merging it into base would change no file. Content is safe;
 //                    the intermediate commits are not (squash/rebase/cherry-pick).
-//   merged-pr      — the tip adds nothing to a merged pull request whose landing
-//                    commit is in the base. Says nothing about whether the base
+//   merged-pr      — a merged pull request whose landing commit is in the base
+//                    holds every commit of the tip, or held it as a former head
+//                    and changed it since. Says nothing about whether the base
 //                    still holds the content.
 //   unproven       — the test did not conclude. NOT a proof of absence.
 export type Proven = "ancestry" | "no-merge-delta" | "merged-pr";
@@ -153,39 +154,51 @@ async function pullsFor(repo: string, sha: string): Promise<PullRef[]> {
   return response.exitCode === 0 ? parseList(response.stdout, isPullRef) : [];
 }
 
-// One call for the whole audit, bounded by the window that already bounds the
-// containment test: a branch young enough to be tested merged inside it.
-async function mergedByBranch(
-  repo: string,
-  maxAgeDays: number,
-): Promise<Map<string, MergedPull[]>> {
-  const since = new Date(Date.now() - maxAgeDays * 86_400_000).toISOString().slice(0, 10);
-
+// One call per branch, exact: a search over a date window caps at 1000
+// results, which a busy repo passes, and the agent and backup routes have no
+// age gate to bound a window by.
+async function mergedPullsNamed(repo: string, branch: string): Promise<MergedPull[]> {
   const response = await gh(
     "pr",
     "list",
     "--repo",
     repo,
+    "--head",
+    branch,
     "--state",
     "merged",
-    "--search",
-    `merged:>=${since}`,
     "--limit",
-    "1000",
+    "100",
     "--json",
     "number,headRefName,headRefOid,mergeCommit",
   );
 
-  const byBranch = new Map<string, MergedPull[]>();
+  if (response.exitCode !== 0) return [];
 
-  if (response.exitCode !== 0) return byBranch;
+  return parseList(response.stdout, isListedPull)
+    .filter((pull) => pull.headRefName === branch)
+    .map(({ mergeCommit, ...pull }) => ({ ...pull, mergeCommit: mergeCommit.oid }));
+}
 
-  for (const { mergeCommit, ...listed } of parseList(response.stdout, isListedPull)) {
-    const pull = { ...listed, mergeCommit: mergeCommit.oid };
-    byBranch.set(pull.headRefName, [...(byBranch.get(pull.headRefName) ?? []), pull]);
-  }
+async function mergedPullsCarrying(repo: string, sha: string): Promise<MergedPull[]> {
+  return (await pullsFor(repo, sha)).map((pull) => fromRest(pull)).filter((pull) => pull !== null);
+}
 
-  return byBranch;
+type Cache<T> = (key: string, load: () => Promise<T>) => Promise<T>;
+
+function cache<T>(): Cache<T> {
+  const entries = new Map<string, Promise<T>>();
+
+  return (key, load) => {
+    let entry = entries.get(key);
+
+    if (entry === undefined) {
+      entry = load();
+      entries.set(key, entry);
+    }
+
+    return entry;
+  };
 }
 
 const PULL_HISTORY = `query($owner: String!, $name: String!, $number: Int!) {
@@ -269,29 +282,33 @@ async function cherryClean(head: string, tip: string): Promise<boolean> {
 type RangeDiff = { matched: number; modified: string[]; missing: string[] };
 
 const RANGE_DIFF_LINE =
-  /^\s*(?:\d+|-):\s+([0-9a-f]+|-+) ([=!<>])\s+(?:\d+|-):\s+(?:[0-9a-f]+|-+) (.*)$/u;
+  /^\s*(?:\d+|-):\s+([0-9a-f]+|-+) ([=!<>])\s+(?:\d+|-):\s+(?:[0-9a-f]+|-+)(?: (.*))?$/u;
 
 // The tip's commits on the left, where git prints their subject: `=` a commit
 // with its twin among the pull request's own commits, `!` one a conflict
 // changed, `<` one the pull request does not carry. The right side holds only
 // the pull request's commits: against the whole head, a dropped commit could
-// pair with a base commit the rebase brought in.
+// pair with a base commit the rebase brought in. A tip commit the parse missed
+// would never count as missing, so the counts must add up to the tip's range.
 async function rangeDiff(tipCommits: string, pullCommits: string): Promise<RangeDiff | null> {
   const output = await git("range-diff", "--no-color", "--no-patch", tipCommits, pullCommits);
+  const count = await git("rev-list", "--count", tipCommits);
 
-  if (output.exitCode !== 0) return null;
+  if (output.exitCode !== 0 || count.exitCode !== 0) return null;
   const diff: RangeDiff = { matched: 0, modified: [], missing: [] };
 
   for (const line of output.stdout.split("\n")) {
     const [, sha, marker, subject] = RANGE_DIFF_LINE.exec(line) ?? [];
-    const commit = `${sha} ${subject}`;
+    const commit = subject === undefined ? `${sha}` : `${sha} ${subject}`;
 
     if (marker === "=") diff.matched += 1;
     else if (marker === "!") diff.modified.push(commit);
     else if (marker === "<") diff.missing.push(commit);
   }
 
-  return diff;
+  const parsed = diff.matched + diff.modified.length + diff.missing.length;
+
+  return parsed === Number(count.stdout) ? diff : null;
 }
 
 const listed = (label: string, commits: string[]): string =>
@@ -328,20 +345,29 @@ async function revertedPullNumbers(
   return reverted;
 }
 
-type GithubContext = {
-  repo: string;
-  reverted: Set<number>;
-  byBranch: Map<string, MergedPull[]>;
-};
+type GithubContext = { repo: string; reverted: Set<number> };
+
+// What one merged pull request says about one tip.
+type Judgement =
+  | { kind: "proven" }
+  | { kind: "compared"; diff: RangeDiff }
+  | { kind: "unfetchable" }
+  | { kind: "skipped" };
 
 const NO_SIGNAL: GithubVerdict = { proven: false, report: null };
 
-// The repo probe, the revert scan and the merged list run once, on the first
-// still-unproven branch, and never again — a repo with nothing unproven pays
-// nothing.
+const SKIPPED: Judgement = { kind: "skipped" };
+
+// The repo probe and the revert scan run once, on the first still-unproven
+// branch, and never again — a repo with nothing unproven pays nothing. A local
+// branch and its remote twin share a name and often a tip, so every lookup is
+// cached.
 export function makeGithubProver(base: string, maxAgeDays: number): GithubProver {
   let context: Promise<GithubContext | null> | null = null;
-  const histories = new Map<number, Promise<PullHistory | null>>();
+  const remoteBase = remoteRef(`origin/${base}`);
+  const pulls = cache<MergedPull[]>();
+  const histories = cache<PullHistory | null>();
+  const heads = cache<boolean>();
 
   const resolveContext = async (): Promise<GithubContext | null> => {
     // Same gate as the remote scan: no origin -> fully local, no network.
@@ -358,22 +384,60 @@ export function makeGithubProver(base: string, maxAgeDays: number): GithubProver
 
     if (repo === undefined) return null;
 
-    return {
-      repo,
-      reverted: await revertedPullNumbers(repo, base, maxAgeDays),
-      byBranch: await mergedByBranch(repo, maxAgeDays),
-    };
+    return { repo, reverted: await revertedPullNumbers(repo, base, maxAgeDays) };
   };
 
-  const historyOf = (repo: string, pull: MergedPull): Promise<PullHistory | null> => {
-    let history = histories.get(pull.number);
-
-    if (history === undefined) {
-      history = pullHistory(repo, pull.number);
-      histories.set(pull.number, history);
+  // The landing commit is the head itself after a fast-forward and a commit
+  // GitHub recreated after a squash or a stacked merge: in every case, and
+  // whatever the pull request's base, it is what the base holds. A local
+  // branch also accepts origin/<base>, which holds a merge-button landing
+  // before this clone pulls it.
+  const landedIn = async (oid: string, landingBase: Ref): Promise<boolean> => {
+    for (const candidate of new Set([landingBase, remoteBase])) {
+      if ((await git("merge-base", "--is-ancestor", oid, candidate)).exitCode === 0) return true;
     }
 
-    return history;
+    return false;
+  };
+
+  const judge = async (
+    resolved: GithubContext,
+    pull: MergedPull,
+    tip: string,
+    landingBase: Ref,
+  ): Promise<Judgement> => {
+    if (resolved.reverted.has(pull.number)) return SKIPPED;
+
+    if (!(await landedIn(pull.mergeCommit, landingBase))) return SKIPPED;
+
+    if (!(await heads(`${pull.number}`, () => ensureHead(pull)))) return { kind: "unfetchable" };
+    const head = pull.headRefOid;
+    const tipCommits = `${head}..${tip}`;
+
+    if (!(await mergeFree(tipCommits))) return SKIPPED;
+
+    if (await cherryClean(head, tip)) return { kind: "proven" };
+
+    const history = await histories(`${pull.number}`, () =>
+      pullHistory(resolved.repo, pull.number),
+    );
+
+    if (history === null) return SKIPPED;
+
+    // The head's last `commits` commits are the pull request's own, as long
+    // as no merge sits among them.
+    const pullCommits = `${head}~${history.commits}..${head}`;
+
+    if (!(await mergeFree(pullCommits))) return SKIPPED;
+    const diff = await rangeDiff(tipCommits, pullCommits);
+
+    if (diff === null) return SKIPPED;
+
+    // A former head was in the pull request as a whole, whatever conflicts
+    // the landing rebase resolved; a commit dropped from it since is not.
+    if (diff.missing.length === 0 && history.formerHeads.has(tip)) return { kind: "proven" };
+
+    return { kind: "compared", diff };
   };
 
   return async (ref: Ref, branch: string, landingBase: Ref) => {
@@ -385,58 +449,45 @@ export function makeGithubProver(base: string, maxAgeDays: number): GithubProver
 
     if (tip.exitCode !== 0) return NO_SIGNAL;
 
-    // By name first; the tip lookup still finds a branch renamed locally.
-    const byTip = (await pullsFor(resolved.repo, tip.stdout)).map((found) => fromRest(found));
-    const candidates = new Map<number, MergedPull>();
+    // By name first; the tip lookup, which only adds a branch renamed
+    // locally, runs when the name proved nothing.
+    const lookups = [
+      () => pulls(`name:${branch}`, () => mergedPullsNamed(resolved.repo, branch)),
+      () => pulls(`tip:${tip.stdout}`, () => mergedPullsCarrying(resolved.repo, tip.stdout)),
+    ];
 
-    for (const pull of [...(resolved.byBranch.get(branch) ?? []), ...byTip]) {
-      if (pull !== null) candidates.set(pull.number, pull);
-    }
-
+    const judged = new Set<number>();
     let best: { pull: MergedPull; diff: RangeDiff } | null = null;
+    let unfetchable: MergedPull | null = null;
 
-    for (const pull of candidates.values()) {
-      if (resolved.reverted.has(pull.number)) continue;
+    for (const lookup of lookups) {
+      for (const pull of await lookup()) {
+        if (judged.has(pull.number)) continue;
+        judged.add(pull.number);
+        const judgement = await judge(resolved, pull, tip.stdout, landingBase);
 
-      // The landing commit is the head itself after a fast-forward and a
-      // commit GitHub recreated after a squash or a stacked merge: in every
-      // case, and whatever the pull request's base, it is what the base holds.
-      if (
-        (await git("merge-base", "--is-ancestor", pull.mergeCommit, landingBase)).exitCode !== 0
-      ) {
-        continue;
+        if (judgement.kind === "proven") return { proven: true };
+
+        if (judgement.kind === "unfetchable") unfetchable ??= pull;
+
+        if (
+          judgement.kind === "compared" &&
+          (best === null || judgement.diff.matched > best.diff.matched)
+        ) {
+          best = { pull, diff: judgement.diff };
+        }
       }
-
-      if (!(await ensureHead(pull))) continue;
-      const head = pull.headRefOid;
-      const tipCommits = `${head}..${tip.stdout}`;
-
-      if (!(await mergeFree(tipCommits))) continue;
-
-      if (await cherryClean(head, tip.stdout)) return { proven: true };
-      const history = await historyOf(resolved.repo, pull);
-
-      if (history === null) continue;
-
-      // The head's last `commits` commits are the pull request's own, as long
-      // as no merge sits among them.
-      const pullCommits = `${head}~${history.commits}..${head}`;
-
-      if (!(await mergeFree(pullCommits))) continue;
-      const diff = await rangeDiff(tipCommits, pullCommits);
-
-      if (diff === null) continue;
-
-      // A former head was in the pull request as a whole, whatever conflicts
-      // the landing rebase resolved; a commit dropped from it since is not.
-      if (diff.missing.length === 0 && history.formerHeads.has(tip.stdout)) {
-        return { proven: true };
-      }
-
-      if (best === null || diff.matched > best.diff.matched) best = { pull, diff };
     }
 
-    return { proven: false, report: best === null ? null : describeDiff(best.pull, best.diff) };
+    if (best !== null) return { proven: false, report: describeDiff(best.pull, best.diff) };
+
+    return {
+      proven: false,
+      report:
+        unfetchable === null
+          ? null
+          : `PR #${unfetchable.number}: its head ${unfetchable.headRefOid.slice(0, 8)} could not be fetched from origin`,
+    };
   };
 }
 

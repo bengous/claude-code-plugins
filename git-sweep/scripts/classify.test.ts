@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 
 import {
   type LocalContext,
+  settleInWorktree,
   settleLocal,
   settleRemote,
   tooOld,
@@ -127,6 +128,36 @@ describe("remote branches", () => {
     expect(settleRemote("merged-pr", "origin/main", null)).toEqual({
       kind: "stale",
       proof: "merged-pr",
+    });
+  });
+});
+
+describe("settleInWorktree", () => {
+  test("holds a kept branch by its worktree, with the branch's own detail", () => {
+    const unproven = settleLocal("content", "unproven", "2 commit(s) not proven; PR #4: 1/2");
+
+    expect(settleInWorktree(unproven, "/wt")).toEqual({
+      placement: {
+        kind: "kept",
+        kept: { reason: "worktree", detail: "/wt (2 commit(s) not proven; PR #4: 1/2)" },
+      },
+      removableBy: null,
+    });
+
+    expect(
+      settleInWorktree({ kind: "kept", kept: { reason: "protected", detail: null } }, "/wt"),
+    ).toEqual({
+      placement: { kind: "kept", kept: { reason: "worktree", detail: "/wt" } },
+      removableBy: null,
+    });
+  });
+
+  test("frees the worktree of a proven branch", () => {
+    const proven = settleLocal("content", "merged-pr", "");
+
+    expect(settleInWorktree(proven, "/wt")).toEqual({
+      placement: proven,
+      removableBy: "merged-pr",
     });
   });
 });
