@@ -225,6 +225,11 @@ Build one question per non-empty category, then send them **in a single
 categories, send successive calls of 4. Do not ask one category at a time.
 `stale_tracking` is never asked about — see 2c.
 
+A reply that picks no option (the question card dismissed, a message typed
+instead) answers only the questions of the call it replies to: map it onto
+them, "your recommendations" meaning each one's Recommended option. Ask every
+other question, whatever that reply said: consent covers what the user saw.
+
 Each question, with its `header` (12 chars max) and its options:
 
 | Category | header | Question | Options |

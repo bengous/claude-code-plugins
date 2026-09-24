@@ -72,6 +72,9 @@ Retained (base main is never deleted):
 
 ## Phase 2: Confirm
 
+Ask this question even when an audit answer said to apply everything: that
+answer chose the operations, only this one runs them.
+
 ```
 loop:
   AskUserQuestion:
