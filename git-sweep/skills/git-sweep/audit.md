@@ -28,7 +28,9 @@ pull request behind each still-unproven branch: by branch name, in one listing
 of the pull requests merged within the age window, and by tip. Git then checks
 that the pull request's landing commit is in the base and that the branch adds
 nothing to the pull request's head: every commit has its patch there, or the
-tip is a head the pull request had before a force-push. It may fetch a deleted
+tip is a head the pull request had before a force-push and each of its commits
+has a twin among the pull request's own. A merge commit the head lacks keeps the
+branch unproven, since neither comparison reads a merge. It may fetch a deleted
 head from `refs/pull/<n>/head`, with no ref written. Read-only on GitHub, no
 writes. Without `gh`, off GitHub, or without `--include-remote`, it makes no
 GitHub call and the verdicts are the purely local ones.

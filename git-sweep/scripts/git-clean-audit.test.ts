@@ -204,13 +204,15 @@ exec ${realGit} "$@"
 // Invoking bun by absolute path is what lets PATH hold nothing else.
 //   pulls        — `api repos/.../commits/<sha>/pulls`, by sha
 //   merged       — `pr list`, the merged pull requests
-//   forcePushes  — `api graphql`, by pull request number: the former heads, as
-//                  the audit's `--jq` prints them, one oid per line
+//   history      — `api graphql`, by pull request number: its commit count and
+//                  former heads, as the audit's `--jq` prints them
+type PullHistory = { commits: number; formerHeads: string[] };
+
 type GhFixtures = {
   nameWithOwner: string | null;
   pulls: Record<string, unknown[]>;
   merged?: unknown[];
-  forcePushes?: Record<number, string[]>;
+  history?: Record<number, PullHistory>;
 };
 
 async function runAuditWithGh(
@@ -240,8 +242,11 @@ async function runAuditWithGh(
       writeFileSync(join(shimDir, "merged.json"), JSON.stringify(fixtures.merged));
     }
 
-    for (const [number, heads] of Object.entries(fixtures.forcePushes ?? {})) {
-      writeFileSync(join(shimDir, `force-pushes-${number}.txt`), heads.join("\n"));
+    for (const [number, { commits, formerHeads }] of Object.entries(fixtures.history ?? {})) {
+      writeFileSync(
+        join(shimDir, `history-${number}.txt`),
+        [`commits ${commits}`, ...formerHeads.map((oid) => `former ${oid}`)].join("\n"),
+      );
     }
 
     // Absolute shebang and bash builtins only: PATH holds no `env` and no `cat`.
@@ -253,7 +258,7 @@ case "$1 $2" in
   "pr list") f="${shimDir}/merged.json" ;;
   "api graphql")
     [[ "$*" =~ number=([0-9]+) ]] || exit 1
-    f="${shimDir}/force-pushes-\${BASH_REMATCH[1]}.txt"
+    f="${shimDir}/history-\${BASH_REMATCH[1]}.txt"
     ;;
   "api repos/"*)
     sha="\${2#*/commits/}"
@@ -374,6 +379,10 @@ const restPull = (number: number, head: string, landing: string | null) => ({
   head: { ref: MERGED_BRANCH, sha: head },
   merge_commit_sha: landing,
 });
+
+// Enough context around the version that two bumps differ by one line.
+const packageJson = (version: string): string =>
+  `{\n  "name": "p",\n  "description": "d",\n  "license": "MIT",\n  "version": "${version}",\n  "author": "a",\n  "main": "m",\n  "type": "module"\n}\n`;
 
 const RESOLVED_B = WITH_AB.replace("branch B4", "branch B4, resolved");
 
@@ -1618,7 +1627,12 @@ describe("git-clean-audit", () => {
 
     const { result } = await runAuditWithGh(
       repo,
-      { nameWithOwner: "acme/repo", pulls: {}, merged: [listedPull(12, head, landing)] },
+      {
+        nameWithOwner: "acme/repo",
+        pulls: {},
+        merged: [listedPull(12, head, landing)],
+        history: { 12: { commits: 2, formerHeads: [] } },
+      },
       "--include-remote",
     );
 
@@ -1732,7 +1746,12 @@ describe("git-clean-audit", () => {
 
       const { result } = await runAuditWithGh(
         repo,
-        { nameWithOwner: "acme/repo", pulls: {}, merged: [listedPull(20, head, landing)] },
+        {
+          nameWithOwner: "acme/repo",
+          pulls: {},
+          merged: [listedPull(20, head, landing)],
+          history: { 20: { commits: 2, formerHeads: [] } },
+        },
         "--include-remote",
       );
 
@@ -1757,7 +1776,7 @@ describe("git-clean-audit", () => {
           nameWithOwner: "acme/repo",
           pulls: {},
           merged: [listedPull(21, head, landing)],
-          forcePushes: { 21: [tip] },
+          history: { 21: { commits: 2, formerHeads: [tip] } },
         },
         "--include-remote",
       );
@@ -1779,7 +1798,7 @@ describe("git-clean-audit", () => {
           nameWithOwner: "acme/repo",
           pulls: {},
           merged: [listedPull(21, head, landing)],
-          forcePushes: { 21: [] },
+          history: { 21: { commits: 2, formerHeads: [] } },
         },
         "--include-remote",
       );
@@ -1808,7 +1827,7 @@ describe("git-clean-audit", () => {
           nameWithOwner: "acme/repo",
           pulls: {},
           merged: [listedPull(22, head, landing)],
-          forcePushes: { 22: [tip] },
+          history: { 22: { commits: 2, formerHeads: [tip] } },
         },
         "--include-remote",
       );
@@ -1817,6 +1836,91 @@ describe("git-clean-audit", () => {
       expect(keptEntry(result, MERGED_BRANCH)?.detail).toMatch(
         /1 missing \([0-9a-f]+ feature: add X\)$/u,
       );
+    });
+
+    // Compared against the whole of `head...tip`, the dropped bump pairs with
+    // the base's own bump, which the rebase brought under the head, and passes
+    // as a conflict-modified commit. Only the pull request's commits count.
+    test("is kept when a dropped commit resembles one the base brought in", async () => {
+      const { origin, repo } = await makeRepoWithOrigin("gh-dropped-like-base");
+      await commitFile(repo, "p.json", packageJson("1.1.0"), "base: add p.json");
+      await git(repo, "push", "origin", "main");
+      await git(repo, "checkout", "-b", MERGED_BRANCH);
+      await commitFile(repo, "f.txt", "feature A\n", "feature: add A");
+      await commitFile(repo, "p.json", packageJson("1.2.0"), "chore: bump to 1.2.0");
+      await commitFile(repo, "x.txt", "feature X\n", "feature: add X");
+      await git(repo, "push", "-u", "origin", MERGED_BRANCH);
+      await git(repo, "checkout", "main");
+      const tip = await git(repo, "rev-parse", MERGED_BRANCH);
+
+      const [a = "", , x = ""] = (
+        await git(repo, "rev-list", "--reverse", `main..${MERGED_BRANCH}`)
+      ).split("\n");
+
+      const other = makeTmpDir("gh-dropped-like-base-other");
+      await git(other, "clone", origin, other);
+      await git(other, "config", "user.email", "test@test.com");
+      await git(other, "config", "user.name", "Test");
+      await commitFile(other, "p.json", packageJson("1.1.1"), "chore(other): bump to 1.1.1");
+      await git(other, "checkout", "-b", "rebased");
+      await git(other, "cherry-pick", a, x);
+      const head = await git(other, "rev-parse", "HEAD");
+      await git(other, "push", "origin", `rebased:refs/pull/23/head`);
+      await git(other, "checkout", "main");
+      await git(other, "merge", "--squash", "rebased");
+      await git(other, "commit", "-m", "feature (#23)");
+      const landing = await git(other, "rev-parse", "HEAD");
+      await git(other, "push", "origin", "main");
+      await git(repo, "fetch", "origin", "main");
+      await git(repo, "merge", "--ff-only", "origin/main");
+
+      const { result } = await runAuditWithGh(
+        repo,
+        {
+          nameWithOwner: "acme/repo",
+          pulls: {},
+          merged: [listedPull(23, head, landing)],
+          history: { 23: { commits: 2, formerHeads: [tip] } },
+        },
+        "--include-remote",
+      );
+
+      expect(keptEntry(result, MERGED_BRANCH)?.reason).toBe("unproven");
+      expect(keptEntry(result, MERGED_BRANCH)?.detail).toMatch(
+        /PR #23: 2\/3 commits match its head, 0 modified, 1 missing \([0-9a-f]+ chore: bump to 1\.2\.0\)$/u,
+      );
+    });
+
+    // git cherry and range-diff both skip merge commits, so work a merge
+    // carries of its own would pass unread.
+    test("is kept when a merge commit on the branch carries work of its own", async () => {
+      const { origin, repo } = await makeBaseAndBranch("gh-merge-on-branch");
+      await commitFile(repo, "d.txt", "main D\n", "main: add D");
+      await git(repo, "push", "origin", "main");
+      await git(repo, "checkout", MERGED_BRANCH);
+      await git(repo, "merge", "--no-commit", "main");
+      writeFileSync(join(repo, "secret.txt"), "only here\n");
+      await git(repo, "add", "secret.txt");
+      await git(repo, "commit", "-m", "merge main, with extra work");
+      await git(repo, "checkout", "main");
+
+      const { head, landing } = await landElsewhere(origin, repo, 24, {
+        landing: "squash",
+        resolveB: false,
+      });
+
+      const { result } = await runAuditWithGh(
+        repo,
+        {
+          nameWithOwner: "acme/repo",
+          pulls: {},
+          merged: [listedPull(24, head, landing)],
+          history: { 24: { commits: 2, formerHeads: [] } },
+        },
+        "--include-remote",
+      );
+
+      expect(keptEntry(result, MERGED_BRANCH)?.reason).toBe("unproven");
     });
   });
 

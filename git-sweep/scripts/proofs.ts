@@ -188,9 +188,10 @@ async function mergedByBranch(
   return byBranch;
 }
 
-const FORCE_PUSHES = `query($owner: String!, $name: String!, $number: Int!) {
+const PULL_HISTORY = `query($owner: String!, $name: String!, $number: Int!) {
   repository(owner: $owner, name: $name) {
     pullRequest(number: $number) {
+      commits { totalCount }
       timelineItems(itemTypes: HEAD_REF_FORCE_PUSHED_EVENT, first: 100) {
         nodes { ... on HeadRefForcePushedEvent { beforeCommit { oid } } }
       }
@@ -198,16 +199,20 @@ const FORCE_PUSHES = `query($owner: String!, $name: String!, $number: Int!) {
   }
 }`;
 
-// Every head the pull request had before a force-push replaced it. gh's own
-// jq flattens the nesting, one oid per line.
-async function formerHeads(repo: string, number: number): Promise<Set<string>> {
+// How many commits the final head holds, and every head a force-push replaced.
+type PullHistory = { commits: number; formerHeads: Set<string> };
+
+const HISTORY_LINE = /^(commits|former) (\S+)$/u;
+
+// gh's own jq flattens the nesting to tagged lines: `commits <n>`, `former <oid>`.
+async function pullHistory(repo: string, number: number): Promise<PullHistory | null> {
   const [owner = "", name = ""] = repo.split("/");
 
   const response = await gh(
     "api",
     "graphql",
     "-f",
-    `query=${FORCE_PUSHES}`,
+    `query=${PULL_HISTORY}`,
     "-f",
     `owner=${owner}`,
     "-f",
@@ -215,12 +220,21 @@ async function formerHeads(repo: string, number: number): Promise<Set<string>> {
     "-F",
     `number=${number}`,
     "--jq",
-    ".data.repository.pullRequest.timelineItems.nodes[].beforeCommit.oid // empty",
+    '.data.repository.pullRequest | "commits \\(.commits.totalCount)", (.timelineItems.nodes[].beforeCommit.oid // empty | "former \\(.)")',
   );
 
-  return new Set(
-    response.exitCode === 0 ? response.stdout.split("\n").filter((oid) => isOid(oid)) : [],
-  );
+  if (response.exitCode !== 0) return null;
+  let commits: number | null = null;
+  const formerHeads = new Set<string>();
+
+  for (const line of response.stdout.split("\n")) {
+    const [, tag, value = ""] = HISTORY_LINE.exec(line) ?? [];
+
+    if (tag === "commits" && /^\d+$/u.test(value)) commits = Number(value);
+    else if (tag === "former" && isOid(value)) formerHeads.add(value);
+  }
+
+  return commits === null ? null : { commits, formerHeads };
 }
 
 async function hasCommit(oid: string): Promise<boolean> {
@@ -235,6 +249,15 @@ async function ensureHead(pull: MergedPull): Promise<boolean> {
   return hasCommit(pull.headRefOid);
 }
 
+// git cherry and range-diff both skip merge commits, so a range they judge must
+// hold none: work a merge carries of its own would pass unread. A range git
+// cannot resolve counts as holding one.
+async function mergeFree(range: string): Promise<boolean> {
+  const merges = await git("rev-list", "--merges", "--count", range);
+
+  return merges.exitCode === 0 && merges.stdout === "0";
+}
+
 // Every commit of the tip has its patch in the head, or the tip is behind it.
 async function cherryClean(head: string, tip: string): Promise<boolean> {
   const cherry = await git("cherry", head, tip);
@@ -246,24 +269,26 @@ async function cherryClean(head: string, tip: string): Promise<boolean> {
 type RangeDiff = { matched: number; modified: string[]; missing: string[] };
 
 const RANGE_DIFF_LINE =
-  /^\s*(?:\d+|-):\s+(?:[0-9a-f]+|-+) ([=!<>])\s+(?:\d+|-):\s+([0-9a-f]+|-+) (.*)$/u;
+  /^\s*(?:\d+|-):\s+([0-9a-f]+|-+) ([=!<>])\s+(?:\d+|-):\s+(?:[0-9a-f]+|-+) (.*)$/u;
 
-// Read from the tip's side: `=` a commit with its twin in the head, `!` one a
-// conflict changed, `>` one the head does not carry. `<`, a head commit the tip
-// lacks, also counts the base commits a rebase brought in, so it says nothing.
-async function rangeDiff(head: string, tip: string): Promise<RangeDiff | null> {
-  const output = await git("range-diff", "--no-color", "--no-patch", `${head}...${tip}`);
+// The tip's commits on the left, where git prints their subject: `=` a commit
+// with its twin among the pull request's own commits, `!` one a conflict
+// changed, `<` one the pull request does not carry. The right side holds only
+// the pull request's commits: against the whole head, a dropped commit could
+// pair with a base commit the rebase brought in.
+async function rangeDiff(tipCommits: string, pullCommits: string): Promise<RangeDiff | null> {
+  const output = await git("range-diff", "--no-color", "--no-patch", tipCommits, pullCommits);
 
   if (output.exitCode !== 0) return null;
   const diff: RangeDiff = { matched: 0, modified: [], missing: [] };
 
   for (const line of output.stdout.split("\n")) {
-    const [, marker, sha, subject] = RANGE_DIFF_LINE.exec(line) ?? [];
+    const [, sha, marker, subject] = RANGE_DIFF_LINE.exec(line) ?? [];
     const commit = `${sha} ${subject}`;
 
     if (marker === "=") diff.matched += 1;
     else if (marker === "!") diff.modified.push(commit);
-    else if (marker === ">") diff.missing.push(commit);
+    else if (marker === "<") diff.missing.push(commit);
   }
 
   return diff;
@@ -316,7 +341,7 @@ const NO_SIGNAL: GithubVerdict = { proven: false, report: null };
 // nothing.
 export function makeGithubProver(base: string, maxAgeDays: number): GithubProver {
   let context: Promise<GithubContext | null> | null = null;
-  const forcePushes = new Map<number, Promise<Set<string>>>();
+  const histories = new Map<number, Promise<PullHistory | null>>();
 
   const resolveContext = async (): Promise<GithubContext | null> => {
     // Same gate as the remote scan: no origin -> fully local, no network.
@@ -340,15 +365,15 @@ export function makeGithubProver(base: string, maxAgeDays: number): GithubProver
     };
   };
 
-  const wasHead = async (repo: string, pull: MergedPull, tip: string): Promise<boolean> => {
-    let heads = forcePushes.get(pull.number);
+  const historyOf = (repo: string, pull: MergedPull): Promise<PullHistory | null> => {
+    let history = histories.get(pull.number);
 
-    if (heads === undefined) {
-      heads = formerHeads(repo, pull.number);
-      forcePushes.set(pull.number, heads);
+    if (history === undefined) {
+      history = pullHistory(repo, pull.number);
+      histories.set(pull.number, history);
     }
 
-    return (await heads).has(tip);
+    return history;
   };
 
   return async (ref: Ref, branch: string, landingBase: Ref) => {
@@ -383,15 +408,28 @@ export function makeGithubProver(base: string, maxAgeDays: number): GithubProver
       }
 
       if (!(await ensureHead(pull))) continue;
+      const head = pull.headRefOid;
+      const tipCommits = `${head}..${tip.stdout}`;
 
-      if (await cherryClean(pull.headRefOid, tip.stdout)) return { proven: true };
-      const diff = await rangeDiff(pull.headRefOid, tip.stdout);
+      if (!(await mergeFree(tipCommits))) continue;
+
+      if (await cherryClean(head, tip.stdout)) return { proven: true };
+      const history = await historyOf(resolved.repo, pull);
+
+      if (history === null) continue;
+
+      // The head's last `commits` commits are the pull request's own, as long
+      // as no merge sits among them.
+      const pullCommits = `${head}~${history.commits}..${head}`;
+
+      if (!(await mergeFree(pullCommits))) continue;
+      const diff = await rangeDiff(tipCommits, pullCommits);
 
       if (diff === null) continue;
 
       // A former head was in the pull request as a whole, whatever conflicts
       // the landing rebase resolved; a commit dropped from it since is not.
-      if (diff.missing.length === 0 && (await wasHead(resolved.repo, pull, tip.stdout))) {
+      if (diff.missing.length === 0 && history.formerHeads.has(tip.stdout)) {
         return { proven: true };
       }
 
