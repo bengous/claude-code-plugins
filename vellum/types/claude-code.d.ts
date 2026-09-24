@@ -1,4 +1,4 @@
-// Written by Claude Code 2.1.280.
+// Written by Claude Code 2.1.282.
 // Claude Code function hooks: the plugin API's TypeScript declarations.
 //
 // EARLY ACCESS: this surface may change between releases without notice.
@@ -520,6 +520,49 @@ declare module 'claude-code' {
   };
 
   /**
+   * A named value with its initial, as `atom(ref, initial)` makes it: read, it
+   * is never `undefined`; while nothing is written it reads as the initial.
+   *
+   * Plain frozen data, the plugin's own: pass it to `read`, `update`, `derive`
+   * and `memberOf`. The engine knows nothing of it.
+   */
+  export type Atom<T> = {
+      readonly ref: StateAddress;
+      readonly initial: T;
+      /**
+       * The tag the value is kept under, when the atom was given one: a stored
+       * value under another tag reads as absent (Shaped).
+       */
+      readonly shape?: string;
+  };
+
+  /**
+   * `atom(ref, initial)`: a named value with its initial, so a read is never
+   * `undefined`; given `{ shape }`, for a key declared `Shaped<T>`.
+   *
+   * Pure: it builds a frozen description and calls nothing. A family's
+   * reference is given without its `id`, which `memberOf` adds.
+   *
+   * @example
+   * const count = atom({ plugin: "counter", key: "count" } as const, 0)
+   */
+  export type AtomFunction = {
+      <P extends keyof PluginState & string, K extends keyof PluginState[P] & string>(ref: StateName<P, K> & Readonly<Pick<StateAddress, 'id'>>, initial: StateValue<P, K>): Atom<StateValue<P, K>>;
+      <P extends keyof PluginState & string, K extends keyof PluginState[P] & string>(ref: StateName<P, K> & Readonly<Pick<StateAddress, 'id'>>, initial: ShapedValue<StateValue<P, K>>, options: AtomOptions): Atom<ShapedValue<StateValue<P, K>>>;
+  };
+
+  /**
+   * The options of `atom`: `shape`, a tag the value is kept under, so a reload
+   * of the plugin's code that names another tag finds the value absent.
+   *
+   * Bump it when the code's idea of the value changed; the engine keeps whole
+   * what the old code wrote, and the tag is how the new code declines it.
+   */
+  export type AtomOptions = {
+      shape: string;
+  };
+
+  /**
    * The input of `attribution.text`: one text the engine asks the model to
    * write into a commit or a pull request, at the moment it is composed.
    *
@@ -887,6 +930,17 @@ declare module 'claude-code' {
        * under the pointer or the focus: a secondary control, a path in a list.
        */
       dimColor?: boolean;
+      /**
+       * Which button of several is the main action: `"primary"` is drawn as the
+       * surface marks the one to press, `"secondary"`, and absent, as before.
+       *
+       * The terminal draws a primary `[ label ]` in the accent color, a desktop
+       * its own primary button; `dimColor`, `hover`, the focus and the pointer
+       * apply to both. `plain` wins: a plain Button draws the same either way.
+       *
+       * @example <Button variant="primary" onPress={save}>Save</Button>
+       */
+      variant?: 'primary' | 'secondary';
       /**
        * The site's focus ring starts here when the site takes the keyboard,
        * instead of on nothing, as the DOM's `autofocus`: Enter acts on it at once.
@@ -2148,10 +2202,12 @@ declare module 'claude-code' {
            */
           ask: (question: string, options?: readonly string[] | AskOptions) => Promise<string>;
           /**
-           * Shows `text` on the notification bar under the prompt for a few
-           * seconds, the way the engine's own "context left" notice appears.
+           * Shows `text` for a few seconds under the plugin's name: a small box on
+           * the stack of plugin toasts over the transcript's top right corner.
            *
-           * It leaves the transcript and the model untouched.
+           * A click takes it off, the pointer over it holds it. Where the transcript
+           * is printed into scrollback (nothing to float over) it is one line on the
+           * notification bar. It leaves the transcript and the model untouched.
            *
            * @param text the line to show; an unpaired surrogate half in it is drawn
            *   as U+FFFD
@@ -2499,6 +2555,23 @@ declare module 'claude-code' {
            * for (const row of usage.context.breakdown?.gridRows ?? []) draw(row)
            */
           usage: (args?: SessionUsageArgs) => Promise<SessionUsage>;
+          /**
+           * Returns the version of the engine the session runs on, the release it
+           * is built from, and when it was built.
+           *
+           * The same three values the engine's own analytics rows carry, answered
+           * in every mode and build; `base` is absent when the version is not
+           * spelled as a release, `builtAt` in a run from source that stamps none.
+           *
+           * @returns the full `version`, its release `base` (`2.1.280`, or
+           *          `2.1.280-dev` for a development build) and an ISO `builtAt`
+           * @example
+           * const { version, base, builtAt } = await $.session.version()
+           * row.env = { version, version_base: base, build_time: builtAt }
+           * @example
+           * const isRelease = !(await $.session.version()).base?.endsWith("-dev")
+           */
+          version: () => Promise<SessionVersion>;
           /**
            * Compacts the conversation: the event `session.compact` with `trigger`
            * `plugin`, the same call `/compact` makes, between turns.
@@ -2939,6 +3012,48 @@ declare module 'claude-code' {
           keys: () => Promise<string[]>;
       };
       /**
+       * Named values held by the host for the session, each with a version: plain
+       * data that survives a hot reload of the plugin's code.
+       *
+       * A `get` made while a `ui.render` hook draws subscribes that instance: a
+       * later `set` draws it again, nobody calling `$.ui.invalidate`. Any plugin
+       * reads any value; its owner alone writes it. Persist through `$.store`.
+       */
+      state: {
+          /**
+           * Resolves the value under `ref` and the version it stands at; a value
+           * never written is `undefined` at version 0.
+           *
+           * Every `get` of one dispatch reads one moment, whatever is written
+           * meanwhile. `plugin` and `key` must be literals in source (`claude plugin
+           * validate` lists them); only a family member's `id` may be computed.
+           *
+           * @param ref `{ plugin, key }` as the owner's contract declares it in
+           *   PluginState, with `id` for a StateFamily key
+           * @returns `{ value, version }`
+           * @example
+           * const workers = { plugin: "swarm", key: "workers" } as const
+           * const { value = [] } = await $.state.get(workers)
+           */
+          get: <P extends keyof PluginState & string, K extends keyof PluginState[P] & string>(ref: StateRef<P, K>) => Promise<StateRead<StateValue<P, K>>>;
+          /**
+           * Writes `value` under `ref`, which must be this plugin's own; the sites
+           * that read it while drawing are drawn again, at the redraw rate.
+           *
+           * Refused while a `ui.render` hook draws (write from `onPress` or another
+           * event) and for another plugin's value (hook its `state.set` and rewrite
+           * `e.value`). JSON data, as `$.store.set` takes; never `undefined`.
+           *
+           * @param ref `{ plugin, key }`, with `id` for a StateFamily key
+           * @param value the value, of the type the contract declares
+           * @param options `ifVersion`: write only while it stands at that version
+           * @returns `{ isSet, version }`; `isSet` false when `ifVersion` missed
+           * @example
+           * await $.state.set(count, held.value + 1, { ifVersion: held.version })
+           */
+          set: <P extends keyof PluginState & string, K extends keyof PluginState[P] & string>(ref: StateRef<P, K>, value: StateValue<P, K>, options?: StateSetOptions) => Promise<StateSetResult>;
+      };
+      /**
        * The time and timers, each an event through the host: `clock.now` reads
        * the time; `clock.sleep`, `after` and `every` wait until it has passed.
        *
@@ -3150,6 +3265,77 @@ declare module 'claude-code' {
       new_cwd: string;
   };
 
+  /**
+   * The state events of each declared value in a union of `[plugin, key]`
+   * pairs, one variant per pair (it distributes), so a matcher narrows `e`.
+   */
+  type DeclaredEvents<Pair> = Pair extends readonly [
+  infer P extends keyof PluginState & string,
+  infer K
+  ] ? K extends keyof PluginState[P] & string ? DeclaredEventsOf<P, K> : never : never;
+
+  /**
+   * `e` of `state.get` and of `state.set` for one declared value: its typed
+   * reference, and for a write the change, of the declared type.
+   */
+  type DeclaredEventsOf<P extends keyof PluginState & string, K extends keyof PluginState[P] & string> = {
+      get: StateRef<P, K>;
+      set: StateRef<P, K> & DeclaredStateChange<P, K>;
+  };
+
+  /**
+   * Every named value the enabled contracts declare, as one union of
+   * `[plugin, key]` pairs; `never` while PluginState is empty.
+   */
+  type DeclaredPair = {
+      [P in keyof PluginState & string]: {
+          [K in keyof PluginState[P] & string]: readonly [plugin: P, key: K];
+      }[keyof PluginState[P] & string];
+  }[keyof PluginState & string];
+
+  /**
+   * What a `state.set` on one declared value carries beside its reference:
+   * the value being written and the one that stood there, of the declared type.
+   */
+  type DeclaredStateChange<P extends keyof PluginState & string, K extends keyof PluginState[P] & string> = {
+      value: StateValue<P, K>;
+      previous: StateValue<P, K> | undefined;
+      /**
+       * The version the caller's write is conditional on, when it gave one.
+       */
+      ifVersion?: number;
+  };
+
+  /**
+   * A value computed from other values, as `derive(sources, fn)` makes it:
+   * `read` runs `fn` again only when a source's version moved.
+   *
+   * It holds nothing on the host: the cache is the plugin's own, lost with a
+   * reload of its code, and rebuilt by the next read.
+   */
+  export type Derived<T> = {
+      /**
+       * The atoms and references it is computed from, read in this order.
+       */
+      readonly sources: readonly (Atom<unknown> | StateAddress)[];
+      /**
+       * The function over the sources' values, in the order they were given.
+       */
+      readonly compute: (...values: never[]) => T;
+  };
+
+  /**
+   * `derive(sources, fn)`: a value computed from atoms and references, cached
+   * by their versions: `read` runs `fn` again only when one moved.
+   *
+   * Pure: it builds a description and calls nothing; reading it while drawing
+   * subscribes the drawing to every source.
+   *
+   * @example
+   * const busy = derive([workers], list => list.filter(w => w.isBusy).length)
+   */
+  export type DeriveFunction = <const S extends readonly unknown[], T>(sources: S, compute: (...values: SourceValues<S>) => T) => Derived<T>;
+
   type DirectoryAddedHookInput = BaseHookInput & {
       hook_event_name: 'DirectoryAdded';
       /**
@@ -3235,10 +3421,10 @@ declare module 'claude-code' {
           Client: ElementConstructor<ClientProps>;
       };
       /**
-       * No `Input` or `Select`: the control protocol carries presses (ui_press)
-       * but no ui_input or ui_select yet; not a limit of the device.
+       * No `Input` or `Select`: the mobile app draws no field yet; not a limit
+       * of the device, nor of the control protocol (ui_input, ui_select).
        *
-       * The table grows when those messages exist.
+       * The table grows when the app draws them.
        */
       mobile: {
           Box: ElementConstructor<BoxProps>;
@@ -4901,7 +5087,8 @@ declare module 'claude-code' {
        */
       key?: string;
       /**
-       * The markdown drawn, as an assistant reply would write it.
+       * The markdown drawn, as an assistant reply would write it; a `<context>`
+       * block, hidden in a reply's own text, is drawn here as written.
        *
        * At most 10000 characters, tab and newline its only control characters;
        * a link whose scheme is not `https:`, `http:` or `file:` draws as text,
@@ -5145,6 +5332,18 @@ declare module 'claude-code' {
        * The server's structured result, when its tool declares an output schema.
        */
       structuredContent?: unknown;
+  };
+
+  /**
+   * `memberOf(family, e)`: the member of a family for the instance being
+   * drawn, keyed by `e.requestId`; of an atom over a family, that member's.
+   *
+   * @example
+   * const open = await read($, memberOf(isOpen, e))
+   */
+  export type MemberOfFunction = {
+      <T>(family: Atom<T>, e: Pick<RenderInput, 'requestId'>): Atom<T>;
+      <P extends string, K extends string>(family: StateName<P, K>, e: Pick<RenderInput, 'requestId'>): StateName<P, K> & Readonly<Required<Pick<StateAddress, 'id'>>>;
   };
 
   /**
@@ -5883,6 +6082,10 @@ declare module 'claude-code' {
        */
       'session.usage': SessionUsageArgs;
       /**
+       * The argument of `$.session.version()`.
+       */
+      'session.version': NoArgs;
+      /**
        * The argument of `$.turn.abort({ turnId })`.
        */
       'turn.abort': {
@@ -6042,6 +6245,19 @@ declare module 'claude-code' {
        */
       'store.keys': NoArgs;
       /**
+       * The argument of `$.state.get(ref)`: the reference itself, `plugin`, `key`
+       * and a family member's `id`; identity, pinned.
+       */
+      'state.get': StateGetEvent;
+      /**
+       * The argument of `$.state.set(ref, value, { ifVersion })`: the reference,
+       * the value, the condition, and `previous`, what stood there (the host's).
+       *
+       * A hook above rewrites `value` with `next({ ...e, value })`; the
+       * reference is identity, pinned. Raised by the value's owner alone.
+       */
+      'state.set': StateSetEvent;
+      /**
        * The argument of `$.clock.now()`.
        */
       'clock.now': NoArgs;
@@ -6134,6 +6350,10 @@ declare module 'claude-code' {
        */
       'session.authorize': SessionAuthorization;
       'session.usage': SessionUsage;
+      /**
+       * The engine's version, its release, and its build time when stamped.
+       */
+      'session.version': SessionVersion;
       'turn.abort': void;
       /**
        * The box as it stands; the empty box where the session draws none.
@@ -6181,6 +6401,15 @@ declare module 'claude-code' {
       'store.set': void;
       'store.delete': void;
       'store.keys': string[];
+      /**
+       * The value and the version it stands at; `undefined` at 0 when never
+       * written.
+       */
+      'state.get': StateRead;
+      /**
+       * Whether the write landed, and the version the value stands at now.
+       */
+      'state.set': StateSetResult;
       /**
        * Milliseconds since the epoch.
        */
@@ -6318,7 +6547,7 @@ declare module 'claude-code' {
       closeOnEscape?: true;
       /**
        * While the pane is on screen the surface holds its transient toasts (the
-       * notification line under the prompt) and shows them once it closes.
+       * plugin toast stack, the notification line) and shows them once it closes.
        *
        * As it does behind the engine's own side panel; pinned warnings still
        * show. Left out, toasts show as they come. Each open sets it anew.
@@ -6555,8 +6784,8 @@ declare module 'claude-code' {
    * What a hooks module uses, as the host scanned its source before loading it:
    * the same lists `claude plugin validate` prints and the host's rule reads.
    *
-   * Exact, since a module that spells `on`, `$` or `$.env` other than literally
-   * does not load.
+   * Exact, since a module that spells `on`, `$`, `$.env` or a `$.state`
+   * reference other than literally does not load.
    */
   export type PluginRegisterUses = {
       /**
@@ -6583,6 +6812,20 @@ declare module 'claude-code' {
            */
           writes: readonly string[];
       };
+      /**
+       * The named values its `$.state.get` and `$.state.set` calls refer to by
+       * literal, each `{ plugin, key }`; absent when it calls neither.
+       */
+      state?: {
+          /**
+           * The values its `$.state.get` calls spell, sorted, each once.
+           */
+          reads: readonly StateName[];
+          /**
+           * The values its `$.state.set` calls spell, sorted, each once.
+           */
+          writes: readonly StateName[];
+      };
   };
 
   /**
@@ -6595,6 +6838,20 @@ declare module 'claude-code' {
   type PluginStamp = {
       plugin: string;
   };
+
+  /**
+   * The named values plugins keep in the session (`$.state`), by plugin name
+   * then key, for declaration merging; empty by default.
+   *
+   * A plugin declares its own in the contract it ships, inside `declare module
+   * "claude-code"`; a key's type is the value `$.state.get` answers and
+   * `$.state.set` takes, and a StateFamily key holds one value per `id`.
+   *
+   * @example
+   * interface PluginState { swarm: { workers: Worker[] } }
+   */
+  export interface PluginState {
+  }
 
   type PostCompactHookInput = BaseHookInput & {
       hook_event_name: 'PostCompact';
@@ -7189,6 +7446,14 @@ declare module 'claude-code' {
        */
       isFilled: boolean;
       /**
+       * Why the box did not take the text, when the engine itself refused
+       * (PromptFillResult): `no_composer` where the session binds no box,
+       * `dialog` while one holds the keys. A hook's refusal carries none, so
+       * a caller choosing a fallback treats an absent cause as unknown and
+       * does not act as if no box existed.
+       */
+      refusal?: 'no_composer' | 'dialog';
+      /**
        * The draft after the fill; unchanged when `isFilled` is false; `''` where
        * no box is drawn or the caller may not read it (see above).
        */
@@ -7269,6 +7534,18 @@ declare module 'claude-code' {
        * out.
        */
       isFilled: boolean;
+      /**
+       * Why the box did not take the text, on the two refusals the engine
+       * itself answers: the session binds no prompt box (`no_composer`:
+       * headless, or a surface that draws its own composer), or a dialog holds
+       * the keys (`dialog`), so the write would land under it, unseen. A hook's
+       * own refusal carries none: the site strips a cause a hook writes itself,
+       * keeping only one its `next` gave it, passed up as it was. A caller
+       * branching on the cause treats an absent one as unknown and takes its
+       * refusing arm; `no_composer` is the only value that says no box exists
+       * to protect.
+       */
+      refusal?: 'no_composer' | 'dialog';
   };
 
   /**
@@ -7664,6 +7941,22 @@ declare module 'claude-code' {
   };
 
   /**
+   * `read($, source)`: the value of an atom (its initial while absent), of a
+   * derived value, or under a plain reference; one `$.state.get` per value.
+   *
+   * Made while a `ui.render` hook draws, it subscribes the drawing as the
+   * calls it makes would.
+   *
+   * @example
+   * const n = await read($, count)
+   */
+  export type ReadFunction = {
+      <T>($: StateDollar, source: Atom<T>): Promise<T>;
+      <T>($: StateDollar, source: Derived<T>): Promise<T>;
+      <P extends keyof PluginState & string, K extends keyof PluginState[P] & string>($: StateDollar, source: StateRef<P, K>): Promise<StateValue<P, K> | undefined>;
+  };
+
+  /**
    * The hooks module's entry: `export function register(on, options)`. `on`
    * registers hooks; `options` is the plugin's configuration (PluginOptions).
    *
@@ -7775,6 +8068,16 @@ declare module 'claude-code' {
            * under the pointer or the focus; absent draws as false.
            */
           dimColor?: TextProps['dimColor'];
+          /**
+           * `"primary"` marks the main action of several, drawn as the surface
+           * marks the one to press; `"secondary"`, and absent, draw as before.
+           *
+           * The terminal draws a primary in the accent color; `plain` wins over
+           * it. Carried to every surface as written, never filled in.
+           *
+           * @example { key: 'save', label: 'Save', variant: 'primary' }
+           */
+          variant?: ButtonProps['variant'];
           /**
            * The site's ring starts on this element when the site takes the
            * keyboard; the first drawn of several. Absent draws as before.
@@ -8175,7 +8478,8 @@ declare module 'claude-code' {
        */
       AssistantMessage: {
           /**
-           * The block's text, markdown, as the transcript will draw it.
+           * The block's text, markdown, as the surface's transcript will draw it:
+           * what it hides of a reply (the terminal's, a `<context>` block) is gone.
            */
           text: string;
           /**
@@ -8506,10 +8810,11 @@ declare module 'claude-code' {
        * The dim hint line under the prompt (`? for shortcuts`, `esc to
        * interrupt`, the pills beside them). One instance.
        *
-       * A hook rewrites `hint` and the rewrite is drawn in the line's place, or
-       * draws its own tree; `isDraft` and `isWorking` say what the line is for.
+       * A hook rewrites `hint`, drawn in the line's place, or draws its own tree;
+       * `isDraft` and `isWorking` say what the line is for. On the terminal, until
+       * a new answer lands the last keeps its row (the engine's line before any).
        *
-       * Raised on the terminal surface only.
+       * Raised on the terminal and desktop surfaces only.
        */
       PromptHint: {
           /**
@@ -8537,7 +8842,7 @@ declare module 'claude-code' {
        * (ctrl+x ctrl+a, `[-]`) or focuses it (a click, ctrl+x tab): an Input
        * types, a Button arms the hotkeys, a tree taller than it scrolls.
        *
-       * Raised on the terminal surface only.
+       * Raised on the terminal and desktop surfaces only.
        */
       AbovePrompt: {
           /**
@@ -8686,8 +8991,8 @@ declare module 'claude-code' {
        * says: `true` fullscreen, `false` on the main screen, fixed per session; a
        * remote surface once its client reports it with the size, absent before.
        *
-       * @remarks The desktop and VS Code report it once they place panes; the
-       *   mobile app, which has no dock, `false`. A change re-draws the sites.
+       * @remarks A remote surface that reports it places panes (`$.ui.open` is
+       *   placed there); the mobile app reports `false`. A change re-draws.
        * @example if (e.viewport?.isFullscreen === true) void $.ui.open({ id })
        */
       isFullscreen?: boolean;
@@ -9418,6 +9723,12 @@ declare module 'claude-code' {
        */
       kind: string;
       /**
+       * The envelope's sender-kind attribute as the server stamped it (`system`
+       * for a relay's own event, `rc_owner` for the user's own relayed message);
+       * absent when the envelope carries none.
+       */
+      from?: string;
+      /**
        * The envelope's JSON body (`{ pr: "acme/app#12", outcome: "merged" }`).
        */
       data: Record<string, unknown>;
@@ -9852,6 +10163,36 @@ declare module 'claude-code' {
   };
 
   /**
+   * What `$.session.version()` answers: the version of the engine the session
+   * runs on, the release that version is built from, and when it was built.
+   *
+   * The three are what the engine's own analytics rows carry as `version`,
+   * `version_base` and `build_time`, so a row a plugin sends and a row the
+   * engine sends from the same binary agree.
+   */
+  export type SessionVersion = {
+      /**
+       * The engine's full version, as `claude --version` prints it.
+       *
+       * A release's is `2.1.280`; a development build's adds the build's date,
+       * time and commit (`2.1.280-dev.20260920.t101500.sha1a2b3c4`).
+       */
+      version: string;
+      /**
+       * The release the version is built from, its semantic core and channel:
+       * `2.1.280` for that release, `2.1.280-dev` for a development build of it.
+       *
+       * Absent when the version is not spelled as a release.
+       */
+      base?: string;
+      /**
+       * When the binary was built, an ISO 8601 timestamp
+       * (`2026-09-20T10:15:00Z`). Absent in a run from source that stamps none.
+       */
+      builtAt?: string;
+  };
+
+  /**
    * What `$.settings.read` answers: an object keyed as a settings.json is
    * (`permissions`, `env`, `hooks`, `model`, `enabledPlugins`, ...).
    *
@@ -9887,6 +10228,27 @@ declare module 'claude-code' {
       hook_event_name: 'Setup';
       trigger: 'init' | 'maintenance';
   };
+
+  /**
+   * A value kept with a shape tag, as an `atom` given `{ shape }` keeps it: a
+   * reload whose code names another tag reads the value as absent.
+   *
+   * Declare the key as `Shaped<T>` in PluginState when its atom names a shape;
+   * the atom reads and takes `T`.
+   *
+   * @example
+   * interface PluginState { board: { cells: Shaped<Cell[]> } }
+   */
+  export type Shaped<T> = {
+      shape: string;
+      value: T;
+  };
+
+  /**
+   * What an atom given a shape reads and takes for a key declared `Shaped<T>`:
+   * `T`; `never` for a key declared otherwise, so that atom does not compile.
+   */
+  export type ShapedValue<V> = V extends Shaped<infer T> ? T : never;
 
   /**
    * Where a site's window sits over the tree a hook drew in it (a pane's body,
@@ -9958,6 +10320,14 @@ declare module 'claude-code' {
   };
 
   /**
+   * The values `derive`'s function receives for its sources, in their order:
+   * an atom's or a derived value's own, a plain reference's or `undefined`.
+   */
+  export type SourceValues<S extends readonly unknown[]> = {
+      [I in keyof S]: S[I] extends Atom<infer V> ? V : S[I] extends Derived<infer V> ? V : S[I] extends StateName<infer P, infer K> ? P extends keyof PluginState & string ? K extends keyof PluginState[P] & string ? StateValue<P, K> | undefined : unknown : unknown : unknown;
+  };
+
+  /**
    * Options of `$.audio.speak`.
    */
   export type SpeakOptions = {
@@ -10009,6 +10379,136 @@ declare module 'claude-code' {
       readonly origin: Origin;
       readonly trace: readonly TraceEntry<EventName, unknown, unknown>[];
       readonly budget: NextBudget;
+  };
+
+  /**
+   * Which named value a `$.state` call is about, as it crosses to the host: the
+   * owning plugin, the key, and a family member's `id`.
+   *
+   * The untyped form of a StateRef; identity, pinned on every `next`.
+   */
+  export type StateAddress = {
+      plugin: string;
+      key: string;
+      id?: string;
+  };
+
+  /**
+   * What the state library's `read` and `update` take of `$`: its `state` noun,
+   * on which they make the calls a hook would make itself.
+   */
+  export type StateDollar = Pick<CoreEngineInterface, 'state'>;
+
+  /**
+   * A key of PluginState that holds one value of type `T` per `id` (one per
+   * drawn row, per worker): its reference must carry `id: string`.
+   *
+   * Only a marker in the registry; no value has this shape. `$.state.get` on a
+   * member answers `T`, and a reference to the family without an `id` does not
+   * compile.
+   *
+   * @example
+   * interface PluginState { notes: { isOpen: StateFamily<boolean> } }
+   */
+  export type StateFamily<T> = {
+      readonly byId: T;
+  };
+
+  /**
+   * `e` of `state.get`: one variant per value a contract declares, so a matcher
+   * on `plugin` and `key` narrows it; the untyped address while none does.
+   *
+   * @example
+   * on("state.get", { plugin: "swarm" }, ($, e, next) => next(e))
+   */
+  export type StateGetEvent = [DeclaredPair] extends [never] ? StateAddress : DeclaredEvents<DeclaredPair>['get'];
+
+  /**
+   * Which named value: the plugin that owns it and its key there, both
+   * literals where a contract declares the value.
+   */
+  type StateName<P extends string = string, K extends string = string> = {
+      readonly plugin: P;
+      readonly key: K;
+  };
+
+  /**
+   * What `$.state.get` answers: the value and the version it stands at; a
+   * value never written is `undefined` at version 0.
+   *
+   * The version goes up by one on every write that lands; hand it back as
+   * `ifVersion` to write only if nobody wrote in between.
+   */
+  export type StateRead<T = unknown> = {
+      value: T | undefined;
+      version: number;
+  };
+
+  /**
+   * A typed reference to one named value: the owning plugin and the key, both
+   * literals, and for a StateFamily key the member's `id`.
+   *
+   * Written once as a constant and passed to `$.state.get` and `$.state.set`;
+   * `plugin` and `key` must be literals in source so `claude plugin validate`
+   * lists what a module reads and writes. Only `id` may be computed.
+   *
+   * @example
+   * const workers = { plugin: "swarm", key: "workers" } as const
+   */
+  export type StateRef<P extends keyof PluginState & string, K extends keyof PluginState[P] & string> = StateName<P, K> & (PluginState[P][K] extends StateFamily<unknown> ? Readonly<Required<Pick<StateAddress, 'id'>>> : Readonly<Partial<Record<'id', undefined>>>);
+
+  /**
+   * `e` of `state.set`: one variant per value a contract declares, so a matcher
+   * on `plugin` and `key` narrows `e.value`; the untyped write while none does.
+   *
+   * `plugin`, `key` and `id` are identity, pinned; `value` is a hook's to
+   * rewrite, which is how a plugin that does not own a value changes it.
+   *
+   * @example
+   * on("state.set", DRIVE, ($, e, next) => next({ ...e, value: false }))
+   */
+  export type StateSetEvent = [DeclaredPair] extends [never] ? StateWrite : DeclaredEvents<DeclaredPair>['set'];
+
+  /**
+   * The options of `$.state.set`: `ifVersion` makes the write conditional on
+   * the value still standing at that version (compare-and-set).
+   */
+  export type StateSetOptions = {
+      ifVersion?: number;
+  };
+
+  /**
+   * What `$.state.set` answers: whether the write landed, and the version the
+   * value stands at now (a landed write's own, a missed one's the current).
+   *
+   * `isSet` is false only for a write given `ifVersion` that another write beat;
+   * nothing changed then, and a `$.state.get` reads what stands.
+   */
+  export type StateSetResult = {
+      isSet: true;
+      version: number;
+  } | {
+      isSet: false;
+      version: number;
+  };
+
+  /**
+   * The type of the value under key `K` of plugin `P`, as its contract declares
+   * it in PluginState; a StateFamily's member type for a family key.
+   */
+  export type StateValue<P extends keyof PluginState & string, K extends keyof PluginState[P] & string> = PluginState[P][K] extends StateFamily<infer Member> ? Member : PluginState[P][K];
+
+  /**
+   * A `$.state.set` as it crosses to the host and as its hooks see it when no
+   * contract declares the value: the address, the value, and the condition.
+   *
+   * `previous` is the host's, put on `e` ahead of every hook: what stood there
+   * when the write was raised.
+   */
+  export type StateWrite = StateAddress & {
+      value: unknown;
+      previous?: unknown;
+      ifVersion?: number;
   };
 
   type StopFailureHookInput = BaseHookInput & {
@@ -10916,8 +11416,8 @@ declare module 'claude-code' {
        * What the turn cost: its responses' token counts summed and the model of
        * the last, read off the API responses the engine already holds.
        *
-       * Absent when the turn got no response (interrupted before one, an API
-       * error).
+       * A response a `turn.step` hook made up counts only when its stop states
+       * usage; absent when no counted response came (an interrupt, an API error).
        */
       usage?: TurnUsage;
   };
@@ -11577,16 +12077,17 @@ declare module 'claude-code' {
       isPlaced: true;
   } | {
       /**
-       * False: the pane is open but waits undrawn, opened unasked on a
-       * terminal narrower than an unrequested pane is given.
+       * False: the pane is open but waits undrawn: opened unasked on a narrow
+       * terminal, or in a session whose attached surfaces place no panes.
        */
       isPlaced: false;
       /**
        * Why it waits and what seats it: the floor it fell under (144 columns
        * unasked, 110 for an id the person once opened) and the width now.
        *
-       * With no terminal measured (a `-p` run) nothing is squeezed, so this
-       * arm never comes back there.
+       * Or the attached surfaces that place nothing (an older desktop); it is
+       * seated when one that places panes attaches. With no terminal measured
+       * and no surface attached (a bare `-p` run) this arm never comes back.
        *
        * @example
        * on('ui.open', { id }, () => ({ value: { isPlaced: false, reason } }))
@@ -11934,6 +12435,22 @@ declare module 'claude-code' {
   type UnionToIntersection<U> = (U extends unknown ? (member: U) => void : never) extends (member: infer I) => void ? I : never;
 
   /**
+   * `update($, target, fn)`: reads the value, applies `fn` here in the
+   * plugin's environment, writes with `ifVersion`, and tries again on a miss.
+   *
+   * What a handler closure uses in place of `$.state.set(ref, stale + 1)`:
+   * two presses before a redraw both land. Functions do not cross to the host,
+   * so the loop lives on the plugin's side. Resolves what it wrote.
+   *
+   * @example
+   * <Button key="more" onPress={() => update($, count, n => n + 1)} />
+   */
+  export type UpdateFunction = {
+      <T>($: StateDollar, target: Atom<T>, change: (value: T) => T): Promise<T>;
+      <P extends keyof PluginState & string, K extends keyof PluginState[P] & string>($: StateDollar, target: StateRef<P, K>, change: (value: StateValue<P, K> | undefined) => StateValue<P, K>): Promise<StateValue<P, K>>;
+  };
+
+  /**
    * One unit of what `$.session.usage()` answers, by its key there: the
    * context window's fill, the rate-limit windows, the session's cost.
    */
@@ -12035,6 +12552,50 @@ declare module 'claude-code' {
       hook_event_name: 'WorktreeRemove';
       worktree_path: string;
   };
+
+  /**
+   * A named value with its initial: `read` answers the initial while nothing
+   * is written, so never `undefined`. Pure; runs in the plugin's environment.
+   *
+   * @example
+   * import { atom, read, update } from "claude-code"
+   * const count = atom({ plugin: "counter", key: "count" } as const, 0)
+   */
+  export const atom: AtomFunction
+
+  /**
+   * A value computed from atoms and references, cached by their versions.
+   *
+   * @example
+   * const busy = derive([workers], list => list.filter(w => w.isBusy).length)
+   */
+  export const derive: DeriveFunction
+
+  /**
+   * A family's member for the instance being drawn, keyed by `e.requestId`.
+   *
+   * @example
+   * const open = await read($, memberOf(isOpen, e))
+   */
+  export const memberOf: MemberOfFunction
+
+  /**
+   * Reads an atom, a derived value or a reference through `$.state.get`;
+   * while a `ui.render` hook draws, that subscribes the drawing.
+   *
+   * @example
+   * const n = await read($, count)
+   */
+  export const read: ReadFunction
+
+  /**
+   * Reads, applies `fn` in the plugin's environment, writes with
+   * `ifVersion`, and tries again on a miss: what a handler closure calls.
+   *
+   * @example
+   * <Button key="more" onPress={() => update($, count, n => n + 1)} />
+   */
+  export const update: UpdateFunction
 
   /**
    * The globals of a hooks module's environment: these and no others (no DOM,
@@ -13845,6 +14406,10 @@ declare module 'claude-code' {
       tmuxSessionName?: string
       discardedFiles?: number
       discardedCommits?: number
+      /** @internal Where the session's cwd ended up: originalCwd, or a fallback when it was gone. */
+      restoredCwd?: string
+      /** @internal originalCwd was gone (or a network path the session will not touch), so restoredCwd is a fallback directory. */
+      originalCwdMissing?: boolean
       message: string
     }
     ListAgents: {
