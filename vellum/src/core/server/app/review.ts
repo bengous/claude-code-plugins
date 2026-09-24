@@ -11,6 +11,7 @@ import {
   appendText,
   finalize as renameWorkspace,
   listFiles,
+  listReview,
   modifiedAt,
   readPlan,
   readText,
@@ -19,10 +20,16 @@ import {
   removeFile,
   writeText,
 } from "../adapters/fs.ts";
-import { CHANNEL_FILE, channelAfter, channelLine, nextSeq } from "../domain/channel.ts";
+import {
+  appended,
+  CHANNEL_FILE,
+  CHANNEL_ID_FILE,
+  channelAfter,
+  untold,
+} from "../domain/channel.ts";
 import type { FeedbackHeading } from "../domain/feedback.ts";
 import { formatFeedback } from "../domain/feedback.ts";
-import type { FinalDir, ParseResult, ProjectPath, Version, WipDir } from "../domain/paths.ts";
+import type { FinalDir, ProjectPath, Version, WipDir } from "../domain/paths.ts";
 import { parseVersion } from "../domain/paths.ts";
 import type { Decision, Draft } from "../domain/review.ts";
 import { decideOn, draftIsEmpty, gateVersion, slugFor } from "../domain/review.ts";
@@ -42,6 +49,8 @@ export type ReviewOptions = {
   readonly project: string;
   readonly workdir: WipDir;
   readonly extensions: readonly ServerExtension[];
+  /** What the directory cannot say at start: an approval already renamed it, for a server revived there. */
+  readonly memory?: Memory | undefined;
 };
 
 export type DecisionResult =
@@ -70,7 +79,7 @@ function grouped(docs: readonly DocRef[], group: DocGroup): GroupedDoc[] {
 
 /** The use case: reads the directory, lets the domain decide, applies: files, memory, listeners. */
 export class Review {
-  private memory: Memory = { kind: "none" };
+  private memory: Memory;
 
   private readonly listeners = new Set<(workspace: PlanWorkspace) => void>();
 
@@ -83,6 +92,7 @@ export class Review {
 
   public constructor(private readonly options: ReviewOptions) {
     const { project } = options;
+    this.memory = options.memory ?? { kind: "none" };
 
     this.context = {
       workspace: () => this.workspace(),
@@ -138,22 +148,52 @@ export class Review {
   }
 
   /** The channel's entries past `after`, read from where the review lives now. */
-  public async channel(after: number): Promise<ParseResult<ChannelLine[]>> {
-    const text = await readTextIfAny(this.options.project, await this.channelDoc());
+  public async channel(after: number): Promise<ChannelLine[]> {
+    const text = await readTextIfAny(this.options.project, await this.channelDoc(CHANNEL_FILE));
 
     return channelAfter(text ?? "", after);
   }
 
-  private async channelDoc(): Promise<ProjectPath> {
-    return projectPath(`${(await this.workspace()).dir}${CHANNEL_FILE}`);
+  /**
+   * Opens the channel where the review lives, and answers its identity, minted the first time. A
+   * channel already there takes the entries its directory implies and it lacks (`untold`); a
+   * directory with no channel yet has nothing to tell, since its files predate the channel.
+   */
+  public openChannel(): Promise<string> {
+    return this.inOrder(async () => {
+      const { project } = this.options;
+      const workspace = await this.workspace();
+      const text = await readTextIfAny(project, await this.channelDoc(CHANNEL_FILE));
+
+      if (text === null) await writeText(project, await this.channelDoc(CHANNEL_FILE), "");
+      else {
+        const names = await listReview(project, workspace.dir);
+
+        for (const entry of untold(workspace, names, channelAfter(text, 0)))
+          await this.relay(entry);
+      }
+
+      const idDoc = await this.channelDoc(CHANNEL_ID_FILE);
+      const id = (await readTextIfAny(project, idDoc))?.trim() ?? "";
+
+      if (id !== "") return id;
+      const minted = crypto.randomUUID();
+      await writeText(project, idDoc, minted);
+
+      return minted;
+    });
+  }
+
+  private async channelDoc(file: string): Promise<ProjectPath> {
+    return projectPath(`${(await this.workspace()).dir}${file}`);
   }
 
   /** Called inside the queue, by the core and through `ServerContext`, so two entries never take one number. */
   private async relay(entry: ChannelEntry): Promise<number> {
     const { project } = this.options;
-    const doc = await this.channelDoc();
-    const seq = nextSeq((await readTextIfAny(project, doc)) ?? "");
-    await appendText(project, doc, channelLine(entry));
+    const doc = await this.channelDoc(CHANNEL_FILE);
+    const { text, seq } = appended((await readTextIfAny(project, doc)) ?? "", entry);
+    await appendText(project, doc, text);
 
     for (const listener of this.channelListeners) listener({ seq, entry });
 

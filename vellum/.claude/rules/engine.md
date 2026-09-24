@@ -36,21 +36,27 @@ loop. `/vellum:start` enters it, Approve in the page or `/vellum:stop` leaves it
 - One `State` union (`idle | live | lost`), never several nullables. A new feature adds a
   variant, not a flag. Before writing `let x: T | null`, name the state `null` stands for.
 - The server is a child of the module, `$.process.spawn` of `cli.ts serve`, and says everything
-  on its stdout, one `ServerLine` per line: `ready` first, then each entry of the channel and each
-  change of the review (`protocol.ts`). The pieces cut lines anywhere: `server.ts` keeps the tail.
-  It is spawned from `skill.prompt`, `session.start` or a timer, never from a `tool.call`: Escape
-  on that call ends the child. The loop that reads it hands each line on and awaits nothing else,
-  or the child blocks once about 1.6 MB is unread (slice 0's measurements, `mesures.md` beside
-  `plans/2026-09-24/vellum-un-canal-vers-claude-un-seul-envoyer-claude-propose/plan.md`).
-- A server that dies comes back where it was. Its stream's end, while its mode is current, asks
-  `revive`, once; a reload ends every child, and `session.start` relaunches the stored one the same
-  way. A revival is `start` with the kept port, the kept token and `--existing`, so the
-  reviewer's tab reconnects by itself and a directory an approval renamed is never recreated
-  empty. A server this module did not spawn cannot be read, so a kept one is never taken back: a
-  port another process still holds gives the relaunched server another port under a new token,
-  and the store keeps those. `register.ts` checks `state === from` before and after the launch: a
-  `/clear`, a `/vellum:stop` or a new way in wins, the server started for nothing exits alone, and
-  the lines of a server whose mode was left reach nobody.
+  on its stdout, one `ServerLine` per line: `ready` first, with its channel's identity, then each
+  entry of the channel and each change of the review (`protocol.ts`). The engine's facts this
+  rests on (pieces, not lines; about 1.6 MB unread blocks the child; never spawn from a
+  `tool.call`; `return()` kills a child whose read is pending; a reload ends every child) are in
+  [Hook runtime](../../../docs/plugin-testing/hook-runtime.md) § Reloads and background work. So
+  `server.ts` keeps each piece's tail, the loop that reads the child hands each line on and
+  awaits nothing else, and `start` waits `START_TIMEOUT_MS` for `ready`, then ends the child.
+- The mode owns its server: a `Live` holds the child, and `become` ends it as the mode leaves
+  that `Live` (`/vellum:stop`, `/clear`, `/resume` away, the approval, a way into another
+  session, a revival replacing it); a launch nobody takes is ended too. A server that dies comes
+  back where it was: its end while its mode is current asks `revive`, and so do
+  `HEARTBEATS_MISSED` heartbeats left unanswered, the child ended first. A revival is `start`
+  with the kept port, the kept token and `--existing`, and `--final` once an approval renamed the
+  directory, so the reviewer's tab reconnects by itself and a directory is never recreated
+  empty. `CRASHES_BEFORE_LOST` unexpected ends within `CRASH_WINDOW_MS` stop the revivals: the
+  mode goes `lost`, its log naming the last end. A reload ends every child, and `session.start`
+  relaunches the stored session the same way, leaving the mode of another session first. A
+  server this module did not spawn cannot be read, so a kept one is never taken back: a port
+  another process still holds gives the relaunched server another port under a new token, and
+  the store keeps those. `register.ts` checks `state === from` before and after the launch: a
+  `/clear`, a `/vellum:stop` or a new way in wins, and the server started for nothing is ended.
 - A revival that fails is `lost`, never `idle`: the lock opens outside the mode, so a failure
   must not hand Claude the repository. `lost` keeps the session, the lock reads it through
   `sessionOf` as it does while `live`, the status says why (`server lost, retrying`, or
@@ -106,14 +112,16 @@ loop. `/vellum:start` enters it, Approve in the page or `/vellum:stop` leaves it
   relative path of theirs alone, so a failure there never denies a read. `claude plugin validate` lists the hook but not its handler, so nothing but
   this rule says the handler is there.
 - `/clear` and `/resume` suspend the mode, on `command.run` and after `next(e)`: timers stopped,
-  status cleared, band gone, `session:<id>` kept, so a later `/resume` of that session finds its directory.
+  server ended, status cleared, band gone, `session:<id>` kept, so a later `/resume` of that
+  session finds its directory and starts a server there.
   `/clear` always mints a new session id; `/resume` suspends only when the id changed, since an
   Esc in the picker or the same session resumed leaves the conversation planning. It is the
   deterministic place, not a guess at what the session did. `/vellum:stop` stays the reviewer's
   explicit way out and drops the record; both are no-ops when the mode is already idle.
 - The relayed approval closes the mode through `settle`, which `register.ts` honours only while
-  the state it entered is still the current one: an approval that lands during a new way in
-  leaves the new mode and its timers alone.
+  the mode holds that session, live or lost: an approval that lands after a way into another
+  session leaves that mode alone. A closing that fails is retried at the heartbeat, and the
+  approval is never told twice.
 - The turn's end submits: a `turn.complete` hook, after `next(e)`, gates `plan.md` while
   `live` when the main loop answered (`reason === "answer"`, no `agentId`), with
   `{ unchanged: "keep" }` so a text the page already shows opens no version, after a feedback
@@ -131,18 +139,25 @@ loop. `/vellum:start` enters it, Approve in the page or `/vellum:stop` leaves it
   the parser.
 - Saving the file under `--plugin-dir` reloads the module in a fresh environment: every
   pending timer dies, and every child it spawned. State that must survive a reload goes to
-  `$.store`.
+  `$.store`; the session's record and the relayed record are the two, and one of an older shape
+  fails its parser and starts over.
 - A hook answers within its dispatch's budget, about ten seconds. What waits for a person
-  arrives on the server's stdout and is handed to the session by `$.prompt.submit`, which
-  resolves once the session is idle: the relays run in a queue of their own, never in the loop
-  that reads the child.
+  arrives on the server's stdout and is handed to the session by `$.prompt.submit`, which,
+  called while a turn runs, resolves once that prompt's own turn starts: the relays run in a
+  queue of their own, never in the loop that reads the child.
 - Everything the reviewer sends reaches Claude as an entry of the channel,
-  `.review/channel.jsonl`, numbered by its line (`server.md`). The module relays each one once and
-  in order, and writes the last number relayed to `$.store` under the working directory it belongs
-  to after each prompt, so nothing is said twice across a reload or a relaunched server. A number
-  past the next one reads the entries it missed from `GET /api/channel` first, as every way in
-  does; a dropped prompt stays due, and the heartbeat reads the channel again. An approval drops
-  the record: the next plan's channel counts from one again. Each prompt is the fact and its
+  `.review/channel.jsonl`, numbered by its line (`server.md`). One follower per session in a
+  module's environment relays each entry once and in order (`follow` in `relay.ts`): it belongs to
+  the mode's `Tenure`, carried across the servers a revival replaces, so a prompt still waiting
+  for its turn is never relayed a second time, and it stops when the mode leaves. It writes the
+  last number relayed to `$.store` under the channel's identity after each prompt, so nothing is
+  said twice across a reload or a relaunched server, and a new working directory at the same
+  path, another channel, is read from its first entry. A number past the next one reads the
+  entries it missed from `GET /api/channel` first, as every way in does, and logs the numbers the
+  channel holds no entry for; a dropped prompt stays due, and the heartbeat reads the channel
+  again. The approval drops the record. A `stage` line that says approved keeps the final
+  directory in the session's record before the approval reaches Claude: a server revived
+  meanwhile starts there, and relays it. Each prompt is the fact and its
   object, nothing else: `Reviewer sent: read <file>.`, the approval with the notes file to read
   first when there is one (the module reads the path and never the file), an extension's text as
   it worded it. The skill `start` already says what to do with a file sent and an approval, so

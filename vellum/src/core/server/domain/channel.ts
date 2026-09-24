@@ -1,6 +1,7 @@
-import type { FinalDir, ParseResult, ProjectPath, Version } from "./paths.ts";
+import type { FinalDir, ProjectPath, Version } from "./paths.ts";
 import { parseFinalDir, parseProjectPath, parseVersion } from "./paths.ts";
-import { REVIEW_DIR } from "./workspace.ts";
+import type { PlanWorkspace } from "./workspace.ts";
+import { notesFile, projectPath, REVIEW_DIR } from "./workspace.ts";
 
 /**
  * What reaches Claude, one line per entry, appended and never cut: an entry's number is its line
@@ -12,6 +13,15 @@ import { REVIEW_DIR } from "./workspace.ts";
  * the user.
  */
 export const CHANNEL_FILE = `${REVIEW_DIR}/channel.jsonl`;
+
+/**
+ * The channel's identity, minted with it and carried by the approval's rename: the hooks module
+ * keys what it relayed by it, since a new working directory at the same path is another channel.
+ */
+export const CHANNEL_ID_FILE = `${REVIEW_DIR}/channel.id`;
+
+/** A feedback file of `.review/`: `v0.feedback-<k>.md` while drafting, `v<N>.feedback.md` after. */
+const FEEDBACK_FILE = /^v(\d+)\.feedback(?:-(\d+))?\.md$/u;
 
 /**
  * One thing the reviewer did that Claude must hear of. The core words `sent` and `approved`; an
@@ -33,9 +43,18 @@ export function channelLine(entry: ChannelEntry): string {
   return `${JSON.stringify(entry)}\n`;
 }
 
-/** The number the next entry takes: the file's lines so far, plus one. */
-export function nextSeq(text: string): number {
-  return text.split("\n").length;
+/** What `appended` answers: the text to append, and the entry's number once it is there. */
+export type Appended = { readonly text: string; readonly seq: number };
+
+/**
+ * What an entry appends to the file as it stands, and the number it takes there. A last line with
+ * no newline, written by hand, is ended first: it becomes a line of its own, and no entry is glued
+ * to it.
+ */
+export function appended(text: string, entry: ChannelEntry): Appended {
+  const ended = text === "" || text.endsWith("\n") ? "" : "\n";
+
+  return { text: `${ended}${channelLine(entry)}`, seq: `${text}${ended}`.split("\n").length };
 }
 
 /* oxlint-disable anti-slop/no-runtime-typeof, anti-slop/no-unknown-parameters, anti-slop/no-unsafe-dictionary-type, anti-slop/no-unknown-returns, anti-slop/no-known-value-widening -- the block below IS the boundary parser the rules ask for: the channel file lies in the working directory, which Claude may write too, so every line is read back as `unknown`. */
@@ -83,25 +102,58 @@ function parseLine(line: string): unknown {
 }
 /* oxlint-enable anti-slop/no-runtime-typeof, anti-slop/no-unknown-parameters, anti-slop/no-unsafe-dictionary-type, anti-slop/no-unknown-returns, anti-slop/no-known-value-widening */
 
-/** The entries past `after`, in order; an error naming the first line past it that is no entry. */
-export function channelAfter(text: string, after: number): ParseResult<ChannelLine[]> {
-  const lines: ChannelLine[] = [];
+/**
+ * The entries past `after`, in order, each under its line's number. A line that is no entry is
+ * left out, never answered in its place: the hooks module sees the number it skips.
+ */
+export function channelAfter(text: string, after: number): ChannelLine[] {
+  return text
+    .split("\n")
+    .slice(0, -1)
+    .flatMap((line, index) => {
+      const entry = index + 1 > after ? parseEntry(parseLine(line)) : null;
 
-  for (const [index, line] of text.split("\n").slice(0, -1).entries()) {
-    const seq = index + 1;
+      return entry === null ? [] : [{ seq: index + 1, entry }];
+    });
+}
 
-    if (seq <= after) continue;
-    const entry = parseEntry(parseLine(line));
+/** `v<N>` then `k`, so the batches before the first version come first, in the order sent. */
+function feedbackOrder(name: string): readonly [number, number] | null {
+  const match = FEEDBACK_FILE.exec(name);
 
-    if (entry === null) {
-      return {
-        ok: false,
-        error: `${CHANNEL_FILE}, line ${seq}, is no entry: ${line.slice(0, 200)}`,
-      };
-    }
+  return match === null ? null : [Number(match[1]), Number(match[2] ?? 0)];
+}
 
-    lines.push({ seq, entry });
+/**
+ * The entries the directory implies and the channel lacks: a `sent` for each feedback file no
+ * entry names, and the approval of an approved directory. A write that landed while its entry did
+ * not (a failed append, a server killed between the two) is told at the next start.
+ */
+export function untold(
+  workspace: PlanWorkspace,
+  names: ReadonlySet<string>,
+  lines: readonly ChannelLine[],
+): ChannelEntry[] {
+  const named = new Set(lines.flatMap(({ entry }) => (entry.kind === "sent" ? [entry.file] : [])));
+
+  const sent = [...names]
+    .flatMap((name) => {
+      const order = feedbackOrder(name);
+
+      return order === null
+        ? []
+        : [{ order, file: projectPath(`${workspace.dir}${REVIEW_DIR}/${name}`) }];
+    })
+    .filter(({ file }) => !named.has(file))
+    .toSorted((a, b) => a.order[0] - b.order[0] || a.order[1] - b.order[1])
+    .map(({ file }): ChannelEntry => ({ kind: "sent", file }));
+
+  if (workspace.kind !== "approved" || lines.some(({ entry }) => entry.kind === "approved")) {
+    return sent;
   }
 
-  return { ok: true, value: lines };
+  const { version, dir } = workspace;
+  const notes = workspace.notes ? projectPath(`${dir}${notesFile(version)}`) : null;
+
+  return [...sent, { kind: "approved", version, dir, notes }];
 }

@@ -3,7 +3,7 @@
 import { parseArgs } from "node:util";
 
 import { EXIT_WORKDIR_GONE, startServer, WorkdirGone } from "./adapters/http/serve.ts";
-import { parseWipDir } from "./domain/paths.ts";
+import { parseFinalDir, parseWipDir } from "./domain/paths.ts";
 
 const { values, positionals } = parseArgs({
   allowPositionals: true,
@@ -14,6 +14,7 @@ const { values, positionals } = parseArgs({
     port: { type: "string" },
     token: { type: "string" },
     existing: { type: "boolean" },
+    final: { type: "string" },
   },
 });
 
@@ -28,15 +29,22 @@ if (
   workdir === undefined
 ) {
   console.error(
-    "usage: cli.ts serve --session <id> --project <dir> --workdir <dir> [--port <n> --token <t>] [--existing]",
+    "usage: cli.ts serve --session <id> --project <dir> --workdir <dir> [--port <n> --token <t>] [--existing [--final <dir>]]",
   );
   process.exit(2);
 }
 
 const dir = parseWipDir(workdir);
 
+const final = values.final === undefined ? null : parseFinalDir(values.final);
+
 if (!dir.ok) {
   console.error(dir.error);
+  process.exit(2);
+}
+
+if (final?.ok === false) {
+  console.error(final.error);
   process.exit(2);
 }
 
@@ -47,6 +55,7 @@ await startServer({
   port: Number(values.port ?? 0),
   token: values.token,
   existing: values.existing === true,
+  final: final?.value,
   announce: (line) => {
     process.stdout.write(`${JSON.stringify(line)}\n`);
   },

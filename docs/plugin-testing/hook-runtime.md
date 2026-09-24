@@ -54,25 +54,59 @@
 
 ## Reloads and background work
 
+Measured on Claude Code 2.1.282, Linux, in `--plugin-dir` sessions with probe
+plugins (September 2026), unless a line says otherwise.
+
 - Saving a file under `--plugin-dir` reloads the module: `register` runs
   again in a fresh environment and every pending timer of the old one dies.
   State the module must keep across a reload goes to `$.store`. The transcript
   says the reload landed, `<name>: reloaded (5 hooks: session.start,
   skill.prompt, command.run, tool.check, tool.call)`, counting distinct events,
-  so two hooks on one event read as one.
+  so two hooks on one event read as one. The watcher checks every 400 ms while
+  active and every 30 s at rest, and a save made during a turn reloads once
+  the turn ends, never cutting a call in flight. A reload that does not
+  compile keeps the old environment, its timers and its children.
 
-- A hook answers within its dispatch's budget, about ten seconds. What must
-  wait for a person (a browser decision) is polled by `$.clock.every` and
-  handed to the session by `$.prompt.submit`, which runs once the session is
-  idle. The prompt shows as `Prompt from the <plugin> plugin`, framed by
-  Claude Code as a message to address; a text that points at a file the
-  session can read works (`spike-results.md` in
-  `plans/2026-09-15/plan-review-rewrite/`).
+- A hook answers within its dispatch's budget, about ten seconds, and the
+  clock stops while one of its `$` calls is in flight: a loop of 25 s
+  `$.http.fetch` long-polls held a `tool.call` for 30 minutes. A promise
+  awaited with no `$` call in flight overruns the budget; raced against a
+  request in flight, it holds. Each `$.http.fetch` is cut at 30 s
+  (`aborted: no complete answer within 30000ms`), which the types do not
+  declare.
 
-- `$.process.run` reads the whole output, so a server started from a hook
-  must be spawned detached by a launcher that relays one line and exits.
-  Nothing tells a detached process that the session ended: give it a
-  heartbeat from `$.clock.every` and let it exit when the beat stops.
+- What must wait for a person (a browser decision) is handed to the session by
+  `$.prompt.submit`, which runs once the session is idle. The prompt shows as
+  `Prompt from the <plugin> plugin`, framed by Claude Code as a message to
+  address; a text that points at a file the session can read works
+  (`spike-results.md` in `plans/2026-09-15/plan-review-rewrite/`). Called
+  while a turn runs, the call resolves once that prompt's own turn starts, not
+  once it is queued: submitted 0.9 s into a turn that ended 6 s later, it
+  resolved 47 ms after that end. On the `$` of a `tool.call` it is refused,
+  since it would wait on the turn the hook holds.
+
+- `$.process.run` reads the whole output, so a process meant to stay up is a
+  child of `$.process.spawn`, whose stdout the module reads for as long as it
+  runs (`vellum/src/core/engine/server.ts`):
+  - It arrives in pieces, never lines: a line written in two writes comes in
+    two pieces, three lines in one write in one, and a piece may cut a line
+    anywhere. Left unread past about 1.6 MB (1,572,864 bytes), the child's
+    next write blocks until the loop reads again, so the reading loop awaits
+    nothing but the next piece: never `$.prompt.submit`.
+  - Spawn it from `session.start`, `skill.prompt`, `command.run` or a timer,
+    never from a `tool.call`: Escape on that call ends the child (SIGTERM). A
+    child of `skill.prompt` outlives an Escape of the skill's turn.
+  - `return()` on the stream ends the child even while a read is pending (it
+    stopped 44 ms later, and the pending read ended), where `return()` on a
+    generator wrapping it waits for that read.
+  - A reload ends every child (SIGTERM), and the old environment's loop notes
+    nothing, not even the end; there is nothing to reattach to.
+    `session.start` is raised again, and is where the module starts it anew.
+  - `/exit` sends SIGTERM to every child, and the loop still sees the end.
+    `/clear` leaves them running, and raises no `session.start`.
+  - `claude` killed by SIGKILL with its terminal open leaves the children
+    orphaned with no signal: only a heartbeat the child watches, or a change
+    of its parent pid, tells it the session is gone.
 
 - Saving a file under `--plugin-dir` prints `<plugin>: reloaded (N hooks: …)`
   and raises `session.start` again for that plugin alone, so a mode kept in

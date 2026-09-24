@@ -53,11 +53,14 @@ type StageOf<W> = W extends { readonly kind: infer K; readonly version: infer V 
 /** Where the plan stands, as much of the workspace as the band draws. */
 export type StageWire = StageOf<WorkspaceWire>;
 
-/** A line of the server's stdout as the module reads it: `ready` as the server it names, a `stage` as the band draws it. */
+/**
+ * A line of the server's stdout as the module reads it: `ready` as the server it names and its
+ * channel's identity, a `stage` as the band draws it and where the review lives.
+ */
 export type ServerLineWire =
-  | { readonly type: "ready"; readonly info: ServerInfo }
+  | { readonly type: "ready"; readonly info: ServerInfo; readonly channel: string }
   | { readonly type: "channel"; readonly line: ChannelLineWire }
-  | { readonly type: "stage"; readonly stage: StageWire };
+  | { readonly type: "stage"; readonly stage: StageWire; readonly dir: Workdir };
 
 /** What `POST /api/gate` answers: the version the browser shows, or why it shows none. */
 export type GateWire = Json<GateAnswer>;
@@ -108,12 +111,14 @@ export function parseSession(value: unknown): Session | null {
     isRecord(value) &&
     typeof value.id === "string" &&
     typeof value.project === "string" &&
-    typeof value.workdir === "string"
+    typeof value.workdir === "string" &&
+    (value.final === null || typeof value.final === "string")
     ? {
         id: value.id as SessionId,
         server,
         project: value.project as ProjectDir,
         workdir: value.workdir as Workdir,
+        final: value.final as Workdir | null,
       }
     : null;
 }
@@ -130,11 +135,11 @@ function isCount(value: unknown): value is number {
   return typeof value === "number" && Number.isInteger(value) && value >= 0;
 }
 
-/** What the store kept for this working directory; another directory's reads as nothing relayed. */
-export function parseRelayed(value: unknown, workdir: Workdir): Relayed {
-  return isRecord(value) && value.workdir === workdir && isCount(value.channel)
-    ? { workdir, channel: value.channel }
-    : { workdir, channel: 0 };
+/** What the store kept for this channel; another channel's reads as nothing relayed. */
+export function parseRelayed(value: unknown, channel: string): Relayed {
+  return isRecord(value) && value.channel === channel && isCount(value.seq)
+    ? { channel, seq: value.seq }
+    : { channel, seq: 0 };
 }
 
 function parseEntry(value: unknown): ChannelEntryWire | null {
@@ -193,12 +198,20 @@ export function parseServerLine(text: string): ServerLineWire | null {
   if (!isRecord(value)) return null;
 
   if (value.type === "ready") {
-    const info = parseServerInfo(value) satisfies Omit<
+    const info = parseServerInfo(value);
+
+    const channel =
+      typeof value.channel === "string" && value.channel !== "" ? value.channel : null;
+
+    if (info === null || channel === null) return null;
+
+    // Held to the server's own line: a field it adds or renames fails the typecheck here.
+    const ready = { ...info, channel } satisfies Omit<
       Json<Extract<ServerLine, { type: "ready" }>>,
       "type"
-    > | null;
+    >;
 
-    return info === null ? null : { type: "ready", info };
+    return { type: "ready", info, channel: ready.channel };
   }
 
   if (value.type === "channel") {
@@ -207,9 +220,12 @@ export function parseServerLine(text: string): ServerLineWire | null {
     return line === null ? null : { type: "channel", line };
   }
 
-  const stage = value.type === "stage" ? parseStage(value.workspace) : null;
+  const workspace = value.type === "stage" && isRecord(value.workspace) ? value.workspace : null;
+  const stage = workspace === null ? null : parseStage(workspace);
 
-  return stage === null ? null : { type: "stage", stage };
+  return stage === null || typeof workspace?.dir !== "string"
+    ? null
+    : { type: "stage", stage, dir: workspace.dir as Workdir };
 }
 
 /**

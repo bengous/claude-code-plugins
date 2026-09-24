@@ -3,6 +3,7 @@ import { describe, expect, test, tier } from "claude-code/testing";
 import {
   approved,
   changesRequested,
+  CHANNEL,
   channelLine,
   CWD,
   DATE,
@@ -327,7 +328,11 @@ function stageOf(workspace: string) {
 
 describe("parseServerLine", () => {
   test("ready names the server: its port, its token and its pid", () => {
-    expect(parseServerLine(JSON.stringify(READY))).toEqual({ type: "ready", info: SERVER });
+    expect(parseServerLine(JSON.stringify(READY))).toEqual({
+      type: "ready",
+      info: SERVER,
+      channel: CHANNEL,
+    });
   });
 
   test("an approval's notes are a path or null", () => {

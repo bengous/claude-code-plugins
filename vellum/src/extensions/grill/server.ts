@@ -109,7 +109,7 @@ async function tell(
   after: string,
   first = false,
 ): Promise<void> {
-  const known = before === null ? -1 : (relaysOf(before, name, -1).at(-1)?.seq ?? -1);
+  const known = before === null ? -1 : relaysOf(before, name, -1).length - 1;
 
   for (const relay of relaysOf(after, name, known)) {
     await context.relay({ kind: "text", from: "grill", text: toldOf(relay, first) });

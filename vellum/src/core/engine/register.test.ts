@@ -5,6 +5,8 @@ import {
   band,
   changesRequested,
   channelLine,
+  CRASH_WINDOW_MS,
+  CRASHES_BEFORE_LOST,
   CWD,
   DRAFTING,
   emit,
@@ -23,6 +25,7 @@ import {
   SESSION_ID,
   stage,
   START_PROMPT,
+  START_TIMEOUT_MS,
   STARTS,
   STOP_PROMPT,
   storedSession,
@@ -67,6 +70,28 @@ describe("session.start", () => {
   });
 });
 
+describe("session.start into another session", () => {
+  test("leaves the mode it finds: its heartbeat stops and its server ends", async ($, on) => {
+    const other = {
+      id: OTHER_ID,
+      server: SERVER,
+      project: CWD,
+      workdir: OTHER_WORKDIR,
+      final: null,
+    };
+
+    const seen = world(on, { stored: { [`session:${OTHER_ID}`]: other } });
+    await $.skill.prompt(START_PROMPT);
+    seen.id = OTHER_ID;
+    await $.session.start(SESSION);
+    const from = seen.paths.length;
+    await seen.clock.advance(HEARTBEAT_MS);
+
+    expect(seen.children[0]?.killed()).toBe(true);
+    expect(seen.paths.slice(from).filter((path) => path === "/api/heartbeat")).toHaveLength(1);
+  });
+});
+
 describe("skill.prompt", () => {
   test("starts the server once, stores it, and appends the working directory", async ($, on) => {
     const seen = world(on);
@@ -98,7 +123,7 @@ describe("skill.prompt", () => {
     expect(await $.skill.prompt(START_PROMPT)).toEqual({ text: "t" });
   });
 
-  test("a server whose first line is not ready did not start", async ($, on) => {
+  test("a server whose first line is not ready did not start, and is ended", async ($, on) => {
     const seen = world(on, {
       spawn: (child) => {
         child.print("Listening on 4242\n");
@@ -107,6 +132,19 @@ describe("skill.prompt", () => {
 
     expect(await $.skill.prompt(START_PROMPT)).toEqual({ text: "t" });
     expect(seen.logs.at(-1)).toContain("its first line is not ready: Listening on 4242");
+    expect(seen.children[0]?.killed()).toBe(true);
+  });
+
+  test("a server that writes no ready line within five seconds did not start, and is ended", async ($, on) => {
+    const seen = world(on, { spawn: () => {} });
+    const entering = $.skill.prompt(START_PROMPT);
+    await seen.clock.advance(START_TIMEOUT_MS);
+
+    expect(await entering).toEqual({ text: "t" });
+    expect(seen.logs.at(-1)).toBe(
+      `the review server did not start: no ready line within ${START_TIMEOUT_MS} ms`,
+    );
+    expect(seen.children[0]?.killed()).toBe(true);
   });
 
   test("the session the store kept is relaunched on its port, its token and its directory", async ($, on) => {
@@ -448,6 +486,83 @@ describe("turn.complete", () => {
 });
 
 describe("a server that ends", () => {
+  test("a revival while a prompt waits for the turn relays the entry once", async ($, on) => {
+    const seen = world(on);
+    seen.hold = () => seen.clock.sleep(5_000);
+    await $.skill.prompt(START_PROMPT);
+    emit(seen, sent());
+    await seen.clock.settle();
+    seen.children[0]?.exit(ENDED);
+    await seen.clock.settle();
+    await seen.clock.advance(5_000);
+
+    expect(seen.children).toHaveLength(2);
+    expect(seen.prompts).toEqual([`Reviewer sent: read ${WORKDIR}.review/v0.feedback-1.md.`]);
+    expect(seen.store.get(`relayed:${SESSION_ID}`)).toEqual(relayed(1));
+  });
+
+  test("an approval not yet relayed when the server dies is relayed by one revived in the final directory", async ($, on) => {
+    const seen = world(on);
+    seen.hold = () => seen.clock.sleep(5_000);
+    await $.skill.prompt(START_PROMPT);
+    emit(seen, approved(1));
+    seen.children[0]?.write(stage({ kind: "approved", dir: FINAL, version: 1, notes: false }));
+    await seen.clock.settle();
+    seen.children[0]?.exit(ENDED);
+    await seen.clock.settle();
+    await seen.clock.advance(5_000);
+
+    expect(seen.children[1]?.argv.slice(-7)).toEqual([...REVIVAL, "--final", FINAL]);
+    expect(seen.prompts).toEqual([`Plan v1 approved, at ${FINAL}.`]);
+    expect(seen.store.has(`session:${SESSION_ID}`)).toBe(false);
+    expect(seen.statuses.at(-1)).toBeUndefined();
+  });
+
+  test("a server that leaves two heartbeats unanswered is ended, and revived", async ($, on) => {
+    let answering = true;
+
+    const seen = world(on, {
+      routes: { "/api/heartbeat": () => (answering ? reply(204, null) : null) },
+    });
+
+    await $.skill.prompt(START_PROMPT);
+    answering = false;
+    await seen.clock.advance(HEARTBEAT_MS * 2);
+
+    expect(seen.children[0]?.killed()).toBe(true);
+    expect(seen.children[1]?.argv.slice(-5)).toEqual(REVIVAL);
+  });
+
+  test("a server that ends three times within a minute is not revived: `lost`, and the log names the last end", async ($, on) => {
+    const seen = world(on);
+    await $.skill.prompt(START_PROMPT);
+
+    for (const index of [0, 1, 2]) {
+      seen.children[index]?.exit(ENDED);
+      await seen.clock.settle();
+    }
+
+    expect(seen.children).toHaveLength(3);
+    expect(seen.statuses.at(-1)).toBe("server lost, retrying");
+    expect(seen.logs.at(-1)).toBe(
+      `the review server ended ${CRASHES_BEFORE_LOST} times within 60 s, the last with ${JSON.stringify(ENDED)}: not revived`,
+    );
+  });
+
+  test("ends spread over more than a minute each revive the server", async ($, on) => {
+    const seen = world(on);
+    await $.skill.prompt(START_PROMPT);
+
+    for (const index of [0, 1, 2]) {
+      await seen.clock.advance(index === 0 ? 0 : CRASH_WINDOW_MS / 2);
+      seen.children[index]?.exit(ENDED);
+      await seen.clock.settle();
+    }
+
+    expect(seen.children).toHaveLength(4);
+    expect(seen.statuses.at(-1)).toBeUndefined();
+  });
+
   test("is revived on the port and the token it had", async ($, on) => {
     const seen = world(on);
     await $.skill.prompt(START_PROMPT);
@@ -524,6 +639,7 @@ describe("a server that ends", () => {
     await seen.clock.advance(HEARTBEAT_MS);
 
     expect(seen.children).toHaveLength(2);
+    expect(seen.children[1]?.killed()).toBe(true);
     expect(seen.paths.slice(from)).toEqual([]);
     expect(seen.store.has(`session:${SESSION_ID}`)).toBe(false);
   });
@@ -575,14 +691,14 @@ describe("skill.prompt vellum:stop", () => {
     expect(seen.children).toEqual([]);
   });
 
-  test("what the server writes after it reaches nobody", async ($, on) => {
+  test("ends the server: the module owns its child", async ($, on) => {
     const seen = world(on);
     await $.skill.prompt(START_PROMPT);
     await $.skill.prompt(STOP_PROMPT);
-    emit(seen, sent());
     await seen.clock.settle();
 
-    expect(seen.prompts).toEqual([]);
+    expect(seen.children[0]?.killed()).toBe(true);
+    expect(seen.logs.filter((line) => line.startsWith("the review server ended"))).toEqual([]);
   });
 });
 
@@ -663,15 +779,17 @@ describe("command.run", () => {
     expect(seen.paths.slice(from), "no heartbeat after a clear").toEqual([]);
   });
 
-  test("/clear stops the relays: what the server writes after it reaches nobody", async ($, on) => {
+  test("/clear ends the server, and a later way in relaunches it on the kept port and token", async ($, on) => {
     const seen = world(on);
     on("command.run", () => ({}));
     await $.skill.prompt(START_PROMPT);
     await $.command.run(typedCommand("clear"));
-    emit(seen, sent());
     await seen.clock.settle();
 
-    expect(seen.prompts).toEqual([]);
+    expect(seen.children[0]?.killed()).toBe(true);
+    await $.skill.prompt(START_PROMPT);
+
+    expect(seen.children[1]?.argv.slice(-5)).toEqual(REVIVAL);
   });
 
   test("/resume to another session stops the timers the same way", async ($, on) => {
@@ -824,19 +942,75 @@ describe("what the reviewer sends comes back as a prompt", () => {
     expect(seen.prompts).toEqual(["first", "second", "third"]);
   });
 
-  test("a record kept for another working directory counts for nothing", async ($, on) => {
+  test("a record of another channel counts for nothing: a new plan at the same path is read from its first entry", async ($, on) => {
+    const seen = world(on, {
+      stored: { [`relayed:${SESSION_ID}`]: relayed(4, "the approved plan's channel") },
+      channel: [
+        { seq: 1, entry: sent() },
+        { seq: 2, entry: sent(`${WORKDIR}.review/v0.feedback-2.md`) },
+      ],
+    });
+
+    await $.skill.prompt(START_PROMPT);
+    await seen.clock.settle();
+
+    expect(seen.prompts).toHaveLength(2);
+    expect(seen.store.get(`relayed:${SESSION_ID}`)).toEqual(relayed(2));
+  });
+
+  test("a reload before the approval was relayed relaunches the server in the final directory, which relays it", async ($, on) => {
     const seen = world(on, {
       stored: {
-        ...storedSession(),
-        [`relayed:${SESSION_ID}`]: relayed(1, "plans/2020-01-01/wip-x/"),
+        ...storedSession(SERVER, CWD, WORKDIR, FINAL),
+        [`relayed:${SESSION_ID}`]: relayed(1),
       },
-      channel: [{ seq: 1, entry: sent() }],
+      channel: [
+        { seq: 1, entry: sent() },
+        { seq: 2, entry: approved(1) },
+      ],
     });
 
     await $.session.start(SESSION);
     await seen.clock.settle();
 
-    expect(seen.prompts).toEqual([`Reviewer sent: read ${WORKDIR}.review/v0.feedback-1.md.`]);
+    expect(seen.children[0]?.argv.slice(-2)).toEqual(["--final", FINAL]);
+    expect(seen.prompts).toEqual([`Plan v1 approved, at ${FINAL}.`]);
+    expect(seen.store.has(`session:${SESSION_ID}`)).toBe(false);
+  });
+
+  test("an approved stage keeps the final directory in the session's record", async ($, on) => {
+    const seen = world(on);
+    await $.skill.prompt(START_PROMPT);
+    seen.children[0]?.write(stage({ kind: "approved", dir: FINAL, version: 1, notes: false }));
+    await seen.clock.settle();
+
+    expect(seen.store.get(`session:${SESSION_ID}`)).toMatchObject({ final: FINAL });
+  });
+
+  test("an approval whose closing failed is closed at the next heartbeat, and told once", async ($, on) => {
+    const seen = world(on);
+    await $.skill.prompt(START_PROMPT);
+    seen.refuseStore = "disk full";
+    emit(seen, approved(1));
+    await seen.clock.settle();
+
+    expect(seen.store.has(`session:${SESSION_ID}`)).toBe(true);
+    seen.refuseStore = undefined;
+    await seen.clock.advance(HEARTBEAT_MS);
+
+    expect(seen.store.has(`session:${SESSION_ID}`)).toBe(false);
+    expect(seen.prompts).toHaveLength(1);
+  });
+
+  test("a line the server could not read is skipped, and the log says so", async ($, on) => {
+    const seen = world(on);
+    await $.skill.prompt(START_PROMPT);
+    seen.channel.push({ seq: 2, entry: sent() });
+    seen.children[0]?.write(channelLine({ seq: 2, entry: sent() }));
+    await seen.clock.settle();
+
+    expect(seen.prompts).toHaveLength(1);
+    expect(seen.logs).toContain("the channel holds no entry 1 to 1");
   });
 
   test("a record of the shape before the channel starts over", async ($, on) => {

@@ -24,6 +24,8 @@ import { store } from "./store.ts";
 export type World = {
   id: string;
   drop: string | undefined;
+  /** While set, a prompt's call resolves only once it does: the prompt waits for a running turn. */
+  hold: (() => Promise<void>) | undefined;
   refuseCwd: string | undefined;
   refuseStore: string | undefined;
   readonly clock: MockClock;
@@ -55,13 +57,18 @@ export function world(on: On, options: WorldOptions = {}): World {
   const built: World = {
     id: SESSION_ID,
     drop: undefined,
+    hold: undefined,
     refuseCwd: undefined,
     refuseStore: undefined,
     clock: mock.clock(on),
     paths: liveServer(on, channel, options.routes),
     children: children(on, options.spawn),
     channel,
-    prompts: prompts(on, () => built.drop),
+    prompts: prompts(
+      on,
+      () => built.drop,
+      () => built.hold?.() ?? Promise.resolve(),
+    ),
     statuses: statuses(on),
     logs: logs(on),
     tools,

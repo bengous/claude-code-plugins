@@ -60,6 +60,8 @@ export type ServerLine =
       readonly port: number;
       readonly token: string;
       readonly pid: number;
+      /** The channel's identity (`.review/channel.id`): the module keys what it relayed by it. */
+      readonly channel: string;
     }
   | { readonly type: "channel"; readonly line: ChannelLine }
   | { readonly type: "stage"; readonly workspace: PlanWorkspace };

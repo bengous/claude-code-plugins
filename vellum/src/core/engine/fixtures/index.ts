@@ -4,6 +4,8 @@ export * from "./channel.ts";
 
 export * from "./children.ts";
 
+export * from "./crashes.ts";
+
 export * from "./cwd.ts";
 
 export * from "./date.ts";
@@ -25,6 +27,8 @@ export * from "./other-id.ts";
 export * from "./other-workdir.ts";
 
 export * from "./start-prompt.ts";
+
+export * from "./start-timeout-ms.ts";
 
 export * from "./prompts.ts";
 

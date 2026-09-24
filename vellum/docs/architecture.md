@@ -196,7 +196,7 @@ stateDiagram-v2
   idle --> live: session.start, the stored server relaunched
   live --> live: another session id, server restarted
   live --> live: its server ended, revived on its port and token
-  live --> lost: the revival failed, or the working directory is gone
+  live --> lost: the revival failed, the working directory is gone, or its servers ended 3 times within 60 s
   idle --> lost: session.start or skill.prompt, the stored server not relaunched
   lost --> live: the slow retry, or skill.prompt, revived it
   lost --> idle: skill.prompt vellum:stop, command.run clear
@@ -236,8 +236,10 @@ one made on another. No state was added for it: `vN+1.md` with its feedback file
 What the hooks module relays is not read off that state: each decision appends its entry to the
 channel as it lands (`domain/channel.ts`), `sent` naming the drafting batch or the feedback
 file, `approved` the final directory and the notes file when its listing holds one. The module
-keeps one number of its own, in `$.store`: the last entry it relayed, so a reload never repeats
-one.
+keeps one number of its own, in `$.store`: the last entry it relayed, under the channel's identity
+(`.review/channel.id`, which the rename carries), so a reload never repeats one and a new working
+directory at the same path starts from its first. The mode owns its server: leaving `live` ends
+it, and so does a revival replacing it.
 
 ## Where the parts of a feature go
 

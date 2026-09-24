@@ -6,6 +6,7 @@ import {
   mkdirSync,
   mkdtempSync,
   readFileSync,
+  rmSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -46,11 +47,7 @@ function setup(extensions: readonly ServerExtension[] = serverExtensions): Setup
 
 /** Every entry the channel holds, from where the review lives now. */
 async function told(review: Review): Promise<readonly unknown[]> {
-  const channel = await review.channel(0);
-
-  if (!channel.ok) throw new Error(channel.error);
-
-  return channel.value.map(({ entry }) => entry);
+  return (await review.channel(0)).map(({ entry }) => entry);
 }
 
 /** A review whose `plan.md` holds `plan` and was gated as v1. */
@@ -510,5 +507,50 @@ describe("a review an extension holds", () => {
     await made.review.context.inOrder(() => Promise.resolve());
 
     expect(versionWasThere).toEqual([true]);
+  });
+});
+
+describe("the channel as the server opens it", () => {
+  test("an entry appended to a channel whose last line has no newline is read back under its number", async () => {
+    const { review, root } = await gated();
+    writeFileSync(join(root, WIP, ".review/channel.jsonl"), '{"kind":"te');
+    await review.decide(SAY_NO);
+
+    expect(await review.channel(0)).toEqual([
+      { seq: 2, entry: { kind: "sent", file: `${WIP}.review/v1.feedback.md` as never } },
+    ]);
+  });
+
+  test("a feedback file whose entry was never written is told when the server opens the channel again", async () => {
+    const { review, root } = await gated();
+    await review.openChannel();
+    rmSync(join(root, WIP, ".review/channel.jsonl"));
+    mkdirSync(join(root, WIP, ".review/channel.jsonl"));
+
+    await expect(review.decide(SAY_NO)).rejects.toThrow();
+    rmSync(join(root, WIP, ".review/channel.jsonl"), { recursive: true });
+    writeFileSync(join(root, WIP, ".review/channel.jsonl"), "");
+    await review.openChannel();
+
+    expect(await told(review)).toEqual([{ kind: "sent", file: `${WIP}.review/v1.feedback.md` }]);
+  });
+
+  test("a directory with no channel yet tells none of the files it already holds", async () => {
+    const { review, root } = await gated();
+    await review.decide(SAY_NO);
+    rmSync(join(root, WIP, ".review/channel.jsonl"));
+    await review.openChannel();
+
+    expect(await told(review)).toEqual([]);
+  });
+
+  test("the channel's identity is minted once, and the approval's rename carries it", async () => {
+    const { review } = await gated();
+    const id = await review.openChannel();
+
+    expect(await review.openChannel()).toBe(id);
+    await review.decide(APPROVE);
+
+    expect(await review.openChannel()).toBe(id);
   });
 });

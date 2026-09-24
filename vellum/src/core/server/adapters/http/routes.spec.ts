@@ -659,12 +659,13 @@ describe("the channel", () => {
     }
   });
 
-  test("a line of the file that is no entry answers 500 with where it is", async () => {
+  test("a line of the file that is no entry is left out, never answered in its place", async () => {
     const made = drafting();
     writeFileSync(join(made.dir, WIP, ".review/channel.jsonl"), "not json\n");
-    const refused = await made.channel("0");
+    await made.send({ anchor: CARD, mark: BIGGER });
 
-    expect(refused.status).toBe(500);
-    expect(await refused.json()).toEqual({ error: expect.stringContaining("line 1, is no entry") });
+    expect(await (await made.channel("0")).json()).toEqual([
+      { seq: 2, entry: { kind: "sent", file: `${WIP}.review/v0.feedback-1.md` } },
+    ]);
   });
 });

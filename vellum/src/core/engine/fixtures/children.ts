@@ -10,6 +10,8 @@ export type Child = {
   /** Writes text on stdout as it is: a line in two pieces, a line that is no JSON. */
   readonly print: (text: string) => void;
   readonly exit: (how: ProcessSpawnResult) => void;
+  /** Whether the module ended it: `return()` on its stream, which kills a real child. */
+  readonly killed: () => boolean;
 };
 
 /**
@@ -19,11 +21,14 @@ export type Child = {
 type Started = { readonly deny: string } | undefined;
 
 /** A child's life beside its pieces: how it ended, once it has, and how to wake its stream. */
-type Life = { ended: ProcessSpawnResult | null; wake: () => void };
+type Life = { ended: ProcessSpawnResult | null; killed: boolean; wake: () => void };
 
 export type Spawn = (child: Child, run: number) => Started | Promise<Started>;
 
-export const READY = { type: "ready", ...SERVER };
+/** The identity of the channel every fake server serves, as `.review/channel.id` holds it. */
+export const CHANNEL = "5d8f3c1e-channel";
+
+export const READY = { type: "ready", ...SERVER, channel: CHANNEL };
 
 export const STARTS: Spawn = (child) => {
   child.write(READY);
@@ -33,10 +38,16 @@ export const STARTS: Spawn = (child) => {
 export function children(on: On, spawn: Spawn = STARTS): Child[] {
   const spawned: Child[] = [];
 
-  on("process.spawn", async function* (_, e) {
+  on("process.spawn", async function* (_, e, next) {
     const pieces: ProcessSpawnChunk[] = [];
 
-    const life: Life = { ended: null, wake: () => {} };
+    const life: Life = { ended: null, killed: false, wake: () => {} };
+
+    next.signal.addEventListener("abort", () => {
+      life.killed = true;
+      life.ended = { code: null, signal: "SIGTERM" };
+      life.wake();
+    });
 
     const print = (text: string): void => {
       pieces.push({ stream: "stdout", text });
@@ -53,6 +64,7 @@ export function children(on: On, spawn: Spawn = STARTS): Child[] {
         life.ended = how;
         life.wake();
       },
+      killed: () => life.killed,
     };
 
     spawned.push(child);

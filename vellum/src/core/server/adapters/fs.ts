@@ -32,6 +32,14 @@ export async function readWorkspace(
   return workspaceFromListing(dir, new Set(names));
 }
 
+/** The entries of the directory's `.review/`, none when it is missing. */
+export async function listReview(
+  project: string,
+  dir: WipDir | FinalDir,
+): Promise<ReadonlySet<string>> {
+  return new Set(await readdir(join(project, dir, REVIEW_DIR)).catch((): string[] => []));
+}
+
 /**
  * Every file of the plan's directory the page can render, `.review/` left out, sorted. The
  * page lists these in all states, so the reviewer can comment before the first version. The

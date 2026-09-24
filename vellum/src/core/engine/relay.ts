@@ -1,34 +1,45 @@
 import type { Host } from "./host.ts";
 import type { Live } from "./mode.ts";
-import type { ChannelEntryWire, ChannelLineWire, GateWire, SessionId, Workdir } from "./parse.ts";
-import type { Unchanged } from "./server.ts";
+import {
+  type ChannelEntryWire,
+  type ChannelLineWire,
+  type GateWire,
+  parseRelayed,
+  type SessionId,
+} from "./parse.ts";
+import type { ReviewServer, Unchanged } from "./server.ts";
 
 /**
  * What `$.store` keeps under `relayed:<id>`: the number of the last channel entry Claude was
- * handed, for one working directory. The numbers restart with the directory, so a number kept
- * for another one is worth nothing.
+ * handed, for one channel. A new working directory at the same path is another channel, with
+ * another identity, and its numbers restart: a number kept for another channel is worth nothing.
  */
-export type Relayed = { readonly workdir: Workdir; readonly channel: number };
+export type Relayed = { readonly channel: string; readonly seq: number };
 
 /**
- * Relays the channel's entries to Claude, once each and in order. `hand` takes a line as the
- * server writes it, `catchUp` reads the entries past the last one relayed, at a (re)spawn, and
- * `retry` does so only after a prompt another plugin dropped.
+ * Relays a session's channel to Claude, once each entry and in order, for as long as its mode
+ * holds it: one per session in a module's environment, across the servers a revival replaces.
+ * `serve` reads from a server from now on and catches up; `hand` takes a line as the server
+ * writes it; `retry` reads the channel again after a dropped prompt, or closes an approval whose
+ * closing failed; `stop` relays nothing more once the mode was left.
  */
 export type Follower = {
+  readonly serve: (server: ReviewServer, channel: string) => void;
   readonly hand: (line: ChannelLineWire) => void;
-  readonly catchUp: () => void;
   readonly retry: () => void;
+  readonly stop: () => void;
 };
 
 /**
- * What the follower answers to: whether its mode is still the current one, so a mode that was
- * left relays nothing more, and the approval that ends it.
+ * `behind`: a prompt was dropped, or a read failed, and the channel is read again. `closing`:
+ * the approval was told and the mode not closed yet; it is closed again, never told again.
  */
-export type Following = {
-  readonly current: () => boolean;
-  readonly approved: () => Promise<void>;
-};
+type Phase = "following" | "behind" | "closing" | "stopped";
+
+/** What a follower reads before its first server. */
+function nothingToRead(): Promise<ChannelLineWire[]> {
+  return Promise.resolve([]);
+}
 
 export function relayedKey(id: SessionId): string {
   return `relayed:${id}`;
@@ -73,47 +84,57 @@ export function submitResult(gate: GateWire): { result: string } | { deny: strin
 }
 
 /**
- * Follows the channel of `live`'s server, from what the store says was relayed. One queue runs
- * every relay, apart from the loop that reads the server: a prompt waits for the session to be
- * idle, and the loop must never wait with it. A number already relayed is skipped; a number past
- * the next one reads the entries it missed first. The number is written to `$.store` after each
- * prompt, so a reloaded module or a relaunched server repeats nothing; an approval drops the
- * record, since the next plan's directory numbers its channel from one again.
+ * One queue runs every relay, apart from the loop that reads the server: a prompt submitted while
+ * a turn runs resolves once its own turn starts, and the loop must never wait with it. A number
+ * already relayed is skipped; a number past the next one reads the entries it missed first. The
+ * number is written to `$.store` after each prompt, so a reloaded module or a relaunched server
+ * repeats nothing; the approval drops the record, and `approved` closes the mode.
  */
-export function follow(host: Host, live: Live, from: Relayed, following: Following): Follower {
-  const key = relayedKey(live.session.id);
-  let relayed = from;
-  let behind = false;
+export function follow(host: Host, id: SessionId, approved: () => Promise<void>): Follower {
+  const key = relayedKey(id);
+  let relayed: Relayed = { channel: "", seq: 0 };
+  let read: (after: number) => Promise<ChannelLineWire[]> = nothingToRead;
+  let phase: Phase = "following";
   let queue = Promise.resolve();
 
   const run = (work: () => Promise<void>): void => {
     queue = queue.then(work).catch((cause: unknown) => {
-      behind = true;
       host.log(`the channel relay failed: ${String(cause)}`);
+
+      if (phase === "following") phase = "behind";
     });
   };
 
-  /** `false` when the prompt was dropped: the entry stays due, and the heartbeat retries it. */
+  const close = async (): Promise<void> => {
+    await approved();
+    phase = "stopped";
+  };
+
+  /** `false` stops a catch-up: a dropped prompt stays due, and the approval ends the relays. */
   const relay = async ({ seq, entry }: ChannelLineWire): Promise<boolean> => {
-    if (seq <= relayed.channel || !following.current()) return true;
+    if (phase === "stopped" || phase === "closing") return false;
+
+    if (seq <= relayed.seq) return true;
     const result = await host.submitPrompt(promptOf(entry));
 
     if (result.drop !== undefined) {
       host.log(`the review prompt was dropped: ${result.drop}`);
-      behind = true;
+
+      if (phase === "following") phase = "behind";
 
       return false;
     }
 
-    relayed = { ...relayed, channel: seq };
+    relayed = { ...relayed, seq };
 
     if (entry.kind === "approved") {
       await host.storeDelete(key).catch((cause: unknown) => {
         host.log(`the relayed record was not dropped: ${String(cause)}`);
       });
-      await following.approved();
+      phase = "closing";
+      await close();
 
-      return true;
+      return false;
     }
 
     // A store that refuses the record is logged, not obeyed: the prompt went out, once.
@@ -125,25 +146,39 @@ export function follow(host: Host, live: Live, from: Relayed, following: Followi
   };
 
   const catchUp = async (): Promise<void> => {
-    for (const line of await live.server.channel(relayed.channel)) {
+    let next = relayed.seq + 1;
+
+    for (const line of await read(relayed.seq)) {
+      if (line.seq > next) host.log(`the channel holds no entry ${next} to ${line.seq - 1}`);
+
       if (!(await relay(line))) return;
+      next = line.seq + 1;
     }
 
-    behind = false;
+    if (phase === "behind") phase = "following";
   };
 
   return {
+    serve: (server, channel) => {
+      run(async () => {
+        read = (after) => server.channel(after);
+
+        if (channel !== relayed.channel) relayed = parseRelayed(await host.storeGet(key), channel);
+        await catchUp();
+      });
+    },
     hand: (line) => {
       run(async () => {
-        if (behind || line.seq > relayed.channel + 1) await catchUp();
+        if (phase === "behind" || line.seq > relayed.seq + 1) await catchUp();
         else await relay(line);
       });
     },
-    catchUp: () => {
-      run(catchUp);
-    },
     retry: () => {
-      if (behind) run(catchUp);
+      if (phase === "behind") run(catchUp);
+      else if (phase === "closing") run(close);
+    },
+    stop: () => {
+      phase = "stopped";
     },
   };
 }

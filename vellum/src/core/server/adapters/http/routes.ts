@@ -410,11 +410,8 @@ async function api(
     const after = parseAfter(new URL(request.url).searchParams.get("after"));
 
     if (after === null) return badRequest();
-    const read = await review.channel(after);
 
-    return read.ok
-      ? Response.json(read.value)
-      : Response.json({ error: read.error }, { status: 500 });
+    return Response.json(await review.channel(after));
   }
 
   if (route === "GET /api/vellum-build") {

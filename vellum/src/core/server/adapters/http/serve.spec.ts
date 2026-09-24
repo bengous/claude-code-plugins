@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { existsSync, mkdirSync, mkdtempSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -133,49 +133,102 @@ describe("a working directory that is gone", () => {
   });
 });
 
+/** A `serve` child, read a line at a time. */
+type Serving = {
+  readonly next: () => Promise<string>;
+  readonly pid: number;
+  readonly stop: () => void;
+};
+
+/** `serve` on `flags`; the test ends it in a `finally`, whatever it expects. */
+function serving(flags: readonly string[]): Serving {
+  const serve = Bun.spawn(["bun", CLI, "serve", ...flags], { stderr: "ignore" });
+  const lines = linesOf(serve.stdout);
+
+  return {
+    next: async () => String((await lines.next()).value),
+    pid: serve.pid,
+    stop: () => serve.kill(),
+  };
+}
+
+const NOTE = {
+  id: "a",
+  doc: `${WIP}plan.md`,
+  anchor: { kind: "global" },
+  mark: { kind: "comment", body: "no" },
+};
+
 describe("what serve writes on stdout", () => {
-  test("ready first, then where the review stands, then each entry of the channel as it lands", async () => {
+  test("ready first, with the channel's identity, then where the review stands, then each entry as it lands", async () => {
     const root = project();
-    const flags = ["--session", "s", "--project", root, "--workdir", WIP];
-    const serve = Bun.spawn(["bun", CLI, "serve", ...flags], { stderr: "ignore" });
-    const lines = linesOf(serve.stdout);
-    const next = async (): Promise<string> => String((await lines.next()).value);
+    const serve = serving(["--session", "s", "--project", root, "--workdir", WIP]);
 
-    // SAFETY: `serve` writes one `ServerLine` per line on its stdout; this test checks it is `ready`.
-    const ready = JSON.parse(await next()) as Extract<ServerLine, { type: "ready" }>;
+    try {
+      // SAFETY: `serve` writes one `ServerLine` per line on its stdout; this test checks it is `ready`.
+      const ready = JSON.parse(await serve.next()) as Extract<ServerLine, { type: "ready" }>;
 
-    expect(ready).toEqual({
-      type: "ready",
-      port: expect.any(Number),
-      token: expect.any(String),
-      pid: serve.pid,
-    });
-    expect(JSON.parse(await next())).toMatchObject({
-      type: "stage",
-      workspace: { kind: "drafting" },
-    });
+      expect(ready).toEqual({
+        type: "ready",
+        port: expect.any(Number),
+        token: expect.any(String),
+        pid: serve.pid,
+        channel: readFileSync(join(root, WIP, ".review/channel.id"), "utf8"),
+      });
+      expect(JSON.parse(await serve.next())).toMatchObject({
+        type: "stage",
+        workspace: { kind: "drafting" },
+      });
 
-    const note = {
-      id: "a",
-      doc: `${WIP}plan.md`,
-      anchor: { kind: "global" },
-      mark: { kind: "comment", body: "no" },
-    };
+      await fetch(`http://127.0.0.1:${ready.port}/api/decision`, {
+        method: "POST",
+        headers: { "x-vellum-token": ready.token, "content-type": "application/json" },
+        body: JSON.stringify({ kind: "feedback", edit: null, annotations: [NOTE] }),
+      });
 
-    await fetch(`http://127.0.0.1:${ready.port}/api/decision`, {
-      method: "POST",
-      headers: { "x-vellum-token": ready.token, "content-type": "application/json" },
-      body: JSON.stringify({ kind: "feedback", edit: null, annotations: [note] }),
-    });
+      expect(JSON.parse(await serve.next())).toEqual({
+        type: "channel",
+        line: { seq: 1, entry: { kind: "sent", file: `${WIP}.review/v0.feedback-1.md` } },
+      });
+      expect(JSON.parse(await serve.next())).toMatchObject({
+        type: "stage",
+        workspace: { kind: "drafting", batches: 1 },
+      });
+    } finally {
+      serve.stop();
+    }
+  });
 
-    expect(JSON.parse(await next())).toEqual({
-      type: "channel",
-      line: { seq: 1, entry: { kind: "sent", file: `${WIP}.review/v0.feedback-1.md` } },
-    });
-    expect(JSON.parse(await next())).toMatchObject({
-      type: "stage",
-      workspace: { kind: "drafting", batches: 1 },
-    });
-    serve.kill();
+  test("revived in the final directory an approval renamed, it serves the approval there and recreates nothing", async () => {
+    const root = mkdtempSync(join(tmpdir(), "vellum-serve-"));
+    const final = "plans/2026-09-15/auth/";
+    mkdirSync(join(root, final, ".review"), { recursive: true });
+    writeFileSync(join(root, final, ".review/v1.md"), "# Auth\n");
+    writeFileSync(join(root, final, ".review/channel.jsonl"), "");
+    writeFileSync(join(root, final, ".review/channel.id"), "kept");
+    const flags = ["--session", "s", "--project", root, "--workdir", WIP, "--existing"];
+    const serve = serving([...flags, "--final", final]);
+
+    try {
+      // SAFETY: `serve` writes one `ServerLine` per line on its stdout; this test checks it is `ready`.
+      const ready = JSON.parse(await serve.next()) as Extract<ServerLine, { type: "ready" }>;
+
+      expect(ready).toMatchObject({ type: "ready", channel: "kept" });
+      expect(JSON.parse(await serve.next())).toMatchObject({
+        type: "stage",
+        workspace: { kind: "approved", dir: final },
+      });
+
+      const channel = await fetch(`http://127.0.0.1:${ready.port}/api/channel?after=0`, {
+        headers: { "x-vellum-token": ready.token },
+      });
+
+      expect(await channel.json()).toEqual([
+        { seq: 1, entry: { kind: "approved", version: 1, dir: final, notes: null } },
+      ]);
+      expect(existsSync(join(root, WIP))).toBe(false);
+    } finally {
+      serve.stop();
+    }
   });
 });

@@ -8,6 +8,7 @@ import { checkVerdict, lockFailed, lockVerdict } from "./lock.ts";
 import {
   close,
   connect,
+  discard,
   type Live,
   restore,
   type Revive,
@@ -17,6 +18,7 @@ import {
   type Staged,
   type State,
   suspend,
+  tenureOf,
   type Wiring,
 } from "./mode.ts";
 import { editedPath, type GateWire, sessionId, type StageWire } from "./parse.ts";
@@ -61,6 +63,8 @@ function hostOf($: EngineInterface): Host {
     fetch: (url, init) => $.http.fetch(url, init),
     spawn: (request) => $.process.spawn(request),
     every: (ms, fn) => $.clock.every(ms, fn),
+    after: (ms, fn) => $.clock.after(ms, fn),
+    now: () => $.clock.now(),
     submitPrompt: (text) => $.prompt.submit({ text }),
     status: (text) => $.ui.status(text),
     invalidate: () => $.ui.invalidate("ui.render"),
@@ -137,43 +141,55 @@ export const register: Register = (on) => {
     host.invalidate();
   }
 
-  // The modes a transition left: what their server still writes reaches nobody. A mode is not
-  // left before it is entered, so the lines its server wrote while the way in ran are read.
-  const leftBehind = new WeakSet<Live>();
-
-  /** Every write of `state`: the band follows it, from one place. */
+  /**
+   * Every write of `state`: the band follows it, from one place. Leaving a live mode ends its
+   * server, and leaving a mode's tenure stops its follower: the module owns its child, and what a
+   * left mode's server would still say reaches nobody.
+   */
   function become(host: Host, next: State): void {
-    if (state.kind === "live" && (next.kind !== "live" || next.live !== state.live)) {
-      leftBehind.add(state.live);
+    const was = state;
+    state = next;
+
+    if (was.kind === "live" && (next.kind !== "live" || next.live !== was.live)) {
+      was.live.child.end();
     }
 
-    state = next;
+    const tenure = tenureOf(was);
+
+    if (tenure !== null && tenure !== tenureOf(next)) tenure.follower.stop();
     redraw(host);
   }
 
-  const settle: Settle = async (host, from) => {
-    if (state !== from) return;
+  const settle: Settle = async (host, id) => {
+    if (sessionOf(state)?.id !== id) return;
     turns = NO_TURN;
-    become(host, await close(host, from));
+    become(host, await close(host, state));
   };
 
-  const revive: Revive = async (host, from) => {
+  const revive: Revive = async (host, from, how) => {
     if (state !== from) return;
-    const next = await revived(host, from, () => state === from, wiring);
+    const next = await revived(host, from, () => state === from, wiring, how);
 
     if (next === null) return;
+
+    // The mode was left while the revival wrote its record: the revived server is not taken.
+    if (state !== from) {
+      discard(next);
+
+      return;
+    }
+
     turns = NO_TURN;
     become(host, next);
   };
 
   const staged: Staged = async (host, live, stage) => {
-    if (leftBehind.has(live)) return;
     stages.set(live, stage);
     await handed(host, live, "staged", (extension, context) => extension.staged?.(context));
     redraw(host);
   };
 
-  const wiring: Wiring = { settle, staged, revive, left: (live) => leftBehind.has(live) };
+  const wiring: Wiring = { settle, staged, revive, current: (from) => state === from };
 
   // Reset wherever the mode leaves `live`, and ignored outside it: see `turn.ts`.
   let turns: Turns = NO_TURN;

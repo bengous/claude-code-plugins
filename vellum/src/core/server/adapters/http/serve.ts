@@ -8,9 +8,10 @@ import index from "../../../page/index.html";
 import type { ServerLine } from "../../../protocol.ts";
 import { Review } from "../../app/review.ts";
 import type { FinalDir, WipDir } from "../../domain/paths.ts";
+import type { Memory } from "../../domain/workspace.ts";
 import { REVIEW_DIR } from "../../domain/workspace.ts";
 import { openInBrowser } from "../browser.ts";
-import { watchFiles } from "../fs.ts";
+import { readWorkspace, watchFiles } from "../fs.ts";
 import { PLUGIN_ROOT, readVellumBuild } from "../vellum-build.ts";
 import { createHandler } from "./routes.ts";
 
@@ -35,6 +36,11 @@ export type ServeOptions = {
   readonly token?: string | undefined;
   /** A revived server never creates its directory: an approval may have renamed it. */
   readonly existing?: boolean;
+  /**
+   * Where an approval renamed `workdir`, for a server revived after it: the review is approved
+   * there, and the server watches and creates nothing.
+   */
+  readonly final?: FinalDir | undefined;
   readonly watchdog?: Watchdog;
   /** Hears `ready` once the server listens, then every entry of the channel and every change of the review, in order. */
   readonly announce?: (line: ServerLine) => void;
@@ -95,12 +101,32 @@ function isPortTaken(cause: unknown): boolean {
   return cause instanceof Error && "code" in cause && cause.code === "EADDRINUSE";
 }
 
-export async function startServer(options: ServeOptions): Promise<Started> {
-  if (options.existing === true && !existsSync(join(options.project, options.workdir))) {
-    throw new WorkdirGone(`${options.workdir} is gone`);
+/** What the directory cannot say: the approval a revived server starts on, read in the final directory. */
+async function memoryOf(project: string, final: FinalDir): Promise<Memory> {
+  const read = await readWorkspace(project, final);
+
+  if (!read.ok || read.value.kind !== "approved") {
+    throw new WorkdirGone(`${final} holds no approved plan`);
   }
 
-  await mkdir(join(options.project, options.workdir, REVIEW_DIR), { recursive: true });
+  const { version, dir, notes } = read.value;
+
+  return { kind: "approved", version, dir, notes };
+}
+
+export async function startServer(options: ServeOptions): Promise<Started> {
+  const lives = options.final ?? options.workdir;
+
+  if (options.existing === true && !existsSync(join(options.project, lives))) {
+    throw new WorkdirGone(`${lives} is gone`);
+  }
+
+  const memory =
+    options.final === undefined ? undefined : await memoryOf(options.project, options.final);
+
+  if (memory === undefined) {
+    await mkdir(join(options.project, options.workdir, REVIEW_DIR), { recursive: true });
+  }
 
   const [frameScript, vellumBuild] = await Promise.all([
     buildFrameScript(),
@@ -111,12 +137,16 @@ export async function startServer(options: ServeOptions): Promise<Started> {
     project: options.project,
     workdir: options.workdir,
     extensions: serverExtensions,
+    memory,
   });
 
   // The page hears of every file Claude writes; the approval renames the directory, and there the watch ends.
-  const unwatch = watchFiles(options.project, options.workdir, () => void review.notify());
+  const unwatch =
+    memory === undefined
+      ? watchFiles(options.project, options.workdir, () => void review.notify())
+      : () => {};
 
-  let dir: WipDir | FinalDir = options.workdir;
+  let dir: WipDir | FinalDir = lives;
 
   review.subscribe((workspace) => {
     dir = workspace.dir;
@@ -169,14 +199,16 @@ export async function startServer(options: ServeOptions): Promise<Started> {
   const { server, token, handler } = bound;
   url = `http://127.0.0.1:${server.port}/t/${token}/`;
 
-  // Subscribed after `ready`, so nothing is heard before it.
+  const channel = await review.openChannel();
   const { announce } = options;
 
+  // `ready` first, then the listeners at once, with no wait between: a change or an entry that
+  // lands as the server comes up is announced, and the first stage is read after them.
   if (announce !== undefined) {
-    announce({ type: "ready", port: Number(server.url.port), token, pid: process.pid });
-    announce({ type: "stage", workspace: await review.workspace() });
+    announce({ type: "ready", port: Number(server.url.port), token, pid: process.pid, channel });
     review.subscribe((workspace) => announce({ type: "stage", workspace }));
     review.onChannel((line) => announce({ type: "channel", line }));
+    await review.notify();
   }
 
   const { graceMs, tabHoldMs, periodMs, expire } = options.watchdog ?? WATCHDOG;

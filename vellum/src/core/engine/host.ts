@@ -47,6 +47,11 @@ export type Host = {
 
   every: TimerCall;
 
+  after: TimerCall;
+
+  /** `$.clock.now()`: milliseconds since the epoch, as the engine's clock reads them. */
+  now: () => Promise<number>;
+
   submitPrompt: (text: string) => Promise<PromptSubmitResult>;
 
   status: (text: string | undefined) => void;
