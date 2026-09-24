@@ -481,7 +481,7 @@ test.describe("the panel", () => {
     await expect
       .poll(async () => (await vellum.grill.state()).json)
       .toMatchObject({ kind: "open", phase: "working" });
-    expect(JSON.stringify((await vellum.grill.state()).json)).toContain("Q1: One store per form.");
+    expect(JSON.stringify((await vellum.channel()).json)).toContain("Q1: One store per form.");
   });
 
   test("its sheet and the sheet's scrollbar stop before the comments' handle", async ({
@@ -695,7 +695,7 @@ test.describe("a round in the panel", () => {
     await sendRound(page).click();
 
     await expect
-      .poll(async () => JSON.stringify((await vellum.grill.state()).json))
+      .poll(async () => JSON.stringify((await vellum.channel()).json))
       .toContain("Q1: One store.");
   });
 
@@ -716,8 +716,8 @@ test.describe("a round in the panel", () => {
     await sendRound(page).dblclick();
     await expect.poll(statesOf.bind(null, page)).toEqual(["default", "default"]);
 
-    const state = JSON.stringify((await vellum.grill.state()).json);
-    expect(state.split("Keep the audit trail.")).toHaveLength(2);
+    const told = JSON.stringify((await vellum.channel()).json);
+    expect(told.split("Keep the audit trail.")).toHaveLength(2);
     await expect(page.getByRole("alert")).toHaveCount(0);
   });
 
@@ -754,7 +754,7 @@ test.describe("a round in the panel", () => {
     await band(page).getByRole("button", { name: "End grill" }).click();
     await expect(band(page)).toHaveCount(0);
 
-    expect(JSON.stringify((await vellum.grill.state()).json).split("Keep it.")).toHaveLength(2);
+    expect(JSON.stringify((await vellum.channel()).json).split("Keep it.")).toHaveLength(2);
   });
 
   test("a round that lands as many questions as the last shows its first, not the last pick", async ({
@@ -1285,9 +1285,9 @@ test.describe("the band", () => {
 
     await expect(band(page)).toHaveCount(0);
     await expect(panel(page)).toHaveCount(0);
-    const state = JSON.stringify((await vellum.grill.state()).json);
-    expect(state).toContain("Q1: One store per form.");
-    expect(state).toContain('"kind":"ended"');
+    const told = JSON.stringify((await vellum.channel()).json);
+    expect(told).toContain("Q1: One store per form.");
+    expect(told).toMatch(/The reviewer ended grill-\d+\.md\./u);
   });
 
   test("the Grill button hides while it shows, and comes back once the grill ends", async ({
@@ -1397,8 +1397,8 @@ test.describe("the band", () => {
     vellum.writeFile("notes.md", "One.");
     await end.click();
 
-    const state = async (): Promise<string> => JSON.stringify((await vellum.grill.state()).json);
-    await expect.poll(state).toContain("Q1: One store per form.");
+    const told = async (): Promise<string> => JSON.stringify((await vellum.channel()).json);
+    await expect.poll(told).toContain("Q1: One store per form.");
   });
 
   test("End grill clicked twice ends once: the note reaches Claude once", async ({
@@ -1417,8 +1417,8 @@ test.describe("the band", () => {
     await band(page).getByRole("button", { name: "End grill" }).dblclick();
     await expect(band(page)).toHaveCount(0);
 
-    const state = JSON.stringify((await vellum.grill.state()).json);
-    expect(state.split("Keep the audit trail.")).toHaveLength(2);
+    const told = JSON.stringify((await vellum.channel()).json);
+    expect(told.split("Keep the audit trail.")).toHaveLength(2);
     await expect(page.getByRole("alert")).toHaveCount(0);
   });
 

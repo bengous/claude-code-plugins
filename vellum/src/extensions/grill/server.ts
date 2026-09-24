@@ -17,6 +17,7 @@ import {
   parseSuggestion,
 } from "./parse.ts";
 import type { Asked, Block, GrillState, Opened, Proposal } from "./protocol.ts";
+import { ASK_TOOL } from "./protocol.ts";
 import {
   appendAnswer,
   appendFooter,
@@ -27,6 +28,7 @@ import {
   isClosed,
   nextQuestion,
   phaseOf,
+  type Relay,
   relaysOf,
   segmentsOf,
   subjectOf,
@@ -35,8 +37,12 @@ import {
 /** A transcript of the plan's directory, read: the one with the highest number is the current one. */
 type Transcript = { readonly n: number; readonly file: ProjectPath; readonly doc: string };
 
-/** What a change makes of the transcript: the file to write, and the answer once it is written. */
-type Written = { readonly doc: string; readonly answer: Response };
+/**
+ * What a change makes of the transcript: the file to write, the answer once it is written, and
+ * whether Claude hears of the entries it added: the reviewer's gestures alone are told, and a grill
+ * the session ended itself is not.
+ */
+type Written = { readonly doc: string; readonly answer: Response; readonly told: boolean };
 
 /** A link the page may follow: http, mailto, a fragment or a relative path; any other scheme runs code. */
 const SAFE_HREF = /^(?:https?:|mailto:|[^:]*(?:[/?#]|$))/iu;
@@ -76,6 +82,40 @@ export function blocksOf(doc: string): Block[] {
   });
 }
 
+/** Where Claude learns how to grill, named with the first grill of a working directory alone. */
+const GUIDE = `${import.meta.dir}/grilling.md`;
+
+/**
+ * An entry as Claude reads it: a prompt names its object and repeats nothing Claude wrote or read,
+ * and a reply goes as the transcript worded it, under `Reviewer:`.
+ */
+function toldOf(relay: Relay, first: boolean): string {
+  if (relay.kind === "reply") return relay.text;
+
+  if (relay.kind === "ended") return `The reviewer ended ${relay.name}.`;
+  const opened = `The reviewer opened ${relay.name} on: ${relay.subject}.`;
+
+  return first ? `${opened} Read ${GUIDE}, then ask with ${ASK_TOOL}.` : opened;
+}
+
+/**
+ * Tells Claude the entries a write added to the transcript, in file order. Only what the server
+ * itself appended is told: a block written into the file by hand is already in `before`.
+ */
+async function tell(
+  context: ServerContext,
+  name: string,
+  before: string | null,
+  after: string,
+  first = false,
+): Promise<void> {
+  const known = before === null ? -1 : (relaysOf(before, name, -1).at(-1)?.seq ?? -1);
+
+  for (const relay of relaysOf(after, name, known)) {
+    await context.relay({ kind: "text", from: "grill", text: toldOf(relay, first) });
+  }
+}
+
 /** `null` when the working directory is gone and the server lost its memory: the route answers 409. */
 function workspaceIfAny(context: ServerContext): Promise<PlanWorkspace | null> {
   return context.workspace().catch(() => null);
@@ -101,32 +141,11 @@ async function latest(
   return doc === null ? null : { n, file, doc };
 }
 
-/** The engine's cursor, as `GET state?after=<seq>&file=<name>` carries it; the page sends none. */
-type Cursor = { readonly name: string | null; readonly after: number };
+function stateOf(current: Transcript | null, proposal: Proposal | null): GrillState {
+  if (current === null || isClosed(current.doc)) return { kind: "none", proposal };
+  const { file, doc } = current;
 
-const NO_CURSOR = -1;
-
-function cursorOf(url: string): Cursor {
-  const query = new URL(url).searchParams;
-  const after = Number(query.get("after") || NO_CURSOR);
-
-  return { name: query.get("file"), after: Number.isInteger(after) ? after : NO_CURSOR };
-}
-
-function stateOf(
-  current: Transcript | null,
-  proposal: Proposal | null,
-  cursor: Cursor,
-): GrillState {
-  if (current === null) return { kind: "none", proposal, relays: [] };
-  const { n, file, doc } = current;
-  const name = grillFile(n);
-  // A cursor kept for another transcript says nothing of this one.
-  const relays = relaysOf(doc, name, cursor.name === name ? cursor.after : NO_CURSOR);
-
-  return isClosed(doc)
-    ? { kind: "none", proposal, relays }
-    : { kind: "open", file, subject: subjectOf(doc), phase: phaseOf(doc), relays };
+  return { kind: "open", file, subject: subjectOf(doc), phase: phaseOf(doc) };
 }
 
 /** The grill that is open now, read as `GET state` reads it; `null` with none, or with no directory. */
@@ -180,24 +199,27 @@ function routes(context: ServerContext): Readonly<Record<RouteKey, Route>> {
 
       if (applied instanceof Response) return applied;
       await context.writeText(current.file, applied.doc);
+
+      if (applied.told) await tell(context, grillFile(current.n), current.doc, applied.doc);
       await context.notify();
 
       return applied.answer;
     });
 
-  const written = (doc: string): Written => ({
+  const written = (doc: string, told = false): Written => ({
     doc,
     answer: new Response(null, NO_CONTENT),
+    told,
   });
 
   return {
-    "GET state": async (request) => {
+    "GET state": async () => {
       const workspace = await workspaceIfAny(context);
 
       if (workspace === null) return refused("the plan's directory is gone");
       const current = await latest(context, workspace.dir);
 
-      return Response.json(stateOf(current, proposal, cursorOf(request.url)));
+      return Response.json(stateOf(current, proposal));
     },
 
     "POST suggest": async (request) => {
@@ -232,10 +254,13 @@ function routes(context: ServerContext): Readonly<Record<RouteKey, Route>> {
           return refused("no such proposal");
         }
 
-        proposal = {
-          kind: "declined",
-          declined: { id: decline.id, subject: proposal.suggestion.subject },
-        };
+        const { subject } = proposal.suggestion;
+        proposal = { kind: "declined", declined: { id: decline.id, subject } };
+        await context.relay({
+          kind: "text",
+          from: "grill",
+          text: `The reviewer declined the grill on: ${subject}.`,
+        });
         await context.notify();
 
         return new Response(null, NO_CONTENT);
@@ -259,10 +284,13 @@ function routes(context: ServerContext): Readonly<Record<RouteKey, Route>> {
           return refused(`${grillFile(current.n)} is open`);
         }
 
-        const file = projectPath(`${workspace.dir}${grillFile((current?.n ?? 0) + 1)}`);
+        const name = grillFile((current?.n ?? 0) + 1);
+        const file = projectPath(`${workspace.dir}${name}`);
         const session = /wip-([0-9a-f]{8})\/$/u.exec(workspace.dir)?.[1] ?? "";
-        await context.writeText(file, header(subject, session, new Date()));
+        const doc = header(subject, session, new Date());
+        await context.writeText(file, doc);
         proposal = null;
+        await tell(context, name, null, doc, current === null);
         await context.notify();
 
         const opened: Opened = { file };
@@ -274,7 +302,9 @@ function routes(context: ServerContext): Readonly<Record<RouteKey, Route>> {
     "POST close": async (request) => {
       const reason = parseCloseReason(await request.json().catch(() => null));
 
-      return reason === null ? badRequest() : await change((doc) => written(ended(doc, reason)));
+      return reason === null
+        ? badRequest()
+        : await change((doc) => written(ended(doc, reason), reason === "page"));
     },
 
     "POST ask": async (request) => {
@@ -287,7 +317,11 @@ function routes(context: ServerContext): Readonly<Record<RouteKey, Route>> {
           const first = nextQuestion(doc);
           const asked: Asked = { first, last: first + questions.length - 1 };
 
-          return { doc: appendQuestions(doc, questions), answer: Response.json(asked) };
+          return {
+            doc: appendQuestions(doc, questions),
+            answer: Response.json(asked),
+            told: false,
+          };
         },
         () => refused(NO_GRILL_OPEN),
       );
@@ -320,7 +354,7 @@ function routes(context: ServerContext): Readonly<Record<RouteKey, Route>> {
 
           return replied === null
             ? refused("no question is open, and the note is empty")
-            : written(replied);
+            : written(replied, true);
         },
         () => refused(NO_GRILL_OPEN),
       );

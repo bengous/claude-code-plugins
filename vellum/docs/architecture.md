@@ -13,7 +13,7 @@ flowchart LR
   subgraph engine["Claude Code (the engine)"]
     CC["the session<br/>/vellum:start · mcp__vellum__submit · mcp__vellum__grill_* · /vellum:stop"]
     M["src/core/engine/<br/>register.ts · mode.ts: idle · live"]
-    E["src/extensions/*/engine.ts<br/>grill: tools, refusals, tick"]
+    E["src/extensions/*/engine.ts<br/>grill: tools, refusals, staged"]
     CC -- "session.start · skill.prompt · command.run<br/>tool.check · tool.call · prompt.submit · turn.complete" --> M
     M -- "$.prompt.submit<br/>deny / result / text" --> CC
     M -- "every event, a Host, never $" --> E
@@ -32,10 +32,11 @@ flowchart LR
     U --> P
   end
   M -- "HTTP /api/*<br/>x-vellum-token" --> R
+  A -- "stdout, one ServerLine a line<br/>ready · channel · stage" --> M
   U -- "HTTP /api/*, /t/&lt;token&gt;/files, SSE" --> R
   A -. "src/extensions/*/server.ts<br/>linkedDocs, pure" .-> A
   R -. "src/extensions/*/server.ts<br/>routes under /api/x/&lt;id&gt;/, IO through ServerContext" .-> W
-  F[("plans/&lt;date&gt;/wip-&lt;sid8&gt;/<br/>plan.md, grill-&lt;n&gt;.md, .review/vN.md,<br/>vN.feedback.md, vN.notes.md, draft.json")]
+  F[("plans/&lt;date&gt;/wip-&lt;sid8&gt;/<br/>plan.md, grill-&lt;n&gt;.md, .review/vN.md,<br/>vN.feedback.md, vN.notes.md, draft.json, channel.jsonl")]
   W --> F
 ```
 
@@ -54,7 +55,7 @@ plain modules with no interface and no injection).
 
 | Part | Shape | Driving side | Driven side |
 |---|---|---|---|
-| Hooks module | ports and adapters, `Host` the port | the engine's events (`session.start`, `skill.prompt`, `command.run`, `tool.check`, `tool.call`, `prompt.submit`, `turn.complete`) | the engine's `$` (clock, store, http, process, prompt, tool), answered by the kit in tests |
+| Hooks module | ports and adapters, `Host` the port | the engine's events (`session.start`, `skill.prompt`, `command.run`, `tool.check`, `tool.call`, `prompt.submit`, `turn.complete`), and the lines its server writes on stdout | the engine's `$` (clock, store, http, process, prompt, tool), answered by the kit in tests |
 | Server | ports and adapters, domain / app / adapters | `adapters/http/routes.ts` | the file system through `adapters/fs.ts`, real in tests (a temp directory) |
 | Page | a store of signals and components | the reviewer's clicks | `/api`, the files route, SSE |
 | `src/extensions/<id>/` | feature slices: one extension = one folder, a half per runtime it plugs into | | |
@@ -92,7 +93,8 @@ sequenceDiagram
   participant S as vellum serve
   participant B as page
   CC->>M: skill.prompt vellum:start
-  M->>S: start (detached), GET /api/review, POST /api/open
+  M->>S: $.process.spawn cli.ts serve, POST /api/open
+  S-->>M: stdout: ready, then the stage; GET /api/channel reads what is not relayed yet
   S-->>B: the page opens on the working directory's files
   M-->>CC: skill text + "Working directory: plans/<date>/wip-<sid8>/"
   loop every tool call while live
@@ -101,14 +103,13 @@ sequenceDiagram
   CC->>M: turn.complete (the main loop answered), or tool.call mcp__vellum__submit
   M->>S: POST /api/gate → reads plan.md, writes .review/vN.md, opens the browser once; an unchanged text is kept
   M-->>CC: the tool's result: "End your turn."
-  loop every second
-    M->>S: GET /api/pending (what to relay, and the workspace the band draws)
-  end
   B->>S: PUT /api/draft (the unsent comments and edit, at every change)
   B->>S: POST /api/decision (feedback | approve, with the reviewer's edit or none)
   S->>S: an edit is vN+1: plan.md, then .review/vN+1.md; approve → notes file, links rewritten, directory renamed
+  S->>S: appends the entry to .review/channel.jsonl: sent (the feedback file) | approved
   S-->>B: SSE workspace
-  M->>CC: $.prompt.submit ("Changes requested on vN: read <path>." | "Plan vN approved, at <dir>. Read <notes file> first.")
+  S-->>M: stdout: the entry, then the stage
+  M->>CC: $.prompt.submit ("Reviewer sent: read <path>." | "Plan vN approved, at <dir>. Read <notes file> first.")
 ```
 
 ## A grill
@@ -123,22 +124,24 @@ sequenceDiagram
   M->>S: POST /api/x/grill/suggest, the slot pending under a new id
   S-->>P: workspace event, the modal over the page, or the Grill button's dot under a typing
   opt the reviewer declines it instead
-    P->>S: POST /api/x/grill/decline {id}, the slot declined
+    P->>S: POST /api/x/grill/decline {id}, the slot declined, the decline on the channel
+    S-->>M: stdout: the entry
     M->>C: $.prompt.submit ("The reviewer declined the grill on: <subject>.")
   end
   P->>S: POST /api/x/grill/open {subject}
-  S->>S: writes grill-1.md, its header
-  M->>S: tick: GET /api/x/grill/state?after=<seq>&file=<name>
-  M->>C: $.prompt.submit (the opening, entry 0)
+  S->>S: writes grill-1.md, its header, and the opening on the channel
+  S-->>M: stdout: the entry
+  M->>C: $.prompt.submit (the opening)
   C->>M: tool.call grill_ask {q}
   M->>S: POST /api/x/grill/ask, a round opened
   C->>M: turn.complete
   M->>S: POST /api/x/grill/answer {text, reason, own, asked}, the asking turn's text with its round
-  P->>S: POST /api/x/grill/reply {answers, note}, written in the round of its questions
-  M->>C: $.prompt.submit (each reply past the cursor, in order, "Reviewer: ...")
+  P->>S: POST /api/x/grill/reply {answers, note}, written in the round of its questions, told on the channel
+  S-->>M: stdout: the entry
+  M->>C: $.prompt.submit (each reply, once, in order, "Reviewer: ...")
   P->>S: POST /api/x/grill/close, or the module's on /vellum:stop
   P->>S: POST /api/decision approve, the server ends the grill after the rename (approved)
-  M->>C: $.prompt.submit ("The reviewer ended grill-1.md.", the last entry, for a close from the page alone)
+  M->>C: $.prompt.submit ("The reviewer ended grill-1.md.", told for a close from the page alone)
 ```
 
 A round is Claude's: `grill_ask` alone opens one, and the reviewer's reply is written in it, so
@@ -149,25 +152,24 @@ reply answers it, whatever happened since: a command of the session (`/vellum:st
 is the harness's, written as an event line that opens and closes nothing. What the reviewer
 types in the terminal, and what Claude answers to it, are not the grill's and are not written.
 
-The file is the queue and the state: the server writes every round, the module writes nothing,
-and what is open, who speaks next and what waits for the relay are read off `grill-<n>.md`
-(`extensions/grill/transcript.ts`). `relaysOf` numbers the entries in file order: 0 the opening,
-1..n the reviewer's replies, n+1 the end when the footer says `page`. The module keeps one
-record of its own, in `$.store`: its cursor, `{ file, seq, taught, declined }`. Each poll asks for the
-entries past it and submits them one by one, the cursor written after each, so two replies
-between two polls both go and nothing Claude says cancels one. The file serves the human, the
-prompt serves the agent, and they no longer share a text: a prompt names its object
+The file is the transcript and the state: the server writes every round, the module writes
+nothing, and what is open and who speaks next are read off `grill-<n>.md`
+(`extensions/grill/transcript.ts`). What Claude hears is the core's channel: each write the
+reviewer causes appends, as text the server words, the entries it added to the transcript,
+which `relaysOf` reads in file order: the opening, each reply, the end when the footer says
+`page`. So two replies both go, each once, and nothing Claude says cancels one; a block written
+into the file by hand was there before the write and is not told. The file serves the human,
+the prompt serves the agent, and they no longer share a text: a prompt names its object
 (`grill-2.md`) and repeats nothing Claude wrote or read. A reply goes under `Reviewer:`, the
 note first, then the typed answers, never a default; `grilling.md` is named at the first grill
-of a session alone (`taught`); the end names the file, its path goes to `$.ui.log`. Every relay
-keeps the plugin's origin: the lock lets Claude write `grill-<n>.md`, so a `Reviewer` block
-proves no human wrote it, and it must never reach Claude as the user's own words.
+of the working directory alone; the end names the file. Every relay keeps the plugin's origin:
+the lock lets Claude write in the working directory, the channel included, so an entry proves
+no human wrote it, and it must never reach Claude as the user's own words.
 
 The proposal alone lives in the server's memory, in one slot: `grill_suggest` fills it under a
-random id, a decline from the page turns it declined, a new proposal replaces either, and
-opening a grill empties it. With no grill open the poll reads the slot after the entries, and
-a declined proposal whose id is not the cursor's `declined` goes to Claude as the fact, "The
-reviewer declined the grill on: <subject>.", the cursor written after it.
+random id, a decline from the page turns it declined and tells Claude the fact on the channel,
+"The reviewer declined the grill on: <subject>.", a new proposal replaces either, and opening a
+grill empties it.
 
 Claude's final text is written when its turn is the grill's own: `prompt.submit` notes the
 last prompt that entered and its origin, `turn.start`, which carries no origin itself, takes
@@ -191,11 +193,11 @@ The hooks module, in memory, one union:
 stateDiagram-v2
   [*] --> idle
   idle --> live: skill.prompt, server reached
-  idle --> live: session.start, the stored server answers
+  idle --> live: session.start, the stored server relaunched
   live --> live: another session id, server restarted
-  live --> live: three polls the server failed, revived on its port and token
+  live --> live: its server ended, revived on its port and token
   live --> lost: the revival failed, or the working directory is gone
-  idle --> lost: session.start or skill.prompt, the stored server dead and not revived
+  idle --> lost: session.start or skill.prompt, the stored server not relaunched
   lost --> live: the slow retry, or skill.prompt, revived it
   lost --> idle: skill.prompt vellum:stop, command.run clear
   live --> idle: approval prompt entered
@@ -207,8 +209,8 @@ stateDiagram-v2
 `lost` keeps the lock and the session with no server behind them: a failure never opens the
 repository. `live` allows the file tools inside the working directory and denies them under the project
 outside it, serves
-`mcp__vellum__submit`, and polls `GET /api/pending` once a second until it closes: drafting
-batches, then the review's decision, each relayed as a prompt.
+`mcp__vellum__submit`, and reads its server's stdout until it closes: each entry of the channel
+relayed as a prompt, once and in order, and each stage drawn in the band.
 
 The server, derived from the directory plus a memory overlay
 (`src/core/server/domain/workspace.ts`, `workspaceOf`):
@@ -231,10 +233,11 @@ A version has an author: Claude through `gate`, or the reviewer, whose edit a de
 one made on another. No state was added for it: `vN+1.md` with its feedback file reads as
 `changesRequested`, like any other.
 
-What the hooks module must relay is read off that state (`pendingOf`): `drafting` with
-batches means the drafting files to name, `changesRequested` a feedback file, `approved` the
-final directory and the notes file when its listing holds one, anything else nothing. No second variable. The module keeps one number of
-its own, in `$.store`: how many batches it already named, so a reload never repeats one.
+What the hooks module relays is not read off that state: each decision appends its entry to the
+channel as it lands (`domain/channel.ts`), `sent` naming the drafting batch or the feedback
+file, `approved` the final directory and the notes file when its listing holds one. The module
+keeps one number of its own, in `$.store`: the last entry it relayed, so a reload never repeats
+one.
 
 ## Where the parts of a feature go
 
@@ -245,7 +248,7 @@ its own, in `$.store`: how many batches it already named, so a reload never repe
 | Diff `vN-1` / `vN` | `domain/diff.ts`: `lineDiff` over the `diff` package, `countChanges`; `extensions/markdown/changes.ts`: which block carries a mark, where a removed run goes | `/api/review` returns the previous version's text | `planChanges` computed once; the count beside the version, the "Changes since" toggle, the marks and the text-free removed blocks in the Markdown renderer |
 | Delete marks and quick labels | `Mark` on `Annotation`, `QUICK_LABELS` with the sentence Claude reads, in `domain/feedback.ts` | `parseMark` in the boundary block of `routes.ts` | the Composer's label row and "Delete this", the card's chip and struck quote |
 | Direct edit | `Edit`, `decideOn` (the edit is `vN+1`, refused on another version), `editOnLoad`, `landedAnnotations` in `domain/review.ts`; `shiftLines`, `shiftAnnotations` in `domain/diff.ts` | `parseEdit`; `Review.decide` writes `plan.md`, then the version file | `page/editor.tsx` and `page/caret.ts`; `edited`, `editing`, `finishEdit`, `settleEdit` in `state.ts` |
-| Approval notes | `formatNotes`, `notesFile`, `approved.notes` read off the final directory's listing, `Pending.approved.notes` | the notes file written before the rename; `engine/relay.ts` names it in the approval's prompt | the decision bar's one popover state: notes, and the warning before unsent comments are discarded |
+| Approval notes | `formatNotes`, `notesFile`, `approved.notes` read off the final directory's listing, the channel's `approved` entry and its `notes` | the notes file written before the rename; `engine/relay.ts` names it in the approval's prompt | the decision bar's one popover state: notes, and the warning before unsent comments are discarded |
 | Drafts | `Draft`, `DRAFT_FILE`, `takesComments` | `GET` and `PUT /api/draft`, stored and never read back; removed by a decision that lands | `start`: restore, load, then save at every change, in order |
 
 Every one added a pure part first; `src/core/server/domain/` is where a new domain concept
@@ -263,8 +266,8 @@ constraints below are why. The contract is `src/core/extension.ts`, types only, 
 | Half | File | Declares | Reached from |
 |---|---|---|---|
 | page | `<id>/page.tsx` | a `PageExtension`: its renderers, tried in registry order, its actions in the decision bar, its notices under it, and its panel, a pane `panesOf` places beside the document pane | `core/page/app.tsx`, through `extensions/page.ts` |
-| server | `<id>/server.ts` | a `ServerExtension`: `linkedDocs`, pure, candidates in and links out; its routes, mounted at `/api/x/<id>/`, their IO through a `ServerContext`; `holds`, what holds the review; `approved`, what it closes after the rename | `core/server/adapters/http/serve.ts`, through `extensions/server.ts` |
-| engine | `<id>/engine.ts` | an `EngineExtension`: tools, refusals, and handlers for a prompt, a finished turn, a poll and the mode's end | `core/engine/register.ts`, through `extensions/engine.ts` |
+| server | `<id>/server.ts` | a `ServerExtension`: `linkedDocs`, pure, candidates in and links out; its routes, mounted at `/api/x/<id>/`, their IO through a `ServerContext`, what they tell Claude through its `relay`; `holds`, what holds the review; `approved`, what it closes after the rename | `core/server/adapters/http/serve.ts`, through `extensions/server.ts` |
+| engine | `<id>/engine.ts` | an `EngineExtension`: tools, refusals, and handlers for a prompt, a finished turn, a `stage` line and the mode's end | `core/engine/register.ts`, through `extensions/engine.ts` |
 
 `src/boundaries.spec.ts` holds the layout: an extension imports `core/` and its own folder,
 never another extension; the core reaches the extensions from those three files alone; an
@@ -322,7 +325,7 @@ The crossroads a feature used to edit, and the place `grill` opened for each:
 |---|---|
 | `core/server/adapters/http/routes.ts` | `ServerExtension.routes`, mounted under `/api/x/<id>/` behind the token |
 | `core/page/app.tsx`, `core/page/state.ts` | `PageExtension.actions`, drawn in the decision bar; `PageExtension.panel`, a pane beside the documents, in the order `PANE_ORDER` of `core/page/panes.ts` holds |
-| `core/engine/register.ts` | `EngineExtension`: tools, refusals, prompted, answered, tick, closing |
+| `core/engine/register.ts` | `EngineExtension`: tools, refusals, prompted, answered, staged, closing |
 | `core/protocol.ts` | an extension's messages live in its own `protocol.ts` |
 
 Left as they were: the document list names a kind by its media type, so a transcript reads

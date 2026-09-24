@@ -3,32 +3,30 @@ import { describe, expect, test, tier } from "claude-code/testing";
 import {
   approved,
   band,
-  batch,
   changesRequested,
+  channelLine,
   CWD,
   DRAFTING,
-  draftsPrompt,
-  EXIT_WORKDIR_GONE,
+  emit,
   FINAL,
   HEARTBEAT_MS,
   inReview,
   LOST_RETRY_MS,
-  NOTHING_PENDING,
   OTHER_ID,
   OTHER_WORKDIR,
-  POLL_MS,
-  polled,
+  READY,
   relayed,
   reply,
+  sent,
   SERVER,
   SESSION,
   SESSION_ID,
+  stage,
   START_PROMPT,
-  STARTED,
+  STARTS,
   STOP_PROMPT,
   storedSession,
-  tick,
-  ticks,
+  told,
   TURN_ABORTED,
   TURN_ANSWERED,
   TURN_OF_AGENT,
@@ -36,13 +34,18 @@ import {
   WORKDIR,
   world,
 } from "./fixtures/index.ts";
-import type { PendingWire } from "./parse.ts";
 
 tier("user");
 
 const DENIAL = `vellum is planning: files outside ${WORKDIR} change after the plan is approved`;
 
 const ENGINE = { decision: "ask", reason: "the session's own flow" } as const;
+
+const REVIVAL = ["--port", String(SERVER.port), "--token", SERVER.token, "--existing"];
+
+const ENDED = { code: null, signal: "SIGKILL" } as const;
+
+const REFUSED = { deny: "ENOENT bun" } as const;
 
 describe("session.start", () => {
   test("registers the submit tool, and nothing in the global command namespace", async ($, on) => {
@@ -53,13 +56,13 @@ describe("session.start", () => {
     expect(seen.commands).toEqual([]);
   });
 
-  test("a reload finds the live server the store kept and polls again", async ($, on) => {
+  test("a reload relaunches the server the store kept, on its port and token, and beats it", async ($, on) => {
     const seen = world(on, { stored: storedSession() });
 
     await $.session.start(SESSION);
     await seen.clock.advance(HEARTBEAT_MS);
 
-    expect(seen.paths).toContain("/api/pending");
+    expect(seen.children[0]?.argv.slice(-5)).toEqual(REVIVAL);
     expect(seen.paths).toContain("/api/heartbeat");
   });
 });
@@ -76,11 +79,11 @@ describe("skill.prompt", () => {
         `Review page: http://127.0.0.1:${SERVER.port}/t/${SERVER.token}/`,
     });
 
-    expect(seen.runs).toHaveLength(1);
-    expect(seen.runs[0]?.slice(0, 3)).toEqual([
+    expect(seen.children).toHaveLength(1);
+    expect(seen.children[0]?.argv.slice(0, 3)).toEqual([
       "bun",
       expect.stringContaining("/src/core/server/cli.ts"),
-      "start",
+      "serve",
     ]);
     expect(seen.store.get(`session:${SESSION_ID}`)).toEqual(
       storedSession()[`session:${SESSION_ID}`],
@@ -90,18 +93,34 @@ describe("skill.prompt", () => {
   });
 
   test("returns the skill text without a directory when the launcher cannot start", async ($, on) => {
-    world(on, { launch: () => ({ deny: "ENOENT bun" }) });
+    world(on, { spawn: () => REFUSED });
 
     expect(await $.skill.prompt(START_PROMPT)).toEqual({ text: "t" });
   });
 
-  test("restarts the server when the stored one is dead", async ($, on) => {
+  test("a server whose first line is not ready did not start", async ($, on) => {
+    const seen = world(on, {
+      spawn: (child) => {
+        child.print("Listening on 4242\n");
+      },
+    });
+
+    expect(await $.skill.prompt(START_PROMPT)).toEqual({ text: "t" });
+    expect(seen.logs.at(-1)).toContain("its first line is not ready: Listening on 4242");
+  });
+
+  test("the session the store kept is relaunched on its port, its token and its directory", async ($, on) => {
     const seen = world(on, { stored: storedSession({ ...SERVER, port: 1 }) });
 
     await $.skill.prompt(START_PROMPT);
 
-    expect(seen.paths[0]).toBe("/api/review");
-    expect(seen.runs).toHaveLength(1);
+    expect(seen.children[0]?.argv.slice(-5)).toEqual([
+      "--port",
+      "1",
+      "--token",
+      SERVER.token,
+      "--existing",
+    ]);
     expect(seen.store.get(`session:${SESSION_ID}`)).toMatchObject({ server: SERVER });
   });
 
@@ -118,7 +137,12 @@ describe("skill.prompt", () => {
         `Review page: http://127.0.0.1:${SERVER.port}/t/${SERVER.token}/`,
     });
 
-    expect(seen.runs[0]?.slice(5, 9)).toEqual(["--project", "/elsewhere", "--workdir", workdir]);
+    expect(seen.children[0]?.argv.slice(5, 9)).toEqual([
+      "--project",
+      "/elsewhere",
+      "--workdir",
+      workdir,
+    ]);
   });
 
   test("a session id the live server does not belong to starts a second one", async ($, on) => {
@@ -128,8 +152,8 @@ describe("skill.prompt", () => {
     seen.id = OTHER_ID;
     await $.skill.prompt(START_PROMPT);
 
-    expect(seen.runs).toHaveLength(2);
-    expect(seen.runs[1]).toContain(OTHER_WORKDIR);
+    expect(seen.children).toHaveLength(2);
+    expect(seen.children[1]?.argv).toContain(OTHER_WORKDIR);
   });
 });
 
@@ -423,74 +447,40 @@ describe("turn.complete", () => {
   });
 });
 
-describe("a server that stops answering", () => {
-  const REFUSED = { deny: "ENOENT bun" } as const;
-
-  const NONE = polled(NOTHING_PENDING);
-
-  const REVIVAL = ["--port", String(SERVER.port), "--token", SERVER.token, "--existing"];
-
-  test("three polls a dead server fails revive it on the port and the token it had", async ($, on) => {
-    let down = false;
-    const seen = world(on, { routes: { "/api/pending": () => (down ? null : reply(200, NONE)) } });
+describe("a server that ends", () => {
+  test("is revived on the port and the token it had", async ($, on) => {
+    const seen = world(on);
     await $.skill.prompt(START_PROMPT);
-    down = true;
-    await tick(seen);
-    await tick(seen);
+    seen.children[0]?.exit(ENDED);
+    await seen.clock.settle();
 
-    expect(seen.runs).toHaveLength(1);
-    await tick(seen);
-
-    expect(seen.runs[1]?.slice(-5)).toEqual(REVIVAL);
+    expect(seen.children[1]?.argv.slice(-5)).toEqual(REVIVAL);
     expect(seen.statuses.at(-1)).toBeUndefined();
-  });
-
-  test("a status outside the contract is a failure of the server, a dropped prompt is none", async ($, on) => {
-    let status = 200;
-
-    const seen = world(on, {
-      routes: { "/api/pending": () => reply(status, polled(approved(1))) },
-    });
-
-    seen.drop = "refused";
-    await $.skill.prompt(START_PROMPT);
-    await ticks(seen, 3);
-
-    expect(seen.runs, "three dropped prompts").toHaveLength(1);
-    status = 503;
-    await ticks(seen, 3);
-
-    expect(seen.runs, "three 503").toHaveLength(2);
+    expect(seen.logs).toContain(`the review server ended: ${JSON.stringify(ENDED)}`);
   });
 
   test("a revival that fails is `lost`: the lock still denies, and a slow timer brings the server back", async ($, on) => {
-    let down = false;
-
-    const seen = world(on, {
-      routes: { "/api/pending": () => (down ? null : reply(200, NONE)) },
-      launch: (run) => (run === 2 ? REFUSED : STARTED),
-    });
-
+    const seen = world(on, { spawn: (child, run) => (run === 2 ? REFUSED : STARTS(child, run)) });
     await $.skill.prompt(START_PROMPT);
-    down = true;
-    await ticks(seen, 3);
+    seen.children[0]?.exit(ENDED);
+    await seen.clock.settle();
 
     expect(seen.statuses.at(-1)).toBe("server lost, retrying");
     expect(await $.tool.check({ tool: "Edit", input: { file_path: `${CWD}/src/cli.ts` } })).toEqual(
       { decision: "deny", reason: DENIAL },
     );
-    down = false;
     await seen.clock.advance(LOST_RETRY_MS);
-    await seen.clock.settle();
 
-    expect(seen.runs[2]?.slice(-5)).toEqual(REVIVAL);
+    expect(seen.children[2]?.argv.slice(-5)).toEqual(REVIVAL);
     expect(seen.statuses.at(-1)).toBeUndefined();
   });
 
   test("a working directory that is gone says so, and the lock holds", async ($, on) => {
     const seen = world(on, {
       stored: storedSession({ ...SERVER, port: 1 }),
-      launch: () => EXIT_WORKDIR_GONE,
+      spawn: (child) => {
+        child.exit({ code: 3, signal: null });
+      },
     });
 
     await $.session.start(SESSION);
@@ -501,62 +491,45 @@ describe("a server that stops answering", () => {
     ).toEqual({ decision: "deny", reason: DENIAL });
   });
 
-  test("session.start on a dead stored server revives it and polls again", async ($, on) => {
-    const seen = world(on, { stored: storedSession({ ...SERVER, port: 1 }) });
-
-    await $.session.start(SESSION);
-    await tick(seen);
-
-    expect(seen.runs[0]?.slice(-5)).toEqual(["--port", "1", "--token", SERVER.token, "--existing"]);
-    expect(seen.store.get(`session:${SESSION_ID}`)).toMatchObject({ server: SERVER });
-    expect(seen.paths).toContain("/api/pending");
-  });
-
-  test("a kept server that missed one probe is kept: a rival on another port is not adopted", async ($, on) => {
-    let probes = 0;
+  test("a relaunch that finds its port taken keeps the port and the token it got", async ($, on) => {
     const rival = { ...SERVER, port: SERVER.port + 1, token: "rival" };
 
     const seen = world(on, {
       stored: storedSession(),
-      routes: { "/api/review": () => ((probes += 1) === 1 ? null : reply(200, {})) },
-      launch: () => ({ value: { exitCode: 0, stdout: JSON.stringify(rival), stderr: "" } }),
+      spawn: (child) => {
+        child.write({ ...READY, ...rival });
+      },
     });
 
     await $.session.start(SESSION);
-    await tick(seen);
 
-    expect(seen.runs).toHaveLength(1);
-    expect(seen.store.get(`session:${SESSION_ID}`)).toMatchObject({ server: SERVER });
-    expect(seen.paths).toContain("/api/pending");
+    expect(seen.store.get(`session:${SESSION_ID}`)).toMatchObject({ server: rival });
   });
 
   test("/vellum:stop during a revival resurrects nothing", async ($, on) => {
-    let down = false;
-
     const seen = world(on, {
-      routes: { "/api/pending": () => (down ? null : reply(200, NONE)) },
-      launch: async (run) => {
-        if (run === 2) await seen.clock.sleep(POLL_MS / 2);
+      spawn: async (child, run) => {
+        if (run === 2) await seen.clock.sleep(1_000);
 
-        return STARTED;
+        return STARTS(child, run);
       },
     });
 
     await $.skill.prompt(START_PROMPT);
-    down = true;
-    await ticks(seen, 3);
+    seen.children[0]?.exit(ENDED);
+    await seen.clock.settle();
     await $.skill.prompt(STOP_PROMPT);
-    await seen.clock.advance(POLL_MS / 2);
+    await seen.clock.advance(1_000);
     const from = seen.paths.length;
-    await tick(seen);
+    await seen.clock.advance(HEARTBEAT_MS);
 
-    expect(seen.runs).toHaveLength(2);
+    expect(seen.children).toHaveLength(2);
     expect(seen.paths.slice(from)).toEqual([]);
     expect(seen.store.has(`session:${SESSION_ID}`)).toBe(false);
   });
 
   test("/vellum:stop leaves `lost`, and the lock with it", async ($, on) => {
-    world(on, { stored: storedSession({ ...SERVER, port: 1 }), launch: () => REFUSED });
+    world(on, { stored: storedSession({ ...SERVER, port: 1 }), spawn: () => REFUSED });
     on("tool.check", () => ENGINE);
     await $.session.start(SESSION);
     await $.skill.prompt(STOP_PROMPT);
@@ -580,7 +553,7 @@ describe("skill.prompt vellum:stop", () => {
     await seen.clock.advance(HEARTBEAT_MS);
 
     expect(seen.store.has(`session:${SESSION_ID}`)).toBe(false);
-    expect(seen.paths.slice(from), "no poll and no heartbeat after the way out").toEqual([]);
+    expect(seen.paths.slice(from), "no heartbeat after the way out").toEqual([]);
     expect(seen.statuses.at(-1)).toBeUndefined();
   });
 
@@ -599,7 +572,17 @@ describe("skill.prompt vellum:stop", () => {
       text: "t\n\nno vellum planning in progress",
     });
 
-    expect(seen.runs).toEqual([]);
+    expect(seen.children).toEqual([]);
+  });
+
+  test("what the server writes after it reaches nobody", async ($, on) => {
+    const seen = world(on);
+    await $.skill.prompt(START_PROMPT);
+    await $.skill.prompt(STOP_PROMPT);
+    emit(seen, sent());
+    await seen.clock.settle();
+
+    expect(seen.prompts).toEqual([]);
   });
 });
 
@@ -616,21 +599,18 @@ describe("the band above the prompt", () => {
     expect(seen.statuses.filter((text) => text !== undefined)).toEqual([]);
   });
 
-  test("each poll draws where the plan stands, as the server's workspace says", async ($, on) => {
-    let workspace = DRAFTING;
-    const poll = () => reply(200, polled(NOTHING_PENDING, workspace));
-    const seen = world(on, { routes: { "/api/pending": poll } });
+  test("each stage the server writes draws where the plan stands", async ($, on) => {
+    const seen = world(on);
     await $.skill.prompt(START_PROMPT);
     const drawn = await band($);
-    await tick(seen);
+    const server = seen.children[0];
+    server?.write(stage(DRAFTING));
+    await seen.clock.settle();
 
     expect(await drawn.text()).toBe("vellum │ plan draft │ Review page ↗");
-    workspace = inReview(2);
-    await tick(seen);
-
-    expect(await drawn.text()).toBe("vellum │ plan v2 · in review │ Review page ↗");
-    workspace = changesRequested(2);
-    await tick(seen);
+    server?.write(stage(inReview(2)));
+    server?.write(stage(changesRequested(2)));
+    await seen.clock.settle();
 
     expect(await drawn.text()).toBe("vellum │ plan v2 · changes requested │ Review page ↗");
   });
@@ -654,19 +634,12 @@ describe("the band above the prompt", () => {
   });
 
   test("a lost server keeps its warning, and the band shrinks to the name and the link", async ($, on) => {
-    let down = false;
-    const poll = () => (down ? null : reply(200, polled(NOTHING_PENDING, inReview(1))));
-
-    const seen = world(on, {
-      routes: { "/api/pending": poll },
-      launch: (run) => (run === 2 ? { deny: "ENOENT bun" } : STARTED),
-    });
-
+    const seen = world(on, { spawn: (child, run) => (run === 2 ? REFUSED : STARTS(child, run)) });
     await $.skill.prompt(START_PROMPT);
     const drawn = await band($);
-    await tick(seen);
-    down = true;
-    await ticks(seen, 3);
+    seen.children[0]?.write(stage(inReview(1)));
+    seen.children[0]?.exit(ENDED);
+    await seen.clock.settle();
 
     expect(seen.statuses.at(-1)).toBe("server lost, retrying");
     expect(await drawn.text()).toBe("vellum │ Review page ↗");
@@ -687,7 +660,18 @@ describe("command.run", () => {
       true,
     );
     expect(seen.statuses.at(-1)).toBeUndefined();
-    expect(seen.paths.slice(from), "no poll and no heartbeat after a clear").toEqual([]);
+    expect(seen.paths.slice(from), "no heartbeat after a clear").toEqual([]);
+  });
+
+  test("/clear stops the relays: what the server writes after it reaches nobody", async ($, on) => {
+    const seen = world(on);
+    on("command.run", () => ({}));
+    await $.skill.prompt(START_PROMPT);
+    await $.command.run(typedCommand("clear"));
+    emit(seen, sent());
+    await seen.clock.settle();
+
+    expect(seen.prompts).toEqual([]);
   });
 
   test("/resume to another session stops the timers the same way", async ($, on) => {
@@ -714,10 +698,10 @@ describe("command.run", () => {
     await $.command.run(typedCommand("resume"));
 
     const from = seen.paths.length;
-    await tick(seen);
+    await seen.clock.advance(HEARTBEAT_MS);
 
     expect(seen.statuses.at(-1)).toBeUndefined();
-    expect(seen.paths.slice(from), "the poll still runs").toEqual(["/api/pending"]);
+    expect(seen.paths.slice(from), "the heartbeat still runs").toEqual(["/api/heartbeat"]);
   });
 
   test("outside the mode a /clear runs and touches nothing", async ($, on) => {
@@ -730,195 +714,209 @@ describe("command.run", () => {
   });
 });
 
-describe("the decision comes back as a prompt", () => {
+describe("what the reviewer sends comes back as a prompt", () => {
   const feedback = `${WORKDIR}.review/v1.feedback.md`;
 
-  test("a feedback names the file once, and the mode stays live", async ($, on) => {
-    const CHANGES: PendingWire = { kind: "feedback", version: 1, path: feedback };
-    let pending = NOTHING_PENDING;
-    const seen = world(on, { routes: { "/api/pending": () => reply(200, polled(pending)) } });
+  test("a file sent is named once, and the mode stays live", async ($, on) => {
+    const seen = world(on);
     await $.skill.prompt(START_PROMPT);
-    await tick(seen);
+    emit(seen, sent(feedback));
+    await seen.clock.settle();
+    seen.children[0]?.write(channelLine({ seq: 1, entry: sent(feedback) }));
+    await seen.clock.settle();
 
-    expect(seen.prompts).toEqual([]);
-    pending = CHANGES;
-    await tick(seen);
-    await tick(seen);
+    expect(seen.prompts).toEqual([`Reviewer sent: read ${feedback}.`]);
+    expect(seen.store.get(`relayed:${SESSION_ID}`)).toEqual(relayed(1));
+    expect(seen.store.has(`session:${SESSION_ID}`)).toBe(true);
+  });
 
-    expect(seen.prompts).toEqual([`Changes requested on v1: read ${feedback}.`]);
+  test("a text an extension worded reaches Claude as it is", async ($, on) => {
+    const seen = world(on);
+    await $.skill.prompt(START_PROMPT);
+    emit(seen, told("Reviewer: Q1: yes\n\nQ2: no"));
+    await seen.clock.settle();
 
-    const from = seen.paths.length;
-    await tick(seen);
-
-    expect(seen.paths.slice(from), "the poll is still running").toEqual(["/api/pending"]);
+    expect(seen.prompts).toEqual(["Reviewer: Q1: yes\n\nQ2: no"]);
   });
 
   test("an approval names the final directory, then the mode is idle", async ($, on) => {
-    const seen = world(on, {
-      routes: { "/api/pending": () => reply(200, polled(approved(2))) },
-    });
-
+    const seen = world(on);
     await $.skill.prompt(START_PROMPT);
-    await tick(seen);
+    emit(seen, approved(2));
+    await seen.clock.settle();
 
     expect(seen.prompts).toEqual([`Plan v2 approved, at ${FINAL}.`]);
 
     const from = seen.paths.length;
     await seen.clock.advance(HEARTBEAT_MS);
 
-    expect(seen.paths.slice(from), "the poll stopped with the mode").toEqual([]);
+    expect(seen.paths.slice(from), "the heartbeat stopped with the mode").toEqual([]);
     expect(seen.store.has(`session:${SESSION_ID}`)).toBe(false);
   });
 
   test("an approval with notes says to read the notes file first", async ($, on) => {
     const notes = `${FINAL}.review/v2.notes.md`;
-
-    const seen = world(on, {
-      routes: { "/api/pending": () => reply(200, polled(approved(2, notes))) },
-    });
-
+    const seen = world(on);
     await $.skill.prompt(START_PROMPT);
-    await tick(seen);
+    emit(seen, approved(2, notes));
+    await seen.clock.settle();
 
     expect(seen.prompts).toEqual([`Plan v2 approved, at ${FINAL}. Read ${notes} first.`]);
   });
 
-  test("a drafting batch is named once, and the next batches in one prompt", async ($, on) => {
-    let batches = [batch(1)];
-    const drafts = () => reply(200, polled({ kind: "drafts", batches }));
-    const seen = world(on, { routes: { "/api/pending": drafts } });
+  test("an approval drops the record, so the next plan's first entry is named", async ($, on) => {
+    const seen = world(on, { stored: { [`relayed:${SESSION_ID}`]: relayed(2) } });
     await $.skill.prompt(START_PROMPT);
-    await tick(seen);
-    await tick(seen);
-
-    expect(seen.prompts).toEqual([draftsPrompt(1)]);
-    batches = [batch(1), batch(2), batch(3)];
-    await tick(seen);
-
-    expect(seen.prompts).toEqual([draftsPrompt(1), draftsPrompt(2, 3)]);
-    expect(seen.store.get(`relayed:${SESSION_ID}`)).toEqual(relayed(3));
-  });
-
-  test("a batch the store says was relayed is not named again after a reload", async ($, on) => {
-    const seen = world(on, {
-      routes: { "/api/pending": () => reply(200, polled({ kind: "drafts", batches: [batch(1)] })) },
-      stored: { ...storedSession(), [`relayed:${SESSION_ID}`]: relayed(1) },
-    });
-
-    await $.session.start(SESSION);
-    await tick(seen);
-
-    expect(seen.prompts).toEqual([]);
-  });
-
-  test("a feedback the store says was relayed is not named again after a reload", async ($, on) => {
-    const seen = world(on, {
-      routes: {
-        "/api/pending": () => reply(200, polled({ kind: "feedback", version: 1, path: feedback })),
-      },
-      stored: { ...storedSession(), [`relayed:${SESSION_ID}`]: relayed(0, 1) },
-    });
-
-    await $.session.start(SESSION);
-    await tick(seen);
-
-    expect(seen.prompts).toEqual([]);
-  });
-
-  test("a record kept for another working directory counts for nothing", async ($, on) => {
-    const seen = world(on, {
-      routes: { "/api/pending": () => reply(200, polled({ kind: "drafts", batches: [batch(1)] })) },
-      stored: {
-        ...storedSession(),
-        [`relayed:${SESSION_ID}`]: relayed(1, 0, "plans/2020-01-01/wip-x/"),
-      },
-    });
-
-    await $.session.start(SESSION);
-    await tick(seen);
-
-    expect(seen.prompts).toEqual([draftsPrompt(1)]);
-  });
-
-  test("an approval drops the record, so the next plan's first batch is named", async ($, on) => {
-    const seen = world(on, {
-      routes: { "/api/pending": () => reply(200, polled(approved(1))) },
-      stored: { [`relayed:${SESSION_ID}`]: relayed(2) },
-    });
-
-    await $.skill.prompt(START_PROMPT);
-    await tick(seen);
+    seen.channel.push({ seq: 1, entry: sent() }, { seq: 2, entry: sent() });
+    emit(seen, approved(1));
+    await seen.clock.settle();
 
     expect(seen.store.has(`relayed:${SESSION_ID}`)).toBe(false);
   });
 
-  test("a store that refuses the record does not name a batch twice", async ($, on) => {
+  test("entries written together are named one by one, in order", async ($, on) => {
+    const seen = world(on);
+    await $.skill.prompt(START_PROMPT);
+    emit(
+      seen,
+      sent(`${WORKDIR}.review/v0.feedback-1.md`),
+      sent(`${WORKDIR}.review/v0.feedback-2.md`),
+    );
+    await seen.clock.settle();
+
+    expect(seen.prompts).toEqual([
+      `Reviewer sent: read ${WORKDIR}.review/v0.feedback-1.md.`,
+      `Reviewer sent: read ${WORKDIR}.review/v0.feedback-2.md.`,
+    ]);
+    expect(seen.store.get(`relayed:${SESSION_ID}`)).toEqual(relayed(2));
+  });
+
+  test("an entry is relayed once, across a module reload and a server relaunch", async ($, on) => {
     const seen = world(on, {
-      routes: { "/api/pending": () => reply(200, polled({ kind: "drafts", batches: [batch(1)] })) },
+      stored: { ...storedSession(), [`relayed:${SESSION_ID}`]: relayed(1) },
+      channel: [
+        { seq: 1, entry: told("Reviewer: Q1: yes") },
+        { seq: 2, entry: told("Reviewer: Q2: no") },
+      ],
     });
 
+    await $.session.start(SESSION);
+    await seen.clock.settle();
+
+    expect(seen.children[0]?.argv.slice(-5)).toEqual(REVIVAL);
+    expect(seen.prompts, "read past the record, from the file").toEqual(["Reviewer: Q2: no"]);
+    seen.children[0]?.write(channelLine({ seq: 2, entry: told("Reviewer: Q2: no") }));
+    emit(seen, told("Reviewer: Q3: maybe"));
+    await seen.clock.settle();
+
+    expect(seen.prompts).toEqual(["Reviewer: Q2: no", "Reviewer: Q3: maybe"]);
+    expect(seen.store.get(`relayed:${SESSION_ID}`)).toEqual(relayed(3));
+  });
+
+  test("a number past the next one reads the entries it missed first, in order", async ($, on) => {
+    const seen = world(on);
+    await $.skill.prompt(START_PROMPT);
+    await seen.clock.settle();
+    seen.channel.push({ seq: 1, entry: told("first") }, { seq: 2, entry: told("second") });
+    emit(seen, told("third"));
+    await seen.clock.settle();
+
+    expect(seen.prompts).toEqual(["first", "second", "third"]);
+  });
+
+  test("a record kept for another working directory counts for nothing", async ($, on) => {
+    const seen = world(on, {
+      stored: {
+        ...storedSession(),
+        [`relayed:${SESSION_ID}`]: relayed(1, "plans/2020-01-01/wip-x/"),
+      },
+      channel: [{ seq: 1, entry: sent() }],
+    });
+
+    await $.session.start(SESSION);
+    await seen.clock.settle();
+
+    expect(seen.prompts).toEqual([`Reviewer sent: read ${WORKDIR}.review/v0.feedback-1.md.`]);
+  });
+
+  test("a record of the shape before the channel starts over", async ($, on) => {
+    const seen = world(on, {
+      stored: {
+        ...storedSession(),
+        [`relayed:${SESSION_ID}`]: { workdir: WORKDIR, drafts: 1, version: 0 },
+      },
+      channel: [{ seq: 1, entry: sent() }],
+    });
+
+    await $.session.start(SESSION);
+    await seen.clock.settle();
+
+    expect(seen.prompts).toHaveLength(1);
+  });
+
+  test("a store that refuses the record does not name an entry twice", async ($, on) => {
+    const seen = world(on);
     await $.skill.prompt(START_PROMPT);
     seen.refuseStore = "disk full";
-    await tick(seen);
-    await tick(seen);
+    emit(seen, sent());
+    seen.children[0]?.write(channelLine({ seq: 1, entry: sent() }));
+    await seen.clock.settle();
 
-    expect(seen.prompts).toEqual([draftsPrompt(1)]);
+    expect(seen.prompts).toHaveLength(1);
     expect(seen.logs.at(-1)).toContain("disk full");
   });
 
-  test("an approval that lands during a new way in leaves the new mode live", async ($, on) => {
-    let answered = false;
-
-    const seen = world(on, {
-      routes: {
-        "/api/pending": async () => {
-          if (answered) return reply(200, polled(NOTHING_PENDING));
-          answered = true;
-          await seen.clock.sleep(POLL_MS / 2);
-
-          return reply(200, polled(approved(1)));
-        },
-      },
-    });
-
+  test("an approval of a mode that was left reaches nobody, and leaves the new mode live", async ($, on) => {
+    const seen = world(on);
     await $.skill.prompt(START_PROMPT);
-    await seen.clock.advance(POLL_MS);
     seen.id = OTHER_ID;
     await $.skill.prompt(START_PROMPT);
-    await seen.clock.advance(POLL_MS / 2);
+    seen.children[0]?.write(channelLine({ seq: 1, entry: approved(1) }));
+    await seen.clock.settle();
 
-    expect(seen.prompts, "the old mode's approval was relayed").toHaveLength(1);
-    const from = seen.paths.length;
-    await tick(seen);
-
-    expect(seen.paths.slice(from), "the new poll still runs").toContain("/api/pending");
+    expect(seen.prompts).toEqual([]);
     expect(seen.store.has(`session:${OTHER_ID}`)).toBe(true);
   });
 
-  test("an answer in the shape before the workspace fails the poll and says so", async ($, on) => {
-    const seen = world(on, { routes: { "/api/pending": () => reply(200, approved(1)) } });
+  test("a line cut in two pieces is read once it is whole", async ($, on) => {
+    const seen = world(on);
     await $.skill.prompt(START_PROMPT);
-    await tick(seen);
+    const whole = `${JSON.stringify(channelLine({ seq: 1, entry: sent() }))}\n`;
+    seen.channel.push({ seq: 1, entry: sent() });
+    seen.children[0]?.print(whole.slice(0, 20));
+    await seen.clock.settle();
 
     expect(seen.prompts).toEqual([]);
-    expect(seen.logs.at(-1)).toContain(
-      "GET /api/pending answered a shape this module does not read",
+    seen.children[0]?.print(whole.slice(20));
+    await seen.clock.settle();
+
+    expect(seen.prompts).toHaveLength(1);
+  });
+
+  test("a line the module does not read is logged, and relays nothing", async ($, on) => {
+    const seen = world(on);
+    await $.skill.prompt(START_PROMPT);
+    seen.children[0]?.print('{"type":"pending","pending":{"kind":"none"}}\n');
+    await seen.clock.settle();
+
+    expect(seen.prompts).toEqual([]);
+    expect(seen.logs.at(-1)).toBe(
+      'the review server wrote a line this module does not read: {"type":"pending","pending":{"kind":"none"}}',
     );
   });
 
-  test("a dropped prompt keeps the poll alive; the next tick retries", async ($, on) => {
-    const seen = world(on, {
-      routes: { "/api/pending": () => reply(200, polled(approved(1))) },
-    });
-
+  test("a dropped prompt is not counted, and the heartbeat retries it", async ($, on) => {
+    const seen = world(on);
     seen.drop = "refused";
     await $.skill.prompt(START_PROMPT);
-    await tick(seen);
+    emit(seen, sent());
+    await seen.clock.settle();
 
     expect(seen.prompts).toEqual([]);
     seen.drop = undefined;
-    await tick(seen);
+    await seen.clock.advance(HEARTBEAT_MS);
 
     expect(seen.prompts).toHaveLength(1);
+    expect(seen.children).toHaveLength(1);
   });
 });

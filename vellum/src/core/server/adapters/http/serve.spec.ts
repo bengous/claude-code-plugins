@@ -3,6 +3,7 @@ import { existsSync, mkdirSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+import type { ServerLine } from "../../../protocol.ts";
 import type { WipDir } from "../../domain/paths.ts";
 import { parseWipDir } from "../../domain/paths.ts";
 import { EXIT_WORKDIR_GONE, startServer, WorkdirGone } from "./serve.ts";
@@ -17,6 +18,18 @@ function wipDir(): WipDir {
   if (!parsed.ok) throw new Error(parsed.error);
 
   return parsed.value;
+}
+
+/** A child's stdout, a line at a time. */
+async function* linesOf(stream: ReadableStream<Uint8Array>): AsyncGenerator<string> {
+  const decoder = new TextDecoder();
+  let tail = "";
+
+  for await (const piece of stream) {
+    const cut = `${tail}${decoder.decode(piece, { stream: true })}`.split("\n");
+    tail = cut.pop() ?? "";
+    yield* cut;
+  }
 }
 
 function project(): string {
@@ -110,13 +123,59 @@ describe("a working directory that is gone", () => {
     expect(existsSync(join(root, WIP))).toBe(false);
   });
 
-  test("--existing exits 3, through the launcher too", async () => {
+  test("--existing exits 3 before a line on stdout", async () => {
     const root = mkdtempSync(join(tmpdir(), "vellum-gone-"));
     const flags = ["--session", "s", "--project", root, "--workdir", WIP, "--existing"];
     const serve = Bun.spawn(["bun", CLI, "serve", ...flags], { stderr: "ignore" });
-    const start = Bun.spawn(["bun", CLI, "start", ...flags], { stderr: "ignore" });
 
     expect(await serve.exited).toBe(EXIT_WORKDIR_GONE);
-    expect(await start.exited).toBe(3);
+    expect(await new Response(serve.stdout).text()).toBe("");
+  });
+});
+
+describe("what serve writes on stdout", () => {
+  test("ready first, then where the review stands, then each entry of the channel as it lands", async () => {
+    const root = project();
+    const flags = ["--session", "s", "--project", root, "--workdir", WIP];
+    const serve = Bun.spawn(["bun", CLI, "serve", ...flags], { stderr: "ignore" });
+    const lines = linesOf(serve.stdout);
+    const next = async (): Promise<string> => String((await lines.next()).value);
+
+    // SAFETY: `serve` writes one `ServerLine` per line on its stdout; this test checks it is `ready`.
+    const ready = JSON.parse(await next()) as Extract<ServerLine, { type: "ready" }>;
+
+    expect(ready).toEqual({
+      type: "ready",
+      port: expect.any(Number),
+      token: expect.any(String),
+      pid: serve.pid,
+    });
+    expect(JSON.parse(await next())).toMatchObject({
+      type: "stage",
+      workspace: { kind: "drafting" },
+    });
+
+    const note = {
+      id: "a",
+      doc: `${WIP}plan.md`,
+      anchor: { kind: "global" },
+      mark: { kind: "comment", body: "no" },
+    };
+
+    await fetch(`http://127.0.0.1:${ready.port}/api/decision`, {
+      method: "POST",
+      headers: { "x-vellum-token": ready.token, "content-type": "application/json" },
+      body: JSON.stringify({ kind: "feedback", edit: null, annotations: [note] }),
+    });
+
+    expect(JSON.parse(await next())).toEqual({
+      type: "channel",
+      line: { seq: 1, entry: { kind: "sent", file: `${WIP}.review/v0.feedback-1.md` } },
+    });
+    expect(JSON.parse(await next())).toMatchObject({
+      type: "stage",
+      workspace: { kind: "drafting", batches: 1 },
+    });
+    serve.kill();
   });
 });

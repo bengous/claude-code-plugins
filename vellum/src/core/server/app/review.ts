@@ -1,6 +1,14 @@
 import type { ServerContext, ServerExtension } from "../../extension.ts";
-import type { DocGroup, DocRef, GroupedDoc, PollAnswer, ReviewView } from "../../protocol.ts";
+import type {
+  ChannelEntry,
+  ChannelLine,
+  DocGroup,
+  DocRef,
+  GroupedDoc,
+  ReviewView,
+} from "../../protocol.ts";
 import {
+  appendText,
   finalize as renameWorkspace,
   listFiles,
   modifiedAt,
@@ -11,17 +19,18 @@ import {
   removeFile,
   writeText,
 } from "../adapters/fs.ts";
+import { CHANNEL_FILE, channelAfter, channelLine, nextSeq } from "../domain/channel.ts";
 import type { FeedbackHeading } from "../domain/feedback.ts";
 import { formatFeedback } from "../domain/feedback.ts";
-import type { FinalDir, ProjectPath, Version, WipDir } from "../domain/paths.ts";
+import type { FinalDir, ParseResult, ProjectPath, Version, WipDir } from "../domain/paths.ts";
 import { parseVersion } from "../domain/paths.ts";
 import type { Decision, Draft } from "../domain/review.ts";
 import { decideOn, draftIsEmpty, gateVersion, slugFor } from "../domain/review.ts";
 import type { Memory, PlanWorkspace } from "../domain/workspace.ts";
 import {
   DRAFT_FILE,
+  notesFile,
   PLAN_FILE,
-  pendingOf,
   projectPath,
   takesComments,
   underReviewDir,
@@ -65,6 +74,8 @@ export class Review {
 
   private readonly listeners = new Set<(workspace: PlanWorkspace) => void>();
 
+  private readonly channelListeners = new Set<(line: ChannelLine) => void>();
+
   private queue: Promise<unknown> = Promise.resolve();
 
   /** What every extension reads and writes through: bound here, since `holds` and `approved` are called here. */
@@ -82,6 +93,7 @@ export class Review {
         await this.notify();
       },
       inOrder: (work) => this.inOrder(work),
+      relay: (entry) => this.relay(entry),
     };
   }
 
@@ -118,11 +130,34 @@ export class Review {
     return workspaceOf(disk.value, this.memory);
   }
 
-  /** One read of the workspace, so what is pending and what the band draws never disagree. */
-  public async poll(): Promise<PollAnswer> {
-    const workspace = await this.workspace();
+  /** Hears every entry the channel takes, as it is written. */
+  public onChannel(listener: (line: ChannelLine) => void): () => void {
+    this.channelListeners.add(listener);
 
-    return { pending: pendingOf(workspace), workspace };
+    return () => this.channelListeners.delete(listener);
+  }
+
+  /** The channel's entries past `after`, read from where the review lives now. */
+  public async channel(after: number): Promise<ParseResult<ChannelLine[]>> {
+    const text = await readTextIfAny(this.options.project, await this.channelDoc());
+
+    return channelAfter(text ?? "", after);
+  }
+
+  private async channelDoc(): Promise<ProjectPath> {
+    return projectPath(`${(await this.workspace()).dir}${CHANNEL_FILE}`);
+  }
+
+  /** Called inside the queue, by the core and through `ServerContext`, so two entries never take one number. */
+  private async relay(entry: ChannelEntry): Promise<number> {
+    const { project } = this.options;
+    const doc = await this.channelDoc();
+    const seq = nextSeq((await readTextIfAny(project, doc)) ?? "");
+    await appendText(project, doc, channelLine(entry));
+
+    for (const listener of this.channelListeners) listener({ seq, entry });
+
+    return seq;
   }
 
   private planDoc(version: Version, dir: WipDir | FinalDir = this.options.workdir): ProjectPath {
@@ -254,6 +289,7 @@ export class Review {
         decided.kind === "draftFeedback" ? decision.annotations : decided.annotations;
 
       await writeText(project, decided.path, formatFeedback(annotations, heading));
+      await this.relay({ kind: "sent", file: decided.path });
     }
 
     return { ok: true, workspace: await this.notify() };
@@ -283,6 +319,10 @@ export class Review {
         console.error(`${extension.id} failed on approved: ${String(cause)}`);
       });
     }
+
+    const dir = renamed.value;
+    const notesDoc = notes ? projectPath(`${dir}${notesFile(version)}`) : null;
+    await this.relay({ kind: "approved", version, dir, notes: notesDoc });
 
     return { ok: true, workspace: await this.notify() };
   }

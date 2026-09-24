@@ -44,9 +44,9 @@ Iterate on the plan with the reviewer until it is approved. A large change, or a
 
 The skill text ends with a `Working directory:` line and a `Review page:` line. Print both in your first message: the link is how the reviewer reaches the page, and the band above the prompt, which carries it too, is drawn in the terminal alone.
 
-With a working directory, the plan is `plan.md` at its root. Once the plan and its artifacts are ready, end your turn: the vellum plugin submits `plan.md` when a turn ends, opens it in the reviewer's browser, and the review comes back as a prompt. An unchanged `plan.md` submits nothing, so a turn that only asks a question opens no version. To submit before the turn ends, call `mcp__vellum__submit`. "Changes requested" names a feedback file: read it, revise `plan.md` and the files it names, end your turn. "Approved" names the final directory the plan now lives in.
+With a working directory, the plan is `plan.md` at its root. Once the plan and its artifacts are ready, end your turn: the vellum plugin submits `plan.md` when a turn ends, opens it in the reviewer's browser, and the review comes back as a prompt. An unchanged `plan.md` submits nothing, so a turn that only asks a question opens no version. To submit before the turn ends, call `mcp__vellum__submit`. "Reviewer sent" names a file of the reviewer's: read it. One headed "Plan review: changes requested": revise `plan.md` and the files it names, end your turn. "Approved" names the final directory the plan now lives in.
 
-The page is open from the start, on the working directory's files, so the reviewer comments before the plan exists. A batch arrives as a prompt headed "Drafting feedback": read the files it names, revise what they point at, then go on with the plan.
+The page is open from the start, on the working directory's files, so the reviewer comments before the plan exists. Such a batch arrives as "Reviewer sent", a file headed "Drafting feedback": revise what it points at, then go on with the plan.
 
 While the review runs, files under the working directory are yours to write and files outside it are locked: the codebase changes after the plan is approved.
 

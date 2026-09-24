@@ -169,9 +169,9 @@ test.describe("the grill's answers", () => {
     await page.locator("#rail button", { hasText: "grill-2.md" }).click();
     const q2 = page.locator("#doc .grill-q").nth(1);
     await expect(q2.locator(".answer .text")).toHaveText("The inspector.");
-    const state = await vellum.grill.state();
-    expect(JSON.stringify(state.json)).toContain("Q2: The inspector.\\n\\nQ3: Every 30 s as well.");
-    expect(JSON.stringify(state.json)).toContain('"kind":"ended"');
+    const told = JSON.stringify((await vellum.channel()).json);
+    expect(told).toContain("Q2: The inspector.\\n\\nQ3: Every 30 s as well.");
+    expect(told).toMatch(/The reviewer ended grill-\d+\.md\./u);
   });
 });
 

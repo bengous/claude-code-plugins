@@ -18,7 +18,7 @@ paths:
 - The browser suite measures what no fake DOM sees: geometry, contrast, focus, a scrollbar. Its
   harness is `e2e/harness.ts`: the `vellum` fixture starts `preview.ts` on a copy of the fixture
   `test.use({ fixture })` names (`rich` by default), one server per test, and drives it through
-  the API as the hooks module does (`gate`, `grill.*`); `axe` and `contrast` are its two measures. A colour read right after a
+  the API as the hooks module does (`gate`, `grill.*`, `channel`: what reaches Claude); `axe` and `contrast` are its two measures. A colour read right after a
   theme switch reads a transition halfway (`--transition`): `axe` waits for the page's
   transitions to end (`settled`), and any other colour measure calls `settled` first.
   `e2e/playwright.config.ts` runs every suite at the audit's five windows, and CI's matrix
@@ -59,7 +59,8 @@ paths:
   writes them.
 - Fakes at the ports, nothing else faked: the hooks module runs under the engine's own `$`,
   with the world beneath it answered by `mock.clock` and the `on(...)` hooks of
-  `src/core/engine/fixtures/`; the server's file system is a temp directory through the real
+  `src/core/engine/fixtures/`, the server it spawns a child whose stdout the test writes
+  (`children.ts`); the server's file system is a temp directory through the real
   adapter; `adapters/http` starts the server on port 0. No module mocking, no spy on an
   internal call.
 - The page's ports are the browser's globals it reads: `fetch`, `EventSource`, `location`,

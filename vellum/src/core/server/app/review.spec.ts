@@ -44,6 +44,15 @@ function setup(extensions: readonly ServerExtension[] = serverExtensions): Setup
   };
 }
 
+/** Every entry the channel holds, from where the review lives now. */
+async function told(review: Review): Promise<readonly unknown[]> {
+  const channel = await review.channel(0);
+
+  if (!channel.ok) throw new Error(channel.error);
+
+  return channel.value.map(({ entry }) => entry);
+}
+
 /** A review whose `plan.md` holds `plan` and was gated as v1. */
 async function gated(plan = PLAN): Promise<Setup> {
   const s = setup();
@@ -124,12 +133,12 @@ describe("Review", () => {
     });
   });
 
-  test("feedback writes the file the pending names, and the version is decided", async () => {
+  test("feedback writes its file and tells the channel, and the version is decided", async () => {
     const { review, root } = await gated();
     const first = await review.decide(SAY_NO);
     expect(first).toMatchObject({ ok: true, workspace: { kind: "changesRequested" } });
-    const path = `${WIP}.review/v1.feedback.md` as never;
-    expect((await review.poll()).pending).toEqual({ kind: "feedback", version: V1, path });
+    const file = `${WIP}.review/v1.feedback.md`;
+    expect(await told(review)).toEqual([{ kind: "sent", file }]);
     expect(read(root, `${WIP}.review/v1.feedback.md`)).toContain("No.");
     expect((await review.decide(APPROVE)).ok).toBe(false);
   });
@@ -188,8 +197,8 @@ describe("Review", () => {
     expect(read(root, `${FINAL}.review/v1.notes.md`)).toBe(
       `${NOTES_TITLE} (v1)\n\nStart from ${FINAL}mockup.html.\n`,
     );
-    const [dir, notes] = [FINAL as never, `${FINAL}.review/v1.notes.md` as never];
-    expect((await review.poll()).pending).toEqual({ kind: "approved", version: V1, dir, notes });
+    const notes = `${FINAL}.review/v1.notes.md`;
+    expect(await told(review)).toEqual([{ kind: "approved", version: 1, dir: FINAL, notes }]);
   });
 
   test("an approve retried after a failed rename carries no note, and still reports the first attempt's", async () => {
@@ -228,7 +237,7 @@ describe("Review", () => {
     expect(existsSync(join(root, FINAL, ".review/draft.json"))).toBe(false);
   });
 
-  test("approve renames the directory at once and leaves it pending with its name", async () => {
+  test("approve renames the directory at once and tells the channel, moved with it, its name", async () => {
     const { review, root } = await gated();
     const result = await review.decide(APPROVE);
     expect(result).toEqual({
@@ -236,13 +245,7 @@ describe("Review", () => {
       workspace: { kind: "approved", dir: FINAL as never, version: V1, notes: false },
     });
     expect(read(root, `${FINAL}.review/v1.md`)).toContain(`${FINAL}mockup.html`);
-    const dir = FINAL as never;
-    expect((await review.poll()).pending).toEqual({
-      kind: "approved",
-      version: V1,
-      dir,
-      notes: null,
-    });
+    expect(await told(review)).toEqual([{ kind: "approved", version: 1, dir: FINAL, notes: null }]);
   });
 
   test("approve puts the approved text back in plan.md, over a revision not submitted", async () => {
@@ -262,7 +265,7 @@ describe("Review", () => {
       ok: false,
       workspace: { kind: "inReview", finalizeError: expect.any(String) },
     });
-    expect((await review.poll()).pending).toEqual({ kind: "none" });
+    expect(await told(review)).toEqual([]);
   });
 
   test("view under review lists the files without the working copy of the plan", async () => {
@@ -382,30 +385,24 @@ describe("Review", () => {
     ]);
   });
 
-  test("a batch sent just before the gate is still pending after it", async () => {
+  test("a batch sent just before the gate is told once, and the gate tells nothing", async () => {
     const { review, root } = setup();
     await review.decide(SAY_NO);
     writeFileSync(join(root, WIP, "plan.md"), PLAN);
     await review.gate();
-    expect((await review.poll()).pending).toEqual({
-      kind: "drafts",
-      batches: [{ batch: 1, path: `${WIP}.review/v0.feedback-1.md` as never }],
-    });
+    expect(await told(review)).toEqual([{ kind: "sent", file: `${WIP}.review/v0.feedback-1.md` }]);
   });
 
-  test("a feedback while drafting writes the next batch and leaves it pending", async () => {
+  test("each feedback while drafting writes the next batch, and is an entry of its own", async () => {
     const { review, root } = setup();
     const first = await review.decide(SAY_NO);
     expect(first).toMatchObject({ ok: true, workspace: { kind: "drafting", batches: 1 } });
     expect(read(root, `${WIP}.review/v0.feedback-1.md`)).toStartWith("# Drafting feedback 1");
     await review.decide(SAY_NO);
-    expect((await review.poll()).pending).toEqual({
-      kind: "drafts",
-      batches: [
-        { batch: 1, path: `${WIP}.review/v0.feedback-1.md` as never },
-        { batch: 2, path: `${WIP}.review/v0.feedback-2.md` as never },
-      ],
-    });
+    expect(await told(review)).toEqual([
+      { kind: "sent", file: `${WIP}.review/v0.feedback-1.md` },
+      { kind: "sent", file: `${WIP}.review/v0.feedback-2.md` },
+    ]);
   });
 });
 

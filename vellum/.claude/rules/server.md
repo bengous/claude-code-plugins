@@ -18,15 +18,15 @@ Claude Code's `installed_plugins.json`, `git` with its `GIT_*` variables cleared
 
 - Decide, then apply. Read everything first, take the decision as a pure function of plain
   values in `domain/`, then write files, timers and prompts through `adapters/`.
-- State is derived, never stored twice: what is pending comes from the workspace
-  (`domain/workspace.ts`, `pendingOf`), not from a second variable. A new feature adds a
-  variant to a union, not a flag.
+- State is derived, never stored twice: where the review stands comes from the directory's
+  listing and the memory (`domain/workspace.ts`, `workspaceOf`), not from a second variable. A new
+  feature adds a variant to a union, not a flag.
 - Parse at the boundary, once, into a branded type: `parseWipDir`, `parseVersion`,
   `parseProjectPath` grant `WipDir`, `Version`, `ProjectPath`. Past the parser: no `typeof`,
   no `as`, no re-check. A `ParseResult` is returned where the caller decides; anything else
   throws, and the route turns it into an answer.
-- `src/core/protocol.ts` is the one place a value crossing HTTP or an extension boundary is
-  typed; it re-exports the domain types it carries, never redefines them. What an extension
+- `src/core/protocol.ts` is the one place a value crossing HTTP, the server's stdout or an
+  extension boundary is typed; it re-exports the domain types it carries, never redefines them. What an extension
   hands the core is typed beside it, in `src/core/extension.ts`.
 - `Review` binds the `ServerContext` of `src/core/extension.ts` to itself and to `fs.ts`, since
   it is `Review` that calls an extension's `holds` and `approved`; `http/serve.ts` hands the same
@@ -40,6 +40,14 @@ Claude Code's `installed_plugins.json`, `git` with its `GIT_*` variables cleared
 - One queue orders every mutation: `gate`, `decide`, and an extension's writes through
   `ServerContext.inOrder`. A gate that checked the hold writes its version before a grill that
   opened meanwhile, never after. `holds` and `approved` run inside the queue and never call it.
+- Everything that reaches Claude is an entry of the channel, `.review/channel.jsonl`
+  (`domain/channel.ts`), appended inside the queue by `Review`'s relay: the core's `sent` for a
+  feedback file written and `approved` after the rename, an extension's own `text` through
+  `ServerContext.relay`, at the write it tells of. An entry's number is its line; the file is
+  never rewritten but by the approval's link rewrite, which moves no line. `cli.ts serve` writes
+  each entry on stdout as it lands (`ServerLine`: `ready` first, then the entries and the
+  review's changes, and nothing else goes there), and `GET /api/channel?after=<n>` reads the
+  file again, for a module that relaunched the server or missed a line.
 - An approval closes what an extension left open on the server, through `approved`, after the
   rename and with the memory set, so `workspace().dir` is the final directory. No module has to
   be alive for it, and an extension that throws there leaves the plan approved.
@@ -52,7 +60,7 @@ Claude Code's `installed_plugins.json`, `git` with its `GIT_*` variables cleared
 - `--token` and `--port` revive a server where its tabs expect it. A port taken meanwhile binds
   another one under a new token, never the kept one: the event stream's URL carries the token,
   so whoever took the port reads it from every tab that reconnects. `--existing` refuses a
-  working directory that is gone (`WorkdirGone`, exit 3, relayed by the launcher) instead of
+  working directory that is gone (`WorkdirGone`, exit 3, before a line on stdout) instead of
   creating it.
 - A new domain concept gets its address in `domain/` before its first line.
 - A version is a text somebody handed over for review, Claude through `gate` or the reviewer

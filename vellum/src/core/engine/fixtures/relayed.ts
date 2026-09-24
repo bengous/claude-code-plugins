@@ -1,5 +1,6 @@
 import { WORKDIR } from "./workdir.ts";
 
-export function relayed(drafts: number, version = 0, workdir: string = WORKDIR) {
-  return { workdir, drafts, version };
+/** What the store keeps of the channel: the last entry relayed, for one working directory. */
+export function relayed(channel: number, workdir: string = WORKDIR) {
+  return { workdir, channel };
 }

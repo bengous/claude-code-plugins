@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { serverExtensions } from "../../../../extensions/server.ts";
 import type { Route, ServerContext } from "../../../extension.ts";
 import index from "../../../page/index.html";
+import type { ServerLine } from "../../../protocol.ts";
 import { Review } from "../../app/review.ts";
 import type { FinalDir, WipDir } from "../../domain/paths.ts";
 import { REVIEW_DIR } from "../../domain/workspace.ts";
@@ -35,6 +36,8 @@ export type ServeOptions = {
   /** A revived server never creates its directory: an approval may have renamed it. */
   readonly existing?: boolean;
   readonly watchdog?: Watchdog;
+  /** Hears `ready` once the server listens, then every entry of the channel and every change of the review, in order. */
+  readonly announce?: (line: ServerLine) => void;
 };
 
 export class WorkdirGone extends Error {}
@@ -165,6 +168,17 @@ export async function startServer(options: ServeOptions): Promise<Started> {
 
   const { server, token, handler } = bound;
   url = `http://127.0.0.1:${server.port}/t/${token}/`;
+
+  // Subscribed after `ready`, so nothing is heard before it.
+  const { announce } = options;
+
+  if (announce !== undefined) {
+    announce({ type: "ready", port: Number(server.url.port), token, pid: process.pid });
+    announce({ type: "stage", workspace: await review.workspace() });
+    review.subscribe((workspace) => announce({ type: "stage", workspace }));
+    review.onChannel((line) => announce({ type: "channel", line }));
+  }
+
   const { graceMs, tabHoldMs, periodMs, expire } = options.watchdog ?? WATCHDOG;
 
   // The module's heartbeat keeps the server; a reviewer's tab does too, for a while.

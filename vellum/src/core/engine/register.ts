@@ -14,9 +14,9 @@ import {
   revived,
   sessionOf,
   type Settle,
+  type Staged,
   type State,
   suspend,
-  type Ticks,
   type Wiring,
 } from "./mode.ts";
 import { editedPath, type GateWire, sessionId, type StageWire } from "./parse.ts";
@@ -59,7 +59,7 @@ function hostOf($: EngineInterface): Host {
     storeSet: (key, value) => $.store.set(key, value),
     storeDelete: (key) => $.store.delete(key),
     fetch: (url, init) => $.http.fetch(url, init),
-    run: (argv, init) => $.process.run(argv, init),
+    spawn: (request) => $.process.spawn(request),
     every: (ms, fn) => $.clock.every(ms, fn),
     submitPrompt: (text) => $.prompt.submit({ text }),
     status: (text) => $.ui.status(text),
@@ -91,7 +91,7 @@ async function handed(
   }
 }
 
-/** The extensions whose `segment` threw in a mode: a failure is logged once per mode, not at each poll. */
+/** The extensions whose `segment` threw in a mode: a failure is logged once per mode, not at each line. */
 const segmentFailures = new WeakMap<Live, Set<string>>();
 
 /** A segment that throws is left out: no extension may take the band away. */
@@ -113,7 +113,7 @@ const SEPARATOR = " │ ";
 export const register: Register = (on) => {
   let state: State = { kind: "idle" };
 
-  // Where each mode's last poll found the plan, keyed by the mode: a new way in starts with none.
+  // Where each mode's server last said the plan stands, keyed by the mode: a new way in starts with none.
   const stages = new WeakMap<Live, StageWire>();
 
   function bandOf(host: Host): Band | null {
@@ -126,7 +126,7 @@ export const register: Register = (on) => {
     return liveBand(live.session.server, stages.get(live) ?? null, segments);
   }
 
-  // What `ui.render` draws; `redraw` alone writes it, so a poll that changed nothing redraws nothing.
+  // What `ui.render` draws; `redraw` alone writes it, so a line that changed nothing redraws nothing.
   let band: Band | null = null;
 
   function redraw(host: Host): void {
@@ -137,8 +137,16 @@ export const register: Register = (on) => {
     host.invalidate();
   }
 
+  // The modes a transition left: what their server still writes reaches nobody. A mode is not
+  // left before it is entered, so the lines its server wrote while the way in ran are read.
+  const leftBehind = new WeakSet<Live>();
+
   /** Every write of `state`: the band follows it, from one place. */
   function become(host: Host, next: State): void {
+    if (state.kind === "live" && (next.kind !== "live" || next.live !== state.live)) {
+      leftBehind.add(state.live);
+    }
+
     state = next;
     redraw(host);
   }
@@ -158,13 +166,14 @@ export const register: Register = (on) => {
     become(host, next);
   };
 
-  const ticks: Ticks = async (host, live, stage) => {
+  const staged: Staged = async (host, live, stage) => {
+    if (leftBehind.has(live)) return;
     stages.set(live, stage);
-    await handed(host, live, "tick", (extension, context) => extension.tick?.(context));
+    await handed(host, live, "staged", (extension, context) => extension.staged?.(context));
     redraw(host);
   };
 
-  const wiring: Wiring = { settle, ticks, revive };
+  const wiring: Wiring = { settle, staged, revive, left: (live) => leftBehind.has(live) };
 
   // Reset wherever the mode leaves `live`, and ignored outside it: see `turn.ts`.
   let turns: Turns = NO_TURN;
@@ -228,7 +237,7 @@ export const register: Register = (on) => {
   });
 
   // The deterministic way the mode ends when the session forgets it: a `/clear` mints a new
-  // session id, so the old poll and heartbeat would run on until the next way in noticed.
+  // session id, so the old heartbeat would run on until the next way in noticed.
   on("command.run", { command: ["clear", "resume"] }, async ($, e, next) => {
     const result = await next(e);
 

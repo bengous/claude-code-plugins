@@ -1,32 +1,4 @@
-import type {
-  Asked,
-  CloseReason,
-  Declined,
-  GrillPosts,
-  Question,
-  Relay,
-  Suggested,
-} from "./protocol.ts";
-
-/**
- * What `$.store` keeps under `grill:<session id>`: the last entry the poll submitted, of which
- * transcript, whether this session's Claude was already pointed at `grilling.md`, and the id of
- * the last decline it relayed.
- */
-export type Cursor = {
-  readonly file: string;
-  readonly seq: number;
-  readonly taught: boolean;
-  readonly declined: string | null;
-};
-
-/**
- * What the poll reads off `GET state`: whether a grill is open, the entries past the cursor, and
- * with none open, the proposal the slot holds declined.
- */
-export type Polled =
-  | { readonly open: true; readonly relays: readonly Relay[] }
-  | { readonly open: false; readonly relays: readonly Relay[]; readonly declined: Declined | null };
+import type { Asked, CloseReason, GrillPosts, Question, Suggested } from "./protocol.ts";
 
 /** The boundary of `grill`: what a request carries arrives as `unknown` and is parsed here, once. */
 
@@ -187,55 +159,10 @@ export function parseError(value: unknown): string | null {
   return isRecord(value) && typeof value.error === "string" ? value.error : null;
 }
 
-function parseRelay(value: unknown): Relay | null {
-  if (!isRecord(value) || typeof value.seq !== "number") return null;
-  const { kind, seq, name, subject } = value;
+/** Whether `GET state` says a grill is open; `null` for an answer that is no state. */
+export function parseIsOpen(value: unknown): boolean | null {
+  if (!isRecord(value)) return null;
 
-  if (kind === "reply")
-    return typeof value.text === "string" ? { kind, seq, text: value.text } : null;
-
-  if (typeof name !== "string") return null;
-
-  if (kind === "ended") return { kind, seq, name };
-
-  return kind === "opened" && seq === 0 && typeof subject === "string"
-    ? { kind, seq, name, subject }
-    : null;
-}
-
-/** The slot's proposal when the reviewer declined it; a pending one, or none, is `null`. */
-function parseDeclined(proposal: unknown): Declined | null {
-  if (!isRecord(proposal) || proposal.kind !== "declined" || !isRecord(proposal.declined)) {
-    return null;
-  }
-
-  const { id, subject } = proposal.declined;
-
-  return typeof id === "string" && typeof subject === "string" ? { id, subject } : null;
-}
-
-/** `GET state` as the poll needs it; an entry it cannot read stops the list, so none is skipped. */
-export function parsePolled(value: unknown): Polled | null {
-  if (!isRecord(value) || !Array.isArray(value.relays)) return null;
-  const parsed = value.relays.map((relay: unknown) => parseRelay(relay));
-  const unread = parsed.indexOf(null);
-
-  const relays = parsed
-    .slice(0, unread === -1 ? parsed.length : unread)
-    .filter((relay) => relay !== null);
-
-  return value.kind === "open"
-    ? { open: true, relays }
-    : { open: false, relays, declined: parseDeclined(value.proposal) };
-}
-
-export function parseCursor(value: unknown): Cursor | null {
-  return isRecord(value) &&
-    typeof value.file === "string" &&
-    typeof value.seq === "number" &&
-    typeof value.taught === "boolean" &&
-    (typeof value.declined === "string" || value.declined === null)
-    ? { file: value.file, seq: value.seq, taught: value.taught, declined: value.declined }
-    : null;
+  return value.kind === "open" || value.kind === "none" ? value.kind === "open" : null;
 }
 /* oxlint-enable anti-slop/no-runtime-typeof, anti-slop/no-unknown-parameters, anti-slop/no-unsafe-dictionary-type, anti-slop/no-unknown-returns, anti-slop/no-known-value-widening */

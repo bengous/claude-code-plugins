@@ -1,5 +1,5 @@
 import { watch } from "node:fs";
-import { readdir, rename, rm, stat } from "node:fs/promises";
+import { appendFile, readdir, rename, rm, stat } from "node:fs/promises";
 import { join, relative } from "node:path";
 
 import type { DocRef } from "../../protocol.ts";
@@ -98,6 +98,10 @@ export function readText(project: string, path: ProjectPath): Promise<string> {
 
 export async function writeText(project: string, path: ProjectPath, text: string): Promise<void> {
   await Bun.write(join(project, path), text);
+}
+
+export async function appendText(project: string, path: ProjectPath, text: string): Promise<void> {
+  await appendFile(join(project, path), text);
 }
 
 /** The file's mtime in ms, `null` when there is no such file. */

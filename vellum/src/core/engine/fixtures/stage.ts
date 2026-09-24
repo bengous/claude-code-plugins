@@ -1,4 +1,4 @@
-import type { PendingWire, WorkspaceWire } from "../parse.ts";
+import type { WorkspaceWire } from "../parse.ts";
 import { WORKDIR } from "./workdir.ts";
 
 export const DRAFTING: WorkspaceWire = { kind: "drafting", dir: WORKDIR, batches: 0 };
@@ -11,9 +11,7 @@ export function changesRequested(version: number): WorkspaceWire {
   return { kind: "changesRequested", dir: WORKDIR, version };
 }
 
-export const NOTHING_PENDING: PendingWire = { kind: "none" };
-
-/** What `GET /api/pending` answers: what the module relays, and the workspace the band draws. */
-export function polled(pending: PendingWire, workspace: WorkspaceWire = DRAFTING) {
-  return { pending, workspace };
+/** The line the server writes each time the review changes. */
+export function stage(workspace: WorkspaceWire = DRAFTING) {
+  return { type: "stage", workspace };
 }

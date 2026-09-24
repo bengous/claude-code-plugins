@@ -46,6 +46,8 @@ export type Vellum = {
   api(path: string, body?: Json, method?: "GET" | "POST" | "PUT"): Promise<Reply>;
   /** Records `plan.md` as the next version, as the hooks module does at the end of a turn. */
   gate(): Promise<Reply>;
+  /** Every entry of the channel, what reaches Claude, as `GET /api/channel` serves it to the hooks module. */
+  channel(): Promise<Reply>;
   /** Replaces the served `plan.md`, as Claude's revision would. */
   writePlan(text: string): void;
   writeFile(name: string, text: string): void;
@@ -175,6 +177,7 @@ export async function startVellum(
     workdir,
     api,
     gate: () => api("gate", { unchanged: "record" }),
+    channel: () => api("channel?after=0"),
     writePlan: (text) => writeFileSync(join(workdir, "plan.md"), text),
     writeFile: (name, text) => {
       mkdirSync(dirname(join(workdir, name)), { recursive: true });

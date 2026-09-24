@@ -74,22 +74,6 @@ export type Memory =
       readonly notes: boolean;
     };
 
-/** What the hooks module must relay to Claude. */
-export type Pending =
-  | { readonly kind: "none" }
-  | { readonly kind: "drafts"; readonly batches: readonly DraftBatch[] }
-  | { readonly kind: "feedback"; readonly version: Version; readonly path: ProjectPath }
-  | {
-      readonly kind: "approved";
-      readonly version: Version;
-      readonly dir: FinalDir;
-      /** The notes file Claude reads before it acts; `null` when the reviewer left none. */
-      readonly notes: ProjectPath | null;
-    };
-
-/** One batch of drafting comments, as the hooks module names it to Claude. */
-export type DraftBatch = { readonly batch: number; readonly path: ProjectPath };
-
 const DRAFT_FEEDBACK = /^v0\.feedback-\d+\.md$/u;
 
 function draftBatches(names: ReadonlySet<string>): number {
@@ -173,35 +157,6 @@ export function workspaceOf(disk: PlanWorkspace, memory: Memory): PlanWorkspace 
  */
 export function takesComments(workspace: PlanWorkspace): boolean {
   return workspace.kind === "drafting" || workspace.kind === "inReview";
-}
-
-/** Read off the workspace; nothing is kept beside it. */
-export function pendingOf(workspace: PlanWorkspace): Pending {
-  if (workspace.kind === "drafting" || workspace.kind === "inReview") {
-    const batches = Array.from({ length: workspace.batches }, (_, index) => ({
-      batch: index + 1,
-      path: projectPath(`${workspace.dir}${draftFeedbackFile(index + 1)}`),
-    }));
-
-    return batches.length === 0 ? { kind: "none" } : { kind: "drafts", batches };
-  }
-
-  if (workspace.kind === "changesRequested") {
-    return {
-      kind: "feedback",
-      version: workspace.version,
-      path: projectPath(`${workspace.dir}${feedbackFile(workspace.version)}`),
-    };
-  }
-
-  if (workspace.kind === "approved") {
-    const { version, dir } = workspace;
-    const notes = workspace.notes ? projectPath(`${dir}${notesFile(version)}`) : null;
-
-    return { kind: "approved", version, dir, notes };
-  }
-
-  return { kind: "none" };
 }
 
 export function projectPath(path: string): ProjectPath {

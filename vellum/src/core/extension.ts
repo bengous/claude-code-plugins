@@ -2,6 +2,7 @@ import type { ComponentType } from "preact";
 
 import type {
   Annotation,
+  ChannelEntry,
   DocLink,
   DocRef,
   LineDiff,
@@ -62,6 +63,12 @@ export type ServerContext = {
    * `holds` and `approved` already run inside it, so calling it from them would wait forever.
    */
   readonly inOrder: <T>(work: () => Promise<T>) => Promise<T>;
+  /**
+   * Appends an entry to the channel, the one way anything reaches Claude, and answers its number.
+   * Called inside the queue, from a route's `inOrder` step, so the entries keep the order of the
+   * writes they tell of.
+   */
+  readonly relay: (entry: ChannelEntry) => Promise<number>;
 };
 
 export type Route = (request: Request) => Promise<Response>;

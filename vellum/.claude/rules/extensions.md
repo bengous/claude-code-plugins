@@ -34,14 +34,13 @@ the engine events the core hands it, and its segment of the band above the promp
   `workspace().dir` moves at the approval, so a route resolves it at each write and never keeps
   it. What the watcher cannot see (a state kept in memory, a write after the approval) reaches
   the page through `notify`. The page half calls its routes with `extensionRequest`.
-- What an engine half relays is a cursor over entries the server numbers, never "the last one":
-  `grill` asks `state?after=<seq>&file=<name>` and submits every entry past it, in order, the
-  cursor written after each. A rule that reads the file's last voice loses a reply whenever two
-  land between two polls. What the server keeps in memory is relayed by id, never by a flag:
-  `grill`'s one proposal slot is pending, declined or empty, each proposal under a random id,
-  and the cursor keeps the id of the last decline it submitted, after the entries. A new
-  proposal replaces a decline not yet told, and opening a grill empties the slot; a restarted
-  server loses the slot and mints new ids, so nothing is told twice.
+- What reaches Claude goes through the core's channel, never a memory of the extension's own:
+  the server half words its `text` and appends it with `ServerContext.relay`, inside the queue,
+  at the write it tells of, and the core relays each entry once. It tells what its write added,
+  never the file's last voice: `grill` tells the transcript's entries past those the file held
+  before the write (`relaysOf`, then `tell` in `grill/server.ts`), so two replies both go, and a
+  block written into the file by hand is not told. What the server keeps in memory is told by
+  the route that changes it: a decline of `grill`'s one proposal slot.
 - An extension owns its messages: `<id>/protocol.ts` types what crosses its routes, and
   `<id>/parse.ts` is its boundary parser. `src/core/protocol.ts` learns nothing of them.
   A route's reply has its own name there, which both ends import (`GrillState`, `Block` in
