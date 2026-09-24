@@ -6,6 +6,14 @@ A plan is Markdown. A diagram earns its place when it shows several layers, inte
 
 A rough HTML page of the actual screen settles what three paragraphs would only prolong. Plain HTML and CSS, no framework, real labels, the states that matter (empty, loading, error). One file per screen; when the reviewer chooses between options, the options sit side by side in that file.
 
+When the session lists the `artifact-design` skill, load it before the first mockup and apply the design fundamentals it gives for every artifact on top of the paragraph above; where the two disagree, the paragraph above wins. That skill is written for pages published on claude.ai, and three of its rules do not hold here, since Vellum serves the mockup file as written, in a sandboxed frame:
+
+1. A mockup is a complete HTML document, with its own `<!doctype html>`, `<head>` and `<body>`. Nothing wraps it, and a page without a doctype renders in quirks mode.
+2. No `window.claude` runtime exists here, so none of its capabilities do.
+3. claude.ai's publish rules do not apply: its CDN allowlist, its safe-area padding, the title, icon and description it asks for, and publishing itself. The mockup stays a file next to the plan, never an Artifact.
+
+Without `artifact-design` in the session, the paragraph above is the whole guidance.
+
 ## Flows and states
 
 A sequence with more than three actors, or a state machine, can be a Mermaid block in the plan, with the same facts stated in the text next to it. When the order of steps already tells the story, a numbered list beats a diagram.
