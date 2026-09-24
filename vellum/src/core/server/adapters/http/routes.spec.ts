@@ -352,9 +352,19 @@ describe("routes", () => {
     expect((await send({ anchor, mark: BIGGER })).status).toBe(400);
   });
 
-  test("an element without what it is is refused", async () => {
-    const { send } = drafting();
+  test("an element from a page older than the description is taken, and named as that page named it", async () => {
+    const { dir, send } = drafting();
     const anchor = { kind: "element", elements: [PRO_WITHOUT_DESCRIPTION] };
+    expect((await send({ anchor, mark: BIGGER })).status).toBe(200);
+    expect(await Bun.file(join(dir, WIP, ".review/v0.feedback-1.md")).text()).toContain(
+      'element `#pricing > div.card` (div.card): "Pro"',
+    );
+  });
+
+  test("an element whose description is not four strings is refused", async () => {
+    const { send } = drafting();
+    const description = { ...PRO.description, openingTag: 3 };
+    const anchor = { kind: "element", elements: [{ ...PRO, description }] };
     expect((await send({ anchor, mark: BIGGER })).status).toBe(400);
   });
 
@@ -490,14 +500,15 @@ describe("routes", () => {
     expect(await read.json()).toEqual({ error: UNREADABLE_DRAFT });
   });
 
-  test("a saved draft whose mockup comment does not say what its element is is refused on read", async () => {
+  test("a draft saved by a page older than the description is read, its unsent comments kept", async () => {
     const { dir, getDraft } = drafting();
     const anchor = { kind: "element", elements: [PRO_WITHOUT_DESCRIPTION] };
     const draft = { ...DRAFT, annotations: [{ ...ON_MOCKUP, anchor }] };
     writeFileSync(join(dir, DRAFT_PATH), JSON.stringify(draft));
     const read = await getDraft();
-    expect(read.status).toBe(409);
-    expect(await read.json()).toEqual({ error: UNREADABLE_DRAFT });
+    expect(read.status).toBe(200);
+    const kept = { kind: "element", elements: [{ ...PRO_WITHOUT_DESCRIPTION, description: null }] };
+    expect(await read.json()).toEqual({ ...draft, annotations: [{ ...ON_MOCKUP, anchor: kept }] });
   });
 
   test("an empty draft deletes the file", async () => {

@@ -110,14 +110,24 @@ function parseElementDescription(value: unknown): ElementDescription | null {
   return { heading, role, name, openingTag };
 }
 
+/**
+ * A page older than the description sends none, and a draft it saved holds none: that draft keeps
+ * the reviewer's unsent comments, so the element is read with no description rather than refused.
+ */
+function parseOptionalDescription(value: unknown): ElementDescription | null | "unreadable" {
+  if (value === undefined || value === null) return null;
+
+  return parseElementDescription(value) ?? "unreadable";
+}
+
 function parseElementRef(value: unknown): ElementRef | null {
   const context = isRecord(value) ? parseWordsContext(value.context) : null;
-  const description = isRecord(value) ? parseElementDescription(value.description) : null;
+  const description = isRecord(value) ? parseOptionalDescription(value.description) : "unreadable";
 
   if (
     !isRecord(value) ||
     context === null ||
-    description === null ||
+    description === "unreadable" ||
     typeof value.selector !== "string" ||
     value.selector === "" ||
     typeof value.text !== "string" ||

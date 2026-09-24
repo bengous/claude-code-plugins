@@ -119,6 +119,8 @@ test.describe("what a card says", () => {
   });
 });
 
+const GEARS = "The gear, then the gear.";
+
 /** A mockup whose gear shows no text, named by its `aria-label`, under the heading "Option D". */
 const OPTIONS = `<!doctype html>
 <html lang="en">
@@ -127,20 +129,47 @@ const OPTIONS = `<!doctype html>
 <h1>Settings, four options</h1>
 <section>
   <h2>Option D</h2>
-  <p>The gear, then the gear.</p>
+  <p>${GEARS}</p>
   <button class="btn gear-btn" type="button" aria-haspopup="dialog" aria-label="Settings" id="open-settings" title="Settings"><svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6"/></svg></button>
 </section>
 </body>
 </html>
 `;
 
-async function openOptions(page: Page, vellum: Vellum): Promise<FrameLocator> {
-  vellum.writeFile("options.html", OPTIONS);
+/**
+ * A form whose heading is named by `aria-labelledby`, under an id no CSS selector can spell, and
+ * whose last paragraph follows a heading nobody sees and a tab styled as a heading.
+ */
+const FORM = `<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Checkout</title></head>
+<body>
+<h2 aria-labelledby="1st"><span id="1st">Delivery</span></h2>
+<p id="note">Shipping takes three days.</p>
+<label>Country <select id="country"><option>France</option><option>Germany</option><option>Spain</option></select></label>
+<div hidden><h3>Hidden tab</h3></div>
+<h3 role="tab">Tab label</h3>
+<p id="after">Paid on delivery.</p>
+</body>
+</html>
+`;
+
+async function openMockup(
+  page: Page,
+  vellum: Vellum,
+  name: string,
+  html: string,
+): Promise<FrameLocator> {
+  vellum.writeFile(name, html);
   await reviewV1(page, vellum);
-  await page.locator("#rail button", { hasText: "options.html" }).click();
+  await page.locator("#rail button", { hasText: name }).click();
   await commentOn(page);
 
   return page.frameLocator(".pane iframe").last();
+}
+
+function openOptions(page: Page, vellum: Vellum): Promise<FrameLocator> {
+  return openMockup(page, vellum, "options.html", OPTIONS);
 }
 
 /** Adds the comment the composer holds, then sends the feedback. */
@@ -182,13 +211,54 @@ test.describe("what Claude reads of a mockup's element", () => {
     vellum,
   }) => {
     const frame = await openOptions(page, vellum);
-    // "The gear, then the gear.": the second "gear" is at 19.
-    await dragText(page, frame.locator("p"), 19, 23);
+    const second = GEARS.lastIndexOf("gear");
+    await dragText(page, frame.locator("p"), second, second + "gear".length);
     await sendComment(page, "Which gear?");
 
     expect(feedbackOf(vellum)).toContain(
       'element `body > section > p`, under "Option D", `<p>`: "gear" (after "The gear, then the ")\n',
     );
+  });
+
+  test("a mockup's own CSS and Node globals leave the pick and its heading whole", async ({
+    page,
+    vellum,
+  }) => {
+    const traps = FORM.replace(
+      "<body>",
+      '<body><script>const CSS = "body{}"; function Node(){}</script>',
+    );
+
+    const frame = await openMockup(page, vellum, "form.html", traps);
+    await frame.locator("#note").click();
+    await sendComment(page, "Say when it ships.");
+
+    expect(feedbackOf(vellum)).toContain(
+      'element `p#note`, under "Delivery", `<p id="note">`: "Shipping takes three days."\n',
+    );
+  });
+
+  test("a select named by the label that wraps it takes the label's words, not its options", async ({
+    page,
+    vellum,
+  }) => {
+    const frame = await openMockup(page, vellum, "form.html", FORM);
+    // A click on a select opens its list over the page: the event alone is what the frame reads.
+    await frame.locator("#country").dispatchEvent("click");
+    await sendComment(page, "Default to the shop's country.");
+
+    expect(feedbackOf(vellum)).toContain('`select#country`, combobox "Country" under "Delivery"');
+  });
+
+  test("a heading nobody sees, or a tab drawn as one, is no heading the element sits under", async ({
+    page,
+    vellum,
+  }) => {
+    const frame = await openMockup(page, vellum, "form.html", FORM);
+    await frame.locator("#after").click();
+    await sendComment(page, "Which payments?");
+
+    expect(feedbackOf(vellum)).toContain('element `p#after`, under "Delivery", `<p id="after">`');
   });
 });
 

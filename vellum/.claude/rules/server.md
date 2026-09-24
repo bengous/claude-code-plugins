@@ -70,7 +70,10 @@ Claude Code's `installed_plugins.json`, `git` with its `GIT_*` variables cleared
 - The draft is the page's, stored and read back through the one parser: `PUT /api/draft` parses
   it as it parses a decision's annotations and edit, plus what is typed, and `GET` runs the file
   through the same parser, so a draft of an older shape is refused whole, with `UNREADABLE_DRAFT`
-  as the reason, never handed over half-read. `saveDraft` writes one with content
+  as the reason, never handed over half-read. One older shape is read: a mockup comment saved
+  before `ElementRef.description`, whose description is `null` and whose feedback line names the
+  element by its label, since refusing it loses every unsent comment of the draft, and a tab
+  loaded before a revived server keeps sending that shape. `saveDraft` writes one with content
   only where `takesComments` holds and answers 409 elsewhere, since a write would recreate a
   directory the approval has just renamed; an empty one removes the file in any state. A draft
   write raises no workspace event: `watchFiles` leaves `.review/` to the server.

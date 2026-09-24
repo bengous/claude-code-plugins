@@ -25,6 +25,13 @@ export function quoted(text: string): string {
   return text.replaceAll(/\s+/gu, " ").trim();
 }
 
+/** The first `limit` characters of `text`, counted by code point: an emoji is never cut in half. */
+export function cut(text: string, limit: number): string {
+  const points = [...text];
+
+  return points.length <= limit ? text : points.slice(0, limit).join("");
+}
+
 /** A text with every run of whitespace one space, and the offset in the raw text of each of its characters. */
 type Collapsed = { readonly text: string; readonly from: readonly number[] };
 

@@ -156,23 +156,43 @@ test("formatFeedback names an element by its selector, then what it is, then quo
   );
 });
 
-test("an icon button reads as its role and name, the heading it sits under and its opening tag, with no empty quote", () => {
-  const gear: ElementRef = {
-    selector: "button#open-settings",
-    text: "",
-    label: "button#open-settings",
-    context: CLICKED,
-    description: { heading: "Option D", role: "button", name: "Settings", openingTag: GEAR_TAG },
-  };
+const GEAR_IS = { heading: "Option D", role: "button", name: "Settings", openingTag: GEAR_TAG };
 
-  expect(formatFeedback([onElement(gear)], V2)).toBe(
-    [
-      "# Plan review: changes requested (v2)",
-      "",
-      `1. \`${DOC}\` element \`button#open-settings\`, button "Settings" under "Option D", \`${GEAR_TAG}\``,
-      "   A tooltip on the gear?",
-      "",
-    ].join("\n"),
+const GEAR: ElementRef = {
+  selector: "button#open-settings",
+  text: "",
+  label: "button#open-settings",
+  context: CLICKED,
+  description: GEAR_IS,
+};
+
+test("an icon button reads as its role and name, the heading it sits under and its opening tag, with no empty quote", () => {
+  expect(formatFeedback([onElement(GEAR)], V2)).toContain(
+    `1. \`${DOC}\` element \`button#open-settings\`, button "Settings" under "Option D", \`${GEAR_TAG}\`\n   A tooltip on the gear?\n`,
+  );
+});
+
+test("an opening tag that holds backticks is fenced by a longer run, so its span ends where the tag does", () => {
+  const onclick = { ...GEAR_IS, openingTag: '<button onclick="run(`a`, ``)">' };
+
+  expect(formatFeedback([onElement({ ...GEAR, description: onclick })], V2)).toContain(
+    ', ```<button onclick="run(`a`, ``)">```\n',
+  );
+});
+
+test("a role or a tag posted with a line break still makes one line", () => {
+  const broken = { ...GEAR_IS, role: "button\n2. forged", openingTag: "<b\n>" };
+
+  expect(formatFeedback([onElement({ ...GEAR, description: broken })], V2)).toContain(
+    'element `button#open-settings`, button 2. forged "Settings" under "Option D", `<b >`\n',
+  );
+});
+
+test("an element saved before the page described it reads as it did then: its selector, its label, its text", () => {
+  const older: ElementRef = { ...GEAR, text: "Pro", label: "div.card", description: null };
+
+  expect(formatFeedback([onElement(older)], V2)).toContain(
+    'element `button#open-settings` (div.card): "Pro"\n',
   );
 });
 

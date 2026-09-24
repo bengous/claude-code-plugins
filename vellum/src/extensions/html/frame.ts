@@ -1,11 +1,11 @@
 import { offsetIn } from "../../core/page/anchoring.ts";
 import { dragRange, isSwitchKey, keyPressOf, toggled } from "../../core/page/selection.ts";
 import type { ElementDescription, ElementRef, WordsContext } from "../../core/protocol.ts";
-import { descriptionOf } from "./describe.ts";
+import { descriptionOf, textOf } from "./describe.ts";
 import type { CommentedPlace, FrameToPage, PageToFrame } from "./messages.ts";
 import type { Step } from "./pick.ts";
 import { labelOf, selectorOf, targetIndex } from "./pick.ts";
-import { CLICK_CONTEXT, contextOf, quoted, TEXT_LIMIT, wordsIn } from "./words.ts";
+import { CLICK_CONTEXT, contextOf, cut, quoted, TEXT_LIMIT, wordsIn } from "./words.ts";
 
 /**
  * Injected into every HTML file the server serves, so it runs inside the sandboxed mockup:
@@ -120,9 +120,7 @@ function refOf(pick: Pick): ElementRef {
 
 /** What a click quotes of `element`: its shown text, up to the limit. */
 function clickText(element: Element): string {
-  const shown = element instanceof HTMLElement ? element.innerText : (element.textContent ?? "");
-
-  return quoted(shown).slice(0, TEXT_LIMIT);
+  return cut(textOf(element), TEXT_LIMIT);
 }
 
 /** A click picks the whole element: its range holds any drag inside it, so the two overlap. */

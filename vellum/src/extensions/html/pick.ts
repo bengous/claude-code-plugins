@@ -39,7 +39,7 @@ export function targetIndex(tags: readonly string[]): number | null {
   return index === -1 ? null : index;
 }
 
-/** What the wash and the feedback line call the element. */
+/** What the wash, the composer and the comment's card call the element; Claude reads its description instead. */
 export function labelOf(step: Step): string {
   if (step.id !== null) return `${step.tag}#${step.id}`;
   const first = step.classes[0];

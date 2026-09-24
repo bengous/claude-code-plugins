@@ -25,6 +25,12 @@ describe("roleOf", () => {
     expect(roleOf("input", [["type", "hidden"]])).toBe("");
   });
 
+  test("an input whose type HTML does not know is a text field, as the browser draws it", () => {
+    expect(roleOf("input", [["type", "foo"]])).toBe("textbox");
+    expect(roleOf("input", [["type", " text"]])).toBe("textbox");
+    expect(roleOf("input", [["type", "password"]])).toBe("");
+  });
+
   test("a select is a combobox, a listbox once it shows several options", () => {
     expect(roleOf("select", [])).toBe("combobox");
     expect(roleOf("select", [["multiple", ""]])).toBe("listbox");
@@ -82,6 +88,12 @@ describe("nameFrom", () => {
     expect(nameFrom("heading", { ...BLANK, content: "  Option\n    D  " })).toBe("Option D");
     expect(nameFrom("link", { ...BLANK, content: "x".repeat(200) })).toHaveLength(120);
   });
+
+  test("the cut counts characters, so an emoji at the limit is kept whole", () => {
+    const heading = `${"a".repeat(119)}😀tail`;
+
+    expect(nameFrom("heading", { ...BLANK, content: heading })).toBe(`${"a".repeat(119)}😀`);
+  });
 });
 
 describe("openingTag", () => {
@@ -117,6 +129,12 @@ describe("openingTag", () => {
     const style = `color: red; ${"x".repeat(100)}`;
 
     expect(openingTag("div", [["style", style]])).toBe(`<div style="${style.slice(0, 80)}…">`);
+  });
+
+  test("a value cut at an emoji keeps the emoji whole", () => {
+    const title = `${"b".repeat(79)}😀tail`;
+
+    expect(openingTag("p", [["title", title]])).toBe(`<p title="${"b".repeat(79)}😀…">`);
   });
 
   test("a tag past 300 characters is cut, and says so before its end", () => {

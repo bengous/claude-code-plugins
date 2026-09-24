@@ -40,22 +40,37 @@ export type ElementDescription = {
 
 /**
  * One element of a rendered document: where it sits, what it shows, what the page calls it
- * (`label`), and what it is (`description`), which Claude reads.
+ * (`label`), and what it is (`description`), which Claude reads. `null` for an element a page
+ * older than the description saved, in a draft that holds the reviewer's unsent comments.
  */
 export type ElementRef = {
   readonly selector: string;
   readonly text: string;
   readonly label: string;
   readonly context: WordsContext;
-  readonly description: ElementDescription;
+  readonly description: ElementDescription | null;
 };
+
+function oneLine(text: string): string {
+  return text.replaceAll(/\s+/gu, " ");
+}
+
+/** `text` as a Markdown code span whose fence is longer than any run of backticks inside it. */
+function codeSpan(text: string): string {
+  const longest = Math.max(0, ...[...text.matchAll(/`+/gu)].map(([run]) => run.length));
+  const fence = "`".repeat(longest + 1);
+  const pad = text.startsWith("`") || text.endsWith("`") ? " " : "";
+
+  return `${fence}${pad}${text}${pad}${fence}`;
+}
 
 /**
  * An element in words: its role and name, the heading it sits under, its opening tag, each part
- * it has. A heading and a name are JSON strings, whose end a quote inside cannot hide.
+ * it has, on one line. A heading and a name are JSON strings, whose end a quote inside cannot hide.
  */
 export function describeElement(description: ElementDescription): string {
-  const { heading, role, name, openingTag } = description;
+  const { heading, name } = description;
+  const role = oneLine(description.role);
 
   const named =
     name === "" ? [] : [role === "" ? JSON.stringify(name) : `${role} ${JSON.stringify(name)}`];
@@ -63,7 +78,9 @@ export function describeElement(description: ElementDescription): string {
   const under = heading === "" ? [] : [`under ${JSON.stringify(heading)}`];
   const phrase = [...named, ...under].join(" ");
 
-  return [phrase, `\`${openingTag}\``].filter((part) => part !== "").join(", ");
+  return [phrase, codeSpan(oneLine(description.openingTag))]
+    .filter((part) => part !== "")
+    .join(", ");
 }
 
 /** Where a comment points: the document as a whole, passages of it, or elements of it. */
@@ -169,8 +186,10 @@ function placesOf(anchor: Anchor, heading: FeedbackHeading): readonly string[] {
 
   return anchor.elements.map((element) => {
     const { description, text } = element;
-    const said = description.name === text ? { ...description, name: "" } : description;
     const quote = text === "" ? "" : `: "${text}"${whichOf(element.context)}`;
+
+    if (description === null) return `element \`${element.selector}\` (${element.label})${quote}`;
+    const said = description.name === text ? { ...description, name: "" } : description;
 
     return `element \`${element.selector}\`, ${describeElement(said)}${quote}`;
   });
