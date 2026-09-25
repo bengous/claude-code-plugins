@@ -43,17 +43,60 @@ test("a click asks for a review of the version, and the button runs until the ru
   expect((await vellum.review.state()).json).toEqual({
     run: { kind: "requested", seq: 1, version: 1 },
     failed: null,
+    stopping: [],
+    resubmit: false,
   });
 });
 
-test("the ✕ forgets the run, and the button asks again", async ({ page, vellum }) => {
+test("the ✕ stays while the run holds the review, forgets the run, and lifts the hold", async ({
+  page,
+  vellum,
+}) => {
   await reviewV1(page, vellum);
   await reviewButton(page).click();
+  await vellum.review.launched();
+
+  await expect(page.locator(".bar .status")).toHaveText("Held · plan review 1 of v1 is running");
   await forget(page).click();
 
   await expect(reviewButton(page)).toHaveText("Review");
   await expect(reviewButton(page)).toBeEnabled();
-  expect((await vellum.review.state()).json).toEqual({ run: null, failed: null });
+  await expect(page.locator(".bar .status")).toHaveText("In review");
+  expect((await vellum.review.state()).json).toEqual({
+    run: null,
+    failed: null,
+    stopping: [{ seq: 1, agentId: "agent-1" }],
+    resubmit: true,
+  });
+});
+
+test("while a run holds the review, Approve warns that what it was doing is lost", async ({
+  page,
+  vellum,
+}) => {
+  await reviewV1(page, vellum);
+  await reviewButton(page).click();
+
+  await expect(page.locator(".bar .status")).toHaveText("Held · plan review 1 of v1 is running");
+  await page.locator(".bar").getByRole("button", { name: "Approve", exact: true }).click();
+  const warning = page.getByRole("dialog", { name: "Before approving" });
+
+  await expect(warning.locator(".warn-text")).toHaveText(
+    "The review is held: plan review 1 of v1 is running.",
+  );
+  await expect(warning).toContainText("Approving ends it, and what it was doing is lost.");
+});
+
+test("an open grill greys the button with its reason: one hold at a time", async ({
+  page,
+  vellum,
+}) => {
+  await reviewV1(page, vellum);
+  await vellum.grill.open("Where do drafts live?");
+
+  await expect(page.locator(".bar .status")).toHaveText("Held · grill 1 is open");
+  await expect(reviewButton(page)).toBeDisabled();
+  await expect(reviewButton(page)).toHaveAttribute("title", "The review is held: grill 1 is open");
 });
 
 test("the verdict lands in the rail, with no reload", async ({ page, vellum }) => {

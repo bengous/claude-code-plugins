@@ -273,7 +273,10 @@ async function api(
 
     if (sending === null) return badRequest();
     const sent = await review.send(sending);
-    const answer: SendAnswer = sent.ok ? { file: sent.file, seq: sent.seq } : sent.refusal;
+
+    const answer: SendAnswer = sent.ok
+      ? { file: sent.file, seq: sent.seq, editKept: sent.editKept }
+      : sent.refusal;
 
     return Response.json(answer, { status: sent.ok ? 200 : 409 });
   }

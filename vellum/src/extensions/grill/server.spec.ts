@@ -28,7 +28,7 @@ const NOTE = {
   mark: { kind: "comment", body: "no" },
 };
 
-const HELD = "grill 1 is open: the plan is submitted once the reviewer ends it";
+const HELD = "grill 1 is open: plan.md is recorded as the next version once it ends, if it changed";
 
 const TYPED = { general: "", composer: {}, grill: {}, editor: null };
 
@@ -238,6 +238,7 @@ describe("a round", () => {
     expect(await (await send({ answers: { Q2: "no" } })).json()).toEqual({
       file: `${WIP}.review/v0.feedback-1.md`,
       seq: 2,
+      editKept: null,
     });
     expect(readFileSync(join(dir, WIP, "grill-1.md"), "utf8")).toEndWith(
       "### Reviewer\n\nQ1: As recommended, by default.\n\nQ2: no\n",

@@ -125,9 +125,14 @@ no build step, so what the page imports costs nothing at `cli start`.
   the warning back, so a second grill must not read as the first. Held, the pill reads `Held · <reason>` (`statusOf`), in
   review only, Send stays live, since a hold refuses Claude's versions and never the reviewer's
   word, and every way to an approval goes through the warning popover, which frames the reason in its own sentence (`The
-  review is held: <reason>.`), since a reason reads as a clause, then says the approval ends it. The
-  core draws no notice of it, `noticesOf` takes no hold: the extension that holds draws its own,
-  the grill's band. The bar prints the reason and never reads which extension gave it.
+  review is held: <reason>.`), since a reason reads as a clause, then says the approval ends it
+  and loses what it was doing, a grill's round or a plan review's run. The
+  core draws no notice of the hold itself: the extension that holds draws its own, the grill's
+  band. Its one notice is of the reviewer's edit a Send left in the draft (`editKept`, or a
+  `held` refusal), in the server's words (`editWaits` of `state.ts`, keyed by that very edit):
+  it lasts while that edit waits, through a Send that carries no edit, until a load reads that
+  nothing holds the review. The bar prints
+  the reason and never reads which extension gave it.
 - Settings are a `Dialog` the bar's gear opens, drawn while the bar has buttons: `settings/`
   holds it. `SETTINGS` of `settings/sections.ts` is the one list of sections, in the order drawn,
   each under a `group` heading or, with none, after every group; a new setting is an entry there

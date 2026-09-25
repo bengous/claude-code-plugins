@@ -95,6 +95,8 @@ export function noticesOf(input: {
   readonly downSince: number | null;
   readonly editing: { readonly version: Version } | null;
   readonly failures: readonly Failure[];
+  /** What holds the review while a Send left the edit in the draft; `null` otherwise. */
+  readonly editWaits: string | null;
   readonly undo: { readonly label: string; readonly run: () => void } | null;
   /** What "Retry approval" runs, after a rename that failed. */
   readonly retry: () => void;
@@ -118,6 +120,14 @@ export function noticesOf(input: {
   for (const failure of input.failures) {
     if (down && failure.op === "draft") continue;
     notices.push({ key: `failure:${failure.op}`, kind: "err", text: [failure.text] });
+  }
+
+  if (input.editWaits !== null) {
+    notices.push({
+      key: "edit-waits",
+      kind: "info",
+      text: [`Your edit waits: ${input.editWaits}. Send it again once that ends.`],
+    });
   }
 
   const stale = staleEditor(input.editing, input.workspace);

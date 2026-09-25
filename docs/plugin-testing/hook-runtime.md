@@ -204,6 +204,19 @@ plugins (September 2026), unless a line says otherwise.
   `{ model, agentId }`. Measured on 2.1.282 in `claude -p` sessions
   (`vellum` #170).
 
+- `$.tool.call({ tool: "TaskStop", task_id })` stops an agent the plugin
+  spawned, `task_id` being the `agentId` `$.agent.spawn` answered. The tool is
+  not deferred: it answered in 8 to 9 ms with `result.message` `Successfully
+  stopped task: <id> (<description>)` and no `isError`, asked no permission in
+  `default` mode (`permissionDecisionMs` 1 to 2), and stepped past the calling
+  plugin's own `tool.check` (`tool.check skipped: re-entry`). The agent's
+  `turn.complete` reached the plugin with `reason: "aborted"` and an empty
+  `answer` 1 ms after the result, and `$.agent.list()` then lists it `killed`.
+  A second stop answers `isError: true`, `Task <id> is not running (status:
+  killed)`, and an unknown id `No task found with ID: <id>`; an agent listed
+  `completed` whose shell still ran was stopped, and listed `killed` after.
+  Measured in an interactive session in tmux (`vellum` #170).
+
 - A registered tool's result text is what the model acts on:
   `Plan vN is under review in the browser. End your turn; the review arrives
   as a prompt.` ended Opus 5's turn every time. `vellum` now answers the

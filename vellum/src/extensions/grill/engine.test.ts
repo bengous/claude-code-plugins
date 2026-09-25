@@ -634,7 +634,7 @@ describe("closing from the session", () => {
     expect(grill.posted).toEqual([["close", JSON.stringify({ reason: "stop" })]]);
   });
 
-  test("an approval closes nothing from here: the server ended the grill at the rename", async ($, on) => {
+  test("an approval closes as /vellum:stop does, once the server ended the grill at the rename", async ($, on) => {
     const grill = grillRoutes(() => NO_GRILL);
     const seen = world(on, grill);
 
@@ -643,6 +643,6 @@ describe("closing from the session", () => {
     await seen.clock.settle();
 
     expect(seen.prompts).toHaveLength(1);
-    expect(grill.posted).toEqual([]);
+    expect(grill.posted).toEqual([["close", JSON.stringify({ reason: "stop" })]]);
   });
 });

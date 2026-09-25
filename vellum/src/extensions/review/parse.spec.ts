@@ -189,18 +189,51 @@ describe("parseReviewState", () => {
     model: "claude-opus-5-5",
   };
 
+  const QUIET = { stopping: [], resubmit: false };
+
   test("a run under way and the last failure cross, a failure never launched with no model", () => {
     const failed = { seq: 1, version: 3, model: null, why: "no such agent" };
 
-    expect(parseReviewState({ run: RUNNING, failed })).toEqual({ run: RUNNING, failed });
-    expect(parseReviewState({ run: null, failed: null })).toEqual({ run: null, failed: null });
+    expect(parseReviewState({ run: RUNNING, failed, ...QUIET })).toEqual({
+      run: RUNNING,
+      failed,
+      ...QUIET,
+    });
+    expect(parseReviewState({ run: null, failed: null, ...QUIET })).toEqual({
+      run: null,
+      failed: null,
+      ...QUIET,
+    });
+  });
+
+  test("the agents to stop and the version to submit again cross", () => {
+    const state = {
+      run: null,
+      failed: null,
+      stopping: [{ seq: 2, agentId: "a1" }],
+      resubmit: true,
+    };
+
+    expect(parseReviewState(state)).toEqual(state);
   });
 
   test("a run missing a part, or a number that is no count, is no state", () => {
-    expect(parseReviewState({ run: { ...RUNNING, agentId: "" }, failed: null })).toBeNull();
-    expect(parseReviewState({ run: { ...RUNNING, seq: 0 }, failed: null })).toBeNull();
-    expect(parseReviewState({ run: { ...RUNNING, kind: "done" }, failed: null })).toBeNull();
-    expect(parseReviewState({ failed: null })).toBeNull();
+    expect(
+      parseReviewState({ run: { ...RUNNING, agentId: "" }, failed: null, ...QUIET }),
+    ).toBeNull();
+    expect(parseReviewState({ run: { ...RUNNING, seq: 0 }, failed: null, ...QUIET })).toBeNull();
+    expect(
+      parseReviewState({ run: { ...RUNNING, kind: "done" }, failed: null, ...QUIET }),
+    ).toBeNull();
+    expect(parseReviewState({ failed: null, ...QUIET })).toBeNull();
+  });
+
+  test("a state without its agents to stop, or with one missing its id, is no state", () => {
+    expect(parseReviewState({ run: null, failed: null, resubmit: false })).toBeNull();
+    expect(
+      parseReviewState({ run: null, failed: null, stopping: [{ seq: 1 }], resubmit: false }),
+    ).toBeNull();
+    expect(parseReviewState({ run: null, failed: null, stopping: [] })).toBeNull();
   });
 });
 

@@ -98,8 +98,7 @@ function routes(context: ServerContext): Readonly<Record<RouteKey, Route>> {
         if (why !== null) return refused(why);
         const held = await context.held();
 
-        if (held !== null)
-          return refused(`${held}: no step is proposed until the reviewer ends it`);
+        if (held !== null) return refused(`${held}: no step is proposed until it ends`);
         const proposed: Proposed = { id: crypto.randomUUID() };
 
         if (memory.pending !== null) memory.dropped = { id: memory.pending.id, why: "replaced" };

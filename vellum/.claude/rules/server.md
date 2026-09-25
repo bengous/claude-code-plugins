@@ -35,9 +35,13 @@ Claude Code's `installed_plugins.json`, `git` with its `GIT_*` variables cleared
 - An extension may hold the review: `holds` answers what holds it, or `null`. Held has one
   meaning, so there is no list of what is blocked: `gate` is refused with the reason before
   `plan.md` is read (the 409 the module already reads), no version of Claude's lands, and a Send
-  and an approval go through: the reviewer's word is never held. `ReviewView.held` carries the
-  reason to the page, and `ServerContext.held` to an extension: `step` takes no proposal while
-  one holds. The core names no extension: it appends what a gate means to the reason.
+  and an approval go through: the reviewer's word is never held. A Send's edit is the one part
+  that waits, since it would open a version under the hold: `sendOn` leaves it in the draft,
+  with the comments on the plan's lines, which are the edit's, the rest goes, and the answer says
+  so (`editKept`); an edit alone is refused as `held`. `ReviewView.held` carries the reason to
+  the page, and `ServerContext.held` to an extension: `step` takes no proposal while one holds,
+  and `review` asks no run under another's hold. The core names no extension: it appends what a
+  gate means to the reason.
 - An extension starts what another runs through `ServerContext.start(id, input)`, which calls
   that one's `start` in the caller's step of the queue: `step`'s answer opens a grill that way,
   so two grills never open. `start` decides and writes nothing, as a Send's `part`: it answers

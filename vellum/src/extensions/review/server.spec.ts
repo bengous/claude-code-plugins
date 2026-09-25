@@ -5,15 +5,20 @@ import {
   mkdtempSync,
   readdirSync,
   readFileSync,
+  rmSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+import { EMPTY_TYPED } from "../../core/protocol.ts";
 import { startServer } from "../../core/server/adapters/http/serve.ts";
 import type { Started } from "../../core/server/adapters/http/serve.ts";
+import { Review } from "../../core/server/app/review.ts";
 import { parseWipDir } from "../../core/server/domain/paths.ts";
-import type { Requested, ReviewPosts, ReviewState } from "./protocol.ts";
+import { serverExtensions } from "../server.ts";
+import type { Closed, Requested, ReviewPosts, ReviewState } from "./protocol.ts";
+import { reviewServer } from "./server.ts";
 
 const WIP = "plans/2026-09-25/wip-c95eaf71/";
 
@@ -21,10 +26,21 @@ const OPUS = "claude-opus-5-5";
 
 const VERDICT = "## Plan review\n\nStatus: Approved\n\nVerdict: right - one slice per concern";
 
+const HELD = "plan review 1 of v1 is running";
+
+const EDITED = "# Plan\n\n## Decisions\n\n1. One, edited.\n";
+
+/** A proposal of `step`'s, whose grill holds the review once picked. */
+const GRILL = { kind: "grill", subject: "auth", choices: ["Sessions"] } as const;
+
+const PROPOSAL = { reason: "An open choice.", moves: [GRILL, { kind: "plan" }], recommended: 0 };
+
 const running: Started[] = [];
 
 type Reviewing = {
   readonly dir: string;
+  /** Any route under `/api/`, a POST of the JSON `body` when it is given. */
+  readonly api: (path: string, body?: string) => Promise<Response>;
   readonly post: <Name extends keyof ReviewPosts>(
     name: Name,
     body: ReviewPosts[Name],
@@ -53,7 +69,7 @@ async function serving(dir: string): Promise<Reviewing> {
   const headers = { "x-vellum-token": started.token, "content-type": "application/json" };
   const base = `http://127.0.0.1:${started.server.port}/api/`;
 
-  const api = (path: string, body?: string): Promise<Response> =>
+  const api: Reviewing["api"] = (path, body) =>
     body === undefined
       ? fetch(`${base}${path}`, { headers })
       : fetch(`${base}${path}`, { method: "POST", headers, body });
@@ -73,6 +89,7 @@ async function serving(dir: string): Promise<Reviewing> {
 
   return {
     dir,
+    api,
     post,
     // SAFETY: the server's own `ReviewState`, serialized by `Response.json` in review/server.ts.
     state: async () => (await (await api("x/review/state")).json()) as ReviewState,
@@ -115,7 +132,12 @@ describe("a review asked from the page", () => {
     const { request, state } = await reviewing();
 
     expect(await request(1)).toBe(1);
-    expect(await state()).toEqual({ run: { kind: "requested", seq: 1, version: 1 }, failed: null });
+    expect(await state()).toEqual({
+      run: { kind: "requested", seq: 1, version: 1 },
+      failed: null,
+      stopping: [],
+      resubmit: false,
+    });
   });
 
   test("is refused while drafting, on another version, and while a run is under way", async () => {
@@ -173,6 +195,8 @@ describe("a run launched", () => {
     expect(await state()).toEqual({
       run: null,
       failed: { seq, version: 1, model: null, why: "no such agent" },
+      stopping: [],
+      resubmit: true,
     });
   });
 
@@ -184,6 +208,8 @@ describe("a run launched", () => {
     expect(await state()).toEqual({
       run: null,
       failed: { seq, version: 1, model: OPUS, why: "aborted" },
+      stopping: [],
+      resubmit: true,
     });
     expect(reviews()).toEqual([]);
   });
@@ -210,7 +236,7 @@ describe("the verdict", () => {
     expect(read("v1-claude-opus-5-5.md")).toMatch(
       /^# Plan review · v1\n\n`vellum:plan-reviewer` · `claude-opus-5-5` · \d\d:\d\d\n\n## Plan review\n\nStatus: Approved\n\nVerdict: right - one slice per concern\n$/u,
     );
-    expect(await state()).toEqual({ run: null, failed: null });
+    expect(await state()).toEqual({ run: null, failed: null, stopping: [], resubmit: true });
   });
 
   test("a second review by the same model on the same version writes -2 and leaves the first", async () => {
@@ -259,7 +285,12 @@ describe("a run given up", () => {
     const seq = await launch(1, OPUS);
 
     expect((await post("forget", { seq })).status).toBe(204);
-    expect(await state()).toEqual({ run: null, failed: null });
+    expect(await state()).toEqual({
+      run: null,
+      failed: null,
+      stopping: [{ seq, agentId: "agent-1" }],
+      resubmit: true,
+    });
     expect((await post("ended", { seq, outcome: { kind: "answer", text: "x" } })).status).toBe(409);
     expect(reviews()).toEqual([]);
   });
@@ -268,7 +299,11 @@ describe("a run given up", () => {
     const { post, launch, state, reviews } = await reviewing();
     const seq = await launch(1, OPUS);
 
-    expect((await post("close", {})).status).toBe(204);
+    const closed = await post("close", {});
+
+    expect(closed.status).toBe(200);
+    // SAFETY: the server's own `Closed`, serialized by `Response.json` in review/server.ts.
+    expect((await closed.json()) as Closed).toEqual({ stopping: [{ seq, agentId: "agent-1" }] });
     expect((await state()).run).toBeNull();
     expect((await post("ended", { seq, outcome: { kind: "answer", text: "x" } })).status).toBe(409);
     expect(reviews()).toEqual([]);
@@ -279,7 +314,7 @@ describe("a run given up", () => {
     const seq = await launch(1, OPUS);
 
     expect((await approve()).status).toBe(200);
-    expect((await state()).run).toBeNull();
+    expect(await state()).toMatchObject({ run: null, stopping: [{ seq, agentId: "agent-1" }] });
     expect((await post("ended", { seq, outcome: { kind: "answer", text: "x" } })).status).toBe(409);
   });
 
@@ -313,5 +348,141 @@ describe("what the server keeps", () => {
     await post("close", {});
 
     expect(readFileSync(draft, "utf8")).toBe('{"annotations":[],"edit":null}');
+  });
+});
+
+describe("a run holds the review", () => {
+  test("from its request to its end: no version of Claude's is recorded, and no step proposed", async () => {
+    const { dir, api, post, request, gate } = await reviewing();
+    const seq = await request(1);
+    writeFileSync(join(dir, WIP, "plan.md"), EDITED);
+
+    const refusal = {
+      error: `${HELD}: plan.md is recorded as the next version once it ends, if it changed`,
+    };
+
+    expect(await (await gate()).json()).toEqual(refusal);
+    await post("launched", { seq, agentId: "agent-1", model: OPUS });
+
+    expect(await (await gate()).json()).toEqual(refusal);
+    expect(await (await api("x/step/propose", JSON.stringify(PROPOSAL))).json()).toEqual({
+      error: `${HELD}: no step is proposed until it ends`,
+    });
+    expect(existsSync(join(dir, WIP, ".review/v2.md"))).toBe(false);
+    await post("ended", { seq, outcome: { kind: "answer", text: VERDICT } });
+
+    expect((await gate()).status).toBe(200);
+    expect(existsSync(join(dir, WIP, ".review/v2.md"))).toBe(true);
+  });
+
+  test("a Send with an edit leaves the edit in the draft, writes no version, and sends the comments", async () => {
+    const { dir, api, launch } = await reviewing();
+    await launch(1, OPUS);
+
+    const comment = {
+      id: "c1",
+      doc: `${WIP}notes.md`,
+      anchor: { kind: "global" },
+      mark: { kind: "comment", body: "Say why." },
+    };
+
+    const edit = { version: 1, text: EDITED };
+    const draft = { annotations: [comment], edit, choices: {}, typed: EMPTY_TYPED };
+    writeFileSync(join(dir, WIP, ".review/draft.json"), JSON.stringify(draft));
+
+    const sent = await api(
+      "send",
+      JSON.stringify({
+        annotations: ["c1"],
+        edit: 1,
+        choices: [],
+        parts: true,
+        takeDefaults: [],
+      }),
+    );
+
+    expect(await sent.json()).toEqual({
+      file: `${WIP}.review/v1.feedback-1.md`,
+      seq: 1,
+      editKept: { held: HELD, annotations: [] },
+    });
+    expect(existsSync(join(dir, WIP, ".review/v2.md"))).toBe(false);
+    expect(readFileSync(join(dir, WIP, ".review/v1.feedback-1.md"), "utf8")).toContain("Say why.");
+    expect(JSON.parse(readFileSync(join(dir, WIP, ".review/draft.json"), "utf8"))).toMatchObject({
+      annotations: [],
+      edit,
+    });
+  });
+
+  test("an open grill refuses a review: one hold at a time", async () => {
+    const { api, post } = await reviewing();
+    const proposed = await api("x/step/propose", JSON.stringify(PROPOSAL));
+    // SAFETY: the step server's own `Proposed`, serialized by `Response.json` in step/server.ts.
+    const { id } = (await proposed.json()) as { readonly id: string };
+    await api("x/step/answer", JSON.stringify({ id, answer: { kind: "move", move: GRILL } }));
+    const refused = await post("request", { version: 1 });
+
+    expect(refused.status).toBe(409);
+    expect(await refused.json()).toEqual({ error: "grill 1 is open" });
+  });
+
+  test("holds nothing once its directory is gone", async () => {
+    const { dir } = await reviewing();
+    const workdir = parseWipDir(WIP);
+
+    if (!workdir.ok) throw new Error(workdir.error);
+
+    const review = new Review({
+      project: dir,
+      workdir: workdir.value,
+      extensions: serverExtensions,
+    });
+
+    rmSync(join(dir, WIP), { recursive: true });
+
+    expect(await reviewServer.holds?.(review.context)).toBeNull();
+  });
+});
+
+describe("the agents to stop and the version to submit again", () => {
+  test("a forgotten run's agent stays listed through a new request, until its stop is confirmed", async () => {
+    const { post, launch, request, state } = await reviewing();
+    const seq = await launch(1, OPUS);
+    await post("forget", { seq });
+    await request(1);
+
+    expect((await state()).stopping).toEqual([{ seq, agentId: "agent-1" }]);
+    expect((await post("stopped", { seq })).status).toBe(204);
+    expect((await state()).stopping).toEqual([]);
+    expect((await post("stopped", { seq })).status).toBe(409);
+  });
+
+  test("a run forgotten before its launch leaves no agent to stop", async () => {
+    const { post, request, state } = await reviewing();
+    const seq = await request(1);
+    await post("forget", { seq });
+
+    expect(await state()).toMatchObject({ stopping: [], resubmit: true });
+  });
+
+  test("the approval gives up the run's agent and asks for no plan.md: the mode closes", async () => {
+    const { launch, approve, state } = await reviewing();
+    const seq = await launch(1, OPUS);
+    await approve();
+
+    expect(await state()).toMatchObject({
+      stopping: [{ seq, agentId: "agent-1" }],
+      resubmit: false,
+    });
+  });
+
+  test("a run's end asks for plan.md again, and resubmitted clears it", async () => {
+    const { post, launch, state } = await reviewing();
+    const seq = await launch(1, OPUS);
+    await post("ended", { seq, outcome: { kind: "failed", why: "aborted" } });
+
+    expect((await state()).resubmit).toBe(true);
+    expect((await post("resubmitted", {})).status).toBe(204);
+    expect((await state()).resubmit).toBe(false);
   });
 });

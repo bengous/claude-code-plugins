@@ -449,7 +449,8 @@ describe("tool.call mcp__vellum__submit", () => {
 });
 
 describe("a review an open grill holds", () => {
-  const HELD = "grill 1 is open: the plan is submitted once the reviewer ends it";
+  const HELD =
+    "grill 1 is open: plan.md is recorded as the next version once it ends, if it changed";
 
   const held = { routes: { "/api/gate": () => reply(409, { error: HELD }) } };
 

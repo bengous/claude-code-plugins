@@ -143,7 +143,7 @@ test.describe("the decisions", () => {
     const warning = page.getByRole("dialog", { name: "Before approving" });
 
     await expect(warning.locator(".warn-text")).toHaveText("The review is held: grill 1 is open.");
-    await expect(warning).toContainText("Approving ends it.");
+    await expect(warning).toContainText("Approving ends it, and what it was doing is lost.");
   });
 
   test("a second grill opened behind the approval notes brings the warning back", async ({
@@ -210,6 +210,33 @@ test.describe("the pill", () => {
     await expect(page.locator(".bar .status")).toHaveCount(1);
     await expect(sendButton(page)).toBeEnabled();
     await expect(page.locator(".banner")).toHaveCount(0);
+  });
+
+  test("while a run holds the review, a Send leaves the edit in the draft and says it waits", async ({
+    page,
+    vellum,
+  }) => {
+    await reviewV1(page, vellum);
+    await addGeneralComment(page, "Say which store holds the attachments.");
+    await openEditor(page);
+    const area = page.locator(".editor textarea");
+    await area.fill(`${await area.inputValue()}\nA line the reviewer added.\n`);
+    await page.getByRole("button", { name: "Done" }).click();
+    await page
+      .locator(".bar")
+      .getByRole("button", { name: /^Review\b/u })
+      .click();
+    await expect(page.locator(".bar .status")).toHaveText("Held · plan review 1 of v1 is running");
+    await sendAll(page);
+
+    await expect(page.locator(".banner.info")).toHaveText(
+      "Your edit waits: plan review 1 of v1 is running. Send it again once that ends.",
+    );
+    await expect(page.locator(".doc-head .edited")).toBeVisible();
+    await expect(sendButton(page)).toContainText("1");
+    expect(vellum.batches()).toEqual(["v1.feedback-1.md"]);
+    expect(vellum.batch("v1.feedback-1.md")).toContain("Say which store holds the attachments.");
+    expect(vellum.batch("v1.feedback-1.md")).not.toContain("A line the reviewer added.");
   });
 
   test("in drafting, a batch sent is said, and counted", async ({ page, vellum }) => {

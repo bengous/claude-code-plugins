@@ -25,7 +25,7 @@ Otherwise explore, then propose the next step with `mcp__vellum__propose`, never
 
 ## 2. Settle the open choices
 
-The choices are settled in a grill, in the review page. You do not start one: the reviewer opens it by picking a grill, and the answer names the transcript and, the first time, the instructions to read. You ask each round with `mcp__vellum__grill_ask`, which waits and returns the reviewer's reply, and the reviewer ends the grill. No step is proposed while a grill is open.
+The choices are settled in a grill, in the review page. You do not start one: the reviewer opens it by picking a grill, and the answer names the transcript and, the first time, the instructions to read. You ask each round with `mcp__vellum__grill_ask`, which waits and returns the reviewer's reply, and the reviewer ends the grill. No step is proposed while the review is held (a grill, a plan review).
 
 A question is asked only when the answer would change the architecture, an interface or the scope. Anything else: take the recommended option and record it in the plan under Assumptions. Without a grill, every open choice becomes an assumption, or a question left open in the plan, named, with the option you would take.
 

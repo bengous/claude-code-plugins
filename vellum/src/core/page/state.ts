@@ -188,6 +188,12 @@ export function succeed(op: Failure["op"]): void {
 }
 
 /**
+ * The edit a Send left in the draft, and what held the review, in the server's words: the notice
+ * says so while that very edit waits and until the page reads that nothing holds the review.
+ */
+export const editWaits = signal<{ readonly held: string; readonly edit: Edit } | null>(null);
+
+/**
  * What the last Delete of a card can undo, for `UNDO_MS`; `null` past that, once undone, and
  * after a decision, Done or Discard edit, which the comment it holds was made before.
  */
@@ -319,6 +325,8 @@ async function loadReview(): Promise<void> {
     review.value = fetched.value;
     settleEdit(fetched.value);
     settleEditorTyping(fetched.value);
+
+    if (fetched.value.held === null) editWaits.value = null;
   });
 }
 
@@ -482,6 +490,18 @@ async function sendOut(out: Outgoing): Promise<Sent> {
 
   if (status === 409 && answer !== null && "reason" in answer) {
     if (answer.reason === "unanswered") return { kind: "unanswered", ids: answer.ids };
+
+    if (answer.reason === "held") {
+      const { held } = answer;
+
+      batch(() => {
+        editWaits.value = out.edit === null ? null : { held, edit: out.edit };
+        succeed("decision");
+      });
+
+      return { kind: "failed" };
+    }
+
     fail("decision", REFUSED[answer.reason]);
 
     return { kind: "failed" };
@@ -505,14 +525,22 @@ async function sendOut(out: Outgoing): Promise<Sent> {
 
   await loadReview();
   await Promise.all((out.parts ?? []).map((part) => part.sent()));
-  const taken = new Set(out.annotations);
-  const sentEdit = out.edit;
+  const editKept = answer !== null && "editKept" in answer ? answer.editKept : null;
+  const kept = new Set(editKept?.annotations);
+  const taken = new Set(out.annotations.filter((id) => !kept.has(id)));
+  const sentEdit = editKept === null ? out.edit : null;
 
   batch(() => {
     annotations.value = annotations.value.filter(({ id }) => !taken.has(id));
     choices.value = withoutChoices(choices.value, out.choices);
 
     if (sentEdit !== null && edited.peek()?.version === sentEdit.version) edited.value = null;
+
+    // A Send with no edit, Send now, leaves the notice of one that still waits.
+    if (out.edit !== null) {
+      editWaits.value = editKept === null ? null : { held: editKept.held, edit: out.edit };
+    }
+
     succeed("decision");
   });
 
@@ -823,6 +851,10 @@ export const notices = computed(() =>
     downSince: downFor.value,
     editing: editing.value,
     failures: failures.value,
+    editWaits:
+      editWaits.value !== null && editWaits.value.edit === edited.value
+        ? editWaits.value.held
+        : null,
     undo: undo.value,
     retry: () => void decide({ kind: "approve", edit: null, notes: "" }),
   }),

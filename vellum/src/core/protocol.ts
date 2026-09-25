@@ -1,6 +1,6 @@
 import type { ChannelLine } from "./server/domain/channel.ts";
 import type { ProjectPath, Version } from "./server/domain/paths.ts";
-import type { SendRefused } from "./server/domain/review.ts";
+import type { EditKept, SendRefused } from "./server/domain/review.ts";
 import type { PlanWorkspace } from "./server/domain/workspace.ts";
 
 /**
@@ -44,6 +44,7 @@ export type {
   Decision,
   Draft,
   Edit,
+  EditKept,
   SendRefused,
   SendRequest,
   Taking,
@@ -90,15 +91,21 @@ export type GateAnswer =
 
 /**
  * Why `POST /api/send` wrote nothing: questions no answer takes that the reviewer did not agree to
- * leave to their recommendation, every one of them; what `sendOn` refuses; nothing to send; or a
- * saved draft the server cannot read.
+ * leave to their recommendation, every one of them; what `sendOn` refuses; nothing to send; a
+ * saved draft the server cannot read; or an edit, with nothing else, while `held` holds the review.
  */
 export type SendRefusal =
   | { readonly reason: "unanswered"; readonly ids: readonly string[] }
+  | { readonly reason: "held"; readonly held: string }
   | { readonly reason: SendRefused | "empty" | "unreadable" };
 
-/** What `POST /api/send` answers: the batch written and its entry's number, or why none was. */
-export type SendAnswer = { readonly file: ProjectPath; readonly seq: number } | SendRefusal;
+/**
+ * What `POST /api/send` answers: the batch written, its entry's number, and the edit it left in
+ * the draft while the review is held; or why nothing was written.
+ */
+export type SendAnswer =
+  | { readonly file: ProjectPath; readonly seq: number; readonly editKept: EditKept | null }
+  | SendRefusal;
 
 export type MediaType = "text/markdown" | "text/html" | `image/${string}`;
 

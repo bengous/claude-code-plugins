@@ -273,6 +273,12 @@ export type SendRequest = Taking & {
  */
 export type SendRefused = "approved" | "changed" | "stale" | "edit";
 
+/**
+ * An edit a Send left in the draft, since `held` holds the review: no version opens under it. The
+ * comments on the plan's lines stay with it, by id, since their lines are the edit's.
+ */
+export type EditKept = { readonly held: string; readonly annotations: readonly string[] };
+
 /** What a Send writes, decided before anything is written. */
 export type Sending =
   | { readonly kind: "refused"; readonly reason: SendRefused }
@@ -287,6 +293,7 @@ export type Sending =
       readonly choices: readonly SentChoice[];
       /** What the draft keeps: everything the Send did not take. */
       readonly rest: Draft;
+      readonly editKept: EditKept | null;
     };
 
 export const EMPTY_DRAFT: Draft = { annotations: [], edit: null, choices: {}, typed: EMPTY_TYPED };
@@ -313,13 +320,16 @@ function choicesNamed(choices: Choices, named: readonly ChoiceRef[]): readonly S
  * exactly the ones named, and the edit when named, which lands as the next version, the batch
  * sent on it. A name the draft no longer holds refuses the whole Send rather than send something
  * else. A comment on the plan left without the pending edit is refused too: `Done` moved its
- * lines to the edit's text. A Send changes no stage: the page takes comments after it.
+ * lines to the edit's text. A Send changes no stage: the page takes comments after it. While
+ * `held` holds the review, the edit named stays in the draft, and the comments on the plan's lines
+ * with it: the rest goes, a general comment on the plan included, since it names no line.
  */
 export function sendOn(
   workspace: PlanWorkspace,
   latestText: string | null,
   draft: Draft,
   taking: Taking,
+  held: string | null = null,
 ): Sending {
   if (workspace.kind === "approved") return { kind: "refused", reason: "approved" };
   const named = new Set(taking.annotations);
@@ -353,6 +363,7 @@ export function sendOn(
           annotations: sent,
           choices,
           rest,
+          editKept: null,
         };
   }
 
@@ -368,6 +379,28 @@ export function sendOn(
   if (edited === "stale") return { kind: "refused", reason: "stale" };
   const { version, edit } = edited;
 
+  if (held !== null && edit !== null) {
+    const onEdit = (annotation: Annotation): boolean =>
+      annotation.doc === plan && annotation.anchor.kind !== "global";
+
+    return {
+      kind: "send",
+      version: reviewed,
+      edit: null,
+      editedFrom: null,
+      annotations: sent.filter((annotation) => !onEdit(annotation)),
+      choices,
+      rest: {
+        ...rest,
+        annotations: draft.annotations.filter(
+          (annotation) => !named.has(annotation.id) || onEdit(annotation),
+        ),
+        edit: draft.edit,
+      },
+      editKept: { held, annotations: sent.filter((one) => onEdit(one)).map(({ id }) => id) },
+    };
+  }
+
   return {
     kind: "send",
     version,
@@ -376,6 +409,7 @@ export function sendOn(
     annotations: retargetAnnotations(sent, plan, versionPath(dir, version)),
     choices,
     rest,
+    editKept: null,
   };
 }
 

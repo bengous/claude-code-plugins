@@ -158,7 +158,7 @@ describe("a proposal", () => {
 
     expect(refused.status).toBe(409);
     expect(await refused.json()).toEqual({
-      error: "grill 1 is open: no step is proposed until the reviewer ends it",
+      error: "grill 1 is open: no step is proposed until it ends",
     });
   });
 
