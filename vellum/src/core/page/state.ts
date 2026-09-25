@@ -556,10 +556,22 @@ export function addAnnotation(annotation: Omit<Annotation, "id">): void {
   annotations.value = [...annotations.value, { ...annotation, id: crypto.randomUUID() }];
 }
 
-/** A choice in a mockup: another option of the same decision replaces it; a locked page takes none. */
+/**
+ * A choice in a mockup: another option of the same decision replaces it, and the option already
+ * chosen, chosen again, withdraws it; a locked page takes none.
+ */
 export function choose(doc: ProjectPath, decision: DecisionKey, choice: Choice): void {
   if (locked.value) return;
-  choices.value = { ...choices.value, [doc]: { ...choices.value[doc], [decision]: choice } };
+
+  choices.value =
+    choices.value[doc]?.[decision]?.option === choice.option
+      ? withoutChoices(choices.value, [{ doc, decision, option: choice.option }])
+      : { ...choices.value, [doc]: { ...choices.value[doc], [decision]: choice } };
+}
+
+/** A choice card's Delete: the choice leaves the draft, its mark the mockup. */
+export function unchoose(named: ChoiceRef): void {
+  choices.value = withoutChoices(choices.value, [named]);
 }
 
 /** How long a deleted card can be undone from the notice. */

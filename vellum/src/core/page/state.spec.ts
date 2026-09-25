@@ -486,6 +486,32 @@ describe("choose", () => {
 
     expect(store.choices.value).toEqual({});
   });
+
+  test("the option already chosen, chosen again, withdraws the choice: one draft write", async () => {
+    const store = await freshStore();
+    const choices = { [MOCKUP]: { layout: chose("d"), nav: chose("tabs") } };
+    const draft = { annotations: [], edit: null, choices, typed: EMPTY_TYPED };
+    const server = serve({ draft, review: versioned({ version: 1 }) });
+    await store.start();
+    server.puts.length = 0;
+    store.choose(MOCKUP, "layout", chose("d"));
+    await settled();
+
+    expect(server.puts.map((put) => put.choices)).toEqual([{ [MOCKUP]: { nav: chose("tabs") } }]);
+  });
+
+  test("a card's Delete withdraws its choice, and the mockup's last one leaves the draft", async () => {
+    const store = await freshStore();
+    const choices = { [MOCKUP]: { layout: chose("d") } };
+    serve({
+      draft: { annotations: [], edit: null, choices, typed: EMPTY_TYPED },
+      review: versioned({ version: 1 }),
+    });
+    await store.start();
+    store.unchoose({ doc: MOCKUP, decision: "layout", option: "d" });
+
+    expect(store.choices.value).toEqual({});
+  });
 });
 
 describe("what is typed", () => {

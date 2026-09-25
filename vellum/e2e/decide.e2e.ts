@@ -1,4 +1,4 @@
-import type { FrameLocator, Page } from "@playwright/test";
+import type { FrameLocator, Locator, Page } from "@playwright/test";
 
 import type { Vellum } from "./harness.ts";
 import { commentOn, expect, feedbackOf, reviewV1, sendAll, sendButton, test } from "./harness.ts";
@@ -47,6 +47,11 @@ function marked(frame: FrameLocator): Promise<readonly string[]> {
     });
 }
 
+/** A choice's card in the comments panel. */
+function choiceCard(page: Page): Locator {
+  return page.locator("#comments .choice-card");
+}
+
 async function drafted(vellum: Vellum): Promise<string> {
   return JSON.stringify((await vellum.api("draft")).json);
 }
@@ -83,6 +88,75 @@ test.describe("a choice in a mockup", () => {
 
     await expect.poll(() => marked(again)).toEqual(["tabs: Chosen"]);
     await expect(sendButton(page)).toHaveText("Send 1");
+    await expect(choiceCard(page)).toHaveCount(1);
+  });
+
+  test("each choice has its card: the mockup, the decision, the option chosen", async ({
+    page,
+    vellum,
+  }) => {
+    await reviewV1(page, vellum);
+    const frame = await openMockup(page);
+    await chooseButton(frame, "tabs").click();
+
+    await expect(choiceCard(page).locator(".where")).toHaveText("layout.html · layout");
+    await expect(choiceCard(page)).toContainText("Chosen: “Tabs”");
+    await expect(page.locator("#comments header")).toHaveText("Comments 1");
+  });
+
+  test("Send now on a choice's card sends that choice alone: a comment stays, and so does the Send", async ({
+    page,
+    vellum,
+  }) => {
+    await reviewV1(page, vellum);
+    const frame = await openMockup(page);
+    await page.locator("#global").fill("Keep the save button in view.");
+    await page.getByRole("button", { name: "Add comment" }).click();
+    await chooseButton(frame, "tabs").click();
+    await expect(sendButton(page)).toHaveText("Send 2");
+
+    await choiceCard(page).getByRole("button", { name: "Send now" }).click();
+    await expect.poll(() => vellum.batches()).toHaveLength(1);
+
+    expect(feedbackOf(vellum)).toContain("## Choices\n\n1. ");
+    expect(feedbackOf(vellum)).not.toContain("## Comments");
+    await expect(choiceCard(page)).toHaveCount(0);
+    await expect.poll(() => marked(frame)).toEqual([]);
+    await expect(page.locator("#comments .card")).toHaveCount(1);
+    await expect(sendButton(page)).toHaveText("Send 1");
+  });
+
+  test("Delete on a choice's card withdraws it: the card and the mark go", async ({
+    page,
+    vellum,
+  }) => {
+    await reviewV1(page, vellum);
+    const frame = await openMockup(page);
+    await chooseButton(frame, "tabs").click();
+    await expect.poll(() => marked(frame)).toEqual(["tabs: Chosen"]);
+
+    await choiceCard(page).getByRole("button", { name: "Delete" }).click();
+
+    await expect(choiceCard(page)).toHaveCount(0);
+    await expect.poll(() => marked(frame)).toEqual([]);
+    await expect(sendButton(page)).toHaveText("Send");
+    await expect.poll(() => drafted(vellum)).not.toContain('"option":"tabs"');
+  });
+
+  test("Choose again on the option chosen withdraws it: the card and the mark go", async ({
+    page,
+    vellum,
+  }) => {
+    await reviewV1(page, vellum);
+    const frame = await openMockup(page);
+    await chooseButton(frame, "tabs").click();
+    await expect(choiceCard(page)).toHaveCount(1);
+
+    await chooseButton(frame, "tabs").click();
+
+    await expect(choiceCard(page)).toHaveCount(0);
+    await expect.poll(() => marked(frame)).toEqual([]);
+    await expect(sendButton(page)).toHaveText("Send");
   });
 
   test("the Send takes the choice: the batch names the decision, the option and its Choose, and the mark goes", async ({

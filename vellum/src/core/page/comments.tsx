@@ -2,13 +2,14 @@ import { batch } from "@preact/signals";
 import { Fragment } from "preact";
 import { useEffect, useRef, useState } from "preact/hooks";
 
-import type { Anchor, Annotation, GroupedDoc, Mark } from "../protocol.ts";
-import { DELETE_SENTENCE, QUICK_LABELS } from "../protocol.ts";
+import type { Anchor, Annotation, GroupedDoc, Mark, SentChoice } from "../protocol.ts";
+import { choicesIn, DELETE_SENTENCE, QUICK_LABELS } from "../protocol.ts";
 import { Badge, Button, Handle, Tag } from "./kit.tsx";
 import { pathLabel, quoteOf, whereOf } from "./labels.ts";
 import {
   addAnnotation,
   annotations,
+  choices,
   commentsOpen,
   commentsSnap,
   connection,
@@ -23,6 +24,7 @@ import {
   sending,
   setTyped,
   typed,
+  unchoose,
   updateAnnotation,
 } from "./state.ts";
 import { switchShown } from "./tools.tsx";
@@ -67,6 +69,15 @@ function sorted(list: readonly Annotation[], order: readonly GroupedDoc[]): read
     (a, b) =>
       (rank.get(a.doc) ?? order.length) - (rank.get(b.doc) ?? order.length) ||
       firstLine(a.anchor) - firstLine(b.anchor),
+  );
+}
+
+/** The choices' cards after the comments', in the documents' order. */
+function sortedChoices(order: readonly GroupedDoc[]): readonly SentChoice[] {
+  const rank = new Map(order.map((doc, index) => [doc.path, index]));
+
+  return choicesIn(choices.value).toSorted(
+    (a, b) => (rank.get(a.doc) ?? order.length) - (rank.get(b.doc) ?? order.length),
   );
 }
 
@@ -184,6 +195,48 @@ function docLabelOf(path: string): string {
     : pathLabel(doc, view);
 }
 
+/**
+ * A choice made in a mockup: its mockup, its decision, and the option by the heading its Choose
+ * sits under. Send now sends it alone and leaves the round; Delete withdraws it, as a click on
+ * the same Choose does.
+ */
+function ChoiceCard(props: { readonly choice: SentChoice }): preact.JSX.Element {
+  const { doc, decision, option, description } = props.choice;
+  const named = { doc, decision, option };
+  const off = editing.value !== null;
+
+  return (
+    <div class="card choice-card">
+      <div class="where" title={doc}>
+        {docLabelOf(doc)} · {decision}
+      </div>
+      <div>Chosen: “{description.heading === "" ? option : description.heading}”</div>
+      {!locked.value && (
+        <div class="actions">
+          <button type="button" disabled={off} onClick={() => unchoose(named)}>
+            Delete
+          </button>
+          <button
+            type="button"
+            disabled={off || sending.value || connection.value === "down"}
+            onClick={() =>
+              void send({
+                annotations: [],
+                edit: null,
+                choices: [named],
+                parts: null,
+                takeDefaults: [],
+              })
+            }
+          >
+            Send now
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 /** A card the pointer or the focus is on names itself to the renderer; a click asks it to scroll there too. */
 function Card(props: { readonly annotation: Annotation }): preact.JSX.Element {
   const { annotation } = props;
@@ -232,7 +285,7 @@ function Card(props: { readonly annotation: Annotation }): preact.JSX.Element {
  * the panel, so it carries the total: neither `Comments` nor the decision bar filters by document.
  */
 export function CommentsHandle(): preact.JSX.Element {
-  const count = annotations.value.length;
+  const count = annotations.value.length + choicesIn(choices.value).length;
 
   return (
     <Handle
@@ -258,6 +311,7 @@ export function Comments(props: { readonly doc: GroupedDoc | null }): preact.JSX
   const draft = typed.value.general;
   const { doc } = props;
   const list = sorted(annotations.value, docs.value);
+  const chosen = sortedChoices(docs.value);
   const view = review.value;
   const name = doc === null || view === null ? "" : pathLabel(doc, view);
   const known = useRef<ReadonlySet<string> | null>(null);
@@ -295,12 +349,17 @@ export function Comments(props: { readonly doc: GroupedDoc | null }): preact.JSX
       inert={!commentsOpen.value}
     >
       <header>
-        Comments <span>{list.length}</span>
+        Comments <span>{list.length + chosen.length}</span>
       </header>
       <div class="list">
-        {list.length === 0 && <div class="none">{emptyLine(!locked.value && doc !== null)}</div>}
+        {list.length + chosen.length === 0 && (
+          <div class="none">{emptyLine(!locked.value && doc !== null)}</div>
+        )}
         {list.map((annotation) => (
           <Card key={annotation.id} annotation={annotation} />
+        ))}
+        {chosen.map((choice) => (
+          <ChoiceCard key={JSON.stringify([choice.doc, choice.decision])} choice={choice} />
         ))}
       </div>
       <div class="global">

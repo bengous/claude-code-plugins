@@ -266,7 +266,7 @@ no build step, so what the page imports costs nothing at `cli start`.
 - There is one Send, `send` of `state.ts`: the bar's `Send (n)`, whose `n` counts the comments,
   the choices made in mockups, the edit as 1, and each extension's share (`PageExtension.send`, `SendShare`: the grill's
   questions answered), which `app.tsx` hands the bar; and a card's Send now, which sends that
-  comment alone and leaves the round, greyed on a comment on the plan while an edit waits. The
+  comment or that choice alone and leaves the round, greyed on a comment on the plan while an edit waits. The
   click is a snapshot (`Outgoing`): the comment ids, the edit and the choices on screen, each share, and the
   question ids the reviewer agreed to leave to their recommendation. The server sends from the
   draft it keeps, so `send` writes the draft first (`writeDraft`, which reads the draft again
@@ -338,7 +338,10 @@ no build step, so what the page imports costs nothing at `cli start`.
   opening tag, is read in the frame too, once per pick (`descriptionOf` of `html/describe.ts`),
   and crosses as `ElementRef.description`; the page shows the `label` of `pick.ts`, never it.
 - A mockup's choice is a draft item like a comment, never a request of its own: `choices` of
-  `state.ts`, one option per decision and per mockup, `choose` its one writer. The frame posts
+  `state.ts`, one option per decision and per mockup, written by `choose`, where the option
+  already chosen, chosen again, withdraws it, and by a card's Delete (`unchoose`). Each choice
+  has its card in the comments panel, after the comments', with Delete and Send now, which sends
+  that choice alone; the panel's count and its handle's count them with the comments. The frame posts
   `vellum:choose` for a trusted click on a `data-vellum-choose` while the page does not comment
   (`choiceOf` of `html/choose.ts` reads the option and its decision off the chain), with the
   description of the button clicked, and lets the mockup's own handler run; while the page
