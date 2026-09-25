@@ -18,7 +18,7 @@ import { basename, dirname, join, relative as relativeTo } from "node:path";
 
 import { $ } from "bun";
 
-import { HOOK_EXIT } from "./guard-destructive.ts";
+import { HOOK_EXIT } from "./hook-io.ts";
 import { checkoutRoot, markerFor } from "./stop-gates.ts";
 
 export interface HookInput {

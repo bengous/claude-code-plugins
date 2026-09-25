@@ -3,12 +3,12 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { HOOK_EXIT } from "./guard-destructive.ts";
 import {
   extractCdTarget,
   isBranchMutatingCommand,
   isProtectedBranch,
 } from "./guard-main-branch.ts";
+import { HOOK_EXIT } from "./hook-io.ts";
 
 // -- isProtectedBranch -------------------------------------------------------
 
@@ -386,7 +386,7 @@ describe("own repo", () => {
           "git branch master",
           `git worktree add -q "${worktree}" master`,
           "mkdir -p .claude/hooks",
-          `cp "${import.meta.dir}/guard-main-branch.ts" "${import.meta.dir}/guard-destructive.ts" .claude/hooks/`,
+          `cp "${import.meta.dir}/guard-main-branch.ts" "${import.meta.dir}/hook-io.ts" .claude/hooks/`,
         ].join(" && "),
       ],
       { stdout: "pipe", stderr: "pipe" },

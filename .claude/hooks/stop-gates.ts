@@ -26,7 +26,7 @@ import { join } from "node:path";
 
 import { $ } from "bun";
 
-import { HOOK_EXIT } from "./guard-destructive.ts";
+import { HOOK_EXIT } from "./hook-io.ts";
 
 export interface StopInput {
   session_id?: string;

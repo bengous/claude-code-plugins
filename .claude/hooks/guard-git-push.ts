@@ -27,8 +27,8 @@
  * ```
  */
 
-import { HOOK_EXIT, parseHookInput, stripStringLiterals } from "./guard-destructive.ts";
 import { extractCdTarget, getCurrentBranch, isForeignRepo } from "./guard-main-branch.ts";
+import { HOOK_EXIT, parseHookInput, stripStringLiterals } from "./hook-io.ts";
 
 export interface PushTarget {
   readonly ref: string;

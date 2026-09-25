@@ -69,12 +69,6 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bun \"$CLAUDE_PROJECT_DIR/.claude/hooks/guard-destructive.ts\"",
-            "timeout": 5,
-            "statusMessage": "Checking for destructive commands..."
-          },
-          {
-            "type": "command",
             "command": "bun \"$CLAUDE_PROJECT_DIR/.claude/hooks/guard-main-branch.ts\"",
             "timeout": 5
           },
@@ -153,8 +147,6 @@
   // anything that could leak secrets or cause damage.
   //
   "permissions": {
-    "defaultMode": "default",
-
     // Commands that run without confirmation
     "allow": [
       // System exploration (read-only)
@@ -170,9 +162,13 @@
       "Bash(pacman -Si:*)",  // Package info
       "Bash(pacman -Ql:*)",  // List package files
 
-      // Git operations (most are safe)
-      "Bash(git:*)",
-      "Bash(gh:*)",
+      // GitHub reads
+      "Bash(gh pr view *)",
+      "Bash(gh pr list *)",
+      "Bash(gh pr checks *)",
+      "Bash(gh pr diff *)",
+      "Bash(gh issue view *)",
+      "Bash(gh issue list *)",
 
       // Node.js ecosystem
       "Bash(npm:*)",
@@ -185,12 +181,9 @@
       "Bash(mkdir:*)",
       "Bash(mv:*)",
       "Bash(cp:*)",
-      "Bash(rm:*)",
       "Bash(chmod:*)",
       "Bash(sed:*)",
       "Bash(curl:*)",
-      "Bash(bash:*)",
-      "Bash(xargs:*)",
 
       // Web access for documentation
       "WebSearch",
@@ -313,7 +306,6 @@
       // Destructive System Commands
       // ═══════════════════════════════════════════════════════════════════
       "Bash(sudo:*)",
-      "Bash(rm -rf:*)",
       "Bash(mkfs:*)",
       "Bash(fdisk:*)",
       "Bash(parted:*)",

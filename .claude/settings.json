@@ -35,12 +35,6 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bun \"$CLAUDE_PROJECT_DIR/.claude/hooks/guard-destructive.ts\"",
-            "timeout": 5,
-            "statusMessage": "Checking for destructive commands..."
-          },
-          {
-            "type": "command",
             "command": "bun \"$CLAUDE_PROJECT_DIR/.claude/hooks/guard-main-branch.ts\"",
             "timeout": 5
           },
@@ -99,7 +93,6 @@
     ]
   },
   "permissions": {
-    "defaultMode": "default",
     "allow": [
       "Bash(tree:*)",
       "Bash(ls:*)",
@@ -110,8 +103,12 @@
       "Bash(pacman -Ss:*)",
       "Bash(pacman -Si:*)",
       "Bash(pacman -Ql:*)",
-      "Bash(git:*)",
-      "Bash(gh:*)",
+      "Bash(gh pr view *)",
+      "Bash(gh pr list *)",
+      "Bash(gh pr checks *)",
+      "Bash(gh pr diff *)",
+      "Bash(gh issue view *)",
+      "Bash(gh issue list *)",
       "Bash(npm:*)",
       "Bash(pnpm:*)",
       "Bash(npx:*)",
@@ -120,12 +117,9 @@
       "Bash(mkdir:*)",
       "Bash(mv:*)",
       "Bash(cp:*)",
-      "Bash(rm:*)",
       "Bash(chmod:*)",
       "Bash(sed:*)",
       "Bash(curl:*)",
-      "Bash(bash:*)",
-      "Bash(xargs:*)",
       "WebSearch",
       "WebFetch(domain:github.com)",
       "WebFetch(domain:code.claude.com)",
@@ -211,7 +205,6 @@
       "Read(**/credentials.json)",
       "Read(./secrets/**)",
       "Bash(sudo:*)",
-      "Bash(rm -rf:*)",
       "Bash(mkfs:*)",
       "Bash(fdisk:*)",
       "Bash(parted:*)",

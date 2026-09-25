@@ -88,7 +88,7 @@ describe("rewritersFor", () => {
   });
 
   test("rewrites repo source, dot directories included", () => {
-    expect(rewritersFor(".claude/hooks/guard-destructive.ts")).toHaveLength(3);
+    expect(rewritersFor(".claude/hooks/hook-io.ts")).toHaveLength(3);
   });
 });
 

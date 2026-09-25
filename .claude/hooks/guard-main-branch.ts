@@ -4,7 +4,7 @@
  * PreToolUse hook for Bash — blocks git commit/push on protected branches.
  * Receives Claude Code tool JSON on stdin.
  *
- * Reuses stripStringLiterals from guard-destructive so that commit messages
+ * Reuses stripStringLiterals from hook-io so that commit messages
  * describing branch mutations don't trigger false positives.
  *
  * @usage
@@ -25,7 +25,7 @@
  * ```
  */
 
-import { HOOK_EXIT, parseHookInput, stripStringLiterals } from "./guard-destructive.ts";
+import { HOOK_EXIT, parseHookInput, stripStringLiterals } from "./hook-io.ts";
 
 const PROTECTED_BRANCHES = ["main", "master"] as const;
 
