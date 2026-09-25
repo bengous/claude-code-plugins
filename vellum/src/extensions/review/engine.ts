@@ -132,6 +132,7 @@ async function launch(context: EngineContext, run: Run): Promise<void> {
       subagentType: REVIEWER,
       description: `plan review v${run.version}`,
       prompt: promptOf(context.live.session.workdir, run.version),
+      cwd: context.live.session.project,
     })
     .catch((cause: unknown) => ({ deny: `the launch failed: ${String(cause)}` }));
 

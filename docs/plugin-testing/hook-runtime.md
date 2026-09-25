@@ -201,7 +201,7 @@ plugins (September 2026), unless a line says otherwise.
   reaches the plugin with `agentId` set and its final text in `answer`. The
   same agent spawned by the model through the Agent tool reaches the plugin's
   `tool.call`. `$.agent.spawn` from a timer resolved in 17 ms with
-  `{ model, agentId }`. Measured on 2.1.282 in `claude -p` sessions
+  `{ model, agentId }`. Measured in `claude -p` sessions
   (`vellum` #170).
 
 - `$.tool.call({ tool: "TaskStop", task_id })` stops an agent the plugin

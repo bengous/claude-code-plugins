@@ -83,7 +83,7 @@ export type EngineExtension = {
   readonly prompted?: (context: EngineContext, prompt: Prompted) => Promise<void>;
   /** The main loop's turn only, after the core's own gate. */
   readonly answered?: (context: EngineContext, turn: Answered) => Promise<void>;
-  /** A subagent's turn, any subagent's, while live: the extension keeps the ids it spawned. */
+  /** A subagent's turn, any subagent's, while live: each half tells its own agents from the rest; `review` reads its run off the server. */
   readonly agentAnswered?: (context: EngineContext, turn: AgentAnswered) => Promise<void>;
   /**
    * Each time the server says the review changed, a `stage` line, while live: what the extension

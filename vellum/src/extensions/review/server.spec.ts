@@ -349,6 +349,30 @@ describe("what the server keeps", () => {
 
     expect(readFileSync(draft, "utf8")).toBe('{"annotations":[],"edit":null}');
   });
+
+  test("a read of the state waits for a write under way", async () => {
+    const { dir } = await reviewing();
+    const workdir = parseWipDir(WIP);
+
+    if (!workdir.ok) throw new Error(workdir.error);
+
+    const review = new Review({
+      project: dir,
+      workdir: workdir.value,
+      extensions: serverExtensions,
+    });
+
+    const write = Promise.withResolvers<void>();
+
+    void review.context.inOrder(() => write.promise);
+    const state = reviewServer.routes?.(review.context)["GET state"];
+    const read = state?.(new Request("http://127.0.0.1/"));
+
+    expect(await Promise.race([read, Bun.sleep(100).then(() => "waited")])).toBe("waited");
+    write.resolve();
+
+    expect((await read)?.status).toBe(200);
+  });
 });
 
 describe("a run holds the review", () => {

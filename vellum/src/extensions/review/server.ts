@@ -152,14 +152,15 @@ function routes(context: ServerContext): Readonly<Record<RouteKey, Route>> {
   });
 
   return {
-    "GET state": async () => {
-      const workspace = await workspaceIfAny(context);
+    "GET state": () =>
+      inOrder(async () => {
+        const workspace = await workspaceIfAny(context);
 
-      if (workspace === null) return refused("the plan's directory is gone");
-      const state: ReviewState = stateOf(await readReviews(context, workspace.dir));
+        if (workspace === null) return refused("the plan's directory is gone");
+        const state: ReviewState = stateOf(await readReviews(context, workspace.dir));
 
-      return Response.json(state);
-    },
+        return Response.json(state);
+      }),
 
     "POST request": async (request) => {
       const body = parsePosts.request(await request.json().catch(() => null));
