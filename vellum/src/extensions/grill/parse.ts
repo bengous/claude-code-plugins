@@ -1,4 +1,4 @@
-import type { Asked, CloseReason, GrillPosts, Question, Suggested } from "./protocol.ts";
+import type { Asked, CloseReason, GrillPosts, Question, Suggested, Waited } from "./protocol.ts";
 
 /** The boundary of `grill`: what a request carries arrives as `unknown` and is parsed here, once. */
 
@@ -8,7 +8,7 @@ const GRILL_FILE = /^grill-([1-9]\d*)\.md$/u;
 /** Every break a multiline pattern's `^` matches after: a subject holding one could forge a block of the transcript. */
 const LINE_BREAK = /[\n\r\u2028\u2029]/u;
 
-/** What `POST ask` and `POST reply` refuse with; the engine reads it to name the way to a grill. */
+/** What `POST ask` refuses with; the engine reads it to name the way to a grill. */
 export const NO_GRILL_OPEN = "no grill is open";
 
 /** `grill-<n>.md`, the one name a grill's transcript has at the root of the plan's directory. */
@@ -74,17 +74,15 @@ export function parseCloseReason(body: unknown): CloseReason | null {
   return reason === "page" || reason === "stop" ? reason : null;
 }
 
-/** `POST reply`: the answers the reviewer typed, by question id, and what they wrote beside them. */
-export function parseReply(body: unknown): GrillPosts["reply"] | null {
-  if (!isRecord(body) || !Array.isArray(body.answers) || typeof body.note !== "string") return null;
-
-  const answers = body.answers.map((answer: unknown) =>
-    isRecord(answer) && typeof answer.id === "string" && typeof answer.text === "string"
-      ? { id: answer.id, text: answer.text }
-      : null,
-  );
-
-  return answers.every((answer) => answer !== null) ? { answers, note: body.note } : null;
+/** `POST wait`: the transcript a round was asked in, and its first question's number. */
+export function parseWait(body: unknown): GrillPosts["wait"] | null {
+  return isRecord(body) &&
+    typeof body.file === "string" &&
+    typeof body.first === "number" &&
+    Number.isInteger(body.first) &&
+    body.first >= 1
+    ? { file: body.file, first: body.first }
+    : null;
 }
 
 export function parseEvent(body: unknown): GrillPosts["event"] | null {
@@ -150,8 +148,24 @@ export function parseJson(json: string): unknown {
 }
 
 export function parseAsked(value: unknown): Asked | null {
-  return isRecord(value) && typeof value.first === "number" && typeof value.last === "number"
-    ? { first: value.first, last: value.last }
+  return isRecord(value) &&
+    typeof value.first === "number" &&
+    typeof value.last === "number" &&
+    typeof value.file === "string"
+    ? { first: value.first, last: value.last, file: value.file }
+    : null;
+}
+
+/** What `POST wait` answers; `null` for any other shape. */
+export function parseWaited(value: unknown): Waited | null {
+  if (!isRecord(value)) return null;
+
+  if (value.kind === "ended" || value.kind === "open") return { kind: value.kind };
+
+  return value.kind === "answered" &&
+    typeof value.seq === "number" &&
+    typeof value.text === "string"
+    ? { kind: "answered", seq: value.seq, text: value.text }
     : null;
 }
 

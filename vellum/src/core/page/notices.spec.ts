@@ -16,8 +16,6 @@ const inReview: PlanWorkspace = {
   finalizeError: null,
 };
 
-const changesRequested: PlanWorkspace = { kind: "changesRequested", dir: WIP, version: 1 as never };
-
 const approved: PlanWorkspace = {
   kind: "approved",
   dir: "plans/2026-09-15/offline-sync/" as never,
@@ -90,18 +88,18 @@ describe("noticesOf", () => {
     expect(text(moved, "stale-editor")).toBe(
       "v2 arrived while you were editing v1. Copy what you need, then Cancel.",
     );
-    expect(text({ ...quiet, editing, workspace: changesRequested }, "stale-editor")).toBe(
+    expect(text({ ...quiet, editing, workspace: approved }, "stale-editor")).toBe(
       "v1 is no longer under review. Copy what you need, then Cancel.",
     );
     expect(keys({ ...quiet, editing, workspace: drafting })).toEqual([]);
   });
 
-  test("a held review draws no notice: the pill and Send feedback's title carry the reason", () => {
-    // @ts-expect-error -- the core's notices take no hold: the pill, Send feedback's title and the holder's own notice say it.
+  test("a held review draws no notice: the pill carries the reason", () => {
+    // @ts-expect-error -- the core's notices take no hold: the pill and the holder's own notice say it.
     expect(keys({ ...quiet, held: "grill 1 is open" })).toEqual([]);
   });
 
-  test("the workspace's own notice: a failed rename retries, a feedback waits, an approval names the folder", () => {
+  test("the workspace's own notice: a failed rename retries, an approval names the folder", () => {
     const failed = { ...inReview, finalizeError: "EACCES" };
     const [notice] = noticesOf({ ...quiet, workspace: failed });
 
@@ -111,13 +109,6 @@ describe("noticesOf", () => {
       action: { label: "Retry approval", run: noop },
     });
     expect(text({ ...quiet, workspace: failed }, "finalize")).toContain("EACCES");
-    expect(noticesOf({ ...quiet, workspace: changesRequested })).toEqual([
-      {
-        key: "workspace",
-        kind: "sent",
-        text: ["Feedback sent to Claude. Waiting for the next version of the plan."],
-      },
-    ]);
     expect(text({ ...quiet, workspace: approved }, "workspace")).toBe(
       "Plan approved: the folder is now `plans/2026-09-15/offline-sync/`",
     );
@@ -132,12 +123,19 @@ describe("noticesOf", () => {
     expect(notice?.action).toBeUndefined();
   });
 
-  test("while drafting, a batch sent is said until the version arrives", () => {
-    expect(keys({ ...quiet, workspace: drafting })).toEqual([]);
-    expect(text({ ...quiet, workspace: { ...drafting, batches: 1 } }, "workspace")).toContain(
-      "sent to Claude",
-    );
-  });
+  test.each([drafting, inReview])(
+    "on $kind a batch sent is said until the next version arrives, and the page takes comments",
+    (workspace) => {
+      expect(keys({ ...quiet, workspace })).toEqual([]);
+      expect(noticesOf({ ...quiet, workspace: { ...workspace, batches: 1 } })).toEqual([
+        {
+          key: "workspace",
+          kind: "sent",
+          text: ["Sent to Claude: it revises ", { code: "plan.md" }, " and goes on."],
+        },
+      ]);
+    },
+  );
 
   test("an undo is the last notice, with its action", () => {
     const undo = { label: "Undo", run: noop };
@@ -152,9 +150,9 @@ describe("statusOf", () => {
     [drafting, null, "Drafting", "neutral"],
     [{ ...drafting, batches: 2 }, null, "Drafting · 2 sent", "neutral"],
     [inReview, null, "In review", "neutral"],
+    [{ ...inReview, batches: 2 }, null, "In review · 2 sent", "neutral"],
     [inReview, "grill 1 is open", "Held · grill 1 is open", "neutral"],
     [{ ...inReview, finalizeError: "EACCES" }, null, "Approval failed", "err"],
-    [changesRequested, null, "Feedback sent", "sent"],
     [approved, null, "Approved", "ok"],
   ] as const)("%o held %p reads %s", (workspace, held, expectedText, tone) => {
     expect(statusOf(workspace, held)).toEqual({ text: expectedText, tone });
@@ -172,51 +170,53 @@ describe("staleEditor", () => {
 describe("decisionsOf", () => {
   const live = {
     workspace: inReview,
-    held: null,
     connection: "up" as const,
     editing: false,
-    edited: false,
-    annotations: 1,
-    unsentTyped: 0,
+    sending: false,
+    count: 1,
+    unanswered: 0,
+    more: false,
+    strayTyped: 0,
   };
 
   test("under review with a comment, everything is live", () => {
     expect(decisionsOf(live)).toEqual({
       approve: { disabled: false, title: null },
       notes: { disabled: false, title: null },
-      feedback: { disabled: false, title: null },
+      send: { disabled: false, title: null },
     });
   });
 
   test("the connection lost greys all three, and says so", () => {
-    const { approve, notes, feedback } = decisionsOf({ ...live, connection: "down" });
-    expect([approve, notes, feedback].every((button) => button.disabled)).toBe(true);
+    const { approve, notes, send } = decisionsOf({ ...live, connection: "down" });
+    expect([approve, notes, send].every((button) => button.disabled)).toBe(true);
     expect(approve.title).toMatch(/connection/iu);
-    expect(feedback.title).toBe(approve.title);
+    expect(send.title).toBe(approve.title);
   });
 
   test("an open editor greys all three, naming Done", () => {
     expect(decisionsOf({ ...live, editing: true }).approve.title).toMatch(/Done/u);
   });
 
-  test("after a feedback, all three wait for the next version", () => {
-    const { approve, feedback } = decisionsOf({ ...live, workspace: changesRequested });
-    expect(approve.title).toMatch(/next version/iu);
-    expect(feedback.title).toMatch(/next version/iu);
-  });
-
-  test("a hold greys the feedback alone, with the reason", () => {
-    const { approve, feedback } = decisionsOf({ ...live, held: "grill 1 is open" });
+  test("a Send in flight greys Send, and leaves the approval", () => {
+    const { approve, send } = decisionsOf({ ...live, sending: true });
     expect(approve.disabled).toBe(false);
-    expect(feedback).toEqual({ disabled: true, title: "grill 1 is open; end it first" });
+    expect(send).toEqual({ disabled: true, title: "Sending" });
   });
 
-  test("nothing to send greys the feedback, and names what to do, the typed text included", () => {
-    expect(decisionsOf({ ...live, annotations: 0 }).feedback.title).toMatch(/comment/iu);
-    expect(decisionsOf({ ...live, annotations: 0, unsentTyped: 1 }).feedback.title).toMatch(
-      /Add comment/u,
-    );
-    expect(decisionsOf({ ...live, annotations: 0, edited: true }).feedback.disabled).toBe(false);
+  test("a hold greys nothing: a Send goes while a grill is open", () => {
+    // @ts-expect-error -- Send takes no hold: holds refuse Claude's versions, never a Send.
+    expect(decisionsOf({ ...live, held: "grill 1 is open" }).send.disabled).toBe(false);
+  });
+
+  test("nothing to send greys Send, and names what to do, the typed text included", () => {
+    expect(decisionsOf({ ...live, count: 0 }).send.title).toMatch(/comment/iu);
+    expect(decisionsOf({ ...live, count: 0, strayTyped: 1 }).send.title).toMatch(/Add comment/u);
+  });
+
+  test("a question left unanswered, or a note, is something to send", () => {
+    expect(decisionsOf({ ...live, count: 0, unanswered: 2 }).send.disabled).toBe(false);
+    expect(decisionsOf({ ...live, count: 0, more: true }).send.disabled).toBe(false);
   });
 
   test("a failed rename leaves Retry approval as the one approve", () => {
@@ -230,7 +230,8 @@ describe("decisionsOf", () => {
     expect(notes.disabled).toBe(true);
   });
 
-  test("before the first load nothing is live", () => {
-    expect(decisionsOf({ ...live, workspace: null }).feedback.disabled).toBe(true);
+  test("approved, or before the first load, nothing is live", () => {
+    expect(decisionsOf({ ...live, workspace: approved }).send.disabled).toBe(true);
+    expect(decisionsOf({ ...live, workspace: null }).send.disabled).toBe(true);
   });
 });

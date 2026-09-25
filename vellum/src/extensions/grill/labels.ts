@@ -78,6 +78,6 @@ export function chipTitle(state: ChipState): string {
     case "default":
       return "Taken as recommended, by default";
     case "waiting":
-      return "Waiting: a send takes it as recommended";
+      return "Waiting for your answer";
   }
 }

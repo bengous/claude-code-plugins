@@ -4,7 +4,7 @@ export type QuestionBlock = Extract<Block, { kind: "question" }>;
 
 /**
  * Answered: sent with the reviewer's words or the recommendation chosen, or so in the draft.
- * Taken by default: sent untouched. Waiting: open and untouched, so a send takes it by default.
+ * Taken by default: sent untouched. Waiting: open and untouched, for the reviewer to answer.
  */
 export type ChipState = "answered" | "default" | "waiting";
 
@@ -21,10 +21,8 @@ export type Rounds = {
   readonly next: string | null;
   /** The questions no reply closed yet, in order: what a send or End grill closes. */
   readonly open: readonly string[];
-  /** The open questions the draft leaves untouched, the chips still waiting: what a send takes as recommended. */
-  readonly waiting: number;
-  /** The send button's words: how many open questions it takes as recommended. */
-  readonly send: string;
+  /** The open questions the draft leaves untouched, the chips still waiting: what a Send would take by default. */
+  readonly waiting: readonly string[];
 };
 
 function stateOf(block: QuestionBlock, answers: Readonly<Record<string, string>>): ChipState {
@@ -37,12 +35,6 @@ function stateOf(block: QuestionBlock, answers: Readonly<Record<string, string>>
     case "typed":
       return "answered";
   }
-}
-
-function sendOf(open: number, byDefault: number): string {
-  if (open === 0) return "Send note";
-
-  return byDefault === 0 ? "Send round" : `Send round · ${byDefault} taken as recommended`;
 }
 
 /**
@@ -80,8 +72,7 @@ export function roundsOf(
     previous: at > 0 ? (questions[at - 1]?.id ?? null) : null,
     next: at === -1 ? null : (questions[at + 1]?.id ?? null),
     open: open.map((block) => block.id),
-    waiting: waiting.length,
-    send: sendOf(open.length, waiting.length),
+    waiting: waiting.map((block) => block.id),
   };
 }
 

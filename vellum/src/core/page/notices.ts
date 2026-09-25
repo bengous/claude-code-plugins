@@ -46,19 +46,24 @@ export function staleEditor(
     : `v${live} arrived while you were editing v${editing.version}. Copy what you need, then Cancel.`;
 }
 
+/** What a Send leaves on the page until the next version: it went, and the page takes comments still. */
+function sentNotice(batches: number): Notice | null {
+  return batches === 0
+    ? null
+    : {
+        key: "workspace",
+        kind: "sent",
+        text: ["Sent to Claude: it revises ", { code: "plan.md" }, " and goes on."],
+      };
+}
+
 /** `retry` is `null` while the editor is open: an approval then would drop the typing unasked. */
 function workspaceNotice(workspace: PlanWorkspace, retry: (() => void) | null): Notice | null {
   switch (workspace.kind) {
     case "drafting":
-      return workspace.batches === 0
-        ? null
-        : {
-            key: "workspace",
-            kind: "sent",
-            text: ["Comments sent to Claude: it revises ", { code: "plan.md" }, " and goes on."],
-          };
+      return sentNotice(workspace.batches);
     case "inReview": {
-      if (workspace.finalizeError === null) return null;
+      if (workspace.finalizeError === null) return sentNotice(workspace.batches);
 
       const notice: Notice = {
         key: "finalize",
@@ -73,12 +78,6 @@ function workspaceNotice(workspace: PlanWorkspace, retry: (() => void) | null): 
       return { ...notice, action: { label: "Retry approval", run: retry } };
     }
 
-    case "changesRequested":
-      return {
-        key: "workspace",
-        kind: "sent",
-        text: ["Feedback sent to Claude. Waiting for the next version of the plan."],
-      };
     case "approved":
       return {
         key: "workspace",
@@ -88,7 +87,7 @@ function workspaceNotice(workspace: PlanWorkspace, retry: (() => void) | null): 
   }
 }
 
-/** The core's notices, in the order the column draws them. A hold is the pill's and Send feedback's to say, and its holder's. */
+/** The core's notices, in the order the column draws them. A hold is the pill's to say, and its holder's. */
 export function noticesOf(input: {
   readonly workspace: PlanWorkspace | null;
   readonly connection: "up" | "down";
@@ -139,7 +138,7 @@ export function noticesOf(input: {
   return notices;
 }
 
-export type Status = { readonly text: string; readonly tone: "ok" | "err" | "sent" | "neutral" };
+export type Status = { readonly text: string; readonly tone: "ok" | "err" | "neutral" };
 
 /** The pill: what state the review is in, `Held · <reason>` when something holds it. */
 export function statusOf(workspace: PlanWorkspace, held: string | null): Status {
@@ -152,11 +151,12 @@ export function statusOf(workspace: PlanWorkspace, held: string | null): Status 
     case "inReview":
       if (workspace.finalizeError !== null) return { text: "Approval failed", tone: "err" };
 
-      return held === null
-        ? { text: "In review", tone: "neutral" }
-        : { text: `Held · ${held}`, tone: "neutral" };
-    case "changesRequested":
-      return { text: "Feedback sent", tone: "sent" };
+      if (held !== null) return { text: `Held · ${held}`, tone: "neutral" };
+
+      return {
+        text: workspace.batches === 0 ? "In review" : `In review · ${workspace.batches} sent`,
+        tone: "neutral",
+      };
     case "approved":
       return { text: "Approved", tone: "ok" };
   }
@@ -164,7 +164,7 @@ export function statusOf(workspace: PlanWorkspace, held: string | null): Status 
 
 export type Live = { readonly disabled: boolean; readonly title: string | null };
 
-export type Decisions = { readonly approve: Live; readonly notes: Live; readonly feedback: Live };
+export type Decisions = { readonly approve: Live; readonly notes: Live; readonly send: Live };
 
 const LIVE: Live = { disabled: false, title: null };
 
@@ -174,16 +174,22 @@ function greyed(title: string): Live {
 
 /**
  * The three buttons of the core: greyed or not, and why, the reason written in its `title`. An
- * extension's button is computed by the extension.
+ * extension's button is computed by the extension. A Send is never held: a hold refuses Claude's
+ * versions, and the reviewer's word goes.
  */
 export function decisionsOf(input: {
   readonly workspace: PlanWorkspace | null;
-  readonly held: string | null;
   readonly connection: "up" | "down";
   readonly editing: boolean;
-  readonly edited: boolean;
-  readonly annotations: number;
-  readonly unsentTyped: number;
+  readonly sending: boolean;
+  /** What `Send (n)` counts: the comments, the questions answered, 1 for an edit. */
+  readonly count: number;
+  /** Questions a Send would take by default: something to send, which the page asks about first. */
+  readonly unanswered: number;
+  /** Something to send `count` does not count: a note for Claude. */
+  readonly more: boolean;
+  /** Texts typed and not added, which a Send would throw. */
+  readonly strayTyped: number;
 }): Decisions {
   const { workspace } = input;
 
@@ -194,16 +200,14 @@ export function decisionsOf(input: {
         ? "The connection to the review server is lost"
         : input.editing
           ? "Finish editing (Done) first"
-          : workspace.kind === "changesRequested"
-            ? "Waiting for Claude's next version"
-            : workspace.kind === "approved"
-              ? "The plan is approved"
-              : null;
+          : workspace.kind === "approved"
+            ? "The plan is approved"
+            : null;
 
   if (common !== null || workspace === null) {
     const all = greyed(common ?? "Loading the review");
 
-    return { approve: all, notes: all, feedback: all };
+    return { approve: all, notes: all, send: all };
   }
 
   const approve =
@@ -214,16 +218,12 @@ export function decisionsOf(input: {
         : LIVE;
 
   const nothing =
-    input.unsentTyped > 0
+    input.strayTyped > 0
       ? "Add the comment you typed first (Add comment)"
-      : "Add a comment or edit the plan first";
+      : "Add a comment, answer a question or edit the plan first";
 
-  const feedback =
-    input.held === null
-      ? input.annotations > 0 || input.edited
-        ? LIVE
-        : greyed(nothing)
-      : greyed(`${input.held}; end it first`);
+  const something = input.count > 0 || input.unanswered > 0 || input.more;
+  const send = input.sending ? greyed("Sending") : something ? LIVE : greyed(nothing);
 
-  return { approve, notes: approve, feedback };
+  return { approve, notes: approve, send };
 }

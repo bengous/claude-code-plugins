@@ -17,17 +17,30 @@ import type { ReviewServer, Unchanged } from "./server.ts";
 export type Relayed = { readonly channel: string; readonly seq: number };
 
 /**
+ * A tool call that waits for the reviewer's answer. `returned` names the entry its result carried
+ * to Claude, which is never relayed; `close` ends the wait, after which an entry it held and did
+ * not return is relayed, and a `returned` said late is not heard.
+ */
+export type Claim = {
+  readonly returned: (seq: number) => void;
+  readonly close: () => void;
+};
+
+/**
  * Relays a session's channel to Claude, once each entry and in order, for as long as its mode
  * holds it: one per session in a module's environment, across the servers a revival replaces.
  * `serve` reads from a server from now on and catches up; `hand` takes a line as the server
  * writes it; `retry` reads the channel again after a dropped prompt, or closes an approval whose
- * closing failed; `stop` relays nothing more once the mode was left.
+ * closing failed; `stop` relays nothing more once the mode was left. `claim` holds, while a tool
+ * call waits, each entry `awaits` picks: the call may return it as its result, and then it is
+ * never relayed.
  */
 export type Follower = {
   readonly serve: (server: ReviewServer, channel: string) => void;
   readonly hand: (line: ChannelLineWire) => void;
   readonly retry: () => void;
   readonly stop: () => void;
+  readonly claim: (awaits: (entry: ChannelEntryWire) => boolean) => Claim;
 };
 
 /**
@@ -96,6 +109,35 @@ export function follow(host: Host, id: SessionId, approved: () => Promise<void>)
   let read: (after: number) => Promise<ChannelLineWire[]> = nothingToRead;
   let phase: Phase = "following";
   let queue = Promise.resolve();
+  // The waits open now, and the entries a tool returned: an entry a wait may return is held until
+  // the wait says, since the entry's line and the tool's answer reach the module by two paths.
+  const claims = new Set<(entry: ChannelEntryWire) => boolean>();
+  const returned = new Set<number>();
+  let changed = Promise.withResolvers<void>();
+
+  const change = (): void => {
+    changed.resolve();
+    changed = Promise.withResolvers<void>();
+  };
+
+  const held = (entry: ChannelEntryWire): boolean => [...claims].some((awaits) => awaits(entry));
+
+  /**
+   * Whether the entry went to Claude as a tool's result, is due as a prompt, or goes nowhere since
+   * the mode was left: while a tool may still return it, it waits.
+   */
+  const fateOf = async ({
+    seq,
+    entry,
+  }: ChannelLineWire): Promise<"returned" | "due" | "stopped"> => {
+    const waiting = (): boolean => !returned.has(seq) && held(entry) && phase !== "stopped";
+
+    while (waiting()) await changed.promise;
+
+    if (phase === "stopped") return "stopped";
+
+    return returned.delete(seq) ? "returned" : "due";
+  };
 
   const run = (work: () => Promise<void>): void => {
     queue = queue.then(work).catch((cause: unknown) => {
@@ -111,13 +153,18 @@ export function follow(host: Host, id: SessionId, approved: () => Promise<void>)
   };
 
   /** `false` stops a catch-up: a dropped prompt stays due, and the approval ends the relays. */
-  const relay = async ({ seq, entry }: ChannelLineWire): Promise<boolean> => {
+  const relay = async (line: ChannelLineWire): Promise<boolean> => {
+    const { seq, entry } = line;
+
     if (phase === "stopped" || phase === "closing") return false;
 
     if (seq <= relayed.seq) return true;
-    const result = await host.submitPrompt(promptOf(entry));
+    const fate = await fateOf(line);
 
-    if (result.drop !== undefined) {
+    if (fate === "stopped") return false;
+    const result = fate === "returned" ? null : await host.submitPrompt(promptOf(entry));
+
+    if (result?.drop !== undefined) {
       host.log(`the review prompt was dropped: ${result.drop}`);
 
       if (phase === "following") phase = "behind";
@@ -163,7 +210,12 @@ export function follow(host: Host, id: SessionId, approved: () => Promise<void>)
       run(async () => {
         read = (after) => server.channel(after);
 
-        if (channel !== relayed.channel) relayed = parseRelayed(await host.storeGet(key), channel);
+        // Another channel's numbers start over: what a tool returned there says nothing here.
+        if (channel !== relayed.channel) {
+          relayed = parseRelayed(await host.storeGet(key), channel);
+          returned.clear();
+        }
+
         await catchUp();
       });
     },
@@ -179,6 +231,27 @@ export function follow(host: Host, id: SessionId, approved: () => Promise<void>)
     },
     stop: () => {
       phase = "stopped";
+      change();
+    },
+    claim: (awaits) => {
+      // Its own function, so two calls of one tool are two waits.
+      const hold = (entry: ChannelEntryWire): boolean => awaits(entry);
+      let open = true;
+      claims.add(hold);
+
+      return {
+        returned: (seq) => {
+          // An entry relayed already, or returned once already, is not held for again.
+          if (!open || seq <= relayed.seq) return;
+          returned.add(seq);
+          change();
+        },
+        close: () => {
+          open = false;
+          claims.delete(hold);
+          change();
+        },
+      };
     },
   };
 }

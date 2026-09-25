@@ -9,6 +9,7 @@ import {
   openVellum,
   readFixture,
   reviewV1,
+  sendAll,
   test,
 } from "./harness.ts";
 
@@ -85,8 +86,8 @@ test.describe("a comment on a text the edit removes", () => {
     await expect(card).toContainText("removed by your edit");
     await expect(card.locator(".where")).toHaveText(where ?? "");
     expect(await fillets(page)).toEqual([]);
-    await page.getByRole("button", { name: /Send feedback/u }).click();
-    await expect(page.locator(".bar .status")).toHaveText("Feedback sent");
+    await sendAll(page);
+    await expect(page.locator(".bar .status")).toHaveText("In review · 1 sent");
     expect(feedbackOf(vellum)).toContain("(removed by the reviewer's edit)");
   });
 
@@ -109,6 +110,26 @@ test.describe("a comment on a text the edit removes", () => {
     await page.getByRole("button", { name: "Discard", exact: true }).click();
     await expect(page.locator(".doc-head .edited")).toHaveCount(0);
     await expect(page.locator(".comments .card")).toHaveCount(0);
+  });
+});
+
+test.describe("Send now", () => {
+  test("is greyed on a comment on the plan while an edit waits: Done moved its lines to the edit", async ({
+    page,
+    vellum,
+  }) => {
+    await reviewV1(page, vellum);
+    await editPlan(page, (text) => `Three lines the reviewer added.\n\n${text}`);
+    await page.getByRole("button", { name: "Done" }).click();
+    await commentOn(page);
+    await commentBlock(page, page.locator("article.plan blockquote p"), "Decide this first.");
+    const sendNow = page.locator(".comments .card").getByRole("button", { name: "Send now" });
+
+    await expect(sendNow).toBeDisabled();
+    await expect(sendNow).toHaveAttribute(
+      "title",
+      "It goes with your edit: send them together with Send",
+    );
   });
 });
 

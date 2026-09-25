@@ -1,4 +1,4 @@
-import type { ServerContext, ServerExtension } from "../../extension.ts";
+import type { Part, ServerContext, ServerExtension } from "../../extension.ts";
 import type {
   ChannelEntry,
   ChannelLine,
@@ -6,7 +6,9 @@ import type {
   DocRef,
   GroupedDoc,
   ReviewView,
+  SendRefusal,
 } from "../../protocol.ts";
+import { readDraft } from "../adapters/draft.ts";
 import {
   appendText,
   finalize as renameWorkspace,
@@ -18,6 +20,7 @@ import {
   readTextIfAny,
   readWorkspace,
   removeFile,
+  renameFile,
   writeText,
 } from "../adapters/fs.ts";
 import {
@@ -25,19 +28,30 @@ import {
   CHANNEL_FILE,
   CHANNEL_ID_FILE,
   channelAfter,
+  renamedIn,
   untold,
 } from "../domain/channel.ts";
-import type { FeedbackHeading } from "../domain/feedback.ts";
-import { formatFeedback } from "../domain/feedback.ts";
+import { formatBatch } from "../domain/feedback.ts";
 import type { FinalDir, ProjectPath, Version, WipDir } from "../domain/paths.ts";
 import { parseVersion } from "../domain/paths.ts";
-import type { Decision, Draft } from "../domain/review.ts";
-import { decideOn, draftIsEmpty, gateVersion, slugFor } from "../domain/review.ts";
+import type { Decision, Draft, SendRequest } from "../domain/review.ts";
+import {
+  decideOn,
+  draftIsEmpty,
+  EMPTY_DRAFT,
+  gateVersion,
+  sendOn,
+  slugFor,
+} from "../domain/review.ts";
 import type { Memory, PlanWorkspace } from "../domain/workspace.ts";
 import {
+  batchesOf,
+  batchFile,
   DRAFT_FILE,
+  legacyBatch,
   notesFile,
   PLAN_FILE,
+  REVIEW_DIR,
   projectPath,
   takesComments,
   underReviewDir,
@@ -57,6 +71,11 @@ export type DecisionResult =
   | { readonly ok: true; readonly workspace: PlanWorkspace }
   | { readonly ok: false; readonly workspace: PlanWorkspace };
 
+/** What a Send did: the batch written and its entry's number, or why nothing was written. */
+export type SendResult =
+  | { readonly ok: true; readonly file: ProjectPath; readonly seq: number }
+  | { readonly ok: false; readonly refusal: SendRefusal };
+
 /** What `submit` reads: the version the plan is, or why the browser has nothing to show. */
 export type GateResult =
   | { readonly ok: true; readonly version: Version; readonly kept: boolean }
@@ -72,6 +91,8 @@ export type GateOptions = { readonly unchanged: "record" | "keep" };
 const RECORD_UNCHANGED: GateOptions = { unchanged: "record" };
 
 const HELD_GATE = "the plan is submitted once the reviewer ends it";
+
+const NO_PART: Part = { kind: "none" };
 
 function grouped(docs: readonly DocRef[], group: DocGroup): GroupedDoc[] {
   return docs.map((doc) => ({ ...doc, group }));
@@ -104,6 +125,11 @@ export class Review {
       },
       inOrder: (work) => this.inOrder(work),
       relay: (entry) => this.relay(entry),
+      draft: async () => {
+        const draft = await this.draft();
+
+        return draft === "unreadable" ? null : draft;
+      },
     };
   }
 
@@ -162,6 +188,7 @@ export class Review {
   public openChannel(): Promise<string> {
     return this.inOrder(async () => {
       const { project } = this.options;
+      await this.migrateFeedback();
       const workspace = await this.workspace();
       const text = await readTextIfAny(project, await this.channelDoc(CHANNEL_FILE));
 
@@ -182,6 +209,29 @@ export class Review {
 
       return minted;
     });
+  }
+
+  /**
+   * A feedback file of vellum before 0.14.5, `v<N>.feedback.md`, becomes that version's first
+   * batch, and the channel's entries name it there: its entry stays told, and the repair tells no
+   * file twice. Runs before the channel opens, on the directory the server serves.
+   */
+  private async migrateFeedback(): Promise<void> {
+    const { project } = this.options;
+    const { dir } = await this.workspace();
+    const channel = await this.channelDoc(CHANNEL_FILE);
+
+    for (const name of await listReview(project, dir)) {
+      const batch = legacyBatch(name);
+
+      if (batch === null) continue;
+      const from = projectPath(`${dir}${REVIEW_DIR}/${name}`);
+      const to = projectPath(`${dir}${REVIEW_DIR}/${batch}`);
+      await renameFile(project, from, to);
+      const text = await readTextIfAny(project, channel);
+
+      if (text !== null) await writeText(project, channel, renamedIn(text, from, to));
+    }
   }
 
   private async channelDoc(file: string): Promise<ProjectPath> {
@@ -208,9 +258,14 @@ export class Review {
     return readText(this.options.project, this.planDoc(version, dir));
   }
 
-  /** The page's unsent work as it was last saved, `null` when there is none: stored, never read into. */
-  public draft(): Promise<string | null> {
-    return readTextIfAny(this.options.project, this.draftDoc());
+  /**
+   * The page's unsent work as it was last saved, `null` when there is none, through the one parser
+   * a `PUT` goes through: a draft of an older shape is `unreadable`, never read half-way.
+   */
+  public async draft(): Promise<Draft | "unreadable" | null> {
+    const saved = await readTextIfAny(this.options.project, this.draftDoc());
+
+    return saved === null ? null : (readDraft(saved) ?? "unreadable");
   }
 
   /**
@@ -291,10 +346,6 @@ export class Review {
   private async decideInOrder(decision: Decision): Promise<DecisionResult> {
     const workspace = await this.workspace();
 
-    if (decision.kind === "feedback" && (await this.held()) !== null) {
-      return { ok: false, workspace };
-    }
-
     const latestText =
       workspace.kind === "drafting" ? null : await this.planText(workspace.version, workspace.dir);
 
@@ -304,35 +355,129 @@ export class Review {
     const { project, workdir } = this.options;
 
     // `plan.md` first: if the version's write fails, the next gate records the edit as the next version.
-    if (decided.kind !== "draftFeedback" && decided.edit !== null) {
+    if (decided.edit !== null) {
       await writeText(project, projectPath(`${workdir}${PLAN_FILE}`), decided.edit.text);
       await writeText(project, decided.edit.path, decided.edit.text);
     }
 
     // Before the rename, which rewrites its links and carries it to the final directory.
-    if (decided.kind === "approve" && decided.notes !== null) {
-      await writeText(project, decided.notes.path, decided.notes.text);
-    }
+    if (decided.notes !== null) await writeText(project, decided.notes.path, decided.notes.text);
 
     // Before the rename too, or the draft ships in the final directory.
     await removeFile(project, this.draftDoc());
 
-    if (decided.kind === "approve") return await this.approve(decided.version);
+    return await this.approve(decided.version);
+  }
 
-    if (decision.kind === "feedback") {
-      const heading: FeedbackHeading =
-        decided.kind === "draftFeedback"
-          ? { kind: "draft", batch: decided.batch }
-          : { kind: "review", version: decided.version, editedFrom: decided.editedFrom };
+  /**
+   * One Send: the comments and the edit it names, as the reviewer saw them at the click, read from
+   * the saved draft, and the extensions' parts. It changes no stage and is never held: the page
+   * takes comments after it.
+   */
+  public send(request: SendRequest): Promise<SendResult> {
+    return this.inOrder(() => this.sendInOrder(request));
+  }
 
-      const annotations =
-        decided.kind === "draftFeedback" ? decision.annotations : decided.annotations;
+  /**
+   * All in one step of the queue. Decided first, with nothing written: `sendOn` and every part.
+   * Then the edit, the batch, and its entry, the commit point: before it a failure removes the
+   * batch, so nothing is told of a Send the page saw fail; after it nothing throws, so the page
+   * never sends again what Claude already has. Then the draft's rest and each part's `commit`: the
+   * grill's round closes only once the batch and its entry exist.
+   */
+  private async sendInOrder(request: SendRequest): Promise<SendResult> {
+    const workspace = await this.workspace();
 
-      await writeText(project, decided.path, formatFeedback(annotations, heading));
-      await this.relay({ kind: "sent", file: decided.path });
+    if (workspace.kind === "approved") return { ok: false, refusal: { reason: "approved" } };
+    const stored = await this.draft();
+
+    if (stored === "unreadable") return { ok: false, refusal: { reason: "unreadable" } };
+    const draft = stored ?? EMPTY_DRAFT;
+
+    const latestText =
+      workspace.kind === "drafting" ? null : await this.planText(workspace.version, workspace.dir);
+
+    const decided = sendOn(workspace, latestText, draft, request);
+
+    if (decided.kind === "refused") return { ok: false, refusal: { reason: decided.reason } };
+    const parts: { readonly id: string; readonly part: Extract<Part, { kind: "part" }> }[] = [];
+    const unanswered: string[] = [];
+
+    for (const extension of request.parts ? this.options.extensions : []) {
+      const part = (await extension.part?.(this.context, draft, request.takeDefaults)) ?? NO_PART;
+
+      if (part.kind === "unanswered") unanswered.push(...part.ids);
+      else if (part.kind === "part") parts.push({ id: extension.id, part });
     }
 
-    return { ok: true, workspace: await this.notify() };
+    if (unanswered.length > 0)
+      return { ok: false, refusal: { reason: "unanswered", ids: unanswered } };
+    const { annotations, edit, version, editedFrom } = decided;
+
+    if (annotations.length === 0 && edit === null && parts.length === 0) {
+      return { ok: false, refusal: { reason: "empty" } };
+    }
+
+    const { project, workdir } = this.options;
+
+    // `plan.md` first: if the version's write fails, the next gate records the edit as the next version.
+    if (edit !== null) {
+      await writeText(project, projectPath(`${workdir}${PLAN_FILE}`), edit.text);
+      await writeText(project, edit.path, edit.text);
+    }
+
+    const batch = batchesOf(await listReview(project, workspace.dir), version) + 1;
+    const file = projectPath(`${workspace.dir}${batchFile(version, batch)}`);
+
+    const heading =
+      version === null
+        ? { kind: "draft" as const, batch }
+        : { kind: "review" as const, version, batch, editedFrom };
+
+    const texts = parts.map(({ part }) => part.text);
+    const seq = await this.commitBatch(file, formatBatch(heading, texts, annotations));
+    const typed = parts.reduce((kept, { part }) => part.typed(kept), decided.rest.typed);
+    await this.afterCommit("the draft's rest", () => this.keepDraft({ ...decided.rest, typed }));
+    const comments = annotations.length > 0 || edit !== null;
+
+    for (const { id, part } of parts) {
+      const more = comments || parts.some((other) => other.id !== id);
+      await this.afterCommit(`${id}'s commit`, () => part.commit({ file, seq, more }));
+    }
+
+    await this.afterCommit("notify", async () => {
+      await this.notify();
+    });
+
+    return { ok: true, file, seq };
+  }
+
+  /** The batch, then its entry: the Send's commit point. A batch whose entry failed is removed. */
+  private async commitBatch(file: ProjectPath, text: string): Promise<number> {
+    const { project } = this.options;
+    await writeText(project, file, text);
+
+    try {
+      return await this.relay({ kind: "sent", file });
+    } catch (cause) {
+      await removeFile(project, file);
+      throw cause;
+    }
+  }
+
+  /** Past the commit point the Send stands: a write that fails is logged, never the Send's failure. */
+  private async afterCommit(what: string, work: () => Promise<void>): Promise<void> {
+    await work().catch((cause: unknown) => {
+      console.error(`a Send was committed, then ${what} failed: ${String(cause)}`);
+    });
+  }
+
+  /** What the draft keeps after a Send: the file goes with the last of it. */
+  private async keepDraft(rest: Draft): Promise<void> {
+    const { project } = this.options;
+
+    if (draftIsEmpty(rest)) await removeFile(project, this.draftDoc());
+    else await writeText(project, this.draftDoc(), JSON.stringify(rest));
   }
 
   /**

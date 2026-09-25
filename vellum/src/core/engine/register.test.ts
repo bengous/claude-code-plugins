@@ -3,7 +3,6 @@ import { describe, expect, test, tier } from "claude-code/testing";
 import {
   approved,
   band,
-  changesRequested,
   channelLine,
   CRASH_WINDOW_MS,
   CRASHES_BEFORE_LOST,
@@ -748,10 +747,9 @@ describe("the band above the prompt", () => {
 
     expect(await drawn.text()).toBe("vellum │ plan draft │ Review page ↗");
     server?.write(stage(inReview(2)));
-    server?.write(stage(changesRequested(2)));
     await seen.clock.settle();
 
-    expect(await drawn.text()).toBe("vellum │ plan v2 · changes requested │ Review page ↗");
+    expect(await drawn.text()).toBe("vellum │ plan v2 · in review │ Review page ↗");
   });
 
   test("/vellum:stop takes the band away", async ($, on) => {
@@ -856,7 +854,7 @@ describe("command.run", () => {
 });
 
 describe("what the reviewer sends comes back as a prompt", () => {
-  const feedback = `${WORKDIR}.review/v1.feedback.md`;
+  const feedback = `${WORKDIR}.review/v1.feedback-1.md`;
 
   test("a file sent is named once, and the mode stays live", async ($, on) => {
     const seen = world(on);

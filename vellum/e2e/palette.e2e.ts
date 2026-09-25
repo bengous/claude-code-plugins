@@ -34,7 +34,6 @@ const PAIRS = [
   ["ask / sheet", "var(--ask)", "var(--sheet)", 4.5],
   ["sheet / ask", "var(--sheet)", "var(--ask)", 4.5],
   ["sheet / redline", "var(--sheet)", "var(--redline)", 4.5],
-  ["ink / status.sent", "var(--ink)", "color-mix(in oklab, var(--ask) 12%, var(--sheet))", 4.5],
   ["ink / edited", "var(--ink)", "color-mix(in oklab, var(--marker) 30%, var(--sheet))", 4.5],
   ["ink / wash-marker", "var(--ink)", "var(--wash-marker)", 4.5],
   ["ink / wash-ok", "var(--ink)", "var(--wash-ok)", 4.5],

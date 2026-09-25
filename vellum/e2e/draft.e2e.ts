@@ -1,7 +1,7 @@
 import type { Locator, Page } from "@playwright/test";
 
 import type { Vellum } from "./harness.ts";
-import { commentOn, dragText, expect, openVellum, reviewV1, test } from "./harness.ts";
+import { commentOn, dragText, expect, openVellum, reviewV1, sendButton, test } from "./harness.ts";
 
 /**
  * The draft carries what is typed: a text typed and visible survives a reload and a change of
@@ -176,24 +176,28 @@ test.describe("the grill's answers", () => {
 });
 
 test.describe("an action that would throw a typed text asks first", () => {
-  test("Send feedback names the general box, and sends once agreed", async ({ page, vellum }) => {
+  test("Send names the general box, and sends once agreed, the box keeping its text", async ({
+    page,
+    vellum,
+  }) => {
     await reviewV1(page, vellum);
     await commentOn(page);
     await addComment(page, "Say which forms.");
     await page.locator("#global").fill("The slices lack an owner.");
-    await page.getByRole("button", { name: "Send feedback" }).click();
+    await sendButton(page).click();
 
     const warning = page.getByRole("dialog");
     await expect(warning).toBeVisible();
     await expect(warning).toContainText("general");
+    await expect(warning).toContainText("It stays here, unsent.");
     await page.getByRole("button", { name: "Cancel" }).click();
     await expect(warning).toHaveCount(0);
     await expect(page.locator(".bar .status")).toHaveText("In review");
 
-    await page.getByRole("button", { name: "Send feedback" }).click();
+    await sendButton(page).click();
     await page.getByRole("button", { name: "Send anyway" }).click();
-    await expect(page.locator(".bar .status")).toHaveText("Feedback sent");
-    await expect(page.locator("#global")).toHaveValue("");
+    await expect(page.locator(".bar .status")).toHaveText("In review · 1 sent");
+    await expect(page.locator("#global")).toHaveValue("The slices lack an owner.");
   });
 
   test("Cancel in the editor with a text typed asks, and keeps the editor on Cancel", async ({

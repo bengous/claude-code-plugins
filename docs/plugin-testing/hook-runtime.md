@@ -41,6 +41,20 @@
   fails closed; `next.error.kind` says `throw` or `timeout`, and
   `claude plugin validate` lists the hook without saying a handler is there.
 
+- A `tool.call` hook that throws or overruns falls to the engine: in `default`
+  mode it asks the person's permission for the tool, then answers the model
+  "no tool.call hook answered this call" (measured on Linux in a live session
+  with a probe plugin). With a `.catch` on the registration, the handler's
+  answer is the call's result instead: the kit reports `hook failed closed:
+  <plugin>: … (tool.call; its .catch answered)`, and the handler runs after
+  the hook's own `finally`, so what it needs to know of the failed call must
+  outlive that block (`vellum/src/core/engine/register.ts`). The handler's
+  answer is measured in the kit alone (`claude plugin test`), not in a live
+  session. Escape during the call calls no `.catch`: the engine logs
+  `tool.call; skipped; what is below it ran in its place`, and the model gets
+  the standard rejection (measured on Linux in a live session), so what a
+  failed call must undo is undone in its own `finally`.
+
 - `$.fs.stat` rejects a missing path with a `HooksError` whose message ends
   on the errno, `<plugin>: $.fs.stat(<path>) failed: ENOENT`, and sets no
   `code`. Any other OS refusal ends on its own errno (`ENOTDIR`, `EACCES`,
@@ -83,7 +97,11 @@ plugins (September 2026), unless a line says otherwise.
   while a turn runs, the call resolves once that prompt's own turn starts, not
   once it is queued: submitted 0.9 s into a turn that ended 6 s later, it
   resolved 47 ms after that end. On the `$` of a `tool.call` it is refused,
-  since it would wait on the turn the hook holds.
+  since it would wait on the turn the hook holds. On Claude Code Desktop, a
+  turn a plugin starts this way while the session is idle does not show until
+  the person types ([anthropics/claude-code#96336](https://github.com/anthropics/claude-code/issues/96336),
+  open); the terminal is unaffected. An answer that reaches the model as the
+  result of a tool call that waited for it is no new turn, and escapes it.
 
 - `$.process.run` reads the whole output, so a process meant to stay up is a
   child of `$.process.spawn`, whose stdout the module reads for as long as it

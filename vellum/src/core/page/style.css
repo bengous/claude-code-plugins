@@ -114,7 +114,6 @@ main:focus, .plan:focus { outline: none; }
 .stat .plus { color: var(--ok); }
 .stat .minus { color: var(--redline); }
 .status { font: 650 var(--t-12)/1.6 var(--serif); border-radius: var(--r-pill); padding: 1px var(--s-2); background: var(--tint); color: var(--graphite); }
-.status.sent { background: color-mix(in oklab, var(--ask) 12%, var(--sheet)); color: var(--ink); }
 .status.ok { background: color-mix(in oklab, var(--ok) 16%, var(--sheet)); color: var(--ink); }
 .status.err { background: color-mix(in oklab, var(--redline) 12%, var(--sheet)); color: var(--ink); }
 .spacer { flex: 1; }

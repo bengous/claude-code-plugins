@@ -18,7 +18,9 @@ paths:
 - The browser suite measures what no fake DOM sees: geometry, contrast, focus, a scrollbar. Its
   harness is `e2e/harness.ts`: the `vellum` fixture starts `preview.ts` on a copy of the fixture
   `test.use({ fixture })` names (`rich` by default), one server per test, and drives it through
-  the API as the hooks module does (`gate`, `grill.*`, `channel`: what reaches Claude); `axe` and `contrast` are its two measures. A colour read right after a
+  the API as the hooks module does (`gate`, `grill.*`, `grill.wait` as a waiting `grill_ask`,
+  `channel`: what reaches Claude), and as the reviewer's page does (`send`, a Send of the draft it
+  saves; `batches` and `batch` read what a Send wrote); `axe` and `contrast` are its two measures. A colour read right after a
   theme switch reads a transition halfway (`--transition`): `axe` waits for the page's
   transitions to end (`settled`), and any other colour measure calls `settled` first.
   `e2e/playwright.config.ts` runs every suite at the audit's five windows, and CI's matrix

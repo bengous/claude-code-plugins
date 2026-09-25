@@ -126,7 +126,7 @@ describe("watchFiles", () => {
     const root = fixture();
 
     const changes = await watched(root, () => {
-      writeFileSync(join(root, WIP, ".review/v1.feedback.md"), "# Feedback\n");
+      writeFileSync(join(root, WIP, ".review/v1.feedback-1.md"), "# Feedback\n");
     });
 
     expect(changes).toBe(0);

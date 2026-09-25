@@ -5,9 +5,11 @@ import type {
   ChannelEntry,
   DocLink,
   DocRef,
+  Draft,
   LineDiff,
   LinkRoots,
   PlanWorkspace,
+  Typed,
 } from "./protocol.ts";
 import type { ProjectPath } from "./server/domain/paths.ts";
 
@@ -34,9 +36,27 @@ export type Panel = {
   readonly component: ComponentType;
 };
 
+/**
+ * What an extension adds to the Send the bar draws, read at each render and snapshotted at the
+ * click: what `Send (n)` counts, the ids of its questions no answer takes, which the bar asks
+ * about before it sends, and something of its own the count leaves out (the grill's note).
+ */
+export type SendShare = {
+  readonly count: number;
+  readonly unanswered: readonly string[];
+  readonly more: boolean;
+  /**
+   * Once the server took the Send: the extension reads its state again, then takes out of the
+   * page's typing what this snapshot sent. The Send stays out until it resolves.
+   */
+  readonly sent: () => Promise<void>;
+};
+
 export type PageExtension = {
   readonly id: string;
   readonly renderers?: readonly Renderer[];
+  /** Its part of the one Send: the bar counts it, and asks about what it would take by default. */
+  readonly send?: () => SendShare;
   /** Drawn in the decision bar, before the decision's own buttons, in registry order. */
   readonly actions?: readonly ComponentType[];
   /** Drawn in the notices column under the bar, in the flow, after the core's own: the grill's proposal, a modal. */
@@ -69,7 +89,34 @@ export type ServerContext = {
    * writes they tell of.
    */
   readonly relay: (entry: ChannelEntry) => Promise<number>;
+  /** The page's unsent work as it was last saved; `null` when there is none, or none it can read. */
+  readonly draft: () => Promise<Draft | null>;
 };
+
+/** A batch a Send wrote, as an extension's part hears of it once its entry is in the channel. */
+export type SentBatch = {
+  readonly file: ProjectPath;
+  readonly seq: number;
+  /** Whether the batch holds more than this extension's part: comments, an edit, another's part. */
+  readonly more: boolean;
+};
+
+/**
+ * An extension's part of a Send, read and decided before anything is written: none; questions no
+ * answer takes, which the reviewer did not agree to leave to their recommendation (every one of
+ * them, so the page asks about all); or its text, what the draft keeps of its typing, and what
+ * it closes once the batch and its entry exist.
+ */
+export type Part =
+  | { readonly kind: "none" }
+  | { readonly kind: "unanswered"; readonly ids: readonly string[] }
+  | {
+      readonly kind: "part";
+      /** Heading included, written into the batch before the comments. */
+      readonly text: string;
+      readonly typed: (typed: Typed) => Typed;
+      readonly commit: (batch: SentBatch) => Promise<void>;
+    };
 
 export type Route = (request: Request) => Promise<Response>;
 
@@ -85,8 +132,17 @@ export type ServerExtension = {
   readonly linkedDocs?: (plan: string, roots: LinkRoots) => readonly DocLink[];
   /** Keys are `"GET <name>"` or `"POST <name>"`. */
   readonly routes?: (context: ServerContext) => Readonly<Record<RouteKey, Route>>;
-  /** What holds the review, or `null`. Held: no gate, no feedback, and the approval warns. */
+  /** What holds the review, or `null`. Held: no version is recorded, and the approval warns; a Send goes. */
   readonly holds?: (context: ServerContext) => Promise<string | null>;
   /** After the rename of an approval, on the server: what the extension must close, it closes here. */
   readonly approved?: (context: ServerContext) => Promise<void>;
+  /**
+   * Its part of the bar's Send, in the Send's step of the queue, and never of a Send now. It
+   * writes nothing: the core writes the batch and its entry, then runs the part's `commit`.
+   */
+  readonly part?: (
+    context: ServerContext,
+    draft: Draft,
+    takeDefaults: readonly string[],
+  ) => Promise<Part>;
 };

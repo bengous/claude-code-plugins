@@ -179,6 +179,11 @@ export async function startServer(options: ServeOptions): Promise<Started> {
       development: false,
       routes: { [`/t/${token}/`]: index },
       fetch: handler.handle,
+      error: (cause) => {
+        console.error(`vellum: a request failed: ${cause.message}`);
+
+        return Response.json({ error: cause.message }, { status: 500 });
+      },
     });
 
     return { server, token, handler };

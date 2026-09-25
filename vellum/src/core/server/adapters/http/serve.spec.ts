@@ -180,10 +180,18 @@ describe("what serve writes on stdout", () => {
         workspace: { kind: "drafting" },
       });
 
-      await fetch(`http://127.0.0.1:${ready.port}/api/decision`, {
+      const headers = { "x-vellum-token": ready.token, "content-type": "application/json" };
+      const typed = { general: "", composer: {}, grill: {}, editor: null };
+
+      await fetch(`http://127.0.0.1:${ready.port}/api/draft`, {
+        method: "PUT",
+        headers,
+        body: JSON.stringify({ annotations: [NOTE], edit: null, typed }),
+      });
+      await fetch(`http://127.0.0.1:${ready.port}/api/send`, {
         method: "POST",
-        headers: { "x-vellum-token": ready.token, "content-type": "application/json" },
-        body: JSON.stringify({ kind: "feedback", edit: null, annotations: [NOTE] }),
+        headers,
+        body: JSON.stringify({ annotations: ["a"], edit: null, parts: true, takeDefaults: [] }),
       });
 
       expect(JSON.parse(await serve.next())).toEqual({

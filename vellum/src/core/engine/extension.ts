@@ -2,6 +2,7 @@ import type { HttpResponse, PromptOrigin, ToolSpec } from "claude-code";
 
 import type { Host } from "./host.ts";
 import type { Live } from "./mode.ts";
+import type { ChannelEntryWire } from "./parse.ts";
 
 /**
  * The engine half of an extension. Claude Code takes one hooks module per plugin and one
@@ -9,7 +10,11 @@ import type { Live } from "./mode.ts";
  * event and calls these handlers, each handed a `Host`, never `$`.
  */
 
-export type ToolAnswer = { readonly result: string } | { readonly deny: string };
+export type ToolAnswer =
+  | { readonly result: string }
+  /** The result is the channel's entry `returns`, which the follower then never relays. */
+  | { readonly result: string; readonly returns: number }
+  | { readonly deny: string };
 
 /** The extension's own routes on the review server, `/api/x/<id>/<path>`, token header set. */
 export type ExtensionApi = {
@@ -24,13 +29,22 @@ export type EngineContext = {
   readonly api: ExtensionApi;
 };
 
+/**
+ * A call of an extension's tool. `waiting` says the call now waits for the reviewer: from then
+ * on the follower holds each entry the tool `awaits` until the call answers, and a call that
+ * fails answers Claude that the reviewer's answer comes as a prompt, never a permission prompt.
+ */
+export type ToolContext = EngineContext & { readonly waiting: () => void };
+
 export type ExtensionTool = {
   /** Registered as `mcp__vellum__<name>`; starts with the extension's id. */
   readonly name: string;
   readonly description: string;
   readonly inputSchema: NonNullable<ToolSpec["inputSchema"]>;
+  /** The entries a call that waits may return as its result: `grill_ask`, the batch that closes its round. */
+  readonly awaits?: (entry: ChannelEntryWire) => boolean;
   // oxlint-disable-next-line anti-slop/no-unknown-parameters -- `input` is the tool call as the engine hands it, the model's own arguments; the extension's `parse.ts` is the boundary that reads it.
-  readonly call: (context: EngineContext, input: unknown) => Promise<ToolAnswer>;
+  readonly call: (context: ToolContext, input: unknown) => Promise<ToolAnswer>;
 };
 
 export type Prompted = { readonly text: string; readonly origin: PromptOrigin };

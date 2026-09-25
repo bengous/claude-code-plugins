@@ -194,20 +194,6 @@ test.describe("the transcript", () => {
     expect(text.x + text.width).toBeLessThanOrEqual(frame.x + frame.width);
   });
 
-  test("Ctrl+Enter in an answer's field sends the round", async ({ page, vellum }) => {
-    await grilling(page, vellum);
-    await grillPanel(page).getByRole("button", { name: "Next question, Q2" }).click();
-    const field = grillPanel(page).getByRole("textbox", { name: "Your answer to Q2" });
-    await field.fill("The plugin's own package.json.");
-    await field.press("Control+Enter");
-
-    await expect(grillPanel(page).locator('.grill-chips .chip[data-state="default"]')).toHaveCount(
-      1,
-    );
-    const told = JSON.stringify((await vellum.channel()).json);
-    expect(told).toContain("Q2: The plugin's own package.json.");
-  });
-
   test("the foot's field is as wide as the cards", async ({ page, vellum }) => {
     await grilling(page, vellum);
 

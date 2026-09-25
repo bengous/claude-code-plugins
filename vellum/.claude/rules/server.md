@@ -10,7 +10,7 @@ Hexagonal with a functional core, under `src/core/server/`. `domain/` is pure fu
 immutable data: no `node:*`, no `bun`, no adapter, app or page import. `app/review.ts` is the
 one use case: read through the adapter, decide in the domain, apply files, memory and
 listeners. `adapters/` are plain modules, no interface, no injection: `fs.ts` every read and
-write under the project root, `http/routes.ts` bodies, paths and status codes,
+write under the project root, `draft.ts` the draft's one parser, `http/routes.ts` bodies, paths and status codes,
 `http/serve.ts` binding and the page bundle, `browser.ts` the opener, `vellum-build.ts` the
 plugin's own version and commit, read once at start from outside the project (`plugin.json`,
 Claude Code's `installed_plugins.json`, `git` with its `GIT_*` variables cleared). Direction held by
@@ -34,21 +34,23 @@ Claude Code's `installed_plugins.json`, `git` with its `GIT_*` variables cleared
   up after its own, behind the same token check, and knows none by name.
 - An extension may hold the review: `holds` answers what holds it, or `null`. Held has one
   meaning, so there is no list of what is blocked: `gate` is refused with the reason before
-  `plan.md` is read (the 409 the module already reads), a feedback is refused, a drafting comment
-  with it since it is a decision too, and an approval goes through. `ReviewView.held` carries the
+  `plan.md` is read (the 409 the module already reads), no version of Claude's lands, and a Send
+  and an approval go through: the reviewer's word is never held. `ReviewView.held` carries the
   reason to the page. The core names no extension: it appends what a gate means to the reason.
-- One queue orders every mutation: `gate`, `decide`, and an extension's writes through
+- One queue orders every mutation: `gate`, `decide`, `send`, and an extension's writes through
   `ServerContext.inOrder`. A gate that checked the hold writes its version before a grill that
   opened meanwhile, never after. `holds` and `approved` run inside the queue and never call it.
 - Everything that reaches Claude is an entry of the channel, `.review/channel.jsonl`
   (`domain/channel.ts`), appended inside the queue by `Review`'s relay: the core's `sent` for a
-  feedback file written and `approved` after the rename, an extension's own `text` through
+  batch written and `approved` after the rename, an extension's own `text` through
   `ServerContext.relay`, at the write it tells of. An entry's number is its line; the file is
-  never rewritten but by the approval's link rewrite, which moves no line, and a last line left
-  without a newline is ended before an entry is appended. Its identity, `.review/channel.id`, is
-  minted with it and moves with the rename. `Review.openChannel` runs before `ready`: it appends
-  what the directory implies and the channel lacks (`untold`: a `sent` per feedback file no
-  entry names, the approval of an approved directory), so a write whose entry was lost is told
+  never rewritten but by the approval's link rewrite and the migration below, which move no
+  line, and a last line left without a newline is ended before an entry is appended. Its
+  identity, `.review/channel.id`, is minted with it and moves with the rename.
+  `Review.openChannel` runs before `ready`: it renames an older vellum's `v<N>.feedback.md`, one
+  per version, to that version's first batch (`legacyBatch`), the entries naming it renamed with
+  it (`renamedIn`); then it appends what the directory implies and the channel lacks (`untold`: a `sent` per batch no entry
+  names, the approval of an approved directory), so a write whose entry was lost is told
   at the next start, and a directory with no channel yet tells nothing of what it held.
   `cli.ts serve` writes each entry on stdout as it lands (`ServerLine`: `ready` first, then the
   entries and the review's changes, and nothing else goes there), and `GET /api/channel?after=<n>`
@@ -71,21 +73,39 @@ Claude Code's `installed_plugins.json`, `git` with its `GIT_*` variables cleared
   approved in memory, and watches and creates nothing.
 - A new domain concept gets its address in `domain/` before its first line.
 - A version is a text somebody handed over for review, Claude through `gate` or the reviewer
-  through a decision that carries an `Edit`. `decideOn` decides all of it, purely: the version
-  the decision applies to, the version file to write, the comments retargeted to it, the notes
-  file. An `Edit` names the version it edits, and one of another version is refused: a bare text
-  sent after Claude recorded `vN+1` would overwrite that revision and tell Claude to keep it.
-  `vN.md` stays what its author submitted.
+  through a Send or an approval that carries an `Edit`. `sendOn` and `decideOn` decide it,
+  purely: the version the Send or the approval applies to, the version file to write, the
+  comments retargeted to it, the notes file. An `Edit` names the version it edits, and one of
+  another version is refused (a Send's 409 `stale`): a bare text sent after Claude recorded
+  `vN+1` would overwrite that revision and tell Claude to keep it. `vN.md` stays what its author
+  submitted.
+- One Send, `Review.send`, is one step of the queue, what the reviewer sends from the page's one
+  button or from a comment's Send now. Its `SendRequest` names what the reviewer saw at the
+  click: the comment ids, the edit's version or `null`, whether the extensions' parts go (the
+  bar's Send, never Send now), and the question ids the reviewer agreed to leave to their
+  recommendation. It is decided before anything is written: `sendOn` refuses, purely, a name the
+  stored draft no longer holds (409 `changed`), an edit of a version no longer under review
+  (`stale`), a comment on the plan named without the pending edit whose lines `Done` moved it to
+  (`edit`), an approved plan (`approved`); each extension's `part` answers the questions no
+  answer takes outside those agreed (409 `unanswered`, every id); nothing to send is `empty`.
+  Then the edit lands as the next version; the batch `.review/v<N>.feedback-<k>.md`, `v0` while
+  drafting, `k` the next on that version; its `sent` entry, the commit point: an entry that fails
+  removes the batch, and past it nothing throws. Then, each failure logged and the Send still
+  answered 200: the draft's rest, what the Send did not take; each part's `commit`, which hears
+  the entry's number and whether the batch holds more than its part; the notification. A Send
+  changes no stage: the version stays under review, `workspace.batches` counts its batches, and a
+  gate after one records a new version even with the same text (`gateVersion`). The server sends
+  from the draft it keeps, never a body: the page writes it first.
 - `Review.decide` applies in an order where a write that fails leaves a state the next `gate`
   or the next load repairs: `plan.md` before the edit's version file, the notes file and the
   draft's removal before the rename, which carries what is there. A `null` from `formatNotes`
   writes nothing and keeps a notes file already there: a retry after a failed rename carries no
   note. Whether the approval's prompt names a notes file is read from the final directory's
   listing, never from the decision.
-- The draft is the page's, stored and read back through the one parser: `PUT /api/draft` parses
-  it as it parses a decision's annotations and edit, plus what is typed, and `GET` runs the file
-  through the same parser, so a draft of an older shape is refused whole, with `UNREADABLE_DRAFT`
-  as the reason, never handed over half-read. One older shape is read: a mockup comment saved
+- The draft is the page's, stored and read back through the one parser, `adapters/draft.ts`:
+  `PUT /api/draft` parses the comments, the edit and what is typed, and `Review.draft` runs the
+  file through the same parser for `GET`, a Send and `ServerContext.draft`, so a draft of an older
+  shape is refused whole, with `UNREADABLE_DRAFT` as the reason, never handed over half-read. One older shape is read: a mockup comment saved
   before `ElementRef.description`, whose description is `null` and whose feedback line names the
   element by its label, since refusing it loses every unsent comment of the draft, and a tab
   loaded before a revived server keeps sending that shape. `saveDraft` writes one with content

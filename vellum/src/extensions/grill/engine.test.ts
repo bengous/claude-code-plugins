@@ -4,7 +4,9 @@ import {
   approved,
   band,
   emit,
+  READY,
   reply,
+  sent,
   SESSION,
   stage,
   START_PROMPT,
@@ -13,6 +15,7 @@ import {
   TURN_ABORTED,
   TURN_ANSWERED,
   TURN_OF_AGENT,
+  WORKDIR,
   world,
 } from "../../core/engine/fixtures/index.ts";
 import { grillRoutes, NO_GRILL, OPEN_GRILL } from "./fixtures/grill-routes.ts";
@@ -36,6 +39,19 @@ const TYPED_TURN = { text: "and the weather?", turnId: "t2" };
 const TYPED_ANSWERED = { ...TURN_ANSWERED, turnId: "t2" };
 
 const Q = [["Tool names", "Prefix the tools with the extension's id?", "Yes."]];
+
+const FILE = `${WORKDIR}grill-1.md`;
+
+const ASKED_Q1 = { ask: () => reply(200, { first: 1, last: 1, file: FILE }) };
+
+const Q1_YES = "Reviewer: Q1: yes";
+
+const BATCH_1 = `${WORKDIR}.review/v0.feedback-1.md`;
+
+const BATCH_2 = `${WORKDIR}.review/v0.feedback-2.md`;
+
+const ANSWER_BY_PROMPT =
+  "The reviewer's answer will arrive as a prompt, once they send it. End your turn.";
 
 const ASK_REFUSED =
   "q must be a non-empty array of [title, question, recommendation], each title one line of plain text: not empty, no **, not ending in *, and each question with a recommendation";
@@ -124,7 +140,8 @@ describe("the band's stages", () => {
 describe("grill_ask", () => {
   test("a tool $.tool.register registered is served by the extensions' tool.call hook", async ($, on) => {
     const grill = grillRoutes(() => OPEN_GRILL, {
-      ask: () => reply(200, { first: 3, last: 3 }),
+      ask: () => reply(200, { first: 3, last: 3, file: FILE }),
+      wait: () => reply(200, { kind: "answered", seq: 1, text: "Reviewer: Q3: yes" }),
     });
 
     const seen = world(on, grill);
@@ -132,11 +149,171 @@ describe("grill_ask", () => {
     await $.skill.prompt(START_PROMPT);
 
     expect(seen.tools).toContain("grill_ask");
+    expect(await $.tool.call({ tool: ASK, q: Q })).toEqual({ result: "Reviewer: Q3: yes" });
+    expect(grill.posted).toEqual([
+      ["ask", JSON.stringify({ q: Q })],
+      ["wait", JSON.stringify({ file: FILE, first: 3 })],
+    ]);
+  });
+
+  test("waits for the Send that closes its round, returns it, and the batch is not relayed", async ($, on) => {
+    const grill = grillRoutes(() => OPEN_GRILL, {
+      ...ASKED_Q1,
+      wait: () => {
+        emit(seen, sent(BATCH_1));
+
+        return reply(200, { kind: "answered", seq: 1, text: Q1_YES });
+      },
+    });
+
+    const seen = world(on, grill);
+    await $.skill.prompt(START_PROMPT);
+
+    expect(await $.tool.call({ tool: ASK, q: Q })).toEqual({ result: Q1_YES });
+    await seen.clock.settle();
+    expect(seen.prompts.filter((text) => text.startsWith("Reviewer sent"))).toEqual([]);
+  });
+
+  test("a batch whose line lands before the tool's answer is held for it, and never relayed", async ($, on) => {
+    const grill = grillRoutes(() => OPEN_GRILL, {
+      ...ASKED_Q1,
+      wait: async () => {
+        emit(seen, sent(BATCH_1));
+        await seen.clock.sleep(500);
+
+        return reply(200, { kind: "answered", seq: 1, text: Q1_YES });
+      },
+    });
+
+    const seen = world(on, grill);
+    await $.skill.prompt(START_PROMPT);
+    const asking = $.tool.call({ tool: ASK, q: Q });
+    await seen.clock.settle();
+    await seen.clock.advance(500);
+
+    expect(await asking).toEqual({ result: Q1_YES });
+    await seen.clock.settle();
+    expect(seen.prompts.filter((text) => text.startsWith("Reviewer sent"))).toEqual([]);
+  });
+
+  test("an entry returned after it was relayed is not taken for the next channel's entry of that number", async ($, on) => {
+    const grill = grillRoutes(() => OPEN_GRILL, {
+      ...ASKED_Q1,
+      wait: () => reply(200, { kind: "answered", seq: 1, text: Q1_YES }),
+    });
+
+    const seen = world(on, {
+      ...grill,
+      spawn: (child, run) => {
+        child.write({ ...READY, channel: run === 1 ? "first" : "second" });
+      },
+    });
+
+    await $.skill.prompt(START_PROMPT);
+    emit(seen, sent(BATCH_1));
+    await seen.clock.settle();
+    await $.tool.call({ tool: ASK, q: Q });
+    seen.channel.length = 0;
+    seen.children[0]?.exit({ code: null, signal: "SIGKILL" });
+    await seen.clock.settle();
+    expect(seen.children).toHaveLength(2);
+    emit(seen, sent(BATCH_2));
+    await seen.clock.settle();
+
+    expect(seen.prompts.filter((text) => text.startsWith("Reviewer sent"))).toEqual([
+      `Reviewer sent: read ${BATCH_1}.`,
+      `Reviewer sent: read ${BATCH_2}.`,
+    ]);
+  });
+
+  test("asks again each time the hold runs out with the round still open", async ($, on) => {
+    const waits = [{ kind: "open" }, { kind: "open" }, { kind: "answered", seq: 1, text: Q1_YES }];
+
+    const grill = grillRoutes(() => OPEN_GRILL, {
+      ...ASKED_Q1,
+      wait: () => reply(200, waits.shift()),
+    });
+
+    world(on, grill);
+    await $.skill.prompt(START_PROMPT);
+
+    expect(await $.tool.call({ tool: ASK, q: Q })).toEqual({ result: Q1_YES });
+    expect(grill.posted.filter(([name]) => name === "wait")).toHaveLength(3);
+  });
+
+  test("a batch sent now during the wait is relayed once the round returns, and the round's is not", async ($, on) => {
+    let waited = 0;
+
+    const grill = grillRoutes(() => OPEN_GRILL, {
+      ...ASKED_Q1,
+      wait: () => {
+        waited += 1;
+
+        if (waited === 1) {
+          emit(seen, sent(BATCH_1));
+
+          return reply(200, { kind: "open" });
+        }
+
+        emit(seen, sent(BATCH_2));
+
+        return reply(200, { kind: "answered", seq: 2, text: Q1_YES });
+      },
+    });
+
+    const seen = world(on, grill);
+    await $.skill.prompt(START_PROMPT);
+    await $.tool.call({ tool: ASK, q: Q });
+    await seen.clock.settle();
+
+    expect(seen.prompts.filter((text) => text.startsWith("Reviewer sent"))).toEqual([
+      `Reviewer sent: read ${BATCH_1}.`,
+    ]);
+  });
+
+  test("a round closed without a Send says its answers come as a prompt", async ($, on) => {
+    const grill = grillRoutes(() => OPEN_GRILL, {
+      ...ASKED_Q1,
+      wait: () => reply(200, { kind: "ended" }),
+    });
+
+    world(on, grill);
+    await $.skill.prompt(START_PROMPT);
+
     expect(await $.tool.call({ tool: ASK, q: Q })).toEqual({
       result:
-        'Asked Q3–Q3, in order. End your turn in one short line; answers arrive as "Qn: ..." lines.',
+        "The round was closed from the page: what the reviewer sent arrives as a prompt. End your turn.",
     });
-    expect(grill.posted).toEqual([["ask", JSON.stringify({ q: Q })]]);
+  });
+
+  test("a wait that fails answers Claude with a result, never a permission prompt, and the batch goes as a prompt", async ($, on) => {
+    const grill = grillRoutes(() => OPEN_GRILL, {
+      ...ASKED_Q1,
+      wait: () => {
+        emit(seen, sent(BATCH_1));
+
+        return null;
+      },
+    });
+
+    const seen = world(on, grill);
+    await $.skill.prompt(START_PROMPT);
+
+    expect(await $.tool.call({ tool: ASK, q: Q })).toEqual({ result: ANSWER_BY_PROMPT });
+    await seen.clock.settle();
+    expect(seen.prompts).toContain(`Reviewer sent: read ${BATCH_1}.`);
+  });
+
+  test("an ask the server does not answer is refused with the reason, and says no wait", async ($, on) => {
+    const grill = grillRoutes(() => OPEN_GRILL, { ask: () => null });
+    world(on, grill);
+    await $.skill.prompt(START_PROMPT);
+
+    expect(await $.tool.call({ tool: ASK, q: Q })).toEqual({
+      deny: expect.stringMatching(
+        /^vellum failed on mcp__vellum__grill_ask \(.+\); retry the call$/u,
+      ),
+    });
   });
 
   test("with no grill open it is refused, and names the way to one", async ($, on) => {
@@ -377,8 +554,26 @@ describe("what the transcript hears of the session", () => {
     ]);
   });
 
-  test("the turn that asked a round says so with its text, and the next turn does not", async ($, on) => {
-    const grill = grillRoutes(() => OPEN_GRILL, { ask: () => reply(200, { first: 1, last: 1 }) });
+  test("a turn whose round came back as the tool's result is the grill's own, its text after the reply", async ($, on) => {
+    const grill = grillRoutes(() => OPEN_GRILL, {
+      ...ASKED_Q1,
+      wait: () => reply(200, { kind: "answered", seq: 1, text: Q1_YES }),
+    });
+
+    world(on, grill);
+    on("turn.complete", (_, e) => ({ text: e.answer }));
+    await $.skill.prompt(START_PROMPT);
+    await $.turn.start(TYPED_TURN);
+    await $.tool.call({ tool: ASK, q: Q });
+    await $.turn.complete(TYPED_ANSWERED);
+
+    expect(grill.posted.filter(([name]) => name === "answer")).toEqual([
+      ["answer", JSON.stringify({ text: "done", reason: "answer", own: true, asked: false })],
+    ]);
+  });
+
+  test("the turn that asked a round and got no answer says so with its text, and the next turn does not", async ($, on) => {
+    const grill = grillRoutes(() => OPEN_GRILL, { ...ASKED_Q1, wait: () => null });
     world(on, grill);
     on("turn.complete", (_, e) => ({ text: e.answer }));
     await $.skill.prompt(START_PROMPT);

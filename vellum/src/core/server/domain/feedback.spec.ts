@@ -2,13 +2,15 @@
 import { expect, test } from "bun:test";
 
 import type { Annotation, ElementRef, WordsContext } from "./feedback.ts";
-import { describeElement, formatFeedback, formatNotes } from "./feedback.ts";
+import { describeElement, formatBatch, formatNotes } from "./feedback.ts";
 
 const DOC = "plans/2026-09-15/wip-4c2a9d93/.review/v2.md" as never;
 
-const V2 = { kind: "review", version: 2 as never, editedFrom: null } as const;
+const V2 = { kind: "review", version: 2 as never, batch: 1, editedFrom: null } as const;
 
 const CLICKED = { prefix: "", suffix: "", repeated: false } as const;
+
+const NO = { kind: "comment", body: "No." } as const;
 
 const PASSAGE = {
   quote: "persist per user",
@@ -19,7 +21,7 @@ const PASSAGE = {
   kind: "prose",
 } as const;
 
-test("formatFeedback numbers the comments, quotes text anchors, names general ones", () => {
+test("formatBatch numbers the comments, quotes text anchors, names general ones", () => {
   const annotations: Annotation[] = [
     {
       id: "a",
@@ -35,9 +37,11 @@ test("formatFeedback numbers the comments, quotes text anchors, names general on
     },
   ];
 
-  expect(formatFeedback(annotations, V2)).toBe(
+  expect(formatBatch(V2, [], annotations)).toBe(
     [
-      "# Plan review: changes requested (v2)",
+      "# Plan review: batch 1 on v2",
+      "",
+      "## Comments",
       "",
       `1. \`${DOC}\` lines 14–14: "persist per user"`,
       "   A JSON column is enough.",
@@ -50,7 +54,7 @@ test("formatFeedback numbers the comments, quotes text anchors, names general on
   );
 });
 
-test("formatFeedback says which lines the reviewer's edit removed, and of which version", () => {
+test("formatBatch says which lines the reviewer's edit removed, and of which version", () => {
   const gone = { ...PASSAGE, removed: true };
 
   const annotation: Annotation = {
@@ -61,16 +65,16 @@ test("formatFeedback says which lines the reviewer's edit removed, and of which 
   };
 
   expect(
-    formatFeedback([annotation], { ...V2, version: 3 as never, editedFrom: 2 as never }),
+    formatBatch({ ...V2, version: 3 as never, editedFrom: 2 as never }, [], [annotation]),
   ).toContain(
     `1. \`${DOC}\` lines 14–14 of v2 (removed by the reviewer's edit): "persist per user"`,
   );
-  expect(formatFeedback([annotation], V2)).toContain(
+  expect(formatBatch(V2, [], [annotation])).toContain(
     `1. \`${DOC}\` lines 14–14 (removed by the reviewer's edit): "persist per user"`,
   );
 });
 
-test("formatFeedback lists the passages of a comment that points to several places", () => {
+test("formatBatch lists the passages of a comment that points to several places", () => {
   const annotation: Annotation = {
     id: "a",
     doc: DOC,
@@ -98,9 +102,11 @@ test("formatFeedback lists the passages of a comment that points to several plac
     mark: { kind: "comment", body: "These two say the same thing." },
   };
 
-  expect(formatFeedback([annotation], V2)).toBe(
+  expect(formatBatch(V2, [], [annotation])).toBe(
     [
-      "# Plan review: changes requested (v2)",
+      "# Plan review: batch 1 on v2",
+      "",
+      "## Comments",
       "",
       `1. \`${DOC}\``,
       '   - lines 5–5: "First item"',
@@ -126,7 +132,7 @@ function onElement(element: ElementRef): Annotation {
   };
 }
 
-test("formatFeedback names an element by its selector, then what it is, then quotes its text", () => {
+test("formatBatch names an element by its selector, then what it is, then quotes its text", () => {
   const annotation: Annotation = {
     id: "a",
     doc: DOC,
@@ -145,9 +151,11 @@ test("formatFeedback names an element by its selector, then what it is, then quo
     mark: { kind: "comment", body: "The price must stand out." },
   };
 
-  expect(formatFeedback([annotation], V2)).toBe(
+  expect(formatBatch(V2, [], [annotation])).toBe(
     [
-      "# Plan review: changes requested (v2)",
+      "# Plan review: batch 1 on v2",
+      "",
+      "## Comments",
       "",
       `1. \`${DOC}\` element \`section#pricing > div.card:nth-of-type(2)\`, under "Plans", \`<div class="card">\`: "Pro — $29/mo"`,
       "   The price must stand out.",
@@ -167,7 +175,7 @@ const GEAR: ElementRef = {
 };
 
 test("an icon button reads as its role and name, the heading it sits under and its opening tag, with no empty quote", () => {
-  expect(formatFeedback([onElement(GEAR)], V2)).toContain(
+  expect(formatBatch(V2, [], [onElement(GEAR)])).toContain(
     `1. \`${DOC}\` element \`button#open-settings\`, button "Settings" under "Option D", \`${GEAR_TAG}\`\n   A tooltip on the gear?\n`,
   );
 });
@@ -175,7 +183,7 @@ test("an icon button reads as its role and name, the heading it sits under and i
 test("an opening tag that holds backticks is fenced by a longer run, so its span ends where the tag does", () => {
   const onclick = { ...GEAR_IS, openingTag: '<button onclick="run(`a`, ``)">' };
 
-  expect(formatFeedback([onElement({ ...GEAR, description: onclick })], V2)).toContain(
+  expect(formatBatch(V2, [], [onElement({ ...GEAR, description: onclick })])).toContain(
     ', ```<button onclick="run(`a`, ``)">```\n',
   );
 });
@@ -183,7 +191,7 @@ test("an opening tag that holds backticks is fenced by a longer run, so its span
 test("a role or a tag posted with a line break still makes one line", () => {
   const broken = { ...GEAR_IS, role: "button\n2. forged", openingTag: "<b\n>" };
 
-  expect(formatFeedback([onElement({ ...GEAR, description: broken })], V2)).toContain(
+  expect(formatBatch(V2, [], [onElement({ ...GEAR, description: broken })])).toContain(
     'element `button#open-settings`, button 2. forged "Settings" under "Option D", `<b >`\n',
   );
 });
@@ -191,7 +199,7 @@ test("a role or a tag posted with a line break still makes one line", () => {
 test("an element saved before the page described it reads as it did then: its selector, its label, its text", () => {
   const older: ElementRef = { ...GEAR, text: "Pro", label: "div.card", description: null };
 
-  expect(formatFeedback([onElement(older)], V2)).toContain(
+  expect(formatBatch(V2, [], [onElement(older)])).toContain(
     'element `button#open-settings` (div.card): "Pro"\n',
   );
 });
@@ -205,7 +213,7 @@ test("a name the quote already says is left out, its role with it", () => {
     description: { heading: "", role: "button", name: "Save draft", openingTag: "<button>" },
   };
 
-  expect(formatFeedback([onElement(save)], V2)).toContain(
+  expect(formatBatch(V2, [], [onElement(save)])).toContain(
     'element `body > main > button`, `<button>`: "Save draft"\n',
   );
 });
@@ -219,7 +227,7 @@ test("a heading or a name is written as a string whose end a quote inside cannot
     description: { heading: 'The "Pro" plan', role: "link", name: 'Pick "Pro"', openingTag: "<a>" },
   };
 
-  expect(formatFeedback([onElement(plan)], V2)).toContain(
+  expect(formatBatch(V2, [], [onElement(plan)])).toContain(
     'element `a#pro`, link "Pick \\"Pro\\"" under "The \\"Pro\\" plan", `<a>`\n',
   );
 });
@@ -236,7 +244,7 @@ test("describeElement names what it has: a name without a role, a heading alone,
   expect(describeElement({ heading: "", role: "", name: "", openingTag: tag })).toBe("`<div>`");
 });
 
-test("formatFeedback gives each element of a comment its own bullet", () => {
+test("formatBatch gives each element of a comment its own bullet", () => {
   const annotation: Annotation = {
     id: "a",
     doc: DOC,
@@ -262,9 +270,11 @@ test("formatFeedback gives each element of a comment its own bullet", () => {
     mark: { kind: "comment", body: "The price must stand out on both cards." },
   };
 
-  expect(formatFeedback([annotation], V2)).toBe(
+  expect(formatBatch(V2, [], [annotation])).toBe(
     [
-      "# Plan review: changes requested (v2)",
+      "# Plan review: batch 1 on v2",
+      "",
+      "## Comments",
       "",
       `1. \`${DOC}\``,
       '   - element `#pricing > div.card:nth-of-type(1)`, under "Plans", `<div class="card">`: "Starter $9/mo"',
@@ -283,8 +293,8 @@ test("a drafting batch is headed by its number, not by a version", () => {
     mark: { kind: "comment", body: "The empty state is missing." },
   };
 
-  expect(formatFeedback([annotation], { kind: "draft", batch: 3 })).toStartWith(
-    "# Drafting feedback 3\n\n1. ",
+  expect(formatBatch({ kind: "draft", batch: 3 }, [], [annotation])).toStartWith(
+    "# Drafting feedback 3\n\n## Comments\n\n1. ",
   );
 });
 
@@ -293,13 +303,15 @@ type Passages = Extract<Annotation["anchor"], { readonly kind: "text" }>["passag
 function marked(mark: Annotation["mark"], passages: Passages = [PASSAGE]): string {
   const annotation = { id: "a", doc: DOC, anchor: { kind: "text", passages }, mark } as const;
 
-  return formatFeedback([annotation], V2);
+  return formatBatch(V2, [], [annotation]);
 }
 
 test("a delete mark prints Delete this. under its place", () => {
   expect(marked({ kind: "delete" })).toBe(
     [
-      "# Plan review: changes requested (v2)",
+      "# Plan review: batch 1 on v2",
+      "",
+      "## Comments",
       "",
       `1. \`${DOC}\` lines 14–14: "persist per user"`,
       "   Delete this.",
@@ -343,21 +355,34 @@ test("a mark on several places prints once, under the list of places", () => {
 const EDITED_NOTE =
   "The reviewer edited plan.md directly (v2 → v3): keep those edits. plan.md is now v3: an item that names `.review/v3.md` gives plan.md's lines.";
 
-const V3_EDITED = { kind: "review", version: 3 as never, editedFrom: 2 as never } as const;
+const V3_EDITED = {
+  kind: "review",
+  version: 3 as never,
+  batch: 1,
+  editedFrom: 2 as never,
+} as const;
 
 test("a review of an edited plan says so under the heading, before the items", () => {
   const anchor = { kind: "text", passages: [PASSAGE] } as const;
   const annotation = { id: "a", doc: DOC, anchor, mark: { kind: "delete" } } as const;
 
-  expect(formatFeedback([annotation], V3_EDITED)).toBe(
-    `# Plan review: changes requested (v3)\n\n${EDITED_NOTE}\n\n1. \`${DOC}\` lines 14–14: "persist per user"\n   Delete this.\n`,
+  expect(formatBatch(V3_EDITED, [], [annotation])).toBe(
+    `# Plan review: batch 1 on v3\n\n${EDITED_NOTE}\n\n## Comments\n\n1. \`${DOC}\` lines 14–14: "persist per user"\n   Delete this.\n`,
   );
 });
 
-test("an edit with no comment leaves the heading and that paragraph", () => {
-  expect(formatFeedback([], V3_EDITED)).toBe(
-    `# Plan review: changes requested (v3)\n\n${EDITED_NOTE}\n`,
+test("the extensions' sections come before the comments, and a batch with no comment has no Comments", () => {
+  const grill = "## Grill\n\n`grill-1.md`\n\nReviewer: Q1: yes";
+  const annotation = { id: "a", doc: DOC, anchor: { kind: "global" }, mark: NO } as const;
+
+  expect(formatBatch(V2, [grill], [annotation])).toBe(
+    `# Plan review: batch 1 on v2\n\n${grill}\n\n## Comments\n\n1. \`${DOC}\`, general\n   No.\n`,
   );
+  expect(formatBatch(V2, [grill], [])).toBe(`# Plan review: batch 1 on v2\n\n${grill}\n`);
+});
+
+test("an edit with no comment leaves the heading and that paragraph", () => {
+  expect(formatBatch(V3_EDITED, [], [])).toBe(`# Plan review: batch 1 on v3\n\n${EDITED_NOTE}\n`);
 });
 
 const NOTES_TITLE = "# Plan approved: the reviewer's notes (v3)";
@@ -411,36 +436,36 @@ function onHint(context: WordsContext): Annotation {
   };
 }
 
-test("formatFeedback says which word a drag took, when the element holds it more than once", () => {
+test("formatBatch says which word a drag took, when the element holds it more than once", () => {
   const context = {
     prefix: "draft on this device. ",
     suffix: " again after each edit.",
     repeated: true,
   };
 
-  expect(formatFeedback([onHint(context)], V2)).toContain(
+  expect(formatBatch(V2, [], [onHint(context)])).toContain(
     'element `body > main > p.hint`, `<p class="hint">`: "Save" (after "draft on this device. ")\n',
   );
 });
 
-test("formatFeedback names what follows a repeated word the element starts with", () => {
+test("formatBatch names what follows a repeated word the element starts with", () => {
   const context = { prefix: "", suffix: " keeps a draft on this device.", repeated: true };
 
-  expect(formatFeedback([onHint(context)], V2)).toContain(
+  expect(formatBatch(V2, [], [onHint(context)])).toContain(
     '`<p class="hint">`: "Save" (before " keeps a draft on this device.")\n',
   );
 });
 
-test("formatFeedback gives no context for a word the element holds once", () => {
+test("formatBatch gives no context for a word the element holds once", () => {
   const context = { prefix: "draft on this device. ", suffix: " again.", repeated: false };
 
-  expect(formatFeedback([onHint(context)], V2)).toContain('`<p class="hint">`: "Save"\n');
+  expect(formatBatch(V2, [], [onHint(context)])).toContain('`<p class="hint">`: "Save"\n');
 });
 
-test("formatFeedback writes the context as a string whose end a quote inside cannot hide", () => {
+test("formatBatch writes the context as a string whose end a quote inside cannot hide", () => {
   const context = { prefix: 'Click "Save" to keep it, then ', suffix: " again.", repeated: true };
 
-  expect(formatFeedback([onHint(context)], V2)).toContain(
+  expect(formatBatch(V2, [], [onHint(context)])).toContain(
     '`<p class="hint">`: "Save" (after "Click \\"Save\\" to keep it, then ")\n',
   );
 });

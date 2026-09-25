@@ -3,27 +3,18 @@ import { join, sep } from "node:path";
 
 import type { Route } from "../../../extension.ts";
 import type {
-  Anchor,
-  Annotation,
   Decision,
-  Draft,
-  Edit,
-  ElementDescription,
-  ElementRef,
   GateAnswer,
-  Mark,
-  Passage,
-  PassageKind,
   PlanWorkspace,
-  Typed,
+  SendAnswer,
+  SendRequest,
   VellumBuild,
-  WordsContext,
 } from "../../../protocol.ts";
 import type { GateOptions, Review } from "../../app/review.ts";
-import { isQuickLabel } from "../../domain/feedback.ts";
 import { parseProjectPath, parseVersion } from "../../domain/paths.ts";
 import type { ParseResult } from "../../domain/paths.ts";
 import { DRAFT_FILE } from "../../domain/workspace.ts";
+import { isRecord, parseDraft, parseEdit } from "../draft.ts";
 
 export const TOKEN_HEADER = "x-vellum-token";
 
@@ -53,252 +44,43 @@ export type Handler = {
 type Streams = { open: number };
 
 /* oxlint-disable anti-slop/no-runtime-typeof, anti-slop/no-unknown-parameters, anti-slop/no-unsafe-dictionary-type -- the block below IS the boundary parser the rules ask for: it validates the JSON bodies the browser and the hooks module post, and there is no earlier place to parse them. */
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null;
+async function parseDecision(request: Request): Promise<Decision | null> {
+  const body: unknown = await request.json().catch(() => null);
+  const edit = isRecord(body) ? parseEdit(body.edit) : null;
+
+  return isRecord(body) &&
+    edit !== null &&
+    body.kind === "approve" &&
+    typeof body.notes === "string"
+    ? { kind: "approve", edit: edit.value, notes: body.notes }
+    : null;
 }
 
-function parseAnchor(value: unknown): Anchor | null {
-  if (!isRecord(value)) return null;
-
-  if (value.kind === "global") return { kind: "global" };
-
-  if (value.kind === "element") {
-    if (!Array.isArray(value.elements)) return null;
-    const elements = value.elements.map(parseElementRef);
-
-    if (elements.some((element) => element === null)) return null;
-    const [head, ...tail] = elements.filter((element) => element !== null);
-
-    return head === undefined ? null : { kind: "element", elements: [head, ...tail] };
-  }
-
-  if (value.kind !== "text" || !Array.isArray(value.passages)) return null;
-  const parsed = value.passages.map(parsePassage);
-
-  if (parsed.some((passage) => passage === null)) return null;
-  const [first, ...rest] = parsed.filter((passage) => passage !== null);
-
-  return first === undefined ? null : { kind: "text", passages: [first, ...rest] };
+function parseIds(value: unknown): readonly string[] | null {
+  return Array.isArray(value) && value.every((id: unknown) => typeof id === "string")
+    ? value.map(String)
+    : null;
 }
 
-function parseWordsContext(value: unknown): WordsContext | null {
-  if (
-    !isRecord(value) ||
-    typeof value.prefix !== "string" ||
-    typeof value.suffix !== "string" ||
-    typeof value.repeated !== "boolean"
-  ) {
-    return null;
-  }
+/** What a Send takes, named as the page saw it: comment ids, the edit's version or `null`, whether the parts go, the defaults agreed. */
+async function parseSend(request: Request): Promise<SendRequest | null> {
+  const body: unknown = await request.json().catch(() => null);
 
-  return { prefix: value.prefix, suffix: value.suffix, repeated: value.repeated };
-}
+  if (!isRecord(body) || typeof body.parts !== "boolean") return null;
+  const annotations = parseIds(body.annotations);
+  const takeDefaults = parseIds(body.takeDefaults);
+  const edit = typeof body.edit === "number" ? parseVersion(body.edit) : null;
 
-function parseElementDescription(value: unknown): ElementDescription | null {
-  if (
-    !isRecord(value) ||
-    typeof value.heading !== "string" ||
-    typeof value.role !== "string" ||
-    typeof value.name !== "string" ||
-    typeof value.openingTag !== "string"
-  ) {
-    return null;
-  }
-
-  const { heading, role, name, openingTag } = value;
-
-  return { heading, role, name, openingTag };
-}
-
-/**
- * A page older than the description sends none, and a draft it saved holds none: that draft keeps
- * the reviewer's unsent comments, so the element is read with no description rather than refused.
- */
-function parseOptionalDescription(value: unknown): ElementDescription | null | "unreadable" {
-  if (value === undefined || value === null) return null;
-
-  return parseElementDescription(value) ?? "unreadable";
-}
-
-function parseElementRef(value: unknown): ElementRef | null {
-  const context = isRecord(value) ? parseWordsContext(value.context) : null;
-  const description = isRecord(value) ? parseOptionalDescription(value.description) : "unreadable";
-
-  if (
-    !isRecord(value) ||
-    context === null ||
-    description === "unreadable" ||
-    typeof value.selector !== "string" ||
-    value.selector === "" ||
-    typeof value.text !== "string" ||
-    typeof value.label !== "string"
-  ) {
-    return null;
-  }
-
-  return { selector: value.selector, text: value.text, label: value.label, context, description };
-}
-
-function parsePassageKind(value: unknown): PassageKind | null {
-  return value === "prose" || value === "code" || value === "diagram" ? value : null;
-}
-
-function parsePassage(value: unknown): Passage | null {
-  const kind = isRecord(value) ? parsePassageKind(value.kind) : null;
-
-  if (
-    !isRecord(value) ||
-    kind === null ||
-    typeof value.quote !== "string" ||
-    typeof value.prefix !== "string" ||
-    typeof value.suffix !== "string" ||
-    !Array.isArray(value.lines) ||
-    typeof value.lines[0] !== "number" ||
-    typeof value.lines[1] !== "number" ||
-    typeof value.removed !== "boolean"
-  ) {
+  if (annotations === null || takeDefaults === null || (body.edit !== null && edit?.ok !== true)) {
     return null;
   }
 
   return {
-    kind,
-    quote: value.quote,
-    prefix: value.prefix,
-    suffix: value.suffix,
-    lines: [value.lines[0], value.lines[1]],
-    removed: value.removed,
+    annotations,
+    edit: edit?.ok === true ? edit.value : null,
+    parts: body.parts,
+    takeDefaults,
   };
-}
-
-function parseMark(value: unknown): Mark | null {
-  if (!isRecord(value)) return null;
-
-  if (value.kind === "delete") return { kind: "delete" };
-
-  if (value.kind === "label") {
-    return typeof value.label === "string" && isQuickLabel(value.label)
-      ? { kind: "label", label: value.label }
-      : null;
-  }
-
-  return value.kind === "comment" && typeof value.body === "string"
-    ? { kind: "comment", body: value.body }
-    : null;
-}
-
-function parseAnnotation(value: unknown): Annotation | null {
-  if (!isRecord(value) || typeof value.id !== "string") return null;
-  const doc = typeof value.doc === "string" ? parseProjectPath(value.doc) : null;
-  const anchor = parseAnchor(value.anchor);
-  const mark = parseMark(value.mark);
-
-  if (doc?.ok !== true || anchor === null || mark === null) return null;
-
-  // "Delete this" needs a place to delete: the document as a whole is not one.
-  return mark.kind === "delete" && anchor.kind === "global"
-    ? null
-    : { id: value.id, doc: doc.value, anchor, mark };
-}
-
-function parseAnnotations(value: unknown): readonly Annotation[] | null {
-  if (!Array.isArray(value)) return null;
-  const annotations = value.map((annotation: unknown) => parseAnnotation(annotation));
-
-  return annotations.every((annotation) => annotation !== null) ? annotations : null;
-}
-
-/** `null` is a decision without an edit, so a refusal is no `null`: the parsed edit comes wrapped. */
-function parseEdit(value: unknown): { readonly value: Edit | null } | null {
-  if (value === null) return { value: null };
-
-  if (!isRecord(value) || typeof value.version !== "number" || typeof value.text !== "string") {
-    return null;
-  }
-
-  const version = parseVersion(value.version);
-
-  return version.ok ? { value: { version: version.value, text: value.text } } : null;
-}
-
-async function parseDecision(request: Request): Promise<Decision | null> {
-  const body: unknown = await request.json().catch(() => null);
-
-  if (!isRecord(body)) return null;
-
-  const edit = parseEdit(body.edit);
-
-  if (edit === null) return null;
-
-  if (body.kind === "approve") {
-    return typeof body.notes === "string"
-      ? { kind: "approve", edit: edit.value, notes: body.notes }
-      : null;
-  }
-
-  const annotations = body.kind === "feedback" ? parseAnnotations(body.annotations) : null;
-
-  return annotations === null ? null : { kind: "feedback", edit: edit.value, annotations };
-}
-
-function parseStrings(value: unknown): Readonly<Record<string, string>> | null {
-  if (!isRecord(value)) return null;
-  const strings: Record<string, string> = {};
-
-  for (const [key, text] of Object.entries(value)) {
-    if (typeof text !== "string") return null;
-    strings[key] = text;
-  }
-
-  return strings;
-}
-
-function parseGrillTyped(value: unknown): Typed["grill"] | null {
-  if (!isRecord(value)) return null;
-  const grill: Record<string, { answers: Readonly<Record<string, string>>; note: string }> = {};
-
-  for (const [path, entry] of Object.entries(value)) {
-    const answers = isRecord(entry) ? parseStrings(entry.answers) : null;
-
-    if (answers === null || !isRecord(entry) || typeof entry.note !== "string") return null;
-    grill[path] = { answers, note: entry.note };
-  }
-
-  return grill;
-}
-
-function parseTyped(value: unknown): Typed | null {
-  if (!isRecord(value) || typeof value.general !== "string") return null;
-  const composer = parseStrings(value.composer);
-  const grill = parseGrillTyped(value.grill);
-  const editor = parseEdit(value.editor);
-
-  return composer === null || grill === null || editor === null
-    ? null
-    : { general: value.general, composer, grill, editor: editor.value };
-}
-
-/**
- * The same annotations and the same edit a decision carries, so a restored draft can be sent as
- * it is, plus what is typed. A draft of an older shape is refused whole, written or read back.
- */
-function parseDraft(body: unknown): Draft | null {
-  if (!isRecord(body)) return null;
-  const annotations = parseAnnotations(body.annotations);
-  const edit = parseEdit(body.edit);
-  const typed = parseTyped(body.typed);
-
-  return annotations === null || edit === null || typed === null
-    ? null
-    : { annotations, edit: edit.value, typed };
-}
-
-/** The saved file, read back through the same parser a PUT goes through. */
-function readDraft(saved: string): Draft | null {
-  try {
-    return parseDraft(JSON.parse(saved));
-  } catch {
-    return null;
-  }
 }
 
 /* oxlint-enable anti-slop/no-runtime-typeof, anti-slop/no-unknown-parameters, anti-slop/no-unsafe-dictionary-type */
@@ -458,13 +240,22 @@ async function api(
     return Response.json({ workspace: result.workspace }, { status: result.ok ? 200 : 409 });
   }
 
+  if (route === "POST /api/send") {
+    const sending = await parseSend(request);
+
+    if (sending === null) return badRequest();
+    const sent = await review.send(sending);
+    const answer: SendAnswer = sent.ok ? { file: sent.file, seq: sent.seq } : sent.refusal;
+
+    return Response.json(answer, { status: sent.ok ? 200 : 409 });
+  }
+
   if (route === "GET /api/draft") {
-    const saved = await review.draft();
+    const draft = await review.draft();
 
-    if (saved === null) return new Response(null, { status: 204 });
-    const draft = readDraft(saved);
+    if (draft === null) return new Response(null, { status: 204 });
 
-    return draft === null
+    return draft === "unreadable"
       ? Response.json({ error: UNREADABLE_DRAFT }, { status: 409 })
       : Response.json(draft);
   }

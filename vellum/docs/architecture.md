@@ -36,7 +36,7 @@ flowchart LR
   U -- "HTTP /api/*, /t/&lt;token&gt;/files, SSE" --> R
   A -. "src/extensions/*/server.ts<br/>linkedDocs, pure" .-> A
   R -. "src/extensions/*/server.ts<br/>routes under /api/x/&lt;id&gt;/, IO through ServerContext" .-> W
-  F[("plans/&lt;date&gt;/wip-&lt;sid8&gt;/<br/>plan.md, grill-&lt;n&gt;.md, .review/vN.md,<br/>vN.feedback.md, vN.notes.md, draft.json, channel.jsonl")]
+  F[("plans/&lt;date&gt;/wip-&lt;sid8&gt;/<br/>plan.md, grill-&lt;n&gt;.md, .review/vN.md,<br/>vN.feedback-k.md, vN.notes.md, draft.json, channel.jsonl")]
   W --> F
 ```
 
@@ -103,10 +103,11 @@ sequenceDiagram
   CC->>M: turn.complete (the main loop answered), or tool.call mcp__vellum__submit
   M->>S: POST /api/gate → reads plan.md, writes .review/vN.md, opens the browser once; an unchanged text is kept
   M-->>CC: the tool's result: "End your turn."
-  B->>S: PUT /api/draft (the unsent comments and edit, at every change)
-  B->>S: POST /api/decision (feedback | approve, with the reviewer's edit or none)
-  S->>S: an edit is vN+1: plan.md, then .review/vN+1.md; approve → notes file, links rewritten, directory renamed
-  S->>S: appends the entry to .review/channel.jsonl: sent (the feedback file) | approved
+  B->>S: PUT /api/draft (the unsent comments, edit and typing, at every change, and once more before a Send)
+  B->>S: POST /api/send (what the reviewer saw at the click: comment ids, the edit, the parts) | POST /api/decision (approve, with the reviewer's edit or none)
+  S->>S: a Send writes .review/vN.feedback-k.md from the draft it keeps, what it named, the stage unchanged; an edit is vN+1 first
+  S->>S: approve → plan.md, the notes file, links rewritten, directory renamed
+  S->>S: appends the entry to .review/channel.jsonl: sent (the batch) | approved
   S-->>B: SSE workspace
   S-->>M: stdout: the entry, then the stage
   M->>CC: $.prompt.submit ("Reviewer sent: read <path>." | "Plan vN approved, at <dir>. Read <notes file> first.")
@@ -133,32 +134,40 @@ sequenceDiagram
   S-->>M: stdout: the entry
   M->>C: $.prompt.submit (the opening)
   C->>M: tool.call grill_ask {q}
-  M->>S: POST /api/x/grill/ask, a round opened
+  M->>S: POST /api/x/grill/ask, a round opened, then POST wait, held under 30 s, again and again
+  P->>S: POST /api/send (the bar's, parts included): the grill's part reads the reply, writing nothing
+  S->>S: the batch vN.feedback-k.md, Grill then Comments; its sent entry; the grill's commit answers the wait, then writes the reply in the round
+  S-->>M: stdout: the entry, held by the follower while grill_ask waits
+  S-->>M: the wait's answer: the entry's number and "Reviewer: ..."
+  M->>C: the tool's result; the follower never relays that entry
   C->>M: turn.complete
-  M->>S: POST /api/x/grill/answer {text, reason, own, asked}, the asking turn's text with its round
-  P->>S: POST /api/x/grill/reply {answers, note}, written in the round of its questions, told on the channel
-  S-->>M: stdout: the entry
-  M->>C: $.prompt.submit (each reply, once, in order, "Reviewer: ...")
-  P->>S: POST /api/x/grill/close, or the module's on /vellum:stop
+  M->>S: POST /api/x/grill/answer {text, reason, own, asked}, the turn's text after the reply
+  P->>S: POST /api/x/grill/close, with what the draft holds as the reply, or the module's on /vellum:stop
   P->>S: POST /api/decision approve, the server ends the grill after the rename (approved)
   M->>C: $.prompt.submit ("The reviewer ended grill-1.md.", told for a close from the page alone)
 ```
 
 A round is Claude's: `grill_ask` alone opens one, and the reviewer's reply is written in it, so
-an answer is read beside its question. A reply closes every open question, the ones the
-reviewer left untouched with "As recommended, by default.", where "As recommended." is the
-recommendation chosen; so does the end of the grill. A question is open until a
+an answer is read beside its question. The reply leaves with the page's one Send, beside the
+comments, as the batch's Grill section; it closes every open question, the ones the reviewer
+left untouched with "As recommended, by default.", where "As recommended." is the
+recommendation chosen, and the page asks before it takes one by default; so does the end of
+the grill, which asks nothing. `grill_ask` waits for that Send and returns the reply as its
+result, a `POST wait` at a time on the server, each under the engine's 30 s cut; Escape, or a
+wait that fails, ends the call, and the batch reaches Claude through the channel as any other
+("Reviewer sent: read <file>."). A question is open until a
 reply answers it, whatever happened since: a command of the session (`/vellum:start`, `/clear`)
 is the harness's, written as an event line that opens and closes nothing. What the reviewer
 types in the terminal, and what Claude answers to it, are not the grill's and are not written.
 
 The file is the transcript and the state: the server writes every round, the module writes
 nothing, and what is open and who speaks next are read off `grill-<n>.md`
-(`extensions/grill/transcript.ts`). What Claude hears is the core's channel: each write the
-reviewer causes appends, as text the server words, the entries it added to the transcript,
-which `relaysOf` reads in file order: the opening, each reply, the end when the footer says
-`page`. So two replies both go, each once, and nothing Claude says cancels one; a block written
-into the file by hand was there before the write and is not told. The file serves the human,
+(`extensions/grill/transcript.ts`). What Claude hears is the core's channel and the waiting
+tool's result: a Send's reply goes in its batch; any other write the reviewer causes appends,
+as text the server words, the entries it added to the transcript, which `relaysOf` reads in
+file order: the opening, the reply End grill writes, the end when the footer says `page`. So
+nothing Claude says cancels one; a block written into the file by hand was there before the
+write and is not told. The file serves the human,
 the prompt serves the agent, and they no longer share a text: a prompt names its object
 (`grill-2.md`) and repeats nothing Claude wrote or read. A reply goes under `Reviewer:`, the
 note first, then the typed answers, never a default; `grilling.md` is named at the first grill
@@ -218,24 +227,25 @@ The server, derived from the directory plus a memory overlay
 ```mermaid
 stateDiagram-v2
   [*] --> drafting: wip-<sid8>/, no vN.md
-  drafting --> drafting: v0.feedback-<n>.md written, batches + 1
+  drafting --> drafting: a Send, v0.feedback-<k>.md written, batches + 1
   drafting --> inReview: plan.md gated, vN.md written
-  inReview --> changesRequested: vN.feedback.md written
-  inReview --> changesRequested: the reviewer's edit, vN+1.md and vN+1.feedback.md written
-  changesRequested --> inReview: vN+1.md written
+  inReview --> inReview: a Send, vN.feedback-<k>.md written, batches + 1
+  inReview --> inReview: a Send with the reviewer's edit, vN+1.md and vN+1.feedback-1.md written
+  inReview --> inReview: plan.md gated, vN+1.md written, batches 0
   inReview --> approved: Approve, links rewritten, renamed (memory)
   inReview --> inReview: rename failed, finalizeError (memory)
   inReview --> inReview: Retry approval
 ```
 
-A version has an author: Claude through `gate`, or the reviewer, whose edit a decision records as
-`vN+1` before it applies to it. The edit names the version it was made on, and `decideOn` refuses
-one made on another. No state was added for it: `vN+1.md` with its feedback file reads as
-`changesRequested`, like any other.
+A Send locks nothing: the reviewer goes on commenting on the version, and each Send is the next
+batch of it. A version has an author: Claude through `gate`, or the reviewer, whose edit a Send
+or an approval records as `vN+1` before it applies to it. The edit names the version it was made
+on, and `sendOn` and `decideOn` refuse one made on another. A gate after a batch records a new
+version even with the same text, as the explicit `submit` means it.
 
-What the hooks module relays is not read off that state: each decision appends its entry to the
-channel as it lands (`domain/channel.ts`), `sent` naming the drafting batch or the feedback
-file, `approved` the final directory and the notes file when its listing holds one. The module
+What the hooks module relays is not read off that state: each Send and the approval append their
+entry to the channel as they land (`domain/channel.ts`), `sent` naming the batch, `approved` the
+final directory and the notes file when its listing holds one. The module
 keeps one number of its own, in `$.store`: the last entry it relayed, under the channel's identity
 (`.review/channel.id`, which the rename carries), so a reload never repeats one and a new working
 directory at the same path starts from its first. The mode owns its server: leaving `live` ends
@@ -248,10 +258,11 @@ it, and so does a revival replacing it.
 | Comment on an HTML element | `ElementRef`, its `ElementDescription`, the `Anchor` variant `element` and its line in the feedback text (`describeElement`); `extensions/html/pick.ts`, `extensions/html/describe.ts` and `page/selection.ts` | `frame.js` built once at `startServer` and injected into `text/html` responses, `postMessage` across the sandbox | the HTML renderer bridges the frame and opens the Composer over the iframe |
 | Coloured code and Mermaid | `rehype-highlight` in the `toTree` pipeline, so the hast keeps `data-lines`; the target kind `diagram` and `diagramPassage` in `extensions/markdown/pinpoint.ts` | | the Markdown renderer turns a `mermaid` block into a `figure`, draws it after the mount, and boxes it where text is highlighted |
 | Diff `vN-1` / `vN` | `domain/diff.ts`: `lineDiff` over the `diff` package, `countChanges`; `extensions/markdown/changes.ts`: which block carries a mark, where a removed run goes | `/api/review` returns the previous version's text | `planChanges` computed once; the count beside the version, the "Changes since" toggle, the marks and the text-free removed blocks in the Markdown renderer |
-| Delete marks and quick labels | `Mark` on `Annotation`, `QUICK_LABELS` with the sentence Claude reads, in `domain/feedback.ts` | `parseMark` in the boundary block of `routes.ts` | the Composer's label row and "Delete this", the card's chip and struck quote |
-| Direct edit | `Edit`, `decideOn` (the edit is `vN+1`, refused on another version), `editOnLoad`, `landedAnnotations` in `domain/review.ts`; `shiftLines`, `shiftAnnotations` in `domain/diff.ts` | `parseEdit`; `Review.decide` writes `plan.md`, then the version file | `page/editor.tsx` and `page/caret.ts`; `edited`, `editing`, `finishEdit`, `settleEdit` in `state.ts` |
+| Delete marks and quick labels | `Mark` on `Annotation`, `QUICK_LABELS` with the sentence Claude reads, in `domain/feedback.ts` | `parseMark` in the draft's parser, `adapters/draft.ts` | the Composer's label row and "Delete this", the card's chip and struck quote |
+| Direct edit | `Edit`, `sendOn` and `decideOn` (the edit is `vN+1`, refused on another version), `editOnLoad`, `landedAnnotations` in `domain/review.ts`; `shiftLines`, `shiftAnnotations` in `domain/diff.ts` | `parseEdit` in `adapters/draft.ts`; `Review.send` and `Review.decide` write `plan.md`, then the version file | `page/editor.tsx` and `page/caret.ts`; `edited`, `editing`, `finishEdit`, `settleEdit` in `state.ts` |
 | Approval notes | `formatNotes`, `notesFile`, `approved.notes` read off the final directory's listing, the channel's `approved` entry and its `notes` | the notes file written before the rename; `engine/relay.ts` names it in the approval's prompt | the decision bar's one popover state: notes, and the warning before unsent comments are discarded |
-| Drafts | `Draft`, `DRAFT_FILE`, `takesComments` | `GET` and `PUT /api/draft`, stored and never read back; removed by a decision that lands | `start`: restore, load, then save at every change, in order |
+| Drafts | `Draft`, `DRAFT_FILE`, `takesComments` | `GET` and `PUT /api/draft`, through the one parser of `adapters/draft.ts`; read back by a Send and by End grill; what a Send took leaves it, an approval removes it | `start`: restore, load, then save at every change, in order; `writeDraft` before a Send |
+| One Send | `sendOn`, `batchFile`, `formatBatch`: what the Send names or its refusal, the extensions' parts, then the comments | `POST /api/send`, `Review.send` in one step of the queue: `sendOn` and each `part`, nothing written; the edit, the batch, the `sent` entry; the draft's rest, each part's `commit` | the bar's `Send (n)` and its warning, a card's Send now, `PageExtension.send`: a snapshot at the click, taken out of the page once sent |
 
 Every one added a pure part first; `src/core/server/domain/` is where a new domain concept
 goes, and a renderer's own choice stays beside its `page.tsx`.
@@ -267,9 +278,9 @@ constraints below are why. The contract is `src/core/extension.ts`, types only, 
 
 | Half | File | Declares | Reached from |
 |---|---|---|---|
-| page | `<id>/page.tsx` | a `PageExtension`: its renderers, tried in registry order, its actions in the decision bar, its notices under it, and its panel, a pane `panesOf` places beside the document pane | `core/page/app.tsx`, through `extensions/page.ts` |
-| server | `<id>/server.ts` | a `ServerExtension`: `linkedDocs`, pure, candidates in and links out; its routes, mounted at `/api/x/<id>/`, their IO through a `ServerContext`, what they tell Claude through its `relay`; `holds`, what holds the review; `approved`, what it closes after the rename | `core/server/adapters/http/serve.ts`, through `extensions/server.ts` |
-| engine | `<id>/engine.ts` | an `EngineExtension`: tools, refusals, and handlers for a prompt, a finished turn, a `stage` line and the mode's end | `core/engine/register.ts`, through `extensions/engine.ts` |
+| page | `<id>/page.tsx` | a `PageExtension`: its renderers, tried in registry order, its actions in the decision bar, its notices under it, its panel, a pane `panesOf` places beside the document pane, and its share of the Send | `core/page/app.tsx`, through `extensions/page.ts` |
+| server | `<id>/server.ts` | a `ServerExtension`: `linkedDocs`, pure, candidates in and links out; its routes, mounted at `/api/x/<id>/`, their IO through a `ServerContext`, what they tell Claude through its `relay`; `holds`, what holds the review; `approved`, what it closes after the rename; `part`, its part of the bar's Send and its `commit` | `core/server/adapters/http/serve.ts`, through `extensions/server.ts` |
+| engine | `<id>/engine.ts` | an `EngineExtension`: tools, a tool's wait for the reviewer and the entries it returns, refusals, and handlers for a prompt, a finished turn, a `stage` line and the mode's end | `core/engine/register.ts`, through `extensions/engine.ts` |
 
 `src/boundaries.spec.ts` holds the layout: an extension imports `core/` and its own folder,
 never another extension; the core reaches the extensions from those three files alone; an

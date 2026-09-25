@@ -1,5 +1,6 @@
 import type { ChannelLine } from "./server/domain/channel.ts";
 import type { ProjectPath, Version } from "./server/domain/paths.ts";
+import type { SendRefused } from "./server/domain/review.ts";
 import type { PlanWorkspace } from "./server/domain/workspace.ts";
 
 /**
@@ -34,7 +35,15 @@ export type {
 
 export { DELETE_SENTENCE, QUICK_LABELS } from "./server/domain/feedback.ts";
 
-export type { Decision, Draft, Edit, Typed } from "./server/domain/review.ts";
+export type {
+  Decision,
+  Draft,
+  Edit,
+  SendRefused,
+  SendRequest,
+  Taking,
+  Typed,
+} from "./server/domain/review.ts";
 
 export {
   draftIsEmpty,
@@ -70,6 +79,18 @@ export type ServerLine =
 export type GateAnswer =
   | { readonly version: Version; readonly kept: boolean }
   | { readonly error: string };
+
+/**
+ * Why `POST /api/send` wrote nothing: questions no answer takes that the reviewer did not agree to
+ * leave to their recommendation, every one of them; what `sendOn` refuses; nothing to send; or a
+ * saved draft the server cannot read.
+ */
+export type SendRefusal =
+  | { readonly reason: "unanswered"; readonly ids: readonly string[] }
+  | { readonly reason: SendRefused | "empty" | "unreadable" };
+
+/** What `POST /api/send` answers: the batch written and its entry's number, or why none was. */
+export type SendAnswer = { readonly file: ProjectPath; readonly seq: number } | SendRefusal;
 
 export type MediaType = "text/markdown" | "text/html" | `image/${string}`;
 

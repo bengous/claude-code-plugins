@@ -1,6 +1,7 @@
 /* oxlint-disable anti-slop/require-safety-comment-for-type-assertion -- fixtures are branded values (ProjectPath, Version, WipDir) written as literals, and fakes stand where a browser global does: the brand is the parser's to grant, the global's type the browser's, and nothing here parses or runs in one. */
 import { afterEach, describe, expect, test } from "bun:test";
 
+import type { SendShare } from "../extension.ts";
 import type {
   Annotation,
   Decision,
@@ -9,6 +10,8 @@ import type {
   Edit,
   GroupedDoc,
   ReviewView,
+  SendAnswer,
+  SendRequest,
 } from "../protocol.ts";
 import { EMPTY_TYPED, lineDiff } from "../protocol.ts";
 
@@ -41,7 +44,7 @@ type Version = {
   readonly text?: string;
   readonly previous?: string;
   readonly docs?: readonly GroupedDoc[];
-  readonly kind?: "inReview" | "changesRequested" | "approved";
+  readonly kind?: "inReview" | "approved";
 };
 
 /** A view past `drafting`: the plan is `.review/v<version>.md`, as the server names it. */
@@ -132,6 +135,10 @@ type Served = {
   readonly draft: Draft | null | "unreadable" | { readonly refused: string };
   readonly review: ReviewView | "unreadable";
   readonly decision?: number;
+  /** What `POST /api/send` answers: its status and body, 200 and a batch unless said. */
+  readonly send?: { readonly status: number; readonly answer: SendAnswer };
+  /** What `POST /api/send` waits on before its answer. */
+  readonly sending?: () => Promise<void>;
   /** What `GET /api/review` waits on before its answer. */
   readonly load?: () => Promise<void>;
   /** What a `PUT /api/draft` waits on before its answer, and how it fails when this rejects. */
@@ -144,6 +151,7 @@ type Server = {
   readonly calls: string[];
   readonly puts: Draft[];
   readonly decisions: Decision[];
+  readonly sends: SendRequest[];
   readonly tokens: Set<string | undefined>;
   /** What the server pushes on the event stream: `message`, or the stream's own `error` and `open`. */
   readonly push: (event: "message" | "error" | "open") => void;
@@ -154,6 +162,8 @@ function answerOf(value: Draft | ReviewView | "unreadable"): Response {
   return value === "unreadable" ? new Response("", { status: 500 }) : Response.json(value);
 }
 
+const BATCH = { file: `${WIP}.review/v1.feedback-1.md`, seq: 1 } as never;
+
 /** The server as the page's ports see it: `fetch`, `EventSource`, and the token in the page's URL. */
 function serve(answer: Served): Server {
   const listeners: { readonly event: string; readonly listener: () => void }[] = [];
@@ -162,6 +172,7 @@ function serve(answer: Served): Server {
     calls: [],
     puts: [],
     decisions: [],
+    sends: [],
     tokens: new Set(),
     push: (event) => {
       for (const entry of listeners) if (entry.event === event) entry.listener();
@@ -190,6 +201,14 @@ function serve(answer: Served): Server {
       server.decisions.push(JSON.parse(String(init.body)) as Decision);
 
       return new Response("", { status: server.answer.decision ?? 200 });
+    }
+
+    if (url === "/api/send") {
+      server.sends.push(JSON.parse(String(init.body)) as SendRequest);
+      await server.answer.sending?.();
+      const sent = server.answer.send ?? { status: 200, answer: BATCH };
+
+      return Response.json(sent.answer, { status: sent.status });
     }
 
     if (method === "GET") {
@@ -361,7 +380,6 @@ describe("locked", () => {
 
   test.each([
     ["inReview", false],
-    ["changesRequested", true],
     ["approved", true],
   ] as const)("a version %s: locked is %p", async (kind, expected) => {
     const { locked, review } = await freshStore();
@@ -372,7 +390,7 @@ describe("locked", () => {
 
   test("a locked page takes no comment", async () => {
     const { addAnnotation, annotations, review } = await freshStore();
-    review.value = versioned({ version: 1, kind: "changesRequested" });
+    review.value = versioned({ version: 1, kind: "approved" });
     addAnnotation(comment("", `${WIP}.review/v1.md`));
 
     expect(annotations.value).toEqual([]);
@@ -390,7 +408,7 @@ describe("the comment switch", () => {
 
   test("a locked page does not comment, whatever the switch", async () => {
     const { commentSwitch, commenting, review } = await freshStore();
-    review.value = versioned({ version: 1, kind: "changesRequested" });
+    review.value = versioned({ version: 1, kind: "approved" });
     commentSwitch.value = true;
 
     expect(commenting.value).toBe(false);
@@ -447,6 +465,16 @@ describe("what is typed", () => {
       general: "Overall",
       editor: edit(1, "mine\n"),
     });
+  });
+
+  test("strayTyped is what a Send leaves unsent: the grill's answers leave with it", async () => {
+    const { setTyped, strayTyped } = await freshStore();
+    setTyped({
+      general: "Overall",
+      grill: { [`${WIP}grill-1.md`]: { answers: { Q2: "The inspector." }, note: "Go." } },
+    });
+
+    expect(strayTyped.value).toEqual([{ where: "the general box", text: "Overall" }]);
   });
 
   test("unsentTyped names each place holding a text, and skips the blank ones", async () => {
@@ -522,16 +550,13 @@ describe("the editor", () => {
     expect(editing.value?.base).toBe("mine\n");
   });
 
-  test.each(["changesRequested", "approved"] as const)(
-    "stays shut on a version %s",
-    async (kind) => {
-      const { editing, openEditor, review } = await freshStore();
-      review.value = versioned({ version: 2, text: "a\n", kind });
-      openEditor(1);
+  test("stays shut on a version approved", async () => {
+    const { editing, openEditor, review } = await freshStore();
+    review.value = versioned({ version: 2, text: "a\n", kind: "approved" });
+    openEditor(1);
 
-      expect(editing.value).toBeNull();
-    },
-  );
+    expect(editing.value).toBeNull();
+  });
 
   test("stays shut while drafting", async () => {
     const { editing, openEditor, review } = await freshStore();
@@ -646,13 +671,13 @@ describe("the editor", () => {
     const { editing, finishEdit, notices, openEditor, review } = await freshStore();
     review.value = versioned({ version: 1, text: "a\n" });
     openEditor(1);
-    review.value = versioned({ version: 1, text: "a\n", kind: "changesRequested" });
+    review.value = versioned({ version: 1, text: "a\n", kind: "approved" });
     finishEdit({ version: 1, base: "a\n", line: 1 } as never, "mine\n");
 
     expect(editing.value).not.toBeNull();
-    expect(notices.value.map((notice) => notice.text.join(""))).toEqual([
+    expect(notices.value.map(({ key }) => key)).toEqual(["stale-editor", "workspace"]);
+    expect(notices.value[0]?.text).toEqual([
       "v1 is no longer under review. Copy what you need, then Cancel.",
-      "Feedback sent to Claude. Waiting for the next version of the plan.",
     ]);
   });
 });
@@ -793,7 +818,7 @@ describe("start", () => {
     expect(store.failures.value).toEqual([
       {
         op: "draft",
-        text: "The saved draft could not be read: the server answered 500. Nothing is saved until a reload succeeds.",
+        text: "The saved draft could not be read: the server answered 500. Nothing is saved until the page reads it again, at a reload or a Send.",
       },
     ]);
   });
@@ -1074,10 +1099,10 @@ describe("decide", () => {
   test("the decision reaches the server as it was taken", async () => {
     const store = await freshStore();
     const server = serve({ draft: null, review: versioned({ version: 1 }) });
-    const feedback: Decision = { kind: "feedback", edit: edit(1, "mine\n"), annotations: unsent };
-    await store.decide(feedback);
+    const approve: Decision = { kind: "approve", edit: edit(1, "mine\n"), notes: "Go." };
+    await store.decide(approve);
 
-    expect(server.decisions).toEqual([feedback]);
+    expect(server.decisions).toEqual([approve]);
   });
 
   test("a redirect is a refusal as well: the comments stay, and the status is named", async () => {
@@ -1140,6 +1165,205 @@ describe("decide", () => {
   });
 });
 
+describe("writeDraft", () => {
+  test("a draft the first load could not read is read again: with none saved, saving starts and the write goes", async () => {
+    const store = await freshStore();
+    const server = serve({ draft: "unreadable", review: versioned({ version: 1 }) });
+    await store.start();
+    server.answer = { ...server.answer, draft: null };
+    store.addAnnotation(comment("", `${WIP}.review/v1.md`));
+
+    expect(await store.writeDraft()).toBe(true);
+    expect(server.puts.at(-1)?.annotations).toHaveLength(1);
+  });
+
+  test("a saved draft this tab never loaded is not written over: reload to see it", async () => {
+    const store = await freshStore();
+    const saved = { annotations: [comment("s", `${WIP}.review/v1.md`)], edit: null };
+    const server = serve({ draft: "unreadable", review: versioned({ version: 1 }) });
+    await store.start();
+    server.answer = { ...server.answer, draft: { ...saved, typed: EMPTY_TYPED } };
+
+    expect(await store.writeDraft()).toBe(false);
+    expect(server.puts).toEqual([]);
+    expect(store.failures.value.map(({ text }) => text)).toContain(
+      "A saved draft this tab did not load is on the server: reload the page to see it before you send.",
+    );
+  });
+});
+
+/** The bar's Send of what the page shows: every comment, the edit, and each part. */
+function all(store: Store, parts: readonly SendShare[] = [], takeDefaults: readonly string[] = []) {
+  return store.send({
+    annotations: store.annotations.value.map(({ id }) => id),
+    edit: store.edited.value,
+    parts,
+    takeDefaults,
+  });
+}
+
+/** An extension's share of the Send, which records its `sent` once the page has taken the Send. */
+function sharing(count: number, seen: string[], settle = Promise.resolve()): SendShare {
+  return {
+    count,
+    unanswered: [],
+    more: false,
+    sent: async () => {
+      await settle;
+      seen.push("sent");
+    },
+  };
+}
+
+describe("send", () => {
+  const plan = `${WIP}.review/v1.md`;
+
+  const typed = {
+    ...EMPTY_TYPED,
+    general: "Overall",
+    grill: { [`${WIP}grill-1.md`]: { answers: { Q1: "yes" }, note: "" } },
+  };
+
+  test("writes the draft as the page shows it first, then sends what it names, then loads the review", async () => {
+    const store = await freshStore();
+    const draft = { annotations: [comment("a", plan)], edit: edit(1, "mine\n"), typed };
+    const server = serve({ draft, review: versioned({ version: 1 }) });
+    await store.start();
+    server.calls.length = 0;
+    await all(store, [], ["Q2"]);
+
+    expect(server.calls.slice(0, 3)).toEqual([
+      "PUT /api/draft",
+      "POST /api/send",
+      "GET /api/review",
+    ]);
+    expect(server.sends).toEqual([
+      { annotations: ["a"], edit: 1 as never, parts: true, takeDefaults: ["Q2"] },
+    ]);
+  });
+
+  test("takes out of the page what it sent, and leaves what is typed where it is", async () => {
+    const store = await freshStore();
+    const draft = { annotations: [comment("a", plan)], edit: edit(1, "mine\n"), typed };
+    serve({ draft, review: versioned({ version: 1 }) });
+    await store.start();
+
+    expect(await all(store)).toEqual({ kind: "sent" });
+    expect([store.annotations.value, store.edited.value, store.typed.value]).toEqual([
+      [],
+      null,
+      typed,
+    ]);
+  });
+
+  test("a comment added while the Send is out stays: it was not sent", async () => {
+    const store = await freshStore();
+    const out = Promise.withResolvers<void>();
+    const draft = { annotations: [comment("a", plan)], edit: null, typed: EMPTY_TYPED };
+    serve({ draft, review: versioned({ version: 1 }), sending: () => out.promise });
+    await store.start();
+    const sending = all(store);
+    await settled();
+    store.addAnnotation(comment("b", plan));
+    out.resolve();
+    await sending;
+
+    expect(store.annotations.value.map(({ mark }) => mark)).toEqual([
+      { kind: "comment", body: "b" },
+    ]);
+  });
+
+  test("the Send stays out until each part has read its state again: nothing counts a sent question meanwhile", async () => {
+    const store = await freshStore();
+    const reread = Promise.withResolvers<void>();
+    const seen: string[] = [];
+    serve({ draft: null, review: versioned({ version: 1 }) });
+    await store.start();
+    const sending = all(store, [sharing(1, seen, reread.promise)]);
+    await settled();
+    await settled();
+
+    expect(store.sending.value).toBe(true);
+    reread.resolve();
+    await sending;
+    expect([store.sending.value, seen]).toEqual([false, ["sent"]]);
+  });
+
+  test("one write out at a time: a second Send while one is out sends nothing", async () => {
+    const store = await freshStore();
+    const out = Promise.withResolvers<void>();
+    const draft = { annotations: [comment("a", plan)], edit: null, typed: EMPTY_TYPED };
+    const server = serve({ draft, review: versioned({ version: 1 }), sending: () => out.promise });
+    await store.start();
+    const first = all(store);
+    await settled();
+
+    expect(await all(store)).toEqual({ kind: "failed" });
+    out.resolve();
+    await first;
+    expect(server.sends).toHaveLength(1);
+  });
+
+  test("Send now names its comment alone, and no part: the rest of the draft stays", async () => {
+    const store = await freshStore();
+    const draft = { annotations: [comment("a", plan), comment("b", plan)], edit: null, typed };
+    const server = serve({ draft, review: versioned({ version: 1 }) });
+    await store.start();
+    await store.send({ annotations: ["b"], edit: null, parts: null, takeDefaults: [] });
+
+    expect(server.sends).toEqual([
+      { annotations: ["b"], edit: null, parts: false, takeDefaults: [] },
+    ]);
+    expect(store.annotations.value).toEqual([comment("a", plan)]);
+    expect(store.typed.value).toEqual(typed);
+  });
+
+  test("questions no answer takes keep everything, and answer their ids", async () => {
+    const store = await freshStore();
+    const draft = { annotations: [comment("a", plan)], edit: null, typed };
+
+    const unanswered = {
+      status: 409,
+      answer: { reason: "unanswered", ids: ["Q1", "Q2"] },
+    } as const;
+
+    serve({ draft, review: versioned({ version: 1 }), send: unanswered });
+    await store.start();
+
+    expect(await all(store)).toEqual({ kind: "unanswered", ids: ["Q1", "Q2"] });
+    expect(store.annotations.value).toEqual([comment("a", plan)]);
+    expect(store.failures.value).toEqual([]);
+  });
+
+  test("a refusal keeps the comments and says why", async () => {
+    const store = await freshStore();
+    const draft = { annotations: [comment("a", plan)], edit: null, typed: EMPTY_TYPED };
+    const stale = { status: 409, answer: { reason: "stale" } } as const;
+    serve({ draft, review: versioned({ version: 1 }), send: stale });
+    await store.start();
+
+    expect(await all(store)).toEqual({ kind: "failed" });
+    expect(store.annotations.value).toEqual([comment("a", plan)]);
+    expect(store.failures.value).toEqual([
+      {
+        op: "decision",
+        text: "Not sent: your edit is of a version no longer under review. Your comments are kept.",
+      },
+    ]);
+  });
+
+  test("with the draft not saved nothing is sent: the server would send another", async () => {
+    const store = await freshStore();
+    const refused = "draft.json was saved by an older version of vellum and cannot be read.";
+    const server = serve({ draft: { refused }, review: versioned({ version: 1 }) });
+    await store.start();
+    store.addAnnotation(comment("", plan));
+
+    expect(await all(store)).toEqual({ kind: "failed" });
+    expect(server.sends).toEqual([]);
+  });
+});
+
 describe("the failures", () => {
   test("one per operation: a repeat replaces, a success removes, the others stay", async () => {
     const { fail, failures, succeed } = await freshStore();
@@ -1172,7 +1396,7 @@ describe("a deleted card", () => {
     serve({ draft: null, review: versioned({ version: 1 }), decision: 200 });
     store.annotations.value = [comment("a", `${WIP}.review/v1.md`)];
     store.removeAnnotation("a");
-    await store.decide({ kind: "feedback", edit: null, annotations: [] });
+    await store.decide({ kind: "approve", edit: null, notes: "" });
 
     expect(store.undo.value).toBeNull();
   });
@@ -1199,7 +1423,7 @@ describe("a deleted card", () => {
     review.value = versioned({ version: 1 });
     annotations.value = [comment("a", `${WIP}.review/v1.md`)];
     removeAnnotation("a");
-    review.value = versioned({ version: 1, kind: "changesRequested" });
+    review.value = versioned({ version: 1, kind: "approved" });
     undo.value?.run();
 
     expect(annotations.value).toEqual([]);

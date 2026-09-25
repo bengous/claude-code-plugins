@@ -2,7 +2,16 @@
 import { describe, expect, test } from "bun:test";
 
 import type { Annotation } from "./feedback.ts";
-import { decideOn, editOnLoad, gateVersion, landedAnnotations, slugFor } from "./review.ts";
+import type { Draft } from "./review.ts";
+import {
+  decideOn,
+  EMPTY_TYPED,
+  editOnLoad,
+  gateVersion,
+  landedAnnotations,
+  sendOn,
+  slugFor,
+} from "./review.ts";
 import type { PlanWorkspace } from "./workspace.ts";
 
 const DIR = "plans/2026-09-15/wip-4c2a9d93/" as never;
@@ -18,8 +27,6 @@ const inReview: PlanWorkspace = {
   batches: 0,
   finalizeError: null,
 };
-
-const changesRequested: PlanWorkspace = { kind: "changesRequested", dir: DIR, version: V1 };
 
 const approved: PlanWorkspace = {
   kind: "approved",
@@ -38,7 +45,7 @@ describe("gateVersion", () => {
   });
 
   test.each([
-    ["the same text after a feedback", changesRequested, "# P\n"],
+    ["the same text after a batch", { ...inReview, batches: 1 }, "# P\n"],
     ["a new text", inReview, "# Q\n"],
   ] as const)("%s is the next version", (_name, workspace, plan) => {
     expect(gateVersion(workspace, "# P\n", plan)).toEqual({
@@ -55,12 +62,6 @@ const inReviewAt2: PlanWorkspace = { ...inReview, version: 2 as never };
 const GLOBAL = { kind: "global" } as const;
 
 const NO = { kind: "comment", body: "No." } as const;
-
-const EDITED_FEEDBACK = {
-  kind: "feedback",
-  edit: { version: V1, text: "# Q\n" },
-  annotations: [],
-} as const;
 
 const Q_OF_V2 = { version: 2 as never, text: "# Q\n" } as const;
 
@@ -79,25 +80,6 @@ describe("decideOn", () => {
       version: V1,
       edit: null,
       notes: null,
-    });
-  });
-
-  test("feedback names the file to write", () => {
-    expect(decideOn(inReview, PLAN, { kind: "feedback", edit: null, annotations: [] })).toEqual({
-      kind: "feedback",
-      version: V1,
-      edit: null,
-      path: `${DIR}.review/v1.feedback.md` as never,
-      editedFrom: null,
-      annotations: [],
-    });
-  });
-
-  test("a feedback while drafting is the next batch", () => {
-    expect(decideOn(drafting, null, { kind: "feedback", edit: null, annotations: [] })).toEqual({
-      kind: "draftFeedback",
-      batch: 3,
-      path: `${DIR}.review/v0.feedback-3.md` as never,
     });
   });
 
@@ -133,46 +115,119 @@ describe("decideOn", () => {
     });
   });
 
-  test("a drafting feedback with an edit is refused", () => {
-    expect(decideOn(drafting, null, EDITED_FEEDBACK)).toEqual({ kind: "refused" });
-  });
-
-  test("feedback with an edit retargets the plan's annotation to the new version, not an artifact's", () => {
-    const annotations = [at(`${DIR}.review/v2.md`), at(`${DIR}notes.md`)];
-    const decided = decideOn(inReviewAt2, PLAN, { kind: "feedback", edit: Q_OF_V2, annotations });
-
-    expect(decided).toMatchObject({
-      version: 3,
-      editedFrom: 2,
-      path: `${DIR}.review/v3.feedback.md`,
-      annotations: [at(`${DIR}.review/v3.md`), at(`${DIR}notes.md`)],
-    });
-  });
-
   test("an edit of another version than the one under review is refused", () => {
     expect(decideOn(inReview, PLAN, { ...APPROVE, edit: Q_OF_V2 })).toEqual({
       kind: "refused",
     });
   });
 
-  test.each([changesRequested, approved])(
-    "a feedback with an edit is refused on $kind",
-    (workspace) => {
-      expect(decideOn(workspace, PLAN, EDITED_FEEDBACK)).toEqual({ kind: "refused" });
-    },
-  );
+  test("an approve with a note is refused once approved", () => {
+    expect(decideOn(approved, PLAN, { ...APPROVE, notes: "Slice 1 only." })).toEqual({
+      kind: "refused",
+    });
+  });
 
-  test.each([changesRequested, approved])(
-    "an approve with a note is refused on $kind",
-    (workspace) => {
-      expect(decideOn(workspace, PLAN, { ...APPROVE, notes: "Slice 1 only." })).toEqual({
-        kind: "refused",
-      });
-    },
-  );
-
-  test.each([drafting, changesRequested, approved])("approve is refused on $kind", (workspace) => {
+  test.each([drafting, approved])("approve is refused on $kind", (workspace) => {
     expect(decideOn(workspace, PLAN, APPROVE)).toEqual({ kind: "refused" });
+  });
+});
+
+function draft(annotations: readonly Annotation[], edit: Draft["edit"] = null): Draft {
+  return { annotations, edit, typed: { ...EMPTY_TYPED, general: "kept" } };
+}
+
+function comment(id: string, doc = `${DIR}notes.md`): Annotation {
+  return { id, doc: doc as never, anchor: GLOBAL, mark: NO };
+}
+
+/** A Send naming comments by id, and the edit by its version. */
+function naming(annotations: readonly string[], edit: number | null = null) {
+  return { annotations, edit: edit as never };
+}
+
+describe("sendOn", () => {
+  test("sends the comments named on the version under review, and the draft keeps the rest", () => {
+    const kept = draft([comment("a"), comment("b")]);
+
+    expect(sendOn(inReview, PLAN, kept, naming(["b"]))).toEqual({
+      kind: "send",
+      version: V1,
+      edit: null,
+      editedFrom: null,
+      annotations: [comment("b")],
+      rest: draft([comment("a")]),
+    });
+  });
+
+  test("while drafting the batch belongs to no version", () => {
+    expect(sendOn(drafting, null, draft([comment("a")]), naming(["a"]))).toMatchObject({
+      kind: "send",
+      version: null,
+    });
+  });
+
+  test("a comment the draft no longer holds refuses the Send: the draft changed since the click", () => {
+    expect(sendOn(inReview, PLAN, draft([comment("a")]), naming(["a", "gone"]))).toEqual({
+      kind: "refused",
+      reason: "changed",
+    });
+  });
+
+  test("the edit named goes as the next version, the plan's comments retargeted to it, and leaves the draft", () => {
+    const annotations = [comment("a", `${DIR}.review/v2.md`), comment("b")];
+
+    expect(
+      sendOn(inReviewAt2, PLAN, draft(annotations, Q_OF_V2), naming(["a", "b"], 2)),
+    ).toMatchObject({
+      version: 3,
+      editedFrom: 2,
+      edit: { path: `${DIR}.review/v3.md`, text: "# Q\n" },
+      annotations: [comment("a", `${DIR}.review/v3.md`), comment("b")],
+      rest: { annotations: [], edit: null },
+    });
+  });
+
+  test("an edit equal to the version's text is no edit", () => {
+    const same = draft([], { version: V1, text: PLAN });
+
+    expect(sendOn(inReview, PLAN, same, naming([], 1))).toMatchObject({ version: V1, edit: null });
+  });
+
+  test("an edit the Send does not name stays in the draft", () => {
+    expect(sendOn(inReview, PLAN, draft([comment("a")], Q_OF_V1), naming(["a"]))).toMatchObject({
+      edit: null,
+      rest: { edit: Q_OF_V1 },
+    });
+  });
+
+  test("an edit named that is not the draft's refuses the Send as changed; one of another version is stale", () => {
+    expect(sendOn(inReview, PLAN, draft([]), naming([], 1))).toEqual({
+      kind: "refused",
+      reason: "changed",
+    });
+    expect(sendOn(inReview, PLAN, draft([], Q_OF_V2), naming([], 2))).toEqual({
+      kind: "refused",
+      reason: "stale",
+    });
+  });
+
+  test("a comment on the plan sent without the edit it was shifted by is refused: its lines are the edit's", () => {
+    const onPlan = comment("a", `${DIR}.review/v1.md`);
+
+    expect(sendOn(inReview, PLAN, draft([onPlan], Q_OF_V1), naming(["a"]))).toEqual({
+      kind: "refused",
+      reason: "edit",
+    });
+    expect(sendOn(inReview, PLAN, draft([comment("b")], Q_OF_V1), naming(["b"]))).toMatchObject({
+      kind: "send",
+    });
+  });
+
+  test("nothing is sent once approved", () => {
+    expect(sendOn(approved, PLAN, draft([comment("a")]), naming(["a"]))).toEqual({
+      kind: "refused",
+      reason: "approved",
+    });
   });
 });
 

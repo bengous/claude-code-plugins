@@ -90,28 +90,16 @@ describe("the question shown", () => {
   });
 });
 
-describe("the send", () => {
-  test("says how many open questions it takes as recommended", () => {
-    const send = (answers: Record<string, string>): string => roundsOf(ASKING, answers, null).send;
-
-    expect(send(NOTHING_TYPED)).toBe("Send round · 2 taken as recommended");
-    expect(send({ Q7: "As recommended." })).toBe("Send round · 1 taken as recommended");
-    expect(send({ Q7: "Every push.", Q8: "As recommended." })).toBe("Send round");
-  });
-
+describe("the round's part of a Send", () => {
   test("closes the open questions, in order: the ones the chips and the band read", () => {
     expect(roundsOf(ASKING, { Q7: "As recommended." }, null).open).toEqual(["Q7", "Q8"]);
     expect(roundsOf(SENT, NOTHING_TYPED, null).open).toEqual([]);
   });
 
   test("counts as waiting the open questions the draft leaves untouched, as the chips", () => {
-    expect(roundsOf(ASKING, NOTHING_TYPED, null).waiting).toBe(2);
-    expect(roundsOf(ASKING, { Q7: "As recommended.", Q8: " " }, null).waiting).toBe(1);
-    expect(roundsOf(SENT, NOTHING_TYPED, null).waiting).toBe(0);
-  });
-
-  test("with no question open, sends a note", () => {
-    expect(roundsOf(SENT, NOTHING_TYPED, null).send).toBe("Send note");
+    expect(roundsOf(ASKING, NOTHING_TYPED, null).waiting).toEqual(["Q7", "Q8"]);
+    expect(roundsOf(ASKING, { Q7: "As recommended.", Q8: " " }, null).waiting).toEqual(["Q8"]);
+    expect(roundsOf(SENT, NOTHING_TYPED, null).waiting).toEqual([]);
   });
 });
 
