@@ -1,7 +1,6 @@
 import type { OtherKind } from "./choice.ts";
 import type { Move } from "./protocol.ts";
 
-/** A kind of step as the window names it, the reviewer's own words included. */
 export const KIND_LABELS: Readonly<Record<OtherKind, string>> = {
   grill: "Grill",
   mockup: "Mockup",
@@ -10,7 +9,6 @@ export const KIND_LABELS: Readonly<Record<OtherKind, string>> = {
   own: "In my words",
 };
 
-/** What the field asks for a step of the reviewer's own; the plan takes no text. */
 export const FIELD_HINTS: Readonly<Record<Exclude<OtherKind, "plan">, string>> = {
   grill: "What should Claude grill you on?",
   mockup: "Which screen should Claude draw?",
@@ -18,7 +16,6 @@ export const FIELD_HINTS: Readonly<Record<Exclude<OtherKind, "plan">, string>> =
   own: "What should Claude do next?",
 };
 
-/** What a move is about, under its kind: its subject, its screen or its question. */
 export function detailOf(move: Move): string {
   switch (move.kind) {
     case "grill":

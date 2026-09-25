@@ -1,6 +1,5 @@
 import type { Move, Pending, StepAnswer } from "./protocol.ts";
 
-/** A move as Claude reads it in the reviewer's answer. */
 export function moveText(move: Move): string {
   switch (move.kind) {
     case "grill":

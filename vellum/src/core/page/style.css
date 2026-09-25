@@ -277,7 +277,6 @@ iframe { border: 0; width: 100%; height: 100%; display: block; background: var(-
 .popover.through { opacity: 0.35; pointer-events: none; }
 .btn.grill { border-color: var(--ask); color: var(--ask); }
 .btn.grill.lit { background: var(--ask); color: var(--sheet); }
-/* The "Next step" window: Claude's reason, its moves as boxes none of which is checked, the one it recommends marked. */
 .btn.step-later { position: relative; }
 .btn.step-later::after { content: ""; position: absolute; top: calc(var(--s-1) * -1); right: calc(var(--s-1) * -1); width: var(--s-3); height: var(--s-3); border-radius: 50%; background: var(--ask); border: 2px solid var(--sheet); }
 .step-dialog .dialog-card { border-top: 4px solid var(--ask); }
