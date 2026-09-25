@@ -73,6 +73,8 @@ paths:
   signal, and no saving effect `start` leaves behind, reaches another test or another suite. The
   query is random, not counted: `--rerun-each` evaluates the suite again, its counter with it, and
   the registry still holds the stores of the first pass.
+- The kit starts no subagent: a spawn that succeeds, with its `agentId`, is checked in a live
+  session, and the kit covers the rest of a launch ([Hook tests](../../../docs/plugin-testing/hooks.md)).
 - The kit cannot raise one case: the lock's overrun. `mock.clock` lets a wait held past a
   hook's budget go, and a test's own budget is shorter still, so a hook that outruns the
   dispatch is measured in a live session instead ([Hook tests](../../../docs/plugin-testing/hooks.md)).

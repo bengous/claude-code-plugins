@@ -71,6 +71,8 @@ function hostOf($: EngineInterface): Host {
     after: (ms, fn) => $.clock.after(ms, fn),
     now: () => $.clock.now(),
     submitPrompt: (text) => $.prompt.submit({ text }),
+    spawnAgent: (args) => $.agent.spawn(args),
+    listAgents: () => $.agent.list(),
     status: (text) => $.ui.status(text),
     invalidate: () => $.ui.invalidate("ui.render"),
     log: (text) => $.ui.log(text),
@@ -457,8 +459,19 @@ export const register: Register = (on) => {
   on("turn.complete", async ($, e, next) => {
     const result = await next(e);
 
-    if (state.kind !== "live" || e.agentId !== undefined) return result;
+    if (state.kind !== "live") return result;
     const host = hostOf($);
+    const { agentId } = e;
+
+    // A subagent's end is its answer to whoever spawned it; the turns and the gate are the main loop's.
+    if (agentId !== undefined) {
+      await handed(host, state.live, "agentAnswered", (extension, context) =>
+        extension.agentAnswered?.(context, { agentId, text: e.answer, reason: e.reason }),
+      );
+
+      return result;
+    }
+
     const own = ownOf(turns, e.turnId);
     turns = completed(turns, e.turnId);
 

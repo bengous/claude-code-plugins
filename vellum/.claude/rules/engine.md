@@ -151,6 +151,14 @@ loop. `/vellum:start` enters it, Approve in the page or `/vellum:stop` leaves it
   included. A recorded version writes one log line, and the band draws it from the next `stage` line; a kept one, a refusal (no
   `plan.md` yet, the plan approved) and a server that does not answer say nothing. The explicit
   tool stays the model's mid-turn signal and records a new version after a feedback.
+- A subagent's end is its answer to whoever spawned it: the same `turn.complete` hook, while
+  `live`, hands a turn that carries `agentId` to the halves' `agentAnswered` (its id, its final
+  text, its reason) and does nothing else, no gate and no `answered`; outside `live` it reaches
+  nobody. A half spawns through `Host.spawnAgent` and keeps nothing of the id: `review` reads its
+  run off the server at the answer, so an answer after a reload finds it. A subagent vellum
+  spawned steps past every other hook of vellum's, its tool calls included, so its final text
+  is the one way it speaks back ([Hook runtime](../../../docs/plugin-testing/hook-runtime.md)
+  § Tools, commands and modes).
 - Every transition is an engine event or an answer from the server, never a reflex of the
   model. What is under review lives on the server's disk; the module keeps no copy of it.
 - Parse at the boundary, once: `tool_input`, `$.store` values and the server's JSON arrive as

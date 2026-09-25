@@ -1,4 +1,4 @@
-import type { HttpResponse, PromptOrigin, ToolSpec } from "claude-code";
+import type { HttpResponse, PromptOrigin, ToolSpec, TurnCompleteReason } from "claude-code";
 
 import type { Host } from "./host.ts";
 import type { Live } from "./mode.ts";
@@ -59,6 +59,13 @@ export type Answered = {
   readonly own: boolean;
 };
 
+/** A subagent's turn, as its `turn.complete` carries it: `agentId` is the one `Host.spawnAgent` answered. */
+export type AgentAnswered = {
+  readonly agentId: string;
+  readonly text: string;
+  readonly reason: TurnCompleteReason;
+};
+
 export type EngineExtension = {
   readonly id: string;
   readonly tools?: readonly ExtensionTool[];
@@ -68,6 +75,8 @@ export type EngineExtension = {
   readonly prompted?: (context: EngineContext, prompt: Prompted) => Promise<void>;
   /** The main loop's turn only, after the core's own gate. */
   readonly answered?: (context: EngineContext, turn: Answered) => Promise<void>;
+  /** A subagent's turn, any subagent's, while live: the extension keeps the ids it spawned. */
+  readonly agentAnswered?: (context: EngineContext, turn: AgentAnswered) => Promise<void>;
   /**
    * Each time the server says the review changed, a `stage` line, while live: what the extension
    * reads again for its segment. A throw is logged and the next extension runs.
