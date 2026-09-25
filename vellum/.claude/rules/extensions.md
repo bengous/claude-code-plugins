@@ -41,11 +41,14 @@ the engine events the core hands it, and its segment of the band above the promp
   before the write (`relaysOf`, then `tell` in `grill/server.ts`), so the reply End grill writes
   and the end both go, and a block written into the file by hand is not told. What the server
   keeps in memory is told by the route that changes it: a decline of `grill`'s one proposal slot.
-- What the reviewer sends leaves with the core's one Send, never a route of the extension's:
-  `unanswered` says what a Send of all would take by default, `section` writes the extension's
-  part of the batch, the grill's reply closing its round, and `sent` hears the entry that carried
-  the batch. What the draft holds for an extension is read from the `Draft` the core hands it, or
-  from `ServerContext.draft` for a route (End grill ends with what is typed as the reply). A tool
+- What the reviewer sends leaves with the core's one Send, never a route of the extension's.
+  `part` answers, writing nothing, what the bar's Send takes of the extension, never a Send now:
+  nothing; the questions no answer takes that the reviewer did not agree to leave to their
+  recommendation, every one, so the page asks about all; or its text, what the draft keeps of
+  its typing, and a `commit` the core runs once the batch and its entry exist, where the grill
+  closes its round. What the draft holds for an extension is read from the `Draft` the core hands
+  it, or from `ServerContext.draft` for a route, inside the route's own step of the queue (End
+  grill ends with what is typed as the reply, never what a Send took before it). A tool
   that waits for the reviewer is answered by its server half: `grill` keeps, per review, which
   Send closed which round, and `POST wait` holds up to `WAIT_HOLD_MS`, under the engine's 30 s
   cut, then answers the Send's entry number and the text the tool returns, an end, or still

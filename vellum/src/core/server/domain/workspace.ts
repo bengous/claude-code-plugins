@@ -45,6 +45,18 @@ export function batchOf(name: string): { readonly version: number; readonly batc
   return match === null ? null : { version: Number(match[1]), batch: Number(match[2]) };
 }
 
+const LEGACY_FEEDBACK = /^v([1-9]\d*)\.feedback\.md$/u;
+
+/**
+ * The batch a feedback file of vellum before 0.14.5 becomes: one feedback per version, the page
+ * locked until the next, so it is that version's first batch. `null` for any other name.
+ */
+export function legacyBatch(name: string): string | null {
+  const version = LEGACY_FEEDBACK.exec(name)?.[1];
+
+  return version === undefined ? null : `v${version}.feedback-1.md`;
+}
+
 /** How many batches the listing holds for `version`, `null` for the ones sent before the first. */
 export function batchesOf(names: ReadonlySet<string>, version: Version | null): number {
   return [...names].filter((name) => batchOf(name)?.version === (version ?? 0)).length;

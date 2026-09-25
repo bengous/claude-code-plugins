@@ -176,7 +176,10 @@ test.describe("the grill's answers", () => {
 });
 
 test.describe("an action that would throw a typed text asks first", () => {
-  test("Send names the general box, and sends once agreed", async ({ page, vellum }) => {
+  test("Send names the general box, and sends once agreed, the box keeping its text", async ({
+    page,
+    vellum,
+  }) => {
     await reviewV1(page, vellum);
     await commentOn(page);
     await addComment(page, "Say which forms.");
@@ -186,6 +189,7 @@ test.describe("an action that would throw a typed text asks first", () => {
     const warning = page.getByRole("dialog");
     await expect(warning).toBeVisible();
     await expect(warning).toContainText("general");
+    await expect(warning).toContainText("It stays here, unsent.");
     await page.getByRole("button", { name: "Cancel" }).click();
     await expect(warning).toHaveCount(0);
     await expect(page.locator(".bar .status")).toHaveText("In review");
@@ -193,7 +197,7 @@ test.describe("an action that would throw a typed text asks first", () => {
     await sendButton(page).click();
     await page.getByRole("button", { name: "Send anyway" }).click();
     await expect(page.locator(".bar .status")).toHaveText("In review · 1 sent");
-    await expect(page.locator("#global")).toHaveValue("");
+    await expect(page.locator("#global")).toHaveValue("The slices lack an owner.");
   });
 
   test("Cancel in the editor with a text typed asks, and keeps the editor on Cancel", async ({

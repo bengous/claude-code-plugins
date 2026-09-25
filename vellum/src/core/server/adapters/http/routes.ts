@@ -4,7 +4,6 @@ import { join, sep } from "node:path";
 import type { Route } from "../../../extension.ts";
 import type {
   Decision,
-  DraftItemRef,
   GateAnswer,
   PlanWorkspace,
   SendAnswer,
@@ -12,7 +11,7 @@ import type {
   VellumBuild,
 } from "../../../protocol.ts";
 import type { GateOptions, Review } from "../../app/review.ts";
-import { parseProjectPath } from "../../domain/paths.ts";
+import { parseProjectPath, parseVersion } from "../../domain/paths.ts";
 import type { ParseResult } from "../../domain/paths.ts";
 import { DRAFT_FILE } from "../../domain/workspace.ts";
 import { isRecord, parseDraft, parseEdit } from "../draft.ts";
@@ -57,24 +56,31 @@ async function parseDecision(request: Request): Promise<Decision | null> {
     : null;
 }
 
-function parseItemRef(value: unknown): DraftItemRef | null {
-  return isRecord(value) && value.kind === "annotation" && typeof value.id === "string"
-    ? { kind: "annotation", id: value.id }
+function parseIds(value: unknown): readonly string[] | null {
+  return Array.isArray(value) && value.every((id: unknown) => typeof id === "string")
+    ? value.map(String)
     : null;
 }
 
-/** `items` is `"all"` or a list of the draft's items, never empty: an empty Send names nothing. */
+/** What a Send takes, named as the page saw it: comment ids, the edit's version or `null`, whether the parts go, the defaults agreed. */
 async function parseSend(request: Request): Promise<SendRequest | null> {
   const body: unknown = await request.json().catch(() => null);
 
-  if (!isRecord(body) || typeof body.takeDefaults !== "boolean") return null;
+  if (!isRecord(body) || typeof body.parts !== "boolean") return null;
+  const annotations = parseIds(body.annotations);
+  const takeDefaults = parseIds(body.takeDefaults);
+  const edit = typeof body.edit === "number" ? parseVersion(body.edit) : null;
 
-  if (body.items === "all") return { items: "all", takeDefaults: body.takeDefaults };
-  const refs = Array.isArray(body.items) ? body.items.map(parseItemRef) : [null];
+  if (annotations === null || takeDefaults === null || (body.edit !== null && edit?.ok !== true)) {
+    return null;
+  }
 
-  return refs.length === 0 || refs.includes(null)
-    ? null
-    : { items: refs.filter((ref) => ref !== null), takeDefaults: body.takeDefaults };
+  return {
+    annotations,
+    edit: edit?.ok === true ? edit.value : null,
+    parts: body.parts,
+    takeDefaults,
+  };
 }
 
 /* oxlint-enable anti-slop/no-runtime-typeof, anti-slop/no-unknown-parameters, anti-slop/no-unsafe-dictionary-type */

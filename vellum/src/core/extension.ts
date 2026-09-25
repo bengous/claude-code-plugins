@@ -9,6 +9,7 @@ import type {
   LineDiff,
   LinkRoots,
   PlanWorkspace,
+  Typed,
 } from "./protocol.ts";
 import type { ProjectPath } from "./server/domain/paths.ts";
 
@@ -35,14 +36,20 @@ export type Panel = {
   readonly component: ComponentType;
 };
 
-/** What an extension adds to the Send the bar draws, read at each render. */
+/**
+ * What an extension adds to the Send the bar draws, read at each render and snapshotted at the
+ * click: what `Send (n)` counts, the ids of its questions no answer takes, which the bar asks
+ * about before it sends, and something of its own the count leaves out (the grill's note).
+ */
 export type SendShare = {
-  /** Its items `Send (n)` counts: the grill's questions answered. */
   readonly count: number;
-  /** Its questions a Send would take by default: the bar asks before it sends. */
-  readonly unanswered: number;
-  /** Something of its own a Send carries that `count` leaves out: the grill's note. */
+  readonly unanswered: readonly string[];
   readonly more: boolean;
+  /**
+   * Once the server took the Send: the extension reads its state again, then takes out of the
+   * page's typing what this snapshot sent. The Send stays out until it resolves.
+   */
+  readonly sent: () => Promise<void>;
 };
 
 export type PageExtension = {
@@ -86,13 +93,30 @@ export type ServerContext = {
   readonly draft: () => Promise<Draft | null>;
 };
 
-/** A batch a Send wrote, as each extension hears of it once its entry is in the channel. */
+/** A batch a Send wrote, as an extension's part hears of it once its entry is in the channel. */
 export type SentBatch = {
   readonly file: ProjectPath;
   readonly seq: number;
-  /** Whether the batch holds more than this extension's section: comments, an edit, another's part. */
+  /** Whether the batch holds more than this extension's part: comments, an edit, another's part. */
   readonly more: boolean;
 };
+
+/**
+ * An extension's part of a Send, read and decided before anything is written: none; questions no
+ * answer takes, which the reviewer did not agree to leave to their recommendation (every one of
+ * them, so the page asks about all); or its text, what the draft keeps of its typing, and what
+ * it closes once the batch and its entry exist.
+ */
+export type Part =
+  | { readonly kind: "none" }
+  | { readonly kind: "unanswered"; readonly ids: readonly string[] }
+  | {
+      readonly kind: "part";
+      /** Heading included, written into the batch before the comments. */
+      readonly text: string;
+      readonly typed: (typed: Typed) => Typed;
+      readonly commit: (batch: SentBatch) => Promise<void>;
+    };
 
 export type Route = (request: Request) => Promise<Response>;
 
@@ -113,16 +137,12 @@ export type ServerExtension = {
   /** After the rename of an approval, on the server: what the extension must close, it closes here. */
   readonly approved?: (context: ServerContext) => Promise<void>;
   /**
-   * What a Send of the whole draft would take by default: questions the draft leaves unanswered.
-   * The Send is refused with the total, unless the reviewer takes the defaults.
+   * Its part of the bar's Send, in the Send's step of the queue, and never of a Send now. It
+   * writes nothing: the core writes the batch and its entry, then runs the part's `commit`.
    */
-  readonly unanswered?: (context: ServerContext, draft: Draft) => Promise<number>;
-  /**
-   * Its part of a Send of the whole draft, heading included, written into the batch before the
-   * comments; `null` when it has none, and then it wrote nothing. Runs inside the Send's step of
-   * the queue, before the batch is written: what the part closes, it closes here.
-   */
-  readonly section?: (context: ServerContext, draft: Draft) => Promise<string | null>;
-  /** Every Send, once its batch is written and its entry is in the channel, in the same step. */
-  readonly sent?: (context: ServerContext, batch: SentBatch) => Promise<void>;
+  readonly part?: (
+    context: ServerContext,
+    draft: Draft,
+    takeDefaults: readonly string[],
+  ) => Promise<Part>;
 };

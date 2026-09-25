@@ -8,7 +8,7 @@ const GRILL_FILE = /^grill-([1-9]\d*)\.md$/u;
 /** Every break a multiline pattern's `^` matches after: a subject holding one could forge a block of the transcript. */
 const LINE_BREAK = /[\n\r\u2028\u2029]/u;
 
-/** What `POST ask` and `POST reply` refuse with; the engine reads it to name the way to a grill. */
+/** What `POST ask` refuses with; the engine reads it to name the way to a grill. */
 export const NO_GRILL_OPEN = "no grill is open";
 
 /** `grill-<n>.md`, the one name a grill's transcript has at the root of the plan's directory. */

@@ -1,6 +1,7 @@
 /* oxlint-disable anti-slop/require-safety-comment-for-type-assertion -- fixtures are branded values (ProjectPath, Version, WipDir) written as literals, and fakes stand where a browser global does: the brand is the parser's to grant, the global's type the browser's, and nothing here parses or runs in one. */
 import { afterEach, describe, expect, test } from "bun:test";
 
+import type { SendShare } from "../extension.ts";
 import type {
   Annotation,
   Decision,
@@ -136,6 +137,8 @@ type Served = {
   readonly decision?: number;
   /** What `POST /api/send` answers: its status and body, 200 and a batch unless said. */
   readonly send?: { readonly status: number; readonly answer: SendAnswer };
+  /** What `POST /api/send` waits on before its answer. */
+  readonly sending?: () => Promise<void>;
   /** What `GET /api/review` waits on before its answer. */
   readonly load?: () => Promise<void>;
   /** What a `PUT /api/draft` waits on before its answer, and how it fails when this rejects. */
@@ -202,6 +205,7 @@ function serve(answer: Served): Server {
 
     if (url === "/api/send") {
       server.sends.push(JSON.parse(String(init.body)) as SendRequest);
+      await server.answer.sending?.();
       const sent = server.answer.send ?? { status: 200, answer: BATCH };
 
       return Response.json(sent.answer, { status: sent.status });
@@ -463,7 +467,7 @@ describe("what is typed", () => {
     });
   });
 
-  test("strayTyped is what a Send would throw: the grill's answers leave with it", async () => {
+  test("strayTyped is what a Send leaves unsent: the grill's answers leave with it", async () => {
     const { setTyped, strayTyped } = await freshStore();
     setTyped({
       general: "Overall",
@@ -814,7 +818,7 @@ describe("start", () => {
     expect(store.failures.value).toEqual([
       {
         op: "draft",
-        text: "The saved draft could not be read: the server answered 500. Nothing is saved until a reload succeeds.",
+        text: "The saved draft could not be read: the server answered 500. Nothing is saved until the page reads it again, at a reload or a Send.",
       },
     ]);
   });
@@ -1161,6 +1165,56 @@ describe("decide", () => {
   });
 });
 
+describe("writeDraft", () => {
+  test("a draft the first load could not read is read again: with none saved, saving starts and the write goes", async () => {
+    const store = await freshStore();
+    const server = serve({ draft: "unreadable", review: versioned({ version: 1 }) });
+    await store.start();
+    server.answer = { ...server.answer, draft: null };
+    store.addAnnotation(comment("", `${WIP}.review/v1.md`));
+
+    expect(await store.writeDraft()).toBe(true);
+    expect(server.puts.at(-1)?.annotations).toHaveLength(1);
+  });
+
+  test("a saved draft this tab never loaded is not written over: reload to see it", async () => {
+    const store = await freshStore();
+    const saved = { annotations: [comment("s", `${WIP}.review/v1.md`)], edit: null };
+    const server = serve({ draft: "unreadable", review: versioned({ version: 1 }) });
+    await store.start();
+    server.answer = { ...server.answer, draft: { ...saved, typed: EMPTY_TYPED } };
+
+    expect(await store.writeDraft()).toBe(false);
+    expect(server.puts).toEqual([]);
+    expect(store.failures.value.map(({ text }) => text)).toContain(
+      "A saved draft this tab did not load is on the server: reload the page to see it before you send.",
+    );
+  });
+});
+
+/** The bar's Send of what the page shows: every comment, the edit, and each part. */
+function all(store: Store, parts: readonly SendShare[] = [], takeDefaults: readonly string[] = []) {
+  return store.send({
+    annotations: store.annotations.value.map(({ id }) => id),
+    edit: store.edited.value,
+    parts,
+    takeDefaults,
+  });
+}
+
+/** An extension's share of the Send, which records its `sent` once the page has taken the Send. */
+function sharing(count: number, seen: string[], settle = Promise.resolve()): SendShare {
+  return {
+    count,
+    unanswered: [],
+    more: false,
+    sent: async () => {
+      await settle;
+      seen.push("sent");
+    },
+  };
+}
+
 describe("send", () => {
   const plan = `${WIP}.review/v1.md`;
 
@@ -1170,64 +1224,113 @@ describe("send", () => {
     grill: { [`${WIP}grill-1.md`]: { answers: { Q1: "yes" }, note: "" } },
   };
 
-  test("writes the draft as the page shows it first, then sends it, then loads the review", async () => {
+  test("writes the draft as the page shows it first, then sends what it names, then loads the review", async () => {
     const store = await freshStore();
-    const server = serve({ draft: null, review: versioned({ version: 1 }) });
+    const draft = { annotations: [comment("a", plan)], edit: edit(1, "mine\n"), typed };
+    const server = serve({ draft, review: versioned({ version: 1 }) });
     await store.start();
-    store.setTyped({ general: "Overall" });
     server.calls.length = 0;
-    await store.send("all", false);
+    await all(store, [], ["Q2"]);
 
     expect(server.calls.slice(0, 3)).toEqual([
       "PUT /api/draft",
       "POST /api/send",
       "GET /api/review",
     ]);
-    expect(server.puts.at(-2)?.typed.general).toBe("Overall");
-    expect(server.puts.at(-1), "what the Send took, gone from the draft").toEqual({
-      annotations: [],
-      edit: null,
-      typed: EMPTY_TYPED,
-    });
-    expect(server.sends).toEqual([{ items: "all", takeDefaults: false }]);
+    expect(server.sends).toEqual([
+      { annotations: ["a"], edit: 1 as never, parts: true, takeDefaults: ["Q2"] },
+    ]);
   });
 
-  test("all clears the comments, the edit and what is typed, the grill's answers included", async () => {
+  test("takes out of the page what it sent, and leaves what is typed where it is", async () => {
     const store = await freshStore();
     const draft = { annotations: [comment("a", plan)], edit: edit(1, "mine\n"), typed };
     serve({ draft, review: versioned({ version: 1 }) });
     await store.start();
 
-    expect(await store.send("all", true)).toEqual({ kind: "sent" });
+    expect(await all(store)).toEqual({ kind: "sent" });
     expect([store.annotations.value, store.edited.value, store.typed.value]).toEqual([
       [],
       null,
-      EMPTY_TYPED,
+      typed,
     ]);
   });
 
-  test("the comments named leave alone: the rest of the draft stays", async () => {
+  test("a comment added while the Send is out stays: it was not sent", async () => {
+    const store = await freshStore();
+    const out = Promise.withResolvers<void>();
+    const draft = { annotations: [comment("a", plan)], edit: null, typed: EMPTY_TYPED };
+    serve({ draft, review: versioned({ version: 1 }), sending: () => out.promise });
+    await store.start();
+    const sending = all(store);
+    await settled();
+    store.addAnnotation(comment("b", plan));
+    out.resolve();
+    await sending;
+
+    expect(store.annotations.value.map(({ mark }) => mark)).toEqual([
+      { kind: "comment", body: "b" },
+    ]);
+  });
+
+  test("the Send stays out until each part has read its state again: nothing counts a sent question meanwhile", async () => {
+    const store = await freshStore();
+    const reread = Promise.withResolvers<void>();
+    const seen: string[] = [];
+    serve({ draft: null, review: versioned({ version: 1 }) });
+    await store.start();
+    const sending = all(store, [sharing(1, seen, reread.promise)]);
+    await settled();
+    await settled();
+
+    expect(store.sending.value).toBe(true);
+    reread.resolve();
+    await sending;
+    expect([store.sending.value, seen]).toEqual([false, ["sent"]]);
+  });
+
+  test("one write out at a time: a second Send while one is out sends nothing", async () => {
+    const store = await freshStore();
+    const out = Promise.withResolvers<void>();
+    const draft = { annotations: [comment("a", plan)], edit: null, typed: EMPTY_TYPED };
+    const server = serve({ draft, review: versioned({ version: 1 }), sending: () => out.promise });
+    await store.start();
+    const first = all(store);
+    await settled();
+
+    expect(await all(store)).toEqual({ kind: "failed" });
+    out.resolve();
+    await first;
+    expect(server.sends).toHaveLength(1);
+  });
+
+  test("Send now names its comment alone, and no part: the rest of the draft stays", async () => {
     const store = await freshStore();
     const draft = { annotations: [comment("a", plan), comment("b", plan)], edit: null, typed };
     const server = serve({ draft, review: versioned({ version: 1 }) });
     await store.start();
-    await store.send(["b"], false);
+    await store.send({ annotations: ["b"], edit: null, parts: null, takeDefaults: [] });
 
     expect(server.sends).toEqual([
-      { items: [{ kind: "annotation", id: "b" }], takeDefaults: false },
+      { annotations: ["b"], edit: null, parts: false, takeDefaults: [] },
     ]);
     expect(store.annotations.value).toEqual([comment("a", plan)]);
     expect(store.typed.value).toEqual(typed);
   });
 
-  test("questions left unanswered keep everything, and say how many", async () => {
+  test("questions no answer takes keep everything, and answer their ids", async () => {
     const store = await freshStore();
     const draft = { annotations: [comment("a", plan)], edit: null, typed };
-    const unanswered = { status: 409, answer: { reason: "unanswered", count: 2 } } as const;
+
+    const unanswered = {
+      status: 409,
+      answer: { reason: "unanswered", ids: ["Q1", "Q2"] },
+    } as const;
+
     serve({ draft, review: versioned({ version: 1 }), send: unanswered });
     await store.start();
 
-    expect(await store.send("all", false)).toEqual({ kind: "unanswered", count: 2 });
+    expect(await all(store)).toEqual({ kind: "unanswered", ids: ["Q1", "Q2"] });
     expect(store.annotations.value).toEqual([comment("a", plan)]);
     expect(store.failures.value).toEqual([]);
   });
@@ -1239,7 +1342,7 @@ describe("send", () => {
     serve({ draft, review: versioned({ version: 1 }), send: stale });
     await store.start();
 
-    expect(await store.send("all", false)).toEqual({ kind: "failed" });
+    expect(await all(store)).toEqual({ kind: "failed" });
     expect(store.annotations.value).toEqual([comment("a", plan)]);
     expect(store.failures.value).toEqual([
       {
@@ -1256,7 +1359,7 @@ describe("send", () => {
     await store.start();
     store.addAnnotation(comment("", plan));
 
-    expect(await store.send("all", false)).toEqual({ kind: "failed" });
+    expect(await all(store)).toEqual({ kind: "failed" });
     expect(server.sends).toEqual([]);
   });
 });

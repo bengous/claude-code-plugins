@@ -924,6 +924,26 @@ test.describe("the one Send", () => {
     await expect(answer).toHaveValue("One store.");
   });
 
+  test("after a Send the bar waits for the round to read again: no count of the questions it closed", async ({
+    page,
+    vellum,
+  }) => {
+    await asking(page, vellum);
+    await allRecommended(page).click();
+    await page.route("**/api/x/grill/blocks*", async (route) => {
+      await new Promise((done) => {
+        setTimeout(done, 1500);
+      });
+      await route.continue();
+    });
+    await sendAll(page);
+    await expect.poll(() => vellum.batches()).toEqual(["v1.feedback-1.md"]);
+
+    // Read once, inside the 1.5 s the round takes to read again: a retrying assertion outwaits it.
+    expect(await sendButton(page).isDisabled()).toBe(true);
+    await expect(sendButton(page)).toHaveText("Send");
+  });
+
   test("a grill_ask waiting on the round gets the Send as its answer, the batch named for the rest", async ({
     page,
     vellum,

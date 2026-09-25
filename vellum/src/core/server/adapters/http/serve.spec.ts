@@ -191,7 +191,7 @@ describe("what serve writes on stdout", () => {
       await fetch(`http://127.0.0.1:${ready.port}/api/send`, {
         method: "POST",
         headers,
-        body: JSON.stringify({ items: "all", takeDefaults: false }),
+        body: JSON.stringify({ annotations: ["a"], edit: null, parts: true, takeDefaults: [] }),
       });
 
       expect(JSON.parse(await serve.next())).toEqual({

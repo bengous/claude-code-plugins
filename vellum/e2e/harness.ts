@@ -9,6 +9,7 @@ import type { Readable } from "node:stream";
 import type { Locator, Page } from "@playwright/test";
 import { expect, test as base } from "@playwright/test";
 
+import type { Annotation, SendAnswer } from "../src/core/protocol.ts";
 import type {
   CloseReason,
   GrillPosts,
@@ -219,8 +220,16 @@ export async function startVellum(
       const typing = open === null ? {} : { [open]: { answers, note } };
       const typed = { general: "", composer: {}, grill: typing, editor: null };
       await api("draft", { annotations: comments, edit: null, typed }, "PUT");
+      // SAFETY: the page's own `Annotation`s, as a test hands them to the draft.
+      const ids = comments.map((comment) => (comment as Annotation).id);
+      const all = { annotations: ids, edit: null, parts: true };
+      const first = await api("send", { ...all, takeDefaults: [] });
+      // SAFETY: the server's own `SendAnswer`, serialized by `Response.json` in routes.ts.
+      const answer = first.json as SendAnswer;
 
-      return api("send", { items: "all", takeDefaults: true });
+      return first.status === 409 && "reason" in answer && answer.reason === "unanswered"
+        ? api("send", { ...all, takeDefaults: answer.ids })
+        : first;
     },
     batches: () =>
       readdirSync(review())

@@ -1,5 +1,6 @@
 import { batch, computed, effect, signal } from "@preact/signals";
 
+import type { SendShare } from "../extension.ts";
 import type {
   Annotation,
   Decision,
@@ -9,6 +10,7 @@ import type {
   LineDiff,
   Mark,
   ReviewView,
+  SendRefused,
   Typed,
 } from "../protocol.ts";
 import {
@@ -293,7 +295,7 @@ function settleEditorTyping(view: ReviewView): void {
   setTyped({ editor: null });
 }
 
-/** Clears what a decision or a Send of all took: the comments, the edit, what is typed. */
+/** Clears what an approval took: the comments, the edit, what is typed. */
 function clearDraft(): void {
   batch(() => {
     annotations.value = [];
@@ -324,88 +326,144 @@ export async function decide(decision: Decision): Promise<boolean> {
   return status < 300;
 }
 
-/** A Send in flight: every way to one waits, so nothing is sent twice. */
+/**
+ * A write out to the review that takes from the draft, a Send or End grill: every way to either
+ * waits, so nothing is sent twice. A Send stays out until the page has read again what it left.
+ */
 export const sending = signal(false);
 
-/** Writes the draft as the page shows it and answers whether the server kept it; `start` binds it. */
-let flushDraft: () => Promise<boolean> = () => Promise.resolve(false);
+/** Runs `work` as the one write out; `null`, running nothing, while another is. */
+export async function outOnce<T>(work: () => Promise<T>): Promise<T | null> {
+  if (sending.peek()) return null;
+  sending.value = true;
 
-/** The draft written now, as the page shows it: what the server reads next is what is on screen. `true` once kept. */
-export function writeDraft(): Promise<boolean> {
-  return flushDraft();
+  try {
+    return await work();
+  } finally {
+    sending.value = false;
+  }
+}
+
+/**
+ * Writes the draft as the page shows it and answers whether the server kept it; `startSaving`
+ * binds it, and `null` is a page whose first read of the draft failed, so it saves nothing yet.
+ */
+let flushDraft: (() => Promise<boolean>) | null = null;
+
+/**
+ * The draft written now, as the page shows it: what the server reads next is what is on screen.
+ * `true` once kept. A page that could not read the draft at its load reads it again first: none
+ * saved starts the saving; one saved that this tab never loaded is never written over.
+ */
+export async function writeDraft(): Promise<boolean> {
+  if (flushDraft !== null) return await flushDraft();
+  const saved = await fetchDraft().catch(() => null);
+
+  if (saved?.ok !== true || saved.value !== null) {
+    fail(
+      "draft",
+      saved?.ok === true
+        ? "A saved draft this tab did not load is on the server: reload the page to see it before you send."
+        : (saved?.reason ?? "The saved draft still cannot be read: nothing is sent."),
+    );
+
+    return false;
+  }
+
+  succeed("draft");
+
+  return await startSaving()();
 }
 
 export type Sent =
   | { readonly kind: "sent" }
-  | { readonly kind: "unanswered"; readonly count: number }
+  | { readonly kind: "unanswered"; readonly ids: readonly string[] }
   | { readonly kind: "failed" };
 
-const REFUSED: Readonly<Record<"approved" | "empty" | "stale" | "unreadable", string>> = {
+/**
+ * A Send as the reviewer clicked it, snapshotted at the click: the comments on screen by id, the
+ * edit, each extension's share (`null` for Send now, which takes no part), and the question ids
+ * the bar warned about and the reviewer agreed to leave to their recommendation.
+ */
+export type Outgoing = {
+  readonly annotations: readonly string[];
+  readonly edit: Edit | null;
+  readonly parts: readonly SendShare[] | null;
+  readonly takeDefaults: readonly string[];
+};
+
+const REFUSED: Readonly<Record<SendRefused | "empty" | "unreadable", string>> = {
   approved: "Not sent: the plan is approved.",
-  empty: "Not sent: the server's draft held nothing to send. Your comments are kept.",
+  changed:
+    "Not sent: the saved draft no longer holds what you sent, changed in another tab. Reload the page.",
+  edit: "Not sent: a comment on the plan goes with your edit. Send them together with Send.",
+  empty: "Not sent: nothing to send. Your comments are kept.",
   stale: "Not sent: your edit is of a version no longer under review. Your comments are kept.",
   unreadable: "Not sent: the saved draft cannot be read. Your comments are kept in this tab.",
 };
 
 /**
- * One Send. The server sends the draft it keeps, so the page writes it first, as it shows it.
- * `all` takes every comment, the edit and what is typed, the grill's answers included; ids take
- * those comments alone and leave the rest. A round left with questions unanswered answers their
- * count, for the page to ask before it takes the defaults.
+ * One Send, the one write out while it lasts. The server sends from the draft it keeps what the
+ * snapshot names, so the page writes the draft first. Once taken, the page reads the review and
+ * each part its state again, then takes out exactly what was sent: a comment added since stays,
+ * and what is typed stays where it is. Questions no answer takes come back as their ids, for the
+ * bar to ask about before it leaves them to their recommendation.
  */
-export async function send(items: "all" | readonly string[], takeDefaults: boolean): Promise<Sent> {
-  if (sending.peek()) return { kind: "failed" };
-  sending.value = true;
+export async function send(out: Outgoing): Promise<Sent> {
+  return (await outOnce(() => sendOut(out))) ?? { kind: "failed" };
+}
 
-  try {
-    if (!(await writeDraft())) {
-      fail(
-        "decision",
-        "Not sent: your comments are not saved on the server. They are kept in this tab.",
-      );
+async function sendOut(out: Outgoing): Promise<Sent> {
+  if (!(await writeDraft())) {
+    fail(
+      "decision",
+      "Not sent: your comments are not saved on the server. They are kept in this tab.",
+    );
 
-      return { kind: "failed" };
-    }
-
-    const refs = items === "all" ? "all" : items.map((id) => ({ kind: "annotation" as const, id }));
-    const posted = await postSend({ items: refs, takeDefaults }).catch(() => null);
-
-    if (posted === null) {
-      fail("decision", "The Send did not reach the server. Your comments are kept in this tab.");
-
-      return { kind: "failed" };
-    }
-
-    const { status, answer } = posted;
-
-    if (status === 409 && answer !== null && "reason" in answer) {
-      if (answer.reason === "unanswered") return { kind: "unanswered", count: answer.count };
-      fail("decision", REFUSED[answer.reason]);
-
-      return { kind: "failed" };
-    }
-
-    if (status >= 300) {
-      fail("decision", `Not sent: the server answered ${status}. Your comments are kept.`);
-
-      return { kind: "failed" };
-    }
-
-    if (items === "all") clearDraft();
-    else {
-      batch(() => {
-        annotations.value = annotations.value.filter(({ id }) => !items.includes(id));
-        clearUndo();
-        succeed("decision");
-      });
-    }
-
-    await loadReview();
-
-    return { kind: "sent" };
-  } finally {
-    sending.value = false;
+    return { kind: "failed" };
   }
+
+  const posted = await postSend({
+    annotations: out.annotations,
+    edit: out.edit?.version ?? null,
+    parts: out.parts !== null,
+    takeDefaults: out.takeDefaults,
+  }).catch(() => null);
+
+  if (posted === null) {
+    fail("decision", "The Send did not reach the server. Your comments are kept in this tab.");
+
+    return { kind: "failed" };
+  }
+
+  const { status, answer } = posted;
+
+  if (status === 409 && answer !== null && "reason" in answer) {
+    if (answer.reason === "unanswered") return { kind: "unanswered", ids: answer.ids };
+    fail("decision", REFUSED[answer.reason]);
+
+    return { kind: "failed" };
+  }
+
+  if (status >= 300) {
+    fail("decision", `Not sent: the server answered ${status}. Your comments are kept.`);
+
+    return { kind: "failed" };
+  }
+
+  await loadReview();
+  await Promise.all((out.parts ?? []).map((part) => part.sent()));
+  const taken = new Set(out.annotations);
+  const sentEdit = out.edit;
+
+  batch(() => {
+    annotations.value = annotations.value.filter(({ id }) => !taken.has(id));
+
+    if (sentEdit !== null && edited.peek()?.version === sentEdit.version) edited.value = null;
+    succeed("decision");
+  });
+
+  return { kind: "sent" };
 }
 
 /** Edit: the editor opens on the version under review, on the unsent edit of it when there is one. */
@@ -574,6 +632,50 @@ export function readWindow(): void {
 const TYPED_WRITE_MS = 300;
 
 /**
+ * Saves the draft at every change of the comments or of the edit, each change one write, and once
+ * a typing pauses, in order; answers the flush a Send runs first.
+ */
+function startSaving(): () => Promise<boolean> {
+  let saving = Promise.resolve(true);
+  let pending: ReturnType<typeof setTimeout> | null = null;
+  let written = typed.peek();
+
+  // In order: two changes close together must not reach the file reversed.
+  const write = (unsent: Draft): void => {
+    if (pending !== null) clearTimeout(pending);
+    pending = null;
+    written = unsent.typed;
+    saving = saving.then(() => saveDraft(unsent));
+  };
+
+  const flush = (): Promise<boolean> => {
+    write({ annotations: annotations.peek(), edit: edited.peek(), typed: typed.peek() });
+
+    return saving;
+  };
+
+  flushDraft = flush;
+
+  effect(() => {
+    write({ annotations: annotations.value, edit: edited.value, typed: typed.peek() });
+  });
+
+  // A typing is written once it pauses; a comment or an edit written meanwhile carries it.
+  effect(() => {
+    if (typed.value === written) return;
+
+    if (pending !== null) clearTimeout(pending);
+
+    pending = setTimeout(
+      () => write({ annotations: annotations.peek(), edit: edited.peek(), typed: typed.peek() }),
+      TYPED_WRITE_MS,
+    );
+  });
+
+  return flush;
+}
+
+/**
  * The first load. The saved draft goes in before the review loads, so its edit meets the fate of
  * any unsent edit at a load: kept, landed or dropped. Saving starts only after that, at every
  * change of the comments or of the edit, each one a single write, and once a typing pauses:
@@ -595,45 +697,12 @@ export async function start(): Promise<void> {
 
   await loadReview();
 
-  if (saved.ok) {
-    let saving = Promise.resolve(true);
-    let pending: ReturnType<typeof setTimeout> | null = null;
-    let written = typed.peek();
-
-    // In order: two changes close together must not reach the file reversed.
-    const write = (unsent: Draft): void => {
-      if (pending !== null) clearTimeout(pending);
-      pending = null;
-      written = unsent.typed;
-      saving = saving.then(() => saveDraft(unsent));
-    };
-
-    flushDraft = () => {
-      write({ annotations: annotations.peek(), edit: edited.peek(), typed: typed.peek() });
-
-      return saving;
-    };
-
-    effect(() => {
-      write({ annotations: annotations.value, edit: edited.value, typed: typed.peek() });
-    });
-
-    // A typing is written once it pauses; a comment or an edit written meanwhile carries it.
-    effect(() => {
-      if (typed.value === written) return;
-
-      if (pending !== null) clearTimeout(pending);
-
-      pending = setTimeout(
-        () => write({ annotations: annotations.peek(), edit: edited.peek(), typed: typed.peek() }),
-        TYPED_WRITE_MS,
-      );
-    });
-  } else {
+  if (saved.ok) startSaving();
+  else {
     fail(
       "draft",
       saved.reason ??
-        `The saved draft could not be read: the server answered ${saved.status}. Nothing is saved until a reload succeeds.`,
+        `The saved draft could not be read: the server answered ${saved.status}. Nothing is saved until the page reads it again, at a reload or a Send.`,
     );
   }
 

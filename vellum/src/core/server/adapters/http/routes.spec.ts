@@ -58,7 +58,7 @@ const EMPTY_DRAFT = { annotations: [], edit: null, typed: TYPED };
 
 const DRAFT_PATH = `${WIP}.review/draft.json`;
 
-const ALL = { items: "all", takeDefaults: false };
+const ALL = { annotations: ["a"], edit: null, parts: true, takeDefaults: [] };
 
 const NO_BUILD = { ok: false, error: "no commit for /vellum: no installed_plugins.json" } as const;
 
@@ -415,23 +415,23 @@ describe("routes", () => {
     expect((await decide({ kind: "feedback", edit: null })).status).toBe(400);
   });
 
-  test("a Send names all or the items of the draft, and whether it takes the defaults", async () => {
+  test("a Send names comment ids, the edit's version or null, whether the parts go, and the defaults agreed", async () => {
     const { sendBody } = drafting();
 
     for (const body of [
       {},
-      { items: "all" },
-      { items: "some", takeDefaults: false },
-      { items: [], takeDefaults: false },
-      { items: [{ kind: "annotation" }], takeDefaults: false },
-      { items: [{ kind: "choice", id: "a" }], takeDefaults: false },
+      { ...ALL, annotations: "all" },
+      { ...ALL, annotations: [1] },
+      { ...ALL, edit: 0 },
+      { ...ALL, edit: "1" },
+      { ...ALL, parts: "yes" },
+      { ...ALL, takeDefaults: true },
     ]) {
       expect((await sendBody(body)).status, JSON.stringify(body)).toBe(400);
     }
 
-    expect(await (await sendBody(ALL)).json()).toEqual({ reason: "empty" });
-    const one = { items: [{ kind: "annotation", id: "a" }], takeDefaults: false };
-    expect((await sendBody(one)).status).toBe(409);
+    expect(await (await sendBody({ ...ALL, annotations: [] })).json()).toEqual({ reason: "empty" });
+    expect(await (await sendBody(ALL)).json()).toEqual({ reason: "changed" });
   });
 
   test("a Send answers its batch and the entry's number, and leaves the page taking comments", async () => {

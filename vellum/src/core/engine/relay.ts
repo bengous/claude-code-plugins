@@ -210,7 +210,12 @@ export function follow(host: Host, id: SessionId, approved: () => Promise<void>)
       run(async () => {
         read = (after) => server.channel(after);
 
-        if (channel !== relayed.channel) relayed = parseRelayed(await host.storeGet(key), channel);
+        // Another channel's numbers start over: what a tool returned there says nothing here.
+        if (channel !== relayed.channel) {
+          relayed = parseRelayed(await host.storeGet(key), channel);
+          returned.clear();
+        }
+
         await catchUp();
       });
     },
@@ -236,7 +241,8 @@ export function follow(host: Host, id: SessionId, approved: () => Promise<void>)
 
       return {
         returned: (seq) => {
-          if (!open) return;
+          // An entry relayed already, or returned once already, is not held for again.
+          if (!open || seq <= relayed.seq) return;
           returned.add(seq);
           change();
         },

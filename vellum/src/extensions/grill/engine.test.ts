@@ -4,6 +4,7 @@ import {
   approved,
   band,
   emit,
+  READY,
   reply,
   sent,
   SESSION,
@@ -193,6 +194,36 @@ describe("grill_ask", () => {
     expect(await asking).toEqual({ result: Q1_YES });
     await seen.clock.settle();
     expect(seen.prompts.filter((text) => text.startsWith("Reviewer sent"))).toEqual([]);
+  });
+
+  test("an entry returned after it was relayed is not taken for the next channel's entry of that number", async ($, on) => {
+    const grill = grillRoutes(() => OPEN_GRILL, {
+      ...ASKED_Q1,
+      wait: () => reply(200, { kind: "answered", seq: 1, text: Q1_YES }),
+    });
+
+    const seen = world(on, {
+      ...grill,
+      spawn: (child, run) => {
+        child.write({ ...READY, channel: run === 1 ? "first" : "second" });
+      },
+    });
+
+    await $.skill.prompt(START_PROMPT);
+    emit(seen, sent(BATCH_1));
+    await seen.clock.settle();
+    await $.tool.call({ tool: ASK, q: Q });
+    seen.channel.length = 0;
+    seen.children[0]?.exit({ code: null, signal: "SIGKILL" });
+    await seen.clock.settle();
+    expect(seen.children).toHaveLength(2);
+    emit(seen, sent(BATCH_2));
+    await seen.clock.settle();
+
+    expect(seen.prompts.filter((text) => text.startsWith("Reviewer sent"))).toEqual([
+      `Reviewer sent: read ${BATCH_1}.`,
+      `Reviewer sent: read ${BATCH_2}.`,
+    ]);
   });
 
   test("asks again each time the hold runs out with the round still open", async ($, on) => {

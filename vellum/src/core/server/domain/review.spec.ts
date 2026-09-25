@@ -140,74 +140,91 @@ function comment(id: string, doc = `${DIR}notes.md`): Annotation {
   return { id, doc: doc as never, anchor: GLOBAL, mark: NO };
 }
 
+/** A Send naming comments by id, and the edit by its version. */
+function naming(annotations: readonly string[], edit: number | null = null) {
+  return { annotations, edit: edit as never };
+}
+
 describe("sendOn", () => {
-  test("all sends every comment on the version under review, and leaves an empty draft", () => {
-    expect(sendOn(inReview, PLAN, draft([comment("a"), comment("b")]), "all")).toEqual({
-      kind: "send",
-      version: V1,
-      edit: null,
-      editedFrom: null,
-      annotations: [comment("a"), comment("b")],
-      rest: { annotations: [], edit: null, typed: EMPTY_TYPED },
-    });
-  });
+  test("sends the comments named on the version under review, and the draft keeps the rest", () => {
+    const kept = draft([comment("a"), comment("b")]);
 
-  test("while drafting the batch belongs to no version", () => {
-    expect(sendOn(drafting, null, draft([comment("a")]), "all")).toMatchObject({
-      kind: "send",
-      version: null,
-    });
-  });
-
-  test("the items named leave alone, and the draft keeps everything else", () => {
-    const kept = draft([comment("a"), comment("b")], Q_OF_V1);
-
-    expect(sendOn(inReview, PLAN, kept, [{ kind: "annotation", id: "b" }])).toEqual({
+    expect(sendOn(inReview, PLAN, kept, naming(["b"]))).toEqual({
       kind: "send",
       version: V1,
       edit: null,
       editedFrom: null,
       annotations: [comment("b")],
-      rest: draft([comment("a")], Q_OF_V1),
+      rest: draft([comment("a")]),
     });
   });
 
-  test("an item the draft no longer holds sends nothing", () => {
-    expect(sendOn(inReview, PLAN, draft([]), [{ kind: "annotation", id: "a" }])).toMatchObject({
-      annotations: [],
+  test("while drafting the batch belongs to no version", () => {
+    expect(sendOn(drafting, null, draft([comment("a")]), naming(["a"]))).toMatchObject({
+      kind: "send",
+      version: null,
     });
   });
 
-  test("an edit goes with all, as the next version, the plan's comments retargeted to it", () => {
+  test("a comment the draft no longer holds refuses the Send: the draft changed since the click", () => {
+    expect(sendOn(inReview, PLAN, draft([comment("a")]), naming(["a", "gone"]))).toEqual({
+      kind: "refused",
+      reason: "changed",
+    });
+  });
+
+  test("the edit named goes as the next version, the plan's comments retargeted to it, and leaves the draft", () => {
     const annotations = [comment("a", `${DIR}.review/v2.md`), comment("b")];
 
-    expect(sendOn(inReviewAt2, PLAN, draft(annotations, Q_OF_V2), "all")).toMatchObject({
+    expect(
+      sendOn(inReviewAt2, PLAN, draft(annotations, Q_OF_V2), naming(["a", "b"], 2)),
+    ).toMatchObject({
       version: 3,
       editedFrom: 2,
       edit: { path: `${DIR}.review/v3.md`, text: "# Q\n" },
       annotations: [comment("a", `${DIR}.review/v3.md`), comment("b")],
+      rest: { annotations: [], edit: null },
     });
   });
 
   test("an edit equal to the version's text is no edit", () => {
     const same = draft([], { version: V1, text: PLAN });
 
-    expect(sendOn(inReview, PLAN, same, "all")).toMatchObject({ version: V1, edit: null });
+    expect(sendOn(inReview, PLAN, same, naming([], 1))).toMatchObject({ version: V1, edit: null });
   });
 
-  test("an edit of another version, or of none, is stale", () => {
-    expect(sendOn(inReview, PLAN, draft([], Q_OF_V2), "all")).toEqual({
+  test("an edit the Send does not name stays in the draft", () => {
+    expect(sendOn(inReview, PLAN, draft([comment("a")], Q_OF_V1), naming(["a"]))).toMatchObject({
+      edit: null,
+      rest: { edit: Q_OF_V1 },
+    });
+  });
+
+  test("an edit named that is not the draft's refuses the Send as changed; one of another version is stale", () => {
+    expect(sendOn(inReview, PLAN, draft([]), naming([], 1))).toEqual({
+      kind: "refused",
+      reason: "changed",
+    });
+    expect(sendOn(inReview, PLAN, draft([], Q_OF_V2), naming([], 2))).toEqual({
       kind: "refused",
       reason: "stale",
     });
-    expect(sendOn(drafting, null, draft([], Q_OF_V1), "all")).toEqual({
+  });
+
+  test("a comment on the plan sent without the edit it was shifted by is refused: its lines are the edit's", () => {
+    const onPlan = comment("a", `${DIR}.review/v1.md`);
+
+    expect(sendOn(inReview, PLAN, draft([onPlan], Q_OF_V1), naming(["a"]))).toEqual({
       kind: "refused",
-      reason: "stale",
+      reason: "edit",
+    });
+    expect(sendOn(inReview, PLAN, draft([comment("b")], Q_OF_V1), naming(["b"]))).toMatchObject({
+      kind: "send",
     });
   });
 
   test("nothing is sent once approved", () => {
-    expect(sendOn(approved, PLAN, draft([comment("a")]), "all")).toEqual({
+    expect(sendOn(approved, PLAN, draft([comment("a")]), naming(["a"]))).toEqual({
       kind: "refused",
       reason: "approved",
     });

@@ -44,10 +44,12 @@ Claude Code's `installed_plugins.json`, `git` with its `GIT_*` variables cleared
   (`domain/channel.ts`), appended inside the queue by `Review`'s relay: the core's `sent` for a
   batch written and `approved` after the rename, an extension's own `text` through
   `ServerContext.relay`, at the write it tells of. An entry's number is its line; the file is
-  never rewritten but by the approval's link rewrite, which moves no line, and a last line left
-  without a newline is ended before an entry is appended. Its identity, `.review/channel.id`, is
-  minted with it and moves with the rename. `Review.openChannel` runs before `ready`: it appends
-  what the directory implies and the channel lacks (`untold`: a `sent` per batch no entry
+  never rewritten but by the approval's link rewrite and the migration below, which move no
+  line, and a last line left without a newline is ended before an entry is appended. Its
+  identity, `.review/channel.id`, is minted with it and moves with the rename.
+  `Review.openChannel` runs before `ready`: it renames an older vellum's `v<N>.feedback.md`, one
+  per version, to that version's first batch (`legacyBatch`), the entries naming it renamed with
+  it (`renamedIn`); then it appends what the directory implies and the channel lacks (`untold`: a `sent` per batch no entry
   names, the approval of an approved directory), so a write whose entry was lost is told
   at the next start, and a directory with no channel yet tells nothing of what it held.
   `cli.ts serve` writes each entry on stdout as it lands (`ServerLine`: `ready` first, then the
@@ -78,17 +80,22 @@ Claude Code's `installed_plugins.json`, `git` with its `GIT_*` variables cleared
   `vN+1` would overwrite that revision and tell Claude to keep it. `vN.md` stays what its author
   submitted.
 - One Send, `Review.send`, is one step of the queue, what the reviewer sends from the page's one
-  button or from a comment's Send now. `all` asks the extensions' `unanswered` first, and a
-  total above zero is a 409 with the count unless the Send takes the defaults; `sendOn` decides
-  purely what leaves the draft; each extension's `section` writes its part, the grill's reply
-  closing its round (named items leave the round alone, so they ask no extension); then the batch
-  `.review/v<N>.feedback-<k>.md`, `v0` while drafting, `k` the next on that version, the edit's
-  version once it lands; the draft's rest; the `sent` entry; then each extension's `sent`, which
-  hears the entry's number and whether the batch holds more than its part. Nothing to send is a
-  409 `empty`, an approved plan `approved`. A Send changes no stage: the version stays under
-  review, `workspace.batches` counts its batches, and a gate after one records a new version
-  even with the same text (`gateVersion`). The server sends the draft it keeps, never a body: the
-  page writes it first.
+  button or from a comment's Send now. Its `SendRequest` names what the reviewer saw at the
+  click: the comment ids, the edit's version or `null`, whether the extensions' parts go (the
+  bar's Send, never Send now), and the question ids the reviewer agreed to leave to their
+  recommendation. It is decided before anything is written: `sendOn` refuses, purely, a name the
+  stored draft no longer holds (409 `changed`), an edit of a version no longer under review
+  (`stale`), a comment on the plan named without the pending edit whose lines `Done` moved it to
+  (`edit`), an approved plan (`approved`); each extension's `part` answers the questions no
+  answer takes outside those agreed (409 `unanswered`, every id); nothing to send is `empty`.
+  Then the edit lands as the next version; the batch `.review/v<N>.feedback-<k>.md`, `v0` while
+  drafting, `k` the next on that version; its `sent` entry, the commit point: an entry that fails
+  removes the batch, and past it nothing throws. Then, each failure logged and the Send still
+  answered 200: the draft's rest, what the Send did not take; each part's `commit`, which hears
+  the entry's number and whether the batch holds more than its part; the notification. A Send
+  changes no stage: the version stays under review, `workspace.batches` counts its batches, and a
+  gate after one records a new version even with the same text (`gateVersion`). The server sends
+  from the draft it keeps, never a body: the page writes it first.
 - `Review.decide` applies in an order where a write that fails leaves a state the next `gate`
   or the next load repairs: `plan.md` before the edit's version file, the notes file and the
   draft's removal before the rename, which carries what is there. A `null` from `formatNotes`

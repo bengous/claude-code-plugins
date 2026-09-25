@@ -104,8 +104,8 @@ sequenceDiagram
   M->>S: POST /api/gate → reads plan.md, writes .review/vN.md, opens the browser once; an unchanged text is kept
   M-->>CC: the tool's result: "End your turn."
   B->>S: PUT /api/draft (the unsent comments, edit and typing, at every change, and once more before a Send)
-  B->>S: POST /api/send (all, or a comment's Send now) | POST /api/decision (approve, with the reviewer's edit or none)
-  S->>S: a Send writes .review/vN.feedback-k.md from the draft it keeps, the stage unchanged; an edit is vN+1 first
+  B->>S: POST /api/send (what the reviewer saw at the click: comment ids, the edit, the parts) | POST /api/decision (approve, with the reviewer's edit or none)
+  S->>S: a Send writes .review/vN.feedback-k.md from the draft it keeps, what it named, the stage unchanged; an edit is vN+1 first
   S->>S: approve → plan.md, the notes file, links rewritten, directory renamed
   S->>S: appends the entry to .review/channel.jsonl: sent (the batch) | approved
   S-->>B: SSE workspace
@@ -135,8 +135,8 @@ sequenceDiagram
   M->>C: $.prompt.submit (the opening)
   C->>M: tool.call grill_ask {q}
   M->>S: POST /api/x/grill/ask, a round opened, then POST wait, held under 30 s, again and again
-  P->>S: POST /api/send (all): the grill's section writes the reply in the round of its questions
-  S->>S: the batch vN.feedback-k.md, Grill then Comments; its sent entry; the grill's sent answers the wait
+  P->>S: POST /api/send (the bar's, parts included): the grill's part reads the reply, writing nothing
+  S->>S: the batch vN.feedback-k.md, Grill then Comments; its sent entry; the grill's commit answers the wait, then writes the reply in the round
   S-->>M: stdout: the entry, held by the follower while grill_ask waits
   S-->>M: the wait's answer: the entry's number and "Reviewer: ..."
   M->>C: the tool's result; the follower never relays that entry
@@ -262,7 +262,7 @@ it, and so does a revival replacing it.
 | Direct edit | `Edit`, `sendOn` and `decideOn` (the edit is `vN+1`, refused on another version), `editOnLoad`, `landedAnnotations` in `domain/review.ts`; `shiftLines`, `shiftAnnotations` in `domain/diff.ts` | `parseEdit` in `adapters/draft.ts`; `Review.send` and `Review.decide` write `plan.md`, then the version file | `page/editor.tsx` and `page/caret.ts`; `edited`, `editing`, `finishEdit`, `settleEdit` in `state.ts` |
 | Approval notes | `formatNotes`, `notesFile`, `approved.notes` read off the final directory's listing, the channel's `approved` entry and its `notes` | the notes file written before the rename; `engine/relay.ts` names it in the approval's prompt | the decision bar's one popover state: notes, and the warning before unsent comments are discarded |
 | Drafts | `Draft`, `DRAFT_FILE`, `takesComments` | `GET` and `PUT /api/draft`, through the one parser of `adapters/draft.ts`; read back by a Send and by End grill; what a Send took leaves it, an approval removes it | `start`: restore, load, then save at every change, in order; `writeDraft` before a Send |
-| One Send | `sendOn`, `batchFile`, `formatBatch`: the extensions' sections, then the comments | `POST /api/send`, `Review.send` in one step of the queue: `unanswered`, `section`, the batch, the draft's rest, the `sent` entry, `sent` | the bar's `Send (n)` and its warning, a card's Send now, `PageExtension.send` |
+| One Send | `sendOn`, `batchFile`, `formatBatch`: what the Send names or its refusal, the extensions' parts, then the comments | `POST /api/send`, `Review.send` in one step of the queue: `sendOn` and each `part`, nothing written; the edit, the batch, the `sent` entry; the draft's rest, each part's `commit` | the bar's `Send (n)` and its warning, a card's Send now, `PageExtension.send`: a snapshot at the click, taken out of the page once sent |
 
 Every one added a pure part first; `src/core/server/domain/` is where a new domain concept
 goes, and a renderer's own choice stays beside its `page.tsx`.
@@ -279,7 +279,7 @@ constraints below are why. The contract is `src/core/extension.ts`, types only, 
 | Half | File | Declares | Reached from |
 |---|---|---|---|
 | page | `<id>/page.tsx` | a `PageExtension`: its renderers, tried in registry order, its actions in the decision bar, its notices under it, its panel, a pane `panesOf` places beside the document pane, and its share of the Send | `core/page/app.tsx`, through `extensions/page.ts` |
-| server | `<id>/server.ts` | a `ServerExtension`: `linkedDocs`, pure, candidates in and links out; its routes, mounted at `/api/x/<id>/`, their IO through a `ServerContext`, what they tell Claude through its `relay`; `holds`, what holds the review; `approved`, what it closes after the rename; `unanswered`, `section` and `sent`, its part of a Send | `core/server/adapters/http/serve.ts`, through `extensions/server.ts` |
+| server | `<id>/server.ts` | a `ServerExtension`: `linkedDocs`, pure, candidates in and links out; its routes, mounted at `/api/x/<id>/`, their IO through a `ServerContext`, what they tell Claude through its `relay`; `holds`, what holds the review; `approved`, what it closes after the rename; `part`, its part of the bar's Send and its `commit` | `core/server/adapters/http/serve.ts`, through `extensions/server.ts` |
 | engine | `<id>/engine.ts` | an `EngineExtension`: tools, a tool's wait for the reviewer and the entries it returns, refusals, and handlers for a prompt, a finished turn, a `stage` line and the mode's end | `core/engine/register.ts`, through `extensions/engine.ts` |
 
 `src/boundaries.spec.ts` holds the layout: an extension imports `core/` and its own folder,

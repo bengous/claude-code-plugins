@@ -9,6 +9,7 @@ import {
   docs,
   editing,
   fail,
+  outOnce,
   review,
   select,
   sending,
@@ -221,16 +222,46 @@ function typedOn(path: string): Typed["grill"][string] {
 /**
  * The grill's part of the one Send, from the open grill's blocks and the draft's typing: the
  * questions answered, the ones a Send would take by default, and a note. Before the blocks land
- * it names none, and the server's own count asks in its place.
+ * it names none, and the server's own count asks in its place. Computed once per change of the
+ * blocks or the typing, not at each render of the bar.
  */
-function share(): SendShare {
+const counted = computed(() => {
   const state = drawn.value;
 
-  if (state?.kind !== "open") return { count: 0, unanswered: 0, more: false };
+  if (state?.kind !== "open") return null;
   const own = typedOn(state.file);
   const { open, waiting } = roundsOf(blocksOn(state.file) ?? [], own.answers, null);
 
-  return { count: open.length - waiting, unanswered: waiting, more: own.note.trim() !== "" };
+  return { file: state.file, own, open, waiting };
+});
+
+/**
+ * The share, snapshotted: once the server took the Send, the grill reads its state and its
+ * transcript again, then drops the answers to the questions the Send closed and the note, unless
+ * the reviewer changed it since the click.
+ */
+function share(): SendShare {
+  const now = counted.value;
+
+  if (now === null) return { count: 0, unanswered: [], more: false, sent: () => Promise.resolve() };
+  const { file, own, open, waiting } = now;
+
+  return {
+    count: open.length - waiting.length,
+    unanswered: waiting,
+    more: own.note.trim() !== "",
+    sent: async () => {
+      await loadState();
+      const current = typedOn(file);
+      const closed = new Set(open);
+      const answers = Object.entries(current.answers).filter(([id]) => !closed.has(id));
+      const note = current.note === own.note ? "" : current.note;
+
+      setTyped({
+        grill: { ...typed.peek().grill, [file]: { answers: Object.fromEntries(answers), note } },
+      });
+    },
+  };
 }
 
 /**
@@ -259,13 +290,10 @@ async function end(path: ProjectPath, blocks: readonly Block[]): Promise<void> {
   });
 }
 
-/** An end in flight, from the band or the panel: a second click would send what is typed again. */
-const ending = signal(false);
-
 /**
  * End grill, the page's one way to end it, drawn in the band and on the panel once Claude's
- * turn ended: greyed until the transcript loads, so no answer typed is closed unread, while a
- * Send is out, and while an end is in flight.
+ * turn ended: greyed until the transcript loads, so no answer typed is closed unread, and while a
+ * Send or an end is out, the one write out that takes from the draft (`outOnce`).
  */
 function EndGrill(props: {
   readonly file: ProjectPath;
@@ -279,14 +307,10 @@ function EndGrill(props: {
       size={look === "band" ? "sm" : "md"}
       variant={look === "primary" ? "grill" : "default"}
       class={look === "primary" ? "lit" : undefined}
-      disabled={blocks === null || ending.value || sending.value}
+      disabled={blocks === null || sending.value}
       title={blocks === null ? "Loading the grill" : undefined}
       onClick={() => {
-        if (blocks === null || ending.peek()) return;
-        ending.value = true;
-        void end(file, blocks).finally(() => {
-          ending.value = false;
-        });
+        if (blocks !== null) void outOnce(() => end(file, blocks));
       }}
     >
       {look === "band" ? "End grill" : "End grill and return to plan"}
@@ -323,7 +347,7 @@ function GrillBand(props: {
   const { file, subject } = props.state;
   const blocks = blocksOn(file);
   const { waiting } = roundsOf(blocks ?? [], typedOn(file).answers, null);
-  const progress = progressOf(roundNow(blocks ?? []), waiting);
+  const progress = progressOf(roundNow(blocks ?? []), waiting.length);
 
   return (
     <div class="grill-band">
@@ -763,8 +787,8 @@ function OpenGrill(props: {
             {open.length > 0 && (
               <div class="row">
                 <Button
-                  disabled={loaded === null || waiting === 0}
-                  title={waiting === 0 ? "Every question has an answer" : undefined}
+                  disabled={loaded === null || waiting.length === 0}
+                  title={waiting.length === 0 ? "Every question has an answer" : undefined}
                   onClick={allRecommended}
                 >
                   All recommended

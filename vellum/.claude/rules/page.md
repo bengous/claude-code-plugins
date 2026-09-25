@@ -264,13 +264,18 @@ no build step, so what the page imports costs nothing at `cli start`.
 - There is one Send, `send` of `state.ts`: the bar's `Send (n)`, whose `n` counts the comments,
   the edit as 1, and each extension's share (`PageExtension.send`, `SendShare`: the grill's
   questions answered), which `app.tsx` hands the bar; and a card's Send now, which sends that
-  comment alone and leaves the round. The server sends the draft it keeps, so `send` writes the
-  draft first (`writeDraft`), then posts, then takes out of the page what left: everything for
-  `all`, the comment for Send now. With questions an extension would take by default, the bar
-  asks first (`n questions have no answer`), before any request, and a second click takes the
-  recommendations; a count the page had not read yet (blocks still loading) comes back as the
-  server's 409 and opens the same warning. `sending` greys Send, Send now and End grill while one
-  is out, so nothing is sent twice.
+  comment alone and leaves the round, greyed on a comment on the plan while an edit waits. The
+  click is a snapshot (`Outgoing`): the comment ids and the edit on screen, each share, and the
+  question ids the reviewer agreed to leave to their recommendation. The server sends from the
+  draft it keeps, so `send` writes the draft first (`writeDraft`, which reads the draft again
+  when the first load failed), then posts, then reads the review and each share's state again
+  (`SendShare.sent`), and takes out of the page exactly what the snapshot named: a comment added
+  meanwhile stays, and so does what is typed outside a part. With questions no answer takes, the
+  bar asks first (`n questions have no answer`), before any request, and a second click agrees
+  to those ids; ids the page had not read yet come back as the server's 409 and open the same
+  warning. `sending`, held by `outOnce` for a Send and End grill alike, greys Send, Send now and
+  End grill until that reading again is done, so nothing is sent twice and nothing counts a
+  question the Send closed.
 - In the Markdown renderer the notice says the failure and the sheet says the state it leaves: a
   first load that failed prints it where the wait was, a failed reload keeps the text the reviewer
   is reading. `waitingText` in `markdown/sheet.ts` chooses, purely, and `MarkdownDoc` draws it in

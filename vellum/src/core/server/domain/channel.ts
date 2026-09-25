@@ -40,6 +40,11 @@ export function channelLine(entry: ChannelEntry): string {
   return `${JSON.stringify(entry)}\n`;
 }
 
+/** The channel's text with every entry naming `from` naming `to`: no line moves, so no number changes. */
+export function renamedIn(text: string, from: ProjectPath, to: ProjectPath): string {
+  return text.replaceAll(JSON.stringify(from), JSON.stringify(to));
+}
+
 /** What `appended` answers: the text to append, and the entry's number once it is there. */
 export type Appended = { readonly text: string; readonly seq: number };
 

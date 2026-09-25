@@ -13,6 +13,7 @@ import {
   commentsSnap,
   connection,
   docs,
+  edited,
   editing,
   focused,
   locked,
@@ -97,7 +98,8 @@ function MarkWords(props: { readonly mark: Mark }): preact.JSX.Element {
  * A comment's words, reopened in place: every keystroke with words in it goes to the annotation
  * itself, so the store never holds an empty comment and a reload keeps the last words; the card
  * keeps the field's text, so that it can be cleared, and `open`. While the editor is open the
- * actions are off, the card readable. Send now sends this comment alone, and leaves the round.
+ * actions are off, the card readable. Send now sends this comment alone, and leaves the round; a
+ * comment on the plan waits for the pending edit, since `Done` moved its lines to the edit's text.
  */
 function CardWords(props: { readonly annotation: Annotation }): preact.JSX.Element {
   const { annotation } = props;
@@ -105,6 +107,7 @@ function CardWords(props: { readonly annotation: Annotation }): preact.JSX.Eleme
   const [text, setText] = useState("");
   const { mark } = annotation;
   const off = editing.value !== null;
+  const withEdit = edited.value !== null && annotation.doc === review.value?.plan?.doc;
 
   const reopen = (body: string): void => {
     setText(body);
@@ -133,8 +136,16 @@ function CardWords(props: { readonly annotation: Annotation }): preact.JSX.Eleme
             </button>
             <button
               type="button"
-              disabled={off || sending.value || connection.value === "down"}
-              onClick={() => void send([annotation.id], false)}
+              disabled={off || withEdit || sending.value || connection.value === "down"}
+              title={withEdit ? "It goes with your edit: send them together with Send" : undefined}
+              onClick={() =>
+                void send({
+                  annotations: [annotation.id],
+                  edit: null,
+                  parts: null,
+                  takeDefaults: [],
+                })
+              }
             >
               Send now
             </button>

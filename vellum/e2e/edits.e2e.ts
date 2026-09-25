@@ -113,6 +113,26 @@ test.describe("a comment on a text the edit removes", () => {
   });
 });
 
+test.describe("Send now", () => {
+  test("is greyed on a comment on the plan while an edit waits: Done moved its lines to the edit", async ({
+    page,
+    vellum,
+  }) => {
+    await reviewV1(page, vellum);
+    await editPlan(page, (text) => `Three lines the reviewer added.\n\n${text}`);
+    await page.getByRole("button", { name: "Done" }).click();
+    await commentOn(page);
+    await commentBlock(page, page.locator("article.plan blockquote p"), "Decide this first.");
+    const sendNow = page.locator(".comments .card").getByRole("button", { name: "Send now" });
+
+    await expect(sendNow).toBeDisabled();
+    await expect(sendNow).toHaveAttribute(
+      "title",
+      "It goes with your edit: send them together with Send",
+    );
+  });
+});
+
 test.describe("Discard edit", () => {
   test("gives back the count and every fillet to its block", async ({ page, vellum }) => {
     await reviewV2(page, vellum);

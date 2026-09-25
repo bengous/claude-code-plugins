@@ -185,20 +185,32 @@ export function decideOn(
   return { kind: "approve", version, edit, notes: text === null ? null : { path, text } };
 }
 
-/** A comment of the draft, named by its id: the one "Send now" takes. */
-export type DraftItemRef = { readonly kind: "annotation"; readonly id: string };
+/**
+ * What a Send takes of the draft, as the reviewer saw it at the click: the comments by id, and
+ * the edit by the version it edits, `null` for none.
+ */
+export type Taking = { readonly annotations: readonly string[]; readonly edit: Version | null };
 
 /**
- * What a Send takes from the draft: `all` of it, the open round and the edit included, or the
- * items named, which leave the round and the edit where they are.
+ * A Send as the page asks it: what it takes, whether the extensions' parts go (the bar's Send,
+ * never Send now), and the ids of the questions the reviewer agreed to leave to their
+ * recommendation.
  */
-export type SendItems = "all" | readonly DraftItemRef[];
+export type SendRequest = Taking & {
+  readonly parts: boolean;
+  readonly takeDefaults: readonly string[];
+};
 
-export type SendRequest = { readonly items: SendItems; readonly takeDefaults: boolean };
+/**
+ * Why a Send takes nothing: an approved plan; a comment or an edit the draft no longer holds as
+ * named; an edit of a version no longer under review; a comment on the plan sent without the
+ * edit whose lines it was moved to.
+ */
+export type SendRefused = "approved" | "changed" | "stale" | "edit";
 
-/** What a Send writes, decided before the extensions write their part. */
+/** What a Send writes, decided before anything is written. */
 export type Sending =
-  | { readonly kind: "refused"; readonly reason: "approved" | "stale" }
+  | { readonly kind: "refused"; readonly reason: SendRefused }
   | {
       readonly kind: "send";
       /** The version the batch is sent on: the edit's once it lands, `null` while drafting. */
@@ -207,60 +219,65 @@ export type Sending =
       readonly editedFrom: Version | null;
       /** The comments sent, the plan's retargeted to the edit's version. */
       readonly annotations: readonly Annotation[];
-      /** What the draft keeps. */
+      /** What the draft keeps: everything the Send did not take. */
       readonly rest: Draft;
     };
 
-const EMPTY_DRAFT: Draft = { annotations: [], edit: null, typed: EMPTY_TYPED };
+export const EMPTY_DRAFT: Draft = { annotations: [], edit: null, typed: EMPTY_TYPED };
 
 /**
- * A Send takes comments before the first version and on the version under review. `all` takes
- * the whole draft, and its edit lands as the next version, the batch sent on it; named items
- * leave the rest of the draft. A Send changes no stage: the page takes comments after it.
+ * A Send takes comments before the first version and on the version under review, exactly the
+ * ones named, and the edit when named, which lands as the next version, the batch sent on it. A
+ * name the draft no longer holds refuses the whole Send rather than send something else. A
+ * comment on the plan left without the pending edit is refused too: `Done` moved its lines to
+ * the edit's text. A Send changes no stage: the page takes comments after it.
  */
 export function sendOn(
   workspace: PlanWorkspace,
   latestText: string | null,
   draft: Draft,
-  items: SendItems,
+  taking: Taking,
 ): Sending {
   if (workspace.kind === "approved") return { kind: "refused", reason: "approved" };
-  const named = items === "all" ? null : new Set(items.map((item) => item.id));
-  const sent = draft.annotations.filter((annotation) => named?.has(annotation.id) ?? true);
+  const named = new Set(taking.annotations);
+  const sent = draft.annotations.filter((annotation) => named.has(annotation.id));
+  const editNamed = taking.edit !== null;
 
-  if (named !== null) {
-    const rest = { ...draft, annotations: draft.annotations.filter((a) => !named.has(a.id)) };
-    const version = workspace.kind === "drafting" ? null : workspace.version;
-
-    return { kind: "send", version, edit: null, editedFrom: null, annotations: sent, rest };
+  if (sent.length !== named.size || (editNamed && draft.edit?.version !== taking.edit)) {
+    return { kind: "refused", reason: "changed" };
   }
+
+  const rest: Draft = {
+    ...draft,
+    annotations: draft.annotations.filter((annotation) => !named.has(annotation.id)),
+    edit: editNamed ? null : draft.edit,
+  };
 
   if (workspace.kind === "drafting") {
-    return draft.edit === null
-      ? {
-          kind: "send",
-          version: null,
-          edit: null,
-          editedFrom: null,
-          annotations: sent,
-          rest: EMPTY_DRAFT,
-        }
-      : { kind: "refused", reason: "stale" };
+    return editNamed
+      ? { kind: "refused", reason: "stale" }
+      : { kind: "send", version: null, edit: null, editedFrom: null, annotations: sent, rest };
   }
 
-  const edited = editOf(workspace, latestText, draft.edit);
+  const { dir, version: reviewed } = workspace;
+  const plan = versionPath(dir, reviewed);
+
+  if (!editNamed && draft.edit !== null && sent.some((annotation) => annotation.doc === plan)) {
+    return { kind: "refused", reason: "edit" };
+  }
+
+  const edited = editOf(workspace, latestText, editNamed ? draft.edit : null);
 
   if (edited === "stale") return { kind: "refused", reason: "stale" };
   const { version, edit } = edited;
-  const { dir, version: reviewed } = workspace;
 
   return {
     kind: "send",
     version,
     edit,
     editedFrom: edit === null ? null : reviewed,
-    annotations: retargetAnnotations(sent, versionPath(dir, reviewed), versionPath(dir, version)),
-    rest: EMPTY_DRAFT,
+    annotations: retargetAnnotations(sent, plan, versionPath(dir, version)),
+    rest,
   };
 }
 

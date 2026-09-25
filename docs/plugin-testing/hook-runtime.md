@@ -43,14 +43,17 @@
 
 - A `tool.call` hook that throws or overruns falls to the engine: in `default`
   mode it asks the person's permission for the tool, then answers the model
-  "no tool.call hook answered this call" (Claude Code 2.1.282, Linux, a live
-  session with a probe plugin, September 2026). With a `.catch` on the registration, the handler's
+  "no tool.call hook answered this call" (measured on Linux in a live session
+  with a probe plugin). With a `.catch` on the registration, the handler's
   answer is the call's result instead: the kit reports `hook failed closed:
   <plugin>: … (tool.call; its .catch answered)`, and the handler runs after
   the hook's own `finally`, so what it needs to know of the failed call must
   outlive that block (`vellum/src/core/engine/register.ts`). The handler's
   answer is measured in the kit alone (`claude plugin test`), not in a live
-  session.
+  session. Escape during the call calls no `.catch`: the engine logs
+  `tool.call; skipped; what is below it ran in its place`, and the model gets
+  the standard rejection (measured on Linux in a live session), so what a
+  failed call must undo is undone in its own `finally`.
 
 - `$.fs.stat` rejects a missing path with a `HooksError` whose message ends
   on the errno, `<plugin>: $.fs.stat(<path>) failed: ENOENT`, and sets no

@@ -22,7 +22,7 @@ export type Rounds = {
   /** The questions no reply closed yet, in order: what a send or End grill closes. */
   readonly open: readonly string[];
   /** The open questions the draft leaves untouched, the chips still waiting: what a Send would take by default. */
-  readonly waiting: number;
+  readonly waiting: readonly string[];
 };
 
 function stateOf(block: QuestionBlock, answers: Readonly<Record<string, string>>): ChipState {
@@ -72,7 +72,7 @@ export function roundsOf(
     previous: at > 0 ? (questions[at - 1]?.id ?? null) : null,
     next: at === -1 ? null : (questions[at + 1]?.id ?? null),
     open: open.map((block) => block.id),
-    waiting: waiting.length,
+    waiting: waiting.map((block) => block.id),
   };
 }
 

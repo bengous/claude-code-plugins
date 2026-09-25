@@ -1,4 +1,4 @@
-import type { ServerContext, ServerExtension } from "../../extension.ts";
+import type { Part, ServerContext, ServerExtension } from "../../extension.ts";
 import type {
   ChannelEntry,
   ChannelLine,
@@ -20,6 +20,7 @@ import {
   readTextIfAny,
   readWorkspace,
   removeFile,
+  renameFile,
   writeText,
 } from "../adapters/fs.ts";
 import {
@@ -27,6 +28,7 @@ import {
   CHANNEL_FILE,
   CHANNEL_ID_FILE,
   channelAfter,
+  renamedIn,
   untold,
 } from "../domain/channel.ts";
 import { formatBatch } from "../domain/feedback.ts";
@@ -36,7 +38,7 @@ import type { Decision, Draft, SendRequest } from "../domain/review.ts";
 import {
   decideOn,
   draftIsEmpty,
-  EMPTY_TYPED,
+  EMPTY_DRAFT,
   gateVersion,
   sendOn,
   slugFor,
@@ -46,8 +48,10 @@ import {
   batchesOf,
   batchFile,
   DRAFT_FILE,
+  legacyBatch,
   notesFile,
   PLAN_FILE,
+  REVIEW_DIR,
   projectPath,
   takesComments,
   underReviewDir,
@@ -87,6 +91,8 @@ export type GateOptions = { readonly unchanged: "record" | "keep" };
 const RECORD_UNCHANGED: GateOptions = { unchanged: "record" };
 
 const HELD_GATE = "the plan is submitted once the reviewer ends it";
+
+const NO_PART: Part = { kind: "none" };
 
 function grouped(docs: readonly DocRef[], group: DocGroup): GroupedDoc[] {
   return docs.map((doc) => ({ ...doc, group }));
@@ -182,6 +188,7 @@ export class Review {
   public openChannel(): Promise<string> {
     return this.inOrder(async () => {
       const { project } = this.options;
+      await this.migrateFeedback();
       const workspace = await this.workspace();
       const text = await readTextIfAny(project, await this.channelDoc(CHANNEL_FILE));
 
@@ -202,6 +209,29 @@ export class Review {
 
       return minted;
     });
+  }
+
+  /**
+   * A feedback file of vellum before 0.14.5, `v<N>.feedback.md`, becomes that version's first
+   * batch, and the channel's entries name it there: its entry stays told, and the repair tells no
+   * file twice. Runs before the channel opens, on the directory the server serves.
+   */
+  private async migrateFeedback(): Promise<void> {
+    const { project } = this.options;
+    const { dir } = await this.workspace();
+    const channel = await this.channelDoc(CHANNEL_FILE);
+
+    for (const name of await listReview(project, dir)) {
+      const batch = legacyBatch(name);
+
+      if (batch === null) continue;
+      const from = projectPath(`${dir}${REVIEW_DIR}/${name}`);
+      const to = projectPath(`${dir}${REVIEW_DIR}/${batch}`);
+      await renameFile(project, from, to);
+      const text = await readTextIfAny(project, channel);
+
+      if (text !== null) await writeText(project, channel, renamedIn(text, from, to));
+    }
   }
 
   private async channelDoc(file: string): Promise<ProjectPath> {
@@ -340,56 +370,51 @@ export class Review {
   }
 
   /**
-   * One Send: what the saved draft holds, or the items named, as the next batch of the version
-   * under review. It changes no stage and is never held: the page takes comments after it.
+   * One Send: the comments and the edit it names, as the reviewer saw them at the click, read from
+   * the saved draft, and the extensions' parts. It changes no stage and is never held: the page
+   * takes comments after it.
    */
   public send(request: SendRequest): Promise<SendResult> {
     return this.inOrder(() => this.sendInOrder(request));
   }
 
   /**
-   * The extensions write their part first, the grill's reply closing its round, then the batch,
-   * then its entry, then each extension hears of it: all in one step of the queue, so the entry a
-   * waiting `grill_ask` returns is the batch that holds its reply.
+   * All in one step of the queue. Decided first, with nothing written: `sendOn` and every part.
+   * Then the edit, the batch, and its entry, the commit point: before it a failure removes the
+   * batch, so nothing is told of a Send the page saw fail; after it nothing throws, so the page
+   * never sends again what Claude already has. Then the draft's rest and each part's `commit`: the
+   * grill's round closes only once the batch and its entry exist.
    */
-  private async sendInOrder({ items, takeDefaults }: SendRequest): Promise<SendResult> {
+  private async sendInOrder(request: SendRequest): Promise<SendResult> {
     const workspace = await this.workspace();
 
     if (workspace.kind === "approved") return { ok: false, refusal: { reason: "approved" } };
     const stored = await this.draft();
 
     if (stored === "unreadable") return { ok: false, refusal: { reason: "unreadable" } };
-    const draft = stored ?? { annotations: [], edit: null, typed: EMPTY_TYPED };
-    const all = items === "all";
-    const { extensions } = this.options;
-
-    if (all && !takeDefaults) {
-      let count = 0;
-
-      for (const extension of extensions) {
-        count += (await extension.unanswered?.(this.context, draft)) ?? 0;
-      }
-
-      if (count > 0) return { ok: false, refusal: { reason: "unanswered", count } };
-    }
+    const draft = stored ?? EMPTY_DRAFT;
 
     const latestText =
       workspace.kind === "drafting" ? null : await this.planText(workspace.version, workspace.dir);
 
-    const decided = sendOn(workspace, latestText, draft, items);
+    const decided = sendOn(workspace, latestText, draft, request);
 
     if (decided.kind === "refused") return { ok: false, refusal: { reason: decided.reason } };
-    const sections: { readonly id: string; readonly text: string }[] = [];
+    const parts: { readonly id: string; readonly part: Extract<Part, { kind: "part" }> }[] = [];
+    const unanswered: string[] = [];
 
-    for (const extension of all ? extensions : []) {
-      const text = await extension.section?.(this.context, draft);
+    for (const extension of request.parts ? this.options.extensions : []) {
+      const part = (await extension.part?.(this.context, draft, request.takeDefaults)) ?? NO_PART;
 
-      if (text !== undefined && text !== null) sections.push({ id: extension.id, text });
+      if (part.kind === "unanswered") unanswered.push(...part.ids);
+      else if (part.kind === "part") parts.push({ id: extension.id, part });
     }
 
-    const { annotations, edit } = decided;
+    if (unanswered.length > 0)
+      return { ok: false, refusal: { reason: "unanswered", ids: unanswered } };
+    const { annotations, edit, version, editedFrom } = decided;
 
-    if (annotations.length === 0 && edit === null && sections.length === 0) {
+    if (annotations.length === 0 && edit === null && parts.length === 0) {
       return { ok: false, refusal: { reason: "empty" } };
     }
 
@@ -401,7 +426,6 @@ export class Review {
       await writeText(project, edit.path, edit.text);
     }
 
-    const { version, editedFrom } = decided;
     const batch = batchesOf(await listReview(project, workspace.dir), version) + 1;
     const file = projectPath(`${workspace.dir}${batchFile(version, batch)}`);
 
@@ -410,24 +434,42 @@ export class Review {
         ? { kind: "draft" as const, batch }
         : { kind: "review" as const, version, batch, editedFrom };
 
-    const parts = sections.map(({ text }) => text);
-    await writeText(project, file, formatBatch(heading, parts, annotations));
-    await this.keepDraft(decided.rest);
-    const seq = await this.relay({ kind: "sent", file });
+    const texts = parts.map(({ part }) => part.text);
+    const seq = await this.commitBatch(file, formatBatch(heading, texts, annotations));
+    const typed = parts.reduce((kept, { part }) => part.typed(kept), decided.rest.typed);
+    await this.afterCommit("the draft's rest", () => this.keepDraft({ ...decided.rest, typed }));
     const comments = annotations.length > 0 || edit !== null;
 
-    for (const extension of extensions) {
-      const more = comments || sections.some(({ id }) => id !== extension.id);
-
-      // The batch is sent whatever an extension fails to do with it: its entry is in the channel.
-      await extension.sent?.(this.context, { file, seq, more }).catch((cause: unknown) => {
-        console.error(`${extension.id} failed on sent: ${String(cause)}`);
-      });
+    for (const { id, part } of parts) {
+      const more = comments || parts.some((other) => other.id !== id);
+      await this.afterCommit(`${id}'s commit`, () => part.commit({ file, seq, more }));
     }
 
-    await this.notify();
+    await this.afterCommit("notify", async () => {
+      await this.notify();
+    });
 
     return { ok: true, file, seq };
+  }
+
+  /** The batch, then its entry: the Send's commit point. A batch whose entry failed is removed. */
+  private async commitBatch(file: ProjectPath, text: string): Promise<number> {
+    const { project } = this.options;
+    await writeText(project, file, text);
+
+    try {
+      return await this.relay({ kind: "sent", file });
+    } catch (cause) {
+      await removeFile(project, file);
+      throw cause;
+    }
+  }
+
+  /** Past the commit point the Send stands: a write that fails is logged, never the Send's failure. */
+  private async afterCommit(what: string, work: () => Promise<void>): Promise<void> {
+    await work().catch((cause: unknown) => {
+      console.error(`a Send was committed, then ${what} failed: ${String(cause)}`);
+    });
   }
 
   /** What the draft keeps after a Send: the file goes with the last of it. */

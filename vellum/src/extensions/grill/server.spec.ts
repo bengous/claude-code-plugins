@@ -1,10 +1,12 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import {
   existsSync,
+  mkdirSync,
   mkdtempSync,
   readdirSync,
   readFileSync,
   renameSync,
+  rmSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -30,7 +32,8 @@ const HELD = "grill 1 is open: the plan is submitted once the reviewer ends it";
 
 const TYPED = { general: "", composer: {}, grill: {}, editor: null };
 
-const TAKE_DEFAULTS = { items: "all", takeDefaults: true } as const;
+/** A Send as the bar asks it once the reviewer agreed to leave every open question to its recommendation. */
+const EVERY_QUESTION = ["Q1", "Q2", "Q3", "Q4", "Q5"];
 
 /** What the page's draft holds for a transcript, `grill-1.md` unless named, and the comments beside it. */
 type Typing = {
@@ -40,7 +43,12 @@ type Typing = {
   readonly comments?: readonly (typeof NOTE)[];
 };
 
-type Items = "all" | readonly { readonly kind: "annotation"; readonly id: string }[];
+/** What a Send names beyond the draft's comments, which it takes by default. */
+type Asking = {
+  readonly parts?: boolean;
+  readonly takeDefaults?: readonly string[];
+  readonly annotations?: readonly string[];
+};
 
 const running: Started[] = [];
 
@@ -51,14 +59,13 @@ type Grilling = {
   readonly gate: () => Promise<Response>;
   readonly approve: () => Promise<Response>;
   /** The draft as the page saves it, then `POST /api/send`: the defaults taken unless said otherwise. */
-  readonly send: (
-    typing?: Typing,
-    request?: { readonly items: Items; readonly takeDefaults: boolean },
-  ) => Promise<Response>;
+  readonly send: (typing?: Typing, request?: Asking) => Promise<Response>;
   /** The draft alone, as the page saves it before End grill. */
   readonly save: (typing: Typing) => Promise<Response>;
   /** Every entry of the channel. */
   readonly lines: () => Promise<readonly ChannelLine[]>;
+  /** A core route, as the page calls it. */
+  readonly core: (path: string, body: string, method?: "POST" | "PUT") => Promise<Response>;
   readonly view: () => Promise<{ readonly held: string | null }>;
   /** What the channel told Claude of the grill, each text in order. */
   readonly told: () => Promise<readonly string[]>;
@@ -105,12 +112,22 @@ async function grilling(): Promise<Grilling> {
     dir,
     gate: () => core("gate", "{}"),
     approve: () => core("decision", JSON.stringify({ kind: "approve", edit: null, notes: "" })),
-    send: async (typing = {}, request = TAKE_DEFAULTS) => {
+    send: async (typing = {}, request = {}) => {
       await save(typing);
+      const annotations = (typing.comments ?? []).map(({ id }) => id);
 
-      return core("send", JSON.stringify(request));
+      const asked = {
+        annotations,
+        edit: null,
+        parts: true,
+        takeDefaults: EVERY_QUESTION,
+        ...request,
+      };
+
+      return core("send", JSON.stringify(asked));
     },
     save,
+    core,
     lines,
     view: async () =>
       // SAFETY: the server's own `ReviewView`, serialized by `Response.json` in routes.ts.
@@ -334,11 +351,36 @@ describe("a round", () => {
     const { dir, post, send } = await grilling();
     await post("open", { subject: "auth" });
     await post("ask", { q: [...Q, ...Q] });
-    const refused = await send({ answers: { Q2: "no" } }, { items: "all", takeDefaults: false });
+    const refused = await send({ answers: { Q2: "no" } }, { takeDefaults: [] });
 
     expect(refused.status).toBe(409);
-    expect(await refused.json()).toEqual({ reason: "unanswered", count: 1 });
+    expect(await refused.json()).toEqual({ reason: "unanswered", ids: ["Q1"] });
     expect(readFileSync(join(dir, WIP, "grill-1.md"), "utf8")).not.toContain("### Reviewer");
+  });
+
+  test("a question asked after the reviewer agreed to the defaults refuses the Send, every id named, and writes nothing", async () => {
+    const { dir, post, send } = await grilling();
+    await post("open", { subject: "auth" });
+    await post("ask", { q: Q });
+    await post("ask", { q: [...Q, ...Q] });
+    const refused = await send({}, { takeDefaults: ["Q1"] });
+
+    expect(await refused.json()).toEqual({ reason: "unanswered", ids: ["Q1", "Q2", "Q3"] });
+    expect(readFileSync(join(dir, WIP, "grill-1.md"), "utf8")).not.toContain("### Reviewer");
+  });
+
+  test("a Send whose entry cannot be written leaves the round open and no batch", async () => {
+    const { dir, post, send } = await grilling();
+    await post("open", { subject: "auth" });
+    await post("ask", { q: Q });
+    rmSync(join(dir, WIP, ".review/channel.jsonl"));
+    mkdirSync(join(dir, WIP, ".review/channel.jsonl"));
+    await send({ answers: { Q1: "yes" } }).catch(() => null);
+
+    expect(readFileSync(join(dir, WIP, "grill-1.md"), "utf8")).not.toContain("Q1: yes");
+    expect(
+      readdirSync(join(dir, WIP, ".review")).filter((name) => name.includes("feedback")),
+    ).toEqual([]);
   });
 
   test("the recommendation chosen is an answer: nothing is left unanswered", async () => {
@@ -347,14 +389,14 @@ describe("a round", () => {
     await post("ask", { q: Q });
     const answers = { Q1: "As recommended." };
 
-    expect((await send({ answers }, { items: "all", takeDefaults: false })).status).toBe(200);
+    expect((await send({ answers }, { takeDefaults: [] })).status).toBe(200);
   });
 
   test("Send now takes the comment named and leaves the round open", async () => {
     const { dir, post, get, send } = await grilling();
     await post("open", { subject: "auth" });
     await post("ask", { q: Q });
-    const request = { items: [{ kind: "annotation", id: "a" }], takeDefaults: false } as const;
+    const request = { parts: false, takeDefaults: [] };
 
     expect((await send({ answers: { Q1: "yes" }, comments: [NOTE] }, request)).status).toBe(200);
     expect(readFileSync(join(dir, WIP, ".review/v0.feedback-1.md"), "utf8")).not.toContain("Grill");
@@ -492,7 +534,7 @@ describe("waiting for a round", () => {
     await post("open", { subject: "auth" });
     await post("ask", { q: Q });
     const waiting = waited(post);
-    const request = { items: [{ kind: "annotation", id: "a" }], takeDefaults: false } as const;
+    const request = { parts: false, takeDefaults: [] };
     await send({ comments: [NOTE] }, request);
     const early = await Promise.race([waiting, Bun.sleep(300).then(() => "still waiting")]);
     await send({});
@@ -632,6 +674,16 @@ describe("closing a grill", () => {
       "Reviewer: Done.\n\nQ1: no",
       "The reviewer ended grill-1.md.",
     ]);
+  });
+
+  test("End grill racing a Send writes the note once: the close reads the draft in its own step", async () => {
+    const { dir, post, save, core } = await grilling();
+    await post("open", { subject: "auth" });
+    await save({ note: "N-note" });
+    const asked = { annotations: [], edit: null, parts: true, takeDefaults: EVERY_QUESTION };
+    await Promise.all([post("close", { reason: "page" }), core("send", JSON.stringify(asked))]);
+
+    expect(readFileSync(join(dir, WIP, "grill-1.md"), "utf8").split("N-note")).toHaveLength(2);
   });
 
   test("an end the session caused itself tells Claude nothing", async () => {

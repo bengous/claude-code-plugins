@@ -45,14 +45,14 @@ type Notes = {
 
 /**
  * What "anyway" goes on to: the approval at once, the notes popover, the approval the notes
- * popover asked for, where Cancel returns with the note intact, or the Send, which takes the
- * recommendation for each question it names unanswered.
+ * popover asked for, where Cancel returns with the note intact, or the Send, which leaves each
+ * question it names unanswered to its recommendation.
  */
 type Next =
   | { readonly kind: "approve" }
   | { readonly kind: "notes" }
   | { readonly kind: "noted"; readonly notes: Notes }
-  | { readonly kind: "send"; readonly unanswered: number };
+  | { readonly kind: "send"; readonly unanswered: readonly string[] };
 
 /** The one popover under the bar: the notes, or the warning that stands before `next`. */
 type BarPopover =
@@ -115,7 +115,9 @@ type WarningProps = {
 /** Each reason on two lines: what is there, in red, then what the decision does with it. */
 function Warning(props: WarningProps): preact.JSX.Element {
   const one = props.count === 1;
-  const verb = props.action === "approve" ? "Approving" : "Sending";
+  const approving = props.action === "approve";
+  const verb = approving ? "Approving" : "Sending";
+  const typedFate = approving ? "Approving discards it." : "It stays here, unsent.";
 
   return (
     <Popover
@@ -148,7 +150,7 @@ function Warning(props: WarningProps): preact.JSX.Element {
           What you typed in {entry.where} is not added.
         </div>
       ))}
-      {props.typed.length > 0 && <div>{verb} discards it.</div>}
+      {props.typed.length > 0 && <div>{typedFate}</div>}
       {props.hold !== null && (
         <>
           <div class="warn-text">The review is held: {props.hold}.</div>
@@ -189,7 +191,7 @@ export function DecisionBar(props: BarProps): preact.JSX.Element {
   const close = (): void => setPopover(CLOSED);
   const title = titleOf(planText.value);
   const parts = props.shares.map((share) => share());
-  const unanswered = parts.reduce((sum, part) => sum + part.unanswered, 0);
+  const unanswered = parts.flatMap((part) => part.unanswered);
   const counted = count + (edited.value === null ? 0 : 1);
   const sendCount = parts.reduce((sum, part) => sum + part.count, counted);
 
@@ -203,7 +205,7 @@ export function DecisionBar(props: BarProps): preact.JSX.Element {
     editing: editing.value !== null,
     sending: sending.value,
     count: sendCount,
-    unanswered,
+    unanswered: unanswered.length,
     more: parts.some((part) => part.more),
     strayTyped: strayTyped.value.length,
   });
@@ -228,10 +230,16 @@ export function DecisionBar(props: BarProps): preact.JSX.Element {
     if (next.kind === "send") {
       close();
 
-      // A count the page had not read yet comes back from the server: the warning, with it.
-      void send("all", next.unanswered > 0).then((sent) => {
+      // What the reviewer sees now is what goes; questions the page had not read yet come back
+      // from the server, and the warning asks about them all.
+      void send({
+        annotations: annotations.value.map(({ id }) => id),
+        edit: edited.value,
+        parts: props.shares.map((share) => share()),
+        takeDefaults: next.unanswered,
+      }).then((sent) => {
         if (sent.kind === "unanswered") {
-          setPopover({ kind: "warn", next: { kind: "send", unanswered: sent.count } });
+          setPopover({ kind: "warn", next: { kind: "send", unanswered: sent.ids } });
         }
       });
     } else if (next.kind === "notes") {
@@ -264,7 +272,7 @@ export function DecisionBar(props: BarProps): preact.JSX.Element {
     const agreed = !approval || unsent.length === 0 || notes?.agreed === unsent;
     const warned = !approval || hold === null || notes?.warned === hold;
     const typedAgreed = stray.length === 0 || notes?.typedAgreed === stray;
-    const answered = next.kind !== "send" || next.unanswered === 0;
+    const answered = next.kind !== "send" || next.unanswered.length === 0;
 
     if (agreed && warned && typedAgreed && answered) proceed(next);
     else setPopover({ kind: "warn", next });
@@ -350,7 +358,7 @@ export function DecisionBar(props: BarProps): preact.JSX.Element {
         <Warning
           action={popover.next.kind === "send" ? "send" : "approve"}
           count={popover.next.kind === "send" ? 0 : count}
-          unanswered={popover.next.kind === "send" ? popover.next.unanswered : 0}
+          unanswered={popover.next.kind === "send" ? popover.next.unanswered.length : 0}
           hold={popover.next.kind === "send" ? null : hold}
           typed={popover.next.kind === "send" ? strayTyped.value : unsentTyped.value}
           onProceed={() => proceed(popover.next)}

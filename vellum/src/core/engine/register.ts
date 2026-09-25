@@ -368,7 +368,8 @@ export const register: Register = (on) => {
 
           return { result: answer.result };
         } catch (cause) {
-          if (waits.has(id)) failedWaiting.add(id);
+          // Escape calls no `.catch` (hook-runtime.md): only a failure it will hear is remembered.
+          if (waits.has(id) && !next.signal.aborted) failedWaiting.add(id);
           throw cause;
         } finally {
           waits.get(id)?.close();

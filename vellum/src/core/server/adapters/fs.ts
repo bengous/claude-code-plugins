@@ -100,6 +100,14 @@ export async function removeFile(project: string, path: ProjectPath): Promise<vo
   await rm(join(project, path), { force: true });
 }
 
+export async function renameFile(
+  project: string,
+  from: ProjectPath,
+  to: ProjectPath,
+): Promise<void> {
+  await rename(join(project, from), join(project, to));
+}
+
 export function readText(project: string, path: ProjectPath): Promise<string> {
   return Bun.file(join(project, path)).text();
 }

@@ -97,15 +97,29 @@ function read(root: string, path: string): string {
   return readFileSync(join(root, path), "utf8");
 }
 
-const ALL: SendRequest = { items: "all", takeDefaults: false };
-
-/** The page's draft as `PUT /api/draft` stores it, then a Send of it, as `POST /api/send` asks. */
-function send(s: Setup, draft: Partial<Draft>, request: SendRequest = ALL): Promise<SendResult> {
+/**
+ * The page's draft as `PUT /api/draft` stores it, then a Send of it as the bar asks it: every
+ * comment on screen and the edit, with the extensions' parts, unless `request` says otherwise.
+ */
+function send(
+  s: Setup,
+  draft: Partial<Draft>,
+  request: Partial<SendRequest> = {},
+): Promise<SendResult> {
   const stored: Draft = { annotations: [], edit: null, typed: EMPTY_TYPED, ...draft };
   writeFileSync(join(s.root, DRAFT), JSON.stringify(stored));
 
-  return s.review.send(request);
+  return s.review.send({
+    annotations: stored.annotations.map(({ id }) => id),
+    edit: stored.edit?.version ?? null,
+    parts: true,
+    takeDefaults: [],
+    ...request,
+  });
 }
+
+/** Send now: the one comment named, no part. */
+const SEND_NOW = { annotations: ["b"], edit: null, parts: false } as const;
 
 const SAY_NO: Partial<Draft> = { annotations: [GENERAL_NO] };
 
@@ -183,14 +197,23 @@ describe("Review", () => {
 
   test("Send now takes the comment named, and the draft keeps the rest", async () => {
     const s = await gated();
-    const request: SendRequest = { items: [{ kind: "annotation", id: "b" }], takeDefaults: false };
-    await send(s, { annotations: [GENERAL_NO, ANOTHER], edit: EDIT_OF_V1 }, request);
+    const other = { ...ANOTHER, doc: `${WIP}notes.md` as never };
+    await send(s, { annotations: [GENERAL_NO, other], edit: EDIT_OF_V1 }, SEND_NOW);
     expect(read(s.root, `${WIP}.review/v1.feedback-1.md`)).toContain("Nor this.");
     expect(read(s.root, `${WIP}.review/v1.feedback-1.md`)).not.toContain("No.");
     expect(JSON.parse(read(s.root, DRAFT))).toMatchObject({
       annotations: [GENERAL_NO],
       edit: EDIT_OF_V1,
     });
+  });
+
+  test("a comment named that the draft no longer holds refuses the Send, and nothing is written", async () => {
+    const s = await gated();
+    expect(await send(s, SAY_NO, { annotations: ["a", "gone"] })).toEqual({
+      ok: false,
+      refusal: { reason: "changed" },
+    });
+    expect(await told(s.review)).toEqual([]);
   });
 
   test("a Send with nothing in it is refused and writes nothing", async () => {
@@ -201,10 +224,11 @@ describe("Review", () => {
 
   test("a Send is refused once approved, and on a draft it cannot read", async () => {
     const s = await gated();
+    const all: SendRequest = { annotations: [], edit: null, parts: true, takeDefaults: [] };
     writeFileSync(join(s.root, DRAFT), '{"annotations":3}');
-    expect(await s.review.send(ALL)).toEqual({ ok: false, refusal: { reason: "unreadable" } });
+    expect(await s.review.send(all)).toEqual({ ok: false, refusal: { reason: "unreadable" } });
     await s.review.decide(APPROVE);
-    expect(await s.review.send(ALL)).toEqual({ ok: false, refusal: { reason: "approved" } });
+    expect(await s.review.send(all)).toEqual({ ok: false, refusal: { reason: "approved" } });
   });
 
   test("approve with an edit leaves the edited text in the final plan.md, links rewritten", async () => {
@@ -458,42 +482,51 @@ describe("Review", () => {
   });
 });
 
-/** An extension with a round open, and what `sent` told it. */
+/** An extension with a round open, and each batch its part's commit heard. */
 type Rounding = { readonly extension: ServerExtension; readonly heard: unknown[] };
 
-/** `count` questions a Send would take by default, and its part of the batch. */
-function rounding(count: number): Rounding {
+/** `untyped` questions no answer takes, which a Send leaves to their recommendation once agreed. */
+function rounding(untyped: readonly string[] = []): Rounding {
   const heard: unknown[] = [];
 
   return {
     heard,
     extension: {
       id: "round",
-      unanswered: () => Promise.resolve(count),
-      section: () => Promise.resolve("## Round\n\nReviewer: Q1: yes"),
-      sent: (_, batch) => {
-        heard.push(batch);
+      part: (_, __, takeDefaults) =>
+        Promise.resolve(
+          untyped.every((id) => takeDefaults.includes(id))
+            ? {
+                kind: "part",
+                text: "## Round\n\nReviewer: Q1: yes",
+                typed: (typed) => ({ ...typed, general: "" }),
+                commit: (batch) => {
+                  heard.push(batch);
 
-        return Promise.resolve();
-      },
+                  return Promise.resolve();
+                },
+              }
+            : { kind: "unanswered", ids: untyped },
+        ),
     },
   };
 }
 
 describe("a Send and the extensions", () => {
-  test("an open question no answer takes refuses the Send, with how many, until the reviewer takes the defaults", async () => {
-    const round = rounding(2);
+  test("questions no answer takes refuse the Send, with their ids, until the reviewer agrees to those", async () => {
+    const round = rounding(["Q2", "Q3"]);
     const s = setup([round.extension]);
     expect(await send(s, SAY_NO)).toEqual({
       ok: false,
-      refusal: { reason: "unanswered", count: 2 },
+      refusal: { reason: "unanswered", ids: ["Q2", "Q3"] },
     });
+    expect(await send(s, SAY_NO, { takeDefaults: ["Q2"] })).toMatchObject({ ok: false });
     expect(await told(s.review)).toEqual([]);
-    expect((await send(s, SAY_NO, { items: "all", takeDefaults: true })).ok).toBe(true);
+    expect((await send(s, SAY_NO, { takeDefaults: ["Q2", "Q3"] })).ok).toBe(true);
   });
 
-  test("an extension's section comes before the comments, and `sent` hears the file and its number once written", async () => {
-    const round = rounding(0);
+  test("an extension's part comes before the comments, and its commit hears the file and its number once written", async () => {
+    const round = rounding();
     const s = setup([round.extension]);
     await send(s, SAY_NO);
     const file = `${WIP}.review/v0.feedback-1.md`;
@@ -503,26 +536,60 @@ describe("a Send and the extensions", () => {
     expect(round.heard).toEqual([{ file, seq: 1, more: true }]);
   });
 
-  test("a section alone is a batch, and `sent` hears it holds nothing more", async () => {
-    const round = rounding(0);
+  test("a part alone is a batch, and its commit hears it holds nothing more", async () => {
+    const round = rounding();
     const s = setup([round.extension]);
     expect((await send(s, {})).ok).toBe(true);
     expect(round.heard).toEqual([{ file: `${WIP}.review/v0.feedback-1.md`, seq: 1, more: false }]);
   });
 
-  test("Send now asks no extension for its part nor its unanswered questions", async () => {
-    const round = rounding(2);
+  test("the draft keeps what the Send did not take, a part's typing leaving it as the part says", async () => {
+    const round = rounding();
     const s = setup([round.extension]);
-    const request: SendRequest = { items: [{ kind: "annotation", id: "a" }], takeDefaults: false };
-    await send(s, SAY_NO, request);
-    expect(read(s.root, `${WIP}.review/v0.feedback-1.md`)).not.toContain("## Round");
-    expect(round.heard).toEqual([{ file: `${WIP}.review/v0.feedback-1.md`, seq: 1, more: true }]);
+    const typed = { ...EMPTY_TYPED, general: "taken by the part", composer: { x: "kept" } };
+    await send(s, { annotations: [GENERAL_NO, ANOTHER], typed }, { annotations: ["a"] });
+    expect(JSON.parse(read(s.root, DRAFT))).toEqual({
+      annotations: [ANOTHER],
+      edit: null,
+      typed: { ...typed, general: "" },
+    });
   });
 
-  test("a `sent` that throws leaves the batch sent", async () => {
-    const broken: ServerExtension = { id: "broken", sent: () => Promise.reject(new Error("x")) };
+  test("Send now asks no extension for its part", async () => {
+    const round = rounding(["Q2"]);
+    const s = setup([round.extension]);
+    await send(s, { annotations: [GENERAL_NO, ANOTHER] }, SEND_NOW);
+    expect(read(s.root, `${WIP}.review/v0.feedback-1.md`)).not.toContain("## Round");
+    expect(round.heard).toEqual([]);
+  });
+
+  test("an entry that cannot be written leaves no batch and runs no commit: the Send can go again", async () => {
+    const round = rounding();
+    const extended = setup([round.extension]);
+    await extended.review.openChannel();
+    rmSync(join(extended.root, WIP, ".review/channel.jsonl"));
+    mkdirSync(join(extended.root, WIP, ".review/channel.jsonl"));
+
+    await expect(send(extended, SAY_NO)).rejects.toThrow();
+    expect(existsSync(join(extended.root, WIP, ".review/v0.feedback-1.md"))).toBe(false);
+    expect(round.heard).toEqual([]);
+    expect(existsSync(join(extended.root, DRAFT))).toBe(true);
+  });
+
+  test("a commit that throws leaves the batch sent", async () => {
+    const broken: ServerExtension = {
+      id: "broken",
+      part: () =>
+        Promise.resolve({
+          kind: "part",
+          text: "## Broken",
+          typed: (typed) => typed,
+          commit: () => Promise.reject(new Error("disk full")),
+        }),
+    };
+
     const s = setup([broken]);
-    expect((await send(s, SAY_NO)).ok).toBe(true);
+    expect(await send(s, SAY_NO)).toMatchObject({ ok: true, seq: 1 });
   });
 });
 
@@ -644,7 +711,7 @@ describe("the channel as the server opens it", () => {
     ]);
   });
 
-  test("a batch whose entry was never written is told when the server opens the channel again", async () => {
+  test("a Send whose entry failed leaves nothing to tell: the page saw it fail, and sends again", async () => {
     const s = await gated();
     await s.review.openChannel();
     rmSync(join(s.root, WIP, ".review/channel.jsonl"));
@@ -653,6 +720,15 @@ describe("the channel as the server opens it", () => {
     await expect(send(s, SAY_NO)).rejects.toThrow();
     rmSync(join(s.root, WIP, ".review/channel.jsonl"), { recursive: true });
     writeFileSync(join(s.root, WIP, ".review/channel.jsonl"), "");
+    await s.review.openChannel();
+
+    expect(await told(s.review)).toEqual([]);
+  });
+
+  test("a batch whose entry was never written, a server killed between the two, is told when the channel opens again", async () => {
+    const s = await gated();
+    await s.review.openChannel();
+    writeFileSync(join(s.root, WIP, ".review/v1.feedback-1.md"), "# Plan review: batch 1 on v1\n");
     await s.review.openChannel();
 
     expect(await told(s.review)).toEqual([
@@ -666,6 +742,37 @@ describe("the channel as the server opens it", () => {
     rmSync(join(s.root, WIP, ".review/channel.jsonl"));
     await s.review.openChannel();
 
+    expect(await told(s.review)).toEqual([]);
+  });
+
+  test("a feedback file an older vellum wrote becomes its version's first batch at open, the channel naming it there", async () => {
+    const s = await gated();
+    const old = `${WIP}.review/v1.feedback.md`;
+    writeFileSync(join(s.root, old), "# Plan review: changes requested (v1)\n");
+    writeFileSync(
+      join(s.root, WIP, ".review/channel.jsonl"),
+      `${JSON.stringify({ kind: "sent", file: old })}\n`,
+    );
+    await s.review.openChannel();
+
+    expect(existsSync(join(s.root, old))).toBe(false);
+    expect(read(s.root, `${WIP}.review/v1.feedback-1.md`)).toContain("changes requested (v1)");
+    expect(await told(s.review)).toEqual([
+      { kind: "sent", file: `${WIP}.review/v1.feedback-1.md` },
+    ]);
+    expect(await s.review.workspace()).toMatchObject({ kind: "inReview", version: 1, batches: 1 });
+  });
+
+  test("a directory older than the channel has its feedback file renamed too, and tells nothing", async () => {
+    const s = await gated();
+    writeFileSync(
+      join(s.root, WIP, ".review/v1.feedback.md"),
+      "# Plan review: changes requested (v1)\n",
+    );
+    rmSync(join(s.root, WIP, ".review/channel.jsonl"), { force: true });
+    await s.review.openChannel();
+
+    expect(existsSync(join(s.root, WIP, ".review/v1.feedback-1.md"))).toBe(true);
     expect(await told(s.review)).toEqual([]);
   });
 
