@@ -16,13 +16,15 @@ import { serverExtensions } from "../../../extensions/server.ts";
 import type { ServerExtension } from "../../extension.ts";
 import { parseWipDir } from "../domain/paths.ts";
 import type { Draft, SendRequest } from "../domain/review.ts";
-import { EMPTY_TYPED } from "../domain/review.ts";
+import { choicesIn, EMPTY_TYPED } from "../domain/review.ts";
 import type { SendResult } from "./review.ts";
 import { Review } from "./review.ts";
 
 /** The applying side: the pure decisions are covered in `domain/review.spec.ts`. */
 
 const WIP = "plans/2026-09-15/wip-4c2a9d93/";
+
+const ARTICLE = { heading: "Layout", role: "article", name: "", openingTag: "<article>" };
 
 const DATED = "plans/2026-09-15";
 
@@ -106,12 +108,13 @@ function send(
   draft: Partial<Draft>,
   request: Partial<SendRequest> = {},
 ): Promise<SendResult> {
-  const stored: Draft = { annotations: [], edit: null, typed: EMPTY_TYPED, ...draft };
+  const stored: Draft = { annotations: [], edit: null, choices: {}, typed: EMPTY_TYPED, ...draft };
   writeFileSync(join(s.root, DRAFT), JSON.stringify(stored));
 
   return s.review.send({
     annotations: stored.annotations.map(({ id }) => id),
     edit: stored.edit?.version ?? null,
+    choices: choicesIn(stored.choices),
     parts: true,
     takeDefaults: [],
     ...request,
@@ -119,7 +122,7 @@ function send(
 }
 
 /** Send now: the one comment named, no part. */
-const SEND_NOW = { annotations: ["b"], edit: null, parts: false } as const;
+const SEND_NOW = { annotations: ["b"], edit: null, choices: [], parts: false } as const;
 
 const SAY_NO: Partial<Draft> = { annotations: [GENERAL_NO] };
 
@@ -224,7 +227,15 @@ describe("Review", () => {
 
   test("a Send is refused once approved, and on a draft it cannot read", async () => {
     const s = await gated();
-    const all: SendRequest = { annotations: [], edit: null, parts: true, takeDefaults: [] };
+
+    const all: SendRequest = {
+      annotations: [],
+      edit: null,
+      choices: [],
+      parts: true,
+      takeDefaults: [],
+    };
+
     writeFileSync(join(s.root, DRAFT), '{"annotations":3}');
     expect(await s.review.send(all)).toEqual({ ok: false, refusal: { reason: "unreadable" } });
     await s.review.decide(APPROVE);
@@ -543,6 +554,16 @@ describe("a Send and the extensions", () => {
     expect(round.heard).toEqual([{ file: `${WIP}.review/v0.feedback-1.md`, seq: 1, more: false }]);
   });
 
+  test("a choice alone is a batch, and a part's commit hears the batch holds more than the part", async () => {
+    const round = rounding();
+    const s = setup([round.extension]);
+    const layout = { layout: { option: "d", description: ARTICLE } };
+    expect((await send(s, { choices: { [`${WIP}layout.html`]: layout } })).ok).toBe(true);
+    expect(round.heard).toEqual([{ file: `${WIP}.review/v0.feedback-1.md`, seq: 1, more: true }]);
+    expect(read(s.root, `${WIP}.review/v0.feedback-1.md`)).toContain("## Choices\n\n1. ");
+    expect(existsSync(join(s.root, DRAFT))).toBe(false);
+  });
+
   test("the draft keeps what the Send did not take, a part's typing leaving it as the part says", async () => {
     const round = rounding();
     const s = setup([round.extension]);
@@ -551,6 +572,7 @@ describe("a Send and the extensions", () => {
     expect(JSON.parse(read(s.root, DRAFT))).toEqual({
       annotations: [ANOTHER],
       edit: null,
+      choices: {},
       typed: { ...typed, general: "" },
     });
   });

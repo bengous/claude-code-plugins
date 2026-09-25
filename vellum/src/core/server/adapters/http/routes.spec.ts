@@ -52,13 +52,27 @@ const ON_MOCKUP = { id: "a", doc: `${WIP}mockup.html`, anchor: CARD, mark: BIGGE
 
 const TYPED = { general: "", composer: {}, grill: {}, editor: null };
 
-const DRAFT = { annotations: [ON_MOCKUP], edit: { version: 1, text: "# Q\n" }, typed: TYPED };
+const LAYOUT = {
+  option: "settings",
+  description: { heading: "Layout", role: "article", name: "", openingTag: "<article>" },
+};
 
-const EMPTY_DRAFT = { annotations: [], edit: null, typed: TYPED };
+const CHOICES = { [`${WIP}mockup.html`]: { layout: LAYOUT } };
+
+const SETTINGS = { doc: `${WIP}mockup.html`, decision: "layout", option: "settings" };
+
+const DRAFT = {
+  annotations: [ON_MOCKUP],
+  edit: { version: 1, text: "# Q\n" },
+  choices: CHOICES,
+  typed: TYPED,
+};
+
+const EMPTY_DRAFT = { annotations: [], edit: null, choices: {}, typed: TYPED };
 
 const DRAFT_PATH = `${WIP}.review/draft.json`;
 
-const ALL = { annotations: ["a"], edit: null, parts: true, takeDefaults: [] };
+const ALL = { annotations: ["a"], edit: null, choices: [], parts: true, takeDefaults: [] };
 
 const NO_BUILD = { ok: false, error: "no commit for /vellum: no installed_plugins.json" } as const;
 
@@ -110,6 +124,7 @@ type Drafting = {
   readonly putDraft: (draft: {
     readonly annotations?: unknown;
     readonly edit?: unknown;
+    readonly choices?: unknown;
     readonly typed?: unknown;
   }) => Promise<Response>;
   readonly getDraft: () => Promise<Response>;
@@ -426,12 +441,44 @@ describe("routes", () => {
       { ...ALL, edit: "1" },
       { ...ALL, parts: "yes" },
       { ...ALL, takeDefaults: true },
+      { ...ALL, choices: {} },
+      { ...ALL, choices: [{ ...SETTINGS, doc: "/etc/passwd" }] },
+      { ...ALL, choices: [{ ...SETTINGS, decision: "" }] },
+      { ...ALL, choices: [{ ...SETTINGS, option: 1 }] },
     ]) {
       expect((await sendBody(body)).status, JSON.stringify(body)).toBe(400);
     }
 
     expect(await (await sendBody({ ...ALL, annotations: [] })).json()).toEqual({ reason: "empty" });
     expect(await (await sendBody(ALL)).json()).toEqual({ reason: "changed" });
+  });
+
+  test("a choice saved in the draft goes with the Send that names it, after the comments, and leaves the draft", async () => {
+    const { dir, sendBody, putDraft, getDraft } = await underReview();
+    await putDraft({ ...DRAFT, edit: null });
+    const sent = await sendBody({ ...ALL, choices: [SETTINGS] });
+    expect(sent.status).toBe(200);
+    const batch = await Bun.file(join(dir, `${WIP}.review/v1.feedback-1.md`)).text();
+    expect(batch).toContain(
+      `## Choices\n\n1. \`${WIP}mockup.html\`, decision \`layout\`: option \`settings\`, under "Layout", \`<article>\`\n`,
+    );
+    expect(batch.indexOf("## Comments")).toBeLessThan(batch.indexOf("## Choices"));
+    expect((await getDraft()).status).toBe(204);
+  });
+
+  test("a choice named with another option than the draft holds refuses the Send as changed", async () => {
+    const { sendBody, putDraft } = await underReview();
+    await putDraft({ ...EMPTY_DRAFT, choices: CHOICES });
+
+    const other = await sendBody({
+      ...ALL,
+      annotations: [],
+      choices: [{ ...SETTINGS, option: "d" }],
+    });
+
+    expect(await other.json()).toEqual({ reason: "changed" });
+    const alone = await sendBody({ ...ALL, annotations: [], choices: [SETTINGS] });
+    expect(alone.status).toBe(200);
   });
 
   test("a Send answers its batch and the entry's number, and leaves the page taking comments", async () => {
@@ -478,6 +525,24 @@ describe("routes", () => {
     expect((await putDraft({ ...EMPTY_DRAFT, annotations: [onNothing] })).status).toBe(400);
     expect((await putDraft({ ...EMPTY_DRAFT, edit: { version: 0, text: "" } })).status).toBe(400);
     expect(await (await getDraft()).json()).toEqual(DRAFT);
+  });
+
+  test("a malformed choice refuses the draft", async () => {
+    const { putDraft } = drafting();
+    const mockup = `${WIP}mockup.html`;
+
+    for (const choices of [
+      [],
+      { "/abs.html": { layout: LAYOUT } },
+      { [mockup]: { "": LAYOUT } },
+      { [mockup]: { layout: { ...LAYOUT, option: "" } } },
+      { [mockup]: { layout: { option: "settings" } } },
+      { [mockup]: { layout: { ...LAYOUT, description: { ...LAYOUT.description, role: 1 } } } },
+    ]) {
+      expect((await putDraft({ ...EMPTY_DRAFT, choices })).status, JSON.stringify(choices)).toBe(
+        400,
+      );
+    }
   });
 
   test("a draft without what is typed, or with it malformed, is refused: the 0.11 shape included", async () => {
@@ -550,6 +615,14 @@ describe("routes", () => {
     expect(read.status).toBe(200);
     const kept = { kind: "element", elements: [{ ...PRO_WITHOUT_DESCRIPTION, description: null }] };
     expect(await read.json()).toEqual({ ...draft, annotations: [{ ...ON_MOCKUP, anchor: kept }] });
+  });
+
+  test("a draft saved before the choices is read with none, its unsent comments kept", async () => {
+    const { dir, getDraft } = drafting();
+    writeFileSync(join(dir, DRAFT_PATH), JSON.stringify({ ...DRAFT, choices: undefined }));
+    const read = await getDraft();
+    expect(read.status).toBe(200);
+    expect(await read.json()).toEqual({ ...DRAFT, choices: {} });
   });
 
   test("an empty draft deletes the file", async () => {

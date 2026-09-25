@@ -88,10 +88,11 @@ Claude Code's `installed_plugins.json`, `git` with its `GIT_*` variables cleared
   submitted.
 - One Send, `Review.send`, is one step of the queue, what the reviewer sends from the page's one
   button or from a comment's Send now. Its `SendRequest` names what the reviewer saw at the
-  click: the comment ids, the edit's version or `null`, whether the extensions' parts go (the
+  click: the comment ids, the edit's version or `null`, the choices made in mockups by their
+  mockup, decision and option, whether the extensions' parts go (the
   bar's Send, never Send now), and the question ids the reviewer agreed to leave to their
   recommendation. It is decided before anything is written: `sendOn` refuses, purely, a name the
-  stored draft no longer holds (409 `changed`), an edit of a version no longer under review
+  stored draft no longer holds, a choice whose option changed included (409 `changed`), an edit of a version no longer under review
   (`stale`), a comment on the plan named without the pending edit whose lines `Done` moved it to
   (`edit`), an approved plan (`approved`); each extension's `part` answers the questions no
   answer takes outside those agreed (409 `unanswered`, every id); nothing to send is `empty`.

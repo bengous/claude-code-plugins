@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Settings layout</title>
+    <style>
+      body {
+        font-family: system-ui, sans-serif;
+        margin: 0;
+        padding: 24px;
+        background: #f4f5f7;
+        color: #1d2330;
+      }
+      h1 {
+        font-size: 20px;
+        margin: 0 0 16px;
+      }
+      .options {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 16px;
+      }
+      article {
+        background: #fff;
+        border-radius: 10px;
+        padding: 16px;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+      }
+      h2 {
+        font-size: 16px;
+        margin: 0 0 8px;
+      }
+      button {
+        margin-top: 12px;
+        padding: 6px 14px;
+        border-radius: 6px;
+        border: 1px solid #1d2330;
+        background: #fff;
+        font: inherit;
+        cursor: pointer;
+      }
+      #picked {
+        margin-top: 16px;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Settings layout</h1>
+    <section class="options" data-vellum-decision="layout">
+      <article data-vellum-option="sidebar">
+        <h2>Sidebar</h2>
+        <p>Sections listed on the left, the form on the right.</p>
+        <button data-vellum-choose>Choose</button>
+      </article>
+      <article data-vellum-option="tabs">
+        <h2>Tabs</h2>
+        <p>Sections as tabs above one form.</p>
+        <button data-vellum-choose>Choose</button>
+      </article>
+    </section>
+    <p id="picked">Nothing picked in the mockup yet.</p>
+    <script>
+      for (const button of document.querySelectorAll("[data-vellum-choose]")) {
+        button.addEventListener("click", () => {
+          document.getElementById("picked").textContent =
+            "Picked in the mockup: " + button.closest("[data-vellum-option]").dataset.vellumOption;
+        });
+      }
+    </script>
+  </body>
+</html>

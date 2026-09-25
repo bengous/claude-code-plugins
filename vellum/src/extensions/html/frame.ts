@@ -1,8 +1,10 @@
 import { offsetIn } from "../../core/page/anchoring.ts";
 import { dragRange, isSwitchKey, keyPressOf, toggled } from "../../core/page/selection.ts";
 import type { ElementDescription, ElementRef, WordsContext } from "../../core/protocol.ts";
+import type { Marks } from "./choose.ts";
+import { choiceOf, optionOf } from "./choose.ts";
 import { descriptionOf, textOf } from "./describe.ts";
-import type { CommentedPlace, FrameToPage, PageToFrame } from "./messages.ts";
+import type { Chosen, CommentedPlace, FrameToPage, PageToFrame } from "./messages.ts";
 import type { Step } from "./pick.ts";
 import { labelOf, selectorOf, targetIndex } from "./pick.ts";
 import { CLICK_CONTEXT, contextOf, cut, quoted, TEXT_LIMIT, wordsIn } from "./words.ts";
@@ -13,13 +15,15 @@ import { CLICK_CONTEXT, contextOf, cut, quoted, TEXT_LIMIT, wordsIn } from "./wo
  * page.
  */
 
-/** The colours are the page's tokens, posted resolved with `vellum:theme` and set on the layer; a commented mark is two-toned, the marker inside an outline, so it holds on a surface of any theme; the hover's outline shows on a coloured surface its wash does not. */
+/** The colours are the page's tokens, posted resolved with `vellum:theme` and set on the layer; a commented mark is two-toned, the marker inside an outline, so it holds on a surface of any theme; the hover's outline shows on a coloured surface its wash does not; a chosen option is two-toned too, ink inside a sheet halo, its tag in ink. */
 const STYLE = `
 .box { position: absolute; box-sizing: border-box; }
 .wash { background: color-mix(in srgb, var(--redline) 10%, transparent); outline: 1px solid var(--redline); outline-offset: -1px; }
 .adding { border: 2px dashed var(--redline); }
 .chosen { border: 2px solid var(--redline); background: color-mix(in srgb, var(--redline) 6%, transparent); }
 .comment { border: 2px solid var(--marker); box-shadow: 0 0 0 1px var(--outline); background: color-mix(in srgb, var(--marker) 25%, transparent); }
+.choice { border: 2px solid var(--ink); box-shadow: 0 0 0 2px var(--sheet); }
+.choice > .label { background: var(--ink); }
 .label { position: absolute; left: -2px; top: -20px; padding: 3px 6px; border-radius: 3px;
   font: 600 11px/1 ui-monospace, Menlo, monospace; background: var(--redline); color: var(--sheet); white-space: nowrap; }
 .label.below { top: 100%; }
@@ -50,6 +54,8 @@ let hovered: Element | null = null;
 let holding = false;
 
 let commented: readonly CommentedPlace[] = [];
+
+let choices: readonly Chosen[] = [];
 
 /** Where the pointer last was over the frame, for the hover a scroll must move; `null` once it left. */
 let pointer: { readonly x: number; readonly y: number } | null = null;
@@ -214,10 +220,32 @@ function commentedPlaces(): readonly (Element | Range)[] {
   });
 }
 
+/* oxlint-disable unicorn/prefer-dom-node-dataset -- a chain holds any `Element`, and `Element` has no `dataset`: only its HTML, SVG and MathML kinds do. */
+function marksOf(element: Element): Marks {
+  return {
+    choose: element.hasAttribute("data-vellum-choose"),
+    option: element.getAttribute("data-vellum-option"),
+    decision: element.getAttribute("data-vellum-decision"),
+  };
+}
+/* oxlint-enable unicorn/prefer-dom-node-dataset */
+
+/** The options the draft holds chosen, where the mockup still has them. */
+function chosenOptions(): readonly Element[] {
+  return [...document.querySelectorAll("[data-vellum-option]")].filter((element) => {
+    const option = optionOf(chainOf(element).map((one) => marksOf(one)));
+
+    return choices.some(
+      (choice) => choice.decision === option?.decision && choice.option === option.option,
+    );
+  });
+}
+
 function draw(): void {
   const adding = holding && chosen.length > 0;
 
   layer.replaceChildren(
+    ...chosenOptions().map((option) => boxFor(option, "choice", "Chosen")),
     ...commentedPlaces().flatMap((place) => markOf(place)),
     ...chosen.map((pick) => boxFor(pick.range, "chosen", null)),
     ...(hovered === null
@@ -298,11 +326,30 @@ function onMouseUp(event: MouseEvent): void {
 }
 
 /**
+ * A reviewer's click on a « Choose » tells the page, and the mockup's own handler still runs. A
+ * click the mockup's scripts made (`isTrusted` false) chooses nothing.
+ */
+function chooseFrom(event: MouseEvent): void {
+  if (!event.isTrusted || !(event.target instanceof Element)) return;
+  const chain = chainOf(event.target);
+  const found = choiceOf(chain.map((element) => marksOf(element)));
+  const button = found === null ? undefined : chain[found.at];
+
+  if (found === null || button === undefined) return;
+  post({ type: "vellum:choose", ...found.chosen, description: descriptionOf(button) });
+}
+
+/**
  * The click that ends a drag is stopped too, then swallowed: a drag that ends on a mockup's
- * button never runs it.
+ * button never runs it. While the page comments, a click on a « Choose » is a pick like any other.
  */
 function onClick(event: MouseEvent): void {
-  if (!commenting) return;
+  if (!commenting) {
+    chooseFrom(event);
+
+    return;
+  }
+
   event.preventDefault();
   event.stopPropagation();
 
@@ -346,6 +393,8 @@ function onMessage(event: MessageEvent): void {
   if (message.type === "vellum:holding") setHolding(message.holding);
 
   if (message.type === "vellum:commented") commented = message.places;
+
+  if (message.type === "vellum:chosen") choices = message.choices;
 
   if (message.type === "vellum:leave") {
     pointer = null;

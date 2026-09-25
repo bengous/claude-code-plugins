@@ -2,15 +2,17 @@
 import { describe, expect, test } from "bun:test";
 
 import type { Annotation } from "./feedback.ts";
-import type { Draft } from "./review.ts";
+import type { Draft, Taking } from "./review.ts";
 import {
   decideOn,
+  draftIsEmpty,
   EMPTY_TYPED,
   editOnLoad,
   gateVersion,
   landedAnnotations,
   sendOn,
   slugFor,
+  withoutChoices,
 } from "./review.ts";
 import type { PlanWorkspace } from "./workspace.ts";
 
@@ -132,17 +134,37 @@ describe("decideOn", () => {
   });
 });
 
-function draft(annotations: readonly Annotation[], edit: Draft["edit"] = null): Draft {
-  return { annotations, edit, typed: { ...EMPTY_TYPED, general: "kept" } };
+function draft(
+  annotations: readonly Annotation[],
+  edit: Draft["edit"] = null,
+  choices: Draft["choices"] = {},
+): Draft {
+  return { annotations, edit, choices, typed: { ...EMPTY_TYPED, general: "kept" } };
 }
 
 function comment(id: string, doc = `${DIR}notes.md`): Annotation {
   return { id, doc: doc as never, anchor: GLOBAL, mark: NO };
 }
 
-/** A Send naming comments by id, and the edit by its version. */
-function naming(annotations: readonly string[], edit: number | null = null) {
-  return { annotations, edit: edit as never };
+/** A Send naming comments by id, the edit by its version, and choices by their option. */
+function naming(
+  annotations: readonly string[],
+  edit: number | null = null,
+  choices: Taking["choices"] = [],
+) {
+  return { annotations, edit: edit as never, choices };
+}
+
+const MOCKUP = `${DIR}layout.html` as never;
+
+const ARTICLE = { heading: "Layout", role: "article", name: "", openingTag: "<article>" };
+
+function chose(option: string) {
+  return { option, description: ARTICLE };
+}
+
+function ref(decision: string, option: string) {
+  return { doc: MOCKUP, decision, option };
 }
 
 describe("sendOn", () => {
@@ -155,6 +177,7 @@ describe("sendOn", () => {
       edit: null,
       editedFrom: null,
       annotations: [comment("b")],
+      choices: [],
       rest: draft([comment("a")]),
     });
   });
@@ -228,6 +251,67 @@ describe("sendOn", () => {
       kind: "refused",
       reason: "approved",
     });
+  });
+
+  test("sends the choices named, with what their option is, and the draft keeps the others", () => {
+    const held = draft([], null, { [MOCKUP]: { layout: chose("d"), nav: chose("tabs") } });
+
+    expect(sendOn(inReview, PLAN, held, naming([], null, [ref("layout", "d")]))).toMatchObject({
+      kind: "send",
+      choices: [{ ...ref("layout", "d"), description: ARTICLE }],
+      rest: { choices: { [MOCKUP]: { nav: chose("tabs") } } },
+    });
+  });
+
+  test("a choice sent alone while drafting is a Send, and a mockup left with no choice leaves the draft", () => {
+    const held = draft([], null, { [MOCKUP]: { layout: chose("d") } });
+
+    expect(sendOn(drafting, null, held, naming([], null, [ref("layout", "d")]))).toMatchObject({
+      kind: "send",
+      version: null,
+      rest: { choices: {} },
+    });
+  });
+
+  test("a choice whose option changed since the click, or that is gone, refuses the Send as changed", () => {
+    const held = draft([], null, { [MOCKUP]: { layout: chose("e") } });
+
+    expect(sendOn(inReview, PLAN, held, naming([], null, [ref("layout", "d")]))).toEqual({
+      kind: "refused",
+      reason: "changed",
+    });
+    expect(sendOn(inReview, PLAN, held, naming([], null, [ref("nav", "tabs")]))).toEqual({
+      kind: "refused",
+      reason: "changed",
+    });
+  });
+
+  test("a choice named twice goes once", () => {
+    const held = draft([], null, { [MOCKUP]: { layout: chose("d") } });
+    const twice = naming([], null, [ref("layout", "d"), ref("layout", "d")]);
+
+    expect(sendOn(inReview, PLAN, held, twice)).toMatchObject({
+      choices: [{ ...ref("layout", "d"), description: ARTICLE }],
+    });
+  });
+});
+
+describe("withoutChoices", () => {
+  test("takes out a decision's choice only while it is still the option named", () => {
+    const choices = { [MOCKUP]: { layout: chose("e"), nav: chose("tabs") } };
+
+    expect(withoutChoices(choices, [ref("layout", "d"), ref("nav", "tabs")])).toEqual({
+      [MOCKUP]: { layout: chose("e") },
+    });
+  });
+});
+
+describe("draftIsEmpty", () => {
+  test("a draft holding a choice is not empty", () => {
+    const held = { ...draft([], null, { [MOCKUP]: { layout: chose("d") } }), typed: EMPTY_TYPED };
+
+    expect(draftIsEmpty(held)).toBe(false);
+    expect(draftIsEmpty({ ...held, choices: { [MOCKUP]: {} } })).toBe(true);
   });
 });
 

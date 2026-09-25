@@ -3,6 +3,10 @@ import { batch, computed, effect, signal } from "@preact/signals";
 import type { SendShare } from "../extension.ts";
 import type {
   Annotation,
+  Choice,
+  ChoiceRef,
+  Choices,
+  DecisionKey,
   Decision,
   Draft,
   Edit,
@@ -22,6 +26,7 @@ import {
   shiftAnnotations,
   takesComments,
   unshiftAnnotations,
+  withoutChoices,
 } from "../protocol.ts";
 import type { ProjectPath, Version } from "../server/domain/paths.ts";
 import { fetchDraft, fetchReview, postDecision, postSend, putDraft, subscribe } from "./api.ts";
@@ -32,6 +37,9 @@ export const review = signal<ReviewView | null>(null);
 
 /** The comments not sent yet: a send clears them, and nothing Claude does may. */
 export const annotations = signal<readonly Annotation[]>([]);
+
+/** The options chosen in mockups and not sent yet, `choose` their one writer: a Send clears them, as it does the comments. */
+export const choices = signal<Choices>({});
 
 /** What is typed and not submitted, saved with the draft; `setTyped` is its one writer. */
 export const typed = signal<Typed>(EMPTY_TYPED);
@@ -295,11 +303,12 @@ function settleEditorTyping(view: ReviewView): void {
   setTyped({ editor: null });
 }
 
-/** Clears what an approval took: the comments, the edit, what is typed. */
+/** Clears what an approval took: the comments, the edit, the choices, what is typed. */
 function clearDraft(): void {
   batch(() => {
     annotations.value = [];
     edited.value = null;
+    choices.value = {};
     typed.value = EMPTY_TYPED;
     clearUndo();
     succeed("decision");
@@ -382,12 +391,14 @@ export type Sent =
 
 /**
  * A Send as the reviewer clicked it, snapshotted at the click: the comments on screen by id, the
- * edit, each extension's share (`null` for Send now, which takes no part), and the question ids
- * the bar warned about and the reviewer agreed to leave to their recommendation.
+ * edit, the choices by their option, each extension's share (`null` for Send now, which takes no
+ * part), and the question ids the bar warned about and the reviewer agreed to leave to their
+ * recommendation.
  */
 export type Outgoing = {
   readonly annotations: readonly string[];
   readonly edit: Edit | null;
+  readonly choices: readonly ChoiceRef[];
   readonly parts: readonly SendShare[] | null;
   readonly takeDefaults: readonly string[];
 };
@@ -426,6 +437,7 @@ async function sendOut(out: Outgoing): Promise<Sent> {
   const posted = await postSend({
     annotations: out.annotations,
     edit: out.edit?.version ?? null,
+    choices: out.choices,
     parts: out.parts !== null,
     takeDefaults: out.takeDefaults,
   }).catch(() => null);
@@ -458,6 +470,7 @@ async function sendOut(out: Outgoing): Promise<Sent> {
 
   batch(() => {
     annotations.value = annotations.value.filter(({ id }) => !taken.has(id));
+    choices.value = withoutChoices(choices.value, out.choices);
 
     if (sentEdit !== null && edited.peek()?.version === sentEdit.version) edited.value = null;
     succeed("decision");
@@ -541,6 +554,12 @@ export function discardEdit(): void {
 export function addAnnotation(annotation: Omit<Annotation, "id">): void {
   if (locked.value) return;
   annotations.value = [...annotations.value, { ...annotation, id: crypto.randomUUID() }];
+}
+
+/** A choice in a mockup: another option of the same decision replaces it; a locked page takes none. */
+export function choose(doc: ProjectPath, decision: DecisionKey, choice: Choice): void {
+  if (locked.value) return;
+  choices.value = { ...choices.value, [doc]: { ...choices.value[doc], [decision]: choice } };
 }
 
 /** How long a deleted card can be undone from the notice. */
@@ -631,9 +650,18 @@ export function readWindow(): void {
 /** How long a typing pauses before the draft is written: a continuous typing is one write. */
 const TYPED_WRITE_MS = 300;
 
+function draftShown(): Draft {
+  return {
+    annotations: annotations.peek(),
+    edit: edited.peek(),
+    choices: choices.peek(),
+    typed: typed.peek(),
+  };
+}
+
 /**
- * Saves the draft at every change of the comments or of the edit, each change one write, and once
- * a typing pauses, in order; answers the flush a Send runs first.
+ * Saves the draft at every change of the comments, the edit or the choices, each change one
+ * write, and once a typing pauses, in order; answers the flush a Send runs first.
  */
 function startSaving(): () => Promise<boolean> {
   let saving = Promise.resolve(true);
@@ -649,7 +677,7 @@ function startSaving(): () => Promise<boolean> {
   };
 
   const flush = (): Promise<boolean> => {
-    write({ annotations: annotations.peek(), edit: edited.peek(), typed: typed.peek() });
+    write(draftShown());
 
     return saving;
   };
@@ -657,7 +685,12 @@ function startSaving(): () => Promise<boolean> {
   flushDraft = flush;
 
   effect(() => {
-    write({ annotations: annotations.value, edit: edited.value, typed: typed.peek() });
+    write({
+      annotations: annotations.value,
+      edit: edited.value,
+      choices: choices.value,
+      typed: typed.peek(),
+    });
   });
 
   // A typing is written once it pauses; a comment or an edit written meanwhile carries it.
@@ -666,10 +699,7 @@ function startSaving(): () => Promise<boolean> {
 
     if (pending !== null) clearTimeout(pending);
 
-    pending = setTimeout(
-      () => write({ annotations: annotations.peek(), edit: edited.peek(), typed: typed.peek() }),
-      TYPED_WRITE_MS,
-    );
+    pending = setTimeout(() => write(draftShown()), TYPED_WRITE_MS);
   });
 
   return flush;
@@ -691,6 +721,7 @@ export async function start(): Promise<void> {
     batch(() => {
       annotations.value = draft.annotations;
       edited.value = draft.edit;
+      choices.value = draft.choices;
       typed.value = draft.typed;
     });
   }

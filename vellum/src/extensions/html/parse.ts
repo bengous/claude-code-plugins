@@ -58,6 +58,19 @@ function parseBox(value: unknown): PickBox | null {
     : null;
 }
 
+function parseChoose(value: Record<string, unknown>): FrameToPage | null {
+  const { decision, option } = value;
+  const description = parseDescription(value.description);
+
+  return typeof decision === "string" &&
+    decision !== "" &&
+    typeof option === "string" &&
+    option !== "" &&
+    description !== null
+    ? { type: "vellum:choose", decision, option, description }
+    : null;
+}
+
 /** `null` for whatever is not a whole `FrameToPage`: the listener drops it and nothing is drawn. */
 export function parseFrameToPage(value: unknown): FrameToPage | null {
   if (!isRecord(value)) return null;
@@ -69,6 +82,8 @@ export function parseFrameToPage(value: unknown): FrameToPage | null {
 
   if (type === "vellum:holding")
     return typeof value.holding === "boolean" ? { type, holding: value.holding } : null;
+
+  if (type === "vellum:choose") return parseChoose(value);
 
   if (type !== "vellum:pick" || !Array.isArray(value.elements)) return null;
 

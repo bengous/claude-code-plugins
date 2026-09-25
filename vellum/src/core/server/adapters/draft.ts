@@ -1,6 +1,8 @@
 import type {
   Anchor,
   Annotation,
+  Choice,
+  Choices,
   Draft,
   Edit,
   ElementDescription,
@@ -213,6 +215,49 @@ function parseGrillTyped(value: unknown): Typed["grill"] | null {
   return grill;
 }
 
+function parseChoice(value: unknown): Choice | null {
+  const description = isRecord(value) ? parseElementDescription(value.description) : null;
+
+  return isRecord(value) &&
+    description !== null &&
+    typeof value.option === "string" &&
+    value.option !== ""
+    ? { option: value.option, description }
+    : null;
+}
+
+function parseDecisions(value: unknown): Readonly<Record<string, Choice>> | null {
+  if (!isRecord(value)) return null;
+  const entries = Object.entries(value);
+
+  const decisions = entries.flatMap(([decision, choice]) => {
+    const parsed = decision === "" ? null : parseChoice(choice);
+
+    return parsed === null ? [] : [[decision, parsed] as const];
+  });
+
+  return decisions.length === entries.length ? Object.fromEntries(decisions) : null;
+}
+
+/**
+ * A draft saved before the choices holds none: it keeps the reviewer's unsent comments, so it is
+ * read with no choice rather than refused.
+ */
+function parseChoices(value: unknown): Choices | null {
+  if (value === undefined) return {};
+
+  if (!isRecord(value) || Array.isArray(value)) return null;
+  const entries = Object.entries(value);
+
+  const docs = entries.flatMap(([doc, decisions]) => {
+    const parsed = parseProjectPath(doc).ok ? parseDecisions(decisions) : null;
+
+    return parsed === null ? [] : [[doc, parsed] as const];
+  });
+
+  return docs.length === entries.length ? Object.fromEntries(docs) : null;
+}
+
 function parseTyped(value: unknown): Typed | null {
   if (!isRecord(value) || typeof value.general !== "string") return null;
   const composer = parseStrings(value.composer);
@@ -225,18 +270,19 @@ function parseTyped(value: unknown): Typed | null {
 }
 
 /**
- * The comments and the edit a Send takes, plus what is typed. A draft of an older shape is
- * refused whole, written or read back.
+ * The comments, the edit and the choices a Send takes, plus what is typed. A draft of an older
+ * shape is refused whole, written or read back.
  */
 export function parseDraft(body: unknown): Draft | null {
   if (!isRecord(body)) return null;
   const annotations = parseAnnotations(body.annotations);
   const edit = parseEdit(body.edit);
+  const choices = parseChoices(body.choices);
   const typed = parseTyped(body.typed);
 
-  return annotations === null || edit === null || typed === null
+  return annotations === null || edit === null || choices === null || typed === null
     ? null
-    : { annotations, edit: edit.value, typed };
+    : { annotations, edit: edit.value, choices, typed };
 }
 
 /** The saved file, read back through the same parser a PUT goes through. */

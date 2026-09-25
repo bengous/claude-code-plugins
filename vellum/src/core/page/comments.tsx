@@ -142,6 +142,7 @@ function CardWords(props: { readonly annotation: Annotation }): preact.JSX.Eleme
                 void send({
                   annotations: [annotation.id],
                   edit: null,
+                  choices: [],
                   parts: null,
                   takeDefaults: [],
                 })

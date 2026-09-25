@@ -121,6 +121,7 @@ async function grilling(): Promise<Grilling> {
       const asked = {
         annotations,
         edit: null,
+        choices: [],
         parts: true,
         takeDefaults: EVERY_QUESTION,
         ...request,

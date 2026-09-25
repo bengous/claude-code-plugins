@@ -227,10 +227,10 @@ export async function startVellum(
       const open = (grill as GrillState).kind === "open" ? await openGrill() : null;
       const typing = open === null ? {} : { [open]: { answers, note } };
       const typed = { general: "", composer: {}, grill: typing, editor: null };
-      await api("draft", { annotations: comments, edit: null, typed }, "PUT");
+      await api("draft", { annotations: comments, edit: null, choices: {}, typed }, "PUT");
       // SAFETY: the page's own `Annotation`s, as a test hands them to the draft.
       const ids = comments.map((comment) => (comment as Annotation).id);
-      const all = { annotations: ids, edit: null, parts: true };
+      const all = { annotations: ids, edit: null, choices: [], parts: true };
       const first = await api("send", { ...all, takeDefaults: [] });
       // SAFETY: the server's own `SendAnswer`, serialized by `Response.json` in routes.ts.
       const answer = first.json as SendAnswer;
