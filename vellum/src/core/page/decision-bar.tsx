@@ -169,7 +169,7 @@ function Warning(props: WarningProps): preact.JSX.Element {
       {props.hold !== null && (
         <>
           <div class="warn-text">The review is held: {props.hold}.</div>
-          <div>Approving ends it.</div>
+          <div>Approving ends it, and what it was doing is lost.</div>
         </>
       )}
       <div class="row">

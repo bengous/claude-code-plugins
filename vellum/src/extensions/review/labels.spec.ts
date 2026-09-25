@@ -33,14 +33,14 @@ const APPROVED: PlanWorkspace = {
 
 describe("reviewWhy", () => {
   test("drafting greys the button: no version to review", () => {
-    expect(reviewWhy(DRAFTING, null)).toEqual({
+    expect(reviewWhy(DRAFTING, null, null)).toEqual({
       kind: "greyed",
       title: "No version under review yet: submit plan.md first",
     });
   });
 
   test("in review, the button asks for the version under review", () => {
-    expect(reviewWhy(IN_REVIEW, null)).toEqual({
+    expect(reviewWhy(IN_REVIEW, null, null)).toEqual({
       kind: "ready",
       version: 3,
       title: "Ask vellum:plan-reviewer to review v3",
@@ -54,15 +54,24 @@ describe("reviewWhy", () => {
       seq: 4,
     };
 
-    expect(reviewWhy(IN_REVIEW, { kind: "requested", seq: 4, version: 3 })).toEqual(running);
+    const held = "plan review 4 of v3 is running";
+
+    expect(reviewWhy(IN_REVIEW, { kind: "requested", seq: 4, version: 3 }, held)).toEqual(running);
     expect(
-      reviewWhy(IN_REVIEW, { kind: "running", seq: 4, version: 3, agentId: "a", model: "m" }),
+      reviewWhy(IN_REVIEW, { kind: "running", seq: 4, version: 3, agentId: "a", model: "m" }, held),
     ).toEqual(running);
   });
 
+  test("another's hold greys the button with its reason", () => {
+    expect(reviewWhy(IN_REVIEW, null, "grill 1 is open")).toEqual({
+      kind: "greyed",
+      title: "The review is held: grill 1 is open",
+    });
+  });
+
   test("approved draws no button, a run left or not", () => {
-    expect(reviewWhy(APPROVED, null)).toBeNull();
-    expect(reviewWhy(APPROVED, { kind: "requested", seq: 1, version: 3 })).toBeNull();
+    expect(reviewWhy(APPROVED, null, null)).toBeNull();
+    expect(reviewWhy(APPROVED, { kind: "requested", seq: 1, version: 3 }, null)).toBeNull();
   });
 });
 

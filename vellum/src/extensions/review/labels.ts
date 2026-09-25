@@ -8,8 +8,15 @@ export type ReviewButton =
   | { readonly kind: "greyed"; readonly title: string }
   | { readonly kind: "running"; readonly title: string; readonly seq: number };
 
-/** `null` once approved: the bar draws no button there. */
-export function reviewWhy(workspace: PlanWorkspace, run: Run | null): ReviewButton | null {
+/**
+ * `null` once approved: the bar draws no button there. A run comes before a hold, since while it
+ * runs the hold is its own and its ✕ stays; another's hold greys the button with its reason.
+ */
+export function reviewWhy(
+  workspace: PlanWorkspace,
+  run: Run | null,
+  held: string | null,
+): ReviewButton | null {
   if (workspace.kind === "approved") return null;
 
   if (run !== null) {
@@ -23,6 +30,8 @@ export function reviewWhy(workspace: PlanWorkspace, run: Run | null): ReviewButt
   if (workspace.kind === "drafting") {
     return { kind: "greyed", title: "No version under review yet: submit plan.md first" };
   }
+
+  if (held !== null) return { kind: "greyed", title: `The review is held: ${held}` };
 
   const { version } = workspace;
 

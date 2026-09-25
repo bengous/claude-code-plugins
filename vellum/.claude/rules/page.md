@@ -125,7 +125,8 @@ no build step, so what the page imports costs nothing at `cli start`.
   the warning back, so a second grill must not read as the first. Held, the pill reads `Held · <reason>` (`statusOf`), in
   review only, Send stays live, since a hold refuses Claude's versions and never the reviewer's
   word, and every way to an approval goes through the warning popover, which frames the reason in its own sentence (`The
-  review is held: <reason>.`), since a reason reads as a clause, then says the approval ends it. The
+  review is held: <reason>.`), since a reason reads as a clause, then says the approval ends it
+  and loses what it was doing, a grill's round or a plan review's run. The
   core draws no notice of the hold itself: the extension that holds draws its own, the grill's
   band. Its one notice is of the reviewer's edit a Send left in the draft (`editKept`), in the
   hold's words (`editWaits` of `noticesOf`), while the hold and the edit both last. The bar prints
