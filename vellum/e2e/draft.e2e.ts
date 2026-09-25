@@ -76,6 +76,18 @@ test.describe("what is typed comes back after a reload", () => {
     await openEditor(page);
     expect(await firstLine(page)).toBe("Reviewer: every slice needs an owner.");
   });
+
+  test("a composer's text reloaded at once, before its typing paused", async ({ page, vellum }) => {
+    await reviewV1(page, vellum);
+    await commentOn(page);
+    await dragText(page, page.locator("article.plan > p").first(), 4, 60);
+    await page.keyboard.type("Which forms?");
+    await reload(page);
+
+    await commentOn(page);
+    await dragText(page, page.locator("article.plan > p").nth(1), 0, 15);
+    await expect(page.locator(".popover textarea")).toHaveValue("Which forms?");
+  });
 });
 
 /** The open grill's panel, beside the document pane. */
