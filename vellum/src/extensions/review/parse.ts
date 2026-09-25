@@ -267,8 +267,4 @@ export const parsePosts: {
   stopped: seqOf,
   resubmitted: (value) => (isRecord(value) ? {} : null),
 };
-
-export function parseError(value: unknown): string | null {
-  return isRecord(value) && typeof value.error === "string" ? value.error : null;
-}
 /* oxlint-enable anti-slop/no-runtime-typeof, anti-slop/no-unknown-parameters, anti-slop/no-unsafe-dictionary-type, anti-slop/no-unknown-returns, anti-slop/no-known-value-widening */
