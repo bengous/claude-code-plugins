@@ -29,8 +29,10 @@ export type EngineContext = {
   readonly api: ExtensionApi;
   /**
    * Gates `plan.md` with `keep` when Claude is at rest, its main loop's last turn ended on an
-   * answer and none started since; `false`, gating nothing, otherwise: the next turn's end gates
-   * it anyway. A refusal says nothing, as at a turn's end.
+   * answer and none started since, and answers whether the server recorded or kept a version.
+   * `false` when Claude is not at rest, when the gate is refused (a hold, an approval) or when the
+   * server does not answer: the caller asks again later, and the next turn's end gates anyway. A
+   * refusal says nothing, as at a turn's end.
    */
   readonly submitIdle: () => Promise<boolean>;
 };

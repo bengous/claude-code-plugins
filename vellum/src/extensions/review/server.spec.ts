@@ -465,6 +465,17 @@ describe("the agents to stop and the version to submit again", () => {
     expect(await state()).toMatchObject({ stopping: [], resubmit: true });
   });
 
+  test("the approval gives up the run's agent and asks for no plan.md: the mode closes", async () => {
+    const { launch, approve, state } = await reviewing();
+    const seq = await launch(1, OPUS);
+    await approve();
+
+    expect(await state()).toMatchObject({
+      stopping: [{ seq, agentId: "agent-1" }],
+      resubmit: false,
+    });
+  });
+
   test("a run's end asks for plan.md again, and resubmitted clears it", async () => {
     const { post, launch, state } = await reviewing();
     const seq = await launch(1, OPUS);

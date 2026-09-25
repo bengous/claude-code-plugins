@@ -63,6 +63,11 @@ function givenUp(reviews: Reviews): Reviews {
   return { ...reviews, run: null, stopping: [...stopping, ...agent], resubmit: true };
 }
 
+/** The mode closes, by `/vellum:stop` or the approval: the run is given up, and nothing is submitted again. */
+function closedOn(reviews: Reviews): Reviews {
+  return { ...givenUp(reviews), resubmit: reviews.resubmit };
+}
+
 /** Why no review of `version` is asked now; `null` when one may be. One hold at a time: another's refuses it. */
 async function whyNot(
   context: ServerContext,
@@ -115,7 +120,7 @@ async function approved(context: ServerContext): Promise<void> {
   const { dir } = await context.workspace();
   const reviews = await readReviews(context, dir);
 
-  if (reviews.run !== null) await writeReviews(context, dir, givenUp(reviews));
+  if (reviews.run !== null) await writeReviews(context, dir, closedOn(reviews));
 }
 
 function routes(context: ServerContext): Readonly<Record<RouteKey, Route>> {
@@ -233,14 +238,13 @@ function routes(context: ServerContext): Readonly<Record<RouteKey, Route>> {
       );
     },
 
-    // `/vellum:stop` and the approval: the mode closes, so nothing is submitted again.
     "POST close": async (request) => {
       const body = parsePosts.close(await request.json().catch(() => null));
 
       if (body === null) return badRequest();
 
       return await change((reviews) => {
-        const closed = { ...givenUp(reviews), resubmit: reviews.resubmit };
+        const closed = closedOn(reviews);
         const answer: Closed = { stopping: closed.stopping };
 
         return { reviews: closed, answer: Response.json(answer) };

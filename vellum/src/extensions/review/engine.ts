@@ -1,6 +1,6 @@
-import type { AgentSpawnResult } from "claude-code";
+import type { AgentSpawnResult, Timer } from "claude-code";
 
-import type { EngineContext, EngineExtension } from "../../core/engine/extension.ts";
+import type { AgentAnswered, EngineContext, EngineExtension } from "../../core/engine/extension.ts";
 import type { Live } from "../../core/engine/mode.ts";
 import { parseClosed, parseJson, parseReviewState } from "./parse.ts";
 import type { Outcome, ReviewPosts, ReviewState, Run, Stopping } from "./protocol.ts";
@@ -27,8 +27,11 @@ export const LOST = "its verdict never reached vellum";
 /** The modes whose last read found a run under way, keyed by the mode's own `Live`: a new way in starts with none. */
 const underWay = new WeakSet<Live>();
 
-/** The runs of a mode whose grace runs now, by number: one timer per run and mode, armed again after a reload. */
-const graced = new WeakMap<Live, Set<number>>();
+/**
+ * The grace timers of a mode, by run number: one per run and mode, armed again after a reload,
+ * cancelled as the mode closes.
+ */
+const graced = new WeakMap<Live, Map<number, Timer>>();
 
 /** The runs of a mode whose agent a stop left running, already logged: once each, not at every read. */
 const unstopped = new WeakMap<Live, Set<number>>();
@@ -92,8 +95,13 @@ async function stopEach(context: EngineContext, stopping: readonly Stopping[]): 
     stopping.map(async ({ seq, agentId }) => {
       const why = await stop(context, agentId);
 
+      // A confirmation the server does not take is asked again at the next read: the run waits for no stop.
       if (why === null) {
-        await post(context, "stopped", { seq });
+        await post(context, "stopped", { seq }).catch((cause: unknown) => {
+          context.host.log(
+            `the stop of review ${seq}'s plan reviewer was not recorded: ${String(cause)}`,
+          );
+        });
 
         return;
       }
@@ -172,24 +180,28 @@ async function check(
     return;
   }
 
-  const armed = graced.get(context.live) ?? new Set<number>();
+  const armed = graced.get(context.live) ?? new Map<number, Timer>();
 
   if (armed.has(run.seq)) return;
-  graced.set(context.live, armed.add(run.seq));
 
-  context.host.after(GRACE_MS, () => {
+  const timer = context.host.after(GRACE_MS, () => {
     armed.delete(run.seq);
 
     void (async () => {
       const now = (await stateOf(context))?.run;
 
-      if (now?.kind === "running" && now.seq === run.seq) {
-        await ended(context, run.seq, { kind: "failed", why: LOST });
-      }
+      if (now?.kind !== "running" || now.seq !== run.seq) return;
+      const listed = await context.host.listAgents();
+
+      // Running again: the next `stage` line checks it anew.
+      if (listed.some((one) => one.id === run.agentId && one.status === "running")) return;
+      await ended(context, run.seq, { kind: "failed", why: LOST });
     })().catch((cause: unknown) => {
       context.host.log(`the plan review ${run.seq} was not ended: ${String(cause)}`);
     });
   });
+
+  graced.set(context.live, armed.set(run.seq, timer));
 }
 
 /**
@@ -215,44 +227,58 @@ async function staged(context: EngineContext): Promise<void> {
   }
 }
 
-/** Read from the server, never from memory: an answer that lands after a reload still finds its run. */
-async function answered(
-  context: EngineContext,
-  agentId: string,
-  reason: string,
-  text: string,
-): Promise<void> {
+/** An end posted to its run, and how the server answered. */
+type Posted = { readonly seq: number; readonly status: number };
+
+/**
+ * Read from the server, never from memory: an answer that lands after a reload still finds its
+ * run. `null` for an end that is no run's.
+ */
+async function answered(context: EngineContext, turn: AgentAnswered): Promise<Posted | null> {
   const run = (await stateOf(context))?.run;
 
-  if (run?.kind !== "running" || run.agentId !== agentId) return;
+  if (run?.kind !== "running" || run.agentId !== turn.agentId) return null;
 
-  if (reason !== "answer") {
-    await ended(context, run.seq, { kind: "failed", why: reason });
+  const answer: Outcome =
+    turn.text.trim() === ""
+      ? { kind: "failed", why: "no answer" }
+      : { kind: "answer", text: turn.text };
 
-    return;
-  }
+  const outcome: Outcome = turn.reason === "answer" ? answer : { kind: "failed", why: turn.reason };
 
-  const outcome: Outcome =
-    text.trim() === "" ? { kind: "failed", why: "no answer" } : { kind: "answer", text };
+  const { status } = await post(context, "ended", { seq: run.seq, outcome });
 
-  await ended(context, run.seq, outcome);
+  return { seq: run.seq, status };
+}
+
+/** Taken, or no run's; a 5xx is a server that failed to write it. */
+function taken(posted: Posted | null): boolean {
+  return posted === null || posted.status < 500;
 }
 
 export const reviewEngine: EngineExtension = {
   id: "review",
   staged,
-  // A server that does not answer is asked once more: past that, the grace ends the run.
-  agentAnswered: async (context, { agentId, reason, text }) => {
-    await answered(context, agentId, reason, text).catch(async () => {
-      await new Promise<void>((resolve) => {
-        context.host.after(RETRY_MS, resolve);
-      });
-      await answered(context, agentId, reason, text);
+  // A server that does not take the end is asked once more: past that, the grace ends the run.
+  agentAnswered: async (context, turn) => {
+    // A server that does not answer took nothing either.
+    if (await answered(context, turn).then(taken, () => false)) return;
+    await new Promise<void>((resolve) => {
+      context.host.after(RETRY_MS, resolve);
     });
+    const again = await answered(context, turn);
+
+    if (again !== null && again.status >= 500) {
+      context.host.log(
+        `the review server did not take the end of plan review ${again.seq}: ${again.status}`,
+      );
+    }
   },
   segment: ({ live }) => (underWay.has(live) ? SEGMENT_RUNNING : null),
   // `close` first: the stopped agent's `aborted` end then finds no run, and fails none.
   closing: async (context) => {
+    for (const timer of graced.get(context.live)?.values() ?? []) timer.cancel();
+    graced.delete(context.live);
     const response = await post(context, "close", {});
     const closed = parseClosed(parseJson(response.text));
 

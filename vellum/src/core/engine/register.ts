@@ -114,9 +114,8 @@ export const register: Register = (on) => {
       api: live.server.extension(extension.id),
       submitIdle: async () => {
         if (!idle) return false;
-        await submitPlan(host, live, "keep").catch(() => UNREACHABLE);
 
-        return true;
+        return !("error" in (await submitPlan(host, live, "keep").catch(() => UNREACHABLE)));
       },
     };
   }

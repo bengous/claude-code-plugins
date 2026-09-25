@@ -177,6 +177,22 @@ describe("the agent's end", () => {
     ]);
   });
 
+  test("an answer the server failed to take is posted once more, then logged", async ($, on) => {
+    const review = reviewRoutes(RUNNING, { ended: () => reply(500, { error: "disk full" }) });
+    const seen = world(on, review);
+    on("turn.complete", (_, e) => ({ text: e.answer }));
+    await $.skill.prompt(START_PROMPT);
+    const answered = $.turn.complete(AGENT_ANSWERED);
+    await seen.clock.settle();
+    await seen.clock.advance(RETRY_MS);
+    await answered;
+
+    expect(review.posted.map(([name]) => name)).toEqual(["ended", "ended"]);
+    expect(seen.logs.filter((line) => line.includes("did not take"))).toEqual([
+      "the review server did not take the end of plan review 1: 500",
+    ]);
+  });
+
   test("an agent killed fails the run at the next stage line", async ($, on) => {
     const review = reviewRoutes(RUNNING);
     const seen = world(on, review);
@@ -291,6 +307,19 @@ describe("the agents to stop", () => {
     ]);
   });
 
+  test("a stop whose confirmation the server does not take still lets the requested run launch", async ($, on) => {
+    const review = reviewRoutes({ ...REQUESTED, seq: 2 }, { stopped: () => null });
+    review.state = { ...review.state, stopping: [{ seq: 1, agentId: "a0" }] };
+    const seen = world(on, review);
+    const spawned = agents(on);
+    stops(on);
+    await $.skill.prompt(START_PROMPT);
+    seen.children[0]?.write(stage(inReview(3)));
+    await seen.clock.settle();
+
+    expect(spawned.spawned).toHaveLength(1);
+  });
+
   test("a stop that errs on an agent the engine no longer runs is confirmed", async ($, on) => {
     const review = listing();
     const seen = world(on, review);
@@ -326,6 +355,37 @@ describe("a run whose agent the engine no longer runs", () => {
     expect(review.posted).toEqual([ended(1, { kind: "failed", why: LOST })]);
   });
 
+  test("an agent running again when the grace runs out keeps its run", async ($, on) => {
+    const review = reviewRoutes(RUNNING);
+    const seen = world(on, review);
+    const listed = agents(on);
+    listed.listed = [{ id: AGENT_ID, description: "d", type: "t", status: "pending" }];
+    await $.skill.prompt(START_PROMPT);
+    seen.children[0]?.write(stage(inReview(3)));
+    await seen.clock.settle();
+    listed.listed = [{ id: AGENT_ID, description: "d", type: "t", status: "running" }];
+    await seen.clock.advance(GRACE_MS);
+
+    expect(review.posted).toEqual([]);
+  });
+
+  test("closing ends a grace under way: nothing is asked of a server the mode left", async ($, on) => {
+    const review = reviewRoutes(RUNNING);
+    let closed = false;
+    const state: Route = () => (closed ? null : reply(200, review.state));
+    const seen = world(on, { routes: { ...review.routes, "/api/x/review/state": state } });
+    agents(on);
+    stops(on);
+    await $.skill.prompt(START_PROMPT);
+    seen.children[0]?.write(stage(inReview(3)));
+    await seen.clock.settle();
+    await $.skill.prompt(STOP_PROMPT);
+    closed = true;
+    await seen.clock.advance(GRACE_MS);
+
+    expect(seen.logs.filter((line) => line.includes("review"))).toEqual([]);
+  });
+
   test("completed, its answer that lands within the grace is the run's end, and the grace fails nothing", async ($, on) => {
     const review = reviewRoutes(RUNNING);
     const seen = world(on, review);
@@ -355,6 +415,23 @@ describe("a version Claude wrote while a run held the review", () => {
 
     expect(gates).toEqual([JSON.stringify({ unchanged: "keep" })]);
     expect(review.posted).toEqual([["resubmitted", "{}"]]);
+  });
+
+  test("a gate the server refuses leaves it to submit again", async ($, on) => {
+    const review = resubmitting();
+
+    const refused = reply(409, {
+      error: "grill 1 is open: plan.md is recorded as the next version once it ends, if it changed",
+    });
+
+    const seen = world(on, { routes: { ...review.routes, "/api/gate": () => refused } });
+    on("turn.complete", (_, e) => ({ text: e.answer }));
+    await $.skill.prompt(START_PROMPT);
+    await $.turn.complete(TURN_ANSWERED);
+    seen.children[0]?.write(stage(inReview(3)));
+    await seen.clock.settle();
+
+    expect(review.posted).toEqual([]);
   });
 
   test("waits while a turn runs, and after a turn cut short", async ($, on) => {

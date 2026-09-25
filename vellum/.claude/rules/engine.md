@@ -155,7 +155,8 @@ loop. `/vellum:start` enters it, Approve in the page or `/vellum:stop` leaves it
   when no later turn started, cleared at `turn.start` and wherever `turns` is reset. An Escape, an
   API error or a reload leave it false, never the absence of a running turn: a `plan.md` half
   revised is never gated for it. `EngineContext.submitIdle` gates with `keep` while it holds and
-  answers whether it did; otherwise the next turn's end gates anyway.
+  answers whether the server recorded or kept a version: a refusal, a hold included, or no answer
+  is `false`, and the caller asks again at its next read; the next turn's end gates anyway.
 - A subagent's end is its answer to whoever spawned it: the same `turn.complete` hook, while
   `live`, hands a turn that carries `agentId` to the halves' `agentAnswered` (its id, its final
   text, its reason) and does nothing else, no gate and no `answered`; outside `live` it reaches

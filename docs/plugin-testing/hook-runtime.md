@@ -215,7 +215,7 @@ plugins (September 2026), unless a line says otherwise.
   A second stop answers `isError: true`, `Task <id> is not running (status:
   killed)`, and an unknown id `No task found with ID: <id>`; an agent listed
   `completed` whose shell still ran was stopped, and listed `killed` after.
-  Measured on 2.1.282 in an interactive session in tmux (`vellum` #170).
+  Measured in an interactive session in tmux (`vellum` #170).
 
 - A registered tool's result text is what the model acts on:
   `Plan vN is under review in the browser. End your turn; the review arrives

@@ -19,29 +19,27 @@ export type ReviewRoutes = {
   state: ReviewState;
 };
 
-/** What a post makes of the state, as the server's route would. */
+/** What a post makes of the state, as the server's route would: a number that is not the run's changes nothing. */
 function moved(name: string, body: string | undefined, now: ReviewState): ReviewState {
   const { run, stopping } = now;
+  // SAFETY: the module's own `ReviewPosts[name]`, serialized by `JSON.stringify` in review/engine.ts.
+  const { seq } = JSON.parse(body ?? "{}") as { readonly seq?: number };
 
   switch (name) {
     case "launched":
-      return run?.kind === "requested"
+      return run?.kind === "requested" && run.seq === seq
         ? { ...now, run: { ...run, kind: "running", agentId: AGENT_ID, model: MODEL } }
         : now;
     case "ended":
-      return { ...now, run: null, resubmit: true };
+      return run?.seq === seq ? { ...now, run: null, resubmit: true } : now;
     case "close": {
       const agent = run?.kind === "running" ? [{ seq: run.seq, agentId: run.agentId }] : [];
 
       return { ...now, run: null, stopping: [...stopping, ...agent] };
     }
 
-    case "stopped": {
-      // SAFETY: the module's own `ReviewPosts["stopped"]`, serialized by `JSON.stringify` in review/engine.ts.
-      const { seq } = JSON.parse(body ?? "{}") as { readonly seq: number };
-
+    case "stopped":
       return { ...now, stopping: stopping.filter((one) => one.seq !== seq) };
-    }
 
     case "resubmitted":
       return { ...now, resubmit: false };

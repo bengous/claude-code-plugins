@@ -128,8 +128,10 @@ no build step, so what the page imports costs nothing at `cli start`.
   review is held: <reason>.`), since a reason reads as a clause, then says the approval ends it
   and loses what it was doing, a grill's round or a plan review's run. The
   core draws no notice of the hold itself: the extension that holds draws its own, the grill's
-  band. Its one notice is of the reviewer's edit a Send left in the draft (`editKept`), in the
-  hold's words (`editWaits` of `noticesOf`), while the hold and the edit both last. The bar prints
+  band. Its one notice is of the reviewer's edit a Send left in the draft (`editKept`, or a
+  `held` refusal), in the server's words (`editWaits` of `state.ts`, keyed by that very edit):
+  it lasts while that edit waits, through a Send that carries no edit, until a load reads that
+  nothing holds the review. The bar prints
   the reason and never reads which extension gave it.
 - Settings are a `Dialog` the bar's gear opens, drawn while the bar has buttons: `settings/`
   holds it. `SETTINGS` of `settings/sections.ts` is the one list of sections, in the order drawn,

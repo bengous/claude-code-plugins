@@ -1405,6 +1405,72 @@ describe("send", () => {
     ]);
   });
 
+  test("a held refusal the page has not heard of yet says the edit waits, in the server's words", async () => {
+    const store = await freshStore();
+    const held = "plan review 1 of v1 is running";
+    const draft = { annotations: [], edit: edit(1, "mine\n"), choices: {}, typed };
+    const refusal = { status: 409, answer: { reason: "held", held } };
+    serve({ draft, review: versioned({ version: 1 }), send: refusal as never });
+    await store.start();
+    await all(store);
+
+    expect(store.notices.value.map((notice) => notice.text.join(""))).toEqual([
+      `Your edit waits: ${held}. Send it again once that ends.`,
+    ]);
+  });
+
+  test("the edit's notice stays through a Send that carries no edit, and leaves with the edit", async () => {
+    const store = await freshStore();
+    const held = "plan review 1 of v1 is running";
+
+    const draft = {
+      annotations: [comment("b", `${WIP}notes.md`)],
+      edit: edit(1, "mine\n"),
+      choices: {},
+      typed,
+    };
+
+    const answer = {
+      file: `${WIP}.review/v1.feedback-1.md`,
+      seq: 1,
+      editKept: { held, annotations: [] },
+    };
+
+    const server = serve({
+      draft,
+      review: versioned({ version: 1, held }),
+      send: { status: 200, answer: answer as never },
+    });
+
+    await store.start();
+    await store.send({
+      annotations: [],
+      edit: store.edited.value,
+      choices: [],
+      parts: null,
+      takeDefaults: [],
+    });
+    server.answer = {
+      ...server.answer,
+      send: { status: 200, answer: { ...answer, editKept: null } as never },
+    };
+    await store.send({
+      annotations: ["b"],
+      edit: null,
+      choices: [],
+      parts: null,
+      takeDefaults: [],
+    });
+    const waits = `Your edit waits: ${held}. Send it again once that ends.`;
+    const texts = (): string[] => store.notices.value.map((notice) => notice.text.join(""));
+
+    expect(texts()).toContain(waits);
+    store.discardEdit();
+    store.finishEdit({ version: 1 as never, base: "", line: 1 }, "another\n");
+
+    expect(texts()).not.toContain(waits);
+  });
+
   test("names the choices by their option, and takes out those sent: another option chosen meanwhile stays", async () => {
     const store = await freshStore();
     const out = Promise.withResolvers<void>();
