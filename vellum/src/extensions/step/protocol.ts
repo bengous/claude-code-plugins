@@ -25,11 +25,8 @@ export type StepAnswer =
 /** The proposal waiting for the reviewer, under the id the server gave it. */
 export type Pending = { readonly id: string; readonly proposal: Proposal };
 
-/**
- * What the page draws the "Next step" window from: the proposal waiting, if any, and what holds
- * the review (an open grill), during which no step is taken.
- */
-export type StepState = { readonly pending: Pending | null; readonly held: string | null };
+/** What `GET state` answers: the proposal waiting, if any. What holds the review is the core's `ReviewView.held`. */
+export type StepState = { readonly pending: Pending | null };
 
 /** What `POST propose` answers: the id the proposal waits under. */
 export type Proposed = { readonly id: string };

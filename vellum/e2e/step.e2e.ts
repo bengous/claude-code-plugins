@@ -455,6 +455,20 @@ test("no proposal while a grill is open: the server refuses it, and no window co
   await expect(page.getByRole("dialog")).toHaveCount(0);
 });
 
+test("the Next step button comes back once the grill ends, its own state's reads refused", async ({
+  page,
+  vellum,
+}) => {
+  await vellum.grill.open(SUBJECT);
+  await openVellum(page, vellum);
+  await expect(nextStep(page)).toHaveCount(0);
+  await page.route("**/api/x/step/state*", (route) => route.fulfill({ status: 500 }));
+  await vellum.grill.close();
+
+  await expect(page.locator(".bar .status")).toHaveText("In review");
+  await expect(nextStep(page)).toBeVisible();
+});
+
 test("a refused read puts the window off onto the dot, where it stays at the next read", async ({
   page,
   vellum,
@@ -512,6 +526,19 @@ test("the window's words read on their surfaces, light and dark: axe sees none i
 
     expect(await ratio(go, go)).toBeGreaterThanOrEqual(4.5);
     expect(await ratio(below, below)).toBeGreaterThanOrEqual(4.5);
+  }
+});
+
+test("Choose still reads under the pointer, light and dark", async ({ page, vellum }) => {
+  await openVellum(page, vellum);
+  await propose(vellum);
+  await move(proposal(page), /^Mockup/u).check();
+  const go = choose(proposal(page));
+  await go.hover();
+
+  for (const colorScheme of ["light", "dark"] as const) {
+    await page.emulateMedia({ colorScheme });
+    await expect.poll(() => onItsSurface(go)).toBeGreaterThanOrEqual(4.5);
   }
 });
 

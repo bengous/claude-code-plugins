@@ -5,6 +5,7 @@ import type { PageExtension } from "../../core/extension.ts";
 import { extensionRequest } from "../../core/page/api.ts";
 import { connection, editing, fail, review, succeed } from "../../core/page/state.ts";
 import { answerFailure } from "./labels.ts";
+import type { WindowState } from "./modal.ts";
 import type { StepAnswer, StepPosts, StepState } from "./protocol.ts";
 import { NextStepButton, StepWindow } from "./window.tsx";
 
@@ -16,8 +17,14 @@ const step = signal<StepState | null>(null);
 /** Whether the last read of the state was refused: the window on screen is put off, the button greyed. */
 const refused = signal(false);
 
-/** What the button and the window read: no state past a refused read. */
-const read = computed(() => (refused.value ? null : step.value));
+/** What the button and the window read: the proposal and the core's hold, none past a refused read. */
+const read = computed((): WindowState | null => {
+  const view = review.value;
+
+  if (refused.value || step.value === null || view === null) return null;
+
+  return { pending: step.value.pending, held: view.held };
+});
 
 async function loadState(): Promise<void> {
   const response = await extensionRequest(ID, "state").catch(() => null);
@@ -62,7 +69,7 @@ async function answer(id: string | null, given: StepAnswer): Promise<boolean> {
 }
 
 /** Why the Next step button is greyed, in its title; `null` while a step can be taken. */
-function stepWhy(state: StepState | null): string | null {
+function stepWhy(state: WindowState | null): string | null {
   if (connection.value === "down") return "The connection to the review server is lost";
 
   if (editing.value !== null) return "Finish editing (Done) first";
@@ -79,7 +86,7 @@ function StepAction(): preact.JSX.Element | null {
     void loadState();
   }, [view]);
 
-  return view?.workspace.kind === "approved" || (step.value?.held ?? null) !== null ? null : (
+  return view === null || view.workspace.kind === "approved" || view.held !== null ? null : (
     <NextStepButton state={state} why={stepWhy(state)} />
   );
 }

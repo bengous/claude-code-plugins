@@ -6,9 +6,9 @@ import { editing } from "../../core/page/state.ts";
 import type { OtherKind, Pick } from "./choice.ts";
 import { answerOf, NO_PICK, oneLine, OWN_GRILL } from "./choice.ts";
 import { detailOf, FIELD_HINTS, KIND_LABELS } from "./labels.ts";
-import type { Asking } from "./modal.ts";
+import type { Asking, WindowState } from "./modal.ts";
 import { answerFailed, answering, askingOn, dotOf, modalOf, pendingOf, putOff } from "./modal.ts";
-import type { StepAnswer, StepState } from "./protocol.ts";
+import type { StepAnswer } from "./protocol.ts";
 
 const asking = signal<Asking>({ kind: "auto" });
 
@@ -27,14 +27,15 @@ function quiet(): boolean {
 
 /** A dot while a proposal was put off; greyed for the reasons no step is taken now, in its title. */
 export function NextStepButton(props: {
-  readonly state: StepState | null;
+  readonly state: WindowState | null;
   readonly why: string | null;
 }): preact.JSX.Element {
   const waiting = dotOf(props.state, asking.value);
 
   return (
     <Button
-      class={waiting === null ? "step-next" : "step-next step-later"}
+      variant="grill"
+      class={waiting === null ? undefined : "step-later"}
       disabled={props.why !== null}
       title={props.why ?? (waiting === null ? undefined : "Claude proposes the next step")}
       onClick={() => {
@@ -47,7 +48,7 @@ export function NextStepButton(props: {
 }
 
 export type WindowProps = {
-  readonly state: StepState | null;
+  readonly state: WindowState | null;
   readonly approved: boolean;
   /** Why Choose is greyed, the Next step button's reason; `null` while a step can be taken. */
   readonly why: string | null;
@@ -184,7 +185,8 @@ export function StepWindow(props: WindowProps): preact.JSX.Element | null {
       <div class="row">
         <Button onClick={later}>{id === null ? "Cancel" : "Later"}</Button>
         <Button
-          class="step-go"
+          variant="grill"
+          class="lit"
           disabled={why !== null || answer === null}
           title={why ?? undefined}
           onClick={send}

@@ -120,7 +120,7 @@ test("a proposal landing while Settings is open opens nothing: the dot waits", a
     moves: [{ kind: "grill", subject: "The coverage of the page", choices: [] }],
     recommended: 0,
   });
-  await expect(page.locator(".bar .btn.step-next.step-later")).toHaveCount(1);
+  await expect(page.locator(".bar .btn.step-later")).toHaveCount(1);
   await expect(page.getByRole("dialog", { name: "Claude proposes the next step" })).toHaveCount(0);
 });
 

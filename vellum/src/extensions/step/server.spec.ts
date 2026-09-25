@@ -93,11 +93,11 @@ afterEach(() => {
 });
 
 describe("a proposal", () => {
-  test("waits under an id the server gave it, and the page reads it, nothing held", async () => {
+  test("waits under an id the server gave it, and the page reads it", async () => {
     const { propose, state } = await stepping();
     const id = await propose();
 
-    expect(await state()).toEqual({ pending: { id, proposal: PROPOSAL }, held: null });
+    expect(await state()).toEqual({ pending: { id, proposal: PROPOSAL } });
   });
 
   test("a new one replaces it under a new id, and a wait on the first reads it gone", async () => {
@@ -208,7 +208,7 @@ describe("an answer", () => {
     expect(text?.startsWith("Accepted: a grill on: auth. ")).toBe(true);
     expect(text?.slice("Accepted: a grill on: auth. ".length)).toMatch(OPENED_FIRST);
     expect(await wait(id)).toMatchObject({ kind: "answered", seq: 1 });
-    expect(await state()).toEqual({ pending: null, held: "grill 1 is open" });
+    expect(await state()).toEqual({ pending: null });
   });
 
   test("the window opened blank answers what waits: a grill of the reviewer's own settles it", async () => {

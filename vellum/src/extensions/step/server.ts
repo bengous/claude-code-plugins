@@ -89,10 +89,10 @@ function routes(context: ServerContext): Readonly<Record<RouteKey, Route>> {
   const memory = memoryOf(context);
 
   return {
-    "GET state": async () => {
-      const state: StepState = { pending: memory.pending, held: await context.held() };
+    "GET state": () => {
+      const state: StepState = { pending: memory.pending };
 
-      return Response.json(state);
+      return Promise.resolve(Response.json(state));
     },
 
     "POST propose": async (request) => {

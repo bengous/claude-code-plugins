@@ -1,8 +1,8 @@
 import { describe, expect, test } from "bun:test";
 
-import type { Asking } from "./modal.ts";
+import type { Asking, WindowState } from "./modal.ts";
 import { answerFailed, answering, askingOn, dotOf, modalOf, putOff } from "./modal.ts";
-import type { Pending, Proposal, StepState } from "./protocol.ts";
+import type { Pending, Proposal } from "./protocol.ts";
 
 const PROPOSAL: Proposal = {
   reason: "three choices",
@@ -14,12 +14,12 @@ const IDEA: Pending = { id: "p1", proposal: PROPOSAL };
 
 const NEXT_IDEA: Pending = { id: "p2", proposal: { ...PROPOSAL, recommended: 1 } };
 
-const PENDING: StepState = { pending: IDEA, held: null };
+const PENDING: WindowState = { pending: IDEA, held: null };
 
-const NEXT: StepState = { pending: NEXT_IDEA, held: null };
+const NEXT: WindowState = { pending: NEXT_IDEA, held: null };
 
 /** Nothing waits: none was proposed, or the one shown was answered elsewhere. */
-const NONE: StepState = { pending: null, held: null };
+const NONE: WindowState = { pending: null, held: null };
 
 const AUTO: Asking = { kind: "auto" };
 
@@ -125,7 +125,7 @@ describe("the Next step button", () => {
 
 describe("a hold that comes under the modal", () => {
   test("ends the asking: the modal does not come back once the grill that holds is over", () => {
-    const held: StepState = { pending: null, held: "grill 2 is open" };
+    const held: WindowState = { pending: null, held: "grill 2 is open" };
 
     expect(askingOn(held, BLANK, true)).toEqual(AUTO);
     expect(modalOf(held, BLANK, false)).toEqual({ kind: "hidden" });
