@@ -277,13 +277,27 @@ iframe { border: 0; width: 100%; height: 100%; display: block; background: var(-
 .popover.through { opacity: 0.35; pointer-events: none; }
 .btn.grill { border-color: var(--ask); color: var(--ask); }
 .btn.grill.lit { background: var(--ask); color: var(--sheet); }
-.btn.grill.grill-later { position: relative; }
-.btn.grill.grill-later::after { content: ""; position: absolute; top: calc(var(--s-1) * -1); right: calc(var(--s-1) * -1); width: var(--s-3); height: var(--s-3); border-radius: 50%; background: var(--ask); border: 2px solid var(--sheet); }
-.grill-dialog .dialog-card { border-top: 4px solid var(--ask); }
-.grill-who { font: 650 var(--t-13)/1.4 var(--serif); color: var(--ask); margin: 0 0 var(--s-1); }
-.grill-subject { display: block; width: 100%; field-sizing: content; resize: none; font: 600 var(--t-20)/1.25 var(--serif); padding: 2px 0 var(--s-1); border: 0; border-radius: 0; border-bottom: 2px dashed var(--ask); background: transparent; color: var(--ink); }
-.grill-subject:focus { outline: none; border-bottom-style: solid; }
-.grill-subject::placeholder { font-style: italic; font-weight: 400; }
+/* The "Next step" window: Claude's reason, its moves as boxes none of which is checked, the one it recommends marked. */
+.btn.step-next { border-color: var(--ask); color: var(--ask); }
+.btn.step-next.step-later { position: relative; }
+.btn.step-next.step-later::after { content: ""; position: absolute; top: calc(var(--s-1) * -1); right: calc(var(--s-1) * -1); width: var(--s-3); height: var(--s-3); border-radius: 50%; background: var(--ask); border: 2px solid var(--sheet); }
+.btn.step-go { background: var(--ask); border-color: var(--ask); color: var(--sheet); }
+.step-dialog .dialog-card { border-top: 4px solid var(--ask); }
+.step-who { font: 650 var(--t-13)/1.4 var(--serif); color: var(--ask); margin: 0 0 var(--s-1); }
+.step-why { font: 600 var(--t-16)/1.35 var(--serif); color: var(--ink); margin: 0 0 var(--s-3); }
+.step-moves { display: grid; gap: var(--s-2); }
+.step-move { display: grid; grid-template-columns: auto auto 1fr; align-items: baseline; gap: var(--s-1) var(--s-2); border: 1px solid var(--rule); border-radius: var(--r-md); padding: var(--s-2) var(--s-3); background: var(--tint); font-size: var(--t-14); cursor: pointer; }
+.step-move:has(input:checked) { border-color: var(--ask); background: color-mix(in oklab, var(--ask) 8%, var(--field)); }
+.step-move input { margin: 0; accent-color: var(--ask); }
+.step-move .kind { font: 650 var(--t-12)/1.4 var(--serif); color: var(--graphite); }
+.step-rec { justify-self: start; font: 650 var(--t-12)/1.5 var(--mono); color: var(--ask); background: var(--sheet); border: 1px solid var(--ask); border-radius: var(--r-pill); padding: 0 var(--s-2); }
+.step-move .what, .step-move .choices { grid-column: 2 / -1; }
+.step-move .choices { color: var(--graphite); font-size: var(--t-13); }
+.step-other { display: grid; gap: var(--s-2); margin-top: var(--s-3); }
+.step-other select { justify-self: start; font: var(--t-14)/1.4 var(--serif); color: var(--ink); background: var(--field); border: 1px solid var(--rule); border-radius: var(--r-sm); padding: 2px var(--s-2); }
+.step-text { display: block; width: 100%; field-sizing: content; resize: none; font: 600 var(--t-16)/1.3 var(--serif); padding: 2px 0 var(--s-1); border: 0; border-radius: 0; border-bottom: 2px dashed var(--ask); background: transparent; color: var(--ink); }
+.step-text:focus { outline: none; border-bottom-style: solid; }
+.step-text::placeholder { font-style: italic; font-weight: 400; }
 .grill-band { display: flex; align-items: center; gap: var(--s-3); padding: var(--s-2) var(--s-3); background: var(--ask); color: var(--sheet); font-size: var(--t-14); }
 .grill-band .subject { flex: 1; font-weight: 650; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .grill-band .count { flex: none; white-space: nowrap; font-size: var(--t-13); }

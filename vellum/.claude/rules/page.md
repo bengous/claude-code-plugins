@@ -32,7 +32,7 @@ no build step, so what the page imports costs nothing at `cli start`.
   so an extension draws with the same eleven. A `Chip` is a button; what shows a label and takes no click is a `Tag`.
   The types hold part of it, locked in `kit.spec.ts`: `ChipProps` takes no `class`, and neither
   takes `className`. `ButtonProps` takes a `class`, joined to the kit's own, for a state the kit
-  has no prop for (`grill-later` in `grill/proposal.tsx`): there a kit class spelled at the call compiles,
+  has no prop for (`step-later` in `step/window.tsx`): there a kit class spelled at the call compiles,
   and only a reader refuses it. A `Chip`'s state the kit has no `tone` for rides on a `data-`
   attribute its extension's CSS reads under the extension's prefix (`data-state` in
   `.grill-chips`), and says it in words in its `title`, since a colour says nothing to a screen
@@ -143,17 +143,19 @@ no build step, so what the page imports costs nothing at `cli start`.
   `fail` of `state.ts`, one per operation, and the next success of that operation removes it
   (`succeed`); the stale editor derives from `editing` and the version, so its notice leaves
   with the editor; a card's Delete leaves an `undo` for a while. `app.tsx` draws the column with
-  `Notices`, the core's first, then each extension's `notices` components: the grill's proposal
-  is one, a `Dialog`, shown while it is mounted, and its band another, drawn while a grill is
+  `Notices`, the core's first, then each extension's `notices` components: `step`'s window is
+  one, a `Dialog`, shown while it is mounted, and the grill's band another, drawn while a grill is
   open: the subject, the round, the questions that wait for the reviewer, open and untouched in the draft as the chips count them, and End grill. End grill is one component, `EndGrill` in `grill/page.tsx`, which the panel draws too once Claude's turn ended, with one end in flight for the page. Its
   count alone is `role="status"`, drawn empty with none waiting, so a new count is read out and
-  End grill never is. The band carries the grill, so the Grill button hides meanwhile. A modal never opens under a typing: the editor
+  End grill never is. The band carries the grill, so the Next step button hides meanwhile. A modal never opens under a typing: the editor
   open, a popover up (`popoverUp` of the kit) or a field focused, `showModal()` would take the
   focus and make the page inert, so the next Enter of a comment would answer the modal. A
-  proposal that lands there is put off at once, a dot on the Grill button (`askingOn` and
-  `modalOf` in `grill/modal.ts`, pure), and so is one that lands while the modal is up: what the
+  proposal that lands there is put off at once, a dot on the Next step button (`askingOn` and
+  `modalOf` in `step/modal.ts`, pure), and so is one that lands while the modal is up: what the
   modal shows never changes under the reviewer. On an approved page none shows, whatever the server holds.
-  An extension's own button computes its greyed state and its `title` itself (`GrillAction`).
+  Nothing in it is checked in advance: the move Claude recommends is marked, and Choose waits for
+  the reviewer's pick (`answerOf` in `step/choice.ts`).
+  An extension's own button computes its greyed state and its `title` itself (`StepAction`).
   A notice of kind `err` is `role="alert"`, the others `role="status"`; a literal in one comes
   as `{ code }` and is drawn in `<code>`. In `approved` the bar draws no button.
 - A module of the page reads the browser inside a function, never at its own scope, so a
@@ -256,10 +258,10 @@ no build step, so what the page imports costs nothing at `cli start`.
   takes comments, and it catches, or an aborted request reaches nobody. A read that only
   refreshes what is on screen may fail in silence, since the next workspace event reads again:
   `loadState` in `grill/page.tsx`, which keeps the state it read last, and the open transcript's
-  blocks with it, so the grill's panel and its band stay as the reviewer left them, the Grill
-  button hidden behind the band, but for an approved page, where the approval closed the grill
-  (`drawn`), while the Grill button and the modal read none past a refused
-  read (`read`), which puts the modal on screen off onto the dot. `decide` answers whether the server took the decision, and
+  blocks with it, so the grill's panel and its band stay as the reviewer left them, but for an
+  approved page, where the approval closed the grill (`drawn`); `step`'s Next step button and
+  window read none past a refused read (`read` in `step/page.tsx`), which puts the window on
+  screen off onto the dot. `decide` answers whether the server took the decision, and
   the notes popover closes on that alone: a failure leaves the note where it was typed.
 - There is one Send, `send` of `state.ts`: the bar's `Send (n)`, whose `n` counts the comments,
   the edit as 1, and each extension's share (`PageExtension.send`, `SendShare`: the grill's

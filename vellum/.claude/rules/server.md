@@ -36,10 +36,15 @@ Claude Code's `installed_plugins.json`, `git` with its `GIT_*` variables cleared
   meaning, so there is no list of what is blocked: `gate` is refused with the reason before
   `plan.md` is read (the 409 the module already reads), no version of Claude's lands, and a Send
   and an approval go through: the reviewer's word is never held. `ReviewView.held` carries the
-  reason to the page. The core names no extension: it appends what a gate means to the reason.
+  reason to the page, and `ServerContext.held` to an extension: `step` takes no proposal while
+  one holds. The core names no extension: it appends what a gate means to the reason.
+- An extension starts what another runs through `ServerContext.start(id, input)`, which calls
+  that one's `start` in the caller's step of the queue and answers what Claude is told of it:
+  `step`'s answer opens a grill that way, so two grills never open. The core passes `input` on
+  untouched, and the started extension's `parse.ts` reads it.
 - One queue orders every mutation: `gate`, `decide`, `send`, and an extension's writes through
   `ServerContext.inOrder`. A gate that checked the hold writes its version before a grill that
-  opened meanwhile, never after. `holds` and `approved` run inside the queue and never call it.
+  opened meanwhile, never after. `holds`, `start` and `approved` run inside the queue and never call it.
 - Everything that reaches Claude is an entry of the channel, `.review/channel.jsonl`
   (`domain/channel.ts`), appended inside the queue by `Review`'s relay: the core's `sent` for a
   batch written and `approved` after the rename, an extension's own `text` through

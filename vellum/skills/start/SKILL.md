@@ -6,19 +6,26 @@ description: >
 
 # Plan at the frontiers
 
-Planning writes the plan and its artifacts, nothing else. No code edit until the reviewer approves the plan. The throwaway of step 1 is built before planning starts and is not kept.
+Planning writes the plan and its artifacts, nothing else. No code edit until the reviewer approves the plan. A throwaway prototype lives in the working directory and is not kept.
 
-Three moves in order: explore or prototype, settle the choices, then plan. The plan is written to `plan.md` at the root of the working directory named by the `Working directory:` line at the end of this skill, and its artifacts live beside it; without that line, both go to `plans/<date>/<slug>/` from the repository root unless the project names another place. Load one reference at a time, when its step starts.
+Explore, then let the reviewer pick each next step: settle the choices, draw a screen, try a throwaway, or plan. The plan is written to `plan.md` at the root of the working directory named by the `Working directory:` line at the end of this skill, and its artifacts live beside it; without that line, both go to `plans/<date>/<slug>/` from the repository root unless the project names another place. Load one reference at a time, when its step starts.
 
-## 1. Size the ceremony
+## 1. Propose the next step
 
-- One sentence describes the diff: no plan. Say so, propose `/vellum:stop`, and implement once the reviewer runs it.
-- The idea is still fuzzy: ask the few questions that pin down the goal and what the throwaway must show, then build it without a plan. Look at what it got wrong or right, then plan in a fresh session from what it taught.
-- The idea is clear and choices are open: settle them, step 2.
+One sentence describes the diff: no plan. Say so, propose `/vellum:stop`, and implement once the reviewer runs it.
+
+Otherwise explore, then propose the next step with `mcp__vellum__propose`, never by questions in the terminal: the reason in one sentence, the moves you offer, and the index of the one you recommend. The call waits while the reviewer picks in the review page, and returns their pick: "Accepted: <move>." for the one you recommended, "Chose: <move>." for another, one of theirs included, "Own: <text>." for their own words. Take the step picked, then propose again once it is done. The moves:
+
+- `grill`: choices are open and change the architecture, an interface or the scope; `choices` are their titles. Step 2.
+- `mockup`: a screen words cannot settle; `screen` names it. `references/visual.md`
+- `prototype`: a question only a throwaway answers; `question` names it. It lives in the working directory; one that needs the codebase goes through `/vellum:stop`, and the plan comes in a fresh session from what it taught.
+- `plan`: nothing left open. Step 3.
+
+`AskUserQuestion` is refused while vellum is live. A reviewer may also pick a step on their own; it arrives as a prompt in the same words.
 
 ## 2. Settle the open choices
 
-The choices are settled in a grill, in the review page, never by questions in the terminal. You do not start one: call `mcp__vellum__grill_suggest` with the subject and, in one sentence, why the choices need the reviewer, then end your turn. The reviewer starts the grill from the page, with your subject or their own, or declines it: a decline arrives as a prompt. Once it is open, a prompt names the transcript and the instructions to read; you ask each round with `mcp__vellum__grill_ask`, which waits and returns the reviewer's reply, and the reviewer ends the grill. `AskUserQuestion` is refused while vellum is live.
+The choices are settled in a grill, in the review page. You do not start one: the reviewer opens it by picking a grill, and the answer names the transcript and, the first time, the instructions to read. You ask each round with `mcp__vellum__grill_ask`, which waits and returns the reviewer's reply, and the reviewer ends the grill. No step is proposed while a grill is open.
 
 A question is asked only when the answer would change the architecture, an interface or the scope. Anything else: take the recommended option and record it in the plan under Assumptions. Without a grill, every open choice becomes an assumption, or a question left open in the plan, named, with the option you would take.
 

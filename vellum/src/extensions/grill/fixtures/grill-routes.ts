@@ -1,11 +1,10 @@
 import type { Route } from "../../../core/engine/fixtures/index.ts";
 import { reply, WORKDIR } from "../../../core/engine/fixtures/index.ts";
-import type { Proposal } from "../protocol.ts";
 
 export const GRILL_NAME = "grill-1.md";
 
-/** Whether the last grill is open, and with none open, what the proposal slot holds, as the server serves it. */
-export type Grill = { readonly open: boolean; readonly proposal?: Proposal };
+/** Whether the last grill is open, as the server serves it. */
+export type Grill = { readonly open: boolean };
 
 export const NO_GRILL: Grill = { open: false };
 
@@ -26,7 +25,7 @@ export function grillRoutes(
   answers: Readonly<Record<string, Route>> = {},
 ): GrillRoutes {
   const posted: [name: string, body: string][] = [];
-  const names = ["ask", "wait", "suggest", "event", "answer", "close"];
+  const names = ["ask", "wait", "event", "answer", "close"];
 
   const post =
     (name: string): Route =>
@@ -39,13 +38,13 @@ export function grillRoutes(
     };
 
   const state: Route = () => {
-    const { open, proposal = null } = grill();
+    const { open } = grill();
 
     return reply(
       200,
       open
         ? { kind: "open", file: `${WORKDIR}${GRILL_NAME}`, subject: "auth", phase: "working" }
-        : { kind: "none", proposal },
+        : { kind: "none" },
     );
   };
 

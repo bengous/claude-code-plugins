@@ -145,7 +145,7 @@ loop. `/vellum:start` enters it, Approve in the page or `/vellum:stop` leaves it
   arrives on the server's stdout and is handed to the session by `$.prompt.submit`, which,
   called while a turn runs, resolves once that prompt's own turn starts: the relays run in a
   queue of their own, never in the loop that reads the child.
-- A tool call may wait for the reviewer instead (`grill_ask`): it keeps one `$.http.fetch` in
+- A tool call may wait for the reviewer instead (`grill_ask`, `propose`): it keeps one `$.http.fetch` in
   flight at all times, each held by the server under the engine's 30 s cut, so the budget never
   runs (a promise awaited alone overruns it). It says `waiting` on its `ToolContext`, and from
   then on the tenure's follower holds every entry its tool `awaits` (`claim` in `relay.ts`)
@@ -153,7 +153,9 @@ loop. `/vellum:start` enters it, Approve in the page or `/vellum:stop` leaves it
   aborted the call as it answered) is never relayed, and the others go once the call ended. The
   hold is what keeps one Send from reaching Claude twice: its line on stdout and the server's
   answer to the wait come by two paths, in either order. After Escape the call's `$` fail, its
-  wait ends, and what it held goes through the channel.
+  wait ends, and what it held goes through the channel. A half whose wait cannot end in an
+  entry answers for itself: `propose` catches its own failed wait and tells Claude to propose
+  again, since the proposal lived in a server's memory the failure may have taken.
 - Everything the reviewer sends reaches Claude as an entry of the channel,
   `.review/channel.jsonl`, numbered by its line (`server.md`). One follower per session in a
   module's environment relays each entry once and in order (`follow` in `relay.ts`): it belongs to

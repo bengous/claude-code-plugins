@@ -86,12 +86,12 @@ test.describe("the decisions", () => {
     const approve = page.locator(".bar").getByRole("button", { name: "Approve", exact: true });
     await expect(approve).toBeDisabled();
     await expect(approve).toHaveAttribute("title", /Done/u);
-    const grill = page.getByRole("button", { name: "Grill", exact: true });
-    await expect(grill).toBeDisabled();
-    await expect(grill).toHaveAttribute("title", /Done/u);
+    const next = page.getByRole("button", { name: "Next step", exact: true });
+    await expect(next).toBeDisabled();
+    await expect(next).toHaveAttribute("title", /Done/u);
   });
 
-  test("after a Send nothing waits for the next version: Approve and Grill stay live", async ({
+  test("after a Send nothing waits for the next version: Approve and Next step stay live", async ({
     page,
     vellum,
   }) => {
@@ -100,7 +100,7 @@ test.describe("the decisions", () => {
     await sendAll(page);
     await expect(page.locator(".bar .status")).toHaveText("In review · 1 sent");
 
-    await expect(page.getByRole("button", { name: "Grill", exact: true })).toBeEnabled();
+    await expect(page.getByRole("button", { name: "Next step", exact: true })).toBeEnabled();
     await expect(page.getByRole("button", { name: "Approve", exact: true })).toBeEnabled();
   });
 
@@ -259,6 +259,14 @@ test.describe("a deleted card", () => {
   });
 });
 
+/** A grill of the reviewer's own, chosen in the "Next step" window opened blank. */
+async function openOwnGrill(page: Page): Promise<void> {
+  await page.locator(".bar").getByRole("button", { name: "Next step", exact: true }).click();
+  const window = page.getByRole("dialog", { name: "Next step", exact: true });
+  await window.getByRole("textbox").fill("The coverage of the page");
+  await window.getByRole("button", { name: "Choose" }).click();
+}
+
 test.describe("the grill", () => {
   test.use({ fixture: "grill-real" });
 
@@ -267,12 +275,11 @@ test.describe("the grill", () => {
     vellum,
   }) => {
     await vellum.gate();
-    await vellum.grill.suggest("The coverage of the page", "three choices");
     await openVellum(page, vellum);
     const errors: string[] = [];
     page.on("pageerror", (error) => errors.push(error.message));
-    await page.route("**/api/x/grill/open", (route) => route.abort());
-    await page.getByRole("dialog").getByRole("button", { name: "Start" }).click();
+    await page.route("**/api/x/step/answer", (route) => route.abort());
+    await openOwnGrill(page);
 
     await expect(page.locator(".banner.err")).toContainText("did not reach the server");
     await expect(page.locator(".bar .status")).toHaveText("In review");
@@ -301,9 +308,8 @@ test.describe("the grill", () => {
 
   test("the panel says Claude is working, and a round lands in view", async ({ page, vellum }) => {
     await vellum.gate();
-    await vellum.grill.suggest("The coverage of the page", "three choices");
     await openVellum(page, vellum);
-    await page.getByRole("dialog").getByRole("button", { name: "Start" }).click();
+    await openOwnGrill(page);
 
     const panel = page.getByRole("complementary", { name: "Grill" });
     const working = panel.getByRole("status");

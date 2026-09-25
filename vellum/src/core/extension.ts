@@ -11,7 +11,7 @@ import type {
   PlanWorkspace,
   Typed,
 } from "./protocol.ts";
-import type { ProjectPath } from "./server/domain/paths.ts";
+import type { ParseResult, ProjectPath } from "./server/domain/paths.ts";
 
 export type RendererProps = {
   readonly doc: DocRef;
@@ -91,6 +91,14 @@ export type ServerContext = {
   readonly relay: (entry: ChannelEntry) => Promise<number>;
   /** The page's unsent work as it was last saved; `null` when there is none, or none it can read. */
   readonly draft: () => Promise<Draft | null>;
+  /**
+   * Calls the `start` of the extension `id` in the caller's step of the queue, so what it starts
+   * and the write that asked for it are one step: `step` opens a grill this way, and two never open.
+   */
+  // oxlint-disable-next-line anti-slop/no-unknown-parameters -- `input` crosses the core from one extension to another, typed in neither's terms here; the started extension's `parse.ts` is the boundary that reads it.
+  readonly start: (id: string, input: unknown) => Promise<ParseResult<string>>;
+  /** What holds the review, the first `holds` of any extension; called inside the queue. */
+  readonly held: () => Promise<string | null>;
 };
 
 /** A batch a Send wrote, as an extension's part hears of it once its entry is in the channel. */
@@ -132,8 +140,18 @@ export type ServerExtension = {
   readonly linkedDocs?: (plan: string, roots: LinkRoots) => readonly DocLink[];
   /** Keys are `"GET <name>"` or `"POST <name>"`. */
   readonly routes?: (context: ServerContext) => Readonly<Record<RouteKey, Route>>;
-  /** What holds the review, or `null`. Held: no version is recorded, and the approval warns; a Send goes. */
+  /**
+   * What holds the review, or `null`. Held: no version is recorded, `step` takes no proposal, and
+   * the approval warns; a Send goes.
+   */
   readonly holds?: (context: ServerContext) => Promise<string | null>;
+  /**
+   * What another extension's route starts through `ServerContext.start`, inside that route's step
+   * of the queue: `input` is parsed here. It answers what Claude is told of the start, which the
+   * caller's entry carries, or why it refused.
+   */
+  // oxlint-disable-next-line anti-slop/no-unknown-parameters -- `input` comes from another extension through the core; this extension's `parse.ts` is the boundary that reads it.
+  readonly start?: (context: ServerContext, input: unknown) => Promise<ParseResult<string>>;
   /** After the rename of an approval, on the server: what the extension must close, it closes here. */
   readonly approved?: (context: ServerContext) => Promise<void>;
   /**

@@ -10,11 +10,11 @@ An extension is a folder, `src/extensions/<id>/`, with one file per place where 
 the core: `page.tsx` declares a `PageExtension` (its renderers, its actions in the decision
 bar, its notices under the bar, its panel beside the document pane, placed by `panesOf`),
 `server.ts` a `ServerExtension` (its `linkedDocs`, its routes, what `holds` the review,
-what it closes once `approved`, its part of a Send). Both types live in
-`src/core/extension.ts`. `markdown`, `html`, `image` and `grill` are extensions like the next
-ones. A third half,
+what it closes once `approved`, its part of a Send, what another extension may `start`). Both
+types live in `src/core/extension.ts`. `markdown`, `html`, `image`, `grill` and `step` are
+extensions like the next ones. A third half,
 `engine.ts`, declares an `EngineExtension` (`src/core/engine/extension.ts`): tools, refusals,
-the engine events the core hands it, and its segment of the band above the prompt. `grill` is the one extension with all three.
+the engine events the core hands it, and its segment of the band above the prompt. `grill` and `step` have all three.
 
 - Read the code before this text, smallest first: `image/page.tsx` is a whole extension,
   `markdown/server.ts` a server half, `html/pick.ts` with `pick.spec.ts` a helper and its
@@ -40,7 +40,8 @@ the engine events the core hands it, and its segment of the band above the promp
   never the file's last voice: `grill` tells the transcript's entries past those the file held
   before the write (`relaysOf`, then `tell` in `grill/server.ts`), so the reply End grill writes
   and the end both go, and a block written into the file by hand is not told. What the server
-  keeps in memory is told by the route that changes it: a decline of `grill`'s one proposal slot.
+  keeps in memory is told by the route that changes it: `step`'s answer to its one proposal, which
+  carries what the grill it opened tells, since `start` relays nothing itself.
 - What the reviewer sends leaves with the core's one Send, never a route of the extension's.
   `part` answers, writing nothing, what the bar's Send takes of the extension, never a Send now:
   nothing; the questions no answer takes that the reviewer did not agree to leave to their
@@ -50,10 +51,11 @@ the engine events the core hands it, and its segment of the band above the promp
   it, or from `ServerContext.draft` for a route, inside the route's own step of the queue (End
   grill ends with what is typed as the reply, never what a Send took before it). A tool
   that waits for the reviewer is answered by its server half: `grill` keeps, per review, which
-  Send closed which round, and `POST wait` holds up to `WAIT_HOLD_MS`, under the engine's 30 s
-  cut, then answers the Send's entry number and the text the tool returns, an end, or still
-  open. A restarted server keeps none of it, and the wait reads as ended: the entry reaches
-  Claude through the channel.
+  Send closed which round, `step` its one proposal and the last one answered, and `POST wait`
+  holds up to `WAIT_HOLD_MS`, under the engine's 30 s cut, then answers the entry number and
+  the text the tool returns, an end, or still open. A restarted server keeps none of it: a
+  round's wait reads as ended, and its entry reaches Claude through the channel; a proposal's
+  reads as gone, and `propose` tells Claude to propose again, since no answer to it can come.
 - An extension owns its messages: `<id>/protocol.ts` types what crosses its routes, and
   `<id>/parse.ts` is its boundary parser. `src/core/protocol.ts` learns nothing of them.
   A route's reply has its own name there, which both ends import (`GrillState`, `Block` in

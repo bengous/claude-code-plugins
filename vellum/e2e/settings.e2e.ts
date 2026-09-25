@@ -108,16 +108,20 @@ test("from the keyboard, the gear closes the notes popover before the modal open
   await expect(page.locator(".popover")).toHaveCount(0);
 });
 
-test("a grill proposal landing while Settings is open opens nothing: the dot waits", async ({
+test("a proposal landing while Settings is open opens nothing: the dot waits", async ({
   page,
   vellum,
 }) => {
   await reviewV1(page, vellum);
   await gear(page).click();
   await expect(settings(page)).toBeVisible();
-  await vellum.grill.suggest("The coverage of the page", "three choices change the interface");
-  await expect(page.locator(".bar .btn.grill.grill-later")).toHaveCount(1);
-  await expect(page.getByRole("dialog", { name: "Claude suggests a grill" })).toHaveCount(0);
+  await vellum.step.propose({
+    reason: "Three choices change the interface.",
+    moves: [{ kind: "grill", subject: "The coverage of the page", choices: [] }],
+    recommended: 0,
+  });
+  await expect(page.locator(".bar .btn.step-next.step-later")).toHaveCount(1);
+  await expect(page.getByRole("dialog", { name: "Claude proposes the next step" })).toHaveCount(0);
 });
 
 test("axe finds nothing to fault on the modal, light and dark", async ({ page, vellum }) => {

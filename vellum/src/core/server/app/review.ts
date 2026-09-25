@@ -32,7 +32,7 @@ import {
   untold,
 } from "../domain/channel.ts";
 import { formatBatch } from "../domain/feedback.ts";
-import type { FinalDir, ProjectPath, Version, WipDir } from "../domain/paths.ts";
+import type { FinalDir, ParseResult, ProjectPath, Version, WipDir } from "../domain/paths.ts";
 import { parseVersion } from "../domain/paths.ts";
 import type { Decision, Draft, SendRequest } from "../domain/review.ts";
 import {
@@ -130,6 +130,8 @@ export class Review {
 
         return draft === "unreadable" ? null : draft;
       },
+      start: (id, input) => this.start(id, input),
+      held: () => this.held(),
     };
   }
 
@@ -150,6 +152,16 @@ export class Review {
     }
 
     return null;
+  }
+
+  /** Called inside the queue, from another extension's route: no step of its own. */
+  // oxlint-disable-next-line anti-slop/no-unknown-parameters -- `input` is handed on untouched to the extension it names, whose `parse.ts` reads it.
+  private async start(id: string, input: unknown): Promise<ParseResult<string>> {
+    const extension = this.options.extensions.find((one) => one.id === id);
+
+    if (extension?.start === undefined) return { ok: false, error: `no extension ${id} starts` };
+
+    return await extension.start(this.context, input);
   }
 
   public subscribe(listener: (workspace: PlanWorkspace) => void): () => void {

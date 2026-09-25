@@ -335,7 +335,7 @@ export const register: Register = (on) => {
   on(
     "tool.call",
     // @ts-expect-error -- the generated contract's tool names predate AskUserQuestion, and a RegExp in the list runs the hook for every tool call in a live session.
-    { tool: ["mcp__vellum__grill_suggest", "mcp__vellum__grill_ask", "AskUserQuestion"] },
+    { tool: ["mcp__vellum__grill_ask", "mcp__vellum__propose", "AskUserQuestion"] },
     async ($, e, next) => {
       // The generated contract's tool names predate AskUserQuestion, so the name is read as a string.
       const name: string = e.tool;

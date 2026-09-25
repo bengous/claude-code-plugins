@@ -45,17 +45,6 @@ export function endedOf(decisions: number): string {
   return `Grill ended: ${decisions} ${decisions === 1 ? "decision" : "decisions"}. Claude is back on the plan.`;
 }
 
-/** What a Decline that failed says: a 409 is a proposal no longer pending, answered from another tab or replaced by Claude's next. */
-export function declineFailure(status: number | null): string {
-  if (status === null) {
-    return "The decline did not reach the server: the proposal waits on the Grill button.";
-  }
-
-  return status === 409
-    ? "Claude's proposal was already answered or replaced."
-    : `The decline was refused: the server answered ${status}.`;
-}
-
 /** What an answered question reads beside it: the reviewer's words, or the recommendation and whether they chose it; `null` while it is open. */
 export function answerOf(answer: Answer): { readonly label: string; readonly text: string } | null {
   switch (answer.kind) {
