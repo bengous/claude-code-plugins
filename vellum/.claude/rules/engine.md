@@ -151,6 +151,11 @@ loop. `/vellum:start` enters it, Approve in the page or `/vellum:stop` leaves it
   included. A recorded version writes one log line, and the band draws it from the next `stage` line; a kept one, a refusal (no
   `plan.md` yet, the plan approved) and a server that does not answer say nothing. The explicit
   tool stays the model's mid-turn signal and records a new version after a feedback.
+- Claude at rest is a fact of the core's, `idle` in `register.ts`: set as that end is heard
+  when no later turn started, cleared at `turn.start` and wherever `turns` is reset. An Escape, an
+  API error or a reload leave it false, never the absence of a running turn: a `plan.md` half
+  revised is never gated for it. `EngineContext.submitIdle` gates with `keep` while it holds and
+  answers whether it did; otherwise the next turn's end gates anyway.
 - A subagent's end is its answer to whoever spawned it: the same `turn.complete` hook, while
   `live`, hands a turn that carries `agentId` to the halves' `agentAnswered` (its id, its final
   text, its reason) and does nothing else, no gate and no `answered`; outside `live` it reaches
@@ -158,7 +163,9 @@ loop. `/vellum:start` enters it, Approve in the page or `/vellum:stop` leaves it
   run off the server at the answer, so an answer after a reload finds it. A subagent vellum
   spawned steps past every other hook of vellum's, its tool calls included, so its final text
   is the one way it speaks back ([Hook runtime](../../../docs/plugin-testing/hook-runtime.md)
-  § Tools, commands and modes).
+  § Tools, commands and modes). A half stops an agent through `Host.callTool` and `TaskStop`,
+  which asks no permission and steps past vellum's own hooks too; a stop counts once the result
+  is no error or `$.agent.list()` no longer runs the agent.
 - Every transition is an engine event or an answer from the server, never a reflex of the
   model. What is under review lives on the server's disk; the module keeps no copy of it.
 - Parse at the boundary, once: `tool_input`, `$.store` values and the server's JSON arrive as
@@ -234,9 +241,10 @@ loop. `/vellum:start` enters it, Approve in the page or `/vellum:stop` leaves it
   written in `register.ts` that lists every half's tools and refusals, and `register.spec.ts`
   holds it equal to the registry, so a half's new tool fails that suite until the literal
   names it. Each `stage` line runs the halves' `staged`, handed to `mode.ts` as `staged` the
-  way `settle` is. `closing` is `/vellum:stop` alone: an
-  approval is closed on the server, by the extension's `approved`, so a suspended module leaves
-  nothing open.
+  way `settle` is. `closing` runs as the mode closes, by `/vellum:stop` or by the approval
+  (`settle`), while the mode is live and its server answers: what a half started in the session,
+  it ends there. What the approval must close on the server is closed there, by the server
+  half's `approved`, so a suspended module leaves nothing open on disk.
 - The module keeps no copy of what holds the review. A gate the server refuses is the refusal
   it already reads: `submit` denies with the server's reason, and the turn's end says nothing.
 - `turn.start` carries no origin (`TurnStartInput` is a text and a turn id), so whose turn it

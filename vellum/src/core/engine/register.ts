@@ -73,6 +73,7 @@ function hostOf($: EngineInterface): Host {
     submitPrompt: (text) => $.prompt.submit({ text }),
     spawnAgent: (args) => $.agent.spawn(args),
     listAgents: () => $.agent.list(),
+    callTool: (call) => $.tool.call(call),
     status: (text) => $.ui.status(text),
     invalidate: () => $.ui.invalidate("ui.render"),
     log: (text) => $.ui.log(text),
@@ -81,45 +82,8 @@ function hostOf($: EngineInterface): Host {
   };
 }
 
-function contextOf(host: Host, live: Live, extension: EngineExtension): EngineContext {
-  return { host, live, api: live.server.extension(extension.id) };
-}
-
-/**
- * Hands one event to every extension, in registry order. An extension that throws is logged
- * and the next one runs: no extension may stop the core's own hook, or another extension.
- */
-async function handed(
-  host: Host,
-  live: Live,
-  event: string,
-  hand: (extension: EngineExtension, context: EngineContext) => Promise<void> | undefined,
-): Promise<void> {
-  for (const extension of engineExtensions) {
-    try {
-      await hand(extension, contextOf(host, live, extension));
-    } catch (cause) {
-      host.log(`${extension.id} failed on ${event}: ${String(cause)}`);
-    }
-  }
-}
-
 /** The extensions whose `segment` threw in a mode: a failure is logged once per mode, not at each line. */
 const segmentFailures = new WeakMap<Live, Set<string>>();
-
-/** A segment that throws is left out: no extension may take the band away. */
-function segmentOf(host: Host, live: Live, extension: EngineExtension): string | null {
-  try {
-    return extension.segment?.(contextOf(host, live, extension)) ?? null;
-  } catch (cause) {
-    const failed = segmentFailures.get(live) ?? new Set<string>();
-
-    if (!failed.has(extension.id)) host.log(`${extension.id} failed on segment: ${String(cause)}`);
-    segmentFailures.set(live, failed.add(extension.id));
-
-    return null;
-  }
-}
 
 const SEPARATOR = " │ ";
 
@@ -130,6 +94,71 @@ function pinned(state: State): boolean {
 
 export const register: Register = (on) => {
   let state: State = { kind: "idle" };
+
+  // Reset wherever the mode leaves `live`, and ignored outside it: see `turn.ts`.
+  let turns: Turns = NO_TURN;
+
+  // Claude at rest: the main loop's last turn ended on its answer, and none started since. A fact
+  // the server cannot read, cleared with `turns`: an Escape, an API error or a reload leave it false.
+  let idle = false;
+
+  function forgetTurns(): void {
+    turns = NO_TURN;
+    idle = false;
+  }
+
+  function contextOf(host: Host, live: Live, extension: EngineExtension): EngineContext {
+    return {
+      host,
+      live,
+      api: live.server.extension(extension.id),
+      submitIdle: async () => {
+        if (!idle) return false;
+        await submitPlan(host, live, "keep").catch(() => UNREACHABLE);
+
+        return true;
+      },
+    };
+  }
+
+  /**
+   * Hands one event to every extension, in registry order. An extension that throws is logged
+   * and the next one runs: no extension may stop the core's own hook, or another extension.
+   */
+  async function handed(
+    host: Host,
+    live: Live,
+    event: string,
+    hand: (extension: EngineExtension, context: EngineContext) => Promise<void> | undefined,
+  ): Promise<void> {
+    for (const extension of engineExtensions) {
+      try {
+        await hand(extension, contextOf(host, live, extension));
+      } catch (cause) {
+        host.log(`${extension.id} failed on ${event}: ${String(cause)}`);
+      }
+    }
+  }
+
+  /** A segment that throws is left out: no extension may take the band away. */
+  function segmentOf(host: Host, live: Live, extension: EngineExtension): string | null {
+    try {
+      return extension.segment?.(contextOf(host, live, extension)) ?? null;
+    } catch (cause) {
+      const failed = segmentFailures.get(live) ?? new Set<string>();
+
+      if (!failed.has(extension.id))
+        host.log(`${extension.id} failed on segment: ${String(cause)}`);
+      segmentFailures.set(live, failed.add(extension.id));
+
+      return null;
+    }
+  }
+
+  /** The extensions end what they started in the session, while the mode is live and its server answers. */
+  async function closing(host: Host, live: Live): Promise<void> {
+    await handed(host, live, "closing", (extension, context) => extension.closing?.(context));
+  }
 
   // Where each mode's server last said the plan stands, keyed by the mode: a new way in starts with none.
   const stages = new WeakMap<Live, StageWire>();
@@ -188,8 +217,11 @@ export const register: Register = (on) => {
   }
 
   const settle: Settle = async (host, id) => {
+    if (state.kind === "live" && state.live.session.id === id) await closing(host, state.live);
+
+    // Checked after `closing`: a way into another session meanwhile keeps its mode.
     if (sessionOf(state)?.id !== id) return;
-    turns = NO_TURN;
+    forgetTurns();
     become(host, await close(host, state));
   };
 
@@ -206,7 +238,7 @@ export const register: Register = (on) => {
       return;
     }
 
-    turns = NO_TURN;
+    forgetTurns();
     become(host, next);
   };
 
@@ -217,9 +249,6 @@ export const register: Register = (on) => {
   };
 
   const wiring: Wiring = { settle, staged, revive, current: (from) => state === from };
-
-  // Reset wherever the mode leaves `live`, and ignored outside it: see `turn.ts`.
-  let turns: Turns = NO_TURN;
 
   // The waits of the extensions' tool calls, by the call's id, and the calls that failed while
   // waiting: their `.catch` answers Claude that the answer comes as a prompt.
@@ -271,13 +300,8 @@ export const register: Register = (on) => {
 
     const host = hostOf($);
 
-    if (state.kind === "live") {
-      await handed(host, state.live, "closing", (extension, context) =>
-        extension.closing?.(context),
-      );
-    }
-
-    turns = NO_TURN;
+    if (state.kind === "live") await closing(host, state.live);
+    forgetTurns();
     become(host, await close(host, state));
     const result = await next(e);
 
@@ -296,7 +320,7 @@ export const register: Register = (on) => {
     const left = e.command === "clear" || sessionId(await host.sessionId()) !== session.id;
 
     if (!left) return result;
-    turns = NO_TURN;
+    forgetTurns();
     become(host, suspend(host, state));
 
     return result;
@@ -435,8 +459,10 @@ export const register: Register = (on) => {
   // The server already wrote what they carry, so an extension never hears of them.
   on("prompt.submit", async ($, e, next) => {
     const own = e.origin.kind === "plugin" && e.origin.name === "vellum";
+
     // Before `next`: it resolves once the prompt entered, and its turn may have started by then.
-    turns = state.kind === "live" ? prompted(turns, e.text, own) : NO_TURN;
+    if (state.kind === "live") turns = prompted(turns, e.text, own);
+    else forgetTurns();
 
     if (state.kind === "live" && !own) {
       await handed(hostOf($), state.live, "prompted", (extension, context) =>
@@ -448,6 +474,7 @@ export const register: Register = (on) => {
   });
 
   on("turn.start", (_, e, next) => {
+    idle = false;
     turns = state.kind === "live" ? started(turns, e.text, e.turnId) : NO_TURN;
 
     return next(e);
@@ -474,6 +501,8 @@ export const register: Register = (on) => {
 
     const own = ownOf(turns, e.turnId);
     turns = completed(turns, e.turnId);
+    // A turn that started before this end was heard runs still: Claude is not at rest.
+    idle = e.reason === "answer" && turns.running.kind === "none";
 
     if (e.reason === "answer") await submitPlan(host, state.live, "keep").catch(() => UNREACHABLE);
 

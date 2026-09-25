@@ -27,6 +27,12 @@ export type EngineContext = {
   readonly host: Host;
   readonly live: Live;
   readonly api: ExtensionApi;
+  /**
+   * Gates `plan.md` with `keep` when Claude is at rest, its main loop's last turn ended on an
+   * answer and none started since; `false`, gating nothing, otherwise: the next turn's end gates
+   * it anyway. A refusal says nothing, as at a turn's end.
+   */
+  readonly submitIdle: () => Promise<boolean>;
 };
 
 /**
@@ -82,7 +88,11 @@ export type EngineExtension = {
    * reads again for its segment. A throw is logged and the next extension runs.
    */
   readonly staged?: (context: EngineContext) => Promise<void>;
-  /** `/vellum:stop`, the one end the module causes: an approval is closed on the server. */
+  /**
+   * The mode closes, by `/vellum:stop` or by the approval (`settle`), while the server still
+   * answers: what the extension must end in the session, it ends here. What the approval must
+   * close on the server is closed there, by the server half's `approved`, module alive or not.
+   */
   readonly closing?: (context: EngineContext) => Promise<void>;
   /**
    * What the band above the prompt says for this extension while live, after the plan and

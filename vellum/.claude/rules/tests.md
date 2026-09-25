@@ -75,6 +75,9 @@ paths:
   the registry still holds the stores of the first pass.
 - The kit starts no subagent: a spawn that succeeds, with its `agentId`, is checked in a live
   session, and the kit covers the rest of a launch ([Hook tests](../../../docs/plugin-testing/hooks.md)).
+  So a launch the server no longer takes, which stops the agent it started, is checked live too.
+  A `TaskStop` the module calls is answered by the test's `on("tool.call", { tool: "TaskStop" })`
+  (`stops` in `review/fixtures/`).
 - The kit cannot raise one case: the lock's overrun. `mock.clock` lets a wait held past a
   hook's budget go, and a test's own budget is shorter still, so a hook that outruns the
   dispatch is measured in a live session instead ([Hook tests](../../../docs/plugin-testing/hooks.md)).

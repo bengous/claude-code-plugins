@@ -88,4 +88,9 @@ under the [loader rules](hook-runtime.md#module-loader).
   the kit refuses a call the module's scan does not list. A launch that
   succeeds is checked in a live session.
 
+- A test's `on("tool.call", { tool: "TaskStop" }, ...)` answers the module's
+  own `$.tool.call({ tool: "TaskStop", ... })`: the kit hands the call to the
+  test's hooks, and what they return (a result, `isError`, a `deny`) is what the
+  module reads.
+
 Read [hook runtime behavior](hook-runtime.md) when a module fails to load, reloads, denies a tool or coordinates a server.

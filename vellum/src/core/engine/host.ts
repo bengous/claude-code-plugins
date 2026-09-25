@@ -11,6 +11,8 @@ import type {
   ProcessSpawnResult,
   PromptSubmitResult,
   TimerCall,
+  ToolCallArgs,
+  ToolCallResult,
 } from "claude-code";
 
 /**
@@ -68,6 +70,12 @@ export type Host = {
   spawnAgent: (args: AgentSpawnArgs) => Promise<AgentSpawnResult>;
 
   listAgents: () => Promise<AgentInfo[]>;
+
+  /**
+   * `$.tool.call(call)`: a tool of the session run by the module. The module's own hooks step past
+   * it, as its spawned agents do.
+   */
+  callTool: (call: ToolCallArgs) => Promise<ToolCallResult>;
 
   status: (text: string | undefined) => void;
 

@@ -1,4 +1,4 @@
-import type { AgentInfo, AgentSpawnArgs, AgentSpawnResult, On } from "claude-code";
+import type { AgentInfo, AgentSpawnArgs, AgentSpawnResult, On, ToolCallResult } from "claude-code";
 
 import type { Route } from "../../../core/engine/fixtures/index.ts";
 import { reply } from "../../../core/engine/fixtures/index.ts";
@@ -19,25 +19,47 @@ export type ReviewRoutes = {
   state: ReviewState;
 };
 
+/** What a post makes of the state, as the server's route would. */
+function moved(name: string, body: string | undefined, now: ReviewState): ReviewState {
+  const { run, stopping } = now;
+
+  switch (name) {
+    case "launched":
+      return run?.kind === "requested"
+        ? { ...now, run: { ...run, kind: "running", agentId: AGENT_ID, model: MODEL } }
+        : now;
+    case "ended":
+      return { ...now, run: null, resubmit: true };
+    case "close": {
+      const agent = run?.kind === "running" ? [{ seq: run.seq, agentId: run.agentId }] : [];
+
+      return { ...now, run: null, stopping: [...stopping, ...agent] };
+    }
+
+    case "stopped": {
+      // SAFETY: the module's own `ReviewPosts["stopped"]`, serialized by `JSON.stringify` in review/engine.ts.
+      const { seq } = JSON.parse(body ?? "{}") as { readonly seq: number };
+
+      return { ...now, stopping: stopping.filter((one) => one.seq !== seq) };
+    }
+
+    case "resubmitted":
+      return { ...now, resubmit: false };
+    default:
+      return now;
+  }
+}
+
 /**
  * The review routes a server answers, and every body the module posted there, by route name:
- * 204 unless `answers` names the route. The run it serves moves as the server's own would: a
- * `launched` runs it, an `ended` or a `close` drops it, so a second `stage` line reads what the
- * first one's post made of it.
+ * 204 unless `answers` names the route, and `close` its `Closed`. The state it serves moves as the
+ * server's own would, so a second `stage` line reads what the first one's post made of it.
  */
 export function reviewRoutes(
   run: Run | null,
   answers: Readonly<Record<string, Route>> = {},
 ): ReviewRoutes {
   const posted: [name: string, body: string][] = [];
-
-  const moved = (name: string, now: Run | null): Run | null => {
-    if (name === "launched" && now?.kind === "requested") {
-      return { ...now, kind: "running", agentId: AGENT_ID, model: MODEL };
-    }
-
-    return name === "ended" || name === "close" ? null : now;
-  };
 
   const post =
     (name: string): Route =>
@@ -46,9 +68,9 @@ export function reviewRoutes(
       const answer = answers[name];
 
       if (answer !== undefined) return answer(body, query);
-      served.state = { ...served.state, run: moved(name, served.state.run) };
+      served.state = moved(name, body, served.state);
 
-      return reply(204, null);
+      return name === "close" ? reply(200, { stopping: served.state.stopping }) : reply(204, null);
     };
 
   const served: ReviewRoutes = {
@@ -57,7 +79,10 @@ export function reviewRoutes(
     routes: {
       "/api/x/review/state": () => reply(200, served.state),
       ...Object.fromEntries(
-        ["launched", "ended", "close"].map((name) => [`/api/x/review/${name}`, post(name)]),
+        ["launched", "ended", "close", "stopped", "resubmitted"].map((name) => [
+          `/api/x/review/${name}`,
+          post(name),
+        ]),
       ),
     },
   };
@@ -89,4 +114,32 @@ export function agents(on: On, answer: () => AgentSpawnResult = () => ({ model: 
   on("agent.list", () => ({ value: seen.listed }));
 
   return seen;
+}
+
+/** The result `TaskStop` gives an agent it stopped, as measured in a live session. */
+export function stoppedResult(agentId: string): ToolCallResult {
+  return {
+    result: { message: `Successfully stopped task: ${agentId}`, task_id: agentId },
+    text: `{"message":"Successfully stopped task: ${agentId}"}`,
+  };
+}
+
+/**
+ * `TaskStop` beneath the module's `$.tool.call`: every task id it was asked to stop, in order, and
+ * what it answers, a success unless `answer` says otherwise.
+ */
+export function stops(
+  on: On,
+  answer: (agentId: string) => ToolCallResult | Promise<ToolCallResult> = stoppedResult,
+): string[] {
+  const asked: string[] = [];
+
+  on("tool.call", { tool: "TaskStop" }, (_, e) => {
+    const agentId = e.task_id ?? "";
+    asked.push(agentId);
+
+    return answer(agentId);
+  });
+
+  return asked;
 }
