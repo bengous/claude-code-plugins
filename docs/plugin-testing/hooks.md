@@ -79,4 +79,13 @@ under the [loader rules](hook-runtime.md#module-loader).
 - The kit's `$` has no `classic` noun, so a `classic.PermissionRequest` hook
   cannot be raised from a test.
 
+- The kit starts no subagent. Nothing answers beneath `agent.spawn`, and a
+  fixture hook that answers `{ model, agentId }` without `next` reaches the
+  module with no `agentId`, as the contract says of a hook that started none.
+  The event a fixture sees carries the Agent tool's input (`subagent_type`,
+  `run_in_background`), not the typed `subagentType`. `on("agent.list")`
+  answers `$.agent.list()`. A test's own hook cannot call `$.agent.*` at all:
+  the kit refuses a call the module's scan does not list. A launch that
+  succeeds is checked in a live session.
+
 Read [hook runtime behavior](hook-runtime.md) when a module fails to load, reloads, denies a tool or coordinates a server.

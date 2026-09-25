@@ -193,6 +193,17 @@ plugins (September 2026), unless a line says otherwise.
   the main loop. Not measured in a live session: that an isolated subagent's
   `pwd` stays in its worktree with the variable set (#231, S9 measures it).
 
+- A subagent a plugin spawns with `$.agent.spawn` steps past every hook of
+  that plugin but `turn.complete`: its tool calls reach none of the plugin's
+  `tool.call` or `tool.check` hooks (the debug log reads `tool.call skipped:
+  re-entry`), and a plugin tool it calls falls to the engine's permission
+  path, denied since a background agent cannot ask. Its `turn.complete`
+  reaches the plugin with `agentId` set and its final text in `answer`. The
+  same agent spawned by the model through the Agent tool reaches the plugin's
+  `tool.call`. `$.agent.spawn` from a timer resolved in 17 ms with
+  `{ model, agentId }`. Measured on 2.1.282 in `claude -p` sessions
+  (`vellum` #170).
+
 - A registered tool's result text is what the model acts on:
   `Plan vN is under review in the browser. End your turn; the review arrives
   as a prompt.` ended Opus 5's turn every time. `vellum` now answers the

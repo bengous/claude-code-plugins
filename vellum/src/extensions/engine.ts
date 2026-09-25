@@ -1,6 +1,7 @@
 import type { EngineExtension } from "../core/engine/extension.ts";
 import { grillEngine } from "./grill/engine.ts";
+import { reviewEngine } from "./review/engine.ts";
 import { stepEngine } from "./step/engine.ts";
 
 /** Every engine half, in dispatch order; `core/engine/register.ts` alone imports this. */
-export const engineExtensions: readonly EngineExtension[] = [grillEngine, stepEngine];
+export const engineExtensions: readonly EngineExtension[] = [grillEngine, stepEngine, reviewEngine];

@@ -280,6 +280,10 @@ iframe { border: 0; width: 100%; height: 100%; display: block; background: var(-
 .btn.step-later { position: relative; }
 .btn.step-later::after { content: ""; position: absolute; top: calc(var(--s-1) * -1); right: calc(var(--s-1) * -1); width: var(--s-3); height: var(--s-3); border-radius: 50%; background: var(--ask); border: 2px solid var(--sheet); }
 .step-dialog .dialog-card { border-top: 4px solid var(--ask); }
+.review-run { display: inline-flex; gap: var(--s-1); }
+.review-dot { display: inline-block; width: var(--s-2); height: var(--s-2); margin-right: var(--s-2); border-radius: 50%; background: var(--ask); animation: review-pulse 1.4s ease-in-out infinite; }
+@keyframes review-pulse { 50% { opacity: 0.3; } }
+@media (prefers-reduced-motion: reduce) { .review-dot { animation: none; } }
 .step-who { font: 650 var(--t-13)/1.4 var(--serif); color: var(--ask); margin: 0 0 var(--s-1); }
 .step-why { font: 600 var(--t-16)/1.35 var(--serif); color: var(--ink); margin: 0 0 var(--s-3); }
 .step-moves { display: grid; gap: var(--s-2); }

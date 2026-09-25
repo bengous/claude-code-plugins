@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import { parseVerdict } from "./parse.ts";
+import { parsePosts, parseReviewState, parseVerdict } from "./parse.ts";
 
 function verdict(...body: string[]): string {
   return ["## Plan review", "", ...body].join("\n");
@@ -177,5 +177,38 @@ describe("parseVerdict", () => {
       parseVerdict(verdict(...APPROVED, "Issues:", "  > a quote under no finding")),
     ).toBeNull();
     expect(parseVerdict(verdict(...APPROVED, "Issues:", "None."))).toBeNull();
+  });
+});
+
+describe("parseReviewState", () => {
+  const RUNNING = {
+    kind: "running" as const,
+    seq: 2,
+    version: 3,
+    agentId: "a1",
+    model: "claude-opus-5-5",
+  };
+
+  test("a run under way and the last failure cross, a failure never launched with no model", () => {
+    const failed = { seq: 1, version: 3, model: null, why: "no such agent" };
+
+    expect(parseReviewState({ run: RUNNING, failed })).toEqual({ run: RUNNING, failed });
+    expect(parseReviewState({ run: null, failed: null })).toEqual({ run: null, failed: null });
+  });
+
+  test("a run missing a part, or a number that is no count, is no state", () => {
+    expect(parseReviewState({ run: { ...RUNNING, agentId: "" }, failed: null })).toBeNull();
+    expect(parseReviewState({ run: { ...RUNNING, seq: 0 }, failed: null })).toBeNull();
+    expect(parseReviewState({ run: { ...RUNNING, kind: "done" }, failed: null })).toBeNull();
+    expect(parseReviewState({ failed: null })).toBeNull();
+  });
+});
+
+describe("parsePosts", () => {
+  test("an answer is a text with something in it, kept as written", () => {
+    const answer = { kind: "answer" as const, text: "  ## Plan review\n" };
+
+    expect(parsePosts.ended({ seq: 1, outcome: answer })).toEqual({ seq: 1, outcome: answer });
+    expect(parsePosts.ended({ seq: 1, outcome: { kind: "answer", text: " \n" } })).toBeNull();
   });
 });

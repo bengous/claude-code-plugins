@@ -19,6 +19,7 @@ import type {
   GrillState,
   QuestionTriple,
 } from "../src/extensions/grill/protocol.ts";
+import type { Outcome, ReviewState, Run } from "../src/extensions/review/protocol.ts";
 import type { Proposal, StepAnswer, StepState } from "../src/extensions/step/protocol.ts";
 
 /**
@@ -96,6 +97,13 @@ export type Vellum = {
     state(): Promise<Reply>;
     /** `POST wait` on the round whose first question is `first`, as a waiting `grill_ask` holds it. */
     wait(first: number): Promise<Reply>;
+  };
+  readonly review: {
+    state(): Promise<Reply>;
+    /** The run the page asked for, launched as the hooks module launches it, under `model`; answers its number. */
+    launched(model?: string): Promise<number>;
+    /** `POST ended` for the run launched, as the hooks module posts the agent's end. */
+    ended(outcome: Outcome): Promise<Reply>;
   };
   stop(): Promise<void>;
 };
@@ -216,6 +224,29 @@ export async function startVellum(
 
   const review = (): string => join(workdir, ".review");
 
+  const runNow = async (): Promise<Run | null> => {
+    // SAFETY: the server's own `ReviewState`, serialized by `Response.json` in review/server.ts.
+    const state = (await api("x/review/state")).json as ReviewState;
+
+    return state.run;
+  };
+
+  /**
+   * The run under way once the server holds it as `kind`. A click returns before the page's
+   * request reaches the server, and the hooks module reads the run at the `stage` line that
+   * request causes, never before: the harness reads again until it is there.
+   */
+  const run = async (kind: Run["kind"]): Promise<Run> => {
+    await expect
+      .poll(async () => (await runNow())?.kind ?? null, { message: `a ${kind} review run` })
+      .toBe(kind);
+    const found = await runNow();
+
+    if (found?.kind !== kind) throw new Error(`the ${kind} review run moved on once seen`);
+
+    return found;
+  };
+
   return {
     url,
     origin,
@@ -278,6 +309,16 @@ export async function startVellum(
       close: (reason = "page") => api("x/grill/close", { reason }),
       state: () => api("x/grill/state"),
       wait: async (first) => api("x/grill/wait", { file: await openGrill(), first }),
+    },
+    review: {
+      state: () => api("x/review/state"),
+      launched: async (model = "claude-opus-5-5") => {
+        const { seq } = await run("requested");
+        await api("x/review/launched", { seq, agentId: `agent-${seq}`, model });
+
+        return seq;
+      },
+      ended: async (outcome) => api("x/review/ended", { seq: (await run("running")).seq, outcome }),
     },
     // A test may stop the server itself, to cut the connection: the fixture's stop is then a no-op.
     stop: async () => {

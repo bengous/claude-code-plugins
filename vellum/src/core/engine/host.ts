@@ -1,4 +1,7 @@
 import type {
+  AgentInfo,
+  AgentSpawnArgs,
+  AgentSpawnResult,
   FsStat,
   HookStream,
   HttpInit,
@@ -56,6 +59,15 @@ export type Host = {
   now: () => Promise<number>;
 
   submitPrompt: (text: string) => Promise<PromptSubmitResult>;
+
+  /**
+   * `$.agent.spawn`: resolves once the subagent started, in the background. A subagent this
+   * module spawns steps past every hook of vellum's but `turn.complete`, which carries its final
+   * text under the `agentId` this answers.
+   */
+  spawnAgent: (args: AgentSpawnArgs) => Promise<AgentSpawnResult>;
+
+  listAgents: () => Promise<AgentInfo[]>;
 
   status: (text: string | undefined) => void;
 
