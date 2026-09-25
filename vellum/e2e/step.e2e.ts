@@ -219,6 +219,20 @@ test("Something else… takes a step of the reviewer's own kind and subject", as
   await expect.poll(() => told(vellum)).toEqual(["Chose: a prototype for: Drag or click?"]);
 });
 
+test("Something else… picked again keeps its kind and its text", async ({ page, vellum }) => {
+  await openVellum(page, vellum);
+  await propose(vellum);
+  const window = proposal(page);
+  await move(window, /^Something else/u).check();
+  await window.getByRole("combobox", { name: "Kind of step" }).selectOption("Prototype");
+  await window.getByRole("textbox").fill("Drag or click?");
+  await move(window, /^Mockup/u).check();
+  await move(window, /^Something else/u).check();
+
+  await expect(window.getByRole("combobox", { name: "Kind of step" })).toHaveValue("prototype");
+  await expect(window.getByRole("textbox")).toHaveValue("Drag or click?");
+});
+
 test("Something else… in the reviewer's own words tells Claude the words, their lines kept", async ({
   page,
   vellum,

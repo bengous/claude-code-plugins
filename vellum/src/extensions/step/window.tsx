@@ -3,7 +3,7 @@ import { useEffect } from "preact/hooks";
 
 import { Button, Dialog, dialogUp, popoverUp } from "../../core/page/kit.tsx";
 import { editing } from "../../core/page/state.ts";
-import type { OtherKind, Pick } from "./choice.ts";
+import type { OtherKind, OtherPick, Pick } from "./choice.ts";
 import { answerOf, NO_PICK, oneLine, OWN_GRILL } from "./choice.ts";
 import { detailOf, FIELD_HINTS, KIND_LABELS } from "./labels.ts";
 import type { Asking, WindowState } from "./modal.ts";
@@ -12,8 +12,16 @@ import type { StepAnswer } from "./protocol.ts";
 
 const asking = signal<Asking>({ kind: "auto" });
 
-/** The pick made on a proposal, by its id, `null` for the blank window: Esc keeps it for the next opening. */
-const picked = signal<{ readonly id: string | null; readonly pick: Pick } | null>(null);
+/**
+ * The pick made on a proposal, by its id, `null` for the blank window, and the last step of the
+ * reviewer's own typed there: Esc keeps both for the next opening, and a move picked meanwhile
+ * does not throw the typing away.
+ */
+const picked = signal<{
+  readonly id: string | null;
+  readonly pick: Pick;
+  readonly other: OtherPick;
+} | null>(null);
 
 const OTHER_KINDS: readonly OtherKind[] = ["grill", "mockup", "prototype", "plan", "own"];
 
@@ -75,13 +83,14 @@ export function StepWindow(props: WindowProps): preact.JSX.Element | null {
   const pending = modal.kind === "proposal" ? modal.pending : null;
   const id = pending?.id ?? null;
   const moves = pending?.proposal.moves ?? [];
-  const kept = picked.value;
-  const pick = kept !== null && kept.id === id ? kept.pick : id === null ? OWN_GRILL : NO_PICK;
+  const kept = picked.value?.id === id ? picked.value : null;
+  const pick = kept?.pick ?? (id === null ? OWN_GRILL : NO_PICK);
+  const own = kept?.other ?? OWN_GRILL;
   const answer = answerOf(pick, moves);
   const title = id === null ? "Next step" : "Claude proposes the next step";
 
   const choose = (next: Pick): void => {
-    picked.value = { id, pick: next };
+    picked.value = { id, pick: next, other: next.kind === "other" ? next : own };
   };
 
   const later = (): void => {
@@ -140,7 +149,7 @@ export function StepWindow(props: WindowProps): preact.JSX.Element | null {
               type="radio"
               name="step-move"
               checked={other !== null}
-              onChange={() => choose(OWN_GRILL)}
+              onChange={() => choose(own)}
             />
             <span class="kind">Something else…</span>
           </label>

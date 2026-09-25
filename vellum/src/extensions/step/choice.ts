@@ -3,16 +3,23 @@ import type { Move, StepAnswer } from "./protocol.ts";
 /** What "Something else…" takes: a step of any kind with the reviewer's own subject, or their own words. */
 export type OtherKind = Move["kind"] | "own";
 
+/** A step of the reviewer's own: its kind, and the subject or the words typed for it. */
+export type OtherPick = {
+  readonly kind: "other";
+  readonly other: OtherKind;
+  readonly text: string;
+};
+
 /** What the reviewer picked in the "Next step" window: nothing yet, a move offered, or their own. */
 export type Pick =
   | { readonly kind: "none" }
   | { readonly kind: "move"; readonly index: number }
-  | { readonly kind: "other"; readonly other: OtherKind; readonly text: string };
+  | OtherPick;
 
 export const NO_PICK: Pick = { kind: "none" };
 
 /** The window opened blank: a step of the reviewer's own, a grill until they pick another kind. */
-export const OWN_GRILL: Pick = { kind: "other", other: "grill", text: "" };
+export const OWN_GRILL: OtherPick = { kind: "other", other: "grill", text: "" };
 
 /** Every break a line reader cuts at becomes one space: a grill's subject is its transcript's header. */
 export function oneLine(text: string): string {
