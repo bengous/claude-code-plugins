@@ -300,6 +300,19 @@ async function railFolded(page: Page): Promise<void> {
     .toBe(true);
 }
 
+/**
+ * Stops the page's clock a second ahead, so the jump never lands in its past: from there only
+ * `runFor` moves `performance.now()`, which the guard reads, whatever the runner's pace. A CSS
+ * transition runs on the browser's own clock and goes on meanwhile.
+ */
+async function pauseClock(page: Page): Promise<void> {
+  await page.clock.pauseAt(await page.evaluate(() => Date.now() + 1000));
+}
+
+function covers(box: Box, x: number, y: number): boolean {
+  return x >= box.x && x <= box.x + box.width && y >= box.y && y <= box.y + box.height;
+}
+
 test.describe("the rail's handle", () => {
   test("two clicks 150 ms apart on the folded handle open the rail and change no document", async ({
     page,
@@ -307,6 +320,7 @@ test.describe("the rail's handle", () => {
   }) => {
     for (let i = 1; i <= 24; i += 1)
       vellum.writeFile(`note-${String(i).padStart(2, "0")}.md`, `# Note ${i}\n`);
+    await page.clock.install();
     await reviewV1(page, vellum);
     await expect(page.locator("#rail button", { hasText: "note-24.md" })).toBeVisible();
     const head = page.locator(".doc-head .path");
@@ -318,10 +332,13 @@ test.describe("the rail's handle", () => {
     const chevron = await boxOf(handle.locator(".chevron"));
     const x = chevron.x + chevron.width / 2;
     const y = chevron.y + chevron.height / 2;
+    await pauseClock(page);
 
     await page.mouse.click(x, y);
-    await page.waitForTimeout(150);
+    await expect.poll(async () => covers(await boxOf(handle), x, y)).toBe(false);
+    await page.clock.runFor(150);
     await page.mouse.click(x, y);
+    await page.clock.resume();
 
     await expect(handle).toHaveAttribute("aria-expanded", "true");
     await page.waitForTimeout(500);
@@ -334,14 +351,17 @@ test.describe("the rail's handle", () => {
   }) => {
     // The rail lands at once: the line is measured where it is clicked, 50 ms into the guard's window.
     await page.emulateMedia({ reducedMotion: "reduce" });
+    await page.clock.install();
     await reviewV1(page, vellum);
     const handle = page.locator(".handle.left");
     await handle.click();
     await railFolded(page);
+    await pauseClock(page);
     await handle.click();
-    await page.waitForTimeout(50);
+    await page.clock.runFor(50);
     const line = await boxOf(page.locator("#rail button", { hasText: "research-notes.md" }));
     await page.mouse.click(line.x + line.width / 2, line.y + line.height / 2);
+    await page.clock.resume();
 
     await expect(page.locator(".doc-head .path")).toContainText("research-notes.md");
   });
