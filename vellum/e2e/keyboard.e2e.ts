@@ -368,15 +368,15 @@ test.describe("a comment in a mockup", () => {
     await commentWords(page, frame, 34, 54);
     const mockup = readFixture("rich", "mockup.html");
     vellum.writeFile("mockup.html", mockup.replace("saved on this tablet", "kept here"));
+    await expect(frame.locator("p.offline")).toContainText("kept here");
 
     // The paragraph is measured with the marks, in the rewritten document: its width moves with the frame's scrollbar.
-    await expect
-      .poll(async () => {
-        const marks = (await overlay(frame)).filter((b) => b.kind.includes("comment"));
-        const paragraph = await boxOf(frame.locator("p.offline"));
+    // `toPass`, not `expect.poll`: a reload that cuts an `evaluate` throws, which only `toPass` tries again.
+    await expect(async () => {
+      const marks = (await overlay(frame)).filter((b) => b.kind.includes("comment"));
+      const paragraph = await boxOf(frame.locator("p.offline"));
 
-        return marks.map((mark) => Math.round(mark.rect.width - paragraph.width));
-      })
-      .toEqual([0]);
+      expect(marks.map((mark) => Math.round(mark.rect.width - paragraph.width))).toEqual([0]);
+    }).toPass();
   });
 });
