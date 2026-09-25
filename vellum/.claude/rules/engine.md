@@ -211,8 +211,10 @@ loop. `/vellum:start` enters it, Approve in the page or `/vellum:stop` leaves it
 - `turn.start` carries no origin (`TurnStartInput` is a text and a turn id), so whose turn it
   is comes from `prompt.submit`, through `turn.ts`: `prompt.submit` notes the last prompt that
   entered with its origin, before `next(e)`; `turn.start` takes the note, and the turn is
-  vellum's own when its text holds the noted text of a vellum relay; `turn.complete` of that
-  turn id hands `own` to the halves' `answered`. It is the core's one thing the module knows
+  vellum's own when its text holds the noted text of a vellum relay, or from the moment a
+  waiting tool of it returns an entry of the reviewer's (`replied`, a `grill_ask` answered, a
+  `propose` whose pick opened a grill); `turn.complete` of that turn id hands `own` to the
+  halves' `answered`. It is the core's one thing the module knows
   that the server does not, and it is not a variant of `State`: it says who started a turn,
   nothing about what is allowed. Two facts, the waiting note and the running turn, since a prompt may
   enter while a turn runs; each is a union of its own, never a nullable. `register.ts` resets
@@ -222,9 +224,8 @@ loop. `/vellum:start` enters it, Approve in the page or `/vellum:stop` leaves it
   keeps it in memory, keyed by the mode's `Live`: `grill` marks the turn whose `grill_ask` the
   server took and no answer came back to (`askedIn`, a `WeakSet` in `grill/engine.ts`) and clears
   the mark at `answered`, which posts it as `asked`, so the text of a turn cut short is written
-  with its round even after a reply the reviewer sent meanwhile; a turn the answer came back to
-  (`repliedIn`) is the grill's own, its text written after the reply. A reload between the two
-  loses the mark: the text then goes where a turn that asked nothing writes it.
+  with its round even after a reply the reviewer sent meanwhile. A reload between the two loses
+  the mark: the text then goes where a turn that asked nothing writes it.
 - Every miss of `turn.ts` falls on one side, a turn whose text is written nowhere: a reload
   between the hooks, a text a hook beneath rewrote, and the known one, a relay and a typed
   prompt that wait together, which leave one note, the last. It is one note and never a

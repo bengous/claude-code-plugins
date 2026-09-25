@@ -24,7 +24,7 @@ import {
 import { editedPath, type GateWire, sessionId, type StageWire } from "./parse.ts";
 import { landed } from "./place.ts";
 import { type Claim, submitPlan, submitResult } from "./relay.ts";
-import { completed, NO_TURN, ownOf, prompted, started, type Turns } from "./turn.ts";
+import { completed, NO_TURN, ownOf, prompted, replied, started, type Turns } from "./turn.ts";
 
 const START_SKILL = "vellum:start";
 
@@ -364,7 +364,10 @@ export const register: Register = (on) => {
           if ("deny" in answer) return { deny: answer.deny };
 
           // An Escape that landed as the answer came: the result reaches nobody, the entry goes.
-          if ("returns" in answer && !next.signal.aborted) waits.get(id)?.returned(answer.returns);
+          if ("returns" in answer && !next.signal.aborted) {
+            waits.get(id)?.returned(answer.returns);
+            turns = replied(turns);
+          }
 
           return { result: answer.result };
         } catch (cause) {

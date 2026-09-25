@@ -1,6 +1,6 @@
 import { describe, expect, test, tier } from "claude-code/testing";
 
-import { completed, NO_TURN, ownOf, prompted, started } from "./turn.ts";
+import { completed, NO_TURN, ownOf, prompted, replied, started } from "./turn.ts";
 
 tier("user");
 
@@ -47,5 +47,13 @@ describe("whose turn it is", () => {
 
     expect(completed(running, "t0")).toBe(running);
     expect(ownOf(started(completed(running, "t1"), RELAY, "t2"), "t2")).toBe(false);
+  });
+
+  test("a turn the reviewer answered into, a waiting tool returning their entry, is vellum's own from then on", () => {
+    const typed = started(prompted(NO_TURN, TYPED, false), TYPED, "t1");
+
+    expect(ownOf(typed, "t1")).toBe(false);
+    expect(ownOf(replied(typed), "t1")).toBe(true);
+    expect(replied(NO_TURN)).toBe(NO_TURN);
   });
 });

@@ -24,6 +24,8 @@ tier("user");
 
 const ASK = "mcp__vellum__grill_ask";
 
+const PROPOSE = "mcp__vellum__propose";
+
 // SAFETY: the generated contract's tool names predate AskUserQuestion, which the engine raises
 // `tool.call` for all the same; the cast borrows the MCP name type, whose input is open, and changes no value.
 const ASK_USER = "AskUserQuestion" as `mcp__${string}__${string}`;
@@ -523,6 +525,31 @@ describe("what the transcript hears of the session", () => {
     await $.skill.prompt(START_PROMPT);
     await $.turn.start(TYPED_TURN);
     await $.tool.call({ tool: ASK, q: Q });
+    await $.turn.complete(TYPED_ANSWERED);
+
+    expect(grill.posted.filter(([name]) => name === "answer")).toEqual([
+      ["answer", JSON.stringify({ text: "done", reason: "answer", own: true, asked: false })],
+    ]);
+  });
+
+  test("a turn in which propose opened a grill is the grill's own, though the terminal started it", async ($, on) => {
+    const grill = grillRoutes(() => OPEN_GRILL);
+    const opened = "Accepted: a grill on: auth. The reviewer opened grill-1.md on: auth.";
+
+    world(on, {
+      routes: {
+        ...grill.routes,
+        "/api/x/step/propose": () => reply(200, { id: "p1" }),
+        "/api/x/step/wait": () => reply(200, { kind: "answered", seq: 1, text: opened }),
+      },
+    });
+
+    on("turn.complete", (_, e) => ({ text: e.answer }));
+    await $.skill.prompt(START_PROMPT);
+    await $.turn.start(TYPED_TURN);
+    const proposal = { reason: "r", moves: [{ kind: "plan" }], recommended: 0 };
+
+    expect(await $.tool.call({ tool: PROPOSE, ...proposal })).toEqual({ result: opened });
     await $.turn.complete(TYPED_ANSWERED);
 
     expect(grill.posted.filter(([name]) => name === "answer")).toEqual([

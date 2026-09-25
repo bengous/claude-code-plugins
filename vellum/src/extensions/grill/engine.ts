@@ -29,9 +29,6 @@ const grillOpen = new WeakSet<Live>();
 /** The modes whose running turn asked a round no answer came back to: its text goes with that round, before a reply sent meanwhile. */
 const askedIn = new WeakSet<Live>();
 
-/** The modes whose running turn got a round's answer as the tool's result: its text answers the reviewer. */
-const repliedIn = new WeakSet<Live>();
-
 const CLOSED_WITHOUT_SEND =
   "The round was closed from the page: what the reviewer sent arrives as a prompt. End your turn.";
 
@@ -62,10 +59,9 @@ async function waitFor(context: ToolContext, file: string, first: number): Promi
     if (waited.kind === "open") continue;
     askedIn.delete(context.live);
 
-    if (waited.kind === "ended") return { result: CLOSED_WITHOUT_SEND };
-    repliedIn.add(context.live);
-
-    return { result: waited.text, returns: waited.seq };
+    return waited.kind === "ended"
+      ? { result: CLOSED_WITHOUT_SEND }
+      : { result: waited.text, returns: waited.seq };
   }
 }
 
@@ -140,8 +136,7 @@ export const grillEngine: EngineExtension = {
   },
   answered: async (context, turn) => {
     const asked = askedIn.delete(context.live);
-    const own = repliedIn.delete(context.live) || turn.own;
-    await post(context, "answer", { ...turn, own, asked });
+    await post(context, "answer", { ...turn, asked });
   },
   staged,
   segment: ({ live }) => (grillOpen.has(live) ? SEGMENT_OPEN : null),
