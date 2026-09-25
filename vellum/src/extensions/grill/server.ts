@@ -50,12 +50,6 @@ type Transcript = { readonly n: number; readonly file: ProjectPath; readonly doc
  */
 type Written = { readonly doc: string; readonly answer: Response; readonly told: boolean };
 
-/**
- * How long `POST wait` holds before it answers that the round is still open: under the 30 s at
- * which the engine cuts every `$.http.fetch` (`docs/plugin-testing/hook-runtime.md`).
- */
-const WAIT_HOLD_MS = 25_000;
-
 /** A round a Send closed, under the entry that carried it: what a waiting `grill_ask` returns. */
 type Closed = {
   readonly file: ProjectPath;
@@ -69,11 +63,7 @@ type Closed = {
  * and a wait it cannot answer from the transcript alone reads as ended, so the entry goes to
  * Claude through the channel instead.
  */
-type Memory = {
-  readonly closed: Closed[];
-  /** The waits held now, each woken to read again once a write may have closed its round. */
-  readonly waiting: Set<() => void>;
-};
+type Memory = { readonly closed: Closed[] };
 
 const memories = new WeakMap<ServerContext, Memory>();
 
@@ -81,14 +71,10 @@ function memoryOf(context: ServerContext): Memory {
   const known = memories.get(context);
 
   if (known !== undefined) return known;
-  const made: Memory = { closed: [], waiting: new Set() };
+  const made: Memory = { closed: [] };
   memories.set(context, made);
 
   return made;
-}
-
-function wake(memory: Memory): void {
-  for (const waiter of memory.waiting) waiter();
 }
 
 /** A link the page may follow: http, mailto, a fragment or a relative path; any other scheme runs code. */
@@ -276,7 +262,7 @@ async function approved(context: ServerContext): Promise<void> {
   const open = await openGrill(context);
 
   if (open !== null) await context.writeText(open.file, ended(open.doc, "approved"));
-  wake(memoryOf(context));
+  context.wake();
 }
 
 const NO_PART: Part = { kind: "none" };
@@ -319,7 +305,7 @@ async function part(
       const memory = memoryOf(context);
       const rest = more ? `\n\nComments and choices: read ${file}.` : "";
       memory.closed.push({ file: open.file, ids, seq, text: `${reply}${rest}` });
-      wake(memory);
+      context.wake();
       await context.writeText(open.file, doc);
     },
   };
@@ -365,7 +351,7 @@ function routes(context: ServerContext): Readonly<Record<RouteKey, Route>> {
       await context.writeText(current.file, applied.doc);
 
       if (applied.told) await tell(context, grillFile(current.n), current.doc, applied.doc);
-      wake(memoryOf(context));
+      context.wake();
       await context.notify();
 
       return applied.answer;
@@ -427,26 +413,13 @@ function routes(context: ServerContext): Readonly<Record<RouteKey, Route>> {
       const file = body === null ? null : parseProjectPath(body.file);
 
       if (body === null || file?.ok !== true) return badRequest();
-      const memory = memoryOf(context);
-      const until = Date.now() + WAIT_HOLD_MS;
 
-      for (;;) {
-        const waited = await inOrder(() => waitedOn(context, file.value, body.first));
-        const left = until - Date.now();
+      const waited = await context.hold(
+        () => inOrder(() => waitedOn(context, file.value, body.first)),
+        ({ kind }) => kind === "open",
+      );
 
-        if (waited.kind !== "open" || left <= 0) return Response.json(waited);
-
-        await new Promise<void>((resolve) => {
-          const woken = (): void => {
-            clearTimeout(timer);
-            memory.waiting.delete(woken);
-            resolve();
-          };
-
-          const timer = setTimeout(woken, left);
-          memory.waiting.add(woken);
-        });
-      }
+      return Response.json(waited);
     },
 
     "POST event": async (request) => {

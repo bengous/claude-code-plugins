@@ -52,7 +52,8 @@ the engine events the core hands it, and its segment of the band above the promp
   grill ends with what is typed as the reply, never what a Send took before it). A tool
   that waits for the reviewer is answered by its server half: `grill` keeps, per review, which
   Send closed which round, `step` its one proposal and the last one answered, and `POST wait`
-  holds up to `WAIT_HOLD_MS`, under the engine's 30 s cut, then answers the entry number and
+  is held by the core's `ServerContext.hold`, `WAIT_HOLD_MS` under the engine's 30 s cut, and a
+  write that may settle it calls `wake`; it answers the entry number and
   the text the tool returns, an end, or still open. A restarted server keeps none of it: a
   round's wait reads as ended, and its entry reaches Claude through the channel; a proposal's
   reads as gone, and `propose` tells Claude to propose again, since no answer to it can come.

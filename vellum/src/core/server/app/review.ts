@@ -92,6 +92,9 @@ const RECORD_UNCHANGED: GateOptions = { unchanged: "record" };
 
 const HELD_GATE = "the plan is submitted once the reviewer ends it";
 
+/** How long `ServerContext.hold` holds a request: under the 30 s at which the engine cuts every `$.http.fetch` (`docs/plugin-testing/hook-runtime.md`). */
+const WAIT_HOLD_MS = 25_000;
+
 const NO_PART: Part = { kind: "none" };
 
 function grouped(docs: readonly DocRef[], group: DocGroup): GroupedDoc[] {
@@ -107,6 +110,8 @@ export class Review {
   private readonly channelListeners = new Set<(line: ChannelLine) => void>();
 
   private queue: Promise<unknown> = Promise.resolve();
+
+  private readonly waiters = new Set<() => void>();
 
   /** What every extension reads and writes through: bound here, since `holds` and `approved` are called here. */
   public readonly context: ServerContext;
@@ -132,6 +137,10 @@ export class Review {
       },
       start: (id, input) => this.start(id, input),
       held: () => this.held(),
+      hold: (read, waiting) => this.hold(read, waiting),
+      wake: () => {
+        for (const waiter of this.waiters) waiter();
+      },
     };
   }
 
@@ -152,6 +161,28 @@ export class Review {
     }
 
     return null;
+  }
+
+  private async hold<T>(read: () => Promise<T>, waiting: (value: T) => boolean): Promise<T> {
+    const until = Date.now() + WAIT_HOLD_MS;
+
+    for (;;) {
+      const value = await read();
+      const left = until - Date.now();
+
+      if (!waiting(value) || left <= 0) return value;
+
+      await new Promise<void>((resolve) => {
+        const woken = (): void => {
+          clearTimeout(timer);
+          this.waiters.delete(woken);
+          resolve();
+        };
+
+        const timer = setTimeout(woken, left);
+        this.waiters.add(woken);
+      });
+    }
   }
 
   /** Called inside the queue, from another extension's route: no step of its own. */

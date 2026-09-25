@@ -99,6 +99,14 @@ export type ServerContext = {
   readonly start: (id: string, input: unknown) => Promise<ParseResult<string>>;
   /** What holds the review, the first `holds` of any extension; called inside the queue. */
   readonly held: () => Promise<string | null>;
+  /**
+   * Holds a request while `waiting` says what `read` answers still waits, reading again at each
+   * `wake`, and answers the last read after `WAIT_HOLD_MS` at most: the engine cuts every
+   * `$.http.fetch` at 30 s. A tool that waits for the reviewer is answered this way.
+   */
+  readonly hold: <T>(read: () => Promise<T>, waiting: (value: T) => boolean) => Promise<T>;
+  /** Wakes every held request of the review to read again: a write may have settled it. */
+  readonly wake: () => void;
 };
 
 /** A batch a Send wrote, as an extension's part hears of it once its entry is in the channel. */

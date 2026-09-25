@@ -4,12 +4,6 @@ import { answerText } from "./moves.ts";
 import { parseAnswer, parseProposal, parseWait } from "./parse.ts";
 import type { Pending, Proposed, StepState, StepWaited } from "./protocol.ts";
 
-/**
- * How long `POST wait` holds before it answers that the proposal still waits: under the 30 s at
- * which the engine cuts every `$.http.fetch` (`docs/plugin-testing/hook-runtime.md`).
- */
-const WAIT_HOLD_MS = 25_000;
-
 /** A proposal the reviewer answered, under the entry that told it: what a waiting `propose` returns. */
 type Answered = { readonly id: string; readonly seq: number; readonly text: string };
 
@@ -22,8 +16,6 @@ type Memory = {
   pending: Pending | null;
   /** The last proposal answered, for the waits on it. */
   answered: Answered | null;
-  /** The waits held now, each woken to read again once the proposal may have moved. */
-  readonly waiting: Set<() => void>;
 };
 
 const memories = new WeakMap<ServerContext, Memory>();
@@ -32,14 +24,10 @@ function memoryOf(context: ServerContext): Memory {
   const known = memories.get(context);
 
   if (known !== undefined) return known;
-  const made: Memory = { pending: null, answered: null, waiting: new Set() };
+  const made: Memory = { pending: null, answered: null };
   memories.set(context, made);
 
   return made;
-}
-
-function wake(memory: Memory): void {
-  for (const waiter of memory.waiting) waiter();
 }
 
 const NO_CONTENT = { status: 204 };
@@ -79,7 +67,7 @@ function waitedOn(memory: Memory, id: string): StepWaited {
 function approved(context: ServerContext): Promise<void> {
   const memory = memoryOf(context);
   memory.pending = null;
-  wake(memory);
+  context.wake();
 
   return Promise.resolve();
 }
@@ -110,37 +98,25 @@ function routes(context: ServerContext): Readonly<Record<RouteKey, Route>> {
           return refused(`${held}: no step is proposed until the reviewer ends it`);
         const proposed: Proposed = { id: crypto.randomUUID() };
         memory.pending = { id: proposed.id, proposal };
-        wake(memory);
+        context.wake();
         await context.notify();
 
         return Response.json(proposed);
       });
     },
 
-    // Read in the queue, so an answer's step is seen whole: its entry and the proposal it settled.
+    // Out of the queue: an answer updates the memory in one synchronous step, after its entry.
     "POST wait": async (request) => {
       const body = parseWait(await request.json().catch(() => null));
 
       if (body === null) return badRequest();
-      const until = Date.now() + WAIT_HOLD_MS;
 
-      for (;;) {
-        const waited = await inOrder(() => Promise.resolve(waitedOn(memory, body.id)));
-        const left = until - Date.now();
+      const waited = await context.hold(
+        () => Promise.resolve(waitedOn(memory, body.id)),
+        ({ kind }) => kind === "open",
+      );
 
-        if (waited.kind !== "open" || left <= 0) return Response.json(waited);
-
-        await new Promise<void>((resolve) => {
-          const woken = (): void => {
-            clearTimeout(timer);
-            memory.waiting.delete(woken);
-            resolve();
-          };
-
-          const timer = setTimeout(woken, left);
-          memory.waiting.add(woken);
-        });
-      }
+      return Response.json(waited);
     },
 
     // The window's answer settles the proposal waiting, the one it showed or, opened blank, any:
@@ -174,7 +150,7 @@ function routes(context: ServerContext): Readonly<Record<RouteKey, Route>> {
           memory.pending = null;
         }
 
-        wake(memory);
+        context.wake();
         await context.notify();
 
         return new Response(null, NO_CONTENT);

@@ -656,6 +656,44 @@ describe("a review an extension holds", () => {
   });
 });
 
+describe("a request an extension holds", () => {
+  test("reads again at each wake, and answers the first read no longer waiting", async () => {
+    const { review } = setup([]);
+    const reads: string[] = [];
+    let state = "open";
+
+    const held = review.context.hold(
+      () => {
+        reads.push(state);
+
+        return Promise.resolve(state);
+      },
+      (value) => value === "open",
+    );
+
+    await Bun.sleep(5);
+    review.context.wake();
+    await Bun.sleep(5);
+    state = "answered";
+    review.context.wake();
+
+    expect(await held).toBe("answered");
+    expect(reads).toEqual(["open", "open", "answered"]);
+  });
+
+  test("answers at once what is not waiting, and a wake with nothing held does nothing", async () => {
+    const { review } = setup([]);
+    review.context.wake();
+
+    expect(
+      await review.context.hold(
+        () => Promise.resolve(1),
+        (value) => value === 0,
+      ),
+    ).toBe(1);
+  });
+});
+
 describe("an extension started from another's route", () => {
   test("runs in the caller's step of the queue, and answers what Claude is told of it", async () => {
     const order: string[] = [];
