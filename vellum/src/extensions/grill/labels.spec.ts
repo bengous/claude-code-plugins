@@ -57,9 +57,9 @@ describe("phaseText", () => {
 });
 
 describe("endedOf", () => {
-  test("counts the grill's decisions, and says Claude is back on the plan", () => {
-    expect(endedOf(8)).toBe("Grill ended: 8 decisions. Claude is back on the plan.");
-    expect(endedOf(1)).toBe("Grill ended: 1 decision. Claude is back on the plan.");
-    expect(endedOf(0)).toBe("Grill ended: 0 decisions. Claude is back on the plan.");
+  test("counts the grill's decisions, and says Claude proposes the next step", () => {
+    expect(endedOf(8)).toBe("Grill ended: 8 decisions. Claude proposes the next step.");
+    expect(endedOf(1)).toBe("Grill ended: 1 decision. Claude proposes the next step.");
+    expect(endedOf(0)).toBe("Grill ended: 0 decisions. Claude proposes the next step.");
   });
 });

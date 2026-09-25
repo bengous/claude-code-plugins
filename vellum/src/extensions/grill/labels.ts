@@ -42,7 +42,7 @@ export function phaseText(phase: Phase, round: number): string {
 
 /** The notice End grill leaves: how many questions the grill settled, and where Claude went. */
 export function endedOf(decisions: number): string {
-  return `Grill ended: ${decisions} ${decisions === 1 ? "decision" : "decisions"}. Claude is back on the plan.`;
+  return `Grill ended: ${decisions} ${decisions === 1 ? "decision" : "decisions"}. Claude proposes the next step.`;
 }
 
 /** What an answered question reads beside it: the reviewer's words, or the recommendation and whether they chose it; `null` while it is open. */

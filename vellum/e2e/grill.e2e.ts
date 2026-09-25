@@ -857,7 +857,7 @@ test.describe("the end of a grill", () => {
     await expect(panel(page)).toHaveCount(0);
     await expect(page.locator("#rail .plate")).toHaveAttribute("aria-current", "page");
     await expect(endedNotice(page)).toContainText(
-      "Grill ended: 2 decisions. Claude is back on the plan.",
+      "Grill ended: 2 decisions. Claude proposes the next step.",
     );
   });
 
