@@ -46,6 +46,17 @@ paths:
   is not measured during a transition: the test emulates `reducedMotion: "reduce"`, which
   `style.css` honours, unless the motion is its subject. A local run passes such a race; two
   cores reproduce CI's pace: `taskset -c 0-1 bun run --cwd vellum e2e -- --project=<window> --workers=4`.
+- A wait holds the exact state the next step reads, never a sign that something happened: the
+  saved draft holding the text typed, not a draft saved, since a typing is written once it
+  pauses and a loaded runner pauses mid-word (`savedWith` in `draft.e2e.ts`); the run in the
+  state the harness acts on, not the click that asked for it (`run` in `harness.ts`). A time the
+  page measures, a guard's window read off `performance.now()`, is given by `page.clock`, never
+  by `waitForTimeout`: the test's wait is not the page's, and a slow runner stretches it past
+  the window (`pauseClock` in `shell.e2e.ts`). `expect.poll` retries a value that does not match,
+  never a callback that throws: a measure in a frame the test's own rewrite reloads waits for the
+  new document, then runs in `expect(…).toPass()`. Such a race is shown red by injecting the
+  slow runner's pace at the spot (a pause mid-typing, a delayed request through `page.route`),
+  the old test failing as CI did and the new one passing.
 - One behaviour per test, under fifteen lines, data in view: helpers hide the plumbing; the
   version, the path, the text the case turns on stay in the test.
 - Before the code of a slice, its tests are listed one line each and agreed, written first,
