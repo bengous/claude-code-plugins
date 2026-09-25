@@ -1,6 +1,6 @@
 import type { ChildProcessByStdio } from "node:child_process";
 import { spawn } from "node:child_process";
-import { mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { dirname, join, relative, resolve, sep } from "node:path";
 import { createInterface } from "node:readline";
@@ -9,7 +9,7 @@ import type { Readable } from "node:stream";
 import type { Locator, Page } from "@playwright/test";
 import { expect, test as base } from "@playwright/test";
 
-import type { Annotation, ReviewView, SendAnswer } from "../src/core/protocol.ts";
+import type { Annotation, ChannelLine, ReviewView, SendAnswer } from "../src/core/protocol.ts";
 import type { FinalDir, WipDir } from "../src/core/server/domain/paths.ts";
 import { parseFinalDir, parseWipDir } from "../src/core/server/domain/paths.ts";
 import { discard } from "../src/core/server/preview.ts";
@@ -68,8 +68,12 @@ export type Vellum = {
    * the open grill's transcript, then `POST /api/send` of all of it, the defaults taken.
    */
   send(typing?: Typing): Promise<Reply>;
-  /** The batches the review wrote, oldest first, by name. */
-  batches(): readonly string[];
+  /**
+   * The batches the channel told, oldest first, by name. A batch is written before its `sent`
+   * entry, the Send's commit point, so a batch told is whole; the directory can list a file whose
+   * text is not written yet, or a batch its failed entry is about to remove.
+   */
+  batches(): Promise<readonly string[]>;
   /** A batch's text, as Claude reads it. */
   batch(name: string): string;
   /** Replaces the served `plan.md`, as Claude's revision would. */
@@ -274,10 +278,14 @@ export async function startVellum(
         ? api("send", { ...all, takeDefaults: answer.ids })
         : first;
     },
-    batches: () =>
-      readdirSync(review())
-        .filter((name) => /^v\d+\.feedback-\d+\.md$/u.test(name))
-        .toSorted((a, b) => a.localeCompare(b, "en", { numeric: true })),
+    batches: async () => {
+      // SAFETY: the server's own `ChannelLine`s, serialized by `Response.json` in routes.ts.
+      const lines = (await api("channel?after=0")).json as readonly ChannelLine[];
+
+      return lines.flatMap(({ entry }) =>
+        entry.kind === "sent" ? [entry.file.slice(entry.file.lastIndexOf("/") + 1)] : [],
+      );
+    },
     batch: (name) => readFileSync(join(review(), name), "utf8"),
     writePlan: (text) => writeFileSync(join(workdir, "plan.md"), text),
     writeFile: (name, text) => {
@@ -370,11 +378,12 @@ export function readFixture(name: string, file: string): string {
   return readFileSync(join(FIXTURES, name, file), "utf8");
 }
 
-/** The one batch the review wrote, as Claude reads it. */
-export function feedbackOf(vellum: Vellum): string {
-  const [name, ...more] = vellum.batches();
+/** The one batch the review told, as Claude reads it. */
+export async function feedbackOf(vellum: Vellum): Promise<string> {
+  const told = await vellum.batches();
+  const [name, ...more] = told;
 
-  if (name === undefined || more.length > 0) throw new Error(`not one batch: ${vellum.batches()}`);
+  if (name === undefined || more.length > 0) throw new Error(`not one batch: ${told.join(", ")}`);
 
   return vellum.batch(name);
 }

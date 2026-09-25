@@ -20,7 +20,7 @@ paths:
   `test.use({ fixture })` names (`rich` by default), one server per test, and drives it through
   the API as the hooks module does (`gate`, `grill.*`, `grill.wait` as a waiting `grill_ask`,
   `channel`: what reaches Claude), and as the reviewer's page does (`send`, a Send of the draft it
-  saves; `batches` and `batch` read what a Send wrote); `axe` and `contrast` are its two measures. A colour read right after a
+  saves; `batches` names the batches the channel told, `batch` reads one); `axe` and `contrast` are its two measures. A colour read right after a
   theme switch reads a transition halfway (`--transition`): `axe` waits for the page's
   transitions to end (`settled`), and any other colour measure calls `settled` first.
   `e2e/playwright.config.ts` runs every suite at the audit's five windows, and CI's matrix
@@ -49,7 +49,8 @@ paths:
 - A wait holds the exact state the next step reads, never a sign that something happened: the
   saved draft holding the text typed, not a draft saved, since a typing is written once it
   pauses and a loaded runner pauses mid-word (`savedWith` in `draft.e2e.ts`); the run in the
-  state the harness acts on, not the click that asked for it (`run` in `harness.ts`). A time the
+  state the harness acts on, not the click that asked for it (`run` in `harness.ts`); a batch
+  its `sent` entry told, not a file listed, which can exist before its text (`batches`). A time the
   page measures, a guard's window read off `performance.now()`, is given by `page.clock`, never
   by `waitForTimeout`: the test's wait is not the page's, and a slow runner stretches it past
   the window (`pauseClock` in `shell.e2e.ts`). `expect.poll` retries a value that does not match,

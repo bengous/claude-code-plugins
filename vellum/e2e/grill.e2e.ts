@@ -155,7 +155,7 @@ test.describe("the panel", () => {
     await expect
       .poll(async () => (await vellum.grill.state()).json)
       .toMatchObject({ kind: "open", phase: "working" });
-    expect(vellum.batches()).toEqual(["v1.feedback-1.md"]);
+    expect(await vellum.batches()).toEqual(["v1.feedback-1.md"]);
     expect(vellum.batch("v1.feedback-1.md")).toContain("Q1: One store per form.");
   });
 
@@ -304,7 +304,7 @@ test.describe("a round in the panel", () => {
     await expect(beforeSending(page)).toContainText("1 question has no answer.");
     await beforeSending(page).getByRole("button", { name: "Cancel" }).click();
     expect(posted.filter((url) => url.endsWith("/api/send"))).toEqual([]);
-    expect(vellum.batches()).toEqual([]);
+    expect(await vellum.batches()).toEqual([]);
   });
 
   test("All recommended chooses the recommendation for every question left untouched", async ({
@@ -392,7 +392,7 @@ test.describe("a round in the panel", () => {
     await sendButton(page).click();
 
     await expect(beforeSending(page)).toContainText("2 questions have no answer.");
-    expect(vellum.batches()).toEqual([]);
+    expect(await vellum.batches()).toEqual([]);
   });
 
   test("Send clicked twice sends once: one batch", async ({ page, vellum }) => {

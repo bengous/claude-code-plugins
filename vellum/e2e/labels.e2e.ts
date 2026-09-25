@@ -192,7 +192,7 @@ test.describe("what Claude reads of a mockup's element", () => {
     await frame.locator("#open-settings").click({ position: { x: 3, y: 3 } });
     await sendComment(page, "A tooltip on the gear?");
 
-    expect(feedbackOf(vellum)).toContain(
+    expect(await feedbackOf(vellum)).toContain(
       'element `button#open-settings`, button "Settings" under "Option D", `<button class="btn gear-btn" type="button" aria-haspopup="dialog" aria-label="Settings" id="open-settings" title="Settings">`\n   A tooltip on the gear?\n',
     );
   });
@@ -202,7 +202,7 @@ test.describe("what Claude reads of a mockup's element", () => {
     await frame.locator("h2").click();
     await sendComment(page, "Name the option.");
 
-    expect(feedbackOf(vellum)).toContain(
+    expect(await feedbackOf(vellum)).toContain(
       'element `body > section > h2`, under "Settings, four options", `<h2>`: "Option D"\n',
     );
   });
@@ -216,7 +216,7 @@ test.describe("what Claude reads of a mockup's element", () => {
     await dragText(page, frame.locator("p"), second, second + "gear".length);
     await sendComment(page, "Which gear?");
 
-    expect(feedbackOf(vellum)).toContain(
+    expect(await feedbackOf(vellum)).toContain(
       'element `body > section > p`, under "Option D", `<p>`: "gear" (after "The gear, then the ")\n',
     );
   });
@@ -234,7 +234,7 @@ test.describe("what Claude reads of a mockup's element", () => {
     await frame.locator("#note").click();
     await sendComment(page, "Say when it ships.");
 
-    expect(feedbackOf(vellum)).toContain(
+    expect(await feedbackOf(vellum)).toContain(
       'element `p#note`, under "Delivery", `<p id="note">`: "Shipping takes three days."\n',
     );
   });
@@ -248,7 +248,9 @@ test.describe("what Claude reads of a mockup's element", () => {
     await frame.locator("#country").dispatchEvent("click");
     await sendComment(page, "Default to the shop's country.");
 
-    expect(feedbackOf(vellum)).toContain('`select#country`, combobox "Country" under "Delivery"');
+    expect(await feedbackOf(vellum)).toContain(
+      '`select#country`, combobox "Country" under "Delivery"',
+    );
   });
 
   test("a heading nobody sees, or a tab drawn as one, is no heading the element sits under", async ({
@@ -259,7 +261,9 @@ test.describe("what Claude reads of a mockup's element", () => {
     await frame.locator("#after").click();
     await sendComment(page, "Which payments?");
 
-    expect(feedbackOf(vellum)).toContain('element `p#after`, under "Delivery", `<p id="after">`');
+    expect(await feedbackOf(vellum)).toContain(
+      'element `p#after`, under "Delivery", `<p id="after">`',
+    );
   });
 });
 

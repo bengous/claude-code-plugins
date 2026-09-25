@@ -234,7 +234,7 @@ test.describe("the pill", () => {
     );
     await expect(page.locator(".doc-head .edited")).toBeVisible();
     await expect(sendButton(page)).toContainText("1");
-    expect(vellum.batches()).toEqual(["v1.feedback-1.md"]);
+    expect(await vellum.batches()).toEqual(["v1.feedback-1.md"]);
     expect(vellum.batch("v1.feedback-1.md")).toContain("Say which store holds the attachments.");
     expect(vellum.batch("v1.feedback-1.md")).not.toContain("A line the reviewer added.");
   });

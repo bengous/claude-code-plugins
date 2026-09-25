@@ -128,8 +128,8 @@ test.describe("a choice in a mockup", () => {
     await choiceCard(page).getByRole("button", { name: "Send now" }).click();
     await expect.poll(() => vellum.batches()).toHaveLength(1);
 
-    expect(feedbackOf(vellum)).toContain("## Choices\n\n1. ");
-    expect(feedbackOf(vellum)).not.toContain("## Comments");
+    expect(await feedbackOf(vellum)).toContain("## Choices\n\n1. ");
+    expect(await feedbackOf(vellum)).not.toContain("## Comments");
     await expect(choiceCard(page)).toHaveCount(0);
     await expect.poll(() => marked(frame)).toEqual([]);
     await expect(page.locator("#comments .card")).toHaveCount(1);
@@ -181,7 +181,7 @@ test.describe("a choice in a mockup", () => {
     await sendAll(page);
     await expect.poll(() => vellum.batches()).toHaveLength(1);
 
-    expect(feedbackOf(vellum)).toContain(
+    expect(await feedbackOf(vellum)).toContain(
       `## Choices\n\n1. \`${vellum.dir}layout.html\`, decision \`layout\`: option \`tabs\`, button "Choose" under "Tabs", \`<button data-vellum-choose>\`\n`,
     );
     await expect.poll(() => marked(frame)).toEqual([]);
@@ -310,7 +310,7 @@ test.describe("a choice in a mockup", () => {
     await sendAll(page);
     await expect.poll(() => vellum.batches()).toHaveLength(1);
 
-    expect(feedbackOf(vellum)).not.toContain("## Choices");
+    expect(await feedbackOf(vellum)).not.toContain("## Choices");
     await choiceCard(page).getByRole("button", { name: "Delete" }).click();
     await expect(choiceCard(page)).toHaveCount(0);
   });

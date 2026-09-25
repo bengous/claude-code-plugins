@@ -88,7 +88,7 @@ test.describe("a comment on a text the edit removes", () => {
     expect(await fillets(page)).toEqual([]);
     await sendAll(page);
     await expect(page.locator(".bar .status")).toHaveText("In review · 1 sent");
-    expect(feedbackOf(vellum)).toContain("(removed by the reviewer's edit)");
+    expect(await feedbackOf(vellum)).toContain("(removed by the reviewer's edit)");
   });
 
   test("goes with the Done that removes it when only the edit held its line, and Discard edit brings nothing back", async ({
