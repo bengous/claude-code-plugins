@@ -176,6 +176,8 @@ type Server = {
    * `pagehide`, the document still `visible` as at a reload: each calls the listeners left there.
    */
   readonly leave: (event: "visibilitychange" | "pagehide") => void;
+  /** The page shown again: the document's `visibilitychange` once it reads `visible`. */
+  readonly show: () => void;
   answer: Served;
 };
 
@@ -212,6 +214,11 @@ function serve(answer: Served): Server {
       for (const entry of event === "pagehide" ? onWindow : onDocument) {
         if (entry.event === event) entry.listener();
       }
+    },
+    show: () => {
+      shown.visibilityState = "visible";
+
+      for (const entry of onDocument) if (entry.event === "visibilitychange") entry.listener();
     },
     answer,
   };
@@ -1210,7 +1217,7 @@ describe("a page hidden or closed", () => {
     server.leave("visibilitychange");
 
     expect(server.puts.map((put) => put.typed.general)).toEqual(["", "Which forms?"]);
-    expect(server.keepalive).toEqual([false, true]);
+    expect(server.keepalive).toEqual([true, true]);
   });
 
   test("sends it at pagehide as well, the document still visible", async () => {
@@ -1223,32 +1230,82 @@ describe("a page hidden or closed", () => {
     expect(server.puts.map((put) => put.typed.general)).toEqual(["", "Which forms?"]);
   });
 
-  test("with no typing pausing, writes nothing", async () => {
+  test("sends a write still queued behind a slow one, within the event", async () => {
     const store = await freshStore();
-    const server = serve({ draft: null, review: versioned({ version: 1 }) });
+    const held = Promise.withResolvers<void>();
+
+    const server = serve({
+      draft: null,
+      review: versioned({ version: 1 }),
+      put: () => held.promise,
+    });
+
     await store.start();
     store.addAnnotation(comment("", `${WIP}.review/v1.md`));
     server.leave("visibilitychange");
-    server.leave("pagehide");
-    await settled();
 
     expect(server.puts.map((put) => put.annotations.length)).toEqual([0, 1]);
   });
 
-  test("hidden then pagehide is one write, and the pause writes nothing after it", async () => {
+  test("never sends the older writes it overtook: the newer draft stays", async () => {
+    const store = await freshStore();
+    const held = Promise.withResolvers<void>();
+
+    const server = serve({
+      draft: null,
+      review: versioned({ version: 1 }),
+      put: () => held.promise,
+    });
+
+    await store.start();
+    store.addAnnotation(comment("", `${WIP}.review/v1.md`));
+    store.setTyped({ general: "Which forms?" });
+    server.leave("visibilitychange");
+    held.resolve();
+    await settled();
+
+    expect(server.puts.map((put) => [put.annotations.length, put.typed.general])).toEqual([
+      [0, ""],
+      [1, "Which forms?"],
+    ]);
+  });
+
+  test("with nothing waiting, writes nothing", async () => {
+    const store = await freshStore();
+    const server = serve({ draft: null, review: versioned({ version: 1 }) });
+    await store.start();
+    store.addAnnotation(comment("", `${WIP}.review/v1.md`));
+    await settled();
+    server.leave("visibilitychange");
+    server.leave("pagehide");
+
+    expect(server.puts.map((put) => put.annotations.length)).toEqual([0, 1]);
+  });
+
+  test("hidden then pagehide is one write", async () => {
     const store = await freshStore();
     const server = serve({ draft: null, review: versioned({ version: 1 }) });
     await store.start();
     store.setTyped({ general: "Which forms?" });
     server.leave("visibilitychange");
     server.leave("pagehide");
-    const leaving = server.puts.length;
-    await Bun.sleep(400);
 
-    expect([leaving, server.puts.length]).toEqual([2, 2]);
+    expect(server.puts.map((put) => put.typed.general)).toEqual(["", "Which forms?"]);
   });
 
-  test("a draft over 65 536 bytes goes without keepalive, though under 65 536 characters", async () => {
+  test("shown again, it sends nothing: the typing waits for its pause", async () => {
+    const store = await freshStore();
+    const server = serve({ draft: null, review: versioned({ version: 1 }) });
+    await store.start();
+    store.setTyped({ general: "Which forms?" });
+    server.show();
+
+    expect(server.puts.map((put) => put.typed.general)).toEqual([""]);
+  });
+});
+
+describe("keepalive", () => {
+  test("a draft over 65 536 bytes goes without it, though under 65 536 characters", async () => {
     const store = await freshStore();
     const server = serve({ draft: null, review: versioned({ version: 1 }) });
     await store.start();
@@ -1256,7 +1313,35 @@ describe("a page hidden or closed", () => {
     server.leave("visibilitychange");
 
     expect(server.puts.at(-1)?.typed.general).toHaveLength(33_000);
-    expect(server.keepalive).toEqual([false, false]);
+    expect(server.keepalive).toEqual([true, false]);
+  });
+
+  test("a write in flight takes its share: the next one past 65 536 bytes together goes without it", async () => {
+    const store = await freshStore();
+    const server = serve({ draft: null, review: versioned({ version: 1 }) });
+    await store.start();
+    server.answer = { ...server.answer, put: () => Promise.withResolvers<void>().promise };
+    store.setTyped({ general: "x".repeat(40_000) });
+    store.addAnnotation(comment("", `${WIP}.review/v1.md`));
+    await settled();
+    store.setTyped({ general: "y".repeat(40_000) });
+    server.leave("visibilitychange");
+
+    expect(server.keepalive).toEqual([true, true, false]);
+  });
+
+  test("a write answered gives its share back: the next one of the same size keeps it", async () => {
+    const store = await freshStore();
+    const server = serve({ draft: null, review: versioned({ version: 1 }) });
+    await store.start();
+    store.setTyped({ general: "x".repeat(40_000) });
+    store.addAnnotation(comment("a", `${WIP}.review/v1.md`));
+    await settled();
+    store.setTyped({ general: "y".repeat(40_000) });
+    store.addAnnotation(comment("b", `${WIP}.review/v1.md`));
+    await settled();
+
+    expect(server.keepalive).toEqual([true, true, true]);
   });
 });
 

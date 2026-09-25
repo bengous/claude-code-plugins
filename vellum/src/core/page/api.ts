@@ -90,17 +90,35 @@ export async function fetchDraft(): Promise<Fetched<Draft | null>> {
   return { ok: true, value: (await response.json()) as Draft };
 }
 
-export async function putDraft(
-  draft: Draft,
-  options?: { readonly keepalive?: boolean },
-): Promise<number> {
-  const response = await request("draft", {
-    method: "PUT",
-    body: JSON.stringify(draft),
-    ...options,
-  });
+/**
+ * What the keepalive requests of a page carry together: the Fetch standard refuses the next one
+ * whose body would take the bodies in flight past 64 KiB (HTTP-network-or-cache fetch).
+ */
+const KEEPALIVE_BYTES = 65_536;
 
-  return response.status;
+/**
+ * The page's writer of the draft, one per page since the budget is the page's: each write goes
+ * with `keepalive`, so the page need not outlive it, while the writes in flight leave room for its
+ * body, and without it beyond.
+ */
+export function draftWriter(): (draft: Draft) => Promise<number> {
+  let inFlight = 0;
+
+  return async (draft) => {
+    const body = JSON.stringify(draft);
+    const bytes = new TextEncoder().encode(body).length;
+    const keepalive = inFlight + bytes <= KEEPALIVE_BYTES;
+
+    if (keepalive) inFlight += bytes;
+
+    try {
+      const response = await request("draft", { method: "PUT", body, keepalive });
+
+      return response.status;
+    } finally {
+      if (keepalive) inFlight -= bytes;
+    }
+  };
 }
 
 export async function postDecision(decision: Decision): Promise<number> {

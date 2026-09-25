@@ -30,7 +30,7 @@ import {
   withoutChoices,
 } from "../protocol.ts";
 import type { ProjectPath, Version } from "../server/domain/paths.ts";
-import { fetchDraft, fetchReview, postDecision, postSend, putDraft, subscribe } from "./api.ts";
+import { draftWriter, fetchDraft, fetchReview, postDecision, postSend, subscribe } from "./api.ts";
 import type { Failure } from "./notices.ts";
 import { NEW_LINK_HINT_MS, noticesOf } from "./notices.ts";
 
@@ -685,13 +685,12 @@ export function select(path: ProjectPath): void {
   if (path === planDoc.value?.path) split.value = false;
 }
 
+const putDraft = draftWriter();
+
 /** Never rejects: the saves are chained, and one rejection would silence every save after it. `true` once kept. */
-async function saveDraft(
-  draft: Draft,
-  options?: { readonly keepalive?: boolean },
-): Promise<boolean> {
+async function saveDraft(draft: Draft): Promise<boolean> {
   try {
-    const status = await putDraft(draft, options);
+    const status = await putDraft(draft);
 
     if (status >= 300) {
       fail(
@@ -733,13 +732,6 @@ export function readWindow(): void {
 /** How long a typing pauses before the draft is written: a continuous typing is one write. */
 const TYPED_WRITE_MS = 300;
 
-/** The most a keepalive request carries: measured on Chromium 153, 65 536 bytes pass and 65 537 fail. */
-const KEEPALIVE_BYTES = 65_536;
-
-function fits(draft: Draft): boolean {
-  return new TextEncoder().encode(JSON.stringify(draft)).length <= KEEPALIVE_BYTES;
-}
-
 function draftShown(): Draft {
   return {
     annotations: annotations.peek(),
@@ -751,20 +743,37 @@ function draftShown(): Draft {
 
 /**
  * Saves the draft at every change of the comments, the edit or the choices, each change one
- * write, and once a typing pauses, in order; answers the flush a Send runs first. A typing still
- * pausing when the page is hidden or closed is sent at once, with `keepalive` when it fits.
+ * write, and once a typing pauses, in order; answers the flush a Send runs first. When the page is
+ * hidden or closed while a write waits, a typing pausing or a write queued, the draft shown is
+ * sent at once, and the writes it overtook never start.
  */
 function startSaving(): () => Promise<boolean> {
   let saving = Promise.resolve(true);
   let pending: ReturnType<typeof setTimeout> | null = null;
   let written = typed.peek();
+  let queued = 0;
+  let started = 0;
 
-  // In order: two changes close together must not reach the file reversed.
-  const write = (unsent: Draft): void => {
+  // In order: two changes close together must not reach the file reversed. `now` starts the write
+  // within the caller, for a page that may not outlive it, and an older write never starts after it.
+  const write = (unsent: Draft, now = false): void => {
     if (pending !== null) clearTimeout(pending);
     pending = null;
     written = unsent.typed;
-    saving = saving.then(() => saveDraft(unsent));
+    queued += 1;
+    const mine = queued;
+
+    const put = (): Promise<boolean> => {
+      if (mine < started) return Promise.resolve(true);
+      started = mine;
+
+      return saveDraft(unsent);
+    };
+
+    if (now) {
+      const sent = put();
+      saving = saving.then(() => sent);
+    } else saving = saving.then(put);
   };
 
   const flush = (): Promise<boolean> => {
@@ -793,15 +802,9 @@ function startSaving(): () => Promise<boolean> {
     pending = setTimeout(() => write(draftShown()), TYPED_WRITE_MS);
   });
 
-  // Sent within the event, not after the writes before it: past the handler the page may be gone.
   const leave = (): void => {
-    if (pending === null) return;
-    clearTimeout(pending);
-    pending = null;
-    const unsent = draftShown();
-    written = unsent.typed;
-    const sent = saveDraft(unsent, { keepalive: fits(unsent) });
-    saving = saving.then(() => sent);
+    if (pending === null && started === queued) return;
+    write(draftShown(), true);
   };
 
   document.addEventListener("visibilitychange", () => {

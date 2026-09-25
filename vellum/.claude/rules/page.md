@@ -181,18 +181,24 @@ no build step, so what the page imports costs nothing at `cli start`.
   each change of the comments, the edit or the choices is one write, sent in order; signals that change
   together change in one `batch`; a change of `typed` is written once the typing pauses
   (`TYPED_WRITE_MS`), and a write of the comments, the edit or the choices meanwhile carries it.
-  A typing still pausing when the page is hidden (`visibilitychange`) or closed (`pagehide`) is
-  written within the event, not after the writes before it, which the page may not outlive: the
-  first of the two takes it, the second finds nothing. It goes with `keepalive` up to
-  `KEEPALIVE_BYTES`, past which Chromium refuses the request, and without it beyond, so a bigger
-  draft is lost if the page closes; a failure there shows nothing, the page being gone, and a
-  write still in flight may land after it, an order the page does not hold.
+  Every write goes with `keepalive` while the page's keepalive writes in flight leave room for
+  its body, `KEEPALIVE_BYTES` together, the Fetch standard's limit, and without it beyond: a
+  plain request waiting for a socket dies with the page. `draftWriter` of `api.ts` counts them,
+  one writer per store, since a module `state.ts` imports is shared by every store a suite
+  imports. When the page is hidden (`visibilitychange`) or closed (`pagehide`) while a write
+  waits, a typing pausing or a write queued behind another, the draft shown is written within the
+  event, which the page may not outlive, and the older writes still queued never start: the
+  first of the two events takes it, the second finds nothing. A failure there shows nothing, the
+  page being gone; a draft past the budget is lost if the page closes, and a write already
+  started may land after the hide's, an order the page does not hold.
   `state.spec.ts` holds this at the page's ports, a fake `fetch` and a fake `EventSource` that
   log what reaches them, and a fake `document` and `window` whose listeners the test calls: the
   restore before the first load, no write while that load is out, the stream after it, one write
-  for each `batch` a saving page runs, one write for a continuous typing, and the typing pausing
-  written within either hiding event, once for both. The saving effect against the stream is one
-  synchronous step, which no port tells apart.
+  for each `batch` a saving page runs, one write for a continuous typing, a waiting write sent
+  within either hiding event, once for both, the writes it overtook never sent, nothing sent when
+  the page shows again, and the keepalive budget shared by the writes in flight and given back
+  once each is answered. The saving effect against the stream is one synchronous step, which no
+  port tells apart.
 - What is typed and not submitted is `typed` of `state.ts`, one `Typed` of the draft, and
   `setTyped` its one writer: the general box, the composer's text by document, a grill's answers
   and note by transcript, the editor's typing by version. No component keeps a text in a
