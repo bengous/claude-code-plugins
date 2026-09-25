@@ -20,6 +20,8 @@ import type { Started } from "./serve.ts";
 
 const WIP = "plans/2026-09-15/wip-4c2a9d93/";
 
+const WINDOWS = process.platform === "win32";
+
 const BIGGER = { kind: "comment", body: "bigger" };
 
 const APPROVE = { kind: "approve", edit: null, notes: "" };
@@ -191,7 +193,13 @@ beforeAll(async () => {
   writeFileSync(join(root, WIP, "mockup.html"), "<p>mock</p>");
   writeFileSync(join(root, WIP, "page.html"), "<body><p>hi</p></body>\n");
   writeFileSync(join(root, WIP, "notes.md"), "# notes\n");
-  symlinkSync("/etc/hostname", join(root, WIP, "escape.txt"));
+  const outside = mkdtempSync(join(tmpdir(), "vellum-outside-"));
+  writeFileSync(join(outside, "secret.txt"), "secret\n");
+  // A junction on Windows, which creates one with no privilege; a symbolic link elsewhere.
+  symlinkSync(outside, join(root, WIP, "escape"), "junction");
+
+  // A link to a file wants a privilege on Windows: the case runs elsewhere.
+  if (!WINDOWS) symlinkSync(join(outside, "secret.txt"), join(root, WIP, "escape.txt"));
   const workdir = parseWipDir(WIP);
 
   if (!workdir.ok) throw new Error(workdir.error);
@@ -225,11 +233,16 @@ describe("routes", () => {
     expect([403, 404]).toContain(dots.status);
     expect(await dots.text()).not.toContain("root:");
 
-    const symlink = await fetch(url(`/t/${started.token}/files/${WIP}escape.txt`));
+    const symlink = await fetch(url(`/t/${started.token}/files/${WIP}escape/secret.txt`));
     expect(symlink.status).toBe(403);
 
     const missing = await fetch(url(`/t/${started.token}/files/${WIP}nope.html`));
     expect(missing.status).toBe(404);
+  });
+
+  test.if(!WINDOWS)("a link to a file outside the project gets 403", async () => {
+    const link = await fetch(url(`/t/${started.token}/files/${WIP}escape.txt`));
+    expect(link.status).toBe(403);
   });
 
   test("an html file carries the frame script, a markdown file is untouched", async () => {

@@ -2,14 +2,17 @@ import type { ChildProcessByStdio } from "node:child_process";
 import { spawn } from "node:child_process";
 import { mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
-import { dirname, join, relative, resolve } from "node:path";
+import { dirname, join, relative, resolve, sep } from "node:path";
 import { createInterface } from "node:readline";
 import type { Readable } from "node:stream";
 
 import type { Locator, Page } from "@playwright/test";
 import { expect, test as base } from "@playwright/test";
 
-import type { Annotation, SendAnswer } from "../src/core/protocol.ts";
+import type { Annotation, ReviewView, SendAnswer } from "../src/core/protocol.ts";
+import type { FinalDir, WipDir } from "../src/core/server/domain/paths.ts";
+import { parseFinalDir, parseWipDir } from "../src/core/server/domain/paths.ts";
+import { discard } from "../src/core/server/preview.ts";
 import type {
   CloseReason,
   GrillPosts,
@@ -182,7 +185,8 @@ export async function startVellum(
   const workdir = /copied to (.+?); pid/u.exec(copied)?.[1];
 
   if (workdir === undefined) throw new Error(`preview.ts named no working copy: ${copied}`);
-  const dir = `${relative(ROOT, workdir)}/`;
+  // As the server names it, `/` between its folders: `relative` answers `\` on Windows.
+  const dir = `${relative(ROOT, workdir).replaceAll(sep, "/")}/`;
   const parsed = new URL(url);
   const token = parsed.pathname.split("/")[2] ?? "";
   const { origin } = parsed;
@@ -276,10 +280,14 @@ export async function startVellum(
       wait: async (first) => api("x/grill/wait", { file: await openGrill(), first }),
     },
     // A test may stop the server itself, to cut the connection: the fixture's stop is then a no-op.
-    stop: () =>
-      new Promise((exited) => {
-        process.off("exit", onExit);
+    stop: async () => {
+      // Windows has no signal to send: `kill` ends preview.ts and runs no handler, so the copy
+      // it served, renamed by an approval or not, is the harness's to take away. A server that
+      // cannot say which leaves it, and is still killed.
+      const left =
+        process.platform === "win32" && !gone ? await servedDir(api).catch(() => null) : null;
 
+      await new Promise<void>((exited) => {
         if (gone) {
           exited();
 
@@ -288,8 +296,24 @@ export async function startVellum(
 
         child.once("exit", () => exited());
         child.kill("SIGTERM");
-      }),
+      });
+      process.off("exit", onExit);
+
+      if (left !== null) discard(ROOT, left);
+    },
   };
+}
+
+/** The directory the server serves now, as it names it: the staged copy, or the name an approval gave it. */
+async function servedDir(api: Vellum["api"]): Promise<WipDir | FinalDir | null> {
+  // SAFETY: the server's own `ReviewView`, serialized by `Response.json` in routes.ts.
+  const { dir } = ((await api("review")).json as ReviewView).workspace;
+  const wip = parseWipDir(dir);
+
+  if (wip.ok) return wip.value;
+  const final = parseFinalDir(dir);
+
+  return final.ok ? final.value : null;
 }
 
 function parseLoosely(text: string): Json {

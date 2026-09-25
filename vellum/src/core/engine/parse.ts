@@ -82,6 +82,19 @@ export function workdirOf(id: SessionId, date: string): Workdir {
   return `plans/${date}/wip-${id.slice(0, 8)}/` as Workdir;
 }
 
+/** What a shell tool runs: `Monitor` always in the background, Bash and PowerShell by `run_in_background`. */
+export type ShellCall = { readonly command: string; readonly background: boolean };
+
+/** The shell call of `input`, or `null`; the caller reads it for a tool of `SHELLS` alone. */
+export function shellCall(tool: string, input: unknown): ShellCall | null {
+  if (!isRecord(input) || typeof input.command !== "string") return null;
+
+  return {
+    command: input.command,
+    background: tool === "Monitor" || input.run_in_background === true,
+  };
+}
+
 /** The file a call would write, for the three tools that write one; `null` for every other. */
 export function editedPath(tool: string, input: unknown): string | null {
   if (!isRecord(input)) return null;
@@ -112,13 +125,15 @@ export function parseSession(value: unknown): Session | null {
     typeof value.id === "string" &&
     typeof value.project === "string" &&
     typeof value.workdir === "string" &&
-    (value.final === null || typeof value.final === "string")
+    (value.final === null || typeof value.final === "string") &&
+    typeof value.pinnedCwd === "boolean"
     ? {
         id: value.id as SessionId,
         server,
         project: value.project as ProjectDir,
         workdir: value.workdir as Workdir,
         final: value.final as Workdir | null,
+        pinnedCwd: value.pinnedCwd,
       }
     : null;
 }

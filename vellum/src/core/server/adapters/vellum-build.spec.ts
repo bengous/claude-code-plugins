@@ -33,7 +33,8 @@ function installed(installs: (root: string) => object) {
   mkdirSync(join(root, ".claude-plugin"), { recursive: true });
   writeFileSync(join(root, ".claude-plugin", "plugin.json"), '{ "version": "0.13.0" }');
   const link = join(base, "linked");
-  symlinkSync(root, link);
+  // A junction on Windows, which creates one with no privilege; a symbolic link elsewhere.
+  symlinkSync(root, link, "junction");
   mkdirSync(join(base, "config", "plugins"), { recursive: true });
   const file = join(base, "config", "plugins", "installed_plugins.json");
   writeFileSync(file, JSON.stringify(installs(root)));

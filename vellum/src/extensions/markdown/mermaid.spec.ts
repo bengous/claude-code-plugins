@@ -7,6 +7,10 @@ describe("minWidthOf", () => {
     expect(minWidthOf({ baseVal: { width: 1000 } })).toBe("800px");
   });
 
+  test("a floor that falls between two pixels is rounded up, so the diagram never draws under 0.8", () => {
+    expect(minWidthOf({ baseVal: { width: 1001.66 } })).toBe("802px");
+  });
+
   test("a diagram with no width takes no minimum", () => {
     expect(minWidthOf({ baseVal: { width: 0 } })).toBeNull();
   });

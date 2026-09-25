@@ -2,9 +2,11 @@
 import { describe, expect, test } from "bun:test";
 import {
   chmodSync,
+  closeSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
+  openSync,
   readFileSync,
   rmSync,
   writeFileSync,
@@ -36,7 +38,15 @@ const V1 = 1 as never;
 
 type Setup = { readonly review: Review; readonly root: string };
 
-function setup(extensions: readonly ServerExtension[] = serverExtensions): Setup {
+/** A held rename is retried this long here, so a test that holds the folder to the end stays under bun's 5 s. */
+const HELD_SHORT_MS = 200;
+
+const WINDOWS = process.platform === "win32";
+
+function setup(
+  extensions: readonly ServerExtension[] = serverExtensions,
+  heldRetryMs = HELD_SHORT_MS,
+): Setup {
   const root = mkdtempSync(join(tmpdir(), "vellum-review-"));
   mkdirSync(join(root, WIP, ".review"), { recursive: true });
   writeFileSync(join(root, WIP, "mockup.html"), "<p>hi</p>");
@@ -45,9 +55,28 @@ function setup(extensions: readonly ServerExtension[] = serverExtensions): Setup
   if (!workdir.ok) throw new Error(workdir.error);
 
   return {
-    review: new Review({ project: root, workdir: workdir.value, extensions }),
+    review: new Review({ project: root, workdir: workdir.value, extensions, heldRetryMs }),
     root,
   };
+}
+
+/** The error of a rename `refuseRename` made fail, not of any other step of `finalize`. */
+const RENAME_FAILED = expect.stringMatching(/^rename /u);
+
+/**
+ * Makes the working directory's rename fail until the call it answers: a dated folder nobody may
+ * write on POSIX; on Windows, which reads no folder's mode, a file of the directory held open.
+ */
+function refuseRename(root: string): () => void {
+  if (process.platform !== "win32") {
+    chmodSync(join(root, DATED), 0o500);
+
+    return () => chmodSync(join(root, DATED), 0o700);
+  }
+
+  const held = openSync(join(root, WIP, "mockup.html"), "r");
+
+  return () => closeSync(held);
 }
 
 /** Every entry the channel holds, from where the review lives now. */
@@ -56,8 +85,8 @@ async function told(review: Review): Promise<readonly unknown[]> {
 }
 
 /** A review whose `plan.md` holds `plan` and was gated as v1. */
-async function gated(plan = PLAN): Promise<Setup> {
-  const s = setup();
+async function gated(plan = PLAN, heldRetryMs = HELD_SHORT_MS): Promise<Setup> {
+  const s = setup(serverExtensions, heldRetryMs);
   writeFileSync(join(s.root, WIP, "plan.md"), plan);
   await s.review.gate();
 
@@ -266,10 +295,10 @@ describe("Review", () => {
 
   test("an approve with an edit whose rename failed is retried without the edit, and approves v2", async () => {
     const { review, root } = await gated();
-    chmodSync(join(root, DATED), 0o500);
+    const release = refuseRename(root);
     const failed = await review.decide({ ...APPROVE, edit: EDIT_OF_V1 });
-    chmodSync(join(root, DATED), 0o700);
-    const stuck = { kind: "inReview", version: 2, finalizeError: expect.any(String) };
+    release();
+    const stuck = { kind: "inReview", version: 2, finalizeError: RENAME_FAILED };
     expect(failed).toMatchObject({ ok: false, workspace: stuck });
     const retried = await review.decide(APPROVE);
     expect(retried).toMatchObject({ ok: true, workspace: { kind: "approved", version: 2 } });
@@ -290,9 +319,9 @@ describe("Review", () => {
 
   test("an approve retried after a failed rename carries no note, and still reports the first attempt's", async () => {
     const { review, root } = await gated();
-    chmodSync(join(root, DATED), 0o500);
+    const release = refuseRename(root);
     await review.decide({ kind: "approve", edit: EDIT_OF_V1, notes: "Slice 1 only." });
-    chmodSync(join(root, DATED), 0o700);
+    release();
     const retried = await review.decide(APPROVE);
     expect(retried).toMatchObject({ ok: true, workspace: { version: 2, notes: true } });
     expect(read(root, `${FINAL}.review/v2.notes.md`)).toBe(
@@ -343,15 +372,38 @@ describe("Review", () => {
 
   test("a rename that fails shows its error and leaves the plan under review", async () => {
     const { review, root } = await gated();
-    chmodSync(join(root, DATED), 0o500);
+    const release = refuseRename(root);
     const result = await review.decide(APPROVE);
-    chmodSync(join(root, DATED), 0o700);
+    release();
     expect(result).toMatchObject({
       ok: false,
-      workspace: { kind: "inReview", finalizeError: expect.any(String) },
+      workspace: { kind: "inReview", finalizeError: RENAME_FAILED },
     });
     expect(await told(review)).toEqual([]);
   });
+
+  test.if(WINDOWS)(
+    "a rename refused while a program holds the folder is retried, and approves once it lets go",
+    async () => {
+      const { review, root } = await gated(PLAN, 2_000);
+      const release = refuseRename(root);
+      setTimeout(release, 300);
+      const result = await review.decide(APPROVE);
+      expect(result).toMatchObject({ ok: true, workspace: { kind: "approved", dir: FINAL } });
+    },
+  );
+
+  test.if(WINDOWS)(
+    "a folder held past the retries names what may hold it, and Retry approval",
+    async () => {
+      const { review, root } = await gated();
+      const release = refuseRename(root);
+      const result = await review.decide(APPROVE);
+      release();
+      const held = `rename ${WIP} → ${FINAL} failed: a program holds ${WIP} (a terminal, File Explorer, an editor or a background command open in it); close it, then Retry approval`;
+      expect(result).toMatchObject({ ok: false, workspace: { finalizeError: held } });
+    },
+  );
 
   test("view under review lists the files without the working copy of the plan", async () => {
     const { review } = await gated();

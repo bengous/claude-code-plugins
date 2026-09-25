@@ -170,7 +170,7 @@ describe("opening a grill", () => {
 
     expect(await told()).toEqual([
       expect.stringMatching(
-        /^Chose: a grill on: auth\. The reviewer opened grill-1\.md on: auth\. Read \/.+\/src\/extensions\/grill\/grilling\.md, then ask with mcp__vellum__grill_ask\.$/u,
+        /^Chose: a grill on: auth\. The reviewer opened grill-1\.md on: auth\. Read (?:\/|[A-Z]:\\).+[\\/]src[\\/]extensions[\\/]grill[\\/]grilling\.md, then ask with mcp__vellum__grill_ask\.$/u,
       ),
     ]);
   });

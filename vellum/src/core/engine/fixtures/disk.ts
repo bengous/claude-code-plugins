@@ -42,6 +42,17 @@ const PLANNING: Entries = new Map<string, Entry>([
 
 const NETWORK = /^[\\/]{2}/u;
 
+const DRIVE_ROOT = /^[A-Za-z]:\\/u;
+
+/**
+ * The path as this disk keys it, POSIX. The engine resolves a path before the hook reads it: on
+ * Windows `/project` arrives as `C:\project`, rooted on the drive of the engine's directory. The
+ * disk has one root, so any drive is that root; the kit's sandbox has no `process` to name it.
+ */
+function keyed(path: string): string {
+  return DRIVE_ROOT.test(path) ? `/${path.slice(3).replaceAll("\\", "/")}` : path;
+}
+
 function folded(path: string): string[] {
   const segments: string[] = [];
 
@@ -94,12 +105,13 @@ export function disk(on: On, more: Entries = new Map()): void {
       return { deny: "fs.stat: a network location is not reached from here" };
     }
 
-    const found = find(e.path);
+    const path = keyed(e.path);
+    const found = find(path);
 
     if (found.kind === "missing") return { deny: `$.fs.stat(${e.path}) failed: ENOENT` };
 
     if (found.kind === "refused") return { deny: found.reason };
-    const isLink = entries.get(`/${folded(e.path).join("/")}`)?.kind === "link";
+    const isLink = entries.get(`/${folded(path).join("/")}`)?.kind === "link";
     const unresolved = { kind: "other", size: 0, mtimeMs: 0, isLink } as const;
 
     if (found.kind === "dangling" || !e.resolve) return { value: unresolved };

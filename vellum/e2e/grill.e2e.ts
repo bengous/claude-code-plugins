@@ -409,7 +409,8 @@ test.describe("a round in the panel", () => {
     await expect.poll(() => statesOf(page)).toEqual(["answered", "answered"]);
 
     await expect.poll(() => vellum.batches()).toEqual(["v1.feedback-1.md"]);
-    expect(transcript(vellum).split("Keep the audit trail.")).toHaveLength(2);
+    // The round is written after the batch (`sendInOrder`): wait for it, not for the batch.
+    await expect.poll(() => transcript(vellum).split("Keep the audit trail.")).toHaveLength(2);
     await expect(page.getByRole("alert")).toHaveCount(0);
   });
 

@@ -1,6 +1,6 @@
 import type { HookFailure, ResultOf } from "claude-code";
 
-import type { Workdir } from "./parse.ts";
+import type { ShellCall, Workdir } from "./parse.ts";
 
 /**
  * `allow` runs the call whatever the session's mode, `check` hands it to the session's own
@@ -90,7 +90,51 @@ export function lockFailed(kind: HookFailure["kind"]): ResultOf["tool.check"] {
  * on Windows, and its docs tell a hook that inspects shell commands to match `Bash|PowerShell`;
  * `Monitor` runs its command through the shell, under Bash's rules.
  */
-const SHELLS: ReadonlySet<string> = new Set(["Bash", "PowerShell", "Monitor"]);
+export const SHELLS: ReadonlySet<string> = new Set(["Bash", "PowerShell", "Monitor"]);
+
+/**
+ * A move into a directory and its target, quoted or not, a character escaped by `\` kept: `cd`,
+ * `pushd`, `chdir`, and PowerShell's `Set-Location`, `Push-Location` and `sl`, where a command
+ * starts, each after the flags it takes.
+ */
+const MOVE =
+  /(?:^|[;&|(\n])\s*(?:cd|pushd|chdir|set-location|push-location|sl)\s+(?:-\S+\s+)*("[^"]*"|'[^']*'|(?:\\.|[^\s;&|)])+)/gu;
+
+/**
+ * A command that puts a process in the background itself: a lone `&` (not `&&`, `2>&1`, `&>` or
+ * `|&`), or `nohup`, `setsid`, `Start-Process` or `Start-Job` where a command starts.
+ */
+const DETACHED = /(?<![&>|])&(?![&>])|(?:^|[;&|(\n])\s*(?:nohup|setsid|start-process|start-job)\b/u;
+
+/**
+ * A shell call that enters the working directory, or names it from the background, is denied
+ * while vellum plans: on Windows a process standing in a folder holds it, and the approval
+ * cannot rename it. A command that ends gives the folder back, since the session returns to the
+ * project's root after each one; one in the background holds it for as long as it runs. Only
+ * the folder's name as written is read: a path the shell computes (`cd "$D"`) passes, and the
+ * return to the root covers it.
+ */
+export function shellVerdict(call: ShellCall, workdir: Workdir): Verdict {
+  const command = call.command.toLowerCase();
+  const segment = workdir.split("/").findLast((part) => part !== "") ?? workdir;
+  const folder = segment.toLowerCase();
+
+  if (call.background || DETACHED.test(command)) {
+    return command.includes(folder)
+      ? {
+          kind: "deny",
+          reason: `vellum is planning: a background command that uses ${workdir} keeps the folder busy and blocks the approval on Windows; run it in the foreground`,
+        }
+      : { kind: "check" };
+  }
+
+  return [...command.matchAll(MOVE)].some(([, target]) => target?.includes(folder) === true)
+    ? {
+        kind: "deny",
+        reason: `vellum is planning: stay at the project root and name files from there; a cd into ${workdir} keeps the folder busy and blocks the approval on Windows`,
+      }
+    : { kind: "check" };
+}
 
 /**
  * A settings allow rule (`Bash(mkdir:*)`, `PowerShell(Set-Content:*)`) would let a

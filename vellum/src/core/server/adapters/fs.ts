@@ -1,6 +1,6 @@
 import { watch } from "node:fs";
 import { appendFile, readdir, rename, rm, stat } from "node:fs/promises";
-import { join, relative } from "node:path";
+import { join, relative, sep } from "node:path";
 
 import type { DocRef } from "../../protocol.ts";
 import { mediaTypeOf } from "../../protocol.ts";
@@ -22,6 +22,42 @@ const TEXT_PROBE_BYTES = 8192;
 
 /** A write is several events; the page hears of it once they stop. */
 const WATCH_SETTLE_MS = 100;
+
+/**
+ * How long a rename Windows refuses as held (`EBUSY`, `EPERM`, `EACCES`) is retried: a scanner
+ * holds a file just written for up to about a second and a half, and the Approve click waits for
+ * the answer. POSIX renames a held folder, and an `EPERM` there is a real refusal.
+ */
+export const HELD_RETRY_MS = 3_000;
+
+const HELD_RETRY_STEP_MS = 100;
+
+const HELD_CODES: ReadonlySet<unknown> = new Set(["EBUSY", "EPERM", "EACCES"]);
+
+function isHeld(cause: unknown): boolean {
+  return (
+    process.platform === "win32" &&
+    cause instanceof Error &&
+    "code" in cause &&
+    HELD_CODES.has(cause.code)
+  );
+}
+
+/** Renames `from` to `to`, again every `HELD_RETRY_STEP_MS` while Windows says a program holds it, for `heldRetryMs` at most. */
+async function renameHeld(from: string, to: string, heldRetryMs: number): Promise<void> {
+  const until = Date.now() + heldRetryMs;
+
+  for (;;) {
+    try {
+      await rename(from, to);
+
+      return;
+    } catch (cause) {
+      if (!isHeld(cause) || Date.now() >= until) throw cause;
+      await Bun.sleep(HELD_RETRY_STEP_MS);
+    }
+  }
+}
 
 export async function readWorkspace(
   project: string,
@@ -53,7 +89,7 @@ export async function listFiles(project: string, dir: WipDir | FinalDir): Promis
   for (const entry of entries) {
     if (!entry.isFile()) continue;
     const file = join(entry.parentPath, entry.name);
-    const path = relative(project, file);
+    const path = relative(project, file).replaceAll(sep, "/");
     const mediaType = underReviewDir(path) ? null : mediaTypeOf(path);
 
     if (mediaType === null) continue;
@@ -71,7 +107,8 @@ export function watchFiles(project: string, workdir: WipDir, onChange: () => voi
   let settle: ReturnType<typeof setTimeout> | null = null;
 
   const watcher = watch(join(project, workdir), { recursive: true }, (_event, name) => {
-    if (name?.split("/")[0] === REVIEW_DIR) return;
+    // Bun on Windows names `\.review\x` under a watched path that ends in a separator.
+    if (name?.split(sep).find((segment) => segment !== "") === REVIEW_DIR) return;
 
     if (settle !== null) clearTimeout(settle);
     settle = setTimeout(onChange, WATCH_SETTLE_MS);
@@ -175,12 +212,14 @@ async function rewriteTree(root: string, from: WipDir, to: FinalDir): Promise<vo
 /**
  * Rewrites the links of every text file to the slug's directory (`-2`, `-3` on collision), then
  * renames the working directory. Links first: a rewrite that fails leaves the directory where the
- * review can still read it, and a second attempt rewrites nothing twice.
+ * review can still read it, and a second attempt rewrites nothing twice. A rename Windows refuses
+ * as held is retried for `heldRetryMs`, then names what may hold the folder.
  */
 export async function finalize(
   project: string,
   from: WipDir,
   slug: Slug,
+  heldRetryMs: number,
 ): Promise<ParseResult<FinalDir>> {
   if (!(await isDir(project, from))) return { ok: false, error: `${from} is not a directory` };
   const target = await freeTarget(project, from, slug);
@@ -195,9 +234,13 @@ export async function finalize(
   }
 
   try {
-    await rename(join(project, from), join(project, to));
+    await renameHeld(join(project, from), join(project, to), heldRetryMs);
   } catch (cause) {
-    return { ok: false, error: `rename ${from} → ${to} failed: ${String(cause)}` };
+    const why = isHeld(cause)
+      ? `a program holds ${from} (a terminal, File Explorer, an editor or a background command open in it); close it, then Retry approval`
+      : String(cause);
+
+    return { ok: false, error: `rename ${from} → ${to} failed: ${why}` };
   }
 
   return { ok: true, value: to };

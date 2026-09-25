@@ -52,7 +52,7 @@ export function minWidthOf(viewBox: {
 }): string | null {
   const width = viewBox.baseVal?.width ?? 0;
 
-  return width > 0 ? `${Math.round(width * SCALE_FLOOR)}px` : null;
+  return width > 0 ? `${Math.ceil(width * SCALE_FLOOR)}px` : null;
 }
 
 /** Mermaid draws in the page after the mount; its bundle loads on the first diagram only. */

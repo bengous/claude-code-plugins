@@ -1,3 +1,5 @@
+import { join } from "node:path";
+
 import type {
   Part,
   Route,
@@ -117,7 +119,7 @@ export function blocksOf(doc: string): Block[] {
 }
 
 /** Where Claude learns how to grill, named with the first grill of a working directory alone. */
-const GUIDE = `${import.meta.dir}/grilling.md`;
+const GUIDE = join(import.meta.dir, "grilling.md");
 
 /**
  * An entry as Claude reads it: a prompt names its object and repeats nothing Claude wrote or read,

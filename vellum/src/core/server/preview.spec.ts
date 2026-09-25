@@ -27,6 +27,19 @@ function fixture(): Fixture {
   return { project, source };
 }
 
+/** A file the user may not read: its mode on POSIX; on Windows, which reads no mode, an ACL that denies it. */
+function unreadable(file: string): void {
+  if (process.platform !== "win32") {
+    chmodSync(file, 0o000);
+
+    return;
+  }
+
+  const denied = Bun.spawnSync(["icacls", file, "/deny", `${process.env["USERNAME"]}:(R)`]);
+
+  if (denied.exitCode !== 0) throw new Error(`icacls: ${denied.stdout.toString()}`);
+}
+
 /** The URL the command prints, read before it has said anything else. */
 async function firstLine(stream: ReadableStream<Uint8Array>): Promise<string> {
   const reader = stream.getReader();
@@ -132,37 +145,46 @@ describe("the copy", () => {
 });
 
 describe("the command", () => {
-  test("serves a directory that is no working one, and takes its copy away on SIGINT", async () => {
-    const fixed = fixture();
-    const preview = spawnPreview(fixed);
-    const url = await firstLine(preview.stdout);
-    const view = await viewOf(url);
+  // Windows has no signal to send: `kill("SIGINT")` ends the child and runs no handler. A
+  // CTRL_C_EVENT in the child's own console does: measured by hand in PR #231, not from a test.
+  test.skipIf(process.platform === "win32")(
+    "serves a directory that is no working one, and takes its copy away on SIGINT",
+    async () => {
+      const fixed = fixture();
+      const preview = spawnPreview(fixed);
+      const url = await firstLine(preview.stdout);
+      const view = await viewOf(url);
 
-    expect((await fetch(url)).status).toBe(200);
-    expect(view.plan?.text).toBe("# Plan\n");
-    expect(view.docs.map((doc) => basename(doc.path))).toEqual(["mockup.html"]);
-    preview.kill("SIGINT");
-    await preview.exited;
+      expect((await fetch(url)).status).toBe(200);
+      expect(view.plan?.text).toBe("# Plan\n");
+      expect(view.docs.map((doc) => basename(doc.path))).toEqual(["mockup.html"]);
+      preview.kill("SIGINT");
+      await preview.exited;
 
-    expect(existsSync(join(fixed.project, "plans"))).toBe(false);
-  });
+      expect(existsSync(join(fixed.project, "plans"))).toBe(false);
+    },
+  );
 
-  test("takes away the approved name the copy was renamed to, not the one it was staged at", async () => {
-    const fixed = fixture();
-    const preview = spawnPreview(fixed);
-    const url = await firstLine(preview.stdout);
-    await api(url, "/api/decision", APPROVE);
+  // Windows has no signal to send: see the test above.
+  test.skipIf(process.platform === "win32")(
+    "takes away the approved name the copy was renamed to, not the one it was staged at",
+    async () => {
+      const fixed = fixture();
+      const preview = spawnPreview(fixed);
+      const url = await firstLine(preview.stdout);
+      await api(url, "/api/decision", APPROVE);
 
-    expect(readdirSync(join(fixed.project, "plans", today()))).toEqual(["plan"]);
-    preview.kill("SIGINT");
-    await preview.exited;
+      expect(readdirSync(join(fixed.project, "plans", today()))).toEqual(["plan"]);
+      preview.kill("SIGINT");
+      await preview.exited;
 
-    expect(existsSync(join(fixed.project, "plans"))).toBe(false);
-  });
+      expect(existsSync(join(fixed.project, "plans"))).toBe(false);
+    },
+  );
 
   test("leaves no half copy behind when a file of the source cannot be read", async () => {
     const fixed = fixture();
-    chmodSync(join(fixed.source, "shots/mockup.html"), 0o000);
+    unreadable(join(fixed.source, "shots/mockup.html"));
     const preview = spawnPreview(fixed);
 
     expect(await preview.exited).toBe(1);

@@ -5,6 +5,8 @@ import { SERVER } from "./server.ts";
 /** A review server as the module spawned it: its argv, and the test's hand on what it writes. */
 export type Child = {
   readonly argv: readonly string[];
+  /** The working directory it was spawned in; `undefined` is the session's, which follows every `cd`. */
+  readonly cwd: string | undefined;
   /** Writes each line on stdout as JSON, all of them in one piece. */
   readonly write: (...lines: readonly unknown[]) => void;
   /** Writes text on stdout as it is: a line in two pieces, a line that is no JSON. */
@@ -56,6 +58,7 @@ export function children(on: On, spawn: Spawn = STARTS): Child[] {
 
     const child: Child = {
       argv: e.argv,
+      cwd: e.cwd,
       write: (...lines) => {
         print(lines.map((line) => `${JSON.stringify(line)}\n`).join(""));
       },

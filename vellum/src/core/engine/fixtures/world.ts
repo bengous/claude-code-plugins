@@ -17,7 +17,7 @@ import { store } from "./store.ts";
 /**
  * What the module finds beneath it, and what it did there. `id` is what
  * `$.session.id()` answers, so assigning it is a `/clear`; `drop` is the reason
- * another plugin refuses the next prompt, `refuseCwd` the reason `$.session.cwd()` fails, and
+ * another plugin refuses the next prompt, `cwd` what `$.session.cwd()` answers, `refuseCwd` the reason `$.session.cwd()` fails, and
  * `refuseStore` the reason a store write fails. `children` are the servers the module spawned,
  * and `channel` the file their channel keeps on disk.
  */
@@ -26,6 +26,11 @@ export type World = {
   drop: string | undefined;
   /** While set, a prompt's call resolves only once it does: the prompt waits for a running turn. */
   hold: (() => Promise<void>) | undefined;
+  cwd: string;
+  /** What `$.session.root()` answers: where the session started, whatever `cd` Claude ran. */
+  root: string;
+  /** The reason `$.env.get` fails, while set. */
+  refuseEnv: string | undefined;
   refuseCwd: string | undefined;
   refuseStore: string | undefined;
   readonly clock: MockClock;
@@ -38,6 +43,10 @@ export type World = {
   readonly tools: string[];
   readonly commands: string[];
   readonly store: Map<string, unknown>;
+  /** The session's environment as `$.env` reads it; `$.env.set` writes here. */
+  readonly env: Map<string, string>;
+  /** Every `$.env.set`, in order: `value` absent unsets. */
+  readonly envWrites: { readonly name: string; readonly value: string | undefined }[];
 };
 
 export type WorldOptions = {
@@ -47,6 +56,7 @@ export type WorldOptions = {
   spawn?: Spawn;
   channel?: readonly ChannelLineWire[];
   disk?: Entries;
+  env?: Readonly<Record<string, string>>;
 };
 
 export function world(on: On, options: WorldOptions = {}): World {
@@ -58,6 +68,9 @@ export function world(on: On, options: WorldOptions = {}): World {
     id: SESSION_ID,
     drop: undefined,
     hold: undefined,
+    cwd: CWD,
+    root: CWD,
+    refuseEnv: undefined,
     refuseCwd: undefined,
     refuseStore: undefined,
     clock: mock.clock(on),
@@ -74,6 +87,8 @@ export function world(on: On, options: WorldOptions = {}): World {
     tools,
     commands,
     store: store(on, options.stored, () => built.refuseStore),
+    env: new Map(Object.entries(options.env ?? {})),
+    envWrites: [],
   };
 
   skillText(on);
@@ -84,8 +99,22 @@ export function world(on: On, options: WorldOptions = {}): World {
   on("turn.start", (_, e) => ({ turnId: e.turnId }));
   on("session.id", () => ({ value: built.id }));
   on("session.cwd", () =>
-    built.refuseCwd === undefined ? { value: CWD } : { deny: built.refuseCwd },
+    built.refuseCwd === undefined ? { value: built.cwd } : { deny: built.refuseCwd },
   );
+
+  on("env.get", (_, e) =>
+    built.refuseEnv === undefined ? { value: built.env.get(e.name) } : { deny: built.refuseEnv },
+  );
+  on("session.root", () => ({ value: built.root }));
+
+  on("env.set", (_, e) => {
+    built.envWrites.push({ name: e.name, value: e.value });
+
+    if (e.value === undefined) built.env.delete(e.name);
+    else built.env.set(e.name, e.value);
+
+    return { value: undefined };
+  });
 
   on("tool.register", (_, e) => {
     tools.push(e.name);

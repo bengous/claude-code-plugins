@@ -172,6 +172,27 @@ plugins (September 2026), unless a line says otherwise.
   kit honours it, but a live session ran the hook for every tool call.
   Measured in `claude -p` sessions, one isolated subagent running `pwd`.
 
+- Claude's `cd` in a Bash command outlives the command: the session's working
+  directory moves with it, the next commands run there, and so does anything
+  started with `$.process.spawn` and no `cwd`, whose default is "the session's".
+  The prompt of the Bash tool asks the model to avoid `cd` and keep to absolute
+  paths; the model still runs one (anthropics/claude-code issue #7442, and a
+  vellum session on Windows). On Windows Git's `bash.exe` is a native launcher
+  that keeps its working directory while the command runs (gitforwindows.org,
+  git-wrapper), so a folder a command stands in is held, and a rename of it is
+  refused, until the command ends. A command run in the background holds it for
+  as long as it runs.
+
+- `CLAUDE_BASH_MAINTAIN_PROJECT_WORKING_DIR` true (`1`, `true`, `yes`, `on`)
+  sends the session's working directory back to the project's root after each
+  Bash and PowerShell command, silently (documented in `tools-reference`,
+  § What persists between commands). Read in the engine's bundle: the variable is read from `process.env` after each command, so a
+  module's `$.env.set` turns it on and off mid-session, since it writes the main
+  process's `process.env`; Claude Code never calls `chdir` on itself; a call that
+  carries an `agentId` skips the reset, and a subagent never reports its `cd` to
+  the main loop. Not measured in a live session: that an isolated subagent's
+  `pwd` stays in its worktree with the variable set (#231, S9 measures it).
+
 - A registered tool's result text is what the model acts on:
   `Plan vN is under review in the browser. End your turn; the review arrives
   as a prompt.` ended Opus 5's turn every time. `vellum` now answers the

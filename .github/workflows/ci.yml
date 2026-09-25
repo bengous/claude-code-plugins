@@ -96,6 +96,39 @@ jobs:
           fi
           echo "main is an ancestor of dev: $(git rev-parse origin/main)"
 
+  # Vellum on Windows: its `bun:test` suites and the hooks module's kit, where Linux misses what
+  # Windows refuses (a folder a process holds cannot be renamed). No `if:`, as `validate`: `main`
+  # requires it. The repository's own tooling (`scripts/`, `.claude/hooks`, the shell linters) is
+  # not run here. The runner's shell is pwsh, so the kit's variable goes through `env:`.
+  win32:
+    name: win32
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Set up tools (bun, claude via mise)
+        uses: jdx/mise-action@v4
+        with:
+          install_args: bun claude
+
+      - name: Refresh Claude Code past the cached `latest`
+        run: mise upgrade claude && claude --version
+
+      - name: Install script dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Install vellum dependencies
+        run: bun install --cwd vellum --frozen-lockfile --ignore-scripts
+
+      - name: Run vellum's suites
+        run: bun test vellum
+
+      - name: Test the vellum hooks module
+        run: claude plugin test vellum
+        env:
+          CLAUDE_CODE_ENABLE_FUNCTION_HOOKS: "1"
+
   # Vellum's browser suite, `vellum/e2e/*.e2e.ts`: a job per window of `WINDOWS` in
   # `vellum/e2e/playwright.config.ts`, since it wants a Chromium and takes seconds per file.
   # `scripts/e2e-windows.test.ts` holds the list equal to the config's. `check-e2e-green.ts`
@@ -137,11 +170,43 @@ jobs:
       - name: Run the browser suite at one window
         run: bun run --cwd vellum e2e -- --project=${{ matrix.window }} --workers=4
 
+  # The browser suite on Windows, at one window: the server, the harness and the page on the
+  # platform `e2e-window` never runs. Named `e2e (…)` so `check-e2e-green.ts` counts it among the
+  # windows still running. No `--with-deps`: the Windows runner lacks no system library.
+  e2e-win32:
+    name: e2e (win32, light-1440)
+    if: >-
+      github.event_name == 'workflow_dispatch'
+      || (github.event.action == 'labeled'
+      && github.event.label.name == 'e2e'
+      && github.event.pull_request.head.repo.full_name == github.repository)
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Set up tools (bun via mise)
+        uses: jdx/mise-action@v4
+        with:
+          install_args: bun
+
+      - name: Install script dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Install vellum dependencies
+        run: bun install --cwd vellum --frozen-lockfile --ignore-scripts
+
+      - name: Install Chromium for Playwright
+        run: bun run --cwd vellum e2e:install
+
+      - name: Run the browser suite at one window
+        run: bun run --cwd vellum e2e -- --project=light-1440 --workers=4
+
   # The one check the pre-push gate reads, `scripts/check-e2e-green.ts`: green when every window
-  # is. Asked of the same requests as the windows, so a run nobody asked leaves it `skipped`,
+  # is, Windows' included. Asked of the same requests as the windows, so a run nobody asked leaves it `skipped`,
   # which the gate reads as no run; `always()` lets a red or cancelled window turn it red.
   e2e:
-    needs: e2e-window
+    needs: [e2e-window, e2e-win32]
     if: >-
       always()
       && (github.event_name == 'workflow_dispatch'
@@ -152,12 +217,13 @@ jobs:
     steps:
       - name: Fail unless every window passed
         run: |
-          if [ "$WINDOWS" != success ]; then
-            echo "::error::The windows ended ${WINDOWS}; the red one is named among this run's e2e jobs."
+          if [ "$WINDOWS" != success ] || [ "$WIN32" != success ]; then
+            echo "::error::The windows ended ${WINDOWS}, Windows' ${WIN32}; the red one is named among this run's e2e jobs."
             exit 1
           fi
         env:
           WINDOWS: ${{ needs.e2e-window.result }}
+          WIN32: ${{ needs.e2e-win32.result }}
 
   # The label asks for one run: it comes off as that run starts, so the next request is a new
   # label. A job of its own, so the suite's job keeps a read-only token; a re-run of the same

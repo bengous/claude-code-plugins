@@ -28,6 +28,37 @@ describe("linkedDocs", () => {
     ] as never);
   });
 
+  test.if(process.platform === "win32")(
+    "on Windows, a drive path under the project and a relative path in backslashes are linked",
+    () => {
+      const roots = { project: "C:\\repo", planDir: "plans/2026-09-15/wip-4c2a9d93" };
+      const plan = "See `C:\\repo\\docs\\a.md`, `C:/repo/docs/b.md` and `docs\\c.md`";
+
+      expect(linkedDocs(plan, roots).map((doc) => doc.path)).toEqual([
+        "docs/a.md",
+        "docs/b.md",
+        "docs/c.md",
+        "plans/2026-09-15/wip-4c2a9d93/docs/c.md",
+      ] as never);
+    },
+  );
+
+  test.if(process.platform === "win32")(
+    "on Windows, a path on another drive is outside the project: `relative` answers it whole",
+    () => {
+      const roots = { project: "C:\\repo", planDir: "plans/2026-09-15/wip-4c2a9d93" };
+
+      expect(linkedDocs("See `D:\\other\\x.md` and `D:/other/y.md`", roots)).toEqual([]);
+    },
+  );
+
+  test.if(process.platform !== "win32")(
+    "elsewhere, a drive spelling is a URL scheme, as it always was: `c:/x.md` is no link",
+    () => {
+      expect(linkedDocs("See [x](c:/x.md)", ROOTS)).toEqual([]);
+    },
+  );
+
   test("a malformed percent sequence never throws; the server drops what does not exist", () => {
     expect(() => linkedDocs("[x](results-100%.md)", ROOTS)).not.toThrow();
   });

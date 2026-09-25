@@ -39,9 +39,11 @@ export function scratchDir(date: string, id: string): WipDir {
  * source's own draft stays there: its comments name the paths of a directory nobody serves here.
  */
 export function stage(source: string, project: string, dir: WipDir): void {
+  const draft = resolve(source, DRAFT_FILE);
+
   cpSync(source, join(project, dir), {
     recursive: true,
-    filter: (from) => !from.endsWith(`/${DRAFT_FILE}`),
+    filter: (from) => resolve(from) !== draft,
   });
 }
 

@@ -57,4 +57,6 @@ The page is open from the start, on the working directory's files, so the review
 
 While the review runs, files under the working directory are yours to write and files outside it are locked: the codebase changes after the plan is approved.
 
+While vellum plans, every shell command starts at the project root: chain a cd inside the one command that needs it, and never cd into the working directory.
+
 Implementation starts in a fresh session, with the plan as the prompt.

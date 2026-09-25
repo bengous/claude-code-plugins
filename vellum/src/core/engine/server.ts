@@ -175,7 +175,7 @@ export async function read(lines: Lines, reader: Reader): Promise<void> {
 }
 
 /**
- * Spawns the server on the working directory, a child of the module that tells its news on
+ * Spawns the server on the working directory, from the project's root, a child of the module that tells its news on
  * stdout, and reads it up to `ready`, for `START_TIMEOUT_MS` at most. `kept` revives one: the port
  * and the token the reviewer's tab knows, on a directory that must still be there, or on `final`
  * once an approval renamed it. A child that gives no `ready` is ended.
@@ -203,7 +203,9 @@ export async function start(
   ];
 
   const heard = { stderr: "" };
-  const stream = host.spawn({ argv });
+  // At the project's root: the session's directory follows every `cd` Claude runs, and a server
+  // started inside the working directory holds the folder its approval renames (Windows refuses).
+  const stream = host.spawn({ argv, cwd: project });
 
   const child: Child = {
     lines: linesOf(stream, heard),

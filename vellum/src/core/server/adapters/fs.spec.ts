@@ -44,7 +44,8 @@ function run(root: string): ReturnType<typeof finalize> {
 
   if (!slug.ok) throw new Error(slug.error);
 
-  return finalize(root, wip(), slug.value);
+  // No folder is held here: a refused rename fails at once.
+  return finalize(root, wip(), slug.value, 0);
 }
 
 /** The changes a watcher reported after `write` ran, once its writes settled. */

@@ -38,7 +38,9 @@ export type ServerInfo = { readonly port: number; readonly token: Token; readonl
  * `project` is the root the server was started in: the working directory hangs off it, while
  * the session's own directory moves with every `cd` the model runs. `final` is where an approval
  * renamed the working directory, once the server said so: a server revived before the approval
- * reached Claude is started there.
+ * reached Claude is started there. `pinnedCwd` says vellum set
+ * `CLAUDE_BASH_MAINTAIN_PROJECT_WORKING_DIR` as the mode began and unsets it as the mode returns
+ * to idle; the record keeps it, so a reload or a `claude --resume` still knows the value is vellum's.
  */
 export type Session = {
   readonly id: SessionId;
@@ -46,6 +48,7 @@ export type Session = {
   readonly project: ProjectDir;
   readonly workdir: Workdir;
   readonly final: Workdir | null;
+  readonly pinnedCwd: boolean;
 };
 
 /**
@@ -128,6 +131,29 @@ export function sessionKey(id: SessionId): string {
 
 function storedSession(host: Host, id: SessionId): Promise<Session | null> {
   return host.storeGet(sessionKey(id)).then(parseSession);
+}
+
+/** The values Claude Code reads as true in a variable. */
+const TRUE_VALUES: ReadonlySet<string> = new Set(["1", "true", "yes", "on"]);
+
+/**
+ * Whether vellum pins the working directory for the mode it opens. A record that says so keeps
+ * it: a reload or a resume finds vellum's own value set. Otherwise a value already true while
+ * `state` holds no session vellum pinned is the person's, and vellum never touches it.
+ */
+async function pinsCwd(host: Host, state: State, stored: Session | null): Promise<boolean> {
+  if (stored?.pinnedCwd === true) return true;
+
+  // A value nobody can read is nobody's: vellum sets it, and a failed write is only logged.
+  const value = await host.projectCwdFlag().catch((cause: unknown) => {
+    host.log(`the project's working directory could not be read: ${String(cause)}`);
+
+    return null;
+  });
+
+  const set = value !== null && value !== undefined && TRUE_VALUES.has(value.trim().toLowerCase());
+
+  return !set || sessionOf(state)?.pinnedCwd === true;
 }
 
 /** The tenure `state` holds for session `id`, else a new one: one follower per session. */
@@ -342,9 +368,10 @@ export async function restore(host: Host, state: State, wiring: Wiring): Promise
   const id = sessionId(await host.sessionId());
 
   if (state.kind === "live" && state.live.session.id === id) return state;
-  const stored = await storedSession(host, id);
+  const kept = await storedSession(host, id);
 
-  if (stored === null) return state;
+  if (kept === null) return state;
+  const stored = { ...kept, pinnedCwd: await pinsCwd(host, state, kept) };
   stopTimers(state);
   const tenure = tenureFor(host, state, id, wiring);
 
@@ -373,8 +400,9 @@ export async function revived(
   const kept = tenureOf(from);
 
   if (held === null || kept === null) return null;
-  // The store knows the final directory the moment the server said it; `from` may not.
-  const session = (await storedSession(host, held.id)) ?? held;
+  // The store knows the final directory the moment the server said it; `from` may not. The pin
+  // is the mode's own: a relaunch that failed never stored what `restore` decided.
+  const session = { ...((await storedSession(host, held.id)) ?? held), pinnedCwd: held.pinnedCwd };
   const crashes = how === null ? kept.crashes : crashesUntil(kept, await host.now());
   const tenure = { ...kept, crashes };
 
@@ -412,20 +440,24 @@ export async function connect(host: Host, state: State, wiring: Wiring): Promise
   const current = state.kind === "live" ? state.live : null;
 
   if (current?.session.id === id && (await current.server.alive())) return state;
+  const kept = await storedSession(host, id);
+  const pinnedCwd = await pinsCwd(host, state, kept);
   stopTimers(state);
   const tenure = tenureFor(host, state, id, wiring);
-  const stored = await storedSession(host, id);
 
-  if (stored !== null) {
+  if (kept !== null) {
+    const stored = { ...kept, pinnedCwd };
+
     return settled(host, stored, await relaunched(host, stored), wiring, tenure);
   }
 
-  const project = projectDir(await host.cwd());
+  // The root, not the session's directory: the pin sends every command back there.
+  const project = projectDir(await host.root());
   const workdir = workdirOf(id, new Date().toISOString().slice(0, 10));
   const launched = await start(host, id, project, workdir, null, null);
 
   if (launched.kind !== "up") return { kind: "idle" };
-  const session = { id, server: launched.server.info, project, workdir, final: null };
+  const session = { id, server: launched.server.info, project, workdir, final: null, pinnedCwd };
 
   return settled(host, session, { ...launched, session }, wiring, tenure);
 }

@@ -64,7 +64,7 @@ Only the hooks module posts the heartbeat, the page does not: alone, an open tab
 a while, or post the heartbeat in a loop with the header
 `x-vellum-token: <token>`. A `POST /api/gate` or `POST /api/open` sent while no tab holds the
 event stream calls the opener (`streams.open === 0` in `routes.ts`), so a gate driven by curl
-launches `xdg-open` on the human's desktop; `bun test` alone is spared, by `NODE_ENV`.
+opens a tab on the human's desktop (`openerOf` in `browser.ts`); `bun test` alone is spared, by `NODE_ENV`.
 
 `preview.ts` takes that heartbeat off your hands: nothing beats it, so `--minutes` is its whole
 lifetime, thirty by default, and a tab holds it no longer. It copies the directory into a scratch

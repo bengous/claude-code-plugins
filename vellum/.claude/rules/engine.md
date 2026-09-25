@@ -90,6 +90,29 @@ loop. `/vellum:start` enters it, Approve in the page or `/vellum:stop` leaves it
   (`Bash`, `PowerShell`, `Monitor`, the set `SHELLS`) into `ask`; an allow the mode gives on
   its own, with no rule, stands.
   `lockVerdict` decides as a pure function, the hook applies.
+- The lock also refuses, while the mode holds a session and before it reads a file path, a
+  shell call (`shellCall` in `parse.ts`, for a tool of `SHELLS`) that moves into the working
+  directory (`cd`, `pushd`, `chdir`, `Set-Location`, `Push-Location`, `sl`, the target quoted or
+  not, in any case), or that runs in the background (`run_in_background`, `Monitor` always) and
+  names it at all, a lone `&`, `nohup`, `setsid`, `Start-Process` or `Start-Job` included; a
+  move counts where a command starts, never as a word of an argument. `shellVerdict` in
+  `lock.ts` decides, pure, on the folder's name as written:
+  a shell standing in `wip-<sid8>/` holds it on Windows and the approval cannot rename it. A
+  path the shell computes passes; the variable below covers it.
+- While the state holds a session (`live` or `lost`), `CLAUDE_BASH_MAINTAIN_PROJECT_WORKING_DIR`
+  is `1`, so the engine returns every Bash and PowerShell command to the project's root once it
+  ends ([Hook runtime](../../../docs/plugin-testing/hook-runtime.md) § Tools, commands and modes).
+  `Host` reads and writes it (`projectCwdFlag`, `setProjectCwdFlag`), the name written in
+  `hostOf` so `claude plugin validate` lists it. `connect` and `restore` decide
+  `Session.pinnedCwd` for the session they open: a record that says so keeps it (a reload, a
+  resume); else a value already true while the state holds no pinned session is the person's,
+  and vellum never touches it. `become` applies it, the one writer of `state`: `1` while the
+  next state holds a pinned session, unset as the last one leaves, nothing otherwise. A launch
+  that fails never reaches `live`, so it never sets it; a value that cannot be read is nobody's,
+  so vellum sets it, and a revival keeps the pin the mode holds, whatever the record says. The
+  project is `$.session.root()` at the way in (`Host.root`), where the variable sends every
+  command back, and the server is spawned with `cwd: project`: the default, the session's
+  directory, follows every `cd` Claude runs.
 - The lock compares where paths land, never how they are spelled. `placed` asks
   `$.fs.stat(path, { resolve: true })` for `realPath`, which the engine's types name the robust
   guard: every link followed, whatever separators, drive or prefix the platform writes. A file

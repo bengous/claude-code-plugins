@@ -8,6 +8,9 @@ export function storedSession(
   project: string = CWD,
   workdir: string = WORKDIR,
   final: string | null = null,
+  pinnedCwd = true,
 ) {
-  return { [`session:${SESSION_ID}`]: { id: SESSION_ID, server, project, workdir, final } };
+  return {
+    [`session:${SESSION_ID}`]: { id: SESSION_ID, server, project, workdir, final, pinnedCwd },
+  };
 }

@@ -4,7 +4,7 @@ import { engineExtensions } from "../../extensions/engine.ts";
 import { type Band, liveBand, lostBand } from "./band.ts";
 import type { EngineContext, EngineExtension, ToolContext } from "./extension.ts";
 import type { Host } from "./host.ts";
-import { checkVerdict, lockFailed, lockVerdict } from "./lock.ts";
+import { checkVerdict, lockFailed, lockVerdict, SHELLS, shellVerdict } from "./lock.ts";
 import {
   close,
   connect,
@@ -21,7 +21,7 @@ import {
   tenureOf,
   type Wiring,
 } from "./mode.ts";
-import { editedPath, type GateWire, sessionId, type StageWire } from "./parse.ts";
+import { editedPath, type GateWire, sessionId, shellCall, type StageWire } from "./parse.ts";
 import { landed } from "./place.ts";
 import { type Claim, submitPlan, submitResult } from "./relay.ts";
 import { completed, NO_TURN, ownOf, prompted, replied, started, type Turns } from "./turn.ts";
@@ -59,6 +59,7 @@ function hostOf($: EngineInterface): Host {
   return {
     sessionId: () => $.session.id(),
     cwd: () => $.session.cwd(),
+    root: () => $.session.root(),
     stat: (path) => $.fs.stat(path, { resolve: true }),
     pluginRoot: $.plugin.root,
     storeGet: (key) => $.store.get(key),
@@ -73,6 +74,8 @@ function hostOf($: EngineInterface): Host {
     status: (text) => $.ui.status(text),
     invalidate: () => $.ui.invalidate("ui.render"),
     log: (text) => $.ui.log(text),
+    projectCwdFlag: () => $.env.get("CLAUDE_BASH_MAINTAIN_PROJECT_WORKING_DIR"),
+    setProjectCwdFlag: (value) => $.env.set("CLAUDE_BASH_MAINTAIN_PROJECT_WORKING_DIR", value),
   };
 }
 
@@ -118,6 +121,11 @@ function segmentOf(host: Host, live: Live, extension: EngineExtension): string |
 
 const SEPARATOR = " │ ";
 
+/** Whether the state holds a session whose variable vellum set: `live` or `lost`, as the lock reads it. */
+function pinned(state: State): boolean {
+  return sessionOf(state)?.pinnedCwd === true;
+}
+
 export const register: Register = (on) => {
   let state: State = { kind: "idle" };
 
@@ -150,10 +158,22 @@ export const register: Register = (on) => {
    * server, and a follower the next state no longer holds is stopped: the module owns its child,
    * and what a left mode's server would still say reaches nobody. A follower, not a tenure, is
    * compared: a revival carries the same follower in a new tenure, its ends counted anew.
+   * While the state holds a session vellum pinned, every shell command starts at the project's
+   * root; the variable goes as the last such state leaves, and one the person set stays theirs.
    */
   function become(host: Host, next: State): void {
     const was = state;
     state = next;
+
+    if (pinned(next) !== pinned(was)) {
+      const value = pinned(next) ? "1" : undefined;
+
+      host.setProjectCwdFlag(value).catch((cause: unknown) => {
+        host.log(
+          `the project's working directory was not ${value === undefined ? "released" : "pinned"}: ${String(cause)}`,
+        );
+      });
+    }
 
     if (was.kind === "live" && (next.kind !== "live" || next.live !== was.live)) {
       was.live.child.end();
@@ -305,6 +325,10 @@ export const register: Register = (on) => {
     const session = sessionOf(state);
 
     if (session === null) return next(e);
+    const call = SHELLS.has(e.tool) ? shellCall(e.tool, e.input) : null;
+    const moved = call === null ? null : shellVerdict(call, session.workdir);
+
+    if (moved?.kind === "deny") return { decision: "deny", reason: moved.reason };
     // ponytail: the lock reads the file tools only, so a shell command the session's own flow
     // approves still writes anywhere; a command classifier is the upgrade if that ever bites.
     const path = editedPath(e.tool, e.input);

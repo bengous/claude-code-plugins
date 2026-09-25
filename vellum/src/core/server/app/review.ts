@@ -12,6 +12,7 @@ import { readDraft } from "../adapters/draft.ts";
 import {
   appendText,
   finalize as renameWorkspace,
+  HELD_RETRY_MS,
   listFiles,
   listReview,
   modifiedAt,
@@ -65,6 +66,8 @@ export type ReviewOptions = {
   readonly extensions: readonly ServerExtension[];
   /** What the directory cannot say at start: an approval already renamed it, for a server revived there. */
   readonly memory?: Memory | undefined;
+  /** How long a rename held on Windows is retried; `HELD_RETRY_MS` when not given. Tests shorten it. */
+  readonly heldRetryMs?: number | undefined;
 };
 
 export type DecisionResult =
@@ -534,7 +537,8 @@ export class Review {
 
     if (!slug.ok) return await this.failApprove(version, slug.error);
     await writeText(project, projectPath(`${workdir}${PLAN_FILE}`), approved);
-    const renamed = await renameWorkspace(project, workdir, slug.value);
+    const heldRetryMs = this.options.heldRetryMs ?? HELD_RETRY_MS;
+    const renamed = await renameWorkspace(project, workdir, slug.value, heldRetryMs);
 
     if (!renamed.ok) return await this.failApprove(version, renamed.error);
     const final = await readWorkspace(project, renamed.value);

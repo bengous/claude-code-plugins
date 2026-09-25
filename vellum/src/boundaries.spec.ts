@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
-import { dirname, join, relative, resolve } from "node:path";
+import { dirname, join, relative, resolve, sep } from "node:path";
 
 /**
  * What `.claude/rules/` says of the tree, held by a test: the domain does no IO, the hooks
@@ -8,11 +8,16 @@ import { dirname, join, relative, resolve } from "node:path";
  * an extension is a folder the core reaches through three registries.
  */
 
-const ROOT = join(import.meta.dir, "..");
+/** A path as the checks below read it, `/` between its folders: `node:path` answers `\` on Windows. */
+function slashed(path: string): string {
+  return path.replaceAll(sep, "/");
+}
 
-const CORE = join(ROOT, "src/core");
+const ROOT = slashed(join(import.meta.dir, ".."));
 
-const EXTENSIONS = join(ROOT, "src/extensions");
+const CORE = `${ROOT}/src/core`;
+
+const EXTENSIONS = `${ROOT}/src/extensions`;
 
 /** The `core/page` files the extensions import today, frozen: one more is a decision to take. */
 const PAGE_SURFACE = [
@@ -43,9 +48,9 @@ function sources(dir: string): string[] {
         /\.tsx?$/u.test(entry.name) &&
         !entry.name.includes(".test.") &&
         !entry.name.includes(".spec.") &&
-        !entry.parentPath.split("/").includes("fixtures"),
+        !slashed(entry.parentPath).split("/").includes("fixtures"),
     )
-    .map((entry) => join(entry.parentPath, entry.name));
+    .map((entry) => slashed(join(entry.parentPath, entry.name)));
 }
 
 function imports(file: string): string[] {
@@ -77,7 +82,7 @@ async function failingBareImports(files: readonly string[]): Promise<string[]> {
         await import(file);
       } catch (cause) {
         const frames = String(cause?.stack ?? "").split("\\n");
-        const thrownAt = frames.find((frame) => frame.includes("/src/")) ?? "";
+        const thrownAt = frames.find((frame) => /[\\\\/]src[\\\\/]/.test(frame)) ?? "";
         failed.push(file + ": " + String(cause) + " " + thrownAt.trim());
       }
     }
@@ -103,7 +108,11 @@ function relativeImports(dir: string): RelativeImport[] {
   return sources(dir).flatMap((file) =>
     imports(file)
       .filter((specifier) => specifier.startsWith("."))
-      .map((specifier) => ({ file, specifier, target: resolve(dirname(file), specifier) })),
+      .map((specifier) => ({
+        file,
+        specifier,
+        target: slashed(resolve(dirname(file), specifier)),
+      })),
   );
 }
 
@@ -140,7 +149,7 @@ describe("dependency direction", () => {
 
   test("an engine half runs on its own folder alone: the hooks module loads nothing of the server or the page", () => {
     const stray = sources("src/extensions")
-      .filter((file) => file.endsWith("/engine.ts") && dirname(file) !== EXTENSIONS)
+      .filter((file) => file.endsWith("/engine.ts") && slashed(dirname(file)) !== EXTENSIONS)
       .flatMap((file) =>
         valueImports(file)
           .filter((path) => !/^\.\/[a-z-]+\.ts$/u.test(path))
@@ -174,9 +183,9 @@ describe("the page without a browser", () => {
 describe("extensions", () => {
   test("an extension imports core/ and its own folder, never another extension", () => {
     const stray = relativeImports("src/extensions")
-      .filter(({ file }) => dirname(file) !== EXTENSIONS)
+      .filter(({ file }) => slashed(dirname(file)) !== EXTENSIONS)
       .filter(({ file, target }) => {
-        const own = join(EXTENSIONS, relative(EXTENSIONS, file).split("/")[0] ?? "");
+        const own = `${EXTENSIONS}/${slashed(relative(EXTENSIONS, file)).split("/")[0] ?? ""}`;
 
         return !target.startsWith(`${own}/`) && !target.startsWith(`${CORE}/`);
       })
@@ -201,7 +210,7 @@ describe("extensions", () => {
   test("an extension imports from core/page the frozen list alone", () => {
     const beyond = relativeImports("src/extensions")
       .filter(({ target }) => target.startsWith(`${CORE}/page/`))
-      .filter(({ target }) => !PAGE_SURFACE.includes(relative(join(CORE, "page"), target)))
+      .filter(({ target }) => !PAGE_SURFACE.includes(slashed(relative(`${CORE}/page`, target))))
       .map(({ file, specifier }) => `${short(file)} imports ${specifier}`);
 
     expect(beyond).toEqual([]);
@@ -217,7 +226,7 @@ describe("extensions", () => {
           return [`src/extensions/${id} holds no page.tsx, server.ts or engine.ts`];
 
         return present.flatMap(({ file, type, registry }) => {
-          const path = join(EXTENSIONS, id, file);
+          const path = `${EXTENSIONS}/${id}/${file}`;
           const declared = new RegExp(`export const \\w+: ${type} = \\{\\s*id: "([^"]+)"`, "u");
 
           return [
@@ -237,7 +246,7 @@ describe("extensions", () => {
   test("a page half is page.tsx: no ui.tsx anywhere", () => {
     const named = readdirSync(join(ROOT, "src"), { recursive: true, withFileTypes: true })
       .filter((entry) => entry.isFile() && entry.name === "ui.tsx")
-      .map((entry) => short(join(entry.parentPath, entry.name)));
+      .map((entry) => short(slashed(join(entry.parentPath, entry.name))));
 
     expect(named).toEqual([]);
   });

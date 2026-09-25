@@ -1,4 +1,4 @@
-import { isAbsolute, join, normalize, relative } from "node:path";
+import { isAbsolute, join, normalize, relative, sep } from "node:path";
 
 import type { ServerExtension } from "../../core/extension.ts";
 import type { DocLink, LinkRoots } from "../../core/protocol.ts";
@@ -8,8 +8,14 @@ import { parseProjectPath } from "../../core/server/domain/paths.ts";
 /** A Markdown link target, an `<img src>`, or a path in backticks: the skill lists artifacts by path. */
 const LINK_TARGETS = /(?:\]\(|<img[^>]*\ssrc="|`)([^)"`\s]+)/gu;
 
+/** On Windows a drive, `C:\` or `C:/`, is a path; elsewhere it stays the URL scheme it reads as. */
+const DRIVE = sep === "\\" ? /^[a-z]:[\\/]/iu : null;
+
 function isLocal(target: string): boolean {
-  return !/^[a-z][a-z0-9+.-]*:/iu.test(target) && !target.startsWith("#");
+  return (
+    (DRIVE?.test(target) === true || !/^[a-z][a-z0-9+.-]*:/iu.test(target)) &&
+    !target.startsWith("#")
+  );
 }
 
 function decoded(target: string): string {
@@ -36,8 +42,10 @@ export function linkedDocs(plan: string, roots: LinkRoots): readonly DocLink[] {
       ? [relative(roots.project, target)]
       : [".", roots.planDir].map((base) => normalize(join(base, target)));
 
-    for (const candidate of candidates) {
-      const parsed = parseProjectPath(candidate);
+    // `relative` answers a path on another Windows drive whole: it lies outside the project.
+    for (const candidate of candidates.filter((path) => !isAbsolute(path))) {
+      // `node:path` answers in the platform's separator: `\` on Windows, where a project path holds `/`.
+      const parsed = parseProjectPath(candidate.replaceAll(sep, "/"));
 
       if (parsed.ok) docs.push({ path: parsed.value, mediaType });
     }

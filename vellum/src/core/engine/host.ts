@@ -23,6 +23,9 @@ export type Host = {
 
   cwd: () => Promise<string>;
 
+  /** `$.session.root()`: where the session started; a shell `cd` does not move it. */
+  root: () => Promise<string>;
+
   /** `$.fs.stat(path, { resolve: true })`: `realPath` is where the path lands, and a missing path rejects. */
   stat: (path: string) => Promise<FsStat>;
 
@@ -60,4 +63,10 @@ export type Host = {
   invalidate: () => void;
 
   log: (text: string) => void;
+
+  /** `$.env.get("CLAUDE_BASH_MAINTAIN_PROJECT_WORKING_DIR")` */
+  projectCwdFlag: () => Promise<string | undefined>;
+
+  /** `$.env.set("CLAUDE_BASH_MAINTAIN_PROJECT_WORKING_DIR", value)`; `undefined` unsets it. */
+  setProjectCwdFlag: (value: string | undefined) => Promise<void>;
 };

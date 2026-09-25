@@ -22,7 +22,7 @@ import {
   WORKDIR,
   world,
 } from "./fixtures/index.ts";
-import { type Landed, lockVerdict } from "./lock.ts";
+import { type Landed, lockVerdict, shellVerdict } from "./lock.ts";
 import { editedPath, parseChannel, parseServerLine } from "./parse.ts";
 import { submitResult } from "./relay.ts";
 
@@ -82,6 +82,68 @@ describe("lockVerdict", () => {
 
   test("another case of the working directory is not the working directory", () => {
     expect(lockVerdict("x", WORKDIR, landedOn(`${INSIDE.toUpperCase()}plan.md`))).toEqual(DENIED);
+  });
+});
+
+/** The folder's own name, as a command spells it: `wip-<sid8>`. */
+const FOLDER = WORKDIR.split("/").at(-2) ?? "";
+
+const MOVED = {
+  kind: "deny",
+  reason: `vellum is planning: stay at the project root and name files from there; a cd into ${WORKDIR} keeps the folder busy and blocks the approval on Windows`,
+};
+
+const BACKGROUND = {
+  kind: "deny",
+  reason: `vellum is planning: a background command that uses ${WORKDIR} keeps the folder busy and blocks the approval on Windows; run it in the foreground`,
+};
+
+const shell = (command: string, background = false) =>
+  shellVerdict({ command, background }, WORKDIR);
+
+describe("shellVerdict", () => {
+  test("cd, pushd, Set-Location -Path and sl into the folder are refused, in a compound command and in any case", () => {
+    expect(shell(`cd ${WORKDIR}`)).toEqual(MOVED);
+    expect(shell(`ls && pushd ./${WORKDIR} && sed -i s/a/b/ plan.md`)).toEqual(MOVED);
+    expect(shell(`Set-Location -Path ${WORKDIR.toUpperCase()}`)).toEqual(MOVED);
+    expect(shell(`(sl ${WORKDIR}); Get-ChildItem`)).toEqual(MOVED);
+  });
+
+  test("a quoted target that holds a space is refused", () => {
+    expect(shell(`cd "C:\\Users\\Jean Dupont\\project\\plans\\x\\${FOLDER}"`)).toEqual(MOVED);
+  });
+
+  test("a command in the foreground that reads a file of the folder without entering it passes", () => {
+    expect(shell(`sed -n 1,20p ${WORKDIR}plan.md`)).toEqual({ kind: "check" });
+  });
+
+  test("the same command in the background is refused, and so is a tail -f on the folder", () => {
+    expect(shell(`sed -n 1,20p ${WORKDIR}plan.md`, true)).toEqual(BACKGROUND);
+    expect(shell(`tail -f ${WORKDIR}log`, true)).toEqual(BACKGROUND);
+  });
+
+  test("a command that puts itself in the background and names the folder is refused", () => {
+    expect(shell(`nohup bun --watch ${WORKDIR}proto.ts &`)).toEqual(BACKGROUND);
+    expect(shell(`bun ${WORKDIR}proto.ts & sleep 1`)).toEqual(BACKGROUND);
+    expect(shell(`Start-Process bun ${WORKDIR}proto.ts`)).toEqual(BACKGROUND);
+  });
+
+  test("a redirection or a && is no background", () => {
+    expect(shell(`bun ${WORKDIR}proto.ts 2>&1 && ls &>/dev/null`)).toEqual({ kind: "check" });
+  });
+
+  test("an unquoted target with an escaped space is refused", () => {
+    expect(shell(`cd /c/work/Jean\\ Dupont/proj/${WORKDIR}`)).toEqual(MOVED);
+  });
+
+  test("cd as a word of an argument moves nowhere, and passes", () => {
+    expect(shell(`grep -rn cd ${WORKDIR}plan.md`)).toEqual({ kind: "check" });
+    expect(shell(`git commit -m "then cd ${WORKDIR}"`)).toEqual({ kind: "check" });
+  });
+
+  test("a cd anywhere else passes", () => {
+    expect(shell("cd src && ls")).toEqual({ kind: "check" });
+    expect(shell(`cd plans && cat ${FOLDER}/plan.md`)).toEqual({ kind: "check" });
   });
 });
 

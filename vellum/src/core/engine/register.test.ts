@@ -15,6 +15,7 @@ import {
   LOST_RETRY_MS,
   OTHER_ID,
   OTHER_WORKDIR,
+  PIN,
   READY,
   relayed,
   reply,
@@ -25,6 +26,7 @@ import {
   stage,
   START_PROMPT,
   START_TIMEOUT_MS,
+  type Spawn,
   STARTS,
   STOP_PROMPT,
   storedSession,
@@ -79,6 +81,7 @@ describe("session.start into another session", () => {
       project: CWD,
       workdir: OTHER_WORKDIR,
       final: null,
+      pinnedCwd: true,
     };
 
     const seen = world(on, { stored: { [`session:${OTHER_ID}`]: other } });
@@ -184,6 +187,23 @@ describe("skill.prompt", () => {
     ]);
   });
 
+  test("the project is the session's root, not the directory Claude moved to before the way in", async ($, on) => {
+    const seen = world(on);
+    seen.cwd = `${CWD}/packages/app`;
+    await $.skill.prompt(START_PROMPT);
+
+    expect(seen.children[0]?.argv.slice(5, 7)).toEqual(["--project", CWD]);
+    expect(seen.children[0]?.cwd).toBe(CWD);
+  });
+
+  test("the server is spawned at the project's root, not in the session's directory", async ($, on) => {
+    const seen = world(on);
+
+    await $.skill.prompt(START_PROMPT);
+
+    expect(seen.children[0]?.cwd).toBe(CWD);
+  });
+
   test("a session id the live server does not belong to starts a second one", async ($, on) => {
     const seen = world(on);
 
@@ -272,6 +292,41 @@ describe("tool.check", () => {
       decision: "ask",
       rule: "Bash(sed -i *)",
     });
+  });
+
+  test("in the mode a cd into the working directory is refused on Bash, PowerShell and Monitor", async ($, on) => {
+    world(on);
+    on("tool.check", () => ENGINE);
+    await $.skill.prompt(START_PROMPT);
+    const command = `cd ${WORKDIR} && ls`;
+    const monitor = { description: "list", timeout_ms: 1000, command };
+
+    for (const [tool, input] of [
+      ["Bash", { command }],
+      ["PowerShell", { command }],
+      ["Monitor", monitor],
+    ] as const) {
+      expect(await $.tool.check({ tool, input }), tool).toMatchObject({ decision: "deny" });
+    }
+  });
+
+  test("in the mode a Bash run in the background that names the working directory is refused", async ($, on) => {
+    world(on);
+    on("tool.check", () => ENGINE);
+    await $.skill.prompt(START_PROMPT);
+    const input = { command: `tail -f ${WORKDIR}log`, run_in_background: true };
+
+    expect(await $.tool.check({ tool: "Bash", input })).toMatchObject({ decision: "deny" });
+    expect(await $.tool.check({ tool: "Bash", input: { command: input.command } })).toEqual(ENGINE);
+  });
+
+  test("outside the mode a cd into the working directory passes on", async ($, on) => {
+    world(on);
+    on("tool.check", () => ENGINE);
+
+    expect(await $.tool.check({ tool: "Bash", input: { command: `cd ${WORKDIR}` } })).toEqual(
+      ENGINE,
+    );
   });
 
   test("a session directory the engine refuses fails the lock closed", async ($, on) => {
@@ -578,6 +633,16 @@ describe("a server that ends", () => {
     expect(seen.children[1]?.argv.slice(-5)).toEqual(REVIVAL);
     expect(seen.statuses.at(-1)).toBeUndefined();
     expect(seen.logs).toContain(`the review server ended: ${JSON.stringify(ENDED)}`);
+  });
+
+  test("a server revived while Claude stands in the working directory starts at the project's root", async ($, on) => {
+    const seen = world(on);
+    await $.skill.prompt(START_PROMPT);
+    seen.cwd = `${CWD}/${WORKDIR}`;
+    seen.children[0]?.exit(ENDED);
+    await seen.clock.settle();
+
+    expect(seen.children[1]?.cwd).toBe(CWD);
   });
 
   test("an entry written after a revival is relayed: the follower goes on", async ($, on) => {
@@ -1113,5 +1178,92 @@ describe("what the reviewer sends comes back as a prompt", () => {
 
     expect(seen.prompts).toHaveLength(1);
     expect(seen.children).toHaveLength(1);
+  });
+});
+
+describe("every shell command starts at the project's root while the mode holds", () => {
+  test("/vellum:start sets the variable once the server is up, /vellum:stop unsets it", async ($, on) => {
+    const seen = world(on);
+    await $.skill.prompt(START_PROMPT);
+    expect(seen.env.get(PIN)).toBe("1");
+    await $.skill.prompt(STOP_PROMPT);
+    expect(seen.env.has(PIN)).toBe(false);
+  });
+
+  test("the approval unsets it", async ($, on) => {
+    const seen = world(on);
+    await $.skill.prompt(START_PROMPT);
+    emit(seen, approved(1));
+    await seen.clock.settle();
+    expect(seen.env.has(PIN)).toBe(false);
+  });
+
+  test("a launch that fails never sets it", async ($, on) => {
+    const seen = world(on, { spawn: () => REFUSED });
+    await $.skill.prompt(START_PROMPT);
+    expect(seen.envWrites).toEqual([]);
+  });
+
+  test("a variable the person set is theirs: neither the way in nor the way out touches it", async ($, on) => {
+    const seen = world(on, { env: { [PIN]: "true" } });
+    await $.skill.prompt(START_PROMPT);
+    expect(seen.store.get(`session:${SESSION_ID}`)).toMatchObject({ pinnedCwd: false });
+    await $.skill.prompt(STOP_PROMPT);
+    expect(seen.envWrites).toEqual([]);
+  });
+
+  test("after a reload in the mode, the way out still unsets the variable vellum set", async ($, on) => {
+    const seen = world(on, { stored: storedSession(), env: { [PIN]: "1" } });
+    await $.session.start(SESSION);
+    await $.skill.prompt(STOP_PROMPT);
+    expect(seen.env.has(PIN)).toBe(false);
+  });
+
+  test("a session.start from one planned session to another keeps it, and the second's way out unsets it", async ($, on) => {
+    const other = {
+      ...storedSession()[`session:${SESSION_ID}`],
+      id: OTHER_ID,
+      workdir: OTHER_WORKDIR,
+    };
+
+    const seen = world(on, { stored: { [`session:${OTHER_ID}`]: other } });
+    await $.skill.prompt(START_PROMPT);
+    seen.id = OTHER_ID;
+    await $.session.start(SESSION);
+    expect(seen.env.get(PIN)).toBe("1");
+    await $.skill.prompt(STOP_PROMPT);
+    expect(seen.env.has(PIN)).toBe(false);
+  });
+
+  test("a variable that cannot be read leaves the reload whole: the lock holds", async ($, on) => {
+    const seen = world(on, { stored: storedSession(SERVER, CWD, WORKDIR, null, false) });
+    seen.refuseEnv = "no env here";
+    on("tool.check", () => ENGINE);
+    await $.session.start(SESSION);
+
+    expect(
+      await $.tool.check({ tool: "Write", input: { file_path: `${CWD}/src/cli.ts` } }),
+    ).toEqual({ decision: "deny", reason: DENIAL });
+  });
+
+  test("a revival after a failed relaunch keeps the variable the mode set", async ($, on) => {
+    const spawn: Spawn = (child, run) => (run === 1 ? REFUSED : STARTS(child, run));
+    const seen = world(on, { stored: storedSession(SERVER, CWD, WORKDIR, null, false), spawn });
+
+    await $.session.start(SESSION);
+    await seen.clock.advance(LOST_RETRY_MS);
+
+    expect(seen.children).toHaveLength(2);
+    expect(seen.env.get(PIN)).toBe("1");
+  });
+
+  test("a revival writes the variable no second time", async ($, on) => {
+    const seen = world(on);
+    await $.skill.prompt(START_PROMPT);
+    seen.children[0]?.exit(ENDED);
+    await seen.clock.settle();
+
+    expect(seen.children).toHaveLength(2);
+    expect(seen.envWrites).toEqual([{ name: PIN, value: "1" }]);
   });
 });

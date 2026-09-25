@@ -25,7 +25,7 @@ const PROPOSAL: Proposal = {
 };
 
 const OPENED_FIRST =
-  /^The reviewer opened grill-1\.md on: auth\. Read \/.+\/src\/extensions\/grill\/grilling\.md, then ask with mcp__vellum__grill_ask\.$/u;
+  /^The reviewer opened grill-1\.md on: auth\. Read (?:\/|[A-Z]:\\).+[\\/]src[\\/]extensions[\\/]grill[\\/]grilling\.md, then ask with mcp__vellum__grill_ask\.$/u;
 
 const running: Started[] = [];
 

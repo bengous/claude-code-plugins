@@ -24,7 +24,8 @@ function pluginCopy(): string {
     recursive: true,
     filter: (from) => from !== join(ROOT, "node_modules"),
   });
-  symlinkSync(join(ROOT, "node_modules"), join(copy, "node_modules"));
+  // A junction on Windows, which creates one with no privilege; a symbolic link elsewhere.
+  symlinkSync(join(ROOT, "node_modules"), join(copy, "node_modules"), "junction");
 
   return copy;
 }

@@ -4,8 +4,8 @@
   "type": "module",
   "description": "Runtime dependencies of the vellum review server and its browser page",
   "scripts": {
-    "e2e": "bunx --bun playwright test --config e2e/playwright.config.ts",
-    "e2e:install": "bunx --bun playwright install chromium"
+    "e2e": "bun x --bun playwright test --config e2e/playwright.config.ts",
+    "e2e:install": "bun x --bun playwright install chromium"
   },
   "dependencies": {
     "@preact/signals": "2.11.2",
