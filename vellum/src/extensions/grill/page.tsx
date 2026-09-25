@@ -5,9 +5,7 @@ import type { PageExtension, RendererProps, SendShare } from "../../core/extensi
 import { extensionRequest } from "../../core/page/api.ts";
 import { Banner, Button, Chip } from "../../core/page/kit.tsx";
 import {
-  connection,
   docs,
-  editing,
   fail,
   outOnce,
   review,
@@ -20,17 +18,8 @@ import {
 } from "../../core/page/state.ts";
 import type { Typed } from "../../core/protocol.ts";
 import type { ProjectPath } from "../../core/server/domain/paths.ts";
-import {
-  answerOf,
-  chipTitle,
-  declineFailure,
-  endedOf,
-  footerOf,
-  phaseText,
-  progressOf,
-} from "./labels.ts";
+import { answerOf, chipTitle, endedOf, footerOf, phaseText, progressOf } from "./labels.ts";
 import { grillNumber } from "./parse.ts";
-import { GrillButton, Proposal } from "./proposal.tsx";
 import { AS_RECOMMENDED } from "./protocol.ts";
 import type { Block, GrillPosts, GrillState, Phase } from "./protocol.ts";
 import { roundNow, roundsOf } from "./rounds.ts";
@@ -43,12 +32,6 @@ const ID = "grill";
  * first answer. A refused read keeps it, so the panel stays as the reviewer left it.
  */
 const grill = signal<GrillState | null>(null);
-
-/** Whether the last read of the state was refused. */
-const refused = signal(false);
-
-/** What the Grill button and the modal read: no state past a refused read, which puts the modal on screen off. */
-const read = computed(() => (refused.value ? null : grill.value));
 
 /** What the band and the panel draw: the state kept, and none once approved, since the approval closed the grill. */
 const drawn = computed(() => (review.value?.workspace.kind === "approved" ? null : grill.value));
@@ -93,11 +76,7 @@ function forgetClosed(state: GrillState): void {
 async function loadState(): Promise<void> {
   const response = await extensionRequest(ID, "state");
 
-  if (!response.ok) {
-    refused.value = true;
-
-    return;
-  }
+  if (!response.ok) return;
 
   // SAFETY: the server's own `GrillState`, serialized by `Response.json` in grill/server.ts.
   const state = (await response.json()) as GrillState;
@@ -105,7 +84,6 @@ async function loadState(): Promise<void> {
 
   batch(() => {
     grill.value = state;
-    refused.value = false;
 
     if (state.kind === "open" && state.file !== ended.peek()?.file) ended.value = null;
   });
@@ -192,18 +170,6 @@ async function post<Name extends keyof GrillPosts>(
   else fail("send", failed(response.status));
 
   return response;
-}
-
-/** `true` once the proposal no longer waits on the reviewer: declined, or already answered or replaced (409). */
-async function decline(id: string): Promise<boolean> {
-  const response = await post("decline", { id }, declineFailure);
-
-  return response.ok || response.status === 409;
-}
-
-/** `true` once the grill opened; the document pane keeps what it shows, the panel comes beside it. */
-async function openGrill(subject: string): Promise<boolean> {
-  return (await post("open", { subject })).ok;
 }
 
 const NOTHING_TYPED: Typed["grill"][string] = { answers: {}, note: "" };
@@ -318,28 +284,6 @@ function EndGrill(props: {
   );
 }
 
-/** Why the Grill button is greyed, in its title; `null` while a grill can open. It hides while one is. */
-function grillWhy(state: GrillState | null): string | null {
-  if (connection.value === "down") return "The connection to the review server is lost";
-
-  if (editing.value !== null) return "Finish editing (Done) first";
-
-  return state === null ? "Loading the review" : null;
-}
-
-function GrillAction(): preact.JSX.Element | null {
-  const view = review.value;
-  const state = read.value;
-
-  useEffect(() => {
-    void loadState();
-  }, [view]);
-
-  return view?.workspace.kind === "approved" || drawn.value?.kind === "open" ? null : (
-    <GrillButton state={state} why={grillWhy(state)} />
-  );
-}
-
 /** Above the page while a grill is open: its subject, its round, the questions the reviewer has not touched, and End grill. */
 function GrillBand(props: {
   readonly state: Extract<GrillState, { kind: "open" }>;
@@ -387,21 +331,19 @@ function EndedNotice(): preact.JSX.Element | null {
   );
 }
 
+/** Read again at every workspace event: the grill a step opened, a round asked, a grill ended. */
 function GrillNotice(): preact.JSX.Element {
+  const view = review.value;
   const shown = drawn.value;
-  const state = read.value;
+
+  useEffect(() => {
+    void loadState();
+  }, [view]);
 
   return (
     <>
       <EndedNotice />
       {shown?.kind === "open" && <GrillBand state={shown} />}
-      <Proposal
-        state={state}
-        approved={review.value?.workspace.kind === "approved"}
-        why={grillWhy(state)}
-        onStart={openGrill}
-        onDecline={decline}
-      />
     </>
   );
 }
@@ -818,7 +760,6 @@ export const grillPage: PageExtension = {
       comments: false,
     },
   ],
-  actions: [GrillAction],
   notices: [GrillNotice],
   send: share,
   panel: { shown: () => drawn.value?.kind === "open", component: GrillPanel },

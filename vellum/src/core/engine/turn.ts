@@ -47,6 +47,16 @@ export function ownOf(turns: Turns, turnId: string): boolean {
   return running.kind === "turn" && running.turnId === turnId && running.own;
 }
 
+/**
+ * A tool call of the running turn returned an entry of the reviewer's, as a waiting tool's
+ * result: the reviewer spoke into the turn, so what Claude says next answers them.
+ */
+export function replied(turns: Turns): Turns {
+  const { running } = turns;
+
+  return running.kind === "turn" ? { ...turns, running: { ...running, own: true } } : turns;
+}
+
 /** `turn.complete` of the running turn; the end of any other one changes nothing. */
 export function completed(turns: Turns, turnId: string): Turns {
   const { running } = turns;

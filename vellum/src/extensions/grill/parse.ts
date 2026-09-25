@@ -1,4 +1,4 @@
-import type { Asked, CloseReason, GrillPosts, Question, Suggested, Waited } from "./protocol.ts";
+import type { Asked, CloseReason, GrillPosts, Question, Waited } from "./protocol.ts";
 
 /** The boundary of `grill`: what a request carries arrives as `unknown` and is parsed here, once. */
 
@@ -49,22 +49,9 @@ function subjectText(value: unknown): string | null {
   return subject === null || LINE_BREAK.test(subject) ? null : subject;
 }
 
-/** `POST open`: the subject the reviewer typed. */
-export function parseSubject(body: unknown): string | null {
-  return isRecord(body) ? subjectText(body.subject) : null;
-}
-
-/** A `grill_suggest` call and `POST suggest`: a subject and a reason, neither empty. */
-export function parseSuggestion(input: unknown): Suggested | null {
-  const subject = isRecord(input) ? subjectText(input.subject) : null;
-  const reason = isRecord(input) ? text(input.reason) : null;
-
-  return subject === null || reason === null ? null : { subject, reason };
-}
-
-/** `POST decline`: the id of the proposal the page showed. */
-export function parseDecline(body: unknown): GrillPosts["decline"] | null {
-  return isRecord(body) && typeof body.id === "string" && body.id !== "" ? { id: body.id } : null;
+/** What `start` takes: the subject of the grill the reviewer opens. */
+export function parseSubject(input: unknown): string | null {
+  return isRecord(input) ? subjectText(input.subject) : null;
 }
 
 export function parseCloseReason(body: unknown): CloseReason | null {

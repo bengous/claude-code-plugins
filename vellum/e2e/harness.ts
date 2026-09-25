@@ -16,6 +16,7 @@ import type {
   GrillState,
   QuestionTriple,
 } from "../src/extensions/grill/protocol.ts";
+import type { Proposal, StepAnswer, StepState } from "../src/extensions/step/protocol.ts";
 
 /**
  * The browser suite's harness: `preview.ts` started on a copy of a fixture, its API driven
@@ -70,10 +71,17 @@ export type Vellum = {
   /** Replaces the served `plan.md`, as Claude's revision would. */
   writePlan(text: string): void;
   writeFile(name: string, text: string): void;
+  readonly step: {
+    /** `POST propose`, as `mcp__vellum__propose` posts it: answered at once with the id it waits under. */
+    propose(proposal: Proposal): Promise<Reply>;
+    /** Answers the proposal waiting under the id the server gave it, as another tab's window would. */
+    answer(answer: StepAnswer): Promise<Reply>;
+    state(): Promise<Reply>;
+    /** `POST wait` on the proposal `id`, as a waiting `propose` holds it. */
+    wait(id: string): Promise<Reply>;
+  };
   readonly grill: {
-    suggest(subject: string, reason: string): Promise<Reply>;
-    /** Declines the pending proposal under the id the server gave it, as another tab's Decline would. */
-    decline(): Promise<Reply>;
+    /** A grill of the reviewer's own, opened as the "Next step" window opened blank opens one. */
     open(subject: string): Promise<Reply>;
     ask(questions: readonly QuestionTriple[]): Promise<Reply>;
     /**
@@ -241,19 +249,25 @@ export async function startVellum(
       mkdirSync(dirname(join(workdir, name)), { recursive: true });
       writeFileSync(join(workdir, name), text);
     },
-    grill: {
-      suggest: (subject, reason) => api("x/grill/suggest", { subject, reason }),
-      decline: async () => {
-        // SAFETY: the server's own `GrillState`, serialized by `Response.json` in grill/server.ts.
-        const state = (await api("x/grill/state")).json as GrillState;
+    step: {
+      propose: (proposal) => api("x/step/propose", proposal),
+      answer: async (answer) => {
+        // SAFETY: the server's own `StepState`, serialized by `Response.json` in step/server.ts.
+        const { pending } = (await api("x/step/state")).json as StepState;
 
-        if (state.kind === "open" || state.proposal?.kind !== "pending") {
-          throw new Error("no proposal is pending");
-        }
+        if (pending === null) throw new Error("no proposal is pending");
 
-        return api("x/grill/decline", { id: state.proposal.suggestion.id });
+        return api("x/step/answer", { id: pending.id, answer });
       },
-      open: (subject) => api("x/grill/open", { subject }),
+      state: () => api("x/step/state"),
+      wait: (id) => api("x/step/wait", { id }),
+    },
+    grill: {
+      open: (subject) =>
+        api("x/step/answer", {
+          id: null,
+          answer: { kind: "move", move: { kind: "grill", subject, choices: [] } },
+        }),
       ask: (questions) => api("x/grill/ask", { q: questions }),
       answer: (text, turn = {}) =>
         api("x/grill/answer", { text, reason: "answer", own: true, asked: false, ...turn }),
@@ -492,4 +506,35 @@ export function contrast(fg: string, bg: string): number {
   const [light = 0, dark = 0] = [luminance(fg), luminance(bg)].toSorted((a, b) => b - a);
 
   return (light + 0.05) / (dark + 0.05);
+}
+
+/** A text's contrast on the nearest box that paints a background, its own or an ancestor's, both as a canvas paints them. */
+export async function onItsSurface(text: Locator): Promise<number> {
+  await settled(text.page());
+
+  const [color, background] = await text.evaluate((node) => {
+    const context = document.createElement("canvas").getContext("2d");
+
+    if (context === null) throw new Error("no 2d context");
+
+    const paint = (css: string): readonly number[] => {
+      context.clearRect(0, 0, 1, 1);
+      context.fillStyle = css;
+      context.fillRect(0, 0, 1, 1);
+
+      return [...context.getImageData(0, 0, 1, 1).data];
+    };
+
+    let surface: Element = node;
+
+    while (paint(getComputedStyle(surface).backgroundColor)[3] === 0 && surface.parentElement) {
+      surface = surface.parentElement;
+    }
+
+    const rgb = (css: string): string => `rgb(${paint(css).slice(0, 3).join(", ")})`;
+
+    return [rgb(getComputedStyle(node).color), rgb(getComputedStyle(surface).backgroundColor)];
+  });
+
+  return contrast(color, background);
 }

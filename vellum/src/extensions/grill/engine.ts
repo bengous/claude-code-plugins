@@ -13,12 +13,12 @@ import {
   parseIsOpen,
   parseJson,
   parseQuestions,
-  parseSuggestion,
   parseWaited,
 } from "./parse.ts";
 import { ASK_TOOL, type GrillPosts } from "./protocol.ts";
 
-const SUGGEST_TOOL = "mcp__vellum__grill_suggest";
+/** `step`'s tool, the one way to a grill: named, never imported, since an extension loads its own folder alone. */
+const PROPOSE_TOOL = "mcp__vellum__propose";
 
 /** What the person at the terminal must know, and the agent must not read: a prompt typed there is not the grill's. */
 const SEGMENT_OPEN = "grill · open";
@@ -28,9 +28,6 @@ const grillOpen = new WeakSet<Live>();
 
 /** The modes whose running turn asked a round no answer came back to: its text goes with that round, before a reply sent meanwhile. */
 const askedIn = new WeakSet<Live>();
-
-/** The modes whose running turn got a round's answer as the tool's result: its text answers the reviewer. */
-const repliedIn = new WeakSet<Live>();
 
 const CLOSED_WITHOUT_SEND =
   "The round was closed from the page: what the reviewer sent arrives as a prompt. End your turn.";
@@ -62,10 +59,9 @@ async function waitFor(context: ToolContext, file: string, first: number): Promi
     if (waited.kind === "open") continue;
     askedIn.delete(context.live);
 
-    if (waited.kind === "ended") return { result: CLOSED_WITHOUT_SEND };
-    repliedIn.add(context.live);
-
-    return { result: waited.text, returns: waited.seq };
+    return waited.kind === "ended"
+      ? { result: CLOSED_WITHOUT_SEND }
+      : { result: waited.text, returns: waited.seq };
   }
 }
 
@@ -73,7 +69,7 @@ async function waitFor(context: ToolContext, file: string, first: number): Promi
 const ASK: ExtensionTool = {
   name: "grill_ask",
   description:
-    "Ask one round of the open grill of a vellum planning session, and wait: the reviewer answers in the review page, and their reply is this call's result. q: one [title, question, recommendation] per question; title is one line of plain text, question and recommendation are Markdown; the page numbers them across the whole grill. Refused outside vellum planning, and when no grill is open: only the reviewer opens one, after grill_suggest or on their own.",
+    "Ask one round of the open grill of a vellum planning session, and wait: the reviewer answers in the review page, and their reply is this call's result. q: one [title, question, recommendation] per question; title is one line of plain text, question and recommendation are Markdown; the page numbers them across the whole grill. Refused outside vellum planning, and when no grill is open: only the reviewer opens one, from the next step you propose or on their own.",
   inputSchema: {
     type: "object",
     properties: {
@@ -108,42 +104,9 @@ const ASK: ExtensionTool = {
 
     const error = parseError(parseJson(response.text));
 
-    if (error === NO_GRILL_OPEN) return { deny: `no grill open: suggest one with ${SUGGEST_TOOL}` };
+    if (error === NO_GRILL_OPEN) return { deny: `no grill open: propose one with ${PROPOSE_TOOL}` };
 
     return { deny: error ?? `the review server answered ${response.status}` };
-  },
-};
-
-const SUGGEST: ExtensionTool = {
-  name: "grill_suggest",
-  description:
-    "Suggest a grill to the reviewer in the review page of a vellum planning session: the subject, and in one sentence why the choices need them. It opens nothing: end your turn, and the reviewer starts it from the page, or declines it; a decline arrives as a prompt. Refused outside vellum planning, and while a grill is open.",
-  inputSchema: {
-    type: "object",
-    properties: { subject: { type: "string" }, reason: { type: "string" } },
-    required: ["subject", "reason"],
-  },
-  call: async (context, input): Promise<ToolAnswer> => {
-    const suggestion = parseSuggestion(input);
-
-    if (suggestion === null) {
-      return { deny: "subject and reason must both be non-empty strings, the subject on one line" };
-    }
-
-    const response = await post(context, "suggest", suggestion);
-
-    if (response.ok) {
-      return { result: "Suggested. End your turn; the reviewer opens the grill from the page." };
-    }
-
-    const error = parseError(parseJson(response.text));
-
-    return {
-      deny:
-        response.status === 409 && error !== null
-          ? `${error}: ask with ${ASK_TOOL}`
-          : `the review server answered ${response.status}`,
-    };
   },
 };
 
@@ -159,10 +122,10 @@ async function staged({ live, api }: EngineContext): Promise<void> {
 
 export const grillEngine: EngineExtension = {
   id: "grill",
-  tools: [SUGGEST, ASK],
+  tools: [ASK],
   // The page is the reviewer's one channel while live, so the terminal's question tool is closed.
   refuses: {
-    AskUserQuestion: `vellum is live: suggest a grill with ${SUGGEST_TOOL}, or ask inside an open grill with ${ASK_TOOL}`,
+    AskUserQuestion: `vellum is live: propose the next step with ${PROPOSE_TOOL}, or ask inside an open grill with ${ASK_TOOL}`,
   },
   // A command of the session is the harness's, kept as an event; what the reviewer types in the
   // terminal is not the grill's. The server writes only while a grill is open.
@@ -173,8 +136,7 @@ export const grillEngine: EngineExtension = {
   },
   answered: async (context, turn) => {
     const asked = askedIn.delete(context.live);
-    const own = repliedIn.delete(context.live) || turn.own;
-    await post(context, "answer", { ...turn, own, asked });
+    await post(context, "answer", { ...turn, asked });
   },
   staged,
   segment: ({ live }) => (grillOpen.has(live) ? SEGMENT_OPEN : null),

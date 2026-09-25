@@ -145,7 +145,7 @@ loop. `/vellum:start` enters it, Approve in the page or `/vellum:stop` leaves it
   arrives on the server's stdout and is handed to the session by `$.prompt.submit`, which,
   called while a turn runs, resolves once that prompt's own turn starts: the relays run in a
   queue of their own, never in the loop that reads the child.
-- A tool call may wait for the reviewer instead (`grill_ask`): it keeps one `$.http.fetch` in
+- A tool call may wait for the reviewer instead (`grill_ask`, `propose`): it keeps one `$.http.fetch` in
   flight at all times, each held by the server under the engine's 30 s cut, so the budget never
   runs (a promise awaited alone overruns it). It says `waiting` on its `ToolContext`, and from
   then on the tenure's follower holds every entry its tool `awaits` (`claim` in `relay.ts`)
@@ -153,7 +153,9 @@ loop. `/vellum:start` enters it, Approve in the page or `/vellum:stop` leaves it
   aborted the call as it answered) is never relayed, and the others go once the call ended. The
   hold is what keeps one Send from reaching Claude twice: its line on stdout and the server's
   answer to the wait come by two paths, in either order. After Escape the call's `$` fail, its
-  wait ends, and what it held goes through the channel.
+  wait ends, and what it held goes through the channel. A failed wait is asked once more at
+  once, no pause, so a `$` call stays in flight and the budget never runs: after a crash that
+  second one usually reaches the revived server, whose `gone` tells Claude to propose again.
 - Everything the reviewer sends reaches Claude as an entry of the channel,
   `.review/channel.jsonl`, numbered by its line (`server.md`). One follower per session in a
   module's environment relays each entry once and in order (`follow` in `relay.ts`): it belongs to
@@ -209,8 +211,10 @@ loop. `/vellum:start` enters it, Approve in the page or `/vellum:stop` leaves it
 - `turn.start` carries no origin (`TurnStartInput` is a text and a turn id), so whose turn it
   is comes from `prompt.submit`, through `turn.ts`: `prompt.submit` notes the last prompt that
   entered with its origin, before `next(e)`; `turn.start` takes the note, and the turn is
-  vellum's own when its text holds the noted text of a vellum relay; `turn.complete` of that
-  turn id hands `own` to the halves' `answered`. It is the core's one thing the module knows
+  vellum's own when its text holds the noted text of a vellum relay, or from the moment a
+  waiting tool of it returns an entry of the reviewer's (`replied`, a `grill_ask` answered, a
+  `propose` whose pick opened a grill); `turn.complete` of that turn id hands `own` to the
+  halves' `answered`. It is the core's one thing the module knows
   that the server does not, and it is not a variant of `State`: it says who started a turn,
   nothing about what is allowed. Two facts, the waiting note and the running turn, since a prompt may
   enter while a turn runs; each is a union of its own, never a nullable. `register.ts` resets
@@ -220,9 +224,8 @@ loop. `/vellum:start` enters it, Approve in the page or `/vellum:stop` leaves it
   keeps it in memory, keyed by the mode's `Live`: `grill` marks the turn whose `grill_ask` the
   server took and no answer came back to (`askedIn`, a `WeakSet` in `grill/engine.ts`) and clears
   the mark at `answered`, which posts it as `asked`, so the text of a turn cut short is written
-  with its round even after a reply the reviewer sent meanwhile; a turn the answer came back to
-  (`repliedIn`) is the grill's own, its text written after the reply. A reload between the two
-  loses the mark: the text then goes where a turn that asked nothing writes it.
+  with its round even after a reply the reviewer sent meanwhile. A reload between the two loses
+  the mark: the text then goes where a turn that asked nothing writes it.
 - Every miss of `turn.ts` falls on one side, a turn whose text is written nowhere: a reload
   between the hooks, a text a hook beneath rewrote, and the known one, a relay and a typed
   prompt that wait together, which leave one note, the last. It is one note and never a

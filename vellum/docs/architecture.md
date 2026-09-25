@@ -113,7 +113,7 @@ sequenceDiagram
   M->>CC: $.prompt.submit ("Reviewer sent: read <path>." | "Plan vN approved, at <dir>. Read <notes file> first.")
 ```
 
-## A grill
+## The next step, then a grill
 
 ```mermaid
 sequenceDiagram
@@ -121,18 +121,16 @@ sequenceDiagram
   participant M as hooks module
   participant S as vellum serve
   participant P as page
-  C->>M: tool.call grill_suggest {subject, reason}
-  M->>S: POST /api/x/grill/suggest, the slot pending under a new id
-  S-->>P: workspace event, the modal over the page, or the Grill button's dot under a typing
-  opt the reviewer declines it instead
-    P->>S: POST /api/x/grill/decline {id}, the slot declined, the decline on the channel
-    S-->>M: stdout: the entry
-    M->>C: $.prompt.submit ("The reviewer declined the grill on: <subject>.")
-  end
-  P->>S: POST /api/x/grill/open {subject}
-  S->>S: writes grill-1.md, its header, and the opening on the channel
-  S-->>M: stdout: the entry
-  M->>C: $.prompt.submit (the opening)
+  C->>M: tool.call propose {reason, moves, recommended}
+  M->>S: POST /api/x/step/propose, pending under a new id (refused while a grill holds the review), then POST wait, held under 30 s, again and again
+  S-->>P: workspace event, the "Next step" window over the page, or the Next step button's dot under a typing
+  P->>S: POST /api/x/step/answer {id, answer}: a move picked, one of the reviewer's own, or their words
+  S->>S: a grill picked: ServerContext.start("grill") decides grill-1.md in the same step, writing nothing
+  S->>S: one text entry on the channel: "Accepted: <move>." | "Chose: <move>." | "Own: <text>.", the opening after it
+  S->>S: then the grill's commit writes grill-1.md, its header
+  S-->>M: stdout: the entry, held by the follower while propose waits
+  S-->>M: the wait's answer: the entry's number and its text
+  M->>C: the tool's result; the follower never relays that entry
   C->>M: tool.call grill_ask {q}
   M->>S: POST /api/x/grill/ask, a round opened, then POST wait, held under 30 s, again and again
   P->>S: POST /api/send (the bar's, parts included): the grill's part reads the reply, writing nothing
@@ -175,10 +173,17 @@ of the working directory alone; the end names the file. Every relay keeps the pl
 the lock lets Claude write in the working directory, the channel included, so an entry proves
 no human wrote it, and it must never reach Claude as the user's own words.
 
-The proposal alone lives in the server's memory, in one slot: `grill_suggest` fills it under a
-random id, a decline from the page turns it declined and tells Claude the fact on the channel,
-"The reviewer declined the grill on: <subject>.", a new proposal replaces either, and opening a
-grill empties it.
+What to do next is `step`'s, never the grill's: `propose` offers moves (a grill, a mockup, a
+prototype, the plan) and marks the one Claude recommends, which the window never checks. The
+proposal lives in the server's memory alone, one at a time. A new one replaces it and the
+approval takes it, and a wait on it says so (`ended`, `replaced` or `approved`: no step follows
+an approval); a restarted server knows none, so a wait on it reads `gone` and `propose` tells
+Claude to propose again. A wait that fails is asked once more at once, and two failures answer
+that the pick comes as a prompt. The window opened blank from the Next step button takes a step
+of the reviewer's own, and settles the proposal waiting, if any, never reading the pick against
+a recommendation it did not show. A grill opens only there, through
+`ServerContext.start`, in the answer's step of the queue: two never open, and `step` refuses a
+proposal while one holds the review (`ServerContext.held`).
 
 Claude's final text is written when its turn is the grill's own: `prompt.submit` notes the
 last prompt that entered and its origin, `turn.start`, which carries no origin itself, takes
@@ -314,9 +319,9 @@ config is a file of Vellum's own.
 
 Nothing below exists yet, and `grill` does without it: an option or a flag is added when
 someone asks to turn it. `grill` is the first that will: `enabled: false` there means no tool
-registered, no route, no action, no renderer, and step 2 of the `start` skill names
-`grill_suggest`, so whether the module adds that paragraph at `skill.prompt` only when `grill`
-is on is the question left open. The design to revisit with what `grill` taught is `extension-contract.md` in
+registered, no route, no action, no renderer, and step 1 of the `start` skill offers a
+`grill` move to `propose`, so whether the module adds that move at `skill.prompt` only when
+`grill` is on is the question left open. The design to revisit with what `grill` taught is `extension-contract.md` in
 `plans/2026-09-17/extensions-de-vellum-arbre-noms-et-garde-fous/`; in short:
 
 - A fourth file, `<id>/manifest.ts`: `id`, `required`, and the options as data (`boolean`,

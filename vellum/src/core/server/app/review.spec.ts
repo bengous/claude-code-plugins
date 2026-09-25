@@ -645,6 +645,104 @@ describe("a review an extension holds", () => {
     expect((await review.view()).held).toBeNull();
   });
 
+  test("an extension reads the hold through its context: the first extension's reason", async () => {
+    const hold = holding();
+    const { review } = setup([{ id: "quiet" }, hold.extension]);
+
+    expect(await review.context.inOrder(() => review.context.held())).toBeNull();
+    hold.reason = "grill 1 is open";
+
+    expect(await review.context.inOrder(() => review.context.held())).toBe("grill 1 is open");
+  });
+});
+
+describe("a request an extension holds", () => {
+  test("reads again at each wake, and answers the first read no longer waiting", async () => {
+    const { review } = setup([]);
+    const reads: string[] = [];
+    let state = "open";
+
+    const held = review.context.hold(
+      () => {
+        reads.push(state);
+
+        return Promise.resolve(state);
+      },
+      (value) => value === "open",
+    );
+
+    await Bun.sleep(5);
+    review.context.wake();
+    await Bun.sleep(5);
+    state = "answered";
+    review.context.wake();
+
+    expect(await held).toBe("answered");
+    expect(reads).toEqual(["open", "open", "answered"]);
+  });
+
+  test("answers at once what is not waiting, and a wake with nothing held does nothing", async () => {
+    const { review } = setup([]);
+    review.context.wake();
+
+    expect(
+      await review.context.hold(
+        () => Promise.resolve(1),
+        (value) => value === 0,
+      ),
+    ).toBe(1);
+  });
+});
+
+describe("an extension started from another's route", () => {
+  test("runs in the caller's step of the queue, and answers what Claude is told of it", async () => {
+    const order: string[] = [];
+
+    const started: ServerExtension = {
+      id: "started",
+      start: (_, input) => {
+        order.push(`start ${JSON.stringify(input)}`);
+
+        return Promise.resolve({
+          ok: true,
+          value: { told: "opened", commit: () => Promise.resolve() },
+        });
+      },
+    };
+
+    const { review } = setup([started]);
+
+    const first = review.context.inOrder(async () => {
+      const opened = await review.context.start("started", { subject: "a" });
+      order.push("caller");
+
+      return opened;
+    });
+
+    const second = review.context.inOrder(() => {
+      order.push("next step");
+
+      return Promise.resolve();
+    });
+
+    expect(await first).toMatchObject({ ok: true, value: { told: "opened" } });
+    await second;
+    expect(order).toEqual(['start {"subject":"a"}', "caller", "next step"]);
+  });
+
+  test("an id no extension starts is refused, naming it", async () => {
+    const { review } = setup([{ id: "quiet" }]);
+
+    expect(await review.context.start("quiet", {})).toEqual({
+      ok: false,
+      error: "no extension quiet starts",
+    });
+    expect(await review.context.start("nobody", {})).toEqual({
+      ok: false,
+      error: "no extension nobody starts",
+    });
+  });
+
   test("an approval goes through, and `approved` runs after the rename, on the final directory", async () => {
     const seen: string[] = [];
 

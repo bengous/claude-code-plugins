@@ -1,30 +1,12 @@
 import { describe, expect, test } from "bun:test";
 
-import {
-  answerOf,
-  chipTitle,
-  declineFailure,
-  endedOf,
-  footerOf,
-  phaseText,
-  progressOf,
-} from "./labels.ts";
+import { answerOf, chipTitle, endedOf, footerOf, phaseText, progressOf } from "./labels.ts";
 
 describe("footerOf", () => {
   test("names who ended the grill, never the reason's code", () => {
     expect(footerOf("page")).toBe("Ended by you");
     expect(footerOf("stop")).toBe("Ended by /vellum:stop");
     expect(footerOf("approved")).toBe("Ended at approval");
-  });
-});
-
-describe("declineFailure", () => {
-  test("says a 409 is a proposal no longer pending, and where a decline that did not land waits", () => {
-    expect(declineFailure(409)).toBe("Claude's proposal was already answered or replaced.");
-    expect(declineFailure(null)).toBe(
-      "The decline did not reach the server: the proposal waits on the Grill button.",
-    );
-    expect(declineFailure(500)).toBe("The decline was refused: the server answered 500.");
   });
 });
 
@@ -75,9 +57,9 @@ describe("phaseText", () => {
 });
 
 describe("endedOf", () => {
-  test("counts the grill's decisions, and says Claude is back on the plan", () => {
-    expect(endedOf(8)).toBe("Grill ended: 8 decisions. Claude is back on the plan.");
-    expect(endedOf(1)).toBe("Grill ended: 1 decision. Claude is back on the plan.");
-    expect(endedOf(0)).toBe("Grill ended: 0 decisions. Claude is back on the plan.");
+  test("counts the grill's decisions, and says Claude proposes the next step", () => {
+    expect(endedOf(8)).toBe("Grill ended: 8 decisions. Claude proposes the next step.");
+    expect(endedOf(1)).toBe("Grill ended: 1 decision. Claude proposes the next step.");
+    expect(endedOf(0)).toBe("Grill ended: 0 decisions. Claude proposes the next step.");
   });
 });

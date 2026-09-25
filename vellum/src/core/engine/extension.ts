@@ -37,11 +37,11 @@ export type EngineContext = {
 export type ToolContext = EngineContext & { readonly waiting: () => void };
 
 export type ExtensionTool = {
-  /** Registered as `mcp__vellum__<name>`; starts with the extension's id. */
+  /** Registered as `mcp__vellum__<name>`, one name per tool across the extensions (`register.spec.ts`). */
   readonly name: string;
   readonly description: string;
   readonly inputSchema: NonNullable<ToolSpec["inputSchema"]>;
-  /** The entries a call that waits may return as its result: `grill_ask`, the batch that closes its round. */
+  /** The entries a call that waits may return as its result: `grill_ask`, the batch that closes its round; `propose`, the answer to it. */
   readonly awaits?: (entry: ChannelEntryWire) => boolean;
   // oxlint-disable-next-line anti-slop/no-unknown-parameters -- `input` is the tool call as the engine hands it, the model's own arguments; the extension's `parse.ts` is the boundary that reads it.
   readonly call: (context: ToolContext, input: unknown) => Promise<ToolAnswer>;
@@ -49,7 +49,10 @@ export type ExtensionTool = {
 
 export type Prompted = { readonly text: string; readonly origin: PromptOrigin };
 
-/** `own`: a vellum relay started the turn, so its text answers the reviewer, not the terminal. */
+/**
+ * `own`: a vellum relay started the turn, or a waiting tool returned the reviewer's entry in it,
+ * so its text answers the reviewer, not the terminal.
+ */
 export type Answered = {
   readonly text: string;
   readonly reason: string;

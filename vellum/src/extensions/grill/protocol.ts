@@ -7,22 +7,6 @@ export const ASK_TOOL = "mcp__vellum__grill_ask";
 
 export type Question = { readonly title: string; readonly ask: string; readonly rec: string };
 
-/** A proposal of Claude's, under the id the server gave it. */
-export type Suggestion = { readonly id: string; readonly subject: string; readonly reason: string };
-
-/** What `grill_suggest` sends; the server gives the id. */
-export type Suggested = { readonly subject: string; readonly reason: string };
-
-export type Declined = { readonly id: string; readonly subject: string };
-
-/**
- * The server's one proposal slot: `grill_suggest` fills it, a decline turns it declined, a new
- * proposal replaces either, and opening a grill empties it.
- */
-export type Proposal =
-  | { readonly kind: "pending"; readonly suggestion: Suggestion }
-  | { readonly kind: "declined"; readonly declined: Declined };
-
 /**
  * Where an open grill stands, read off its file: a question waits for the reviewer (`asking`),
  * the reviewer spoke last (`working`), or Claude did, its turn ended on its answer (`idle`) or
@@ -31,7 +15,7 @@ export type Proposal =
 export type Phase = "working" | "asking" | "idle" | "stopped";
 
 export type GrillState =
-  | { readonly kind: "none"; readonly proposal: Proposal | null }
+  | { readonly kind: "none" }
   | {
       readonly kind: "open";
       readonly file: ProjectPath;
@@ -92,17 +76,10 @@ export type Waited =
   | { readonly kind: "ended" }
   | { readonly kind: "open" };
 
-/** What `POST open` answers: the file the grill was written to, and nothing of its state. */
-export type Opened = { readonly file: ProjectPath };
-
 /** The body each `POST /api/x/grill/<name>` takes, by route name. */
 export type GrillPosts = {
-  readonly open: { readonly subject: string };
   readonly close: { readonly reason: CloseReason };
   readonly ask: { readonly q: readonly QuestionTriple[] };
-  readonly suggest: Suggested;
-  /** Refused unless `id` names the pending proposal: a tab kept since cannot decline a newer one. */
-  readonly decline: { readonly id: string };
   /** Held until the round whose first question is `first` closes, or for the hold at most. */
   readonly wait: { readonly file: string; readonly first: number };
   /** A command of the session (`/vellum:start`, `/clear`): the harness's, written as an event. */

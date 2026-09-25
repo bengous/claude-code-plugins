@@ -1,30 +1,25 @@
 import { describe, expect, test } from "bun:test";
 
-import type { ProjectPath } from "../../core/server/domain/paths.ts";
-import type { Asking } from "./modal.ts";
+import type { Asking, WindowState } from "./modal.ts";
 import { answerFailed, answering, askingOn, dotOf, modalOf, putOff } from "./modal.ts";
-import type { GrillState, Suggestion } from "./protocol.ts";
+import type { Pending, Proposal } from "./protocol.ts";
 
-const IDEA: Suggestion = { id: "p1", subject: "auth", reason: "three choices" };
-
-const NEXT_IDEA: Suggestion = { id: "p2", subject: "cache", reason: "two choices" };
-
-const PENDING: GrillState = {
-  kind: "none",
-  proposal: { kind: "pending", suggestion: IDEA },
+const PROPOSAL: Proposal = {
+  reason: "three choices",
+  moves: [{ kind: "grill", subject: "auth", choices: [] }, { kind: "plan" }],
+  recommended: 0,
 };
 
-const NEXT: GrillState = {
-  kind: "none",
-  proposal: { kind: "pending", suggestion: NEXT_IDEA },
-};
+const IDEA: Pending = { id: "p1", proposal: PROPOSAL };
 
-const NONE: GrillState = { kind: "none", proposal: null };
+const NEXT_IDEA: Pending = { id: "p2", proposal: { ...PROPOSAL, recommended: 1 } };
 
-const DECLINED: GrillState = {
-  kind: "none",
-  proposal: { kind: "declined", declined: { id: "p1", subject: "auth" } },
-};
+const PENDING: WindowState = { pending: IDEA, held: null };
+
+const NEXT: WindowState = { pending: NEXT_IDEA, held: null };
+
+/** Nothing waits: none was proposed, or the one shown was answered elsewhere. */
+const NONE: WindowState = { pending: null, held: null };
 
 const AUTO: Asking = { kind: "auto" };
 
@@ -35,7 +30,7 @@ const BLANK: Asking = { kind: "asked", on: null };
 describe("a proposal landing", () => {
   test("on a quiet page opens the modal on it", () => {
     expect(askingOn(PENDING, AUTO, true)).toEqual(ON_IDEA);
-    expect(modalOf(PENDING, ON_IDEA, false)).toEqual({ kind: "proposal", suggestion: IDEA });
+    expect(modalOf(PENDING, ON_IDEA, false)).toEqual({ kind: "proposal", pending: IDEA });
   });
 
   test("on a typing is put off at once, and the modal stays hidden", () => {
@@ -62,15 +57,15 @@ describe("a proposal landing while the modal is up", () => {
 
   test("leaves the proposal it replaced on screen, and waits on the dot", () => {
     expect(askingOn(NEXT, ON_IDEA, true)).toEqual(ON_IDEA);
-    expect(modalOf(NEXT, ON_IDEA, false)).toEqual({ kind: "proposal", suggestion: IDEA });
+    expect(modalOf(NEXT, ON_IDEA, false)).toEqual({ kind: "proposal", pending: IDEA });
     expect(dotOf(NEXT, ON_IDEA)).toEqual(NEXT_IDEA);
   });
 });
 
 describe("the modal leaving by itself", () => {
-  test("on a proposal declined elsewhere asks nothing more", () => {
-    expect(modalOf(DECLINED, ON_IDEA, false)).toEqual({ kind: "hidden" });
-    expect(askingOn(DECLINED, ON_IDEA, true)).toEqual(AUTO);
+  test("on a proposal answered elsewhere asks nothing more", () => {
+    expect(modalOf(NONE, ON_IDEA, false)).toEqual({ kind: "hidden" });
+    expect(askingOn(NONE, ON_IDEA, true)).toEqual(AUTO);
   });
 
   test("on a load that failed is put off, as Esc would: it comes back on the dot, never alone", () => {
@@ -89,7 +84,7 @@ describe("Esc, Cancel or the backdrop", () => {
   });
 });
 
-describe("Start or Decline, in flight", () => {
+describe("an answer in flight", () => {
   test("draws no modal and no dot; the proposal does not open again", () => {
     const answered = answering(PENDING, "p1");
 
@@ -110,7 +105,7 @@ describe("Start or Decline, in flight", () => {
   });
 
   test("once the slot holds nothing pending, asks nothing more: the next proposal opens", () => {
-    expect(askingOn(DECLINED, answering(PENDING, "p1"), true)).toEqual(AUTO);
+    expect(askingOn(NONE, answering(PENDING, "p1"), true)).toEqual(AUTO);
   });
 
   test("on a proposal replaced meanwhile, leaves the new one on the dot, refused or not", () => {
@@ -121,24 +116,19 @@ describe("Start or Decline, in flight", () => {
   });
 });
 
-describe("the Grill button", () => {
+describe("the Next step button", () => {
   test("opens the proposal put off, or the modal blank with none", () => {
-    expect(modalOf(PENDING, ON_IDEA, false)).toEqual({ kind: "proposal", suggestion: IDEA });
+    expect(modalOf(PENDING, ON_IDEA, false)).toEqual({ kind: "proposal", pending: IDEA });
     expect(modalOf(NONE, BLANK, false)).toEqual({ kind: "blank" });
   });
 });
 
-describe("a grill that opens under the modal", () => {
-  test("ends the asking: the modal does not come back once that grill is over", () => {
-    const open: GrillState = {
-      kind: "open",
-      // SAFETY: a literal path for a fixture; the brand is the parser's to grant, and nothing here parses.
-      file: "plans/2026-09-23/wip-c95eaf71/grill-2.md" as ProjectPath,
-      subject: "auth",
-      phase: "working",
-    };
+describe("a hold that comes under the modal", () => {
+  test("ends the asking: the modal does not come back once the grill that holds is over", () => {
+    const held: WindowState = { pending: null, held: "grill 2 is open" };
 
-    expect(askingOn(open, BLANK, true)).toEqual(AUTO);
+    expect(askingOn(held, BLANK, true)).toEqual(AUTO);
+    expect(modalOf(held, BLANK, false)).toEqual({ kind: "hidden" });
   });
 });
 
@@ -146,12 +136,5 @@ describe("an approved page", () => {
   test("shows no modal, whatever the slot holds and whoever asks", () => {
     expect(modalOf(PENDING, ON_IDEA, true)).toEqual({ kind: "hidden" });
     expect(modalOf(NONE, BLANK, true)).toEqual({ kind: "hidden" });
-  });
-});
-
-describe("a declined proposal", () => {
-  test("opens nothing", () => {
-    expect(askingOn(DECLINED, AUTO, true)).toEqual(AUTO);
-    expect(dotOf(DECLINED, AUTO)).toBeNull();
   });
 });
