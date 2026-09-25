@@ -13,13 +13,13 @@ Hexagonal with a functional core: two hexagons (the hooks module, the server) an
 hooks/hooks.json               Claude Code's folder: it names the hooks module, nothing else lives there
 skills/start, skills/stop      the way in and the way out
 src/core/engine/               the engine adapter: register.ts spells `$`, the rest takes a `Host`
-        │ HTTP, token header
+        │ HTTP, token header, down; the server's stdout, up
 src/core/server/adapters/      http/routes.ts, http/serve.ts, fs.ts, browser.ts, vellum-build.ts: every IO
 src/core/server/app/review.ts  the use case: read, decide, apply
-src/core/server/domain/        pure, no IO: paths, workspace, review, feedback, diff, slug, links, vellum-build
-src/core/server/cli.ts         the entry point: `start` spawns `serve` detached
+src/core/server/domain/        pure, no IO: paths, workspace, channel, review, feedback, diff, slug, links, vellum-build
+src/core/server/cli.ts         the entry point: `serve`, which the hooks module spawns and reads
 src/core/server/preview.ts     the page alone on any directory of documents: a working copy, served, taken away
-src/core/protocol.ts           what crosses HTTP and an extension boundary; JSON
+src/core/protocol.ts           what crosses HTTP, the server's stdout and an extension boundary; JSON
 src/core/extension.ts          the contract an extension fills: PageExtension, ServerExtension
                                (EngineExtension lives with the hooks module, core/engine/extension.ts)
 src/core/page/                 the Preact page
@@ -56,7 +56,8 @@ CLAUDE_CODE_ENABLE_FUNCTION_HOOKS=1 claude -p --setting-sources project --settin
 ```
 
 Every command runs from the repository root; lint, types and format are the repository's
-gates, listed in its `AGENTS.md`. The server alone prints port and token and serves the page
+gates, listed in its `AGENTS.md`. The server alone prints its `ready` line, port and token, then
+a JSON line for each entry of the channel and each change of the review, and serves the page
 at `http://127.0.0.1:<port>/t/<token>/`; it exits once its last `POST /api/heartbeat` is past
 the grace and no tab holds the event stream (`WATCHDOG` in `http/serve.ts` holds both delays).
 Only the hooks module posts the heartbeat, the page does not: alone, an open tab keeps it for

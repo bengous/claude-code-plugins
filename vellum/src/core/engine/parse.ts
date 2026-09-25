@@ -1,6 +1,6 @@
 import type { HttpResponse } from "claude-code";
 
-import type { GateAnswer, Pending, PlanWorkspace } from "../protocol.ts";
+import type { ChannelLine, GateAnswer, PlanWorkspace, ServerLine } from "../protocol.ts";
 import type { ServerInfo, Session } from "./mode.ts";
 import type { Relayed } from "./relay.ts";
 
@@ -37,9 +37,11 @@ export type Json<T> = T extends object
         : { readonly [K in keyof T]: Json<T[K]> }
   : T;
 
-export type PendingWire = Json<Pending>;
-
 export type WorkspaceWire = Json<PlanWorkspace>;
+
+export type ChannelLineWire = Json<ChannelLine>;
+
+export type ChannelEntryWire = ChannelLineWire["entry"];
 
 /** Distributes over the workspace's variants: each keeps its `kind`, and its `version` where it has one. */
 type StageOf<W> = W extends { readonly kind: infer K; readonly version: infer V }
@@ -51,8 +53,14 @@ type StageOf<W> = W extends { readonly kind: infer K; readonly version: infer V 
 /** Where the plan stands, as much of the workspace as the band draws. */
 export type StageWire = StageOf<WorkspaceWire>;
 
-/** What one poll reads: what to relay, and where the plan stands. */
-export type PollWire = { readonly pending: PendingWire; readonly stage: StageWire };
+/**
+ * A line of the server's stdout as the module reads it: `ready` as the server it names and its
+ * channel's identity, a `stage` as the band draws it and where the review lives.
+ */
+export type ServerLineWire =
+  | { readonly type: "ready"; readonly info: ServerInfo; readonly channel: string }
+  | { readonly type: "channel"; readonly line: ChannelLineWire }
+  | { readonly type: "stage"; readonly stage: StageWire; readonly dir: Workdir };
 
 /** What `POST /api/gate` answers: the version the browser shows, or why it shows none. */
 export type GateWire = Json<GateAnswer>;
@@ -103,12 +111,14 @@ export function parseSession(value: unknown): Session | null {
     isRecord(value) &&
     typeof value.id === "string" &&
     typeof value.project === "string" &&
-    typeof value.workdir === "string"
+    typeof value.workdir === "string" &&
+    (value.final === null || typeof value.final === "string")
     ? {
         id: value.id as SessionId,
         server,
         project: value.project as ProjectDir,
         workdir: value.workdir as Workdir,
+        final: value.final as Workdir | null,
       }
     : null;
 }
@@ -121,50 +131,44 @@ export function parseJson(text: string): unknown {
   }
 }
 
-function parseBatch(value: unknown): Json<Pending & { kind: "drafts" }>["batches"][number] | null {
-  return isRecord(value) && typeof value.batch === "number" && typeof value.path === "string"
-    ? { batch: value.batch, path: value.path }
-    : null;
-}
-
 function isCount(value: unknown): value is number {
   return typeof value === "number" && Number.isInteger(value) && value >= 0;
 }
 
-/** What the store kept for this working directory; another directory's reads as nothing relayed. */
-export function parseRelayed(value: unknown, workdir: Workdir): Relayed {
-  return isRecord(value) &&
-    value.workdir === workdir &&
-    isCount(value.drafts) &&
-    isCount(value.version)
-    ? { workdir, drafts: value.drafts, version: value.version }
-    : { workdir, drafts: 0, version: 0 };
+/** What the store kept for this channel; another channel's reads as nothing relayed. */
+export function parseRelayed(value: unknown, channel: string): Relayed {
+  return isRecord(value) && value.channel === channel && isCount(value.seq)
+    ? { channel, seq: value.seq }
+    : { channel, seq: 0 };
 }
 
-function parsePending(value: unknown): PendingWire {
-  if (!isRecord(value)) return { kind: "none" };
+function parseEntry(value: unknown): ChannelEntryWire | null {
+  if (!isRecord(value)) return null;
 
-  if (value.kind === "drafts" && Array.isArray(value.batches)) {
-    const batches = value.batches.map(parseBatch).filter((batch) => batch !== null);
-
-    return batches.length === 0 ? { kind: "none" } : { kind: "drafts", batches };
+  if (value.kind === "sent") {
+    return typeof value.file === "string" ? { kind: "sent", file: value.file } : null;
   }
 
-  if (typeof value.version !== "number") return { kind: "none" };
+  if (value.kind === "text") {
+    return typeof value.from === "string" && typeof value.text === "string"
+      ? { kind: "text", from: value.from, text: value.text }
+      : null;
+  }
 
-  if (
-    value.kind === "approved" &&
+  return value.kind === "approved" &&
+    typeof value.version === "number" &&
     typeof value.dir === "string" &&
     (value.notes === null || typeof value.notes === "string")
-  ) {
-    return { kind: "approved", version: value.version, dir: value.dir, notes: value.notes };
-  }
+    ? { kind: "approved", version: value.version, dir: value.dir, notes: value.notes }
+    : null;
+}
 
-  if (value.kind === "feedback" && typeof value.path === "string") {
-    return { kind: "feedback", version: value.version, path: value.path };
-  }
+function parseChannelLine(value: unknown): ChannelLineWire | null {
+  const entry = isRecord(value) ? parseEntry(value.entry) : null;
 
-  return { kind: "none" };
+  return entry !== null && isRecord(value) && isCount(value.seq) && value.seq > 0
+    ? { seq: value.seq, entry }
+    : null;
 }
 
 function parseStage(value: unknown): StageWire | null {
@@ -185,20 +189,63 @@ function parseStage(value: unknown): StageWire | null {
 }
 
 /**
- * Throws on an answer it does not read, the shape of another version of the server included:
- * read as nothing pending, it would drop every decision of the reviewer without a word.
+ * One line of the server's stdout; `null` for a line this module does not read, which the caller
+ * logs: read as nothing, an entry would never reach Claude.
  */
-export function parsePoll(text: string): PollWire {
+export function parseServerLine(text: string): ServerLineWire | null {
   const value = parseJson(text);
-  const stage = isRecord(value) ? parseStage(value.workspace) : null;
 
-  if (!isRecord(value) || !("pending" in value) || stage === null) {
+  if (!isRecord(value)) return null;
+
+  if (value.type === "ready") {
+    const info = parseServerInfo(value);
+
+    const channel =
+      typeof value.channel === "string" && value.channel !== "" ? value.channel : null;
+
+    if (info === null || channel === null) return null;
+
+    // Held to the server's own line: a field it adds or renames fails the typecheck here.
+    const ready = { ...info, channel } satisfies Omit<
+      Json<Extract<ServerLine, { type: "ready" }>>,
+      "type"
+    >;
+
+    return { type: "ready", info, channel: ready.channel };
+  }
+
+  if (value.type === "channel") {
+    const line = parseChannelLine(value.line);
+
+    return line === null ? null : { type: "channel", line };
+  }
+
+  const workspace = value.type === "stage" && isRecord(value.workspace) ? value.workspace : null;
+  const stage = workspace === null ? null : parseStage(workspace);
+
+  return stage === null || typeof workspace?.dir !== "string"
+    ? null
+    : { type: "stage", stage, dir: workspace.dir as Workdir };
+}
+
+/**
+ * What `GET /api/channel` answers. Throws on an answer it does not read, the shape of another
+ * version of the server included: read as no entry, it would drop the reviewer's without a word.
+ */
+export function parseChannel(text: string): ChannelLineWire[] {
+  const value = parseJson(text);
+
+  const lines = Array.isArray(value)
+    ? value.map((line: unknown) => parseChannelLine(line))
+    : [null];
+
+  if (lines.includes(null)) {
     throw new Error(
-      `GET /api/pending answered a shape this module does not read: ${text.slice(0, 200)}`,
+      `GET /api/channel answered a shape this module does not read: ${text.slice(0, 200)}`,
     );
   }
 
-  return { pending: parsePending(value.pending), stage };
+  return lines.filter((line) => line !== null);
 }
 
 export function parseGate(response: HttpResponse): GateWire {

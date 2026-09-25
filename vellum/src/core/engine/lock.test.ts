@@ -3,6 +3,8 @@ import { describe, expect, test, tier } from "claude-code/testing";
 import {
   approved,
   changesRequested,
+  CHANNEL,
+  channelLine,
   CWD,
   DATE,
   DIR,
@@ -11,17 +13,18 @@ import {
   FINAL,
   inReview,
   link,
-  NOTHING_PENDING,
-  polled,
+  READY,
   refused,
   SERVER,
+  sent,
+  stage,
   START_PROMPT,
   storedSession,
   WORKDIR,
   world,
 } from "./fixtures/index.ts";
 import { type Landed, lockVerdict } from "./lock.ts";
-import { editedPath, parsePoll } from "./parse.ts";
+import { editedPath, parseChannel, parseServerLine } from "./parse.ts";
 import { submitResult } from "./relay.ts";
 
 tier("user");
@@ -316,32 +319,45 @@ describe("submitResult", () => {
   });
 });
 
-/** Where a poll whose workspace is `workspace`, as JSON, says the plan stands. */
+/** Where a `stage` line whose workspace is `workspace`, as JSON, says the plan stands; `null` when it is no line. */
 function stageOf(workspace: string) {
-  return parsePoll(`{"pending":${JSON.stringify(NOTHING_PENDING)},"workspace":${workspace}}`).stage;
+  const line = parseServerLine(`{"type":"stage","workspace":${workspace}}`);
+
+  return line?.type === "stage" ? line.stage : null;
 }
 
-describe("parsePoll", () => {
+describe("parseServerLine", () => {
+  test("ready names the server: its port, its token and its pid", () => {
+    expect(parseServerLine(JSON.stringify(READY))).toEqual({
+      type: "ready",
+      info: SERVER,
+      channel: CHANNEL,
+    });
+  });
+
   test("an approval's notes are a path or null", () => {
     const notes = `${FINAL}.review/v3.notes.md`;
 
-    expect(parsePoll(JSON.stringify(polled(approved(3, notes)))).pending).toEqual(
-      approved(3, notes),
-    );
-    expect(parsePoll(JSON.stringify(polled(approved(3)))).pending).toEqual(approved(3));
+    for (const entry of [approved(3, notes), approved(3)]) {
+      expect(parseServerLine(JSON.stringify(channelLine({ seq: 2, entry })))).toEqual({
+        type: "channel",
+        line: { seq: 2, entry },
+      });
+    }
   });
 
-  test("an approval whose notes are missing or no string is nothing to relay", () => {
+  test("an approval whose notes are missing or no string is no line", () => {
     const { notes: _, ...bare } = approved(3);
 
-    expect(parsePoll(JSON.stringify({ pending: bare, workspace: DRAFTING })).pending).toEqual({
-      kind: "none",
-    });
-    expect(
-      parsePoll(JSON.stringify({ pending: { ...bare, notes: 3 }, workspace: DRAFTING })).pending,
-    ).toEqual({
-      kind: "none",
-    });
+    for (const entry of [bare, { ...bare, notes: 3 }]) {
+      expect(
+        parseServerLine(JSON.stringify({ type: "channel", line: { seq: 2, entry } })),
+      ).toBeNull();
+    }
+  });
+
+  test("an entry is numbered from 1", () => {
+    expect(parseServerLine(JSON.stringify(channelLine({ seq: 0, entry: sent() })))).toBeNull();
   });
 
   test("the workspace is read as the band draws it: its kind, and the version once there is one", () => {
@@ -351,15 +367,27 @@ describe("parsePoll", () => {
       kind: "changesRequested",
       version: 2,
     });
+    expect(JSON.parse(JSON.stringify(stage(inReview(2))))).toMatchObject({ type: "stage" });
   });
 
-  test("an answer the module does not read is an error, never nothing pending", () => {
-    const unread = "GET /api/pending answered a shape this module does not read";
+  test("a line of another shape is none, for the caller to log", () => {
+    expect(
+      parseServerLine('{"pending":{"kind":"none"},"workspace":{"kind":"drafting"}}'),
+    ).toBeNull();
+    expect(parseServerLine("Listening on 4242")).toBeNull();
+    expect(stageOf('{"kind":"inReview"}'), "no version").toBeNull();
+    expect(stageOf('{"kind":"elsewhere","version":2}'), "an unknown kind").toBeNull();
+  });
+});
 
-    expect(() => parsePoll(JSON.stringify(approved(1))), "the shape before the workspace").toThrow(
-      unread,
-    );
-    expect(() => stageOf('{"kind":"inReview"}'), "no version").toThrow(unread);
-    expect(() => stageOf('{"kind":"elsewhere","version":2}'), "an unknown kind").toThrow(unread);
+describe("parseChannel", () => {
+  test("an answer the module does not read is an error, never no entry", () => {
+    const unread = "GET /api/channel answered a shape this module does not read";
+
+    expect(parseChannel(JSON.stringify([{ seq: 1, entry: sent() }]))).toEqual([
+      { seq: 1, entry: sent() },
+    ]);
+    expect(() => parseChannel("{}"), "no list").toThrow(unread);
+    expect(() => parseChannel('[{"seq":1,"entry":{"kind":"sent"}}]'), "no file").toThrow(unread);
   });
 });

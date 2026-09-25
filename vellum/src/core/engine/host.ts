@@ -1,9 +1,11 @@
 import type {
   FsStat,
+  HookStream,
   HttpInit,
   HttpResponse,
-  ProcessRunInit,
-  ProcessRunResult,
+  ProcessSpawnChunk,
+  ProcessSpawnRequest,
+  ProcessSpawnResult,
   PromptSubmitResult,
   TimerCall,
 } from "claude-code";
@@ -36,9 +38,19 @@ export type Host = {
 
   fetch: (url: string, init?: HttpInit) => Promise<HttpResponse>;
 
-  run: (argv: readonly string[], init: ProcessRunInit) => Promise<ProcessRunResult>;
+  /**
+   * `$.process.spawn`: the child lives as long as its stream is read, and dies with the module.
+   * Spawned from `session.start`, `skill.prompt` or a timer, never from a `tool.call`, whose
+   * Escape ends the child with the call.
+   */
+  spawn: (request: ProcessSpawnRequest) => HookStream<ProcessSpawnChunk, ProcessSpawnResult>;
 
   every: TimerCall;
+
+  after: TimerCall;
+
+  /** `$.clock.now()`: milliseconds since the epoch, as the engine's clock reads them. */
+  now: () => Promise<number>;
 
   submitPrompt: (text: string) => Promise<PromptSubmitResult>;
 

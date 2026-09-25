@@ -1,11 +1,14 @@
+import type { ChannelLine } from "./server/domain/channel.ts";
 import type { ProjectPath, Version } from "./server/domain/paths.ts";
-import type { Pending, PlanWorkspace } from "./server/domain/workspace.ts";
+import type { PlanWorkspace } from "./server/domain/workspace.ts";
 
 /**
- * What crosses HTTP between the hooks module, the server and the page, and what crosses an
- * extension boundary. Everything here is JSON. The domain types it carries are re-exported,
- * never redefined.
+ * What crosses HTTP between the hooks module, the server and the page, what the server writes on
+ * its stdout for the hooks module, and what crosses an extension boundary. Everything here is
+ * JSON. The domain types it carries are re-exported, never redefined.
  */
+
+export type { ChannelEntry, ChannelLine } from "./server/domain/channel.ts";
 
 export type { DiffRun, LineDiff } from "./server/domain/diff.ts";
 
@@ -42,12 +45,26 @@ export {
 
 export type { CommitSha, PluginVersion, VellumBuild } from "./server/domain/vellum-build.ts";
 
-export type { Pending, PlanWorkspace } from "./server/domain/workspace.ts";
+export type { PlanWorkspace } from "./server/domain/workspace.ts";
 
 export { takesComments } from "./server/domain/workspace.ts";
 
-/** What `GET /api/pending` answers: what the module relays, and the workspace the band above the prompt draws. */
-export type PollAnswer = { readonly pending: Pending; readonly workspace: PlanWorkspace };
+/**
+ * One line of the server's stdout, as JSON, and nothing else is written there: `ready` first, once
+ * the server listens, then an entry of the channel as it is written, and where the review stands
+ * each time it changes, for the band above the prompt and never for Claude.
+ */
+export type ServerLine =
+  | {
+      readonly type: "ready";
+      readonly port: number;
+      readonly token: string;
+      readonly pid: number;
+      /** The channel's identity (`.review/channel.id`): the module keys what it relayed by it. */
+      readonly channel: string;
+    }
+  | { readonly type: "channel"; readonly line: ChannelLine }
+  | { readonly type: "stage"; readonly workspace: PlanWorkspace };
 
 /** What `POST /api/gate` answers: the version the browser shows, or why it shows none. */
 export type GateAnswer =

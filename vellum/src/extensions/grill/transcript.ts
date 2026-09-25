@@ -1,5 +1,5 @@
 import { AS_RECOMMENDED } from "./protocol.ts";
-import type { Answer, CloseReason, GrillPosts, Phase, Question, Relay } from "./protocol.ts";
+import type { Answer, CloseReason, GrillPosts, Phase, Question } from "./protocol.ts";
 
 /**
  * The transcript as text: every function takes the file and returns the file. What the page and
@@ -20,6 +20,20 @@ export type Segment =
       readonly round: number;
       readonly answer: Answer;
     } & Question);
+
+/**
+ * One entry of the transcript that Claude hears of. `seq` runs in file order: 0 the opening, 1..n
+ * the reviewer's replies, n+1 the end, told only when the reviewer ended the grill from the page.
+ */
+export type Relay =
+  | {
+      readonly kind: "opened";
+      readonly seq: 0;
+      readonly name: string;
+      readonly subject: string;
+    }
+  | { readonly kind: "reply"; readonly seq: number; readonly text: string }
+  | { readonly kind: "ended"; readonly seq: number; readonly name: string };
 
 /** An answer the reviewer sent for one question, by its id (`Q3`). */
 export type TypedAnswer = { readonly id: string; readonly text: string };
@@ -299,11 +313,8 @@ function replyText(reply: string): string {
 }
 
 /**
- * What the engine submits, past its cursor and in file order. Nothing Claude says cancels an
+ * The entries past `after`, in file order, worded for Claude. Nothing Claude says cancels an
  * entry, and the end comes after the replies still due.
- *
- * FIXME: the lock lets Claude write in the working directory, so a `Reviewer` block it forged
- * is relayed under the prefix. It stays attributed to the plugin, never to the user.
  */
 export function relaysOf(doc: string, name: string, after: number): Relay[] {
   const all = replies(doc);

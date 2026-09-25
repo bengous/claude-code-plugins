@@ -8,15 +8,17 @@ import { checkVerdict, lockFailed, lockVerdict } from "./lock.ts";
 import {
   close,
   connect,
+  discard,
   type Live,
   restore,
   type Revive,
   revived,
   sessionOf,
   type Settle,
+  type Staged,
   type State,
   suspend,
-  type Ticks,
+  tenureOf,
   type Wiring,
 } from "./mode.ts";
 import { editedPath, type GateWire, sessionId, type StageWire } from "./parse.ts";
@@ -59,8 +61,10 @@ function hostOf($: EngineInterface): Host {
     storeSet: (key, value) => $.store.set(key, value),
     storeDelete: (key) => $.store.delete(key),
     fetch: (url, init) => $.http.fetch(url, init),
-    run: (argv, init) => $.process.run(argv, init),
+    spawn: (request) => $.process.spawn(request),
     every: (ms, fn) => $.clock.every(ms, fn),
+    after: (ms, fn) => $.clock.after(ms, fn),
+    now: () => $.clock.now(),
     submitPrompt: (text) => $.prompt.submit({ text }),
     status: (text) => $.ui.status(text),
     invalidate: () => $.ui.invalidate("ui.render"),
@@ -91,7 +95,7 @@ async function handed(
   }
 }
 
-/** The extensions whose `segment` threw in a mode: a failure is logged once per mode, not at each poll. */
+/** The extensions whose `segment` threw in a mode: a failure is logged once per mode, not at each line. */
 const segmentFailures = new WeakMap<Live, Set<string>>();
 
 /** A segment that throws is left out: no extension may take the band away. */
@@ -113,7 +117,7 @@ const SEPARATOR = " │ ";
 export const register: Register = (on) => {
   let state: State = { kind: "idle" };
 
-  // Where each mode's last poll found the plan, keyed by the mode: a new way in starts with none.
+  // Where each mode's server last said the plan stands, keyed by the mode: a new way in starts with none.
   const stages = new WeakMap<Live, StageWire>();
 
   function bandOf(host: Host): Band | null {
@@ -126,7 +130,7 @@ export const register: Register = (on) => {
     return liveBand(live.session.server, stages.get(live) ?? null, segments);
   }
 
-  // What `ui.render` draws; `redraw` alone writes it, so a poll that changed nothing redraws nothing.
+  // What `ui.render` draws; `redraw` alone writes it, so a line that changed nothing redraws nothing.
   let band: Band | null = null;
 
   function redraw(host: Host): void {
@@ -137,34 +141,56 @@ export const register: Register = (on) => {
     host.invalidate();
   }
 
-  /** Every write of `state`: the band follows it, from one place. */
+  /**
+   * Every write of `state`: the band follows it, from one place. Leaving a live mode ends its
+   * server, and a follower the next state no longer holds is stopped: the module owns its child,
+   * and what a left mode's server would still say reaches nobody. A follower, not a tenure, is
+   * compared: a revival carries the same follower in a new tenure, its ends counted anew.
+   */
   function become(host: Host, next: State): void {
+    const was = state;
     state = next;
+
+    if (was.kind === "live" && (next.kind !== "live" || next.live !== was.live)) {
+      was.live.child.end();
+    }
+
+    const follower = tenureOf(was)?.follower;
+
+    if (follower !== undefined && follower !== tenureOf(next)?.follower) follower.stop();
     redraw(host);
   }
 
-  const settle: Settle = async (host, from) => {
-    if (state !== from) return;
+  const settle: Settle = async (host, id) => {
+    if (sessionOf(state)?.id !== id) return;
     turns = NO_TURN;
-    become(host, await close(host, from));
+    become(host, await close(host, state));
   };
 
-  const revive: Revive = async (host, from) => {
+  const revive: Revive = async (host, from, how) => {
     if (state !== from) return;
-    const next = await revived(host, from, () => state === from, wiring);
+    const next = await revived(host, from, () => state === from, wiring, how);
 
     if (next === null) return;
+
+    // The mode was left while the revival wrote its record: the revived server is not taken.
+    if (state !== from) {
+      discard(next);
+
+      return;
+    }
+
     turns = NO_TURN;
     become(host, next);
   };
 
-  const ticks: Ticks = async (host, live, stage) => {
+  const staged: Staged = async (host, live, stage) => {
     stages.set(live, stage);
-    await handed(host, live, "tick", (extension, context) => extension.tick?.(context));
+    await handed(host, live, "staged", (extension, context) => extension.staged?.(context));
     redraw(host);
   };
 
-  const wiring: Wiring = { settle, ticks, revive };
+  const wiring: Wiring = { settle, staged, revive, current: (from) => state === from };
 
   // Reset wherever the mode leaves `live`, and ignored outside it: see `turn.ts`.
   let turns: Turns = NO_TURN;
@@ -228,7 +254,7 @@ export const register: Register = (on) => {
   });
 
   // The deterministic way the mode ends when the session forgets it: a `/clear` mints a new
-  // session id, so the old poll and heartbeat would run on until the next way in noticed.
+  // session id, so the old heartbeat would run on until the next way in noticed.
   on("command.run", { command: ["clear", "resume"] }, async ($, e, next) => {
     const result = await next(e);
 

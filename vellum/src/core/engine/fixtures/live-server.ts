@@ -1,6 +1,6 @@
 import type { HttpResponse, On } from "claude-code";
 
-import { NOTHING_PENDING, polled } from "./polled.ts";
+import type { ChannelLineWire } from "../parse.ts";
 import { reply } from "./reply.ts";
 import { SERVER } from "./server.ts";
 
@@ -14,16 +14,31 @@ const LIVE = {
   "/api/review": () => reply(200, { workspace: { kind: "drafting" } }),
   "/api/heartbeat": () => reply(204, null),
   "/api/gate": () => reply(200, { version: 1, kept: false }),
-  "/api/pending": () => reply(200, polled(NOTHING_PENDING)),
   "/api/open": () => reply(204, null),
 } satisfies Record<string, Route>;
 
 /** Where the extensions' routes live. The core's world serves none: each extension's fixtures bring its own. */
 const EXTENSIONS = "/api/x/";
 
-export function liveServer(on: On, routes: Record<string, Route> = {}): string[] {
+/** `channel` is the file the server keeps: `GET /api/channel?after=<n>` answers what lies past `n`. */
+export function liveServer(
+  on: On,
+  channel: readonly ChannelLineWire[],
+  routes: Record<string, Route> = {},
+): string[] {
   const paths: string[] = [];
-  const served = new Map([...Object.entries(LIVE), ...Object.entries(routes)]);
+
+  const read: Route = (_, query) =>
+    reply(
+      200,
+      channel.filter((line) => line.seq > Number(query.get("after"))),
+    );
+
+  const served = new Map([
+    ...Object.entries(LIVE),
+    ["/api/channel", read],
+    ...Object.entries(routes),
+  ]);
 
   on("http.fetch", async (_, e) => {
     const { pathname, port, searchParams } = new URL(e.url);

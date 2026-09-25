@@ -2,6 +2,9 @@ import type { ProjectPath } from "../../core/server/domain/paths.ts";
 
 /** What crosses `/api/x/grill/*` between the hooks module, the server and the page; JSON. */
 
+/** The tool Claude asks a round with: the engine half serves it, the server names it to Claude. */
+export const ASK_TOOL = "mcp__vellum__grill_ask";
+
 export type Question = { readonly title: string; readonly ask: string; readonly rec: string };
 
 /** A proposal of Claude's, under the id the server gave it. */
@@ -21,40 +24,19 @@ export type Proposal =
   | { readonly kind: "declined"; readonly declined: Declined };
 
 /**
- * One entry the engine submits. `seq` runs in file order: 0 the opening, 1..n the reviewer's
- * replies, n+1 the end, told only when the reviewer ended the grill from the page. The text is
- * the agent's, not the file's.
- */
-export type Relay =
-  | {
-      readonly kind: "opened";
-      readonly seq: 0;
-      readonly name: string;
-      readonly subject: string;
-    }
-  | { readonly kind: "reply"; readonly seq: number; readonly text: string }
-  | { readonly kind: "ended"; readonly seq: number; readonly name: string };
-
-/**
  * Where an open grill stands, read off its file: a question waits for the reviewer (`asking`),
  * the reviewer spoke last (`working`), or Claude did, its turn ended on its answer (`idle`) or
  * cut short, aborted, refused or failed (`stopped`).
  */
 export type Phase = "working" | "asking" | "idle" | "stopped";
 
-/** `relays` are the entries of the last grill past the cursor `GET state` was asked with, in order. */
 export type GrillState =
-  | {
-      readonly kind: "none";
-      readonly proposal: Proposal | null;
-      readonly relays: readonly Relay[];
-    }
+  | { readonly kind: "none"; readonly proposal: Proposal | null }
   | {
       readonly kind: "open";
       readonly file: ProjectPath;
       readonly subject: string;
       readonly phase: Phase;
-      readonly relays: readonly Relay[];
     };
 
 /** A reply's answer that takes the recommendation by choice, where an answer left out takes it by default. */

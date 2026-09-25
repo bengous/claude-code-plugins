@@ -1,8 +1,17 @@
 import type { ServerContext, ServerExtension } from "../../extension.ts";
-import type { DocGroup, DocRef, GroupedDoc, PollAnswer, ReviewView } from "../../protocol.ts";
+import type {
+  ChannelEntry,
+  ChannelLine,
+  DocGroup,
+  DocRef,
+  GroupedDoc,
+  ReviewView,
+} from "../../protocol.ts";
 import {
+  appendText,
   finalize as renameWorkspace,
   listFiles,
+  listReview,
   modifiedAt,
   readPlan,
   readText,
@@ -11,6 +20,13 @@ import {
   removeFile,
   writeText,
 } from "../adapters/fs.ts";
+import {
+  appended,
+  CHANNEL_FILE,
+  CHANNEL_ID_FILE,
+  channelAfter,
+  untold,
+} from "../domain/channel.ts";
 import type { FeedbackHeading } from "../domain/feedback.ts";
 import { formatFeedback } from "../domain/feedback.ts";
 import type { FinalDir, ProjectPath, Version, WipDir } from "../domain/paths.ts";
@@ -20,8 +36,8 @@ import { decideOn, draftIsEmpty, gateVersion, slugFor } from "../domain/review.t
 import type { Memory, PlanWorkspace } from "../domain/workspace.ts";
 import {
   DRAFT_FILE,
+  notesFile,
   PLAN_FILE,
-  pendingOf,
   projectPath,
   takesComments,
   underReviewDir,
@@ -33,6 +49,8 @@ export type ReviewOptions = {
   readonly project: string;
   readonly workdir: WipDir;
   readonly extensions: readonly ServerExtension[];
+  /** What the directory cannot say at start: an approval already renamed it, for a server revived there. */
+  readonly memory?: Memory | undefined;
 };
 
 export type DecisionResult =
@@ -61,9 +79,11 @@ function grouped(docs: readonly DocRef[], group: DocGroup): GroupedDoc[] {
 
 /** The use case: reads the directory, lets the domain decide, applies: files, memory, listeners. */
 export class Review {
-  private memory: Memory = { kind: "none" };
+  private memory: Memory;
 
   private readonly listeners = new Set<(workspace: PlanWorkspace) => void>();
+
+  private readonly channelListeners = new Set<(line: ChannelLine) => void>();
 
   private queue: Promise<unknown> = Promise.resolve();
 
@@ -72,6 +92,7 @@ export class Review {
 
   public constructor(private readonly options: ReviewOptions) {
     const { project } = options;
+    this.memory = options.memory ?? { kind: "none" };
 
     this.context = {
       workspace: () => this.workspace(),
@@ -82,6 +103,7 @@ export class Review {
         await this.notify();
       },
       inOrder: (work) => this.inOrder(work),
+      relay: (entry) => this.relay(entry),
     };
   }
 
@@ -118,11 +140,64 @@ export class Review {
     return workspaceOf(disk.value, this.memory);
   }
 
-  /** One read of the workspace, so what is pending and what the band draws never disagree. */
-  public async poll(): Promise<PollAnswer> {
-    const workspace = await this.workspace();
+  /** Hears every entry the channel takes, as it is written. */
+  public onChannel(listener: (line: ChannelLine) => void): () => void {
+    this.channelListeners.add(listener);
 
-    return { pending: pendingOf(workspace), workspace };
+    return () => this.channelListeners.delete(listener);
+  }
+
+  /** The channel's entries past `after`, read from where the review lives now. */
+  public async channel(after: number): Promise<ChannelLine[]> {
+    const text = await readTextIfAny(this.options.project, await this.channelDoc(CHANNEL_FILE));
+
+    return channelAfter(text ?? "", after);
+  }
+
+  /**
+   * Opens the channel where the review lives, and answers its identity, minted the first time. A
+   * channel already there takes the entries its directory implies and it lacks (`untold`); a
+   * directory with no channel yet has nothing to tell, since its files predate the channel.
+   */
+  public openChannel(): Promise<string> {
+    return this.inOrder(async () => {
+      const { project } = this.options;
+      const workspace = await this.workspace();
+      const text = await readTextIfAny(project, await this.channelDoc(CHANNEL_FILE));
+
+      if (text === null) await writeText(project, await this.channelDoc(CHANNEL_FILE), "");
+      else {
+        const names = await listReview(project, workspace.dir);
+
+        for (const entry of untold(workspace, names, channelAfter(text, 0)))
+          await this.relay(entry);
+      }
+
+      const idDoc = await this.channelDoc(CHANNEL_ID_FILE);
+      const id = (await readTextIfAny(project, idDoc))?.trim() ?? "";
+
+      if (id !== "") return id;
+      const minted = crypto.randomUUID();
+      await writeText(project, idDoc, minted);
+
+      return minted;
+    });
+  }
+
+  private async channelDoc(file: string): Promise<ProjectPath> {
+    return projectPath(`${(await this.workspace()).dir}${file}`);
+  }
+
+  /** Called inside the queue, by the core and through `ServerContext`, so two entries never take one number. */
+  private async relay(entry: ChannelEntry): Promise<number> {
+    const { project } = this.options;
+    const doc = await this.channelDoc(CHANNEL_FILE);
+    const { text, seq } = appended((await readTextIfAny(project, doc)) ?? "", entry);
+    await appendText(project, doc, text);
+
+    for (const listener of this.channelListeners) listener({ seq, entry });
+
+    return seq;
   }
 
   private planDoc(version: Version, dir: WipDir | FinalDir = this.options.workdir): ProjectPath {
@@ -254,6 +329,7 @@ export class Review {
         decided.kind === "draftFeedback" ? decision.annotations : decided.annotations;
 
       await writeText(project, decided.path, formatFeedback(annotations, heading));
+      await this.relay({ kind: "sent", file: decided.path });
     }
 
     return { ok: true, workspace: await this.notify() };
@@ -283,6 +359,10 @@ export class Review {
         console.error(`${extension.id} failed on approved: ${String(cause)}`);
       });
     }
+
+    const dir = renamed.value;
+    const notesDoc = notes ? projectPath(`${dir}${notesFile(version)}`) : null;
+    await this.relay({ kind: "approved", version, dir, notes: notesDoc });
 
     return { ok: true, workspace: await this.notify() };
   }

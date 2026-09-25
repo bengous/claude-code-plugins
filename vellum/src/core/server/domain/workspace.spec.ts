@@ -2,7 +2,7 @@
 import { describe, expect, test } from "bun:test";
 
 import type { PlanWorkspace } from "./workspace.ts";
-import { pendingOf, takesComments, workspaceFromListing, workspaceOf } from "./workspace.ts";
+import { takesComments, workspaceFromListing, workspaceOf } from "./workspace.ts";
 
 const DIR = "plans/2026-09-15/wip-4c2a9d93/" as never;
 
@@ -108,35 +108,5 @@ describe("takesComments", () => {
 
   test.each([changesRequested, approved])("no comment is taken on $kind", (workspace) => {
     expect(takesComments(workspace)).toBe(false);
-  });
-});
-
-describe("pendingOf", () => {
-  test.each([
-    [drafting, { kind: "none" }],
-    [
-      { ...drafting, batches: 3 },
-      {
-        kind: "drafts",
-        batches: [
-          { batch: 1, path: `${DIR}.review/v0.feedback-1.md` },
-          { batch: 2, path: `${DIR}.review/v0.feedback-2.md` },
-          { batch: 3, path: `${DIR}.review/v0.feedback-3.md` },
-        ],
-      },
-    ],
-    [inReview, { kind: "none" }],
-    [
-      { ...inReview, batches: 1 },
-      { kind: "drafts", batches: [{ batch: 1, path: `${DIR}.review/v0.feedback-1.md` }] },
-    ],
-    [changesRequested, { kind: "feedback", version: V1, path: `${DIR}.review/v1.feedback.md` }],
-    [approved, { kind: "approved", version: V1, dir: FINAL, notes: null }],
-    [
-      { ...approved, notes: true },
-      { kind: "approved", version: V1, dir: FINAL, notes: `${FINAL}.review/v1.notes.md` },
-    ],
-  ] as const)("reads what $kind leaves pending", (workspace, expected) => {
-    expect(pendingOf(workspace)).toEqual(expected as never);
   });
 });

@@ -22,7 +22,7 @@ References, loaded one at a time: `program-design.md` (signatures, call-stack an
 
 ## Review in the browser
 
-`/vellum:start` enters the mode. The hooks module creates `plans/<date>/wip-<sid8>/`, tells Claude to put the plan and its artifacts there, starts one review server per session on `127.0.0.1` (it exits on its own once the session's heartbeat stopped and no tab shows the page; if it dies, the module revives it on the same port and token, so the page reconnects by itself) and opens the page. While the mode is live, `Edit`, `Write` and `NotebookEdit` under the project and outside the working directory are refused with a reason Claude reads; inside it they pass without a prompt; a path outside the project is no change to the codebase and follows the session's own permission flow, so the session's scratchpad passes there without a prompt; a lock that fails refuses the call rather than letting it past; every other tool follows the session's own permission flow, and a shell command (`Bash`, `PowerShell` or `Monitor`) that a settings allow rule would approve asks instead, a prompt in the manual mode; a command the permission mode approves on its own, such as `mkdir` or `mv` in `acceptEdits`, still runs. The native plan mode is untouched and stays available for a plan that needs no review page.
+`/vellum:start` enters the mode. The hooks module creates `plans/<date>/wip-<sid8>/`, tells Claude to put the plan and its artifacts there, starts one review server per session on `127.0.0.1`, a child of the session that tells the module on its output each thing the reviewer sends (leaving the mode ends it, and it exits on its own once the session's heartbeat stopped and no tab shows the page; if it dies, stops answering, or a reload of the plugin ends it, the module starts it again on the same port and token, so the page reconnects by itself, and after three ends within a minute it stops trying and says so) and opens the page. While the mode is live, `Edit`, `Write` and `NotebookEdit` under the project and outside the working directory are refused with a reason Claude reads; inside it they pass without a prompt; a path outside the project is no change to the codebase and follows the session's own permission flow, so the session's scratchpad passes there without a prompt; a lock that fails refuses the call rather than letting it past; every other tool follows the session's own permission flow, and a shell command (`Bash`, `PowerShell` or `Monitor`) that a settings allow rule would approve asks instead, a prompt in the manual mode; a command the permission mode approves on its own, such as `mkdir` or `mv` in `acceptEdits`, still runs. The native plan mode is untouched and stays available for a plan that needs no review page.
 
 1. The page lists the working directory's renderable files from the start: Markdown, HTML in a sandboxed iframe, images. The rail keeps three groups apart: the plan, the artifacts of its directory, and the files it cites elsewhere in the project; an artifact can sit beside the plan. A comment sent before the first version is written to `.review/v0.feedback-<n>.md` and reaches Claude as a prompt at its next idle: it revises the file and goes on.
 2. Claude writes `plan.md` at the directory's root and ends its turn: the module submits the text, saved as `.review/vN.md`, and the page shows it. The same text keeps its version, so a turn that only asks a question opens none. `mcp__vellum__submit` submits before the turn ends; after a feedback, that explicit call is a new version even with the same text.
@@ -53,7 +53,7 @@ The plugin installs a hooks module that refuses writes and spawns a process. The
 
 | Hook | Matcher | What it does |
 |---|---|---|
-| `session.start` | | Registers the `submit`, `grill_suggest` and `grill_ask` tools, and picks the mode back up when the stored server still answers. |
+| `session.start` | | Registers the `submit`, `grill_suggest` and `grill_ask` tools, and picks the mode back up on a server started again on the stored port and token. |
 | `skill.prompt` | `skill=vellum:start` | Enters the mode: reaches or starts the server, then appends the working directory and the page's link to the skill's text. |
 | `skill.prompt` | `skill=vellum:stop` | Leaves the mode and says which directory is kept. |
 | `command.run` | `command=clear\|resume` | Suspends the mode after the command ran, when the session id changed: timers stopped, the record kept. |
@@ -73,15 +73,15 @@ The plugin installs a hooks module that refuses writes and spawns a process. The
 | `$.session.id` | Which session the mode belongs to; a `/clear` mints a new one. |
 | `$.session.cwd` | Where the session runs now, to resolve a relative path the lock reads. |
 | `$.fs.stat` | Where a path the lock reads lands, every link followed, whatever the platform's spelling; the project is asked the same way, and the working directory is read under it as written. |
-| `$.store.get`, `$.store.set`, `$.store.delete` | The session's server and what the poll already relayed, so a module reload repeats neither. |
+| `$.store.get`, `$.store.set`, `$.store.delete` | The session's server and the last entry of the channel already relayed, so a module reload repeats neither. |
 | `$.http.fetch` | Every call to the review server, with the token header. |
-| `$.process.run` | Spawns the detached server, `bun src/core/server/cli.ts start`, and revives a dead one on its port and token. |
-| `$.clock.every` | The poll, once a second, the heartbeat that keeps the server alive, and the slow retry while the server is lost. |
-| `$.prompt.submit` | Hands Claude a drafting batch, a feedback, the approval or a grill round the reviewer wrote, once the session is idle. |
+| `$.process.spawn` | Starts the server, `bun src/core/server/cli.ts serve`, as a child whose output it reads: each entry of the channel as it is written, and where the plan stands. Revives a dead one on its port and token. |
+| `$.clock.every`, `$.clock.after`, `$.clock.now` | The heartbeat that keeps the server alive and finds one that stopped answering, the slow retry while the server is lost, the five seconds a start waits for the server, and when its servers ended, to stop reviving a crash loop. |
+| `$.prompt.submit` | Hands Claude each entry of the channel once, in order, once the session is idle: a file the reviewer sent, the approval, a grill's opening, reply or end. |
 | `$.ui.status` | The line under the prompt, for a failure alone: a server that is lost, or a working directory that is gone. |
 | `$.ui.resolve` | The terminal's elements the band is drawn with. |
 | `$.ui.invalidate` | Draws the band again when the mode, where the plan stands or a grill changed. |
-| `$.ui.log` | Errors only: a server that did not start, a poll that failed, a prompt another plugin dropped. |
+| `$.ui.log` | Errors only: a server that did not start or ended, a line of its output the module does not read, a relay that failed, a prompt another plugin dropped. |
 
 `CLAUDE_CODE_ENABLE_FUNCTION_HOOKS=1 claude plugin validate vellum` prints both lists from the module's source; these tables are that output in prose.
 

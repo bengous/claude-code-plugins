@@ -204,8 +204,8 @@ test.describe("the transcript", () => {
     await expect(grillPanel(page).locator('.grill-chips .chip[data-state="default"]')).toHaveCount(
       1,
     );
-    const state = JSON.stringify((await vellum.grill.state()).json);
-    expect(state).toContain("Q2: The plugin's own package.json.");
+    const told = JSON.stringify((await vellum.channel()).json);
+    expect(told).toContain("Q2: The plugin's own package.json.");
   });
 
   test("the foot's field is as wide as the cards", async ({ page, vellum }) => {

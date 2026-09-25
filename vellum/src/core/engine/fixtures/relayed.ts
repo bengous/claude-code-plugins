@@ -1,5 +1,6 @@
-import { WORKDIR } from "./workdir.ts";
+import { CHANNEL } from "./children.ts";
 
-export function relayed(drafts: number, version = 0, workdir: string = WORKDIR) {
-  return { workdir, drafts, version };
+/** What the store keeps of the channel: the last entry relayed, for one channel. */
+export function relayed(seq: number, channel: string = CHANNEL) {
+  return { channel, seq };
 }

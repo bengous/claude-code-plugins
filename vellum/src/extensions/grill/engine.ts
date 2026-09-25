@@ -7,35 +7,25 @@ import type {
 import type { Live } from "../../core/engine/mode.ts";
 import {
   NO_GRILL_OPEN,
-  type Cursor,
   parseAsked,
-  parseCursor,
   parseError,
+  parseIsOpen,
   parseJson,
-  parsePolled,
   parseQuestions,
   parseSuggestion,
 } from "./parse.ts";
-import type { GrillPosts, Relay } from "./protocol.ts";
-
-const ASK_TOOL = "mcp__vellum__grill_ask";
+import { ASK_TOOL, type GrillPosts } from "./protocol.ts";
 
 const SUGGEST_TOOL = "mcp__vellum__grill_suggest";
 
 /** What the person at the terminal must know, and the agent must not read: a prompt typed there is not the grill's. */
 const SEGMENT_OPEN = "grill · open";
 
-const NO_CURSOR: Cursor = { file: "", seq: -1, taught: false, declined: null };
-
-/** The modes whose last poll found a grill open, keyed by the mode's own `Live`: a new way in starts with none. */
+/** The modes whose last read found a grill open, keyed by the mode's own `Live`: a new way in starts with none. */
 const grillOpen = new WeakSet<Live>();
 
 /** The modes whose running turn asked a round: its text goes with that round, before a reply sent meanwhile. */
 const askedIn = new WeakSet<Live>();
-
-function cursorKey(sessionId: string): string {
-  return `grill:${sessionId}`;
-}
 
 function post<Name extends keyof GrillPosts>(
   context: EngineContext,
@@ -122,76 +112,14 @@ const SUGGEST: ExtensionTool = {
   },
 };
 
-/**
- * A prompt names its object and repeats nothing Claude wrote or read: the guide is named at the
- * first grill of a session alone, and a reply goes as the server worded it, under `Reviewer:`.
- */
-function promptOf(context: EngineContext, relay: Relay, taught: boolean): string {
-  if (relay.kind === "reply") return relay.text;
+/** Whether a grill is open, read again each time the review changed: the band says so. */
+async function staged({ live, api }: EngineContext): Promise<void> {
+  const open = parseIsOpen(parseJson((await api.get("state")).text));
 
-  if (relay.kind === "ended") return `The reviewer ended ${relay.name}.`;
-  const opened = `The reviewer opened ${relay.name} on: ${relay.subject}.`;
+  if (open === null) return;
 
-  return taught
-    ? opened
-    : `${opened} Read ${context.host.pluginRoot}/src/extensions/grill/grilling.md, then ask with ${ASK_TOOL}.`;
-}
-
-/**
- * Submits every entry past the cursor, one by one and in order, the cursor written after each:
- * a dropped prompt stops there and the next poll retries it. The entries are on the server's
- * disk and the cursor in `$.store`, so a reloaded module or a revived server repeats nothing.
- * A decline goes after the entries, so the end of a grill is told before it.
- */
-async function tick(context: EngineContext): Promise<void> {
-  const { host, live, api } = context;
-  const key = cursorKey(live.session.id);
-  let cursor = parseCursor(await host.storeGet(key)) ?? NO_CURSOR;
-  const query = `after=${cursor.seq}&file=${encodeURIComponent(cursor.file)}`;
-  const polled = parsePolled(parseJson((await api.get(`state?${query}`)).text));
-
-  if (polled === null) return;
-
-  if (polled.open) grillOpen.add(live);
+  if (open) grillOpen.add(live);
   else grillOpen.delete(live);
-
-  // A closed grill this session relayed nothing of: after a `/clear`, an old transcript of the
-  // directory means nothing to the new context.
-  const stale = !polled.open && polled.relays[0]?.kind === "opened";
-
-  for (const relay of stale ? [] : polled.relays) {
-    const result = await host.submitPrompt(promptOf(context, relay, cursor.taught));
-
-    if (result.drop !== undefined) {
-      host.log(`the grill prompt was dropped: ${result.drop}`);
-
-      return;
-    }
-
-    cursor = {
-      file: relay.kind === "reply" ? cursor.file : relay.name,
-      seq: relay.seq,
-      taught: cursor.taught || relay.kind === "opened",
-      declined: cursor.declined,
-    };
-
-    await host.storeSet(key, cursor);
-
-    // The path is the harness's to show, never the model's to read again.
-    if (relay.kind === "ended") host.log(`grill closed from the page; ${relay.name} is kept`);
-  }
-
-  if (polled.open || polled.declined === null || polled.declined.id === cursor.declined) return;
-  const { id, subject } = polled.declined;
-  const result = await host.submitPrompt(`The reviewer declined the grill on: ${subject}.`);
-
-  if (result.drop !== undefined) {
-    host.log(`the grill prompt was dropped: ${result.drop}`);
-
-    return;
-  }
-
-  await host.storeSet(key, { ...cursor, declined: id });
 }
 
 export const grillEngine: EngineExtension = {
@@ -212,7 +140,7 @@ export const grillEngine: EngineExtension = {
     const asked = askedIn.delete(context.live);
     await post(context, "answer", { ...turn, asked });
   },
-  tick,
+  staged,
   segment: ({ live }) => (grillOpen.has(live) ? SEGMENT_OPEN : null),
   closing: async (context) => {
     await post(context, "close", { reason: "stop" });

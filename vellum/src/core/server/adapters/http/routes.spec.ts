@@ -110,6 +110,7 @@ type Drafting = {
     readonly typed?: unknown;
   }) => Promise<Response>;
   readonly getDraft: () => Promise<Response>;
+  readonly channel: (after: string) => Promise<Response>;
 };
 
 /** A review still drafting, behind its own handler: a feedback sent there writes `v0.feedback-<n>.md`. */
@@ -147,7 +148,10 @@ function drafting(): Drafting {
       annotations: [{ id: "a", doc: `${WIP}mockup.html`, ...annotation }],
     });
 
-  return { dir, review, decide, send, putDraft, getDraft };
+  const channel = (after: string): Promise<Response> =>
+    call("GET", `/api/channel?after=${after}`, null);
+
+  return { dir, review, decide, send, putDraft, getDraft, channel };
 }
 
 /** The same review once `plan.md` was gated as v1. */
@@ -629,15 +633,39 @@ describe("routes", () => {
     const approve = await post("/api/decision", JSON.stringify(APPROVE));
     expect(approve.status).toBe(200);
 
-    const polled = await fetch(url("/api/pending"), { headers: headers() });
-    expect(await polled.json()).toEqual({
-      pending: { kind: "approved", version: 1, dir: "plans/2026-09-15/routed-plan/", notes: null },
-      workspace: {
-        kind: "approved",
-        version: 1,
-        dir: "plans/2026-09-15/routed-plan/",
-        notes: false,
-      },
+    const channel = await fetch(url("/api/channel?after=0"), { headers: headers() });
+    expect((await channel.json()).at(-1)).toMatchObject({
+      entry: { kind: "approved", version: 1, dir: "plans/2026-09-15/routed-plan/", notes: null },
     });
+  });
+});
+
+describe("the channel", () => {
+  test("a feedback sent is an entry naming its file, under the next number", async () => {
+    const made = drafting();
+    await made.send({ anchor: CARD, mark: BIGGER });
+    await made.send({ anchor: CARD, mark: BIGGER });
+
+    expect(await (await made.channel("1")).json()).toEqual([
+      { seq: 2, entry: { kind: "sent", file: `${WIP}.review/v0.feedback-2.md` } },
+    ]);
+  });
+
+  test("a number that is not a count of entries is a bad request", async () => {
+    const made = drafting();
+
+    for (const after of ["", "-1", "1.5", "x"]) {
+      expect((await made.channel(after)).status, after).toBe(400);
+    }
+  });
+
+  test("a line of the file that is no entry is left out, never answered in its place", async () => {
+    const made = drafting();
+    writeFileSync(join(made.dir, WIP, ".review/channel.jsonl"), "not json\n");
+    await made.send({ anchor: CARD, mark: BIGGER });
+
+    expect(await (await made.channel("0")).json()).toEqual([
+      { seq: 2, entry: { kind: "sent", file: `${WIP}.review/v0.feedback-1.md` } },
+    ]);
   });
 });

@@ -310,6 +310,13 @@ function badRequest(): Response {
 /** A saved draft the parser refuses was written by an older page: nothing of it is read half-way. */
 export const UNREADABLE_DRAFT = `${DRAFT_FILE} was saved by an older version of vellum and cannot be read: delete it, then reload.`;
 
+/** `GET /api/channel?after=<n>`: the number of the last entry the module relayed, 0 for none. */
+function parseAfter(raw: string | null): number | null {
+  const after = raw === null || raw === "" ? Number.NaN : Number(raw);
+
+  return Number.isInteger(after) && after >= 0 ? after : null;
+}
+
 async function parseGateOptions(request: Request): Promise<GateOptions> {
   const body: unknown = await request.json().catch(() => null);
 
@@ -399,7 +406,13 @@ async function api(
 
   if (route === "GET /api/review") return Response.json(await review.view());
 
-  if (route === "GET /api/pending") return Response.json(await review.poll());
+  if (route === "GET /api/channel") {
+    const after = parseAfter(new URL(request.url).searchParams.get("after"));
+
+    if (after === null) return badRequest();
+
+    return Response.json(await review.channel(after));
+  }
 
   if (route === "GET /api/vellum-build") {
     const build = context.vellumBuild;

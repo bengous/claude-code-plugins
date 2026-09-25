@@ -1,8 +1,7 @@
-import type { Timer } from "claude-code";
+import type { ProcessSpawnResult, Timer } from "claude-code";
 
 import type { Host } from "./host.ts";
 import {
-  parseRelayed,
   parseSession,
   projectDir,
   type ProjectDir,
@@ -13,16 +12,20 @@ import {
   type Workdir,
   workdirOf,
 } from "./parse.ts";
-import { type Relayed, relayedKey, tick } from "./relay.ts";
-import { type Launched, reach, type ReviewServer, ServerDown, start } from "./server.ts";
-
-export const POLL_MS = 1_000;
+import { follow, type Follower } from "./relay.ts";
+import { type Child, type Launched, read, type ReviewServer, start } from "./server.ts";
 
 export const HEARTBEAT_MS = 30_000;
 
 export const LOST_RETRY_MS = 30_000;
 
-const SERVER_FAILURES_BEFORE_REVIVE = 3;
+/** Heartbeats in a row a server may leave unanswered before it is ended, and revived. */
+const HEARTBEATS_MISSED = 2;
+
+/** Unexpected ends of a mode's servers within `CRASH_WINDOW_MS` that stop the revivals. */
+export const CRASHES_BEFORE_LOST = 3;
+
+export const CRASH_WINDOW_MS = 60_000;
 
 const STATUS_LOST = "server lost, retrying";
 
@@ -33,55 +36,76 @@ export type ServerInfo = { readonly port: number; readonly token: Token; readonl
 /**
  * What `$.store` keeps under `session:<id>`, so a reloaded module finds its server again.
  * `project` is the root the server was started in: the working directory hangs off it, while
- * the session's own directory moves with every `cd` the model runs.
+ * the session's own directory moves with every `cd` the model runs. `final` is where an approval
+ * renamed the working directory, once the server said so: a server revived before the approval
+ * reached Claude is started there.
  */
 export type Session = {
   readonly id: SessionId;
   readonly server: ServerInfo;
   readonly project: ProjectDir;
   readonly workdir: Workdir;
+  readonly final: Workdir | null;
 };
 
-/** A reachable review server and the timer that keeps it alive. */
+/**
+ * What a mode keeps across the servers a revival replaces, and drops when it leaves: the follower
+ * of its channel, and when its servers ended unexpectedly, within `CRASH_WINDOW_MS`.
+ */
+export type Tenure = { readonly follower: Follower; readonly crashes: readonly number[] };
+
+/** A review server this module spawned, the timer that keeps it alive, and the mode's tenure. */
 export type Live = {
   readonly session: Session;
   readonly server: ReviewServer;
+  readonly child: Child;
   readonly heartbeat: Timer;
+  readonly tenure: Tenure;
 };
 
 /**
  * The vellum mode, entered by `/vellum:start` and left by Approve or `/vellum:stop`. While
- * `live` a server answers, the lock holds, and the browser's decision is polled. What is
- * under review lives on the server's disk; every transition here is an engine event or an
- * answer from that server.
+ * `live` a server answers, the lock holds, and what the server writes on its stdout is read.
+ * What is under review lives on the server's disk; every transition here is an engine event or
+ * a line of that server.
  */
 export type State =
   | { readonly kind: "idle" }
-  | { readonly kind: "live"; readonly live: Live; readonly poll: Timer }
+  | { readonly kind: "live"; readonly live: Live }
   /** The server is gone and did not come back: the lock holds, a slow timer retries. */
-  | { readonly kind: "lost"; readonly session: Session; readonly retry: Timer };
+  | {
+      readonly kind: "lost";
+      readonly session: Session;
+      readonly retry: Timer;
+      readonly tenure: Tenure;
+    };
 
 /**
- * How a poll closes the mode from inside a tick: `register.ts` owns the one `state`, and
- * closes `from` only while it is still the current one, so a tick that lands after a new way
- * in leaves the new mode and its timers alone.
+ * How the relayed approval closes the mode of session `id`: `register.ts` owns the one `state`,
+ * and closes it only while it holds that session, live or lost, so an approval that lands after a
+ * way into another session leaves that mode alone.
  */
-export type Settle = (host: Host, from: State) => Promise<void>;
+export type Settle = (host: Host, id: SessionId) => Promise<void>;
 
 /**
- * What a poll that did not approve hands on, after the core's relay: where the plan stands, for
- * the band, then the extensions' part. `register.ts` owns the band and the registry.
+ * Where the plan stands, each time the server says the review changed: for the band, then the
+ * extensions' part. `register.ts` owns the band and the registry.
  */
-export type Ticks = (host: Host, live: Live, stage: StageWire) => Promise<void>;
+export type Staged = (host: Host, live: Live, stage: StageWire) => Promise<void>;
 
-/** A mode whose server stopped answering: `register.ts` swaps in the revived one, or `lost`. */
-export type Revive = (host: Host, from: State) => Promise<void>;
+/**
+ * A mode whose server ended while it was the current one, `how` it ended; `null` for the slow
+ * retry of `lost`. `register.ts` swaps in the revived mode, or `lost`.
+ */
+export type Revive = (host: Host, from: State, how: ProcessSpawnResult | null) => Promise<void>;
 
 /** What `register.ts` hands every way into the mode: it owns the one `state` and the registry. */
 export type Wiring = {
   readonly settle: Settle;
-  readonly ticks: Ticks;
+  readonly staged: Staged;
   readonly revive: Revive;
+  /** Whether `from` is still the current state: a server that ends after its mode left is no crash. */
+  readonly current: (from: State) => boolean;
 };
 
 /** The session the lock reads: the mode holds one while `live` and while `lost` alike. */
@@ -91,53 +115,54 @@ export function sessionOf(state: State): Session | null {
   return state.kind === "live" ? state.live.session : state.session;
 }
 
-export function sessionKey(id: SessionId): string {
-  return `session:${id}`;
+/** What the mode keeps across its servers; `null` while idle. */
+export function tenureOf(state: State): Tenure | null {
+  if (state.kind === "idle") return null;
+
+  return state.kind === "live" ? state.live.tenure : state.tenure;
 }
 
-function keepAlive(host: Host, session: Session, server: ReviewServer): Live {
-  // oxlint-disable-next-line unicorn/no-array-callback-reference -- `host.every` is `$.clock.every`, a timer, not `Array.prototype.every`.
-  const heartbeat = host.every(HEARTBEAT_MS, () => {
-    void server.heartbeat();
-  });
-
-  return { session, server, heartbeat };
+export function sessionKey(id: SessionId): string {
+  return `session:${id}`;
 }
 
 function storedSession(host: Host, id: SessionId): Promise<Session | null> {
   return host.storeGet(sessionKey(id)).then(parseSession);
 }
 
-/** A server for a session the store kept, before any timer starts: the caller may still drop it. */
-type Found =
-  | { readonly kind: "up"; readonly session: Session; readonly server: ReviewServer }
-  | Exclude<Launched, { kind: "up" }>;
+/** The tenure `state` holds for session `id`, else a new one: one follower per session. */
+function tenureFor(host: Host, state: State, id: SessionId, wiring: Wiring): Tenure {
+  const held = tenureOf(state);
 
-/** A new server on the port, the token and the directory the dead one had. */
-async function relaunched(host: Host, stored: Session): Promise<Found> {
-  const launched = await start(host, stored.id, stored.project, stored.workdir, stored.server);
+  if (held !== null && sessionOf(state)?.id === id) return held;
 
-  if (launched.kind !== "up") return launched;
-  const { server } = launched;
-  const kept = reach(host, stored.server);
-
-  // Another port means the kept one was taken, which is evidence the kept server is up, not
-  // gone: one probe had failed. It is kept, since the reviewer's tab talks to it; the rival
-  // nobody beats or listens to expires by itself.
-  if (server.info.port !== stored.server.port && (await kept.alive())) {
-    return { kind: "up", session: stored, server: kept };
-  }
-
-  return { kind: "up", session: { ...stored, server: server.info }, server };
+  return { follower: follow(host, id, () => wiring.settle(host, id)), crashes: [] };
 }
 
-/** The server the store kept when it still answers, as after a module reload; a revived one else. */
-async function found(host: Host, stored: Session): Promise<Found> {
-  const server = reach(host, stored.server);
+/** A server for a session, spawned, before any timer starts: the caller may still drop it. */
+type Found =
+  | {
+      readonly kind: "up";
+      readonly session: Session;
+      readonly server: ReviewServer;
+      readonly child: Child;
+      readonly channel: string;
+    }
+  | Exclude<Launched, { kind: "up" }>;
 
-  return (await server.alive())
-    ? { kind: "up", session: stored, server }
-    : relaunched(host, stored);
+/**
+ * A new server on the port, the token and the directory the store kept, the final one once an
+ * approval renamed it. A server this module did not spawn cannot be read, so the kept one is never
+ * taken back: a reload has ended it, and a port another process still holds gives the new server
+ * another port, under a new token.
+ */
+async function relaunched(host: Host, stored: Session): Promise<Found> {
+  const { id, project, workdir, server, final } = stored;
+  const launched = await start(host, id, project, workdir, server, final);
+
+  if (launched.kind !== "up") return launched;
+
+  return { ...launched, session: { ...stored, server: launched.server.info } };
 }
 
 function stopTimers(state: State): void {
@@ -150,73 +175,132 @@ function stopTimers(state: State): void {
   }
 
   state.live.heartbeat.cancel();
-  state.poll.cancel();
+}
+
+/** A state a transition never took: its timers stop and its server ends. */
+export function discard(state: State): void {
+  stopTimers(state);
+
+  if (state.kind === "live") state.live.child.end();
 }
 
 /**
  * Never `idle`: the lock opens outside the mode, so a server that fails would hand Claude the
  * repository without an approval. The session is kept, and the retry goes through `revive`.
  */
-function lose(host: Host, session: Session, why: "gone" | "failed", wiring: Wiring): State {
+function lose(
+  host: Host,
+  session: Session,
+  why: "gone" | "failed",
+  wiring: Wiring,
+  tenure: Tenure,
+): State {
   host.status(why === "gone" ? STATUS_GONE : STATUS_LOST);
 
   // oxlint-disable-next-line unicorn/no-array-callback-reference -- `host.every` is `$.clock.every`, a timer, not `Array.prototype.every`.
   const retry = host.every(LOST_RETRY_MS, () => {
-    void wiring.revive(host, lost);
+    wiring.revive(host, lost, null).catch((cause: unknown) => {
+      host.log(`the review server was not revived: ${String(cause)}`);
+    });
   });
 
-  const lost: State = { kind: "lost", session, retry };
+  const lost: State = { kind: "lost", session, retry, tenure };
 
   return lost;
 }
 
-async function settled(host: Host, stored: Session, got: Found, wiring: Wiring): Promise<State> {
-  if (got.kind !== "up") return lose(host, stored, got.kind, wiring);
+async function settled(
+  host: Host,
+  stored: Session,
+  got: Found,
+  wiring: Wiring,
+  tenure: Tenure,
+): Promise<State> {
+  if (got.kind !== "up") return lose(host, stored, got.kind, wiring, tenure);
   await host.storeSet(sessionKey(got.session.id), got.session);
 
-  return enter(host, keepAlive(host, got.session, got.server), wiring);
+  return enter(host, got, wiring, tenure);
 }
 
 /**
- * Enters the mode: one poll a second until it closes. A failed poll is logged and retried; the
- * third one in a row that the server itself failed asks for a revival, once.
+ * Enters the mode on a spawned server: reads what it writes for as long as it runs, hands the
+ * channel to the tenure's follower, and keeps it alive. A server that ends while its mode is the
+ * current one is revived, and so is one that leaves `HEARTBEATS_MISSED` heartbeats unanswered,
+ * ended first. A line this module does not read is logged, never taken for nothing.
  */
-async function enter(host: Host, live: Live, wiring: Wiring): Promise<State> {
-  let relayed: Relayed = parseRelayed(
-    await host.storeGet(relayedKey(live.session.id)),
-    live.session.workdir,
-  );
-
-  let relaying = false;
-  let serverFailures = 0;
+function enter(
+  host: Host,
+  got: Extract<Found, { kind: "up" }>,
+  wiring: Wiring,
+  tenure: Tenure,
+): State {
+  const { session, server, child, channel } = got;
+  const current = (): boolean => wiring.current(entered);
+  let missed = 0;
+  let final = session.final;
 
   // oxlint-disable-next-line unicorn/no-array-callback-reference -- `host.every` is `$.clock.every`, a timer, not `Array.prototype.every`.
-  const poll = host.every(POLL_MS, () => {
-    if (relaying) return;
-    relaying = true;
+  const heartbeat = host.every(HEARTBEAT_MS, () => {
+    tenure.follower.retry();
+    void server.heartbeat().then((answered) => {
+      missed = answered ? 0 : missed + 1;
 
-    void tick(host, live, relayed)
-      .then(async (ticked) => {
-        relayed = ticked.relayed;
-        serverFailures = 0;
-
-        if (ticked.approved) await wiring.settle(host, entered);
-        else await wiring.ticks(host, live, ticked.stage);
-      })
-      .catch((cause: unknown) => {
-        host.log(`the review poll failed: ${String(cause)}`);
-
-        if (!(cause instanceof ServerDown)) return;
-        serverFailures += 1;
-
-        if (serverFailures === SERVER_FAILURES_BEFORE_REVIVE) void wiring.revive(host, entered);
-      })
-      .finally(() => {
-        relaying = false;
-      });
+      if (missed < HEARTBEATS_MISSED) return;
+      host.log(`the review server left ${missed} heartbeats unanswered: ended, to be revived`);
+      child.end();
+    });
   });
 
-  const entered: State = { kind: "live", live, poll };
+  const live: Live = { session, server, child, heartbeat, tenure };
+  const entered: State = { kind: "live", live };
+
+  const revive = (how: ProcessSpawnResult): void => {
+    wiring.revive(host, entered, how).catch((cause: unknown) => {
+      host.log(`the review server was not revived: ${String(cause)}`);
+    });
+  };
+
+  // One stage at a time, in the order written: an extension's read for an older one never lands last.
+  let staging = Promise.resolve();
+
+  void read(child.lines, {
+    line: (line) => {
+      if (line.type === "channel") tenure.follower.hand(line.line);
+
+      if (line.type !== "stage") return;
+
+      // Where the review lives once approved, before the approval reaches Claude: a server
+      // revived meanwhile is started there, and relays it.
+      if (line.stage.kind === "approved" && final === null && current()) {
+        final = line.dir;
+        void host
+          .storeSet(sessionKey(session.id), { ...session, final })
+          .catch((cause: unknown) => {
+            host.log(`the approved directory was not kept: ${String(cause)}`);
+          });
+      }
+
+      staging = staging
+        .then(() => wiring.staged(host, live, line.stage))
+        .catch((cause: unknown) => {
+          host.log(`the review's stage was not drawn: ${String(cause)}`);
+        });
+    },
+    unread: (text) => {
+      host.log(`the review server wrote a line this module does not read: ${text.slice(0, 200)}`);
+    },
+    ended: (how) => {
+      if (!current()) return;
+      host.log(`the review server ended: ${JSON.stringify(how)}`);
+      revive(how);
+    },
+  }).catch((cause: unknown) => {
+    if (!current()) return;
+    host.log(`the review server could not be read: ${String(cause)}`);
+    revive({ code: null, signal: null });
+  });
+
+  tenure.follower.serve(server, channel);
   // The band shows the mode; the status line is kept for what went wrong, and a revival ends it.
   host.status(undefined);
 
@@ -225,7 +309,8 @@ async function enter(host: Host, live: Live, wiring: Wiring): Promise<State> {
 
 /**
  * Stops the mode's timers and forgets nothing: the session's record stays, so a `/resume` of
- * that session later finds its directory and its server, or restarts one on the directory.
+ * that session later finds its directory and restarts a server on it. `register.ts` ends the
+ * server as the mode leaves.
  */
 export function suspend(host: Host, state: State): State {
   if (state.kind === "idle") return state;
@@ -248,40 +333,79 @@ export async function close(host: Host, state: State): Promise<State> {
   return suspend(host, state);
 }
 
-/** `session.start`: the module reloaded, so pick the mode back up, on a revived server when the kept one died. */
+/**
+ * `session.start`: a reload ended every server this module spawned, so the mode the store kept
+ * comes back on a relaunched one. The mode of another session is left first; this session's own
+ * live mode is kept.
+ */
 export async function restore(host: Host, state: State, wiring: Wiring): Promise<State> {
-  const stored = await storedSession(host, sessionId(await host.sessionId()));
+  const id = sessionId(await host.sessionId());
 
-  return stored === null ? state : settled(host, stored, await found(host, stored), wiring);
+  if (state.kind === "live" && state.live.session.id === id) return state;
+  const stored = await storedSession(host, id);
+
+  if (stored === null) return state;
+  stopTimers(state);
+  const tenure = tenureFor(host, state, id, wiring);
+
+  return settled(host, stored, await relaunched(host, stored), wiring, tenure);
+}
+
+/** When the mode's servers ended unexpectedly, this one at `now` included, within the window. */
+function crashesUntil(tenure: Tenure, now: number): readonly number[] {
+  return [...tenure.crashes, now].filter((at) => now - at < CRASH_WINDOW_MS);
 }
 
 /**
- * `from`'s server stopped answering. `null` when `from` was left during the launch: a `/clear`,
- * a `/vellum:stop` or a new way in wins, and the server started for nothing exits by itself,
- * with no heartbeat and no tab.
+ * `from`'s server ended, `how` it did; `null` for the slow retry of `lost`. A server that ended
+ * `CRASHES_BEFORE_LOST` times within `CRASH_WINDOW_MS` is not revived: the mode goes `lost`, and
+ * its slow retry paces what comes next. `null` when `from` was left during the launch: a `/clear`,
+ * a `/vellum:stop` or a new way in wins, and the server started for nothing is ended.
  */
 export async function revived(
   host: Host,
   from: State,
   still: () => boolean,
   wiring: Wiring,
+  how: ProcessSpawnResult | null,
 ): Promise<State | null> {
-  const session = sessionOf(from);
+  const held = sessionOf(from);
+  const kept = tenureOf(from);
 
-  if (session === null) return null;
+  if (held === null || kept === null) return null;
+  // The store knows the final directory the moment the server said it; `from` may not.
+  const session = (await storedSession(host, held.id)) ?? held;
+  const crashes = how === null ? kept.crashes : crashesUntil(kept, await host.now());
+  const tenure = { ...kept, crashes };
+
+  if (how !== null && crashes.length >= CRASHES_BEFORE_LOST) {
+    host.log(
+      `the review server ended ${crashes.length} times within ${CRASH_WINDOW_MS / 1000} s, the last with ${JSON.stringify(how)}: not revived`,
+    );
+
+    if (!still()) return null;
+    stopTimers(from);
+
+    return lose(host, session, "failed", wiring, tenure);
+  }
+
   const got = await relaunched(host, session);
 
-  if (!still()) return null;
+  if (!still()) {
+    if (got.kind === "up") got.child.end();
+
+    return null;
+  }
+
   stopTimers(from);
 
-  return settled(host, session, got, wiring);
+  return settled(host, session, got, wiring, tenure);
 }
 
 /**
- * Reaches a server, in order: the one this session already has when it answers, the one
- * `$.store` kept, a revived one on the directory the store kept, or a new one on a fresh
- * directory. A `/clear` changes the session id, so the live server of another id is left to
- * its heartbeat and a new one takes over.
+ * Reaches a server, in order: the one this session already has when it answers, a relaunched one
+ * on the directory, the port and the token `$.store` kept, or a new one on a fresh directory. A
+ * `/clear` changes the session id, so the mode of another id is left and a new one takes over.
  */
 export async function connect(host: Host, state: State, wiring: Wiring): Promise<State> {
   const id = sessionId(await host.sessionId());
@@ -289,15 +413,19 @@ export async function connect(host: Host, state: State, wiring: Wiring): Promise
 
   if (current?.session.id === id && (await current.server.alive())) return state;
   stopTimers(state);
+  const tenure = tenureFor(host, state, id, wiring);
   const stored = await storedSession(host, id);
 
-  if (stored !== null) return settled(host, stored, await found(host, stored), wiring);
+  if (stored !== null) {
+    return settled(host, stored, await relaunched(host, stored), wiring, tenure);
+  }
+
   const project = projectDir(await host.cwd());
   const workdir = workdirOf(id, new Date().toISOString().slice(0, 10));
-  const launched = await start(host, id, project, workdir, null);
+  const launched = await start(host, id, project, workdir, null, null);
 
   if (launched.kind !== "up") return { kind: "idle" };
-  const session = { id, server: launched.server.info, project, workdir };
+  const session = { id, server: launched.server.info, project, workdir, final: null };
 
-  return settled(host, session, { kind: "up", session, server: launched.server }, wiring);
+  return settled(host, session, { ...launched, session }, wiring, tenure);
 }

@@ -12,19 +12,17 @@ const NEXT_IDEA: Suggestion = { id: "p2", subject: "cache", reason: "two choices
 const PENDING: GrillState = {
   kind: "none",
   proposal: { kind: "pending", suggestion: IDEA },
-  relays: [],
 };
 
 const NEXT: GrillState = {
   kind: "none",
   proposal: { kind: "pending", suggestion: NEXT_IDEA },
-  relays: [],
 };
 
-const NONE: GrillState = { kind: "none", proposal: null, relays: [] };
+const NONE: GrillState = { kind: "none", proposal: null };
 
 const DECLINED: GrillState = {
-  ...NONE,
+  kind: "none",
   proposal: { kind: "declined", declined: { id: "p1", subject: "auth" } },
 };
 
@@ -138,7 +136,6 @@ describe("a grill that opens under the modal", () => {
       file: "plans/2026-09-23/wip-c95eaf71/grill-2.md" as ProjectPath,
       subject: "auth",
       phase: "working",
-      relays: [],
     };
 
     expect(askingOn(open, BLANK, true)).toEqual(AUTO);

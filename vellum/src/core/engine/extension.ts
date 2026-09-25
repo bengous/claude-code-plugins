@@ -51,15 +51,18 @@ export type EngineExtension = {
   readonly prompted?: (context: EngineContext, prompt: Prompted) => Promise<void>;
   /** The main loop's turn only, after the core's own gate. */
   readonly answered?: (context: EngineContext, turn: Answered) => Promise<void>;
-  /** Once per poll while live, after the core's relay; a throw is logged and the poll goes on. */
-  readonly tick?: (context: EngineContext) => Promise<void>;
+  /**
+   * Each time the server says the review changed, a `stage` line, while live: what the extension
+   * reads again for its segment. A throw is logged and the next extension runs.
+   */
+  readonly staged?: (context: EngineContext) => Promise<void>;
   /** `/vellum:stop`, the one end the module causes: an approval is closed on the server. */
   readonly closing?: (context: EngineContext) => Promise<void>;
   /**
    * What the band above the prompt says for this extension while live, after the plan and
-   * before the link; `null` says nothing. Asked after each poll and each transition of the mode,
-   * never at a draw: it answers from what its `tick` read, never from the server. A throw leaves
-   * it out of the band, logged once per mode.
+   * before the link; `null` says nothing. Asked after each `stage` line and each transition of the
+   * mode, never at a draw: it answers from what its `staged` read, never from the server. A throw
+   * leaves it out of the band, logged once per mode.
    */
   readonly segment?: (context: EngineContext) => string | null;
 };
