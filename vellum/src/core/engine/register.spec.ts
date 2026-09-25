@@ -33,4 +33,14 @@ describe("the tool.call hooks of register.ts", () => {
 
     expect(named.toSorted()).toEqual(["mcp__vellum__submit", ...registry].toSorted());
   });
+
+  test("each tool name is vellum's once: the hook serves the first extension that names it", () => {
+    const names = [
+      "submit",
+      ...engineExtensions.flatMap((extension) => (extension.tools ?? []).map(({ name }) => name)),
+    ];
+
+    expect(names.filter((name, index) => names.indexOf(name) !== index)).toEqual([]);
+    expect(names).not.toContain("grill_suggest");
+  });
 });

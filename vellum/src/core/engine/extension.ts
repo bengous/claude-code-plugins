@@ -37,7 +37,7 @@ export type EngineContext = {
 export type ToolContext = EngineContext & { readonly waiting: () => void };
 
 export type ExtensionTool = {
-  /** Registered as `mcp__vellum__<name>`: `grill_ask`, `propose`. */
+  /** Registered as `mcp__vellum__<name>`, one name per tool across the extensions (`register.spec.ts`). */
   readonly name: string;
   readonly description: string;
   readonly inputSchema: NonNullable<ToolSpec["inputSchema"]>;
