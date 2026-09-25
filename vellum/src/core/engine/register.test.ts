@@ -50,6 +50,8 @@ const ENDED = { code: null, signal: "SIGKILL" } as const;
 
 const REFUSED = { deny: "ENOENT bun" } as const;
 
+const FEEDBACK_SENT = `Reviewer sent: read ${WORKDIR}.review/v0.feedback-1.md.`;
+
 describe("session.start", () => {
   test("registers the submit tool, and nothing in the global command namespace", async ($, on) => {
     const seen = world(on);
@@ -531,6 +533,11 @@ describe("a server that ends", () => {
 
     expect(seen.children[0]?.killed()).toBe(true);
     expect(seen.children[1]?.argv.slice(-5)).toEqual(REVIVAL);
+    answering = true;
+    emit(seen, sent());
+    await seen.clock.settle();
+
+    expect(seen.prompts, "an entry after the revival").toEqual([FEEDBACK_SENT]);
   });
 
   test("a server that ends three times within a minute is not revived: `lost`, and the log names the last end", async ($, on) => {
@@ -574,6 +581,18 @@ describe("a server that ends", () => {
     expect(seen.logs).toContain(`the review server ended: ${JSON.stringify(ENDED)}`);
   });
 
+  test("an entry written after a revival is relayed: the follower goes on", async ($, on) => {
+    const seen = world(on);
+    await $.skill.prompt(START_PROMPT);
+    seen.children[0]?.exit(ENDED);
+    await seen.clock.settle();
+    emit(seen, sent());
+    await seen.clock.settle();
+
+    expect(seen.children).toHaveLength(2);
+    expect(seen.prompts).toEqual([FEEDBACK_SENT]);
+  });
+
   test("a revival that fails is `lost`: the lock still denies, and a slow timer brings the server back", async ($, on) => {
     const seen = world(on, { spawn: (child, run) => (run === 2 ? REFUSED : STARTS(child, run)) });
     await $.skill.prompt(START_PROMPT);
@@ -588,6 +607,10 @@ describe("a server that ends", () => {
 
     expect(seen.children[2]?.argv.slice(-5)).toEqual(REVIVAL);
     expect(seen.statuses.at(-1)).toBeUndefined();
+    emit(seen, sent());
+    await seen.clock.settle();
+
+    expect(seen.prompts, "an entry after the revival").toEqual([FEEDBACK_SENT]);
   });
 
   test("a working directory that is gone says so, and the lock holds", async ($, on) => {

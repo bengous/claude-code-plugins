@@ -143,8 +143,9 @@ export const register: Register = (on) => {
 
   /**
    * Every write of `state`: the band follows it, from one place. Leaving a live mode ends its
-   * server, and leaving a mode's tenure stops its follower: the module owns its child, and what a
-   * left mode's server would still say reaches nobody.
+   * server, and a follower the next state no longer holds is stopped: the module owns its child,
+   * and what a left mode's server would still say reaches nobody. A follower, not a tenure, is
+   * compared: a revival carries the same follower in a new tenure, its ends counted anew.
    */
   function become(host: Host, next: State): void {
     const was = state;
@@ -154,9 +155,9 @@ export const register: Register = (on) => {
       was.live.child.end();
     }
 
-    const tenure = tenureOf(was);
+    const follower = tenureOf(was)?.follower;
 
-    if (tenure !== null && tenure !== tenureOf(next)) tenure.follower.stop();
+    if (follower !== undefined && follower !== tenureOf(next)?.follower) follower.stop();
     redraw(host);
   }
 
