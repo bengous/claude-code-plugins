@@ -57,6 +57,7 @@ the engine events the core hands it, and its segment of the band above the promp
   the text the tool returns, an end, or still open. A restarted server keeps none of it: a
   round's wait reads as ended, and its entry reaches Claude through the channel; a proposal's
   reads as gone, and `propose` tells Claude to propose again, since no answer to it can come.
+  `step` remembers why it dropped its last proposal (replaced, approved), so that wait says so.
 - An extension owns its messages: `<id>/protocol.ts` types what crosses its routes, and
   `<id>/parse.ts` is its boundary parser. `src/core/protocol.ts` learns nothing of them.
   A route's reply has its own name there, which both ends import (`GrillState`, `Block` in

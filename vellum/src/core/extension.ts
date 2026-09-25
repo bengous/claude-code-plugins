@@ -94,9 +94,10 @@ export type ServerContext = {
   /**
    * Calls the `start` of the extension `id` in the caller's step of the queue, so what it starts
    * and the write that asked for it are one step: `step` opens a grill this way, and two never open.
+   * It writes nothing: the caller relays its entry, then runs the `commit`.
    */
   // oxlint-disable-next-line anti-slop/no-unknown-parameters -- `input` crosses the core from one extension to another, typed in neither's terms here; the started extension's `parse.ts` is the boundary that reads it.
-  readonly start: (id: string, input: unknown) => Promise<ParseResult<string>>;
+  readonly start: (id: string, input: unknown) => Promise<ParseResult<Started>>;
   /** What holds the review, the first `holds` of any extension; called inside the queue. */
   readonly held: () => Promise<string | null>;
   /**
@@ -108,6 +109,12 @@ export type ServerContext = {
   /** Wakes every held request of the review to read again: a write may have settled it. */
   readonly wake: () => void;
 };
+
+/**
+ * What an extension's `start` decided, writing nothing: the sentence Claude is told, which the
+ * caller's entry carries, and the write the caller runs once that entry exists.
+ */
+export type Started = { readonly told: string; readonly commit: () => Promise<void> };
 
 /** A batch a Send wrote, as an extension's part hears of it once its entry is in the channel. */
 export type SentBatch = {
@@ -155,11 +162,11 @@ export type ServerExtension = {
   readonly holds?: (context: ServerContext) => Promise<string | null>;
   /**
    * What another extension's route starts through `ServerContext.start`, inside that route's step
-   * of the queue: `input` is parsed here. It answers what Claude is told of the start, which the
-   * caller's entry carries, or why it refused.
+   * of the queue: `input` is parsed here. It decides and writes nothing: what Claude is told and
+   * the write that follows the caller's entry, or why it refused.
    */
   // oxlint-disable-next-line anti-slop/no-unknown-parameters -- `input` comes from another extension through the core; this extension's `parse.ts` is the boundary that reads it.
-  readonly start?: (context: ServerContext, input: unknown) => Promise<ParseResult<string>>;
+  readonly start?: (context: ServerContext, input: unknown) => Promise<ParseResult<Started>>;
   /** After the rename of an approval, on the server: what the extension must close, it closes here. */
   readonly approved?: (context: ServerContext) => Promise<void>;
   /**

@@ -37,6 +37,18 @@ function sentence(text: string): string {
 }
 
 /**
+ * An answer from the window opened blank: the reviewer's own step, never read against a proposal
+ * they did not open, which `unseen` says was waiting all the same.
+ */
+export function ownText(answer: StepAnswer, unseen: boolean): string {
+  const told = answerText(answer, null);
+
+  return unseen
+    ? `The reviewer answered from their own window, without opening your proposal. ${told}`
+    : told;
+}
+
+/**
  * What Claude is told of the reviewer's answer: `Accepted` for the move it recommended, `Chose`
  * for any other, one it offered or one of the reviewer's own, `Own` for the reviewer's words.
  */

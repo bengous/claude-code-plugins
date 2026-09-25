@@ -1,13 +1,16 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { existsSync, mkdtempSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import type { ChannelLine } from "../../core/protocol.ts";
 import { startServer } from "../../core/server/adapters/http/serve.ts";
 import type { Started } from "../../core/server/adapters/http/serve.ts";
+import { Review } from "../../core/server/app/review.ts";
 import { parseWipDir } from "../../core/server/domain/paths.ts";
+import { serverExtensions } from "../server.ts";
 import type { Move, Proposal, Proposed, StepPosts, StepState, StepWaited } from "./protocol.ts";
+import { stepServer } from "./server.ts";
 
 const WIP = "plans/2026-09-17/wip-c95eaf71/";
 
@@ -107,7 +110,7 @@ describe("a proposal", () => {
 
     expect(second).not.toBe(first);
     expect((await state()).pending?.id).toBe(second);
-    expect(await wait(first)).toEqual({ kind: "gone" });
+    expect(await wait(first)).toEqual({ kind: "ended", why: "replaced" });
   });
 
   test("that is not one is a bad request, and takes nothing", async () => {
@@ -166,7 +169,7 @@ describe("a proposal", () => {
     await api("gate", "{}");
     await api("decision", JSON.stringify({ kind: "approve", edit: null, notes: "" }));
 
-    expect(await wait(id)).toEqual({ kind: "gone" });
+    expect(await wait(id)).toEqual({ kind: "ended", why: "approved" });
     expect((await post("propose", PROPOSAL)).status).toBe(409);
   });
 });
@@ -218,9 +221,34 @@ describe("an answer", () => {
     await post("answer", { id: null, answer: { kind: "move", move: own } });
 
     expect(await told()).toEqual([
-      expect.stringMatching(/^Chose: a grill on: Where do drafts live\? The reviewer opened/u),
+      expect.stringMatching(
+        /^The reviewer answered from their own window, without opening your proposal\. Chose: a grill on: Where do drafts live\? The reviewer opened/u,
+      ),
     ]);
     expect(await wait(id)).toMatchObject({ kind: "answered", seq: 1 });
+  });
+
+  test("the window opened blank never reads against the recommendation it did not show", async () => {
+    const { post, propose, told } = await stepping();
+    await propose({ ...PROPOSAL, recommended: 2 });
+    await post("answer", { id: null, answer: { kind: "move", move: { kind: "plan" } } });
+
+    expect(await told()).toEqual([
+      "The reviewer answered from their own window, without opening your proposal. Chose: the plan.",
+    ]);
+  });
+
+  test("an answer whose entry cannot be written opens no grill, and the proposal still waits", async () => {
+    const { dir, post, propose, state } = await stepping();
+    const id = await propose();
+    rmSync(join(dir, WIP, ".review/channel.jsonl"));
+    mkdirSync(join(dir, WIP, ".review/channel.jsonl"));
+
+    const failed = await post("answer", { id, answer: { kind: "move", move: GRILL } });
+
+    expect(failed.ok).toBe(false);
+    expect(existsSync(join(dir, WIP, "grill-1.md"))).toBe(false);
+    expect((await state()).pending?.id).toBe(id);
   });
 
   test("the window opened blank with nothing waiting tells Claude all the same", async () => {
@@ -278,6 +306,47 @@ describe("an answer", () => {
       // @ts-expect-error -- what the server must refuse is not an answer.
       expect((await post("answer", body)).status).toBe(400);
     }
+  });
+});
+
+/** A step route's request, as `serve.ts` hands it on: the body is all a step route reads. */
+function request(body?: StepPosts["propose"] | StepPosts["answer"]): Request {
+  return body === undefined
+    ? new Request("http://step/")
+    : new Request("http://step/", { method: "POST", body: JSON.stringify(body) });
+}
+
+describe("the page", () => {
+  test("hears of an answer that opens a grill once, once the proposal is settled", async () => {
+    const root = mkdtempSync(join(tmpdir(), "vellum-step-"));
+    mkdirSync(join(root, WIP, ".review"), { recursive: true });
+    const workdir = parseWipDir(WIP);
+
+    if (!workdir.ok) throw new Error(workdir.error);
+    const extensions = serverExtensions;
+    const review = new Review({ project: root, workdir: workdir.value, extensions });
+    await review.openChannel();
+
+    const routes = stepServer.routes?.(review.context);
+
+    const [propose, answer, state] = [
+      routes?.["POST propose"],
+      routes?.["POST answer"],
+      routes?.["GET state"],
+    ];
+
+    if (propose === undefined || answer === undefined || state === undefined) {
+      throw new Error("a step route is missing");
+    }
+
+    // SAFETY: the server's own `Proposed`, serialized by `Response.json` in step/server.ts.
+    const { id } = (await (await propose(request(PROPOSAL))).json()) as Proposed;
+    const heard: Promise<Response>[] = [];
+    review.subscribe(() => heard.push(state(request())));
+    await answer(request({ id, answer: { kind: "move", move: GRILL } }));
+
+    expect(heard).toHaveLength(1);
+    expect(await heard[0]?.then((read) => read.json())).toEqual({ pending: null });
   });
 });
 

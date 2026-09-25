@@ -4,6 +4,7 @@ import type {
   RouteKey,
   ServerContext,
   ServerExtension,
+  Started,
 } from "../../core/extension.ts";
 import type { Draft, PlanWorkspace } from "../../core/protocol.ts";
 import type { ParseResult, ProjectPath } from "../../core/server/domain/paths.ts";
@@ -226,12 +227,13 @@ async function holds(context: ServerContext): Promise<string | null> {
 }
 
 /**
- * Opens a grill on the subject, from `step`'s answer, in that answer's step of the queue, so a
- * grill never opens over another. It tells nothing itself: it answers what Claude is told, the
- * file, the subject and, at the directory's first grill, the guide, which the answer's entry carries.
+ * Decides a grill on the subject, from `step`'s answer, in that answer's step of the queue, so a
+ * grill never opens over another. It writes nothing: it answers what Claude is told (the file,
+ * the subject and, at the directory's first grill, the guide), which the answer's entry carries,
+ * and the header's write, which runs once that entry exists.
  */
 // oxlint-disable-next-line anti-slop/no-unknown-parameters -- `input` comes from `step` through the core; `parseSubject` is the boundary that reads it.
-async function start(context: ServerContext, input: unknown): Promise<ParseResult<string>> {
+async function start(context: ServerContext, input: unknown): Promise<ParseResult<Started>> {
   const subject = parseSubject(input);
 
   if (subject === null) return { ok: false, error: "a grill's subject is one line, not empty" };
@@ -247,14 +249,12 @@ async function start(context: ServerContext, input: unknown): Promise<ParseResul
   }
 
   const name = grillFile((current?.n ?? 0) + 1);
+  const file = projectPath(`${workspace.dir}${name}`);
   const session = /wip-([0-9a-f]{8})\/$/u.exec(workspace.dir)?.[1] ?? "";
-  await context.writeText(
-    projectPath(`${workspace.dir}${name}`),
-    header(subject, session, new Date()),
-  );
-  await context.notify();
+  const doc = header(subject, session, new Date());
+  const told = toldOf({ kind: "opened", seq: 0, name, subject }, current === null);
 
-  return { ok: true, value: toldOf({ kind: "opened", seq: 0, name, subject }, current === null) };
+  return { ok: true, value: { told, commit: () => context.writeText(file, doc) } };
 }
 
 /** Runs inside the review's queue, after the rename: the footer lands in the final directory, module alive or not. */

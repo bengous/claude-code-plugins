@@ -1,4 +1,4 @@
-import type { Part, ServerContext, ServerExtension } from "../../extension.ts";
+import type { Part, ServerContext, ServerExtension, Started } from "../../extension.ts";
 import type {
   ChannelEntry,
   ChannelLine,
@@ -187,7 +187,7 @@ export class Review {
 
   /** Called inside the queue, from another extension's route: no step of its own. */
   // oxlint-disable-next-line anti-slop/no-unknown-parameters -- `input` is handed on untouched to the extension it names, whose `parse.ts` reads it.
-  private async start(id: string, input: unknown): Promise<ParseResult<string>> {
+  private async start(id: string, input: unknown): Promise<ParseResult<Started>> {
     const extension = this.options.extensions.find((one) => one.id === id);
 
     if (extension?.start === undefined) return { ok: false, error: `no extension ${id} starts` };

@@ -39,9 +39,11 @@ Claude Code's `installed_plugins.json`, `git` with its `GIT_*` variables cleared
   reason to the page, and `ServerContext.held` to an extension: `step` takes no proposal while
   one holds. The core names no extension: it appends what a gate means to the reason.
 - An extension starts what another runs through `ServerContext.start(id, input)`, which calls
-  that one's `start` in the caller's step of the queue and answers what Claude is told of it:
-  `step`'s answer opens a grill that way, so two grills never open. The core passes `input` on
-  untouched, and the started extension's `parse.ts` reads it.
+  that one's `start` in the caller's step of the queue: `step`'s answer opens a grill that way,
+  so two grills never open. `start` decides and writes nothing, as a Send's `part`: it answers
+  what Claude is told and a `commit`, which the caller runs once its own entry is in the channel.
+  An entry that fails leaves nothing written; a commit that fails after it is logged. The core
+  passes `input` on untouched, and the started extension's `parse.ts` reads it.
 - One queue orders every mutation: `gate`, `decide`, `send`, and an extension's writes through
   `ServerContext.inOrder`. A gate that checked the hold writes its version before a grill that
   opened meanwhile, never after. `holds`, `start` and `approved` run inside the queue and never call it.

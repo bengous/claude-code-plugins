@@ -28,8 +28,10 @@ const ANSWERED = { kind: "answered", seq: 1, text: ACCEPTED };
 
 const BATCH = `${WORKDIR}.review/v0.feedback-1.md`;
 
-const LOST =
-  "The proposal no longer waits for the reviewer: the review server restarted, or the review moved on. Propose again.";
+const GONE = "The review server restarted and lost this proposal: propose again.";
+
+const ANSWER_BY_PROMPT =
+  "The reviewer's answer will arrive as a prompt, once they send it. End your turn.";
 
 describe("propose", () => {
   test("waits for the reviewer's answer, returns it, and the answer is not relayed", async ($, on) => {
@@ -105,18 +107,46 @@ describe("propose", () => {
     expect(seen.prompts).toContain(`Reviewer sent: read ${BATCH}.`);
   });
 
-  test("a proposal gone unanswered, the server restarted, says to propose again", async ($, on) => {
+  test("a proposal the server does not know, the server restarted, says to propose again", async ($, on) => {
     world(on, stepRoutes({ wait: () => reply(200, { kind: "gone" }) }));
     await $.skill.prompt(START_PROMPT);
 
-    expect(await $.tool.call({ tool: PROPOSE, ...PROPOSAL })).toEqual({ deny: LOST });
+    expect(await $.tool.call({ tool: PROPOSE, ...PROPOSAL })).toEqual({ deny: GONE });
   });
 
-  test("a wait the server does not answer says to propose again, never a permission prompt", async ($, on) => {
+  test("a wait that fails is asked once more at once: a revived server's gone says to propose again", async ($, on) => {
+    const waits = [null, reply(200, { kind: "gone" })];
+    const step = stepRoutes({ wait: () => waits.shift() ?? null });
+    world(on, step);
+    await $.skill.prompt(START_PROMPT);
+
+    expect(await $.tool.call({ tool: PROPOSE, ...PROPOSAL })).toEqual({ deny: GONE });
+    expect(step.posted.filter(([name]) => name === "wait")).toHaveLength(2);
+  });
+
+  test("a wait that fails twice says the pick comes as a prompt, never a permission prompt", async ($, on) => {
     world(on, stepRoutes({ wait: () => null }));
     await $.skill.prompt(START_PROMPT);
 
-    expect(await $.tool.call({ tool: PROPOSE, ...PROPOSAL })).toEqual({ deny: LOST });
+    expect(await $.tool.call({ tool: PROPOSE, ...PROPOSAL })).toEqual({ result: ANSWER_BY_PROMPT });
+  });
+
+  test("an approval during the wait says no step follows", async ($, on) => {
+    world(on, stepRoutes({ wait: () => reply(200, { kind: "ended", why: "approved" }) }));
+    await $.skill.prompt(START_PROMPT);
+
+    expect(await $.tool.call({ tool: PROPOSE, ...PROPOSAL })).toEqual({
+      result: "The reviewer approved the plan: no step follows. End your turn.",
+    });
+  });
+
+  test("a newer proposal that replaced this one says where its answer goes", async ($, on) => {
+    world(on, stepRoutes({ wait: () => reply(200, { kind: "ended", why: "replaced" }) }));
+    await $.skill.prompt(START_PROMPT);
+
+    expect(await $.tool.call({ tool: PROPOSE, ...PROPOSAL })).toEqual({
+      deny: "A newer proposal replaced this one; its answer goes to that call.",
+    });
   });
 
   test("a refusal reaches the model as the server said it, and nothing waits", async ($, on) => {

@@ -125,8 +125,9 @@ sequenceDiagram
   M->>S: POST /api/x/step/propose, pending under a new id (refused while a grill holds the review), then POST wait, held under 30 s, again and again
   S-->>P: workspace event, the "Next step" window over the page, or the Next step button's dot under a typing
   P->>S: POST /api/x/step/answer {id, answer}: a move picked, one of the reviewer's own, or their words
-  S->>S: a grill picked: ServerContext.start("grill") writes grill-1.md, its header, in the same step
+  S->>S: a grill picked: ServerContext.start("grill") decides grill-1.md in the same step, writing nothing
   S->>S: one text entry on the channel: "Accepted: <move>." | "Chose: <move>." | "Own: <text>.", the opening after it
+  S->>S: then the grill's commit writes grill-1.md, its header
   S-->>M: stdout: the entry, held by the follower while propose waits
   S-->>M: the wait's answer: the entry's number and its text
   M->>C: the tool's result; the follower never relays that entry
@@ -174,10 +175,13 @@ no human wrote it, and it must never reach Claude as the user's own words.
 
 What to do next is `step`'s, never the grill's: `propose` offers moves (a grill, a mockup, a
 prototype, the plan) and marks the one Claude recommends, which the window never checks. The
-proposal lives in the server's memory alone, one at a time: a new one replaces it, the approval
-takes it, and a restarted server has none, so a wait on it reads gone and `propose` tells Claude
-to propose again. The window opened blank from the Next step button takes a step of the
-reviewer's own, and settles the proposal waiting, if any. A grill opens only there, through
+proposal lives in the server's memory alone, one at a time. A new one replaces it and the
+approval takes it, and a wait on it says so (`ended`, `replaced` or `approved`: no step follows
+an approval); a restarted server knows none, so a wait on it reads `gone` and `propose` tells
+Claude to propose again. A wait that fails is asked once more at once, and two failures answer
+that the pick comes as a prompt. The window opened blank from the Next step button takes a step
+of the reviewer's own, and settles the proposal waiting, if any, never reading the pick against
+a recommendation it did not show. A grill opens only there, through
 `ServerContext.start`, in the answer's step of the queue: two never open, and `step` refuses a
 proposal while one holds the review (`ServerContext.held`).
 

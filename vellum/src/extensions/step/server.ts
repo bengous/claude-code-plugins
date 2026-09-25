@@ -1,8 +1,8 @@
 import type { Route, RouteKey, ServerContext, ServerExtension } from "../../core/extension.ts";
 import type { PlanWorkspace } from "../../core/protocol.ts";
-import { answerText } from "./moves.ts";
+import { answerText, ownText } from "./moves.ts";
 import { parseAnswer, parseProposal, parseWait } from "./parse.ts";
-import type { Pending, Proposed, StepState, StepWaited } from "./protocol.ts";
+import type { Dropped, Pending, Proposed, StepState, StepWaited } from "./protocol.ts";
 
 /** A proposal the reviewer answered, under the entry that told it: what a waiting `propose` returns. */
 type Answered = { readonly id: string; readonly seq: number; readonly text: string };
@@ -16,6 +16,8 @@ type Memory = {
   pending: Pending | null;
   /** The last proposal answered, for the waits on it. */
   answered: Answered | null;
+  /** The last proposal dropped unanswered, and why, for the waits on it. */
+  dropped: { readonly id: string; readonly why: Dropped } | null;
 };
 
 const memories = new WeakMap<ServerContext, Memory>();
@@ -24,7 +26,7 @@ function memoryOf(context: ServerContext): Memory {
   const known = memories.get(context);
 
   if (known !== undefined) return known;
-  const made: Memory = { pending: null, answered: null };
+  const made: Memory = { pending: null, answered: null, dropped: null };
   memories.set(context, made);
 
   return made;
@@ -56,16 +58,18 @@ async function ended(context: ServerContext): Promise<string | null> {
 
 function waitedOn(memory: Memory, id: string): StepWaited {
   if (memory.pending?.id === id) return { kind: "open" };
-  const { answered } = memory;
+  const { answered, dropped } = memory;
 
-  return answered?.id === id
-    ? { kind: "answered", seq: answered.seq, text: answered.text }
-    : { kind: "gone" };
+  if (answered?.id === id) return { kind: "answered", seq: answered.seq, text: answered.text };
+
+  return dropped?.id === id ? { kind: "ended", why: dropped.why } : { kind: "gone" };
 }
 
 /** The approval takes the proposal with it: a `propose` waiting on it reads it gone. */
 function approved(context: ServerContext): Promise<void> {
   const memory = memoryOf(context);
+
+  if (memory.pending !== null) memory.dropped = { id: memory.pending.id, why: "approved" };
   memory.pending = null;
   context.wake();
 
@@ -97,6 +101,8 @@ function routes(context: ServerContext): Readonly<Record<RouteKey, Route>> {
         if (held !== null)
           return refused(`${held}: no step is proposed until the reviewer ends it`);
         const proposed: Proposed = { id: crypto.randomUUID() };
+
+        if (memory.pending !== null) memory.dropped = { id: memory.pending.id, why: "replaced" };
         memory.pending = { id: proposed.id, proposal };
         context.wake();
         await context.notify();
@@ -121,6 +127,7 @@ function routes(context: ServerContext): Readonly<Record<RouteKey, Route>> {
 
     // The window's answer settles the proposal waiting, the one it showed or, opened blank, any:
     // a grill it opens holds the review, and a proposal left waiting under it would never end.
+    // It decides first and writes nothing; its entry is the commit point, then the start's write.
     "POST answer": async (request) => {
       const body = parseAnswer(await request.json().catch(() => null));
 
@@ -141,8 +148,11 @@ function routes(context: ServerContext): Readonly<Record<RouteKey, Route>> {
             : null;
 
         if (started?.ok === false) return refused(started.error);
-        const told = answerText(answer, pending);
-        const text = started === null ? told : `${told} ${started.value}`;
+
+        const told =
+          body.id === null ? ownText(answer, pending !== null) : answerText(answer, pending);
+
+        const text = started === null ? told : `${told} ${started.value.told}`;
         const seq = await context.relay({ kind: "text", from: "step", text });
 
         if (pending !== null) {
@@ -151,6 +161,9 @@ function routes(context: ServerContext): Readonly<Record<RouteKey, Route>> {
         }
 
         context.wake();
+        await started?.value.commit().catch((cause: unknown) => {
+          console.error(`step told Claude of its answer, then the start failed: ${String(cause)}`);
+        });
         await context.notify();
 
         return new Response(null, NO_CONTENT);

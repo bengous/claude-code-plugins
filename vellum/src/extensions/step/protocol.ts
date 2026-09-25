@@ -31,13 +31,17 @@ export type StepState = { readonly pending: Pending | null };
 /** What `POST propose` answers: the id the proposal waits under. */
 export type Proposed = { readonly id: string };
 
+/** Why a proposal stopped waiting unanswered: a newer one took its place, or the plan was approved. */
+export type Dropped = "replaced" | "approved";
+
 /**
  * What `POST wait` answers: the reviewer's answer, its entry's number and the text `propose`
- * returns; the proposal gone unanswered (a restarted server, a newer proposal, the approval); or
- * still waiting once the hold ran out.
+ * returns; the proposal dropped unanswered, and why; an id the server does not know, as after a
+ * restart; or the proposal still waiting once the hold ran out.
  */
 export type StepWaited =
   | { readonly kind: "answered"; readonly seq: number; readonly text: string }
+  | { readonly kind: "ended"; readonly why: Dropped }
   | { readonly kind: "gone" }
   | { readonly kind: "open" };
 

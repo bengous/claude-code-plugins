@@ -703,7 +703,10 @@ describe("an extension started from another's route", () => {
       start: (_, input) => {
         order.push(`start ${JSON.stringify(input)}`);
 
-        return Promise.resolve({ ok: true, value: "opened" });
+        return Promise.resolve({
+          ok: true,
+          value: { told: "opened", commit: () => Promise.resolve() },
+        });
       },
     };
 
@@ -722,7 +725,7 @@ describe("an extension started from another's route", () => {
       return Promise.resolve();
     });
 
-    expect(await first).toEqual({ ok: true, value: "opened" });
+    expect(await first).toMatchObject({ ok: true, value: { told: "opened" } });
     await second;
     expect(order).toEqual(['start {"subject":"a"}', "caller", "next step"]);
   });

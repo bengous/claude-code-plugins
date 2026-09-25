@@ -6,10 +6,13 @@ import type {
   ToolContext,
 } from "../../core/engine/extension.ts";
 import { parseError, parseJson, parseProposal, parseProposed, parseWaited } from "./parse.ts";
-import type { StepPosts } from "./protocol.ts";
+import type { StepPosts, StepWaited } from "./protocol.ts";
 
-const LOST =
-  "The proposal no longer waits for the reviewer: the review server restarted, or the review moved on. Propose again.";
+const GONE = "The review server restarted and lost this proposal: propose again.";
+
+const APPROVED = "The reviewer approved the plan: no step follows. End your turn.";
+
+const REPLACED = "A newer proposal replaced this one; its answer goes to that call.";
 
 function post<Name extends keyof StepPosts>(
   context: EngineContext,
@@ -20,19 +23,37 @@ function post<Name extends keyof StepPosts>(
 }
 
 /**
+ * One `POST wait`, asked once more at once when it fails, with no pause, so a `$` call is always
+ * in flight: after a crash the second one usually reaches the revived server, which answers
+ * `gone`. Two failures throw, and the core's `.catch` answers that the pick comes as a prompt.
+ */
+async function waited(context: ToolContext, id: string): Promise<StepWaited> {
+  for (let tries = 1; ; tries += 1) {
+    const response = await post(context, "wait", { id }).catch(() => null);
+    const read = response?.ok === true ? parseWaited(parseJson(response.text)) : null;
+
+    if (read !== null) return read;
+
+    if (tries === 2) {
+      throw new Error(`POST wait failed twice: ${response?.status ?? "no answer"}`);
+    }
+  }
+}
+
+/**
  * Holds the call until the reviewer answers, one `POST wait` in flight at a time: the engine cuts
  * each at 30 s and counts no hook time while one is out (`docs/plugin-testing/hook-runtime.md`).
- * The proposal lives in the server's memory alone, so a wait that fails, or finds it gone, tells
- * Claude to propose again: no answer to it will ever come.
  */
 async function waitFor(context: ToolContext, id: string): Promise<ToolAnswer> {
   for (;;) {
-    const response = await post(context, "wait", { id }).catch(() => null);
-    const waited = response?.ok === true ? parseWaited(parseJson(response.text)) : null;
+    const read = await waited(context, id);
 
-    if (waited === null || waited.kind === "gone") return { deny: LOST };
+    if (read.kind === "answered") return { result: read.text, returns: read.seq };
 
-    if (waited.kind === "answered") return { result: waited.text, returns: waited.seq };
+    if (read.kind === "gone") return { deny: GONE };
+
+    if (read.kind === "ended")
+      return read.why === "approved" ? { result: APPROVED } : { deny: REPLACED };
   }
 }
 

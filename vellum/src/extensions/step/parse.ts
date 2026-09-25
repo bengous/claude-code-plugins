@@ -123,6 +123,12 @@ export function parseWaited(value: unknown): StepWaited | null {
 
   if (value.kind === "gone" || value.kind === "open") return { kind: value.kind };
 
+  if (value.kind === "ended") {
+    return value.why === "replaced" || value.why === "approved"
+      ? { kind: "ended", why: value.why }
+      : null;
+  }
+
   return value.kind === "answered" &&
     typeof value.seq === "number" &&
     typeof value.text === "string"
