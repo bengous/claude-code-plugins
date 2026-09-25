@@ -1,5 +1,5 @@
 import type { ElementDescription, ElementRef, WordsContext } from "../../core/protocol.ts";
-import type { FrameToPage, PickBox } from "./messages.ts";
+import type { Chosen, FrameToPage, PickBox } from "./messages.ts";
 
 /**
  * The boundary of `html`: what the frame's window posts arrives as `unknown` and is parsed here,
@@ -58,6 +58,35 @@ function parseBox(value: unknown): PickBox | null {
     : null;
 }
 
+function parseChosen(value: unknown): Chosen | null {
+  if (!isRecord(value)) return null;
+  const { decision, option } = value;
+
+  return typeof decision === "string" &&
+    decision !== "" &&
+    typeof option === "string" &&
+    option !== ""
+    ? { decision, option }
+    : null;
+}
+
+function parseChoose(value: Record<string, unknown>): FrameToPage | null {
+  const chosen = parseChosen(value);
+  const description = parseDescription(value.description);
+  const { label } = value;
+
+  return chosen !== null && typeof label === "string" && label !== "" && description !== null
+    ? { type: "vellum:choose", ...chosen, label, description }
+    : null;
+}
+
+function parseAbsent(value: Record<string, unknown>): FrameToPage | null {
+  if (!Array.isArray(value.choices)) return null;
+  const choices = value.choices.map((choice: unknown) => parseChosen(choice));
+
+  return choices.every((choice) => choice !== null) ? { type: "vellum:absent", choices } : null;
+}
+
 /** `null` for whatever is not a whole `FrameToPage`: the listener drops it and nothing is drawn. */
 export function parseFrameToPage(value: unknown): FrameToPage | null {
   if (!isRecord(value)) return null;
@@ -69,6 +98,10 @@ export function parseFrameToPage(value: unknown): FrameToPage | null {
 
   if (type === "vellum:holding")
     return typeof value.holding === "boolean" ? { type, holding: value.holding } : null;
+
+  if (type === "vellum:choose") return parseChoose(value);
+
+  if (type === "vellum:absent") return parseAbsent(value);
 
   if (type !== "vellum:pick" || !Array.isArray(value.elements)) return null;
 

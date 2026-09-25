@@ -1,6 +1,8 @@
 import type {
   Anchor,
   Annotation,
+  Choice,
+  Choices,
   Draft,
   Edit,
   ElementDescription,
@@ -16,7 +18,9 @@ import { parseProjectPath, parseVersion } from "../domain/paths.ts";
 
 /**
  * The draft's boundary: what `PUT /api/draft` carries and what `.review/draft.json` holds back,
- * one parser for both, so a draft of an older shape is refused whole, never read half-way.
+ * one parser for both, so a malformed draft is refused whole, never read half-way. Two older
+ * shapes are read, each to keep the reviewer's unsent comments: an element with no description,
+ * and a draft with no choices.
  */
 
 /* oxlint-disable anti-slop/no-runtime-typeof, anti-slop/no-unknown-parameters, anti-slop/no-unsafe-dictionary-type -- the block below IS the boundary parser the rules ask for: it validates the draft the page posts and the file it was saved to, and there is no earlier place to parse them. */
@@ -213,6 +217,58 @@ function parseGrillTyped(value: unknown): Typed["grill"] | null {
   return grill;
 }
 
+function parseChoice(value: unknown): Choice | null {
+  const description = isRecord(value) ? parseElementDescription(value.description) : null;
+
+  return isRecord(value) &&
+    description !== null &&
+    typeof value.option === "string" &&
+    value.option !== "" &&
+    typeof value.label === "string" &&
+    value.label !== ""
+    ? { option: value.option, label: value.label, description }
+    : null;
+}
+
+function parseDecisions(value: unknown): Readonly<Record<string, Choice>> | null {
+  if (!isRecord(value) || Array.isArray(value)) return null;
+  const entries = Object.entries(value);
+
+  const decisions = entries.flatMap(([decision, choice]) => {
+    const parsed = decision === "" ? null : parseChoice(choice);
+
+    return parsed === null ? [] : [[decision, parsed] as const];
+  });
+
+  return decisions.length === entries.length ? Object.fromEntries(decisions) : null;
+}
+
+/**
+ * A mockup's choices under its path as parsed, so a Send that names the path finds them; two
+ * spellings of one path are refused, since each would hold its own choice of a decision. A draft
+ * saved before the choices holds none: it keeps the reviewer's unsent comments, so it is read
+ * with no choice rather than refused.
+ */
+function parseChoices(value: unknown): Choices | null {
+  if (value === undefined) return {};
+
+  if (!isRecord(value) || Array.isArray(value)) return null;
+  const entries = Object.entries(value);
+
+  const docs = entries.flatMap(([doc, decisions]) => {
+    const path = parseProjectPath(doc);
+    const parsed = path.ok ? parseDecisions(decisions) : null;
+
+    return path.ok && parsed !== null ? [[path.value, parsed] as const] : [];
+  });
+
+  const paths = new Set(docs.map(([path]) => path));
+
+  return docs.length === entries.length && paths.size === docs.length
+    ? Object.fromEntries(docs)
+    : null;
+}
+
 function parseTyped(value: unknown): Typed | null {
   if (!isRecord(value) || typeof value.general !== "string") return null;
   const composer = parseStrings(value.composer);
@@ -224,19 +280,17 @@ function parseTyped(value: unknown): Typed | null {
     : { general: value.general, composer, grill, editor: editor.value };
 }
 
-/**
- * The comments and the edit a Send takes, plus what is typed. A draft of an older shape is
- * refused whole, written or read back.
- */
+/** The comments, the edit and the choices a Send takes, plus what is typed, written or read back. */
 export function parseDraft(body: unknown): Draft | null {
   if (!isRecord(body)) return null;
   const annotations = parseAnnotations(body.annotations);
   const edit = parseEdit(body.edit);
+  const choices = parseChoices(body.choices);
   const typed = parseTyped(body.typed);
 
-  return annotations === null || edit === null || typed === null
+  return annotations === null || edit === null || choices === null || typed === null
     ? null
-    : { annotations, edit: edit.value, typed };
+    : { annotations, edit: edit.value, choices, typed };
 }
 
 /** The saved file, read back through the same parser a PUT goes through. */

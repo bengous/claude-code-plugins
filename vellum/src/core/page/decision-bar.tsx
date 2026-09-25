@@ -2,8 +2,8 @@ import type { ComponentType } from "preact";
 import { useEffect, useState } from "preact/hooks";
 
 import type { SendShare } from "../extension.ts";
-import type { Annotation } from "../protocol.ts";
-import { countChanges } from "../protocol.ts";
+import type { Annotation, Choices } from "../protocol.ts";
+import { choicesIn, countChanges, refOf } from "../protocol.ts";
 import { Badge, Banner, Button, Gear, Popover } from "./kit.tsx";
 import type { Notice } from "./notices.ts";
 import { decisionsOf, statusOf } from "./notices.ts";
@@ -11,6 +11,7 @@ import { Settings } from "./settings/settings.tsx";
 import type { Unsent } from "./state.ts";
 import {
   annotations,
+  choices,
   connection,
   decide,
   edited,
@@ -20,6 +21,7 @@ import {
   planText,
   review,
   send,
+  sendableChoices,
   sending,
   strayTyped,
   unsentTyped,
@@ -30,14 +32,15 @@ function titleOf(plan: string | null): string {
 }
 
 /**
- * The notes popover: the note typed so far, and the unsent comments and typed texts as they were
- * when the reviewer agreed to lose them, or when the popover opened on none. What changed since
- * brings the warning back.
+ * The notes popover: the note typed so far, and the unsent comments, choices and typed texts as
+ * they were when the reviewer agreed to lose them, or when the popover opened on none. What
+ * changed since brings the warning back.
  */
 type Notes = {
   readonly kind: "notes";
   readonly text: string;
   readonly agreed: readonly Annotation[];
+  readonly choicesAgreed: Choices;
   readonly typedAgreed: Unsent;
   /** The hold the reviewer was warned of on the way here; another one brings the warning back. */
   readonly warned: string | null;
@@ -102,6 +105,8 @@ type WarningProps = {
   /** The decision the warning stands before: what it discards is said in its words. */
   readonly action: "approve" | "send";
   readonly count: number;
+  /** The choices made in mockups and not sent, which the approval discards. */
+  readonly chosen: number;
   /** The questions a Send takes by default, which the reviewer did not answer. */
   readonly unanswered: number;
   /** What holds the review, which the approval ends; `null` when nothing does. */
@@ -132,6 +137,16 @@ function Warning(props: WarningProps): preact.JSX.Element {
           </div>
           <div>
             {verb} discards {one ? "it" : "them"}.
+          </div>
+        </>
+      )}
+      {props.chosen > 0 && (
+        <>
+          <div class="warn-text">
+            {props.chosen === 1 ? "1 choice is not sent." : `${props.chosen} choices are not sent.`}
+          </div>
+          <div>
+            {verb} discards {props.chosen === 1 ? "it" : "them"}.
           </div>
         </>
       )}
@@ -182,6 +197,7 @@ export function DecisionBar(props: BarProps): preact.JSX.Element {
   const hold = view?.held ?? null;
   const status = workspace === undefined ? null : statusOf(workspace, hold);
   const count = annotations.value.length;
+  const chosen = choicesIn(choices.value);
   const since = view?.plan?.previous?.version;
   const changed = planChanges.value === null ? null : countChanges(planChanges.value);
   const [popover, setPopover] = useState<BarPopover>(CLOSED);
@@ -192,7 +208,8 @@ export function DecisionBar(props: BarProps): preact.JSX.Element {
   const title = titleOf(planText.value);
   const parts = props.shares.map((share) => share());
   const unanswered = parts.flatMap((part) => part.unanswered);
-  const counted = count + (edited.value === null ? 0 : 1);
+  const sendable = sendableChoices.value;
+  const counted = count + sendable.length + (edited.value === null ? 0 : 1);
   const sendCount = parts.reduce((sum, part) => sum + part.count, counted);
 
   useEffect(() => {
@@ -235,6 +252,7 @@ export function DecisionBar(props: BarProps): preact.JSX.Element {
       void send({
         annotations: annotations.value.map(({ id }) => id),
         edit: edited.value,
+        choices: sendable.map((choice) => refOf(choice)),
         parts: props.shares.map((share) => share()),
         takeDefaults: next.unanswered,
       }).then((sent) => {
@@ -247,6 +265,7 @@ export function DecisionBar(props: BarProps): preact.JSX.Element {
         kind: "notes",
         text: "",
         agreed: annotations.value,
+        choicesAgreed: choices.value,
         typedAgreed: unsentTyped.value,
         warned: hold,
       });
@@ -260,7 +279,7 @@ export function DecisionBar(props: BarProps): preact.JSX.Element {
   };
 
   /**
-   * Every way to a decision: unsent comments an approval would lose, a hold it would end, a typed
+   * Every way to a decision: unsent comments or choices an approval would lose, a hold it would end, a typed
    * text either would throw, or questions a Send would take by default, none of which the reviewer
    * agreed to, put the warning first.
    */
@@ -270,11 +289,12 @@ export function DecisionBar(props: BarProps): preact.JSX.Element {
     const stray = approval ? unsentTyped.value : strayTyped.value;
     const notes = next.kind === "noted" ? next.notes : null;
     const agreed = !approval || unsent.length === 0 || notes?.agreed === unsent;
+    const chosenAgreed = !approval || chosen.length === 0 || notes?.choicesAgreed === choices.value;
     const warned = !approval || hold === null || notes?.warned === hold;
     const typedAgreed = stray.length === 0 || notes?.typedAgreed === stray;
     const answered = next.kind !== "send" || next.unanswered.length === 0;
 
-    if (agreed && warned && typedAgreed && answered) proceed(next);
+    if (agreed && chosenAgreed && warned && typedAgreed && answered) proceed(next);
     else setPopover({ kind: "warn", next });
   };
 
@@ -358,6 +378,7 @@ export function DecisionBar(props: BarProps): preact.JSX.Element {
         <Warning
           action={popover.next.kind === "send" ? "send" : "approve"}
           count={popover.next.kind === "send" ? 0 : count}
+          chosen={popover.next.kind === "send" ? 0 : chosen.length}
           unanswered={popover.next.kind === "send" ? popover.next.unanswered.length : 0}
           hold={popover.next.kind === "send" ? null : hold}
           typed={popover.next.kind === "send" ? strayTyped.value : unsentTyped.value}

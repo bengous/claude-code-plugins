@@ -2,10 +2,22 @@ import type { DocGroup, GroupedDoc } from "../protocol.ts";
 import type { ProjectPath } from "../server/domain/paths.ts";
 import { Badge, Handle } from "./kit.tsx";
 import { docLabeller, nameParts, planLabel } from "./labels.ts";
-import { annotations, currentDoc, docs, editing, railOpen, review, select } from "./state.ts";
+import {
+  annotations,
+  choices,
+  currentDoc,
+  docs,
+  editing,
+  railOpen,
+  review,
+  select,
+} from "./state.ts";
 
+/** A document's unsent work: its comments, and the choices made in it. */
 function count(path: string): number {
-  return annotations.value.filter((a) => a.doc === path).length;
+  const chosen = Object.keys(choices.value[path] ?? {}).length;
+
+  return annotations.value.filter((a) => a.doc === path).length + chosen;
 }
 
 function inGroup(list: readonly GroupedDoc[], group: DocGroup): readonly GroupedDoc[] {

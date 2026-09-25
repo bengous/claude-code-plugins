@@ -24,18 +24,23 @@ export {
 export type {
   Anchor,
   Annotation,
+  Choice,
+  ChoiceRef,
+  DecisionKey,
   ElementDescription,
   ElementRef,
   Mark,
   Passage,
   PassageKind,
   QuickLabel,
+  SentChoice,
   WordsContext,
 } from "./server/domain/feedback.ts";
 
 export { DELETE_SENTENCE, QUICK_LABELS } from "./server/domain/feedback.ts";
 
 export type {
+  Choices,
   Decision,
   Draft,
   Edit,
@@ -46,10 +51,13 @@ export type {
 } from "./server/domain/review.ts";
 
 export {
+  choicesIn,
   draftIsEmpty,
   editOnLoad,
   EMPTY_TYPED,
   landedAnnotations,
+  refOf,
+  withoutChoices,
 } from "./server/domain/review.ts";
 
 export type { CommitSha, PluginVersion, VellumBuild } from "./server/domain/vellum-build.ts";

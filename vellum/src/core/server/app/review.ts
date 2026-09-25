@@ -303,7 +303,7 @@ export class Review {
 
   /**
    * The page's unsent work as it was last saved, `null` when there is none, through the one parser
-   * a `PUT` goes through: a draft of an older shape is `unreadable`, never read half-way.
+   * a `PUT` goes through: a malformed draft is `unreadable`, never read half-way.
    */
   public async draft(): Promise<Draft | "unreadable" | null> {
     const saved = await readTextIfAny(this.options.project, this.draftDoc());
@@ -413,7 +413,7 @@ export class Review {
   }
 
   /**
-   * One Send: the comments and the edit it names, as the reviewer saw them at the click, read from
+   * One Send: the comments, the choices and the edit it names, as the reviewer saw them at the click, read from
    * the saved draft, and the extensions' parts. It changes no stage and is never held: the page
    * takes comments after it.
    */
@@ -455,9 +455,9 @@ export class Review {
 
     if (unanswered.length > 0)
       return { ok: false, refusal: { reason: "unanswered", ids: unanswered } };
-    const { annotations, edit, version, editedFrom } = decided;
+    const { annotations, choices, edit, version, editedFrom } = decided;
 
-    if (annotations.length === 0 && edit === null && parts.length === 0) {
+    if (annotations.length === 0 && choices.length === 0 && edit === null && parts.length === 0) {
       return { ok: false, refusal: { reason: "empty" } };
     }
 
@@ -478,10 +478,10 @@ export class Review {
         : { kind: "review" as const, version, batch, editedFrom };
 
     const texts = parts.map(({ part }) => part.text);
-    const seq = await this.commitBatch(file, formatBatch(heading, texts, annotations));
+    const seq = await this.commitBatch(file, formatBatch(heading, texts, annotations, choices));
     const typed = parts.reduce((kept, { part }) => part.typed(kept), decided.rest.typed);
     await this.afterCommit("the draft's rest", () => this.keepDraft({ ...decided.rest, typed }));
-    const comments = annotations.length > 0 || edit !== null;
+    const comments = annotations.length > 0 || choices.length > 0 || edit !== null;
 
     for (const { id, part } of parts) {
       const more = comments || parts.some((other) => other.id !== id);

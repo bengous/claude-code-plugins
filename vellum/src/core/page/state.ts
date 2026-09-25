@@ -3,6 +3,10 @@ import { batch, computed, effect, signal } from "@preact/signals";
 import type { SendShare } from "../extension.ts";
 import type {
   Annotation,
+  Choice,
+  ChoiceRef,
+  Choices,
+  DecisionKey,
   Decision,
   Draft,
   Edit,
@@ -22,6 +26,8 @@ import {
   shiftAnnotations,
   takesComments,
   unshiftAnnotations,
+  choicesIn,
+  withoutChoices,
 } from "../protocol.ts";
 import type { ProjectPath, Version } from "../server/domain/paths.ts";
 import { fetchDraft, fetchReview, postDecision, postSend, putDraft, subscribe } from "./api.ts";
@@ -32,6 +38,38 @@ export const review = signal<ReviewView | null>(null);
 
 /** The comments not sent yet: a send clears them, and nothing Claude does may. */
 export const annotations = signal<readonly Annotation[]>([]);
+
+/**
+ * The options chosen in mockups and not sent yet: `choose` and `unchoose` change them, a Send
+ * takes out what it sent, an approval clears them, and the saved draft restores them.
+ */
+export const choices = signal<Choices>({});
+
+/**
+ * The choices whose option its mockup no longer holds, as the mockup's frame last read it, at its
+ * load and at each change of its choices: page memory, never the draft's.
+ */
+export const absent = signal<readonly ChoiceRef[]>([]);
+
+/** What the frame of `doc` reads now replaces what it read before. */
+export function setAbsent(doc: ProjectPath, found: readonly Omit<ChoiceRef, "doc">[]): void {
+  absent.value = [
+    ...absent.value.filter((ref) => ref.doc !== doc),
+    ...found.map(({ decision, option }) => ({ doc, decision, option })),
+  ];
+}
+
+export function isAbsent(choice: ChoiceRef): boolean {
+  return absent.value.some(
+    (ref) =>
+      ref.doc === choice.doc && ref.decision === choice.decision && ref.option === choice.option,
+  );
+}
+
+/** The choices a Send takes: every one whose mockup still holds its option, as far as the page read it. */
+export const sendableChoices = computed(() =>
+  choicesIn(choices.value).filter((choice) => !isAbsent(choice)),
+);
 
 /** What is typed and not submitted, saved with the draft; `setTyped` is its one writer. */
 export const typed = signal<Typed>(EMPTY_TYPED);
@@ -295,11 +333,12 @@ function settleEditorTyping(view: ReviewView): void {
   setTyped({ editor: null });
 }
 
-/** Clears what an approval took: the comments, the edit, what is typed. */
+/** Clears what an approval took: the comments, the edit, the choices, what is typed. */
 function clearDraft(): void {
   batch(() => {
     annotations.value = [];
     edited.value = null;
+    choices.value = {};
     typed.value = EMPTY_TYPED;
     clearUndo();
     succeed("decision");
@@ -382,12 +421,14 @@ export type Sent =
 
 /**
  * A Send as the reviewer clicked it, snapshotted at the click: the comments on screen by id, the
- * edit, each extension's share (`null` for Send now, which takes no part), and the question ids
- * the bar warned about and the reviewer agreed to leave to their recommendation.
+ * edit, the choices by their option, each extension's share (`null` for Send now, which takes no
+ * part), and the question ids the bar warned about and the reviewer agreed to leave to their
+ * recommendation.
  */
 export type Outgoing = {
   readonly annotations: readonly string[];
   readonly edit: Edit | null;
+  readonly choices: readonly ChoiceRef[];
   readonly parts: readonly SendShare[] | null;
   readonly takeDefaults: readonly string[];
 };
@@ -426,6 +467,7 @@ async function sendOut(out: Outgoing): Promise<Sent> {
   const posted = await postSend({
     annotations: out.annotations,
     edit: out.edit?.version ?? null,
+    choices: out.choices,
     parts: out.parts !== null,
     takeDefaults: out.takeDefaults,
   }).catch(() => null);
@@ -445,6 +487,16 @@ async function sendOut(out: Outgoing): Promise<Sent> {
     return { kind: "failed" };
   }
 
+  // A 400 is a Send the server could not read: this page's code is older than the server's.
+  if (status === 400) {
+    fail(
+      "decision",
+      "Not sent: this page is older than its server, which could not read the Send. Reload the page: your comments are saved.",
+    );
+
+    return { kind: "failed" };
+  }
+
   if (status >= 300) {
     fail("decision", `Not sent: the server answered ${status}. Your comments are kept.`);
 
@@ -458,6 +510,7 @@ async function sendOut(out: Outgoing): Promise<Sent> {
 
   batch(() => {
     annotations.value = annotations.value.filter(({ id }) => !taken.has(id));
+    choices.value = withoutChoices(choices.value, out.choices);
 
     if (sentEdit !== null && edited.peek()?.version === sentEdit.version) edited.value = null;
     succeed("decision");
@@ -541,6 +594,24 @@ export function discardEdit(): void {
 export function addAnnotation(annotation: Omit<Annotation, "id">): void {
   if (locked.value) return;
   annotations.value = [...annotations.value, { ...annotation, id: crypto.randomUUID() }];
+}
+
+/**
+ * A choice in a mockup: another option of the same decision replaces it, and the option already
+ * chosen, chosen again, withdraws it; a locked page takes none.
+ */
+export function choose(doc: ProjectPath, decision: DecisionKey, choice: Choice): void {
+  if (locked.value) return;
+
+  choices.value =
+    choices.value[doc]?.[decision]?.option === choice.option
+      ? withoutChoices(choices.value, [{ doc, decision, option: choice.option }])
+      : { ...choices.value, [doc]: { ...choices.value[doc], [decision]: choice } };
+}
+
+/** A choice card's Delete: the choice leaves the draft, its mark the mockup. */
+export function unchoose(named: ChoiceRef): void {
+  choices.value = withoutChoices(choices.value, [named]);
 }
 
 /** How long a deleted card can be undone from the notice. */
@@ -631,9 +702,18 @@ export function readWindow(): void {
 /** How long a typing pauses before the draft is written: a continuous typing is one write. */
 const TYPED_WRITE_MS = 300;
 
+function draftShown(): Draft {
+  return {
+    annotations: annotations.peek(),
+    edit: edited.peek(),
+    choices: choices.peek(),
+    typed: typed.peek(),
+  };
+}
+
 /**
- * Saves the draft at every change of the comments or of the edit, each change one write, and once
- * a typing pauses, in order; answers the flush a Send runs first.
+ * Saves the draft at every change of the comments, the edit or the choices, each change one
+ * write, and once a typing pauses, in order; answers the flush a Send runs first.
  */
 function startSaving(): () => Promise<boolean> {
   let saving = Promise.resolve(true);
@@ -649,7 +729,7 @@ function startSaving(): () => Promise<boolean> {
   };
 
   const flush = (): Promise<boolean> => {
-    write({ annotations: annotations.peek(), edit: edited.peek(), typed: typed.peek() });
+    write(draftShown());
 
     return saving;
   };
@@ -657,7 +737,12 @@ function startSaving(): () => Promise<boolean> {
   flushDraft = flush;
 
   effect(() => {
-    write({ annotations: annotations.value, edit: edited.value, typed: typed.peek() });
+    write({
+      annotations: annotations.value,
+      edit: edited.value,
+      choices: choices.value,
+      typed: typed.peek(),
+    });
   });
 
   // A typing is written once it pauses; a comment or an edit written meanwhile carries it.
@@ -666,10 +751,7 @@ function startSaving(): () => Promise<boolean> {
 
     if (pending !== null) clearTimeout(pending);
 
-    pending = setTimeout(
-      () => write({ annotations: annotations.peek(), edit: edited.peek(), typed: typed.peek() }),
-      TYPED_WRITE_MS,
-    );
+    pending = setTimeout(() => write(draftShown()), TYPED_WRITE_MS);
   });
 
   return flush;
@@ -678,7 +760,7 @@ function startSaving(): () => Promise<boolean> {
 /**
  * The first load. The saved draft goes in before the review loads, so its edit meets the fate of
  * any unsent edit at a load: kept, landed or dropped. Saving starts only after that, at every
- * change of the comments or of the edit, each one a single write, and once a typing pauses:
+ * change of the comments, the edit or the choices, each one a single write, and once a typing pauses:
  * earlier, a reload would replace the draft with the page's empty state. A draft that cannot be
  * read starts no saving, for the same reason.
  */
@@ -691,6 +773,7 @@ export async function start(): Promise<void> {
     batch(() => {
       annotations.value = draft.annotations;
       edited.value = draft.edit;
+      choices.value = draft.choices;
       typed.value = draft.typed;
     });
   }

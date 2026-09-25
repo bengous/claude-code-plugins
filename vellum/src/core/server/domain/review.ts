@@ -1,4 +1,4 @@
-import type { Annotation } from "./feedback.ts";
+import type { Annotation, Choice, ChoiceRef, DecisionKey, SentChoice } from "./feedback.ts";
 import { formatNotes, retargetAnnotations } from "./feedback.ts";
 import type { FinalDir, ParseResult, ProjectPath, Slug, Version, WipDir } from "./paths.ts";
 import { parseVersion } from "./paths.ts";
@@ -33,15 +33,71 @@ export type Typed = {
 
 export const EMPTY_TYPED: Typed = { general: "", composer: {}, grill: {}, editor: null };
 
+/** The options chosen in mockups, by mockup path, then by decision: one choice per decision and per mockup. */
+export type Choices = Readonly<Record<string, Readonly<Record<DecisionKey, Choice>>>>;
+
 /**
- * The page's unsent work: the comments, the reviewer's edit with the version it edits, and what
- * is typed. The approval note alone stays out of it: its popover closes on success only.
+ * The page's unsent work: the comments, the reviewer's edit with the version it edits, the options
+ * chosen in mockups, and what is typed. The approval note alone stays out of it: its popover
+ * closes on success only.
  */
 export type Draft = {
   readonly annotations: readonly Annotation[];
   readonly edit: Edit | null;
+  readonly choices: Choices;
   readonly typed: Typed;
 };
+
+/** Every choice `choices` holds, in its order. */
+export function choicesIn(choices: Choices): readonly SentChoice[] {
+  return Object.entries(choices).flatMap(([doc, decisions]) =>
+    Object.entries(decisions).map(([decision, choice]) => ({
+      // SAFETY: a key of `Choices` is a mockup's path, as `choose` and the draft's parser write it.
+      doc: doc as ProjectPath,
+      decision,
+      ...choice,
+    })),
+  );
+}
+
+/** What a Send names of a choice: its place and its option. */
+export function refOf(choice: ChoiceRef): ChoiceRef {
+  return { doc: choice.doc, decision: choice.decision, option: choice.option };
+}
+
+/**
+ * `choices` without those named, each while it is still the option named: one chosen since stays.
+ * The same object when none named is held, so what compares it by identity sees no change.
+ */
+export function withoutChoices(choices: Choices, named: readonly ChoiceRef[]): Choices {
+  const gone = new Set(named.map(({ doc, decision, option }) => choiceKey(doc, decision, option)));
+
+  const held = Object.entries(choices).some(([doc, decisions]) =>
+    Object.entries(decisions).some(([decision, { option }]) =>
+      gone.has(choiceKey(doc, decision, option)),
+    ),
+  );
+
+  if (!held) return choices;
+
+  const kept = Object.entries(choices).map(
+    ([doc, decisions]) =>
+      [
+        doc,
+        Object.fromEntries(
+          Object.entries(decisions).filter(
+            ([decision, { option }]) => !gone.has(choiceKey(doc, decision, option)),
+          ),
+        ),
+      ] as const,
+  );
+
+  return Object.fromEntries(kept.filter(([, decisions]) => Object.keys(decisions).length > 0));
+}
+
+function choiceKey(doc: string, decision: DecisionKey, option: string): string {
+  return JSON.stringify([doc, decision, option]);
+}
 
 function typedIsEmpty(typed: Typed): boolean {
   return (
@@ -56,7 +112,12 @@ function typedIsEmpty(typed: Typed): boolean {
 
 /** A draft with nothing in it is no draft: the server removes the file instead of writing it. */
 export function draftIsEmpty(draft: Draft): boolean {
-  return draft.annotations.length === 0 && draft.edit === null && typedIsEmpty(draft.typed);
+  return (
+    draft.annotations.length === 0 &&
+    draft.edit === null &&
+    choicesIn(draft.choices).length === 0 &&
+    typedIsEmpty(draft.typed)
+  );
 }
 
 /**
@@ -186,10 +247,14 @@ export function decideOn(
 }
 
 /**
- * What a Send takes of the draft, as the reviewer saw it at the click: the comments by id, and
- * the edit by the version it edits, `null` for none.
+ * What a Send takes of the draft, as the reviewer saw it at the click: the comments by id, the
+ * edit by the version it edits, `null` for none, and the choices by their option.
  */
-export type Taking = { readonly annotations: readonly string[]; readonly edit: Version | null };
+export type Taking = {
+  readonly annotations: readonly string[];
+  readonly edit: Version | null;
+  readonly choices: readonly ChoiceRef[];
+};
 
 /**
  * A Send as the page asks it: what it takes, whether the extensions' parts go (the bar's Send,
@@ -202,9 +267,9 @@ export type SendRequest = Taking & {
 };
 
 /**
- * Why a Send takes nothing: an approved plan; a comment or an edit the draft no longer holds as
- * named; an edit of a version no longer under review; a comment on the plan sent without the
- * edit whose lines it was moved to.
+ * Why a Send takes nothing: an approved plan; a comment, a choice or an edit the draft no longer
+ * holds as named; an edit of a version no longer under review; a comment on the plan sent without
+ * the edit whose lines it was moved to.
  */
 export type SendRefused = "approved" | "changed" | "stale" | "edit";
 
@@ -219,18 +284,36 @@ export type Sending =
       readonly editedFrom: Version | null;
       /** The comments sent, the plan's retargeted to the edit's version. */
       readonly annotations: readonly Annotation[];
+      readonly choices: readonly SentChoice[];
       /** What the draft keeps: everything the Send did not take. */
       readonly rest: Draft;
     };
 
-export const EMPTY_DRAFT: Draft = { annotations: [], edit: null, typed: EMPTY_TYPED };
+export const EMPTY_DRAFT: Draft = { annotations: [], edit: null, choices: {}, typed: EMPTY_TYPED };
+
+/** The choices named that the draft holds as named, each once; `null` when one of them it does not. */
+function choicesNamed(choices: Choices, named: readonly ChoiceRef[]): readonly SentChoice[] | null {
+  const once = [
+    ...new Map(
+      named.map((ref) => [choiceKey(ref.doc, ref.decision, ref.option), ref] as const),
+    ).values(),
+  ];
+
+  const sent = once.flatMap((ref) => {
+    const held = choices[ref.doc]?.[ref.decision];
+
+    return held?.option === ref.option ? [{ ...ref, ...held }] : [];
+  });
+
+  return sent.length === once.length ? sent : null;
+}
 
 /**
- * A Send takes comments before the first version and on the version under review, exactly the
- * ones named, and the edit when named, which lands as the next version, the batch sent on it. A
- * name the draft no longer holds refuses the whole Send rather than send something else. A
- * comment on the plan left without the pending edit is refused too: `Done` moved its lines to
- * the edit's text. A Send changes no stage: the page takes comments after it.
+ * A Send takes comments and choices before the first version and on the version under review,
+ * exactly the ones named, and the edit when named, which lands as the next version, the batch
+ * sent on it. A name the draft no longer holds refuses the whole Send rather than send something
+ * else. A comment on the plan left without the pending edit is refused too: `Done` moved its
+ * lines to the edit's text. A Send changes no stage: the page takes comments after it.
  */
 export function sendOn(
   workspace: PlanWorkspace,
@@ -241,9 +324,14 @@ export function sendOn(
   if (workspace.kind === "approved") return { kind: "refused", reason: "approved" };
   const named = new Set(taking.annotations);
   const sent = draft.annotations.filter((annotation) => named.has(annotation.id));
+  const choices = choicesNamed(draft.choices, taking.choices);
   const editNamed = taking.edit !== null;
 
-  if (sent.length !== named.size || (editNamed && draft.edit?.version !== taking.edit)) {
+  if (
+    sent.length !== named.size ||
+    choices === null ||
+    (editNamed && draft.edit?.version !== taking.edit)
+  ) {
     return { kind: "refused", reason: "changed" };
   }
 
@@ -251,12 +339,21 @@ export function sendOn(
     ...draft,
     annotations: draft.annotations.filter((annotation) => !named.has(annotation.id)),
     edit: editNamed ? null : draft.edit,
+    choices: withoutChoices(draft.choices, choices),
   };
 
   if (workspace.kind === "drafting") {
     return editNamed
       ? { kind: "refused", reason: "stale" }
-      : { kind: "send", version: null, edit: null, editedFrom: null, annotations: sent, rest };
+      : {
+          kind: "send",
+          version: null,
+          edit: null,
+          editedFrom: null,
+          annotations: sent,
+          choices,
+          rest,
+        };
   }
 
   const { dir, version: reviewed } = workspace;
@@ -277,6 +374,7 @@ export function sendOn(
     edit,
     editedFrom: edit === null ? null : reviewed,
     annotations: retargetAnnotations(sent, plan, versionPath(dir, version)),
+    choices,
     rest,
   };
 }

@@ -6,9 +6,18 @@ import { Composer } from "../../core/page/composer.tsx";
 import { srgb } from "../../core/page/kit.tsx";
 import type { Rect } from "../../core/page/place.ts";
 import { windowOf } from "../../core/page/place.ts";
-import { commenting, dark, flipCommentSwitch, holding } from "../../core/page/state.ts";
+import {
+  choices,
+  choose,
+  commenting,
+  dark,
+  flipCommentSwitch,
+  holding,
+  setAbsent,
+} from "../../core/page/state.ts";
 import type { ElementRef } from "../../core/protocol.ts";
-import type { CommentedPlace, FrameTheme, PageToFrame, PickBox } from "./messages.ts";
+import { choicesIn } from "../../core/protocol.ts";
+import type { Chosen, CommentedPlace, FrameTheme, PageToFrame, PickBox } from "./messages.ts";
 import { parseFrameToPage } from "./parse.ts";
 
 type Draft = {
@@ -57,6 +66,10 @@ function HtmlDoc(props: RendererProps): preact.JSX.Element {
     annotation.anchor.kind === "element" ? annotation.anchor.elements : [],
   );
 
+  const chosen: readonly Chosen[] = choicesIn(choices.value)
+    .filter(({ doc }) => doc === props.doc.path)
+    .map(({ decision, option }) => ({ decision, option }));
+
   const post = (message: PageToFrame): void =>
     frame.current?.contentWindow?.postMessage(message, "*");
 
@@ -75,6 +88,11 @@ function HtmlDoc(props: RendererProps): preact.JSX.Element {
     [JSON.stringify(places), props.doc.path],
   );
 
+  useEffect(
+    () => post({ type: "vellum:chosen", choices: chosen }),
+    [JSON.stringify(chosen), props.doc.path],
+  );
+
   useEffect(() => {
     const onMessage = (event: MessageEvent): void => {
       if (event.source !== frame.current?.contentWindow) return;
@@ -88,6 +106,13 @@ function HtmlDoc(props: RendererProps): preact.JSX.Element {
 
       if (message.type === "vellum:switch") flipCommentSwitch();
 
+      if (message.type === "vellum:choose" && !commenting.value) {
+        const { decision, option, label, description } = message;
+        choose(props.doc.path, decision, { option, label, description });
+      }
+
+      if (message.type === "vellum:absent") setAbsent(props.doc.path, message.choices);
+
       if (message.type === "vellum:pick" && commenting.value) {
         const [first, ...rest] = message.elements;
 
@@ -98,7 +123,7 @@ function HtmlDoc(props: RendererProps): preact.JSX.Element {
     window.addEventListener("message", onMessage);
 
     return () => window.removeEventListener("message", onMessage);
-  }, []);
+  }, [props.doc.path]);
 
   // The focus goes back to the mockup, where the pick was made.
   const close = (): void => {
@@ -121,6 +146,7 @@ function HtmlDoc(props: RendererProps): preact.JSX.Element {
           post({ type: "vellum:theme", theme: themeOf() });
           post({ type: "vellum:commenting", on });
           post({ type: "vellum:commented", places });
+          post({ type: "vellum:chosen", choices: chosen });
         }}
         onPointerLeave={() => post({ type: "vellum:leave" })}
       />

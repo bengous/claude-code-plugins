@@ -88,10 +88,11 @@ Claude Code's `installed_plugins.json`, `git` with its `GIT_*` variables cleared
   submitted.
 - One Send, `Review.send`, is one step of the queue, what the reviewer sends from the page's one
   button or from a comment's Send now. Its `SendRequest` names what the reviewer saw at the
-  click: the comment ids, the edit's version or `null`, whether the extensions' parts go (the
+  click: the comment ids, the edit's version or `null`, the choices made in mockups by their
+  mockup, decision and option, whether the extensions' parts go (the
   bar's Send, never Send now), and the question ids the reviewer agreed to leave to their
   recommendation. It is decided before anything is written: `sendOn` refuses, purely, a name the
-  stored draft no longer holds (409 `changed`), an edit of a version no longer under review
+  stored draft no longer holds, a choice whose option changed included (409 `changed`), an edit of a version no longer under review
   (`stale`), a comment on the plan named without the pending edit whose lines `Done` moved it to
   (`edit`), an approved plan (`approved`); each extension's `part` answers the questions no
   answer takes outside those agreed (409 `unanswered`, every id); nothing to send is `empty`.
@@ -110,12 +111,16 @@ Claude Code's `installed_plugins.json`, `git` with its `GIT_*` variables cleared
   note. Whether the approval's prompt names a notes file is read from the final directory's
   listing, never from the decision.
 - The draft is the page's, stored and read back through the one parser, `adapters/draft.ts`:
-  `PUT /api/draft` parses the comments, the edit and what is typed, and `Review.draft` runs the
-  file through the same parser for `GET`, a Send and `ServerContext.draft`, so a draft of an older
-  shape is refused whole, with `UNREADABLE_DRAFT` as the reason, never handed over half-read. One older shape is read: a mockup comment saved
-  before `ElementRef.description`, whose description is `null` and whose feedback line names the
-  element by its label, since refusing it loses every unsent comment of the draft, and a tab
-  loaded before a revived server keeps sending that shape. `saveDraft` writes one with content
+  `PUT /api/draft` parses the comments, the edit, the choices made in mockups and what is typed,
+  and `Review.draft` runs the file through the same parser for `GET`, a Send and
+  `ServerContext.draft`, so a malformed draft is refused whole, with `UNREADABLE_DRAFT` as the
+  reason, never handed over half-read. A choice's mockup is kept under its path as parsed, so a
+  Send that names it finds it, and two spellings of one path are refused. Two older shapes are
+  read, since refusing either loses every unsent comment of the draft, and a tab loaded before a
+  revived server keeps sending it: a mockup comment saved before `ElementRef.description`, whose
+  description is `null` and whose feedback line names the element by its label; and a draft with
+  no `choices`, read as none. A Send the server cannot parse is a 400, which the page reads as a
+  page older than its server, and says to reload. `saveDraft` writes one with content
   only where `takesComments` holds and answers 409 elsewhere, since a write would recreate a
   directory the approval has just renamed; an empty one removes the file in any state. A draft
   write raises no workspace event: `watchFiles` leaves `.review/` to the server.

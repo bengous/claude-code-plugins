@@ -103,8 +103,8 @@ sequenceDiagram
   CC->>M: turn.complete (the main loop answered), or tool.call mcp__vellum__submit
   M->>S: POST /api/gate → reads plan.md, writes .review/vN.md, opens the browser once; an unchanged text is kept
   M-->>CC: the tool's result: "End your turn."
-  B->>S: PUT /api/draft (the unsent comments, edit and typing, at every change, and once more before a Send)
-  B->>S: POST /api/send (what the reviewer saw at the click: comment ids, the edit, the parts) | POST /api/decision (approve, with the reviewer's edit or none)
+  B->>S: PUT /api/draft (the unsent comments, edit, mockup choices and typing, at every change, and once more before a Send)
+  B->>S: POST /api/send (what the reviewer saw at the click: comment ids, the edit, the choices, the parts) | POST /api/decision (approve, with the reviewer's edit or none)
   S->>S: a Send writes .review/vN.feedback-k.md from the draft it keeps, what it named, the stage unchanged; an edit is vN+1 first
   S->>S: approve → plan.md, the notes file, links rewritten, directory renamed
   S->>S: appends the entry to .review/channel.jsonl: sent (the batch) | approved
@@ -265,9 +265,9 @@ it, and so does a revival replacing it.
 | Diff `vN-1` / `vN` | `domain/diff.ts`: `lineDiff` over the `diff` package, `countChanges`; `extensions/markdown/changes.ts`: which block carries a mark, where a removed run goes | `/api/review` returns the previous version's text | `planChanges` computed once; the count beside the version, the "Changes since" toggle, the marks and the text-free removed blocks in the Markdown renderer |
 | Delete marks and quick labels | `Mark` on `Annotation`, `QUICK_LABELS` with the sentence Claude reads, in `domain/feedback.ts` | `parseMark` in the draft's parser, `adapters/draft.ts` | the Composer's label row and "Delete this", the card's chip and struck quote |
 | Direct edit | `Edit`, `sendOn` and `decideOn` (the edit is `vN+1`, refused on another version), `editOnLoad`, `landedAnnotations` in `domain/review.ts`; `shiftLines`, `shiftAnnotations` in `domain/diff.ts` | `parseEdit` in `adapters/draft.ts`; `Review.send` and `Review.decide` write `plan.md`, then the version file | `page/editor.tsx` and `page/caret.ts`; `edited`, `editing`, `finishEdit`, `settleEdit` in `state.ts` |
-| Approval notes | `formatNotes`, `notesFile`, `approved.notes` read off the final directory's listing, the channel's `approved` entry and its `notes` | the notes file written before the rename; `engine/relay.ts` names it in the approval's prompt | the decision bar's one popover state: notes, and the warning before unsent comments are discarded |
+| Approval notes | `formatNotes`, `notesFile`, `approved.notes` read off the final directory's listing, the channel's `approved` entry and its `notes` | the notes file written before the rename; `engine/relay.ts` names it in the approval's prompt | the decision bar's one popover state: notes, and the warning before unsent comments or choices are discarded |
 | Drafts | `Draft`, `DRAFT_FILE`, `takesComments` | `GET` and `PUT /api/draft`, through the one parser of `adapters/draft.ts`; read back by a Send and by End grill; what a Send took leaves it, an approval removes it | `start`: restore, load, then save at every change, in order; `writeDraft` before a Send |
-| One Send | `sendOn`, `batchFile`, `formatBatch`: what the Send names or its refusal, the extensions' parts, then the comments | `POST /api/send`, `Review.send` in one step of the queue: `sendOn` and each `part`, nothing written; the edit, the batch, the `sent` entry; the draft's rest, each part's `commit` | the bar's `Send (n)` and its warning, a card's Send now, `PageExtension.send`: a snapshot at the click, taken out of the page once sent |
+| One Send | `sendOn`, `batchFile`, `formatBatch`: what the Send names or its refusal, the extensions' parts, then the comments, then the choices made in mockups | `POST /api/send`, `Review.send` in one step of the queue: `sendOn` and each `part`, nothing written; the edit, the batch, the `sent` entry; the draft's rest, each part's `commit` | the bar's `Send (n)` and its warning, a card's Send now, `PageExtension.send`: a snapshot at the click, taken out of the page once sent |
 
 Every one added a pure part first; `src/core/server/domain/` is where a new domain concept
 goes, and a renderer's own choice stays beside its `page.tsx`.

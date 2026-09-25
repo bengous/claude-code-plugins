@@ -51,6 +51,29 @@ export type ElementRef = {
   readonly description: ElementDescription | null;
 };
 
+/** A mockup's `data-vellum-decision`: the reviewer chooses one of its options, one at a time. */
+export type DecisionKey = string;
+
+/**
+ * The option chosen in a decision, its `data-vellum-option`; what the page calls it (`label`, the
+ * heading the option holds, else its key); and what the « Choose » clicked in it is, which Claude
+ * reads. The frame reads both at the click.
+ */
+export type Choice = {
+  readonly option: string;
+  readonly label: string;
+  readonly description: ElementDescription;
+};
+
+/** A choice as a Send names it: the option is part of the name, so another option chosen since is another choice. */
+export type ChoiceRef = {
+  readonly doc: ProjectPath;
+  readonly decision: DecisionKey;
+  readonly option: string;
+};
+
+export type SentChoice = ChoiceRef & Omit<Choice, "option">;
+
 function oneLine(text: string): string {
   return text.replaceAll(/\s+/gu, " ");
 }
@@ -235,15 +258,22 @@ export function formatNotes(
     : `${[`# Plan approved: the reviewer's notes (v${version})`, ...paragraphs].join("\n\n")}\n`;
 }
 
+function chosenOf(choice: SentChoice): string {
+  const { decision, option, description } = choice;
+
+  return `\`${choice.doc}\`, decision ${codeSpan(oneLine(decision))}: option ${codeSpan(oneLine(option))}, ${describeElement(description)}`;
+}
+
 /**
  * The text Claude reads of one Send: the heading, the extensions' sections as they worded them,
- * then the comments, one numbered item each, the place first, the mark in words under it. A part
- * with nothing in it is left out.
+ * then the comments, one numbered item each, the place first, the mark in words under it, then
+ * the choices made in mockups. A part with nothing in it is left out.
  */
 export function formatBatch(
   heading: BatchHeading,
   sections: readonly string[],
   annotations: readonly Annotation[],
+  choices: readonly SentChoice[],
 ): string {
   const items = annotations.map((annotation, index) => {
     const doc = `\`${annotation.doc}\``;
@@ -260,6 +290,12 @@ export function formatBatch(
   });
 
   const comments = items.length === 0 ? [] : ["## Comments", ...items];
+  const chosen = choices.map((choice, index) => `${index + 1}. ${chosenOf(choice)}`);
 
-  return `${[...openingOf(heading), ...sections.map((section) => section.trim()), ...comments].join("\n\n")}\n`;
+  return `${[
+    ...openingOf(heading),
+    ...sections.map((section) => section.trim()),
+    ...comments,
+    ...(chosen.length === 0 ? [] : ["## Choices", ...chosen]),
+  ].join("\n\n")}\n`;
 }

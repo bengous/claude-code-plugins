@@ -182,7 +182,7 @@ export function decisionsOf(input: {
   readonly connection: "up" | "down";
   readonly editing: boolean;
   readonly sending: boolean;
-  /** What `Send (n)` counts: the comments, the questions answered, 1 for an edit. */
+  /** What `Send (n)` counts: the comments, the choices a Send takes, the questions answered, 1 for an edit. */
   readonly count: number;
   /** Questions a Send would take by default: something to send, which the page asks about first. */
   readonly unanswered: number;

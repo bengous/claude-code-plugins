@@ -14,6 +14,27 @@ When the session lists the `artifact-design` skill, load it before the first moc
 
 Without `artifact-design` in the session, the paragraph above is the whole guidance.
 
+## Choices in a mockup
+
+When the reviewer is to choose between options side by side, mark them: a click on Choose then adds the option to the reviewer's draft, marked in the mockup, and it reaches you with their comments, in the batch's `## Choices`.
+
+```html
+<section data-vellum-decision="layout">
+  <article data-vellum-option="sidebar">
+    <h2>Sidebar</h2>
+    … <button data-vellum-choose>Choose</button>
+  </article>
+  <article data-vellum-option="tabs">
+    <h2>Tabs</h2>
+    … <button data-vellum-choose>Choose</button>
+  </article>
+</section>
+```
+
+- `data-vellum-decision` on the element that holds the options, one key per decision in the file. The reviewer keeps one option per decision: choosing another replaces the first.
+- `data-vellum-option` on each option, a word you will know again when it comes back: `sidebar`, not `b`.
+- `data-vellum-choose` on a button inside the option, after the option's heading: the batch describes that button by the heading before it.
+
 ## Flows and states
 
 A sequence with more than three actors, or a state machine, can be a Mermaid block in the plan, with the same facts stated in the text next to it. When the order of steps already tells the story, a numbered list beats a diagram.
