@@ -4,6 +4,7 @@ import type { Route } from "../../core/engine/fixtures/index.ts";
 import {
   approved,
   band,
+  CWD,
   emit,
   inReview,
   reply,
@@ -70,6 +71,7 @@ describe("a run the page asked for", () => {
       {
         description: "plan review v3",
         prompt: `Review the plan at ${WORKDIR}.review/v3.md, version 3 of ${WORKDIR}plan.md; its artifacts are the files of ${WORKDIR} it names. No request is given: judge intent against the plan's title and Decisions. Give line numbers of that file.`,
+        cwd: CWD,
       },
     ]);
   });

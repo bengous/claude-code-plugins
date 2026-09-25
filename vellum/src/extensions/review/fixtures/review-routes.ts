@@ -89,8 +89,8 @@ export function reviewRoutes(
 }
 
 export type Agents = {
-  /** Every spawn the module asked for, its prompt and its description. */
-  readonly spawned: Pick<AgentSpawnArgs, "prompt" | "description">[];
+  /** Every spawn the module asked for, its prompt, its description and its directory. */
+  readonly spawned: Pick<AgentSpawnArgs, "prompt" | "description" | "cwd">[];
   /** What `$.agent.list()` answers now. */
   listed: AgentInfo[];
 };
@@ -104,7 +104,10 @@ export function agents(on: On, answer: () => AgentSpawnResult = () => ({ model: 
   const seen: Agents = { spawned: [], listed: [] };
 
   on("agent.spawn", (_, e) => {
-    seen.spawned.push({ prompt: e.prompt, description: e.description });
+    const spawn: Agents["spawned"][number] = { prompt: e.prompt, description: e.description };
+
+    if (e.cwd !== undefined) spawn.cwd = e.cwd;
+    seen.spawned.push(spawn);
 
     return answer();
   });
