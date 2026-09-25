@@ -22,21 +22,22 @@ export function optionOf(chain: readonly Marks[]): Chosen | null {
 
 /**
  * The choice a click makes, off the chain from the clicked element up: the nearest « Choose »,
- * the nearest option from it up, in that option's decision. `at` is the « Choose »'s index, the
- * element Claude reads described: the heading before it is its option's own, where the option's
- * element would sit under the heading of the option before it. `null` for a click outside a
- * « Choose », or one outside an option of a decision.
+ * the nearest option from it up, in that option's decision. `button` is the « Choose »'s index,
+ * the element Claude reads described: the heading before it is its option's own, where the
+ * option's element would sit under the heading of the option before it. `option` is the option's
+ * index, whose own heading names it on the page. `null` for a click outside a « Choose », or one
+ * outside an option of a decision.
  */
 export function choiceOf(
   chain: readonly Marks[],
-): { readonly at: number; readonly chosen: Chosen } | null {
-  const at = chain.findIndex((marks) => marks.choose);
+): { readonly button: number; readonly option: number; readonly chosen: Chosen } | null {
+  const button = chain.findIndex((marks) => marks.choose);
 
   const option = chain.findIndex(
-    (marks, index) => at !== -1 && index >= at && marks.option !== null,
+    (marks, index) => button !== -1 && index >= button && marks.option !== null,
   );
 
   const chosen = option === -1 ? null : optionOf(chain.slice(option));
 
-  return chosen === null ? null : { at, chosen };
+  return chosen === null ? null : { button, option, chosen };
 }

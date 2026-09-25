@@ -111,12 +111,16 @@ Claude Code's `installed_plugins.json`, `git` with its `GIT_*` variables cleared
   note. Whether the approval's prompt names a notes file is read from the final directory's
   listing, never from the decision.
 - The draft is the page's, stored and read back through the one parser, `adapters/draft.ts`:
-  `PUT /api/draft` parses the comments, the edit and what is typed, and `Review.draft` runs the
-  file through the same parser for `GET`, a Send and `ServerContext.draft`, so a draft of an older
-  shape is refused whole, with `UNREADABLE_DRAFT` as the reason, never handed over half-read. One older shape is read: a mockup comment saved
-  before `ElementRef.description`, whose description is `null` and whose feedback line names the
-  element by its label, since refusing it loses every unsent comment of the draft, and a tab
-  loaded before a revived server keeps sending that shape. `saveDraft` writes one with content
+  `PUT /api/draft` parses the comments, the edit, the choices made in mockups and what is typed,
+  and `Review.draft` runs the file through the same parser for `GET`, a Send and
+  `ServerContext.draft`, so a malformed draft is refused whole, with `UNREADABLE_DRAFT` as the
+  reason, never handed over half-read. A choice's mockup is kept under its path as parsed, so a
+  Send that names it finds it, and two spellings of one path are refused. Two older shapes are
+  read, since refusing either loses every unsent comment of the draft, and a tab loaded before a
+  revived server keeps sending it: a mockup comment saved before `ElementRef.description`, whose
+  description is `null` and whose feedback line names the element by its label; and a draft with
+  no `choices`, read as none. A Send the server cannot parse is a 400, which the page reads as a
+  page older than its server, and says to reload. `saveDraft` writes one with content
   only where `takesComments` holds and answers 409 elsewhere, since a write would recreate a
   directory the approval has just renamed; an empty one removes the file in any state. A draft
   write raises no workspace event: `watchFiles` leaves `.review/` to the server.

@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Choice edges</title>
+    <style>
+      body {
+        font-family: system-ui, sans-serif;
+        margin: 0;
+        padding: 24px;
+      }
+      section,
+      fieldset {
+        display: flex;
+        gap: 16px;
+        margin-bottom: 24px;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Choice edges</h1>
+    <section data-vellum-decision="layout">
+      <article data-vellum-option="sidebar">
+        <button data-vellum-choose>Choose</button>
+        <h2>Sidebar</h2>
+      </article>
+      <article data-vellum-option="tabs">
+        <button data-vellum-choose>Choose</button>
+        <h2>Tabs</h2>
+      </article>
+    </section>
+    <section data-vellum-decision="density">
+      <div data-vellum-option="compact"><strong>Compact</strong> <button data-vellum-choose>Choose</button></div>
+      <div data-vellum-option="roomy"><strong>Roomy</strong> <button data-vellum-choose>Choose</button></div>
+    </section>
+    <fieldset data-vellum-decision="theme">
+      <label data-vellum-option="light" data-vellum-choose><input type="radio" name="theme" /> Light</label>
+      <label data-vellum-option="dark" data-vellum-choose><input type="radio" name="theme" /> Dark</label>
+    </fieldset>
+  </body>
+</html>

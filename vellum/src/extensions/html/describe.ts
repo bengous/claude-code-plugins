@@ -267,7 +267,11 @@ function headingOf(element: Element): string {
       (heading.compareDocumentPosition(element) & heading.DOCUMENT_POSITION_FOLLOWING) !== 0,
   );
 
-  for (const heading of before.toReversed()) {
+  return firstNamed(before.toReversed());
+}
+
+function firstNamed(headings: readonly Element[]): string {
+  for (const heading of headings) {
     const role = roleOf(heading.localName, attributesOf(heading));
     const name = role === "heading" && heading.checkVisibility() ? nameOf(heading, role) : "";
 
@@ -275,6 +279,11 @@ function headingOf(element: Element): string {
   }
 
   return "";
+}
+
+/** The name of the first heading `element` holds, by the same test: what the page calls an option. */
+export function headingIn(element: Element): string {
+  return firstNamed([...element.querySelectorAll(HEADINGS)]);
 }
 
 /** What `element` is, read off its document: the frame computes it at the pick, where the DOM is. */

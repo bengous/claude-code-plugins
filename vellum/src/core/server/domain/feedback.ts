@@ -54,8 +54,16 @@ export type ElementRef = {
 /** A mockup's `data-vellum-decision`: the reviewer chooses one of its options, one at a time. */
 export type DecisionKey = string;
 
-/** The option chosen in a decision, its `data-vellum-option`, and what the « Choose » clicked in it is, read in the frame at the click. */
-export type Choice = { readonly option: string; readonly description: ElementDescription };
+/**
+ * The option chosen in a decision, its `data-vellum-option`; what the page calls it (`label`, the
+ * heading the option holds, else its key); and what the « Choose » clicked in it is, which Claude
+ * reads. The frame reads both at the click.
+ */
+export type Choice = {
+  readonly option: string;
+  readonly label: string;
+  readonly description: ElementDescription;
+};
 
 /** A choice as a Send names it: the option is part of the name, so another option chosen since is another choice. */
 export type ChoiceRef = {
@@ -64,7 +72,7 @@ export type ChoiceRef = {
   readonly option: string;
 };
 
-export type SentChoice = ChoiceRef & Pick<Choice, "description">;
+export type SentChoice = ChoiceRef & Omit<Choice, "option">;
 
 function oneLine(text: string): string {
   return text.replaceAll(/\s+/gu, " ");

@@ -264,7 +264,7 @@ no build step, so what the page imports costs nothing at `cli start`.
   screen off onto the dot. `decide` answers whether the server took the decision, and
   the notes popover closes on that alone: a failure leaves the note where it was typed.
 - There is one Send, `send` of `state.ts`: the bar's `Send (n)`, whose `n` counts the comments,
-  the choices made in mockups, the edit as 1, and each extension's share (`PageExtension.send`, `SendShare`: the grill's
+  the choices a Send takes (`sendableChoices`), the edit as 1, and each extension's share (`PageExtension.send`, `SendShare`: the grill's
   questions answered), which `app.tsx` hands the bar; and a card's Send now, which sends that
   comment or that choice alone and leaves the round, greyed on a comment on the plan while an edit waits. The
   click is a snapshot (`Outgoing`): the comment ids, the edit and the choices on screen, each share, and the
@@ -340,13 +340,19 @@ no build step, so what the page imports costs nothing at `cli start`.
 - A mockup's choice is a draft item like a comment, never a request of its own: `choices` of
   `state.ts`, one option per decision and per mockup, written by `choose`, where the option
   already chosen, chosen again, withdraws it, and by a card's Delete (`unchoose`). Each choice
-  has its card in the comments panel, after the comments', with Delete and Send now, which sends
-  that choice alone; the panel's count and its handle's count them with the comments. The frame posts
+  has its card in the comments panel, after the comments', named by its `label`, the heading the
+  option holds, else its key, with Delete and Send now, which sends that choice alone; the
+  panel, its handle and the rail count choices with the comments. The frame posts
   `vellum:choose` for a trusted click on a `data-vellum-choose` while the page does not comment
-  (`choiceOf` of `html/choose.ts` reads the option and its decision off the chain), with the
-  description of the button clicked, and lets the mockup's own handler run; while the page
-  comments, that click is a pick like any other, and the page drops a `vellum:choose` too. The
-  page posts `vellum:chosen`, the options the draft holds for that mockup, at every change and
-  at the frame's load, and the frame boxes each one the document still has, tagged Chosen: a
-  reload marks them again. A mockup's script can post `vellum:choose` as it can post
-  `vellum:pick`, the same accepted risk: the choice waits in the draft for the reviewer's Send.
+  (`choiceOf` of `html/choose.ts` reads the option and its decision off the chain), with that
+  label and the description of the button clicked, and lets the mockup's own handler run; while
+  the page comments, that click is a pick like any other, and the page drops a `vellum:choose`
+  too. One gesture chooses once (`chooseFrom`): a double click's second click, a held key's
+  repeat and the click a label forwards to its control in the same task would each withdraw the
+  choice just made. The page posts `vellum:chosen`, the options the draft holds for that mockup,
+  at every change and at the frame's load; the frame boxes each one the document still has,
+  tagged Chosen, and answers `vellum:absent`, the ones it no longer holds (`absent` of
+  `state.ts`, page memory): their cards say so and keep Delete alone, and `sendableChoices`, what
+  the bar counts and sends, leaves them out. A mockup's script can post `vellum:choose` as it can
+  post `vellum:pick`, the same accepted risk: the choice waits in the draft, its card on screen,
+  for the reviewer's Send.

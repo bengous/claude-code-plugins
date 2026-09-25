@@ -51,19 +51,34 @@ export type Draft = {
 /** Every choice `choices` holds, in its order. */
 export function choicesIn(choices: Choices): readonly SentChoice[] {
   return Object.entries(choices).flatMap(([doc, decisions]) =>
-    Object.entries(decisions).map(([decision, { option, description }]) => ({
+    Object.entries(decisions).map(([decision, choice]) => ({
       // SAFETY: a key of `Choices` is a mockup's path, as `choose` and the draft's parser write it.
       doc: doc as ProjectPath,
       decision,
-      option,
-      description,
+      ...choice,
     })),
   );
 }
 
-/** `choices` without those named, each while it is still the option named: one chosen since stays. */
+/** What a Send names of a choice: its place and its option. */
+export function refOf(choice: ChoiceRef): ChoiceRef {
+  return { doc: choice.doc, decision: choice.decision, option: choice.option };
+}
+
+/**
+ * `choices` without those named, each while it is still the option named: one chosen since stays.
+ * The same object when none named is held, so what compares it by identity sees no change.
+ */
 export function withoutChoices(choices: Choices, named: readonly ChoiceRef[]): Choices {
   const gone = new Set(named.map(({ doc, decision, option }) => choiceKey(doc, decision, option)));
+
+  const held = Object.entries(choices).some(([doc, decisions]) =>
+    Object.entries(decisions).some(([decision, { option }]) =>
+      gone.has(choiceKey(doc, decision, option)),
+    ),
+  );
+
+  if (!held) return choices;
 
   const kept = Object.entries(choices).map(
     ([doc, decisions]) =>
@@ -287,7 +302,7 @@ function choicesNamed(choices: Choices, named: readonly ChoiceRef[]): readonly S
   const sent = once.flatMap((ref) => {
     const held = choices[ref.doc]?.[ref.decision];
 
-    return held?.option === ref.option ? [{ ...ref, description: held.description }] : [];
+    return held?.option === ref.option ? [{ ...ref, ...held }] : [];
   });
 
   return sent.length === once.length ? sent : null;

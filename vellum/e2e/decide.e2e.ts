@@ -1,7 +1,17 @@
 import type { FrameLocator, Locator, Page } from "@playwright/test";
 
 import type { Vellum } from "./harness.ts";
-import { commentOn, expect, feedbackOf, reviewV1, sendAll, sendButton, test } from "./harness.ts";
+import {
+  boxOf,
+  commentOn,
+  expect,
+  feedbackOf,
+  readFixture,
+  reviewV1,
+  sendAll,
+  sendButton,
+  test,
+} from "./harness.ts";
 
 /**
  * A choice in a mockup: « Choose » adds the option to the draft and marks it, another option of
@@ -11,8 +21,8 @@ import { commentOn, expect, feedbackOf, reviewV1, sendAll, sendButton, test } fr
 
 test.use({ fixture: "decide" });
 
-async function openMockup(page: Page): Promise<FrameLocator> {
-  await page.locator("#rail button", { hasText: "layout.html" }).first().click();
+async function openMockup(page: Page, name = "layout.html"): Promise<FrameLocator> {
+  await page.locator("#rail button", { hasText: name }).first().click();
   await expect(page.locator(".pane iframe").last()).toBeVisible();
 
   return page.frameLocator(".pane iframe").last();
@@ -208,14 +218,110 @@ test.describe("a choice in a mockup", () => {
 
   test("a click the mockup's own script makes chooses nothing", async ({ page, vellum }) => {
     await reviewV1(page, vellum);
-    const frame = await openMockup(page);
+    const frame = await openMockup(page, "edges.html");
 
-    await chooseButton(frame, "tabs").evaluate((button) => {
+    await chooseButton(frame, "roomy").evaluate((button) => {
       if (button instanceof HTMLElement) button.click();
     });
-    await expect(frame.locator("#picked")).toHaveText("Picked in the mockup: tabs");
+    await chooseButton(frame, "tabs").click();
 
-    expect(await marked(frame)).toEqual([]);
+    // The real click's choice made the whole round trip, which the script's would have made first.
+    await expect.poll(() => marked(frame)).toEqual(["tabs: Chosen"]);
+    await expect(choiceCard(page)).toHaveCount(1);
+  });
+
+  // Each test below lets the first choice land before the duplicate, as a person's pace does, then
+  // chooses in another decision: once that one is marked, the duplicate's message has landed too.
+
+  test("the second click of a double click on Choose chooses nothing", async ({ page, vellum }) => {
+    await reviewV1(page, vellum);
+    const frame = await openMockup(page, "edges.html");
+    const box = await boxOf(chooseButton(frame, "tabs"));
+    const [x, y] = [box.x + box.width / 2, box.y + box.height / 2];
+    await page.mouse.click(x, y);
+    await expect(choiceCard(page)).toHaveCount(1);
+
+    await page.mouse.down({ clickCount: 2 });
+    await page.mouse.up({ clickCount: 2 });
+    await chooseButton(frame, "roomy").click();
+
+    await expect.poll(() => marked(frame)).toEqual(["tabs: Chosen", "roomy: Chosen"]);
+  });
+
+  test("Enter held on a focused Choose chooses once", async ({ page, vellum }) => {
+    await reviewV1(page, vellum);
+    const frame = await openMockup(page, "edges.html");
+    await chooseButton(frame, "tabs").focus();
+    await page.keyboard.down("Enter");
+    await expect(choiceCard(page)).toHaveCount(1);
+
+    await page.keyboard.down("Enter");
+    await page.keyboard.up("Enter");
+    await chooseButton(frame, "roomy").click();
+
+    await expect.poll(() => marked(frame)).toEqual(["tabs: Chosen", "roomy: Chosen"]);
+  });
+
+  test("a click on a label that is its option's Choose chooses once, though the label forwards it to its radio", async ({
+    page,
+    vellum,
+  }) => {
+    await reviewV1(page, vellum);
+    const frame = await openMockup(page, "edges.html");
+
+    await frame.getByText("Dark").click();
+    await chooseButton(frame, "roomy").click();
+
+    await expect.poll(() => marked(frame)).toEqual(["roomy: Chosen", "dark: Chosen"]);
+  });
+
+  test("a card names the option by the heading the option holds, else by its key", async ({
+    page,
+    vellum,
+  }) => {
+    await reviewV1(page, vellum);
+    const frame = await openMockup(page, "edges.html");
+
+    await chooseButton(frame, "tabs").click();
+    await chooseButton(frame, "roomy").click();
+
+    await expect(choiceCard(page)).toHaveText([/Chosen: “Tabs”/u, /Chosen: “roomy”/u]);
+  });
+
+  test("a choice whose option the mockup no longer holds is flagged, and left out of the Send and its count", async ({
+    page,
+    vellum,
+  }) => {
+    await reviewV1(page, vellum);
+    const frame = await openMockup(page);
+    await chooseButton(frame, "tabs").click();
+    await expect(sendButton(page)).toHaveText("Send 1");
+
+    vellum.writeFile(
+      "layout.html",
+      readFixture("decide", "layout.html").replace('"tabs"', '"top-tabs"'),
+    );
+
+    await expect(choiceCard(page)).toContainText("no longer in the mockup");
+    await expect(choiceCard(page).getByRole("button", { name: "Send now" })).toHaveCount(0);
     await expect(sendButton(page)).toHaveText("Send");
+    await page.locator("#global").fill("Keep the save button in view.");
+    await page.getByRole("button", { name: "Add comment" }).click();
+    await sendAll(page);
+    await expect.poll(() => vellum.batches()).toHaveLength(1);
+
+    expect(feedbackOf(vellum)).not.toContain("## Choices");
+    await choiceCard(page).getByRole("button", { name: "Delete" }).click();
+    await expect(choiceCard(page)).toHaveCount(0);
+  });
+
+  test("the rail counts a mockup's choices with its comments", async ({ page, vellum }) => {
+    await reviewV1(page, vellum);
+    const frame = await openMockup(page);
+    await chooseButton(frame, "tabs").click();
+
+    await expect(
+      page.locator("#rail button", { hasText: "layout.html" }).locator(".badge"),
+    ).toHaveText("1");
   });
 });

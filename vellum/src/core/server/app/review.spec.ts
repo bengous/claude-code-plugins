@@ -557,7 +557,7 @@ describe("a Send and the extensions", () => {
   test("a choice alone is a batch, and a part's commit hears the batch holds more than the part", async () => {
     const round = rounding();
     const s = setup([round.extension]);
-    const layout = { layout: { option: "d", description: ARTICLE } };
+    const layout = { layout: { option: "d", label: "D", description: ARTICLE } };
     expect((await send(s, { choices: { [`${WIP}layout.html`]: layout } })).ok).toBe(true);
     expect(round.heard).toEqual([{ file: `${WIP}.review/v0.feedback-1.md`, seq: 1, more: true }]);
     expect(read(s.root, `${WIP}.review/v0.feedback-1.md`)).toContain("## Choices\n\n1. ");

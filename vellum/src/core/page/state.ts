@@ -26,6 +26,7 @@ import {
   shiftAnnotations,
   takesComments,
   unshiftAnnotations,
+  choicesIn,
   withoutChoices,
 } from "../protocol.ts";
 import type { ProjectPath, Version } from "../server/domain/paths.ts";
@@ -38,8 +39,37 @@ export const review = signal<ReviewView | null>(null);
 /** The comments not sent yet: a send clears them, and nothing Claude does may. */
 export const annotations = signal<readonly Annotation[]>([]);
 
-/** The options chosen in mockups and not sent yet, `choose` their one writer: a Send clears them, as it does the comments. */
+/**
+ * The options chosen in mockups and not sent yet: `choose` and `unchoose` change them, a Send
+ * takes out what it sent, an approval clears them, and the saved draft restores them.
+ */
 export const choices = signal<Choices>({});
+
+/**
+ * The choices whose option its mockup no longer holds, as the mockup's frame last read it, at its
+ * load and at each change of its choices: page memory, never the draft's.
+ */
+export const absent = signal<readonly ChoiceRef[]>([]);
+
+/** What the frame of `doc` reads now replaces what it read before. */
+export function setAbsent(doc: ProjectPath, found: readonly Omit<ChoiceRef, "doc">[]): void {
+  absent.value = [
+    ...absent.value.filter((ref) => ref.doc !== doc),
+    ...found.map(({ decision, option }) => ({ doc, decision, option })),
+  ];
+}
+
+export function isAbsent(choice: ChoiceRef): boolean {
+  return absent.value.some(
+    (ref) =>
+      ref.doc === choice.doc && ref.decision === choice.decision && ref.option === choice.option,
+  );
+}
+
+/** The choices a Send takes: every one whose mockup still holds its option, as far as the page read it. */
+export const sendableChoices = computed(() =>
+  choicesIn(choices.value).filter((choice) => !isAbsent(choice)),
+);
 
 /** What is typed and not submitted, saved with the draft; `setTyped` is its one writer. */
 export const typed = signal<Typed>(EMPTY_TYPED);
@@ -457,6 +487,16 @@ async function sendOut(out: Outgoing): Promise<Sent> {
     return { kind: "failed" };
   }
 
+  // A 400 is a Send the server could not read: this page's code is older than the server's.
+  if (status === 400) {
+    fail(
+      "decision",
+      "Not sent: this page is older than its server, which could not read the Send. Reload the page: your comments are saved.",
+    );
+
+    return { kind: "failed" };
+  }
+
   if (status >= 300) {
     fail("decision", `Not sent: the server answered ${status}. Your comments are kept.`);
 
@@ -720,7 +760,7 @@ function startSaving(): () => Promise<boolean> {
 /**
  * The first load. The saved draft goes in before the review loads, so its edit meets the fate of
  * any unsent edit at a load: kept, landed or dropped. Saving starts only after that, at every
- * change of the comments or of the edit, each one a single write, and once a typing pauses:
+ * change of the comments, the edit or the choices, each one a single write, and once a typing pauses:
  * earlier, a reload would replace the draft with the page's empty state. A draft that cannot be
  * read starts no saving, for the same reason.
  */

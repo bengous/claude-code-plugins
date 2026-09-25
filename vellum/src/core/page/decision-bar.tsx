@@ -3,7 +3,7 @@ import { useEffect, useState } from "preact/hooks";
 
 import type { SendShare } from "../extension.ts";
 import type { Annotation, Choices } from "../protocol.ts";
-import { choicesIn, countChanges } from "../protocol.ts";
+import { choicesIn, countChanges, refOf } from "../protocol.ts";
 import { Badge, Banner, Button, Gear, Popover } from "./kit.tsx";
 import type { Notice } from "./notices.ts";
 import { decisionsOf, statusOf } from "./notices.ts";
@@ -21,6 +21,7 @@ import {
   planText,
   review,
   send,
+  sendableChoices,
   sending,
   strayTyped,
   unsentTyped,
@@ -207,7 +208,8 @@ export function DecisionBar(props: BarProps): preact.JSX.Element {
   const title = titleOf(planText.value);
   const parts = props.shares.map((share) => share());
   const unanswered = parts.flatMap((part) => part.unanswered);
-  const counted = count + chosen.length + (edited.value === null ? 0 : 1);
+  const sendable = sendableChoices.value;
+  const counted = count + sendable.length + (edited.value === null ? 0 : 1);
   const sendCount = parts.reduce((sum, part) => sum + part.count, counted);
 
   useEffect(() => {
@@ -250,7 +252,7 @@ export function DecisionBar(props: BarProps): preact.JSX.Element {
       void send({
         annotations: annotations.value.map(({ id }) => id),
         edit: edited.value,
-        choices: chosen.map(({ doc, decision, option }) => ({ doc, decision, option })),
+        choices: sendable.map((choice) => refOf(choice)),
         parts: props.shares.map((share) => share()),
         takeDefaults: next.unanswered,
       }).then((sent) => {

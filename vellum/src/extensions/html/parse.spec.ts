@@ -117,23 +117,38 @@ describe("parseFrameToPage", () => {
       type: "vellum:choose",
       decision: "layout",
       option: "settings",
+      label: "Settings",
       description: CARD.description,
     };
 
-    expect(parseFrameToPage({ ...choose, label: "x" })).toEqual(choose);
+    expect(parseFrameToPage({ ...choose, by: "x" })).toEqual(choose);
   });
 
   test("a choice needs a decision and an option that say something, and a description", () => {
-    const choose = { type: "vellum:choose", decision: "layout", option: "settings" };
+    const choose = { type: "vellum:choose", decision: "layout", option: "settings", label: "S" };
 
     for (const unreadable of [
       choose,
+      { ...choose, description: CARD.description, label: "" },
       { ...choose, description: CARD.description, decision: "" },
       { ...choose, description: CARD.description, option: 1 },
       { ...choose, description: { heading: "Plans" } },
     ]) {
       expect(parseFrameToPage(unreadable)).toBeNull();
     }
+  });
+
+  test("the options a mockup no longer holds cross as their decisions and options, every one readable", () => {
+    const absent: FrameToPage = {
+      type: "vellum:absent",
+      choices: [{ decision: "layout", option: "tabs" }],
+    };
+
+    expect(parseFrameToPage(absent)).toEqual(absent);
+    expect(
+      parseFrameToPage({ type: "vellum:absent", choices: [{ decision: "layout" }] }),
+    ).toBeNull();
+    expect(parseFrameToPage({ type: "vellum:absent" })).toBeNull();
   });
 
   test("what is not a message of the frame is refused", () => {

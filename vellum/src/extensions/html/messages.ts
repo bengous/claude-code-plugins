@@ -15,7 +15,8 @@ export type Chosen = { readonly decision: DecisionKey; readonly option: string }
 /**
  * `box` is in the frame's coordinates; the page adds the iframe's own rect. `vellum:switch` is
  * `C` pressed inside the mockup, whose keys never reach the page. `vellum:choose` is a click on a
- * « Choose » while the page does not comment, with what that « Choose » is.
+ * « Choose » while the page does not comment, with what the page calls the option and what that
+ * « Choose » is. `vellum:absent` names the options chosen that the document no longer holds.
  */
 export type FrameToPage =
   | {
@@ -26,7 +27,12 @@ export type FrameToPage =
   | { readonly type: "vellum:unpick" }
   | { readonly type: "vellum:holding"; readonly holding: boolean }
   | { readonly type: "vellum:switch" }
-  | (Chosen & { readonly type: "vellum:choose"; readonly description: ElementDescription });
+  | (Chosen & {
+      readonly type: "vellum:choose";
+      readonly label: string;
+      readonly description: ElementDescription;
+    })
+  | { readonly type: "vellum:absent"; readonly choices: readonly Chosen[] };
 
 /** The page's tokens the frame's overlay draws with, resolved to sRGB: its shadow root reads none of the page's properties. */
 export type FrameTheme = {

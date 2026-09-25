@@ -303,7 +303,7 @@ export class Review {
 
   /**
    * The page's unsent work as it was last saved, `null` when there is none, through the one parser
-   * a `PUT` goes through: a draft of an older shape is `unreadable`, never read half-way.
+   * a `PUT` goes through: a malformed draft is `unreadable`, never read half-way.
    */
   public async draft(): Promise<Draft | "unreadable" | null> {
     const saved = await readTextIfAny(this.options.project, this.draftDoc());

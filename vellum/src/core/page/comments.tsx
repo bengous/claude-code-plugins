@@ -3,7 +3,7 @@ import { Fragment } from "preact";
 import { useEffect, useRef, useState } from "preact/hooks";
 
 import type { Anchor, Annotation, GroupedDoc, Mark, SentChoice } from "../protocol.ts";
-import { choicesIn, DELETE_SENTENCE, QUICK_LABELS } from "../protocol.ts";
+import { choicesIn, DELETE_SENTENCE, QUICK_LABELS, refOf } from "../protocol.ts";
 import { Badge, Button, Handle, Tag } from "./kit.tsx";
 import { pathLabel, quoteOf, whereOf } from "./labels.ts";
 import {
@@ -17,6 +17,7 @@ import {
   edited,
   editing,
   focused,
+  isAbsent,
   locked,
   removeAnnotation,
   review,
@@ -196,41 +197,46 @@ function docLabelOf(path: string): string {
 }
 
 /**
- * A choice made in a mockup: its mockup, its decision, and the option by the heading its Choose
- * sits under. Send now sends it alone and leaves the round; Delete withdraws it, as a click on
- * the same Choose does.
+ * A choice made in a mockup: its mockup, its decision, and the option by the heading it holds,
+ * else its key. Send now sends it alone and leaves the round; Delete withdraws it, as a click on
+ * the same Choose does. A choice whose option the mockup no longer holds says so, and only
+ * Delete remains: no Send takes it.
  */
 function ChoiceCard(props: { readonly choice: SentChoice }): preact.JSX.Element {
-  const { doc, decision, option, description } = props.choice;
-  const named = { doc, decision, option };
+  const { choice } = props;
+  const named = refOf(choice);
+  const gone = isAbsent(choice);
   const off = editing.value !== null;
 
   return (
     <div class="card choice-card">
-      <div class="where" title={doc}>
-        {docLabelOf(doc)} · {decision}
+      <div class="where" title={choice.doc}>
+        {docLabelOf(choice.doc)} · {choice.decision}
       </div>
-      <div>Chosen: “{description.heading === "" ? option : description.heading}”</div>
+      <div>Chosen: “{choice.label}”</div>
+      {gone && <Tag>no longer in the mockup</Tag>}
       {!locked.value && (
         <div class="actions">
           <button type="button" disabled={off} onClick={() => unchoose(named)}>
             Delete
           </button>
-          <button
-            type="button"
-            disabled={off || sending.value || connection.value === "down"}
-            onClick={() =>
-              void send({
-                annotations: [],
-                edit: null,
-                choices: [named],
-                parts: null,
-                takeDefaults: [],
-              })
-            }
-          >
-            Send now
-          </button>
+          {!gone && (
+            <button
+              type="button"
+              disabled={off || sending.value || connection.value === "down"}
+              onClick={() =>
+                void send({
+                  annotations: [],
+                  edit: null,
+                  choices: [named],
+                  parts: null,
+                  takeDefaults: [],
+                })
+              }
+            >
+              Send now
+            </button>
+          )}
         </div>
       )}
     </div>

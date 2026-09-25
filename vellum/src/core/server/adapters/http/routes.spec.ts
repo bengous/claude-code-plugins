@@ -54,6 +54,7 @@ const TYPED = { general: "", composer: {}, grill: {}, editor: null };
 
 const LAYOUT = {
   option: "settings",
+  label: "Settings",
   description: { heading: "Layout", role: "article", name: "", openingTag: "<article>" },
 };
 
@@ -536,13 +537,25 @@ describe("routes", () => {
       { "/abs.html": { layout: LAYOUT } },
       { [mockup]: { "": LAYOUT } },
       { [mockup]: { layout: { ...LAYOUT, option: "" } } },
-      { [mockup]: { layout: { option: "settings" } } },
+      { [mockup]: { layout: { option: "settings", label: "Settings" } } },
+      { [mockup]: { layout: { ...LAYOUT, label: "" } } },
+      { [mockup]: { layout: { option: LAYOUT.option, description: LAYOUT.description } } },
+      { [mockup]: [LAYOUT] },
+      { [mockup]: { layout: LAYOUT }, [`${WIP}./mockup.html`]: { nav: LAYOUT } },
       { [mockup]: { layout: { ...LAYOUT, description: { ...LAYOUT.description, role: 1 } } } },
     ]) {
       expect((await putDraft({ ...EMPTY_DRAFT, choices })).status, JSON.stringify(choices)).toBe(
         400,
       );
     }
+  });
+
+  test("a choice's mockup is kept under its path as parsed, so the Send that names it finds it", async () => {
+    const { putDraft, getDraft, sendBody } = await underReview();
+    await putDraft({ ...EMPTY_DRAFT, choices: { [`${WIP}./mockup.html`]: { layout: LAYOUT } } });
+
+    expect(await (await getDraft()).json()).toEqual({ ...EMPTY_DRAFT, choices: CHOICES });
+    expect((await sendBody({ ...ALL, annotations: [], choices: [SETTINGS] })).status).toBe(200);
   });
 
   test("a draft without what is typed, or with it malformed, is refused: the 0.11 shape included", async () => {

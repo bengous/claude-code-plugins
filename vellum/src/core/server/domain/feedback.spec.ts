@@ -387,6 +387,7 @@ const SETTINGS = {
   doc: MOCKUP,
   decision: "layout",
   option: "settings",
+  label: "Réglages",
   description: {
     heading: "Layout",
     role: "article",

@@ -13,7 +13,7 @@ import type {
   SendAnswer,
   SendRequest,
 } from "../protocol.ts";
-import { choicesIn, EMPTY_TYPED, lineDiff } from "../protocol.ts";
+import { choicesIn, EMPTY_TYPED, lineDiff, refOf } from "../protocol.ts";
 
 type Store = typeof import("./state.ts");
 
@@ -31,7 +31,7 @@ const MOCKUP = `${WIP}layout.html` as never;
 const ARTICLE = { heading: "Layout", role: "article", name: "", openingTag: "<article>" };
 
 function chose(option: string) {
-  return { option, description: ARTICLE };
+  return { option, label: option, description: ARTICLE };
 }
 
 function doc(path: string, group: DocGroup): GroupedDoc {
@@ -1287,11 +1287,7 @@ function all(store: Store, parts: readonly SendShare[] = [], takeDefaults: reado
   return store.send({
     annotations: store.annotations.value.map(({ id }) => id),
     edit: store.edited.value,
-    choices: choicesIn(store.choices.value).map((choice) => ({
-      doc: choice.doc,
-      decision: choice.decision,
-      option: choice.option,
-    })),
+    choices: choicesIn(store.choices.value).map((choice) => refOf(choice)),
     parts,
     takeDefaults,
   });
@@ -1383,6 +1379,45 @@ describe("send", () => {
       { doc: MOCKUP, decision: "nav", option: "tabs" },
     ]);
     expect(store.choices.value).toEqual({ [MOCKUP]: { layout: chose("e") } });
+  });
+
+  test("a Send that names no choice leaves the choices as they were, the very same", async () => {
+    const store = await freshStore();
+    const choices = { [MOCKUP]: { layout: chose("d") } };
+    const draft = { annotations: [comment("a", plan)], edit: null, choices, typed: EMPTY_TYPED };
+    serve({ draft, review: versioned({ version: 1 }) });
+    await store.start();
+    const before = store.choices.value;
+    await store.send({
+      annotations: ["a"],
+      edit: null,
+      choices: [],
+      parts: null,
+      takeDefaults: [],
+    });
+
+    expect(store.choices.value).toBe(before);
+  });
+
+  test("a Send the server cannot read says to reload the page", async () => {
+    const store = await freshStore();
+
+    const draft = {
+      annotations: [comment("a", plan)],
+      edit: null,
+      choices: {},
+      typed: EMPTY_TYPED,
+    };
+
+    serve({
+      draft,
+      review: versioned({ version: 1 }),
+      send: { status: 400, answer: null as never },
+    });
+    await store.start();
+
+    expect(await all(store)).toEqual({ kind: "failed" });
+    expect(store.failures.value.map(({ text }) => text).join()).toContain("Reload the page");
   });
 
   test("a comment added while the Send is out stays: it was not sent", async () => {

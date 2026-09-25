@@ -13,8 +13,10 @@ import {
   dark,
   flipCommentSwitch,
   holding,
+  setAbsent,
 } from "../../core/page/state.ts";
 import type { ElementRef } from "../../core/protocol.ts";
+import { choicesIn } from "../../core/protocol.ts";
 import type { Chosen, CommentedPlace, FrameTheme, PageToFrame, PickBox } from "./messages.ts";
 import { parseFrameToPage } from "./parse.ts";
 
@@ -64,9 +66,9 @@ function HtmlDoc(props: RendererProps): preact.JSX.Element {
     annotation.anchor.kind === "element" ? annotation.anchor.elements : [],
   );
 
-  const chosen: readonly Chosen[] = Object.entries(choices.value[props.doc.path] ?? {}).map(
-    ([decision, { option }]) => ({ decision, option }),
-  );
+  const chosen: readonly Chosen[] = choicesIn(choices.value)
+    .filter(({ doc }) => doc === props.doc.path)
+    .map(({ decision, option }) => ({ decision, option }));
 
   const post = (message: PageToFrame): void =>
     frame.current?.contentWindow?.postMessage(message, "*");
@@ -105,9 +107,11 @@ function HtmlDoc(props: RendererProps): preact.JSX.Element {
       if (message.type === "vellum:switch") flipCommentSwitch();
 
       if (message.type === "vellum:choose" && !commenting.value) {
-        const { decision, option, description } = message;
-        choose(props.doc.path, decision, { option, description });
+        const { decision, option, label, description } = message;
+        choose(props.doc.path, decision, { option, label, description });
       }
+
+      if (message.type === "vellum:absent") setAbsent(props.doc.path, message.choices);
 
       if (message.type === "vellum:pick" && commenting.value) {
         const [first, ...rest] = message.elements;

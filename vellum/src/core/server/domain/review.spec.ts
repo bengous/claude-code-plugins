@@ -160,7 +160,7 @@ const MOCKUP = `${DIR}layout.html` as never;
 const ARTICLE = { heading: "Layout", role: "article", name: "", openingTag: "<article>" };
 
 function chose(option: string) {
-  return { option, description: ARTICLE };
+  return { option, label: option, description: ARTICLE };
 }
 
 function ref(decision: string, option: string) {
@@ -258,7 +258,7 @@ describe("sendOn", () => {
 
     expect(sendOn(inReview, PLAN, held, naming([], null, [ref("layout", "d")]))).toMatchObject({
       kind: "send",
-      choices: [{ ...ref("layout", "d"), description: ARTICLE }],
+      choices: [{ ...ref("layout", "d"), label: "d", description: ARTICLE }],
       rest: { choices: { [MOCKUP]: { nav: chose("tabs") } } },
     });
   });
@@ -291,12 +291,19 @@ describe("sendOn", () => {
     const twice = naming([], null, [ref("layout", "d"), ref("layout", "d")]);
 
     expect(sendOn(inReview, PLAN, held, twice)).toMatchObject({
-      choices: [{ ...ref("layout", "d"), description: ARTICLE }],
+      choices: [{ ...ref("layout", "d"), label: "d", description: ARTICLE }],
     });
   });
 });
 
 describe("withoutChoices", () => {
+  test("takes out nothing and answers the same choices when none named is held", () => {
+    const choices = { [MOCKUP]: { layout: chose("d") } };
+
+    expect(withoutChoices(choices, [])).toBe(choices);
+    expect(withoutChoices(choices, [ref("layout", "e")])).toBe(choices);
+  });
+
   test("takes out a decision's choice only while it is still the option named", () => {
     const choices = { [MOCKUP]: { layout: chose("e"), nav: chose("tabs") } };
 

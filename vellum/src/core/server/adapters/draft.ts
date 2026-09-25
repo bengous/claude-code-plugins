@@ -18,7 +18,9 @@ import { parseProjectPath, parseVersion } from "../domain/paths.ts";
 
 /**
  * The draft's boundary: what `PUT /api/draft` carries and what `.review/draft.json` holds back,
- * one parser for both, so a draft of an older shape is refused whole, never read half-way.
+ * one parser for both, so a malformed draft is refused whole, never read half-way. Two older
+ * shapes are read, each to keep the reviewer's unsent comments: an element with no description,
+ * and a draft with no choices.
  */
 
 /* oxlint-disable anti-slop/no-runtime-typeof, anti-slop/no-unknown-parameters, anti-slop/no-unsafe-dictionary-type -- the block below IS the boundary parser the rules ask for: it validates the draft the page posts and the file it was saved to, and there is no earlier place to parse them. */
@@ -221,13 +223,15 @@ function parseChoice(value: unknown): Choice | null {
   return isRecord(value) &&
     description !== null &&
     typeof value.option === "string" &&
-    value.option !== ""
-    ? { option: value.option, description }
+    value.option !== "" &&
+    typeof value.label === "string" &&
+    value.label !== ""
+    ? { option: value.option, label: value.label, description }
     : null;
 }
 
 function parseDecisions(value: unknown): Readonly<Record<string, Choice>> | null {
-  if (!isRecord(value)) return null;
+  if (!isRecord(value) || Array.isArray(value)) return null;
   const entries = Object.entries(value);
 
   const decisions = entries.flatMap(([decision, choice]) => {
@@ -240,8 +244,10 @@ function parseDecisions(value: unknown): Readonly<Record<string, Choice>> | null
 }
 
 /**
- * A draft saved before the choices holds none: it keeps the reviewer's unsent comments, so it is
- * read with no choice rather than refused.
+ * A mockup's choices under its path as parsed, so a Send that names the path finds them; two
+ * spellings of one path are refused, since each would hold its own choice of a decision. A draft
+ * saved before the choices holds none: it keeps the reviewer's unsent comments, so it is read
+ * with no choice rather than refused.
  */
 function parseChoices(value: unknown): Choices | null {
   if (value === undefined) return {};
@@ -250,12 +256,17 @@ function parseChoices(value: unknown): Choices | null {
   const entries = Object.entries(value);
 
   const docs = entries.flatMap(([doc, decisions]) => {
-    const parsed = parseProjectPath(doc).ok ? parseDecisions(decisions) : null;
+    const path = parseProjectPath(doc);
+    const parsed = path.ok ? parseDecisions(decisions) : null;
 
-    return parsed === null ? [] : [[doc, parsed] as const];
+    return path.ok && parsed !== null ? [[path.value, parsed] as const] : [];
   });
 
-  return docs.length === entries.length ? Object.fromEntries(docs) : null;
+  const paths = new Set(docs.map(([path]) => path));
+
+  return docs.length === entries.length && paths.size === docs.length
+    ? Object.fromEntries(docs)
+    : null;
 }
 
 function parseTyped(value: unknown): Typed | null {
@@ -269,10 +280,7 @@ function parseTyped(value: unknown): Typed | null {
     : { general: value.general, composer, grill, editor: editor.value };
 }
 
-/**
- * The comments, the edit and the choices a Send takes, plus what is typed. A draft of an older
- * shape is refused whole, written or read back.
- */
+/** The comments, the edit and the choices a Send takes, plus what is typed, written or read back. */
 export function parseDraft(body: unknown): Draft | null {
   if (!isRecord(body)) return null;
   const annotations = parseAnnotations(body.annotations);

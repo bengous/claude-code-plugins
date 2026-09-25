@@ -14,16 +14,18 @@ const OPTION = marks({ option: "settings" });
 const DECISION = marks({ decision: "layout" });
 
 describe("choiceOf", () => {
-  test("a Choose names the option it sits in, and the decision that option sits in; `at` is the Choose", () => {
+  test("a Choose names the option it sits in, and the decision that option sits in; `button` is the Choose, `option` the option", () => {
     expect(choiceOf([marks(), BUTTON, marks(), OPTION, marks(), DECISION, marks()])).toEqual({
-      at: 1,
+      button: 1,
+      option: 3,
       chosen: { decision: "layout", option: "settings" },
     });
   });
 
   test("an option that is its own Choose is the option chosen", () => {
     expect(choiceOf([marks({ choose: true, option: "tabs" }), DECISION])).toEqual({
-      at: 0,
+      button: 0,
+      option: 0,
       chosen: { decision: "layout", option: "tabs" },
     });
   });
@@ -32,7 +34,8 @@ describe("choiceOf", () => {
     const inner = marks({ option: "inner", decision: "own" });
 
     expect(choiceOf([BUTTON, inner, OPTION, marks({ decision: "outer" }), DECISION])).toEqual({
-      at: 0,
+      button: 0,
+      option: 1,
       chosen: { decision: "outer", option: "inner" },
     });
   });
