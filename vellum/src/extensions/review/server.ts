@@ -3,13 +3,13 @@ import type { PlanWorkspace } from "../../core/protocol.ts";
 import { projectPath, REVIEW_DIR } from "../../core/server/domain/workspace.ts";
 import { REVIEWS_DIR, reviewFile } from "./names.ts";
 import { parseJson, parsePosts, parseReviews } from "./parse.ts";
-import type { Requested, Reviews, ReviewState } from "./protocol.ts";
+import type { Closed, Requested, Reviews, ReviewState } from "./protocol.ts";
 import { REVIEWER } from "./protocol.ts";
 
 /** Where the server keeps the runs, so a restarted one still knows the run under way and its number. */
 const REVIEWS_FILE = `${REVIEW_DIR}/reviews.json`;
 
-const NONE: Reviews = { seq: 0, run: null, failed: null };
+const NONE: Reviews = { seq: 0, run: null, failed: null, stopping: [], resubmit: false };
 
 const NO_CONTENT = { status: 204 };
 
@@ -48,12 +48,28 @@ function writeReviews(
   return context.writeText(projectPath(`${dir}${REVIEWS_FILE}`), `${JSON.stringify(reviews)}\n`);
 }
 
-function stateOf({ run, failed }: Reviews): ReviewState {
-  return { run, failed };
+function stateOf({ run, failed, stopping, resubmit }: Reviews): ReviewState {
+  return { run, failed, stopping, resubmit };
 }
 
-/** Why no review of `version` is asked now; `null` when one may be. */
-function whyNot(workspace: PlanWorkspace, reviews: Reviews, version: number): string | null {
+/**
+ * The run given up, its agent to stop once it has one, and `plan.md` to submit again: a version
+ * Claude wrote while the run held the review was refused.
+ */
+function givenUp(reviews: Reviews): Reviews {
+  const { run, stopping } = reviews;
+  const agent = run?.kind === "running" ? [{ seq: run.seq, agentId: run.agentId }] : [];
+
+  return { ...reviews, run: null, stopping: [...stopping, ...agent], resubmit: true };
+}
+
+/** Why no review of `version` is asked now; `null` when one may be. One hold at a time: another's refuses it. */
+async function whyNot(
+  context: ServerContext,
+  workspace: PlanWorkspace,
+  reviews: Reviews,
+  version: number,
+): Promise<string | null> {
   if (workspace.kind === "drafting") return "no version is under review yet";
 
   if (workspace.kind === "approved") return "the plan is approved";
@@ -61,7 +77,9 @@ function whyNot(workspace: PlanWorkspace, reviews: Reviews, version: number): st
   if (workspace.version !== version)
     return `v${workspace.version} is under review, not v${version}`;
 
-  return reviews.run === null ? null : `a review of v${reviews.run.version} is running`;
+  if (reviews.run !== null) return `a review of v${reviews.run.version} is running`;
+
+  return await context.held();
 }
 
 function twoDigits(n: number): string {
@@ -78,12 +96,26 @@ function verdictDoc(version: number, model: string, text: string, at: Date): str
 /** What a route makes of the runs: the record to write, and the answer once it is written. */
 type Changed = { readonly reviews: Reviews; readonly answer: Response };
 
-/** The approval drops the run under way: an answer that comes later finds no run, and writes nothing. */
+/**
+ * A run under way holds the review, from its request to its end: no version of Claude's is
+ * recorded, and `step` takes no proposal. Its number is part of the reason, which the approval's
+ * warning compares. Read outside `inOrder`, since the queue calls it; a directory gone holds nothing.
+ */
+async function holds(context: ServerContext): Promise<string | null> {
+  const workspace = await workspaceIfAny(context);
+
+  if (workspace === null) return null;
+  const { run } = await readReviews(context, workspace.dir);
+
+  return run === null ? null : `plan review ${run.seq} of v${run.version} is running`;
+}
+
+/** The approval gives up the run under way: an answer that comes later finds no run, and writes nothing. */
 async function approved(context: ServerContext): Promise<void> {
   const { dir } = await context.workspace();
   const reviews = await readReviews(context, dir);
 
-  if (reviews.run !== null) await writeReviews(context, dir, { ...reviews, run: null });
+  if (reviews.run !== null) await writeReviews(context, dir, givenUp(reviews));
 }
 
 function routes(context: ServerContext): Readonly<Record<RouteKey, Route>> {
@@ -129,15 +161,16 @@ function routes(context: ServerContext): Readonly<Record<RouteKey, Route>> {
 
       if (body === null) return badRequest();
 
-      return await change((reviews, workspace) => {
-        const why = whyNot(workspace, reviews, body.version);
+      return await change(async (reviews, workspace) => {
+        const why = await whyNot(context, workspace, reviews, body.version);
 
         if (why !== null) return refused(why);
         const seq = reviews.seq + 1;
         const requested: Requested = { seq };
+        const run = { kind: "requested", seq, version: body.version } as const;
 
         return {
-          reviews: { seq, run: { kind: "requested", seq, version: body.version }, failed: null },
+          reviews: { ...reviews, seq, run, failed: null },
           answer: Response.json(requested),
         };
       });
@@ -172,7 +205,7 @@ function routes(context: ServerContext): Readonly<Record<RouteKey, Route>> {
           const model = run.kind === "running" ? run.model : null;
           const failed = { seq: run.seq, version: run.version, model, why: outcome.why };
 
-          return done({ ...reviews, run: null, failed });
+          return done({ ...reviews, run: null, failed, resubmit: true });
         }
 
         if (run.kind !== "running") return refused("the run was never launched");
@@ -186,7 +219,7 @@ function routes(context: ServerContext): Readonly<Record<RouteKey, Route>> {
         const file = projectPath(`${workspace.dir}${reviewFile(run.version, run.model, taken)}`);
         await context.writeText(file, verdictDoc(run.version, run.model, outcome.text, new Date()));
 
-        return done({ ...reviews, run: null, failed: null });
+        return done({ ...reviews, run: null, failed: null, resubmit: true });
       });
     },
 
@@ -196,18 +229,47 @@ function routes(context: ServerContext): Readonly<Record<RouteKey, Route>> {
       if (body === null) return badRequest();
 
       return await change((reviews) =>
-        reviews.run?.seq === body.seq ? done({ ...reviews, run: null }) : refused(NO_SUCH_RUN),
+        reviews.run?.seq === body.seq ? done(givenUp(reviews)) : refused(NO_SUCH_RUN),
       );
     },
 
+    // `/vellum:stop` and the approval: the mode closes, so nothing is submitted again.
     "POST close": async (request) => {
       const body = parsePosts.close(await request.json().catch(() => null));
 
       if (body === null) return badRequest();
 
-      return await change((reviews) => done({ ...reviews, run: null }));
+      return await change((reviews) => {
+        const closed = { ...givenUp(reviews), resubmit: reviews.resubmit };
+        const answer: Closed = { stopping: closed.stopping };
+
+        return { reviews: closed, answer: Response.json(answer) };
+      });
+    },
+
+    // The one way an agent leaves the list: its stop confirmed, never a later write.
+    "POST stopped": async (request) => {
+      const body = parsePosts.stopped(await request.json().catch(() => null));
+
+      if (body === null) return badRequest();
+
+      return await change((reviews) => {
+        const stopping = reviews.stopping.filter(({ seq }) => seq !== body.seq);
+
+        return stopping.length === reviews.stopping.length
+          ? refused(NO_SUCH_RUN)
+          : done({ ...reviews, stopping });
+      });
+    },
+
+    "POST resubmitted": async (request) => {
+      const body = parsePosts.resubmitted(await request.json().catch(() => null));
+
+      if (body === null) return badRequest();
+
+      return await change((reviews) => done({ ...reviews, resubmit: false }));
     },
   };
 }
 
-export const reviewServer: ServerExtension = { id: "review", routes, approved };
+export const reviewServer: ServerExtension = { id: "review", routes, holds, approved };

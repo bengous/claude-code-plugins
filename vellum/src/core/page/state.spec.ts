@@ -53,6 +53,7 @@ type Version = {
   readonly previous?: string;
   readonly docs?: readonly GroupedDoc[];
   readonly kind?: "inReview" | "approved";
+  readonly held?: string | null;
 };
 
 /** A view past `drafting`: the plan is `.review/v<version>.md`, as the server names it. */
@@ -62,6 +63,7 @@ function versioned({
   previous,
   docs = [],
   kind = "inReview",
+  held = null,
 }: Version): ReviewView {
   return {
     workspace: { kind, dir: WIP, version, batches: 0, finalizeError: null, notes: false },
@@ -72,7 +74,7 @@ function versioned({
       previous: previous === undefined ? null : { version: version - 1, text: previous },
     },
     docs,
-    held: null,
+    held,
   } as never;
 }
 
@@ -1358,6 +1360,48 @@ describe("send", () => {
       [],
       null,
       typed,
+    ]);
+  });
+
+  test("an edit the held review left in the draft stays on the page, with the plan's comment, under a notice", async () => {
+    const store = await freshStore();
+    const held = "plan review 1 of v1 is running";
+    const other = comment("b", `${WIP}notes.md`);
+
+    const draft = {
+      annotations: [comment("a", plan), other],
+      edit: edit(1, "mine\n"),
+      choices: {},
+      typed,
+    };
+
+    const editKept = { held, annotations: ["a"] };
+    const answer = { file: `${WIP}.review/v1.feedback-1.md`, seq: 1, editKept } as never;
+    serve({ draft, review: versioned({ version: 1, held }), send: { status: 200, answer } });
+    await store.start();
+
+    expect(await all(store)).toEqual({ kind: "sent" });
+    expect([store.annotations.value, store.edited.value]).toEqual([
+      [comment("a", plan)],
+      edit(1, "mine\n"),
+    ]);
+    expect(store.notices.value.map((notice) => notice.text.join(""))).toEqual([
+      `Your edit waits: ${held}. Send it again once that ends.`,
+    ]);
+  });
+
+  test("an edit alone the held review refused stays on the page, under the same notice", async () => {
+    const store = await freshStore();
+    const held = "grill 1 is open";
+    const draft = { annotations: [], edit: edit(1, "mine\n"), choices: {}, typed };
+    const refusal = { status: 409, answer: { reason: "held", held } };
+    serve({ draft, review: versioned({ version: 1, held }), send: refusal as never });
+    await store.start();
+    await all(store);
+
+    expect(store.edited.value).toEqual(edit(1, "mine\n"));
+    expect(store.notices.value.map((notice) => notice.text.join(""))).toEqual([
+      `Your edit waits: ${held}. Send it again once that ends.`,
     ]);
   });
 

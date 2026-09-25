@@ -498,7 +498,11 @@ describe("routes", () => {
   test("a Send answers its batch and the entry's number, and leaves the page taking comments", async () => {
     const { dir, send, putDraft } = await underReview();
     const sent = await send({ anchor: CARD, mark: BIGGER });
-    expect(await sent.json()).toEqual({ file: `${WIP}.review/v1.feedback-1.md`, seq: 1 });
+    expect(await sent.json()).toEqual({
+      file: `${WIP}.review/v1.feedback-1.md`,
+      seq: 1,
+      editKept: null,
+    });
     expect((await putDraft(DRAFT)).status).toBe(204);
     expect(existsSync(join(dir, DRAFT_PATH))).toBe(true);
   });

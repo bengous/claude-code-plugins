@@ -150,7 +150,7 @@ describe("propose", () => {
   });
 
   test("a refusal reaches the model as the server said it, and nothing waits", async ($, on) => {
-    const held = "grill 1 is open: no step is proposed until the reviewer ends it";
+    const held = "grill 1 is open: no step is proposed until it ends";
     const step = stepRoutes({ propose: () => reply(409, { error: held }) });
     world(on, step);
     await $.skill.prompt(START_PROMPT);

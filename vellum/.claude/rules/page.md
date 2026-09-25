@@ -126,8 +126,10 @@ no build step, so what the page imports costs nothing at `cli start`.
   review only, Send stays live, since a hold refuses Claude's versions and never the reviewer's
   word, and every way to an approval goes through the warning popover, which frames the reason in its own sentence (`The
   review is held: <reason>.`), since a reason reads as a clause, then says the approval ends it. The
-  core draws no notice of it, `noticesOf` takes no hold: the extension that holds draws its own,
-  the grill's band. The bar prints the reason and never reads which extension gave it.
+  core draws no notice of the hold itself: the extension that holds draws its own, the grill's
+  band. Its one notice is of the reviewer's edit a Send left in the draft (`editKept`), in the
+  hold's words (`editWaits` of `noticesOf`), while the hold and the edit both last. The bar prints
+  the reason and never reads which extension gave it.
 - Settings are a `Dialog` the bar's gear opens, drawn while the bar has buttons: `settings/`
   holds it. `SETTINGS` of `settings/sections.ts` is the one list of sections, in the order drawn,
   each under a `group` heading or, with none, after every group; a new setting is an entry there

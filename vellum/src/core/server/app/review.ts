@@ -35,7 +35,7 @@ import {
 import { formatBatch } from "../domain/feedback.ts";
 import type { FinalDir, ParseResult, ProjectPath, Version, WipDir } from "../domain/paths.ts";
 import { parseVersion } from "../domain/paths.ts";
-import type { Decision, Draft, SendRequest } from "../domain/review.ts";
+import type { Decision, Draft, EditKept, SendRequest } from "../domain/review.ts";
 import {
   decideOn,
   draftIsEmpty,
@@ -74,9 +74,14 @@ export type DecisionResult =
   | { readonly ok: true; readonly workspace: PlanWorkspace }
   | { readonly ok: false; readonly workspace: PlanWorkspace };
 
-/** What a Send did: the batch written and its entry's number, or why nothing was written. */
+/** What a Send did: the batch written, its entry's number and the edit it left, or why nothing was written. */
 export type SendResult =
-  | { readonly ok: true; readonly file: ProjectPath; readonly seq: number }
+  | {
+      readonly ok: true;
+      readonly file: ProjectPath;
+      readonly seq: number;
+      readonly editKept: EditKept | null;
+    }
   | { readonly ok: false; readonly refusal: SendRefusal };
 
 /** What `submit` reads: the version the plan is, or why the browser has nothing to show. */
@@ -93,7 +98,7 @@ export type GateOptions = { readonly unchanged: "record" | "keep" };
 
 const RECORD_UNCHANGED: GateOptions = { unchanged: "record" };
 
-const HELD_GATE = "the plan is submitted once the reviewer ends it";
+const HELD_GATE = "plan.md is recorded as the next version once it ends, if it changed";
 
 /** How long `ServerContext.hold` holds a request: under the 30 s at which the engine cuts every `$.http.fetch` (`docs/plugin-testing/hook-runtime.md`). */
 const WAIT_HOLD_MS = 25_000;
@@ -418,7 +423,8 @@ export class Review {
   /**
    * One Send: the comments, the choices and the edit it names, as the reviewer saw them at the click, read from
    * the saved draft, and the extensions' parts. It changes no stage and is never held: the page
-   * takes comments after it.
+   * takes comments after it. Its edit is: while the review is held it stays in the draft, since
+   * a version would move what the hold is about, and the rest goes.
    */
   public send(request: SendRequest): Promise<SendResult> {
     return this.inOrder(() => this.sendInOrder(request));
@@ -443,7 +449,8 @@ export class Review {
     const latestText =
       workspace.kind === "drafting" ? null : await this.planText(workspace.version, workspace.dir);
 
-    const decided = sendOn(workspace, latestText, draft, request);
+    const held = request.edit === null ? null : await this.held();
+    const decided = sendOn(workspace, latestText, draft, request, held);
 
     if (decided.kind === "refused") return { ok: false, refusal: { reason: decided.reason } };
     const parts: { readonly id: string; readonly part: Extract<Part, { kind: "part" }> }[] = [];
@@ -458,10 +465,13 @@ export class Review {
 
     if (unanswered.length > 0)
       return { ok: false, refusal: { reason: "unanswered", ids: unanswered } };
-    const { annotations, choices, edit, version, editedFrom } = decided;
+    const { annotations, choices, edit, version, editedFrom, editKept } = decided;
 
     if (annotations.length === 0 && choices.length === 0 && edit === null && parts.length === 0) {
-      return { ok: false, refusal: { reason: "empty" } };
+      return {
+        ok: false,
+        refusal: editKept === null ? { reason: "empty" } : { reason: "held", held: editKept.held },
+      };
     }
 
     const { project, workdir } = this.options;
@@ -495,7 +505,7 @@ export class Review {
       await this.notify();
     });
 
-    return { ok: true, file, seq };
+    return { ok: true, file, seq, editKept };
   }
 
   /** The batch, then its entry: the Send's commit point. A batch whose entry failed is removed. */

@@ -146,6 +146,20 @@ function comment(id: string, doc = `${DIR}notes.md`): Annotation {
   return { id, doc: doc as never, anchor: GLOBAL, mark: NO };
 }
 
+/** A comment on lines 2 to 3 of `doc`, the plan's by default. */
+function onLines(id: string, doc = `${DIR}.review/v1.md`): Annotation {
+  const passage = {
+    kind: "prose",
+    quote: "Q",
+    prefix: "",
+    suffix: "",
+    lines: [2, 3],
+    removed: false,
+  };
+
+  return { ...comment(id, doc), anchor: { kind: "text", passages: [passage] } } as never;
+}
+
 /** A Send naming comments by id, the edit by its version, and choices by their option. */
 function naming(
   annotations: readonly string[],
@@ -179,6 +193,7 @@ describe("sendOn", () => {
       annotations: [comment("b")],
       choices: [],
       rest: draft([comment("a")]),
+      editKept: null,
     });
   });
 
@@ -243,6 +258,43 @@ describe("sendOn", () => {
     });
     expect(sendOn(inReview, PLAN, draft([comment("b")], Q_OF_V1), naming(["b"]))).toMatchObject({
       kind: "send",
+    });
+  });
+
+  test("while the review is held the edit named stays in the draft, with the comments on the plan's lines, and the rest goes", () => {
+    const onPlan = onLines("a");
+    const general = comment("g", `${DIR}.review/v1.md`);
+
+    const held = sendOn(
+      inReview,
+      PLAN,
+      draft([onPlan, general, comment("b")], Q_OF_V1),
+      naming(["a", "g", "b"], 1),
+      "grill 1 is open",
+    );
+
+    expect(held).toEqual({
+      kind: "send",
+      version: V1,
+      edit: null,
+      editedFrom: null,
+      annotations: [general, comment("b")],
+      choices: [],
+      rest: draft([onPlan], Q_OF_V1),
+      editKept: { held: "grill 1 is open", annotations: ["a"] },
+    });
+  });
+
+  test("a hold keeps no edit that writes no version, and refuses a stale one as stale", () => {
+    const same = draft([], { version: V1, text: PLAN });
+
+    expect(sendOn(inReview, PLAN, same, naming([], 1), "grill 1 is open")).toMatchObject({
+      rest: { edit: null },
+      editKept: null,
+    });
+    expect(sendOn(inReview, PLAN, draft([], Q_OF_V2), naming([], 2), "grill 1 is open")).toEqual({
+      kind: "refused",
+      reason: "stale",
     });
   });
 

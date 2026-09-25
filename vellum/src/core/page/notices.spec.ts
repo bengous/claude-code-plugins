@@ -31,6 +31,7 @@ const quiet = {
   downSince: null,
   editing: null,
   failures: [],
+  editWaits: null,
   undo: null,
   retry: noop,
 };

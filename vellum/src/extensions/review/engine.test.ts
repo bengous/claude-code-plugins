@@ -149,7 +149,7 @@ describe("the band above the prompt", () => {
     expect(await drawn.text()).toBe(
       "vellum │ plan v3 · in review │ review · running │ Review page ↗",
     );
-    review.state = { run: null, failed: null };
+    review.state = { ...review.state, run: null };
     seen.children[0]?.write(stage(inReview(3)));
     await seen.clock.settle();
 

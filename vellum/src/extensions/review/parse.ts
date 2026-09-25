@@ -1,4 +1,5 @@
 import type {
+  Closed,
   Failed,
   Finding,
   Outcome,
@@ -9,6 +10,7 @@ import type {
   ReviewStatus,
   Run,
   Size,
+  Stopping,
   Verdict,
 } from "./protocol.ts";
 
@@ -169,17 +171,43 @@ function parseFailed(value: unknown): Failed | null {
   return seq === null || version === null || why === null ? null : { seq, version, model, why };
 }
 
+function parseStopping(value: unknown): Stopping[] | null {
+  if (!Array.isArray(value)) return null;
+  const stopping: Stopping[] = [];
+
+  for (const item of value) {
+    const seq = isRecord(item) ? counted(item.seq) : null;
+    const agentId = isRecord(item) ? filled(item.agentId) : null;
+
+    if (seq === null || agentId === null) return null;
+    stopping.push({ seq, agentId });
+  }
+
+  return stopping;
+}
+
 /** `GET state`'s answer; `null` for one that is no state. */
 export function parseReviewState(value: unknown): ReviewState | null {
   if (!isRecord(value)) return null;
   const run = value.run === null ? null : parseRun(value.run);
   const failed = value.failed === null ? null : parseFailed(value.failed);
+  const stopping = parseStopping(value.stopping);
+  const { resubmit } = value;
 
   if ((value.run !== null && run === null) || (value.failed !== null && failed === null)) {
     return null;
   }
 
-  return { run, failed };
+  return stopping === null || typeof resubmit !== "boolean"
+    ? null
+    : { run, failed, stopping, resubmit };
+}
+
+/** `POST close`'s answer; `null` for one that is not it. */
+export function parseClosed(value: unknown): Closed | null {
+  const stopping = isRecord(value) ? parseStopping(value.stopping) : null;
+
+  return stopping === null ? null : { stopping };
 }
 
 /** `.review/reviews.json`: the state and the last number a run took. */
@@ -236,6 +264,8 @@ export const parsePosts: {
   },
   forget: seqOf,
   close: (value) => (isRecord(value) ? {} : null),
+  stopped: seqOf,
+  resubmitted: (value) => (isRecord(value) ? {} : null),
 };
 
 export function parseError(value: unknown): string | null {

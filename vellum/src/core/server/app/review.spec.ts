@@ -16,6 +16,7 @@ import { join } from "node:path";
 
 import { serverExtensions } from "../../../extensions/server.ts";
 import type { ServerExtension } from "../../extension.ts";
+import type { Passage } from "../domain/feedback.ts";
 import { parseWipDir } from "../domain/paths.ts";
 import type { Draft, SendRequest } from "../domain/review.ts";
 import { choicesIn, EMPTY_TYPED } from "../domain/review.ts";
@@ -157,6 +158,23 @@ const SAY_NO: Partial<Draft> = { annotations: [GENERAL_NO] };
 
 const ANOTHER = { ...GENERAL_NO, id: "b", mark: { kind: "comment", body: "Nor this." } } as const;
 
+const PASSAGE: Passage = {
+  kind: "prose",
+  quote: "Q",
+  prefix: "",
+  suffix: "",
+  lines: [2, 2],
+  removed: false,
+};
+
+/** A comment on a line of the plan: once an edit is done, the line is the edit's. */
+const ON_LINE = {
+  ...GENERAL_NO,
+  id: "l",
+  anchor: { kind: "text", passages: [PASSAGE] },
+  mark: { kind: "comment", body: "This line." },
+} as const;
+
 describe("Review", () => {
   test("gate without plan.md answers the error the model reads", async () => {
     const { review } = setup();
@@ -197,7 +215,12 @@ describe("Review", () => {
   test("a Send writes its batch and tells the channel, and the version stays under review", async () => {
     const s = await gated();
     const file = `${WIP}.review/v1.feedback-1.md`;
-    expect(await send(s, SAY_NO)).toEqual({ ok: true, file: file as never, seq: 1 });
+    expect(await send(s, SAY_NO)).toEqual({
+      ok: true,
+      file: file as never,
+      seq: 1,
+      editKept: null,
+    });
     expect(await s.review.workspace()).toMatchObject({ kind: "inReview", version: 1, batches: 1 });
     expect(await told(s.review)).toEqual([{ kind: "sent", file }]);
     expect(read(s.root, file)).toContain("No.");
@@ -688,7 +711,7 @@ describe("a review an extension holds", () => {
 
     expect(await review.gate()).toEqual({
       ok: false,
-      error: "grill 1 is open: the plan is submitted once the reviewer ends it",
+      error: "grill 1 is open: plan.md is recorded as the next version once it ends, if it changed",
     });
     expect(existsSync(join(root, WIP, ".review/v1.md"))).toBe(false);
   });
@@ -706,6 +729,49 @@ describe("a review an extension holds", () => {
 
     expect((await send(s, SAY_NO)).ok).toBe(true);
     expect(existsSync(join(s.root, WIP, ".review/v1.feedback-1.md"))).toBe(true);
+  });
+
+  test("a Send's edit stays in the draft, with the comments on the plan's lines; the rest goes and no version opens", async () => {
+    const hold = holding();
+    const s = setup([hold.extension]);
+    writeFileSync(join(s.root, WIP, "plan.md"), PLAN);
+    await s.review.gate();
+    hold.reason = "plan review 1 of v1 is running";
+    const other = { ...ANOTHER, doc: `${WIP}notes.md` as never };
+
+    expect(await send(s, { annotations: [ON_LINE, GENERAL_NO, other], edit: EDIT_OF_V1 })).toEqual({
+      ok: true,
+      file: `${WIP}.review/v1.feedback-1.md` as never,
+      seq: 1,
+      editKept: { held: "plan review 1 of v1 is running", annotations: ["l"] },
+    });
+    expect(existsSync(join(s.root, WIP, ".review/v2.md"))).toBe(false);
+    expect(read(s.root, `${WIP}plan.md`)).toBe(PLAN);
+    const batch = read(s.root, `${WIP}.review/v1.feedback-1.md`);
+    expect([
+      batch.includes("Nor this."),
+      batch.includes("No."),
+      batch.includes("This line."),
+    ]).toEqual([true, true, false]);
+    expect(JSON.parse(read(s.root, DRAFT))).toMatchObject({
+      annotations: [ON_LINE],
+      edit: EDIT_OF_V1,
+    });
+  });
+
+  test("a Send of an edit alone is refused with the hold, and writes nothing", async () => {
+    const hold = holding();
+    const s = setup([hold.extension]);
+    writeFileSync(join(s.root, WIP, "plan.md"), PLAN);
+    await s.review.gate();
+    hold.reason = "grill 1 is open";
+
+    expect(await send(s, { edit: EDIT_OF_V1 })).toEqual({
+      ok: false,
+      refusal: { reason: "held", held: "grill 1 is open" },
+    });
+    expect(await told(s.review)).toEqual([]);
+    expect(JSON.parse(read(s.root, DRAFT))).toMatchObject({ edit: EDIT_OF_V1 });
   });
 
   test("the view carries the reason, and `null` once nothing holds", async () => {

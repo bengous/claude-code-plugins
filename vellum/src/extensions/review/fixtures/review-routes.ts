@@ -53,7 +53,7 @@ export function reviewRoutes(
 
   const served: ReviewRoutes = {
     posted,
-    state: { run, failed: null },
+    state: { run, failed: null, stopping: [], resubmit: false },
     routes: {
       "/api/x/review/state": () => reply(200, served.state),
       ...Object.fromEntries(
