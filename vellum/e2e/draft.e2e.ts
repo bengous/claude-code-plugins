@@ -21,6 +21,14 @@ async function reload(page: Page): Promise<void> {
   await expect(page.locator(".plan h1")).toBeVisible();
 }
 
+/**
+ * Until the saved draft holds `text`. A typing is written once it pauses (`TYPED_WRITE_MS`), and
+ * under load it pauses mid-word: a draft saved is not yet the text typed.
+ */
+async function savedWith(vellum: Vellum, text: string): Promise<void> {
+  await expect.poll(async () => JSON.stringify((await vellum.api("draft")).json)).toContain(text);
+}
+
 async function openEditor(page: Page): Promise<void> {
   await page.locator(".tools").getByRole("button", { name: "Edit", exact: true }).click();
   await expect(page.locator(".editor textarea")).toBeFocused();
@@ -45,7 +53,7 @@ test.describe("what is typed comes back after a reload", () => {
   test("the general box", async ({ page, vellum }) => {
     await reviewV1(page, vellum);
     await page.locator("#global").fill("The slices lack an owner.");
-    await expect.poll(async () => (await vellum.api("draft")).status).toBe(200);
+    await savedWith(vellum, "The slices lack an owner.");
     await reload(page);
 
     await expect(page.locator("#global")).toHaveValue("The slices lack an owner.");
@@ -56,7 +64,7 @@ test.describe("what is typed comes back after a reload", () => {
     await commentOn(page);
     await dragText(page, page.locator("article.plan > p").first(), 4, 60);
     await page.keyboard.type("Which forms?");
-    await expect.poll(async () => (await vellum.api("draft")).status).toBe(200);
+    await savedWith(vellum, "Which forms?");
     await reload(page);
 
     await expect(page.locator(".popover")).toHaveCount(0);
@@ -69,7 +77,7 @@ test.describe("what is typed comes back after a reload", () => {
     await reviewV1(page, vellum);
     await openEditor(page);
     await page.keyboard.type("Reviewer: every slice needs an owner.\n");
-    await expect.poll(async () => (await vellum.api("draft")).status).toBe(200);
+    await savedWith(vellum, "Reviewer: every slice needs an owner.");
     await reload(page);
 
     await expect(page.locator(".editor textarea")).toHaveCount(0);
@@ -136,7 +144,7 @@ test.describe("the grill's answers", () => {
     await roundOne(page, vellum);
     await (await answerField(page, "Q1")).fill("IndexedDB.");
     await noteField(page).fill("Explain the issue first.");
-    await expect.poll(async () => (await vellum.api("draft")).status).toBe(200);
+    await savedWith(vellum, "Explain the issue first.");
     await page.reload();
     await page.locator(".bar .brand").waitFor();
 
