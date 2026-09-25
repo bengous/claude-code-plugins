@@ -181,10 +181,18 @@ no build step, so what the page imports costs nothing at `cli start`.
   each change of the comments, the edit or the choices is one write, sent in order; signals that change
   together change in one `batch`; a change of `typed` is written once the typing pauses
   (`TYPED_WRITE_MS`), and a write of the comments, the edit or the choices meanwhile carries it.
+  A typing still pausing when the page is hidden (`visibilitychange`) or closed (`pagehide`) is
+  written within the event, not after the writes before it, which the page may not outlive: the
+  first of the two takes it, the second finds nothing. It goes with `keepalive` up to
+  `KEEPALIVE_BYTES`, past which Chromium refuses the request, and without it beyond, so a bigger
+  draft is lost if the page closes; a failure there shows nothing, the page being gone, and a
+  write still in flight may land after it, an order the page does not hold.
   `state.spec.ts` holds this at the page's ports, a fake `fetch` and a fake `EventSource` that
-  log what reaches them: the restore before the first load, no write while that load is out, the
-  stream after it, one write for each `batch` a saving page runs, and one write for a continuous
-  typing. The saving effect against the stream is one synchronous step, which no port tells apart.
+  log what reaches them, and a fake `document` and `window` whose listeners the test calls: the
+  restore before the first load, no write while that load is out, the stream after it, one write
+  for each `batch` a saving page runs, one write for a continuous typing, and the typing pausing
+  written within either hiding event, once for both. The saving effect against the stream is one
+  synchronous step, which no port tells apart.
 - What is typed and not submitted is `typed` of `state.ts`, one `Typed` of the draft, and
   `setTyped` its one writer: the general box, the composer's text by document, a grill's answers
   and note by transcript, the editor's typing by version. No component keeps a text in a

@@ -686,9 +686,12 @@ export function select(path: ProjectPath): void {
 }
 
 /** Never rejects: the saves are chained, and one rejection would silence every save after it. `true` once kept. */
-async function saveDraft(draft: Draft): Promise<boolean> {
+async function saveDraft(
+  draft: Draft,
+  options?: { readonly keepalive?: boolean },
+): Promise<boolean> {
   try {
-    const status = await putDraft(draft);
+    const status = await putDraft(draft, options);
 
     if (status >= 300) {
       fail(
@@ -730,6 +733,13 @@ export function readWindow(): void {
 /** How long a typing pauses before the draft is written: a continuous typing is one write. */
 const TYPED_WRITE_MS = 300;
 
+/** The most a keepalive request carries: measured on Chromium 153, 65 536 bytes pass and 65 537 fail. */
+const KEEPALIVE_BYTES = 65_536;
+
+function fits(draft: Draft): boolean {
+  return new TextEncoder().encode(JSON.stringify(draft)).length <= KEEPALIVE_BYTES;
+}
+
 function draftShown(): Draft {
   return {
     annotations: annotations.peek(),
@@ -741,7 +751,8 @@ function draftShown(): Draft {
 
 /**
  * Saves the draft at every change of the comments, the edit or the choices, each change one
- * write, and once a typing pauses, in order; answers the flush a Send runs first.
+ * write, and once a typing pauses, in order; answers the flush a Send runs first. A typing still
+ * pausing when the page is hidden or closed is sent at once, with `keepalive` when it fits.
  */
 function startSaving(): () => Promise<boolean> {
   let saving = Promise.resolve(true);
@@ -781,6 +792,22 @@ function startSaving(): () => Promise<boolean> {
 
     pending = setTimeout(() => write(draftShown()), TYPED_WRITE_MS);
   });
+
+  // Sent within the event, not after the writes before it: past the handler the page may be gone.
+  const leave = (): void => {
+    if (pending === null) return;
+    clearTimeout(pending);
+    pending = null;
+    const unsent = draftShown();
+    written = unsent.typed;
+    const sent = saveDraft(unsent, { keepalive: fits(unsent) });
+    saving = saving.then(() => sent);
+  };
+
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "hidden") leave();
+  });
+  window.addEventListener("pagehide", leave);
 
   return flush;
 }

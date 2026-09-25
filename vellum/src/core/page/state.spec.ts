@@ -114,14 +114,18 @@ type MediaList = {
   ) => void;
 };
 
+type Listening = {
+  readonly addEventListener: (event: string, listener: () => void) => void;
+};
+
 /** What the page reads of a browser, each as small as the page's use of it. */
 type Ports = {
   readonly fetch: (url: string, init?: RequestInit) => Promise<Response>;
-  readonly EventSource: new (url: string) => {
-    addEventListener: (event: string, listener: () => void) => void;
-  };
+  readonly EventSource: new (url: string) => Listening;
   readonly location: { readonly pathname: string };
-  readonly window: { readonly matchMedia: (query: string) => MediaList };
+  /** The window as each of its two readers sees it: `readWindow` its media queries, `start` the page hiding. */
+  readonly window: { readonly matchMedia: (query: string) => MediaList } | Listening;
+  readonly document: Listening & { readonly visibilityState: DocumentVisibilityState };
 };
 
 /** A fake where the browser has a global, taken away after the test: Bun has none of `location`, `window`, `EventSource`. */
@@ -160,11 +164,18 @@ type Server = {
   /** Every request and every stream, in the order the page opened them. */
   readonly calls: string[];
   readonly puts: Draft[];
+  /** Whether each of `puts` asked for `keepalive`, in the same order. */
+  readonly keepalive: boolean[];
   readonly decisions: Decision[];
   readonly sends: SendRequest[];
   readonly tokens: Set<string | undefined>;
   /** What the server pushes on the event stream: `message`, or the stream's own `error` and `open`. */
   readonly push: (event: "message" | "error" | "open") => void;
+  /**
+   * The page hidden, the document's `visibilitychange` once it reads `hidden`, or the window's
+   * `pagehide`, the document still `visible` as at a reload: each calls the listeners left there.
+   */
+  readonly leave: (event: "visibilitychange" | "pagehide") => void;
   answer: Served;
 };
 
@@ -177,20 +188,37 @@ const BATCH = { file: `${WIP}.review/v1.feedback-1.md`, seq: 1 } as never;
 /** The server as the page's ports see it: `fetch`, `EventSource`, and the token in the page's URL. */
 function serve(answer: Served): Server {
   const listeners: { readonly event: string; readonly listener: () => void }[] = [];
+  const onDocument: { readonly event: string; readonly listener: () => void }[] = [];
+  const onWindow: { readonly event: string; readonly listener: () => void }[] = [];
+
+  const shown: { visibilityState: DocumentVisibilityState } & Listening = {
+    visibilityState: "visible",
+    addEventListener: (event, listener) => onDocument.push({ event, listener }),
+  };
 
   const server: Server = {
     calls: [],
     puts: [],
+    keepalive: [],
     decisions: [],
     sends: [],
     tokens: new Set(),
     push: (event) => {
       for (const entry of listeners) if (entry.event === event) entry.listener();
     },
+    leave: (event) => {
+      if (event === "visibilitychange") shown.visibilityState = "hidden";
+
+      for (const entry of event === "pagehide" ? onWindow : onDocument) {
+        if (entry.event === event) entry.listener();
+      }
+    },
     answer,
   };
 
   port("location", { pathname: "/t/tok/" });
+  port("document", shown);
+  port("window", { addEventListener: (event, listener) => onWindow.push({ event, listener }) });
 
   port("fetch", async (url: string, init: RequestInit = {}): Promise<Response> => {
     const method = init.method ?? "GET";
@@ -232,6 +260,7 @@ function serve(answer: Served): Server {
     }
 
     server.puts.push(JSON.parse(String(init.body)) as Draft);
+    server.keepalive.push(init.keepalive === true);
     await server.answer.put?.();
 
     return new Response(null, { status: server.answer.putStatus ?? 204 });
@@ -1169,6 +1198,65 @@ describe("start", () => {
       ],
       ["stale-editor", "v3 arrived while you were editing v1. Copy what you need, then Cancel."],
     ]);
+  });
+});
+
+describe("a page hidden or closed", () => {
+  test("sends the typing still pausing within the event, with keepalive", async () => {
+    const store = await freshStore();
+    const server = serve({ draft: null, review: versioned({ version: 1 }) });
+    await store.start();
+    store.setTyped({ general: "Which forms?" });
+    server.leave("visibilitychange");
+
+    expect(server.puts.map((put) => put.typed.general)).toEqual(["", "Which forms?"]);
+    expect(server.keepalive).toEqual([false, true]);
+  });
+
+  test("sends it at pagehide as well, the document still visible", async () => {
+    const store = await freshStore();
+    const server = serve({ draft: null, review: versioned({ version: 1 }) });
+    await store.start();
+    store.setTyped({ general: "Which forms?" });
+    server.leave("pagehide");
+
+    expect(server.puts.map((put) => put.typed.general)).toEqual(["", "Which forms?"]);
+  });
+
+  test("with no typing pausing, writes nothing", async () => {
+    const store = await freshStore();
+    const server = serve({ draft: null, review: versioned({ version: 1 }) });
+    await store.start();
+    store.addAnnotation(comment("", `${WIP}.review/v1.md`));
+    server.leave("visibilitychange");
+    server.leave("pagehide");
+    await settled();
+
+    expect(server.puts.map((put) => put.annotations.length)).toEqual([0, 1]);
+  });
+
+  test("hidden then pagehide is one write, and the pause writes nothing after it", async () => {
+    const store = await freshStore();
+    const server = serve({ draft: null, review: versioned({ version: 1 }) });
+    await store.start();
+    store.setTyped({ general: "Which forms?" });
+    server.leave("visibilitychange");
+    server.leave("pagehide");
+    const leaving = server.puts.length;
+    await Bun.sleep(400);
+
+    expect([leaving, server.puts.length]).toEqual([2, 2]);
+  });
+
+  test("a draft over 65 536 bytes goes without keepalive, though under 65 536 characters", async () => {
+    const store = await freshStore();
+    const server = serve({ draft: null, review: versioned({ version: 1 }) });
+    await store.start();
+    store.setTyped({ general: "é".repeat(33_000) });
+    server.leave("visibilitychange");
+
+    expect(server.puts.at(-1)?.typed.general).toHaveLength(33_000);
+    expect(server.keepalive).toEqual([false, false]);
   });
 });
 

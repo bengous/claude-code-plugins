@@ -90,8 +90,15 @@ export async function fetchDraft(): Promise<Fetched<Draft | null>> {
   return { ok: true, value: (await response.json()) as Draft };
 }
 
-export async function putDraft(draft: Draft): Promise<number> {
-  const response = await request("draft", { method: "PUT", body: JSON.stringify(draft) });
+export async function putDraft(
+  draft: Draft,
+  options?: { readonly keepalive?: boolean },
+): Promise<number> {
+  const response = await request("draft", {
+    method: "PUT",
+    body: JSON.stringify(draft),
+    ...options,
+  });
 
   return response.status;
 }
