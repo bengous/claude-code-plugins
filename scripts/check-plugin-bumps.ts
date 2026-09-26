@@ -62,7 +62,7 @@ interface ManifestFile {
   readonly version?: string;
 }
 
-interface CatalogEntry {
+export interface CatalogEntry {
   readonly name: MarketplaceName;
   readonly source: SourceDir;
 }
@@ -115,7 +115,7 @@ function marketplaceNameOf(text: string | undefined, where: string): Marketplace
   return text as MarketplaceName;
 }
 
-function sourceDirOf(text: string, where: string): SourceDir {
+export function sourceDirOf(text: string, where: string): SourceDir {
   const dir = text.startsWith("./") ? text.slice("./".length).replace(/\/$/u, "") : "";
 
   if (dir === "" || dir.split("/").some((part) => part === "" || part === "." || part === "..")) {
@@ -191,7 +191,7 @@ function jsonAt<Content>(repo: PluginDir, commit: CommitId, path: string): Conte
   }
 }
 
-function catalogAt(repo: PluginDir, commit: CommitId): readonly CatalogEntry[] {
+export function catalogAt(repo: PluginDir, commit: CommitId): readonly CatalogEntry[] {
   const where = `${CATALOG} at ${commit}`;
   const catalog = jsonAt<CatalogFile>(repo, commit, CATALOG);
 
@@ -206,7 +206,7 @@ function catalogAt(repo: PluginDir, commit: CommitId): readonly CatalogEntry[] {
   }));
 }
 
-function versionAt(repo: PluginDir, commit: CommitId, source: SourceDir): Version {
+export function versionAt(repo: PluginDir, commit: CommitId, source: SourceDir): Version {
   const path = `${source}/${MANIFEST}`;
 
   return versionOf(jsonAt<ManifestFile>(repo, commit, path).version, `${path} at ${commit}`);
