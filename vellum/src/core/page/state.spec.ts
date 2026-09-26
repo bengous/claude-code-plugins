@@ -9,12 +9,15 @@ import type {
   Draft,
   Edit,
   GroupedDoc,
+  RecordAnswer,
   ReviewView,
   WorkflowView,
   SendAnswer,
   SendRequest,
 } from "../protocol.ts";
 import { choicesIn, EMPTY_TYPED, lineDiff, refOf } from "../protocol.ts";
+import type { WorkflowStore } from "./workflow.ts";
+import { workflowOf } from "./workflow.ts";
 
 type Store = typeof import("./state.ts");
 
@@ -23,6 +26,13 @@ async function freshStore(): Promise<Store> {
   const specifier = `./state.ts?state.spec=${crypto.randomUUID()}`;
 
   return (await import(specifier)) as Store;
+}
+
+/** A store of its own and the workflow read over it, whose `send` is the bar's and `notices` the column. */
+async function freshFlow(): Promise<Store & WorkflowStore> {
+  const store = await freshStore();
+
+  return { ...store, ...workflowOf(store) };
 }
 
 const WIP = "plans/2026-09-15/wip-4c2a9d93/";
@@ -40,7 +50,7 @@ function doc(path: string, group: DocGroup): GroupedDoc {
 }
 
 /** The workflow as the server sends it, of which the page reads what holds the review. */
-function workflowOf(held: string | null): WorkflowView {
+function workflowView(held: string | null): WorkflowView {
   return {
     planText: "none",
     held,
@@ -55,7 +65,7 @@ function drafting(docs: readonly GroupedDoc[]): ReviewView {
     workspace: { kind: "drafting", dir: WIP, batches: 0 },
     plan: null,
     docs,
-    workflow: workflowOf(null),
+    workflow: workflowView(null),
   } as never;
 }
 
@@ -86,7 +96,7 @@ function versioned({
       previous: previous === undefined ? null : { version: version - 1, text: previous },
     },
     docs,
-    workflow: workflowOf(held),
+    workflow: workflowView(held),
   } as never;
 }
 
@@ -163,6 +173,8 @@ type Served = {
   readonly decision?: number;
   /** The row a 409 of `POST /api/decision` names, and its reason; none unless said. */
   readonly refusal?: { readonly rule: string; readonly reason: string };
+  /** What `POST /api/record` answers: its status and body, 200 and v2 unless said. */
+  readonly record?: { readonly status: number; readonly answer: RecordAnswer };
   /** What `POST /api/send` answers: its status and body, 200 and a batch unless said. */
   readonly send?: { readonly status: number; readonly answer: SendAnswer };
   /** What `POST /api/send` waits on before its answer. */
@@ -264,6 +276,12 @@ function serve(answer: Served): Server {
       return refusal === undefined
         ? new Response("", { status: server.answer.decision ?? 200 })
         : Response.json(refusal, { status: 409 });
+    }
+
+    if (url === "/api/record") {
+      const recorded = server.answer.record ?? { status: 200, answer: { version: 2 } as never };
+
+      return Response.json(recorded.answer, { status: recorded.status });
     }
 
     if (url === "/api/send") {
@@ -770,7 +788,7 @@ describe("the editor", () => {
   });
 
   test("Done once another version arrived keeps the editor open, and the notices say why", async () => {
-    const { edited, editing, finishEdit, notices, openEditor, review } = await freshStore();
+    const { edited, editing, finishEdit, notices, openEditor, review } = await freshFlow();
     review.value = versioned({ version: 1, text: "a\n" });
     openEditor(1);
     review.value = versioned({ version: 2, text: "b\n" });
@@ -784,7 +802,7 @@ describe("the editor", () => {
   });
 
   test("Done once the version was decided elsewhere keeps the editor open, and the notices say so", async () => {
-    const { editing, finishEdit, notices, openEditor, review } = await freshStore();
+    const { editing, finishEdit, notices, openEditor, review } = await freshFlow();
     review.value = versioned({ version: 1, text: "a\n" });
     openEditor(1);
     review.value = versioned({ version: 1, text: "a\n", kind: "approved" });
@@ -1205,7 +1223,7 @@ describe("start", () => {
   });
 
   test("a version that lands under an open editor says so, over the dropped edit's own banner", async () => {
-    const store = await freshStore();
+    const store = await freshFlow();
     const server = serve({ draft: null, review: versioned({ version: 1, text: "a\n" }) });
     await store.start();
     store.edited.value = edit(1, "mine\n");
@@ -1400,31 +1418,23 @@ describe("decide", () => {
     ]);
   });
 
-  test("a version already decided keeps the comments and says so", async () => {
+  test("a refusal keeps the comments and answers the row that refused it, for its caller to say", async () => {
     const store = await freshStore();
-    serve({ draft: null, review: versioned({ version: 1 }), decision: 409 });
-    store.annotations.value = unsent;
-    await store.decide({ kind: "approve", edit: null, notes: "" });
-
-    expect(store.annotations.value).toEqual(unsent);
-    expect(store.failures.value).toEqual([
-      { op: "decision", text: "This version was already decided." },
-    ]);
-  });
-
-  test("a refusal that names its row says its reason, and keeps the comments", async () => {
-    const store = await freshStore();
-    const reason = "plan.md changed since v1: record it before approving";
+    const reason = "v2 is under review, not v1";
     serve({
       draft: null,
-      review: versioned({ version: 1 }),
-      refusal: { rule: "approve-draft", reason },
+      review: versioned({ version: 2 }),
+      refusal: { rule: "approve-stale", reason },
     });
     store.annotations.value = unsent;
-    await store.decide({ kind: "approve", edit: null, notes: "" });
 
+    expect(await store.decide({ kind: "approve", edit: edit(1, "mine\n"), notes: "" })).toEqual({
+      kind: "refused",
+      rule: "approve-stale",
+      reason,
+    });
     expect(store.annotations.value).toEqual(unsent);
-    expect(store.failures.value).toEqual([{ op: "decision", text: reason }]);
+    expect(store.failures.value).toEqual([]);
   });
 
   test("any other refusal keeps the comments and names the status", async () => {
@@ -1439,27 +1449,150 @@ describe("decide", () => {
     ]);
   });
 
-  test("a server that does not answer is a failure too, the comments kept, and the decision answers false", async () => {
+  test("a server that does not answer is a failure too, the comments kept, and the decision answers so", async () => {
     const store = await freshStore();
     serve({ draft: null, review: versioned({ version: 1 }) });
     store.annotations.value = unsent;
     port("fetch", () => Promise.reject(new Error("offline")));
-    const taken = await store.decide({ kind: "approve", edit: null, notes: "" });
+    const decided = await store.decide({ kind: "approve", edit: null, notes: "" });
 
-    expect(taken).toBe(false);
+    expect(decided).toEqual({ kind: "failed" });
     expect(store.annotations.value).toEqual(unsent);
     expect(store.failures.value.map((failure) => failure.op)).toEqual(["decision"]);
   });
 
-  test("a decision the server took answers true, and clears the failure of the one before", async () => {
+  test("a decision the server took answers taken, and clears the failure of the one before", async () => {
     const store = await freshStore();
     const server = serve({ draft: null, review: versioned({ version: 1 }), decision: 500 });
     await store.decide({ kind: "approve", edit: null, notes: "" });
     server.answer = { ...server.answer, decision: 200 };
-    const taken = await store.decide({ kind: "approve", edit: null, notes: "" });
+    const decided = await store.decide({ kind: "approve", edit: null, notes: "" });
 
-    expect(taken).toBe(true);
+    expect(decided).toEqual({ kind: "taken" });
     expect(store.failures.value).toEqual([]);
+  });
+});
+
+function texts(flow: WorkflowStore): readonly string[] {
+  return flow.notices.value.map((notice) => notice.text.join(""));
+}
+
+describe("the approval", () => {
+  const unsent = [comment("c1", `${WIP}.review/v1.md`)];
+  const approval: Decision = { kind: "approve", edit: null, notes: "Ship it." };
+  const DRAFT = "plan.md changed since v1: record it before approving";
+
+  test("a version already decided keeps the comments and says so", async () => {
+    const flow = await freshFlow();
+    serve({ draft: null, review: versioned({ version: 1 }), decision: 409 });
+    flow.annotations.value = unsent;
+
+    expect(await flow.approve(approval)).toEqual({ kind: "refused" });
+    expect(flow.annotations.value).toEqual(unsent);
+    expect(texts(flow)).toEqual(["This version was already decided."]);
+  });
+
+  test("a refusal that names its row says its reason, and keeps the comments", async () => {
+    const flow = await freshFlow();
+    const reason = "v2 is under review, not v1";
+    serve({
+      draft: null,
+      review: versioned({ version: 2 }),
+      refusal: { rule: "approve-stale", reason },
+    });
+    flow.annotations.value = unsent;
+    await flow.approve({ ...approval, edit: edit(1, "mine\n") });
+
+    expect(flow.annotations.value).toEqual(unsent);
+    expect(flow.failures.value).toEqual([{ op: "decision", text: reason }]);
+  });
+
+  test("plan.md changed since the version offers Record, then approve, which records it, then approves as decided", async () => {
+    const flow = await freshFlow();
+
+    const server = serve({
+      draft: null,
+      review: versioned({ version: 1 }),
+      refusal: { rule: "approve-draft", reason: DRAFT },
+    });
+
+    await flow.approve(approval);
+    const [notice] = flow.notices.value;
+
+    expect([notice?.text, notice?.action?.label]).toEqual([[DRAFT], "Record, then approve"]);
+    server.answer = { draft: null, review: versioned({ version: 2 }), decision: 200 };
+    server.calls.length = 0;
+    notice?.action?.run();
+    await settled();
+    await settled();
+
+    expect(server.calls).toEqual(["POST /api/record", "POST /api/decision", "GET /api/review"]);
+    expect(server.decisions).toEqual([approval, approval]);
+    expect(texts(flow)).toEqual([]);
+  });
+
+  test("under a hold plan.md changed offers no Record: its row says to end the hold first", async () => {
+    const flow = await freshFlow();
+
+    const reason =
+      "plan.md changed since v1 while grill 1 is open: end it, then record plan.md before approving";
+
+    const held = "grill 1 is open";
+    serve({
+      draft: null,
+      review: versioned({ version: 1, held }),
+      refusal: { rule: "approve-draft", reason },
+    });
+    await flow.approve({ ...approval, confirmed: held });
+
+    expect(flow.notices.value).toEqual([{ key: "failure:decision", kind: "err", text: [reason] }]);
+  });
+
+  test("with an edit plan.md changed offers no Record: the version recorded would leave the edit stale", async () => {
+    const flow = await freshFlow();
+    serve({
+      draft: null,
+      review: versioned({ version: 1 }),
+      refusal: { rule: "approve-draft", reason: DRAFT },
+    });
+    await flow.approve({ ...approval, edit: edit(1, "mine\n") });
+
+    expect(flow.notices.value).toEqual([{ key: "failure:decision", kind: "err", text: [DRAFT] }]);
+  });
+
+  test("a Record refused says its row, and approves nothing", async () => {
+    const flow = await freshFlow();
+    const reason = "grill 1 is open: plan.md waits; you are told when it ends";
+
+    const server = serve({
+      draft: null,
+      review: versioned({ version: 1 }),
+      refusal: { rule: "approve-draft", reason: DRAFT },
+      record: { status: 409, answer: { rule: "held", reason } },
+    });
+
+    await flow.approve(approval);
+    flow.notices.value[0]?.action?.run();
+    await settled();
+
+    expect(server.decisions).toEqual([approval]);
+    expect(texts(flow)).toEqual([`Not recorded: ${reason}.`]);
+  });
+
+  test("a hold other than the one confirmed answers held, and writes no failure: the bar asks again", async () => {
+    const flow = await freshFlow();
+    const reason = "The review is held: grill 2 is open.";
+    serve({
+      draft: null,
+      review: versioned({ version: 1, held: "grill 2 is open" }),
+      refusal: { rule: "held", reason },
+    });
+
+    expect(await flow.approve({ ...approval, confirmed: "grill 1 is open" })).toEqual({
+      kind: "held",
+      reason,
+    });
+    expect(flow.failures.value).toEqual([]);
   });
 });
 
@@ -1561,7 +1694,7 @@ describe("send", () => {
     serve({ draft, review: versioned({ version: 1 }) });
     await store.start();
 
-    expect(await all(store)).toEqual({ kind: "sent" });
+    expect(await all(store)).toEqual({ kind: "sent", editKept: null });
     expect([store.annotations.value, store.edited.value, store.typed.value]).toEqual([
       [],
       null,
@@ -1570,7 +1703,7 @@ describe("send", () => {
   });
 
   test("an edit the held review left in the draft stays on the page, with the plan's comment, under a notice", async () => {
-    const store = await freshStore();
+    const store = await freshFlow();
     const held = "plan review 1 of v1 is running";
     const other = comment("b", `${WIP}notes.md`);
 
@@ -1586,7 +1719,7 @@ describe("send", () => {
     serve({ draft, review: versioned({ version: 1, held }), send: { status: 200, answer } });
     await store.start();
 
-    expect(await all(store)).toEqual({ kind: "sent" });
+    expect(await all(store)).toEqual({ kind: "sent", editKept: held });
     expect([store.annotations.value, store.edited.value]).toEqual([
       [comment("a", plan)],
       edit(1, "mine\n"),
@@ -1597,7 +1730,7 @@ describe("send", () => {
   });
 
   test("an edit alone the held review refused stays on the page, under the same notice", async () => {
-    const store = await freshStore();
+    const store = await freshFlow();
     const held = "grill 1 is open";
     const draft = { annotations: [], edit: edit(1, "mine\n"), choices: {}, typed };
     const refusal = { status: 409, answer: { reason: "refused", rule: "held", text: held } };
@@ -1612,7 +1745,7 @@ describe("send", () => {
   });
 
   test("a held refusal the page has not heard of yet says the edit waits, in the server's words", async () => {
-    const store = await freshStore();
+    const store = await freshFlow();
     const held = "plan review 1 of v1 is running";
     const draft = { annotations: [], edit: edit(1, "mine\n"), choices: {}, typed };
     const refusal = { status: 409, answer: { reason: "refused", rule: "held", text: held } };
@@ -1626,7 +1759,7 @@ describe("send", () => {
   });
 
   test("the edit's notice stays through a Send that carries no edit, and leaves with the edit", async () => {
-    const store = await freshStore();
+    const store = await freshFlow();
     const held = "plan review 1 of v1 is running";
 
     const draft = {
@@ -1668,13 +1801,41 @@ describe("send", () => {
       takeDefaults: [],
     });
     const waits = `Your edit waits: ${held}. Send it again once that ends.`;
-    const texts = (): string[] => store.notices.value.map((notice) => notice.text.join(""));
 
-    expect(texts()).toContain(waits);
+    expect(texts(store)).toContain(waits);
     store.discardEdit();
     store.finishEdit({ version: 1 as never, base: "", line: 1 }, "another\n");
 
-    expect(texts()).not.toContain(waits);
+    expect(texts(store)).not.toContain(waits);
+  });
+
+  test("the edit's notice leaves once a load reads that nothing holds the review, and a hold after it brings none back", async () => {
+    const store = await freshFlow();
+    const held = "grill 1 is open";
+    const draft = { annotations: [], edit: edit(1, "mine\n"), choices: {}, typed };
+    const refusal = { status: 409, answer: { reason: "refused", rule: "held", text: held } };
+
+    const server = serve({
+      draft,
+      review: versioned({ version: 1, held }),
+      send: refusal as never,
+    });
+
+    await store.start();
+    await all(store);
+
+    const reads = async (view: ReviewView): Promise<void> => {
+      server.answer = { ...server.answer, review: view };
+      server.push("message");
+      await settled();
+    };
+
+    await reads(versioned({ version: 1, held }));
+    expect(texts(store)).toEqual([`Your edit waits: ${held}. Send it again once that ends.`]);
+    await reads(versioned({ version: 1 }));
+    await reads(versioned({ version: 1, held: "grill 2 is open" }));
+
+    expect(texts(store)).toEqual([]);
   });
 
   test("names the choices by their option, and takes out those sent: another option chosen meanwhile stays", async () => {
@@ -1900,7 +2061,7 @@ describe("the failures", () => {
 
 describe("a deleted card", () => {
   test("can be undone from the notice, back at its place, and the notice goes", async () => {
-    const { annotations, notices, removeAnnotation, review, undo } = await freshStore();
+    const { annotations, notices, removeAnnotation, review, undo } = await freshFlow();
     const [a, b, c] = ["a", "b", "c"].map((id) => comment(id, `${WIP}plan.md`));
     review.value = drafting([doc(`${WIP}plan.md`, "plan")]);
     annotations.value = [a, b, c] as never;

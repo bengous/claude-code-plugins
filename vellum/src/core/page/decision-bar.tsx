@@ -1,11 +1,11 @@
 import type { ComponentType } from "preact";
-import { useEffect, useState } from "preact/hooks";
+import { useEffect, useRef, useState } from "preact/hooks";
 
 import type { SendShare } from "../extension.ts";
 import type { Annotation, Choices, Decision } from "../protocol.ts";
 import { choicesIn, countChanges, refOf } from "../protocol.ts";
-import { Badge, Banner, Button, Gear, Popover } from "./kit.tsx";
-import type { Notice } from "./notices.ts";
+import { Badge, Banner, Button, Chip, Gear, Popover, Tag } from "./kit.tsx";
+import type { Notice, RefusedLine } from "./notices.ts";
 import { decisionsOf, statusOf } from "./notices.ts";
 import { Settings } from "./settings/settings.tsx";
 import type { Unsent } from "./state.ts";
@@ -13,19 +13,17 @@ import {
   annotations,
   choices,
   connection,
-  decide,
   edited,
   editing,
-  notices,
   planChanges,
   planText,
   review,
-  send,
   sendableChoices,
   sending,
   strayTyped,
   unsentTyped,
 } from "./state.ts";
+import { approve, held, notices, send, workflow } from "./workflow.ts";
 
 function titleOf(plan: string | null): string {
   return /^#\s+(.+?)\s*$/mu.exec(plan ?? "")?.[1] ?? "Plan";
@@ -56,6 +54,9 @@ type Next =
   | { readonly kind: "notes" }
   | { readonly kind: "noted"; readonly notes: Notes }
   | { readonly kind: "send"; readonly unanswered: readonly string[] };
+
+/** The two ways to an approval: at once, or from the notes popover. */
+type Approving = Extract<Next, { readonly kind: "approve" | "noted" }>;
 
 /** The one popover under the bar: the notes, or the warning that stands before `next`. */
 type BarPopover =
@@ -184,6 +185,24 @@ function Warning(props: WarningProps): preact.JSX.Element {
   );
 }
 
+/** What is refused now, opened from the pill under its chip, `left` from the bar's edge: each event, whether it is refused or asks first, and why. */
+function RefusedNow(props: {
+  readonly lines: readonly RefusedLine[];
+  readonly left: number;
+  readonly onClose: () => void;
+}): preact.JSX.Element {
+  return (
+    <Popover label="Refused now" class="pop-bar" left={props.left} onClose={props.onClose}>
+      {props.lines.map((line) => (
+        <div key={line.what}>
+          {line.what} <Tag>{line.effect}</Tag>
+          <div class="quote">{line.reason}</div>
+        </div>
+      ))}
+    </Popover>
+  );
+}
+
 type BarProps = {
   /** The extensions' actions, handed down by `app.tsx`: the one file that reads the registry. */
   readonly actions: readonly ComponentType[];
@@ -194,8 +213,14 @@ type BarProps = {
 export function DecisionBar(props: BarProps): preact.JSX.Element {
   const view = review.value;
   const workspace = view?.workspace;
-  const hold = view?.workflow.held ?? null;
-  const status = workspace === undefined ? null : statusOf(workspace, hold);
+  const hold = held.value;
+  const read = workflow.value;
+  const status = workspace === undefined || read === null ? null : statusOf(workspace, read);
+  const refused = status?.refused ?? [];
+  /** The refused list open, at its chip's offset in the bar; `null` while shut. */
+  const [refusedAt, setRefusedAt] = useState<number | null>(null);
+  /** A press on the chip while the list is open: the list's own outside press has shut it, and the click must not open it again. */
+  const shutting = useRef(false);
   const count = annotations.value.length;
   const chosen = choicesIn(choices.value);
   const since = view?.plan?.previous?.version;
@@ -216,6 +241,11 @@ export function DecisionBar(props: BarProps): preact.JSX.Element {
     document.title = `${title} · Vellum`;
   }, [title]);
 
+  // A list emptied shuts, so it never opens again by itself when something is refused anew.
+  useEffect(() => {
+    if (refused.length === 0) setRefusedAt(null);
+  }, [refused.length === 0]);
+
   const live = decisionsOf({
     workspace: workspace ?? null,
     connection: connection.value,
@@ -229,10 +259,14 @@ export function DecisionBar(props: BarProps): preact.JSX.Element {
 
   const drawn = workspace !== undefined && workspace.kind !== "approved";
 
-  /** The notes popover closes on success alone: a failure leaves the note where it was typed. */
-  const approve = (notes: string): void => {
+  /**
+   * The notes popover closes on success alone: a failure leaves the note where it was typed. A
+   * hold other than the one confirmed puts the warning up again, on the hold that holds now.
+   */
+  const approveNow = (next: Approving): void => {
     if (approving) return;
     setApproving(true);
+    const notes = next.kind === "noted" ? next.notes.text : "";
 
     // The reviewer was warned of the hold on the way here: the approval confirms that one (P4).
     const decision: Decision =
@@ -240,10 +274,11 @@ export function DecisionBar(props: BarProps): preact.JSX.Element {
         ? { kind: "approve", edit: edited.value, notes }
         : { kind: "approve", edit: edited.value, notes, confirmed: hold };
 
-    void decide(decision).then((taken) => {
+    void approve(decision).then((approval) => {
       setApproving(false);
 
-      if (taken) close();
+      if (approval.kind === "taken") close();
+      else if (approval.kind === "held") setPopover({ kind: "warn", next });
     });
   };
 
@@ -277,10 +312,10 @@ export function DecisionBar(props: BarProps): preact.JSX.Element {
       });
     } else if (next.kind === "noted") {
       setPopover(next.notes);
-      approve(next.notes.text);
+      approveNow(next);
     } else {
       close();
-      approve("");
+      approveNow(next);
     }
   };
 
@@ -322,6 +357,25 @@ export function DecisionBar(props: BarProps): preact.JSX.Element {
         <span class={status.tone === "neutral" ? "status" : `status ${status.tone}`}>
           {status.text}
         </span>
+      )}
+      {refused.length > 0 && (
+        <Chip
+          aria-haspopup="dialog"
+          aria-expanded={refusedAt !== null}
+          onPointerDown={() => {
+            shutting.current = refusedAt !== null;
+          }}
+          onClick={(event) => {
+            const shut = shutting.current || refusedAt !== null;
+            shutting.current = false;
+            setRefusedAt(shut ? null : event.currentTarget.offsetLeft);
+          }}
+        >
+          Refused now
+        </Chip>
+      )}
+      {refusedAt !== null && refused.length > 0 && (
+        <RefusedNow lines={refused} left={refusedAt} onClose={() => setRefusedAt(null)} />
       )}
       <span class="spacer" />
       {props.actions.map((Action, index) => (

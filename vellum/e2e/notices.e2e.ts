@@ -1,3 +1,6 @@
+import { rmSync } from "node:fs";
+import { join } from "node:path";
+
 import type { Page } from "@playwright/test";
 
 import {
@@ -246,6 +249,48 @@ test.describe("the pill", () => {
 
     await expect(page.locator(".banner.sent")).toContainText("Sent to Claude");
     await expect(page.locator(".bar .status")).toHaveText("Drafting · 1 sent");
+  });
+
+  test("in drafting a grill holds the review too, and plan.md Claude writes under it waits (A1)", async ({
+    page,
+    vellum,
+  }) => {
+    rmSync(join(vellum.workdir, "plan.md"));
+    await openVellum(page, vellum);
+    await vellum.grill.open("Where do drafts live?");
+    await expect(page.locator(".bar .status")).toHaveText("Held · grill 1 is open");
+    vellum.writePlan("# Offline sync\n\nWritten while the grill is open.\n");
+
+    await expect(page.locator(".bar .status")).toHaveText("Held · grill 1 is open · plan.md waits");
+  });
+
+  test("in review plan.md Claude writes under a grill waits, and its turn's end records no version (A1)", async ({
+    page,
+    vellum,
+  }) => {
+    await reviewV1(page, vellum);
+    await vellum.grill.open("Where do drafts live?");
+    vellum.writePlan("# Offline sync\n\nRevised while the grill is open.\n");
+    await expect(page.locator(".bar .status")).toHaveText("Held · grill 1 is open · plan.md waits");
+
+    expect((await vellum.gate()).status).toBe(409);
+    await expect(page.locator(".bar .version")).toHaveText("v1");
+  });
+
+  test("the pill opens on what is refused now, each with its effect and why", async ({
+    page,
+    vellum,
+  }) => {
+    await reviewV1(page, vellum);
+    await vellum.grill.open("Where do drafts live?");
+    await page.locator(".bar").getByRole("button", { name: "Refused now" }).click();
+    const list = page.getByRole("dialog", { name: "Refused now" });
+
+    await expect(list).toContainText("Propose Refused");
+    await expect(list).toContainText("grill 1 is open: no step is proposed until it ends");
+    await expect(list).toContainText("Approve Asks to confirm");
+    await page.keyboard.press("Escape");
+    await expect(list).toHaveCount(0);
   });
 });
 

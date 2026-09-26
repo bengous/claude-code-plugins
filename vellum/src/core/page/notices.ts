@@ -1,4 +1,4 @@
-import type { PlanWorkspace } from "../protocol.ts";
+import type { PlanWorkspace, Refused, WorkflowView } from "../protocol.ts";
 import type { Version } from "../server/domain/paths.ts";
 import type { BannerKind } from "./kit.tsx";
 
@@ -26,6 +26,8 @@ export type Notice = {
 export type Failure = {
   readonly op: "review" | "draft" | "decision" | "load" | "extension" | "send" | "edit";
   readonly text: string;
+  /** The way on the refusal offers, as an approval refused while `plan.md` waits offers Record, then approve. */
+  readonly action?: { readonly label: string; readonly run: () => void };
 };
 
 /** A server revived on another port never answers this tab again: past this, only a new link does. */
@@ -119,7 +121,8 @@ export function noticesOf(input: {
 
   for (const failure of input.failures) {
     if (down && failure.op === "draft") continue;
-    notices.push({ key: `failure:${failure.op}`, kind: "err", text: [failure.text] });
+    const notice: Notice = { key: `failure:${failure.op}`, kind: "err", text: [failure.text] };
+    notices.push(failure.action === undefined ? notice : { ...notice, action: failure.action });
   }
 
   if (input.editWaits !== null) {
@@ -148,28 +151,43 @@ export function noticesOf(input: {
   return notices;
 }
 
-export type Status = { readonly text: string; readonly tone: "ok" | "err" | "neutral" };
+/** One event refused now, in the page's words: what it is, whether it is refused or asks first, and the row's reason. */
+export type RefusedLine = {
+  readonly what: string;
+  readonly effect: string;
+  readonly reason: string;
+};
 
-/** The pill: what state the review is in, `Held · <reason>` when something holds it. */
-export function statusOf(workspace: PlanWorkspace, held: string | null): Status {
-  switch (workspace.kind) {
-    case "drafting":
-      return {
-        text: workspace.batches === 0 ? "Drafting" : `Drafting · ${workspace.batches} sent`,
-        tone: "neutral",
-      };
-    case "inReview":
-      if (workspace.finalizeError !== null) return { text: "Approval failed", tone: "err" };
+export type Status = {
+  readonly text: string;
+  readonly tone: "ok" | "err" | "neutral";
+  /** What the pill opens on: what is refused now, in the server's order. */
+  readonly refused: readonly RefusedLine[];
+};
 
-      if (held !== null) return { text: `Held · ${held}`, tone: "neutral" };
+/** An event's id as words, `answerProposal` as `Answer proposal`: the core names no extension's event. */
+function eventWords(event: string): string {
+  const words = event.replaceAll(/[A-Z]/gu, (capital) => ` ${capital.toLowerCase()}`);
 
-      return {
-        text: workspace.batches === 0 ? "In review" : `In review · ${workspace.batches} sent`,
-        tone: "neutral",
-      };
-    case "approved":
-      return { text: "Approved", tone: "ok" };
-  }
+  return `${words.charAt(0).toUpperCase()}${words.slice(1)}`;
+}
+
+function refusedLine(refused: Refused): RefusedLine {
+  return {
+    what: eventWords(refused.event),
+    effect: refused.effect === "refuse" ? "Refused" : "Asks to confirm",
+    reason: refused.reason,
+  };
+}
+
+/**
+ * The pill: the server's, `Held · <reason>` in drafting as in review, and what is refused now,
+ * which opens from it; none on an approved page, where the bar draws no button.
+ */
+export function statusOf(workspace: PlanWorkspace, workflow: WorkflowView): Status {
+  const refused = workspace.kind === "approved" ? [] : workflow.refused.map(refusedLine);
+
+  return { ...workflow.pill, refused };
 }
 
 export type Live = { readonly disabled: boolean; readonly title: string | null };

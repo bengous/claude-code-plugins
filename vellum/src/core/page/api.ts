@@ -3,6 +3,7 @@ import type {
   DecisionAnswer,
   DocRef,
   Draft,
+  RecordAnswer,
   ReviewView,
   SendAnswer,
   SendRequest,
@@ -130,6 +131,19 @@ export async function postDecision(
 
   // SAFETY: the server's own `DecisionAnswer`, serialized by `Response.json` in routes.ts; a 400 is text.
   const answer = (await response.json().catch(() => null)) as DecisionAnswer | null;
+
+  return { status: response.status, answer };
+}
+
+/** The reviewer's Record: the version `plan.md` became, or the row that refused it. */
+export async function postRecord(): Promise<{
+  readonly status: number;
+  readonly answer: RecordAnswer | null;
+}> {
+  const response = await request("record", { method: "POST" });
+
+  // SAFETY: the server's own `RecordAnswer`, serialized by `Response.json` in routes.ts.
+  const answer = (await response.json().catch(() => null)) as RecordAnswer | null;
 
   return { status: response.status, answer };
 }
