@@ -217,10 +217,13 @@ function planDone(w: Workflow): Outcome {
   return { workflow: placed(w, next, wait), effects: [written(next)] };
 }
 
+/** `plan.md` is written by Claude, which the watcher reads, or by the reviewer's edit. */
+const WRITES_PLAN = new Set(["planWritten", "sendEdit"]);
+
 export const REACTION: Transition = (w, event) => {
   if (event === "approve") return drop(w, "approved");
 
-  return event === "planWritten" && planExists(w) ? planDone(w) : unchanged(w);
+  return WRITES_PLAN.has(event) && planExists(w) ? planDone(w) : unchanged(w);
 };
 
 export const TRANSITIONS = {

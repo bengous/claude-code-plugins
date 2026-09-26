@@ -13,8 +13,8 @@ import { batchFile, notesFile, PLAN_FILE, projectPath, versionFile } from "./wor
  * rules, transitions and reaction, and the table is assembled from outside.
  */
 
-/** `plan.md` against the last version: nothing a version lacks (`none`: the same text, or no `plan.md` while drafting), or a text none holds yet (`pending`). */
-export type PlanText = "none" | "pending";
+/** `plan.md` against the last version: its text (`none`), a text no version holds yet (`pending`, any `plan.md` while drafting), or no `plan.md` (`absent`). */
+export type PlanText = "none" | "pending" | "absent";
 
 /** A call of Claude's waits on the region (`open`), or none does and an answer reaches Claude as a prompt (`paused`). */
 export type Wait = "open" | "paused";
@@ -177,9 +177,9 @@ export function held(w: Workflow): string | null {
   return null;
 }
 
-/** Whether `plan.md` is there: a version was recorded from it, or it holds a text while drafting. */
+/** Whether `plan.md` is there, in drafting as in review. */
 export function planExists(w: Workflow): boolean {
-  return w.workspace.kind !== "drafting" || w.planText === "pending";
+  return w.planText !== "absent";
 }
 
 /** The pill: a hold first, in drafting as in review, with `plan.md` waiting under it; else today's words. */
@@ -482,7 +482,7 @@ export const CORE_EVENTS: readonly EventDecl[] = [
     id: "planWritten",
     owner: CORE,
     whileHeld: { effect: "allow" },
-    samples: [{ plan: "pending" }, { plan: "none" }],
+    samples: [{ plan: "pending" }, { plan: "none" }, { plan: "absent" }],
   },
 ];
 
@@ -654,12 +654,17 @@ function approve(w: Workflow, _event: string, input: EventInput): Outcome {
   };
 }
 
+function planTextIn(input: EventInput): PlanText {
+  const { plan } = input;
+
+  if (plan === "none" || plan === "pending" || plan === "absent") return plan;
+
+  throw new Error(`planWritten carries none, pending or absent, not ${plan ?? "nothing"}`);
+}
+
 /** What the watcher read of `plan.md` against the last version. */
 function planWritten(w: Workflow, _event: string, input: EventInput): Outcome {
-  return {
-    workflow: { ...w, planText: input.plan === "pending" ? "pending" : "none" },
-    effects: [],
-  };
+  return { workflow: { ...w, planText: planTextIn(input) }, effects: [] };
 }
 
 export const CORE_TRANSITIONS = {

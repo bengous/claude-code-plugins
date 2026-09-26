@@ -5,6 +5,7 @@ import type {
   Effect,
   EventInput,
   Region,
+  RuleVerdict,
   Step,
   Table,
   Workflow,
@@ -66,7 +67,7 @@ if (!DIR.ok) throw new Error(DIR.error);
 
 const EMPTY: Workflow = {
   workspace: { kind: "drafting", dir: DIR.value, batches: 0 },
-  planText: "none",
+  planText: "absent",
   regions: [grillRegion(null), stepRegion(null), reviewRegion(null)],
 };
 
@@ -101,7 +102,19 @@ function returned(step: Step): Extract<Effect, { kind: "returnToCall" }>[] {
 
 const KEEP = { unchanged: "keep" };
 
+const RECORD = { unchanged: "record" };
+
 const PENDING = { plan: "pending" };
+
+const ABSENT = { plan: "absent" };
+
+const COMMENTS = {
+  parts: "false",
+  edit: "",
+  names: "held",
+  comments: "true",
+  text: "## Comments\n",
+};
 
 const OWN_GRILL = {
   id: "",
@@ -180,6 +193,32 @@ describe("a grill holds the review (#235)", () => {
       ]),
     );
     expect(refusedNow(GRILLING, TABLE).some(({ event }) => event === "send")).toBe(false);
+  });
+});
+
+describe("no plan.md refuses the version, in drafting as in review (F-A1)", () => {
+  const WRITE_FIRST = {
+    kind: "refuse",
+    rule: "no-plan",
+    reason: "write plan.md in plans/2026-09-26/wip-4c2a9d93/ first",
+  } satisfies RuleVerdict;
+
+  test("while drafting, at the turn's end as through submit", () => {
+    expect(tried(EMPTY, "record", KEEP).verdict).toEqual(WRITE_FIRST);
+    expect(tried(EMPTY, "record", RECORD).verdict).toEqual(WRITE_FIRST);
+  });
+
+  test("once deleted after a version, at the turn's end as through submit", () => {
+    const gone = play(V1, ["planWritten", ABSENT]);
+
+    expect(tried(gone, "record", KEEP).verdict).toEqual(WRITE_FIRST);
+    expect(tried(gone, "record", RECORD).verdict).toEqual(WRITE_FIRST);
+  });
+
+  test("once deleted after a Send, where a version would be recorded", () => {
+    const sent = play(V1, ["planWritten", ABSENT], ["send", COMMENTS]);
+
+    expect(tried(sent, "record", RECORD).verdict).toEqual(WRITE_FIRST);
   });
 });
 
@@ -318,6 +357,27 @@ describe("the plan step (D17)", () => {
       rule: "plan-over-plan",
       reason: "plan.md exists: the plan step is done",
     });
+  });
+
+  test("takes a proposal that offers the plan once plan.md is deleted after a version (F-A1)", () => {
+    const gone = play(V1, ["planWritten", ABSENT]);
+
+    expect(tried(gone, "propose", proposing("p1", { kind: "plan" })).verdict.kind).toBe("allow");
+  });
+
+  test("the reviewer's edit writes plan.md, and drops a proposal whose one move was the plan", () => {
+    const offered = play(
+      V1,
+      ["planWritten", ABSENT],
+      ["propose", proposing("p1", { kind: "plan" })],
+    );
+
+    const step = tried(offered, "sendEdit", {
+      edit: "1",
+      text: "# Plan\n\nThe reviewer's edit.\n",
+    });
+
+    expect(pendingOf(step.workflow)).toBeNull();
   });
 
   test("never refuses the reviewer's own pick of the plan (P14)", () => {
@@ -552,6 +612,7 @@ function walk(): Walk {
     prompted: 0,
     notices: 0,
     pausedQuestions: 0,
+    planGoneInReview: 0,
   };
 
   let steps = 0;
@@ -566,6 +627,9 @@ function walk(): Walk {
     broke(stateBroken(from), keyOf(from));
 
     if (held(from) !== null && from.planText === "pending") reached.heldDraft += 1;
+
+    if (from.workspace.kind === "inReview" && from.planText === "absent")
+      reached.planGoneInReview += 1;
 
     if (from.regions[0]?.state === "open" && from.regions[0].wait === "paused")
       reached.pausedQuestions += 1;
