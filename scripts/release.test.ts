@@ -5,7 +5,7 @@ import { dirname, join } from "node:path";
 
 import { type CommitId, commitAt } from "./check-plugin-bumps.ts";
 import { type PluginDir, pluginDirAt } from "./lib/plugin-sources.ts";
-import { plannedTags, release } from "./release.ts";
+import { describePlan, plannedTags, release } from "./release.ts";
 
 let root = "";
 
@@ -132,6 +132,11 @@ describe("a release", () => {
 
     expect(tags.map(({ tag, commit: at }) => [`${tag}`, at])).toEqual([
       ["vellum-v0.2.1", setThree],
+    ]);
+    expect(describePlan(shipped(), head, tags).split("\n").slice(1)).toEqual([
+      `vellum-v0.2.1 on ${setThree.slice(0, 7)}, with the sections:`,
+      "  0.2.1 - 2026-09-26",
+      "  0.2.0 - 2026-09-26",
     ]);
     expect(release(repo, head, tags)).toEqual({ kind: "released", tags });
     expect(git(repo, "rev-parse", "vellum-v0.2.1^{commit}")).toBe(setThree);

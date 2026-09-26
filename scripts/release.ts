@@ -5,7 +5,8 @@
  * push, then tag each plugin that keeps a `CHANGELOG.md` and shipped a new
  * version, on the commit that set it, and publish its GitHub Release.
  *
- *   bun ./scripts/release.ts [<ref>]      # default: origin/dev
+ *   bun ./scripts/release.ts [<ref>]              # default: origin/dev
+ *   bun ./scripts/release.ts --dry-run [<ref>]    # print the plan, push nothing
  *
  * Everything is read and checked before the push: a changelog that does not
  * parse, or a tag that already exists, stops the release with `main` unmoved.
@@ -219,6 +220,28 @@ interface Report {
   readonly exit: number;
 }
 
+/** What a release from `shipped` to `target` would do, for a person to confirm. */
+export function describePlan(
+  shipped: CommitId,
+  target: CommitId,
+  tags: readonly PlannedTag[],
+): string {
+  const push = `main ${shipped.slice(0, 7)} -> ${target.slice(0, 7)}`;
+
+  if (tags.length === 0) return `${push}\nno plugin that keeps a changelog changed version: no tag`;
+
+  return [
+    push,
+    ...tags.flatMap(({ tag, commit, notes }) => [
+      `${tag} on ${commit.slice(0, 7)}, with the sections:`,
+      ...notes
+        .split("\n")
+        .filter((line) => line.startsWith("## "))
+        .map((line) => `  ${line.slice("## ".length)}`),
+    ]),
+  ].join("\n");
+}
+
 function describe(outcome: ReleaseOutcome): Report {
   switch (outcome.kind) {
     case "released":
@@ -241,10 +264,12 @@ function describe(outcome: ReleaseOutcome): Report {
 
 if (import.meta.main) {
   try {
-    const args = process.argv.slice(2);
+    const all = process.argv.slice(2);
+    const dryRun = all[0] === "--dry-run";
+    const args = dryRun ? all.slice(1) : all;
 
     if (args.length > 1) {
-      console.error("Usage: bun ./scripts/release.ts [<ref>]");
+      console.error("Usage: bun ./scripts/release.ts [--dry-run] [<ref>]");
       process.exit(2);
     }
 
@@ -253,10 +278,16 @@ if (import.meta.main) {
     git(repo, ["fetch", "--quiet", REMOTE]);
     const shipped = commitAt(repo, MAIN);
     const target = commitAt(repo, args[0] ?? DEFAULT_REF);
-    const { text, exit } = describe(release(repo, target, plannedTags(repo, shipped, target)));
+    const tags = plannedTags(repo, shipped, target);
 
-    console.log(text);
-    process.exitCode = exit;
+    if (dryRun) {
+      console.log(describePlan(shipped, target, tags));
+    } else {
+      const { text, exit } = describe(release(repo, target, tags));
+
+      console.log(text);
+      process.exitCode = exit;
+    }
   } catch (error) {
     console.error(`release: ${error instanceof Error ? error.message : String(error)}`);
     process.exitCode = 1;
