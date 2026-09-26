@@ -115,8 +115,8 @@ Claude Code's `installed_plugins.json`, `git` with its `GIT_*` variables cleared
   click: the comment ids, the edit's version or `null`, the choices made in mockups by their
   mockup, decision and option, whether the extensions' parts go (the
   bar's Send, never Send now), and the question ids the reviewer agreed to leave to their
-  recommendation. It is judged before anything is written, by the `send` rows on what the stored
-  draft makes of the names (`namedIn`): a name the draft no longer holds, a choice whose option
+  recommendation. It is judged before anything is written but a refusal's journal line, by the
+  `send` rows on what the stored draft makes of the names (`namedIn`): a name the draft no longer holds, a choice whose option
   changed included (409 `changed`), an edit of a version no longer under review (`stale`), a
   comment on the plan named without the pending edit whose lines `Done` moved it to (`edit`), an
   approved plan (`approved`); each extension's `part` answers the questions no answer takes

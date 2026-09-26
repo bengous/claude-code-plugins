@@ -211,7 +211,7 @@ export class Review {
       projectPath(`${workspace.dir}${PLAN_FILE}`),
     );
 
-    if (plan === null) return "none";
+    if (plan === null) return "absent";
 
     if (workspace.kind === "drafting") return "pending";
 

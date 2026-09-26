@@ -187,8 +187,8 @@ export function coreEvents(review: Review): CoreEvents {
   };
 
   /**
-   * One Send, one step of the queue: judged whole first (`send`'s rows, F10), with nothing
-   * written, and its parts asked; then its edit, when it changes the version's text (`sendEdit`,
+   * One Send, one step of the queue: judged whole first (`send`'s rows, F10), a refusal stepped
+   * for its journal line alone, and its parts asked; then its edit, when it changes the version's text (`sendEdit`,
    * which a hold refuses: the edit stays in the draft, and the rest goes); then the batch and its
    * entry, the commit point, and each extension's reaction to its part. The draft keeps what the
    * Send did not take; a failure there is logged.
@@ -201,9 +201,15 @@ export function coreEvents(review: Review): CoreEvents {
       const draft = stored === "unreadable" ? EMPTY_DRAFT : (stored ?? EMPTY_DRAFT);
       const edit = request.edit === null ? "" : String(request.edit);
       const names = stored === "unreadable" ? "held" : namedIn(workspace, draft, request);
-      const judged = verdictOf(w, review.table, "send", { edit, names });
+      const asked = { edit, names };
 
-      if (judged.kind !== "allow") return refused({ reason: refusedAs(judged) });
+      if (verdictOf(w, review.table, "send", asked).kind !== "allow") {
+        const { verdict } = await review.step("send", asked, "reviewer");
+
+        if (verdict.kind === "allow") throw new Error("a Send its rows refused passed its step");
+
+        return refused({ reason: refusedAs(verdict) });
+      }
 
       if (stored === "unreadable") return refused({ reason: "unreadable" });
       const shares = await partsOf(request, draft);

@@ -22,7 +22,7 @@ import type { Draft, SendRequest } from "../domain/review.ts";
 import { choicesIn, EMPTY_TYPED } from "../domain/review.ts";
 import type { Outcome, Region, Transition, Workflow } from "../domain/workflow.ts";
 import { held as heldIn, withRegion } from "../domain/workflow.ts";
-import type { CoreEvents, SendResult } from "./events.ts";
+import type { CoreEvents, GateResult, SendResult } from "./events.ts";
 import { coreEvents } from "./events.ts";
 import { Review } from "./review.ts";
 
@@ -44,6 +44,9 @@ type Setup = { readonly review: Review; readonly events: CoreEvents; readonly ro
 
 /** A gate as `submit` asks it: a new text, or one after a feedback, is the next version. */
 const RECORD = { unchanged: "record" } as const;
+
+/** What a gate answers while the working directory holds no `plan.md`. */
+const NO_PLAN: GateResult = { ok: false, rule: "no-plan", error: `write plan.md in ${WIP} first` };
 
 /** A held rename is retried this long here, so a test that holds the folder to the end stays under bun's 5 s. */
 const HELD_SHORT_MS = 200;
@@ -190,6 +193,21 @@ describe("Review", () => {
     });
   });
 
+  test("plan.md deleted after a version: the turn's end and submit are refused, not kept (F-A1)", async () => {
+    const s = await gated();
+    rmSync(join(s.root, WIP, "plan.md"));
+    expect(await s.events.gate({ unchanged: "keep" }, "claude")).toEqual(NO_PLAN);
+    expect(await s.events.gate(RECORD, "claude")).toEqual(NO_PLAN);
+  });
+
+  test("plan.md deleted after a Send: submit and Record are refused, never a 500 (F-A1)", async () => {
+    const s = await gated();
+    await send(s, SAY_NO);
+    rmSync(join(s.root, WIP, "plan.md"));
+    expect(await s.events.gate(RECORD, "claude")).toEqual(NO_PLAN);
+    expect(await s.events.gate(RECORD, "reviewer")).toEqual(NO_PLAN);
+  });
+
   test("gate writes vN.md from plan.md and answers the version", async () => {
     const { events, root } = await gated();
     expect(read(root, `${WIP}.review/v1.md`)).toBe(PLAN);
@@ -286,6 +304,20 @@ describe("Review", () => {
       refusal: { reason: "changed" },
     });
     expect(await told(s.review)).toEqual([]);
+  });
+
+  test("a Send a row refuses is a line of the journal, refused, with its rule (F-A2)", async () => {
+    const s = await gated();
+    const lines = (): string[] => read(s.root, `${WIP}.review/events.jsonl`).trimEnd().split("\n");
+    const before = lines().length;
+    await send(s, SAY_NO, { annotations: ["a", "gone"] });
+    expect(lines()).toHaveLength(before + 1);
+    expect(JSON.parse(lines().at(-1) ?? "")).toMatchObject({
+      actor: "reviewer",
+      event: "send",
+      verdict: "refuse",
+      rule: "changed",
+    });
   });
 
   test("a Send with nothing in it is refused and writes nothing", async () => {
