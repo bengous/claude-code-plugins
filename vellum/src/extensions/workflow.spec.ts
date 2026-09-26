@@ -70,6 +70,15 @@ function told(step: Step): string[] {
   );
 }
 
+/** The review as a rename that failed leaves it: the version under review, the error in memory. */
+function approvalFailed(w: Workflow): Workflow {
+  const { workspace } = w;
+
+  if (workspace.kind !== "inReview") throw new Error("no version is under review");
+
+  return { ...w, workspace: { ...workspace, finalizeError: "rename refused" } };
+}
+
 function returned(step: Step): Extract<Effect, { kind: "returnToCall" }>[] {
   return step.effects.flatMap((effect) => (effect.kind === "returnToCall" ? [effect] : []));
 }
@@ -414,6 +423,38 @@ describe("what the page and the band read (§ 5.8)", () => {
   const refusedIn = (w: Workflow): (readonly string[])[] =>
     viewOf(w, TABLE).refused.map(({ event, effect, reason }) => [event, effect, reason]);
 
+  const APPROVAL = {
+    confirmed: "",
+    edit: "",
+    text: "",
+    notes: "",
+    dir: "plans/2026-09-26/the-plan/",
+  };
+
+  const sentTwice = (w: Workflow): Workflow => play(w, ["send", COMMENTS], ["send", COMMENTS]);
+
+  test("the pill without a hold keeps today's words, and says plan.md waits only under one (P1)", () => {
+    const pills = [
+      EMPTY,
+      sentTwice(EMPTY),
+      V1,
+      sentTwice(V1),
+      approvalFailed(V1),
+      play(V1, ["approve", APPROVAL]),
+      play(V1, ["planWritten", PENDING]),
+    ].map((w) => pillOf(w));
+
+    expect(pills).toEqual([
+      { text: "Drafting", tone: "neutral" },
+      { text: "Drafting · 2 sent", tone: "neutral" },
+      { text: "In review", tone: "neutral" },
+      { text: "In review · 2 sent", tone: "neutral" },
+      { text: "Approval failed", tone: "err" },
+      { text: "Approved", tone: "ok" },
+      { text: "In review", tone: "neutral" },
+    ]);
+  });
+
   test("the view carries each region's state, hold and wait, never its files", () => {
     expect(viewOf(GRILLING, TABLE).regions).toEqual([
       { id: "grill", state: "open", holds: "grill 1 is open", wait: null },
@@ -476,17 +517,9 @@ describe("what the page and the band read (§ 5.8)", () => {
   });
 
   test("the plan's segment says the draft, the version under review, and the version approved", () => {
-    const approve = {
-      confirmed: "",
-      edit: "",
-      text: "",
-      notes: "",
-      dir: "plans/2026-09-26/the-plan/",
-    };
-
     expect(stageOf(EMPTY, SEGMENTS).segments).toEqual(["plan draft"]);
     expect(stageOf(V1, SEGMENTS).segments).toEqual(["plan v1 · in review"]);
-    expect(stageOf(play(V1, ["approve", approve]), SEGMENTS).segments).toEqual([
+    expect(stageOf(play(V1, ["approve", APPROVAL]), SEGMENTS).segments).toEqual([
       "plan v1 · approved",
     ]);
   });
