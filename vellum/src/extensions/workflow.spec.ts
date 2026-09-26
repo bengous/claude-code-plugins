@@ -516,6 +516,23 @@ describe("what the page and the band read (§ 5.8)", () => {
     ]);
   });
 
+  test("a grill or a plan review that ended draws no segment", () => {
+    const ended = play(GRILLING, ["endGrill", { reason: "stop", at: SAMPLE_AT }]);
+
+    const reviewed = play(
+      V1,
+      ["requestReview", { version: "1" }],
+      ["reviewLaunched", { seq: "1", agentId: "agent-1", model: "claude-opus-5-5" }],
+      [
+        "reviewDone",
+        { seq: "1", outcome: "answer", text: "Fine.", file: "reviews/v1.md", at: SAMPLE_AT },
+      ],
+    );
+
+    expect(stageOf(ended, SEGMENTS).segments).toEqual(["plan v1 · in review"]);
+    expect(stageOf(reviewed, SEGMENTS).segments).toEqual(["plan v1 · in review"]);
+  });
+
   test("the plan's segment says the draft, the version under review, and the version approved", () => {
     expect(stageOf(EMPTY, SEGMENTS).segments).toEqual(["plan draft"]);
     expect(stageOf(V1, SEGMENTS).segments).toEqual(["plan v1 · in review"]);
