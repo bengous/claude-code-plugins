@@ -833,7 +833,7 @@ describe("the band above the prompt", () => {
     expect(seen.statuses.filter((text) => text !== undefined)).toEqual([]);
   });
 
-  test("each stage the server writes draws its segments, as it sent them", async ($, on) => {
+  test("each stage the server writes draws where the plan stands", async ($, on) => {
     const seen = world(on);
     await $.skill.prompt(START_PROMPT);
     const drawn = await band($);
@@ -842,13 +842,11 @@ describe("the band above the prompt", () => {
     await seen.clock.settle();
 
     expect(await drawn.text()).toBe("vellum │ plan draft │ Drafting │ Review page ↗");
-    const segments = ["plan v2 · in review", "review · running"];
-    server?.write(stage(inReview(2), { pill: { text: "In review", tone: "neutral" }, segments }));
+    const pill = { text: "In review", tone: "neutral" } as const;
+    server?.write(stage(inReview(2), { pill, segments: ["plan v2 · in review"] }));
     await seen.clock.settle();
 
-    expect(await drawn.text()).toBe(
-      "vellum │ plan v2 · in review │ review · running │ In review │ Review page ↗",
-    );
+    expect(await drawn.text()).toBe("vellum │ plan v2 · in review │ In review │ Review page ↗");
   });
 
   test("the band draws the stage line's pill", async ($, on) => {
@@ -856,11 +854,12 @@ describe("the band above the prompt", () => {
     await $.skill.prompt(START_PROMPT);
     const drawn = await band($);
     const pill = { text: "Held · grill 1 is open · plan.md waits", tone: "neutral" } as const;
-    seen.children[0]?.write(stage(inReview(1), { pill, segments: ["plan v1 · in review"] }));
+    const segments = ["plan v1 · in review", "grill · open"];
+    seen.children[0]?.write(stage(inReview(1), { pill, segments }));
     await seen.clock.settle();
 
     expect(await drawn.text()).toBe(
-      "vellum │ plan v1 · in review │ Held · grill 1 is open · plan.md waits │ Review page ↗",
+      "vellum │ plan v1 · in review │ grill · open │ Held · grill 1 is open · plan.md waits │ Review page ↗",
     );
   });
 
