@@ -140,6 +140,24 @@ describe("unbumped", () => {
     expect(found(commit("Docs"))).toEqual([]);
   });
 
+  test("passes a change to the plugin's documentation alone", () => {
+    write("example/README.md", "readme\n");
+    write("example/CHANGELOG.md", "# Changelog\n");
+    write("example/docs/architecture.md", "map\n");
+    write("example/.claude/rules/page.md", "rule\n");
+
+    expect(found(commit("Document example"))).toEqual([]);
+  });
+
+  test("names a plugin whose documentation changed beside its code", () => {
+    write("example/docs/architecture.md", "map\n");
+    write("example/skills/start/SKILL.md", "a skill ships\n");
+
+    expect(found(commit("Document and change example"))).toEqual([
+      { name: "example", source: "example", version: "1.0.0" },
+    ]);
+  });
+
   test("passes a plugin the base does not hold", () => {
     catalog([EXAMPLE, ORCHESTRATION, { name: "fresh", source: "./fresh" }]);
     manifest("fresh", "0.1.0");

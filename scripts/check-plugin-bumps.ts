@@ -20,6 +20,25 @@ const CATALOG = ".claude-plugin/marketplace.json";
 
 const MANIFEST = ".claude-plugin/plugin.json";
 
+/**
+ * Paths under a plugin's directory that a change to needs no bump: read by
+ * people and agents in this repository, never by the installed plugin, so an
+ * installed copy that misses them loses nothing.
+ */
+const DOCS_ONLY = [
+  "README.md",
+  "CHANGELOG.md",
+  "AGENTS.md",
+  "CLAUDE.md",
+  "docs/**",
+  ".claude/**",
+].map((pattern) => new Bun.Glob(pattern));
+
+/** True when `path`, relative to a plugin's directory, is documentation alone. */
+export function isDocsOnly(path: string): boolean {
+  return DOCS_ONLY.some((glob) => glob.match(path));
+}
+
 // The local ref is the source as typed, `HEAD@{1 day ago}` included: only the
 // last three fields are free of spaces.
 const PUSHED_REF_LINE = /^.+ ([0-9a-f]{40}|[0-9a-f]{64}) (refs\/\S+) ([0-9a-f]{40}|[0-9a-f]{64})$/u;
@@ -214,7 +233,7 @@ export function versionAt(repo: PluginDir, commit: CommitId, source: SourceDir):
 
 /**
  * Each plugin both catalogs list whose directory changed between `base` and
- * `head` while its `plugin.json` version did not. A plugin is matched by its
+ * `head`, documentation aside (`isDocsOnly`), while its `plugin.json` version did not. A plugin is matched by its
  * entry's name, so a directory that moved is compared with where it was.
  */
 export function unbumped(repo: PluginDir, base: CommitId, head: CommitId): readonly Unbumped[] {
@@ -231,7 +250,11 @@ export function unbumped(repo: PluginDir, base: CommitId, head: CommitId): reado
 
     const dirs = [`${source}/`, `${releasedSource}/`];
 
-    if (!changed.some((path) => dirs.some((dir) => path.startsWith(dir)))) return [];
+    const shipped = changed.some((path) =>
+      dirs.some((dir) => path.startsWith(dir) && !isDocsOnly(path.slice(dir.length))),
+    );
+
+    if (!shipped) return [];
 
     const version = versionAt(repo, head, source);
 
