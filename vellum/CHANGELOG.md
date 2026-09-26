@@ -23,21 +23,21 @@ What each version of vellum changed for the person using it, newest first.
 
 ## 0.14.6 - 2026-09-25
 
-### Added
+### Changed
 
-- Claude can propose the next step from its own extension and waits for the reviewer's pick; the grill keeps its own questions separate from that proposal.
+- Claude proposes the next step from its own extension and waits for the reviewer's pick, instead of the grill carrying it; the grill now keeps its own questions separate from that proposal.
 
 ## 0.14.5 - 2026-09-25
 
-### Added
+### Changed
 
-- One draft, one Send: batches lock nothing, no answer is preselected, and a grill question waits for the reviewer to press Send.
+- One draft, one Send: batches no longer lock, no answer is preselected, and a grill question waits for the reviewer to press Send.
 
 ## 0.14.4 - 2026-09-25
 
-### Added
+### Changed
 
-- Everything Claude receives from the review now travels through one channel, `.review/channel.jsonl`.
+- Everything Claude receives from the review now travels through one channel, `.review/channel.jsonl`, replacing the earlier relay.
 
 ## 0.14.3 - 2026-09-24
 
@@ -73,9 +73,12 @@ What each version of vellum changed for the person using it, newest first.
 
 ### Added
 
-- The grill becomes a proposal you answer: its phase (working, asking, idle or stopped) is read off its file, one question shows at a time under chips for each round, with a recommended answer or your own, and End grill returns to the plan under a notice of what was decided.
 - An open grill is a panel beside the documents, its transcript readable as a document of its own; the page's body is now composable panes, so an extension can add a panel.
 - Claude's proposal appears as a modal the reviewer answers, never popping up while the reviewer is typing; declining reaches Claude as a prompt.
+
+### Changed
+
+- The grill becomes a proposal you answer: its phase (working, asking, idle or stopped) is read off its file, one question shows at a time under chips for each round, with a recommended answer or your own, and End grill returns to the plan under a notice of what was decided.
 
 ### Fixed
 
@@ -124,7 +127,10 @@ What each version of vellum changed for the person using it, newest first.
 ### Added
 
 - Commenting from the keyboard, and a mockup overlay that follows the pointer.
-- The composer keeps its typed text per document.
+
+### Changed
+
+- The composer's kept draft text is now scoped per document, instead of one draft shared across all of them.
 
 ### Fixed
 
@@ -154,15 +160,22 @@ What each version of vellum changed for the person using it, newest first.
 
 ### Added
 
-- A colour palette that keeps its contrast ratios in both light and dark themes.
 - A layout gutter for handles, a status bar, and landmark regions in the shell.
 - Popovers, placed near their target inside the pane.
+
+### Changed
+
+- The colour palette is reworked to keep its contrast ratios in both light and dark themes.
 
 ## 0.11.0 - 2026-09-22
 
 ### Added
 
-- One Comment switch, off by default, replacing the separate Select and Pinpoint modes; a mockup now takes a drag as well as a click, and responds to the "C" key.
+- A mockup now takes a drag as well as a click to comment, and responds to the "C" key.
+
+### Changed
+
+- One Comment switch, off by default, replaces the separate Select and Pinpoint modes.
 
 ### Fixed
 
@@ -286,9 +299,12 @@ Internal changes only: tests, docs or refactoring.
 - The reviewer can edit the plan directly; the edit is recorded as the next version.
 - A passage can be marked for deletion or with a quick label, from the composer.
 - The rendered plan shows what changed since the previous version.
-- The plan is submitted automatically when Claude's turn ends, so the reviewer is never asked to submit it manually.
 - An approval can carry a note, and approving warns first if it would discard unsent comments.
 - Unsent comments and edits survive a page reload.
+
+### Changed
+
+- The plan now submits automatically when Claude's turn ends, instead of waiting for Claude to send an explicit submit signal.
 
 ### Fixed
 
@@ -299,9 +315,13 @@ Internal changes only: tests, docs or refactoring.
 
 ### Added
 
-- The command to start a review is renamed to `/vellum:start`, and the reviewer is told the page's link.
+- The reviewer is told the page's link when a review starts.
 - The review mode closes automatically on `/clear` and `/resume`.
-- The page shows what Claude writes as it writes it, instead of only at submission.
+
+### Changed
+
+- The command to start a review is renamed from `/vellum:plan` to `/vellum:start`.
+- The page now shows what Claude writes as it writes it, instead of only once at submission.
 
 ### Fixed
 
@@ -316,10 +336,13 @@ Internal changes only: tests, docs or refactoring.
 
 ### Added
 
-- The plan review now runs in a mode vellum holds itself, instead of borrowing the native plan mode: a lock on the working directory, a `submit` signal from Claude, and a `/vellum:stop` skill to leave.
 - The reviewer can comment while Claude is still drafting, and can pinpoint an element of an HTML mockup from inside its sandbox.
 - The rendered plan gets coloured code and drawn Mermaid diagrams.
 - Comments can pinpoint a Markdown block whole, inline text, fenced code, a table, a row or a cell, or several passages at once; holding Ctrl highlights and lets through the target being added.
+
+### Changed
+
+- The plan review now runs in a mode vellum holds itself, instead of borrowing the native plan mode: a lock on the working directory, a `submit` signal from Claude, and a `/vellum:stop` skill to leave.
 
 ### Fixed
 
