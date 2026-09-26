@@ -4,7 +4,6 @@
   "model": "opus",
   "alwaysThinkingEnabled": true,
   "hasOpusPlanDefault": true,
-  "autoCompactEnabled": false,
   "autoUpdates": true,
   "enabledPlugins": {
     "plugin-dev@claude-plugins-official": true
