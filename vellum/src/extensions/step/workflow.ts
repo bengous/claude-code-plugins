@@ -239,6 +239,7 @@ export const RULES: readonly Rule[] = [
     order: 1,
     when: (w, input) => planExists(w) && offersPlan(proposalOf(input.proposal ?? "")),
     effect: "refuse",
+    refuses: "state",
     reason: () => "plan.md exists: the plan step is done",
   },
   {
@@ -247,6 +248,7 @@ export const RULES: readonly Rule[] = [
     order: 1,
     when: (w, input) => pendingId(w) === "" || pendingId(w) !== input.id,
     effect: "refuse",
+    refuses: "input",
     reason: () => NO_SUCH_PROPOSAL,
   },
   {
@@ -255,6 +257,7 @@ export const RULES: readonly Rule[] = [
     order: 1,
     when: (w, input) => (input.id ?? "") !== "" && pendingId(w) !== input.id,
     effect: "refuse",
+    refuses: "input",
     reason: () => NO_SUCH_PROPOSAL,
   },
 ];

@@ -411,6 +411,9 @@ describe("what the page and the band read (§ 5.8)", () => {
     workflow === undefined ? [] : [{ id, segment: workflow.segment }],
   );
 
+  const refusedIn = (w: Workflow): (readonly string[])[] =>
+    viewOf(w, TABLE).refused.map(({ event, effect, reason }) => [event, effect, reason]);
+
   test("the view carries each region's state, hold and wait, never its files", () => {
     expect(viewOf(GRILLING, TABLE).regions).toEqual([
       { id: "grill", state: "open", holds: "grill 1 is open", wait: null },
@@ -419,10 +422,44 @@ describe("what the page and the band read (§ 5.8)", () => {
     ]);
   });
 
-  test("the view lists what the reviewer or Claude may try, never what the engine alone sends (F13)", () => {
-    expect(viewOf(V1, TABLE).refused.map(({ event }) => event)).toEqual([
-      "askQuestion",
-      "reviewForgotten",
+  test("refused at v1: what Claude would meet, never a run to forget that is not there (F13)", () => {
+    expect(refusedIn(V1)).toEqual([["askQuestion", "refuse", "no grill is open"]]);
+  });
+
+  test("refused under a grill: each event once, in the words a real caller meets", () => {
+    expect(refusedIn(GRILLING)).toEqual([
+      ["record", "refuse", "grill 1 is open: plan.md waits; you are told when it ends"],
+      ["sendEdit", "refuse", "grill 1 is open: the edit waits in the draft until it ends"],
+      ["approve", "confirm", "The review is held: grill 1 is open."],
+      ["openGrill", "refuse", "grill-1.md is open"],
+      ["propose", "refuse", "grill 1 is open: no step is proposed until it ends"],
+      ["answerProposal", "refuse", "grill 1 is open"],
+      ["requestReview", "refuse", "grill 1 is open"],
+    ]);
+  });
+
+  test("refused under a plan review: each event once, in the words a real caller meets", () => {
+    const running = "plan review 1 of v1 is running";
+
+    expect(refusedIn(play(V1, ["requestReview", { version: "1" }]))).toEqual([
+      ["record", "refuse", `${running}: plan.md waits; you are told when it ends`],
+      ["sendEdit", "refuse", `${running}: the edit waits in the draft until it ends`],
+      ["approve", "confirm", `The review is held: ${running}.`],
+      ["askQuestion", "refuse", "no grill is open"],
+      ["propose", "refuse", `${running}: no step is proposed until it ends`],
+      ["answerProposal", "refuse", running],
+      ["requestReview", "refuse", "a review of v1 is running"],
+    ]);
+  });
+
+  test("refused on v2 under a grill: the edit of v2, in the hold's words, not a sample's v1", () => {
+    const edited = { edit: "1", text: "# Plan\n\nv2.\n" };
+    const v2 = play(V1, ["sendEdit", edited], ["answerProposal", OWN_GRILL]);
+
+    expect(refusedIn(v2).find(([event]) => event === "sendEdit")).toEqual([
+      "sendEdit",
+      "refuse",
+      "grill 1 is open: the edit waits in the draft until it ends",
     ]);
   });
 

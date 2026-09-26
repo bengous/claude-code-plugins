@@ -46,7 +46,9 @@ Claude Code's `installed_plugins.json`, `git` with its `GIT_*` variables cleared
   answer says so (`editKept`, its `reason` what holds); an edit alone is refused by the hold's
   row (`refused`, rule `held`), and every other refusal of a Send names its row and its text.
   `ReviewView.workflow` carries the workflow to the page as a reader takes it (`viewOf`: each
-  region without its files, what is refused now but what the engine alone sends), and the
+  region without its files; what is refused now, each event once, in the words a real caller
+  meets, never on a row that turns only the input down (`Rule.refuses`), nor what the engine
+  alone sends), and the
   `stage` line carries the pill and the segments to the band (`stageOf`: the plan's, then each
   extension's `segment`), told after each step that passed from the workflow `next` answered.
   The core names no extension: each brings its rows.

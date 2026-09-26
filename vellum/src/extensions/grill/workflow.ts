@@ -305,6 +305,7 @@ function openingRules(event: string, order: number, opens: (input: EventInput) =
       order,
       when: (_w, input) => opens(input) && parseSubject({ subject: input.subject }) === null,
       effect: "refuse",
+      refuses: "input",
       reason: () => "a grill's subject is one line, not empty",
     },
     {
@@ -313,6 +314,7 @@ function openingRules(event: string, order: number, opens: (input: EventInput) =
       order: order + 1,
       when: (w, input) => opens(input) && isOpen(w),
       effect: "refuse",
+      refuses: "state",
       reason: (w) => `${grillFile(latestIn(w).n)} is open`,
     },
   ];
@@ -327,6 +329,7 @@ export const RULES: readonly Rule[] = [
     order: 1,
     when: (w) => !isOpen(w),
     effect: "refuse",
+    refuses: "state",
     reason: () => NO_GRILL_OPEN,
   },
 ];
