@@ -68,6 +68,8 @@ describe("isE2ePath", () => {
     for (const path of [
       "vellum/src/core/page/app.tsx",
       "vellum/e2e/labels.e2e.ts",
+      "vellum/e2e/fixtures/rich/plan.md",
+      "vellum/src/extensions/grill/grilling.md",
       "vellum/package.json",
       "docs/plugin-testing.md",
       "mise.toml",
@@ -89,6 +91,10 @@ describe("isE2ePath", () => {
       "vellum/hooks/hooks.json",
       "vellum/skills/start/SKILL.md",
       "vellum/agents/plan-reviewer.md",
+      "vellum/docs/architecture.md",
+      "vellum/.claude/rules/page.md",
+      "vellum/README.md",
+      "vellum/AGENTS.md",
       "vellum/src/core/page/app.spec.ts",
       "vellum/src/core/server/routes.test.ts",
     ]) {
