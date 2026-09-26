@@ -31,8 +31,22 @@ export type StepState = { readonly pending: Pending | null };
 /** What `POST propose` answers: the id the proposal waits under. */
 export type Proposed = { readonly id: string };
 
-/** Why a proposal stopped waiting unanswered: a newer one took its place, or the plan was approved. */
-export type Dropped = "replaced" | "approved";
+/**
+ * Why a proposal stopped waiting unanswered: a newer one took its place, the plan was approved,
+ * or `plan.md` was written and the plan was its one move.
+ */
+export type Dropped = "replaced" | "approved" | "written";
+
+/**
+ * `.review/step.json`: the proposal waiting, the last one answered under the entry that told it,
+ * and the last one dropped and why, for the waits on them. Whether Claude's call still waits is
+ * the server's memory, never written: a restarted server reads it paused.
+ */
+export type StepFile = {
+  readonly pending: Pending | null;
+  readonly answered: { readonly id: string; readonly seq: number; readonly text: string } | null;
+  readonly dropped: { readonly id: string; readonly why: Dropped } | null;
+};
 
 /**
  * What `POST wait` answers: the reviewer's answer, its entry's number and the text `propose`

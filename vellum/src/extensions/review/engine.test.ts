@@ -14,7 +14,6 @@ import {
   STOP_PROMPT,
   storedSession,
   TURN_ABORTED,
-  TURN_ANSWERED,
   TURN_OF_AGENT,
   WORKDIR,
   world,
@@ -42,21 +41,6 @@ function ended(seq: number, outcome: Outcome): [string, string] {
 }
 
 const STOPPED: [string, string] = ["stopped", JSON.stringify({ seq: 1 })];
-
-type Gating = { readonly routes: Record<string, Route>; readonly gates: string[] };
-
-/** The body of each `POST /api/gate` the module sent, beside the review's routes. */
-function gating(routes: Record<string, Route>): Gating {
-  const gates: string[] = [];
-
-  const gate: Route = (body) => {
-    gates.push(body ?? "");
-
-    return reply(200, { version: 3, kept: true });
-  };
-
-  return { routes: { ...routes, "/api/gate": gate }, gates };
-}
 
 describe("a run the page asked for", () => {
   test("asks the engine once for the reviewer on the version, for two stage lines", async ($, on) => {
@@ -271,14 +255,6 @@ function listing(): ReturnType<typeof reviewRoutes> {
   return review;
 }
 
-/** No run, and `plan.md` to submit again: a run held the review. */
-function resubmitting(): ReturnType<typeof reviewRoutes> {
-  const review = reviewRoutes(null);
-  review.state = { ...review.state, resubmit: true };
-
-  return review;
-}
-
 describe("the agents to stop", () => {
   test("each one listed is stopped with TaskStop, then leaves the list", async ($, on) => {
     const review = listing();
@@ -400,58 +376,5 @@ describe("a run whose agent the engine no longer runs", () => {
     await seen.clock.advance(GRACE_MS);
 
     expect(review.posted).toEqual([ended(1, { kind: "answer", text: VERDICT })]);
-  });
-});
-
-describe("a version Claude wrote while a run held the review", () => {
-  test("is gated with keep at the next stage line once Claude is at rest, then resubmitted", async ($, on) => {
-    const review = resubmitting();
-    const { routes, gates } = gating(review.routes);
-    const seen = world(on, { routes });
-    on("turn.complete", (_, e) => ({ text: e.answer }));
-    await $.skill.prompt(START_PROMPT);
-    await $.turn.complete(TURN_ANSWERED);
-    gates.length = 0;
-    seen.children[0]?.write(stage(inReview(3)));
-    await seen.clock.settle();
-
-    expect(gates).toEqual([JSON.stringify({ unchanged: "keep" })]);
-    expect(review.posted).toEqual([["resubmitted", "{}"]]);
-  });
-
-  test("a gate the server refuses leaves it to submit again", async ($, on) => {
-    const review = resubmitting();
-
-    const refused = reply(409, {
-      error: "grill 1 is open: plan.md is recorded as the next version once it ends, if it changed",
-    });
-
-    const seen = world(on, { routes: { ...review.routes, "/api/gate": () => refused } });
-    on("turn.complete", (_, e) => ({ text: e.answer }));
-    await $.skill.prompt(START_PROMPT);
-    await $.turn.complete(TURN_ANSWERED);
-    seen.children[0]?.write(stage(inReview(3)));
-    await seen.clock.settle();
-
-    expect(review.posted).toEqual([]);
-  });
-
-  test("waits while a turn runs, and after a turn cut short", async ($, on) => {
-    const review = resubmitting();
-    const { routes, gates } = gating(review.routes);
-    const seen = world(on, { routes });
-    on("turn.complete", (_, e) => ({ text: e.answer }));
-    await $.skill.prompt(START_PROMPT);
-    await $.turn.complete(TURN_ANSWERED);
-    await $.turn.start({ text: "go on", turnId: "t2" });
-    gates.length = 0;
-    seen.children[0]?.write(stage(inReview(3)));
-    await seen.clock.settle();
-    await $.turn.complete({ ...TURN_ABORTED, turnId: "t2" });
-    seen.children[0]?.write(stage(inReview(3)));
-    await seen.clock.settle();
-
-    expect(gates).toEqual([]);
-    expect(review.posted).toEqual([]);
   });
 });

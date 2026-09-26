@@ -13,6 +13,7 @@ import { regionIn, SAMPLE_AT, unchanged, withRegion } from "../../core/server/do
 import { batchFile, projectPath } from "../../core/server/domain/workspace.ts";
 import { grillFile, NO_GRILL_OPEN, parseJson, parseQuestions, parseSubject } from "./parse.ts";
 import type { Phase } from "./protocol.ts";
+import { ASK_TOOL } from "./protocol.ts";
 import {
   appendAnswer,
   appendEvent,
@@ -24,6 +25,7 @@ import {
   phaseOf,
   type Relay,
   relaysOf,
+  segmentsOf,
 } from "./transcript.ts";
 
 /**
@@ -130,13 +132,26 @@ function replied(doc: string, typing: Typing): string | null {
   return appendReply(doc, answers, typing.note);
 }
 
-/** An entry of the transcript as Claude reads it: a reply as the transcript words it, an end by its file. */
+/**
+ * What Claude is told of a grill the reviewer opens: its file and its subject, and, at the
+ * directory's first grill, where it learns how to grill.
+ */
+export function openingOf(name: string, subject: string, guide: string | null): string {
+  const line = `The reviewer opened ${name} on: ${subject}.`;
+
+  return guide === null ? line : `${line} Read ${guide}, then ask with ${ASK_TOOL}.`;
+}
+
+/**
+ * An entry of the transcript as Claude reads it: a prompt names its object and repeats nothing
+ * Claude wrote or read, and a reply goes as the transcript worded it, under `Reviewer:`.
+ */
 function toldOf(relay: Relay): string {
   if (relay.kind === "reply") return relay.text;
 
   return relay.kind === "ended"
     ? `The reviewer ended ${relay.name}.`
-    : `The reviewer opened ${relay.name} on: ${relay.subject}.`;
+    : openingOf(relay.name, relay.subject, null);
 }
 
 /** The entries a write added to the transcript, in file order: what the file held before is not told again. */
@@ -202,6 +217,22 @@ function endGrill(w: Workflow, _event: string, input: EventInput): Outcome {
   };
 }
 
+/** The call a `grill_ask` waits under: its transcript, and the first question of the round it asked. */
+export function callOf(file: string, first: string): string {
+  return `${file}#${first}`;
+}
+
+/** The call waiting on the transcript's last round: only the round asked last has one. */
+export function roundCall(file: string, doc: string): string {
+  const questions = segmentsOf(doc).flatMap((segment) =>
+    segment.kind === "question" ? [segment] : [],
+  );
+
+  const round = Math.max(0, ...questions.map((question) => question.round));
+
+  return callOf(file, questions.find((question) => question.round === round)?.id ?? "");
+}
+
 /** The batch the core's Send just wrote, as the reply's pointer to what else it carried. */
 function batchOf(w: Workflow): string {
   const { workspace } = w;
@@ -230,7 +261,7 @@ function answerQuestion(w: Workflow, input: EventInput): Outcome {
 
   const returned: readonly Effect[] =
     region.state === "open" && region.wait === "open" && reply !== undefined
-      ? [{ kind: "returnToCall", call: name, text: `${toldOf(reply)}${rest}` }]
+      ? [{ kind: "returnToCall", call: roundCall(name, doc), text: `${toldOf(reply)}${rest}` }]
       : [];
 
   return {
@@ -239,9 +270,14 @@ function answerQuestion(w: Workflow, input: EventInput): Outcome {
   };
 }
 
-/** The approval closes the grill open, in the final directory, module alive or not. */
+/**
+ * The approval closes the grill open, in the final directory, module alive or not: every question
+ * open takes its recommendation by default, then the footer.
+ */
 function approved(w: Workflow, input: EventInput): Outcome {
-  return rewritten(w, (doc) => appendFooter(doc, "approved", dateOf(input)));
+  return rewritten(w, (doc) =>
+    appendFooter(replied(doc, NOTHING_TYPED) ?? doc, "approved", dateOf(input)),
+  );
 }
 
 export const REACTION: Transition = (w, event, input) => {

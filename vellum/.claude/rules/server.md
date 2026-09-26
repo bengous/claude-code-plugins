@@ -8,16 +8,20 @@ paths:
 
 Hexagonal with a functional core, under `src/core/server/`. `domain/` is pure functions over
 immutable data: no `node:*`, no `bun`, no adapter, app or page import. `app/review.ts` is the
-one use case: read through the adapter, decide in the domain, apply files, memory and
-listeners. `adapters/` are plain modules, no interface, no injection: `fs.ts` every read and
+queue and the step: every change of the workflow is an event, which `Review.step` reads (the
+`Workflow`: the directory, `plan.md`, each extension's region), judges with `next` against the
+table (`domain/workflow.ts`), and hands to `interpret` (`app/effects.ts`), the one code that
+writes for the workflow; `app/events.ts` reads what the core's own routes carry (the gate,
+Record, the approval, the Send). `adapters/` are plain modules, no interface, no injection: `fs.ts` every read and
 write under the project root, `draft.ts` the draft's one parser, `http/routes.ts` bodies, paths and status codes,
 `http/serve.ts` binding and the page bundle, `browser.ts` the opener, `vellum-build.ts` the
 plugin's own version and commit, read once at start from outside the project (`plugin.json`,
 Claude Code's `installed_plugins.json`, `git` with its `GIT_*` variables cleared). Direction held by
 `src/boundaries.spec.ts`.
 
-- Decide, then apply. Read everything first, take the decision as a pure function of plain
-  values in `domain/`, then write files, timers and prompts through `adapters/`.
+- Decide, then apply. Read everything first, in the step (a route's `Reading`), take the
+  decision as a pure function of plain values (`next`, and the rows each extension brings), then
+  write through the effects `next` answered. No refusal is written outside the table.
 - State is derived, never stored twice: where the review stands comes from the directory's
   listing and the memory (`domain/workspace.ts`, `workspaceOf`), not from a second variable. A new
   feature adds a variant to a union, not a flag.
@@ -29,32 +33,47 @@ Claude Code's `installed_plugins.json`, `git` with its `GIT_*` variables cleared
   extension boundary is typed; it re-exports the domain types it carries, never redefines them. What an extension
   hands the core is typed beside it, in `src/core/extension.ts`.
 - `Review` binds the `ServerContext` of `src/core/extension.ts` to itself and to `fs.ts`, since
-  it is `Review` that calls an extension's `holds` and `approved`; `http/serve.ts` hands the same
-  context to each extension's routes and mounts them under `/api/x/<id>/`; `routes.ts` looks them
+  a step runs there; `http/serve.ts` hands the same context to each extension's routes and mounts them under `/api/x/<id>/`; `routes.ts` looks them
   up after its own, behind the same token check, and knows none by name.
-- An extension may hold the review: `holds` answers what holds it, or `null`. Held has one
-  meaning, so there is no list of what is blocked: `gate` is refused with the reason before
-  `plan.md` is read (the 409 the module already reads), no version of Claude's lands, and a Send
-  and an approval go through: the reviewer's word is never held. A Send's edit is the one part
-  that waits, since it would open a version under the hold: `sendOn` leaves it in the draft,
-  with the comments on the plan's lines, which are the edit's, the rest goes, and the answer says
-  so (`editKept`); an edit alone is refused as `held`. `ReviewView.held` carries the reason to
-  the page, and `ServerContext.held` to an extension: `step` takes no proposal while one holds,
-  and `review` asks no run under another's hold. The core names no extension: it appends what a
-  gate means to the reason.
-- An extension starts what another runs through `ServerContext.start(id, input)`, which calls
-  that one's `start` in the caller's step of the queue: `step`'s answer opens a grill that way,
-  so two grills never open. `start` decides and writes nothing, as a Send's `part`: it answers
-  what Claude is told and a `commit`, which the caller runs once its own entry is in the channel.
-  An entry that fails leaves nothing written; a commit that fails after it is logged. The core
-  passes `input` on untouched, and the started extension's `parse.ts` reads it.
-- One queue orders every mutation: `gate`, `decide`, `send`, and an extension's writes through
-  `ServerContext.inOrder`. A gate that checked the hold writes its version before a grill that
-  opened meanwhile, never after. `holds`, `start` and `approved` run inside the queue and never call it.
+- What holds the review is read off the workflow: `held`, the reason of the first region that
+  holds, in the registry's order, as each extension's `regionOf` says it. Held has one meaning,
+  written once per event (`whileHeld`): `record` is refused with the reason and no version of
+  Claude's lands, the refusal journaled and promising none; `propose`, a pick of a step and a
+  review asked are refused; a Send and an approval go through, the reviewer's word never held,
+  the approval once a confirmation names that very hold (`Decision.confirmed`: another hold
+  asks again). A Send's edit is the one part that waits (`sendEdit` is refused): it stays in the
+  draft with the comments on the plan's lines, which are the edit's, the rest goes, and the
+  answer says so (`editKept`); an edit alone is refused as `held`. `ReviewView.held` carries the
+  reason to the page. The core names no extension: each brings its rows.
+- The notice: the step that lifts the last hold while `plan.md` holds a text no version has tells
+  Claude once, a `channel` entry from `core`, with or without a verdict (`endsWithoutVerdict`);
+  the end of Claude's next turn records the version. Nothing else records a text a hold kept
+  back. `plan.md` written is itself an event, `planWritten`, dispatched at start when the file is
+  there (P10) and each time the watcher sees its text change (`serve.ts`); the approval is
+  refused while it holds a text the version under review lacks (`approve-draft`).
+- An extension starts what another runs through `ServerContext.start(id, input)`, which answers
+  the sentence the started extension tells Claude: `step`'s answer carries the grill's opening in
+  its one entry. The table judges whether it opens (the grill's rows, declared on `answerProposal`
+  too), and the started extension's reaction writes it, in the same step, so two grills never
+  open. The core passes `input` on untouched, and the started extension's `parse.ts` reads it.
+- One queue orders every step: an event dispatched (`ServerContext.dispatch`, and the core's own
+  through `events.ts`), and a read a step must see whole through `ServerContext.inOrder`. A gate
+  that saw no hold records its version before a grill that opened meanwhile, never after. A
+  route's `Reading` and every region's read run inside the step and never call the queue.
+- `interpret` runs a step's effects in order. The commit point is the step's first entry of the
+  channel or its rename (`approveDirectory`): before it a write that fails fails the step, and
+  the route answers 500 naming the effect (`EffectFailed`), an entry that fails removing the files
+  the step created; past it a failure is logged, since Claude or the rename took the step. A
+  rename that fails keeps its error in the memory and stops the rest. Every event judged is a
+  line of `.review/events.jsonl` (`JOURNAL_FILE`), a refused one included; a line that fails
+  fails nothing, and the workflow is never rebuilt from it. `GET /api/workflow` answers the
+  workflow as a reader takes it (`viewOf`), and `POST /api/record` is `record` for the reviewer.
 - Everything that reaches Claude is an entry of the channel, `.review/channel.jsonl`
   (`domain/channel.ts`), appended inside the queue by `Review`'s relay: the core's `sent` for a
-  batch written and `approved` after the rename, an extension's own `text` through
-  `ServerContext.relay`, at the write it tells of. An entry's number is its line; the file is
+  batch written and `approved` after the rename, an extension's own `text` as a `channel` effect
+  of its transition, beside the write it tells of. A call that waits takes the entry its step
+  appended before a `returnToCall` as its result (`ServerContext.returned`), so it reaches
+  Claude once. An entry's number is its line; the file is
   never rewritten but by the approval's link rewrite and the migration below, which move no
   line, and a last line left without a newline is ended before an entry is appended. Its
   identity, `.review/channel.id`, is minted with it and moves with the rename.
@@ -67,9 +86,10 @@ Claude Code's `installed_plugins.json`, `git` with its `GIT_*` variables cleared
   entries and the review's changes, and nothing else goes there), and `GET /api/channel?after=<n>`
   reads the file again, for a module that relaunched the server or missed a line; a line that is
   no entry is left out, never answered in its place.
-- An approval closes what an extension left open on the server, through `approved`, after the
-  rename and with the memory set, so `workspace().dir` is the final directory. No module has to
-  be alive for it, and an extension that throws there leaves the plan approved.
+- An approval closes what an extension left open on the server, through the extension's
+  reaction to `approve`, whose effects run after the rename and with the memory set, so a file
+  lands in the final directory. No module has to be alive for it, and a write that fails there
+  leaves the plan approved.
 - The module's heartbeat or a reviewer's tab keeps the server: the watchdog expires it once the
   last heartbeat is past the grace and no event stream is open. A tab holds it for a bounded
   time only (`tabHoldMs`): a `claude` killed with its terminal open leaves a server its module
@@ -95,22 +115,27 @@ Claude Code's `installed_plugins.json`, `git` with its `GIT_*` variables cleared
   click: the comment ids, the edit's version or `null`, the choices made in mockups by their
   mockup, decision and option, whether the extensions' parts go (the
   bar's Send, never Send now), and the question ids the reviewer agreed to leave to their
-  recommendation. It is decided before anything is written: `sendOn` refuses, purely, a name the
-  stored draft no longer holds, a choice whose option changed included (409 `changed`), an edit of a version no longer under review
-  (`stale`), a comment on the plan named without the pending edit whose lines `Done` moved it to
-  (`edit`), an approved plan (`approved`); each extension's `part` answers the questions no
-  answer takes outside those agreed (409 `unanswered`, every id); nothing to send is `empty`.
-  Then the edit lands as the next version; the batch `.review/v<N>.feedback-<k>.md`, `v0` while
+  recommendation. It is judged before anything is written, by the `send` rows on what the stored
+  draft makes of the names (`namedIn`): a name the draft no longer holds, a choice whose option
+  changed included (409 `changed`), an edit of a version no longer under review (`stale`), a
+  comment on the plan named without the pending edit whose lines `Done` moved it to (`edit`), an
+  approved plan (`approved`); each extension's `part` answers the questions no answer takes
+  outside those agreed (409 `unanswered`, every id); nothing to send is `empty`, and a draft the
+  server cannot read `unreadable`: those three are the route's answers, not rows. Then the edit
+  lands as the next version (`sendEdit`); the batch `.review/v<N>.feedback-<k>.md`, `v0` while
   drafting, `k` the next on that version; its `sent` entry, the commit point: an entry that fails
   removes the batch, and past it nothing throws. Then, each failure logged and the Send still
-  answered 200: the draft's rest, what the Send did not take; each part's `commit`, which hears
-  the entry's number and whether the batch holds more than its part; the notification. A Send
+  answered 200: each extension's reaction to the Send's event, which carries each part's `input`
+  and whether the batch holds more than its part (`comments`); the notification; the draft's
+  rest, what the Send did not take. A Send
   changes no stage: the version stays under review, `workspace.batches` counts its batches, and a
   gate after one records a new version even with the same text (`gateVersion`). The server sends
   from the draft it keeps, never a body: the page writes it first.
-- `Review.decide` applies in an order where a write that fails leaves a state the next `gate`
-  or the next load repairs: `plan.md` before the edit's version file, the notes file and the
-  draft's removal before the rename, which carries what is there. A `null` from `formatNotes`
+- The approval (`approve`, then `approveDirectory` in `review.ts`) applies in an order where a
+  write that fails leaves a state the next `gate` or the next load repairs: `plan.md` before the
+  edit's version file, the notes file and the draft's removal before the rename, which carries
+  what is there. The final directory's free name is read before the step (`freeTarget`), and the
+  rename lands exactly there. A `null` from `formatNotes`
   writes nothing and keeps a notes file already there: a retry after a failed rename carries no
   note. Whether the approval's prompt names a notes file is read from the final directory's
   listing, never from the decision.

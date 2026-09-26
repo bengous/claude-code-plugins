@@ -119,9 +119,10 @@ no build step, so what the page imports costs nothing at `cli start`.
   never reads `commentSwitch`: it reads `commenting`, false on a locked page, so no composer
   opens there, and `addAnnotation` returns when locked, as `select` does while the editor is
   open. A comment nobody can send is a silent loss.
-- `review.held` is what holds the review, or `null`, in the holder's words (`holds` of the
-  grill answers `grill 2 is open`, by the transcript's number). The reason is also the hold's
-  identity: the approval notes remember the one they warned of, and a reason that differs brings
+- `review.held` is what holds the review, or `null`, in the holder's words (the grill's region
+  says `grill 2 is open`, by the transcript's number). The reason is also the hold's
+  identity: the approval notes remember the one they warned of, and the approval sends it as
+  `confirmed`, so the server asks again for another; a reason that differs brings
   the warning back, so a second grill must not read as the first. Held, the pill reads `Held · <reason>` (`statusOf`), in
   review only, Send stays live, since a hold refuses Claude's versions and never the reviewer's
   word, and every way to an approval goes through the warning popover, which frames the reason in its own sentence (`The

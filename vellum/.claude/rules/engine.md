@@ -148,15 +148,12 @@ loop. `/vellum:start` enters it, Approve in the page or `/vellum:stop` leaves it
 - The turn's end submits: a `turn.complete` hook, after `next(e)`, gates `plan.md` while
   `live` when the main loop answered (`reason === "answer"`, no `agentId`), with
   `{ unchanged: "keep" }` so a text the page already shows opens no version, after a feedback
-  included. A recorded version writes one log line, and the band draws it from the next `stage` line; a kept one, a refusal (no
-  `plan.md` yet, the plan approved) and a server that does not answer say nothing. The explicit
-  tool stays the model's mid-turn signal and records a new version after a feedback.
-- Claude at rest is a fact of the core's, `idle` in `register.ts`: set as that end is heard
-  when no later turn started, cleared at `turn.start` and wherever `turns` is reset. An Escape, an
-  API error or a reload leave it false, never the absence of a running turn: a `plan.md` half
-  revised is never gated for it. `EngineContext.submitIdle` gates with `keep` while it holds and
-  answers whether the server recorded or kept a version: a refusal, a hold included, or no answer
-  is `false`, and the caller asks again at its next read; the next turn's end gates anyway.
+  included. A recorded version writes one log line, and the band draws it from the next `stage` line; a kept one and a
+  refusal (no `plan.md` yet, a hold, the plan approved) say nothing, the server journaling the
+  refusal, and a server that does not answer writes one log line. Under a hold Claude hears when
+  it ends, through the server's notice, and that turn's end records the version: the module
+  keeps no copy of what it gated. The explicit tool stays the model's mid-turn signal and records
+  a new version after a feedback.
 - A subagent's end is its answer to whoever spawned it: the same `turn.complete` hook, while
   `live`, hands a turn that carries `agentId` to the halves' `agentAnswered` (its id, its final
   text, its reason) and does nothing else, no gate and no `answered`; outside `live` it reaches

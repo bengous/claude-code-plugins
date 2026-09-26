@@ -1,4 +1,14 @@
-import type { Move, Proposal, Proposed, StepAnswer, StepPosts, StepWaited } from "./protocol.ts";
+import type {
+  Dropped,
+  Move,
+  Pending,
+  Proposal,
+  Proposed,
+  StepAnswer,
+  StepFile,
+  StepPosts,
+  StepWaited,
+} from "./protocol.ts";
 
 /** The boundary of `step`: what a request carries arrives as `unknown` and is parsed here, once. */
 
@@ -124,9 +134,9 @@ export function parseWaited(value: unknown): StepWaited | null {
   if (value.kind === "gone" || value.kind === "open") return { kind: value.kind };
 
   if (value.kind === "ended") {
-    return value.why === "replaced" || value.why === "approved"
-      ? { kind: "ended", why: value.why }
-      : null;
+    const why = droppedOf(value.why);
+
+    return why === null ? null : { kind: "ended", why };
   }
 
   return value.kind === "answered" &&
@@ -134,6 +144,46 @@ export function parseWaited(value: unknown): StepWaited | null {
     typeof value.text === "string"
     ? { kind: "answered", seq: value.seq, text: value.text }
     : null;
+}
+
+function droppedOf(value: unknown): Dropped | null {
+  return value === "replaced" || value === "approved" || value === "written" ? value : null;
+}
+
+function pendingOf(value: unknown): Pending | null {
+  if (!isRecord(value) || typeof value.id !== "string" || value.id === "") return null;
+  const proposal = parseProposal(value.proposal);
+
+  return proposal === null ? null : { id: value.id, proposal };
+}
+
+function answeredOf(value: unknown): StepFile["answered"] {
+  return isRecord(value) &&
+    typeof value.id === "string" &&
+    typeof value.seq === "number" &&
+    typeof value.text === "string"
+    ? { id: value.id, seq: value.seq, text: value.text }
+    : null;
+}
+
+/** `.review/step.json`, read field by field; `null` for a file that is not one. */
+export function parseStepFile(value: unknown): StepFile | null {
+  if (!isRecord(value)) return null;
+  const pending = value.pending === null ? null : pendingOf(value.pending);
+  const answered = value.answered === null ? null : answeredOf(value.answered);
+  const why = isRecord(value.dropped) ? droppedOf(value.dropped.why) : null;
+  const id = isRecord(value.dropped) ? value.dropped.id : null;
+  const dropped = why === null || typeof id !== "string" ? null : { id, why };
+
+  if (
+    (value.pending !== null && pending === null) ||
+    (value.answered !== null && answered === null) ||
+    (value.dropped !== null && dropped === null)
+  ) {
+    return null;
+  }
+
+  return { pending, answered, dropped };
 }
 
 export function parseError(value: unknown): string | null {

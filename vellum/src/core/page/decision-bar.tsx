@@ -2,7 +2,7 @@ import type { ComponentType } from "preact";
 import { useEffect, useState } from "preact/hooks";
 
 import type { SendShare } from "../extension.ts";
-import type { Annotation, Choices } from "../protocol.ts";
+import type { Annotation, Choices, Decision } from "../protocol.ts";
 import { choicesIn, countChanges, refOf } from "../protocol.ts";
 import { Badge, Banner, Button, Gear, Popover } from "./kit.tsx";
 import type { Notice } from "./notices.ts";
@@ -234,7 +234,13 @@ export function DecisionBar(props: BarProps): preact.JSX.Element {
     if (approving) return;
     setApproving(true);
 
-    void decide({ kind: "approve", edit: edited.value, notes }).then((taken) => {
+    // The reviewer was warned of the hold on the way here: the approval confirms that one (P4).
+    const decision: Decision =
+      hold === null
+        ? { kind: "approve", edit: edited.value, notes }
+        : { kind: "approve", edit: edited.value, notes, confirmed: hold };
+
+    void decide(decision).then((taken) => {
       setApproving(false);
 
       if (taken) close();

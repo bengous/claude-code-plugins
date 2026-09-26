@@ -1250,3 +1250,36 @@ test.describe("the band", () => {
     }
   });
 });
+
+/** What the core told Claude through the channel: its notices, in order. */
+async function notices(vellum: Vellum): Promise<readonly string[]> {
+  // SAFETY: the server's own `ChannelLine[]`, serialized by `Response.json` in routes.ts.
+  const lines = (await vellum.channel()).json as readonly {
+    readonly entry: { readonly kind: string; readonly from?: string; readonly text?: string };
+  }[];
+
+  return lines.flatMap(({ entry }) =>
+    entry.from === "core" && entry.text !== undefined ? [entry.text] : [],
+  );
+}
+
+test.describe("plan.md under a grill (#235, A1)", () => {
+  test("the turn's end records nothing under it; End grill tells Claude once, and the next turn's end records", async ({
+    vellum,
+  }) => {
+    await vellum.grill.open(SUBJECT);
+    vellum.writePlan("# The coverage of the page\n\nRevised during the grill.\n");
+
+    expect((await vellum.api("gate", { unchanged: "keep" })).json).toEqual({
+      error: "grill 2 is open: plan.md waits; you are told when it ends",
+    });
+    await vellum.grill.close("page");
+    expect(await notices(vellum)).toEqual([
+      "plan.md changed while grill 2 was open: integrate what it settled, then end your turn.",
+    ]);
+    expect((await vellum.api("gate", { unchanged: "keep" })).json).toEqual({
+      version: 2,
+      kept: false,
+    });
+  });
+});

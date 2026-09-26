@@ -1,5 +1,6 @@
 import type {
   Decision,
+  DecisionAnswer,
   DocRef,
   Draft,
   ReviewView,
@@ -121,10 +122,16 @@ export function draftWriter(): (draft: Draft) => Promise<number> {
   };
 }
 
-export async function postDecision(decision: Decision): Promise<number> {
+/** The decision's status, with the server's answer when it gave one: a refusal names its row. */
+export async function postDecision(
+  decision: Decision,
+): Promise<{ readonly status: number; readonly answer: DecisionAnswer | null }> {
   const response = await request("decision", { method: "POST", body: JSON.stringify(decision) });
 
-  return response.status;
+  // SAFETY: the server's own `DecisionAnswer`, serialized by `Response.json` in routes.ts; a 400 is text.
+  const answer = (await response.json().catch(() => null)) as DecisionAnswer | null;
+
+  return { status: response.status, answer };
 }
 
 /** The Send's status, with its answer when the server gave one: a batch, or why it wrote none. */

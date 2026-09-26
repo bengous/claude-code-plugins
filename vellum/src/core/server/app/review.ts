@@ -1,4 +1,11 @@
-import type { Part, ServerContext, ServerExtension, Started } from "../../extension.ts";
+import type {
+  Dispatched,
+  Reading,
+  Returned,
+  ServerContext,
+  ServerExtension,
+  ServerWorkflow,
+} from "../../extension.ts";
 import type {
   ChannelEntry,
   ChannelLine,
@@ -6,7 +13,6 @@ import type {
   DocRef,
   GroupedDoc,
   ReviewView,
-  SendRefusal,
 } from "../../protocol.ts";
 import { readDraft } from "../adapters/draft.ts";
 import {
@@ -29,25 +35,18 @@ import {
   CHANNEL_FILE,
   CHANNEL_ID_FILE,
   channelAfter,
+  nextSeq,
   renamedIn,
   untold,
 } from "../domain/channel.ts";
-import { formatBatch } from "../domain/feedback.ts";
-import type { FinalDir, ParseResult, ProjectPath, Version, WipDir } from "../domain/paths.ts";
+import type { FinalDir, ProjectPath, Version, WipDir } from "../domain/paths.ts";
 import { parseVersion } from "../domain/paths.ts";
-import type { Decision, Draft, EditKept, SendRequest } from "../domain/review.ts";
-import {
-  decideOn,
-  draftIsEmpty,
-  EMPTY_DRAFT,
-  gateVersion,
-  sendOn,
-  slugFor,
-} from "../domain/review.ts";
+import type { Draft } from "../domain/review.ts";
+import { draftIsEmpty } from "../domain/review.ts";
+import type { Actor, EventInput, PlanText, Table, Workflow } from "../domain/workflow.ts";
+import { held, JOURNAL_FILE, journalText, next, tableOf } from "../domain/workflow.ts";
 import type { Memory, PlanWorkspace } from "../domain/workspace.ts";
 import {
-  batchesOf,
-  batchFile,
   DRAFT_FILE,
   legacyBatch,
   notesFile,
@@ -59,6 +58,8 @@ import {
   versionFile,
   workspaceOf,
 } from "../domain/workspace.ts";
+import type { EffectPorts } from "./effects.ts";
+import { interpret } from "./effects.ts";
 
 export type ReviewOptions = {
   readonly project: string;
@@ -70,48 +71,27 @@ export type ReviewOptions = {
   readonly heldRetryMs?: number | undefined;
 };
 
-export type DecisionResult =
-  | { readonly ok: true; readonly workspace: PlanWorkspace }
-  | { readonly ok: false; readonly workspace: PlanWorkspace };
-
-/** What a Send did: the batch written, its entry's number and the edit it left, or why nothing was written. */
-export type SendResult =
-  | {
-      readonly ok: true;
-      readonly file: ProjectPath;
-      readonly seq: number;
-      readonly editKept: EditKept | null;
-    }
-  | { readonly ok: false; readonly refusal: SendRefusal };
-
-/** What `submit` reads: the version the plan is, or why the browser has nothing to show. */
-export type GateResult =
-  | { readonly ok: true; readonly version: Version; readonly kept: boolean }
-  | { readonly ok: false; readonly error: string };
-
-/**
- * What a submit does with a `plan.md` whose text is the version under review: `record` opens a
- * new version after a feedback, as the model's explicit call means it; `keep` never does, as
- * the turn's end means nothing new.
- */
-export type GateOptions = { readonly unchanged: "record" | "keep" };
-
-const RECORD_UNCHANGED: GateOptions = { unchanged: "record" };
-
-const HELD_GATE = "plan.md is recorded as the next version once it ends, if it changed";
+/** A step the server ran, and whether an approval's rename that failed stopped its effects. */
+export type Stepped = Dispatched & { readonly stopped: boolean };
 
 /** How long `ServerContext.hold` holds a request: under the 30 s at which the engine cuts every `$.http.fetch` (`docs/plugin-testing/hook-runtime.md`). */
 const WAIT_HOLD_MS = 25_000;
-
-const NO_PART: Part = { kind: "none" };
 
 function grouped(docs: readonly DocRef[], group: DocGroup): GroupedDoc[] {
   return docs.map((doc) => ({ ...doc, group }));
 }
 
-/** The use case: reads the directory, lets the domain decide, applies: files, memory, listeners. */
+/**
+ * The queue, the workflow and its readers. Every step reads the workflow, lets `next` judge the
+ * event against the table, and hands the effects to `interpret`, the one code that writes for the
+ * workflow; then the page hears of it, and the waits read again. What a step reads before it is
+ * judged is its route's (`events.ts` for the core's own), never a decision of this class.
+ */
 export class Review {
   private memory: Memory;
+
+  /** The workflow the last step left, for what the disk does not say: a proposal's wait. */
+  private last: Workflow | null = null;
 
   private readonly listeners = new Set<(workspace: PlanWorkspace) => void>();
 
@@ -121,54 +101,121 @@ export class Review {
 
   private readonly waiters = new Set<() => void>();
 
-  /** What every extension reads and writes through: bound here, since `holds` and `approved` are called here. */
+  /** What each `returnToCall` handed a call, by the call. */
+  private readonly returns = new Map<string, Returned>();
+
+  private readonly parts: readonly { readonly id: string; readonly workflow: ServerWorkflow }[];
+
+  /** The core's rows and the extensions', in the registry's order. */
+  public readonly table: Table;
+
+  /** What every extension reads through: bound here, since a step runs here. */
   public readonly context: ServerContext;
 
-  public constructor(private readonly options: ReviewOptions) {
+  private readonly ports: EffectPorts;
+
+  public constructor(public readonly options: ReviewOptions) {
     const { project } = options;
     this.memory = options.memory ?? { kind: "none" };
+
+    this.parts = options.extensions.flatMap(({ id, workflow }) =>
+      workflow === undefined ? [] : [{ id, workflow }],
+    );
+
+    this.table = tableOf(this.parts.map(({ workflow }) => workflow));
 
     this.context = {
       workspace: () => this.workspace(),
       listFiles: (dir) => listFiles(project, dir),
       readText: (path) => readTextIfAny(project, path),
-      writeText: (path, text) => writeText(project, path, text),
-      notify: async () => {
-        await this.notify();
-      },
       inOrder: (work) => this.inOrder(work),
-      relay: (entry) => this.relay(entry),
+      dispatch: (event, input, actor) => this.inOrder(() => this.step(event, input, actor)),
+      workflow: () => this.workflow(),
+      returned: (call) => this.returns.get(call) ?? null,
       draft: async () => {
         const draft = await this.draft();
 
         return draft === "unreadable" ? null : draft;
       },
       start: (id, input) => this.start(id, input),
-      held: () => this.held(),
       hold: (read, waiting) => this.hold(read, waiting),
-      wake: () => {
-        for (const waiter of this.waiters) waiter();
+    };
+
+    this.ports = {
+      recordVersion: () => this.recordVersion(),
+      writeFile: async (file, text) => writeText(project, await this.doc(file), text),
+      appendFile: async (file, text) => appendText(project, await this.doc(file), text),
+      exists: async (file) => (await modifiedAt(project, await this.doc(file))) !== null,
+      removeFile: async (file) => removeFile(project, await this.doc(file)),
+      relay: (entry) => this.relay(entry),
+      returnToCall: (call, seq, text) => {
+        this.returns.set(call, { seq, text });
+        this.wake();
       },
+      approveDirectory: (dir, notes) => this.approveDirectory(dir, notes),
+      journal: async (line) =>
+        appendText(project, await this.doc(JOURNAL_FILE), journalText(line, new Date())),
+      log: (text) => console.error(text),
     };
   }
 
   /** One chain for every mutation, so a gate never writes its version under a grill that opened meanwhile. */
-  private inOrder<T>(work: () => Promise<T>): Promise<T> {
+  public inOrder<T>(work: () => Promise<T>): Promise<T> {
     const done = this.queue.then(work);
     this.queue = done.catch(() => null);
 
     return done;
   }
 
-  /** The first extension that holds the review says what holds it. */
-  private async held(): Promise<string | null> {
-    for (const extension of this.options.extensions) {
-      const reason = (await extension.holds?.(this.context)) ?? null;
+  /**
+   * One step, inside the queue: the workflow read, the input read off it, stamped with the time
+   * and the channel's next number, judged by `next`, interpreted. A step that passed wakes the
+   * waits and tells the page.
+   */
+  public async step(event: string, input: EventInput | Reading, actor: Actor): Promise<Stepped> {
+    const w = await this.workflow();
+    // oxlint-disable-next-line unicorn/no-instanceof-builtins -- a Reading and plain values both come from this process's own routes, never another realm: `instanceof` tells them apart.
+    const read = input instanceof Function ? await input(w) : input;
+    const channel = await readTextIfAny(this.options.project, await this.doc(CHANNEL_FILE));
+    const stamped = { at: new Date().toISOString(), seq: String(nextSeq(channel ?? "")), ...read };
+    const stepped = next(w, this.table, event, stamped, actor);
+    const { appended: told, stopped } = await interpret(stepped.effects, this.ports);
 
-      if (reason !== null) return reason;
+    if (!stopped) this.last = stepped.workflow;
+
+    if (stepped.verdict.kind === "allow") {
+      this.wake();
+      await this.notify();
     }
 
-    return null;
+    return { ...stepped, appended: told, stopped };
+  }
+
+  /** The workflow as it stands: the directory with the memory, `plan.md` against its last version, each region. */
+  public async workflow(): Promise<Workflow> {
+    const workspace = await this.workspace();
+    const planText = await this.planTextOf(workspace);
+
+    const regions = await Promise.all(
+      this.parts.map(({ id, workflow }) =>
+        workflow.region(this.context, this.last?.regions.find((one) => one.id === id) ?? null),
+      ),
+    );
+
+    return { workspace, planText, regions };
+  }
+
+  private async planTextOf(workspace: PlanWorkspace): Promise<PlanText> {
+    const plan = await readTextIfAny(
+      this.options.project,
+      projectPath(`${workspace.dir}${PLAN_FILE}`),
+    );
+
+    if (plan === null) return "none";
+
+    if (workspace.kind === "drafting") return "pending";
+
+    return plan === (await this.planText(workspace.version, workspace.dir)) ? "none" : "pending";
   }
 
   private async hold<T>(read: () => Promise<T>, waiting: (value: T) => boolean): Promise<T> {
@@ -193,12 +240,16 @@ export class Review {
     }
   }
 
-  /** Called inside the queue, from another extension's route: no step of its own. */
+  /** Wakes every held request to read again: a step may have settled it. */
+  private wake(): void {
+    for (const waiter of this.waiters) waiter();
+  }
+
   // oxlint-disable-next-line anti-slop/no-unknown-parameters -- `input` is handed on untouched to the extension it names, whose `parse.ts` reads it.
-  private async start(id: string, input: unknown): Promise<ParseResult<Started>> {
+  private async start(id: string, input: unknown): Promise<string> {
     const extension = this.options.extensions.find((one) => one.id === id);
 
-    if (extension?.start === undefined) return { ok: false, error: `no extension ${id} starts` };
+    if (extension?.start === undefined) throw new Error(`no extension ${id} starts`);
 
     return await extension.start(this.context, input);
   }
@@ -226,7 +277,7 @@ export class Review {
 
   /** The channel's entries past `after`, read from where the review lives now. */
   public async channel(after: number): Promise<ChannelLine[]> {
-    const text = await readTextIfAny(this.options.project, await this.channelDoc(CHANNEL_FILE));
+    const text = await readTextIfAny(this.options.project, await this.doc(CHANNEL_FILE));
 
     return channelAfter(text ?? "", after);
   }
@@ -241,9 +292,9 @@ export class Review {
       const { project } = this.options;
       await this.migrateFeedback();
       const workspace = await this.workspace();
-      const text = await readTextIfAny(project, await this.channelDoc(CHANNEL_FILE));
+      const text = await readTextIfAny(project, await this.doc(CHANNEL_FILE));
 
-      if (text === null) await writeText(project, await this.channelDoc(CHANNEL_FILE), "");
+      if (text === null) await writeText(project, await this.doc(CHANNEL_FILE), "");
       else {
         const names = await listReview(project, workspace.dir);
 
@@ -251,7 +302,7 @@ export class Review {
           await this.relay(entry);
       }
 
-      const idDoc = await this.channelDoc(CHANNEL_ID_FILE);
+      const idDoc = await this.doc(CHANNEL_ID_FILE);
       const id = (await readTextIfAny(project, idDoc))?.trim() ?? "";
 
       if (id !== "") return id;
@@ -270,7 +321,7 @@ export class Review {
   private async migrateFeedback(): Promise<void> {
     const { project } = this.options;
     const { dir } = await this.workspace();
-    const channel = await this.channelDoc(CHANNEL_FILE);
+    const channel = await this.doc(CHANNEL_FILE);
 
     for (const name of await listReview(project, dir)) {
       const batch = legacyBatch(name);
@@ -285,14 +336,15 @@ export class Review {
     }
   }
 
-  private async channelDoc(file: string): Promise<ProjectPath> {
+  /** A file of the plan's directory, where the review lives now: the approval moves it. */
+  private async doc(file: string): Promise<ProjectPath> {
     return projectPath(`${(await this.workspace()).dir}${file}`);
   }
 
-  /** Called inside the queue, by the core and through `ServerContext`, so two entries never take one number. */
+  /** Inside the queue, so two entries never take one number. */
   private async relay(entry: ChannelEntry): Promise<number> {
     const { project } = this.options;
-    const doc = await this.channelDoc(CHANNEL_FILE);
+    const doc = await this.doc(CHANNEL_FILE);
     const { text, seq } = appended((await readTextIfAny(project, doc)) ?? "", entry);
     await appendText(project, doc, text);
 
@@ -305,8 +357,58 @@ export class Review {
     return projectPath(`${dir}${versionFile(version)}`);
   }
 
-  private planText(version: Version, dir?: WipDir | FinalDir): Promise<string> {
+  /** The text of `version`, under the directory where the review lives. */
+  public planText(version: Version, dir?: WipDir | FinalDir): Promise<string> {
     return readText(this.options.project, this.planDoc(version, dir));
+  }
+
+  /** `plan.md` as the next version; a failed approval's memory goes with the version it named. */
+  private async recordVersion(): Promise<void> {
+    const { project, workdir } = this.options;
+    const plan = await readPlan(project, workdir);
+
+    if (plan === null) throw new Error(`${PLAN_FILE} is gone from ${workdir}`);
+    const workspace = await this.workspace();
+    const version = parseVersion(workspace.kind === "drafting" ? 1 : workspace.version + 1);
+
+    if (!version.ok) throw new Error(version.error);
+    await writeText(project, this.planDoc(version.value), plan);
+    this.memory = { kind: "none" };
+  }
+
+  /**
+   * The approval of the version under review, as `approve()` ran it: the notes before the rename,
+   * which carries them, and the draft's removal, so it never ships in the final directory; the
+   * approved text back in `plan.md`, since Claude may have revised the working copy past it; the
+   * rename to `dir`, which rewrites the links; the memory. A rename that fails keeps its error
+   * for the page, which retries from there.
+   */
+  private async approveDirectory(dir: FinalDir, notes: string | null): Promise<boolean> {
+    const { project, workdir } = this.options;
+    const workspace = await this.workspace();
+
+    if (workspace.kind !== "inReview") throw new Error("no version is under review to approve");
+    const { version } = workspace;
+
+    // A `null` writes nothing and keeps a notes file already there: a retry carries no note.
+    if (notes !== null)
+      await writeText(project, projectPath(`${workdir}${notesFile(version)}`), notes);
+    await removeFile(project, this.draftDoc());
+    await writeText(project, projectPath(`${workdir}${PLAN_FILE}`), await this.planText(version));
+    const heldRetryMs = this.options.heldRetryMs ?? HELD_RETRY_MS;
+    const renamed = await renameWorkspace(project, workdir, dir, heldRetryMs);
+
+    if (!renamed.ok) {
+      this.memory = { kind: "finalizeError", version, error: renamed.error };
+
+      return false;
+    }
+
+    const final = await readWorkspace(project, renamed.value);
+    const noted = final.ok && final.value.kind === "approved" && final.value.notes;
+    this.memory = { kind: "approved", version, dir: renamed.value, notes: noted };
+
+    return true;
   }
 
   /**
@@ -339,6 +441,14 @@ export class Review {
     return true;
   }
 
+  /** What the draft keeps after a Send: the file goes with the last of it. */
+  public async keepDraft(rest: Draft): Promise<void> {
+    const { project } = this.options;
+
+    if (draftIsEmpty(rest)) await removeFile(project, this.draftDoc());
+    else await writeText(project, this.draftDoc(), JSON.stringify(rest));
+  }
+
   private draftDoc(): ProjectPath {
     return projectPath(`${this.options.workdir}${DRAFT_FILE}`);
   }
@@ -352,242 +462,16 @@ export class Review {
     return workspace;
   }
 
-  /** The plan the model wrote is the version under review; the same text keeps its number. */
-  public gate(options: GateOptions = RECORD_UNCHANGED): Promise<GateResult> {
-    return this.inOrder(() => this.gateInOrder(options));
-  }
-
-  private async gateInOrder(options: GateOptions): Promise<GateResult> {
-    const held = await this.held();
-
-    if (held !== null) return { ok: false, error: `${held}: ${HELD_GATE}` };
-    const workspace = await this.workspace();
-
-    if (workspace.kind === "approved") {
-      return { ok: false, error: `plan v${workspace.version} is already approved` };
-    }
-
-    const plan = await readPlan(this.options.project, this.options.workdir);
-
-    if (plan === null) {
-      return { ok: false, error: `write ${PLAN_FILE} in ${this.options.workdir} first` };
-    }
-
-    const latestText =
-      workspace.kind === "drafting" ? null : await this.planText(workspace.version, workspace.dir);
-
-    if (workspace.kind !== "drafting" && options.unchanged === "keep" && latestText === plan) {
-      return { ok: true, version: workspace.version, kept: true };
-    }
-
-    const gated = gateVersion(workspace, latestText, plan);
-
-    if (gated.kind === "kept") return { ok: true, version: gated.version, kept: true };
-    await writeText(this.options.project, this.planDoc(gated.version), plan);
-    this.memory = { kind: "none" };
-    await this.notify();
-
-    return { ok: true, version: gated.version, kept: false };
-  }
-
-  public decide(decision: Decision): Promise<DecisionResult> {
-    return this.inOrder(() => this.decideInOrder(decision));
-  }
-
-  private async decideInOrder(decision: Decision): Promise<DecisionResult> {
-    const workspace = await this.workspace();
-
-    const latestText =
-      workspace.kind === "drafting" ? null : await this.planText(workspace.version, workspace.dir);
-
-    const decided = decideOn(workspace, latestText, decision);
-
-    if (decided.kind === "refused") return { ok: false, workspace };
-    const { project, workdir } = this.options;
-
-    // `plan.md` first: if the version's write fails, the next gate records the edit as the next version.
-    if (decided.edit !== null) {
-      await writeText(project, projectPath(`${workdir}${PLAN_FILE}`), decided.edit.text);
-      await writeText(project, decided.edit.path, decided.edit.text);
-    }
-
-    // Before the rename, which rewrites its links and carries it to the final directory.
-    if (decided.notes !== null) await writeText(project, decided.notes.path, decided.notes.text);
-
-    // Before the rename too, or the draft ships in the final directory.
-    await removeFile(project, this.draftDoc());
-
-    return await this.approve(decided.version);
-  }
-
-  /**
-   * One Send: the comments, the choices and the edit it names, as the reviewer saw them at the click, read from
-   * the saved draft, and the extensions' parts. It changes no stage and is never held: the page
-   * takes comments after it. Its edit is: while the review is held it stays in the draft, since
-   * a version would move what the hold is about, and the rest goes.
-   */
-  public send(request: SendRequest): Promise<SendResult> {
-    return this.inOrder(() => this.sendInOrder(request));
-  }
-
-  /**
-   * All in one step of the queue. Decided first, with nothing written: `sendOn` and every part.
-   * Then the edit, the batch, and its entry, the commit point: before it a failure removes the
-   * batch, so nothing is told of a Send the page saw fail; after it nothing throws, so the page
-   * never sends again what Claude already has. Then the draft's rest and each part's `commit`: the
-   * grill's round closes only once the batch and its entry exist.
-   */
-  private async sendInOrder(request: SendRequest): Promise<SendResult> {
-    const workspace = await this.workspace();
-
-    if (workspace.kind === "approved") return { ok: false, refusal: { reason: "approved" } };
-    const stored = await this.draft();
-
-    if (stored === "unreadable") return { ok: false, refusal: { reason: "unreadable" } };
-    const draft = stored ?? EMPTY_DRAFT;
-
-    const latestText =
-      workspace.kind === "drafting" ? null : await this.planText(workspace.version, workspace.dir);
-
-    const held = request.edit === null ? null : await this.held();
-    const decided = sendOn(workspace, latestText, draft, request, held);
-
-    if (decided.kind === "refused") return { ok: false, refusal: { reason: decided.reason } };
-    const parts: { readonly id: string; readonly part: Extract<Part, { kind: "part" }> }[] = [];
-    const unanswered: string[] = [];
-
-    for (const extension of request.parts ? this.options.extensions : []) {
-      const part = (await extension.part?.(this.context, draft, request.takeDefaults)) ?? NO_PART;
-
-      if (part.kind === "unanswered") unanswered.push(...part.ids);
-      else if (part.kind === "part") parts.push({ id: extension.id, part });
-    }
-
-    if (unanswered.length > 0)
-      return { ok: false, refusal: { reason: "unanswered", ids: unanswered } };
-    const { annotations, choices, edit, version, editedFrom, editKept } = decided;
-
-    if (annotations.length === 0 && choices.length === 0 && edit === null && parts.length === 0) {
-      return {
-        ok: false,
-        refusal: editKept === null ? { reason: "empty" } : { reason: "held", held: editKept.held },
-      };
-    }
-
-    const { project, workdir } = this.options;
-
-    // `plan.md` first: if the version's write fails, the next gate records the edit as the next version.
-    if (edit !== null) {
-      await writeText(project, projectPath(`${workdir}${PLAN_FILE}`), edit.text);
-      await writeText(project, edit.path, edit.text);
-    }
-
-    const batch = batchesOf(await listReview(project, workspace.dir), version) + 1;
-    const file = projectPath(`${workspace.dir}${batchFile(version, batch)}`);
-
-    const heading =
-      version === null
-        ? { kind: "draft" as const, batch }
-        : { kind: "review" as const, version, batch, editedFrom };
-
-    const texts = parts.map(({ part }) => part.text);
-    const seq = await this.commitBatch(file, formatBatch(heading, texts, annotations, choices));
-    const typed = parts.reduce((kept, { part }) => part.typed(kept), decided.rest.typed);
-    await this.afterCommit("the draft's rest", () => this.keepDraft({ ...decided.rest, typed }));
-    const comments = annotations.length > 0 || choices.length > 0 || edit !== null;
-
-    for (const { id, part } of parts) {
-      const more = comments || parts.some((other) => other.id !== id);
-      await this.afterCommit(`${id}'s commit`, () => part.commit({ file, seq, more }));
-    }
-
-    await this.afterCommit("notify", async () => {
-      await this.notify();
-    });
-
-    return { ok: true, file, seq, editKept };
-  }
-
-  /** The batch, then its entry: the Send's commit point. A batch whose entry failed is removed. */
-  private async commitBatch(file: ProjectPath, text: string): Promise<number> {
-    const { project } = this.options;
-    await writeText(project, file, text);
-
-    try {
-      return await this.relay({ kind: "sent", file });
-    } catch (cause) {
-      await removeFile(project, file);
-      throw cause;
-    }
-  }
-
-  /** Past the commit point the Send stands: a write that fails is logged, never the Send's failure. */
-  private async afterCommit(what: string, work: () => Promise<void>): Promise<void> {
-    await work().catch((cause: unknown) => {
-      console.error(`a Send was committed, then ${what} failed: ${String(cause)}`);
-    });
-  }
-
-  /** What the draft keeps after a Send: the file goes with the last of it. */
-  private async keepDraft(rest: Draft): Promise<void> {
-    const { project } = this.options;
-
-    if (draftIsEmpty(rest)) await removeFile(project, this.draftDoc());
-    else await writeText(project, this.draftDoc(), JSON.stringify(rest));
-  }
-
-  /**
-   * Approve is the whole finalization: the approved text back in `plan.md`, since Claude may
-   * have revised the working copy past it, links rewritten, directory renamed, nothing pending after.
-   */
-  private async approve(version: Version): Promise<DecisionResult> {
-    const { project, workdir } = this.options;
-    const approved = await this.planText(version);
-    const slug = slugFor(approved);
-
-    if (!slug.ok) return await this.failApprove(version, slug.error);
-    await writeText(project, projectPath(`${workdir}${PLAN_FILE}`), approved);
-    const heldRetryMs = this.options.heldRetryMs ?? HELD_RETRY_MS;
-    const renamed = await renameWorkspace(project, workdir, slug.value, heldRetryMs);
-
-    if (!renamed.ok) return await this.failApprove(version, renamed.error);
-    const final = await readWorkspace(project, renamed.value);
-    const notes = final.ok && final.value.kind === "approved" && final.value.notes;
-    this.memory = { kind: "approved", version, dir: renamed.value, notes };
-
-    for (const extension of this.options.extensions) {
-      // The plan is approved whatever an extension fails to close: the rename is done.
-      await extension.approved?.(this.context).catch((cause: unknown) => {
-        console.error(`${extension.id} failed on approved: ${String(cause)}`);
-      });
-    }
-
-    const dir = renamed.value;
-    const notesDoc = notes ? projectPath(`${dir}${notesFile(version)}`) : null;
-    await this.relay({ kind: "approved", version, dir, notes: notesDoc });
-
-    return { ok: true, workspace: await this.notify() };
-  }
-
-  /** The reviewer sees the error and retries from the page; until then nothing is pending. */
-  private async failApprove(version: Version, error: string): Promise<DecisionResult> {
-    this.memory = { kind: "finalizeError", version, error };
-
-    return { ok: false, workspace: await this.notify() };
-  }
-
   /**
    * The plan's directory's files in every state, the final directory's once approved, the
    * linked docs that live outside it after. Once a version exists the reviewer decides on it,
    * so the working copy `plan.md` leaves the list; while drafting it is the draft the reviewer
-   * may comment on.
+   * may comment on. What holds the review is read off the workflow.
    */
   public async view(): Promise<ReviewView> {
-    const workspace = await this.workspace();
+    const w = await this.workflow();
+    const { workspace } = w;
     const listed = await listFiles(this.options.project, workspace.dir);
-
-    const held = await this.held();
-
     const planFile = projectPath(`${workspace.dir}${PLAN_FILE}`);
 
     const files = grouped(
@@ -601,7 +485,7 @@ export class Review {
         "plan",
       );
 
-      return { workspace, plan: null, docs: [...plans, ...files], held };
+      return { workspace, plan: null, docs: [...plans, ...files], held: held(w) };
     }
 
     const doc = this.planDoc(workspace.version, workspace.dir);
@@ -618,7 +502,7 @@ export class Review {
       workspace,
       plan: { doc, text, workingCopy: planFile, previous },
       docs: [...files, ...linked],
-      held,
+      held: held(w),
     };
   }
 

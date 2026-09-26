@@ -5,15 +5,19 @@ import type { Route } from "../../../extension.ts";
 import type {
   ChoiceRef,
   Decision,
+  DecisionAnswer,
   GateAnswer,
   PlanWorkspace,
+  RecordAnswer,
   SendAnswer,
   SendRequest,
   VellumBuild,
 } from "../../../protocol.ts";
-import type { GateOptions, Review } from "../../app/review.ts";
+import type { CoreEvents, GateOptions } from "../../app/events.ts";
+import type { Review } from "../../app/review.ts";
 import { parseProjectPath, parseVersion } from "../../domain/paths.ts";
 import type { ParseResult } from "../../domain/paths.ts";
+import { viewOf } from "../../domain/workflow.ts";
 import { DRAFT_FILE } from "../../domain/workspace.ts";
 import { isRecord, parseDraft, parseEdit } from "../draft.ts";
 
@@ -23,6 +27,8 @@ export type RouteContext = {
   readonly token: string;
   readonly project: string;
   readonly review: Review;
+  /** The core's own events: the gate, Record, the approval, the Send. */
+  readonly events: CoreEvents;
   /** `extensions/html/frame.ts`, built; every HTML file served carries a tag that loads it. */
   readonly frameScript: string;
   /** The extensions' own routes, keyed as `api` keys its own: `POST /api/x/<id>/<name>`. */
@@ -49,12 +55,19 @@ async function parseDecision(request: Request): Promise<Decision | null> {
   const body: unknown = await request.json().catch(() => null);
   const edit = isRecord(body) ? parseEdit(body.edit) : null;
 
-  return isRecord(body) &&
-    edit !== null &&
-    body.kind === "approve" &&
-    typeof body.notes === "string"
-    ? { kind: "approve", edit: edit.value, notes: body.notes }
-    : null;
+  if (
+    !isRecord(body) ||
+    edit === null ||
+    body.kind !== "approve" ||
+    typeof body.notes !== "string" ||
+    (body.confirmed !== undefined && typeof body.confirmed !== "string")
+  ) {
+    return null;
+  }
+
+  const decision: Decision = { kind: "approve", edit: edit.value, notes: body.notes };
+
+  return typeof body.confirmed === "string" ? { ...decision, confirmed: body.confirmed } : decision;
 }
 
 function parseIds(value: unknown): readonly string[] | null {
@@ -212,9 +225,13 @@ async function api(
   request: Request,
   route: string,
 ): Promise<Response> {
-  const { review } = context;
+  const { review, events } = context;
 
   if (route === "GET /api/review") return Response.json(await review.view());
+
+  if (route === "GET /api/workflow") {
+    return Response.json(viewOf(await review.workflow(), review.table));
+  }
 
   if (route === "GET /api/channel") {
     const after = parseAfter(new URL(request.url).searchParams.get("after"));
@@ -245,7 +262,7 @@ async function api(
   }
 
   if (route === "POST /api/gate") {
-    const gated = await review.gate(await parseGateOptions(request));
+    const gated = await events.gate(await parseGateOptions(request), "claude");
 
     if (!gated.ok) {
       const refused: GateAnswer = { error: gated.error };
@@ -259,20 +276,36 @@ async function api(
     return Response.json(answer);
   }
 
+  if (route === "POST /api/record") {
+    const recorded = await events.gate({ unchanged: "record" }, "reviewer");
+
+    const answer: RecordAnswer = recorded.ok
+      ? { version: recorded.version }
+      : { rule: recorded.rule, reason: recorded.error };
+
+    return Response.json(answer, { status: recorded.ok ? 200 : 409 });
+  }
+
   if (route === "POST /api/decision") {
     const decision = await parseDecision(request);
 
     if (decision === null) return badRequest();
-    const result = await review.decide(decision);
+    const result = await events.decide(decision);
+    const { workspace } = result;
 
-    return Response.json({ workspace: result.workspace }, { status: result.ok ? 200 : 409 });
+    const answer: DecisionAnswer =
+      result.ok || result.rule === null || result.reason === null
+        ? { workspace }
+        : { workspace, rule: result.rule, reason: result.reason };
+
+    return Response.json(answer, { status: result.ok ? 200 : 409 });
   }
 
   if (route === "POST /api/send") {
     const sending = await parseSend(request);
 
     if (sending === null) return badRequest();
-    const sent = await review.send(sending);
+    const sent = await events.send(sending);
 
     const answer: SendAnswer = sent.ok
       ? { file: sent.file, seq: sent.seq, editKept: sent.editKept }

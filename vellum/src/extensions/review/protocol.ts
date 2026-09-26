@@ -49,15 +49,11 @@ export type Failed = {
 /** An agent whose run was given up, to be stopped: it leaves the list once a stop is confirmed. */
 export type Stopping = { readonly seq: number; readonly agentId: string };
 
-/**
- * What `GET state` answers: the run under way, the last one that failed, the agents to stop, and
- * whether `plan.md` is to be submitted again, since a run that held the review ended.
- */
+/** What `GET state` answers: the run under way, the last one that failed, and the agents to stop. */
 export type ReviewState = {
   readonly run: Run | null;
   readonly failed: Failed | null;
   readonly stopping: readonly Stopping[];
-  readonly resubmit: boolean;
 };
 
 /** What `.review/reviews.json` keeps: the state, and the last number a run took. */
@@ -76,7 +72,6 @@ export type ReviewPosts = {
   readonly forget: { readonly seq: number };
   readonly close: Readonly<Record<string, never>>;
   readonly stopped: { readonly seq: number };
-  readonly resubmitted: Readonly<Record<string, never>>;
 };
 
 /** What `POST request` answers: the number the run took. */

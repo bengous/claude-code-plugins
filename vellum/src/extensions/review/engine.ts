@@ -207,13 +207,13 @@ async function check(
 
 /**
  * The review, read again each time it changed: the agents to stop first, then the run, launched
- * when asked and checked while running, then a version Claude wrote while a run held the review.
+ * when asked and checked while running.
  */
 async function staged(context: EngineContext): Promise<void> {
   const state = await stateOf(context);
 
   if (state === null) return;
-  const { run, stopping, resubmit } = state;
+  const { run, stopping } = state;
 
   if (run === null) underWay.delete(context.live);
   else underWay.add(context.live);
@@ -222,10 +222,6 @@ async function staged(context: EngineContext): Promise<void> {
 
   if (run?.kind === "requested") await launch(context, run);
   else if (run?.kind === "running") await check(context, run);
-
-  if (resubmit && run === null && (await context.submitIdle())) {
-    await post(context, "resubmitted", {});
-  }
 }
 
 /** An end posted to its run, and how the server answered. */

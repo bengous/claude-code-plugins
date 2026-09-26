@@ -30,15 +30,16 @@ export const REVIEW = "review";
 
 export const REVIEWS_FILE = `${REVIEW_DIR}/reviews.json`;
 
-const NONE: Reviews = { seq: 0, run: null, failed: null, stopping: [], resubmit: false };
+/** No run yet, and none ever asked. */
+export const NO_RUNS: Reviews = { seq: 0, run: null, failed: null, stopping: [] };
 
 const NO_SUCH_RUN = "no such run";
 
 /** Open while a run is asked or running. */
 export function regionOf(reviews: Reviews | null): Region {
-  const known = reviews ?? NONE;
-  const data = { reviews: JSON.stringify(known) };
-  const { run } = known;
+  const { seq, run, failed, stopping } = reviews ?? NO_RUNS;
+  // One order of the fields, whoever wrote the file: the data is compared as a text.
+  const data = { reviews: JSON.stringify({ seq, run, failed, stopping }) };
 
   return run === null
     ? { id: REVIEW, state: "closed", data }
@@ -90,7 +91,7 @@ function kept(w: Workflow, reviews: Reviews, verdict: readonly Effect[] = []): O
 }
 
 /** The run given up, its agent to stop once it has one. */
-function givenUp(reviews: Reviews): Reviews {
+function runDropped(reviews: Reviews): Reviews {
   const { run, stopping } = reviews;
   const agent = run?.kind === "running" ? [{ seq: run.seq, agentId: run.agentId }] : [];
 
@@ -165,15 +166,15 @@ export const REACTION: Transition = (w, event) => {
   if (event !== "approve") return unchanged(w);
   const reviews = reviewsIn(w);
 
-  return reviews.run === null ? unchanged(w) : kept(w, givenUp(reviews));
+  return reviews.run === null ? unchanged(w) : kept(w, runDropped(reviews));
 };
 
 export const TRANSITIONS = {
   requestReview,
   reviewLaunched,
   reviewDone,
-  reviewForgotten: (w) => kept(w, givenUp(reviewsIn(w))),
-  reviewClosed: (w) => kept(w, givenUp(reviewsIn(w))),
+  reviewForgotten: (w) => kept(w, runDropped(reviewsIn(w))),
+  reviewClosed: (w) => kept(w, runDropped(reviewsIn(w))),
   reviewStopped,
 } satisfies Readonly<Record<string, Transition>>;
 

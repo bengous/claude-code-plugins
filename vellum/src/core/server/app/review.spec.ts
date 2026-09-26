@@ -15,12 +15,15 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { serverExtensions } from "../../../extensions/server.ts";
-import type { ServerExtension } from "../../extension.ts";
+import type { ServerExtension, ServerWorkflow } from "../../extension.ts";
 import type { Passage } from "../domain/feedback.ts";
 import { parseWipDir } from "../domain/paths.ts";
 import type { Draft, SendRequest } from "../domain/review.ts";
 import { choicesIn, EMPTY_TYPED } from "../domain/review.ts";
-import type { SendResult } from "./review.ts";
+import type { Outcome, Region, Transition, Workflow } from "../domain/workflow.ts";
+import { held as heldIn, withRegion } from "../domain/workflow.ts";
+import type { CoreEvents, SendResult } from "./events.ts";
+import { coreEvents } from "./events.ts";
 import { Review } from "./review.ts";
 
 /** The applying side: the pure decisions are covered in `domain/review.spec.ts`. */
@@ -37,7 +40,10 @@ const FINAL = "plans/2026-09-15/notification-settings/";
 
 const V1 = 1 as never;
 
-type Setup = { readonly review: Review; readonly root: string };
+type Setup = { readonly review: Review; readonly events: CoreEvents; readonly root: string };
+
+/** A gate as `submit` asks it: a new text, or one after a feedback, is the next version. */
+const RECORD = { unchanged: "record" } as const;
 
 /** A held rename is retried this long here, so a test that holds the folder to the end stays under bun's 5 s. */
 const HELD_SHORT_MS = 200;
@@ -55,10 +61,9 @@ function setup(
 
   if (!workdir.ok) throw new Error(workdir.error);
 
-  return {
-    review: new Review({ project: root, workdir: workdir.value, extensions, heldRetryMs }),
-    root,
-  };
+  const review = new Review({ project: root, workdir: workdir.value, extensions, heldRetryMs });
+
+  return { review, events: coreEvents(review), root };
 }
 
 /** The error of a rename `refuseRename` made fail, not of any other step of `finalize`. */
@@ -89,7 +94,7 @@ async function told(review: Review): Promise<readonly unknown[]> {
 async function gated(plan = PLAN, heldRetryMs = HELD_SHORT_MS): Promise<Setup> {
   const s = setup(serverExtensions, heldRetryMs);
   writeFileSync(join(s.root, WIP, "plan.md"), plan);
-  await s.review.gate();
+  await s.events.gate(RECORD, "claude");
 
   return s;
 }
@@ -98,7 +103,7 @@ async function gated(plan = PLAN, heldRetryMs = HELD_SHORT_MS): Promise<Setup> {
 async function gatedTwice(): Promise<Setup> {
   const s = await gated();
   writeFileSync(join(s.root, WIP, "plan.md"), `${PLAN}more\n`);
-  await s.review.gate();
+  await s.events.gate(RECORD, "claude");
 
   return s;
 }
@@ -141,7 +146,7 @@ function send(
   const stored: Draft = { annotations: [], edit: null, choices: {}, typed: EMPTY_TYPED, ...draft };
   writeFileSync(join(s.root, DRAFT), JSON.stringify(stored));
 
-  return s.review.send({
+  return s.events.send({
     annotations: stored.annotations.map(({ id }) => id),
     edit: stored.edit?.version ?? null,
     choices: choicesIn(stored.choices),
@@ -177,35 +182,47 @@ const ON_LINE = {
 
 describe("Review", () => {
   test("gate without plan.md answers the error the model reads", async () => {
-    const { review } = setup();
-    expect(await review.gate()).toEqual({ ok: false, error: `write plan.md in ${WIP} first` });
+    const { events } = setup();
+    expect(await events.gate(RECORD, "claude")).toEqual({
+      ok: false,
+      rule: "no-plan",
+      error: `write plan.md in ${WIP} first`,
+    });
   });
 
   test("gate writes vN.md from plan.md and answers the version", async () => {
-    const { review, root } = await gated();
+    const { events, root } = await gated();
     expect(read(root, `${WIP}.review/v1.md`)).toBe(PLAN);
     writeFileSync(join(root, WIP, "plan.md"), `${PLAN}more\n`);
-    expect(await review.gate()).toEqual({ ok: true, version: 2 as never, kept: false });
+    expect(await events.gate(RECORD, "claude")).toEqual({
+      ok: true,
+      version: 2 as never,
+      kept: false,
+    });
     expect(read(root, `${WIP}.review/v2.md`)).toBe(`${PLAN}more\n`);
   });
 
   test("the same plan.md keeps its version under review, and reopens it after a batch", async () => {
     const s = await gated();
-    expect(await s.review.gate()).toEqual({ ok: true, version: V1, kept: true });
+    expect(await s.events.gate(RECORD, "claude")).toEqual({ ok: true, version: V1, kept: true });
     await send(s, SAY_NO);
-    expect(await s.review.gate()).toEqual({ ok: true, version: 2 as never, kept: false });
+    expect(await s.events.gate(RECORD, "claude")).toEqual({
+      ok: true,
+      version: 2 as never,
+      kept: false,
+    });
     expect(await s.review.workspace()).toMatchObject({ kind: "inReview", version: 2, batches: 0 });
   });
 
   test("asked to keep an unchanged plan.md, the gate keeps its version after a batch too", async () => {
     const s = await gated();
     await send(s, SAY_NO);
-    expect(await s.review.gate({ unchanged: "keep" })).toEqual({
+    expect(await s.events.gate({ unchanged: "keep" }, "claude")).toEqual({
       ok: true,
       version: V1,
       kept: true,
     });
-    expect(await s.review.gate({ unchanged: "record" })).toEqual({
+    expect(await s.events.gate({ unchanged: "record" }, "claude")).toEqual({
       ok: true,
       version: 2 as never,
       kept: false,
@@ -235,7 +252,7 @@ describe("Review", () => {
       { kind: "sent", file: `${WIP}.review/v1.feedback-2.md` },
     ]);
     expect(read(s.root, `${WIP}.review/v1.feedback-2.md`)).toContain("Nor this.");
-    expect((await s.review.decide(APPROVE)).ok).toBe(true);
+    expect((await s.events.decide(APPROVE)).ok).toBe(true);
   });
 
   test("a Send with an edit writes the version, plan.md and a batch on it that names both", async () => {
@@ -289,14 +306,14 @@ describe("Review", () => {
     };
 
     writeFileSync(join(s.root, DRAFT), '{"annotations":3}');
-    expect(await s.review.send(all)).toEqual({ ok: false, refusal: { reason: "unreadable" } });
-    await s.review.decide(APPROVE);
-    expect(await s.review.send(all)).toEqual({ ok: false, refusal: { reason: "approved" } });
+    expect(await s.events.send(all)).toEqual({ ok: false, refusal: { reason: "unreadable" } });
+    await s.events.decide(APPROVE);
+    expect(await s.events.send(all)).toEqual({ ok: false, refusal: { reason: "approved" } });
   });
 
   test("approve with an edit leaves the edited text in the final plan.md, links rewritten", async () => {
-    const { review, root } = await gated();
-    const result = await review.decide({ ...APPROVE, edit: EDIT_OF_V1 });
+    const { events, root } = await gated();
+    const result = await events.decide({ ...APPROVE, edit: EDIT_OF_V1 });
     expect(result).toMatchObject({ ok: true, workspace: { kind: "approved", version: 2 } });
     expect(read(root, `${FINAL}plan.md`)).toEndWith("edited by the reviewer\n");
     expect(read(root, `${FINAL}plan.md`)).toContain(`${FINAL}mockup.html`);
@@ -306,32 +323,35 @@ describe("Review", () => {
   test("after a Send with an edit, the gate keeps v3 for the edit and opens v4 for Claude's revision", async () => {
     const s = await gatedTwice();
     await send(s, { edit: EDIT_OF_V2 });
-    expect(await s.review.gate({ unchanged: "keep" })).toEqual({
+    expect(await s.events.gate({ unchanged: "keep" }, "claude")).toEqual({
       ok: true,
       version: 3 as never,
       kept: true,
     });
     writeFileSync(join(s.root, WIP, "plan.md"), `${EDITED}revised by Claude\n`);
-    expect(await s.review.gate({ unchanged: "keep" })).toMatchObject({ version: 4, kept: false });
+    expect(await s.events.gate({ unchanged: "keep" }, "claude")).toMatchObject({
+      version: 4,
+      kept: false,
+    });
     expect(read(s.root, `${WIP}.review/v3.md`)).toBe(EDITED);
   });
 
   test("an approve with an edit whose rename failed is retried without the edit, and approves v2", async () => {
-    const { review, root } = await gated();
+    const { events, root } = await gated();
     const release = refuseRename(root);
-    const failed = await review.decide({ ...APPROVE, edit: EDIT_OF_V1 });
+    const failed = await events.decide({ ...APPROVE, edit: EDIT_OF_V1 });
     release();
     const stuck = { kind: "inReview", version: 2, finalizeError: RENAME_FAILED };
     expect(failed).toMatchObject({ ok: false, workspace: stuck });
-    const retried = await review.decide(APPROVE);
+    const retried = await events.decide(APPROVE);
     expect(retried).toMatchObject({ ok: true, workspace: { kind: "approved", version: 2 } });
     expect(read(root, `${FINAL}plan.md`)).toEndWith("edited by the reviewer\n");
     expect(read(root, `${FINAL}.review/v1.md`)).toBe(PLAN.replaceAll(WIP, FINAL));
   });
 
   test("approve with a note writes the notes file before the rename: the final directory holds it, links rewritten", async () => {
-    const { review, root } = await gated();
-    const result = await review.decide({ ...APPROVE, notes: `Start from ${WIP}mockup.html.` });
+    const { review, events, root } = await gated();
+    const result = await events.decide({ ...APPROVE, notes: `Start from ${WIP}mockup.html.` });
     expect(result).toMatchObject({ ok: true, workspace: { kind: "approved", notes: true } });
     expect(read(root, `${FINAL}.review/v1.notes.md`)).toBe(
       `${NOTES_TITLE} (v1)\n\nStart from ${FINAL}mockup.html.\n`,
@@ -341,11 +361,11 @@ describe("Review", () => {
   });
 
   test("an approve retried after a failed rename carries no note, and still reports the first attempt's", async () => {
-    const { review, root } = await gated();
+    const { events, root } = await gated();
     const release = refuseRename(root);
-    await review.decide({ kind: "approve", edit: EDIT_OF_V1, notes: "Slice 1 only." });
+    await events.decide({ kind: "approve", edit: EDIT_OF_V1, notes: "Slice 1 only." });
     release();
-    const retried = await review.decide(APPROVE);
+    const retried = await events.decide(APPROVE);
     expect(retried).toMatchObject({ ok: true, workspace: { version: 2, notes: true } });
     expect(read(root, `${FINAL}.review/v2.notes.md`)).toBe(
       `${NOTES_TITLE} (v2)\n\nThe reviewer edited plan.md directly (v1 → v2): read plan.md again.\n\nSlice 1 only.\n`,
@@ -367,16 +387,16 @@ describe("Review", () => {
   });
 
   test("an approve that lands leaves no draft.json in the final directory", async () => {
-    const { review, root } = await gated();
+    const { events, root } = await gated();
     writeFileSync(join(root, DRAFT), "{}");
-    await review.decide(APPROVE);
+    await events.decide(APPROVE);
     expect(existsSync(join(root, FINAL, ".review/v1.md"))).toBe(true);
     expect(existsSync(join(root, FINAL, ".review/draft.json"))).toBe(false);
   });
 
   test("approve renames the directory at once and tells the channel, moved with it, its name", async () => {
-    const { review, root } = await gated();
-    const result = await review.decide(APPROVE);
+    const { review, events, root } = await gated();
+    const result = await events.decide(APPROVE);
     expect(result).toEqual({
       ok: true,
       workspace: { kind: "approved", dir: FINAL as never, version: V1, notes: false },
@@ -385,18 +405,22 @@ describe("Review", () => {
     expect(await told(review)).toEqual([{ kind: "approved", version: 1, dir: FINAL, notes: null }]);
   });
 
-  test("approve puts the approved text back in plan.md, over a revision not submitted", async () => {
-    const { review, root } = await gated();
+  test("a revision of plan.md not recorded refuses the approval, and renames nothing (D13)", async () => {
+    const { events, root } = await gated();
     writeFileSync(join(root, WIP, "plan.md"), "# Notification settings\n\nrevised\n");
-    await review.decide(APPROVE);
-    expect(read(root, `${FINAL}plan.md`)).toBe(read(root, `${FINAL}.review/v1.md`));
-    expect(read(root, `${FINAL}plan.md`)).toContain(`${FINAL}mockup.html`);
+
+    expect(await events.decide(APPROVE)).toMatchObject({
+      ok: false,
+      rule: "approve-draft",
+      reason: "plan.md changed since v1: record it before approving",
+    });
+    expect(existsSync(join(root, FINAL))).toBe(false);
   });
 
   test("a rename that fails shows its error and leaves the plan under review", async () => {
-    const { review, root } = await gated();
+    const { review, events, root } = await gated();
     const release = refuseRename(root);
-    const result = await review.decide(APPROVE);
+    const result = await events.decide(APPROVE);
     release();
     expect(result).toMatchObject({
       ok: false,
@@ -408,10 +432,10 @@ describe("Review", () => {
   test.if(WINDOWS)(
     "a rename refused while a program holds the folder is retried, and approves once it lets go",
     async () => {
-      const { review, root } = await gated(PLAN, 2_000);
+      const { events, root } = await gated(PLAN, 2_000);
       const release = refuseRename(root);
       setTimeout(release, 300);
-      const result = await review.decide(APPROVE);
+      const result = await events.decide(APPROVE);
       expect(result).toMatchObject({ ok: true, workspace: { kind: "approved", dir: FINAL } });
     },
   );
@@ -419,9 +443,9 @@ describe("Review", () => {
   test.if(WINDOWS)(
     "a folder held past the retries names what may hold it, and Retry approval",
     async () => {
-      const { review, root } = await gated();
+      const { events, root } = await gated();
       const release = refuseRename(root);
-      const result = await review.decide(APPROVE);
+      const result = await events.decide(APPROVE);
       release();
       const held = `rename ${WIP} → ${FINAL} failed: a program holds ${WIP} (a terminal, File Explorer, an editor or a background command open in it); close it, then Retry approval`;
       expect(result).toMatchObject({ ok: false, workspace: { finalizeError: held } });
@@ -448,7 +472,7 @@ describe("Review", () => {
     mkdirSync(join(s.root, "docs"));
     writeFileSync(join(s.root, "docs", "guide.md"), "# Guide\n");
     writeFileSync(join(s.root, WIP, "plan.md"), "# Plan\n\nSee [guide](docs/guide.md).\n");
-    await s.review.gate();
+    await s.events.gate(RECORD, "claude");
     const view = await s.review.view();
     expect(view.docs.map((doc) => [doc.path, doc.group])).toEqual([
       [`${WIP}mockup.html` as never, "artifact"],
@@ -463,16 +487,16 @@ describe("Review", () => {
   });
 
   test("view names the working copy the version was taken from, renamed once approved", async () => {
-    const { review } = await gated();
+    const { review, events } = await gated();
     expect((await review.view()).plan?.workingCopy).toBe(`${WIP}plan.md` as never);
-    await review.decide(APPROVE);
+    await events.decide(APPROVE);
     expect((await review.view()).plan?.workingCopy).toBe(`${FINAL}plan.md` as never);
   });
 
   test("a plan under review that names a version file does not list it as cited", async () => {
     const s = await gated("# Plan\n\nAs in `.review/v1.md`.\n");
     writeFileSync(join(s.root, WIP, "plan.md"), "# Plan\n\nStill as in `.review/v1.md`.\n");
-    await s.review.gate();
+    await s.events.gate(RECORD, "claude");
     const view = await s.review.view();
     expect(view.plan?.doc).toBe(`${WIP}.review/v2.md` as never);
     expect(view.docs.map((doc) => doc.path)).toEqual([`${WIP}mockup.html` as never]);
@@ -483,7 +507,7 @@ describe("Review", () => {
     mkdirSync(join(s.root, "docs"));
     writeFileSync(join(s.root, "docs", "notes.review.md"), "# Notes\n");
     writeFileSync(join(s.root, WIP, "plan.md"), "# Plan\n\nSee [notes](docs/notes.review.md).\n");
-    await s.review.gate();
+    await s.events.gate(RECORD, "claude");
     const view = await s.review.view();
     expect(view.docs.map((doc) => doc.path)).toEqual([
       `${WIP}mockup.html` as never,
@@ -500,17 +524,17 @@ describe("Review", () => {
   });
 
   test("view carries no previous text at v1, and v1's text at v2", async () => {
-    const { review, root } = await gated();
+    const { review, events, root } = await gated();
     expect((await review.view()).plan?.previous).toBeNull();
     writeFileSync(join(root, WIP, "plan.md"), `${PLAN}more\n`);
-    await review.gate();
+    await events.gate(RECORD, "claude");
     expect((await review.view()).plan?.previous).toEqual({ version: V1, text: PLAN });
   });
 
   test("view once approved lists the final directory's files, the plan's copy left out", async () => {
-    const { review, root } = await gated();
+    const { review, events, root } = await gated();
     writeFileSync(join(root, WIP, "unlinked.md"), "# Unlinked\n");
-    await review.decide(APPROVE);
+    await events.decide(APPROVE);
     const view = await review.view();
     expect(view.plan?.doc).toBe(`${FINAL}.review/v1.md` as never);
     expect(view.docs.map((doc) => doc.path)).toEqual([
@@ -549,7 +573,7 @@ describe("Review", () => {
     const s = setup();
     await send(s, SAY_NO);
     writeFileSync(join(s.root, WIP, "plan.md"), PLAN);
-    await s.review.gate();
+    await s.events.gate(RECORD, "claude");
     expect(await told(s.review)).toEqual([
       { kind: "sent", file: `${WIP}.review/v0.feedback-1.md` },
     ]);
@@ -568,12 +592,42 @@ describe("Review", () => {
   });
 });
 
-/** An extension with a round open, and each batch its part's commit heard. */
-type Rounding = { readonly extension: ServerExtension; readonly heard: unknown[] };
+/** A fake extension's region: open and holding for `reason`, or closed. */
+function regionHeld(id: string, reason: string | null): Region {
+  return reason === null
+    ? { id, state: "closed", data: {} }
+    : { id, state: "open", holds: reason, wait: null, data: {} };
+}
 
-/** `untyped` questions no answer takes, which a Send leaves to their recommendation once agreed. */
+/** A fake extension's part of the workflow: no event of its own, a region, and a reaction. */
+function workflowPart(region: () => Region, reaction?: Transition): ServerWorkflow {
+  return {
+    events: [],
+    rules: [],
+    transitions: {},
+    reaction,
+    region: () => Promise.resolve(region()),
+    segment: () => null,
+  };
+}
+
+/** What a reaction of a fake extension writes: a file of its own, under the plan's directory. */
+function wrote(w: Workflow, id: string, file: string, text: string): Outcome {
+  return { workflow: w, effects: [{ kind: "writeFile", owner: id, file, text }] };
+}
+
+/** An extension with a round open, and what its reaction heard of each Send that carried its part. */
+type Rounding = {
+  readonly extension: ServerExtension;
+  readonly heard: { readonly carried: string; readonly comments: string }[];
+};
+
+/**
+ * `untyped` questions no answer takes, which a Send leaves to their recommendation once agreed;
+ * its reaction writes `round.md` with what its part carried.
+ */
 function rounding(untyped: readonly string[] = []): Rounding {
-  const heard: unknown[] = [];
+  const heard: Rounding["heard"][number][] = [];
 
   return {
     heard,
@@ -586,14 +640,21 @@ function rounding(untyped: readonly string[] = []): Rounding {
                 kind: "part",
                 text: "## Round\n\nReviewer: Q1: yes",
                 typed: (typed) => ({ ...typed, general: "" }),
-                commit: (batch) => {
-                  heard.push(batch);
-
-                  return Promise.resolve();
-                },
+                input: "Q1: yes",
               }
             : { kind: "unanswered", ids: untyped },
         ),
+      workflow: workflowPart(
+        () => regionHeld("round", null),
+        (w, event, input) => {
+          const { round: carried, comments = "" } = input;
+
+          if (event !== "send" || carried === undefined) return { workflow: w, effects: [] };
+          heard.push({ carried, comments });
+
+          return wrote(w, "round", "round.md", carried);
+        },
+      ),
     },
   };
 }
@@ -611,7 +672,7 @@ describe("a Send and the extensions", () => {
     expect((await send(s, SAY_NO, { takeDefaults: ["Q2", "Q3"] })).ok).toBe(true);
   });
 
-  test("an extension's part comes before the comments, and its commit hears the file and its number once written", async () => {
+  test("an extension's part comes before the comments, and its reaction hears what it carried, after the entry", async () => {
     const round = rounding();
     const s = setup([round.extension]);
     await send(s, SAY_NO);
@@ -619,22 +680,23 @@ describe("a Send and the extensions", () => {
     expect(read(s.root, file)).toBe(
       `# Drafting feedback 1\n\n## Round\n\nReviewer: Q1: yes\n\n## Comments\n\n1. \`${WIP}.review/v1.md\`, general\n   No.\n`,
     );
-    expect(round.heard).toEqual([{ file, seq: 1, more: true }]);
+    expect(round.heard).toEqual([{ carried: "Q1: yes", comments: "true" }]);
+    expect(read(s.root, `${WIP}round.md`)).toBe("Q1: yes");
   });
 
-  test("a part alone is a batch, and its commit hears it holds nothing more", async () => {
+  test("a part alone is a batch, and its reaction hears it holds nothing more", async () => {
     const round = rounding();
     const s = setup([round.extension]);
     expect((await send(s, {})).ok).toBe(true);
-    expect(round.heard).toEqual([{ file: `${WIP}.review/v0.feedback-1.md`, seq: 1, more: false }]);
+    expect(round.heard).toEqual([{ carried: "Q1: yes", comments: "false" }]);
   });
 
-  test("a choice alone is a batch, and a part's commit hears the batch holds more than the part", async () => {
+  test("a choice alone is a batch, and a part's reaction hears the batch holds more than the part", async () => {
     const round = rounding();
     const s = setup([round.extension]);
     const layout = { layout: { option: "d", label: "D", description: ARTICLE } };
     expect((await send(s, { choices: { [`${WIP}layout.html`]: layout } })).ok).toBe(true);
-    expect(round.heard).toEqual([{ file: `${WIP}.review/v0.feedback-1.md`, seq: 1, more: true }]);
+    expect(round.heard).toEqual([{ carried: "Q1: yes", comments: "true" }]);
     expect(read(s.root, `${WIP}.review/v0.feedback-1.md`)).toContain("## Choices\n\n1. ");
     expect(existsSync(join(s.root, DRAFT))).toBe(false);
   });
@@ -660,29 +722,30 @@ describe("a Send and the extensions", () => {
     expect(round.heard).toEqual([]);
   });
 
-  test("an entry that cannot be written leaves no batch and runs no commit: the Send can go again", async () => {
+  test("an entry that cannot be written leaves no batch and nothing of the extension's: the Send can go again", async () => {
     const round = rounding();
     const extended = setup([round.extension]);
     await extended.review.openChannel();
     rmSync(join(extended.root, WIP, ".review/channel.jsonl"));
     mkdirSync(join(extended.root, WIP, ".review/channel.jsonl"));
 
-    await expect(send(extended, SAY_NO)).rejects.toThrow();
+    await expect(send(extended, SAY_NO)).rejects.toThrow("channel failed");
     expect(existsSync(join(extended.root, WIP, ".review/v0.feedback-1.md"))).toBe(false);
-    expect(round.heard).toEqual([]);
+    expect(existsSync(join(extended.root, WIP, "round.md"))).toBe(false);
     expect(existsSync(join(extended.root, DRAFT))).toBe(true);
   });
 
-  test("a commit that throws leaves the batch sent", async () => {
+  test("an extension's write that fails after the entry leaves the batch sent", async () => {
     const broken: ServerExtension = {
       id: "broken",
       part: () =>
-        Promise.resolve({
-          kind: "part",
-          text: "## Broken",
-          typed: (typed) => typed,
-          commit: () => Promise.reject(new Error("disk full")),
-        }),
+        Promise.resolve({ kind: "part", text: "## Broken", typed: (typed) => typed, input: "x" }),
+      // `.review` is a directory: the write fails once the entry is in the channel.
+      workflow: workflowPart(
+        () => regionHeld("broken", null),
+        (w, event) =>
+          event === "send" ? wrote(w, "broken", ".review", "x") : { workflow: w, effects: [] },
+      ),
     };
 
     const s = setup([broken]);
@@ -696,22 +759,23 @@ type Holding = { reason: string | null; readonly extension: ServerExtension };
 function holding(): Holding {
   const hold: Holding = {
     reason: null,
-    extension: { id: "holder", holds: () => Promise.resolve(hold.reason) },
+    extension: { id: "holder", workflow: workflowPart(() => regionHeld("holder", hold.reason)) },
   };
 
   return hold;
 }
 
 describe("a review an extension holds", () => {
-  test("a gate is refused with the reason, and records no version", async () => {
+  test("a gate is refused with the reason, records no version, and promises nothing (P8)", async () => {
     const hold = holding();
-    const { review, root } = setup([hold.extension]);
+    const { events, root } = setup([hold.extension]);
     writeFileSync(join(root, WIP, "plan.md"), PLAN);
     hold.reason = "grill 1 is open";
 
-    expect(await review.gate()).toEqual({
+    expect(await events.gate(RECORD, "claude")).toEqual({
       ok: false,
-      error: "grill 1 is open: plan.md is recorded as the next version once it ends, if it changed",
+      rule: "held",
+      error: "grill 1 is open: plan.md waits; you are told when it ends",
     });
     expect(existsSync(join(root, WIP, ".review/v1.md"))).toBe(false);
   });
@@ -724,7 +788,7 @@ describe("a review an extension holds", () => {
     expect((await send(s, SAY_NO)).ok).toBe(true);
     hold.reason = null;
     writeFileSync(join(s.root, WIP, "plan.md"), PLAN);
-    await s.review.gate();
+    await s.events.gate(RECORD, "claude");
     hold.reason = "grill 1 is open";
 
     expect((await send(s, SAY_NO)).ok).toBe(true);
@@ -735,7 +799,7 @@ describe("a review an extension holds", () => {
     const hold = holding();
     const s = setup([hold.extension]);
     writeFileSync(join(s.root, WIP, "plan.md"), PLAN);
-    await s.review.gate();
+    await s.events.gate(RECORD, "claude");
     hold.reason = "plan review 1 of v1 is running";
     const other = { ...ANOTHER, doc: `${WIP}notes.md` as never };
 
@@ -763,7 +827,7 @@ describe("a review an extension holds", () => {
     const hold = holding();
     const s = setup([hold.extension]);
     writeFileSync(join(s.root, WIP, "plan.md"), PLAN);
-    await s.review.gate();
+    await s.events.gate(RECORD, "claude");
     hold.reason = "grill 1 is open";
 
     expect(await send(s, { edit: EDIT_OF_V1 })).toEqual({
@@ -785,24 +849,24 @@ describe("a review an extension holds", () => {
     expect((await review.view()).held).toBeNull();
   });
 
-  test("an extension reads the hold through its context: the first extension's reason", async () => {
+  test("an extension reads what holds off the workflow: the first region's reason", async () => {
     const hold = holding();
     const { review } = setup([{ id: "quiet" }, hold.extension]);
 
-    expect(await review.context.inOrder(() => review.context.held())).toBeNull();
+    expect(heldIn(await review.context.workflow())).toBeNull();
     hold.reason = "grill 1 is open";
 
-    expect(await review.context.inOrder(() => review.context.held())).toBe("grill 1 is open");
+    expect(heldIn(await review.context.workflow())).toBe("grill 1 is open");
   });
 });
 
 describe("a request an extension holds", () => {
-  test("reads again at each wake, and answers the first read no longer waiting", async () => {
+  test("reads again at each step that passed, and answers the first read no longer waiting", async () => {
     const { review } = setup([]);
     const reads: string[] = [];
     let state = "open";
 
-    const held = review.context.hold(
+    const waiting = review.context.hold(
       () => {
         reads.push(state);
 
@@ -811,19 +875,17 @@ describe("a request an extension holds", () => {
       (value) => value === "open",
     );
 
-    await Bun.sleep(5);
-    review.context.wake();
-    await Bun.sleep(5);
+    await review.context.dispatch("planWritten", { plan: "none" }, "claude");
     state = "answered";
-    review.context.wake();
+    await review.context.dispatch("planWritten", { plan: "none" }, "claude");
 
-    expect(await held).toBe("answered");
+    expect(await waiting).toBe("answered");
     expect(reads).toEqual(["open", "open", "answered"]);
   });
 
-  test("answers at once what is not waiting, and a wake with nothing held does nothing", async () => {
+  test("answers at once what is not waiting, and a step with nothing held wakes nothing", async () => {
     const { review } = setup([]);
-    review.context.wake();
+    await review.context.dispatch("planWritten", { plan: "none" }, "claude");
 
     expect(
       await review.context.hold(
@@ -843,10 +905,7 @@ describe("an extension started from another's route", () => {
       start: (_, input) => {
         order.push(`start ${JSON.stringify(input)}`);
 
-        return Promise.resolve({
-          ok: true,
-          value: { told: "opened", commit: () => Promise.resolve() },
-        });
+        return Promise.resolve("opened");
       },
     };
 
@@ -865,7 +924,7 @@ describe("an extension started from another's route", () => {
       return Promise.resolve();
     });
 
-    expect(await first).toMatchObject({ ok: true, value: { told: "opened" } });
+    expect(await first).toBe("opened");
     await second;
     expect(order).toEqual(['start {"subject":"a"}', "caller", "next step"]);
   });
@@ -873,68 +932,73 @@ describe("an extension started from another's route", () => {
   test("an id no extension starts is refused, naming it", async () => {
     const { review } = setup([{ id: "quiet" }]);
 
-    expect(await review.context.start("quiet", {})).toEqual({
-      ok: false,
-      error: "no extension quiet starts",
-    });
-    expect(await review.context.start("nobody", {})).toEqual({
-      ok: false,
-      error: "no extension nobody starts",
-    });
+    await expect(review.context.start("quiet", {})).rejects.toThrow("no extension quiet starts");
+    await expect(review.context.start("nobody", {})).rejects.toThrow("no extension nobody starts");
   });
 
-  test("an approval goes through, and `approved` runs after the rename, on the final directory", async () => {
-    const seen: string[] = [];
-
+  test("an approval its hold confirmed goes through, and a reaction writes after the rename, in the final directory", async () => {
     const closer: ServerExtension = {
       id: "closer",
-      holds: () => Promise.resolve("grill 1 is open"),
-      approved: async (context) => void seen.push((await context.workspace()).dir),
+      workflow: workflowPart(
+        () => regionHeld("closer", "grill 1 is open"),
+        (w, event) =>
+          event === "approve"
+            ? wrote(withRegion(w, regionHeld("closer", null)), "closer", "closed.md", "closed")
+            : { workflow: w, effects: [] },
+      ),
     };
 
-    const { review, root } = setup([closer]);
+    const { events, root } = setup([closer]);
     writeFileSync(join(root, WIP, ".review/v1.md"), PLAN);
 
-    expect((await review.decide(APPROVE)).ok).toBe(true);
-    expect(seen).toEqual([FINAL]);
+    expect((await events.decide({ ...APPROVE, confirmed: "grill 1 is open" })).ok).toBe(true);
+    expect(read(root, `${FINAL}closed.md`)).toBe("closed");
   });
 
-  test("an `approved` that throws leaves the plan approved", async () => {
+  test("a reaction that fails to write leaves the plan approved", async () => {
     const broken: ServerExtension = {
       id: "broken",
-      approved: () => Promise.reject(new Error("disk full")),
+      // `.review` is a directory: the write fails once the rename is done.
+      workflow: workflowPart(
+        () => regionHeld("broken", null),
+        (w, event) =>
+          event === "approve" ? wrote(w, "broken", ".review", "x") : { workflow: w, effects: [] },
+      ),
     };
 
-    const { review, root } = setup([broken]);
+    const { events, root } = setup([broken]);
     writeFileSync(join(root, WIP, ".review/v1.md"), PLAN);
 
-    expect((await review.decide(APPROVE)).workspace.kind).toBe("approved");
+    expect((await events.decide(APPROVE)).workspace.kind).toBe("approved");
   });
 
-  test("a write an extension queues during a gate lands after the version is written", async () => {
+  test("a write an extension queues while its region is read lands after the step's version", async () => {
     const versionWasThere: boolean[] = [];
     let root = "";
 
     const opener: ServerExtension = {
       id: "opener",
-      holds: (context) => {
-        void context.inOrder(() => {
-          versionWasThere.push(existsSync(join(root, WIP, ".review/v1.md")));
+      workflow: {
+        ...workflowPart(() => regionHeld("opener", null)),
+        region: (context) => {
+          void context.inOrder(() => {
+            versionWasThere.push(existsSync(join(root, WIP, ".review/v1.md")));
 
-          return Promise.resolve();
-        });
+            return Promise.resolve();
+          });
 
-        return Promise.resolve(null);
+          return Promise.resolve(regionHeld("opener", null));
+        },
       },
     };
 
     const made = setup([opener]);
     ({ root } = made);
     writeFileSync(join(root, WIP, "plan.md"), PLAN);
-    await made.review.gate();
+    await made.events.gate(RECORD, "claude");
     await made.review.context.inOrder(() => Promise.resolve());
 
-    expect(versionWasThere).toEqual([true]);
+    expect(versionWasThere[0]).toBe(true);
   });
 });
 
@@ -1015,11 +1079,11 @@ describe("the channel as the server opens it", () => {
   });
 
   test("the channel's identity is minted once, and the approval's rename carries it", async () => {
-    const { review } = await gated();
+    const { review, events } = await gated();
     const id = await review.openChannel();
 
     expect(await review.openChannel()).toBe(id);
-    await review.decide(APPROVE);
+    await events.decide(APPROVE);
 
     expect(await review.openChannel()).toBe(id);
   });

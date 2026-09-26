@@ -189,7 +189,7 @@ describe("parseReviewState", () => {
     model: "claude-opus-5-5",
   };
 
-  const QUIET = { stopping: [], resubmit: false };
+  const QUIET = { stopping: [] };
 
   test("a run under way and the last failure cross, a failure never launched with no model", () => {
     const failed = { seq: 1, version: 3, model: null, why: "no such agent" };
@@ -206,15 +206,10 @@ describe("parseReviewState", () => {
     });
   });
 
-  test("the agents to stop and the version to submit again cross", () => {
-    const state = {
-      run: null,
-      failed: null,
-      stopping: [{ seq: 2, agentId: "a1" }],
-      resubmit: true,
-    };
+  test("the agents to stop cross, and a field an older server wrote is left behind", () => {
+    const state = { run: null, failed: null, stopping: [{ seq: 2, agentId: "a1" }] };
 
-    expect(parseReviewState(state)).toEqual(state);
+    expect(parseReviewState({ ...state, older: true })).toEqual(state);
   });
 
   test("a run missing a part, or a number that is no count, is no state", () => {
@@ -229,11 +224,8 @@ describe("parseReviewState", () => {
   });
 
   test("a state without its agents to stop, or with one missing its id, is no state", () => {
-    expect(parseReviewState({ run: null, failed: null, resubmit: false })).toBeNull();
-    expect(
-      parseReviewState({ run: null, failed: null, stopping: [{ seq: 1 }], resubmit: false }),
-    ).toBeNull();
-    expect(parseReviewState({ run: null, failed: null, stopping: [] })).toBeNull();
+    expect(parseReviewState({ run: null, failed: null })).toBeNull();
+    expect(parseReviewState({ run: null, failed: null, stopping: [{ seq: 1 }] })).toBeNull();
   });
 });
 

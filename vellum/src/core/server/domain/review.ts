@@ -122,12 +122,14 @@ export function draftIsEmpty(draft: Draft): boolean {
 
 /**
  * The one decision left to the bar beside a Send: the approval. `edit` is `null` when the reviewer
- * changed nothing, `notes` empty when they left none.
+ * changed nothing, `notes` empty when they left none. `confirmed` names the hold the reviewer was
+ * warned of and approved anyway: a hold that changed since asks again (P4).
  */
 export type Decision = {
   readonly kind: "approve";
   readonly edit: Edit | null;
   readonly notes: string;
+  readonly confirmed?: string;
 };
 
 /**
@@ -316,6 +318,32 @@ function choicesNamed(choices: Choices, named: readonly ChoiceRef[]): readonly S
 }
 
 /**
+ * What the stored draft makes of the names a Send carries, as the workflow's `send` rows read it:
+ * every name held; a comment, a choice or an edit it no longer holds as named (`changed`); or a
+ * comment on the plan's lines named without the pending edit whose lines `Done` moved it to.
+ */
+export type Named = "held" | "changed" | "withoutEdit";
+
+export function namedIn(workspace: PlanWorkspace, draft: Draft, taking: Taking): Named {
+  const named = new Set(taking.annotations);
+  const sent = draft.annotations.filter((annotation) => named.has(annotation.id));
+  const editNamed = taking.edit !== null;
+
+  if (
+    sent.length !== named.size ||
+    choicesNamed(draft.choices, taking.choices) === null ||
+    (editNamed && draft.edit?.version !== taking.edit)
+  ) {
+    return "changed";
+  }
+
+  if (workspace.kind !== "inReview" || editNamed || draft.edit === null) return "held";
+  const plan = versionPath(workspace.dir, workspace.version);
+
+  return sent.some((annotation) => annotation.doc === plan) ? "withoutEdit" : "held";
+}
+
+/**
  * A Send takes comments and choices before the first version and on the version under review,
  * exactly the ones named, and the edit when named, which lands as the next version, the batch
  * sent on it. A name the draft no longer holds refuses the whole Send rather than send something
@@ -336,14 +364,9 @@ export function sendOn(
   const sent = draft.annotations.filter((annotation) => named.has(annotation.id));
   const choices = choicesNamed(draft.choices, taking.choices);
   const editNamed = taking.edit !== null;
+  const names = namedIn(workspace, draft, taking);
 
-  if (
-    sent.length !== named.size ||
-    choices === null ||
-    (editNamed && draft.edit?.version !== taking.edit)
-  ) {
-    return { kind: "refused", reason: "changed" };
-  }
+  if (names === "changed" || choices === null) return { kind: "refused", reason: "changed" };
 
   const rest: Draft = {
     ...draft,
@@ -370,9 +393,7 @@ export function sendOn(
   const { dir, version: reviewed } = workspace;
   const plan = versionPath(dir, reviewed);
 
-  if (!editNamed && draft.edit !== null && sent.some((annotation) => annotation.doc === plan)) {
-    return { kind: "refused", reason: "edit" };
-  }
+  if (names === "withoutEdit") return { kind: "refused", reason: "edit" };
 
   const edited = editOf(workspace, latestText, editNamed ? draft.edit : null);
 

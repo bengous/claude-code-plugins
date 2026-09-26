@@ -149,6 +149,8 @@ type Served = {
   readonly draft: Draft | null | "unreadable" | { readonly refused: string };
   readonly review: ReviewView | "unreadable";
   readonly decision?: number;
+  /** The row a 409 of `POST /api/decision` names, and its reason; none unless said. */
+  readonly refusal?: { readonly rule: string; readonly reason: string };
   /** What `POST /api/send` answers: its status and body, 200 and a batch unless said. */
   readonly send?: { readonly status: number; readonly answer: SendAnswer };
   /** What `POST /api/send` waits on before its answer. */
@@ -245,7 +247,11 @@ function serve(answer: Served): Server {
 
       server.decisions.push(JSON.parse(String(init.body)) as Decision);
 
-      return new Response("", { status: server.answer.decision ?? 200 });
+      const { refusal } = server.answer;
+
+      return refusal === undefined
+        ? new Response("", { status: server.answer.decision ?? 200 })
+        : Response.json(refusal, { status: 409 });
     }
 
     if (url === "/api/send") {
@@ -1392,6 +1398,21 @@ describe("decide", () => {
     expect(store.failures.value).toEqual([
       { op: "decision", text: "This version was already decided." },
     ]);
+  });
+
+  test("a refusal that names its row says its reason, and keeps the comments", async () => {
+    const store = await freshStore();
+    const reason = "plan.md changed since v1: record it before approving";
+    serve({
+      draft: null,
+      review: versioned({ version: 1 }),
+      refusal: { rule: "approve-draft", reason },
+    });
+    store.annotations.value = unsent;
+    await store.decide({ kind: "approve", edit: null, notes: "" });
+
+    expect(store.annotations.value).toEqual(unsent);
+    expect(store.failures.value).toEqual([{ op: "decision", text: reason }]);
   });
 
   test("any other refusal keeps the comments and names the status", async () => {

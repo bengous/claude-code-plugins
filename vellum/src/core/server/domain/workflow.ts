@@ -1,9 +1,16 @@
 import type { ChannelEntry } from "./channel.ts";
-import type { Version } from "./paths.ts";
+import type { FinalDir, Version } from "./paths.ts";
 import { parseFinalDir, parseVersion } from "./paths.ts";
 import { decideOn } from "./review.ts";
 import type { PlanWorkspace } from "./workspace.ts";
-import { batchFile, notesFile, PLAN_FILE, projectPath, versionFile } from "./workspace.ts";
+import {
+  batchFile,
+  notesFile,
+  PLAN_FILE,
+  projectPath,
+  REVIEW_DIR,
+  versionFile,
+} from "./workspace.ts";
 
 /**
  * Where a planning session stands, one value the server owns and every reader reads: the
@@ -45,7 +52,11 @@ export type Workflow = {
 
 export type Actor = "claude" | "reviewer" | "engine";
 
-/** Plain values the route read before it dispatched: `next` reads no clock, no file, and mints no id. */
+/**
+ * Plain values read before the event is judged: `next` reads no clock, no file, and mints no id.
+ * The server stamps two on every event, `at` (the time) and `seq` (the number the step's first
+ * entry of the channel takes); the route adds what it read.
+ */
 export type EventInput = Readonly<Record<string, string>>;
 
 /** What the hold's rule does to an event: nothing, or it refuses it or asks a confirmation, in the event's words. */
@@ -78,6 +89,9 @@ export type RuleVerdict =
   | { readonly kind: "allow" }
   | { readonly kind: "refuse" | "confirm"; readonly rule: string; readonly reason: string };
 
+/** Where every event judged is observed, one line each: the workflow is never rebuilt from it (D11). */
+export const JOURNAL_FILE = `${REVIEW_DIR}/events.jsonl`;
+
 /** A line of `.review/events.jsonl` as `next` judged it; the interpreter stamps its `at` as it appends it. */
 export type JournalLine = {
   readonly actor: Actor;
@@ -109,12 +123,21 @@ export type Effect =
     }
   | { readonly kind: "channel"; readonly entry: ChannelEntry }
   | { readonly kind: "returnToCall"; readonly call: string; readonly text: string }
-  | { readonly kind: "approveDirectory"; readonly notes: string | null }
+  | { readonly kind: "approveDirectory"; readonly dir: FinalDir; readonly notes: string | null }
   | { readonly kind: "journal"; readonly line: JournalLine };
 
 export type Outcome = { readonly workflow: Workflow; readonly effects: readonly Effect[] };
 
 export type Transition = (w: Workflow, event: string, input: EventInput) => Outcome;
+
+/** What the core and each extension bring to the table. */
+export type TablePart = {
+  readonly events: readonly EventDecl[];
+  readonly rules: readonly Rule[];
+  readonly transitions: Readonly<Record<string, Transition>>;
+  /** Its answer to the events of the others. */
+  readonly reaction?: Transition | undefined;
+};
 
 export type Table = {
   readonly events: readonly EventDecl[];
@@ -138,6 +161,20 @@ export type Refused = {
 };
 
 export type Pill = { readonly text: string; readonly tone: "neutral" | "ok" | "err" };
+
+/** The workflow as a reader takes it: what `plan.md` is, what holds, each region, what is refused now, the pill. */
+export type WorkflowView = {
+  readonly planText: PlanText;
+  readonly held: string | null;
+  readonly regions: readonly Region[];
+  readonly refused: readonly Refused[];
+  readonly pill: Pill;
+};
+
+/** The journal's line for `line`, judged at `at`. */
+export function journalText(line: JournalLine, at: Date): string {
+  return `${JSON.stringify({ at: at.toISOString(), ...line })}\n`;
+}
 
 /** The owner of the core's events, and the voice of its own entries in the channel. */
 export const CORE = "core";
@@ -390,6 +427,16 @@ function distinct(
   return refused;
 }
 
+export function viewOf(w: Workflow, table: Table): WorkflowView {
+  return {
+    planText: w.planText,
+    held: held(w),
+    regions: w.regions,
+    refused: refusedNow(w, table),
+    pill: pillOf(w),
+  };
+}
+
 function versionAfter(workspace: PlanWorkspace): Version {
   const after = parseVersion(workspace.kind === "drafting" ? 1 : workspace.version + 1);
 
@@ -620,7 +667,8 @@ function send(w: Workflow, _event: string, input: EventInput): Outcome {
 
 /**
  * The reviewer's edit as the next version, then the directory approved under the name the route
- * resolved (`input.dir`); the extensions close theirs by reaction, and the entry comes last.
+ * resolved (`input.dir`); the extensions close theirs by reaction, and the entry comes last. It
+ * names the notes file this approval writes, or the one a first attempt left (`input.noted`).
  */
 function approve(w: Workflow, _event: string, input: EventInput): Outcome {
   const { workspace } = w;
@@ -645,12 +693,12 @@ function approve(w: Workflow, _event: string, input: EventInput): Outcome {
     kind: "approved",
     dir: dir.value,
     version,
-    notes: notes !== null,
+    notes: notes !== null || input.noted === "true",
   };
 
   return {
     workflow: { ...w, planText: "none", workspace: approved },
-    effects: [...edited, { kind: "approveDirectory", notes: notes?.text ?? null }],
+    effects: [...edited, { kind: "approveDirectory", dir: dir.value, notes: notes?.text ?? null }],
   };
 }
 
@@ -674,3 +722,21 @@ export const CORE_TRANSITIONS = {
   approve,
   planWritten,
 } satisfies Readonly<Record<string, Transition>>;
+
+export const CORE_PART: TablePart = {
+  events: CORE_EVENTS,
+  rules: CORE_RULES,
+  transitions: CORE_TRANSITIONS,
+};
+
+/** The core's part first, then each extension's in the registry's order. */
+export function tableOf(parts: readonly TablePart[]): Table {
+  const all = [CORE_PART, ...parts];
+
+  return {
+    events: all.flatMap(({ events }) => events),
+    rules: all.flatMap(({ rules }) => rules),
+    transitions: Object.fromEntries(all.flatMap(({ transitions }) => Object.entries(transitions))),
+    reactions: all.flatMap(({ reaction }) => (reaction === undefined ? [] : [reaction])),
+  };
+}

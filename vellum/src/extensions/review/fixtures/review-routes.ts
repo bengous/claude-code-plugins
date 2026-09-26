@@ -31,7 +31,7 @@ function moved(name: string, body: string | undefined, now: ReviewState): Review
         ? { ...now, run: { ...run, kind: "running", agentId: AGENT_ID, model: MODEL } }
         : now;
     case "ended":
-      return run?.seq === seq ? { ...now, run: null, resubmit: true } : now;
+      return run?.seq === seq ? { ...now, run: null } : now;
     case "close": {
       const agent = run?.kind === "running" ? [{ seq: run.seq, agentId: run.agentId }] : [];
 
@@ -40,9 +40,6 @@ function moved(name: string, body: string | undefined, now: ReviewState): Review
 
     case "stopped":
       return { ...now, stopping: stopping.filter((one) => one.seq !== seq) };
-
-    case "resubmitted":
-      return { ...now, resubmit: false };
     default:
       return now;
   }
@@ -73,11 +70,11 @@ export function reviewRoutes(
 
   const served: ReviewRoutes = {
     posted,
-    state: { run, failed: null, stopping: [], resubmit: false },
+    state: { run, failed: null, stopping: [] },
     routes: {
       "/api/x/review/state": () => reply(200, served.state),
       ...Object.fromEntries(
-        ["launched", "ended", "close", "stopped", "resubmitted"].map((name) => [
+        ["launched", "ended", "close", "stopped"].map((name) => [
           `/api/x/review/${name}`,
           post(name),
         ]),

@@ -11,6 +11,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { serverExtensions } from "../../../../extensions/server.ts";
+import type { CoreEvents } from "../../app/events.ts";
+import { coreEvents } from "../../app/events.ts";
 import { Review } from "../../app/review.ts";
 import type { WipDir } from "../../domain/paths.ts";
 import { parseWipDir } from "../../domain/paths.ts";
@@ -25,6 +27,9 @@ const WINDOWS = process.platform === "win32";
 const BIGGER = { kind: "comment", body: "bigger" };
 
 const APPROVE = { kind: "approve", edit: null, notes: "" };
+
+/** A gate as `submit` asks it: a new text, or one after a feedback, is the next version. */
+const RECORD = { unchanged: "record" } as const;
 
 const PRO = {
   selector: "#pricing > div.card",
@@ -110,6 +115,7 @@ function wipDir(): WipDir {
 type Drafting = {
   readonly dir: string;
   readonly review: Review;
+  readonly events: CoreEvents;
   // oxlint-disable-next-line anti-slop/no-unknown-parameters -- an unparsed decision is the case under test: the route's parser is what grants the type.
   readonly decide: (decision: {
     readonly kind: string;
@@ -139,11 +145,13 @@ function drafting(): Drafting {
   const dir = mkdtempSync(join(tmpdir(), "vellum-decision-"));
   mkdirSync(join(dir, WIP, ".review"), { recursive: true });
   const review = new Review({ project: dir, workdir: wipDir(), extensions: serverExtensions });
+  const events = coreEvents(review);
 
   const { handle } = createHandler({
     token: "t",
     project: dir,
     review,
+    events,
     frameScript: "",
     extensionRoutes: new Map(),
     openBrowser: () => {},
@@ -175,14 +183,14 @@ function drafting(): Drafting {
   const channel = (after: string): Promise<Response> =>
     call("GET", `/api/channel?after=${after}`, null);
 
-  return { dir, review, decide, sendBody, send, putDraft, getDraft, channel };
+  return { dir, review, events, decide, sendBody, send, putDraft, getDraft, channel };
 }
 
 /** The same review once `plan.md` was gated as v1. */
 async function underReview(): Promise<Drafting> {
   const made = drafting();
   writeFileSync(join(made.dir, WIP, "plan.md"), "# Locked plan\n");
-  await made.review.gate();
+  await made.events.gate(RECORD, "claude");
 
   return made;
 }
@@ -323,10 +331,13 @@ describe("routes", () => {
   });
 
   test("a build the server could not read answers 500 with its reason", async () => {
+    const review = new Review({ project: root, workdir: wipDir(), extensions: serverExtensions });
+
     const { handle } = createHandler({
       token: "t",
       project: root,
-      review: new Review({ project: root, workdir: wipDir(), extensions: serverExtensions }),
+      review,
+      events: coreEvents(review),
       frameScript: "",
       extensionRoutes: new Map(),
       openBrowser: () => {},
@@ -354,6 +365,7 @@ describe("routes", () => {
       token: "t",
       project: root,
       review,
+      events: coreEvents(review),
       frameScript: "",
       extensionRoutes: new Map(),
       openBrowser: () => (opened += 1),
@@ -515,9 +527,9 @@ describe("routes", () => {
   });
 
   test("an approve's note round-trips to the notes file of the final directory", async () => {
-    const { dir, review, decide } = drafting();
+    const { dir, events, decide } = drafting();
     writeFileSync(join(dir, WIP, "plan.md"), "# Noted plan\n");
-    await review.gate();
+    await events.gate(RECORD, "claude");
     expect((await decide({ ...APPROVE, notes: "Slice 1 only." })).status).toBe(200);
     const notes = Bun.file(join(dir, "plans/2026-09-15/noted-plan/.review/v1.notes.md"));
     expect(await notes.text()).toEndWith("\n\nSlice 1 only.\n");

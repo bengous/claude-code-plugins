@@ -353,17 +353,23 @@ function clearDraft(): void {
   });
 }
 
-/** `true` once the server took the decision; a refusal or a server that did not answer is a failure the notices show. */
+/**
+ * `true` once the server took the decision; a refusal or a server that did not answer is a failure
+ * the notices show, a refusal in the words of the row that refused it.
+ */
 export async function decide(decision: Decision): Promise<boolean> {
-  const status = await postDecision(decision).catch(() => null);
+  const posted = await postDecision(decision).catch(() => null);
 
-  if (status === null) {
+  if (posted === null) {
     fail("decision", "The decision did not reach the server. Your comments are kept in this tab.");
 
     return false;
   }
 
-  if (status === 409) fail("decision", "This version was already decided.");
+  const { status } = posted;
+
+  if (status === 409)
+    fail("decision", posted.answer?.reason ?? "This version was already decided.");
   else if (status >= 300) {
     fail("decision", `Not sent: the server answered ${status}. Your comments are kept.`);
   } else clearDraft();

@@ -9,9 +9,11 @@ paths:
 An extension is a folder, `src/extensions/<id>/`, with one file per place where it plugs into
 the core: `page.tsx` declares a `PageExtension` (its renderers, its actions in the decision
 bar, its notices under the bar, its panel beside the document pane, placed by `panesOf`),
-`server.ts` a `ServerExtension` (its `linkedDocs`, its routes, what `holds` the review,
-what it closes once `approved`, its part of a Send, what another extension may `start`). Both
-types live in `src/core/extension.ts`. `markdown`, `html`, `image`, `grill` and `step` are
+`server.ts` a `ServerExtension` (its `linkedDocs`, its routes, its `workflow`, its part of a
+Send, what another extension may `start`). Both types live in `src/core/extension.ts`. Its part
+of the workflow is `workflow.ts`, pure: its region (`regionOf`), its events, rows, transitions
+and reaction to the others' events, and its segment of the band; the server half hands it to the
+core with its region's read, and an engine half may import it as types only. `markdown`, `html`, `image`, `grill` and `step` are
 extensions like the next ones. A third half,
 `engine.ts`, declares an `EngineExtension` (`src/core/engine/extension.ts`): tools, refusals,
 the engine events the core hands it, and its segment of the band above the prompt. `grill`, `step` and `review` have all three.
@@ -29,35 +31,37 @@ the engine events the core hands it, and its segment of the band above the promp
   more is a decision to take, not a convenience.
 - A server half's routes are mounted at `/api/x/<id>/<name>`, behind the token, and do their IO
   through the `ServerContext` that `Review` binds: an extension never imports an adapter. A
-  route that writes goes through `inOrder`, the review's one queue, and keeps no queue of its
-  own; `holds` and `approved` are called from inside that queue and write directly.
-  `workspace().dir` moves at the approval, so a route resolves it at each write and never keeps
-  it. What the watcher cannot see (a state kept in memory, a write after the approval) reaches
-  the page through `notify`. The page half calls its routes with `extensionRequest`.
+  route that changes the workflow dispatches its event (`ServerContext.dispatch`), in the
+  review's one queue, and writes nothing itself: its transitions' effects are the writes, and a
+  refusal is the reason of the row that refused it. It keeps no queue of its own; what it reads
+  before the event is judged is a `Reading`, run inside the step. `workspace().dir` moves at the
+  approval, so a route resolves it at each read and never keeps it. Each step that passed tells
+  the page; the watcher tells it of the files Claude writes. The page half calls its routes with `extensionRequest`.
 - What reaches Claude goes through the core's channel, never a memory of the extension's own:
-  the server half words its `text` and appends it with `ServerContext.relay`, inside the queue,
-  at the write it tells of, and the core relays each entry once. It tells what its write added,
-  never the file's last voice: `grill` tells the transcript's entries past those the file held
-  before the write (`relaysOf`, then `tell` in `grill/server.ts`), so the reply End grill writes
-  and the end both go, and a block written into the file by hand is not told. What the server
-  keeps in memory is told by the route that changes it: `step`'s answer to its one proposal, which
-  carries what the grill it opened tells, since `start` relays nothing itself.
+  the extension words its `text` as a `channel` effect of its transition, beside the write it
+  tells of, and the core relays each entry once. It tells what its write added, never the file's
+  last voice: `grill` tells the transcript's entries past those the file held before the write
+  (`relaysOf`, then `told` in `grill/workflow.ts`), so the reply End grill writes and the end both
+  go, and a block written into the file by hand is not told. `step`'s answer to its one proposal
+  carries, in its one entry, what the grill it opened tells (`start`).
 - What the reviewer sends leaves with the core's one Send, never a route of the extension's.
   `part` answers, writing nothing, what the bar's Send takes of the extension, never a Send now:
   nothing; the questions no answer takes that the reviewer did not agree to leave to their
   recommendation, every one, so the page asks about all; or its text, what the draft keeps of
-  its typing, and a `commit` the core runs once the batch and its entry exist, where the grill
-  closes its round. What the draft holds for an extension is read from the `Draft` the core hands
+  its typing, and an `input` the Send's event carries to the extension's reaction, which closes
+  the grill's round once the batch and its entry exist. What the draft holds for an extension is read from the `Draft` the core hands
   it, or from `ServerContext.draft` for a route, inside the route's own step of the queue (End
   grill ends with what is typed as the reply, never what a Send took before it). A tool
-  that waits for the reviewer is answered by its server half: `grill` keeps, per review, which
-  Send closed which round, `step` its one proposal and the last one answered, and `POST wait`
-  is held by the core's `ServerContext.hold`, `WAIT_HOLD_MS` under the engine's 30 s cut, and a
-  write that may settle it calls `wake`; it answers the entry number and
-  the text the tool returns, an end, or still open. A restarted server keeps none of it: a
-  round's wait reads as ended, and its entry reaches Claude through the channel; a proposal's
-  reads as gone, and `propose` tells Claude to propose again, since no answer to it can come.
-  `step` remembers why it dropped its last proposal (replaced, approved), so that wait says so.
+  that waits for the reviewer is answered through the core: the step that answers a call waiting
+  hands it the answer (`returnToCall`, read with `ServerContext.returned`), and `POST wait` is
+  held by `ServerContext.hold`, `WAIT_HOLD_MS` under the engine's 30 s cut, read again after
+  every step; it answers the entry number and the text the tool returns, an end, or still open.
+  `step` keeps its proposal, the last one answered and the last one dropped, and why (replaced,
+  approved, written), in `.review/step.json`: a restarted server shows the proposal again,
+  paused, since no call survives it, and a pick then reaches Claude as a prompt; the call's wait
+  posted again opens it again, once (`wait`: a repost while it waits is a keepalive). A round's
+  answer lives in the core's memory: after a restart the round's wait reads as ended, and its
+  entry reaches Claude through the channel.
 - An extension owns its messages: `<id>/protocol.ts` types what crosses its routes, and
   `<id>/parse.ts` is its boundary parser. `src/core/protocol.ts` learns nothing of them.
   A route's reply has its own name there, which both ends import (`GrillState`, `Block` in
@@ -91,7 +95,7 @@ the engine events the core hands it, and its segment of the band above the promp
   `\n` alone.
 - An extension with states, rounds or a lifecycle starts with a table, before any code: the
   states, the events, and one owner per fact. The server owns what is allowed and says it
-  through `holds`; the module owns whether a server and a lock exist; a file owns its content,
+  through the rows of `workflow.ts`, one table the core assembles; the module owns whether a server and a lock exist; a file owns its content,
   and what is read off it: a grill's phase is the server's reading of the transcript (`phaseOf`),
   handed to the page in `GET state`, never derived again from the blocks.
   A fact with two owners drifts at the first reload.

@@ -20,7 +20,7 @@ import {
 import { REVIEW_DIR } from "../../core/server/domain/workspace.ts";
 import { answerText, ownText } from "./moves.ts";
 import { parseAnswer, parseJson, parseProposal } from "./parse.ts";
-import type { Dropped, Move, Pending, Proposal, StepAnswer } from "./protocol.ts";
+import type { Dropped, Move, Pending, Proposal, StepAnswer, StepFile } from "./protocol.ts";
 
 /**
  * `step`'s part of the workflow: the one proposal waiting for the reviewer, read off
@@ -31,16 +31,6 @@ export const STEP = "step";
 
 /** Where the proposals live, so a restarted server still shows the one waiting. */
 export const STEP_FILE = `${REVIEW_DIR}/step.json`;
-
-/** Why a proposal stopped waiting unanswered: replaced, approved, or its one move was the plan and `plan.md` was written. */
-export type DropWhy = Dropped | "written";
-
-/** `.review/step.json`: the proposal waiting, the last one answered and the last one dropped, for the waits on them. */
-export type StepFile = {
-  readonly pending: Pending | null;
-  readonly answered: { readonly id: string; readonly seq: number; readonly text: string } | null;
-  readonly dropped: { readonly id: string; readonly why: DropWhy } | null;
-};
 
 const EMPTY: StepFile = { pending: null, answered: null, dropped: null };
 
@@ -75,7 +65,7 @@ function answerOf(text: string): StepAnswer {
   return answer;
 }
 
-function whyOf(text: string): DropWhy {
+function whyOf(text: string): Dropped {
   if (text === "replaced" || text === "approved" || text === "written") return text;
 
   throw new Error(`not why a proposal was dropped: ${text}`);
@@ -98,14 +88,19 @@ export function fileOf(region: Region): StepFile {
   };
 }
 
-/** Open while a proposal waits; its call reads as paused on disk, since none survives a server that did not say so. */
-export function regionOf(file: StepFile | null): Region {
+/**
+ * Open while a proposal waits. Whether Claude's call waits on it is the server's memory: `before`,
+ * the region the server's last step left, while the same proposal waits; paused otherwise, as
+ * after a start, since no call survives a server that did not say so.
+ */
+export function regionOf(file: StepFile | null, before: Region | null = null): Region {
   const known = file ?? EMPTY;
   const data = dataOf(known);
 
-  return known.pending === null
-    ? { id: STEP, state: "closed", data }
-    : { id: STEP, state: "open", holds: null, wait: "paused", data };
+  if (known.pending === null) return { id: STEP, state: "closed", data };
+  const same = before?.state === "open" && before.data.pending === known.pending.id;
+
+  return { id: STEP, state: "open", holds: null, wait: same ? before.wait : "paused", data };
 }
 
 /** The proposal waiting now, `null` with none. */
@@ -181,7 +176,7 @@ function answerProposal(w: Workflow, _event: string, input: EventInput): Outcome
   return { workflow: placed(w, next, null), effects: [entry, written(next), ...returned] };
 }
 
-function drop(w: Workflow, why: DropWhy): Outcome {
+function drop(w: Workflow, why: Dropped): Outcome {
   const { pending, answered } = fileOf(regionIn(w, STEP));
 
   if (pending === null) return unchanged(w);

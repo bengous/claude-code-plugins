@@ -6,12 +6,13 @@ import { serverExtensions } from "../../../../extensions/server.ts";
 import type { Route, ServerContext } from "../../../extension.ts";
 import index from "../../../page/index.html";
 import type { ServerLine } from "../../../protocol.ts";
+import { coreEvents } from "../../app/events.ts";
 import { Review } from "../../app/review.ts";
 import type { FinalDir, WipDir } from "../../domain/paths.ts";
 import type { Memory } from "../../domain/workspace.ts";
 import { REVIEW_DIR } from "../../domain/workspace.ts";
 import { openInBrowser } from "../browser.ts";
-import { readWorkspace, watchFiles } from "../fs.ts";
+import { readPlan, readWorkspace, watchFiles } from "../fs.ts";
 import { PLUGIN_ROOT, readVellumBuild } from "../vellum-build.ts";
 import { createHandler } from "./routes.ts";
 
@@ -140,10 +141,43 @@ export async function startServer(options: ServeOptions): Promise<Started> {
     memory,
   });
 
+  /**
+   * `plan.md` written is an event of the workflow (`planWritten`), at start when it is there
+   * (P10) and each time its text changes; any other file only tells the page.
+   */
+  let plan = await readPlan(options.project, options.workdir);
+
+  const planWritten = async (): Promise<void> => {
+    await review.context.dispatch(
+      "planWritten",
+      (w) => Promise.resolve({ plan: w.planText }),
+      "claude",
+    );
+  };
+
+  const changed = async (): Promise<void> => {
+    const now = await readPlan(options.project, options.workdir);
+
+    if (now === plan) {
+      await review.notify();
+
+      return;
+    }
+
+    plan = now;
+    await planWritten();
+  };
+
   // The page hears of every file Claude writes; the approval renames the directory, and there the watch ends.
   const unwatch =
     memory === undefined
-      ? watchFiles(options.project, options.workdir, () => void review.notify())
+      ? watchFiles(options.project, options.workdir, () => {
+          changed().catch((cause: unknown) => {
+            console.error(
+              `vellum: a change of the working directory was not read: ${String(cause)}`,
+            );
+          });
+        })
       : () => {};
 
   let dir: WipDir | FinalDir = lives;
@@ -160,6 +194,7 @@ export async function startServer(options: ServeOptions): Promise<Started> {
   const context = {
     project: options.project,
     review,
+    events: coreEvents(review),
     frameScript,
     vellumBuild,
     extensionRoutes: extensionRoutes(review.context),
@@ -205,6 +240,8 @@ export async function startServer(options: ServeOptions): Promise<Started> {
   url = `http://127.0.0.1:${server.port}/t/${token}/`;
 
   const channel = await review.openChannel();
+
+  if (memory === undefined && plan !== null) await planWritten();
   const { announce } = options;
 
   // `ready` first, then the listeners at once, with no wait between: a change or an entry that
