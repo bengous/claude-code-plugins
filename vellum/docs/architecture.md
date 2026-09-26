@@ -11,9 +11,9 @@ shapes left aside, shows where each part of a feature goes, and where extensions
 ```mermaid
 flowchart LR
   subgraph engine["Claude Code (the engine)"]
-    CC["the session<br/>/vellum:start · mcp__vellum__submit · mcp__vellum__grill_* · /vellum:stop"]
+    CC["the session<br/>/vellum:start · mcp__vellum__submit · mcp__vellum__propose · mcp__vellum__grill_* · /vellum:stop"]
     M["src/core/engine/<br/>register.ts · mode.ts: idle · live"]
-    E["src/extensions/*/engine.ts<br/>grill: tools, refusals, staged"]
+    E["src/extensions/*/engine.ts<br/>grill, step: tools, refusals · review: a spawned agent and its answer"]
     CC -- "session.start · skill.prompt · command.run<br/>tool.check · tool.call · prompt.submit · turn.complete" --> M
     M -- "$.prompt.submit<br/>deny / result / text" --> CC
     M -- "every event, a Host, never $" --> E
@@ -28,7 +28,7 @@ flowchart LR
   end
   subgraph page["Browser page (Preact, bundled by Bun.serve)"]
     U["src/core/page/*<br/>list · decision bar · comments · anchoring"]
-    P["src/extensions/*/page.tsx<br/>markdown · html · image · grill"]
+    P["src/extensions/*/page.tsx<br/>markdown · html · image · grill · step · review"]
     U --> P
   end
   M -- "HTTP /api/*<br/>x-vellum-token" --> R
@@ -36,7 +36,7 @@ flowchart LR
   U -- "HTTP /api/*, /t/&lt;token&gt;/files, SSE" --> R
   A -. "src/extensions/*/server.ts<br/>linkedDocs, pure" .-> A
   R -. "src/extensions/*/server.ts<br/>routes under /api/x/&lt;id&gt;/, IO through ServerContext" .-> W
-  F[("plans/&lt;date&gt;/wip-&lt;sid8&gt;/<br/>plan.md, grill-&lt;n&gt;.md, .review/vN.md,<br/>vN.feedback-k.md, vN.notes.md, draft.json, channel.jsonl")]
+  F[("plans/&lt;date&gt;/wip-&lt;sid8&gt;/<br/>plan.md, grill-&lt;n&gt;.md, reviews/vN-&lt;model&gt;.md, .review/vN.md,<br/>vN.feedback-k.md, vN.notes.md, draft.json, channel.jsonl, reviews.json")]
   W --> F
 ```
 
@@ -55,7 +55,7 @@ plain modules with no interface and no injection).
 
 | Part | Shape | Driving side | Driven side |
 |---|---|---|---|
-| Hooks module | ports and adapters, `Host` the port | the engine's events (`session.start`, `skill.prompt`, `command.run`, `tool.check`, `tool.call`, `prompt.submit`, `turn.complete`), and the lines its server writes on stdout | the engine's `$` (clock, store, http, process, prompt, tool), answered by the kit in tests |
+| Hooks module | ports and adapters, `Host` the port | the engine's events (`session.start`, `skill.prompt`, `command.run`, `tool.check`, `tool.call`, `prompt.submit`, `turn.complete`), and the lines its server writes on stdout | the engine's `$` (clock, store, http, process, prompt, tool, agent), answered by the kit in tests |
 | Server | ports and adapters, domain / app / adapters | `adapters/http/routes.ts` | the file system through `adapters/fs.ts`, real in tests (a temp directory) |
 | Page | a store of signals and components | the reviewer's clicks | `/api`, the files route, SSE |
 | `src/extensions/<id>/` | feature slices: one extension = one folder, a half per runtime it plugs into | | |
@@ -199,6 +199,34 @@ prompt typed in the terminal is outside the grill. A prompt Vellum itself submit
 `$.prompt.submit` skips the calling hook alone; its origin (`plugin`, `vellum`) keeps it out of
 the transcript, where the server already wrote what it carries.
 
+## A plan review
+
+```mermaid
+sequenceDiagram
+  participant P as page
+  participant S as vellum serve
+  participant M as hooks module
+  participant A as plan reviewer
+  P->>S: POST /api/x/review/request {version}, in `inReview` alone: a run `requested`, under a new number
+  S-->>M: stdout: the stage
+  M->>S: GET state, then $.agent.spawn vellum:plan-reviewer on .review/vN.md
+  M->>S: POST launched {seq, agentId, model}: the run is `running`
+  A-->>M: its own turn.complete, the agentId's (agentAnswered)
+  M->>S: POST ended {seq, outcome}: its final text, or why it failed
+  S->>S: reviews/vN-<model>.md written, then -2, -3; the rail lists it
+```
+
+The run lives in `.review/reviews.json`, so a restarted server still knows it and its number;
+the engine half keeps only timers and the band's `review · running`, and reads the run from the
+server each time a `stage` line comes. A run holds the review from its request to its end
+(`holds`): no version of Claude's is recorded, `step` takes no proposal, and a `plan.md` Claude
+wrote meanwhile is submitted again once the run ends (`resubmit`). A run whose agent was killed or
+failed ends at once, one gone without an answer after `GRACE_MS`; the ✕ (`forget`), `/vellum:stop` and the approval give it
+up and stop its agent. The agent reads files only (`agents/plan-reviewer.md`), so vellum writes
+its verdict; why that verdict is the agent's final text and not a tool call: a subagent vellum
+spawns reaches none of vellum's hooks but `turn.complete`
+([Hook runtime](../../docs/plugin-testing/hook-runtime.md)).
+
 ## The two state machines
 
 The hooks module, in memory, one union:
@@ -274,7 +302,7 @@ goes, and a renderer's own choice stays beside its `page.tsx`.
 
 ## Extensions
 
-`markdown`, `html`, `image` and `grill` are extensions, and so is whatever comes next
+`markdown`, `html`, `image`, `grill`, `step` and `review` are extensions, and so is whatever comes next
 (`advisor`): a folder under `src/extensions/`, with one file per place where it plugs into the
 core. The contract's client is the next agent that writes one, not a third party; the engine
 constraints below are why. The contract is `src/core/extension.ts`, types only, and
@@ -285,7 +313,7 @@ constraints below are why. The contract is `src/core/extension.ts`, types only, 
 |---|---|---|---|
 | page | `<id>/page.tsx` | a `PageExtension`: its renderers, tried in registry order, its actions in the decision bar, its notices under it, its panel, a pane `panesOf` places beside the document pane, and its share of the Send | `core/page/app.tsx`, through `extensions/page.ts` |
 | server | `<id>/server.ts` | a `ServerExtension`: `linkedDocs`, pure, candidates in and links out; its routes, mounted at `/api/x/<id>/`, their IO through a `ServerContext`, what they tell Claude through its `relay`; `holds`, what holds the review; `approved`, what it closes after the rename; `part`, its part of the bar's Send and its `commit` | `core/server/adapters/http/serve.ts`, through `extensions/server.ts` |
-| engine | `<id>/engine.ts` | an `EngineExtension`: tools, a tool's wait for the reviewer and the entries it returns, refusals, and handlers for a prompt, a finished turn, a `stage` line and the mode's end | `core/engine/register.ts`, through `extensions/engine.ts` |
+| engine | `<id>/engine.ts` | an `EngineExtension`: tools, a tool's wait for the reviewer and the entries it returns, refusals, and handlers for a prompt, a finished turn, a spawned agent's answer, a `stage` line and the mode's end; its segment of the band | `core/engine/register.ts`, through `extensions/engine.ts` |
 
 `src/boundaries.spec.ts` holds the layout: an extension imports `core/` and its own folder,
 never another extension; the core reaches the extensions from those three files alone; an
@@ -343,7 +371,7 @@ The crossroads a feature used to edit, and the place `grill` opened for each:
 |---|---|
 | `core/server/adapters/http/routes.ts` | `ServerExtension.routes`, mounted under `/api/x/<id>/` behind the token |
 | `core/page/app.tsx`, `core/page/state.ts` | `PageExtension.actions`, drawn in the decision bar; `PageExtension.panel`, a pane beside the documents, in the order `PANE_ORDER` of `core/page/panes.ts` holds |
-| `core/engine/register.ts` | `EngineExtension`: tools, refusals, prompted, answered, staged, closing |
+| `core/engine/register.ts` | `EngineExtension`: tools, refusals, prompted, answered, agentAnswered, staged, closing, segment |
 | `core/protocol.ts` | an extension's messages live in its own `protocol.ts` |
 
 Left as they were: the document list names a kind by its media type, so a transcript reads
