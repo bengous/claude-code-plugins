@@ -618,6 +618,9 @@ test.describe("the one Send", () => {
   });
 });
 
+/** What the panel says of a round nobody waits on any more: its answer is not lost. */
+const PAUSED = "Paused · Claude stopped waiting; your answer reaches it as a message";
+
 /** The panel's live line: where the grill stands, empty while a round waits for the reviewer. */
 function phaseLine(page: Page): Locator {
   return panel(page).locator(".grill-phase").getByRole("status");
@@ -736,6 +739,35 @@ test.describe("the panel's phases", () => {
     );
     await expect(noteField(page)).toBeVisible();
     await expect(panelEnd(page)).toBeVisible();
+  });
+
+  test("a round whose asking turn was cut reads Paused, and its answer still leaves with Send (A4)", async ({
+    page,
+    vellum,
+  }) => {
+    await asking(page, vellum);
+    await vellum.grill.answer("", { reason: "aborted", asked: true });
+    await expect(phaseLine(page)).toHaveText(PAUSED);
+    await shown(page).getByRole("textbox", { name: "Your answer to Q1" }).fill("One store.");
+    await sendAll(page, true);
+
+    await expect.poll(() => vellum.batches()).toEqual(["v1.feedback-1.md"]);
+    await expect(phaseLine(page)).toHaveText("Claude is preparing round 2.");
+  });
+
+  test("a cut the module no longer knew was the asking turn's pauses the round all the same (A4, E6)", async ({
+    page,
+    vellum,
+  }) => {
+    await asking(page, vellum);
+    await vellum.grill.answer("Here is the weather.", {
+      reason: "aborted",
+      own: false,
+      asked: false,
+    });
+
+    await expect(phaseLine(page)).toHaveText(PAUSED);
+    await expect(shown(page).getByRole("textbox", { name: "Your answer to Q1" })).toBeEditable();
   });
 
   test("a page loaded while Claude works names its round once the transcript loads, never the first", async ({

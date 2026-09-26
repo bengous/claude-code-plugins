@@ -1,7 +1,14 @@
 import type { Pending } from "./protocol.ts";
 
-/** What the window is drawn from: the proposal waiting, and the core's hold, during which no step is taken. */
-export type WindowState = { readonly pending: Pending | null; readonly held: string | null };
+/**
+ * What the window is drawn from: the proposal waiting, whether Claude's call stopped waiting on it
+ * (`paused`), and the core's hold, during which no step is taken.
+ */
+export type WindowState = {
+  readonly pending: Pending | null;
+  readonly held: string | null;
+  readonly paused: boolean;
+};
 
 /** The page's answer to the proposals, kept in a signal; never sent, so a reload asks again. */
 export type Asking =
@@ -80,7 +87,8 @@ function answeredOn(state: WindowState | null, id: string): Asking {
 /**
  * What a new state does to the page's answer: a proposal that lands opens the modal on a quiet
  * page, and on a typing is put off at once, so the modal opens neither under the reviewer's
- * hands nor once they stop. `quiet`: no editor open, no popover or other modal up, no field focused.
+ * hands nor once they stop. A paused one waits on the dot whatever the page (P13): nobody waits
+ * on the pick. `quiet`: no editor open, no popover or other modal up, no field focused.
  */
 export function askingOn(state: WindowState | null, asking: Asking, quiet: boolean): Asking {
   if (asking.kind === "asked") return keptOn(state, asking.on);
@@ -90,7 +98,9 @@ export function askingOn(state: WindowState | null, asking: Asking, quiet: boole
 
   if (pending === null || (asking.kind === "later" && asking.id === pending.id)) return asking;
 
-  return quiet ? { kind: "asked", on: pending } : { kind: "later", id: pending.id };
+  return quiet && state?.paused !== true
+    ? { kind: "asked", on: pending }
+    : { kind: "later", id: pending.id };
 }
 
 /**

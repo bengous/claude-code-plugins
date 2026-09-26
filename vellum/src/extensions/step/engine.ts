@@ -5,8 +5,12 @@ import type {
   ToolAnswer,
   ToolContext,
 } from "../../core/engine/extension.ts";
+import type { Live } from "../../core/engine/mode.ts";
 import { parseError, parseJson, parseProposal, parseProposed, parseWaited } from "./parse.ts";
 import type { Dropped, StepPosts, StepWaited } from "./protocol.ts";
+
+/** The proposal the running turn's call waited on and heard nothing back for, by mode: a turn cut short pauses it. */
+const waitedOn = new WeakMap<Live, string>();
 
 const GONE = "The review server restarted and lost this proposal: propose again.";
 
@@ -50,11 +54,12 @@ async function waitFor(context: ToolContext, id: string): Promise<ToolAnswer> {
   for (;;) {
     const read = await waited(context, id);
 
+    if (read.kind === "open") continue;
+    waitedOn.delete(context.live);
+
     if (read.kind === "answered") return { result: read.text, returns: read.seq };
 
-    if (read.kind === "gone") return { deny: GONE };
-
-    if (read.kind === "ended") return ended(read.why);
+    return read.kind === "gone" ? { deny: GONE } : ended(read.why);
   }
 }
 
@@ -113,6 +118,7 @@ const PROPOSE: ExtensionTool = {
     const proposed = response.ok ? parseProposed(parseJson(response.text)) : null;
 
     if (proposed !== null) {
+      waitedOn.set(context.live, proposed.id);
       context.waiting();
 
       return await waitFor(context, proposed.id);
@@ -124,4 +130,14 @@ const PROPOSE: ExtensionTool = {
   },
 };
 
-export const stepEngine: EngineExtension = { id: "step", tools: [PROPOSE] };
+export const stepEngine: EngineExtension = {
+  id: "step",
+  tools: [PROPOSE],
+  // At the turn's end, never from the call Escape cut: every `$` of that call fails after Escape.
+  answered: async (context, turn) => {
+    const id = waitedOn.get(context.live);
+    waitedOn.delete(context.live);
+
+    if (id !== undefined && turn.reason === "aborted") await post(context, "pause", { id });
+  },
+};

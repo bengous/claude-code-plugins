@@ -262,7 +262,12 @@ loop. `/vellum:start` enters it, Approve in the page or `/vellum:stop` leaves it
   server took and no answer came back to (`askedIn`, a `WeakSet` in `grill/engine.ts`) and clears
   the mark at `answered`, which posts it as `asked`, so the text of a turn cut short is written
   with its round even after a reply the reviewer sent meanwhile. A reload between the two loses
-  the mark: the text then goes where a turn that asked nothing writes it.
+  the mark: the text then goes where a turn that asked nothing writes it, and the server still
+  marks the round cut (E6). `step` marks the proposal its call waits on and heard nothing back
+  for (`waitedOn`), takes the mark at every `answered`, and posts `pause` for it when the turn was
+  `aborted`: never from the `tool.call` Escape cut, whose `$` fail. A revival, a new `Live`, loses
+  the mark too: the revived server reads the proposal paused, unless the call's wait reached it
+  again, and then only the page's Paused goes missing, the pick still reaching Claude once.
 - Every miss of `turn.ts` falls on one side, a turn whose text is written nowhere: a reload
   between the hooks, a text a hook beneath rewrote, and the known one, a relay and a typed
   prompt that wait together, which leave one note, the last. It is one note and never a

@@ -34,7 +34,7 @@ export const STEP_FILE = `${REVIEW_DIR}/step.json`;
 
 const EMPTY: StepFile = { pending: null, answered: null, dropped: null };
 
-const NO_SUCH_PROPOSAL = "no such proposal";
+export const NO_SUCH_PROPOSAL = "no such proposal";
 
 function dataOf({ pending, answered, dropped }: StepFile): RegionData {
   return {

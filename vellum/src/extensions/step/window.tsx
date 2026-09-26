@@ -1,7 +1,7 @@
 import { signal } from "@preact/signals";
 import { useEffect } from "preact/hooks";
 
-import { Button, Dialog, dialogUp, popoverUp } from "../../core/page/kit.tsx";
+import { Button, Dialog, dialogUp, popoverUp, Tag } from "../../core/page/kit.tsx";
 import { editing } from "../../core/page/state.ts";
 import type { OtherKind, OtherPick, Pick } from "./choice.ts";
 import { answerOf, NO_PICK, oneLine, OWN_GRILL } from "./choice.ts";
@@ -33,25 +33,36 @@ function quiet(): boolean {
   return editing.peek() === null && !popoverUp() && !dialogUp() && !typing;
 }
 
-/** A dot while a proposal was put off; greyed for the reasons no step is taken now, in its title. */
+/** What a proposal nobody waits on says: the pick is not lost, it reaches Claude another way. */
+const PAUSED = "Paused · Claude stopped waiting; your pick reaches it as a message";
+
+/**
+ * A dot while a proposal was put off, marked Paused when Claude's call stopped waiting on it;
+ * greyed for the reasons no step is taken now, in its title.
+ */
 export function NextStepButton(props: {
   readonly state: WindowState | null;
   readonly why: string | null;
 }): preact.JSX.Element {
   const waiting = dotOf(props.state, asking.value);
+  const paused = waiting !== null && props.state?.paused === true;
+  const told = paused ? PAUSED : "Claude proposes the next step";
 
   return (
-    <Button
-      variant="grill"
-      class={waiting === null ? undefined : "step-later"}
-      disabled={props.why !== null}
-      title={props.why ?? (waiting === null ? undefined : "Claude proposes the next step")}
-      onClick={() => {
-        asking.value = { kind: "asked", on: pendingOf(props.state) };
-      }}
-    >
-      Next step
-    </Button>
+    <>
+      <Button
+        variant="grill"
+        class={waiting === null ? undefined : "step-later"}
+        disabled={props.why !== null}
+        title={props.why ?? (waiting === null ? undefined : told)}
+        onClick={() => {
+          asking.value = { kind: "asked", on: pendingOf(props.state) };
+        }}
+      >
+        Next step
+      </Button>
+      {paused && <Tag>Paused</Tag>}
+    </>
   );
 }
 
@@ -121,6 +132,7 @@ export function StepWindow(props: WindowProps): preact.JSX.Element | null {
       }
     >
       <h2 class="step-who">{title}</h2>
+      {pending !== null && state?.paused === true && <p class="step-who">{PAUSED}</p>}
       {pending !== null && <p class="step-why">{pending.proposal.reason}</p>}
       {pending !== null && (
         <div class="step-moves" role="radiogroup" aria-label="Next step">

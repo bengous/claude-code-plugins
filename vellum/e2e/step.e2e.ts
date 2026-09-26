@@ -42,8 +42,15 @@ const NEXT: Proposal = { ...PROPOSAL, reason: "The budget changes too.", recomme
 
 const REPLACED = "Claude's proposal was already answered or replaced.";
 
+const PAUSED = "Paused · Claude stopped waiting; your pick reaches it as a message";
+
 function nextStep(page: Page): Locator {
   return page.locator(".bar").getByRole("button", { name: "Next step", exact: true });
+}
+
+/** The mark beside the Next step button while the proposal behind it is paused. */
+function pausedTag(page: Page): Locator {
+  return page.locator(".bar").getByText("Paused", { exact: true });
 }
 
 /** Whether the Next step button draws its dot, a pseudo-element no locator reaches. */
@@ -635,8 +642,43 @@ test("a proposal survives a restart, paused, and a pick then reaches Claude as a
 
   expect(await stepRegion(vellum)).toMatchObject({ state: "open", wait: "paused" });
   await page.reload();
+  await expect(pausedTag(page)).toBeVisible();
+  await nextStep(page).click();
   await move(proposal(page), /^Mockup/u).check();
   await choose(proposal(page)).click();
   await expect.poll(() => told(vellum)).toEqual(["Chose: a mockup of: the settings window."]);
   expect((await vellum.step.wait(id)).json).toMatchObject({ kind: "answered", seq: 1 });
+});
+
+test("a proposal Claude stopped waiting on waits behind Next step, marked Paused, and the pick reaches Claude as a message (A2)", async ({
+  page,
+  vellum,
+}) => {
+  await vellum.step.pause(await propose(vellum));
+  await openVellum(page, vellum);
+  await expect(pausedTag(page)).toBeVisible();
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+  expect(await dotted(page)).toBe(true);
+  await nextStep(page).click();
+  await expect(proposal(page)).toContainText(PAUSED);
+  await move(proposal(page), /^Mockup/u).check();
+  await choose(proposal(page)).click();
+
+  await expect.poll(() => told(vellum)).toEqual(["Chose: a mockup of: the settings window."]);
+});
+
+test("a new proposal replaces the paused one, and the window opens on it (A3)", async ({
+  page,
+  vellum,
+}) => {
+  const first = await propose(vellum);
+  await vellum.step.pause(first);
+  await openVellum(page, vellum);
+  await expect(pausedTag(page)).toBeVisible();
+  await propose(vellum, NEXT);
+
+  await expect(proposal(page)).toContainText(NEXT.reason);
+  await expect(proposal(page)).not.toContainText(PAUSED);
+  await expect(pausedTag(page)).toHaveCount(0);
+  expect((await vellum.step.wait(first)).json).toEqual({ kind: "ended", why: "replaced" });
 });

@@ -1,10 +1,13 @@
 import type { Route, RouteKey, ServerContext, ServerExtension } from "../../core/extension.ts";
 import type { PlanWorkspace } from "../../core/protocol.ts";
+import { regionIn } from "../../core/server/domain/workflow.ts";
 import { projectPath } from "../../core/server/domain/workspace.ts";
-import { parseAnswer, parseJson, parseProposal, parseStepFile, parseWait } from "./parse.ts";
-import type { Proposed, StepFile, StepState, StepWaited } from "./protocol.ts";
+import { parseAnswer, parseJson, parseProposal, parseProposalId, parseStepFile } from "./parse.ts";
+import type { Paused, Proposed, StepFile, StepState, StepWaited } from "./protocol.ts";
 import {
   EVENTS,
+  fileOf,
+  NO_SUCH_PROPOSAL,
   REACTION,
   regionOf,
   RULES,
@@ -58,7 +61,12 @@ function routes(context: ServerContext): Readonly<Record<RouteKey, Route>> {
 
   return {
     "GET state": async () => {
-      const state: StepState = { pending: (await readStep(context))?.pending ?? null };
+      const region = regionIn(await context.workflow(), STEP);
+
+      const state: StepState = {
+        pending: fileOf(region).pending,
+        paused: region.state === "open" && region.wait === "paused",
+      };
 
       return Response.json(state);
     },
@@ -78,7 +86,7 @@ function routes(context: ServerContext): Readonly<Record<RouteKey, Route>> {
 
     // A repost while Claude's call already waits is a keepalive: no step, no journal line (E4).
     "POST wait": async (request) => {
-      const body = parseWait(await request.json().catch(() => null));
+      const body = parseProposalId(await request.json().catch(() => null));
 
       if (body === null) return badRequest();
       const region = (await context.workflow()).regions.find(({ id }) => id === STEP);
@@ -93,6 +101,24 @@ function routes(context: ServerContext): Readonly<Record<RouteKey, Route>> {
       );
 
       return Response.json(waited);
+    },
+
+    // Claude's turn was cut while its call waited: nothing claims the pick now, which goes as a prompt.
+    "POST pause": async (request) => {
+      const body = parseProposalId(await request.json().catch(() => null));
+
+      if (body === null) return badRequest();
+      const { verdict } = await dispatch("pause", { id: body.id }, "engine");
+
+      if (verdict.kind === "allow") {
+        const paused: Paused = { wait: "paused" };
+
+        return Response.json(paused);
+      }
+
+      return verdict.reason === NO_SUCH_PROPOSAL
+        ? new Response(verdict.reason, { status: 404 })
+        : refused(verdict.reason);
     },
 
     // The window's answer settles the proposal waiting, the one it showed or, opened blank, any:

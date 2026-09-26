@@ -14,12 +14,15 @@ const IDEA: Pending = { id: "p1", proposal: PROPOSAL };
 
 const NEXT_IDEA: Pending = { id: "p2", proposal: { ...PROPOSAL, recommended: 1 } };
 
-const PENDING: WindowState = { pending: IDEA, held: null };
+const PENDING: WindowState = { pending: IDEA, held: null, paused: false };
 
-const NEXT: WindowState = { pending: NEXT_IDEA, held: null };
+const NEXT: WindowState = { pending: NEXT_IDEA, held: null, paused: false };
+
+/** Claude's call stopped waiting on the proposal: Escape, or a restarted server. */
+const PAUSED: WindowState = { ...PENDING, paused: true };
 
 /** Nothing waits: none was proposed, or the one shown was answered elsewhere. */
-const NONE: WindowState = { pending: null, held: null };
+const NONE: WindowState = { pending: null, held: null, paused: false };
 
 const AUTO: Asking = { kind: "auto" };
 
@@ -45,6 +48,28 @@ describe("a proposal landing", () => {
 
     expect(askingOn(PENDING, later, true)).toEqual(later);
     expect(askingOn(NEXT, later, true)).toEqual({ kind: "asked", on: NEXT_IDEA });
+  });
+});
+
+describe("a paused proposal (P13)", () => {
+  test("opens nothing, even on a quiet page: it waits on the dot", () => {
+    const later = askingOn(PAUSED, AUTO, true);
+
+    expect(later).toEqual({ kind: "later", id: "p1" });
+    expect(modalOf(PAUSED, later, false)).toEqual({ kind: "hidden" });
+    expect(dotOf(PAUSED, later)).toEqual(IDEA);
+  });
+
+  test("leaves the modal already open on it as it is", () => {
+    expect(askingOn(PAUSED, ON_IDEA, true)).toEqual(ON_IDEA);
+    expect(modalOf(PAUSED, ON_IDEA, false)).toEqual({ kind: "proposal", pending: IDEA });
+  });
+
+  test("replaced by a new proposal, the new one opens (A3)", () => {
+    expect(askingOn(NEXT, askingOn(PAUSED, AUTO, true), true)).toEqual({
+      kind: "asked",
+      on: NEXT_IDEA,
+    });
   });
 });
 
@@ -125,7 +150,7 @@ describe("the Next step button", () => {
 
 describe("a hold that comes under the modal", () => {
   test("ends the asking: the modal does not come back once the grill that holds is over", () => {
-    const held: WindowState = { pending: null, held: "grill 2 is open" };
+    const held: WindowState = { pending: null, held: "grill 2 is open", paused: false };
 
     expect(askingOn(held, BLANK, true)).toEqual(AUTO);
     expect(modalOf(held, BLANK, false)).toEqual({ kind: "hidden" });

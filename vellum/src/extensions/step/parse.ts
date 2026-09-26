@@ -110,8 +110,8 @@ export function parseAnswer(body: unknown): StepPosts["answer"] | null {
   return typeof id === "string" && id !== "" ? { id, answer } : null;
 }
 
-/** `POST wait`: the id `POST propose` answered. */
-export function parseWait(body: unknown): StepPosts["wait"] | null {
+/** `POST wait` and `POST pause`: the id `POST propose` answered. */
+export function parseProposalId(body: unknown): StepPosts["wait" | "pause"] | null {
   return isRecord(body) && typeof body.id === "string" && body.id !== "" ? { id: body.id } : null;
 }
 

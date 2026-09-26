@@ -284,19 +284,25 @@ function roundEnd(doc: string): number | null {
  * whoever started it, closes that round, before any reply sent meanwhile, since the reply still
  * waits for Claude, and writes nothing once that round's grill closed; a turn a vellum relay
  * started speaks in a voice of its own. A turn the terminal started is not the grill's, whatever
- * the file's last voice is.
+ * the file's last voice is, but cut short while a round waits it still ends the call on that round,
+ * which the module may no longer know it asked (E6): the round reads paused.
  */
 export function appendAnswer(doc: string, turn: GrillPosts["answer"]): string {
   const ended = turn.reason === "answer" ? "" : `_(turn ${turn.reason})_`;
   const body = [quoted(turn.text.trim()), ended].filter((part) => part !== "").join("\n\n");
 
-  if (turn.asked) {
-    const at = roundEnd(doc);
+  if (turn.asked) return closingRound(doc, body);
 
-    return body === "" || at === null ? doc : `${doc.slice(0, at)}\n${body}\n${doc.slice(at)}`;
-  }
+  if (turn.own) return `${doc}${CLAUDE_VOICE}${body === "" ? "_(no text)_" : body}\n`;
 
-  return turn.own ? `${doc}${CLAUDE_VOICE}${body === "" ? "_(no text)_" : body}\n` : doc;
+  return turn.reason === "aborted" && phaseOf(doc) === "asking" ? closingRound(doc, ended) : doc;
+}
+
+/** `body` at the end of the last round, before a reply sent meanwhile; nothing once that round's grill closed. */
+function closingRound(doc: string, body: string): string {
+  const at = roundEnd(doc);
+
+  return body === "" || at === null ? doc : `${doc.slice(0, at)}\n${body}\n${doc.slice(at)}`;
 }
 
 /** A reply as the agent reads it: the note first, then the answers the reviewer typed. A default never goes: `grilling.md` says an absent question took the recommendation. */
