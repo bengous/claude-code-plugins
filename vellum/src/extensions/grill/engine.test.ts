@@ -2,13 +2,11 @@ import { describe, expect, test, tier } from "claude-code/testing";
 
 import {
   approved,
-  band,
   emit,
   READY,
   reply,
   sent,
   SESSION,
-  stage,
   START_PROMPT,
   STOP_PROMPT,
   told,
@@ -79,63 +77,6 @@ describe("two grill-1.md in one session", () => {
       "The reviewer opened grill-1.md on: auth.",
       "Reviewer: Q1: second",
     ]);
-  });
-});
-
-describe("the band above the prompt", () => {
-  test("says a grill is open, after the plan, while one is, and nothing once it ended", async ($, on) => {
-    let grill = OPEN_GRILL;
-
-    const seen = world(
-      on,
-      grillRoutes(() => grill),
-    );
-
-    await $.skill.prompt(START_PROMPT);
-    const drawn = await band($);
-    seen.children[0]?.write(stage());
-    await seen.clock.settle();
-
-    expect(await drawn.text()).toBe("vellum │ plan draft │ grill · open │ Review page ↗");
-    grill = NO_GRILL;
-    seen.children[0]?.write(stage());
-    await seen.clock.settle();
-
-    expect(await drawn.text()).toBe("vellum │ plan draft │ Review page ↗");
-    expect(seen.statuses.filter((text) => text !== undefined)).toEqual([]);
-  });
-});
-
-describe("the band's stages", () => {
-  test("a read of the grill that answers late never draws over a later one", async ($, on) => {
-    let reads = 0;
-
-    const seen = world(on, {
-      routes: {
-        ...grillRoutes(() => NO_GRILL).routes,
-        "/api/x/grill/state": async () => {
-          reads += 1;
-
-          if (reads > 1) return reply(200, { kind: "none", proposal: null });
-          await seen.clock.sleep(500);
-
-          return reply(200, {
-            kind: "open",
-            file: "grill-1.md",
-            subject: "auth",
-            phase: "working",
-          });
-        },
-      },
-    });
-
-    await $.skill.prompt(START_PROMPT);
-    const drawn = await band($);
-    seen.children[0]?.write(stage(), stage());
-    await seen.clock.settle();
-    await seen.clock.advance(500);
-
-    expect(await drawn.text()).toBe("vellum │ plan draft │ Review page ↗");
   });
 });
 

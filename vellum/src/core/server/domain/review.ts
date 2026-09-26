@@ -276,10 +276,11 @@ export type SendRequest = Taking & {
 export type SendRefused = "approved" | "changed" | "stale" | "edit";
 
 /**
- * An edit a Send left in the draft, since `held` holds the review: no version opens under it. The
- * comments on the plan's lines stay with it, by id, since their lines are the edit's.
+ * An edit a Send left in the draft, and why: `reason` is what holds the review, in the holder's
+ * words, and no version opens under it. The comments on the plan's lines stay with it, by id,
+ * since their lines are the edit's.
  */
-export type EditKept = { readonly held: string; readonly annotations: readonly string[] };
+export type EditKept = { readonly reason: string; readonly annotations: readonly string[] };
 
 /** What a Send writes, decided before anything is written. */
 export type Sending =
@@ -349,7 +350,7 @@ export function namedIn(workspace: PlanWorkspace, draft: Draft, taking: Taking):
  * sent on it. A name the draft no longer holds refuses the whole Send rather than send something
  * else. A comment on the plan left without the pending edit is refused too: `Done` moved its
  * lines to the edit's text. A Send changes no stage: the page takes comments after it. While
- * `held` holds the review, the edit named stays in the draft, and the comments on the plan's lines
+ * `hold` holds the review, the edit named stays in the draft, and the comments on the plan's lines
  * with it: the rest goes, a general comment on the plan included, since it names no line.
  */
 export function sendOn(
@@ -357,7 +358,7 @@ export function sendOn(
   latestText: string | null,
   draft: Draft,
   taking: Taking,
-  held: string | null = null,
+  hold: string | null = null,
 ): Sending {
   if (workspace.kind === "approved") return { kind: "refused", reason: "approved" };
   const named = new Set(taking.annotations);
@@ -400,7 +401,7 @@ export function sendOn(
   if (edited === "stale") return { kind: "refused", reason: "stale" };
   const { version, edit } = edited;
 
-  if (held !== null && edit !== null) {
+  if (hold !== null && edit !== null) {
     const onEdit = (annotation: Annotation): boolean =>
       annotation.doc === plan && annotation.anchor.kind !== "global";
 
@@ -418,7 +419,10 @@ export function sendOn(
         ),
         edit: draft.edit,
       },
-      editKept: { held, annotations: sent.filter((one) => onEdit(one)).map(({ id }) => id) },
+      editKept: {
+        reason: hold,
+        annotations: sent.filter((one) => onEdit(one)).map(({ id }) => id),
+      },
     };
   }
 

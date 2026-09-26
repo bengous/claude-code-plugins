@@ -14,6 +14,7 @@ import type {
   LineDiff,
   Mark,
   ReviewView,
+  SendRefusal,
   SendRefused,
   Typed,
 } from "../protocol.ts";
@@ -326,7 +327,7 @@ async function loadReview(): Promise<void> {
     settleEdit(fetched.value);
     settleEditorTyping(fetched.value);
 
-    if (fetched.value.held === null) editWaits.value = null;
+    if (fetched.value.workflow.held === null) editWaits.value = null;
   });
 }
 
@@ -457,6 +458,14 @@ const REFUSED: Readonly<Record<SendRefused | "empty" | "unreadable", string>> = 
   unreadable: "Not sent: the saved draft cannot be read. Your comments are kept in this tab.",
 };
 
+/** A refusal in the page's words for the Send's rows it knows, in the row's own words for any other. */
+function refusedText(refusal: Exclude<SendRefusal, { reason: "unanswered" }>): string {
+  if (refusal.reason !== "refused") return REFUSED[refusal.reason];
+  const known = Object.entries(REFUSED).find(([code]) => code === refusal.rule);
+
+  return known?.[1] ?? `Not sent: ${refusal.text}.`;
+}
+
 /**
  * One Send, the one write out while it lasts. The server sends from the draft it keeps what the
  * snapshot names, so the page writes the draft first. Once taken, the page reads the review and
@@ -497,8 +506,8 @@ async function sendOut(out: Outgoing): Promise<Sent> {
   if (status === 409 && answer !== null && "reason" in answer) {
     if (answer.reason === "unanswered") return { kind: "unanswered", ids: answer.ids };
 
-    if (answer.reason === "held") {
-      const { held } = answer;
+    if (answer.reason === "refused" && answer.rule === "held") {
+      const held = answer.text;
 
       batch(() => {
         editWaits.value = out.edit === null ? null : { held, edit: out.edit };
@@ -508,7 +517,7 @@ async function sendOut(out: Outgoing): Promise<Sent> {
       return { kind: "failed" };
     }
 
-    fail("decision", REFUSED[answer.reason]);
+    fail("decision", refusedText(answer));
 
     return { kind: "failed" };
   }
@@ -544,7 +553,7 @@ async function sendOut(out: Outgoing): Promise<Sent> {
 
     // A Send with no edit, Send now, leaves the notice of one that still waits.
     if (out.edit !== null) {
-      editWaits.value = editKept === null ? null : { held: editKept.held, edit: out.edit };
+      editWaits.value = editKept === null ? null : { held: editKept.reason, edit: out.edit };
     }
 
     succeed("decision");

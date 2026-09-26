@@ -296,6 +296,7 @@ export const EVENTS: readonly EventDecl[] = [
   {
     id: "propose",
     owner: STEP,
+    actors: ["claude"],
     whileHeld: { effect: "refuse", reason: (hold) => `${hold}: no step is proposed until it ends` },
     samples: [
       { id: "p1", proposal: JSON.stringify(PLAN_ONLY) },
@@ -303,11 +304,12 @@ export const EVENTS: readonly EventDecl[] = [
       { id: "p3", proposal: JSON.stringify(MOCKUP) },
     ],
   },
-  { id: "wait", owner: STEP, whileHeld: { effect: "allow" }, samples: IDS },
-  { id: "pause", owner: STEP, whileHeld: { effect: "allow" }, samples: IDS },
+  { id: "wait", owner: STEP, actors: ["engine"], whileHeld: { effect: "allow" }, samples: IDS },
+  { id: "pause", owner: STEP, actors: ["engine"], whileHeld: { effect: "allow" }, samples: IDS },
   {
     id: "answerProposal",
     owner: STEP,
+    actors: ["reviewer"],
     whileHeld: { effect: "refuse", reason: (hold) => hold },
     samples: [
       answerSample("", { kind: "own", text: "Write the plan." }),

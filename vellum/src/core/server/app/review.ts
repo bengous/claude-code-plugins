@@ -43,8 +43,8 @@ import type { FinalDir, ProjectPath, Version, WipDir } from "../domain/paths.ts"
 import { parseVersion } from "../domain/paths.ts";
 import type { Draft } from "../domain/review.ts";
 import { draftIsEmpty } from "../domain/review.ts";
-import type { Actor, EventInput, PlanText, Table, Workflow } from "../domain/workflow.ts";
-import { held, JOURNAL_FILE, journalText, next, tableOf } from "../domain/workflow.ts";
+import type { Actor, EventInput, PlanText, Stage, Table, Workflow } from "../domain/workflow.ts";
+import { JOURNAL_FILE, journalText, next, stageOf, tableOf, viewOf } from "../domain/workflow.ts";
 import type { Memory, PlanWorkspace } from "../domain/workspace.ts";
 import {
   DRAFT_FILE,
@@ -93,7 +93,7 @@ export class Review {
   /** The workflow the last step left, for what the disk does not say: a proposal's wait. */
   private last: Workflow | null = null;
 
-  private readonly listeners = new Set<(workspace: PlanWorkspace) => void>();
+  private readonly listeners = new Set<(stage: Stage) => void>();
 
   private readonly channelListeners = new Set<(line: ChannelLine) => void>();
 
@@ -170,7 +170,8 @@ export class Review {
   /**
    * One step, inside the queue: the workflow read, the input read off it, stamped with the time
    * and the channel's next number, judged by `next`, interpreted. A step that passed wakes the
-   * waits and tells the page.
+   * waits and tells the listeners the workflow `next` answered, which the effects made true; a
+   * rename that stopped left the memory ahead of it, so that one is read again.
    */
   public async step(event: string, input: EventInput | Reading, actor: Actor): Promise<Stepped> {
     const w = await this.workflow();
@@ -185,7 +186,9 @@ export class Review {
 
     if (stepped.verdict.kind === "allow") {
       this.wake();
-      await this.notify();
+
+      if (stopped) await this.notify();
+      else this.tell(stepped.workflow);
     }
 
     return { ...stepped, appended: told, stopped };
@@ -254,7 +257,7 @@ export class Review {
     return await extension.start(this.context, input);
   }
 
-  public subscribe(listener: (workspace: PlanWorkspace) => void): () => void {
+  public subscribe(listener: (stage: Stage) => void): () => void {
     this.listeners.add(listener);
 
     return () => this.listeners.delete(listener);
@@ -453,20 +456,30 @@ export class Review {
     return projectPath(`${this.options.workdir}${DRAFT_FILE}`);
   }
 
-  /** Tells every listener the workspace again; the server calls it when a file changes under it. */
-  public async notify(): Promise<PlanWorkspace> {
-    const workspace = await this.workspace();
+  /**
+   * Tells every listener where the review stands, read again: a file changed under the server,
+   * which calls it in the queue so no step is read half-way.
+   */
+  public async notify(): Promise<Stage> {
+    return this.tell(await this.workflow());
+  }
 
-    for (const listener of this.listeners) listener(workspace);
+  private tell(w: Workflow): Stage {
+    const stage = stageOf(
+      w,
+      this.parts.map(({ id, workflow }) => ({ id, segment: workflow.segment })),
+    );
 
-    return workspace;
+    for (const listener of this.listeners) listener(stage);
+
+    return stage;
   }
 
   /**
    * The plan's directory's files in every state, the final directory's once approved, the
    * linked docs that live outside it after. Once a version exists the reviewer decides on it,
    * so the working copy `plan.md` leaves the list; while drafting it is the draft the reviewer
-   * may comment on. What holds the review is read off the workflow.
+   * may comment on. The workflow goes as a reader takes it, its files left out.
    */
   public async view(): Promise<ReviewView> {
     const w = await this.workflow();
@@ -485,7 +498,12 @@ export class Review {
         "plan",
       );
 
-      return { workspace, plan: null, docs: [...plans, ...files], held: held(w) };
+      return {
+        workspace,
+        plan: null,
+        docs: [...plans, ...files],
+        workflow: viewOf(w, this.table),
+      };
     }
 
     const doc = this.planDoc(workspace.version, workspace.dir);
@@ -502,7 +520,7 @@ export class Review {
       workspace,
       plan: { doc, text, workingCopy: planFile, previous },
       docs: [...files, ...linked],
-      held: held(w),
+      workflow: viewOf(w, this.table),
     };
   }
 

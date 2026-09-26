@@ -68,6 +68,8 @@ export type EventDecl = {
   readonly id: string;
   /** `core`, or the id of the extension whose transition applies it. */
   readonly owner: string;
+  /** Who sends it (§ 5.3): what only the engine sends is nobody's to try, and the view leaves it out. */
+  readonly actors: readonly Actor[];
   readonly whileHeld: WhileHeld;
   /** Whether a hold the event ends ended without a verdict, which the notice says; with one when not given. */
   readonly endsWithoutVerdict?: (input: EventInput) => boolean;
@@ -162,13 +164,39 @@ export type Refused = {
 
 export type Pill = { readonly text: string; readonly tone: "neutral" | "ok" | "err" };
 
+/** A region as a reader takes it: its state, what it holds and what waits on it, never the files its data keeps. */
+export type RegionView =
+  | { readonly id: string; readonly state: "closed" }
+  | {
+      readonly id: string;
+      readonly state: "open";
+      readonly holds: string | null;
+      readonly wait: Wait | null;
+    };
+
 /** The workflow as a reader takes it: what `plan.md` is, what holds, each region, what is refused now, the pill. */
 export type WorkflowView = {
   readonly planText: PlanText;
   readonly held: string | null;
-  readonly regions: readonly Region[];
+  readonly regions: readonly RegionView[];
   readonly refused: readonly Refused[];
   readonly pill: Pill;
+};
+
+/**
+ * Where the review stands for the band above the prompt, ready-made, since the hooks module
+ * imports nothing of the server: the pill, and the plan's segment, then each extension's.
+ */
+export type Stage = {
+  readonly workspace: PlanWorkspace;
+  readonly pill: Pill;
+  readonly segments: readonly string[];
+};
+
+/** An extension's segment of the band, drawn from its region. */
+export type Segment = {
+  readonly id: string;
+  readonly segment: (region: Region) => string | null;
 };
 
 /** The journal's line for `line`, judged at `at`. */
@@ -184,7 +212,8 @@ const ALLOW: RuleVerdict = { kind: "allow" };
 /** The one rule the core applies before any row: an approved plan takes no event (R11). */
 const APPROVED = "approved";
 
-const HELD = "held";
+/** The id of the hold's rule, which every event the hold refuses or asks to confirm meets. */
+export const HELD = "held";
 
 /** What the transitions leave as it is. */
 export function unchanged(w: Workflow): Outcome {
@@ -427,13 +456,48 @@ function distinct(
   return refused;
 }
 
+function regionView(region: Region): RegionView {
+  const { id } = region;
+
+  return region.state === "closed"
+    ? { id, state: "closed" }
+    : { id, state: "open", holds: region.holds, wait: region.wait };
+}
+
+/** What only the engine sends names what the engine read, a run or a proposal: nobody reading can try it. */
+function tried(table: Table, refused: Refused): boolean {
+  return declOf(table, refused.event).actors.some((actor) => actor !== "engine");
+}
+
 export function viewOf(w: Workflow, table: Table): WorkflowView {
   return {
     planText: w.planText,
     held: held(w),
-    regions: w.regions,
-    refused: refusedNow(w, table),
+    regions: w.regions.map(regionView),
+    refused: refusedNow(w, table).filter((refused) => tried(table, refused)),
     pill: pillOf(w),
+  };
+}
+
+function planSegmentOf(workspace: PlanWorkspace): string {
+  switch (workspace.kind) {
+    case "drafting":
+      return "plan draft";
+    case "inReview":
+      return `plan v${workspace.version} · in review`;
+    case "approved":
+      return `plan v${workspace.version} · approved`;
+  }
+}
+
+/** The stage: the plan's segment first, then each extension's in the registry's order; `null` says nothing. */
+export function stageOf(w: Workflow, extensions: readonly Segment[]): Stage {
+  const segments = extensions.flatMap(({ id, segment }) => segment(regionIn(w, id)) ?? []);
+
+  return {
+    workspace: w.workspace,
+    pill: pillOf(w),
+    segments: [planSegmentOf(w.workspace), ...segments],
   };
 }
 
@@ -472,6 +536,7 @@ export const CORE_EVENTS: readonly EventDecl[] = [
   {
     id: "record",
     owner: CORE,
+    actors: ["claude", "reviewer"],
     whileHeld: {
       effect: "refuse",
       reason: (hold) => `${hold}: plan.md waits; you are told when it ends`,
@@ -481,6 +546,7 @@ export const CORE_EVENTS: readonly EventDecl[] = [
   {
     id: "sendEdit",
     owner: CORE,
+    actors: ["reviewer"],
     whileHeld: {
       effect: "refuse",
       reason: (hold) => `${hold}: the edit waits in the draft until it ends`,
@@ -493,6 +559,7 @@ export const CORE_EVENTS: readonly EventDecl[] = [
   {
     id: "send",
     owner: CORE,
+    actors: ["reviewer"],
     whileHeld: { effect: "allow" },
     samples: [
       { parts: "true", edit: "", names: "held", comments: "false", text: "## Grill\n" },
@@ -505,6 +572,7 @@ export const CORE_EVENTS: readonly EventDecl[] = [
   {
     id: "approve",
     owner: CORE,
+    actors: ["reviewer"],
     whileHeld: { effect: "confirm", reason: (hold) => `The review is held: ${hold}.` },
     samples: [
       {
@@ -528,6 +596,7 @@ export const CORE_EVENTS: readonly EventDecl[] = [
   {
     id: "planWritten",
     owner: CORE,
+    actors: ["claude"],
     whileHeld: { effect: "allow" },
     samples: [{ plan: "pending" }, { plan: "none" }, { plan: "absent" }],
   },

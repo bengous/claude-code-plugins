@@ -50,17 +50,27 @@ type StageOf<W> = W extends { readonly kind: infer K; readonly version: infer V 
     ? { readonly kind: K }
     : never;
 
-/** Where the plan stands, as much of the workspace as the band draws. */
+/** Where the plan stands, as much of the workspace as the module reads. */
 export type StageWire = StageOf<WorkspaceWire>;
+
+type StageLine = Extract<ServerLine, { readonly type: "stage" }>;
+
+/** What the band draws of a `stage` line, ready-made by the server: its pill and its segments. */
+export type DrawnWire = Json<Pick<StageLine, "pill" | "segments">>;
 
 /**
  * A line of the server's stdout as the module reads it: `ready` as the server it names and its
- * channel's identity, a `stage` as the band draws it and where the review lives.
+ * channel's identity, a `stage` as where the review lives and what the band draws of it.
  */
 export type ServerLineWire =
   | { readonly type: "ready"; readonly info: ServerInfo; readonly channel: string }
   | { readonly type: "channel"; readonly line: ChannelLineWire }
-  | { readonly type: "stage"; readonly stage: StageWire; readonly dir: Workdir };
+  | {
+      readonly type: "stage";
+      readonly stage: StageWire;
+      readonly dir: Workdir;
+      readonly drawn: DrawnWire;
+    };
 
 /** What `POST /api/gate` answers: the version the browser shows, or why it shows none. */
 export type GateWire = Json<GateAnswer>;
@@ -200,6 +210,23 @@ function parseStage(value: unknown): StageWire | null {
   return null;
 }
 
+function parseDrawn(value: Record<string, unknown>): DrawnWire | null {
+  const { pill, segments } = value;
+  const tone = isRecord(pill) ? pill.tone : null;
+
+  if (!isRecord(pill) || typeof pill.text !== "string" || !Array.isArray(segments)) return null;
+
+  if (tone !== "neutral" && tone !== "ok" && tone !== "err") return null;
+
+  const texts = segments.filter(
+    (segment: unknown): segment is string => typeof segment === "string",
+  );
+
+  return texts.length === segments.length
+    ? { pill: { text: pill.text, tone }, segments: texts }
+    : null;
+}
+
 /**
  * One line of the server's stdout; `null` for a line this module does not read, which the caller
  * logs: read as nothing, an entry would never reach Claude.
@@ -234,10 +261,11 @@ export function parseServerLine(text: string): ServerLineWire | null {
 
   const workspace = value.type === "stage" && isRecord(value.workspace) ? value.workspace : null;
   const stage = workspace === null ? null : parseStage(workspace);
+  const drawn = parseDrawn(value);
 
-  return stage === null || typeof workspace?.dir !== "string"
+  return stage === null || drawn === null || typeof workspace?.dir !== "string"
     ? null
-    : { type: "stage", stage, dir: workspace.dir as Workdir };
+    : { type: "stage", stage, dir: workspace.dir as Workdir, drawn };
 }
 
 /**

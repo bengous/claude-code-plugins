@@ -21,7 +21,7 @@ import {
   tenureOf,
   type Wiring,
 } from "./mode.ts";
-import { editedPath, type GateWire, sessionId, shellCall, type StageWire } from "./parse.ts";
+import { type DrawnWire, editedPath, type GateWire, sessionId, shellCall } from "./parse.ts";
 import { landed } from "./place.ts";
 import { type Claim, submitPlan, submitResult } from "./relay.ts";
 import { completed, NO_TURN, ownOf, prompted, replied, started, type Turns } from "./turn.ts";
@@ -82,9 +82,6 @@ function hostOf($: EngineInterface): Host {
   };
 }
 
-/** The extensions whose `segment` threw in a mode: a failure is logged once per mode, not at each line. */
-const segmentFailures = new WeakMap<Live, Set<string>>();
-
 const SEPARATOR = " │ ";
 
 function contextOf(host: Host, live: Live, extension: EngineExtension): EngineContext {
@@ -125,44 +122,27 @@ export const register: Register = (on) => {
     }
   }
 
-  /** A segment that throws is left out: no extension may take the band away. */
-  function segmentOf(host: Host, live: Live, extension: EngineExtension): string | null {
-    try {
-      return extension.segment?.(contextOf(host, live, extension)) ?? null;
-    } catch (cause) {
-      const failed = segmentFailures.get(live) ?? new Set<string>();
-
-      if (!failed.has(extension.id))
-        host.log(`${extension.id} failed on segment: ${String(cause)}`);
-      segmentFailures.set(live, failed.add(extension.id));
-
-      return null;
-    }
-  }
-
   /** The extensions end what they started in the session, while the mode is live and its server answers. */
   async function closing(host: Host, live: Live): Promise<void> {
     await handed(host, live, "closing", (extension, context) => extension.closing?.(context));
   }
 
-  // Where each mode's server last said the plan stands, keyed by the mode: a new way in starts with none.
-  const stages = new WeakMap<Live, StageWire>();
+  // What each mode's server last said the band draws, keyed by the mode: a new way in starts with none.
+  const stages = new WeakMap<Live, DrawnWire>();
 
-  function bandOf(host: Host): Band | null {
+  function bandOf(): Band | null {
     if (state.kind === "idle") return null;
 
     if (state.kind === "lost") return lostBand(state.session.server);
-    const { live } = state;
-    const segments = engineExtensions.map((extension) => segmentOf(host, live, extension));
 
-    return liveBand(live.session.server, stages.get(live) ?? null, segments);
+    return liveBand(state.live.session.server, stages.get(state.live) ?? null);
   }
 
   // What `ui.render` draws; `redraw` alone writes it, so a line that changed nothing redraws nothing.
   let band: Band | null = null;
 
   function redraw(host: Host): void {
-    const next = bandOf(host);
+    const next = bandOf();
 
     if (JSON.stringify(next) === JSON.stringify(band)) return;
     band = next;
@@ -227,8 +207,8 @@ export const register: Register = (on) => {
     become(host, next);
   };
 
-  const staged: Staged = async (host, live, stage) => {
-    stages.set(live, stage);
+  const staged: Staged = async (host, live, drawn) => {
+    stages.set(live, drawn);
     await handed(host, live, "staged", (extension, context) => extension.staged?.(context));
     redraw(host);
   };

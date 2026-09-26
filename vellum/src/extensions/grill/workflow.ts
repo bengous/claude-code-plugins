@@ -337,16 +337,24 @@ export const EVENTS: readonly EventDecl[] = [
   {
     id: "openGrill",
     owner: GRILL,
+    actors: ["reviewer"],
     whileHeld: { effect: "allow" },
     samples: [
       { subject: "auth", at: SAMPLE_AT },
       { subject: "", at: SAMPLE_AT },
     ],
   },
-  { id: "askQuestion", owner: GRILL, whileHeld: { effect: "allow" }, samples: [{ q: ROUND }] },
+  {
+    id: "askQuestion",
+    owner: GRILL,
+    actors: ["claude"],
+    whileHeld: { effect: "allow" },
+    samples: [{ q: ROUND }],
+  },
   {
     id: "turnAnswered",
     owner: GRILL,
+    actors: ["engine"],
     whileHeld: { effect: "allow" },
     samples: [
       { text: "Asked.", reason: "answer", own: "false", asked: "true" },
@@ -358,12 +366,14 @@ export const EVENTS: readonly EventDecl[] = [
   {
     id: "sessionEvent",
     owner: GRILL,
+    actors: ["engine"],
     whileHeld: { effect: "allow" },
     samples: [{ command: "/compact" }],
   },
   {
     id: "endGrill",
     owner: GRILL,
+    actors: ["reviewer", "engine"],
     whileHeld: { effect: "allow" },
     samples: [
       { reason: "page", at: SAMPLE_AT, grill: JSON.stringify({ answers: {}, note: "Enough." }) },

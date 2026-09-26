@@ -10,6 +10,7 @@ import type {
   Edit,
   GroupedDoc,
   ReviewView,
+  WorkflowView,
   SendAnswer,
   SendRequest,
 } from "../protocol.ts";
@@ -38,12 +39,23 @@ function doc(path: string, group: DocGroup): GroupedDoc {
   return { path, mediaType: "text/markdown", modified: 0, group } as never;
 }
 
+/** The workflow as the server sends it, of which the page reads what holds the review. */
+function workflowOf(held: string | null): WorkflowView {
+  return {
+    planText: "none",
+    held,
+    regions: [],
+    refused: [],
+    pill: { text: "", tone: "neutral" },
+  };
+}
+
 function drafting(docs: readonly GroupedDoc[]): ReviewView {
   return {
     workspace: { kind: "drafting", dir: WIP, batches: 0 },
     plan: null,
     docs,
-    held: null,
+    workflow: workflowOf(null),
   } as never;
 }
 
@@ -74,7 +86,7 @@ function versioned({
       previous: previous === undefined ? null : { version: version - 1, text: previous },
     },
     docs,
-    held,
+    workflow: workflowOf(held),
   } as never;
 }
 
@@ -1569,7 +1581,7 @@ describe("send", () => {
       typed,
     };
 
-    const editKept = { held, annotations: ["a"] };
+    const editKept = { reason: held, annotations: ["a"] };
     const answer = { file: `${WIP}.review/v1.feedback-1.md`, seq: 1, editKept } as never;
     serve({ draft, review: versioned({ version: 1, held }), send: { status: 200, answer } });
     await store.start();
@@ -1588,7 +1600,7 @@ describe("send", () => {
     const store = await freshStore();
     const held = "grill 1 is open";
     const draft = { annotations: [], edit: edit(1, "mine\n"), choices: {}, typed };
-    const refusal = { status: 409, answer: { reason: "held", held } };
+    const refusal = { status: 409, answer: { reason: "refused", rule: "held", text: held } };
     serve({ draft, review: versioned({ version: 1, held }), send: refusal as never });
     await store.start();
     await all(store);
@@ -1603,7 +1615,7 @@ describe("send", () => {
     const store = await freshStore();
     const held = "plan review 1 of v1 is running";
     const draft = { annotations: [], edit: edit(1, "mine\n"), choices: {}, typed };
-    const refusal = { status: 409, answer: { reason: "held", held } };
+    const refusal = { status: 409, answer: { reason: "refused", rule: "held", text: held } };
     serve({ draft, review: versioned({ version: 1 }), send: refusal as never });
     await store.start();
     await all(store);
@@ -1627,7 +1639,7 @@ describe("send", () => {
     const answer = {
       file: `${WIP}.review/v1.feedback-1.md`,
       seq: 1,
-      editKept: { held, annotations: [] },
+      editKept: { reason: held, annotations: [] },
     };
 
     const server = serve({
@@ -1840,7 +1852,15 @@ describe("send", () => {
       typed: EMPTY_TYPED,
     };
 
-    const stale = { status: 409, answer: { reason: "stale" } } as const;
+    const stale = {
+      status: 409,
+      answer: {
+        reason: "refused",
+        rule: "stale",
+        text: "your edit is of a version no longer under review",
+      },
+    } as const;
+
     serve({ draft, review: versioned({ version: 1 }), send: stale });
     await store.start();
 

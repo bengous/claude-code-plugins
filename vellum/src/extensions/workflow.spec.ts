@@ -17,7 +17,9 @@ import {
   planExists,
   refusedNow,
   SAMPLE_AT,
+  stageOf,
   tableOf,
+  viewOf,
 } from "../core/server/domain/workflow.ts";
 import { grillFile } from "./grill/parse.ts";
 import { nextQuestion, phaseOf, unanswered } from "./grill/transcript.ts";
@@ -401,6 +403,55 @@ describe("an answer reaches Claude once (P6)", () => {
     expect(paused.regions[0]).toMatchObject({ state: "open", wait: "paused" });
     expect(returned(sent)).toEqual([]);
     expect(sent.workflow.regions[0]).toMatchObject({ wait: null });
+  });
+});
+
+describe("what the page and the band read (§ 5.8)", () => {
+  const SEGMENTS = serverExtensions.flatMap(({ id, workflow }) =>
+    workflow === undefined ? [] : [{ id, segment: workflow.segment }],
+  );
+
+  test("the view carries each region's state, hold and wait, never its files", () => {
+    expect(viewOf(GRILLING, TABLE).regions).toEqual([
+      { id: "grill", state: "open", holds: "grill 1 is open", wait: null },
+      { id: "step", state: "closed" },
+      { id: "review", state: "closed" },
+    ]);
+  });
+
+  test("the view lists what the reviewer or Claude may try, never what the engine alone sends (F13)", () => {
+    expect(viewOf(V1, TABLE).refused.map(({ event }) => event)).toEqual([
+      "askQuestion",
+      "reviewForgotten",
+    ]);
+  });
+
+  test("the stage: the pill, then the plan's segment and each extension's, in the registry's order", () => {
+    expect(stageOf(GRILLING, SEGMENTS)).toEqual({
+      workspace: GRILLING.workspace,
+      pill: { text: "Held · grill 1 is open", tone: "neutral" },
+      segments: ["plan v1 · in review", "grill · open"],
+    });
+    expect(stageOf(play(V1, ["requestReview", { version: "1" }]), SEGMENTS).segments).toEqual([
+      "plan v1 · in review",
+      "review · running",
+    ]);
+  });
+
+  test("the plan's segment says the draft, the version under review, and the version approved", () => {
+    const approve = {
+      confirmed: "",
+      edit: "",
+      text: "",
+      notes: "",
+      dir: "plans/2026-09-26/the-plan/",
+    };
+
+    expect(stageOf(EMPTY, SEGMENTS).segments).toEqual(["plan draft"]);
+    expect(stageOf(V1, SEGMENTS).segments).toEqual(["plan v1 · in review"]);
+    expect(stageOf(play(V1, ["approve", approve]), SEGMENTS).segments).toEqual([
+      "plan v1 · approved",
+    ]);
   });
 });
 

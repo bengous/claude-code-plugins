@@ -25,7 +25,7 @@ export type StepAnswer =
 /** The proposal waiting for the reviewer, under the id the server gave it. */
 export type Pending = { readonly id: string; readonly proposal: Proposal };
 
-/** What `GET state` answers: the proposal waiting, if any. What holds the review is the core's `ReviewView.held`. */
+/** What `GET state` answers: the proposal waiting, if any. What holds the review is the core's `ReviewView.workflow.held`. */
 export type StepState = { readonly pending: Pending | null };
 
 /** What `POST propose` answers: the id the proposal waits under. */

@@ -194,7 +194,7 @@ type BarProps = {
 export function DecisionBar(props: BarProps): preact.JSX.Element {
   const view = review.value;
   const workspace = view?.workspace;
-  const hold = view?.held ?? null;
+  const hold = view?.workflow.held ?? null;
   const status = workspace === undefined ? null : statusOf(workspace, hold);
   const count = annotations.value.length;
   const chosen = choicesIn(choices.value);

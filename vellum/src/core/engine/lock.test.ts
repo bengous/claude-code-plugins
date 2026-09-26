@@ -380,9 +380,16 @@ describe("submitResult", () => {
   });
 });
 
+const PILL = '"pill":{"text":"Drafting","tone":"neutral"}';
+
+/** A `stage` line of a drafting workspace whose drawn part is `drawn`, as JSON fields. */
+function stageLine(drawn: string) {
+  return parseServerLine(`{"type":"stage","workspace":${JSON.stringify(DRAFTING)},${drawn}}`);
+}
+
 /** Where a `stage` line whose workspace is `workspace`, as JSON, says the plan stands; `null` when it is no line. */
 function stageOf(workspace: string) {
-  const line = parseServerLine(`{"type":"stage","workspace":${workspace}}`);
+  const line = parseServerLine(`{"type":"stage","workspace":${workspace},${PILL},"segments":[]}`);
 
   return line?.type === "stage" ? line.stage : null;
 }
@@ -421,11 +428,23 @@ describe("parseServerLine", () => {
     expect(parseServerLine(JSON.stringify(channelLine({ seq: 0, entry: sent() })))).toBeNull();
   });
 
-  test("the workspace is read as the band draws it: its kind, and the version once there is one", () => {
+  test("the workspace is read as the module reads it: its kind, and the version once there is one", () => {
     expect(stageOf(JSON.stringify(DRAFTING))).toEqual({ kind: "drafting" });
     expect(stageOf(JSON.stringify(inReview(2)))).toEqual({ kind: "inReview", version: 2 });
     expect(stageOf('{"kind":"changesRequested","version":2}'), "a stage that is gone").toBeNull();
     expect(JSON.parse(JSON.stringify(stage(inReview(2))))).toMatchObject({ type: "stage" });
+  });
+
+  test("what the band draws is read as the server drew it: a pill and its segments, or no line", () => {
+    expect(stageLine(`${PILL},"segments":["plan draft"]`)).toMatchObject({
+      drawn: { pill: { text: "Drafting", tone: "neutral" }, segments: ["plan draft"] },
+    });
+    expect(stageLine('"segments":["plan draft"]'), "no pill").toBeNull();
+    expect(stageLine(`${PILL},"segments":[3]`), "a segment that is no text").toBeNull();
+    expect(
+      stageLine('"pill":{"text":"x","tone":"loud"},"segments":[]'),
+      "an unknown tone",
+    ).toBeNull();
   });
 
   test("a line of another shape is none, for the caller to log", () => {

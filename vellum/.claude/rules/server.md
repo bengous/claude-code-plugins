@@ -43,8 +43,13 @@ Claude Code's `installed_plugins.json`, `git` with its `GIT_*` variables cleared
   the approval once a confirmation names that very hold (`Decision.confirmed`: another hold
   asks again). A Send's edit is the one part that waits (`sendEdit` is refused): it stays in the
   draft with the comments on the plan's lines, which are the edit's, the rest goes, and the
-  answer says so (`editKept`); an edit alone is refused as `held`. `ReviewView.held` carries the
-  reason to the page. The core names no extension: each brings its rows.
+  answer says so (`editKept`, its `reason` what holds); an edit alone is refused by the hold's
+  row (`refused`, rule `held`), and every other refusal of a Send names its row and its text.
+  `ReviewView.workflow` carries the workflow to the page as a reader takes it (`viewOf`: each
+  region without its files, what is refused now but what the engine alone sends), and the
+  `stage` line carries the pill and the segments to the band (`stageOf`: the plan's, then each
+  extension's `segment`), told after each step that passed from the workflow `next` answered.
+  The core names no extension: each brings its rows.
 - The notice: the step that lifts the last hold while `plan.md` holds a text no version has tells
   Claude once, a `channel` entry from `core`, with or without a verdict (`endsWithoutVerdict`);
   the end of Claude's next turn records the version. Nothing else records a text a hold kept

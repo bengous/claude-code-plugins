@@ -259,18 +259,21 @@ export const EVENTS: readonly EventDecl[] = [
   {
     id: "requestReview",
     owner: REVIEW,
+    actors: ["reviewer"],
     whileHeld: { effect: "refuse", reason: (hold) => hold },
     samples: [{ version: "1" }, { version: "2" }],
   },
   {
     id: "reviewLaunched",
     owner: REVIEW,
+    actors: ["engine"],
     whileHeld: { effect: "allow" },
     samples: SEQS.map(({ seq }) => ({ seq, agentId: `agent-${seq}`, model: "claude-opus-5-5" })),
   },
   {
     id: "reviewDone",
     owner: REVIEW,
+    actors: ["engine"],
     whileHeld: { effect: "allow" },
     endsWithoutVerdict: (input) => input.outcome !== "answer",
     samples: SEQS.flatMap(({ seq }) => [
@@ -287,6 +290,7 @@ export const EVENTS: readonly EventDecl[] = [
   {
     id: "reviewForgotten",
     owner: REVIEW,
+    actors: ["reviewer"],
     whileHeld: { effect: "allow" },
     endsWithoutVerdict: () => true,
     samples: SEQS,
@@ -294,11 +298,18 @@ export const EVENTS: readonly EventDecl[] = [
   {
     id: "reviewClosed",
     owner: REVIEW,
+    actors: ["engine"],
     whileHeld: { effect: "allow" },
     endsWithoutVerdict: () => true,
     samples: [{}],
   },
-  { id: "reviewStopped", owner: REVIEW, whileHeld: { effect: "allow" }, samples: SEQS },
+  {
+    id: "reviewStopped",
+    owner: REVIEW,
+    actors: ["engine"],
+    whileHeld: { effect: "allow" },
+    samples: SEQS,
+  },
 ];
 
 export function segmentOf(region: Region): string | null {

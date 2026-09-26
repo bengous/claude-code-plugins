@@ -1,5 +1,5 @@
 import type { ServerInfo } from "./mode.ts";
-import type { StageWire } from "./parse.ts";
+import type { DrawnWire } from "./parse.ts";
 import { pageUrl } from "./server.ts";
 
 /** What the band above the prompt draws after vellum's name, in order: the segments, then the page's link. */
@@ -10,27 +10,10 @@ function pageHref(info: ServerInfo): string {
   return pageUrl(info, "localhost");
 }
 
-function planSegment(stage: StageWire): string {
-  switch (stage.kind) {
-    case "drafting":
-      return "plan draft";
-    case "inReview":
-      return `plan v${stage.version} · in review`;
-    case "approved":
-      return `plan v${stage.version} · approved`;
-  }
-}
-
-/** The core's segment first, then each extension's in registry order; `null` says nothing. */
-export function liveBand(
-  info: ServerInfo,
-  stage: StageWire | null,
-  extensions: readonly (string | null)[],
-): Band {
-  const plan = stage === null ? [] : [planSegment(stage)];
-
+/** The segments the server sent, the plan's first, then its pill: nothing before its first `stage` line. */
+export function liveBand(info: ServerInfo, drawn: DrawnWire | null): Band {
   return {
-    segments: [...plan, ...extensions.filter((segment) => segment !== null)],
+    segments: drawn === null ? [] : [...drawn.segments, drawn.pill.text],
     href: pageHref(info),
   };
 }

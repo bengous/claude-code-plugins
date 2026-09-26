@@ -6,9 +6,6 @@ import { parseClosed, parseJson, parseReviewState } from "./parse.ts";
 import type { Outcome, ReviewPosts, ReviewState, Run, Stopping } from "./protocol.ts";
 import { REVIEWER } from "./protocol.ts";
 
-/** What the person at the terminal must know: a review runs, and its file lands in the rail. */
-const SEGMENT_RUNNING = "review · running";
-
 /**
  * How long a run whose agent the engine no longer runs keeps the review before it fails: an
  * agent's end reaches the module 14 to 40 ms after it leaves `$.agent.list()` (measured in #232).
@@ -23,9 +20,6 @@ export const RETRY_MS = 1000;
 
 /** Why a run fails once its grace ran out. */
 export const LOST = "its verdict never reached vellum";
-
-/** The modes whose last read found a run under way, keyed by the mode's own `Live`: a new way in starts with none. */
-const underWay = new WeakSet<Live>();
 
 /**
  * The grace timers of a mode, by run number: one per run and mode, armed again after a reload,
@@ -214,10 +208,6 @@ async function staged(context: EngineContext): Promise<void> {
 
   if (state === null) return;
   const { run, stopping } = state;
-
-  if (run === null) underWay.delete(context.live);
-  else underWay.add(context.live);
-
   await stopEach(context, stopping);
 
   if (run?.kind === "requested") await launch(context, run);
@@ -271,7 +261,6 @@ export const reviewEngine: EngineExtension = {
       );
     }
   },
-  segment: ({ live }) => (underWay.has(live) ? SEGMENT_RUNNING : null),
   // `close` first: the stopped agent's `aborted` end then finds no run, and fails none.
   closing: async (context) => {
     for (const timer of graced.get(context.live)?.values() ?? []) timer.cancel();

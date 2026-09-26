@@ -79,7 +79,7 @@ export type EngineExtension = {
   readonly agentAnswered?: (context: EngineContext, turn: AgentAnswered) => Promise<void>;
   /**
    * Each time the server says the review changed, a `stage` line, while live: what the extension
-   * reads again for its segment. A throw is logged and the next extension runs.
+   * reads again to act on it. A throw is logged and the next extension runs.
    */
   readonly staged?: (context: EngineContext) => Promise<void>;
   /**
@@ -88,11 +88,4 @@ export type EngineExtension = {
    * close on the server is closed there, by the server half's `approved`, module alive or not.
    */
   readonly closing?: (context: EngineContext) => Promise<void>;
-  /**
-   * What the band above the prompt says for this extension while live, after the plan and
-   * before the link; `null` says nothing. Asked after each `stage` line and each transition of the
-   * mode, never at a draw: it answers from what its `staged` read, never from the server. A throw
-   * leaves it out of the band, logged once per mode.
-   */
-  readonly segment?: (context: EngineContext) => string | null;
 };
