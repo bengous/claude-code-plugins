@@ -998,7 +998,7 @@ describe("an extension started from another's route", () => {
     await made.events.gate(RECORD, "claude");
     await made.review.context.inOrder(() => Promise.resolve());
 
-    expect(versionWasThere[0]).toBe(true);
+    expect(versionWasThere).toEqual([true]);
   });
 });
 
