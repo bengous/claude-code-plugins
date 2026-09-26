@@ -5,6 +5,7 @@ import { dirname, join } from "node:path";
 
 import {
   type ChangelogSection,
+  changelogVerdict,
   type IsoDate,
   isoDateOf,
   missingEntry,
@@ -127,6 +128,29 @@ describe("missingEntry", () => {
     expect(missingEntry("vellum/CHANGELOG.md", sections(THREE), version("0.16.1"))).toBe(
       'vellum/CHANGELOG.md has no "## 0.16.1 - <YYYY-MM-DD>" section: write it in the commit that sets the version',
     );
+  });
+});
+
+describe("changelogVerdict", () => {
+  test("passes a file that parses and holds the version", () => {
+    expect(changelogVerdict("vellum/CHANGELOG.md", THREE, version("0.16.0"))).toEqual({
+      passed: true,
+      message: "vellum/CHANGELOG.md has 0.16.0",
+    });
+  });
+
+  test("refuses a version with no section", () => {
+    expect(changelogVerdict("vellum/CHANGELOG.md", THREE, version("0.16.1"))).toHaveProperty(
+      "passed",
+      false,
+    );
+  });
+
+  test("refuses a file that does not parse, naming its line", () => {
+    expect(changelogVerdict("vellum/CHANGELOG.md", "## next\n", version("0.16.0"))).toEqual({
+      passed: false,
+      message: 'vellum/CHANGELOG.md:1: not a "## <x.y.z> - <YYYY-MM-DD>" heading: ## next',
+    });
   });
 });
 

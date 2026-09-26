@@ -9,6 +9,8 @@ import { join } from "node:path";
 
 import { $ } from "bun";
 
+import { CHANGELOG, changelogVerdict, versionCommits } from "./changelog.ts";
+import { commitAt, sourceDirOf, type Version } from "./check-plugin-bumps.ts";
 import {
   validateNameMatch,
   validateVersionSync,
@@ -24,6 +26,7 @@ import {
   type PluginJson,
   type ValidationResult,
 } from "./lib/marketplace-validation";
+import { pluginDirAt } from "./lib/plugin-sources.ts";
 
 // Colors (disabled if not a terminal)
 const isTTY = process.stdout.isTTY;
@@ -106,6 +109,20 @@ const SHIPPED_TEXT_EXTENSIONS = [
 
 const isShippedText = (path: string) => SHIPPED_TEXT_EXTENSIONS.some((ext) => path.endsWith(ext));
 
+/** Where the missing section's commits start: the commit that set the plugin's last committed version. */
+function sinceHint(source: string): string {
+  const repo = pluginDirAt(repoRoot);
+
+  if (repo === null) return "";
+
+  const dir = sourceDirOf(source, "marketplace.json");
+  const last = versionCommits(repo, dir, commitAt(repo, "HEAD")).at(-1);
+
+  return last === undefined
+    ? ""
+    : `; the commits to cover: git log ${last.commit.slice(0, 8)}..HEAD -- ${dir}`;
+}
+
 console.log(`${BOLD}Validating marketplace plugins...${RESET}\n`);
 
 // Validate each plugin
@@ -176,6 +193,26 @@ for (const mp of marketplace.plugins) {
 
   if (hardcoded === 0) {
     pass("No hardcoded paths");
+  }
+
+  // Check 9: a plugin that keeps a changelog has a section for its version
+  const changelogPath = join(pluginDir, CHANGELOG);
+
+  if (existsSync(changelogPath) && pluginJson.version) {
+    // SAFETY: the brand states a non-empty version, checked by the condition above.
+    const version = pluginJson.version as Version;
+
+    const verdict = changelogVerdict(
+      `${prefix}${CHANGELOG}`,
+      await Bun.file(changelogPath).text(),
+      version,
+    );
+
+    if (verdict.passed) {
+      pass(verdict.message);
+    } else {
+      fail(`${verdict.message}${sinceHint(mp.source)}`);
+    }
   }
 
   console.log();

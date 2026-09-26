@@ -9,6 +9,7 @@
  */
 
 import { type CommitId, type SourceDir, type Version, versionAt } from "./check-plugin-bumps.ts";
+import type { ValidationResult } from "./lib/marketplace-validation.ts";
 import type { PluginDir } from "./lib/plugin-sources.ts";
 
 export const CHANGELOG = "CHANGELOG.md";
@@ -135,6 +136,25 @@ export function missingEntry(
   if (sections.some((section) => section.version === version)) return null;
 
   return `${file} has no "## ${version} - <YYYY-MM-DD>" section: write it in the commit that sets the version`;
+}
+
+/** The one verdict a plugin that keeps a changelog gets: parsed, and holding its manifest's version. */
+export function changelogVerdict(file: string, text: string, version: Version): ValidationResult {
+  const parsed = parseChangelog(text);
+
+  if (!parsed.ok) return { passed: false, message: `${file}:${parsed.line}: ${parsed.reason}` };
+
+  const semver = semverOf(version);
+
+  if (semver === null) {
+    return { passed: false, message: `version ${version} is not x.y.z, as ${file}'s headings are` };
+  }
+
+  const missing = missingEntry(file, parsed.sections, semver);
+
+  return missing === null
+    ? { passed: true, message: `${file} has ${semver}` }
+    : { passed: false, message: missing };
 }
 
 /** Every section newer than `shipped`, newest first, as a release's notes; all of them when `shipped` is null. */
