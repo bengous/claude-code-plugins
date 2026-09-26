@@ -16,7 +16,8 @@ src/core/engine/               the engine adapter: register.ts spells `$`, the r
         │ HTTP, token header, down; the server's stdout, up
 src/core/server/adapters/      http/routes.ts, http/serve.ts, fs.ts, draft.ts, browser.ts, vellum-build.ts: every IO
 src/core/server/app/review.ts  the use case: read, decide, apply
-src/core/server/domain/        pure, no IO: paths, workspace, channel, review, feedback, diff, slug, links, vellum-build
+src/core/server/domain/        pure, no IO: paths, workspace, channel, review, feedback, diff, slug, links, vellum-build,
+                               workflow (the session's state, judged by `next` against a table of rules)
 src/core/server/cli.ts         the entry point: `serve`, which the hooks module spawns and reads
 src/core/server/preview.ts     the page alone on any directory of documents: a working copy, served, taken away
 src/core/protocol.ts           what crosses HTTP, the server's stdout and an extension boundary; JSON
@@ -24,7 +25,8 @@ src/core/extension.ts          the contract an extension fills: PageExtension, S
                                (EngineExtension lives with the hooks module, core/engine/extension.ts)
 src/core/page/                 the Preact page
 src/extensions/<id>/           one extension, a file per place it plugs in: page.tsx, server.ts, engine.ts;
-                               its own messages in protocol.ts, its boundary in parse.ts
+                               its own messages in protocol.ts, its boundary in parse.ts, its region, events,
+                               rules and transitions in workflow.ts
 src/extensions/page.ts, server.ts, engine.ts  the three registries, the only way the core reaches an extension
 ```
 
