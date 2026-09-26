@@ -54,6 +54,12 @@ describe("phaseText", () => {
     expect(phaseText("idle", 1)).toBe("Claude has no question open.");
     expect(phaseText("stopped", 1)).toBe("Claude's turn was interrupted. Add a note to continue.");
   });
+
+  test("says a round Claude stopped waiting on still takes the reviewer's answer", () => {
+    expect(phaseText("paused", 1)).toBe(
+      "Paused · Claude stopped waiting; your answer reaches it as a message",
+    );
+  });
 });
 
 describe("endedOf", () => {

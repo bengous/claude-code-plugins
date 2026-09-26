@@ -334,11 +334,25 @@ export function relaysOf(doc: string, name: string, after: number): Relay[] {
 }
 
 /**
- * Asking while a question waits for the reviewer; working while the reviewer spoke last, the
- * opening or a reply no voice of Claude follows; else Claude's last voice says how its turn ended.
+ * Whether a turn was cut after the last question still waiting: the call that asked it no longer
+ * waits, whatever Claude said or the session did since.
+ */
+function cutAfter(doc: string, waiting: readonly string[]): boolean {
+  const lines = doc.split("\n");
+  const asked = lines.findLastIndex((line) => waiting.includes(QUESTION.exec(line)?.[1] ?? ""));
+
+  return lines.slice(asked + 1).some((line) => TURN_CUT.test(line));
+}
+
+/**
+ * Asking while a question waits for the reviewer, paused once the turn that asked it was cut;
+ * working while the reviewer spoke last, the opening or a reply no voice of Claude follows; else
+ * Claude's last voice says how its turn ended.
  */
 export function phaseOf(doc: string): Phase {
-  if (unanswered(doc).length > 0) return "asking";
+  const waiting = unanswered(doc);
+
+  if (waiting.length > 0) return cutAfter(doc, waiting) ? "paused" : "asking";
   const voice = doc.lastIndexOf(CLAUDE_VOICE);
 
   if (voice === -1 || voice < (replies(doc).at(-1)?.index ?? 0)) return "working";

@@ -213,6 +213,41 @@ describe("the phase", () => {
 
     expect(phaseOf(appendEvent(aborted, "/compact"))).toBe("stopped");
   });
+
+  test("is paused while a question waits and the turn that asked it was cut", () => {
+    const round = appendQuestions(opened, [STYLE]);
+
+    for (const reason of ["aborted", "refusal", "error"]) {
+      expect(phaseOf(appendAnswer(round, said("", { reason, asked: true })))).toBe("paused");
+    }
+  });
+
+  test("stays paused through a later turn and an event, until the reply", () => {
+    const cut = appendAnswer(
+      appendQuestions(opened, [STYLE]),
+      said("", { reason: "aborted", asked: true }),
+    );
+
+    const later = appendEvent(appendAnswer(cut, said("Back.")), "/compact");
+
+    expect(phaseOf(later)).toBe("paused");
+    expect(phaseOf(appendReply(later, [], "") ?? "")).toBe("working");
+  });
+
+  test("a round asked after a paused one is asking: a call waits on it", () => {
+    const cut = appendAnswer(
+      appendQuestions(opened, [STYLE]),
+      said("", { reason: "aborted", asked: true }),
+    );
+
+    expect(phaseOf(appendQuestions(cut, [STYLE]))).toBe("asking");
+  });
+
+  test("a cut written by hand inside Claude's quoted text pauses nothing", () => {
+    const round = appendQuestions(opened, [STYLE]);
+
+    expect(phaseOf(appendAnswer(round, said("_(turn aborted)_", { asked: true })))).toBe("asking");
+  });
 });
 
 describe("the footer", () => {
