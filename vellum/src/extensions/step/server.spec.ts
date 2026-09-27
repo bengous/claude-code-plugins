@@ -417,6 +417,41 @@ describe("a wait", () => {
   });
 });
 
+/** What `read` answers, asked again at every turn of the loop until `work` settles: a read that lands inside its step included. */
+async function readsWhile<T, R>(
+  work: Promise<T>,
+  read: () => Promise<R>,
+): Promise<{ readonly value: T; readonly reads: readonly R[] }> {
+  const flag = { settled: false };
+
+  const settled = work.finally(() => {
+    flag.settled = true;
+  });
+
+  const reads: Promise<R>[] = [];
+
+  while (!flag.settled) {
+    reads.push(read());
+    await Bun.sleep(0);
+  }
+
+  return { value: await settled, reads: await Promise.all(reads) };
+}
+
+describe("the page's read of the state", () => {
+  test("never reads a proposal paused while the step that took it lands", async () => {
+    const { propose, state } = await stepping();
+    const torn: StepState[] = [];
+
+    for (let round = 0; round < 40; round += 1) {
+      const { value: id, reads } = await readsWhile(propose(), state);
+      torn.push(...reads.filter((read) => read.pending?.id === id && read.paused));
+    }
+
+    expect(torn).toEqual([]);
+  });
+});
+
 describe("a pause (A2)", () => {
   test("marks the call's wait paused, the page reads it, and the pick is told all the same", async () => {
     const { post, propose, region, state, told, wait } = await stepping();

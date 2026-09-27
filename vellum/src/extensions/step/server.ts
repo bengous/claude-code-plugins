@@ -60,8 +60,10 @@ function routes(context: ServerContext): Readonly<Record<RouteKey, Route>> {
   const { dispatch, inOrder } = context;
 
   return {
+    // In the queue: a step writes step.json before it keeps its wait in memory, and a read between
+    // the two would take a proposal Claude's call waits on for a paused one.
     "GET state": async () => {
-      const region = regionIn(await context.workflow(), STEP);
+      const region = regionIn(await inOrder(() => context.workflow()), STEP);
 
       const state: StepState = {
         pending: fileOf(region).pending,
