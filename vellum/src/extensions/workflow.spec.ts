@@ -17,7 +17,9 @@ import {
   planExists,
   refusedNow,
   SAMPLE_AT,
+  stageOf,
   tableOf,
+  viewOf,
 } from "../core/server/domain/workflow.ts";
 import { grillFile } from "./grill/parse.ts";
 import { nextQuestion, phaseOf, unanswered } from "./grill/transcript.ts";
@@ -66,6 +68,15 @@ function told(step: Step): string[] {
   return step.effects.flatMap((effect) =>
     effect.kind === "channel" && effect.entry.kind === "text" ? [effect.entry.text] : [],
   );
+}
+
+/** The review as a rename that failed leaves it: the version under review, the error in memory. */
+function approvalFailed(w: Workflow): Workflow {
+  const { workspace } = w;
+
+  if (workspace.kind !== "inReview") throw new Error("no version is under review");
+
+  return { ...w, workspace: { ...workspace, finalizeError: "rename refused" } };
 }
 
 function returned(step: Step): Extract<Effect, { kind: "returnToCall" }>[] {
@@ -401,6 +412,133 @@ describe("an answer reaches Claude once (P6)", () => {
     expect(paused.regions[0]).toMatchObject({ state: "open", wait: "paused" });
     expect(returned(sent)).toEqual([]);
     expect(sent.workflow.regions[0]).toMatchObject({ wait: null });
+  });
+});
+
+describe("what the page and the band read (§ 5.8)", () => {
+  const SEGMENTS = serverExtensions.flatMap(({ id, workflow }) =>
+    workflow === undefined ? [] : [{ id, segment: workflow.segment }],
+  );
+
+  const refusedIn = (w: Workflow): (readonly string[])[] =>
+    viewOf(w, TABLE).refused.map(({ event, effect, reason }) => [event, effect, reason]);
+
+  const APPROVAL = {
+    confirmed: "",
+    edit: "",
+    text: "",
+    notes: "",
+    dir: "plans/2026-09-26/the-plan/",
+  };
+
+  const sentTwice = (w: Workflow): Workflow => play(w, ["send", COMMENTS], ["send", COMMENTS]);
+
+  test("the pill without a hold keeps today's words, and says plan.md waits only under one (P1)", () => {
+    const pills = [
+      EMPTY,
+      sentTwice(EMPTY),
+      V1,
+      sentTwice(V1),
+      approvalFailed(V1),
+      play(V1, ["approve", APPROVAL]),
+      play(V1, ["planWritten", PENDING]),
+    ].map((w) => pillOf(w));
+
+    expect(pills).toEqual([
+      { text: "Drafting", tone: "neutral" },
+      { text: "Drafting · 2 sent", tone: "neutral" },
+      { text: "In review", tone: "neutral" },
+      { text: "In review · 2 sent", tone: "neutral" },
+      { text: "Approval failed", tone: "err" },
+      { text: "Approved", tone: "ok" },
+      { text: "In review", tone: "neutral" },
+    ]);
+  });
+
+  test("the view carries each region's state, hold and wait, never its files", () => {
+    expect(viewOf(GRILLING, TABLE).regions).toEqual([
+      { id: "grill", state: "open", holds: "grill 1 is open", wait: null },
+      { id: "step", state: "closed" },
+      { id: "review", state: "closed" },
+    ]);
+  });
+
+  test("refused at v1: what Claude would meet, never a run to forget that is not there (F13)", () => {
+    expect(refusedIn(V1)).toEqual([["askQuestion", "refuse", "no grill is open"]]);
+  });
+
+  test("refused under a grill: each event once, in the words a real caller meets", () => {
+    expect(refusedIn(GRILLING)).toEqual([
+      ["record", "refuse", "grill 1 is open: plan.md waits; you are told when it ends"],
+      ["sendEdit", "refuse", "grill 1 is open: the edit waits in the draft until it ends"],
+      ["approve", "confirm", "The review is held: grill 1 is open."],
+      ["openGrill", "refuse", "grill-1.md is open"],
+      ["propose", "refuse", "grill 1 is open: no step is proposed until it ends"],
+      ["answerProposal", "refuse", "grill 1 is open"],
+      ["requestReview", "refuse", "grill 1 is open"],
+    ]);
+  });
+
+  test("refused under a plan review: each event once, in the words a real caller meets", () => {
+    const running = "plan review 1 of v1 is running";
+
+    expect(refusedIn(play(V1, ["requestReview", { version: "1" }]))).toEqual([
+      ["record", "refuse", `${running}: plan.md waits; you are told when it ends`],
+      ["sendEdit", "refuse", `${running}: the edit waits in the draft until it ends`],
+      ["approve", "confirm", `The review is held: ${running}.`],
+      ["askQuestion", "refuse", "no grill is open"],
+      ["propose", "refuse", `${running}: no step is proposed until it ends`],
+      ["answerProposal", "refuse", running],
+      ["requestReview", "refuse", "a review of v1 is running"],
+    ]);
+  });
+
+  test("refused on v2 under a grill: the edit of v2, in the hold's words, not a sample's v1", () => {
+    const edited = { edit: "1", text: "# Plan\n\nv2.\n" };
+    const v2 = play(V1, ["sendEdit", edited], ["answerProposal", OWN_GRILL]);
+
+    expect(refusedIn(v2).find(([event]) => event === "sendEdit")).toEqual([
+      "sendEdit",
+      "refuse",
+      "grill 1 is open: the edit waits in the draft until it ends",
+    ]);
+  });
+
+  test("the stage: the pill, then the plan's segment and each extension's, in the registry's order", () => {
+    expect(stageOf(GRILLING, SEGMENTS)).toEqual({
+      workspace: GRILLING.workspace,
+      pill: { text: "Held · grill 1 is open", tone: "neutral" },
+      segments: ["plan v1 · in review", "grill · open"],
+    });
+    expect(stageOf(play(V1, ["requestReview", { version: "1" }]), SEGMENTS).segments).toEqual([
+      "plan v1 · in review",
+      "review · running",
+    ]);
+  });
+
+  test("a grill or a plan review that ended draws no segment", () => {
+    const ended = play(GRILLING, ["endGrill", { reason: "stop", at: SAMPLE_AT }]);
+
+    const reviewed = play(
+      V1,
+      ["requestReview", { version: "1" }],
+      ["reviewLaunched", { seq: "1", agentId: "agent-1", model: "claude-opus-5-5" }],
+      [
+        "reviewDone",
+        { seq: "1", outcome: "answer", text: "Fine.", file: "reviews/v1.md", at: SAMPLE_AT },
+      ],
+    );
+
+    expect(stageOf(ended, SEGMENTS).segments).toEqual(["plan v1 · in review"]);
+    expect(stageOf(reviewed, SEGMENTS).segments).toEqual(["plan v1 · in review"]);
+  });
+
+  test("the plan's segment says the draft, the version under review, and the version approved", () => {
+    expect(stageOf(EMPTY, SEGMENTS).segments).toEqual(["plan draft"]);
+    expect(stageOf(V1, SEGMENTS).segments).toEqual(["plan v1 · in review"]);
+    expect(stageOf(play(V1, ["approve", APPROVAL]), SEGMENTS).segments).toEqual([
+      "plan v1 · approved",
+    ]);
   });
 });
 

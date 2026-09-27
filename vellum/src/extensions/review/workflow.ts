@@ -186,6 +186,7 @@ export const RULES: readonly Rule[] = [
     order: -3,
     when: (w) => w.workspace.kind === "drafting",
     effect: "refuse",
+    refuses: "state",
     reason: () => "no version is under review yet",
   },
   {
@@ -195,6 +196,7 @@ export const RULES: readonly Rule[] = [
     when: (w, input) =>
       w.workspace.kind === "inReview" && String(w.workspace.version) !== input.version,
     effect: "refuse",
+    refuses: "input",
     reason: (w, input) => `v${reviewed(w)} is under review, not v${input.version ?? ""}`,
   },
   {
@@ -203,6 +205,7 @@ export const RULES: readonly Rule[] = [
     order: -1,
     when: (w) => reviewsIn(w).run !== null,
     effect: "refuse",
+    refuses: "state",
     reason: (w) => `a review of v${runIn(w).version} is running`,
   },
   {
@@ -215,6 +218,7 @@ export const RULES: readonly Rule[] = [
       return run?.kind !== "requested" || run.seq !== seqOf(input);
     },
     effect: "refuse",
+    refuses: "input",
     reason: () => NO_SUCH_RUN,
   },
   {
@@ -223,6 +227,7 @@ export const RULES: readonly Rule[] = [
     order: 1,
     when: (w, input) => reviewsIn(w).run?.seq !== seqOf(input),
     effect: "refuse",
+    refuses: "input",
     reason: () => NO_SUCH_RUN,
   },
   {
@@ -231,6 +236,7 @@ export const RULES: readonly Rule[] = [
     order: 2,
     when: (w, input) => input.outcome === "answer" && reviewsIn(w).run?.kind !== "running",
     effect: "refuse",
+    refuses: "input",
     reason: () => "the run was never launched",
   },
   {
@@ -239,6 +245,7 @@ export const RULES: readonly Rule[] = [
     order: 1,
     when: (w, input) => reviewsIn(w).run?.seq !== seqOf(input),
     effect: "refuse",
+    refuses: "input",
     reason: () => NO_SUCH_RUN,
   },
   {
@@ -247,6 +254,7 @@ export const RULES: readonly Rule[] = [
     order: 1,
     when: (w, input) => !reviewsIn(w).stopping.some(({ seq }) => seq === seqOf(input)),
     effect: "refuse",
+    refuses: "input",
     reason: () => NO_SUCH_RUN,
   },
 ];
@@ -259,18 +267,21 @@ export const EVENTS: readonly EventDecl[] = [
   {
     id: "requestReview",
     owner: REVIEW,
+    actors: ["reviewer"],
     whileHeld: { effect: "refuse", reason: (hold) => hold },
     samples: [{ version: "1" }, { version: "2" }],
   },
   {
     id: "reviewLaunched",
     owner: REVIEW,
+    actors: ["engine"],
     whileHeld: { effect: "allow" },
     samples: SEQS.map(({ seq }) => ({ seq, agentId: `agent-${seq}`, model: "claude-opus-5-5" })),
   },
   {
     id: "reviewDone",
     owner: REVIEW,
+    actors: ["engine"],
     whileHeld: { effect: "allow" },
     endsWithoutVerdict: (input) => input.outcome !== "answer",
     samples: SEQS.flatMap(({ seq }) => [
@@ -287,6 +298,7 @@ export const EVENTS: readonly EventDecl[] = [
   {
     id: "reviewForgotten",
     owner: REVIEW,
+    actors: ["reviewer"],
     whileHeld: { effect: "allow" },
     endsWithoutVerdict: () => true,
     samples: SEQS,
@@ -294,11 +306,18 @@ export const EVENTS: readonly EventDecl[] = [
   {
     id: "reviewClosed",
     owner: REVIEW,
+    actors: ["engine"],
     whileHeld: { effect: "allow" },
     endsWithoutVerdict: () => true,
     samples: [{}],
   },
-  { id: "reviewStopped", owner: REVIEW, whileHeld: { effect: "allow" }, samples: SEQS },
+  {
+    id: "reviewStopped",
+    owner: REVIEW,
+    actors: ["engine"],
+    whileHeld: { effect: "allow" },
+    samples: SEQS,
+  },
 ];
 
 export function segmentOf(region: Region): string | null {

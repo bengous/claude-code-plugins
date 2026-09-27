@@ -7,7 +7,7 @@ paths:
 # The page and its renderers
 
 `src/core/page/` is the Preact page: `api.ts` the client (token, routes, SSE), `state.ts` the store of
-signals, `kit.tsx` the components every other `.tsx` draws with, `*.tsx` the rest of them,
+signals, `workflow.ts` its reader of the workflow, `kit.tsx` the components every other `.tsx` draws with, `*.tsx` the rest of them,
 `style.css` and `fonts/` the design system, `anchoring.ts` and `highlights.ts` the text selection,
 `editor.tsx` and `caret.ts` the plan's source editor, `labels.ts` what the page names, a
 document, a place, a quote, purely, so it is tested without the store. The renderers are the page halves of
@@ -119,21 +119,37 @@ no build step, so what the page imports costs nothing at `cli start`.
   never reads `commentSwitch`: it reads `commenting`, false on a locked page, so no composer
   opens there, and `addAnnotation` returns when locked, as `select` does while the editor is
   open. A comment nobody can send is a silent loss.
-- `review.held` is what holds the review, or `null`, in the holder's words (the grill's region
-  says `grill 2 is open`, by the transcript's number). The reason is also the hold's
+- The workflow the server sends, `review.workflow`, is read by `workflow.ts` alone among the core's
+  modules: `state.ts` keeps the documents, the comments, the draft, the Send and the stream, and
+  reads none of it; `workflow.ts` holds what holds the review, the pill and what is refused now,
+  the approval and Record, the edit a hold keeps, and the column of the core's notices, which reads
+  both. Its signals and actions are built over a store (`workflowOf`): the page runs one over its
+  own, `state.spec.ts` one over each store it imports fresh (`freshFlow`), which a module-level
+  one would never see. `workflow.ts` is not in `PAGE_SURFACE`: an extension reads the hold off
+  `review.workflow` of `state.ts`.
+- `held` of `workflow.ts` is what holds the review, or `null`, in the holder's words (the grill's
+  region says `grill 2 is open`, by the transcript's number). The reason is also the hold's
   identity: the approval notes remember the one they warned of, and the approval sends it as
-  `confirmed`, so the server asks again for another; a reason that differs brings
-  the warning back, so a second grill must not read as the first. Held, the pill reads `Held · <reason>` (`statusOf`), in
-  review only, Send stays live, since a hold refuses Claude's versions and never the reviewer's
-  word, and every way to an approval goes through the warning popover, which frames the reason in its own sentence (`The
-  review is held: <reason>.`), since a reason reads as a clause, then says the approval ends it
-  and loses what it was doing, a grill's round or a plan review's run. The
-  core draws no notice of the hold itself: the extension that holds draws its own, the grill's
-  band. Its one notice is of the reviewer's edit a Send left in the draft (`editKept`, or a
-  `held` refusal), in the server's words (`editWaits` of `state.ts`, keyed by that very edit):
-  it lasts while that edit waits, through a Send that carries no edit, until a load reads that
-  nothing holds the review. The bar prints
-  the reason and never reads which extension gave it.
+  `confirmed`; a reason that differs on the page brings the warning back, and so does the server's
+  answer that another holds (the hold's row, `held`), on the hold that holds now, so a second grill
+  must not read as the first. The pill is the server's, `workflow.pill` (`Held · <reason>` in
+  drafting as in review, then ` · plan.md waits` while `plan.md` holds a text no version has): the
+  page computes none, and `statusOf` hands it to the bar with what is refused now, each event in its
+  id's words, refused or asking to confirm, and its row's reason, which a `Chip` beside the pill
+  opens in a `Popover`, on every page but an approved one. Send stays live, since a hold refuses
+  Claude's versions and never the reviewer's word, and every way to an approval goes through the
+  warning popover, which frames the reason in its own sentence (`The review is held: <reason>.`),
+  since a reason reads as a clause, then says the approval ends it and loses what it was doing, a
+  grill's round or a plan review's run. The core draws no notice of the hold itself: the extension
+  that holds draws its own, the grill's band. Its one notice is of the reviewer's edit a Send left
+  in the draft (`editKept`, or `kept`, an edit alone the hold's row refused), in the server's words
+  (`editWaits` of `workflow.ts`, keyed by that very edit): it lasts while that edit waits, through
+  a Send that carries no edit, until a load reads that nothing holds the review. The bar prints the
+  reason and never reads which extension gave it.
+- An approval refused because `plan.md` changed since the version (`approve-draft`) is a `Failure`
+  in its row's words whose notice offers Record, then approve (`POST /api/record`, then the same
+  decision again), unless a hold holds, whose row then says to end it first, or the decision
+  carries an edit, which the version recorded would leave stale.
 - Settings are a `Dialog` the bar's gear opens, drawn while the bar has buttons: `settings/`
   holds it. `SETTINGS` of `settings/sections.ts` is the one list of sections, in the order drawn,
   each under a `group` heading or, with none, after every group; a new setting is an entry there
@@ -143,13 +159,14 @@ no build step, so what the page imports costs nothing at `cli start`.
   route's 500, shown in the section, never the server's. A `Dialog` counts itself (`dialogUp` of
   the kit), and the grill's `quiet` reads it, so a proposal never stacks its modal on another.
 - What the page says of its state is derived, in `notices.ts`, pure and held by
-  `notices.spec.ts`: `noticesOf` the column under the bar, `statusOf` the pill, `decisionsOf`
-  the three buttons of the core, greyed or not and why, the reason in each `title`. Nothing
-  writes a sentence into a signal: a request that fails is a `Failure` of its operation, through
-  `fail` of `state.ts`, one per operation, and the next success of that operation removes it
+  `notices.spec.ts`: `noticesOf` the column under the bar, `statusOf` the pill and what it opens
+  on, `decisionsOf` the three buttons of the core, greyed or not and why, the reason in each
+  `title`. Nothing writes a sentence into a signal: a request that fails is a `Failure` of its
+  operation, through `fail` of `state.ts`, one per operation, with the one way on its refusal
+  offers when it offers one, and the next success of that operation removes it
   (`succeed`); the stale editor derives from `editing` and the version, so its notice leaves
   with the editor; a card's Delete leaves an `undo` for a while. `app.tsx` draws the column with
-  `Notices`, the core's first, then each extension's `notices` components: `step`'s window is
+  `Notices`, the core's first (`notices` of `workflow.ts`), then each extension's `notices` components: `step`'s window is
   one, a `Dialog`, shown while it is mounted, and the grill's band another, drawn while a grill is
   open: the subject, the round, the questions that wait for the reviewer, open and untouched in the draft as the chips count them, and End grill. End grill is one component, `EndGrill` in `grill/page.tsx`, which the panel draws too once Claude's turn ended, with one end in flight for the page. Its
   count alone is `role="status"`, drawn empty with none waiting, so a new count is read out and
@@ -281,9 +298,11 @@ no build step, so what the page imports costs nothing at `cli start`.
   blocks with it, so the grill's panel and its band stay as the reviewer left them, but for an
   approved page, where the approval closed the grill (`drawn`); `step`'s Next step button and
   window read none past a refused read (`read` in `step/page.tsx`), which puts the window on
-  screen off onto the dot. `decide` answers whether the server took the decision, and
-  the notes popover closes on that alone: a failure leaves the note where it was typed.
-- There is one Send, `send` of `state.ts`: the bar's `Send (n)`, whose `n` counts the comments,
+  screen off onto the dot. `approve` of `workflow.ts` answers whether the server took the approval
+  (`decide` of `state.ts` posts it and clears the draft), and the notes popover closes on that
+  alone: a failure leaves the note where it was typed.
+- There is one Send, `send` of `state.ts`, which answers what it did with the edit (`Sent`), and
+  which the bar calls through `send` of `workflow.ts`, keeper of the edit a hold left: the bar's `Send (n)`, whose `n` counts the comments,
   the choices a Send takes (`sendableChoices`), the edit as 1, and each extension's share (`PageExtension.send`, `SendShare`: the grill's
   questions answered), which `app.tsx` hands the bar; and a card's Send now, which sends that
   comment or that choice alone and leaves the round, greyed on a comment on the plan while an edit waits. The

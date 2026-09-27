@@ -476,7 +476,11 @@ describe("routes", () => {
     }
 
     expect(await (await sendBody({ ...ALL, annotations: [] })).json()).toEqual({ reason: "empty" });
-    expect(await (await sendBody(ALL)).json()).toEqual({ reason: "changed" });
+    expect(await (await sendBody(ALL)).json()).toEqual({
+      reason: "refused",
+      rule: "changed",
+      text: "the saved draft no longer holds what you sent, changed in another tab",
+    });
   });
 
   test("a choice saved in the draft goes with the Send that names it, after the comments, and leaves the draft", async () => {
@@ -502,7 +506,11 @@ describe("routes", () => {
       choices: [{ ...SETTINGS, option: "d" }],
     });
 
-    expect(await other.json()).toEqual({ reason: "changed" });
+    expect(await other.json()).toEqual({
+      reason: "refused",
+      rule: "changed",
+      text: "the saved draft no longer holds what you sent, changed in another tab",
+    });
     const alone = await sendBody({ ...ALL, annotations: [], choices: [SETTINGS] });
     expect(alone.status).toBe(200);
   });

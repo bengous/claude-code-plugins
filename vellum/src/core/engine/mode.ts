@@ -7,7 +7,7 @@ import {
   type ProjectDir,
   sessionId,
   type SessionId,
-  type StageWire,
+  type DrawnWire,
   type Token,
   type Workdir,
   workdirOf,
@@ -91,10 +91,10 @@ export type State =
 export type Settle = (host: Host, id: SessionId) => Promise<void>;
 
 /**
- * Where the plan stands, each time the server says the review changed: for the band, then the
- * extensions' part. `register.ts` owns the band and the registry.
+ * What the band draws, each time the server says the review changed, then the extensions' part.
+ * `register.ts` owns the band and the registry.
  */
-export type Staged = (host: Host, live: Live, stage: StageWire) => Promise<void>;
+export type Staged = (host: Host, live: Live, drawn: DrawnWire) => Promise<void>;
 
 /**
  * A mode whose server ended while it was the current one, `how` it ended; `null` for the slow
@@ -307,7 +307,7 @@ function enter(
       }
 
       staging = staging
-        .then(() => wiring.staged(host, live, line.stage))
+        .then(() => wiring.staged(host, live, line.drawn))
         .catch((cause: unknown) => {
           host.log(`the review's stage was not drawn: ${String(cause)}`);
         });

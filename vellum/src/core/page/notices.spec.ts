@@ -1,7 +1,7 @@
 /* oxlint-disable anti-slop/require-safety-comment-for-type-assertion -- the workspaces here are branded values (Version, WipDir, FinalDir) written as literals: the brand is the parser's to grant, and nothing here parses. */
 import { describe, expect, test } from "bun:test";
 
-import type { PlanWorkspace } from "../protocol.ts";
+import type { PlanWorkspace, WorkflowView } from "../protocol.ts";
 import { decisionsOf, NEW_LINK_HINT_MS, noticesOf, staleEditor, statusOf } from "./notices.ts";
 
 const WIP = "plans/2026-09-15/wip-4c2a9d93/" as never;
@@ -82,6 +82,16 @@ describe("noticesOf", () => {
     ]);
   });
 
+  test("a failure that offers a way on carries it as its notice's one button", () => {
+    const record = { label: "Record, then approve", run: noop };
+    const reason = "plan.md changed since v1: record it before approving";
+    const failures = [{ op: "decision" as const, text: reason, action: record }];
+
+    expect(noticesOf({ ...quiet, failures })).toEqual([
+      { key: "failure:decision", kind: "err", text: [reason], action: record },
+    ]);
+  });
+
   test("the stale editor derives from the editor and the version, and says which case", () => {
     const editing = { version: 1 as never };
     expect(keys({ ...quiet, editing })).toEqual([]);
@@ -147,16 +157,59 @@ describe("noticesOf", () => {
 });
 
 describe("statusOf", () => {
+  const HOLD = "grill 1 is open";
+
+  const underGrill: WorkflowView = {
+    planText: "pending",
+    held: HOLD,
+    regions: [{ id: "grill", state: "open", holds: HOLD, wait: null }],
+    refused: [
+      {
+        event: "record",
+        input: { unchanged: "keep" },
+        effect: "refuse",
+        reason: `${HOLD}: plan.md waits; you are told when it ends`,
+      },
+      { event: "answerProposal", input: { id: "" }, effect: "refuse", reason: HOLD },
+      { event: "approve", input: {}, effect: "confirm", reason: `The review is held: ${HOLD}.` },
+    ],
+    pill: { text: `Held · ${HOLD} · plan.md waits`, tone: "neutral" },
+  };
+
+  test("the pill lists what is refused now", () => {
+    expect(statusOf(inReview, underGrill)).toEqual({
+      text: `Held · ${HOLD} · plan.md waits`,
+      tone: "neutral",
+      refused: [
+        {
+          what: "Record",
+          effect: "Refused",
+          reason: `${HOLD}: plan.md waits; you are told when it ends`,
+        },
+        { what: "Answer proposal", effect: "Refused", reason: HOLD },
+        { what: "Approve", effect: "Asks to confirm", reason: `The review is held: ${HOLD}.` },
+      ],
+    });
+  });
+
   test.each([
-    [drafting, null, "Drafting", "neutral"],
-    [{ ...drafting, batches: 2 }, null, "Drafting · 2 sent", "neutral"],
-    [inReview, null, "In review", "neutral"],
-    [{ ...inReview, batches: 2 }, null, "In review · 2 sent", "neutral"],
-    [inReview, "grill 1 is open", "Held · grill 1 is open", "neutral"],
-    [{ ...inReview, finalizeError: "EACCES" }, null, "Approval failed", "err"],
-    [approved, null, "Approved", "ok"],
-  ] as const)("%o held %p reads %s", (workspace, held, expectedText, tone) => {
-    expect(statusOf(workspace, held)).toEqual({ text: expectedText, tone });
+    [drafting, "Held · grill 1 is open · plan.md waits", "neutral"],
+    [{ ...drafting, batches: 2 }, "Drafting · 2 sent", "neutral"],
+    [{ ...inReview, batches: 2 }, "In review · 2 sent", "neutral"],
+    [{ ...inReview, finalizeError: "EACCES" }, "Approval failed", "err"],
+  ] as const)(
+    "on %o the pill reads the server's %s, a hold in drafting too",
+    (workspace, words, tone) => {
+      const pill = { text: words, tone };
+
+      expect(statusOf(workspace, { ...underGrill, pill })).toMatchObject(pill);
+    },
+  );
+
+  test("an approved page opens no list: the bar draws no button there", () => {
+    const pill = { text: "Approved", tone: "ok" } as const;
+
+    expect(statusOf(approved, { ...underGrill, pill })).toEqual({ ...pill, refused: [] });
   });
 });
 

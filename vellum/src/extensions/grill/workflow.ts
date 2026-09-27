@@ -305,6 +305,7 @@ function openingRules(event: string, order: number, opens: (input: EventInput) =
       order,
       when: (_w, input) => opens(input) && parseSubject({ subject: input.subject }) === null,
       effect: "refuse",
+      refuses: "input",
       reason: () => "a grill's subject is one line, not empty",
     },
     {
@@ -313,6 +314,7 @@ function openingRules(event: string, order: number, opens: (input: EventInput) =
       order: order + 1,
       when: (w, input) => opens(input) && isOpen(w),
       effect: "refuse",
+      refuses: "state",
       reason: (w) => `${grillFile(latestIn(w).n)} is open`,
     },
   ];
@@ -327,6 +329,7 @@ export const RULES: readonly Rule[] = [
     order: 1,
     when: (w) => !isOpen(w),
     effect: "refuse",
+    refuses: "state",
     reason: () => NO_GRILL_OPEN,
   },
 ];
@@ -337,16 +340,24 @@ export const EVENTS: readonly EventDecl[] = [
   {
     id: "openGrill",
     owner: GRILL,
+    actors: ["reviewer"],
     whileHeld: { effect: "allow" },
     samples: [
       { subject: "auth", at: SAMPLE_AT },
       { subject: "", at: SAMPLE_AT },
     ],
   },
-  { id: "askQuestion", owner: GRILL, whileHeld: { effect: "allow" }, samples: [{ q: ROUND }] },
+  {
+    id: "askQuestion",
+    owner: GRILL,
+    actors: ["claude"],
+    whileHeld: { effect: "allow" },
+    samples: [{ q: ROUND }],
+  },
   {
     id: "turnAnswered",
     owner: GRILL,
+    actors: ["engine"],
     whileHeld: { effect: "allow" },
     samples: [
       { text: "Asked.", reason: "answer", own: "false", asked: "true" },
@@ -358,12 +369,14 @@ export const EVENTS: readonly EventDecl[] = [
   {
     id: "sessionEvent",
     owner: GRILL,
+    actors: ["engine"],
     whileHeld: { effect: "allow" },
     samples: [{ command: "/compact" }],
   },
   {
     id: "endGrill",
     owner: GRILL,
+    actors: ["reviewer", "engine"],
     whileHeld: { effect: "allow" },
     samples: [
       { reason: "page", at: SAMPLE_AT, grill: JSON.stringify({ answers: {}, note: "Enough." }) },

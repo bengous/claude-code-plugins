@@ -178,6 +178,8 @@ describe("what serve writes on stdout", () => {
       expect(JSON.parse(await serve.next())).toMatchObject({
         type: "stage",
         workspace: { kind: "drafting" },
+        pill: { text: "Drafting", tone: "neutral" },
+        segments: ["plan draft"],
       });
 
       const headers = { "x-vellum-token": ready.token, "content-type": "application/json" };
@@ -207,6 +209,8 @@ describe("what serve writes on stdout", () => {
       expect(JSON.parse(await serve.next())).toMatchObject({
         type: "stage",
         workspace: { kind: "drafting", batches: 1 },
+        pill: { text: "Drafting · 1 sent", tone: "neutral" },
+        segments: ["plan draft"],
       });
     } finally {
       serve.stop();

@@ -159,11 +159,4 @@ export function parseWaited(value: unknown): Waited | null {
 export function parseError(value: unknown): string | null {
   return isRecord(value) && typeof value.error === "string" ? value.error : null;
 }
-
-/** Whether `GET state` says a grill is open; `null` for an answer that is no state. */
-export function parseIsOpen(value: unknown): boolean | null {
-  if (!isRecord(value)) return null;
-
-  return value.kind === "open" || value.kind === "none" ? value.kind === "open" : null;
-}
 /* oxlint-enable anti-slop/no-runtime-typeof, anti-slop/no-unknown-parameters, anti-slop/no-unsafe-dictionary-type, anti-slop/no-unknown-returns, anti-slop/no-known-value-widening */

@@ -12,7 +12,7 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import type { ChannelLine } from "../../core/protocol.ts";
+import type { ChannelLine, ReviewView } from "../../core/protocol.ts";
 import { startServer } from "../../core/server/adapters/http/serve.ts";
 import type { Started } from "../../core/server/adapters/http/serve.ts";
 import { parseWipDir } from "../../core/server/domain/paths.ts";
@@ -68,7 +68,7 @@ type Grilling = {
   readonly core: (path: string, body: string, method?: "POST" | "PUT") => Promise<Response>;
   /** A grill of the reviewer's own, opened from the "Next step" window as `step` answers it. */
   readonly open: (subject: string) => Promise<Response>;
-  readonly view: () => Promise<{ readonly held: string | null }>;
+  readonly view: () => Promise<ReviewView>;
   /** What the channel told Claude of the grill, each text in order. */
   readonly told: () => Promise<readonly string[]>;
   readonly post: <Name extends keyof GrillPosts>(
@@ -146,7 +146,7 @@ async function grilling(): Promise<Grilling> {
       // SAFETY: the server's own `ReviewView`, serialized by `Response.json` in routes.ts.
       (await (
         await fetch(`http://127.0.0.1:${started.server.port}/api/review`, { headers })
-      ).json()) as { readonly held: string | null },
+      ).json()) as ReviewView,
     told: async () =>
       (await lines()).flatMap(({ entry }) => (entry.kind === "text" ? [entry.text] : [])),
     get: (name) => fetch(url(name), { headers }),
@@ -620,7 +620,7 @@ describe("an open grill holds the review", () => {
     expect(refused.status).toBe(409);
     expect(await refused.json()).toEqual({ error: HELD });
     expect(existsSync(join(dir, WIP, ".review/v1.md"))).toBe(false);
-    expect((await view()).held).toBe("grill 1 is open");
+    expect((await view()).workflow.held).toBe("grill 1 is open");
   });
 
   test("each grill holds it under its own number, so the page can tell a second hold from the first", async () => {
@@ -629,7 +629,7 @@ describe("an open grill holds the review", () => {
     await post("close", { reason: "page" });
     await open("again");
 
-    expect((await view()).held).toBe("grill 2 is open");
+    expect((await view()).workflow.held).toBe("grill 2 is open");
   });
 
   test("a Send goes, while drafting and under review alike", async () => {

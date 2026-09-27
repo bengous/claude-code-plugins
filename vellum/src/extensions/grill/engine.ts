@@ -10,7 +10,6 @@ import {
   NO_GRILL_OPEN,
   parseAsked,
   parseError,
-  parseIsOpen,
   parseJson,
   parseQuestions,
   parseWaited,
@@ -19,12 +18,6 @@ import { ASK_TOOL, type GrillPosts } from "./protocol.ts";
 
 /** `step`'s tool, the one way to a grill: named, never imported, since an extension loads its own folder alone. */
 const PROPOSE_TOOL = "mcp__vellum__propose";
-
-/** What the person at the terminal must know, and the agent must not read: a prompt typed there is not the grill's. */
-const SEGMENT_OPEN = "grill · open";
-
-/** The modes whose last read found a grill open, keyed by the mode's own `Live`: a new way in starts with none. */
-const grillOpen = new WeakSet<Live>();
 
 /** The modes whose running turn asked a round no answer came back to: its text goes with that round, before a reply sent meanwhile. */
 const askedIn = new WeakSet<Live>();
@@ -110,16 +103,6 @@ const ASK: ExtensionTool = {
   },
 };
 
-/** Whether a grill is open, read again each time the review changed: the band says so. */
-async function staged({ live, api }: EngineContext): Promise<void> {
-  const open = parseIsOpen(parseJson((await api.get("state")).text));
-
-  if (open === null) return;
-
-  if (open) grillOpen.add(live);
-  else grillOpen.delete(live);
-}
-
 export const grillEngine: EngineExtension = {
   id: "grill",
   tools: [ASK],
@@ -138,8 +121,6 @@ export const grillEngine: EngineExtension = {
     const asked = askedIn.delete(context.live);
     await post(context, "answer", { ...turn, asked });
   },
-  staged,
-  segment: ({ live }) => (grillOpen.has(live) ? SEGMENT_OPEN : null),
   closing: async (context) => {
     await post(context, "close", { reason: "stop" });
   },

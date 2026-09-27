@@ -14,6 +14,7 @@ import type {
   LineDiff,
   Mark,
   ReviewView,
+  SendRefusal,
   SendRefused,
   Typed,
 } from "../protocol.ts";
@@ -32,7 +33,7 @@ import {
 import type { ProjectPath, Version } from "../server/domain/paths.ts";
 import { draftWriter, fetchDraft, fetchReview, postDecision, postSend, subscribe } from "./api.ts";
 import type { Failure } from "./notices.ts";
-import { NEW_LINK_HINT_MS, noticesOf } from "./notices.ts";
+import { NEW_LINK_HINT_MS } from "./notices.ts";
 
 export const review = signal<ReviewView | null>(null);
 
@@ -177,8 +178,9 @@ export const showChanges = signal(false);
 /** The requests that failed, one per operation: `fail` replaces the operation's entry, `succeed` removes it. */
 export const failures = signal<readonly Failure[]>([]);
 
-export function fail(op: Failure["op"], text: string): void {
-  failures.value = [...failures.value.filter((failure) => failure.op !== op), { op, text }];
+export function fail(op: Failure["op"], text: string, action?: Failure["action"]): void {
+  const failure: Failure = action === undefined ? { op, text } : { op, text, action };
+  failures.value = [...failures.value.filter((one) => one.op !== op), failure];
 }
 
 export function succeed(op: Failure["op"]): void {
@@ -186,12 +188,6 @@ export function succeed(op: Failure["op"]): void {
     failures.value = failures.value.filter((failure) => failure.op !== op);
   }
 }
-
-/**
- * The edit a Send left in the draft, and what held the review, in the server's words: the notice
- * says so while that very edit waits and until the page reads that nothing holds the review.
- */
-export const editWaits = signal<{ readonly held: string; readonly edit: Edit } | null>(null);
 
 /**
  * What the last Delete of a card can undo, for `UNDO_MS`; `null` past that, once undone, and
@@ -216,10 +212,11 @@ export const focused = signal<{ readonly id: string; readonly reveal: boolean } 
 
 export const connection = signal<"up" | "down">("up");
 
-/** When the stream first failed, and how long ago as far as the notice cares: `0`, then past the hint's delay. */
+/** When the stream first failed. */
 const downAt = signal<number | null>(null);
 
-const downFor = signal<number | null>(null);
+/** How long ago the stream failed, as far as the notice cares: `0`, then past the hint's delay; `null` while it is up. */
+export const downFor = signal<number | null>(null);
 
 export const planDoc = computed<GroupedDoc | null>(() => {
   const plan = review.value?.plan;
@@ -325,8 +322,6 @@ async function loadReview(): Promise<void> {
     review.value = fetched.value;
     settleEdit(fetched.value);
     settleEditorTyping(fetched.value);
-
-    if (fetched.value.held === null) editWaits.value = null;
   });
 }
 
@@ -354,29 +349,39 @@ function clearDraft(): void {
 }
 
 /**
- * `true` once the server took the decision; a refusal or a server that did not answer is a failure
- * the notices show, a refusal in the words of the row that refused it.
+ * What a decision came to: taken, the draft cleared; refused (409), by the row the server names
+ * when it names one, which the caller says; or failed, a failure the notices show.
  */
-export async function decide(decision: Decision): Promise<boolean> {
+export type Decided =
+  | { readonly kind: "taken" }
+  | { readonly kind: "refused"; readonly rule: string | null; readonly reason: string | null }
+  | { readonly kind: "failed" };
+
+/** Posts the decision, clears what an approval took once the server took it, then reads the review again. */
+export async function decide(decision: Decision): Promise<Decided> {
   const posted = await postDecision(decision).catch(() => null);
 
   if (posted === null) {
     fail("decision", "The decision did not reach the server. Your comments are kept in this tab.");
 
-    return false;
+    return { kind: "failed" };
   }
 
-  const { status } = posted;
+  const { status, answer } = posted;
 
-  if (status === 409)
-    fail("decision", posted.answer?.reason ?? "This version was already decided.");
-  else if (status >= 300) {
+  const decided: Decided =
+    status === 409
+      ? { kind: "refused", rule: answer?.rule ?? null, reason: answer?.reason ?? null }
+      : { kind: status >= 300 ? "failed" : "taken" };
+
+  if (decided.kind === "taken") clearDraft();
+  else if (decided.kind === "failed") {
     fail("decision", `Not sent: the server answered ${status}. Your comments are kept.`);
-  } else clearDraft();
+  }
 
   await loadReview();
 
-  return status < 300;
+  return decided;
 }
 
 /**
@@ -428,8 +433,14 @@ export async function writeDraft(): Promise<boolean> {
   return await startSaving()();
 }
 
+/**
+ * What a Send came to. Sent, with what held the review when the server left the edit in the draft
+ * (`editKept`); `kept`, an edit sent alone and refused while the review is held, which stays in the
+ * draft, nothing sent; questions no answer takes; or a failure the notices show.
+ */
 export type Sent =
-  | { readonly kind: "sent" }
+  | { readonly kind: "sent"; readonly editKept: string | null }
+  | { readonly kind: "kept"; readonly reason: string }
   | { readonly kind: "unanswered"; readonly ids: readonly string[] }
   | { readonly kind: "failed" };
 
@@ -456,6 +467,14 @@ const REFUSED: Readonly<Record<SendRefused | "empty" | "unreadable", string>> = 
   stale: "Not sent: your edit is of a version no longer under review. Your comments are kept.",
   unreadable: "Not sent: the saved draft cannot be read. Your comments are kept in this tab.",
 };
+
+/** A refusal in the page's words for the Send's rows it knows, in the row's own words for any other. */
+function refusedText(refusal: Exclude<SendRefusal, { reason: "unanswered" }>): string {
+  if (refusal.reason !== "refused") return REFUSED[refusal.reason];
+  const known = Object.entries(REFUSED).find(([code]) => code === refusal.rule);
+
+  return known?.[1] ?? `Not sent: ${refusal.text}.`;
+}
 
 /**
  * One Send, the one write out while it lasts. The server sends from the draft it keeps what the
@@ -497,18 +516,13 @@ async function sendOut(out: Outgoing): Promise<Sent> {
   if (status === 409 && answer !== null && "reason" in answer) {
     if (answer.reason === "unanswered") return { kind: "unanswered", ids: answer.ids };
 
-    if (answer.reason === "held") {
-      const { held } = answer;
+    if (answer.reason === "refused" && answer.rule === "held") {
+      succeed("decision");
 
-      batch(() => {
-        editWaits.value = out.edit === null ? null : { held, edit: out.edit };
-        succeed("decision");
-      });
-
-      return { kind: "failed" };
+      return { kind: "kept", reason: answer.text };
     }
 
-    fail("decision", REFUSED[answer.reason]);
+    fail("decision", refusedText(answer));
 
     return { kind: "failed" };
   }
@@ -541,16 +555,10 @@ async function sendOut(out: Outgoing): Promise<Sent> {
     choices.value = withoutChoices(choices.value, out.choices);
 
     if (sentEdit !== null && edited.peek()?.version === sentEdit.version) edited.value = null;
-
-    // A Send with no edit, Send now, leaves the notice of one that still waits.
-    if (out.edit !== null) {
-      editWaits.value = editKept === null ? null : { held: editKept.held, edit: out.edit };
-    }
-
     succeed("decision");
   });
 
-  return { kind: "sent" };
+  return { kind: "sent", editKept: editKept?.reason ?? null };
 }
 
 /** Edit: the editor opens on the version under review, on the unsent edit of it when there is one. */
@@ -878,20 +886,3 @@ export async function start(): Promise<void> {
     },
   );
 }
-
-/** The core's notices, drawn under the bar in this order. */
-export const notices = computed(() =>
-  noticesOf({
-    workspace: review.value?.workspace ?? null,
-    connection: connection.value,
-    downSince: downFor.value,
-    editing: editing.value,
-    failures: failures.value,
-    editWaits:
-      editWaits.value !== null && editWaits.value.edit === edited.value
-        ? editWaits.value.held
-        : null,
-    undo: undo.value,
-    retry: () => void decide({ kind: "approve", edit: null, notes: "" }),
-  }),
-);

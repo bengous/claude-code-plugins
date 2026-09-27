@@ -3,7 +3,6 @@ import { describe, expect, test, tier } from "claude-code/testing";
 import type { Route } from "../../core/engine/fixtures/index.ts";
 import {
   approved,
-  band,
   CWD,
   emit,
   inReview,
@@ -191,27 +190,6 @@ describe("the agent's end", () => {
     await seen.clock.settle();
 
     expect(review.posted).toEqual([ended(1, { kind: "failed", why: "killed" })]);
-  });
-});
-
-describe("the band above the prompt", () => {
-  test("says a review runs while one does, and nothing once it ended", async ($, on) => {
-    const review = reviewRoutes(RUNNING);
-    const seen = world(on, review);
-    agents(on).listed = [{ id: AGENT_ID, description: "d", type: "t", status: "running" }];
-    await $.skill.prompt(START_PROMPT);
-    const drawn = await band($);
-    seen.children[0]?.write(stage(inReview(3)));
-    await seen.clock.settle();
-
-    expect(await drawn.text()).toBe(
-      "vellum │ plan v3 · in review │ review · running │ Review page ↗",
-    );
-    review.state = { ...review.state, run: null };
-    seen.children[0]?.write(stage(inReview(3)));
-    await seen.clock.settle();
-
-    expect(await drawn.text()).toBe("vellum │ plan v3 · in review │ Review page ↗");
   });
 });
 

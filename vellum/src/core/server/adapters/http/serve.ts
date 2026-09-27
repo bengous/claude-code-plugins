@@ -159,7 +159,7 @@ export async function startServer(options: ServeOptions): Promise<Started> {
     const now = await readPlan(options.project, options.workdir);
 
     if (now === plan) {
-      await review.notify();
+      await review.inOrder(() => review.notify());
 
       return;
     }
@@ -182,7 +182,7 @@ export async function startServer(options: ServeOptions): Promise<Started> {
 
   let dir: WipDir | FinalDir = lives;
 
-  review.subscribe((workspace) => {
+  review.subscribe(({ workspace }) => {
     dir = workspace.dir;
 
     if (workspace.kind === "approved") unwatch();
@@ -248,9 +248,9 @@ export async function startServer(options: ServeOptions): Promise<Started> {
   // lands as the server comes up is announced, and the first stage is read after them.
   if (announce !== undefined) {
     announce({ type: "ready", port: Number(server.url.port), token, pid: process.pid, channel });
-    review.subscribe((workspace) => announce({ type: "stage", workspace }));
+    review.subscribe((stage) => announce({ type: "stage", ...stage }));
     review.onChannel((line) => announce({ type: "channel", line }));
-    await review.notify();
+    await review.inOrder(() => review.notify());
   }
 
   const { graceMs, tabHoldMs, periodMs, expire } = options.watchdog ?? WATCHDOG;

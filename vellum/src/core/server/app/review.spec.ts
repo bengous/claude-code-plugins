@@ -301,7 +301,11 @@ describe("Review", () => {
     const s = await gated();
     expect(await send(s, SAY_NO, { annotations: ["a", "gone"] })).toEqual({
       ok: false,
-      refusal: { reason: "changed" },
+      refusal: {
+        reason: "refused",
+        rule: "changed",
+        text: "the saved draft no longer holds what you sent, changed in another tab",
+      },
     });
     expect(await told(s.review)).toEqual([]);
   });
@@ -340,7 +344,10 @@ describe("Review", () => {
     writeFileSync(join(s.root, DRAFT), '{"annotations":3}');
     expect(await s.events.send(all)).toEqual({ ok: false, refusal: { reason: "unreadable" } });
     await s.events.decide(APPROVE);
-    expect(await s.events.send(all)).toEqual({ ok: false, refusal: { reason: "approved" } });
+    expect(await s.events.send(all)).toEqual({
+      ok: false,
+      refusal: { reason: "refused", rule: "approved", text: "the plan is approved" },
+    });
   });
 
   test("approve with an edit leaves the edited text in the final plan.md, links rewritten", async () => {
@@ -839,7 +846,7 @@ describe("a review an extension holds", () => {
       ok: true,
       file: `${WIP}.review/v1.feedback-1.md` as never,
       seq: 1,
-      editKept: { held: "plan review 1 of v1 is running", annotations: ["l"] },
+      editKept: { reason: "plan review 1 of v1 is running", annotations: ["l"] },
     });
     expect(existsSync(join(s.root, WIP, ".review/v2.md"))).toBe(false);
     expect(read(s.root, `${WIP}plan.md`)).toBe(PLAN);
@@ -864,7 +871,7 @@ describe("a review an extension holds", () => {
 
     expect(await send(s, { edit: EDIT_OF_V1 })).toEqual({
       ok: false,
-      refusal: { reason: "held", held: "grill 1 is open" },
+      refusal: { reason: "refused", rule: "held", text: "grill 1 is open" },
     });
     expect(await told(s.review)).toEqual([]);
     expect(JSON.parse(read(s.root, DRAFT))).toMatchObject({ edit: EDIT_OF_V1 });
@@ -875,10 +882,10 @@ describe("a review an extension holds", () => {
     const { review } = setup([hold.extension]);
     hold.reason = "grill 1 is open";
 
-    expect((await review.view()).held).toBe("grill 1 is open");
+    expect((await review.view()).workflow.held).toBe("grill 1 is open");
     hold.reason = null;
 
-    expect((await review.view()).held).toBeNull();
+    expect((await review.view()).workflow.held).toBeNull();
   });
 
   test("an extension reads what holds off the workflow: the first region's reason", async () => {

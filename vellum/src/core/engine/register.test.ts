@@ -8,6 +8,7 @@ import {
   CRASHES_BEFORE_LOST,
   CWD,
   DRAFTING,
+  DRAWN,
   emit,
   FINAL,
   HEARTBEAT_MS,
@@ -837,14 +838,29 @@ describe("the band above the prompt", () => {
     await $.skill.prompt(START_PROMPT);
     const drawn = await band($);
     const server = seen.children[0];
-    server?.write(stage(DRAFTING));
+    server?.write(stage(DRAFTING, { pill: DRAWN.pill, segments: ["plan draft"] }));
     await seen.clock.settle();
 
-    expect(await drawn.text()).toBe("vellum │ plan draft │ Review page ↗");
-    server?.write(stage(inReview(2)));
+    expect(await drawn.text()).toBe("vellum │ plan draft │ Drafting │ Review page ↗");
+    const pill = { text: "In review", tone: "neutral" } as const;
+    server?.write(stage(inReview(2), { pill, segments: ["plan v2 · in review"] }));
     await seen.clock.settle();
 
-    expect(await drawn.text()).toBe("vellum │ plan v2 · in review │ Review page ↗");
+    expect(await drawn.text()).toBe("vellum │ plan v2 · in review │ In review │ Review page ↗");
+  });
+
+  test("the band draws the stage line's pill", async ($, on) => {
+    const seen = world(on);
+    await $.skill.prompt(START_PROMPT);
+    const drawn = await band($);
+    const pill = { text: "Held · grill 1 is open · plan.md waits", tone: "neutral" } as const;
+    const segments = ["plan v1 · in review", "grill · open"];
+    seen.children[0]?.write(stage(inReview(1), { pill, segments }));
+    await seen.clock.settle();
+
+    expect(await drawn.text()).toBe(
+      "vellum │ plan v1 · in review │ grill · open │ Held · grill 1 is open · plan.md waits │ Review page ↗",
+    );
   });
 
   test("/vellum:stop takes the band away", async ($, on) => {

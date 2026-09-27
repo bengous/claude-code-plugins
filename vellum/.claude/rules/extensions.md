@@ -16,7 +16,8 @@ and reaction to the others' events, and its segment of the band; the server half
 core with its region's read, and an engine half may import it as types only. `markdown`, `html`, `image`, `grill` and `step` are
 extensions like the next ones. A third half,
 `engine.ts`, declares an `EngineExtension` (`src/core/engine/extension.ts`): tools, refusals,
-the engine events the core hands it, and its segment of the band above the prompt. `grill`, `step` and `review` have all three.
+and the engine events the core hands it; its segment of the band is its region's, drawn by
+`workflow.ts` on the server, which sends it on the `stage` line. `grill`, `step` and `review` have all three.
 
 - Read the code before this text, smallest first: `image/page.tsx` is a whole extension,
   `markdown/server.ts` a server half, `html/pick.ts` with `pick.spec.ts` a helper and its

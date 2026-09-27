@@ -429,7 +429,7 @@ describe("a run holds the review", () => {
     expect(await sent.json()).toEqual({
       file: `${WIP}.review/v1.feedback-1.md`,
       seq: 1,
-      editKept: { held: HELD, annotations: [] },
+      editKept: { reason: HELD, annotations: [] },
     });
     expect(existsSync(join(dir, WIP, ".review/v2.md"))).toBe(false);
     expect(readFileSync(join(dir, WIP, ".review/v1.feedback-1.md"), "utf8")).toContain("Say why.");

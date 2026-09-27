@@ -70,7 +70,9 @@ function ReviewAction(): preact.JSX.Element | null {
   }, [view]);
 
   const button =
-    view === null ? null : reviewWhy(view.workspace, reviews.value?.run ?? null, view.held);
+    view === null
+      ? null
+      : reviewWhy(view.workspace, reviews.value?.run ?? null, view.workflow.held);
 
   if (button === null) return null;
   const why = pageWhy();

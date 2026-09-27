@@ -421,9 +421,10 @@ describe("a restart (A9)", () => {
   test("keeps the proposal, paused: the pick reaches Claude as a prompt, and a wait reads it", async () => {
     const first = await stepping();
     const id = await first.propose();
-    const { post, region, told, wait } = await first.restart();
+    const { post, region, state, told, wait } = await first.restart();
 
-    expect(await region()).toMatchObject({ state: "open", wait: "paused", data: { pending: id } });
+    expect(await region()).toMatchObject({ state: "open", wait: "paused" });
+    expect((await state()).pending?.id).toBe(id);
     await post("answer", { id, answer: { kind: "move", move: MOCKUP } });
     expect(await told()).toEqual(["Chose: a mockup of: the settings window."]);
     expect(await wait(id)).toMatchObject({ kind: "answered", seq: 1 });

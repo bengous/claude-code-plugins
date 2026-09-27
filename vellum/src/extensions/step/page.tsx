@@ -23,7 +23,7 @@ const read = computed((): WindowState | null => {
 
   if (refused.value || step.value === null || view === null) return null;
 
-  return { pending: step.value.pending, held: view.held };
+  return { pending: step.value.pending, held: view.workflow.held };
 });
 
 async function loadState(): Promise<void> {
@@ -86,7 +86,9 @@ function StepAction(): preact.JSX.Element | null {
     void loadState();
   }, [view]);
 
-  return view === null || view.workspace.kind === "approved" || view.held !== null ? null : (
+  return view === null ||
+    view.workspace.kind === "approved" ||
+    view.workflow.held !== null ? null : (
     <NextStepButton state={state} why={stepWhy(state)} />
   );
 }

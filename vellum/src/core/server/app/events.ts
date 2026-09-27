@@ -4,10 +4,10 @@ import { freeTarget, listReview } from "../adapters/fs.ts";
 import type { BatchHeading } from "../domain/feedback.ts";
 import { formatBatch } from "../domain/feedback.ts";
 import type { ProjectPath, Version } from "../domain/paths.ts";
-import type { Decision, Draft, EditKept, SendRefused, SendRequest } from "../domain/review.ts";
+import type { Decision, Draft, EditKept, SendRequest } from "../domain/review.ts";
 import { EMPTY_DRAFT, namedIn, sendOn, slugFor } from "../domain/review.ts";
-import type { Actor, EventInput, RuleVerdict, Workflow } from "../domain/workflow.ts";
-import { held, verdictOf } from "../domain/workflow.ts";
+import type { Actor, EventInput, Workflow } from "../domain/workflow.ts";
+import { HELD, held, verdictOf } from "../domain/workflow.ts";
 import type { PlanWorkspace } from "../domain/workspace.ts";
 import type { Review, Stepped } from "./review.ts";
 
@@ -55,18 +55,6 @@ export type CoreEvents = {
   readonly decide: (decision: Decision) => Promise<DecisionResult>;
   readonly send: (request: SendRequest) => Promise<SendResult>;
 };
-
-const SEND_REFUSED: readonly SendRefused[] = ["approved", "changed", "stale", "edit"];
-
-/** The `send` row that refused, as the page names it until the wire carries the row itself (T3). */
-function refusedAs(verdict: Exclude<RuleVerdict, { kind: "allow" }>): SendRefused {
-  const code = SEND_REFUSED.find((one) => one === verdict.rule);
-
-  if (code === undefined)
-    throw new Error(`a Send refused by a row the page does not name: ${verdict.rule}`);
-
-  return code;
-}
 
 function refused(refusal: SendRefusal): SendResult {
   return { ok: false, refusal };
@@ -208,7 +196,7 @@ export function coreEvents(review: Review): CoreEvents {
 
         if (verdict.kind === "allow") throw new Error("a Send its rows refused passed its step");
 
-        return refused({ reason: refusedAs(verdict) });
+        return refused({ reason: "refused", rule: verdict.rule, text: verdict.reason });
       }
 
       if (stored === "unreadable") return refused({ reason: "unreadable" });
@@ -245,7 +233,9 @@ export function coreEvents(review: Review): CoreEvents {
         parts.length === 0
       ) {
         return refused(
-          editKept === null ? { reason: "empty" } : { reason: "held", held: editKept.held },
+          editKept === null
+            ? { reason: "empty" }
+            : { reason: "refused", rule: HELD, text: editKept.reason },
         );
       }
 

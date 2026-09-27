@@ -19,7 +19,7 @@ lock.ts      the policy: lockVerdict, checkVerdict; pure
 place.ts     where a path lands: placed, landed; asks the host's `stat`
 turn.ts      whose turn runs: Turns, prompted / started / completed, ownOf; pure
 relay.ts     what the channel says and what it remembers: prompts, Relayed, follow, the waits' claims
-band.ts      what the band above the prompt says: the plan's segment, then the extensions', then the link; pure
+band.ts      what the band above the prompt says: the server's segments, then its pill, then the link; pure
 server.ts    the review server's client: every route, the token header, the launcher, the reader of its stdout
 parse.ts     the boundary: unknown to types, and the only place a brand is minted
 extension.ts `EngineExtension`, the contract an extension's `engine.ts` fills; types only
@@ -210,17 +210,17 @@ loop. `/vellum:start` enters it, Approve in the page or `/vellum:stop` leaves it
   it worded it. The skill `start` already says what to do with a file sent and an approval, so
   the prompt does not say it again.
 - The mode's one place in the terminal is the band above the prompt: the `ui.render` hook on
-  `AbovePrompt` draws `vellum │ <plan> │ <segments> │ Review page ↗` while the mode holds a
+  `AbovePrompt` draws `vellum │ <segments> │ <pill> │ Review page ↗` while the mode holds a
   session, and passes to `next(e)` while `idle` or while a survey holds the band
   (`hasSurvey`). `$.ui.status` is written for a failure alone, the two of `lost`, and entering
   `live` clears it. No `SessionMode` label: the band is the one place.
-- Where the plan stands is the server's: a `stage` line carries the workspace, `parse.ts`
-  reads its kind and version, and `register.ts` keeps the last one per `Live`, so a new way in
-  draws none until its first `stage` line. An extension adds its own segment through `segment`,
-  asked in registry order after the plan's; one that throws is left out and logged once per mode.
-  Every write of `state` goes through `become`, which calls `redraw`, as each `stage` line does:
-  `redraw` computes the band `ui.render` draws and calls `$.ui.invalidate("ui.render")` only when
-  it changed. A draw computes nothing, so `segment` runs at a `stage` line or a transition.
+- Where the plan stands is the server's, and so is what the band says of it: a `stage` line
+  carries the workspace, the segments (the plan's, then each extension's, in registry order) and
+  the pill, ready-made, since the module imports nothing of the server. `parse.ts` reads them,
+  and `register.ts` keeps the last ones per `Live`, so a new way in draws none until its first
+  `stage` line. Every write of `state` goes through `become`, which calls `redraw`, as each
+  `stage` line does: `redraw` computes the band `ui.render` draws and calls
+  `$.ui.invalidate("ui.render")` only when it changed. A draw computes nothing.
 - A line of the server's stdout the module does not read is logged, and an answer of
   `GET /api/channel` it does not read throws in `parseChannel`, the shape of another server
   version included: read as nothing, either would drop the reviewer's entries without a word.

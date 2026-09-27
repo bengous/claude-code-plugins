@@ -1,6 +1,7 @@
 import type { ChannelLine } from "./server/domain/channel.ts";
 import type { ProjectPath, Version } from "./server/domain/paths.ts";
-import type { EditKept, SendRefused } from "./server/domain/review.ts";
+import type { EditKept } from "./server/domain/review.ts";
+import type { Stage, WorkflowView } from "./server/domain/workflow.ts";
 import type { PlanWorkspace } from "./server/domain/workspace.ts";
 
 /**
@@ -69,6 +70,8 @@ export type {
   Refused,
   Region,
   RegionData,
+  RegionView,
+  Stage,
   Wait,
   WorkflowView,
 } from "./server/domain/workflow.ts";
@@ -80,7 +83,8 @@ export { takesComments } from "./server/domain/workspace.ts";
 /**
  * One line of the server's stdout, as JSON, and nothing else is written there: `ready` first, once
  * the server listens, then an entry of the channel as it is written, and where the review stands
- * each time it changes, for the band above the prompt and never for Claude.
+ * each time it changes, for the band above the prompt and never for Claude: the pill and the
+ * segments come ready-made, since the hooks module imports nothing of the server.
  */
 export type ServerLine =
   | {
@@ -92,7 +96,7 @@ export type ServerLine =
       readonly channel: string;
     }
   | { readonly type: "channel"; readonly line: ChannelLine }
-  | { readonly type: "stage"; readonly workspace: PlanWorkspace };
+  | ({ readonly type: "stage" } & Stage);
 
 /** What `POST /api/gate` answers: the version the browser shows, or why it shows none. */
 export type GateAnswer =
@@ -116,13 +120,14 @@ export type DecisionAnswer = {
 
 /**
  * Why `POST /api/send` wrote nothing: questions no answer takes that the reviewer did not agree to
- * leave to their recommendation, every one of them; what `sendOn` refuses; nothing to send; a
- * saved draft the server cannot read; or an edit, with nothing else, while `held` holds the review.
+ * leave to their recommendation, every one of them; the row that refused it, by its id, with its
+ * text (an edit with nothing else, while the review is held, is the hold's row, and its text what
+ * holds); nothing to send; or a saved draft the server cannot read.
  */
 export type SendRefusal =
   | { readonly reason: "unanswered"; readonly ids: readonly string[] }
-  | { readonly reason: "held"; readonly held: string }
-  | { readonly reason: SendRefused | "empty" | "unreadable" };
+  | { readonly reason: "refused"; readonly rule: string; readonly text: string }
+  | { readonly reason: "empty" | "unreadable" };
 
 /**
  * What `POST /api/send` answers: the batch written, its entry's number, and the edit it left in
@@ -157,8 +162,8 @@ export type ReviewView = {
     readonly previous: { readonly version: Version; readonly text: string } | null;
   } | null;
   readonly docs: readonly GroupedDoc[];
-  /** What the first extension that holds the review says holds it, for the greyed button and the approval's warning. */
-  readonly held: string | null;
+  /** The workflow as a reader takes it: what holds the review, the pill, what is refused now. */
+  readonly workflow: WorkflowView;
 };
 
 export type LinkRoots = { readonly project: string; readonly planDir: string };

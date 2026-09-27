@@ -70,6 +70,11 @@ function approveButton(page: Page): Locator {
   return page.locator(".bar").getByRole("button", { name: "Approve", exact: true });
 }
 
+/** The warning the bar puts before an approval: here, the hold it would end. */
+function beforeApproving(page: Page): Locator {
+  return page.getByRole("dialog", { name: "Before approving" });
+}
+
 /** The moves of the proposal waiting, `null` with none. */
 async function pendingMoves(vellum: Vellum): Promise<readonly Move[] | null> {
   // SAFETY: the server's own `StepState`, serialized by `Response.json` in step/server.ts.
@@ -371,6 +376,61 @@ test.describe("the approval (A6)", () => {
       .click();
 
     await expect(page.locator(".bar .status")).toHaveText("Approved");
+  });
+
+  test("Record, then approve records plan.md as the next version, then approves it", async ({
+    page,
+    vellum,
+  }) => {
+    await reviewV1(page, vellum);
+    vellum.writePlan("# Layout\n\nRevised, not recorded yet.\n");
+    await approveButton(page).click();
+    await page.getByRole("alert").getByRole("button", { name: "Record, then approve" }).click();
+
+    await expect(page.locator(".bar .status")).toHaveText("Approved");
+    await expect(page.locator(".bar .version")).toHaveText("v2");
+  });
+
+  test("under a hold, plan.md changed refuses it until the hold ends, and offers no Record", async ({
+    page,
+    vellum,
+  }) => {
+    await reviewV1(page, vellum);
+    await vellum.grill.open("Where do drafts live?");
+    await expect(page.locator(".bar .status")).toHaveText("Held · grill 1 is open");
+    vellum.writePlan("# Layout\n\nRevised while the grill is open.\n");
+    await approveButton(page).click();
+    await beforeApproving(page).getByRole("button", { name: "Approve anyway" }).click();
+    const alert = page.getByRole("alert");
+
+    await expect(alert).toContainText(
+      "plan.md changed since v1 while grill 1 is open: end it, then record plan.md before approving",
+    );
+    await expect(alert.getByRole("button")).toHaveCount(0);
+  });
+
+  test("a hold that changed before the confirmation reached the server asks again, on the hold now", async ({
+    page,
+    vellum,
+  }) => {
+    await reviewV1(page, vellum);
+    await vellum.grill.open("Where do drafts live?");
+    await expect(page.locator(".bar .status")).toHaveText("Held · grill 1 is open");
+    await page.route(
+      "**/api/decision",
+      async (route) => {
+        await vellum.grill.close("page");
+        await vellum.grill.open("Who wins a conflict?");
+        await route.continue();
+      },
+      { times: 1 },
+    );
+    await approveButton(page).click();
+    await beforeApproving(page).getByRole("button", { name: "Approve anyway" }).click();
+
+    await expect(beforeApproving(page).locator(".warn-text")).toHaveText(
+      "The review is held: grill 2 is open.",
+    );
   });
 
   test("a confirmation of a hold that changed since asks again", async ({ page, vellum }) => {

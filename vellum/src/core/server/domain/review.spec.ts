@@ -281,7 +281,7 @@ describe("sendOn", () => {
       annotations: [general, comment("b")],
       choices: [],
       rest: draft([onPlan], Q_OF_V1),
-      editKept: { held: "grill 1 is open", annotations: ["a"] },
+      editKept: { reason: "grill 1 is open", annotations: ["a"] },
     });
   });
 

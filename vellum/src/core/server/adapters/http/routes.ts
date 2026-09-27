@@ -201,7 +201,7 @@ function sse(review: Review, streams: Streams): Response {
       };
 
       streams.open += 1;
-      unsubscribe = review.subscribe(send);
+      unsubscribe = review.subscribe(({ workspace }) => send(workspace));
       send(await review.workspace());
     },
     cancel() {
