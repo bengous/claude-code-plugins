@@ -74,8 +74,11 @@ Claude Code's `installed_plugins.json`, `git` with its `GIT_*` variables cleared
   the step created; past it a failure is logged, since Claude or the rename took the step. A
   rename that fails keeps its error in the memory and stops the rest. Every event judged is a
   line of `.review/events.jsonl` (`JOURNAL_FILE`), a refused one included; a line that fails
-  fails nothing, and the workflow is never rebuilt from it. `GET /api/workflow` answers the
-  workflow as a reader takes it (`viewOf`), and `POST /api/record` is `record` for the reviewer.
+  fails nothing, and the workflow is never rebuilt from it. `GET /api/workflow` answers where
+  the review lives with the workflow as a reader takes it (`WorkflowAnswer`); it and
+  `Review.view` read the workflow inside the queue, where no step is half applied (a step writes
+  its files before it keeps a proposal's wait in memory). `POST /api/record` is `record` for the
+  reviewer.
 - Everything that reaches Claude is an entry of the channel, `.review/channel.jsonl`
   (`domain/channel.ts`), appended inside the queue by `Review`'s relay: the core's `sent` for a
   batch written and `approved` after the rename, an extension's own `text` as a `channel` effect

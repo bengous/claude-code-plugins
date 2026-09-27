@@ -317,6 +317,17 @@ describe("routes", () => {
     expect(await kept.json()).toEqual({ version: 1, kept: true });
   });
 
+  test("the workflow answers where the review lives with its view, for mcp__vellum__state", async () => {
+    const answer = await (await fetch(url("/api/workflow"), { headers: headers() })).json();
+
+    expect(answer).toMatchObject({
+      workspace: { dir: WIP },
+      planText: expect.any(String),
+      regions: expect.any(Array),
+      pill: { tone: "neutral" },
+    });
+  });
+
   test("vellum-build answers this plugin's version and a full commit, behind the token", async () => {
     const manifest = await Bun.file(
       join(import.meta.dir, "../../../../../.claude-plugin/plugin.json"),

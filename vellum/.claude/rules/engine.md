@@ -65,8 +65,8 @@ loop. `/vellum:start` enters it, Approve in the page or `/vellum:stop` leaves it
 - `session.start` registers the tools `submit` (`mcp__vellum__submit`, the model's "the plan
   is written" signal) and `state` (`mcp__vellum__state`, no input: the review's stage and
   `plan.md`, each region's line in its extension's words, then each event refused now with its
-  effect and reason, read off `GET /api/review`, whose `workflow` is the view `GET /api/workflow`
-  answers and whose `workspace` that view lacks), each served by a `tool.call` hook that answers
+  effect and reason, read off `GET /api/review`, whose `workflow` and `workspace` are what
+  `GET /api/workflow` answers), each served by a `tool.call` hook that answers
   without `next`. `state` is read on demand, never joined to a relay (D10). A matcher
   must be a string literal, or `claude plugin validate` prints the expression instead of the
   name.

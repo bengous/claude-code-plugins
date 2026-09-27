@@ -12,6 +12,7 @@ import type {
   SendAnswer,
   SendRequest,
   VellumBuild,
+  WorkflowAnswer,
 } from "../../../protocol.ts";
 import type { CoreEvents, GateOptions } from "../../app/events.ts";
 import type { Review } from "../../app/review.ts";
@@ -229,7 +230,12 @@ async function api(
   if (route === "GET /api/review") return Response.json(await review.view());
 
   if (route === "GET /api/workflow") {
-    return Response.json(review.viewed(await review.workflow()));
+    // In the queue: a step writes its files before it keeps its region in memory (a proposal's
+    // wait), and a read between the two would take a call's `open` wait for a paused one.
+    const w = await review.inOrder(() => review.workflow());
+    const answer: WorkflowAnswer = { workspace: w.workspace, ...review.viewed(w) };
+
+    return Response.json(answer);
   }
 
   if (route === "GET /api/channel") {

@@ -497,7 +497,8 @@ export class Review {
    * may comment on. The workflow goes as a reader takes it, its files left out.
    */
   public async view(): Promise<ReviewView> {
-    const w = await this.workflow();
+    // In the queue, as `GET /api/workflow` reads it: never a step half applied.
+    const w = await this.inOrder(() => this.workflow());
     const { workspace } = w;
     const listed = await listFiles(this.options.project, workspace.dir);
     const planFile = projectPath(`${workspace.dir}${PLAN_FILE}`);
