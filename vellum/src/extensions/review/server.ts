@@ -19,6 +19,7 @@ import {
   REVIEW,
   REVIEWS_FILE,
   RULES,
+  lineOf,
   segmentOf,
   TRANSITIONS,
 } from "./workflow.ts";
@@ -194,5 +195,6 @@ export const reviewServer: ServerExtension = {
       return regionOf(await readReviews(context, dir));
     },
     segment: segmentOf,
+    line: lineOf,
   },
 };

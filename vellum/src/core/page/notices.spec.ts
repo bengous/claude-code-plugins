@@ -162,7 +162,15 @@ describe("statusOf", () => {
   const underGrill: WorkflowView = {
     planText: "pending",
     held: HOLD,
-    regions: [{ id: "grill", state: "open", holds: HOLD, wait: null }],
+    regions: [
+      {
+        id: "grill",
+        state: "open",
+        holds: HOLD,
+        wait: null,
+        line: "grill 1: open · holds: grill 1 is open · question: none",
+      },
+    ],
     refused: [
       {
         event: "record",

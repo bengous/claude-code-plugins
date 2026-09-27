@@ -43,7 +43,16 @@ import type { FinalDir, ProjectPath, Version, WipDir } from "../domain/paths.ts"
 import { parseVersion } from "../domain/paths.ts";
 import type { Draft } from "../domain/review.ts";
 import { draftIsEmpty } from "../domain/review.ts";
-import type { Actor, EventInput, PlanText, Stage, Table, Workflow } from "../domain/workflow.ts";
+import type {
+  Actor,
+  EventInput,
+  PlanText,
+  Stage,
+  Table,
+  Workflow,
+  WorkflowView,
+  Wording,
+} from "../domain/workflow.ts";
 import { JOURNAL_FILE, journalText, next, stageOf, tableOf, viewOf } from "../domain/workflow.ts";
 import type { Memory, PlanWorkspace } from "../domain/workspace.ts";
 import {
@@ -109,6 +118,9 @@ export class Review {
   /** The core's rows and the extensions', in the registry's order. */
   public readonly table: Table;
 
+  /** How each extension words its region, in the registry's order. */
+  private readonly wordings: readonly Wording[];
+
   /** What every extension reads through: bound here, since a step runs here. */
   public readonly context: ServerContext;
 
@@ -123,6 +135,12 @@ export class Review {
     );
 
     this.table = tableOf(this.parts.map(({ workflow }) => workflow));
+
+    this.wordings = this.parts.map(({ id, workflow }) => ({
+      id,
+      segment: workflow.segment,
+      line: workflow.line,
+    }));
 
     this.context = {
       workspace: () => this.workspace(),
@@ -465,10 +483,7 @@ export class Review {
   }
 
   private tell(w: Workflow): Stage {
-    const stage = stageOf(
-      w,
-      this.parts.map(({ id, workflow }) => ({ id, segment: workflow.segment })),
-    );
+    const stage = stageOf(w, this.wordings);
 
     for (const listener of this.listeners) listener(stage);
 
@@ -502,7 +517,7 @@ export class Review {
         workspace,
         plan: null,
         docs: [...plans, ...files],
-        workflow: viewOf(w, this.table),
+        workflow: this.viewed(w),
       };
     }
 
@@ -520,8 +535,13 @@ export class Review {
       workspace,
       plan: { doc, text, workingCopy: planFile, previous },
       docs: [...files, ...linked],
-      workflow: viewOf(w, this.table),
+      workflow: this.viewed(w),
     };
+  }
+
+  /** The workflow as a reader takes it, each region in its extension's words: `GET /api/workflow`. */
+  public viewed(w: Workflow): WorkflowView {
+    return viewOf(w, this.table, this.wordings);
   }
 
   private async linkedDocs(

@@ -170,14 +170,18 @@ export type Refused = {
 
 export type Pill = { readonly text: string; readonly tone: "neutral" | "ok" | "err" };
 
-/** A region as a reader takes it: its state, what it holds and what waits on it, never the files its data keeps. */
+/**
+ * A region as a reader takes it: its state, what it holds and what waits on it, and its line in
+ * its extension's words, never the files its data keeps.
+ */
 export type RegionView =
-  | { readonly id: string; readonly state: "closed" }
+  | { readonly id: string; readonly state: "closed"; readonly line: string }
   | {
       readonly id: string;
       readonly state: "open";
       readonly holds: string | null;
       readonly wait: Wait | null;
+      readonly line: string;
     };
 
 /** The workflow as a reader takes it: what `plan.md` is, what holds, each region, what is refused now, the pill. */
@@ -199,10 +203,11 @@ export type Stage = {
   readonly segments: readonly string[];
 };
 
-/** An extension's segment of the band, drawn from its region. */
-export type Segment = {
+/** How an extension words its region: its segment of the band, `null` for none, and its line in the view. */
+export type Wording = {
   readonly id: string;
   readonly segment: (region: Region) => string | null;
+  readonly line: (region: Region) => string;
 };
 
 /** The journal's line for `line`, judged at `at`. */
@@ -471,12 +476,12 @@ export function refusedNow(w: Workflow, table: Table): readonly Refused[] {
   });
 }
 
-function regionView(region: Region): RegionView {
+function regionView(region: Region, line: string): RegionView {
   const { id } = region;
 
   return region.state === "closed"
-    ? { id, state: "closed" }
-    : { id, state: "open", holds: region.holds, wait: region.wait };
+    ? { id, state: "closed", line }
+    : { id, state: "open", holds: region.holds, wait: region.wait, line };
 }
 
 /** What only the engine sends names what the engine read, a run or a proposal: nobody reading can try it. */
@@ -484,11 +489,16 @@ function tried(table: Table, refused: Refused): boolean {
   return declOf(table, refused.event).actors.some((actor) => actor !== "engine");
 }
 
-export function viewOf(w: Workflow, table: Table): WorkflowView {
+/** The view: each region with the line its extension words, in the registry's order. */
+export function viewOf(w: Workflow, table: Table, extensions: readonly Wording[]): WorkflowView {
   return {
     planText: w.planText,
     held: held(w),
-    regions: w.regions.map(regionView),
+    regions: extensions.map(({ id, line }) => {
+      const region = regionIn(w, id);
+
+      return regionView(region, line(region));
+    }),
     refused: refusedNow(w, table).filter((refused) => tried(table, refused)),
     pill: pillOf(w),
   };
@@ -506,7 +516,7 @@ function planSegmentOf(workspace: PlanWorkspace): string {
 }
 
 /** The stage: the plan's segment first, then each extension's in the registry's order; `null` says nothing. */
-export function stageOf(w: Workflow, extensions: readonly Segment[]): Stage {
+export function stageOf(w: Workflow, extensions: readonly Wording[]): Stage {
   const segments = extensions.flatMap(({ id, segment }) => segment(regionIn(w, id)) ?? []);
 
   return {

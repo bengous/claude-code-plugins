@@ -43,6 +43,7 @@ import {
   REACTION,
   regionOf,
   RULES,
+  lineOf,
   segmentOf,
   TRANSITIONS,
 } from "./workflow.ts";
@@ -355,5 +356,6 @@ export const grillServer: ServerExtension = {
       return regionOf(current === null ? null : { n: current.n, doc: current.doc });
     },
     segment: segmentOf,
+    line: lineOf,
   },
 };

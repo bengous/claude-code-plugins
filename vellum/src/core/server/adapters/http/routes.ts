@@ -17,7 +17,6 @@ import type { CoreEvents, GateOptions } from "../../app/events.ts";
 import type { Review } from "../../app/review.ts";
 import { parseProjectPath, parseVersion } from "../../domain/paths.ts";
 import type { ParseResult } from "../../domain/paths.ts";
-import { viewOf } from "../../domain/workflow.ts";
 import { DRAFT_FILE } from "../../domain/workspace.ts";
 import { isRecord, parseDraft, parseEdit } from "../draft.ts";
 
@@ -230,7 +229,7 @@ async function api(
   if (route === "GET /api/review") return Response.json(await review.view());
 
   if (route === "GET /api/workflow") {
-    return Response.json(viewOf(await review.workflow(), review.table));
+    return Response.json(review.viewed(await review.workflow()));
   }
 
   if (route === "GET /api/channel") {

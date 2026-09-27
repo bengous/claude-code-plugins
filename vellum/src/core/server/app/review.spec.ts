@@ -647,6 +647,7 @@ function workflowPart(region: () => Region, reaction?: Transition): ServerWorkfl
     reaction,
     region: () => Promise.resolve(region()),
     segment: () => null,
+    line: (its) => `${its.id}: ${its.state}`,
   };
 }
 

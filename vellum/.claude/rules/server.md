@@ -45,8 +45,9 @@ Claude Code's `installed_plugins.json`, `git` with its `GIT_*` variables cleared
   draft with the comments on the plan's lines, which are the edit's, the rest goes, and the
   answer says so (`editKept`, its `reason` what holds); an edit alone is refused by the hold's
   row (`refused`, rule `held`), and every other refusal of a Send names its row and its text.
-  `ReviewView.workflow` carries the workflow to the page as a reader takes it (`viewOf`: each
-  region without its files; what is refused now, each event once, in the words a real caller
+  `ReviewView.workflow` and `GET /api/workflow` carry the workflow as a reader takes it
+  (`viewOf`: each region's state, hold, wait and line in its extension's words, never its files;
+  what is refused now, each event once, in the words a real caller
   meets, never on a row that turns only the input down (`Rule.refuses`), nor what the engine
   alone sends), and the
   `stage` line carries the pill and the segments to the band (`stageOf`: the plan's, then each

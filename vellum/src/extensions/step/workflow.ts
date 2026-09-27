@@ -328,3 +328,12 @@ export const EVENTS: readonly EventDecl[] = [
 export function segmentOf(_region: Region): string | null {
   return null;
 }
+
+/** The proposal waiting and whether Claude's call waits on it, or none. */
+export function lineOf(region: Region): string {
+  const { pending } = fileOf(region);
+
+  return region.state === "closed" || pending === null
+    ? "step: none"
+    : `step: proposal ${pending.id} · wait: ${region.wait ?? "none"}`;
+}
