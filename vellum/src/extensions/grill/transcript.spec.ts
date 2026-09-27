@@ -243,6 +243,27 @@ describe("the phase", () => {
     expect(phaseOf(appendQuestions(cut, [STYLE]))).toBe("asking");
   });
 
+  test("an aborted turn that neither asked nor was its own still cuts the round waiting (E6)", () => {
+    const round = appendQuestions(opened, [STYLE]);
+
+    const cut = appendAnswer(
+      round,
+      said("Here is the weather.", { reason: "aborted", own: false }),
+    );
+
+    expect(cut).toBe(`${round}\n_(turn aborted)_\n`);
+    expect(phaseOf(cut)).toBe("paused");
+  });
+
+  test("a round already cut takes no second cut (E6)", () => {
+    const cut = appendAnswer(
+      appendQuestions(opened, [STYLE]),
+      said("", { reason: "aborted", asked: true }),
+    );
+
+    expect(appendAnswer(cut, said("Again.", { reason: "aborted", own: false }))).toBe(cut);
+  });
+
   test("a cut written by hand inside Claude's quoted text pauses nothing", () => {
     const round = appendQuestions(opened, [STYLE]);
 

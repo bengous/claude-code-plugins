@@ -1,5 +1,7 @@
+import type { On } from "claude-code";
 import { describe, expect, test, tier } from "claude-code/testing";
 
+import type { Route } from "../../core/engine/fixtures/index.ts";
 import {
   emit,
   reply,
@@ -7,9 +9,12 @@ import {
   SESSION,
   START_PROMPT,
   told,
+  TURN_ABORTED,
+  TURN_ANSWERED,
   WORKDIR,
   world,
 } from "../../core/engine/fixtures/index.ts";
+import type { StepRoutes } from "./fixtures/step-routes.ts";
 import { PROPOSED_ID, stepRoutes } from "./fixtures/step-routes.ts";
 
 tier("user");
@@ -29,6 +34,9 @@ const ANSWERED = { kind: "answered", seq: 1, text: ACCEPTED };
 const BATCH = `${WORKDIR}.review/v0.feedback-1.md`;
 
 const GONE = "The review server restarted and lost this proposal: propose again.";
+
+/** How a crash ends the server. */
+const ENDED = { code: null, signal: "SIGKILL" } as const;
 
 const ANSWER_BY_PROMPT =
   "The reviewer's answer will arrive as a prompt, once they send it. End your turn.";
@@ -186,11 +194,92 @@ describe("propose", () => {
     expect(step.posted).toEqual([]);
   });
 
+  test("after a restart, a pick made before the call waits again reaches Claude once, as its result", async ($, on) => {
+    const waits: Route[] = [
+      // The server dies under the first wait; a revived one reads the proposal paused.
+      () => {
+        seen.children[0]?.exit(ENDED);
+
+        return null;
+      },
+      // The reviewer picked on the revived server before the call asked again: a prompt entry.
+      async () => {
+        await seen.clock.sleep(1_000);
+        emit(seen, told(ACCEPTED, "step"));
+        await seen.clock.sleep(1_000);
+
+        return reply(200, ANSWERED);
+      },
+    ];
+
+    const seen = world(
+      on,
+      stepRoutes({ wait: (body, query) => waits.shift()?.(body, query) ?? null }),
+    );
+
+    await $.skill.prompt(START_PROMPT);
+    const proposing = $.tool.call({ tool: PROPOSE, ...PROPOSAL });
+    await seen.clock.settle();
+    await seen.clock.advance(1_000);
+    await seen.clock.advance(1_000);
+
+    expect(await proposing).toEqual({ result: ACCEPTED });
+    await seen.clock.settle();
+    expect(seen.children).toHaveLength(2);
+    expect(seen.prompts).not.toContain(ACCEPTED);
+  });
+
   test("outside the mode it names the way in", async ($, on) => {
     world(on);
 
     expect(await $.tool.call({ tool: PROPOSE, ...PROPOSAL })).toEqual({
       deny: "no vellum planning in progress; run /vellum:start",
     });
+  });
+});
+
+/** The bodies the module posted to `pause`, in order. */
+function pauses(step: StepRoutes): readonly string[] {
+  return step.posted.flatMap(([name, body]) => (name === "pause" ? [body] : []));
+}
+
+/** A session whose propose waits through `wait`, its turns ending beneath the plugin. */
+function turnsEnding(on: On, wait: Route): StepRoutes {
+  const step = stepRoutes({ wait });
+  world(on, step);
+  on("turn.complete", (_, e) => ({ text: e.answer }));
+
+  return step;
+}
+
+describe("a turn cut short (A2)", () => {
+  test("an aborted turn after propose posts pause", async ($, on) => {
+    // After Escape every `$` of the call fails: its wait ends, and it posts nothing itself.
+    const step = turnsEnding(on, () => null);
+    await $.skill.prompt(START_PROMPT);
+    await $.tool.call({ tool: PROPOSE, ...PROPOSAL });
+    expect(pauses(step)).toEqual([]);
+    await $.turn.complete(TURN_ABORTED);
+
+    expect(pauses(step)).toEqual([JSON.stringify({ id: PROPOSED_ID })]);
+  });
+
+  test("an aborted turn after the pick came back posts no pause", async ($, on) => {
+    const step = turnsEnding(on, () => reply(200, ANSWERED));
+    await $.skill.prompt(START_PROMPT);
+    await $.tool.call({ tool: PROPOSE, ...PROPOSAL });
+    await $.turn.complete(TURN_ABORTED);
+
+    expect(pauses(step)).toEqual([]);
+  });
+
+  test("a turn that ends on its answer posts no pause, nor does the next one cut short", async ($, on) => {
+    const step = turnsEnding(on, () => null);
+    await $.skill.prompt(START_PROMPT);
+    await $.tool.call({ tool: PROPOSE, ...PROPOSAL });
+    await $.turn.complete(TURN_ANSWERED);
+    await $.turn.complete({ ...TURN_ABORTED, turnId: "t2" });
+
+    expect(pauses(step)).toEqual([]);
   });
 });

@@ -87,6 +87,8 @@ export type Vellum = {
     state(): Promise<Reply>;
     /** `POST wait` on the proposal `id`, as a waiting `propose` holds it. */
     wait(id: string): Promise<Reply>;
+    /** `POST pause` on the proposal `id`, as the hooks module posts it once Claude's turn was cut. */
+    pause(id: string): Promise<Reply>;
   };
   readonly grill: {
     /** A grill of the reviewer's own, opened as the "Next step" window opened blank opens one. */
@@ -313,6 +315,7 @@ export async function startVellum(
       },
       state: () => api("x/step/state"),
       wait: (id) => api("x/step/wait", { id }),
+      pause: (id) => api("x/step/pause", { id }),
     },
     grill: {
       open: (subject) =>

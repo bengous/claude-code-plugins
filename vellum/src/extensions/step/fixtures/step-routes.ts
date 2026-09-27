@@ -33,7 +33,7 @@ export function stepRoutes(answers: Readonly<Record<string, Route>> = {}): StepR
   return {
     posted,
     routes: Object.fromEntries(
-      ["propose", "wait", "answer"].map((name) => [`/api/x/step/${name}`, post(name)]),
+      ["propose", "wait", "pause", "answer"].map((name) => [`/api/x/step/${name}`, post(name)]),
     ),
   };
 }

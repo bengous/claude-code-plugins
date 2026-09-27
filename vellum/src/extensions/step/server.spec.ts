@@ -137,7 +137,7 @@ describe("a proposal", () => {
     const { propose, state } = await stepping();
     const id = await propose();
 
-    expect(await state()).toEqual({ pending: { id, proposal: PROPOSAL } });
+    expect(await state()).toEqual({ pending: { id, proposal: PROPOSAL }, paused: false });
   });
 
   test("a new one replaces it under a new id, and a wait on the first reads it gone", async () => {
@@ -250,7 +250,7 @@ describe("an answer", () => {
     expect(text?.startsWith("Accepted: a grill on: auth. ")).toBe(true);
     expect(text?.slice("Accepted: a grill on: auth. ".length)).toMatch(OPENED_FIRST);
     expect(await wait(id)).toMatchObject({ kind: "answered", seq: 1 });
-    expect(await state()).toEqual({ pending: null });
+    expect(await state()).toEqual({ pending: null, paused: false });
   });
 
   test("the window opened blank answers what waits: a grill of the reviewer's own settles it", async () => {
@@ -385,7 +385,7 @@ describe("the page", () => {
     await answer(request({ id, answer: { kind: "move", move: GRILL } }));
 
     expect(heard).toHaveLength(1);
-    expect(await heard[0]?.then((read) => read.json())).toEqual({ pending: null });
+    expect(await heard[0]?.then((read) => read.json())).toEqual({ pending: null, paused: false });
   });
 });
 
@@ -417,6 +417,81 @@ describe("a wait", () => {
   });
 });
 
+/** What `read` answers, asked again at every turn of the loop until `work` settles: a read that lands inside its step included. */
+async function readsWhile<T, R>(
+  work: Promise<T>,
+  read: () => Promise<R>,
+): Promise<{ readonly value: T; readonly reads: readonly R[] }> {
+  const flag = { settled: false };
+
+  const settled = work.finally(() => {
+    flag.settled = true;
+  });
+
+  const reads: Promise<R>[] = [];
+
+  while (!flag.settled) {
+    reads.push(read());
+    await Bun.sleep(0);
+  }
+
+  return { value: await settled, reads: await Promise.all(reads) };
+}
+
+describe("the page's read of the state", () => {
+  test("never reads a proposal paused while the step that took it lands", async () => {
+    const { propose, state } = await stepping();
+    const torn: StepState[] = [];
+
+    for (let round = 0; round < 40; round += 1) {
+      const { value: id, reads } = await readsWhile(propose(), state);
+      torn.push(...reads.filter((read) => read.pending?.id === id && read.paused));
+    }
+
+    expect(torn).toEqual([]);
+  });
+});
+
+describe("a pause (A2)", () => {
+  test("marks the call's wait paused, the page reads it, and the pick is told all the same", async () => {
+    const { post, propose, region, state, told, wait } = await stepping();
+    const id = await propose();
+    const paused = await post("pause", { id });
+
+    expect([paused.status, await paused.json()]).toEqual([200, { wait: "paused" }]);
+    expect(await region()).toMatchObject({ state: "open", wait: "paused" });
+    expect((await state()).paused).toBe(true);
+    await post("answer", { id, answer: { kind: "move", move: MOCKUP } });
+    expect(await told()).toEqual(["Chose: a mockup of: the settings window."]);
+    expect(await wait(id)).toMatchObject({ kind: "answered", seq: 1 });
+  });
+
+  test("of a proposal not waiting answers 404, no such proposal", async () => {
+    const { post, propose } = await stepping();
+    await propose();
+    const response = await post("pause", { id: "f3b1" });
+
+    expect([response.status, await response.text()]).toEqual([404, "no such proposal"]);
+  });
+
+  test("the paused proposal gives way to a new one, whose call waits (A3)", async () => {
+    const { post, propose, state, wait } = await stepping();
+    const first = await propose();
+    await post("pause", { id: first });
+    const second = await propose({ ...PROPOSAL, recommended: 1 });
+
+    expect(await state()).toMatchObject({ pending: { id: second }, paused: false });
+    expect(await wait(first)).toEqual({ kind: "ended", why: "replaced" });
+  });
+
+  test("that names no proposal is a bad request", async () => {
+    const { post } = await stepping();
+
+    // @ts-expect-error -- what the server must refuse is not a pause.
+    expect((await post("pause", {})).status).toBe(400);
+  });
+});
+
 describe("a restart (A9)", () => {
   test("keeps the proposal, paused: the pick reaches Claude as a prompt, and a wait reads it", async () => {
     const first = await stepping();
@@ -424,7 +499,7 @@ describe("a restart (A9)", () => {
     const { post, region, state, told, wait } = await first.restart();
 
     expect(await region()).toMatchObject({ state: "open", wait: "paused" });
-    expect((await state()).pending?.id).toBe(id);
+    expect(await state()).toMatchObject({ pending: { id }, paused: true });
     await post("answer", { id, answer: { kind: "move", move: MOCKUP } });
     expect(await told()).toEqual(["Chose: a mockup of: the settings window."]);
     expect(await wait(id)).toMatchObject({ kind: "answered", seq: 1 });

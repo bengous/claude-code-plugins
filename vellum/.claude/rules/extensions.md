@@ -60,9 +60,13 @@ and the engine events the core hands it; its segment of the band is its region's
   `step` keeps its proposal, the last one answered and the last one dropped, and why (replaced,
   approved, written), in `.review/step.json`: a restarted server shows the proposal again,
   paused, since no call survives it, and a pick then reaches Claude as a prompt; the call's wait
-  posted again opens it again, once (`wait`: a repost while it waits is a keepalive). A round's
+  posted again opens it again, once (`wait`: a repost while it waits is a keepalive). A turn cut
+  short while the call waited pauses it too (`POST pause`, which the engine half posts at the
+  turn's end), and `GET state` says so (`paused`); a new proposal replaces a paused one. A round's
   answer lives in the core's memory: after a restart the round's wait reads as ended, and its
-  entry reaches Claude through the channel.
+  entry reaches Claude through the channel. A round whose asking turn was cut reads paused, its
+  `_(turn aborted)_` written at the round's end whoever started the turn (E6, `appendAnswer`), so
+  a module that lost its `asked` mark still leaves no round reading as a call that waits.
 - An extension owns its messages: `<id>/protocol.ts` types what crosses its routes, and
   `<id>/parse.ts` is its boundary parser. `src/core/protocol.ts` learns nothing of them.
   A route's reply has its own name there, which both ends import (`GrillState`, `Block` in

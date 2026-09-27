@@ -17,13 +17,13 @@ const step = signal<StepState | null>(null);
 /** Whether the last read of the state was refused: the window on screen is put off, the button greyed. */
 const refused = signal(false);
 
-/** What the button and the window read: the proposal and the core's hold, none past a refused read. */
+/** What the button and the window read: the proposal, whether it is paused, and the core's hold, none past a refused read. */
 const read = computed((): WindowState | null => {
   const view = review.value;
 
   if (refused.value || step.value === null || view === null) return null;
 
-  return { pending: step.value.pending, held: view.workflow.held };
+  return { pending: step.value.pending, held: view.workflow.held, paused: step.value.paused };
 });
 
 async function loadState(): Promise<void> {

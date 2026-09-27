@@ -25,8 +25,15 @@ export type StepAnswer =
 /** The proposal waiting for the reviewer, under the id the server gave it. */
 export type Pending = { readonly id: string; readonly proposal: Proposal };
 
-/** What `GET state` answers: the proposal waiting, if any. What holds the review is the core's `ReviewView.workflow.held`. */
-export type StepState = { readonly pending: Pending | null };
+/**
+ * What `GET state` answers: the proposal waiting, if any, and whether Claude's call stopped waiting
+ * on it (Escape, a restart), so the pick reaches Claude as a message. What holds the review is the
+ * core's `ReviewView.workflow.held`.
+ */
+export type StepState = { readonly pending: Pending | null; readonly paused: boolean };
+
+/** What `POST pause` answers: the proposal's wait, paused. */
+export type Paused = { readonly wait: "paused" };
 
 /** What `POST propose` answers: the id the proposal waits under. */
 export type Proposed = { readonly id: string };
@@ -64,6 +71,8 @@ export type StepPosts = {
   readonly propose: Proposal;
   /** Held until the proposal `id` is answered or gone, or for the hold at most. */
   readonly wait: { readonly id: string };
+  /** Claude's turn was cut while its call waited on the proposal `id`: posted at the turn's end. */
+  readonly pause: { readonly id: string };
   /**
    * The proposal the window showed, `null` for the window opened blank: an answer to one no
    * longer waiting is refused, so a tab kept since cannot answer a newer one.
