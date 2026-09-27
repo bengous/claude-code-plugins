@@ -1,5 +1,9 @@
+import { rmSync } from "node:fs";
+import { join } from "node:path";
+
 import type { FrameLocator, Locator, Page } from "@playwright/test";
 
+import type { Move, Proposed, StepState } from "../src/extensions/step/protocol.ts";
 import type { Vellum } from "./harness.ts";
 import {
   boxOf,
@@ -60,6 +64,18 @@ function marked(frame: FrameLocator): Promise<readonly string[]> {
 /** A choice's card in the comments panel. */
 function choiceCard(page: Page): Locator {
   return page.locator("#comments .choice-card");
+}
+
+function approveButton(page: Page): Locator {
+  return page.locator(".bar").getByRole("button", { name: "Approve", exact: true });
+}
+
+/** The moves of the proposal waiting, `null` with none. */
+async function pendingMoves(vellum: Vellum): Promise<readonly Move[] | null> {
+  // SAFETY: the server's own `StepState`, serialized by `Response.json` in step/server.ts.
+  const { pending } = (await vellum.step.state()).json as StepState;
+
+  return pending?.proposal.moves ?? null;
 }
 
 async function drafted(vellum: Vellum): Promise<string> {
@@ -323,5 +339,87 @@ test.describe("a choice in a mockup", () => {
     await expect(
       page.locator("#rail button", { hasText: "layout.html" }).locator(".badge"),
     ).toHaveText("1");
+  });
+});
+
+test.describe("the approval (A6)", () => {
+  test("plan.md changed since the version refuses it, and the page says to record it first", async ({
+    page,
+    vellum,
+  }) => {
+    await reviewV1(page, vellum);
+    vellum.writePlan("# Layout\n\nRevised, not recorded yet.\n");
+    await approveButton(page).click();
+
+    await expect(page.getByRole("alert")).toContainText(
+      "plan.md changed since v1: record it before approving",
+    );
+    await expect(page.locator(".bar .status")).not.toHaveText("Approved");
+  });
+
+  test("under a hold, Approve anyway confirms that hold, and approves", async ({
+    page,
+    vellum,
+  }) => {
+    await reviewV1(page, vellum);
+    await vellum.grill.open("Where do drafts live?");
+    await expect(page.locator(".bar .status")).toHaveText("Held · grill 1 is open");
+    await approveButton(page).click();
+    await page
+      .getByRole("dialog", { name: "Before approving" })
+      .getByRole("button", { name: "Approve anyway" })
+      .click();
+
+    await expect(page.locator(".bar .status")).toHaveText("Approved");
+  });
+
+  test("a confirmation of a hold that changed since asks again", async ({ page, vellum }) => {
+    await reviewV1(page, vellum);
+    await vellum.grill.open("Where do drafts live?");
+    await vellum.grill.close("page");
+    await vellum.grill.open("Who wins a conflict?");
+    const confirmed = { kind: "approve", edit: null, notes: "", confirmed: "grill 1 is open" };
+
+    expect(await vellum.api("decision", confirmed)).toMatchObject({
+      status: 409,
+      json: { rule: "held", reason: "The review is held: grill 2 is open." },
+    });
+  });
+});
+
+test.describe("the plan step (A7)", () => {
+  const GRILL: Move = { kind: "grill", subject: "Where do drafts live?", choices: [] };
+
+  test("plan.md written takes the plan out of the proposal waiting, which keeps its other moves", async ({
+    vellum,
+  }) => {
+    rmSync(join(vellum.workdir, "plan.md"));
+    await vellum.step.propose({
+      reason: "A choice is open.",
+      moves: [GRILL, { kind: "plan" }],
+      recommended: 1,
+    });
+    vellum.writePlan("# Layout\n");
+
+    await expect.poll(() => pendingMoves(vellum)).toEqual([GRILL]);
+  });
+
+  test("plan.md written drops a proposal whose one move was the plan, and its call hears why", async ({
+    vellum,
+  }) => {
+    rmSync(join(vellum.workdir, "plan.md"));
+
+    const plan = {
+      reason: "Nothing is left open.",
+      moves: [{ kind: "plan" }],
+      recommended: 0,
+    } as const;
+
+    // SAFETY: the server's own `Proposed`, serialized by `Response.json` in step/server.ts.
+    const { id } = (await vellum.step.propose(plan)).json as Proposed;
+    vellum.writePlan("# Layout\n");
+
+    expect((await vellum.step.wait(id)).json).toEqual({ kind: "ended", why: "written" });
+    expect(await pendingMoves(vellum)).toBeNull();
   });
 });

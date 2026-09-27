@@ -1,5 +1,6 @@
 import type { Locator, Page, Route } from "@playwright/test";
 
+import type { WorkflowView } from "../src/core/protocol.ts";
 import type { Proposal, Proposed } from "../src/extensions/step/protocol.ts";
 import type { Vellum } from "./harness.ts";
 import {
@@ -24,12 +25,15 @@ test.use({ fixture: "grill-real" });
 
 const SUBJECT = "The coverage of the page";
 
+const QUESTION = "Does a draft survive a crash?";
+
+/** The fixture holds `plan.md`, where the plan step is done: a proposal offers the other three. */
 const PROPOSAL: Proposal = {
   reason: "Three choices change the interface.",
   moves: [
     { kind: "grill", subject: SUBJECT, choices: ["Storage", "Conflicts"] },
     { kind: "mockup", screen: "the settings window" },
-    { kind: "plan" },
+    { kind: "prototype", question: QUESTION },
   ],
   recommended: 0,
 };
@@ -73,6 +77,14 @@ async function told(vellum: Vellum): Promise<readonly string[]> {
   }[];
 
   return lines.flatMap(({ entry }) => (entry.text === undefined ? [] : [entry.text]));
+}
+
+/** The step's region, as `GET /api/workflow` answers it. */
+async function stepRegion(vellum: Vellum): Promise<WorkflowView["regions"][number] | undefined> {
+  // SAFETY: the server's own `WorkflowView`, serialized by `Response.json` in routes.ts.
+  const view = (await vellum.api("workflow")).json as WorkflowView;
+
+  return view.regions.find(({ id }) => id === "step");
 }
 
 async function propose(vellum: Vellum, proposed: Proposal = PROPOSAL): Promise<string> {
@@ -161,11 +173,11 @@ test("the move Claude recommends is marked, never checked, and Choose is greyed 
 test("another move is Chose, and the dot goes with the window", async ({ page, vellum }) => {
   await openVellum(page, vellum);
   await propose(vellum);
-  await move(proposal(page), /^Plan/u).check();
+  await move(proposal(page), /^Prototype/u).check();
   await choose(proposal(page)).click();
 
   await expect(proposal(page)).toHaveCount(0);
-  await expect.poll(() => told(vellum)).toEqual(["Chose: the plan."]);
+  await expect.poll(() => told(vellum)).toEqual([`Chose: a prototype for: ${QUESTION}`]);
   await expect.poll(() => dotted(page)).toBe(false);
 });
 
@@ -283,7 +295,7 @@ test("an answer in flight draws no dot", async ({ page, vellum }) => {
   await propose(vellum);
   // Never answered: the answer stays in flight until the page closes.
   await page.route("**/x/step/answer", () => null);
-  await move(proposal(page), /^Plan/u).check();
+  await move(proposal(page), /^Prototype/u).check();
   await choose(proposal(page)).click();
   await expect(proposal(page)).toHaveCount(0);
 
@@ -299,7 +311,7 @@ test("an answer to a proposal replaced before the click says so, and the new one
   await expect(proposal(page)).toBeVisible();
   await propose(vellum, NEXT);
   await expect.poll(() => dotted(page)).toBe(true);
-  await move(proposal(page), /^Plan/u).check();
+  await move(proposal(page), /^Prototype/u).check();
   await choose(proposal(page)).click();
 
   await expect(page.getByRole("alert")).toHaveText(REPLACED);
@@ -316,7 +328,7 @@ test("a proposal that replaced the one answered, seen once the answer is refused
   await expect(proposal(page)).toBeVisible();
   const release = await hold(page, "**/x/step/state");
   await propose(vellum, NEXT);
-  await move(proposal(page), /^Plan/u).check();
+  await move(proposal(page), /^Prototype/u).check();
   await choose(proposal(page)).click();
   await expect(page.getByRole("alert")).toHaveText(REPLACED);
   await release();
@@ -332,7 +344,7 @@ test("a proposal seen while an answer is in flight waits on the dot", async ({ p
   const state = await hold(page, "**/x/step/state");
   const answer = await hold(page, "**/x/step/answer");
   await propose(vellum, NEXT);
-  await move(proposal(page), /^Plan/u).check();
+  await move(proposal(page), /^Prototype/u).check();
   await choose(proposal(page)).click();
   await state();
   await expect.poll(() => dotted(page)).toBe(true);
@@ -592,4 +604,39 @@ test("the backdrop dims the page, light and dark", async ({ page, vellum }) => {
 
     expect(under).toBeLessThan(sheet);
   }
+});
+
+test("a proposal that offers the plan once plan.md exists is refused, and no window comes (A7)", async ({
+  page,
+  vellum,
+}) => {
+  await openVellum(page, vellum);
+
+  const plan: Proposal = {
+    reason: "Nothing is left open.",
+    moves: [{ kind: "plan" }],
+    recommended: 0,
+  };
+
+  expect(await vellum.step.propose(plan)).toEqual({
+    status: 409,
+    json: { error: "plan.md exists: the plan step is done" },
+  });
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+});
+
+test("a proposal survives a restart, paused, and a pick then reaches Claude as a prompt (A9)", async ({
+  page,
+  vellum,
+}) => {
+  await openVellum(page, vellum);
+  const id = await propose(vellum);
+  await vellum.restart();
+
+  expect(await stepRegion(vellum)).toMatchObject({ state: "open", wait: "paused" });
+  await page.reload();
+  await move(proposal(page), /^Mockup/u).check();
+  await choose(proposal(page)).click();
+  await expect.poll(() => told(vellum)).toEqual(["Chose: a mockup of: the settings window."]);
+  expect((await vellum.step.wait(id)).json).toMatchObject({ kind: "answered", seq: 1 });
 });

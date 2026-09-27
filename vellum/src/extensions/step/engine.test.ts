@@ -140,6 +140,15 @@ describe("propose", () => {
     });
   });
 
+  test("plan.md written during the wait, the plan its one move, says the plan step is done", async ($, on) => {
+    world(on, stepRoutes({ wait: () => reply(200, { kind: "ended", why: "written" }) }));
+    await $.skill.prompt(START_PROMPT);
+
+    expect(await $.tool.call({ tool: PROPOSE, ...PROPOSAL })).toEqual({
+      result: "plan.md was written: the plan step is done. Propose again if a step remains.",
+    });
+  });
+
   test("a newer proposal that replaced this one says where its answer goes", async ($, on) => {
     world(on, stepRoutes({ wait: () => reply(200, { kind: "ended", why: "replaced" }) }));
     await $.skill.prompt(START_PROMPT);

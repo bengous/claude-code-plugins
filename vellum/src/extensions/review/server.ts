@@ -1,19 +1,29 @@
-import type { Route, RouteKey, ServerContext, ServerExtension } from "../../core/extension.ts";
+import type {
+  Reading,
+  Route,
+  RouteKey,
+  ServerContext,
+  ServerExtension,
+} from "../../core/extension.ts";
 import type { PlanWorkspace } from "../../core/protocol.ts";
-import { projectPath, REVIEW_DIR } from "../../core/server/domain/workspace.ts";
+import type { Actor, EventInput } from "../../core/server/domain/workflow.ts";
+import { projectPath } from "../../core/server/domain/workspace.ts";
 import { REVIEWS_DIR, reviewFile } from "./names.ts";
 import { parseJson, parsePosts, parseReviews } from "./parse.ts";
 import type { Closed, Requested, Reviews, ReviewState } from "./protocol.ts";
-import { REVIEWER } from "./protocol.ts";
-
-/** Where the server keeps the runs, so a restarted one still knows the run under way and its number. */
-const REVIEWS_FILE = `${REVIEW_DIR}/reviews.json`;
-
-const NONE: Reviews = { seq: 0, run: null, failed: null, stopping: [], resubmit: false };
+import {
+  EVENTS,
+  NO_RUNS,
+  REACTION,
+  regionOf,
+  REVIEW,
+  REVIEWS_FILE,
+  RULES,
+  segmentOf,
+  TRANSITIONS,
+} from "./workflow.ts";
 
 const NO_CONTENT = { status: 204 };
-
-const NO_SUCH_RUN = "no such run";
 
 function refused(error: string): Response {
   return Response.json({ error }, { status: 409 });
@@ -32,134 +42,61 @@ function workspaceIfAny(context: ServerContext): Promise<PlanWorkspace | null> {
 async function readReviews(context: ServerContext, dir: PlanWorkspace["dir"]): Promise<Reviews> {
   const text = await context.readText(projectPath(`${dir}${REVIEWS_FILE}`));
 
-  if (text === null) return NONE;
+  if (text === null) return NO_RUNS;
   const reviews = parseReviews(parseJson(text));
 
   if (reviews === null) console.error(`${REVIEWS_FILE} is unreadable, read as no run: ${text}`);
 
-  return reviews ?? NONE;
+  return reviews ?? NO_RUNS;
 }
 
-function writeReviews(
-  context: ServerContext,
-  dir: PlanWorkspace["dir"],
-  reviews: Reviews,
-): Promise<void> {
-  return context.writeText(projectPath(`${dir}${REVIEWS_FILE}`), `${JSON.stringify(reviews)}\n`);
-}
-
-function stateOf({ run, failed, stopping, resubmit }: Reviews): ReviewState {
-  return { run, failed, stopping, resubmit };
+function stateOf({ run, failed, stopping }: Reviews): ReviewState {
+  return { run, failed, stopping };
 }
 
 /**
- * The run given up, its agent to stop once it has one, and `plan.md` to submit again: a version
- * Claude wrote while the run held the review was refused.
+ * Where a verdict lands, read off the listing in the queue: `reviews/v<n>-<model>.md`, the next
+ * free one. `""` when no run is running: the rows refuse such an end.
  */
-function givenUp(reviews: Reviews): Reviews {
-  const { run, stopping } = reviews;
-  const agent = run?.kind === "running" ? [{ seq: run.seq, agentId: run.agentId }] : [];
-
-  return { ...reviews, run: null, stopping: [...stopping, ...agent], resubmit: true };
-}
-
-/** The mode closes, by `/vellum:stop` or the approval: the run is given up, and nothing is submitted again. */
-function closedOn(reviews: Reviews): Reviews {
-  return { ...givenUp(reviews), resubmit: reviews.resubmit };
-}
-
-/** Why no review of `version` is asked now; `null` when one may be. One hold at a time: another's refuses it. */
-async function whyNot(
-  context: ServerContext,
-  workspace: PlanWorkspace,
-  reviews: Reviews,
-  version: number,
-): Promise<string | null> {
-  if (workspace.kind === "drafting") return "no version is under review yet";
-
-  if (workspace.kind === "approved") return "the plan is approved";
-
-  if (workspace.version !== version)
-    return `v${workspace.version} is under review, not v${version}`;
-
-  if (reviews.run !== null) return `a review of v${reviews.run.version} is running`;
-
-  return await context.held();
-}
-
-function twoDigits(n: number): string {
-  return String(n).padStart(2, "0");
-}
-
-/** The agent's text as it wrote it, under vellum's header: the version, the agent, its model, the time of the write. */
-function verdictDoc(version: number, model: string, text: string, at: Date): string {
-  const time = `${twoDigits(at.getHours())}:${twoDigits(at.getMinutes())}`;
-
-  return `# Plan review · v${version}\n\n\`${REVIEWER}\` · \`${model}\` · ${time}\n\n${text.trimEnd()}\n`;
-}
-
-/** What a route makes of the runs: the record to write, and the answer once it is written. */
-type Changed = { readonly reviews: Reviews; readonly answer: Response };
-
-/**
- * A run under way holds the review, from its request to its end: no version of Claude's is
- * recorded, and `step` takes no proposal. Its number is part of the reason, which the approval's
- * warning compares. Read outside `inOrder`, since the queue calls it; a directory gone holds nothing.
- */
-async function holds(context: ServerContext): Promise<string | null> {
-  const workspace = await workspaceIfAny(context);
-
-  if (workspace === null) return null;
+async function verdictFile(context: ServerContext, workspace: PlanWorkspace): Promise<string> {
   const { run } = await readReviews(context, workspace.dir);
 
-  return run === null ? null : `plan review ${run.seq} of v${run.version} is running`;
-}
+  if (run?.kind !== "running") return "";
+  const listed = await context.listFiles(workspace.dir);
+  const under = `${workspace.dir}${REVIEWS_DIR}`;
 
-/** The approval gives up the run under way: an answer that comes later finds no run, and writes nothing. */
-async function approved(context: ServerContext): Promise<void> {
-  const { dir } = await context.workspace();
-  const reviews = await readReviews(context, dir);
+  const taken = new Set(
+    listed.flatMap(({ path }) => (path.startsWith(under) ? [path.slice(under.length)] : [])),
+  );
 
-  if (reviews.run !== null) await writeReviews(context, dir, closedOn(reviews));
+  return reviewFile(run.version, run.model, taken);
 }
 
 function routes(context: ServerContext): Readonly<Record<RouteKey, Route>> {
-  const { inOrder } = context;
+  const { dispatch } = context;
 
-  /** Reads the runs at write time, in the queue: after an approval the directory has moved. */
-  const change = (
-    apply: (
-      reviews: Reviews,
-      workspace: PlanWorkspace,
-    ) => Changed | Response | Promise<Changed | Response>,
-  ): Promise<Response> =>
-    inOrder(async () => {
-      const workspace = await workspaceIfAny(context);
+  /** One event of the review's, once the directory is known to be there (F6); a refusal is its reason. */
+  const stepped = async (
+    event: string,
+    input: EventInput | Reading,
+    actor: Actor,
+  ): Promise<Response | null> => {
+    if ((await workspaceIfAny(context)) === null) return refused("the plan's directory is gone");
+    const { verdict } = await dispatch(event, input, actor);
 
-      if (workspace === null) return refused("the plan's directory is gone");
-      const applied = await apply(await readReviews(context, workspace.dir), workspace);
+    return verdict.kind === "allow" ? null : refused(verdict.reason);
+  };
 
-      if (applied instanceof Response) return applied;
-      await writeReviews(context, workspace.dir, applied.reviews);
-      await context.notify();
-
-      return applied.answer;
-    });
-
-  const done = (reviews: Reviews): Changed => ({
-    reviews,
-    answer: new Response(null, NO_CONTENT),
-  });
+  const done = (answer: Response | null): Response => answer ?? new Response(null, NO_CONTENT);
 
   return {
     "GET state": () =>
-      inOrder(async () => {
+      context.inOrder(async () => {
         const workspace = await workspaceIfAny(context);
 
         if (workspace === null) return refused("the plan's directory is gone");
-        const state: ReviewState = stateOf(await readReviews(context, workspace.dir));
 
-        return Response.json(state);
+        return Response.json(stateOf(await readReviews(context, workspace.dir)));
       }),
 
     "POST request": async (request) => {
@@ -167,66 +104,46 @@ function routes(context: ServerContext): Readonly<Record<RouteKey, Route>> {
 
       if (body === null) return badRequest();
 
-      return await change(async (reviews, workspace) => {
-        const why = await whyNot(context, workspace, reviews, body.version);
+      if ((await workspaceIfAny(context)) === null) return refused("the plan's directory is gone");
+      const input = { version: String(body.version) };
+      const { verdict, workflow } = await dispatch("requestReview", input, "reviewer");
 
-        if (why !== null) return refused(why);
-        const seq = reviews.seq + 1;
-        const requested: Requested = { seq };
-        const run = { kind: "requested", seq, version: body.version } as const;
+      if (verdict.kind !== "allow") return refused(verdict.reason);
+      const region = workflow.regions.find(({ id }) => id === REVIEW);
+      const reviews = parseReviews(parseJson(String(region?.data.reviews)));
 
-        return {
-          reviews: { ...reviews, seq, run, failed: null },
-          answer: Response.json(requested),
-        };
-      });
+      if (reviews === null) throw new Error("a review asked left no runs to read");
+      const requested: Requested = { seq: reviews.seq };
+
+      return Response.json(requested);
     },
 
     "POST launched": async (request) => {
       const body = parsePosts.launched(await request.json().catch(() => null));
 
       if (body === null) return badRequest();
+      const { seq, agentId, model } = body;
 
-      return await change((reviews) => {
-        const { run } = reviews;
-
-        if (run?.kind !== "requested" || run.seq !== body.seq) return refused(NO_SUCH_RUN);
-
-        return done({ ...reviews, run: { ...run, ...body, kind: "running" } });
-      });
+      return done(await stepped("reviewLaunched", { seq: String(seq), agentId, model }, "engine"));
     },
 
     "POST ended": async (request) => {
       const body = parsePosts.ended(await request.json().catch(() => null));
 
       if (body === null) return badRequest();
+      const { seq, outcome } = body;
 
-      return await change(async (reviews, workspace) => {
-        const { run } = reviews;
+      const read: Reading = async (w) =>
+        outcome.kind === "failed"
+          ? { seq: String(seq), outcome: "failed", why: outcome.why }
+          : {
+              seq: String(seq),
+              outcome: "answer",
+              text: outcome.text,
+              file: await verdictFile(context, w.workspace),
+            };
 
-        if (run === null || run.seq !== body.seq) return refused(NO_SUCH_RUN);
-        const { outcome } = body;
-
-        if (outcome.kind === "failed") {
-          const model = run.kind === "running" ? run.model : null;
-          const failed = { seq: run.seq, version: run.version, model, why: outcome.why };
-
-          return done({ ...reviews, run: null, failed, resubmit: true });
-        }
-
-        if (run.kind !== "running") return refused("the run was never launched");
-        const listed = await context.listFiles(workspace.dir);
-        const under = `${workspace.dir}${REVIEWS_DIR}`;
-
-        const taken = new Set(
-          listed.flatMap(({ path }) => (path.startsWith(under) ? [path.slice(under.length)] : [])),
-        );
-
-        const file = projectPath(`${workspace.dir}${reviewFile(run.version, run.model, taken)}`);
-        await context.writeText(file, verdictDoc(run.version, run.model, outcome.text, new Date()));
-
-        return done({ ...reviews, run: null, failed: null, resubmit: true });
-      });
+      return done(await stepped("reviewDone", read, "engine"));
     },
 
     "POST forget": async (request) => {
@@ -234,22 +151,22 @@ function routes(context: ServerContext): Readonly<Record<RouteKey, Route>> {
 
       if (body === null) return badRequest();
 
-      return await change((reviews) =>
-        reviews.run?.seq === body.seq ? done(givenUp(reviews)) : refused(NO_SUCH_RUN),
-      );
+      return done(await stepped("reviewForgotten", { seq: String(body.seq) }, "reviewer"));
     },
 
+    // Refused once the plan is approved, as every event (P3); the agents to stop are answered all
+    // the same, read off the runs, so the module stops the one the approval gave up (F7).
     "POST close": async (request) => {
       const body = parsePosts.close(await request.json().catch(() => null));
 
       if (body === null) return badRequest();
 
-      return await change((reviews) => {
-        const closed = closedOn(reviews);
-        const answer: Closed = { stopping: closed.stopping };
+      if ((await workspaceIfAny(context)) === null) return refused("the plan's directory is gone");
+      await dispatch("reviewClosed", {}, "engine");
+      const { dir } = await context.workspace();
+      const closed: Closed = { stopping: (await readReviews(context, dir)).stopping };
 
-        return { reviews: closed, answer: Response.json(answer) };
-      });
+      return Response.json(closed);
     },
 
     // The one way an agent leaves the list: its stop confirmed, never a later write.
@@ -258,23 +175,24 @@ function routes(context: ServerContext): Readonly<Record<RouteKey, Route>> {
 
       if (body === null) return badRequest();
 
-      return await change((reviews) => {
-        const stopping = reviews.stopping.filter(({ seq }) => seq !== body.seq);
-
-        return stopping.length === reviews.stopping.length
-          ? refused(NO_SUCH_RUN)
-          : done({ ...reviews, stopping });
-      });
-    },
-
-    "POST resubmitted": async (request) => {
-      const body = parsePosts.resubmitted(await request.json().catch(() => null));
-
-      if (body === null) return badRequest();
-
-      return await change((reviews) => done({ ...reviews, resubmit: false }));
+      return done(await stepped("reviewStopped", { seq: String(body.seq) }, "engine"));
     },
   };
 }
 
-export const reviewServer: ServerExtension = { id: "review", routes, holds, approved };
+export const reviewServer: ServerExtension = {
+  id: "review",
+  routes,
+  workflow: {
+    events: EVENTS,
+    rules: RULES,
+    transitions: TRANSITIONS,
+    reaction: REACTION,
+    region: async (context) => {
+      const { dir } = await context.workspace();
+
+      return regionOf(await readReviews(context, dir));
+    },
+    segment: segmentOf,
+  },
+};

@@ -56,7 +56,14 @@ export type Appended = { readonly text: string; readonly seq: number };
 export function appended(text: string, entry: ChannelEntry): Appended {
   const ended = text === "" || text.endsWith("\n") ? "" : "\n";
 
-  return { text: `${ended}${channelLine(entry)}`, seq: `${text}${ended}`.split("\n").length };
+  return { text: `${ended}${channelLine(entry)}`, seq: nextSeq(text) };
+}
+
+/** The number the next entry appended to the file as it stands takes. */
+export function nextSeq(text: string): number {
+  const ended = text === "" || text.endsWith("\n") ? "" : "\n";
+
+  return `${text}${ended}`.split("\n").length;
 }
 
 /* oxlint-disable anti-slop/no-runtime-typeof, anti-slop/no-unknown-parameters, anti-slop/no-unsafe-dictionary-type, anti-slop/no-unknown-returns, anti-slop/no-known-value-widening -- the block below IS the boundary parser the rules ask for: the channel file lies in the working directory, which Claude may write too, so every line is read back as `unknown`. */

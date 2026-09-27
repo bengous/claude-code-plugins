@@ -19,13 +19,13 @@ Otherwise explore, then propose the next step with `mcp__vellum__propose`, never
 - `grill`: choices are open and change the architecture, an interface or the scope; `choices` are their titles. Step 2.
 - `mockup`: a screen words cannot settle; `screen` names it. `references/visual.md`
 - `prototype`: a question only a throwaway answers; `question` names it. It lives in the working directory; one that needs the codebase goes through `/vellum:stop`, and the plan comes in a fresh session from what it taught.
-- `plan`: nothing left open. Step 3.
+- `plan`: nothing left open. Step 3. Once `plan.md` exists the plan step is done: a proposal that offers it is refused, so revise the plan instead.
 
 `AskUserQuestion` is refused while vellum is live. A reviewer may also pick a step on their own; it arrives as a prompt in the same words.
 
 ## 2. Settle the open choices
 
-The choices are settled in a grill, in the review page. You do not start one: the reviewer opens it by picking a grill, and the answer names the transcript and, the first time, the instructions to read. You ask each round with `mcp__vellum__grill_ask`, which waits and returns the reviewer's reply, and the reviewer ends the grill. No step is proposed while the review is held (a grill, a plan review).
+The choices are settled in a grill, in the review page. You do not start one: the reviewer opens it by picking a grill, and the answer names the transcript and, the first time, the instructions to read. You ask each round with `mcp__vellum__grill_ask`, which waits and returns the reviewer's reply, and the reviewer ends the grill. No step is proposed while the review is held (a grill, a plan review). `plan.md` is yours to write meanwhile, and the reviewer sees it, but no version is recorded under the hold: once it ends a prompt says what to integrate, and the end of that turn records the version.
 
 A question is asked only when the answer would change the architecture, an interface or the scope. Anything else: take the recommended option and record it in the plan under Assumptions. Without a grill, every open choice becomes an assumption, or a question left open in the plan, named, with the option you would take.
 

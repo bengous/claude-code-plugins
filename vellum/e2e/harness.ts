@@ -109,6 +109,11 @@ export type Vellum = {
     /** `POST ended` for the run launched, as the hooks module posts the agent's end. */
     ended(outcome: Outcome): Promise<Reply>;
   };
+  /**
+   * The server killed as a crash kills it, then revived as the hooks module revives one: `serve`
+   * on the same copy, port and token, `--existing`. The page's tab reconnects by itself.
+   */
+  restart(): Promise<void>;
   stop(): Promise<void>;
 };
 
@@ -177,9 +182,13 @@ export async function startVellum(
     { cwd: ROOT, env: { ...process.env, NODE_ENV: "test" }, stdio: ["ignore", "pipe", "pipe"] },
   );
 
+  /** The server now: `preview.ts`, or the `serve` a restart revived, whose copy is the harness's to take away. */
+  let serving: ChildProcessByStdio<null, Readable, Readable> = child;
+  let revived = false;
+
   // A test that throws never reaches stop(): the server and its scratch copy go with the runner.
   const onExit = (): void => {
-    child.kill("SIGTERM");
+    serving.kill("SIGTERM");
   };
 
   process.on("exit", onExit);
@@ -328,13 +337,51 @@ export async function startVellum(
       },
       ended: async (outcome) => api("x/review/ended", { seq: (await run("running")).seq, outcome }),
     },
+    restart: async () => {
+      await new Promise<void>((exited) => {
+        serving.once("exit", () => exited());
+        serving.kill("SIGKILL");
+      });
+
+      const next = spawn(
+        "bun",
+        [
+          "vellum/src/core/server/cli.ts",
+          "serve",
+          "--session",
+          "e2e",
+          "--project",
+          ROOT,
+          "--workdir",
+          dir,
+          "--port",
+          parsed.port,
+          "--token",
+          token,
+          "--existing",
+        ],
+        { cwd: ROOT, env: { ...process.env, NODE_ENV: "test" }, stdio: ["ignore", "pipe", "pipe"] },
+      );
+
+      serving = next;
+      revived = true;
+      gone = false;
+
+      next.once("exit", () => {
+        gone = true;
+      });
+
+      await firstLine(next, "stdout", /"type":"ready"/u, { since: performance.now(), lines: [] });
+    },
     // A test may stop the server itself, to cut the connection: the fixture's stop is then a no-op.
     stop: async () => {
       // Windows has no signal to send: `kill` ends preview.ts and runs no handler, so the copy
-      // it served, renamed by an approval or not, is the harness's to take away. A server that
-      // cannot say which leaves it, and is still killed.
+      // it served, renamed by an approval or not, is the harness's to take away, as is a revived
+      // server's anywhere. A server that cannot say which leaves it, and is still killed.
       const left =
-        process.platform === "win32" && !gone ? await servedDir(api).catch(() => null) : null;
+        (process.platform === "win32" || revived) && !gone
+          ? await servedDir(api).catch(() => null)
+          : null;
 
       await new Promise<void>((exited) => {
         if (gone) {
@@ -343,8 +390,8 @@ export async function startVellum(
           return;
         }
 
-        child.once("exit", () => exited());
-        child.kill("SIGTERM");
+        serving.once("exit", () => exited());
+        serving.kill("SIGTERM");
       });
       process.off("exit", onExit);
 

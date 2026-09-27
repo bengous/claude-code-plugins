@@ -186,21 +186,18 @@ function parseStopping(value: unknown): Stopping[] | null {
   return stopping;
 }
 
-/** `GET state`'s answer; `null` for one that is no state. */
+/** `GET state`'s answer; `null` for one that is no state. A field it does not read is left behind. */
 export function parseReviewState(value: unknown): ReviewState | null {
   if (!isRecord(value)) return null;
   const run = value.run === null ? null : parseRun(value.run);
   const failed = value.failed === null ? null : parseFailed(value.failed);
   const stopping = parseStopping(value.stopping);
-  const { resubmit } = value;
 
   if ((value.run !== null && run === null) || (value.failed !== null && failed === null)) {
     return null;
   }
 
-  return stopping === null || typeof resubmit !== "boolean"
-    ? null
-    : { run, failed, stopping, resubmit };
+  return stopping === null ? null : { run, failed, stopping };
 }
 
 /** `POST close`'s answer; `null` for one that is not it. */
@@ -265,6 +262,5 @@ export const parsePosts: {
   forget: seqOf,
   close: (value) => (isRecord(value) ? {} : null),
   stopped: seqOf,
-  resubmitted: (value) => (isRecord(value) ? {} : null),
 };
 /* oxlint-enable anti-slop/no-runtime-typeof, anti-slop/no-unknown-parameters, anti-slop/no-unsafe-dictionary-type, anti-slop/no-unknown-returns, anti-slop/no-known-value-widening */

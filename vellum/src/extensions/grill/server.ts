@@ -2,21 +2,21 @@ import { join } from "node:path";
 
 import type {
   Part,
+  Reading,
   Route,
   RouteKey,
   ServerContext,
   ServerExtension,
-  Started,
 } from "../../core/extension.ts";
 import type { Draft, PlanWorkspace } from "../../core/protocol.ts";
-import type { ParseResult, ProjectPath } from "../../core/server/domain/paths.ts";
+import type { ProjectPath } from "../../core/server/domain/paths.ts";
 import { parseProjectPath } from "../../core/server/domain/paths.ts";
+import type { Actor, EventInput } from "../../core/server/domain/workflow.ts";
 import { projectPath } from "../../core/server/domain/workspace.ts";
 import {
   grillFile,
   grillFileName,
   grillNumber,
-  NO_GRILL_OPEN,
   parseAnswer,
   parseCloseReason,
   parseEvent,
@@ -25,60 +25,30 @@ import {
   parseWait,
 } from "./parse.ts";
 import type { Asked, Block, GrillState, Waited } from "./protocol.ts";
-import { ASK_TOOL } from "./protocol.ts";
 import {
-  appendAnswer,
-  appendFooter,
-  appendEvent,
   appendReply,
-  appendQuestions,
-  header,
   isClosed,
   nextQuestion,
   phaseOf,
-  type Relay,
   relaysOf,
   segmentsOf,
   subjectOf,
   unanswered,
 } from "./transcript.ts";
+import {
+  callOf,
+  EVENTS,
+  GRILL,
+  openingOf,
+  REACTION,
+  regionOf,
+  RULES,
+  segmentOf,
+  TRANSITIONS,
+} from "./workflow.ts";
 
 /** A transcript of the plan's directory, read: the one with the highest number is the current one. */
 type Transcript = { readonly n: number; readonly file: ProjectPath; readonly doc: string };
-
-/**
- * What a change makes of the transcript: the file to write, the answer once it is written, and
- * whether Claude hears of the entries it added: the reviewer's gestures alone are told, and a grill
- * the session ended itself is not.
- */
-type Written = { readonly doc: string; readonly answer: Response; readonly told: boolean };
-
-/** A round a Send closed, under the entry that carried it: what a waiting `grill_ask` returns. */
-type Closed = {
-  readonly file: ProjectPath;
-  readonly ids: ReadonlySet<string>;
-  readonly seq: number;
-  readonly text: string;
-};
-
-/**
- * What the server keeps of the Sends while it runs, per review: a restarted one keeps nothing,
- * and a wait it cannot answer from the transcript alone reads as ended, so the entry goes to
- * Claude through the channel instead.
- */
-type Memory = { readonly closed: Closed[] };
-
-const memories = new WeakMap<ServerContext, Memory>();
-
-function memoryOf(context: ServerContext): Memory {
-  const known = memories.get(context);
-
-  if (known !== undefined) return known;
-  const made: Memory = { closed: [] };
-  memories.set(context, made);
-
-  return made;
-}
 
 /** A link the page may follow: http, mailto, a fragment or a relative path; any other scheme runs code. */
 const SAFE_HREF = /^(?:https?:|mailto:|[^:]*(?:[/?#]|$))/iu;
@@ -121,36 +91,6 @@ export function blocksOf(doc: string): Block[] {
 /** Where Claude learns how to grill, named with the first grill of a working directory alone. */
 const GUIDE = join(import.meta.dir, "grilling.md");
 
-/**
- * An entry as Claude reads it: a prompt names its object and repeats nothing Claude wrote or read,
- * and a reply goes as the transcript worded it, under `Reviewer:`.
- */
-function toldOf(relay: Relay, first: boolean): string {
-  if (relay.kind === "reply") return relay.text;
-
-  if (relay.kind === "ended") return `The reviewer ended ${relay.name}.`;
-  const opened = `The reviewer opened ${relay.name} on: ${relay.subject}.`;
-
-  return first ? `${opened} Read ${GUIDE}, then ask with ${ASK_TOOL}.` : opened;
-}
-
-/**
- * Tells Claude the entries a write added to the transcript, in file order. Only what the server
- * itself appended is told: a block written into the file by hand is already in `before`.
- */
-async function tell(
-  context: ServerContext,
-  name: string,
-  before: string,
-  after: string,
-): Promise<void> {
-  const known = relaysOf(before, name, -1).length - 1;
-
-  for (const relay of relaysOf(after, name, known)) {
-    await context.relay({ kind: "text", from: "grill", text: toldOf(relay, false) });
-  }
-}
-
 /** `null` when the working directory is gone and the server lost its memory: the route answers 409. */
 function workspaceIfAny(context: ServerContext): Promise<PlanWorkspace | null> {
   return context.workspace().catch(() => null);
@@ -160,8 +100,8 @@ async function latest(
   context: ServerContext,
   dir: PlanWorkspace["dir"],
 ): Promise<Transcript | null> {
-  // A directory that is gone holds no transcript: the listing rejects there, and a gate or a
-  // route must refuse, not fail.
+  // A directory that is gone holds no transcript: the listing rejects there, and a route must
+  // refuse, not fail.
   const listed = await context.listFiles(dir).catch(() => []);
 
   const numbers = listed
@@ -200,71 +140,25 @@ function typingOn(draft: Draft | null, file: ProjectPath): Typing {
   return draft?.typed.grill[file] ?? NOTHING_TYPED;
 }
 
-/** The reviewer's reply as the transcript writes it: the answers typed, and the note. */
-function replied(doc: string, typing: Typing): string | null {
-  const answers = Object.entries(typing.answers).map(([id, text]) => ({ id, text }));
-
-  return appendReply(doc, answers, typing.note);
-}
-
 /** The questions the typing leaves open, which a Send or an end takes by default. */
 function untouched(doc: string, typing: Typing): readonly string[] {
   return unanswered(doc).filter((id) => (typing.answers[id]?.trim() ?? "") === "");
 }
 
-/** The last reply of the file as Claude reads it. */
-function lastReply(doc: string, name: string): string {
-  return relaysOf(doc, name, -1).findLast((relay) => relay.kind === "reply")?.text ?? "";
-}
-
-/** What is typed goes as the reply, every question it leaves open by default, then the footer. */
-function ended(doc: string, reason: string, typing: Typing = NOTHING_TYPED): string {
-  return appendFooter(replied(doc, typing) ?? doc, reason, new Date());
-}
-
-async function holds(context: ServerContext): Promise<string | null> {
-  const open = await openGrill(context);
-
-  return open === null ? null : `grill ${open.n} is open`;
-}
-
 /**
- * Decides a grill on the subject, from `step`'s answer, in that answer's step of the queue, so a
- * grill never opens over another. It writes nothing: it answers what Claude is told (the file,
- * the subject and, at the directory's first grill, the guide), which the answer's entry carries,
- * and the header's write, which runs once that entry exists.
+ * What Claude is told of a grill `step`'s answer opens on the subject: the file it will be, and
+ * at the directory's first grill, the guide. The rows judge whether it opens; the reaction writes it.
  */
 // oxlint-disable-next-line anti-slop/no-unknown-parameters -- `input` comes from `step` through the core; `parseSubject` is the boundary that reads it.
-async function start(context: ServerContext, input: unknown): Promise<ParseResult<Started>> {
+async function start(context: ServerContext, input: unknown): Promise<string> {
   const subject = parseSubject(input);
-
-  if (subject === null) return { ok: false, error: "a grill's subject is one line, not empty" };
   const workspace = await workspaceIfAny(context);
 
-  if (workspace === null) return { ok: false, error: "the plan's directory is gone" };
-
-  if (workspace.kind === "approved") return { ok: false, error: "the plan is approved" };
+  if (subject === null || workspace === null) return "";
   const current = await latest(context, workspace.dir);
-
-  if (current !== null && !isClosed(current.doc)) {
-    return { ok: false, error: `${grillFile(current.n)} is open` };
-  }
-
   const name = grillFile((current?.n ?? 0) + 1);
-  const file = projectPath(`${workspace.dir}${name}`);
-  const session = /wip-([0-9a-f]{8})\/$/u.exec(workspace.dir)?.[1] ?? "";
-  const doc = header(subject, session, new Date());
-  const told = toldOf({ kind: "opened", seq: 0, name, subject }, current === null);
 
-  return { ok: true, value: { told, commit: () => context.writeText(file, doc) } };
-}
-
-/** Runs inside the review's queue, after the rename: the footer lands in the final directory, module alive or not. */
-async function approved(context: ServerContext): Promise<void> {
-  const open = await openGrill(context);
-
-  if (open !== null) await context.writeText(open.file, ended(open.doc, "approved"));
-  context.wake();
+  return openingOf(name, subject, current === null ? GUIDE : null);
 }
 
 const NO_PART: Part = { kind: "none" };
@@ -272,9 +166,8 @@ const NO_PART: Part = { kind: "none" };
 /**
  * The grill's part of the bar's Send, read off the open grill and the draft, writing nothing: the
  * questions no answer takes, unless the reviewer agreed to leave every one to its recommendation;
- * else the reply the draft holds, which closes every open question. Its commit runs once the
- * batch and its entry exist: the Send is kept for the waits on its round first, so a transcript
- * that fails to take the reply still answers them, then the reply closes the round.
+ * else the reply the draft holds, which closes every open question, and the typing the Send's
+ * event carries for the grill's reaction to write it.
  */
 async function part(
   context: ServerContext,
@@ -289,12 +182,12 @@ async function part(
 
   if (!untyped.every((id) => takeDefaults.includes(id)))
     return { kind: "unanswered", ids: untyped };
-  const doc = replied(open.doc, typing);
+  const answers = Object.entries(typing.answers).map(([id, text]) => ({ id, text }));
+  const doc = appendReply(open.doc, answers, typing.note);
 
   if (doc === null) return NO_PART;
   const name = grillFile(open.n);
-  const reply = lastReply(doc, name);
-  const ids = new Set(unanswered(open.doc));
+  const reply = relaysOf(doc, name, -1).findLast((relay) => relay.kind === "reply")?.text ?? "";
 
   return {
     kind: "part",
@@ -303,13 +196,7 @@ async function part(
       ...typed,
       grill: Object.fromEntries(Object.entries(typed.grill).filter(([file]) => file !== open.file)),
     }),
-    commit: async ({ file, seq, more }) => {
-      const memory = memoryOf(context);
-      const rest = more ? `\n\nComments and choices: read ${file}.` : "";
-      memory.closed.push({ file: open.file, ids, seq, text: `${reply}${rest}` });
-      context.wake();
-      await context.writeText(open.file, doc);
-    },
+    input: JSON.stringify(typing),
   };
 }
 
@@ -319,9 +206,10 @@ async function part(
  */
 async function waitedOn(context: ServerContext, file: ProjectPath, first: number): Promise<Waited> {
   const id = `Q${first}`;
-  const closed = memoryOf(context).closed.find((one) => one.file === file && one.ids.has(id));
+  const name = file.split("/").at(-1) ?? "";
+  const returned = context.returned(callOf(name, id));
 
-  if (closed !== undefined) return { kind: "answered", seq: closed.seq, text: closed.text };
+  if (returned !== null) return { kind: "answered", seq: returned.seq, text: returned.text };
   const doc = await context.readText(file);
 
   return doc === null || isClosed(doc) || !unanswered(doc).includes(id)
@@ -330,40 +218,19 @@ async function waitedOn(context: ServerContext, file: ProjectPath, first: number
 }
 
 function routes(context: ServerContext): Readonly<Record<RouteKey, Route>> {
-  const { inOrder } = context;
+  const { dispatch, inOrder } = context;
 
-  /**
-   * Reads the current transcript at write time: after an approval the directory has moved.
-   * `apply` answers a refusal to write nothing; with no grill open, `none` is the answer.
-   */
-  const change = (
-    apply: (current: Transcript) => Written | Response | Promise<Written | Response>,
-    none: () => Response = () => new Response(null, NO_CONTENT),
-  ): Promise<Response> =>
-    inOrder(async () => {
-      const workspace = await workspaceIfAny(context);
+  /** Every event of the grill's own, once the directory is known to be there (F6). */
+  const stepped = async (
+    event: string,
+    input: EventInput | Reading,
+    actor: Actor,
+  ): Promise<Response | null> => {
+    if ((await workspaceIfAny(context)) === null) return refused("the plan's directory is gone");
+    const { verdict } = await dispatch(event, input, actor);
 
-      if (workspace === null) return refused("the plan's directory is gone");
-      const current = await latest(context, workspace.dir);
-
-      if (current === null || isClosed(current.doc)) return none();
-      const applied = await apply(current);
-
-      if (applied instanceof Response) return applied;
-      await context.writeText(current.file, applied.doc);
-
-      if (applied.told) await tell(context, grillFile(current.n), current.doc, applied.doc);
-      context.wake();
-      await context.notify();
-
-      return applied.answer;
-    });
-
-  const written = (doc: string, told = false): Written => ({
-    doc,
-    answer: new Response(null, NO_CONTENT),
-    told,
-  });
+    return verdict.kind === "allow" ? null : refused(verdict.reason);
+  };
 
   return {
     "GET state": async () => {
@@ -382,11 +249,19 @@ function routes(context: ServerContext): Readonly<Record<RouteKey, Route>> {
 
       if (reason === null) return badRequest();
 
-      return await change(async ({ doc, file }) => {
-        const draft = reason === "page" ? await context.draft() : null;
+      const answer = await stepped(
+        "endGrill",
+        async (w) => {
+          const region = w.regions.find(({ id }) => id === GRILL);
+          const file = projectPath(`${w.workspace.dir}${grillFile(Number(region?.data.n ?? 0))}`);
+          const typing = reason === "page" ? typingOn(await context.draft(), file) : NOTHING_TYPED;
 
-        return written(ended(doc, reason, typingOn(draft, file)), reason === "page");
-      });
+          return { reason, grill: JSON.stringify(typing) };
+        },
+        reason === "page" ? "reviewer" : "engine",
+      );
+
+      return answer ?? new Response(null, NO_CONTENT);
     },
 
     "POST ask": async (request) => {
@@ -394,19 +269,18 @@ function routes(context: ServerContext): Readonly<Record<RouteKey, Route>> {
 
       if (questions === null) return badRequest();
 
-      return await change(
-        ({ doc, file }) => {
-          const first = nextQuestion(doc);
-          const asked: Asked = { first, last: first + questions.length - 1, file };
+      if ((await workspaceIfAny(context)) === null) return refused("the plan's directory is gone");
+      const q = JSON.stringify(questions.map(({ title, ask, rec }) => [title, ask, rec]));
+      const { verdict, workflow } = await dispatch("askQuestion", { q }, "claude");
 
-          return {
-            doc: appendQuestions(doc, questions),
-            answer: Response.json(asked),
-            told: false,
-          };
-        },
-        () => refused(NO_GRILL_OPEN),
-      );
+      if (verdict.kind !== "allow") return refused(verdict.reason);
+      const region = workflow.regions.find(({ id }) => id === GRILL);
+      const n = Number(region?.data.n ?? 0);
+      const last = nextQuestion(String(region?.data.doc ?? "")) - 1;
+      const file = projectPath(`${workflow.workspace.dir}${grillFile(n)}`);
+      const asked: Asked = { first: last - questions.length + 1, last, file };
+
+      return Response.json(asked);
     },
 
     // Read in the queue, so a Send's step is seen whole: its reply and the entry that carried it.
@@ -427,17 +301,27 @@ function routes(context: ServerContext): Readonly<Record<RouteKey, Route>> {
     "POST event": async (request) => {
       const event = parseEvent(await request.json().catch(() => null));
 
-      return event === null
-        ? badRequest()
-        : await change(({ doc }) => written(appendEvent(doc, event.command)));
+      if (event === null) return badRequest();
+
+      return (
+        (await stepped("sessionEvent", { command: event.command }, "engine")) ??
+        new Response(null, NO_CONTENT)
+      );
     },
 
     "POST answer": async (request) => {
       const answer = parseAnswer(await request.json().catch(() => null));
 
-      return answer === null
-        ? badRequest()
-        : await change(({ doc }) => written(appendAnswer(doc, answer)));
+      if (answer === null) return badRequest();
+
+      const input = {
+        text: answer.text,
+        reason: answer.reason,
+        own: String(answer.own),
+        asked: String(answer.asked),
+      };
+
+      return (await stepped("turnAnswered", input, "engine")) ?? new Response(null, NO_CONTENT);
     },
 
     "GET blocks": async (request) => {
@@ -457,8 +341,19 @@ function routes(context: ServerContext): Readonly<Record<RouteKey, Route>> {
 export const grillServer: ServerExtension = {
   id: "grill",
   routes,
-  holds,
   start,
-  approved,
   part,
+  workflow: {
+    events: EVENTS,
+    rules: RULES,
+    transitions: TRANSITIONS,
+    reaction: REACTION,
+    region: async (context) => {
+      const { dir } = await context.workspace();
+      const current = await latest(context, dir);
+
+      return regionOf(current === null ? null : { n: current.n, doc: current.doc });
+    },
+    segment: segmentOf,
+  },
 };

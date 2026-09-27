@@ -6,13 +6,15 @@ import type {
   ToolContext,
 } from "../../core/engine/extension.ts";
 import { parseError, parseJson, parseProposal, parseProposed, parseWaited } from "./parse.ts";
-import type { StepPosts, StepWaited } from "./protocol.ts";
+import type { Dropped, StepPosts, StepWaited } from "./protocol.ts";
 
 const GONE = "The review server restarted and lost this proposal: propose again.";
 
 const APPROVED = "The reviewer approved the plan: no step follows. End your turn.";
 
 const REPLACED = "A newer proposal replaced this one; its answer goes to that call.";
+
+const WRITTEN = "plan.md was written: the plan step is done. Propose again if a step remains.";
 
 function post<Name extends keyof StepPosts>(
   context: EngineContext,
@@ -52,8 +54,19 @@ async function waitFor(context: ToolContext, id: string): Promise<ToolAnswer> {
 
     if (read.kind === "gone") return { deny: GONE };
 
-    if (read.kind === "ended")
-      return read.why === "approved" ? { result: APPROVED } : { deny: REPLACED };
+    if (read.kind === "ended") return ended(read.why);
+  }
+}
+
+/** A proposal dropped unanswered: the approval ends the step, a newer one takes the answer, `plan.md` written ends the plan step. */
+function ended(why: Dropped): ToolAnswer {
+  switch (why) {
+    case "approved":
+      return { result: APPROVED };
+    case "replaced":
+      return { deny: REPLACED };
+    case "written":
+      return { result: WRITTEN };
   }
 }
 

@@ -87,6 +87,10 @@ const segmentFailures = new WeakMap<Live, Set<string>>();
 
 const SEPARATOR = " │ ";
 
+function contextOf(host: Host, live: Live, extension: EngineExtension): EngineContext {
+  return { host, live, api: live.server.extension(extension.id) };
+}
+
 /** Whether the state holds a session whose variable vellum set: `live` or `lost`, as the lock reads it. */
 function pinned(state: State): boolean {
   return sessionOf(state)?.pinnedCwd === true;
@@ -98,26 +102,8 @@ export const register: Register = (on) => {
   // Reset wherever the mode leaves `live`, and ignored outside it: see `turn.ts`.
   let turns: Turns = NO_TURN;
 
-  // Claude at rest: the main loop's last turn ended on its answer, and none started since. A fact
-  // the server cannot read, cleared with `turns`: an Escape, an API error or a reload leave it false.
-  let idle = false;
-
   function forgetTurns(): void {
     turns = NO_TURN;
-    idle = false;
-  }
-
-  function contextOf(host: Host, live: Live, extension: EngineExtension): EngineContext {
-    return {
-      host,
-      live,
-      api: live.server.extension(extension.id),
-      submitIdle: async () => {
-        if (!idle) return false;
-
-        return !("error" in (await submitPlan(host, live, "keep").catch(() => UNREACHABLE)));
-      },
-    };
   }
 
   /**
@@ -473,7 +459,6 @@ export const register: Register = (on) => {
   });
 
   on("turn.start", (_, e, next) => {
-    idle = false;
     turns = state.kind === "live" ? started(turns, e.text, e.turnId) : NO_TURN;
 
     return next(e);
@@ -481,7 +466,9 @@ export const register: Register = (on) => {
 
   // The turn's end is the deterministic submit: the reviewer sees each new plan.md the moment
   // Claude hands back, and never has to ask for one. An unchanged text is kept, even after a
-  // feedback, so a turn that answered a question opens no version; the explicit tool does.
+  // feedback, so a turn that answered a question opens no version; the explicit tool does. A
+  // refusal (a hold, the plan approved) is the server's to journal: Claude hears of a hold once it
+  // ends, through the notice, never here.
   on("turn.complete", async ($, e, next) => {
     const result = await next(e);
 
@@ -500,10 +487,12 @@ export const register: Register = (on) => {
 
     const own = ownOf(turns, e.turnId);
     turns = completed(turns, e.turnId);
-    // A turn that started before this end was heard runs still: Claude is not at rest.
-    idle = e.reason === "answer" && turns.running.kind === "none";
 
-    if (e.reason === "answer") await submitPlan(host, state.live, "keep").catch(() => UNREACHABLE);
+    if (e.reason === "answer") {
+      await submitPlan(host, state.live, "keep").catch((cause: unknown) => {
+        host.log(`plan.md was not submitted at the turn's end: ${String(cause)}`);
+      });
+    }
 
     await handed(host, state.live, "answered", (extension, context) =>
       extension.answered?.(context, { text: e.answer, reason: e.reason, own }),

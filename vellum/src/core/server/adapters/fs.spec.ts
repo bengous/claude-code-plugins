@@ -15,7 +15,15 @@ import { join } from "node:path";
 import type { WipDir } from "../domain/paths.ts";
 import { parseWipDir } from "../domain/paths.ts";
 import { slugFromTitle } from "../domain/slug.ts";
-import { finalize, listFiles, readTextIfAny, readWorkspace, removeFile, watchFiles } from "./fs.ts";
+import {
+  finalize,
+  freeTarget,
+  listFiles,
+  readTextIfAny,
+  readWorkspace,
+  removeFile,
+  watchFiles,
+} from "./fs.ts";
 
 const WIP = "plans/2026-09-15/wip-4c2a9d93/";
 
@@ -39,13 +47,17 @@ function wip(): WipDir {
   return from.value;
 }
 
-function run(root: string): ReturnType<typeof finalize> {
+/** An approval's rename: the slug's free name, then the rename there. */
+async function run(root: string): ReturnType<typeof finalize> {
   const slug = slugFromTitle("# Notification");
 
   if (!slug.ok) throw new Error(slug.error);
+  const to = await freeTarget(root, wip(), slug.value);
+
+  if (!to.ok) return to;
 
   // No folder is held here: a refused rename fails at once.
-  return finalize(root, wip(), slug.value, 0);
+  return await finalize(root, wip(), to.value, 0);
 }
 
 /** The changes a watcher reported after `write` ran, once its writes settled. */

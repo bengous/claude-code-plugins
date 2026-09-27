@@ -1,9 +1,9 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import type { ChannelLine } from "../../core/protocol.ts";
+import type { ChannelLine, WorkflowView } from "../../core/protocol.ts";
 import { startServer } from "../../core/server/adapters/http/serve.ts";
 import type { Started } from "../../core/server/adapters/http/serve.ts";
 import { Review } from "../../core/server/app/review.ts";
@@ -43,11 +43,16 @@ type Stepping = {
   readonly api: (path: string, body?: string) => Promise<Response>;
   /** What the channel told Claude, each text in order. */
   readonly told: () => Promise<readonly string[]>;
+  /** The step's region as `GET /api/workflow` reads it. */
+  readonly region: () => Promise<WorkflowView["regions"][number] | undefined>;
+  /** The events of the journal, in order. */
+  readonly journaled: () => readonly string[];
+  /** The server on the same directory, stopped, `meanwhile` run, and started again. */
+  readonly restart: (meanwhile?: () => void) => Promise<Stepping>;
 };
 
-/** A server on a fresh working directory, its step routes behind the token. */
-async function stepping(): Promise<Stepping> {
-  const dir = mkdtempSync(join(tmpdir(), "vellum-step-"));
+/** A server on a fresh working directory, or on `dir` again, its step routes behind the token. */
+async function stepping(dir = mkdtempSync(join(tmpdir(), "vellum-step-"))): Promise<Stepping> {
   const workdir = parseWipDir(WIP);
 
   if (!workdir.ok) throw new Error(workdir.error);
@@ -88,12 +93,44 @@ async function stepping(): Promise<Stepping> {
 
       return lines.flatMap(({ entry }) => (entry.kind === "text" ? [entry.text] : []));
     },
+    region: async () => {
+      // SAFETY: the server's own `WorkflowView`, serialized by `Response.json` in routes.ts.
+      const view = (await (await api("workflow")).json()) as WorkflowView;
+
+      return view.regions.find(({ id }) => id === "step");
+    },
+    journaled: () =>
+      readFileSync(join(dir, WIP, ".review/events.jsonl"), "utf8")
+        .split("\n")
+        .filter((line) => line !== "")
+        .map((line) => {
+          // SAFETY: the server's own journal lines, written by `journalText` in domain/workflow.ts.
+          const journaled = JSON.parse(line) as { readonly event: string };
+
+          return journaled.event;
+        }),
+    restart: async (meanwhile = () => {}) => {
+      started.stop();
+      meanwhile();
+
+      return await stepping(dir);
+    },
   };
 }
 
 afterEach(() => {
   for (const started of running.splice(0)) started.stop();
 });
+
+/** Reads again until `read` answers `want`: the watcher and a held wait land on their own time. */
+async function until<T>(read: () => T | Promise<T>, want: T): Promise<void> {
+  for (let tries = 0; tries < 200; tries += 1) {
+    if ((await read()) === want) return;
+    await Bun.sleep(10);
+  }
+
+  throw new Error(`never read ${String(want)}`);
+}
 
 describe("a proposal", () => {
   test("waits under an id the server gave it, and the page reads it", async () => {
@@ -163,9 +200,11 @@ describe("a proposal", () => {
   });
 
   test("is refused once the plan is approved, and the approval takes the one waiting", async () => {
-    const { dir, api, post, propose, wait } = await stepping();
+    const { dir, api, post, propose, state, wait } = await stepping();
     const id = await propose();
     writeFileSync(join(dir, WIP, "plan.md"), "# Auth plan\n");
+    // plan.md written reaches the workflow once the watcher settles: it takes the plan step out.
+    await until(async () => (await state()).pending?.proposal.moves.length, 2);
     await api("gate", "{}");
     await api("decision", JSON.stringify({ kind: "approve", edit: null, notes: "" }));
 
@@ -351,7 +390,7 @@ describe("the page", () => {
 });
 
 describe("a wait", () => {
-  test("on an id the server does not know reads gone: a restarted server lost the proposal", async () => {
+  test("on an id the server never gave reads gone", async () => {
     const { wait } = await stepping();
 
     expect(await wait("f3b1")).toEqual({ kind: "gone" });
@@ -375,5 +414,43 @@ describe("a wait", () => {
 
     // @ts-expect-error -- what the server must refuse is not a wait.
     expect((await post("wait", {})).status).toBe(400);
+  });
+});
+
+describe("a restart (A9)", () => {
+  test("keeps the proposal, paused: the pick reaches Claude as a prompt, and a wait reads it", async () => {
+    const first = await stepping();
+    const id = await first.propose();
+    const { post, region, told, wait } = await first.restart();
+
+    expect(await region()).toMatchObject({ state: "open", wait: "paused", data: { pending: id } });
+    await post("answer", { id, answer: { kind: "move", move: MOCKUP } });
+    expect(await told()).toEqual(["Chose: a mockup of: the settings window."]);
+    expect(await wait(id)).toMatchObject({ kind: "answered", seq: 1 });
+  });
+
+  test("plan.md there at start is written (P10): the proposal kept offers the plan no more", async () => {
+    const first = await stepping();
+    await first.propose();
+    const plan = join(first.dir, WIP, "plan.md");
+    const { state } = await first.restart(() => writeFileSync(plan, "# Auth plan\n"));
+
+    expect((await state()).pending?.proposal.moves).toEqual([GRILL, MOCKUP]);
+  });
+
+  test("the call's wait opens it again once: a repost while it waits is a keepalive (E4)", async () => {
+    const first = await stepping();
+    const id = await first.propose();
+    const { post, journaled, wait } = await first.restart();
+    const waiting = wait(id);
+    await until(() => journaled().filter((event) => event === "wait").length, 1);
+    const again = wait(id);
+    await post("answer", { id, answer: { kind: "move", move: MOCKUP } });
+
+    expect([await waiting, await again]).toMatchObject([
+      { kind: "answered" },
+      { kind: "answered" },
+    ]);
+    expect(journaled().filter((event) => event === "wait")).toHaveLength(1);
   });
 });

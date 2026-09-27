@@ -1,36 +1,18 @@
 import type { Route, RouteKey, ServerContext, ServerExtension } from "../../core/extension.ts";
 import type { PlanWorkspace } from "../../core/protocol.ts";
-import { answerText, ownText } from "./moves.ts";
-import { parseAnswer, parseProposal, parseWait } from "./parse.ts";
-import type { Dropped, Pending, Proposed, StepState, StepWaited } from "./protocol.ts";
-
-/** A proposal the reviewer answered, under the entry that told it: what a waiting `propose` returns. */
-type Answered = { readonly id: string; readonly seq: number; readonly text: string };
-
-/**
- * What the server keeps of the proposals while it runs, per review: one waits at a time, and a
- * newer one replaces it. A restarted server keeps nothing, and a wait on a proposal it does not
- * know reads as gone: Claude proposes again.
- */
-type Memory = {
-  pending: Pending | null;
-  /** The last proposal answered, for the waits on it. */
-  answered: Answered | null;
-  /** The last proposal dropped unanswered, and why, for the waits on it. */
-  dropped: { readonly id: string; readonly why: Dropped } | null;
-};
-
-const memories = new WeakMap<ServerContext, Memory>();
-
-function memoryOf(context: ServerContext): Memory {
-  const known = memories.get(context);
-
-  if (known !== undefined) return known;
-  const made: Memory = { pending: null, answered: null, dropped: null };
-  memories.set(context, made);
-
-  return made;
-}
+import { projectPath } from "../../core/server/domain/workspace.ts";
+import { parseAnswer, parseJson, parseProposal, parseStepFile, parseWait } from "./parse.ts";
+import type { Proposed, StepFile, StepState, StepWaited } from "./protocol.ts";
+import {
+  EVENTS,
+  REACTION,
+  regionOf,
+  RULES,
+  segmentOf,
+  STEP,
+  STEP_FILE,
+  TRANSITIONS,
+} from "./workflow.ts";
 
 const NO_CONTENT = { status: 204 };
 
@@ -47,44 +29,38 @@ function workspaceIfAny(context: ServerContext): Promise<PlanWorkspace | null> {
   return context.workspace().catch(() => null);
 }
 
-/** Why no step is taken now: the directory gone, or the plan approved. */
-async function ended(context: ServerContext): Promise<string | null> {
-  const workspace = await workspaceIfAny(context);
+/** A file it cannot read reads as no proposal, and says so: nothing it held can be answered. */
+async function readStep(context: ServerContext): Promise<StepFile | null> {
+  const { dir } = await context.workspace();
+  const text = await context.readText(projectPath(`${dir}${STEP_FILE}`));
 
-  if (workspace === null) return "the plan's directory is gone";
+  if (text === null) return null;
+  const file = parseStepFile(parseJson(text));
 
-  return workspace.kind === "approved" ? "the plan is approved" : null;
+  if (file === null) console.error(`${STEP_FILE} is unreadable, read as no proposal: ${text}`);
+
+  return file;
 }
 
-function waitedOn(memory: Memory, id: string): StepWaited {
-  if (memory.pending?.id === id) return { kind: "open" };
-  const { answered, dropped } = memory;
+/** Where the proposal `id` stands, as `step.json` says it: waiting, answered, dropped and why, or unknown. */
+function waitedOn(file: StepFile | null, id: string): StepWaited {
+  if (file?.pending?.id === id) return { kind: "open" };
 
-  if (answered?.id === id) return { kind: "answered", seq: answered.seq, text: answered.text };
+  if (file?.answered?.id === id) {
+    return { kind: "answered", seq: file.answered.seq, text: file.answered.text };
+  }
 
-  return dropped?.id === id ? { kind: "ended", why: dropped.why } : { kind: "gone" };
-}
-
-/** The approval takes the proposal with it: a `propose` waiting on it reads it gone. */
-function approved(context: ServerContext): Promise<void> {
-  const memory = memoryOf(context);
-
-  if (memory.pending !== null) memory.dropped = { id: memory.pending.id, why: "approved" };
-  memory.pending = null;
-  context.wake();
-
-  return Promise.resolve();
+  return file?.dropped?.id === id ? { kind: "ended", why: file.dropped.why } : { kind: "gone" };
 }
 
 function routes(context: ServerContext): Readonly<Record<RouteKey, Route>> {
-  const { inOrder } = context;
-  const memory = memoryOf(context);
+  const { dispatch, inOrder } = context;
 
   return {
-    "GET state": () => {
-      const state: StepState = { pending: memory.pending };
+    "GET state": async () => {
+      const state: StepState = { pending: (await readStep(context))?.pending ?? null };
 
-      return Promise.resolve(Response.json(state));
+      return Response.json(state);
     },
 
     "POST propose": async (request) => {
@@ -92,32 +68,27 @@ function routes(context: ServerContext): Readonly<Record<RouteKey, Route>> {
 
       if (proposal === null) return badRequest();
 
-      return await inOrder(async () => {
-        const why = await ended(context);
+      if ((await workspaceIfAny(context)) === null) return refused("the plan's directory is gone");
+      const proposed: Proposed = { id: crypto.randomUUID() };
+      const input = { id: proposed.id, proposal: JSON.stringify(proposal) };
+      const { verdict } = await dispatch("propose", input, "claude");
 
-        if (why !== null) return refused(why);
-        const held = await context.held();
-
-        if (held !== null) return refused(`${held}: no step is proposed until it ends`);
-        const proposed: Proposed = { id: crypto.randomUUID() };
-
-        if (memory.pending !== null) memory.dropped = { id: memory.pending.id, why: "replaced" };
-        memory.pending = { id: proposed.id, proposal };
-        context.wake();
-        await context.notify();
-
-        return Response.json(proposed);
-      });
+      return verdict.kind === "allow" ? Response.json(proposed) : refused(verdict.reason);
     },
 
-    // Out of the queue: an answer updates the memory in one synchronous step, after its entry.
+    // A repost while Claude's call already waits is a keepalive: no step, no journal line (E4).
     "POST wait": async (request) => {
       const body = parseWait(await request.json().catch(() => null));
 
       if (body === null) return badRequest();
+      const region = (await context.workflow()).regions.find(({ id }) => id === STEP);
+
+      if (region?.state === "open" && region.data.pending === body.id && region.wait !== "open") {
+        await dispatch("wait", { id: body.id }, "engine");
+      }
 
       const waited = await context.hold(
-        () => Promise.resolve(waitedOn(memory, body.id)),
+        () => inOrder(async () => waitedOn(await readStep(context), body.id)),
         ({ kind }) => kind === "open",
       );
 
@@ -126,49 +97,44 @@ function routes(context: ServerContext): Readonly<Record<RouteKey, Route>> {
 
     // The window's answer settles the proposal waiting, the one it showed or, opened blank, any:
     // a grill it opens holds the review, and a proposal left waiting under it would never end.
-    // It decides first and writes nothing; its entry is the commit point, then the start's write.
     "POST answer": async (request) => {
       const body = parseAnswer(await request.json().catch(() => null));
 
       if (body === null) return badRequest();
 
-      return await inOrder(async () => {
-        const why = (await ended(context)) ?? (await context.held());
+      if ((await workspaceIfAny(context)) === null) return refused("the plan's directory is gone");
+      const { answer } = body;
+      const move = answer.kind === "own" ? "own" : answer.move.kind;
 
-        if (why !== null) return refused(why);
-        const { pending } = memory;
+      const subject =
+        answer.kind === "move" && answer.move.kind === "grill" ? answer.move.subject : "";
 
-        if (body.id !== null && pending?.id !== body.id) return refused("no such proposal");
-        const { answer } = body;
+      const { verdict } = await dispatch(
+        "answerProposal",
+        async () => ({
+          id: body.id ?? "",
+          answer: JSON.stringify(answer),
+          move,
+          subject,
+          opened: move === "grill" ? await context.start("grill", { subject }) : "",
+        }),
+        "reviewer",
+      );
 
-        const started =
-          answer.kind === "move" && answer.move.kind === "grill"
-            ? await context.start("grill", { subject: answer.move.subject })
-            : null;
-
-        if (started?.ok === false) return refused(started.error);
-
-        const told =
-          body.id === null ? ownText(answer, pending !== null) : answerText(answer, pending);
-
-        const text = started === null ? told : `${told} ${started.value.told}`;
-        const seq = await context.relay({ kind: "text", from: "step", text });
-
-        if (pending !== null) {
-          memory.answered = { id: pending.id, seq, text };
-          memory.pending = null;
-        }
-
-        context.wake();
-        await started?.value.commit().catch((cause: unknown) => {
-          console.error(`step told Claude of its answer, then the start failed: ${String(cause)}`);
-        });
-        await context.notify();
-
-        return new Response(null, NO_CONTENT);
-      });
+      return verdict.kind === "allow" ? new Response(null, NO_CONTENT) : refused(verdict.reason);
     },
   };
 }
 
-export const stepServer: ServerExtension = { id: "step", routes, approved };
+export const stepServer: ServerExtension = {
+  id: "step",
+  routes,
+  workflow: {
+    events: EVENTS,
+    rules: RULES,
+    transitions: TRANSITIONS,
+    reaction: REACTION,
+    region: async (context, before) => regionOf(await readStep(context), before),
+    segment: segmentOf,
+  },
+};

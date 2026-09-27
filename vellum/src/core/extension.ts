@@ -2,7 +2,6 @@ import type { ComponentType } from "preact";
 
 import type {
   Annotation,
-  ChannelEntry,
   DocLink,
   DocRef,
   Draft,
@@ -11,7 +10,15 @@ import type {
   PlanWorkspace,
   Typed,
 } from "./protocol.ts";
-import type { ParseResult, ProjectPath } from "./server/domain/paths.ts";
+import type { ProjectPath } from "./server/domain/paths.ts";
+import type {
+  Actor,
+  EventInput,
+  Region,
+  Step,
+  TablePart,
+  Workflow,
+} from "./server/domain/workflow.ts";
 
 export type RendererProps = {
   readonly doc: DocRef;
@@ -65,70 +72,67 @@ export type PageExtension = {
   readonly panel?: Panel;
 };
 
+/** What a route reads in the queue, off the workflow as it stands, before its event is judged. */
+export type Reading = (w: Workflow) => Promise<EventInput>;
+
+/** A step the server ran: the verdict, the workflow after it, and the numbers of the entries it appended. */
+export type Dispatched = Step & { readonly appended: readonly number[] };
+
+/** A call's answer a step handed it (`returnToCall`): the entry it claims, and its text. */
+export type Returned = { readonly seq: number; readonly text: string };
+
 /**
- * What an extension's routes may read and write, bound in `serve.ts` to the review and to
- * `adapters/fs.ts`: an extension never imports an adapter. `workspace().dir` is the plan's
- * directory now, the final one once approved, so a route resolves it at each write.
+ * What an extension's routes may read, bound in `serve.ts` to the review and to
+ * `adapters/fs.ts`: an extension never imports an adapter, and writes only through `dispatch`.
+ * `workspace().dir` is the plan's directory now, the final one once approved, so a route
+ * resolves it at each read.
  */
 export type ServerContext = {
   /** Throws when the working directory is gone and the server lost its memory. */
   readonly workspace: () => Promise<PlanWorkspace>;
   readonly listFiles: (dir: PlanWorkspace["dir"]) => Promise<readonly DocRef[]>;
   readonly readText: (path: ProjectPath) => Promise<string | null>;
-  readonly writeText: (path: ProjectPath, text: string) => Promise<void>;
-  /** Tells the page the workspace again: what the watcher cannot see, or no longer watches. */
-  readonly notify: () => Promise<void>;
   /**
-   * The review's one queue: a gate, a decision and an extension's write never interleave.
-   * `holds` and `approved` already run inside it, so calling it from them would wait forever.
+   * The review's one queue: every step and every read a step must see whole. `dispatch` and a
+   * `Reading` already run inside it, so calling it from them would wait forever.
    */
   readonly inOrder: <T>(work: () => Promise<T>) => Promise<T>;
   /**
-   * Appends an entry to the channel, the one way anything reaches Claude, and answers its number.
-   * Called inside the queue, from a route's `inOrder` step, so the entries keep the order of the
-   * writes they tell of.
+   * One step of the workflow, in the queue: the workflow read, `input` read off it when it is a
+   * `Reading`, the event judged by `next`, its effects interpreted, the page told. A refused
+   * event writes nothing but its journal line.
    */
-  readonly relay: (entry: ChannelEntry) => Promise<number>;
+  readonly dispatch: (
+    event: string,
+    input: EventInput | Reading,
+    actor: Actor,
+  ) => Promise<Dispatched>;
+  /** The workflow as it stands: the directory, `plan.md`, each extension's region. */
+  readonly workflow: () => Promise<Workflow>;
+  /** What a step handed the call `call`, `null` while none did: a waiting tool's answer. */
+  readonly returned: (call: string) => Returned | null;
   /** The page's unsent work as it was last saved; `null` when there is none, or none it can read. */
   readonly draft: () => Promise<Draft | null>;
   /**
-   * Calls the `start` of the extension `id` in the caller's step of the queue, so what it starts
-   * and the write that asked for it are one step: `step` opens a grill this way, and two never open.
-   * It writes nothing: the caller relays its entry, then runs the `commit`.
+   * What the extension `id` tells Claude of what `input` starts, read by the caller's `Reading`:
+   * `step`'s answer carries the grill's opening sentence this way. It judges and writes nothing:
+   * the table judges, and the started extension's reaction writes.
    */
   // oxlint-disable-next-line anti-slop/no-unknown-parameters -- `input` crosses the core from one extension to another, typed in neither's terms here; the started extension's `parse.ts` is the boundary that reads it.
-  readonly start: (id: string, input: unknown) => Promise<ParseResult<Started>>;
-  /** What holds the review, the first `holds` of any extension; called inside the queue. */
-  readonly held: () => Promise<string | null>;
+  readonly start: (id: string, input: unknown) => Promise<string>;
   /**
    * Holds a request while `waiting` says what `read` answers still waits, reading again at each
    * `wake`, and answers the last read after `WAIT_HOLD_MS` at most: the engine cuts every
    * `$.http.fetch` at 30 s. A tool that waits for the reviewer is answered this way.
    */
   readonly hold: <T>(read: () => Promise<T>, waiting: (value: T) => boolean) => Promise<T>;
-  /** Wakes every held request of the review to read again: a write may have settled it. */
-  readonly wake: () => void;
-};
-
-/**
- * What an extension's `start` decided, writing nothing: the sentence Claude is told, which the
- * caller's entry carries, and the write the caller runs once that entry exists.
- */
-export type Started = { readonly told: string; readonly commit: () => Promise<void> };
-
-/** A batch a Send wrote, as an extension's part hears of it once its entry is in the channel. */
-export type SentBatch = {
-  readonly file: ProjectPath;
-  readonly seq: number;
-  /** Whether the batch holds more than this extension's part: comments, an edit, another's part. */
-  readonly more: boolean;
 };
 
 /**
  * An extension's part of a Send, read and decided before anything is written: none; questions no
  * answer takes, which the reviewer did not agree to leave to their recommendation (every one of
  * them, so the page asks about all); or its text, what the draft keeps of its typing, and what
- * it closes once the batch and its entry exist.
+ * the Send's event carries for the extension's reaction, under its id.
  */
 export type Part =
   | { readonly kind: "none" }
@@ -138,8 +142,18 @@ export type Part =
       /** Heading included, written into the batch before the comments. */
       readonly text: string;
       readonly typed: (typed: Typed) => Typed;
-      readonly commit: (batch: SentBatch) => Promise<void>;
+      readonly input: string;
     };
+
+/** What an extension brings to the workflow: its part of the table, its region, its segment of the band. */
+export type ServerWorkflow = TablePart & {
+  /**
+   * Its region as its files say it; `before` is the one the server's last step left, for what the
+   * server remembers and the disk does not say (a proposal's wait), `null` after a start.
+   */
+  readonly region: (context: ServerContext, before: Region | null) => Promise<Region>;
+  readonly segment: (region: Region) => string | null;
+};
 
 export type Route = (request: Request) => Promise<Response>;
 
@@ -155,23 +169,17 @@ export type ServerExtension = {
   readonly linkedDocs?: (plan: string, roots: LinkRoots) => readonly DocLink[];
   /** Keys are `"GET <name>"` or `"POST <name>"`. */
   readonly routes?: (context: ServerContext) => Readonly<Record<RouteKey, Route>>;
+  /** Its region, events, rows, transitions and reaction: what it holds, and what it allows. */
+  readonly workflow?: ServerWorkflow;
   /**
-   * What holds the review, or `null`. Held: no version is recorded, `step` takes no proposal, and
-   * the approval warns; a Send goes.
-   */
-  readonly holds?: (context: ServerContext) => Promise<string | null>;
-  /**
-   * What another extension's route starts through `ServerContext.start`, inside that route's step
-   * of the queue: `input` is parsed here. It decides and writes nothing: what Claude is told and
-   * the write that follows the caller's entry, or why it refused.
+   * What Claude is told of what another extension's route starts through `ServerContext.start`:
+   * `input` is parsed here. It judges and writes nothing.
    */
   // oxlint-disable-next-line anti-slop/no-unknown-parameters -- `input` comes from another extension through the core; this extension's `parse.ts` is the boundary that reads it.
-  readonly start?: (context: ServerContext, input: unknown) => Promise<ParseResult<Started>>;
-  /** After the rename of an approval, on the server: what the extension must close, it closes here. */
-  readonly approved?: (context: ServerContext) => Promise<void>;
+  readonly start?: (context: ServerContext, input: unknown) => Promise<string>;
   /**
    * Its part of the bar's Send, in the Send's step of the queue, and never of a Send now. It
-   * writes nothing: the core writes the batch and its entry, then runs the part's `commit`.
+   * writes nothing: the Send's event carries its `input`, and its reaction writes.
    */
   readonly part?: (
     context: ServerContext,

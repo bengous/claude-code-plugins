@@ -15,7 +15,8 @@ skills/start, skills/stop      the way in and the way out
 src/core/engine/               the engine adapter: register.ts spells `$`, the rest takes a `Host`
         │ HTTP, token header, down; the server's stdout, up
 src/core/server/adapters/      http/routes.ts, http/serve.ts, fs.ts, draft.ts, browser.ts, vellum-build.ts: every IO
-src/core/server/app/review.ts  the use case: read, decide, apply
+src/core/server/app/           review.ts the queue and the step: read the workflow, `next`, then
+                               `interpret` (effects.ts); events.ts what the core's own routes read
 src/core/server/domain/        pure, no IO: paths, workspace, channel, review, feedback, diff, slug, links, vellum-build,
                                workflow (the session's state, judged by `next` against a table of rules)
 src/core/server/cli.ts         the entry point: `serve`, which the hooks module spawns and reads

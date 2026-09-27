@@ -63,6 +63,16 @@ export {
 
 export type { CommitSha, PluginVersion, VellumBuild } from "./server/domain/vellum-build.ts";
 
+export type {
+  Pill,
+  PlanText,
+  Refused,
+  Region,
+  RegionData,
+  Wait,
+  WorkflowView,
+} from "./server/domain/workflow.ts";
+
 export type { PlanWorkspace } from "./server/domain/workspace.ts";
 
 export { takesComments } from "./server/domain/workspace.ts";
@@ -88,6 +98,21 @@ export type ServerLine =
 export type GateAnswer =
   | { readonly version: Version; readonly kept: boolean }
   | { readonly error: string };
+
+/** What `POST /api/record` answers the reviewer's Record: the version recorded or kept, or the row that refused it. */
+export type RecordAnswer =
+  | { readonly version: Version }
+  | { readonly rule: string; readonly reason: string };
+
+/**
+ * What `POST /api/decision` answers: where the review stands after it, and, when a row refused
+ * the approval, which one and why; a rename that failed leaves its error in the workspace.
+ */
+export type DecisionAnswer = {
+  readonly workspace: PlanWorkspace;
+  readonly rule?: string;
+  readonly reason?: string;
+};
 
 /**
  * Why `POST /api/send` wrote nothing: questions no answer takes that the reviewer did not agree to

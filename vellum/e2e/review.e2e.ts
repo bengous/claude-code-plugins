@@ -1,5 +1,6 @@
 import type { Locator, Page } from "@playwright/test";
 
+import type { Vellum } from "./harness.ts";
 import { expect, openVellum, reviewV1, test } from "./harness.ts";
 
 /**
@@ -11,6 +12,18 @@ import { expect, openVellum, reviewV1, test } from "./harness.ts";
 
 function reviewButton(page: Page): Locator {
   return page.locator(".bar").getByRole("button", { name: /^Review\b/u });
+}
+
+/** What the core told Claude through the channel: its notices, in order. */
+async function notices(vellum: Vellum): Promise<readonly string[]> {
+  // SAFETY: the server's own `ChannelLine[]`, serialized by `Response.json` in routes.ts.
+  const lines = (await vellum.channel()).json as readonly {
+    readonly entry: { readonly kind: string; readonly from?: string; readonly text?: string };
+  }[];
+
+  return lines.flatMap(({ entry }) =>
+    entry.from === "core" && entry.text !== undefined ? [entry.text] : [],
+  );
 }
 
 function forget(page: Page): Locator {
@@ -44,7 +57,6 @@ test("a click asks for a review of the version, and the button runs until the ru
     run: { kind: "requested", seq: 1, version: 1 },
     failed: null,
     stopping: [],
-    resubmit: false,
   });
 });
 
@@ -66,7 +78,6 @@ test("the ✕ stays while the run holds the review, forgets the run, and lifts t
     run: null,
     failed: null,
     stopping: [{ seq: 1, agentId: "agent-1" }],
-    resubmit: true,
   });
 });
 
@@ -132,4 +143,24 @@ test("once approved the button is gone", async ({ page, vellum }) => {
 
   await expect(page.locator(".bar .status")).toContainText("Approved");
   await expect(reviewButton(page)).toHaveCount(0);
+});
+
+test("a run records no version of Claude's, and ending without a verdict with plan.md changed tells Claude once (A5)", async ({
+  page,
+  vellum,
+}) => {
+  await reviewV1(page, vellum);
+  await reviewButton(page).click();
+  await vellum.review.launched();
+  vellum.writePlan("# Plan\n\nRevised while the run held the review.\n");
+
+  expect((await vellum.api("gate", { unchanged: "keep" })).json).toEqual({
+    error: "plan review 1 of v1 is running: plan.md waits; you are told when it ends",
+  });
+  await vellum.review.ended({ kind: "failed", why: "aborted" });
+  await expect
+    .poll(() => notices(vellum))
+    .toEqual([
+      "plan.md changed while plan review 1 of v1 was running, which ended without a verdict: check plan.md, then end your turn.",
+    ]);
 });

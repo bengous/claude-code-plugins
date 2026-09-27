@@ -449,8 +449,7 @@ describe("tool.call mcp__vellum__submit", () => {
 });
 
 describe("a review an open grill holds", () => {
-  const HELD =
-    "grill 1 is open: plan.md is recorded as the next version once it ends, if it changed";
+  const HELD = "grill 1 is open: plan.md waits; you are told when it ends";
 
   const held = { routes: { "/api/gate": () => reply(409, { error: HELD }) } };
 
@@ -539,6 +538,36 @@ describe("turn.complete", () => {
     await $.skill.prompt(START_PROMPT);
 
     expect(await $.turn.complete(TURN_ANSWERED)).toEqual({ text: "done" });
+  });
+});
+
+describe("the notice", () => {
+  const NOTICE =
+    "plan.md changed while grill 1 was open: integrate what it settled, then end your turn.";
+
+  test("the notice's turn end records the version", async ($, on) => {
+    const gates: (string | undefined)[] = [];
+
+    const seen = world(on, {
+      routes: {
+        "/api/gate": (body) => {
+          gates.push(body);
+
+          return reply(200, { version: 2, kept: false });
+        },
+      },
+    });
+
+    on("turn.complete", (_, e) => ({ text: e.answer }));
+    await $.skill.prompt(START_PROMPT);
+    emit(seen, told(NOTICE, "core"));
+    await seen.clock.settle();
+    await $.turn.start({ text: NOTICE, turnId: "t2" });
+    await $.turn.complete({ ...TURN_ANSWERED, turnId: "t2" });
+
+    expect(seen.prompts).toEqual([NOTICE]);
+    expect(gates).toEqual([JSON.stringify({ unchanged: "keep" })]);
+    expect(seen.logs).toEqual(["plan v2 is under review in the browser"]);
   });
 });
 

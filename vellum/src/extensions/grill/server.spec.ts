@@ -28,7 +28,7 @@ const NOTE = {
   mark: { kind: "comment", body: "no" },
 };
 
-const HELD = "grill 1 is open: plan.md is recorded as the next version once it ends, if it changed";
+const HELD = "grill 1 is open: plan.md waits; you are told when it ends";
 
 const TYPED = { general: "", composer: {}, grill: {}, editor: null };
 
@@ -113,7 +113,12 @@ async function grilling(): Promise<Grilling> {
   return {
     dir,
     gate: () => core("gate", "{}"),
-    approve: () => core("decision", JSON.stringify({ kind: "approve", edit: null, notes: "" })),
+    // The grill's hold confirmed, as the page's Approve anyway does (P4); it names no other.
+    approve: () =>
+      core(
+        "decision",
+        JSON.stringify({ kind: "approve", edit: null, notes: "", confirmed: "grill 1 is open" }),
+      ),
     send: async (typing = {}, request = {}) => {
       await save(typing);
       const annotations = (typing.comments ?? []).map(({ id }) => id);

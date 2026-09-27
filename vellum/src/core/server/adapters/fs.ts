@@ -168,7 +168,8 @@ async function isDir(project: string, path: string): Promise<boolean> {
   return (await stat(join(project, path)).catch(() => null))?.isDirectory() ?? false;
 }
 
-async function freeTarget(
+/** The slug's directory beside the working one, `-2`, `-3` on collision: where an approval renames it. */
+export async function freeTarget(
   project: string,
   from: WipDir,
   slug: Slug,
@@ -210,22 +211,18 @@ async function rewriteTree(root: string, from: WipDir, to: FinalDir): Promise<vo
 }
 
 /**
- * Rewrites the links of every text file to the slug's directory (`-2`, `-3` on collision), then
- * renames the working directory. Links first: a rewrite that fails leaves the directory where the
- * review can still read it, and a second attempt rewrites nothing twice. A rename Windows refuses
- * as held is retried for `heldRetryMs`, then names what may hold the folder.
+ * Rewrites the links of every text file to `to` (`freeTarget`), then renames the working
+ * directory there. Links first: a rewrite that fails leaves the directory where the review can
+ * still read it, and a second attempt rewrites nothing twice. A rename Windows refuses as held is
+ * retried for `heldRetryMs`, then names what may hold the folder.
  */
 export async function finalize(
   project: string,
   from: WipDir,
-  slug: Slug,
+  to: FinalDir,
   heldRetryMs: number,
 ): Promise<ParseResult<FinalDir>> {
   if (!(await isDir(project, from))) return { ok: false, error: `${from} is not a directory` };
-  const target = await freeTarget(project, from, slug);
-
-  if (!target.ok) return target;
-  const to = target.value;
 
   try {
     await rewriteTree(join(project, from), from, to);

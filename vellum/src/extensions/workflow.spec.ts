@@ -11,55 +11,27 @@ import type {
   Workflow,
 } from "../core/server/domain/workflow.ts";
 import {
-  CORE_EVENTS,
-  CORE_RULES,
-  CORE_TRANSITIONS,
   held,
   next,
   pillOf,
   planExists,
   refusedNow,
   SAMPLE_AT,
+  tableOf,
 } from "../core/server/domain/workflow.ts";
 import { grillFile } from "./grill/parse.ts";
 import { nextQuestion, phaseOf, unanswered } from "./grill/transcript.ts";
-import {
-  EVENTS as GRILL_EVENTS,
-  REACTION as GRILL_REACTION,
-  RULES as GRILL_RULES,
-  TRANSITIONS as GRILL_TRANSITIONS,
-  regionOf as grillRegion,
-} from "./grill/workflow.ts";
+import { regionOf as grillRegion, roundCall } from "./grill/workflow.ts";
 import { parseJson, parseReviews } from "./review/parse.ts";
-import {
-  EVENTS as REVIEW_EVENTS,
-  REACTION as REVIEW_REACTION,
-  RULES as REVIEW_RULES,
-  TRANSITIONS as REVIEW_TRANSITIONS,
-  regionOf as reviewRegion,
-} from "./review/workflow.ts";
+import { regionOf as reviewRegion } from "./review/workflow.ts";
+import { serverExtensions } from "./server.ts";
 import type { Move } from "./step/protocol.ts";
-import {
-  EVENTS as STEP_EVENTS,
-  pendingOf,
-  REACTION as STEP_REACTION,
-  RULES as STEP_RULES,
-  TRANSITIONS as STEP_TRANSITIONS,
-  regionOf as stepRegion,
-} from "./step/workflow.ts";
+import { pendingOf, regionOf as stepRegion } from "./step/workflow.ts";
 
-/** The table as the server's registry assembles it: the core's, then each extension's in the registry's order. */
-const TABLE: Table = {
-  events: [...CORE_EVENTS, ...GRILL_EVENTS, ...STEP_EVENTS, ...REVIEW_EVENTS],
-  rules: [...CORE_RULES, ...GRILL_RULES, ...STEP_RULES, ...REVIEW_RULES],
-  transitions: {
-    ...CORE_TRANSITIONS,
-    ...GRILL_TRANSITIONS,
-    ...STEP_TRANSITIONS,
-    ...REVIEW_TRANSITIONS,
-  },
-  reactions: [GRILL_REACTION, STEP_REACTION, REVIEW_REACTION],
-};
+/** The table as the server assembles it from the registry: the core's, then each extension's in order. */
+const TABLE: Table = tableOf(
+  serverExtensions.flatMap(({ workflow }) => (workflow === undefined ? [] : [workflow])),
+);
 
 const DIR = parseWipDir("plans/2026-09-26/wip-4c2a9d93/");
 
@@ -551,7 +523,11 @@ function callOf(
   const region = w.regions.find((one) => one.id === id);
 
   if (region?.state !== "open" || region.wait === null) return null;
-  const call = id === "step" ? String(region.data.pending) : grillFile(Number(region.data.n));
+
+  const call =
+    id === "step"
+      ? String(region.data.pending)
+      : roundCall(grillFile(Number(region.data.n)), String(region.data.doc));
 
   return { call, wait: region.wait };
 }
