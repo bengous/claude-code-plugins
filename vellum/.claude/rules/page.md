@@ -309,14 +309,15 @@ no build step, so what the page imports costs nothing at `cli start`.
   leave with the bar's Send. End grill waits for the transcript to load, so no answer typed is
   closed unread. A round that lands shows its first open question, scrolled into view. Between the text and the
   chips the panel carries its one live region, `role="status"`, drawn empty while a round waits
-  for the reviewer, and says the grill's phase, which is the server's (`GrillState.open.phase`),
+  for the reviewer and Claude's call with it, and says the grill's phase, which is the server's (`GrillState.open.phase`),
   never derived from the blocks (`phaseText` in `grill/labels.ts`). It is drawn with the blocks
   loaded for it, which keep the phase of their state, and not before: a newer phase over older
   blocks named the first round at a reload and took the choices from a round still drawn open. While Claude works, the round
   it prepares; once its turn ended with no question open (`idle`), a card under Claude's last
   words whose primary action is End grill, the foot with its note behind Add a note, unless the
   draft holds a note; a turn cut short (`stopped`), the same card with End grill secondary and
-  the foot shown, the note being the way on.
+  the foot shown, the note being the way on; a round whose asking turn was cut (`paused`), the
+  round still open under a line saying the answer reaches Claude as a message.
 - A block says its source lines in `data-lines="start-end"`: `markdown/tree.ts` writes it,
   `parseLines` of `anchoring.ts` is the one place it is read, and `tree.spec.ts` holds the two
   together. Every reader calls it, the pure helpers of `markdown/` included: a second copy of

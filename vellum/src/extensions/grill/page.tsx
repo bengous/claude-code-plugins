@@ -676,7 +676,7 @@ function OpenGrill(props: {
       <div class="grill-sheet">
         <div class="plan">
           <Transcript blocks={blocks} card={() => null} />
-          {/* The panel's one live region, drawn empty while a round is open: a status added with its text is not read out. */}
+          {/* The panel's one live region, drawn empty while a round waits with Claude: a status added with its text is not read out. */}
           <div class={`grill-phase ${phase ?? ""}`}>
             <p role="status">{phase === null ? "" : phaseText(phase, roundNow(blocks))}</p>
             {phase === "idle" && (

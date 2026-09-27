@@ -8,11 +8,12 @@ export const ASK_TOOL = "mcp__vellum__grill_ask";
 export type Question = { readonly title: string; readonly ask: string; readonly rec: string };
 
 /**
- * Where an open grill stands, read off its file: a question waits for the reviewer (`asking`),
- * the reviewer spoke last (`working`), or Claude did, its turn ended on its answer (`idle`) or
- * cut short, aborted, refused or failed (`stopped`).
+ * Where an open grill stands, read off its file: a question waits for the reviewer, and Claude's
+ * call with it (`asking`) or no longer, the turn that asked it cut short (`paused`); the reviewer
+ * spoke last (`working`); or Claude did, its turn ended on its answer (`idle`) or cut short,
+ * aborted, refused or failed (`stopped`).
  */
-export type Phase = "working" | "asking" | "idle" | "stopped";
+export type Phase = "working" | "asking" | "paused" | "idle" | "stopped";
 
 export type GrillState =
   | { readonly kind: "none" }

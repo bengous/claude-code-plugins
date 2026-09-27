@@ -33,6 +33,8 @@ export function phaseText(phase: Phase, round: number): string {
         : `Claude is preparing round ${round + 1}.`;
     case "asking":
       return "";
+    case "paused":
+      return "Paused · Claude stopped waiting; your answer reaches it as a message";
     case "idle":
       return "Claude has no question open.";
     case "stopped":
