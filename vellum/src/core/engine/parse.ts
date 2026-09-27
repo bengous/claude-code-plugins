@@ -5,7 +5,7 @@ import type {
   GateAnswer,
   PlanWorkspace,
   ServerLine,
-  WorkflowView,
+  WorkflowAnswer,
 } from "../protocol.ts";
 import type { ServerInfo, Session } from "./mode.ts";
 import type { Relayed } from "./relay.ts";
@@ -81,11 +81,11 @@ export type ServerLineWire =
 /** What `POST /api/gate` answers: the version the browser shows, or why it shows none. */
 export type GateWire = Json<GateAnswer>;
 
-type WorkflowWire = Json<WorkflowView>;
+type WorkflowWire = Json<WorkflowAnswer>;
 
 /**
- * What `mcp__vellum__state` prints, read off the review: where the plan stands, `plan.md` against
- * its last version, each region's line in its extension's words, and what is refused now.
+ * What `mcp__vellum__state` prints, read off `GET /api/workflow`: where the plan stands, `plan.md`
+ * against its last version, each region's line in its extension's words, and what is refused now.
  */
 export type StateWire = {
   readonly stage: StageWire;
@@ -320,14 +320,14 @@ function parseRefused(value: unknown): StateWire["refused"][number] | null {
 }
 
 /**
- * What `GET /api/review` answers, as much as the state tool prints; an error for a review of
+ * What `GET /api/workflow` answers, as much as the state tool prints; an error for a workflow of
  * another shape, never a guess, and for a server that refused.
  */
 export function parseState(response: HttpResponse): StateWire | { readonly error: string } {
   if (!response.ok) return { error: `the vellum review server answered ${response.status}` };
   const value = parseJson(response.text);
-  const stage = isRecord(value) ? parseStage(value.workspace) : null;
-  const workflow = isRecord(value) && isRecord(value.workflow) ? value.workflow : null;
+  const workflow = isRecord(value) ? value : null;
+  const stage = parseStage(workflow?.workspace);
   const planText = workflow?.planText;
   const regions: unknown[] = Array.isArray(workflow?.regions) ? workflow.regions : [null];
   const listed: unknown[] = Array.isArray(workflow?.refused) ? workflow.refused : [null];
@@ -344,7 +344,7 @@ export function parseState(response: HttpResponse): StateWire | { readonly error
     lines.includes(null) ||
     refused.includes(null)
   ) {
-    return { error: "the vellum review server answered a review this module does not read" };
+    return { error: "the vellum review server answered a workflow this module does not read" };
   }
 
   return {
