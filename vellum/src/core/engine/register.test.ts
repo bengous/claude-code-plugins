@@ -449,6 +449,106 @@ describe("tool.call mcp__vellum__submit", () => {
   });
 });
 
+describe("tool.call mcp__vellum__state (A8)", () => {
+  const STATE = "mcp__vellum__state";
+
+  /** What `GET /api/workflow` answers: where the review lives, and the workflow as a reader takes it. */
+  const HELD = {
+    workspace: { kind: "inReview", dir: WORKDIR, version: 2, batches: 0, finalizeError: null },
+    planText: "pending",
+    held: "grill 1 is open",
+    regions: [
+      {
+        id: "grill",
+        state: "open",
+        holds: "grill 1 is open",
+        wait: "paused",
+        line: "grill 1: open · holds: grill 1 is open · question: paused",
+      },
+      {
+        id: "step",
+        state: "open",
+        holds: null,
+        wait: "paused",
+        line: "step: proposal p3 · wait: paused",
+      },
+      { id: "review", state: "closed", line: "review: closed" },
+    ],
+    refused: [
+      {
+        event: "record",
+        input: {},
+        effect: "refuse",
+        reason: "grill 1 is open: plan.md waits; you are told when it ends",
+      },
+      {
+        event: "propose",
+        input: {},
+        effect: "refuse",
+        reason: "grill 1 is open: no step is proposed until it ends",
+      },
+      {
+        event: "approve",
+        input: {},
+        effect: "confirm",
+        reason: "The review is held: grill 1 is open.",
+      },
+    ],
+    pill: { text: "Held · grill 1 is open · plan.md waits", tone: "neutral" },
+  };
+
+  test("prints where the session stands, each region's line, then what is refused now", async ($, on) => {
+    world(on, { routes: { "/api/workflow": () => reply(200, HELD) } });
+    await $.skill.prompt(START_PROMPT);
+
+    expect(await $.tool.call({ tool: STATE })).toEqual({
+      result: [
+        "workspace: inReview v2 · plan.md: pending",
+        "grill 1: open · holds: grill 1 is open · question: paused",
+        "step: proposal p3 · wait: paused",
+        "review: closed",
+        "refused now:",
+        "  record (refuse): grill 1 is open: plan.md waits; you are told when it ends",
+        "  propose (refuse): grill 1 is open: no step is proposed until it ends",
+        "  approve (confirm): The review is held: grill 1 is open.",
+      ].join("\n"),
+    });
+  });
+
+  test("says so when nothing is refused", async ($, on) => {
+    const quiet = { ...HELD, planText: "none", refused: [] };
+    world(on, { routes: { "/api/workflow": () => reply(200, quiet) } });
+    await $.skill.prompt(START_PROMPT);
+
+    expect(await $.tool.call({ tool: STATE })).toMatchObject({
+      result: expect.stringMatching(
+        /^workspace: inReview v2 · plan\.md: none\n[\s\S]*\nrefused now: none$/u,
+      ),
+    });
+  });
+
+  test("is registered at the session's start, and outside the mode names the way in", async ($, on) => {
+    const seen = world(on);
+    await $.session.start(SESSION);
+
+    expect(seen.tools).toContain("state");
+    expect(await $.tool.call({ tool: STATE })).toEqual({
+      deny: "no vellum planning in progress; run /vellum:start",
+    });
+  });
+
+  test("a workflow it does not read is a deny that says so, never a guess", async ($, on) => {
+    world(on, {
+      routes: { "/api/workflow": () => reply(200, { workspace: { kind: "drafting" } }) },
+    });
+    await $.skill.prompt(START_PROMPT);
+
+    expect(await $.tool.call({ tool: STATE })).toEqual({
+      deny: "the vellum review server answered a workflow this module does not read",
+    });
+  });
+});
+
 describe("a review an open grill holds", () => {
   const HELD = "grill 1 is open: plan.md waits; you are told when it ends";
 

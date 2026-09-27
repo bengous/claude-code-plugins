@@ -11,6 +11,7 @@ import {
   REACTION,
   regionOf,
   RULES,
+  lineOf,
   segmentOf,
   STEP,
   STEP_FILE,
@@ -164,5 +165,6 @@ export const stepServer: ServerExtension = {
     reaction: REACTION,
     region: async (context, before) => regionOf(await readStep(context), before),
     segment: segmentOf,
+    line: lineOf,
   },
 };

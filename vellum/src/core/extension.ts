@@ -153,6 +153,8 @@ export type ServerWorkflow = TablePart & {
    */
   readonly region: (context: ServerContext, before: Region | null) => Promise<Region>;
   readonly segment: (region: Region) => string | null;
+  /** Its line in the workflow's view, which `mcp__vellum__state` prints. */
+  readonly line: (region: Region) => string;
 };
 
 export type Route = (request: Request) => Promise<Response>;

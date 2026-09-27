@@ -259,7 +259,7 @@ describe("grill_ask", () => {
     });
   });
 
-  test("with no grill open it is refused, and names the way to one", async ($, on) => {
+  test("with no grill open it is refused in its row's words, and names the way to one", async ($, on) => {
     world(
       on,
       grillRoutes(() => NO_GRILL, { ask: () => reply(409, { error: "no grill is open" }) }),
@@ -268,7 +268,7 @@ describe("grill_ask", () => {
     await $.skill.prompt(START_PROMPT);
 
     expect(await $.tool.call({ tool: ASK, q: Q })).toEqual({
-      deny: "no grill open: propose one with mcp__vellum__propose",
+      deny: "no grill is open: propose one with mcp__vellum__propose",
     });
   });
 

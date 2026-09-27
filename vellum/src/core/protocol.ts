@@ -103,6 +103,9 @@ export type GateAnswer =
   | { readonly version: Version; readonly kept: boolean }
   | { readonly error: string };
 
+/** What `GET /api/workflow` answers `mcp__vellum__state`: where the review lives, and the workflow as a reader takes it. */
+export type WorkflowAnswer = { readonly workspace: PlanWorkspace } & WorkflowView;
+
 /** What `POST /api/record` answers the reviewer's Record: the version recorded or kept, or the row that refused it. */
 export type RecordAnswer =
   | { readonly version: Version }

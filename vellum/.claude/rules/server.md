@@ -45,8 +45,9 @@ Claude Code's `installed_plugins.json`, `git` with its `GIT_*` variables cleared
   draft with the comments on the plan's lines, which are the edit's, the rest goes, and the
   answer says so (`editKept`, its `reason` what holds); an edit alone is refused by the hold's
   row (`refused`, rule `held`), and every other refusal of a Send names its row and its text.
-  `ReviewView.workflow` carries the workflow to the page as a reader takes it (`viewOf`: each
-  region without its files; what is refused now, each event once, in the words a real caller
+  `ReviewView.workflow` and `GET /api/workflow` carry the workflow as a reader takes it
+  (`viewOf`: each region's state, hold, wait and line in its extension's words, never its files;
+  what is refused now, each event once, in the words a real caller
   meets, never on a row that turns only the input down (`Rule.refuses`), nor what the engine
   alone sends), and the
   `stage` line carries the pill and the segments to the band (`stageOf`: the plan's, then each
@@ -73,8 +74,11 @@ Claude Code's `installed_plugins.json`, `git` with its `GIT_*` variables cleared
   the step created; past it a failure is logged, since Claude or the rename took the step. A
   rename that fails keeps its error in the memory and stops the rest. Every event judged is a
   line of `.review/events.jsonl` (`JOURNAL_FILE`), a refused one included; a line that fails
-  fails nothing, and the workflow is never rebuilt from it. `GET /api/workflow` answers the
-  workflow as a reader takes it (`viewOf`), and `POST /api/record` is `record` for the reviewer.
+  fails nothing, and the workflow is never rebuilt from it. `GET /api/workflow` answers where
+  the review lives with the workflow as a reader takes it (`WorkflowAnswer`); it and
+  `Review.view` read the workflow inside the queue, where no step is half applied (a step writes
+  its files before it keeps a proposal's wait in memory). `POST /api/record` is `record` for the
+  reviewer.
 - Everything that reaches Claude is an entry of the channel, `.review/channel.jsonl`
   (`domain/channel.ts`), appended inside the queue by `Review`'s relay: the core's `sent` for a
   batch written and `approved` after the rename, an extension's own `text` as a `channel` effect

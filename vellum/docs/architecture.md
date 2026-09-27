@@ -11,7 +11,7 @@ shapes left aside, shows where each part of a feature goes, and where extensions
 ```mermaid
 flowchart LR
   subgraph engine["Claude Code (the engine)"]
-    CC["the session<br/>/vellum:start · mcp__vellum__submit · mcp__vellum__propose · mcp__vellum__grill_* · /vellum:stop"]
+    CC["the session<br/>/vellum:start · mcp__vellum__submit · mcp__vellum__state · mcp__vellum__propose · mcp__vellum__grill_ask · /vellum:stop"]
     M["src/core/engine/<br/>register.ts · mode.ts: idle · live"]
     E["src/extensions/*/engine.ts<br/>grill, step: tools, refusals · review: a spawned agent and its answer"]
     CC -- "session.start · skill.prompt · command.run<br/>tool.check · tool.call · prompt.submit · turn.complete" --> M
@@ -20,8 +20,8 @@ flowchart LR
   end
   subgraph server["vellum serve (one Bun process per session)"]
     R["src/core/server/adapters/http/routes.ts<br/>token, status codes"]
-    A["src/core/server/app/review.ts<br/>read → decide → apply"]
-    T["src/core/server/domain/*<br/>pure: states, decisions, paths, feedback text"]
+    A["src/core/server/app/review.ts<br/>one queue: read the workflow → next() → interpret"]
+    T["src/core/server/domain/*<br/>pure: the workflow and its table, paths, feedback text"]
     W["src/core/server/adapters/fs.ts<br/>plans/&lt;date&gt;/wip-&lt;sid8&gt;/"]
     R --> A --> T
     A --> W
@@ -36,7 +36,7 @@ flowchart LR
   U -- "HTTP /api/*, /t/&lt;token&gt;/files, SSE" --> R
   A -. "src/extensions/*/server.ts<br/>linkedDocs, pure" .-> A
   R -. "src/extensions/*/server.ts<br/>routes under /api/x/&lt;id&gt;/, IO through ServerContext" .-> W
-  F[("plans/&lt;date&gt;/wip-&lt;sid8&gt;/<br/>plan.md, grill-&lt;n&gt;.md, reviews/vN-&lt;model&gt;.md, .review/vN.md,<br/>vN.feedback-k.md, vN.notes.md, draft.json, channel.jsonl, reviews.json")]
+  F[("plans/&lt;date&gt;/wip-&lt;sid8&gt;/<br/>plan.md, grill-&lt;n&gt;.md, reviews/vN-&lt;model&gt;.md, .review/vN.md,<br/>vN.feedback-k.md, vN.notes.md, draft.json, channel.jsonl, reviews.json, step.json, events.jsonl")]
   W --> F
 ```
 
@@ -125,16 +125,16 @@ sequenceDiagram
   M->>S: POST /api/x/step/propose, pending under a new id (refused while a grill holds the review), then POST wait, held under 30 s, again and again
   S-->>P: workspace event, the "Next step" window over the page, or the Next step button's dot under a typing
   P->>S: POST /api/x/step/answer {id, answer}: a move picked, one of the reviewer's own, or their words
-  S->>S: a grill picked: ServerContext.start("grill") decides grill-1.md in the same step, writing nothing
-  S->>S: one text entry on the channel: "Accepted: <move>." | "Chose: <move>." | "Own: <text>.", the opening after it
-  S->>S: then the grill's commit writes grill-1.md, its header
+  S->>S: a grill picked: ServerContext.start("grill") words its opening, writing nothing
+  S->>S: one step: next() judges answerProposal, the grill's rows included, and answers the effects
+  S->>S: one text entry on the channel: "Accepted: <move>." | "Chose: <move>." | "Own: <text>.", the opening after it; the grill's reaction writes grill-1.md, its header
   S-->>M: stdout: the entry, held by the follower while propose waits
   S-->>M: the wait's answer: the entry's number and its text
   M->>C: the tool's result; the follower never relays that entry
   C->>M: tool.call grill_ask {q}
   M->>S: POST /api/x/grill/ask, a round opened, then POST wait, held under 30 s, again and again
   P->>S: POST /api/send (the bar's, parts included): the grill's part reads the reply, writing nothing
-  S->>S: the batch vN.feedback-k.md, Grill then Comments; its sent entry; the grill's commit answers the wait, then writes the reply in the round
+  S->>S: the batch vN.feedback-k.md, Grill then Comments; its sent entry; the grill's reaction answers the wait (returnToCall), then writes the reply in the round
   S-->>M: stdout: the entry, held by the follower while grill_ask waits
   S-->>M: the wait's answer: the entry's number and "Reviewer: ..."
   M->>C: the tool's result; the follower never relays that entry
@@ -175,15 +175,18 @@ no human wrote it, and it must never reach Claude as the user's own words.
 
 What to do next is `step`'s, never the grill's: `propose` offers moves (a grill, a mockup, a
 prototype, the plan) and marks the one Claude recommends, which the window never checks. The
-proposal lives in the server's memory alone, one at a time. A new one replaces it and the
-approval takes it, and a wait on it says so (`ended`, `replaced` or `approved`: no step follows
-an approval); a restarted server knows none, so a wait on it reads `gone` and `propose` tells
-Claude to propose again. A wait that fails is asked once more at once, and two failures answer
-that the pick comes as a prompt. The window opened blank from the Next step button takes a step
-of the reviewer's own, and settles the proposal waiting, if any, never reading the pick against
-a recommendation it did not show. A grill opens only there, through
-`ServerContext.start`, in the answer's step of the queue: two never open, and `step` refuses a
-proposal while one holds the review (`ServerContext.held`).
+proposal is kept in `.review/step.json`, one at a time; whether Claude's call still waits on it
+is the server's memory. A new one replaces it, the approval takes it, and `plan.md` written takes
+the plan out of its moves, dropping it when the plan was its one move; a wait on it says so
+(`ended`: `replaced`, `approved` or `written`). A restarted server shows it again, paused, since
+no call survives it, and so does a turn cut short while the call waited, which the engine half
+reports at the turn's end (`POST pause`): the page marks it Paused, never opens it by itself, and
+the pick reaches Claude as a prompt. A wait that fails is asked once more at once, and two
+failures answer that the pick comes as a prompt. The window opened blank from the Next step
+button takes a step of the reviewer's own, and settles the proposal waiting, if any, never
+reading the pick against a recommendation it did not show. A grill opens only there, through
+`ServerContext.start`, in the answer's step of the queue: two never open, and the table refuses a
+proposal while a region holds the review, and one that offers the plan once `plan.md` exists.
 
 Claude's final text is written when its turn is the grill's own: `prompt.submit` notes the
 last prompt that entered and its origin, `turn.start`, which carries no origin itself, takes
@@ -193,8 +196,10 @@ started writes nothing, whatever the file's last voice is; the turn that asked a
 either way, `asked` in the post: the grill's engine half marks the turn whose `grill_ask` the
 server took, so its text goes with the round, before a reply the reviewer sent meanwhile, which
 still waits for Claude. The file also says where the grill stands, `phaseOf`: `asking` while a
-question is open, `working` while the reviewer spoke last, then `idle` or `stopped` by how
-Claude's last turn ended, `_(turn aborted)_` and the like written by the server. While a grill is open the band above the prompt says `grill · open`: a
+question is open and its call waits, `paused` once the turn that asked it was cut, `working`
+while the reviewer spoke last, then `idle` or `stopped` by how Claude's last turn ended,
+`_(turn aborted)_` and the like written by the server, a cut while a round waits whoever
+started the turn. While a grill is open the band above the prompt says `grill · open`: a
 prompt typed in the terminal is outside the grill. A prompt Vellum itself submits comes back through its own `prompt.submit` hook, since
 `$.prompt.submit` skips the calling hook alone; its origin (`plugin`, `vellum`) keeps it out of
 the transcript, where the server already wrote what it carries.
@@ -217,10 +222,11 @@ sequenceDiagram
 ```
 
 The run lives in `.review/reviews.json`, so a restarted server still knows it and its number;
-the engine half keeps only timers and the band's `review · running`, and reads the run from the
-server each time a `stage` line comes. A run holds the review from its request to its end
-(`holds`): no version of Claude's is recorded, `step` takes no proposal, and a `plan.md` Claude
-wrote meanwhile is submitted again once the run ends (`resubmit`). A run whose agent was killed or
+the engine half keeps only timers, and reads the run from the server each time a `stage` line
+comes, whose `review · running` segment the server words. A run holds the review from its
+request to its end, as the review region says (`Region.holds`): no version of Claude's is
+recorded and `step` takes no proposal; when Claude wrote `plan.md` meanwhile, the run's end
+tells it once (the notice), and the end of Claude's next turn records the version. A run whose agent was killed or
 failed ends at once, one gone without an answer after `GRACE_MS`; the ✕ (`forget`), `/vellum:stop` and the approval give it
 up and stop its agent. The agent reads files only (`agents/plan-reviewer.md`), so vellum writes
 its verdict; why that verdict is the agent's final text and not a tool call: a subagent vellum
@@ -276,6 +282,19 @@ or an approval records as `vN+1` before it applies to it. The edit names the ver
 on, and `sendOn` and `decideOn` refuse one made on another. A gate after a batch records a new
 version even with the same text, as the explicit `submit` means it.
 
+Everything else the session is lives in one value, the `Workflow` (`domain/workflow.ts`): the
+workspace above, `planText` (`plan.md` against the last version: `none`, `pending`, `absent`), and
+one region per extension that has a part in it (the grill, the proposal, the plan review), each
+read off its files by its own `workflow.ts`. Each route that changes the session dispatches an
+event; `next()` judges it against one table of rows, each written beside the event it guards
+(while a region holds the review, `record` and `propose` are refused and `approve` asks to
+confirm; `approve-draft` refuses an approval while `plan.md` holds a text the version lacks), and
+answers the next `Workflow` and its effects, which `interpret` (`app/effects.ts`) runs, the one
+code that writes for the workflow. Every event judged is a line of `.review/events.jsonl`. When
+the last hold lifts while `plan.md` waits, `next()` emits the notice, one entry of the channel,
+and the end of Claude's next turn records the version. The page, the band and
+`mcp__vellum__state` read the same value: its pill, each region's line, what is refused now.
+
 What the hooks module relays is not read off that state: each Send and the approval append their
 entry to the channel as they land (`domain/channel.ts`), `sent` naming the batch, `approved` the
 final directory and the notes file when its listing holds one. The module
@@ -295,7 +314,7 @@ it, and so does a revival replacing it.
 | Direct edit | `Edit`, `sendOn` and `decideOn` (the edit is `vN+1`, refused on another version), `editOnLoad`, `landedAnnotations` in `domain/review.ts`; `shiftLines`, `shiftAnnotations` in `domain/diff.ts` | `parseEdit` in `adapters/draft.ts`; `Review.send` and `Review.decide` write `plan.md`, then the version file | `page/editor.tsx` and `page/caret.ts`; `edited`, `editing`, `finishEdit`, `settleEdit` in `state.ts` |
 | Approval notes | `formatNotes`, `notesFile`, `approved.notes` read off the final directory's listing, the channel's `approved` entry and its `notes` | the notes file written before the rename; `engine/relay.ts` names it in the approval's prompt | the decision bar's one popover state: notes, and the warning before unsent comments or choices are discarded |
 | Drafts | `Draft`, `DRAFT_FILE`, `takesComments` | `GET` and `PUT /api/draft`, through the one parser of `adapters/draft.ts`; read back by a Send and by End grill; what a Send took leaves it, an approval removes it | `start`: restore, load, then save at every change, in order; `writeDraft` before a Send |
-| One Send | `sendOn`, `batchFile`, `formatBatch`: what the Send names or its refusal, the extensions' parts, then the comments, then the choices made in mockups | `POST /api/send`, `Review.send` in one step of the queue: `sendOn` and each `part`, nothing written; the edit, the batch, the `sent` entry; the draft's rest, each part's `commit` | the bar's `Send (n)` and its warning, a card's Send now, `PageExtension.send`: a snapshot at the click, taken out of the page once sent |
+| One Send | `sendOn`, `batchFile`, `formatBatch`: what the Send names or its refusal, the extensions' parts, then the comments, then the choices made in mockups | `POST /api/send`, `Review.send` in one step of the queue: the `send` rows and each `part`, nothing written; the edit, the batch, the `sent` entry; each extension's reaction, the draft's rest | the bar's `Send (n)` and its warning, a card's Send now, `PageExtension.send`: a snapshot at the click, taken out of the page once sent |
 
 Every one added a pure part first; `src/core/server/domain/` is where a new domain concept
 goes, and a renderer's own choice stays beside its `page.tsx`.
@@ -312,8 +331,8 @@ constraints below are why. The contract is `src/core/extension.ts`, types only, 
 | Half | File | Declares | Reached from |
 |---|---|---|---|
 | page | `<id>/page.tsx` | a `PageExtension`: its renderers, tried in registry order, its actions in the decision bar, its notices under it, its panel, a pane `panesOf` places beside the document pane, and its share of the Send | `core/page/app.tsx`, through `extensions/page.ts` |
-| server | `<id>/server.ts` | a `ServerExtension`: `linkedDocs`, pure, candidates in and links out; its routes, mounted at `/api/x/<id>/`, their IO through a `ServerContext`, what they tell Claude through its `relay`; `holds`, what holds the review; `approved`, what it closes after the rename; `part`, its part of the bar's Send and its `commit` | `core/server/adapters/http/serve.ts`, through `extensions/server.ts` |
-| engine | `<id>/engine.ts` | an `EngineExtension`: tools, a tool's wait for the reviewer and the entries it returns, refusals, and handlers for a prompt, a finished turn, a spawned agent's answer, a `stage` line and the mode's end; its segment of the band | `core/engine/register.ts`, through `extensions/engine.ts` |
+| server | `<id>/server.ts` | a `ServerExtension`: `linkedDocs`, pure, candidates in and links out; its routes, mounted at `/api/x/<id>/`, their IO through a `ServerContext`, each change an event they `dispatch`; its `workflow` (from `<id>/workflow.ts`: its region, events, rows, transitions, its reaction to the others' events, its segment of the band and its line in the view); `part`, its part of the bar's Send | `core/server/adapters/http/serve.ts`, through `extensions/server.ts` |
+| engine | `<id>/engine.ts` | an `EngineExtension`: tools, a tool's wait for the reviewer and the entries it returns, refusals, and handlers for a prompt, a finished turn, a spawned agent's answer, a `stage` line and the mode's end | `core/engine/register.ts`, through `extensions/engine.ts` |
 
 `src/boundaries.spec.ts` holds the layout: an extension imports `core/` and its own folder,
 never another extension; the core reaches the extensions from those three files alone; an
@@ -371,7 +390,8 @@ The crossroads a feature used to edit, and the place `grill` opened for each:
 |---|---|
 | `core/server/adapters/http/routes.ts` | `ServerExtension.routes`, mounted under `/api/x/<id>/` behind the token |
 | `core/page/app.tsx`, `core/page/state.ts` | `PageExtension.actions`, drawn in the decision bar; `PageExtension.panel`, a pane beside the documents, in the order `PANE_ORDER` of `core/page/panes.ts` holds |
-| `core/engine/register.ts` | `EngineExtension`: tools, refusals, prompted, answered, agentAnswered, staged, closing, segment |
+| `core/engine/register.ts` | `EngineExtension`: tools, refusals, prompted, answered, agentAnswered, staged, closing |
+| `core/server/domain/workflow.ts` | `ServerExtension.workflow`: an extension's region, events, rows, transitions and reaction, assembled into one table |
 | `core/protocol.ts` | an extension's messages live in its own `protocol.ts` |
 
 Left as they were: the document list names a kind by its media type, so a transcript reads

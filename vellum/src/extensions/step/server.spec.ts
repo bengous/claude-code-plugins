@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import type { ChannelLine, WorkflowView } from "../../core/protocol.ts";
+import type { ChannelLine, RegionView, ReviewView, WorkflowView } from "../../core/protocol.ts";
 import { startServer } from "../../core/server/adapters/http/serve.ts";
 import type { Started } from "../../core/server/adapters/http/serve.ts";
 import { Review } from "../../core/server/app/review.ts";
@@ -44,7 +44,9 @@ type Stepping = {
   /** What the channel told Claude, each text in order. */
   readonly told: () => Promise<readonly string[]>;
   /** The step's region as `GET /api/workflow` reads it. */
-  readonly region: () => Promise<WorkflowView["regions"][number] | undefined>;
+  readonly region: () => Promise<RegionView | undefined>;
+  /** The step's region as `GET /api/review` reads it, in the review's `workflow`. */
+  readonly reviewed: () => Promise<RegionView | undefined>;
   /** The events of the journal, in order. */
   readonly journaled: () => readonly string[];
   /** The server on the same directory, stopped, `meanwhile` run, and started again. */
@@ -98,6 +100,12 @@ async function stepping(dir = mkdtempSync(join(tmpdir(), "vellum-step-"))): Prom
       const view = (await (await api("workflow")).json()) as WorkflowView;
 
       return view.regions.find(({ id }) => id === "step");
+    },
+    reviewed: async () => {
+      // SAFETY: the server's own `ReviewView`, serialized by `Response.json` in routes.ts.
+      const view = (await (await api("review")).json()) as ReviewView;
+
+      return view.workflow.regions.find(({ id }) => id === "step");
     },
     journaled: () =>
       readFileSync(join(dir, WIP, ".review/events.jsonl"), "utf8")
@@ -446,6 +454,23 @@ describe("the page's read of the state", () => {
     for (let round = 0; round < 40; round += 1) {
       const { value: id, reads } = await readsWhile(propose(), state);
       torn.push(...reads.filter((read) => read.pending?.id === id && read.paused));
+    }
+
+    expect(torn).toEqual([]);
+  });
+
+  test("the workflow's views never read a proposal paused while the step that took it lands", async () => {
+    const { propose, region, reviewed } = await stepping();
+    const torn: RegionView[] = [];
+
+    for (let round = 0; round < 40; round += 1) {
+      const { reads } = await readsWhile(propose(), () => Promise.all([region(), reviewed()]));
+
+      const paused = reads
+        .flat()
+        .filter((read): read is RegionView => read?.state === "open" && read.wait === "paused");
+
+      torn.push(...paused);
     }
 
     expect(torn).toEqual([]);

@@ -12,12 +12,12 @@ import type {
   SendAnswer,
   SendRequest,
   VellumBuild,
+  WorkflowAnswer,
 } from "../../../protocol.ts";
 import type { CoreEvents, GateOptions } from "../../app/events.ts";
 import type { Review } from "../../app/review.ts";
 import { parseProjectPath, parseVersion } from "../../domain/paths.ts";
 import type { ParseResult } from "../../domain/paths.ts";
-import { viewOf } from "../../domain/workflow.ts";
 import { DRAFT_FILE } from "../../domain/workspace.ts";
 import { isRecord, parseDraft, parseEdit } from "../draft.ts";
 
@@ -230,7 +230,12 @@ async function api(
   if (route === "GET /api/review") return Response.json(await review.view());
 
   if (route === "GET /api/workflow") {
-    return Response.json(viewOf(await review.workflow(), review.table));
+    // In the queue: a step writes its files before it keeps its region in memory (a proposal's
+    // wait), and a read between the two would take a call's `open` wait for a paused one.
+    const w = await review.inOrder(() => review.workflow());
+    const answer: WorkflowAnswer = { workspace: w.workspace, ...review.viewed(w) };
+
+    return Response.json(answer);
   }
 
   if (route === "GET /api/channel") {

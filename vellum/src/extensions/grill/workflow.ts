@@ -388,3 +388,11 @@ export const EVENTS: readonly EventDecl[] = [
 export function segmentOf(region: Region): string | null {
   return region.state === "open" ? "grill · open" : null;
 }
+
+/** The grill open, what it holds, and whether its question waits on Claude's call, or was cut. */
+export function lineOf(region: Region): string {
+  if (region.state === "closed") return "grill: closed";
+  const holds = region.holds === null ? "" : ` · holds: ${region.holds}`;
+
+  return `grill ${String(region.data.n)}: open${holds} · question: ${region.wait ?? "none"}`;
+}

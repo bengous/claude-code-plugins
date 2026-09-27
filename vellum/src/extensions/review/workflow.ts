@@ -53,13 +53,17 @@ export function regionOf(reviews: Reviews | null): Region {
 }
 
 /** The runs this module serialized itself: runs it cannot read back are a bug, never a state. */
-function reviewsIn(w: Workflow): Reviews {
-  const text = String(regionIn(w, REVIEW).data.reviews ?? "");
+function reviewsOf(region: Region): Reviews {
+  const text = String(region.data.reviews ?? "");
   const reviews = parseReviews(parseJson(text));
 
   if (reviews === null) throw new Error(`not the runs: ${text}`);
 
   return reviews;
+}
+
+function reviewsIn(w: Workflow): Reviews {
+  return reviewsOf(regionIn(w, REVIEW));
 }
 
 /** The run a row found under way. */
@@ -322,4 +326,13 @@ export const EVENTS: readonly EventDecl[] = [
 
 export function segmentOf(region: Region): string | null {
   return region.state === "open" && region.holds !== null ? "review · running" : null;
+}
+
+/** The run under way, asked or running, or none. */
+export function lineOf(region: Region): string {
+  const run = region.state === "open" ? reviewsOf(region).run : null;
+
+  return run === null
+    ? "review: closed"
+    : `review: plan review ${run.seq} of v${run.version} ${run.kind}`;
 }

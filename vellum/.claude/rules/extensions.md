@@ -12,7 +12,8 @@ bar, its notices under the bar, its panel beside the document pane, placed by `p
 `server.ts` a `ServerExtension` (its `linkedDocs`, its routes, its `workflow`, its part of a
 Send, what another extension may `start`). Both types live in `src/core/extension.ts`. Its part
 of the workflow is `workflow.ts`, pure: its region (`regionOf`), its events, rows, transitions
-and reaction to the others' events, and its segment of the band; the server half hands it to the
+and reaction to the others' events, its segment of the band, and its line in the workflow's
+view (`lineOf`, what `mcp__vellum__state` prints); the server half hands it to the
 core with its region's read, and an engine half may import it as types only. `markdown`, `html`, `image`, `grill` and `step` are
 extensions like the next ones. A third half,
 `engine.ts`, declares an `EngineExtension` (`src/core/engine/extension.ts`): tools, refusals,

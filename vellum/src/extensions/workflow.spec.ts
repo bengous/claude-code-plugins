@@ -416,12 +416,17 @@ describe("an answer reaches Claude once (P6)", () => {
 });
 
 describe("what the page and the band read (§ 5.8)", () => {
-  const SEGMENTS = serverExtensions.flatMap(({ id, workflow }) =>
-    workflow === undefined ? [] : [{ id, segment: workflow.segment }],
+  const WORDINGS = serverExtensions.flatMap(({ id, workflow }) =>
+    workflow === undefined ? [] : [{ id, segment: workflow.segment, line: workflow.line }],
   );
 
   const refusedIn = (w: Workflow): (readonly string[])[] =>
-    viewOf(w, TABLE).refused.map(({ event, effect, reason }) => [event, effect, reason]);
+    viewOf(w, TABLE, WORDINGS).refused.map(({ event, effect, reason }) => [event, effect, reason]);
+
+  const linesOf = (w: Workflow): string[] =>
+    viewOf(w, TABLE, WORDINGS).regions.map(({ line }) => line);
+
+  const MOCKUP: Move = { kind: "mockup", screen: "login" };
 
   const APPROVAL = {
     confirmed: "",
@@ -455,12 +460,51 @@ describe("what the page and the band read (§ 5.8)", () => {
     ]);
   });
 
-  test("the view carries each region's state, hold and wait, never its files", () => {
-    expect(viewOf(GRILLING, TABLE).regions).toEqual([
-      { id: "grill", state: "open", holds: "grill 1 is open", wait: null },
-      { id: "step", state: "closed" },
-      { id: "review", state: "closed" },
+  test("the view carries each region's state, hold, wait and line, never its files", () => {
+    expect(viewOf(GRILLING, TABLE, WORDINGS).regions).toEqual([
+      {
+        id: "grill",
+        state: "open",
+        holds: "grill 1 is open",
+        wait: null,
+        line: "grill 1: open · holds: grill 1 is open · question: none",
+      },
+      { id: "step", state: "closed", line: "step: none" },
+      { id: "review", state: "closed", line: "review: closed" },
     ]);
+  });
+
+  test("each region says itself as `mcp__vellum__state` prints it: a question paused, a proposal paused", () => {
+    const cut = { text: "", reason: "aborted", own: "false", asked: "true" };
+    const questionPaused = play(GRILLING, ["askQuestion", ROUND], ["turnAnswered", cut]);
+    const proposalPaused = play(V1, ["propose", proposing("p3", MOCKUP)], ["pause", { id: "p3" }]);
+
+    expect(linesOf(questionPaused)).toEqual([
+      "grill 1: open · holds: grill 1 is open · question: paused",
+      "step: none",
+      "review: closed",
+    ]);
+    expect(linesOf(proposalPaused)).toEqual([
+      "grill: closed",
+      "step: proposal p3 · wait: paused",
+      "review: closed",
+    ]);
+  });
+
+  test("a question Claude waits on, a proposal it waits on, a run asked then running", () => {
+    const asked = play(V1, ["requestReview", { version: "1" }]);
+    const launched = { seq: "1", agentId: "agent-1", model: "claude-opus-5-5" };
+
+    expect(linesOf(play(GRILLING, ["askQuestion", ROUND]))[0]).toBe(
+      "grill 1: open · holds: grill 1 is open · question: open",
+    );
+    expect(linesOf(play(V1, ["propose", proposing("p3", MOCKUP)]))[1]).toBe(
+      "step: proposal p3 · wait: open",
+    );
+    expect(linesOf(asked)[2]).toBe("review: plan review 1 of v1 requested");
+    expect(linesOf(play(asked, ["reviewLaunched", launched]))[2]).toBe(
+      "review: plan review 1 of v1 running",
+    );
   });
 
   test("refused at v1: what Claude would meet, never a run to forget that is not there (F13)", () => {
@@ -505,12 +549,12 @@ describe("what the page and the band read (§ 5.8)", () => {
   });
 
   test("the stage: the pill, then the plan's segment and each extension's, in the registry's order", () => {
-    expect(stageOf(GRILLING, SEGMENTS)).toEqual({
+    expect(stageOf(GRILLING, WORDINGS)).toEqual({
       workspace: GRILLING.workspace,
       pill: { text: "Held · grill 1 is open", tone: "neutral" },
       segments: ["plan v1 · in review", "grill · open"],
     });
-    expect(stageOf(play(V1, ["requestReview", { version: "1" }]), SEGMENTS).segments).toEqual([
+    expect(stageOf(play(V1, ["requestReview", { version: "1" }]), WORDINGS).segments).toEqual([
       "plan v1 · in review",
       "review · running",
     ]);
@@ -529,14 +573,14 @@ describe("what the page and the band read (§ 5.8)", () => {
       ],
     );
 
-    expect(stageOf(ended, SEGMENTS).segments).toEqual(["plan v1 · in review"]);
-    expect(stageOf(reviewed, SEGMENTS).segments).toEqual(["plan v1 · in review"]);
+    expect(stageOf(ended, WORDINGS).segments).toEqual(["plan v1 · in review"]);
+    expect(stageOf(reviewed, WORDINGS).segments).toEqual(["plan v1 · in review"]);
   });
 
   test("the plan's segment says the draft, the version under review, and the version approved", () => {
-    expect(stageOf(EMPTY, SEGMENTS).segments).toEqual(["plan draft"]);
-    expect(stageOf(V1, SEGMENTS).segments).toEqual(["plan v1 · in review"]);
-    expect(stageOf(play(V1, ["approve", APPROVAL]), SEGMENTS).segments).toEqual([
+    expect(stageOf(EMPTY, WORDINGS).segments).toEqual(["plan draft"]);
+    expect(stageOf(V1, WORDINGS).segments).toEqual(["plan v1 · in review"]);
+    expect(stageOf(play(V1, ["approve", APPROVAL]), WORDINGS).segments).toEqual([
       "plan v1 · approved",
     ]);
   });

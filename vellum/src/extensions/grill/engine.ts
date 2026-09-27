@@ -62,7 +62,7 @@ async function waitFor(context: ToolContext, file: string, first: number): Promi
 const ASK: ExtensionTool = {
   name: "grill_ask",
   description:
-    "Ask one round of the open grill of a vellum planning session, and wait: the reviewer answers in the review page, and their reply is this call's result. q: one [title, question, recommendation] per question; title is one line of plain text, question and recommendation are Markdown; the page numbers them across the whole grill. Refused outside vellum planning, and when no grill is open: only the reviewer opens one, from the next step you propose or on their own.",
+    "Ask one round of the open grill of a vellum planning session, and wait: the reviewer answers in the review page, and their reply is this call's result. q: one [title, question, recommendation] per question; title is one line of plain text, question and recommendation are Markdown; the page numbers them across the whole grill. Refused outside vellum planning, and when no grill is open: only the reviewer opens one, from the next step you propose or on their own. While a grill is open you may still write plan.md: it waits, and a prompt tells you once the grill ends.",
   inputSchema: {
     type: "object",
     properties: {
@@ -97,7 +97,7 @@ const ASK: ExtensionTool = {
 
     const error = parseError(parseJson(response.text));
 
-    if (error === NO_GRILL_OPEN) return { deny: `no grill open: propose one with ${PROPOSE_TOOL}` };
+    if (error === NO_GRILL_OPEN) return { deny: `${error}: propose one with ${PROPOSE_TOOL}` };
 
     return { deny: error ?? `the review server answered ${response.status}` };
   },
