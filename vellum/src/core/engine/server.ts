@@ -15,9 +15,11 @@ import {
   parseChannel,
   parseGate,
   parseServerLine,
+  parseState,
   type ProjectDir,
   type SessionId,
   type ServerLineWire,
+  type StateWire,
   type Workdir,
 } from "./parse.ts";
 
@@ -65,6 +67,8 @@ export type ReviewServer = {
   readonly url: string;
   alive: () => Promise<boolean>;
   gate: (unchanged: Unchanged) => Promise<GateWire>;
+  /** Where the session stands, for `mcp__vellum__state`: the review's stage and its workflow, as the page reads them. */
+  state: () => Promise<StateWire | { readonly error: string }>;
   /** The channel's entries past `after`, for a (re)spawn and for an entry the stdout skipped. */
   channel: (after: number) => Promise<ChannelLineWire[]>;
   open: () => Promise<void>;
@@ -111,6 +115,7 @@ export function reach(host: Host, info: ServerInfo): ReviewServer {
       api(host, info, "/api/gate", { method: "POST", body: JSON.stringify({ unchanged }) }).then(
         parseGate,
       ),
+    state: () => api(host, info, "/api/review").then(parseState),
     channel: async (after) => {
       const response = await api(host, info, `/api/channel?after=${after}`);
 

@@ -1,6 +1,12 @@
 import type { HttpResponse } from "claude-code";
 
-import type { ChannelLine, GateAnswer, PlanWorkspace, ServerLine } from "../protocol.ts";
+import type {
+  ChannelLine,
+  GateAnswer,
+  PlanWorkspace,
+  ServerLine,
+  WorkflowView,
+} from "../protocol.ts";
 import type { ServerInfo, Session } from "./mode.ts";
 import type { Relayed } from "./relay.ts";
 
@@ -74,6 +80,19 @@ export type ServerLineWire =
 
 /** What `POST /api/gate` answers: the version the browser shows, or why it shows none. */
 export type GateWire = Json<GateAnswer>;
+
+type WorkflowWire = Json<WorkflowView>;
+
+/**
+ * What `mcp__vellum__state` prints, read off the review: where the plan stands, `plan.md` against
+ * its last version, each region's line in its extension's words, and what is refused now.
+ */
+export type StateWire = {
+  readonly stage: StageWire;
+  readonly planText: WorkflowWire["planText"];
+  readonly lines: readonly WorkflowWire["regions"][number]["line"][];
+  readonly refused: readonly Pick<WorkflowWire["refused"][number], "event" | "effect" | "reason">[];
+};
 
 /* oxlint-disable anti-slop/no-runtime-typeof, anti-slop/no-unknown-parameters, anti-slop/no-unsafe-dictionary-type, anti-slop/no-unknown-returns, anti-slop/no-known-value-widening, anti-slop/require-safety-comment-for-type-assertion -- this file IS the boundary parser the rules ask for: a tool call's input, `$.store` values and the server's JSON arrive as `unknown`, there is no earlier place to parse them, and the brands above are minted here and nowhere else. */
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -286,6 +305,54 @@ export function parseChannel(text: string): ChannelLineWire[] {
   }
 
   return lines.filter((line) => line !== null);
+}
+
+function parseRefused(value: unknown): StateWire["refused"][number] | null {
+  if (!isRecord(value) || typeof value.event !== "string" || typeof value.reason !== "string") {
+    return null;
+  }
+
+  const { effect } = value;
+
+  return effect === "refuse" || effect === "confirm"
+    ? { event: value.event, effect, reason: value.reason }
+    : null;
+}
+
+/**
+ * What `GET /api/review` answers, as much as the state tool prints; an error for a review of
+ * another shape, never a guess, and for a server that refused.
+ */
+export function parseState(response: HttpResponse): StateWire | { readonly error: string } {
+  if (!response.ok) return { error: `the vellum review server answered ${response.status}` };
+  const value = parseJson(response.text);
+  const stage = isRecord(value) ? parseStage(value.workspace) : null;
+  const workflow = isRecord(value) && isRecord(value.workflow) ? value.workflow : null;
+  const planText = workflow?.planText;
+  const regions: unknown[] = Array.isArray(workflow?.regions) ? workflow.regions : [null];
+  const listed: unknown[] = Array.isArray(workflow?.refused) ? workflow.refused : [null];
+
+  const lines = regions.map((region) =>
+    isRecord(region) && typeof region.line === "string" ? region.line : null,
+  );
+
+  const refused = listed.map((one) => parseRefused(one));
+
+  if (
+    stage === null ||
+    (planText !== "none" && planText !== "pending" && planText !== "absent") ||
+    lines.includes(null) ||
+    refused.includes(null)
+  ) {
+    return { error: "the vellum review server answered a review this module does not read" };
+  }
+
+  return {
+    stage,
+    planText,
+    lines: lines.filter((line) => line !== null),
+    refused: refused.filter((one) => one !== null),
+  };
 }
 
 export function parseGate(response: HttpResponse): GateWire {

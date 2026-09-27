@@ -62,8 +62,12 @@ loop. `/vellum:start` enters it, Approve in the page or `/vellum:stop` leaves it
   `sessionOf` as it does while `live`, the status says why (`server lost, retrying`, or
   `working directory gone, run /vellum:stop`), the band shrinks to the name and the link, a
   slow timer asks `revive` again, and `/vellum:stop` is the way out.
-- `session.start` registers the tool `submit` (`mcp__vellum__submit`, the model's "the plan
-  is written" signal), served by a `tool.call` hook that answers without `next`. Its matcher
+- `session.start` registers the tools `submit` (`mcp__vellum__submit`, the model's "the plan
+  is written" signal) and `state` (`mcp__vellum__state`, no input: the review's stage and
+  `plan.md`, each region's line in its extension's words, then each event refused now with its
+  effect and reason, read off `GET /api/review`, whose `workflow` is the view `GET /api/workflow`
+  answers and whose `workspace` that view lacks), each served by a `tool.call` hook that answers
+  without `next`. `state` is read on demand, never joined to a relay (D10). A matcher
   must be a string literal, or `claude plugin validate` prints the expression instead of the
   name.
 - A hook of vellum's targets vellum's own tools. A hook with no matcher applies to every agent
@@ -245,6 +249,8 @@ loop. `/vellum:start` enters it, Approve in the page or `/vellum:stop` leaves it
   half's `approved`, so a suspended module leaves nothing open on disk.
 - The module keeps no copy of what holds the review. A gate the server refuses is the refusal
   it already reads: `submit` denies with the server's reason, and the turn's end says nothing.
+  Every refusal of a vellum tool carries its row's reason as the server words it (A8): `propose`
+  as it comes, `grill_ask` followed by the way to a grill.
 - `turn.start` carries no origin (`TurnStartInput` is a text and a turn id), so whose turn it
   is comes from `prompt.submit`, through `turn.ts`: `prompt.submit` notes the last prompt that
   entered with its origin, before `next(e)`; `turn.start` takes the note, and the turn is

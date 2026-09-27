@@ -21,7 +21,14 @@ import {
   tenureOf,
   type Wiring,
 } from "./mode.ts";
-import { type DrawnWire, editedPath, type GateWire, sessionId, shellCall } from "./parse.ts";
+import {
+  type DrawnWire,
+  editedPath,
+  type GateWire,
+  sessionId,
+  shellCall,
+  type StateWire,
+} from "./parse.ts";
 import { landed } from "./place.ts";
 import { type Claim, submitPlan, submitResult } from "./relay.ts";
 import { completed, NO_TURN, ownOf, prompted, replied, started, type Turns } from "./turn.ts";
@@ -33,9 +40,34 @@ const STOP_SKILL = "vellum:stop";
 const SUBMIT = {
   name: "submit",
   description:
-    "Submit plan.md from the vellum working directory for review in the browser, before the turn ends. The turn's end submits it anyway, but only when its text changed; once the reviewer sent a batch on the version under review, this tool also records an unchanged plan.md as the next version. Answers with the version under review. Refused, with the reason, outside a vellum planning session (entered by /vellum:start), when plan.md is missing, when the plan is approved, or while the review is held (a grill, a plan review).",
+    "Submit plan.md from the vellum working directory for review in the browser, before the turn ends. The turn's end submits it anyway, but only when its text changed; once the reviewer sent a batch on the version under review, this tool also records an unchanged plan.md as the next version. Answers with the version under review. Refused, with the reason, outside a vellum planning session (entered by /vellum:start), when plan.md is missing, when the plan is approved, and while the review is held (a grill, a plan review): plan.md then waits, a prompt tells you once the hold ends, and the end of that turn records it.",
   inputSchema: { type: "object" },
 };
+
+// Kept small on purpose: a tool's schema rides in every request.
+const STATE = {
+  name: "state",
+  description:
+    "Where the vellum planning session stands, read on demand: the plan's stage and whether plan.md holds a text no version has, each part of the review (grill, proposal, plan review) and what holds it, then each event refused now with its reason. No input. Refused outside a vellum planning session.",
+  inputSchema: { type: "object" },
+};
+
+/** The session as `mcp__vellum__state` prints it: the stage and `plan.md`, one line per region, then what is refused now. */
+function stateResult(state: StateWire): string {
+  const { stage } = state;
+  const where = "version" in stage ? `${stage.kind} v${stage.version}` : stage.kind;
+
+  const refused = state.refused.map(
+    ({ event, effect, reason }) => `  ${event} (${effect}): ${reason}`,
+  );
+
+  return [
+    `workspace: ${where} · plan.md: ${state.planText}`,
+    ...state.lines,
+    refused.length === 0 ? "refused now: none" : "refused now:",
+    ...refused,
+  ].join("\n");
+}
 
 const NOT_PLANNING = "no vellum planning in progress; run /vellum:start";
 
@@ -222,6 +254,7 @@ export const register: Register = (on) => {
 
   on("session.start", async ($, e, next) => {
     await $.tool.register(SUBMIT);
+    await $.tool.register(STATE);
 
     for (const { tool } of EXTENSION_TOOLS) {
       await $.tool.register({
@@ -340,6 +373,16 @@ export const register: Register = (on) => {
     if (state.kind === "lost") return { deny: UNREACHABLE.error };
 
     return submitResult(await submitPlan(hostOf($), state.live, "record").catch(() => UNREACHABLE));
+  });
+
+  // Read on demand, never joined to a relay (D10): the reasons Claude meets arrive with each refusal.
+  on("tool.call", { tool: "mcp__vellum__state" }, async () => {
+    if (state.kind === "idle") return { deny: NOT_PLANNING };
+
+    if (state.kind === "lost") return { deny: UNREACHABLE.error };
+    const read = await state.live.server.state().catch(() => UNREACHABLE);
+
+    return "error" in read ? { deny: read.error } : { result: stateResult(read) };
   });
 
   // Matched, never open: an unmatched `tool.call` hook wraps every tool call of every agent in

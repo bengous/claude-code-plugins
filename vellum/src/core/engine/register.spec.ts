@@ -31,12 +31,15 @@ describe("the tool.call hooks of register.ts", () => {
       ...Object.keys(extension.refuses ?? {}),
     ]);
 
-    expect(named.toSorted()).toEqual(["mcp__vellum__submit", ...registry].toSorted());
+    expect(named.toSorted()).toEqual(
+      ["mcp__vellum__submit", "mcp__vellum__state", ...registry].toSorted(),
+    );
   });
 
   test("each tool name is vellum's once: the hook serves the first extension that names it", () => {
     const names = [
       "submit",
+      "state",
       ...engineExtensions.flatMap((extension) => (extension.tools ?? []).map(({ name }) => name)),
     ];
 
