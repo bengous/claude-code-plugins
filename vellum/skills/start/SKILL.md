@@ -23,6 +23,8 @@ Otherwise explore, then propose the next step with `mcp__vellum__propose`, never
 
 `AskUserQuestion` is refused while vellum is live. A reviewer may also pick a step on their own; it arrives as a prompt in the same words.
 
+Every refusal of a vellum tool carries its reason. When a refusal or a prompt leaves the next move unclear, `mcp__vellum__state` says where the session stands: the plan's stage, whether `plan.md` holds a text no version has, what holds the review, and each move refused now with its reason. It takes no input.
+
 ## 2. Settle the open choices
 
 The choices are settled in a grill, in the review page. You do not start one: the reviewer opens it by picking a grill, and the answer names the transcript and, the first time, the instructions to read. You ask each round with `mcp__vellum__grill_ask`, which waits and returns the reviewer's reply, and the reviewer ends the grill. No step is proposed while the review is held (a grill, a plan review). `plan.md` is yours to write meanwhile, and the reviewer sees it, but no version is recorded under the hold: once it ends a prompt says what to integrate, and the end of that turn records the version.
@@ -32,6 +34,7 @@ A question is asked only when the answer would change the architecture, an inter
 ## 3. Write the plan, ordered by probability of revision
 
 What the reviewer is most likely to change comes first, mechanical work last.
+Write it in the reviewer's language, the one they write to you in; identifiers, paths, commands and code stay as they are in the code.
 A fact sits next to the decision it fixes, never in a preamble. The first line is the plan's `# Title`, which names the approved directory. The plan then opens with the artifacts it relies on, by path: mockup, throwaway, research note.
 
 1. Decisions taken, each with its fact. Assumptions taken in the reviewer's place. Questions still open.
@@ -51,7 +54,7 @@ Iterate on the plan with the reviewer until it is approved. A large change, or a
 
 The skill text ends with a `Working directory:` line and a `Review page:` line. Print both in your first message: the link is how the reviewer reaches the page, and the band above the prompt, which carries it too, is drawn in the terminal alone.
 
-With a working directory, the plan is `plan.md` at its root. Once the plan and its artifacts are ready, end your turn: the vellum plugin submits `plan.md` when a turn ends, opens it in the reviewer's browser, and the review comes back as a prompt. An unchanged `plan.md` submits nothing, so a turn that only asks a question opens no version. To submit before the turn ends, call `mcp__vellum__submit`. "Reviewer sent" names a batch of the reviewer's: read it. One headed "Plan review: batch <k> on v<N>": revise `plan.md` and the files it names, end your turn; the reviewer may send another batch on the same version meanwhile, which arrives the same way. A batch's "Grill" section is a round's reply that reached you after your turn ended: read it as `grilling.md` says. Its "Choices" section names, for each decision marked in a mockup, the option the reviewer chose: build that option, and drop the others from the plan. "Approved" names the final directory the plan now lives in.
+With a working directory, the plan is `plan.md` at its root. Once the plan and its artifacts are ready, end your turn: the vellum plugin submits `plan.md` when a turn ends, opens it in the reviewer's browser, and the review comes back as a prompt. An unchanged `plan.md` submits nothing, so a turn that only asks a question opens no version. To submit before the turn ends, call `mcp__vellum__submit`. "Reviewer sent" names a batch of the reviewer's: read it. One headed "Plan review: batch <k> on v<N>": revise `plan.md` and the files it names, end your turn; the reviewer may send another batch on the same version meanwhile, which arrives the same way. A batch's "Grill" section is a round's reply that reached you after your turn ended: read it as `grilling.md` says. Its "Choices" section names, for each decision marked in a mockup, the option the reviewer chose: build that option, and drop the others from the plan. "Approved" names the final directory the plan now lives in. A prompt that says `plan.md` changed while the review was held (a grill, a plan review) comes once, as the hold ends: do what it says, integrate what the grill settled or check `plan.md`, then end your turn, whose end records the version.
 
 The page is open from the start, on the working directory's files, so the reviewer comments before the plan exists. Such a batch arrives as "Reviewer sent", a file headed "Drafting feedback": revise what it points at, then go on with the plan.
 
