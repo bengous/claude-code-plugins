@@ -1,5 +1,6 @@
 import { join } from "node:path";
 
+import { REVIEW_PART } from "./review/server.ts";
 import type { ServerWorkflow, WalkOf } from "./runtime/extension.ts";
 import { serverExtensions } from "./runtime/server/slices.ts";
 import { parseWipDir } from "./workshop/paths.ts";
@@ -77,9 +78,9 @@ if (!DIR.ok) throw new Error(DIR.error);
 
 const WORKDIR = DIR.value;
 
-/** The table as the server assembles it from the registry: the core's, then each part's in order. */
+/** The table as the server assembles it: the review's part, then each part's in the registry's order. */
 export function tableFor(parts: readonly Part[]): Table {
-  return tableOf(parts.map(({ workflow }) => workflow));
+  return tableOf([REVIEW_PART, ...parts.map(({ workflow }) => workflow)]);
 }
 
 /** A workflow where nothing is written yet: drafting, no `plan.md`, each part's empty region. */

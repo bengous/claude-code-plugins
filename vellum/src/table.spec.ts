@@ -1,22 +1,23 @@
 import { expect, test } from "bun:test";
 
 import { PARTS as WALKED, proof, whole } from "./proof.ts";
+import { REVIEW_PART } from "./review/server.ts";
 import { parseWipDir } from "./workshop/paths.ts";
 import type { EventDecl, Rule, TablePart, Workflow } from "./workshop/workflow.ts";
-import { CORE, CORE_PART, HELD, tableOf, verdictOf } from "./workshop/workflow.ts";
+import { HELD, tableOf, verdictOf } from "./workshop/workflow.ts";
 
 /**
- * Every row of every event, from every part of the table, as a reader takes it: the core's, then
+ * Every row of every event, from every part of the table, as a reader takes it: the review's, then
  * each extension's in the registry's order, rows in the order `verdictOf` judges them. The text is
  * held in `src/__snapshots__/table.spec.ts.snap`, which a PR shows changed when a row does.
  */
 
 const PARTS: readonly { readonly id: string; readonly part: TablePart }[] = [
-  { id: CORE, part: CORE_PART },
+  { id: "review", part: REVIEW_PART },
   ...WALKED.map(({ id, workflow }) => ({ id, part: workflow })),
 ];
 
-const TABLE = tableOf(WALKED.map(({ workflow }) => workflow));
+const TABLE = tableOf([REVIEW_PART, ...WALKED.map(({ workflow }) => workflow)]);
 
 const DIR = parseWipDir("plans/2026-09-28/wip-7ab1e5e5/");
 

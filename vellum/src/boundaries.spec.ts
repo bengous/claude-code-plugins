@@ -22,6 +22,9 @@ const WORKSHOP = `${SRC}/workshop`;
 
 const RUNTIME = `${SRC}/runtime`;
 
+/** The review, the frame the parts plug into: a part reads it through its `contract.ts`, as types. */
+const REVIEW = `${SRC}/review`;
+
 /** The folders that hold the parts, a folder each: the steps Vellum follows, the formats it reads a document in. */
 const PART_GROUPS = ["steps", "formats"];
 
@@ -290,8 +293,8 @@ describe("the page without a browser", () => {
 });
 
 describe("parts", () => {
-  test("a part imports workshop/, runtime/ and its own folder, never another part", () => {
-    const contracts = parts().map((slice) => `${slice}/${CONTRACT}`);
+  test("a part imports workshop/, runtime/, its own folder and the review's contract, never another part", () => {
+    const contracts = [...parts(), REVIEW].map((slice) => `${slice}/${CONTRACT}`);
 
     const stray = relativeImportsOf(partSources())
       .filter(({ file, specifier, target }) => {

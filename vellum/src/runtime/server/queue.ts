@@ -1,4 +1,5 @@
 import { readDraft } from "../../review/draft.ts";
+import { REVIEW_PART } from "../../review/server.ts";
 import {
   appended,
   CHANNEL_FILE,
@@ -141,7 +142,7 @@ export class Queue {
       workflow === undefined ? [] : [{ id, workflow }],
     );
 
-    this.table = tableOf(this.parts.map(({ workflow }) => workflow));
+    this.table = tableOf([REVIEW_PART, ...this.parts.map(({ workflow }) => workflow)]);
 
     this.wordings = this.parts.map(({ id, workflow }) => ({
       id,

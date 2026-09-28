@@ -1,7 +1,6 @@
 import type { PlugsOf, SliceDecl } from "./plugs.ts";
 import type {
   Actor,
-  CORE_TRANSITIONS,
   EventDecl,
   EventInput,
   Outcome,
@@ -30,9 +29,6 @@ export type Events = {
 
 /** An event another part owns that the slice judges or reacts to: the fields that part says it carries. */
 export type Heard = { readonly [event: string]: { readonly carries: readonly string[] } };
-
-/** The core's own events, by name. */
-export type CoreEvent = keyof typeof CORE_TRANSITIONS;
 
 /** What the server stamps on every event: the time, and the number its step's first entry of the channel takes. */
 export type Stamps = { readonly at: string; readonly seq: string };
@@ -163,11 +159,12 @@ export type RefuseRow<K extends string, Id extends string> = {
   readonly when: (w: Workflow, input: EventInput) => boolean;
 };
 
-/** The hold's row: `event` is refused while the review is held, in words built from the hold's own. */
+/** The hold's row: `event` is refused, or asks to confirm, while the review is held, in words built from the hold's own. */
 export type HeldRow<K extends string> = {
   readonly kind: "held";
   readonly event: K;
   readonly id: typeof HELD;
+  readonly effect: "refuse" | "confirm";
   readonly status: RefusalStatus;
   readonly reason: (hold: string) => string;
 };
@@ -206,6 +203,12 @@ export type Rows<E extends Events, H extends Heard> = {
   ) => RefuseRow<K, Id>;
   /** Refuses `event` while the review is held; an event with no such row passes a hold. */
   readonly whileHeld: <K extends keyof E & string>(
+    event: K,
+    status: RefusalStatus,
+    reason: (hold: string) => string,
+  ) => HeldRow<K>;
+  /** Asks to confirm `event` while the review is held: it passes once its input names that very hold (`confirmed`). */
+  readonly confirmWhileHeld: <K extends keyof E & string>(
     event: K,
     status: RefusalStatus,
     reason: (hold: string) => string,
@@ -278,7 +281,22 @@ export function rows<D extends SliceDecl>(
       // SAFETY: `readBy` hands the guard its event's fields as `InputOf` types them: every field an owned event carries, `""` when absent, or a heard event's record, whose missing fields read `undefined`.
       when: (w, input) => when(w, readBy(declared, event, input) as never),
     }),
-    whileHeld: (event, status, reason) => ({ kind: "held", event, id: HELD, status, reason }),
+    whileHeld: (event, status, reason) => ({
+      kind: "held",
+      event,
+      id: HELD,
+      effect: "refuse",
+      status,
+      reason,
+    }),
+    confirmWhileHeld: (event, status, reason) => ({
+      kind: "held",
+      event,
+      id: HELD,
+      effect: "confirm",
+      status,
+      reason,
+    }),
   };
 }
 
@@ -370,7 +388,7 @@ function declOf<E extends Events, H extends Heard, K extends keyof E & string>(
     actors: declaredOf(part.events, event).by,
     whileHeld:
       held?.kind === "held"
-        ? { effect: "refuse", reason: held.reason, status: held.status }
+        ? { effect: held.effect, reason: held.reason, status: held.status }
         : { effect: "allow" },
     samples: part.samples[event],
   };

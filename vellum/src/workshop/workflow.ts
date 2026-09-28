@@ -1,16 +1,7 @@
 import type { ChannelEntry } from "./channel.ts";
 import type { FinalDir, Version } from "./paths.ts";
-import { parseFinalDir, parseVersion } from "./paths.ts";
-import { decideOn } from "./review.ts";
 import type { PlanWorkspace } from "./workspace.ts";
-import {
-  batchFile,
-  notesFile,
-  PLAN_FILE,
-  projectPath,
-  REVIEW_DIR,
-  versionFile,
-} from "./workspace.ts";
+import { notesFile, projectPath, REVIEW_DIR } from "./workspace.ts";
 
 /**
  * Where a planning session stands, one value the server owns and every reader reads: the
@@ -59,7 +50,7 @@ export type Actor = "claude" | "reviewer" | "engine";
  */
 export type EventInput = Readonly<Record<string, string>>;
 
-/** The HTTP status a slice's route answers a refusal with: a name that is not there, or a state that refuses. */
+/** The HTTP status a route answers a refusal with: a name that is not there, or a state that refuses. */
 export type RefusalStatus = 404 | 409;
 
 /** What the hold's rule does to an event: nothing, or it refuses it or asks a confirmation, in the event's words. */
@@ -68,13 +59,13 @@ export type WhileHeld =
   | {
       readonly effect: "refuse" | "confirm";
       readonly reason: (hold: string) => string;
-      /** What a slice's route answers it with; a slice's event alone declares one. */
+      /** What its owner's route answers it with. */
       readonly status?: RefusalStatus;
     };
 
 export type EventDecl = {
   readonly id: string;
-  /** `core`, or the id of the extension whose transition applies it. */
+  /** The id of the part whose transition applies it: `review`, or a slice's. */
   readonly owner: string;
   /** Who sends it (§ 5.3): what only the engine sends is nobody's to try, and the view leaves it out. */
   readonly actors: readonly Actor[];
@@ -99,9 +90,9 @@ export type Rule = {
    */
   readonly refuses: "state" | "input";
   readonly reason: (w: Workflow, input: EventInput) => string;
-  /** What a slice's route answers it with; a slice's row alone declares one. */
+  /** What its owner's route answers it with. */
   readonly status?: RefusalStatus;
-  /** The named guards `when` is built from, for a reader; a slice's row alone names them. */
+  /** The named guards `when` is built from, for a reader. */
   readonly condition?: string;
 };
 
@@ -150,7 +141,7 @@ export type Outcome = { readonly workflow: Workflow; readonly effects: readonly 
 
 export type Transition = (w: Workflow, event: string, input: EventInput) => Outcome;
 
-/** What the core and each extension bring to the table. */
+/** What the review and each part bring to the table. */
 export type TablePart = {
   readonly events: readonly EventDecl[];
   readonly rules: readonly Rule[];
@@ -229,7 +220,7 @@ export function journalText(line: JournalLine, at: Date): string {
   return `${JSON.stringify({ at: at.toISOString(), ...line })}\n`;
 }
 
-/** The owner of the core's events, and the voice of its own entries in the channel. */
+/** The voice of the machine's own entries in the channel: a hold that ended while `plan.md` changed. */
 export const CORE = "core";
 
 const ALLOW: RuleVerdict = { kind: "allow" };
@@ -540,14 +531,6 @@ export function stageOf(w: Workflow, extensions: readonly Wording[]): Stage {
   };
 }
 
-function versionAfter(workspace: PlanWorkspace): Version {
-  const after = parseVersion(workspace.kind === "drafting" ? 1 : workspace.version + 1);
-
-  if (!after.ok) throw new Error(after.error);
-
-  return after.value;
-}
-
 /** The version under review, for a row whose earlier rows refused every other workspace. */
 export function reviewed(w: Workflow): Version {
   if (w.workspace.kind !== "inReview") throw new Error("no version is under review");
@@ -555,299 +538,12 @@ export function reviewed(w: Workflow): Version {
   return w.workspace.version;
 }
 
-/** The version a Send's or an approval's edit names, `""` for none, is no longer under review. */
-function isStale(w: Workflow, edit: string): boolean {
-  const { workspace } = w;
-
-  return edit !== "" && (workspace.kind !== "inReview" || edit !== String(workspace.version));
-}
-
-function writeFile(file: string, text: string): Effect {
-  return { kind: "writeFile", owner: CORE, file, text };
-}
-
-const STALE = "your edit is of a version no longer under review";
-
 /** The one sample time of the table: a transition that stamps a file reads it from its input. */
 export const SAMPLE_AT = "2026-09-26T10:00:00.000Z";
 
-export const CORE_EVENTS: readonly EventDecl[] = [
-  {
-    id: "record",
-    owner: CORE,
-    actors: ["claude", "reviewer"],
-    whileHeld: {
-      effect: "refuse",
-      reason: (hold) => `${hold}: plan.md waits; you are told when it ends`,
-    },
-    samples: [{ unchanged: "keep" }, { unchanged: "record" }],
-  },
-  {
-    id: "sendEdit",
-    owner: CORE,
-    actors: ["reviewer"],
-    whileHeld: {
-      effect: "refuse",
-      reason: (hold) => `${hold}: the edit waits in the draft until it ends`,
-    },
-    samples: [
-      { edit: "1", text: "# Plan\n\nThe reviewer's edit.\n" },
-      { edit: "2", text: "# Plan\n\nThe reviewer's edit.\n" },
-    ],
-  },
-  {
-    id: "send",
-    owner: CORE,
-    actors: ["reviewer"],
-    whileHeld: { effect: "allow" },
-    samples: [
-      { parts: "true", edit: "", names: "held", comments: "false", text: "## Grill\n" },
-      { parts: "false", edit: "", names: "held", comments: "true", text: "## Comments\n" },
-      { parts: "false", edit: "", names: "changed", comments: "true", text: "## Comments\n" },
-      { parts: "false", edit: "", names: "withoutEdit", comments: "true", text: "## Comments\n" },
-      { parts: "false", edit: "1", names: "held", comments: "true", text: "## Comments\n" },
-    ],
-  },
-  {
-    id: "approve",
-    owner: CORE,
-    actors: ["reviewer"],
-    whileHeld: { effect: "confirm", reason: (hold) => `The review is held: ${hold}.` },
-    samples: [
-      {
-        confirmed: "",
-        edit: "",
-        text: "",
-        notes: "",
-        dir: "plans/2026-09-26/the-plan/",
-        at: SAMPLE_AT,
-      },
-      {
-        confirmed: "",
-        edit: "1",
-        text: "# Plan\n\nApproved as edited.\n",
-        notes: "Ship it.",
-        dir: "plans/2026-09-26/the-plan/",
-        at: SAMPLE_AT,
-      },
-    ],
-  },
-  {
-    id: "planWritten",
-    owner: CORE,
-    actors: ["claude"],
-    whileHeld: { effect: "allow" },
-    samples: [{ plan: "pending" }, { plan: "none" }, { plan: "absent" }],
-  },
-];
-
-export const CORE_RULES: readonly Rule[] = [
-  {
-    id: "no-plan",
-    event: "record",
-    order: 1,
-    when: (w) => !planExists(w),
-    effect: "refuse",
-    refuses: "state",
-    reason: (w) => `write ${PLAN_FILE} in ${w.workspace.dir} first`,
-  },
-  {
-    id: "stale",
-    event: "sendEdit",
-    order: -1,
-    when: (w, input) => isStale(w, input.edit ?? ""),
-    effect: "refuse",
-    refuses: "input",
-    reason: () => STALE,
-  },
-  {
-    id: "changed",
-    event: "send",
-    order: 1,
-    when: (_w, input) => input.names === "changed",
-    effect: "refuse",
-    refuses: "input",
-    reason: () => "the saved draft no longer holds what you sent, changed in another tab",
-  },
-  {
-    id: "stale",
-    event: "send",
-    order: 2,
-    when: (w, input) => isStale(w, input.edit ?? ""),
-    effect: "refuse",
-    refuses: "input",
-    reason: () => STALE,
-  },
-  {
-    id: "edit",
-    event: "send",
-    order: 3,
-    when: (w, input) =>
-      w.workspace.kind === "inReview" && (input.edit ?? "") === "" && input.names === "withoutEdit",
-    effect: "refuse",
-    refuses: "input",
-    reason: () => "a comment on the plan goes with your edit",
-  },
-  {
-    id: "no-version",
-    event: "approve",
-    order: 1,
-    when: (w) => w.workspace.kind === "drafting",
-    effect: "refuse",
-    refuses: "state",
-    reason: () => "no version is under review yet",
-  },
-  {
-    id: "approve-stale",
-    event: "approve",
-    order: 2,
-    when: (w, input) => isStale(w, input.edit ?? ""),
-    effect: "refuse",
-    refuses: "input",
-    reason: (w, input) => `v${reviewed(w)} is under review, not v${input.edit ?? ""}`,
-  },
-  {
-    id: "approve-draft",
-    event: "approve",
-    order: 3,
-    when: (w) => w.workspace.kind === "inReview" && w.planText === "pending",
-    effect: "refuse",
-    refuses: "state",
-    reason: (w) => {
-      const since = `plan.md changed since v${reviewed(w)}`;
-      const hold = held(w);
-
-      return hold === null
-        ? `${since}: record it before approving`
-        : `${since} while ${hold}: end it, then record plan.md before approving`;
-    },
-  },
-];
-
-/** `gateVersion`'s logic: a text the version lacks, or a Send on it, records the next one; `keep` never records the same text. */
-function record(w: Workflow, _event: string, input: EventInput): Outcome {
-  const { workspace } = w;
-
-  if (workspace.kind === "approved") return unchanged(w);
-
-  const kept =
-    workspace.kind === "inReview" &&
-    w.planText === "none" &&
-    (input.unchanged === "keep" || workspace.batches === 0);
-
-  if (kept) return unchanged(w);
-
-  const recorded: PlanWorkspace = {
-    kind: "inReview",
-    dir: workspace.dir,
-    version: versionAfter(workspace),
-    batches: 0,
-    finalizeError: null,
-  };
-
-  return {
-    workflow: { ...w, planText: "none", workspace: recorded },
-    effects: [{ kind: "recordVersion" }],
-  };
-}
-
-/** The reviewer's edit is the next version, `plan.md` first, as a Send writes it. */
-function sendEdit(w: Workflow, _event: string, input: EventInput): Outcome {
-  const { workspace } = w;
-
-  if (workspace.kind !== "inReview") return unchanged(w);
-  const version = versionAfter(workspace);
-  const text = input.text ?? "";
-
-  return {
-    workflow: { ...w, planText: "none", workspace: { ...workspace, version, batches: 0 } },
-    effects: [writeFile(PLAN_FILE, text), writeFile(versionFile(version), text)],
-  };
-}
-
-/** The batch, numbered after the Sends on its version, then its entry: the Send's commit point. */
-function send(w: Workflow, _event: string, input: EventInput): Outcome {
-  const { workspace } = w;
-
-  if (workspace.kind === "approved") return unchanged(w);
-  const version = workspace.kind === "drafting" ? null : workspace.version;
-  const batches = workspace.batches + 1;
-  const file = batchFile(version, batches);
-  const sent: ChannelEntry = { kind: "sent", file: projectPath(`${workspace.dir}${file}`) };
-
-  return {
-    workflow: { ...w, workspace: { ...workspace, batches } },
-    effects: [writeFile(file, input.text ?? ""), { kind: "channel", entry: sent }],
-  };
-}
-
-/**
- * The reviewer's edit as the next version, then the directory approved under the name the route
- * resolved (`input.dir`); the extensions close theirs by reaction, and the entry comes last. It
- * names the notes file this approval writes, or the one a first attempt left (`input.noted`).
- */
-function approve(w: Workflow, _event: string, input: EventInput): Outcome {
-  const { workspace } = w;
-
-  if (workspace.kind !== "inReview") return unchanged(w);
-  const text = input.text ?? "";
-  const edit = (input.edit ?? "") === "" ? null : { version: workspace.version, text };
-  const decided = decideOn(workspace, null, { kind: "approve", edit, notes: input.notes ?? "" });
-  const dir = parseFinalDir(input.dir ?? "");
-
-  if (decided.kind === "refused") throw new Error("an approval the rows passed was refused");
-
-  if (!dir.ok) throw new Error(dir.error);
-  const { version, notes } = decided;
-
-  const edited =
-    decided.edit === null
-      ? []
-      : [writeFile(PLAN_FILE, text), writeFile(versionFile(version), text)];
-
-  const approved: PlanWorkspace = {
-    kind: "approved",
-    dir: dir.value,
-    version,
-    notes: notes !== null || input.noted === "true",
-  };
-
-  return {
-    workflow: { ...w, planText: "none", workspace: approved },
-    effects: [...edited, { kind: "approveDirectory", dir: dir.value, notes: notes?.text ?? null }],
-  };
-}
-
-function planTextIn(input: EventInput): PlanText {
-  const { plan } = input;
-
-  if (plan === "none" || plan === "pending" || plan === "absent") return plan;
-
-  throw new Error(`planWritten carries none, pending or absent, not ${plan ?? "nothing"}`);
-}
-
-/** What the watcher read of `plan.md` against the last version. */
-function planWritten(w: Workflow, _event: string, input: EventInput): Outcome {
-  return { workflow: { ...w, planText: planTextIn(input) }, effects: [] };
-}
-
-export const CORE_TRANSITIONS = {
-  record,
-  sendEdit,
-  send,
-  approve,
-  planWritten,
-} satisfies Readonly<Record<string, Transition>>;
-
-export const CORE_PART: TablePart = {
-  events: CORE_EVENTS,
-  rules: CORE_RULES,
-  transitions: CORE_TRANSITIONS,
-};
-
-/** The core's part first, then each extension's in the registry's order. */
+/** The parts in the order the runtime hands them, the review's first: its rows, then each part's in the registry's order. */
 export function tableOf(parts: readonly TablePart[]): Table {
-  const all = [CORE_PART, ...parts];
+  const all = parts;
   const owners = new Map<string, string>();
 
   for (const { id, owner } of all.flatMap(({ events }) => events)) {

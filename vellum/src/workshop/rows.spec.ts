@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 
 import { parseWipDir } from "./paths.ts";
 import type { PlugsOf } from "./plugs.ts";
-import { core, defineSlice, heard } from "./plugs.ts";
+import { defineSlice, heard } from "./plugs.ts";
 import type { SlicePart } from "./rows.ts";
 import { allOf, anyOf, naming, rows, tablePart } from "./rows.ts";
 import type { Workflow } from "./workflow.ts";
@@ -18,7 +18,7 @@ const W: Workflow = {
   regions: [],
 };
 
-/** A slice's events, another slice's `pick` as its contract types it, and the core's `approve`. */
+/** A slice's events, another slice's `pick` as its contract types it, and an `approve` heard with no field. */
 const SLICE = defineSlice({
   id: "slice",
   events: {
@@ -27,7 +27,7 @@ const SLICE = defineSlice({
   },
   hears: {
     pick: heard<{ readonly carries: readonly ["id", "move"] }>(),
-    approve: core,
+    approve: heard<{ readonly carries: readonly [] }>(),
   },
 });
 
@@ -277,12 +277,5 @@ describe("the table", () => {
     const other = tablePart("other", partOf([]));
 
     expect(() => tableOf([one, other])).toThrow("ask is declared by both one and other");
-  });
-
-  test("an event of the core's declared again by a part is refused too", () => {
-    const part = tablePart("slice", partOf([]));
-    const clash = { ...part, events: part.events.map((event) => ({ ...event, id: "record" })) };
-
-    expect(() => tableOf([clash])).toThrow("record is declared by both core and slice");
   });
 });

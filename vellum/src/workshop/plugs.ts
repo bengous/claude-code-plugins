@@ -1,4 +1,4 @@
-import type { CoreEvent, Events, Heard } from "./rows.ts";
+import type { Events, Heard } from "./rows.ts";
 
 /**
  * What a slice's `contract.ts` declares, and what its halves are typed by: its id, the tools, the
@@ -57,7 +57,7 @@ export type Plugs = {
   };
   readonly server: Routes;
   readonly events: Events;
-  /** The events of the others it judges or reacts to: another slice's, as its contract types them, or the core's. */
+  /** The events of the others it judges or reacts to, as their owner's contract types them. */
   readonly hears: Heard;
   /** What another slice hands `ServerContext.start` to open this one; `never` when none does. */
   readonly opened: Json;
@@ -157,9 +157,6 @@ export type HeardDecl<Carries extends readonly string[]> = {
   readonly types?: () => Carries;
 };
 
-/** An event of the core's, heard by name: the core declares no fields. */
-export type HeardFromCore = { readonly from: "core" };
-
 /** `heard<ProposalEvents["answerProposal"]>()`: another slice's event, typed by its contract. */
 export function heard<E extends { readonly carries: readonly string[] }>(): HeardDecl<
   E["carries"]
@@ -167,26 +164,14 @@ export function heard<E extends { readonly carries: readonly string[] }>(): Hear
   return { from: "slice" };
 }
 
-/** An event of the core's, heard: `hears: { approve: core }`. */
-export const core: HeardFromCore = { from: "core" };
-
-type Hears = { readonly [event: string]: HeardDecl<readonly string[]> | HeardFromCore };
-
-/** An event heard from the core must be one the core has. */
-type CheckedHears<H> = {
-  readonly [Event in keyof H]: H[Event] extends HeardFromCore
-    ? Event extends CoreEvent
-      ? H[Event]
-      : Undeclared<`${Event & string} is not an event of the core: hear another slice's with heard<ItsEvents["name"]>()`>
-    : H[Event];
-};
+type Hears = { readonly [event: string]: HeardDecl<readonly string[]> };
 
 export type SliceDecl = {
   /** The folder's name: its routes are mounted under `/api/x/<id>/`. */
   readonly id: string;
   /** Each event it owns: who may send it, and the fields its input carries. */
   readonly events?: Events;
-  /** The events of the others it judges or reacts to: another slice's, or the core's. */
+  /** The events of the others it judges or reacts to: another slice's, or the review's. */
   readonly hears?: Hears;
   readonly hooks?: {
     /** The tools its hooks half registers, each as `mcp__vellum__<name>`. */
@@ -214,9 +199,7 @@ export type SliceDecl = {
 };
 
 /** The declaration as written, its lists and names kept as literals. */
-export function defineSlice<const D extends SliceDecl>(
-  declared: D & { readonly hears?: CheckedHears<D["hears"]> },
-): D {
+export function defineSlice<const D extends SliceDecl>(declared: D): D {
   return declared;
 }
 

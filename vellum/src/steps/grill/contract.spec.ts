@@ -11,7 +11,6 @@ import type { HooksHalf } from "../../runtime/hooks/extension.ts";
 import { engineExtension } from "../../runtime/hooks/slice.ts";
 import { serverExtension } from "../../runtime/server/slice.ts";
 import { parseWipDir } from "../../workshop/paths.ts";
-import { core, defineSlice } from "../../workshop/plugs.ts";
 import type { Reactions } from "../../workshop/rows.ts";
 import { rows } from "../../workshop/rows.ts";
 import type { Outcome, Workflow } from "../../workshop/workflow.ts";
@@ -140,14 +139,15 @@ describe("the events the grill hears are the others' as their contracts type the
     expect(reactions.answerProposal).toBeDefined();
   });
 
-  test("a core event heard is named, and a name the core has not does not compile", () => {
-    const declared = defineSlice({
-      id: "grill",
-      // @ts-expect-error -- the core's events are record, sendEdit, send, approve and planWritten.
-      hears: { gate: core },
-    });
+  test("the review's Send is heard as review/contract.ts types it, with the grill's share: a field it does not carry does not compile", () => {
+    const reactions: Reactions<GrillHears> = {
+      ...REACTIONS,
+      send: (w, input): Outcome =>
+        // @ts-expect-error -- the Send carries parts, edit, names, comments, text and the grill's share: no `proposal`.
+        input.proposal === undefined ? unchanged(w) : unchanged(w),
+    };
 
-    expect(Object.keys(declared.hears)).toEqual(["gate"]);
+    expect(reactions.send).toBeDefined();
   });
 });
 

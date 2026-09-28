@@ -7,16 +7,29 @@ import { formatBatch } from "../workshop/feedback.ts";
 import type { ProjectPath, Version } from "../workshop/paths.ts";
 import type { Decision, Draft, EditKept, SendRequest } from "../workshop/review.ts";
 import { EMPTY_DRAFT, namedIn, sendOn, slugFor } from "../workshop/review.ts";
-import type { Actor, EventInput, Workflow } from "../workshop/workflow.ts";
+import { tablePart } from "../workshop/rows.ts";
+import type { Actor, EventInput, TablePart, Workflow } from "../workshop/workflow.ts";
 import { HELD, held, verdictOf } from "../workshop/workflow.ts";
 import type { PlanWorkspace } from "../workshop/workspace.ts";
+import { REVIEW_EVENTS, RULES } from "./contract.ts";
+import { REVIEW, SAMPLES, TRANSITIONS } from "./events.ts";
 
 /**
- * The core's own events as its routes send them: what each reads in the queue before it is
- * judged, and how its answer reads the step. The table decides; the answers that stay the
- * route's are the ones the workflow does not hold: a draft it cannot read, questions no answer
- * takes, and a Send with nothing in it (E10).
+ * The review's server half: its part of the table, which the queue puts first, and its events as
+ * its routes send them: what each reads in the queue before it is judged, and how its answer
+ * reads the step. The table decides; the answers that stay the route's are the ones the workflow
+ * does not hold: a draft it cannot read, questions no answer takes, and a Send with nothing in it
+ * (E10).
  */
+
+/** The review's events, rows and transitions, as `next` judges them: first in every table. */
+export const REVIEW_PART: TablePart = tablePart(REVIEW, {
+  events: REVIEW_EVENTS.events,
+  rules: RULES,
+  samples: SAMPLES,
+  transitions: TRANSITIONS,
+  reactions: {},
+});
 
 /**
  * What a gate does with a `plan.md` whose text is the version under review: `record` opens a new

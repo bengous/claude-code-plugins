@@ -35,7 +35,7 @@ folder, and no other:
 
 The tests read the registries, so no suite lists the slices, their regions or their refusals: a
 test that must change for a new slice is a test to fix, and saying so is part of the change. An
-event's id is global across the core and every part: `tableOf` refuses one declared twice, naming
+event's id is global across the review and every part: `tableOf` refuses one declared twice, naming
 both owners, so a slice names its events after itself (`askQuestion`, `answerProposal`), never a
 bare verb another part may take (`wait`, `pause` are the proposal's already).
 
@@ -53,8 +53,10 @@ bare verb another part may take (`wait`, `pause` are the proposal's already).
   glossary's word for what the slice is; the id is the one `contract.ts` declares, which every
   half carries: it is on the wire, the routes' `/api/x/<id>/`, a channel entry's `from`, the
   table's owners and a region's line, so it takes the glossary's word too.
-- An event heard is another slice's, `heard<ItsEvents["name"]>()`, typed by that slice's contract,
-  each field possibly absent; or the core's, `core`, by a name the core has, fields untyped.
+- An event heard is another slice's or the review's, `heard<ItsEvents["name"]>()`, typed by its
+  contract (`src/review/contract.ts` for the review's), each field possibly absent. A share of the
+  Send a slice reads under its id is added to the review's fields where it is heard (`SendWithShare`
+  in `grill/contract.ts`).
 - `RULES` come from `rows(SLICE)`: `refuse(event, id, guard, status, reason)` on an event the slice
   owns or hears, its reason a text or a wording that reads the workflow and the input as its guard
   does, and `whileHeld(event, status, reason)`. They read top to bottom per event: a row

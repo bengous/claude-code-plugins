@@ -1,6 +1,7 @@
+import type { ReviewEvents } from "../../review/contract.ts";
 import type { ProjectPath } from "../../workshop/paths.ts";
 import type { PlugsOf } from "../../workshop/plugs.ts";
-import { core, defineSlice, get, getWith, heard, payload, post } from "../../workshop/plugs.ts";
+import { defineSlice, get, getWith, heard, payload, post } from "../../workshop/plugs.ts";
 import { rows } from "../../workshop/rows.ts";
 import type { ProposalEvents } from "../proposal/contract.ts";
 import { grillIsOpen, namesNoSubject, noGrillIsOpen, openTranscript } from "./grill.ts";
@@ -95,6 +96,9 @@ export type TurnAnswer = {
 /** What the reviewer typed on the open transcript, as the draft keeps it: answers by question id, and the note. */
 export type Typing = { readonly answers: Readonly<Record<string, string>>; readonly note: string };
 
+/** The review's Send as the grill reads it: its fixed fields, and the grill's own share under its id. */
+type SendWithShare = { readonly carries: readonly [...ReviewEvents["send"]["carries"], "grill"] };
+
 // The declaration: the events it owns, those of the others it hears, and where each half plugs in.
 
 export const SLICE = defineSlice({
@@ -110,7 +114,11 @@ export const SLICE = defineSlice({
    * The step's answer, which opens a grill on a grill move; the core's Send, whose part closes the
    * round; the core's approval, which closes the grill.
    */
-  hears: { answerProposal: heard<ProposalEvents["answerProposal"]>(), send: core, approve: core },
+  hears: {
+    answerProposal: heard<ProposalEvents["answerProposal"]>(),
+    send: heard<SendWithShare>(),
+    approve: heard<ReviewEvents["approve"]>(),
+  },
   hooks: {
     tools: ["grill_ask"],
     listens: ["prompted", "answered", "closing"],
