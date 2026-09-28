@@ -12,9 +12,16 @@ import { engineExtensions } from "../../extensions/engine.ts";
 
 const SOURCE = readFileSync(join(import.meta.dir, "register.ts"), "utf8");
 
-/** What each `on("tool.call", …)` writes before its hook's arrow, comments left out: the matcher, then the parameters. */
+/**
+ * What each `on("tool.call", …)` writes before its hook's arrow, comments left out and spaces
+ * folded, so a literal the formatter wrapped over several lines reads as one: the matcher, then
+ * the parameters.
+ */
 const TOOL_CALLS = [...SOURCE.matchAll(/\bon\(\s*"tool\.call",([\s\S]*?)=>/gu)].map((m) =>
-  (m[1] ?? "").replaceAll(/\/\/[^\n]*/gu, "").trim(),
+  (m[1] ?? "")
+    .replaceAll(/\/\/[^\n]*/gu, "")
+    .replaceAll(/\s+/gu, " ")
+    .trim(),
 );
 
 describe("the tool.call hooks of register.ts", () => {
