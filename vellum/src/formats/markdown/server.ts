@@ -1,9 +1,10 @@
 import { isAbsolute, join, normalize, relative, sep } from "node:path";
 
-import type { ServerExtension } from "../../runtime/extension.ts";
+import type { ServerHalf } from "../../runtime/extension.ts";
 import type { DocLink, LinkRoots } from "../../runtime/protocol.ts";
 import { mediaTypeOf } from "../../runtime/protocol.ts";
 import { parseProjectPath } from "../../workshop/paths.ts";
+import type { MarkdownPlugs } from "./contract.ts";
 
 /** A Markdown link target, an `<img src>`, or a path in backticks: the skill lists artifacts by path. */
 const LINK_TARGETS = /(?:\]\(|<img[^>]*\ssrc="|`)([^)"`\s]+)/gu;
@@ -54,4 +55,4 @@ export function linkedDocs(plan: string, roots: LinkRoots): readonly DocLink[] {
   return docs;
 }
 
-export const markdownServer: ServerExtension = { id: "markdown", linkedDocs };
+export const server: ServerHalf<MarkdownPlugs> = { id: "markdown", linkedDocs };

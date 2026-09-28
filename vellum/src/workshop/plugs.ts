@@ -6,7 +6,8 @@ import type { CoreEvent, Events, Heard } from "./rows.ts";
  * What a slice's `contract.ts` declares, and what its halves are typed by: its id, the tools, the
  * engine events, the routes and the tools denied of its hooks half, each route of its server half
  * with what it takes and what it answers, the workflow events it owns and those it hears, what
- * opens it and what its part of a Send carries, and the page slots its page half fills. A contract
+ * opens it and what its part of a Send carries, whether it proposes the documents the plan links,
+ * and the page slots its page half fills. A contract
  * writes it once, as `defineSlice({...})`, and takes its plugs by `PlugsOf<typeof SLICE>`: what it
  * leaves out it does not declare. The hooks module and the page read the plugs as types; the
  * declaration itself, a value, is the server's and the tests'.
@@ -58,6 +59,8 @@ export type Plugs = {
   readonly opened: Json;
   /** What its part of the bar's Send carries to its reaction to `send`; `never` when it has none. */
   readonly sends: Json;
+  /** Whether its server half proposes the documents the plan links. */
+  readonly linkedDocs: boolean;
   readonly page: PageSlot;
 };
 
@@ -200,6 +203,8 @@ export type SliceDecl = {
   readonly opened?: Payload<Json>;
   /** What its part of the bar's Send carries to its reaction to `send`. */
   readonly sends?: Payload<Json>;
+  /** Its server half proposes the documents the plan links, which the server keeps when they exist. */
+  readonly linkedDocs?: true;
   /** The page slots its page half fills. */
   readonly page?: readonly PageSlot[];
 };
@@ -258,5 +263,6 @@ export type PlugsOf<D extends SliceDecl> = {
   readonly hears: HeardOf<D>;
   readonly opened: PayloadOf<D, "opened">;
   readonly sends: PayloadOf<D, "sends">;
+  readonly linkedDocs: D extends { readonly linkedDocs: true } ? true : false;
   readonly page: ListedIn<D, "page">;
 };

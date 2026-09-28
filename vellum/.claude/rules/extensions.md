@@ -9,34 +9,26 @@ paths:
 # Extensions
 
 An extension is a folder, `src/steps/<name>/` for a step Vellum follows or `src/formats/<name>/`
-for a format a document is read in, with one file per place where it plugs into the core: `page.tsx` declares a `PageExtension` (its renderers, its actions in the decision
-bar, its notices under the bar, its panel beside the document pane, placed by `panesOf`),
-`server.ts` a `ServerExtension` (its `linkedDocs`, its routes, its `workflow`, its part of a
-Send, what another extension may `start`). Both types live in `src/runtime/extension.ts`. Its part
-of the workflow is `workflow.ts`, pure: its region (`regionOf`), its events, rows, transitions
-and reaction to the others' events, its segment of the band, and its line in the workflow's
-view (`lineOf`, what `mcp__vellum__state` prints); what the proof of the table reads of its region
-is `walk.ts` beside it, which only the tests load (`slices.md`). The server half hands the part to
-the core with its region's read, and a hooks half
-may import it as types only. A third half, `hooks.ts`, fills a `HooksHalf`
-(`src/runtime/hooks/extension.ts`): tools, refusals, and the engine events the core hands it; its
-segment of the band is its region's, drawn by `workflow.ts` on the server, which sends it on the
-`stage` line.
+for a format a document is read in, and every one is a slice (`slices.md`): its `contract.ts`
+declares it, and a half per runtime it plugs into fills what the declaration says. `page.tsx`
+fills a `PageHalf` (its renderers, its actions in the decision bar, its notices under the bar,
+its panel beside the document pane, placed by `panesOf`), `server.ts` a `ServerHalf` (its
+routes, its part of the workflow, its part of a Send, what opens it, the documents it proposes
+from the plan's links), both typed in `src/runtime/extension.ts`, and `hooks.ts` a `HooksHalf`
+(`src/runtime/hooks/extension.ts`: tools, refusals, and the engine events the core hands it).
+Its part of the workflow is its model, pure and named after its folder: its region
+(`regionOf`), transitions and reactions, its segment of the band, drawn on the server and sent
+on the `stage` line, and its line in the workflow's view (`lineOf`, what `mcp__vellum__state`
+prints); what the proof of the table reads of its region is `walk.ts` beside it, which only the
+tests load. A hooks half may import the model as types only.
 
-- A folder holding `contract.ts` is a slice, read through that file: its messages live there, not
-  in a `protocol.ts`, its hooks half is `hooks.ts` with `hooks.test.ts`, its part of the workflow
-  its model, named after it, and its halves are typed by its declaration. `slices.md` says what
-  differs; a new extension is a slice.
-- Read the code before this text, smallest first: `formats/image/page.tsx` is a whole extension,
-  `formats/markdown/server.ts` a server half, `formats/html/pick.ts` with `pick.spec.ts` a helper and its
-  test. They compile and they are tested, so they cannot drift; copy their shape.
-- To add one: the folder, its halves, and one line per registry (`slices.ts` of `src/runtime/page/`,
-  `src/runtime/server/`, `src/runtime/hooks/`). A half is `export const <name>: PageExtension = { id: "<id>", … }`
-  (or `ServerExtension`), every half of the folder carrying one id no other folder declares. The
-  folder takes the glossary's word; the id is on the wire, in `.review/` file names and in
-  journals, and does not follow it (`steps/agent-review/` is `review`). Nothing else in
-  `src/runtime/` or `src/workshop/` changes; when something must, the core lacks a place to plug into, and that is the change
-  to propose first.
+- Read the code before this text, smallest first: `formats/image/` is a whole slice, a
+  `contract.ts` and a `page.tsx`; `formats/markdown/server.ts` a server half; `formats/html/pick.ts`
+  with `pick.spec.ts` a helper and its test. They compile and they are tested, so they cannot
+  drift; copy their shape.
+- To add one: `slices.md`, in its order. Nothing else in `src/runtime/` or `src/workshop/`
+  changes; when something must, the core lacks a place to plug into, and that is the change to
+  propose first.
 - An extension imports `src/workshop/`, `src/runtime/` and its own folder, never another part's.
   From a runtime's folder it imports, for a half it fills, the files `SURFACES` lists in
   `src/boundaries.spec.ts` (`PAGE_SURFACE` of `src/runtime/page/`, `slice.ts` of
@@ -79,8 +71,8 @@ segment of the band is its region's, drawn by `workflow.ts` on the server, which
   entry reaches Claude through the channel. A round whose asking turn was cut reads paused, its
   `_(turn aborted)_` written at the round's end whoever started the turn (E6, `appendAnswer`), so
   a module that lost its `asked` mark still leaves no round reading as a call that waits.
-- An extension owns its messages: `<folder>/protocol.ts` types what crosses its routes, and
-  `<folder>/parse.ts` is its boundary parser. `src/runtime/protocol.ts` learns nothing of them.
+- An extension owns its messages: its `contract.ts` types what crosses its routes, and its
+  `parse.ts` is its boundary parser. `src/runtime/protocol.ts` learns nothing of them.
   A route's reply has its own name there, which both ends import (`GrillState`, `Block` in
   `grill/contract.ts`): the server half types what it hands to `Response.json`, which takes
   anything (`stateOf` and `blocksOf` in `grill/server.ts`), and the page half casts to that
@@ -113,7 +105,7 @@ segment of the band is its region's, drawn by `workflow.ts` on the server, which
   `\n` alone.
 - An extension with states, rounds or a lifecycle starts with a table, before any code: the
   states, the events, and one owner per fact. The server owns what is allowed and says it
-  through the rows of `workflow.ts`, one table the core assembles; the module owns whether a server and a lock exist; a file owns its content,
+  through the rows of its `contract.ts`, one table the core assembles; the module owns whether a server and a lock exist; a file owns its content,
   and what is read off it: a grill's phase is the server's reading of the transcript (`phaseOf`),
   handed to the page in `GET state`, never derived again from the blocks.
   A fact with two owners drifts at the first reload.

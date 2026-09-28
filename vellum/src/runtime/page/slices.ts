@@ -1,6 +1,6 @@
-import { htmlPage } from "../../formats/html/page.tsx";
-import { imagePage } from "../../formats/image/page.tsx";
-import { markdownPage } from "../../formats/markdown/page.tsx";
+import { page as htmlPage } from "../../formats/html/page.tsx";
+import { page as imagePage } from "../../formats/image/page.tsx";
+import { page as markdownPage } from "../../formats/markdown/page.tsx";
 import { page as reviewPage } from "../../steps/agent-review/page.tsx";
 import { page as grillPage } from "../../steps/grill/page.tsx";
 import { page as stepPage } from "../../steps/proposal/page.tsx";

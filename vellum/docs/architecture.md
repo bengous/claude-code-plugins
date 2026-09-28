@@ -329,8 +329,8 @@ constraints below are why. The contract is `src/runtime/extension.ts`, types onl
 
 | Half | File | Declares | Reached from |
 |---|---|---|---|
-| page | `<folder>/page.tsx` | a `PageExtension`: its renderers, tried in registry order, its actions in the decision bar, its notices under it, its panel, a pane `panesOf` places beside the document pane, and its share of the Send | `runtime/page/app.tsx`, through `runtime/page/slices.ts` |
-| server | `<folder>/server.ts` | a `ServerExtension`: `linkedDocs`, pure, candidates in and links out; its routes, mounted at `/api/x/<id>/`, their IO through a `ServerContext`, each change an event they `dispatch`; its `workflow` (from `<folder>/workflow.ts`: its region, events, rows, transitions, its reaction to the others' events, its segment of the band and its line in the view); `part`, its part of the bar's Send | `runtime/server/http/serve.ts`, through `runtime/server/slices.ts` |
+| page | `<folder>/page.tsx` | a `PageHalf`, a `PageExtension` as it is: its renderers, tried in registry order, its actions in the decision bar, its notices under it, its panel, a pane `panesOf` places beside the document pane, and its share of the Send | `runtime/page/app.tsx`, through `runtime/page/slices.ts` |
+| server | `<folder>/server.ts` | a `ServerHalf`, which `serverExtension` makes a `ServerExtension`: `linkedDocs`, pure, candidates in and links out; its routes, mounted at `/api/x/<id>/`, their IO through a `ServerContext`, each change an event they `dispatch`; its `workflow` (from `<folder>/workflow.ts`: its region, events, rows, transitions, its reaction to the others' events, its segment of the band and its line in the view); `part`, its part of the bar's Send | `runtime/server/http/serve.ts`, through `runtime/server/slices.ts` |
 | hooks | `<folder>/hooks.ts` | a `HooksHalf`: tools, a tool's wait for the reviewer and the entries it returns, refusals, and handlers for a prompt, a finished turn, a spawned agent's answer, a `stage` line and the mode's end | `runtime/hooks/register.ts`, through `runtime/hooks/slices.ts` |
 
 `src/boundaries.spec.ts` holds the layout: an extension imports `workshop/`, `runtime/` and its
@@ -342,7 +342,7 @@ half, every half carries the id its folder declares, and its registry names it. 
 `formats/html/frame.ts` by its path, because a server half cannot hand the core a script
 yet.
 
-A folder holding `contract.ts` is a slice, the shape proposed for every extension: read through
+Every extension is a slice: read through
 one declaration, `defineSlice` (`src/workshop/plugs.ts`), whose plugs type its halves `hooks.ts`,
 `server.ts` and `page.tsx` (`HooksHalf`, `ServerHalf`, `PageHalf`), which the registries fold into
 the three types above (`engineExtension`, `serverExtension`); its rows are built from that

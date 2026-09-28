@@ -15,7 +15,7 @@ paths:
 
 # Slices
 
-A folder of `src/steps/` or `src/formats/` that holds `contract.ts` is a slice: another folder imports that file
+Every folder of `src/steps/` and `src/formats/` is a slice, read through its `contract.ts`: another folder imports that file
 and nothing else of it, but for the registries, which take its halves, and for another slice, which
 imports it with `import type`. `extensions.md` holds for a slice but where this page says otherwise.
 What a contract says is checked, a type by `tsgo`, a half by `src/slices.spec.ts`, a row by
@@ -41,9 +41,11 @@ bare verb another part may take (`wait`, `pause` are the step's already).
 - `contract.ts` holds the wire, the types crossing `/api/x/<id>/`, and one declaration,
   `export const SLICE = defineSlice({...})` (`workshop/plugs.ts`): the id, the events it owns with their
   senders and the fields each carries, the events of the others it hears, the hooks half's tools,
-  listeners, posted routes and denied tools, each route as `get<Answer>()`, `getWith<Query,
-  Answer>()` or `post<Body, Answer>()`, what opens it (`opened: payload<T>()`), what its Send part
-  carries (`sends`), its page slots. What it leaves out it does not declare. Its plugs are
+  listeners, routes it posts and reads, and denied tools, each route as `get<Answer>()`,
+  `getWith<Query, Answer>()` or `post<Body, Answer>()`, what opens it (`opened: payload<T>()`),
+  what its Send part carries (`sends`), whether it proposes the documents the plan links
+  (`linkedDocs: true`), its page slots. What it leaves out it does not declare, and its halves
+  fill nothing it leaves out: a format's server half takes no route and no workflow. Its plugs are
   `PlugsOf<typeof SLICE>`, which every half is typed by; then `RULES`.
 - A slice's id, its events and its tools take the words of `vellum/CONTEXT.md`, the glossary: a
   word it lists under `_Avoid_` or gives another meaning is not a name. The folder takes the
@@ -53,7 +55,8 @@ bare verb another part may take (`wait`, `pause` are the step's already).
 - An event heard is another slice's, `heard<ItsEvents["name"]>()`, typed by that slice's contract,
   each field possibly absent; or the core's, `core`, by a name the core has, fields untyped.
 - `RULES` come from `rows(SLICE)`: `refuse(event, id, guard, status, reason)` on an event the slice
-  owns or hears, and `whileHeld(event, status, reason)`. They read top to bottom per event: a row
+  owns or hears, its reason a text or a wording that reads the workflow and the input as its guard
+  does, and `whileHeld(event, status, reason)`. They read top to bottom per event: a row
   above the event's `whileHeld` row is judged before the hold, one below it after, an event with no
   `whileHeld` row passes a hold, and a row on another's event is judged after all of that one's. A
   row's id is what the journal records; its status is what its routes answer: 404, a name that is
@@ -85,9 +88,10 @@ bare verb another part may take (`wait`, `pause` are the step's already).
   its parser (`BODIES` of `parse.ts`) refuses is a 400 before it runs. `context.dispatch` takes the
   slice's own events, with what each carries, and sends each as its declared sender.
   `context.start<ItsPlugs>(id, input)` opens another slice with what its contract says opens it.
-- The hooks half posts through `context.post(route, body)` and gets a `Posted`: the route's declared
-  answer, read by its parser in `ANSWERS` of `parse.ts` (`null` for a route that answers nothing),
-  or the status, the text and the refusal's reason.
+- The hooks half posts through `context.post(route, body)` and reads through `context.get(route)`,
+  each answering a `Posted`: the route's declared answer, read by its parser in the half's
+  `answers` (`null` for a route that answers nothing), or the status, the text and the refusal's
+  reason.
 - A tool that waits for the reviewer hands `context.waitFor` a `Hold`: the mark it waits on, the
   route and body to post, how many attempts a failed post gets, and `settle`, what the call
   returns once the wait ends (`null` while it is open); `awaits: "own"` holds its slice's text
@@ -96,8 +100,9 @@ bare verb another part may take (`wait`, `pause` are the step's already).
   `runtime/server/slice.ts`, reading where it stands off its file with `waitedOn`, and its model
   keeps the wait with `waitAfter` and `waitOn` of `workshop/waits.ts`, the id under the
   region's `data.pending`.
-- The pure model is named after the slice: its region, one transition per event (`Transitions`),
-  the guards, `SAMPLES` per event (`Samples`), `REACTIONS` to the events it hears (`Reactions`), its
+- The pure model is named after the folder: its region, one transition per event (`Transitions`),
+  the guards, `SAMPLES` per event (`Samples`), `REACTIONS` to the events it hears (`Reactions`), the
+  events that end a hold without a verdict (`EndsWithoutVerdict`), which the notice reads, its
   segment and its line.
 - `walk.ts` beside it exports `WALK` (`WalkOf` of `runtime/extension.ts`), what the proof of the table
   reads of the region: the empty region, what tells two regions apart, its bounds, the call a wait

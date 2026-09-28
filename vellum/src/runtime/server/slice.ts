@@ -8,6 +8,7 @@ import type {
   ErasedHandler,
   ErasedServerParts,
   ErasedSliceContext,
+  LinkedDocs,
   Reply,
   Route,
   ServerContext,
@@ -15,6 +16,7 @@ import type {
   ServerHalf,
   SliceDispatched,
   SliceVerdict,
+  SliceWorkflow,
 } from "../extension.ts";
 
 /**
@@ -69,8 +71,10 @@ function senderOf(declared: Events, event: string, by: Actor | undefined): Actor
   return sender;
 }
 
-/** The status of the row `rule` of `event`, as the slice's own part declares it. */
-function statusOf(part: TablePart, event: string, rule: string): RefusalStatus {
+/** The status of the row `rule` of `event`, as the slice's own part declares it; with none, the rule is another's. */
+function statusOf(part: TablePart | null, event: string, rule: string): RefusalStatus {
+  if (part === null) return FOREIGN;
+
   if (rule === HELD) {
     const held = part.events.find(({ id }) => id === event)?.whileHeld;
 
@@ -80,7 +84,7 @@ function statusOf(part: TablePart, event: string, rule: string): RefusalStatus {
   return part.rules.find((row) => row.event === event && row.id === rule)?.status ?? FOREIGN;
 }
 
-function verdictOf(part: TablePart, event: string, { verdict }: Dispatched): SliceVerdict {
+function verdictOf(part: TablePart | null, event: string, { verdict }: Dispatched): SliceVerdict {
   return verdict.kind === "allow"
     ? verdict
     : { ...verdict, status: statusOf(part, event, verdict.rule) };
@@ -89,7 +93,7 @@ function verdictOf(part: TablePart, event: string, { verdict }: Dispatched): Sli
 function sliceContext(
   context: ServerContext,
   declared: Events,
-  part: TablePart,
+  part: TablePart | null,
 ): ErasedSliceContext {
   return {
     ...context,
@@ -165,26 +169,38 @@ function partsOf(
   return extension;
 }
 
+/** What `ServerExtension` takes of the half's own: its routes, its part of the workflow, its linked documents, each when it has them. */
+type Owned = Pick<ServerExtension, "routes" | "workflow" | "linkedDocs">;
+
 export function serverExtension<P extends Plugs>(half: ServerHalf<P>): ServerExtension {
-  const handlers: { readonly [route: string]: ErasedHandler } = half.routes;
-  const bodies: { readonly [route: string]: Parser<Json> } = half.bodies;
+  const handlers: { readonly [route: string]: ErasedHandler } | undefined = half.routes;
+  const bodies: { readonly [route: string]: Parser<Json> } | undefined = half.bodies;
+  const workflow: SliceWorkflow<P["events"], P["hears"]> | undefined = half.workflow;
+  const linkedDocs: LinkedDocs | undefined = half.linkedDocs;
   const parts: ErasedServerParts = half;
-  const { region, segment, line } = half.workflow;
-  const part = tablePart(half.id, half.workflow);
+  const part = workflow === undefined ? null : tablePart(half.id, workflow);
 
   const bound = (context: ServerContext): ErasedSliceContext =>
-    sliceContext(context, half.workflow.events, part);
+    sliceContext(context, workflow?.events ?? {}, part);
 
-  return {
-    id: half.id,
-    routes: (context) =>
+  const owned: { -readonly [Key in keyof Owned]?: Owned[Key] } = {};
+
+  if (handlers !== undefined) {
+    owned.routes = (context) =>
       Object.fromEntries(
         Object.entries(handlers).map(([key, handler]): [string, Route] => [
           key,
-          routeOf(key, handler, bodies[key], bound(context)),
+          routeOf(key, handler, bodies?.[key], bound(context)),
         ]),
-      ),
-    ...partsOf(parts, bound),
-    workflow: { ...part, region, segment, line },
-  };
+      );
+  }
+
+  if (workflow !== undefined && part !== null) {
+    const { region, segment, line } = workflow;
+    owned.workflow = { ...part, region, segment, line };
+  }
+
+  if (linkedDocs !== undefined) owned.linkedDocs = linkedDocs;
+
+  return { id: half.id, ...owned, ...partsOf(parts, bound) };
 }

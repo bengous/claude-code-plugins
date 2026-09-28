@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "preact/hooks";
 
-import type { RendererProps, PageExtension } from "../../runtime/extension.ts";
+import type { PageHalf, RendererProps } from "../../runtime/extension.ts";
 import { docUrl } from "../../runtime/page/api.ts";
 import { Composer } from "../../runtime/page/composer.tsx";
 import { srgb } from "../../runtime/page/kit.tsx";
@@ -17,6 +17,7 @@ import {
 } from "../../runtime/page/state.ts";
 import type { ElementRef } from "../../runtime/protocol.ts";
 import { choicesIn } from "../../runtime/protocol.ts";
+import type { HtmlPlugs } from "./contract.ts";
 import type { Chosen, CommentedPlace, FrameTheme, PageToFrame, PickBox } from "./messages.ts";
 import { parseFrameToPage } from "./parse.ts";
 
@@ -175,7 +176,7 @@ function HtmlDoc(props: RendererProps): preact.JSX.Element {
   );
 }
 
-export const htmlPage: PageExtension = {
+export const page: PageHalf<HtmlPlugs> = {
   id: "html",
   renderers: [{ accepts: (doc) => doc.mediaType === "text/html", component: HtmlDoc }],
 };
