@@ -80,6 +80,14 @@ bare verb another part may take (`wait`, `pause` are the step's already).
 - The hooks half posts through `context.post(route, body)` and gets a `Posted`: the route's declared
   answer, read by its parser in `ANSWERS` of `parse.ts` (`null` for a route that answers nothing),
   or the status, the text and the refusal's reason.
+- A tool that waits for the reviewer hands `context.waitFor` a `Hold`: the mark it waits on, the
+  route and body to post, how many attempts a failed post gets, and `settle`, what the call
+  returns once the wait ends (`null` while it is open); `awaits: "own"` holds its slice's text
+  entries for it. `answered` reads the mark back with `context.unanswered()` when the turn was cut
+  before the wait ended. The server half answers that wait with `heldWait` of
+  `core/server/slice.ts`, reading where it stands off its file with `waitedOn`, and its model
+  keeps the wait with `waitAfter` and `waitOn` of `core/server/domain/waits.ts`, the id under the
+  region's `data.pending`.
 - The pure model is named after the slice: its region, one transition per event (`Transitions`),
   the guards, `SAMPLES` per event (`Samples`), `REACTIONS` to the events it hears (`Reactions`), its
   segment and its line.

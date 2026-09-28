@@ -7,6 +7,7 @@ import type {
   Transitions,
 } from "../../core/server/domain/rows.ts";
 import { naming } from "../../core/server/domain/rows.ts";
+import { waitAfter, waitOn } from "../../core/server/domain/waits.ts";
 import type {
   Effect,
   Outcome,
@@ -121,9 +122,8 @@ export function regionOf(file: StepFile | null, before: Region | null = null): R
   const data = dataOf(known);
 
   if (known.pending === null) return { id: STEP, state: "closed", data };
-  const same = before?.state === "open" && before.data.pending === known.pending.id;
 
-  return { id: STEP, state: "open", holds: null, wait: same ? before.wait : "paused", data };
+  return { id: STEP, state: "open", holds: null, wait: waitAfter(before, known.pending.id), data };
 }
 
 /** The proposal waiting now, `null` with none. */
@@ -162,14 +162,6 @@ function placed(w: Workflow, file: StepFile, wait: Wait | null): Workflow {
 
 function written(file: StepFile): Effect {
   return { kind: "writeFile", owner: STEP, file: STEP_FILE, text: `${JSON.stringify(file)}\n` };
-}
-
-function waitOn(w: Workflow, id: string, wait: Wait): Outcome {
-  const region = regionIn(w, STEP);
-
-  if (region.state !== "open" || region.data.pending !== id) return unchanged(w);
-
-  return { workflow: withRegion(w, { ...region, wait }), effects: [] };
 }
 
 /** A newer proposal replaces the one waiting, and Claude's call waits on it. */
@@ -216,8 +208,8 @@ function answerProposal(w: Workflow, input: Carried<StepEvents, "answerProposal"
 
 export const TRANSITIONS: Transitions<StepEvents> = {
   propose,
-  wait: (w, input) => waitOn(w, input.id, "open"),
-  pause: (w, input) => waitOn(w, input.id, "paused"),
+  wait: (w, input) => waitOn(w, STEP, input.id, "open"),
+  pause: (w, input) => waitOn(w, STEP, input.id, "paused"),
   answerProposal,
 };
 

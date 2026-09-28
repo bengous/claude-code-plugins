@@ -1,53 +1,36 @@
 import type {
-  HooksContext,
   HooksHalf,
   HooksTool,
   ToolAnswer,
+  ToolCallContext,
 } from "../../core/engine/extension.ts";
-import type { Live } from "../../core/engine/mode.ts";
 import type { StepPlugs } from "../step/contract.ts";
-import type { GrillPlugs } from "./contract.ts";
+import type { GrillPlugs, Waited } from "./contract.ts";
 import { ANSWERS, ASK_TOOL, NO_GRILL_OPEN, parseQuestions } from "./parse.ts";
-
-type Context = HooksContext<GrillPlugs>;
 
 /** `step`'s tool, the one way to a grill: its name held to the step's contract, since a hooks half loads its own folder alone. */
 const PROPOSE_TOOL: `mcp__vellum__${StepPlugs["hooks"]["tools"]}` = "mcp__vellum__propose";
-
-/** The modes whose running turn asked a round no answer came back to: its text goes with that round, before a reply sent meanwhile. */
-const askedIn = new WeakSet<Live>();
 
 const CLOSED_WITHOUT_SEND =
   "The round was closed from the page: what the reviewer sent arrives as a prompt. End your turn.";
 
 /**
- * Holds the call until the round closes, one `POST wait` in flight at a time: the engine cuts
- * each at 30 s and counts no hook time while one is out (`docs/plugin-testing/hook-runtime.md`).
- * A Send that closes the round comes back as the result, under its entry's number; a round
- * closed without one comes back as a prompt. A wait that fails throws: the core's `.catch`
- * answers Claude, and what the round gets reaches it through the channel.
+ * What the call returns once its round closes: the Send that closed it, under its entry's number;
+ * a round closed without one says its answers come as a prompt.
  */
-async function waitFor(context: Context, file: string, first: number): Promise<ToolAnswer> {
-  for (;;) {
-    const posted = await context.post("POST wait", { file, first });
-
-    if (!posted.ok) {
-      throw new Error(`POST wait answered ${posted.status}: ${posted.text.slice(0, 200)}`);
-    }
-
-    const waited = posted.answer;
-
-    if (waited.kind === "open") continue;
-    askedIn.delete(context.live);
-
-    return waited.kind === "ended"
-      ? { result: CLOSED_WITHOUT_SEND }
-      : { result: waited.text, returns: waited.seq };
+function settled(waited: Waited): ToolAnswer | null {
+  switch (waited.kind) {
+    case "open":
+      return null;
+    case "ended":
+      return { result: CLOSED_WITHOUT_SEND };
+    case "answered":
+      return { result: waited.text, returns: waited.seq };
   }
 }
 
 /** Kept small on purpose: a tool's schema rides in every request. */
-const ASK: HooksTool<Context> = {
+const ASK: HooksTool<ToolCallContext<GrillPlugs>> = {
   description:
     "Ask one round of the open grill of a vellum planning session, and wait: the reviewer answers in the review page, and their reply is this call's result. q: one [title, question, recommendation] per question; title is one line of plain text, question and recommendation are Markdown; the page numbers them across the whole grill. Refused outside vellum planning, and when no grill is open: only the reviewer opens one, from the next step you propose or on their own. While a grill is open you may still write plan.md: it waits, and a prompt tells you once the grill ends.",
   inputSchema: {
@@ -75,10 +58,16 @@ const ASK: HooksTool<Context> = {
     const posted = await context.post("POST ask", { q });
 
     if (posted.ok) {
-      askedIn.add(context.live);
-      context.waiting();
+      const { file, first } = posted.answer;
 
-      return await waitFor(context, posted.answer.file, posted.answer.first);
+      // A wait that fails throws at once: what the round gets reaches Claude through the channel.
+      return await context.waitFor({
+        mark: file,
+        route: "POST wait",
+        body: { file, first },
+        attempts: 1,
+        settle: settled,
+      });
     }
 
     if (posted.reason === NO_GRILL_OPEN) {
@@ -105,7 +94,7 @@ export const hooks: HooksHalf<GrillPlugs> = {
     }
   },
   answered: async (context, turn) => {
-    const asked = askedIn.delete(context.live);
+    const asked = context.unanswered() !== undefined;
     await context.post("POST answer", { ...turn, asked });
   },
   closing: async (context) => {

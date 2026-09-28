@@ -1,9 +1,11 @@
 import type { Reply, ServerContext, ServerHalf, SliceContext } from "../../core/extension.ts";
 import type { PlanWorkspace } from "../../core/protocol.ts";
+import { waitedOn } from "../../core/server/domain/waits.ts";
 import { regionIn } from "../../core/server/domain/workflow.ts";
 import { projectPath } from "../../core/server/domain/workspace.ts";
+import { heldWait } from "../../core/server/slice.ts";
 import type { GrillPlugs } from "../grill/contract.ts";
-import type { Proposed, StepPlugs, StepWaited } from "./contract.ts";
+import type { Proposed, StepPlugs } from "./contract.ts";
 import { RULES, SLICE } from "./contract.ts";
 import { BODIES, parseJson, parseStepFile } from "./parse.ts";
 import type { StepFile } from "./proposal.ts";
@@ -46,17 +48,6 @@ async function readStep(
   return file;
 }
 
-/** Where the proposal `id` stands, as `step.json` says it: waiting, answered, dropped and why, or unknown. */
-function waitedOn(file: StepFile | null, id: string): StepWaited {
-  if (file?.pending?.id === id) return { kind: "open" };
-
-  if (file?.answered?.id === id) {
-    return { kind: "answered", seq: file.answered.seq, text: file.answered.text };
-  }
-
-  return file?.dropped?.id === id ? { kind: "ended", why: file.dropped.why } : { kind: "gone" };
-}
-
 export const server: ServerHalf<StepPlugs> = {
   id: "step",
   bodies: BODIES,
@@ -83,21 +74,14 @@ export const server: ServerHalf<StepPlugs> = {
       return verdict.kind === "allow" ? { answer: proposed } : { refused: verdict };
     },
 
-    // A repost while Claude's call already waits is a keepalive: no step, no journal line (E4).
-    "POST wait": async (context, { id }) => {
-      const region = (await context.workflow()).regions.find((one) => one.id === STEP);
-
-      if (region?.state === "open" && region.data.pending === id && region.wait !== "open") {
-        await context.dispatch("wait", { id });
-      }
-
-      const waited = await context.hold(
-        () => context.inOrder(async () => waitedOn(await readStep(context), id)),
-        ({ kind }) => kind === "open",
-      );
-
-      return { answer: waited };
-    },
+    "POST wait": (context, { id }) =>
+      heldWait(
+        context,
+        STEP,
+        id,
+        () => context.dispatch("wait", { id }),
+        async () => waitedOn(await readStep(context), id),
+      ),
 
     // Claude's turn was cut while its call waited: nothing claims the pick now, which goes as a prompt.
     "POST pause": async (context, { id }) => {

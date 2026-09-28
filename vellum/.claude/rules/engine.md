@@ -186,17 +186,20 @@ loop. `/vellum:start` enters it, Approve in the page or `/vellum:stop` leaves it
   arrives on the server's stdout and is handed to the session by `$.prompt.submit`, which,
   called while a turn runs, resolves once that prompt's own turn starts: the relays run in a
   queue of their own, never in the loop that reads the child.
-- A tool call may wait for the reviewer instead (`grill_ask`, `propose`): it keeps one `$.http.fetch` in
+- A tool call may wait for the reviewer instead: a slice's tool hands `waitFor` of its context a
+  `Hold` (`core/engine/slice.ts`), which keeps one `$.http.fetch` in
   flight at all times, each held by the server under the engine's 30 s cut, so the budget never
   runs (a promise awaited alone overruns it). It says `waiting` on its `ToolContext`, and from
-  then on the tenure's follower holds every entry its tool `awaits` (`claim` in `relay.ts`)
+  then on the tenure's follower holds every entry its tool `awaits` (`claim` in `relay.ts`;
+  `"own"`: its own slice's text entries)
   until the call ends: an entry the call returned (`ToolAnswer.returns`, marked unless Escape
   aborted the call as it answered) is never relayed, and the others go once the call ended. The
   hold is what keeps one Send from reaching Claude twice: its line on stdout and the server's
   answer to the wait come by two paths, in either order. After Escape the call's `$` fail, its
-  wait ends, and what it held goes through the channel. A failed wait is asked once more at
-  once, no pause, so a `$` call stays in flight and the budget never runs: after a crash that
-  second one usually reaches the revived server, whose `gone` tells Claude to propose again.
+  wait ends, and what it held goes through the channel. A failed wait is asked again at once,
+  no pause, while the `Hold`'s `attempts` allow it, so a `$` call stays in flight and the budget
+  never runs: after a crash that second one usually reaches the revived server, whose `gone`
+  tells Claude to ask again. The last failure throws, and the `.catch` answers.
 - Everything the reviewer sends reaches Claude as an entry of the channel,
   `.review/channel.jsonl`, numbered by its line (`server.md`). One follower per session in a
   module's environment relays each entry once and in order (`follow` in `relay.ts`): it belongs to
@@ -250,8 +253,8 @@ loop. `/vellum:start` enters it, Approve in the page or `/vellum:stop` leaves it
   half's `approved`, so a suspended module leaves nothing open on disk.
 - The module keeps no copy of what holds the review. A gate the server refuses is the refusal
   it already reads: `submit` denies with the server's reason, and the turn's end says nothing.
-  Every refusal of a vellum tool carries its row's reason as the server words it (A8): `propose`
-  as it comes, `grill_ask` followed by the way to a grill.
+  Every refusal of a vellum tool carries its row's reason as the server words it (A8), as it
+  comes, unless its slice adds the way on (the grill's names the tool that proposes one).
 - `turn.start` carries no origin (`TurnStartInput` is a text and a turn id), so whose turn it
   is comes from `prompt.submit`, through `turn.ts`: `prompt.submit` notes the last prompt that
   entered with its origin, before `next(e)`; `turn.start` takes the note, and the turn is
@@ -264,17 +267,17 @@ loop. `/vellum:start` enters it, Approve in the page or `/vellum:stop` leaves it
   enter while a turn runs; each is a union of its own, never a nullable. `register.ts` resets
   it wherever the mode leaves `live` (approval, `/vellum:stop`, the `/clear` and `/resume`
   suspension, a revival) and ignores it outside `live`.
-- An engine half may know a fact of the running turn the server cannot read off its file; it
-  keeps it in memory, keyed by the mode's `Live`: `grill` marks the turn whose `grill_ask` the
-  server took and no answer came back to (`askedIn`, a `WeakSet` in `grill/hooks.ts`) and clears
-  the mark at `answered`, which posts it as `asked`, so the text of a turn cut short is written
-  with its round even after a reply the reviewer sent meanwhile. A reload between the two loses
-  the mark: the text then goes where a turn that asked nothing writes it, and the server still
-  marks the round cut (E6). `step` marks the proposal its call waits on and heard nothing back
-  for (`waitedOn`), takes the mark at every `answered`, and posts `pause` for it when the turn was
-  `aborted`: never from the `tool.call` Escape cut, whose `$` fail. A revival, a new `Live`, loses
-  the mark too: the revived server reads the proposal paused, unless the call's wait reached it
-  again, and then only the page's Paused goes missing, the pick still reaching Claude once.
+- A fact of the running turn the server cannot read off its file is a wait's mark: what the
+  call waits on (the `Hold`'s `mark`), kept by the core in memory, per half and keyed by the
+  mode's `Live`, from the call's start until its wait ends. The half's `answered` takes it
+  (`unanswered` of its context), so a turn cut short while its call waited says so: the grill
+  posts it as `asked`, and the text of that turn is written with its round even after a reply
+  the reviewer sent meanwhile; the step posts `pause` for it when the turn was `aborted`, never
+  from the `tool.call` Escape cut, whose `$` fail. A reload or a revival, a new `Live`, loses
+  the mark: the grill's text then goes where a turn that asked nothing writes it, and the server
+  still marks the round cut (E6); the revived server reads the proposal paused, unless the
+  call's wait reached it again, and then only the page's Paused goes missing, the pick still
+  reaching Claude once.
 - Every miss of `turn.ts` falls on one side, a turn whose text is written nowhere: a reload
   between the hooks, a text a hook beneath rewrote, and the known one, a relay and a typed
   prompt that wait together, which leave one note, the last. It is one note and never a
