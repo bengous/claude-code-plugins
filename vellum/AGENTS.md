@@ -32,10 +32,10 @@ src/core/page/                 the Preact page
 src/extensions/<id>/           one extension, a file per place it plugs in: page.tsx, server.ts, engine.ts;
                                its own messages in protocol.ts, its boundary in parse.ts, its region, events,
                                rules and transitions in workflow.ts
-src/extensions/step/, grill/   slices: each read through contract.ts (its wire, events, plugs and rows), its
-                               halves hooks.ts, server.ts, page.tsx typed by its plugs, its model named after
-                               it (proposal.ts, grill.ts)
+src/extensions/<id>/contract.ts  a slice: the folder read through one declaration (defineSlice) and its rows;
+                               its halves hooks.ts, server.ts, page.tsx typed by it, its model named after it
 src/extensions/page.ts, server.ts, engine.ts  the three registries, the only way the core reaches an extension
+src/extensions/walk.ts         the proof of the table: each part's region walked alone, then each pair that meets
 ```
 
 Dependencies point toward `src/core/server/domain/`, held by `src/boundaries.spec.ts`. The rules of each

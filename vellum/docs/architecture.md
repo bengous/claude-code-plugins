@@ -13,7 +13,7 @@ flowchart LR
   subgraph engine["Claude Code (the engine)"]
     CC["the session<br/>/vellum:start · mcp__vellum__submit · mcp__vellum__state · mcp__vellum__propose · mcp__vellum__grill_ask · /vellum:stop"]
     M["src/core/engine/<br/>register.ts · mode.ts: idle · live"]
-    E["src/extensions/*/engine.ts<br/>grill, step: tools, refusals · review: a spawned agent and its answer"]
+    E["src/extensions/*/engine.ts, hooks.ts<br/>tools, refusals, a spawned agent and its answer"]
     CC -- "session.start · skill.prompt · command.run<br/>tool.check · tool.call · prompt.submit · turn.complete" --> M
     M -- "$.prompt.submit<br/>deny / result / text" --> CC
     M -- "every event, a Host, never $" --> E
@@ -28,7 +28,7 @@ flowchart LR
   end
   subgraph page["Browser page (Preact, bundled by Bun.serve)"]
     U["src/core/page/*<br/>list · decision bar · comments · anchoring"]
-    P["src/extensions/*/page.tsx<br/>markdown · html · image · grill · step · review"]
+    P["src/extensions/*/page.tsx<br/>renderers, actions, notices, panels"]
     U --> P
   end
   M -- "HTTP /api/*<br/>x-vellum-token" --> R
@@ -126,7 +126,7 @@ sequenceDiagram
   S-->>P: workspace event, the "Next step" window over the page, or the Next step button's dot under a typing
   P->>S: POST /api/x/step/answer {id, answer}: a move picked, one of the reviewer's own, or their words
   S->>S: a grill picked: ServerContext.start("grill") words its opening, writing nothing
-  S->>S: one step: next() judges answerProposal, the grill's rows included, and answers the effects
+  S->>S: one step: next() judges answerProposal, the step's hold row refusing it while a grill is open, and answers the effects
   S->>S: one text entry on the channel: "Accepted: <move>." | "Chose: <move>." | "Own: <text>.", the opening after it; the grill's reaction writes grill-1.md, its header
   S-->>M: stdout: the entry, held by the follower while propose waits
   S-->>M: the wait's answer: the entry's number and its text
@@ -321,9 +321,8 @@ goes, and a renderer's own choice stays beside its `page.tsx`.
 
 ## Extensions
 
-`markdown`, `html`, `image`, `grill`, `step` and `review` are extensions, and so is whatever comes next
-(`advisor`): a folder under `src/extensions/`, with one file per place where it plugs into the
-core. The contract's client is the next agent that writes one, not a third party; the engine
+An extension is a folder under `src/extensions/`, with one file per place where it plugs into the
+core; the registries list them. The contract's client is the next agent that writes one, not a third party; the engine
 constraints below are why. The contract is `src/core/extension.ts`, types only, and
 `src/core/engine/extension.ts` for the engine half, types only, and the three registries are
 `src/extensions/page.ts`, `server.ts` and `engine.ts`: read them rather than a copy here.
@@ -343,11 +342,12 @@ registry names it. One exception is left, marked TODO in `serve.ts`: the server 
 `extensions/html/frame.ts` by its path, because a server half cannot hand the core a script
 yet.
 
-`step` and `grill` are slices, the shape proposed for every extension: each read through its `contract.ts`,
-whose plugs (`src/core/plugs.ts`) type its halves `hooks.ts`, `server.ts` and `page.tsx`
-(`HooksHalf`, `ServerHalf`, `PageHalf`), which the registries fold into the three types above
-(`engineExtension`, `serverExtension`); its rows are built from its events by
-`core/server/domain/rows.ts`. `.claude/rules/slices.md` says the rest.
+A folder holding `contract.ts` is a slice, the shape proposed for every extension: read through
+one declaration, `defineSlice` (`src/core/plugs.ts`), whose plugs type its halves `hooks.ts`,
+`server.ts` and `page.tsx` (`HooksHalf`, `ServerHalf`, `PageHalf`), which the registries fold into
+the three types above (`engineExtension`, `serverExtension`); its rows are built from that
+declaration by `core/server/domain/rows.ts`. `extensions/slices.spec.ts` holds each half to the
+declaration at run time. `.claude/rules/slices.md` says the rest.
 
 ### What the engine allows
 

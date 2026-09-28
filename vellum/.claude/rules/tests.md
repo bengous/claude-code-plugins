@@ -99,8 +99,8 @@ paths:
   the gate, so the day the type loosens the suite says so. `grill/server.spec.ts` holds two:
   the body of `close`, the reply to `open`. `core/page/kit.spec.ts` holds the kit's: a component
   is a function, so a suite calls it with props and reads the vnode it returns, with no DOM.
-  `step/contract.spec.ts` and `grill/contract.spec.ts` hold what a slice's plugs refuse
-  (`slices.md`). The
+  A slice's `contract.spec.ts` holds what its plugs refuse (`slices.md`), and
+  `extensions/slices.spec.ts` what the compiler cannot see: a half built through a variable. The
   directive sits on a line that also runs, so the test says what the refused code would do.
 - `src/boundaries.spec.ts` holds the dependency direction; an import that fails it is in the
   wrong layer, not a test to loosen.
