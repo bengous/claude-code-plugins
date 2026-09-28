@@ -4,6 +4,7 @@ paths:
   - "src/formats/**"
   - "src/runtime/*/slices.ts"
   - "src/runtime/extension.ts"
+  - "src/review/surface.ts"
 ---
 
 # Extensions

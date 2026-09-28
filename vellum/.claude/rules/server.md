@@ -2,6 +2,15 @@
 paths:
   - "src/runtime/server/**"
   - "src/runtime/protocol.ts"
+  - "src/review/contract.ts"
+  - "src/review/events.ts"
+  - "src/review/server.ts"
+  - "src/review/routes.ts"
+  - "src/review/draft.ts"
+  - "src/review/parse.ts"
+  - "src/review/review.ts"
+  - "src/review/feedback.ts"
+  - "src/review/diff.ts"
 ---
 
 # The server

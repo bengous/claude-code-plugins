@@ -10,6 +10,8 @@ paths:
   - "src/workshop/plugs.ts"
   - "src/workshop/rows.ts"
   - "src/workshop/waits.ts"
+  - "src/review/contract.ts"
+  - "src/review/events.ts"
   - "src/runtime/hooks/slice.ts"
   - "src/runtime/server/slice.ts"
 ---

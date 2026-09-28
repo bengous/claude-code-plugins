@@ -2,6 +2,7 @@
 paths:
   - "hooks/**"
   - "src/runtime/hooks/**"
+  - "src/review/hooks.ts"
 ---
 
 # The hooks module
