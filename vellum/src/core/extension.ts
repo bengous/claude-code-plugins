@@ -1,5 +1,6 @@
 import type { ComponentType } from "preact";
 
+import type { AnswerOf, BodyOf, Json, Parser, Plugs, PostOf, PostRoute } from "./plugs.ts";
 import type {
   Annotation,
   DocLink,
@@ -11,6 +12,7 @@ import type {
   Typed,
 } from "./protocol.ts";
 import type { ProjectPath } from "./server/domain/paths.ts";
+import type { Events, Sent, SlicePart } from "./server/domain/rows.ts";
 import type {
   Actor,
   EventInput,
@@ -189,3 +191,59 @@ export type ServerExtension = {
     takeDefaults: readonly string[],
   ) => Promise<Part>;
 };
+
+/** A page slot a slice's page half may fill: the places `PageExtension` offers. */
+export type PageSlot = Exclude<keyof PageExtension, "id">;
+
+/** What a slice's `page.tsx` fills: every slot its plugs declare, and no other. */
+export type PageHalf<P extends Plugs> = { readonly id: P["id"] } & {
+  readonly [Slot in P["page"]]-?: NonNullable<PageExtension[Slot]>;
+} & { readonly [Slot in Exclude<PageSlot, P["page"]>]?: never };
+
+/** A slice's `ServerContext`, whose `dispatch` takes only its own events, each with what it carries, and sends it as its declared sender. */
+export type SliceContext<P extends Plugs> = Omit<ServerContext, "dispatch"> & {
+  readonly dispatch: <K extends keyof P["events"] & string>(
+    event: K,
+    input: Sent<P["events"], K> | ((w: Workflow) => Promise<Sent<P["events"], K>>),
+  ) => Promise<Dispatched>;
+};
+
+/**
+ * A route's answer: the one its plugs declare, `null` answered as 204; or a refusal, 404 in plain
+ * text, 409 as `{ error }`. A body its parser refuses is answered 400 before the route runs.
+ */
+export type Reply<A> =
+  | { readonly answer: A }
+  | { readonly refused: 404 | 409; readonly reason: string };
+
+/** One handler per route the plugs declare: a POST's takes its body, parsed. */
+export type Handlers<P extends Plugs> = {
+  readonly [Key in keyof P["server"]]: Key extends PostRoute
+    ? (
+        context: SliceContext<P>,
+        body: BodyOf<P["server"], Key>,
+      ) => Promise<Reply<AnswerOf<P["server"], Key>>>
+    : (context: SliceContext<P>) => Promise<Reply<AnswerOf<P["server"], Key>>>;
+};
+
+/** One parser per route that takes a body: the boundary, in the slice's `parse.ts`. */
+export type Bodies<S> = { readonly [Key in PostOf<S>]: Parser<BodyOf<S, Key>> };
+
+/** A slice's part of the table, as `tablePart` reads it, with its region and its words. */
+export type SliceWorkflow<E extends Events> = SlicePart<E> & Omit<ServerWorkflow, keyof TablePart>;
+
+/** What a slice's `server.ts` fills: a parser and a handler per route its plugs declare, and its part of the workflow. */
+export type ServerHalf<P extends Plugs> = {
+  readonly id: P["id"];
+  readonly bodies: Bodies<P["server"]>;
+  readonly routes: Handlers<P>;
+  readonly workflow: SliceWorkflow<P["events"]>;
+};
+
+/** A `SliceContext` with its plugs forgotten, as `serverExtension` builds it. */
+export type ErasedSliceContext = Omit<ServerContext, "dispatch"> & {
+  readonly dispatch: (event: string, input: EventInput | Reading) => Promise<Dispatched>;
+};
+
+/** A route of any slice: `body` is what that route's own parser answered, and nothing else. */
+export type ErasedHandler = (context: ErasedSliceContext, body: never) => Promise<Reply<Json>>;

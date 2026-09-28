@@ -8,7 +8,7 @@ paths:
 
 `hooks/hooks.json` is what Claude Code reads, and it names `src/core/engine/register.ts`. The
 files there each import `claude-code`, a sibling `./<name>.ts`, or `import type` from
-`../protocol.ts`, and nothing else; `register.ts` alone also loads `../../extensions/engine.ts`,
+`../protocol.ts` and `../plugs.ts`, and nothing else; `register.ts` alone also loads `../../extensions/engine.ts`,
 the registry of the engine halves. Held by `src/boundaries.spec.ts`.
 
 ```
@@ -22,7 +22,8 @@ relay.ts     what the channel says and what it remembers: prompts, Relayed, foll
 band.ts      what the band above the prompt says: the server's segments, then its pill, then the link; pure
 server.ts    the review server's client: every route, the token header, the launcher, the reader of its stdout
 parse.ts     the boundary: unknown to types, and the only place a brand is minted
-extension.ts `EngineExtension`, the contract an extension's `engine.ts` fills; types only
+extension.ts `EngineExtension`, the contract an extension's `engine.ts` fills, and `HooksHalf<P>`, what a slice's `hooks.ts` fills; types only
+slice.ts     `engineExtension`: a slice's `HooksHalf` as an `EngineExtension`, called by the registry
 ```
 
 The module holds the vellum mode, a mode of its own: the native plan mode never enters the

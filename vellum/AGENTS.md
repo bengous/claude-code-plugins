@@ -18,12 +18,16 @@ src/core/server/adapters/      http/routes.ts, http/serve.ts, fs.ts, draft.ts, b
 src/core/server/app/           review.ts the queue and the step: read the workflow, `next`, then
                                `interpret` (effects.ts); events.ts what the core's own routes read
 src/core/server/domain/        pure, no IO: paths, workspace, channel, review, feedback, diff, slug, links, vellum-build,
-                               workflow (the session's state, judged by `next` against a table of rules)
+                               workflow (the session's state, judged by `next` against a table of rules),
+                               rows (a slice's part of that table, typed by its events)
 src/core/server/cli.ts         the entry point: `serve`, which the hooks module spawns and reads
 src/core/server/preview.ts     the page alone on any directory of documents: a working copy, served, taken away
+src/core/server/slice.ts       `serverExtension`: a slice's `ServerHalf` as a `ServerExtension`
 src/core/protocol.ts           what crosses HTTP, the server's stdout and an extension boundary; JSON
-src/core/extension.ts          the contract an extension fills: PageExtension, ServerExtension
-                               (EngineExtension lives with the hooks module, core/engine/extension.ts)
+src/core/plugs.ts              `Plugs`, what a slice's `contract.ts` declares; types only, read by the three runtimes
+src/core/extension.ts          the contract an extension fills: PageExtension, ServerExtension, and a slice's
+                               PageHalf, ServerHalf (EngineExtension and HooksHalf live with the hooks module,
+                               core/engine/extension.ts)
 src/core/page/                 the Preact page
 src/extensions/<id>/           one extension, a file per place it plugs in: page.tsx, server.ts, engine.ts;
                                its own messages in protocol.ts, its boundary in parse.ts, its region, events,
