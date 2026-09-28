@@ -95,6 +95,15 @@ export type AnswerOf<S, Route> = Route extends keyof S
 // oxlint-disable-next-line anti-slop/no-unknown-parameters -- a parser is the boundary itself: it takes what arrives unread, a request's body or a reply, and answers the type or `null`.
 export type Parser<T> = (value: unknown) => T | null;
 
+declare const fault: unique symbol;
+
+/**
+ * What a half may not fill, since its contract does not declare it: `T` held back by a key no
+ * value has, so filling it fails with a message that names `Fault`. `T` is what the core's type
+ * takes there, so a half that leaves it empty still passes for one.
+ */
+export type Undeclared<Fault extends string, T = unknown> = T & { readonly [fault]: Fault };
+
 /**
  * A route as a contract declares it: its method, and what it reads and answers as types alone,
  * carried by `types`, which no value ever sets.
@@ -157,7 +166,7 @@ type CheckedHears<H> = {
   readonly [Event in keyof H]: H[Event] extends HeardFromCore
     ? Event extends CoreEvent
       ? H[Event]
-      : CoreEvent
+      : Undeclared<`${Event & string} is not an event of the core: hear another slice's with heard<ItsEvents["name"]>()`>
     : H[Event];
 };
 

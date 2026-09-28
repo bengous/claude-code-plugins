@@ -1,6 +1,15 @@
 import type { HttpResponse, PromptOrigin, ToolSpec, TurnCompleteReason } from "claude-code";
 
-import type { AnswerOf, BodyOf, Json, Parser, Plugs, PostOf, PostRoute } from "../plugs.ts";
+import type {
+  AnswerOf,
+  BodyOf,
+  Json,
+  Parser,
+  Plugs,
+  PostOf,
+  PostRoute,
+  Undeclared,
+} from "../plugs.ts";
 import type { Host } from "./host.ts";
 import type { Live } from "./mode.ts";
 import type { ChannelEntryWire } from "./parse.ts";
@@ -153,17 +162,32 @@ export type HooksTool<C> = {
  */
 export type HooksHalf<P extends Plugs> = {
   readonly id: P["id"];
-  readonly tools: { readonly [Name in P["hooks"]["tools"]]: HooksTool<HooksContext<P>> };
+  readonly tools: ContractTools<P>;
   readonly answers: Answers<P>;
 } & Pick<Listeners<HooksContext<P>>, P["hooks"]["listens"]> & {
-    readonly [Unheard in Exclude<Listen, P["hooks"]["listens"]>]?: never;
+    readonly [Unheard in Exclude<Listen, P["hooks"]["listens"]>]?: Undeclared<
+      `${Unheard} is not declared in contract.ts: add it to hooks.listens`,
+      Listeners<HooksContext<P>>[Unheard]
+    >;
   } & {
-    readonly [Undeclared in Exclude<P["hooks"]["posts"], PostOf<P["server"]>>]: never;
+    readonly [
+      Stray in Exclude<P["hooks"]["posts"], PostOf<P["server"]>>
+    ]: Undeclared<`${Stray} is in hooks.posts of contract.ts, not in its routes: declare the route`>;
   } & Denying<P>;
+
+/** The tools of `hooks.tools` in the slice's `contract.ts`, each registered as `mcp__vellum__<name>`: no other. */
+export type ContractTools<P extends Plugs> = {
+  readonly [Name in P["hooks"]["tools"]]: HooksTool<HooksContext<P>>;
+};
 
 /** The engine's tools the half denies while the mode is live, each with the reason the model reads. */
 type Denying<P extends Plugs> = [P["hooks"]["denies"]] extends [never]
-  ? { readonly refuses?: never }
+  ? {
+      readonly refuses?: Undeclared<
+        "refuses is not declared in contract.ts: add the tools to hooks.denies",
+        Readonly<Record<string, string>>
+      >;
+    }
   : { readonly refuses: { readonly [Tool in P["hooks"]["denies"]]: string } };
 
 /** A hooks half with its plugs forgotten, as `engineExtension` takes it: every `HooksHalf` is one. */
