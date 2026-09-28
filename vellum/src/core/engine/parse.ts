@@ -355,6 +355,17 @@ export function parseState(response: HttpResponse): StateWire | { readonly error
   };
 }
 
+/**
+ * Why a slice's route refused, as `serverExtension` words it: a 404's plain text, another status's
+ * `{ error }`; `null` when the answer holds neither.
+ */
+export function parseRefusal(response: HttpResponse): string | null {
+  if (response.status === 404) return response.text;
+  const value = parseJson(response.text);
+
+  return isRecord(value) && typeof value.error === "string" ? value.error : null;
+}
+
 export function parseGate(response: HttpResponse): GateWire {
   const value = parseJson(response.text);
 

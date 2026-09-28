@@ -16,9 +16,10 @@ is checked, a type by `tsgo`, a row by its test: no sentence in it is taken on t
 
 - `contract.ts` holds the wire, the types crossing `/api/x/<id>/`; `EVENTS`, each event the slice
   owns with its sender and the fields it carries (`events` of `core/server/domain/rows.ts`); the
-  plugs, `<Name>Plugs`, a `Plugs` of `core/plugs.ts`: the id, the tools and the engine events the
-  hooks half takes, each route as `GET <name>` or `POST <name>` with its body and its answer, the
-  events, the page slots; and `RULES`, rows built by `rows(EVENTS)` from named guards.
+  plugs, `<Name>Plugs`, a `Plugs` of `core/plugs.ts`: the id, the tools, the engine events and the
+  routes (`posts`) the hooks half takes, each route as `GET <name>` or `POST <name>` with its body
+  and its answer, the events, the page slots; and `RULES`, rows built by `rows(EVENTS)` from named
+  guards.
 - `RULES` reads top to bottom per event: a row above the event's `whileHeld` row is judged before
   the hold, one below it after, and an event with no `whileHeld` row passes a hold. `refuse` turns
   down a state a caller meets; `refuseInput` an input naming what is not there, which `refusedNow`
@@ -41,6 +42,9 @@ is checked, a type by `tsgo`, a row by its test: no sentence in it is taken on t
   409 as `{ error }`, as the wire held before slices; a body its parser (`BODIES` of `parse.ts`)
   refuses is a 400 before it runs. `context.dispatch(event, input)` takes the slice's own events,
   with what each carries, and sends each as its declared sender.
+- The hooks half posts through `context.post(route, body)`, a route of its `posts` with its body,
+  and gets a `Posted`: the route's declared answer, read by its parser in `ANSWERS` of `parse.ts`
+  (`null` for a route that answers nothing), or the status, the text and the refusal's reason.
 - The pure model is named after the slice (`proposal.ts`): its region, one transition per event
   (`Transitions`), the guards, `SAMPLES` per event (`Samples`), its reaction to the others' events,
   its segment and its line.

@@ -6,7 +6,7 @@ import type {
 } from "../../core/engine/extension.ts";
 import type { Live } from "../../core/engine/mode.ts";
 import type { Dropped, StepPlugs, StepWaited } from "./contract.ts";
-import { parseError, parseJson, parseProposal, parseProposed, parseWaited } from "./parse.ts";
+import { ANSWERS, parseProposal } from "./parse.ts";
 
 type Context = HooksContext<StepPlugs>;
 
@@ -28,13 +28,12 @@ const WRITTEN = "plan.md was written: the plan step is done. Propose again if a 
  */
 async function waited(context: Context, id: string): Promise<StepWaited> {
   for (let tries = 1; ; tries += 1) {
-    const response = await context.post("POST wait", { id }).catch(() => null);
-    const read = response?.ok === true ? parseWaited(parseJson(response.text)) : null;
+    const posted = await context.post("POST wait", { id }).catch(() => null);
 
-    if (read !== null) return read;
+    if (posted?.ok === true) return posted.answer;
 
     if (tries === 2) {
-      throw new Error(`POST wait failed twice: ${response?.status ?? "no answer"}`);
+      throw new Error(`POST wait failed twice: ${posted?.status ?? "no answer"}`);
     }
   }
 }
@@ -106,25 +105,23 @@ const PROPOSE: HooksTool<Context> = {
       };
     }
 
-    const response = await context.post("POST propose", proposal);
-    const proposed = response.ok ? parseProposed(parseJson(response.text)) : null;
+    const posted = await context.post("POST propose", proposal);
 
-    if (proposed !== null) {
-      waitedOn.set(context.live, proposed.id);
+    if (posted.ok) {
+      waitedOn.set(context.live, posted.answer.id);
       context.waiting();
 
-      return await waitFor(context, proposed.id);
+      return await waitFor(context, posted.answer.id);
     }
 
-    const error = parseError(parseJson(response.text));
-
-    return { deny: error ?? `the review server answered ${response.status}` };
+    return { deny: posted.reason ?? `the review server answered ${posted.status}` };
   },
 };
 
 export const hooks: HooksHalf<StepPlugs> = {
   id: "step",
   tools: { propose: PROPOSE },
+  answers: ANSWERS,
   // At the turn's end, never from the call Escape cut: every `$` of that call fails after Escape.
   answered: async (context, turn) => {
     const id = waitedOn.get(context.live);

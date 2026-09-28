@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import type { HooksContext, HooksHalf } from "../../core/engine/extension.ts";
+import type { Answers, HooksContext, HooksHalf, ToolAnswer } from "../../core/engine/extension.ts";
 import { engineExtension } from "../../core/engine/slice.ts";
 import type {
   Bodies,
@@ -20,11 +20,11 @@ import type { Carried, Guard, Transitions } from "../../core/server/domain/rows.
 import { rows, tablePart } from "../../core/server/domain/rows.ts";
 import type { Workflow } from "../../core/server/domain/workflow.ts";
 import { serverExtension } from "../../core/server/slice.ts";
-import type { StepEvents, StepPlugs } from "./contract.ts";
+import type { Proposal, StepEvents, StepPlugs } from "./contract.ts";
 import { EVENTS } from "./contract.ts";
 import { hooks } from "./hooks.ts";
 import { page } from "./page.tsx";
-import { BODIES, parseProposal } from "./parse.ts";
+import { ANSWERS, BODIES, parseProposal, parseProposed } from "./parse.ts";
 import { noProposalWaits, offersPlan, regionOf, TRANSITIONS } from "./proposal.ts";
 import { server } from "./server.ts";
 
@@ -40,6 +40,12 @@ const DIR = parseWipDir(WIP);
 if (!DIR.ok) throw new Error(DIR.error);
 
 const WORKDIR = DIR.value;
+
+const PLAN_ONLY: Proposal = {
+  reason: "The plan is next.",
+  moves: [{ kind: "plan" }],
+  recommended: 0,
+};
 
 const W: Workflow = {
   workspace: { kind: "drafting", dir: WORKDIR, batches: 0 },
@@ -68,6 +74,8 @@ const readsProposal: Guard<Carried<StepEvents, "pause">> = (_w, input) =>
 
 const shown = (): boolean => true;
 
+const answering = (): Promise<ToolAnswer> => Promise.resolve({ result: "" });
+
 describe("hooks.ts fills the plugs' hooks, no more, no less (1)", () => {
   test("a hooks half without the declared tool does not compile: propose would not be registered", () => {
     // @ts-expect-error -- the plugs declare the tool `propose`.
@@ -78,7 +86,7 @@ describe("hooks.ts fills the plugs' hooks, no more, no less (1)", () => {
 
   test("a hooks half without the declared listener does not compile: a turn cut short would pause nothing", () => {
     // @ts-expect-error -- the plugs declare the listener `answered`.
-    const half: HooksHalf<StepPlugs> = { id: "step", tools: hooks.tools };
+    const half: HooksHalf<StepPlugs> = { id: "step", tools: hooks.tools, answers: hooks.answers };
 
     expect(engineExtension(half).answered).toBeUndefined();
   });
@@ -157,15 +165,57 @@ describe("server.ts fills the plugs' routes, each answering its declared answer 
 });
 
 describe("the hooks half's client is typed by the same plugs (3)", () => {
-  const REPLY = { status: 204, ok: true, headers: {}, text: "" };
+  const REFUSED = { ok: false, status: 409, text: "", reason: null } as const;
 
   function recording(posted: string[]): HooksContext<StepPlugs>["post"] {
     return (route, body) => {
       posted.push(`${route} ${JSON.stringify(body)}`);
 
-      return Promise.resolve(REPLY);
+      return Promise.resolve(REFUSED);
     };
   }
+
+  test("posting a route the server declares but the hooks half does not post does not compile", async () => {
+    const posted: string[] = [];
+    const post = recording(posted);
+
+    // @ts-expect-error -- the hooks half posts propose, wait and pause: the answer is the page's.
+    await post("POST answer", { id: null, answer: { kind: "own", text: "Why?" } });
+
+    expect(posted).toHaveLength(1);
+  });
+
+  test("the client answers the route's declared answer: a field it does not carry does not compile", async () => {
+    const posted = await recording([])("POST propose", PLAN_ONLY);
+
+    // @ts-expect-error -- `POST propose` answers `{ id }`, which carries no `seq`.
+    expect(posted.ok ? posted.answer.seq : null).toBeNull();
+  });
+
+  test("a parser in ANSWERS reading another route's answer does not compile: every wait would read an id", () => {
+    // @ts-expect-error -- `POST wait` answers a `StepWaited`, and `parseProposed` reads `{ id }`.
+    const answers: Answers<StepPlugs> = { ...ANSWERS, "POST wait": parseProposed };
+
+    expect(JSON.stringify(answers["POST wait"]({ id: "p1" }))).toBe('{"id":"p1"}');
+  });
+
+  test("a route the hooks half posts that the server does not declare does not compile: nothing would answer it", () => {
+    type Stray = Omit<StepPlugs, "hooks"> & {
+      readonly hooks: Omit<StepPlugs["hooks"], "posts"> & {
+        readonly posts: StepPlugs["hooks"]["posts"] | "POST close";
+      };
+    };
+
+    // @ts-expect-error -- the server declares no `POST close`.
+    const half: HooksHalf<Stray> = {
+      id: "step",
+      tools: { propose: { description: "", inputSchema: { type: "object" }, call: answering } },
+      answers: { ...ANSWERS, "POST close": null },
+      answered: () => Promise.resolve(),
+    };
+
+    expect(Object.keys(half.answers)).toContain("POST close");
+  });
 
   test("posting a route the plugs do not declare does not compile: it would reach nothing", async () => {
     const posted: string[] = [];
@@ -203,14 +253,14 @@ describe("the rows and the routes name the step's own events, with what each car
 
   test("a row on an event the step does not own does not compile: it would judge the core's approval", () => {
     // @ts-expect-error -- the step owns propose, wait, pause and answerProposal: `approve` is the core's.
-    const row = refuse("approve", "no-proposal", noProposalWaits, "no proposal waits");
+    const row = refuse("approve", "no-proposal", noProposalWaits, 409, "no proposal waits");
 
     expect(String(row.event)).toBe("approve");
   });
 
   test("a guard reading a field its event does not carry does not compile: every pause would throw", () => {
     // @ts-expect-error -- `pause` carries `id`, and `offersPlan` reads `proposal`.
-    const row = refuse("pause", "plan", offersPlan, "the plan is offered");
+    const row = refuse("pause", "plan", offersPlan, 409, "the plan is offered");
 
     expect(() => row.when(W, { id: "p1" })).toThrow("not a proposal");
   });

@@ -71,7 +71,11 @@ export type StepEvents = typeof EVENTS;
 
 export type StepPlugs = {
   readonly id: "step";
-  readonly hooks: { readonly tools: "propose"; readonly listens: "answered" };
+  readonly hooks: {
+    readonly tools: "propose";
+    readonly listens: "answered";
+    readonly posts: "POST propose" | "POST wait" | "POST pause";
+  };
   readonly server: {
     readonly "GET state": { readonly answer: StepState };
     readonly "POST propose": { readonly body: Proposal; readonly answer: Proposed };

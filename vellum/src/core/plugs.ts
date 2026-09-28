@@ -32,7 +32,8 @@ export type Routes = {
 export type Plugs = {
   /** The folder's name: its routes are mounted under `/api/x/<id>/`. */
   readonly id: string;
-  readonly hooks: { readonly tools: string; readonly listens: Listen };
+  /** The tools the hooks half registers, the engine events it listens to, the routes it posts. */
+  readonly hooks: { readonly tools: string; readonly listens: Listen; readonly posts: PostRoute };
   readonly server: Routes;
   readonly events: Events;
   readonly page: PageSlot;
@@ -41,16 +42,18 @@ export type Plugs = {
 /** The routes of `S` that take a body. */
 export type PostOf<S> = Extract<keyof S, PostRoute>;
 
-export type BodyOf<S, Route extends keyof S> = S[Route] extends {
-  readonly body: infer Body extends Json;
-}
-  ? Body
+/** The body `S` declares for `Route`; `never` for a route `S` does not declare. */
+export type BodyOf<S, Route> = Route extends keyof S
+  ? S[Route] extends { readonly body: infer Body extends Json }
+    ? Body
+    : never
   : never;
 
-export type AnswerOf<S, Route extends keyof S> = S[Route] extends {
-  readonly answer: infer Answer extends Json;
-}
-  ? Answer
+/** The answer `S` declares for `Route`; `never` for a route `S` does not declare. */
+export type AnswerOf<S, Route> = Route extends keyof S
+  ? S[Route] extends { readonly answer: infer Answer extends Json }
+    ? Answer
+    : never
   : never;
 
 // oxlint-disable-next-line anti-slop/no-unknown-parameters -- a parser is the boundary itself: it takes what arrives unread, a request's body or a reply, and answers the type or `null`.

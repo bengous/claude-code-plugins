@@ -1,8 +1,10 @@
+import type { Answers } from "../../core/engine/extension.ts";
 import type { Bodies } from "../../core/extension.ts";
 import type {
   AnswerBody,
   Dropped,
   Move,
+  Paused,
   Pending,
   Proposal,
   ProposalId,
@@ -189,8 +191,9 @@ export function parseStepFile(value: unknown): StepFile | null {
   return { pending, answered, dropped };
 }
 
-export function parseError(value: unknown): string | null {
-  return isRecord(value) && typeof value.error === "string" ? value.error : null;
+/** What `POST pause` answers; `null` for any other shape. */
+export function parsePaused(value: unknown): Paused | null {
+  return isRecord(value) && value.wait === "paused" ? { wait: "paused" } : null;
 }
 /* oxlint-enable anti-slop/no-runtime-typeof, anti-slop/no-unknown-parameters, anti-slop/no-unsafe-dictionary-type, anti-slop/no-unknown-returns, anti-slop/no-known-value-widening */
 
@@ -200,4 +203,11 @@ export const BODIES: Bodies<StepPlugs["server"]> = {
   "POST wait": parseProposalId,
   "POST pause": parseProposalId,
   "POST answer": parseAnswer,
+};
+
+/** The answer of each route the hooks half posts, parsed before `context.post` hands it back. */
+export const ANSWERS: Answers<StepPlugs> = {
+  "POST propose": parseProposed,
+  "POST wait": parseWaited,
+  "POST pause": parsePaused,
 };
