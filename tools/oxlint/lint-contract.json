@@ -16,6 +16,46 @@
       "specifier": "./tools/oxlint/anti-slop/index.ts"
     }
   ],
+  "overrides": [
+    {
+      "files": [
+        "vellum/src/**/*.ts",
+        "vellum/src/**/*.tsx"
+      ],
+      "rules": {
+        "max-lines": [
+          "error",
+          {
+            "max": 500
+          }
+        ]
+      }
+    },
+    {
+      "files": [
+        "vellum/src/**/*.spec.ts",
+        "vellum/src/**/*.test.ts",
+        "vellum/src/**/fixtures/**"
+      ],
+      "rules": {
+        "max-lines": "off"
+      }
+    },
+    {
+      "files": [
+        "vellum/src/core/page/state.ts",
+        "vellum/src/core/server/domain/workflow.ts",
+        "vellum/src/core/server/app/review.ts",
+        "vellum/src/core/engine/register.ts",
+        "vellum/src/extensions/grill/page.tsx",
+        "vellum/src/extensions/markdown/page.tsx",
+        "vellum/src/extensions/html/frame.ts"
+      ],
+      "rules": {
+        "max-lines": "off"
+      }
+    }
+  ],
   "rules": {
     "anti-slop/no-array-filter-map": "error",
     "anti-slop/no-chained-type-assertions": "error",
