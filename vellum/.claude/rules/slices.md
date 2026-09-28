@@ -17,10 +17,21 @@ What a contract says is checked, a type by `tsgo`, a half by `extensions/slices.
 its test: no sentence in it is taken on trust.
 
 To add one, in this order: declare it in `contract.ts`; run `bun x tsgo --noEmit`, which names what
-each half and the model lack once you write their typed exports; one line in each registry the
-slice has a half for (`slices.spec.ts` names a missing one), and each new tool's name in the matcher
-literal of `core/engine/register.ts` (`register.spec.ts` names a missing one). Nothing else outside
-the folder changes: when something must, say so first.
+each half and the model lack once you write their typed exports; then the three places outside the
+folder, and no other:
+
+- one line in each registry the slice has a half for (`src/extensions/engine.ts`, `server.ts`,
+  `page.ts`): `slices.spec.ts` names a missing one;
+- each new tool's name in the matcher literal of `core/engine/register.ts`, which the engine needs
+  written out: `register.spec.ts` names a missing one;
+- the page half's classes in `core/page/style.css`, prefixed with the slice's id: the page loads one
+  stylesheet, and nothing names a class forgotten there.
+
+The tests read the registries, so no suite lists the slices, their regions or their refusals: a
+test that must change for a new slice is a test to fix, and saying so is part of the change. An
+event's id is global across the core and every part: `tableOf` refuses one declared twice, naming
+both owners, so a slice names its events after itself (`askQuestion`, `answerProposal`), never a
+bare verb another part may take (`wait`, `pause` are the step's already).
 
 - `contract.ts` holds the wire, the types crossing `/api/x/<id>/`, and one declaration,
   `export const SLICE = defineSlice({...})` (`core/plugs.ts`): the id, the events it owns with their

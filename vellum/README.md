@@ -54,7 +54,7 @@ The plugin installs a hooks module that refuses writes and spawns a process. The
 
 | Hook | Matcher | What it does |
 |---|---|---|
-| `session.start` | | Registers the `submit`, `state`, `grill_ask` and `propose` tools, and picks the mode back up on a server started again on the stored port and token. |
+| `session.start` | | Registers `submit`, `state` and each extension's tools, and picks the mode back up on a server started again on the stored port and token. |
 | `skill.prompt` | `skill=vellum:start` | Enters the mode: reaches or starts the server, then appends the working directory and the page's link to the skill's text. |
 | `skill.prompt` | `skill=vellum:stop` | Leaves the mode and says which directory is kept. |
 | `command.run` | `command=clear\|resume` | Suspends the mode after the command ran, when the session id changed: timers stopped, the record kept. |
@@ -62,16 +62,16 @@ The plugin installs a hooks module that refuses writes and spawns a process. The
 | `tool.check` | | The lock, and the refusal of a shell command that enters the working directory or names it from the background. Its `.catch` denies whatever the failure, so a hook that throws or overruns cannot open it. |
 | `tool.call` | `tool=mcp__vellum__submit` | Gates the plan and names the version, without running a tool. |
 | `tool.call` | `tool=mcp__vellum__state` | Answers where the session stands, read from the server: the plan's stage and `plan.md`, what holds the review, and what is refused now with each reason. |
-| `tool.call` | `tool=mcp__vellum__grill_ask\|mcp__vellum__propose\|AskUserQuestion` | Serves `mcp__vellum__grill_ask`, which waits for your Send and returns it, and `mcp__vellum__propose`, which waits for your pick and returns it, and refuses `AskUserQuestion` while the mode is live. Its `.catch` answers a call that failed, never with a permission prompt: one that waited says your answer comes as a prompt. |
+| `tool.call` | `tool=` each extension's tool and each tool an extension refuses, as `register.ts` lists them | Serves each extension's tool: one that waits for your answer returns it as its result. Refuses, while the mode is live, the tools an extension refuses (the terminal's `AskUserQuestion`: the page is where you answer). Its `.catch` answers a call that failed, never with a permission prompt: one that waited says your answer comes as a prompt. |
 | `prompt.submit` | | While the mode is live, hands a command of the session to the open grill's transcript as an event, Vellum's own relays left out, then passes every prompt on unchanged. |
 | `turn.start` | | Notes whether the turn was started by one of Vellum's own relays, from the origin `prompt.submit` saw. |
-| `turn.complete` | | Gates `plan.md` after a main-loop turn answered while the mode is live; an unchanged text is kept, and a held review refuses it. Hands the main loop's final text to the open grill's transcript, which keeps it when a relay of Vellum started the turn. After a turn interrupted while `propose` waited, tells the server that proposal is paused. |
+| `turn.complete` | | Gates `plan.md` after a main-loop turn answered while the mode is live; an unchanged text is kept, and a held review refuses it. Hands the main loop's final text to the open grill's transcript, which keeps it when a relay of Vellum started the turn. After a turn interrupted while a tool waited for your answer, tells the server that wait is paused. |
 
 ### What it calls on `$`
 
 | Call | What for |
 |---|---|
-| `$.tool.register` | The `submit` and `state` tools, `grill_ask` and `propose`, at the session's start. |
+| `$.tool.register` | The `submit` and `state` tools, and each extension's, at the session's start. |
 | `$.session.id` | Which session the mode belongs to; a `/clear` mints a new one. |
 | `$.session.cwd` | Where the session runs now, to resolve a relative path the lock reads. |
 | `$.session.root` | The project the working directory hangs off: where the session started, which a shell `cd` does not move. |

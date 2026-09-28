@@ -9,7 +9,7 @@ import {
   stageOf,
   viewOf,
 } from "../core/server/domain/workflow.ts";
-import { EMPTY, INVARIANTS, proof, returned, TABLE, told, WORDINGS } from "./proof.ts";
+import { EMPTY, INVARIANTS, PARTS, proof, returned, TABLE, told, WORDINGS } from "./proof.ts";
 import type { Move } from "./step/contract.ts";
 import { pendingOf } from "./step/proposal.ts";
 
@@ -242,7 +242,7 @@ describe("the approval", () => {
   test("closes the grill, and its entry comes after every extension closed theirs", () => {
     const step = tried(GRILLING, "approve", { ...APPROVE, confirmed: "grill 1 is open" });
 
-    expect(step.workflow.regions.map(({ state }) => state)).toEqual(["closed", "closed", "closed"]);
+    expect(step.workflow.regions.filter(({ state }) => state !== "closed")).toEqual([]);
     expect(step.effects.map(({ kind }) => kind)).toEqual([
       "approveDirectory",
       "appendFile",
@@ -380,8 +380,21 @@ function refusedIn(w: Workflow): (readonly string[])[] {
   ]);
 }
 
-function linesOf(w: Workflow): string[] {
-  return viewOf(w, TABLE, WORDINGS).regions.map(({ line }) => line);
+/** The line the region `id` says itself in, as `mcp__vellum__state` prints it. */
+function lineOf(w: Workflow, id: string): string | undefined {
+  return viewOf(w, TABLE, WORDINGS).regions.find((region) => region.id === id)?.line;
+}
+
+/** The events a hold refuses or asks to confirm, as the registry declares them, that a real caller sends. */
+function heldBack(): readonly string[] {
+  return TABLE.events
+    .filter(({ whileHeld }) => whileHeld.effect !== "allow")
+    .filter(({ actors }) => actors.some((actor) => actor !== "engine"))
+    .map(({ id }) => id);
+}
+
+function eachOnce(refused: readonly (readonly string[])[]): boolean {
+  return new Set(refused.map(([event]) => event)).size === refused.length;
 }
 
 describe("what the page and the band read (§ 5.8)", () => {
@@ -420,17 +433,22 @@ describe("what the page and the band read (§ 5.8)", () => {
   });
 
   test("the view carries each region's state, hold, wait and line, never its files", () => {
-    expect(viewOf(GRILLING, TABLE, WORDINGS).regions).toEqual([
-      {
-        id: "grill",
-        state: "open",
-        holds: "grill 1 is open",
-        wait: null,
-        line: "grill 1: open · holds: grill 1 is open · question: none",
-      },
-      { id: "step", state: "closed", line: "step: none" },
-      { id: "review", state: "closed", line: "review: closed" },
-    ]);
+    const { regions } = viewOf(GRILLING, TABLE, WORDINGS);
+
+    expect(regions.find(({ id }) => id === "grill")).toEqual({
+      id: "grill",
+      state: "open",
+      holds: "grill 1 is open",
+      wait: null,
+      line: "grill 1: open · holds: grill 1 is open · question: none",
+    });
+    expect(regions.filter(({ id }) => id !== "grill")).toEqual(
+      PARTS.filter(({ id }) => id !== "grill").map(({ id, workflow, walk }) => ({
+        id,
+        state: "closed",
+        line: workflow.line(walk.empty),
+      })),
+    );
   });
 
   test("each region says itself as `mcp__vellum__state` prints it: a question paused, a proposal paused", () => {
@@ -438,30 +456,24 @@ describe("what the page and the band read (§ 5.8)", () => {
     const questionPaused = play(GRILLING, ["askQuestion", ROUND], ["turnAnswered", cut]);
     const proposalPaused = play(V1, ["propose", proposing("p3", MOCKUP)], ["pause", { id: "p3" }]);
 
-    expect(linesOf(questionPaused)).toEqual([
+    expect(lineOf(questionPaused, "grill")).toBe(
       "grill 1: open · holds: grill 1 is open · question: paused",
-      "step: none",
-      "review: closed",
-    ]);
-    expect(linesOf(proposalPaused)).toEqual([
-      "grill: closed",
-      "step: proposal p3 · wait: paused",
-      "review: closed",
-    ]);
+    );
+    expect(lineOf(proposalPaused, "step")).toBe("step: proposal p3 · wait: paused");
   });
 
   test("a question Claude waits on, a proposal it waits on, a run asked then running", () => {
     const asked = play(V1, ["requestReview", { version: "1" }]);
     const launched = { seq: "1", agentId: "agent-1", model: "claude-opus-5-5" };
 
-    expect(linesOf(play(GRILLING, ["askQuestion", ROUND]))[0]).toBe(
+    expect(lineOf(play(GRILLING, ["askQuestion", ROUND]), "grill")).toBe(
       "grill 1: open · holds: grill 1 is open · question: open",
     );
-    expect(linesOf(play(V1, ["propose", proposing("p3", MOCKUP)]))[1]).toBe(
+    expect(lineOf(play(V1, ["propose", proposing("p3", MOCKUP)]), "step")).toBe(
       "step: proposal p3 · wait: open",
     );
-    expect(linesOf(asked)[2]).toBe("review: plan review 1 of v1 requested");
-    expect(linesOf(play(asked, ["reviewLaunched", launched]))[2]).toBe(
+    expect(lineOf(asked, "review")).toBe("review: plan review 1 of v1 requested");
+    expect(lineOf(play(asked, ["reviewLaunched", launched]), "review")).toBe(
       "review: plan review 1 of v1 running",
     );
   });
@@ -470,30 +482,42 @@ describe("what the page and the band read (§ 5.8)", () => {
     expect(refusedIn(V1)).toEqual([["askQuestion", "refuse", "no grill is open"]]);
   });
 
-  test("refused under a grill: each event once, in the words a real caller meets", () => {
-    expect(refusedIn(GRILLING)).toEqual([
-      ["record", "refuse", "grill 1 is open: plan.md waits; you are told when it ends"],
-      ["sendEdit", "refuse", "grill 1 is open: the edit waits in the draft until it ends"],
-      ["approve", "confirm", "The review is held: grill 1 is open."],
-      ["openGrill", "refuse", "grill-1.md is open"],
-      ["propose", "refuse", "grill 1 is open: no step is proposed until it ends"],
-      ["answerProposal", "refuse", "grill 1 is open"],
-      ["requestReview", "refuse", "grill 1 is open"],
-    ]);
+  test("refused under a grill: each event once, every one a hold holds back, in the words a real caller meets", () => {
+    const refused = refusedIn(GRILLING);
+
+    expect(eachOnce(refused)).toBe(true);
+    expect(heldBack().filter((event) => !refused.some(([id]) => id === event))).toEqual([]);
+    expect(refused).toEqual(
+      expect.arrayContaining([
+        ["record", "refuse", "grill 1 is open: plan.md waits; you are told when it ends"],
+        ["sendEdit", "refuse", "grill 1 is open: the edit waits in the draft until it ends"],
+        ["approve", "confirm", "The review is held: grill 1 is open."],
+        ["openGrill", "refuse", "grill-1.md is open"],
+        ["propose", "refuse", "grill 1 is open: no step is proposed until it ends"],
+        ["answerProposal", "refuse", "grill 1 is open"],
+        ["requestReview", "refuse", "grill 1 is open"],
+      ]),
+    );
   });
 
   test("refused under a plan review: each event once, in the words a real caller meets", () => {
     const running = "plan review 1 of v1 is running";
 
-    expect(refusedIn(play(V1, ["requestReview", { version: "1" }]))).toEqual([
-      ["record", "refuse", `${running}: plan.md waits; you are told when it ends`],
-      ["sendEdit", "refuse", `${running}: the edit waits in the draft until it ends`],
-      ["approve", "confirm", `The review is held: ${running}.`],
-      ["askQuestion", "refuse", "no grill is open"],
-      ["propose", "refuse", `${running}: no step is proposed until it ends`],
-      ["answerProposal", "refuse", running],
-      ["requestReview", "refuse", "a review of v1 is running"],
-    ]);
+    const refused = refusedIn(play(V1, ["requestReview", { version: "1" }]));
+
+    expect(eachOnce(refused)).toBe(true);
+    expect(heldBack().filter((event) => !refused.some(([id]) => id === event))).toEqual([]);
+    expect(refused).toEqual(
+      expect.arrayContaining([
+        ["record", "refuse", `${running}: plan.md waits; you are told when it ends`],
+        ["sendEdit", "refuse", `${running}: the edit waits in the draft until it ends`],
+        ["approve", "confirm", `The review is held: ${running}.`],
+        ["askQuestion", "refuse", "no grill is open"],
+        ["propose", "refuse", `${running}: no step is proposed until it ends`],
+        ["answerProposal", "refuse", running],
+        ["requestReview", "refuse", "a review of v1 is running"],
+      ]),
+    );
   });
 
   test("refused on v2 under a grill: the edit of v2, in the hold's words, not a sample's v1", () => {
