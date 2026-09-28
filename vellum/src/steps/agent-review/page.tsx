@@ -1,14 +1,20 @@
 import { signal } from "@preact/signals";
 import { useEffect } from "preact/hooks";
 
-import type { PageExtension } from "../../runtime/extension.ts";
+import type { PageHalf } from "../../runtime/extension.ts";
 import { extensionRequest } from "../../runtime/page/api.ts";
 import { Banner, Button } from "../../runtime/page/kit.tsx";
 import { connection, fail, review, succeed } from "../../runtime/page/state.ts";
+import type { BodyOf } from "../../workshop/plugs.ts";
+import type { ReviewPlugs, ReviewState } from "./contract.ts";
 import { failedText, reviewWhy } from "./labels.ts";
-import type { ReviewPosts, ReviewState } from "./protocol.ts";
 
-const ID = "review";
+const ID: ReviewPlugs["id"] = "review";
+
+/** The routes the page posts, by name, and the body each takes. */
+type Asks = {
+  readonly [Name in "request" | "forget"]: BodyOf<ReviewPlugs["server"], `POST ${Name}`>;
+};
 
 /** The server's last word on the runs, loaded again at every workspace event; `null` before the first answer. */
 const reviews = signal<ReviewState | null>(null);
@@ -24,14 +30,11 @@ async function loadState(): Promise<void> {
 
   if (response?.ok !== true) return;
 
-  // SAFETY: the server's own `ReviewState`, serialized by `Response.json` in review/server.ts.
+  // SAFETY: the server's own `ReviewState`, the answer of `GET state` in contract.ts, serialized by `Response.json`.
   reviews.value = (await response.json()) as ReviewState;
 }
 
-async function post<Name extends "request" | "forget">(
-  name: Name,
-  body: ReviewPosts[Name],
-): Promise<void> {
+async function post<Name extends keyof Asks>(name: Name, body: Asks[Name]): Promise<void> {
   asking.value = true;
 
   const response = await extensionRequest(ID, name, {
@@ -42,7 +45,7 @@ async function post<Name extends "request" | "forget">(
   if (response === null) fail("send", "The review did not reach the server.");
   else if (response.ok) succeed("send");
   else {
-    // SAFETY: a refusal of review/server.ts, `{ error }` serialized by `Response.json`.
+    // SAFETY: a refusal of the server half's, `{ error }` serialized by `Response.json`.
     const refusal = (await response.json().catch(() => null)) as { readonly error?: string } | null;
     fail(
       "send",
@@ -137,7 +140,7 @@ function ReviewFailed(): preact.JSX.Element | null {
   );
 }
 
-export const reviewPage: PageExtension = {
+export const page: PageHalf<ReviewPlugs> = {
   id: "review",
   actions: [ReviewAction],
   notices: [ReviewFailed],

@@ -87,7 +87,7 @@ describe("isE2ePath", () => {
     for (const path of [
       "vellum/src/runtime/hooks/hooks.ts",
       "vellum/src/runtime/hooks/deep/state.ts",
-      "vellum/src/steps/grill/engine.ts",
+      "vellum/src/steps/grill/hooks.ts",
       "vellum/hooks/hooks.json",
       "vellum/skills/start/SKILL.md",
       "vellum/agents/plan-reviewer.md",
@@ -114,7 +114,7 @@ describe("isE2ePath", () => {
     }
   });
 
-  test("keeps an extension file that is not its engine", () => {
+  test("keeps a part's file that is not its hooks half", () => {
     expect(isE2ePath("vellum/src/steps/grill/page.tsx")).toBe(true);
   });
 });

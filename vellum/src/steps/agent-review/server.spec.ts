@@ -15,11 +15,23 @@ import { EMPTY_TYPED } from "../../runtime/protocol.ts";
 import { startServer } from "../../runtime/server/http/serve.ts";
 import type { Started } from "../../runtime/server/http/serve.ts";
 import { Review } from "../../runtime/server/review.ts";
+import { serverExtension } from "../../runtime/server/slice.ts";
 import { serverExtensions } from "../../runtime/server/slices.ts";
 import { parseWipDir } from "../../workshop/paths.ts";
+import type { BodyOf, PostOf } from "../../workshop/plugs.ts";
 import { held } from "../../workshop/workflow.ts";
-import type { Closed, Requested, ReviewPosts, ReviewState } from "./protocol.ts";
-import { reviewServer } from "./server.ts";
+import type { Closed, Requested, ReviewPlugs, ReviewState } from "./contract.ts";
+import { server } from "./server.ts";
+
+type Routes = ReviewPlugs["server"];
+
+/** The body each `POST /api/x/review/<name>` takes, by route name. */
+type ReviewPosts = {
+  readonly [Route in PostOf<Routes> as Route extends `POST ${infer Name}` ? Name : never]: BodyOf<
+    Routes,
+    Route
+  >;
+};
 
 const WIP = "plans/2026-09-25/wip-c95eaf71/";
 
@@ -87,7 +99,7 @@ async function serving(dir: string): Promise<Reviewing> {
 
     if (!response.ok) throw new Error(`request answered ${response.status}`);
 
-    // SAFETY: the server's own `Requested`, serialized by `Response.json` in review/server.ts.
+    // SAFETY: the server's own `Requested`, serialized by `Response.json` from the server half.
     return ((await response.json()) as Requested).seq;
   };
 
@@ -97,7 +109,7 @@ async function serving(dir: string): Promise<Reviewing> {
     dir,
     api,
     post,
-    // SAFETY: the server's own `ReviewState`, serialized by `Response.json` in review/server.ts.
+    // SAFETY: the server's own `ReviewState`, serialized by `Response.json` from the server half.
     state: async () => (await (await api("x/review/state")).json()) as ReviewState,
     request,
     launch: async (version = 1, model = OPUS) => {
@@ -305,7 +317,7 @@ describe("a run given up", () => {
     const closed = await post("close", {});
 
     expect(closed.status).toBe(200);
-    // SAFETY: the server's own `Closed`, serialized by `Response.json` in review/server.ts.
+    // SAFETY: the server's own `Closed`, serialized by `Response.json` from the server half.
     expect((await closed.json()) as Closed).toEqual({ stopping: [{ seq, agentId: "agent-1" }] });
     expect((await state()).run).toBeNull();
     expect((await post("ended", { seq, outcome: { kind: "answer", text: "x" } })).status).toBe(409);
@@ -368,7 +380,7 @@ describe("what the server keeps", () => {
     const write = Promise.withResolvers<void>();
 
     void review.context.inOrder(() => write.promise);
-    const state = reviewServer.routes?.(review.context)["GET state"];
+    const state = serverExtension(server).routes?.(review.context)["GET state"];
     const read = state?.(new Request("http://127.0.0.1/"));
 
     expect(await Promise.race([read, Bun.sleep(100).then(() => "waited")])).toBe("waited");
@@ -442,7 +454,7 @@ describe("a run holds the review", () => {
   test("an open grill refuses a review: one hold at a time", async () => {
     const { api, post } = await reviewing();
     const proposed = await api("x/step/propose", JSON.stringify(PROPOSAL));
-    // SAFETY: the step server's own `Proposed`, serialized by `Response.json` in step/server.ts.
+    // SAFETY: the step server's own `Proposed`, serialized by `Response.json` from its server half.
     const { id } = (await proposed.json()) as { readonly id: string };
     await api("x/step/answer", JSON.stringify({ id, answer: { kind: "move", move: GRILL } }));
     const refused = await post("request", { version: 1 });
@@ -504,7 +516,7 @@ describe("the agents to stop", () => {
     await approve();
     const closed = await post("close", {});
 
-    // SAFETY: the server's own `Closed`, serialized by `Response.json` in review/server.ts.
+    // SAFETY: the server's own `Closed`, serialized by `Response.json` from the server half.
     expect((await closed.json()) as Closed).toEqual({ stopping: [{ seq, agentId: "agent-1" }] });
   });
 });

@@ -11,7 +11,7 @@ import { expect, test as base } from "@playwright/test";
 
 import type { Annotation, ChannelLine, ReviewView, SendAnswer } from "../src/runtime/protocol.ts";
 import { discard } from "../src/runtime/server/preview.ts";
-import type { Outcome, ReviewState, Run } from "../src/steps/agent-review/protocol.ts";
+import type { Outcome, ReviewState, Run } from "../src/steps/agent-review/contract.ts";
 import type {
   CloseReason,
   GrillState,

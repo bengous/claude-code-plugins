@@ -30,7 +30,7 @@ src/proof.ts                the proof of the table, the tests' alone: each part'
 ```
 
 A part is a folder of `steps/` or `formats/`, a file per runtime it plugs into (`page.tsx`,
-`server.ts`, `hooks.ts` or `engine.ts`); one holding `contract.ts` is a slice, whose id that file
+`server.ts`, `hooks.ts`); one holding `contract.ts` is a slice, whose id that file
 declares, while the folder takes the glossary's word (`CONTEXT.md`).
 
 Dependencies point toward `src/workshop/`, which imports nothing outside itself but the two slot

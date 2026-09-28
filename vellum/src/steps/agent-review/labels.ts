@@ -1,6 +1,6 @@
 import type { PlanWorkspace } from "../../runtime/protocol.ts";
-import type { Failed, Run } from "./protocol.ts";
-import { REVIEWER } from "./protocol.ts";
+import type { Failed, Run } from "./contract.ts";
+import { REVIEWER } from "./parse.ts";
 
 /** The Review button as the plan's stage and the run under way draw it, its reason in its `title`. */
 export type ReviewButton =

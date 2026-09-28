@@ -1,7 +1,7 @@
 import { htmlPage } from "../../formats/html/page.tsx";
 import { imagePage } from "../../formats/image/page.tsx";
 import { markdownPage } from "../../formats/markdown/page.tsx";
-import { reviewPage } from "../../steps/agent-review/page.tsx";
+import { page as reviewPage } from "../../steps/agent-review/page.tsx";
 import { page as grillPage } from "../../steps/grill/page.tsx";
 import { page as stepPage } from "../../steps/proposal/page.tsx";
 import type { PageExtension } from "../extension.ts";

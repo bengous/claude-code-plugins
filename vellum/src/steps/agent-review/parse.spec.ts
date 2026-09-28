@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import { parsePosts, parseReviewState, parseVerdict } from "./parse.ts";
+import { BODIES, parseReviewState, parseVerdict } from "./parse.ts";
 
 function verdict(...body: string[]): string {
   return ["## Plan review", "", ...body].join("\n");
@@ -229,11 +229,11 @@ describe("parseReviewState", () => {
   });
 });
 
-describe("parsePosts", () => {
+describe("BODIES", () => {
   test("an answer is a text with something in it, kept as written", () => {
     const answer = { kind: "answer" as const, text: "  ## Plan review\n" };
 
-    expect(parsePosts.ended({ seq: 1, outcome: answer })).toEqual({ seq: 1, outcome: answer });
-    expect(parsePosts.ended({ seq: 1, outcome: { kind: "answer", text: " \n" } })).toBeNull();
+    expect(BODIES["POST ended"]({ seq: 1, outcome: answer })).toEqual({ seq: 1, outcome: answer });
+    expect(BODIES["POST ended"]({ seq: 1, outcome: { kind: "answer", text: " \n" } })).toBeNull();
   });
 });

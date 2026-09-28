@@ -13,7 +13,7 @@ flowchart LR
   subgraph engine["Claude Code (the engine)"]
     CC["the session<br/>/vellum:start · mcp__vellum__submit · mcp__vellum__state · mcp__vellum__propose · mcp__vellum__grill_ask · /vellum:stop"]
     M["src/runtime/hooks/<br/>register.ts · mode.ts: idle · live"]
-    E["src/steps/*/engine.ts, hooks.ts<br/>tools, refusals, a spawned agent and its answer"]
+    E["src/steps/*/hooks.ts<br/>tools, refusals, a spawned agent and its answer"]
     CC -- "session.start · skill.prompt · command.run<br/>tool.check · tool.call · prompt.submit · turn.complete" --> M
     M -- "$.prompt.submit<br/>deny / result / text" --> CC
     M -- "every event, a Host, never $" --> E
@@ -331,7 +331,7 @@ constraints below are why. The contract is `src/runtime/extension.ts`, types onl
 |---|---|---|---|
 | page | `<folder>/page.tsx` | a `PageExtension`: its renderers, tried in registry order, its actions in the decision bar, its notices under it, its panel, a pane `panesOf` places beside the document pane, and its share of the Send | `runtime/page/app.tsx`, through `runtime/page/slices.ts` |
 | server | `<folder>/server.ts` | a `ServerExtension`: `linkedDocs`, pure, candidates in and links out; its routes, mounted at `/api/x/<id>/`, their IO through a `ServerContext`, each change an event they `dispatch`; its `workflow` (from `<folder>/workflow.ts`: its region, events, rows, transitions, its reaction to the others' events, its segment of the band and its line in the view); `part`, its part of the bar's Send | `runtime/server/http/serve.ts`, through `runtime/server/slices.ts` |
-| engine | `<folder>/engine.ts` | an `EngineExtension`: tools, a tool's wait for the reviewer and the entries it returns, refusals, and handlers for a prompt, a finished turn, a spawned agent's answer, a `stage` line and the mode's end | `runtime/hooks/register.ts`, through `runtime/hooks/slices.ts` |
+| hooks | `<folder>/hooks.ts` | a `HooksHalf`: tools, a tool's wait for the reviewer and the entries it returns, refusals, and handlers for a prompt, a finished turn, a spawned agent's answer, a `stage` line and the mode's end | `runtime/hooks/register.ts`, through `runtime/hooks/slices.ts` |
 
 `src/boundaries.spec.ts` holds the layout: an extension imports `workshop/`, `runtime/` and its
 own folder, never another extension; a runtime reaches the extensions from those three files

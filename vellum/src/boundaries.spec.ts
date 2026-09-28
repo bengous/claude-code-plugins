@@ -53,7 +53,7 @@ const SURFACES: readonly Surface[] = [
   { folder: "server", halves: ["server.ts"], files: ["slice.ts"], typesOnly: false },
   {
     folder: "hooks",
-    halves: ["hooks.ts", "engine.ts"],
+    halves: ["hooks.ts"],
     files: ["extension.ts", "mode.ts"],
     typesOnly: true,
   },
@@ -65,7 +65,6 @@ type Half = { readonly file: string; readonly declared: string; readonly registr
 const HALVES: readonly Half[] = [
   { file: "page.tsx", declared: "\\w+: PageExtension", registry: "page/slices.ts" },
   { file: "server.ts", declared: "\\w+: ServerExtension", registry: "server/slices.ts" },
-  { file: "engine.ts", declared: "\\w+: EngineExtension", registry: "hooks/slices.ts" },
 ];
 
 /** A slice's halves: a folder holding `contract.ts`, each half typed by its plugs and named as its file is. */
@@ -264,19 +263,6 @@ describe("dependency direction", () => {
 
     expect(stray).toEqual([]);
     expect(loadingTheRegistry).toEqual(["src/runtime/hooks/register.ts"]);
-  });
-
-  test("an engine half runs on its own folder alone: the hooks module loads nothing of the server or the page", () => {
-    const stray = parts()
-      .map((part) => `${part}/engine.ts`)
-      .filter((file) => existsSync(file))
-      .flatMap((file) =>
-        valueImports(file)
-          .filter((path) => !/^\.\/[a-z-]+\.ts$/u.test(path))
-          .map((path) => `${short(file)} imports ${path}`),
-      );
-
-    expect(stray).toEqual([]);
   });
 
   test("the page and its renderers never import the server side", () => {

@@ -1,24 +1,32 @@
+import type { Bodies } from "../../runtime/extension.ts";
 import type {
   Closed,
+  Ended,
   Failed,
   Finding,
+  Launched,
   Outcome,
   Place,
-  ReviewPosts,
+  ReviewAsked,
+  ReviewPlugs,
   Reviews,
   ReviewState,
   ReviewStatus,
   Run,
+  RunNumber,
   Size,
   Stopping,
   Verdict,
-} from "./protocol.ts";
+} from "./contract.ts";
 
 /**
  * The boundary of `review`: the verdict is a text the plan reviewer wrote, a model, read here by
  * its lines, once. Every marker is a whole line at the left margin, so the same words inside a
  * finding or an indented quote are text.
  */
+
+/** The agent the Review button launches. */
+export const REVIEWER = "vellum:plan-reviewer";
 
 const HEADING = "## Plan review";
 
@@ -231,36 +239,45 @@ function parseOutcome(value: unknown): Outcome | null {
   return value.kind === "failed" && why !== null ? { kind: "failed", why } : null;
 }
 
-function seqOf(value: unknown): { readonly seq: number } | null {
+function seqOf(value: unknown): RunNumber | null {
   const seq = isRecord(value) ? counted(value.seq) : null;
 
   return seq === null ? null : { seq };
 }
 
-/** Each route's body; `null` for one that is not it. */
-export const parsePosts: {
-  readonly [Name in keyof ReviewPosts]: (value: unknown) => ReviewPosts[Name] | null;
-} = {
-  request: (value) => {
-    const version = isRecord(value) ? counted(value.version) : null;
+function parseAsked(value: unknown): ReviewAsked | null {
+  const version = isRecord(value) ? counted(value.version) : null;
 
-    return version === null ? null : { version };
-  },
-  launched: (value) => {
-    const seq = seqOf(value);
-    const agentId = isRecord(value) ? filled(value.agentId) : null;
-    const model = isRecord(value) ? filled(value.model) : null;
+  return version === null ? null : { version };
+}
 
-    return seq === null || agentId === null || model === null ? null : { ...seq, agentId, model };
-  },
-  ended: (value) => {
-    const seq = seqOf(value);
-    const outcome = isRecord(value) ? parseOutcome(value.outcome) : null;
+function parseLaunched(value: unknown): Launched | null {
+  const seq = seqOf(value);
+  const agentId = isRecord(value) ? filled(value.agentId) : null;
+  const model = isRecord(value) ? filled(value.model) : null;
 
-    return seq === null || outcome === null ? null : { ...seq, outcome };
-  },
-  forget: seqOf,
-  close: (value) => (isRecord(value) ? {} : null),
-  stopped: seqOf,
-};
+  return seq === null || agentId === null || model === null ? null : { ...seq, agentId, model };
+}
+
+function parseEnded(value: unknown): Ended | null {
+  const seq = seqOf(value);
+  const outcome = isRecord(value) ? parseOutcome(value.outcome) : null;
+
+  return seq === null || outcome === null ? null : { ...seq, outcome };
+}
+
+/** `POST close` takes an empty object. */
+function parseNoBody(value: unknown): Readonly<Record<string, never>> | null {
+  return isRecord(value) ? {} : null;
+}
 /* oxlint-enable anti-slop/no-runtime-typeof, anti-slop/no-unknown-parameters, anti-slop/no-unsafe-dictionary-type, anti-slop/no-unknown-returns, anti-slop/no-known-value-widening */
+
+/** The body of each route that takes one, parsed before the route runs: 400 when it is not one. */
+export const BODIES: Bodies<ReviewPlugs["server"]> = {
+  "POST request": parseAsked,
+  "POST launched": parseLaunched,
+  "POST ended": parseEnded,
+  "POST forget": seqOf,
+  "POST close": parseNoBody,
+  "POST stopped": seqOf,
+};

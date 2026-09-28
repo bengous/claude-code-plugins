@@ -5,7 +5,7 @@ import remarkRehype from "remark-rehype";
 import { unified } from "unified";
 
 import type { Passage } from "../../runtime/protocol.ts";
-import type { Place } from "./protocol.ts";
+import type { Place } from "./contract.ts";
 
 /** As many characters of context as `passageFromRange` in `runtime/page/anchoring.ts` keeps. */
 const CONTEXT_CHARS = 32;

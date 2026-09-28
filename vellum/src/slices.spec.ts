@@ -160,7 +160,10 @@ async function hooksBroken(folder: string, declared: SliceDecl): Promise<readonl
   return [
     ...differing(file, "tool", keysIn(half, "tools"), hooks.tools ?? []),
     ...differing(file, "listener", present(half, LISTENS), hooks.listens ?? []),
-    ...differing(file, "answer parser of", keysIn(half, "answers"), hooks.posts ?? []),
+    ...differing(file, "answer parser of", keysIn(half, "answers"), [
+      ...(hooks.posts ?? []),
+      ...(hooks.gets ?? []),
+    ]),
     ...differing(file, "refusal of", keysIn(half, "refuses"), hooks.denies ?? []),
   ];
 }
@@ -257,7 +260,7 @@ describe("the three registries", () => {
     const halves = [
       {
         registry: "hooks/slices.ts",
-        files: ["engine.ts", "hooks.ts"],
+        files: ["hooks.ts"],
         ids: engineExtensions.map(({ id }) => id),
       },
       {

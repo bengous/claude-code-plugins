@@ -17,8 +17,8 @@ of the workflow is `workflow.ts`, pure: its region (`regionOf`), its events, row
 and reaction to the others' events, its segment of the band, and its line in the workflow's
 view (`lineOf`, what `mcp__vellum__state` prints); what the proof of the table reads of its region
 is `walk.ts` beside it, which only the tests load (`slices.md`). The server half hands the part to
-the core with its region's read, and an engine half
-may import it as types only. A third half, `engine.ts`, declares an `EngineExtension`
+the core with its region's read, and a hooks half
+may import it as types only. A third half, `hooks.ts`, fills a `HooksHalf`
 (`src/runtime/hooks/extension.ts`): tools, refusals, and the engine events the core hands it; its
 segment of the band is its region's, drawn by `workflow.ts` on the server, which sends it on the
 `stage` line.
@@ -92,10 +92,11 @@ segment of the band is its region's, drawn by `workflow.ts` on the server, which
   type or `null`, and builds its result field by field, so nothing unnamed rides along;
   `html/parse.ts` with `parse.spec.ts` is the smallest to copy, lint-disable block included. A
   cast with its `SAFETY:` is kept for a reply of the extension's own server half.
-- An engine half loads its own folder and nothing else: the hooks module must never pull the
+- A hooks half loads its own folder and nothing else: the hooks module must never pull the
   server or the page in. It reaches `runtime/hooks/` as types, talks to its server half through
-  `context.api`, and parses what comes back in its `parse.ts`. Its kit tests are
-  `<folder>/engine.test.ts`, its fake routes `<folder>/fixtures/`: the core's world serves none.
+  `context.post` and `context.get`, and reads what comes back with the parsers of its `parse.ts`.
+  Its kit tests are `<folder>/hooks.test.ts`, its fake routes `<folder>/fixtures/`: the core's
+  world serves none.
 - A file whose structure is read off its lines never takes a text as it comes: `grill`'s
   transcript quotes Claude's text (`quoted` in `transcript.ts`), or a heading typed in an answer
   speaks for the reviewer, opens a round or closes the grill, and a `_(turn aborted)_` line stops

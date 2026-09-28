@@ -1,5 +1,6 @@
 /**
  * The proposal step: Claude proposes the next steps, one recommended, and the reviewer picks one.
+ * Its id, `step`, is not its folder's: it is on the wire, in `.review/step.json` and in journals.
  * Other folders import this file and nothing else of the folder. The hooks module and the page
  * read it as types: its values, the events and the rows, are the server's.
  */

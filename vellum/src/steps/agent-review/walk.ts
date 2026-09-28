@@ -1,7 +1,7 @@
 import type { WalkOf } from "../../runtime/extension.ts";
 import type { Region } from "../../workshop/workflow.ts";
+import { NO_RUNS, regionOf, REVIEW } from "./agent-review.ts";
 import { parseJson, parseReviews } from "./parse.ts";
-import { NO_RUNS, regionOf, REVIEW } from "./workflow.ts";
 
 function runsOf(region: Region): NonNullable<ReturnType<typeof parseReviews>> {
   return parseReviews(parseJson(String(region.data.reviews ?? ""))) ?? NO_RUNS;

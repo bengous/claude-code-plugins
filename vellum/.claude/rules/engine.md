@@ -22,7 +22,7 @@ relay.ts     what the channel says and what it remembers: prompts, Relayed, foll
 band.ts      what the band above the prompt says: the server's segments, then its pill, then the link; pure
 client.ts    the review server's client: every route, the token header, the launcher, the reader of its stdout
 parse.ts     the boundary: unknown to types, and the only place a brand is minted
-extension.ts `EngineExtension`, the contract an extension's `engine.ts` fills, and `HooksHalf<P>`, what a slice's `hooks.ts` fills; types only
+extension.ts `HooksHalf<P>`, what a slice's `hooks.ts` fills, and `EngineExtension`, what `slice.ts` makes of it; types only
 slice.ts     `engineExtension`: a slice's `HooksHalf` as an `EngineExtension`, called by the registry
 slices.ts    the registry: every engine half, in dispatch order
 ```

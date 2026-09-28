@@ -40,13 +40,14 @@ export type Plugs = {
   /** The folder's name: its routes are mounted under `/api/x/<id>/`. */
   readonly id: string;
   /**
-   * The tools the hooks half registers, the engine events it listens to, the routes it posts, and
-   * the engine's tools it denies while the mode is live (`never` for none).
+   * The tools the hooks half registers, the engine events it listens to, the routes it posts and
+   * those it reads, and the engine's tools it denies while the mode is live (`never` for none).
    */
   readonly hooks: {
     readonly tools: string;
     readonly listens: Listen;
     readonly posts: PostRoute;
+    readonly gets: GetRoute;
     readonly denies: string;
   };
   readonly server: Routes;
@@ -62,6 +63,9 @@ export type Plugs = {
 
 /** The routes of `S` that take a body. */
 export type PostOf<S> = Extract<keyof S, PostRoute>;
+
+/** The routes of `S` that take none. */
+export type GetOf<S> = Extract<keyof S, GetRoute>;
 
 /** The body `S` declares for `Route`; `never` for a route `S` does not declare. */
 export type BodyOf<S, Route> = Route extends keyof S
@@ -184,6 +188,8 @@ export type SliceDecl = {
     readonly listens?: readonly Listen[];
     /** The routes of its own server half its hooks half posts. */
     readonly posts?: readonly PostRoute[];
+    /** The routes of its own server half its hooks half reads. */
+    readonly gets?: readonly GetRoute[];
     /** The engine's tools its hooks half denies while the mode is live. */
     readonly denies?: readonly string[];
   };
@@ -244,6 +250,7 @@ export type PlugsOf<D extends SliceDecl> = {
     readonly tools: ListedIn<HooksOf<D>, "tools">;
     readonly listens: ListedIn<HooksOf<D>, "listens">;
     readonly posts: ListedIn<HooksOf<D>, "posts">;
+    readonly gets: ListedIn<HooksOf<D>, "gets">;
     readonly denies: ListedIn<HooksOf<D>, "denies">;
   };
   readonly server: RoutesOf<D>;

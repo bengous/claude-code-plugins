@@ -17,7 +17,7 @@ import {
   WORKDIR,
   world,
 } from "../../runtime/hooks/fixtures/index.ts";
-import { GRACE_MS, LOST, RETRY_MS } from "./engine.ts";
+import type { Outcome } from "./contract.ts";
 import {
   AGENT_ID,
   agents,
@@ -27,7 +27,7 @@ import {
   stoppedResult,
   stops,
 } from "./fixtures/review-routes.ts";
-import type { Outcome } from "./protocol.ts";
+import { GRACE_MS, LOST, RETRY_MS } from "./hooks.ts";
 
 tier("user");
 

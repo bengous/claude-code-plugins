@@ -1,46 +1,48 @@
 import type {
-  Reading,
-  Route,
-  RouteKey,
+  Reply,
   ServerContext,
-  ServerExtension,
+  ServerHalf,
+  SliceContext,
+  SliceDispatched,
 } from "../../runtime/extension.ts";
 import type { PlanWorkspace } from "../../runtime/protocol.ts";
-import type { Actor, EventInput } from "../../workshop/workflow.ts";
+import { regionIn } from "../../workshop/workflow.ts";
 import { projectPath } from "../../workshop/workspace.ts";
-import { REVIEWS_DIR, reviewFile } from "./names.ts";
-import { parseJson, parsePosts, parseReviews } from "./parse.ts";
-import type { Closed, Requested, Reviews, ReviewState } from "./protocol.ts";
 import {
-  EVENTS,
+  ENDS_WITHOUT_VERDICT,
+  lineOf,
   NO_RUNS,
-  REACTION,
+  REACTIONS,
   regionOf,
   REVIEW,
   REVIEWS_FILE,
-  RULES,
-  lineOf,
+  reviewsOf,
+  SAMPLES,
   segmentOf,
   TRANSITIONS,
-} from "./workflow.ts";
+} from "./agent-review.ts";
+import type { ReviewPlugs, Reviews, ReviewState } from "./contract.ts";
+import { RULES, SLICE } from "./contract.ts";
+import { REVIEWS_DIR, reviewFile } from "./names.ts";
+import { BODIES, parseJson, parseReviews } from "./parse.ts";
 
-const NO_CONTENT = { status: 204 };
+type Context = SliceContext<ReviewPlugs>;
 
-function refused(error: string): Response {
-  return Response.json({ error }, { status: 409 });
-}
-
-function badRequest(): Response {
-  return new Response("bad request", { status: 400 });
-}
+/** Before any event (F6): no row judges a directory the server lost. */
+const DIRECTORY_GONE: Reply<never> = {
+  refused: { status: 409, reason: "the plan's directory is gone" },
+};
 
 /** `null` when the working directory is gone and the server lost its memory: the route answers 409. */
-function workspaceIfAny(context: ServerContext): Promise<PlanWorkspace | null> {
+function workspaceIfAny(context: Pick<ServerContext, "workspace">): Promise<PlanWorkspace | null> {
   return context.workspace().catch(() => null);
 }
 
 /** A file it cannot read starts over: the run it held reads as none, and the ✕ has nothing left to forget. */
-async function readReviews(context: ServerContext, dir: PlanWorkspace["dir"]): Promise<Reviews> {
+async function readReviews(
+  context: Pick<ServerContext, "readText">,
+  dir: PlanWorkspace["dir"],
+): Promise<Reviews> {
   const text = await context.readText(projectPath(`${dir}${REVIEWS_FILE}`));
 
   if (text === null) return NO_RUNS;
@@ -59,7 +61,10 @@ function stateOf({ run, failed, stopping }: Reviews): ReviewState {
  * Where a verdict lands, read off the listing in the queue: `reviews/v<n>-<model>.md`, the next
  * free one. `""` when no run is running: the rows refuse such an end.
  */
-async function verdictFile(context: ServerContext, workspace: PlanWorkspace): Promise<string> {
+async function verdictFile(
+  context: Pick<ServerContext, "readText" | "listFiles">,
+  workspace: PlanWorkspace,
+): Promise<string> {
   const { run } = await readReviews(context, workspace.dir);
 
   if (run?.kind !== "running") return "";
@@ -73,122 +78,86 @@ async function verdictFile(context: ServerContext, workspace: PlanWorkspace): Pr
   return reviewFile(run.version, run.model, taken);
 }
 
-function routes(context: ServerContext): Readonly<Record<RouteKey, Route>> {
-  const { dispatch } = context;
+/** One event of the review's, once the directory is known to be there (F6); a refusal is its row's. */
+async function stepped(
+  context: Context,
+  dispatch: () => Promise<SliceDispatched>,
+): Promise<Reply<null>> {
+  if ((await workspaceIfAny(context)) === null) return DIRECTORY_GONE;
+  const { verdict } = await dispatch();
 
-  /** One event of the review's, once the directory is known to be there (F6); a refusal is its reason. */
-  const stepped = async (
-    event: string,
-    input: EventInput | Reading,
-    actor: Actor,
-  ): Promise<Response | null> => {
-    if ((await workspaceIfAny(context)) === null) return refused("the plan's directory is gone");
-    const { verdict } = await dispatch(event, input, actor);
+  return verdict.kind === "allow" ? { answer: null } : { refused: verdict };
+}
 
-    return verdict.kind === "allow" ? null : refused(verdict.reason);
-  };
-
-  const done = (answer: Response | null): Response => answer ?? new Response(null, NO_CONTENT);
-
-  return {
-    "GET state": () =>
+export const server: ServerHalf<ReviewPlugs> = {
+  id: "review",
+  bodies: BODIES,
+  routes: {
+    "GET state": (context) =>
       context.inOrder(async () => {
         const workspace = await workspaceIfAny(context);
 
-        if (workspace === null) return refused("the plan's directory is gone");
+        if (workspace === null) return DIRECTORY_GONE;
 
-        return Response.json(stateOf(await readReviews(context, workspace.dir)));
+        return { answer: stateOf(await readReviews(context, workspace.dir)) };
       }),
 
-    "POST request": async (request) => {
-      const body = parsePosts.request(await request.json().catch(() => null));
+    "POST request": async (context, { version }) => {
+      if ((await workspaceIfAny(context)) === null) return DIRECTORY_GONE;
 
-      if (body === null) return badRequest();
+      const { verdict, workflow } = await context.dispatch("requestReview", {
+        version: String(version),
+      });
 
-      if ((await workspaceIfAny(context)) === null) return refused("the plan's directory is gone");
-      const input = { version: String(body.version) };
-      const { verdict, workflow } = await dispatch("requestReview", input, "reviewer");
+      if (verdict.kind !== "allow") return { refused: verdict };
 
-      if (verdict.kind !== "allow") return refused(verdict.reason);
-      const region = workflow.regions.find(({ id }) => id === REVIEW);
-      const reviews = parseReviews(parseJson(String(region?.data.reviews)));
-
-      if (reviews === null) throw new Error("a review asked left no runs to read");
-      const requested: Requested = { seq: reviews.seq };
-
-      return Response.json(requested);
+      return { answer: { seq: reviewsOf(regionIn(workflow, REVIEW)).seq } };
     },
 
-    "POST launched": async (request) => {
-      const body = parsePosts.launched(await request.json().catch(() => null));
+    "POST launched": (context, { seq, agentId, model }) =>
+      stepped(context, () =>
+        context.dispatch("reviewLaunched", { seq: String(seq), agentId, model }),
+      ),
 
-      if (body === null) return badRequest();
-      const { seq, agentId, model } = body;
+    "POST ended": (context, { seq, outcome }) =>
+      stepped(context, () =>
+        context.dispatch("reviewDone", async (w) =>
+          outcome.kind === "failed"
+            ? { seq: String(seq), outcome: "failed", why: outcome.why, text: "", file: "" }
+            : {
+                seq: String(seq),
+                outcome: "answer",
+                why: "",
+                text: outcome.text,
+                file: await verdictFile(context, w.workspace),
+              },
+        ),
+      ),
 
-      return done(await stepped("reviewLaunched", { seq: String(seq), agentId, model }, "engine"));
-    },
-
-    "POST ended": async (request) => {
-      const body = parsePosts.ended(await request.json().catch(() => null));
-
-      if (body === null) return badRequest();
-      const { seq, outcome } = body;
-
-      const read: Reading = async (w) =>
-        outcome.kind === "failed"
-          ? { seq: String(seq), outcome: "failed", why: outcome.why }
-          : {
-              seq: String(seq),
-              outcome: "answer",
-              text: outcome.text,
-              file: await verdictFile(context, w.workspace),
-            };
-
-      return done(await stepped("reviewDone", read, "engine"));
-    },
-
-    "POST forget": async (request) => {
-      const body = parsePosts.forget(await request.json().catch(() => null));
-
-      if (body === null) return badRequest();
-
-      return done(await stepped("reviewForgotten", { seq: String(body.seq) }, "reviewer"));
-    },
+    "POST forget": (context, { seq }) =>
+      stepped(context, () => context.dispatch("reviewForgotten", { seq: String(seq) })),
 
     // Refused once the plan is approved, as every event (P3); the agents to stop are answered all
     // the same, read off the runs, so the module stops the one the approval gave up (F7).
-    "POST close": async (request) => {
-      const body = parsePosts.close(await request.json().catch(() => null));
-
-      if (body === null) return badRequest();
-
-      if ((await workspaceIfAny(context)) === null) return refused("the plan's directory is gone");
-      await dispatch("reviewClosed", {}, "engine");
+    "POST close": async (context) => {
+      if ((await workspaceIfAny(context)) === null) return DIRECTORY_GONE;
+      await context.dispatch("reviewClosed", {});
       const { dir } = await context.workspace();
-      const closed: Closed = { stopping: (await readReviews(context, dir)).stopping };
 
-      return Response.json(closed);
+      return { answer: { stopping: (await readReviews(context, dir)).stopping } };
     },
 
     // The one way an agent leaves the list: its stop confirmed, never a later write.
-    "POST stopped": async (request) => {
-      const body = parsePosts.stopped(await request.json().catch(() => null));
-
-      if (body === null) return badRequest();
-
-      return done(await stepped("reviewStopped", { seq: String(body.seq) }, "engine"));
-    },
-  };
-}
-
-export const reviewServer: ServerExtension = {
-  id: "review",
-  routes,
+    "POST stopped": (context, { seq }) =>
+      stepped(context, () => context.dispatch("reviewStopped", { seq: String(seq) })),
+  },
   workflow: {
-    events: EVENTS,
+    events: SLICE.events,
     rules: RULES,
+    samples: SAMPLES,
     transitions: TRANSITIONS,
-    reaction: REACTION,
+    reactions: REACTIONS,
+    endsWithoutVerdict: ENDS_WITHOUT_VERDICT,
     region: async (context) => {
       const { dir } = await context.workspace();
 
