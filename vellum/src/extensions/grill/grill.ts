@@ -70,11 +70,13 @@ export const grillIsOpen = (w: Workflow): boolean => regionIn(w, GRILL).state ==
 
 export const noGrillIsOpen = (w: Workflow): boolean => !grillIsOpen(w);
 
-export const opensAGrill = (_w: Workflow, input: { readonly move?: string }): boolean =>
+export const opensAGrill = (_w: Workflow, input: { readonly move: string | undefined }): boolean =>
   input.move === "grill";
 
-export const namesNoSubject = (_w: Workflow, input: { readonly subject?: string }): boolean =>
-  parseSubject({ subject: input.subject }) === null;
+export const namesNoSubject = (
+  _w: Workflow,
+  input: { readonly subject: string | undefined },
+): boolean => parseSubject({ subject: input.subject }) === null;
 
 /** The open transcript by its file, as a refusal names it. */
 export const openTranscript = (w: Workflow): string => `${grillFile(latestIn(w).n)} is open`;

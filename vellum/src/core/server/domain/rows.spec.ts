@@ -165,7 +165,7 @@ describe("a slice's rows", () => {
   test("a row on an event another part owns is judged after every row of that part, and reads its input as it comes", () => {
     const seen: unknown[] = [];
 
-    const noted = (_w: Workflow, input: { readonly move?: string }): boolean => {
+    const noted = (_w: Workflow, input: { readonly move: string | undefined }): boolean => {
       seen.push(input);
 
       return false;

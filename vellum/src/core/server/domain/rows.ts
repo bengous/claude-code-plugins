@@ -60,9 +60,13 @@ export type Carried<E extends Events, K extends keyof E> = E[K] extends {
   ? { readonly [Field in Fields[number] | keyof Stamps]: string }
   : never;
 
-/** What a slice reads of an event it hears: the fields its owner says it carries and the stamps, any of them possibly absent. */
+/**
+ * What a slice reads of an event it hears: the fields its owner says it carries and the stamps,
+ * each `undefined` when the input lacks it. Every field is named, so a guard naming one the
+ * event does not carry does not compile.
+ */
 export type Read<H extends Heard, K extends keyof H> = {
-  readonly [Field in H[K]["carries"][number] | keyof Stamps]?: string;
+  readonly [Field in H[K]["carries"][number] | keyof Stamps]: string | undefined;
 };
 
 /** The sender a route names when it dispatches `event`: none when the event has one, which it takes. */

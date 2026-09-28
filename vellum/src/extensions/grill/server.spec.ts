@@ -553,6 +553,21 @@ describe("what the transcript keeps", () => {
 });
 
 describe("closing a grill", () => {
+  test("is journaled as the page's reviewer's, or as the engine's from `/vellum:stop`", async () => {
+    const { dir, post, open } = await grilling();
+    await open("auth");
+    await post("close", { reason: "stop" });
+    await open("auth");
+    await post("close", { reason: "page" });
+
+    const ends = readFileSync(join(dir, WIP, ".review/events.jsonl"), "utf8")
+      .split("\n")
+      .filter((line) => line.includes('"event":"endGrill"'))
+      .map((line) => /"actor":"(\w+)"/u.exec(line)?.[1]);
+
+    expect(ends).toEqual(["engine", "reviewer"]);
+  });
+
   test("writes the footer with its reason, the state reads none, and Claude is told the file", async () => {
     const { dir, post, get, told, open } = await grilling();
     await open("auth");

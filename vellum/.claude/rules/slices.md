@@ -37,7 +37,9 @@ is checked, a type by `tsgo`, a row by its test: no sentence in it is taken on t
 - A guard is a one-line function of the model that states the fields it reads
   (`(w, input: { readonly id: string }) => boolean`), composed with `allOf` and `anyOf`, which
   read every field their guards read: a row takes it only on an event that carries those fields.
-  It reads `""` for a field the input lacks.
+  It reads `""` for a field the input lacks. A guard on an event the slice hears names its
+  fields `string | undefined` (`{ readonly move: string | undefined }`), never optional: an
+  optional field is accepted from an event that does not carry it.
 - An event's `by` lists its senders; with several (`endGrill`), the route names one at `dispatch`.
 - `hears` names the events of the others a slice judges or reacts to: another slice's, typed by
   its contract (`Pick<StepEvents, "answerProposal">`), or the core's by name, fields untyped
