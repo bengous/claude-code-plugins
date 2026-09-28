@@ -1,15 +1,13 @@
-import type { ProjectPath } from "../../workshop/paths.ts";
 import type {
   Decision,
   DecisionAnswer,
-  DocRef,
   Draft,
   RecordAnswer,
-  ReviewView,
   SendAnswer,
   SendRequest,
-  VellumBuild,
-} from "../protocol.ts";
+} from "../../review/contract.ts";
+import type { ProjectPath } from "../../workshop/paths.ts";
+import type { DocRef, ReviewView, VellumBuild } from "../protocol.ts";
 
 /** The page's side of the HTTP contract: the token from the URL, the routes, the event stream. */
 

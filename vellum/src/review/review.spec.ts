@@ -1,6 +1,7 @@
 /* oxlint-disable anti-slop/require-safety-comment-for-type-assertion -- fixtures and expectations here are branded values (Version, ProjectPath, WipDir) written as literals: the brand is the parser's to grant, and the test is what checks the parser. */
 import { describe, expect, test } from "bun:test";
 
+import type { PlanWorkspace } from "../workshop/workspace.ts";
 import type { Annotation } from "./feedback.ts";
 import type { Draft, Taking } from "./review.ts";
 import {
@@ -14,7 +15,6 @@ import {
   slugFor,
   withoutChoices,
 } from "./review.ts";
-import type { PlanWorkspace } from "./workspace.ts";
 
 const DIR = "plans/2026-09-15/wip-4c2a9d93/" as never;
 

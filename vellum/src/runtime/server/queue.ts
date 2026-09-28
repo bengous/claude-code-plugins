@@ -1,4 +1,6 @@
 import { readDraft } from "../../review/draft.ts";
+import type { Draft } from "../../review/review.ts";
+import { draftIsEmpty } from "../../review/review.ts";
 import { REVIEW_PART } from "../../review/server.ts";
 import {
   appended,
@@ -11,8 +13,6 @@ import {
 } from "../../workshop/channel.ts";
 import type { FinalDir, ProjectPath, Version, WipDir } from "../../workshop/paths.ts";
 import { parseVersion } from "../../workshop/paths.ts";
-import type { Draft } from "../../workshop/review.ts";
-import { draftIsEmpty } from "../../workshop/review.ts";
 import type {
   Actor,
   EventInput,

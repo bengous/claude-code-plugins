@@ -49,8 +49,9 @@ no build step, so what the page imports costs nothing at `cli start`.
   card hovered or focused is `focused` of `state.ts`, and the plan's renderer paints its passage
   (`::highlight(vellum-focus)`), scrolling to it on a click; a comment added scrolls the list
   to its card. The general box comments the plan when the document beside it takes none.
-- Everything crossing `/api` is JSON and typed in `src/runtime/protocol.ts`; a new field lands there
-  first. What crosses `/api/x/<id>/` is the extension's own, typed in its `protocol.ts`.
+- Everything crossing `/api` is JSON and typed in `src/runtime/protocol.ts`, or in
+  `src/review/contract.ts` for the review's routes; a new field lands there first. What crosses
+  `/api/x/<id>/` is the extension's own, typed in its `contract.ts`.
 - A chain of tests over a union of `src/runtime/protocol.ts` ends on a function whose parameter is
   the members left, never on a bare `return`: over `MediaType`, what is neither Markdown nor
   HTML goes to a function that takes `` `image/${string}` ``, so a member added to the union

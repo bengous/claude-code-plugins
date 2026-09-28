@@ -9,7 +9,8 @@ import type { Readable } from "node:stream";
 import type { Locator, Page } from "@playwright/test";
 import { expect, test as base } from "@playwright/test";
 
-import type { Annotation, ChannelLine, ReviewView, SendAnswer } from "../src/runtime/protocol.ts";
+import type { Annotation, SendAnswer } from "../src/review/contract.ts";
+import type { ChannelLine, ReviewView } from "../src/runtime/protocol.ts";
 import { discard } from "../src/runtime/server/preview.ts";
 import type { Outcome, ReviewState, Run } from "../src/steps/agent-review/contract.ts";
 import type {

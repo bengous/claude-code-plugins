@@ -1,18 +1,18 @@
 import type { Part } from "../runtime/extension.ts";
-import type { SendRefusal } from "../runtime/protocol.ts";
 import { freeTarget, listReview } from "../runtime/server/fs.ts";
 import type { Queue, Stepped } from "../runtime/server/queue.ts";
-import type { BatchHeading } from "../workshop/feedback.ts";
-import { formatBatch } from "../workshop/feedback.ts";
 import type { ProjectPath, Version } from "../workshop/paths.ts";
-import type { Decision, Draft, EditKept, SendRequest } from "../workshop/review.ts";
-import { EMPTY_DRAFT, namedIn, sendOn, slugFor } from "../workshop/review.ts";
 import { tablePart } from "../workshop/rows.ts";
 import type { Actor, EventInput, TablePart, Workflow } from "../workshop/workflow.ts";
 import { HELD, held, verdictOf } from "../workshop/workflow.ts";
 import type { PlanWorkspace } from "../workshop/workspace.ts";
+import type { SendRefusal } from "./contract.ts";
 import { REVIEW_EVENTS, RULES } from "./contract.ts";
 import { REVIEW, SAMPLES, TRANSITIONS } from "./events.ts";
+import type { BatchHeading } from "./feedback.ts";
+import { formatBatch } from "./feedback.ts";
+import type { Decision, Draft, EditKept, SendRequest } from "./review.ts";
+import { EMPTY_DRAFT, namedIn, sendOn, slugFor } from "./review.ts";
 
 /**
  * The review's server half: its part of the table, which the queue puts first, and its events as

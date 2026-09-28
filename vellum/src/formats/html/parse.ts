@@ -1,4 +1,4 @@
-import type { ElementDescription, ElementRef, WordsContext } from "../../runtime/protocol.ts";
+import type { ElementDescription, ElementRef, WordsContext } from "../../review/contract.ts";
 import type { Chosen, FrameToPage, PickBox } from "./messages.ts";
 
 /**

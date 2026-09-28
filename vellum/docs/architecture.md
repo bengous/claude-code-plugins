@@ -41,9 +41,10 @@ flowchart LR
 ```
 
 `src/runtime/protocol.ts` is the one contract the three share: every value that crosses HTTP or
-an extension boundary is typed there and is JSON. What an extension hands the core is typed
-beside it, in `src/runtime/extension.ts`, and what crosses an extension's own routes in its
-`protocol.ts`: § Extensions.
+an extension boundary is typed there and is JSON, but for the review's, typed in
+`src/review/contract.ts`. What an extension hands the core is typed beside it, in
+`src/runtime/extension.ts`, and what crosses an extension's own routes in its `contract.ts`:
+§ Extensions.
 
 ## What kind of architecture this is
 
@@ -309,9 +310,9 @@ it, and so does a revival replacing it.
 |---|---|---|---|
 | Comment on an HTML element | `ElementRef`, its `ElementDescription`, the `Anchor` variant `element` and its line in the feedback text (`describeElement`); `formats/html/pick.ts`, `formats/html/describe.ts` and `runtime/page/selection.ts` | `frame.js` built once at `startServer` and injected into `text/html` responses, `postMessage` across the sandbox | the HTML renderer bridges the frame and opens the Composer over the iframe |
 | Coloured code and Mermaid | `rehype-highlight` in the `toTree` pipeline, so the hast keeps `data-lines`; the target kind `diagram` and `diagramPassage` in `formats/markdown/pinpoint.ts` | | the Markdown renderer turns a `mermaid` block into a `figure`, draws it after the mount, and boxes it where text is highlighted |
-| Diff `vN-1` / `vN` | `workshop/diff.ts`: `lineDiff` over the `diff` package, `countChanges`; `formats/markdown/changes.ts`: which block carries a mark, where a removed run goes | `/api/review` returns the previous version's text | `planChanges` computed once; the count beside the version, the "Changes since" toggle, the marks and the text-free removed blocks in the Markdown renderer |
-| Delete marks and quick labels | `Mark` on `Annotation`, `QUICK_LABELS` with the sentence Claude reads, in `workshop/feedback.ts` | `parseMark` in the draft's parser, `runtime/server/draft.ts` | the Composer's label row and "Delete this", the card's chip and struck quote |
-| Direct edit | `Edit`, `sendOn` and `decideOn` (the edit is `vN+1`, refused on another version), `editOnLoad`, `landedAnnotations` in `workshop/review.ts`; `shiftLines`, `shiftAnnotations` in `workshop/diff.ts` | `parseEdit` in `runtime/server/draft.ts`; `Review.send` and `Review.decide` write `plan.md`, then the version file | `page/editor.tsx` and `page/caret.ts`; `edited`, `editing`, `finishEdit`, `settleEdit` in `state.ts` |
+| Diff `vN-1` / `vN` | `review/diff.ts`: `lineDiff` over the `diff` package, `countChanges`; `formats/markdown/changes.ts`: which block carries a mark, where a removed run goes | `/api/review` returns the previous version's text | `planChanges` computed once; the count beside the version, the "Changes since" toggle, the marks and the text-free removed blocks in the Markdown renderer |
+| Delete marks and quick labels | `Mark` on `Annotation`, `QUICK_LABELS` with the sentence Claude reads, in `review/feedback.ts` | `parseMark` in the draft's parser, `review/draft.ts` | the Composer's label row and "Delete this", the card's chip and struck quote |
+| Direct edit | `Edit`, `sendOn` and `decideOn` (the edit is `vN+1`, refused on another version), `editOnLoad`, `landedAnnotations` in `review/review.ts`; `shiftLines`, `shiftAnnotations` in `review/diff.ts` | `parseEdit` in `review/draft.ts`; `Review.send` and `Review.decide` write `plan.md`, then the version file | `page/editor.tsx` and `page/caret.ts`; `edited`, `editing`, `finishEdit`, `settleEdit` in `state.ts` |
 | Approval notes | `formatNotes`, `notesFile`, `approved.notes` read off the final directory's listing, the channel's `approved` entry and its `notes` | the notes file written before the rename; `engine/relay.ts` names it in the approval's prompt | the decision bar's one popover state: notes, and the warning before unsent comments or choices are discarded |
 | Drafts | `Draft`, `DRAFT_FILE`, `takesComments` | `GET` and `PUT /api/draft`, through the one parser of `review/draft.ts`; read back by a Send and by End grill; what a Send took leaves it, an approval removes it | `start`: restore, load, then save at every change, in order; `writeDraft` before a Send |
 | One Send | `sendOn`, `batchFile`, `formatBatch`: what the Send names or its refusal, the extensions' parts, then the comments, then the choices made in mockups | `POST /api/send`, `Review.send` in one step of the queue: the `send` rows and each `part`, nothing written; the edit, the batch, the `sent` entry; each extension's reaction, the draft's rest | the bar's `Send (n)` and its warning, a card's Send now, `PageExtension.send`: a snapshot at the click, taken out of the page once sent |

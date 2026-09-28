@@ -1,6 +1,7 @@
-import type { ChoiceRef, Decision, SendRequest } from "../runtime/protocol.ts";
 import { parseProjectPath, parseVersion } from "../workshop/paths.ts";
 import { isRecord, parseEdit } from "./draft.ts";
+import type { ChoiceRef } from "./feedback.ts";
+import type { Decision, SendRequest } from "./review.ts";
 import type { GateOptions } from "./server.ts";
 
 /**

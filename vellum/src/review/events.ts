@@ -1,7 +1,6 @@
 import type { ChannelEntry } from "../workshop/channel.ts";
 import type { Version } from "../workshop/paths.ts";
 import { parseFinalDir, parseVersion } from "../workshop/paths.ts";
-import { decideOn } from "../workshop/review.ts";
 import type { Carried, Samples, Transitions } from "../workshop/rows.ts";
 import { naming } from "../workshop/rows.ts";
 import type { Effect, Outcome, PlanText, Workflow } from "../workshop/workflow.ts";
@@ -9,6 +8,7 @@ import { planExists, SAMPLE_AT, unchanged } from "../workshop/workflow.ts";
 import type { PlanWorkspace } from "../workshop/workspace.ts";
 import { batchFile, PLAN_FILE, projectPath, versionFile } from "../workshop/workspace.ts";
 import type { ReviewEvents, ReviewPlugs } from "./contract.ts";
+import { decideOn } from "./review.ts";
 
 /**
  * The review's part of the workflow: the versions Claude records and the reviewer's edit makes,

@@ -1,6 +1,6 @@
-import type { DecisionAnswer, GateAnswer, RecordAnswer, SendAnswer } from "../runtime/protocol.ts";
 import type { Queue } from "../runtime/server/queue.ts";
 import { DRAFT_FILE } from "../workshop/workspace.ts";
+import type { DecisionAnswer, GateAnswer, RecordAnswer, SendAnswer } from "./contract.ts";
 import { parseDraft } from "./draft.ts";
 import { parseDecision, parseGateOptions, parseSend } from "./parse.ts";
 import type { ReviewServer } from "./server.ts";

@@ -2,8 +2,10 @@ import { batch } from "@preact/signals";
 import { Fragment } from "preact";
 import { useEffect, useRef, useState } from "preact/hooks";
 
-import type { Anchor, Annotation, GroupedDoc, Mark, SentChoice } from "../protocol.ts";
-import { choicesIn, DELETE_SENTENCE, QUICK_LABELS, refOf } from "../protocol.ts";
+import type { Anchor, Annotation, Mark, SentChoice } from "../../review/contract.ts";
+import { DELETE_SENTENCE, QUICK_LABELS } from "../../review/feedback.ts";
+import { choicesIn, refOf } from "../../review/review.ts";
+import type { GroupedDoc } from "../protocol.ts";
 import { Badge, Button, Handle, Tag } from "./kit.tsx";
 import { pathLabel, quoteOf, whereOf } from "./labels.ts";
 import {

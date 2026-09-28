@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "preact/hooks";
 
+import type { Passage } from "../../review/contract.ts";
 import type { PageHalf, RendererProps } from "../../runtime/extension.ts";
 import { parseLines, passageFromRange, rangeFor } from "../../runtime/page/anchoring.ts";
 import { docUrl } from "../../runtime/page/api.ts";
@@ -26,7 +27,7 @@ import {
   select,
   succeed,
 } from "../../runtime/page/state.ts";
-import type { DocRef, Passage } from "../../runtime/protocol.ts";
+import type { DocRef } from "../../runtime/protocol.ts";
 import { changesOf } from "./changes.ts";
 import type { MarkdownPlugs } from "./contract.ts";
 import { linkedDoc } from "./links.ts";

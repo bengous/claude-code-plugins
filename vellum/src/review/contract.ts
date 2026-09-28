@@ -6,10 +6,12 @@
  * name, never through a registry: `runtime/server/queue.ts` puts its part first in the table,
  * `http/routes.ts` hands it its routes. A part reads it through this file, as types.
  */
+import type { ProjectPath, Version } from "../workshop/paths.ts";
 import type { PlugsOf } from "../workshop/plugs.ts";
 import { defineSlice } from "../workshop/plugs.ts";
 import { rows } from "../workshop/rows.ts";
 import { held, reviewed } from "../workshop/workflow.ts";
+import type { PlanWorkspace } from "../workshop/workspace.ts";
 import { PLAN_FILE } from "../workshop/workspace.ts";
 import {
   editsAnotherVersion,
@@ -19,6 +21,80 @@ import {
   planChangedSinceTheVersion,
   planIsAbsent,
 } from "./events.ts";
+import type { EditKept } from "./review.ts";
+
+// The review's types, named here for every reader outside review/: defined beside their code.
+
+export type { DiffRun, LineDiff } from "./diff.ts";
+
+export type {
+  Anchor,
+  Annotation,
+  Choice,
+  ChoiceRef,
+  DecisionKey,
+  ElementDescription,
+  ElementRef,
+  Mark,
+  Passage,
+  PassageKind,
+  QuickLabel,
+  SentChoice,
+  WordsContext,
+} from "./feedback.ts";
+
+export type {
+  Choices,
+  Decision,
+  Draft,
+  Edit,
+  EditKept,
+  SendRefused,
+  SendRequest,
+  Taking,
+  Typed,
+} from "./review.ts";
+
+// The wire: what the review's routes answer.
+
+/** What `POST /api/gate` answers: the version the browser shows, or why it shows none. */
+export type GateAnswer =
+  | { readonly version: Version; readonly kept: boolean }
+  | { readonly error: string };
+
+/** What `POST /api/record` answers the reviewer's Record: the version recorded or kept, or the row that refused it. */
+export type RecordAnswer =
+  | { readonly version: Version }
+  | { readonly rule: string; readonly reason: string };
+
+/**
+ * What `POST /api/decision` answers: where the review stands after it, and, when a row refused
+ * the approval, which one and why; a rename that failed leaves its error in the workspace.
+ */
+export type DecisionAnswer = {
+  readonly workspace: PlanWorkspace;
+  readonly rule?: string;
+  readonly reason?: string;
+};
+
+/**
+ * Why `POST /api/send` wrote nothing: questions no answer takes that the reviewer did not agree to
+ * leave to their recommendation, every one of them; the row that refused it, by its id, with its
+ * text (an edit with nothing else, while the review is held, is the hold's row, and its text what
+ * holds); nothing to send; or a saved draft the server cannot read.
+ */
+export type SendRefusal =
+  | { readonly reason: "unanswered"; readonly ids: readonly string[] }
+  | { readonly reason: "refused"; readonly rule: string; readonly text: string }
+  | { readonly reason: "empty" | "unreadable" };
+
+/**
+ * What `POST /api/send` answers: the batch written, its entry's number, and the edit it left in
+ * the draft while the review is held; or why nothing was written.
+ */
+export type SendAnswer =
+  | { readonly file: ProjectPath; readonly seq: number; readonly editKept: EditKept | null }
+  | SendRefusal;
 
 // The declaration: the events it owns, each with its senders and the fields it carries.
 

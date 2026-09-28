@@ -1,5 +1,5 @@
+import type { Passage } from "../../review/contract.ts";
 import { parseLines } from "../../runtime/page/anchoring.ts";
-import type { Passage } from "../../runtime/protocol.ts";
 
 export type TargetKind = "block" | "inline" | "code" | "table" | "row" | "cell" | "diagram";
 

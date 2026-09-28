@@ -1,5 +1,5 @@
-import type { ProjectPath, Version } from "./paths.ts";
-import { PLAN_FILE, versionFile } from "./workspace.ts";
+import type { ProjectPath, Version } from "../workshop/paths.ts";
+import { PLAN_FILE, versionFile } from "../workshop/workspace.ts";
 
 /** What a passage quotes: the text as shown, a whole code block, or a diagram by its source's first line. */
 export type PassageKind = "prose" | "code" | "diagram";

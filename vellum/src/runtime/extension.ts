@@ -1,5 +1,6 @@
 import type { ComponentType } from "preact";
 
+import type { Annotation, Draft, LineDiff, Typed } from "../review/contract.ts";
 import type { ProjectPath } from "../workshop/paths.ts";
 import type {
   AnswerOf,
@@ -21,16 +22,7 @@ import type {
   TablePart,
   Workflow,
 } from "../workshop/workflow.ts";
-import type {
-  Annotation,
-  DocLink,
-  DocRef,
-  Draft,
-  LineDiff,
-  LinkRoots,
-  PlanWorkspace,
-  Typed,
-} from "./protocol.ts";
+import type { DocLink, DocRef, LinkRoots, PlanWorkspace } from "./protocol.ts";
 
 export type RendererProps = {
   readonly doc: DocRef;

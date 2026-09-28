@@ -1,12 +1,7 @@
 import type { HttpResponse } from "claude-code";
 
-import type {
-  ChannelLine,
-  GateAnswer,
-  PlanWorkspace,
-  ServerLine,
-  WorkflowAnswer,
-} from "../protocol.ts";
+import type { GateAnswer } from "../../review/contract.ts";
+import type { ChannelLine, PlanWorkspace, ServerLine, WorkflowAnswer } from "../protocol.ts";
 import type { ServerInfo, Session } from "./mode.ts";
 import type { Relayed } from "./relay.ts";
 

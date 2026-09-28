@@ -25,6 +25,9 @@ const RUNTIME = `${SRC}/runtime`;
 /** The review, the frame the parts plug into: a part reads it through its `contract.ts`, as types. */
 const REVIEW = `${SRC}/review`;
 
+/** The review's values a part may use, frozen in that one file. */
+const REVIEW_SURFACE = `${REVIEW}/surface.ts`;
+
 /** The folders that hold the parts, a folder each: the steps Vellum follows, the formats it reads a document in. */
 const PART_GROUPS = ["steps", "formats"];
 
@@ -261,6 +264,14 @@ describe("dependency direction", () => {
     expect(reaching).toEqual([]);
   });
 
+  test("protocol.ts learns nothing of the review: review/contract.ts names its types", () => {
+    const reaching = relativeImportsOf([`${RUNTIME}/protocol.ts`])
+      .filter(({ target }) => target.startsWith(`${REVIEW}/`))
+      .map(({ file, specifier }) => `${short(file)} imports ${specifier}`);
+
+    expect(reaching).toEqual([]);
+  });
+
   test("review/ imports no part: the parts plug into it, it names none", () => {
     const reaching = relativeImports("src/review")
       .filter(({ target }) => PART_GROUPS.some((group) => target.startsWith(`${SRC}/${group}/`)))
@@ -293,7 +304,7 @@ describe("the page without a browser", () => {
 });
 
 describe("parts", () => {
-  test("a part imports workshop/, runtime/, its own folder and the review's contract, never another part", () => {
+  test("a part imports workshop/, runtime/, its own folder, the review's contract and its surface, never another part", () => {
     const contracts = [...parts(), REVIEW].map((slice) => `${slice}/${CONTRACT}`);
 
     const stray = relativeImportsOf(partSources())
@@ -304,6 +315,7 @@ describe("parts", () => {
           !target.startsWith(`${partOf(file)}/`) &&
           !target.startsWith(`${WORKSHOP}/`) &&
           !target.startsWith(`${RUNTIME}/`) &&
+          target !== REVIEW_SURFACE &&
           !typed
         );
       })

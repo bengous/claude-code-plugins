@@ -11,7 +11,7 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { EMPTY_TYPED } from "../../runtime/protocol.ts";
+import { EMPTY_TYPED } from "../../review/review.ts";
 import { startServer } from "../../runtime/server/http/serve.ts";
 import type { Started } from "../../runtime/server/http/serve.ts";
 import { Queue } from "../../runtime/server/queue.ts";

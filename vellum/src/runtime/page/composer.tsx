@@ -1,8 +1,8 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "preact/hooks";
 
+import type { ElementRef, Mark, Passage, QuickLabel } from "../../review/contract.ts";
+import { QUICK_LABELS } from "../../review/feedback.ts";
 import type { ProjectPath } from "../../workshop/paths.ts";
-import type { ElementRef, Mark, Passage, QuickLabel } from "../protocol.ts";
-import { QUICK_LABELS } from "../protocol.ts";
 import { Button, Chip, Popover } from "./kit.tsx";
 import { quoteOf, whereOf } from "./labels.ts";
 import type { Rect } from "./place.ts";

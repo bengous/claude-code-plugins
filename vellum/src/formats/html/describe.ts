@@ -1,4 +1,4 @@
-import type { ElementDescription } from "../../runtime/protocol.ts";
+import type { ElementDescription } from "../../review/contract.ts";
 import { cut, quoted, TEXT_LIMIT } from "./words.ts";
 
 /**

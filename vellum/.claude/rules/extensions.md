@@ -30,7 +30,8 @@ tests load. A hooks half may import the model as types only.
   changes; when something must, the core lacks a place to plug into, and that is the change to
   propose first.
 - An extension imports `src/workshop/`, `src/runtime/` and its own folder, never another part's.
-  From a runtime's folder it imports, for a half it fills, the files `SURFACES` lists in
+  It reads the review through `src/review/contract.ts`, as types, and takes a value of the
+  review's from `src/review/surface.ts` alone, a file frozen as `PAGE_SURFACE` is. From a runtime's folder it imports, for a half it fills, the files `SURFACES` lists in
   `src/boundaries.spec.ts` (`PAGE_SURFACE` of `src/runtime/page/`, `slice.ts` of
   `src/runtime/server/`, types of `src/runtime/hooks/`, the last two from `server.ts` and
   `hooks.ts` alone, never from the page half or the model): one more is a decision to take, not a

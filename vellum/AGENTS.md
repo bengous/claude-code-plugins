@@ -14,8 +14,10 @@ server, the page. The steps and the formats plug into the runtimes, a folder eac
 hooks/hooks.json            Claude Code's folder: it names the hooks module, nothing else lives there
 skills/start, skills/stop   the way in and the way out
 src/workshop/               pure, no IO: the workflow (`next`, the table of rules), rows, waits, plugs
-                            (`defineSlice`), paths, workspace, channel, slug, links, vellum-build, and the
-                            review's own: review, feedback, diff
+                            (`defineSlice`), paths, workspace, channel, slug, links, vellum-build
+src/review/                 the review, the frame the parts plug into: contract.ts its events and types,
+                            surface.ts the values a part may use, review, feedback, diff its domain, events.ts
+                            its rows' model, server.ts, routes.ts, draft.ts, parse.ts its server half
 src/runtime/hooks/          the hooks module: register.ts spells `$`, the rest takes a `Host`; client.ts the server's
         │ HTTP, token header, down; the server's stdout, up
 src/runtime/server/         the server: cli.ts `serve`, preview.ts the page alone on any directory, queue.ts the

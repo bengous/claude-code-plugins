@@ -1,9 +1,10 @@
 import type { ComponentType } from "preact";
 import { useEffect, useRef, useState } from "preact/hooks";
 
+import type { Annotation, Choices, Decision } from "../../review/contract.ts";
+import { countChanges } from "../../review/diff.ts";
+import { choicesIn, refOf } from "../../review/review.ts";
 import type { SendShare } from "../extension.ts";
-import type { Annotation, Choices, Decision } from "../protocol.ts";
-import { choicesIn, countChanges, refOf } from "../protocol.ts";
 import { Badge, Banner, Button, Chip, Gear, Popover, Tag } from "./kit.tsx";
 import type { Notice, RefusedLine } from "./notices.ts";
 import { decisionsOf, statusOf } from "./notices.ts";

@@ -27,8 +27,10 @@ Claude Code's `installed_plugins.json`, `git` with its `GIT_*` variables cleared
   no `as`, no re-check. A `ParseResult` is returned where the caller decides; anything else
   throws, and the route turns it into an answer.
 - `src/runtime/protocol.ts` is the one place a value crossing HTTP, the server's stdout or an
-  extension boundary is typed; it re-exports the workshop's types it carries, never redefines them. What an extension
-  hands the core is typed beside it, in `src/runtime/extension.ts`.
+  extension boundary is typed, but for the review's: its draft, its Send, its decision and its
+  routes' answers are typed in `src/review/contract.ts`, which re-exports them from the module that
+  defines them, and `protocol.ts` names none. Both re-export the domain's types they carry, never
+  redefine them. What an extension hands the core is typed beside it, in `src/runtime/extension.ts`.
 - `Queue` binds the `ServerContext` of `src/runtime/extension.ts` to itself and to `fs.ts`, since
   a step runs there; `http/serve.ts` hands the same context to each extension's routes and mounts them under `/api/x/<id>/`; `routes.ts` looks them
   up after its own, behind the same token check, and knows none by name.

@@ -14,19 +14,19 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+import type { Passage } from "../../review/feedback.ts";
+import type { Draft, SendRequest } from "../../review/review.ts";
+import { choicesIn, EMPTY_TYPED } from "../../review/review.ts";
 import type { ReviewServer, GateResult, SendResult } from "../../review/server.ts";
 import { reviewServer } from "../../review/server.ts";
-import type { Passage } from "../../workshop/feedback.ts";
 import { parseWipDir } from "../../workshop/paths.ts";
-import type { Draft, SendRequest } from "../../workshop/review.ts";
-import { choicesIn, EMPTY_TYPED } from "../../workshop/review.ts";
 import type { Outcome, Region, Transition, Workflow } from "../../workshop/workflow.ts";
 import { held as heldIn, withRegion } from "../../workshop/workflow.ts";
 import type { ServerExtension, ServerWorkflow } from "../extension.ts";
 import { Queue } from "./queue.ts";
 import { serverExtensions } from "./slices.ts";
 
-/** The applying side: the pure decisions are covered in `workshop/review.spec.ts`. */
+/** The applying side: the pure decisions are covered in `review/review.spec.ts`. */
 
 const WIP = "plans/2026-09-15/wip-4c2a9d93/";
 
