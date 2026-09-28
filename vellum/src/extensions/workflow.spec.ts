@@ -27,8 +27,8 @@ import { regionOf as grillRegion, roundCall } from "./grill/workflow.ts";
 import { parseJson, parseReviews } from "./review/parse.ts";
 import { regionOf as reviewRegion } from "./review/workflow.ts";
 import { serverExtensions } from "./server.ts";
-import type { Move } from "./step/protocol.ts";
-import { pendingOf, regionOf as stepRegion } from "./step/workflow.ts";
+import type { Move } from "./step/contract.ts";
+import { pendingOf, regionOf as stepRegion } from "./step/proposal.ts";
 
 /** The table as the server assembles it from the registry: the core's, then each extension's in order. */
 const TABLE: Table = tableOf(

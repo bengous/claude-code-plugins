@@ -1,14 +1,17 @@
+import type { Bodies } from "../../core/extension.ts";
 import type {
+  AnswerBody,
   Dropped,
   Move,
   Pending,
   Proposal,
+  ProposalId,
   Proposed,
   StepAnswer,
-  StepFile,
-  StepPosts,
+  StepPlugs,
   StepWaited,
-} from "./protocol.ts";
+} from "./contract.ts";
+import type { StepFile } from "./proposal.ts";
 
 /** The boundary of `step`: what a request carries arrives as `unknown` and is parsed here, once. */
 
@@ -98,7 +101,7 @@ function parseStepAnswer(value: unknown): StepAnswer | null {
 }
 
 /** `POST answer`: the proposal answered, `null` from the window opened blank, and the answer. */
-export function parseAnswer(body: unknown): StepPosts["answer"] | null {
+export function parseAnswer(body: unknown): AnswerBody | null {
   if (!isRecord(body)) return null;
   const { id } = body;
   const answer = parseStepAnswer(body.answer);
@@ -111,7 +114,7 @@ export function parseAnswer(body: unknown): StepPosts["answer"] | null {
 }
 
 /** `POST wait` and `POST pause`: the id `POST propose` answered. */
-export function parseProposalId(body: unknown): StepPosts["wait" | "pause"] | null {
+export function parseProposalId(body: unknown): ProposalId | null {
   return isRecord(body) && typeof body.id === "string" && body.id !== "" ? { id: body.id } : null;
 }
 
@@ -190,3 +193,11 @@ export function parseError(value: unknown): string | null {
   return isRecord(value) && typeof value.error === "string" ? value.error : null;
 }
 /* oxlint-enable anti-slop/no-runtime-typeof, anti-slop/no-unknown-parameters, anti-slop/no-unsafe-dictionary-type, anti-slop/no-unknown-returns, anti-slop/no-known-value-widening */
+
+/** The body of each route that takes one, parsed before the route runs: 400 when it is not one. */
+export const BODIES: Bodies<StepPlugs["server"]> = {
+  "POST propose": parseProposal,
+  "POST wait": parseProposalId,
+  "POST pause": parseProposalId,
+  "POST answer": parseAnswer,
+};

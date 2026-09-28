@@ -3,14 +3,26 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+import type { BodyOf, PostOf } from "../../core/plugs.ts";
 import type { ChannelLine, RegionView, ReviewView, WorkflowView } from "../../core/protocol.ts";
 import { startServer } from "../../core/server/adapters/http/serve.ts";
 import type { Started } from "../../core/server/adapters/http/serve.ts";
 import { Review } from "../../core/server/app/review.ts";
 import { parseWipDir } from "../../core/server/domain/paths.ts";
+import { serverExtension } from "../../core/server/slice.ts";
 import { serverExtensions } from "../server.ts";
-import type { Move, Proposal, Proposed, StepPosts, StepState, StepWaited } from "./protocol.ts";
-import { stepServer } from "./server.ts";
+import type { Move, Proposal, Proposed, StepPlugs, StepState, StepWaited } from "./contract.ts";
+import { server } from "./server.ts";
+
+type Routes = StepPlugs["server"];
+
+/** The body each `POST /api/x/step/<name>` takes, by route name. */
+type StepPosts = {
+  readonly [Route in PostOf<Routes> as Route extends `POST ${infer Name}` ? Name : never]: BodyOf<
+    Routes,
+    Route
+  >;
+};
 
 const WIP = "plans/2026-09-17/wip-c95eaf71/";
 
@@ -49,9 +61,27 @@ type Stepping = {
   readonly reviewed: () => Promise<RegionView | undefined>;
   /** The events of the journal, in order. */
   readonly journaled: () => readonly string[];
+  /** Each event of the journal with who sent it, `<actor> <event>`, in order. */
+  readonly sentBy: () => readonly string[];
   /** The server on the same directory, stopped, `meanwhile` run, and started again. */
   readonly restart: (meanwhile?: () => void) => Promise<Stepping>;
 };
+
+/** The journal's lines, in order. */
+function journal(dir: string): readonly { readonly actor: string; readonly event: string }[] {
+  return readFileSync(join(dir, WIP, ".review/events.jsonl"), "utf8")
+    .split("\n")
+    .filter((line) => line !== "")
+    .map((line) => {
+      // SAFETY: the server's own journal lines, written by `journalText` in domain/workflow.ts.
+      const { actor, event } = JSON.parse(line) as {
+        readonly actor: string;
+        readonly event: string;
+      };
+
+      return { actor, event };
+    });
+}
 
 /** A server on a fresh working directory, or on `dir` again, its step routes behind the token. */
 async function stepping(dir = mkdtempSync(join(tmpdir(), "vellum-step-"))): Promise<Stepping> {
@@ -107,16 +137,8 @@ async function stepping(dir = mkdtempSync(join(tmpdir(), "vellum-step-"))): Prom
 
       return view.workflow.regions.find(({ id }) => id === "step");
     },
-    journaled: () =>
-      readFileSync(join(dir, WIP, ".review/events.jsonl"), "utf8")
-        .split("\n")
-        .filter((line) => line !== "")
-        .map((line) => {
-          // SAFETY: the server's own journal lines, written by `journalText` in domain/workflow.ts.
-          const journaled = JSON.parse(line) as { readonly event: string };
-
-          return journaled.event;
-        }),
+    journaled: () => journal(dir).map(({ event }) => event),
+    sentBy: () => journal(dir).map(({ actor, event }) => `${actor} ${event}`),
     restart: async (meanwhile = () => {}) => {
       started.stop();
       meanwhile();
@@ -374,7 +396,7 @@ describe("the page", () => {
     const review = new Review({ project: root, workdir: workdir.value, extensions });
     await review.openChannel();
 
-    const routes = stepServer.routes?.(review.context);
+    const routes = serverExtension(server).routes?.(review.context);
 
     const [propose, answer, state] = [
       routes?.["POST propose"],
@@ -514,6 +536,26 @@ describe("a pause (A2)", () => {
 
     // @ts-expect-error -- what the server must refuse is not a pause.
     expect((await post("pause", {})).status).toBe(400);
+  });
+});
+
+describe("the journal", () => {
+  test("each event the step's routes dispatch is journaled under the sender its contract names", async () => {
+    const first = await stepping();
+    const id = await first.propose();
+    await first.post("pause", { id });
+    const { post, sentBy, wait } = await first.restart();
+    const waiting = wait(id);
+    await until(() => sentBy().includes("engine wait"), true);
+    await post("answer", { id, answer: { kind: "move", move: MOCKUP } });
+    await waiting;
+
+    expect(sentBy()).toEqual([
+      "claude propose",
+      "engine pause",
+      "engine wait",
+      "reviewer answerProposal",
+    ]);
   });
 });
 

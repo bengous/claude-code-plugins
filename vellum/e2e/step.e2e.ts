@@ -1,7 +1,7 @@
 import type { Locator, Page, Route } from "@playwright/test";
 
 import type { WorkflowView } from "../src/core/protocol.ts";
-import type { Proposal, Proposed } from "../src/extensions/step/protocol.ts";
+import type { Proposal, Proposed } from "../src/extensions/step/contract.ts";
 import type { Vellum } from "./harness.ts";
 import {
   axe,

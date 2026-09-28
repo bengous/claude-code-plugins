@@ -20,6 +20,9 @@ extensions like the next ones. A third half,
 and the engine events the core hands it; its segment of the band is its region's, drawn by
 `workflow.ts` on the server, which sends it on the `stage` line. `grill`, `step` and `review` have all three.
 
+- `step` is a slice, read through its `contract.ts`: its messages live there, not in a
+  `protocol.ts`, its hooks half is `hooks.ts` with `hooks.test.ts`, its part of the workflow its
+  model `proposal.ts`, and its halves are typed by its plugs. `slices.md` says what differs.
 - Read the code before this text, smallest first: `image/page.tsx` is a whole extension,
   `markdown/server.ts` a server half, `html/pick.ts` with `pick.spec.ts` a helper and its
   test. They compile and they are tested, so they cannot drift; copy their shape.

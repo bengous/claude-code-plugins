@@ -32,12 +32,14 @@ src/core/page/                 the Preact page
 src/extensions/<id>/           one extension, a file per place it plugs in: page.tsx, server.ts, engine.ts;
                                its own messages in protocol.ts, its boundary in parse.ts, its region, events,
                                rules and transitions in workflow.ts
+src/extensions/step/           a slice: read through contract.ts (its wire, events, plugs and rows), its halves
+                               hooks.ts, server.ts, page.tsx typed by its plugs, its model proposal.ts
 src/extensions/page.ts, server.ts, engine.ts  the three registries, the only way the core reaches an extension
 ```
 
 Dependencies point toward `src/core/server/domain/`, held by `src/boundaries.spec.ts`. The rules of each
 zone load with its files, from `.claude/rules/`: `engine.md`, `server.md`, `page.md`,
-`extensions.md`, `tests.md`. The drawings, the assessment and where the next phases land: `docs/architecture.md`.
+`extensions.md`, `slices.md`, `tests.md`. The drawings, the assessment and where the next phases land: `docs/architecture.md`.
 
 The tree is drawn here and nowhere else: a rule names the files of its own zone, every other
 text points at this section. A fact about Claude Code's engine goes to the relevant page linked from

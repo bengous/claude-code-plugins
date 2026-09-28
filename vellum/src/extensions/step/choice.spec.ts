@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
 import { answerOf, NO_PICK, oneLine, OWN_GRILL } from "./choice.ts";
-import type { Move } from "./protocol.ts";
+import type { Move } from "./contract.ts";
 
 const GRILL: Move = { kind: "grill", subject: "auth", choices: ["Sessions"] };
 

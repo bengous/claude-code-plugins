@@ -1,8 +1,8 @@
 import { describe, expect, test } from "bun:test";
 
+import type { Pending, Proposal } from "./contract.ts";
 import type { Asking, WindowState } from "./modal.ts";
 import { answerFailed, answering, askingOn, dotOf, modalOf, putOff } from "./modal.ts";
-import type { Pending, Proposal } from "./protocol.ts";
 
 const PROPOSAL: Proposal = {
   reason: "three choices",

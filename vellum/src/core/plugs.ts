@@ -39,7 +39,7 @@ export type Plugs = {
 };
 
 /** The routes of `S` that take a body. */
-export type PostOf<S> = keyof S & PostRoute;
+export type PostOf<S> = Extract<keyof S, PostRoute>;
 
 export type BodyOf<S, Route extends keyof S> = S[Route] extends {
   readonly body: infer Body extends Json;

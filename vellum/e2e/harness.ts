@@ -20,7 +20,7 @@ import type {
   QuestionTriple,
 } from "../src/extensions/grill/protocol.ts";
 import type { Outcome, ReviewState, Run } from "../src/extensions/review/protocol.ts";
-import type { Proposal, StepAnswer, StepState } from "../src/extensions/step/protocol.ts";
+import type { Proposal, StepAnswer, StepState } from "../src/extensions/step/contract.ts";
 
 /**
  * The browser suite's harness: `preview.ts` started on a copy of a fixture, its API driven

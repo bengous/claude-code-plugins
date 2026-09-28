@@ -1,5 +1,5 @@
 import type { OtherKind } from "./choice.ts";
-import type { Move } from "./protocol.ts";
+import type { Move } from "./contract.ts";
 
 export const KIND_LABELS: Readonly<Record<OtherKind, string>> = {
   grill: "Grill",

@@ -1,4 +1,4 @@
-import type { Pending } from "./protocol.ts";
+import type { Pending } from "./contract.ts";
 
 /**
  * What the window is drawn from: the proposal waiting, whether Claude's call stopped waiting on it

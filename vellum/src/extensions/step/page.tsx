@@ -1,15 +1,15 @@
 import { computed, signal } from "@preact/signals";
 import { useEffect } from "preact/hooks";
 
-import type { PageExtension } from "../../core/extension.ts";
+import type { PageHalf } from "../../core/extension.ts";
 import { extensionRequest } from "../../core/page/api.ts";
 import { connection, editing, fail, review, succeed } from "../../core/page/state.ts";
+import type { AnswerBody, StepAnswer, StepPlugs, StepState } from "./contract.ts";
 import { answerFailure } from "./labels.ts";
 import type { WindowState } from "./modal.ts";
-import type { StepAnswer, StepPosts, StepState } from "./protocol.ts";
 import { NextStepButton, StepWindow } from "./window.tsx";
 
-const ID = "step";
+const ID: StepPlugs["id"] = "step";
 
 /** The server's last word on the step, loaded again at every workspace event; `null` before the first answer. */
 const step = signal<StepState | null>(null);
@@ -42,7 +42,7 @@ async function loadState(): Promise<void> {
 
 /** `true` once the proposal no longer waits on the reviewer: answered, or already answered or replaced (409). */
 async function answer(id: string | null, given: StepAnswer): Promise<boolean> {
-  const body: StepPosts["answer"] = { id, answer: given };
+  const body: AnswerBody = { id, answer: given };
 
   const response = await extensionRequest(ID, "answer", {
     method: "POST",
@@ -106,7 +106,7 @@ function StepNotice(): preact.JSX.Element {
   );
 }
 
-export const stepPage: PageExtension = {
+export const page: PageHalf<StepPlugs> = {
   id: "step",
   actions: [StepAction],
   notices: [StepNotice],

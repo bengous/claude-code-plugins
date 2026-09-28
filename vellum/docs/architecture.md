@@ -343,6 +343,12 @@ registry names it. One exception is left, marked TODO in `serve.ts`: the server 
 `extensions/html/frame.ts` by its path, because a server half cannot hand the core a script
 yet.
 
+`step` is the one slice, the shape proposed for every extension: read through its `contract.ts`,
+whose plugs (`src/core/plugs.ts`) type its halves `hooks.ts`, `server.ts` and `page.tsx`
+(`HooksHalf`, `ServerHalf`, `PageHalf`), which the registries fold into the three types above
+(`engineExtension`, `serverExtension`); its rows are built from its events by
+`core/server/domain/rows.ts`. `.claude/rules/slices.md` says the rest.
+
 ### What the engine allows
 
 Claude Code takes one hooks module per plugin and one hook per event and matcher in it, so an extension
