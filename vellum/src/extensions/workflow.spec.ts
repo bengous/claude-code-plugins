@@ -21,9 +21,9 @@ import {
   tableOf,
   viewOf,
 } from "../core/server/domain/workflow.ts";
+import { regionOf as grillRegion, roundCall } from "./grill/grill.ts";
 import { grillFile } from "./grill/parse.ts";
 import { nextQuestion, phaseOf, unanswered } from "./grill/transcript.ts";
-import { regionOf as grillRegion, roundCall } from "./grill/workflow.ts";
 import { parseJson, parseReviews } from "./review/parse.ts";
 import { regionOf as reviewRegion } from "./review/workflow.ts";
 import { serverExtensions } from "./server.ts";

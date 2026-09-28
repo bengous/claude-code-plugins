@@ -266,7 +266,7 @@ loop. `/vellum:start` enters it, Approve in the page or `/vellum:stop` leaves it
   suspension, a revival) and ignores it outside `live`.
 - An engine half may know a fact of the running turn the server cannot read off its file; it
   keeps it in memory, keyed by the mode's `Live`: `grill` marks the turn whose `grill_ask` the
-  server took and no answer came back to (`askedIn`, a `WeakSet` in `grill/engine.ts`) and clears
+  server took and no answer came back to (`askedIn`, a `WeakSet` in `grill/hooks.ts`) and clears
   the mark at `answered`, which posts it as `asked`, so the text of a turn cut short is written
   with its round even after a reply the reviewer sent meanwhile. A reload between the two loses
   the mark: the text then goes where a turn that asked nothing writes it, and the server still

@@ -77,9 +77,9 @@ function responseOf(reply: Reply<Json>): Response {
   if ("refused" in reply) {
     const { status, reason } = reply.refused;
 
-    return status === 404
-      ? new Response(reason, { status })
-      : Response.json({ error: reason }, { status });
+    return status === 409
+      ? Response.json({ error: reason }, { status })
+      : new Response(reason, { status });
   }
 
   return reply.answer === null ? new Response(null, { status: 204 }) : Response.json(reply.answer);

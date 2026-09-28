@@ -201,8 +201,12 @@ export type PageHalf<P extends Plugs> = { readonly id: P["id"] } & {
   readonly [Slot in P["page"]]-?: NonNullable<PageExtension[Slot]>;
 } & { readonly [Slot in Exclude<PageSlot, P["page"]>]?: never };
 
-/** A refusal as a slice's route answers it: 404 in plain text, 409 as `{ error }`. */
-export type Refusal = { readonly status: RefusalStatus; readonly reason: string };
+/**
+ * A refusal as a slice's route answers it: 400 and 404 in plain text, 409 as `{ error }`. A row
+ * refuses with 404 or 409; 400 is a route's own, for a request its parser let through that the
+ * server's domain turns down.
+ */
+export type Refusal = { readonly status: 400 | RefusalStatus; readonly reason: string };
 
 /**
  * A verdict as a slice reads it: a refusal carries the status its row declares, 409 for a row the
@@ -210,20 +214,28 @@ export type Refusal = { readonly status: RefusalStatus; readonly reason: string 
  */
 export type SliceVerdict =
   | { readonly kind: "allow" }
-  | ({ readonly kind: "refuse" | "confirm"; readonly rule: string } & Refusal);
+  | {
+      readonly kind: "refuse" | "confirm";
+      readonly rule: string;
+      readonly status: RefusalStatus;
+      readonly reason: string;
+    };
 
 export type SliceDispatched = Omit<Dispatched, "verdict"> & { readonly verdict: SliceVerdict };
 
 /**
  * A slice's `ServerContext`. `dispatch` takes only its own events, each with what it carries, sent
- * as its declared sender, named at the call when the event has several.
+ * as its declared sender, named at the call when the event has several. `start` opens another
+ * slice with what that slice's contract says opens it, its plugs given as the type argument
+ * (`start<GrillPlugs>("grill", { subject })`): without one, no id compiles.
  */
-export type SliceContext<P extends Plugs> = Omit<ServerContext, "dispatch"> & {
+export type SliceContext<P extends Plugs> = Omit<ServerContext, "dispatch" | "start"> & {
   readonly dispatch: <K extends keyof P["events"] & string>(
     event: K,
     input: Sent<P["events"], K> | ((w: Workflow) => Promise<Sent<P["events"], K>>),
     ...by: Sender<P["events"], K>
   ) => Promise<SliceDispatched>;
+  readonly start: <Q extends Plugs = never>(id: Q["id"], input: Q["opened"]) => Promise<string>;
 };
 
 /**

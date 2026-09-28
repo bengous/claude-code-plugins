@@ -1,5 +1,5 @@
-import { AS_RECOMMENDED } from "./protocol.ts";
-import type { Answer, CloseReason, GrillPosts, Phase, Question } from "./protocol.ts";
+import type { Answer, CloseReason, Phase, Question, TurnAnswer } from "./contract.ts";
+import { AS_RECOMMENDED } from "./parse.ts";
 
 /**
  * The transcript as text: every function takes the file and returns the file. What the page and
@@ -287,7 +287,7 @@ function roundEnd(doc: string): number | null {
  * the file's last voice is, but cut short while a round waits it still ends the call on that round,
  * which the module may no longer know it asked (E6): the round reads paused.
  */
-export function appendAnswer(doc: string, turn: GrillPosts["answer"]): string {
+export function appendAnswer(doc: string, turn: TurnAnswer): string {
   const ended = turn.reason === "answer" ? "" : `_(turn ${turn.reason})_`;
   const body = [quoted(turn.text.trim()), ended].filter((part) => part !== "").join("\n\n");
 

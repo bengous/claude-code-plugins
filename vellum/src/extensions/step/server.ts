@@ -2,6 +2,7 @@ import type { Reply, ServerContext, ServerHalf, SliceContext } from "../../core/
 import type { PlanWorkspace } from "../../core/protocol.ts";
 import { regionIn } from "../../core/server/domain/workflow.ts";
 import { projectPath } from "../../core/server/domain/workspace.ts";
+import type { GrillPlugs } from "../grill/contract.ts";
 import type { Proposed, StepPlugs, StepWaited } from "./contract.ts";
 import { EVENTS, RULES } from "./contract.ts";
 import { BODIES, parseJson, parseStepFile } from "./parse.ts";
@@ -119,7 +120,7 @@ export const server: ServerHalf<StepPlugs> = {
         answer: JSON.stringify(answer),
         move,
         subject,
-        opened: move === "grill" ? await context.start("grill", { subject }) : "",
+        opened: move === "grill" ? await context.start<GrillPlugs>("grill", { subject }) : "",
       }));
 
       return verdict.kind === "allow" ? { answer: null } : { refused: verdict };

@@ -25,11 +25,11 @@ planWritten · owned by core · sent by claude · passes a hold
   no row
 
 openGrill · owned by grill · sent by reviewer · passes a hold
-  1. grill/grill-subject · refuses the input · when (unnamed) · "a grill's subject is one line, not empty"
-  2. grill/grill-open · refuses · when (unnamed) · "grill-1.md is open"
+  1. grill/grill-subject · refuses the input 409 · when namesNoSubject · "a grill's subject is one line, not empty"
+  2. grill/grill-open · refuses 409 · when grillIsOpen · "grill-1.md is open"
 
 askQuestion · owned by grill · sent by claude · passes a hold
-  1. grill/no-grill · refuses · when (unnamed) · "no grill is open"
+  1. grill/no-grill · refuses 409 · when noGrillIsOpen · "no grill is open"
 
 turnAnswered · owned by grill · sent by engine · passes a hold
   no row
@@ -53,8 +53,8 @@ pause · owned by step · sent by engine · passes a hold
 answerProposal · owned by step · sent by reviewer
   1. step/held · refuses 409 · while held · "<hold>"
   2. step/no-such-proposal · refuses the input 409 · when namesAProposal and namesAnotherProposal · "no such proposal"
-  3. grill/grill-subject · refuses the input · when (unnamed) · (the verdict on no sample state)
-  4. grill/grill-open · refuses · when (unnamed) · (the verdict on no sample state)
+  3. grill/grill-subject · refuses the input 409 · when opensAGrill and namesNoSubject · (the verdict on no sample state)
+  4. grill/grill-open · refuses 409 · when opensAGrill and grillIsOpen · (the verdict on no sample state)
 
 requestReview · owned by review · sent by reviewer
   1. review/no-version · refuses · when (unnamed) · "no version is under review yet"

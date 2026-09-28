@@ -94,16 +94,38 @@ function termOf<I>(guard: Guard<I>): string {
   return / (?:and|or) /u.test(name) ? `(${name})` : name;
 }
 
-export function allOf<I>(...guards: readonly Guard<I>[]): Guard<I> {
+/** What a combination of guards reads: every field each of them reads. */
+export type Both<Guards extends readonly Guard<never>[]> = Guards extends readonly [
+  Guard<infer Input>,
+  ...infer Rest extends readonly Guard<never>[],
+]
+  ? Input & Both<Rest>
+  : Record<never, never>;
+
+/** Whether `guard` holds on an input that carries every field the combination reads. */
+function holds<Guards extends readonly Guard<never>[]>(
+  guard: Guards[number],
+  w: Workflow,
+  input: Both<Guards>,
+): boolean {
+  // SAFETY: `input` holds every field each guard of `Guards` reads, `Both` being the intersection of their inputs: `guard` is one of them.
+  return guard(w, input as never);
+}
+
+export function allOf<const Guards extends readonly Guard<never>[]>(
+  ...guards: Guards
+): Guard<Both<Guards>> {
   return named(
-    (w, input) => guards.every((guard) => guard(w, input)),
+    (w, input) => guards.every((guard) => holds(guard, w, input)),
     guards.map((guard) => termOf(guard)).join(" and "),
   );
 }
 
-export function anyOf<I>(...guards: readonly Guard<I>[]): Guard<I> {
+export function anyOf<const Guards extends readonly Guard<never>[]>(
+  ...guards: Guards
+): Guard<Both<Guards>> {
   return named(
-    (w, input) => guards.some((guard) => guard(w, input)),
+    (w, input) => guards.some((guard) => holds(guard, w, input)),
     guards.map((guard) => termOf(guard)).join(" or "),
   );
 }

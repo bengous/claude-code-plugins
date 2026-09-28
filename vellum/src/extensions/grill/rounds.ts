@@ -1,4 +1,4 @@
-import type { Block } from "./protocol.ts";
+import type { Block } from "./contract.ts";
 
 export type QuestionBlock = Extract<Block, { kind: "question" }>;
 

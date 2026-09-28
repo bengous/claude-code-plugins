@@ -12,12 +12,23 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+import type { BodyOf, PostOf } from "../../core/plugs.ts";
 import type { ChannelLine, ReviewView } from "../../core/protocol.ts";
 import { startServer } from "../../core/server/adapters/http/serve.ts";
 import type { Started } from "../../core/server/adapters/http/serve.ts";
 import { parseWipDir } from "../../core/server/domain/paths.ts";
-import type { GrillPosts, Waited } from "./protocol.ts";
+import type { GrillPlugs, Waited } from "./contract.ts";
 import { toHtml } from "./server.ts";
+
+type Routes = GrillPlugs["server"];
+
+/** The body each `POST /api/x/grill/<name>` takes, by route name. */
+type GrillPosts = {
+  readonly [Route in PostOf<Routes> as Route extends `POST ${infer Name}` ? Name : never]: BodyOf<
+    Routes,
+    Route
+  >;
+};
 
 const WIP = "plans/2026-09-17/wip-c95eaf71/";
 

@@ -20,9 +20,10 @@ extensions like the next ones. A third half,
 and the engine events the core hands it; its segment of the band is its region's, drawn by
 `workflow.ts` on the server, which sends it on the `stage` line. `grill`, `step` and `review` have all three.
 
-- `step` is a slice, read through its `contract.ts`: its messages live there, not in a
-  `protocol.ts`, its hooks half is `hooks.ts` with `hooks.test.ts`, its part of the workflow its
-  model `proposal.ts`, and its halves are typed by its plugs. `slices.md` says what differs.
+- `step` and `grill` are slices, each read through its `contract.ts`: its messages live there,
+  not in a `protocol.ts`, its hooks half is `hooks.ts` with `hooks.test.ts`, its part of the
+  workflow its model (`proposal.ts`, `grill.ts`), and its halves are typed by its plugs.
+  `slices.md` says what differs.
 - Read the code before this text, smallest first: `image/page.tsx` is a whole extension,
   `markdown/server.ts` a server half, `html/pick.ts` with `pick.spec.ts` a helper and its
   test. They compile and they are tested, so they cannot drift; copy their shape.
@@ -46,7 +47,7 @@ and the engine events the core hands it; its segment of the band is its region's
   the extension words its `text` as a `channel` effect of its transition, beside the write it
   tells of, and the core relays each entry once. It tells what its write added, never the file's
   last voice: `grill` tells the transcript's entries past those the file held before the write
-  (`relaysOf`, then `told` in `grill/workflow.ts`), so the reply End grill writes and the end both
+  (`relaysOf`, then `told` in `grill/grill.ts`), so the reply End grill writes and the end both
   go, and a block written into the file by hand is not told. `step`'s answer to its one proposal
   carries, in its one entry, what the grill it opened tells (`start`).
 - What the reviewer sends leaves with the core's one Send, never a route of the extension's.
@@ -74,7 +75,7 @@ and the engine events the core hands it; its segment of the band is its region's
 - An extension owns its messages: `<id>/protocol.ts` types what crosses its routes, and
   `<id>/parse.ts` is its boundary parser. `src/core/protocol.ts` learns nothing of them.
   A route's reply has its own name there, which both ends import (`GrillState`, `Block` in
-  `grill/protocol.ts`): the server half types what it hands to `Response.json`, which takes
+  `grill/contract.ts`): the server half types what it hands to `Response.json`, which takes
   anything (`stateOf` and `blocksOf` in `grill/server.ts`), and the page half casts to that
   name (`loadState` and `blocksOf` in `grill/page.tsx`). A cast to a wider type that
   happens to hold the field (a whole `GrillState` for a `{ file }`) compiles, and hands the next

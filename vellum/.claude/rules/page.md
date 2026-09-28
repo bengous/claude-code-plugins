@@ -230,7 +230,7 @@ no build step, so what the page imports costs nothing at `cli start`.
   (`forgetClosed` in `grill/page.tsx`), the editor's typing once its version is no longer under
   review (`settleEditorTyping`). A grill's answer keeps the draft's shape: absent, the question
   is no answer, which a Send takes by default only once the bar asked; `As recommended.`
-  (`AS_RECOMMENDED` of `grill/protocol.ts`), the reviewer chose it; any other text is their own.
+  (`AS_RECOMMENDED` of `grill/parse.ts`), the reviewer chose it; any other text is their own.
   The panel's two choices write it, neither checked until the reviewer picks one, since a
   recommendation checked in advance ends up accepted unread; All recommended writes it for every
   question left untouched; and a text of the reviewer's own greys Recommended, so a click never

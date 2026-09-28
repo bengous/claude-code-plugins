@@ -1,13 +1,13 @@
 import { expect, test } from "bun:test";
 
-import { parseWipDir } from "../core/server/domain/paths.ts";
+import { parseWipDir } from "./core/server/domain/paths.ts";
 import type {
   EventDecl,
   EventInput,
   Rule,
   TablePart,
   Workflow,
-} from "../core/server/domain/workflow.ts";
+} from "./core/server/domain/workflow.ts";
 import {
   CORE,
   CORE_PART,
@@ -16,16 +16,16 @@ import {
   SAMPLE_AT,
   tableOf,
   verdictOf,
-} from "../core/server/domain/workflow.ts";
-import { regionOf as grillRegion } from "./grill/workflow.ts";
-import { regionOf as reviewRegion } from "./review/workflow.ts";
-import { serverExtensions } from "./server.ts";
-import { regionOf as stepRegion } from "./step/proposal.ts";
+} from "./core/server/domain/workflow.ts";
+import { regionOf as grillRegion } from "./extensions/grill/grill.ts";
+import { regionOf as reviewRegion } from "./extensions/review/workflow.ts";
+import { serverExtensions } from "./extensions/server.ts";
+import { regionOf as stepRegion } from "./extensions/step/proposal.ts";
 
 /**
  * Every row of every event, from every part of the table, as a reader takes it: the core's, then
  * each extension's in the registry's order, rows in the order `verdictOf` judges them. The text is
- * held in `__snapshots__/table.spec.ts.snap`, which a PR shows changed when a row does.
+ * held in `src/__snapshots__/table.spec.ts.snap`, which a PR shows changed when a row does.
  */
 
 const PARTS: readonly { readonly id: string; readonly part: TablePart }[] = [

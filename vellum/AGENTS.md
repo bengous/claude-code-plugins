@@ -32,8 +32,9 @@ src/core/page/                 the Preact page
 src/extensions/<id>/           one extension, a file per place it plugs in: page.tsx, server.ts, engine.ts;
                                its own messages in protocol.ts, its boundary in parse.ts, its region, events,
                                rules and transitions in workflow.ts
-src/extensions/step/           a slice: read through contract.ts (its wire, events, plugs and rows), its halves
-                               hooks.ts, server.ts, page.tsx typed by its plugs, its model proposal.ts
+src/extensions/step/, grill/   slices: each read through contract.ts (its wire, events, plugs and rows), its
+                               halves hooks.ts, server.ts, page.tsx typed by its plugs, its model named after
+                               it (proposal.ts, grill.ts)
 src/extensions/page.ts, server.ts, engine.ts  the three registries, the only way the core reaches an extension
 ```
 

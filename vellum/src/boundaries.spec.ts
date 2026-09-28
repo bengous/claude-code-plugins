@@ -219,12 +219,15 @@ describe("the page without a browser", () => {
 
 describe("extensions", () => {
   test("an extension imports core/ and its own folder, never another extension", () => {
+    const contracts = slices().map((slice) => `${slice}/${CONTRACT}`);
+
     const stray = relativeImports("src/extensions")
       .filter(({ file }) => slashed(dirname(file)) !== EXTENSIONS)
-      .filter(({ file, target }) => {
+      .filter(({ file, specifier, target }) => {
         const own = `${EXTENSIONS}/${slashed(relative(EXTENSIONS, file)).split("/")[0] ?? ""}`;
+        const typed = contracts.includes(target) && !valueImports(file).includes(specifier);
 
-        return !target.startsWith(`${own}/`) && !target.startsWith(`${CORE}/`);
+        return !target.startsWith(`${own}/`) && !target.startsWith(`${CORE}/`) && !typed;
       })
       .map(({ file, specifier }) => `${short(file)} imports ${specifier}`);
 
@@ -307,6 +310,24 @@ describe("slices", () => {
           ? [`${short(file)} imports ${short(target)}: import ${short(slice)}/${CONTRACT} instead`]
           : [];
       }),
+    );
+
+    expect(stray).toEqual([]);
+  });
+
+  test("a slice reads another slice's contract.ts as types alone: its values are that slice's server's", () => {
+    const loaded = sources("src/extensions").flatMap((file) =>
+      valueImports(file)
+        .filter((path) => path.startsWith("."))
+        .map((path) => ({ file, target: slashed(resolve(dirname(file), path)) })),
+    );
+
+    const stray = slices().flatMap((slice) =>
+      loaded
+        .filter(
+          ({ file, target }) => target === `${slice}/${CONTRACT}` && !file.startsWith(`${slice}/`),
+        )
+        .map(({ file }) => `${short(file)} loads ${short(slice)}/${CONTRACT}: \`import type\` it`),
     );
 
     expect(stray).toEqual([]);

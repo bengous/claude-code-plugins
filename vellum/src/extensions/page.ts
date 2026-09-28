@@ -1,5 +1,5 @@
 import type { PageExtension } from "../core/extension.ts";
-import { grillPage } from "./grill/page.tsx";
+import { page as grillPage } from "./grill/page.tsx";
 import { htmlPage } from "./html/page.tsx";
 import { imagePage } from "./image/page.tsx";
 import { markdownPage } from "./markdown/page.tsx";

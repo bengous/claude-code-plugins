@@ -1,30 +1,32 @@
 import { join } from "node:path";
 
 import type {
-  Part,
-  Reading,
-  Route,
-  RouteKey,
+  Refusal,
+  Reply,
+  SendPart,
   ServerContext,
-  ServerExtension,
+  ServerHalf,
+  SliceContext,
+  SliceDispatched,
 } from "../../core/extension.ts";
 import type { Draft, PlanWorkspace } from "../../core/protocol.ts";
 import type { ProjectPath } from "../../core/server/domain/paths.ts";
 import { parseProjectPath } from "../../core/server/domain/paths.ts";
-import type { Actor, EventInput } from "../../core/server/domain/workflow.ts";
 import { projectPath } from "../../core/server/domain/workspace.ts";
+import type { Block, GrillPlugs, GrillState, Typing, Waited } from "./contract.ts";
+import { EVENTS, RULES } from "./contract.ts";
 import {
-  grillFile,
-  grillFileName,
-  grillNumber,
-  parseAnswer,
-  parseCloseReason,
-  parseEvent,
-  parseQuestions,
-  parseSubject,
-  parseWait,
-} from "./parse.ts";
-import type { Asked, Block, GrillState, Waited } from "./protocol.ts";
+  callOf,
+  GRILL,
+  lineOf,
+  openingOf,
+  REACTIONS,
+  regionOf,
+  SAMPLES,
+  segmentOf,
+  TRANSITIONS,
+} from "./grill.ts";
+import { BODIES, grillFile, grillFileName, grillNumber, parseOpened } from "./parse.ts";
 import {
   appendReply,
   isClosed,
@@ -35,18 +37,8 @@ import {
   subjectOf,
   unanswered,
 } from "./transcript.ts";
-import {
-  callOf,
-  EVENTS,
-  GRILL,
-  openingOf,
-  REACTION,
-  regionOf,
-  RULES,
-  lineOf,
-  segmentOf,
-  TRANSITIONS,
-} from "./workflow.ts";
+
+type Context = SliceContext<GrillPlugs>;
 
 /** A transcript of the plan's directory, read: the one with the highest number is the current one. */
 type Transcript = { readonly n: number; readonly file: ProjectPath; readonly doc: string };
@@ -54,15 +46,13 @@ type Transcript = { readonly n: number; readonly file: ProjectPath; readonly doc
 /** A link the page may follow: http, mailto, a fragment or a relative path; any other scheme runs code. */
 const SAFE_HREF = /^(?:https?:|mailto:|[^:]*(?:[/?#]|$))/iu;
 
-const NO_CONTENT = { status: 204 };
+/** Before any event: no row judges a directory the server lost. */
+const DIRECTORY_GONE: Refusal = { status: 409, reason: "the plan's directory is gone" };
 
-function refused(error: string): Response {
-  return Response.json({ error }, { status: 409 });
-}
+const NOT_FOUND: Reply<never> = { refused: { status: 404, reason: "not found" } };
 
-function badRequest(): Response {
-  return new Response("bad request", { status: 400 });
-}
+/** A transcript's path outside the project: `parseWait` reads the shape, the domain the path. */
+const BAD_REQUEST: Reply<never> = { refused: { status: 400, reason: "bad request" } };
 
 /**
  * The transcript's Markdown as HTML. Raw HTML stays text, and a `javascript:` link is cut: the
@@ -93,12 +83,12 @@ export function blocksOf(doc: string): Block[] {
 const GUIDE = join(import.meta.dir, "grilling.md");
 
 /** `null` when the working directory is gone and the server lost its memory: the route answers 409. */
-function workspaceIfAny(context: ServerContext): Promise<PlanWorkspace | null> {
+function workspaceIfAny(context: Pick<ServerContext, "workspace">): Promise<PlanWorkspace | null> {
   return context.workspace().catch(() => null);
 }
 
 async function latest(
-  context: ServerContext,
+  context: Pick<ServerContext, "listFiles" | "readText">,
   dir: PlanWorkspace["dir"],
 ): Promise<Transcript | null> {
   // A directory that is gone holds no transcript: the listing rejects there, and a route must
@@ -125,14 +115,12 @@ function stateOf(current: Transcript | null): GrillState {
 }
 
 /** The grill that is open now, read as `GET state` reads it; `null` with none, or with no directory. */
-async function openGrill(context: ServerContext): Promise<Transcript | null> {
+async function openGrill(context: Context): Promise<Transcript | null> {
   const workspace = await workspaceIfAny(context);
   const current = workspace === null ? null : await latest(context, workspace.dir);
 
   return current === null || isClosed(current.doc) ? null : current;
 }
-
-type Typing = Draft["typed"]["grill"][string];
 
 const NOTHING_TYPED: Typing = { answers: {}, note: "" };
 
@@ -150,19 +138,17 @@ function untouched(doc: string, typing: Typing): readonly string[] {
  * What Claude is told of a grill `step`'s answer opens on the subject: the file it will be, and
  * at the directory's first grill, the guide. The rows judge whether it opens; the reaction writes it.
  */
-// oxlint-disable-next-line anti-slop/no-unknown-parameters -- `input` comes from `step` through the core; `parseSubject` is the boundary that reads it.
-async function start(context: ServerContext, input: unknown): Promise<string> {
-  const subject = parseSubject(input);
+async function start(context: Context, { subject }: GrillPlugs["opened"]): Promise<string> {
   const workspace = await workspaceIfAny(context);
 
-  if (subject === null || workspace === null) return "";
+  if (workspace === null) return "";
   const current = await latest(context, workspace.dir);
   const name = grillFile((current?.n ?? 0) + 1);
 
   return openingOf(name, subject, current === null ? GUIDE : null);
 }
 
-const NO_PART: Part = { kind: "none" };
+const NO_PART: SendPart<Typing> = { kind: "none" };
 
 /**
  * The grill's part of the bar's Send, read off the open grill and the draft, writing nothing: the
@@ -171,10 +157,10 @@ const NO_PART: Part = { kind: "none" };
  * event carries for the grill's reaction to write it.
  */
 async function part(
-  context: ServerContext,
+  context: Context,
   draft: Draft,
   takeDefaults: readonly string[],
-): Promise<Part> {
+): Promise<SendPart<Typing>> {
   const open = await openGrill(context);
 
   if (open === null) return NO_PART;
@@ -197,7 +183,7 @@ async function part(
       ...typed,
       grill: Object.fromEntries(Object.entries(typed.grill).filter(([file]) => file !== open.file)),
     }),
-    input: JSON.stringify(typing),
+    input: typing,
   };
 }
 
@@ -205,7 +191,7 @@ async function part(
  * Where the round asked in `file` from question `first` stands: answered by a Send the server
  * saw, closed any other way (End grill, the approval, a Send before a restart), or still open.
  */
-async function waitedOn(context: ServerContext, file: ProjectPath, first: number): Promise<Waited> {
+async function waitedOn(context: Context, file: ProjectPath, first: number): Promise<Waited> {
   const id = `Q${first}`;
   const name = file.split("/").at(-1) ?? "";
   const returned = context.returned(callOf(name, id));
@@ -218,137 +204,107 @@ async function waitedOn(context: ServerContext, file: ProjectPath, first: number
     : { kind: "open" };
 }
 
-function routes(context: ServerContext): Readonly<Record<RouteKey, Route>> {
-  const { dispatch, inOrder } = context;
+/** Every event of the grill's own, once the directory is known to be there (F6). */
+async function stepped(
+  context: Context,
+  step: () => Promise<SliceDispatched>,
+): Promise<Reply<null>> {
+  if ((await workspaceIfAny(context)) === null) return { refused: DIRECTORY_GONE };
+  const { verdict } = await step();
 
-  /** Every event of the grill's own, once the directory is known to be there (F6). */
-  const stepped = async (
-    event: string,
-    input: EventInput | Reading,
-    actor: Actor,
-  ): Promise<Response | null> => {
-    if ((await workspaceIfAny(context)) === null) return refused("the plan's directory is gone");
-    const { verdict } = await dispatch(event, input, actor);
+  return verdict.kind === "allow" ? { answer: null } : { refused: verdict };
+}
 
-    return verdict.kind === "allow" ? null : refused(verdict.reason);
-  };
-
-  return {
-    "GET state": async () => {
+export const server: ServerHalf<GrillPlugs> = {
+  id: "grill",
+  bodies: BODIES,
+  routes: {
+    "GET state": async (context) => {
       const workspace = await workspaceIfAny(context);
 
-      if (workspace === null) return refused("the plan's directory is gone");
-      const current = await latest(context, workspace.dir);
+      if (workspace === null) return { refused: DIRECTORY_GONE };
 
-      return Response.json(stateOf(current));
+      return { answer: stateOf(await latest(context, workspace.dir)) };
     },
 
     // End grill: what the page saved for the grill goes as its reply, told before the end. The
     // draft is read in the close's own step: a Send before it took what it sent out of the draft.
-    "POST close": async (request) => {
-      const reason = parseCloseReason(await request.json().catch(() => null));
+    "POST close": (context, { reason }) =>
+      stepped(context, () =>
+        context.dispatch(
+          "endGrill",
+          async (w) => {
+            const region = w.regions.find(({ id }) => id === GRILL);
+            const file = projectPath(`${w.workspace.dir}${grillFile(Number(region?.data.n ?? 0))}`);
 
-      if (reason === null) return badRequest();
+            const typing =
+              reason === "page" ? typingOn(await context.draft(), file) : NOTHING_TYPED;
 
-      const answer = await stepped(
-        "endGrill",
-        async (w) => {
-          const region = w.regions.find(({ id }) => id === GRILL);
-          const file = projectPath(`${w.workspace.dir}${grillFile(Number(region?.data.n ?? 0))}`);
-          const typing = reason === "page" ? typingOn(await context.draft(), file) : NOTHING_TYPED;
+            return { reason, grill: JSON.stringify(typing) };
+          },
+          reason === "page" ? "reviewer" : "engine",
+        ),
+      ),
 
-          return { reason, grill: JSON.stringify(typing) };
-        },
-        reason === "page" ? "reviewer" : "engine",
-      );
+    "POST ask": async (context, { q }) => {
+      if ((await workspaceIfAny(context)) === null) return { refused: DIRECTORY_GONE };
+      const { verdict, workflow } = await context.dispatch("askQuestion", { q: JSON.stringify(q) });
 
-      return answer ?? new Response(null, NO_CONTENT);
-    },
-
-    "POST ask": async (request) => {
-      const questions = parseQuestions(await request.json().catch(() => null));
-
-      if (questions === null) return badRequest();
-
-      if ((await workspaceIfAny(context)) === null) return refused("the plan's directory is gone");
-      const q = JSON.stringify(questions.map(({ title, ask, rec }) => [title, ask, rec]));
-      const { verdict, workflow } = await dispatch("askQuestion", { q }, "claude");
-
-      if (verdict.kind !== "allow") return refused(verdict.reason);
+      if (verdict.kind !== "allow") return { refused: verdict };
       const region = workflow.regions.find(({ id }) => id === GRILL);
       const n = Number(region?.data.n ?? 0);
       const last = nextQuestion(String(region?.data.doc ?? "")) - 1;
       const file = projectPath(`${workflow.workspace.dir}${grillFile(n)}`);
-      const asked: Asked = { first: last - questions.length + 1, last, file };
 
-      return Response.json(asked);
+      return { answer: { first: last - q.length + 1, last, file } };
     },
 
     // Read in the queue, so a Send's step is seen whole: its reply and the entry that carried it.
-    "POST wait": async (request) => {
-      const body = parseWait(await request.json().catch(() => null));
-      const file = body === null ? null : parseProjectPath(body.file);
+    "POST wait": async (context, { file, first }) => {
+      const path = parseProjectPath(file);
 
-      if (body === null || file?.ok !== true) return badRequest();
+      if (!path.ok) return BAD_REQUEST;
 
-      const waited = await context.hold(
-        () => inOrder(() => waitedOn(context, file.value, body.first)),
-        ({ kind }) => kind === "open",
-      );
-
-      return Response.json(waited);
-    },
-
-    "POST event": async (request) => {
-      const event = parseEvent(await request.json().catch(() => null));
-
-      if (event === null) return badRequest();
-
-      return (
-        (await stepped("sessionEvent", { command: event.command }, "engine")) ??
-        new Response(null, NO_CONTENT)
-      );
-    },
-
-    "POST answer": async (request) => {
-      const answer = parseAnswer(await request.json().catch(() => null));
-
-      if (answer === null) return badRequest();
-
-      const input = {
-        text: answer.text,
-        reason: answer.reason,
-        own: String(answer.own),
-        asked: String(answer.asked),
+      return {
+        answer: await context.hold(
+          () => context.inOrder(() => waitedOn(context, path.value, first)),
+          ({ kind }) => kind === "open",
+        ),
       };
-
-      return (await stepped("turnAnswered", input, "engine")) ?? new Response(null, NO_CONTENT);
     },
 
-    "GET blocks": async (request) => {
-      const name = grillFileName(new URL(request.url).searchParams.get("file"));
+    "POST event": (context, { command }) =>
+      stepped(context, () => context.dispatch("sessionEvent", { command })),
+
+    "POST answer": (context, answer) =>
+      stepped(context, () =>
+        context.dispatch("turnAnswered", {
+          text: answer.text,
+          reason: answer.reason,
+          own: String(answer.own),
+          asked: String(answer.asked),
+        }),
+      ),
+
+    "GET blocks": async (context, query) => {
+      const name = grillFileName(query.file);
       const workspace = await workspaceIfAny(context);
 
-      if (name === null || workspace === null) return new Response("not found", { status: 404 });
+      if (name === null || workspace === null) return NOT_FOUND;
       const doc = await context.readText(projectPath(`${workspace.dir}${name}`));
 
-      return doc === null
-        ? new Response("not found", { status: 404 })
-        : Response.json(blocksOf(doc));
+      return doc === null ? NOT_FOUND : { answer: blocksOf(doc) };
     },
-  };
-}
-
-export const grillServer: ServerExtension = {
-  id: "grill",
-  routes,
+  },
+  opened: parseOpened,
   start,
   part,
   workflow: {
     events: EVENTS,
     rules: RULES,
+    samples: SAMPLES,
     transitions: TRANSITIONS,
-    reaction: REACTION,
+    reactions: REACTIONS,
     region: async (context) => {
       const { dir } = await context.workspace();
       const current = await latest(context, dir);
