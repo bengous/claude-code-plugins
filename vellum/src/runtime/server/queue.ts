@@ -1,3 +1,4 @@
+import { readDraft } from "../../review/draft.ts";
 import {
   appended,
   CHANNEL_FILE,
@@ -58,7 +59,6 @@ import type {
   GroupedDoc,
   ReviewView,
 } from "../protocol.ts";
-import { readDraft } from "./draft.ts";
 import type { EffectPorts } from "./effects.ts";
 import { interpret } from "./effects.ts";
 import {
@@ -101,7 +101,7 @@ function grouped(docs: readonly DocRef[], group: DocGroup): GroupedDoc[] {
  * The queue, the workflow and its readers. Every step reads the workflow, lets `next` judge the
  * event against the table, and hands the effects to `interpret`, the one code that writes for the
  * workflow; then the page hears of it, and the waits read again. What a step reads before it is
- * judged is its route's (`events.ts` for the core's own), never a decision of this class.
+ * judged is its route's (`review/server.ts` for the review's own), never a decision of this class.
  */
 export class Queue {
   private memory: Memory;

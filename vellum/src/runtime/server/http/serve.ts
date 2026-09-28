@@ -2,6 +2,7 @@ import { existsSync } from "node:fs";
 import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
 
+import { reviewServer } from "../../../review/server.ts";
 import type { FinalDir, WipDir } from "../../../workshop/paths.ts";
 import type { Memory } from "../../../workshop/workspace.ts";
 import { REVIEW_DIR } from "../../../workshop/workspace.ts";
@@ -9,7 +10,6 @@ import type { Route, ServerContext } from "../../extension.ts";
 import index from "../../page/index.html";
 import type { ServerLine } from "../../protocol.ts";
 import { openInBrowser } from "../browser.ts";
-import { coreEvents } from "../events.ts";
 import { readPlan, readWorkspace, watchFiles } from "../fs.ts";
 import { Queue } from "../queue.ts";
 import { serverExtensions } from "../slices.ts";
@@ -194,7 +194,7 @@ export async function startServer(options: ServeOptions): Promise<Started> {
   const context = {
     project: options.project,
     queue,
-    events: coreEvents(queue),
+    review: reviewServer(queue),
     frameScript,
     vellumBuild,
     extensionRoutes: extensionRoutes(queue.context),

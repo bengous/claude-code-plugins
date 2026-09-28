@@ -258,6 +258,14 @@ describe("dependency direction", () => {
     expect(reaching).toEqual([]);
   });
 
+  test("review/ imports no part: the parts plug into it, it names none", () => {
+    const reaching = relativeImports("src/review")
+      .filter(({ target }) => PART_GROUPS.some((group) => target.startsWith(`${SRC}/${group}/`)))
+      .map(({ file, specifier }) => `${short(file)} imports ${specifier}`);
+
+    expect(reaching).toEqual([]);
+  });
+
   test("the server, the hooks module and the protocol never import the page", () => {
     const reaching = relativeImports("src/runtime")
       .filter(({ file }) => !file.startsWith(`${RUNTIME}/page/`))

@@ -1,5 +1,3 @@
-import { isQuickLabel } from "../../workshop/feedback.ts";
-import { parseProjectPath, parseVersion } from "../../workshop/paths.ts";
 import type {
   Anchor,
   Annotation,
@@ -14,7 +12,9 @@ import type {
   PassageKind,
   Typed,
   WordsContext,
-} from "../protocol.ts";
+} from "../runtime/protocol.ts";
+import { isQuickLabel } from "../workshop/feedback.ts";
+import { parseProjectPath, parseVersion } from "../workshop/paths.ts";
 
 /**
  * The draft's boundary: what `PUT /api/draft` carries and what `.review/draft.json` holds back,
