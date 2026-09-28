@@ -3,7 +3,7 @@ import { expect, test } from "bun:test";
 import { parseWipDir } from "./core/server/domain/paths.ts";
 import type { EventDecl, Rule, TablePart, Workflow } from "./core/server/domain/workflow.ts";
 import { CORE, CORE_PART, HELD, tableOf, verdictOf } from "./core/server/domain/workflow.ts";
-import { PARTS as WALKED, walk } from "./extensions/walk.ts";
+import { PARTS as WALKED, proof } from "./extensions/proof.ts";
 
 /**
  * Every row of every event, from every part of the table, as a reader takes it: the core's, then
@@ -27,7 +27,7 @@ const WORKDIR = DIR.value;
 /** A state a walk reached, as the whole table reads it: every part's region, the ones its walk lacked empty, under this file's directory. */
 function whole(w: Workflow): Workflow {
   const regions = WALKED.map(
-    ({ id, workflow }) => w.regions.find((region) => region.id === id) ?? workflow.walk.empty,
+    ({ id, walk }) => w.regions.find((region) => region.id === id) ?? walk.empty,
   );
 
   const workspace =
@@ -37,7 +37,7 @@ function whole(w: Workflow): Workflow {
 }
 
 /** Where a row is looked for, in order: the states the walks reached, in the order they reached them. */
-const STATES: readonly Workflow[] = walk().states.map(whole);
+const STATES: readonly Workflow[] = proof().states.map(whole);
 
 type Judged = { readonly owner: string; readonly rule: Rule };
 

@@ -1,4 +1,3 @@
-import type { WalkOf } from "../../core/extension.ts";
 import type {
   Carried,
   Reactions,
@@ -271,7 +270,7 @@ export const REACTIONS: Reactions<StepHears> = {
   sendEdit: planWritten,
 };
 
-// The inputs `refusedNow` and the walk of `workflow.spec.ts` try.
+// The inputs `refusedNow` and the proof of the table (`extensions/proof.ts`) try.
 
 const PLAN_ONLY: Proposal = {
   reason: "The plan is next.",
@@ -341,24 +340,3 @@ export function lineOf(region: Region): string {
     ? "step: none"
     : `step: proposal ${pending.id} · wait: ${region.wait ?? "none"}`;
 }
-
-// What the walk of the table reads of the step.
-
-export const WALK: WalkOf = {
-  empty: regionOf(null),
-  /** The proposal by its id and its moves' kinds. */
-  key: (region) =>
-    JSON.stringify([
-      region.data.pending,
-      fileOf(region).pending?.proposal.moves.map(({ kind }) => kind),
-    ]),
-  call: (region) => String(region.data.pending),
-  answers: (event) => event === "answerProposal",
-  invariants: {
-    noPlanStepOverAPlan: (w) => {
-      const pending = pendingOf(w);
-
-      return planExists(w) && pending !== null && hasPlan(pending.proposal);
-    },
-  },
-};

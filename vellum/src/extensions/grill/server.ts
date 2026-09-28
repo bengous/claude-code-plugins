@@ -25,7 +25,6 @@ import {
   SAMPLES,
   segmentOf,
   TRANSITIONS,
-  WALK,
 } from "./grill.ts";
 import { BODIES, grillFile, grillFileName, grillNumber, parseOpened } from "./parse.ts";
 import {
@@ -314,6 +313,5 @@ export const server: ServerHalf<GrillPlugs> = {
     },
     segment: segmentOf,
     line: lineOf,
-    walk: WALK,
   },
 };

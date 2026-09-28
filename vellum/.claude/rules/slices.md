@@ -71,11 +71,13 @@ the folder changes: when something must, say so first.
   or the status, the text and the refusal's reason.
 - The pure model is named after the slice: its region, one transition per event (`Transitions`),
   the guards, `SAMPLES` per event (`Samples`), `REACTIONS` to the events it hears (`Reactions`), its
-  segment, its line, and its `WALK` (`WalkOf` of `core/extension.ts`): the empty region, what tells
-  two regions apart, its bounds, the call a wait is for and the event that answers it, its own
-  invariants. `extensions/walk.ts` walks each part alone and each pair that meets (one hears the
-  other's event, both hold, or one holds while the other refuses under a hold); a state that needs
-  three parts at once is not walked.
+  segment and its line.
+- `walk.ts` beside it exports `WALK` (`WalkOf` of `core/extension.ts`), what the proof of the table
+  reads of the region: the empty region, what tells two regions apart, its bounds, the call a wait
+  is for and the event that answers it, the slice's own invariants. The tests alone load it:
+  `extensions/proof.ts` finds it by the folder, and walks each part alone and each pair that meets
+  (one hears the other's event, both hold, or one holds while the other refuses under a hold); a
+  state that needs three parts at once is not walked. Every part with a workflow has one.
 - Tests: the model's `*.spec.ts` holds one test per row of `RULES`, keyed by `RowKey`, so a row
   without its test does not compile; `hooks.test.ts` the kit's; `contract.spec.ts`, under
   `@ts-expect-error`, what this slice's plugs make a compile error that no other slice's suite

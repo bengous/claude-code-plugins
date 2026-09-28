@@ -1,4 +1,7 @@
-import type { ServerWorkflow } from "../core/extension.ts";
+import { existsSync } from "node:fs";
+import { join } from "node:path";
+
+import type { ServerWorkflow, WalkOf } from "../core/extension.ts";
 import { parseWipDir } from "../core/server/domain/paths.ts";
 import type {
   Effect,
@@ -16,15 +19,38 @@ import { serverExtensions } from "./server.ts";
  * from the empty workflow, every event with every sample, breadth first, each state checked
  * against the invariants. It walks each part of the registry alone, then each pair of parts that
  * meet: one hears an event the other owns, both can hold the review, or one holds while the other
- * refuses an event under a hold. A part brings what the walk reads of its region (`WalkOf`); the
- * walk names no extension.
+ * refuses an event under a hold. A part brings what the walk reads of its region (`WalkOf`) in
+ * its own `walk.ts`, found by its folder as `contract.ts` is: the runtime never loads one, and
+ * the proof names no extension. The tests alone import this module.
  */
 
-/** A part of the table, as the registry holds it. */
-export type Part = { readonly id: string; readonly workflow: ServerWorkflow };
+/** A part of the table, as the registry holds it, and what the proof reads of its region. */
+export type Part = {
+  readonly id: string;
+  readonly workflow: ServerWorkflow;
+  readonly walk: WalkOf;
+};
 
-export const PARTS: readonly Part[] = serverExtensions.flatMap(({ id, workflow }) =>
-  workflow === undefined ? [] : [{ id, workflow }],
+async function walkOf(id: string): Promise<WalkOf> {
+  const path = join(import.meta.dir, id, "walk.ts");
+
+  if (!existsSync(path)) {
+    throw new Error(
+      `src/extensions/${id}/walk.ts is missing: the proof of the table reads each part's region through it (WalkOf)`,
+    );
+  }
+
+  const found: { readonly WALK?: WalkOf } = await import(path);
+
+  if (found.WALK === undefined) throw new Error(`src/extensions/${id}/walk.ts exports no WALK`);
+
+  return found.WALK;
+}
+
+export const PARTS: readonly Part[] = await Promise.all(
+  serverExtensions.flatMap(({ id, workflow }) =>
+    workflow === undefined ? [] : [walkOf(id).then((walk) => ({ id, workflow, walk }))],
+  ),
 );
 
 const DIR = parseWipDir("plans/2026-09-26/wip-4c2a9d93/");
@@ -43,7 +69,7 @@ export function emptyFor(parts: readonly Part[], dir = WORKDIR): Workflow {
   return {
     workspace: { kind: "drafting", dir, batches: 0 },
     planText: "absent",
-    regions: parts.map(({ workflow }) => workflow.walk.empty),
+    regions: parts.map(({ walk }) => walk.empty),
   };
 }
 
@@ -73,7 +99,7 @@ export const CORE_INVARIANTS = [
 /** Every invariant a walk checks: the core's, then each part's, by name. */
 export const INVARIANTS: readonly string[] = [
   ...CORE_INVARIANTS,
-  ...PARTS.flatMap(({ workflow }) => Object.keys(workflow.walk.invariants ?? {})),
+  ...PARTS.flatMap(({ walk }) => Object.keys(walk.invariants ?? {})),
 ];
 
 /** The cases the invariants speak of, each of which some walk must reach. */
@@ -150,7 +176,7 @@ function keyOf(walker: Walker, w: Workflow): string {
           region.id,
           region.state,
           ...open,
-          partOf(walker, region).workflow.walk.key(region),
+          partOf(walker, region).walk.key(region),
         ]);
       }),
     );
@@ -165,7 +191,7 @@ function bounded(walker: Walker, w: Workflow): boolean {
 
   return (
     (workspace.kind === "drafting" || workspace.version <= 3) &&
-    w.regions.every((region) => partOf(walker, region).workflow.walk.bounded?.(region) ?? true)
+    w.regions.every((region) => partOf(walker, region).walk.bounded?.(region) ?? true)
   );
 }
 
@@ -183,10 +209,8 @@ function stateBroken(walker: Walker, w: Workflow): string[] {
       : []),
   ];
 
-  const parts = walker.parts.flatMap(({ workflow }) =>
-    Object.entries(workflow.walk.invariants ?? {}).flatMap(([name, broken]) =>
-      broken(w) ? [name] : [],
-    ),
+  const parts = walker.parts.flatMap(({ walk }) =>
+    Object.entries(walk.invariants ?? {}).flatMap(([name, broken]) => (broken(w) ? [name] : [])),
   );
 
   return [...core, ...parts];
@@ -202,7 +226,7 @@ function answeredWait(
   input: EventInput,
 ): Call | null {
   for (const region of from.regions) {
-    const hints = partOf(walker, region).workflow.walk;
+    const hints = partOf(walker, region).walk;
 
     if (hints.answers?.(event, input) !== true) continue;
 
@@ -366,7 +390,7 @@ function meet(one: Part, other: Part, holding: ReadonlySet<string>): boolean {
 let walked: Walked | null = null;
 
 /** Each part alone, then each pair of parts that meet, in the registry's order. */
-export function walk(): Walked {
+export function proof(): Walked {
   if (walked !== null) return walked;
 
   const tally: Tally = {

@@ -9,9 +9,9 @@ import {
   stageOf,
   viewOf,
 } from "../core/server/domain/workflow.ts";
+import { EMPTY, INVARIANTS, PARTS, proof, returned, TABLE, told } from "./proof.ts";
 import type { Move } from "./step/contract.ts";
 import { pendingOf } from "./step/proposal.ts";
-import { EMPTY, INVARIANTS, PARTS, returned, TABLE, told, walk } from "./walk.ts";
 
 function tried(w: Workflow, event: string, input: EventInput = {}): Step {
   return next(w, TABLE, event, input, "engine");
@@ -547,14 +547,14 @@ describe("what the page and the band read (§ 5.8)", () => {
 
 describe("the five invariants, on every state the walk reaches (§ 5.10)", () => {
   test("the walk reaches each case the invariants speak of", () => {
-    const { reached } = walk();
+    const { reached } = proof();
 
     expect(Object.entries(reached).filter(([, count]) => count === 0)).toEqual([]);
   });
 
   for (const name of INVARIANTS) {
     test(name, () => {
-      expect(walk().violations[name]).toEqual([]);
+      expect(proof().violations[name]).toEqual([]);
     });
   }
 });

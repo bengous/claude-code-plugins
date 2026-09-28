@@ -22,7 +22,6 @@ import {
   lineOf,
   segmentOf,
   TRANSITIONS,
-  WALK,
 } from "./workflow.ts";
 
 const NO_CONTENT = { status: 204 };
@@ -197,6 +196,5 @@ export const reviewServer: ServerExtension = {
     },
     segment: segmentOf,
     line: lineOf,
-    walk: WALK,
   },
 };

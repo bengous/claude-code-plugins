@@ -648,7 +648,6 @@ function workflowPart(region: () => Region, reaction?: Transition): ServerWorkfl
     region: () => Promise.resolve(region()),
     segment: () => null,
     line: (its) => `${its.id}: ${its.state}`,
-    walk: { empty: { id: "fake", state: "closed", data: {} }, key: () => "" },
   };
 }
 

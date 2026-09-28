@@ -35,7 +35,8 @@ src/extensions/<id>/           one extension, a file per place it plugs in: page
 src/extensions/<id>/contract.ts  a slice: the folder read through one declaration (defineSlice) and its rows;
                                its halves hooks.ts, server.ts, page.tsx typed by it, its model named after it
 src/extensions/page.ts, server.ts, engine.ts  the three registries, the only way the core reaches an extension
-src/extensions/walk.ts         the proof of the table: each part's region walked alone, then each pair that meets
+src/extensions/proof.ts        the proof of the table, the tests' alone: each part's region (its walk.ts) walked alone,
+                               then each pair that meets
 ```
 
 Dependencies point toward `src/core/server/domain/`, held by `src/boundaries.spec.ts`. The rules of each

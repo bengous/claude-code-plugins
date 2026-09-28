@@ -78,14 +78,17 @@ function imports(file: string): string[] {
   );
 }
 
-/** What the file loads at run time: the transpiler drops every type-only import. */
+/** What the file loads at run time: the transpiler drops every type-only import, and reads no shebang. */
 function valueImports(file: string): string[] {
   return new Bun.Transpiler({ loader: file.endsWith(".tsx") ? "tsx" : "ts" })
-    .scanImports(readFileSync(file, "utf8"))
+    .scanImports(readFileSync(file, "utf8").replace(/^#!.*\n/u, ""))
     .map(({ path }) => path);
 }
 
-/** Every file `entry` loads at run time, itself included, following its relative imports; a bare one is kept as written. */
+/**
+ * Every file `entry` loads at run time, itself included, following its relative imports; a bare
+ * one is kept as written, and a file that is not a script (the page's `index.html`) is not read.
+ */
 function loadedBy(entry: string): string[] {
   const loaded = new Set<string>();
   const waiting = [entry];
@@ -93,6 +96,8 @@ function loadedBy(entry: string): string[] {
   for (let file = waiting.pop(); file !== undefined; file = waiting.pop()) {
     if (loaded.has(file)) continue;
     loaded.add(file);
+
+    if (!/\.tsx?$/u.test(file)) continue;
 
     for (const path of valueImports(file)) {
       if (path.startsWith(".")) waiting.push(slashed(resolve(dirname(file), path)));
@@ -344,6 +349,26 @@ describe("slices", () => {
               `${short(slice)}/hooks.ts loads ${file.startsWith(`${ROOT}/`) ? short(file) : file}: the hooks module loads the slice's folder alone, and \`import type\` its ${CONTRACT}`,
           ),
       );
+
+    expect(stray).toEqual([]);
+  });
+
+  test("the runtime never loads the proof of the table, nor a part's walk.ts: they are the tests'", () => {
+    const entries = [
+      "src/core/engine/register.ts",
+      "src/core/server/cli.ts",
+      "src/core/server/preview.ts",
+      ...BROWSER_ENTRIES,
+    ];
+
+    const stray = entries.flatMap((entry) =>
+      loadedBy(`${ROOT}/${entry}`)
+        .filter(
+          (file) =>
+            file === `${EXTENSIONS}/proof.ts` || /\/extensions\/[^/]+\/walk\.ts$/u.test(file),
+        )
+        .map((file) => `${entry} loads ${short(file)}: only a test may import it`),
+    );
 
     expect(stray).toEqual([]);
   });
