@@ -101,6 +101,8 @@ export type Parser<T> = (value: unknown) => T | null;
  */
 export type RouteDecl<Method extends "GET" | "POST", Input, Answer> = {
   readonly method: Method;
+  /** A GET that reads a query, which its parser in `BODIES` reads first. */
+  readonly query?: true;
   readonly types?: () => { readonly input: Input; readonly answer: Answer };
 };
 
@@ -114,7 +116,7 @@ export function getWith<
   Q extends { readonly [param: string]: string | null },
   A extends Json,
 >(): RouteDecl<"GET", Q, A> {
-  return { method: "GET" };
+  return { method: "GET", query: true };
 }
 
 /** A POST that takes the body `B` and answers `A`, `null` for nothing (204). */
