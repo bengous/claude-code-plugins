@@ -30,7 +30,7 @@ import type { Proposal, StepEvents, StepPlugs } from "./contract.ts";
 import { SLICE } from "./contract.ts";
 import { hooks } from "./hooks.ts";
 import { page } from "./page.tsx";
-import { ANSWERS, BODIES, parseProposal, parseProposed } from "./parse.ts";
+import { BODIES, parseProposal, parseProposed } from "./parse.ts";
 import { noProposalWaits, offersPlan, regionOf, TRANSITIONS } from "./proposal.ts";
 import { server } from "./server.ts";
 
@@ -198,9 +198,9 @@ describe("the hooks half's client is typed by the same plugs (3)", () => {
     expect(posted.ok ? posted.answer.seq : null).toBeNull();
   });
 
-  test("a parser in ANSWERS reading another route's answer does not compile: every wait would read an id", () => {
+  test("a parser in the hooks half's answers reading another route's answer does not compile: every wait would read an id", () => {
     // @ts-expect-error -- `POST wait` answers a `StepWaited`, and `parseProposed` reads `{ id }`.
-    const answers: Answers<StepPlugs> = { ...ANSWERS, "POST wait": parseProposed };
+    const answers: Answers<StepPlugs> = { ...hooks.answers, "POST wait": parseProposed };
 
     expect(JSON.stringify(answers["POST wait"]({ id: "p1" }))).toBe('{"id":"p1"}');
   });
@@ -216,7 +216,7 @@ describe("the hooks half's client is typed by the same plugs (3)", () => {
     const half: HooksHalf<Stray> = {
       id: "step",
       tools: { propose: { description: "", inputSchema: { type: "object" }, call: answering } },
-      answers: { ...ANSWERS, "POST close": null },
+      answers: { ...hooks.answers, "POST close": null },
       answered: () => Promise.resolve(),
     };
 

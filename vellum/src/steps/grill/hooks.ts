@@ -6,7 +6,7 @@ import type {
 } from "../../runtime/hooks/extension.ts";
 import type { StepPlugs } from "../proposal/contract.ts";
 import type { GrillPlugs, Waited } from "./contract.ts";
-import { ANSWERS, ASK_TOOL, NO_GRILL_OPEN, parseQuestions } from "./parse.ts";
+import { ASK_TOOL, NO_GRILL_OPEN, parseAsked, parseQuestions, parseWaited } from "./parse.ts";
 
 /** `step`'s tool, the one way to a grill: its name held to the step's contract, since a hooks half loads its own folder alone. */
 const PROPOSE_TOOL: `mcp__vellum__${StepPlugs["hooks"]["tools"]}` = "mcp__vellum__propose";
@@ -81,7 +81,13 @@ const ASK: HooksTool<ToolCallContext<GrillPlugs>> = {
 export const hooks: HooksHalf<GrillPlugs> = {
   id: "grill",
   tools: { grill_ask: ASK },
-  answers: ANSWERS,
+  answers: {
+    "POST ask": parseAsked,
+    "POST wait": parseWaited,
+    "POST event": null,
+    "POST answer": null,
+    "POST close": null,
+  },
   // The page is the reviewer's one channel while live, so the terminal's question tool is closed.
   refuses: {
     AskUserQuestion: `vellum is live: propose the next step with ${PROPOSE_TOOL}, or ask inside an open grill with ${ASK_TOOL}`,

@@ -1,5 +1,4 @@
 import type { Bodies } from "../../runtime/extension.ts";
-import type { Answers } from "../../runtime/hooks/extension.ts";
 import type {
   Asked,
   CloseReason,
@@ -213,13 +212,4 @@ export const BODIES: Bodies<GrillPlugs["server"]> = {
   "POST wait": parseWait,
   "POST event": parseEvent,
   "POST answer": parseAnswer,
-};
-
-/** The answer of each route the hooks half posts; `null` for a route that answers nothing. */
-export const ANSWERS: Answers<GrillPlugs> = {
-  "POST ask": parseAsked,
-  "POST wait": parseWaited,
-  "POST event": null,
-  "POST answer": null,
-  "POST close": null,
 };

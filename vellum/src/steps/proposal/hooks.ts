@@ -5,7 +5,7 @@ import type {
   ToolCallContext,
 } from "../../runtime/hooks/extension.ts";
 import type { Dropped, StepPlugs, StepWaited } from "./contract.ts";
-import { ANSWERS, parseProposal } from "./parse.ts";
+import { parsePaused, parseProposal, parseProposed, parseWaited } from "./parse.ts";
 
 const GONE = "The review server restarted and lost this proposal: propose again.";
 
@@ -101,7 +101,11 @@ const PROPOSE: HooksTool<ToolCallContext<StepPlugs>> = {
 export const hooks: HooksHalf<StepPlugs> = {
   id: "step",
   tools: { propose: PROPOSE },
-  answers: ANSWERS,
+  answers: {
+    "POST propose": parseProposed,
+    "POST wait": parseWaited,
+    "POST pause": parsePaused,
+  },
   // At the turn's end, never from the call Escape cut: every `$` of that call fails after Escape.
   answered: async (context, turn) => {
     const id = context.unanswered();

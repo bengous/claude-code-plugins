@@ -17,8 +17,8 @@ with the same files. One bundle is a browser's: `Bun.serve` builds it from
 `src/runtime/page/index.html` at the first request for the page,
 no build step, so what the page imports costs nothing at `cli start`.
 
-- `src/runtime/page/` never imports `src/runtime/server/`, and a part reaches that folder from a
-  server half alone; they depend on `src/runtime/protocol.ts`, on `src/runtime/extension.ts` and
+- `src/runtime/page/` never imports `src/runtime/server/`, and a part reaches that folder from its
+  `server.ts` alone; they depend on `src/runtime/protocol.ts`, on `src/runtime/extension.ts` and
   on the workshop's pure `paths.ts`. `src/runtime/server/` never
   imports the page beyond `index.html`. What an extension may import, and how one is added: `extensions.md`. Held by
   `src/boundaries.spec.ts`.

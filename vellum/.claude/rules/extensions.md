@@ -32,7 +32,8 @@ tests load. A hooks half may import the model as types only.
 - An extension imports `src/workshop/`, `src/runtime/` and its own folder, never another part's.
   From a runtime's folder it imports, for a half it fills, the files `SURFACES` lists in
   `src/boundaries.spec.ts` (`PAGE_SURFACE` of `src/runtime/page/`, `slice.ts` of
-  `src/runtime/server/`, types of `src/runtime/hooks/`): one more is a decision to take, not a
+  `src/runtime/server/`, types of `src/runtime/hooks/`, the last two from `server.ts` and
+  `hooks.ts` alone, never from the page half or the model): one more is a decision to take, not a
   convenience.
 - A server half's routes are mounted at `/api/x/<id>/<name>`, behind the token, and do their IO
   through the `ServerContext` that `Review` binds: an extension never imports the server's IO. A

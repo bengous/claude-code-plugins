@@ -1,5 +1,4 @@
 import type { Bodies } from "../../runtime/extension.ts";
-import type { Answers } from "../../runtime/hooks/extension.ts";
 import type {
   AnswerBody,
   Dropped,
@@ -203,11 +202,4 @@ export const BODIES: Bodies<StepPlugs["server"]> = {
   "POST wait": parseProposalId,
   "POST pause": parseProposalId,
   "POST answer": parseAnswer,
-};
-
-/** The answer of each route the hooks half posts, parsed before `context.post` hands it back. */
-export const ANSWERS: Answers<StepPlugs> = {
-  "POST propose": parseProposed,
-  "POST wait": parseWaited,
-  "POST pause": parsePaused,
 };

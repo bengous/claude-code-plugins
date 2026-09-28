@@ -40,20 +40,26 @@ const PAGE_SURFACE = [
   "state.ts",
 ];
 
-/** What a part imports of a runtime's folder, and the half it must fill to import it, frozen: one more is a decision to take. */
+/**
+ * What a part imports of a runtime's folder, frozen: one more is a decision to take. The half it
+ * must fill to import it, and whether that half's file alone may: the server's `slice.ts` is
+ * `server.ts`'s, never the page half's nor the model's, and the hooks module's types `hooks.ts`'s.
+ */
 type Surface = {
   readonly folder: string;
-  readonly halves: readonly string[];
+  readonly half: string;
+  readonly halfAlone: boolean;
   readonly files: readonly string[];
   readonly typesOnly: boolean;
 };
 
 const SURFACES: readonly Surface[] = [
-  { folder: "page", halves: ["page.tsx"], files: PAGE_SURFACE, typesOnly: false },
-  { folder: "server", halves: ["server.ts"], files: ["slice.ts"], typesOnly: false },
+  { folder: "page", half: "page.tsx", halfAlone: false, files: PAGE_SURFACE, typesOnly: false },
+  { folder: "server", half: "server.ts", halfAlone: true, files: ["slice.ts"], typesOnly: false },
   {
     folder: "hooks",
-    halves: ["hooks.ts"],
+    half: "hooks.ts",
+    halfAlone: true,
     files: ["extension.ts", "mode.ts"],
     typesOnly: true,
   },
@@ -338,13 +344,25 @@ describe("parts", () => {
         slashed(relative(`${RUNTIME}/${surface.folder}`, target)),
       );
 
-      const fills = surface.halves.some((half) => existsSync(`${partOf(file)}/${half}`));
+      const fills = existsSync(`${partOf(file)}/${surface.half}`);
       const typed = !surface.typesOnly || !valueImports(file).includes(specifier);
 
       return listed && fills && typed ? [] : [`${short(file)} imports ${specifier}`];
     });
 
     expect(beyond).toEqual([]);
+  });
+
+  test("a part reaches runtime/server/ from its server.ts alone and runtime/hooks/ from its hooks.ts alone: never from its page half nor its model", () => {
+    const stray = relativeImportsOf(partSources()).flatMap(({ file, specifier, target }) => {
+      const surface = SURFACES.find(({ folder }) => target.startsWith(`${RUNTIME}/${folder}/`));
+
+      return surface?.halfAlone === true && !file.endsWith(`/${surface.half}`)
+        ? [`${short(file)} imports ${specifier}: only its ${surface.half} may`]
+        : [];
+    });
+
+    expect(stray).toEqual([]);
   });
 
   test("every folder holds a half; each half carries the id its folder declares, and its registry names it", () => {
