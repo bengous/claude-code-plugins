@@ -6,6 +6,7 @@ import type {
   Stamps,
   Transitions,
 } from "../../core/server/domain/rows.ts";
+import { naming } from "../../core/server/domain/rows.ts";
 import type {
   Effect,
   Outcome,
@@ -145,11 +146,11 @@ export const offersPlan = (_w: Workflow, input: { readonly proposal: string }): 
 
 export const noProposalWaits = (w: Workflow): boolean => pendingId(w) === "";
 
-export const namesAProposal = (_w: Workflow, input: { readonly id: string }): boolean =>
-  input.id !== "";
-
-export const namesAnotherProposal = (w: Workflow, input: { readonly id: string }): boolean =>
-  pendingId(w) !== input.id;
+export const { namesAProposal, namesAnotherProposal } = naming({
+  namesAProposal: (_w: Workflow, input: { readonly id: string }): boolean => input.id !== "",
+  namesAnotherProposal: (w: Workflow, input: { readonly id: string }): boolean =>
+    pendingId(w) !== input.id,
+});
 
 // The transitions.
 

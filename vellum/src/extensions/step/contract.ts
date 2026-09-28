@@ -97,7 +97,7 @@ export type StepHears = StepPlugs["hears"];
 
 const NO_SUCH_PROPOSAL = "no such proposal";
 
-const { refuse, refuseInput, whileHeld } = rows(SLICE.events);
+const { refuse, whileHeld } = rows(SLICE);
 
 export const RULES = [
   whileHeld("propose", 409, (hold) => `${hold}: no step is proposed until it ends`),
@@ -108,7 +108,7 @@ export const RULES = [
     409,
     "plan.md exists: the plan step is done",
   ),
-  refuseInput(
+  refuse(
     "pause",
     "no-such-proposal",
     anyOf(noProposalWaits, namesAnotherProposal),
@@ -116,7 +116,7 @@ export const RULES = [
     NO_SUCH_PROPOSAL,
   ),
   whileHeld("answerProposal", 409, (hold) => hold),
-  refuseInput(
+  refuse(
     "answerProposal",
     "no-such-proposal",
     allOf(namesAProposal, namesAnotherProposal),

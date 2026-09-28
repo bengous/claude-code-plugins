@@ -5,6 +5,7 @@ import type {
   Samples,
   Transitions,
 } from "../../core/server/domain/rows.ts";
+import { naming } from "../../core/server/domain/rows.ts";
 import type { Effect, Outcome, Region, Wait, Workflow } from "../../core/server/domain/workflow.ts";
 import { regionIn, SAMPLE_AT, unchanged, withRegion } from "../../core/server/domain/workflow.ts";
 import { batchFile, projectPath } from "../../core/server/domain/workspace.ts";
@@ -73,10 +74,10 @@ export const noGrillIsOpen = (w: Workflow): boolean => !grillIsOpen(w);
 export const opensAGrill = (_w: Workflow, input: { readonly move: string | undefined }): boolean =>
   input.move === "grill";
 
-export const namesNoSubject = (
-  _w: Workflow,
-  input: { readonly subject: string | undefined },
-): boolean => parseSubject({ subject: input.subject }) === null;
+export const { namesNoSubject } = naming({
+  namesNoSubject: (_w: Workflow, input: { readonly subject: string | undefined }): boolean =>
+    parseSubject({ subject: input.subject }) === null,
+});
 
 /** The open transcript by its file, as a refusal names it. */
 export const openTranscript = (w: Workflow): string => `${grillFile(latestIn(w).n)} is open`;

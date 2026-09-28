@@ -1,3 +1,4 @@
+import type { PlugsOf, SliceDecl } from "../../plugs.ts";
 import type {
   Actor,
   CORE_TRANSITIONS,
@@ -27,21 +28,11 @@ export type Events = {
   };
 };
 
-/** The events as written, their senders and fields kept as literals. */
-export function events<const E extends Events>(declared: E): E {
-  return declared;
-}
-
 /** An event another part owns that the slice judges or reacts to: the fields that part says it carries. */
 export type Heard = { readonly [event: string]: { readonly carries: readonly string[] } };
 
 /** The core's own events, by name. */
 export type CoreEvent = keyof typeof CORE_TRANSITIONS;
-
-/** Core events a slice hears: named, their fields untyped, since the core declares none. */
-export type CoreHeard<K extends CoreEvent> = {
-  readonly [Event in K]: { readonly carries: readonly string[] };
-};
 
 /** What the server stamps on every event: the time, and the number its step's first entry of the channel takes. */
 export type Stamps = { readonly at: string; readonly seq: string };
@@ -80,9 +71,25 @@ export type Sender<E extends Events, K extends keyof E> = E[K]["by"] extends rea
  */
 export type Guard<I> = (w: Workflow, input: I) => boolean;
 
-/** `guard` under the name `condition`, as the table prints it. */
-function named<I>(guard: Guard<I>, condition: string): Guard<I> {
+/** The guards that read what an input names, which may not be there, and the combinations of one. */
+const namers = new WeakSet<Guard<never>>();
+
+/**
+ * Guards that hold on an input naming what is not there (an id no proposal has, a subject that is
+ * no line), each under its key, which the table prints: a row built from one refuses the input,
+ * which no real caller meets, and `refusedNow` never lists it. Every other row refuses a state.
+ */
+export function naming<const G extends { readonly [name: string]: Guard<never> }>(guards: G): G {
+  for (const guard of Object.values(guards)) namers.add(guard);
+
+  return guards;
+}
+
+/** `guard` under the name `condition`, as the table prints it, naming when one of `parts` does. */
+function named<I>(guard: Guard<I>, condition: string, parts: readonly Guard<never>[]): Guard<I> {
   Object.defineProperty(guard, "name", { value: condition });
+
+  if (parts.some((part) => namers.has(part))) namers.add(guard);
 
   return guard;
 }
@@ -122,6 +129,7 @@ export function allOf<const Guards extends readonly Guard<never>[]>(
   return named(
     (w, input) => guards.every((guard) => holds(guard, w, input)),
     guards.map((guard) => termOf(guard)).join(" and "),
+    guards,
   );
 }
 
@@ -131,6 +139,7 @@ export function anyOf<const Guards extends readonly Guard<never>[]>(
   return named(
     (w, input) => guards.some((guard) => holds(guard, w, input)),
     guards.map((guard) => termOf(guard)).join(" or "),
+    guards,
   );
 }
 
@@ -175,20 +184,23 @@ export type RowKey<R> =
       ? `${K}: ${typeof HELD}`
       : never;
 
+/** What a row's guard reads of `event`: what it carries if the slice owns it, what its owner says it carries if the slice hears it. */
+export type InputOf<E extends Events, H extends Heard, K> = K extends keyof E
+  ? Carried<E, K>
+  : K extends keyof H
+    ? Read<H, K>
+    : never;
+
 export type Rows<E extends Events, H extends Heard> = {
-  /** Refuses `event` when `when` holds: a state a real caller meets, listed by `refusedNow`. */
-  readonly refuse: <K extends keyof E & string, Id extends string>(
+  /**
+   * Refuses `event` when `when` holds, answered with `status`. On an event another part owns, the
+   * row is judged after every row that part declares on it. A guard built with `naming` makes it a
+   * refusal of the input, which `refusedNow` never lists.
+   */
+  readonly refuse: <K extends (keyof E | keyof H) & string, Id extends string>(
     event: K,
     id: Id,
-    when: Guard<Carried<E, K>>,
-    status: RefusalStatus,
-    reason: Reason,
-  ) => RefuseRow<K, Id>;
-  /** Refuses `event` when `when` holds on an input naming what is not there: only a sample meets it. */
-  readonly refuseInput: <K extends keyof E & string, Id extends string>(
-    event: K,
-    id: Id,
-    when: Guard<Carried<E, K>>,
+    when: Guard<InputOf<E, H, K>>,
     status: RefusalStatus,
     reason: Reason,
   ) => RefuseRow<K, Id>;
@@ -198,25 +210,6 @@ export type Rows<E extends Events, H extends Heard> = {
     status: RefusalStatus,
     reason: (hold: string) => string,
   ) => HeldRow<K>;
-  /**
-   * `refuse` on an event another part owns, judged after every row that part declares on it; its
-   * guard reads what that part says the event carries, each field possibly absent.
-   */
-  readonly refuseHeard: <K extends keyof H & string, Id extends string>(
-    event: K,
-    id: Id,
-    when: Guard<Read<H, K>>,
-    status: RefusalStatus,
-    reason: Reason,
-  ) => RefuseRow<K, Id>;
-  /** `refuseInput` on an event another part owns, as `refuseHeard`. */
-  readonly refuseInputHeard: <K extends keyof H & string, Id extends string>(
-    event: K,
-    id: Id,
-    when: Guard<Read<H, K>>,
-    status: RefusalStatus,
-    reason: Reason,
-  ) => RefuseRow<K, Id>;
 };
 
 function declaredOf<E extends Events, K extends keyof E & string>(declared: E, event: K): E[K] {
@@ -250,70 +243,35 @@ function readOf<H extends Heard, K extends keyof H>(input: EventInput): Read<H, 
   return input as Read<H, K>;
 }
 
-type Judged = Omit<RefuseRow<string, string>, "kind" | "event" | "id">;
-
-function rowOf<K extends string, Id extends string>(
-  event: K,
-  id: Id,
-  judged: Judged,
-): RefuseRow<K, Id> {
-  return { kind: "refuse", event, id, ...judged };
+/** What a row's guard reads of the core's input: its own event's fields, `""` for any it lacks; a heard event as it comes. */
+function readBy<E extends Events>(declared: E, event: string, input: EventInput): EventInput {
+  return Object.hasOwn(declared, event) ? carried(declared, event, input) : input;
 }
 
 /**
- * The row helpers of a slice, bound to its events and to those it hears (`H`, given as a type): a
- * row on an event it neither owns nor hears, or a guard reading a field the event does not carry,
- * does not compile.
+ * The row helpers of a slice, bound to its declaration's events and to those it hears: a row on an
+ * event it neither owns nor hears, or a guard reading a field the event does not carry, does not
+ * compile.
  */
-export function rows<E extends Events, H extends Heard = Record<never, never>>(
-  declared: E,
-): Rows<E, H> {
-  function own<K extends keyof E & string>(event: K, when: Guard<Carried<E, K>>): Judged["when"] {
-    return (w, input) => when(w, carried(declared, event, input));
-  }
-
-  function heard<K extends keyof H & string>(when: Guard<Read<H, K>>): Judged["when"] {
-    return (w, input) => when(w, readOf<H, K>(input));
-  }
+export function rows<D extends SliceDecl>(
+  slice: D,
+): Rows<PlugsOf<D>["events"], PlugsOf<D>["hears"]> {
+  const declared: Events = slice.events ?? {};
 
   return {
-    refuse: (event, id, when, status, reason) =>
-      rowOf(event, id, {
-        refuses: "state",
-        heard: false,
-        status,
-        reason,
-        condition: conditionOf(when),
-        when: own(event, when),
-      }),
-    refuseInput: (event, id, when, status, reason) =>
-      rowOf(event, id, {
-        refuses: "input",
-        heard: false,
-        status,
-        reason,
-        condition: conditionOf(when),
-        when: own(event, when),
-      }),
+    refuse: (event, id, when, status, reason) => ({
+      kind: "refuse",
+      event,
+      id,
+      refuses: namers.has(when) ? "input" : "state",
+      heard: !Object.hasOwn(declared, event),
+      status,
+      reason,
+      condition: conditionOf(when),
+      // SAFETY: `readBy` hands the guard its event's fields as `InputOf` types them: every field an owned event carries, `""` when absent, or a heard event's record, whose missing fields read `undefined`.
+      when: (w, input) => when(w, readBy(declared, event, input) as never),
+    }),
     whileHeld: (event, status, reason) => ({ kind: "held", event, id: HELD, status, reason }),
-    refuseHeard: (event, id, when, status, reason) =>
-      rowOf(event, id, {
-        refuses: "state",
-        heard: true,
-        status,
-        reason,
-        condition: conditionOf(when),
-        when: heard(when),
-      }),
-    refuseInputHeard: (event, id, when, status, reason) =>
-      rowOf(event, id, {
-        refuses: "input",
-        heard: true,
-        status,
-        reason,
-        condition: conditionOf(when),
-        when: heard(when),
-      }),
   };
 }
 

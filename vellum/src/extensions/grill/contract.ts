@@ -154,20 +154,12 @@ export type GrillHears = GrillPlugs["hears"];
 
 const NOT_A_SUBJECT = "a grill's subject is one line, not empty";
 
-const { refuse, refuseInput, refuseHeard, refuseInputHeard } = rows<GrillEvents, GrillHears>(
-  SLICE.events,
-);
+const { refuse } = rows(SLICE);
 
 export const RULES = [
-  refuseInput("openGrill", "grill-subject", namesNoSubject, 409, NOT_A_SUBJECT),
+  refuse("openGrill", "grill-subject", namesNoSubject, 409, NOT_A_SUBJECT),
   refuse("openGrill", "grill-open", grillIsOpen, 409, openTranscript),
-  refuseInputHeard(
-    "answerProposal",
-    "grill-subject",
-    allOf(opensAGrill, namesNoSubject),
-    409,
-    NOT_A_SUBJECT,
-  ),
-  refuseHeard("answerProposal", "grill-open", allOf(opensAGrill, grillIsOpen), 409, openTranscript),
+  refuse("answerProposal", "grill-subject", allOf(opensAGrill, namesNoSubject), 409, NOT_A_SUBJECT),
+  refuse("answerProposal", "grill-open", allOf(opensAGrill, grillIsOpen), 409, openTranscript),
   refuse("askQuestion", "no-grill", noGrillIsOpen, 409, NO_GRILL_OPEN),
 ];
