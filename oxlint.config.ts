@@ -90,7 +90,7 @@ export default defineConfig({
       //   stream; their part goes with review/ as a slice.
       // - workshop/workflow.ts: the table's types, next(), the views and the core's own
       //   rows in one file; they part when the core moves to workshop/.
-      // - runtime/server/review.ts: the queue, the step and the Send in one class.
+      // - runtime/server/queue.ts: the queue, the step, the channel, the draft and the view in one class.
       // - runtime/hooks/register.ts: every hook sits where `$` is spelled, which the engine requires
       //   of one file; what reads no `$` can leave it.
       // - steps/grill/page.tsx: the grill's renderer, band and panel in one half.
@@ -99,7 +99,7 @@ export default defineConfig({
       files: [
         "vellum/src/runtime/page/state.ts",
         "vellum/src/workshop/workflow.ts",
-        "vellum/src/runtime/server/review.ts",
+        "vellum/src/runtime/server/queue.ts",
         "vellum/src/runtime/hooks/register.ts",
         "vellum/src/steps/grill/page.tsx",
         "vellum/src/formats/markdown/page.tsx",

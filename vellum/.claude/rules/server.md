@@ -7,7 +7,7 @@ paths:
 # The server
 
 The server, `src/runtime/server/`, around the pure core, `src/workshop/` (`workshop.md`).
-`review.ts` is the queue and the step: every change of the workflow is an event, which `Review.step` reads (the
+`queue.ts` is the queue and the step: every change of the workflow is an event, which `Queue.step` reads (the
 `Workflow`: the directory, `plan.md`, each extension's region), judges with `next` against the
 table (`workshop/workflow.ts`), and hands to `interpret` (`effects.ts`), the one code that
 writes for the workflow; `events.ts` reads what the core's own routes carry (the gate,
@@ -22,14 +22,14 @@ Claude Code's `installed_plugins.json`, `git` with its `GIT_*` variables cleared
   decision as a pure function of plain values (`next`, and the rows each extension brings), then
   write through the effects `next` answered. No refusal is written outside the table.
 - State is derived, never stored twice: where the review stands is `workspaceOf` of the
-  workshop, off the listing and the memory `Review` keeps, never a second variable.
+  workshop, off the listing and the memory `Queue` keeps, never a second variable.
 - Parse at the boundary, once, into the workshop's branded types. Past the parser: no `typeof`,
   no `as`, no re-check. A `ParseResult` is returned where the caller decides; anything else
   throws, and the route turns it into an answer.
 - `src/runtime/protocol.ts` is the one place a value crossing HTTP, the server's stdout or an
   extension boundary is typed; it re-exports the workshop's types it carries, never redefines them. What an extension
   hands the core is typed beside it, in `src/runtime/extension.ts`.
-- `Review` binds the `ServerContext` of `src/runtime/extension.ts` to itself and to `fs.ts`, since
+- `Queue` binds the `ServerContext` of `src/runtime/extension.ts` to itself and to `fs.ts`, since
   a step runs there; `http/serve.ts` hands the same context to each extension's routes and mounts them under `/api/x/<id>/`; `routes.ts` looks them
   up after its own, behind the same token check, and knows none by name.
 - What holds the review is read off the workflow: `held`, the reason of the first region that
@@ -74,11 +74,11 @@ Claude Code's `installed_plugins.json`, `git` with its `GIT_*` variables cleared
   line of `.review/events.jsonl` (`JOURNAL_FILE`), a refused one included; a line that fails
   fails nothing, and the workflow is never rebuilt from it. `GET /api/workflow` answers where
   the review lives with the workflow as a reader takes it (`WorkflowAnswer`); it and
-  `Review.view` read the workflow inside the queue, where no step is half applied (a step writes
+  `Queue.view` read the workflow inside the queue, where no step is half applied (a step writes
   its files before it keeps a proposal's wait in memory). `POST /api/record` is `record` for the
   reviewer.
 - Everything that reaches Claude is an entry of the channel, `.review/channel.jsonl`
-  (`workshop/channel.ts`), appended inside the queue by `Review`'s relay: the core's `sent` for a
+  (`workshop/channel.ts`), appended inside the queue by `Queue`'s relay: the core's `sent` for a
   batch written and `approved` after the rename, an extension's own `text` as a `channel` effect
   of its transition, beside the write it tells of. A call that waits takes the entry its step
   appended before a `returnToCall` as its result (`ServerContext.returned`), so it reaches
@@ -86,7 +86,7 @@ Claude Code's `installed_plugins.json`, `git` with its `GIT_*` variables cleared
   never rewritten but by the approval's link rewrite and the migration below, which move no
   line, and a last line left without a newline is ended before an entry is appended. Its
   identity, `.review/channel.id`, is minted with it and moves with the rename.
-  `Review.openChannel` runs before `ready`: it renames an older vellum's `v<N>.feedback.md`, one
+  `Queue.openChannel` runs before `ready`: it renames an older vellum's `v<N>.feedback.md`, one
   per version, to that version's first batch (`legacyBatch`), the entries naming it renamed with
   it (`renamedIn`); then it appends what the directory implies and the channel lacks (`untold`: a `sent` per batch no entry
   names, the approval of an approved directory), so a write whose entry was lost is told
@@ -118,7 +118,7 @@ Claude Code's `installed_plugins.json`, `git` with its `GIT_*` variables cleared
   another version is refused (a Send's 409 `stale`): a bare text sent after Claude recorded
   `vN+1` would overwrite that revision and tell Claude to keep it. `vN.md` stays what its author
   submitted.
-- One Send, `Review.send`, is one step of the queue, what the reviewer sends from the page's one
+- One Send, `send` of `events.ts`, is one step of the queue, what the reviewer sends from the page's one
   button or from a comment's Send now. Its `SendRequest` names what the reviewer saw at the
   click: the comment ids, the edit's version or `null`, the choices made in mockups by their
   mockup, decision and option, whether the extensions' parts go (the
@@ -139,7 +139,7 @@ Claude Code's `installed_plugins.json`, `git` with its `GIT_*` variables cleared
   changes no stage: the version stays under review, `workspace.batches` counts its batches, and a
   gate after one records a new version even with the same text (`gateVersion`). The server sends
   from the draft it keeps, never a body: the page writes it first.
-- The approval (`approve`, then `approveDirectory` in `review.ts`) applies in an order where a
+- The approval (`approve`, then `approveDirectory` in `queue.ts`) applies in an order where a
   write that fails leaves a state the next `gate` or the next load repairs: `plan.md` before the
   edit's version file, the notes file and the draft's removal before the rename, which carries
   what is there. The final directory's free name is read before the step (`freeTarget`), and the
@@ -149,7 +149,7 @@ Claude Code's `installed_plugins.json`, `git` with its `GIT_*` variables cleared
   listing, never from the decision.
 - The draft is the page's, stored and read back through the one parser, `draft.ts`:
   `PUT /api/draft` parses the comments, the edit, the choices made in mockups and what is typed,
-  and `Review.draft` runs the file through the same parser for `GET`, a Send and
+  and `Queue.draft` runs the file through the same parser for `GET`, a Send and
   `ServerContext.draft`, so a malformed draft is refused whole, with `UNREADABLE_DRAFT` as the
   reason, never handed over half-read. A choice's mockup is kept under its path as parsed, so a
   Send that names it finds it, and two spellings of one path are refused. Two older shapes are

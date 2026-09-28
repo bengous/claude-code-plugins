@@ -6,7 +6,7 @@ import { join } from "node:path";
 import type { ChannelLine, RegionView, ReviewView, WorkflowView } from "../../runtime/protocol.ts";
 import { startServer } from "../../runtime/server/http/serve.ts";
 import type { Started } from "../../runtime/server/http/serve.ts";
-import { Review } from "../../runtime/server/review.ts";
+import { Queue } from "../../runtime/server/queue.ts";
 import { serverExtension } from "../../runtime/server/slice.ts";
 import { serverExtensions } from "../../runtime/server/slices.ts";
 import { parseWipDir } from "../../workshop/paths.ts";
@@ -393,7 +393,7 @@ describe("the page", () => {
 
     if (!workdir.ok) throw new Error(workdir.error);
     const extensions = serverExtensions;
-    const review = new Review({ project: root, workdir: workdir.value, extensions });
+    const review = new Queue({ project: root, workdir: workdir.value, extensions });
     await review.openChannel();
 
     const routes = serverExtension(server).routes?.(review.context);

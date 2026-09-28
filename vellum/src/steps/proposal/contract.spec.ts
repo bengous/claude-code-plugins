@@ -19,7 +19,7 @@ import type {
   ToolAnswer,
 } from "../../runtime/hooks/extension.ts";
 import { engineExtension } from "../../runtime/hooks/slice.ts";
-import { Review } from "../../runtime/server/review.ts";
+import { Queue } from "../../runtime/server/queue.ts";
 import { serverExtension } from "../../runtime/server/slice.ts";
 import { parseWipDir } from "../../workshop/paths.ts";
 import type { Json } from "../../workshop/plugs.ts";
@@ -67,7 +67,7 @@ function routeOf(
   const root = mkdtempSync(join(tmpdir(), "vellum-contract-"));
   mkdirSync(join(root, WIP, ".review"), { recursive: true });
   const extensions = [serverExtension(half)];
-  const review = new Review({ project: root, workdir: WORKDIR, extensions });
+  const review = new Queue({ project: root, workdir: WORKDIR, extensions });
   const route = serverExtension(half).routes?.(review.context)[key];
 
   if (route === undefined) throw new Error(`no route ${key}`);

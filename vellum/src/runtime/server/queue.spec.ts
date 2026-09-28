@@ -23,7 +23,7 @@ import { held as heldIn, withRegion } from "../../workshop/workflow.ts";
 import type { ServerExtension, ServerWorkflow } from "../extension.ts";
 import type { CoreEvents, GateResult, SendResult } from "./events.ts";
 import { coreEvents } from "./events.ts";
-import { Review } from "./review.ts";
+import { Queue } from "./queue.ts";
 import { serverExtensions } from "./slices.ts";
 
 /** The applying side: the pure decisions are covered in `workshop/review.spec.ts`. */
@@ -40,7 +40,7 @@ const FINAL = "plans/2026-09-15/notification-settings/";
 
 const V1 = 1 as never;
 
-type Setup = { readonly review: Review; readonly events: CoreEvents; readonly root: string };
+type Setup = { readonly review: Queue; readonly events: CoreEvents; readonly root: string };
 
 /** A gate as `submit` asks it: a new text, or one after a feedback, is the next version. */
 const RECORD = { unchanged: "record" } as const;
@@ -64,7 +64,7 @@ function setup(
 
   if (!workdir.ok) throw new Error(workdir.error);
 
-  const review = new Review({ project: root, workdir: workdir.value, extensions, heldRetryMs });
+  const review = new Queue({ project: root, workdir: workdir.value, extensions, heldRetryMs });
 
   return { review, events: coreEvents(review), root };
 }
@@ -89,7 +89,7 @@ function refuseRename(root: string): () => void {
 }
 
 /** Every entry the channel holds, from where the review lives now. */
-async function told(review: Review): Promise<readonly unknown[]> {
+async function told(review: Queue): Promise<readonly unknown[]> {
   return (await review.channel(0)).map(({ entry }) => entry);
 }
 
@@ -183,7 +183,7 @@ const ON_LINE = {
   mark: { kind: "comment", body: "This line." },
 } as const;
 
-describe("Review", () => {
+describe("Queue", () => {
   test("gate without plan.md answers the error the model reads", async () => {
     const { events } = setup();
     expect(await events.gate(RECORD, "claude")).toEqual({

@@ -18,7 +18,7 @@ src/workshop/               pure, no IO: the workflow (`next`, the table of rule
                             review's own: review, feedback, diff
 src/runtime/hooks/          the hooks module: register.ts spells `$`, the rest takes a `Host`; client.ts the server's
         │ HTTP, token header, down; the server's stdout, up
-src/runtime/server/         the server: cli.ts `serve`, preview.ts the page alone on any directory, review.ts the
+src/runtime/server/         the server: cli.ts `serve`, preview.ts the page alone on any directory, queue.ts the
                             queue and the step, effects.ts, events.ts, http/ routes and serve, every IO, slice.ts
 src/runtime/page/           the Preact page
 src/runtime/protocol.ts     what crosses HTTP, the server's stdout and a part's boundary; JSON

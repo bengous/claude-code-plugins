@@ -19,14 +19,14 @@ import type {
 } from "../../protocol.ts";
 import { isRecord, parseDraft, parseEdit } from "../draft.ts";
 import type { CoreEvents, GateOptions } from "../events.ts";
-import type { Review } from "../review.ts";
+import type { Queue } from "../queue.ts";
 
 export const TOKEN_HEADER = "x-vellum-token";
 
 export type RouteContext = {
   readonly token: string;
   readonly project: string;
-  readonly review: Review;
+  readonly queue: Queue;
   /** The core's own events: the gate, Record, the approval, the Send. */
   readonly events: CoreEvents;
   /** `formats/html/frame.ts`, built; every HTML file served carries a tag that loads it. */
@@ -188,7 +188,7 @@ async function serveFile(project: string, rawPath: string, tag: string): Promise
   return new Response(withFrameScript(await file.text(), tag), { headers });
 }
 
-function sse(review: Review, streams: Streams): Response {
+function sse(queue: Queue, streams: Streams): Response {
   const encoder = new TextEncoder();
   let unsubscribe: (() => void) | null = null;
 
@@ -201,8 +201,8 @@ function sse(review: Review, streams: Streams): Response {
       };
 
       streams.open += 1;
-      unsubscribe = review.subscribe(({ workspace }) => send(workspace));
-      send(await review.workspace());
+      unsubscribe = queue.subscribe(({ workspace }) => send(workspace));
+      send(await queue.workspace());
     },
     cancel() {
       streams.open -= 1;
@@ -225,15 +225,15 @@ async function api(
   request: Request,
   route: string,
 ): Promise<Response> {
-  const { review, events } = context;
+  const { queue, events } = context;
 
-  if (route === "GET /api/review") return Response.json(await review.view());
+  if (route === "GET /api/review") return Response.json(await queue.view());
 
   if (route === "GET /api/workflow") {
     // In the queue: a step writes its files before it keeps its region in memory (a proposal's
     // wait), and a read between the two would take a call's `open` wait for a paused one.
-    const w = await review.inOrder(() => review.workflow());
-    const answer: WorkflowAnswer = { workspace: w.workspace, ...review.viewed(w) };
+    const w = await queue.inOrder(() => queue.workflow());
+    const answer: WorkflowAnswer = { workspace: w.workspace, ...queue.viewed(w) };
 
     return Response.json(answer);
   }
@@ -243,7 +243,7 @@ async function api(
 
     if (after === null) return badRequest();
 
-    return Response.json(await review.channel(after));
+    return Response.json(await queue.channel(after));
   }
 
   if (route === "GET /api/vellum-build") {
@@ -320,7 +320,7 @@ async function api(
   }
 
   if (route === "GET /api/draft") {
-    const draft = await review.draft();
+    const draft = await queue.draft();
 
     if (draft === null) return new Response(null, { status: 204 });
 
@@ -334,7 +334,7 @@ async function api(
 
     if (draft === null) return badRequest();
 
-    return new Response(null, { status: (await review.saveDraft(draft)) ? 204 : 409 });
+    return new Response(null, { status: (await queue.saveDraft(draft)) ? 204 : 409 });
   }
 
   const extensionRoute = context.extensionRoutes.get(route);
@@ -374,7 +374,7 @@ export function createHandler(context: RouteContext): Handler {
       return await serveFile(context.project, pathname.slice(filesPrefix.length), frameTag);
     }
 
-    if (request.method === "GET" && pathname === eventsPath) return sse(context.review, streams);
+    if (request.method === "GET" && pathname === eventsPath) return sse(context.queue, streams);
 
     return new Response("not found", { status: 404 });
   };

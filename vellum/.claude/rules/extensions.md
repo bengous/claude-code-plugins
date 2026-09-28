@@ -36,7 +36,7 @@ tests load. A hooks half may import the model as types only.
   `hooks.ts` alone, never from the page half or the model): one more is a decision to take, not a
   convenience.
 - A server half's routes are mounted at `/api/x/<id>/<name>`, behind the token, and do their IO
-  through the `ServerContext` that `Review` binds: an extension never imports the server's IO. A
+  through the `ServerContext` that `Queue` binds: an extension never imports the server's IO. A
   route that changes the workflow dispatches its event (`ServerContext.dispatch`), in the
   review's one queue, and writes nothing itself: its transitions' effects are the writes, and a
   refusal is the reason of the row that refused it. It keeps no queue of its own; what it reads

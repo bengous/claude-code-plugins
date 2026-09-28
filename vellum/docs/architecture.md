@@ -20,7 +20,7 @@ flowchart LR
   end
   subgraph server["vellum serve (one Bun process per session)"]
     R["src/runtime/server/http/routes.ts<br/>token, status codes"]
-    A["src/runtime/server/review.ts<br/>one queue: read the workflow → next() → interpret"]
+    A["src/runtime/server/queue.ts<br/>one queue: read the workflow → next() → interpret"]
     T["src/workshop/*<br/>pure: the workflow and its table, paths, feedback text"]
     W["src/runtime/server/fs.ts<br/>plans/&lt;date&gt;/wip-&lt;sid8&gt;/"]
     R --> A --> T
@@ -63,7 +63,7 @@ plain modules with no interface and no injection).
 Four levels of ceremony exist for the same principle; this is the lightest. The next one
 up, ports as interfaces with a fake each and a contract test per port, is one hour away
 the day a second file-system adapter exists: extract the port from `runtime/server/fs.ts`, hand
-it to `runtime/server/review.ts`. The ones above (a use case object per intention, then aggregates
+it to `runtime/server/queue.ts`. The ones above (a use case object per intention, then aggregates
 and repositories) answer needs this plugin does not have.
 
 Two other shapes were weighed and left:

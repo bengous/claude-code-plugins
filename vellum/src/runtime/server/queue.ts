@@ -77,7 +77,7 @@ import {
   writeText,
 } from "./fs.ts";
 
-export type ReviewOptions = {
+export type QueueOptions = {
   readonly project: string;
   readonly workdir: WipDir;
   readonly extensions: readonly ServerExtension[];
@@ -103,7 +103,7 @@ function grouped(docs: readonly DocRef[], group: DocGroup): GroupedDoc[] {
  * workflow; then the page hears of it, and the waits read again. What a step reads before it is
  * judged is its route's (`events.ts` for the core's own), never a decision of this class.
  */
-export class Review {
+export class Queue {
   private memory: Memory;
 
   /** The workflow the last step left, for what the disk does not say: a proposal's wait. */
@@ -133,7 +133,7 @@ export class Review {
 
   private readonly ports: EffectPorts;
 
-  public constructor(public readonly options: ReviewOptions) {
+  public constructor(public readonly options: QueueOptions) {
     const { project } = options;
     this.memory = options.memory ?? { kind: "none" };
 

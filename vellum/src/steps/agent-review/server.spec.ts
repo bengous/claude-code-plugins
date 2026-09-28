@@ -14,7 +14,7 @@ import { join } from "node:path";
 import { EMPTY_TYPED } from "../../runtime/protocol.ts";
 import { startServer } from "../../runtime/server/http/serve.ts";
 import type { Started } from "../../runtime/server/http/serve.ts";
-import { Review } from "../../runtime/server/review.ts";
+import { Queue } from "../../runtime/server/queue.ts";
 import { serverExtension } from "../../runtime/server/slice.ts";
 import { serverExtensions } from "../../runtime/server/slices.ts";
 import { parseWipDir } from "../../workshop/paths.ts";
@@ -372,7 +372,7 @@ describe("what the server keeps", () => {
 
     if (!workdir.ok) throw new Error(workdir.error);
 
-    const review = new Review({
+    const review = new Queue({
       project: dir,
       workdir: workdir.value,
       extensions: serverExtensions,
@@ -470,7 +470,7 @@ describe("a run holds the review", () => {
 
     if (!workdir.ok) throw new Error(workdir.error);
 
-    const review = new Review({
+    const review = new Queue({
       project: dir,
       workdir: workdir.value,
       extensions: serverExtensions,
