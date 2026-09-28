@@ -363,10 +363,7 @@ describe("slices", () => {
 
     const stray = entries.flatMap((entry) =>
       loadedBy(`${ROOT}/${entry}`)
-        .filter(
-          (file) =>
-            file === `${EXTENSIONS}/proof.ts` || /\/extensions\/[^/]+\/walk\.ts$/u.test(file),
-        )
+        .filter((file) => file === `${EXTENSIONS}/proof.ts` || file.endsWith("/walk.ts"))
         .map((file) => `${entry} loads ${short(file)}: only a test may import it`),
     );
 

@@ -155,6 +155,8 @@ export type Part =
  * must hold of the workflow wherever the walk goes.
  */
 export type WalkOf = {
+  /** The id of the part it walks, as the server's registry holds it: the proof finds it by this, wherever its folder lies. */
+  readonly part: string;
   /** The region with no file written. */
   readonly empty: Region;
   /** What the invariants tell apart in the region, the counters they never read left out, so the walk ends. */

@@ -1,6 +1,6 @@
 import type { WalkOf } from "../../core/extension.ts";
 import type { Region } from "../../core/server/domain/workflow.ts";
-import { regionOf, roundCall } from "./grill.ts";
+import { GRILL, regionOf, roundCall } from "./grill.ts";
 import { grillFile } from "./parse.ts";
 import { nextQuestion, phaseOf, unanswered } from "./transcript.ts";
 
@@ -10,6 +10,7 @@ function docOf(region: Region): string {
 
 /** What the proof of the table reads of the grill's region (`extensions/proof.ts`); the runtime never loads it. */
 export const WALK: WalkOf = {
+  part: GRILL,
   empty: regionOf(null),
   /** The transcript by its phase and the questions waiting; its number left out. */
   key: (region) => JSON.stringify([phaseOf(docOf(region)), unanswered(docOf(region)).length]),

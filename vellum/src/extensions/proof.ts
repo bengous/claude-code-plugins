@@ -1,4 +1,3 @@
-import { existsSync } from "node:fs";
 import { join } from "node:path";
 
 import type { ServerWorkflow, WalkOf } from "../core/extension.ts";
@@ -22,8 +21,9 @@ import { serverExtensions } from "./server.ts";
  * against the invariants. It walks each part of the registry alone, then each pair of parts that
  * meet: one hears an event the other owns, both can hold the review, or one holds while the other
  * refuses an event under a hold. A part brings what the walk reads of its region (`WalkOf`) in
- * its own `walk.ts`, found by its folder as `contract.ts` is: the runtime never loads one, and
- * the proof names no extension. The tests alone import this module.
+ * a `walk.ts` of its own folder, which names the part it walks: the proof reads every one under
+ * `src/`, wherever the folder lies, and matches each to the registry by that name. The runtime
+ * never loads one, and the proof names no extension. The tests alone import this module.
  */
 
 /** A part of the table, as the registry holds it, and what the proof reads of its region. */
@@ -33,26 +33,41 @@ export type Part = {
   readonly walk: WalkOf;
 };
 
-async function walkOf(id: string): Promise<WalkOf> {
-  const path = join(import.meta.dir, id, "walk.ts");
+/** Where the proof looks for the parts' `walk.ts`: the whole of `src/`. */
+const SRC = join(import.meta.dir, "..");
 
-  if (!existsSync(path)) {
+/** Every `WALK` under `src/`, by the part it names; a part named twice is refused. */
+async function walksFound(): Promise<ReadonlyMap<string, WalkOf>> {
+  const found = new Map<string, WalkOf>();
+
+  for (const file of new Bun.Glob("**/walk.ts").scanSync({ cwd: SRC })) {
+    const { WALK }: { readonly WALK?: WalkOf } = await import(join(SRC, file));
+
+    if (WALK === undefined) throw new Error(`src/${file} exports no WALK`);
+
+    if (found.has(WALK.part)) throw new Error(`two walk.ts name the part ${WALK.part}`);
+    found.set(WALK.part, WALK);
+  }
+
+  return found;
+}
+
+const WALKS = await walksFound();
+
+function walkOf(id: string): WalkOf {
+  const walk = WALKS.get(id);
+
+  if (walk === undefined) {
     throw new Error(
-      `src/extensions/${id}/walk.ts is missing: the proof of the table reads each part's region through it (WalkOf)`,
+      `the part ${id} has no walk.ts: the proof of the table reads each part's region through the WALK of its folder (WalkOf)`,
     );
   }
 
-  const found: { readonly WALK?: WalkOf } = await import(path);
-
-  if (found.WALK === undefined) throw new Error(`src/extensions/${id}/walk.ts exports no WALK`);
-
-  return found.WALK;
+  return walk;
 }
 
-export const PARTS: readonly Part[] = await Promise.all(
-  serverExtensions.flatMap(({ id, workflow }) =>
-    workflow === undefined ? [] : [walkOf(id).then((walk) => ({ id, workflow, walk }))],
-  ),
+export const PARTS: readonly Part[] = serverExtensions.flatMap(({ id, workflow }) =>
+  workflow === undefined ? [] : [{ id, workflow, walk: walkOf(id) }],
 );
 
 const DIR = parseWipDir("plans/2026-09-26/wip-4c2a9d93/");
