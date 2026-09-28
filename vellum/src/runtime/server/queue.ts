@@ -13,24 +13,10 @@ import {
 } from "../../workshop/channel.ts";
 import type { FinalDir, ProjectPath, Version, WipDir } from "../../workshop/paths.ts";
 import { parseVersion } from "../../workshop/paths.ts";
-import type {
-  Actor,
-  EventInput,
-  PlanText,
-  Stage,
-  Table,
-  Workflow,
-  WorkflowView,
-  Wording,
-} from "../../workshop/workflow.ts";
-import {
-  JOURNAL_FILE,
-  journalText,
-  next,
-  stageOf,
-  tableOf,
-  viewOf,
-} from "../../workshop/workflow.ts";
+import type { Stage, WorkflowView, Wording } from "../../workshop/view.ts";
+import { stageOf, viewOf } from "../../workshop/view.ts";
+import type { Actor, EventInput, PlanText, Table, Workflow } from "../../workshop/workflow.ts";
+import { JOURNAL_FILE, journalText, next, tableOf } from "../../workshop/workflow.ts";
 import type { Memory, PlanWorkspace } from "../../workshop/workspace.ts";
 import {
   DRAFT_FILE,

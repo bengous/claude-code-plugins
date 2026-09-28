@@ -4,18 +4,18 @@ import { REVIEW_PART } from "./review/server.ts";
 import type { ServerWorkflow, WalkOf } from "./runtime/extension.ts";
 import { serverExtensions } from "./runtime/server/slices.ts";
 import { parseWipDir } from "./workshop/paths.ts";
+import type { Refused, Wording } from "./workshop/view.ts";
+import { pillOf, refusedNow, viewOf } from "./workshop/view.ts";
 import type {
   Effect,
   EventInput,
-  Refused,
   Region,
   Step,
   Table,
   TablePart,
-  Wording,
   Workflow,
 } from "./workshop/workflow.ts";
-import { held, next, pillOf, refusedNow, tableOf, viewOf } from "./workshop/workflow.ts";
+import { held, next, tableOf } from "./workshop/workflow.ts";
 
 /**
  * The proof of the table, which `workflow.spec.ts` holds and `table.spec.ts` reads its states from:

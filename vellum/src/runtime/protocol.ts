@@ -1,6 +1,6 @@
 import type { ChannelLine } from "../workshop/channel.ts";
 import type { ProjectPath, Version } from "../workshop/paths.ts";
-import type { Stage, WorkflowView } from "../workshop/workflow.ts";
+import type { Stage, WorkflowView } from "../workshop/view.ts";
 import type { PlanWorkspace } from "../workshop/workspace.ts";
 
 /**
@@ -13,17 +13,9 @@ export type { ChannelEntry, ChannelLine } from "../workshop/channel.ts";
 
 export type { CommitSha, PluginVersion, VellumBuild } from "../workshop/vellum-build.ts";
 
-export type {
-  Pill,
-  PlanText,
-  Refused,
-  Region,
-  RegionData,
-  RegionView,
-  Stage,
-  Wait,
-  WorkflowView,
-} from "../workshop/workflow.ts";
+export type { Pill, Refused, RegionView, Stage, WorkflowView } from "../workshop/view.ts";
+
+export type { PlanText, Region, RegionData, Wait } from "../workshop/workflow.ts";
 
 export type { PlanWorkspace } from "../workshop/workspace.ts";
 
