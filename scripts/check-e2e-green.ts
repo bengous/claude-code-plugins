@@ -39,6 +39,7 @@ const E2E_PATHS = ["vellum/**", "docs/plugin-testing.md", "mise.toml", ".github/
 const NOT_E2E_PATHS = [
   "vellum/src/runtime/hooks/**",
   "vellum/src/steps/*/hooks.ts",
+  "vellum/src/review/hooks.ts",
   "vellum/hooks/**",
   "vellum/skills/**",
   "vellum/agents/**",
