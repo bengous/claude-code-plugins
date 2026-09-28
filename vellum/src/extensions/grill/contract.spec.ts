@@ -19,7 +19,7 @@ import type { StepPlugs } from "../step/contract.ts";
 import { hooks as stepHooks } from "../step/hooks.ts";
 import { server as stepServer } from "../step/server.ts";
 import type { GrillEvents, GrillHears, GrillPlugs } from "./contract.ts";
-import { EVENTS } from "./contract.ts";
+import { SLICE } from "./contract.ts";
 import { grillIsOpen, REACTIONS, regionOf } from "./grill.ts";
 import { hooks } from "./hooks.ts";
 import { BODIES } from "./parse.ts";
@@ -68,7 +68,7 @@ function starting(opened: string[]): SliceContext<StepPlugs>["start"] {
   };
 }
 
-const { refuseHeard } = rows<GrillEvents, GrillHears>(EVENTS);
+const { refuseHeard } = rows<GrillEvents, GrillHears>(SLICE.events);
 
 const readsProposal = (
   _w: Workflow,

@@ -14,7 +14,7 @@ import type { ProjectPath } from "../../core/server/domain/paths.ts";
 import { parseProjectPath } from "../../core/server/domain/paths.ts";
 import { projectPath } from "../../core/server/domain/workspace.ts";
 import type { Block, GrillPlugs, GrillState, Typing, Waited } from "./contract.ts";
-import { EVENTS, RULES } from "./contract.ts";
+import { RULES, SLICE } from "./contract.ts";
 import {
   callOf,
   GRILL,
@@ -300,7 +300,7 @@ export const server: ServerHalf<GrillPlugs> = {
   start,
   part,
   workflow: {
-    events: EVENTS,
+    events: SLICE.events,
     rules: RULES,
     samples: SAMPLES,
     transitions: TRANSITIONS,

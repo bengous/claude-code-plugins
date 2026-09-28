@@ -4,7 +4,7 @@ import { regionIn } from "../../core/server/domain/workflow.ts";
 import { projectPath } from "../../core/server/domain/workspace.ts";
 import type { GrillPlugs } from "../grill/contract.ts";
 import type { Proposed, StepPlugs, StepWaited } from "./contract.ts";
-import { EVENTS, RULES } from "./contract.ts";
+import { RULES, SLICE } from "./contract.ts";
 import { BODIES, parseJson, parseStepFile } from "./parse.ts";
 import type { StepFile } from "./proposal.ts";
 import {
@@ -127,7 +127,7 @@ export const server: ServerHalf<StepPlugs> = {
     },
   },
   workflow: {
-    events: EVENTS,
+    events: SLICE.events,
     rules: RULES,
     samples: SAMPLES,
     transitions: TRANSITIONS,

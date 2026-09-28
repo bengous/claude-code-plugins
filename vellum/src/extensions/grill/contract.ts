@@ -1,6 +1,7 @@
+import type { PlugsOf } from "../../core/plugs.ts";
+import { core, defineSlice, get, getWith, heard, payload, post } from "../../core/plugs.ts";
 import type { ProjectPath } from "../../core/server/domain/paths.ts";
-import type { CoreHeard } from "../../core/server/domain/rows.ts";
-import { allOf, events, rows } from "../../core/server/domain/rows.ts";
+import { allOf, rows } from "../../core/server/domain/rows.ts";
 import type { StepEvents } from "../step/contract.ts";
 import {
   grillIsOpen,
@@ -100,75 +101,61 @@ export type TurnAnswer = {
 /** What the reviewer typed on the open transcript, as the draft keeps it: answers by question id, and the note. */
 export type Typing = { readonly answers: Readonly<Record<string, string>>; readonly note: string };
 
-// Who sends each event, and what it carries; the events of the others the grill hears.
+// The declaration: the events it owns, those of the others it hears, and where each half plugs in.
 
-export const EVENTS = events({
-  openGrill: { by: ["reviewer"], carries: ["subject"] },
-  askQuestion: { by: ["claude"], carries: ["q"] },
-  turnAnswered: { by: ["engine"], carries: ["text", "reason", "own", "asked"] },
-  sessionEvent: { by: ["engine"], carries: ["command"] },
-  endGrill: { by: ["reviewer", "engine"], carries: ["reason", "grill"] },
+export const SLICE = defineSlice({
+  id: "grill",
+  events: {
+    openGrill: { by: ["reviewer"], carries: ["subject"] },
+    askQuestion: { by: ["claude"], carries: ["q"] },
+    turnAnswered: { by: ["engine"], carries: ["text", "reason", "own", "asked"] },
+    sessionEvent: { by: ["engine"], carries: ["command"] },
+    endGrill: { by: ["reviewer", "engine"], carries: ["reason", "grill"] },
+  },
+  /**
+   * The step's answer, which opens a grill on a grill move; the core's Send, whose part closes the
+   * round; the core's approval, which closes the grill.
+   */
+  hears: { answerProposal: heard<StepEvents["answerProposal"]>(), send: core, approve: core },
+  hooks: {
+    tools: ["grill_ask"],
+    listens: ["prompted", "answered", "closing"],
+    posts: ["POST ask", "POST wait", "POST event", "POST answer", "POST close"],
+    /** The terminal's question tool: the page is the reviewer's one channel while live. */
+    denies: ["AskUserQuestion"],
+  },
+  routes: {
+    "GET state": get<GrillState>(),
+    /** A transcript's blocks, by its name: a name that is none answers 404. */
+    "GET blocks": getWith<{ readonly file: string | null }, readonly Block[]>(),
+    /** End grill, from the page (what it saved goes as the reply) or `/vellum:stop`. */
+    "POST close": post<{ readonly reason: CloseReason }, null>(),
+    "POST ask": post<{ readonly q: readonly QuestionTriple[] }, Asked>(),
+    /** Held until the round whose first question is `first` closes, or for the hold at most. */
+    "POST wait": post<{ readonly file: string; readonly first: number }, Waited>(),
+    /** A command of the session (`/vellum:start`, `/clear`): the harness's, written as an event. */
+    "POST event": post<{ readonly command: string }, null>(),
+    "POST answer": post<TurnAnswer, null>(),
+  },
+  /** What the step's answer hands `start`: the subject the grill opens on. */
+  opened: payload<{ readonly subject: string }>(),
+  /** What its part of the bar's Send carries to its reaction: the reply typed on the open transcript. */
+  sends: payload<Typing>(),
+  page: ["renderers", "notices", "send", "panel"],
 });
 
-export type GrillEvents = typeof EVENTS;
+export type GrillPlugs = PlugsOf<typeof SLICE>;
 
-/**
- * The step's answer, which opens a grill on a grill move; the core's Send, whose part closes the
- * round; the core's approval, which closes the grill.
- */
-export type GrillHears = Pick<StepEvents, "answerProposal"> & CoreHeard<"send" | "approve">;
+export type GrillEvents = GrillPlugs["events"];
 
-// The plugs: where the grill plugs in.
-
-export type GrillPlugs = {
-  readonly id: "grill";
-  readonly hooks: {
-    readonly tools: "grill_ask";
-    readonly listens: "prompted" | "answered" | "closing";
-    readonly posts: "POST ask" | "POST wait" | "POST event" | "POST answer" | "POST close";
-    /** The terminal's question tool: the page is the reviewer's one channel while live. */
-    readonly denies: "AskUserQuestion";
-  };
-  readonly server: {
-    readonly "GET state": { readonly answer: GrillState };
-    /** A transcript's blocks, by its name: a name that is none answers 404. */
-    readonly "GET blocks": {
-      readonly query: { readonly file: string | null };
-      readonly answer: readonly Block[];
-    };
-    /** End grill, from the page (what it saved goes as the reply) or `/vellum:stop`. */
-    readonly "POST close": {
-      readonly body: { readonly reason: CloseReason };
-      readonly answer: null;
-    };
-    readonly "POST ask": {
-      readonly body: { readonly q: readonly QuestionTriple[] };
-      readonly answer: Asked;
-    };
-    /** Held until the round whose first question is `first` closes, or for the hold at most. */
-    readonly "POST wait": {
-      readonly body: { readonly file: string; readonly first: number };
-      readonly answer: Waited;
-    };
-    /** A command of the session (`/vellum:start`, `/clear`): the harness's, written as an event. */
-    readonly "POST event": { readonly body: { readonly command: string }; readonly answer: null };
-    readonly "POST answer": { readonly body: TurnAnswer; readonly answer: null };
-  };
-  readonly events: GrillEvents;
-  readonly hears: GrillHears;
-  /** What the step's answer hands `start`: the subject the grill opens on. */
-  readonly opened: { readonly subject: string };
-  /** What its part of the bar's Send carries to its reaction: the reply typed on the open transcript. */
-  readonly sends: Typing;
-  readonly page: "renderers" | "notices" | "send" | "panel";
-};
+export type GrillHears = GrillPlugs["hears"];
 
 // What is refused, read top to bottom per event, with the status its route answers.
 
 const NOT_A_SUBJECT = "a grill's subject is one line, not empty";
 
 const { refuse, refuseInput, refuseHeard, refuseInputHeard } = rows<GrillEvents, GrillHears>(
-  EVENTS,
+  SLICE.events,
 );
 
 export const RULES = [

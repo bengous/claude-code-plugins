@@ -15,6 +15,7 @@ import type {
   SliceContext,
 } from "../../core/extension.ts";
 import type { Json } from "../../core/plugs.ts";
+import { core, defineSlice } from "../../core/plugs.ts";
 import { Review } from "../../core/server/app/review.ts";
 import { parseWipDir } from "../../core/server/domain/paths.ts";
 import type { Carried, Guard, Transitions } from "../../core/server/domain/rows.ts";
@@ -22,7 +23,7 @@ import { rows, tablePart } from "../../core/server/domain/rows.ts";
 import type { Workflow } from "../../core/server/domain/workflow.ts";
 import { serverExtension } from "../../core/server/slice.ts";
 import type { Proposal, StepEvents, StepPlugs } from "./contract.ts";
-import { EVENTS } from "./contract.ts";
+import { SLICE } from "./contract.ts";
 import { hooks } from "./hooks.ts";
 import { page } from "./page.tsx";
 import { ANSWERS, BODIES, parseProposal, parseProposed } from "./parse.ts";
@@ -250,7 +251,7 @@ describe("the hooks half's client is typed by the same plugs (3)", () => {
 });
 
 describe("the rows and the routes name the step's own events, with what each carries (4)", () => {
-  const { refuse } = rows(EVENTS);
+  const { refuse } = rows(SLICE.events);
 
   test("a row on an event the step does not own does not compile: it would judge the core's approval", () => {
     // @ts-expect-error -- the step owns propose, wait, pause and answerProposal: `approve` is the core's.
@@ -264,6 +265,16 @@ describe("the rows and the routes name the step's own events, with what each car
     const row = refuse("pause", "plan", offersPlan, 409, "the plan is offered");
 
     expect(() => row.when(W, { id: "p1" })).toThrow("not a proposal");
+  });
+
+  test("an event heard from the core that the core does not have does not compile: its reaction would never run", () => {
+    const declared = defineSlice({
+      id: "step",
+      // @ts-expect-error -- the core has `approve`, not `aprove`.
+      hears: { aprove: core },
+    });
+
+    expect(Object.keys(declared.hears)).toEqual(["aprove"]);
   });
 
   test("a guard written for an event reads only what that event carries", () => {

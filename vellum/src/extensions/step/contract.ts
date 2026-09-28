@@ -3,8 +3,9 @@
  * Other folders import this file and nothing else of the folder. The hooks module and the page
  * read it as types: its values, the events and the rows, are the server's.
  */
-import type { CoreHeard } from "../../core/server/domain/rows.ts";
-import { allOf, anyOf, events, rows } from "../../core/server/domain/rows.ts";
+import type { PlugsOf } from "../../core/plugs.ts";
+import { core, defineSlice, get, post } from "../../core/plugs.ts";
+import { allOf, anyOf, rows } from "../../core/server/domain/rows.ts";
 import { planExists } from "../../core/server/domain/workflow.ts";
 import { namesAnotherProposal, namesAProposal, noProposalWaits, offersPlan } from "./proposal.ts";
 
@@ -57,51 +58,46 @@ export type StepWaited =
   | { readonly kind: "gone" }
   | { readonly kind: "open" };
 
-// Who sends each event, and what it carries.
+// The declaration: the events it owns, those it hears, and where each half plugs in.
 
-export const EVENTS = events({
-  propose: { by: ["claude"], carries: ["id", "proposal"] },
-  wait: { by: ["engine"], carries: ["id"] },
-  pause: { by: ["engine"], carries: ["id"] },
-  answerProposal: { by: ["reviewer"], carries: ["id", "answer", "move", "subject", "opened"] },
+export const SLICE = defineSlice({
+  id: "step",
+  events: {
+    propose: { by: ["claude"], carries: ["id", "proposal"] },
+    wait: { by: ["engine"], carries: ["id"] },
+    pause: { by: ["engine"], carries: ["id"] },
+    answerProposal: { by: ["reviewer"], carries: ["id", "answer", "move", "subject", "opened"] },
+  },
+  /** The approval ends the proposal waiting; `plan.md` written takes the plan step out of it. */
+  hears: { approve: core, planWritten: core, sendEdit: core },
+  hooks: {
+    tools: ["propose"],
+    listens: ["answered"],
+    posts: ["POST propose", "POST wait", "POST pause"],
+  },
+  routes: {
+    "GET state": get<StepState>(),
+    "POST propose": post<Proposal, Proposed>(),
+    /** Held until the proposal is answered or gone, or for the hold at most. */
+    "POST wait": post<ProposalId, StepWaited>(),
+    /** Claude's turn was cut while its call waited: posted at the turn's end. */
+    "POST pause": post<ProposalId, Paused>(),
+    "POST answer": post<AnswerBody, null>(),
+  },
+  page: ["actions", "notices"],
 });
 
-export type StepEvents = typeof EVENTS;
+export type StepPlugs = PlugsOf<typeof SLICE>;
 
-/** The core's events the step reacts to: the approval ends the proposal waiting, `plan.md` written takes the plan step out of it. */
-export type StepHears = CoreHeard<"approve" | "planWritten" | "sendEdit">;
+export type StepEvents = StepPlugs["events"];
 
-// The plugs: where the step plugs in.
-
-export type StepPlugs = {
-  readonly id: "step";
-  readonly hooks: {
-    readonly tools: "propose";
-    readonly listens: "answered";
-    readonly posts: "POST propose" | "POST wait" | "POST pause";
-    readonly denies: never;
-  };
-  readonly server: {
-    readonly "GET state": { readonly answer: StepState };
-    readonly "POST propose": { readonly body: Proposal; readonly answer: Proposed };
-    /** Held until the proposal is answered or gone, or for the hold at most. */
-    readonly "POST wait": { readonly body: ProposalId; readonly answer: StepWaited };
-    /** Claude's turn was cut while its call waited: posted at the turn's end. */
-    readonly "POST pause": { readonly body: ProposalId; readonly answer: Paused };
-    readonly "POST answer": { readonly body: AnswerBody; readonly answer: null };
-  };
-  readonly events: StepEvents;
-  readonly hears: StepHears;
-  readonly opened: never;
-  readonly sends: never;
-  readonly page: "actions" | "notices";
-};
+export type StepHears = StepPlugs["hears"];
 
 // What is refused, read top to bottom per event, with the status its route answers.
 
 const NO_SUCH_PROPOSAL = "no such proposal";
 
-const { refuse, refuseInput, whileHeld } = rows(EVENTS);
+const { refuse, refuseInput, whileHeld } = rows(SLICE.events);
 
 export const RULES = [
   whileHeld("propose", 409, (hold) => `${hold}: no step is proposed until it ends`),
