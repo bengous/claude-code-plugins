@@ -7,6 +7,7 @@ import type { Answers, HooksContext, HooksHalf, ToolAnswer } from "../../core/en
 import { engineExtension } from "../../core/engine/slice.ts";
 import type {
   Bodies,
+  ErasedSliceContext,
   SliceDispatched,
   PageHalf,
   RouteKey,
@@ -279,11 +280,13 @@ describe("the rows and the routes name the step's own events, with what each car
       appended: [],
     };
 
-    const dispatch: SliceContext<StepPlugs>["dispatch"] = (event) => {
+    const recorded: ErasedSliceContext["dispatch"] = (event) => {
       sent.push(event);
 
       return Promise.resolve(DISPATCHED);
     };
+
+    const dispatch: SliceContext<StepPlugs>["dispatch"] = recorded;
 
     // @ts-expect-error -- `propose` carries `id` and `proposal`.
     await dispatch("propose", { id: "p1" });

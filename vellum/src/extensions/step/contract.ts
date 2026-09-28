@@ -3,6 +3,7 @@
  * Other folders import this file and nothing else of the folder. The hooks module and the page
  * read it as types: its values, the events and the rows, are the server's.
  */
+import type { CoreHeard } from "../../core/server/domain/rows.ts";
 import { allOf, anyOf, events, rows } from "../../core/server/domain/rows.ts";
 import { planExists } from "../../core/server/domain/workflow.ts";
 import { namesAnotherProposal, namesAProposal, noProposalWaits, offersPlan } from "./proposal.ts";
@@ -59,13 +60,16 @@ export type StepWaited =
 // Who sends each event, and what it carries.
 
 export const EVENTS = events({
-  propose: { by: "claude", carries: ["id", "proposal"] },
-  wait: { by: "engine", carries: ["id"] },
-  pause: { by: "engine", carries: ["id"] },
-  answerProposal: { by: "reviewer", carries: ["id", "answer", "move", "subject", "opened"] },
+  propose: { by: ["claude"], carries: ["id", "proposal"] },
+  wait: { by: ["engine"], carries: ["id"] },
+  pause: { by: ["engine"], carries: ["id"] },
+  answerProposal: { by: ["reviewer"], carries: ["id", "answer", "move", "subject", "opened"] },
 });
 
 export type StepEvents = typeof EVENTS;
+
+/** The core's events the step reacts to: the approval ends the proposal waiting, `plan.md` written takes the plan step out of it. */
+export type StepHears = CoreHeard<"approve" | "planWritten" | "sendEdit">;
 
 // The plugs: where the step plugs in.
 
@@ -75,6 +79,7 @@ export type StepPlugs = {
     readonly tools: "propose";
     readonly listens: "answered";
     readonly posts: "POST propose" | "POST wait" | "POST pause";
+    readonly denies: never;
   };
   readonly server: {
     readonly "GET state": { readonly answer: StepState };
@@ -86,6 +91,9 @@ export type StepPlugs = {
     readonly "POST answer": { readonly body: AnswerBody; readonly answer: null };
   };
   readonly events: StepEvents;
+  readonly hears: StepHears;
+  readonly opened: never;
+  readonly sends: never;
   readonly page: "actions" | "notices";
 };
 

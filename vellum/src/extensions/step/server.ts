@@ -9,7 +9,7 @@ import type { StepFile } from "./proposal.ts";
 import {
   fileOf,
   lineOf,
-  REACTION,
+  REACTIONS,
   regionOf,
   SAMPLES,
   segmentOf,
@@ -130,7 +130,7 @@ export const server: ServerHalf<StepPlugs> = {
     rules: RULES,
     samples: SAMPLES,
     transitions: TRANSITIONS,
-    reaction: REACTION,
+    reactions: REACTIONS,
     region: async (context, before) => regionOf(await readStep(context), before),
     segment: segmentOf,
     line: lineOf,

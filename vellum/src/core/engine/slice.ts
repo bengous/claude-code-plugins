@@ -95,5 +95,7 @@ function listeningOf(half: ErasedHooks): Listening {
 }
 
 export function engineExtension(half: ErasedHooks): EngineExtension {
-  return { id: half.id, tools: toolsOf(half), ...listeningOf(half) };
+  const extension = { id: half.id, tools: toolsOf(half), ...listeningOf(half) };
+
+  return half.refuses === undefined ? extension : { ...extension, refuses: half.refuses };
 }

@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
 import { parseWipDir } from "./paths.ts";
-import type { SlicePart } from "./rows.ts";
+import type { CoreHeard, SlicePart } from "./rows.ts";
 import { allOf, anyOf, events, rows, tablePart } from "./rows.ts";
 import type { Workflow } from "./workflow.ts";
 import { unchanged } from "./workflow.ts";
@@ -17,22 +17,30 @@ const W: Workflow = {
 };
 
 const EVENTS = events({
-  ask: { by: "claude", carries: ["id", "text"] },
-  drop: { by: "engine", carries: ["id"] },
+  ask: { by: ["claude"], carries: ["id", "text"] },
+  drop: { by: ["engine", "reviewer"], carries: ["id"] },
 });
 
-const { refuse, refuseInput, whileHeld } = rows(EVENTS);
+/** Another slice's `pick`, as its contract types it, and the core's `approve`. */
+type Hears = {
+  readonly pick: { readonly carries: readonly ["id", "move"] };
+} & CoreHeard<"approve">;
+
+const { refuse, refuseInput, whileHeld, refuseHeard } = rows<typeof EVENTS, Hears>(EVENTS);
 
 const always = (): boolean => true;
 
 const fails = (): boolean => false;
 
-function partOf(rules: SlicePart<typeof EVENTS>["rules"]): SlicePart<typeof EVENTS> {
+type Part = SlicePart<typeof EVENTS, Hears>;
+
+function partOf(rules: Part["rules"], reactions: Part["reactions"] = {}): Part {
   return {
     events: EVENTS,
     rules,
     samples: { ask: [{ id: "a1", text: "Why?" }], drop: [{ id: "a1" }] },
     transitions: { ask: unchanged, drop: unchanged },
+    reactions,
   };
 }
 
@@ -150,8 +158,55 @@ describe("a slice's rows", () => {
       part.events.map(({ id, owner, actors, samples }) => [id, owner, actors, samples]),
     ).toEqual([
       ["ask", "slice", ["claude"], [{ id: "a1", text: "Why?" }]],
-      ["drop", "slice", ["engine"], [{ id: "a1" }]],
+      ["drop", "slice", ["engine", "reviewer"], [{ id: "a1" }]],
     ]);
+  });
+
+  test("a row on an event another part owns is judged after every row of that part, and reads its input as it comes", () => {
+    const seen: unknown[] = [];
+
+    const noted = (_w: Workflow, input: { readonly move?: string }): boolean => {
+      seen.push(input);
+
+      return false;
+    };
+
+    const part = tablePart(
+      "slice",
+      partOf([
+        refuseHeard("pick", "first", noted, 409, "a"),
+        refuseHeard("pick", "then", always, 409, "b"),
+      ]),
+    );
+
+    part.rules[0]?.when(W, { id: "p1", move: "grill" });
+
+    expect(part.rules.map(({ event, id, order }) => [event, id, order])).toEqual([
+      ["pick", "first", 100],
+      ["pick", "then", 101],
+    ]);
+    expect(seen).toEqual([{ id: "p1", move: "grill" }]);
+  });
+
+  test("a reaction answers the events it hears, and leaves the others as they are", () => {
+    const heard: string[] = [];
+
+    const part = tablePart(
+      "slice",
+      partOf([], {
+        pick: (w, input) => {
+          heard.push(input.move ?? "");
+
+          return unchanged(w);
+        },
+      }),
+    );
+
+    part.reaction?.(W, "pick", { move: "grill" });
+    part.reaction?.(W, "approve", { at: "t" });
+    part.reaction?.(W, "ask", { id: "a1" });
+
+    expect(heard).toEqual(["grill"]);
   });
 
   test("two hold rows on one event are refused as the table is built", () => {

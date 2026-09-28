@@ -1,10 +1,16 @@
-import type { Carried, Samples, Sent, Stamps, Transitions } from "../../core/server/domain/rows.ts";
+import type {
+  Carried,
+  Reactions,
+  Samples,
+  Sent,
+  Stamps,
+  Transitions,
+} from "../../core/server/domain/rows.ts";
 import type {
   Effect,
   Outcome,
   Region,
   RegionData,
-  Transition,
   Wait,
   Workflow,
 } from "../../core/server/domain/workflow.ts";
@@ -23,6 +29,7 @@ import type {
   Proposal,
   StepAnswer,
   StepEvents,
+  StepHears,
   StepPlugs,
 } from "./contract.ts";
 import { answerText, ownText } from "./moves.ts";
@@ -251,13 +258,15 @@ function planDone(w: Workflow): Outcome {
   return { workflow: placed(w, next, wait), effects: [written(next)] };
 }
 
-/** `plan.md` is written by Claude, which the watcher reads, or by the reviewer's edit. */
-const WRITES_PLAN = new Set(["planWritten", "sendEdit"]);
+/** `plan.md` written, by Claude, which the watcher reads, or by the reviewer's edit. */
+function planWritten(w: Workflow): Outcome {
+  return planExists(w) ? planDone(w) : unchanged(w);
+}
 
-export const REACTION: Transition = (w, event) => {
-  if (event === "approve") return drop(w, "approved");
-
-  return WRITES_PLAN.has(event) && planExists(w) ? planDone(w) : unchanged(w);
+export const REACTIONS: Reactions<StepHears> = {
+  approve: (w) => drop(w, "approved"),
+  planWritten,
+  sendEdit: planWritten,
 };
 
 // The inputs `refusedNow` and the walk of `workflow.spec.ts` try.

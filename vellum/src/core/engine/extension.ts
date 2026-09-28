@@ -157,7 +157,14 @@ export type HooksHalf<P extends Plugs> = {
   readonly answers: Answers<P>;
 } & Pick<Listeners<HooksContext<P>>, P["hooks"]["listens"]> & {
     readonly [Unheard in Exclude<Listen, P["hooks"]["listens"]>]?: never;
-  } & { readonly [Undeclared in Exclude<P["hooks"]["posts"], PostOf<P["server"]>>]: never };
+  } & {
+    readonly [Undeclared in Exclude<P["hooks"]["posts"], PostOf<P["server"]>>]: never;
+  } & Denying<P>;
+
+/** The engine's tools the half denies while the mode is live, each with the reason the model reads. */
+type Denying<P extends Plugs> = [P["hooks"]["denies"]] extends [never]
+  ? { readonly refuses?: never }
+  : { readonly refuses: { readonly [Tool in P["hooks"]["denies"]]: string } };
 
 /** A hooks half with its plugs forgotten, as `engineExtension` takes it: every `HooksHalf` is one. */
 export type ErasedContext = {
@@ -170,4 +177,5 @@ export type ErasedHooks = {
   readonly id: string;
   readonly tools: { readonly [name: string]: HooksTool<ErasedContext> };
   readonly answers: { readonly [route: string]: Parser<Json> | null };
+  readonly refuses?: { readonly [tool: string]: string };
 } & Partial<Listeners<ErasedContext>>;
