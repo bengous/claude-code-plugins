@@ -29,6 +29,8 @@ the folder changes: when something must, say so first.
   Answer>()` or `post<Body, Answer>()`, what opens it (`opened: payload<T>()`), what its Send part
   carries (`sends`), its page slots. What it leaves out it does not declare. Its plugs are
   `PlugsOf<typeof SLICE>`, which every half is typed by; then `RULES`.
+- A slice's id, its events and its tools take the words of `vellum/CONTEXT.md`, the glossary: a
+  word it lists under `_Avoid_` or gives another meaning is not a name.
 - An event heard is another slice's, `heard<ItsEvents["name"]>()`, typed by that slice's contract,
   each field possibly absent; or the core's, `core`, by a name the core has, fields untyped.
 - `RULES` come from `rows(SLICE)`: `refuse(event, id, guard, status, reason)` on an event the slice
