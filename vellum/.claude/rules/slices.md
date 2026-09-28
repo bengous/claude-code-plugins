@@ -25,6 +25,12 @@ is checked, a type by `tsgo`, a row by its test: no sentence in it is taken on t
   down a state a caller meets; `refuseInput` an input naming what is not there, which `refusedNow`
   never lists. A row's id is what the journal records. Each row, the hold's included, declares the
   status its routes answer the refusal with: 404, a name that is not there, or 409.
+- Every row of every event, the core's and every extension's, reads as a sentence in
+  `src/extensions/__snapshots__/table.spec.ts.snap`, in the order `verdictOf` judges them, with its
+  owner, status, condition and reason as a caller meets it: a row of another slice on this slice's
+  event shows there, and so does a row no sample state ever makes the verdict. A change of a row
+  changes that file, rewritten with `bun test vellum/src/extensions/table.spec.ts
+  --update-snapshots`; CI refuses to write it.
 - A guard is a one-line function of the model that states the fields it reads
   (`(w, input: { readonly id: string }) => boolean`), composed with `allOf` and `anyOf`: a row
   takes it only on an event that carries those fields. It reads `""` for a field the input lacks.
