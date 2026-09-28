@@ -413,5 +413,6 @@ export function tablePart<E extends Events, H extends Heard>(
       names.map((event): [string, Transition] => [event, transitionOf(part, event)]),
     ),
     reaction: reactionOf(part.reactions),
+    hears: [...new Set([...heard, ...heardOf(part.reactions)])],
   };
 }

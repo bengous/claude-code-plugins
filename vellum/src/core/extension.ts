@@ -148,6 +148,26 @@ export type Part =
       readonly input: string;
     };
 
+/**
+ * What the proof of the table reads of an extension's region (`extensions/walk.ts`): where a walk
+ * starts, what tells two regions apart, where it stops, the call an open wait is for and the
+ * event that answers it, and what must hold of the workflow wherever the walk goes.
+ */
+export type WalkOf = {
+  /** The region with no file written. */
+  readonly empty: Region;
+  /** What the invariants tell apart in the region, the counters they never read left out, so the walk ends. */
+  readonly key: (region: Region) => string;
+  /** Whether the region stays inside the walk's bounds; with none, every region does. */
+  readonly bounded?: (region: Region) => boolean;
+  /** The call the region's open wait is for: a proposal's id, the open round. */
+  readonly call?: (region: Region) => string;
+  /** Whether an event the table allowed answers that wait. */
+  readonly answers?: (event: string, input: EventInput) => boolean;
+  /** What must hold of every workflow the walk reaches, by name: `true` when it is broken. */
+  readonly invariants?: { readonly [name: string]: (w: Workflow) => boolean };
+};
+
 /** What an extension brings to the workflow: its part of the table, its region, its segment of the band. */
 export type ServerWorkflow = TablePart & {
   /**
@@ -158,6 +178,7 @@ export type ServerWorkflow = TablePart & {
   readonly segment: (region: Region) => string | null;
   /** Its line in the workflow's view, which `mcp__vellum__state` prints. */
   readonly line: (region: Region) => string;
+  readonly walk: WalkOf;
 };
 
 export type Route = (request: Request) => Promise<Response>;

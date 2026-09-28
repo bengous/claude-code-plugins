@@ -141,7 +141,7 @@ export function serverExtension<P extends Plugs>(half: ServerHalf<P>): ServerExt
   const handlers: { readonly [route: string]: ErasedHandler } = half.routes;
   const bodies: { readonly [route: string]: Parser<Json> } = half.bodies;
   const parts: ErasedServerParts = half;
-  const { region, segment, line } = half.workflow;
+  const { region, segment, line, walk } = half.workflow;
   const part = tablePart(half.id, half.workflow);
 
   const bound = (context: ServerContext): ErasedSliceContext =>
@@ -157,6 +157,6 @@ export function serverExtension<P extends Plugs>(half: ServerHalf<P>): ServerExt
         ]),
       ),
     ...partsOf(parts, bound),
-    workflow: { ...part, region, segment, line },
+    workflow: { ...part, region, segment, line, walk },
   };
 }

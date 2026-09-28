@@ -157,6 +157,8 @@ export type TablePart = {
   readonly transitions: Readonly<Record<string, Transition>>;
   /** Its answer to the events of the others. */
   readonly reaction?: Transition | undefined;
+  /** The events of the others it judges or reacts to, when it says them: a slice's declaration does. */
+  readonly hears?: readonly string[];
 };
 
 export type Table = {

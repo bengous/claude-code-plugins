@@ -1,3 +1,4 @@
+import type { WalkOf } from "../../core/extension.ts";
 import type {
   Carried,
   Reactions,
@@ -19,10 +20,12 @@ import {
   appendReply,
   header,
   isClosed,
+  nextQuestion,
   phaseOf,
   type Relay,
   relaysOf,
   segmentsOf,
+  unanswered,
 } from "./transcript.ts";
 
 /**
@@ -341,3 +344,20 @@ export function lineOf(region: Region): string {
 
   return `grill ${String(region.data.n)}: open${holds} · question: ${region.wait ?? "none"}`;
 }
+
+// What the walk of the table reads of the grill.
+
+function docOf(region: Region): string {
+  return String(region.data.doc ?? "");
+}
+
+export const WALK: WalkOf = {
+  empty: regionOf(null),
+  /** The transcript by its phase and the questions waiting; its number left out. */
+  key: (region) => JSON.stringify([phaseOf(docOf(region)), unanswered(docOf(region)).length]),
+  /** Two questions a grill. */
+  bounded: (region) => nextQuestion(docOf(region)) <= 3,
+  call: (region) => roundCall(grillFile(Number(region.data.n)), docOf(region)),
+  /** The bar's Send with the grill's part closes the round. */
+  answers: (event, input) => event === "send" && input.parts === "true",
+};

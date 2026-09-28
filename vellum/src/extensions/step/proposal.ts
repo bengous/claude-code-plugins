@@ -1,3 +1,4 @@
+import type { WalkOf } from "../../core/extension.ts";
 import type {
   Carried,
   Reactions,
@@ -340,3 +341,24 @@ export function lineOf(region: Region): string {
     ? "step: none"
     : `step: proposal ${pending.id} · wait: ${region.wait ?? "none"}`;
 }
+
+// What the walk of the table reads of the step.
+
+export const WALK: WalkOf = {
+  empty: regionOf(null),
+  /** The proposal by its id and its moves' kinds. */
+  key: (region) =>
+    JSON.stringify([
+      region.data.pending,
+      fileOf(region).pending?.proposal.moves.map(({ kind }) => kind),
+    ]),
+  call: (region) => String(region.data.pending),
+  answers: (event) => event === "answerProposal",
+  invariants: {
+    noPlanStepOverAPlan: (w) => {
+      const pending = pendingOf(w);
+
+      return planExists(w) && pending !== null && hasPlan(pending.proposal);
+    },
+  },
+};

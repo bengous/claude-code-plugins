@@ -17,6 +17,7 @@ import {
   STEP,
   STEP_FILE,
   TRANSITIONS,
+  WALK,
 } from "./proposal.ts";
 
 type Context = SliceContext<StepPlugs>;
@@ -135,5 +136,6 @@ export const server: ServerHalf<StepPlugs> = {
     region: async (context, before) => regionOf(await readStep(context), before),
     segment: segmentOf,
     line: lineOf,
+    walk: WALK,
   },
 };

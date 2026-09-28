@@ -1,3 +1,4 @@
+import type { WalkOf } from "../../core/extension.ts";
 import type {
   Effect,
   EventDecl,
@@ -336,3 +337,17 @@ export function lineOf(region: Region): string {
     ? "review: closed"
     : `review: plan review ${run.seq} of v${run.version} ${run.kind}`;
 }
+
+// What the walk of the table reads of the runs.
+
+export const WALK: WalkOf = {
+  empty: regionOf(null),
+  /** The run by its kind and version, whether one failed, the agents to stop; the numbering left out. */
+  key: (region) => {
+    const { run, failed, stopping } = reviewsOf(region);
+
+    return JSON.stringify([run?.kind, run?.version, failed !== null, stopping.length]);
+  },
+  /** Two agents to stop. */
+  bounded: (region) => reviewsOf(region).stopping.length <= 2,
+};

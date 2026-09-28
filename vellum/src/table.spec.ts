@@ -1,26 +1,9 @@
 import { expect, test } from "bun:test";
 
 import { parseWipDir } from "./core/server/domain/paths.ts";
-import type {
-  EventDecl,
-  EventInput,
-  Rule,
-  TablePart,
-  Workflow,
-} from "./core/server/domain/workflow.ts";
-import {
-  CORE,
-  CORE_PART,
-  HELD,
-  next,
-  SAMPLE_AT,
-  tableOf,
-  verdictOf,
-} from "./core/server/domain/workflow.ts";
-import { regionOf as grillRegion } from "./extensions/grill/grill.ts";
-import { regionOf as reviewRegion } from "./extensions/review/workflow.ts";
-import { serverExtensions } from "./extensions/server.ts";
-import { regionOf as stepRegion } from "./extensions/step/proposal.ts";
+import type { EventDecl, Rule, TablePart, Workflow } from "./core/server/domain/workflow.ts";
+import { CORE, CORE_PART, HELD, tableOf, verdictOf } from "./core/server/domain/workflow.ts";
+import { PARTS as WALKED, walk } from "./extensions/walk.ts";
 
 /**
  * Every row of every event, from every part of the table, as a reader takes it: the core's, then
@@ -30,56 +13,31 @@ import { regionOf as stepRegion } from "./extensions/step/proposal.ts";
 
 const PARTS: readonly { readonly id: string; readonly part: TablePart }[] = [
   { id: CORE, part: CORE_PART },
-  ...serverExtensions.flatMap(({ id, workflow }) =>
-    workflow === undefined ? [] : [{ id, part: workflow }],
-  ),
+  ...WALKED.map(({ id, workflow }) => ({ id, part: workflow })),
 ];
 
-const TABLE = tableOf(PARTS.slice(1).map(({ part }) => part));
+const TABLE = tableOf(WALKED.map(({ workflow }) => workflow));
 
 const DIR = parseWipDir("plans/2026-09-28/wip-7ab1e5e5/");
 
 if (!DIR.ok) throw new Error(DIR.error);
 
-const EMPTY: Workflow = {
-  workspace: { kind: "drafting", dir: DIR.value, batches: 0 },
-  planText: "absent",
-  regions: [grillRegion(null), stepRegion(null), reviewRegion(null)],
-};
+const WORKDIR = DIR.value;
 
-function play(w: Workflow, ...events: readonly (readonly [string, EventInput])[]): Workflow {
-  return events.reduce((now, [event, input]) => {
-    const step = next(now, TABLE, event, input, "engine");
+/** A state a walk reached, as the whole table reads it: every part's region, the ones its walk lacked empty, under this file's directory. */
+function whole(w: Workflow): Workflow {
+  const regions = WALKED.map(
+    ({ id, workflow }) => w.regions.find((region) => region.id === id) ?? workflow.walk.empty,
+  );
 
-    if (step.verdict.kind !== "allow") throw new Error(`${event} refused: ${step.verdict.reason}`);
+  const workspace =
+    w.workspace.kind === "approved" ? w.workspace : { ...w.workspace, dir: WORKDIR };
 
-    return step.workflow;
-  }, w);
+  return { ...w, workspace, regions };
 }
 
-const DRAFTED = play(EMPTY, ["planWritten", { plan: "pending" }]);
-
-const V1 = play(DRAFTED, ["record", { unchanged: "keep" }]);
-
-const OWN_GRILL = {
-  id: "",
-  answer: JSON.stringify({ kind: "move", move: { kind: "grill", subject: "auth", choices: [] } }),
-  move: "grill",
-  subject: "auth",
-  opened: "",
-  at: SAMPLE_AT,
-};
-
-/** Where a row is looked for, in order: the first state on which one of its event's samples meets it words its reason. */
-const STATES: readonly Workflow[] = [
-  EMPTY,
-  DRAFTED,
-  V1,
-  play(V1, ["planWritten", { plan: "pending" }]),
-  play(V1, ["planWritten", { plan: "pending" }], ["record", { unchanged: "keep" }]),
-  play(V1, ["answerProposal", OWN_GRILL]),
-  play(V1, ["requestReview", { version: "1" }]),
-];
+/** Where a row is looked for, in order: the states the walks reached, in the order they reached them. */
+const STATES: readonly Workflow[] = walk().states.map(whole);
 
 type Judged = { readonly owner: string; readonly rule: Rule };
 
