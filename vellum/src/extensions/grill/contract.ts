@@ -1,15 +1,9 @@
 import type { PlugsOf } from "../../core/plugs.ts";
 import { core, defineSlice, get, getWith, heard, payload, post } from "../../core/plugs.ts";
 import type { ProjectPath } from "../../core/server/domain/paths.ts";
-import { allOf, rows } from "../../core/server/domain/rows.ts";
+import { rows } from "../../core/server/domain/rows.ts";
 import type { StepEvents } from "../step/contract.ts";
-import {
-  grillIsOpen,
-  namesNoSubject,
-  noGrillIsOpen,
-  opensAGrill,
-  openTranscript,
-} from "./grill.ts";
+import { grillIsOpen, namesNoSubject, noGrillIsOpen, openTranscript } from "./grill.ts";
 import { NO_GRILL_OPEN } from "./parse.ts";
 
 /**
@@ -159,7 +153,5 @@ const { refuse } = rows(SLICE);
 export const RULES = [
   refuse("openGrill", "grill-subject", namesNoSubject, 409, NOT_A_SUBJECT),
   refuse("openGrill", "grill-open", grillIsOpen, 409, openTranscript),
-  refuse("answerProposal", "grill-subject", allOf(opensAGrill, namesNoSubject), 409, NOT_A_SUBJECT),
-  refuse("answerProposal", "grill-open", allOf(opensAGrill, grillIsOpen), 409, openTranscript),
   refuse("askQuestion", "no-grill", noGrillIsOpen, 409, NO_GRILL_OPEN),
 ];

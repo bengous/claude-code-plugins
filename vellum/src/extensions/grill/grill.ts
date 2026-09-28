@@ -74,9 +74,6 @@ export const grillIsOpen = (w: Workflow): boolean => regionIn(w, GRILL).state ==
 
 export const noGrillIsOpen = (w: Workflow): boolean => !grillIsOpen(w);
 
-export const opensAGrill = (_w: Workflow, input: { readonly move: string | undefined }): boolean =>
-  input.move === "grill";
-
 export const { namesNoSubject } = naming({
   namesNoSubject: (_w: Workflow, input: { readonly subject: string | undefined }): boolean =>
     parseSubject({ subject: input.subject }) === null,
