@@ -37,8 +37,8 @@ Dependencies point toward `src/workshop/`, which imports nothing outside itself 
 types `plugs.ts` reads from `runtime/`: a part imports
 the workshop, what a runtime's folder offers the halves it fills and another slice's `contract.ts`
 as types, and a runtime reaches a part through its `slices.ts` alone, as `src/boundaries.spec.ts`
-holds. The rules of each zone load with its files, from `.claude/rules/`: `engine.md`,
-`server.md`, `page.md`, `extensions.md`, `slices.md`, `tests.md`. The drawings, the assessment and
+holds. The rules of each zone load with its files, from `.claude/rules/`: `workshop.md`,
+`engine.md`, `server.md`, `page.md`, `extensions.md`, `slices.md`, `tests.md`. The drawings, the assessment and
 where the next phases land: `docs/architecture.md`.
 
 The tree is drawn here and nowhere else: a rule names the files of its own zone, every other

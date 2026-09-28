@@ -2,14 +2,12 @@
 paths:
   - "src/runtime/server/**"
   - "src/runtime/protocol.ts"
-  - "src/workshop/**"
 ---
 
 # The server
 
-The server, `src/runtime/server/`, around a functional core, `src/workshop/`: pure functions over
-immutable data, no `node:*`, no `bun`, no import outside itself. `review.ts` is the
-queue and the step: every change of the workflow is an event, which `Review.step` reads (the
+The server, `src/runtime/server/`, around the pure core, `src/workshop/` (`workshop.md`).
+`review.ts` is the queue and the step: every change of the workflow is an event, which `Review.step` reads (the
 `Workflow`: the directory, `plan.md`, each extension's region), judges with `next` against the
 table (`workshop/workflow.ts`), and hands to `interpret` (`effects.ts`), the one code that
 writes for the workflow; `events.ts` reads what the core's own routes carry (the gate,
@@ -23,11 +21,9 @@ Claude Code's `installed_plugins.json`, `git` with its `GIT_*` variables cleared
 - Decide, then apply. Read everything first, in the step (a route's `Reading`), take the
   decision as a pure function of plain values (`next`, and the rows each extension brings), then
   write through the effects `next` answered. No refusal is written outside the table.
-- State is derived, never stored twice: where the review stands comes from the directory's
-  listing and the memory (`workshop/workspace.ts`, `workspaceOf`), not from a second variable. A new
-  feature adds a variant to a union, not a flag.
-- Parse at the boundary, once, into a branded type: `parseWipDir`, `parseVersion`,
-  `parseProjectPath` grant `WipDir`, `Version`, `ProjectPath`. Past the parser: no `typeof`,
+- State is derived, never stored twice: where the review stands is `workspaceOf` of the
+  workshop, off the listing and the memory `Review` keeps, never a second variable.
+- Parse at the boundary, once, into the workshop's branded types. Past the parser: no `typeof`,
   no `as`, no re-check. A `ParseResult` is returned where the caller decides; anything else
   throws, and the route turns it into an answer.
 - `src/runtime/protocol.ts` is the one place a value crossing HTTP, the server's stdout or an
@@ -115,7 +111,6 @@ Claude Code's `installed_plugins.json`, `git` with its `GIT_*` variables cleared
   working directory that is gone (`WorkdirGone`, exit 3, before a line on stdout) instead of
   creating it; with `--final`, the server starts on the directory an approval renamed it to,
   approved in memory, and watches and creates nothing.
-- A new domain concept gets its address in `src/workshop/` before its first line.
 - A version is a text somebody handed over for review, Claude through `gate` or the reviewer
   through a Send or an approval that carries an `Edit`. `sendOn` and `decideOn` decide it,
   purely: the version the Send or the approval applies to, the version file to write, the

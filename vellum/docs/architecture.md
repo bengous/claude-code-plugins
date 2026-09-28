@@ -2,7 +2,7 @@
 
 For the people who change the tree. The tree itself is drawn once, in
 [`AGENTS.md`](../AGENTS.md) § Shape; the rules an agent holds to are in
-[`.claude/rules/`](../.claude/rules/), one file per zone (engine, server, page, extensions, tests), each
+[`.claude/rules/`](../.claude/rules/), one file per zone (workshop, engine, server, page, extensions, slices, tests), each
 naming its own files. This file draws what those texts describe, names the shape and the
 shapes left aside, shows where each part of a feature goes, and where extensions go next.
 

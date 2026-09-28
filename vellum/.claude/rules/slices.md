@@ -8,9 +8,10 @@ paths:
   - "src/workflow.spec.ts"
   - "src/table.spec.ts"
   - "src/workshop/plugs.ts"
+  - "src/workshop/rows.ts"
+  - "src/workshop/waits.ts"
   - "src/runtime/hooks/slice.ts"
   - "src/runtime/server/slice.ts"
-  - "src/workshop/rows.ts"
 ---
 
 # Slices
