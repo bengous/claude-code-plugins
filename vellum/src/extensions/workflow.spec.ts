@@ -9,7 +9,7 @@ import {
   stageOf,
   viewOf,
 } from "../core/server/domain/workflow.ts";
-import { EMPTY, INVARIANTS, PARTS, proof, returned, TABLE, told } from "./proof.ts";
+import { EMPTY, INVARIANTS, proof, returned, TABLE, told, WORDINGS } from "./proof.ts";
 import type { Move } from "./step/contract.ts";
 import { pendingOf } from "./step/proposal.ts";
 
@@ -372,19 +372,19 @@ describe("an answer reaches Claude once (P6)", () => {
   });
 });
 
+function refusedIn(w: Workflow): (readonly string[])[] {
+  return viewOf(w, TABLE, WORDINGS).refused.map(({ event, effect, reason }) => [
+    event,
+    effect,
+    reason,
+  ]);
+}
+
+function linesOf(w: Workflow): string[] {
+  return viewOf(w, TABLE, WORDINGS).regions.map(({ line }) => line);
+}
+
 describe("what the page and the band read (§ 5.8)", () => {
-  const WORDINGS = PARTS.map(({ id, workflow }) => ({
-    id,
-    segment: workflow.segment,
-    line: workflow.line,
-  }));
-
-  const refusedIn = (w: Workflow): (readonly string[])[] =>
-    viewOf(w, TABLE, WORDINGS).refused.map(({ event, effect, reason }) => [event, effect, reason]);
-
-  const linesOf = (w: Workflow): string[] =>
-    viewOf(w, TABLE, WORDINGS).regions.map(({ line }) => line);
-
   const MOCKUP: Move = { kind: "mockup", screen: "login" };
 
   const APPROVAL = {

@@ -10,6 +10,7 @@ import type {
   Workflow,
 } from "../../core/server/domain/workflow.ts";
 import { next, tableOf } from "../../core/server/domain/workflow.ts";
+import { refusedNowWith, stateWith } from "../proof.ts";
 import type { Proposal, StepAnswer } from "./contract.ts";
 import { RULES } from "./contract.ts";
 import { regionOf } from "./proposal.ts";
@@ -129,3 +130,15 @@ const ROW_TESTS = {
 } satisfies { readonly [Row in RowKey<(typeof RULES)[number]>]: readonly [string, () => void] };
 
 for (const [title, run] of Object.values(ROW_TESTS)) test(title, run);
+
+// A row built on a `naming` guard refuses the input, never the state: what is refused now leaves it out.
+
+test("a pause of a proposal a newer one replaced is refused for that input alone: refusedNow does not list pause", () => {
+  expect(judged(review("p2", "absent"), "pause", { id: "p1" })).toEqual(NO_SUCH);
+  expect(refusedNowWith(review("p2", "absent"), "pause", { id: "p1" })).toEqual([]);
+});
+
+test("a stale tab's answer to a proposal no longer waiting is refused for it alone: mcp__vellum__state does not list answerProposal", () => {
+  expect(judged(review("p2", "absent"), "answerProposal", answering("p1"))).toEqual(NO_SUCH);
+  expect(stateWith(review("p2", "absent"), "answerProposal", answering("p1"))).toEqual([]);
+});

@@ -3,7 +3,7 @@ import { expect, test } from "bun:test";
 import { parseWipDir } from "./core/server/domain/paths.ts";
 import type { EventDecl, Rule, TablePart, Workflow } from "./core/server/domain/workflow.ts";
 import { CORE, CORE_PART, HELD, tableOf, verdictOf } from "./core/server/domain/workflow.ts";
-import { PARTS as WALKED, proof } from "./extensions/proof.ts";
+import { PARTS as WALKED, proof, whole } from "./extensions/proof.ts";
 
 /**
  * Every row of every event, from every part of the table, as a reader takes it: the core's, then
@@ -24,20 +24,17 @@ if (!DIR.ok) throw new Error(DIR.error);
 
 const WORKDIR = DIR.value;
 
-/** A state a walk reached, as the whole table reads it: every part's region, the ones its walk lacked empty, under this file's directory. */
-function whole(w: Workflow): Workflow {
-  const regions = WALKED.map(
-    ({ id, walk }) => w.regions.find((region) => region.id === id) ?? walk.empty,
-  );
+/** A state a walk reached, as the whole table reads it, under this file's directory. */
+function here(w: Workflow): Workflow {
+  const all = whole(w);
 
-  const workspace =
-    w.workspace.kind === "approved" ? w.workspace : { ...w.workspace, dir: WORKDIR };
-
-  return { ...w, workspace, regions };
+  return all.workspace.kind === "approved"
+    ? all
+    : { ...all, workspace: { ...all.workspace, dir: WORKDIR } };
 }
 
 /** Where a row is looked for, in order: the states the walks reached, in the order they reached them. */
-const STATES: readonly Workflow[] = proof().states.map(whole);
+const STATES: readonly Workflow[] = proof().states.map(here);
 
 type Judged = { readonly owner: string; readonly rule: Rule };
 

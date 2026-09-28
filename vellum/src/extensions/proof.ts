@@ -6,12 +6,14 @@ import { parseWipDir } from "../core/server/domain/paths.ts";
 import type {
   Effect,
   EventInput,
+  Refused,
   Region,
   Step,
   Table,
+  Wording,
   Workflow,
 } from "../core/server/domain/workflow.ts";
-import { held, next, pillOf, tableOf } from "../core/server/domain/workflow.ts";
+import { held, next, pillOf, refusedNow, tableOf, viewOf } from "../core/server/domain/workflow.ts";
 import { serverExtensions } from "./server.ts";
 
 /**
@@ -76,6 +78,42 @@ export function emptyFor(parts: readonly Part[], dir = WORKDIR): Workflow {
 export const TABLE: Table = tableFor(PARTS);
 
 export const EMPTY: Workflow = emptyFor(PARTS);
+
+/** Each part's words for its region, as the server hands them to the view. */
+export const WORDINGS: readonly Wording[] = PARTS.map(({ id, workflow }) => ({
+  id,
+  segment: workflow.segment,
+  line: workflow.line,
+}));
+
+/** The table with `input` the one sample `event` tries: what a real caller sends. */
+function trying(event: string, input: EventInput): Table {
+  return {
+    ...TABLE,
+    events: TABLE.events.map((decl) => (decl.id === event ? { ...decl, samples: [input] } : decl)),
+  };
+}
+
+/** `w` as the whole table reads it: every part's region, the ones `w` lacks empty. */
+export function whole(w: Workflow): Workflow {
+  const regions = PARTS.map(
+    ({ id, walk }) => w.regions.find((region) => region.id === id) ?? walk.empty,
+  );
+
+  return { ...w, regions };
+}
+
+/** What `refusedNow` lists of `event` on `w` when the one input tried is `input`. */
+export function refusedNowWith(w: Workflow, event: string, input: EventInput): readonly Refused[] {
+  return refusedNow(whole(w), trying(event, input)).filter((refused) => refused.event === event);
+}
+
+/** What `mcp__vellum__state` and the pill list of `event` on `w` when the one input tried is `input`. */
+export function stateWith(w: Workflow, event: string, input: EventInput): readonly Refused[] {
+  return viewOf(whole(w), trying(event, input), WORDINGS).refused.filter(
+    (refused) => refused.event === event,
+  );
+}
 
 /** The texts a step tells Claude through the channel, in order. */
 export function told(step: Step): string[] {

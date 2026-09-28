@@ -5,6 +5,7 @@ import type { RowKey } from "../../core/server/domain/rows.ts";
 import { tablePart } from "../../core/server/domain/rows.ts";
 import type { EventInput, RuleVerdict, Workflow } from "../../core/server/domain/workflow.ts";
 import { next, SAMPLE_AT, tableOf } from "../../core/server/domain/workflow.ts";
+import { stateWith } from "../proof.ts";
 import { server as step } from "../step/server.ts";
 import { RULES } from "./contract.ts";
 import { regionOf } from "./grill.ts";
@@ -83,3 +84,12 @@ const ROW_TESTS = {
 } satisfies { readonly [Row in RowKey<(typeof RULES)[number]>]: readonly [string, () => void] };
 
 for (const [title, run] of Object.values(ROW_TESTS)) test(title, run);
+
+// A row built on a `naming` guard refuses the input, never the state: what is refused now leaves it out.
+
+test("a grill asked on no subject is refused for that input alone: mcp__vellum__state does not list openGrill", () => {
+  expect(judged(review(false), "openGrill", { subject: "" })).toMatchObject({
+    rule: "grill-subject",
+  });
+  expect(stateWith(review(false), "openGrill", { subject: "" })).toEqual([]);
+});
