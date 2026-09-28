@@ -22,7 +22,8 @@ is checked, a type by `tsgo`, a row by its test: no sentence in it is taken on t
 - `RULES` reads top to bottom per event: a row above the event's `whileHeld` row is judged before
   the hold, one below it after, and an event with no `whileHeld` row passes a hold. `refuse` turns
   down a state a caller meets; `refuseInput` an input naming what is not there, which `refusedNow`
-  never lists. A row's id is what the journal records.
+  never lists. A row's id is what the journal records. Each row, the hold's included, declares the
+  status its routes answer the refusal with: 404, a name that is not there, or 409.
 - A guard is a one-line function of the model that states the fields it reads
   (`(w, input: { readonly id: string }) => boolean`), composed with `allOf` and `anyOf`: a row
   takes it only on an event that carries those fields. It reads `""` for a field the input lacks.
@@ -34,10 +35,12 @@ is checked, a type by `tsgo`, a row by its test: no sentence in it is taken on t
   its key, `mcp__vellum__<key>`, which the matcher literal of `core/engine/register.ts` names too
   (`register.spec.ts`). The registries call `engineExtension` and `serverExtension`, and take the
   page half as it is.
-- A route answers `{ answer }`, `null` as 204, or `{ refused: 404 | 409, reason }`, 404 in plain
-  text and 409 as `{ error }`; a body its parser (`BODIES` of `parse.ts`) refuses is a 400 before
-  it runs. `context.dispatch(event, input)` takes the slice's own events, with what each carries,
-  and sends each as its declared sender.
+- A route answers `{ answer }`, `null` as 204, or `{ refused }`: the verdict `context.dispatch`
+  answered, which carries its row's status (409 for a row the slice does not own, the core's or
+  another slice's), or a refusal of the route's own that no row judges. 404 goes in plain text and
+  409 as `{ error }`, as the wire held before slices; a body its parser (`BODIES` of `parse.ts`)
+  refuses is a 400 before it runs. `context.dispatch(event, input)` takes the slice's own events,
+  with what each carries, and sends each as its declared sender.
 - The pure model is named after the slice (`proposal.ts`): its region, one transition per event
   (`Transitions`), the guards, `SAMPLES` per event (`Samples`), its reaction to the others' events,
   its segment and its line.

@@ -3,6 +3,7 @@ import type {
   EventDecl,
   EventInput,
   Outcome,
+  RefusalStatus,
   Rule,
   TablePart,
   Transition,
@@ -43,27 +44,57 @@ export type Carried<E extends Events, K extends keyof E> = E[K] extends {
   ? { readonly [Field in Fields[number] | keyof Stamps]: string }
   : never;
 
-/** A condition a row is built from, named and read in one line: it states the fields it reads, and a row takes it only on an event that carries them. */
+/**
+ * A condition a row is built from, named and read in one line: it states the fields it reads, and
+ * a row takes it only on an event that carries them. Its name is what a reader of the table sees.
+ */
 export type Guard<I> = (w: Workflow, input: I) => boolean;
 
+/** `guard` under the name `condition`, as the table prints it. */
+function named<I>(guard: Guard<I>, condition: string): Guard<I> {
+  Object.defineProperty(guard, "name", { value: condition });
+
+  return guard;
+}
+
+function conditionOf<I>(guard: Guard<I>): string {
+  return guard.name === "" ? "an unnamed guard" : guard.name;
+}
+
+/** A guard's name as a part of a larger condition: parenthesised when it is itself a combination. */
+function termOf<I>(guard: Guard<I>): string {
+  const name = conditionOf(guard);
+
+  return / (?:and|or) /u.test(name) ? `(${name})` : name;
+}
+
 export function allOf<I>(...guards: readonly Guard<I>[]): Guard<I> {
-  return (w, input) => guards.every((guard) => guard(w, input));
+  return named(
+    (w, input) => guards.every((guard) => guard(w, input)),
+    guards.map((guard) => termOf(guard)).join(" and "),
+  );
 }
 
 export function anyOf<I>(...guards: readonly Guard<I>[]): Guard<I> {
-  return (w, input) => guards.some((guard) => guard(w, input));
+  return named(
+    (w, input) => guards.some((guard) => guard(w, input)),
+    guards.map((guard) => termOf(guard)).join(" or "),
+  );
 }
 
 /**
- * A row that refuses `event` when its guard holds. `refuses: "state"` is one a real caller meets,
- * `"input"` one only an input naming what is not there meets, which `refusedNow` never lists.
+ * A row that refuses `event` when its guard holds, answered with `status` by the slice's routes.
+ * `refuses: "state"` is one a real caller meets, `"input"` one only an input naming what is not
+ * there meets, which `refusedNow` never lists.
  */
 export type RefuseRow<K extends string, Id extends string> = {
   readonly kind: "refuse";
   readonly event: K;
   readonly id: Id;
   readonly refuses: "state" | "input";
+  readonly status: RefusalStatus;
   readonly reason: string;
+  readonly condition: string;
   readonly when: (w: Workflow, input: EventInput) => boolean;
 };
 
@@ -72,6 +103,7 @@ export type HeldRow<K extends string> = {
   readonly kind: "held";
   readonly event: K;
   readonly id: typeof HELD;
+  readonly status: RefusalStatus;
   readonly reason: (hold: string) => string;
 };
 
@@ -93,6 +125,7 @@ export type Rows<E extends Events> = {
     event: K,
     id: Id,
     when: Guard<Carried<E, K>>,
+    status: RefusalStatus,
     reason: string,
   ) => RefuseRow<K, Id>;
   /** Refuses `event` when `when` holds on an input naming what is not there: only a sample meets it. */
@@ -100,11 +133,13 @@ export type Rows<E extends Events> = {
     event: K,
     id: Id,
     when: Guard<Carried<E, K>>,
+    status: RefusalStatus,
     reason: string,
   ) => RefuseRow<K, Id>;
   /** Refuses `event` while the review is held; an event with no such row passes a hold. */
   readonly whileHeld: <K extends keyof E & string>(
     event: K,
+    status: RefusalStatus,
     reason: (hold: string) => string,
   ) => HeldRow<K>;
 };
@@ -144,23 +179,27 @@ export function rows<E extends Events>(declared: E): Rows<E> {
   }
 
   return {
-    refuse: (event, id, when, reason) => ({
+    refuse: (event, id, when, status, reason) => ({
       kind: "refuse",
       event,
       id,
       refuses: "state",
+      status,
       reason,
+      condition: conditionOf(when),
       when: judged(event, when),
     }),
-    refuseInput: (event, id, when, reason) => ({
+    refuseInput: (event, id, when, status, reason) => ({
       kind: "refuse",
       event,
       id,
       refuses: "input",
+      status,
       reason,
+      condition: conditionOf(when),
       when: judged(event, when),
     }),
-    whileHeld: (event, reason) => ({ kind: "held", event, id: HELD, reason }),
+    whileHeld: (event, status, reason) => ({ kind: "held", event, id: HELD, status, reason }),
   };
 }
 
@@ -210,6 +249,8 @@ function rulesOf(event: string, all: readonly Row[]): readonly Rule[] {
             effect: "refuse",
             refuses: row.refuses,
             reason: () => row.reason,
+            status: row.status,
+            condition: row.condition,
           },
         ],
   );
@@ -227,7 +268,9 @@ function declOf<E extends Events, K extends keyof E & string>(
     owner,
     actors: [declaredOf(part.events, event).by],
     whileHeld:
-      held?.kind === "held" ? { effect: "refuse", reason: held.reason } : { effect: "allow" },
+      held?.kind === "held"
+        ? { effect: "refuse", reason: held.reason, status: held.status }
+        : { effect: "allow" },
     samples: part.samples[event],
   };
 }

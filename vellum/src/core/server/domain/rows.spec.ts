@@ -37,13 +37,30 @@ function partOf(rules: SlicePart<typeof EVENTS>["rules"]): SlicePart<typeof EVEN
 }
 
 describe("a slice's rows", () => {
+  test("each row carries the status its routes answer and the names of the guards it is built from", () => {
+    const part = tablePart(
+      "slice",
+      partOf([
+        whileHeld("ask", 409, (hold) => hold),
+        refuseInput("ask", "gone", anyOf(allOf(always, fails), always), 404, "gone"),
+      ]),
+    );
+
+    const held = part.events.find(({ id }) => id === "ask")?.whileHeld;
+
+    expect(part.rules.map(({ id, status, condition }) => [id, status, condition])).toEqual([
+      ["gone", 404, "(always and fails) or always"],
+    ]);
+    expect(held?.effect === "refuse" ? held.status : null).toBe(409);
+  });
+
   test("a row above the event's hold row is judged before the hold, one below it after", () => {
     const part = tablePart(
       "slice",
       partOf([
-        refuse("ask", "first", always, "first"),
-        whileHeld("ask", (hold) => `${hold}: wait`),
-        refuseInput("ask", "then", always, "then"),
+        refuse("ask", "first", always, 409, "first"),
+        whileHeld("ask", 409, (hold) => `${hold}: wait`),
+        refuseInput("ask", "then", always, 404, "then"),
       ]),
     );
 
@@ -56,7 +73,10 @@ describe("a slice's rows", () => {
   test("an event with no hold row passes a hold, its rows after where the hold stands", () => {
     const part = tablePart(
       "slice",
-      partOf([refuse("drop", "one", always, "one"), refuse("drop", "two", always, "two")]),
+      partOf([
+        refuse("drop", "one", always, 409, "one"),
+        refuse("drop", "two", always, 409, "two"),
+      ]),
     );
 
     expect(part.events.find(({ id }) => id === "drop")?.whileHeld).toEqual({ effect: "allow" });
@@ -64,7 +84,7 @@ describe("a slice's rows", () => {
   });
 
   test("the hold's row words the refusal with the hold", () => {
-    const part = tablePart("slice", partOf([whileHeld("ask", (hold) => `${hold}: wait`)]));
+    const part = tablePart("slice", partOf([whileHeld("ask", 409, (hold) => `${hold}: wait`)]));
     const held = part.events.find(({ id }) => id === "ask")?.whileHeld;
 
     expect(held?.effect === "refuse" ? held.reason("grill 1 is open") : null).toBe(
@@ -86,6 +106,7 @@ describe("a slice's rows", () => {
 
             return false;
           },
+          409,
           "seen",
         ),
       ]),
@@ -134,7 +155,10 @@ describe("a slice's rows", () => {
   });
 
   test("two hold rows on one event are refused as the table is built", () => {
-    const twice = partOf([whileHeld("ask", (hold) => hold), whileHeld("ask", (hold) => hold)]);
+    const twice = partOf([
+      whileHeld("ask", 409, (hold) => hold),
+      whileHeld("ask", 409, (hold) => hold),
+    ]);
 
     expect(() => tablePart("slice", twice)).toThrow("ask has 2 hold rows: one at most");
   });

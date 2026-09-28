@@ -7,7 +7,7 @@ import type { HooksContext, HooksHalf } from "../../core/engine/extension.ts";
 import { engineExtension } from "../../core/engine/slice.ts";
 import type {
   Bodies,
-  Dispatched,
+  SliceDispatched,
   PageHalf,
   RouteKey,
   ServerHalf,
@@ -222,7 +222,7 @@ describe("the rows and the routes name the step's own events, with what each car
   test("a route dispatching an event without a field it carries does not compile", async () => {
     const sent: string[] = [];
 
-    const DISPATCHED: Dispatched = {
+    const DISPATCHED: SliceDispatched = {
       verdict: { kind: "allow" },
       workflow: W,
       effects: [],

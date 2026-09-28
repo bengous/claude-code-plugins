@@ -3,7 +3,7 @@ import type { PlanWorkspace } from "../../core/protocol.ts";
 import { regionIn } from "../../core/server/domain/workflow.ts";
 import { projectPath } from "../../core/server/domain/workspace.ts";
 import type { Proposed, StepPlugs, StepWaited } from "./contract.ts";
-import { EVENTS, NO_SUCH_PROPOSAL, RULES } from "./contract.ts";
+import { EVENTS, RULES } from "./contract.ts";
 import { BODIES, parseJson, parseStepFile } from "./parse.ts";
 import type { StepFile } from "./proposal.ts";
 import {
@@ -20,7 +20,10 @@ import {
 
 type Context = SliceContext<StepPlugs>;
 
-const DIRECTORY_GONE: Reply<never> = { refused: 409, reason: "the plan's directory is gone" };
+/** Before any event: no row judges a directory the server lost. */
+const DIRECTORY_GONE: Reply<never> = {
+  refused: { status: 409, reason: "the plan's directory is gone" },
+};
 
 /** `null` when the working directory is gone and the server lost its memory: the route answers 409. */
 function workspaceIfAny(context: Context): Promise<PlanWorkspace | null> {
@@ -76,9 +79,7 @@ export const server: ServerHalf<StepPlugs> = {
       const input = { id: proposed.id, proposal: JSON.stringify(proposal) };
       const { verdict } = await context.dispatch("propose", input);
 
-      return verdict.kind === "allow"
-        ? { answer: proposed }
-        : { refused: 409, reason: verdict.reason };
+      return verdict.kind === "allow" ? { answer: proposed } : { refused: verdict };
     },
 
     // A repost while Claude's call already waits is a keepalive: no step, no journal line (E4).
@@ -101,9 +102,7 @@ export const server: ServerHalf<StepPlugs> = {
     "POST pause": async (context, { id }) => {
       const { verdict } = await context.dispatch("pause", { id });
 
-      if (verdict.kind === "allow") return { answer: { wait: "paused" } };
-
-      return { refused: verdict.reason === NO_SUCH_PROPOSAL ? 404 : 409, reason: verdict.reason };
+      return verdict.kind === "allow" ? { answer: { wait: "paused" } } : { refused: verdict };
     },
 
     // The window's answer settles the proposal waiting, the one it showed or, opened blank, any:
@@ -123,7 +122,7 @@ export const server: ServerHalf<StepPlugs> = {
         opened: move === "grill" ? await context.start("grill", { subject }) : "",
       }));
 
-      return verdict.kind === "allow" ? { answer: null } : { refused: 409, reason: verdict.reason };
+      return verdict.kind === "allow" ? { answer: null } : { refused: verdict };
     },
   },
   workflow: {

@@ -85,31 +85,34 @@ export type StepPlugs = {
   readonly page: "actions" | "notices";
 };
 
-// What is refused, read top to bottom per event.
+// What is refused, read top to bottom per event, with the status its route answers.
 
-export const NO_SUCH_PROPOSAL = "no such proposal";
+const NO_SUCH_PROPOSAL = "no such proposal";
 
 const { refuse, refuseInput, whileHeld } = rows(EVENTS);
 
 export const RULES = [
-  whileHeld("propose", (hold) => `${hold}: no step is proposed until it ends`),
+  whileHeld("propose", 409, (hold) => `${hold}: no step is proposed until it ends`),
   refuse(
     "propose",
     "plan-over-plan",
     allOf(planExists, offersPlan),
+    409,
     "plan.md exists: the plan step is done",
   ),
   refuseInput(
     "pause",
     "no-such-proposal",
     anyOf(noProposalWaits, namesAnotherProposal),
+    404,
     NO_SUCH_PROPOSAL,
   ),
-  whileHeld("answerProposal", (hold) => hold),
+  whileHeld("answerProposal", 409, (hold) => hold),
   refuseInput(
     "answerProposal",
     "no-such-proposal",
     allOf(namesAProposal, namesAnotherProposal),
+    409,
     NO_SUCH_PROPOSAL,
   ),
 ];
