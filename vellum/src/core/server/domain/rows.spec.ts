@@ -6,7 +6,7 @@ import { parseWipDir } from "./paths.ts";
 import type { SlicePart } from "./rows.ts";
 import { allOf, anyOf, naming, rows, tablePart } from "./rows.ts";
 import type { Workflow } from "./workflow.ts";
-import { unchanged } from "./workflow.ts";
+import { tableOf, unchanged } from "./workflow.ts";
 
 const DIR = parseWipDir("plans/2026-09-28/wip-5e1ce000/");
 
@@ -239,5 +239,21 @@ describe("a slice's rows", () => {
     ]);
 
     expect(() => tablePart("slice", twice)).toThrow("ask has 2 hold rows: one at most");
+  });
+});
+
+describe("the table", () => {
+  test("an event two parts declare is refused as the table is built, naming both", () => {
+    const one = tablePart("one", partOf([]));
+    const other = tablePart("other", partOf([]));
+
+    expect(() => tableOf([one, other])).toThrow("ask is declared by both one and other");
+  });
+
+  test("an event of the core's declared again by a part is refused too", () => {
+    const part = tablePart("slice", partOf([]));
+    const clash = { ...part, events: part.events.map((event) => ({ ...event, id: "record" })) };
+
+    expect(() => tableOf([clash])).toThrow("record is declared by both core and slice");
   });
 });
