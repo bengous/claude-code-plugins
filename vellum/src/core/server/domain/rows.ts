@@ -244,9 +244,9 @@ function carried<E extends Events, K extends keyof E & string>(
   return read as Carried<E, K>;
 }
 
-/** What a slice reads of an event it hears, as the core hands it: every field is optional there. */
+/** What a slice reads of an event it hears, as the core hands it: a field the input lacks reads `undefined`. */
 function readOf<H extends Heard, K extends keyof H>(input: EventInput): Read<H, K> {
-  // SAFETY: `Read<H, K>` holds optional strings alone, and `input` is a record of strings: every `EventInput` is one. tsgo does not relate a record to a mapped type over a generic key.
+  // SAFETY: every field of `Read<H, K>` is a `string | undefined`, and `input` is a record of strings, which answers `undefined` for a field it lacks. tsgo does not relate a record to a mapped type over a generic key.
   return input as Read<H, K>;
 }
 
