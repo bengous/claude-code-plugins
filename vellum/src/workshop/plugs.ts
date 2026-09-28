@@ -1,5 +1,3 @@
-import type { PageSlot } from "../runtime/extension.ts";
-import type { Listen } from "../runtime/hooks/extension.ts";
 import type { CoreEvent, Events, Heard } from "./rows.ts";
 
 /**
@@ -21,6 +19,12 @@ export type Json =
   | null
   | readonly Json[]
   | { readonly [key: string]: Json };
+
+/** The engine events a hooks half may listen to; `runtime/hooks/extension.ts` types each listener. */
+export type Listen = "prompted" | "answered" | "agentAnswered" | "staged" | "closing";
+
+/** The places of the page a page half may fill; `runtime/extension.ts` types what each holds. */
+export type PageSlot = "renderers" | "send" | "actions" | "notices" | "panel";
 
 export type GetRoute = `GET ${string}`;
 

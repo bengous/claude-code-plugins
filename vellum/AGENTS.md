@@ -33,8 +33,8 @@ A part is a folder of `steps/` or `formats/`, a file per runtime it plugs into (
 `server.ts`, `hooks.ts`), and every one is a slice: its `contract.ts` declares its id, while the
 folder takes the glossary's word (`CONTEXT.md`).
 
-Dependencies point toward `src/workshop/`, which imports nothing outside itself but the two slot
-types `plugs.ts` reads from `runtime/`: a part imports
+Dependencies point toward `src/workshop/`, which imports nothing outside itself, not even a
+type: a part imports
 the workshop, what a runtime's folder offers the halves it fills and another slice's `contract.ts`
 as types, and a runtime reaches a part through its `slices.ts` alone, as `src/boundaries.spec.ts`
 holds. The rules of each zone load with its files, from `.claude/rules/`: `workshop.md`,

@@ -25,9 +25,6 @@ const RUNTIME = `${SRC}/runtime`;
 /** The folders that hold the parts, a folder each: the steps Vellum follows, the formats it reads a document in. */
 const PART_GROUPS = ["steps", "formats"];
 
-/** The one reach out of the workshop, as types: the listeners and page slots a contract names. One more is a decision to take. */
-const PLUGS_READS = ["../runtime/hooks/extension.ts", "../runtime/extension.ts"];
-
 /** The `runtime/page` files the parts import today, frozen: one more is a decision to take. */
 const PAGE_SURFACE = [
   "anchoring.ts",
@@ -216,9 +213,7 @@ function offending(dir: string, forbidden: RegExp): string[] {
 }
 
 describe("dependency direction", () => {
-  test("workshop/ imports nothing outside itself, no runtime, no IO, no page: plugs.ts reads the slots' names as types, the one exception", () => {
-    const plugs = `${WORKSHOP}/plugs.ts`;
-
+  test("workshop/ imports nobody: no runtime, no IO, no page, no part, not even as types", () => {
     const stray = sources("src/workshop").flatMap((file) =>
       imports(file)
         .filter(
@@ -226,14 +221,6 @@ describe("dependency direction", () => {
             /^(node:|bun)/u.test(specifier) ||
             (specifier.startsWith(".") &&
               !slashed(resolve(dirname(file), specifier)).startsWith(`${WORKSHOP}/`)),
-        )
-        .filter(
-          (specifier) =>
-            !(
-              file === plugs &&
-              PLUGS_READS.includes(specifier) &&
-              !valueImports(file).includes(specifier)
-            ),
         )
         .map((specifier) => `${short(file)} imports ${specifier}`),
     );

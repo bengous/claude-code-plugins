@@ -6,8 +6,8 @@ paths:
 # The workshop
 
 `src/workshop/` is the pure core the three runtimes read: pure functions over immutable data, no
-`node:*`, no `bun`, and no import outside itself but the two slot types `plugs.ts` reads from
-`runtime/` (`src/boundaries.spec.ts`). A slice's machinery (`plugs.ts`, `rows.ts`, `waits.ts`) is
+`node:*`, no `bun`, and no import outside itself, not even a type (`src/boundaries.spec.ts`): it
+names the listeners and the page slots the runtimes then type. A slice's machinery (`plugs.ts`, `rows.ts`, `waits.ts`) is
 `slices.md`'s; how the server applies what is decided here is `server.md`'s.
 
 - `next` in `workflow.ts` judges an event against one table, the core's rules and each slice's
