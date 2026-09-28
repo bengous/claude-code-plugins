@@ -2,9 +2,11 @@
  * The review: the frame the parts plug into, not a slice. The reviewer's draft, the Send and its
  * batches, the reviewer's edit, the versions Claude records and the approval are its, and the
  * parts hear its events through the types below. It keeps a slice's files (this contract, its
- * model `events.ts`, a server half, `parse.ts`, its specs beside), but the runtimes reach it by
- * name, never through a registry: `runtime/server/queue.ts` puts its part first in the table,
- * `http/routes.ts` hands it its routes. A part reads it through this file, as types.
+ * model `events.ts`, a server half, a hooks half, its page, `parse.ts`, its specs beside), but the
+ * runtimes reach it by name, never through a registry: `runtime/server/queue.ts` puts its part
+ * first in the table, `http/routes.ts` hands it its routes, `runtime/hooks/register.ts` its tool
+ * and its turn-end gate, `runtime/page/app.tsx` its components. A part reads it through this
+ * file, as types, and takes a value of it from `surface.ts` or `composer.tsx` alone.
  */
 import type { ProjectPath, Version } from "../workshop/paths.ts";
 import type { PlugsOf } from "../workshop/plugs.ts";
