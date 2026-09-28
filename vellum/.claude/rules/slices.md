@@ -111,6 +111,9 @@ bare verb another part may take (`wait`, `pause` are the step's already).
   (one hears the other's event, both hold, or one holds while the other refuses under a hold); a
   state that needs three parts at once is not walked. Every part with a workflow has one.
 - Tests: the model's `*.spec.ts` holds one test per row of `RULES`, keyed by `RowKey`, so a row
-  without its test does not compile; `hooks.test.ts` the kit's; `contract.spec.ts`, under
+  without its test does not compile; the tag held both ways, a `naming` row shown absent from
+  what is refused now, and each row a caller meets (on a state, of an event Claude or the
+  reviewer sends) shown in it, its keys equal to `rowsACallerMeets` of `proof.ts`, so a guard
+  tagged or untagged by mistake fails a test; `hooks.test.ts` the kit's; `contract.spec.ts`, under
   `@ts-expect-error`, what this slice's plugs make a compile error that no other slice's suite
   already holds.

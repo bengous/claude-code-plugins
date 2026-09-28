@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 
-import { stateWith } from "../../proof.ts";
+import { refusedNowWith, rowsACallerMeets, stateWith } from "../../proof.ts";
 import { parseWipDir } from "../../workshop/paths.ts";
 import type { RowKey } from "../../workshop/rows.ts";
 import { tablePart } from "../../workshop/rows.ts";
@@ -92,4 +92,38 @@ test("a grill asked on no subject is refused for that input alone: mcp__vellum__
     rule: "grill-subject",
   });
   expect(stateWith(review(false), "openGrill", { subject: "" })).toEqual([]);
+});
+
+// A row on the state, of an event a caller sends, is what is refused now: taking it for an input's fails here.
+
+const LISTED = {
+  "openGrill: grill-open": [
+    "while a grill is open, what is refused now lists openGrill, in the grill-open row's words",
+    () => {
+      expect(refusedNowWith(review(true), "openGrill", { subject: "auth" })).toEqual([
+        {
+          event: "openGrill",
+          input: { subject: "auth" },
+          effect: "refuse",
+          reason: "grill-1.md is open",
+        },
+      ]);
+    },
+  ],
+  "askQuestion: no-grill": [
+    "with no grill open, what is refused now lists askQuestion, in the no-grill row's words",
+    () => {
+      const q = JSON.stringify([["Style", "bright or plain?", "I recommend bright."]]);
+
+      expect(refusedNowWith(review(false), "askQuestion", { q })).toEqual([
+        { event: "askQuestion", input: { q }, effect: "refuse", reason: "no grill is open" },
+      ]);
+    },
+  ],
+} satisfies { readonly [row: string]: readonly [string, () => void] };
+
+for (const [title, run] of Object.values(LISTED)) test(title, run);
+
+test("every row of the grill's that a caller meets is shown listed in what is refused now", () => {
+  expect(Object.keys(LISTED).toSorted()).toEqual(rowsACallerMeets(PART).toSorted());
 });
