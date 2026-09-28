@@ -68,12 +68,12 @@ under the [loader rules](hook-runtime.md#module-loader).
   the directory, and two rules follow from that: it loads the module from
   `<dir>/hooks/hooks.json` only, refusing a `modules` entry that climbs out
   of the plugin (`path-traversal`; `vellum` names
-  `../src/core/engine/register.ts`, inside it), and it collects every
+  `../src/runtime/hooks/register.ts`, inside it), and it collects every
   `*.test.ts` below `<dir>`. So the kit runs from the plugin root, and a
   `bun:test` suite elsewhere in the plugin fails that run unless it is named
   otherwise: `vellum` names its server and page suites `*.spec.ts`, and keeps
   `*.test.ts` for the kit's own, beside the module in
-  `vellum/src/core/engine/`. `bun test` would pick those up and fail on the
+  `vellum/src/runtime/hooks/`. `bun test` would pick those up and fail on the
   import, so the repo's `bunfig.toml` ignores `vellum/**/*.test.ts`.
 
 - The kit's `$` has no `classic` noun, so a `classic.PermissionRequest` hook

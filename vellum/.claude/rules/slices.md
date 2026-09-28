@@ -1,30 +1,35 @@
 ---
 paths:
-  - "src/extensions/**"
+  - "src/steps/**"
+  - "src/formats/**"
+  - "src/runtime/*/slices.ts"
+  - "src/proof.ts"
+  - "src/slices.spec.ts"
+  - "src/workflow.spec.ts"
   - "src/table.spec.ts"
-  - "src/core/plugs.ts"
-  - "src/core/engine/slice.ts"
-  - "src/core/server/slice.ts"
-  - "src/core/server/domain/rows.ts"
+  - "src/workshop/plugs.ts"
+  - "src/runtime/hooks/slice.ts"
+  - "src/runtime/server/slice.ts"
+  - "src/workshop/rows.ts"
 ---
 
 # Slices
 
-A folder of `src/extensions/` that holds `contract.ts` is a slice: another folder imports that file
+A folder of `src/steps/` or `src/formats/` that holds `contract.ts` is a slice: another folder imports that file
 and nothing else of it, but for the registries, which take its halves, and for another slice, which
 imports it with `import type`. `extensions.md` holds for a slice but where this page says otherwise.
-What a contract says is checked, a type by `tsgo`, a half by `extensions/slices.spec.ts`, a row by
+What a contract says is checked, a type by `tsgo`, a half by `src/slices.spec.ts`, a row by
 its test: no sentence in it is taken on trust.
 
 To add one, in this order: declare it in `contract.ts`; run `bun x tsgo --noEmit`, which names what
 each half and the model lack once you write their typed exports; then the three places outside the
 folder, and no other:
 
-- one line in each registry the slice has a half for (`src/extensions/engine.ts`, `server.ts`,
-  `page.ts`): `slices.spec.ts` names a missing one;
-- each new tool's name in the matcher literal of `core/engine/register.ts`, which the engine needs
+- one line in each registry the slice has a half for (`slices.ts` of `src/runtime/hooks/`,
+  `server/`, `page/`): `slices.spec.ts` names a missing one;
+- each new tool's name in the matcher literal of `runtime/hooks/register.ts`, which the engine needs
   written out: `register.spec.ts` names a missing one;
-- the page half's classes in `core/page/style.css`, prefixed with the slice's id: the page loads one
+- the page half's classes in `runtime/page/style.css`, prefixed with the slice's id: the page loads one
   stylesheet, and nothing names a class forgotten there.
 
 The tests read the registries, so no suite lists the slices, their regions or their refusals: a
@@ -34,14 +39,17 @@ both owners, so a slice names its events after itself (`askQuestion`, `answerPro
 bare verb another part may take (`wait`, `pause` are the step's already).
 
 - `contract.ts` holds the wire, the types crossing `/api/x/<id>/`, and one declaration,
-  `export const SLICE = defineSlice({...})` (`core/plugs.ts`): the id, the events it owns with their
+  `export const SLICE = defineSlice({...})` (`workshop/plugs.ts`): the id, the events it owns with their
   senders and the fields each carries, the events of the others it hears, the hooks half's tools,
   listeners, posted routes and denied tools, each route as `get<Answer>()`, `getWith<Query,
   Answer>()` or `post<Body, Answer>()`, what opens it (`opened: payload<T>()`), what its Send part
   carries (`sends`), its page slots. What it leaves out it does not declare. Its plugs are
   `PlugsOf<typeof SLICE>`, which every half is typed by; then `RULES`.
 - A slice's id, its events and its tools take the words of `vellum/CONTEXT.md`, the glossary: a
-  word it lists under `_Avoid_` or gives another meaning is not a name.
+  word it lists under `_Avoid_` or gives another meaning is not a name. The folder takes the
+  glossary's word for what the slice is; the id is the one `contract.ts` declares, which every
+  half carries, and it does not follow the folder: it is on the wire, in `.review/` file names
+  and in journals (`steps/proposal/` is `step`).
 - An event heard is another slice's, `heard<ItsEvents["name"]>()`, typed by that slice's contract,
   each field possibly absent; or the core's, `core`, by a name the core has, fields untyped.
 - `RULES` come from `rows(SLICE)`: `refuse(event, id, guard, status, reason)` on an event the slice
@@ -85,16 +93,16 @@ bare verb another part may take (`wait`, `pause` are the step's already).
   returns once the wait ends (`null` while it is open); `awaits: "own"` holds its slice's text
   entries for it. `answered` reads the mark back with `context.unanswered()` when the turn was cut
   before the wait ended. The server half answers that wait with `heldWait` of
-  `core/server/slice.ts`, reading where it stands off its file with `waitedOn`, and its model
-  keeps the wait with `waitAfter` and `waitOn` of `core/server/domain/waits.ts`, the id under the
+  `runtime/server/slice.ts`, reading where it stands off its file with `waitedOn`, and its model
+  keeps the wait with `waitAfter` and `waitOn` of `workshop/waits.ts`, the id under the
   region's `data.pending`.
 - The pure model is named after the slice: its region, one transition per event (`Transitions`),
   the guards, `SAMPLES` per event (`Samples`), `REACTIONS` to the events it hears (`Reactions`), its
   segment and its line.
-- `walk.ts` beside it exports `WALK` (`WalkOf` of `core/extension.ts`), what the proof of the table
+- `walk.ts` beside it exports `WALK` (`WalkOf` of `runtime/extension.ts`), what the proof of the table
   reads of the region: the empty region, what tells two regions apart, its bounds, the call a wait
   is for and the event that answers it, the slice's own invariants. The tests alone load it:
-  `extensions/proof.ts` finds it by the folder, and walks each part alone and each pair that meets
+  `src/proof.ts` finds every `walk.ts` under `src/` by the part it names (`part`), and walks each part alone and each pair that meets
   (one hears the other's event, both hold, or one holds while the other refuses under a hold); a
   state that needs three parts at once is not walked. Every part with a workflow has one.
 - Tests: the model's `*.spec.ts` holds one test per row of `RULES`, keyed by `RowKey`, so a row

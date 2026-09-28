@@ -1,9 +1,9 @@
 import { expect, test } from "bun:test";
 
-import { parseWipDir } from "./core/server/domain/paths.ts";
-import type { EventDecl, Rule, TablePart, Workflow } from "./core/server/domain/workflow.ts";
-import { CORE, CORE_PART, HELD, tableOf, verdictOf } from "./core/server/domain/workflow.ts";
-import { PARTS as WALKED, proof, whole } from "./extensions/proof.ts";
+import { PARTS as WALKED, proof, whole } from "./proof.ts";
+import { parseWipDir } from "./workshop/paths.ts";
+import type { EventDecl, Rule, TablePart, Workflow } from "./workshop/workflow.ts";
+import { CORE, CORE_PART, HELD, tableOf, verdictOf } from "./workshop/workflow.ts";
 
 /**
  * Every row of every event, from every part of the table, as a reader takes it: the core's, then

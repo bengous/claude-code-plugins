@@ -8,9 +8,9 @@ paths:
 # Tests
 
 - Three suffixes, three runners: `*.spec.ts` for the `bun:test` suites (the server's, the
-  page's, and `src/core/engine/register.spec.ts`, which reads `register.ts` as text),
-  `*.test.ts` for the hooks module's kit tests, in `src/core/engine/` and, for an engine half,
-  `src/extensions/<id>/engine.test.ts` (a slice's `hooks.test.ts`), and `*.e2e.ts` for the browser suite in `e2e/`, which
+  page's, and `src/runtime/hooks/register.spec.ts`, which reads `register.ts` as text),
+  `*.test.ts` for the hooks module's kit tests, in `src/runtime/hooks/` and, for an engine half,
+  `src/steps/<name>/engine.test.ts` (a slice's `hooks.test.ts`), and `*.e2e.ts` for the browser suite in `e2e/`, which
   Playwright runs (`bun run --cwd vellum e2e`) and neither of the other two collects. `claude plugin
   test` collects every `*.test.ts` under the plugin root and loads the module
   `<root>/hooks/hooks.json` names, so a `bun:test` suite named `*.test.ts` anywhere in the
@@ -73,13 +73,13 @@ paths:
   writes them.
 - Fakes at the ports, nothing else faked: the hooks module runs under the engine's own `$`,
   with the world beneath it answered by `mock.clock` and the `on(...)` hooks of
-  `src/core/engine/fixtures/`, the server it spawns a child whose stdout the test writes
+  `src/runtime/hooks/fixtures/`, the server it spawns a child whose stdout the test writes
   (`children.ts`); the server's file system is a temp directory through the real
-  adapter; `adapters/http` starts the server on port 0. No module mocking, no spy on an
+  adapter; `runtime/server/http` starts the server on port 0. No module mocking, no spy on an
   internal call.
 - The page's ports are the browser's globals it reads: `fetch`, `EventSource`, `location`,
   `window.matchMedia`. A suite puts a fake there for one test and takes it away after (`port` in
-  `core/page/state.spec.ts`); `api.ts` is never mocked. The store is module state, and one
+  `runtime/page/state.spec.ts`); `api.ts` is never mocked. The store is module state, and one
   `bun test` run keeps one module registry for all its suites: a suite that drives `state.ts`
   imports it for each test under a query no import used before (`freshStore`, same file), so no
   signal, and no saving effect `start` leaves behind, reaches another test or another suite. The
@@ -89,7 +89,7 @@ paths:
   session, and the kit covers the rest of a launch ([Hook tests](../../../docs/plugin-testing/hooks.md)).
   So a launch the server no longer takes, which stops the agent it started, is checked live too.
   A `TaskStop` the module calls is answered by the test's `on("tool.call", { tool: "TaskStop" })`
-  (`stops` in `review/fixtures/`).
+  (`stops` in `agent-review/fixtures/`).
 - The kit cannot raise one case: the lock's overrun. `mock.clock` lets a wait held past a
   hook's budget go, and a test's own budget is shorter still, so a hook that outruns the
   dispatch is measured in a live session instead ([Hook tests](../../../docs/plugin-testing/hooks.md)).
@@ -97,10 +97,10 @@ paths:
   `// @ts-expect-error -- <reason>` line in the suite beside it, on the code that must not
   compile. The typecheck gate reads the suites, and a directive with nothing under it fails
   the gate, so the day the type loosens the suite says so. `grill/server.spec.ts` holds two:
-  the body of `close`, the reply to `open`. `core/page/kit.spec.ts` holds the kit's: a component
+  the body of `close`, the reply to `open`. `runtime/page/kit.spec.ts` holds the kit's: a component
   is a function, so a suite calls it with props and reads the vnode it returns, with no DOM.
   A slice's `contract.spec.ts` holds what its plugs refuse (`slices.md`), and
-  `extensions/slices.spec.ts` what the compiler cannot see: a half built through a variable. The
+  `src/slices.spec.ts` what the compiler cannot see: a half built through a variable. The
   directive sits on a line that also runs, so the test says what the refused code would do.
 - `src/boundaries.spec.ts` holds the dependency direction; an import that fails it is in the
   wrong layer, not a test to loosen.

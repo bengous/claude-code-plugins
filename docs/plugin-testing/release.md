@@ -74,7 +74,7 @@ What the debug log proves, and what it does not:
   The log names the tree: `Read hooks.json for plugin <name> (enabled=true):
   <repo>/<plugin>/hooks/hooks.json`, the skills load from
   `<repo>/<plugin>/skills`, and a server the module spawns carries
-  `<repo>/<plugin>/src/core/server/cli.ts` in its argv. Every plugin of that marketplace
+  `<repo>/<plugin>/src/runtime/server/cli.ts` in its argv. Every plugin of that marketplace
   resolves the same way in one log, while plugins of a `github` marketplace
   resolve under `cache/`. So `plugin.register: <name> (user,
   <name>@<marketplace>)` is the line that proves the install path was taken;
