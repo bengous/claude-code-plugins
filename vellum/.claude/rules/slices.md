@@ -41,6 +41,9 @@ is checked, a type by `tsgo`, a row by its test: no sentence in it is taken on t
 - The pure model is named after the slice (`proposal.ts`): its region, one transition per event
   (`Transitions`), the guards, `SAMPLES` per event (`Samples`), its reaction to the others' events,
   its segment and its line.
+- Tests: `contract.spec.ts` holds, under `@ts-expect-error`, what the plugs make a compile error;
+  the model's `*.spec.ts` one test per row of `RULES`, keyed by `RowKey`, so a row without its test
+  does not compile; `hooks.test.ts` the kit's.
 
 To add a step: write its `contract.ts` first; `bun x tsgo --noEmit` then names what each half and
 the model lack; write them; one line in each registry the slice has a half for; its rows' tests.
