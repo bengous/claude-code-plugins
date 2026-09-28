@@ -1,6 +1,5 @@
 import type { ElementDescription, ElementRef, WordsContext } from "../../review/contract.ts";
-import { offsetIn } from "../../runtime/page/anchoring.ts";
-import { dragRange, isSwitchKey, keyPressOf, toggled } from "../../runtime/page/selection.ts";
+import { dragRange, isSwitchKey, keyPressOf, offsetIn, toggled } from "../../review/surface.ts";
 import type { Marks } from "./choose.ts";
 import { choiceOf, optionOf } from "./choose.ts";
 import { descriptionOf, headingIn, textOf } from "./describe.ts";

@@ -31,7 +31,10 @@ tests load. A hooks half may import the model as types only.
   propose first.
 - An extension imports `src/workshop/`, `src/runtime/` and its own folder, never another part's.
   It reads the review through `src/review/contract.ts`, as types, and takes a value of the
-  review's from `src/review/surface.ts` alone, a file frozen as `PAGE_SURFACE` is. From a runtime's folder it imports, for a half it fills, the files `SURFACES` lists in
+  review's from the files `REVIEW_SURFACE` lists in `src/boundaries.spec.ts` alone, frozen as
+  `PAGE_SURFACE` is: `surface.ts`, and `composer.tsx` for the composer, which `surface.ts` does
+  not carry since the mockup's frame script loads it. From a runtime's folder it imports, for a
+  half it fills, the files `SURFACES` lists in
   `src/boundaries.spec.ts` (`PAGE_SURFACE` of `src/runtime/page/`, `slice.ts` of
   `src/runtime/server/`, types of `src/runtime/hooks/`, the last two from `server.ts` and
   `hooks.ts` alone, never from the page half or the model): one more is a decision to take, not a

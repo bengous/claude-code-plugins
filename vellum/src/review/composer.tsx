@@ -1,13 +1,13 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "preact/hooks";
 
-import type { ElementRef, Mark, Passage, QuickLabel } from "../../review/contract.ts";
-import { QUICK_LABELS } from "../../review/feedback.ts";
-import type { ProjectPath } from "../../workshop/paths.ts";
-import { Button, Chip, Popover } from "./kit.tsx";
-import { quoteOf, whereOf } from "./labels.ts";
-import type { Rect } from "./place.ts";
-import { placeNear } from "./place.ts";
-import { setTyped, typed } from "./state.ts";
+import { Button, Chip, Popover } from "../runtime/page/kit.tsx";
+import { quoteOf, whereOf } from "../runtime/page/labels.ts";
+import type { Rect } from "../runtime/page/place.ts";
+import { placeNear } from "../runtime/page/place.ts";
+import { setTyped, typed } from "../runtime/page/state.ts";
+import type { ProjectPath } from "../workshop/paths.ts";
+import type { ElementRef, Mark, Passage, QuickLabel } from "./feedback.ts";
+import { QUICK_LABELS } from "./feedback.ts";
 
 /** One chosen place: a passage of a text, or an element of a mockup; the popover says it in the page's words. */
 export type Pick = { readonly key: string } & (

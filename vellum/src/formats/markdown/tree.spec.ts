@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 
 import type { Root, RootContent } from "hast";
 
-import { parseLines } from "../../runtime/page/anchoring.ts";
+import { parseLines } from "../../review/surface.ts";
 import { toTree } from "./tree.ts";
 
 /** The property `name` of every `tag` element of the tree, in document order. */

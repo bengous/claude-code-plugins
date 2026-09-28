@@ -1,10 +1,10 @@
 import { useEffect, useRef, useState } from "preact/hooks";
 
+import { Composer } from "../../review/composer.tsx";
 import type { ElementRef } from "../../review/contract.ts";
 import { choicesIn } from "../../review/surface.ts";
 import type { PageHalf, RendererProps } from "../../runtime/extension.ts";
 import { docUrl } from "../../runtime/page/api.ts";
-import { Composer } from "../../runtime/page/composer.tsx";
 import { srgb } from "../../runtime/page/kit.tsx";
 import type { Rect } from "../../runtime/page/place.ts";
 import { windowOf } from "../../runtime/page/place.ts";

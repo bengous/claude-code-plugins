@@ -25,8 +25,11 @@ const RUNTIME = `${SRC}/runtime`;
 /** The review, the frame the parts plug into: a part reads it through its `contract.ts`, as types. */
 const REVIEW = `${SRC}/review`;
 
-/** The review's values a part may use, frozen in that one file. */
-const REVIEW_SURFACE = `${REVIEW}/surface.ts`;
+/**
+ * What a part imports of the review by value, frozen: `surface.ts`, and the composer in its own
+ * file, since the mockup's frame script loads `surface.ts` and must not load the page's store.
+ */
+const REVIEW_SURFACE = ["surface.ts", "composer.tsx"].map((file) => `${REVIEW}/${file}`);
 
 /** The review's tool and its turn-end gate, as `runtime/hooks/register.ts` imports them. */
 const REVIEW_HOOKS = "../../review/hooks.ts";
@@ -35,16 +38,7 @@ const REVIEW_HOOKS = "../../review/hooks.ts";
 const PART_GROUPS = ["steps", "formats"];
 
 /** The `runtime/page` files the parts import today, frozen: one more is a decision to take. */
-const PAGE_SURFACE = [
-  "anchoring.ts",
-  "api.ts",
-  "composer.tsx",
-  "highlights.ts",
-  "kit.tsx",
-  "place.ts",
-  "selection.ts",
-  "state.ts",
-];
+const PAGE_SURFACE = ["api.ts", "highlights.ts", "kit.tsx", "place.ts", "state.ts"];
 
 /**
  * What a part imports of a runtime's folder, frozen: one more is a decision to take. The half it
@@ -295,6 +289,26 @@ describe("dependency direction", () => {
     expect(reaching).toEqual([]);
   });
 
+  test("the server and the hooks module load no page: no Preact, no component, the review's included", () => {
+    const entries = ["src/runtime/server/cli.ts", "src/runtime/hooks/register.ts"];
+
+    const loaded = entries.flatMap((entry) =>
+      loadedBy(`${ROOT}/${entry}`)
+        .filter((file) => file.startsWith("preact") || file.endsWith(".tsx"))
+        .map((file) => `${entry} loads ${file.startsWith(`${ROOT}/`) ? short(file) : file}`),
+    );
+
+    expect(loaded).toEqual([]);
+  });
+
+  test("the mockup's frame script loads no Preact and no page store: it runs in the model's document", () => {
+    const loaded = loadedBy(`${SRC}/formats/html/frame.ts`)
+      .filter((file) => file.startsWith("preact") || file.startsWith(`${RUNTIME}/page/`))
+      .map((file) => (file.startsWith(`${ROOT}/`) ? short(file) : file));
+
+    expect(loaded).toEqual([]);
+  });
+
   test("the server, the hooks module and the protocol never import the page", () => {
     const reaching = relativeImports("src/runtime")
       .filter(({ file }) => !file.startsWith(`${RUNTIME}/page/`))
@@ -309,10 +323,12 @@ describe("dependency direction", () => {
 });
 
 describe("the page without a browser", () => {
-  test("every module of the page and of the parts imports with no window: a browser read waits for a call", async () => {
-    const modules = [...sources("src/runtime/page"), ...partSources()].filter(
-      (file) => !BROWSER_ENTRIES.includes(short(file)),
-    );
+  test("every module of the page, of the review and of the parts imports with no window: a browser read waits for a call", async () => {
+    const modules = [
+      ...sources("src/runtime/page"),
+      ...sources("src/review"),
+      ...partSources(),
+    ].filter((file) => !BROWSER_ENTRIES.includes(short(file)));
 
     expect(await failingBareImports(modules)).toEqual([]);
   });
@@ -330,7 +346,7 @@ describe("parts", () => {
           !target.startsWith(`${partOf(file)}/`) &&
           !target.startsWith(`${WORKSHOP}/`) &&
           !target.startsWith(`${RUNTIME}/`) &&
-          target !== REVIEW_SURFACE &&
+          !REVIEW_SURFACE.includes(target) &&
           !typed
         );
       })

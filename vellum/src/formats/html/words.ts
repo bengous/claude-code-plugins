@@ -1,10 +1,5 @@
 import type { WordsContext } from "../../review/contract.ts";
-import {
-  bestOffset,
-  commonPrefix,
-  commonSuffix,
-  CONTEXT_CHARS,
-} from "../../runtime/page/anchoring.ts";
+import { bestOffset, commonPrefix, commonSuffix, CONTEXT_CHARS } from "../../review/surface.ts";
 
 /**
  * Words dragged in a mockup's element, placed by their context and found again whatever the
