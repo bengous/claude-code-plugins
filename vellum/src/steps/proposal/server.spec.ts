@@ -11,12 +11,12 @@ import { serverExtension } from "../../runtime/server/slice.ts";
 import { serverExtensions } from "../../runtime/server/slices.ts";
 import { parseWipDir } from "../../workshop/paths.ts";
 import type { BodyOf, PostOf } from "../../workshop/plugs.ts";
-import type { Move, Proposal, Proposed, StepPlugs, StepState, StepWaited } from "./contract.ts";
+import type { Move, Proposal, Proposed, ProposalPlugs, StepState, StepWaited } from "./contract.ts";
 import { server } from "./server.ts";
 
-type Routes = StepPlugs["server"];
+type Routes = ProposalPlugs["server"];
 
-/** The body each `POST /api/x/step/<name>` takes, by route name. */
+/** The body each `POST /api/x/proposal/<name>` takes, by route name. */
 type StepPosts = {
   readonly [Route in PostOf<Routes> as Route extends `POST ${infer Name}` ? Name : never]: BodyOf<
     Routes,
@@ -100,7 +100,7 @@ async function stepping(dir = mkdtempSync(join(tmpdir(), "vellum-step-"))): Prom
       : fetch(url, { method: "POST", headers, body });
   };
 
-  const post: Stepping["post"] = (name, body) => api(`x/step/${name}`, JSON.stringify(body));
+  const post: Stepping["post"] = (name, body) => api(`x/proposal/${name}`, JSON.stringify(body));
 
   return {
     dir,
@@ -116,7 +116,7 @@ async function stepping(dir = mkdtempSync(join(tmpdir(), "vellum-step-"))): Prom
       return proposed.id;
     },
     // SAFETY: the server's own `StepState`, serialized by `Response.json` in step/server.ts.
-    state: async () => (await (await api("x/step/state")).json()) as StepState,
+    state: async () => (await (await api("x/proposal/state")).json()) as StepState,
     // SAFETY: the server's own `StepWaited`, serialized by `Response.json` in step/server.ts.
     wait: async (id) => (await (await post("wait", { id })).json()) as StepWaited,
     told: async () => {
@@ -129,13 +129,13 @@ async function stepping(dir = mkdtempSync(join(tmpdir(), "vellum-step-"))): Prom
       // SAFETY: the server's own `WorkflowView`, serialized by `Response.json` in routes.ts.
       const view = (await (await api("workflow")).json()) as WorkflowView;
 
-      return view.regions.find(({ id }) => id === "step");
+      return view.regions.find(({ id }) => id === "proposal");
     },
     reviewed: async () => {
       // SAFETY: the server's own `ReviewView`, serialized by `Response.json` in routes.ts.
       const view = (await (await api("review")).json()) as ReviewView;
 
-      return view.workflow.regions.find(({ id }) => id === "step");
+      return view.workflow.regions.find(({ id }) => id === "proposal");
     },
     journaled: () => journal(dir).map(({ event }) => event),
     sentBy: () => journal(dir).map(({ actor, event }) => `${actor} ${event}`),

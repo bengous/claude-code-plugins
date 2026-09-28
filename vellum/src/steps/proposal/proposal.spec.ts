@@ -11,7 +11,7 @@ import { RULES } from "./contract.ts";
 import { regionOf } from "./proposal.ts";
 import { server } from "./server.ts";
 
-const PART = tablePart("step", server.workflow);
+const PART = tablePart("proposal", server.workflow);
 
 const TABLE = tableOf([PART]);
 

@@ -6,14 +6,14 @@ import { extensionRequest } from "../../runtime/page/api.ts";
 import { Banner, Button } from "../../runtime/page/kit.tsx";
 import { connection, fail, review, succeed } from "../../runtime/page/state.ts";
 import type { BodyOf } from "../../workshop/plugs.ts";
-import type { ReviewPlugs, ReviewState } from "./contract.ts";
+import type { AgentReviewPlugs, ReviewState } from "./contract.ts";
 import { failedText, reviewWhy } from "./labels.ts";
 
-const ID: ReviewPlugs["id"] = "review";
+const ID: AgentReviewPlugs["id"] = "agent-review";
 
 /** The routes the page posts, by name, and the body each takes. */
 type Asks = {
-  readonly [Name in "request" | "forget"]: BodyOf<ReviewPlugs["server"], `POST ${Name}`>;
+  readonly [Name in "request" | "forget"]: BodyOf<AgentReviewPlugs["server"], `POST ${Name}`>;
 };
 
 /** The server's last word on the runs, loaded again at every workspace event; `null` before the first answer. */
@@ -82,9 +82,9 @@ function ReviewAction(): preact.JSX.Element | null {
 
   if (button.kind === "running") {
     return (
-      <span class="review-run">
+      <span class="agent-review-run">
         <Button variant="grill" disabled title={button.title}>
-          <span class="review-dot" aria-hidden="true" />
+          <span class="agent-review-dot" aria-hidden="true" />
           Review running…
         </Button>
         <Button
@@ -140,8 +140,8 @@ function ReviewFailed(): preact.JSX.Element | null {
   );
 }
 
-export const page: PageHalf<ReviewPlugs> = {
-  id: "review",
+export const page: PageHalf<AgentReviewPlugs> = {
+  id: "agent-review",
   actions: [ReviewAction],
   notices: [ReviewFailed],
 };

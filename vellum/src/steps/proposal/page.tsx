@@ -4,12 +4,12 @@ import { useEffect } from "preact/hooks";
 import type { PageHalf } from "../../runtime/extension.ts";
 import { extensionRequest } from "../../runtime/page/api.ts";
 import { connection, editing, fail, review, succeed } from "../../runtime/page/state.ts";
-import type { AnswerBody, StepAnswer, StepPlugs, StepState } from "./contract.ts";
+import type { AnswerBody, StepAnswer, ProposalPlugs, StepState } from "./contract.ts";
 import { answerFailure } from "./labels.ts";
 import type { WindowState } from "./modal.ts";
 import { NextStepButton, StepWindow } from "./window.tsx";
 
-const ID: StepPlugs["id"] = "step";
+const ID: ProposalPlugs["id"] = "proposal";
 
 /** The server's last word on the step, loaded again at every workspace event; `null` before the first answer. */
 const step = signal<StepState | null>(null);
@@ -106,8 +106,8 @@ function StepNotice(): preact.JSX.Element {
   );
 }
 
-export const page: PageHalf<StepPlugs> = {
-  id: "step",
+export const page: PageHalf<ProposalPlugs> = {
+  id: "proposal",
   actions: [StepAction],
   notices: [StepNotice],
 };

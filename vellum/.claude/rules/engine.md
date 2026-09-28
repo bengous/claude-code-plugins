@@ -163,7 +163,7 @@ loop. `/vellum:start` enters it, Approve in the page or `/vellum:stop` leaves it
 - A subagent's end is its answer to whoever spawned it: the same `turn.complete` hook, while
   `live`, hands a turn that carries `agentId` to the halves' `agentAnswered` (its id, its final
   text, its reason) and does nothing else, no gate and no `answered`; outside `live` it reaches
-  nobody. A half spawns through `Host.spawnAgent` and keeps nothing of the id: `review` reads its
+  nobody. A half spawns through `Host.spawnAgent` and keeps nothing of the id: `agent-review` reads its
   run off the server at the answer, so an answer after a reload finds it. A subagent vellum
   spawned steps past every other hook of vellum's, its tool calls included, so its final text
   is the one way it speaks back ([Hook runtime](../../../docs/plugin-testing/hook-runtime.md)

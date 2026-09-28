@@ -7,10 +7,10 @@ import type {
   Posted,
 } from "../../runtime/hooks/extension.ts";
 import type { Live } from "../../runtime/hooks/mode.ts";
-import type { Outcome, ReviewPlugs, ReviewState, Run, Stopping } from "./contract.ts";
+import type { Outcome, AgentReviewPlugs, ReviewState, Run, Stopping } from "./contract.ts";
 import { parseClosed, parseReviewState, REVIEWER } from "./parse.ts";
 
-type Context = HooksContext<ReviewPlugs>;
+type Context = HooksContext<AgentReviewPlugs>;
 
 /**
  * How long a run whose agent the engine no longer runs keeps the review before it fails: an
@@ -238,8 +238,8 @@ function taken(told: Told | null): boolean {
   return told === null || told.posted.ok || told.posted.status < 500;
 }
 
-export const hooks: HooksHalf<ReviewPlugs> = {
-  id: "review",
+export const hooks: HooksHalf<AgentReviewPlugs> = {
+  id: "agent-review",
   tools: {},
   answers: {
     "GET state": parseReviewState,

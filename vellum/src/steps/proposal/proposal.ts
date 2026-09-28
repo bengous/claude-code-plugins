@@ -24,9 +24,9 @@ import type {
   Pending,
   Proposal,
   StepAnswer,
-  StepEvents,
-  StepHears,
-  StepPlugs,
+  ProposalEvents,
+  ProposalHears,
+  ProposalPlugs,
 } from "./contract.ts";
 import { answerText, ownText } from "./moves.ts";
 import { parseAnswer, parseJson, parseProposal } from "./parse.ts";
@@ -36,7 +36,7 @@ import { parseAnswer, parseJson, parseProposal } from "./parse.ts";
  * `.review/step.json`, and whether Claude's call still waits on it, which is the server's memory.
  */
 
-export const STEP: StepPlugs["id"] = "step";
+export const PROPOSAL: ProposalPlugs["id"] = "proposal";
 
 /** Where the proposals live, so a restarted server still shows the one waiting. */
 export const STEP_FILE = `${REVIEW_DIR}/step.json`;
@@ -115,18 +115,24 @@ export function regionOf(file: StepFile | null, before: Region | null = null): R
   const known = file ?? EMPTY;
   const data = dataOf(known);
 
-  if (known.pending === null) return { id: STEP, state: "closed", data };
+  if (known.pending === null) return { id: PROPOSAL, state: "closed", data };
 
-  return { id: STEP, state: "open", holds: null, wait: waitAfter(before, known.pending.id), data };
+  return {
+    id: PROPOSAL,
+    state: "open",
+    holds: null,
+    wait: waitAfter(before, known.pending.id),
+    data,
+  };
 }
 
 /** The proposal waiting now, `null` with none. */
 export function pendingOf(w: Workflow): Pending | null {
-  return fileOf(regionIn(w, STEP)).pending;
+  return fileOf(regionIn(w, PROPOSAL)).pending;
 }
 
 function pendingId(w: Workflow): string {
-  return String(regionIn(w, STEP).data.pending ?? "");
+  return String(regionIn(w, PROPOSAL).data.pending ?? "");
 }
 
 function hasPlan(proposal: Proposal): boolean {
@@ -155,12 +161,12 @@ function placed(w: Workflow, file: StepFile, wait: Wait | null): Workflow {
 }
 
 function written(file: StepFile): Effect {
-  return { kind: "writeFile", owner: STEP, file: STEP_FILE, text: `${JSON.stringify(file)}\n` };
+  return { kind: "writeFile", owner: PROPOSAL, file: STEP_FILE, text: `${JSON.stringify(file)}\n` };
 }
 
 /** A newer proposal replaces the one waiting, and Claude's call waits on it. */
-function propose(w: Workflow, input: Carried<StepEvents, "propose">): Outcome {
-  const { pending, answered, dropped } = fileOf(regionIn(w, STEP));
+function propose(w: Workflow, input: Carried<ProposalEvents, "propose">): Outcome {
+  const { pending, answered, dropped } = fileOf(regionIn(w, PROPOSAL));
 
   const next: StepFile = {
     pending: { id: input.id, proposal: proposalOf(input.proposal) },
@@ -176,13 +182,13 @@ function propose(w: Workflow, input: Carried<StepEvents, "propose">): Outcome {
  * result, else a prompt. The window opened blank settles the proposal waiting all the same, since
  * a grill it opens holds the review; `input.opened` is what the extension it starts tells.
  */
-function answerProposal(w: Workflow, input: Carried<StepEvents, "answerProposal">): Outcome {
-  const region = regionIn(w, STEP);
+function answerProposal(w: Workflow, input: Carried<ProposalEvents, "answerProposal">): Outcome {
+  const region = regionIn(w, PROPOSAL);
   const { pending, dropped } = fileOf(region);
   const answer = answerOf(input.answer);
   const told = input.id === "" ? ownText(answer, pending !== null) : answerText(answer, pending);
   const text = input.opened === "" ? told : `${told} ${input.opened}`;
-  const entry: Effect = { kind: "channel", entry: { kind: "text", from: STEP, text } };
+  const entry: Effect = { kind: "channel", entry: { kind: "text", from: PROPOSAL, text } };
 
   if (pending === null) return { workflow: w, effects: [entry] };
 
@@ -200,17 +206,17 @@ function answerProposal(w: Workflow, input: Carried<StepEvents, "answerProposal"
   return { workflow: placed(w, next, null), effects: [entry, written(next), ...returned] };
 }
 
-export const TRANSITIONS: Transitions<StepEvents> = {
+export const TRANSITIONS: Transitions<ProposalEvents> = {
   propose,
-  wait: (w, input) => waitOn(w, STEP, input.id, "open"),
-  pause: (w, input) => waitOn(w, STEP, input.id, "paused"),
+  wait: (w, input) => waitOn(w, PROPOSAL, input.id, "open"),
+  pause: (w, input) => waitOn(w, PROPOSAL, input.id, "paused"),
   answerProposal,
 };
 
 // Its answer to the others' events.
 
 function drop(w: Workflow, why: Dropped): Outcome {
-  const { pending, answered } = fileOf(regionIn(w, STEP));
+  const { pending, answered } = fileOf(regionIn(w, PROPOSAL));
 
   if (pending === null) return unchanged(w);
   const next: StepFile = { pending: null, answered, dropped: { id: pending.id, why } };
@@ -231,7 +237,7 @@ function withoutPlan(proposal: Proposal): Proposal | null {
 
 /** `plan.md` written: the plan step is done, so the proposal waiting offers it no more (D17). */
 function planDone(w: Workflow): Outcome {
-  const region = regionIn(w, STEP);
+  const region = regionIn(w, PROPOSAL);
   const file = fileOf(region);
   const { pending } = file;
 
@@ -250,7 +256,7 @@ function planWritten(w: Workflow): Outcome {
   return planExists(w) ? planDone(w) : unchanged(w);
 }
 
-export const REACTIONS: Reactions<StepHears> = {
+export const REACTIONS: Reactions<ProposalHears> = {
   approve: (w) => drop(w, "approved"),
   planWritten,
   sendEdit: planWritten,
@@ -284,7 +290,7 @@ const IDS = [{ id: "p1" }, { id: "p2" }, { id: "p3" }];
 function answerSample(
   id: string,
   answer: StepAnswer,
-): Sent<StepEvents, "answerProposal"> & Partial<Stamps> {
+): Sent<ProposalEvents, "answerProposal"> & Partial<Stamps> {
   const move = answer.kind === "own" ? "own" : answer.move.kind;
   const subject = answer.kind === "move" && answer.move.kind === "grill" ? answer.move.subject : "";
   const opened = subject === "" ? "" : `The reviewer opened a grill on: ${subject}.`;
@@ -294,7 +300,7 @@ function answerSample(
 
 const GRILL_MOVE: StepAnswer = { kind: "move", move: AUTH_GRILL };
 
-export const SAMPLES: Samples<StepEvents> = {
+export const SAMPLES: Samples<ProposalEvents> = {
   propose: [
     { id: "p1", proposal: JSON.stringify(PLAN_ONLY) },
     { id: "p2", proposal: JSON.stringify(GRILL_OR_PLAN) },
@@ -323,6 +329,6 @@ export function lineOf(region: Region): string {
   const { pending } = fileOf(region);
 
   return region.state === "closed" || pending === null
-    ? "step: none"
-    : `step: proposal ${pending.id} · wait: ${region.wait ?? "none"}`;
+    ? `${PROPOSAL}: none`
+    : `${PROPOSAL}: ${pending.id} · wait: ${region.wait ?? "none"}`;
 }

@@ -480,8 +480,8 @@ describe("what the transcript hears of the session", () => {
     world(on, {
       routes: {
         ...grill.routes,
-        "/api/x/step/propose": () => reply(200, { id: "p1" }),
-        "/api/x/step/wait": () => reply(200, { kind: "answered", seq: 1, text: opened }),
+        "/api/x/proposal/propose": () => reply(200, { id: "p1" }),
+        "/api/x/proposal/wait": () => reply(200, { kind: "answered", seq: 1, text: opened }),
       },
     });
 

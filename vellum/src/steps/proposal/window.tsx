@@ -52,7 +52,7 @@ export function NextStepButton(props: {
     <>
       <Button
         variant="grill"
-        class={waiting === null ? undefined : "step-later"}
+        class={waiting === null ? undefined : "proposal-later"}
         disabled={props.why !== null}
         title={props.why ?? (waiting === null ? undefined : told)}
         onClick={() => {
@@ -123,7 +123,7 @@ export function StepWindow(props: WindowProps): preact.JSX.Element | null {
   return (
     <Dialog
       label={title}
-      class="step-dialog"
+      class="proposal-dialog"
       onCancel={later}
       below={
         <>
@@ -131,24 +131,24 @@ export function StepWindow(props: WindowProps): preact.JSX.Element | null {
         </>
       }
     >
-      <h2 class="step-who">{title}</h2>
-      {pending !== null && state?.paused === true && <p class="step-who">{PAUSED}</p>}
-      {pending !== null && <p class="step-why">{pending.proposal.reason}</p>}
+      <h2 class="proposal-who">{title}</h2>
+      {pending !== null && state?.paused === true && <p class="proposal-who">{PAUSED}</p>}
+      {pending !== null && <p class="proposal-why">{pending.proposal.reason}</p>}
       {pending !== null && (
-        <div class="step-moves" role="radiogroup" aria-label="Next step">
+        <div class="proposal-moves" role="radiogroup" aria-label="Next step">
           {moves.map((move, index) => {
             const recommended = index === pending.proposal.recommended;
 
             return (
-              <label class="step-move" key={index}>
+              <label class="proposal-move" key={index}>
                 <input
                   type="radio"
-                  name="step-move"
+                  name="proposal-move"
                   checked={pick.kind === "move" && pick.index === index}
                   onChange={() => choose({ kind: "move", index })}
                 />
                 <span class="kind">{KIND_LABELS[move.kind]}</span>
-                {recommended && <span class="step-rec">Recommended</span>}
+                {recommended && <span class="proposal-rec">Recommended</span>}
                 <span class="what">{detailOf(move)}</span>
                 {move.kind === "grill" && move.choices.length > 0 && (
                   <span class="choices">{move.choices.join(" · ")}</span>
@@ -156,10 +156,10 @@ export function StepWindow(props: WindowProps): preact.JSX.Element | null {
               </label>
             );
           })}
-          <label class="step-move">
+          <label class="proposal-move">
             <input
               type="radio"
-              name="step-move"
+              name="proposal-move"
               checked={other !== null}
               onChange={() => choose(own)}
             />
@@ -168,7 +168,7 @@ export function StepWindow(props: WindowProps): preact.JSX.Element | null {
         </div>
       )}
       {other !== null && (
-        <div class="step-other">
+        <div class="proposal-other">
           <select
             aria-label="Kind of step"
             value={other.other}
@@ -185,7 +185,7 @@ export function StepWindow(props: WindowProps): preact.JSX.Element | null {
           </select>
           {other.other !== "plan" && (
             <textarea
-              class="step-text"
+              class="proposal-text"
               rows={other.other === "own" ? 3 : 1}
               aria-label={FIELD_HINTS[other.other]}
               placeholder={FIELD_HINTS[other.other]}

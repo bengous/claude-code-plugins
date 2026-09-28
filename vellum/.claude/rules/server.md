@@ -58,7 +58,7 @@ Claude Code's `installed_plugins.json`, `git` with its `GIT_*` variables cleared
   there (P10) and each time the watcher sees its text change (`serve.ts`); the approval is
   refused while it holds a text the version under review lacks (`approve-draft`).
 - An extension starts what another runs through `ServerContext.start(id, input)`, which answers
-  the sentence the started extension tells Claude: `step`'s answer carries the grill's opening in
+  the sentence the started extension tells Claude: `proposal`'s answer carries the grill's opening in
   its one entry. The table judges whether it opens (the grill's rows, declared on `answerProposal`
   too), and the started extension's reaction writes it, in the same step, so two grills never
   open. The core passes `input` on untouched, and the started extension's `parse.ts` reads it.

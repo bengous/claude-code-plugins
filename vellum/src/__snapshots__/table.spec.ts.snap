@@ -40,40 +40,40 @@ sessionEvent · owned by grill · sent by engine · passes a hold
 endGrill · owned by grill · sent by reviewer, engine · passes a hold
   no row
 
-propose · owned by step · sent by claude
-  1. step/held · refuses 409 · while held · "<hold>: no step is proposed until it ends"
-  2. step/plan-over-plan · refuses 409 · when planExists and offersPlan · "plan.md exists: the plan step is done"
+propose · owned by proposal · sent by claude
+  1. proposal/held · refuses 409 · while held · "<hold>: no step is proposed until it ends"
+  2. proposal/plan-over-plan · refuses 409 · when planExists and offersPlan · "plan.md exists: the plan step is done"
 
-wait · owned by step · sent by engine · passes a hold
+wait · owned by proposal · sent by engine · passes a hold
   no row
 
-pause · owned by step · sent by engine · passes a hold
-  1. step/no-such-proposal · refuses the input 404 · when noProposalWaits or namesAnotherProposal · "no such proposal"
+pause · owned by proposal · sent by engine · passes a hold
+  1. proposal/no-such-proposal · refuses the input 404 · when noProposalWaits or namesAnotherProposal · "no such proposal"
 
-answerProposal · owned by step · sent by reviewer
-  1. step/held · refuses 409 · while held · "<hold>"
-  2. step/no-such-proposal · refuses the input 409 · when namesAProposal and namesAnotherProposal · "no such proposal"
+answerProposal · owned by proposal · sent by reviewer
+  1. proposal/held · refuses 409 · while held · "<hold>"
+  2. proposal/no-such-proposal · refuses the input 409 · when namesAProposal and namesAnotherProposal · "no such proposal"
 
-requestReview · owned by review · sent by reviewer
-  1. review/no-version · refuses 409 · when noVersionUnderReview · "no version is under review yet"
-  2. review/other-version · refuses the input 409 · when namesAnotherVersion · "v1 is under review, not v2"
-  3. review/running · refuses 409 · when aRunIsUnderWay · "a review of v1 is running"
-  4. review/held · refuses 409 · while held · "<hold>"
+requestReview · owned by agent-review · sent by reviewer
+  1. agent-review/no-version · refuses 409 · when noVersionUnderReview · "no version is under review yet"
+  2. agent-review/other-version · refuses the input 409 · when namesAnotherVersion · "v1 is under review, not v2"
+  3. agent-review/running · refuses 409 · when aRunIsUnderWay · "a review of v1 is running"
+  4. agent-review/held · refuses 409 · while held · "<hold>"
 
-reviewLaunched · owned by review · sent by engine · passes a hold
-  1. review/no-such-run · refuses the input 409 · when namesNoAskedRun · "no such run"
+reviewLaunched · owned by agent-review · sent by engine · passes a hold
+  1. agent-review/no-such-run · refuses the input 409 · when namesNoAskedRun · "no such run"
 
-reviewDone · owned by review · sent by engine · passes a hold
-  1. review/no-such-run · refuses the input 409 · when namesNoRunUnderWay · "no such run"
-  2. review/never-launched · refuses the input 409 · when answersARunNeverLaunched · "the run was never launched"
+reviewDone · owned by agent-review · sent by engine · passes a hold
+  1. agent-review/no-such-run · refuses the input 409 · when namesNoRunUnderWay · "no such run"
+  2. agent-review/never-launched · refuses the input 409 · when answersARunNeverLaunched · "the run was never launched"
 
-reviewForgotten · owned by review · sent by reviewer · passes a hold
-  1. review/no-such-run · refuses the input 409 · when namesNoRunUnderWay · "no such run"
+reviewForgotten · owned by agent-review · sent by reviewer · passes a hold
+  1. agent-review/no-such-run · refuses the input 409 · when namesNoRunUnderWay · "no such run"
 
-reviewClosed · owned by review · sent by engine · passes a hold
+reviewClosed · owned by agent-review · sent by engine · passes a hold
   no row
 
-reviewStopped · owned by review · sent by engine · passes a hold
-  1. review/no-such-run · refuses the input 409 · when namesNoAgentToStop · "no such run"
+reviewStopped · owned by agent-review · sent by engine · passes a hold
+  1. agent-review/no-such-run · refuses the input 409 · when namesNoAgentToStop · "no such run"
 "
 `;

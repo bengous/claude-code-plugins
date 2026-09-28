@@ -20,12 +20,12 @@ import { serverExtensions } from "../../runtime/server/slices.ts";
 import { parseWipDir } from "../../workshop/paths.ts";
 import type { BodyOf, PostOf } from "../../workshop/plugs.ts";
 import { held } from "../../workshop/workflow.ts";
-import type { Closed, Requested, ReviewPlugs, ReviewState } from "./contract.ts";
+import type { Closed, Requested, AgentReviewPlugs, ReviewState } from "./contract.ts";
 import { server } from "./server.ts";
 
-type Routes = ReviewPlugs["server"];
+type Routes = AgentReviewPlugs["server"];
 
-/** The body each `POST /api/x/review/<name>` takes, by route name. */
+/** The body each `POST /api/x/agent-review/<name>` takes, by route name. */
 type ReviewPosts = {
   readonly [Route in PostOf<Routes> as Route extends `POST ${infer Name}` ? Name : never]: BodyOf<
     Routes,
@@ -92,7 +92,8 @@ async function serving(dir: string): Promise<Reviewing> {
       ? fetch(`${base}${path}`, { headers })
       : fetch(`${base}${path}`, { method: "POST", headers, body });
 
-  const post: Reviewing["post"] = (name, body) => api(`x/review/${name}`, JSON.stringify(body));
+  const post: Reviewing["post"] = (name, body) =>
+    api(`x/agent-review/${name}`, JSON.stringify(body));
 
   const request = async (version = 1): Promise<number> => {
     const response = await post("request", { version });
@@ -110,7 +111,7 @@ async function serving(dir: string): Promise<Reviewing> {
     api,
     post,
     // SAFETY: the server's own `ReviewState`, serialized by `Response.json` from the server half.
-    state: async () => (await (await api("x/review/state")).json()) as ReviewState,
+    state: async () => (await (await api("x/agent-review/state")).json()) as ReviewState,
     request,
     launch: async (version = 1, model = OPUS) => {
       const seq = await request(version);
@@ -402,7 +403,7 @@ describe("a run holds the review", () => {
     await post("launched", { seq, agentId: "agent-1", model: OPUS });
 
     expect(await (await gate()).json()).toEqual(refusal);
-    expect(await (await api("x/step/propose", JSON.stringify(PROPOSAL))).json()).toEqual({
+    expect(await (await api("x/proposal/propose", JSON.stringify(PROPOSAL))).json()).toEqual({
       error: `${HELD}: no step is proposed until it ends`,
     });
     expect(existsSync(join(dir, WIP, ".review/v2.md"))).toBe(false);
@@ -453,10 +454,10 @@ describe("a run holds the review", () => {
 
   test("an open grill refuses a review: one hold at a time", async () => {
     const { api, post } = await reviewing();
-    const proposed = await api("x/step/propose", JSON.stringify(PROPOSAL));
+    const proposed = await api("x/proposal/propose", JSON.stringify(PROPOSAL));
     // SAFETY: the step server's own `Proposed`, serialized by `Response.json` from its server half.
     const { id } = (await proposed.json()) as { readonly id: string };
-    await api("x/step/answer", JSON.stringify({ id, answer: { kind: "move", move: GRILL } }));
+    await api("x/proposal/answer", JSON.stringify({ id, answer: { kind: "move", move: GRILL } }));
     const refused = await post("request", { version: 1 });
 
     expect(refused.status).toBe(409);

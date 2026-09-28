@@ -48,7 +48,7 @@ tests load. A hooks half may import the model as types only.
   tells of, and the core relays each entry once. It tells what its write added, never the file's
   last voice: `grill` tells the transcript's entries past those the file held before the write
   (`relaysOf`, then `told` in `grill/grill.ts`), so the reply End grill writes and the end both
-  go, and a block written into the file by hand is not told. `step`'s answer to its one proposal
+  go, and a block written into the file by hand is not told. `proposal`'s answer to its one proposal
   carries, in its one entry, what the grill it opened tells (`start`).
 - What the reviewer sends leaves with the core's one Send, never a route of the extension's.
   `part` answers, writing nothing, what the bar's Send takes of the extension, never a Send now:
@@ -62,7 +62,7 @@ tests load. A hooks half may import the model as types only.
   hands it the answer (`returnToCall`, read with `ServerContext.returned`), and `POST wait` is
   held by `ServerContext.hold`, `WAIT_HOLD_MS` under the engine's 30 s cut, read again after
   every step; it answers the entry number and the text the tool returns, an end, or still open.
-  `step` keeps its proposal, the last one answered and the last one dropped, and why (replaced,
+  `proposal` keeps its proposal, the last one answered and the last one dropped, and why (replaced,
   approved, written), in `.review/step.json`: a restarted server shows the proposal again,
   paused, since no call survives it, and a pick then reaches Claude as a prompt; the call's wait
   posted again opens it again, once (`wait`: a repost while it waits is a keepalive). A turn cut

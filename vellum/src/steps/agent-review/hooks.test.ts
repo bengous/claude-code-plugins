@@ -329,7 +329,7 @@ describe("a run whose agent the engine no longer runs", () => {
     const review = reviewRoutes(RUNNING);
     let closed = false;
     const state: Route = () => (closed ? null : reply(200, review.state));
-    const seen = world(on, { routes: { ...review.routes, "/api/x/review/state": state } });
+    const seen = world(on, { routes: { ...review.routes, "/api/x/agent-review/state": state } });
     agents(on);
     stops(on);
     await $.skill.prompt(START_PROMPT);

@@ -6,9 +6,9 @@ import { parseWipDir } from "../../workshop/paths.ts";
 import type { EndsWithoutVerdict } from "../../workshop/rows.ts";
 import { rows } from "../../workshop/rows.ts";
 import type { Workflow } from "../../workshop/workflow.ts";
-import type { StepPlugs } from "../proposal/contract.ts";
+import type { ProposalPlugs } from "../proposal/contract.ts";
 import { ENDS_WITHOUT_VERDICT, regionOf } from "./agent-review.ts";
-import type { ReviewEvents, ReviewPlugs } from "./contract.ts";
+import type { AgentReviewEvents, AgentReviewPlugs } from "./contract.ts";
 import { SLICE } from "./contract.ts";
 import { hooks } from "./hooks.ts";
 import { parseClosed } from "./parse.ts";
@@ -32,7 +32,9 @@ const W: Workflow = {
 const REFUSED: Posted<never> = { ok: false, status: 409, text: "", reason: null };
 
 /** A client's reads, recorded: every route asked, each refused. */
-function reading<P extends ReviewPlugs | StepPlugs>(read: string[]): HooksContext<P>["get"] {
+function reading<P extends AgentReviewPlugs | ProposalPlugs>(
+  read: string[],
+): HooksContext<P>["get"] {
   return (route) => {
     read.push(route);
 
@@ -44,7 +46,7 @@ describe("the hooks half hears a subagent's end, and reads its own server half",
   test("a hooks half without agentAnswered does not compile: the plan reviewer's verdict would reach nobody", () => {
     const { agentAnswered: _answered, ...rest } = hooks;
     // @ts-expect-error -- the plugs declare the listener `agentAnswered`.
-    const half: HooksHalf<ReviewPlugs> = rest;
+    const half: HooksHalf<AgentReviewPlugs> = rest;
 
     expect(engineExtension(half).agentAnswered).toBeUndefined();
   });
@@ -53,7 +55,7 @@ describe("the hooks half hears a subagent's end, and reads its own server half",
     const read: string[] = [];
 
     // @ts-expect-error -- the hooks half reads `GET state`, and posts `POST close`.
-    await reading<ReviewPlugs>(read)("POST close");
+    await reading<AgentReviewPlugs>(read)("POST close");
 
     expect(read).toEqual(["POST close"]);
   });
@@ -62,22 +64,22 @@ describe("the hooks half hears a subagent's end, and reads its own server half",
     const read: string[] = [];
 
     // @ts-expect-error -- the step's plugs declare no `gets`.
-    await reading<StepPlugs>(read)("GET state");
+    await reading<ProposalPlugs>(read)("GET state");
 
     expect(read).toEqual(["GET state"]);
   });
 
   test("a parser of GET state reading another answer does not compile: every stage line would find no run", () => {
     // @ts-expect-error -- `GET state` answers a `ReviewState`, and `parseClosed` reads `{ stopping }`.
-    const answers: Answers<ReviewPlugs> = { ...hooks.answers, "GET state": parseClosed };
+    const answers: Answers<AgentReviewPlugs> = { ...hooks.answers, "GET state": parseClosed };
 
     expect(JSON.stringify(answers["GET state"]({ stopping: [] }))).toBe('{"stopping":[]}');
   });
 
   test("a route the hooks half reads that the server does not declare does not compile: nothing would answer it", () => {
-    type Stray = Omit<ReviewPlugs, "hooks"> & {
-      readonly hooks: Omit<ReviewPlugs["hooks"], "gets"> & {
-        readonly gets: ReviewPlugs["hooks"]["gets"] | "GET runs";
+    type Stray = Omit<AgentReviewPlugs, "hooks"> & {
+      readonly hooks: Omit<AgentReviewPlugs["hooks"], "gets"> & {
+        readonly gets: AgentReviewPlugs["hooks"]["gets"] | "GET runs";
       };
     };
 
@@ -110,7 +112,7 @@ describe("a row's words and a hold's end read what the event carries", () => {
   });
 
   test("an end without a verdict on an event the review does not own does not compile: the notice would never read it", () => {
-    const ends: EndsWithoutVerdict<ReviewEvents> = {
+    const ends: EndsWithoutVerdict<AgentReviewEvents> = {
       ...ENDS_WITHOUT_VERDICT,
       // @ts-expect-error -- the review owns no `approve`: the core's approval ends a run.
       approve: () => true,
@@ -120,7 +122,7 @@ describe("a row's words and a hold's end read what the event carries", () => {
   });
 
   test("an end without a verdict reading a field its event does not carry does not compile", () => {
-    const ends: EndsWithoutVerdict<ReviewEvents> = {
+    const ends: EndsWithoutVerdict<AgentReviewEvents> = {
       reviewForgotten: (input) => {
         // @ts-expect-error -- `reviewForgotten` carries `seq` alone.
         return input.outcome !== "answer";

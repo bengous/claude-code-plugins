@@ -2,7 +2,7 @@ import type { ProjectPath } from "../../workshop/paths.ts";
 import type { PlugsOf } from "../../workshop/plugs.ts";
 import { core, defineSlice, get, getWith, heard, payload, post } from "../../workshop/plugs.ts";
 import { rows } from "../../workshop/rows.ts";
-import type { StepEvents } from "../proposal/contract.ts";
+import type { ProposalEvents } from "../proposal/contract.ts";
 import { grillIsOpen, namesNoSubject, noGrillIsOpen, openTranscript } from "./grill.ts";
 import { NO_GRILL_OPEN } from "./parse.ts";
 
@@ -110,7 +110,7 @@ export const SLICE = defineSlice({
    * The step's answer, which opens a grill on a grill move; the core's Send, whose part closes the
    * round; the core's approval, which closes the grill.
    */
-  hears: { answerProposal: heard<StepEvents["answerProposal"]>(), send: core, approve: core },
+  hears: { answerProposal: heard<ProposalEvents["answerProposal"]>(), send: core, approve: core },
   hooks: {
     tools: ["grill_ask"],
     listens: ["prompted", "answered", "closing"],

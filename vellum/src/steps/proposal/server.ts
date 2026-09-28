@@ -5,7 +5,7 @@ import { waitedOn } from "../../workshop/waits.ts";
 import { regionIn } from "../../workshop/workflow.ts";
 import { projectPath } from "../../workshop/workspace.ts";
 import type { GrillPlugs } from "../grill/contract.ts";
-import type { Proposed, StepPlugs } from "./contract.ts";
+import type { Proposed, ProposalPlugs } from "./contract.ts";
 import { RULES, SLICE } from "./contract.ts";
 import { BODIES, parseJson, parseStepFile } from "./parse.ts";
 import type { StepFile } from "./proposal.ts";
@@ -16,12 +16,12 @@ import {
   regionOf,
   SAMPLES,
   segmentOf,
-  STEP,
+  PROPOSAL,
   STEP_FILE,
   TRANSITIONS,
 } from "./proposal.ts";
 
-type Context = SliceContext<StepPlugs>;
+type Context = SliceContext<ProposalPlugs>;
 
 /** Before any event: no row judges a directory the server lost. */
 const DIRECTORY_GONE: Reply<never> = {
@@ -48,14 +48,14 @@ async function readStep(
   return file;
 }
 
-export const server: ServerHalf<StepPlugs> = {
-  id: "step",
+export const server: ServerHalf<ProposalPlugs> = {
+  id: "proposal",
   bodies: BODIES,
   routes: {
     // In the queue: a step writes step.json before it keeps its wait in memory, and a read between
     // the two would take a proposal Claude's call waits on for a paused one.
     "GET state": async (context) => {
-      const region = regionIn(await context.inOrder(() => context.workflow()), STEP);
+      const region = regionIn(await context.inOrder(() => context.workflow()), PROPOSAL);
 
       return {
         answer: {
@@ -77,7 +77,7 @@ export const server: ServerHalf<StepPlugs> = {
     "POST wait": (context, { id }) =>
       heldWait(
         context,
-        STEP,
+        PROPOSAL,
         id,
         () => context.dispatch("wait", { id }),
         async () => waitedOn(await readStep(context), id),

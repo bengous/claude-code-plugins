@@ -14,19 +14,19 @@ import {
   NO_RUNS,
   REACTIONS,
   regionOf,
-  REVIEW,
+  AGENT_REVIEW,
   REVIEWS_FILE,
   reviewsOf,
   SAMPLES,
   segmentOf,
   TRANSITIONS,
 } from "./agent-review.ts";
-import type { ReviewPlugs, Reviews, ReviewState } from "./contract.ts";
+import type { AgentReviewPlugs, Reviews, ReviewState } from "./contract.ts";
 import { RULES, SLICE } from "./contract.ts";
 import { REVIEWS_DIR, reviewFile } from "./names.ts";
 import { BODIES, parseJson, parseReviews } from "./parse.ts";
 
-type Context = SliceContext<ReviewPlugs>;
+type Context = SliceContext<AgentReviewPlugs>;
 
 /** Before any event (F6): no row judges a directory the server lost. */
 const DIRECTORY_GONE: Reply<never> = {
@@ -89,8 +89,8 @@ async function stepped(
   return verdict.kind === "allow" ? { answer: null } : { refused: verdict };
 }
 
-export const server: ServerHalf<ReviewPlugs> = {
-  id: "review",
+export const server: ServerHalf<AgentReviewPlugs> = {
+  id: "agent-review",
   bodies: BODIES,
   routes: {
     "GET state": (context) =>
@@ -111,7 +111,7 @@ export const server: ServerHalf<ReviewPlugs> = {
 
       if (verdict.kind !== "allow") return { refused: verdict };
 
-      return { answer: { seq: reviewsOf(regionIn(workflow, REVIEW)).seq } };
+      return { answer: { seq: reviewsOf(regionIn(workflow, AGENT_REVIEW)).seq } };
     },
 
     "POST launched": (context, { seq, agentId, model }) =>

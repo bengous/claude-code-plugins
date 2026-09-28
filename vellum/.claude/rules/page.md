@@ -167,7 +167,7 @@ no build step, so what the page imports costs nothing at `cli start`.
   offers when it offers one, and the next success of that operation removes it
   (`succeed`); the stale editor derives from `editing` and the version, so its notice leaves
   with the editor; a card's Delete leaves an `undo` for a while. `app.tsx` draws the column with
-  `Notices`, the core's first (`notices` of `workflow.ts`), then each extension's `notices` components: `step`'s window is
+  `Notices`, the core's first (`notices` of `workflow.ts`), then each extension's `notices` components: `proposal`'s window is
   one, a `Dialog`, shown while it is mounted, and the grill's band another, drawn while a grill is
   open: the subject, the round, the questions that wait for the reviewer, open and untouched in the draft as the chips count them, and End grill. End grill is one component, `EndGrill` in `grill/page.tsx`, which the panel draws too once Claude's turn ended, with one end in flight for the page. Its
   count alone is `role="status"`, drawn empty with none waiting, so a new count is read out and
@@ -300,7 +300,7 @@ no build step, so what the page imports costs nothing at `cli start`.
   refreshes what is on screen may fail in silence, since the next workspace event reads again:
   `loadState` in `grill/page.tsx`, which keeps the state it read last, and the open transcript's
   blocks with it, so the grill's panel and its band stay as the reviewer left them, but for an
-  approved page, where the approval closed the grill (`drawn`); `step`'s Next step button and
+  approved page, where the approval closed the grill (`drawn`); `proposal`'s Next step button and
   window read none past a refused read (`read` in `proposal/page.tsx`), which puts the window on
   screen off onto the dot. `approve` of `workflow.ts` answers whether the server took the approval
   (`decide` of `state.ts` posts it and clears the draft), and the notes popover closes on that

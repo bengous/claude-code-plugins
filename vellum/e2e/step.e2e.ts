@@ -91,7 +91,7 @@ async function stepRegion(vellum: Vellum): Promise<WorkflowView["regions"][numbe
   // SAFETY: the server's own `WorkflowView`, serialized by `Response.json` in routes.ts.
   const view = (await vellum.api("workflow")).json as WorkflowView;
 
-  return view.regions.find(({ id }) => id === "step");
+  return view.regions.find(({ id }) => id === "proposal");
 }
 
 async function propose(vellum: Vellum, proposed: Proposal = PROPOSAL): Promise<string> {
@@ -128,7 +128,7 @@ async function hold(page: Page, url: string): Promise<() => Promise<void>> {
 /** Runs `write`, then waits for the page's next read of the step's state, answered `status`. */
 async function readAfter(page: Page, status: number, write: () => void): Promise<void> {
   const read = page.waitForResponse(
-    (response) => response.url().includes("/x/step/state") && response.status() === status,
+    (response) => response.url().includes("/x/proposal/state") && response.status() === status,
   );
 
   write();
@@ -147,7 +147,7 @@ test("a proposal opens a window on its reason and its moves, none checked, and t
   await propose(vellum);
   const window = proposal(page);
 
-  await expect(window.locator(".step-why")).toHaveText(PROPOSAL.reason);
+  await expect(window.locator(".proposal-why")).toHaveText(PROPOSAL.reason);
   await expect(window.getByRole("radio")).toHaveCount(4);
 
   for (const radio of await window.getByRole("radio").all()) await expect(radio).not.toBeChecked();
@@ -165,9 +165,9 @@ test("the move Claude recommends is marked, never checked, and Choose is greyed 
   await propose(vellum, NEXT);
   const window = proposal(page);
 
-  await expect(window.locator(".step-move", { has: page.locator(".step-rec") })).toContainText(
-    "the settings window",
-  );
+  await expect(
+    window.locator(".proposal-move", { has: page.locator(".proposal-rec") }),
+  ).toContainText("the settings window");
   await expect(move(window, /^Mockup/u)).not.toBeChecked();
   await expect(choose(window)).toBeDisabled();
   await move(window, /^Mockup/u).check();
@@ -301,7 +301,7 @@ test("an answer in flight draws no dot", async ({ page, vellum }) => {
   await openVellum(page, vellum);
   await propose(vellum);
   // Never answered: the answer stays in flight until the page closes.
-  await page.route("**/x/step/answer", () => null);
+  await page.route("**/x/proposal/answer", () => null);
   await move(proposal(page), /^Prototype/u).check();
   await choose(proposal(page)).click();
   await expect(proposal(page)).toHaveCount(0);
@@ -333,7 +333,7 @@ test("a proposal that replaced the one answered, seen once the answer is refused
   await openVellum(page, vellum);
   await propose(vellum);
   await expect(proposal(page)).toBeVisible();
-  const release = await hold(page, "**/x/step/state");
+  const release = await hold(page, "**/x/proposal/state");
   await propose(vellum, NEXT);
   await move(proposal(page), /^Prototype/u).check();
   await choose(proposal(page)).click();
@@ -348,8 +348,8 @@ test("a proposal seen while an answer is in flight waits on the dot", async ({ p
   await openVellum(page, vellum);
   await propose(vellum);
   await expect(proposal(page)).toBeVisible();
-  const state = await hold(page, "**/x/step/state");
-  const answer = await hold(page, "**/x/step/answer");
+  const state = await hold(page, "**/x/proposal/state");
+  const answer = await hold(page, "**/x/proposal/answer");
   await propose(vellum, NEXT);
   await move(proposal(page), /^Prototype/u).check();
   await choose(proposal(page)).click();
@@ -463,7 +463,7 @@ test("Choose is greyed with the Next step button's reason, and Enter sends nothi
   await expect(proposal(page)).toBeVisible();
   const answers: string[] = [];
   page.on("request", (request) => {
-    if (request.url().endsWith("/x/step/answer")) answers.push(request.url());
+    if (request.url().endsWith("/x/proposal/answer")) answers.push(request.url());
   });
   await move(proposal(page), /^Something else/u).check();
   await proposal(page).getByRole("textbox").fill("Where do drafts live?");
@@ -495,7 +495,7 @@ test("the Next step button comes back once the grill ends, its own state's reads
   await vellum.grill.open(SUBJECT);
   await openVellum(page, vellum);
   await expect(nextStep(page)).toHaveCount(0);
-  await page.route("**/api/x/step/state*", (route) => route.fulfill({ status: 500 }));
+  await page.route("**/api/x/proposal/state*", (route) => route.fulfill({ status: 500 }));
   await vellum.grill.close();
 
   await expect(page.locator(".bar .status")).toHaveText("In review");
@@ -509,7 +509,7 @@ test("a refused read puts the window off onto the dot, where it stays at the nex
   await openVellum(page, vellum);
   await propose(vellum);
   await expect(proposal(page)).toBeVisible();
-  await page.route("**/api/x/step/state*", (route) => route.fulfill({ status: 500 }), {
+  await page.route("**/api/x/proposal/state*", (route) => route.fulfill({ status: 500 }), {
     times: 1,
   });
   await readAfter(page, 500, () => vellum.writeFile("notes.md", "One."));
@@ -547,13 +547,13 @@ test("the window's words read on their surfaces, light and dark: axe sees none i
 
   for (const colorScheme of ["light", "dark"] as const) {
     await page.emulateMedia({ colorScheme });
-    expect(await ratio(card.locator(".step-who"), card)).toBeGreaterThanOrEqual(4.5);
-    expect(await ratio(card.locator(".step-why"), card)).toBeGreaterThanOrEqual(4.5);
+    expect(await ratio(card.locator(".proposal-who"), card)).toBeGreaterThanOrEqual(4.5);
+    expect(await ratio(card.locator(".proposal-why"), card)).toBeGreaterThanOrEqual(4.5);
     expect(
-      await ratio(card.locator(".step-rec"), card.locator(".step-rec")),
+      await ratio(card.locator(".proposal-rec"), card.locator(".proposal-rec")),
     ).toBeGreaterThanOrEqual(4.5);
 
-    for (const words of await card.locator(".step-move > span").all()) {
+    for (const words of await card.locator(".proposal-move > span").all()) {
       expect(await onItsSurface(words)).toBeGreaterThanOrEqual(4.5);
     }
 

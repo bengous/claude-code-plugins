@@ -156,7 +156,7 @@ export type HeardDecl<Carries extends readonly string[]> = {
 /** An event of the core's, heard by name: the core declares no fields. */
 export type HeardFromCore = { readonly from: "core" };
 
-/** `heard<StepEvents["answerProposal"]>()`: another slice's event, typed by its contract. */
+/** `heard<ProposalEvents["answerProposal"]>()`: another slice's event, typed by its contract. */
 export function heard<E extends { readonly carries: readonly string[] }>(): HeardDecl<
   E["carries"]
 > {

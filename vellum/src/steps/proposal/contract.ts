@@ -1,6 +1,5 @@
 /**
  * The proposal step: Claude proposes the next steps, one recommended, and the reviewer picks one.
- * Its id, `step`, is not its folder's: it is on the wire, in `.review/step.json` and in journals.
  * Other folders import this file and nothing else of the folder. The hooks module and the page
  * read it as types: its values, the events and the rows, are the server's.
  */
@@ -10,7 +9,7 @@ import { allOf, anyOf, rows } from "../../workshop/rows.ts";
 import { planExists } from "../../workshop/workflow.ts";
 import { namesAnotherProposal, namesAProposal, noProposalWaits, offersPlan } from "./proposal.ts";
 
-// The wire: what crosses `/api/x/step/*` between the hooks module, the server and the page.
+// The wire: what crosses `/api/x/proposal/*` between the hooks module, the server and the page.
 
 /** A step Claude may take next; for a grill, `choices` are the titles of the choices it would settle. */
 export type Move =
@@ -62,7 +61,7 @@ export type StepWaited =
 // The declaration: the events it owns, those it hears, and where each half plugs in.
 
 export const SLICE = defineSlice({
-  id: "step",
+  id: "proposal",
   events: {
     propose: { by: ["claude"], carries: ["id", "proposal"] },
     wait: { by: ["engine"], carries: ["id"] },
@@ -88,11 +87,11 @@ export const SLICE = defineSlice({
   page: ["actions", "notices"],
 });
 
-export type StepPlugs = PlugsOf<typeof SLICE>;
+export type ProposalPlugs = PlugsOf<typeof SLICE>;
 
-export type StepEvents = StepPlugs["events"];
+export type ProposalEvents = ProposalPlugs["events"];
 
-export type StepHears = StepPlugs["hears"];
+export type ProposalHears = ProposalPlugs["hears"];
 
 // What is refused, read top to bottom per event, with the status its route answers.
 

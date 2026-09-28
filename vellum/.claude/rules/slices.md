@@ -37,7 +37,7 @@ The tests read the registries, so no suite lists the slices, their regions or th
 test that must change for a new slice is a test to fix, and saying so is part of the change. An
 event's id is global across the core and every part: `tableOf` refuses one declared twice, naming
 both owners, so a slice names its events after itself (`askQuestion`, `answerProposal`), never a
-bare verb another part may take (`wait`, `pause` are the step's already).
+bare verb another part may take (`wait`, `pause` are the proposal's already).
 
 - `contract.ts` holds the wire, the types crossing `/api/x/<id>/`, and one declaration,
   `export const SLICE = defineSlice({...})` (`workshop/plugs.ts`): the id, the events it owns with their
@@ -51,8 +51,8 @@ bare verb another part may take (`wait`, `pause` are the step's already).
 - A slice's id, its events and its tools take the words of `vellum/CONTEXT.md`, the glossary: a
   word it lists under `_Avoid_` or gives another meaning is not a name. The folder takes the
   glossary's word for what the slice is; the id is the one `contract.ts` declares, which every
-  half carries, and it does not follow the folder: it is on the wire, in `.review/` file names
-  and in journals (`steps/proposal/` is `step`).
+  half carries: it is on the wire, the routes' `/api/x/<id>/`, a channel entry's `from`, the
+  table's owners and a region's line, so it takes the glossary's word too.
 - An event heard is another slice's, `heard<ItsEvents["name"]>()`, typed by that slice's contract,
   each field possibly absent; or the core's, `core`, by a name the core has, fields untyped.
 - `RULES` come from `rows(SLICE)`: `refuse(event, id, guard, status, reason)` on an event the slice

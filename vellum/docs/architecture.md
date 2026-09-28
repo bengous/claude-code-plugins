@@ -122,9 +122,9 @@ sequenceDiagram
   participant S as vellum serve
   participant P as page
   C->>M: tool.call propose {reason, moves, recommended}
-  M->>S: POST /api/x/step/propose, pending under a new id (refused while a grill holds the review), then POST wait, held under 30 s, again and again
+  M->>S: POST /api/x/proposal/propose, pending under a new id (refused while a grill holds the review), then POST wait, held under 30 s, again and again
   S-->>P: workspace event, the "Next step" window over the page, or the Next step button's dot under a typing
-  P->>S: POST /api/x/step/answer {id, answer}: a move picked, one of the reviewer's own, or their words
+  P->>S: POST /api/x/proposal/answer {id, answer}: a move picked, one of the reviewer's own, or their words
   S->>S: a grill picked: ServerContext.start("grill") words its opening, writing nothing
   S->>S: one step: next() judges answerProposal, the step's hold row refusing it while a grill is open, and answers the effects
   S->>S: one text entry on the channel: "Accepted: <move>." | "Chose: <move>." | "Own: <text>.", the opening after it; the grill's reaction writes grill-1.md, its header
@@ -173,7 +173,7 @@ of the working directory alone; the end names the file. Every relay keeps the pl
 the lock lets Claude write in the working directory, the channel included, so an entry proves
 no human wrote it, and it must never reach Claude as the user's own words.
 
-What to do next is `step`'s, never the grill's: `propose` offers moves (a grill, a mockup, a
+What to do next is `proposal`'s, never the grill's: `propose` offers moves (a grill, a mockup, a
 prototype, the plan) and marks the one Claude recommends, which the window never checks. The
 proposal is kept in `.review/step.json`, one at a time; whether Claude's call still waits on it
 is the server's memory. A new one replaces it, the approval takes it, and `plan.md` written takes
@@ -212,7 +212,7 @@ sequenceDiagram
   participant S as vellum serve
   participant M as hooks module
   participant A as plan reviewer
-  P->>S: POST /api/x/review/request {version}, in `inReview` alone: a run `requested`, under a new number
+  P->>S: POST /api/x/agent-review/request {version}, in `inReview` alone: a run `requested`, under a new number
   S-->>M: stdout: the stage
   M->>S: GET state, then $.agent.spawn vellum:plan-reviewer on .review/vN.md
   M->>S: POST launched {seq, agentId, model}: the run is `running`
@@ -225,7 +225,7 @@ The run lives in `.review/reviews.json`, so a restarted server still knows it an
 the engine half keeps only timers, and reads the run from the server each time a `stage` line
 comes, whose `review · running` segment the server words. A run holds the review from its
 request to its end, as the review region says (`Region.holds`): no version of Claude's is
-recorded and `step` takes no proposal; when Claude wrote `plan.md` meanwhile, the run's end
+recorded and `proposal` takes no proposal; when Claude wrote `plan.md` meanwhile, the run's end
 tells it once (the notice), and the end of Claude's next turn records the version. A run whose agent was killed or
 failed ends at once, one gone without an answer after `GRACE_MS`; the ✕ (`forget`), `/vellum:stop` and the approval give it
 up and stop its agent. The agent reads files only (`agents/plan-reviewer.md`), so vellum writes

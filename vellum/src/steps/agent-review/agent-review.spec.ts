@@ -12,7 +12,7 @@ import type { Run, Stopping } from "./contract.ts";
 import { RULES } from "./contract.ts";
 import { server } from "./server.ts";
 
-const PART = tablePart("review", server.workflow);
+const PART = tablePart("agent-review", server.workflow);
 
 const TABLE = tableOf([PART]);
 

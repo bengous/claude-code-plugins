@@ -72,10 +72,10 @@ export function reviewRoutes(
     posted,
     state: { run, failed: null, stopping: [] },
     routes: {
-      "/api/x/review/state": () => reply(200, served.state),
+      "/api/x/agent-review/state": () => reply(200, served.state),
       ...Object.fromEntries(
         ["launched", "ended", "close", "stopped"].map((name) => [
-          `/api/x/review/${name}`,
+          `/api/x/agent-review/${name}`,
           post(name),
         ]),
       ),

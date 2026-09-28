@@ -6,7 +6,7 @@ import type {
   Launched,
   Outcome,
   ReviewAsked,
-  ReviewPlugs,
+  AgentReviewPlugs,
   Reviews,
   ReviewState,
   Run,
@@ -163,7 +163,7 @@ function parseNoBody(value: unknown): Readonly<Record<string, never>> | null {
 /* oxlint-enable anti-slop/no-runtime-typeof, anti-slop/no-unknown-parameters, anti-slop/no-unsafe-dictionary-type, anti-slop/no-unknown-returns, anti-slop/no-known-value-widening */
 
 /** The body of each route that takes one, parsed before the route runs: 400 when it is not one. */
-export const BODIES: Bodies<ReviewPlugs["server"]> = {
+export const BODIES: Bodies<AgentReviewPlugs["server"]> = {
   "POST request": parseAsked,
   "POST launched": parseLaunched,
   "POST ended": parseEnded,

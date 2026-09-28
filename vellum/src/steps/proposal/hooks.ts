@@ -4,7 +4,7 @@ import type {
   ToolAnswer,
   ToolCallContext,
 } from "../../runtime/hooks/extension.ts";
-import type { Dropped, StepPlugs, StepWaited } from "./contract.ts";
+import type { Dropped, ProposalPlugs, StepWaited } from "./contract.ts";
 import { parsePaused, parseProposal, parseProposed, parseWaited } from "./parse.ts";
 
 const GONE = "The review server restarted and lost this proposal: propose again.";
@@ -42,7 +42,7 @@ function ended(why: Dropped): ToolAnswer {
 }
 
 /** Kept small on purpose: a tool's schema rides in every request. */
-const PROPOSE: HooksTool<ToolCallContext<StepPlugs>> = {
+const PROPOSE: HooksTool<ToolCallContext<ProposalPlugs>> = {
   description:
     'Propose the next step to the reviewer of a vellum planning session, and wait: the reviewer picks one in the review page, and their pick is this call\'s result: "Accepted: <move>." for the one you recommended, "Chose: <move>." for another, "Own: <text>." for their own words. reason: one sentence, why a step is needed now. moves: {kind: "grill", subject, choices} (choices: the titles of the open choices it settles), {kind: "mockup", screen}, {kind: "prototype", question} or {kind: "plan"}; subject, screen and question on one line. recommended: the index of the move you would take. Refused outside vellum planning, while the review is held (a grill, a plan review), and when a move is the plan once plan.md exists: the plan step is done.',
   inputSchema: {
@@ -98,8 +98,8 @@ const PROPOSE: HooksTool<ToolCallContext<StepPlugs>> = {
   },
 };
 
-export const hooks: HooksHalf<StepPlugs> = {
-  id: "step",
+export const hooks: HooksHalf<ProposalPlugs> = {
+  id: "proposal",
   tools: { propose: PROPOSE },
   answers: {
     "POST propose": parseProposed,

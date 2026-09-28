@@ -13,7 +13,7 @@ import { server } from "./server.ts";
 
 const PART = tablePart("grill", server.workflow);
 
-const TABLE = tableOf([PART, tablePart("step", step.workflow)]);
+const TABLE = tableOf([PART, tablePart("proposal", step.workflow)]);
 
 const DIR = parseWipDir("plans/2026-09-28/wip-3c9e11d0/");
 
@@ -33,7 +33,7 @@ function review(open: boolean): Workflow {
 }
 
 function stepRegionOf(): Workflow["regions"][number] {
-  return { id: "step", state: "closed", data: {} };
+  return { id: "proposal", state: "closed", data: {} };
 }
 
 function judged(w: Workflow, event: string, input: EventInput): RuleVerdict {
