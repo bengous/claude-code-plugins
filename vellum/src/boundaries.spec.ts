@@ -28,6 +28,9 @@ const REVIEW = `${SRC}/review`;
 /** The review's values a part may use, frozen in that one file. */
 const REVIEW_SURFACE = `${REVIEW}/surface.ts`;
 
+/** The review's tool and its turn-end gate, as `runtime/hooks/register.ts` imports them. */
+const REVIEW_HOOKS = "../../review/hooks.ts";
+
 /** The folders that hold the parts, a folder each: the steps Vellum follows, the formats it reads a document in. */
 const PART_GROUPS = ["steps", "formats"];
 
@@ -237,21 +240,33 @@ describe("dependency direction", () => {
   test("runtime/hooks runs on claude-code and its own siblings alone; the rest reaches it as types only", () => {
     // The transpiler drops a type-only import, so `import type … from "../protocol.ts"`
     // never shows here, and a value import from anywhere but a sibling does. The registry,
-    // `slices.ts`, loads the parts' hooks halves, which the tests below hold to their folders.
+    // `slices.ts`, loads the parts' hooks halves, which the tests below hold to their folders;
+    // `register.ts` loads the review's by name.
     const stray = sources("src/runtime/hooks")
       .filter((file) => !REGISTRIES.includes(file))
       .flatMap((file) =>
         valueImports(file)
-          .filter((path) => path !== "claude-code" && !/^\.\/[a-z-]+\.ts$/u.test(path))
+          .filter(
+            (path) =>
+              path !== "claude-code" && path !== REVIEW_HOOKS && !/^\.\/[a-z-]+\.ts$/u.test(path),
+          )
           .map((path) => `${short(file)} imports ${path}`),
       );
 
-    const loadingTheRegistry = sources("src/runtime/hooks").flatMap((file) =>
-      valueImports(file).includes("./slices.ts") ? [short(file)] : [],
-    );
+    const loading = (path: string): string[] =>
+      sources("src/runtime/hooks").flatMap((file) =>
+        valueImports(file).includes(path) ? [short(file)] : [],
+      );
 
     expect(stray).toEqual([]);
-    expect(loadingTheRegistry).toEqual(["src/runtime/hooks/register.ts"]);
+    expect(loading("./slices.ts")).toEqual(["src/runtime/hooks/register.ts"]);
+    expect(loading(REVIEW_HOOKS)).toEqual(["src/runtime/hooks/register.ts"]);
+  });
+
+  test("the review's hooks code loads nothing: the hooks module must never pull the server or the page in", () => {
+    expect(loadedBy(`${REVIEW}/hooks.ts`).map((file) => short(file))).toEqual([
+      "src/review/hooks.ts",
+    ]);
   });
 
   test("the page and its renderers never import the server side", () => {

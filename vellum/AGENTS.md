@@ -58,7 +58,7 @@ bun run --cwd vellum e2e -- kit.e2e.ts --project=light-1024         # one suite,
 bun run --cwd vellum e2e -- --project=light-1440                    # the whole suite at one window: once, before a push
 bun run --cwd vellum e2e                                            # the five windows of `e2e/playwright.config.ts`: CI's, a job per window (`--project=<window>`), on request (the `e2e` label on a PR), not a local one
 bun run --cwd vellum e2e:install                                    # Chromium, once per machine and per pinned Playwright
-CLAUDE_CODE_ENABLE_FUNCTION_HOOKS=1 claude plugin test vellum       # the hooks module's `*.test.ts` (runtime/hooks, steps/<name>), through the engine's kit
+CLAUDE_CODE_ENABLE_FUNCTION_HOOKS=1 claude plugin test vellum       # the hooks module's `*.test.ts` (runtime/hooks, review, steps/<name>), through the engine's kit
 CLAUDE_CODE_ENABLE_FUNCTION_HOOKS=1 claude plugin validate vellum   # what the hooks module hooks and calls
 CLAUDE_CODE_ENABLE_FUNCTION_HOOKS=1 command claude --permission-mode default --plugin-dir vellum   # a live session from source
 bun vellum/src/runtime/server/cli.ts serve --session <id> --project <dir> --workdir plans/<date>/wip-<sid8>/   # the server alone, for page work; the trailing slash is required; `--port <n> --token <t> --existing` revives one where it was
