@@ -38,7 +38,8 @@ src/runtime/server/         the server: cli.ts `serve`, preview.ts the page alon
                             queue and the step, effects.ts, http/ routes and serve, every IO, slice.ts
 src/runtime/page/           the Preact page
 src/runtime/protocol.ts     what crosses HTTP, the server's stdout and a part's boundary; JSON
-src/runtime/extension.ts    what a part's page and server halves fill (a hooks half: runtime/hooks/extension.ts)
+src/runtime/extension.ts    what a part's page and server halves fill (a hooks half: runtime/hooks/extension.ts), and
+                            the runtimes' own representation of a part, which the registries make from them
 src/runtime/*/slices.ts     each runtime's registry, the only way it reaches a part
 src/steps/<name>/           a step Vellum follows: grill/, agent-review/, proposal/
 src/formats/<name>/         a format a document is read in: markdown/, html/, image/

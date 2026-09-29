@@ -17,6 +17,8 @@ its panel beside the document pane, placed by `panesOf`), `server.ts` a `ServerH
 routes, its part of the workflow, its part of a Send, what opens it, the documents it proposes
 from the plan's links), both typed in `src/runtime/extension.ts`, and `hooks.ts` a `HooksHalf`
 (`src/runtime/hooks/extension.ts`: tools, refusals, and the engine events the core hands it).
+A half is the one way in: `PageExtension`, `ServerExtension` and `EngineExtension` are the
+runtimes' own representation of a part, which each registry makes from the half, never a part.
 Its part of the workflow is its model, pure and named after its folder: its region
 (`regionOf`), transitions and reactions, its segment of the band, drawn on the server and sent
 on the `stage` line, and its line in the workflow's view (`lineOf`, what `mcp__vellum__state`

@@ -63,6 +63,11 @@ export type SendShare = {
   readonly sent: () => Promise<void>;
 };
 
+/**
+ * The page's own representation of a part, which no part writes: `page/slices.ts` takes each
+ * part's `PageHalf` as one, a half being a `PageExtension` that fills the slots its plugs
+ * declare. A part fills its half; the page reads this.
+ */
 export type PageExtension = {
   readonly id: string;
   readonly renderers?: readonly Renderer[];
@@ -189,9 +194,10 @@ export type Route = (request: Request) => Promise<Response>;
 export type RouteKey = `${"GET" | "POST"} ${string}`;
 
 /**
- * A server extension proposes documents linked from the plan, and the server keeps those that
- * exist and lie under no `.review/`, its own or another plan's; it brings its own routes,
- * mounted at `/api/x/<id>/<name>` behind the token.
+ * The server's own representation of a part, which no part writes: `server/slices.ts` makes it
+ * from the part's `ServerHalf` through `serverExtension`. It proposes documents linked from the
+ * plan, and the server keeps those that exist and lie under no `.review/`, its own or another
+ * plan's; it brings its own routes, mounted at `/api/x/<id>/<name>` behind the token.
  */
 export type ServerExtension = {
   readonly id: string;
