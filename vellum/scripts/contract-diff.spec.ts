@@ -22,6 +22,7 @@ describe("titlesOf", () => {
         test.if(WINDOWS)("on Windows", () => {});
       });
       const ROWS = { "send: stale": ["a stale Send is refused", async () => {}] };
+      for (const [title, run] of Object.values(ROWS)) test(title, run);
     `;
 
     expect(titlesOf(source)).toEqual([
@@ -30,6 +31,18 @@ describe("titlesOf", () => {
       "on Windows",
       "a stale Send is refused",
     ]);
+  });
+
+  test("reads no title inside a string, a template or a comment: a suite's fixtures are not its tests", () => {
+    const source = [
+      'const FIXTURE = `test("a fake", () => {});`;',
+      'const OTHER = "describe(\\"another fake\\", () => {})";',
+      '// test("a commented one", () => {});',
+      'const TABLE = { row: ["a row no test reads", () => {}] };',
+      'test("the real one", () => {});',
+    ].join("\n");
+
+    expect(titlesOf(source)).toEqual(["the real one"]);
   });
 });
 

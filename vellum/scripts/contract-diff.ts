@@ -7,8 +7,9 @@
  *
  *   bun run --cwd vellum contract-diff <base>..<head>   (<base> alone reads up to HEAD)
  *
- * Its readings are textual, and say so: a title is a string literal passed to `test`, `describe`
- * or a keyed table's `["title", () => …]`; a function is a named declaration or a `const` bound
+ * Its readings are textual, and say so: a title is a string literal passed, in the code and never
+ * inside a string or a comment, to `test`, `describe`, or a keyed table's `["title", () => …]` in a
+ * file that hands its titles to `test` by name; a function is a named declaration or a `const` bound
  * to a function, read off Bun's transpiler output, so types, comments and layout never count as a
  * change. What changed outside every function of a file (a table of rows, an object of routes) is
  * said of the file, unnamed.
@@ -93,20 +94,89 @@ function changesIn(cwd: string, base: string, head: string, plugin: string): Fil
     });
 }
 
-/** Every title a suite gives its tests and groups, in the order written. */
+/** A source's code, each string or template literal in it as `"#<n>"` and each comment as a space. */
+type Scanned = { readonly code: string; readonly literals: readonly string[] };
+
+/** Whether a `/` at this point of the code opens a regular expression rather than a division. */
+function opensRegex(code: string): boolean {
+  const before = code.trimEnd();
+
+  return before === "" || /[(,=:[!&|?{};]$|\breturn$|\btypeof$/u.test(before);
+}
+
+/** The index past a regular expression's closing `/` and its flags. */
+function pastRegex(text: string, open: number): number {
+  let inClass = false;
+
+  for (let at = open + 1; at < text.length; at += 1) {
+    const char = text.charAt(at);
+
+    if (char === "\\") at += 1;
+    else if (char === "[") inClass = true;
+    else if (char === "]") inClass = false;
+    else if (char === "/" && !inClass)
+      return at + 1 + (/^\w*/u.exec(text.slice(at + 1))?.[0].length ?? 0);
+  }
+
+  return text.length;
+}
+
+/** Splits a source into its code and its literals, comments dropped, so a string never reads as code. */
+export function scan(source: string): Scanned {
+  const literals: string[] = [];
+  let code = "";
+
+  for (let at = 0; at < source.length; at += 1) {
+    const char = source.charAt(at);
+    const next = source.charAt(at + 1);
+
+    if (char === "/" && next === "/") {
+      const end = source.indexOf("\n", at);
+      at = (end === -1 ? source.length : end) - 1;
+      code += " ";
+    } else if (char === "/" && next === "*") {
+      const end = source.indexOf("*/", at + 2);
+      at = end === -1 ? source.length : end + 1;
+      code += " ";
+    } else if (char === '"' || char === "'" || char === "`") {
+      const end = pastString(source, at);
+      code += `"#${literals.length}"`;
+      literals.push(source.slice(at, end + 1));
+      at = end;
+    } else if (char === "/" && opensRegex(code)) {
+      const end = pastRegex(source, at);
+      code += "/r/";
+      at = end - 1;
+    } else code += char;
+  }
+
+  return { code, literals };
+}
+
+/** A literal's text, `null` for a template that interpolates. */
+function literalText(literal: string): string | null {
+  const quote = literal.charAt(0);
+  const inner = literal.slice(1, -1);
+
+  if (quote === "`") return inner.includes("${") ? null : inner;
+
+  return quote === '"' ? String(JSON.parse(literal)) : inner.replaceAll("\\'", "'");
+}
+
+/** Every title a suite gives its tests and groups, in the order written, read off its code alone. */
 export function titlesOf(source: string): string[] {
-  const called =
-    /\b(?:test|it|describe)(?:\.\w+)*(?:\([^()]*\))?\(\s*("(?:[^"\\]|\\.)*"|`(?:[^`\\$]|\\.)*`)/gu;
+  const { code, literals } = scan(source);
+  const called = /\b(?:test|it|describe)(?:\.\w+)*(?:\([^()]*\))?\(\s*"#(\d+)"/gu;
+  const keyed = /\[\s*"#(\d+)",\s*(?:async\s*)?\(/gu;
+  const byName = /\btest(?:\.\w+)*\(\s*[A-Za-z_$]/u.test(code);
 
-  const keyed = /\[\s*("(?:[^"\\]|\\.)*"),\s*(?:async\s*)?\(/gu;
-
-  const found = [...source.matchAll(called), ...source.matchAll(keyed)]
+  return [...code.matchAll(called), ...(byName ? code.matchAll(keyed) : [])]
     .toSorted((a, b) => a.index - b.index)
-    .map(([, literal = ""]) => literal);
+    .flatMap(([, n = ""]) => {
+      const text = literalText(literals[Number.parseInt(n, 10)] ?? "");
 
-  return found.map((literal) =>
-    literal.startsWith("`") ? literal.slice(1, -1) : String(JSON.parse(literal)),
-  );
+      return text === null ? [] : [text];
+    });
 }
 
 function wordsOf(title: string): Set<string> {
