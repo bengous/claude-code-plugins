@@ -122,7 +122,7 @@ loop. `/vellum:start` enters it, Approve in the page or `/vellum:stop` leaves it
   guard: every link followed, whatever separators, drive or prefix the platform writes. A file
   not written yet lands under the first of its folders that exists, and only `ENOENT` says a
   folder is missing; a path that lands nowhere known (a link that leads nowhere, a stat refused
-  for any other reason, a network path, a name Windows reads as a drive) is denied, since the
+  for any other reason, a network location the engine refuses, a name Windows reads as a drive) is denied, since the
   tool may still open it. The project is placed on each call, and its `realPath` says the
   platform: POSIX answers it from `/`, and there `\` is a character of a name. The working
   directory is the project's own, `workdir` as written under where the project lands: a link

@@ -248,16 +248,34 @@ describe("the lock places a path before it decides", () => {
   });
 
   test("a spelling Windows reads as a drive, and a path no folder of which answers, are denied", async ($, on) => {
-    world(on);
+    const share = "/net/host/share";
+    world(on, {
+      disk: new Map([
+        [
+          "/net",
+          refused(`$.fs.stat: ${share} refused: a network location is not reached from here`),
+        ],
+      ]),
+    });
     on("tool.check", () => ENGINE);
     await $.skill.prompt(START_PROMPT);
 
-    for (const file_path of ["D:plan.md", `${INSIDE}C:stream`, "//host/share/x.md"]) {
+    for (const file_path of ["D:plan.md", `${INSIDE}C:stream`, `${share}/x.md`]) {
       expect(await $.tool.check({ tool: "Write", input: { file_path } }), file_path).toMatchObject({
         decision: "deny",
         reason: expect.stringContaining("cannot tell where"),
       });
     }
+  });
+
+  test("on POSIX a leading // is the root: the path lands outside the project, the session's to decide", async ($, on) => {
+    world(on);
+    on("tool.check", () => ENGINE);
+    await $.skill.prompt(START_PROMPT);
+
+    expect(
+      await $.tool.check({ tool: "Write", input: { file_path: "//host/share/x.md" } }),
+    ).toEqual(ENGINE);
   });
 
   test("on POSIX a backslash is a character of a name, never a separator", async ($, on) => {

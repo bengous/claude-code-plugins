@@ -58,13 +58,20 @@
 - `$.fs.stat` rejects a missing path with a `HooksError` whose message ends
   on the errno, `<plugin>: $.fs.stat(<path>) failed: ENOENT`, and sets no
   `code`. Any other OS refusal ends on its own errno (`ENOTDIR`, `EACCES`,
-  `ELOOP`), a network path is refused as `fs.stat: a network location is not
-  reached from here (host check)`, and a hook's deny reads
+  `ELOOP`), a network location is refused as `$.fs.stat: <path> refused: a
+  network location is not reached from here`, and a hook's deny reads
   `<plugin>: $.fs.stat: <reason>`. Only the `failed: ENOENT` ending therefore
   says a path is not there (`vellum/src/core/engine/place.ts`). A link that
   leads nowhere resolves, with `isLink` and no `realPath`. Measured on Linux
   in a live session: in the kit nothing beneath the plugins answers
   `fs.stat`, and a test answers it with `on("fs.stat", ...)`.
+- Since 2.1.284 the network refusal is decided where a path lands, not on its
+  spelling: on Linux `//host/share/x.md` reaches the hooks resolved as
+  `/host/share/x.md` (POSIX folds `//`), a local path, while `/net/host/share/x.md`
+  (an automount) is refused as above. Up to 2.1.283 any path spelled `//` or
+  `\\` was refused before the hooks. Measured on Linux in the kit on 2.1.282,
+  2.1.283 and 2.1.284, and live on 2.1.284; a UNC path on Windows is not
+  measured.
 
 ## Reloads and background work
 

@@ -40,8 +40,6 @@ const PLANNING: Entries = new Map<string, Entry>([
   [`${CWD}/${WORKDIR}`.slice(0, -1), DIR],
 ]);
 
-const NETWORK = /^[\\/]{2}/u;
-
 const DRIVE_ROOT = /^[A-Za-z]:\\/u;
 
 /**
@@ -66,10 +64,10 @@ function folded(path: string): string[] {
 
 /**
  * `$.fs.stat` over a project that plans, plus `more`, keyed by absolute path. As measured on
- * the engine: a `//` path is refused as a network location, `.` and `..` fold before any link
- * is read, a missing path rejects `ENOENT`, a link that leads nowhere answers `isLink` with no
+ * the engine: `.` and `..` fold before any link is read, and so does a leading `//` on POSIX,
+ * a missing path rejects `ENOENT`, a link that leads nowhere answers `isLink` with no
  * `realPath`, and `realPath` comes with `resolve` alone. A `refused` path rejects with its own
- * reason, as another errno or a hook above does.
+ * reason, as another errno, a network location or a hook above does.
  */
 export function disk(on: On, more: Entries = new Map()): void {
   const entries: Entries = new Map([...PLANNING, ...more]);
@@ -101,10 +99,6 @@ export function disk(on: On, more: Entries = new Map()): void {
   }
 
   on("fs.stat", (_, e) => {
-    if (NETWORK.test(e.path)) {
-      return { deny: "fs.stat: a network location is not reached from here" };
-    }
-
     const path = keyed(e.path);
     const found = find(path);
 
