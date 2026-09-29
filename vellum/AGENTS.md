@@ -44,6 +44,7 @@ src/runtime/*/slices.ts     each runtime's registry, the only way it reaches a p
 src/steps/<name>/           a step Vellum follows: grill/, agent-review/, proposal/
 src/formats/<name>/         a format a document is read in: markdown/, html/, image/
 src/proof.ts                the proof of the table, the tests' alone: each part's walk.ts, alone, then in pairs
+scripts/contract-diff.ts    what a reviewer reads of a range before its code, as Markdown for the PR
 ```
 
 A part is a folder of `steps/` or `formats/`, a file per runtime it plugs into (`page.tsx`,
@@ -73,6 +74,7 @@ bun run --cwd vellum e2e -- kit.e2e.ts --project=light-1024         # one suite,
 bun run --cwd vellum e2e -- --project=light-1440                    # the whole suite at one window: once, before a push
 bun run --cwd vellum e2e                                            # the five windows of `e2e/playwright.config.ts`: CI's, a job per window (`--project=<window>`), on request (the `e2e` label on a PR), not a local one
 bun run --cwd vellum e2e:install                                    # Chromium, once per machine and per pinned Playwright
+bun run --cwd vellum contract-diff <base>..<head>                   # for a PR: the contracts' diffs, the rules changed, the test titles, the bodies changed, the boundary and walk suites
 CLAUDE_CODE_ENABLE_FUNCTION_HOOKS=1 claude plugin test vellum       # the hooks module's `*.test.ts` (runtime/hooks, review, steps/<name>), through the engine's kit
 CLAUDE_CODE_ENABLE_FUNCTION_HOOKS=1 claude plugin validate vellum   # what the hooks module hooks and calls
 CLAUDE_CODE_ENABLE_FUNCTION_HOOKS=1 command claude --permission-mode default --plugin-dir vellum   # a live session from source
