@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 
 import type { Element } from "hast";
 
-import type { DiffRun, LineDiff } from "../../runtime/protocol.ts";
+import type { DiffRun, LineDiff } from "../../review/contract.ts";
 import type { RemovedRun } from "./changes.ts";
 import { changesOf, removedLabel } from "./changes.ts";
 import { toTree } from "./tree.ts";

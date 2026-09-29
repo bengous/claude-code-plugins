@@ -1,7 +1,6 @@
 import type { ChannelLine } from "../workshop/channel.ts";
 import type { ProjectPath, Version } from "../workshop/paths.ts";
-import type { EditKept } from "../workshop/review.ts";
-import type { Stage, WorkflowView } from "../workshop/workflow.ts";
+import type { Stage, WorkflowView } from "../workshop/view.ts";
 import type { PlanWorkspace } from "../workshop/workspace.ts";
 
 /**
@@ -12,69 +11,11 @@ import type { PlanWorkspace } from "../workshop/workspace.ts";
 
 export type { ChannelEntry, ChannelLine } from "../workshop/channel.ts";
 
-export type { DiffRun, LineDiff } from "../workshop/diff.ts";
-
-export {
-  countChanges,
-  goneWithEdit,
-  lineDiff,
-  shiftAnnotations,
-  unshiftAnnotations,
-} from "../workshop/diff.ts";
-
-export type {
-  Anchor,
-  Annotation,
-  Choice,
-  ChoiceRef,
-  DecisionKey,
-  ElementDescription,
-  ElementRef,
-  Mark,
-  Passage,
-  PassageKind,
-  QuickLabel,
-  SentChoice,
-  WordsContext,
-} from "../workshop/feedback.ts";
-
-export { DELETE_SENTENCE, QUICK_LABELS } from "../workshop/feedback.ts";
-
-export type {
-  Choices,
-  Decision,
-  Draft,
-  Edit,
-  EditKept,
-  SendRefused,
-  SendRequest,
-  Taking,
-  Typed,
-} from "../workshop/review.ts";
-
-export {
-  choicesIn,
-  draftIsEmpty,
-  editOnLoad,
-  EMPTY_TYPED,
-  landedAnnotations,
-  refOf,
-  withoutChoices,
-} from "../workshop/review.ts";
-
 export type { CommitSha, PluginVersion, VellumBuild } from "../workshop/vellum-build.ts";
 
-export type {
-  Pill,
-  PlanText,
-  Refused,
-  Region,
-  RegionData,
-  RegionView,
-  Stage,
-  Wait,
-  WorkflowView,
-} from "../workshop/workflow.ts";
+export type { Pill, Refused, RegionView, Stage, WorkflowView } from "../workshop/view.ts";
+
+export type { PlanText, Region, RegionData, Wait } from "../workshop/workflow.ts";
 
 export type { PlanWorkspace } from "../workshop/workspace.ts";
 
@@ -98,47 +39,8 @@ export type ServerLine =
   | { readonly type: "channel"; readonly line: ChannelLine }
   | ({ readonly type: "stage" } & Stage);
 
-/** What `POST /api/gate` answers: the version the browser shows, or why it shows none. */
-export type GateAnswer =
-  | { readonly version: Version; readonly kept: boolean }
-  | { readonly error: string };
-
 /** What `GET /api/workflow` answers `mcp__vellum__state`: where the review lives, and the workflow as a reader takes it. */
 export type WorkflowAnswer = { readonly workspace: PlanWorkspace } & WorkflowView;
-
-/** What `POST /api/record` answers the reviewer's Record: the version recorded or kept, or the row that refused it. */
-export type RecordAnswer =
-  | { readonly version: Version }
-  | { readonly rule: string; readonly reason: string };
-
-/**
- * What `POST /api/decision` answers: where the review stands after it, and, when a row refused
- * the approval, which one and why; a rename that failed leaves its error in the workspace.
- */
-export type DecisionAnswer = {
-  readonly workspace: PlanWorkspace;
-  readonly rule?: string;
-  readonly reason?: string;
-};
-
-/**
- * Why `POST /api/send` wrote nothing: questions no answer takes that the reviewer did not agree to
- * leave to their recommendation, every one of them; the row that refused it, by its id, with its
- * text (an edit with nothing else, while the review is held, is the hold's row, and its text what
- * holds); nothing to send; or a saved draft the server cannot read.
- */
-export type SendRefusal =
-  | { readonly reason: "unanswered"; readonly ids: readonly string[] }
-  | { readonly reason: "refused"; readonly rule: string; readonly text: string }
-  | { readonly reason: "empty" | "unreadable" };
-
-/**
- * What `POST /api/send` answers: the batch written, its entry's number, and the edit it left in
- * the draft while the review is held; or why nothing was written.
- */
-export type SendAnswer =
-  | { readonly file: ProjectPath; readonly seq: number; readonly editKept: EditKept | null }
-  | SendRefusal;
 
 export type MediaType = "text/markdown" | "text/html" | `image/${string}`;
 

@@ -1,6 +1,11 @@
 ---
 paths:
   - "src/runtime/page/**"
+  - "src/review/*.tsx"
+  - "src/review/anchoring.ts"
+  - "src/review/caret.ts"
+  - "src/review/selection.ts"
+  - "src/review/surface.ts"
   - "src/steps/**"
   - "src/formats/**"
 ---
@@ -9,9 +14,12 @@ paths:
 
 `src/runtime/page/` is the Preact page: `api.ts` the client (token, routes, SSE), `state.ts` the store of
 signals, `workflow.ts` its reader of the workflow, `kit.tsx` the components every other `.tsx` draws with, `*.tsx` the rest of them,
-`style.css` and `fonts/` the design system, `anchoring.ts` and `highlights.ts` the text selection,
-`editor.tsx` and `caret.ts` the plan's source editor, `labels.ts` what the page names, a
-document, a place, a quote, purely, so it is tested without the store. The renderers are the page halves of
+`style.css` and `fonts/` the design system, `highlights.ts` the text selection's paint,
+`labels.ts` what the page names, a document, a place, a quote, purely, so it is tested without
+the store. The review's own page files live in `src/review/`: `comments.tsx` the comments
+panel, `composer.tsx` the composer every renderer opens, `decision-bar.tsx` the bar and its
+notices, `editor.tsx` and `caret.ts` the plan's source editor, `anchoring.ts` and `selection.ts`
+the text selection; `app.tsx` draws them by name. The renderers are the page halves of
 the extensions; what an extension is and how one is added is `extensions.md`, which loads
 with the same files. One bundle is a browser's: `Bun.serve` builds it from
 `src/runtime/page/index.html` at the first request for the page,
@@ -49,8 +57,9 @@ no build step, so what the page imports costs nothing at `cli start`.
   card hovered or focused is `focused` of `state.ts`, and the plan's renderer paints its passage
   (`::highlight(vellum-focus)`), scrolling to it on a click; a comment added scrolls the list
   to its card. The general box comments the plan when the document beside it takes none.
-- Everything crossing `/api` is JSON and typed in `src/runtime/protocol.ts`; a new field lands there
-  first. What crosses `/api/x/<id>/` is the extension's own, typed in its `protocol.ts`.
+- Everything crossing `/api` is JSON and typed in `src/runtime/protocol.ts`, or in
+  `src/review/contract.ts` for the review's routes; a new field lands there first. What crosses
+  `/api/x/<id>/` is the extension's own, typed in its `contract.ts`.
 - A chain of tests over a union of `src/runtime/protocol.ts` ends on a function whose parameter is
   the members left, never on a bare `return`: over `MediaType`, what is neither Markdown nor
   HTML goes to a function that takes `` `image/${string}` ``, so a member added to the union

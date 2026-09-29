@@ -7,19 +7,35 @@ Function hooks, early access: `CLAUDE_CODE_ENABLE_FUNCTION_HOOKS=1`.
 
 ## Shape
 
-A pure core, the workshop, and three runtimes around it: the hooks module in Claude Code, the
-server, the page. The steps and the formats plug into the runtimes, a folder each.
+Four kinds of folder, one pattern:
+
+- a pure machine, `src/workshop/`: the workflow judged against a table of rows (`next`), the
+  view a reader takes of it, and the machinery every table part is built with; it names no
+  event of anybody's and imports nothing outside itself;
+- the review, `src/review/`, the frame the parts plug into: the draft, the Send, the versions
+  and the approval, with their rows, their routes, their tool and their page. It keeps a
+  slice's files (`contract.ts`, its halves, `parse.ts`, specs beside) but is no slice: the
+  runtimes reach it by name, first in the table, never through a registry;
+- the runtimes, `src/runtime/`: the hooks module in Claude Code, the server, the page, each
+  reaching the review by name and the parts through its registry alone;
+- the parts, `src/steps/` and `src/formats/`, a folder each, all of one form: a slice whose
+  `contract.ts` declares it and whose halves plug into the runtimes. A part reads the review
+  through `review/contract.ts` as types and takes a value of it from its frozen surface.
 
 ```
 hooks/hooks.json            Claude Code's folder: it names the hooks module, nothing else lives there
 skills/start, skills/stop   the way in and the way out
-src/workshop/               pure, no IO: the workflow (`next`, the table of rules), rows, waits, plugs
-                            (`defineSlice`), paths, workspace, channel, slug, links, vellum-build, and the
-                            review's own: review, feedback, diff
+src/workshop/               pure, no IO: the workflow (`next`, the table), view, rows, waits, plugs
+                            (`defineSlice`), paths, workspace, channel, slug, links, vellum-build
+src/review/                 the frame: contract.ts its events, rows and types; surface.ts and composer.tsx
+                            what a part may use of it; review, feedback, diff its domain; events.ts its
+                            model; server.ts, routes.ts, draft.ts, parse.ts its server half; hooks.ts its
+                            tool and turn-end gate; comments, composer, decision-bar, editor, anchoring,
+                            selection, caret its page
 src/runtime/hooks/          the hooks module: register.ts spells `$`, the rest takes a `Host`; client.ts the server's
         │ HTTP, token header, down; the server's stdout, up
 src/runtime/server/         the server: cli.ts `serve`, preview.ts the page alone on any directory, queue.ts the
-                            queue and the step, effects.ts, events.ts, http/ routes and serve, every IO, slice.ts
+                            queue and the step, effects.ts, http/ routes and serve, every IO, slice.ts
 src/runtime/page/           the Preact page
 src/runtime/protocol.ts     what crosses HTTP, the server's stdout and a part's boundary; JSON
 src/runtime/extension.ts    what a part's page and server halves fill (a hooks half: runtime/hooks/extension.ts)
@@ -33,11 +49,11 @@ A part is a folder of `steps/` or `formats/`, a file per runtime it plugs into (
 `server.ts`, `hooks.ts`), and every one is a slice: its `contract.ts` declares its id, while the
 folder takes the glossary's word (`CONTEXT.md`).
 
-Dependencies point toward `src/workshop/`, which imports nothing outside itself but the two slot
-types `plugs.ts` reads from `runtime/`: a part imports
-the workshop, what a runtime's folder offers the halves it fills and another slice's `contract.ts`
-as types, and a runtime reaches a part through its `slices.ts` alone, as `src/boundaries.spec.ts`
-holds. The rules of each zone load with its files, from `.claude/rules/`: `workshop.md`,
+Dependencies point toward `src/workshop/`, which imports nothing outside itself, not even a
+type. The review imports the workshop and the runtimes, never a part. A part imports the
+workshop, what a runtime's folder offers the halves it fills, the review's contract and another
+slice's `contract.ts` as types, and the review's surface; a runtime reaches a part through its
+`slices.ts` alone, as `src/boundaries.spec.ts` holds. The rules of each zone load with its files, from `.claude/rules/`: `workshop.md`,
 `engine.md`, `server.md`, `page.md`, `extensions.md`, `slices.md`, `tests.md`. The drawings, the assessment and
 where the next phases land: `docs/architecture.md`.
 
@@ -56,7 +72,7 @@ bun run --cwd vellum e2e -- kit.e2e.ts --project=light-1024         # one suite,
 bun run --cwd vellum e2e -- --project=light-1440                    # the whole suite at one window: once, before a push
 bun run --cwd vellum e2e                                            # the five windows of `e2e/playwright.config.ts`: CI's, a job per window (`--project=<window>`), on request (the `e2e` label on a PR), not a local one
 bun run --cwd vellum e2e:install                                    # Chromium, once per machine and per pinned Playwright
-CLAUDE_CODE_ENABLE_FUNCTION_HOOKS=1 claude plugin test vellum       # the hooks module's `*.test.ts` (runtime/hooks, steps/<name>), through the engine's kit
+CLAUDE_CODE_ENABLE_FUNCTION_HOOKS=1 claude plugin test vellum       # the hooks module's `*.test.ts` (runtime/hooks, review, steps/<name>), through the engine's kit
 CLAUDE_CODE_ENABLE_FUNCTION_HOOKS=1 claude plugin validate vellum   # what the hooks module hooks and calls
 CLAUDE_CODE_ENABLE_FUNCTION_HOOKS=1 command claude --permission-mode default --plugin-dir vellum   # a live session from source
 bun vellum/src/runtime/server/cli.ts serve --session <id> --project <dir> --workdir plans/<date>/wip-<sid8>/   # the server alone, for page work; the trailing slash is required; `--port <n> --token <t> --existing` revives one where it was

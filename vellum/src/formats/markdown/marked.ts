@@ -1,4 +1,4 @@
-import { parseLines } from "../../runtime/page/anchoring.ts";
+import { parseLines } from "../../review/surface.ts";
 import { BLOCK_TAGS } from "./changes.ts";
 
 /** A rendered block as the DOM shows it: its tag and its `data-lines`. */

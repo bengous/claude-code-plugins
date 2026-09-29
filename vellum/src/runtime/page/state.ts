@@ -1,7 +1,5 @@
 import { batch, computed, effect, signal } from "@preact/signals";
 
-import type { ProjectPath, Version } from "../../workshop/paths.ts";
-import type { SendShare } from "../extension.ts";
 import type {
   Annotation,
   Choice,
@@ -11,26 +9,24 @@ import type {
   Decision,
   Draft,
   Edit,
-  GroupedDoc,
   LineDiff,
   Mark,
-  ReviewView,
   SendRefusal,
   SendRefused,
   Typed,
-} from "../protocol.ts";
+} from "../../review/contract.ts";
+import { goneWithEdit, lineDiff, shiftAnnotations, unshiftAnnotations } from "../../review/diff.ts";
 import {
   editOnLoad,
-  goneWithEdit,
   EMPTY_TYPED,
   landedAnnotations,
-  lineDiff,
-  shiftAnnotations,
-  takesComments,
-  unshiftAnnotations,
   choicesIn,
   withoutChoices,
-} from "../protocol.ts";
+} from "../../review/review.ts";
+import type { ProjectPath, Version } from "../../workshop/paths.ts";
+import type { SendShare } from "../extension.ts";
+import type { GroupedDoc, ReviewView } from "../protocol.ts";
+import { takesComments } from "../protocol.ts";
 import { draftWriter, fetchDraft, fetchReview, postDecision, postSend, subscribe } from "./api.ts";
 import type { Failure } from "./notices.ts";
 import { NEW_LINK_HINT_MS } from "./notices.ts";

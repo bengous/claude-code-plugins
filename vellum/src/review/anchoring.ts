@@ -1,4 +1,4 @@
-import type { Passage } from "../protocol.ts";
+import type { Passage } from "./feedback.ts";
 
 /** The characters kept on each side of a quote, and the most of them an occurrence is scored on. */
 export const CONTEXT_CHARS = 32;

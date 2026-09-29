@@ -1,3 +1,4 @@
+import type { ReviewEvents } from "../../review/contract.ts";
 /**
  * The agent review step: the reviewer asks a plan reviewer, a subagent, to judge the version
  * under review, and its verdict lands beside the plan. Other folders import this file and nothing
@@ -5,7 +6,7 @@
  * events and the rows, are the server's.
  */
 import type { PlugsOf } from "../../workshop/plugs.ts";
-import { core, defineSlice, get, post } from "../../workshop/plugs.ts";
+import { defineSlice, get, heard, post } from "../../workshop/plugs.ts";
 import { rows } from "../../workshop/rows.ts";
 import { reviewed } from "../../workshop/workflow.ts";
 import {
@@ -90,7 +91,7 @@ export const SLICE = defineSlice({
     reviewStopped: { by: ["engine"], carries: ["seq"] },
   },
   /** The approval gives up the run under way. */
-  hears: { approve: core },
+  hears: { approve: heard<ReviewEvents["approve"]>() },
   hooks: {
     listens: ["staged", "agentAnswered", "closing"],
     posts: ["POST launched", "POST ended", "POST close", "POST stopped"],

@@ -1,10 +1,8 @@
-import type { ReviewServer, Unchanged } from "./client.ts";
+import type { ReviewServer } from "./client.ts";
 import type { Host } from "./host.ts";
-import type { Live } from "./mode.ts";
 import {
   type ChannelEntryWire,
   type ChannelLineWire,
-  type GateWire,
   parseRelayed,
   type SessionId,
 } from "./parse.ts";
@@ -69,31 +67,6 @@ function promptOf(entry: ChannelEntryWire): string {
   const notes = entry.notes === null ? "" : ` Read ${entry.notes} first.`;
 
   return `Plan v${entry.version} approved, at ${entry.dir}.${notes}`;
-}
-
-/**
- * Submits `plan.md` and says where it stands. A recorded version is announced in the
- * transcript, and the band draws it from the next `stage` line; a kept one changes nothing; a
- * refusal (no `plan.md` yet, the plan approved) is the caller's to read; a server that does not
- * answer is a rejection.
- */
-export async function submitPlan(host: Host, live: Live, unchanged: Unchanged): Promise<GateWire> {
-  const gate = await live.server.gate(unchanged);
-
-  if ("error" in gate || gate.kept) return gate;
-  host.log(`plan v${gate.version} is under review in the browser`);
-
-  return gate;
-}
-
-/**
- * What the model reads from `submit`. A kept version reads as a recorded one: the model ends
- * its turn on both, and the skill `start` already says the review arrives as a prompt.
- */
-export function submitResult(gate: GateWire): { result: string } | { deny: string } {
-  return "error" in gate
-    ? { deny: gate.error }
-    : { result: `Plan v${gate.version} under review. End your turn.` };
 }
 
 /**

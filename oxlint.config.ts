@@ -86,10 +86,8 @@ export default defineConfig({
     },
     {
       // Over the size today, each a cut still to make:
-      // - runtime/page/state.ts: the page's one store holds the comments, the draft, the Send and the
-      //   stream; their part goes with review/ as a slice.
-      // - workshop/workflow.ts: the table's types, next(), the views and the core's own
-      //   rows in one file; they part when the core moves to workshop/.
+      // - runtime/page/state.ts: the page's one store, the review's signals with the documents' since
+      //   state.spec.ts imports it fresh per test, and a module it imports is shared by every store.
       // - runtime/server/queue.ts: the queue, the step, the channel, the draft and the view in one class.
       // - runtime/hooks/register.ts: every hook sits where `$` is spelled, which the engine requires
       //   of one file; what reads no `$` can leave it.
@@ -98,7 +96,6 @@ export default defineConfig({
       // - formats/html/frame.ts: the script the mockup's frame runs, built by its path.
       files: [
         "vellum/src/runtime/page/state.ts",
-        "vellum/src/workshop/workflow.ts",
         "vellum/src/runtime/server/queue.ts",
         "vellum/src/runtime/hooks/register.ts",
         "vellum/src/steps/grill/page.tsx",

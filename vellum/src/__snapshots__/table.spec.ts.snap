@@ -2,26 +2,26 @@
 
 exports[`every row of every event, from every part, reads as a sentence 1`] = `
 "
-record · owned by core · sent by claude, reviewer
-  1. core/held · refuses · while held · "<hold>: plan.md waits; you are told when it ends"
-  2. core/no-plan · refuses · when (unnamed) · "write plan.md in plans/2026-09-28/wip-7ab1e5e5/ first"
+record · owned by review · sent by claude, reviewer
+  1. review/held · refuses 409 · while held · "<hold>: plan.md waits; you are told when it ends"
+  2. review/no-plan · refuses 409 · when planIsAbsent · "write plan.md in plans/2026-09-28/wip-7ab1e5e5/ first"
 
-sendEdit · owned by core · sent by reviewer
-  1. core/stale · refuses the input · when (unnamed) · "your edit is of a version no longer under review"
-  2. core/held · refuses · while held · "<hold>: the edit waits in the draft until it ends"
+sendEdit · owned by review · sent by reviewer
+  1. review/stale · refuses the input 409 · when editsAnotherVersion · "your edit is of a version no longer under review"
+  2. review/held · refuses 409 · while held · "<hold>: the edit waits in the draft until it ends"
 
-send · owned by core · sent by reviewer · passes a hold
-  1. core/changed · refuses the input · when (unnamed) · "the saved draft no longer holds what you sent, changed in another tab"
-  2. core/stale · refuses the input · when (unnamed) · "your edit is of a version no longer under review"
-  3. core/edit · refuses the input · when (unnamed) · "a comment on the plan goes with your edit"
+send · owned by review · sent by reviewer · passes a hold
+  1. review/changed · refuses the input 409 · when namesWhatTheDraftLost · "the saved draft no longer holds what you sent, changed in another tab"
+  2. review/stale · refuses the input 409 · when editsAnotherVersion · "your edit is of a version no longer under review"
+  3. review/edit · refuses the input 409 · when namesPlanCommentsWithoutTheEdit · "a comment on the plan goes with your edit"
 
-approve · owned by core · sent by reviewer
-  1. core/held · asks to confirm · while held · "The review is held: <hold>."
-  2. core/no-version · refuses · when (unnamed) · "no version is under review yet"
-  3. core/approve-stale · refuses the input · when (unnamed) · "v2 is under review, not v1"
-  4. core/approve-draft · refuses · when (unnamed) · "plan.md changed since v1: record it before approving"
+approve · owned by review · sent by reviewer
+  1. review/held · asks to confirm 409 · while held · "The review is held: <hold>."
+  2. review/no-version · refuses 409 · when noVersionUnderReview · "no version is under review yet"
+  3. review/approve-stale · refuses the input 409 · when editsAnotherVersion · "v2 is under review, not v1"
+  4. review/approve-draft · refuses 409 · when planChangedSinceTheVersion · "plan.md changed since v1: record it before approving"
 
-planWritten · owned by core · sent by claude · passes a hold
+planWritten · owned by review · sent by claude · passes a hold
   no row
 
 openGrill · owned by grill · sent by reviewer · passes a hold

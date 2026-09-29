@@ -1,10 +1,17 @@
+import type {
+  FinalDir,
+  ParseResult,
+  ProjectPath,
+  Slug,
+  Version,
+  WipDir,
+} from "../workshop/paths.ts";
+import { parseVersion } from "../workshop/paths.ts";
+import { slugFromFileName, slugFromTitle } from "../workshop/slug.ts";
+import type { PlanWorkspace } from "../workshop/workspace.ts";
+import { notesFile, PLAN_FILE, projectPath, versionFile } from "../workshop/workspace.ts";
 import type { Annotation, Choice, ChoiceRef, DecisionKey, SentChoice } from "./feedback.ts";
 import { formatNotes, retargetAnnotations } from "./feedback.ts";
-import type { FinalDir, ParseResult, ProjectPath, Slug, Version, WipDir } from "./paths.ts";
-import { parseVersion } from "./paths.ts";
-import { slugFromFileName, slugFromTitle } from "./slug.ts";
-import type { PlanWorkspace } from "./workspace.ts";
-import { notesFile, PLAN_FILE, projectPath, versionFile } from "./workspace.ts";
 
 /**
  * The decisions of a review, as pure functions of plain values. The application reads the

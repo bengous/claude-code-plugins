@@ -1,8 +1,10 @@
 import { useEffect, useRef, useState } from "preact/hooks";
 
+import { Composer } from "../../review/composer.tsx";
+import type { ElementRef } from "../../review/contract.ts";
+import { choicesIn } from "../../review/surface.ts";
 import type { PageHalf, RendererProps } from "../../runtime/extension.ts";
 import { docUrl } from "../../runtime/page/api.ts";
-import { Composer } from "../../runtime/page/composer.tsx";
 import { srgb } from "../../runtime/page/kit.tsx";
 import type { Rect } from "../../runtime/page/place.ts";
 import { windowOf } from "../../runtime/page/place.ts";
@@ -15,8 +17,6 @@ import {
   holding,
   setAbsent,
 } from "../../runtime/page/state.ts";
-import type { ElementRef } from "../../runtime/protocol.ts";
-import { choicesIn } from "../../runtime/protocol.ts";
 import type { HtmlPlugs } from "./contract.ts";
 import type { Chosen, CommentedPlace, FrameTheme, PageToFrame, PickBox } from "./messages.ts";
 import { parseFrameToPage } from "./parse.ts";

@@ -1,5 +1,6 @@
 import { join } from "node:path";
 
+import type { Draft } from "../../review/contract.ts";
 import type {
   Refusal,
   Reply,
@@ -9,7 +10,7 @@ import type {
   SliceContext,
   SliceDispatched,
 } from "../../runtime/extension.ts";
-import type { Draft, PlanWorkspace } from "../../runtime/protocol.ts";
+import type { PlanWorkspace } from "../../runtime/protocol.ts";
 import type { ProjectPath } from "../../workshop/paths.ts";
 import { parseProjectPath } from "../../workshop/paths.ts";
 import { projectPath } from "../../workshop/workspace.ts";

@@ -2,12 +2,11 @@ import { describe, expect, test } from "bun:test";
 import { existsSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 
-import type { PageSlot } from "./runtime/extension.ts";
-import type { Listen } from "./runtime/hooks/extension.ts";
+import type { PageExtension } from "./runtime/extension.ts";
 import { engineExtensions } from "./runtime/hooks/slices.ts";
 import { pageExtensions } from "./runtime/page/slices.ts";
 import { serverExtensions } from "./runtime/server/slices.ts";
-import type { SliceDecl } from "./workshop/plugs.ts";
+import type { Listen, PageSlot, SliceDecl } from "./workshop/plugs.ts";
 
 /**
  * Each half of a slice holds to its declaration at run time, whatever the compiler saw: a tool, a
@@ -25,9 +24,11 @@ const LISTENS = ["prompted", "answered", "agentAnswered", "staged", "closing"] a
 
 const SLOTS = ["renderers", "send", "actions", "notices", "panel"] as const;
 
-/** Both lists name every listener and every slot: one more in either type fails here. */
+/** Both lists name every listener and every slot, and the workshop every slot the page offers: one more in either fails here. */
 const EVERY: [
-  Exclude<Listen, (typeof LISTENS)[number]> | Exclude<PageSlot, (typeof SLOTS)[number]>,
+  | Exclude<Listen, (typeof LISTENS)[number]>
+  | Exclude<PageSlot, (typeof SLOTS)[number]>
+  | Exclude<Exclude<keyof PageExtension, "id">, PageSlot>,
 ] extends [never]
   ? true
   : never = true;

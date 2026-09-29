@@ -88,6 +88,7 @@ describe("isE2ePath", () => {
       "vellum/src/runtime/hooks/hooks.ts",
       "vellum/src/runtime/hooks/deep/state.ts",
       "vellum/src/steps/grill/hooks.ts",
+      "vellum/src/review/hooks.ts",
       "vellum/hooks/hooks.json",
       "vellum/skills/start/SKILL.md",
       "vellum/agents/plan-reviewer.md",
@@ -116,6 +117,10 @@ describe("isE2ePath", () => {
 
   test("keeps a part's file that is not its hooks half", () => {
     expect(isE2ePath("vellum/src/steps/grill/page.tsx")).toBe(true);
+  });
+
+  test("keeps the review's file that is not its hooks code", () => {
+    expect(isE2ePath("vellum/src/review/comments.tsx")).toBe(true);
   });
 });
 

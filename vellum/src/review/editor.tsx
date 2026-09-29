@@ -1,10 +1,10 @@
 import { useEffect, useRef, useState } from "preact/hooks";
 
+import { Button, Popover } from "../runtime/page/kit.tsx";
+import { staleEditor } from "../runtime/page/notices.ts";
+import type { EditSession } from "../runtime/page/state.ts";
+import { closeEditor, finishEdit, review, setTyped, typed } from "../runtime/page/state.ts";
 import { lineOfOffset, offsetOfLine } from "./caret.ts";
-import { Button, Popover } from "./kit.tsx";
-import { staleEditor } from "./notices.ts";
-import type { EditSession } from "./state.ts";
-import { closeEditor, finishEdit, review, setTyped, typed } from "./state.ts";
 
 /** The session the editor opened on: nothing in it changes while it is open. */
 export type EditorProps = {

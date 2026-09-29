@@ -22,23 +22,23 @@ const WORKSHOP = `${SRC}/workshop`;
 
 const RUNTIME = `${SRC}/runtime`;
 
+/** The review, the frame the parts plug into: a part reads it through its `contract.ts`, as types. */
+const REVIEW = `${SRC}/review`;
+
+/**
+ * What a part imports of the review by value, frozen: `surface.ts`, and the composer in its own
+ * file, since the mockup's frame script loads `surface.ts` and must not load the page's store.
+ */
+const REVIEW_SURFACE = ["surface.ts", "composer.tsx"].map((file) => `${REVIEW}/${file}`);
+
+/** The review's tool and its turn-end gate, as `runtime/hooks/register.ts` imports them. */
+const REVIEW_HOOKS = "../../review/hooks.ts";
+
 /** The folders that hold the parts, a folder each: the steps Vellum follows, the formats it reads a document in. */
 const PART_GROUPS = ["steps", "formats"];
 
-/** The one reach out of the workshop, as types: the listeners and page slots a contract names. One more is a decision to take. */
-const PLUGS_READS = ["../runtime/hooks/extension.ts", "../runtime/extension.ts"];
-
 /** The `runtime/page` files the parts import today, frozen: one more is a decision to take. */
-const PAGE_SURFACE = [
-  "anchoring.ts",
-  "api.ts",
-  "composer.tsx",
-  "highlights.ts",
-  "kit.tsx",
-  "place.ts",
-  "selection.ts",
-  "state.ts",
-];
+const PAGE_SURFACE = ["api.ts", "highlights.ts", "kit.tsx", "place.ts", "state.ts"];
 
 /**
  * What a part imports of a runtime's folder, frozen: one more is a decision to take. The half it
@@ -216,9 +216,7 @@ function offending(dir: string, forbidden: RegExp): string[] {
 }
 
 describe("dependency direction", () => {
-  test("workshop/ imports nothing outside itself, no runtime, no IO, no page: plugs.ts reads the slots' names as types, the one exception", () => {
-    const plugs = `${WORKSHOP}/plugs.ts`;
-
+  test("workshop/ imports nobody: no runtime, no IO, no page, no part, not even as types", () => {
     const stray = sources("src/workshop").flatMap((file) =>
       imports(file)
         .filter(
@@ -226,14 +224,6 @@ describe("dependency direction", () => {
             /^(node:|bun)/u.test(specifier) ||
             (specifier.startsWith(".") &&
               !slashed(resolve(dirname(file), specifier)).startsWith(`${WORKSHOP}/`)),
-        )
-        .filter(
-          (specifier) =>
-            !(
-              file === plugs &&
-              PLUGS_READS.includes(specifier) &&
-              !valueImports(file).includes(specifier)
-            ),
         )
         .map((specifier) => `${short(file)} imports ${specifier}`),
     );
@@ -244,21 +234,33 @@ describe("dependency direction", () => {
   test("runtime/hooks runs on claude-code and its own siblings alone; the rest reaches it as types only", () => {
     // The transpiler drops a type-only import, so `import type … from "../protocol.ts"`
     // never shows here, and a value import from anywhere but a sibling does. The registry,
-    // `slices.ts`, loads the parts' hooks halves, which the tests below hold to their folders.
+    // `slices.ts`, loads the parts' hooks halves, which the tests below hold to their folders;
+    // `register.ts` loads the review's by name.
     const stray = sources("src/runtime/hooks")
       .filter((file) => !REGISTRIES.includes(file))
       .flatMap((file) =>
         valueImports(file)
-          .filter((path) => path !== "claude-code" && !/^\.\/[a-z-]+\.ts$/u.test(path))
+          .filter(
+            (path) =>
+              path !== "claude-code" && path !== REVIEW_HOOKS && !/^\.\/[a-z-]+\.ts$/u.test(path),
+          )
           .map((path) => `${short(file)} imports ${path}`),
       );
 
-    const loadingTheRegistry = sources("src/runtime/hooks").flatMap((file) =>
-      valueImports(file).includes("./slices.ts") ? [short(file)] : [],
-    );
+    const loading = (path: string): string[] =>
+      sources("src/runtime/hooks").flatMap((file) =>
+        valueImports(file).includes(path) ? [short(file)] : [],
+      );
 
     expect(stray).toEqual([]);
-    expect(loadingTheRegistry).toEqual(["src/runtime/hooks/register.ts"]);
+    expect(loading("./slices.ts")).toEqual(["src/runtime/hooks/register.ts"]);
+    expect(loading(REVIEW_HOOKS)).toEqual(["src/runtime/hooks/register.ts"]);
+  });
+
+  test("the review's hooks code loads nothing: the hooks module must never pull the server or the page in", () => {
+    expect(loadedBy(`${REVIEW}/hooks.ts`).map((file) => short(file))).toEqual([
+      "src/review/hooks.ts",
+    ]);
   });
 
   test("the page and its renderers never import the server side", () => {
@@ -269,6 +271,42 @@ describe("dependency direction", () => {
       .map(({ file, specifier }) => `${short(file)} imports ${specifier}`);
 
     expect(reaching).toEqual([]);
+  });
+
+  test("protocol.ts learns nothing of the review: review/contract.ts names its types", () => {
+    const reaching = relativeImportsOf([`${RUNTIME}/protocol.ts`])
+      .filter(({ target }) => target.startsWith(`${REVIEW}/`))
+      .map(({ file, specifier }) => `${short(file)} imports ${specifier}`);
+
+    expect(reaching).toEqual([]);
+  });
+
+  test("review/ imports no part: the parts plug into it, it names none", () => {
+    const reaching = relativeImports("src/review")
+      .filter(({ target }) => PART_GROUPS.some((group) => target.startsWith(`${SRC}/${group}/`)))
+      .map(({ file, specifier }) => `${short(file)} imports ${specifier}`);
+
+    expect(reaching).toEqual([]);
+  });
+
+  test("the server and the hooks module load no page: no Preact, no component, the review's included", () => {
+    const entries = ["src/runtime/server/cli.ts", "src/runtime/hooks/register.ts"];
+
+    const loaded = entries.flatMap((entry) =>
+      loadedBy(`${ROOT}/${entry}`)
+        .filter((file) => file.startsWith("preact") || file.endsWith(".tsx"))
+        .map((file) => `${entry} loads ${file.startsWith(`${ROOT}/`) ? short(file) : file}`),
+    );
+
+    expect(loaded).toEqual([]);
+  });
+
+  test("the mockup's frame script loads no Preact and no page store: it runs in the model's document", () => {
+    const loaded = loadedBy(`${SRC}/formats/html/frame.ts`)
+      .filter((file) => file.startsWith("preact") || file.startsWith(`${RUNTIME}/page/`))
+      .map((file) => (file.startsWith(`${ROOT}/`) ? short(file) : file));
+
+    expect(loaded).toEqual([]);
   });
 
   test("the server, the hooks module and the protocol never import the page", () => {
@@ -285,18 +323,20 @@ describe("dependency direction", () => {
 });
 
 describe("the page without a browser", () => {
-  test("every module of the page and of the parts imports with no window: a browser read waits for a call", async () => {
-    const modules = [...sources("src/runtime/page"), ...partSources()].filter(
-      (file) => !BROWSER_ENTRIES.includes(short(file)),
-    );
+  test("every module of the page, of the review and of the parts imports with no window: a browser read waits for a call", async () => {
+    const modules = [
+      ...sources("src/runtime/page"),
+      ...sources("src/review"),
+      ...partSources(),
+    ].filter((file) => !BROWSER_ENTRIES.includes(short(file)));
 
     expect(await failingBareImports(modules)).toEqual([]);
   });
 });
 
 describe("parts", () => {
-  test("a part imports workshop/, runtime/ and its own folder, never another part", () => {
-    const contracts = parts().map((slice) => `${slice}/${CONTRACT}`);
+  test("a part imports workshop/, runtime/, its own folder, the review's contract and its surface, never another part", () => {
+    const contracts = [...parts(), REVIEW].map((slice) => `${slice}/${CONTRACT}`);
 
     const stray = relativeImportsOf(partSources())
       .filter(({ file, specifier, target }) => {
@@ -306,6 +346,7 @@ describe("parts", () => {
           !target.startsWith(`${partOf(file)}/`) &&
           !target.startsWith(`${WORKSHOP}/`) &&
           !target.startsWith(`${RUNTIME}/`) &&
+          !REVIEW_SURFACE.includes(target) &&
           !typed
         );
       })

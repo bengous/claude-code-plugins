@@ -1,6 +1,7 @@
 import { batch, computed, signal } from "@preact/signals";
 import { useEffect, useRef, useState } from "preact/hooks";
 
+import type { Typed } from "../../review/contract.ts";
 import type { PageHalf, RendererProps, SendShare } from "../../runtime/extension.ts";
 import { extensionRequest } from "../../runtime/page/api.ts";
 import { Banner, Button, Chip } from "../../runtime/page/kit.tsx";
@@ -16,7 +17,6 @@ import {
   typed,
   writeDraft,
 } from "../../runtime/page/state.ts";
-import type { Typed } from "../../runtime/protocol.ts";
 import type { ProjectPath } from "../../workshop/paths.ts";
 import type { BodyOf, PostOf } from "../../workshop/plugs.ts";
 import type { Block, GrillPlugs, GrillState, Phase } from "./contract.ts";

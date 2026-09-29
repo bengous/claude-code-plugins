@@ -1,22 +1,35 @@
-import type { BatchHeading } from "../../workshop/feedback.ts";
-import { formatBatch } from "../../workshop/feedback.ts";
-import type { ProjectPath, Version } from "../../workshop/paths.ts";
-import type { Decision, Draft, EditKept, SendRequest } from "../../workshop/review.ts";
-import { EMPTY_DRAFT, namedIn, sendOn, slugFor } from "../../workshop/review.ts";
-import type { Actor, EventInput, Workflow } from "../../workshop/workflow.ts";
-import { HELD, held, verdictOf } from "../../workshop/workflow.ts";
-import type { PlanWorkspace } from "../../workshop/workspace.ts";
-import type { Part } from "../extension.ts";
-import type { SendRefusal } from "../protocol.ts";
-import { freeTarget, listReview } from "./fs.ts";
-import type { Queue, Stepped } from "./queue.ts";
+import type { Part } from "../runtime/extension.ts";
+import { freeTarget, listReview } from "../runtime/server/fs.ts";
+import type { Queue, Stepped } from "../runtime/server/queue.ts";
+import type { ProjectPath, Version } from "../workshop/paths.ts";
+import { tablePart } from "../workshop/rows.ts";
+import type { Actor, EventInput, TablePart, Workflow } from "../workshop/workflow.ts";
+import { HELD, held, verdictOf } from "../workshop/workflow.ts";
+import type { PlanWorkspace } from "../workshop/workspace.ts";
+import type { SendRefusal } from "./contract.ts";
+import { REVIEW_EVENTS, RULES } from "./contract.ts";
+import { REVIEW, SAMPLES, TRANSITIONS } from "./events.ts";
+import type { BatchHeading } from "./feedback.ts";
+import { formatBatch } from "./feedback.ts";
+import type { Decision, Draft, EditKept, SendRequest } from "./review.ts";
+import { EMPTY_DRAFT, namedIn, sendOn, slugFor } from "./review.ts";
 
 /**
- * The core's own events as its routes send them: what each reads in the queue before it is
- * judged, and how its answer reads the step. The table decides; the answers that stay the
- * route's are the ones the workflow does not hold: a draft it cannot read, questions no answer
- * takes, and a Send with nothing in it (E10).
+ * The review's server half: its part of the table, which the queue puts first, and its events as
+ * its routes send them: what each reads in the queue before it is judged, and how its answer
+ * reads the step. The table decides; the answers that stay the route's are the ones the workflow
+ * does not hold: a draft it cannot read, questions no answer takes, and a Send with nothing in it
+ * (E10).
  */
+
+/** The review's events, rows and transitions, as `next` judges them: first in every table. */
+export const REVIEW_PART: TablePart = tablePart(REVIEW, {
+  events: REVIEW_EVENTS.events,
+  rules: RULES,
+  samples: SAMPLES,
+  transitions: TRANSITIONS,
+  reactions: {},
+});
 
 /**
  * What a gate does with a `plan.md` whose text is the version under review: `record` opens a new
@@ -50,7 +63,7 @@ export type SendResult =
     }
   | { readonly ok: false; readonly refusal: SendRefusal };
 
-export type CoreEvents = {
+export type ReviewServer = {
   readonly gate: (options: GateOptions, actor: Actor) => Promise<GateResult>;
   readonly decide: (decision: Decision) => Promise<DecisionResult>;
   readonly send: (request: SendRequest) => Promise<SendResult>;
@@ -69,7 +82,7 @@ function passed(stepped: Stepped, event: string): Stepped {
   return stepped;
 }
 
-export function coreEvents(queue: Queue): CoreEvents {
+export function reviewServer(queue: Queue): ReviewServer {
   const { project, workdir, extensions } = queue.options;
 
   /** The version `plan.md` would be now: recorded when its text is new, kept when it is not. */

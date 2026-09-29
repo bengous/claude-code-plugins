@@ -2,16 +2,16 @@ import { batch } from "@preact/signals";
 import { render } from "preact";
 import { useEffect, useRef } from "preact/hooks";
 
+import { lineAtTop } from "../../review/caret.ts";
+import { Comments, CommentsHandle } from "../../review/comments.tsx";
+import { DecisionBar, Notices } from "../../review/decision-bar.tsx";
+import { Editor } from "../../review/editor.tsx";
+import { isSwitchKey, keyPressOf } from "../../review/selection.ts";
 import type { Renderer } from "../extension.ts";
 import type { DocRef, GroupedDoc } from "../protocol.ts";
-import { lineAtTop } from "./caret.ts";
-import { Comments, CommentsHandle } from "./comments.tsx";
-import { DecisionBar, Notices } from "./decision-bar.tsx";
 import { DocList, RailHandle } from "./doc-list.tsx";
-import { Editor } from "./editor.tsx";
 import { pathLabel } from "./labels.ts";
 import { DOCS_PANE, guttersOf, PANE_ORDER, panesOf } from "./panes.ts";
-import { isSwitchKey, keyPressOf } from "./selection.ts";
 import { pageExtensions } from "./slices.ts";
 import {
   addAnnotation,

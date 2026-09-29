@@ -14,19 +14,19 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import type { Passage } from "../../workshop/feedback.ts";
+import type { Passage } from "../../review/feedback.ts";
+import type { Draft, SendRequest } from "../../review/review.ts";
+import { choicesIn, EMPTY_TYPED } from "../../review/review.ts";
+import type { ReviewServer, GateResult, SendResult } from "../../review/server.ts";
+import { reviewServer } from "../../review/server.ts";
 import { parseWipDir } from "../../workshop/paths.ts";
-import type { Draft, SendRequest } from "../../workshop/review.ts";
-import { choicesIn, EMPTY_TYPED } from "../../workshop/review.ts";
 import type { Outcome, Region, Transition, Workflow } from "../../workshop/workflow.ts";
 import { held as heldIn, withRegion } from "../../workshop/workflow.ts";
 import type { ServerExtension, ServerWorkflow } from "../extension.ts";
-import type { CoreEvents, GateResult, SendResult } from "./events.ts";
-import { coreEvents } from "./events.ts";
 import { Queue } from "./queue.ts";
 import { serverExtensions } from "./slices.ts";
 
-/** The applying side: the pure decisions are covered in `workshop/review.spec.ts`. */
+/** The applying side: the pure decisions are covered in `review/review.spec.ts`. */
 
 const WIP = "plans/2026-09-15/wip-4c2a9d93/";
 
@@ -40,7 +40,7 @@ const FINAL = "plans/2026-09-15/notification-settings/";
 
 const V1 = 1 as never;
 
-type Setup = { readonly review: Queue; readonly events: CoreEvents; readonly root: string };
+type Setup = { readonly review: Queue; readonly events: ReviewServer; readonly root: string };
 
 /** A gate as `submit` asks it: a new text, or one after a feedback, is the next version. */
 const RECORD = { unchanged: "record" } as const;
@@ -66,7 +66,7 @@ function setup(
 
   const review = new Queue({ project: root, workdir: workdir.value, extensions, heldRetryMs });
 
-  return { review, events: coreEvents(review), root };
+  return { review, events: reviewServer(review), root };
 }
 
 /** The error of a rename `refuseRename` made fail, not of any other step of `finalize`. */

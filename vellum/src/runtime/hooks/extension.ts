@@ -5,6 +5,7 @@ import type {
   BodyOf,
   GetOf,
   GetRoute,
+  Listen,
   Json,
   Parser,
   Plugs,
@@ -102,8 +103,7 @@ export type EngineExtension = {
   readonly closing?: (context: EngineContext) => Promise<void>;
 };
 
-/** The engine events a half may listen to, each handed the half's own context `C`. */
-export type Listeners<C> = {
+type Handlers<C> = {
   readonly prompted: (context: C, prompt: Prompted) => Promise<void>;
   readonly answered: (context: C, turn: Answered) => Promise<void>;
   readonly agentAnswered: (context: C, turn: AgentAnswered) => Promise<void>;
@@ -111,7 +111,10 @@ export type Listeners<C> = {
   readonly closing: (context: C) => Promise<void>;
 };
 
-export type Listen = keyof Listeners<EngineContext>;
+/** The engine events a half may listen to, as the workshop names them, each handed the half's own context `C`. */
+export type Listeners<C> = { readonly [Event in Listen]: Handlers<C>[Event] };
+
+export type { Listen };
 
 /**
  * What a slice's route answered the hooks half: the answer its plugs declare, read by the route's

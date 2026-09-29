@@ -2,10 +2,8 @@ import { batch } from "@preact/signals";
 import { Fragment } from "preact";
 import { useEffect, useRef, useState } from "preact/hooks";
 
-import type { Anchor, Annotation, GroupedDoc, Mark, SentChoice } from "../protocol.ts";
-import { choicesIn, DELETE_SENTENCE, QUICK_LABELS, refOf } from "../protocol.ts";
-import { Badge, Button, Handle, Tag } from "./kit.tsx";
-import { pathLabel, quoteOf, whereOf } from "./labels.ts";
+import { Badge, Button, Handle, Tag } from "../runtime/page/kit.tsx";
+import { pathLabel, quoteOf, whereOf } from "../runtime/page/labels.ts";
 import {
   addAnnotation,
   annotations,
@@ -27,8 +25,12 @@ import {
   typed,
   unchoose,
   updateAnnotation,
-} from "./state.ts";
-import { switchShown } from "./tools.tsx";
+} from "../runtime/page/state.ts";
+import { switchShown } from "../runtime/page/tools.tsx";
+import type { GroupedDoc } from "../runtime/protocol.ts";
+import type { Anchor, Annotation, Mark, SentChoice } from "./feedback.ts";
+import { DELETE_SENTENCE, QUICK_LABELS } from "./feedback.ts";
+import { choicesIn, refOf } from "./review.ts";
 
 type Quote = {
   readonly key: string;

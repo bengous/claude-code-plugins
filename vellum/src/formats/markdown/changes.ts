@@ -1,7 +1,7 @@
 import type { Element, Root } from "hast";
 
-import { parseLines } from "../../runtime/page/anchoring.ts";
-import type { DiffRun, LineDiff } from "../../runtime/protocol.ts";
+import type { DiffRun, LineDiff } from "../../review/contract.ts";
+import { parseLines } from "../../review/surface.ts";
 
 /**
  * What "Changes since" draws over the rendered plan: which blocks carry the green bar, and

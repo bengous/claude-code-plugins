@@ -1,14 +1,12 @@
 import type { ComponentType } from "preact";
 import { useEffect, useRef, useState } from "preact/hooks";
 
-import type { SendShare } from "../extension.ts";
-import type { Annotation, Choices, Decision } from "../protocol.ts";
-import { choicesIn, countChanges, refOf } from "../protocol.ts";
-import { Badge, Banner, Button, Chip, Gear, Popover, Tag } from "./kit.tsx";
-import type { Notice, RefusedLine } from "./notices.ts";
-import { decisionsOf, statusOf } from "./notices.ts";
-import { Settings } from "./settings/settings.tsx";
-import type { Unsent } from "./state.ts";
+import type { SendShare } from "../runtime/extension.ts";
+import { Badge, Banner, Button, Chip, Gear, Popover, Tag } from "../runtime/page/kit.tsx";
+import type { Notice, RefusedLine } from "../runtime/page/notices.ts";
+import { decisionsOf, statusOf } from "../runtime/page/notices.ts";
+import { Settings } from "../runtime/page/settings/settings.tsx";
+import type { Unsent } from "../runtime/page/state.ts";
 import {
   annotations,
   choices,
@@ -22,8 +20,12 @@ import {
   sending,
   strayTyped,
   unsentTyped,
-} from "./state.ts";
-import { approve, held, notices, send, workflow } from "./workflow.ts";
+} from "../runtime/page/state.ts";
+import { approve, held, notices, send, workflow } from "../runtime/page/workflow.ts";
+import { countChanges } from "./diff.ts";
+import type { Annotation } from "./feedback.ts";
+import type { Choices, Decision } from "./review.ts";
+import { choicesIn, refOf } from "./review.ts";
 
 function titleOf(plan: string | null): string {
   return /^#\s+(.+?)\s*$/mu.exec(plan ?? "")?.[1] ?? "Plan";

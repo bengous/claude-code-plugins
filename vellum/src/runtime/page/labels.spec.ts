@@ -1,7 +1,8 @@
 /* oxlint-disable anti-slop/require-safety-comment-for-type-assertion -- the fixtures are branded values (Version, WipDir, ProjectPath) written as literals: the brand is the parser's to grant, and nothing here parses. */
 import { describe, expect, test } from "bun:test";
 
-import type { GroupedDoc, Passage, PlanWorkspace } from "../protocol.ts";
+import type { Passage } from "../../review/contract.ts";
+import type { GroupedDoc, PlanWorkspace } from "../protocol.ts";
 import type { Labelled } from "./labels.ts";
 import {
   dirLabels,

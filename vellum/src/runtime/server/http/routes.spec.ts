@@ -10,13 +10,14 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+import { UNREADABLE_DRAFT } from "../../../review/routes.ts";
+import type { ReviewServer } from "../../../review/server.ts";
+import { reviewServer } from "../../../review/server.ts";
 import type { WipDir } from "../../../workshop/paths.ts";
 import { parseWipDir } from "../../../workshop/paths.ts";
-import type { CoreEvents } from "../events.ts";
-import { coreEvents } from "../events.ts";
 import { Queue } from "../queue.ts";
 import { serverExtensions } from "../slices.ts";
-import { createHandler, TOKEN_HEADER, UNREADABLE_DRAFT } from "./routes.ts";
+import { createHandler, TOKEN_HEADER } from "./routes.ts";
 import { startServer } from "./serve.ts";
 import type { Started } from "./serve.ts";
 
@@ -115,7 +116,7 @@ function wipDir(): WipDir {
 type Drafting = {
   readonly dir: string;
   readonly review: Queue;
-  readonly events: CoreEvents;
+  readonly events: ReviewServer;
   // oxlint-disable-next-line anti-slop/no-unknown-parameters -- an unparsed decision is the case under test: the route's parser is what grants the type.
   readonly decide: (decision: {
     readonly kind: string;
@@ -145,13 +146,13 @@ function drafting(): Drafting {
   const dir = mkdtempSync(join(tmpdir(), "vellum-decision-"));
   mkdirSync(join(dir, WIP, ".review"), { recursive: true });
   const review = new Queue({ project: dir, workdir: wipDir(), extensions: serverExtensions });
-  const events = coreEvents(review);
+  const events = reviewServer(review);
 
   const { handle } = createHandler({
     token: "t",
     project: dir,
     queue: review,
-    events,
+    review: events,
     frameScript: "",
     extensionRoutes: new Map(),
     openBrowser: () => {},
@@ -348,7 +349,7 @@ describe("routes", () => {
       token: "t",
       project: root,
       queue: review,
-      events: coreEvents(review),
+      review: reviewServer(review),
       frameScript: "",
       extensionRoutes: new Map(),
       openBrowser: () => {},
@@ -376,7 +377,7 @@ describe("routes", () => {
       token: "t",
       project: root,
       queue: review,
-      events: coreEvents(review),
+      review: reviewServer(review),
       frameScript: "",
       extensionRoutes: new Map(),
       openBrowser: () => (opened += 1),

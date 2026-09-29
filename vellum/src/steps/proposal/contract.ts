@@ -1,10 +1,11 @@
+import type { ReviewEvents } from "../../review/contract.ts";
 /**
  * The proposal step: Claude proposes the next steps, one recommended, and the reviewer picks one.
  * Other folders import this file and nothing else of the folder. The hooks module and the page
  * read it as types: its values, the events and the rows, are the server's.
  */
 import type { PlugsOf } from "../../workshop/plugs.ts";
-import { core, defineSlice, get, post } from "../../workshop/plugs.ts";
+import { defineSlice, get, heard, post } from "../../workshop/plugs.ts";
 import { allOf, anyOf, rows } from "../../workshop/rows.ts";
 import { planExists } from "../../workshop/workflow.ts";
 import { namesAnotherProposal, namesAProposal, noProposalWaits, offersPlan } from "./proposal.ts";
@@ -69,7 +70,11 @@ export const SLICE = defineSlice({
     answerProposal: { by: ["reviewer"], carries: ["id", "answer", "move", "subject", "opened"] },
   },
   /** The approval ends the proposal waiting; `plan.md` written takes the plan step out of it. */
-  hears: { approve: core, planWritten: core, sendEdit: core },
+  hears: {
+    approve: heard<ReviewEvents["approve"]>(),
+    planWritten: heard<ReviewEvents["planWritten"]>(),
+    sendEdit: heard<ReviewEvents["sendEdit"]>(),
+  },
   hooks: {
     tools: ["propose"],
     listens: ["answered"],

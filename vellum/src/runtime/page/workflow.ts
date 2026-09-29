@@ -1,7 +1,8 @@
 import type { ReadonlySignal } from "@preact/signals";
 import { computed, effect, signal } from "@preact/signals";
 
-import type { Decision, Edit, WorkflowView } from "../protocol.ts";
+import type { Decision, Edit } from "../../review/contract.ts";
+import type { WorkflowView } from "../protocol.ts";
 import { postRecord } from "./api.ts";
 import type { Notice } from "./notices.ts";
 import { noticesOf } from "./notices.ts";

@@ -1,4 +1,4 @@
-import type { DecisionKey, ElementDescription, ElementRef } from "../../runtime/protocol.ts";
+import type { DecisionKey, ElementDescription, ElementRef } from "../../review/contract.ts";
 
 /** The contract across the sandbox: the page and the frame script both hold to it. */
 

@@ -9,8 +9,8 @@ paths:
 
 - Three suffixes, three runners: `*.spec.ts` for the `bun:test` suites (the server's, the
   page's, and `src/runtime/hooks/register.spec.ts`, which reads `register.ts` as text),
-  `*.test.ts` for the hooks module's kit tests, in `src/runtime/hooks/` and, for a hooks half,
-  `src/steps/<name>/hooks.test.ts`, and `*.e2e.ts` for the browser suite in `e2e/`, which
+  `*.test.ts` for the hooks module's kit tests, in `src/runtime/hooks/`, `src/review/hooks.test.ts`
+  and, for a hooks half, `src/steps/<name>/hooks.test.ts`, and `*.e2e.ts` for the browser suite in `e2e/`, which
   Playwright runs (`bun run --cwd vellum e2e`) and neither of the other two collects. `claude plugin
   test` collects every `*.test.ts` under the plugin root and loads the module
   `<root>/hooks/hooks.json` names, so a `bun:test` suite named `*.test.ts` anywhere in the

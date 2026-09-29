@@ -1,10 +1,12 @@
 import type { ComponentType } from "preact";
 
+import type { Annotation, Draft, LineDiff, Typed } from "../review/contract.ts";
 import type { ProjectPath } from "../workshop/paths.ts";
 import type {
   AnswerOf,
   InputOf,
   Json,
+  PageSlot,
   Parser,
   Plugs,
   ReadingOf,
@@ -20,16 +22,7 @@ import type {
   TablePart,
   Workflow,
 } from "../workshop/workflow.ts";
-import type {
-  Annotation,
-  DocLink,
-  DocRef,
-  Draft,
-  LineDiff,
-  LinkRoots,
-  PlanWorkspace,
-  Typed,
-} from "./protocol.ts";
+import type { DocLink, DocRef, LinkRoots, PlanWorkspace } from "./protocol.ts";
 
 export type RendererProps = {
   readonly doc: DocRef;
@@ -224,8 +217,8 @@ export type ServerExtension = {
   ) => Promise<Part>;
 };
 
-/** A page slot a slice's page half may fill: the places `PageExtension` offers. */
-export type PageSlot = Exclude<keyof PageExtension, "id">;
+/** A page slot a slice's page half may fill: the workshop names the places `PageExtension` offers. */
+export type { PageSlot };
 
 /** What a slice's `page.tsx` fills: every slot its plugs declare, and no other. */
 export type PageHalf<P extends Plugs> = { readonly id: P["id"] } & {

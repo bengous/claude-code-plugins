@@ -1,5 +1,6 @@
 import type { EngineInterface, Register } from "claude-code";
 
+import { gateAtTurnEnd, SUBMIT, submitPlan, submitResult } from "../../review/hooks.ts";
 import { type Band, liveBand, lostBand } from "./band.ts";
 import type { EngineContext, EngineExtension, ToolContext } from "./extension.ts";
 import type { Host } from "./host.ts";
@@ -29,20 +30,13 @@ import {
   type StateWire,
 } from "./parse.ts";
 import { landed } from "./place.ts";
-import { type Claim, submitPlan, submitResult } from "./relay.ts";
+import type { Claim } from "./relay.ts";
 import { engineExtensions } from "./slices.ts";
 import { completed, NO_TURN, ownOf, prompted, replied, started, type Turns } from "./turn.ts";
 
 const START_SKILL = "vellum:start";
 
 const STOP_SKILL = "vellum:stop";
-
-const SUBMIT = {
-  name: "submit",
-  description:
-    "Submit plan.md from the vellum working directory for review in the browser, before the turn ends. The turn's end submits it anyway, but only when its text changed; once the reviewer sent a batch on the version under review, this tool also records an unchanged plan.md as the next version. Answers with the version under review. Refused, with the reason, outside a vellum planning session (entered by /vellum:start), when plan.md is missing, when the plan is approved, and while the review is held (a grill, a plan review): plan.md then waits, a prompt tells you once the hold ends, and the end of that turn records it.",
-  inputSchema: { type: "object" },
-};
 
 // Kept small on purpose: a tool's schema rides in every request.
 const STATE = {
@@ -511,11 +505,7 @@ export const register: Register = (on) => {
     const own = ownOf(turns, e.turnId);
     turns = completed(turns, e.turnId);
 
-    if (e.reason === "answer") {
-      await submitPlan(host, state.live, "keep").catch((cause: unknown) => {
-        host.log(`plan.md was not submitted at the turn's end: ${String(cause)}`);
-      });
-    }
+    if (e.reason === "answer") await gateAtTurnEnd(host, state.live);
 
     await handed(host, state.live, "answered", (extension, context) =>
       extension.answered?.(context, { text: e.answer, reason: e.reason, own }),

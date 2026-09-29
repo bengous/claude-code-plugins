@@ -1,3 +1,7 @@
+import { readDraft } from "../../review/draft.ts";
+import type { Draft } from "../../review/review.ts";
+import { draftIsEmpty } from "../../review/review.ts";
+import { REVIEW_PART } from "../../review/server.ts";
 import {
   appended,
   CHANNEL_FILE,
@@ -9,26 +13,10 @@ import {
 } from "../../workshop/channel.ts";
 import type { FinalDir, ProjectPath, Version, WipDir } from "../../workshop/paths.ts";
 import { parseVersion } from "../../workshop/paths.ts";
-import type { Draft } from "../../workshop/review.ts";
-import { draftIsEmpty } from "../../workshop/review.ts";
-import type {
-  Actor,
-  EventInput,
-  PlanText,
-  Stage,
-  Table,
-  Workflow,
-  WorkflowView,
-  Wording,
-} from "../../workshop/workflow.ts";
-import {
-  JOURNAL_FILE,
-  journalText,
-  next,
-  stageOf,
-  tableOf,
-  viewOf,
-} from "../../workshop/workflow.ts";
+import type { Stage, WorkflowView, Wording } from "../../workshop/view.ts";
+import { stageOf, viewOf } from "../../workshop/view.ts";
+import type { Actor, EventInput, PlanText, Table, Workflow } from "../../workshop/workflow.ts";
+import { JOURNAL_FILE, journalText, next, tableOf } from "../../workshop/workflow.ts";
 import type { Memory, PlanWorkspace } from "../../workshop/workspace.ts";
 import {
   DRAFT_FILE,
@@ -58,7 +46,6 @@ import type {
   GroupedDoc,
   ReviewView,
 } from "../protocol.ts";
-import { readDraft } from "./draft.ts";
 import type { EffectPorts } from "./effects.ts";
 import { interpret } from "./effects.ts";
 import {
@@ -101,7 +88,7 @@ function grouped(docs: readonly DocRef[], group: DocGroup): GroupedDoc[] {
  * The queue, the workflow and its readers. Every step reads the workflow, lets `next` judge the
  * event against the table, and hands the effects to `interpret`, the one code that writes for the
  * workflow; then the page hears of it, and the waits read again. What a step reads before it is
- * judged is its route's (`events.ts` for the core's own), never a decision of this class.
+ * judged is its route's (`review/server.ts` for the review's own), never a decision of this class.
  */
 export class Queue {
   private memory: Memory;
@@ -141,7 +128,7 @@ export class Queue {
       workflow === undefined ? [] : [{ id, workflow }],
     );
 
-    this.table = tableOf(this.parts.map(({ workflow }) => workflow));
+    this.table = tableOf([REVIEW_PART, ...this.parts.map(({ workflow }) => workflow)]);
 
     this.wordings = this.parts.map(({ id, workflow }) => ({
       id,

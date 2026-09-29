@@ -2,6 +2,15 @@
 paths:
   - "src/runtime/server/**"
   - "src/runtime/protocol.ts"
+  - "src/review/contract.ts"
+  - "src/review/events.ts"
+  - "src/review/server.ts"
+  - "src/review/routes.ts"
+  - "src/review/draft.ts"
+  - "src/review/parse.ts"
+  - "src/review/review.ts"
+  - "src/review/feedback.ts"
+  - "src/review/diff.ts"
 ---
 
 # The server
@@ -10,9 +19,9 @@ The server, `src/runtime/server/`, around the pure core, `src/workshop/` (`works
 `queue.ts` is the queue and the step: every change of the workflow is an event, which `Queue.step` reads (the
 `Workflow`: the directory, `plan.md`, each extension's region), judges with `next` against the
 table (`workshop/workflow.ts`), and hands to `interpret` (`effects.ts`), the one code that
-writes for the workflow; `events.ts` reads what the core's own routes carry (the gate,
+writes for the workflow; `review/server.ts` reads what the review's own routes carry (the gate,
 Record, the approval, the Send). The IO is plain modules, no interface, no injection: `fs.ts` every read and
-write under the project root, `draft.ts` the draft's one parser, `http/routes.ts` bodies, paths and status codes,
+write under the project root, `http/routes.ts` bodies, paths and status codes, handing the review's to `review/routes.ts`,
 `http/serve.ts` binding and the page bundle, `browser.ts` the opener, `vellum-build.ts` the
 plugin's own version and commit, read once at start from outside the project (`plugin.json`,
 Claude Code's `installed_plugins.json`, `git` with its `GIT_*` variables cleared). Direction held by
@@ -27,8 +36,10 @@ Claude Code's `installed_plugins.json`, `git` with its `GIT_*` variables cleared
   no `as`, no re-check. A `ParseResult` is returned where the caller decides; anything else
   throws, and the route turns it into an answer.
 - `src/runtime/protocol.ts` is the one place a value crossing HTTP, the server's stdout or an
-  extension boundary is typed; it re-exports the workshop's types it carries, never redefines them. What an extension
-  hands the core is typed beside it, in `src/runtime/extension.ts`.
+  extension boundary is typed, but for the review's: its draft, its Send, its decision and its
+  routes' answers are typed in `src/review/contract.ts`, which re-exports them from the module that
+  defines them, and `protocol.ts` names none. Both re-export the domain's types they carry, never
+  redefine them. What an extension hands the core is typed beside it, in `src/runtime/extension.ts`.
 - `Queue` binds the `ServerContext` of `src/runtime/extension.ts` to itself and to `fs.ts`, since
   a step runs there; `http/serve.ts` hands the same context to each extension's routes and mounts them under `/api/x/<id>/`; `routes.ts` looks them
   up after its own, behind the same token check, and knows none by name.
@@ -63,7 +74,7 @@ Claude Code's `installed_plugins.json`, `git` with its `GIT_*` variables cleared
   too), and the started extension's reaction writes it, in the same step, so two grills never
   open. The core passes `input` on untouched, and the started extension's `parse.ts` reads it.
 - One queue orders every step: an event dispatched (`ServerContext.dispatch`, and the core's own
-  through `events.ts`), and a read a step must see whole through `ServerContext.inOrder`. A gate
+  through `review/server.ts`), and a read a step must see whole through `ServerContext.inOrder`. A gate
   that saw no hold records its version before a grill that opened meanwhile, never after. A
   route's `Reading` and every region's read run inside the step and never call the queue.
 - `interpret` runs a step's effects in order. The commit point is the step's first entry of the
@@ -118,7 +129,7 @@ Claude Code's `installed_plugins.json`, `git` with its `GIT_*` variables cleared
   another version is refused (a Send's 409 `stale`): a bare text sent after Claude recorded
   `vN+1` would overwrite that revision and tell Claude to keep it. `vN.md` stays what its author
   submitted.
-- One Send, `send` of `events.ts`, is one step of the queue, what the reviewer sends from the page's one
+- One Send, `send` of `review/server.ts`, is one step of the queue, what the reviewer sends from the page's one
   button or from a comment's Send now. Its `SendRequest` names what the reviewer saw at the
   click: the comment ids, the edit's version or `null`, the choices made in mockups by their
   mockup, decision and option, whether the extensions' parts go (the
@@ -147,7 +158,7 @@ Claude Code's `installed_plugins.json`, `git` with its `GIT_*` variables cleared
   writes nothing and keeps a notes file already there: a retry after a failed rename carries no
   note. Whether the approval's prompt names a notes file is read from the final directory's
   listing, never from the decision.
-- The draft is the page's, stored and read back through the one parser, `draft.ts`:
+- The draft is the page's, stored and read back through the one parser, `review/draft.ts`:
   `PUT /api/draft` parses the comments, the edit, the choices made in mockups and what is typed,
   and `Queue.draft` runs the file through the same parser for `GET`, a Send and
   `ServerContext.draft`, so a malformed draft is refused whole, with `UNREADABLE_DRAFT` as the

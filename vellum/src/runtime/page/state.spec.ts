@@ -1,21 +1,19 @@
 /* oxlint-disable anti-slop/require-safety-comment-for-type-assertion -- fixtures are branded values (ProjectPath, Version, WipDir) written as literals, and fakes stand where a browser global does: the brand is the parser's to grant, the global's type the browser's, and nothing here parses or runs in one. */
 import { afterEach, describe, expect, test } from "bun:test";
 
-import type { SendShare } from "../extension.ts";
 import type {
   Annotation,
   Decision,
-  DocGroup,
   Draft,
   Edit,
-  GroupedDoc,
   RecordAnswer,
-  ReviewView,
-  WorkflowView,
   SendAnswer,
   SendRequest,
-} from "../protocol.ts";
-import { choicesIn, EMPTY_TYPED, lineDiff, refOf } from "../protocol.ts";
+} from "../../review/contract.ts";
+import { lineDiff } from "../../review/diff.ts";
+import { choicesIn, EMPTY_TYPED, refOf } from "../../review/review.ts";
+import type { SendShare } from "../extension.ts";
+import type { DocGroup, GroupedDoc, ReviewView, WorkflowView } from "../protocol.ts";
 import type { WorkflowStore } from "./workflow.ts";
 import { workflowOf } from "./workflow.ts";
 

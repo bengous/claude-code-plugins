@@ -2,14 +2,16 @@
 paths:
   - "hooks/**"
   - "src/runtime/hooks/**"
+  - "src/review/hooks.ts"
 ---
 
 # The hooks module
 
 `hooks/hooks.json` is what Claude Code reads, and it names `src/runtime/hooks/register.ts`. The
 files there each import `claude-code`, a sibling `./<name>.ts`, or `import type` from
-`../protocol.ts` and `../../workshop/plugs.ts`, and nothing else; `register.ts` alone also loads `./slices.ts`,
-the registry of the engine halves. Held by `src/boundaries.spec.ts`.
+`../protocol.ts`, `../../review/contract.ts` and `../../workshop/plugs.ts`, and nothing else; `register.ts` alone also loads `./slices.ts`,
+the registry of the engine halves, and `../../review/hooks.ts`, the review's tool `submit` and its
+gate at the turn's end, which loads nothing. Held by `src/boundaries.spec.ts`.
 
 ```
 register.ts  the engine adapter: the one `let state`, one hook per event, and `hostOf`
@@ -175,8 +177,8 @@ loop. `/vellum:start` enters it, Approve in the page or `/vellum:stop` leaves it
 - Parse at the boundary, once: `tool_input`, `$.store` values and the server's JSON arrive as
   `unknown` and are parsed in `parse.ts`. Past it: no `typeof`, no `as`, no re-check. The
   brands (`SessionId`, `Token`, `ProjectDir`, `Workdir`) are minted there and nowhere else.
-- The server's JSON is typed from the server's own types: `parse.ts` imports `ChannelLine`,
-  `ServerLine` and `GateAnswer` from `../protocol.ts` as types, and `Json<T>` strips the domain's brands,
+- The server's JSON is typed from the server's own types: `parse.ts` imports `ChannelLine` and
+  `ServerLine` from `../protocol.ts` and `GateAnswer` from `../../review/contract.ts`, as types, and `Json<T>` strips the domain's brands,
   which the module reads but never grants. A field the server adds or renames fails `tsgo` in
   the parser.
 - Saving the file under `--plugin-dir` reloads the module in a fresh environment: every

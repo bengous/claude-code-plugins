@@ -1,7 +1,7 @@
 import { diffLines } from "diff";
 
+import type { ProjectPath } from "../workshop/paths.ts";
 import type { Annotation, Passage } from "./feedback.ts";
-import type { ProjectPath } from "./paths.ts";
 
 /**
  * Two texts compared line by line, as the runs the page draws and counts. The comparison is

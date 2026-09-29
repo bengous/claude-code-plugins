@@ -1,11 +1,5 @@
-import type {
-  Anchor,
-  DocGroup,
-  GroupedDoc,
-  Passage,
-  PlanWorkspace,
-  ReviewView,
-} from "../protocol.ts";
+import type { Anchor, Passage } from "../../review/contract.ts";
+import type { DocGroup, GroupedDoc, PlanWorkspace, ReviewView } from "../protocol.ts";
 
 /**
  * What the page names, purely: a document, a place in it, a quote of it. The server's names

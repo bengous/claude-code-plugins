@@ -3,8 +3,9 @@ import { describe, expect, test } from "bun:test";
 import { EMPTY, INVARIANTS, PARTS, proof, returned, TABLE, told, WORDINGS } from "./proof.ts";
 import type { Move } from "./steps/proposal/contract.ts";
 import { pendingOf } from "./steps/proposal/proposal.ts";
+import { pillOf, refusedNow, stageOf, viewOf } from "./workshop/view.ts";
 import type { EventInput, RuleVerdict, Step, Workflow } from "./workshop/workflow.ts";
-import { next, pillOf, refusedNow, SAMPLE_AT, stageOf, viewOf } from "./workshop/workflow.ts";
+import { next, SAMPLE_AT } from "./workshop/workflow.ts";
 
 function tried(w: Workflow, event: string, input: EventInput = {}): Step {
   return next(w, TABLE, event, input, "engine");
