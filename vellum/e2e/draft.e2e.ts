@@ -1,7 +1,16 @@
 import type { Locator, Page } from "@playwright/test";
 
 import type { Vellum } from "./harness.ts";
-import { commentOn, dragText, expect, openVellum, reviewV1, sendButton, test } from "./harness.ts";
+import {
+  commentOn,
+  dragText,
+  expect,
+  openVellum,
+  reviewV1,
+  savedWith,
+  sendButton,
+  test,
+} from "./harness.ts";
 
 /**
  * The draft carries what is typed: a text typed and visible survives a reload and a change of
@@ -19,14 +28,6 @@ async function reload(page: Page): Promise<void> {
   await page.reload();
   await page.locator(".bar .brand").waitFor();
   await expect(page.locator(".plan h1")).toBeVisible();
-}
-
-/**
- * Until the saved draft holds `text`. A typing is written once it pauses (`TYPED_WRITE_MS`), and
- * under load it pauses mid-word: a draft saved is not yet the text typed.
- */
-async function savedWith(vellum: Vellum, text: string): Promise<void> {
-  await expect.poll(async () => JSON.stringify((await vellum.api("draft")).json)).toContain(text);
 }
 
 async function openEditor(page: Page): Promise<void> {
@@ -283,9 +284,7 @@ test.describe("a card", () => {
     await card.locator("textarea").fill("");
 
     await expect(card.getByRole("button", { name: "Done" })).toBeDisabled();
-    await expect
-      .poll(async () => JSON.stringify((await vellum.api("draft")).json))
-      .toContain('"body":"Say which forms."');
+    await savedWith(vellum, '"body":"Say which forms."');
     await card.locator("textarea").fill("Name the forms.");
     await card.getByRole("button", { name: "Done" }).click();
     await expect(card).toContainText("Name the forms.");

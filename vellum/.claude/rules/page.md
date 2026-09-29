@@ -198,12 +198,11 @@ no build step, so what the page imports costs nothing at `cli start`.
   so under 900px the panel would paint open, then fold through its width transition
   (`shell.e2e.ts` holds that call, `src/boundaries.spec.ts` the rest).
 - `start` is the page's one way in, and its order is the rule: the saved draft into the signals,
-  then the first load, then the saving effects, then the event stream. Nothing may `PUT` a draft
-  before the restore, or every reload replaces the file with the page's empty state. A write
-  asked before the saving effects start waits for them (`firstLoad`): End grill is drawn before
-  the review loads, and clicked there it read the draft restored as one this tab never loaded,
-  and refused to end the grill (#259). After it,
-  each change of the comments, the edit or the choices is one write, sent in order; signals that change
+  then the first load, then the saving effects, then the event stream. A `writeDraft` asked
+  while `start` runs, End grill being drawn before the review loads, waits for all of it
+  (`firstLoad`): until then a `flushDraft` still `null` does not mean a draft that could not be
+  read. Nothing may `PUT` a draft before the restore, or every reload replaces the file with the
+  page's empty state. After it, each change of the comments, the edit or the choices is one write, sent in order; signals that change
   together change in one `batch`; a change of `typed` is written once the typing pauses
   (`TYPED_WRITE_MS`), and a write of the comments, the edit or the choices meanwhile carries it.
   Every write goes with `keepalive` while the page's keepalive writes in flight leave room for

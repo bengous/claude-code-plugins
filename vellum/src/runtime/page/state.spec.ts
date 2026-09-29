@@ -934,7 +934,8 @@ describe("start", () => {
   test("a write asked while the first load is out waits for it, then writes the draft restored", async () => {
     const store = freshStore();
     const loaded = Promise.withResolvers<void>();
-    const saved: Draft = { annotations: [], edit: null, choices: {}, typed: EMPTY_TYPED };
+    const annotations = [comment("c1", `${WIP}.review/v1.md`)];
+    const saved: Draft = { annotations, edit: null, choices: {}, typed: EMPTY_TYPED };
 
     const server = serve({
       draft: saved,
@@ -945,11 +946,16 @@ describe("start", () => {
     const started = store.start();
     await settled();
     const written = store.writeDraft();
+    await settled();
+    const whileLoading = [...server.calls];
     loaded.resolve();
     await started;
 
-    expect(await written).toBe(true);
-    expect(server.puts.at(-1)).toEqual(saved);
+    expect([whileLoading, await written, server.puts.at(-1)]).toEqual([
+      ["GET /api/draft", "GET /api/review"],
+      true,
+      saved,
+    ]);
   });
 
   test("with no saved draft the first write is the empty one, still after both reads", async () => {

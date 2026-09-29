@@ -442,13 +442,14 @@ export function createStore() {
 
   /**
    * Writes the draft as the page shows it and answers whether the server kept it; `startSaving`
-   * binds it, and `null` is a page whose first read of the draft failed, so it saves nothing yet.
+   * binds it. `null` has two readings: before `firstLoad` settles, the first load is still out;
+   * after it, the page's first read of the draft failed, so it saves nothing yet.
    */
   let flushDraft: (() => Promise<boolean>) | null = null;
 
   /**
-   * Settled once `start` has restored the draft, loaded the review and started the saving or
-   * refused it: End grill is drawn before the review loads, so a write can be asked in between.
+   * Settled once `start` has run to its end or thrown, so `flushDraft` reads one way only. End
+   * grill is drawn before the review loads, so a write can be asked before it settles.
    */
   let firstLoad: Promise<unknown> = Promise.resolve();
 
@@ -877,8 +878,18 @@ export function createStore() {
    * any unsent edit at a load: kept, landed or dropped. Saving starts only after that, at every
    * change of the comments, the edit or the choices, each one a single write, and once a typing pauses:
    * earlier, a reload would replace the draft with the page's empty state. A draft that cannot be
-   * read starts no saving, for the same reason.
+   * read starts no saving, for the same reason. A write asked meanwhile waits for all of it
+   * (`firstLoad`).
    */
+  function start(): Promise<void> {
+    const started = startInOrder();
+    firstLoad = Promise.allSettled([started]);
+
+    // A promise of its own: `allSettled` handles `started`, and the page's `void start()` must
+    // still see a failed load reported as an unhandled rejection.
+    return started.then(() => {});
+  }
+
   async function startInOrder(): Promise<void> {
     const saved = await fetchDraft();
 
@@ -932,13 +943,6 @@ export function createStore() {
         });
       },
     );
-  }
-
-  function start(): Promise<void> {
-    const started = startInOrder();
-    firstLoad = Promise.allSettled([started]);
-
-    return started;
   }
 
   return {

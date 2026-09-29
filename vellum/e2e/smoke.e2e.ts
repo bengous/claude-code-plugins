@@ -86,3 +86,14 @@ test("an image draws", async ({ page, vellum }) => {
   await expect(page.locator(".image img")).toBeVisible();
   expect(errors).toEqual([]);
 });
+
+test("a first load the server does not answer throws where the page's errors are read", async ({
+  page,
+  vellum,
+}) => {
+  const errors = pageErrors(page);
+  await page.route("**/api/draft", (route) => route.abort());
+  await page.goto(vellum.url);
+
+  await expect.poll(() => errors).toEqual(["TypeError: Failed to fetch"]);
+});

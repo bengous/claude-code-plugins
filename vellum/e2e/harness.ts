@@ -466,6 +466,14 @@ export async function openVellum(page: Page, vellum: Vellum): Promise<void> {
   await page.locator(".bar .status").waitFor();
 }
 
+/**
+ * Until the saved draft holds `text`. A typing is written once it pauses (`TYPED_WRITE_MS`), and
+ * under load it pauses mid-word: a draft saved is not yet the text typed.
+ */
+export async function savedWith(vellum: Vellum, text: string): Promise<void> {
+  await expect.poll(async () => JSON.stringify((await vellum.api("draft")).json)).toContain(text);
+}
+
 /** Records `plan.md` as v1 and opens the page on it, drawn. */
 export async function reviewV1(page: Page, vellum: Vellum): Promise<void> {
   await vellum.gate();

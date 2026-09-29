@@ -12,6 +12,7 @@ import {
   expect,
   onItsSurface,
   openVellum,
+  savedWith,
   sendAll,
   sendButton,
   settled,
@@ -104,6 +105,22 @@ async function rightOf(right: Locator, left: Locator): Promise<boolean> {
   const [a, b] = [await boxOf(left), await boxOf(right)];
 
   return b.x >= a.x + a.width - 1;
+}
+
+/** Holds the page's next `GET /api/review` until the function it returns is called. */
+async function holdReview(page: Page): Promise<() => void> {
+  const held = Promise.withResolvers<void>();
+
+  await page.route(
+    "**/api/review",
+    async (route) => {
+      await held.promise;
+      await route.continue();
+    },
+    { times: 1 },
+  );
+
+  return () => held.resolve();
 }
 
 /** Runs `write`, then waits for the page's next read of the grill's state, answered `status`. */
@@ -720,9 +737,7 @@ test.describe("the panel's phases", () => {
     await answered(page, vellum);
     await panel(page).getByRole("button", { name: "Add a note" }).click();
     await noteField(page).fill("One more branch.");
-    await expect
-      .poll(async () => JSON.stringify((await vellum.api("draft")).json))
-      .toContain("One more branch.");
+    await savedWith(vellum, "One more branch.");
     await page.reload();
 
     await expect(noteField(page)).toHaveValue("One more branch.");
@@ -1170,14 +1185,15 @@ test.describe("the band", () => {
     await panel(page)
       .getByRole("textbox", { name: "Your answer to Q1" })
       .fill("One store per form.");
-    await expect
-      .poll(async () => JSON.stringify((await vellum.api("draft")).json))
-      .toContain("form.");
-    await page.route("**/api/x/grill/blocks*", (route) => route.fulfill({ status: 500 }));
+    await savedWith(vellum, "form.");
+    let failing = true;
+    await page.route("**/api/x/grill/blocks*", (route) =>
+      failing ? route.fulfill({ status: 500 }) : route.continue(),
+    );
     await page.reload();
     const end = band(page).getByRole("button", { name: "End grill" });
     await expect(end).toBeDisabled();
-    await page.unroute("**/api/x/grill/blocks*");
+    failing = false;
     vellum.writeFile("notes.md", "One.");
     await end.click();
 
@@ -1193,17 +1209,11 @@ test.describe("the band", () => {
     await panel(page)
       .getByRole("textbox", { name: "Your answer to Q1" })
       .fill("One store per form.");
-    await expect
-      .poll(async () => JSON.stringify((await vellum.api("draft")).json))
-      .toContain("form.");
-    await page.route("**/api/review", async (route) => {
-      await new Promise((done) => {
-        setTimeout(done, 1000);
-      });
-      await route.continue();
-    });
+    await savedWith(vellum, "form.");
+    const release = await holdReview(page);
     await page.reload();
     await band(page).getByRole("button", { name: "End grill" }).click();
+    release();
 
     const told = async (): Promise<string> => JSON.stringify((await vellum.channel()).json);
     await expect.poll(told).toContain("Q1: One store per form.");
