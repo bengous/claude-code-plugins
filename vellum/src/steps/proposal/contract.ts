@@ -6,7 +6,8 @@ import { planExists } from "../../workshop/workflow.ts";
 import { namesAnotherProposal, namesAProposal, noProposalWaits, offersPlan } from "./proposal.ts";
 
 /**
- * The proposal step: Claude proposes the next steps, one recommended, and the reviewer picks one.
+ * The proposal step: Claude proposes the next steps, one recommended, and the reviewer picks one
+ * or declines them all.
  * Other folders import this file and nothing else of the folder. The hooks module and the page
  * read it as types: its values, the events and the rows, are the server's.
  */
@@ -27,10 +28,11 @@ export type Proposal = {
   readonly recommended: number;
 };
 
-/** The reviewer's answer: a move, one of the proposal's or one of their own, or their own words. */
+/** The reviewer's answer: a move, one of the proposal's or one of their own, their own words, or none of the moves offered, with a note or none. */
 export type StepAnswer =
   | { readonly kind: "move"; readonly move: Move }
-  | { readonly kind: "own"; readonly text: string };
+  | { readonly kind: "own"; readonly text: string }
+  | { readonly kind: "decline"; readonly note: string | null };
 
 /** The proposal waiting for the reviewer, under the id the server gave it. */
 export type Pending = { readonly id: string; readonly proposal: Proposal };
@@ -47,7 +49,7 @@ export type Proposed = ProposalId;
 /** The proposal's wait, paused. */
 export type Paused = { readonly wait: "paused" };
 
-/** The proposal the window showed, `null` for the window opened blank, and the reviewer's answer. */
+/** The proposal the window showed, `null` for the window opened blank, which offers nothing to decline, and the reviewer's answer. */
 export type AnswerBody = { readonly id: string | null; readonly answer: StepAnswer };
 
 /** Why a proposal stopped waiting unanswered: a newer one, the approval, or `plan.md` written while the plan was its one move. */

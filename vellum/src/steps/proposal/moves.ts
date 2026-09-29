@@ -50,10 +50,16 @@ export function ownText(answer: StepAnswer, unseen: boolean): string {
 
 /**
  * What Claude is told of the reviewer's answer: `Accepted` for the move it recommended, `Chose`
- * for any other, one it offered or one of the reviewer's own, `Own` for the reviewer's words.
+ * for any other, one it offered or one of the reviewer's own, `Own` for the reviewer's words,
+ * `Declined` for none of the moves, the note after it.
  */
 export function answerText(answer: StepAnswer, pending: Pending | null): string {
   if (answer.kind === "own") return sentence(`Own: ${answer.text}`);
+
+  if (answer.kind === "decline") {
+    return answer.note === null ? "Declined." : sentence(`Declined: ${answer.note}`);
+  }
+
   const recommended = pending?.proposal.moves[pending.proposal.recommended];
   const accepted = recommended !== undefined && sameMove(answer.move, recommended);
 

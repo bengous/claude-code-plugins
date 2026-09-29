@@ -16,6 +16,9 @@ export const FIELD_HINTS: Readonly<Record<Exclude<OtherKind, "plan">, string>> =
   own: "What should Claude do next?",
 };
 
+/** The field of None of these, which Claude reads after `Declined:`. */
+export const NOTE_HINT = "Why none of these? (optional)";
+
 export function detailOf(move: Move): string {
   switch (move.kind) {
     case "grill":

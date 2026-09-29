@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import { answerOf, NO_PICK, oneLine, OWN_GRILL } from "./choice.ts";
+import { answerOf, DECLINE, NO_PICK, oneLine, OWN_GRILL } from "./choice.ts";
 import type { Move } from "./contract.ts";
 
 const GRILL: Move = { kind: "grill", subject: "auth", choices: ["Sessions"] };
@@ -47,6 +47,18 @@ describe("answerOf", () => {
       text: "Read the issue.\nThen plan.",
     });
     expect(answerOf({ kind: "other", other: "own", text: " " }, [])).toBeNull();
+  });
+
+  test("None of these declines every move, with the note typed or none", () => {
+    expect(answerOf({ kind: "decline", note: " Not before\nthe budget. " }, MOVES)).toEqual({
+      kind: "decline",
+      note: "Not before\nthe budget.",
+    });
+    expect(answerOf(DECLINE, MOVES)).toEqual({ kind: "decline", note: null });
+    expect(answerOf({ kind: "decline", note: " " }, MOVES)).toEqual({
+      kind: "decline",
+      note: null,
+    });
   });
 });
 

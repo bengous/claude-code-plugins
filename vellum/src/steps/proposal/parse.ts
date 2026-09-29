@@ -87,7 +87,8 @@ export function parseProposal(input: unknown): Proposal | null {
     : null;
 }
 
-function parseStepAnswer(value: unknown): StepAnswer | null {
+/** A decline's note is `null` for none, never blank: the page sends none for an empty field. */
+export function parseStepAnswer(value: unknown): StepAnswer | null {
   if (!isRecord(value)) return null;
 
   if (value.kind === "own") {
@@ -96,12 +97,19 @@ function parseStepAnswer(value: unknown): StepAnswer | null {
     return own === null ? null : { kind: "own", text: own };
   }
 
+  if (value.kind === "decline") {
+    if (value.note === null) return { kind: "decline", note: null };
+    const note = text(value.note);
+
+    return note === null ? null : { kind: "decline", note };
+  }
+
   const move = value.kind === "move" ? parseMove(value.move) : null;
 
   return move === null ? null : { kind: "move", move };
 }
 
-/** `POST answer`: the proposal answered, `null` from the window opened blank, and the answer. */
+/** `POST answer`: the proposal answered, `null` from the window opened blank, which declines nothing, and the answer. */
 export function parseAnswer(body: unknown): AnswerBody | null {
   if (!isRecord(body)) return null;
   const { id } = body;
@@ -109,7 +117,7 @@ export function parseAnswer(body: unknown): AnswerBody | null {
 
   if (answer === null) return null;
 
-  if (id === null) return { id, answer };
+  if (id === null) return answer.kind === "decline" ? null : { id, answer };
 
   return typeof id === "string" && id !== "" ? { id, answer } : null;
 }

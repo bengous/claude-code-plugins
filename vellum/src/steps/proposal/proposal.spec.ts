@@ -62,8 +62,12 @@ function proposing(proposal: Proposal): EventInput {
 
 const WHY: StepAnswer = { kind: "own", text: "Why?" };
 
-function answering(id: string): EventInput {
-  return { id, answer: JSON.stringify(WHY), move: "own", subject: "", opened: "" };
+const DECLINED: StepAnswer = { kind: "decline", note: null };
+
+function answering(id: string, answer: StepAnswer = WHY): EventInput {
+  const move = answer.kind === "move" ? answer.move.kind : answer.kind;
+
+  return { id, answer: JSON.stringify(answer), move, subject: "", opened: "" };
 }
 
 const NO_SUCH: RuleVerdict = {
@@ -106,22 +110,25 @@ const ROW_TESTS = {
     },
   ],
   "answerProposal: held": [
-    "an answer is refused while the review is held, the hold its reason",
+    "an answer, a decline too, is refused while the review is held, the hold its reason",
     () => {
-      expect(judged(review("p1", "absent", true), "answerProposal", answering("p1"))).toEqual({
-        kind: "refuse",
-        rule: "held",
-        reason: "grill 1 is open",
-      });
+      const held: RuleVerdict = { kind: "refuse", rule: "held", reason: "grill 1 is open" };
+      const w = review("p1", "absent", true);
+
+      expect(judged(w, "answerProposal", answering("p1"))).toEqual(held);
+      expect(judged(w, "answerProposal", answering("p1", DECLINED))).toEqual(held);
     },
   ],
   "answerProposal: no-such-proposal": [
-    "an answer naming a proposal is refused when another one waits or none does; the window opened blank passes",
+    "an answer naming a proposal, a decline too, is refused when another one waits or none does; the window opened blank passes",
     () => {
       expect(judged(review("p1", "absent"), "answerProposal", answering("p2"))).toEqual(NO_SUCH);
       expect(judged(review(null, "absent"), "answerProposal", answering("p1"))).toEqual(NO_SUCH);
       expect(judged(review("p1", "absent"), "answerProposal", answering("")).kind).toBe("allow");
       expect(judged(review("p1", "absent"), "answerProposal", answering("p1")).kind).toBe("allow");
+      const declining = (id: string): EventInput => answering(id, DECLINED);
+      expect(judged(review("p1", "absent"), "answerProposal", declining("p2"))).toEqual(NO_SUCH);
+      expect(judged(review("p1", "absent"), "answerProposal", declining("p1")).kind).toBe("allow");
     },
   ],
 } satisfies { readonly [Row in RowKey<(typeof RULES)[number]>]: readonly [string, () => void] };

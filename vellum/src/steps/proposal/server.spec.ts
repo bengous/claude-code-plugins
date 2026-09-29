@@ -270,6 +270,39 @@ describe("an answer", () => {
     expect(await told()).toEqual(["Chose: the plan.", "Own: Read the issue first.", "Own: Why?"]);
   });
 
+  test("declining every move is Declined, told once, and the wait returns it: nothing waits after", async () => {
+    const { post, propose, state, told, wait } = await stepping();
+    const id = await propose();
+    const declined = await post("answer", { id, answer: { kind: "decline", note: null } });
+
+    expect(declined.status).toBe(204);
+    expect(await told()).toEqual(["Declined."]);
+    expect(await wait(id)).toEqual({ kind: "answered", seq: 1, text: "Declined." });
+    expect(await state()).toEqual({ pending: null, paused: false });
+  });
+
+  test("a decline's note is told after it, and a new proposal may follow", async () => {
+    const { post, propose, state, told } = await stepping();
+    const id = await propose();
+    await post("answer", { id, answer: { kind: "decline", note: "Not before the budget" } });
+    const next = await propose();
+
+    expect(await told()).toEqual(["Declined: Not before the budget."]);
+    expect((await state()).pending?.id).toBe(next);
+  });
+
+  test("a decline is refused where a pick is, in the same words", async () => {
+    const { post, propose } = await stepping();
+    const first = await propose();
+    const second = await propose();
+    const late = await post("answer", { id: first, answer: { kind: "decline", note: null } });
+    await post("answer", { id: null, answer: { kind: "move", move: GRILL } });
+    const held = await post("answer", { id: second, answer: { kind: "decline", note: null } });
+
+    expect([late.status, await late.json()]).toEqual([409, { error: "no such proposal" }]);
+    expect([held.status, await held.json()]).toEqual([409, { error: "grill 1 is open" }]);
+  });
+
   test("a grill accepted opens in the same step: its transcript, and Claude told the guide in the same entry", async () => {
     const { dir, post, propose, state, told, wait } = await stepping();
     const id = await propose();
@@ -369,6 +402,9 @@ describe("an answer", () => {
       { id: "", answer: { kind: "move", move: MOCKUP } },
       { id: null, answer: { kind: "move", move: { kind: "grill", subject: "a\nb" } } },
       { id: null },
+      { id: null, answer: { kind: "decline", note: null } },
+      { id: "p1", answer: { kind: "decline", note: " " } },
+      { id: "p1", answer: { kind: "decline" } },
     ];
 
     for (const body of wrong) {

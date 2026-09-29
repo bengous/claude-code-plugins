@@ -10,16 +10,22 @@ export type OtherPick = {
   readonly text: string;
 };
 
-/** What the reviewer picked in the "Next step" window: nothing yet, a move offered, or their own. */
+/** None of the moves offered, and the note typed for Claude, which may stay empty. */
+export type DeclinePick = { readonly kind: "decline"; readonly note: string };
+
+/** What the reviewer picked in the "Next step" window: nothing yet, a move offered, their own, or none of the moves. */
 export type Pick =
   | { readonly kind: "none" }
   | { readonly kind: "move"; readonly index: number }
-  | OtherPick;
+  | OtherPick
+  | DeclinePick;
 
 export const NO_PICK: Pick = { kind: "none" };
 
 /** The window opened blank: a step of the reviewer's own, a grill until they pick another kind. */
 export const OWN_GRILL: OtherPick = { kind: "other", other: "grill", text: "" };
+
+export const DECLINE: DeclinePick = { kind: "decline", note: "" };
 
 /** Every break a line reader cuts at becomes one space: a grill's subject is its transcript's header. */
 export function oneLine(text: string): string {
@@ -34,6 +40,12 @@ export function answerOf(pick: Pick, moves: readonly Move[]): StepAnswer | null 
     const move = moves[pick.index];
 
     return move === undefined ? null : { kind: "move", move };
+  }
+
+  if (pick.kind === "decline") {
+    const note = pick.note.trim();
+
+    return { kind: "decline", note: note === "" ? null : note };
   }
 
   if (pick.other === "plan") return { kind: "move", move: { kind: "plan" } };

@@ -294,7 +294,7 @@ iframe { border: 0; width: 100%; height: 100%; display: block; background: var(-
 .proposal-rec { justify-self: start; font: 650 var(--t-12)/1.5 var(--mono); color: var(--ask); background: var(--sheet); border: 1px solid var(--ask); border-radius: var(--r-pill); padding: 0 var(--s-2); }
 .proposal-move .what, .proposal-move .choices { grid-column: 2 / -1; }
 .proposal-move .choices { color: var(--graphite); font-size: var(--t-13); }
-.proposal-other { display: grid; gap: var(--s-2); margin-top: var(--s-3); }
+.proposal-other, .proposal-note { display: grid; gap: var(--s-2); margin-top: var(--s-3); }
 .proposal-other select { justify-self: start; font: var(--t-14)/1.4 var(--serif); color: var(--ink); background: var(--field); border: 1px solid var(--rule); border-radius: var(--r-sm); padding: 2px var(--s-2); }
 .proposal-text { display: block; width: 100%; field-sizing: content; resize: none; font: 600 var(--t-16)/1.3 var(--serif); padding: 2px 0 var(--s-1); border: 0; border-radius: 0; border-bottom: 2px dashed var(--ask); background: transparent; color: var(--ink); }
 .proposal-text:focus { outline: none; border-bottom-style: solid; }

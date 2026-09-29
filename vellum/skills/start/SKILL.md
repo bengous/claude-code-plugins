@@ -14,7 +14,7 @@ Explore, then let the reviewer pick each next step: settle the choices, draw a s
 
 One sentence describes the diff: no plan. Say so, propose `/vellum:stop`, and implement once the reviewer runs it.
 
-Otherwise explore, then propose the next step with `mcp__vellum__propose`, never by questions in the terminal: the reason in one sentence, the moves you offer, and the index of the one you recommend. The call waits while the reviewer picks in the review page, and returns their pick: "Accepted: <move>." for the one you recommended, "Chose: <move>." for another, one of theirs included, "Own: <text>." for their own words. Take the step picked, then propose again once it is done. The moves:
+Otherwise explore, then propose the next step with `mcp__vellum__propose`, never by questions in the terminal: the reason in one sentence, the moves you offer, and the index of the one you recommend. The call waits while the reviewer picks in the review page, and returns their pick: "Accepted: <move>." for the one you recommended, "Chose: <move>." for another, one of theirs included, "Own: <text>." for their own words, "Declined." or "Declined: <note>." when they want none of the moves: propose others, in the light of the note. Take the step picked, then propose again once it is done. The moves:
 
 - `grill`: choices are open and change the architecture, an interface or the scope; `choices` are their titles. Step 2.
 - `mockup`: a screen words cannot settle; `screen` names it. `references/visual.md`
