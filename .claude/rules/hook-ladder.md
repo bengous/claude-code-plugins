@@ -32,27 +32,29 @@ agent meets any finding left once, at the end of its turn, not on each edit.
   every edit rewrites.
 - The tools run from the checkout of the project's repository that holds the
   edited file: the project or one of its worktrees, told apart from another
-  repository by their shared git common dir (`placeOf` in `stop-gates.ts`).
+  repository by their shared git common dir (`placeOf` in `checkout.ts`).
   Run from the project on a file under `.claude/worktrees/<agent>/`, oxlint
   loads that worktree's `oxlint.config.ts` as a nested config and fails on
-  the second `anti-slop` registration (#84). A file of another repository
-  nested in the project, the private `plans/`, is neither rewritten nor
-  marked.
+  the second `anti-slop` registration (#84). A file of another repository,
+  the private `plans/` nested in the project or one a symlink in it points
+  to, is neither rewritten nor marked.
 - Per-edit cost, measured on 2026-09-14 with hyperfine on `stop-gates.ts`
   (124 lines, clean), oxlint 1.82.0, oxfmt 0.67.0, 16 threads: 309 ms, the
   same in an agent worktree. Formatting alone took 58 ms.
-- Each in-repo Edit or Write empties the editing agent's marker,
-  `os.tmpdir()/claude-code-plugins-stop/<agent_id ?? session_id>`. The same
-  hook (`stop-gates.ts`) runs on Stop and on SubagentStop and runs
-  `scripts/run-gates.ts` for a marked agent, in the checkout of the project's
-  repository around the payload's `cwd`, else in the project: a `cwd` in
-  `plans/` gates the project. Green deletes the marker. Red
-  writes the verdict, the report's `Red gates:` line, into the marker and
-  blocks, `stop_hook_active` or not. A stop with no edit since that block ends
-  the turn on the same verdict, with a `systemMessage` note; a changed verdict
-  blocks again. Plan mode skips both events; a background subagent, workflow
-  or teammate skips Stop only. Claude Code ends a turn after 8 consecutive
-  blocks.
+- Each in-repo Edit or Write empties the verdict of the editing agent's
+  marker for the checkout that holds the file,
+  `os.tmpdir()/claude-code-plugins-stop/<agent_id ?? session_id>.<hash of the
+  checkout>`, a JSON `{ checkout, verdict }`. The same hook (`stop-gates.ts`)
+  runs on Stop and on SubagentStop and runs `scripts/run-gates.ts` in each
+  checkout the agent marked, never where its `cwd` sits: a `cd` into
+  `plans/` must not gate the launching checkout in place of the worktree
+  the agent edited. Green deletes the marker, and so does a checkout removed
+  since. Red writes the verdict, the report's `Red gates:` line, into the
+  marker and blocks, `stop_hook_active` or not. A stop with no edit since
+  that block ends the turn on the same verdict, with a `systemMessage` note;
+  a changed verdict blocks again. Plan mode skips both events; a background
+  subagent, workflow or teammate skips Stop only. Claude Code ends a turn
+  after 8 consecutive blocks.
 - A subagent's payload carries the parent's `session_id` and its own
   `agent_id` (16 hex characters on 2.1.270), so keying the marker on
   `agent_id` first keeps the two independent: a green subagent run leaves the
@@ -86,13 +88,15 @@ Known ceilings:
   preview: Claude Code caps hook output there.
 - A write through Bash alone sets no marker, so that turn skips Stop;
   pre-commit and pre-push still check.
-- The gates run repo-wide in the checkout of the project's repository around
-  the hook's `cwd`, the one field that follows EnterWorktree and a subagent's
-  `isolation: worktree`;
-  `CLAUDE_PROJECT_DIR` stays the launching checkout by design. Red work of
+- The gates run repo-wide in each checkout the agent edited. Red work of
   another session in the same checkout blocks this session once per verdict.
+- `regenerate-plugin-types.ts` checks the checkout of the project's
+  repository around the SessionStart `cwd`, climbing out of any other
+  repository nested in it, else the project: `CLAUDE_PROJECT_DIR` stays the
+  launching checkout by design, and `cwd` is the one field that follows
+  EnterWorktree.
 - Skipping the background-task check for a subagent assumes no other listed
-  task edits that subagent's `cwd`. That holds for an isolated subagent: it
+  task edits that subagent's checkout. That holds for an isolated subagent: it
   has its own worktree, and a nested one gets another. A non-isolated subagent
   shares its checkout with its parent, its siblings and any nested agent, so
   a half-done edit of theirs can turn its gates red; the unchanged-verdict

@@ -5,17 +5,20 @@ import {
   mkdirSync,
   mkdtempSync,
   readFileSync,
+  realpathSync,
   rmSync,
   symlinkSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { basename, dirname, join } from "node:path";
 
 import { $ } from "bun";
 
 import { diffHunks, parseHookInput, rewritersFor, toRepoRelative } from "./format-on-edit.ts";
 import type { Rewriter } from "./format-on-edit.ts";
+import { commit, git } from "./git-fixture.ts";
+import { markerPath } from "./stop-gates.ts";
 
 describe("parseHookInput", () => {
   test("returns null on invalid JSON", () => {
@@ -30,6 +33,11 @@ describe("toRepoRelative", () => {
 
   test("returns null for a file outside the repo", () => {
     expect(toRepoRelative("/elsewhere/a.ts", "/repo")).toBeNull();
+    expect(toRepoRelative("/a.ts", "/repo")).toBeNull();
+  });
+
+  test("keeps a file of the repo whose name starts with two dots", () => {
+    expect(toRepoRelative("/repo/..env.ts", "/repo")).toBe("..env.ts");
   });
 });
 
@@ -134,12 +142,6 @@ function fixedContext(name: string) {
   };
 }
 
-const git = (args: string[], cwd: string) =>
-  $`git ${args}`
-    .cwd(cwd)
-    .env({ ...process.env, GIT_CONFIG_GLOBAL: "/dev/null", GIT_CONFIG_NOSYSTEM: "1" })
-    .quiet();
-
 // shfmt drives these runs, save the oxlint ones: oxlint and oxfmt need the
 // repo's node_modules linked into the temp project.
 describe("hook subprocess", () => {
@@ -192,7 +194,8 @@ describe("hook subprocess", () => {
     return { exitCode, stdout };
   }
 
-  const markerFile = (id: string = SESSION_ID) => join(tempRoot, "claude-code-plugins-stop", id);
+  const markerFile = (checkout: string = projectDir, id: string = SESSION_ID) =>
+    join(tempRoot, "claude-code-plugins-stop", basename(markerPath(id, checkout)));
 
   test("marks the editing subagent, not the parent session its payload names", async () => {
     const agentId = "ae64aaf2fc71fc3bd";
@@ -202,7 +205,7 @@ describe("hook subprocess", () => {
     const { exitCode } = await runHook(script, {}, { agent_id: agentId });
 
     expect(exitCode).toBe(0);
-    expect(existsSync(markerFile(agentId))).toBe(true);
+    expect(existsSync(markerFile(projectDir, agentId))).toBe(true);
     expect(existsSync(markerFile())).toBe(false);
   });
 
@@ -227,7 +230,10 @@ describe("hook subprocess", () => {
     });
 
     expect(readFileSync(script, "utf8")).toBe(FORMATTED);
-    expect(readFileSync(markerFile(), "utf8")).toBe("");
+    expect(JSON.parse(readFileSync(markerFile(), "utf8"))).toEqual({
+      checkout: projectDir,
+      verdict: "",
+    });
   });
 
   test("stays silent on a formatted executable file and still marks the session", async () => {
@@ -263,8 +269,11 @@ describe("hook subprocess", () => {
   test("returns a formatter missing from PATH as context, not as a crash", async () => {
     const script = join(projectDir, "a.sh");
     writeFileSync(script, MIS_INDENTED);
+    const gitOnly = join(tempRoot, "bin");
+    mkdirSync(gitOnly);
+    symlinkSync(Bun.which("git") ?? "git", join(gitOnly, "git"));
 
-    const { exitCode, stdout } = await runHook(script, { PATH: tempRoot });
+    const { exitCode, stdout } = await runHook(script, { PATH: gitOnly });
 
     expect(exitCode).toBe(0);
 
@@ -284,21 +293,32 @@ describe("hook subprocess", () => {
     expect(existsSync(markerFile())).toBe(false);
   });
 
-  test("leaves a file of another repository nested in the project alone, unmarked", async () => {
-    await git(["init", "-q"], projectDir);
-    const nested = join(projectDir, "plans");
-    mkdirSync(nested);
-    await git(["init", "-q"], nested);
-    const script = join(nested, "a.sh");
-    writeFileSync(script, MIS_INDENTED);
+  // A git hook up the process tree exports GIT_DIR, which would root every
+  // directory at itself.
+  test.each([
+    ["", {}],
+    [" under an exported GIT_DIR", { GIT_DIR: ".git" }],
+  ])(
+    "leaves a file of another repository nested in the project alone, unmarked%s",
+    async (_, env: Record<string, string>) => {
+      await git(["init", "-q"], projectDir);
+      const nested = join(projectDir, "plans");
+      mkdirSync(nested);
+      await git(["init", "-q"], nested);
+      const script = join(nested, "a.sh");
+      writeFileSync(script, MIS_INDENTED);
 
-    const { exitCode, stdout } = await runHook(script);
+      const { exitCode, stdout } = await runHook(
+        script,
+        Object.fromEntries(Object.entries(env).map(([name, dir]) => [name, join(projectDir, dir)])),
+      );
 
-    expect(exitCode).toBe(0);
-    expect(stdout).toBe("");
-    expect(readFileSync(script, "utf8")).toBe(MIS_INDENTED);
-    expect(existsSync(markerFile())).toBe(false);
-  });
+      expect(exitCode).toBe(0);
+      expect(stdout).toBe("");
+      expect(readFileSync(script, "utf8")).toBe(MIS_INDENTED);
+      expect(existsSync(join(tempRoot, "claude-code-plugins-stop"))).toBe(false);
+    },
+  );
 
   test("ignores a file gone before the hook runs", async () => {
     const { exitCode, stdout } = await runHook(join(projectDir, "gone.sh"));
@@ -344,10 +364,7 @@ describe("hook subprocess", () => {
       const plugin = join(REPO_ROOT, "tools", "oxlint", "anti-slop", "index.ts");
       const worktree = join(projectDir, ".claude", "worktrees", "agent");
       await git(["init", "-q"], projectDir);
-      await git(
-        ["-c", "user.name=t", "-c", "user.email=t@t", "commit", "--allow-empty", "-qm", "init"],
-        projectDir,
-      );
+      await commit(["--allow-empty", "-m", "init"], projectDir);
       await git(["worktree", "add", "-q", worktree], projectDir);
 
       for (const dir of [projectDir, worktree]) {
@@ -370,6 +387,7 @@ describe("hook subprocess", () => {
       expect(exitCode).toBe(0);
       expect(JSON.parse(stdout)).toEqual(fixedContext(join(checkout, "a.ts")));
       expect(readFileSync(file, "utf8")).toBe(FIXED);
+      expect(existsSync(markerFile(realpathSync(root)))).toBe(true);
     });
 
     test("follows a symlinked project dir to the checkout", async () => {

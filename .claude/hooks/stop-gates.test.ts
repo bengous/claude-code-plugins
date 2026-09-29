@@ -1,11 +1,10 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { basename, join } from "node:path";
 
-import { $ } from "bun";
-
-import { markerFor, markerPath, parseStopInput, skipsGates, type StopInput } from "./stop-gates.ts";
+import { commit, git } from "./git-fixture.ts";
+import { agentOf, markerPath, parseStopInput, skipsGates, type StopInput } from "./stop-gates.ts";
 
 const SESSION_ID = "0244f1e4-d3aa-44b3-8919-3fe7b1e82701";
 
@@ -22,12 +21,6 @@ function setGates(dir: string, exitCode: number, report: string) {
   writeFileSync(join(dir, "gates-exit"), String(exitCode));
   writeFileSync(join(dir, "gates-report"), report);
 }
-
-const git = (args: string[], cwd: string) =>
-  $`git ${args}`
-    .cwd(cwd)
-    .env({ ...process.env, GIT_CONFIG_GLOBAL: "/dev/null", GIT_CONFIG_NOSYSTEM: "1" })
-    .quiet();
 
 describe("parseStopInput", () => {
   test("returns null on invalid JSON", () => {
@@ -65,23 +58,27 @@ describe("skipsGates", () => {
   });
 });
 
-describe("markerFor", () => {
+describe("agentOf", () => {
   test("names the agent when the payload carries one, the session otherwise", () => {
-    expect(markerFor({ session_id: SESSION_ID, agent_id: AGENT_ID })).toBe(markerPath(AGENT_ID));
-    expect(markerFor({ session_id: SESSION_ID })).toBe(markerPath(SESSION_ID));
-    expect(markerFor({})).toBeNull();
+    expect(agentOf({ session_id: SESSION_ID, agent_id: AGENT_ID })).toBe(AGENT_ID);
+    expect(agentOf({ session_id: SESSION_ID })).toBe(SESSION_ID);
+    expect(agentOf({})).toBeNull();
+  });
+
+  test("refuses an id that is not a single path segment", () => {
+    for (const id of ["", "..", "../etc", "a/b", "a b", "a.b"]) {
+      expect(agentOf({ session_id: id })).toBeNull();
+    }
   });
 });
 
 describe("markerPath", () => {
-  test("names one file per session under the temp directory", () => {
-    expect(markerPath(SESSION_ID)).toBe(join(tmpdir(), "claude-code-plugins-stop", SESSION_ID));
-  });
+  test("names one file per agent and checkout under the temp directory", () => {
+    const project = markerPath(SESSION_ID, "/repo");
 
-  test("refuses an id that is not a single path segment", () => {
-    for (const id of ["", "..", "../etc", "a/b", "a b"]) {
-      expect(markerPath(id)).toBeNull();
-    }
+    expect(project).toStartWith(join(tmpdir(), "claude-code-plugins-stop", `${SESSION_ID}.`));
+    expect(markerPath(SESSION_ID, "/repo/.claude/worktrees/w")).not.toBe(project);
+    expect(markerPath(AGENT_ID, "/repo")).not.toBe(project);
   });
 });
 
@@ -115,25 +112,29 @@ describe("hook subprocess", () => {
     rmSync(tempRoot, { recursive: true, force: true });
   });
 
-  const markerFile = (id: string = SESSION_ID) => join(tempRoot, "claude-code-plugins-stop", id);
+  const markerFile = (checkout: string, id: string = SESSION_ID) =>
+    join(tempRoot, "claude-code-plugins-stop", basename(markerPath(id, checkout)));
+
+  const verdictOf = (checkout: string, id: string = SESSION_ID) =>
+    // SAFETY: setMarker and the hook write every marker as a Marker.
+    (JSON.parse(readFileSync(markerFile(checkout, id), "utf8")) as { verdict: string }).verdict;
 
   async function makeWorktree(): Promise<string> {
     await git(["init", "-q"], projectDir);
     await git(["add", "scripts/run-gates.ts"], projectDir);
-    await git(["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "gates"], projectDir);
+    await commit(["-m", "gates"], projectDir);
     const worktree = join(tempRoot, "worktree");
     await git(["worktree", "add", "-q", worktree], projectDir);
-    mkdirSync(join(worktree, "sub"));
 
     return worktree;
   }
 
-  function setMarker(content: string, id: string = SESSION_ID) {
-    mkdirSync(dirname(markerFile(id)), { recursive: true });
-    writeFileSync(markerFile(id), content);
+  function setMarker(checkout: string, verdict: string, id: string = SESSION_ID) {
+    mkdirSync(join(tempRoot, "claude-code-plugins-stop"), { recursive: true });
+    writeFileSync(markerFile(checkout, id), JSON.stringify({ checkout, verdict }));
   }
 
-  async function runHook(payload: StopInput & { stop_hook_active?: boolean } = {}) {
+  async function runHook(payload: StopInput & { cwd?: string; stop_hook_active?: boolean } = {}) {
     const input = { session_id: SESSION_ID, permission_mode: "default", background_tasks: [] };
 
     const proc = Bun.spawn([process.execPath, HOOK], {
@@ -161,68 +162,74 @@ describe("hook subprocess", () => {
     expect(gateRuns(projectDir)).toBe(0);
   });
 
-  test("gates the repository around the hook's cwd, a worktree, not the project", async () => {
+  // The cwd follows a `cd` into another repository, here one nested in the
+  // project; the marker still names the worktree the session edited.
+  test("gates the checkout the marker names, wherever the cwd sits", async () => {
     const worktree = await makeWorktree();
-    setMarker("");
-    setGates(projectDir, 1, RED_LINT);
-    setGates(worktree, 0, "");
+    const nested = join(projectDir, "plans");
+    mkdirSync(nested);
+    await git(["init", "-q"], nested);
+    setMarker(worktree, "");
+    setGates(projectDir, 0, "");
+    setGates(worktree, 1, RED_LINT);
 
-    const { exitCode } = await runHook({ cwd: join(worktree, "sub") });
+    const { exitCode, stderr } = await runHook({ cwd: nested });
 
-    expect(exitCode).toBe(0);
+    expect(exitCode).toBe(2);
+    expect(stderr).toContain(`is red in ${worktree}`);
     expect(gateRuns(worktree)).toBe(1);
     expect(gateRuns(projectDir)).toBe(0);
   });
 
-  test("gates the project when the cwd sits in another repository nested in it", async () => {
-    await git(["init", "-q"], projectDir);
-    const nested = join(projectDir, "plans");
-    mkdirSync(join(nested, "sub"), { recursive: true });
-    await git(["init", "-q"], nested);
-    setMarker("");
+  test("gates every checkout the session edited, and blocks on the red one", async () => {
+    const worktree = await makeWorktree();
+    setMarker(projectDir, "");
+    setMarker(worktree, "");
     setGates(projectDir, 0, "");
+    setGates(worktree, 1, RED_LINT);
 
-    const { exitCode, stderr } = await runHook({ cwd: join(nested, "sub") });
+    const { exitCode, stderr } = await runHook();
 
-    expect(stderr).toBe("");
-    expect(exitCode).toBe(0);
-    expect(gateRuns(projectDir)).toBe(1);
+    expect(exitCode).toBe(2);
+    expect(stderr).toContain("lint-ts: bun x oxlint");
+    expect(existsSync(markerFile(projectDir))).toBe(false);
+    expect(verdictOf(worktree)).toBe("Red gates: lint-ts");
   });
 
-  test("gates the project when the cwd sits outside any repository", async () => {
-    setMarker("");
-    setGates(projectDir, 0, "");
+  test("drops the marker of a checkout removed since the edit", async () => {
+    const gone = join(tempRoot, "removed-worktree");
+    setMarker(gone, "");
 
-    const { exitCode } = await runHook({ cwd: tempRoot });
+    const { exitCode } = await runHook();
 
     expect(exitCode).toBe(0);
-    expect(gateRuns(projectDir)).toBe(1);
+    expect(existsSync(markerFile(gone))).toBe(false);
   });
 
   test("deletes the marker once the gates are green", async () => {
-    setMarker("");
+    setMarker(projectDir, "");
     setGates(projectDir, 0, "");
 
     const { exitCode } = await runHook();
 
     expect(exitCode).toBe(0);
     expect(gateRuns(projectDir)).toBe(1);
-    expect(existsSync(markerFile())).toBe(false);
+    expect(existsSync(markerFile(projectDir))).toBe(false);
   });
 
   test("blocks on a red gate after an edit and records the verdict", async () => {
-    setMarker("");
+    setMarker(projectDir, "");
     setGates(projectDir, 1, RED_LINT);
 
     const { exitCode, stderr } = await runHook({ stop_hook_active: true });
 
     expect(exitCode).toBe(2);
     expect(stderr).toContain("lint-ts: bun x oxlint");
-    expect(readFileSync(markerFile(), "utf8")).toBe("Red gates: lint-ts");
+    expect(verdictOf(projectDir)).toBe("Red gates: lint-ts");
   });
 
   test("ends the turn with a note on the same verdict when nothing was edited since", async () => {
-    setMarker("Red gates: lint-ts");
+    setMarker(projectDir, "Red gates: lint-ts");
     setGates(projectDir, 1, RED_LINT);
 
     const { exitCode, stdout } = await runHook();
@@ -231,59 +238,55 @@ describe("hook subprocess", () => {
     expect(JSON.parse(stdout)).toEqual({
       systemMessage: expect.stringContaining("Red gates: lint-ts"),
     });
-    expect(readFileSync(markerFile(), "utf8")).toBe("Red gates: lint-ts");
+    expect(verdictOf(projectDir)).toBe("Red gates: lint-ts");
   });
 
   test("blocks again on a changed verdict, even when nothing was edited since", async () => {
-    setMarker("Red gates: lint-ts");
+    setMarker(projectDir, "Red gates: lint-ts");
     setGates(projectDir, 1, RED_FMT);
 
     const { exitCode } = await runHook();
 
     expect(exitCode).toBe(2);
-    expect(readFileSync(markerFile(), "utf8")).toBe("Red gates: fmt");
+    expect(verdictOf(projectDir)).toBe("Red gates: fmt");
   });
 
   // The four below replay a worktree-isolated subagent: its payload carries the
-  // parent's session_id, its own agent_id and the cwd of its worktree.
-  const asSubagent = (worktree: string) => ({
-    agent_id: AGENT_ID,
-    cwd: join(worktree, "sub"),
-    background_tasks: [{ type: "subagent" }],
-  });
+  // parent's session_id and its own agent_id.
+  const asSubagent = { agent_id: AGENT_ID, background_tasks: [{ type: "subagent" }] };
 
   test("blocks a worktree-isolated subagent on a red gate in its own worktree", async () => {
     const worktree = await makeWorktree();
-    setMarker("", AGENT_ID);
+    setMarker(worktree, "", AGENT_ID);
     setGates(worktree, 1, RED_LINT);
     setGates(projectDir, 0, "");
 
-    const { exitCode, stderr } = await runHook(asSubagent(worktree));
+    const { exitCode, stderr } = await runHook(asSubagent);
 
     expect(exitCode).toBe(2);
     expect(stderr).toContain("lint-ts: bun x oxlint");
     expect(gateRuns(worktree)).toBe(1);
     expect(gateRuns(projectDir)).toBe(0);
-    expect(readFileSync(markerFile(AGENT_ID), "utf8")).toBe("Red gates: lint-ts");
+    expect(verdictOf(worktree, AGENT_ID)).toBe("Red gates: lint-ts");
   });
 
   test("releases the subagent once its worktree is green", async () => {
     const worktree = await makeWorktree();
-    setMarker("Red gates: lint-ts", AGENT_ID);
+    setMarker(worktree, "Red gates: lint-ts", AGENT_ID);
     setGates(worktree, 0, "");
 
-    const { exitCode } = await runHook(asSubagent(worktree));
+    const { exitCode } = await runHook(asSubagent);
 
     expect(exitCode).toBe(0);
-    expect(existsSync(markerFile(AGENT_ID))).toBe(false);
+    expect(existsSync(markerFile(worktree, AGENT_ID))).toBe(false);
   });
 
   test("releases the subagent on an unchanged verdict with no edit since", async () => {
     const worktree = await makeWorktree();
-    setMarker("Red gates: lint-ts", AGENT_ID);
+    setMarker(worktree, "Red gates: lint-ts", AGENT_ID);
     setGates(worktree, 1, RED_LINT);
 
-    const { exitCode, stdout } = await runHook(asSubagent(worktree));
+    const { exitCode, stdout } = await runHook(asSubagent);
 
     expect(exitCode).toBe(0);
     expect(JSON.parse(stdout)).toEqual({
@@ -293,27 +296,27 @@ describe("hook subprocess", () => {
 
   test("keeps the subagent's marker and the parent session's independent", async () => {
     const worktree = await makeWorktree();
-    setMarker("Red gates: fmt");
-    setMarker("Red gates: lint-ts", AGENT_ID);
+    setMarker(projectDir, "Red gates: fmt");
+    setMarker(worktree, "Red gates: lint-ts", AGENT_ID);
     setGates(worktree, 0, "");
     setGates(projectDir, 0, "");
 
-    const green = await runHook(asSubagent(worktree));
+    const green = await runHook(asSubagent);
 
     expect(green.exitCode).toBe(0);
-    expect(readFileSync(markerFile(), "utf8")).toBe("Red gates: fmt");
+    expect(verdictOf(projectDir)).toBe("Red gates: fmt");
 
-    setMarker("Red gates: lint-ts", AGENT_ID);
+    setMarker(worktree, "Red gates: lint-ts", AGENT_ID);
 
     const parent = await runHook();
 
     expect(parent.exitCode).toBe(0);
-    expect(existsSync(markerFile())).toBe(false);
-    expect(readFileSync(markerFile(AGENT_ID), "utf8")).toBe("Red gates: lint-ts");
+    expect(existsSync(markerFile(projectDir))).toBe(false);
+    expect(verdictOf(worktree, AGENT_ID)).toBe("Red gates: lint-ts");
   });
 
   test("keeps the marker and skips the gates in plan mode and beside a background subagent", async () => {
-    setMarker("");
+    setMarker(projectDir, "");
     setGates(projectDir, 1, RED_LINT);
 
     for (const payload of [
@@ -326,6 +329,6 @@ describe("hook subprocess", () => {
     }
 
     expect(gateRuns(projectDir)).toBe(0);
-    expect(readFileSync(markerFile(), "utf8")).toBe("");
+    expect(verdictOf(projectDir)).toBe("");
   });
 });

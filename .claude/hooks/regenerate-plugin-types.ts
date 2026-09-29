@@ -19,8 +19,8 @@ import { join } from "node:path";
 
 import { $ } from "bun";
 
+import { checkoutRoot } from "./checkout.ts";
 import { HOOK_EXIT } from "./hook-io.ts";
-import { checkoutRoot } from "./stop-gates.ts";
 
 export const TYPES_PATH = "vellum/types/claude-code.d.ts";
 

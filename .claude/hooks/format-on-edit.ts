@@ -2,11 +2,11 @@
 
 /**
  * PostToolUse hook for Edit|Write — applies oxlint's safe fixes and formats
- * the edited file with oxfmt, or formats it with shfmt, and marks the editing
- * agent for `stop-gates.ts`. Never blocks: a finding without a fixer, types
+ * the edited file with oxfmt, or formats it with shfmt, and marks its
+ * checkout for `stop-gates.ts`. Never blocks: a finding without a fixer, types
  * and the other gates wait for the end of the turn. A file of another
- * repository nested in the project, the private `plans/`, is no edit of this
- * one: left as written, unmarked.
+ * repository, such as the private `plans/` nested in the project or one a
+ * symlink in it points to, is no edit of this one: left as written, unmarked.
  *
  * A rewrite reaches the agent as its diff in `additionalContext`. Claude Code
  * renders a Write or Edit result from the file path alone, so this is the one
@@ -16,12 +16,13 @@
  */
 
 import { realpath } from "node:fs/promises";
-import { basename, dirname, join, relative as relativeTo } from "node:path";
+import { basename, dirname, isAbsolute, join, relative as relativeTo, sep } from "node:path";
 
 import { $ } from "bun";
 
+import { placeOf } from "./checkout.ts";
 import { HOOK_EXIT } from "./hook-io.ts";
-import { markerFor, placeOf } from "./stop-gates.ts";
+import { markEdit } from "./stop-gates.ts";
 
 export interface HookInput {
   session_id?: string;
@@ -57,7 +58,9 @@ export function parseHookInput(raw: string): HookInput | null {
 export function toRepoRelative(filePath: string, repoRoot: string): string | null {
   const relative = relativeTo(repoRoot, filePath);
 
-  return relative.startsWith("..") ? null : relative;
+  const outside = relative === ".." || relative.startsWith(`..${sep}`) || isAbsolute(relative);
+
+  return outside ? null : relative;
 }
 
 /** The tools that rewrite the file, in the order they run. */
@@ -133,9 +136,9 @@ if (import.meta.main) {
 
   if (place.kind === "other-repository") process.exit(HOOK_EXIT.ALLOW);
 
-  const marker = input === null ? null : markerFor(input);
+  const checkout = place.kind === "checkout" ? place.root : projectDir;
 
-  if (marker !== null) await Bun.write(marker, "");
+  if (input !== null) await markEdit(input, checkout);
 
   if (!(await Bun.file(projectPath).exists())) process.exit(HOOK_EXIT.ALLOW);
 
@@ -144,7 +147,6 @@ if (import.meta.main) {
   // anti-slop plugin registered twice. git reports the root with symlinks
   // resolved; a file a symlink takes outside that root stays with the project.
   const directory = await realpath(dirname(projectPath));
-  const checkout = place.kind === "checkout" ? place.root : projectDir;
   const inCheckout = toRepoRelative(join(directory, basename(projectPath)), checkout);
   const root = inCheckout === null ? projectDir : checkout;
   const relative = inCheckout ?? inProject;

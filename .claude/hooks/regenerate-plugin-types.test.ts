@@ -14,6 +14,7 @@ import { dirname, join } from "node:path";
 
 import { $ } from "bun";
 
+import { commit, git } from "./git-fixture.ts";
 import { headerVersion, installedVersion, TYPES_PATH } from "./regenerate-plugin-types.ts";
 
 function setTypes(dir: string, header: string, eol = "\n") {
@@ -183,36 +184,57 @@ echo "// plugins" >"$out/claude-code-plugins.d.ts"
     );
   });
 
-  test("checks the checkout around the payload's cwd, not the project", async () => {
-    const git = (args: string[]) =>
-      $`git ${args}`
-        .cwd(projectDir)
-        .env({ ...process.env, GIT_CONFIG_GLOBAL: "/dev/null", GIT_CONFIG_NOSYSTEM: "1" })
-        .quiet();
-
-    await git([
-      "-c",
-      "user.name=t",
-      "-c",
-      "user.email=t@t",
-      "commit",
-      "-q",
-      "--allow-empty",
-      "-m",
-      "init",
-    ]);
-    await git(["checkout", "-q", "-b", "feature/x"]);
+  async function makeWorktree(): Promise<string> {
+    await commit(["--allow-empty", "-m", "init"], projectDir);
+    await git(["checkout", "-q", "-b", "feature/x"], projectDir);
     const worktree = join(tempRoot, "worktree");
-    await git(["worktree", "add", "-q", worktree, "dev"]);
-    mkdirSync(join(worktree, "sub"));
+    await git(["worktree", "add", "-q", worktree, "dev"], projectDir);
     setTypes(worktree, "// Written by Claude Code 2.1.276.");
     setTypes(projectDir, "// Written by Claude Code 2.1.276.");
+
+    return worktree;
+  }
+
+  test("checks the checkout around the payload's cwd, not the project", async () => {
+    const worktree = await makeWorktree();
+    mkdirSync(join(worktree, "sub"));
 
     const { exitCode } = await runHook("2.1.278", join(worktree, "sub"));
 
     expect(exitCode).toBe(0);
     expect(types(worktree)).toBe("// Written by Claude Code 2.1.278.\n");
     expect(types(projectDir)).toStartWith("// Written by Claude Code 2.1.276.");
+  });
+
+  test("climbs out of another repository nested in a worktree to that worktree", async () => {
+    const worktree = await makeWorktree();
+    const nested = join(worktree, "plans");
+    mkdirSync(join(nested, "sub"), { recursive: true });
+    await git(["init", "-q"], nested);
+
+    const { exitCode } = await runHook("2.1.278", join(nested, "sub"));
+
+    expect(exitCode).toBe(0);
+    expect(types(worktree)).toBe("// Written by Claude Code 2.1.278.\n");
+    expect(types(projectDir)).toStartWith("// Written by Claude Code 2.1.276.");
+  });
+
+  test("checks the project when the payload's cwd sits in an unrelated repository", async () => {
+    await git(["checkout", "-q", "-b", "feature/x"], projectDir);
+    setTypes(projectDir, "// Written by Claude Code 2.1.276.");
+    const unrelated = join(tempRoot, "dotfiles");
+    mkdirSync(unrelated);
+    await git(["init", "-q", "-b", "dev"], unrelated);
+
+    const { exitCode, stdout } = await runHook("2.1.278", unrelated);
+
+    expect(exitCode).toBe(0);
+    expect(stubRuns()).toBe("");
+    expect(JSON.parse(stdout)).toEqual(
+      note(
+        `${TYPES_PATH}: written by Claude Code 2.1.276, installed 2.1.278; a session in a checkout on dev regenerates it.`,
+      ),
+    );
   });
 
   test("does nothing in a checkout without the vellum types", async () => {
