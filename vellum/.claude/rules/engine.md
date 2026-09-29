@@ -22,7 +22,7 @@ relay.ts     what the channel says and what it remembers: prompts, Relayed, foll
 band.ts      what the band above the prompt says: the server's segments, then its pill, then the link; pure
 client.ts    the review server's client: every route, the token header, the launcher, the reader of its stdout
 parse.ts     the boundary: unknown to types, and the only place a brand is minted
-extension.ts `EngineExtension`, the contract an extension's `engine.ts` fills, and `HooksHalf<P>`, what a slice's `hooks.ts` fills; types only
+extension.ts `HooksHalf<P>`, what a slice's `hooks.ts` fills, and `EngineExtension`, what `slice.ts` makes of it; types only
 slice.ts     `engineExtension`: a slice's `HooksHalf` as an `EngineExtension`, called by the registry
 slices.ts    the registry: every engine half, in dispatch order
 ```
@@ -163,7 +163,7 @@ loop. `/vellum:start` enters it, Approve in the page or `/vellum:stop` leaves it
 - A subagent's end is its answer to whoever spawned it: the same `turn.complete` hook, while
   `live`, hands a turn that carries `agentId` to the halves' `agentAnswered` (its id, its final
   text, its reason) and does nothing else, no gate and no `answered`; outside `live` it reaches
-  nobody. A half spawns through `Host.spawnAgent` and keeps nothing of the id: `review` reads its
+  nobody. A half spawns through `Host.spawnAgent` and keeps nothing of the id: `agent-review` reads its
   run off the server at the answer, so an answer after a reload finds it. A subagent vellum
   spawned steps past every other hook of vellum's, its tool calls included, so its final text
   is the one way it speaks back ([Hook runtime](../../../docs/plugin-testing/hook-runtime.md)

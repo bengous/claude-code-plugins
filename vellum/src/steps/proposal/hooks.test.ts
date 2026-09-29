@@ -45,7 +45,7 @@ describe("propose", () => {
   test("waits for the reviewer's answer, returns it, and the answer is not relayed", async ($, on) => {
     const step = stepRoutes({
       wait: () => {
-        emit(seen, told(ACCEPTED, "step"));
+        emit(seen, told(ACCEPTED, "proposal"));
 
         return reply(200, ANSWERED);
       },
@@ -68,7 +68,7 @@ describe("propose", () => {
   test("an answer whose line lands before the tool's is held for it, and never relayed", async ($, on) => {
     const step = stepRoutes({
       wait: async () => {
-        emit(seen, told(ACCEPTED, "step"));
+        emit(seen, told(ACCEPTED, "proposal"));
         await seen.clock.sleep(500);
 
         return reply(200, ANSWERED);
@@ -205,7 +205,7 @@ describe("propose", () => {
       // The reviewer picked on the revived server before the call asked again: a prompt entry.
       async () => {
         await seen.clock.sleep(1_000);
-        emit(seen, told(ACCEPTED, "step"));
+        emit(seen, told(ACCEPTED, "proposal"));
         await seen.clock.sleep(1_000);
 
         return reply(200, ANSWERED);

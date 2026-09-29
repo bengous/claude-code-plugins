@@ -2,7 +2,7 @@ import type { AgentInfo, AgentSpawnArgs, AgentSpawnResult, On, ToolCallResult } 
 
 import type { Route } from "../../../runtime/hooks/fixtures/index.ts";
 import { reply } from "../../../runtime/hooks/fixtures/index.ts";
-import type { ReviewState, Run } from "../protocol.ts";
+import type { ReviewState, Run } from "../contract.ts";
 
 export const MODEL = "claude-opus-5-5";
 
@@ -22,7 +22,7 @@ export type ReviewRoutes = {
 /** What a post makes of the state, as the server's route would: a number that is not the run's changes nothing. */
 function moved(name: string, body: string | undefined, now: ReviewState): ReviewState {
   const { run, stopping } = now;
-  // SAFETY: the module's own `ReviewPosts[name]`, serialized by `JSON.stringify` in review/engine.ts.
+  // SAFETY: the body the hooks half posted to that route, serialized by `JSON.stringify` in `runtime/hooks/slice.ts`.
   const { seq } = JSON.parse(body ?? "{}") as { readonly seq?: number };
 
   switch (name) {
@@ -72,10 +72,10 @@ export function reviewRoutes(
     posted,
     state: { run, failed: null, stopping: [] },
     routes: {
-      "/api/x/review/state": () => reply(200, served.state),
+      "/api/x/agent-review/state": () => reply(200, served.state),
       ...Object.fromEntries(
         ["launched", "ended", "close", "stopped"].map((name) => [
-          `/api/x/review/${name}`,
+          `/api/x/agent-review/${name}`,
           post(name),
         ]),
       ),

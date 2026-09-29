@@ -466,13 +466,13 @@ describe("tool.call mcp__vellum__state (A8)", () => {
         line: "grill 1: open · holds: grill 1 is open · question: paused",
       },
       {
-        id: "step",
+        id: "proposal",
         state: "open",
         holds: null,
         wait: "paused",
-        line: "step: proposal p3 · wait: paused",
+        line: "proposal: p3 · wait: paused",
       },
-      { id: "review", state: "closed", line: "review: closed" },
+      { id: "agent-review", state: "closed", line: "agent-review: closed" },
     ],
     refused: [
       {
@@ -505,8 +505,8 @@ describe("tool.call mcp__vellum__state (A8)", () => {
       result: [
         "workspace: inReview v2 · plan.md: pending",
         "grill 1: open · holds: grill 1 is open · question: paused",
-        "step: proposal p3 · wait: paused",
-        "review: closed",
+        "proposal: p3 · wait: paused",
+        "agent-review: closed",
         "refused now:",
         "  record (refuse): grill 1 is open: plan.md waits; you are told when it ends",
         "  propose (refuse): grill 1 is open: no step is proposed until it ends",

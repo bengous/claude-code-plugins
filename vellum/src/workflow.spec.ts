@@ -452,7 +452,7 @@ describe("what the page and the band read (§ 5.8)", () => {
     expect(lineOf(questionPaused, "grill")).toBe(
       "grill 1: open · holds: grill 1 is open · question: paused",
     );
-    expect(lineOf(proposalPaused, "step")).toBe("step: proposal p3 · wait: paused");
+    expect(lineOf(proposalPaused, "proposal")).toBe("proposal: p3 · wait: paused");
   });
 
   test("a question Claude waits on, a proposal it waits on, a run asked then running", () => {
@@ -462,12 +462,12 @@ describe("what the page and the band read (§ 5.8)", () => {
     expect(lineOf(play(GRILLING, ["askQuestion", ROUND]), "grill")).toBe(
       "grill 1: open · holds: grill 1 is open · question: open",
     );
-    expect(lineOf(play(V1, ["propose", proposing("p3", MOCKUP)]), "step")).toBe(
-      "step: proposal p3 · wait: open",
+    expect(lineOf(play(V1, ["propose", proposing("p3", MOCKUP)]), "proposal")).toBe(
+      "proposal: p3 · wait: open",
     );
-    expect(lineOf(asked, "review")).toBe("review: plan review 1 of v1 requested");
-    expect(lineOf(play(asked, ["reviewLaunched", launched]), "review")).toBe(
-      "review: plan review 1 of v1 running",
+    expect(lineOf(asked, "agent-review")).toBe("agent-review: plan review 1 of v1 requested");
+    expect(lineOf(play(asked, ["reviewLaunched", launched]), "agent-review")).toBe(
+      "agent-review: plan review 1 of v1 running",
     );
   });
 
@@ -532,7 +532,7 @@ describe("what the page and the band read (§ 5.8)", () => {
     });
     expect(stageOf(play(V1, ["requestReview", { version: "1" }]), WORDINGS).segments).toEqual([
       "plan v1 · in review",
-      "review · running",
+      "agent review · running",
     ]);
   });
 

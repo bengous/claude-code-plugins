@@ -11,6 +11,7 @@ import type {
   ExtensionTool,
   Listen,
   Listeners,
+  Posted,
   ToolAnswer,
   ToolContext,
 } from "./extension.ts";
@@ -48,26 +49,30 @@ function answerOf(
   return answer === null ? { read: false } : { read: true, answer };
 }
 
+/** What `route` answered, read by its own parser in `answers`, or the status, the text and the refusal's reason. */
+function postedOf(response: HttpResponse, half: ErasedHooks, route: string): Posted<never> {
+  const read = answerOf(response, half.answers[route]);
+
+  if (read.read) {
+    // SAFETY: `read.answer` is what this route's own parser in `answers` read, the answer its plugs declare for it: `HooksHalf` keys both by the same route.
+    return { ok: true, answer: read.answer as never };
+  }
+
+  return {
+    ok: false,
+    status: response.status,
+    text: response.text,
+    reason: parseRefusal(response),
+  };
+}
+
 function erased(context: EngineContext, half: ErasedHooks, marks: Marks): ErasedContext {
   return {
     host: context.host,
     live: context.live,
-    post: async (route, body) => {
-      const response = await context.api.post(nameOf(route), JSON.stringify(body));
-      const read = answerOf(response, half.answers[route]);
-
-      if (read.read) {
-        // SAFETY: `read.answer` is what this route's own parser in `answers` read, the answer its plugs declare for it: `HooksHalf` keys both by the same route.
-        return { ok: true, answer: read.answer as never };
-      }
-
-      return {
-        ok: false,
-        status: response.status,
-        text: response.text,
-        reason: parseRefusal(response),
-      };
-    },
+    post: async (route, body) =>
+      postedOf(await context.api.post(nameOf(route), JSON.stringify(body)), half, route),
+    get: async (route) => postedOf(await context.api.get(nameOf(route)), half, route),
     unanswered: () => {
       const mark = marks.get(context.live);
       marks.delete(context.live);

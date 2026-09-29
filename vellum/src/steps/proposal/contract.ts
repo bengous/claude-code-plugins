@@ -9,7 +9,7 @@ import { allOf, anyOf, rows } from "../../workshop/rows.ts";
 import { planExists } from "../../workshop/workflow.ts";
 import { namesAnotherProposal, namesAProposal, noProposalWaits, offersPlan } from "./proposal.ts";
 
-// The wire: what crosses `/api/x/step/*` between the hooks module, the server and the page.
+// The wire: what crosses `/api/x/proposal/*` between the hooks module, the server and the page.
 
 /** A step Claude may take next; for a grill, `choices` are the titles of the choices it would settle. */
 export type Move =
@@ -61,7 +61,7 @@ export type StepWaited =
 // The declaration: the events it owns, those it hears, and where each half plugs in.
 
 export const SLICE = defineSlice({
-  id: "step",
+  id: "proposal",
   events: {
     propose: { by: ["claude"], carries: ["id", "proposal"] },
     wait: { by: ["engine"], carries: ["id"] },
@@ -87,11 +87,11 @@ export const SLICE = defineSlice({
   page: ["actions", "notices"],
 });
 
-export type StepPlugs = PlugsOf<typeof SLICE>;
+export type ProposalPlugs = PlugsOf<typeof SLICE>;
 
-export type StepEvents = StepPlugs["events"];
+export type ProposalEvents = ProposalPlugs["events"];
 
-export type StepHears = StepPlugs["hears"];
+export type ProposalHears = ProposalPlugs["hears"];
 
 // What is refused, read top to bottom per event, with the status its route answers.
 

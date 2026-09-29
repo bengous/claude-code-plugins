@@ -2,13 +2,15 @@ import type { AgentSpawnResult, Timer } from "claude-code";
 
 import type {
   AgentAnswered,
-  EngineContext,
-  EngineExtension,
+  HooksContext,
+  HooksHalf,
+  Posted,
 } from "../../runtime/hooks/extension.ts";
 import type { Live } from "../../runtime/hooks/mode.ts";
-import { parseClosed, parseJson, parseReviewState } from "./parse.ts";
-import type { Outcome, ReviewPosts, ReviewState, Run, Stopping } from "./protocol.ts";
-import { REVIEWER } from "./protocol.ts";
+import type { Outcome, AgentReviewPlugs, ReviewState, Run, Stopping } from "./contract.ts";
+import { parseClosed, parseReviewState, REVIEWER } from "./parse.ts";
+
+type Context = HooksContext<AgentReviewPlugs>;
 
 /**
  * How long a run whose agent the engine no longer runs keeps the review before it fails: an
@@ -34,24 +36,18 @@ const graced = new WeakMap<Live, Map<number, Timer>>();
 /** The runs of a mode whose agent a stop left running, already logged: once each, not at every read. */
 const unstopped = new WeakMap<Live, Set<number>>();
 
-function post<Name extends keyof ReviewPosts>(
-  context: EngineContext,
-  name: Name,
-  body: ReviewPosts[Name],
-): ReturnType<EngineContext["api"]["post"]> {
-  return context.api.post(name, JSON.stringify(body));
+async function stateOf(context: Context): Promise<ReviewState | null> {
+  const read = await context.get("GET state");
+
+  return read.ok ? read.answer : null;
 }
 
-async function stateOf({ api }: EngineContext): Promise<ReviewState | null> {
-  return parseReviewState(parseJson((await api.get("state")).text));
-}
-
-async function ended(context: EngineContext, seq: number, outcome: Outcome): Promise<void> {
-  await post(context, "ended", { seq, outcome });
+async function ended(context: Context, seq: number, outcome: Outcome): Promise<void> {
+  await context.post("POST ended", { seq, outcome });
 }
 
 /** Resolves after `ms` on the engine's clock, or with `work` if it settles first; the timer goes either way. */
-function within<T>(context: EngineContext, ms: number, work: Promise<T>, late: T): Promise<T> {
+function within<T>(context: Context, ms: number, work: Promise<T>, late: T): Promise<T> {
   return new Promise<T>((resolve) => {
     const timer = context.host.after(ms, () => {
       resolve(late);
@@ -68,7 +64,7 @@ function within<T>(context: EngineContext, ms: number, work: Promise<T>, late: T
  * Stops the agent with `TaskStop`: `null` once confirmed, by a result that is no error or by an
  * agent the engine no longer runs; else why not. A stopped agent's own end is `aborted`.
  */
-async function stop(context: EngineContext, agentId: string): Promise<string | null> {
+async function stop(context: Context, agentId: string): Promise<string | null> {
   const called = context.host.callTool({ tool: "TaskStop", task_id: agentId }).then(
     (answer) => {
       if (answer.deny !== undefined) return `TaskStop was denied: ${answer.deny}`;
@@ -88,14 +84,14 @@ async function stop(context: EngineContext, agentId: string): Promise<string | n
 }
 
 /** Every agent listed to stop, at once: a stop confirmed leaves the list, one that is not is logged once. */
-async function stopEach(context: EngineContext, stopping: readonly Stopping[]): Promise<void> {
+async function stopEach(context: Context, stopping: readonly Stopping[]): Promise<void> {
   await Promise.all(
     stopping.map(async ({ seq, agentId }) => {
       const why = await stop(context, agentId);
 
       // A confirmation the server does not take is asked again at the next read: the run waits for no stop.
       if (why === null) {
-        await post(context, "stopped", { seq }).catch((cause: unknown) => {
+        await context.post("POST stopped", { seq }).catch((cause: unknown) => {
           context.host.log(
             `the stop of review ${seq}'s plan reviewer was not recorded: ${String(cause)}`,
           );
@@ -124,7 +120,7 @@ function promptOf(workdir: string, version: number): string {
  * Spawns the reviewer for a run the page asked for; a refusal or a failure ends the run, with why.
  * A launch the server no longer takes, the run given up meanwhile, stops the agent it started.
  */
-async function launch(context: EngineContext, run: Run): Promise<void> {
+async function launch(context: Context, run: Run): Promise<void> {
   const spawned: AgentSpawnResult | { readonly deny: string } = await context.host
     .spawnAgent({
       subagentType: REVIEWER,
@@ -148,11 +144,11 @@ async function launch(context: EngineContext, run: Run): Promise<void> {
     return;
   }
 
-  const launched = await post(context, "launched", { seq: run.seq, agentId, model }).catch(
-    () => null,
-  );
+  const launched = await context
+    .post("POST launched", { seq: run.seq, agentId, model })
+    .catch(() => null);
 
-  if (launched?.status === 204) return;
+  if (launched?.ok === true) return;
   const why = await stop(context, agentId);
 
   if (why !== null) context.host.log(`the plan reviewer of a run given up is not stopped: ${why}`);
@@ -164,10 +160,7 @@ async function launch(context: EngineContext, run: Run): Promise<void> {
  * fails if it still does. A `stage` line starts the grace, and every start of a server writes one,
  * so a reload or a `claude --resume` arms it again.
  */
-async function check(
-  context: EngineContext,
-  run: Run & { readonly kind: "running" },
-): Promise<void> {
+async function check(context: Context, run: Run & { readonly kind: "running" }): Promise<void> {
   const agent = (await context.host.listAgents()).find(({ id }) => id === run.agentId);
   const status = agent?.status;
 
@@ -207,7 +200,7 @@ async function check(
  * The review, read again each time it changed: the agents to stop first, then the run, launched
  * when asked and checked while running.
  */
-async function staged(context: EngineContext): Promise<void> {
+async function staged(context: Context): Promise<void> {
   const state = await stateOf(context);
 
   if (state === null) return;
@@ -219,13 +212,13 @@ async function staged(context: EngineContext): Promise<void> {
 }
 
 /** An end posted to its run, and how the server answered. */
-type Posted = { readonly seq: number; readonly status: number };
+type Told = { readonly seq: number; readonly posted: Posted<null> };
 
 /**
  * Read from the server, never from memory: an answer that lands after a reload still finds its
  * run. `null` for an end that is no run's.
  */
-async function answered(context: EngineContext, turn: AgentAnswered): Promise<Posted | null> {
+async function answered(context: Context, turn: AgentAnswered): Promise<Told | null> {
   const run = (await stateOf(context))?.run;
 
   if (run?.kind !== "running" || run.agentId !== turn.agentId) return null;
@@ -237,18 +230,24 @@ async function answered(context: EngineContext, turn: AgentAnswered): Promise<Po
 
   const outcome: Outcome = turn.reason === "answer" ? answer : { kind: "failed", why: turn.reason };
 
-  const { status } = await post(context, "ended", { seq: run.seq, outcome });
-
-  return { seq: run.seq, status };
+  return { seq: run.seq, posted: await context.post("POST ended", { seq: run.seq, outcome }) };
 }
 
 /** Taken, or no run's; a 5xx is a server that failed to write it. */
-function taken(posted: Posted | null): boolean {
-  return posted === null || posted.status < 500;
+function taken(told: Told | null): boolean {
+  return told === null || told.posted.ok || told.posted.status < 500;
 }
 
-export const reviewEngine: EngineExtension = {
-  id: "review",
+export const hooks: HooksHalf<AgentReviewPlugs> = {
+  id: "agent-review",
+  tools: {},
+  answers: {
+    "GET state": parseReviewState,
+    "POST launched": null,
+    "POST ended": null,
+    "POST close": parseClosed,
+    "POST stopped": null,
+  },
   staged,
   // A server that does not take the end is asked once more: past that, the grace ends the run.
   agentAnswered: async (context, turn) => {
@@ -259,9 +258,9 @@ export const reviewEngine: EngineExtension = {
     });
     const again = await answered(context, turn);
 
-    if (again !== null && again.status >= 500) {
+    if (again !== null && !again.posted.ok && again.posted.status >= 500) {
       context.host.log(
-        `the review server did not take the end of plan review ${again.seq}: ${again.status}`,
+        `the review server did not take the end of plan review ${again.seq}: ${again.posted.status}`,
       );
     }
   },
@@ -269,15 +268,14 @@ export const reviewEngine: EngineExtension = {
   closing: async (context) => {
     for (const timer of graced.get(context.live)?.values() ?? []) timer.cancel();
     graced.delete(context.live);
-    const response = await post(context, "close", {});
-    const closed = parseClosed(parseJson(response.text));
+    const closed = await context.post("POST close", {});
 
-    if (closed === null) {
-      context.host.log(`the review server did not close the plan review: ${response.status}`);
+    if (!closed.ok) {
+      context.host.log(`the review server did not close the plan review: ${closed.status}`);
 
       return;
     }
 
-    await stopEach(context, closed.stopping);
+    await stopEach(context, closed.answer.stopping);
   },
 };

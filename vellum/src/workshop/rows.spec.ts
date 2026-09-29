@@ -134,6 +134,35 @@ describe("a slice's rows", () => {
     expect(seen).toEqual([{ id: "a1", text: "", at: "", seq: "" }]);
   });
 
+  test("a reason reads what its event carries as its guard does, an empty text for any the input lacks", () => {
+    const part = tablePart(
+      "slice",
+      partOf([
+        refuse("ask", "asked", always, 409, (_w, input) => `asked ${input.id}: ${input.text}`),
+      ]),
+    );
+
+    expect(part.rules[0]?.reason(W, { id: "a1", other: "dropped" })).toBe("asked a1: ");
+  });
+
+  test("an event that ends a hold says whether it ended without a verdict, off what it carries", () => {
+    const part = tablePart("slice", {
+      ...partOf([]),
+      endsWithoutVerdict: { drop: (input) => input.id === "" },
+    });
+
+    const ends = (
+      event: string,
+    ): ((input: Readonly<Record<string, string>>) => boolean) | undefined =>
+      part.events.find(({ id }) => id === event)?.endsWithoutVerdict;
+
+    expect([ends("drop")?.({}), ends("drop")?.({ id: "a1" }), ends("ask")]).toEqual([
+      true,
+      false,
+      undefined,
+    ]);
+  });
+
   test("a row refuses the input when one of its guards names what is not there, the state otherwise", () => {
     const part = tablePart(
       "slice",

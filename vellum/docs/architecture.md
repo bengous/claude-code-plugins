@@ -2,7 +2,7 @@
 
 For the people who change the tree. The tree itself is drawn once, in
 [`AGENTS.md`](../AGENTS.md) § Shape; the rules an agent holds to are in
-[`.claude/rules/`](../.claude/rules/), one file per zone (engine, server, page, extensions, tests), each
+[`.claude/rules/`](../.claude/rules/), one file per zone (workshop, engine, server, page, extensions, slices, tests), each
 naming its own files. This file draws what those texts describe, names the shape and the
 shapes left aside, shows where each part of a feature goes, and where extensions go next.
 
@@ -13,14 +13,14 @@ flowchart LR
   subgraph engine["Claude Code (the engine)"]
     CC["the session<br/>/vellum:start · mcp__vellum__submit · mcp__vellum__state · mcp__vellum__propose · mcp__vellum__grill_ask · /vellum:stop"]
     M["src/runtime/hooks/<br/>register.ts · mode.ts: idle · live"]
-    E["src/steps/*/engine.ts, hooks.ts<br/>tools, refusals, a spawned agent and its answer"]
+    E["src/steps/*/hooks.ts<br/>tools, refusals, a spawned agent and its answer"]
     CC -- "session.start · skill.prompt · command.run<br/>tool.check · tool.call · prompt.submit · turn.complete" --> M
     M -- "$.prompt.submit<br/>deny / result / text" --> CC
     M -- "every event, a Host, never $" --> E
   end
   subgraph server["vellum serve (one Bun process per session)"]
     R["src/runtime/server/http/routes.ts<br/>token, status codes"]
-    A["src/runtime/server/review.ts<br/>one queue: read the workflow → next() → interpret"]
+    A["src/runtime/server/queue.ts<br/>one queue: read the workflow → next() → interpret"]
     T["src/workshop/*<br/>pure: the workflow and its table, paths, feedback text"]
     W["src/runtime/server/fs.ts<br/>plans/&lt;date&gt;/wip-&lt;sid8&gt;/"]
     R --> A --> T
@@ -63,7 +63,7 @@ plain modules with no interface and no injection).
 Four levels of ceremony exist for the same principle; this is the lightest. The next one
 up, ports as interfaces with a fake each and a contract test per port, is one hour away
 the day a second file-system adapter exists: extract the port from `runtime/server/fs.ts`, hand
-it to `runtime/server/review.ts`. The ones above (a use case object per intention, then aggregates
+it to `runtime/server/queue.ts`. The ones above (a use case object per intention, then aggregates
 and repositories) answer needs this plugin does not have.
 
 Two other shapes were weighed and left:
@@ -122,9 +122,9 @@ sequenceDiagram
   participant S as vellum serve
   participant P as page
   C->>M: tool.call propose {reason, moves, recommended}
-  M->>S: POST /api/x/step/propose, pending under a new id (refused while a grill holds the review), then POST wait, held under 30 s, again and again
+  M->>S: POST /api/x/proposal/propose, pending under a new id (refused while a grill holds the review), then POST wait, held under 30 s, again and again
   S-->>P: workspace event, the "Next step" window over the page, or the Next step button's dot under a typing
-  P->>S: POST /api/x/step/answer {id, answer}: a move picked, one of the reviewer's own, or their words
+  P->>S: POST /api/x/proposal/answer {id, answer}: a move picked, one of the reviewer's own, or their words
   S->>S: a grill picked: ServerContext.start("grill") words its opening, writing nothing
   S->>S: one step: next() judges answerProposal, the step's hold row refusing it while a grill is open, and answers the effects
   S->>S: one text entry on the channel: "Accepted: <move>." | "Chose: <move>." | "Own: <text>.", the opening after it; the grill's reaction writes grill-1.md, its header
@@ -173,7 +173,7 @@ of the working directory alone; the end names the file. Every relay keeps the pl
 the lock lets Claude write in the working directory, the channel included, so an entry proves
 no human wrote it, and it must never reach Claude as the user's own words.
 
-What to do next is `step`'s, never the grill's: `propose` offers moves (a grill, a mockup, a
+What to do next is `proposal`'s, never the grill's: `propose` offers moves (a grill, a mockup, a
 prototype, the plan) and marks the one Claude recommends, which the window never checks. The
 proposal is kept in `.review/step.json`, one at a time; whether Claude's call still waits on it
 is the server's memory. A new one replaces it, the approval takes it, and `plan.md` written takes
@@ -212,7 +212,7 @@ sequenceDiagram
   participant S as vellum serve
   participant M as hooks module
   participant A as plan reviewer
-  P->>S: POST /api/x/review/request {version}, in `inReview` alone: a run `requested`, under a new number
+  P->>S: POST /api/x/agent-review/request {version}, in `inReview` alone: a run `requested`, under a new number
   S-->>M: stdout: the stage
   M->>S: GET state, then $.agent.spawn vellum:plan-reviewer on .review/vN.md
   M->>S: POST launched {seq, agentId, model}: the run is `running`
@@ -225,7 +225,7 @@ The run lives in `.review/reviews.json`, so a restarted server still knows it an
 the engine half keeps only timers, and reads the run from the server each time a `stage` line
 comes, whose `review · running` segment the server words. A run holds the review from its
 request to its end, as the review region says (`Region.holds`): no version of Claude's is
-recorded and `step` takes no proposal; when Claude wrote `plan.md` meanwhile, the run's end
+recorded and `proposal` takes no proposal; when Claude wrote `plan.md` meanwhile, the run's end
 tells it once (the notice), and the end of Claude's next turn records the version. A run whose agent was killed or
 failed ends at once, one gone without an answer after `GRACE_MS`; the ✕ (`forget`), `/vellum:stop` and the approval give it
 up and stop its agent. The agent reads files only (`agents/plan-reviewer.md`), so vellum writes
@@ -329,9 +329,9 @@ constraints below are why. The contract is `src/runtime/extension.ts`, types onl
 
 | Half | File | Declares | Reached from |
 |---|---|---|---|
-| page | `<folder>/page.tsx` | a `PageExtension`: its renderers, tried in registry order, its actions in the decision bar, its notices under it, its panel, a pane `panesOf` places beside the document pane, and its share of the Send | `runtime/page/app.tsx`, through `runtime/page/slices.ts` |
-| server | `<folder>/server.ts` | a `ServerExtension`: `linkedDocs`, pure, candidates in and links out; its routes, mounted at `/api/x/<id>/`, their IO through a `ServerContext`, each change an event they `dispatch`; its `workflow` (from `<folder>/workflow.ts`: its region, events, rows, transitions, its reaction to the others' events, its segment of the band and its line in the view); `part`, its part of the bar's Send | `runtime/server/http/serve.ts`, through `runtime/server/slices.ts` |
-| engine | `<folder>/engine.ts` | an `EngineExtension`: tools, a tool's wait for the reviewer and the entries it returns, refusals, and handlers for a prompt, a finished turn, a spawned agent's answer, a `stage` line and the mode's end | `runtime/hooks/register.ts`, through `runtime/hooks/slices.ts` |
+| page | `<folder>/page.tsx` | a `PageHalf`, a `PageExtension` as it is: its renderers, tried in registry order, its actions in the decision bar, its notices under it, its panel, a pane `panesOf` places beside the document pane, and its share of the Send | `runtime/page/app.tsx`, through `runtime/page/slices.ts` |
+| server | `<folder>/server.ts` | a `ServerHalf`, which `serverExtension` makes a `ServerExtension`: `linkedDocs`, pure, candidates in and links out; its routes, mounted at `/api/x/<id>/`, their IO through a `ServerContext`, each change an event they `dispatch`; its `workflow` (from `<folder>/workflow.ts`: its region, events, rows, transitions, its reaction to the others' events, its segment of the band and its line in the view); `part`, its part of the bar's Send | `runtime/server/http/serve.ts`, through `runtime/server/slices.ts` |
+| hooks | `<folder>/hooks.ts` | a `HooksHalf`: tools, a tool's wait for the reviewer and the entries it returns, refusals, and handlers for a prompt, a finished turn, a spawned agent's answer, a `stage` line and the mode's end | `runtime/hooks/register.ts`, through `runtime/hooks/slices.ts` |
 
 `src/boundaries.spec.ts` holds the layout: an extension imports `workshop/`, `runtime/` and its
 own folder, never another extension; a runtime reaches the extensions from those three files
@@ -342,7 +342,7 @@ half, every half carries the id its folder declares, and its registry names it. 
 `formats/html/frame.ts` by its path, because a server half cannot hand the core a script
 yet.
 
-A folder holding `contract.ts` is a slice, the shape proposed for every extension: read through
+Every extension is a slice: read through
 one declaration, `defineSlice` (`src/workshop/plugs.ts`), whose plugs type its halves `hooks.ts`,
 `server.ts` and `page.tsx` (`HooksHalf`, `ServerHalf`, `PageHalf`), which the registries fold into
 the three types above (`engineExtension`, `serverExtension`); its rows are built from that

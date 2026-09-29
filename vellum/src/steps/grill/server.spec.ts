@@ -150,7 +150,7 @@ async function grilling(): Promise<Grilling> {
     open: (subject) => {
       const answer = { kind: "move", move: { kind: "grill", subject, choices: [] } };
 
-      return core("x/step/answer", JSON.stringify({ id: null, answer }));
+      return core("x/proposal/answer", JSON.stringify({ id: null, answer }));
     },
     lines,
     view: async () =>

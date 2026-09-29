@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "preact/hooks";
 
-import type { RendererProps, PageExtension } from "../../runtime/extension.ts";
+import type { PageHalf, RendererProps } from "../../runtime/extension.ts";
 import { parseLines, passageFromRange, rangeFor } from "../../runtime/page/anchoring.ts";
 import { docUrl } from "../../runtime/page/api.ts";
 import { Composer } from "../../runtime/page/composer.tsx";
@@ -28,6 +28,7 @@ import {
 } from "../../runtime/page/state.ts";
 import type { DocRef, Passage } from "../../runtime/protocol.ts";
 import { changesOf } from "./changes.ts";
+import type { MarkdownPlugs } from "./contract.ts";
 import { linkedDoc } from "./links.ts";
 import { markedIndices } from "./marked.ts";
 import { drawDiagrams } from "./mermaid.ts";
@@ -599,7 +600,7 @@ function MarkdownDoc(props: RendererProps): preact.JSX.Element {
   );
 }
 
-export const markdownPage: PageExtension = {
+export const page: PageHalf<MarkdownPlugs> = {
   id: "markdown",
   renderers: [{ accepts: (doc) => doc.mediaType === "text/markdown", component: MarkdownDoc }],
 };

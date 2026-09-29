@@ -11,7 +11,7 @@ import { expect, test as base } from "@playwright/test";
 
 import type { Annotation, ChannelLine, ReviewView, SendAnswer } from "../src/runtime/protocol.ts";
 import { discard } from "../src/runtime/server/preview.ts";
-import type { Outcome, ReviewState, Run } from "../src/steps/agent-review/protocol.ts";
+import type { Outcome, ReviewState, Run } from "../src/steps/agent-review/contract.ts";
 import type {
   CloseReason,
   GrillState,
@@ -241,7 +241,7 @@ export async function startVellum(
 
   const runNow = async (): Promise<Run | null> => {
     // SAFETY: the server's own `ReviewState`, serialized by `Response.json` in review/server.ts.
-    const state = (await api("x/review/state")).json as ReviewState;
+    const state = (await api("x/agent-review/state")).json as ReviewState;
 
     return state.run;
   };
@@ -304,22 +304,22 @@ export async function startVellum(
       writeFileSync(join(workdir, name), text);
     },
     step: {
-      propose: (proposal) => api("x/step/propose", proposal),
+      propose: (proposal) => api("x/proposal/propose", proposal),
       answer: async (answer) => {
         // SAFETY: the server's own `StepState`, serialized by `Response.json` in step/server.ts.
-        const { pending } = (await api("x/step/state")).json as StepState;
+        const { pending } = (await api("x/proposal/state")).json as StepState;
 
         if (pending === null) throw new Error("no proposal is pending");
 
-        return api("x/step/answer", { id: pending.id, answer });
+        return api("x/proposal/answer", { id: pending.id, answer });
       },
-      state: () => api("x/step/state"),
-      wait: (id) => api("x/step/wait", { id }),
-      pause: (id) => api("x/step/pause", { id }),
+      state: () => api("x/proposal/state"),
+      wait: (id) => api("x/proposal/wait", { id }),
+      pause: (id) => api("x/proposal/pause", { id }),
     },
     grill: {
       open: (subject) =>
-        api("x/step/answer", {
+        api("x/proposal/answer", {
           id: null,
           answer: { kind: "move", move: { kind: "grill", subject, choices: [] } },
         }),
@@ -331,14 +331,15 @@ export async function startVellum(
       wait: async (first) => api("x/grill/wait", { file: await openGrill(), first }),
     },
     review: {
-      state: () => api("x/review/state"),
+      state: () => api("x/agent-review/state"),
       launched: async (model = "claude-opus-5-5") => {
         const { seq } = await run("requested");
-        await api("x/review/launched", { seq, agentId: `agent-${seq}`, model });
+        await api("x/agent-review/launched", { seq, agentId: `agent-${seq}`, model });
 
         return seq;
       },
-      ended: async (outcome) => api("x/review/ended", { seq: (await run("running")).seq, outcome }),
+      ended: async (outcome) =>
+        api("x/agent-review/ended", { seq: (await run("running")).seq, outcome }),
     },
     restart: async () => {
       await new Promise<void>((exited) => {

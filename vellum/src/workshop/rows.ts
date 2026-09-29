@@ -143,8 +143,8 @@ export function anyOf<const Guards extends readonly Guard<never>[]>(
   );
 }
 
-/** A refusal's words: a text, or one read off the workflow when it names what holds there. */
-export type Reason = string | ((w: Workflow) => string);
+/** A refusal's words: a text, or one read off the workflow and what the event carries, as its guard reads them. */
+export type Reason<I> = string | ((w: Workflow, input: I) => string);
 
 /**
  * A row that refuses `event` when its guard holds, answered with `status` by the slice's routes.
@@ -157,7 +157,7 @@ export type RefuseRow<K extends string, Id extends string> = {
   readonly id: Id;
   readonly refuses: "state" | "input";
   readonly status: RefusalStatus;
-  readonly reason: Reason;
+  readonly reason: (w: Workflow, input: EventInput) => string;
   readonly condition: string;
   readonly heard: boolean;
   readonly when: (w: Workflow, input: EventInput) => boolean;
@@ -202,7 +202,7 @@ export type Rows<E extends Events, H extends Heard> = {
     id: Id,
     when: Guard<InputOf<E, H, K>>,
     status: RefusalStatus,
-    reason: Reason,
+    reason: Reason<InputOf<E, H, K>>,
   ) => RefuseRow<K, Id>;
   /** Refuses `event` while the review is held; an event with no such row passes a hold. */
   readonly whileHeld: <K extends keyof E & string>(
@@ -243,6 +243,11 @@ function readOf<H extends Heard, K extends keyof H>(input: EventInput): Read<H, 
   return input as Read<H, K>;
 }
 
+function worded<I>(reason: Reason<I>): (w: Workflow, input: I) => string {
+  // oxlint-disable-next-line anti-slop/no-runtime-typeof -- `reason` is the contract's own union of a text and a wording read off the workflow and the input, never input itself: `typeof` tells the two apart, and nothing here is parsed.
+  return typeof reason === "string" ? () => reason : reason;
+}
+
 /** What a row's guard reads of the core's input: its own event's fields, `""` for any it lacks; a heard event as it comes. */
 function readBy<E extends Events>(declared: E, event: string, input: EventInput): EventInput {
   return Object.hasOwn(declared, event) ? carried(declared, event, input) : input;
@@ -266,7 +271,9 @@ export function rows<D extends SliceDecl>(
       refuses: namers.has(when) ? "input" : "state",
       heard: !Object.hasOwn(declared, event),
       status,
-      reason,
+      reason: (w, input) =>
+        // SAFETY: as `when` below: `readBy` hands the wording its event's fields as `InputOf` types them.
+        worded(reason)(w, readBy(declared, event, input) as never),
       condition: conditionOf(when),
       // SAFETY: `readBy` hands the guard its event's fields as `InputOf` types them: every field an owned event carries, `""` when absent, or a heard event's record, whose missing fields read `undefined`.
       when: (w, input) => when(w, readBy(declared, event, input) as never),
@@ -278,6 +285,11 @@ export function rows<D extends SliceDecl>(
 /** The inputs `refusedNow` and the walk of `workflow.spec.ts` try, per event: what its route sends, stamps given where a transition reads them. */
 export type Samples<E extends Events> = {
   readonly [K in keyof E]: readonly (Sent<E, K> & Partial<Stamps>)[];
+};
+
+/** Whether a hold the event ends ended without a verdict, which the notice says, read off what it carries. */
+export type EndsWithoutVerdict<E extends Events> = {
+  readonly [K in keyof E]?: (input: Carried<E, K>) => boolean;
 };
 
 /** One transition per event the slice owns, reading what that event carries. */
@@ -297,6 +309,8 @@ export type SlicePart<E extends Events, H extends Heard> = {
   readonly samples: Samples<E>;
   readonly transitions: Transitions<E>;
   readonly reactions: Reactions<H>;
+  /** The events that end a hold without a verdict; one it leaves out ends it with one. */
+  readonly endsWithoutVerdict?: EndsWithoutVerdict<E>;
 };
 
 function namesOf<E extends Events>(declared: E): (keyof E & string)[] {
@@ -307,11 +321,6 @@ function namesOf<E extends Events>(declared: E): (keyof E & string)[] {
 
 /** Where a row on another part's event stands: after every row that part declares on it. */
 const AFTER_THE_OWNER = 100;
-
-function reasonOf(reason: Reason): (w: Workflow) => string {
-  // oxlint-disable-next-line anti-slop/no-runtime-typeof -- `reason` is the contract's own union of a text and a wording read off the workflow, never input: `typeof` tells the two apart, and nothing here is parsed.
-  return typeof reason === "string" ? () => reason : reason;
-}
 
 /**
  * The event's rows as the core orders them: the hold's at 0, a row above it negative, one below
@@ -339,7 +348,7 @@ function rulesOf(event: string, all: readonly Row[]): readonly Rule[] {
             when: row.when,
             effect: "refuse",
             refuses: row.refuses,
-            reason: reasonOf(row.reason),
+            reason: row.reason,
             status: row.status,
             condition: row.condition,
           },
@@ -353,8 +362,9 @@ function declOf<E extends Events, H extends Heard, K extends keyof E & string>(
   event: K,
 ): EventDecl {
   const held = part.rules.find((row) => row.event === event && row.kind === "held");
+  const ends = part.endsWithoutVerdict?.[event];
 
-  return {
+  const decl: EventDecl = {
     id: event,
     owner,
     actors: declaredOf(part.events, event).by,
@@ -364,6 +374,10 @@ function declOf<E extends Events, H extends Heard, K extends keyof E & string>(
         : { effect: "allow" },
     samples: part.samples[event],
   };
+
+  return ends === undefined
+    ? decl
+    : { ...decl, endsWithoutVerdict: (input) => ends(carried(part.events, event, input)) };
 }
 
 function transitionOf<E extends Events, H extends Heard, K extends keyof E & string>(

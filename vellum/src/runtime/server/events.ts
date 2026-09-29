@@ -9,7 +9,7 @@ import type { PlanWorkspace } from "../../workshop/workspace.ts";
 import type { Part } from "../extension.ts";
 import type { SendRefusal } from "../protocol.ts";
 import { freeTarget, listReview } from "./fs.ts";
-import type { Review, Stepped } from "./review.ts";
+import type { Queue, Stepped } from "./queue.ts";
 
 /**
  * The core's own events as its routes send them: what each reads in the queue before it is
@@ -69,13 +69,13 @@ function passed(stepped: Stepped, event: string): Stepped {
   return stepped;
 }
 
-export function coreEvents(review: Review): CoreEvents {
-  const { project, workdir, extensions } = review.options;
+export function coreEvents(queue: Queue): CoreEvents {
+  const { project, workdir, extensions } = queue.options;
 
   /** The version `plan.md` would be now: recorded when its text is new, kept when it is not. */
   const gate = (options: GateOptions, actor: Actor): Promise<GateResult> =>
-    review.inOrder(async () => {
-      const stepped = await review.step("record", { unchanged: options.unchanged }, actor);
+    queue.inOrder(async () => {
+      const stepped = await queue.step("record", { unchanged: options.unchanged }, actor);
 
       if (stepped.verdict.kind !== "allow") {
         return { ok: false, rule: stepped.verdict.rule, error: stepped.verdict.reason };
@@ -102,7 +102,7 @@ export function coreEvents(review: Review): CoreEvents {
       return { ...asked, edit: "", text: "", dir: "", noted: "false" };
     }
 
-    const latest = await review.planText(workspace.version, workspace.dir);
+    const latest = await queue.planText(workspace.version, workspace.dir);
     const { edit } = decision;
 
     if (edit !== null && edit.version !== workspace.version) {
@@ -129,9 +129,9 @@ export function coreEvents(review: Review): CoreEvents {
   };
 
   const decide = (decision: Decision): Promise<DecisionResult> =>
-    review.inOrder(async () => {
-      const stepped = await review.step("approve", (w) => approval(w, decision), "reviewer");
-      const workspace = await review.workspace();
+    queue.inOrder(async () => {
+      const stepped = await queue.step("approve", (w) => approval(w, decision), "reviewer");
+      const workspace = await queue.workspace();
       const { verdict } = stepped;
 
       if (verdict.kind !== "allow") {
@@ -161,7 +161,7 @@ export function coreEvents(review: Review): CoreEvents {
     const unanswered: string[] = [];
 
     for (const extension of request.parts ? extensions : []) {
-      const part = (await extension.part?.(review.context, draft, request.takeDefaults)) ?? {
+      const part = (await extension.part?.(queue.context, draft, request.takeDefaults)) ?? {
         kind: "none",
       };
 
@@ -182,17 +182,17 @@ export function coreEvents(review: Review): CoreEvents {
    * Send did not take; a failure there is logged.
    */
   const send = (request: SendRequest): Promise<SendResult> =>
-    review.inOrder(async () => {
-      const w = await review.workflow();
+    queue.inOrder(async () => {
+      const w = await queue.workflow();
       const { workspace } = w;
-      const stored = await review.draft();
+      const stored = await queue.draft();
       const draft = stored === "unreadable" ? EMPTY_DRAFT : (stored ?? EMPTY_DRAFT);
       const edit = request.edit === null ? "" : String(request.edit);
       const names = stored === "unreadable" ? "held" : namedIn(workspace, draft, request);
       const asked = { edit, names };
 
-      if (verdictOf(w, review.table, "send", asked).kind !== "allow") {
-        const { verdict } = await review.step("send", asked, "reviewer");
+      if (verdictOf(w, queue.table, "send", asked).kind !== "allow") {
+        const { verdict } = await queue.step("send", asked, "reviewer");
 
         if (verdict.kind === "allow") throw new Error("a Send its rows refused passed its step");
 
@@ -207,14 +207,14 @@ export function coreEvents(review: Review): CoreEvents {
       const latestText =
         workspace.kind === "drafting"
           ? null
-          : await review.planText(workspace.version, workspace.dir);
+          : await queue.planText(workspace.version, workspace.dir);
 
       const editText = request.edit === null ? null : (draft.edit?.text ?? null);
 
       const editHeld =
         editText !== null &&
         editText !== latestText &&
-        (await review.step("sendEdit", { edit, text: editText }, "reviewer")).verdict.kind !==
+        (await queue.step("sendEdit", { edit, text: editText }, "reviewer")).verdict.kind !==
           "allow";
 
       const sending = sendOn(workspace, latestText, draft, request, editHeld ? held(w) : null);
@@ -264,7 +264,7 @@ export function coreEvents(review: Review): CoreEvents {
         ...Object.fromEntries(parts.map(({ id, part }) => [id, part.input])),
       };
 
-      const stepped = passed(await review.step("send", input, "reviewer"), "send");
+      const stepped = passed(await queue.step("send", input, "reviewer"), "send");
       const sent = stepped.effects.find((effect) => effect.kind === "channel");
       const seq = stepped.appended[0];
 
@@ -274,7 +274,7 @@ export function coreEvents(review: Review): CoreEvents {
 
       const typed = parts.reduce((kept, { part }) => part.typed(kept), rest.typed);
 
-      await review.keepDraft({ ...rest, typed }).catch((cause: unknown) => {
+      await queue.keepDraft({ ...rest, typed }).catch((cause: unknown) => {
         console.error(`a Send was committed, then the draft's rest failed: ${String(cause)}`);
       });
 

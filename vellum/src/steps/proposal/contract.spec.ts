@@ -19,18 +19,18 @@ import type {
   ToolAnswer,
 } from "../../runtime/hooks/extension.ts";
 import { engineExtension } from "../../runtime/hooks/slice.ts";
-import { Review } from "../../runtime/server/review.ts";
+import { Queue } from "../../runtime/server/queue.ts";
 import { serverExtension } from "../../runtime/server/slice.ts";
 import { parseWipDir } from "../../workshop/paths.ts";
 import type { Json } from "../../workshop/plugs.ts";
 import type { Carried, Guard, Transitions } from "../../workshop/rows.ts";
 import { rows, tablePart } from "../../workshop/rows.ts";
 import type { Workflow } from "../../workshop/workflow.ts";
-import type { Proposal, StepEvents, StepPlugs } from "./contract.ts";
+import type { Proposal, ProposalEvents, ProposalPlugs } from "./contract.ts";
 import { SLICE } from "./contract.ts";
 import { hooks } from "./hooks.ts";
 import { page } from "./page.tsx";
-import { ANSWERS, BODIES, parseProposal, parseProposed } from "./parse.ts";
+import { BODIES, parseProposal, parseProposed } from "./parse.ts";
 import { noProposalWaits, offersPlan, regionOf, TRANSITIONS } from "./proposal.ts";
 import { server } from "./server.ts";
 
@@ -60,11 +60,14 @@ const W: Workflow = {
 };
 
 /** One route of `half`, mounted as the server mounts it, over a review on a fresh directory. */
-function routeOf(half: ServerHalf<StepPlugs>, key: RouteKey): (body: Json) => Promise<Response> {
+function routeOf(
+  half: ServerHalf<ProposalPlugs>,
+  key: RouteKey,
+): (body: Json) => Promise<Response> {
   const root = mkdtempSync(join(tmpdir(), "vellum-contract-"));
   mkdirSync(join(root, WIP, ".review"), { recursive: true });
   const extensions = [serverExtension(half)];
-  const review = new Review({ project: root, workdir: WORKDIR, extensions });
+  const review = new Queue({ project: root, workdir: WORKDIR, extensions });
   const route = serverExtension(half).routes?.(review.context)[key];
 
   if (route === undefined) throw new Error(`no route ${key}`);
@@ -74,7 +77,7 @@ function routeOf(half: ServerHalf<StepPlugs>, key: RouteKey): (body: Json) => Pr
 }
 
 /** A guard written for `pause`, reading a field `propose` carries. */
-const readsProposal: Guard<Carried<StepEvents, "pause">> = (_w, input) =>
+const readsProposal: Guard<Carried<ProposalEvents, "pause">> = (_w, input) =>
   // @ts-expect-error -- `pause` carries `id` alone.
   input.proposal === "";
 
@@ -85,20 +88,24 @@ const answering = (): Promise<ToolAnswer> => Promise.resolve({ result: "" });
 describe("hooks.ts fills the plugs' hooks, no more, no less (1)", () => {
   test("a hooks half without the declared tool does not compile: propose would not be registered", () => {
     // @ts-expect-error -- the plugs declare the tool `propose`.
-    const half: HooksHalf<StepPlugs> = { ...hooks, tools: {} };
+    const half: HooksHalf<ProposalPlugs> = { ...hooks, tools: {} };
 
     expect(engineExtension(half).tools).toEqual([]);
   });
 
   test("a hooks half without the declared listener does not compile: a turn cut short would pause nothing", () => {
     // @ts-expect-error -- the plugs declare the listener `answered`.
-    const half: HooksHalf<StepPlugs> = { id: "step", tools: hooks.tools, answers: hooks.answers };
+    const half: HooksHalf<ProposalPlugs> = {
+      id: "proposal",
+      tools: hooks.tools,
+      answers: hooks.answers,
+    };
 
     expect(engineExtension(half).answered).toBeUndefined();
   });
 
   test("a tool the plugs do not declare does not compile: it would be registered", () => {
-    const half: HooksHalf<StepPlugs> = {
+    const half: HooksHalf<ProposalPlugs> = {
       ...hooks,
       // @ts-expect-error -- the plugs declare the tool `propose` alone.
       tools: { propose: hooks.tools.propose, ask: hooks.tools.propose },
@@ -109,7 +116,7 @@ describe("hooks.ts fills the plugs' hooks, no more, no less (1)", () => {
 
   test("a listener the plugs do not declare does not compile: it would hear the mode close", () => {
     // @ts-expect-error -- the plugs declare the listener `answered` alone.
-    const half: HooksHalf<StepPlugs> = { ...hooks, closing: async () => {} };
+    const half: HooksHalf<ProposalPlugs> = { ...hooks, closing: async () => {} };
 
     expect(engineExtension(half).closing).toBeDefined();
   });
@@ -119,13 +126,13 @@ describe("server.ts fills the plugs' routes, each answering its declared answer 
   test("a server half without a declared route does not compile: the hooks module's pause would find none", () => {
     const { "POST pause": _pause, ...others } = server.routes;
     // @ts-expect-error -- the plugs declare `POST pause`.
-    const half: ServerHalf<StepPlugs> = { ...server, routes: others };
+    const half: ServerHalf<ProposalPlugs> = { ...server, routes: others };
 
     expect(() => routeOf(half, "POST pause")).toThrow("no route POST pause");
   });
 
   test("a route the plugs do not declare does not compile: it would be mounted", async () => {
-    const half: ServerHalf<StepPlugs> = {
+    const half: ServerHalf<ProposalPlugs> = {
       ...server,
       // @ts-expect-error -- the plugs declare five routes, and `POST close` is none of them.
       routes: { ...server.routes, "POST close": () => Promise.resolve({ answer: null }) },
@@ -135,7 +142,7 @@ describe("server.ts fills the plugs' routes, each answering its declared answer 
   });
 
   test("an answer other than the declared one does not compile: the hooks module would read it", async () => {
-    const half: ServerHalf<StepPlugs> = {
+    const half: ServerHalf<ProposalPlugs> = {
       ...server,
       routes: {
         ...server.routes,
@@ -150,7 +157,7 @@ describe("server.ts fills the plugs' routes, each answering its declared answer 
   });
 
   test("a route reads its body as its parser typed it: a field the body does not carry does not compile", async () => {
-    const half: ServerHalf<StepPlugs> = {
+    const half: ServerHalf<ProposalPlugs> = {
       ...server,
       routes: {
         ...server.routes,
@@ -164,7 +171,7 @@ describe("server.ts fills the plugs' routes, each answering its declared answer 
 
   test("a parser answering another body than its route's does not compile: the route would read a proposal as an id", () => {
     // @ts-expect-error -- `POST pause` takes `{ id }`, and `parseProposal` answers a proposal.
-    const bodies: Bodies<StepPlugs["server"]> = { ...BODIES, "POST pause": parseProposal };
+    const bodies: Bodies<ProposalPlugs["server"]> = { ...BODIES, "POST pause": parseProposal };
 
     expect(bodies["POST pause"]({ id: "p1" })).toBeNull();
   });
@@ -173,7 +180,7 @@ describe("server.ts fills the plugs' routes, each answering its declared answer 
 describe("the hooks half's client is typed by the same plugs (3)", () => {
   const REFUSED = { ok: false, status: 409, text: "", reason: null } as const;
 
-  function recording(posted: string[]): HooksContext<StepPlugs>["post"] {
+  function recording(posted: string[]): HooksContext<ProposalPlugs>["post"] {
     return (route, body) => {
       posted.push(`${route} ${JSON.stringify(body)}`);
 
@@ -198,25 +205,25 @@ describe("the hooks half's client is typed by the same plugs (3)", () => {
     expect(posted.ok ? posted.answer.seq : null).toBeNull();
   });
 
-  test("a parser in ANSWERS reading another route's answer does not compile: every wait would read an id", () => {
+  test("a parser in the hooks half's answers reading another route's answer does not compile: every wait would read an id", () => {
     // @ts-expect-error -- `POST wait` answers a `StepWaited`, and `parseProposed` reads `{ id }`.
-    const answers: Answers<StepPlugs> = { ...ANSWERS, "POST wait": parseProposed };
+    const answers: Answers<ProposalPlugs> = { ...hooks.answers, "POST wait": parseProposed };
 
     expect(JSON.stringify(answers["POST wait"]({ id: "p1" }))).toBe('{"id":"p1"}');
   });
 
   test("a route the hooks half posts that the server does not declare does not compile: nothing would answer it", () => {
-    type Stray = Omit<StepPlugs, "hooks"> & {
-      readonly hooks: Omit<StepPlugs["hooks"], "posts"> & {
-        readonly posts: StepPlugs["hooks"]["posts"] | "POST close";
+    type Stray = Omit<ProposalPlugs, "hooks"> & {
+      readonly hooks: Omit<ProposalPlugs["hooks"], "posts"> & {
+        readonly posts: ProposalPlugs["hooks"]["posts"] | "POST close";
       };
     };
 
     // @ts-expect-error -- the server declares no `POST close`.
     const half: HooksHalf<Stray> = {
-      id: "step",
+      id: "proposal",
       tools: { propose: { description: "", inputSchema: { type: "object" }, call: answering } },
-      answers: { ...ANSWERS, "POST close": null },
+      answers: { ...hooks.answers, "POST close": null },
       answered: () => Promise.resolve(),
     };
 
@@ -291,7 +298,7 @@ describe("the rows and the routes name the step's own events, with what each car
       return Promise.resolve(DISPATCHED);
     };
 
-    const dispatch: SliceContext<StepPlugs>["dispatch"] = recorded;
+    const dispatch: SliceContext<ProposalPlugs>["dispatch"] = recorded;
 
     // @ts-expect-error -- `propose` carries `id` and `proposal`.
     await dispatch("propose", { id: "p1" });
@@ -306,29 +313,29 @@ describe("every event has its transition, every page slot its component (5)", ()
   test("an event without a transition does not compile: next() would throw on it", () => {
     const { pause: _pause, ...others } = TRANSITIONS;
     // @ts-expect-error -- the step owns `pause`.
-    const transitions: Transitions<StepEvents> = others;
-    const part = tablePart("step", { ...server.workflow, transitions });
+    const transitions: Transitions<ProposalEvents> = others;
+    const part = tablePart("proposal", { ...server.workflow, transitions });
 
     expect(() => part.transitions.pause?.(W, "pause", { id: "p1" })).toThrow();
   });
 
   test("a page slot declared and not filled does not compile: the proposal's window would never draw", () => {
     // @ts-expect-error -- the plugs declare the slot `notices`.
-    const half: PageHalf<StepPlugs> = { id: "step", actions: page.actions };
+    const half: PageHalf<ProposalPlugs> = { id: "proposal", actions: page.actions };
 
     expect(half.notices).toBeUndefined();
   });
 
   test("a page slot filled and not declared does not compile: a panel would open beside the documents", () => {
     // @ts-expect-error -- the plugs declare `actions` and `notices` alone.
-    const half: PageHalf<StepPlugs> = { ...page, panel: { shown, component: () => null } };
+    const half: PageHalf<ProposalPlugs> = { ...page, panel: { shown, component: () => null } };
 
     expect(half.panel).toBeDefined();
   });
 
   test("a half under another slice's id does not compile", () => {
     // @ts-expect-error -- the plugs name the slice `step`.
-    const half: PageHalf<StepPlugs> = { ...page, id: "grill" };
+    const half: PageHalf<ProposalPlugs> = { ...page, id: "grill" };
 
     expect(String(half.id)).toBe("grill");
   });

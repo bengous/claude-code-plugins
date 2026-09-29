@@ -350,7 +350,7 @@ test.describe("the grill", () => {
     await openVellum(page, vellum);
     const errors: string[] = [];
     page.on("pageerror", (error) => errors.push(error.message));
-    await page.route("**/api/x/step/answer", (route) => route.abort());
+    await page.route("**/api/x/proposal/answer", (route) => route.abort());
     await openOwnGrill(page);
 
     await expect(page.locator(".banner.err")).toContainText("did not reach the server");

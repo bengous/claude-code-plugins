@@ -17,7 +17,7 @@ import {
   WORKDIR,
   world,
 } from "../../runtime/hooks/fixtures/index.ts";
-import { GRACE_MS, LOST, RETRY_MS } from "./engine.ts";
+import type { Outcome } from "./contract.ts";
 import {
   AGENT_ID,
   agents,
@@ -27,7 +27,7 @@ import {
   stoppedResult,
   stops,
 } from "./fixtures/review-routes.ts";
-import type { Outcome } from "./protocol.ts";
+import { GRACE_MS, LOST, RETRY_MS } from "./hooks.ts";
 
 tier("user");
 
@@ -329,7 +329,7 @@ describe("a run whose agent the engine no longer runs", () => {
     const review = reviewRoutes(RUNNING);
     let closed = false;
     const state: Route = () => (closed ? null : reply(200, review.state));
-    const seen = world(on, { routes: { ...review.routes, "/api/x/review/state": state } });
+    const seen = world(on, { routes: { ...review.routes, "/api/x/agent-review/state": state } });
     agents(on);
     stops(on);
     await $.skill.prompt(START_PROMPT);

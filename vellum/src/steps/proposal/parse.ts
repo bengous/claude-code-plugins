@@ -1,5 +1,4 @@
 import type { Bodies } from "../../runtime/extension.ts";
-import type { Answers } from "../../runtime/hooks/extension.ts";
 import type {
   AnswerBody,
   Dropped,
@@ -10,7 +9,7 @@ import type {
   ProposalId,
   Proposed,
   StepAnswer,
-  StepPlugs,
+  ProposalPlugs,
   StepWaited,
 } from "./contract.ts";
 import type { StepFile } from "./proposal.ts";
@@ -198,16 +197,9 @@ export function parsePaused(value: unknown): Paused | null {
 /* oxlint-enable anti-slop/no-runtime-typeof, anti-slop/no-unknown-parameters, anti-slop/no-unsafe-dictionary-type, anti-slop/no-unknown-returns, anti-slop/no-known-value-widening */
 
 /** The body of each route that takes one, parsed before the route runs: 400 when it is not one. */
-export const BODIES: Bodies<StepPlugs["server"]> = {
+export const BODIES: Bodies<ProposalPlugs["server"]> = {
   "POST propose": parseProposal,
   "POST wait": parseProposalId,
   "POST pause": parseProposalId,
   "POST answer": parseAnswer,
-};
-
-/** The answer of each route the hooks half posts, parsed before `context.post` hands it back. */
-export const ANSWERS: Answers<StepPlugs> = {
-  "POST propose": parseProposed,
-  "POST wait": parseWaited,
-  "POST pause": parsePaused,
 };

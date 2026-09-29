@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 
-import { refusedNowWith, stateWith } from "../../proof.ts";
+import { refusedNowWith, rowsACallerMeets, stateWith } from "../../proof.ts";
 import { parseWipDir } from "../../workshop/paths.ts";
 import type { RowKey } from "../../workshop/rows.ts";
 import { tablePart } from "../../workshop/rows.ts";
@@ -11,7 +11,9 @@ import { RULES } from "./contract.ts";
 import { regionOf } from "./proposal.ts";
 import { server } from "./server.ts";
 
-const TABLE = tableOf([tablePart("step", server.workflow)]);
+const PART = tablePart("proposal", server.workflow);
+
+const TABLE = tableOf([PART]);
 
 const DIR = parseWipDir("plans/2026-09-28/wip-9b1d0e22/");
 
@@ -136,4 +138,28 @@ test("a pause of a proposal a newer one replaced is refused for that input alone
 test("a stale tab's answer to a proposal no longer waiting is refused for it alone: mcp__vellum__state does not list answerProposal", () => {
   expect(judged(review("p2", "absent"), "answerProposal", answering("p1"))).toEqual(NO_SUCH);
   expect(stateWith(review("p2", "absent"), "answerProposal", answering("p1"))).toEqual([]);
+});
+
+// A row on the state, of an event a caller sends, is what is refused now: taking it for an input's fails here.
+
+const LISTED = {
+  "propose: plan-over-plan": [
+    "once plan.md exists, what is refused now lists a proposal of the plan, in the plan-over-plan row's words",
+    () => {
+      expect(refusedNowWith(review(null, "pending"), "propose", proposing(PLAN))).toEqual([
+        {
+          event: "propose",
+          input: proposing(PLAN),
+          effect: "refuse",
+          reason: "plan.md exists: the plan step is done",
+        },
+      ]);
+    },
+  ],
+} satisfies { readonly [row: string]: readonly [string, () => void] };
+
+for (const [title, run] of Object.values(LISTED)) test(title, run);
+
+test("every row of the step's that a caller meets is shown listed in what is refused now", () => {
+  expect(Object.keys(LISTED).toSorted()).toEqual(rowsACallerMeets(PART).toSorted());
 });

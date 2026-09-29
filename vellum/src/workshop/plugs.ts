@@ -6,7 +6,8 @@ import type { CoreEvent, Events, Heard } from "./rows.ts";
  * What a slice's `contract.ts` declares, and what its halves are typed by: its id, the tools, the
  * engine events, the routes and the tools denied of its hooks half, each route of its server half
  * with what it takes and what it answers, the workflow events it owns and those it hears, what
- * opens it and what its part of a Send carries, and the page slots its page half fills. A contract
+ * opens it and what its part of a Send carries, whether it proposes the documents the plan links,
+ * and the page slots its page half fills. A contract
  * writes it once, as `defineSlice({...})`, and takes its plugs by `PlugsOf<typeof SLICE>`: what it
  * leaves out it does not declare. The hooks module and the page read the plugs as types; the
  * declaration itself, a value, is the server's and the tests'.
@@ -40,13 +41,14 @@ export type Plugs = {
   /** The folder's name: its routes are mounted under `/api/x/<id>/`. */
   readonly id: string;
   /**
-   * The tools the hooks half registers, the engine events it listens to, the routes it posts, and
-   * the engine's tools it denies while the mode is live (`never` for none).
+   * The tools the hooks half registers, the engine events it listens to, the routes it posts and
+   * those it reads, and the engine's tools it denies while the mode is live (`never` for none).
    */
   readonly hooks: {
     readonly tools: string;
     readonly listens: Listen;
     readonly posts: PostRoute;
+    readonly gets: GetRoute;
     readonly denies: string;
   };
   readonly server: Routes;
@@ -57,11 +59,16 @@ export type Plugs = {
   readonly opened: Json;
   /** What its part of the bar's Send carries to its reaction to `send`; `never` when it has none. */
   readonly sends: Json;
+  /** Whether its server half proposes the documents the plan links. */
+  readonly linkedDocs: boolean;
   readonly page: PageSlot;
 };
 
 /** The routes of `S` that take a body. */
 export type PostOf<S> = Extract<keyof S, PostRoute>;
+
+/** The routes of `S` that take none. */
+export type GetOf<S> = Extract<keyof S, GetRoute>;
 
 /** The body `S` declares for `Route`; `never` for a route `S` does not declare. */
 export type BodyOf<S, Route> = Route extends keyof S
@@ -149,7 +156,7 @@ export type HeardDecl<Carries extends readonly string[]> = {
 /** An event of the core's, heard by name: the core declares no fields. */
 export type HeardFromCore = { readonly from: "core" };
 
-/** `heard<StepEvents["answerProposal"]>()`: another slice's event, typed by its contract. */
+/** `heard<ProposalEvents["answerProposal"]>()`: another slice's event, typed by its contract. */
 export function heard<E extends { readonly carries: readonly string[] }>(): HeardDecl<
   E["carries"]
 > {
@@ -184,6 +191,8 @@ export type SliceDecl = {
     readonly listens?: readonly Listen[];
     /** The routes of its own server half its hooks half posts. */
     readonly posts?: readonly PostRoute[];
+    /** The routes of its own server half its hooks half reads. */
+    readonly gets?: readonly GetRoute[];
     /** The engine's tools its hooks half denies while the mode is live. */
     readonly denies?: readonly string[];
   };
@@ -194,6 +203,8 @@ export type SliceDecl = {
   readonly opened?: Payload<Json>;
   /** What its part of the bar's Send carries to its reaction to `send`. */
   readonly sends?: Payload<Json>;
+  /** Its server half proposes the documents the plan links, which the server keeps when they exist. */
+  readonly linkedDocs?: true;
   /** The page slots its page half fills. */
   readonly page?: readonly PageSlot[];
 };
@@ -244,6 +255,7 @@ export type PlugsOf<D extends SliceDecl> = {
     readonly tools: ListedIn<HooksOf<D>, "tools">;
     readonly listens: ListedIn<HooksOf<D>, "listens">;
     readonly posts: ListedIn<HooksOf<D>, "posts">;
+    readonly gets: ListedIn<HooksOf<D>, "gets">;
     readonly denies: ListedIn<HooksOf<D>, "denies">;
   };
   readonly server: RoutesOf<D>;
@@ -251,5 +263,6 @@ export type PlugsOf<D extends SliceDecl> = {
   readonly hears: HeardOf<D>;
   readonly opened: PayloadOf<D, "opened">;
   readonly sends: PayloadOf<D, "sends">;
+  readonly linkedDocs: D extends { readonly linkedDocs: true } ? true : false;
   readonly page: ListedIn<D, "page">;
 };

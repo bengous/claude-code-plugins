@@ -3,6 +3,8 @@ import type { HttpResponse, PromptOrigin, ToolSpec, TurnCompleteReason } from "c
 import type {
   AnswerOf,
   BodyOf,
+  GetOf,
+  GetRoute,
   Json,
   Parser,
   Plugs,
@@ -124,9 +126,12 @@ export type Posted<A> =
       readonly reason: string | null;
     };
 
-/** One parser per route the hooks half posts, reading the answer its plugs declare; `null` for a route that answers nothing (204). */
+/** One parser per route the hooks half posts or reads, reading the answer its plugs declare; `null` for a route that answers nothing (204). */
 export type Answers<P extends Plugs> = {
-  readonly [Route in P["hooks"]["posts"]]: AnswerOf<P["server"], Route> extends null
+  readonly [Route in P["hooks"]["posts"] | P["hooks"]["gets"]]: AnswerOf<
+    P["server"],
+    Route
+  > extends null
     ? null
     : Parser<AnswerOf<P["server"], Route>>;
 };
@@ -137,10 +142,16 @@ export type SlicePost<P extends Plugs> = <Route extends P["hooks"]["posts"]>(
   body: BodyOf<P["server"], Route>,
 ) => Promise<Posted<AnswerOf<P["server"], Route>>>;
 
+/** The same client reading a route its plugs let it read, answering the answer they declare. */
+export type SliceGet<P extends Plugs> = <Route extends P["hooks"]["gets"]>(
+  route: Route,
+) => Promise<Posted<AnswerOf<P["server"], Route>>>;
+
 export type HooksContext<P extends Plugs> = {
   readonly host: Host;
   readonly live: Live;
   readonly post: SlicePost<P>;
+  readonly get: SliceGet<P>;
   /**
    * What a call of the half's in this mode waited on and heard nothing back for, taken:
    * `undefined` once the wait ended. A listener reads it at the turn's end, as a turn cut short
@@ -192,8 +203,8 @@ export type HooksTool<C> = {
 
 /**
  * What a slice's `hooks.ts` fills: one tool per name its plugs declare, one listener per engine
- * event they declare, a parser per route they let it post, and nothing else. A route it posts
- * that the server does not declare is a property no half can fill.
+ * event they declare, a parser per route they let it post or read, and nothing else. A route it
+ * posts or reads that the server does not declare is a property no half can fill.
  */
 export type HooksHalf<P extends Plugs> = {
   readonly id: P["id"];
@@ -208,6 +219,10 @@ export type HooksHalf<P extends Plugs> = {
     readonly [
       Stray in Exclude<P["hooks"]["posts"], PostOf<P["server"]>>
     ]: Undeclared<`${Stray} is in hooks.posts of contract.ts, not in its routes: declare the route`>;
+  } & {
+    readonly [
+      Stray in Exclude<P["hooks"]["gets"], GetOf<P["server"]>>
+    ]: Undeclared<`${Stray} is in hooks.gets of contract.ts, not in its routes: declare the route`>;
   } & Denying<P>;
 
 /** The tools of `hooks.tools` in the slice's `contract.ts`, each registered as `mcp__vellum__<name>`: no other. */
@@ -230,6 +245,7 @@ export type ErasedContext = {
   readonly host: Host;
   readonly live: Live;
   readonly post: (route: PostRoute, body: Json) => Promise<Posted<never>>;
+  readonly get: (route: GetRoute) => Promise<Posted<never>>;
   readonly unanswered: () => string | undefined;
 };
 

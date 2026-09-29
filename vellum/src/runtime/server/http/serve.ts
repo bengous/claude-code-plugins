@@ -11,7 +11,7 @@ import type { ServerLine } from "../../protocol.ts";
 import { openInBrowser } from "../browser.ts";
 import { coreEvents } from "../events.ts";
 import { readPlan, readWorkspace, watchFiles } from "../fs.ts";
-import { Review } from "../review.ts";
+import { Queue } from "../queue.ts";
 import { serverExtensions } from "../slices.ts";
 import { PLUGIN_ROOT, readVellumBuild } from "../vellum-build.ts";
 import { createHandler } from "./routes.ts";
@@ -134,7 +134,7 @@ export async function startServer(options: ServeOptions): Promise<Started> {
     readVellumBuild(PLUGIN_ROOT),
   ]);
 
-  const review = new Review({
+  const queue = new Queue({
     project: options.project,
     workdir: options.workdir,
     extensions: serverExtensions,
@@ -148,7 +148,7 @@ export async function startServer(options: ServeOptions): Promise<Started> {
   let plan = await readPlan(options.project, options.workdir);
 
   const planWritten = async (): Promise<void> => {
-    await review.context.dispatch(
+    await queue.context.dispatch(
       "planWritten",
       (w) => Promise.resolve({ plan: w.planText }),
       "claude",
@@ -159,7 +159,7 @@ export async function startServer(options: ServeOptions): Promise<Started> {
     const now = await readPlan(options.project, options.workdir);
 
     if (now === plan) {
-      await review.inOrder(() => review.notify());
+      await queue.inOrder(() => queue.notify());
 
       return;
     }
@@ -182,7 +182,7 @@ export async function startServer(options: ServeOptions): Promise<Started> {
 
   let dir: WipDir | FinalDir = lives;
 
-  review.subscribe(({ workspace }) => {
+  queue.subscribe(({ workspace }) => {
     dir = workspace.dir;
 
     if (workspace.kind === "approved") unwatch();
@@ -193,11 +193,11 @@ export async function startServer(options: ServeOptions): Promise<Started> {
 
   const context = {
     project: options.project,
-    review,
-    events: coreEvents(review),
+    queue,
+    events: coreEvents(queue),
     frameScript,
     vellumBuild,
-    extensionRoutes: extensionRoutes(review.context),
+    extensionRoutes: extensionRoutes(queue.context),
     openBrowser: () => openInBrowser(url),
     heartbeat: () => {
       lastHeartbeat = Date.now();
@@ -239,7 +239,7 @@ export async function startServer(options: ServeOptions): Promise<Started> {
   const { server, token, handler } = bound;
   url = `http://127.0.0.1:${server.port}/t/${token}/`;
 
-  const channel = await review.openChannel();
+  const channel = await queue.openChannel();
 
   if (memory === undefined && plan !== null) await planWritten();
   const { announce } = options;
@@ -248,9 +248,9 @@ export async function startServer(options: ServeOptions): Promise<Started> {
   // lands as the server comes up is announced, and the first stage is read after them.
   if (announce !== undefined) {
     announce({ type: "ready", port: Number(server.url.port), token, pid: process.pid, channel });
-    review.subscribe((stage) => announce({ type: "stage", ...stage }));
-    review.onChannel((line) => announce({ type: "channel", line }));
-    await review.inOrder(() => review.notify());
+    queue.subscribe((stage) => announce({ type: "stage", ...stage }));
+    queue.onChannel((line) => announce({ type: "channel", line }));
+    await queue.inOrder(() => queue.notify());
   }
 
   const { graceMs, tabHoldMs, periodMs, expire } = options.watchdog ?? WATCHDOG;

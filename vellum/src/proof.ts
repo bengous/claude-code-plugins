@@ -10,6 +10,7 @@ import type {
   Region,
   Step,
   Table,
+  TablePart,
   Wording,
   Workflow,
 } from "./workshop/workflow.ts";
@@ -127,6 +128,15 @@ export function refusedNowWith(w: Workflow, event: string, input: EventInput): r
 export function stateWith(w: Workflow, event: string, input: EventInput): readonly Refused[] {
   return viewOf(whole(w), trying(event, input), WORDINGS).refused.filter(
     (refused) => refused.event === event,
+  );
+}
+
+/** The rows of `part` a caller meets, `"<event>: <id>"`: on a state, of an event Claude or the reviewer sends; what is refused now lists each where it applies. */
+export function rowsACallerMeets(part: TablePart): readonly string[] {
+  const sent = TABLE.events.filter(({ actors }) => actors.some((actor) => actor !== "engine"));
+
+  return part.rules.flatMap(({ event, id, refuses }) =>
+    refuses === "state" && sent.some((decl) => decl.id === event) ? [`${event}: ${id}`] : [],
   );
 }
 

@@ -9,41 +9,34 @@ paths:
 # Extensions
 
 An extension is a folder, `src/steps/<name>/` for a step Vellum follows or `src/formats/<name>/`
-for a format a document is read in, with one file per place where it plugs into the core: `page.tsx` declares a `PageExtension` (its renderers, its actions in the decision
-bar, its notices under the bar, its panel beside the document pane, placed by `panesOf`),
-`server.ts` a `ServerExtension` (its `linkedDocs`, its routes, its `workflow`, its part of a
-Send, what another extension may `start`). Both types live in `src/runtime/extension.ts`. Its part
-of the workflow is `workflow.ts`, pure: its region (`regionOf`), its events, rows, transitions
-and reaction to the others' events, its segment of the band, and its line in the workflow's
-view (`lineOf`, what `mcp__vellum__state` prints); what the proof of the table reads of its region
-is `walk.ts` beside it, which only the tests load (`slices.md`). The server half hands the part to
-the core with its region's read, and an engine half
-may import it as types only. A third half, `engine.ts`, declares an `EngineExtension`
-(`src/runtime/hooks/extension.ts`): tools, refusals, and the engine events the core hands it; its
-segment of the band is its region's, drawn by `workflow.ts` on the server, which sends it on the
-`stage` line.
+for a format a document is read in, and every one is a slice (`slices.md`): its `contract.ts`
+declares it, and a half per runtime it plugs into fills what the declaration says. `page.tsx`
+fills a `PageHalf` (its renderers, its actions in the decision bar, its notices under the bar,
+its panel beside the document pane, placed by `panesOf`), `server.ts` a `ServerHalf` (its
+routes, its part of the workflow, its part of a Send, what opens it, the documents it proposes
+from the plan's links), both typed in `src/runtime/extension.ts`, and `hooks.ts` a `HooksHalf`
+(`src/runtime/hooks/extension.ts`: tools, refusals, and the engine events the core hands it).
+Its part of the workflow is its model, pure and named after its folder: its region
+(`regionOf`), transitions and reactions, its segment of the band, drawn on the server and sent
+on the `stage` line, and its line in the workflow's view (`lineOf`, what `mcp__vellum__state`
+prints); what the proof of the table reads of its region is `walk.ts` beside it, which only the
+tests load. A hooks half may import the model as types only.
 
-- A folder holding `contract.ts` is a slice, read through that file: its messages live there, not
-  in a `protocol.ts`, its hooks half is `hooks.ts` with `hooks.test.ts`, its part of the workflow
-  its model, named after it, and its halves are typed by its declaration. `slices.md` says what
-  differs; a new extension is a slice.
-- Read the code before this text, smallest first: `formats/image/page.tsx` is a whole extension,
-  `formats/markdown/server.ts` a server half, `formats/html/pick.ts` with `pick.spec.ts` a helper and its
-  test. They compile and they are tested, so they cannot drift; copy their shape.
-- To add one: the folder, its halves, and one line per registry (`slices.ts` of `src/runtime/page/`,
-  `src/runtime/server/`, `src/runtime/hooks/`). A half is `export const <name>: PageExtension = { id: "<id>", … }`
-  (or `ServerExtension`), every half of the folder carrying one id no other folder declares. The
-  folder takes the glossary's word; the id is on the wire, in `.review/` file names and in
-  journals, and does not follow it (`steps/agent-review/` is `review`). Nothing else in
-  `src/runtime/` or `src/workshop/` changes; when something must, the core lacks a place to plug into, and that is the change
-  to propose first.
+- Read the code before this text, smallest first: `formats/image/` is a whole slice, a
+  `contract.ts` and a `page.tsx`; `formats/markdown/server.ts` a server half; `formats/html/pick.ts`
+  with `pick.spec.ts` a helper and its test. They compile and they are tested, so they cannot
+  drift; copy their shape.
+- To add one: `slices.md`, in its order. Nothing else in `src/runtime/` or `src/workshop/`
+  changes; when something must, the core lacks a place to plug into, and that is the change to
+  propose first.
 - An extension imports `src/workshop/`, `src/runtime/` and its own folder, never another part's.
   From a runtime's folder it imports, for a half it fills, the files `SURFACES` lists in
   `src/boundaries.spec.ts` (`PAGE_SURFACE` of `src/runtime/page/`, `slice.ts` of
-  `src/runtime/server/`, types of `src/runtime/hooks/`): one more is a decision to take, not a
+  `src/runtime/server/`, types of `src/runtime/hooks/`, the last two from `server.ts` and
+  `hooks.ts` alone, never from the page half or the model): one more is a decision to take, not a
   convenience.
 - A server half's routes are mounted at `/api/x/<id>/<name>`, behind the token, and do their IO
-  through the `ServerContext` that `Review` binds: an extension never imports the server's IO. A
+  through the `ServerContext` that `Queue` binds: an extension never imports the server's IO. A
   route that changes the workflow dispatches its event (`ServerContext.dispatch`), in the
   review's one queue, and writes nothing itself: its transitions' effects are the writes, and a
   refusal is the reason of the row that refused it. It keeps no queue of its own; what it reads
@@ -55,7 +48,7 @@ segment of the band is its region's, drawn by `workflow.ts` on the server, which
   tells of, and the core relays each entry once. It tells what its write added, never the file's
   last voice: `grill` tells the transcript's entries past those the file held before the write
   (`relaysOf`, then `told` in `grill/grill.ts`), so the reply End grill writes and the end both
-  go, and a block written into the file by hand is not told. `step`'s answer to its one proposal
+  go, and a block written into the file by hand is not told. `proposal`'s answer to its one proposal
   carries, in its one entry, what the grill it opened tells (`start`).
 - What the reviewer sends leaves with the core's one Send, never a route of the extension's.
   `part` answers, writing nothing, what the bar's Send takes of the extension, never a Send now:
@@ -69,7 +62,7 @@ segment of the band is its region's, drawn by `workflow.ts` on the server, which
   hands it the answer (`returnToCall`, read with `ServerContext.returned`), and `POST wait` is
   held by `ServerContext.hold`, `WAIT_HOLD_MS` under the engine's 30 s cut, read again after
   every step; it answers the entry number and the text the tool returns, an end, or still open.
-  `step` keeps its proposal, the last one answered and the last one dropped, and why (replaced,
+  `proposal` keeps its proposal, the last one answered and the last one dropped, and why (replaced,
   approved, written), in `.review/step.json`: a restarted server shows the proposal again,
   paused, since no call survives it, and a pick then reaches Claude as a prompt; the call's wait
   posted again opens it again, once (`wait`: a repost while it waits is a keepalive). A turn cut
@@ -79,8 +72,8 @@ segment of the band is its region's, drawn by `workflow.ts` on the server, which
   entry reaches Claude through the channel. A round whose asking turn was cut reads paused, its
   `_(turn aborted)_` written at the round's end whoever started the turn (E6, `appendAnswer`), so
   a module that lost its `asked` mark still leaves no round reading as a call that waits.
-- An extension owns its messages: `<folder>/protocol.ts` types what crosses its routes, and
-  `<folder>/parse.ts` is its boundary parser. `src/runtime/protocol.ts` learns nothing of them.
+- An extension owns its messages: its `contract.ts` types what crosses its routes, and its
+  `parse.ts` is its boundary parser. `src/runtime/protocol.ts` learns nothing of them.
   A route's reply has its own name there, which both ends import (`GrillState`, `Block` in
   `grill/contract.ts`): the server half types what it hands to `Response.json`, which takes
   anything (`stateOf` and `blocksOf` in `grill/server.ts`), and the page half casts to that
@@ -92,10 +85,11 @@ segment of the band is its region's, drawn by `workflow.ts` on the server, which
   type or `null`, and builds its result field by field, so nothing unnamed rides along;
   `html/parse.ts` with `parse.spec.ts` is the smallest to copy, lint-disable block included. A
   cast with its `SAFETY:` is kept for a reply of the extension's own server half.
-- An engine half loads its own folder and nothing else: the hooks module must never pull the
+- A hooks half loads its own folder and nothing else: the hooks module must never pull the
   server or the page in. It reaches `runtime/hooks/` as types, talks to its server half through
-  `context.api`, and parses what comes back in its `parse.ts`. Its kit tests are
-  `<folder>/engine.test.ts`, its fake routes `<folder>/fixtures/`: the core's world serves none.
+  `context.post` and `context.get`, and reads what comes back with the parsers of its `parse.ts`.
+  Its kit tests are `<folder>/hooks.test.ts`, its fake routes `<folder>/fixtures/`: the core's
+  world serves none.
 - A file whose structure is read off its lines never takes a text as it comes: `grill`'s
   transcript quotes Claude's text (`quoted` in `transcript.ts`), or a heading typed in an answer
   speaks for the reviewer, opens a round or closes the grill, and a `_(turn aborted)_` line stops
@@ -112,7 +106,7 @@ segment of the band is its region's, drawn by `workflow.ts` on the server, which
   `\n` alone.
 - An extension with states, rounds or a lifecycle starts with a table, before any code: the
   states, the events, and one owner per fact. The server owns what is allowed and says it
-  through the rows of `workflow.ts`, one table the core assembles; the module owns whether a server and a lock exist; a file owns its content,
+  through the rows of its `contract.ts`, one table the core assembles; the module owns whether a server and a lock exist; a file owns its content,
   and what is read off it: a grill's phase is the server's reading of the transcript (`phaseOf`),
   handed to the page in `GET state`, never derived again from the blocks.
   A fact with two owners drifts at the first reload.

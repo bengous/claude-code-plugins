@@ -339,17 +339,53 @@ type Sending<P extends Plugs> = [P["sends"]] extends [never]
       ) => Promise<SendPart<P["sends"]>>;
     };
 
+/** A parser and a handler per route, when its plugs declare routes. */
+type Routing<P extends Plugs> = [keyof P["server"]] extends [never]
+  ? {
+      readonly bodies?: Undeclared<
+        "bodies is not declared in contract.ts: declare the slice's routes",
+        Bodies<P["server"]>
+      >;
+      readonly routes?: Undeclared<
+        "routes is not declared in contract.ts: declare the slice's routes",
+        ContractRoutes<P>
+      >;
+    }
+  : { readonly bodies: Bodies<P["server"]>; readonly routes: ContractRoutes<P> };
+
+/** Its part of the workflow, when its plugs declare events it owns or hears. */
+type Working<P extends Plugs> = [keyof P["events"] | keyof P["hears"]] extends [never]
+  ? {
+      readonly workflow?: Undeclared<
+        "workflow is not declared in contract.ts: declare the events the slice owns or hears",
+        SliceWorkflow<P["events"], P["hears"]>
+      >;
+    }
+  : { readonly workflow: SliceWorkflow<P["events"], P["hears"]> };
+
+/** What the server keeps of the plan's links: the documents a slice proposes from them. */
+export type LinkedDocs = NonNullable<ServerExtension["linkedDocs"]>;
+
+/** The documents it proposes from the plan's links, when its plugs say it does. */
+type Linking<P extends Plugs> = P["linkedDocs"] extends true
+  ? { readonly linkedDocs: LinkedDocs }
+  : {
+      readonly linkedDocs?: Undeclared<
+        "linkedDocs is not declared in contract.ts: declare linkedDocs: true",
+        LinkedDocs
+      >;
+    };
+
 /**
  * What a slice's `server.ts` fills: a parser and a handler per route its plugs declare, its part
- * of the workflow, what opens it and its part of the Send when its plugs say so.
+ * of the workflow when it owns or hears events, what opens it, its part of the Send and the
+ * documents it proposes from the plan's links when its plugs say so.
  */
-export type ServerHalf<P extends Plugs> = {
-  readonly id: P["id"];
-  readonly bodies: Bodies<P["server"]>;
-  readonly routes: ContractRoutes<P>;
-  readonly workflow: SliceWorkflow<P["events"], P["hears"]>;
-} & Opening<P> &
-  Sending<P>;
+export type ServerHalf<P extends Plugs> = { readonly id: P["id"] } & Routing<P> &
+  Working<P> &
+  Opening<P> &
+  Sending<P> &
+  Linking<P>;
 
 /** A `SliceContext` with its plugs forgotten, as `serverExtension` builds it. */
 export type ErasedSliceContext = Omit<ServerContext, "dispatch"> & {

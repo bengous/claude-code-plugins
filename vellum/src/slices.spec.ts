@@ -40,17 +40,13 @@ function isFound(value: unknown): value is Found {
   return typeof value === "object" && value !== null;
 }
 
-/** Every part's folder, as `<group>/<name>` under `src/`. */
+/** Every part's folder, as `<group>/<name>` under `src/`: each one a slice. */
 function folders(): readonly string[] {
   return PART_GROUPS.flatMap((group) =>
     readdirSync(join(SRC, group), { withFileTypes: true })
       .filter((entry) => entry.isDirectory())
       .map(({ name }) => `${group}/${name}`),
   );
-}
-
-function slices(): readonly string[] {
-  return folders().filter((folder) => existsSync(join(SRC, folder, "contract.ts")));
 }
 
 async function exported(folder: string, file: string, name: string): Promise<Found | null> {
@@ -108,32 +104,11 @@ function differing(
   ];
 }
 
-/**
- * The id under which `folder`'s half is found among `ids`, a registry's: a slice's `contract.ts`
- * declares it, and an extension's half carries it on the one export that has an id.
- */
-async function idOf(
-  folder: string,
-  files: readonly string[],
-  ids: readonly string[],
-): Promise<string | undefined> {
-  if (existsSync(join(SRC, folder, "contract.ts"))) {
-    const { id } = await declarationOf(folder);
+/** The id under which `folder`'s half is found among `ids`, a registry's: the one its `contract.ts` declares. */
+async function idOf(folder: string, ids: readonly string[]): Promise<string | undefined> {
+  const { id } = await declarationOf(folder);
 
-    return ids.find((one) => one === id);
-  }
-
-  const modules: readonly Found[] = await Promise.all(
-    files.flatMap((file) =>
-      existsSync(join(SRC, folder, file)) ? [import(join(SRC, folder, file))] : [],
-    ),
-  );
-
-  return ids.find((id) =>
-    modules.some((module) =>
-      Object.values(module).some((value) => isFound(value) && value.id === id),
-    ),
-  );
+  return ids.find((one) => one === id);
 }
 
 function routesOf(declared: SliceDecl): readonly string[] {
@@ -160,7 +135,10 @@ async function hooksBroken(folder: string, declared: SliceDecl): Promise<readonl
   return [
     ...differing(file, "tool", keysIn(half, "tools"), hooks.tools ?? []),
     ...differing(file, "listener", present(half, LISTENS), hooks.listens ?? []),
-    ...differing(file, "answer parser of", keysIn(half, "answers"), hooks.posts ?? []),
+    ...differing(file, "answer parser of", keysIn(half, "answers"), [
+      ...(hooks.posts ?? []),
+      ...(hooks.gets ?? []),
+    ]),
     ...differing(file, "refusal of", keysIn(half, "refuses"), hooks.denies ?? []),
   ];
 }
@@ -169,15 +147,24 @@ async function serverBroken(folder: string, declared: SliceDecl): Promise<readon
   const file = `src/${folder}/server.ts`;
   const half = await exported(folder, "server.ts", "server");
 
+  const working = declared.events !== undefined || declared.hears !== undefined;
+
   if (half === null) {
-    return routesOf(declared).length === 0 && declared.events === undefined
+    return routesOf(declared).length === 0 && !working && declared.linkedDocs === undefined
       ? []
-      : [`${file} is missing: contract.ts declares routes or events`];
+      : [`${file} is missing: contract.ts declares routes, events or linkedDocs`];
   }
 
   return [
     ...differing(file, "route", keysIn(half, "routes"), routesOf(declared)),
     ...differing(file, "parser of", keysIn(half, "bodies"), readingOf(declared)),
+    ...differing(file, "workflow", present(half, ["workflow"]), working ? ["workflow"] : []),
+    ...differing(
+      file,
+      "reader of the plan's links,",
+      present(half, ["linkedDocs"]),
+      declared.linkedDocs === undefined ? [] : ["linkedDocs"],
+    ),
     ...differing(
       file,
       "opening",
@@ -215,7 +202,7 @@ describe("a slice's halves hold to its declaration", () => {
     ];
 
     const broken = await Promise.all(
-      slices().map(async (folder) => {
+      folders().map(async (folder) => {
         const { id } = await declarationOf(folder);
 
         const carried = await Promise.all(
@@ -236,7 +223,7 @@ describe("a slice's halves hold to its declaration", () => {
 
   test("each half has what the declaration declares, and nothing else", async () => {
     const broken = await Promise.all(
-      slices().map(async (folder) => {
+      folders().map(async (folder) => {
         const declared = await declarationOf(folder);
 
         return [
@@ -257,7 +244,7 @@ describe("the three registries", () => {
     const halves = [
       {
         registry: "hooks/slices.ts",
-        files: ["engine.ts", "hooks.ts"],
+        files: ["hooks.ts"],
         ids: engineExtensions.map(({ id }) => id),
       },
       {
@@ -273,7 +260,7 @@ describe("the three registries", () => {
         const holding = await Promise.all(
           folders()
             .filter((folder) => files.some((file) => existsSync(join(SRC, folder, file))))
-            .map(async (folder) => ({ folder, id: await idOf(folder, files, ids) })),
+            .map(async (folder) => ({ folder, id: await idOf(folder, ids) })),
         );
 
         return [

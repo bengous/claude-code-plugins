@@ -14,7 +14,7 @@ import type { WipDir } from "../../../workshop/paths.ts";
 import { parseWipDir } from "../../../workshop/paths.ts";
 import type { CoreEvents } from "../events.ts";
 import { coreEvents } from "../events.ts";
-import { Review } from "../review.ts";
+import { Queue } from "../queue.ts";
 import { serverExtensions } from "../slices.ts";
 import { createHandler, TOKEN_HEADER, UNREADABLE_DRAFT } from "./routes.ts";
 import { startServer } from "./serve.ts";
@@ -114,7 +114,7 @@ function wipDir(): WipDir {
 
 type Drafting = {
   readonly dir: string;
-  readonly review: Review;
+  readonly review: Queue;
   readonly events: CoreEvents;
   // oxlint-disable-next-line anti-slop/no-unknown-parameters -- an unparsed decision is the case under test: the route's parser is what grants the type.
   readonly decide: (decision: {
@@ -144,13 +144,13 @@ type Drafting = {
 function drafting(): Drafting {
   const dir = mkdtempSync(join(tmpdir(), "vellum-decision-"));
   mkdirSync(join(dir, WIP, ".review"), { recursive: true });
-  const review = new Review({ project: dir, workdir: wipDir(), extensions: serverExtensions });
+  const review = new Queue({ project: dir, workdir: wipDir(), extensions: serverExtensions });
   const events = coreEvents(review);
 
   const { handle } = createHandler({
     token: "t",
     project: dir,
-    review,
+    queue: review,
     events,
     frameScript: "",
     extensionRoutes: new Map(),
@@ -342,12 +342,12 @@ describe("routes", () => {
   });
 
   test("a build the server could not read answers 500 with its reason", async () => {
-    const review = new Review({ project: root, workdir: wipDir(), extensions: serverExtensions });
+    const review = new Queue({ project: root, workdir: wipDir(), extensions: serverExtensions });
 
     const { handle } = createHandler({
       token: "t",
       project: root,
-      review,
+      queue: review,
       events: coreEvents(review),
       frameScript: "",
       extensionRoutes: new Map(),
@@ -370,12 +370,12 @@ describe("routes", () => {
 
   test("open reaches the browser while no tab listens, the server's own listener aside", async () => {
     let opened = 0;
-    const review = new Review({ project: root, workdir: wipDir(), extensions: serverExtensions });
+    const review = new Queue({ project: root, workdir: wipDir(), extensions: serverExtensions });
 
     const { handle } = createHandler({
       token: "t",
       project: root,
-      review,
+      queue: review,
       events: coreEvents(review),
       frameScript: "",
       extensionRoutes: new Map(),

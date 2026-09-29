@@ -10,7 +10,7 @@ import type { Effect, EventInput, JournalLine } from "../../workshop/workflow.ts
 import { SAMPLE_AT } from "../../workshop/workflow.ts";
 import type { EffectPorts } from "./effects.ts";
 import { EffectFailed, interpret } from "./effects.ts";
-import { Review } from "./review.ts";
+import { Queue } from "./queue.ts";
 import { serverExtensions } from "./slices.ts";
 
 const WIP = "plans/2026-09-26/wip-4c2a9d93/";
@@ -139,7 +139,7 @@ describe("interpret", () => {
 /** A server's review on a fresh working directory, its channel open. */
 async function reviewing(
   plan: string | null = "# The plan\n",
-): Promise<{ readonly review: Review; readonly root: string }> {
+): Promise<{ readonly review: Queue; readonly root: string }> {
   const root = mkdtempSync(join(tmpdir(), "vellum-effects-"));
   mkdirSync(join(root, WIP, ".review"), { recursive: true });
 
@@ -148,7 +148,7 @@ async function reviewing(
 
   if (!workdir.ok) throw new Error(workdir.error);
 
-  const review = new Review({
+  const review = new Queue({
     project: root,
     workdir: workdir.value,
     extensions: serverExtensions,
@@ -164,7 +164,7 @@ async function reviewing(
  * memory: it is the workflow `next` answered.
  */
 async function roundTrip(
-  review: Review,
+  review: Queue,
   event: string,
   input: EventInput,
 ): Promise<readonly Effect["kind"][]> {

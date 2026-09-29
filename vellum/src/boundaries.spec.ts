@@ -40,20 +40,26 @@ const PAGE_SURFACE = [
   "state.ts",
 ];
 
-/** What a part imports of a runtime's folder, and the half it must fill to import it, frozen: one more is a decision to take. */
+/**
+ * What a part imports of a runtime's folder, frozen: one more is a decision to take. The half it
+ * must fill to import it, and whether that half's file alone may: the server's `slice.ts` is
+ * `server.ts`'s, never the page half's nor the model's, and the hooks module's types `hooks.ts`'s.
+ */
 type Surface = {
   readonly folder: string;
-  readonly halves: readonly string[];
+  readonly half: string;
+  readonly halfAlone: boolean;
   readonly files: readonly string[];
   readonly typesOnly: boolean;
 };
 
 const SURFACES: readonly Surface[] = [
-  { folder: "page", halves: ["page.tsx"], files: PAGE_SURFACE, typesOnly: false },
-  { folder: "server", halves: ["server.ts"], files: ["slice.ts"], typesOnly: false },
+  { folder: "page", half: "page.tsx", halfAlone: false, files: PAGE_SURFACE, typesOnly: false },
+  { folder: "server", half: "server.ts", halfAlone: true, files: ["slice.ts"], typesOnly: false },
   {
     folder: "hooks",
-    halves: ["hooks.ts", "engine.ts"],
+    half: "hooks.ts",
+    halfAlone: true,
     files: ["extension.ts", "mode.ts"],
     typesOnly: true,
   },
@@ -62,14 +68,8 @@ const SURFACES: readonly Surface[] = [
 /** A half's file, how it declares itself before `= { id: "<id>"` (`\w+` for any name), and the registry that names it. */
 type Half = { readonly file: string; readonly declared: string; readonly registry: string };
 
+/** A slice's halves, each typed by its plugs and named as its file is. */
 const HALVES: readonly Half[] = [
-  { file: "page.tsx", declared: "\\w+: PageExtension", registry: "page/slices.ts" },
-  { file: "server.ts", declared: "\\w+: ServerExtension", registry: "server/slices.ts" },
-  { file: "engine.ts", declared: "\\w+: EngineExtension", registry: "hooks/slices.ts" },
-];
-
-/** A slice's halves: a folder holding `contract.ts`, each half typed by its plugs and named as its file is. */
-const SLICE_HALVES: readonly Half[] = [
   { file: "page.tsx", declared: "page: PageHalf<\\w+Plugs>", registry: "page/slices.ts" },
   { file: "server.ts", declared: "server: ServerHalf<\\w+Plugs>", registry: "server/slices.ts" },
   { file: "hooks.ts", declared: "hooks: HooksHalf<\\w+Plugs>", registry: "hooks/slices.ts" },
@@ -82,18 +82,13 @@ const REGISTRIES = ["hooks/slices.ts", "page/slices.ts", "server/slices.ts"].map
 
 const CONTRACT = "contract.ts";
 
-/** Every folder of `steps/` and `formats/`, by its path. */
+/** Every folder of `steps/` and `formats/`, by its path: each one a slice, read through its `contract.ts`. */
 function parts(): string[] {
   return PART_GROUPS.flatMap((group) =>
     readdirSync(`${SRC}/${group}`, { withFileTypes: true })
       .filter((entry) => entry.isDirectory())
       .map(({ name }) => `${SRC}/${group}/${name}`),
   );
-}
-
-/** The parts read through their `contract.ts`. */
-function slices(): string[] {
-  return parts().filter((part) => existsSync(`${part}/${CONTRACT}`));
 }
 
 /** The part `file` lies in. */
@@ -266,19 +261,6 @@ describe("dependency direction", () => {
     expect(loadingTheRegistry).toEqual(["src/runtime/hooks/register.ts"]);
   });
 
-  test("an engine half runs on its own folder alone: the hooks module loads nothing of the server or the page", () => {
-    const stray = parts()
-      .map((part) => `${part}/engine.ts`)
-      .filter((file) => existsSync(file))
-      .flatMap((file) =>
-        valueImports(file)
-          .filter((path) => !/^\.\/[a-z-]+\.ts$/u.test(path))
-          .map((path) => `${short(file)} imports ${path}`),
-      );
-
-    expect(stray).toEqual([]);
-  });
-
   test("the page and its renderers never import the server side", () => {
     expect(offending("src/runtime/page", /^(node:|bun$)/u)).toEqual([]);
 
@@ -314,7 +296,7 @@ describe("the page without a browser", () => {
 
 describe("parts", () => {
   test("a part imports workshop/, runtime/ and its own folder, never another part", () => {
-    const contracts = slices().map((slice) => `${slice}/${CONTRACT}`);
+    const contracts = parts().map((slice) => `${slice}/${CONTRACT}`);
 
     const stray = relativeImportsOf(partSources())
       .filter(({ file, specifier, target }) => {
@@ -362,7 +344,7 @@ describe("parts", () => {
         slashed(relative(`${RUNTIME}/${surface.folder}`, target)),
       );
 
-      const fills = surface.halves.some((half) => existsSync(`${partOf(file)}/${half}`));
+      const fills = existsSync(`${partOf(file)}/${surface.half}`);
       const typed = !surface.typesOnly || !valueImports(file).includes(specifier);
 
       return listed && fills && typed ? [] : [`${short(file)} imports ${specifier}`];
@@ -371,49 +353,55 @@ describe("parts", () => {
     expect(beyond).toEqual([]);
   });
 
+  test("a part reaches runtime/server/ from its server.ts alone and runtime/hooks/ from its hooks.ts alone: never from its page half nor its model", () => {
+    const stray = relativeImportsOf(partSources()).flatMap(({ file, specifier, target }) => {
+      const surface = SURFACES.find(({ folder }) => target.startsWith(`${RUNTIME}/${folder}/`));
+
+      return surface?.halfAlone === true && !file.endsWith(`/${surface.half}`)
+        ? [`${short(file)} imports ${specifier}: only its ${surface.half} may`]
+        : [];
+    });
+
+    expect(stray).toEqual([]);
+  });
+
   test("every folder holds a half; each half carries the id its folder declares, and its registry names it", () => {
     const declaredIds = new Map<string, string[]>();
 
     const broken = parts().flatMap((part) => {
       const contract = `${part}/${CONTRACT}`;
-      const sliced = existsSync(contract);
-      const halves = sliced ? SLICE_HALVES : HALVES;
-      const present = halves.filter(({ file }) => existsSync(`${part}/${file}`));
 
-      if (present.length === 0) {
-        return [`${short(part)} holds no ${halves.map(({ file }) => file).join(", ")}`];
-      }
-
-      const carried = present.map(({ file, declared }) => {
-        const declaration = new RegExp(`export const ${declared} = \\{\\s*id: "([^"]+)"`, "u");
-
-        return declaration.exec(readFileSync(`${part}/${file}`, "utf8"))?.[1];
-      });
-
-      const id = sliced
+      const id = existsSync(contract)
         ? /export const SLICE = defineSlice\(\{\s*id: "([^"]+)"/u.exec(
             readFileSync(contract, "utf8"),
           )?.[1]
-        : carried.find((one) => one !== undefined);
+        : undefined;
 
-      if (sliced && id === undefined) {
+      if (id === undefined) {
         return [
           `${short(contract)} declares no \`export const SLICE = defineSlice({ id: "…", … })\``,
         ];
       }
 
-      if (id !== undefined) declaredIds.set(id, [...(declaredIds.get(id) ?? []), short(part)]);
+      const present = HALVES.filter(({ file }) => existsSync(`${part}/${file}`));
 
-      return present.flatMap(({ file, declared, registry }, at) => {
+      if (present.length === 0) {
+        return [`${short(part)} holds no ${HALVES.map(({ file }) => file).join(", ")}`];
+      }
+
+      declaredIds.set(id, [...(declaredIds.get(id) ?? []), short(part)]);
+
+      return present.flatMap(({ file, declared, registry }) => {
         const path = `${part}/${file}`;
-        const wanted = `export const ${declared.replaceAll("\\w+", "…")} = { id: "${id ?? "…"}", … }`;
+        const declaration = new RegExp(`export const ${declared} = \\{\\s*id: "([^"]+)"`, "u");
+        const wanted = `export const ${declared.replaceAll("\\w+", "…")} = { id: "${id}", … }`;
 
         const named = relativeImportsOf([`${RUNTIME}/${registry}`]).some(
           ({ target }) => target === path,
         );
 
         return [
-          ...(id !== undefined && carried[at] === id
+          ...(declaration.exec(readFileSync(path, "utf8"))?.[1] === id
             ? []
             : [`${short(path)} declares no \`${wanted}\``]),
           ...(named ? [] : [`${short(path)} is not named in src/runtime/${registry}`]),
@@ -428,6 +416,16 @@ describe("parts", () => {
     expect([...broken, ...shared]).toEqual([]);
   });
 
+  test("a part names no EngineExtension, ServerExtension or PageExtension: it fills its halves, and the adapters make the rest", () => {
+    const named = partSources().flatMap((file) =>
+      [...readFileSync(file, "utf8").matchAll(/\b(?:Engine|Server|Page)Extension\b/gu)].map(
+        ([name]) => `${short(file)} names ${name}`,
+      ),
+    );
+
+    expect(named).toEqual([]);
+  });
+
   test("a page half is page.tsx: no ui.tsx anywhere", () => {
     const named = readdirSync(SRC, { recursive: true, withFileTypes: true })
       .filter((entry) => entry.isFile() && entry.name === "ui.tsx")
@@ -439,11 +437,9 @@ describe("parts", () => {
 
 describe("slices", () => {
   test("another folder reads a slice through its contract.ts alone; a registry takes its halves", () => {
-    const halfOf = new Map(
-      SLICE_HALVES.map(({ file, registry }) => [`${RUNTIME}/${registry}`, file]),
-    );
+    const halfOf = new Map(HALVES.map(({ file, registry }) => [`${RUNTIME}/${registry}`, file]));
 
-    const stray = slices().flatMap((slice) =>
+    const stray = parts().flatMap((slice) =>
       [...relativeImports("src"), ...relativeImports("e2e")].flatMap(({ file, target }) => {
         const reaching = target.startsWith(`${slice}/`) && !file.startsWith(`${slice}/`);
         const read = [CONTRACT, halfOf.get(file)].includes(target.slice(slice.length + 1));
@@ -464,7 +460,7 @@ describe("slices", () => {
         .map((path) => ({ file, target: slashed(resolve(dirname(file), path)) })),
     );
 
-    const stray = slices().flatMap((slice) =>
+    const stray = parts().flatMap((slice) =>
       loaded
         .filter(
           ({ file, target }) => target === `${slice}/${CONTRACT}` && !file.startsWith(`${slice}/`),
@@ -476,7 +472,7 @@ describe("slices", () => {
   });
 
   test("a slice's hooks half loads its own folder alone, and its contract as types", () => {
-    const stray = slices()
+    const stray = parts()
       .filter((slice) => existsSync(`${slice}/hooks.ts`))
       .flatMap((slice) =>
         loadedBy(`${slice}/hooks.ts`)
@@ -508,7 +504,7 @@ describe("slices", () => {
   });
 
   test("a slice's page half reads its contract as types: the contract's values are the server's", () => {
-    const stray = slices()
+    const stray = parts()
       .filter((slice) => existsSync(`${slice}/page.tsx`))
       .flatMap((slice) =>
         loadedBy(`${slice}/page.tsx`)

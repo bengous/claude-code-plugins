@@ -3,7 +3,7 @@ import type { FinalDir } from "../../workshop/paths.ts";
 import type { Effect, JournalLine } from "../../workshop/workflow.ts";
 
 /**
- * What `interpret` writes through, bound by `Review` to the file system and to its memory. A file
+ * What `interpret` writes through, bound by `Queue` to the file system and to its memory. A file
  * is named under the plan's directory and resolved at the write: the approval moves it.
  */
 export type EffectPorts = {

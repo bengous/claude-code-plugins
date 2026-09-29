@@ -16,7 +16,7 @@ import type { Reactions } from "../../workshop/rows.ts";
 import { rows } from "../../workshop/rows.ts";
 import type { Outcome, Workflow } from "../../workshop/workflow.ts";
 import { unchanged } from "../../workshop/workflow.ts";
-import type { StepPlugs } from "../proposal/contract.ts";
+import type { ProposalPlugs } from "../proposal/contract.ts";
 import { hooks as stepHooks } from "../proposal/hooks.ts";
 import { server as stepServer } from "../proposal/server.ts";
 import type { GrillHears, GrillPlugs } from "./contract.ts";
@@ -61,7 +61,7 @@ function recording(sent: string[]): SliceContext<GrillPlugs>["dispatch"] {
 }
 
 /** A `start` that records the id it was asked to open. */
-function starting(opened: string[]): SliceContext<StepPlugs>["start"] {
+function starting(opened: string[]): SliceContext<ProposalPlugs>["start"] {
   return (id) => {
     opened.push(id);
 
@@ -172,7 +172,7 @@ describe("the hooks half denies what its plugs deny, and no other", () => {
 
   test("a hooks half whose plugs deny nothing takes no refusal", () => {
     // @ts-expect-error -- the step's plugs deny nothing.
-    const half: HooksHalf<StepPlugs> = { ...stepHooks, refuses: { Bash: "no shell" } };
+    const half: HooksHalf<ProposalPlugs> = { ...stepHooks, refuses: { Bash: "no shell" } };
 
     expect(engineExtension(half).refuses).toEqual({ Bash: "no shell" });
   });
@@ -189,7 +189,7 @@ describe("what opens the grill is typed by its plugs, and the opener names them"
 
   test("a step server half with a start does not compile: nothing opens the step", () => {
     // @ts-expect-error -- the step's plugs open it with nothing.
-    const half: ServerHalf<StepPlugs> = { ...stepServer, start: server.start };
+    const half: ServerHalf<ProposalPlugs> = { ...stepServer, start: server.start };
 
     expect(half.start).toBeDefined();
   });
