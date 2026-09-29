@@ -92,8 +92,8 @@ loop. `/vellum:start` enters it, Approve in the page or `/vellum:stop` leaves it
   permission mode, and under the project and outside the working directory are denied with the
   reason the model reads. A path outside the project is no change to the codebase, so it
   follows the session's own permission flow, the lock deciding nothing there: the scratchpad
-  passes without a prompt, and what a home or system file meets under the default auto mode of
-  Claude Code 2.1.284 is not measured. Every other tool passes on, but for one downgrade:
+  passes without a prompt, and what a home or system file meets since the engine's default
+  became auto mode is not measured. Every other tool passes on, but for one downgrade:
   `checkVerdict` turns an engine `allow` that carries a settings `rule` on a shell tool
   (`Bash`, `PowerShell`, `Monitor`, the set `SHELLS`) into `ask`; an allow the mode gives on
   its own, with no rule, stands.
