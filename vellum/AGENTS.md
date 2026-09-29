@@ -7,22 +7,29 @@ Function hooks, early access: `CLAUDE_CODE_ENABLE_FUNCTION_HOOKS=1`.
 
 ## Shape
 
-Four kinds of folder, one pattern:
+Four kinds of folder, each with its own job. Only the parts share a form:
 
+- the parts, `src/steps/` and `src/formats/`, a folder each: a step Vellum follows, a format a
+  document is read in. Every one is a slice, read the same way: a `contract.ts` that declares it
+  (`defineSlice`) and a half per runtime it plugs into (`hooks.ts`, `server.ts`, `page.tsx`); one
+  with a part of the workflow adds its pure model, named after the folder, and its `walk.ts`, one
+  that parses what it did not produce its `parse.ts`; its helpers and their specs sit beside.
+  `formats/image/` is the smallest, a contract and a page half. A part reads the review through
+  `review/contract.ts` as types and takes a value of it from its frozen surface; the folder
+  takes the glossary's word (`CONTEXT.md`);
+- the review, `src/review/`, the frame the parts plug into, which does what no part does: it
+  owns the state every part reads (the draft, the Send and its batches, the versions, the
+  approval), assembles each part's share of a Send, and hands the formats their composer and
+  selection. It keeps a slice's files but is no slice: the runtimes reach it by name, its part
+  first in the table, never through a registry. It stays one frame, never a slice per feature
+  (gate, Send, approval): those share one state machine and one directory layout, and the first
+  review's bugs were exactly cross-feature state;
+- the runtimes, `src/runtime/`: the hooks module in Claude Code, the server, the page. Each owns
+  a process and its IO, runs the review by name and the parts through its registry alone, and
+  turns each part's half into its own representation of it (`*Extension`);
 - a pure machine, `src/workshop/`: the workflow judged against a table of rows (`next`), the
-  view a reader takes of it, and the machinery every table part is built with; it names no
-  event of anybody's and imports nothing outside itself;
-- the review, `src/review/`, the frame the parts plug into: the draft, the Send, the versions
-  and the approval, with their rows, their routes, their tool and their page. It keeps a
-  slice's files (`contract.ts`, its halves, `parse.ts`, specs beside) but is no slice: the
-  runtimes reach it by name, first in the table, never through a registry. It stays one frame,
-  never a slice per feature (gate, Send, approval): those share one state machine and one
-  directory layout, and the first review's bugs were exactly cross-feature state;
-- the runtimes, `src/runtime/`: the hooks module in Claude Code, the server, the page, each
-  reaching the review by name and the parts through its registry alone;
-- the parts, `src/steps/` and `src/formats/`, a folder each, all of one form: a slice whose
-  `contract.ts` declares it and whose halves plug into the runtimes. A part reads the review
-  through `review/contract.ts` as types and takes a value of it from its frozen surface.
+  view a reader takes of it, and the machinery the review and the parts are built with; it
+  names no event of anybody's and imports nothing outside itself.
 
 ```
 hooks/hooks.json            Claude Code's folder: it names the hooks module, nothing else lives there
@@ -49,16 +56,13 @@ src/proof.ts                the proof of the table, the tests' alone: each part'
 scripts/contract-diff.ts    what a reviewer reads of a range before its code, as Markdown for the PR
 ```
 
-A part is a folder of `steps/` or `formats/`, a file per runtime it plugs into (`page.tsx`,
-`server.ts`, `hooks.ts`), and every one is a slice: its `contract.ts` declares its id, while the
-folder takes the glossary's word (`CONTEXT.md`).
-
 Dependencies point toward `src/workshop/`, which imports nothing outside itself, not even a
 type. The review imports the workshop and the runtimes, never a part. A part imports the
 workshop, what a runtime's folder offers the halves it fills, the review's contract and another
 slice's `contract.ts` as types, and the review's surface; a runtime reaches a part through its
-`slices.ts` alone, as `src/boundaries.spec.ts` holds. The rules of each zone load with its files, from `.claude/rules/`: `workshop.md`,
-`engine.md`, `server.md`, `page.md`, `extensions.md`, `slices.md`, `tests.md`.
+`slices.ts` alone, as `src/boundaries.spec.ts` holds. The rules of each zone load with its
+files, from `.claude/rules/`: `workshop.md`, `engine.md`, `server.md`, `page.md`,
+`extensions.md`, `slices.md`, `tests.md`.
 
 The tree is drawn here and nowhere else: a rule names the files of its own zone, every other
 text points at this section. A fact about Claude Code's engine goes to the relevant page linked from
