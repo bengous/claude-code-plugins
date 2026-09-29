@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 
@@ -305,6 +305,18 @@ describe("contractDiff", () => {
     expect(report).toContain("- asks once\n  → asks once, then waits (`src/steps/x/x.spec.ts`)");
     expect(report).toContain("- `src/steps/x/x.ts`: changed `ask`");
     expect(report).toContain("Not run.");
+  });
+
+  test("finds the plugin in a repository reached by another spelling of its path, a link or a short name", () => {
+    const { root, commit } = repository();
+    const base = commit({ "plug/src/steps/x/contract.ts": 'export const SLICE = { id: "x" };\n' });
+    const head = commit({ "plug/src/steps/x/contract.ts": 'export const SLICE = { id: "y" };\n' });
+    const alias = join(mkdtempSync(join(tmpdir(), "contract-diff-alias-")), "repo");
+    symlinkSync(root, alias);
+
+    const report = contractDiff(`${base}..${head}`, join(alias, "plug"), false);
+
+    expect(report).toContain('+export const SLICE = { id: "y" };');
   });
 
   test("runs the boundary and walk suites at the range's head, not on the tree checked out", () => {

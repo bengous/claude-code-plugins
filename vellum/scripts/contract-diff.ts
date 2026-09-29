@@ -945,7 +945,7 @@ function section(title: string, body: readonly string[], none: string): string[]
 export function contractDiff(range: string, pluginRoot: string, suites = true): string {
   const [base = "", head = "HEAD"] = range.includes("..") ? range.split("..") : [range];
   const top = git(pluginRoot, ["rev-parse", "--show-toplevel"]).trim();
-  const plugin = relative(top, pluginRoot).replaceAll("\\", "/") || ".";
+  const plugin = git(pluginRoot, ["rev-parse", "--show-prefix"]).trim().replace(/\/$/u, "") || ".";
   const changes = changesIn(top, base, head, plugin);
   const inPlugin = (path: string): string => relative(plugin, path).replaceAll("\\", "/");
 
