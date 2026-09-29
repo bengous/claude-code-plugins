@@ -1,8 +1,8 @@
 import type { Json, Parser, Plugs } from "../../workshop/plugs.ts";
 import type { Events } from "../../workshop/rows.ts";
 import { tablePart } from "../../workshop/rows.ts";
-import type { Actor, RefusalStatus, TablePart } from "../../workshop/workflow.ts";
-import { HELD } from "../../workshop/workflow.ts";
+import type { Actor, TablePart } from "../../workshop/workflow.ts";
+import { statusOf } from "../../workshop/workflow.ts";
 import type {
   Dispatched,
   ErasedHandler,
@@ -54,9 +54,6 @@ export async function heldWait<W extends { readonly kind: string }>(
   };
 }
 
-/** What a refusal by a row the slice does not own answers: the core's, another slice's. */
-const FOREIGN: RefusalStatus = 409;
-
 /** The sender a route named, else the event's one sender. */
 function senderOf(declared: Events, event: string, by: Actor | undefined): Actor {
   const senders = declared[event]?.by;
@@ -69,19 +66,6 @@ function senderOf(declared: Events, event: string, by: Actor | undefined): Actor
   }
 
   return sender;
-}
-
-/** The status of the row `rule` of `event`, as the slice's own part declares it; with none, the rule is another's. */
-function statusOf(part: TablePart | null, event: string, rule: string): RefusalStatus {
-  if (part === null) return FOREIGN;
-
-  if (rule === HELD) {
-    const held = part.events.find(({ id }) => id === event)?.whileHeld;
-
-    return held?.effect === "allow" ? FOREIGN : (held?.status ?? FOREIGN);
-  }
-
-  return part.rules.find((row) => row.event === event && row.id === rule)?.status ?? FOREIGN;
 }
 
 function verdictOf(part: TablePart | null, event: string, { verdict }: Dispatched): SliceVerdict {

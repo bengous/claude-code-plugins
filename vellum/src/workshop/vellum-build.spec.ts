@@ -2,7 +2,8 @@
 import { describe, expect, test } from "bun:test";
 
 import type { ParseResult } from "./paths.ts";
-import { vellumBuildOf } from "./vellum-build.ts";
+import type { VellumBuild } from "./vellum-build.ts";
+import { sameBuild, vellumBuildOf } from "./vellum-build.ts";
 
 const ROOT = "/opt/plugins/cache/market/vellum/0.13.0";
 
@@ -65,5 +66,15 @@ describe("vellumBuildOf", () => {
     for (const head of [HEAD.slice(1), HEAD.toUpperCase()]) {
       expect(vellumBuildOf({ ...SOURCES, head: ok(head) }).ok).toBe(false);
     }
+  });
+});
+
+describe("sameBuild", () => {
+  const BUILD = { version: "0.13.0", commit: INSTALLED } as VellumBuild;
+
+  test("one version and one commit are one build; either changed is another", () => {
+    expect(sameBuild(BUILD, { ...BUILD })).toBe(true);
+    expect(sameBuild(BUILD, { ...BUILD, version: "0.14.0" } as VellumBuild)).toBe(false);
+    expect(sameBuild(BUILD, { ...BUILD, commit: HEAD } as VellumBuild)).toBe(false);
   });
 });

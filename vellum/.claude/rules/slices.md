@@ -42,14 +42,10 @@ both owners, so a slice names its events after itself (`askQuestion`, `answerPro
 bare verb another part may take (`wait`, `pause` are the proposal's already).
 
 - `contract.ts` holds the wire, the types crossing `/api/x/<id>/`, and one declaration,
-  `export const SLICE = defineSlice({...})` (`workshop/plugs.ts`): the id, the events it owns with their
-  senders and the fields each carries, the events of the others it hears, the hooks half's tools,
-  listeners, routes it posts and reads, and denied tools, each route as `get<Answer>()`,
-  `getWith<Query, Answer>()` or `post<Body, Answer>()`, what opens it (`opened: payload<T>()`),
-  what its Send part carries (`sends`), whether it proposes the documents the plan links
-  (`linkedDocs: true`), its page slots. What it leaves out it does not declare, and its halves
-  fill nothing it leaves out: a format's server half takes no route and no workflow. Its plugs are
-  `PlugsOf<typeof SLICE>`, which every half is typed by; then `RULES`.
+  `export const SLICE = defineSlice({...})`, whose fields `SliceDecl` of `workshop/plugs.ts` names.
+  What it leaves out it does not declare, and its halves fill nothing it leaves out: a format's
+  server half takes no route and no workflow. Its plugs are `PlugsOf<typeof SLICE>`, which every
+  half is typed by; then `RULES`.
 - A slice's id, its events and its tools take the words of `vellum/CONTEXT.md`, the glossary: a
   word it lists under `_Avoid_` or gives another meaning is not a name. The folder takes the
   glossary's word for what the slice is; the id is the one `contract.ts` declares, which every
@@ -80,41 +76,31 @@ bare verb another part may take (`wait`, `pause` are the proposal's already).
 - An event's `by` lists its senders; with several, the route names one at `dispatch`.
 - A word every runtime of the slice reads (a tool's name, a marker of the wire) lives in
   `parse.ts`, which the three load: `contract.ts`'s values are the server's.
-- The halves are `export const hooks: HooksHalf<P>` in `hooks.ts`, `export const server:
-  ServerHalf<P>` in `server.ts`, `export const page: PageHalf<P>` in `page.tsx`. The compiler
-  refuses an undeclared tool, route or slot in the object literal; `slices.spec.ts` refuses it
-  wherever it comes from, reading each half against `SLICE`. A tool is registered under its key,
-  `mcp__vellum__<key>`. The registries call `engineExtension` and `serverExtension`, and take the
-  page half as it is.
-- A route answers `{ answer }`, `null` as 204, or `{ refused }`: the verdict `context.dispatch`
-  answered, which carries its row's status (409 for a row the slice does not own), or a refusal of
-  the route's own that no row judges (a 400 for a request the server's domain turns down after its
-  parser let it through). 400 and 404 go in plain text and 409 as `{ error }`; a body or a query
-  its parser (`BODIES` of `parse.ts`) refuses is a 400 before it runs. `context.dispatch` takes the
-  slice's own events, with what each carries, and sends each as its declared sender.
-  `context.start<ItsPlugs>(id, input)` opens another slice with what its contract says opens it.
-- The hooks half posts through `context.post(route, body)` and reads through `context.get(route)`,
-  each answering a `Posted`: the route's declared answer, read by its parser in the half's
-  `answers` (`null` for a route that answers nothing), or the status, the text and the refusal's
-  reason.
-- A tool that waits for the reviewer hands `context.waitFor` a `Hold`: the mark it waits on, the
-  route and body to post, how many attempts a failed post gets, and `settle`, what the call
-  returns once the wait ends (`null` while it is open); `awaits: "own"` holds its slice's text
-  entries for it. `answered` reads the mark back with `context.unanswered()` when the turn was cut
-  before the wait ended. The server half answers that wait with `heldWait` of
+- The halves are `hooks`, `server` and `page`, each typed by the plugs: the compiler refuses an
+  undeclared tool, route or slot in the object literal, and `slices.spec.ts` wherever it comes
+  from. A tool is registered under its key, `mcp__vellum__<key>`.
+- A route refuses with the verdict `context.dispatch` answered, which carries its row's status
+  (409 for a row the slice does not own), or with a refusal of its own that no row judges (a 400
+  for a request the server's domain turns down after its parser let it through). 400 and 404 go
+  in plain text and 409 as `{ error }`; a body or a query its parser (`BODIES` of `parse.ts`)
+  refuses is a 400 before it runs. `context.dispatch` takes the slice's own events, with what each
+  carries, and sends each as its declared sender. `context.start<ItsPlugs>(id, input)` opens
+  another slice with what its contract says opens it.
+- The hooks half posts through `context.post` and reads through `context.get`: what comes back is
+  read by the route's parser in the half's `answers`, never cast.
+- A tool that waits for the reviewer hands `context.waitFor` a `Hold`; `awaits: "own"` holds its
+  slice's text entries for it. `answered` reads the mark back with `context.unanswered()` when
+  the turn was cut before the wait ended. The server half answers that wait with `heldWait` of
   `runtime/server/slice.ts`, reading where it stands off its file with `waitedOn`, and its model
-  keeps the wait with `waitAfter` and `waitOn` of `workshop/waits.ts`, the id under the
-  region's `data.pending`.
-- The pure model is named after the folder: its region, one transition per event (`Transitions`),
-  the guards, `SAMPLES` per event (`Samples`), `REACTIONS` to the events it hears (`Reactions`), the
-  events that end a hold without a verdict (`EndsWithoutVerdict`), which the notice reads, its
-  segment and its line.
-- `walk.ts` beside it exports `WALK` (`WalkOf` of `runtime/extension.ts`), what the proof of the table
-  reads of the region: the empty region, what tells two regions apart, its bounds, the call a wait
-  is for and the event that answers it, the slice's own invariants. The tests alone load it:
-  `src/proof.ts` finds every `walk.ts` under `src/` by the part it names (`part`), and walks each part alone and each pair that meets
-  (one hears the other's event, both hold, or one holds while the other refuses under a hold); a
-  state that needs three parts at once is not walked. Every part with a workflow has one.
+  keeps the wait with `waitAfter` and `waitOn` of `workshop/waits.ts`, the id under the region's
+  `data.pending`.
+- The pure model is named after the folder; what it exports, `ServerHalf`'s `workflow` types.
+- `walk.ts` beside it exports `WALK` (`WalkOf` of `runtime/extension.ts`), what the proof of the
+  table reads of the region. The tests alone load it: `src/proof.ts` finds every `walk.ts` under
+  `src/` by the part it names (`part`), and walks each part alone and each pair that meets (one
+  hears the other's event, both hold, or one holds while the other refuses under a hold), the
+  review's part in every table; a state that needs three parts at once is not walked. Every part
+  with a workflow has one.
 - Tests: the model's `*.spec.ts` holds one test per row of `RULES`, keyed by `RowKey`, so a row
   without its test does not compile; the tag held both ways, a `naming` row shown absent from
   what is refused now, and each row a caller meets (on a state, of an event Claude or the

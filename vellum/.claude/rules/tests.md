@@ -79,12 +79,10 @@ paths:
   internal call.
 - The page's ports are the browser's globals it reads: `fetch`, `EventSource`, `location`,
   `window.matchMedia`. A suite puts a fake there for one test and takes it away after (`port` in
-  `runtime/page/state.spec.ts`); `api.ts` is never mocked. The store is module state, and one
-  `bun test` run keeps one module registry for all its suites: a suite that drives `state.ts`
-  imports it for each test under a query no import used before (`freshStore`, same file), so no
-  signal, and no saving effect `start` leaves behind, reaches another test or another suite. The
-  query is random, not counted: `--rerun-each` evaluates the suite again, its counter with it, and
-  the registry still holds the stores of the first pass.
+  `runtime/page/state.spec.ts`); `api.ts` is never mocked. The store is built by `createStore` of
+  `state.ts`, and a suite that drives it takes a new one for each test (`freshStore`, same file),
+  so no signal, and no saving effect `start` leaves behind, reaches another test or another suite;
+  the page runs the one the module builds.
 - The kit starts no subagent: a spawn that succeeds, with its `agentId`, is checked in a live
   session, and the kit covers the rest of a launch ([Hook tests](../../../docs/plugin-testing/hooks.md)).
   So a launch the server no longer takes, which stops the agent it started, is checked live too.
@@ -96,9 +94,8 @@ paths:
 - A rule only the type system holds is locked where it is tested: a
   `// @ts-expect-error -- <reason>` line in the suite beside it, on the code that must not
   compile. The typecheck gate reads the suites, and a directive with nothing under it fails
-  the gate, so the day the type loosens the suite says so. `grill/server.spec.ts` holds two:
-  the body of `close`, the reply to `open`. `runtime/page/kit.spec.ts` holds the kit's: a component
-  is a function, so a suite calls it with props and reads the vnode it returns, with no DOM.
+  the gate, so the day the type loosens the suite says so. A component is a function, so a suite
+  calls it with props and reads the vnode it returns, with no DOM (`runtime/page/kit.spec.ts`).
   A slice's `contract.spec.ts` holds what its plugs refuse (`slices.md`), and
   `src/slices.spec.ts` what the compiler cannot see: a half built through a variable. The
   directive sits on a line that also runs, so the test says what the refused code would do.

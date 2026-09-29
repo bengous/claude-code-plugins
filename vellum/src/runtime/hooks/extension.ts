@@ -79,6 +79,10 @@ export type AgentAnswered = {
   readonly reason: TurnCompleteReason;
 };
 
+/**
+ * The hooks module's own representation of a part, which no part writes: `hooks/slices.ts` makes
+ * it from the part's `HooksHalf` through `engineExtension`.
+ */
 export type EngineExtension = {
   readonly id: string;
   readonly tools?: readonly ExtensionTool[];

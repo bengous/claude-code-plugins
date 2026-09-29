@@ -120,7 +120,7 @@ export type ReviewPlugs = PlugsOf<typeof REVIEW_EVENTS>;
 
 export type ReviewEvents = ReviewPlugs["events"];
 
-// What is refused, read top to bottom per event: every refusal of the review's routes is a 409.
+// What is refused, read top to bottom per event, with the status its route answers.
 
 const STALE = "your edit is of a version no longer under review";
 

@@ -8,7 +8,7 @@ import type { ReviewServer } from "./server.ts";
 /**
  * The review's own routes, which `runtime/server/http/routes.ts` hands each request before its
  * own: the gate and Record, the approval, the Send, the draft. Each answers its status and its
- * JSON; `undefined` is a route of somebody else's.
+ * JSON, a refusal by a row the status that row declares; `undefined` is a route of somebody else's.
  */
 
 export type ReviewRoutes = {
@@ -38,7 +38,7 @@ export async function reviewRoute(
     if (!gated.ok) {
       const refused: GateAnswer = { error: gated.error };
 
-      return Response.json(refused, { status: 409 });
+      return Response.json(refused, { status: gated.status });
     }
 
     context.open();
@@ -54,7 +54,7 @@ export async function reviewRoute(
       ? { version: recorded.version }
       : { rule: recorded.rule, reason: recorded.error };
 
-    return Response.json(answer, { status: recorded.ok ? 200 : 409 });
+    return Response.json(answer, { status: recorded.ok ? 200 : recorded.status });
   }
 
   if (route === "POST /api/decision") {
@@ -69,7 +69,7 @@ export async function reviewRoute(
         ? { workspace }
         : { workspace, rule: result.rule, reason: result.reason };
 
-    return Response.json(answer, { status: result.ok ? 200 : 409 });
+    return Response.json(answer, { status: result.ok ? 200 : result.status });
   }
 
   if (route === "POST /api/send") {
@@ -82,7 +82,7 @@ export async function reviewRoute(
       ? { file: sent.file, seq: sent.seq, editKept: sent.editKept }
       : sent.refusal;
 
-    return Response.json(answer, { status: sent.ok ? 200 : 409 });
+    return Response.json(answer, { status: sent.ok ? 200 : sent.status });
   }
 
   if (route === "GET /api/draft") {

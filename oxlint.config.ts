@@ -86,8 +86,8 @@ export default defineConfig({
     },
     {
       // Over the size today, each a cut still to make:
-      // - runtime/page/state.ts: the page's one store, the review's signals with the documents' since
-      //   state.spec.ts imports it fresh per test, and a module it imports is shared by every store.
+      // - runtime/page/state.ts: the page's one store; the review's signals and the documents' and
+      //   the shell's read each other both ways (loadReview settles the edit, decide loads again).
       // - runtime/server/queue.ts: the queue, the step, the channel, the draft and the view in one class.
       // - runtime/hooks/register.ts: every hook sits where `$` is spelled, which the engine requires
       //   of one file; what reads no `$` can leave it.

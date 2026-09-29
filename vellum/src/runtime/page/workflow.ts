@@ -6,7 +6,7 @@ import type { WorkflowView } from "../protocol.ts";
 import { postRecord } from "./api.ts";
 import type { Notice } from "./notices.ts";
 import { noticesOf } from "./notices.ts";
-import type { Outgoing, Sent } from "./state.ts";
+import type { Outgoing, Sent, Store } from "./state.ts";
 import * as page from "./state.ts";
 
 /**
@@ -45,7 +45,7 @@ const RETRY: Decision = { kind: "approve", edit: null, notes: "" };
  * The workflow's signals and actions over `store`. The page runs one, over its own store; a suite
  * builds one over each store it imports fresh, which this module's own would never see.
  */
-export function workflowOf(store: typeof page): WorkflowStore {
+export function workflowOf(store: Store): WorkflowStore {
   const workflow = computed<WorkflowView | null>(() => store.review.value?.workflow ?? null);
   const held = computed(() => workflow.value?.held ?? null);
 

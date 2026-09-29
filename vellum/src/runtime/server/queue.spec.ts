@@ -46,7 +46,12 @@ type Setup = { readonly review: Queue; readonly events: ReviewServer; readonly r
 const RECORD = { unchanged: "record" } as const;
 
 /** What a gate answers while the working directory holds no `plan.md`. */
-const NO_PLAN: GateResult = { ok: false, rule: "no-plan", error: `write plan.md in ${WIP} first` };
+const NO_PLAN: GateResult = {
+  ok: false,
+  rule: "no-plan",
+  error: `write plan.md in ${WIP} first`,
+  status: 409,
+};
 
 /** A held rename is retried this long here, so a test that holds the folder to the end stays under bun's 5 s. */
 const HELD_SHORT_MS = 200;
@@ -190,6 +195,7 @@ describe("Queue", () => {
       ok: false,
       rule: "no-plan",
       error: `write plan.md in ${WIP} first`,
+      status: 409,
     });
   });
 
@@ -306,6 +312,7 @@ describe("Queue", () => {
         rule: "changed",
         text: "the saved draft no longer holds what you sent, changed in another tab",
       },
+      status: 409,
     });
     expect(await told(s.review)).toEqual([]);
   });
@@ -326,7 +333,7 @@ describe("Queue", () => {
 
   test("a Send with nothing in it is refused and writes nothing", async () => {
     const s = await gated();
-    expect(await send(s, {})).toEqual({ ok: false, refusal: { reason: "empty" } });
+    expect(await send(s, {})).toEqual({ ok: false, refusal: { reason: "empty" }, status: 409 });
     expect(await told(s.review)).toEqual([]);
   });
 
@@ -342,11 +349,16 @@ describe("Queue", () => {
     };
 
     writeFileSync(join(s.root, DRAFT), '{"annotations":3}');
-    expect(await s.events.send(all)).toEqual({ ok: false, refusal: { reason: "unreadable" } });
+    expect(await s.events.send(all)).toEqual({
+      ok: false,
+      refusal: { reason: "unreadable" },
+      status: 409,
+    });
     await s.events.decide(APPROVE);
     expect(await s.events.send(all)).toEqual({
       ok: false,
       refusal: { reason: "refused", rule: "approved", text: "the plan is approved" },
+      status: 409,
     });
   });
 
@@ -706,6 +718,7 @@ describe("a Send and the extensions", () => {
     expect(await send(s, SAY_NO)).toEqual({
       ok: false,
       refusal: { reason: "unanswered", ids: ["Q2", "Q3"] },
+      status: 409,
     });
     expect(await send(s, SAY_NO, { takeDefaults: ["Q2"] })).toMatchObject({ ok: false });
     expect(await told(s.review)).toEqual([]);
@@ -816,6 +829,7 @@ describe("a review an extension holds", () => {
       ok: false,
       rule: "held",
       error: "grill 1 is open: plan.md waits; you are told when it ends",
+      status: 409,
     });
     expect(existsSync(join(root, WIP, ".review/v1.md"))).toBe(false);
   });
@@ -873,6 +887,7 @@ describe("a review an extension holds", () => {
     expect(await send(s, { edit: EDIT_OF_V1 })).toEqual({
       ok: false,
       refusal: { reason: "refused", rule: "held", text: "grill 1 is open" },
+      status: 409,
     });
     expect(await told(s.review)).toEqual([]);
     expect(JSON.parse(read(s.root, DRAFT))).toMatchObject({ edit: EDIT_OF_V1 });

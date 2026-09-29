@@ -25,11 +25,6 @@ with the same files. One bundle is a browser's: `Bun.serve` builds it from
 `src/runtime/page/index.html` at the first request for the page,
 no build step, so what the page imports costs nothing at `cli start`.
 
-- `src/runtime/page/` never imports `src/runtime/server/`, and a part reaches that folder from its
-  `server.ts` alone; they depend on `src/runtime/protocol.ts`, on `src/runtime/extension.ts` and
-  on the workshop's pure `paths.ts`. `src/runtime/server/` never
-  imports the page beyond `index.html`. What an extension may import, and how one is added: `extensions.md`. Held by
-  `src/boundaries.spec.ts`.
 - `style.css` is the one place a colour is written: its `:root` and its dark block, which
   redefines every base token but `--paper` and `--outline`, the two surfaces the theme does not own. Every other surface derives with `color-mix()`, and every size
   is a token of the three scales (`--t-*`, `--s-*`, `--r-*`). Two families, one rule: prose is
@@ -39,8 +34,7 @@ no build step, so what the page imports costs nothing at `cli start`.
 - A button, badge, chip, tag, banner, popover, dialog, chevron, gear, handle or switch is drawn through
   `kit.tsx`, never through one of its classes spelled at the call; `kit.tsx` is in `PAGE_SURFACE`,
   so an extension draws with the same eleven. A `Chip` is a button; what shows a label and takes no click is a `Tag`.
-  The types hold part of it, locked in `kit.spec.ts`: `ChipProps` takes no `class`, and neither
-  takes `className`. `ButtonProps` takes a `class`, joined to the kit's own, for a state the kit
+  `ButtonProps` takes a `class`, joined to the kit's own, for a state the kit
   has no prop for (`step-later` in `proposal/window.tsx`): there a kit class spelled at the call compiles,
   and only a reader refuses it. A `Chip`'s state the kit has no `tone` for rides on a `data-`
   attribute its extension's CSS reads under the extension's prefix (`data-state` in
@@ -71,9 +65,9 @@ no build step, so what the page imports costs nothing at `cli start`.
   its type: `attributes` in `markdown/vnode.ts` is annotated as pairs, or `given` is `any` and
   spreads into the props of every node. To check a doubt, `const probe: number = <value>` must
   fail `bun x tsgo --noEmit`.
-- `app.tsx` is the one file that reads the registry: it picks the renderer and hands the
-  extensions' `actions` to the decision bar, which draws them before its own buttons. An action
-  that follows the workspace reads `review` and loads its own state again at every change.
+- `app.tsx` picks the renderer and hands the extensions' `actions` to the decision bar, which
+  draws them before its own buttons. An action that follows the workspace reads `review` and
+  loads its own state again at every change.
 - The body is panes, left to right in the order `panesOf` of `panes.ts` gives, purely: the
   document pane (`Panes`, where the rail's choice and `split` show) and each extension's `panel`
   while its `shown()` holds. The order is data, `PANE_ORDER`, written nowhere else until settings
@@ -134,8 +128,8 @@ no build step, so what the page imports costs nothing at `cli start`.
   reads none of it; `workflow.ts` holds what holds the review, the pill and what is refused now,
   the approval and Record, the edit a hold keeps, and the column of the core's notices, which reads
   both. Its signals and actions are built over a store (`workflowOf`): the page runs one over its
-  own, `state.spec.ts` one over each store it imports fresh (`freshFlow`), which a module-level
-  one would never see. `workflow.ts` is not in `PAGE_SURFACE`: an extension reads the hold off
+  own, `state.spec.ts` one over each store `createStore` builds for a test (`freshFlow`), which a
+  module-level one would never see. `workflow.ts` is not in `PAGE_SURFACE`: an extension reads the hold off
   `review.workflow` of `state.ts`.
 - `held` of `workflow.ts` is what holds the review, or `null`, in the holder's words (the grill's
   region says `grill 2 is open`, by the transcript's number). The reason is also the hold's
@@ -201,11 +195,8 @@ no build step, so what the page imports costs nothing at `cli start`.
   scripts are exempt, since a browser runs them for what they do at that scope:
   `app.tsx` and `html/frame.ts`. `app.tsx` calls `readWindow` before the first render, never from
   `start`: `Comments` draws `commentsOpen` at that render and `start` runs in an effect after it,
-  so under 900px the panel would paint open, then fold through its width transition. `shell.e2e.ts`
-  holds that call: in a 900px window it records each class `#comments` takes from before the
-  page's scripts run, and finds the panel folded from the first render. The rest is held by
-  `src/boundaries.spec.ts`, which imports every other module in a process with no `window` and
-  names the file that throws.
+  so under 900px the panel would paint open, then fold through its width transition
+  (`shell.e2e.ts` holds that call, `src/boundaries.spec.ts` the rest).
 - `start` is the page's one way in, and its order is the rule: the saved draft into the signals,
   then the first load, then the saving effects, then the event stream. Nothing may `PUT` a draft
   before the restore, or every reload replaces the file with the page's empty state. After it,
@@ -215,21 +206,14 @@ no build step, so what the page imports costs nothing at `cli start`.
   Every write goes with `keepalive` while the page's keepalive writes in flight leave room for
   its body, `KEEPALIVE_BYTES` together, the Fetch standard's limit, and without it beyond: a
   plain request waiting for a socket dies with the page. `draftWriter` of `api.ts` counts them,
-  one writer per store, since a module `state.ts` imports is shared by every store a suite
-  imports. When the page is hidden (`visibilitychange`) or closed (`pagehide`) while a write
+  one writer per store, which `createStore` makes. When the page is hidden (`visibilitychange`) or closed (`pagehide`) while a write
   waits, a typing pausing or a write queued behind another, the draft shown is written within the
   event, which the page may not outlive, and the older writes still queued never start: the
   first of the two events takes it, the second finds nothing. A failure there shows nothing, the
   page being gone; a draft past the budget is lost if the page closes, and a write already
   started may land after the hide's, an order the page does not hold.
-  `state.spec.ts` holds this at the page's ports, a fake `fetch` and a fake `EventSource` that
-  log what reaches them, and a fake `document` and `window` whose listeners the test calls: the
-  restore before the first load, no write while that load is out, the stream after it, one write
-  for each `batch` a saving page runs, one write for a continuous typing, a waiting write sent
-  within either hiding event, once for both, the writes it overtook never sent, nothing sent when
-  the page shows again, and the keepalive budget shared by the writes in flight and given back
-  once each is answered. The saving effect against the stream is one synchronous step, which no
-  port tells apart.
+  `state.spec.ts` holds this at the page's ports; the saving effect against the stream is one
+  synchronous step, which no port tells apart.
 - What is typed and not submitted is `typed` of `state.ts`, one `Typed` of the draft, and
   `setTyped` its one writer: the general box, the composer's text by document, a grill's answers
   and note by transcript, the editor's typing by version. No component keeps a text in a
@@ -295,8 +279,10 @@ no build step, so what the page imports costs nothing at `cli start`.
 - `EventSource` reconnects by itself, so the page polls nothing: `subscribe` reports `error`
   and `open`, `connection` keeps `up | down`, and the column draws the lost-connection notice
   while `down`, the three decisions and Grill greyed meanwhile. A server revived on the same
-  port and token clears it with no reload; past `NEW_LINK_HINT_MS` the notice names
-  `/vellum:start`, the one way to a link that works.
+  port and token clears it with no reload, unless it runs another build: each open of the stream
+  reads `GET /api/vellum-build`, and a page served by another build reloads itself
+  (`reloadOnAnotherBuild`), since its code may call routes an update renamed. Past
+  `NEW_LINK_HINT_MS` the notice names `/vellum:start`, the one way to a link that works.
 - The server watches the working directory, so every file Claude writes reaches the page as a
   workspace event. A renderer loads its document through `docUrl`, whose query is the file's
   `modified`: a rewrite reloads that document alone, and nothing else remounts.
@@ -318,10 +304,8 @@ no build step, so what the page imports costs nothing at `cli start`.
   which the bar calls through `send` of `workflow.ts`, keeper of the edit a hold left: the bar's `Send (n)`, whose `n` counts the comments,
   the choices a Send takes (`sendableChoices`), the edit as 1, and each extension's share (`PageExtension.send`, `SendShare`: the grill's
   questions answered), which `app.tsx` hands the bar; and a card's Send now, which sends that
-  comment or that choice alone and leaves the round, greyed on a comment on the plan while an edit waits. The
-  click is a snapshot (`Outgoing`): the comment ids, the edit and the choices on screen, each share, and the
-  question ids the reviewer agreed to leave to their recommendation. The server sends from the
-  draft it keeps, so `send` writes the draft first (`writeDraft`, which reads the draft again
+  comment or that choice alone and leaves the round, greyed on a comment on the plan while an edit
+  waits. The click is a snapshot (`Outgoing`). The server sends from the draft it keeps, so `send` writes the draft first (`writeDraft`, which reads the draft again
   when the first load failed), then posts, then reads the review and each share's state again
   (`SendShare.sent`), and takes out of the page exactly what the snapshot named: a comment added
   meanwhile stays, so does another option chosen in a decision sent (`withoutChoices`), and so

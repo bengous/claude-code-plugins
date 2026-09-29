@@ -457,6 +457,39 @@ describe("parts", () => {
     expect([...broken, ...shared]).toEqual([]);
   });
 
+  test("a registry holds each part's half and nothing else, through its adapter: no runtime writes an extension by hand", () => {
+    const adapterOf = new Map([
+      ["hooks/slices.ts", "engineExtension"],
+      ["server/slices.ts", "serverExtension"],
+      ["page/slices.ts", null],
+    ]);
+
+    const stray = HALVES.flatMap(({ file, registry }) => {
+      const path = `${RUNTIME}/${registry}`;
+      const source = readFileSync(path, "utf8");
+
+      const halves = new Set(
+        [...source.matchAll(/import \{ \w+ as (\w+) \} from "([^"]+)";/gu)].flatMap(
+          ([, name, from]) => (from?.endsWith(`/${file}`) === true ? [name] : []),
+        ),
+      );
+
+      const listed = /= \[([^\]]*)\];/u.exec(source)?.[1] ?? "";
+      const adapter = adapterOf.get(registry);
+      const adapted = new RegExp(`^${adapter}\\((\\w+)\\)$`, "u");
+
+      return listed.split(",").flatMap((written) => {
+        const entry = written.trim();
+        const half = adapter === null ? entry : adapted.exec(entry)?.[1];
+        const madeFromAHalf = entry === "" || (half !== undefined && halves.has(half));
+
+        return madeFromAHalf ? [] : [`${short(path)} lists ${entry}`];
+      });
+    });
+
+    expect(stray).toEqual([]);
+  });
+
   test("a part names no EngineExtension, ServerExtension or PageExtension: it fills its halves, and the adapters make the rest", () => {
     const named = partSources().flatMap((file) =>
       [...readFileSync(file, "utf8").matchAll(/\b(?:Engine|Server|Page)Extension\b/gu)].map(

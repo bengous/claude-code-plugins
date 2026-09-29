@@ -282,9 +282,7 @@ test.describe("the rail", () => {
       await expect(twins.nth(1).locator(".dir")).toHaveText("avant");
 
       const cited = page.locator("#rail .away button");
-      await expect(cited.filter({ hasText: "architecture.md" }).locator(".dir")).toHaveText(
-        "vellum/docs",
-      );
+      await expect(cited.filter({ hasText: "CONTEXT.md" }).locator(".dir")).toHaveText("vellum");
       await expect(cited.filter({ hasText: "plugin-testing.md" }).locator(".dir")).toHaveText(
         "docs",
       );

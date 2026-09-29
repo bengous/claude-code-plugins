@@ -4,6 +4,7 @@
   "type": "module",
   "description": "Runtime dependencies of the vellum review server and its browser page",
   "scripts": {
+    "contract-diff": "bun scripts/contract-diff.ts",
     "e2e": "bun x --bun playwright test --config e2e/playwright.config.ts",
     "e2e:install": "bun x --bun playwright install chromium"
   },

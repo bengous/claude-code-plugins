@@ -1,10 +1,4 @@
 import type { ReviewEvents } from "../../review/contract.ts";
-/**
- * The agent review step: the reviewer asks a plan reviewer, a subagent, to judge the version
- * under review, and its verdict lands beside the plan. Other folders import this file and nothing
- * else of the folder. The hooks module and the page read it as types: its values, the
- * events and the rows, are the server's.
- */
 import type { PlugsOf } from "../../workshop/plugs.ts";
 import { defineSlice, get, heard, post } from "../../workshop/plugs.ts";
 import { rows } from "../../workshop/rows.ts";
@@ -19,6 +13,13 @@ import {
   noVersionUnderReview,
   runIn,
 } from "./agent-review.ts";
+
+/**
+ * The agent review step: the reviewer asks a plan reviewer, a subagent, to judge the version
+ * under review, and its verdict lands beside the plan. Other folders import this file and nothing
+ * else of the folder. The hooks module and the page read it as types: its values, the
+ * events and the rows, are the server's.
+ */
 
 // The wire: what crosses `/api/x/agent-review/*` between the hooks module, the server and the page.
 

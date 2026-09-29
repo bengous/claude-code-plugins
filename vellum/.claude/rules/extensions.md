@@ -11,12 +11,11 @@ paths:
 
 An extension is a folder, `src/steps/<name>/` for a step Vellum follows or `src/formats/<name>/`
 for a format a document is read in, and every one is a slice (`slices.md`): its `contract.ts`
-declares it, and a half per runtime it plugs into fills what the declaration says. `page.tsx`
-fills a `PageHalf` (its renderers, its actions in the decision bar, its notices under the bar,
-its panel beside the document pane, placed by `panesOf`), `server.ts` a `ServerHalf` (its
-routes, its part of the workflow, its part of a Send, what opens it, the documents it proposes
-from the plan's links), both typed in `src/runtime/extension.ts`, and `hooks.ts` a `HooksHalf`
-(`src/runtime/hooks/extension.ts`: tools, refusals, and the engine events the core hands it).
+declares it, and a half per runtime it plugs into fills what the declaration says: `page.tsx`
+a `PageHalf` and `server.ts` a `ServerHalf`, both typed in `src/runtime/extension.ts`, and
+`hooks.ts` a `HooksHalf` (`src/runtime/hooks/extension.ts`).
+A half is the one way in: `PageExtension`, `ServerExtension` and `EngineExtension` are the
+runtimes' own representation of a part, which each registry makes from the half, never a part.
 Its part of the workflow is its model, pure and named after its folder: its region
 (`regionOf`), transitions and reactions, its segment of the band, drawn on the server and sent
 on the `stage` line, and its line in the workflow's view (`lineOf`, what `mcp__vellum__state`
@@ -27,19 +26,16 @@ tests load. A hooks half may import the model as types only.
   `contract.ts` and a `page.tsx`; `formats/markdown/server.ts` a server half; `formats/html/pick.ts`
   with `pick.spec.ts` a helper and its test. They compile and they are tested, so they cannot
   drift; copy their shape.
+- A contract's client is the next agent in this repository, never a third party: no module path
+  may leave the plugin, so nobody outside it ships a half, and there is no dynamic loading and no
+  versioned API.
 - To add one: `slices.md`, in its order. Nothing else in `src/runtime/` or `src/workshop/`
   changes; when something must, the core lacks a place to plug into, and that is the change to
   propose first.
-- An extension imports `src/workshop/`, `src/runtime/` and its own folder, never another part's.
-  It reads the review through `src/review/contract.ts`, as types, and takes a value of the
-  review's from the files `REVIEW_SURFACE` lists in `src/boundaries.spec.ts` alone, frozen as
-  `PAGE_SURFACE` is: `surface.ts`, and `composer.tsx` for the composer, which `surface.ts` does
-  not carry since the mockup's frame script loads it. From a runtime's folder it imports, for a
-  half it fills, the files `SURFACES` lists in
-  `src/boundaries.spec.ts` (`PAGE_SURFACE` of `src/runtime/page/`, `slice.ts` of
-  `src/runtime/server/`, types of `src/runtime/hooks/`, the last two from `server.ts` and
-  `hooks.ts` alone, never from the page half or the model): one more is a decision to take, not a
-  convenience.
+- What an extension may import is `src/boundaries.spec.ts`'s, which names each file it takes of a
+  runtime (`SURFACES`) and of the review (`REVIEW_SURFACE`): one more is a decision to take, not a
+  convenience. The composer is imported from `composer.tsx`, never through `surface.ts`, since
+  the mockup's frame script loads `surface.ts` and must not load the page's store.
 - A server half's routes are mounted at `/api/x/<id>/<name>`, behind the token, and do their IO
   through the `ServerContext` that `Queue` binds: an extension never imports the server's IO. A
   route that changes the workflow dispatches its event (`ServerContext.dispatch`), in the
@@ -95,6 +91,8 @@ tests load. A hooks half may import the model as types only.
   `context.post` and `context.get`, and reads what comes back with the parsers of its `parse.ts`.
   Its kit tests are `<folder>/hooks.test.ts`, its fake routes `<folder>/fixtures/`: the core's
   world serves none.
+- A grill's round is Claude's, `grill_ask` alone opens one, and the reviewer's reply is written in
+  it, so an answer is read beside its question.
 - A file whose structure is read off its lines never takes a text as it comes: `grill`'s
   transcript quotes Claude's text (`quoted` in `transcript.ts`), or a heading typed in an answer
   speaks for the reviewer, opens a round or closes the grill, and a `_(turn aborted)_` line stops
@@ -122,7 +120,10 @@ tests load. A hooks half may import the model as types only.
   the browser suite drives through the whole page.
 - A new document kind is a new extension, never a branch in an existing renderer.
 - An option or a flag exists when someone asked to turn it, never in advance. Config files,
-  manifests and `enabled` are not designed yet; where the question stands is `docs/architecture.md`
-  § Extensions.
+  manifests and `enabled` are not designed yet: skills and agents load with the plugin, so a
+  config cannot hide one per repository (the module could only refuse it at `skill.prompt`), and
+  `userConfig` ignores project entries, so a per-repository config would be a file of Vellum's
+  own. The last design: `extension-contract.md` in
+  `plans/2026-09-17/extensions-de-vellum-arbre-noms-et-garde-fous/`.
 - `src/boundaries.spec.ts` fails, naming the file, when any of this is broken. An import it
   refuses is in the wrong place, not a rule to loosen.
