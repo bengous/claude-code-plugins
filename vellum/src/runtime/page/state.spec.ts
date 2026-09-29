@@ -13,7 +13,7 @@ import type {
 import { lineDiff } from "../../review/diff.ts";
 import { choicesIn, EMPTY_TYPED, refOf } from "../../review/review.ts";
 import type { SendShare } from "../extension.ts";
-import type { DocGroup, GroupedDoc, ReviewView, WorkflowView } from "../protocol.ts";
+import type { DocGroup, GroupedDoc, ReviewView, VellumBuild, WorkflowView } from "../protocol.ts";
 import type { WorkflowStore } from "./workflow.ts";
 import { workflowOf } from "./workflow.ts";
 
@@ -142,7 +142,7 @@ type Listening = {
 type Ports = {
   readonly fetch: (url: string, init?: RequestInit) => Promise<Response>;
   readonly EventSource: new (url: string) => Listening;
-  readonly location: { readonly pathname: string };
+  readonly location: { readonly pathname: string; readonly reload: () => void };
   /** The window as each of its two readers sees it: `readWindow` its media queries, `start` the page hiding. */
   readonly window: { readonly matchMedia: (query: string) => MediaList } | Listening;
   readonly document: Listening & { readonly visibilityState: DocumentVisibilityState };
@@ -182,6 +182,8 @@ type Served = {
   /** What a `PUT /api/draft` waits on before its answer, and how it fails when this rejects. */
   readonly put?: () => Promise<void>;
   readonly putStatus?: number;
+  /** What `GET /api/vellum-build` answers: the build, or a 500 when the server could not read it; `BUILD` unless said. */
+  readonly build?: VellumBuild | "unreadable";
 };
 
 type Server = {
@@ -202,6 +204,8 @@ type Server = {
   readonly leave: (event: "visibilitychange" | "pagehide") => void;
   /** The page shown again: the document's `visibilitychange` once it reads `visible`. */
   readonly show: () => void;
+  /** How many times the page reloaded itself, `location.reload()`. */
+  reloads: number;
   answer: Served;
 };
 
@@ -210,6 +214,11 @@ function answerOf(value: Draft | ReviewView | "unreadable"): Response {
 }
 
 const BATCH = { file: `${WIP}.review/v1.feedback-1.md`, seq: 1 } as never;
+
+const BUILD = {
+  version: "0.13.0",
+  commit: "0f9634d417d4307b2b8e3f63829899ea691bdd6e",
+} as VellumBuild;
 
 /** The server as the page's ports see it: `fetch`, `EventSource`, and the token in the page's URL. */
 function serve(answer: Served): Server {
@@ -244,10 +253,16 @@ function serve(answer: Served): Server {
 
       for (const entry of onDocument) if (entry.event === "visibilitychange") entry.listener();
     },
+    reloads: 0,
     answer,
   };
 
-  port("location", { pathname: "/t/tok/" });
+  port("location", {
+    pathname: "/t/tok/",
+    reload: () => {
+      server.reloads += 1;
+    },
+  });
   port("document", shown);
   port("window", { addEventListener: (event, listener) => onWindow.push({ event, listener }) });
 
@@ -274,6 +289,14 @@ function serve(answer: Served): Server {
       return refusal === undefined
         ? new Response("", { status: server.answer.decision ?? 200 })
         : Response.json(refusal, { status: 409 });
+    }
+
+    if (url === "/api/vellum-build") {
+      const build = server.answer.build ?? BUILD;
+
+      return build === "unreadable"
+        ? Response.json({ error: "no commit" }, { status: 500 })
+        : Response.json(build);
     }
 
     if (url === "/api/record") {
@@ -811,6 +834,49 @@ describe("the editor", () => {
     expect(notices.value[0]?.text).toEqual([
       "v1 is no longer under review. Copy what you need, then Cancel.",
     ]);
+  });
+});
+
+describe("a server revived on another build", () => {
+  test("reloads the page once its stream opens again: the page's code may call routes the new build no longer has", async () => {
+    const store = await freshStore();
+    const server = serve({ draft: null, review: versioned({ version: 1 }) });
+    await store.start();
+    server.push("open");
+    await settled();
+    server.push("error");
+    server.answer = { ...server.answer, build: { ...BUILD, version: "0.14.0" } as VellumBuild };
+    server.push("open");
+    await settled();
+
+    expect(server.reloads).toBe(1);
+  });
+
+  test("leaves the page as it is when the server revived is the same build", async () => {
+    const store = await freshStore();
+    const server = serve({ draft: null, review: versioned({ version: 1 }) });
+    await store.start();
+    server.push("open");
+    await settled();
+    server.push("error");
+    await settled();
+    server.push("open");
+    await settled();
+
+    expect(server.reloads).toBe(0);
+  });
+
+  test("leaves the page as it is when the server cannot read its build", async () => {
+    const store = await freshStore();
+    const server = serve({ draft: null, review: versioned({ version: 1 }) });
+    await store.start();
+    server.push("open");
+    await settled();
+    server.answer = { ...server.answer, build: "unreadable" };
+    server.push("open");
+    await settled();
+
+    expect(server.reloads).toBe(0);
   });
 });
 

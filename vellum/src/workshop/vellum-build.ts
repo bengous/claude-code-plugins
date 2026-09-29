@@ -63,6 +63,11 @@ function commitOf(sources: BuildSources): ParseResult<CommitSha> {
       };
 }
 
+/** Whether two reads name one build: a new version or a new commit is another. */
+export function sameBuild(a: VellumBuild, b: VellumBuild): boolean {
+  return a.version === b.version && a.commit === b.commit;
+}
+
 export function vellumBuildOf(sources: BuildSources): ParseResult<VellumBuild> {
   const version = sources.version.ok ? parsePluginVersion(sources.version.value) : sources.version;
 

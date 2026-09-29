@@ -24,10 +24,19 @@ import {
   withoutChoices,
 } from "../../review/review.ts";
 import type { ProjectPath, Version } from "../../workshop/paths.ts";
+import { sameBuild } from "../../workshop/vellum-build.ts";
 import type { SendShare } from "../extension.ts";
-import type { GroupedDoc, ReviewView } from "../protocol.ts";
+import type { GroupedDoc, ReviewView, VellumBuild } from "../protocol.ts";
 import { takesComments } from "../protocol.ts";
-import { draftWriter, fetchDraft, fetchReview, postDecision, postSend, subscribe } from "./api.ts";
+import {
+  draftWriter,
+  fetchDraft,
+  fetchReview,
+  fetchVellumBuild,
+  postDecision,
+  postSend,
+  subscribe,
+} from "./api.ts";
 import type { Failure } from "./notices.ts";
 import { NEW_LINK_HINT_MS } from "./notices.ts";
 
@@ -825,6 +834,23 @@ function startSaving(): () => Promise<boolean> {
   return flush;
 }
 
+/** The build that served this page, read at its stream's first open; `null` until then. */
+let servedBy: VellumBuild | null = null;
+
+/**
+ * A server revived under this tab may run another build, whose routes this page's code does not
+ * know (an update renames them), so the page loads that build. A build the server cannot read,
+ * or a read that fails, leaves the page as it is: the stream's next open reads it again.
+ */
+async function reloadOnAnotherBuild(): Promise<void> {
+  const now = await fetchVellumBuild();
+
+  if (!now.ok) return;
+
+  if (servedBy === null) servedBy = now.value;
+  else if (!sameBuild(servedBy, now.value)) location.reload();
+}
+
 /**
  * The first load. The saved draft goes in before the review loads, so its edit meets the fate of
  * any unsent edit at a load: kept, landed or dropped. Saving starts only after that, at every
@@ -878,6 +904,10 @@ export async function start(): Promise<void> {
         connection.value = "up";
         downAt.value = null;
         downFor.value = null;
+      });
+
+      reloadOnAnotherBuild().catch(() => {
+        // The stream's next open reads the build again: see `reloadOnAnotherBuild`.
       });
     },
   );

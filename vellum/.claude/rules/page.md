@@ -295,8 +295,10 @@ no build step, so what the page imports costs nothing at `cli start`.
 - `EventSource` reconnects by itself, so the page polls nothing: `subscribe` reports `error`
   and `open`, `connection` keeps `up | down`, and the column draws the lost-connection notice
   while `down`, the three decisions and Grill greyed meanwhile. A server revived on the same
-  port and token clears it with no reload; past `NEW_LINK_HINT_MS` the notice names
-  `/vellum:start`, the one way to a link that works.
+  port and token clears it with no reload, unless it runs another build: each open of the stream
+  reads `GET /api/vellum-build`, and a page served by another build reloads itself
+  (`reloadOnAnotherBuild`), since its code may call routes an update renamed. Past
+  `NEW_LINK_HINT_MS` the notice names `/vellum:start`, the one way to a link that works.
 - The server watches the working directory, so every file Claude writes reaches the page as a
   workspace event. A renderer loads its document through `docUrl`, whose query is the file's
   `modified`: a rewrite reloads that document alone, and nothing else remounts.
