@@ -12,12 +12,23 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+import type { BodyOf, PostOf } from "../../core/plugs.ts";
 import type { ChannelLine, ReviewView } from "../../core/protocol.ts";
 import { startServer } from "../../core/server/adapters/http/serve.ts";
 import type { Started } from "../../core/server/adapters/http/serve.ts";
 import { parseWipDir } from "../../core/server/domain/paths.ts";
-import type { GrillPosts, Waited } from "./protocol.ts";
+import type { GrillPlugs, Waited } from "./contract.ts";
 import { toHtml } from "./server.ts";
+
+type Routes = GrillPlugs["server"];
+
+/** The body each `POST /api/x/grill/<name>` takes, by route name. */
+type GrillPosts = {
+  readonly [Route in PostOf<Routes> as Route extends `POST ${infer Name}` ? Name : never]: BodyOf<
+    Routes,
+    Route
+  >;
+};
 
 const WIP = "plans/2026-09-17/wip-c95eaf71/";
 
@@ -542,6 +553,21 @@ describe("what the transcript keeps", () => {
 });
 
 describe("closing a grill", () => {
+  test("is journaled as the page's reviewer's, or as the engine's from `/vellum:stop`", async () => {
+    const { dir, post, open } = await grilling();
+    await open("auth");
+    await post("close", { reason: "stop" });
+    await open("auth");
+    await post("close", { reason: "page" });
+
+    const ends = readFileSync(join(dir, WIP, ".review/events.jsonl"), "utf8")
+      .split("\n")
+      .filter((line) => line.includes('"event":"endGrill"'))
+      .map((line) => /"actor":"(\w+)"/u.exec(line)?.[1]);
+
+    expect(ends).toEqual(["engine", "reviewer"]);
+  });
+
   test("writes the footer with its reason, the state reads none, and Claude is told the file", async () => {
     const { dir, post, get, told, open } = await grilling();
     await open("auth");

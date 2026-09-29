@@ -15,12 +15,12 @@ import { parseFinalDir, parseWipDir } from "../src/core/server/domain/paths.ts";
 import { discard } from "../src/core/server/preview.ts";
 import type {
   CloseReason,
-  GrillPosts,
   GrillState,
   QuestionTriple,
-} from "../src/extensions/grill/protocol.ts";
+  TurnAnswer,
+} from "../src/extensions/grill/contract.ts";
 import type { Outcome, ReviewState, Run } from "../src/extensions/review/protocol.ts";
-import type { Proposal, StepAnswer, StepState } from "../src/extensions/step/protocol.ts";
+import type { Proposal, StepAnswer, StepState } from "../src/extensions/step/contract.ts";
 
 /**
  * The browser suite's harness: `preview.ts` started on a copy of a fixture, its API driven
@@ -98,7 +98,7 @@ export type Vellum = {
      * Claude's final text, as the hooks module posts it at the turn's end: by default a turn a
      * relay started, ended on its answer (`answer`, the engine's reason), that asked no round.
      */
-    answer(text: string, turn?: Partial<Omit<GrillPosts["answer"], "text">>): Promise<Reply>;
+    answer(text: string, turn?: Partial<Omit<TurnAnswer, "text">>): Promise<Reply>;
     close(reason?: CloseReason): Promise<Reply>;
     state(): Promise<Reply>;
     /** `POST wait` on the round whose first question is `first`, as a waiting `grill_ask` holds it. */

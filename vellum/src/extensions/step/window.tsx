@@ -5,10 +5,10 @@ import { Button, Dialog, dialogUp, popoverUp, Tag } from "../../core/page/kit.ts
 import { editing } from "../../core/page/state.ts";
 import type { OtherKind, OtherPick, Pick } from "./choice.ts";
 import { answerOf, NO_PICK, oneLine, OWN_GRILL } from "./choice.ts";
+import type { StepAnswer } from "./contract.ts";
 import { detailOf, FIELD_HINTS, KIND_LABELS } from "./labels.ts";
 import type { Asking, WindowState } from "./modal.ts";
 import { answerFailed, answering, askingOn, dotOf, modalOf, pendingOf, putOff } from "./modal.ts";
-import type { StepAnswer } from "./protocol.ts";
 
 const asking = signal<Asking>({ kind: "auto" });
 

@@ -1,0 +1,81 @@
+// Bun Snapshot v1, https://bun.sh/docs/test/snapshots
+
+exports[`every row of every event, from every part, reads as a sentence 1`] = `
+"
+record · owned by core · sent by claude, reviewer
+  1. core/held · refuses · while held · "<hold>: plan.md waits; you are told when it ends"
+  2. core/no-plan · refuses · when (unnamed) · "write plan.md in plans/2026-09-28/wip-7ab1e5e5/ first"
+
+sendEdit · owned by core · sent by reviewer
+  1. core/stale · refuses the input · when (unnamed) · "your edit is of a version no longer under review"
+  2. core/held · refuses · while held · "<hold>: the edit waits in the draft until it ends"
+
+send · owned by core · sent by reviewer · passes a hold
+  1. core/changed · refuses the input · when (unnamed) · "the saved draft no longer holds what you sent, changed in another tab"
+  2. core/stale · refuses the input · when (unnamed) · "your edit is of a version no longer under review"
+  3. core/edit · refuses the input · when (unnamed) · "a comment on the plan goes with your edit"
+
+approve · owned by core · sent by reviewer
+  1. core/held · asks to confirm · while held · "The review is held: <hold>."
+  2. core/no-version · refuses · when (unnamed) · "no version is under review yet"
+  3. core/approve-stale · refuses the input · when (unnamed) · "v2 is under review, not v1"
+  4. core/approve-draft · refuses · when (unnamed) · "plan.md changed since v1: record it before approving"
+
+planWritten · owned by core · sent by claude · passes a hold
+  no row
+
+openGrill · owned by grill · sent by reviewer · passes a hold
+  1. grill/grill-subject · refuses the input 409 · when namesNoSubject · "a grill's subject is one line, not empty"
+  2. grill/grill-open · refuses 409 · when grillIsOpen · "grill-1.md is open"
+
+askQuestion · owned by grill · sent by claude · passes a hold
+  1. grill/no-grill · refuses 409 · when noGrillIsOpen · "no grill is open"
+
+turnAnswered · owned by grill · sent by engine · passes a hold
+  no row
+
+sessionEvent · owned by grill · sent by engine · passes a hold
+  no row
+
+endGrill · owned by grill · sent by reviewer, engine · passes a hold
+  no row
+
+propose · owned by step · sent by claude
+  1. step/held · refuses 409 · while held · "<hold>: no step is proposed until it ends"
+  2. step/plan-over-plan · refuses 409 · when planExists and offersPlan · "plan.md exists: the plan step is done"
+
+wait · owned by step · sent by engine · passes a hold
+  no row
+
+pause · owned by step · sent by engine · passes a hold
+  1. step/no-such-proposal · refuses the input 404 · when noProposalWaits or namesAnotherProposal · "no such proposal"
+
+answerProposal · owned by step · sent by reviewer
+  1. step/held · refuses 409 · while held · "<hold>"
+  2. step/no-such-proposal · refuses the input 409 · when namesAProposal and namesAnotherProposal · "no such proposal"
+  3. grill/grill-subject · refuses the input 409 · when opensAGrill and namesNoSubject · (the verdict on no sample state)
+  4. grill/grill-open · refuses 409 · when opensAGrill and grillIsOpen · (the verdict on no sample state)
+
+requestReview · owned by review · sent by reviewer
+  1. review/no-version · refuses · when (unnamed) · "no version is under review yet"
+  2. review/other-version · refuses the input · when (unnamed) · "v1 is under review, not v2"
+  3. review/running · refuses · when (unnamed) · "a review of v1 is running"
+  4. review/held · refuses · while held · "<hold>"
+
+reviewLaunched · owned by review · sent by engine · passes a hold
+  1. review/no-such-run · refuses the input · when (unnamed) · "no such run"
+
+reviewDone · owned by review · sent by engine · passes a hold
+  1. review/no-such-run · refuses the input · when (unnamed) · "no such run"
+  2. review/never-launched · refuses the input · when (unnamed) · "the run was never launched"
+
+reviewForgotten · owned by review · sent by reviewer · passes a hold
+  1. review/no-such-run · refuses the input · when (unnamed) · "no such run"
+
+reviewClosed · owned by review · sent by engine · passes a hold
+  no row
+
+reviewStopped · owned by review · sent by engine · passes a hold
+  1. review/no-such-run · refuses the input · when (unnamed) · "no such run"
+"
+`;

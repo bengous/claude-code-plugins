@@ -8,7 +8,7 @@ paths:
 
 `hooks/hooks.json` is what Claude Code reads, and it names `src/core/engine/register.ts`. The
 files there each import `claude-code`, a sibling `./<name>.ts`, or `import type` from
-`../protocol.ts`, and nothing else; `register.ts` alone also loads `../../extensions/engine.ts`,
+`../protocol.ts` and `../plugs.ts`, and nothing else; `register.ts` alone also loads `../../extensions/engine.ts`,
 the registry of the engine halves. Held by `src/boundaries.spec.ts`.
 
 ```
@@ -22,7 +22,8 @@ relay.ts     what the channel says and what it remembers: prompts, Relayed, foll
 band.ts      what the band above the prompt says: the server's segments, then its pill, then the link; pure
 server.ts    the review server's client: every route, the token header, the launcher, the reader of its stdout
 parse.ts     the boundary: unknown to types, and the only place a brand is minted
-extension.ts `EngineExtension`, the contract an extension's `engine.ts` fills; types only
+extension.ts `EngineExtension`, the contract an extension's `engine.ts` fills, and `HooksHalf<P>`, what a slice's `hooks.ts` fills; types only
+slice.ts     `engineExtension`: a slice's `HooksHalf` as an `EngineExtension`, called by the registry
 ```
 
 The module holds the vellum mode, a mode of its own: the native plan mode never enters the
@@ -265,7 +266,7 @@ loop. `/vellum:start` enters it, Approve in the page or `/vellum:stop` leaves it
   suspension, a revival) and ignores it outside `live`.
 - An engine half may know a fact of the running turn the server cannot read off its file; it
   keeps it in memory, keyed by the mode's `Live`: `grill` marks the turn whose `grill_ask` the
-  server took and no answer came back to (`askedIn`, a `WeakSet` in `grill/engine.ts`) and clears
+  server took and no answer came back to (`askedIn`, a `WeakSet` in `grill/hooks.ts`) and clears
   the mark at `answered`, which posts it as `asked`, so the text of a turn cut short is written
   with its round even after a reply the reviewer sent meanwhile. A reload between the two loses
   the mark: the text then goes where a turn that asked nothing writes it, and the server still

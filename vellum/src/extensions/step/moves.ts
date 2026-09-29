@@ -1,4 +1,4 @@
-import type { Move, Pending, StepAnswer } from "./protocol.ts";
+import type { Move, Pending, StepAnswer } from "./contract.ts";
 
 export function moveText(move: Move): string {
   switch (move.kind) {

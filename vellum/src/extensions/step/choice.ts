@@ -1,4 +1,4 @@
-import type { Move, StepAnswer } from "./protocol.ts";
+import type { Move, StepAnswer } from "./contract.ts";
 
 /** What "Something else…" takes: a step of any kind with the reviewer's own subject, or their own words. */
 export type OtherKind = Move["kind"] | "own";

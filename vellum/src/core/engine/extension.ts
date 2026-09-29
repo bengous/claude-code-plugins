@@ -1,5 +1,6 @@
 import type { HttpResponse, PromptOrigin, ToolSpec, TurnCompleteReason } from "claude-code";
 
+import type { AnswerOf, BodyOf, Json, Parser, Plugs, PostOf, PostRoute } from "../plugs.ts";
 import type { Host } from "./host.ts";
 import type { Live } from "./mode.ts";
 import type { ChannelEntryWire } from "./parse.ts";
@@ -89,3 +90,92 @@ export type EngineExtension = {
    */
   readonly closing?: (context: EngineContext) => Promise<void>;
 };
+
+/** The engine events a half may listen to, each handed the half's own context `C`. */
+export type Listeners<C> = {
+  readonly prompted: (context: C, prompt: Prompted) => Promise<void>;
+  readonly answered: (context: C, turn: Answered) => Promise<void>;
+  readonly agentAnswered: (context: C, turn: AgentAnswered) => Promise<void>;
+  readonly staged: (context: C) => Promise<void>;
+  readonly closing: (context: C) => Promise<void>;
+};
+
+export type Listen = keyof Listeners<EngineContext>;
+
+/**
+ * What a slice's route answered the hooks half: the answer its plugs declare, read by the route's
+ * own parser in `answers`; or the status, the text and, when the route refused, why.
+ */
+export type Posted<A> =
+  | { readonly ok: true; readonly answer: A }
+  | {
+      readonly ok: false;
+      readonly status: number;
+      readonly text: string;
+      readonly reason: string | null;
+    };
+
+/** One parser per route the hooks half posts, reading the answer its plugs declare; `null` for a route that answers nothing (204). */
+export type Answers<P extends Plugs> = {
+  readonly [Route in P["hooks"]["posts"]]: AnswerOf<P["server"], Route> extends null
+    ? null
+    : Parser<AnswerOf<P["server"], Route>>;
+};
+
+/** A slice's client of its own server half: a route its plugs let it post, with the body they declare, answering the answer they declare. */
+export type SlicePost<P extends Plugs> = <Route extends P["hooks"]["posts"]>(
+  route: Route,
+  body: BodyOf<P["server"], Route>,
+) => Promise<Posted<AnswerOf<P["server"], Route>>>;
+
+export type HooksContext<P extends Plugs> = {
+  readonly host: Host;
+  readonly live: Live;
+  readonly post: SlicePost<P>;
+};
+
+/** A tool of a slice, registered under its key in `tools` as `mcp__vellum__<key>`. */
+export type HooksTool<C> = {
+  readonly description: string;
+  readonly inputSchema: NonNullable<ToolSpec["inputSchema"]>;
+  readonly awaits?: (entry: ChannelEntryWire) => boolean;
+  readonly call: (
+    context: C & { readonly waiting: () => void },
+    // oxlint-disable-next-line anti-slop/no-unknown-parameters -- `input` is the tool call as the engine hands it, the model's own arguments; the slice's `parse.ts` is the boundary that reads it.
+    input: unknown,
+  ) => Promise<ToolAnswer>;
+};
+
+/**
+ * What a slice's `hooks.ts` fills: one tool per name its plugs declare, one listener per engine
+ * event they declare, a parser per route they let it post, and nothing else. A route it posts
+ * that the server does not declare is a property no half can fill.
+ */
+export type HooksHalf<P extends Plugs> = {
+  readonly id: P["id"];
+  readonly tools: { readonly [Name in P["hooks"]["tools"]]: HooksTool<HooksContext<P>> };
+  readonly answers: Answers<P>;
+} & Pick<Listeners<HooksContext<P>>, P["hooks"]["listens"]> & {
+    readonly [Unheard in Exclude<Listen, P["hooks"]["listens"]>]?: never;
+  } & {
+    readonly [Undeclared in Exclude<P["hooks"]["posts"], PostOf<P["server"]>>]: never;
+  } & Denying<P>;
+
+/** The engine's tools the half denies while the mode is live, each with the reason the model reads. */
+type Denying<P extends Plugs> = [P["hooks"]["denies"]] extends [never]
+  ? { readonly refuses?: never }
+  : { readonly refuses: { readonly [Tool in P["hooks"]["denies"]]: string } };
+
+/** A hooks half with its plugs forgotten, as `engineExtension` takes it: every `HooksHalf` is one. */
+export type ErasedContext = {
+  readonly host: Host;
+  readonly live: Live;
+  readonly post: (route: PostRoute, body: Json) => Promise<Posted<never>>;
+};
+
+export type ErasedHooks = {
+  readonly id: string;
+  readonly tools: { readonly [name: string]: HooksTool<ErasedContext> };
+  readonly answers: { readonly [route: string]: Parser<Json> | null };
+  readonly refuses?: { readonly [tool: string]: string };
+} & Partial<Listeners<ErasedContext>>;

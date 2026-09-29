@@ -10,7 +10,7 @@ paths:
 - Three suffixes, three runners: `*.spec.ts` for the `bun:test` suites (the server's, the
   page's, and `src/core/engine/register.spec.ts`, which reads `register.ts` as text),
   `*.test.ts` for the hooks module's kit tests, in `src/core/engine/` and, for an engine half,
-  `src/extensions/<id>/engine.test.ts`, and `*.e2e.ts` for the browser suite in `e2e/`, which
+  `src/extensions/<id>/engine.test.ts` (a slice's `hooks.test.ts`), and `*.e2e.ts` for the browser suite in `e2e/`, which
   Playwright runs (`bun run --cwd vellum e2e`) and neither of the other two collects. `claude plugin
   test` collects every `*.test.ts` under the plugin root and loads the module
   `<root>/hooks/hooks.json` names, so a `bun:test` suite named `*.test.ts` anywhere in the
@@ -98,7 +98,9 @@ paths:
   compile. The typecheck gate reads the suites, and a directive with nothing under it fails
   the gate, so the day the type loosens the suite says so. `grill/server.spec.ts` holds two:
   the body of `close`, the reply to `open`. `core/page/kit.spec.ts` holds the kit's: a component
-  is a function, so a suite calls it with props and reads the vnode it returns, with no DOM. The
+  is a function, so a suite calls it with props and reads the vnode it returns, with no DOM.
+  `step/contract.spec.ts` and `grill/contract.spec.ts` hold what a slice's plugs refuse
+  (`slices.md`). The
   directive sits on a line that also runs, so the test says what the refused code would do.
 - `src/boundaries.spec.ts` holds the dependency direction; an import that fails it is in the
   wrong layer, not a test to loosen.

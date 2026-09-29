@@ -59,10 +59,18 @@ export type Actor = "claude" | "reviewer" | "engine";
  */
 export type EventInput = Readonly<Record<string, string>>;
 
+/** The HTTP status a slice's route answers a refusal with: a name that is not there, or a state that refuses. */
+export type RefusalStatus = 404 | 409;
+
 /** What the hold's rule does to an event: nothing, or it refuses it or asks a confirmation, in the event's words. */
 export type WhileHeld =
   | { readonly effect: "allow" }
-  | { readonly effect: "refuse" | "confirm"; readonly reason: (hold: string) => string };
+  | {
+      readonly effect: "refuse" | "confirm";
+      readonly reason: (hold: string) => string;
+      /** What a slice's route answers it with; a slice's event alone declares one. */
+      readonly status?: RefusalStatus;
+    };
 
 export type EventDecl = {
   readonly id: string;
@@ -91,6 +99,10 @@ export type Rule = {
    */
   readonly refuses: "state" | "input";
   readonly reason: (w: Workflow, input: EventInput) => string;
+  /** What a slice's route answers it with; a slice's row alone declares one. */
+  readonly status?: RefusalStatus;
+  /** The named guards `when` is built from, for a reader; a slice's row alone names them. */
+  readonly condition?: string;
 };
 
 export type RuleVerdict =

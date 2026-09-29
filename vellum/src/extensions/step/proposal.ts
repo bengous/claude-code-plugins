@@ -1,12 +1,16 @@
 import type {
+  Carried,
+  Reactions,
+  Samples,
+  Sent,
+  Stamps,
+  Transitions,
+} from "../../core/server/domain/rows.ts";
+import type {
   Effect,
-  EventDecl,
-  EventInput,
   Outcome,
   Region,
   RegionData,
-  Rule,
-  Transition,
   Wait,
   Workflow,
 } from "../../core/server/domain/workflow.ts";
@@ -18,23 +22,41 @@ import {
   withRegion,
 } from "../../core/server/domain/workflow.ts";
 import { REVIEW_DIR } from "../../core/server/domain/workspace.ts";
+import type {
+  Dropped,
+  Move,
+  Pending,
+  Proposal,
+  StepAnswer,
+  StepEvents,
+  StepHears,
+  StepPlugs,
+} from "./contract.ts";
 import { answerText, ownText } from "./moves.ts";
 import { parseAnswer, parseJson, parseProposal } from "./parse.ts";
-import type { Dropped, Move, Pending, Proposal, StepAnswer, StepFile } from "./protocol.ts";
 
 /**
- * `step`'s part of the workflow: the one proposal waiting for the reviewer, read off
+ * The step's part of the workflow: the one proposal waiting for the reviewer, read off
  * `.review/step.json`, and whether Claude's call still waits on it, which is the server's memory.
  */
 
-export const STEP = "step";
+export const STEP: StepPlugs["id"] = "step";
 
 /** Where the proposals live, so a restarted server still shows the one waiting. */
 export const STEP_FILE = `${REVIEW_DIR}/step.json`;
 
-const EMPTY: StepFile = { pending: null, answered: null, dropped: null };
+/**
+ * `.review/step.json`: the proposal waiting, the last one answered under the entry that told it,
+ * and the last one dropped and why, for the waits on them. Whether Claude's call still waits is
+ * the server's memory, never written: a restarted server reads it paused.
+ */
+export type StepFile = {
+  readonly pending: Pending | null;
+  readonly answered: { readonly id: string; readonly seq: number; readonly text: string } | null;
+  readonly dropped: { readonly id: string; readonly why: Dropped } | null;
+};
 
-export const NO_SUCH_PROPOSAL = "no such proposal";
+const EMPTY: StepFile = { pending: null, answered: null, dropped: null };
 
 function dataOf({ pending, answered, dropped }: StepFile): RegionData {
   return {
@@ -108,6 +130,29 @@ export function pendingOf(w: Workflow): Pending | null {
   return fileOf(regionIn(w, STEP)).pending;
 }
 
+function pendingId(w: Workflow): string {
+  return String(regionIn(w, STEP).data.pending ?? "");
+}
+
+function hasPlan(proposal: Proposal): boolean {
+  return proposal.moves.some((move) => move.kind === "plan");
+}
+
+// The guards the rows of `contract.ts` are built from, each stating the fields it reads.
+
+export const offersPlan = (_w: Workflow, input: { readonly proposal: string }): boolean =>
+  hasPlan(proposalOf(input.proposal));
+
+export const noProposalWaits = (w: Workflow): boolean => pendingId(w) === "";
+
+export const namesAProposal = (_w: Workflow, input: { readonly id: string }): boolean =>
+  input.id !== "";
+
+export const namesAnotherProposal = (w: Workflow, input: { readonly id: string }): boolean =>
+  pendingId(w) !== input.id;
+
+// The transitions.
+
 function placed(w: Workflow, file: StepFile, wait: Wait | null): Workflow {
   const region = regionOf(file);
 
@@ -118,24 +163,20 @@ function written(file: StepFile): Effect {
   return { kind: "writeFile", owner: STEP, file: STEP_FILE, text: `${JSON.stringify(file)}\n` };
 }
 
-function waitOn(w: Workflow, input: EventInput, wait: Wait): Outcome {
+function waitOn(w: Workflow, id: string, wait: Wait): Outcome {
   const region = regionIn(w, STEP);
 
-  if (region.state !== "open" || region.data.pending !== input.id) return unchanged(w);
+  if (region.state !== "open" || region.data.pending !== id) return unchanged(w);
 
   return { workflow: withRegion(w, { ...region, wait }), effects: [] };
 }
 
-function offersPlan(proposal: Proposal): boolean {
-  return proposal.moves.some((move) => move.kind === "plan");
-}
-
 /** A newer proposal replaces the one waiting, and Claude's call waits on it. */
-function propose(w: Workflow, _event: string, input: EventInput): Outcome {
+function propose(w: Workflow, input: Carried<StepEvents, "propose">): Outcome {
   const { pending, answered, dropped } = fileOf(regionIn(w, STEP));
 
   const next: StepFile = {
-    pending: { id: input.id ?? "", proposal: proposalOf(input.proposal ?? "") },
+    pending: { id: input.id, proposal: proposalOf(input.proposal) },
     answered,
     dropped: pending === null ? dropped : { id: pending.id, why: "replaced" },
   };
@@ -148,23 +189,19 @@ function propose(w: Workflow, _event: string, input: EventInput): Outcome {
  * result, else a prompt. The window opened blank settles the proposal waiting all the same, since
  * a grill it opens holds the review; `input.opened` is what the extension it starts tells.
  */
-function answerProposal(w: Workflow, _event: string, input: EventInput): Outcome {
+function answerProposal(w: Workflow, input: Carried<StepEvents, "answerProposal">): Outcome {
   const region = regionIn(w, STEP);
   const { pending, dropped } = fileOf(region);
-  const answer = answerOf(input.answer ?? "");
-
-  const told =
-    (input.id ?? "") === "" ? ownText(answer, pending !== null) : answerText(answer, pending);
-
-  const opened = input.opened ?? "";
-  const text = opened === "" ? told : `${told} ${opened}`;
+  const answer = answerOf(input.answer);
+  const told = input.id === "" ? ownText(answer, pending !== null) : answerText(answer, pending);
+  const text = input.opened === "" ? told : `${told} ${input.opened}`;
   const entry: Effect = { kind: "channel", entry: { kind: "text", from: STEP, text } };
 
   if (pending === null) return { workflow: w, effects: [entry] };
 
   const next: StepFile = {
     pending: null,
-    answered: { id: pending.id, seq: Number(input.seq ?? "0"), text },
+    answered: { id: pending.id, seq: Number(input.seq), text },
     dropped,
   };
 
@@ -175,6 +212,15 @@ function answerProposal(w: Workflow, _event: string, input: EventInput): Outcome
 
   return { workflow: placed(w, next, null), effects: [entry, written(next), ...returned] };
 }
+
+export const TRANSITIONS: Transitions<StepEvents> = {
+  propose,
+  wait: (w, input) => waitOn(w, input.id, "open"),
+  pause: (w, input) => waitOn(w, input.id, "paused"),
+  answerProposal,
+};
+
+// Its answer to the others' events.
 
 function drop(w: Workflow, why: Dropped): Outcome {
   const { pending, answered } = fileOf(regionIn(w, STEP));
@@ -202,7 +248,7 @@ function planDone(w: Workflow): Outcome {
   const file = fileOf(region);
   const { pending } = file;
 
-  if (pending === null || !offersPlan(pending.proposal)) return unchanged(w);
+  if (pending === null || !hasPlan(pending.proposal)) return unchanged(w);
   const proposal = withoutPlan(pending.proposal);
 
   if (proposal === null) return drop(w, "written");
@@ -212,55 +258,18 @@ function planDone(w: Workflow): Outcome {
   return { workflow: placed(w, next, wait), effects: [written(next)] };
 }
 
-/** `plan.md` is written by Claude, which the watcher reads, or by the reviewer's edit. */
-const WRITES_PLAN = new Set(["planWritten", "sendEdit"]);
-
-export const REACTION: Transition = (w, event) => {
-  if (event === "approve") return drop(w, "approved");
-
-  return WRITES_PLAN.has(event) && planExists(w) ? planDone(w) : unchanged(w);
-};
-
-export const TRANSITIONS = {
-  propose,
-  wait: (w, _event, input) => waitOn(w, input, "open"),
-  pause: (w, _event, input) => waitOn(w, input, "paused"),
-  answerProposal,
-} satisfies Readonly<Record<string, Transition>>;
-
-function pendingId(w: Workflow): string {
-  return String(regionIn(w, STEP).data.pending ?? "");
+/** `plan.md` written, by Claude, which the watcher reads, or by the reviewer's edit. */
+function planWritten(w: Workflow): Outcome {
+  return planExists(w) ? planDone(w) : unchanged(w);
 }
 
-export const RULES: readonly Rule[] = [
-  {
-    id: "plan-over-plan",
-    event: "propose",
-    order: 1,
-    when: (w, input) => planExists(w) && offersPlan(proposalOf(input.proposal ?? "")),
-    effect: "refuse",
-    refuses: "state",
-    reason: () => "plan.md exists: the plan step is done",
-  },
-  {
-    id: "no-such-proposal",
-    event: "pause",
-    order: 1,
-    when: (w, input) => pendingId(w) === "" || pendingId(w) !== input.id,
-    effect: "refuse",
-    refuses: "input",
-    reason: () => NO_SUCH_PROPOSAL,
-  },
-  {
-    id: "no-such-proposal",
-    event: "answerProposal",
-    order: 1,
-    when: (w, input) => (input.id ?? "") !== "" && pendingId(w) !== input.id,
-    effect: "refuse",
-    refuses: "input",
-    reason: () => NO_SUCH_PROPOSAL,
-  },
-];
+export const REACTIONS: Reactions<StepHears> = {
+  approve: (w) => drop(w, "approved"),
+  planWritten,
+  sendEdit: planWritten,
+};
+
+// The inputs `refusedNow` and the walk of `workflow.spec.ts` try.
 
 const PLAN_ONLY: Proposal = {
   reason: "The plan is next.",
@@ -285,7 +294,10 @@ const MOCKUP: Proposal = {
 const IDS = [{ id: "p1" }, { id: "p2" }, { id: "p3" }];
 
 /** An answer as the route hands it over: the grill a move opens reads its subject and time, and tells Claude through `opened`. */
-function answerSample(id: string, answer: StepAnswer): EventInput {
+function answerSample(
+  id: string,
+  answer: StepAnswer,
+): Sent<StepEvents, "answerProposal"> & Partial<Stamps> {
   const move = answer.kind === "own" ? "own" : answer.move.kind;
   const subject = answer.kind === "move" && answer.move.kind === "grill" ? answer.move.subject : "";
   const opened = subject === "" ? "" : `The reviewer opened a grill on: ${subject}.`;
@@ -295,36 +307,26 @@ function answerSample(id: string, answer: StepAnswer): EventInput {
 
 const GRILL_MOVE: StepAnswer = { kind: "move", move: AUTH_GRILL };
 
-export const EVENTS: readonly EventDecl[] = [
-  {
-    id: "propose",
-    owner: STEP,
-    actors: ["claude"],
-    whileHeld: { effect: "refuse", reason: (hold) => `${hold}: no step is proposed until it ends` },
-    samples: [
-      { id: "p1", proposal: JSON.stringify(PLAN_ONLY) },
-      { id: "p2", proposal: JSON.stringify(GRILL_OR_PLAN) },
-      { id: "p3", proposal: JSON.stringify(MOCKUP) },
-    ],
-  },
-  { id: "wait", owner: STEP, actors: ["engine"], whileHeld: { effect: "allow" }, samples: IDS },
-  { id: "pause", owner: STEP, actors: ["engine"], whileHeld: { effect: "allow" }, samples: IDS },
-  {
-    id: "answerProposal",
-    owner: STEP,
-    actors: ["reviewer"],
-    whileHeld: { effect: "refuse", reason: (hold) => hold },
-    samples: [
-      answerSample("", { kind: "own", text: "Write the plan." }),
-      answerSample("", GRILL_MOVE),
-      answerSample("p1", { kind: "move", move: { kind: "plan" } }),
-      answerSample("p2", GRILL_MOVE),
-      answerSample("p3", { kind: "move", move: { kind: "mockup", screen: "login" } }),
-    ],
-  },
-];
+export const SAMPLES: Samples<StepEvents> = {
+  propose: [
+    { id: "p1", proposal: JSON.stringify(PLAN_ONLY) },
+    { id: "p2", proposal: JSON.stringify(GRILL_OR_PLAN) },
+    { id: "p3", proposal: JSON.stringify(MOCKUP) },
+  ],
+  wait: IDS,
+  pause: IDS,
+  answerProposal: [
+    answerSample("", { kind: "own", text: "Write the plan." }),
+    answerSample("", GRILL_MOVE),
+    answerSample("p1", { kind: "move", move: { kind: "plan" } }),
+    answerSample("p2", GRILL_MOVE),
+    answerSample("p3", { kind: "move", move: { kind: "mockup", screen: "login" } }),
+  ],
+};
 
-/** `step` draws no segment in the band. */
+// How the step words its region.
+
+/** The step draws no segment in the band. */
 export function segmentOf(_region: Region): string | null {
   return null;
 }

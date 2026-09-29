@@ -1,7 +1,7 @@
 import { batch, computed, signal } from "@preact/signals";
 import { useEffect, useRef, useState } from "preact/hooks";
 
-import type { PageExtension, RendererProps, SendShare } from "../../core/extension.ts";
+import type { PageHalf, RendererProps, SendShare } from "../../core/extension.ts";
 import { extensionRequest } from "../../core/page/api.ts";
 import { Banner, Button, Chip } from "../../core/page/kit.tsx";
 import {
@@ -16,12 +16,12 @@ import {
   typed,
   writeDraft,
 } from "../../core/page/state.ts";
+import type { BodyOf, PostOf } from "../../core/plugs.ts";
 import type { Typed } from "../../core/protocol.ts";
 import type { ProjectPath } from "../../core/server/domain/paths.ts";
+import type { Block, GrillPlugs, GrillState, Phase } from "./contract.ts";
 import { answerOf, chipTitle, endedOf, footerOf, phaseText, progressOf } from "./labels.ts";
-import { grillNumber } from "./parse.ts";
-import { AS_RECOMMENDED } from "./protocol.ts";
-import type { Block, GrillPosts, GrillState, Phase } from "./protocol.ts";
+import { AS_RECOMMENDED, grillNumber } from "./parse.ts";
 import { roundNow, roundsOf } from "./rounds.ts";
 import type { QuestionBlock, Rounds } from "./rounds.ts";
 
@@ -150,12 +150,12 @@ function sendFailure(status: number | null): string {
 }
 
 /** What the reviewer waits on: a refusal or a server that did not answer is a failure the notices show. */
-async function post<Name extends keyof GrillPosts>(
-  path: Name,
-  body: GrillPosts[Name],
+async function post<Route extends PostOf<GrillPlugs["server"]>>(
+  route: Route,
+  body: BodyOf<GrillPlugs["server"], Route>,
   failed: Failed = sendFailure,
 ): Promise<Response> {
-  const response = await extensionRequest(ID, path, {
+  const response = await extensionRequest(ID, route.slice("POST ".length), {
     method: "POST",
     body: JSON.stringify(body),
   }).catch(() => null);
@@ -243,7 +243,7 @@ async function end(path: ProjectPath, blocks: readonly Block[]): Promise<void> {
     return;
   }
 
-  if (!(await post("close", { reason: "page" })).ok) return;
+  if (!(await post("POST close", { reason: "page" })).ok) return;
   const plan = docs.peek().find((doc) => doc.group === "plan");
 
   batch(() => {
@@ -751,7 +751,7 @@ function GrillPanel(): preact.JSX.Element | null {
   return state?.kind === "open" ? <OpenGrill key={state.file} state={state} /> : null;
 }
 
-export const grillPage: PageExtension = {
+export const page: PageHalf<GrillPlugs> = {
   id: "grill",
   renderers: [
     {

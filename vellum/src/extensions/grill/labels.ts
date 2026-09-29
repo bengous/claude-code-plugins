@@ -1,5 +1,5 @@
-import { AS_RECOMMENDED } from "./protocol.ts";
-import type { Answer, CloseReason, Phase } from "./protocol.ts";
+import type { Answer, CloseReason, Phase } from "./contract.ts";
+import { AS_RECOMMENDED } from "./parse.ts";
 import type { ChipState } from "./rounds.ts";
 
 /** What the transcript's foot says of its end, in the reviewer's words; the file keeps the reason's code. */

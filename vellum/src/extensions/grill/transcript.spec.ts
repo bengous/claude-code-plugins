@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import type { Answer, GrillPosts } from "./protocol.ts";
+import type { Answer, TurnAnswer } from "./contract.ts";
 import {
   appendAnswer,
   appendEvent,
@@ -23,7 +23,7 @@ const STYLE = { title: "Style", ask: "bright or plain?", rec: "I recommend brigh
 const opened = header("auth", "4c2a9d93", AT);
 
 /** Claude's final text as the hooks module posts it: by default a turn a relay started, ended on its answer, that asked no round. */
-function said(text: string, turn: Partial<GrillPosts["answer"]> = {}): GrillPosts["answer"] {
+function said(text: string, turn: Partial<TurnAnswer> = {}): TurnAnswer {
   return { text, reason: "answer", own: true, asked: false, ...turn };
 }
 

@@ -34,11 +34,30 @@ const PAGE_SURFACE = [
 /** The one import of ours the hooks module loads, from `register.ts` alone. */
 const ENGINE_REGISTRY = "../../extensions/engine.ts";
 
-const HALVES = [
-  { file: "page.tsx", type: "PageExtension", registry: "page.ts" },
-  { file: "server.ts", type: "ServerExtension", registry: "server.ts" },
-  { file: "engine.ts", type: "EngineExtension", registry: "engine.ts" },
+/** A half's file, how it declares itself before `= { id: "<id>"` (`\w+` for any name), and the registry that names it. */
+type Half = { readonly file: string; readonly declared: string; readonly registry: string };
+
+const HALVES: readonly Half[] = [
+  { file: "page.tsx", declared: "\\w+: PageExtension", registry: "page.ts" },
+  { file: "server.ts", declared: "\\w+: ServerExtension", registry: "server.ts" },
+  { file: "engine.ts", declared: "\\w+: EngineExtension", registry: "engine.ts" },
 ];
+
+/** A slice's halves: a folder holding `contract.ts`, each half typed by its plugs and named as its file is. */
+const SLICE_HALVES: readonly Half[] = [
+  { file: "page.tsx", declared: "page: PageHalf<\\w+Plugs>", registry: "page.ts" },
+  { file: "server.ts", declared: "server: ServerHalf<\\w+Plugs>", registry: "server.ts" },
+  { file: "hooks.ts", declared: "hooks: HooksHalf<\\w+Plugs>", registry: "engine.ts" },
+];
+
+const CONTRACT = "contract.ts";
+
+/** Each folder of `src/extensions/` read through its `contract.ts`, by its path. */
+function slices(): string[] {
+  return readdirSync(EXTENSIONS, { withFileTypes: true })
+    .filter((entry) => entry.isDirectory() && existsSync(join(EXTENSIONS, entry.name, CONTRACT)))
+    .map(({ name }) => `${EXTENSIONS}/${name}`);
+}
 
 function sources(dir: string): string[] {
   return readdirSync(join(ROOT, dir), { recursive: true, withFileTypes: true })
@@ -61,9 +80,27 @@ function imports(file: string): string[] {
 
 /** What the file loads at run time: the transpiler drops every type-only import. */
 function valueImports(file: string): string[] {
-  return new Bun.Transpiler({ loader: "ts" })
+  return new Bun.Transpiler({ loader: file.endsWith(".tsx") ? "tsx" : "ts" })
     .scanImports(readFileSync(file, "utf8"))
     .map(({ path }) => path);
+}
+
+/** Every file `entry` loads at run time, itself included, following its relative imports; a bare one is kept as written. */
+function loadedBy(entry: string): string[] {
+  const loaded = new Set<string>();
+  const waiting = [entry];
+
+  for (let file = waiting.pop(); file !== undefined; file = waiting.pop()) {
+    if (loaded.has(file)) continue;
+    loaded.add(file);
+
+    for (const path of valueImports(file)) {
+      if (path.startsWith(".")) waiting.push(slashed(resolve(dirname(file), path)));
+      else loaded.add(path);
+    }
+  }
+
+  return [...loaded];
 }
 
 function short(path: string): string {
@@ -182,12 +219,15 @@ describe("the page without a browser", () => {
 
 describe("extensions", () => {
   test("an extension imports core/ and its own folder, never another extension", () => {
+    const contracts = slices().map((slice) => `${slice}/${CONTRACT}`);
+
     const stray = relativeImports("src/extensions")
       .filter(({ file }) => slashed(dirname(file)) !== EXTENSIONS)
-      .filter(({ file, target }) => {
+      .filter(({ file, specifier, target }) => {
         const own = `${EXTENSIONS}/${slashed(relative(EXTENSIONS, file)).split("/")[0] ?? ""}`;
+        const typed = contracts.includes(target) && !valueImports(file).includes(specifier);
 
-        return !target.startsWith(`${own}/`) && !target.startsWith(`${CORE}/`);
+        return !target.startsWith(`${own}/`) && !target.startsWith(`${CORE}/`) && !typed;
       })
       .map(({ file, specifier }) => `${short(file)} imports ${specifier}`);
 
@@ -220,19 +260,22 @@ describe("extensions", () => {
     const broken = readdirSync(EXTENSIONS, { withFileTypes: true })
       .filter((entry) => entry.isDirectory())
       .flatMap(({ name: id }) => {
-        const present = HALVES.filter(({ file }) => existsSync(join(EXTENSIONS, id, file)));
+        const halves = existsSync(join(EXTENSIONS, id, CONTRACT)) ? SLICE_HALVES : HALVES;
+        const present = halves.filter(({ file }) => existsSync(join(EXTENSIONS, id, file)));
 
-        if (present.length === 0)
-          return [`src/extensions/${id} holds no page.tsx, server.ts or engine.ts`];
+        if (present.length === 0) {
+          return [`src/extensions/${id} holds no ${halves.map(({ file }) => file).join(", ")}`];
+        }
 
-        return present.flatMap(({ file, type, registry }) => {
+        return present.flatMap(({ file, declared, registry }) => {
           const path = `${EXTENSIONS}/${id}/${file}`;
-          const declared = new RegExp(`export const \\w+: ${type} = \\{\\s*id: "([^"]+)"`, "u");
+          const declaration = new RegExp(`export const ${declared} = \\{\\s*id: "([^"]+)"`, "u");
+          const wanted = `export const ${declared.replaceAll("\\w+", "…")} = { id: "${id}", … }`;
 
           return [
-            ...(declared.exec(readFileSync(path, "utf8"))?.[1] === id
+            ...(declaration.exec(readFileSync(path, "utf8"))?.[1] === id
               ? []
-              : [`${short(path)} declares no \`export const …: ${type} = { id: "${id}", … }\``]),
+              : [`${short(path)} declares no \`${wanted}\``]),
             ...(imports(join(EXTENSIONS, registry)).includes(`./${id}/${file}`)
               ? []
               : [`${short(path)} is not named in src/extensions/${registry}`]),
@@ -249,5 +292,76 @@ describe("extensions", () => {
       .map((entry) => short(slashed(join(entry.parentPath, entry.name))));
 
     expect(named).toEqual([]);
+  });
+});
+
+describe("slices", () => {
+  test("another folder reads a slice through its contract.ts alone; a registry takes its halves", () => {
+    const halfOf = new Map(
+      SLICE_HALVES.map(({ file, registry }) => [`${EXTENSIONS}/${registry}`, file]),
+    );
+
+    const stray = slices().flatMap((slice) =>
+      [...relativeImports("src"), ...relativeImports("e2e")].flatMap(({ file, target }) => {
+        const reaching = target.startsWith(`${slice}/`) && !file.startsWith(`${slice}/`);
+        const read = [CONTRACT, halfOf.get(file)].includes(target.slice(slice.length + 1));
+
+        return reaching && !read
+          ? [`${short(file)} imports ${short(target)}: import ${short(slice)}/${CONTRACT} instead`]
+          : [];
+      }),
+    );
+
+    expect(stray).toEqual([]);
+  });
+
+  test("a slice reads another slice's contract.ts as types alone: its values are that slice's server's", () => {
+    const loaded = sources("src/extensions").flatMap((file) =>
+      valueImports(file)
+        .filter((path) => path.startsWith("."))
+        .map((path) => ({ file, target: slashed(resolve(dirname(file), path)) })),
+    );
+
+    const stray = slices().flatMap((slice) =>
+      loaded
+        .filter(
+          ({ file, target }) => target === `${slice}/${CONTRACT}` && !file.startsWith(`${slice}/`),
+        )
+        .map(({ file }) => `${short(file)} loads ${short(slice)}/${CONTRACT}: \`import type\` it`),
+    );
+
+    expect(stray).toEqual([]);
+  });
+
+  test("a slice's hooks half loads its own folder alone, and its contract as types", () => {
+    const stray = slices()
+      .filter((slice) => existsSync(`${slice}/hooks.ts`))
+      .flatMap((slice) =>
+        loadedBy(`${slice}/hooks.ts`)
+          .filter((file) => !file.startsWith(`${slice}/`) || file === `${slice}/${CONTRACT}`)
+          .map(
+            (file) =>
+              `${short(slice)}/hooks.ts loads ${file.startsWith(`${ROOT}/`) ? short(file) : file}: the hooks module loads the slice's folder alone, and \`import type\` its ${CONTRACT}`,
+          ),
+      );
+
+    expect(stray).toEqual([]);
+  });
+
+  test("a slice's page half reads its contract as types: the contract's values are the server's", () => {
+    const stray = slices()
+      .filter((slice) => existsSync(`${slice}/page.tsx`))
+      .flatMap((slice) =>
+        loadedBy(`${slice}/page.tsx`)
+          .filter((file) =>
+            [CONTRACT, "server.ts", "hooks.ts"].some((one) => file === `${slice}/${one}`),
+          )
+          .map(
+            (file) =>
+              `${short(slice)}/page.tsx loads ${short(file)}: the page takes what it needs as \`import type\``,
+          ),
+      );
+
+    expect(stray).toEqual([]);
   });
 });

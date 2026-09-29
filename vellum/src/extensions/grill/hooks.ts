@@ -1,37 +1,24 @@
 import type {
-  EngineContext,
-  EngineExtension,
-  ExtensionTool,
+  HooksContext,
+  HooksHalf,
+  HooksTool,
   ToolAnswer,
-  ToolContext,
 } from "../../core/engine/extension.ts";
 import type { Live } from "../../core/engine/mode.ts";
-import {
-  NO_GRILL_OPEN,
-  parseAsked,
-  parseError,
-  parseJson,
-  parseQuestions,
-  parseWaited,
-} from "./parse.ts";
-import { ASK_TOOL, type GrillPosts } from "./protocol.ts";
+import type { StepPlugs } from "../step/contract.ts";
+import type { GrillPlugs } from "./contract.ts";
+import { ANSWERS, ASK_TOOL, NO_GRILL_OPEN, parseQuestions } from "./parse.ts";
 
-/** `step`'s tool, the one way to a grill: named, never imported, since an extension loads its own folder alone. */
-const PROPOSE_TOOL = "mcp__vellum__propose";
+type Context = HooksContext<GrillPlugs>;
+
+/** `step`'s tool, the one way to a grill: its name held to the step's contract, since a hooks half loads its own folder alone. */
+const PROPOSE_TOOL: `mcp__vellum__${StepPlugs["hooks"]["tools"]}` = "mcp__vellum__propose";
 
 /** The modes whose running turn asked a round no answer came back to: its text goes with that round, before a reply sent meanwhile. */
 const askedIn = new WeakSet<Live>();
 
 const CLOSED_WITHOUT_SEND =
   "The round was closed from the page: what the reviewer sent arrives as a prompt. End your turn.";
-
-function post<Name extends keyof GrillPosts>(
-  context: EngineContext,
-  name: Name,
-  body: GrillPosts[Name],
-): ReturnType<EngineContext["api"]["post"]> {
-  return context.api.post(name, JSON.stringify(body));
-}
 
 /**
  * Holds the call until the round closes, one `POST wait` in flight at a time: the engine cuts
@@ -40,14 +27,15 @@ function post<Name extends keyof GrillPosts>(
  * closed without one comes back as a prompt. A wait that fails throws: the core's `.catch`
  * answers Claude, and what the round gets reaches it through the channel.
  */
-async function waitFor(context: ToolContext, file: string, first: number): Promise<ToolAnswer> {
+async function waitFor(context: Context, file: string, first: number): Promise<ToolAnswer> {
   for (;;) {
-    const response = await post(context, "wait", { file, first });
-    const waited = response.ok ? parseWaited(parseJson(response.text)) : null;
+    const posted = await context.post("POST wait", { file, first });
 
-    if (waited === null) {
-      throw new Error(`POST wait answered ${response.status}: ${response.text.slice(0, 200)}`);
+    if (!posted.ok) {
+      throw new Error(`POST wait answered ${posted.status}: ${posted.text.slice(0, 200)}`);
     }
+
+    const waited = posted.answer;
 
     if (waited.kind === "open") continue;
     askedIn.delete(context.live);
@@ -59,8 +47,7 @@ async function waitFor(context: ToolContext, file: string, first: number): Promi
 }
 
 /** Kept small on purpose: a tool's schema rides in every request. */
-const ASK: ExtensionTool = {
-  name: "grill_ask",
+const ASK: HooksTool<Context> = {
   description:
     "Ask one round of the open grill of a vellum planning session, and wait: the reviewer answers in the review page, and their reply is this call's result. q: one [title, question, recommendation] per question; title is one line of plain text, question and recommendation are Markdown; the page numbers them across the whole grill. Refused outside vellum planning, and when no grill is open: only the reviewer opens one, from the next step you propose or on their own. While a grill is open you may still write plan.md: it waits, and a prompt tells you once the grill ends.",
   inputSchema: {
@@ -85,27 +72,27 @@ const ASK: ExtensionTool = {
     }
 
     const q = questions.map(({ title, ask, rec }) => [title, ask, rec] as const);
-    const response = await post(context, "ask", { q });
-    const asked = response.ok ? parseAsked(parseJson(response.text)) : null;
+    const posted = await context.post("POST ask", { q });
 
-    if (asked !== null) {
+    if (posted.ok) {
       askedIn.add(context.live);
       context.waiting();
 
-      return await waitFor(context, asked.file, asked.first);
+      return await waitFor(context, posted.answer.file, posted.answer.first);
     }
 
-    const error = parseError(parseJson(response.text));
+    if (posted.reason === NO_GRILL_OPEN) {
+      return { deny: `${posted.reason}: propose one with ${PROPOSE_TOOL}` };
+    }
 
-    if (error === NO_GRILL_OPEN) return { deny: `${error}: propose one with ${PROPOSE_TOOL}` };
-
-    return { deny: error ?? `the review server answered ${response.status}` };
+    return { deny: posted.reason ?? `the review server answered ${posted.status}` };
   },
 };
 
-export const grillEngine: EngineExtension = {
+export const hooks: HooksHalf<GrillPlugs> = {
   id: "grill",
-  tools: [ASK],
+  tools: { grill_ask: ASK },
+  answers: ANSWERS,
   // The page is the reviewer's one channel while live, so the terminal's question tool is closed.
   refuses: {
     AskUserQuestion: `vellum is live: propose the next step with ${PROPOSE_TOOL}, or ask inside an open grill with ${ASK_TOOL}`,
@@ -114,14 +101,14 @@ export const grillEngine: EngineExtension = {
   // terminal is not the grill's. The server writes only while a grill is open.
   prompted: async (context, prompt) => {
     if (prompt.text.trimStart().startsWith("/")) {
-      await post(context, "event", { command: prompt.text });
+      await context.post("POST event", { command: prompt.text });
     }
   },
   answered: async (context, turn) => {
     const asked = askedIn.delete(context.live);
-    await post(context, "answer", { ...turn, asked });
+    await context.post("POST answer", { ...turn, asked });
   },
   closing: async (context) => {
-    await post(context, "close", { reason: "stop" });
+    await context.post("POST close", { reason: "stop" });
   },
 };

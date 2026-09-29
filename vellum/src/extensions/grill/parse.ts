@@ -1,6 +1,26 @@
-import type { Asked, CloseReason, GrillPosts, Question, Waited } from "./protocol.ts";
+import type { Answers } from "../../core/engine/extension.ts";
+import type { Bodies } from "../../core/extension.ts";
+import type {
+  Asked,
+  CloseReason,
+  GrillPlugs,
+  Question,
+  QuestionTriple,
+  TurnAnswer,
+  Waited,
+} from "./contract.ts";
 
-/** The boundary of `grill`: what a request carries arrives as `unknown` and is parsed here, once. */
+/**
+ * The boundary of `grill`: what a request carries arrives as `unknown` and is parsed here, once;
+ * and the words every runtime of the grill reads, the hooks module and the page included, since
+ * `contract.ts` holds the server's values.
+ */
+
+/** The tool Claude asks a round with: the hooks half serves it, the server names it to Claude. */
+export const ASK_TOOL = "mcp__vellum__grill_ask";
+
+/** A reply's answer that takes the recommendation by choice, where an answer left out takes it by default. */
+export const AS_RECOMMENDED = "As recommended.";
 
 /** No leading zero: `grillFile(grillNumber(name))` must give the name back, or the transcript read is not the one listed. */
 const GRILL_FILE = /^grill-([1-9]\d*)\.md$/u;
@@ -54,6 +74,13 @@ export function parseSubject(input: unknown): string | null {
   return isRecord(input) ? subjectText(input.subject) : null;
 }
 
+/** What another slice's `start` hands the grill: the subject it opens on. */
+export function parseOpened(input: unknown): GrillPlugs["opened"] | null {
+  const subject = parseSubject(input);
+
+  return subject === null ? null : { subject };
+}
+
 export function parseCloseReason(body: unknown): CloseReason | null {
   if (!isRecord(body)) return null;
   const { reason } = body;
@@ -61,8 +88,15 @@ export function parseCloseReason(body: unknown): CloseReason | null {
   return reason === "page" || reason === "stop" ? reason : null;
 }
 
+/** `POST close`: who ends the grill. */
+function parseClose(body: unknown): { readonly reason: CloseReason } | null {
+  const reason = parseCloseReason(body);
+
+  return reason === null ? null : { reason };
+}
+
 /** `POST wait`: the transcript a round was asked in, and its first question's number. */
-export function parseWait(body: unknown): GrillPosts["wait"] | null {
+export function parseWait(body: unknown): { readonly file: string; readonly first: number } | null {
   return isRecord(body) &&
     typeof body.file === "string" &&
     typeof body.first === "number" &&
@@ -72,14 +106,14 @@ export function parseWait(body: unknown): GrillPosts["wait"] | null {
     : null;
 }
 
-export function parseEvent(body: unknown): GrillPosts["event"] | null {
+export function parseEvent(body: unknown): { readonly command: string } | null {
   const command = isRecord(body) ? text(body.command) : null;
 
   return command === null ? null : { command };
 }
 
 /** An empty text is a turn that ended without one: the transcript says so, so it is kept. */
-export function parseAnswer(body: unknown): GrillPosts["answer"] | null {
+export function parseAnswer(body: unknown): TurnAnswer | null {
   return isRecord(body) &&
     typeof body.text === "string" &&
     typeof body.reason === "string" &&
@@ -87,6 +121,11 @@ export function parseAnswer(body: unknown): GrillPosts["answer"] | null {
     typeof body.asked === "boolean"
     ? { text: body.text, reason: body.reason, own: body.own, asked: body.asked }
     : null;
+}
+
+/** `GET blocks`: the transcript's name the page asks for, `null` when it names none; the route answers 404 then. */
+function parseBlocksQuery(query: unknown): { readonly file: string | null } {
+  return { file: isRecord(query) && typeof query.file === "string" ? query.file : null };
 }
 
 /**
@@ -126,6 +165,15 @@ export function parseQuestions(input: unknown): readonly Question[] | null {
   return questions.every((question) => question !== null) ? questions : null;
 }
 
+/** `POST ask`: the round as triples, each one a question `parseQuestions` takes. */
+function parseAsk(body: unknown): { readonly q: readonly QuestionTriple[] } | null {
+  const questions = parseQuestions(body);
+
+  return questions === null
+    ? null
+    : { q: questions.map(({ title, ask, rec }): QuestionTriple => [title, ask, rec]) };
+}
+
 export function parseJson(json: string): unknown {
   try {
     return JSON.parse(json);
@@ -155,8 +203,23 @@ export function parseWaited(value: unknown): Waited | null {
     ? { kind: "answered", seq: value.seq, text: value.text }
     : null;
 }
-
-export function parseError(value: unknown): string | null {
-  return isRecord(value) && typeof value.error === "string" ? value.error : null;
-}
 /* oxlint-enable anti-slop/no-runtime-typeof, anti-slop/no-unknown-parameters, anti-slop/no-unsafe-dictionary-type, anti-slop/no-unknown-returns, anti-slop/no-known-value-widening */
+
+/** What each route reads of its request, parsed before the route runs: 400 when it is not one. */
+export const BODIES: Bodies<GrillPlugs["server"]> = {
+  "GET blocks": parseBlocksQuery,
+  "POST close": parseClose,
+  "POST ask": parseAsk,
+  "POST wait": parseWait,
+  "POST event": parseEvent,
+  "POST answer": parseAnswer,
+};
+
+/** The answer of each route the hooks half posts; `null` for a route that answers nothing. */
+export const ANSWERS: Answers<GrillPlugs> = {
+  "POST ask": parseAsked,
+  "POST wait": parseWaited,
+  "POST event": null,
+  "POST answer": null,
+  "POST close": null,
+};
