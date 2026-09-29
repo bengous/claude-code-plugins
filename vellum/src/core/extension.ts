@@ -1,6 +1,6 @@
 import type { ComponentType } from "preact";
 
-import type { AnswerOf, InputOf, Json, Parser, Plugs, ReadingOf } from "./plugs.ts";
+import type { AnswerOf, InputOf, Json, Parser, Plugs, ReadingOf, Undeclared } from "./plugs.ts";
 import type {
   Annotation,
   DocLink,
@@ -148,6 +148,27 @@ export type Part =
       readonly input: string;
     };
 
+/**
+ * What the proof of the table (`extensions/proof.ts`) reads of a part's region, from the part's
+ * own `walk.ts`, which the runtime never loads: where a walk starts, what tells two regions
+ * apart, where it stops, the call an open wait is for and the event that answers it, and what
+ * must hold of the workflow wherever the walk goes.
+ */
+export type WalkOf = {
+  /** The region with no file written. */
+  readonly empty: Region;
+  /** What the invariants tell apart in the region, the counters they never read left out, so the walk ends. */
+  readonly key: (region: Region) => string;
+  /** Whether the region stays inside the walk's bounds; with none, every region does. */
+  readonly bounded?: (region: Region) => boolean;
+  /** The call the region's open wait is for: a proposal's id, the open round. */
+  readonly call?: (region: Region) => string;
+  /** Whether an event the table allowed answers that wait. */
+  readonly answers?: (event: string, input: EventInput) => boolean;
+  /** What must hold of every workflow the walk reaches, by name: `true` when it is broken. */
+  readonly invariants?: { readonly [name: string]: (w: Workflow) => boolean };
+};
+
 /** What an extension brings to the workflow: its part of the table, its region, its segment of the band. */
 export type ServerWorkflow = TablePart & {
   /**
@@ -199,7 +220,12 @@ export type PageSlot = Exclude<keyof PageExtension, "id">;
 /** What a slice's `page.tsx` fills: every slot its plugs declare, and no other. */
 export type PageHalf<P extends Plugs> = { readonly id: P["id"] } & {
   readonly [Slot in P["page"]]-?: NonNullable<PageExtension[Slot]>;
-} & { readonly [Slot in Exclude<PageSlot, P["page"]>]?: never };
+} & {
+  readonly [Slot in Exclude<PageSlot, P["page"]>]?: Undeclared<
+    `${Slot} is not declared in contract.ts: add it to page`,
+    NonNullable<PageExtension[Slot]>
+  >;
+};
 
 /**
  * A refusal as a slice's route answers it: 400 and 404 in plain text, 409 as `{ error }`. A row
@@ -245,7 +271,7 @@ export type SliceContext<P extends Plugs> = Omit<ServerContext, "dispatch" | "st
 export type Reply<A> = { readonly answer: A } | { readonly refused: Refusal };
 
 /** One handler per route the plugs declare: a POST's takes its body, a GET's its query, parsed. */
-export type Handlers<P extends Plugs> = {
+export type ContractRoutes<P extends Plugs> = {
   readonly [Key in keyof P["server"]]: [InputOf<P["server"], Key>] extends [never]
     ? (context: SliceContext<P>) => Promise<Reply<AnswerOf<P["server"], Key>>>
     : (
@@ -268,7 +294,16 @@ export type SendPart<T> =
 
 /** What opens the slice from another's route, when its plugs say something does: the input parsed, then what Claude is told of it. */
 type Opening<P extends Plugs> = [P["opened"]] extends [never]
-  ? { readonly opened?: never; readonly start?: never }
+  ? {
+      readonly opened?: Undeclared<
+        "opened is not declared in contract.ts: declare what opens the slice (opened)",
+        Parser<Json>
+      >;
+      readonly start?: Undeclared<
+        "start is not declared in contract.ts: declare what opens the slice (opened)",
+        (context: SliceContext<P>, input: never) => Promise<string>
+      >;
+    }
   : {
       readonly opened: Parser<P["opened"]>;
       readonly start: (context: SliceContext<P>, input: P["opened"]) => Promise<string>;
@@ -276,7 +311,16 @@ type Opening<P extends Plugs> = [P["opened"]] extends [never]
 
 /** Its part of the bar's Send, when its plugs say it carries one. */
 type Sending<P extends Plugs> = [P["sends"]] extends [never]
-  ? { readonly part?: never }
+  ? {
+      readonly part?: Undeclared<
+        "part is not declared in contract.ts: declare what the slice's Send part carries (sends)",
+        (
+          context: SliceContext<P>,
+          draft: Draft,
+          takeDefaults: readonly string[],
+        ) => Promise<SendPart<Json>>
+      >;
+    }
   : {
       readonly part: (
         context: SliceContext<P>,
@@ -292,7 +336,7 @@ type Sending<P extends Plugs> = [P["sends"]] extends [never]
 export type ServerHalf<P extends Plugs> = {
   readonly id: P["id"];
   readonly bodies: Bodies<P["server"]>;
-  readonly routes: Handlers<P>;
+  readonly routes: ContractRoutes<P>;
   readonly workflow: SliceWorkflow<P["events"], P["hears"]>;
 } & Opening<P> &
   Sending<P>;

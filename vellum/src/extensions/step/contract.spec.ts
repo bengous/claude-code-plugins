@@ -22,7 +22,7 @@ import { rows, tablePart } from "../../core/server/domain/rows.ts";
 import type { Workflow } from "../../core/server/domain/workflow.ts";
 import { serverExtension } from "../../core/server/slice.ts";
 import type { Proposal, StepEvents, StepPlugs } from "./contract.ts";
-import { EVENTS } from "./contract.ts";
+import { SLICE } from "./contract.ts";
 import { hooks } from "./hooks.ts";
 import { page } from "./page.tsx";
 import { ANSWERS, BODIES, parseProposal, parseProposed } from "./parse.ts";
@@ -250,13 +250,13 @@ describe("the hooks half's client is typed by the same plugs (3)", () => {
 });
 
 describe("the rows and the routes name the step's own events, with what each carries (4)", () => {
-  const { refuse } = rows(EVENTS);
+  const { refuse } = rows(SLICE);
 
-  test("a row on an event the step does not own does not compile: it would judge the core's approval", () => {
-    // @ts-expect-error -- the step owns propose, wait, pause and answerProposal: `approve` is the core's.
-    const row = refuse("approve", "no-proposal", noProposalWaits, 409, "no proposal waits");
+  test("a row on an event the step neither owns nor hears does not compile: it would judge the core's version", () => {
+    // @ts-expect-error -- the step owns propose, wait, pause and answerProposal, and hears approve, planWritten and sendEdit: `record` is none.
+    const row = refuse("record", "no-proposal", noProposalWaits, 409, "no proposal waits");
 
-    expect(String(row.event)).toBe("approve");
+    expect(String(row.event)).toBe("record");
   });
 
   test("a guard reading a field its event does not carry does not compile: every pause would throw", () => {

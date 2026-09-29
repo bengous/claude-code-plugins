@@ -13,17 +13,18 @@ bar, its notices under the bar, its panel beside the document pane, placed by `p
 Send, what another extension may `start`). Both types live in `src/core/extension.ts`. Its part
 of the workflow is `workflow.ts`, pure: its region (`regionOf`), its events, rows, transitions
 and reaction to the others' events, its segment of the band, and its line in the workflow's
-view (`lineOf`, what `mcp__vellum__state` prints); the server half hands it to the
-core with its region's read, and an engine half may import it as types only. `markdown`, `html`, `image`, `grill` and `step` are
-extensions like the next ones. A third half,
-`engine.ts`, declares an `EngineExtension` (`src/core/engine/extension.ts`): tools, refusals,
-and the engine events the core hands it; its segment of the band is its region's, drawn by
-`workflow.ts` on the server, which sends it on the `stage` line. `grill`, `step` and `review` have all three.
+view (`lineOf`, what `mcp__vellum__state` prints); what the proof of the table reads of its region
+is `walk.ts` beside it, which only the tests load (`slices.md`). The server half hands the part to
+the core with its region's read, and an engine half
+may import it as types only. A third half, `engine.ts`, declares an `EngineExtension`
+(`src/core/engine/extension.ts`): tools, refusals, and the engine events the core hands it; its
+segment of the band is its region's, drawn by `workflow.ts` on the server, which sends it on the
+`stage` line.
 
-- `step` and `grill` are slices, each read through its `contract.ts`: its messages live there,
-  not in a `protocol.ts`, its hooks half is `hooks.ts` with `hooks.test.ts`, its part of the
-  workflow its model (`proposal.ts`, `grill.ts`), and its halves are typed by its plugs.
-  `slices.md` says what differs.
+- A folder holding `contract.ts` is a slice, read through that file: its messages live there, not
+  in a `protocol.ts`, its hooks half is `hooks.ts` with `hooks.test.ts`, its part of the workflow
+  its model, named after it, and its halves are typed by its declaration. `slices.md` says what
+  differs; a new extension is a slice.
 - Read the code before this text, smallest first: `image/page.tsx` is a whole extension,
   `markdown/server.ts` a server half, `html/pick.ts` with `pick.spec.ts` a helper and its
   test. They compile and they are tested, so they cannot drift; copy their shape.

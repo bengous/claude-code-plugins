@@ -8,6 +8,7 @@ import type {
   ServerContext,
   ServerExtension,
   ServerHalf,
+  SliceDispatched,
   SliceVerdict,
 } from "../extension.ts";
 import type { Json, Parser, Plugs } from "../plugs.ts";
@@ -23,6 +24,33 @@ import { HELD } from "./domain/workflow.ts";
  * row declares; what opens it and its part of the Send, when it has them; the workflow part
  * becomes the `TablePart` `next` judges.
  */
+
+/**
+ * A `POST wait` of a call that waits on `id` in `region`: a wait a pause or a restart left paused
+ * opens again through `reopen`, the slice's event that marks it open; then the route holds, under
+ * the engine's cut, until `read` says the wait ended, or for the hold at most. A repost while the
+ * call already waits is a keepalive: no step, no journal line (E4).
+ */
+export async function heldWait<W extends { readonly kind: string }>(
+  context: Pick<ServerContext, "workflow" | "hold" | "inOrder">,
+  region: string,
+  id: string,
+  reopen: () => Promise<SliceDispatched>,
+  read: () => Promise<W>,
+): Promise<Reply<W>> {
+  const waiting = (await context.workflow()).regions.find((one) => one.id === region);
+
+  if (waiting?.state === "open" && waiting.data.pending === id && waiting.wait !== "open") {
+    await reopen();
+  }
+
+  return {
+    answer: await context.hold(
+      () => context.inOrder(read),
+      ({ kind }) => kind === "open",
+    ),
+  };
+}
 
 /** What a refusal by a row the slice does not own answers: the core's, another slice's. */
 const FOREIGN: RefusalStatus = 409;

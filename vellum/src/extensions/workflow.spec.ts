@@ -1,49 +1,17 @@
 import { describe, expect, test } from "bun:test";
 
-import { parseWipDir } from "../core/server/domain/paths.ts";
-import type {
-  Effect,
-  EventInput,
-  Region,
-  RuleVerdict,
-  Step,
-  Table,
-  Workflow,
-} from "../core/server/domain/workflow.ts";
+import type { EventInput, RuleVerdict, Step, Workflow } from "../core/server/domain/workflow.ts";
 import {
-  held,
   next,
   pillOf,
-  planExists,
   refusedNow,
   SAMPLE_AT,
   stageOf,
-  tableOf,
   viewOf,
 } from "../core/server/domain/workflow.ts";
-import { regionOf as grillRegion, roundCall } from "./grill/grill.ts";
-import { grillFile } from "./grill/parse.ts";
-import { nextQuestion, phaseOf, unanswered } from "./grill/transcript.ts";
-import { parseJson, parseReviews } from "./review/parse.ts";
-import { regionOf as reviewRegion } from "./review/workflow.ts";
-import { serverExtensions } from "./server.ts";
+import { EMPTY, INVARIANTS, PARTS, proof, returned, TABLE, told, WORDINGS } from "./proof.ts";
 import type { Move } from "./step/contract.ts";
-import { pendingOf, regionOf as stepRegion } from "./step/proposal.ts";
-
-/** The table as the server assembles it from the registry: the core's, then each extension's in order. */
-const TABLE: Table = tableOf(
-  serverExtensions.flatMap(({ workflow }) => (workflow === undefined ? [] : [workflow])),
-);
-
-const DIR = parseWipDir("plans/2026-09-26/wip-4c2a9d93/");
-
-if (!DIR.ok) throw new Error(DIR.error);
-
-const EMPTY: Workflow = {
-  workspace: { kind: "drafting", dir: DIR.value, batches: 0 },
-  planText: "absent",
-  regions: [grillRegion(null), stepRegion(null), reviewRegion(null)],
-};
+import { pendingOf } from "./step/proposal.ts";
 
 function tried(w: Workflow, event: string, input: EventInput = {}): Step {
   return next(w, TABLE, event, input, "engine");
@@ -63,13 +31,6 @@ function play(w: Workflow, ...events: readonly (readonly [string, EventInput])[]
   return now;
 }
 
-/** The texts a step tells Claude through the channel, in order. */
-function told(step: Step): string[] {
-  return step.effects.flatMap((effect) =>
-    effect.kind === "channel" && effect.entry.kind === "text" ? [effect.entry.text] : [],
-  );
-}
-
 /** The review as a rename that failed leaves it: the version under review, the error in memory. */
 function approvalFailed(w: Workflow): Workflow {
   const { workspace } = w;
@@ -77,10 +38,6 @@ function approvalFailed(w: Workflow): Workflow {
   if (workspace.kind !== "inReview") throw new Error("no version is under review");
 
   return { ...w, workspace: { ...workspace, finalizeError: "rename refused" } };
-}
-
-function returned(step: Step): Extract<Effect, { kind: "returnToCall" }>[] {
-  return step.effects.flatMap((effect) => (effect.kind === "returnToCall" ? [effect] : []));
 }
 
 const KEEP = { unchanged: "keep" };
@@ -285,7 +242,7 @@ describe("the approval", () => {
   test("closes the grill, and its entry comes after every extension closed theirs", () => {
     const step = tried(GRILLING, "approve", { ...APPROVE, confirmed: "grill 1 is open" });
 
-    expect(step.workflow.regions.map(({ state }) => state)).toEqual(["closed", "closed", "closed"]);
+    expect(step.workflow.regions.filter(({ state }) => state !== "closed")).toEqual([]);
     expect(step.effects.map(({ kind }) => kind)).toEqual([
       "approveDirectory",
       "appendFile",
@@ -415,17 +372,32 @@ describe("an answer reaches Claude once (P6)", () => {
   });
 });
 
+function refusedIn(w: Workflow): (readonly string[])[] {
+  return viewOf(w, TABLE, WORDINGS).refused.map(({ event, effect, reason }) => [
+    event,
+    effect,
+    reason,
+  ]);
+}
+
+/** The line the region `id` says itself in, as `mcp__vellum__state` prints it. */
+function lineOf(w: Workflow, id: string): string | undefined {
+  return viewOf(w, TABLE, WORDINGS).regions.find((region) => region.id === id)?.line;
+}
+
+/** The events a hold refuses or asks to confirm, as the registry declares them, that a real caller sends. */
+function heldBack(): readonly string[] {
+  return TABLE.events
+    .filter(({ whileHeld }) => whileHeld.effect !== "allow")
+    .filter(({ actors }) => actors.some((actor) => actor !== "engine"))
+    .map(({ id }) => id);
+}
+
+function eachOnce(refused: readonly (readonly string[])[]): boolean {
+  return new Set(refused.map(([event]) => event)).size === refused.length;
+}
+
 describe("what the page and the band read (§ 5.8)", () => {
-  const WORDINGS = serverExtensions.flatMap(({ id, workflow }) =>
-    workflow === undefined ? [] : [{ id, segment: workflow.segment, line: workflow.line }],
-  );
-
-  const refusedIn = (w: Workflow): (readonly string[])[] =>
-    viewOf(w, TABLE, WORDINGS).refused.map(({ event, effect, reason }) => [event, effect, reason]);
-
-  const linesOf = (w: Workflow): string[] =>
-    viewOf(w, TABLE, WORDINGS).regions.map(({ line }) => line);
-
   const MOCKUP: Move = { kind: "mockup", screen: "login" };
 
   const APPROVAL = {
@@ -461,17 +433,22 @@ describe("what the page and the band read (§ 5.8)", () => {
   });
 
   test("the view carries each region's state, hold, wait and line, never its files", () => {
-    expect(viewOf(GRILLING, TABLE, WORDINGS).regions).toEqual([
-      {
-        id: "grill",
-        state: "open",
-        holds: "grill 1 is open",
-        wait: null,
-        line: "grill 1: open · holds: grill 1 is open · question: none",
-      },
-      { id: "step", state: "closed", line: "step: none" },
-      { id: "review", state: "closed", line: "review: closed" },
-    ]);
+    const { regions } = viewOf(GRILLING, TABLE, WORDINGS);
+
+    expect(regions.find(({ id }) => id === "grill")).toEqual({
+      id: "grill",
+      state: "open",
+      holds: "grill 1 is open",
+      wait: null,
+      line: "grill 1: open · holds: grill 1 is open · question: none",
+    });
+    expect(regions.filter(({ id }) => id !== "grill")).toEqual(
+      PARTS.filter(({ id }) => id !== "grill").map(({ id, workflow, walk }) => ({
+        id,
+        state: "closed",
+        line: workflow.line(walk.empty),
+      })),
+    );
   });
 
   test("each region says itself as `mcp__vellum__state` prints it: a question paused, a proposal paused", () => {
@@ -479,30 +456,24 @@ describe("what the page and the band read (§ 5.8)", () => {
     const questionPaused = play(GRILLING, ["askQuestion", ROUND], ["turnAnswered", cut]);
     const proposalPaused = play(V1, ["propose", proposing("p3", MOCKUP)], ["pause", { id: "p3" }]);
 
-    expect(linesOf(questionPaused)).toEqual([
+    expect(lineOf(questionPaused, "grill")).toBe(
       "grill 1: open · holds: grill 1 is open · question: paused",
-      "step: none",
-      "review: closed",
-    ]);
-    expect(linesOf(proposalPaused)).toEqual([
-      "grill: closed",
-      "step: proposal p3 · wait: paused",
-      "review: closed",
-    ]);
+    );
+    expect(lineOf(proposalPaused, "step")).toBe("step: proposal p3 · wait: paused");
   });
 
   test("a question Claude waits on, a proposal it waits on, a run asked then running", () => {
     const asked = play(V1, ["requestReview", { version: "1" }]);
     const launched = { seq: "1", agentId: "agent-1", model: "claude-opus-5-5" };
 
-    expect(linesOf(play(GRILLING, ["askQuestion", ROUND]))[0]).toBe(
+    expect(lineOf(play(GRILLING, ["askQuestion", ROUND]), "grill")).toBe(
       "grill 1: open · holds: grill 1 is open · question: open",
     );
-    expect(linesOf(play(V1, ["propose", proposing("p3", MOCKUP)]))[1]).toBe(
+    expect(lineOf(play(V1, ["propose", proposing("p3", MOCKUP)]), "step")).toBe(
       "step: proposal p3 · wait: open",
     );
-    expect(linesOf(asked)[2]).toBe("review: plan review 1 of v1 requested");
-    expect(linesOf(play(asked, ["reviewLaunched", launched]))[2]).toBe(
+    expect(lineOf(asked, "review")).toBe("review: plan review 1 of v1 requested");
+    expect(lineOf(play(asked, ["reviewLaunched", launched]), "review")).toBe(
       "review: plan review 1 of v1 running",
     );
   });
@@ -511,30 +482,42 @@ describe("what the page and the band read (§ 5.8)", () => {
     expect(refusedIn(V1)).toEqual([["askQuestion", "refuse", "no grill is open"]]);
   });
 
-  test("refused under a grill: each event once, in the words a real caller meets", () => {
-    expect(refusedIn(GRILLING)).toEqual([
-      ["record", "refuse", "grill 1 is open: plan.md waits; you are told when it ends"],
-      ["sendEdit", "refuse", "grill 1 is open: the edit waits in the draft until it ends"],
-      ["approve", "confirm", "The review is held: grill 1 is open."],
-      ["openGrill", "refuse", "grill-1.md is open"],
-      ["propose", "refuse", "grill 1 is open: no step is proposed until it ends"],
-      ["answerProposal", "refuse", "grill 1 is open"],
-      ["requestReview", "refuse", "grill 1 is open"],
-    ]);
+  test("refused under a grill: each event once, every one a hold holds back, in the words a real caller meets", () => {
+    const refused = refusedIn(GRILLING);
+
+    expect(eachOnce(refused)).toBe(true);
+    expect(heldBack().filter((event) => !refused.some(([id]) => id === event))).toEqual([]);
+    expect(refused).toEqual(
+      expect.arrayContaining([
+        ["record", "refuse", "grill 1 is open: plan.md waits; you are told when it ends"],
+        ["sendEdit", "refuse", "grill 1 is open: the edit waits in the draft until it ends"],
+        ["approve", "confirm", "The review is held: grill 1 is open."],
+        ["openGrill", "refuse", "grill-1.md is open"],
+        ["propose", "refuse", "grill 1 is open: no step is proposed until it ends"],
+        ["answerProposal", "refuse", "grill 1 is open"],
+        ["requestReview", "refuse", "grill 1 is open"],
+      ]),
+    );
   });
 
   test("refused under a plan review: each event once, in the words a real caller meets", () => {
     const running = "plan review 1 of v1 is running";
 
-    expect(refusedIn(play(V1, ["requestReview", { version: "1" }]))).toEqual([
-      ["record", "refuse", `${running}: plan.md waits; you are told when it ends`],
-      ["sendEdit", "refuse", `${running}: the edit waits in the draft until it ends`],
-      ["approve", "confirm", `The review is held: ${running}.`],
-      ["askQuestion", "refuse", "no grill is open"],
-      ["propose", "refuse", `${running}: no step is proposed until it ends`],
-      ["answerProposal", "refuse", running],
-      ["requestReview", "refuse", "a review of v1 is running"],
-    ]);
+    const refused = refusedIn(play(V1, ["requestReview", { version: "1" }]));
+
+    expect(eachOnce(refused)).toBe(true);
+    expect(heldBack().filter((event) => !refused.some(([id]) => id === event))).toEqual([]);
+    expect(refused).toEqual(
+      expect.arrayContaining([
+        ["record", "refuse", `${running}: plan.md waits; you are told when it ends`],
+        ["sendEdit", "refuse", `${running}: the edit waits in the draft until it ends`],
+        ["approve", "confirm", `The review is held: ${running}.`],
+        ["askQuestion", "refuse", "no grill is open"],
+        ["propose", "refuse", `${running}: no step is proposed until it ends`],
+        ["answerProposal", "refuse", running],
+        ["requestReview", "refuse", "a review of v1 is running"],
+      ]),
+    );
   });
 
   test("refused on v2 under a grill: the edit of v2, in the hold's words, not a sample's v1", () => {
@@ -586,268 +569,16 @@ describe("what the page and the band read (§ 5.8)", () => {
   });
 });
 
-/**
- * A state as the invariants tell it apart: the workspace, `plan.md`, and each region by what it
- * holds and waits on, a transcript by its phase and the questions waiting, a proposal by its id and
- * moves, the runs by their kinds. Counters the invariants never read (a grill's number, a run's,
- * the Sends on a version) are left out, so the walk ends. Cached by identity: a step leaves every
- * region it does not touch as it was.
- */
-const keys = new WeakMap<Workflow | Region, string>();
-
-function cached(of: Workflow | Region, make: () => string): string {
-  const known = keys.get(of);
-
-  if (known !== undefined) return known;
-  const made = make();
-  keys.set(of, made);
-
-  return made;
-}
-
-function regionKey(region: Region): string {
-  return cached(region, () => {
-    const { id, state, data } = region;
-    const open = region.state === "open" ? [region.holds !== null, region.wait] : [];
-
-    if (id === "grill") {
-      const doc = String(data.doc ?? "");
-
-      return JSON.stringify([id, state, ...open, phaseOf(doc), unanswered(doc).length]);
-    }
-
-    if (id === "step") {
-      const moves = pendingOf({ ...EMPTY, regions: [region] })?.proposal.moves.map(
-        ({ kind }) => kind,
-      );
-
-      return JSON.stringify([id, state, ...open, data.pending, moves]);
-    }
-
-    const reviews = parseReviews(parseJson(String(data.reviews)));
-    const run = reviews?.run ?? null;
-
-    return JSON.stringify([
-      id,
-      state,
-      run?.kind,
-      run?.version,
-      reviews?.failed !== null,
-      reviews?.stopping.length,
-    ]);
-  });
-}
-
-function keyOf(w: Workflow): string {
-  return cached(w, () => {
-    const { workspace } = w;
-    const version = workspace.kind === "drafting" ? 0 : workspace.version;
-    const sent = workspace.kind !== "approved" && workspace.batches > 0;
-
-    return JSON.stringify([workspace.kind, version, sent, w.planText, ...w.regions.map(regionKey)]);
-  });
-}
-
-/** At most 3 versions (§ 5.10), two questions a grill and two agents to stop, so the walk ends. */
-function bounded(w: Workflow): boolean {
-  const { workspace } = w;
-  const [grill, , review] = w.regions;
-  const stopping = parseReviews(parseJson(String(review?.data.reviews)))?.stopping.length ?? 0;
-
-  return (
-    (workspace.kind === "drafting" || workspace.version <= 3) &&
-    nextQuestion(String(grill?.data.doc ?? "")) <= 3 &&
-    stopping <= 2
-  );
-}
-
-type Violations = Readonly<Record<string, string[]>>;
-
-type Walk = {
-  readonly states: number;
-  readonly steps: number;
-  readonly violations: Violations;
-  readonly reached: Readonly<Record<string, number>>;
-};
-
-const INVARIANTS = [
-  "heldDraftIsShown",
-  "noPlanStepOverAPlan",
-  "approvalClosesEverything",
-  "noticeOnceTheLastHoldFalls",
-  "answerReachesClaudeOnce",
-] as const;
-
-function stateBroken(w: Workflow): (typeof INVARIANTS)[number][] {
-  const hold = held(w);
-  const pending = pendingOf(w);
-
-  return [
-    ...(hold !== null &&
-    w.planText === "pending" &&
-    pillOf(w).text !== `Held · ${hold} · plan.md waits`
-      ? ["heldDraftIsShown" as const]
-      : []),
-    ...(planExists(w) && pending?.proposal.moves.some(({ kind }) => kind === "plan") === true
-      ? ["noPlanStepOverAPlan" as const]
-      : []),
-    ...(w.workspace.kind === "approved" && w.regions.some(({ state }) => state !== "closed")
-      ? ["approvalClosesEverything" as const]
-      : []),
-  ];
-}
-
-/** The call a region's open wait is, `null` with none: a proposal's id, or the open transcript. */
-function callOf(
-  w: Workflow,
-  id: "grill" | "step",
-): { readonly call: string; readonly wait: "open" | "paused" } | null {
-  const region = w.regions.find((one) => one.id === id);
-
-  if (region?.state !== "open" || region.wait === null) return null;
-
-  const call =
-    id === "step"
-      ? String(region.data.pending)
-      : roundCall(grillFile(Number(region.data.n)), String(region.data.doc));
-
-  return { call, wait: region.wait };
-}
-
-function stepBroken(
-  from: Workflow,
-  event: string,
-  input: EventInput,
-  step: Step,
-): (typeof INVARIANTS)[number][] {
-  const lifted =
-    held(from) !== null && held(step.workflow) === null && step.workflow.planText === "pending";
-
-  const notices = told(step).filter((text) => text.startsWith("plan.md changed while")).length;
-  const calls = returned(step).map(({ call }) => call);
-  const channel = step.effects.findIndex(({ kind }) => kind === "channel");
-  const firstCall = step.effects.findIndex(({ kind }) => kind === "returnToCall");
-  const answered = step.verdict.kind === "allow" ? answeredWait(from, event, input) : null;
-
-  const once =
-    new Set(calls).size === calls.length &&
-    (firstCall === -1 || (channel !== -1 && channel < firstCall)) &&
-    (answered === null
-      ? calls.length === 0
-      : answered.wait === "open"
-        ? calls.length === 1 && calls[0] === answered.call && channel !== -1
-        : calls.length === 0 && channel !== -1);
-
-  return [
-    ...(notices === (lifted ? 1 : 0) ? [] : ["noticeOnceTheLastHoldFalls" as const]),
-    ...(once ? [] : ["answerReachesClaudeOnce" as const]),
-  ];
-}
-
-/** The wait an allowed event answers: the proposal a pick settles, or the grill's questions a Send with its part closes. */
-function answeredWait(from: Workflow, event: string, input: EventInput): ReturnType<typeof callOf> {
-  if (event === "answerProposal") return callOf(from, "step");
-
-  return event === "send" && input.parts === "true" ? callOf(from, "grill") : null;
-}
-
-let walked: Walk | null = null;
-
-/** Breadth first from the empty workflow, every event with every sample, and a confirmation asked, confirmed. */
-function walk(): Walk {
-  if (walked !== null) return walked;
-  const seen = new Set([keyOf(EMPTY)]);
-  const queue = [EMPTY];
-
-  const violations: Record<string, string[]> = Object.fromEntries(
-    INVARIANTS.map((name) => [name, []]),
-  );
-
-  const reached = {
-    heldDraft: 0,
-    approvedOverOpen: 0,
-    returned: 0,
-    prompted: 0,
-    notices: 0,
-    pausedQuestions: 0,
-    planGoneInReview: 0,
-  };
-
-  let steps = 0;
-
-  const broke = (names: readonly string[], what: string): void => {
-    for (const name of names) if ((violations[name]?.length ?? 0) < 3) violations[name]?.push(what);
-  };
-
-  for (let at = 0; at < queue.length; at += 1) {
-    const from = queue[at] ?? EMPTY;
-
-    broke(stateBroken(from), keyOf(from));
-
-    if (held(from) !== null && from.planText === "pending") reached.heldDraft += 1;
-
-    if (from.workspace.kind === "inReview" && from.planText === "absent")
-      reached.planGoneInReview += 1;
-
-    if (from.regions[0]?.state === "open" && from.regions[0].wait === "paused")
-      reached.pausedQuestions += 1;
-
-    for (const decl of TABLE.events) {
-      for (const sample of decl.samples) {
-        const first = tried(from, decl.id, sample);
-
-        const confirmed =
-          first.verdict.kind === "confirm" ? [{ ...sample, confirmed: held(from) ?? "" }] : [];
-
-        for (const input of [sample, ...confirmed]) {
-          const step = input === sample ? first : tried(from, decl.id, input);
-          steps += 1;
-          broke(
-            stepBroken(from, decl.id, input, step),
-            `${decl.id} ${JSON.stringify(input)} from ${keyOf(from)}`,
-          );
-          reached.returned += returned(step).length;
-          reached.notices += told(step).filter((text) =>
-            text.startsWith("plan.md changed while"),
-          ).length;
-
-          if (
-            step.verdict.kind === "allow" &&
-            answeredWait(from, decl.id, input)?.wait === "paused"
-          )
-            reached.prompted += 1;
-
-          if (
-            step.workflow.workspace.kind === "approved" &&
-            from.workspace.kind !== "approved" &&
-            from.regions.some(({ state }) => state === "open")
-          )
-            reached.approvedOverOpen += 1;
-          const key = keyOf(step.workflow);
-
-          if (!bounded(step.workflow) || seen.has(key)) continue;
-          seen.add(key);
-          queue.push(step.workflow);
-        }
-      }
-    }
-  }
-
-  walked = { states: queue.length, steps, violations, reached };
-
-  return walked;
-}
-
 describe("the five invariants, on every state the walk reaches (§ 5.10)", () => {
   test("the walk reaches each case the invariants speak of", () => {
-    const { reached } = walk();
+    const { reached } = proof();
 
     expect(Object.entries(reached).filter(([, count]) => count === 0)).toEqual([]);
   });
 
   for (const name of INVARIANTS) {
     test(name, () => {
-      expect(walk().violations[name]).toEqual([]);
+      expect(proof().violations[name]).toEqual([]);
     });
   }
 });

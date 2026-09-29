@@ -157,6 +157,8 @@ export type TablePart = {
   readonly transitions: Readonly<Record<string, Transition>>;
   /** Its answer to the events of the others. */
   readonly reaction?: Transition | undefined;
+  /** The events of the others it judges or reacts to, when it says them: a slice's declaration does. */
+  readonly hears?: readonly string[];
 };
 
 export type Table = {
@@ -846,6 +848,14 @@ export const CORE_PART: TablePart = {
 /** The core's part first, then each extension's in the registry's order. */
 export function tableOf(parts: readonly TablePart[]): Table {
   const all = [CORE_PART, ...parts];
+  const owners = new Map<string, string>();
+
+  for (const { id, owner } of all.flatMap(({ events }) => events)) {
+    const first = owners.get(id);
+
+    if (first !== undefined) throw new Error(`${id} is declared by both ${first} and ${owner}`);
+    owners.set(id, owner);
+  }
 
   return {
     events: all.flatMap(({ events }) => events),

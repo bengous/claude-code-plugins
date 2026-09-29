@@ -6,6 +6,8 @@ import type {
   Stamps,
   Transitions,
 } from "../../core/server/domain/rows.ts";
+import { naming } from "../../core/server/domain/rows.ts";
+import { waitAfter, waitOn } from "../../core/server/domain/waits.ts";
 import type {
   Effect,
   Outcome,
@@ -120,9 +122,8 @@ export function regionOf(file: StepFile | null, before: Region | null = null): R
   const data = dataOf(known);
 
   if (known.pending === null) return { id: STEP, state: "closed", data };
-  const same = before?.state === "open" && before.data.pending === known.pending.id;
 
-  return { id: STEP, state: "open", holds: null, wait: same ? before.wait : "paused", data };
+  return { id: STEP, state: "open", holds: null, wait: waitAfter(before, known.pending.id), data };
 }
 
 /** The proposal waiting now, `null` with none. */
@@ -145,11 +146,11 @@ export const offersPlan = (_w: Workflow, input: { readonly proposal: string }): 
 
 export const noProposalWaits = (w: Workflow): boolean => pendingId(w) === "";
 
-export const namesAProposal = (_w: Workflow, input: { readonly id: string }): boolean =>
-  input.id !== "";
-
-export const namesAnotherProposal = (w: Workflow, input: { readonly id: string }): boolean =>
-  pendingId(w) !== input.id;
+export const { namesAProposal, namesAnotherProposal } = naming({
+  namesAProposal: (_w: Workflow, input: { readonly id: string }): boolean => input.id !== "",
+  namesAnotherProposal: (w: Workflow, input: { readonly id: string }): boolean =>
+    pendingId(w) !== input.id,
+});
 
 // The transitions.
 
@@ -161,14 +162,6 @@ function placed(w: Workflow, file: StepFile, wait: Wait | null): Workflow {
 
 function written(file: StepFile): Effect {
   return { kind: "writeFile", owner: STEP, file: STEP_FILE, text: `${JSON.stringify(file)}\n` };
-}
-
-function waitOn(w: Workflow, id: string, wait: Wait): Outcome {
-  const region = regionIn(w, STEP);
-
-  if (region.state !== "open" || region.data.pending !== id) return unchanged(w);
-
-  return { workflow: withRegion(w, { ...region, wait }), effects: [] };
 }
 
 /** A newer proposal replaces the one waiting, and Claude's call waits on it. */
@@ -215,8 +208,8 @@ function answerProposal(w: Workflow, input: Carried<StepEvents, "answerProposal"
 
 export const TRANSITIONS: Transitions<StepEvents> = {
   propose,
-  wait: (w, input) => waitOn(w, input.id, "open"),
-  pause: (w, input) => waitOn(w, input.id, "paused"),
+  wait: (w, input) => waitOn(w, STEP, input.id, "open"),
+  pause: (w, input) => waitOn(w, STEP, input.id, "paused"),
   answerProposal,
 };
 
@@ -269,7 +262,7 @@ export const REACTIONS: Reactions<StepHears> = {
   sendEdit: planWritten,
 };
 
-// The inputs `refusedNow` and the walk of `workflow.spec.ts` try.
+// The inputs `refusedNow` and the proof of the table (`extensions/proof.ts`) try.
 
 const PLAN_ONLY: Proposal = {
   reason: "The plan is next.",

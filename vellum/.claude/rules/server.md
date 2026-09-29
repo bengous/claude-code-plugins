@@ -38,8 +38,9 @@ Claude Code's `installed_plugins.json`, `git` with its `GIT_*` variables cleared
 - What holds the review is read off the workflow: `held`, the reason of the first region that
   holds, in the registry's order, as each extension's `regionOf` says it. Held has one meaning,
   written once per event (`whileHeld`): `record` is refused with the reason and no version of
-  Claude's lands, the refusal journaled and promising none; `propose`, a pick of a step and a
-  review asked are refused; a Send and an approval go through, the reviewer's word never held,
+  Claude's lands, the refusal journaled and promising none; every other event a part declares
+  held is refused, the hold its reason (`table.spec.ts.snap` lists them, `passes a hold` marks the
+  rest); a Send and an approval go through, the reviewer's word never held,
   the approval once a confirmation names that very hold (`Decision.confirmed`: another hold
   asks again). A Send's edit is the one part that waits (`sendEdit` is refused): it stays in the
   draft with the comments on the plan's lines, which are the edit's, the rest goes, and the

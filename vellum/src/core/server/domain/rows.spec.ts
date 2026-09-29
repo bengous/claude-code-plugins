@@ -1,10 +1,12 @@
 import { describe, expect, test } from "bun:test";
 
+import type { PlugsOf } from "../../plugs.ts";
+import { core, defineSlice, heard } from "../../plugs.ts";
 import { parseWipDir } from "./paths.ts";
-import type { CoreHeard, SlicePart } from "./rows.ts";
-import { allOf, anyOf, events, rows, tablePart } from "./rows.ts";
+import type { SlicePart } from "./rows.ts";
+import { allOf, anyOf, naming, rows, tablePart } from "./rows.ts";
 import type { Workflow } from "./workflow.ts";
-import { unchanged } from "./workflow.ts";
+import { tableOf, unchanged } from "./workflow.ts";
 
 const DIR = parseWipDir("plans/2026-09-28/wip-5e1ce000/");
 
@@ -16,27 +18,34 @@ const W: Workflow = {
   regions: [],
 };
 
-const EVENTS = events({
-  ask: { by: ["claude"], carries: ["id", "text"] },
-  drop: { by: ["engine", "reviewer"], carries: ["id"] },
+/** A slice's events, another slice's `pick` as its contract types it, and the core's `approve`. */
+const SLICE = defineSlice({
+  id: "slice",
+  events: {
+    ask: { by: ["claude"], carries: ["id", "text"] },
+    drop: { by: ["engine", "reviewer"], carries: ["id"] },
+  },
+  hears: {
+    pick: heard<{ readonly carries: readonly ["id", "move"] }>(),
+    approve: core,
+  },
 });
 
-/** Another slice's `pick`, as its contract types it, and the core's `approve`. */
-type Hears = {
-  readonly pick: { readonly carries: readonly ["id", "move"] };
-} & CoreHeard<"approve">;
+type Plugs = PlugsOf<typeof SLICE>;
 
-const { refuse, refuseInput, whileHeld, refuseHeard } = rows<typeof EVENTS, Hears>(EVENTS);
+const { refuse, whileHeld } = rows(SLICE);
 
 const always = (): boolean => true;
 
 const fails = (): boolean => false;
 
-type Part = SlicePart<typeof EVENTS, Hears>;
+const { missing } = naming({ missing: (): boolean => true });
+
+type Part = SlicePart<Plugs["events"], Plugs["hears"]>;
 
 function partOf(rules: Part["rules"], reactions: Part["reactions"] = {}): Part {
   return {
-    events: EVENTS,
+    events: SLICE.events,
     rules,
     samples: { ask: [{ id: "a1", text: "Why?" }], drop: [{ id: "a1" }] },
     transitions: { ask: unchanged, drop: unchanged },
@@ -50,7 +59,7 @@ describe("a slice's rows", () => {
       "slice",
       partOf([
         whileHeld("ask", 409, (hold) => hold),
-        refuseInput("ask", "gone", anyOf(allOf(always, fails), always), 404, "gone"),
+        refuse("ask", "gone", anyOf(allOf(always, fails), always), 404, "gone"),
       ]),
     );
 
@@ -68,7 +77,7 @@ describe("a slice's rows", () => {
       partOf([
         refuse("ask", "first", always, 409, "first"),
         whileHeld("ask", 409, (hold) => `${hold}: wait`),
-        refuseInput("ask", "then", always, 404, "then"),
+        refuse("ask", "then", missing, 404, "then"),
       ]),
     );
 
@@ -125,6 +134,23 @@ describe("a slice's rows", () => {
     expect(seen).toEqual([{ id: "a1", text: "", at: "", seq: "" }]);
   });
 
+  test("a row refuses the input when one of its guards names what is not there, the state otherwise", () => {
+    const part = tablePart(
+      "slice",
+      partOf([
+        refuse("ask", "named", allOf(always, missing), 404, "named"),
+        refuse("ask", "either", anyOf(fails, missing), 404, "either"),
+        refuse("ask", "state", allOf(always, fails), 409, "state"),
+      ]),
+    );
+
+    expect(part.rules.map(({ id, refuses, condition }) => [id, refuses, condition])).toEqual([
+      ["named", "input", "always and missing"],
+      ["either", "input", "fails or missing"],
+      ["state", "state", "always and fails"],
+    ]);
+  });
+
   test("allOf holds when every guard does, anyOf when one does", () => {
     const input = { id: "", text: "", at: "", seq: "" };
 
@@ -173,10 +199,7 @@ describe("a slice's rows", () => {
 
     const part = tablePart(
       "slice",
-      partOf([
-        refuseHeard("pick", "first", noted, 409, "a"),
-        refuseHeard("pick", "then", always, 409, "b"),
-      ]),
+      partOf([refuse("pick", "first", noted, 409, "a"), refuse("pick", "then", always, 409, "b")]),
     );
 
     part.rules[0]?.when(W, { id: "p1", move: "grill" });
@@ -189,13 +212,13 @@ describe("a slice's rows", () => {
   });
 
   test("a reaction answers the events it hears, and leaves the others as they are", () => {
-    const heard: string[] = [];
+    const answered: string[] = [];
 
     const part = tablePart(
       "slice",
       partOf([], {
         pick: (w, input) => {
-          heard.push(input.move ?? "");
+          answered.push(input.move ?? "");
 
           return unchanged(w);
         },
@@ -206,7 +229,7 @@ describe("a slice's rows", () => {
     part.reaction?.(W, "approve", { at: "t" });
     part.reaction?.(W, "ask", { id: "a1" });
 
-    expect(heard).toEqual(["grill"]);
+    expect(answered).toEqual(["grill"]);
   });
 
   test("two hold rows on one event are refused as the table is built", () => {
@@ -216,5 +239,21 @@ describe("a slice's rows", () => {
     ]);
 
     expect(() => tablePart("slice", twice)).toThrow("ask has 2 hold rows: one at most");
+  });
+});
+
+describe("the table", () => {
+  test("an event two parts declare is refused as the table is built, naming both", () => {
+    const one = tablePart("one", partOf([]));
+    const other = tablePart("other", partOf([]));
+
+    expect(() => tableOf([one, other])).toThrow("ask is declared by both one and other");
+  });
+
+  test("an event of the core's declared again by a part is refused too", () => {
+    const part = tablePart("slice", partOf([]));
+    const clash = { ...part, events: part.events.map((event) => ({ ...event, id: "record" })) };
+
+    expect(() => tableOf([clash])).toThrow("record is declared by both core and slice");
   });
 });

@@ -9,8 +9,9 @@ import type {
   SliceContext,
   SliceDispatched,
 } from "../../core/extension.ts";
+import { core, defineSlice } from "../../core/plugs.ts";
 import { parseWipDir } from "../../core/server/domain/paths.ts";
-import type { CoreHeard, Reactions } from "../../core/server/domain/rows.ts";
+import type { Reactions } from "../../core/server/domain/rows.ts";
 import { rows } from "../../core/server/domain/rows.ts";
 import type { Outcome, Workflow } from "../../core/server/domain/workflow.ts";
 import { unchanged } from "../../core/server/domain/workflow.ts";
@@ -18,8 +19,8 @@ import { serverExtension } from "../../core/server/slice.ts";
 import type { StepPlugs } from "../step/contract.ts";
 import { hooks as stepHooks } from "../step/hooks.ts";
 import { server as stepServer } from "../step/server.ts";
-import type { GrillEvents, GrillHears, GrillPlugs } from "./contract.ts";
-import { EVENTS } from "./contract.ts";
+import type { GrillHears, GrillPlugs } from "./contract.ts";
+import { SLICE } from "./contract.ts";
 import { grillIsOpen, REACTIONS, regionOf } from "./grill.ts";
 import { hooks } from "./hooks.ts";
 import { BODIES } from "./parse.ts";
@@ -68,7 +69,7 @@ function starting(opened: string[]): SliceContext<StepPlugs>["start"] {
   };
 }
 
-const { refuseHeard } = rows<GrillEvents, GrillHears>(EVENTS);
+const { refuse } = rows(SLICE);
 
 const readsProposal = (
   _w: Workflow,
@@ -109,14 +110,14 @@ describe("an event with several senders is sent as one of them, named at the cal
 describe("the events the grill hears are the others' as their contracts type them", () => {
   test("a row on an event the grill neither owns nor hears does not compile", () => {
     // @ts-expect-error -- the grill hears the step's `answerProposal`, not its `propose`.
-    const row = refuseHeard("propose", "no", grillIsOpen, 409, "no");
+    const row = refuse("propose", "no", grillIsOpen, 409, "no");
 
     expect(String(row.event)).toBe("propose");
   });
 
   test("a guard on the step's answer reading a field the step's contract does not give it does not compile", () => {
     // @ts-expect-error -- `answerProposal` carries id, answer, move, subject and opened: no `proposal`.
-    const row = refuseHeard("answerProposal", "no", readsProposal, 409, "no");
+    const row = refuse("answerProposal", "no", readsProposal, 409, "no");
 
     expect(row.when(W, { move: "grill" })).toBe(false);
   });
@@ -140,10 +141,13 @@ describe("the events the grill hears are the others' as their contracts type the
   });
 
   test("a core event heard is named, and a name the core has not does not compile", () => {
-    // @ts-expect-error -- the core's events are record, sendEdit, send, approve and planWritten.
-    const heard: CoreHeard<"gate"> = { gate: { carries: [] } };
+    const declared = defineSlice({
+      id: "grill",
+      // @ts-expect-error -- the core's events are record, sendEdit, send, approve and planWritten.
+      hears: { gate: core },
+    });
 
-    expect(Object.keys(heard)).toEqual(["gate"]);
+    expect(Object.keys(declared.hears)).toEqual(["gate"]);
   });
 });
 
