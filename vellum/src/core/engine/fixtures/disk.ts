@@ -67,10 +67,13 @@ function folded(path: string): string[] {
  * the engine: `.` and `..` fold before any link is read, and so does a leading `//` on POSIX,
  * a missing path rejects `ENOENT`, a link that leads nowhere answers `isLink` with no
  * `realPath`, and `realPath` comes with `resolve` alone. A `refused` path rejects with its own
- * reason, as another errno, a network location or a hook above does.
+ * reason, as another errno, a network location or a hook above does. It answers every path the
+ * engine hands `fs.stat`, as the engine spelled it, in order: a path the engine refused above
+ * the hooks never reaches it.
  */
-export function disk(on: On, more: Entries = new Map()): void {
+export function disk(on: On, more: Entries = new Map()): readonly string[] {
   const entries: Entries = new Map([...PLANNING, ...more]);
+  const stats: string[] = [];
 
   function find(path: string): Found {
     const asked = `/${folded(path).join("/")}`;
@@ -99,6 +102,7 @@ export function disk(on: On, more: Entries = new Map()): void {
   }
 
   on("fs.stat", (_, e) => {
+    stats.push(e.path);
     const path = keyed(e.path);
     const found = find(path);
 
@@ -118,4 +122,6 @@ export function disk(on: On, more: Entries = new Map()): void {
       },
     };
   });
+
+  return stats;
 }

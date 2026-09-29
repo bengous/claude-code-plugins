@@ -268,14 +268,23 @@ describe("the lock places a path before it decides", () => {
     }
   });
 
-  test("on POSIX a leading // is the root: the path lands outside the project, the session's to decide", async ($, on) => {
-    world(on);
+  test("the lock follows the engine on a leading //: landed where the engine folds it, the session's to decide; refused above the hooks, denied", async ($, on) => {
+    const { stats } = world(on);
     on("tool.check", () => ENGINE);
     await $.skill.prompt(START_PROMPT);
 
-    expect(
-      await $.tool.check({ tool: "Write", input: { file_path: "//host/share/x.md" } }),
-    ).toEqual(ENGINE);
+    const verdict = await $.tool.check({
+      tool: "Write",
+      input: { file_path: "//host/share/x.md" },
+    });
+
+    // CI's engine lags the local one: an older engine refuses a `//` spelling before any hook,
+    // a newer one folds it to a local path on POSIX; the lock must follow either answer.
+    expect(verdict).toMatchObject(
+      stats.includes("/host/share/x.md")
+        ? ENGINE
+        : { decision: "deny", reason: expect.stringContaining("cannot tell where") },
+    );
   });
 
   test("on POSIX a backslash is a character of a name, never a separator", async ($, on) => {

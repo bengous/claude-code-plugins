@@ -42,6 +42,8 @@ export type World = {
   readonly logs: string[];
   readonly tools: string[];
   readonly commands: string[];
+  /** Every path the engine handed `$.fs.stat` to the disk beneath, as it spelled it. */
+  readonly stats: readonly string[];
   readonly store: Map<string, unknown>;
   /** The session's environment as `$.env` reads it; `$.env.set` writes here. */
   readonly env: Map<string, string>;
@@ -86,6 +88,7 @@ export function world(on: On, options: WorldOptions = {}): World {
     logs: logs(on),
     tools,
     commands,
+    stats: disk(on, options.disk),
     store: store(on, options.stored, () => built.refuseStore),
     env: new Map(Object.entries(options.env ?? {})),
     envWrites: [],
@@ -93,7 +96,6 @@ export function world(on: On, options: WorldOptions = {}): World {
 
   skillText(on);
   engineBand(on);
-  disk(on, options.disk);
 
   on("session.start", (_, e) => ({ cwd: e.cwd }));
   on("turn.start", (_, e) => ({ turnId: e.turnId }));
