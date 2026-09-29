@@ -372,6 +372,20 @@ describe("contractDiff", () => {
     expect(report).not.toContain("```diff");
   });
 
+  test("says once, under its title, that a contract declares fields, not their values", () => {
+    const { root, commit } = repository();
+    const base = commit({ "plug/src/a.ts": "export const A = 1;\n" });
+    const head = commit({ "plug/src/a.ts": "export const A = 2;\n" });
+
+    const report = contractDiff(`${base}..${head}`, join(root, "plug"), false);
+
+    expect(report.split("\n").slice(1, 4)).toEqual([
+      "",
+      "A contract declares fields, not their values: a new value of a declared field (a `move` an event carries) shows in no section below.",
+      "",
+    ]);
+  });
+
   test("says so when no contract and no rule changed", () => {
     const { root, commit } = repository();
     const base = commit({ "plug/src/a.ts": "export const A = 1;\n" });

@@ -69,6 +69,10 @@ const SOURCE_FILE = /\.tsx?$/u;
 /** The texts Claude reads as they are written: a skill, its references, an agent's prompt. */
 const READ_TEXT = /^(?:skills|agents)\/.*\.md$/u;
 
+/** What no section can show, said once under the title: a value is code, which the contract does not type. */
+const VALUES_UNSEEN =
+  "A contract declares fields, not their values: a new value of a declared field (a `move` an event carries) shows in no section below.";
+
 /** How many unchanged words a word diff keeps on each side of a change. */
 const CONTEXT_WORDS = 8;
 
@@ -1023,6 +1027,8 @@ export function contractDiff(range: string, pluginRoot: string, suites = true): 
 
   return [
     `# ${range}`,
+    "",
+    VALUES_UNSEEN,
     "",
     ...section(
       "Contracts",
