@@ -9,6 +9,7 @@ import {
   functionsOf,
   titleChanges,
   titlesOf,
+  wordChanges,
 } from "./contract-diff.ts";
 
 const javascript = (source: string): string =>
@@ -135,6 +136,18 @@ describe("functionsOf", () => {
   });
 });
 
+describe("wordChanges", () => {
+  test("a change is one run: what the two texts share inside it, a stop or a space, does not split it", () => {
+    const changed = wordChanges(
+      "for their own words. Take the step",
+      'for their own words, "Declined." or none. Take the step',
+    );
+
+    expect(changed).toContain('{+, "Declined." or none.');
+    expect(changed).not.toMatch(/\+\}.{0,2}\{\+|-\].{0,2}\[-/u);
+  });
+});
+
 describe("functionChanges", () => {
   test("a function gone from one file and new in another with the same body moved; a body changed is named by its file", () => {
     const one = functionsOf(
@@ -219,6 +232,11 @@ function suite(tests: readonly string[]): string {
   return `import { test } from "bun:test";\n${lines.join("\n")}\n`;
 }
 
+/** A hooks module whose tool `ASK` Claude reads as `text`. */
+function ask(text: string): string {
+  return `const ASK = { description: "${text}" };\n`;
+}
+
 describe("contractDiff", () => {
   test("prints the contracts' diff, the rules, the titles, the functions and the suites, in that order", () => {
     const { root, commit } = repository();
@@ -241,6 +259,7 @@ describe("contractDiff", () => {
 
     expect(report.split("\n").filter((line) => line.startsWith("## "))).toEqual([
       "## Contracts",
+      "## What Claude reads",
       "## Rules (`table.spec.ts.snap`)",
       "## Test titles",
       "## Function bodies changed outside the contracts",
@@ -266,6 +285,29 @@ describe("contractDiff", () => {
       `- boundaries (\`src/boundaries.spec.ts\`) at \`${short}\`: green, 2 pass, 0 fail`,
     );
     expect(report).toContain(`- walk: no \`src/workflow.spec.ts\` at \`${short}\``);
+  });
+
+  test("shows what Claude reads, a tool's description and a skill, word by word, after the contracts", () => {
+    const { root, commit } = repository();
+
+    const base = commit({
+      "plug/src/steps/x/hooks.ts": ask("Ask one round of the grill"),
+      "plug/skills/start/SKILL.md": "Propose the next step, then wait.\n",
+    });
+
+    const head = commit({
+      "plug/src/steps/x/hooks.ts": ask("Ask one round of the grill and wait"),
+      "plug/skills/start/SKILL.md": "Propose the next step, then wait for the pick.\n",
+    });
+
+    const report = contractDiff(`${base}..${head}`, join(root, "plug"), false);
+
+    expect(report).toContain(
+      "- `ASK` (`src/steps/x/hooks.ts`): Ask one round of the grill{+ and wait+}",
+    );
+    expect(report).toContain(
+      "- `skills/start/SKILL.md`: Propose the next step, then wait{+ for the pick+}.",
+    );
   });
 
   test("a contract whose comments only moved shows no diff, and says so", () => {

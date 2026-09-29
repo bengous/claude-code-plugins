@@ -1,7 +1,8 @@
 #!/usr/bin/env bun
 /**
  * What a reviewer reads of a range before its code, as Markdown for a PR: the contracts' diffs
- * (one whose comments only moved is named, not diffed), the table's rules that changed, the test
+ * (one whose comments only moved is named, not diffed), what Claude reads that changed (each
+ * tool's description, each skill's and agent's text, word by word), the table's rules that changed, the test
  * titles added, reworded, moved and removed, the functions whose body changed outside the
  * contracts, those moved named once, and the boundary and walk suites' status at the range's
  * head: the plugin's tree at that commit, extracted under the temp directory with its locked
@@ -20,6 +21,8 @@
 import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, relative } from "node:path";
+
+import { diffWordsWithSpace } from "diff";
 
 type FileChange = {
   readonly status: "A" | "D" | "M" | "R";
@@ -61,6 +64,12 @@ const REWORDED = 0.5;
 const TEST_FILE = /\.(?:spec|test|e2e)\.tsx?$/u;
 
 const SOURCE_FILE = /\.tsx?$/u;
+
+/** The texts Claude reads as they are written: a skill, its references, an agent's prompt. */
+const READ_TEXT = /^(?:skills|agents)\/.*\.md$/u;
+
+/** How many unchanged words a word diff keeps on each side of a change. */
+const CONTEXT_WORDS = 8;
 
 /** The suites whose status closes the report, relative to the plugin's root. */
 const SUITES = [
@@ -635,6 +644,128 @@ function suitesAt(top: string, head: string, plugin: string): string[] {
   }
 }
 
+/** Unchanged words past `CONTEXT_WORDS` of a change, elided: `keep` says which ends touch one. */
+function elided(text: string, keep: { readonly before: boolean; readonly after: boolean }): string {
+  const lead = /^\s*/u.exec(text)?.[0] ?? "";
+  const trail = /\s*$/u.exec(text)?.[0] ?? "";
+
+  const words = text
+    .trim()
+    .split(/\s+/u)
+    .filter((word) => word !== "");
+
+  const head = keep.before ? words.slice(0, CONTEXT_WORDS) : [];
+  const tail = keep.after ? words.slice(-CONTEXT_WORDS) : [];
+
+  if (words.length <= head.length + tail.length) return text;
+
+  return `${lead}${[...head, "…", ...tail].join(" ")}${trail}`;
+}
+
+/** A text shared inside a change this short, a stop or a space, belongs to the change: it splits nothing. */
+const FOLDED = 2;
+
+type Run = { same: string } | { gone: string; added: string };
+
+/** The word diff as runs, a short text shared between two changes folded into one change. */
+function runsOf(before: string, after: string): Run[] {
+  const runs: Run[] = [];
+
+  for (const part of diffWordsWithSpace(before, after)) {
+    if (!part.added && !part.removed) {
+      runs.push({ same: part.value });
+      continue;
+    }
+
+    const last = runs.at(-1);
+    const previous = runs.at(-2);
+
+    if (
+      last !== undefined &&
+      "same" in last &&
+      last.same.trim().length <= FOLDED &&
+      previous !== undefined &&
+      "gone" in previous
+    ) {
+      runs.pop();
+      previous.gone += last.same;
+      previous.added += last.same;
+    }
+
+    const change = runs.at(-1);
+    const into = change !== undefined && "gone" in change ? change : { gone: "", added: "" };
+
+    if (into !== change) runs.push(into);
+
+    if (part.added) into.added += part.value;
+    else into.gone += part.value;
+  }
+
+  return runs;
+}
+
+/** Two texts word by word, `[-gone-]` and `{+new+}`, the unchanged runs cut to their context. */
+export function wordChanges(before: string, after: string): string {
+  const runs = runsOf(before, after);
+
+  return runs
+    .map((run, at) => {
+      if ("same" in run) {
+        return elided(run.same, { before: at > 0, after: at < runs.length - 1 });
+      }
+
+      // A space both sides end on is the text's, not the change's: it goes after the markers.
+      const sides = [run.gone, run.added].filter((side) => side !== "");
+      const spaced = sides.every((side) => /\s$/u.test(side));
+      const gone = spaced ? run.gone.trimEnd() : run.gone;
+      const added = spaced ? run.added.trimEnd() : run.added;
+
+      return `${gone === "" ? "" : `[-${gone}-]`}${added === "" ? "" : `{+${added}+}`}${spaced ? " " : ""}`;
+    })
+    .join("")
+    .replaceAll(/\s+/gu, " ")
+    .trim();
+}
+
+/** Each tool description a module writes, by the constant that holds it: what Claude reads of a tool. */
+export function descriptionsOf(source: string): Map<string, string> {
+  const { code, literals } = scan(source);
+  const found = new Map<string, string>();
+
+  for (const match of code.matchAll(/\bdescription\s*:\s*"#(\d+)"/gu)) {
+    const text = literalText(literals[Number.parseInt(match[1] ?? "", 10)] ?? "");
+
+    const holder = [
+      ...code.slice(0, match.index).matchAll(/\b(?:const|let)\s+([A-Za-z_$][\w$]*)/gu),
+    ].at(-1)?.[1];
+
+    if (text !== null) found.set(holder ?? `#${found.size + 1}`, text);
+  }
+
+  return found;
+}
+
+/** The descriptions of a range's changed modules, and its skills' and agents' texts, as changed. */
+function claudeReads(
+  entries: readonly { readonly file: string; readonly before: string; readonly after: string }[],
+): string[] {
+  return entries.flatMap(({ file, before, after }) => {
+    if (READ_TEXT.test(file)) {
+      return before === after ? [] : [`- \`${file}\`: ${wordChanges(before, after)}`];
+    }
+
+    const was = descriptionsOf(before);
+    const now = descriptionsOf(after);
+
+    return [...new Set([...was.keys(), ...now.keys()])].flatMap((name) => {
+      const old = was.get(name) ?? "";
+      const text = now.get(name) ?? "";
+
+      return old === text ? [] : [`- \`${name}\` (\`${file}\`): ${wordChanges(old, text)}`];
+    });
+  });
+}
+
 function section(title: string, body: readonly string[], none: string): string[] {
   return [`## ${title}`, "", ...(body.length > 0 ? body : [none]), ""];
 }
@@ -702,6 +833,18 @@ export function contractDiff(range: string, pluginRoot: string, suites = true): 
 
   const titleLines = renderTitles(titles);
 
+  const reads = claudeReads(
+    changes
+      .filter(
+        ({ to }) => READ_TEXT.test(inPlugin(to)) || (SOURCE_FILE.test(to) && !TEST_FILE.test(to)),
+      )
+      .map(({ status, from, to }) => ({
+        file: inPlugin(to),
+        before: status === "A" ? "" : show(top, base, from),
+        after: status === "D" ? "" : show(top, head, to),
+      })),
+  );
+
   return [
     `# ${range}`,
     "",
@@ -713,6 +856,7 @@ export function contractDiff(range: string, pluginRoot: string, suites = true): 
       ],
       "No contract changed.",
     ),
+    ...section("What Claude reads", reads, "Nothing Claude reads changed."),
     ...section(
       "Rules (`table.spec.ts.snap`)",
       snapshot.length === 0 ? [] : ["```diff", ...snapshot, "```"],
