@@ -3,10 +3,10 @@ import { useEffect } from "preact/hooks";
 
 import { Button, Dialog, dialogUp, popoverUp, Tag } from "../../runtime/page/kit.tsx";
 import { editing } from "../../runtime/page/state.ts";
-import type { OtherKind, OtherPick, Pick } from "./choice.ts";
-import { answerOf, NO_PICK, oneLine, OWN_GRILL } from "./choice.ts";
+import type { DeclinePick, OtherKind, OtherPick, Pick } from "./choice.ts";
+import { answerOf, DECLINE, NO_PICK, oneLine, OWN_GRILL } from "./choice.ts";
 import type { StepAnswer } from "./contract.ts";
-import { detailOf, FIELD_HINTS, KIND_LABELS } from "./labels.ts";
+import { detailOf, FIELD_HINTS, KIND_LABELS, NOTE_HINT } from "./labels.ts";
 import type { Asking, WindowState } from "./modal.ts";
 import { answerFailed, answering, askingOn, dotOf, modalOf, pendingOf, putOff } from "./modal.ts";
 
@@ -14,13 +14,14 @@ const asking = signal<Asking>({ kind: "auto" });
 
 /**
  * The pick made on a proposal, by its id, `null` for the blank window, and the last step of the
- * reviewer's own typed there: Esc keeps both for the next opening, and a move picked meanwhile
- * does not throw the typing away.
+ * reviewer's own and the last note typed there: Esc keeps them for the next opening, and a move
+ * picked meanwhile does not throw the typing away.
  */
 const picked = signal<{
   readonly id: string | null;
   readonly pick: Pick;
   readonly other: OtherPick;
+  readonly decline: DeclinePick;
 } | null>(null);
 
 const OTHER_KINDS: readonly OtherKind[] = ["grill", "mockup", "prototype", "plan", "own"];
@@ -97,11 +98,17 @@ export function StepWindow(props: WindowProps): preact.JSX.Element | null {
   const kept = picked.value?.id === id ? picked.value : null;
   const pick = kept?.pick ?? (id === null ? OWN_GRILL : NO_PICK);
   const own = kept?.other ?? OWN_GRILL;
+  const declined = kept?.decline ?? DECLINE;
   const answer = answerOf(pick, moves);
   const title = id === null ? "Next step" : "Claude proposes the next step";
 
   const choose = (next: Pick): void => {
-    picked.value = { id, pick: next, other: next.kind === "other" ? next : own };
+    picked.value = {
+      id,
+      pick: next,
+      other: next.kind === "other" ? next : own,
+      decline: next.kind === "decline" ? next : declined,
+    };
   };
 
   const later = (): void => {
@@ -119,6 +126,7 @@ export function StepWindow(props: WindowProps): preact.JSX.Element | null {
   };
 
   const other = pick.kind === "other" ? pick : null;
+  const declining = pick.kind === "decline" ? pick : null;
 
   return (
     <Dialog
@@ -165,6 +173,15 @@ export function StepWindow(props: WindowProps): preact.JSX.Element | null {
             />
             <span class="kind">Something else…</span>
           </label>
+          <label class="proposal-move">
+            <input
+              type="radio"
+              name="proposal-move"
+              checked={declining !== null}
+              onChange={() => choose(declined)}
+            />
+            <span class="kind">None of these</span>
+          </label>
         </div>
       )}
       {other !== null && (
@@ -201,6 +218,23 @@ export function StepWindow(props: WindowProps): preact.JSX.Element | null {
               }}
             />
           )}
+        </div>
+      )}
+      {declining !== null && (
+        <div class="proposal-note">
+          <textarea
+            class="proposal-text"
+            rows={3}
+            aria-label={NOTE_HINT}
+            placeholder={NOTE_HINT}
+            value={declining.note}
+            onInput={(event) => choose({ kind: "decline", note: event.currentTarget.value })}
+            onKeyDown={(event) => {
+              if (event.key !== "Enter" || !event.ctrlKey) return;
+              event.preventDefault();
+              send();
+            }}
+          />
         </div>
       )}
       <div class="row">

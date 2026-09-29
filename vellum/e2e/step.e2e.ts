@@ -17,8 +17,9 @@ import {
 /**
  * Claude proposes the next step in a window over the page, never opened under a typing: its
  * reason, its moves, the one it recommends marked and none checked. Esc puts it off onto the
- * Next step button, Choose sends the move picked, or one of the reviewer's own, and a grill chosen
- * opens at once. The Next step button opens the same window blank, and hides while a grill is open.
+ * Next step button, Choose sends the move picked, one of the reviewer's own, or None of these, which
+ * declines them all, and a grill chosen opens at once. The Next step button opens the same window
+ * blank, and hides while a grill is open.
  */
 
 test.use({ fixture: "grill-real" });
@@ -148,7 +149,7 @@ test("a proposal opens a window on its reason and its moves, none checked, and t
   const window = proposal(page);
 
   await expect(window.locator(".proposal-why")).toHaveText(PROPOSAL.reason);
-  await expect(window.getByRole("radio")).toHaveCount(4);
+  await expect(window.getByRole("radio")).toHaveCount(5);
 
   for (const radio of await window.getByRole("radio").all()) await expect(radio).not.toBeChecked();
 
@@ -265,6 +266,37 @@ test("Something else… in the reviewer's own words tells Claude the words, thei
   await choose(window).click();
 
   await expect.poll(() => told(vellum)).toEqual(["Own: Read the issue first.\nThen ask me."]);
+});
+
+test("None of these declines every move: the propose waiting reads Declined, the note after it", async ({
+  page,
+  vellum,
+}) => {
+  await openVellum(page, vellum);
+  const id = await propose(vellum);
+  const waiting = vellum.step.wait(id);
+  await move(proposal(page), /^None of these/u).check();
+  await proposal(page).getByRole("textbox").fill("Not before the budget");
+  await choose(proposal(page)).click();
+
+  await expect(proposal(page)).toHaveCount(0);
+  expect((await waiting).json).toEqual({
+    kind: "answered",
+    seq: 1,
+    text: "Declined: Not before the budget.",
+  });
+});
+
+test("None of these picked again keeps its note", async ({ page, vellum }) => {
+  await openVellum(page, vellum);
+  await propose(vellum);
+  const window = proposal(page);
+  await move(window, /^None of these/u).check();
+  await window.getByRole("textbox").fill("Not before the budget");
+  await move(window, /^Mockup/u).check();
+  await move(window, /^None of these/u).check();
+
+  await expect(window.getByRole("textbox")).toHaveValue("Not before the budget");
 });
 
 test("Esc closes it and leaves the dot on the Next step button, whose box stays as it was", async ({
@@ -526,6 +558,21 @@ test("axe finds nothing to fault on the window, its own step shown, light and da
   await openVellum(page, vellum);
   await propose(vellum);
   await move(proposal(page), /^Something else/u).check();
+  await expect(proposal(page).getByRole("textbox")).toBeVisible();
+
+  for (const colorScheme of ["light", "dark"] as const) {
+    await page.emulateMedia({ colorScheme });
+    expect(await axe(page)).toEqual([]);
+  }
+});
+
+test("axe finds nothing to fault on the window, None of these picked, light and dark", async ({
+  page,
+  vellum,
+}) => {
+  await openVellum(page, vellum);
+  await propose(vellum);
+  await move(proposal(page), /^None of these/u).check();
   await expect(proposal(page).getByRole("textbox")).toBeVisible();
 
   for (const colorScheme of ["light", "dark"] as const) {

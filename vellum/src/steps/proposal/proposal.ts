@@ -29,7 +29,7 @@ import type {
   ProposalPlugs,
 } from "./contract.ts";
 import { answerText, ownText } from "./moves.ts";
-import { parseAnswer, parseJson, parseProposal } from "./parse.ts";
+import { parseJson, parseProposal, parseStepAnswer } from "./parse.ts";
 
 /**
  * The step's part of the workflow: the one proposal waiting for the reviewer, read off
@@ -76,9 +76,9 @@ function proposalOf(text: string): Proposal {
 }
 
 function answerOf(text: string): StepAnswer {
-  const answer = parseAnswer({ id: null, answer: parseJson(text) })?.answer;
+  const answer = parseStepAnswer(parseJson(text));
 
-  if (answer === undefined) throw new Error(`not an answer: ${text}`);
+  if (answer === null) throw new Error(`not an answer: ${text}`);
 
   return answer;
 }
@@ -291,7 +291,7 @@ function answerSample(
   id: string,
   answer: StepAnswer,
 ): Sent<ProposalEvents, "answerProposal"> & Partial<Stamps> {
-  const move = answer.kind === "own" ? "own" : answer.move.kind;
+  const move = answer.kind === "move" ? answer.move.kind : answer.kind;
   const subject = answer.kind === "move" && answer.move.kind === "grill" ? answer.move.subject : "";
   const opened = subject === "" ? "" : `The reviewer opened a grill on: ${subject}.`;
 
@@ -314,6 +314,7 @@ export const SAMPLES: Samples<ProposalEvents> = {
     answerSample("p1", { kind: "move", move: { kind: "plan" } }),
     answerSample("p2", GRILL_MOVE),
     answerSample("p3", { kind: "move", move: { kind: "mockup", screen: "login" } }),
+    answerSample("p3", { kind: "decline", note: "Not yet." }),
   ],
 };
 

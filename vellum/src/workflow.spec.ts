@@ -70,6 +70,12 @@ function picking(id: string, move: Move): EventInput {
   return { id, answer, move: move.kind, subject: "", seq: "1", opened: "", at: SAMPLE_AT };
 }
 
+function declining(id: string, note: string | null): EventInput {
+  const answer = JSON.stringify({ kind: "decline", note });
+
+  return { id, answer, move: "decline", subject: "", seq: "1", opened: "", at: SAMPLE_AT };
+}
+
 const ROUND = { q: JSON.stringify([["Style", "bright or plain?", "I recommend bright."]]) };
 
 const DRAFTED = play(EMPTY, ["planWritten", PENDING]);
@@ -346,6 +352,23 @@ describe("an answer reaches Claude once (P6)", () => {
 
     expect(returned(step)).toEqual([]);
     expect(told(step)).toEqual(["Accepted: a mockup of: login."]);
+  });
+
+  test("a decline is the call's result as a pick is, the note after it", () => {
+    const offered = play(V1, ["propose", proposing("p3", MOCKUP)]);
+    const step = tried(offered, "answerProposal", declining("p3", "Not yet"));
+
+    expect(returned(step)).toEqual([
+      { kind: "returnToCall", call: "p3", text: "Declined: Not yet." },
+    ]);
+  });
+
+  test("a decline of a proposal paused goes as a prompt, its entry alone", () => {
+    const paused = play(V1, ["propose", proposing("p3", MOCKUP)], ["pause", { id: "p3" }]);
+    const step = tried(paused, "answerProposal", declining("p3", null));
+
+    expect(returned(step)).toEqual([]);
+    expect(told(step)).toEqual(["Declined."]);
   });
 
   test("a grill question whose turn was cut reads paused, and the Send's entry is its prompt (A4)", () => {

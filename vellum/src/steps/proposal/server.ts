@@ -94,7 +94,7 @@ export const server: ServerHalf<ProposalPlugs> = {
     // a grill it opens holds the review, and a proposal left waiting under it would never end.
     "POST answer": async (context, { id, answer }) => {
       if ((await workspaceIfAny(context)) === null) return DIRECTORY_GONE;
-      const move = answer.kind === "own" ? "own" : answer.move.kind;
+      const move = answer.kind === "move" ? answer.move.kind : answer.kind;
 
       const subject =
         answer.kind === "move" && answer.move.kind === "grill" ? answer.move.subject : "";
