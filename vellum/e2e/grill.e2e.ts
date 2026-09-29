@@ -1185,6 +1185,30 @@ test.describe("the band", () => {
     await expect.poll(told).toContain("Q1: One store per form.");
   });
 
+  test("End grill clicked while the review still loads ends the grill with the answer typed", async ({
+    page,
+    vellum,
+  }) => {
+    await asking(page, vellum);
+    await panel(page)
+      .getByRole("textbox", { name: "Your answer to Q1" })
+      .fill("One store per form.");
+    await expect
+      .poll(async () => JSON.stringify((await vellum.api("draft")).json))
+      .toContain("form.");
+    await page.route("**/api/review", async (route) => {
+      await new Promise((done) => {
+        setTimeout(done, 1000);
+      });
+      await route.continue();
+    });
+    await page.reload();
+    await band(page).getByRole("button", { name: "End grill" }).click();
+
+    const told = async (): Promise<string> => JSON.stringify((await vellum.channel()).json);
+    await expect.poll(told).toContain("Q1: One store per form.");
+  });
+
   test("End grill clicked twice ends once: the note reaches Claude once", async ({
     page,
     vellum,

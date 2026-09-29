@@ -447,11 +447,20 @@ export function createStore() {
   let flushDraft: (() => Promise<boolean>) | null = null;
 
   /**
+   * Settled once `start` has restored the draft, loaded the review and started the saving or
+   * refused it: End grill is drawn before the review loads, so a write can be asked in between.
+   */
+  let firstLoad: Promise<unknown> = Promise.resolve();
+
+  /**
    * The draft written now, as the page shows it: what the server reads next is what is on screen.
-   * `true` once kept. A page that could not read the draft at its load reads it again first: none
-   * saved starts the saving; one saved that this tab never loaded is never written over.
+   * `true` once kept. Asked during the first load, it waits for it. A page that could not read the
+   * draft at its load reads it again first: none saved starts the saving; one saved that this tab
+   * never loaded is never written over.
    */
   async function writeDraft(): Promise<boolean> {
+    await firstLoad;
+
     if (flushDraft !== null) return await flushDraft();
     const saved = await fetchDraft().catch(() => null);
 
@@ -870,7 +879,7 @@ export function createStore() {
    * earlier, a reload would replace the draft with the page's empty state. A draft that cannot be
    * read starts no saving, for the same reason.
    */
-  async function start(): Promise<void> {
+  async function startInOrder(): Promise<void> {
     const saved = await fetchDraft();
 
     const draft = saved.ok ? saved.value : null;
@@ -923,6 +932,13 @@ export function createStore() {
         });
       },
     );
+  }
+
+  function start(): Promise<void> {
+    const started = startInOrder();
+    firstLoad = Promise.allSettled([started]);
+
+    return started;
   }
 
   return {

@@ -199,7 +199,10 @@ no build step, so what the page imports costs nothing at `cli start`.
   (`shell.e2e.ts` holds that call, `src/boundaries.spec.ts` the rest).
 - `start` is the page's one way in, and its order is the rule: the saved draft into the signals,
   then the first load, then the saving effects, then the event stream. Nothing may `PUT` a draft
-  before the restore, or every reload replaces the file with the page's empty state. After it,
+  before the restore, or every reload replaces the file with the page's empty state. A write
+  asked before the saving effects start waits for them (`firstLoad`): End grill is drawn before
+  the review loads, and clicked there it read the draft restored as one this tab never loaded,
+  and refused to end the grill (#259). After it,
   each change of the comments, the edit or the choices is one write, sent in order; signals that change
   together change in one `batch`; a change of `typed` is written once the typing pauses
   (`TYPED_WRITE_MS`), and a write of the comments, the edit or the choices meanwhile carries it.

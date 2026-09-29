@@ -931,6 +931,27 @@ describe("start", () => {
     expect(server.puts).toEqual([saved]);
   });
 
+  test("a write asked while the first load is out waits for it, then writes the draft restored", async () => {
+    const store = freshStore();
+    const loaded = Promise.withResolvers<void>();
+    const saved: Draft = { annotations: [], edit: null, choices: {}, typed: EMPTY_TYPED };
+
+    const server = serve({
+      draft: saved,
+      review: versioned({ version: 1 }),
+      load: () => loaded.promise,
+    });
+
+    const started = store.start();
+    await settled();
+    const written = store.writeDraft();
+    loaded.resolve();
+    await started;
+
+    expect(await written).toBe(true);
+    expect(server.puts.at(-1)).toEqual(saved);
+  });
+
   test("with no saved draft the first write is the empty one, still after both reads", async () => {
     const store = freshStore();
     const server = serve({ draft: null, review: versioned({ version: 1 }) });
