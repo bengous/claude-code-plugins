@@ -134,8 +134,8 @@ no build step, so what the page imports costs nothing at `cli start`.
   reads none of it; `workflow.ts` holds what holds the review, the pill and what is refused now,
   the approval and Record, the edit a hold keeps, and the column of the core's notices, which reads
   both. Its signals and actions are built over a store (`workflowOf`): the page runs one over its
-  own, `state.spec.ts` one over each store it imports fresh (`freshFlow`), which a module-level
-  one would never see. `workflow.ts` is not in `PAGE_SURFACE`: an extension reads the hold off
+  own, `state.spec.ts` one over each store `createStore` builds for a test (`freshFlow`), which a
+  module-level one would never see. `workflow.ts` is not in `PAGE_SURFACE`: an extension reads the hold off
   `review.workflow` of `state.ts`.
 - `held` of `workflow.ts` is what holds the review, or `null`, in the holder's words (the grill's
   region says `grill 2 is open`, by the transcript's number). The reason is also the hold's
@@ -215,8 +215,7 @@ no build step, so what the page imports costs nothing at `cli start`.
   Every write goes with `keepalive` while the page's keepalive writes in flight leave room for
   its body, `KEEPALIVE_BYTES` together, the Fetch standard's limit, and without it beyond: a
   plain request waiting for a socket dies with the page. `draftWriter` of `api.ts` counts them,
-  one writer per store, since a module `state.ts` imports is shared by every store a suite
-  imports. When the page is hidden (`visibilitychange`) or closed (`pagehide`) while a write
+  one writer per store, which `createStore` makes. When the page is hidden (`visibilitychange`) or closed (`pagehide`) while a write
   waits, a typing pausing or a write queued behind another, the draft shown is written within the
   event, which the page may not outlive, and the older writes still queued never start: the
   first of the two events takes it, the second finds nothing. A failure there shows nothing, the
