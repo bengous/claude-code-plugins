@@ -2,8 +2,9 @@
 /**
  * What a reviewer reads of a range before its code, as Markdown for a PR: the contracts' diffs,
  * the table's rules that changed, the test titles added, reworded and removed, the functions whose
- * body changed outside the contracts, and the boundary and walk suites' status on the working
- * tree. It reads git and nothing else, so it runs from the plugin's folder as installed.
+ * body changed outside the contracts, and the boundary and walk suites' status at the range's
+ * head: the plugin's tree at that commit, extracted under the temp directory with its locked
+ * dependencies and removed after, so the checkout is never read nor touched.
  *
  *   bun run --cwd vellum contract-diff <base>..<head>   (<base> alone reads up to HEAD)
  *
@@ -15,7 +16,9 @@
  * said of the file, unnamed.
  */
 
-import { dirname, relative } from "node:path";
+import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { dirname, join, relative } from "node:path";
 
 type FileChange = {
   readonly status: "A" | "D" | "M" | "R";
@@ -524,10 +527,12 @@ function renderFunctions({ byFile, moved }: FunctionChanges): string[] {
   ];
 }
 
-function suiteStatus(pluginRoot: string): string[] {
+function suiteStatus(root: string, sha: string): string[] {
   return SUITES.map(({ name, path }) => {
-    const run = Bun.spawnSync(["bun", "test", path], {
-      cwd: pluginRoot,
+    if (!existsSync(join(root, path))) return `- ${name}: no \`${path}\` at \`${sha}\``;
+
+    const run = Bun.spawnSync(["bun", "test", `./${path}`], {
+      cwd: root,
       stdout: "pipe",
       stderr: "pipe",
     });
@@ -535,16 +540,48 @@ function suiteStatus(pluginRoot: string): string[] {
     const output = `${run.stdout.toString()}${run.stderr.toString()}`;
     const pass = /(\d+) pass/u.exec(output)?.[1] ?? "?";
     const fail = /(\d+) fail/u.exec(output)?.[1] ?? "?";
+    const verdict = run.exitCode === 0 ? "green" : "red";
 
-    return `- ${name} (\`${path}\`): ${run.exitCode === 0 ? "green" : "red"}, ${pass} pass, ${fail} fail`;
+    return `- ${name} (\`${path}\`) at \`${sha}\`: ${verdict}, ${pass} pass, ${fail} fail`;
   });
+}
+
+/** The suites at `head`: the plugin's tree at that commit, with its locked dependencies, in a directory removed after. */
+function suitesAt(top: string, head: string, plugin: string): string[] {
+  const sha = git(top, ["rev-parse", "--short", head]).trim();
+  const dir = mkdtempSync(join(tmpdir(), "contract-diff-"));
+
+  try {
+    const tar = join(dir, "head.tar");
+    git(top, ["archive", "--output", tar, head, "--", plugin]);
+    const untar = Bun.spawnSync(["tar", "-xf", tar, "-C", dir], { stderr: "pipe" });
+
+    if (untar.exitCode !== 0) throw new Error(`tar -xf failed: ${untar.stderr.toString().trim()}`);
+    const root = join(dir, plugin);
+
+    if (existsSync(join(root, "bun.lock"))) {
+      const install = Bun.spawnSync(["bun", "install", "--frozen-lockfile", "--ignore-scripts"], {
+        cwd: root,
+        stdout: "pipe",
+        stderr: "pipe",
+      });
+
+      if (install.exitCode !== 0) {
+        return [`Not run at \`${sha}\`: \`bun install --frozen-lockfile\` failed there.`];
+      }
+    }
+
+    return suiteStatus(root, sha);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 }
 
 function section(title: string, body: readonly string[], none: string): string[] {
   return [`## ${title}`, "", ...(body.length > 0 ? body : [none]), ""];
 }
 
-/** The report for `range` on the plugin at `pluginRoot`; the suites run on its working tree unless `suites` is false. */
+/** The report for `range` on the plugin at `pluginRoot`; the suites run at the range's head unless `suites` is false. */
 export function contractDiff(range: string, pluginRoot: string, suites = true): string {
   const [base = "", head = "HEAD"] = range.includes("..") ? range.split("..") : [range];
   const top = git(pluginRoot, ["rev-parse", "--show-toplevel"]).trim();
@@ -624,8 +661,8 @@ export function contractDiff(range: string, pluginRoot: string, suites = true): 
       "None.",
     ),
     ...section(
-      "Boundary and walk suites, on the working tree",
-      suites ? suiteStatus(pluginRoot) : [],
+      "Boundary and walk suites, at the range's head",
+      suites ? suitesAt(top, head, plugin) : [],
       "Not run.",
     ),
   ]

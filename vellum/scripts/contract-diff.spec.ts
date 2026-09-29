@@ -189,6 +189,13 @@ function repository(): Repository {
   };
 }
 
+/** A suite holding one passing test per title. */
+function suite(tests: readonly string[]): string {
+  const lines = tests.map((one) => `test("${one}", () => {});`);
+
+  return `import { test } from "bun:test";\n${lines.join("\n")}\n`;
+}
+
 describe("contractDiff", () => {
   test("prints the contracts' diff, the rules, the titles, the functions and the suites, in that order", () => {
     const { root, commit } = repository();
@@ -214,13 +221,28 @@ describe("contractDiff", () => {
       "## Rules (`table.spec.ts.snap`)",
       "## Test titles",
       "## Function bodies changed outside the contracts",
-      "## Boundary and walk suites, on the working tree",
+      "## Boundary and walk suites, at the range's head",
     ]);
     expect(report).toContain('+export const SLICE = { id: "x", events: {} };');
     expect(report).toContain("-  1. x/held · refuses\n+  1. x/held · refuses 409");
     expect(report).toContain("- asks once\n  → asks once, then waits (`src/steps/x/x.spec.ts`)");
     expect(report).toContain("- `src/steps/x/x.ts`: changed `ask`");
     expect(report).toContain("Not run.");
+  });
+
+  test("runs the boundary and walk suites at the range's head, not on the tree checked out", () => {
+    const { root, commit } = repository();
+    const base = commit({ "plug/src/boundaries.spec.ts": suite(["one"]) });
+    const head = commit({ "plug/src/boundaries.spec.ts": suite(["one", "two"]) });
+    commit({ "plug/src/boundaries.spec.ts": suite(["one", "two", "three"]) });
+
+    const report = contractDiff(`${base}..${head}`, join(root, "plug"));
+    const short = head.slice(0, 7);
+
+    expect(report).toContain(
+      `- boundaries (\`src/boundaries.spec.ts\`) at \`${short}\`: green, 2 pass, 0 fail`,
+    );
+    expect(report).toContain(`- walk: no \`src/workflow.spec.ts\` at \`${short}\``);
   });
 
   test("says so when no contract and no rule changed", () => {
