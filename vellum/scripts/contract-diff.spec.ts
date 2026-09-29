@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 
 import {
+  caseChanges,
   contractDiff,
   functionChanges,
   functionsOf,
@@ -44,6 +45,35 @@ describe("titlesOf", () => {
     ].join("\n");
 
     expect(titlesOf(source)).toEqual(["the real one"]);
+  });
+});
+
+describe("caseChanges", () => {
+  const BEFORE = [
+    'test("refuses a bad body", () => {',
+    '  const wrong = [{ id: "" }, { id: null }];',
+    "  for (const body of wrong) expect(parse(body)).toBeNull();",
+    "});",
+    'test("answers once", () => { expect(answer()).toBe(1); });',
+  ].join("\n");
+
+  test("rows added to a test's table are its cases added; a body changed otherwise is cases changed", () => {
+    const after = BEFORE.replace("{ id: null }]", "{ id: null }, { id: 3 }]").replace(
+      "toBe(1)",
+      "toBe(2)",
+    );
+
+    expect(caseChanges(BEFORE, after)).toEqual([
+      { title: "refuses a bad body", added: ["{ id: 3 }"], removed: [], code: false },
+      { title: "answers once", added: [], removed: [], code: true },
+    ]);
+  });
+
+  test("two tests of one title in a suite are told apart by their order: neither changed", () => {
+    const twice =
+      'test("is a bad request", () => { a(); });\ntest("is a bad request", () => { b(); });\n';
+
+    expect(caseChanges(twice, twice)).toEqual([]);
   });
 });
 
@@ -237,6 +267,11 @@ function ask(text: string): string {
   return `const ASK = { description: "${text}" };\n`;
 }
 
+/** A suite whose one test refuses each body of its table `wrong`, whose rows are `rows`. */
+function table(rows: string): string {
+  return `test("refuses a bad body", () => {\n  const wrong = [${rows}];\n});\n`;
+}
+
 describe("contractDiff", () => {
   test("prints the contracts' diff, the rules, the titles, the functions and the suites, in that order", () => {
     const { root, commit } = repository();
@@ -307,6 +342,18 @@ describe("contractDiff", () => {
     );
     expect(report).toContain(
       "- `skills/start/SKILL.md`: Propose the next step, then wait{+ for the pick+}.",
+    );
+  });
+
+  test("lists the cases added to a test's table under its title, the title kept", () => {
+    const { root, commit } = repository();
+    const base = commit({ "plug/src/x.spec.ts": table("{ id: null }") });
+    const head = commit({ "plug/src/x.spec.ts": table('{ id: null }, { id: "p1", note: " " }') });
+
+    const report = contractDiff(`${base}..${head}`, join(root, "plug"), false);
+
+    expect(report).toContain(
+      'Cases added, the title kept (1):\n- refuses a bad body (`src/x.spec.ts`):\n  - `{ id: "p1", note: " " }`',
     );
   });
 

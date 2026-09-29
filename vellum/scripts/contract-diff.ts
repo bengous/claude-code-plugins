@@ -3,7 +3,8 @@
  * What a reviewer reads of a range before its code, as Markdown for a PR: the contracts' diffs
  * (one whose comments only moved is named, not diffed), what Claude reads that changed (each
  * tool's description, each skill's and agent's text, word by word), the table's rules that changed, the test
- * titles added, reworded, moved and removed, the functions whose body changed outside the
+ * titles added, reworded, moved and removed, the cases a test's table gained or lost while its
+ * title stayed, the functions whose body changed outside the
  * contracts, those moved named once, and the boundary and walk suites' status at the range's
  * head: the plugin's tree at that commit, extracted under the temp directory with its locked
  * dependencies and removed after, so the checkout is never read nor touched.
@@ -216,6 +217,130 @@ export function titlesOf(source: string): string[] {
 
       return text === null ? [] : [text];
     });
+}
+
+/** A test as a reviewer compares it: its title, the rows of its tables, and its code, the tables emptied. */
+type TestBody = {
+  readonly title: string;
+  readonly cases: readonly string[];
+  readonly code: string;
+};
+
+/** What a test's title stayed on while its body changed: rows its tables gained or lost, and whether its code changed. */
+export type CaseChange = {
+  readonly title: string;
+  readonly added: readonly string[];
+  readonly removed: readonly string[];
+  readonly code: boolean;
+};
+
+/** An array is a table of cases where it is a constant's value, a `for … of`'s list or an `each`'s rows. */
+const TABLE_START =
+  /(?:\b(?:const|let)\s+[A-Za-z_$][\w$]*(?:\s*:[^=;]+)?\s*=\s*|\bof\s+|\.each\(\s*)$/u;
+
+/** Code read back with its literals, as one line. */
+function restored(code: string, literals: readonly string[]): string {
+  return normalized(
+    code.replaceAll(/"#(\d+)"/gu, (_, n: string) => literals[Number.parseInt(n, 10)] ?? ""),
+  );
+}
+
+/** The top-level elements of the array between `open`, its `[`, and `end`, past its `]`. */
+function elementsOf(code: string, open: number, end: number): string[] {
+  const elements: string[] = [];
+  let start = open + 1;
+
+  for (let at = open + 1; at < end - 1; at += 1) {
+    const char = code.charAt(at);
+
+    if (char === "(" || char === "[" || char === "{") at = closing(code, at) - 1;
+    else if (char === '"') at = pastString(code, at);
+    else if (char === ",") {
+      elements.push(code.slice(start, at));
+      start = at + 1;
+    }
+  }
+
+  return [...elements, code.slice(start, end - 1)].flatMap((element) =>
+    element.trim() === "" ? [] : [element.trim()],
+  );
+}
+
+/** A test's tables: their rows, and the test's code with each table emptied. */
+type Tables = { readonly rows: string[]; readonly emptied: string };
+
+/** The rows of each table a test's body holds, and its code with those tables emptied. */
+function tablesIn(body: string): Tables {
+  const rows: string[] = [];
+  let emptied = "";
+  let from = 0;
+
+  for (let at = 0; at < body.length; at += 1) {
+    if (body.charAt(at) === '"') {
+      at = pastString(body, at);
+      continue;
+    }
+
+    if (body.charAt(at) !== "[" || !TABLE_START.test(body.slice(0, at))) continue;
+    const end = closing(body, at);
+    rows.push(...elementsOf(body, at, end));
+    emptied += `${body.slice(from, at)}[]`;
+    from = end;
+    at = end - 1;
+  }
+
+  return { rows, emptied: emptied + body.slice(from) };
+}
+
+/** Each test of a suite, as `titlesOf` finds its title, with its tables' rows and its code. */
+export function testsOf(source: string): TestBody[] {
+  const { code, literals } = scan(source);
+  const called = /\b(?:test|it)(?:\.\w+)*(?:\([^()]*\))?\(\s*"#(\d+)"/gu;
+  const keyed = /\[\s*"#(\d+)",\s*(?:async\s*)?\(/gu;
+  const byName = /\btest(?:\.\w+)*\(\s*[A-Za-z_$]/u.test(code);
+
+  return [...code.matchAll(called), ...(byName ? code.matchAll(keyed) : [])].flatMap((match) => {
+    const title = literalText(literals[Number.parseInt(match[1] ?? "", 10)] ?? "");
+
+    if (title === null) return [];
+    const open = match[0].startsWith("[") ? match.index : match.index + match[0].lastIndexOf("(");
+    const { rows, emptied } = tablesIn(code.slice(open, closing(code, open)));
+
+    return [
+      {
+        title,
+        cases: rows.map((row) => restored(row, literals)),
+        code: restored(emptied, literals),
+      },
+    ];
+  });
+}
+
+/**
+ * Which of the tests titled as `tests[at]` it is, counted from the first: one title may name
+ * several tests of a suite, in two groups, and the nth of one text is the nth of the other.
+ */
+function nth(tests: readonly TestBody[], at: number): number {
+  return tests.slice(0, at).filter(({ title }) => title === tests[at]?.title).length;
+}
+
+/** The tests of a suite whose title stayed and whose body changed: the rows its tables gained or lost, or its code. */
+export function caseChanges(before: string, after: string): CaseChange[] {
+  const was = testsOf(before);
+  const now = testsOf(after);
+
+  return now.flatMap((test, at) => {
+    const old = was.filter(({ title }) => title === test.title)[nth(now, at)];
+
+    if (old === undefined) return [];
+    const added = without(test.cases, old.cases);
+    const removed = without(old.cases, test.cases);
+    const code = old.code !== test.code;
+
+    return added.length + removed.length > 0 || code
+      ? [{ title: test.title, added, removed, code }]
+      : [];
+  });
 }
 
 function wordsOf(title: string): Set<string> {
@@ -563,6 +688,48 @@ function renderTitles({ added, changed, moved, removed }: TitleChanges): string[
   ];
 }
 
+/** Rows gained or lost under their test's title, and the tests whose body changed otherwise. */
+type FileCase = CaseChange & { readonly file: string };
+
+/** One list of cases under its heading, each test's title, then its rows. */
+function caseList(
+  heading: string,
+  list: readonly FileCase[],
+  rowsOf: (change: FileCase) => readonly string[],
+): string[] {
+  if (list.length === 0) return [];
+
+  return [
+    `${heading} (${list.length}):`,
+    ...list.flatMap((change) => [
+      `- ${change.title} (\`${change.file}\`)${rowsOf(change).length > 0 && change.code ? ", its code changed too" : ""}${rowsOf(change).length > 0 ? ":" : ""}`,
+      ...rowsOf(change).map((row) => `  - \`${row}\``),
+    ]),
+    "",
+  ];
+}
+
+/** The cases a test's table gained or lost under its title, and the tests whose body changed otherwise. */
+function renderCases(changes: readonly FileCase[]): string[] {
+  return [
+    ...caseList(
+      "Cases added, the title kept",
+      changes.filter(({ added }) => added.length > 0),
+      ({ added }) => added,
+    ),
+    ...caseList(
+      "Cases removed, the title kept",
+      changes.filter(({ removed }) => removed.length > 0),
+      ({ removed }) => removed,
+    ),
+    ...caseList(
+      "Cases changed, the title kept",
+      changes.filter(({ added, removed }) => added.length + removed.length === 0),
+      () => [],
+    ),
+  ];
+}
+
 function renderFunctions({ byFile, moved, movedChanged }: FunctionChanges): string[] {
   const lines = byFile.map(({ file, changed, added, removed, outside }) => {
     const parts = [
@@ -820,6 +987,15 @@ export function contractDiff(range: string, pluginRoot: string, suites = true): 
       })),
   );
 
+  const cases = changes
+    .filter(({ status, to }) => TEST_FILE.test(to) && status !== "A" && status !== "D")
+    .flatMap(({ from, to }) =>
+      caseChanges(show(top, base, from), show(top, head, to)).map((change) => ({
+        ...change,
+        file: inPlugin(to),
+      })),
+    );
+
   const functions = functionChanges(
     changes
       .filter(({ to }) => SOURCE_FILE.test(to) && !TEST_FILE.test(to) && !to.endsWith(".d.ts"))
@@ -831,7 +1007,7 @@ export function contractDiff(range: string, pluginRoot: string, suites = true): 
       })),
   );
 
-  const titleLines = renderTitles(titles);
+  const titleLines = [...renderTitles(titles), ...renderCases(cases)];
 
   const reads = claudeReads(
     changes
