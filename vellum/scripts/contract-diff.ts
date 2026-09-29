@@ -1,8 +1,9 @@
 #!/usr/bin/env bun
 /**
- * What a reviewer reads of a range before its code, as Markdown for a PR: the contracts' diffs,
- * the table's rules that changed, the test titles added, reworded and removed, the functions whose
- * body changed outside the contracts, and the boundary and walk suites' status at the range's
+ * What a reviewer reads of a range before its code, as Markdown for a PR: the contracts' diffs
+ * (one whose comments only moved is named, not diffed), the table's rules that changed, the test
+ * titles added, reworded, moved and removed, the functions whose body changed outside the
+ * contracts, those moved named once, and the boundary and walk suites' status at the range's
  * head: the plugin's tree at that commit, extracted under the temp directory with its locked
  * dependencies and removed after, so the checkout is never read nor touched.
  *
@@ -45,8 +46,11 @@ type FunctionChanges = {
     readonly removed: readonly string[];
     readonly outside: boolean;
   }[];
-  readonly moved: readonly { readonly name: string; readonly from: string; readonly to: string }[];
+  readonly moved: readonly Move[];
+  readonly movedChanged: readonly Move[];
 };
+
+type Move = { readonly name: string; readonly from: string; readonly to: string };
 
 /** A module's named functions, each its parameters and body as written, and what is left around them. */
 export type Functions = { readonly functions: Map<string, string>; readonly outside: string };
@@ -98,7 +102,11 @@ function changesIn(cwd: string, base: string, head: string, plugin: string): Fil
 }
 
 /** A source's code, each string or template literal in it as `"#<n>"` and each comment as a space. */
-type Scanned = { readonly code: string; readonly literals: readonly string[] };
+type Scanned = {
+  readonly code: string;
+  readonly literals: readonly string[];
+  readonly comments: readonly string[];
+};
 
 /** Whether a `/` at this point of the code opens a regular expression rather than a division. */
 function opensRegex(code: string): boolean {
@@ -127,6 +135,7 @@ function pastRegex(text: string, open: number): number {
 /** Splits a source into its code and its literals, comments dropped, so a string never reads as code. */
 export function scan(source: string): Scanned {
   const literals: string[] = [];
+  const comments: string[] = [];
   let code = "";
 
   for (let at = 0; at < source.length; at += 1) {
@@ -135,10 +144,12 @@ export function scan(source: string): Scanned {
 
     if (char === "/" && next === "/") {
       const end = source.indexOf("\n", at);
+      comments.push(source.slice(at, end === -1 ? source.length : end));
       at = (end === -1 ? source.length : end) - 1;
       code += " ";
     } else if (char === "/" && next === "*") {
       const end = source.indexOf("*/", at + 2);
+      comments.push(source.slice(at, end === -1 ? source.length : end + 2));
       at = end === -1 ? source.length : end + 1;
       code += " ";
     } else if (char === '"' || char === "'" || char === "`") {
@@ -153,7 +164,23 @@ export function scan(source: string): Scanned {
     } else code += char;
   }
 
-  return { code, literals };
+  return { code, literals, comments };
+}
+
+function same(a: readonly string[], b: readonly string[]): boolean {
+  return a.length === b.length && a.every((text, at) => text === b[at]);
+}
+
+/** Whether two texts of a file differ by where their comments sit alone: the same code, the same comments. */
+export function onlyCommentsMoved(before: string, after: string): boolean {
+  const one = scan(before);
+  const other = scan(after);
+
+  return (
+    normalized(one.code) === normalized(other.code) &&
+    same(one.literals, other.literals) &&
+    same(one.comments.toSorted(), other.comments.toSorted())
+  );
 }
 
 /** A literal's text, `null` for a template that interpolates. */
@@ -341,7 +368,7 @@ function normalized(code: string): string {
 /** Each named function of a module's JavaScript, by name, and the code outside the outermost ones. */
 export function functionsOf(javascript: string): Functions {
   const declarations: readonly { readonly pattern: RegExp; readonly written: Written }[] = [
-    { pattern: /\bfunction\s*\*?\s*([A-Za-z_$][\w$]*)\s*\(/gu, written: "declared" },
+    { pattern: /\bfunction(?:\s*\*\s*|\s+)([A-Za-z_$][\w$]*)\s*\(/gu, written: "declared" },
     {
       pattern:
         /\b(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*(?:async\s*)?(?:function\b[^(]*)?\(/gu,
@@ -418,7 +445,10 @@ function namesIn(list: readonly Named[], file: string, moves: Set<string>): stri
   );
 }
 
-/** Changed, new and gone names per file; a name gone from one file and new in another with the same body moved. */
+/**
+ * Changed, new and gone names per file. A name gone from one file and new in another moved: with
+ * the same body when one there has it, else changed on the way when one there has its name.
+ */
 export function functionChanges(
   files: readonly {
     readonly file: string;
@@ -444,8 +474,25 @@ export function functionChanges(
     return to === undefined ? [] : [{ name: from.name, from: from.file, to: to.file, pair: to }];
   });
 
-  const movedFrom = new Set(moved.map(({ name, from }) => `${from}\0${name}`));
-  const movedTo = new Set(moved.map(({ pair }) => `${pair.file}\0${pair.name}`));
+  const movedChanged = gone.flatMap((from) => {
+    const to = added.find(
+      (one) =>
+        one.name === from.name &&
+        one.file !== from.file &&
+        !moved.some(({ pair }) => pair === one) &&
+        !moved.some((move) => move.from === from.file && move.name === from.name),
+    );
+
+    return to === undefined ? [] : [{ name: from.name, from: from.file, to: to.file, pair: to }];
+  });
+
+  const movedFrom = new Set(
+    [...moved, ...movedChanged].map(({ name, from }) => `${from}\0${name}`),
+  );
+
+  const movedTo = new Set(
+    [...moved, ...movedChanged].map(({ pair }) => `${pair.file}\0${pair.name}`),
+  );
 
   const byFile = files.flatMap(({ file, before, after }) => {
     const changed = [...after.functions].flatMap(([name, body]) => {
@@ -467,7 +514,11 @@ export function functionChanges(
       : [];
   });
 
-  return { byFile, moved: moved.map(({ name, from, to }) => ({ name, from, to })) };
+  return {
+    byFile,
+    moved: moved.map(({ name, from, to }) => ({ name, from, to })),
+    movedChanged: movedChanged.map(({ name, from, to }) => ({ name, from, to })),
+  };
 }
 
 function codeList(list: readonly string[]): string {
@@ -503,7 +554,7 @@ function renderTitles({ added, changed, moved, removed }: TitleChanges): string[
   ];
 }
 
-function renderFunctions({ byFile, moved }: FunctionChanges): string[] {
+function renderFunctions({ byFile, moved, movedChanged }: FunctionChanges): string[] {
   const lines = byFile.map(({ file, changed, added, removed, outside }) => {
     const parts = [
       changed.length > 0 ? `changed ${codeList(changed)}` : "",
@@ -522,6 +573,13 @@ function renderFunctions({ byFile, moved }: FunctionChanges): string[] {
           "",
           "Moved with the same body:",
           ...moved.map(({ name, from, to }) => `- \`${name}\`: \`${from}\` → \`${to}\``),
+        ]
+      : []),
+    ...(movedChanged.length > 0
+      ? [
+          "",
+          "Moved and changed on the way:",
+          ...movedChanged.map(({ name, from, to }) => `- \`${name}\`: \`${from}\` → \`${to}\``),
         ]
       : []),
   ];
@@ -589,7 +647,14 @@ export function contractDiff(range: string, pluginRoot: string, suites = true): 
   const changes = changesIn(top, base, head, plugin);
   const inPlugin = (path: string): string => relative(plugin, path).replaceAll("\\", "/");
 
-  const contracts = changes.filter(({ to }) => to.endsWith("/contract.ts"));
+  const moveOnly = ({ status, from, to }: FileChange): boolean =>
+    status !== "A" &&
+    status !== "D" &&
+    onlyCommentsMoved(show(top, base, from), show(top, head, to));
+
+  const contractChanges = changes.filter(({ to }) => to.endsWith("/contract.ts"));
+  const commentsMoved = contractChanges.filter((change) => moveOnly(change));
+  const contracts = contractChanges.filter((change) => !commentsMoved.includes(change));
 
   const contractDiffText =
     contracts.length === 0
@@ -642,7 +707,10 @@ export function contractDiff(range: string, pluginRoot: string, suites = true): 
     "",
     ...section(
       "Contracts",
-      contractDiffText === "" ? [] : ["```diff", contractDiffText.trimEnd(), "```"],
+      [
+        ...commentsMoved.map(({ to }) => `Only comments moved in \`${inPlugin(to)}\`.`),
+        ...(contractDiffText === "" ? [] : ["```diff", contractDiffText.trimEnd(), "```"]),
+      ],
       "No contract changed.",
     ),
     ...section(

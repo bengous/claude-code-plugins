@@ -127,6 +127,12 @@ describe("functionsOf", () => {
     ).toEqual(["twice", "step"]);
     expect(after.outside).not.toBe(before.outside);
   });
+
+  test("a call whose name begins with `function` declares nothing: no `At`, no `sOf`", () => {
+    const found = functionsOf(javascript("const n = functionAt(1) + functionsOf(2);"));
+
+    expect([...found.functions.keys()]).toEqual([]);
+  });
 });
 
 describe("functionChanges", () => {
@@ -146,6 +152,23 @@ describe("functionChanges", () => {
     ).toEqual({
       byFile: [{ file: "one.ts", changed: ["kept"], added: [], removed: [], outside: false }],
       moved: [{ name: "moving", from: "one.ts", to: "other.ts" }],
+      movedChanged: [],
+    });
+  });
+
+  test("a function moved to another file and changed there is one entry, not gone here and new there", () => {
+    const before = functionsOf(javascript("function statusOf(n: number) { return n; }"));
+    const after = functionsOf(javascript("function statusOf(n: number) { return n + 1; }"));
+
+    expect(
+      functionChanges([
+        { file: "slice.ts", before, after: functionsOf("") },
+        { file: "workflow.ts", before: functionsOf(""), after },
+      ]),
+    ).toEqual({
+      byFile: [],
+      moved: [],
+      movedChanged: [{ name: "statusOf", from: "slice.ts", to: "workflow.ts" }],
     });
   });
 });
@@ -243,6 +266,21 @@ describe("contractDiff", () => {
       `- boundaries (\`src/boundaries.spec.ts\`) at \`${short}\`: green, 2 pass, 0 fail`,
     );
     expect(report).toContain(`- walk: no \`src/workflow.spec.ts\` at \`${short}\``);
+  });
+
+  test("a contract whose comments only moved shows no diff, and says so", () => {
+    const { root, commit } = repository();
+    const code = 'import { a } from "./a.ts";\nexport const SLICE = { id: "x" };\n';
+    const base = commit({ "plug/src/steps/x/contract.ts": `/** The x step. */\n${code}` });
+
+    const head = commit({
+      "plug/src/steps/x/contract.ts": code.replace("\n", "\n\n/** The x step. */\n"),
+    });
+
+    const report = contractDiff(`${base}..${head}`, join(root, "plug"), false);
+
+    expect(report).toContain("## Contracts\n\nOnly comments moved in `src/steps/x/contract.ts`.");
+    expect(report).not.toContain("```diff");
   });
 
   test("says so when no contract and no rule changed", () => {
