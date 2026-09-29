@@ -86,24 +86,24 @@ export default defineConfig({
     },
     {
       // Over the size today, each a cut still to make:
-      // - core/page/state.ts: the page's one store holds the comments, the draft, the Send and the
+      // - runtime/page/state.ts: the page's one store holds the comments, the draft, the Send and the
       //   stream; their part goes with review/ as a slice.
-      // - core/server/domain/workflow.ts: the table's types, next(), the views and the core's own
+      // - workshop/workflow.ts: the table's types, next(), the views and the core's own
       //   rows in one file; they part when the core moves to workshop/.
-      // - core/server/app/review.ts: the queue, the step and the Send in one class.
-      // - core/engine/register.ts: every hook sits where `$` is spelled, which the engine requires
+      // - runtime/server/review.ts: the queue, the step and the Send in one class.
+      // - runtime/hooks/register.ts: every hook sits where `$` is spelled, which the engine requires
       //   of one file; what reads no `$` can leave it.
-      // - extensions/grill/page.tsx: the grill's renderer, band and panel in one half.
-      // - extensions/markdown/page.tsx: the renderer and the states of its sheet.
-      // - extensions/html/frame.ts: the script the mockup's frame runs, built by its path.
+      // - steps/grill/page.tsx: the grill's renderer, band and panel in one half.
+      // - formats/markdown/page.tsx: the renderer and the states of its sheet.
+      // - formats/html/frame.ts: the script the mockup's frame runs, built by its path.
       files: [
-        "vellum/src/core/page/state.ts",
-        "vellum/src/core/server/domain/workflow.ts",
-        "vellum/src/core/server/app/review.ts",
-        "vellum/src/core/engine/register.ts",
-        "vellum/src/extensions/grill/page.tsx",
-        "vellum/src/extensions/markdown/page.tsx",
-        "vellum/src/extensions/html/frame.ts",
+        "vellum/src/runtime/page/state.ts",
+        "vellum/src/workshop/workflow.ts",
+        "vellum/src/runtime/server/review.ts",
+        "vellum/src/runtime/hooks/register.ts",
+        "vellum/src/steps/grill/page.tsx",
+        "vellum/src/formats/markdown/page.tsx",
+        "vellum/src/formats/html/frame.ts",
       ],
       rules: { "max-lines": "off" },
     },

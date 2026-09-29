@@ -1,25 +1,26 @@
 ---
 paths:
-  - "src/core/page/**"
-  - "src/extensions/**"
+  - "src/runtime/page/**"
+  - "src/steps/**"
+  - "src/formats/**"
 ---
 
 # The page and its renderers
 
-`src/core/page/` is the Preact page: `api.ts` the client (token, routes, SSE), `state.ts` the store of
+`src/runtime/page/` is the Preact page: `api.ts` the client (token, routes, SSE), `state.ts` the store of
 signals, `workflow.ts` its reader of the workflow, `kit.tsx` the components every other `.tsx` draws with, `*.tsx` the rest of them,
 `style.css` and `fonts/` the design system, `anchoring.ts` and `highlights.ts` the text selection,
 `editor.tsx` and `caret.ts` the plan's source editor, `labels.ts` what the page names, a
 document, a place, a quote, purely, so it is tested without the store. The renderers are the page halves of
 the extensions; what an extension is and how one is added is `extensions.md`, which loads
 with the same files. One bundle is a browser's: `Bun.serve` builds it from
-`src/core/page/index.html` at the first request for the page,
+`src/runtime/page/index.html` at the first request for the page,
 no build step, so what the page imports costs nothing at `cli start`.
 
-- `src/core/page/` and `src/extensions/` never import `src/core/server/app` or
-  `src/core/server/adapters`; they depend on `src/core/protocol.ts`, on `src/core/extension.ts`
-  and on the domain's pure `paths.ts`. `src/core/server/` never imports the page beyond
-  `index.html`. What an extension may import, and how one is added: `extensions.md`. Held by
+- `src/runtime/page/` never imports `src/runtime/server/`, and a part reaches that folder from a
+  server half alone; they depend on `src/runtime/protocol.ts`, on `src/runtime/extension.ts` and
+  on the workshop's pure `paths.ts`. `src/runtime/server/` never
+  imports the page beyond `index.html`. What an extension may import, and how one is added: `extensions.md`. Held by
   `src/boundaries.spec.ts`.
 - `style.css` is the one place a colour is written: its `:root` and its dark block, which
   redefines every base token but `--paper` and `--outline`, the two surfaces the theme does not own. Every other surface derives with `color-mix()`, and every size
@@ -32,7 +33,7 @@ no build step, so what the page imports costs nothing at `cli start`.
   so an extension draws with the same eleven. A `Chip` is a button; what shows a label and takes no click is a `Tag`.
   The types hold part of it, locked in `kit.spec.ts`: `ChipProps` takes no `class`, and neither
   takes `className`. `ButtonProps` takes a `class`, joined to the kit's own, for a state the kit
-  has no prop for (`step-later` in `step/window.tsx`): there a kit class spelled at the call compiles,
+  has no prop for (`step-later` in `proposal/window.tsx`): there a kit class spelled at the call compiles,
   and only a reader refuses it. A `Chip`'s state the kit has no `tone` for rides on a `data-`
   attribute its extension's CSS reads under the extension's prefix (`data-state` in
   `.grill-chips`), and says it in words in its `title`, since a colour says nothing to a screen
@@ -48,9 +49,9 @@ no build step, so what the page imports costs nothing at `cli start`.
   card hovered or focused is `focused` of `state.ts`, and the plan's renderer paints its passage
   (`::highlight(vellum-focus)`), scrolling to it on a click; a comment added scrolls the list
   to its card. The general box comments the plan when the document beside it takes none.
-- Everything crossing `/api` is JSON and typed in `src/core/protocol.ts`; a new field lands there
+- Everything crossing `/api` is JSON and typed in `src/runtime/protocol.ts`; a new field lands there
   first. What crosses `/api/x/<id>/` is the extension's own, typed in its `protocol.ts`.
-- A chain of tests over a union of `src/core/protocol.ts` ends on a function whose parameter is
+- A chain of tests over a union of `src/runtime/protocol.ts` ends on a function whose parameter is
   the members left, never on a bare `return`: over `MediaType`, what is neither Markdown nor
   HTML goes to a function that takes `` `image/${string}` ``, so a member added to the union
   stops compiling there instead of being labelled an image. A `Record` cannot hold this union,
@@ -174,13 +175,13 @@ no build step, so what the page imports costs nothing at `cli start`.
   open, a popover up (`popoverUp` of the kit) or a field focused, `showModal()` would take the
   focus and make the page inert, so the next Enter of a comment would answer the modal. A
   proposal that lands there is put off at once, a dot on the Next step button (`askingOn` and
-  `modalOf` in `step/modal.ts`, pure), and so is one that lands while the modal is up: what the
+  `modalOf` in `proposal/modal.ts`, pure), and so is one that lands while the modal is up: what the
   modal shows never changes under the reviewer. On an approved page none shows, whatever the server holds.
   A proposal Claude's call stopped waiting on (`paused` of the step's state: Escape, a restart)
   never opens by itself, quiet page or not: it waits on the dot, a `Tag` "Paused" beside the
   button, and the window it opens says the pick reaches Claude as a message (P13).
   Nothing in it is checked in advance: the move Claude recommends is marked, and Choose waits for
-  the reviewer's pick (`answerOf` in `step/choice.ts`).
+  the reviewer's pick (`answerOf` in `proposal/choice.ts`).
   An extension's own button computes its greyed state and its `title` itself (`StepAction`).
   A notice of kind `err` is `role="alert"`, the others `role="status"`; a literal in one comes
   as `{ code }` and is drawn in `<code>`. In `approved` the bar draws no button.
@@ -300,7 +301,7 @@ no build step, so what the page imports costs nothing at `cli start`.
   `loadState` in `grill/page.tsx`, which keeps the state it read last, and the open transcript's
   blocks with it, so the grill's panel and its band stay as the reviewer left them, but for an
   approved page, where the approval closed the grill (`drawn`); `step`'s Next step button and
-  window read none past a refused read (`read` in `step/page.tsx`), which puts the window on
+  window read none past a refused read (`read` in `proposal/page.tsx`), which puts the window on
   screen off onto the dot. `approve` of `workflow.ts` answers whether the server took the approval
   (`decide` of `state.ts` posts it and clears the draft), and the notes popover closes on that
   alone: a failure leaves the note where it was typed.

@@ -1,23 +1,25 @@
 ---
 paths:
-  - "src/extensions/**"
-  - "src/core/extension.ts"
+  - "src/steps/**"
+  - "src/formats/**"
+  - "src/runtime/*/slices.ts"
+  - "src/runtime/extension.ts"
 ---
 
 # Extensions
 
-An extension is a folder, `src/extensions/<id>/`, with one file per place where it plugs into
-the core: `page.tsx` declares a `PageExtension` (its renderers, its actions in the decision
+An extension is a folder, `src/steps/<name>/` for a step Vellum follows or `src/formats/<name>/`
+for a format a document is read in, with one file per place where it plugs into the core: `page.tsx` declares a `PageExtension` (its renderers, its actions in the decision
 bar, its notices under the bar, its panel beside the document pane, placed by `panesOf`),
 `server.ts` a `ServerExtension` (its `linkedDocs`, its routes, its `workflow`, its part of a
-Send, what another extension may `start`). Both types live in `src/core/extension.ts`. Its part
+Send, what another extension may `start`). Both types live in `src/runtime/extension.ts`. Its part
 of the workflow is `workflow.ts`, pure: its region (`regionOf`), its events, rows, transitions
 and reaction to the others' events, its segment of the band, and its line in the workflow's
 view (`lineOf`, what `mcp__vellum__state` prints); what the proof of the table reads of its region
 is `walk.ts` beside it, which only the tests load (`slices.md`). The server half hands the part to
 the core with its region's read, and an engine half
 may import it as types only. A third half, `engine.ts`, declares an `EngineExtension`
-(`src/core/engine/extension.ts`): tools, refusals, and the engine events the core hands it; its
+(`src/runtime/hooks/extension.ts`): tools, refusals, and the engine events the core hands it; its
 segment of the band is its region's, drawn by `workflow.ts` on the server, which sends it on the
 `stage` line.
 
@@ -25,19 +27,23 @@ segment of the band is its region's, drawn by `workflow.ts` on the server, which
   in a `protocol.ts`, its hooks half is `hooks.ts` with `hooks.test.ts`, its part of the workflow
   its model, named after it, and its halves are typed by its declaration. `slices.md` says what
   differs; a new extension is a slice.
-- Read the code before this text, smallest first: `image/page.tsx` is a whole extension,
-  `markdown/server.ts` a server half, `html/pick.ts` with `pick.spec.ts` a helper and its
+- Read the code before this text, smallest first: `formats/image/page.tsx` is a whole extension,
+  `formats/markdown/server.ts` a server half, `formats/html/pick.ts` with `pick.spec.ts` a helper and its
   test. They compile and they are tested, so they cannot drift; copy their shape.
-- To add one: the folder, its halves, and one line per registry (`src/extensions/page.ts`,
-  `src/extensions/server.ts`, `src/extensions/engine.ts`). A half is `export const <name>: PageExtension = { id: "<id>", … }`
-  (or `ServerExtension`), and its `id` is the folder's name. Nothing else in `src/core/`
-  changes; when something must, the core lacks a place to plug into, and that is the change
+- To add one: the folder, its halves, and one line per registry (`slices.ts` of `src/runtime/page/`,
+  `src/runtime/server/`, `src/runtime/hooks/`). A half is `export const <name>: PageExtension = { id: "<id>", … }`
+  (or `ServerExtension`), every half of the folder carrying one id no other folder declares. The
+  folder takes the glossary's word; the id is on the wire, in `.review/` file names and in
+  journals, and does not follow it (`steps/agent-review/` is `review`). Nothing else in
+  `src/runtime/` or `src/workshop/` changes; when something must, the core lacks a place to plug into, and that is the change
   to propose first.
-- An extension imports `src/core/` and its own folder, never `../<another>/`. From
-  `src/core/page/` it imports the files `PAGE_SURFACE` lists in `src/boundaries.spec.ts`: one
-  more is a decision to take, not a convenience.
+- An extension imports `src/workshop/`, `src/runtime/` and its own folder, never another part's.
+  From a runtime's folder it imports, for a half it fills, the files `SURFACES` lists in
+  `src/boundaries.spec.ts` (`PAGE_SURFACE` of `src/runtime/page/`, `slice.ts` of
+  `src/runtime/server/`, types of `src/runtime/hooks/`): one more is a decision to take, not a
+  convenience.
 - A server half's routes are mounted at `/api/x/<id>/<name>`, behind the token, and do their IO
-  through the `ServerContext` that `Review` binds: an extension never imports an adapter. A
+  through the `ServerContext` that `Review` binds: an extension never imports the server's IO. A
   route that changes the workflow dispatches its event (`ServerContext.dispatch`), in the
   review's one queue, and writes nothing itself: its transitions' effects are the writes, and a
   refusal is the reason of the row that refused it. It keeps no queue of its own; what it reads
@@ -73,8 +79,8 @@ segment of the band is its region's, drawn by `workflow.ts` on the server, which
   entry reaches Claude through the channel. A round whose asking turn was cut reads paused, its
   `_(turn aborted)_` written at the round's end whoever started the turn (E6, `appendAnswer`), so
   a module that lost its `asked` mark still leaves no round reading as a call that waits.
-- An extension owns its messages: `<id>/protocol.ts` types what crosses its routes, and
-  `<id>/parse.ts` is its boundary parser. `src/core/protocol.ts` learns nothing of them.
+- An extension owns its messages: `<folder>/protocol.ts` types what crosses its routes, and
+  `<folder>/parse.ts` is its boundary parser. `src/runtime/protocol.ts` learns nothing of them.
   A route's reply has its own name there, which both ends import (`GrillState`, `Block` in
   `grill/contract.ts`): the server half types what it hands to `Response.json`, which takes
   anything (`stateOf` and `blocksOf` in `grill/server.ts`), and the page half casts to that
@@ -87,9 +93,9 @@ segment of the band is its region's, drawn by `workflow.ts` on the server, which
   `html/parse.ts` with `parse.spec.ts` is the smallest to copy, lint-disable block included. A
   cast with its `SAFETY:` is kept for a reply of the extension's own server half.
 - An engine half loads its own folder and nothing else: the hooks module must never pull the
-  server or the page in. It reaches `core/engine/` as types, talks to its server half through
+  server or the page in. It reaches `runtime/hooks/` as types, talks to its server half through
   `context.api`, and parses what comes back in its `parse.ts`. Its kit tests are
-  `<id>/engine.test.ts`, its fake routes `<id>/fixtures/`: the core's world serves none.
+  `<folder>/engine.test.ts`, its fake routes `<folder>/fixtures/`: the core's world serves none.
 - A file whose structure is read off its lines never takes a text as it comes: `grill`'s
   transcript quotes Claude's text (`quoted` in `transcript.ts`), or a heading typed in an answer
   speaks for the reviewer, opens a round or closes the grill, and a `_(turn aborted)_` line stops
@@ -110,7 +116,7 @@ segment of the band is its region's, drawn by `workflow.ts` on the server, which
   and what is read off it: a grill's phase is the server's reading of the transcript (`phaseOf`),
   handed to the page in `GET state`, never derived again from the blocks.
   A fact with two owners drifts at the first reload.
-- An extension's classes in `core/page/style.css` carry its id as a prefix (`.grill-doc`,
+- An extension's classes in `runtime/page/style.css` carry its id as a prefix (`.grill-doc`,
   `.grill-q`): the stylesheet is global, and a bare `.grill` also styled the `.btn.grill` button.
 - A helper and its `*.spec.ts` live in the folder, beside the half that uses them: its choice
   is a pure function tested with `bun test`, which has no DOM, and its DOM part a thin adapter

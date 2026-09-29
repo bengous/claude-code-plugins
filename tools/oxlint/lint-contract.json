@@ -43,13 +43,13 @@
     },
     {
       "files": [
-        "vellum/src/core/page/state.ts",
-        "vellum/src/core/server/domain/workflow.ts",
-        "vellum/src/core/server/app/review.ts",
-        "vellum/src/core/engine/register.ts",
-        "vellum/src/extensions/grill/page.tsx",
-        "vellum/src/extensions/markdown/page.tsx",
-        "vellum/src/extensions/html/frame.ts"
+        "vellum/src/runtime/page/state.ts",
+        "vellum/src/workshop/workflow.ts",
+        "vellum/src/runtime/server/review.ts",
+        "vellum/src/runtime/hooks/register.ts",
+        "vellum/src/steps/grill/page.tsx",
+        "vellum/src/formats/markdown/page.tsx",
+        "vellum/src/formats/html/frame.ts"
       ],
       "rules": {
         "max-lines": "off"

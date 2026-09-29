@@ -8,10 +8,10 @@
   it only into a function declared in the file that registers the hook, and
   refuses a noun passed on its own (`$.store is used as a value`). Every other
   file takes a plain record of closures instead, bound where `$` is in scope
-  (`vellum/src/core/engine/host.ts`, `mods/diff/hooks/host/host.ts`).
+  (`vellum/src/runtime/hooks/host.ts`, `mods/diff/hooks/host/host.ts`).
 
 - `hooks/hooks.json` stays where it is, and the module it names does not have
-  to: `"modules": ["../src/core/engine/register.ts"]` loads under
+  to: `"modules": ["../src/runtime/hooks/register.ts"]` loads under
   `--plugin-dir`, `validate` and the kit. Not measured: that entry loaded from
   the copy an install puts in the cache.
 
@@ -48,7 +48,7 @@
   answer is the call's result instead: the kit reports `hook failed closed:
   <plugin>: … (tool.call; its .catch answered)`, and the handler runs after
   the hook's own `finally`, so what it needs to know of the failed call must
-  outlive that block (`vellum/src/core/engine/register.ts`). The handler's
+  outlive that block (`vellum/src/runtime/hooks/register.ts`). The handler's
   answer is measured in the kit alone (`claude plugin test`), not in a live
   session. Escape during the call calls no `.catch`: the engine logs
   `tool.call; skipped; what is below it ran in its place`, and the model gets
@@ -61,7 +61,7 @@
   `ELOOP`), a network location is refused as `$.fs.stat: <path> refused: a
   network location is not reached from here`, and a hook's deny reads
   `<plugin>: $.fs.stat: <reason>`. Only the `failed: ENOENT` ending therefore
-  says a path is not there (`vellum/src/core/engine/place.ts`). A link that
+  says a path is not there (`vellum/src/runtime/hooks/place.ts`). A link that
   leads nowhere resolves, with `isLink` and no `realPath`. Measured on Linux
   in a live session: in the kit nothing beneath the plugins answers
   `fs.stat`, and a test answers it with `on("fs.stat", ...)`.
@@ -112,7 +112,7 @@ plugins (September 2026), unless a line says otherwise.
 
 - `$.process.run` reads the whole output, so a process meant to stay up is a
   child of `$.process.spawn`, whose stdout the module reads for as long as it
-  runs (`vellum/src/core/engine/server.ts`):
+  runs (`vellum/src/runtime/hooks/client.ts`):
   - It arrives in pieces, never lines: a line written in two writes comes in
     two pieces, three lines in one write in one, and a piece may cut a line
     anywhere. Left unread past about 1.6 MB (1,572,864 bytes), the child's
@@ -250,7 +250,7 @@ plugins (September 2026), unless a line says otherwise.
   from a timer the test's `mock.clock` fires too, and keeps its old tree
   without the call. A hook that passes to `next(e)` finds nothing beneath in
   the kit (`no implementation for ui.render`), so a test answers the site
-  with its own `on("ui.render", ...)` (`vellum/src/core/engine/fixtures/band.ts`).
+  with its own `on("ui.render", ...)` (`vellum/src/runtime/hooks/fixtures/band.ts`).
 
 ## What the contract and the docs say
 

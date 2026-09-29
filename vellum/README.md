@@ -79,7 +79,7 @@ The plugin installs a hooks module that refuses writes and spawns a process. The
 | `$.store.get`, `$.store.set`, `$.store.delete` | The session's server and the last entry of the channel already relayed, so a module reload repeats neither. |
 | `$.http.fetch` | Every call to the review server, with the token header. |
 | `$.env.get`, `$.env.set` | `CLAUDE_BASH_MAINTAIN_PROJECT_WORKING_DIR`: set while the mode holds, so each shell command starts at the project's root, and unset as it ends; one you set is read and left alone. |
-| `$.process.spawn` | Starts the server, `bun src/core/server/cli.ts serve`, at the project's root, as a child whose output it reads: each entry of the channel as it is written, and where the plan stands. Revives a dead one on its port and token. |
+| `$.process.spawn` | Starts the server, `bun src/runtime/server/cli.ts serve`, at the project's root, as a child whose output it reads: each entry of the channel as it is written, and where the plan stands. Revives a dead one on its port and token. |
 | `$.clock.every`, `$.clock.after`, `$.clock.now` | The heartbeat that keeps the server alive and finds one that stopped answering, the slow retry while the server is lost, the five seconds a start waits for the server, and when its servers ended, to stop reviving a crash loop. |
 | `$.prompt.submit` | Hands Claude each entry of the channel once, in order, once the session is idle: a file the reviewer sent, the approval, a grill's opening, the reply End grill sent, its end, the notice that `plan.md` changed while the review was held; never a batch a waiting `grill_ask` already returned. |
 | `$.ui.status` | The line under the prompt, for a failure alone: a server that is lost, or a working directory that is gone. |

@@ -3,7 +3,7 @@ import { join } from "node:path";
 
 import type { FrameLocator, Locator, Page } from "@playwright/test";
 
-import type { Move, Proposed, StepState } from "../src/extensions/step/contract.ts";
+import type { Move, Proposed, StepState } from "../src/steps/proposal/contract.ts";
 import type { Vellum } from "./harness.ts";
 import {
   boxOf,

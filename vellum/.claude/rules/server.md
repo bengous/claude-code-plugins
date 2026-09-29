@@ -1,18 +1,19 @@
 ---
 paths:
-  - "src/core/server/**"
-  - "src/core/protocol.ts"
+  - "src/runtime/server/**"
+  - "src/runtime/protocol.ts"
+  - "src/workshop/**"
 ---
 
 # The server
 
-Hexagonal with a functional core, under `src/core/server/`. `domain/` is pure functions over
-immutable data: no `node:*`, no `bun`, no adapter, app or page import. `app/review.ts` is the
+The server, `src/runtime/server/`, around a functional core, `src/workshop/`: pure functions over
+immutable data, no `node:*`, no `bun`, no import outside itself. `review.ts` is the
 queue and the step: every change of the workflow is an event, which `Review.step` reads (the
 `Workflow`: the directory, `plan.md`, each extension's region), judges with `next` against the
-table (`domain/workflow.ts`), and hands to `interpret` (`app/effects.ts`), the one code that
-writes for the workflow; `app/events.ts` reads what the core's own routes carry (the gate,
-Record, the approval, the Send). `adapters/` are plain modules, no interface, no injection: `fs.ts` every read and
+table (`workshop/workflow.ts`), and hands to `interpret` (`effects.ts`), the one code that
+writes for the workflow; `events.ts` reads what the core's own routes carry (the gate,
+Record, the approval, the Send). The IO is plain modules, no interface, no injection: `fs.ts` every read and
 write under the project root, `draft.ts` the draft's one parser, `http/routes.ts` bodies, paths and status codes,
 `http/serve.ts` binding and the page bundle, `browser.ts` the opener, `vellum-build.ts` the
 plugin's own version and commit, read once at start from outside the project (`plugin.json`,
@@ -23,16 +24,16 @@ Claude Code's `installed_plugins.json`, `git` with its `GIT_*` variables cleared
   decision as a pure function of plain values (`next`, and the rows each extension brings), then
   write through the effects `next` answered. No refusal is written outside the table.
 - State is derived, never stored twice: where the review stands comes from the directory's
-  listing and the memory (`domain/workspace.ts`, `workspaceOf`), not from a second variable. A new
+  listing and the memory (`workshop/workspace.ts`, `workspaceOf`), not from a second variable. A new
   feature adds a variant to a union, not a flag.
 - Parse at the boundary, once, into a branded type: `parseWipDir`, `parseVersion`,
   `parseProjectPath` grant `WipDir`, `Version`, `ProjectPath`. Past the parser: no `typeof`,
   no `as`, no re-check. A `ParseResult` is returned where the caller decides; anything else
   throws, and the route turns it into an answer.
-- `src/core/protocol.ts` is the one place a value crossing HTTP, the server's stdout or an
-  extension boundary is typed; it re-exports the domain types it carries, never redefines them. What an extension
-  hands the core is typed beside it, in `src/core/extension.ts`.
-- `Review` binds the `ServerContext` of `src/core/extension.ts` to itself and to `fs.ts`, since
+- `src/runtime/protocol.ts` is the one place a value crossing HTTP, the server's stdout or an
+  extension boundary is typed; it re-exports the workshop's types it carries, never redefines them. What an extension
+  hands the core is typed beside it, in `src/runtime/extension.ts`.
+- `Review` binds the `ServerContext` of `src/runtime/extension.ts` to itself and to `fs.ts`, since
   a step runs there; `http/serve.ts` hands the same context to each extension's routes and mounts them under `/api/x/<id>/`; `routes.ts` looks them
   up after its own, behind the same token check, and knows none by name.
 - What holds the review is read off the workflow: `held`, the reason of the first region that
@@ -81,7 +82,7 @@ Claude Code's `installed_plugins.json`, `git` with its `GIT_*` variables cleared
   its files before it keeps a proposal's wait in memory). `POST /api/record` is `record` for the
   reviewer.
 - Everything that reaches Claude is an entry of the channel, `.review/channel.jsonl`
-  (`domain/channel.ts`), appended inside the queue by `Review`'s relay: the core's `sent` for a
+  (`workshop/channel.ts`), appended inside the queue by `Review`'s relay: the core's `sent` for a
   batch written and `approved` after the rename, an extension's own `text` as a `channel` effect
   of its transition, beside the write it tells of. A call that waits takes the entry its step
   appended before a `returnToCall` as its result (`ServerContext.returned`), so it reaches
@@ -114,7 +115,7 @@ Claude Code's `installed_plugins.json`, `git` with its `GIT_*` variables cleared
   working directory that is gone (`WorkdirGone`, exit 3, before a line on stdout) instead of
   creating it; with `--final`, the server starts on the directory an approval renamed it to,
   approved in memory, and watches and creates nothing.
-- A new domain concept gets its address in `domain/` before its first line.
+- A new domain concept gets its address in `src/workshop/` before its first line.
 - A version is a text somebody handed over for review, Claude through `gate` or the reviewer
   through a Send or an approval that carries an `Edit`. `sendOn` and `decideOn` decide it,
   purely: the version the Send or the approval applies to, the version file to write, the
@@ -151,7 +152,7 @@ Claude Code's `installed_plugins.json`, `git` with its `GIT_*` variables cleared
   writes nothing and keeps a notes file already there: a retry after a failed rename carries no
   note. Whether the approval's prompt names a notes file is read from the final directory's
   listing, never from the decision.
-- The draft is the page's, stored and read back through the one parser, `adapters/draft.ts`:
+- The draft is the page's, stored and read back through the one parser, `draft.ts`:
   `PUT /api/draft` parses the comments, the edit, the choices made in mockups and what is typed,
   and `Review.draft` runs the file through the same parser for `GET`, a Send and
   `ServerContext.draft`, so a malformed draft is refused whole, with `UNREADABLE_DRAFT` as the

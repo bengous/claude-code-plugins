@@ -37,7 +37,7 @@ async function pageServedFrom(plugin: string): Promise<Response> {
   mkdirSync(source);
   writeFileSync(join(source, "plan.md"), "# Plan\n");
 
-  const preview = Bun.spawn(["bun", join(plugin, "src/core/server/preview.ts"), source], {
+  const preview = Bun.spawn(["bun", join(plugin, "src/runtime/server/preview.ts"), source], {
     cwd: project,
     stderr: "ignore",
   });

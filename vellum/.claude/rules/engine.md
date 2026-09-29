@@ -1,14 +1,14 @@
 ---
 paths:
   - "hooks/**"
-  - "src/core/engine/**"
+  - "src/runtime/hooks/**"
 ---
 
 # The hooks module
 
-`hooks/hooks.json` is what Claude Code reads, and it names `src/core/engine/register.ts`. The
+`hooks/hooks.json` is what Claude Code reads, and it names `src/runtime/hooks/register.ts`. The
 files there each import `claude-code`, a sibling `./<name>.ts`, or `import type` from
-`../protocol.ts` and `../plugs.ts`, and nothing else; `register.ts` alone also loads `../../extensions/engine.ts`,
+`../protocol.ts` and `../../workshop/plugs.ts`, and nothing else; `register.ts` alone also loads `./slices.ts`,
 the registry of the engine halves. Held by `src/boundaries.spec.ts`.
 
 ```
@@ -20,10 +20,11 @@ place.ts     where a path lands: placed, landed; asks the host's `stat`
 turn.ts      whose turn runs: Turns, prompted / started / completed, ownOf; pure
 relay.ts     what the channel says and what it remembers: prompts, Relayed, follow, the waits' claims
 band.ts      what the band above the prompt says: the server's segments, then its pill, then the link; pure
-server.ts    the review server's client: every route, the token header, the launcher, the reader of its stdout
+client.ts    the review server's client: every route, the token header, the launcher, the reader of its stdout
 parse.ts     the boundary: unknown to types, and the only place a brand is minted
 extension.ts `EngineExtension`, the contract an extension's `engine.ts` fills, and `HooksHalf<P>`, what a slice's `hooks.ts` fills; types only
 slice.ts     `engineExtension`: a slice's `HooksHalf` as an `EngineExtension`, called by the registry
+slices.ts    the registry: every engine half, in dispatch order
 ```
 
 The module holds the vellum mode, a mode of its own: the native plan mode never enters the
@@ -42,7 +43,7 @@ loop. `/vellum:start` enters it, Approve in the page or `/vellum:stop` leaves it
   rests on (pieces, not lines; about 1.6 MB unread blocks the child; never spawn from a
   `tool.call`; `return()` kills a child whose read is pending; a reload ends every child) are in
   [Hook runtime](../../../docs/plugin-testing/hook-runtime.md) § Reloads and background work. So
-  `server.ts` keeps each piece's tail, the loop that reads the child hands each line on and
+  `client.ts` keeps each piece's tail, the loop that reads the child hands each line on and
   awaits nothing else, and `start` waits `START_TIMEOUT_MS` for `ready`, then ends the child.
 - The mode owns its server: a `Live` holds the child, and `become` ends it as the mode leaves
   that `Live` (`/vellum:stop`, `/clear`, `/resume` away, the approval, a way into another
@@ -187,7 +188,7 @@ loop. `/vellum:start` enters it, Approve in the page or `/vellum:stop` leaves it
   called while a turn runs, resolves once that prompt's own turn starts: the relays run in a
   queue of their own, never in the loop that reads the child.
 - A tool call may wait for the reviewer instead: a slice's tool hands `waitFor` of its context a
-  `Hold` (`core/engine/slice.ts`), which keeps one `$.http.fetch` in
+  `Hold` (`slice.ts`), which keeps one `$.http.fetch` in
   flight at all times, each held by the server under the engine's 30 s cut, so the budget never
   runs (a promise awaited alone overruns it). It says `waiting` on its `ToolContext`, and from
   then on the tenure's follower holds every entry its tool `awaits` (`claim` in `relay.ts`;
@@ -232,7 +233,7 @@ loop. `/vellum:start` enters it, Approve in the page or `/vellum:stop` leaves it
 - A line of the server's stdout the module does not read is logged, and an answer of
   `GET /api/channel` it does not read throws in `parseChannel`, the shape of another server
   version included: read as nothing, either would drop the reviewer's entries without a word.
-- The link is `http://localhost:<port>/t/<token>/` (`pageUrl` in `server.ts`, which also
+- The link is `http://localhost:<port>/t/<token>/` (`pageUrl` in `client.ts`, which also
   builds the printed 127.0.0.1 address): a `Link` to `http://127.0.0.1` refuses the whole
   tree, and `localhost` reaches the server, which listens on 127.0.0.1 only ([Hook runtime](../../../docs/plugin-testing/hook-runtime.md) § Drawing).
 - An extension never calls `on(...)`: the engine takes one hooks module per plugin and one

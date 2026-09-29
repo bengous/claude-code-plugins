@@ -37,8 +37,8 @@ const WORKFLOW_RUN = /\/actions\/runs\/(\d+)\/job\//u;
 const E2E_PATHS = ["vellum/**", "docs/plugin-testing.md", "mise.toml", ".github/workflows/ci.yml"];
 
 const NOT_E2E_PATHS = [
-  "vellum/src/core/engine/**",
-  "vellum/src/extensions/*/engine.ts",
+  "vellum/src/runtime/hooks/**",
+  "vellum/src/steps/*/engine.ts",
   "vellum/hooks/**",
   "vellum/skills/**",
   "vellum/agents/**",

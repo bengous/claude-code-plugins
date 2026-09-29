@@ -9,18 +9,18 @@ import type { Readable } from "node:stream";
 import type { Locator, Page } from "@playwright/test";
 import { expect, test as base } from "@playwright/test";
 
-import type { Annotation, ChannelLine, ReviewView, SendAnswer } from "../src/core/protocol.ts";
-import type { FinalDir, WipDir } from "../src/core/server/domain/paths.ts";
-import { parseFinalDir, parseWipDir } from "../src/core/server/domain/paths.ts";
-import { discard } from "../src/core/server/preview.ts";
+import type { Annotation, ChannelLine, ReviewView, SendAnswer } from "../src/runtime/protocol.ts";
+import { discard } from "../src/runtime/server/preview.ts";
+import type { Outcome, ReviewState, Run } from "../src/steps/agent-review/protocol.ts";
 import type {
   CloseReason,
   GrillState,
   QuestionTriple,
   TurnAnswer,
-} from "../src/extensions/grill/contract.ts";
-import type { Outcome, ReviewState, Run } from "../src/extensions/review/protocol.ts";
-import type { Proposal, StepAnswer, StepState } from "../src/extensions/step/contract.ts";
+} from "../src/steps/grill/contract.ts";
+import type { Proposal, StepAnswer, StepState } from "../src/steps/proposal/contract.ts";
+import type { FinalDir, WipDir } from "../src/workshop/paths.ts";
+import { parseFinalDir, parseWipDir } from "../src/workshop/paths.ts";
 
 /**
  * The browser suite's harness: `preview.ts` started on a copy of a fixture, its API driven
@@ -174,7 +174,7 @@ export async function startVellum(
   const child = spawn(
     "bun",
     [
-      "vellum/src/core/server/preview.ts",
+      "vellum/src/runtime/server/preview.ts",
       resolve(FIXTURES, fixture),
       "--port",
       "0",
@@ -349,7 +349,7 @@ export async function startVellum(
       const next = spawn(
         "bun",
         [
-          "vellum/src/core/server/cli.ts",
+          "vellum/src/runtime/server/cli.ts",
           "serve",
           "--session",
           "e2e",

@@ -7,41 +7,39 @@ Function hooks, early access: `CLAUDE_CODE_ENABLE_FUNCTION_HOOKS=1`.
 
 ## Shape
 
-Hexagonal with a functional core: two hexagons (the hooks module, the server) and a page.
+A pure core, the workshop, and three runtimes around it: the hooks module in Claude Code, the
+server, the page. The steps and the formats plug into the runtimes, a folder each.
 
 ```
-hooks/hooks.json               Claude Code's folder: it names the hooks module, nothing else lives there
-skills/start, skills/stop      the way in and the way out
-src/core/engine/               the engine adapter: register.ts spells `$`, the rest takes a `Host`
+hooks/hooks.json            Claude Code's folder: it names the hooks module, nothing else lives there
+skills/start, skills/stop   the way in and the way out
+src/workshop/               pure, no IO: the workflow (`next`, the table of rules), rows, waits, plugs
+                            (`defineSlice`), paths, workspace, channel, slug, links, vellum-build, and the
+                            review's own: review, feedback, diff
+src/runtime/hooks/          the hooks module: register.ts spells `$`, the rest takes a `Host`; client.ts the server's
         │ HTTP, token header, down; the server's stdout, up
-src/core/server/adapters/      http/routes.ts, http/serve.ts, fs.ts, draft.ts, browser.ts, vellum-build.ts: every IO
-src/core/server/app/           review.ts the queue and the step: read the workflow, `next`, then
-                               `interpret` (effects.ts); events.ts what the core's own routes read
-src/core/server/domain/        pure, no IO: paths, workspace, channel, review, feedback, diff, slug, links, vellum-build,
-                               workflow (the session's state, judged by `next` against a table of rules),
-                               rows (a slice's part of that table, typed by its events)
-src/core/server/cli.ts         the entry point: `serve`, which the hooks module spawns and reads
-src/core/server/preview.ts     the page alone on any directory of documents: a working copy, served, taken away
-src/core/server/slice.ts       `serverExtension`: a slice's `ServerHalf` as a `ServerExtension`
-src/core/protocol.ts           what crosses HTTP, the server's stdout and an extension boundary; JSON
-src/core/plugs.ts              `Plugs`, what a slice's `contract.ts` declares; types only, read by the three runtimes
-src/core/extension.ts          the contract an extension fills: PageExtension, ServerExtension, and a slice's
-                               PageHalf, ServerHalf (EngineExtension and HooksHalf live with the hooks module,
-                               core/engine/extension.ts)
-src/core/page/                 the Preact page
-src/extensions/<id>/           one extension, a file per place it plugs in: page.tsx, server.ts, engine.ts;
-                               its own messages in protocol.ts, its boundary in parse.ts, its region, events,
-                               rules and transitions in workflow.ts
-src/extensions/<id>/contract.ts  a slice: the folder read through one declaration (defineSlice) and its rows;
-                               its halves hooks.ts, server.ts, page.tsx typed by it, its model named after it
-src/extensions/page.ts, server.ts, engine.ts  the three registries, the only way the core reaches an extension
-src/extensions/proof.ts        the proof of the table, the tests' alone: each part's region (its walk.ts) walked alone,
-                               then each pair that meets
+src/runtime/server/         the server: cli.ts `serve`, preview.ts the page alone on any directory, review.ts the
+                            queue and the step, effects.ts, events.ts, http/ routes and serve, every IO, slice.ts
+src/runtime/page/           the Preact page
+src/runtime/protocol.ts     what crosses HTTP, the server's stdout and a part's boundary; JSON
+src/runtime/extension.ts    what a part's page and server halves fill (a hooks half: runtime/hooks/extension.ts)
+src/runtime/*/slices.ts     each runtime's registry, the only way it reaches a part
+src/steps/<name>/           a step Vellum follows: grill/, agent-review/, proposal/
+src/formats/<name>/         a format a document is read in: markdown/, html/, image/
+src/proof.ts                the proof of the table, the tests' alone: each part's walk.ts, alone, then in pairs
 ```
 
-Dependencies point toward `src/core/server/domain/`, held by `src/boundaries.spec.ts`. The rules of each
-zone load with its files, from `.claude/rules/`: `engine.md`, `server.md`, `page.md`,
-`extensions.md`, `slices.md`, `tests.md`. The drawings, the assessment and where the next phases land: `docs/architecture.md`.
+A part is a folder of `steps/` or `formats/`, a file per runtime it plugs into (`page.tsx`,
+`server.ts`, `hooks.ts` or `engine.ts`); one holding `contract.ts` is a slice, whose id that file
+declares, while the folder takes the glossary's word (`CONTEXT.md`).
+
+Dependencies point toward `src/workshop/`, which imports nothing outside itself but the two slot
+types `plugs.ts` reads from `runtime/`: a part imports
+the workshop, what a runtime's folder offers the halves it fills and another slice's `contract.ts`
+as types, and a runtime reaches a part through its `slices.ts` alone, as `src/boundaries.spec.ts`
+holds. The rules of each zone load with its files, from `.claude/rules/`: `engine.md`,
+`server.md`, `page.md`, `extensions.md`, `slices.md`, `tests.md`. The drawings, the assessment and
+where the next phases land: `docs/architecture.md`.
 
 The tree is drawn here and nowhere else: a rule names the files of its own zone, every other
 text points at this section. A fact about Claude Code's engine goes to the relevant page linked from
@@ -53,16 +51,16 @@ and is tested (`extensions.md` names the ones to copy), never a snippet kept in 
 ```bash
 bun install --cwd vellum                                            # once; Claude Code does it at the plugin's cache
 bun test vellum                                                     # the server's and the page's `*.spec.ts` suites
-bun test vellum/src/core/server/domain/slug.spec.ts                 # one suite; `-t <pattern>` filters by test name
+bun test vellum/src/workshop/slug.spec.ts                           # one suite; `-t <pattern>` filters by test name
 bun run --cwd vellum e2e -- kit.e2e.ts --project=light-1024         # one suite, one window, about 10 s: how a lot is worked on, and how a red test is reproduced
 bun run --cwd vellum e2e -- --project=light-1440                    # the whole suite at one window: once, before a push
 bun run --cwd vellum e2e                                            # the five windows of `e2e/playwright.config.ts`: CI's, a job per window (`--project=<window>`), on request (the `e2e` label on a PR), not a local one
 bun run --cwd vellum e2e:install                                    # Chromium, once per machine and per pinned Playwright
-CLAUDE_CODE_ENABLE_FUNCTION_HOOKS=1 claude plugin test vellum       # the hooks module's `*.test.ts` (core/engine, extensions/<id>), through the engine's kit
+CLAUDE_CODE_ENABLE_FUNCTION_HOOKS=1 claude plugin test vellum       # the hooks module's `*.test.ts` (runtime/hooks, steps/<name>), through the engine's kit
 CLAUDE_CODE_ENABLE_FUNCTION_HOOKS=1 claude plugin validate vellum   # what the hooks module hooks and calls
 CLAUDE_CODE_ENABLE_FUNCTION_HOOKS=1 command claude --permission-mode default --plugin-dir vellum   # a live session from source
-bun vellum/src/core/server/cli.ts serve --session <id> --project <dir> --workdir plans/<date>/wip-<sid8>/   # the server alone, for page work; the trailing slash is required; `--port <n> --token <t> --existing` revives one where it was
-bun vellum/src/core/server/preview.ts <dir holding plan.md> [--minutes <n>] [--port <n>]   # the same page on any directory, working or final: it prints the URL and serves a copy it takes away on the way out
+bun vellum/src/runtime/server/cli.ts serve --session <id> --project <dir> --workdir plans/<date>/wip-<sid8>/   # the server alone, for page work; the trailing slash is required; `--port <n> --token <t> --existing` revives one where it was
+bun vellum/src/runtime/server/preview.ts <dir holding plan.md> [--minutes <n>] [--port <n>]   # the same page on any directory, working or final: it prints the URL and serves a copy it takes away on the way out
 CLAUDE_CODE_ENABLE_FUNCTION_HOOKS=1 claude -p --setting-sources project --settings '{"disableAllHooks":true}' "/plugin-types vellum/types"    # regenerate types/claude-code.d.ts, as a session on dev does at start; keep claude-code.d.ts only
 ```
 
