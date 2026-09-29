@@ -1,14 +1,15 @@
 import type { ReviewEvents } from "../../review/contract.ts";
-/**
- * The proposal step: Claude proposes the next steps, one recommended, and the reviewer picks one.
- * Other folders import this file and nothing else of the folder. The hooks module and the page
- * read it as types: its values, the events and the rows, are the server's.
- */
 import type { PlugsOf } from "../../workshop/plugs.ts";
 import { defineSlice, get, heard, post } from "../../workshop/plugs.ts";
 import { allOf, anyOf, rows } from "../../workshop/rows.ts";
 import { planExists } from "../../workshop/workflow.ts";
 import { namesAnotherProposal, namesAProposal, noProposalWaits, offersPlan } from "./proposal.ts";
+
+/**
+ * The proposal step: Claude proposes the next steps, one recommended, and the reviewer picks one.
+ * Other folders import this file and nothing else of the folder. The hooks module and the page
+ * read it as types: its values, the events and the rows, are the server's.
+ */
 
 // The wire: what crosses `/api/x/proposal/*` between the hooks module, the server and the page.
 
