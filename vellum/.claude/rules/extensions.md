@@ -29,6 +29,9 @@ tests load. A hooks half may import the model as types only.
   `contract.ts` and a `page.tsx`; `formats/markdown/server.ts` a server half; `formats/html/pick.ts`
   with `pick.spec.ts` a helper and its test. They compile and they are tested, so they cannot
   drift; copy their shape.
+- A contract's client is the next agent in this repository, never a third party: no module path
+  may leave the plugin, so nobody outside it ships a half, and there is no dynamic loading and no
+  versioned API.
 - To add one: `slices.md`, in its order. Nothing else in `src/runtime/` or `src/workshop/`
   changes; when something must, the core lacks a place to plug into, and that is the change to
   propose first.
@@ -97,6 +100,8 @@ tests load. A hooks half may import the model as types only.
   `context.post` and `context.get`, and reads what comes back with the parsers of its `parse.ts`.
   Its kit tests are `<folder>/hooks.test.ts`, its fake routes `<folder>/fixtures/`: the core's
   world serves none.
+- A grill's round is Claude's, `grill_ask` alone opens one, and the reviewer's reply is written in
+  it, so an answer is read beside its question.
 - A file whose structure is read off its lines never takes a text as it comes: `grill`'s
   transcript quotes Claude's text (`quoted` in `transcript.ts`), or a heading typed in an answer
   speaks for the reviewer, opens a round or closes the grill, and a `_(turn aborted)_` line stops
@@ -124,7 +129,10 @@ tests load. A hooks half may import the model as types only.
   the browser suite drives through the whole page.
 - A new document kind is a new extension, never a branch in an existing renderer.
 - An option or a flag exists when someone asked to turn it, never in advance. Config files,
-  manifests and `enabled` are not designed yet; where the question stands is `docs/architecture.md`
-  § Extensions.
+  manifests and `enabled` are not designed yet: skills and agents load with the plugin, so a
+  config cannot hide one per repository (the module could only refuse it at `skill.prompt`), and
+  `userConfig` ignores project entries, so a per-repository config would be a file of Vellum's
+  own. The last design: `extension-contract.md` in
+  `plans/2026-09-17/extensions-de-vellum-arbre-noms-et-garde-fous/`.
 - `src/boundaries.spec.ts` fails, naming the file, when any of this is broken. An import it
   refuses is in the wrong place, not a rule to loosen.

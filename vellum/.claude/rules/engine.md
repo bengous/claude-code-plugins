@@ -289,7 +289,9 @@ loop. `/vellum:start` enters it, Approve in the page or `/vellum:stop` leaves it
   measured; an empty note matches nothing.
 - A text enters Claude's context only when Claude does something different because of it.
   Anything else goes to the band, `$.ui.log` or the page. A prompt names its object and
-  repeats nothing Claude wrote or already read, and every relay keeps the plugin's origin.
+  repeats nothing Claude wrote or already read, and every relay keeps the plugin's origin: the
+  lock lets Claude write in the working directory, the channel included, so an entry proves no
+  human wrote it, and it must never reach Claude as the user's own words.
 - A store record of the module's own, or an extension's keyed `<id>:<session id>`, one record per
   extension, fails its parser when it has an older shape and starts over; the key is the
   session's, so only a plugin updated in the middle of a session replays anything. No extension

@@ -89,7 +89,7 @@ The plugin installs a hooks module that refuses writes and spawns a process. The
 
 `CLAUDE_CODE_ENABLE_FUNCTION_HOOKS=1 claude plugin validate vellum` prints both lists from the module's source; these tables are that output in prose.
 
-Development: `bun install --cwd vellum`, `bun test vellum`, `CLAUDE_CODE_ENABLE_FUNCTION_HOOKS=1 claude plugin validate vellum`, then a session with `--plugin-dir vellum`; see `docs/plugin-testing.md` at the repository root. The map of the code is `AGENTS.md` § Shape in this directory, the one place the tree is drawn; the drawings and the decisions behind it are `docs/architecture.md`.
+Development: `bun install --cwd vellum`, `bun test vellum`, `CLAUDE_CODE_ENABLE_FUNCTION_HOOKS=1 claude plugin validate vellum`, then a session with `--plugin-dir vellum`; see `docs/plugin-testing.md` at the repository root. The map of the code is `AGENTS.md` § Shape in this directory, the one place the tree is drawn.
 
 ## Sources
 

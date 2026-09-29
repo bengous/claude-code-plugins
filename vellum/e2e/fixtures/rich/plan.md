@@ -2,7 +2,7 @@
 
 The inspectors lose the network in basements and on rooftops. Today a form filled offline is lost when the tab closes. This plan keeps every draft in IndexedDB, replays it when the network returns, and asks the inspector to settle a conflict instead of overwriting the office's edit.
 
-See the mockup in [mockup.html](mockup.html), the conflict screen in `screens/conflict-dialog.html`, and the current capture in ![capture of the inspection form](capture.png). The research notes are in [research-notes.md](research-notes.md). The engine it builds on is described in `vellum/README.md` and `vellum/docs/architecture.md`, and the testing facts in `docs/plugin-testing.md`.
+See the mockup in [mockup.html](mockup.html), the conflict screen in `screens/conflict-dialog.html`, and the current capture in ![capture of the inspection form](capture.png). The research notes are in [research-notes.md](research-notes.md). The engine it builds on is described in `vellum/README.md` and `vellum/CONTEXT.md`, and the testing facts in `docs/plugin-testing.md`.
 
 ## Decisions
 

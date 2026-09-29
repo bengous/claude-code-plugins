@@ -15,7 +15,9 @@ Four kinds of folder, one pattern:
 - the review, `src/review/`, the frame the parts plug into: the draft, the Send, the versions
   and the approval, with their rows, their routes, their tool and their page. It keeps a
   slice's files (`contract.ts`, its halves, `parse.ts`, specs beside) but is no slice: the
-  runtimes reach it by name, first in the table, never through a registry;
+  runtimes reach it by name, first in the table, never through a registry. It stays one frame,
+  never a slice per feature (gate, Send, approval): those share one state machine and one
+  directory layout, and the first review's bugs were exactly cross-feature state;
 - the runtimes, `src/runtime/`: the hooks module in Claude Code, the server, the page, each
   reaching the review by name and the parts through its registry alone;
 - the parts, `src/steps/` and `src/formats/`, a folder each, all of one form: a slice whose
@@ -56,8 +58,7 @@ type. The review imports the workshop and the runtimes, never a part. A part imp
 workshop, what a runtime's folder offers the halves it fills, the review's contract and another
 slice's `contract.ts` as types, and the review's surface; a runtime reaches a part through its
 `slices.ts` alone, as `src/boundaries.spec.ts` holds. The rules of each zone load with its files, from `.claude/rules/`: `workshop.md`,
-`engine.md`, `server.md`, `page.md`, `extensions.md`, `slices.md`, `tests.md`. The drawings, the assessment and
-where the next phases land: `docs/architecture.md`.
+`engine.md`, `server.md`, `page.md`, `extensions.md`, `slices.md`, `tests.md`.
 
 The tree is drawn here and nowhere else: a rule names the files of its own zone, every other
 text points at this section. A fact about Claude Code's engine goes to the relevant page linked from

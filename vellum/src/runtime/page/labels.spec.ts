@@ -102,10 +102,10 @@ describe("docLabel", () => {
   });
 
   test("a cited file shows its folder from the project root, as much of it as is alone", () => {
-    const docs = [doc("vellum/docs/architecture.md", "cited"), doc("docs/testing.md", "cited")];
+    const docs = [doc("vellum/docs/guide.md", "cited"), doc("docs/testing.md", "cited")];
 
     expect(docs.map((one) => docLabel(one, reviewing(docs)))).toEqual([
-      { name: "architecture.md", dir: "vellum/docs" },
+      { name: "guide.md", dir: "vellum/docs" },
       { name: "testing.md", dir: "docs" },
     ]);
   });
@@ -137,7 +137,7 @@ describe("docLabeller", () => {
   const listed = [
     doc(`${WIP}maquettes/apres/f.html`),
     doc(`${WIP}maquettes/avant/f.html`),
-    doc("vellum/docs/architecture.md", "cited"),
+    doc("vellum/docs/guide.md", "cited"),
     doc("docs/testing.md", "cited"),
   ];
 
@@ -148,7 +148,7 @@ describe("docLabeller", () => {
       { name: "Plan v3", dir: null },
       { name: "f.html", dir: "apres" },
       { name: "f.html", dir: "avant" },
-      { name: "architecture.md", dir: "vellum/docs" },
+      { name: "guide.md", dir: "vellum/docs" },
       { name: "testing.md", dir: "docs" },
     ]);
   });

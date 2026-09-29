@@ -20,7 +20,9 @@ The server, `src/runtime/server/`, around the pure core, `src/workshop/` (`works
 `Workflow`: the directory, `plan.md`, each extension's region), judges with `next` against the
 table (`workshop/workflow.ts`), and hands to `interpret` (`effects.ts`), the one code that
 writes for the workflow; `review/server.ts` reads what the review's own routes carry (the gate,
-Record, the approval, the Send). The IO is plain modules, no interface, no injection: `fs.ts` every read and
+Record, the approval, the Send). The IO is plain modules, no interface, no injection, since `fs.ts` has one
+implementation and a temp directory makes it fast in tests: its port is extracted the day a
+second adapter exists. `fs.ts` every read and
 write under the project root, `http/routes.ts` bodies, paths and status codes, handing the review's to `review/routes.ts`,
 `http/serve.ts` binding and the page bundle, `browser.ts` the opener, `vellum-build.ts` the
 plugin's own version and commit, read once at start from outside the project (`plugin.json`,
