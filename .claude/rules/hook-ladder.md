@@ -30,17 +30,23 @@ agent meets any finding left once, at the end of its turn, not on each edit.
   `require-readable-spacing` has a fixer (`fixable: 'whitespace'` in its
   vendored padding rule). Enabling a rule with a safe fixer changes what
   every edit rewrites.
-- The tools run from the git toplevel of the edited file's directory. Run
-  from the project on a file under `.claude/worktrees/<agent>/`, oxlint
+- The tools run from the checkout of the project's repository that holds the
+  edited file: the project or one of its worktrees, told apart from another
+  repository by their shared git common dir (`placeOf` in `stop-gates.ts`).
+  Run from the project on a file under `.claude/worktrees/<agent>/`, oxlint
   loads that worktree's `oxlint.config.ts` as a nested config and fails on
-  the second `anti-slop` registration (#84).
+  the second `anti-slop` registration (#84). A file of another repository
+  nested in the project, the private `plans/`, is neither rewritten nor
+  marked.
 - Per-edit cost, measured on 2026-09-14 with hyperfine on `stop-gates.ts`
   (124 lines, clean), oxlint 1.82.0, oxfmt 0.67.0, 16 threads: 309 ms, the
   same in an agent worktree. Formatting alone took 58 ms.
 - Each in-repo Edit or Write empties the editing agent's marker,
   `os.tmpdir()/claude-code-plugins-stop/<agent_id ?? session_id>`. The same
   hook (`stop-gates.ts`) runs on Stop and on SubagentStop and runs
-  `scripts/run-gates.ts` for a marked agent. Green deletes the marker. Red
+  `scripts/run-gates.ts` for a marked agent, in the checkout of the project's
+  repository around the payload's `cwd`, else in the project: a `cwd` in
+  `plans/` gates the project. Green deletes the marker. Red
   writes the verdict, the report's `Red gates:` line, into the marker and
   blocks, `stop_hook_active` or not. A stop with no edit since that block ends
   the turn on the same verdict, with a `systemMessage` note; a changed verdict
@@ -80,8 +86,9 @@ Known ceilings:
   preview: Claude Code caps hook output there.
 - A write through Bash alone sets no marker, so that turn skips Stop;
   pre-commit and pre-push still check.
-- The gates run repo-wide in the checkout around the hook's `cwd`, the one
-  field that follows EnterWorktree and a subagent's `isolation: worktree`;
+- The gates run repo-wide in the checkout of the project's repository around
+  the hook's `cwd`, the one field that follows EnterWorktree and a subagent's
+  `isolation: worktree`;
   `CLAUDE_PROJECT_DIR` stays the launching checkout by design. Red work of
   another session in the same checkout blocks this session once per verdict.
 - Skipping the background-task check for a subagent assumes no other listed

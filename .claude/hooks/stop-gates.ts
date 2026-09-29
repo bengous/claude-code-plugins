@@ -11,16 +11,18 @@
  * user: a red the agent cannot fix must not cost every turn Claude Code's 8
  * consecutive blocks.
  *
- * The gates run in the checkout the agent sits in: the git toplevel of the
- * hook's `cwd`, which follows EnterWorktree and a subagent's `isolation:
- * worktree` while `CLAUDE_PROJECT_DIR` stays the launching checkout by design.
+ * The gates run in the checkout the agent sits in: the checkout of the
+ * project's repository around the hook's `cwd`, which follows EnterWorktree
+ * and a subagent's `isolation: worktree` while `CLAUDE_PROJECT_DIR` stays the
+ * launching checkout by design. A `cwd` in another repository nested in the
+ * project, the private `plans/`, holds no gates: the project's run there.
  *
  * Skipped in plan mode, where a block loops through ExitPlanMode, and while a
  * subagent, workflow or teammate runs in the background: it may still be
  * editing.
  */
 
-import { rm } from "node:fs/promises";
+import { realpath, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -78,13 +80,56 @@ export function skipsGates(input: StopInput): boolean {
   return (input.background_tasks ?? []).some((task) => EDITING_TASK_TYPES.has(task.type ?? ""));
 }
 
-/** The repository around `dir`, else the project. */
+/**
+ * Where a directory sits: in a checkout of the project's repository, the
+ * project or one of its worktrees; in another repository, such as the private
+ * `plans/` nested in the project; or in none.
+ */
+export type Place =
+  | { kind: "checkout"; root: string }
+  | { kind: "other-repository" }
+  | { kind: "no-repository" };
+
+interface Repository {
+  toplevel: string;
+  commonDir: string;
+}
+
+async function repositoryAt(dir: string): Promise<Repository | null> {
+  const run =
+    await $`git -C ${dir} rev-parse --path-format=absolute --show-toplevel --git-common-dir`
+      .nothrow()
+      .quiet();
+
+  if (run.exitCode !== 0) return null;
+
+  const [toplevel, commonDir] = run.text().trim().split("\n");
+
+  if (toplevel === undefined || commonDir === undefined) {
+    throw new Error(`git rev-parse in ${dir} printed no toplevel and common dir: ${run.text()}`);
+  }
+
+  return { toplevel, commonDir: await realpath(commonDir) };
+}
+
+/** A worktree shares its repository's common dir, which is how it is told from a nested repository. */
+export async function placeOf(dir: string, projectDir: string): Promise<Place> {
+  const [around, project] = await Promise.all([repositoryAt(dir), repositoryAt(projectDir)]);
+
+  if (around === null) return { kind: "no-repository" };
+
+  return around.commonDir === project?.commonDir
+    ? { kind: "checkout", root: around.toplevel }
+    : { kind: "other-repository" };
+}
+
+/** The checkout of the project's repository around `dir`, else the project. */
 export async function checkoutRoot(dir: string | undefined, projectDir: string): Promise<string> {
   if (dir === undefined) return projectDir;
 
-  const toplevel = await $`git -C ${dir} rev-parse --show-toplevel`.nothrow().quiet();
+  const place = await placeOf(dir, projectDir);
 
-  return toplevel.exitCode === 0 ? toplevel.text().trim() : projectDir;
+  return place.kind === "checkout" ? place.root : projectDir;
 }
 
 if (import.meta.main) {

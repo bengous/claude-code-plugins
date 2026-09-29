@@ -23,6 +23,12 @@ function setGates(dir: string, exitCode: number, report: string) {
   writeFileSync(join(dir, "gates-report"), report);
 }
 
+const git = (args: string[], cwd: string) =>
+  $`git ${args}`
+    .cwd(cwd)
+    .env({ ...process.env, GIT_CONFIG_GLOBAL: "/dev/null", GIT_CONFIG_NOSYSTEM: "1" })
+    .quiet();
+
 describe("parseStopInput", () => {
   test("returns null on invalid JSON", () => {
     expect(parseStopInput("not json")).toBeNull();
@@ -112,11 +118,12 @@ describe("hook subprocess", () => {
   const markerFile = (id: string = SESSION_ID) => join(tempRoot, "claude-code-plugins-stop", id);
 
   async function makeWorktree(): Promise<string> {
+    await git(["init", "-q"], projectDir);
+    await git(["add", "scripts/run-gates.ts"], projectDir);
+    await git(["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "gates"], projectDir);
     const worktree = join(tempRoot, "worktree");
-    mkdirSync(join(worktree, "scripts"), { recursive: true });
+    await git(["worktree", "add", "-q", worktree], projectDir);
     mkdirSync(join(worktree, "sub"));
-    writeFileSync(join(worktree, "scripts", "run-gates.ts"), GATES_STUB);
-    await $`git init -q`.cwd(worktree).quiet();
 
     return worktree;
   }
@@ -165,6 +172,21 @@ describe("hook subprocess", () => {
     expect(exitCode).toBe(0);
     expect(gateRuns(worktree)).toBe(1);
     expect(gateRuns(projectDir)).toBe(0);
+  });
+
+  test("gates the project when the cwd sits in another repository nested in it", async () => {
+    await git(["init", "-q"], projectDir);
+    const nested = join(projectDir, "plans");
+    mkdirSync(join(nested, "sub"), { recursive: true });
+    await git(["init", "-q"], nested);
+    setMarker("");
+    setGates(projectDir, 0, "");
+
+    const { exitCode, stderr } = await runHook({ cwd: join(nested, "sub") });
+
+    expect(stderr).toBe("");
+    expect(exitCode).toBe(0);
+    expect(gateRuns(projectDir)).toBe(1);
   });
 
   test("gates the project when the cwd sits outside any repository", async () => {

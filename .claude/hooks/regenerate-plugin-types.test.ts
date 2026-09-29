@@ -184,9 +184,27 @@ echo "// plugins" >"$out/claude-code-plugins.d.ts"
   });
 
   test("checks the checkout around the payload's cwd, not the project", async () => {
+    const git = (args: string[]) =>
+      $`git ${args}`
+        .cwd(projectDir)
+        .env({ ...process.env, GIT_CONFIG_GLOBAL: "/dev/null", GIT_CONFIG_NOSYSTEM: "1" })
+        .quiet();
+
+    await git([
+      "-c",
+      "user.name=t",
+      "-c",
+      "user.email=t@t",
+      "commit",
+      "-q",
+      "--allow-empty",
+      "-m",
+      "init",
+    ]);
+    await git(["checkout", "-q", "-b", "feature/x"]);
     const worktree = join(tempRoot, "worktree");
-    mkdirSync(join(worktree, "sub"), { recursive: true });
-    await $`git init -q -b dev`.cwd(worktree).quiet();
+    await git(["worktree", "add", "-q", worktree, "dev"]);
+    mkdirSync(join(worktree, "sub"));
     setTypes(worktree, "// Written by Claude Code 2.1.276.");
     setTypes(projectDir, "// Written by Claude Code 2.1.276.");
 

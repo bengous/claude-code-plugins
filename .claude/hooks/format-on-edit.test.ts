@@ -134,6 +134,12 @@ function fixedContext(name: string) {
   };
 }
 
+const git = (args: string[], cwd: string) =>
+  $`git ${args}`
+    .cwd(cwd)
+    .env({ ...process.env, GIT_CONFIG_GLOBAL: "/dev/null", GIT_CONFIG_NOSYSTEM: "1" })
+    .quiet();
+
 // shfmt drives these runs, save the oxlint ones: oxlint and oxfmt need the
 // repo's node_modules linked into the temp project.
 describe("hook subprocess", () => {
@@ -278,6 +284,22 @@ describe("hook subprocess", () => {
     expect(existsSync(markerFile())).toBe(false);
   });
 
+  test("leaves a file of another repository nested in the project alone, unmarked", async () => {
+    await git(["init", "-q"], projectDir);
+    const nested = join(projectDir, "plans");
+    mkdirSync(nested);
+    await git(["init", "-q"], nested);
+    const script = join(nested, "a.sh");
+    writeFileSync(script, MIS_INDENTED);
+
+    const { exitCode, stdout } = await runHook(script);
+
+    expect(exitCode).toBe(0);
+    expect(stdout).toBe("");
+    expect(readFileSync(script, "utf8")).toBe(MIS_INDENTED);
+    expect(existsSync(markerFile())).toBe(false);
+  });
+
   test("ignores a file gone before the hook runs", async () => {
     const { exitCode, stdout } = await runHook(join(projectDir, "gone.sh"));
 
@@ -320,15 +342,20 @@ describe("hook subprocess", () => {
     beforeEach(async () => {
       symlinkSync(NODE_MODULES, join(projectDir, "node_modules"));
       const plugin = join(REPO_ROOT, "tools", "oxlint", "anti-slop", "index.ts");
+      const worktree = join(projectDir, ".claude", "worktrees", "agent");
+      await git(["init", "-q"], projectDir);
+      await git(
+        ["-c", "user.name=t", "-c", "user.email=t@t", "commit", "--allow-empty", "-qm", "init"],
+        projectDir,
+      );
+      await git(["worktree", "add", "-q", worktree], projectDir);
 
-      for (const dir of [projectDir, join(projectDir, ".claude", "worktrees", "agent")]) {
-        mkdirSync(dir, { recursive: true });
+      for (const dir of [projectDir, worktree]) {
         writeFileSync(
           join(dir, "anti-slop.ts"),
           `export { default } from ${JSON.stringify(plugin)};\n`,
         );
         writeFileSync(join(dir, ".oxlintrc.json"), JSON.stringify(OXLINT_CONFIG));
-        await $`git init -q`.cwd(dir).quiet();
       }
 
       root = join(projectDir, checkout);

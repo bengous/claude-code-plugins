@@ -4,7 +4,9 @@
  * PostToolUse hook for Edit|Write — applies oxlint's safe fixes and formats
  * the edited file with oxfmt, or formats it with shfmt, and marks the editing
  * agent for `stop-gates.ts`. Never blocks: a finding without a fixer, types
- * and the other gates wait for the end of the turn.
+ * and the other gates wait for the end of the turn. A file of another
+ * repository nested in the project, the private `plans/`, is no edit of this
+ * one: left as written, unmarked.
  *
  * A rewrite reaches the agent as its diff in `additionalContext`. Claude Code
  * renders a Write or Edit result from the file path alone, so this is the one
@@ -19,7 +21,7 @@ import { basename, dirname, join, relative as relativeTo } from "node:path";
 import { $ } from "bun";
 
 import { HOOK_EXIT } from "./hook-io.ts";
-import { checkoutRoot, markerFor } from "./stop-gates.ts";
+import { markerFor, placeOf } from "./stop-gates.ts";
 
 export interface HookInput {
   session_id?: string;
@@ -126,11 +128,14 @@ if (import.meta.main) {
 
   if (inProject === null) process.exit(HOOK_EXIT.ALLOW);
 
+  const projectPath = join(projectDir, inProject);
+  const place = await placeOf(dirname(projectPath), projectDir);
+
+  if (place.kind === "other-repository") process.exit(HOOK_EXIT.ALLOW);
+
   const marker = input === null ? null : markerFor(input);
 
   if (marker !== null) await Bun.write(marker, "");
-
-  const projectPath = join(projectDir, inProject);
 
   if (!(await Bun.file(projectPath).exists())) process.exit(HOOK_EXIT.ALLOW);
 
@@ -139,7 +144,7 @@ if (import.meta.main) {
   // anti-slop plugin registered twice. git reports the root with symlinks
   // resolved; a file a symlink takes outside that root stays with the project.
   const directory = await realpath(dirname(projectPath));
-  const checkout = await checkoutRoot(directory, projectDir);
+  const checkout = place.kind === "checkout" ? place.root : projectDir;
   const inCheckout = toRepoRelative(join(directory, basename(projectPath)), checkout);
   const root = inCheckout === null ? projectDir : checkout;
   const relative = inCheckout ?? inProject;
