@@ -89,6 +89,7 @@ describe("isE2ePath", () => {
       "vellum/src/runtime/hooks/deep/state.ts",
       "vellum/src/steps/grill/hooks.ts",
       "vellum/src/review/hooks.ts",
+      "vellum/scripts/contract-diff.ts",
       "vellum/hooks/hooks.json",
       "vellum/skills/start/SKILL.md",
       "vellum/agents/plan-reviewer.md",
