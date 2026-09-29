@@ -7,11 +7,10 @@ paths:
 
 # The hooks module
 
-`hooks/hooks.json` is what Claude Code reads, and it names `src/runtime/hooks/register.ts`. The
-files there each import `claude-code`, a sibling `./<name>.ts`, or `import type` from
-`../protocol.ts`, `../../review/contract.ts` and `../../workshop/plugs.ts`, and nothing else; `register.ts` alone also loads `./slices.ts`,
-the registry of the engine halves, and `../../review/hooks.ts`, the review's tool `submit` and its
-gate at the turn's end, which loads nothing. Held by `src/boundaries.spec.ts`.
+`hooks/hooks.json` is what Claude Code reads, and it names `src/runtime/hooks/register.ts`, which
+alone loads the registry of the engine halves, `./slices.ts`, and the review's tool and turn-end
+gate, `../../review/hooks.ts`. What else the module may load, `src/boundaries.spec.ts` holds: never
+the server or the page.
 
 ```
 register.ts  the engine adapter: the one `let state`, one hook per event, and `hostOf`
@@ -92,8 +91,9 @@ loop. `/vellum:start` enters it, Approve in the page or `/vellum:stop` leaves it
   `NotebookEdit` under the working directory are allowed outright, whatever the session's
   permission mode, and under the project and outside the working directory are denied with the
   reason the model reads. A path outside the project is no change to the codebase, so it
-  follows the session's own permission flow: the scratchpad passes there without a prompt, a
-  home or system file still asks. Every other tool passes on, but for one downgrade:
+  follows the session's own permission flow, the lock deciding nothing there: the scratchpad
+  passes without a prompt, and what a home or system file meets under the default auto mode of
+  Claude Code 2.1.284 is not measured. Every other tool passes on, but for one downgrade:
   `checkVerdict` turns an engine `allow` that carries a settings `rule` on a shell tool
   (`Bash`, `PowerShell`, `Monitor`, the set `SHELLS`) into `ask`; an allow the mode gives on
   its own, with no rule, stands.
@@ -177,10 +177,9 @@ loop. `/vellum:start` enters it, Approve in the page or `/vellum:stop` leaves it
 - Parse at the boundary, once: `tool_input`, `$.store` values and the server's JSON arrive as
   `unknown` and are parsed in `parse.ts`. Past it: no `typeof`, no `as`, no re-check. The
   brands (`SessionId`, `Token`, `ProjectDir`, `Workdir`) are minted there and nowhere else.
-- The server's JSON is typed from the server's own types: `parse.ts` imports `ChannelLine` and
-  `ServerLine` from `../protocol.ts` and `GateAnswer` from `../../review/contract.ts`, as types, and `Json<T>` strips the domain's brands,
-  which the module reads but never grants. A field the server adds or renames fails `tsgo` in
-  the parser.
+- The server's JSON is typed from the server's own types, as types, and `Json<T>` strips the
+  domain's brands, which the module reads but never grants: a field the server adds or renames
+  fails `tsgo` in `parse.ts`.
 - Saving the file under `--plugin-dir` reloads the module in a fresh environment: every
   pending timer dies, and every child it spawned. State that must survive a reload goes to
   `$.store`; the session's record and the relayed record are the two, and one of an older shape
@@ -246,10 +245,7 @@ loop. `/vellum:start` enters it, Approve in the page or `/vellum:stop` leaves it
   `e.tool`; the same hook denies what a half `refuses` while `live`. That hook carries a
   `.catch`, since a `tool.call` hook that throws or overruns falls to the engine's permission
   prompt, then to "no tool.call hook answered": a call that failed while waiting answers
-  `The reviewer's answer will arrive as a prompt`, any other a deny naming the failure. Its matcher is a literal
-  written in `register.ts` that lists every half's tools and refusals, and `register.spec.ts`
-  holds it equal to the registry, so a half's new tool fails that suite until the literal
-  names it. Each `stage` line runs the halves' `staged`, handed to `mode.ts` as `staged` the
+  `The reviewer's answer will arrive as a prompt`, any other a deny naming the failure. Each `stage` line runs the halves' `staged`, handed to `mode.ts` as `staged` the
   way `settle` is. `closing` runs as the mode closes, by `/vellum:stop` or by the approval
   (`settle`), while the mode is live and its server answers: what a half started in the session,
   it ends there. What the approval must close on the server is closed there, by the server

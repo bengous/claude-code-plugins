@@ -94,9 +94,8 @@ paths:
 - A rule only the type system holds is locked where it is tested: a
   `// @ts-expect-error -- <reason>` line in the suite beside it, on the code that must not
   compile. The typecheck gate reads the suites, and a directive with nothing under it fails
-  the gate, so the day the type loosens the suite says so. `grill/server.spec.ts` holds two:
-  the body of `close`, the reply to `open`. `runtime/page/kit.spec.ts` holds the kit's: a component
-  is a function, so a suite calls it with props and reads the vnode it returns, with no DOM.
+  the gate, so the day the type loosens the suite says so. A component is a function, so a suite
+  calls it with props and reads the vnode it returns, with no DOM (`runtime/page/kit.spec.ts`).
   A slice's `contract.spec.ts` holds what its plugs refuse (`slices.md`), and
   `src/slices.spec.ts` what the compiler cannot see: a half built through a variable. The
   directive sits on a line that also runs, so the test says what the refused code would do.

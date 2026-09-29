@@ -11,12 +11,9 @@ paths:
 
 An extension is a folder, `src/steps/<name>/` for a step Vellum follows or `src/formats/<name>/`
 for a format a document is read in, and every one is a slice (`slices.md`): its `contract.ts`
-declares it, and a half per runtime it plugs into fills what the declaration says. `page.tsx`
-fills a `PageHalf` (its renderers, its actions in the decision bar, its notices under the bar,
-its panel beside the document pane, placed by `panesOf`), `server.ts` a `ServerHalf` (its
-routes, its part of the workflow, its part of a Send, what opens it, the documents it proposes
-from the plan's links), both typed in `src/runtime/extension.ts`, and `hooks.ts` a `HooksHalf`
-(`src/runtime/hooks/extension.ts`: tools, refusals, and the engine events the core hands it).
+declares it, and a half per runtime it plugs into fills what the declaration says: `page.tsx`
+a `PageHalf` and `server.ts` a `ServerHalf`, both typed in `src/runtime/extension.ts`, and
+`hooks.ts` a `HooksHalf` (`src/runtime/hooks/extension.ts`).
 A half is the one way in: `PageExtension`, `ServerExtension` and `EngineExtension` are the
 runtimes' own representation of a part, which each registry makes from the half, never a part.
 Its part of the workflow is its model, pure and named after its folder: its region
@@ -35,16 +32,10 @@ tests load. A hooks half may import the model as types only.
 - To add one: `slices.md`, in its order. Nothing else in `src/runtime/` or `src/workshop/`
   changes; when something must, the core lacks a place to plug into, and that is the change to
   propose first.
-- An extension imports `src/workshop/`, `src/runtime/` and its own folder, never another part's.
-  It reads the review through `src/review/contract.ts`, as types, and takes a value of the
-  review's from the files `REVIEW_SURFACE` lists in `src/boundaries.spec.ts` alone, frozen as
-  `PAGE_SURFACE` is: `surface.ts`, and `composer.tsx` for the composer, which `surface.ts` does
-  not carry since the mockup's frame script loads it. From a runtime's folder it imports, for a
-  half it fills, the files `SURFACES` lists in
-  `src/boundaries.spec.ts` (`PAGE_SURFACE` of `src/runtime/page/`, `slice.ts` of
-  `src/runtime/server/`, types of `src/runtime/hooks/`, the last two from `server.ts` and
-  `hooks.ts` alone, never from the page half or the model): one more is a decision to take, not a
-  convenience.
+- What an extension may import is `src/boundaries.spec.ts`'s, which names each file it takes of a
+  runtime (`SURFACES`) and of the review (`REVIEW_SURFACE`): one more is a decision to take, not a
+  convenience. The composer is imported from `composer.tsx`, never through `surface.ts`, since
+  the mockup's frame script loads `surface.ts` and must not load the page's store.
 - A server half's routes are mounted at `/api/x/<id>/<name>`, behind the token, and do their IO
   through the `ServerContext` that `Queue` binds: an extension never imports the server's IO. A
   route that changes the workflow dispatches its event (`ServerContext.dispatch`), in the
