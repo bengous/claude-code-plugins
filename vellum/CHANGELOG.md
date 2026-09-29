@@ -2,6 +2,27 @@
 
 What each version of vellum changed for the person using it, newest first.
 
+## 0.17.0 - 2026-09-29
+
+### Added
+
+- None of these, in the Next step window, declines every step Claude proposes, with an optional note.
+- Claude can ask where the planning session stands, through `mcp__vellum__state`.
+- A page left open across a plugin update reloads itself once it meets the new build.
+
+### Changed
+
+- A `plan.md` written while a grill is open is kept back, and the pill says what holds it; no version is recorded until the hold falls.
+- Escape during a proposal or a grill question pauses it instead of losing it: the page says Paused, and the reviewer's answer reaches Claude as a message.
+- Claude no longer proposes to write the plan once `plan.md` exists.
+- An approval is refused while `plan.md` changed since the version under review, and asks a confirmation under a hold.
+- Every refusal names its reason, in the page and to Claude.
+
+### Fixed
+
+- End grill clicked while the review loads waits for the draft's saving, instead of refusing and leaving the grill open.
+- A first load the server does not answer is reported in the page again.
+
 ## 0.16.0 - 2026-09-25
 
 ### Added
