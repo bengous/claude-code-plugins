@@ -223,6 +223,22 @@ export function declOf(table: Table, event: string): EventDecl {
   return decl;
 }
 
+/** What a refusal by a row the part does not own answers: another part's, or the machine's approval. */
+const FOREIGN: RefusalStatus = 409;
+
+/** The status of the row `rule` of `event`, as `part` declares it; with none, the rule is another's. */
+export function statusOf(part: TablePart | null, event: string, rule: string): RefusalStatus {
+  if (part === null) return FOREIGN;
+
+  if (rule === HELD) {
+    const whileHeld = part.events.find(({ id }) => id === event)?.whileHeld;
+
+    return whileHeld?.effect === "allow" ? FOREIGN : (whileHeld?.status ?? FOREIGN);
+  }
+
+  return part.rules.find((row) => row.event === event && row.id === rule)?.status ?? FOREIGN;
+}
+
 function holdRule(decl: EventDecl, hold: string | null): readonly Rule[] {
   const { whileHeld } = decl;
 

@@ -3,8 +3,14 @@ import { freeTarget, listReview } from "../runtime/server/fs.ts";
 import type { Queue, Stepped } from "../runtime/server/queue.ts";
 import type { ProjectPath, Version } from "../workshop/paths.ts";
 import { tablePart } from "../workshop/rows.ts";
-import type { Actor, EventInput, TablePart, Workflow } from "../workshop/workflow.ts";
-import { HELD, held, verdictOf } from "../workshop/workflow.ts";
+import type {
+  Actor,
+  EventInput,
+  RefusalStatus,
+  TablePart,
+  Workflow,
+} from "../workshop/workflow.ts";
+import { HELD, held, statusOf, verdictOf } from "../workshop/workflow.ts";
 import type { PlanWorkspace } from "../workshop/workspace.ts";
 import type { SendRefusal } from "./contract.ts";
 import { REVIEW_EVENTS, RULES } from "./contract.ts";
@@ -38,10 +44,18 @@ export const REVIEW_PART: TablePart = tablePart(REVIEW, {
  */
 export type GateOptions = { readonly unchanged: "record" | "keep" };
 
-/** What `submit`, the turn's end and Record read: the version the plan is, or the row that refused it. */
+/** What a refusal of the review's own answers, one no row judges: a rename stopped, a Send with nothing in it. */
+const OWN_REFUSAL: RefusalStatus = 409;
+
+/** What `submit`, the turn's end and Record read: the version the plan is, or the row that refused it and its status. */
 export type GateResult =
   | { readonly ok: true; readonly version: Version; readonly kept: boolean }
-  | { readonly ok: false; readonly rule: string; readonly error: string };
+  | {
+      readonly ok: false;
+      readonly rule: string;
+      readonly error: string;
+      readonly status: RefusalStatus;
+    };
 
 /** An approval taken, refused by a row, or stopped by a rename whose error the workspace carries. */
 export type DecisionResult =
@@ -51,6 +65,7 @@ export type DecisionResult =
       readonly workspace: PlanWorkspace;
       readonly rule: string | null;
       readonly reason: string | null;
+      readonly status: RefusalStatus;
     };
 
 /** What a Send did: the batch written, its entry's number and the edit it left, or why nothing was written. */
@@ -61,7 +76,7 @@ export type SendResult =
       readonly seq: number;
       readonly editKept: EditKept | null;
     }
-  | { readonly ok: false; readonly refusal: SendRefusal };
+  | { readonly ok: false; readonly refusal: SendRefusal; readonly status: RefusalStatus };
 
 export type ReviewServer = {
   readonly gate: (options: GateOptions, actor: Actor) => Promise<GateResult>;
@@ -69,8 +84,8 @@ export type ReviewServer = {
   readonly send: (request: SendRequest) => Promise<SendResult>;
 };
 
-function refused(refusal: SendRefusal): SendResult {
-  return { ok: false, refusal };
+function refused(refusal: SendRefusal, status: RefusalStatus = OWN_REFUSAL): SendResult {
+  return { ok: false, refusal, status };
 }
 
 /** A step the table passed, or the reason its rows gave: an event the route judged first must pass. */
@@ -91,7 +106,9 @@ export function reviewServer(queue: Queue): ReviewServer {
       const stepped = await queue.step("record", { unchanged: options.unchanged }, actor);
 
       if (stepped.verdict.kind !== "allow") {
-        return { ok: false, rule: stepped.verdict.rule, error: stepped.verdict.reason };
+        const { rule, reason } = stepped.verdict;
+
+        return { ok: false, rule, error: reason, status: statusOf(REVIEW_PART, "record", rule) };
       }
 
       const { workspace } = stepped.workflow;
@@ -148,11 +165,19 @@ export function reviewServer(queue: Queue): ReviewServer {
       const { verdict } = stepped;
 
       if (verdict.kind !== "allow") {
-        return { ok: false, workspace, rule: verdict.rule, reason: verdict.reason };
+        const { rule, reason } = verdict;
+
+        return {
+          ok: false,
+          workspace,
+          rule,
+          reason,
+          status: statusOf(REVIEW_PART, "approve", rule),
+        };
       }
 
       return stepped.stopped
-        ? { ok: false, workspace, rule: null, reason: null }
+        ? { ok: false, workspace, rule: null, reason: null, status: OWN_REFUSAL }
         : { ok: true, workspace };
     });
 
@@ -209,7 +234,10 @@ export function reviewServer(queue: Queue): ReviewServer {
 
         if (verdict.kind === "allow") throw new Error("a Send its rows refused passed its step");
 
-        return refused({ reason: "refused", rule: verdict.rule, text: verdict.reason });
+        return refused(
+          { reason: "refused", rule: verdict.rule, text: verdict.reason },
+          statusOf(REVIEW_PART, "send", verdict.rule),
+        );
       }
 
       if (stored === "unreadable") return refused({ reason: "unreadable" });
@@ -245,11 +273,12 @@ export function reviewServer(queue: Queue): ReviewServer {
         written === null &&
         parts.length === 0
       ) {
-        return refused(
-          editKept === null
-            ? { reason: "empty" }
-            : { reason: "refused", rule: HELD, text: editKept.reason },
-        );
+        return editKept === null
+          ? refused({ reason: "empty" })
+          : refused(
+              { reason: "refused", rule: HELD, text: editKept.reason },
+              statusOf(REVIEW_PART, "sendEdit", HELD),
+            );
       }
 
       const batch = written === null && workspace.kind !== "approved" ? workspace.batches + 1 : 1;

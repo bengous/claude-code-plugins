@@ -10,11 +10,13 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+import type { RULES } from "../../../review/contract.ts";
 import { UNREADABLE_DRAFT } from "../../../review/routes.ts";
 import type { ReviewServer } from "../../../review/server.ts";
 import { reviewServer } from "../../../review/server.ts";
 import type { WipDir } from "../../../workshop/paths.ts";
 import { parseWipDir } from "../../../workshop/paths.ts";
+import type { RowKey } from "../../../workshop/rows.ts";
 import { Queue } from "../queue.ts";
 import { serverExtensions } from "../slices.ts";
 import { createHandler, TOKEN_HEADER } from "./routes.ts";
@@ -139,6 +141,8 @@ type Drafting = {
   }) => Promise<Response>;
   readonly getDraft: () => Promise<Response>;
   readonly channel: (after: string) => Promise<Response>;
+  readonly gate: () => Promise<Response>;
+  readonly record: () => Promise<Response>;
 };
 
 /** A review still drafting, behind its own handler: a Send there writes `v0.feedback-<n>.md`. */
@@ -184,7 +188,11 @@ function drafting(): Drafting {
   const channel = (after: string): Promise<Response> =>
     call("GET", `/api/channel?after=${after}`, null);
 
-  return { dir, review, events, decide, sendBody, send, putDraft, getDraft, channel };
+  const gate = (): Promise<Response> => call("POST", "/api/gate", JSON.stringify(RECORD));
+
+  const record = (): Promise<Response> => call("POST", "/api/record", null);
+
+  return { dir, review, events, decide, sendBody, send, putDraft, getDraft, channel, gate, record };
 }
 
 /** The same review once `plan.md` was gated as v1. */
@@ -195,6 +203,17 @@ async function underReview(): Promise<Drafting> {
 
   return made;
 }
+
+/** The review under v1, held by a grill opened on it, as the grill's route opens one. */
+async function heldByAGrill(): Promise<Drafting> {
+  const made = await underReview();
+  await made.review.inOrder(() => made.review.step("openGrill", { subject: "auth" }, "reviewer"));
+
+  return made;
+}
+
+/** A comment on v1 itself: sent without the edit the draft holds, the Send's `edit` row refuses it. */
+const ON_PLAN = { id: "p", doc: `${WIP}.review/v1.md`, anchor: { kind: "global" }, mark: BIGGER };
 
 beforeAll(async () => {
   root = mkdtempSync(join(tmpdir(), "vellum-routes-"));
@@ -776,6 +795,118 @@ describe("routes", () => {
       entry: { kind: "approved", version: 1, dir: "plans/2026-09-15/routed-plan/", notes: null },
     });
   });
+});
+
+/**
+ * Each row of the review's that a route meets answers the status the row declares: a row declared
+ * another status fails here. `sendEdit: stale` is met by no route, since the Send's own `stale`
+ * row judges the same edit first; the table's snapshot holds it.
+ */
+const ROW_STATUS = {
+  "record: held": [
+    "a gate while a grill holds the review answers the hold's row, 409",
+    async () => {
+      const answer = await (await heldByAGrill()).gate();
+      expect(answer.status).toBe(409);
+      expect(await answer.json()).toEqual({ error: expect.stringContaining("plan.md waits") });
+    },
+  ],
+  "record: no-plan": [
+    "Record with no plan.md answers the no-plan row, 409",
+    async () => {
+      const answer = await drafting().record();
+      expect(answer.status).toBe(409);
+      expect(await answer.json()).toMatchObject({ rule: "no-plan" });
+    },
+  ],
+  "sendEdit: held": [
+    "a Send of an edit alone while a grill holds answers the edit's hold row, 409",
+    async () => {
+      const { putDraft, sendBody } = await heldByAGrill();
+      await putDraft({ ...EMPTY_DRAFT, edit: { version: 1, text: "# Q\n" } });
+      const answer = await sendBody({ ...ALL, annotations: [], edit: 1 });
+      expect(answer.status).toBe(409);
+      expect(await answer.json()).toMatchObject({ reason: "refused", rule: "held" });
+    },
+  ],
+  "send: changed": [
+    "a Send naming a comment the draft no longer holds answers the changed row, 409",
+    async () => {
+      const { putDraft, sendBody } = await underReview();
+      await putDraft({ ...EMPTY_DRAFT, annotations: [ON_MOCKUP] });
+      const answer = await sendBody({ ...ALL, annotations: ["a", "gone"] });
+      expect(answer.status).toBe(409);
+      expect(await answer.json()).toMatchObject({ reason: "refused", rule: "changed" });
+    },
+  ],
+  "send: stale": [
+    "a Send of an edit of another version answers the stale row, 409",
+    async () => {
+      const { putDraft, sendBody } = await underReview();
+      await putDraft({ ...EMPTY_DRAFT, edit: { version: 2, text: "# Q\n" } });
+      const answer = await sendBody({ ...ALL, annotations: [], edit: 2 });
+      expect(answer.status).toBe(409);
+      expect(await answer.json()).toMatchObject({ reason: "refused", rule: "stale" });
+    },
+  ],
+  "send: edit": [
+    "a Send of a comment on the plan without the edit it goes with answers the edit row, 409",
+    async () => {
+      const { putDraft, sendBody } = await underReview();
+      await putDraft({
+        ...EMPTY_DRAFT,
+        annotations: [ON_PLAN],
+        edit: { version: 1, text: "# Q\n" },
+      });
+      const answer = await sendBody({ ...ALL, annotations: ["p"] });
+      expect(answer.status).toBe(409);
+      expect(await answer.json()).toMatchObject({ reason: "refused", rule: "edit" });
+    },
+  ],
+  "approve: held": [
+    "an approval while a grill holds answers the hold's row, 409, asking to confirm",
+    async () => {
+      const answer = await (await heldByAGrill()).decide(APPROVE);
+      expect(answer.status).toBe(409);
+      expect(await answer.json()).toMatchObject({ rule: "held" });
+    },
+  ],
+  "approve: no-version": [
+    "an approval while drafting answers the no-version row, 409",
+    async () => {
+      const answer = await drafting().decide(APPROVE);
+      expect(answer.status).toBe(409);
+      expect(await answer.json()).toMatchObject({ rule: "no-version" });
+    },
+  ],
+  "approve: approve-stale": [
+    "an approval carrying an edit of another version answers the approve-stale row, 409",
+    async () => {
+      const { decide } = await underReview();
+      const answer = await decide({ ...APPROVE, edit: { version: 2, text: "# Q\n" } });
+      expect(answer.status).toBe(409);
+      expect(await answer.json()).toMatchObject({ rule: "approve-stale" });
+    },
+  ],
+  "approve: approve-draft": [
+    "an approval while plan.md holds a text v1 lacks answers the approve-draft row, 409",
+    async () => {
+      const { dir, decide } = await underReview();
+      writeFileSync(join(dir, WIP, "plan.md"), "# Locked plan\n\nrevised\n");
+      const answer = await decide(APPROVE);
+      expect(answer.status).toBe(409);
+      expect(await answer.json()).toMatchObject({ rule: "approve-draft" });
+    },
+  ],
+} satisfies {
+  readonly [Row in Exclude<RowKey<(typeof RULES)[number]>, "sendEdit: stale">]: readonly [
+    string,
+    () => Promise<void>,
+  ];
+};
+
+describe("a refusal of the review's routes answers the status its row declares", () => {
+  for (const [title, run] of Object.values(ROW_STATUS)) test(title, run);
 });
 
 describe("the channel", () => {
