@@ -1,13 +1,16 @@
-// Written by Claude Code 2.1.282.
+// Written by Claude Code 2.1.284.
 // Claude Code function hooks: the plugin API's TypeScript declarations.
 //
 // EARLY ACCESS: this surface may change between releases without notice.
-// Written by `/plugin-types`; regenerate with that command after an update
-// rather than editing. The first line names the Claude Code version that
-// wrote it. TypeScript 5.4 or newer reads it. `claude plugin validate <dir>`
-// is the other half: it reads a plugin's manifest and its hooks module's
-// source the way the engine will and reports what the module hooks and
-// calls and everything the engine would refuse, before any session loads it.
+// Written by the engine each time it loads a mod from a folder the person
+// owns, beside that mod as .claude-plugin/types/claude-code/index.d.ts, and
+// by `/plugin-types` into a directory the person names; written again
+// after an update rather than edited. The first line names the Claude Code
+// version that wrote it. TypeScript 5.4 or newer reads it.
+// `claude plugin validate <dir>` is the other half: it reads a plugin's
+// manifest and its hooks module's source the way the engine will and
+// reports what the module hooks and calls and everything the engine would
+// refuse, before any session loads it.
 //
 // What is here: the module a hooks module may import types from,
 //   import type { Register, On, EngineInterface } from 'claude-code'
@@ -78,7 +81,11 @@
 // you depend on is typed with nothing copied (the include above takes the
 // whole folder). "hooks" is the plugin's hooks/ folder and "tests" its test
 // files. `lib` names no DOM: the environment has none, and its `Text`
-// would shadow the element.
+// would shadow the element. A mod the engine loads from a folder the person
+// owns has these options without writing them: its tsconfig.json extends
+// .claude-plugin/types/tsconfig.json, which carries them with that folder
+// as the one type root, holding this file and one entry per plugin the
+// mod's plugin.json lists under "dependencies" (that plugin's own contract).
 //
 // A plugin that adds a noun to `$` ships its own contract: a .d.ts its
 // plugin.json names as "types", exporting the noun's types at its top level
@@ -701,8 +708,8 @@ declare module 'claude-code' {
    * fixed row of the band, or reveal an absolutely positioned card.
    * `borderStyle` only restyles a border the Box has; the offsets move a Box
    * drawn `position: "absolute"`, none in the flow. The surface applies a
-   * hover as the pointer moves, so a reveal that moves what the pointer rests
-   * on is drawn once, not in a loop.
+   * hover as the pointer moves and as what is drawn under a resting pointer
+   * changes; a reveal that keeps moving what it rests on settles, never loops.
    */
   export type BoxHoverProps = {
       /**
@@ -942,6 +949,16 @@ declare module 'claude-code' {
        */
       variant?: 'primary' | 'secondary';
       /**
+       * Marks the Button that closes its site: a drawing hint only. `onPress`
+       * still does the dismissing and the press is raised as for any Button.
+       *
+       * The terminal draws it as without the prop; a desktop draws its native
+       * close control at the site's trailing edge, the label its accessible name.
+       *
+       * @example <Button role="dismiss" onPress={close}>Dismiss</Button>
+       */
+      role?: 'dismiss';
+      /**
        * The site's focus ring starts here when the site takes the keyboard,
        * instead of on nothing, as the DOM's `autofocus`: Enter acts on it at once.
        *
@@ -962,8 +979,14 @@ declare module 'claude-code' {
       /**
        * What the press runs, in the plugin's own environment: the bottom of the
        * `ui.press` chain. The host holds only a handle, for the drawing's life.
+       *
+       * Run with the `ui.press` argument as the chain above left it: `e.surface`
+       * names the surface the press came from, which a copy passes on.
+       *
+       * @example
+       * onPress: press => $.ui.copy({ text: url, surface: press.surface })
        */
-      onPress: () => void;
+      onPress: (e: UiPressArgument) => void;
   };
 
   /**
@@ -1638,6 +1661,18 @@ declare module 'claude-code' {
        * along; written, it keeps every entry that answer had (none empty).
        */
       context?: readonly string[];
+      /**
+       * What the process exits with when this command was the whole prompt of a
+       * headless run (`claude -p "/lint"`): a whole number from 0 to 255.
+       *
+       * Left out, the run exits as it would have; any other value fails the
+       * hook. An interactive session ignores it, and core never sets it. The
+       * answer the chain ends on decides: a hook above answering its own drops it.
+       *
+       * @example
+       * on("command.run", { command: "lint" }, () => ({ text, exitCode: 3 }))
+       */
+      exitCode?: number;
       /**
        * Set by core on what `next(e)` resolves to: names the engine's run of
        * the command (its result stays on the host side).
@@ -2338,12 +2373,23 @@ declare module 'claude-code' {
            *
            * @param request the model (an alias such as `haiku`, or a full id
            *                resolved like `--model`), prompt, cap, effort, time limit
+           * @param options `signal`: the plugin's own AbortSignal; aborting it
+           *   cuts the call while it runs, which then resolves `aborted`
            * @returns the reply (`isAnswered`, `text`, `usage`), else the `reason`:
            *          `api-error` with `status` and `error`, `empty-reply`, `aborted`
            * @example
            * const r = await $.model.complete({ model: "haiku", prompt, effort })
+           * @example
+           * // one handler starts it, a later one cancels it while it runs
+           * let stop = new AbortController()
+           * const start = async () => {
+           *   stop = new AbortController()
+           *   const r = await $.model.complete(ask, { signal: stop.signal })
+           *   if (!r.isAnswered && r.reason === "aborted") $.ui.log("cancelled")
+           * }
+           * const cancel = () => stop.abort()
            */
-          complete: (request: ModelCompleteRequest) => Promise<ModelCompleteResult>;
+          complete: (request: ModelCompleteRequest, options?: ModelCompleteOptions) => Promise<ModelCompleteResult>;
           /**
            * Runs one tool-less completion over the session's OWN transcript as the
            * main thread last sent it, so the API serves that prefix from its cache.
@@ -2809,6 +2855,45 @@ declare module 'claude-code' {
           set: EventCalls['config']['set'];
       };
       /**
+       * Analytics: first-party rows and feature marks for Anthropic, and records
+       * for the telemetry collector the session's operator configured.
+       */
+      telemetry: {
+          /**
+           * Logs one record to the destination `entry.to` names, the event
+           * `telemetry.log`; `e.to` is pinned, and `anthropic` when left out.
+           *
+           * The engine does nothing with it: the built-in plugins that hook the
+           * event queue a first-party row or hand a record to the collector's
+           * sender. They serve built-ins and the engine alone; any plugin may hook.
+           *
+           * @param entry a first-party row, or a collector record
+           * @returns once the hooks have answered; rejects when one denies
+           * @example
+           * await $.telemetry.log({
+           *   to: "anthropic",
+           *   event: "survey_answered",
+           *   props: { answer: 2, page: { value: "ready", of: ["ready", "later"] } },
+           * })
+           */
+          log: (entry: TelemetryLogArgs) => Promise<void>;
+          /**
+           * Marks one use of a feature as the CLI's own feature events do, the
+           * event `telemetry.mark`; it takes no `to` and always means `anthropic`.
+           *
+           * The engine does nothing with it: the built-in plugins that hook the
+           * event queue the row. They serve built-ins and the engine alone; any
+           * plugin may hook it.
+           *
+           * @param entry the feature, how its use went, why, and its properties
+           * @returns once the hooks have answered; rejects when one denies
+           * @example
+           * await $.telemetry.mark({ feature: "learn_page", kind: "sad",
+           *   reason: "blocked" })
+           */
+          mark: (entry: TelemetryMarkInput) => Promise<void>;
+      };
+      /**
        * Subagents.
        */
       agent: {
@@ -2861,8 +2946,8 @@ declare module 'claude-code' {
        * is under the session's working directory, and text is UTF-8.
        *
        * An absolute path is used as given; where one may go is an `fs.*` hook's
-       * to say. A read or write over 4 MiB rejects, a foreign network location
-       * as spelled rejects untouched, and an OS refusal rejects with its errno.
+       * to say. A read or write over 4 MiB rejects, the implementation beneath the
+       * hooks rejects a network location untouched, an OS refusal with its errno.
        */
       fs: {
           /**
@@ -2892,16 +2977,22 @@ declare module 'claude-code' {
            */
           write: (path: string, text: string) => Promise<void>;
           /**
-           * Lists a directory: `{ name, kind, size, isLink }` per entry, by name,
-           * each entry as it stands (a symbolic link is `other` with `isLink`).
+           * Lists a directory by name: `{ name, kind, size, mtimeMs, isLink }` per
+           * entry, each entry as it stands.
+           *
+           * A symbolic link is `other` with `isLink`; `size` and `mtimeMs` are a
+           * regular file's own and 0 for every other kind (`$.fs.stat` has those).
            *
            * @param path the directory's path; absent, the working directory
-           * @returns the entries, `{ name, kind, size, isLink }` each
+           * @returns the entries, `{ name, kind, size, mtimeMs, isLink }` each
+           * @example
+           * const logs = await $.fs.list("logs")
+           * const newest = [...logs].sort((a, b) => b.mtimeMs - a.mtimeMs)[0]
            */
           list: (path?: string) => Promise<FsEntry[]>;
           /**
-           * Returns whether the path exists; rejects only a network location as
-           * spelled, which no `fs` call reaches.
+           * Returns whether the path exists; rejects only a network location, which
+           * the implementation beneath the hooks never touches.
            */
           exists: (path: string) => Promise<boolean>;
           /**
@@ -3145,7 +3236,8 @@ declare module 'claude-code' {
            * @param argv the command and its arguments, `argv[0]` the executable
            * @param init `{ cwd, env, stdin, timeoutMs }` (cwd the session's by
            *             default; timeout 30 s by default, ten minutes at most)
-           * @returns `{ exitCode, stdout, stderr }` once the child exits
+           * @returns `{ exitCode, stdout, stderr }`, each stream's first 4194304
+           *          bytes (`isStdoutTruncated`, `isStderrTruncated` say when cut)
            * @example
            * const { exitCode, stdout } = await $.process.run(["git", "status"])
            */
@@ -3788,6 +3880,29 @@ declare module 'claude-code' {
        */
       'config.describe': ConfigDescribeInput;
       /**
+       * Fires when a record is about to be logged to the destination `e.to`
+       * names: a built-in's `$.telemetry.log`, or the engine's own events.
+       *
+       * `e.to` is pinned: a hook rewrites what the record carries, never where
+       * it goes. `next(e)` resolves `{ value: undefined }`; `{ deny }` rejects
+       * the caller. The engine does nothing with a record: the built-ins do.
+       *
+       * @example
+       * on("telemetry.log", { to: "collector" }, ($, e, next) => next(e))
+       */
+      'telemetry.log': TelemetryLogInput;
+      /**
+       * Fires when one use of a feature is marked (`$.telemetry.mark`), as the
+       * CLI's own feature events mark one; always for `anthropic`, no `to`.
+       *
+       * `next(e)` resolves `{ value: undefined }`; `{ deny }` rejects the caller.
+       * The engine does nothing with a mark: the built-ins hooked here do.
+       *
+       * @example
+       * on("telemetry.mark", { kind: "bad" }, ($, e, next) => next(e))
+       */
+      'telemetry.mark': TelemetryMarkInput;
+      /**
        * Fires when the engine expands a skill's prompt for the model (`/name`,
        * the Skill tool, a preload); `next(e)` resolves to `{ text }` as computed.
        *
@@ -4077,6 +4192,14 @@ declare module 'claude-code' {
        */
       'config.describe': ConfigDescribeResult;
       /**
+       * `{ value: undefined }`, or `{ deny }`.
+       */
+      'telemetry.log': TelemetryLogResult;
+      /**
+       * `{ value: undefined }`, or `{ deny }`.
+       */
+      'telemetry.mark': TelemetryMarkResult;
+      /**
        * `{ text }`.
        */
       'skill.prompt': SkillPromptResult;
@@ -4188,6 +4311,10 @@ declare module 'claude-code' {
           detach: (input: SessionDetachInput) => Promise<SessionDetachResult>;
           measure: (input: SessionMeasureInput) => Promise<SessionMeasureResult>;
           end: (input: SessionEndInput) => Promise<SessionEndResult>;
+      };
+      telemetry: {
+          log: (input: TelemetryLogArgs) => Promise<TelemetryLogResult>;
+          mark: (input: TelemetryMarkInput) => Promise<TelemetryMarkResult>;
       };
       turn: {
           start: (input: TurnStartInput) => Promise<TurnStartResult>;
@@ -4356,6 +4483,17 @@ declare module 'claude-code' {
        */
       size: number;
       /**
+       * Last modification, milliseconds since the epoch, for a file, as
+       * `$.fs.stat` spells it; 0 for a directory, a link or any other kind.
+       *
+       * The listing reads a regular file's size and time in its one call and
+       * looks no other entry up: `$.fs.stat` answers a directory's.
+       *
+       * @example
+       * const newest = [...entries].sort((a, b) => b.mtimeMs - a.mtimeMs)[0]
+       */
+      mtimeMs: number;
+      /**
        * True when the entry is a symbolic link.
        */
       isLink: boolean;
@@ -4452,6 +4590,9 @@ declare module 'claude-code' {
   /**
    * Every event (`*`), or every event under a namespace (`classic.*`: each
    * one whose name starts with `classic.`).
+   *
+   * But a telemetry event, which is hooked by name (`telemetry.log`, or
+   * `telemetry.*` for all): `*` does not select one for an installed plugin.
    */
   export type Glob = '*' | `${Namespace}.*`;
 
@@ -5384,6 +5525,25 @@ declare module 'claude-code' {
   export type ModelApiError = ClassicHookInputs['StopFailure']['error'];
 
   /**
+   * Options of `$.model.complete`: what is no part of the request, so no hook
+   * on `model.complete` reads it on `e`.
+   */
+  export type ModelCompleteOptions = {
+      /**
+       * Aborting it cuts the call while it runs: it resolves `aborted`, as when
+       * its dispatch is aborted. Already aborted, no request is made.
+       *
+       * The plugin's own (`new AbortController()`), kept where a later handler
+       * reaches it, so a Cancel button stops a call an earlier press started;
+       * it never leaves the plugin's environment, only its firing does.
+       *
+       * @example
+       * const r = await $.model.complete(ask, { signal: stop.signal })
+       */
+      signal?: AbortSignal;
+  };
+
+  /**
    * What `$.model.complete` takes.
    */
   export type ModelCompleteRequest = {
@@ -5524,7 +5684,7 @@ declare module 'claude-code' {
        *
        * The dispatch that made the call was aborted while it ran (escape on
        * the turn whose hook called; the plugin's environment unloaded), or a
-       * completion's own `timeoutMs` elapsed and the request was abandoned.
+       * completion's own `options.signal` aborted or `timeoutMs` elapsed.
        *
        * @example
        * if (!r.isAnswered && r.reason === "aborted") return next(e)
@@ -5693,6 +5853,9 @@ declare module 'claude-code' {
   /**
    * `!` before a name or a glob: every event except the ones it selects. `!*`
    * would select none, so it is no pattern.
+   *
+   * It names no event, so like `*` it selects no telemetry event for an
+   * installed plugin: those are hooked by name.
    */
   type Negation = `!${Exclude<EventName | Glob, '*'>}`;
 
@@ -5998,7 +6161,8 @@ declare module 'claude-code' {
    */
   export type OpEventOf = {
       /**
-       * The argument of `$.model.complete(request)`.
+       * The argument of `$.model.complete(request, { signal })`; the signal does
+       * not cross, it aborts the call.
        */
       'model.complete': ModelCompleteRequest;
       /**
@@ -7083,6 +7247,9 @@ declare module 'claude-code' {
 
   /**
    * What `$.process.run` resolves with once the child has exited.
+   *
+   * @example
+   * const { stdout, isStdoutTruncated } = await $.process.run(["git", "log"])
    */
   export type ProcessRunResult = {
       /**
@@ -7090,15 +7257,29 @@ declare module 'claude-code' {
        */
       exitCode: number;
       /**
-       * What the child wrote to standard output, as text, cut at the output
-       * limit.
+       * What the child wrote to standard output, as text: its first 4194304
+       * bytes (4 MiB), the rest read and dropped (`isStdoutTruncated`).
+       *
+       * The limit counts bytes, not characters, and is standard output's own:
+       * standard error has the same limit again. A cut inside a multi-byte
+       * character drops that character.
        */
       stdout: string;
       /**
-       * What the child wrote to standard error, as text, cut at the output
-       * limit.
+       * What the child wrote to standard error, as text: its first 4194304
+       * bytes (4 MiB), the rest read and dropped (`isStderrTruncated`).
        */
       stderr: string;
+      /**
+       * True when the child wrote more than 4194304 bytes to standard output
+       * and `stdout` is only the first of them; false when `stdout` is whole.
+       */
+      isStdoutTruncated: boolean;
+      /**
+       * True when the child wrote more than 4194304 bytes to standard error
+       * and `stderr` is only the first of them; false when `stderr` is whole.
+       */
+      isStderrTruncated: boolean;
   };
 
   /**
@@ -7115,8 +7296,10 @@ declare module 'claude-code' {
        */
       stream: 'stdout' | 'stderr';
       /**
-       * What the child wrote, decoded; never empty. Left unread past about a
-       * megabyte, the child blocks on its next write until the loop pulls.
+       * What the child wrote, decoded; never empty, and never cut.
+       *
+       * Nothing of the stream is dropped: once 1048576 characters wait unread,
+       * the child blocks on its next write until the loop pulls.
        */
       text: string;
   };
@@ -8079,6 +8262,15 @@ declare module 'claude-code' {
            */
           variant?: ButtonProps['variant'];
           /**
+           * `"dismiss"` marks the Button that closes its site, a drawing hint
+           * only: the terminal draws it as without, a desktop its close control.
+           *
+           * Carried to every surface as written, never filled in.
+           *
+           * @example { key: 'dismiss', label: 'Dismiss', role: 'dismiss' }
+           */
+          role?: ButtonProps['role'];
+          /**
            * The site's ring starts on this element when the site takes the
            * keyboard; the first drawn of several. Absent draws as before.
            */
@@ -8444,10 +8636,12 @@ declare module 'claude-code' {
           origin: PromptOrigin;
           /**
            * Whether the view draws the row in full: the ctrl+o transcript,
-           * `--verbose`, a surface with no ctrl+o (an export). Read-only.
+           * `--verbose`, a surface with no ctrl+o (an export), a row under a
+           * speaker label whose body fits the label view's cap. Read-only.
            *
-           * False, a message row is one dim line naming its sender; a hook that
-           * draws a compact row of its own passes when true, so ctrl+o shows all.
+           * False, a message row is one dim line naming its sender (under a
+           * speaker label, the capped head of a long body); a hook that draws a
+           * compact row of its own passes when true, so ctrl+o shows all.
            */
           isExpanded: boolean;
           /**
@@ -8708,17 +8902,20 @@ declare module 'claude-code' {
       };
       /**
        * The line that animates while a turn runs (`Sauteing... (12s, 300
-       * tokens)`); a remote surface draws its own.
+       * tokens)`); on the desktop, the row that carries the turn's mark.
        *
-       * The row reads `word` (or `message` while one overrides it), then
-       * `suffix`, then the dim parenthetical the engine keeps (elapsed time,
-       * tokens, effort); a hook rewrites the first three or draws its own tree.
+       * Reads `word` (or `message` while one overrides it), `suffix`, then what
+       * the surface keeps and no prop carries: elapsed time, tokens, effort. A
+       * hook rewrites the first three, or draws a tree in place of all of it.
        *
-       * Raised on the terminal surface only.
+       * Raised on the terminal and desktop surfaces only.
        */
       Spinner: {
           /**
            * Animated by the line (`Sauteing`), as sampled for this turn.
+           *
+           * On the desktop, what the row says its step is doing (`Creating
+           * notes.md`), or `Working` while the row shows no words.
            */
           word: string;
           /**
@@ -8735,7 +8932,8 @@ declare module 'claude-code' {
            */
           suffix: string;
           /**
-           * What the turn is doing.
+           * What the turn is doing. The desktop tells `thinking`, `requesting`,
+           * `tool-use` and `responding` apart and never says `tool-input`.
            */
           mode: 'requesting' | 'responding' | 'thinking' | 'tool-input' | 'tool-use';
       };
@@ -10750,6 +10948,192 @@ declare module 'claude-code' {
   };
 
   /**
+   * One attribute of a collector record, as the collector receives it.
+   */
+  export type TelemetryAttribute = string | number | boolean | readonly string[];
+
+  /**
+   * A string property of a first-party row: the value and the list it is
+   * chosen from, so no free text reaches a row.
+   *
+   * Every member of `of` is a lowercase token of letters, digits, `_` and `-`,
+   * at most 32 of them; `value` is one of them.
+   *
+   * @example
+   * const page = { value: "ready", of: ["ready", "later"] }
+   */
+  export type TelemetryChoice = {
+      /**
+       * What the row carries, one member of `of`.
+       */
+      value: string;
+      /**
+       * Every value the property may take.
+       */
+      of: readonly string[];
+  };
+
+  /**
+   * Where a telemetry record goes: `anthropic`, Anthropic's first-party
+   * analytics, or `collector`, the one the session's operator configured.
+   *
+   * A closed union and the record's identity: `e.to` reads the same at every
+   * hook as it was raised, so a hook may rewrite what a record carries, never
+   * redirect or copy it. A hook picks its stream with the matcher.
+   *
+   * @example
+   * on("telemetry.log", { to: "collector" }, ($, e, next) => next(e))
+   */
+  export type TelemetryDestination = 'anthropic' | 'collector';
+
+  /**
+   * What a call of `$.telemetry.log` passes: a first-party row, `to` optional,
+   * or a collector record.
+   */
+  export type TelemetryLogArgs = TelemetryRowArgs | TelemetryRecordEntry;
+
+  /**
+   * The input of `telemetry.log`: one record about to be logged to the
+   * destination `to` names, which is always present and pinned.
+   */
+  export type TelemetryLogInput = TelemetryRowEntry | TelemetryRecordEntry;
+
+  /**
+   * What a `telemetry.log` hook returns and `next(e)` resolves to:
+   * `{ value: undefined }`, or `{ deny }`, which rejects the caller's promise.
+   */
+  export type TelemetryLogResult = ValueOrDeny<undefined>;
+
+  /**
+   * The input of `telemetry.mark`: one use of a feature, as the CLI's own
+   * feature events mark one.
+   *
+   * A mark takes no `to`: it always means `anthropic`.
+   */
+  export type TelemetryMarkInput = {
+      /**
+       * Which feature was used, by its snake_case name.
+       */
+      feature: string;
+      /**
+       * How the use went (TelemetryMarkKind).
+       */
+      kind: TelemetryMarkKind;
+      /**
+       * Why it went so, as a short token.
+       */
+      reason?: string;
+      /**
+       * The mark's properties, by name.
+       */
+      props?: Readonly<Record<string, TelemetryProp>>;
+  };
+
+  /**
+   * How one use of a feature went, as the CLI's own feature events count it.
+   *
+   * `ok`: used, the person got what they asked. `sad`: degraded, they still
+   * got something. `bad`: failed, they got nothing.
+   */
+  export type TelemetryMarkKind = 'ok' | 'sad' | 'bad';
+
+  /**
+   * What a `telemetry.mark` hook returns and `next(e)` resolves to:
+   * `{ value: undefined }`, or `{ deny }`, which rejects the caller's promise.
+   */
+  export type TelemetryMarkResult = ValueOrDeny<undefined>;
+
+  /**
+   * One property of a first-party row or a mark: a number, a boolean, or a
+   * string chosen from a list (TelemetryChoice).
+   */
+  export type TelemetryProp = number | boolean | TelemetryChoice;
+
+  /**
+   * A record for the telemetry collector the session's operator configured.
+   */
+  export type TelemetryRecordEntry = {
+      /**
+       * The operator's collector. Pinned.
+       */
+      to: 'collector';
+      /**
+       * The record's event; it leaves named `claude_code.<event>`.
+       */
+      event: string;
+      /**
+       * The record's attributes; they go out as they stand, in the order
+       * written.
+       */
+      attributes: Readonly<Record<string, TelemetryAttribute>>;
+      /**
+       * When it was logged: an ISO 8601 instant to the millisecond.
+       */
+      loggedAt: string;
+      /**
+       * Where in a trace the record belongs, when it belongs to one.
+       */
+      span?: TelemetrySpan;
+  };
+
+  /**
+   * A first-party row as a call passes it: `to` left out reads as
+   * `anthropic`.
+   */
+  export type TelemetryRowArgs = {
+      /**
+       * The destination, Anthropic's first-party analytics; optional here.
+       */
+      to?: 'anthropic';
+      /**
+       * The row's event name.
+       */
+      event: string;
+      /**
+       * The row's properties, by name.
+       */
+      props?: Readonly<Record<string, TelemetryProp>>;
+  };
+
+  /**
+   * A first-party row as a hook reads it: `to` is always present, the engine
+   * having completed it before any hook or matcher reads `e`.
+   */
+  export type TelemetryRowEntry = {
+      /**
+       * Anthropic's first-party analytics. Pinned.
+       */
+      to: 'anthropic';
+      /**
+       * The row's event name.
+       */
+      event: string;
+      /**
+       * The row's properties, by name.
+       */
+      props?: Readonly<Record<string, TelemetryProp>>;
+  };
+
+  /**
+   * The span a collector record belongs to, as W3C trace context spells it:
+   * the ids in lowercase hex.
+   */
+  export type TelemetrySpan = {
+      /**
+       * The trace's id, 32 hex digits.
+       */
+      traceId: string;
+      /**
+       * The span's id, 16 hex digits.
+       */
+      spanId: string;
+      /**
+       * Bit 0 set when the trace is sampled, as W3C trace context spells it.
+       */
+      traceFlags: number;
+  };
+
+  /**
    * The `Text` props a `hover` may override (its colors and styles, not its
    * wrapping) and `scope`, the hover group it joins; a `Button`'s label too.
    */
@@ -11413,11 +11797,11 @@ declare module 'claude-code' {
        */
       agentId?: string;
       /**
-       * What the turn cost: its responses' token counts summed and the model of
-       * the last, read off the API responses the engine already holds.
+       * What the turn cost: its real requests' token counts, plus what a made-up
+       * response's stop stated, summed, and the model of the last that counted.
        *
-       * A response a `turn.step` hook made up counts only when its stop states
-       * usage; absent when no counted response came (an interrupt, an API error).
+       * A response a `turn.step` hook made up adds nothing unless its stop states
+       * usage; absent when nothing counted (an interrupt, an API error).
        */
       usage?: TurnUsage;
   };
@@ -11777,8 +12161,8 @@ declare module 'claude-code' {
    */
   export type UiCopyResult = {
       /**
-       * True: the surface took the text; on the terminal, the machine's
-       * clipboard tool where one runs, else the OSC 52 sequence written out.
+       * True: the surface took the text: the terminal's clipboard tool or its
+       * OSC 52 write, or a remote surface's app writing its own clipboard.
        *
        * OSC 52 does not report back: a terminal that drops it, with no tool
        * on the machine (pbcopy, wl-copy, xclip, PowerShell, tmux's buffer),
@@ -11795,8 +12179,8 @@ declare module 'claude-code' {
        * hook above answering without copying says `refused`.
        *
        * `no-surface`: nothing draws (a `-p` run, the SDK), or the named
-       * surface is not attached. `no-clipboard`: it draws but the engine
-       * cannot write its clipboard (a remote surface; OSC 52 past its bound).
+       * surface is not attached. `no-clipboard`: it draws but nothing was
+       * written (OSC 52 past its bound; a remote app declined or was silent).
        *
        * @example
        * on('ui.copy', { surface: 'mobile' }, () => ({ value: REFUSED }))
@@ -12748,6 +13132,7 @@ declare module 'claude-code/testing' {
   import type { HookStream } from 'claude-code';
   import type { JsonValue } from 'claude-code';
   import type { On } from 'claude-code';
+  import type { PluginOptions } from 'claude-code';
   import type { PressedLink } from 'claude-code';
   import type { Register } from 'claude-code';
   import type { RenderComponent } from 'claude-code';
@@ -13756,10 +14141,24 @@ declare module 'claude-code/testing' {
   /**
    * What `test` takes beside its name: the inline plugins it loads beside the
    * one under test, and how long it may run (5000 ms when not given).
+   *
+   * Also the plugin under test's `userConfig` values.
    */
   export type TestOptions = {
       plugins?: readonly Plugin[];
       timeoutMs?: number;
+      /**
+       * The plugin under test's `userConfig` values, standing as the ones
+       * stored in settings.
+       *
+       * `register(on, options)` receives them as a load does: unlisted values
+       * unset, defaults filled in, then validated, a bad required field failing
+       * the load. Left out: the manifest's defaults. Inline plugins get none.
+       *
+       * @example
+       * test('greets', { options: { greeting: 'yo' } }, body)
+       */
+      options?: PluginOptions;
   };
 
   /**
@@ -13922,10 +14321,6 @@ declare module 'claude-code' {
       /** Not available in this build; leave unset. */
       q?: string
     }
-    ListMcpResourcesTool: {
-      /** Optional server name to filter resources by */
-      server?: string
-    }
     Monitor: {
       /** Short human-readable description of what you are monitoring (shown in notifications). */
       description: string
@@ -13965,18 +14360,6 @@ declare module 'claude-code' {
       limit?: number
       /** Page range for PDF files (e.g., "1-5", "3", "10-20"). Only applicable to PDF files. Maximum 20 pages per request. */
       pages?: string
-    }
-    ReadMcpResourceDirTool: {
-      /** The MCP server name */
-      server: string
-      /** The directory resource URI to list */
-      uri: string
-    }
-    ReadMcpResourceTool: {
-      /** The MCP server name */
-      server: string
-      /** The resource URI to read */
-      uri: string
     }
     RemoteTrigger: {
       action: "list" | "get" | "create" | "update" | "run" | "create_webhook_trigger" | "list_runs" | "get_run_log"
@@ -14117,8 +14500,15 @@ declare module 'claude-code' {
       /** @internal Fingerprint binding the harness section counts to the exact content they were computed against; a hook rewrite invalidates the counts rather than misplacing rewritten bytes */
       harnessSectionHash?: string
       agentType?: string
-      /** @internal How the report reached this result under the subagent hand-back contract: 'send' = the child's classified SubagentHandback delivery, 'flagged' = that delivery under a SECURITY WARNING, 'withheld' = nothing was delivered (not a stable consumer field) */
+      /** @internal How the report reached this result when the subagent reports through the SubagentHandback tool: 'send' = delivered, passed by auto mode's review or with a note that the review could not run; 'flagged' = delivered under a SECURITY WARNING; 'withheld' = nothing was delivered */
       handback?: "send" | "flagged" | "withheld"
+      /** @internal The report a 'send' or 'flagged' hand-back delivered, for a client to render instead of content */
+      handbackReport?: {
+        /** The subagent's whole report, never truncated, with a backslash inserted into text that imitates harness markup, such as a system tag (`<system-reminder>`), a `[harness:` line or a turn marker (`Human:` at the start of a line) */
+        text: string
+        /** Auto mode's warning to show above `text`: a SECURITY WARNING, or a note that the review could not run */
+        warning?: string
+      }
       content: Array<{
         type: "text"
         text: string
@@ -14416,18 +14806,6 @@ declare module 'claude-code' {
       /** Formatted list of reachable agents */
       listing: string
     }
-    ListMcpResourcesTool: Array<{
-      /** Resource URI */
-      uri: string
-      /** Resource name */
-      name: string
-      /** MIME type of the resource */
-      mimeType?: string
-      /** Resource description */
-      description?: string
-      /** Server that provides this resource */
-      server: string
-    }>
     Monitor: {
       /** ID of the background monitor task. */
       taskId: string
@@ -14557,33 +14935,6 @@ declare module 'claude-code' {
       }
       /** Set when the dedup matched a startup-seeded entry (CLAUDE.md / nested memory) rather than a prior Read tool_result */
       source?: "seeded"
-    }
-    ReadMcpResourceDirTool: {
-      /** Direct children of the directory resource. Subdirectories appear with mimeType "inode/directory". */
-      resources: Array<{
-        /** Child resource URI */
-        uri: string
-        /** Child resource name */
-        name: string
-        /** Child MIME type */
-        mimeType?: string
-      }>
-      /** Human-readable error when the server could not list the directory */
-      error?: string
-    }
-    ReadMcpResourceTool: {
-      contents: Array<{
-        /** Resource URI */
-        uri: string
-        /** MIME type of the content */
-        mimeType?: string
-        /** Text content of the resource */
-        text?: string
-        /** Path where binary blob content was saved */
-        blobSavedTo?: string
-      }>
-      /** Human-readable error when the server could not read the resource */
-      error?: string
     }
     RemoteTrigger: {
       status: number
