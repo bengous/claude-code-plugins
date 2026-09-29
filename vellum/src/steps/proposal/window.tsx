@@ -70,7 +70,7 @@ export function NextStepButton(props: {
 export type WindowProps = {
   readonly state: WindowState | null;
   readonly approved: boolean;
-  /** Why Choose is greyed, the Next step button's reason; `null` while a step can be taken. */
+  /** Why Choose, or Decline, is greyed, the Next step button's reason; `null` while a step can be taken. */
   readonly why: string | null;
   /** `true` once the proposal no longer waits: answered, or already answered or replaced. */
   readonly onAnswer: (id: string | null, answer: StepAnswer) => Promise<boolean>;
@@ -246,7 +246,7 @@ export function StepWindow(props: WindowProps): preact.JSX.Element | null {
           title={why ?? undefined}
           onClick={send}
         >
-          Choose
+          {declining === null ? "Choose" : "Decline"}
         </Button>
       </div>
     </Dialog>

@@ -17,9 +17,9 @@ import {
 /**
  * Claude proposes the next step in a window over the page, never opened under a typing: its
  * reason, its moves, the one it recommends marked and none checked. Esc puts it off onto the
- * Next step button, Choose sends the move picked, one of the reviewer's own, or None of these, which
- * declines them all, and a grill chosen opens at once. The Next step button opens the same window
- * blank, and hides while a grill is open.
+ * Next step button, Choose sends the move picked or one of the reviewer's own, the same button reads
+ * Decline while None of these is checked, which declines them all, and a grill chosen opens at once.
+ * The Next step button opens the same window blank, and hides while a grill is open.
  */
 
 test.use({ fixture: "grill-real" });
@@ -75,6 +75,11 @@ function move(dialog: Locator, kind: RegExp): Locator {
 
 function choose(dialog: Locator): Locator {
   return dialog.getByRole("button", { name: "Choose" });
+}
+
+/** The same button, while None of these is checked. */
+function decline(dialog: Locator): Locator {
+  return dialog.getByRole("button", { name: "Decline" });
 }
 
 /** What the channel told Claude, each text in order. */
@@ -277,7 +282,7 @@ test("None of these declines every move: the propose waiting reads Declined, the
   const waiting = vellum.step.wait(id);
   await move(proposal(page), /^None of these/u).check();
   await proposal(page).getByRole("textbox").fill("Not before the budget");
-  await choose(proposal(page)).click();
+  await decline(proposal(page)).click();
 
   await expect(proposal(page)).toHaveCount(0);
   expect((await waiting).json).toEqual({
@@ -285,6 +290,22 @@ test("None of these declines every move: the propose waiting reads Declined, the
     seq: 1,
     text: "Declined: Not before the budget.",
   });
+});
+
+test("the button reads Decline while None of these is checked, and Choose again on a move", async ({
+  page,
+  vellum,
+}) => {
+  await openVellum(page, vellum);
+  await propose(vellum);
+  const window = proposal(page);
+  await move(window, /^None of these/u).check();
+  await expect(decline(window)).toBeEnabled();
+  await expect(choose(window)).toHaveCount(0);
+  await move(window, /^Mockup/u).check();
+
+  await expect(choose(window)).toBeEnabled();
+  await expect(decline(window)).toHaveCount(0);
 });
 
 test("None of these picked again keeps its note", async ({ page, vellum }) => {
