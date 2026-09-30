@@ -10,7 +10,7 @@
 // the turn is over, a separator line and Codex's final message: stdout is a
 // text protocol, not a JSON document.
 
-import { spawn, spawnSync } from "node:child_process";
+import { type ChildProcess, spawn, spawnSync } from "node:child_process";
 import {
   closeSync,
   existsSync,
@@ -668,32 +668,41 @@ async function supervise(runDir: string, turn: number): Promise<void> {
   const stdin = openSync(join(turnDir, "prompt.md"), "r");
   const stdout = openSync(join(turnDir, "events.jsonl"), "w");
   const stderr = openSync(join(turnDir, "stderr.log"), "w");
-
-  // Its own process group, so the grace-period kill reaches the commands codex runs.
-  const child = spawn(CODEX_BIN, buildCodexArgs(run, spec, turnDir), {
-    cwd: run.cwd,
-    detached: true,
-    stdio: [stdin, stdout, stderr],
-    env: { ...process.env, AGENTS_BRIDGE_CODEX_VERSION: run.codex_version },
-  });
+  let child: ChildProcess | null = null;
 
   const interrupt = (reason: Ending): void => {
     if (readEnding(turnDir) !== null) return;
 
     writeFileSync(join(turnDir, "ending"), `${reason}\n`);
-    child.kill("SIGINT");
+    child?.kill("SIGINT");
     setTimeout(() => {
-      if (child.pid !== undefined && child.exitCode === null) process.kill(-child.pid, "SIGKILL");
+      if (child?.pid !== undefined && child.exitCode === null) process.kill(-child.pid, "SIGKILL");
     }, INTERRUPT_GRACE_MS).unref();
   };
 
   process.on("SIGINT", () => interrupt("cancelled"));
   process.on("SIGTERM", () => interrupt("cancelled"));
+
+  // Its own process group, so the grace-period kill reaches the commands codex runs.
+  child = spawn(CODEX_BIN, buildCodexArgs(run, spec, turnDir), {
+    cwd: run.cwd,
+    detached: true,
+    stdio: [stdin, stdout, stderr],
+    env: { ...process.env, AGENTS_BRIDGE_CODEX_VERSION: run.codex_version },
+  });
+  const spawned = child;
+
+  // cancel writes its request before it checks for this marker, so a request
+  // made before the handlers existed is seen here, and one made after gets a signal.
+  writeFileSync(join(turnDir, "ready"), "");
+
+  if (existsSync(join(turnDir, "cancel-request"))) interrupt("cancelled");
+
   const deadline = setTimeout(() => interrupt("deadline"), spec.deadline_seconds * 1000);
 
   const codexExit = await new Promise<number>((done) => {
-    child.on("error", () => done(127));
-    child.on("exit", (code, signal) => done(code ?? (signal === null ? 1 : 128)));
+    spawned.on("error", () => done(127));
+    spawned.on("exit", (code, signal) => done(code ?? (signal === null ? 1 : 128)));
   });
 
   clearTimeout(deadline);
@@ -950,9 +959,14 @@ function commandWait(args: string[]): Promise<number> {
 
 function commandCancel(args: string[]): Promise<number> {
   const runDir = runDirArg(args);
-  const pid = readPid(turnDirOf(runDir, latestTurn(runDir)));
+  const turnDir = turnDirOf(runDir, latestTurn(runDir));
+  const pid = readPid(turnDir);
 
-  if (envelope(runDir).status === "running" && pid !== null) process.kill(pid, "SIGINT");
+  if (envelope(runDir).status === "running") {
+    writeFileSync(join(turnDir, "cancel-request"), "");
+
+    if (pid !== null && existsSync(join(turnDir, "ready"))) process.kill(pid, "SIGINT");
+  }
 
   return waitAndReport(runDir, INTERRUPT_GRACE_MS / 1000 + 15);
 }

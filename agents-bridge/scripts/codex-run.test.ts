@@ -454,6 +454,16 @@ describe("codex-run CLI", () => {
     expect(out.envelope.status).toBe("cancelled");
   });
 
+  test("cancel right after start, before the supervisor is ready, still cancels", async () => {
+    const h = harness({ FAKE_CODEX_MODE: "sleep", FAKE_CODEX_SLEEP: "30" });
+
+    await cli(h, ["start", h.runDir, "--prompt-file", h.prompt, "--wait", "0"]);
+    const out = await cli(h, ["cancel", h.runDir]);
+
+    expect(out.code).toBe(130);
+    expect(out.envelope.status).toBe("cancelled");
+  });
+
   test("a supervisor that dies is reported as a failed turn, and status exits 0", async () => {
     const h = harness({ FAKE_CODEX_MODE: "sleep", FAKE_CODEX_SLEEP: "30" });
 
