@@ -98,6 +98,7 @@ literally: shell variables do not survive between Bash calls.
 "${CLAUDE_PLUGIN_ROOT}/scripts/codex-run.ts" start <dir> --prompt-file <dir>/prompt.md --mode write --role coding -C /path/to/target-repo
 ```
 
+- Run each `codex-run.ts` command alone, as written: a `;`, `&&` or `echo $?` added to it asks for permission, and the envelope's `status` already gives the exit code.
 - **Pin the Codex version** for the whole orchestration: the first slice's
   envelope carries `codex_version`; pass it to every later slice with
   `--codex-version <x.y.z>`. Without it, the bridge may refresh its npm

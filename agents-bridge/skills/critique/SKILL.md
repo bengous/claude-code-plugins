@@ -64,6 +64,7 @@ working-tree files instead).
    "${CLAUDE_PLUGIN_ROOT}/scripts/codex-run.ts" start <dir> --prompt-file <dir>/prompt.md --role audit
    ```
 
+   Run each `codex-run.ts` command alone, as written: a `;`, `&&` or `echo $?` added to it asks for permission, and the envelope's `status` already gives the exit code.
    Exit 0 prints the verdict after the `--- final message ---` line. Exit 10
    means Codex is still working: run `"${CLAUDE_PLUGIN_ROOT}/scripts/codex-run.ts" wait <dir>`
    until the exit code changes. Exit 1 is a failed run: report the envelope's

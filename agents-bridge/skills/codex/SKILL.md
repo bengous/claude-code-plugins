@@ -45,8 +45,11 @@ unknown pair with exit 2.
    "${CLAUDE_PLUGIN_ROOT}/scripts/codex-run.ts" new codex
    ```
 
-2. Write the user's request, verbatim, to `<dir>/prompt.md` with the Write
-   tool. The prompt never goes on the command line.
+2. Write the task for Codex to `<dir>/prompt.md` with the Write tool, as an
+   instruction addressed to Codex: the user's request verbatim, minus the parts
+   addressed to you (which model, role or effort to use, how to report back to
+   the user). Codex reads "ask Codex to…" as an order to run the codex CLI. The
+   prompt never goes on the command line.
 
 3. Start the turn from the repository Codex works in (`-C <dir>` otherwise):
 
@@ -56,6 +59,9 @@ unknown pair with exit 2.
 
    Add `--role <role>`, `-m <slug>` or `--effort <level>` as above. Add
    `--skip-git-repo-check` only when `-C` points outside a git repository.
+   Run each `codex-run.ts` command alone, as written: a `;`, `&&` or
+   `echo $?` added to it asks for permission. The envelope's `status` already
+   gives the exit code.
 
 The first stdout line is a JSON envelope (`status`, `thread_id`, `model`,
 `effort`, `mode`, `blocked`, `error`, `final_message_file`). Once the turn is

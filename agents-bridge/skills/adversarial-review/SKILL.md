@@ -71,6 +71,7 @@ For a proposal that lives in the conversation, not on disk, use `critique`.
    "${CLAUDE_PLUGIN_ROOT}/scripts/codex-run.ts" start <dir> --prompt-file <dir>/prompt.md --role audit
    ```
 
+   Run each `codex-run.ts` command alone, as written: a `;`, `&&` or `echo $?` added to it asks for permission, and the envelope's `status` already gives the exit code.
    A review at `xhigh` often outlasts the call's 540 s wait: exit 10 means
    Codex is still working. Repeat this until the exit code is no longer 10:
 

@@ -59,6 +59,8 @@ variables do not survive between Bash calls.
 "${CLAUDE_PLUGIN_ROOT}/scripts/codex-run.ts" start <dir> --prompt-file <dir>/prompt.md --mode write -C /absolute/path/to/project
 ```
 
+Run each `codex-run.ts` command alone, as written: a `;`, `&&` or `echo $?` added to it asks for permission, and the envelope's `status` already gives the exit code.
+
 The prompt must end with two explicit instructions:
 
 1. **Copy** the chosen image to the absolute destination path.

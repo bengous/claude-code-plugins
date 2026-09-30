@@ -22,6 +22,8 @@ All Codex round-trips go through `codex-run.ts`, never `codex` directly:
 "${CLAUDE_PLUGIN_ROOT}/scripts/codex-run.ts" resume <dir> --prompt-file <dir>/prompt-r<n>.md                       # continue the thread
 ```
 
+Run each `codex-run.ts` command alone, as written: a `;`, `&&` or `echo $?` added to it asks for permission, and the envelope's `status` already gives the exit code.
+
 It runs Codex read-only on one thread, replays the first round's model and
 effort on every resume, prints Codex's reply after a `--- final message ---`
 line, and keeps each round under `<dir>/turn-<n>/` (round r0 is `turn-1`). Role
