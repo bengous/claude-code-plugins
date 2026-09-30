@@ -54,6 +54,7 @@ type TurnSpec = {
   effort: string | null;
   deadline_seconds: number;
   caller_schema: boolean;
+  caller_type: string | null;
   started_at: string;
 };
 
@@ -99,6 +100,8 @@ type Envelope = {
 type CatalogModel = { slug: string; efforts: string[]; defaultEffort: string; description: string };
 
 type EventSummary = { threadId: string | null; completed: boolean; turnError: string | null };
+
+type CallerSchema = { text: string; type: string | null };
 
 type FinalMessage = { text: string; blocked: BlockedItem[] } | { error: string };
 
@@ -262,10 +265,39 @@ const blockedList = (raw: unknown): BlockedItem[] =>
     ? raw.map((item) => parseBlockedItem(item)).filter((item) => item !== null)
     : [];
 
-export function parseFinalMessage(text: string, mode: Mode, callerSchema: boolean): FinalMessage {
+function jsonTypeOf(value: unknown): string {
+  if (value === null) return "null";
+
+  if (Array.isArray(value)) return "array";
+
+  if (typeof value === "number") return Number.isInteger(value) ? "integer" : "number";
+
+  return typeof value;
+}
+
+// Only the schema's top-level `type` is checked here: codex holds the model's
+// answer to the full schema, and this repository carries no JSON Schema validator.
+function matchesType(value: unknown, type: string | null): boolean {
+  if (type === null) return value !== undefined;
+
+  const actual = jsonTypeOf(value);
+
+  return actual === type || (type === "number" && actual === "integer");
+}
+
+export function parseFinalMessage(
+  text: string,
+  mode: Mode,
+  callerSchema: boolean,
+  callerType: string | null,
+): FinalMessage {
+  if (text.trim() === "") return { error: "codex wrote no final message" };
+
   if (mode === "read-only") {
-    if (callerSchema && parseJson(text) === undefined) {
-      return { error: "--output-schema was set but the final message is not JSON" };
+    if (callerSchema && !matchesType(parseJson(text), callerType)) {
+      return {
+        error: "--output-schema was set but the final message is not JSON of the schema's type",
+      };
     }
 
     return { text, blocked: [] };
@@ -277,13 +309,22 @@ export function parseFinalMessage(text: string, mode: Mode, callerSchema: boolea
     return { error: "the final message is not a bridge result object {answer, blocked}" };
   }
 
+  if (Object.keys(decoded).length !== 2) {
+    return { error: "the bridge result carries properties beyond answer and blocked" };
+  }
+
   const blocked = blockedList(decoded.blocked);
 
   if (blocked.length !== decoded.blocked.length) {
     return { error: "a blocked item lacks action, cwd, rationale or a known cause" };
   }
 
-  if (callerSchema) return { text: `${JSON.stringify(decoded.answer, null, 2)}\n`, blocked };
+  if (callerSchema) {
+    if (!matchesType(decoded.answer, callerType))
+      return { error: "answer does not have the schema's type" };
+
+    return { text: `${JSON.stringify(decoded.answer, null, 2)}\n`, blocked };
+  }
 
   if (typeof decoded.answer !== "string") return { error: "answer is not a string" };
 
@@ -395,6 +436,7 @@ function readSpec(turnDir: string): TurnSpec {
     effort: stringOrNull(raw.effort),
     deadline_seconds: raw.deadline_seconds,
     caller_schema: raw.caller_schema === true,
+    caller_type: stringOrNull(raw.caller_type),
     started_at: stringOrNull(raw.started_at) ?? "",
   };
 }
@@ -418,13 +460,19 @@ function readResult(turnDir: string): TurnResult | null {
   };
 }
 
-function readCallerSchema(path: string): string {
+function readCallerSchema(path: string, mode: Mode): CallerSchema {
   const text = readFileSync(path, "utf8");
+  const decoded = parseJson(text);
 
-  if (!isRecord(parseJson(text)))
-    throw new UsageError(`--output-schema: ${path} is not a JSON object`);
+  if (!isRecord(decoded)) throw new UsageError(`--output-schema: ${path} is not a JSON object`);
 
-  return text.trim();
+  if (mode === "write" && text.includes('"$ref"')) {
+    throw new UsageError(
+      "--output-schema: write mode nests the schema under `answer`, where its $ref pointers would resolve against the bridge wrapper; inline the definitions",
+    );
+  }
+
+  return { text: text.trim(), type: stringOrNull(decoded.type) };
 }
 
 /* oxlint-enable anti-slop/no-runtime-typeof, anti-slop/no-unknown-parameters, anti-slop/no-unknown-returns, anti-slop/require-safety-comment-for-type-assertion, anti-slop/no-unsafe-dictionary-type */
@@ -434,7 +482,7 @@ function readCallerSchema(path: string): string {
 // ---------------------------------------------------------------------------
 
 function writeJson(path: string, value: RunConfig | TurnSpec | TurnResult): void {
-  const temporary = `${path}.tmp`;
+  const temporary = `${path}.${process.pid}.tmp`;
 
   writeFileSync(temporary, `${JSON.stringify(value, null, 2)}\n`);
   renameSync(temporary, path);
@@ -464,10 +512,18 @@ function isAlive(pid: number): boolean {
   }
 }
 
-function readPid(turnDir: string): number | null {
-  const path = join(turnDir, "supervisor.pid");
-
+function readPidFile(path: string): number | null {
   return existsSync(path) ? Number(readFileSync(path, "utf8").trim()) : null;
+}
+
+const readPid = (turnDir: string): number | null => readPidFile(join(turnDir, "supervisor.pid"));
+
+function killGroup(pid: number): void {
+  try {
+    process.kill(-pid, "SIGKILL");
+  } catch {
+    // ESRCH: the group is already gone, which is the goal.
+  }
 }
 
 function readEnding(turnDir: string): Ending | null {
@@ -553,6 +609,11 @@ function envelope(runDir: string): Envelope {
   const pid = readPid(turnDir);
 
   if (result === null && pid !== null && !isAlive(pid)) {
+    const codexPid = readPidFile(join(turnDir, "codex.pid"));
+
+    // A dead supervisor leaves codex unwatched: stop it before declaring the turn over.
+    if (codexPid !== null) killGroup(codexPid);
+
     result = readResult(turnDir) ?? {
       status: "failed",
       codex_exit: null,
@@ -670,33 +731,42 @@ async function supervise(runDir: string, turn: number): Promise<void> {
   const stderr = openSync(join(turnDir, "stderr.log"), "w");
   let child: ChildProcess | null = null;
 
+  // The first reason is kept; every call still signals, so an interrupt
+  // recorded before codex existed reaches it once it does.
   const interrupt = (reason: Ending): void => {
-    if (readEnding(turnDir) !== null) return;
+    if (readEnding(turnDir) === null) writeFileSync(join(turnDir, "ending"), `${reason}\n`);
 
-    writeFileSync(join(turnDir, "ending"), `${reason}\n`);
-    child?.kill("SIGINT");
+    if (child === null) return;
+
+    const target = child;
+
+    target.kill("SIGINT");
     setTimeout(() => {
-      if (child?.pid !== undefined && child.exitCode === null) process.kill(-child.pid, "SIGKILL");
+      if (target.pid !== undefined && target.exitCode === null) killGroup(target.pid);
     }, INTERRUPT_GRACE_MS).unref();
   };
 
   process.on("SIGINT", () => interrupt("cancelled"));
   process.on("SIGTERM", () => interrupt("cancelled"));
 
-  // Its own process group, so the grace-period kill reaches the commands codex runs.
-  child = spawn(CODEX_BIN, buildCodexArgs(run, spec, turnDir), {
+  // Its own process group, so one kill reaches the commands codex runs.
+  const spawned = spawn(CODEX_BIN, buildCodexArgs(run, spec, turnDir), {
     cwd: run.cwd,
     detached: true,
     stdio: [stdin, stdout, stderr],
     env: { ...process.env, AGENTS_BRIDGE_CODEX_VERSION: run.codex_version },
   });
-  const spawned = child;
+
+  child = spawned;
+
+  if (spawned.pid !== undefined) writeFileSync(join(turnDir, "codex.pid"), `${spawned.pid}\n`);
 
   // cancel writes its request before it checks for this marker, so a request
   // made before the handlers existed is seen here, and one made after gets a signal.
   writeFileSync(join(turnDir, "ready"), "");
 
-  if (existsSync(join(turnDir, "cancel-request"))) interrupt("cancelled");
+  if (existsSync(join(turnDir, "cancel-request")) || readEnding(turnDir) !== null)
+    interrupt("cancelled");
 
   const deadline = setTimeout(() => interrupt("deadline"), spec.deadline_seconds * 1000);
 
@@ -706,6 +776,9 @@ async function supervise(runDir: string, turn: number): Promise<void> {
   });
 
   clearTimeout(deadline);
+
+  // A turn is over only once nothing it started still runs.
+  if (spawned.pid !== undefined) killGroup(spawned.pid);
 
   for (const fd of [stdin, stdout, stderr]) closeSync(fd);
 
@@ -718,7 +791,7 @@ async function supervise(runDir: string, turn: number): Promise<void> {
   let error: string | null = null;
 
   if (status === "completed") {
-    const parsed = parseFinalMessage(raw, run.mode, spec.caller_schema);
+    const parsed = parseFinalMessage(raw, run.mode, spec.caller_schema, spec.caller_type);
 
     if ("error" in parsed) {
       status = "failed";
@@ -836,12 +909,12 @@ function commandStart(args: string[]): Promise<number> {
 
   const promptFile = existingFile(values["prompt-file"], "--prompt-file");
 
+  if (!isMode(values.mode)) throw new UsageError("--mode is read-only or write");
+
   const callerSchema =
     values["output-schema"] === undefined
       ? null
-      : readCallerSchema(existingFile(values["output-schema"], "--output-schema"));
-
-  if (!isMode(values.mode)) throw new UsageError("--mode is read-only or write");
+      : readCallerSchema(existingFile(values["output-schema"], "--output-schema"), values.mode);
 
   if (values.role !== undefined && !isRole(values.role)) {
     throw new UsageError(`--role is one of ${Object.keys(ROLES).join(", ")}`);
@@ -879,6 +952,7 @@ function commandStart(args: string[]): Promise<number> {
     effort: null,
     deadline_seconds: parseSeconds(values.deadline, DEFAULT_DEADLINE_SECONDS, "--deadline"),
     caller_schema: callerSchema !== null,
+    caller_type: callerSchema?.type ?? null,
     started_at: new Date().toISOString(),
   };
 
@@ -887,7 +961,7 @@ function commandStart(args: string[]): Promise<number> {
     run,
     spec,
     promptFile,
-    callerSchema,
+    callerSchema?.text ?? null,
     parseSeconds(values.wait, DEFAULT_WAIT_SECONDS, "--wait"),
   );
 }
@@ -924,13 +998,14 @@ function commandResume(args: string[]): Promise<number> {
   const callerSchema =
     values["output-schema"] === undefined
       ? null
-      : readCallerSchema(existingFile(values["output-schema"], "--output-schema"));
+      : readCallerSchema(existingFile(values["output-schema"], "--output-schema"), run.mode);
 
   const spec: TurnSpec = {
     turn: current.turn + 1,
     effort: values.effort ?? null,
     deadline_seconds: parseSeconds(values.deadline, DEFAULT_DEADLINE_SECONDS, "--deadline"),
     caller_schema: callerSchema !== null,
+    caller_type: callerSchema?.type ?? null,
     started_at: new Date().toISOString(),
   };
 
@@ -939,7 +1014,7 @@ function commandResume(args: string[]): Promise<number> {
     run,
     spec,
     promptFile,
-    callerSchema,
+    callerSchema?.text ?? null,
     parseSeconds(values.wait, DEFAULT_WAIT_SECONDS, "--wait"),
   );
 }

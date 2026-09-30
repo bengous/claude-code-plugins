@@ -45,6 +45,7 @@ const emit = (event) => console.log(JSON.stringify(event));
 emit({ type: "thread.started", thread_id: "thread-1" });
 emit({ type: "turn.started" });
 if (mode === "fail") { emit({ type: "turn.failed", error: { message: "boom" } }); process.exit(1); }
+if (process.env.FAKE_CODEX_CHILD) writeFileSync(log + ".child", String(Bun.spawn(["sleep", "60"]).pid));
 if (mode === "sleep") await Bun.sleep(Number(process.env.FAKE_CODEX_SLEEP ?? "30") * 1000);
 writeFileSync(out, process.env.FAKE_CODEX_FINAL ?? "done");
 emit({ type: "item.completed", item: { type: "agent_message", text: "done" } });
@@ -63,12 +64,14 @@ function makeTmpDir(prefix: string): string {
 
 afterEach(() => {
   for (const dir of tmpDirs) {
-    const pidFile = join(dir, "codex.log.pid");
+    for (const suffix of ["pid", "child"]) {
+      const pidFile = join(dir, `codex.log.${suffix}`);
 
-    if (existsSync(pidFile)) {
-      try {
-        process.kill(Number(readFileSync(pidFile, "utf8")), "SIGKILL");
-      } catch {}
+      if (existsSync(pidFile)) {
+        try {
+          process.kill(Number(readFileSync(pidFile, "utf8")), "SIGKILL");
+        } catch {}
+      }
     }
 
     rmSync(dir, { recursive: true, force: true });
@@ -76,6 +79,16 @@ afterEach(() => {
 
   tmpDirs = [];
 });
+
+function alive(pidFile: string): boolean {
+  try {
+    process.kill(Number(readFileSync(pidFile, "utf8")), 0);
+
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 type Harness = {
   root: string;
@@ -173,6 +186,7 @@ const baseSpec = {
   effort: null,
   deadline_seconds: 60,
   caller_schema: false,
+  caller_type: null,
   started_at: "",
 };
 
@@ -239,13 +253,18 @@ describe("parseFinalMessage", () => {
       },
     ];
 
-    const parsed = parseFinalMessage(JSON.stringify({ answer: "done", blocked }), "write", false);
+    const parsed = parseFinalMessage(
+      JSON.stringify({ answer: "done", blocked }),
+      "write",
+      false,
+      null,
+    );
 
     expect(parsed).toEqual({ text: "done", blocked });
   });
 
   test("a write message that is not the bridge object fails", () => {
-    expect(parseFinalMessage("done", "write", false)).toEqual({
+    expect(parseFinalMessage("done", "write", false, null)).toEqual({
       error: "the final message is not a bridge result object {answer, blocked}",
     });
   });
@@ -256,24 +275,46 @@ describe("parseFinalMessage", () => {
       blocked: [{ action: "a", cwd: "/", rationale: "r", cause: "other" }],
     });
 
-    expect(parseFinalMessage(text, "write", false)).toHaveProperty("error");
+    expect(parseFinalMessage(text, "write", false, null)).toHaveProperty("error");
   });
 
   test("a caller-schema answer is shown as formatted JSON", () => {
     const text = JSON.stringify({ answer: { verdict: "ship" }, blocked: [] });
 
-    expect(parseFinalMessage(text, "write", true)).toEqual({
+    expect(parseFinalMessage(text, "write", true, "object")).toEqual({
       text: '{\n  "verdict": "ship"\n}\n',
       blocked: [],
     });
   });
 
   test("read-only text passes through, and must be JSON only under a caller schema", () => {
-    expect(parseFinalMessage("# Review\nok", "read-only", false)).toEqual({
+    expect(parseFinalMessage("# Review\nok", "read-only", false, null)).toEqual({
       text: "# Review\nok",
       blocked: [],
     });
-    expect(parseFinalMessage("# Review", "read-only", true)).toHaveProperty("error");
+    expect(parseFinalMessage("# Review", "read-only", true, "object")).toHaveProperty("error");
+  });
+});
+
+describe("parseFinalMessage rejects what must not pass as success", () => {
+  test("an empty final message", () => {
+    expect(parseFinalMessage("  \n", "read-only", false, null)).toEqual({
+      error: "codex wrote no final message",
+    });
+  });
+
+  test("a bridge result with an extra property", () => {
+    const text = JSON.stringify({ answer: "x", blocked: [], note: "extra" });
+
+    expect(parseFinalMessage(text, "write", false, null)).toHaveProperty("error");
+  });
+
+  test("an answer whose type is not the caller schema's type", () => {
+    const text = JSON.stringify({ answer: null, blocked: [] });
+
+    expect(parseFinalMessage(text, "write", true, "object")).toEqual({
+      error: "answer does not have the schema's type",
+    });
   });
 });
 
@@ -478,6 +519,7 @@ describe("codex-run CLI", () => {
     expect(out.code).toBe(0);
     expect(out.envelope.status).toBe("failed");
     expect(out.envelope.error).toBe("the supervisor exited without writing a result");
+    expect(alive(`${h.log}.pid`)).toBe(false);
   });
 
   test("an unknown model or effort is a usage error that lists the catalog", async () => {
@@ -539,6 +581,52 @@ describe("codex-run CLI", () => {
 
     expect(out.envelope.codex_version).toBe("1.2.3");
     expect(codexCalls(h)[0]?.pin).toBe("1.2.3");
+  });
+
+  test("cancel also stops the commands codex started", async () => {
+    const h = harness({ FAKE_CODEX_MODE: "sleep", FAKE_CODEX_SLEEP: "30", FAKE_CODEX_CHILD: "1" });
+
+    await cli(h, ["start", h.runDir, "--prompt-file", h.prompt, "--wait", "0"]);
+    await Bun.sleep(800);
+    expect(alive(`${h.log}.child`)).toBe(true);
+
+    const out = await cli(h, ["cancel", h.runDir]);
+
+    expect(out.code).toBe(130);
+    await Bun.sleep(200);
+    expect(alive(`${h.log}.child`)).toBe(false);
+  });
+
+  test("write mode refuses a caller schema with $ref pointers", async () => {
+    const h = harness();
+    const schema = join(h.root, "schema.json");
+
+    writeFileSync(
+      schema,
+      JSON.stringify({ type: "object", properties: { r: { $ref: "#/$defs/R" } } }),
+    );
+
+    const out = await cli(h, [
+      "start",
+      h.runDir,
+      "--prompt-file",
+      h.prompt,
+      "--mode",
+      "write",
+      "--output-schema",
+      schema,
+    ]);
+
+    expect(out.code).toBe(2);
+    expect(out.stderr).toContain("inline the definitions");
+  });
+
+  test("a turn that ends without a final message fails", async () => {
+    const h = harness({ FAKE_CODEX_FINAL: "" });
+    const out = await cli(h, ["start", h.runDir, "--prompt-file", h.prompt]);
+
+    expect(out.code).toBe(1);
+    expect(out.envelope.error).toBe("codex wrote no final message");
   });
 
   test("new creates a private run directory under the run kind", () => {

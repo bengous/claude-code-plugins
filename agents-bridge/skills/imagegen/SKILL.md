@@ -70,10 +70,13 @@ version-dependent. One image takes minutes: exit 10 means Codex is still
 working, so run `"${CLAUDE_PLUGIN_ROOT}/scripts/codex-run.ts" wait <dir>` until
 the exit code changes. Exit 11 means an action stayed blocked: the envelope's
 `blocked` list says which, and the `codex` skill's "Blocked actions" section
-says how to rule on it.
+says how to rule on it. Exit 1, 124 or 130 means the turn failed: report the
+envelope's `error` and copy nothing, because the thread directory still holds
+the images of earlier turns.
 
-**Then confirm the copy against this thread's own directory.** The envelope's
-`thread_id` names it. List it newest first, then compare the first entry with
+**Only after exit 0, confirm the copy against this thread's own directory.**
+The envelope's `thread_id` names it. List it newest first; the newest entry
+must be the file the final message names for this turn. Then compare it with
 the destination:
 
 ```bash
