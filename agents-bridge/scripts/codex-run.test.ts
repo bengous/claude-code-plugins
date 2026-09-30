@@ -187,6 +187,7 @@ const baseSpec = {
   deadline_seconds: 60,
   caller_schema: false,
   caller_type: null,
+  caller_required: [],
   started_at: "",
 };
 
@@ -253,18 +254,13 @@ describe("parseFinalMessage", () => {
       },
     ];
 
-    const parsed = parseFinalMessage(
-      JSON.stringify({ answer: "done", blocked }),
-      "write",
-      false,
-      null,
-    );
+    const parsed = parseFinalMessage(JSON.stringify({ answer: "done", blocked }), "write", null);
 
     expect(parsed).toEqual({ text: "done", blocked });
   });
 
   test("a write message that is not the bridge object fails", () => {
-    expect(parseFinalMessage("done", "write", false, null)).toEqual({
+    expect(parseFinalMessage("done", "write", null)).toEqual({
       error: "the final message is not a bridge result object {answer, blocked}",
     });
   });
@@ -275,30 +271,32 @@ describe("parseFinalMessage", () => {
       blocked: [{ action: "a", cwd: "/", rationale: "r", cause: "other" }],
     });
 
-    expect(parseFinalMessage(text, "write", false, null)).toHaveProperty("error");
+    expect(parseFinalMessage(text, "write", null)).toHaveProperty("error");
   });
 
   test("a caller-schema answer is shown as formatted JSON", () => {
     const text = JSON.stringify({ answer: { verdict: "ship" }, blocked: [] });
 
-    expect(parseFinalMessage(text, "write", true, "object")).toEqual({
+    expect(parseFinalMessage(text, "write", { type: "object", required: [] })).toEqual({
       text: '{\n  "verdict": "ship"\n}\n',
       blocked: [],
     });
   });
 
   test("read-only text passes through, and must be JSON only under a caller schema", () => {
-    expect(parseFinalMessage("# Review\nok", "read-only", false, null)).toEqual({
+    expect(parseFinalMessage("# Review\nok", "read-only", null)).toEqual({
       text: "# Review\nok",
       blocked: [],
     });
-    expect(parseFinalMessage("# Review", "read-only", true, "object")).toHaveProperty("error");
+    expect(
+      parseFinalMessage("# Review", "read-only", { type: "object", required: [] }),
+    ).toHaveProperty("error");
   });
 });
 
 describe("parseFinalMessage rejects what must not pass as success", () => {
   test("an empty final message", () => {
-    expect(parseFinalMessage("  \n", "read-only", false, null)).toEqual({
+    expect(parseFinalMessage("  \n", "read-only", null)).toEqual({
       error: "codex wrote no final message",
     });
   });
@@ -306,15 +304,33 @@ describe("parseFinalMessage rejects what must not pass as success", () => {
   test("a bridge result with an extra property", () => {
     const text = JSON.stringify({ answer: "x", blocked: [], note: "extra" });
 
-    expect(parseFinalMessage(text, "write", false, null)).toHaveProperty("error");
+    expect(parseFinalMessage(text, "write", null)).toHaveProperty("error");
   });
 
   test("an answer whose type is not the caller schema's type", () => {
     const text = JSON.stringify({ answer: null, blocked: [] });
 
-    expect(parseFinalMessage(text, "write", true, "object")).toEqual({
-      error: "answer does not have the schema's type",
+    expect(parseFinalMessage(text, "write", { type: "object", required: [] })).toEqual({
+      error: "answer does not match the schema's type and required keys",
     });
+  });
+});
+
+describe("parseFinalMessage enforces the strict bridge result and the caller schema", () => {
+  test("a missing required key of the caller schema", () => {
+    const text = JSON.stringify({ answer: {}, blocked: [] });
+
+    expect(
+      parseFinalMessage(text, "write", { type: "object", required: ["value"] }),
+    ).toHaveProperty("error");
+  });
+
+  test("a blocked item with an extra property", () => {
+    const item = { action: "a", cwd: "/", rationale: "r", cause: "review_denial", extra: 1 };
+
+    expect(
+      parseFinalMessage(JSON.stringify({ answer: "x", blocked: [item] }), "write", null),
+    ).toHaveProperty("error");
   });
 });
 
@@ -619,6 +635,26 @@ describe("codex-run CLI", () => {
 
     expect(out.code).toBe(2);
     expect(out.stderr).toContain("inline the definitions");
+  });
+
+  test("write mode also refuses a $ref key written with a unicode escape", async () => {
+    const h = harness();
+    const schema = join(h.root, "schema.json");
+
+    writeFileSync(schema, '{"type":"object","properties":{"r":{"\\u0024ref":"#/$defs/R"}}}');
+
+    const out = await cli(h, [
+      "start",
+      h.runDir,
+      "--prompt-file",
+      h.prompt,
+      "--mode",
+      "write",
+      "--output-schema",
+      schema,
+    ]);
+
+    expect(out.code).toBe(2);
   });
 
   test("a turn that ends without a final message fails", async () => {

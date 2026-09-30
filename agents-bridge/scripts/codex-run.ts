@@ -55,6 +55,7 @@ type TurnSpec = {
   deadline_seconds: number;
   caller_schema: boolean;
   caller_type: string | null;
+  caller_required: string[];
   started_at: string;
 };
 
@@ -101,7 +102,9 @@ type CatalogModel = { slug: string; efforts: string[]; defaultEffort: string; de
 
 type EventSummary = { threadId: string | null; completed: boolean; turnError: string | null };
 
-type CallerSchema = { text: string; type: string | null };
+type AnswerContract = { type: string | null; required: string[] };
+
+type CallerSchema = { text: string; contract: AnswerContract };
 
 type FinalMessage = { text: string; blocked: BlockedItem[] } | { error: string };
 
@@ -249,6 +252,7 @@ function parseJson(text: string): unknown {
 function parseBlockedItem(raw: unknown): BlockedItem | null {
   if (
     !isRecord(raw) ||
+    Object.keys(raw).length !== 4 ||
     typeof raw.action !== "string" ||
     typeof raw.cwd !== "string" ||
     typeof raw.rationale !== "string" ||
@@ -275,29 +279,46 @@ function jsonTypeOf(value: unknown): string {
   return typeof value;
 }
 
-// Only the schema's top-level `type` is checked here: codex holds the model's
-// answer to the full schema, and this repository carries no JSON Schema validator.
-function matchesType(value: unknown, type: string | null): boolean {
-  if (type === null) return value !== undefined;
+// Only the schema's top-level `type` and `required` are checked here: codex holds
+// the model's answer to the full schema, and this repository carries no JSON
+// Schema validator.
+function meetsContract(value: unknown, contract: AnswerContract): boolean {
+  if (value === undefined) return false;
 
   const actual = jsonTypeOf(value);
 
-  return actual === type || (type === "number" && actual === "integer");
+  if (
+    contract.type !== null &&
+    actual !== contract.type &&
+    !(contract.type === "number" && actual === "integer")
+  ) {
+    return false;
+  }
+
+  return (
+    contract.required.length === 0 ||
+    (isRecord(value) && contract.required.every((key) => key in value))
+  );
+}
+
+function hasKey(value: unknown, key: string): boolean {
+  if (Array.isArray(value)) return value.some((item) => hasKey(item, key));
+
+  if (!isRecord(value)) return false;
+
+  return key in value || Object.values(value).some((item) => hasKey(item, key));
 }
 
 export function parseFinalMessage(
   text: string,
   mode: Mode,
-  callerSchema: boolean,
-  callerType: string | null,
+  contract: AnswerContract | null,
 ): FinalMessage {
   if (text.trim() === "") return { error: "codex wrote no final message" };
 
   if (mode === "read-only") {
-    if (callerSchema && !matchesType(parseJson(text), callerType)) {
-      return {
-        error: "--output-schema was set but the final message is not JSON of the schema's type",
-      };
+    if (contract !== null && !meetsContract(parseJson(text), contract)) {
+      return { error: "the final message does not match the schema's type and required keys" };
     }
 
     return { text, blocked: [] };
@@ -319,9 +340,10 @@ export function parseFinalMessage(
     return { error: "a blocked item lacks action, cwd, rationale or a known cause" };
   }
 
-  if (callerSchema) {
-    if (!matchesType(decoded.answer, callerType))
-      return { error: "answer does not have the schema's type" };
+  if (contract !== null) {
+    if (!meetsContract(decoded.answer, contract)) {
+      return { error: "answer does not match the schema's type and required keys" };
+    }
 
     return { text: `${JSON.stringify(decoded.answer, null, 2)}\n`, blocked };
   }
@@ -437,6 +459,9 @@ function readSpec(turnDir: string): TurnSpec {
     deadline_seconds: raw.deadline_seconds,
     caller_schema: raw.caller_schema === true,
     caller_type: stringOrNull(raw.caller_type),
+    caller_required: Array.isArray(raw.caller_required)
+      ? raw.caller_required.filter((key): key is string => typeof key === "string")
+      : [],
     started_at: stringOrNull(raw.started_at) ?? "",
   };
 }
@@ -466,13 +491,17 @@ function readCallerSchema(path: string, mode: Mode): CallerSchema {
 
   if (!isRecord(decoded)) throw new UsageError(`--output-schema: ${path} is not a JSON object`);
 
-  if (mode === "write" && text.includes('"$ref"')) {
+  if (mode === "write" && hasKey(decoded, "$ref")) {
     throw new UsageError(
       "--output-schema: write mode nests the schema under `answer`, where its $ref pointers would resolve against the bridge wrapper; inline the definitions",
     );
   }
 
-  return { text: text.trim(), type: stringOrNull(decoded.type) };
+  const required = Array.isArray(decoded.required)
+    ? decoded.required.filter((key): key is string => typeof key === "string")
+    : [];
+
+  return { text: text.trim(), contract: { type: stringOrNull(decoded.type), required } };
 }
 
 /* oxlint-enable anti-slop/no-runtime-typeof, anti-slop/no-unknown-parameters, anti-slop/no-unknown-returns, anti-slop/require-safety-comment-for-type-assertion, anti-slop/no-unsafe-dictionary-type */
@@ -518,11 +547,16 @@ function readPidFile(path: string): number | null {
 
 const readPid = (turnDir: string): number | null => readPidFile(join(turnDir, "supervisor.pid"));
 
-function killGroup(pid: number): void {
+// Returns why the group could not be stopped; a group already gone (ESRCH) is success.
+function killGroup(pid: number): string | null {
   try {
     process.kill(-pid, "SIGKILL");
-  } catch {
-    // ESRCH: the group is already gone, which is the goal.
+
+    return null;
+  } catch (error) {
+    if (error instanceof Error && "code" in error && error.code === "ESRCH") return null;
+
+    return `cannot stop codex's process group ${pid}: ${error instanceof Error ? error.message : String(error)}`;
   }
 }
 
@@ -612,13 +646,13 @@ function envelope(runDir: string): Envelope {
     const codexPid = readPidFile(join(turnDir, "codex.pid"));
 
     // A dead supervisor leaves codex unwatched: stop it before declaring the turn over.
-    if (codexPid !== null) killGroup(codexPid);
+    const stopError = codexPid === null ? null : killGroup(codexPid);
 
     result = readResult(turnDir) ?? {
       status: "failed",
       codex_exit: null,
       thread_id: null,
-      error: "the supervisor exited without writing a result",
+      error: `the supervisor exited without writing a result${stopError === null ? "" : `; ${stopError}`}`,
       blocked: [],
       ended_at: new Date().toISOString(),
     };
@@ -778,7 +812,7 @@ async function supervise(runDir: string, turn: number): Promise<void> {
   clearTimeout(deadline);
 
   // A turn is over only once nothing it started still runs.
-  if (spawned.pid !== undefined) killGroup(spawned.pid);
+  const stopError = spawned.pid === undefined ? null : killGroup(spawned.pid);
 
   for (const fd of [stdin, stdout, stderr]) closeSync(fd);
 
@@ -791,7 +825,11 @@ async function supervise(runDir: string, turn: number): Promise<void> {
   let error: string | null = null;
 
   if (status === "completed") {
-    const parsed = parseFinalMessage(raw, run.mode, spec.caller_schema, spec.caller_type);
+    const parsed = parseFinalMessage(
+      raw,
+      run.mode,
+      spec.caller_schema ? { type: spec.caller_type, required: spec.caller_required } : null,
+    );
 
     if ("error" in parsed) {
       status = "failed";
@@ -811,6 +849,11 @@ async function supervise(runDir: string, turn: number): Promise<void> {
           ? "cancelled"
           : (events.turnError ??
             `codex exited ${codexExit}: ${tail(join(turnDir, "stderr.log"), 5)}`);
+  }
+
+  if (stopError !== null) {
+    status = "failed";
+    error = stopError;
   }
 
   if (run.thread_id === null && events.threadId !== null) {
@@ -952,7 +995,8 @@ function commandStart(args: string[]): Promise<number> {
     effort: null,
     deadline_seconds: parseSeconds(values.deadline, DEFAULT_DEADLINE_SECONDS, "--deadline"),
     caller_schema: callerSchema !== null,
-    caller_type: callerSchema?.type ?? null,
+    caller_type: callerSchema?.contract.type ?? null,
+    caller_required: callerSchema?.contract.required ?? [],
     started_at: new Date().toISOString(),
   };
 
@@ -1005,7 +1049,8 @@ function commandResume(args: string[]): Promise<number> {
     effort: values.effort ?? null,
     deadline_seconds: parseSeconds(values.deadline, DEFAULT_DEADLINE_SECONDS, "--deadline"),
     caller_schema: callerSchema !== null,
-    caller_type: callerSchema?.type ?? null,
+    caller_type: callerSchema?.contract.type ?? null,
+    caller_required: callerSchema?.contract.required ?? [],
     started_at: new Date().toISOString(),
   };
 
