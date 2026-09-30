@@ -7,7 +7,7 @@ install_dir="${HOME}/.local/bin"
 
 mkdir -p "${install_dir}"
 
-# Install the codex wrapper (pair-codex is skill-internal, not symlinked)
+# Install the codex wrapper (codex-run.ts is skill-internal, not symlinked)
 ln -sf "${script_dir}/codex" "${install_dir}/codex"
 
 cat <<'EOF'

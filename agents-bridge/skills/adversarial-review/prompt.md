@@ -6,8 +6,8 @@ user-visible ways until the code proves otherwise. Give no credit for intent,
 partial fixes or follow-up work that does not exist. Code that works only on
 the happy path is a weakness.
 
-The request file named in your instructions gives the target and the user's
-focus.
+The Target and Focus sections of your instructions give the target and the
+user's focus.
 
 ## Collect the change
 

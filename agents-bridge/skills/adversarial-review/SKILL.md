@@ -6,15 +6,9 @@ allowed-tools:
   - Bash(git status *)
   - Bash(git rev-parse *)
   - Bash(git diff *)
-  - Bash(mkdir *)
-  - Bash(mktemp *)
-  - Bash(${CLAUDE_PLUGIN_ROOT}/scripts/codex *)
-  - Bash(echo *)
-  - Bash(test *)
-  - Bash(sleep *)
-  - Bash(jq *)
+  - Bash(${CLAUDE_PLUGIN_ROOT}/scripts/codex-run.ts *)
   - Read(./**)
-  - Read(~/.cache/agents-bridge/review/**)
+  - Read(~/.cache/agents-bridge/**)
   - Edit(~/.cache/agents-bridge/review/**)
 ---
 
@@ -46,19 +40,21 @@ For a proposal that lives in the conversation, not on disk, use `critique`.
      `git status --short`: when it prints lines, tell the user that this
      uncommitted work is outside the review.
 
-3. **Create the run directory.** One directory per run, so concurrent runs
-   never share a file. Use the printed path literally in every later step:
-   shell variables do not survive between Bash calls.
+3. **Create the run directory.** Use the printed path literally in every
+   later step: shell variables do not survive between Bash calls.
 
    ```bash
-   mkdir -p ~/.cache/agents-bridge/review && mktemp -d ~/.cache/agents-bridge/review/run.XXXXXX
+   "${CLAUDE_PLUGIN_ROOT}/scripts/codex-run.ts" new review
    ```
 
-4. **Write the request** with the Write tool to `<dir>/request.md`. User text
+4. **Write the prompt** with the Write tool to `<dir>/prompt.md`. User text
    goes in this file, never inline in the shell command: quotes and backticks
    break it.
 
    ```markdown
+   Run an adversarial code review. Read ${CLAUDE_PLUGIN_ROOT}/skills/adversarial-review/prompt.md
+   and follow it exactly.
+
    ## Target
 
    uncommitted            <- or: base <ref>
@@ -68,35 +64,26 @@ For a proposal that lives in the conversation, not on disk, use `critique`.
    <focus text verbatim, or: none>
    ```
 
-5. **Run Codex read-only** with the Bash tool's `run_in_background: true`:
-   a background command has no timeout, and a review at `xhigh` can run for
-   a long time. When the user passed `-m`, add `-m '<model>'` right after
-   `exec`.
+5. **Run Codex read-only** from the repository under review. When the user
+   passed `-m`, add `-m '<model>'` at the end.
 
    ```bash
-   "${CLAUDE_PLUGIN_ROOT}/scripts/codex" exec \
-     -s read-only \
-     -c model_reasoning_effort=xhigh \
-     --json -o <dir>/review.md \
-     "Run an adversarial code review. Read ${CLAUDE_PLUGIN_ROOT}/skills/adversarial-review/prompt.md and follow it exactly. The review target and the user's focus are in <dir>/request.md." \
-     </dev/null > <dir>/events.jsonl && echo 0 > <dir>/exit || echo 1 > <dir>/exit
+   "${CLAUDE_PLUGIN_ROOT}/scripts/codex-run.ts" start <dir> --prompt-file <dir>/prompt.md --role audit
    ```
 
-   Copy that command as written: `$?` and a wrapper script both prompt.
-   Then block until the marker exists, with the Bash tool's
-   `timeout: 600000`, and repeat this command each time it returns without
-   the file. Never end the turn while Codex runs: a headless or subagent
-   session cannot tell it is one, and its last message kills the task.
+   A review at `xhigh` often outlasts the call's 540 s wait: exit 10 means
+   Codex is still working. Repeat this until the exit code is no longer 10:
 
    ```bash
-   until test -f <dir>/exit; do sleep 10; done
+   "${CLAUDE_PLUGIN_ROOT}/scripts/codex-run.ts" wait <dir>
    ```
 
-   `<dir>/exit` holds `0` on success. `1`, or a missing `<dir>/review.md`,
-   is a failed run: report the last lines of `<dir>/events.jsonl` and show
-   no review.
+   The turn runs in a detached process and survives the end of your turn,
+   but its result is only relayed if you are still waiting for it. Exit 1, or
+   no `--- final message ---` section, is a failed run: report the
+   envelope's `error` and show no review.
 
-6. **Relay, then verify.** Show `<dir>/review.md` verbatim. Then check each
+6. **Relay, then verify.** Show the final message verbatim. Then check each
    finding by reading the code with the Read tool and name the ones that do
    not hold. Do not run the code: an import or a test run writes into the
    repo (`__pycache__`, build output). When the `Verdict:` line is missing,
@@ -104,21 +91,15 @@ For a proposal that lives in the conversation, not on disk, use `critique`.
 
 ## Defaults & overrides
 
-- Model: the codex config default unless the user passes `-m`. Effort
-  `xhigh`, sandbox `read-only`. Change the effort only when the user asks.
-- The run directory is created by `mktemp` with mode 0700 and is kept: the
-  thread id in `events.jsonl` is what a follow-up resumes.
-- To push back on a finding, write the objection to `<dir>/pushback.md`,
-  read the thread id, then resume by that id. Resume does not inherit the
-  first run's flags: re-state sandbox, effort, and any `-m`. The
-  `allowed-tools` grant covers the invoking turn only, so a later turn
-  prompts for these commands.
+- Role `audit`, sandbox read-only, unless the user passes `-m`. Change the
+  effort (`--effort <level>`) only when the user asks.
+- The run directory is kept: the thread id in `run.json` is what a follow-up
+  resumes.
+- To push back on a finding, write the objection to `<dir>/pushback-2.md`,
+  then resume the thread; resume replays the first turn's model, effort and
+  sandbox. The `allowed-tools` grant covers the invoking turn only, so a
+  later turn may prompt.
 
   ```bash
-  jq -r 'select(.type=="thread.started") | .thread_id' <dir>/events.jsonl
-  "${CLAUDE_PLUGIN_ROOT}/scripts/codex" exec resume <thread id> \
-    -c sandbox_mode=read-only \
-    -c model_reasoning_effort=xhigh \
-    --json -o <dir>/review-2.md \
-    - < <dir>/pushback.md > <dir>/events-2.jsonl
+  "${CLAUDE_PLUGIN_ROOT}/scripts/codex-run.ts" resume <dir> --prompt-file <dir>/pushback-2.md
   ```

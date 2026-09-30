@@ -813,6 +813,7 @@ function commandStart(args: string[]): Promise<number> {
       "add-dir": { type: "string", multiple: true, default: [] },
       "git-write": { type: "boolean", default: false },
       "skip-git-repo-check": { type: "boolean", default: false },
+      "codex-version": { type: "string" },
       "output-schema": { type: "string" },
       deadline: { type: "string" },
       wait: { type: "string" },
@@ -857,7 +858,7 @@ function commandStart(args: string[]): Promise<number> {
     add_dirs: [...new Set(addDirs)],
     git_write: values["git-write"],
     skip_git_repo_check: values["skip-git-repo-check"],
-    codex_version: codexVersion(),
+    codex_version: values["codex-version"] ?? codexVersion(),
     thread_id: null,
     created_at: new Date().toISOString(),
   };
@@ -985,7 +986,8 @@ const USAGE = `usage:
   codex-run.ts new [kind]
   codex-run.ts start <run-dir> --prompt-file F [--mode read-only|write] [--role coding|audit|bounded]
                [-m MODEL] [--effort E] [-C DIR] [--add-dir DIR]... [--git-write]
-               [--skip-git-repo-check] [--output-schema F] [--deadline S] [--wait S]
+               [--skip-git-repo-check] [--codex-version X.Y.Z] [--output-schema F]
+               [--deadline S] [--wait S]
   codex-run.ts resume <run-dir> --prompt-file F [--effort E] [--output-schema F] [--deadline S] [--wait S]
   codex-run.ts wait <run-dir> [--timeout S]
   codex-run.ts status <run-dir>

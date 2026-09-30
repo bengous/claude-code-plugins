@@ -3,111 +3,138 @@ name: codex-orchestrate
 description: Claude Code only. Use when the user explicitly invokes /agents-bridge:codex-orchestrate (or /codex-orchestrate) in Claude Code or asks Claude to orchestrate a large multi-slice plan by delegating implementation to the Codex CLI through agents-bridge. In native Codex, use $slice-runner instead.
 ---
 
-# Orchestration de plans par slices via Codex
+# Orchestrating a plan in slices through Codex
 
-Claude Code only. Dans Codex natif, utiliser `$slice-runner`.
+Claude Code only. In native Codex, use `$slice-runner`.
 
-## Principe
+## Principle
 
-Claude est **architecte, QA et committeur** ; Codex est **l'exécutant**. Claude découpe le plan en slices séquentielles, impose les interfaces, lance un run Codex par slice, vérifie les gates lui-même, commite. Codex ne committe jamais et ne designe jamais : si Claude laisse Codex inventer une API, N slices produiront N styles.
+Claude is **architect, QA and committer**; Codex is **the executor**. Claude cuts
+the plan into sequential slices, imposes the interfaces, starts one Codex run per
+slice, checks the gates itself, and commits. Codex never commits and never
+designs: if Claude lets Codex invent an API, N slices produce N styles.
 
-## Routage modèle par slice
+## Model routing per slice
 
-Choisir le tier au moment de rédiger le prompt de la slice :
+Pick the role when writing the slice's prompt:
 
-| Slice | Modèle | Pourquoi |
+| Slice | Role | Why |
 |---|---|---|
-| Code standard (features, câblage, refactor spécifié) | `gpt-5.6-terra` | Suffisant sur du code spécifié, nettement moins cher que Sol. **Défaut.** |
-| Tests, fixes mécaniques pour passer un gate | `gpt-5.6-luna` | Le plus rapide et le moins cher, suffisant sur travail borné |
-| Code demandant jugement/rigueur, points délicats denses | `gpt-5.6-sol` | Ceiling supérieur ; seul tier avec `max`/`ultra` |
+| Standard code (features, wiring, specified refactor) | `coding` | **Default.** |
+| Tests, mechanical fixes to pass a gate | `bounded` | Fastest and cheapest, enough for bounded work |
+| Code that needs judgment or rigour, dense tricky points | `audit` | The highest ceiling |
 
-Effort par défaut : `xhigh`. Les décisions hard (archi, choix d'API) restent le travail de Claude — si une slice en contient une, c'est un défaut de découpage, pas une raison de monter de tier.
+`"${CLAUDE_PLUGIN_ROOT}/scripts/codex-run.ts" models` prints the model and
+effort behind each role and every effort each model supports. Hard decisions
+(architecture, API choices) stay Claude's work — a slice that contains one is a
+slicing defect, not a reason to move up a tier.
 
-Ces modèles délèguent eux-mêmes très bien : sur une slice lourde confiée à Sol, autoriser explicitement dans le prompt la délégation des sous-parties mécaniques à un modèle moins cher (et `ultra` décompose nativement en sous-agents internes) plutôt que sur-découper côté orchestrateur.
+These models delegate well themselves: on a heavy slice, allow the prompt to
+hand mechanical sub-parts to a cheaper model, rather than over-slicing on the
+orchestrator's side.
 
-**Règle de contexte (non négociable)** : ne jamais lire l'output complet d'un run Codex ni son diff complet. Lecture = résumé final (`tail` court) + `git diff --stat` + gates. Inspection ciblée (grep, Read partiel) uniquement si un gate échoue ou si la slice comporte un point à risque identifié d'avance dans le prompt.
+**Context rule (non-negotiable)**: never read a Codex run's full event stream or
+its full diff. Reading = the final message (Codex's summary) + `git diff --stat`
++ gates. Targeted inspection (grep, partial Read) only when a gate fails or the
+slice has a risk named in advance in its prompt.
 
-## Pré-vol
+## Pre-flight
 
-1. Plan validé par l'utilisateur, découpé en slices : petites, séquentielles, chacune avec un gate de sortie explicite (ex. `validate` seul pour le câblage interne ; + e2e/visual pour ce qui touche le DOM).
-2. **Slice 0 = baseline** : tous les gates verts avant la première slice. Sinon, stop et rapport.
-   Au passage, **figer la version Codex** : lire `codex --version` via le bridge (ex. `codex-cli 0.144.1`) et préfixer chaque invocation de slice par `AGENTS_BRIDGE_CODEX_VERSION=0.144.1`. Sans ce pin, le bridge peut rafraîchir sa résolution npm (TTL 24 h) entre deux slices — version qui bouge en cours de run.
-3. Branche : suivre la consigne utilisateur ; par défaut une branche dédiée si un push sur main déclenche quelque chose. **Jamais de push** — l'utilisateur pousse.
-4. Première slice = la plus petite et la plus autonome (smoke test du pipeline : env, conventions, sandbox).
-5. `TaskCreate` une tâche par slice ; `TaskUpdate` au fil de l'eau.
-6. Insérer une slice prérequise dès qu'un blocage transversal est découvert (ex. outillage de test manquant pour le nouveau pattern) — ne pas la fusionner dans la slice en cours.
+1. A plan the user validated, cut into slices: small, sequential, each with an
+   explicit exit gate (e.g. `validate` alone for internal wiring; + e2e/visual
+   for what touches the DOM).
+2. **Slice 0 = baseline**: every gate green before the first slice. Otherwise,
+   stop and report.
+3. Branch: follow the user's instruction; by default a dedicated branch when a
+   push to main triggers something. **Never push** — the user pushes.
+4. First slice = the smallest and most self-contained one (a smoke test of the
+   pipeline: environment, conventions, sandbox).
+5. `TaskCreate` one task per slice; `TaskUpdate` as you go.
+6. Insert a prerequisite slice as soon as a cross-cutting blocker shows up
+   (e.g. test tooling missing for the new pattern) — never fold it into the
+   current slice.
 
-## Boucle par slice
+## Loop per slice
 
-1. Rédiger le prompt (template ci-dessous) — interface imposée, sémantique à préserver point par point.
-2. Lancer Codex en arrière-plan (mécanique ci-dessous).
-3. À la notification : `tail` du résumé + `git diff --stat`. Inspection ciblée seulement sur les points à risque annoncés.
-4. Lancer les gates **soi-même** (jamais sur la foi du « vert » annoncé par Codex).
-5. Commit (message impératif, conventions du repo), tâche complétée, slice suivante.
+1. Write the prompt (template below) — imposed interface, semantics to preserve
+   point by point.
+2. Start Codex (mechanics below).
+3. When it completes: its final message + `git diff --stat`. Targeted
+   inspection only on the risks announced in the prompt.
+4. Run the gates **yourself** (never on the faith of a "green" announced by
+   Codex).
+5. Commit (imperative message, repo conventions), complete the task, next slice.
 
-## Template de prompt Codex
+## Codex prompt template
 
-Toujours inclure, dans cet ordre :
-- **Contexte** : stack + fichiers exemplaires à imiter (« suis le style de X »). Ne pas demander de lire CLAUDE.md/AGENTS.md : Codex charge AGENTS.md nativement (et CLAUDE.md n'est souvent qu'un import `@AGENTS.md`).
-- **Objectif** : une phrase, avec « zéro changement de comportement » si refactor.
-- **Interface imposée** : signatures exactes (types, noms, valeurs initiales), pas une intention.
-- **Points délicats** : chaque subtilité sémantique nommée explicitement, avec le comportement attendu et l'implémentation suggérée.
-- **Tests** : fichiers, cas, conventions de nommage ; « ne supprime aucun test existant ».
-- **Interdits** : commit git, nouvelles dépendances, fichiers hors périmètre, + interdits du repo.
-- **Documentation** : wiki/commentaires selon les conventions du repo, « reste minimal ».
-- **Definition of done** : la commande de gate exacte, « corrige jusqu'au vert », « ne lance pas [suites lentes] (je m'en charge) », « résumé final court : fichiers + choix non triviaux ».
+Always include, in this order:
+- **Context**: stack + exemplary files to imitate ("follow the style of X"). Do
+  not ask it to read CLAUDE.md/AGENTS.md: Codex loads AGENTS.md natively (and
+  CLAUDE.md is often only an `@AGENTS.md` import).
+- **Goal**: one sentence, with "zero behaviour change" for a refactor.
+- **Imposed interface**: exact signatures (types, names, initial values), not an
+  intention.
+- **Tricky points**: every semantic subtlety named explicitly, with the expected
+  behaviour and the suggested implementation.
+- **Tests**: files, cases, naming conventions; "do not delete any existing test".
+- **Forbidden**: git commit, new dependencies, files out of scope, + the repo's
+  own prohibitions.
+- **Documentation**: wiki/comments per the repo's conventions, "keep it minimal".
+- **Definition of done**: the exact gate command, "fix until green", "do not
+  run [slow suites] (I will)", "short final summary: files + non-trivial
+  choices".
 
-## Mécanique d'invocation
+## Invocation mechanics
 
-Le prompt s'écrit dans un fichier avec l'outil Write (jamais inline dans le
-shell), puis se passe sur stdin via `-`. Modèle, effort et sandbox se passent
-en **flags natifs** — le wrapper ne lit aucune env var `CODEX_*` (silencieusement
-ignorées → le run tournerait avec les défauts de `~/.codex/config.toml`). Seule
-variable lue : `AGENTS_BRIDGE_CODEX_VERSION` (pin du pré-vol).
+One run per slice, in its own directory. The prompt is written to a file with
+the Write tool, never inline in the shell. Use the paths the commands print
+literally: shell variables do not survive between Bash calls.
 
 ```bash
-# 1. Write /tmp/slice-N-prompt.md  (outil Write — contenu = prompt de la slice)
-# 2. Run, en arrière-plan (-C si le cwd n'est pas le repo cible ;
-#    pin = numéro nu, sans le préfixe "codex-cli ") :
-AGENTS_BRIDGE_CODEX_VERSION=0.144.1 \
-"${CLAUDE_PLUGIN_ROOT}/scripts/codex" exec \
-  -C /chemin/repo-cible \
-  -m gpt-5.6-terra \
-  -c model_reasoning_effort=xhigh \
-  -s workspace-write \
-  --json -o /tmp/slice-N.last \
-  - < /tmp/slice-N-prompt.md > /tmp/slice-N.jsonl 2> /tmp/slice-N.err
+# 1. Create the slice's run directory; it prints <dir>:
+"${CLAUDE_PLUGIN_ROOT}/scripts/codex-run.ts" new orchestrate
+# 2. Write <dir>/prompt.md (Write tool — content = the slice's prompt)
+# 3. Start it in write mode against the target repository:
+"${CLAUDE_PLUGIN_ROOT}/scripts/codex-run.ts" start <dir> --prompt-file <dir>/prompt.md --mode write --role coding -C /path/to/target-repo
 ```
 
-- La forme `- < fichier` élimine tout échappement shell et stdin se ferme à
-  EOF tout seul (détails : skill `codex`). Garder stderr (`2>`) : les échecs
-  d'environnement (npm, exit 127) n'apparaissent que là. Cible non-git →
-  `--skip-git-repo-check` requis.
-- `run_in_background: true`, timeout ≥ 900 s. Vérifier ~20 s après le lancement que l'output progresse (détecte les blocages immédiats).
-- `-o` reçoit le résumé final de Codex ; le thread id se lit dans le JSONL
-  (jamais `resume --last`, il race entre runs) :
+- **Pin the Codex version** for the whole orchestration: the first slice's
+  envelope carries `codex_version`; pass it to every later slice with
+  `--codex-version <x.y.z>`. Without it, the bridge may refresh its npm
+  resolution (24 h TTL) between two slices, and the version moves mid-run.
+  Corrections inside a slice resume the same run, which keeps its version.
+- No `--git-write`: Codex never commits, so its sandbox keeps the git
+  directories read-only.
+- A slice usually outlasts the call's 540 s wait: exit 10 means Codex is still
+  working. The turn runs detached; collect it with
+  `"${CLAUDE_PLUGIN_ROOT}/scripts/codex-run.ts" wait <dir>`, repeated while it
+  exits 10, or start with `--wait 0` and do other work first.
+- A non-git target needs `--skip-git-repo-check`.
+- Corrections → write `<dir>/fix-2.md` and resume the thread (cheaper than a
+  fresh context); resume replays the model, effort, mode and cwd:
   ```bash
-  tid="$(jq -r 'select(.type=="thread.started") | .thread_id // empty' /tmp/slice-N.jsonl | head -n1)"
+  "${CLAUDE_PLUGIN_ROOT}/scripts/codex-run.ts" resume <dir> --prompt-file <dir>/fix-2.md
   ```
-  Corrections → `exec resume "$tid" - < /tmp/slice-N-fix.md` (moins cher qu'un
-  contexte neuf). **`resume` n'hérite d'aucun flag** — re-passer `-C`, `-m`,
-  `-c sandbox_mode=workspace-write` et l'effort à l'identique, sinon retour aux
-  défauts config (cf. skill `codex`).
 
-## Protocole d'échec
+## Failure protocol
 
-- Gate rouge → diagnostiquer d'abord : **échec de code** (reprendre la session Codex avec le rapport d'erreur exact) ou **échec d'environnement** (fichiers hors périmètre, config, outillage — le corriger soi-même, c'est le travail de l'orchestrateur, pas de l'exécutant).
-- Deux échecs sur la même slice → stop, rapport à l'utilisateur. Ne pas insister.
-- Déviation de Codex par rapport à la spec → juger sur pièces : si le contrat est préservé et le design défendable, accepter et le noter ; sinon resume avec correction.
+- Red gate → diagnose first: **code failure** (resume the Codex thread with the
+  exact error report) or **environment failure** (files out of scope, config,
+  tooling — fix it yourself, it is the orchestrator's job, not the executor's).
+- Exit 11 (blocked): Codex's auto-review or its sandbox refused an action, listed
+  in the envelope's `blocked`. Rule on each item as the `codex` skill's "Blocked
+  actions" section says; a slice that needs an action outside its sandbox is
+  often a slicing defect.
+- Two failures on the same slice → stop, report to the user. Do not insist.
+- Codex deviating from the spec → judge on the evidence: if the contract is
+  preserved and the design defensible, accept and note it; otherwise resume with
+  a correction.
 
-## Pièges connus (vécus)
+## Known pitfalls (lived)
 
-| Symptôme | Cause | Fix |
+| Symptom | Cause | Fix |
 |---|---|---|
-| Run figé, output = « Reading additional input from stdin... » | stdin pipe resté ouvert (prompt passé en argument) | forme `- < fichier` ; en dernier recours `< /dev/null`, kill + relance |
-| Codex reçoit `()` au lieu de `($bindable)` | expansion shell des `$` (prompt inline) | prompt via fichier + stdin, jamais inline |
-| Run tourne au mauvais modèle/effort/sandbox | env vars `CODEX_*` ignorées par le wrapper | flags natifs `-m` / `-c model_reasoning_effort=` / `-s` |
-| `npm E404` sur le tarball, exit 127 en pleine orchestration | dist-tag `latest` cassé upstream, re-résolu en réseau | échec d'environnement, pas de code : le bridge retombe seul sur la dernière version installée ; le pin `AGENTS_BRIDGE_CODEX_VERSION` du pré-vol évite toute re-résolution en cours de run |
-| Gate rouge sur des fichiers jamais touchés | pollution externe (skills installés, artefacts) | fix d'hygiène soi-même (ignore files), pas par Codex |
-| Codex annonce vert, gate local rouge | environnements différents | toujours re-lancer les gates soi-même |
-| Slice N dépend d'un outillage absent | prérequis transversal découvert tard | slice insérée, jamais fusionnée |
+| `npm E404` on the tarball, exit 1 with the npm error in `error` mid-orchestration | upstream `latest` dist-tag broken, re-resolved over the network | environment failure, not code: the bridge falls back to the last installed version on its own; `--codex-version` from the first slice avoids any re-resolution mid-run |
+| Red gate on files never touched | outside pollution (installed skills, artefacts) | hygiene fix yourself (ignore files), not by Codex |
+| Codex announces green, local gate red | different environments | always re-run the gates yourself |
+| Slice N depends on missing tooling | cross-cutting prerequisite found late | insert a slice, never fold it in |

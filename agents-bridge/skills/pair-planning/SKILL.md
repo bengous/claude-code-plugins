@@ -3,10 +3,8 @@ name: pair-planning
 description: Start a session in pair-planning mode where Claude and Codex (read-only) each draft an independent implementation plan for a task, then cross-review through an open-point ledger until consensus, escalating remaining disagreements to the user. Produces one agreed plan; does not write code. Use at the start of a task to align two frontier models on the approach before implementation.
 argument-hint: <task / idea to plan together>
 allowed-tools:
-  - Bash(mkdir *)
-  - Bash(mktemp *)
-  - Bash(${CLAUDE_PLUGIN_ROOT}/scripts/pair-codex *)
-  - Read(~/.cache/agents-bridge/pair-planning/**)
+  - Bash(${CLAUDE_PLUGIN_ROOT}/scripts/codex-run.ts *)
+  - Read(~/.cache/agents-bridge/**)
   - Edit(~/.cache/agents-bridge/pair-planning/**)
 ---
 
@@ -16,29 +14,32 @@ Two frontier models plan the same task **independently**, then converge. You
 (Claude) hold the session context and orchestrate; Codex is the fresh pair of
 eyes. The deliverable is a single agreed plan — **read-only, no implementation**.
 
-All Codex round-trips go through the helper, never `codex` directly:
+All Codex round-trips go through `codex-run.ts`, never `codex` directly:
 
 ```
-"${CLAUDE_PLUGIN_ROOT}/scripts/pair-codex" fresh  <dir> <prompt_file> r0     # start session
-"${CLAUDE_PLUGIN_ROOT}/scripts/pair-codex" resume <dir> <prompt_file> r<n>   # continue it
+"${CLAUDE_PLUGIN_ROOT}/scripts/codex-run.ts" start  <dir> --prompt-file <dir>/prompt-r0.md --role audit --wait 0   # start the session
+"${CLAUDE_PLUGIN_ROOT}/scripts/codex-run.ts" wait   <dir>                                                          # collect a running round
+"${CLAUDE_PLUGIN_ROOT}/scripts/codex-run.ts" resume <dir> --prompt-file <dir>/prompt-r<n>.md                       # continue the thread
 ```
 
-The helper enforces the correct invocation (`--json -o`, stdin closed, read-only,
-thread-id capture, fail-hard). It prints Codex's final message to stdout and
-writes `<dir>/<label>.{jsonl,last,err}` plus `<dir>/thread_id`. Effort defaults
-to `xhigh`; override per call with a fifth argument after the label, `high` when
-a round is light, or `max` for a genuinely hard round. Planning is
+It runs Codex read-only on one thread, replays the first round's model and
+effort on every resume, prints Codex's reply after a `--- final message ---`
+line, and keeps each round under `<dir>/turn-<n>/` (round r0 is `turn-1`). Role
+`audit` runs at `xhigh`; pass `--effort high` to a resume when a round is
+light, or `--effort max` for a genuinely hard one. Planning is
 reasoning-heavy — don't downgrade the model tier.
+
+Exit codes: 0 reply ready, 10 Codex still working (run `wait <dir>` again),
+1 failed (report the envelope's `error`), 2 usage error.
 
 ## 1. Setup + launch Codex in the background
 
 Action 0, the moment you're invoked — get Codex planning *before* you do, so the
 two plans are written in parallel and neither side anchors on the other.
 
-1. Create the session directory, one per run so concurrent sessions never
-   share a file:
+1. Create the session directory:
    ```bash
-   mkdir -p ~/.cache/agents-bridge/pair-planning && mktemp -d ~/.cache/agents-bridge/pair-planning/run.XXXXXX
+   "${CLAUDE_PLUGIN_ROOT}/scripts/codex-run.ts" new pair-planning
    ```
    Use the printed path literally wherever `<dir>` appears below — shell
    variables do not survive between Bash calls.
@@ -56,29 +57,24 @@ two plans are written in parallel and neither side anchors on the other.
    independent implementation plan (files to touch, approach, risks).
    **Anti-anchoring: round 0 points at `task.md` only — never reference your plan
    here; it does not exist for Codex yet.**
-5. Launch Codex in the **background** so it plans while you do — run the helper
-   with the Bash tool's `run_in_background` option (not blocking):
+5. Start Codex from the repository being planned; `--wait 0` returns at once
+   while Codex plans:
    ```bash
-   "${CLAUDE_PLUGIN_ROOT}/scripts/pair-codex" fresh <dir> <dir>/prompt-r0.md r0
+   "${CLAUDE_PLUGIN_ROOT}/scripts/codex-run.ts" start <dir> --prompt-file <dir>/prompt-r0.md --role audit --wait 0
    ```
-   The harness notifies you when it exits; the helper writes `<dir>/r0.last` and
-   captures Codex's thread id into `<dir>/thread_id`.
 
 ## 2. Round 0 — your plan, in parallel (anti-anchoring)
 
-While Codex runs in the background, write **your own** plan — and do **not** read
-its output until yours is committed to disk, so neither side anchors on the other:
+While Codex plans, write **your own** plan — and do **not** read its output
+until yours is on disk, so neither side anchors on the other:
 
 1. Write your implementation plan to `<dir>/claude-plan-r0.md` — concrete,
    grounded in the actual repo (files, patterns, reuse). Your real plan, not a
    placeholder.
-2. **Never read `r0.last` in the same turn you launched the job.** The file is
-   complete only once the background process exits, and the harness re-invokes
-   you on that exit. On the completion signal, read Codex's plan from
-   `<dir>/r0.last` and confirm its thread id is in `<dir>/thread_id` (the
-   helper fails hard if it wasn't captured). Failure = the helper's **non-zero
-   exit**; only then read `<dir>/r0.err` and surface it (a non-empty `.err` on
-   exit 0 is benign stderr). Never fabricate Codex's side.
+2. Then collect Codex's plan with `wait <dir>`, repeated while it exits 10. Its
+   plan is the text after `--- final message ---` (also in
+   `<dir>/turn-1/final.md`). Exit 1 means the round failed: surface the
+   envelope's `error`. Never fabricate Codex's side.
 
 ## 3. Build the open-point ledger
 
@@ -97,7 +93,7 @@ to step 6.
 
 ## 4. Cross-review rounds — exchange by file reference
 
-Codex keeps session memory across `resume` and can read `<dir>` read-only —
+Codex keeps session memory across resumes and can read `<dir>` read-only —
 **point it at the files instead of pasting copies** (pasted text goes stale the
 moment you edit). Never resend transcripts.
 
@@ -113,14 +109,14 @@ Each round `n`, write `<dir>/prompt-r<n>.md` with only:
   > `NEW: <issue>`. End with exactly one line: `VERDICT: CONVERGED` or
   > `VERDICT: OPEN: <comma-separated remaining IDs>`.
 
-Resume Codex by its captured thread id, then read its reply:
+Resume the thread and read Codex's reply from the output:
 ```bash
-"${CLAUDE_PLUGIN_ROOT}/scripts/pair-codex" resume <dir> <dir>/prompt-r<n>.md r<n>
+"${CLAUDE_PLUGIN_ROOT}/scripts/codex-run.ts" resume <dir> --prompt-file <dir>/prompt-r<n>.md
 ```
-Read `<dir>/r<n>.last`, then **you** adjudicate each item (accept good points,
-push back on weak ones with reasons — treat Codex's claims as hypotheses, not
-commands). Update `ledger.md` (resolve / add IDs) and `consensus-plan.md` in
-place; Codex reads the fresh versions next round.
+Then **you** adjudicate each item (accept good points, push back on weak ones
+with reasons — treat Codex's claims as hypotheses, not commands). Update
+`ledger.md` (resolve / add IDs) and `consensus-plan.md` in place; Codex reads the
+fresh versions next round.
 
 ## 5. Convergence policy
 
@@ -153,9 +149,8 @@ hand to `writing-plans` for a task-by-task plan, or cross-check with the
 
 - Keep prompts compact — round economy matters at `xhigh`; lean on session
   memory and file refs, never resend transcripts.
-- The round-0 launch is backgrounded: if you finish your own plan before the
-  harness signals Codex done, wait for that signal — never read a partial
-  `r0.last`. Resume rounds (steps 4+) are foreground; you need the reply in hand.
-- Fail fast: if `pair-codex` exits non-zero, read `<dir>/<label>.err` and surface
-  the problem; do not silently retry or fabricate Codex's side.
+- Resume rounds wait for the reply (up to 540 s per call); a round that runs
+  longer exits 10, and `wait <dir>` collects it.
+- Fail fast: on exit 1 surface the envelope's `error`; do not silently retry or
+  fabricate Codex's side.
 - No cleanup needed — each run uses a unique directory; never `rm -rf` session dirs.

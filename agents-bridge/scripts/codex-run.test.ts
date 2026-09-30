@@ -37,7 +37,7 @@ if (args[0] === "debug") {
   process.exit(0);
 }
 const stdin = await Bun.stdin.text();
-appendFileSync(log, JSON.stringify({ args, stdin, cwd: process.cwd() }) + "\\n");
+appendFileSync(log, JSON.stringify({ args, stdin, cwd: process.cwd(), pin: process.env.AGENTS_BRIDGE_CODEX_VERSION }) + "\\n");
 writeFileSync(log + ".pid", String(process.pid));
 const out = args[args.indexOf("-o") + 1];
 const mode = process.env.FAKE_CODEX_MODE ?? "ok";
@@ -147,7 +147,7 @@ async function cli(h: Harness, args: string[], env: Record<string, string> = {})
   };
 }
 
-function codexCalls(h: Harness): { args: string[]; stdin: string; cwd: string }[] {
+function codexCalls(h: Harness): { args: string[]; stdin: string; cwd: string; pin?: string }[] {
   return readFileSync(h.log, "utf8")
     .split("\n")
     .filter((line) => line !== "")
@@ -513,6 +513,22 @@ describe("codex-run CLI", () => {
     expect(out.code).toBe(0);
     expect(out.envelope.add_dirs).toEqual([join(repo, ".git")]);
     expect(codexCalls(h)[0]?.cwd).toBe(repo);
+  });
+
+  test("--codex-version pins the CLI for every turn of the run", async () => {
+    const h = harness();
+
+    const out = await cli(h, [
+      "start",
+      h.runDir,
+      "--prompt-file",
+      h.prompt,
+      "--codex-version",
+      "1.2.3",
+    ]);
+
+    expect(out.envelope.codex_version).toBe("1.2.3");
+    expect(codexCalls(h)[0]?.pin).toBe("1.2.3");
   });
 
   test("new creates a private run directory under the run kind", () => {

@@ -1,194 +1,148 @@
 ---
 name: codex
-description: Invoke OpenAI Codex CLI for cross-model collaboration
+description: Invoke the OpenAI Codex CLI for cross-model collaboration, a second opinion, or delegated work. Use when the user asks Codex to review, debug, explain, plan or implement something, or names a Codex model.
 argument-hint: <prompt>
 allowed-tools:
-  - Bash(*)
-  - Read(~/.cache/agents-bridge/codex/**)
+  - Bash(${CLAUDE_PLUGIN_ROOT}/scripts/codex-run.ts *)
+  - Read(~/.cache/agents-bridge/**)
   - Edit(~/.cache/agents-bridge/codex/**)
 ---
 
 # Codex Bridge
 
-Invoke the OpenAI Codex CLI for a second opinion from a non-Claude model. The
-`scripts/codex` wrapper is a thin pass-through that auto-installs the CLI via
-npx on first use (requires `node`/`npx` on PATH, or `mise`). Pass codex's own
-flags directly; the wrapper forwards everything.
-
-The wrapper pins the CLI version (24 h TTL, falls back to the last working
-install if npm breaks). `AGENTS_BRIDGE_CODEX_VERSION=<x.y.z>` freezes it
-explicitly — the only env var the wrapper reads; everything codex-native goes
-through codex's own flags.
+Every Codex call goes through `codex-run.ts`, which owns the invocation: a
+private run directory, the resolved settings in `run.json`, one directory per
+turn, a detached supervisor that outlives the Bash call, and resume on the same
+thread with the same settings. Pass the user's request through; do not call the
+codex CLI directly.
 
 ## Models
 
-Configured default (`~/.codex/config.toml`):
+<codex_models>
+!`"${CLAUDE_PLUGIN_ROOT}/scripts/codex-run.ts" models`
+</codex_models>
 
-!`grep -E '^(model|model_reasoning_effort)' ~/.codex/config.toml 2>/dev/null || echo "(no ~/.codex/config.toml — codex uses its built-in default; the active model is printed in every 'exec' run header)"`
+Without `--role` or `-m`, the run uses the codex configuration default. Pick a
+role when the work calls for a tier; pass `-m <slug>` only when the user names
+a model, with a slug from the list above.
 
-Models the installed CLI accepts right now:
+| Work | Role |
+|------|------|
+| Implementation, debugging, judgment on code | `coding` |
+| Review, audit, security, hard reasoning | `audit` |
+| Tests, gates, research, bounded mechanical work | `bounded` |
 
-<codex_available_models>
-```!
-# Live model list, injected once at skill load (~0.1 s).
-# visibility != "list" hides codex-internal models (auto-review, reserve).
-# Two constraints from the injected-command permission check:
-# - No brace near a quote anywhere in this block, comments included: that
-#   is "expansion obfuscation", and allowed-tools cannot override it. Hence
-#   + concatenation in jq. CLAUDE_PLUGIN_ROOT is substituted before the check.
-# - The allowed-tools Bash rule must match the codex call: Bash(*) does,
-#   a star-colon-star rule does not (it reads as a literal-star prefix).
-# Never exit non-zero: a failed injected command aborts the whole skill.
-"${CLAUDE_PLUGIN_ROOT}/scripts/codex" debug models 2>/dev/null |
-  jq -r '.models[]
-    | select(.visibility == "list")
-    | .slug + " | default effort: " + .default_reasoning_level
-      + " | efforts: " + ([.supported_reasoning_levels[].effort] | join(","))
-      + " | " + .description' || true
-```
-</codex_available_models>
+`--effort <level>` overrides the role's effort; it must appear in that model's
+`efforts:` list. `codex-run.ts` checks both against the catalog and refuses an
+unknown pair with exit 2.
 
-Pass a slug from that block, never a name from training data. An empty block
-means the CLI was unreachable: pass no `-m` and let the configured default run.
+## Run a turn
 
-The default invocation below passes no `-m` and no effort flag, so it inherits
-the configured default. When a run needs another tier, pick from this table and
-pass both flags:
+1. Create the run directory. Use the printed path literally in every later
+   step: shell variables do not survive between Bash calls.
 
-| Work | Model | Effort |
-|------|-------|--------|
-| Coding, judgment, hard review | `gpt-5.6-sol` | `xhigh` |
-| Audit, security review, and coding | `gpt-daybreak-blue-latest` | `xhigh` |
-| Gates, tests, research, bounded work | `gpt-5.6-luna` | `max` |
+   ```bash
+   "${CLAUDE_PLUGIN_ROOT}/scripts/codex-run.ts" new codex
+   ```
 
-The other listed models are older tiers. Use one only when the user names it.
-Check that the effort you pass appears in that model's `efforts:` list.
+2. Write the user's request, verbatim, to `<dir>/prompt.md` with the Write
+   tool. The prompt never goes on the command line.
 
-Without `--json`, each run prints the active `model:` / `reasoning effort:` /
-`sandbox:` in its header — read it to confirm what ran. **With `--json` (the
-default invocation below) that header is suppressed and the event stream
-carries no config** — what ran is exactly what you passed on the command line,
-which is why every resume must re-state its flags (see Follow-ups).
+3. Start the turn from the repository Codex works in (`-C <dir>` otherwise):
 
-## Execution
+   ```bash
+   "${CLAUDE_PLUGIN_ROOT}/scripts/codex-run.ts" start <dir> --prompt-file <dir>/prompt.md
+   ```
 
-**Default to read-only.** The uses below (review, debugging, architecture) are
-all read-only — codex must not touch the workspace unless the user actually asks
-it to make changes. Escalate the sandbox explicitly (`-s workspace-write`) only
-then.
+   Add `--role <role>`, `-m <slug>` or `--effort <level>` as above. Add
+   `--skip-git-repo-check` only when `-C` points outside a git repository.
 
-**Pass the prompt via a file on stdin, never inline.** Prompts carry backticks,
-`$(...)`, quotes and apostrophes; inlined into the shell they break the command
-or execute as substitutions in *this* agent's shell. Codex has a native
-primitive for this: `-` reads the prompt from stdin. Write the user's request
-to a file in the run directory with the Write tool (no shell involved), then
-redirect it in.
+The first stdout line is a JSON envelope (`status`, `thread_id`, `model`,
+`effort`, `mode`, `blocked`, `error`, `final_message_file`). Once the turn is
+over, a `--- final message ---` line follows, then Codex's answer. The exit
+code carries the status:
 
-**Every first run starts a thread — capture its id.** Follow-ups in the same
-task resume that thread (see Follow-ups below), so the id must be captured on
-the *first* run. `--json` emits a stable event stream whose `thread.started`
-event carries the id; `-o` saves codex's final message (with `--json`, stdout
-is events, not prose — read the reply from the `-o` file). Default invocation:
+| Exit | Status | Next step |
+|------|--------|-----------|
+| 0 | completed | Relay the answer, then check its claims before acting on them |
+| 1 | failed | Report `error`; do not retry blindly |
+| 2 | usage error | Fix the command from the message on stderr |
+| 10 | running | Run `wait <dir>` again; the turn goes on without you |
+| 11 | blocked | See "Blocked actions" below |
+| 124 | deadline | The turn hit `--deadline` (default 2 h) and was interrupted |
+| 130 | cancelled | The turn was cancelled |
+
+`start` and `resume` wait up to 540 s, under the 600 s Bash cap. A longer turn
+returns 10 and keeps running; pick it up with:
 
 ```bash
-# 1. Create the run directory; it prints <dir>:
-mkdir -p ~/.cache/agents-bridge/codex && mktemp -d ~/.cache/agents-bridge/codex/run.XXXXXX
-
-# 2. Write the user's prompt with the Write tool:
-#    Write  <dir>/prompt.md   <- contents = the user's request, verbatim
-# 3. First run: read-only, prompt from stdin, JSONL captured for the thread id.
-#    No effort flag = config default; add -c model_reasoning_effort=low|medium
-#    for quick probes (see "Keep runs bounded"):
-"${CLAUDE_PLUGIN_ROOT}/scripts/codex" exec \
-  -s read-only --json -o <dir>/codex.last \
-  - < <dir>/prompt.md \
-  > <dir>/codex.jsonl
-
-# 4. Read the reply from <dir>/codex.last; print the thread id and keep it
-#    for follow-ups:
-jq -r 'select(.type=="thread.started") | .thread_id' <dir>/codex.jsonl
+"${CLAUDE_PLUGIN_ROOT}/scripts/codex-run.ts" wait <dir>
 ```
 
-Never scrape the id from the human-readable header — the JSONL event is the
-stable interface.
+`status <dir>` reads the envelope without waiting and exits 0. `cancel <dir>`
+interrupts the turn. `--wait 0` returns at once, so you can work in parallel
+and call `wait` later.
 
-Use the path `mktemp` printed **literally** in every later step: shell
-variables do not survive between Bash calls, and the Write tool does not expand
-them. One directory per run, so concurrent sessions never share a file; keep it
-for the follow-ups of the same task. If you ever pass the prompt as an argument
-instead, append `</dev/null` — with stdin piped-but-open, codex blocks waiting
-for EOF.
+## Read-only or write
 
-**Trusted-directory check.** `codex exec` refuses to start unless cwd is inside
-a git repo (or a codex-trusted directory). Bites when `-C` points at a
-scratch/temp workdir: pass `--skip-git-repo-check` there — and only there; the
-guard is useful in real checkouts.
+Runs are read-only by default: review, debugging, architecture and questions
+never touch the workspace. When the user asks Codex to change files, add
+`--mode write`. Codex then works in its workspace-write sandbox under its own
+auto-review, which judges every request to go beyond the sandbox, and its
+answer comes back as the `answer` of a JSON object, with denied actions listed
+apart. Add `--git-write` only when Codex must stage or commit: it grants the
+repository's git directories, which the sandbox otherwise keeps read-only.
 
-## Follow-ups: resume by default
+## Blocked actions
 
-Any follow-up that builds on an earlier run in the same task — iterating on its
-findings, pushing back, a review → fix → confirmation pass — **resumes the
-thread** by the captured thread id. A fresh `exec` discards everything codex
-already read and re-litigates it from zero.
+Exit 11 means an action stayed blocked. Each item of `blocked` gives the
+`action`, its `cwd`, the `rationale` and the `cause` (`review_denial` or
+`sandbox_failure`). You take the human's place on each item:
 
-**Resume does not inherit the first run's flags** — `exec resume` falls back to
-`~/.codex/config.toml` defaults and has no `-s` flag at all. **Re-state
-sandbox, effort, and any non-default model on every resume**, via
-`-c sandbox_mode=...` / `-c model_reasoning_effort=...` / `-m`:
+- By default, resume the thread with a ruling: a safer alternative, or the
+  reason the action is legitimate. Codex's auto-review stays active and may
+  deny it again.
+- Perform the action yourself only when it sits squarely inside the user's
+  request, and say that you did: the enforcing check becomes Claude Code's
+  permission system instead of Codex's auto-review.
+- Never loosen the sandbox (`danger-full-access`, bypass flags) to get past a
+  denial.
+
+## Follow-ups
+
+A follow-up that builds on the turn (iterate on findings, push back, fix and
+confirm) resumes the thread, so Codex keeps what it already read. Write the
+follow-up to a new file in the run directory, then:
 
 ```bash
-# Follow-up: Write <dir>/followup.md first, then resume by explicit id.
-# Mirror the first run's settings — `-s X` becomes `-c sandbox_mode=X`, and any
-# effort / `-m` model repeats verbatim (this example's first run used effort low):
-"${CLAUDE_PLUGIN_ROOT}/scripts/codex" exec resume <thread id> \
-  -c sandbox_mode=read-only \
-  -c model_reasoning_effort=low \
-  --json -o <dir>/codex.last \
-  - < <dir>/followup.md \
-  > <dir>/codex.jsonl
+"${CLAUDE_PLUGIN_ROOT}/scripts/codex-run.ts" resume <dir> --prompt-file <dir>/followup-2.md
 ```
 
-- **Never `resume --last`** — it races across codex runs in the same cwd.
-- The thread id is stable across resumes (`thread.started` re-fires with the
-  same id), so the same `jq` command keeps working.
-- The `allowed-tools` grant covers the invoking turn only, so a follow-up in a
-  later turn prompts for the Write to `<dir>` and for these commands.
+Resume replays the model, effort, mode, cwd and writable roots recorded in
+`run.json`; only `--effort`, `--output-schema`, `--deadline` and `--wait` can
+change per turn. Each turn keeps its own files under `<dir>/turn-<n>/`. The
+`allowed-tools` grant covers the invoking turn only, so a follow-up in a later
+turn may prompt.
 
-### Overrides (codex native flags)
+## Structured answers
 
-A model or effort the user asks for overrides the default — add the flag to
-either block above (the model list is injected from the CLI, never hardcoded;
-codex validates):
+`--output-schema <file>` makes Codex answer as JSON matching that schema; the
+final message is the JSON, formatted. The schema applies to that turn only.
 
-| Flag | Purpose |
-|------|---------|
-| `-m <model>` | Model — a slug from `<codex_available_models>`; codex errors on an unknown name |
-| `-c model_reasoning_effort=<level>` | Reasoning effort — a level from that model's `efforts:` field in `<codex_available_models>`; codex validates |
-| `-s <mode>` | Sandbox — `read-only`, `workspace-write`, `danger-full-access` |
+## Inside workflows and subagents
 
-## Inside workflows/subagents (Claude Code)
+The Agent and Workflow `model` parameter takes Claude models only, so route
+Codex through a wrapper agent: a sonnet/low agent that writes the prompt, runs
+`codex-run.ts` as above and returns the answer. The wrapper does no reasoning.
+Label the agent with the Codex model it runs, since the UI shows the wrapper's
+Claude model. Parallel write runs need `isolation: 'worktree'`.
 
-The Agent/Workflow `model` param takes Claude models only — route codex through
-a wrapper agent:
+## When to use
 
-- Wrapper: a sonnet/low agent that writes a self-contained codex prompt, runs
-  `codex exec` via Bash following this skill's invocation pattern, and returns
-  the report (`schema` for structured output). The wrapper does no reasoning —
-  keep it on sonnet/low whatever the session's default model is.
-- Label the agent with the codex model it runs — the UI shows the wrapper's
-  Claude model, not what codex ran.
-- Codex can exceed Bash's 10-min default timeout → set an explicit timeout or
-  run in background and poll.
-- Parallel codex implementation agents → `isolation: 'worktree'`.
-
-## When to Use
-
-Ad-hoc second opinion — code review, debugging, architecture — on prompts and
-conversation context that never hit disk. For **local git changes**,
-uncommitted work or a branch against its base, use
+A second opinion (code review, debugging, architecture) on a prompt or on
+conversation context that never hit disk, or work delegated to Codex. For
+local git changes, uncommitted work or a branch against its base, use
 `/agents-bridge:adversarial-review`, which reads the diff directly.
 
-**Keep runs bounded.** Use `low`/`medium` effort for quick probes; high effort
-plus a docs MCP can rabbit-hole. To stop a runaway, target the real process
-(`pkill -x codex` / kill its process group) — a `pkill -f 'codex exec'` matches
-this agent's own command line and self-kills.
+Keep runs bounded: `low` or `medium` effort for quick probes; high effort plus
+a docs MCP can rabbit-hole. To stop a runaway turn, `cancel <dir>`.
