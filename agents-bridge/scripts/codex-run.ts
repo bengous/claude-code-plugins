@@ -297,7 +297,7 @@ function meetsContract(value: unknown, contract: AnswerContract): boolean {
 
   return (
     contract.required.length === 0 ||
-    (isRecord(value) && contract.required.every((key) => key in value))
+    (isRecord(value) && contract.required.every((key) => Object.hasOwn(value, key)))
   );
 }
 
@@ -306,7 +306,7 @@ function hasKey(value: unknown, key: string): boolean {
 
   if (!isRecord(value)) return false;
 
-  return key in value || Object.values(value).some((item) => hasKey(item, key));
+  return Object.hasOwn(value, key) || Object.values(value).some((item) => hasKey(item, key));
 }
 
 export function parseFinalMessage(
@@ -326,7 +326,7 @@ export function parseFinalMessage(
 
   const decoded = parseJson(text);
 
-  if (!isRecord(decoded) || !Array.isArray(decoded.blocked) || !("answer" in decoded)) {
+  if (!isRecord(decoded) || !Array.isArray(decoded.blocked) || !Object.hasOwn(decoded, "answer")) {
     return { error: "the final message is not a bridge result object {answer, blocked}" };
   }
 
@@ -764,6 +764,8 @@ async function supervise(runDir: string, turn: number): Promise<void> {
   const stdout = openSync(join(turnDir, "events.jsonl"), "w");
   const stderr = openSync(join(turnDir, "stderr.log"), "w");
   let child: ChildProcess | null = null;
+  let stopFailure: string | null = null;
+  let giveUp: ((code: number) => void) | null = null;
 
   // The first reason is kept; every call still signals, so an interrupt
   // recorded before codex existed reaches it once it does.
@@ -776,7 +778,12 @@ async function supervise(runDir: string, turn: number): Promise<void> {
 
     target.kill("SIGINT");
     setTimeout(() => {
-      if (target.pid !== undefined && target.exitCode === null) killGroup(target.pid);
+      if (target.pid === undefined || target.exitCode !== null) return;
+
+      stopFailure = killGroup(target.pid);
+
+      // codex outlived SIGINT and cannot be killed: waiting for its exit would never end.
+      if (stopFailure !== null) giveUp?.(137);
     }, INTERRUPT_GRACE_MS).unref();
   };
 
@@ -805,6 +812,7 @@ async function supervise(runDir: string, turn: number): Promise<void> {
   const deadline = setTimeout(() => interrupt("deadline"), spec.deadline_seconds * 1000);
 
   const codexExit = await new Promise<number>((done) => {
+    giveUp = done;
     spawned.on("error", () => done(127));
     spawned.on("exit", (code, signal) => done(code ?? (signal === null ? 1 : 128)));
   });
@@ -812,7 +820,7 @@ async function supervise(runDir: string, turn: number): Promise<void> {
   clearTimeout(deadline);
 
   // A turn is over only once nothing it started still runs.
-  const stopError = spawned.pid === undefined ? null : killGroup(spawned.pid);
+  const stopError = stopFailure ?? (spawned.pid === undefined ? null : killGroup(spawned.pid));
 
   for (const fd of [stdin, stdout, stderr]) closeSync(fd);
 

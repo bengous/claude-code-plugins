@@ -325,6 +325,14 @@ describe("parseFinalMessage enforces the strict bridge result and the caller sch
     ).toHaveProperty("error");
   });
 
+  test("a required key only inherited from Object.prototype", () => {
+    const text = JSON.stringify({ answer: {}, blocked: [] });
+
+    expect(
+      parseFinalMessage(text, "write", { type: "object", required: ["constructor"] }),
+    ).toHaveProperty("error");
+  });
+
   test("a blocked item with an extra property", () => {
     const item = { action: "a", cwd: "/", rationale: "r", cause: "review_denial", extra: 1 };
 
