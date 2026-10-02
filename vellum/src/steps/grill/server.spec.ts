@@ -15,10 +15,13 @@ import { join } from "node:path";
 import type { ChannelLine, ReviewView } from "../../runtime/protocol.ts";
 import { startServer } from "../../runtime/server/http/serve.ts";
 import type { Started } from "../../runtime/server/http/serve.ts";
+import { Queue } from "../../runtime/server/queue.ts";
+import { serverExtension } from "../../runtime/server/slice.ts";
+import { serverExtensions } from "../../runtime/server/slices.ts";
 import { parseWipDir } from "../../workshop/paths.ts";
 import type { BodyOf, PostOf } from "../../workshop/plugs.ts";
 import type { GrillPlugs, Waited } from "./contract.ts";
-import { toHtml } from "./server.ts";
+import { server, toHtml } from "./server.ts";
 
 type Routes = GrillPlugs["server"];
 
@@ -772,11 +775,27 @@ describe("names from outside", () => {
     });
   });
 
+  // In this process, with no server: Windows refuses to rename a folder a watcher holds, and
+  // whether the server's watcher holds it yet is a race.
   test("with the plan's directory gone the routes refuse, they do not fail", async () => {
-    const { dir, get, post } = await grilling();
-    renameSync(join(dir, WIP), join(dir, "plans/2026-09-17/elsewhere"));
+    const dir = mkdtempSync(join(tmpdir(), "vellum-grill-"));
+    mkdirSync(join(dir, WIP, ".review"), { recursive: true });
+    const workdir = parseWipDir(WIP);
 
-    expect((await get("state")).status).toBeLessThan(500);
-    expect((await post("ask", { q: [["T", "A?", "R"]] })).status).toBe(409);
+    if (!workdir.ok) throw new Error(workdir.error);
+
+    const review = new Queue({
+      project: dir,
+      workdir: workdir.value,
+      extensions: serverExtensions,
+    });
+
+    await review.openChannel();
+    const routes = serverExtension(server).routes?.(review.context);
+    renameSync(join(dir, WIP), join(dir, "plans/2026-09-17/elsewhere"));
+    const ask = new Request("http://grill/", { method: "POST", body: '{"q":[["T","A?","R"]]}' });
+
+    expect((await routes?.["GET state"]?.(new Request("http://grill/")))?.status).toBeLessThan(500);
+    expect((await routes?.["POST ask"]?.(ask))?.status).toBe(409);
   });
 });
