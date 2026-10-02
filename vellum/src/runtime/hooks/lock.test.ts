@@ -279,7 +279,7 @@ describe("the lock places a path before it decides", () => {
 
     // CI's engine lags the local one: an older engine refuses a `//` spelling before any hook,
     // a newer one folds it to a local path on POSIX; the lock must follow either answer.
-    expect(verdict).toMatchObject(
+    expect(verdict, `fs.stat was handed ${JSON.stringify(stats)}`).toMatchObject(
       stats.includes("/host/share/x.md")
         ? ENGINE
         : { decision: "deny", reason: expect.stringContaining("cannot tell where") },
