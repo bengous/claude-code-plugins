@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
 
 /**
- * Run every gate of `EXPECTED_COMMANDS` as CI runs it, in parallel, from the
+ * Run every gate of `expectedCommands` as CI runs it, in parallel, from the
  * repo root. Silent when all pass; otherwise prints a `Red gates: <names>`
  * line, then each failing gate with its output, and exits 1.
  *
@@ -13,7 +13,7 @@ import { join } from "node:path";
 
 import { $ } from "bun";
 
-import { EXPECTED_COMMANDS } from "./check-lint-config.ts";
+import { expectedCommands } from "./check-lint-config.ts";
 
 export interface GateResult {
   gate: string;
@@ -54,7 +54,7 @@ if (import.meta.main) {
   }
 
   const results = await Promise.all(
-    EXPECTED_COMMANDS.map((pair) => runGate(repoRoot, pair.gate, pair.ci)),
+    (await expectedCommands(repoRoot)).map((pair) => runGate(repoRoot, pair.gate, pair.ci)),
   );
 
   const report = failureReport(results);

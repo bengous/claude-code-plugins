@@ -67,7 +67,8 @@ const ANTI_SLOP_PREFIX = "anti-slop/";
  * The single source of truth for gate parity. A generic diff of the two files
  * would flag the launcher and the documented `--all`; this table states each
  * expected pair instead, and every tolerated difference carries its reason.
- * Its second reader is `run-gates.ts`, which runs the `ci` column.
+ * `expectedCommands` adds each hooks module's two gates to it; its second
+ * reader is `run-gates.ts`, which runs the `ci` column.
  */
 export const EXPECTED_COMMANDS: CommandPair[] = [
   {
@@ -118,31 +119,56 @@ export const EXPECTED_COMMANDS: CommandPair[] = [
     ci: "bun ./scripts/validate-frontmatter.ts --all",
     difference: "staged files locally, the whole repo in CI (scripts/validate-frontmatter.ts)",
   },
-  {
-    gate: "validate-vellum",
-    lefthook: "claude plugin validate vellum",
-    ci: "claude plugin validate vellum",
-    difference: null,
-  },
-  {
-    gate: "test-vellum",
-    lefthook: "claude plugin test vellum",
-    ci: "claude plugin test vellum",
-    difference: null,
-  },
-  {
-    gate: "validate-todos",
-    lefthook: "claude plugin validate todos",
-    ci: "claude plugin validate todos",
-    difference: null,
-  },
-  {
-    gate: "test-todos",
-    lefthook: "claude plugin test todos",
-    ci: "claude plugin test todos",
-    difference: null,
-  },
 ];
+
+/** A catalog plugin whose `hooks/hooks.json` names `modules` gets these two gates: never listed by hand, so no mod lands without them. */
+export function hooksModuleGates(plugins: readonly string[]): CommandPair[] {
+  return plugins.flatMap((plugin) => [
+    {
+      gate: `validate-${plugin}`,
+      lefthook: `claude plugin validate ${plugin}`,
+      ci: `claude plugin validate ${plugin}`,
+      difference: null,
+    },
+    {
+      gate: `test-${plugin}`,
+      lefthook: `claude plugin test ${plugin}`,
+      ci: `claude plugin test ${plugin}`,
+      difference: null,
+    },
+  ]);
+}
+
+interface Catalog {
+  plugins: { source: string }[];
+}
+
+interface HooksFile {
+  modules?: string[];
+}
+
+/** The catalog's plugins that carry a hooks module, in catalog order, by directory. */
+export async function hooksModulePlugins(repoRoot: string): Promise<string[]> {
+  const catalog: Catalog = await Bun.file(join(repoRoot, ".claude-plugin/marketplace.json")).json();
+  const directories = catalog.plugins.map((plugin) => plugin.source.replace(/^\.\//u, ""));
+
+  const hasModules = await Promise.all(
+    directories.map(async (directory) => {
+      const hooks = Bun.file(join(repoRoot, directory, "hooks/hooks.json"));
+
+      if (!(await hooks.exists())) return false;
+      const parsed: HooksFile = await hooks.json();
+
+      return (parsed.modules ?? []).length > 0;
+    }),
+  );
+
+  return directories.filter((_, index) => hasModules[index] === true);
+}
+
+export async function expectedCommands(repoRoot: string): Promise<CommandPair[]> {
+  return [...EXPECTED_COMMANDS, ...hooksModuleGates(await hooksModulePlugins(repoRoot))];
+}
 
 /** Strip the launcher so `foo.ts` and `bun foo.ts` compare as the same gate. */
 function withoutLauncher(command: string): string {
@@ -231,10 +257,14 @@ export function checkAntiSlopRules(
   return failures;
 }
 
-export function checkCommandParity(lefthookRuns: string[], ciRuns: string[]): string[] {
+export function checkCommandParity(
+  expected: readonly CommandPair[],
+  lefthookRuns: string[],
+  ciRuns: string[],
+): string[] {
   const failures: string[] = [];
 
-  for (const pair of EXPECTED_COMMANDS) {
+  for (const pair of expected) {
     if (!lefthookRuns.includes(pair.lefthook)) {
       failures.push(`lefthook.yml runs no ${JSON.stringify(pair.lefthook)} for gate ${pair.gate}`);
     }
@@ -476,6 +506,7 @@ if (import.meta.main) {
     ...checkIgnorePatterns(config.ignorePatterns ?? []),
     ...checkAntiSlopRules(ruleFiles, registeredRuleNames(indexSource), config.rules ?? {}),
     ...checkCommandParity(
+      await expectedCommands(repoRoot),
       lefthookCommands(await Bun.file(join(repoRoot, "lefthook.yml")).text()),
       ciCommands(await Bun.file(join(repoRoot, ".github/workflows/ci.yml")).text()),
     ),

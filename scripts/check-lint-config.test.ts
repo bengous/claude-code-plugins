@@ -12,6 +12,9 @@ import {
   ciCommands,
   digestTree,
   EXPECTED_COMMANDS,
+  expectedCommands,
+  hooksModuleGates,
+  hooksModulePlugins,
   lefthookCommands,
   parseManifest,
   registeredRuleNames,
@@ -137,33 +140,64 @@ describe("checkCommandParity", () => {
   const ciRuns = EXPECTED_COMMANDS.map((pair) => pair.ci);
 
   test("passes when both files carry every expected pair", () => {
-    expect(checkCommandParity(lefthookRuns, ciRuns)).toEqual([]);
+    expect(checkCommandParity(EXPECTED_COMMANDS, lefthookRuns, ciRuns)).toEqual([]);
   });
 
   test("fails a gate dropped from lefthook.yml", () => {
-    const failures = checkCommandParity(lefthookRuns.slice(1), ciRuns);
+    const failures = checkCommandParity(EXPECTED_COMMANDS, lefthookRuns.slice(1), ciRuns);
     expect(failures.join("\n")).toContain("lefthook.yml runs no");
   });
 
   test("fails a gate dropped from ci.yml", () => {
-    const failures = checkCommandParity(lefthookRuns, ciRuns.slice(1));
+    const failures = checkCommandParity(EXPECTED_COMMANDS, lefthookRuns, ciRuns.slice(1));
     expect(failures.join("\n")).toContain("ci.yml runs no");
   });
 
   test("fails an argument changed on one side only", () => {
     const weakened = ciRuns.map((run) => (run === "bun x oxlint" ? "bun x oxlint --quiet" : run));
-    expect(checkCommandParity(lefthookRuns, weakened)).toHaveLength(1);
+    expect(checkCommandParity(EXPECTED_COMMANDS, lefthookRuns, weakened)).toHaveLength(1);
   });
 
   test("fails when --update reaches a hook or CI", () => {
     const smuggled = [...lefthookRuns, "bun ./scripts/check-lint-config.ts --update"];
-    expect(checkCommandParity(smuggled, ciRuns).join("\n")).toContain("--update");
+    expect(checkCommandParity(EXPECTED_COMMANDS, smuggled, ciRuns).join("\n")).toContain(
+      "--update",
+    );
+  });
+
+  test("fails a hooks module whose gates neither file runs", () => {
+    const expected = [...EXPECTED_COMMANDS, ...hooksModuleGates(["new-mod"])];
+    const failures = checkCommandParity(expected, lefthookRuns, ciRuns).join("\n");
+
+    expect(failures).toContain(
+      'lefthook.yml runs no "claude plugin validate new-mod" for gate validate-new-mod',
+    );
+    expect(failures).toContain('ci.yml runs no "claude plugin test new-mod" for gate test-new-mod');
   });
 
   test("passes against the real lefthook.yml and ci.yml", async () => {
     const lefthook = await Bun.file(join(repoRoot, "lefthook.yml")).text();
     const ci = await Bun.file(join(repoRoot, ".github/workflows/ci.yml")).text();
-    expect(checkCommandParity(lefthookCommands(lefthook), ciCommands(ci))).toEqual([]);
+    expect(
+      checkCommandParity(
+        await expectedCommands(repoRoot),
+        lefthookCommands(lefthook),
+        ciCommands(ci),
+      ),
+    ).toEqual([]);
+  });
+});
+
+describe("hooksModulePlugins", () => {
+  test("finds the catalog's plugins whose hooks.json names modules, and no other", async () => {
+    expect(await hooksModulePlugins(repoRoot)).toEqual(["vellum", "todos"]);
+  });
+
+  test("each one gets a validate and a test gate", () => {
+    expect(hooksModuleGates(["todos"]).map((pair) => [pair.gate, pair.ci])).toEqual([
+      ["validate-todos", "claude plugin validate todos"],
+      ["test-todos", "claude plugin test todos"],
+    ]);
   });
 });
 

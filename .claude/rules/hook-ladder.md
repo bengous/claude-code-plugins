@@ -63,7 +63,10 @@ agent meets any finding left once, at the end of its turn, not on each edit.
   why that skip does not apply there.
 - A new gate is one `EXPECTED_COMMANDS` entry in
   `scripts/check-lint-config.ts`. `lint-config` then demands its pre-commit job
-  and its CI step; Stop and pre-push run it through `run-gates.ts`.
+  and its CI step; Stop and pre-push run it through `run-gates.ts`. A hooks
+  module's `validate-<plugin>` and `test-<plugin>` are no entries:
+  `expectedCommands` derives them from each catalog plugin whose
+  `hooks/hooks.json` names `modules`.
   The exception is a check of what a push moves: the release guard,
   `scripts/check-plugin-bumps.ts --pre-push`, on a push to `main`, and the
   e2e gate, `scripts/check-e2e-green.ts`, on a push to `dev`, are each one

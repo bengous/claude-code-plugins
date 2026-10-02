@@ -45,18 +45,6 @@ under the [loader rules](hook-runtime.md#module-loader).
   runs in the repo's gates. Run it first: a hook the engine does not list is a
   hook that will not fire.
 
-- Each plugin with a hooks module gets two gates, `validate-<plugin>`
-  (`claude plugin validate <plugin>`) and `test-<plugin>`
-  (`claude plugin test <plugin>`), in `lefthook.yml` on the module's paths, in
-  `.github/workflows/ci.yml`, and in `EXPECTED_COMMANDS`
-  (`scripts/check-lint-config.ts`), as `vellum` and `todos` have them. Without
-  them its kit tests run nowhere but by hand. `ci.yml` is an e2e path: the
-  branch that adds them needs a green `e2e` run before it lands.
-
-- A `--plugin-dir` load adds a `tsconfig.json` at the plugin's root when it has
-  none, extending the git-ignored `.claude-plugin/types/`. Ignore it by name in
-  the root `.gitignore`, as `todos/tsconfig.json` is.
-
 - Claude Code writes the contract of the running build into
   `<plugin>/.claude-plugin/types/` each time it loads the plugin with
   `--plugin-dir`, git-ignored (official docs: `plugins/mods/create` § Get
