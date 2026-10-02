@@ -120,6 +120,6 @@ For engine observations, read its linked runtime reference and `plans/2026-09-15
 
 ## Boundaries
 
-- `types/claude-code.d.ts` is generated, never edited; `vellum/types/**` is ignored by the linters.
+- `types/claude-code.d.ts` and `types/claude-code-tools.d.ts` are Claude Code's own, copied from the `.claude-plugin/types/` it writes, never edited; `vellum/types/**` is ignored by the linters.
 - `package.json` + `bun.lock` carry every runtime dependency; a new one goes through the ladder in the repository's `AGENTS.md` first.
 - The plugin stands alone: installed, it is a copy of this folder with no repository around it. `tsconfig.json` here names Preact as the JSX runtime, and without it the installed page answers 500. `src/standalone.spec.ts` serves the page from a copy under the temp directory; what the page needs to build lives in this folder, never in a parent.

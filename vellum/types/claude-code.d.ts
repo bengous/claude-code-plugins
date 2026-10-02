@@ -1,12 +1,11 @@
-// Written by Claude Code 2.1.284.
+// Written by Claude Code 2.1.287.
 // Claude Code function hooks: the plugin API's TypeScript declarations.
 //
 // EARLY ACCESS: this surface may change between releases without notice.
 // Written by the engine each time it loads a mod from a folder the person
-// owns, beside that mod as .claude-plugin/types/claude-code/index.d.ts, and
-// by `/plugin-types` into a directory the person names; written again
-// after an update rather than edited. The first line names the Claude Code
-// version that wrote it. TypeScript 5.4 or newer reads it.
+// owns, beside that mod as .claude-plugin/types/claude-code/index.d.ts;
+// written again after an update rather than edited. The first line names
+// the Claude Code version that wrote it. TypeScript 5.4 or newer reads it.
 // `claude plugin validate <dir>` is the other half: it reads a plugin's
 // manifest and its hooks module's source the way the engine will and
 // reports what the module hooks and calls and everything the engine would
@@ -21,8 +20,10 @@
 // no DOM, no Node. The module, and every file it imports from the plugin,
 // is named .ts, .tsx, .jsx, .js, .mjs, .cjs, .mts or .cts (a file named
 // otherwise is not loaded) and is an ES module whatever its suffix: there
-// is no `require`. The elements a render hook draws with (`Box`, `Text`,
-// `Button`, ...) are not globals: they come from the surface's table,
+// is no `require`. A file of the plugin is imported with an `import`
+// declaration. A module holding `import()` does not load. The elements a
+// render hook draws with (`Box`, `Text`, `Button`, ...) are not globals:
+// they come from the surface's table,
 //   const { Box, Text } = $.ui.resolve(e)
 //
 // Also here: 'claude-code/testing', the kit a plugin's *.test.ts and
@@ -72,20 +73,20 @@
 //       "noEmit": true, "skipLibCheck": true,
 //       "jsx": "react", "jsxFactory": "h", "jsxFragmentFactory": "Fragment"
 //     },
-//     "include": [".claude/types", "hooks", "tests"]
+//     "include": [".claude-plugin/types", "hooks", "types", "tests"]
 //   }
-// ".claude/types" is where /plugin-types writes this file and, beside it,
-// claude-code-mcp.d.ts and claude-code-plugins.d.ts, the index of the
-// enabled plugins' type contracts, each copied to claude-code-plugins/
-// <plugin>.d.ts: what a plugin adds to `$` in engine.create, so a plugin
-// you depend on is typed with nothing copied (the include above takes the
-// whole folder). "hooks" is the plugin's hooks/ folder and "tests" its test
-// files. `lib` names no DOM: the environment has none, and its `Text`
-// would shadow the element. A mod the engine loads from a folder the person
-// owns has these options without writing them: its tsconfig.json extends
-// .claude-plugin/types/tsconfig.json, which carries them with that folder
-// as the one type root, holding this file and one entry per plugin the
-// mod's plugin.json lists under "dependencies" (that plugin's own contract).
+// ".claude-plugin/types" is where the engine lays this file (claude-code/)
+// and, beside it, this build's built-in tools (claude-code-tools/), the MCP
+// tools connected when the mod last reloaded (claude-code-mcp/) and one entry
+// per plugin the mod's plugin.json lists under "dependencies" (that plugin's
+// own contract): what it adds to `$` in engine.create, so a plugin you
+// depend on is typed with nothing copied (the include above takes the whole
+// folder). "hooks" is the plugin's hooks/ folder, "types" its own contract
+// and "tests" its test files. `lib` names no DOM: the environment has
+// none, and its `Text` would shadow the element. A mod with no tsconfig of
+// its own has these options without writing them: the engine gives it a
+// tsconfig.json that extends .claude-plugin/types/tsconfig.json, which
+// carries them with that folder as the one type root.
 //
 // A plugin that adds a noun to `$` ships its own contract: a .d.ts its
 // plugin.json names as "types", exporting the noun's types at its top level
@@ -829,7 +830,7 @@ declare module 'claude-code' {
 
   /**
    * One variant per built-in tool; with none in the table (a plugin author's
-   * project before `/plugin-types` ran), one loose variant over every name.
+   * project with no tools entry laid), one loose variant over every name.
    */
   export type BuiltinToolCallInput = [BuiltinToolName] extends [never] ? BuiltinToolCallInputFallback : {
       [N in BuiltinToolName]: ToolInputOf<N, BuiltinToolInputs[N]>;
@@ -858,8 +859,8 @@ declare module 'claude-code' {
    * empty until a declaration file adds entries, then `e.tool === "Bash"`
    * narrows `e` to Bash's arguments.
    *
-   * `/plugin-types` writes this build's set beneath the engine's declarations
-   * (claude-code.d.ts), from each tool's input schema.
+   * The engine lays this build's set beside a mod it loads
+   * (claude-code-tools/index.d.ts), from each tool's input schema.
    *
    * @example
    * interface BuiltinToolInputs { Bash: { command: string; timeout?: number } }
@@ -877,9 +878,9 @@ declare module 'claude-code' {
    * merging; empty until a declaration file adds entries, then after
    * `e.tool === "Bash"` the `result` of `next(e)` is Bash's record.
    *
-   * `/plugin-types` writes this build's set beneath the engine's declarations
-   * (claude-code.d.ts), from each tool's output schema; a tool without one is
-   * `unknown`.
+   * The engine lays this build's set beside a mod it loads
+   * (claude-code-tools/index.d.ts), from each tool's output schema; a tool
+   * without one is `unknown`.
    *
    * @example
    * interface BuiltinToolResults { Bash: { stdout: string; stderr: string } }
@@ -1058,6 +1059,10 @@ declare module 'claude-code' {
   /**
    * The name of a classic hook event as a function-hooks event: the settings
    * hook's own name under `classic` (`classic.Stop`, `classic.PreToolUse`).
+   *
+   * Each fires wherever the engine runs the classic hook, whether or not any
+   * settings hook is configured, and reaches a `*` or `classic.*` hook as it
+   * reaches a named one.
    */
   export type ClassicEventName = `classic.${ClassicHookEvent}`;
 
@@ -2437,14 +2442,16 @@ declare module 'claude-code' {
            * Plays one audio clip, starting now; clips are not queued, so two calls
            * play together (a bed under speech).
            *
-           * `{ asset }` is the plugin's own file, loaded by the engine and played
-           * through the platform's player (`afplay` on macOS). Resolves when
-           * playback ends; rejects, naming the cause, when the clip cannot play.
+           * `{ asset }` is the plugin's own file; `afplay` plays it on macOS, and a
+           * Linux or Windows terminal, having no player, plays nothing. Resolves once
+           * played or skipped; rejects, naming the cause, when the clip cannot play.
            *
            * @param clip the plugin's own file (`{ asset }`), a URL the engine
            *   fetches, or the bytes as base64 with their MIME type
            * @param options `shouldLoop`, `gain`, and an AbortSignal that stops the
            *   clip
+           * @example
+           * await $.audio.play({ asset: "sounds/done.wav" })
            */
           play: (clip: AudioClip, options?: PlayOptions) => Promise<void>;
           /**
@@ -2463,7 +2470,8 @@ declare module 'claude-code' {
           speak: (text: string, options?: SpeakOptions) => Promise<SpeakResult>;
       };
       /**
-       * The engine's connected MCP servers.
+       * The engine's MCP servers: calling a connected one's tools, and
+       * connecting one the plugin lists itself.
        */
       mcp: {
           /**
@@ -2487,6 +2495,20 @@ declare module 'claude-code' {
            * })
            */
           call: (server: string, tool: string, args?: Record<string, unknown>) => Promise<McpToolResult>;
+          /**
+           * Connects one of the MCP servers this plugin's own manifest lists; a
+           * server already connected answers at once.
+           *
+           * The same server run under another name answers with that name. Never
+           * rejects for a refusal: the result says why (`reason`, `message`).
+           *
+           * @param server the server's key in this plugin's manifest
+           * @returns connected, with the name `call` takes, or why not
+           * @example
+           * const browser = await $.mcp.connect("browser")
+           * if (browser.isConnected) $.mcp.call(browser.server, "open", { url })
+           */
+          connect: (server: string) => Promise<McpConnectResult>;
       };
       /**
        * The running session, read as plain data; compacting it; and sending a
@@ -2645,6 +2667,18 @@ declare module 'claude-code' {
            */
           send: EventCalls['session']['send'];
           /**
+           * Appends a row to a conversation of the session: the event
+           * `session.append`, the engine's own call for every row it keeps.
+           *
+           * A user-role row the person does not see as typed or a notice, of text
+           * blocks alone in this release (else refused with the reason): listed at
+           * once. `{ deny: reason }` when a plugin above refused it, nothing stored.
+           *
+           * @example
+           * await $.session.append({ message: { type: "user", content: [note] } })
+           */
+          append: (args: SessionAppendArgs) => Promise<SessionAppendResult>;
+          /**
            * Holds the session's Anthropic credential on the host and answers an
            * opaque handle and its kind; the secret never reaches the plugin.
            *
@@ -2729,6 +2763,18 @@ declare module 'claude-code' {
            * void $.prompt.suggest({ text: "run the tests you just wrote" })
            */
           suggest: EventCalls['prompt']['suggest'];
+          /**
+           * Returns the system prompt's sections for `facts`: the event
+           * `prompt.compose`, the call the engine makes for every prompt it sends.
+           *
+           * A fact left out is the session's own (its model, its tools). Through
+           * every other plugin's hook, over the engine's own composition; composed
+           * for nobody to send, so nothing the session holds is written.
+           *
+           * @example
+           * const ids = (await $.prompt.compose()).sections.map(s => s.id)
+           */
+          compose: EventCalls['prompt']['compose'];
       };
       /**
        * The tools the model has in this session, and running one.
@@ -2863,9 +2909,9 @@ declare module 'claude-code' {
            * Logs one record to the destination `entry.to` names, the event
            * `telemetry.log`; `e.to` is pinned, and `anthropic` when left out.
            *
-           * The engine does nothing with it: the built-in plugins that hook the
-           * event queue a first-party row or hand a record to the collector's
-           * sender. They serve built-ins and the engine alone; any plugin may hook.
+           * A first-party row is queued by the built-in plugin that hooks the
+           * event, for built-ins and the engine alone. A collector record reaches
+           * the collector only when the engine raised it; any plugin may hook.
            *
            * @param entry a first-party row, or a collector record
            * @returns once the hooks have answered; rejects when one denies
@@ -3358,6 +3404,56 @@ declare module 'claude-code' {
   };
 
   /**
+   * One `prompt.attachment` input of a type PromptAttachmentDetailOf names:
+   * the attachment's text, and under `detail` the facts it was rendered from.
+   *
+   * A row the engine made holds them. One a transcript edited by hand holds
+   * can lack them, and then carries no `detail` key: read it as it may be.
+   */
+  type DeclaredAttachmentInput<K extends keyof PromptAttachmentDetailOf> = {
+      /**
+       * As the engine names the attachment's kind, one of the names that
+       * carry a `detail`; the key a matcher narrows on. Pinned.
+       */
+      type: K;
+      /**
+       * What the model reads for this attachment, inside the engine's framing;
+       * rewritable with `next({ ...e, text })`.
+       *
+       * The `<system-reminder>` wrapper (or the system channel that replaces
+       * it) goes around what the chain answers, never inside it.
+       */
+      text: string;
+      /**
+       * Who authored the text (PromptAttachmentOrigin): the engine, a settings
+       * hook, or a plugin's chain context.
+       *
+       * Pinned: a different value is refused, one left out is kept.
+       */
+      origin: PromptAttachmentOrigin;
+      /**
+       * The loop whose request carries the attachment: a subagent's id, the
+       * `id` `$.agent.list()` gives it; absent on main.
+       *
+       * Pinned: a different value is refused, one left out is kept. A loop
+       * forked from another carries the rows made for that one.
+       */
+      agentId?: string;
+      /**
+       * Facts of the row the engine computed as it rendered `text`, by `type`:
+       * what a hook with words of its own reads in place of the engine's.
+       *
+       * Pinned: a different value is refused, one left out is kept. Not all
+       * the text says: a host's own plan instructions are in `text` alone.
+       * Absent on a row that does not hold its facts.
+       *
+       * @example
+       * if (e.detail === undefined) return next(e)
+       */
+      detail?: PromptAttachmentDetailOf[K];
+  };
+
+  /**
    * The state events of each declared value in a union of `[plugin, key]`
    * pairs, one variant per pair (it distributes), so a matcher narrows `e`.
    */
@@ -3766,7 +3862,7 @@ declare module 'claude-code' {
        * that too while the box holds text or a turn runs.
        *
        * @example
-       * on("prompt.suggest", { origin: { kind: "suggestion" } }, hide)
+       * on("prompt.suggest", () => ({ isShown: false }))
        */
       'prompt.suggest': PromptSuggestInput;
       /**
@@ -3778,16 +3874,16 @@ declare module 'claude-code' {
        * coming up; `{ text: e.text, cursor: e.cursor }` without `next` consumes.
        *
        * @example
-       * on("prompt.edit", ($, e, next) => next({ ...e, inputText: up(e) }))
+       * on("prompt.edit", ($, e) => ({ text: e.text, cursor: e.cursor }))
        */
       'prompt.edit': PromptEditInput;
       /**
        * Fires once per named section of the system prompt, when the engine
        * assembles it; `next(e)` resolves to `{ text }` as core computed it.
        *
-       * Sections are cached by name for the session until
-       * `$.ui.invalidate("prompt.section")`: an unstable answer spends the
-       * model's prompt cache on every call. A hook that fails passes it through.
+       * `e.name` is the section's id, on every model the one `prompt.compose`
+       * lists. Cached until `$.ui.invalidate("prompt.section")`: an unstable
+       * answer spends the prompt cache every call; a failed hook passes through.
        *
        * @example
        * on("prompt.section", { name: "memory" }, () => ({ text: null }))
@@ -3805,6 +3901,15 @@ declare module 'claude-code' {
        * on("prompt.context", () => ({ blocks: [] }))
        */
       'prompt.context': PromptContextInput;
+      /**
+       * Fires when the engine renders a system prompt; `next(e)` resolves to
+       * `{ sections }`, each `{ id, text, scope }`, in the order they are sent.
+       *
+       * The ids depend on the prompt composed (`lean`, `bare` in `e.traits`): read
+       * them off `next(e)`. Append (as `session`), replace, reorder or drop; a list
+       * with a `shared` section after a `session` one skips the hook.
+       */
+      'prompt.compose': PromptComposeInput;
       /**
        * Fires once per message the engine injects for the model on its own (a
        * reminder, a mode transition, a mentioned file), as a request carries it.
@@ -3884,8 +3989,8 @@ declare module 'claude-code' {
        * names: a built-in's `$.telemetry.log`, or the engine's own events.
        *
        * `e.to` is pinned: a hook rewrites what the record carries, never where
-       * it goes. `next(e)` resolves `{ value: undefined }`; `{ deny }` rejects
-       * the caller. The engine does nothing with a record: the built-ins do.
+       * it goes. `next(e)` resolves `{ value: undefined }`; `{ deny }` rejects the
+       * caller. Beneath the hooks the engine exports its own collector records.
        *
        * @example
        * on("telemetry.log", { to: "collector" }, ($, e, next) => next(e))
@@ -3948,6 +4053,18 @@ declare module 'claude-code' {
        * on("session.receive", { origin: "peer" }, () => ({ consumed: "muted" }))
        */
       'session.receive': SessionReceiveInput;
+      /**
+       * Fires once per row a conversation of this session keeps (a prompt, a
+       * response block, a tool result, a notice), before it is stored.
+       *
+       * `next({ ...e, message })` rewrites `content`: stored and sent after. The
+       * screen, an SDK stream or Remote Control may show the row just before its
+       * rewrite; the model and the transcript file never read that form.
+       *
+       * @example
+       * on("session.append", { door: "tool-result" }, ($, e, n) => n(scrub(e)))
+       */
+      'session.append': SessionAppendInput;
       /**
        * Fires when a plain-text message is about to leave this conversation for
        * another agent or session (the SendMessage tool, or `$.session.send`).
@@ -4021,7 +4138,7 @@ declare module 'claude-code' {
        * folded and built, nothing swapped in) and at reload; core allows.
        *
        * Return `{ refuse: reason }` and it never joins: no hook, no noun, no tool
-       * of it; the transcript names who refused. Its judges, `$` whole, are the
+       * of it; the debug log names who refused. Its judges, `$` whole, are the
        * plugins admitted before it and the binary's; judge by `tier` and `uses`.
        *
        * @example
@@ -4168,6 +4285,11 @@ declare module 'claude-code' {
        */
       'prompt.context': PromptContextResult;
       /**
+       * `{ sections }`, every `shared` one ahead of every `session` one (a
+       * section left out is not sent).
+       */
+      'prompt.compose': PromptComposeResult;
+      /**
        * `{ text }` (null leaves the attachment out).
        */
       'prompt.attachment': PromptAttachmentResult;
@@ -4215,6 +4337,10 @@ declare module 'claude-code' {
        * `{ text }`, or `{ consumed }`.
        */
       'session.receive': SessionReceiveResult;
+      /**
+       * `{ message, uuid }`, the row as stored.
+       */
+      'session.append': SessionAppendResult;
       /**
        * `{ isDelivered: true }`, or `{ isDelivered: false, reason }`.
        */
@@ -4291,6 +4417,7 @@ declare module 'claude-code' {
           section: (input: PromptSectionInput) => Promise<PromptSectionResult>;
           context: (input: PromptContextInput) => Promise<PromptContextResult>;
           attachment: (input: PromptAttachmentInput) => Promise<PromptAttachmentResult>;
+          compose: (input?: PromptComposeArgs) => Promise<PromptComposeResult>;
       };
       skill: {
           prompt: (input: SkillPromptInput) => Promise<SkillPromptResult>;
@@ -4305,6 +4432,7 @@ declare module 'claude-code' {
       session: {
           start: (input: SessionStartInput) => Promise<SessionStartResult>;
           receive: (input: SessionReceiveInput) => Promise<SessionReceiveResult>;
+          append: (input: SessionAppendInput) => Promise<SessionAppendResult>;
           send: (input: SessionSendArgs) => Promise<SessionSendResult>;
           compact: (input?: SessionCompactArgs) => Promise<SessionCompactResult>;
           attach: (input: SessionAttachInput) => Promise<SessionAttachResult>;
@@ -4990,6 +5118,14 @@ declare module 'claude-code' {
   }[keyof P];
 
   /**
+   * An object with the declared keys of `T` and no other: its string and
+   * number index signatures are left out. What KnownKeys reads the keys of.
+   */
+  type IndexFree<T> = {
+      [K in keyof T as string extends K ? never : number extends K ? never : K]: 0;
+  };
+
+  /**
    * The props of `Input`, every surface's one-line text field: an address,
    * optional texts, and the closures a change and a submit run. A leaf.
    *
@@ -5100,7 +5236,7 @@ declare module 'claude-code' {
    * is left out of the selection so that it cannot defeat the narrowing the
    * other keys give.
    */
-  type IsDiscriminant<I, K> = I extends unknown ? K extends KnownKeys<I> ? IsSingleLiteral<I[K]> : true : never;
+  type IsDiscriminant<I, K> = I extends unknown ? K extends KnownKeys<I> ? IsSingleLiteral<I[K & keyof I]> : true : never;
 
   /**
    * Whether `V` is made of literals only: `"a" | "b"` is, `string` is not.
@@ -5145,10 +5281,12 @@ declare module 'claude-code' {
 
   /**
    * The declared keys of `T`, the string and number index signatures left out.
+   *
+   * A type with an index signature is mapped to be rid of it (IndexFree); any
+   * other is read as it stands, which costs nothing per key. A key of these
+   * indexes `T` as `T[K & keyof T]`.
    */
-  type KnownKeys<T> = keyof {
-      [K in keyof T as string extends K ? never : number extends K ? never : K]: 0;
-  };
+  type KnownKeys<T> = keyof (string extends keyof T ? IndexFree<T> : number extends keyof T ? IndexFree<T> : T);
 
   /**
    * The events whose overload must come after the rest, lest it shadow them.
@@ -5281,10 +5419,14 @@ declare module 'claude-code' {
   /**
    * The events a matched registration on `P` covers: the event named, or for a
    * glob every selected event whose input has each key the matcher names.
+   *
+   * Settled by `infer`: while `P` is open the compiler reads them as EventName
+   * and selects nothing; a type keyed by them is worked out once, for the `P`
+   * a registration gives.
    */
-  type MatchedNames<P, M = never> = P extends EventName ? P : {
+  type MatchedNames<P, M = never> = (P extends EventName ? P : {
       [N in Selected<P & string>]: [M] extends [never] ? N : keyof M extends AnyKeyOf<Args<N>> ? N : never;
-  }[Selected<P & string>];
+  }[Selected<P & string>]) extends infer Names extends EventName ? Names : never;
 
   /**
    * What a matched hook returns: the event's result, narrowed by `M` where the
@@ -5321,7 +5463,7 @@ declare module 'claude-code' {
    * a type error where `e` is typed and free where it is `unknown`.
    */
   export type Matcher<I, All = I> = I extends unknown ? {
-      readonly [K in KnownKeys<I>]?: MatcherValue<I[K], MatcherValueOf<All, K>>;
+      readonly [K in KnownKeys<I>]?: MatcherValue<I[K & keyof I], MatcherValueOf<All, K>>;
   } & (string extends keyof I ? OpenMatcher<I, All> : unknown) : never;
 
   /**
@@ -5335,6 +5477,16 @@ declare module 'claude-code' {
   type MatcherData = string | number | boolean | null | RegExp | readonly MatcherData[] | {
       readonly [key: string]: MatcherData;
   };
+
+  /**
+   * The matcher type per pattern: a Matcher of the `e` of the event named, or
+   * of each event a glob or a negation selects.
+   *
+   * Settled by `infer`: while `P` is open the bound reads as `unknown`; once
+   * `P` is known it is that Matcher exactly. A mistake on a name is refused
+   * where it is written; a pattern takes what any event it selects takes.
+   */
+  type MatcherFor<P extends Pattern> = Matcher<Args<MatchedNames<P>>> extends infer Settled ? Settled : never;
 
   /**
    * The declared keys of every variant of `I` (index signatures aside).
@@ -5362,9 +5514,77 @@ declare module 'claude-code' {
   type MatcherValue<V, Across = V> = MatcherOne<V> | readonly MatcherOne<Across>[];
 
   /**
-   * The type of key `K` across the variants of `I` that declare it.
+   * The type of key `K` across the variants of `I` that declare it, read
+   * variant by variant: what MatcherValueOf reads for a key as wide as `symbol`.
    */
-  type MatcherValueOf<I, K> = I extends unknown ? K extends KnownKeys<I> ? I[K] : never : never;
+  type MatcherValueAcross<I, K> = I extends unknown ? K extends KnownKeys<I> ? I[K & keyof I] : never : never;
+
+  /**
+   * The type of key `K` across the variants of `I` that declare it: one read
+   * of their table by key (MatcherValues), for a key some variant declares.
+   *
+   * A key as wide as `symbol` is an index signature's, which the table's own
+   * would meet with `never`: it is read variant by variant. While `I` is open
+   * the table is left unmade, since the variants of `I` are what it is made of.
+   */
+  type MatcherValueOf<I, K> = [I] extends [unknown] ? symbol extends K ? MatcherValueAcross<I, K> : MatcherValues<I>[K & PropertyKey] : never;
+
+  /**
+   * The type of each declared key of `I` across the variants that declare it,
+   * as one table by key: made once per `I`, then read at a key.
+   *
+   * Each variant gives an entry per key it declares; the entries of one key
+   * fall into one property, their values a union. Read at a key some variant
+   * declares.
+   */
+  type MatcherValues<I> = {
+      [Entry in I extends unknown ? {
+          [K in KnownKeys<I>]-?: [key: K, value: I[K & keyof I]];
+      }[KnownKeys<I>] : never as Entry[0]]: Entry[1];
+  } & Record<PropertyKey, never>;
+
+  /**
+   * Why `$.mcp.connect` left a server unconnected, in one word.
+   *
+   * `unlisted`: not in the caller's own manifest. `unapproved`: a repository
+   * server not approved. `disabled`: turned off. `policy`: enterprise MCP
+   * policy. `auth`: needs sign-in. `failed`: not resolved, or did not connect.
+   */
+  type McpConnectRefusal = 'unlisted' | 'unapproved' | 'disabled' | 'policy' | 'auth' | 'failed';
+
+  /**
+   * What `$.mcp.connect` resolves to and what an `mcp.connect` hook's
+   * `{ value }` holds: the server connected, or why not.
+   *
+   * @example
+   * const browser = await $.mcp.connect("browser")
+   */
+  type McpConnectResult = {
+      /**
+       * True: the server is connected and its tools are the session's.
+       */
+      isConnected: true;
+      /**
+       * The name /mcp lists it under and `$.mcp.call` takes: usually
+       * `plugin:<plugin>:<server>`.
+       *
+       * Or the name the session already runs the same server under.
+       */
+      server: string;
+  } | {
+      /**
+       * False: the server is not connected.
+       */
+      isConnected: false;
+      /**
+       * Why, in one word.
+       */
+      reason: McpConnectRefusal;
+      /**
+       * The same as one plain sentence, to log or toast.
+       */
+      message: string;
+  };
 
   /**
    * One block of an MCP result: `type` and the fields that kind of block carries.
@@ -5415,8 +5635,8 @@ declare module 'claude-code' {
    * The `e` a `tool.call` (or `classic.PreToolUse`) hook receives for an MCP
    * tool while no MCP tool is declared: every `mcp__*` name, loose arguments.
    *
-   * McpToolInputs has no entries until `/plugin-types` writes the connected
-   * tools' declarations; also the `input` of `$.tool.call({ tool:
+   * McpToolInputs has no entries until a type root's MCP entry declares the
+   * connected tools; also the `input` of `$.tool.call({ tool:
    * "mcp__<server>__<tool>", ... })`. Not `$.mcp.call`'s, which is positional:
    *
    * @example
@@ -5440,9 +5660,9 @@ declare module 'claude-code' {
    * The inputs of the MCP tools this project knows, keyed by full tool name,
    * for declaration merging; empty by default, then every MCP tool is loose.
    *
-   * A `.d.ts` in the plugin author's project (written by `/plugin-types <dir>`
-   * from the connected servers' JSON Schemas, or by hand) adds entries under
-   * `declare module "claude-code"`; `e.tool === <name>` then narrows to them.
+   * A `.d.ts` in the author's project (the type root's MCP entry, laid from
+   * the connected servers' JSON Schemas, or one written by hand) adds entries
+   * under `declare module "claude-code"`; `e.tool === <name>` narrows to them.
    *
    * @example
    * interface McpToolInputs { "mcp__my_server__send": { to: string } }
@@ -6099,7 +6319,7 @@ declare module 'claude-code' {
    */
   export type On = {
       <P extends Pattern>(pattern: P, hook: NoInfer<HookFor<P>>): Registration<HookFor<P>>;
-      <P extends Pattern, const M extends Matcher<Args<MatchedNames<P>>>>(pattern: P, matcher: M, hook: NoInfer<MatchedHook<P, M>>): Registration<MatchedHook<P, M>>;
+      <P extends Pattern, const M extends MatcherFor<P>>(pattern: P, matcher: M, hook: NoInfer<MatchedHook<P, M>>): Registration<MatchedHook<P, M>>;
   };
 
   /**
@@ -6143,7 +6363,7 @@ declare module 'claude-code' {
    * refused on every variant, not admitted by the open one.
    */
   type OpenMatcher<I, All> = {
-      readonly [K in Exclude<MatcherKeys<All>, KnownKeys<I>>]?: MatcherValue<MatcherValueOf<All, K>>;
+      readonly [K in Exclude<MatcherKeys<All>, keyof IndexFree<I>>]?: MatcherValue<MatcherValueOf<All, K>>;
   } & Readonly<Record<string, unknown>>;
 
   /**
@@ -6197,6 +6417,12 @@ declare module 'claude-code' {
           server: string;
           tool: string;
           args: Record<string, unknown>;
+      };
+      /**
+       * The argument of `$.mcp.connect(server)`.
+       */
+      'mcp.connect': {
+          server: string;
       };
       /**
        * The argument of `$.session.cwd()`.
@@ -6495,6 +6721,7 @@ declare module 'claude-code' {
       'audio.play': void;
       'audio.speak': SpeakResult;
       'mcp.call': McpToolResult;
+      'mcp.connect': McpConnectResult;
       'session.cwd': string;
       'session.root': string;
       'session.model': string;
@@ -6836,6 +7063,56 @@ declare module 'claude-code' {
   type PermissionUpdates = NonNullable<ClassicHookInputs['PermissionRequest']['permission_suggestions']>;
 
   /**
+   * What the engine knew as it made a plan-mode reminder: which of its two
+   * wordings the row carries, where the plan is kept, whether one is there.
+   */
+  type PlanModeDetail = {
+      /**
+       * Which wording the row carries: `full`, the whole workflow, or `sparse`,
+       * the one line that restates it between two full ones.
+       *
+       * A row made for a subagent reads the same under either.
+       */
+      reminder: 'full' | 'sparse';
+      /**
+       * Where the plan is kept, as the text names it: the file the model
+       * writes its plan to, of the loop the row was made for.
+       */
+      planFilePath: string;
+      /**
+       * True when the engine found that file as it made the row.
+       */
+      hasPlan: boolean;
+  };
+
+  /**
+   * What the engine knew as it made the note that plan mode has ended:
+   * where the plan is kept, whether one is there.
+   */
+  type PlanModeExitDetail = {
+      /**
+       * Where the plan is kept; the text names it only when `hasPlan`.
+       */
+      planFilePath: string;
+      /**
+       * True when the engine found that file as it made the row.
+       */
+      hasPlan: boolean;
+  };
+
+  /**
+   * What the engine knew as it made the note that plan mode is entered
+   * again: where the plan of the earlier planning is kept.
+   */
+  type PlanModeReentryDetail = {
+      /**
+       * Where the earlier plan is kept, as the text names it; the note is made
+       * only when the engine finds that file.
+       */
+      planFilePath: string;
+  };
+
+  /**
    * How `$.audio.play` plays a clip: looped until `signal` aborts, or once.
    *
    * A loop needs the signal that ends it; a single play takes one as an option.
@@ -6938,7 +7215,7 @@ declare module 'claude-code' {
   } | {
       /**
        * The module does not load: no step, no hooks, no tools or commands;
-       * the transcript names the plugin that refused and this reason.
+       * the debug log names the plugin that refused and this reason.
        */
       refuse: string;
       allow?: undefined;
@@ -7208,6 +7485,9 @@ declare module 'claude-code' {
   /**
    * What a `classic.PreToolUse` hook returns: one of `allow`, `ask`, `deny`,
    * or none of them, which passes the call on to the normal permission flow.
+   *
+   * The event fires inside `tool.call`, beneath every plugin's `tool.call` hook
+   * (a test raises it by calling `$.tool.call`).
    */
   export type PreToolUseResult = PreToolUseDecision & {
       /**
@@ -7351,48 +7631,51 @@ declare module 'claude-code' {
   };
 
   /**
+   * The facts `prompt.attachment` pins under `e.detail`, by attachment type:
+   * what the engine computed for the row, as it rendered the row's text.
+   *
+   * A type named here carries them on every row the engine made; a type not
+   * named carries no `detail` at all. Read off the row, never computed again:
+   * a row sent in a later request says what it was made with.
+   */
+  export type PromptAttachmentDetailOf = {
+      /**
+       * The reminder a request carries while plan mode is on: `full` the first
+       * of a planning session and after a compaction, `sparse` most others.
+       *
+       * @example
+       * const isSparse = e.detail?.reminder === "sparse"
+       */
+      plan_mode: PlanModeDetail;
+      /**
+       * The note made when plan mode is entered again by the process that left
+       * it, the earlier plan still in its file; it precedes the reminder.
+       *
+       * @example
+       * const planFilePath = e.detail?.planFilePath
+       */
+      plan_mode_reentry: PlanModeReentryDetail;
+      /**
+       * The note made once when plan mode has ended: the model may act again,
+       * and is told where its plan is when there is one.
+       *
+       * @example
+       * const hasPlan = e.detail?.hasPlan === true
+       */
+      plan_mode_exit: PlanModeExitDetail;
+  };
+
+  /**
    * The input of `prompt.attachment`: one message the engine injects into the
    * conversation for the model on its own, as a request is about to carry it.
    *
    * A reminder, a mode transition, a listing, a mentioned file, a hook's
-   * context: the person never typed it and mostly never sees it. Only an
-   * attachment that carries text for the model is raised.
+   * context: only one that carries text for the model is raised. A union on
+   * `type`: a name PromptAttachmentDetailOf declares carries its `detail`.
    */
   export type PromptAttachmentInput = {
-      /**
-       * As the engine names the attachment's kind; the key a matcher narrows on.
-       * Pinned. Builds add and retire kinds: match by name.
-       *
-       * Among them `todo_reminder`, `plan_mode`, `plan_mode_exit`, `auto_mode`,
-       * `auto_mode_exit`, `instructions`, `nested_memory`, `skill_listing`,
-       * `deferred_tools_delta`, `edited_text_file`, `file`, `queued_command`.
-       */
-      type: string;
-      /**
-       * What the model reads for this attachment, inside the engine's framing;
-       * rewritable with `next({ ...e, text })`.
-       *
-       * The `<system-reminder>` wrapper (or the system channel that replaces it)
-       * goes around what the chain answers, never inside it. An attachment
-       * rendered as several text blocks hands them joined by newlines.
-       */
-      text: string;
-      /**
-       * Who authored the text (PromptAttachmentOrigin): the engine, a settings
-       * hook, or a plugin's chain context.
-       *
-       * Pinned: a different value is refused, one left out is kept.
-       */
-      origin: PromptAttachmentOrigin;
-      /**
-       * The loop whose request carries the attachment: a subagent's id, the `id`
-       * `$.agent.list()` gives it and its `tool.call`s carry; absent on main.
-       *
-       * Pinned: a different value is refused, one left out is kept. A subagent
-       * a hook spawned through `$.agent.spawn` is resolved past that hook.
-       */
-      agentId?: string;
-  };
+      [K in keyof PromptAttachmentDetailOf]: DeclaredAttachmentInput<K>;
+  }[keyof PromptAttachmentDetailOf] | UndeclaredAttachmentInput;
 
   /**
    * Who authored the text an injected attachment carries, as the engine knows
@@ -7460,6 +7743,130 @@ declare module 'claude-code' {
        */
       cursor: number;
   };
+
+  /**
+   * What a plugin passes `$.prompt.compose`: the facts it wants composed for,
+   * each one it leaves out read off the session (its model, its tools).
+   */
+  export type PromptComposeArgs = Partial<PromptComposeInput>;
+
+  /**
+   * The input of `prompt.compose`: the facts a system prompt is composed from,
+   * each already resolved by the engine, at the moment it renders one.
+   */
+  export type PromptComposeInput = {
+      /**
+       * The id of the model the request is for; pinned, the field a matcher
+       * narrows on.
+       */
+      model: string;
+      /**
+       * The model whose prompt is rendered: `model`, unless the engine renders
+       * another model's prompt for it (a model it holds no prompt of its own for).
+       */
+      promptModel: string;
+      /**
+       * Where the session draws at this render, as `$.session.surfaces()`
+       * answers: `terminal` first under the REPL; empty where nothing draws.
+       */
+      surfaces: readonly RenderSurface[];
+      /**
+       * The names of the tools the request offers the model; the engine's own
+       * composition reads them against the session's, an unknown name ignored.
+       */
+      tools: readonly string[];
+      /**
+       * What the person chose in place of the default way of answering, and
+       * whether it keeps the coding instructions; null for the default style.
+       */
+      outputStyle: {
+          name: string;
+          isKeepingCodingInstructions: boolean;
+      } | null;
+      traits: readonly PromptComposeTrait[];
+  };
+
+  /**
+   * What a `prompt.compose` hook returns: the sections of the system prompt,
+   * in order, every `shared` one ahead of every `session` one.
+   *
+   * A section left out is not sent; a hook that never calls `next` answers
+   * the whole list. The engine joins each side, places the cache boundary
+   * between them and every cache marker itself.
+   */
+  export type PromptComposeResult = {
+      sections: readonly PromptComposeSection[];
+  };
+
+  /**
+   * Which side of the prompt cache's boundary a section of the system prompt
+   * sits on: `shared` before it, `session` after it.
+   *
+   * `shared` text reads the same for everyone on this build and model: the API
+   * may cache it across organizations, and text that varies hits that cache for
+   * nobody. `session` text varies. In a list every `shared` section comes first.
+   */
+  export type PromptComposeScope = 'shared' | 'session';
+
+  /**
+   * One section of the system prompt as `prompt.compose` answers it: a stable
+   * id, the text the model reads, and the side of the cache boundary it is on.
+   *
+   * @example
+   * const POLICY = { id: "acme:policy", text: "...", scope: "session" } as const
+   */
+  export type PromptComposeSection = {
+      /**
+       * What a hook above finds the section by, to replace, move or drop it;
+       * never empty, and unique in one list.
+       *
+       * A plugin's own is `<plugin>:<name>`; a bare name is the engine's. The full
+       * prompt opens `intro`, `system`, `doing_tasks`, `actions`, `tools`, `tone`;
+       * the short one opens `lean_body` instead; `--bare`'s one section is `bare`.
+       */
+      id: string;
+      /**
+       * The section's text, sent as written; sections on one side of the
+       * boundary are joined by a blank line, in the list's order.
+       */
+      text: string;
+      /**
+       * The side of the cache boundary the section is sent on; in one list
+       * every `shared` section comes before every `session` one.
+       *
+       * A section added at the end of what `next(e)` answered is `session`.
+       */
+      scope: PromptComposeScope;
+  };
+
+  /**
+   * One branch the engine's own composition of the system prompt takes on the
+   * request or the session before it computes any section: a closed set.
+   *
+   * `bare`: the session runs with the one-line prompt (`--bare`). `lean`: the
+   * prompt model takes the short body. `sdk-preset`: the SDK's `claude_code`
+   * preset, whose per-person sections ride the first user message instead.
+   *
+   * `teammate`: an in-process teammate's render of its lead's prompt.
+   * `analysis`: a render that measures the prompt (`/context`) and sends
+   * nothing. `print`: a session with no terminal behind it (`-p`, the SDK).
+   *
+   * `skills`: the Skill tool has commands to list. `send-user-message`: the
+   * session speaks to the person through a message tool.
+   *
+   * Rewritten going down, `sdk-preset`, `teammate` and `analysis` steer the
+   * engine's composition; the rest it derives itself, so they tell a hook what
+   * it will do. What one section's own text turns on (a flag) is not here.
+   *
+   * `bare` and `lean` say which sections come back. With `bare`: one, `bare`.
+   * With `lean`: `lean_body`, where the full prompt opens `intro`, `system`,
+   * `doing_tasks`, `actions`, `tools`, `tone`.
+   *
+   * Past that opening the full and the short prompt hold the session's
+   * sections (`communication`, `pronouns`, `memory`, ...), each left out when
+   * it has no text.
+   */
+  export type PromptComposeTrait = 'bare' | 'lean' | 'sdk-preset' | 'teammate' | 'analysis' | 'print' | 'skills' | 'send-user-message';
 
   /**
    * One block of the context the first user message carries: a name the
@@ -7532,6 +7939,29 @@ declare module 'claude-code' {
   };
 
   /**
+   * One styled run a surface paints over the prompt draft: `[start, end)` of
+   * a text, in UTF-16 code units like PromptBox `cursor`. Paint only.
+   *
+   * A range outside the text is clamped into it, an empty one dropped, and a
+   * boundary inside a grapheme moves back to its start. Later entries win per
+   * style key.
+   *
+   * @example { start: 4, end: 8, color: 'warning', bold: true }
+   */
+  export type PromptDecoration = {
+      /**
+       * The first code unit painted: an integer offset into the text the list
+       * travels beside, clamped into it.
+       */
+      start: number;
+      /**
+       * The code unit past the last one painted; a run with `end <= start`,
+       * once clamped, paints nothing.
+       */
+      end: number;
+  } & Pick<TextProps, 'color' | 'backgroundColor' | 'dimColor' | 'bold' | 'italic' | 'underline' | 'strikethrough'>;
+
+  /**
    * The input of `prompt.edit` (prompt-edit/): one edit the person makes in the
    * prompt box, as the draft before it and the splice the editor made of it.
    */
@@ -7598,7 +8028,19 @@ declare module 'claude-code' {
    * in. Rewrite it (`{ ...r, text, cursor }`) to change what lands; answer
    * `{ text: e.text, cursor: e.cursor }` without `next` to consume the key.
    */
-  export type PromptEditResult = PromptBox;
+  export type PromptEditResult = PromptBox & {
+      /**
+       * Runs to paint over this answer's own `text` (PromptDecoration); none
+       * when absent.
+       *
+       * Kept on the same characters while the next edit's answer is pending,
+       * then replaced by that answer's list (or by none).
+       *
+       * @example const r = await next(e)
+       * return { ...r, decorations: [...(r.decorations ?? []), mine] }
+       */
+      decorations?: PromptDecoration[];
+  };
 
   /**
    * `prompt.fill`'s input as a plugin's `$.prompt.fill(args)` takes it: no
@@ -7613,6 +8055,17 @@ declare module 'claude-code' {
        * Where it goes (PromptFillMode); `replace` when left out.
        */
       mode?: PromptFillMode;
+      /**
+       * Runs to paint over `text` (PromptDecoration), offsets into `text` as
+       * given; the engine moves them to where it lands. None when absent.
+       *
+       * Replaced by the next edit's `prompt.edit` answer; with no hook on it,
+       * gone at the draft's next change.
+       *
+       * @example $.prompt.fill({ text: ' next', mode: 'append',
+       *   decorations: [{ start: 1, end: 5, italic: true }] })
+       */
+      decorations?: PromptDecoration[];
   };
 
   /**
@@ -7656,6 +8109,9 @@ declare module 'claude-code' {
       /**
        * What the box takes; the person edits it or presses Enter.
        * `next({ ...e, text })` writes another.
+       *
+       * The box takes it without the code points a terminal draws as nothing, as
+       * the composer removes them when a person sends; all else lands as written.
        */
       text: string;
       /**
@@ -7668,6 +8124,16 @@ declare module 'claude-code' {
        * starts. Pinned: `next(e)` passes it on as received.
        */
       origin: PromptFillOrigin;
+      /**
+       * Runs to paint over `text` once it lands (PromptDecoration), offsets
+       * into `text`; absent when the call named none.
+       *
+       * What the chain passes down is what paints: a hook strips them so.
+       *
+       * @example on('prompt.fill', ($, e, next) =>
+       *   next({ ...e, decorations: [] }))
+       */
+      decorations?: PromptDecoration[];
   };
 
   /**
@@ -7836,14 +8302,24 @@ declare module 'claude-code' {
       kind: 'slack-ping';
   } | {
       /**
-       * A plugin's `$.prompt.submit`; the model reads the prompt under the
-       * plugin's name unless a hook leaves the origin out of its answer.
+       * A plugin's `$.prompt.submit`.
+       *
+       * The model reads the prompt under the plugin's name ("The <name> plugin
+       * sent a message: ...") unless the plugin submitted it `asUser`.
        */
       kind: 'plugin';
       /**
        * The submitting plugin's name.
        */
       name: string;
+      /**
+       * True when the plugin submitted the text as the person's own words
+       * (`$.prompt.submit({ text, asUser: true })`).
+       *
+       * The model reads it bare; the origin is still the plugin's for every
+       * hook and provenance gate.
+       */
+      asUser?: true;
   };
 
   /**
@@ -7852,8 +8328,8 @@ declare module 'claude-code' {
    */
   export type PromptSectionInput = {
       /**
-       * As the engine names the section (`env_info_simple`, `memory`, ...); the
-       * key a matcher narrows on.
+       * The section's id (`env_info_simple`, `memory`, ...), the same on every
+       * model and the one `prompt.compose` lists; the key a matcher narrows on.
        */
       name: string;
       /**
@@ -7877,7 +8353,20 @@ declare module 'claude-code' {
    * `origin` is the calling plugin's name; `turnId` is the turn a prompt typed
    * mid-turn ran over; `wait` is false, as a plugin's prompt runs once idle.
    */
-  export type PromptSubmitArgs = Omit<PromptSubmitInput, 'origin' | 'turnId' | 'wait' | 'context'>;
+  export type PromptSubmitArgs = Omit<PromptSubmitInput, 'origin' | 'turnId' | 'wait' | 'context'> & {
+      /**
+       * Submit the text as the person's own words, read bare without the "The
+       * <plugin> plugin sent a message" frame; absent means framed.
+       *
+       * The origin every hook sees stays `{ kind: 'plugin', name, asUser: true }`
+       * and the transcript still names the plugin; `@file` mentions and pasted
+       * images are not expanded for a plugin's prompt, `asUser` or not.
+       *
+       * @example
+       * await $.prompt.submit({ text: 'what the person typed', asUser: true })
+       */
+      asUser?: true;
+  };
 
   /**
    * A pasted or attached non-text item of a submitted prompt; its kind, never
@@ -8794,7 +9283,9 @@ declare module 'claude-code' {
        * files, ran 2 shell commands`): reads, searches, listings.
        *
        * A hook that sets `isExpanded` unfolds the group where it is, and each row
-       * it unfolds into is a `ToolUse` drawing a `ToolUse` hook then sees.
+       * it unfolds into is a `ToolUse` drawing a `ToolUse` hook then sees. In
+       * fullscreen mode the ctrl+o transcript does not fold runs: each call
+       * there is a `ToolUse` row and no `ToolGroup` is drawn.
        *
        * Raised on every surface.
        */
@@ -8810,7 +9301,8 @@ declare module 'claude-code' {
           isActive: boolean;
           /**
            * Whether each call draws as its own `ToolUse` row (true under
-           * `--verbose` and in the ctrl+o transcript) or the group draws one line.
+           * `--verbose` and in the non-fullscreen ctrl+o transcript) or the group
+           * draws one line.
            *
            * The one prop of the three a rewrite changes on the screen.
            */
@@ -9008,9 +9500,10 @@ declare module 'claude-code' {
        * The dim hint line under the prompt (`? for shortcuts`, `esc to
        * interrupt`, the pills beside them). One instance.
        *
-       * A hook rewrites `hint`, drawn in the line's place, or draws its own tree;
-       * `isDraft` and `isWorking` say what the line is for. On the terminal, until
-       * a new answer lands the last keeps its row (the engine's line before any).
+       * A hook rewrites `hint`, drawn in the line's place, sets `tail` to add to
+       * the line as the engine draws it, or draws its own tree; `isDraft` and
+       * `isWorking` say what the line is for. On the terminal, until a new answer
+       * lands the last keeps its row (the engine's line before any).
        *
        * Raised on the terminal and desktop surfaces only.
        */
@@ -9031,6 +9524,15 @@ declare module 'claude-code' {
            * between parts.
            */
           hint: string;
+          /**
+           * Text a hook adds after the line; absent as the engine hands it.
+           *
+           * The terminal keeps the engine's line (its pills stay live) and draws
+           * `tail` dim at its end, cut where the row ends and left out where under
+           * four columns of it would show; no other surface draws it yet. A
+           * rewritten `hint` replaces the line, `tail` with it.
+           */
+          tail?: string;
       };
       /**
        * The band directly above the prompt input, where the surveys draw; the
@@ -9057,7 +9559,8 @@ declare module 'claude-code' {
            *
            * That slot is capped at half the terminal's rows, the prompt's included.
            * A tree of at most `maxRows` rows shows whole; a taller one scrolls in a
-           * window of `scroll.bodyRows`, and a bare digit arms no Button's hotkey.
+           * window of `scroll.bodyRows`, and a bare digit arms only the hotkeys of
+           * the Buttons wholly inside that window, never one scrolled out of view.
            */
           maxRows: number;
           /**
@@ -9249,7 +9752,7 @@ declare module 'claude-code' {
    * flattened, RegExps widened to `unknown`.
    */
   type Selection<I, M> = {
-      [K in keyof M & TagKeys<I>]: Literal<M[K] extends readonly (infer One)[] ? One : M[K]>;
+      [K in keyof M & TagKeys<I, keyof M>]: Literal<M[K] extends readonly (infer One)[] ? One : M[K]>;
   };
 
   /**
@@ -9301,6 +9804,176 @@ declare module 'claude-code' {
        * the bottom of a `ui.select` chain. No model turn unless it asks one.
        */
       onSelect: (value: string, e: UiSelectArgument) => void;
+  };
+
+  /**
+   * `session.append`'s input as a plugin's `$.session.append(args)` takes it:
+   * the row's kind and text, and the loop it joins.
+   *
+   * Its door (`note`), origin (the calling plugin) and id are the engine's to
+   * set; a hook above, or the organization's policy plugin, may rewrite or
+   * refuse it like any call on `$`.
+   */
+  type SessionAppendArgs = {
+      /**
+       * The row: `type: "user"` for a user-role row the person does not see as
+       * typed (the model reads it), `"system"` for a notice the model never reads.
+       *
+       * Its `content` is text blocks alone (one, for a notice): the bottom
+       * refuses any other block, and any other row type, with the reason.
+       */
+      message: {
+          type: 'user' | 'system';
+          content: ApiContentBlock[];
+      };
+      /**
+       * The running subagent whose conversation the row joins; absent for main.
+       * One that names no running loop is refused.
+       */
+      agentId?: string;
+  };
+
+  /**
+   * Which door a row came in by, decided from the row alone; a closed set,
+   * pinned on the event and the key a matcher narrows on.
+   */
+  type SessionAppendDoor = 'prompt' | 'command' | 'response' | 'tool-result' | 'tool-message' | 'delivery' | 'attachment' | 'hook-context' | 'note' | 'compaction' | 'notice';
+
+  /**
+   * The input of `session.append`: one row being appended to a conversation of
+   * this session, by the engine site that originates it or by a plugin's call.
+   *
+   * Not on `e`, so stored as made: a tool result's structured record, the row's
+   * timestamps, parent links and provenance stamps, an attachment's payload
+   * (the model reads its recorded rendering, which `content` rewrites).
+   */
+  type SessionAppendInput = {
+      /**
+       * The row as it will be kept (SessionAppendMessage). Its `content` is a
+       * hook's to rewrite; the engine puts back what it pins.
+       */
+      message: SessionAppendMessage;
+      /**
+       * Which door the row came in by (SessionAppendDoor); the key a matcher
+       * narrows on. Pinned.
+       */
+      door: SessionAppendDoor;
+      /**
+       * Who caused the row (SessionAppendOrigin): the person, the model, a tool,
+       * the engine, a settings hook, a plugin. Pinned.
+       */
+      origin: SessionAppendOrigin;
+      /**
+       * The row's id, the same in the transcript file and on every later read,
+       * so a hook can keep a table by row before calling `next`. Pinned.
+       */
+      uuid: string;
+      /**
+       * The loop whose conversation keeps the row: a subagent's id, as `turn.step`
+       * and `tool.call` carry it; absent on main.
+       *
+       * Pinned: a different value is refused, one left out is kept.
+       */
+      agentId?: string;
+  };
+
+  /**
+   * One row of a conversation as `session.append` hands it: how the transcript
+   * files it, under which role a request carries it, and its blocks.
+   *
+   * `{ role, content }` of a row a request carries is an ApiMessage, so code
+   * written for `$.session.messages({ as: "api" })` reads it unchanged.
+   */
+  type SessionAppendMessage = {
+      /**
+       * How the transcript files the row: `user`, `assistant`, `attachment` (what
+       * the engine injects beside the conversation), `system` (a notice).
+       *
+       * Pinned, as `name`, `role` and `isMeta` are: left out it is kept, changed
+       * it fails the hook.
+       */
+      type: 'user' | 'assistant' | 'attachment' | 'system';
+      /**
+       * An attachment's type (`queued_command`, `nested_memory`, ...) or a
+       * notice's subtype (`compact_boundary`, `local_command`, ...). Pinned.
+       *
+       * Absent on user and assistant rows. Builds add and retire names.
+       */
+      name?: string;
+      /**
+       * Under which role a request carries the row; absent when none does (a
+       * notice, a record with no bytes on the wire, a virtual row). Pinned.
+       */
+      role?: 'user' | 'assistant';
+      /**
+       * True on a user-side row the person does not see as typed (a reminder, a
+       * nudge, a delivery's text). Pinned.
+       */
+      isMeta?: true;
+      /**
+       * The row's blocks in order (ApiContentBlock): an attachment's as the
+       * engine recorded its rendering, a notice's as one text block.
+       *
+       * Rewritable: text blocks, a tool_result's `content` and `is_error`. Media
+       * blocks may be dropped or moved, not changed or added. Thinking, tool_use,
+       * unknown kinds and every tool_result's `tool_use_id` are put back.
+       */
+      content: ApiContentBlock[];
+  };
+
+  /**
+   * Who caused a row, as the engine knows it from the row itself: a submission's
+   * sender, an injected row's author, the model, or the tool that was called.
+   */
+  type SessionAppendOrigin = PromptOrigin | PromptAttachmentOrigin | {
+      /**
+       * A block of the model's response, or the engine's stand-in for one.
+       */
+      kind: 'model';
+      /**
+       * Whose response it is: the id the response names.
+       */
+      model: string;
+  } | {
+      /**
+       * A tool call's result, or a row a tool handed over beside it.
+       */
+      kind: 'tool';
+      /**
+       * Which one was called, by name; `unknown` when no call of that id is
+       * found.
+       */
+      tool: string;
+  };
+
+  /**
+   * What a `session.append` hook returns and what `next(e)` resolves to: the
+   * row as the session stored it, or `{ deny: reason }` for a plugin's own call.
+   *
+   * `next(e)` resolves once the row is kept. A hook relays it unchanged: one
+   * that answers without `next`, or another row, is skipped. Only a plugin's own
+   * append (door `note`) may be refused, in place of `next`: nothing is stored.
+   */
+  type SessionAppendResult = {
+      /**
+       * The row as stored: what arrived at the bottom, the pinned parts put
+       * back.
+       */
+      message: SessionAppendMessage;
+      /**
+       * The stored row's id: the same in the transcript file and on every
+       * later read.
+       */
+      uuid: string;
+      deny?: undefined;
+  } | {
+      /**
+       * Refuses a plugin's own append, so nothing is stored: the call
+       * resolves to this, the reason the refusing hook gave.
+       */
+      deny: string;
+      message?: undefined;
+      uuid?: undefined;
   };
 
   /**
@@ -10901,12 +11574,13 @@ declare module 'claude-code' {
   };
 
   /**
-   * The keys of `I` a matcher may select variants by: literal-valued in every
-   * variant, and one literal per variant (IsDiscriminant).
+   * The keys among `Among` a matcher may select variants of `I` by: valued by
+   * literals in every variant, one literal per variant (IsDiscriminant).
+   *
+   * Asked of each key given and of no other: of a matcher's own keys, never
+   * of every key of every variant.
    */
-  type TagKeys<I> = {
-      [K in MatcherKeys<I>]: IsLiteralValued<MatcherValueOf<I, K>> extends true ? IsDiscriminant<I, K> extends true ? K : never : never;
-  }[MatcherKeys<I>];
+  type TagKeys<I, Among> = Among extends MatcherKeys<I> ? IsLiteralValued<MatcherValueOf<I, Among>> extends true ? IsDiscriminant<I, Among> extends true ? Among : never : never : never;
 
   /**
    * A tier `next.to(e, tier)` may name: one a floor can reach past a tier of
@@ -12813,6 +13487,54 @@ declare module 'claude-code' {
   };
 
   /**
+   * One `prompt.attachment` input of every other type, the ones
+   * PromptAttachmentDetailOf does not name: the attachment's text alone.
+   */
+  type UndeclaredAttachmentInput = {
+      /**
+       * As the engine names the attachment's kind; the key a matcher narrows on.
+       * Pinned. Builds add and retire kinds: match by name.
+       *
+       * Among them `todo_reminder`, `auto_mode`, `auto_mode_exit`, `instructions`,
+       * `nested_memory`, `skill_listing`, `deferred_tools_delta`, `file`,
+       * `edited_text_file`, `queued_command`; the plan rows carry a `detail`.
+       */
+      type: string;
+      /**
+       * What the model reads for this attachment, inside the engine's framing;
+       * rewritable with `next({ ...e, text })`.
+       *
+       * The `<system-reminder>` wrapper (or the system channel that replaces it)
+       * goes around what the chain answers, never inside it. An attachment
+       * rendered as several text blocks hands them joined by newlines.
+       */
+      text: string;
+      /**
+       * Who authored the text (PromptAttachmentOrigin): the engine, a settings
+       * hook, or a plugin's chain context.
+       *
+       * Pinned: a different value is refused, one left out is kept.
+       */
+      origin: PromptAttachmentOrigin;
+      /**
+       * The loop whose request carries the attachment: a subagent's id, the `id`
+       * `$.agent.list()` gives it and its `tool.call`s carry; absent on main.
+       *
+       * Pinned: a different value is refused, one left out is kept. A subagent
+       * a hook spawned through `$.agent.spawn` is resolved past that hook.
+       */
+      agentId?: string;
+      /**
+       * Absent, the key itself: the engine declares no facts for the type, and
+       * a rewrite that adds the key is refused.
+       *
+       * @example
+       * if (!("detail" in e)) return next(e)
+       */
+      detail?: undefined;
+  };
+
+  /**
    * The intersection of a union's members (`A | B` to `A & B`), by inferring
    * one parameter type from the contravariant positions.
    */
@@ -13167,6 +13889,10 @@ declare module 'claude-code/testing' {
   /**
    * A classic hook event the engine raises on its own, by its own name
    * (`SessionStart`, `Stop`): all but `PreToolUse`, which rides `tool.call`.
+   *
+   * `$.tool.call` raises `classic.PreToolUse` as a session does: beneath every
+   * plugin's `tool.call` hook and above the test's own, which a deny never
+   * reaches (the call resolves errored, the reason its `text`).
    */
   export type ClassicEvent = Exclude<ClassicEventName, 'classic.PreToolUse'> extends `classic.${infer E}` ? E : never;
 
@@ -14188,936 +14914,3 @@ declare module 'claude-code/testing' {
   };
 }
 
-// The inputs of the built-in tools this build has, from each tool's
-// input schema. Merges into ToolCallInput (BuiltinToolInputs) so
-// `e.tool === "Bash"` narrows to the tool's arguments.
-declare module 'claude-code' {
-  interface BuiltinToolInputs {
-    Agent: {
-      /** A short (3-5 word) description of the task */
-      description: string
-      /** The task for the agent to perform */
-      prompt: string
-      /** The type of specialized agent to use for this task */
-      subagent_type?: string
-      /** Optional model override for this agent. Takes precedence over the agent definition's model frontmatter and the configured default subagent model. If omitted, uses the agent definition's model, else the default (inherits from the parent unless a default subagent model is configured). Ignored for subagent_type: "fork" — forks always inherit the parent model. */
-      model?: "sonnet" | "opus" | "haiku" | "fable"
-      /** Name for the spawned agent. Makes it addressable via SendMessage({to: name}) while running. */
-      name?: string
-      /** Deprecated; ignored. The session has a single implicit team. */
-      team_name?: string
-      /** Deprecated; ignored. Subagents inherit the parent session's permission mode; agent-definition frontmatter may override it. */
-      mode?: "acceptEdits" | "auto" | "bypassPermissions" | "default" | "dontAsk" | "plan"
-      /** Isolation mode. "worktree" creates a temporary git worktree so the agent works on an isolated copy of the repo. "remote" launches the agent in a remote cloud environment (always runs in background; availability is gated). */
-      isolation?: "worktree" | "remote"
-    }
-    Bash: {
-      /** The command to execute */
-      command: string
-      /** Optional timeout in milliseconds (max 600000) */
-      timeout?: number
-      /** Clear, concise description of what this command does in active voice. Never use words like "complex" or "risk" in the description - just describe what it does. Say what the command does in plain words: do not echo the command's text, its flags, or file paths - the user reads this description, often without seeing the command. For simple commands (git, npm, standard CLI tools), keep it brief (5-10 words): - ls → "List files in current directory" - git status → "Show working tree status" - npm install → "Install package dependencies" For commands that are harder to parse at a glance (piped commands, obscure flags, etc.), add enough context to clarify what it does: - find . -name "*.tmp" -exec rm {} \; → "Find and delete all .tmp files recursively" - git reset --hard origin/main → "Discard all local changes and match remote main" - curl -s url | jq '.data[]' → "Fetch JSON from URL and extract data array elements" */
-      description?: string
-      /** Set to true to run this command in the background. */
-      run_in_background?: boolean
-      /** Set this to true to dangerously override sandbox mode and run commands without sandboxing. */
-      dangerouslyDisableSandbox?: boolean
-    }
-    CronCreate: {
-      /** Standard 5-field cron expression in local time: "M H DoM Mon DoW" (e.g. "* /5 * * * *" = every 5 minutes, "30 14 28 2 *" = Feb 28 at 2:30pm local once). */
-      cron: string
-      /** The prompt to enqueue at each fire time. */
-      prompt: string
-      /** true (default) = fire on every cron match until deleted or auto-expired after 7 days. false = fire once at the next match, then auto-delete. Use false for "remind me at X" one-shot requests with pinned minute/hour/dom/month. */
-      recurring?: boolean
-      /** Has no effect — durable persistence is not available. All jobs are session-only (in-memory, gone when this Claude session ends). */
-      durable?: boolean
-    }
-    CronDelete: {
-      /** Job ID returned by CronCreate. */
-      id: string
-    }
-    CronList: {}
-    DesignSync: {
-      method: "list_projects" | "get_project" | "list_files" | "get_file" | "finalize_plan" | "write_files" | "delete_files" | "register_assets" | "unregister_assets" | "create_project" | "report_validate"
-      /** Required for all methods except list_projects and create_project */
-      projectId?: string
-      /** get_file: file path to read */
-      path?: string
-      /** finalize_plan: exact paths or glob patterns that will be written. `*` matches within a single segment, `**` matches any depth (e.g. `ui_kits/acme/** /*.html`). Max 3 `*`/`**` wildcards per pattern and max 256 entries — use broader globs to cover more files rather than enumerating paths. */
-      writes?: string[]
-      /** finalize_plan: exact paths or glob patterns that will be deleted (same syntax and limits as writes). */
-      deletes?: string[]
-      /** write_files/delete_files/register_assets/unregister_assets: token from a prior finalize_plan call */
-      planId?: string
-      /** write_files: file contents to write (max 256 per call — split larger bundles across multiple write_files calls under the same planId). */
-      files?: Array<{
-        /** Path within the project, e.g. components/button/index.html */
-        path: string
-        /** Path on disk to read file contents from, relative to the localDir approved at finalize_plan. Preferred for anything you have on disk: the tool reads, encodes, and uploads directly so the contents never enter the model context. Mutually exclusive with data. */
-        localPath?: string
-        /** Inline file contents (UTF-8 text, or base64 when encoding is "base64"). For small dynamic content only — anything you have on disk should use localPath instead. */
-        data?: string
-        /** Set to "base64" for binary inline data */
-        encoding?: "base64"
-        mimeType?: string
-      }>
-      /** delete_files: paths to delete. unregister_assets: paths whose Design System pane card should be removed. Max 256 per call — split larger batches across multiple calls under the same planId. */
-      paths?: string[]
-      /** create_project: name for the new design-system project */
-      name?: string
-      /** register_assets: cards to register in the Design System pane. Each path must be in the finalized plan. Run after write_files succeeds. Max 256 per call. */
-      assets?: Array<{
-        /** Short human-readable label ("Primary buttons"), not a path */
-        name: string
-        /** Project-relative path to the preview/spec file this card renders */
-        path: string
-        /** Variants shown ("Primary / secondary / ghost, 3 sizes") */
-        subtitle?: string
-        /** Card dimensions in the Design System pane */
-        viewport?: {
-          width: number
-          height?: number
-        }
-        /** Free-form section label for the Design System pane (max 64 chars). Use the source design system's own categorization if it has one — e.g. Material has Buttons/Cards/Forms/etc., a corporate kit might have Actions/Forms/Navigation. Common foundational labels: "Type", "Colors", "Spacing", "Components", "Brand". The pane groups by the value you send. */
-        group?: string
-      }>
-      /** finalize_plan: directory the bundle was built into. write_files with localPath may only read files inside this directory. Defaults to the current working directory. Resolved to an absolute path and shown in the permission prompt. */
-      localDir?: string
-      /** report_validate: aggregate from the final .render-check.json — counts only, no component names or paths. */
-      counts?: {
-        total: number
-        bad: number
-        thin: number
-        variantsIdentical: number
-        iterations: number
-      }
-    }
-    Edit: {
-      /** The absolute path to the file to modify */
-      file_path: string
-      /** The text to replace */
-      old_string: string
-      /** The text to replace it with (must be different from old_string) */
-      new_string: string
-      /** Replace all occurrences of old_string (default false) */
-      replace_all?: boolean
-    }
-    EnterWorktree: {
-      /** Optional name for a new worktree. Each "/"-separated segment may contain only letters, digits, dots, underscores, and dashes; max 64 chars total. A random name is generated if not provided. Mutually exclusive with `path`. */
-      name?: string
-      /** Path to an existing worktree to switch into instead of creating a new one. Must appear in `git worktree list` for the current repo — or, on first entry from the launch directory, for a repo nested inside it (multi-repo workspace). Mutually exclusive with `name`. */
-      path?: string
-    }
-    ExitWorktree: {
-      /** "keep" leaves the worktree and branch on disk; "remove" deletes both. */
-      action: "keep" | "remove"
-      /** Required true when action is "remove" and the worktree has uncommitted files or unmerged commits. The tool will refuse and list them otherwise. */
-      discard_changes?: boolean
-    }
-    ListAgents: {
-      /** Not available in this build; leave unset. */
-      channel?: string
-      /** Not available in this build; leave unset. */
-      q?: string
-    }
-    Monitor: {
-      /** Short human-readable description of what you are monitoring (shown in notifications). */
-      description: string
-      /** Kill the monitor after this deadline. Default 300000ms. Deadlines above 600000ms are capped to 600000ms. You are notified at expiry and can re-arm. */
-      timeout_ms: number
-      /** Shell command or script. Each stdout line is an event; exit ends the watch. */
-      command?: string
-      /** WebSocket to open. Each text frame is an event; binary frames are reported as a placeholder line. Socket close ends the watch. Cannot be combined with command. */
-      ws?: {
-        url: string
-        protocols?: string[]
-      }
-    }
-    NotebookEdit: {
-      /** The absolute path to the Jupyter notebook file to edit (must be absolute, not relative) */
-      notebook_path: string
-      /** The ID of the cell to edit. When inserting a new cell, the new cell will be inserted after the cell with this ID, or at the beginning if not specified. */
-      cell_id?: string
-      /** The new source for the cell */
-      new_source: string
-      /** The type of the cell (code or markdown). If not specified, it defaults to the current cell type. If using edit_mode=insert, this is required. */
-      cell_type?: "code" | "markdown"
-      /** The type of edit to make (replace, insert, delete). Defaults to replace. */
-      edit_mode?: "replace" | "insert" | "delete"
-    }
-    PushNotification: {
-      /** The notification body. Keep it under 200 characters; mobile OSes truncate. */
-      message: string
-      status: "proactive"
-    }
-    Read: {
-      /** The absolute path to the file to read */
-      file_path: string
-      /** The line number to start reading from. Only provide if the file is too large to read at once */
-      offset?: number
-      /** The number of lines to read. Only provide if the file is too large to read at once. */
-      limit?: number
-      /** Page range for PDF files (e.g., "1-5", "3", "10-20"). Only applicable to PDF files. Maximum 20 pages per request. */
-      pages?: string
-    }
-    RemoteTrigger: {
-      action: "list" | "get" | "create" | "update" | "run" | "create_webhook_trigger" | "list_runs" | "get_run_log"
-      /** Required for get, update, run, and list_runs */
-      trigger_id?: string
-      /** Required for get_run_log: a run session id (cse_… or session_…, from list_runs) */
-      session_id?: string
-      /** next_cursor from a previous list_runs or get_run_log page */
-      cursor?: string
-      /** Required for create and update; optional for run */
-      body?: {}
-    }
-    ReportFindings: {
-      /** Effort level the review ran at */
-      level?: "low" | "medium" | "high" | "xhigh" | "max"
-      /** Verified findings, most-severe first; empty if none survived */
-      findings: Array<{
-        /** Repo-relative path of the file the finding is in */
-        file: string
-        /** 1-indexed line the finding anchors to */
-        line?: number
-        /** One-sentence statement of the defect */
-        summary: string
-        /** Compressed label for compact UI (≤60 chars): the claim alone, no rationale or consequence clause */
-        short_summary?: string
-        /** Concrete inputs/state → wrong output/crash */
-        failure_scenario: string
-        /** Short kebab-case slug of the finding type, e.g. "correctness", "simplification", "efficiency", "test-coverage" */
-        category?: string
-        /** Set when a verify pass ran; absent on inline-only reviews */
-        verdict?: "CONFIRMED" | "PLAUSIBLE"
-        /** Set ONLY when re-reporting after applying fixes: what happened to this finding */
-        outcome?: "fixed" | "skipped" | "no_change_needed"
-      }>
-    }
-    ScheduleWakeup: {
-      /** Seconds from now to wake up. Clamped to [60, 3600] by the runtime. Required unless `stop` is true. */
-      delaySeconds?: number
-      /** One short sentence explaining the chosen delay. Goes to telemetry and is shown to the user. Be specific. Required unless `stop` is true. */
-      reason?: string
-      /** The /loop input to fire on wake-up. Pass the same /loop input verbatim each turn so the next firing re-enters the skill and continues the loop. For autonomous /loop (no user prompt), pass the literal sentinel `<<autonomous-loop-dynamic>>` instead (the dynamic-pacing variant, not the CronCreate-mode `<<autonomous-loop>>`). Required unless `stop` is true. */
-      prompt?: string
-      /** Set to true to end the dynamic loop immediately instead of scheduling another wakeup. When true, all other fields are ignored and no further wakeups fire. */
-      stop?: boolean
-      /** true = nothing changed (you checked and there is nothing to report). false = something happened worth keeping (edited a file, posted a message, advanced state, surfaced a finding). Consecutive noop:true ticks are collapsed in the user's terminal view and tracked as a streak. Required unless `stop` is true. */
-      noop?: boolean
-    }
-    SendMessage: {
-      /** Recipient: a name from ListAgents (append its " [ref]" only when a listing or an error shows one), a teammate name, "main", or a background agent's agentId */
-      to: unknown & unknown
-      /** A 5-10 word label for your own transcript row (not transmitted — the recipient previews the first line of `message`). Truncated to 200 characters rather than rejected. */
-      summary?: string
-      message: string | {
-        type: "shutdown_request"
-        reason?: string
-      } | {
-        type: "shutdown_response"
-        request_id: unknown & unknown
-        approve: boolean
-        reason?: string
-      } | {
-        type: "plan_approval_response"
-        request_id: unknown & unknown
-        approve: boolean
-        feedback?: string
-      }
-      /** Ask a session ON THIS MACHINE to send you ONE notice when it next goes idle (finishes its turn with nothing queued) or exits — opt-in, one-shot, no polling. With a message: deliver it now AND subscribe. Without a message (omit it): a pure subscription that costs the other session nothing. */
-      notify_when_idle?: boolean
-    }
-    Skill: {
-      /** The name of a skill from the available-skills list. Do not guess names. */
-      skill: string
-      /** Optional arguments for the skill */
-      args?: string
-    }
-    TaskStop: {
-      /** The ID of the background task to stop. Agent-team teammates and named background agents are also accepted by agent ID or name. */
-      task_id?: string
-      /** Deprecated: use task_id instead */
-      shell_id?: string
-    }
-    ToolSearch: {
-      /** Query to find deferred tools. Use "select:<tool_name>" for direct selection, or keywords to search. */
-      query: string
-      /** Maximum number of results to return (default: 5) */
-      max_results: number
-    }
-    WebFetch: {
-      /** The URL to fetch content from */
-      url: string
-      /** The prompt to run on the fetched content */
-      prompt: string
-    }
-    WebSearch: {
-      /** The search query to use */
-      query: string
-      /** Only include search results from these domains */
-      allowed_domains?: string[]
-      /** Never include search results from these domains */
-      blocked_domains?: string[]
-    }
-    Workflow: {
-      /** Self-contained workflow script. Must begin with `export const meta = { name, description, phases }` (pure literal, no computed values) followed by the script body using agent()/parallel()/pipeline()/phase(). */
-      script?: string
-      /** Name of a predefined workflow (built-in or from .claude/workflows/). Resolves to a self-contained script. */
-      name?: string
-      /** Ignored — set the workflow description in the script's `meta` block. */
-      description?: string
-      /** Ignored — set the workflow title in the script's `meta` block. */
-      title?: string
-      /** Optional input value exposed to the script as the global `args`, verbatim. Pass arrays/objects as actual JSON values, NOT as a JSON-encoded string — a stringified list breaks `args.filter`/`args.map` in the script. Use for parameterized named workflows (e.g. a research question). */
-      args?: unknown
-      /** Path to a workflow script file on disk. Every Workflow invocation persists its script under the session directory and returns the path in the tool result. To iterate, edit that file with Write/Edit and re-invoke Workflow with the same `scriptPath` instead of re-sending the full script. Takes precedence over `script` and `name`. */
-      scriptPath?: string
-      /** Run ID of a prior Workflow invocation to resume from. Completed agent() calls with unchanged (prompt, opts) return their cached results instantly; only edited or new calls re-run. Same-session only. Stop the prior run first (TaskStop) before resuming. */
-      resumeFromRunId?: string
-    }
-    Write: {
-      /** The absolute path to the file to write (must be absolute, not relative) */
-      file_path: string
-      /** The content to write to the file */
-      content: string
-    }
-  }
-}
-
-// The structured results of the same tools, from each tool's output
-// schema. Merges into ToolCallResult (BuiltinToolResults) so after
-// `e.tool === "Bash"` the `result` of `next(e)` is the tool's record.
-declare module 'claude-code' {
-  interface BuiltinToolResults {
-    Agent: {
-      agentId: string
-      /** @internal Count of leading harness-authored content blocks (hand-back provenance bookkeeping; not a stable consumer field) */
-      harnessNoteCount?: number
-      /** @internal Count of trailing harness-authored content blocks (hand-back provenance bookkeeping; not a stable consumer field) */
-      harnessTailCount?: number
-      /** @internal Fingerprint binding the harness section counts to the exact content they were computed against; a hook rewrite invalidates the counts rather than misplacing rewritten bytes */
-      harnessSectionHash?: string
-      agentType?: string
-      /** @internal How the report reached this result when the subagent reports through the SubagentHandback tool: 'send' = delivered, passed by auto mode's review or with a note that the review could not run; 'flagged' = delivered under a SECURITY WARNING; 'withheld' = nothing was delivered */
-      handback?: "send" | "flagged" | "withheld"
-      /** @internal The report a 'send' or 'flagged' hand-back delivered, for a client to render instead of content */
-      handbackReport?: {
-        /** The subagent's whole report, never truncated, with a backslash inserted into text that imitates harness markup, such as a system tag (`<system-reminder>`), a `[harness:` line or a turn marker (`Human:` at the start of a line) */
-        text: string
-        /** Auto mode's warning to show above `text`: a SECURITY WARNING, or a note that the review could not run */
-        warning?: string
-      }
-      content: Array<{
-        type: "text"
-        text: string
-        citations?: unknown[] | null
-      }>
-      resolvedModel?: string
-      modelsUsed?: string[]
-      totalToolUseCount: number
-      totalDurationMs: number
-      totalTokens: number
-      usage: {
-        input_tokens: number
-        output_tokens: number
-        cache_creation_input_tokens: number | null
-        cache_read_input_tokens: number | null
-        server_tool_use: {
-          web_search_requests: number
-          web_fetch_requests: number
-        } | null
-        service_tier: string | null
-        cache_creation: {
-          ephemeral_1h_input_tokens: number
-          ephemeral_5m_input_tokens: number
-        } | null
-        inference_geo?: string | null
-        speed?: string | null
-        iterations?: unknown
-        output_tokens_details?: {
-          thinking_tokens?: number | null
-        } | null
-      }
-      toolStats?: {
-        readCount: number
-        searchCount: number
-        bashCount: number
-        editFileCount: number
-        linesAdded: number
-        linesRemoved: number
-        otherToolCount: number
-        frameCount?: number
-      }
-      status: "completed"
-      prompt: string
-      worktreePath?: string
-      worktreeBranch?: string
-    } | {
-      status: "async_launched"
-      isAsync?: true
-      /** The ID of the async agent */
-      agentId: string
-      /** The description of the task */
-      description: string
-      /** Model in use at the backgrounding transition (a pre-background swap is reflected here) */
-      resolvedModel?: string
-      /** Ordered distinct models used before backgrounding (length > 1 means a mid-run swap) */
-      modelsUsed?: string[]
-      /** The prompt for the agent */
-      prompt: string
-      /** Path to the output file for checking agent progress */
-      outputFile: string
-      /** Whether the calling agent has Read/Bash tools to check progress */
-      canReadOutputFile?: boolean
-      /** @internal True when this unisolated write-capable agent was launched into a working directory where another one is already running and a worktree could have been made here (drives a model-facing note; not a stable consumer field) */
-      sharesCwd?: boolean
-    } | {
-      status: "remote_launched"
-      /** The ID of the remote agent task */
-      taskId: string
-      /** The URL of the cloud session */
-      sessionUrl: string
-      /** The description of the task */
-      description: string
-      /** The prompt for the agent */
-      prompt: string
-      /** Path to the output file for checking agent progress */
-      outputFile: string
-    }
-    Bash: {
-      /** The standard output of the command */
-      stdout: string
-      /** The standard error output of the command */
-      stderr: string
-      /** Path to raw output file for large MCP tool outputs */
-      rawOutputPath?: string
-      /** Whether the command was interrupted */
-      interrupted: boolean
-      /** Flag to indicate if stdout contains image data */
-      isImage?: boolean
-      /** ID of the background task if command is running in background */
-      backgroundTaskId?: string
-      /** True if the user manually backgrounded the command with Ctrl+B */
-      backgroundedByUser?: boolean
-      /** @internal True if a plugin's turn abort moved the running command to the background */
-      backgroundedByTurnAbort?: boolean
-      /** @internal True if the command was moved to the background so a message queued for the model could reach it */
-      backgroundedToDeliverMessage?: boolean
-      /** Set when the command hit its timeout and was auto-backgrounded; the timeout value in ms */
-      timedOutAfterMs?: number
-      /** Model-facing note that the session cwd was not changed by a backgrounded command containing a directory-change builtin (cd/pushd/popd/chdir) */
-      backgroundCwdHint?: string
-      /** True when this backgrounded command is owned by a synchronous subagent and is therefore terminated when that agent gives its final response; absent when the command survives (main loop, async subagents) */
-      backgroundEndsWithFinalResponse?: true
-      /** Flag to indicate if sandbox mode was overridden */
-      dangerouslyDisableSandbox?: boolean
-      /** Semantic interpretation for non-error exit codes with special meaning */
-      returnCodeInterpretation?: string
-      /** Whether the command is expected to produce no output on success */
-      noOutputExpected?: boolean
-      /** Structured content blocks */
-      structuredContent?: unknown[]
-      /** Path to the persisted full output in tool-results dir (set when output is too large for inline) */
-      persistedOutputPath?: string
-      /** Total size of the output in bytes (set when output is too large for inline) */
-      persistedOutputSize?: number
-      /** Model-facing note listing readFileState entries whose mtime bumped during this command (set when WRITE_COMMAND_MARKERS matches) */
-      staleReadFileStateHint?: string
-      /** Model-facing system-reminder appended when a gh command reports a GitHub API rate-limit error */
-      ghRateLimitHint?: string
-      /** Structured classification of git/gh operations detected in this command (commit/push/merge/rebase/PR). Client-facing — lets clients render git activity without re-parsing stdout; not surfaced to the model. */
-      gitOperation?: {
-        commit?: {
-          sha: string
-          kind: "committed" | "amended" | "cherry-picked"
-          branch?: string
-        }
-        push?: {
-          branch: string
-        }
-        branch?: {
-          ref: string
-          action: "merged" | "rebased"
-        }
-        pr?: {
-          number: number
-          url?: string
-          action: "created" | "edited" | "merged" | "commented" | "closed" | "reopened" | "ready" | "draft" | "auto-merge-enabled" | "auto-merge-disabled"
-        }
-      }
-      /** @internal Per-file diff of the working-tree changes this command made, for rendering and for PostToolUse Bash hooks (changedFiles: absolute paths of every changed file known, shown or not, at most 200; cut when shorter than files.length + moreFiles); not surfaced to the model. */
-      bashEditDiff?: {
-        files: {
-          filePath: string
-          hunks: {
-            oldStart: number
-            oldLines: number
-            newStart: number
-            newLines: number
-            lines: string[]
-          }[]
-          created?: true
-          deleted?: true
-        }[]
-        moreFiles: number
-        changedFiles?: string[]
-        unavailable?: true
-        skipped?: true
-        shared?: true
-      }
-    }
-    CronCreate: {
-      id: string
-      humanSchedule: string
-      recurring: boolean
-      durable?: boolean
-    }
-    CronDelete: {
-      id: string
-    }
-    CronList: {
-      jobs: {
-        id: string
-        cron: string
-        humanSchedule: string
-        prompt: string
-        recurring?: boolean
-        durable?: boolean
-      }[]
-    }
-    DesignSync: {
-      method: "list_projects"
-      notice?: string
-      projects: {
-        projectId: string
-        name: string
-        ownerDisplayName?: string
-        isOwned?: boolean
-        updatedAt?: string
-      }[]
-    } | {
-      method: "get_project"
-      notice?: string
-      projectId: string
-      name: string
-      type?: string
-      ownerDisplayName?: string
-      isOwned?: boolean
-      canEdit?: boolean
-    } | {
-      method: "list_files"
-      notice?: string
-      paths: string[]
-    } | {
-      method: "get_file"
-      notice?: string
-      path: string
-      content: string
-      contentType: string
-      isBase64: boolean
-      truncated: boolean
-    } | {
-      method: "finalize_plan"
-      notice?: string
-      planId: string
-      writes: string[]
-      deletes: string[]
-    } | {
-      method: "write_files"
-      notice?: string
-      written: number
-    } | {
-      method: "delete_files"
-      notice?: string
-      deleted: number
-    } | {
-      method: "register_assets"
-      notice?: string
-      registered: number
-    } | {
-      method: "unregister_assets"
-      notice?: string
-      unregistered: number
-    } | {
-      method: "create_project"
-      notice?: string
-      projectId: string
-      name: string
-    } | {
-      method: "report_validate"
-      notice?: string
-    }
-    Edit: {
-      /** The file path that was edited */
-      filePath: string
-      /** The original string that was replaced */
-      oldString: string
-      /** The new string that replaced it */
-      newString: string
-      /** The original file contents before editing */
-      originalFile: string | null
-      /** Diff patch showing the changes */
-      structuredPatch: {
-        oldStart: number
-        oldLines: number
-        newStart: number
-        newLines: number
-        lines: string[]
-      }[]
-      /** Whether the user modified the proposed changes */
-      userModified: boolean
-      /** Whether all occurrences were replaced */
-      replaceAll: boolean
-      gitDiff?: {
-        filename: string
-        status: "modified" | "added"
-        additions: number
-        deletions: number
-        changes: number
-        patch: string
-        /** GitHub owner/repo when available */
-        repository?: string | null
-      }
-      /** True when the edit was held for the machine owner to review instead of written; the file is unchanged */
-      staged?: boolean
-    }
-    EnterWorktree: {
-      worktreePath: string
-      worktreeBranch?: string
-      message: string
-    }
-    ExitWorktree: {
-      action: "keep" | "remove"
-      originalCwd: string
-      worktreePath: string
-      worktreeBranch?: string
-      tmuxSessionName?: string
-      discardedFiles?: number
-      discardedCommits?: number
-      /** @internal Where the session's cwd ended up: originalCwd, or a fallback when it was gone. */
-      restoredCwd?: string
-      /** @internal originalCwd was gone (or a network path the session will not touch), so restoredCwd is a fallback directory. */
-      originalCwdMissing?: boolean
-      message: string
-    }
-    ListAgents: {
-      /** Formatted list of reachable agents */
-      listing: string
-    }
-    Monitor: {
-      /** ID of the background monitor task. */
-      taskId: string
-      /** Timeout deadline in milliseconds (0 when persistent). */
-      timeoutMs: number
-      /** No timeout — runs until TaskStop or session end. */
-      persistent?: boolean
-    }
-    NotebookEdit: {
-      /** The new source code that was written to the cell */
-      new_source: string
-      /** The previous cell source (replace/delete only). Enables cell-relative diff rendering without re-reading the notebook. */
-      old_source?: string
-      /** The ID of the cell that was edited */
-      cell_id?: string
-      /** The type of the cell */
-      cell_type: "code" | "markdown"
-      /** The programming language of the notebook */
-      language: string
-      /** The edit mode that was used */
-      edit_mode: string
-      /** Error message if the operation failed */
-      error?: string
-      /** The path to the notebook file */
-      notebook_path: string
-      /** The original notebook content before modification */
-      original_file: string
-      /** The updated notebook content after modification */
-      updated_file: string
-    }
-    PushNotification: {
-      message: string
-      pushSent?: boolean
-      localSent?: boolean
-      disabledReason?: "config_off" | "user_present" | "no_transport"
-      /** ISO timestamp captured at tool execution on the emitting process. Optional — resumed sessions replay pre-sentAt outputs verbatim. */
-      sentAt?: string
-    }
-    Read: {
-      type: "text"
-      file: {
-        /** The path to the file that was read */
-        filePath: string
-        /** The content of the file */
-        content: string
-        /** Number of lines in the returned content */
-        numLines: number
-        /** The starting line number */
-        startLine: number
-        /** Total number of lines in the file */
-        totalLines: number
-        /** True when a whole-file read was auto-paginated because it exceeded the token cap (the content is a partial first page). A programmatic signal for internal consumers; survives output reconstruction (unlike the render-time banner). */
-        truncatedByTokenCap?: boolean
-      }
-      /** Set when this Read completed a saved Artifact source file: the Artifact and the version of it that now counts as viewed. */
-      artifactRead?: {
-        slug: string
-        ver: string
-      }
-    } | {
-      type: "image"
-      file: {
-        /** Base64-encoded image data */
-        base64: string
-        /** The MIME type of the image */
-        type: "image/jpeg" | "image/png" | "image/gif" | "image/webp"
-        /** Original file size in bytes */
-        originalSize: number
-        /** Image dimension info for coordinate mapping */
-        dimensions?: {
-          /** Original image width in pixels */
-          originalWidth?: number
-          /** Original image height in pixels */
-          originalHeight?: number
-          /** Displayed image width in pixels (after resizing) */
-          displayWidth?: number
-          /** Displayed image height in pixels (after resizing) */
-          displayHeight?: number
-        }
-      }
-    } | {
-      type: "notebook"
-      file: {
-        /** The path to the notebook file */
-        filePath: string
-        /** Array of notebook cells */
-        cells: unknown[]
-      }
-    } | {
-      type: "pdf"
-      file: {
-        /** The path to the PDF file */
-        filePath: string
-        /** Base64-encoded PDF data */
-        base64: string
-        /** Original file size in bytes */
-        originalSize: number
-      }
-    } | {
-      type: "parts"
-      file: {
-        /** The path to the PDF file */
-        filePath: string
-        /** Original file size in bytes */
-        originalSize: number
-        /** Number of pages extracted */
-        count: number
-        /** Directory containing extracted page images */
-        outputDir: string
-      }
-      /** Document page number of the first extracted page (1 when no range was requested); labels the page images in the model-facing tool_result */
-      firstPage?: number
-      /** Extracted page images, in page order. Present only transiently in-process: the page image bytes are delivered solely as image blocks in the model-facing tool_result content and are not retained on the tool_use_result, so this key is absent on the emitted/persisted result */
-      pages?: Array<{
-        /** Base64-encoded page image; empty when the page could not be processed */
-        base64: string
-        /** The MIME type of the image */
-        mediaType: "image/jpeg" | "image/png" | "image/gif" | "image/webp"
-        /** Why the page could not be processed as an image; set only when base64 is empty */
-        error?: string
-      }>
-    } | {
-      type: "file_unchanged"
-      file: {
-        /** The path to the file */
-        filePath: string
-      }
-      /** Set when the dedup matched a startup-seeded entry (CLAUDE.md / nested memory) rather than a prior Read tool_result */
-      source?: "seeded"
-    }
-    RemoteTrigger: {
-      status: number
-      json: string
-      summary?: string
-    }
-    ReportFindings: {
-      /** Number of findings reported */
-      count: number
-      /** Effort level the review ran at */
-      level?: "low" | "medium" | "high" | "xhigh" | "max"
-      /** Echoed for the result body */
-      findings: Array<{
-        /** Repo-relative path of the file the finding is in */
-        file: string
-        /** 1-indexed line the finding anchors to */
-        line?: number
-        /** One-sentence statement of the defect */
-        summary: string
-        /** Compressed label for compact UI (≤60 chars): the claim alone, no rationale or consequence clause */
-        short_summary?: string
-        /** Concrete inputs/state → wrong output/crash */
-        failure_scenario: string
-        /** Short kebab-case slug of the finding type, e.g. "correctness", "simplification", "efficiency", "test-coverage" */
-        category?: string
-        /** Set when a verify pass ran; absent on inline-only reviews */
-        verdict?: "CONFIRMED" | "PLAUSIBLE"
-        /** Set ONLY when re-reporting after applying fixes: what happened to this finding */
-        outcome?: "fixed" | "skipped" | "no_change_needed"
-      }>
-    }
-    ScheduleWakeup: {
-      /** Epoch ms timestamp when the next wakeup will fire */
-      scheduledFor: number
-      /** Actual delay used after clamping to runtime bounds */
-      clampedDelaySeconds: number
-      /** True if the requested delaySeconds was outside [60, 3600] */
-      wasClamped: boolean
-      /** True when the model ended the loop via `stop: true` */
-      stopped?: boolean
-      /** How many pending dynamic-loop wakeups stop:true cancelled. 0 means nothing was pending — a recurring /loop cron is not cancelled by stop:true. */
-      cancelledWakeups?: number
-    }
-    SendMessage: unknown
-    Skill: {
-      /** Whether the skill is valid */
-      success: boolean
-      /** The name of the skill */
-      commandName: string
-      /** Tools allowed by this skill */
-      allowedTools?: string[]
-      /** Resolved model the skill turn runs on when a frontmatter model override took effect; omitted otherwise */
-      model?: string
-      /** Execution status */
-      status?: "inline"
-      /** True when the skill instructions were loaded read-only (nothing was executed) */
-      readOnly?: boolean
-    } | {
-      /** Whether the skill completed successfully */
-      success: boolean
-      /** The name of the skill */
-      commandName: string
-      /** Execution status */
-      status: "forked"
-      /** The ID of the sub-agent that executed the skill */
-      agentId: string
-      /** The result from the forked skill execution */
-      result: string
-      /** True when the sub-agent was launched in the background: `result` describes the launch, and the skill outcome arrives later as a task notification. */
-      background?: boolean
-    }
-    TaskStop: {
-      /** Status message about the operation */
-      message: string
-      /** The ID of the task that was stopped */
-      task_id: string
-      /** The type of the task that was stopped */
-      task_type: string
-      /** The command or description of the stopped task */
-      command?: string
-    }
-    ToolSearch: {
-      matches: string[]
-      query: string
-      total_deferred_tools: number
-      pending_mcp_servers?: string[]
-      failed_mcp_servers?: {
-        name: string
-        errorCode?: string
-        error?: string
-      }[]
-    }
-    WebFetch: {
-      /** Size of the fetched content in bytes */
-      bytes: number
-      /** HTTP response code */
-      code: number
-      /** HTTP response code text */
-      codeText: string
-      /** Processed result from applying the prompt to the content */
-      result: string
-      /** Time taken to fetch and process the content */
-      durationMs: number
-      /** The URL that was fetched */
-      url: string
-      artifactRead?: {
-        slug: string
-        ver?: string
-        seeded?: false
-      }
-    }
-    WebSearch: {
-      /** The search query that was executed */
-      query: string
-      /** Search results and/or text commentary from the model */
-      results: Array<{
-        /** ID of the tool use */
-        tool_use_id: string
-        /** Array of search hits */
-        content: Array<{
-          /** The title of the search result */
-          title: string
-          /** The URL of the search result */
-          url: string
-        }>
-      } | string>
-      /** Time taken to complete the search operation */
-      durationSeconds: number
-      /** Number of web searches performed */
-      searchCount?: number
-    }
-    Workflow: {
-      status: "async_launched" | "remote_launched"
-      taskId: string
-      /** TaskType of the registered background task — 'local_workflow' for in-process runs, 'remote_agent' when remote:true dispatches to CCR. Set on all new writes; absent only on transcripts written before this field existed. */
-      taskType?: "local_workflow" | "remote_agent"
-      /** meta.name from the workflow script — same value as task_started.workflow_name. Set on all new writes; absent only on transcripts written before this field existed. */
-      workflowName?: string
-      /** Local workflow run identifier for resumeFromRunId. Absent for remote_launched (the CCR session URL is the resume handle there) and on transcripts written before this field existed. */
-      runId?: string
-      summary?: string
-      /** Directory where subagent transcripts are written during execution */
-      transcriptDir?: string
-      /** Path to the persisted workflow script for this invocation. Editable via Write/Edit; pass back as `scriptPath` to re-run without resending the script. */
-      scriptPath?: string
-      /** CCR session URL when status is remote_launched */
-      sessionUrl?: string
-      /** Non-blocking heads-up (e.g. local git state diverges from the pushed branch the cloud session will clone) */
-      warning?: string
-      /** Set if syntax check failed */
-      error?: string
-    }
-    Write: {
-      /** Whether a new file was created or an existing file was updated */
-      type: "create" | "update"
-      /** The path to the file that was written */
-      filePath: string
-      /** The content that was written to the file */
-      content: string
-      /** Diff patch showing the changes (empty when nothing changed, the diff timed out, or — with originalFile null on an update — the previous content was too large to diff) */
-      structuredPatch: {
-        oldStart: number
-        oldLines: number
-        newStart: number
-        newLines: number
-        lines: string[]
-      }[]
-      /** The original file content before the write (null for new files, or when the previous content was too large to include) */
-      originalFile: string | null
-      gitDiff?: {
-        filename: string
-        status: "modified" | "added"
-        additions: number
-        deletions: number
-        changes: number
-        patch: string
-        /** GitHub owner/repo when available */
-        repository?: string | null
-      }
-      /** True when the user edited the proposed content in the permission dialog before accepting */
-      userModified?: boolean
-      /** True when the write was held for the machine owner to review instead of written; the file is unchanged */
-      staged?: boolean
-    }
-  }
-}

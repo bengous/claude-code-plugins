@@ -1,6 +1,7 @@
 ---
 paths:
   - "**/claude-code.d.ts"
+  - "**/claude-code-tools.d.ts"
 ---
 
 # Function hooks

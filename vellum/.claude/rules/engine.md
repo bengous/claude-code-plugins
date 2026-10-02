@@ -79,8 +79,8 @@ loop. `/vellum:start` enters it, Approve in the page or `/vellum:stop` leaves it
   loses its working directory inside it ([Hook runtime](../../../docs/plugin-testing/hook-runtime.md)
   § Tools, commands and modes), so every `tool.call` hook names its tools, each as a string:
   a RegExp in the list runs the hook for every call in a live session, though the kit honours
-  it. A built-in the generated contract lacks (`AskUserQuestion`) is written as a string under
-  a `@ts-expect-error`, which fails the typecheck the day the contract names it. The lock is the one
+  it. A built-in tool's name and input come from `types/claude-code-tools.d.ts`, so a name it
+  lacks fails the typecheck. The lock is the one
   unmatched tool hook left: it must see every file tool, and a `tool.check` hook leaves
   isolation whole.
 - The way out is the skill `vellum:stop`, closed on its own `skill.prompt` hook, not
