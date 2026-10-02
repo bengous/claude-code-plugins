@@ -152,7 +152,7 @@ jobs:
       && (github.event_name != 'pull_request'
       || (needs.scope.result == 'success'
       && (needs.scope.outputs.all == 'true'
-      || contains(fromJSON(needs.scope.outputs.units), 'vellum'))))
+      || contains(fromJSON(needs.scope.outputs.units || '[]'), 'vellum'))))
     runs-on: windows-latest
     steps:
       - name: Checkout

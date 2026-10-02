@@ -505,7 +505,8 @@ type InProcess = {
   /**
    * Asks `read`, then takes a step of the queue that writes `step.json` and holds until the read
    * answers, then takes the file back: a read in the queue lands before that step, one outside
-   * it lands inside.
+   * it lands inside. A read that reaches the queue only after the probe answered waits behind the
+   * step, which waits for it: the test times out, a red that names no torn read.
    */
   readonly readAcrossStep: (read: () => Promise<Response>) => Promise<Response>;
 };

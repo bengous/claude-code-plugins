@@ -362,6 +362,7 @@ interface LefthookFile {
 
 interface CiStep {
   run?: string;
+  if?: string | boolean;
 }
 
 interface CiFile {
@@ -447,6 +448,30 @@ export function ciCommands(source: string): string[] {
   return steps.map((step) => step.run?.trim() ?? "");
 }
 
+/**
+ * Parity reads `run:` alone, so a kit step's `if:` is held here: none, or the
+ * `kits` output of `affected.ts` naming that very plugin. A typo in the name,
+ * or a step copied from another plugin's, would skip the kit on every event.
+ */
+export function checkKitConditions(source: string): string[] {
+  const parsed: CiFile = parse(source);
+  const steps = parsed.jobs?.validate?.steps ?? [];
+
+  return steps.flatMap((step) => {
+    const plugin = /^claude plugin (?:validate|test) (\S+)$/u.exec(step.run?.trim() ?? "")?.[1];
+
+    if (plugin === undefined || step.if === undefined) return [];
+    const scoped = `contains(fromJSON(steps.scope.outputs.kits), '${plugin}')`;
+
+    return step.if === scoped
+      ? []
+      : [
+          `ci.yml runs ${JSON.stringify(step.run?.trim())} under if: ${JSON.stringify(step.if)}, ` +
+            `expected no if: or ${JSON.stringify(scoped)}`,
+        ];
+  });
+}
+
 if (import.meta.main) {
   const repoRoot = join(import.meta.dir, "..");
   const snapshotPath = join(repoRoot, "tools/oxlint/lint-contract.json");
@@ -475,6 +500,8 @@ if (import.meta.main) {
     .map((path) => path.slice("tools/oxlint/".length))
     .filter((path) => !UNMANIFESTED.has(path));
 
+  const ciSource = await Bun.file(join(repoRoot, ".github/workflows/ci.yml")).text();
+
   const failures = [
     ...checkCategories(config.categories ?? {}),
     ...checkJsPlugins(config.jsPlugins ?? []),
@@ -483,8 +510,9 @@ if (import.meta.main) {
     ...checkCommandParity(
       await expectedCommands(repoRoot),
       lefthookCommands(await Bun.file(join(repoRoot, "lefthook.yml")).text()),
-      ciCommands(await Bun.file(join(repoRoot, ".github/workflows/ci.yml")).text()),
+      ciCommands(ciSource),
     ),
+    ...checkKitConditions(ciSource),
   ];
 
   const manifest = Bun.file(join(vendoredRoot, "CHECKSUMS.sha256"));

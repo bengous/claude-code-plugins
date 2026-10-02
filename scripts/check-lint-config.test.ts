@@ -8,6 +8,7 @@ import {
   checkCommandParity,
   checkIgnorePatterns,
   checkJsPlugins,
+  checkKitConditions,
   checkVendoredIntegrity,
   ciCommands,
   digestTree,
@@ -185,6 +186,39 @@ describe("checkCommandParity", () => {
         ciCommands(ci),
       ),
     ).toEqual([]);
+  });
+});
+
+function ciWith(...steps: string[]): string {
+  return `jobs:\n  validate:\n    steps:\n${steps.join("\n")}\n`;
+}
+
+describe("checkKitConditions", () => {
+  test("passes a kit step with no if:, or with the kits output naming its own plugin", () => {
+    const ci = ciWith(
+      "      - run: claude plugin validate vellum",
+      "      - if: contains(fromJSON(steps.scope.outputs.kits), 'todos')\n        run: claude plugin test todos",
+    );
+
+    expect(checkKitConditions(ci)).toEqual([]);
+  });
+
+  test("fails a kit step whose if: names another plugin, or skips it outright", () => {
+    const ci = ciWith(
+      "      - if: contains(fromJSON(steps.scope.outputs.kits), 'vellm')\n        run: claude plugin test vellum",
+      "      - if: false\n        run: claude plugin validate todos",
+    );
+
+    expect(checkKitConditions(ci)).toEqual([
+      `ci.yml runs "claude plugin test vellum" under if: "contains(fromJSON(steps.scope.outputs.kits), 'vellm')", expected no if: or "contains(fromJSON(steps.scope.outputs.kits), 'vellum')"`,
+      `ci.yml runs "claude plugin validate todos" under if: false, expected no if: or "contains(fromJSON(steps.scope.outputs.kits), 'todos')"`,
+    ]);
+  });
+
+  test("passes against the real ci.yml", async () => {
+    const ci = await Bun.file(join(repoRoot, ".github/workflows/ci.yml")).text();
+
+    expect(checkKitConditions(ci)).toEqual([]);
   });
 });
 
