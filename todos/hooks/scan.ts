@@ -78,7 +78,6 @@ export async function locate(host: Host, filePath: string): Promise<Located | nu
   return { root, path: `${prefix}${filePath.slice(slash + 1)}` };
 }
 
-/** Whether the repository's git attributes keep this path out of the scan, as `git grep` reads them. */
 export async function isExcludedPath(host: Host, root: string, path: string): Promise<boolean> {
   const run = await host.run(
     ["git", "check-attr", "-z", ...EXCLUDING_ATTRIBUTE_NAMES, "--", path],

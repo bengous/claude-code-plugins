@@ -308,6 +308,25 @@ test("an edit in a path marked -todos raises no toast", async ($, on) => {
   expect(toasts).toEqual([]);
 });
 
+test("an item added to TODO.md raises a toast whatever its attributes", async ($, on) => {
+  const path = `${ROOT}/TODO.md`;
+
+  const { toasts } = stubRepo(on, {
+    files: new Map([[path, ["- old item\n", "- old item\n- new item\n"]]]),
+    excludedPaths: new Set(["TODO.md"]),
+  });
+
+  on("tool.call", () => ({ result: { filePath: path } }));
+  await $.tool.call({
+    tool: "Edit",
+    file_path: path,
+    old_string: "- old item",
+    new_string: "- old item\n- new item",
+  });
+
+  expect(toasts).toEqual(["New TODO at TODO.md: new item"]);
+});
+
 test("an edit that fails raises no toast", async ($, on) => {
   const path = `${ROOT}/src/c.ts`;
 

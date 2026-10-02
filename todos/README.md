@@ -30,7 +30,7 @@ A mod runs inside Claude Code with your permissions; read [`hooks/register.ts`](
 
 The comment search is `git grep` over tracked and untracked files, `.gitignore` respected. It skips prose, data and diff files (`.md`, `.txt`, `.json`, `.jsonl`, `.csv`, `.lock`, `.svg`, `.log`, `.patch` and a few more), where a marker is text about TODOs or a transcript quoting one.
 
-It also skips the paths your `.gitattributes` marks `-todos`, and those it marks `linguist-vendored` or `linguist-generated`:
+It also skips the paths your `.gitattributes` marks `-todos`, and those it marks `linguist-vendored` or `linguist-generated`. `TODO.md` is read whatever its attributes.
 
 ```gitattributes
 archive/** -todos
@@ -53,7 +53,6 @@ When Claude edits a file with `Edit` or `Write` and adds a TODO, a toast names i
 ## Limits
 
 - A string is recognized within one line only: a `# TODO` inside a multi-line string, such as a Python `"""` block, is listed.
-- A quote counts as opening a string when another one follows on the line: in `(f 'a) ; TODO it's slow`, the comment reads as inside a string and is left out.
 - Every `git blame` runs once per file that holds a TODO, six at a time, so a repository with hundreds of such files takes seconds before the band opens. Each edit that adds a TODO scans again.
 - A title or comment longer than 200 characters is cut, and control characters are dropped.
 

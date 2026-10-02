@@ -199,16 +199,19 @@ export const register: Register = (on, options) => {
     const added = addedTodos(located.path, before, await $.fs.read(e.file_path), settings.markers);
     const [first, ...others] = added;
 
-    if (first !== undefined && !(await isExcludedPath(hostOf($), located.root, located.path))) {
-      const where = located.path === LIST_FILE ? located.path : `${located.path}:${first.line}`;
+    if (
+      first === undefined ||
+      (located.path !== LIST_FILE && (await isExcludedPath(hostOf($), located.root, located.path)))
+    )
+      return result;
+    const where = located.path === LIST_FILE ? located.path : `${located.path}:${first.line}`;
 
-      $.ui.toast(
-        `New ${first.marker} at ${where}: ${first.text === "" ? "(no description)" : first.text}${others.length > 0 ? ` (+${others.length} more)` : ""}`,
-      );
+    $.ui.toast(
+      `New ${first.marker} at ${where}: ${first.text === "" ? "(no description)" : first.text}${others.length > 0 ? ` (+${others.length} more)` : ""}`,
+    );
 
-      if ((await read($, scanState))?.root === located.root)
-        void refreshOrToast($, settings, located.root, false);
-    }
+    if ((await read($, scanState))?.root === located.root)
+      void refreshOrToast($, settings, located.root, false);
 
     return result;
   });

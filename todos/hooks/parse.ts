@@ -25,32 +25,31 @@ export const SKIPPED_EXTENSIONS: readonly string[] = [
   "diff",
 ];
 
-/** What keeps a path out of the scan in `.gitattributes`: `-todos`, or a path linguist counts as vendored or generated. */
 const EXCLUDING_ATTRIBUTES = [
-  { name: "todos", value: "unset", pathspec: ":(exclude,attr:-todos)" },
-  { name: "linguist-vendored", value: "set", pathspec: ":(exclude,attr:linguist-vendored)" },
-  {
-    name: "linguist-vendored",
-    value: "true",
-    pathspec: ":(exclude,attr:linguist-vendored=true)",
-  },
-  { name: "linguist-generated", value: "set", pathspec: ":(exclude,attr:linguist-generated)" },
-  {
-    name: "linguist-generated",
-    value: "true",
-    pathspec: ":(exclude,attr:linguist-generated=true)",
-  },
+  { name: "todos", value: "unset" },
+  { name: "linguist-vendored", value: "set" },
+  { name: "linguist-vendored", value: "true" },
+  { name: "linguist-generated", value: "set" },
+  { name: "linguist-generated", value: "true" },
 ] as const;
 
 export const EXCLUDING_ATTRIBUTE_NAMES: readonly string[] = [
   ...new Set(EXCLUDING_ATTRIBUTES.map((attribute) => attribute.name)),
 ];
 
+function attributeRequirement(name: string, value: string): string {
+  if (value === "unset") return `-${name}`;
+
+  return value === "set" ? name : `${name}=${value}`;
+}
+
 export const ATTRIBUTE_PATHSPECS: readonly string[] = EXCLUDING_ATTRIBUTES.map(
-  (attribute) => attribute.pathspec,
+  ({ name, value }) => `:(exclude,attr:${attributeRequirement(name, value)})`,
 );
 
 const QUOTES = ['"', "'", "`"];
+
+const WORD_CHARACTER = /[\p{L}\p{N}_]/u;
 
 export type CommentTodo = {
   readonly marker: string;
@@ -85,7 +84,7 @@ const LINE_BREAK = /\r?\n/u;
 // The engine refuses a whole band whose text holds a control character or passes 10,000 characters.
 const MAX_TEXT = 200;
 
-const NEVER = /(?!)/u;
+const NEVER = /(?!)/uy;
 
 const ISSUE_TAG = /^#(\d+)$/u;
 
@@ -105,7 +104,7 @@ export function commentPattern(markers: readonly string[]): RegExp {
 
   return new RegExp(
     String.raw`(?:^\s*\*+|(?:^|[\s(){}[\];,])(?:\/\/+|\/\*+|#+|--+|<!--|;+))[\s!]*(${alternatives})\b(?:\(([^)]*)\))?:?\s*(.*)$`,
-    "u",
+    "uy",
   );
 }
 
@@ -126,37 +125,48 @@ export function cleanText(text: string): string {
 }
 
 /**
- * Whether a string is still open at `end`, as in a test fixture's `"// TODO"`. A quote opens a
- * string only when the line holds another one after it, so a Rust lifetime or a Lisp quote does not.
+ * A string closes at its quote unescaped and not followed by a letter, so the `'` of `don't` or of
+ * a Rust lifetime closes nothing; -1 when it does not close on this line.
  */
-function isInString(text: string, end: number): boolean {
-  let open: string | null = null;
+function stringEnd(line: string, start: number): number {
+  const quote = line.charAt(start);
 
-  for (let index = 0; index < end; index += 1) {
-    const character = text.charAt(index);
+  for (let index = start + 1; index < line.length; index += 1) {
+    const character = line.charAt(index);
 
     if (character === "\\") index += 1;
-    else if (character === open) open = null;
-    else if (open === null && QUOTES.includes(character) && text.includes(character, index + 1))
-      open = character;
+    else if (character === quote && !WORD_CHARACTER.test(line.charAt(index + 1))) return index;
   }
 
-  return open !== null;
+  return -1;
 }
 
+/** The first comment the pattern finds outside a string: a test fixture's `"// TODO"` is not one. */
 export function commentTodo(text: string, pattern: RegExp): CommentTodo | null {
   const line = text.endsWith("\r") ? text.slice(0, -1) : text;
-  const match = pattern.exec(line);
-  const marker = match?.[1];
 
-  if (match === null || marker === undefined || isInString(line, match.index)) return null;
-  const tag = cleanText(match[2] ?? "");
+  for (let index = 0; index < line.length; index += 1) {
+    pattern.lastIndex = index;
+    const match = pattern.exec(line);
+    const marker = match?.[1];
 
-  return {
-    marker,
-    tag: tag === "" ? null : tag,
-    text: cleanText((match[3] ?? "").split(COMMENT_END)[0] ?? ""),
-  };
+    if (match !== null && marker !== undefined) {
+      const tag = cleanText(match[2] ?? "");
+
+      return {
+        marker,
+        tag: tag === "" ? null : tag,
+        text: cleanText((match[3] ?? "").split(COMMENT_END)[0] ?? ""),
+      };
+    }
+
+    const character = line.charAt(index);
+
+    if (character === "\\") index += 1;
+    else if (QUOTES.includes(character)) index = Math.max(index, stringEnd(line, index));
+  }
+
+  return null;
 }
 
 /** `git grep -z -n` rows: path, NUL, line number, NUL, the line's text. */

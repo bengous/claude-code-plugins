@@ -3,6 +3,7 @@ import { describe, expect, test } from "bun:test";
 import type { Todo } from "../types/index.d.ts";
 import {
   addedTodos,
+  ATTRIBUTE_PATHSPECS,
   commentPattern,
   commentTodo,
   DEFAULT_MARKERS,
@@ -62,7 +63,18 @@ describe("commentTodo", () => {
     ['x = f("a") // TODO: cache', { marker: "TODO", tag: null, text: "cache" }],
     ['print("it\'s") # TODO: escape', { marker: "TODO", tag: null, text: "escape" }],
     [String.raw`s = "say \"hi\"" // TODO: escaped`, { marker: "TODO", tag: null, text: "escaped" }],
-    ["fn f(&'a self) { // TODO: lifetimes", { marker: "TODO", tag: null, text: "lifetimes" }],
+    [
+      "fn f(&'a self) { // TODO: don't panic here",
+      { marker: "TODO", tag: null, text: "don't panic here" },
+    ],
+    ["(mapcar #'car xs) ; TODO: it's slow", { marker: "TODO", tag: null, text: "it's slow" }],
+    ["let x' = 1 -- TODO: isn't strict", { marker: "TODO", tag: null, text: "isn't strict" }],
+    [
+      "<p>Don't do this</p> <!-- TODO: it's broken -->",
+      { marker: "TODO", tag: null, text: "it's broken" },
+    ],
+    ['throw new Error("see // TODO"); // TODO: real', { marker: "TODO", tag: null, text: "real" }],
+    [String.raw`let p = r"C:\dir\"; // TODO: raw`, { marker: "TODO", tag: null, text: "raw" }],
     [
       "# TODO: bell\u0007 and\tescape\u001B",
       { marker: "TODO", tag: null, text: "bell and escape" },
@@ -299,6 +311,16 @@ describe("settings and links", () => {
     const stdout = `a.ts\0${name}\0${value}\0a.ts\0other\0unset\0`;
 
     expect(isExcludedByAttributes(stdout)).toBe(isExcluded);
+  });
+
+  test("the grep's attribute pathspecs leave out the values isExcludedByAttributes reads", () => {
+    expect(ATTRIBUTE_PATHSPECS).toEqual([
+      ":(exclude,attr:-todos)",
+      ":(exclude,attr:linguist-vendored)",
+      ":(exclude,attr:linguist-vendored=true)",
+      ":(exclude,attr:linguist-generated)",
+      ":(exclude,attr:linguist-generated=true)",
+    ]);
   });
 });
 
