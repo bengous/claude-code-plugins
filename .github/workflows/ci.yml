@@ -18,9 +18,12 @@ permissions:
 # works on a pull request from this repository alone: a fork's gets a read-only token,
 # which cannot take the label off. No concurrency group: a request never cancels another.
 jobs:
-  # No `if:`, whatever the label: a job an `if:` skips reports success to a required check,
-  # and `main` requires `validate`, so a skipped one beside a red one could hide it.
+  # No job `if:`, whatever the label: a job an `if:` skips reports success to a required check,
+  # and `main` requires `validate`, so a skipped one beside a red one could hide it. A pull
+  # request's run is scoped by its steps instead, and named apart: only a push or a dispatch runs
+  # every suite and kit, under the name `main` requires.
   validate:
+    name: ${{ github.event_name == 'pull_request' && 'validate (scoped)' || 'validate' }}
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -44,10 +47,16 @@ jobs:
       - name: Install vellum dependencies
         run: bun install --cwd vellum --frozen-lockfile --ignore-scripts
 
-      # `bun test` alone skips dot directories, so the repo's own hooks need an
-      # explicit path. Together the two runs cover every test file.
+      # What the change reaches (`scripts/affected.ts`): a pull request's against its base, every
+      # suite and kit on any other event. The steps below read `kits`, never interpolate it.
+      - name: Scope the suites and kits to the change
+        id: scope
+        run: bun ./scripts/affected.ts github-output
+
+      # The suites the change reaches, `scripts/` always; on a push or a dispatch every one, the
+      # repo's own hooks in a run of their own, since `bun test` skips dot directories.
       - name: Run test suites
-        run: bun test --parallel && bun test --parallel ./.claude/hooks/*.test.ts
+        run: bun ./scripts/affected.ts test
 
       # The six gates below are the same commands the pre-commit jobs run, so a
       # `--no-verify` commit gets the identical verdict here.
@@ -78,15 +87,19 @@ jobs:
         run: bun ./scripts/validate-frontmatter.ts --all
 
       - name: Validate the vellum hooks module
+        if: contains(fromJSON(steps.scope.outputs.kits), 'vellum')
         run: claude plugin validate vellum
 
       - name: Test the vellum hooks module
+        if: contains(fromJSON(steps.scope.outputs.kits), 'vellum')
         run: claude plugin test vellum
 
       - name: Validate the todos hooks module
+        if: contains(fromJSON(steps.scope.outputs.kits), 'todos')
         run: claude plugin validate todos
 
       - name: Test the todos hooks module
+        if: contains(fromJSON(steps.scope.outputs.kits), 'todos')
         run: claude plugin test todos
 
       # main is a delayed fast-forward pointer on dev's history: releases move it
@@ -102,12 +115,44 @@ jobs:
           fi
           echo "main is an ancestor of dev: $(git rev-parse origin/main)"
 
+  # On a pull request, what the change reaches, for `win32 (scoped)`. `affected.ts` imports
+  # nothing `bun install` brings, so the job installs bun alone.
+  scope:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    outputs:
+      all: ${{ steps.scope.outputs.all }}
+      units: ${{ steps.scope.outputs.units }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0 # the merge-base with the pull request's base
+
+      - name: Set up tools (bun via mise)
+        uses: jdx/mise-action@v4
+        with:
+          install_args: bun
+
+      - name: Scope the suites and kits to the change
+        id: scope
+        run: bun ./scripts/affected.ts github-output
+
   # Vellum on Windows: its `bun:test` suites and the hooks module's kit, where Linux misses what
-  # Windows refuses (a folder a process holds cannot be renamed). No `if:`, as `validate`: `main`
-  # requires it. The repository's own tooling (`scripts/`, `.claude/hooks`, the shell linters) is
-  # not run here.
+  # Windows refuses (a folder a process holds cannot be renamed). A pull request that does not
+  # reach `vellum/` skips it: `main` does not require `win32` today
+  # (`docs/repo-ops/protections.md`), and a pull request's run is named `win32 (scoped)`, a name
+  # no ruleset requires. `always()` runs it on a push or a dispatch, where `scope` is skipped. The
+  # repository's own tooling (`scripts/`, `.claude/hooks`, the shell linters) is not run here.
   win32:
-    name: win32
+    name: ${{ github.event_name == 'pull_request' && 'win32 (scoped)' || 'win32' }}
+    needs: scope
+    if: >-
+      always()
+      && (github.event_name != 'pull_request'
+      || (needs.scope.result == 'success'
+      && (needs.scope.outputs.all == 'true'
+      || contains(fromJSON(needs.scope.outputs.units), 'vellum'))))
     runs-on: windows-latest
     steps:
       - name: Checkout

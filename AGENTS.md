@@ -36,7 +36,7 @@ bun run --cwd vellum e2e                               # vellum's browser suite,
 
 `vellum/` carries `package.json` + `bun.lock`: `bun install --cwd vellum --frozen-lockfile` before its tests or its server, as Claude Code does at the plugin's cache.
 
-Everything above but the browser suite also runs in `pre-push` and CI, `pre-push` scoping the suites and kits to what the change reaches (`scripts/affected.ts`); `pre-commit` runs all of it except `bun test`. The browser suite runs in CI on request only, the `e2e` label on a PR or `workflow_dispatch`, and on demand locally, in no hook. Job list, order, and argument differences: [Local checks and CI](docs/repo-ops/checks.md).
+Everything above but the browser suite also runs in `pre-push` and CI, the suites and kits scoped to what the change reaches (`scripts/affected.ts`) in `pre-push` and on a pull request, everything on a push or a dispatch; `pre-commit` runs all of it except `bun test`. The browser suite runs in CI on request only, the `e2e` label on a PR or `workflow_dispatch`, and on demand locally, in no hook. Job list, order, and argument differences: [Local checks and CI](docs/repo-ops/checks.md).
 
 ## Code Standards
 
