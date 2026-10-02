@@ -358,7 +358,7 @@
     {
       "name": "todos",
       "description": "Shows the repository's TODOs in a band above the prompt, newest first: TODO.md items and TODO/FIXME/HACK code comments dated with git blame, a Mine filter, issue links, and a toast when an edit adds one",
-      "version": "1.0.0",
+      "version": "1.1.0",
       "author": {
         "name": "Augustin BENGOLEA",
         "email": "bengous@protonmail.com"

@@ -9,6 +9,7 @@ import {
   displayText,
   formatAge,
   githubWebUrl,
+  isExcludedByAttributes,
   isMine,
   isScannedPath,
   issueNumber,
@@ -58,6 +59,10 @@ describe("commentTodo", () => {
     ["/* TODO: fix */ int x = 1;", { marker: "TODO", tag: null, text: "fix" }],
     ["foo();// TODO: glued", { marker: "TODO", tag: null, text: "glued" }],
     ["}// TODO", { marker: "TODO", tag: null, text: "" }],
+    ['x = f("a") // TODO: cache', { marker: "TODO", tag: null, text: "cache" }],
+    ['print("it\'s") # TODO: escape', { marker: "TODO", tag: null, text: "escape" }],
+    [String.raw`s = "say \"hi\"" // TODO: escaped`, { marker: "TODO", tag: null, text: "escaped" }],
+    ["fn f(&'a self) { // TODO: lifetimes", { marker: "TODO", tag: null, text: "lifetimes" }],
     [
       "# TODO: bell\u0007 and\tescape\u001B",
       { marker: "TODO", tag: null, text: "bell and escape" },
@@ -73,6 +78,11 @@ describe("commentTodo", () => {
     "see https://example.com/#TODO",
     "Avoid leaving lingering `// TODO: Lorem Ipsum` comments",
     'const label = "# TODO";',
+    '      "    // TODO(doctor): mcp/skills checks",',
+    '    ["foo();// TODO: glued", { marker: "TODO" }],',
+    String.raw`  "src/a.ts\u000010\u0000  // TODO(#12): newer comment",`,
+    "x = 'a # TODO'",
+    "const body = `  # TODO in a template`;",
   ])("ignores %s", (line) => {
     expect(commentTodo(line, pattern)).toBeNull();
   });
@@ -275,6 +285,20 @@ describe("settings and links", () => {
     expect(isScannedPath("src/a.ts")).toBe(true);
     expect(isScannedPath("bin/rewrite-authors")).toBe(true);
     expect(isScannedPath("dir.v2/.bashrc")).toBe(true);
+    expect(isScannedPath("patches/fix.patch")).toBe(false);
+  });
+
+  test.each([
+    ["todos", "unset", true],
+    ["linguist-vendored", "set", true],
+    ["linguist-generated", "true", true],
+    ["todos", "unspecified", false],
+    ["todos", "set", false],
+    ["linguist-vendored", "false", false],
+  ])("isExcludedByAttributes: %s %s is %p", (name, value, isExcluded) => {
+    const stdout = `a.ts\0${name}\0${value}\0a.ts\0other\0unset\0`;
+
+    expect(isExcludedByAttributes(stdout)).toBe(isExcluded);
   });
 });
 

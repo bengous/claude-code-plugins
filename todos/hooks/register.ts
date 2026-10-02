@@ -15,7 +15,7 @@ import {
   shortenStart,
   sourceLabel,
 } from "./parse.ts";
-import { type Host, locate, repoRoot, type ScanResult, scanRepo } from "./scan.ts";
+import { type Host, isExcludedPath, locate, repoRoot, type ScanResult, scanRepo } from "./scan.ts";
 
 const NO_SCAN: TodoScan | null = null;
 
@@ -199,7 +199,7 @@ export const register: Register = (on, options) => {
     const added = addedTodos(located.path, before, await $.fs.read(e.file_path), settings.markers);
     const [first, ...others] = added;
 
-    if (first !== undefined) {
+    if (first !== undefined && !(await isExcludedPath(hostOf($), located.root, located.path))) {
       const where = located.path === LIST_FILE ? located.path : `${located.path}:${first.line}`;
 
       $.ui.toast(

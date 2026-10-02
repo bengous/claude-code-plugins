@@ -21,7 +21,36 @@ export const SKIPPED_EXTENSIONS: readonly string[] = [
   "svg",
   "log",
   "map",
+  "patch",
+  "diff",
 ];
+
+/** What keeps a path out of the scan in `.gitattributes`: `-todos`, or a path linguist counts as vendored or generated. */
+const EXCLUDING_ATTRIBUTES = [
+  { name: "todos", value: "unset", pathspec: ":(exclude,attr:-todos)" },
+  { name: "linguist-vendored", value: "set", pathspec: ":(exclude,attr:linguist-vendored)" },
+  {
+    name: "linguist-vendored",
+    value: "true",
+    pathspec: ":(exclude,attr:linguist-vendored=true)",
+  },
+  { name: "linguist-generated", value: "set", pathspec: ":(exclude,attr:linguist-generated)" },
+  {
+    name: "linguist-generated",
+    value: "true",
+    pathspec: ":(exclude,attr:linguist-generated=true)",
+  },
+] as const;
+
+export const EXCLUDING_ATTRIBUTE_NAMES: readonly string[] = [
+  ...new Set(EXCLUDING_ATTRIBUTES.map((attribute) => attribute.name)),
+];
+
+export const ATTRIBUTE_PATHSPECS: readonly string[] = EXCLUDING_ATTRIBUTES.map(
+  (attribute) => attribute.pathspec,
+);
+
+const QUOTES = ['"', "'", "`"];
 
 export type CommentTodo = {
   readonly marker: string;
@@ -96,11 +125,31 @@ export function cleanText(text: string): string {
   return plain.length > MAX_TEXT ? `${plain.slice(0, MAX_TEXT - 1)}…` : plain;
 }
 
+/**
+ * Whether a string is still open at `end`, as in a test fixture's `"// TODO"`. A quote opens a
+ * string only when the line holds another one after it, so a Rust lifetime or a Lisp quote does not.
+ */
+function isInString(text: string, end: number): boolean {
+  let open: string | null = null;
+
+  for (let index = 0; index < end; index += 1) {
+    const character = text.charAt(index);
+
+    if (character === "\\") index += 1;
+    else if (character === open) open = null;
+    else if (open === null && QUOTES.includes(character) && text.includes(character, index + 1))
+      open = character;
+  }
+
+  return open !== null;
+}
+
 export function commentTodo(text: string, pattern: RegExp): CommentTodo | null {
-  const match = pattern.exec(text.endsWith("\r") ? text.slice(0, -1) : text);
+  const line = text.endsWith("\r") ? text.slice(0, -1) : text;
+  const match = pattern.exec(line);
   const marker = match?.[1];
 
-  if (match === null || marker === undefined) return null;
+  if (match === null || marker === undefined || isInString(line, match.index)) return null;
   const tag = cleanText(match[2] ?? "");
 
   return {
@@ -242,6 +291,22 @@ export function isScannedPath(path: string): boolean {
   const dot = name.lastIndexOf(".");
 
   return dot <= 0 || !SKIPPED_EXTENSIONS.includes(name.slice(dot + 1).toLowerCase());
+}
+
+/** `git check-attr -z` rows: path, attribute and value, each followed by NUL. */
+export function isExcludedByAttributes(stdout: string): boolean {
+  const fields = stdout.split("\0");
+
+  for (let index = 0; index + 2 < fields.length; index += 3) {
+    const [name, value] = [fields[index + 1], fields[index + 2]];
+
+    if (
+      EXCLUDING_ATTRIBUTES.some((attribute) => attribute.name === name && attribute.value === value)
+    )
+      return true;
+  }
+
+  return false;
 }
 
 export type AddedTodo = CommentTodo & { readonly line: number };

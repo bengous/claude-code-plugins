@@ -64,6 +64,7 @@ function stubRepo(
     isRepo = true,
     files = new Map([[`${ROOT}/TODO.md`, ["- list item from TODO.md\n"]]]),
     grepGate = Promise.resolve(),
+    excludedPaths = new Set<string>(),
   } = {},
 ): Repo {
   const clock = mock.clock(on, { now: NOW });
@@ -110,6 +111,12 @@ function stubRepo(
         return run(`${ME}\n`);
       case "remote":
         return run("git@github.com:bengous/claude-code-plugins.git\n");
+      case "check-attr": {
+        const path = e.argv.at(-1) ?? "";
+
+        return run(`${path}\0todos\0${excludedPaths.has(path) ? "unset" : "unspecified"}\0`);
+      }
+
       default:
         return run(blamed.get(e.argv.at(-1) ?? "") ?? "");
     }
@@ -280,6 +287,25 @@ test("an edit that adds a TODO comment raises a toast", async ($, on) => {
   });
 
   expect(toasts).toEqual(["New TODO at src/c.ts:2: added by Claude"]);
+});
+
+test("an edit in a path marked -todos raises no toast", async ($, on) => {
+  const path = `${ROOT}/archive/c.ts`;
+
+  const { toasts } = stubRepo(on, {
+    files: new Map([[path, ["code();\n", "code();\n// TODO: archived\n"]]]),
+    excludedPaths: new Set(["archive/c.ts"]),
+  });
+
+  on("tool.call", () => ({ result: { filePath: path } }));
+  await $.tool.call({
+    tool: "Edit",
+    file_path: path,
+    old_string: "code();",
+    new_string: "code();\n// TODO: archived",
+  });
+
+  expect(toasts).toEqual([]);
 });
 
 test("an edit that fails raises no toast", async ($, on) => {

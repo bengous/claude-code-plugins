@@ -1,7 +1,10 @@
 import type { Todo } from "../types/index.d.ts";
 import {
+  ATTRIBUTE_PATHSPECS,
+  EXCLUDING_ATTRIBUTE_NAMES,
   githubWebUrl,
   type GrepHit,
+  isExcludedByAttributes,
   LIST_FILE,
   type Origin,
   parseBlame,
@@ -75,6 +78,18 @@ export async function locate(host: Host, filePath: string): Promise<Located | nu
   return { root, path: `${prefix}${filePath.slice(slash + 1)}` };
 }
 
+/** Whether the repository's git attributes keep this path out of the scan, as `git grep` reads them. */
+export async function isExcludedPath(host: Host, root: string, path: string): Promise<boolean> {
+  const run = await host.run(
+    ["git", "check-attr", "-z", ...EXCLUDING_ATTRIBUTE_NAMES, "--", path],
+    root,
+  );
+
+  if (run.exitCode !== 0) throw new Error(`git check-attr ${path} failed: ${run.stderr.trim()}`);
+
+  return isExcludedByAttributes(run.stdout);
+}
+
 async function grepComments(
   host: Host,
   root: string,
@@ -99,6 +114,7 @@ async function grepComments(
       "--",
       ".",
       ...SKIPPED_EXTENSIONS.map((extension) => `:(exclude,icase)*.${extension}`),
+      ...ATTRIBUTE_PATHSPECS,
     ],
     root,
   );

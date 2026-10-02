@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import { type Host, locate, repoRoot, type RunResult, scanRepo } from "./scan.ts";
+import { type Host, isExcludedPath, locate, repoRoot, type RunResult, scanRepo } from "./scan.ts";
 
 const ROOT = "/work/repo";
 
@@ -199,6 +199,10 @@ describe("scanRepo", () => {
     expect(grep).toContain("--no-color");
     expect(grep).toContain(":(exclude,icase)*.md");
     expect(grep).toContain(":(exclude,icase)*.jsonl");
+    expect(grep).toContain(":(exclude,icase)*.patch");
+    expect(grep).toContain(":(exclude,attr:-todos)");
+    expect(grep).toContain(":(exclude,attr:linguist-vendored)");
+    expect(grep).toContain(":(exclude,attr:linguist-generated=true)");
     expect(grep.join(" ")).toContain("-e TODO -e FIXME");
     expect(calls.find((argv) => argv[1] === "blame")).toEqual([
       "git",
@@ -285,6 +289,47 @@ describe("locate", () => {
       await locate(answering(failed(128, "fatal: not a git repository")), "/tmp/a.ts"),
     ).toBeNull();
     expect(await locate(answering(new Error("ENOENT")), "/gone/a.ts")).toBeNull();
+  });
+});
+
+describe("isExcludedPath", () => {
+  test("asks git check-attr for the excluding attributes from the root", async () => {
+    const asked = answering(ok("archive/a.py\0todos\0unset\0"));
+    const argv: (readonly string[])[] = [];
+
+    const host: Host = {
+      ...asked,
+      run: (args, cwd) => {
+        argv.push(args);
+
+        return asked.run(args, cwd);
+      },
+    };
+
+    expect(await isExcludedPath(host, ROOT, "archive/a.py")).toBe(true);
+    expect(asked.cwds).toEqual([ROOT]);
+    expect(argv[0]).toEqual([
+      "git",
+      "check-attr",
+      "-z",
+      "todos",
+      "linguist-vendored",
+      "linguist-generated",
+      "--",
+      "archive/a.py",
+    ]);
+  });
+
+  test("is false for a path no attribute marks", async () => {
+    expect(await isExcludedPath(answering(ok("a.ts\0todos\0unspecified\0")), ROOT, "a.ts")).toBe(
+      false,
+    );
+  });
+
+  test("throws when git check-attr fails", () => {
+    expect(
+      isExcludedPath(answering(failed(128, "fatal: not a git repository")), ROOT, "a.ts"),
+    ).rejects.toThrow("git check-attr a.ts failed: fatal: not a git repository");
   });
 });
 
