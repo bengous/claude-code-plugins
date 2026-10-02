@@ -174,7 +174,7 @@ for (const mp of marketplace.plugins) {
   // Check 6: Required fields present
   report(validateRequiredFields(mp, pluginJson));
 
-  // Check 7: .claude-plugin/ holds nothing but plugin.json
+  // Check 7: .claude-plugin/ holds nothing but plugin.json and Claude Code's types/
   report(validatePluginDirContents(readdirSync(join(pluginDir, ".claude-plugin"))));
 
   // Check 8: no machine-specific home paths in shipped code

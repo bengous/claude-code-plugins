@@ -446,7 +446,7 @@ export const register: Register = (on) => {
     waits.delete(id);
 
     if (overrun !== undefined || failedWaiting.delete(id)) return { result: ANSWER_BY_PROMPT };
-    const name: string = e.tool;
+    const name = e.tool;
 
     if (!EXTENSION_TOOLS.some(({ tool }) => `mcp__vellum__${tool.name}` === name)) return next(e);
 

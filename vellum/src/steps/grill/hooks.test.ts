@@ -24,9 +24,7 @@ const ASK = "mcp__vellum__grill_ask";
 
 const PROPOSE = "mcp__vellum__propose";
 
-// SAFETY: the generated contract's tool names predate AskUserQuestion, which the engine raises
-// `tool.call` for all the same; the cast borrows the MCP name type, whose input is open, and changes no value.
-const ASK_USER = "AskUserQuestion" as `mcp__${string}__${string}`;
+const ASK_USER = "AskUserQuestion";
 
 const VELLUM = { kind: "plugin", name: "vellum" } as const;
 
