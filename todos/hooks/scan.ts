@@ -45,7 +45,7 @@ type Grepped = { readonly hits: readonly GrepHit[]; readonly isTruncated: boolea
 
 export type Located = { readonly root: string; readonly path: string };
 
-// An untracked file, or a repository with no commit yet, has no history: its lines count as uncommitted.
+// An untracked file, or a repository with no commit yet, has no history, so its lines count as uncommitted.
 const NO_HISTORY = /no such path|no such ref/u;
 
 /** What a scan needs from the machine; the hooks module builds it from `$`, which cannot cross an import. */
