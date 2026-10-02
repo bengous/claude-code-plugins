@@ -2,6 +2,16 @@
 
 What each version of vellum changed for the person using it, newest first.
 
+## 0.17.1 - 2026-10-02
+
+### Changed
+
+- Claude Code's npm `latest` channel loads vellum without `CLAUDE_CODE_ENABLE_FUNCTION_HOOKS=1`; an older build, `stable` included until it catches up, still needs it.
+
+### Fixed
+
+- When the reviewer's answer reaches Claude as a prompt, the grill records Claude's answer again.
+
 ## 0.17.0 - 2026-09-29
 
 ### Added
