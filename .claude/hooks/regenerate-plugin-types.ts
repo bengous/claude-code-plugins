@@ -1,19 +1,21 @@
 #!/usr/bin/env bun
 
 /**
- * SessionStart hook — regenerates `vellum/types/claude-code.d.ts` when its
- * header names another Claude Code version than `claude --version`.
+ * SessionStart hook — regenerates `vellum/types/claude-code.d.ts` and
+ * `vellum/types/claude-code-tools.d.ts` when the first one's header names
+ * another Claude Code version than `claude --version`.
  *
- * Only a checkout on `dev` is rewritten: the regenerated file stays
+ * Only a checkout on `dev` is rewritten: the regenerated files stay
  * uncommitted, and a dirty file stops `git pull` and `git rebase` in the
  * feature checkouts. There the hook reports the drift and writes nothing.
  *
- * `/plugin-types` also writes `-mcp` and `-plugins` files that describe the
- * developer's own session, so it writes into a temp directory and the hook
- * copies `claude-code.d.ts` back.
+ * Claude Code writes a mod's types into its `.claude-plugin/types/` as it
+ * loads it with `--plugin-dir`. The hook loads an empty mod from a temp
+ * directory, logged out, and copies back the core and the tools; the MCP
+ * file describes a session's own servers.
  */
 
-import { copyFile, mkdtemp, rm } from "node:fs/promises";
+import { copyFile, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -24,15 +26,21 @@ import { HOOK_EXIT } from "./hook-io.ts";
 
 export const TYPES_PATH = "vellum/types/claude-code.d.ts";
 
+export const TOOLS_TYPES_PATH = "vellum/types/claude-code-tools.d.ts";
+
 export const REGENERATING_BRANCH = "dev";
 
 const HEADER_PATTERN = /^\/\/ Written by Claude Code (\S+)\.$/u;
 
 const VERSION_PATTERN = /^(\S+) \(Claude Code\)$/u;
 
-// The headless run is a session of its own: its SessionStart would run this
-// hook again.
-const NO_HOOKS_SETTINGS = JSON.stringify({ disableAllHooks: true });
+const EMPTY_MOD = {
+  ".claude-plugin/plugin.json": JSON.stringify({ name: "plugin-types", version: "0.0.0" }),
+  "hooks/hooks.json": JSON.stringify({ modules: ["./register.js"] }),
+  "hooks/register.js": "export function register() {}\n",
+} as const;
+
+const LOGIN_VARIABLES = ["ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "CLAUDE_CODE_OAUTH_TOKEN"];
 
 export function headerVersion(firstLine: string): string {
   const version = HEADER_PATTERN.exec(firstLine)?.[1];
@@ -57,30 +65,49 @@ export function installedVersion(versionOutput: string): string {
 }
 
 async function regenerate(root: string): Promise<void> {
-  const outDir = await mkdtemp(join(tmpdir(), "plugin-types-"));
-  const generated = join(outDir, "claude-code.d.ts");
+  const scratch = await mkdtemp(join(tmpdir(), "plugin-types-"));
+  const mod = join(scratch, "mod");
+  const config = join(scratch, "config");
+  const written = join(mod, ".claude-plugin", "types");
+  const core = join(written, "claude-code", "index.d.ts");
+  const tools = join(written, "claude-code-tools", "index.d.ts");
 
   try {
-    // Print mode appends a piped stdin to the prompt, and only
-    // CLAUDE_CODE_ENABLE_FUNCTION_HOOKS registers `/plugin-types`: without it
-    // the prompt goes to the model, and the run still exits 0.
+    for (const [path, content] of Object.entries(EMPTY_MOD)) {
+      await mkdir(join(mod, path, ".."), { recursive: true });
+      await writeFile(join(mod, path), content);
+    }
+
+    await mkdir(config);
+
+    // Claude Code writes the types before it checks the login, so an empty
+    // config stops the run there: no model call, and tool types that follow
+    // the build rather than an account's features. The scratch directory
+    // holds no settings, so the run's own SessionStart never reaches this hook.
+    const env = Object.fromEntries(
+      Object.entries({ ...process.env, CLAUDE_CONFIG_DIR: config }).filter(
+        ([name]) => !LOGIN_VARIABLES.includes(name),
+      ),
+    );
+
     const run =
-      await $`claude -p --setting-sources project --settings ${NO_HOOKS_SETTINGS} --no-session-persistence ${`/plugin-types ${outDir}`} < /dev/null`
-        .cwd(root)
-        .env({ ...process.env, CLAUDE_CODE_ENABLE_FUNCTION_HOOKS: "1" })
+      await $`claude -p --setting-sources project --no-session-persistence --plugin-dir ${mod} ok < /dev/null`
+        .cwd(scratch)
+        .env(env)
         .nothrow()
         .quiet();
 
-    if (run.exitCode !== 0 || !(await Bun.file(generated).exists())) {
+    if (!(await Bun.file(core).exists()) || !(await Bun.file(tools).exists())) {
       const output = `${run.stdout.toString()}${run.stderr.toString()}`.trim();
       throw new Error(
-        `/plugin-types exited ${run.exitCode} without writing claude-code.d.ts: ${output}`,
+        `claude -p --plugin-dir exited ${run.exitCode} without writing the mod's types: ${output}`,
       );
     }
 
-    await copyFile(generated, join(root, TYPES_PATH));
+    await copyFile(core, join(root, TYPES_PATH));
+    await copyFile(tools, join(root, TOOLS_TYPES_PATH));
   } finally {
-    await rm(outDir, { recursive: true, force: true });
+    await rm(scratch, { recursive: true, force: true });
   }
 }
 

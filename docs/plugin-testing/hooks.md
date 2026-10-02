@@ -39,23 +39,25 @@ under the [loader rules](hook-runtime.md#module-loader).
   `--plugin-dir` nothing installs: run `bun install --cwd <plugin>` yourself,
   as `scripts/run-gates.ts` does for `vellum`.
 
-- `CLAUDE_CODE_ENABLE_FUNCTION_HOOKS=1 claude plugin validate <plugin>` reads
+- `claude plugin validate <plugin>` reads
   the module's source and prints what it hooks (`skill.prompt{skill=...}`)
   and every `$` call with the function that makes it. It needs no login and
   runs in the repo's gates. Run it first: a hook the engine does not list is a
   hook that will not fire.
 
-- `/plugin-types <plugin>/types` writes the contract of the running build;
-  regenerate it after each Claude Code update. It runs headless too:
-  `CLAUDE_CODE_ENABLE_FUNCTION_HOOKS=1 claude -p --setting-sources project "/plugin-types <plugin>/types"`;
-  without the variable the command does not exist, and the prompt goes to
-  the model. Keep
-  `claude-code.d.ts` only; the `-mcp` and `-plugins` files describe the
-  developer's own session.
+- Claude Code writes the contract of the running build into
+  `<plugin>/.claude-plugin/types/` each time it loads the plugin with
+  `--plugin-dir`, git-ignored (official docs: `plugins/mods/create` § Get
+  type definitions for your version). A logged-out `claude -p --plugin-dir`
+  run writes it too, then stops on the login, with no model call:
+  `.claude/hooks/regenerate-plugin-types.ts` copies vellum's that way. Keep
+  `claude-code` and `claude-code-tools`; `claude-code-mcp` describes the
+  developer's own servers, and a logged-in run's tool types follow the
+  account's features.
 
-- Launch with `CLAUDE_CODE_ENABLE_FUNCTION_HOOKS=1` until function hooks ship
-  publicly. Without it the module never loads and the plugin's skills run as
-  if it were not there; with it the debug log says
+- Mods load by default. Where they are off (`--bare`, `--safe-mode`,
+  `disableAllHooks`, an organization's policy) the module never loads and
+  the plugin's skills run as if it were not there; loaded, the debug log says
   `hooks module <name> loaded (worker, environment 1, tier user); events: ...`.
 
 - To read that line headless, give `--debug-file <path>` and the prompt on

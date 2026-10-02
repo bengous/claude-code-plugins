@@ -3,7 +3,7 @@
 > Source: https://github.com/anthropics/claude-code/issues/91870 (community update, Anthropic, 2026-09-09).
 > Function hooks early access (`CLAUDE_CODE_ENABLE_FUNCTION_HOOKS=1`); a snapshot of the API on that date.
 > Text transcribed verbatim from the SVG attached to the issue; tables and headings are layout only.
-> Where the sheet and the generated `claude-code.d.ts` disagree, the types win: they come from the installed binary (`/plugin-types`).
+> Where the sheet and the generated `claude-code.d.ts` disagree, the types win: Claude Code writes them from the installed binary (`docs/plugin-testing/hooks.md`).
 
 PRIMITIVE: FUNCTION HOOK · PRODUCT: CLAUDE MOD · ANTHROPIC · 2026-09-09
 

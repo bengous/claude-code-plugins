@@ -6,7 +6,7 @@ export default defineConfig({
     "node_modules/**",
     // Vendored third party, upstream owns the style.
     "tools/oxlint/anti-slop/**",
-    // Written by `/plugin-types`, regenerated at each Claude Code update.
+    // Written by Claude Code, regenerated at each update (regenerate-plugin-types.ts).
     "vellum/types/**",
   ],
   jsPlugins: [{ name: "anti-slop", specifier: "./tools/oxlint/anti-slop/index.ts" }],
