@@ -42,8 +42,11 @@ const PLANNING: Entries = new Map<string, Entry>([
 
 const DRIVE_ROOT = /^[A-Za-z]:\\/u;
 
-/** A Windows share as the engine hands it, `\\server\share…`: a network location. */
-const SHARE = /^\\\\[^\\]+\\[^\\]+/u;
+/**
+ * A Windows share as the engine hands it, `\\server\share…` or `\\?\UNC\server\share…`: a
+ * network location. `\\?\D:\…` and `\\.\…` land on a drive or a device, and are no share.
+ */
+const SHARE = /^\\\\(?:\?\\UNC\\)?(?![?.]\\)[^\\]+\\[^\\]+/u;
 
 /**
  * The path as this disk keys it, POSIX. The engine resolves a path before the hook reads it: on
@@ -71,9 +74,11 @@ function folded(path: string): string[] {
  * a missing path rejects `ENOENT`, a link that leads nowhere answers `isLink` with no
  * `realPath`, and `realPath` comes with `resolve` alone. A `refused` path rejects with its own
  * reason, as another errno, a network location or a hook above does. On Windows the engine
- * hands a share as `\\server\share…`, which this disk refuses as a network location, as the
- * implementation beneath the hooks does. It records every path the engine hands `fs.stat`, as
- * the engine spelled it, in order: a path the engine refused above the hooks never reaches it.
+ * hands `//host/share/x.md` as `\\host\share\x.md` (2.1.286, windows-latest), and this disk
+ * refuses a share as a network location: `$.fs` in `types/claude-code.d.ts` says the
+ * implementation beneath the hooks does, which is not measured live on Windows. It records every
+ * path the engine hands `fs.stat`, as the engine spelled it, in order: a path the engine refused
+ * above the hooks never reaches it.
  */
 export function disk(on: On, more: Entries = new Map()): readonly string[] {
   const entries: Entries = new Map([...PLANNING, ...more]);
@@ -109,7 +114,7 @@ export function disk(on: On, more: Entries = new Map()): readonly string[] {
     stats.push(e.path);
 
     if (SHARE.test(e.path)) {
-      return { deny: `${e.path} refused: a network location is not reached from here` };
+      return { deny: `$.fs.stat: ${e.path} refused: a network location is not reached from here` };
     }
 
     const path = keyed(e.path);

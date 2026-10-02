@@ -71,10 +71,10 @@
   (an automount) is refused as above. Up to 2.1.283 any path spelled `//` or
   `\\` was refused before the hooks. Measured on Linux in the kit on 2.1.282,
   2.1.283 and 2.1.284, and live on 2.1.284. On Windows, 2.1.286 hands
-  `//host/share/x.md` to the hooks as `\\host\share\x.md`, the share as written
-  (in the kit, `windows-latest`, run 37004299897); the kit's disk refuses it as
-  a network location (`vellum/src/runtime/hooks/fixtures/disk.ts`), as `$.fs`'s
-  doc says the implementation beneath does. What that implementation answers
+  `//host/share/x.md` to the hooks as `\\host\share\x.md`, the share as written,
+  and `//host/` as `D:\host`, on the drive of the engine's directory (in the
+  kit, `windows-latest`, run 37004299897). `$.fs`'s doc says the implementation
+  beneath the hooks rejects a network location; what it answers for a share
   live on Windows is not measured.
 
 ## Reloads and background work
