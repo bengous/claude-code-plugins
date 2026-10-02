@@ -73,9 +73,12 @@
   2.1.283 and 2.1.284, and live on 2.1.284. On Windows, 2.1.286 hands
   `//host/share/x.md` to the hooks as `\\host\share\x.md`, the share as written,
   and `//host/` as `D:\host`, on the drive of the engine's directory (in the
-  kit, `windows-latest`, run 37004299897). `$.fs`'s doc says the implementation
-  beneath the hooks rejects a network location; what it answers for a share
-  live on Windows is not measured.
+  kit, `windows-latest`, run 37004299897), as `path.win32.resolve` does: a
+  UNC spelling with no share name is a folder on the current drive. `$.fs`'s
+  doc says the implementation beneath the hooks rejects a network location;
+  what it answers for a share live on Windows is not measured, and vellum's
+  lock does not ask: it refuses a path with two leading separators before any
+  stat, as the guard recipe of `$.fs.stat` in `claude-code.d.ts` does.
 
 ## Reloads and background work
 
@@ -188,6 +191,14 @@ plugins (September 2026), unless a line says otherwise.
   (`{"decision":"allow","rule":"Bash(mkdir:*)"}`), and leaves it out when the
   mode or the tool's own check did. That is how a plugin tells a user's
   standing grant from the engine's own verdict.
+
+- A call's `tool.check` carries the tool's path already resolved: a relative
+  path under the session's directory, `a/../b/./z.md` folded, and on Linux
+  `//host/share/x.md` as `/host/share/x.md`; a link on the way is not
+  followed. A `$.tool.check` query, with no `tool_use_id`, carries the input
+  as written, which is what a kit test sends. Measured on Linux in a live
+  headless session, on Write calls made through `$.tool.call`; on Windows not
+  measured.
 
 - `$.command.register({ name: "stop" })` is listed as `/stop`, with no plugin
   prefix; only skills and markdown commands get `/<plugin>:<name>`. Its

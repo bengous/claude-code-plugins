@@ -267,24 +267,19 @@ describe("the lock places a path before it decides", () => {
     }
   });
 
-  test("the lock follows the engine on a leading //: landed where the engine folds it, the session's to decide; refused above the hooks or beneath them, denied", async ($, on) => {
+  test("a share's spelling is denied before any stat: above its root the walk would land on the local drive", async ($, on) => {
     const { stats } = world(on);
     on("tool.check", () => ENGINE);
     await $.skill.prompt(START_PROMPT);
 
-    const verdict = await $.tool.check({
-      tool: "Write",
-      input: { file_path: "//host/share/x.md" },
-    });
+    for (const file_path of ["//host/share/x.md", "\\\\host\\share\\x.md"]) {
+      expect(await $.tool.check({ tool: "Write", input: { file_path } }), file_path).toMatchObject({
+        decision: "deny",
+        reason: expect.stringContaining("cannot tell where"),
+      });
+    }
 
-    // An engine up to 2.1.283 refuses a `//` spelling before any hook; a newer one folds it to a
-    // local path on POSIX, and on Windows hands the share as written, which the disk beneath
-    // refuses. The lock must follow every answer.
-    expect(verdict, `fs.stat was handed ${JSON.stringify(stats)}`).toMatchObject(
-      stats.includes("/host/share/x.md")
-        ? ENGINE
-        : { decision: "deny", reason: expect.stringContaining("cannot tell where") },
-    );
+    expect(stats.filter((path) => path.includes("host"))).toEqual([]);
   });
 
   test("on POSIX a backslash is a character of a name, never a separator", async ($, on) => {

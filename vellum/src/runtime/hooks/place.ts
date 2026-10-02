@@ -9,6 +9,14 @@ import type { ProjectDir } from "./parse.ts";
  */
 const DRIVE_NAME = /^[A-Za-z]:/u;
 
+/**
+ * A share or a device on Windows, `\\host\share` or `\\?\…`, in either separator. Asking where it
+ * lands contacts the host, and above a share root the walk climbs onto the local drive (`//host/`
+ * resolves as `D:\host`), so the engine's guard recipe refuses it by spelling, before any file
+ * system call. A call's path reaches the hooks already resolved, a POSIX `//` folded.
+ */
+const NETWORK = /^[\\/]{2}/u;
+
 /** Rooted on POSIX, on a Windows drive, or on the session's drive without naming it. */
 const ROOTED = /^(?:[\\/]|[A-Za-z]:[\\/])/u;
 
@@ -48,6 +56,7 @@ async function asked(host: Host, path: string): Promise<Asked> {
  * lock denies on `null`, since the tool may still open it.
  */
 export async function placed(host: Host, path: string, platform: Platform): Promise<string | null> {
+  if (NETWORK.test(path)) return null;
   const { last, trailing } = SEPARATORS[platform];
   const missing: string[] = [];
   let rest = path;

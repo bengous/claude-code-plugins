@@ -127,13 +127,18 @@ loop. `/vellum:start` enters it, Approve in the page or `/vellum:stop` leaves it
   not written yet lands under the first of its folders that exists, and only `ENOENT` says a
   folder is missing; a path that lands nowhere known (a link that leads nowhere, a stat refused
   for any other reason, a network location the engine refuses, a name Windows reads as a drive) is denied, since the
-  tool may still open it. The project is placed on each call, and its `realPath` says the
+  tool may still open it. A path spelled with two leading separators is denied before any stat,
+  as the engine's own guard recipe does (`$.fs.stat` in `types/claude-code.d.ts`): on Windows it
+  is a share or a device, asking where it lands contacts the host, and above a share root the
+  walk climbs onto the local drive. A call's path reaches the hooks already resolved, so a POSIX
+  `//` arrives folded and never meets that rule. The project is placed on each call, and its `realPath` says the
   platform: POSIX answers it from `/`, and there `\` is a character of a name. The working
   directory is the project's own, `workdir` as written under where the project lands: a link
   on the way to it, the directory itself included, leads out of it and allows nothing.
   `realPath` keeps a case alias as written, so the allow compares as written and the deny
   folds the case. A new platform case is a question for `stat`, not a spelling rule in
-  `lock.ts`. Measured on Linux; what a Windows disk answers is not measured.
+  `lock.ts`; the spellings `place.ts` refuses before it are the engine recipe's, no others.
+  Measured on Linux; what a Windows disk answers is not measured.
 - The lock fails closed. A hook that throws or overruns "is skipped and what is beneath it
   runs in its place", which for a lock means the write goes through, so the registration
   carries a `.catch`: while `live`, `lockFailed` denies either way, whether the failure landed
