@@ -153,6 +153,11 @@ describe("validatePluginDirContents", () => {
     expect(result.passed).toBe(true);
   });
 
+  test("passes with the types/ Claude Code writes beside a mod it loads", () => {
+    const result = validatePluginDirContents(["plugin.json", "types"]);
+    expect(result.passed).toBe(true);
+  });
+
   test("fails and names every extra file", () => {
     const result = validatePluginDirContents(["plugin.json", "marketplace.json", "notes.md"]);
     expect(result.passed).toBe(false);

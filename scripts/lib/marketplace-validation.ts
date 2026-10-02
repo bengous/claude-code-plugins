@@ -116,14 +116,21 @@ export function validateRequiredFields(mp: PluginEntry, pluginJson: PluginJson):
 }
 
 /**
- * Validate that a plugin's `.claude-plugin/` holds nothing but `plugin.json`.
+ * `types/` is what Claude Code writes, and git-ignores, beside a mod it loads
+ * from `--plugin-dir`.
+ */
+const PLUGIN_DIR_ENTRIES: ReadonlySet<string> = new Set(["plugin.json", "types"]);
+
+/**
+ * Validate that a plugin's `.claude-plugin/` holds nothing but `plugin.json`
+ * and the types Claude Code writes there.
  * Callers check that `plugin.json` itself exists before reading the directory.
  */
 export function validatePluginDirContents(entries: ReadonlyArray<string>): ValidationResult {
-  const extras = entries.filter((entry) => entry !== "plugin.json").toSorted();
+  const extras = entries.filter((entry) => !PLUGIN_DIR_ENTRIES.has(entry)).toSorted();
 
   if (extras.length === 0) {
-    return { passed: true, message: "Only plugin.json in .claude-plugin/" };
+    return { passed: true, message: "Only plugin.json and types/ in .claude-plugin/" };
   }
 
   return {
