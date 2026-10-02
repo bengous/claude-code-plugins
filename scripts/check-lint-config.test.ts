@@ -14,7 +14,6 @@ import {
   EXPECTED_COMMANDS,
   expectedCommands,
   hooksModuleGates,
-  hooksModulePlugins,
   lefthookCommands,
   parseManifest,
   registeredRuleNames,
@@ -22,6 +21,7 @@ import {
   UNMANIFESTED,
   unifiedDiff,
 } from "./check-lint-config.ts";
+import { hooksModulePlugins } from "./lib/hooks-modules.ts";
 
 const repoRoot = join(import.meta.dir, "..");
 
