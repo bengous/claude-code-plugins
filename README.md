@@ -39,6 +39,7 @@ A curated marketplace of Claude Code plugins for development workflow automation
 | [goalify](goalify/) | 1.0.1 | Convert rough intent into the smallest useful goal payload to hand to a fresh Claude Code agent (new session, subagent, or /loop). Draft-first by default, or interactive question-first. |
 | [architecture-audit](architecture-audit/) | 1.0.0 | Architecture audit that grants the existing code no authority: derive the requirements, design the minimal from-scratch architecture, then classify every component KEEP / SIMPLIFY / REPLACE / DELETE |
 | [vellum](vellum/) | 0.17.0 | Plan at the frontiers and review the plan in the browser: decisions and interfaces before mechanics, vertical slices each closed by a check. /vellum:start opens a planning mode of its own: Claude writes the plan and its mockups and grills the reviewer on the open choices; the reviewer comments, edits or approves in a page, and the answer reaches Claude as a prompt. |
+| [todos](todos/) | 1.0.0 | Shows the repository's TODOs in a band above the prompt, newest first: TODO.md items and TODO/FIXME/HACK code comments dated with git blame, a Mine filter, issue links, and a toast when an edit adds one |
 
 See each plugin's README for detailed documentation and usage.
 

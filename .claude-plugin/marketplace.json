@@ -36,13 +36,7 @@
       },
       "homepage": "https://github.com/bengous/claude-code-plugins",
       "license": "MIT",
-      "keywords": [
-        "git",
-        "commit",
-        "rebase",
-        "squash",
-        "history"
-      ],
+      "keywords": ["git", "commit", "rebase", "squash", "history"],
       "source": "./git"
     },
     {
@@ -55,15 +49,7 @@
       },
       "homepage": "https://github.com/bengous/claude-code-plugins",
       "license": "MIT",
-      "keywords": [
-        "github",
-        "gh",
-        "issue",
-        "triage",
-        "pull-request",
-        "merge",
-        "linear-history"
-      ],
+      "keywords": ["github", "gh", "issue", "triage", "pull-request", "merge", "linear-history"],
       "source": "./github-flow"
     },
     {
@@ -76,14 +62,7 @@
       },
       "homepage": "https://github.com/bengous/claude-code-plugins",
       "license": "MIT",
-      "keywords": [
-        "git",
-        "github",
-        "setup",
-        "linear-history",
-        "rulesets",
-        "submodules"
-      ],
+      "keywords": ["git", "github", "setup", "linear-history", "rulesets", "submodules"],
       "source": "./repo-bootstrap"
     },
     {
@@ -96,13 +75,7 @@
       },
       "homepage": "https://github.com/bengous/claude-code-plugins",
       "license": "MIT",
-      "keywords": [
-        "code-quality",
-        "cleanup",
-        "comments",
-        "maintainability",
-        "refactoring"
-      ],
+      "keywords": ["code-quality", "cleanup", "comments", "maintainability", "refactoring"],
       "source": "./code-quality"
     },
     {
@@ -138,11 +111,7 @@
       },
       "homepage": "https://github.com/bengous/claude-code-plugins",
       "license": "Apache-2.0",
-      "keywords": [
-        "prompt",
-        "meta-prompt",
-        "handoff"
-      ],
+      "keywords": ["prompt", "meta-prompt", "handoff"],
       "source": "./claude-meta-tools"
     },
     {
@@ -223,14 +192,7 @@
       },
       "homepage": "https://github.com/bengous/claude-code-plugins",
       "license": "MIT",
-      "keywords": [
-        "design",
-        "architecture",
-        "cli",
-        "best-practices",
-        "software-craft",
-        "skills"
-      ],
+      "keywords": ["design", "architecture", "cli", "best-practices", "software-craft", "skills"],
       "source": "./software-craft"
     },
     {
@@ -263,13 +225,7 @@
       },
       "homepage": "https://github.com/bengous/claude-code-plugins",
       "license": "MIT",
-      "keywords": [
-        "design",
-        "frontend",
-        "redesign",
-        "website",
-        "ui"
-      ],
+      "keywords": ["design", "frontend", "redesign", "website", "ui"],
       "source": "./design-studio"
     },
     {
@@ -282,14 +238,7 @@
       },
       "homepage": "https://github.com/bengous/claude-code-plugins",
       "license": "MIT",
-      "keywords": [
-        "plugin",
-        "development",
-        "sync",
-        "cache",
-        "marketplace",
-        "devtools"
-      ],
+      "keywords": ["plugin", "development", "sync", "cache", "marketplace", "devtools"],
       "source": "./plugin-cache-sync"
     },
     {
@@ -302,15 +251,7 @@
       },
       "homepage": "https://github.com/bengous/claude-code-plugins",
       "license": "MIT",
-      "keywords": [
-        "git",
-        "branches",
-        "worktrees",
-        "cleanup",
-        "sweep",
-        "prune",
-        "squash-merge"
-      ],
+      "keywords": ["git", "branches", "worktrees", "cleanup", "sweep", "prune", "squash-merge"],
       "source": "./git-sweep"
     },
     {
@@ -323,15 +264,7 @@
       },
       "homepage": "https://github.com/bengous/claude-code-plugins",
       "license": "MIT",
-      "keywords": [
-        "goal",
-        "prompt",
-        "intent",
-        "orchestration",
-        "loop",
-        "subagent",
-        "task-spec"
-      ],
+      "keywords": ["goal", "prompt", "intent", "orchestration", "loop", "subagent", "task-spec"],
       "source": "./goalify"
     },
     {
@@ -364,14 +297,7 @@
       },
       "homepage": "https://github.com/bengous/claude-code-plugins",
       "license": "MIT",
-      "keywords": [
-        "research",
-        "documentation",
-        "fact-check",
-        "mcp",
-        "context7",
-        "agents"
-      ],
+      "keywords": ["research", "documentation", "fact-check", "mcp", "context7", "agents"],
       "source": "./research-tools"
     },
     {
@@ -384,13 +310,7 @@
       },
       "homepage": "https://github.com/bengous/claude-code-plugins",
       "license": "MIT",
-      "keywords": [
-        "comments",
-        "code-quality",
-        "audit",
-        "stale-comments",
-        "cleanup"
-      ],
+      "keywords": ["comments", "code-quality", "audit", "stale-comments", "cleanup"],
       "source": "./clean-comments"
     },
     {
@@ -434,6 +354,19 @@
         "review"
       ],
       "source": "./vellum"
+    },
+    {
+      "name": "todos",
+      "description": "Shows the repository's TODOs in a band above the prompt, newest first: TODO.md items and TODO/FIXME/HACK code comments dated with git blame, a Mine filter, issue links, and a toast when an edit adds one",
+      "version": "1.0.0",
+      "author": {
+        "name": "Augustin BENGOLEA",
+        "email": "bengous@protonmail.com"
+      },
+      "homepage": "https://github.com/bengous/claude-code-plugins",
+      "license": "MIT",
+      "keywords": ["todo", "fixme", "git-blame", "mod", "function-hooks", "band"],
+      "source": "./todos"
     }
   ],
   "description": "Personal Claude Code plugins: git workflows, code quality, agent orchestration, and plugin tooling"
