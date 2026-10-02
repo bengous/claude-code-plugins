@@ -29,13 +29,14 @@ bun x oxfmt '**/*.ts' '**/*.tsx' '**/*.js' '**/*.mjs' '**/*.cjs'  # format; add 
 bun ./scripts/lint-shell.ts                            # shellcheck + shfmt; takes paths, else the whole repo
 claude plugin validate vellum   # the hooks module: what it hooks and calls
 claude plugin test vellum       # the hooks module's kit tests, vellum/src/runtime/hooks/*.test.ts
-bun ./scripts/run-gates.ts                             # every gate of CI's `validate` job, as CI runs it; installs vellum's dependencies first
+bun ./scripts/run-gates.ts                             # CI's `validate` gates, with the kits of the hooks modules the change reaches (`--all`: every kit); installs vellum's dependencies first
+bun ./scripts/affected.ts print                        # what the change reaches since its merge-base with origin/dev; `test` runs those suites
 bun run --cwd vellum e2e                               # vellum's browser suite, CI's `e2e` jobs, one per window; Chromium once per machine: `bun run --cwd vellum e2e:install`
 ```
 
 `vellum/` carries `package.json` + `bun.lock`: `bun install --cwd vellum --frozen-lockfile` before its tests or its server, as Claude Code does at the plugin's cache.
 
-Everything above but the browser suite also runs in `pre-push` and CI; `pre-commit` runs all of it except `bun test`. The browser suite runs in CI on request only, the `e2e` label on a PR or `workflow_dispatch`, and on demand locally, in no hook. Job list, order, and argument differences: [Local checks and CI](docs/repo-ops/checks.md).
+Everything above but the browser suite also runs in `pre-push` and CI, `pre-push` scoping the suites and kits to what the change reaches (`scripts/affected.ts`); `pre-commit` runs all of it except `bun test`. The browser suite runs in CI on request only, the `e2e` label on a PR or `workflow_dispatch`, and on demand locally, in no hook. Job list, order, and argument differences: [Local checks and CI](docs/repo-ops/checks.md).
 
 ## Code Standards
 

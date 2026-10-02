@@ -66,7 +66,9 @@ agent meets any finding left once, at the end of its turn, not on each edit.
   and its CI step; Stop and pre-push run it through `run-gates.ts`. A hooks
   module's `validate-<plugin>` and `test-<plugin>` are no entries:
   `expectedCommands` derives them from each catalog plugin whose
-  `hooks/hooks.json` names `modules`.
+  `hooks/hooks.json` names `modules`. `run-gates.ts` runs a module's two only
+  when the change reaches its directory (`kitsOf` in `scripts/affected.ts`),
+  every module's with `--all`; parity still demands them all.
   The exception is a check of what a push moves: the release guard,
   `scripts/check-plugin-bumps.ts --pre-push`, on a push to `main`, and the
   e2e gate, `scripts/check-e2e-green.ts`, on a push to `dev`, are each one
@@ -76,8 +78,10 @@ agent meets any finding left once, at the end of its turn, not on each edit.
   needs the network and an `e2e` run that already happened.
   `checkCommandParity` reads only the pre-commit `run` lines and CI's
   `validate` steps, so those lines need nothing there.
-- Tests stay out of Stop: the two `bun test` runs take about 30 s here, the
-  gates under 3 s. pre-push and CI run them.
+- Tests stay out of Stop: every suite takes about 30 s here under
+  `--parallel` (16 threads), the gates a few seconds without a kit.
+  pre-push and CI run them, pre-push only the suites the change reaches
+  (`scripts/affected.ts test`).
 
 Known ceilings:
 
@@ -91,8 +95,10 @@ Known ceilings:
   preview: Claude Code caps hook output there.
 - A write through Bash alone sets no marker, so that turn skips Stop;
   pre-commit and pre-push still check.
-- The gates run repo-wide in each checkout the agent edited. Red work of
-  another session in the same checkout blocks this session once per verdict.
+- The gates run repo-wide in each checkout the agent edited, the kits as far
+  as the checkout's change since its merge-base with `origin/dev` reaches,
+  whoever made it. Red work of another session in the same checkout blocks
+  this session once per verdict.
 - `regenerate-plugin-types.ts` checks the checkout of the project's
   repository around the SessionStart `cwd`, climbing out of any other
   repository nested in it, else the project: `CLAUDE_PROJECT_DIR` stays the

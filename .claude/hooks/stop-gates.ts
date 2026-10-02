@@ -1,8 +1,10 @@
 #!/usr/bin/env bun
 
 /**
- * Stop and SubagentStop hook — runs every CI gate at the end of a turn that
- * edited the repo, and blocks the stop while one is red.
+ * Stop and SubagentStop hook — runs the CI gates at the end of a turn that
+ * edited the repo, a hooks module's kit only when the checkout's change since
+ * its merge-base with `origin/dev` reaches it (`scripts/affected.ts`), and
+ * blocks the stop while one is red.
  *
  * `format-on-edit.ts` marks each checkout of the project's repository an
  * agent edits, the project or one of its worktrees, with an empty verdict.

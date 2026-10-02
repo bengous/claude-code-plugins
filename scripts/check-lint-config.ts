@@ -69,7 +69,8 @@ const ANTI_SLOP_PREFIX = "anti-slop/";
  * would flag the launcher and the documented `--all`; this table states each
  * expected pair instead, and every tolerated difference carries its reason.
  * `expectedCommands` adds each hooks module's two gates to it; its second
- * reader is `run-gates.ts`, which runs the `ci` column.
+ * reader is `run-gates.ts`, which runs the `ci` column with the gates of the
+ * hooks modules the change reaches alone (`affected.ts`), or all with `--all`.
  */
 export const EXPECTED_COMMANDS: CommandPair[] = [
   {
