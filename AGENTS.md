@@ -19,8 +19,8 @@ For plugin tests, permissions and the catalog lifecycle, start at [Plugin testin
 ## Commands
 
 ```bash
-bun test                                               # every suite outside dot directories
-bun test ./.claude/hooks/*.test.ts                     # the repo's own hooks; `bun test` skips them
+bun test --parallel                                    # every suite outside dot directories and `archive/` (`bunfig.toml`)
+bun test --parallel ./.claude/hooks/*.test.ts          # the repo's own hooks; `bun test` skips them
 bun ./scripts/validate-marketplace.ts                  # versions + structure
 bun ./scripts/validate-frontmatter.ts --all            # frontmatter (default: staged only)
 bun x tsgo --noEmit                                    # types; fall back to ./node_modules/.bin/tsc --noEmit if tsgo rejects a flag

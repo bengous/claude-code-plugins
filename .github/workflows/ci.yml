@@ -47,7 +47,7 @@ jobs:
       # `bun test` alone skips dot directories, so the repo's own hooks need an
       # explicit path. Together the two runs cover every test file.
       - name: Run test suites
-        run: bun test && bun test ./.claude/hooks/*.test.ts
+        run: bun test --parallel && bun test --parallel ./.claude/hooks/*.test.ts
 
       # The six gates below are the same commands the pre-commit jobs run, so a
       # `--no-verify` commit gets the identical verdict here.
@@ -128,7 +128,7 @@ jobs:
         run: bun install --cwd vellum --frozen-lockfile --ignore-scripts
 
       - name: Run vellum's suites
-        run: bun test vellum
+        run: bun test --parallel vellum
 
       - name: Test the vellum hooks module
         run: claude plugin test vellum

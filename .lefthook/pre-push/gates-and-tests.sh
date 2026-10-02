@@ -27,5 +27,5 @@ bun ./scripts/check-e2e-green.ts <<<"${pushed_refs}"
 bun ./scripts/run-gates.ts
 
 # `bun test` skips dot directories, so the repo's own hooks need their own run.
-bun test
-bun test ./.claude/hooks/*.test.ts
+bun test --parallel
+bun test --parallel ./.claude/hooks/*.test.ts
