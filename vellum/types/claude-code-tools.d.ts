@@ -12,6 +12,8 @@ declare module 'claude-code' {
       subagent_type?: string
       /** Optional model override for this agent. Takes precedence over the agent definition's model frontmatter and the configured default subagent model. If omitted, uses the agent definition's model, else the default (inherits from the parent unless a default subagent model is configured). Ignored for subagent_type: "fork" — forks always inherit the parent model. */
       model?: "sonnet" | "opus" | "haiku" | "fable"
+      /** Agents run in the background by default; you will be notified when one completes. Set to false only when your very next action depends on this agent's result and nothing else could usefully happen while it runs — otherwise leave it in the background so the user can hand you other work. */
+      run_in_background?: boolean
       /** Name for the spawned agent. Makes it addressable via SendMessage({to: name}) while running. */
       name?: string
       /** Deprecated; ignored. The session has a single implicit team. */
@@ -554,20 +556,8 @@ declare module 'claude-code' {
       to: unknown & unknown
       /** A 5-10 word label for your own transcript row (not transmitted — the recipient previews the first line of `message`). Truncated to 200 characters rather than rejected. */
       summary?: string
-      message: string | {
-        type: "shutdown_request"
-        reason?: string
-      } | {
-        type: "shutdown_response"
-        request_id: unknown & unknown
-        approve: boolean
-        reason?: string
-      } | {
-        type: "plan_approval_response"
-        request_id: unknown & unknown
-        approve: boolean
-        feedback?: string
-      }
+      /** Plain text message content. The recipient's human sees only the FIRST LINE as a one-line preview until they expand it, so make the first line a clear, self-contained sentence saying what this is about — not a greeting, preamble, or bare @-mention. */
+      message: string
       /** Ask a session ON THIS MACHINE to send you ONE notice when it next goes idle (finishes its turn with nothing queued) or exits — opt-in, one-shot, no polling. With a message: deliver it now AND subscribe. Without a message (omit it): a pure subscription that costs the other session nothing. */
       notify_when_idle?: boolean
     }

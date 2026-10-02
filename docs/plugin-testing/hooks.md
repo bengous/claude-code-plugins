@@ -48,22 +48,24 @@ under the [loader rules](hook-runtime.md#module-loader).
 - Claude Code writes the contract of the running build into
   `<plugin>/.claude-plugin/types/` each time it loads the plugin with
   `--plugin-dir`, git-ignored (official docs: `plugins/mods/create` § Get
-  type definitions for your version). A logged-out `claude -p --plugin-dir`
-  run writes it too, then stops on the login, with no model call:
-  `.claude/hooks/regenerate-plugin-types.ts` copies vellum's that way. Keep
-  `claude-code` and `claude-code-tools`; `claude-code-mcp` describes the
-  developer's own servers, and a logged-in run's tool types follow the
-  account's features.
+  type definitions for your version). A `claude -p --plugin-dir` run given no
+  prompt writes it too, then stops on the missing prompt before any model
+  call. `claude-code-tools` follows the account's features and environment
+  variables such as `CLAUDE_CODE_FORK_SUBAGENT`, so
+  `.claude/hooks/regenerate-plugin-types.ts` runs it with an empty
+  `CLAUDE_CONFIG_DIR` and only `PATH` and `HOME`, and copies `claude-code`
+  and `claude-code-tools` back; `claude-code-mcp` describes the developer's
+  own servers.
 
 - Mods load by default. Where they are off (`--bare`, `--safe-mode`,
   `disableAllHooks`, an organization's policy) the module never loads and
   the plugin's skills run as if it were not there; loaded, the debug log says
   `hooks module <name> loaded (worker, environment 1, tier user); events: ...`.
 
-- To read that line headless, give `--debug-file <path>` and the prompt on
-  stdin: `--debug` alone prints nothing under `-p`, and `--plugin-dir` takes
-  the positional prompt, so `claude -p --plugin-dir <plugin> "say ok"` fails
-  with `Input must be provided either through stdin or as a prompt argument`.
+- To read that line headless, give `--debug-file <path>`: `--debug` alone
+  prints nothing under `-p`. A positional prompt after `--plugin-dir <plugin>`
+  stays the prompt; with none, the run stops on `Input must be provided
+  either through stdin or as a prompt argument` once the plugin has loaded.
 
 - `claude plugin test <dir>` runs `*.test.ts` files that import
   `claude-code/testing` in the engine's environment. It takes no argument but

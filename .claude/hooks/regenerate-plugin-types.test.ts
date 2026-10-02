@@ -59,10 +59,11 @@ describe("hook subprocess", () => {
   const HOOK = join(import.meta.dir, "regenerate-plugin-types.ts");
 
   // Stands in for `claude` as measured on 2.1.287: a run that loads a mod with
-  // --plugin-dir writes the mod's types into its .claude-plugin/types/, and a
-  // logged-out one does so before it stops on the login. A logged-in run
-  // writes the types and then answers, so the stub writes nothing for it and
-  // the test sees the difference. stub-silent makes a run write nothing.
+  // --plugin-dir writes the mod's types into its .claude-plugin/types/, then,
+  // given no prompt, stops on it. The tool types follow the environment and
+  // the account, so the stub writes other tools for a login variable, a
+  // feature variable or a config that is not empty; a prompt makes it answer
+  // and write nothing. stub-silent makes a run write nothing.
   const CLAUDE_STUB = `#!/usr/bin/env bash
 set -euo pipefail
 stub_dir="$(dirname "$0")"
@@ -71,25 +72,31 @@ if [[ $1 == --version ]]; then
   exit 0
 fi
 echo "$*" >>"$stub_dir/stub-runs"
-if [[ -n \${ANTHROPIC_API_KEY:-} || -z \${CLAUDE_CONFIG_DIR:-} || -n "$(ls -A "$CLAUDE_CONFIG_DIR")" ]]; then
-  echo "stub: logged in"
-  exit 0
-fi
+echo "$PWD" >>"$stub_dir/stub-cwds"
 if [[ -f $stub_dir/stub-silent ]]; then
+  echo "stub: mods off" >&2
   echo "stub: wrote nothing"
   exit 1
 fi
 mod=""
 while [[ $# -gt 0 ]]; do
-  if [[ $1 == --plugin-dir ]]; then mod="$2"; fi
-  shift
+  case $1 in
+    --plugin-dir) mod="$2"; shift 2 ;;
+    --setting-sources) shift 2 ;;
+    -*) shift ;;
+    *) echo "stub: answered $1"; exit 0 ;;
+  esac
 done
+tools="// tools"
+if [[ -n \${ANTHROPIC_API_KEY:-}\${CLAUDE_CODE_OAUTH_TOKEN:-}\${CLAUDE_CODE_FORK_SUBAGENT:-} || -z \${CLAUDE_CONFIG_DIR:-} || -n "$(ls -A "$CLAUDE_CONFIG_DIR")" ]]; then
+  tools="// tools of this account and environment"
+fi
 types="$mod/.claude-plugin/types"
 mkdir -p "$types/claude-code" "$types/claude-code-tools" "$types/claude-code-mcp"
 echo "// Written by Claude Code $(cat "$stub_dir/stub-version")." >"$types/claude-code/index.d.ts"
-echo "// tools" >"$types/claude-code-tools/index.d.ts"
+echo "$tools" >"$types/claude-code-tools/index.d.ts"
 echo "// mcp" >"$types/claude-code-mcp/index.d.ts"
-echo "Not logged in · Please run /login"
+echo "Error: Input must be provided either through stdin or as a prompt argument when using --print" >&2
 exit 1
 `;
 
@@ -128,6 +135,8 @@ exit 1
         PATH: `${stubDir}:${process.env["PATH"] ?? ""}`,
         CLAUDE_PROJECT_DIR: projectDir,
         ANTHROPIC_API_KEY: "sk-test",
+        CLAUDE_CODE_OAUTH_TOKEN: "oauth-test",
+        CLAUDE_CODE_FORK_SUBAGENT: "1",
         TMPDIR: tempRoot,
       },
     });
@@ -160,7 +169,7 @@ exit 1
     expect(stdout).toBe("");
   });
 
-  test("regenerates the types of a checkout on dev logged out, and copies back the core and the tools only", async () => {
+  test("regenerates the types of a checkout on dev from a bare run outside it, and copies back the core and the tools only", async () => {
     setTypes(projectDir, "// Written by Claude Code 2.1.276.");
 
     const { exitCode, stdout, stderr } = await runHook("2.1.278");
@@ -173,9 +182,10 @@ exit 1
       "claude-code-tools.d.ts",
       "claude-code.d.ts",
     ]);
-    expect(stubRuns()).toStartWith(
-      "-p --setting-sources project --no-session-persistence --plugin-dir ",
+    expect(stubRuns()).toMatch(
+      /^-p --setting-sources project --no-session-persistence --plugin-dir \S+\/mod\n$/u,
     );
+    expect(readFileSync(join(stubDir, "stub-cwds"), "utf8")).not.toContain(projectDir);
     expect(JSON.parse(stdout)).toEqual(
       note(`${TYPES_PATH}: regenerated from Claude Code 2.1.276 to 2.1.278, left uncommitted.`),
     );
@@ -276,10 +286,9 @@ exit 1
     const { exitCode, firstErrorLine } = await runHook("2.1.278");
 
     expect(exitCode).toBe(1);
-    expect(firstErrorLine).toStartWith(
-      "regenerate-plugin-types: claude -p --plugin-dir exited 1 without writing the mod's types",
+    expect(firstErrorLine).toBe(
+      "regenerate-plugin-types: claude -p --plugin-dir exited 1 without writing the mod's types: stub: mods off | stub: wrote nothing",
     );
-    expect(firstErrorLine).toEndWith("stub: wrote nothing");
     expect(types(projectDir)).toStartWith("// Written by Claude Code 2.1.276.");
     expect(readdirSync(tempRoot)).toEqual([]);
   });

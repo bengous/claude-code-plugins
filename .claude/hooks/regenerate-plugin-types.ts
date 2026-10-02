@@ -11,8 +11,8 @@
  *
  * Claude Code writes a mod's types into its `.claude-plugin/types/` as it
  * loads it with `--plugin-dir`. The hook loads an empty mod from a temp
- * directory, logged out, and copies back the core and the tools; the MCP
- * file describes a session's own servers.
+ * directory and copies back the core and the tools; the MCP file describes
+ * a session's own servers.
  */
 
 import { copyFile, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
@@ -40,7 +40,7 @@ const EMPTY_MOD = {
   "hooks/register.js": "export function register() {}\n",
 } as const;
 
-const LOGIN_VARIABLES = ["ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "CLAUDE_CODE_OAUTH_TOKEN"];
+const INHERITED_VARIABLES = ["PATH", "HOME"];
 
 export function headerVersion(firstLine: string): string {
   const version = HEADER_PATTERN.exec(firstLine)?.[1];
@@ -80,25 +80,30 @@ async function regenerate(root: string): Promise<void> {
 
     await mkdir(config);
 
-    // Claude Code writes the types before it checks the login, so an empty
-    // config stops the run there: no model call, and tool types that follow
-    // the build rather than an account's features. The scratch directory
+    // Claude Code writes the types before it asks for a prompt, so a run
+    // given none stops there and never reaches a model, whatever the login.
+    // The tool types follow the environment and the account: an empty config
+    // and only PATH and HOME make them the build's own. The scratch directory
     // holds no settings, so the run's own SessionStart never reaches this hook.
-    const env = Object.fromEntries(
-      Object.entries({ ...process.env, CLAUDE_CONFIG_DIR: config }).filter(
-        ([name]) => !LOGIN_VARIABLES.includes(name),
-      ),
-    );
+    const env = Object.fromEntries([
+      ...Object.entries(process.env).filter(([name]) => INHERITED_VARIABLES.includes(name)),
+      ["CLAUDE_CONFIG_DIR", config],
+    ]);
 
     const run =
-      await $`claude -p --setting-sources project --no-session-persistence --plugin-dir ${mod} ok < /dev/null`
+      await $`claude -p --setting-sources project --no-session-persistence --plugin-dir ${mod} < /dev/null`
         .cwd(scratch)
         .env(env)
         .nothrow()
         .quiet();
 
     if (!(await Bun.file(core).exists()) || !(await Bun.file(tools).exists())) {
-      const output = `${run.stdout.toString()}${run.stderr.toString()}`.trim();
+      const output = `${run.stderr.toString()}\n${run.stdout.toString()}`
+        .split(/\r?\n/u)
+        .map((line) => line.trim())
+        .filter((line) => line !== "")
+        .join(" | ");
+
       throw new Error(
         `claude -p --plugin-dir exited ${run.exitCode} without writing the mod's types: ${output}`,
       );
