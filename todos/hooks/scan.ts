@@ -14,7 +14,7 @@ import {
   sortNewestFirst,
 } from "./parse.ts";
 
-const BLAME_CONCURRENCY = 6;
+const DEFAULT_BLAME_CONCURRENCY = 6;
 
 const GREP_NO_MATCH = 1;
 
@@ -171,6 +171,14 @@ async function mapPool<T, R>(
   return results;
 }
 
+// A hooks module has no `os`: getconf counts the CPUs on Linux and macOS, and Windows, without it, keeps the default.
+async function blameConcurrency(host: Host, root: string): Promise<number> {
+  const run = await host.run(["getconf", "_NPROCESSORS_ONLN"], root).catch(() => null);
+  const count = run?.exitCode === 0 ? Number.parseInt(run.stdout, 10) : Number.NaN;
+
+  return Number.isInteger(count) && count > 0 ? count : DEFAULT_BLAME_CONCURRENCY;
+}
+
 /** One line of git output, or null when git exits non-zero: an unset `user.email`, no `origin` remote. */
 async function gitValue(host: Host, root: string, args: readonly string[]): Promise<string | null> {
   const run = await host.run(["git", ...args], root);
@@ -191,11 +199,12 @@ export async function scanRepo(
   markers: readonly string[],
   scannedAt: number,
 ): Promise<ScanResult> {
-  const [{ hits, isTruncated }, listText, userEmail, remote] = await Promise.all([
+  const [{ hits, isTruncated }, listText, userEmail, remote, concurrency] = await Promise.all([
     grepComments(host, root, markers),
     readList(host, root),
     gitValue(host, root, ["config", "user.email"]),
     gitValue(host, root, ["remote", "get-url", "origin"]),
+    blameConcurrency(host, root),
   ]);
 
   const listItems = listText === null ? [] : parseList(listText);
@@ -210,9 +219,7 @@ export async function scanRepo(
     ...(listItems.length > 0 ? [{ path: LIST_FILE, lines: null }] : []),
   ];
 
-  const blamed = await mapPool(jobs, BLAME_CONCURRENCY, (job) =>
-    blame(host, root, job.path, job.lines),
-  );
+  const blamed = await mapPool(jobs, concurrency, (job) => blame(host, root, job.path, job.lines));
 
   const originsByPath = new Map<string, Map<number, Origin>>();
   const failures: string[] = isTruncated ? ["git grep printed over 4 MiB: the list is cut"] : [];

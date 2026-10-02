@@ -44,12 +44,19 @@ function fakeHost(answers: {
   list?: string;
   email?: RunResult;
   remote?: RunResult;
+  cpus?: RunResult | Error;
 }): Fake {
   const calls: (readonly string[])[] = [];
 
   const host: Host = {
     run: (argv) => {
       calls.push(argv);
+
+      if (argv[0] === "getconf") {
+        return answers.cpus instanceof Error
+          ? Promise.reject(answers.cpus)
+          : Promise.resolve(answers.cpus ?? failed(1, ""));
+      }
 
       if (argv[1] === "rev-parse") return Promise.resolve(ok(`${ROOT}\n`));
 
@@ -215,6 +222,47 @@ describe("scanRepo", () => {
       "--",
       "a.ts",
     ]);
+  });
+});
+
+describe("blame concurrency", () => {
+  const files = Array.from({ length: 20 }, (_, index) => `f${index}.ts`);
+
+  async function peakBlames(cpus: RunResult | Error): Promise<number> {
+    const { host } = fakeHost({
+      grep: ok(files.map((file) => `${file}\u00001\u0000// TODO: x`).join("\n")),
+      blame: Object.fromEntries(files.map((file) => [file, ok(porcelain(1, NOW))])),
+      cpus,
+    });
+
+    let inFlight = 0;
+    let peak = 0;
+
+    const counting: Host = {
+      ...host,
+      run: (argv, cwd) => {
+        if (argv[1] !== "blame") return host.run(argv, cwd);
+        inFlight += 1;
+        peak = Math.max(peak, inFlight);
+
+        return host.run(argv, cwd).finally(() => {
+          inFlight -= 1;
+        });
+      },
+    };
+
+    await scanRepo(counting, ROOT, ["TODO"], NOW);
+
+    return peak;
+  }
+
+  test("runs as many blames at once as getconf counts CPUs", async () => {
+    expect(await peakBlames(ok("16\n"))).toBe(16);
+  });
+
+  test("runs six at once where getconf is missing or fails", async () => {
+    expect(await peakBlames(new Error("Executable not found in $PATH: getconf"))).toBe(6);
+    expect(await peakBlames(failed(1, "getconf: Invalid argument"))).toBe(6);
   });
 });
 
