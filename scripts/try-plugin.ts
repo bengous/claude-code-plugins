@@ -190,15 +190,6 @@ export function claudeArgv(pluginDirs: string[], claudeArgs: string[]): string[]
   ];
 }
 
-/** The flag stays until function hooks ship publicly; without it no hooks module loads. */
-export function launchEnv() {
-  const set = Object.entries(process.env).flatMap(([key, value]) =>
-    value === undefined ? [] : [[key, value] as const],
-  );
-
-  return Object.fromEntries([...set, ["CLAUDE_CODE_ENABLE_FUNCTION_HOOKS", "1"] as const]);
-}
-
 /**
  * A process a plugin spawned detached outlives the session and keeps the code
  * it started with: a session that finds it again runs old code beside the new
@@ -304,7 +295,7 @@ async function launch(
 
   if (execve === undefined) fail("tp: this build of Bun has no process.execve", 1);
 
-  execve(claude, claudeArgv(pluginDirs, claudeArgs), launchEnv());
+  execve(claude, claudeArgv(pluginDirs, claudeArgs));
 }
 
 /** The working tree holding `path`, and the repository it belongs to. */

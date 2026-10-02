@@ -120,14 +120,14 @@ export const EXPECTED_COMMANDS: CommandPair[] = [
   },
   {
     gate: "validate-vellum",
-    lefthook: "CLAUDE_CODE_ENABLE_FUNCTION_HOOKS=1 claude plugin validate vellum",
-    ci: "CLAUDE_CODE_ENABLE_FUNCTION_HOOKS=1 claude plugin validate vellum",
+    lefthook: "claude plugin validate vellum",
+    ci: "claude plugin validate vellum",
     difference: null,
   },
   {
     gate: "test-vellum",
-    lefthook: "CLAUDE_CODE_ENABLE_FUNCTION_HOOKS=1 claude plugin test vellum",
-    ci: "CLAUDE_CODE_ENABLE_FUNCTION_HOOKS=1 claude plugin test vellum",
+    lefthook: "claude plugin test vellum",
+    ci: "claude plugin test vellum",
     difference: null,
   },
 ];

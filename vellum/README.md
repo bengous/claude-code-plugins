@@ -4,7 +4,7 @@ Write a plan the way its reviewer reads it, then review it in the browser. The s
 
 ## Requirements
 
-- Claude Code with function hooks, launched with `CLAUDE_CODE_ENABLE_FUNCTION_HOOKS=1` until they ship publicly. Without the flag the hooks module does not load: the skill still writes a plan under `plans/<date>/<slug>/`, but there is no mode, no page and no `mcp__vellum__submit` tool; use the native plan mode for that session.
+- Claude Code with mods, which load by default. Where they are off (`--bare`, `--safe-mode`, `disableAllHooks`, an organization's policy) the hooks module does not load: the skill still writes a plan under `plans/<date>/<slug>/`, but there is no mode, no page and no `mcp__vellum__submit` tool; use the native plan mode for that session.
 - A Claude Code whose `$.fs.stat` answers `realPath` with `{ resolve: true }`: the npm `latest` channel has it, `stable` may not yet. The lock places every path through it, so on an older engine the lock fails closed and every `Write` and `Edit` is denied while vellum plans, `plan.md` included, with "the lock failed (throw); retry the call". `claude --debug` then logs "lands nowhere" and the cause; update Claude Code, or `/vellum:stop` and use the native plan mode.
 - `bun` on the PATH: the review server is a Bun script. Claude Code installs the plugin's dependencies (`preact`, `remark`, `rehype-highlight`, `mermaid`, `diff`) at its cache from `package.json` and `bun.lock`.
 - A browser: Chromium or Firefox, recent. The page uses the CSS Custom Highlight API.
@@ -87,9 +87,9 @@ The plugin installs a hooks module that refuses writes and spawns a process. The
 | `$.ui.invalidate` | Draws the band again when the mode changed, or when the server said the review changed what the band draws. |
 | `$.ui.log` | Errors only: a server that did not start or ended, a line of its output the module does not read, a relay that failed, a prompt another plugin dropped. |
 
-`CLAUDE_CODE_ENABLE_FUNCTION_HOOKS=1 claude plugin validate vellum` prints both lists from the module's source; these tables are that output in prose.
+`claude plugin validate vellum` prints both lists from the module's source; these tables are that output in prose.
 
-Development: `bun install --cwd vellum`, `bun test vellum`, `CLAUDE_CODE_ENABLE_FUNCTION_HOOKS=1 claude plugin validate vellum`, then a session with `--plugin-dir vellum`; see `docs/plugin-testing.md` at the repository root. The map of the code is `AGENTS.md` § Shape in this directory, the one place the tree is drawn.
+Development: `bun install --cwd vellum`, `bun test vellum`, `claude plugin validate vellum`, then a session with `--plugin-dir vellum`; see `docs/plugin-testing.md` at the repository root. The map of the code is `AGENTS.md` § Shape in this directory, the one place the tree is drawn.
 
 ## Sources
 

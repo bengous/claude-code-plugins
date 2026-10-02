@@ -3,7 +3,6 @@
 A Claude Code plugin: `/vellum:start` enters a mode the hooks module holds, where Claude
 writes `plan.md` and calls `mcp__vellum__submit`; the plan and its artifacts open in the
 browser, and the reviewer's answer reaches Claude as a prompt. `/vellum:stop` leaves the mode.
-Function hooks, early access: `CLAUDE_CODE_ENABLE_FUNCTION_HOOKS=1`.
 
 ## Shape
 
@@ -80,12 +79,12 @@ bun run --cwd vellum e2e -- --project=light-1440                    # the whole 
 bun run --cwd vellum e2e                                            # the five windows of `e2e/playwright.config.ts`: CI's, a job per window (`--project=<window>`), on request (the `e2e` label on a PR), not a local one
 bun run --cwd vellum e2e:install                                    # Chromium, once per machine and per pinned Playwright
 bun run --cwd vellum contract-diff <base>..<head>                   # for a PR: the contracts' diffs, what Claude reads, the rules changed, the test titles, the bodies changed, the boundary and walk suites at <head>
-CLAUDE_CODE_ENABLE_FUNCTION_HOOKS=1 claude plugin test vellum       # the hooks module's `*.test.ts` (runtime/hooks, review, steps/<name>), through the engine's kit
-CLAUDE_CODE_ENABLE_FUNCTION_HOOKS=1 claude plugin validate vellum   # what the hooks module hooks and calls
-CLAUDE_CODE_ENABLE_FUNCTION_HOOKS=1 command claude --permission-mode default --plugin-dir vellum   # a live session from source
+claude plugin test vellum       # the hooks module's `*.test.ts` (runtime/hooks, review, steps/<name>), through the engine's kit
+claude plugin validate vellum   # what the hooks module hooks and calls
+command claude --permission-mode default --plugin-dir vellum   # a live session from source
 bun vellum/src/runtime/server/cli.ts serve --session <id> --project <dir> --workdir plans/<date>/wip-<sid8>/   # the server alone, for page work; the trailing slash is required; `--port <n> --token <t> --existing` revives one where it was
 bun vellum/src/runtime/server/preview.ts <dir holding plan.md> [--minutes <n>] [--port <n>]   # the same page on any directory, working or final: it prints the URL and serves a copy it takes away on the way out
-CLAUDE_CODE_ENABLE_FUNCTION_HOOKS=1 claude -p --setting-sources project --settings '{"disableAllHooks":true}' "/plugin-types vellum/types"    # regenerate types/claude-code.d.ts, as a session on dev does at start; keep claude-code.d.ts only
+bun .claude/hooks/regenerate-plugin-types.ts <<< '{}'               # regenerate types/ from the installed Claude Code, as a session in a checkout on dev does at start
 ```
 
 Every command runs from the repository root; lint, types and format are the repository's

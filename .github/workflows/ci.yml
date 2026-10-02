@@ -78,10 +78,10 @@ jobs:
         run: bun ./scripts/validate-frontmatter.ts --all
 
       - name: Validate the vellum hooks module
-        run: CLAUDE_CODE_ENABLE_FUNCTION_HOOKS=1 claude plugin validate vellum
+        run: claude plugin validate vellum
 
       - name: Test the vellum hooks module
-        run: CLAUDE_CODE_ENABLE_FUNCTION_HOOKS=1 claude plugin test vellum
+        run: claude plugin test vellum
 
       # main is a delayed fast-forward pointer on dev's history: releases move it
       # with `git push origin dev:main`. Fail loudly if main ever leaves that line.
@@ -99,7 +99,7 @@ jobs:
   # Vellum on Windows: its `bun:test` suites and the hooks module's kit, where Linux misses what
   # Windows refuses (a folder a process holds cannot be renamed). No `if:`, as `validate`: `main`
   # requires it. The repository's own tooling (`scripts/`, `.claude/hooks`, the shell linters) is
-  # not run here. The runner's shell is pwsh, so the kit's variable goes through `env:`.
+  # not run here.
   win32:
     name: win32
     runs-on: windows-latest
@@ -126,8 +126,6 @@ jobs:
 
       - name: Test the vellum hooks module
         run: claude plugin test vellum
-        env:
-          CLAUDE_CODE_ENABLE_FUNCTION_HOOKS: "1"
 
   # Vellum's browser suite, `vellum/e2e/*.e2e.ts`: a job per window of `WINDOWS` in
   # `vellum/e2e/playwright.config.ts`, since it wants a Chromium and takes seconds per file.

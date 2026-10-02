@@ -9,7 +9,7 @@ import {
   pluginDirAt,
   pluginNameIn,
 } from "./lib/plugin-sources.ts";
-import { claudeArgv, launchEnv, pluginTable, sourceTable, table } from "./try-plugin.ts";
+import { claudeArgv, pluginTable, sourceTable, table } from "./try-plugin.ts";
 
 let scratch = "";
 
@@ -128,18 +128,5 @@ describe("try-plugin", () => {
       "--model",
       "opus",
     ]);
-  });
-
-  test("launchEnv carries the function-hooks flag over the shell's own value", () => {
-    process.env["CLAUDE_CODE_ENABLE_FUNCTION_HOOKS"] = "0";
-    process.env["TRY_PLUGIN_MARKER"] = "kept";
-
-    try {
-      expect(launchEnv()["CLAUDE_CODE_ENABLE_FUNCTION_HOOKS"]).toBe("1");
-      expect(launchEnv()["TRY_PLUGIN_MARKER"]).toBe("kept");
-    } finally {
-      delete process.env["CLAUDE_CODE_ENABLE_FUNCTION_HOOKS"];
-      delete process.env["TRY_PLUGIN_MARKER"];
-    }
   });
 });

@@ -42,7 +42,7 @@ the checker's: if it is enabled, stop and say so.
 2. `claude plugin install <plugin>@<marketplace>`, or `claude plugin update
    <plugin>` when an older version is installed. It answers in seconds, and
    the cache holds every file when it returns.
-3. `CLAUDE_CODE_ENABLE_FUNCTION_HOOKS=1 claude plugin validate <cache path>`
+3. `claude plugin validate <cache path>`
    prints the same hooks and `$` calls there as it does on the source tree.
 4. Use a throwaway `CLAUDE_CONFIG_DIR` for the permission check. Register the
    catalog and install the plugin in that config first, with the same
@@ -53,7 +53,7 @@ the checker's: if it is enabled, stop and say so.
 
    ```bash
    cd <workspace> && env CLAUDE_CONFIG_DIR=<run>/claude-config \
-     CLAUDE_CODE_ENABLE_FUNCTION_HOOKS=1 <mise>/claude \
+     <mise>/claude \
      --permission-mode default --model opus --debug-file <run>/s.debug.log
    ```
 

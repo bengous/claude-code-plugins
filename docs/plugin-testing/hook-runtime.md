@@ -256,8 +256,8 @@ plugins (September 2026), unless a line says otherwise.
 
 Read from `vellum/types/claude-code.d.ts` (symbol names below) and from the
 official docs (page § section). Neither is measured in a session; each is
-what the engine's own text commits to. Function hooks are early access and
-absent from the public docs: the `.d.ts` is their only reference.
+what the engine's own text commits to. The official docs (`plugins/mods/`)
+cover mods too, and say to trust the `.d.ts` where the two disagree.
 
 - `tool.check` (`ToolCheckInput`, `ToolCheckDecision`) fires when the engine
   decides whether a call may run, after `tool.call` and `PreToolUse`.
