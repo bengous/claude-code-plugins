@@ -2,14 +2,20 @@ import { describe, expect, test } from "bun:test";
 
 import type { Todo } from "../types/index.d.ts";
 import {
+  addedTodos,
   commentPattern,
   commentTodo,
   DEFAULT_MARKERS,
   displayText,
   formatAge,
+  githubWebUrl,
+  isMine,
+  isScannedPath,
+  issueNumber,
   parseBlame,
   parseGrep,
   parseList,
+  parseMarkers,
   shortenStart,
   sortNewestFirst,
   sourceLabel,
@@ -193,5 +199,77 @@ describe("labels", () => {
     expect(displayText(todo({ marker: "FIXME", text: "leak" }))).toBe("FIXME leak");
     expect(displayText(todo({ text: "plain" }))).toBe("plain");
     expect(displayText(todo({ text: "" }))).toBe("(no description)");
+  });
+});
+
+describe("settings and links", () => {
+  test("parseMarkers splits on commas and spaces and keeps each word once", () => {
+    expect(parseMarkers(" TODO, FIXME  XXX,,TODO ")).toEqual(["TODO", "FIXME", "XXX"]);
+    expect(parseMarkers("")).toEqual([]);
+  });
+
+  test.each([
+    [
+      "git@github.com:bengous/claude-code-plugins.git",
+      "https://github.com/bengous/claude-code-plugins",
+    ],
+    [
+      "https://github.com/bengous/claude-code-plugins",
+      "https://github.com/bengous/claude-code-plugins",
+    ],
+    ["https://github.com/bengous/dotfiles.git/", "https://github.com/bengous/dotfiles"],
+    ["ssh://git@github.com/bengous/repo.git", "https://github.com/bengous/repo"],
+    ["git@gitlab.com:team/repo.git", null],
+    ["/srv/git/repo.git", null],
+  ])("githubWebUrl(%s)", (remote, url) => {
+    expect(githubWebUrl(remote)).toBe(url);
+  });
+
+  test("issueNumber reads only a #number tag", () => {
+    expect(issueNumber("#42")).toBe(42);
+    expect(issueNumber("human")).toBeNull();
+    expect(issueNumber("#42 later")).toBeNull();
+    expect(issueNumber(null)).toBeNull();
+  });
+
+  test("isMine matches the author email without case, and counts uncommitted lines", () => {
+    expect(isMine(todo({ authorEmail: "Me@Example.com" }), "me@example.com")).toBe(true);
+    expect(isMine(todo({ authorEmail: "other@example.com" }), "me@example.com")).toBe(false);
+    expect(isMine(todo({ authorEmail: null }), null)).toBe(true);
+    expect(isMine(todo({ authorEmail: "me@example.com" }), null)).toBe(false);
+  });
+
+  test("isScannedPath follows the scan's exclusions", () => {
+    expect(isScannedPath("TODO.md")).toBe(true);
+    expect(isScannedPath("docs/notes.md")).toBe(false);
+    expect(isScannedPath("src/a.ts")).toBe(true);
+    expect(isScannedPath("bin/rewrite-authors")).toBe(true);
+    expect(isScannedPath("dir.v2/.bashrc")).toBe(true);
+  });
+});
+
+describe("addedTodos", () => {
+  test("finds the comments an edit adds, not the ones it moves", () => {
+    const before = ["// TODO: kept", "code();"].join("\n");
+    const after = ["code();", "// TODO: kept", "// FIXME(#7): new one"].join("\n");
+    expect(addedTodos("src/a.ts", before, after, DEFAULT_MARKERS)).toEqual([
+      { marker: "FIXME", tag: "#7", text: "new one", line: 3 },
+    ]);
+  });
+
+  test("counts a second copy of an existing TODO as added", () => {
+    expect(addedTodos("a.sh", "# TODO: x", "# TODO: x\n# TODO: x", DEFAULT_MARKERS)).toHaveLength(
+      1,
+    );
+  });
+
+  test("reads TODO.md as a list", () => {
+    expect(addedTodos("TODO.md", "- old item", "- old item\n- new item", DEFAULT_MARKERS)).toEqual([
+      { marker: "TODO", tag: null, text: "new item", line: 2 },
+    ]);
+  });
+
+  test("finds nothing without markers", () => {
+    expect(addedTodos("a.ts", "", "// TODO: x", [])).toEqual([]);
   });
 });

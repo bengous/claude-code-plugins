@@ -51,6 +51,13 @@ const DONE_ITEM = /^[-*] \[[xX]\] /u;
 
 const COMMENT_CLOSER = /\s*(?:\*\/|-->)\s*$/u;
 
+const NEVER = /(?!)/u;
+
+const ISSUE_TAG = /^#(\d+)$/u;
+
+const GITHUB_REMOTE =
+  /^(?:https:\/\/github\.com\/|git@github\.com:|ssh:\/\/git@github\.com\/)([^/\s]+\/[^/\s]+?)(?:\.git)?\/?$/u;
+
 const escapeRegExp = (text: string): string =>
   text.replaceAll(/[.*+?^${}()|[\]\\]/gu, String.raw`\$&`);
 
@@ -59,6 +66,7 @@ const escapeRegExp = (text: string): string =>
  * that starts the line or follows a space, or after the `*` that continues a block comment.
  */
 export function commentPattern(markers: readonly string[]): RegExp {
+  if (markers.length === 0) return NEVER;
   const alternatives = markers.map((marker) => escapeRegExp(marker)).join("|");
 
   return new RegExp(
@@ -178,4 +186,78 @@ export function displayText(todo: Todo): string {
   const text = todo.text === "" ? "(no description)" : todo.text;
 
   return todo.source === "comment" && todo.marker !== "TODO" ? `${todo.marker} ${text}` : text;
+}
+
+/** The markers setting: words separated by commas or spaces, each kept once. */
+export function parseMarkers(setting: string): string[] {
+  return [...new Set(setting.split(/[\s,]+/u).filter((word) => word !== ""))];
+}
+
+/** The web address of a GitHub remote, where `TODO(#42)` links to; null for any other host. */
+export function githubWebUrl(remote: string): string | null {
+  const slug = GITHUB_REMOTE.exec(remote.trim())?.[1];
+
+  return slug === undefined ? null : `https://github.com/${slug}`;
+}
+
+export function issueNumber(tag: string | null): number | null {
+  const digits = tag === null ? undefined : ISSUE_TAG.exec(tag)?.[1];
+
+  return digits === undefined ? null : Number(digits);
+}
+
+/** An uncommitted line is the person's own work. */
+export function isMine(todo: Todo, email: string | null): boolean {
+  if (todo.authorEmail === null) return true;
+
+  return email !== null && todo.authorEmail.toLowerCase() === email.toLowerCase();
+}
+
+/** Whether a scan reads this repository-relative path: TODO.md, or a file outside the skipped extensions. */
+export function isScannedPath(path: string): boolean {
+  if (path === LIST_FILE) return true;
+  const name = path.slice(path.lastIndexOf("/") + 1);
+  const dot = name.lastIndexOf(".");
+
+  return dot <= 0 || !SKIPPED_EXTENSIONS.includes(name.slice(dot + 1).toLowerCase());
+}
+
+export type AddedTodo = CommentTodo & { readonly line: number };
+
+const todoKey = (todo: CommentTodo): string => `${todo.marker}\0${todo.text}`;
+
+function todosOfText(path: string, text: string, pattern: RegExp): AddedTodo[] {
+  if (path === LIST_FILE) {
+    return parseList(text).map((item) => ({ ...item, marker: "TODO", tag: null }));
+  }
+
+  return text.split("\n").flatMap((row, index) => {
+    const found = commentTodo(row, pattern);
+
+    return found === null ? [] : [{ ...found, line: index + 1 }];
+  });
+}
+
+/** The TODOs `after` holds and `before` did not, matched by marker and text so that a moved line is not new. */
+export function addedTodos(
+  path: string,
+  before: string,
+  after: string,
+  markers: readonly string[],
+): AddedTodo[] {
+  const pattern = commentPattern(markers);
+  const remaining = new Map<string, number>();
+
+  for (const todo of todosOfText(path, before, pattern)) {
+    remaining.set(todoKey(todo), (remaining.get(todoKey(todo)) ?? 0) + 1);
+  }
+
+  return todosOfText(path, after, pattern).filter((todo) => {
+    const count = remaining.get(todoKey(todo)) ?? 0;
+
+    if (count === 0) return true;
+    remaining.set(todoKey(todo), count - 1);
+
+    return false;
+  });
 }

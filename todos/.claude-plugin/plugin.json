@@ -10,5 +10,33 @@
   "repository": "https://github.com/bengous/claude-code-plugins",
   "license": "MIT",
   "keywords": ["todo", "fixme", "git-blame", "mod", "function-hooks", "band"],
-  "types": "./types/index.d.ts"
+  "types": "./types/index.d.ts",
+  "userConfig": {
+    "show_on_start": {
+      "type": "boolean",
+      "title": "Show at session start",
+      "description": "Open the band when a session starts in a git repository that has TODOs. /todos opens it either way.",
+      "default": true
+    },
+    "rows": {
+      "type": "number",
+      "title": "Rows",
+      "description": "How many TODOs the band lists at most; it shows fewer in a short terminal.",
+      "default": 8,
+      "min": 1,
+      "max": 30
+    },
+    "markers": {
+      "type": "string",
+      "title": "Comment markers",
+      "description": "Words that mark a TODO when they open a code comment, separated by commas.",
+      "default": "TODO,FIXME,HACK"
+    },
+    "mine_only": {
+      "type": "boolean",
+      "title": "Only my TODOs",
+      "description": "Start each session with the band filtered to TODOs whose git author is you, or that are not committed yet. The band's Mine and All buttons switch it.",
+      "default": false
+    }
+  }
 }

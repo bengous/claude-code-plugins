@@ -12,10 +12,16 @@ export type Todo = {
   readonly authorEmail: string | null;
 };
 
-export type TodoScan = { readonly scannedAt: number; readonly todos: readonly Todo[] };
+export type TodoScan = {
+  readonly scannedAt: number;
+  readonly root: string;
+  readonly userEmail: string | null;
+  readonly issueBase: string | null;
+  readonly todos: readonly Todo[];
+};
 
 declare module "claude-code" {
   interface PluginState {
-    todos: { scan: TodoScan | null; visible: boolean };
+    todos: { scan: TodoScan | null; visible: boolean; mineOnly: boolean };
   }
 }

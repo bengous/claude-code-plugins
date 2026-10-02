@@ -32,6 +32,8 @@ function fakeHost(answers: {
   grep: RunResult;
   blame?: Record<string, RunResult>;
   list?: string;
+  email?: RunResult;
+  remote?: RunResult;
 }): Fake {
   const calls: (readonly string[])[] = [];
 
@@ -42,6 +44,11 @@ function fakeHost(answers: {
       if (argv[1] === "rev-parse") return Promise.resolve(ok(`${ROOT}\n`));
 
       if (argv[1] === "grep") return Promise.resolve(answers.grep);
+
+      if (argv[1] === "config") return Promise.resolve(answers.email ?? failed(1, ""));
+
+      if (argv[1] === "remote")
+        return Promise.resolve(answers.remote ?? failed(2, "error: No such remote 'origin'"));
 
       return Promise.resolve(
         answers.blame?.[argv.at(-1) ?? ""] ?? failed(128, "fatal: unexpected blame"),
@@ -149,6 +156,39 @@ describe("scanRepo", () => {
       "--",
       "a.ts",
     ]);
+  });
+});
+
+describe("scanRepo context", () => {
+  test("reports the root, the git email and the GitHub address of origin", async () => {
+    const { host } = fakeHost({
+      grep: failed(1, ""),
+      email: ok("me@example.com\n"),
+      remote: ok("git@github.com:bengous/claude-code-plugins.git\n"),
+    });
+
+    const scan = await scanRepo(host, ROOT, ["TODO"], NOW);
+
+    expect([scan.root, scan.userEmail, scan.issueBase]).toEqual([
+      ROOT,
+      "me@example.com",
+      "https://github.com/bengous/claude-code-plugins",
+    ]);
+  });
+
+  test("has no email or address when git has none", async () => {
+    const { host } = fakeHost({ grep: failed(1, "") });
+    const scan = await scanRepo(host, ROOT, ["TODO"], NOW);
+
+    expect([scan.userEmail, scan.issueBase]).toEqual([null, null]);
+  });
+
+  test("runs no git grep without markers", async () => {
+    const { host, calls } = fakeHost({ grep: failed(128, "should not run") });
+    const scan = await scanRepo(host, ROOT, [], NOW);
+
+    expect(scan.todos).toEqual([]);
+    expect(calls.some((argv) => argv[1] === "grep")).toBe(false);
   });
 });
 

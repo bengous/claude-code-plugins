@@ -1,5 +1,6 @@
 import type { Todo, TodoScan } from "../types/index.d.ts";
 import {
+  githubWebUrl,
   type GrepHit,
   LIST_FILE,
   type Origin,
@@ -44,6 +45,8 @@ async function grepComments(
   root: string,
   markers: readonly string[],
 ): Promise<GrepHit[]> {
+  if (markers.length === 0) return [];
+
   const run = await host.run(
     [
       "git",
@@ -108,6 +111,14 @@ async function mapPool<T, R>(
   return results;
 }
 
+/** One line of git output, or null when git exits non-zero: an unset `user.email`, no `origin` remote. */
+async function gitValue(host: Host, root: string, args: readonly string[]): Promise<string | null> {
+  const run = await host.run(["git", ...args], root);
+  const value = run.stdout.trim();
+
+  return run.exitCode === 0 && value !== "" ? value : null;
+}
+
 async function readList(host: Host, root: string): Promise<string | null> {
   const path = `${root}/${LIST_FILE}`;
 
@@ -120,9 +131,11 @@ export async function scanRepo(
   markers: readonly string[],
   scannedAt: number,
 ): Promise<ScanResult> {
-  const [hits, listText] = await Promise.all([
+  const [hits, listText, userEmail, remote] = await Promise.all([
     grepComments(host, root, markers),
     readList(host, root),
+    gitValue(host, root, ["config", "user.email"]),
+    gitValue(host, root, ["remote", "get-url", "origin"]),
   ]);
 
   const listItems = listText === null ? [] : parseList(listText);
@@ -170,5 +183,12 @@ export async function scanRepo(
     ...hits.map((hit): Todo => ({ source: "comment", ...hit, ...originOf(hit.path, hit.line) })),
   ];
 
-  return { scannedAt, todos: sortNewestFirst(todos), failures };
+  return {
+    scannedAt,
+    root,
+    userEmail,
+    issueBase: remote === null ? null : githubWebUrl(remote),
+    todos: sortNewestFirst(todos),
+    failures,
+  };
 }
