@@ -485,10 +485,8 @@ describe("what the transcript keeps", () => {
     const { dir, post, open } = await grilling();
     await open("auth");
 
-    await Promise.all([
-      post("answer", { text: "Two facts first.", reason: "answer", own: true, asked: false }),
-      post("event", { command: "/compact" }),
-    ]);
+    await post("answer", { text: "Two facts first.", reason: "answer", own: true, asked: false });
+    await post("event", { command: "/compact" });
 
     expect(readFileSync(join(dir, WIP, "grill-1.md"), "utf8")).toEndWith(
       "### Claude\n\nTwo facts first.\n\n_(session: /compact)_\n",
