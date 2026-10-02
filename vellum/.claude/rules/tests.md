@@ -88,6 +88,11 @@ paths:
   So a launch the server no longer takes, which stops the agent it started, is checked live too.
   A `TaskStop` the module calls is answered by the test's `on("tool.call", { tool: "TaskStop" })`
   (`stops` in `agent-review/fixtures/`).
+- The kit raises no `session.append`, and a test cannot raise one
+  ([Hook tests](../../../docs/plugin-testing/hooks.md)), so whose turn a relay started is held by
+  the pure `turn.test.ts` and checked in a live session: a reviewer's answer relayed as a prompt
+  (a proposal answered through `POST /api/x/proposal/answer` after Escape cut its wait) starts
+  a turn `answered` reads as `own`.
 - The kit cannot raise one case: the lock's overrun. `mock.clock` lets a wait held past a
   hook's budget go, and a test's own budget is shorter still, so a hook that outruns the
   dispatch is measured in a live session instead ([Hook tests](../../../docs/plugin-testing/hooks.md)).

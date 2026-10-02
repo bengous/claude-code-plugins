@@ -10,7 +10,6 @@ import {
   START_PROMPT,
   STOP_PROMPT,
   told,
-  TURN_ABORTED,
   TURN_ANSWERED,
   TURN_OF_AGENT,
   WORKDIR,
@@ -27,8 +26,6 @@ const PROPOSE = "mcp__vellum__propose";
 const ASK_USER = "AskUserQuestion";
 
 const VELLUM = { kind: "plugin", name: "vellum" } as const;
-
-const COMPOSER = { kind: "composer" } as const;
 
 const TURN = { text: "Reviewer: x", turnId: "t1" };
 
@@ -363,81 +360,16 @@ describe("what the transcript hears of the session", () => {
     expect(grill.posted).toEqual([]);
   });
 
-  test("a turn a vellum relay started is the grill's own, an interrupted one too", async ($, on) => {
-    const grill = grillRoutes(() => NO_GRILL);
-    world(on, grill);
-    on("turn.complete", (_, e) => ({ text: e.answer }));
-    await $.skill.prompt(START_PROMPT);
-    await $.prompt.submit({ text: "Reviewer: x", wait: false, origin: VELLUM });
-    await $.turn.start(TURN);
-    await $.turn.complete(TURN_ABORTED);
-
-    expect(grill.posted).toEqual([
-      ["answer", JSON.stringify({ text: "done", reason: "aborted", own: true, asked: false })],
-    ]);
-  });
-
   test("the transcript gets the turn's answer, not what another plugin shows beneath it", async ($, on) => {
     const grill = grillRoutes(() => NO_GRILL);
     world(on, grill);
     on("turn.complete", () => ({ text: "TL;DR of a peer plugin" }));
     await $.skill.prompt(START_PROMPT);
-    await $.prompt.submit({ text: "Reviewer: x", wait: false, origin: VELLUM });
-    await $.turn.start({ text: "Reviewer: x", turnId: "t1" });
-    await $.turn.complete(TURN_ANSWERED);
-
-    expect(grill.posted).toEqual([
-      ["answer", JSON.stringify({ text: "done", reason: "answer", own: true, asked: false })],
-    ]);
-  });
-
-  test("a turn the terminal started is not, even typed over a relay's turn", async ($, on) => {
-    const grill = grillRoutes(() => NO_GRILL);
-    world(on, grill);
-    on("turn.complete", (_, e) => ({ text: e.answer }));
-    await $.skill.prompt(START_PROMPT);
-    await $.prompt.submit({ text: "Reviewer: x", wait: false, origin: VELLUM });
     await $.turn.start(TURN);
-    await $.prompt.submit({ text: "and the weather?", wait: false, origin: COMPOSER });
     await $.turn.complete(TURN_ANSWERED);
-    await $.turn.start(TYPED_TURN);
-    await $.turn.complete(TYPED_ANSWERED);
-
-    expect(grill.posted.map(([, body]) => body)).toEqual([
-      JSON.stringify({ text: "done", reason: "answer", own: true, asked: false }),
-      JSON.stringify({ text: "done", reason: "answer", own: false, asked: false }),
-    ]);
-  });
-
-  test("a relay and a typed prompt that enter before either turn: the turn on the typed text is not own", async ($, on) => {
-    const grill = grillRoutes(() => NO_GRILL);
-    world(on, grill);
-    on("turn.complete", (_, e) => ({ text: e.answer }));
-    await $.skill.prompt(START_PROMPT);
-    await $.prompt.submit({ text: "Reviewer: x", wait: false, origin: VELLUM });
-    await $.prompt.submit({ text: "and the weather?", wait: false, origin: COMPOSER });
-    await $.turn.start(TYPED_TURN);
-    await $.turn.complete(TYPED_ANSWERED);
 
     expect(grill.posted).toEqual([
       ["answer", JSON.stringify({ text: "done", reason: "answer", own: false, asked: false })],
-    ]);
-  });
-
-  test("/vellum:stop forgets the note: a turn of the next mode is not own", async ($, on) => {
-    const grill = grillRoutes(() => NO_GRILL);
-    world(on, grill);
-    on("turn.complete", (_, e) => ({ text: e.answer }));
-    await $.skill.prompt(START_PROMPT);
-    await $.prompt.submit({ text: "Reviewer: x", wait: false, origin: VELLUM });
-    await $.skill.prompt(STOP_PROMPT);
-    await $.skill.prompt(START_PROMPT);
-    await $.turn.start(TURN);
-    await $.turn.complete(TURN_ANSWERED);
-
-    expect(grill.posted.at(-1)).toEqual([
-      "answer",
-      JSON.stringify({ text: "done", reason: "answer", own: false, asked: false }),
     ]);
   });
 
@@ -501,7 +433,6 @@ describe("what the transcript hears of the session", () => {
     world(on, grill);
     on("turn.complete", (_, e) => ({ text: e.answer }));
     await $.skill.prompt(START_PROMPT);
-    await $.prompt.submit({ text: "Reviewer: x", wait: false, origin: VELLUM });
     await $.turn.start(TURN);
     await $.tool.call({ tool: ASK, q: Q });
     await $.turn.complete(TURN_ANSWERED);
@@ -509,7 +440,7 @@ describe("what the transcript hears of the session", () => {
     await $.turn.complete(TYPED_ANSWERED);
 
     expect(grill.posted.filter(([name]) => name === "answer")).toEqual([
-      ["answer", JSON.stringify({ text: "done", reason: "answer", own: true, asked: true })],
+      ["answer", JSON.stringify({ text: "done", reason: "answer", own: false, asked: true })],
       ["answer", JSON.stringify({ text: "done", reason: "answer", own: false, asked: false })],
     ]);
   });

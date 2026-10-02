@@ -255,12 +255,16 @@ loop. `/vellum:start` enters it, Approve in the page or `/vellum:stop` leaves it
   Every refusal of a vellum tool carries its row's reason as the server words it (A8), as it
   comes, unless its slice adds the way on (the grill's names the tool that proposes one).
 - `turn.start` carries no origin (`TurnStartInput` is a text and a turn id), so whose turn it
-  is comes from `prompt.submit`, through `turn.ts`: `prompt.submit` notes the last prompt that
-  entered with its origin, before `next(e)`; `turn.start` takes the note, and the turn is
-  vellum's own when its text holds the noted text of a vellum relay, or from the moment a
+  is comes from the prompt's row, through `turn.ts`: a `session.append` hook on
+  `door: "prompt"` notes the origin of the main loop's last prompt row, which the engine keeps
+  just before the turn that prompt starts; `turn.start` takes the note, and the turn is
+  vellum's own when that row came from the plugin `vellum`, or from the moment a
   waiting tool of it returns an entry of the reviewer's (`replied`, a `grill_ask` answered, a
   `propose` whose pick opened a grill); `turn.complete` of that turn id hands `own` to the
-  halves' `answered`. It is the core's one thing the module knows
+  halves' `answered`. `prompt.submit` cannot say it: the engine skips that hook for vellum's
+  own relays (`skipped: re-entry`), and a prompt typed over a running turn enters that turn
+  and starts none ([Hook runtime](../../../docs/plugin-testing/hook-runtime.md) § Reloads and
+  background work). It is the core's one thing the module knows
   that the server does not, and it is not a variant of `State`: it says who started a turn,
   nothing about what is allowed. Two facts, the waiting note and the running turn, since a prompt may
   enter while a turn runs; each is a union of its own, never a nullable. `register.ts` resets
@@ -278,11 +282,8 @@ loop. `/vellum:start` enters it, Approve in the page or `/vellum:stop` leaves it
   call's wait reached it again, and then only the page's Paused goes missing, the pick still
   reaching Claude once.
 - Every miss of `turn.ts` falls on one side, a turn whose text is written nowhere: a reload
-  between the hooks, a text a hook beneath rewrote, and the known one, a relay and a typed
-  prompt that wait together, which leave one note, the last. It is one note and never a
-  registry: a text identifies a prompt, not a submission. The match is `includes`, not
-  equality, because how the engine frames a plugin's prompt in `turn.start`'s text is not
-  measured; an empty note matches nothing.
+  between the row and its turn. The kit raises no `session.append`, so a relay's turn is held
+  by `turn.test.ts` and checked in a live session (`tests.md`).
 - A text enters Claude's context only when Claude does something different because of it.
   Anything else goes to the band, `$.ui.log` or the page. A prompt names its object and
   repeats nothing Claude wrote or already read, and every relay keeps the plugin's origin: the

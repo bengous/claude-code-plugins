@@ -110,6 +110,31 @@ plugins (September 2026), unless a line says otherwise.
   open); the terminal is unaffected. An answer that reaches the model as the
   result of a tool call that waited for it is no new turn, and escapes it.
 
+- The calling plugin's own `prompt.submit` hook never sees its
+  `$.prompt.submit`, called from a timer or from a child's read loop alike:
+  the debug log says `prompt.submit skipped: re-entry (the plugin's own code
+  raised it; origin <plugin>)`, and its other hooks see the prompt. What a
+  plugin needs to know of its own prompt it reads off the prompt's row
+  (`vellum/src/runtime/hooks/register.ts`). Measured live on 2.1.285 and
+  2.1.287, and in the kit when the module itself submits; a test that calls
+  `$.prompt.submit` is no plugin's own code, so the module's hook runs there.
+
+- The prompt that starts a turn is kept as a `session.append` row with
+  `door: "prompt"` and its `origin` (`{ kind: "plugin", name }`,
+  `{ kind: "composer" }`) just before that turn's `turn.start`: 7 to 11 ms
+  before it for a plugin's prompt, 31 to 71 ms for a typed one, the row kept
+  as the prompt leaves the queue, not when it was submitted. The turn's text
+  is `The <plugin> plugin sent a message:\n<text>`. A prompt typed with Enter
+  during a turn raises `prompt.submit` with that turn's `turnId`, resolves at
+  once, and enters the running turn after its next tool result, as an
+  `attachment` row named `queued_command` with `door: "delivery"`: it starts
+  no turn. Not measured: a prompt queued with `ctrl+x enter` (`wait: true`).
+  Measured live on 2.1.285.
+
+- `$.session.append` of a `user` row keeps it with `isMeta: true` and
+  `door: "note"` and starts no turn; the model reads it at the next one.
+  Measured live on 2.1.285.
+
 - `$.process.run` reads the whole output, so a process meant to stay up is a
   child of `$.process.spawn`, whose stdout the module reads for as long as it
   runs (`vellum/src/runtime/hooks/client.ts`):

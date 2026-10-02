@@ -455,14 +455,11 @@ export const register: Register = (on) => {
     };
   });
 
-  // Vellum's own relays come through here too: `$.prompt.submit` skips the calling hook alone.
-  // The server already wrote what they carry, so an extension never hears of them.
+  // The engine skips this hook for vellum's own relays (`skipped: re-entry`), so whose turn a
+  // relay starts is read off its row below. The server already wrote what a relay carries, so
+  // an extension never hears of one.
   on("prompt.submit", async ($, e, next) => {
     const own = e.origin.kind === "plugin" && e.origin.name === "vellum";
-
-    // Before `next`: it resolves once the prompt entered, and its turn may have started by then.
-    if (state.kind === "live") turns = prompted(turns, e.text, own);
-    else forgetTurns();
 
     if (state.kind === "live" && !own) {
       await handed(hostOf($), state.live, "prompted", (extension, context) =>
@@ -473,8 +470,20 @@ export const register: Register = (on) => {
     return next(e);
   });
 
+  // The main loop's prompt row is kept just before the turn it starts, a relay's as a typed
+  // prompt's; one typed over a running turn enters that turn as a delivery and starts none.
+  on("session.append", { door: "prompt" }, (_, e, next) => {
+    if (e.agentId !== undefined) return next(e);
+    const own = e.origin.kind === "plugin" && "name" in e.origin && e.origin.name === "vellum";
+
+    if (state.kind === "live") turns = prompted(turns, own);
+    else forgetTurns();
+
+    return next(e);
+  });
+
   on("turn.start", (_, e, next) => {
-    turns = state.kind === "live" ? started(turns, e.text, e.turnId) : NO_TURN;
+    turns = state.kind === "live" ? started(turns, e.turnId) : NO_TURN;
 
     return next(e);
   });
