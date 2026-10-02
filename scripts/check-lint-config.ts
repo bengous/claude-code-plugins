@@ -130,6 +130,18 @@ export const EXPECTED_COMMANDS: CommandPair[] = [
     ci: "claude plugin test vellum",
     difference: null,
   },
+  {
+    gate: "validate-todos",
+    lefthook: "claude plugin validate todos",
+    ci: "claude plugin validate todos",
+    difference: null,
+  },
+  {
+    gate: "test-todos",
+    lefthook: "claude plugin test todos",
+    ci: "claude plugin test todos",
+    difference: null,
+  },
 ];
 
 /** Strip the launcher so `foo.ts` and `bun foo.ts` compare as the same gate. */

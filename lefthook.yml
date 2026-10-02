@@ -101,6 +101,16 @@ pre-commit:
         - "vellum/hooks/*"
         - "vellum/src/runtime/hooks/**"
       run: claude plugin test vellum
+    - name: validate-todos
+      glob:
+        - "todos/hooks/*"
+        - "todos/.claude-plugin/*"
+        - "todos/types/*"
+      run: claude plugin validate todos
+    - name: test-todos
+      glob:
+        - "todos/hooks/*"
+      run: claude plugin test todos
 
 commit-msg:
   jobs:
@@ -108,8 +118,8 @@ commit-msg:
       run: ./.claude/git/block-ai-signatures.sh {1}
 
 # The net before a push: pre-commit runs a gate only when a staged path matches
-# its glob, and runs no `bun test` suite (the kit's `test-vellum` runs on the
-# module's paths alone).
+# its glob, and runs no `bun test` suite (the kits' `test-vellum` and `test-todos`
+# run on their module's paths alone).
 # A script job, not a run job: lefthook 2.1.12 skips a pre-push run job when
 # `git diff HEAD @{push}` lists no file, and fails it when the branch has no
 # upstream and origin/HEAD names no local branch.

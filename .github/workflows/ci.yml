@@ -83,6 +83,12 @@ jobs:
       - name: Test the vellum hooks module
         run: claude plugin test vellum
 
+      - name: Validate the todos hooks module
+        run: claude plugin validate todos
+
+      - name: Test the todos hooks module
+        run: claude plugin test todos
+
       # main is a delayed fast-forward pointer on dev's history: releases move it
       # with `git push origin dev:main`. Fail loudly if main ever leaves that line.
       - name: Guard main as a strict prefix of dev
