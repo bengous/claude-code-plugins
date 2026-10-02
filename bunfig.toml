@@ -1,2 +1,2 @@
 [test]
-pathIgnorePatterns = ["vellum/**/*.test.ts"]
+pathIgnorePatterns = ["vellum/**/*.test.ts", "todos/**/*.test.ts"]

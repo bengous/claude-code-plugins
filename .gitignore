@@ -9,6 +9,9 @@ plans/
 # Node/Bun
 node_modules/
 
+# Claude Code writes it beside a mod without one at each --plugin-dir load; it extends the untracked .claude-plugin/types/
+todos/tsconfig.json
+
 # Playwright's traces of failed e2e tests
 vellum/test-results/
 

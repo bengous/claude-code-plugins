@@ -1,0 +1,14 @@
+{
+  "name": "todos",
+  "version": "1.0.0",
+  "description": "Shows the repository's TODOs in a band above the prompt, newest first: TODO.md items and TODO/FIXME/HACK code comments, dated with git blame",
+  "author": {
+    "name": "Augustin BENGOLEA",
+    "email": "bengous@protonmail.com"
+  },
+  "homepage": "https://github.com/bengous/claude-code-plugins/tree/main/todos",
+  "repository": "https://github.com/bengous/claude-code-plugins",
+  "license": "MIT",
+  "keywords": ["todo", "fixme", "git-blame", "mod", "function-hooks", "band"],
+  "types": "./types/index.d.ts"
+}
