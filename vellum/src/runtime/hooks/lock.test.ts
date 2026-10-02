@@ -267,7 +267,7 @@ describe("the lock places a path before it decides", () => {
     }
   });
 
-  test("the lock follows the engine on a leading //: landed where the engine folds it, the session's to decide; refused above the hooks, denied", async ($, on) => {
+  test("the lock follows the engine on a leading //: landed where the engine folds it, the session's to decide; refused above the hooks or beneath them, denied", async ($, on) => {
     const { stats } = world(on);
     on("tool.check", () => ENGINE);
     await $.skill.prompt(START_PROMPT);
@@ -277,8 +277,9 @@ describe("the lock places a path before it decides", () => {
       input: { file_path: "//host/share/x.md" },
     });
 
-    // CI's engine lags the local one: an older engine refuses a `//` spelling before any hook,
-    // a newer one folds it to a local path on POSIX; the lock must follow either answer.
+    // An engine up to 2.1.283 refuses a `//` spelling before any hook; a newer one folds it to a
+    // local path on POSIX, and on Windows hands the share as written, which the disk beneath
+    // refuses. The lock must follow every answer.
     expect(verdict, `fs.stat was handed ${JSON.stringify(stats)}`).toMatchObject(
       stats.includes("/host/share/x.md")
         ? ENGINE
