@@ -587,15 +587,17 @@ describe("what the page and the band read (§ 5.8)", () => {
 });
 
 describe("the five invariants, on every state the walk reaches (§ 5.10)", () => {
-  test("the walk reaches each case the invariants speak of", () => {
-    const { reached } = proof();
+  // Walked as the suite is collected, as `table.spec.ts` does: inside the first test, the walk
+  // shared the cores with every suite of a parallel run and outran the test's 5 s.
+  const { reached, violations } = proof();
 
+  test("the walk reaches each case the invariants speak of", () => {
     expect(Object.entries(reached).filter(([, count]) => count === 0)).toEqual([]);
   });
 
   for (const name of INVARIANTS) {
     test(name, () => {
-      expect(proof().violations[name]).toEqual([]);
+      expect(violations[name]).toEqual([]);
     });
   }
 });
