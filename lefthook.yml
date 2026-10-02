@@ -87,7 +87,7 @@ pre-commit:
         - "*.cjs"
       run: bun ./scripts/check-lint-disables.ts
     # The engine reads the hooks module's source and reports what it hooks and
-    # calls; the flag is needed until function hooks ship publicly.
+    # calls.
     - name: validate-vellum
       glob:
         - "vellum/hooks/*"
