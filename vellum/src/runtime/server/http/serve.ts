@@ -26,6 +26,7 @@ export type Watchdog = {
   readonly tabHoldMs: number;
   readonly periodMs: number;
   readonly expire: () => void;
+  readonly now?: () => number;
 };
 
 export type ServeOptions = {
@@ -188,7 +189,8 @@ export async function startServer(options: ServeOptions): Promise<Started> {
     if (workspace.kind === "approved") unwatch();
   });
 
-  let lastHeartbeat = Date.now();
+  const { graceMs, tabHoldMs, periodMs, expire, now = Date.now } = options.watchdog ?? WATCHDOG;
+  let lastHeartbeat = now();
   let url = "";
 
   const context = {
@@ -200,7 +202,7 @@ export async function startServer(options: ServeOptions): Promise<Started> {
     extensionRoutes: extensionRoutes(queue.context),
     openBrowser: () => openInBrowser(url),
     heartbeat: () => {
-      lastHeartbeat = Date.now();
+      lastHeartbeat = now();
     },
   };
 
@@ -253,11 +255,9 @@ export async function startServer(options: ServeOptions): Promise<Started> {
     await queue.inOrder(() => queue.notify());
   }
 
-  const { graceMs, tabHoldMs, periodMs, expire } = options.watchdog ?? WATCHDOG;
-
   // The module's heartbeat keeps the server; a reviewer's tab does too, for a while.
   const watchdog = setInterval(() => {
-    const silent = Date.now() - lastHeartbeat;
+    const silent = now() - lastHeartbeat;
 
     if (silent > graceMs && (handler.openStreams() === 0 || silent > tabHoldMs)) expire();
   }, periodMs);

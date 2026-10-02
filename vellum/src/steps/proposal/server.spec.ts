@@ -3,7 +3,15 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import type { ChannelLine, RegionView, ReviewView, WorkflowView } from "../../runtime/protocol.ts";
+import { reviewServer } from "../../review/server.ts";
+import type {
+  ChannelLine,
+  RegionView,
+  ReviewView,
+  WorkflowAnswer,
+  WorkflowView,
+} from "../../runtime/protocol.ts";
+import { createHandler, TOKEN_HEADER } from "../../runtime/server/http/routes.ts";
 import { startServer } from "../../runtime/server/http/serve.ts";
 import type { Started } from "../../runtime/server/http/serve.ts";
 import { Queue } from "../../runtime/server/queue.ts";
@@ -12,6 +20,7 @@ import { serverExtensions } from "../../runtime/server/slices.ts";
 import { parseWipDir } from "../../workshop/paths.ts";
 import type { BodyOf, PostOf } from "../../workshop/plugs.ts";
 import type { Move, Proposal, Proposed, ProposalPlugs, StepState, StepWaited } from "./contract.ts";
+import { STEP_FILE } from "./proposal.ts";
 import { server } from "./server.ts";
 
 type Routes = ProposalPlugs["server"];
@@ -483,55 +492,93 @@ describe("a wait", () => {
   });
 });
 
-/** What `read` answers, asked again at every turn of the loop until `work` settles: a read that lands inside its step included. */
-async function readsWhile<T, R>(
-  work: Promise<T>,
-  read: () => Promise<R>,
-): Promise<{ readonly value: T; readonly reads: readonly R[] }> {
-  const flag = { settled: false };
+/** The step's region with no proposal, as a view reads it. */
+const CLOSED: RegionView = { id: "proposal", state: "closed", line: "proposal: none" };
 
-  const settled = work.finally(() => {
-    flag.settled = true;
+/** What a step's write leaves before it keeps the wait in memory: a proposal no call waits on yet. */
+const LANDING = `${JSON.stringify({ pending: { id: "p9", proposal: PROPOSAL }, answered: null, dropped: null })}\n`;
+
+type InProcess = {
+  readonly state: () => Promise<Response>;
+  /** A core route, `GET /api/<path>`. */
+  readonly get: (path: string) => Promise<Response>;
+  /**
+   * Asks `read`, then takes a step of the queue that writes `step.json` and holds until the read
+   * answers, then takes the file back: a read in the queue lands before that step, one outside
+   * it lands inside.
+   */
+  readonly readAcrossStep: (read: () => Promise<Response>) => Promise<Response>;
+};
+
+/** The step's routes and the core's over one queue in this process, so a test takes a step of its own. */
+async function inProcess(): Promise<InProcess> {
+  const dir = mkdtempSync(join(tmpdir(), "vellum-step-"));
+  mkdirSync(join(dir, WIP, ".review"), { recursive: true });
+  const workdir = parseWipDir(WIP);
+
+  if (!workdir.ok) throw new Error(workdir.error);
+  const review = new Queue({ project: dir, workdir: workdir.value, extensions: serverExtensions });
+  await review.openChannel();
+  const state = serverExtension(server).routes?.(review.context)["GET state"];
+
+  if (state === undefined) throw new Error("GET state is missing");
+
+  const { handle } = createHandler({
+    token: "t",
+    project: dir,
+    queue: review,
+    review: reviewServer(review),
+    frameScript: "",
+    extensionRoutes: new Map(),
+    openBrowser: () => {},
+    heartbeat: () => {},
+    vellumBuild: { ok: false, error: "not read in this test" },
   });
 
-  const reads: Promise<R>[] = [];
+  const stepFile = join(dir, WIP, STEP_FILE);
 
-  while (!flag.settled) {
-    reads.push(read());
-    await Bun.sleep(0);
-  }
+  const get: InProcess["get"] = (path) =>
+    handle(new Request(`http://x/api/${path}`, { headers: { [TOKEN_HEADER]: "t" } }));
 
-  return { value: await settled, reads: await Promise.all(reads) };
+  return {
+    state: () => state(request()),
+    get,
+    readAcrossStep: async (read) => {
+      const answer = read();
+      // Refused by the same routing, past the same awaits and with no IO: once it answers, the
+      // read is in the queue or already reading outside it, and no file it reads has come back.
+      await get("channel?after=none");
+
+      await review.inOrder(async () => {
+        writeFileSync(stepFile, LANDING);
+        await answer;
+        rmSync(stepFile);
+      });
+
+      return await answer;
+    },
+  };
 }
 
 describe("the page's read of the state", () => {
   test("never reads a proposal paused while the step that took it lands", async () => {
-    const { propose, state } = await stepping();
-    const torn: StepState[] = [];
+    const { state, readAcrossStep } = await inProcess();
 
-    for (let round = 0; round < 40; round += 1) {
-      const { value: id, reads } = await readsWhile(propose(), state);
-      torn.push(...reads.filter((read) => read.pending?.id === id && read.paused));
-    }
-
-    expect(torn).toEqual([]);
+    expect(await (await readAcrossStep(state)).json()).toEqual({ pending: null, paused: false });
   });
 
   test("the workflow's views never read a proposal paused while the step that took it lands", async () => {
-    const { propose, region, reviewed } = await stepping();
-    const torn: RegionView[] = [];
+    const { get, readAcrossStep } = await inProcess();
+    // SAFETY: the server's own `WorkflowAnswer`, serialized by `Response.json` in routes.ts.
+    const workflow = (await (await readAcrossStep(() => get("workflow"))).json()) as WorkflowAnswer;
+    // SAFETY: the server's own `ReviewView`, serialized by `Response.json` in routes.ts.
+    const reviewed = (await (await readAcrossStep(() => get("review"))).json()) as ReviewView;
 
-    for (let round = 0; round < 40; round += 1) {
-      const { reads } = await readsWhile(propose(), () => Promise.all([region(), reviewed()]));
+    const regions = [workflow.regions, reviewed.workflow.regions].map((all) =>
+      all.find(({ id }) => id === "proposal"),
+    );
 
-      const paused = reads
-        .flat()
-        .filter((read): read is RegionView => read?.state === "open" && read.wait === "paused");
-
-      torn.push(...paused);
-    }
-
-    expect(torn).toEqual([]);
+    expect(regions).toEqual([CLOSED, CLOSED]);
   });
 });
 

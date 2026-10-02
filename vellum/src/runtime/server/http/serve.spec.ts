@@ -39,41 +39,69 @@ function project(): string {
   return root;
 }
 
+type HandClock = {
+  readonly now: () => number;
+  /** Sets the time, and answers once a check of the watchdog has read it. */
+  readonly checkedAt: (ms: number) => Promise<void>;
+};
+
+/** The watchdog's time, moved by the test alone: a loaded runner stretches no window. */
+function handClock(): HandClock {
+  let time = 0;
+  let read = Promise.withResolvers<void>();
+
+  return {
+    now: () => {
+      read.resolve();
+
+      return time;
+    },
+    checkedAt: (ms) => {
+      time = ms;
+      read = Promise.withResolvers<void>();
+
+      return read.promise;
+    },
+  };
+}
+
 describe("the watchdog", () => {
   test("without a heartbeat the server holds while a stream is open, and expires once the last one closed", async () => {
-    let expired = 0;
-    const watchdog = { graceMs: 40, tabHoldMs: 10_000, periodMs: 10, expire: () => (expired += 1) };
+    const { now, checkedAt } = handClock();
+    const expired = Promise.withResolvers<void>();
+    const expire = (): void => expired.resolve();
+    const watchdog = { graceMs: 40, tabHoldMs: 10_000, periodMs: 1, now, expire };
     const started = await startServer({ project: project(), workdir: wipDir(), port: 0, watchdog });
     const tab = new AbortController();
     const stream = await fetch(`${started.url}events`, { signal: tab.signal });
     await stream.body?.getReader().read();
-    await Bun.sleep(120);
+    await checkedAt(120);
 
-    expect(expired, "a tab listens, past the grace").toBe(0);
+    expect(Bun.peek.status(expired.promise), "a tab listens, past the grace").toBe("pending");
     tab.abort();
-    await Bun.sleep(120);
+    await expired.promise;
     started.stop();
-
-    expect(expired).toBeGreaterThan(0);
   });
 });
 
 describe("a server its module left", () => {
   test("a tab that still listens holds it for a while, not for good", async () => {
-    let expired = 0;
-    const watchdog = { graceMs: 20, tabHoldMs: 100, periodMs: 10, expire: () => (expired += 1) };
+    const { now, checkedAt } = handClock();
+    const expired = Promise.withResolvers<void>();
+    const expire = (): void => expired.resolve();
+    const watchdog = { graceMs: 20, tabHoldMs: 100, periodMs: 1, now, expire };
     const started = await startServer({ project: project(), workdir: wipDir(), port: 0, watchdog });
     const tab = new AbortController();
     const stream = await fetch(`${started.url}events`, { signal: tab.signal });
     await stream.body?.getReader().read();
-    await Bun.sleep(60);
+    await checkedAt(60);
 
-    expect(expired, "past the grace, the tab holds").toBe(0);
-    await Bun.sleep(120);
+    expect(Bun.peek.status(expired.promise), "past the grace, the tab holds").toBe("pending");
+    await checkedAt(180);
     tab.abort();
     started.stop();
 
-    expect(expired, "past the tab's hold, nothing does").toBeGreaterThan(0);
+    expect(Bun.peek.status(expired.promise), "past the tab's hold, nothing does").toBe("fulfilled");
   });
 });
 
