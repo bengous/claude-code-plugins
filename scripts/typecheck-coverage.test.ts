@@ -13,7 +13,7 @@ test("every tracked TypeScript file is in the typecheck, dot directories include
     .split("\n")
     .filter((path) => path !== "" && !LEFT_OUT.test(path));
 
-  const checked = new Set((await $`bun x tsgo --noEmit --listFiles`.cwd(ROOT).text()).split("\n"));
+  const checked = new Set((await $`bun x tsgo --listFilesOnly`.cwd(ROOT).text()).split("\n"));
 
   expect(tracked.filter((path) => !checked.has(join(ROOT, path)))).toEqual([]);
 });
