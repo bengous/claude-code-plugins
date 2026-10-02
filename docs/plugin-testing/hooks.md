@@ -87,7 +87,7 @@ under the [loader rules](hook-runtime.md#module-loader).
   `session.append`, and a test cannot raise one either. A test's hook that
   answers without `next` is skipped (`returned an answer without next`), and
   nothing beneath answers (`no implementation for session.append`). A hook on
-  `session.append` is checked in a live session. Measured on 2.1.287.
+  `session.append` is checked in a live session.
 
 - The kit starts no subagent. Nothing answers beneath `agent.spawn`, and a
   fixture hook that answers `{ model, agentId }` without `next` reaches the

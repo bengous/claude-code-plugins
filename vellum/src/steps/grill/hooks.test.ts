@@ -25,8 +25,6 @@ const PROPOSE = "mcp__vellum__propose";
 
 const ASK_USER = "AskUserQuestion";
 
-const VELLUM = { kind: "plugin", name: "vellum" } as const;
-
 const TURN = { text: "Reviewer: x", turnId: "t1" };
 
 const TYPED_TURN = { text: "and the weather?", turnId: "t2" };
@@ -349,27 +347,42 @@ describe("what the transcript hears of the session", () => {
     expect(grill.posted).toEqual([["event", JSON.stringify({ command: "/compact" })]]);
   });
 
-  test("an entry vellum relays is not written again: the server already holds it", async ($, on) => {
-    const grill = grillRoutes(() => NO_GRILL);
-    const seen = world(on, grill);
-    await $.skill.prompt(START_PROMPT);
-
-    await $.prompt.submit({ text: "/x", wait: false, origin: VELLUM });
-
-    expect(seen.prompts).toEqual(["/x"]);
-    expect(grill.posted).toEqual([]);
-  });
-
   test("the transcript gets the turn's answer, not what another plugin shows beneath it", async ($, on) => {
-    const grill = grillRoutes(() => NO_GRILL);
+    const grill = grillRoutes(() => OPEN_GRILL, {
+      ...ASKED_Q1,
+      wait: () => reply(200, { kind: "answered", seq: 1, text: Q1_YES }),
+    });
+
     world(on, grill);
     on("turn.complete", () => ({ text: "TL;DR of a peer plugin" }));
     await $.skill.prompt(START_PROMPT);
     await $.turn.start(TURN);
+    await $.tool.call({ tool: ASK, q: Q });
     await $.turn.complete(TURN_ANSWERED);
 
-    expect(grill.posted).toEqual([
-      ["answer", JSON.stringify({ text: "done", reason: "answer", own: false, asked: false })],
+    expect(grill.posted.filter(([name]) => name === "answer")).toEqual([
+      ["answer", JSON.stringify({ text: "done", reason: "answer", own: true, asked: false })],
+    ]);
+  });
+
+  test("/vellum:stop forgets the running turn: its end in the next mode is not own", async ($, on) => {
+    const grill = grillRoutes(() => OPEN_GRILL, {
+      ...ASKED_Q1,
+      wait: () => reply(200, { kind: "answered", seq: 1, text: Q1_YES }),
+    });
+
+    world(on, grill);
+    on("turn.complete", (_, e) => ({ text: e.answer }));
+    await $.skill.prompt(START_PROMPT);
+    await $.turn.start(TURN);
+    await $.tool.call({ tool: ASK, q: Q });
+    await $.skill.prompt(STOP_PROMPT);
+    await $.skill.prompt(START_PROMPT);
+    await $.turn.complete(TURN_ANSWERED);
+
+    expect(grill.posted.filter(([name]) => name === "answer").at(-1)).toEqual([
+      "answer",
+      JSON.stringify({ text: "done", reason: "answer", own: false, asked: false }),
     ]);
   });
 

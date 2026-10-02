@@ -1,14 +1,18 @@
 /**
  * Whose turn runs: the one thing the module knows that the server does not. `turn.start`
- * carries no origin, so `session.append` notes the origin of the last prompt row kept, which
- * the engine keeps just before the turn that prompt starts, and that turn takes it. Two facts
- * that coexist, since a turn runs while the next prompt waits. Neither is a variant of the
- * mode's `State`: they say who started a turn, nothing about what is allowed.
+ * carries no origin, so `session.append` notes each prompt row the engine keeps before a turn,
+ * its text and whether vellum relayed it, and the turn that starts on that text takes it. Two
+ * facts that coexist, since a row may be kept while a turn still runs.
+ * Neither is a variant of the mode's `State`: they say who started a turn, nothing about what
+ * is allowed.
  *
- * A reload between the row and its turn loses the note, and that turn reads as not vellum's:
- * the turn's text is written nowhere.
+ * Every miss falls on one side, a turn read as not vellum's, whose text is written nowhere: two
+ * rows before one turn are vellum's only if both are, a turn whose text does not hold the last
+ * row's is nobody's, and a reload between the row and its turn loses the note.
  */
-type Noted = { readonly kind: "none" } | { readonly kind: "prompt"; readonly own: boolean };
+type Noted =
+  | { readonly kind: "none" }
+  | { readonly kind: "prompt"; readonly text: string; readonly own: boolean };
 
 type Running =
   | { readonly kind: "none" }
@@ -18,14 +22,24 @@ export type Turns = { readonly noted: Noted; readonly running: Running };
 
 export const NO_TURN: Turns = { noted: { kind: "none" }, running: { kind: "none" } };
 
-/** `session.append` of a prompt row: the next turn's origin; the turn that runs is left as it is. */
-export function prompted(turns: Turns, own: boolean): Turns {
-  return { ...turns, noted: { kind: "prompt", own } };
+/** `session.append` of a prompt row: the next turn's note; the turn that runs is left as it is. */
+export function prompted(turns: Turns, text: string, own: boolean): Turns {
+  const { noted } = turns;
+  const all = noted.kind === "prompt" ? noted.own && own : own;
+
+  return { ...turns, noted: { kind: "prompt", text, own: all } };
 }
 
-/** `turn.start`, which takes the note: a turn with none before it is not vellum's. */
-export function started(turns: Turns, turnId: string): Turns {
-  const own = turns.noted.kind === "prompt" && turns.noted.own;
+/**
+ * `turn.start`, which takes the note. The turn's text is the row's as measured, framed by the
+ * engine for a plugin's prompt; `includes` keeps a turn that adds to it. An empty note matches
+ * nothing, so a continuation, whose text is empty, never takes a note left behind.
+ */
+export function started(turns: Turns, text: string, turnId: string): Turns {
+  const { noted } = turns;
+
+  const own =
+    noted.kind === "prompt" && noted.own && noted.text !== "" && text.includes(noted.text);
 
   return { noted: { kind: "none" }, running: { kind: "turn", turnId, own } };
 }

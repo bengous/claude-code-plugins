@@ -132,6 +132,15 @@ export function editedPath(tool: string, input: unknown): string | null {
   return typeof input.file_path === "string" ? input.file_path : null;
 }
 
+/** A prompt row's first text block, the text its turn starts on; `""` when it holds none. */
+export function rowText(content: readonly { readonly type: string }[]): string {
+  const text = content.find(
+    (block): block is { type: "text"; text: unknown } => block.type === "text",
+  );
+
+  return typeof text?.text === "string" ? text.text : "";
+}
+
 export function parseServerInfo(value: unknown): ServerInfo | null {
   return isRecord(value) &&
     typeof value.port === "number" &&

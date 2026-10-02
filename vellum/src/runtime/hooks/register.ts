@@ -24,6 +24,7 @@ import {
 import {
   type DrawnWire,
   editedPath,
+  rowText,
   type GateWire,
   sessionId,
   shellCall,
@@ -455,13 +456,10 @@ export const register: Register = (on) => {
     };
   });
 
-  // The engine skips this hook for vellum's own relays (`skipped: re-entry`), so whose turn a
-  // relay starts is read off its row below. The server already wrote what a relay carries, so
-  // an extension never hears of one.
+  // The engine skips this hook for vellum's own relays (`skipped: re-entry`), so an extension
+  // never hears of one, and whose turn a relay starts is read off its row below.
   on("prompt.submit", async ($, e, next) => {
-    const own = e.origin.kind === "plugin" && e.origin.name === "vellum";
-
-    if (state.kind === "live" && !own) {
+    if (state.kind === "live") {
       await handed(hostOf($), state.live, "prompted", (extension, context) =>
         extension.prompted?.(context, { text: e.text, origin: e.origin }),
       );
@@ -471,19 +469,19 @@ export const register: Register = (on) => {
   });
 
   // The main loop's prompt row is kept just before the turn it starts, a relay's as a typed
-  // prompt's; one typed over a running turn enters that turn as a delivery and starts none.
+  // prompt's (`turn.ts` says what a row with no turn of its own costs).
   on("session.append", { door: "prompt" }, (_, e, next) => {
     if (e.agentId !== undefined) return next(e);
     const own = e.origin.kind === "plugin" && "name" in e.origin && e.origin.name === "vellum";
 
-    if (state.kind === "live") turns = prompted(turns, own);
+    if (state.kind === "live") turns = prompted(turns, rowText(e.message.content), own);
     else forgetTurns();
 
     return next(e);
   });
 
   on("turn.start", (_, e, next) => {
-    turns = state.kind === "live" ? started(turns, e.turnId) : NO_TURN;
+    turns = state.kind === "live" ? started(turns, e.text, e.turnId) : NO_TURN;
 
     return next(e);
   });
