@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import { type Host, repoRoot, type RunResult, scanRepo } from "./scan.ts";
+import { type Host, locate, repoRoot, type RunResult, scanRepo } from "./scan.ts";
 
 const ROOT = "/work/repo";
 
@@ -8,9 +8,19 @@ const NOW = Date.UTC(2026, 9, 2);
 
 const DAY = 86_400_000;
 
-const ok = (stdout: string): RunResult => ({ exitCode: 0, stdout, stderr: "" });
+const ok = (stdout: string, isStdoutTruncated = false): RunResult => ({
+  exitCode: 0,
+  stdout,
+  stderr: "",
+  isStdoutTruncated,
+});
 
-const failed = (exitCode: number, stderr: string): RunResult => ({ exitCode, stdout: "", stderr });
+const failed = (exitCode: number, stderr: string): RunResult => ({
+  exitCode,
+  stdout: "",
+  stderr,
+  isStdoutTruncated: false,
+});
 
 function porcelain(
   line: number,
@@ -119,6 +129,50 @@ describe("scanRepo", () => {
     expect(scan.todos).toHaveLength(1);
   });
 
+  test("keeps the other TODOs when one blame rejects", async () => {
+    const { host } = fakeHost({
+      grep: ok("a.ts\u00001\u0000// TODO: x\nb.ts\u00002\u0000// TODO: y\n"),
+      blame: { "b.ts": ok(porcelain(2, NOW - DAY)) },
+    });
+
+    const rejecting: Host = {
+      ...host,
+      run: (argv, cwd) =>
+        argv[1] === "blame" && argv.at(-1) === "a.ts"
+          ? Promise.reject(new Error("process.run timed out after 20000 ms"))
+          : host.run(argv, cwd),
+    };
+
+    const scan = await scanRepo(rejecting, ROOT, ["TODO"], NOW);
+
+    expect(scan.failures).toEqual(["git blame a.ts: process.run timed out after 20000 ms"]);
+    expect(scan.todos.map((item) => item.text)).toEqual(["x", "y"]);
+  });
+
+  test("dates every line to the scan in a repository with no commit yet", async () => {
+    const { host } = fakeHost({
+      grep: ok("a.ts\u00001\u0000// TODO: first\n"),
+      blame: { "a.ts": failed(128, "fatal: no such ref: HEAD") },
+    });
+
+    const scan = await scanRepo(host, ROOT, ["TODO"], NOW);
+
+    expect(scan.failures).toEqual([]);
+    expect(scan.todos[0]?.authoredAt).toBe(NOW);
+  });
+
+  test("says when git grep output was cut", async () => {
+    const { host } = fakeHost({
+      grep: ok("a.ts\u00001\u0000// TODO: x\na.ts\u00002\u0000// TO", true),
+      blame: { "a.ts": ok(porcelain(1, NOW)) },
+    });
+
+    const scan = await scanRepo(host, ROOT, ["TODO"], NOW);
+
+    expect(scan.failures).toEqual(["git grep printed over 4 MiB: the list is cut"]);
+    expect(scan.todos).toHaveLength(1);
+  });
+
   test("finds nothing when git grep matches nothing and there is no TODO.md", async () => {
     const { host, calls } = fakeHost({ grep: failed(1, "") });
     const scan = await scanRepo(host, ROOT, ["TODO"], NOW);
@@ -142,8 +196,9 @@ describe("scanRepo", () => {
     await scanRepo(host, ROOT, ["TODO", "FIXME"], NOW);
     const grep = calls.find((argv) => argv[1] === "grep") ?? [];
     expect(grep).toContain("--no-recurse-submodules");
-    expect(grep).toContain(":(exclude)*.md");
-    expect(grep).toContain(":(exclude)*.jsonl");
+    expect(grep).toContain("--no-color");
+    expect(grep).toContain(":(exclude,icase)*.md");
+    expect(grep).toContain(":(exclude,icase)*.jsonl");
     expect(grep.join(" ")).toContain("-e TODO -e FIXME");
     expect(calls.find((argv) => argv[1] === "blame")).toEqual([
       "git",
@@ -189,6 +244,47 @@ describe("scanRepo context", () => {
 
     expect(scan.todos).toEqual([]);
     expect(calls.some((argv) => argv[1] === "grep")).toBe(false);
+  });
+});
+
+function answering(answer: RunResult | Error): Host & { cwds: string[] } {
+  const cwds: string[] = [];
+
+  return {
+    cwds,
+    run: (_argv, cwd) => {
+      cwds.push(cwd);
+
+      return answer instanceof Error ? Promise.reject(answer) : Promise.resolve(answer);
+    },
+    exists: () => Promise.resolve(true),
+    read: () => Promise.resolve(""),
+  };
+}
+
+describe("locate", () => {
+  test("asks git from the file's directory", async () => {
+    const asked = answering(ok(`${ROOT}\nsrc/\n`));
+
+    expect(await locate(asked, "/link/to/repo/src/c.ts")).toEqual({ root: ROOT, path: "src/c.ts" });
+    expect(asked.cwds).toEqual(["/link/to/repo/src"]);
+  });
+
+  test("reads a Windows path", async () => {
+    const asked = answering(ok("C:/work/repo\nsrc/\n"));
+
+    expect(await locate(asked, String.raw`C:\work\repo\src\c.ts`)).toEqual({
+      root: "C:/work/repo",
+      path: "src/c.ts",
+    });
+    expect(asked.cwds).toEqual([String.raw`C:\work\repo\src`]);
+  });
+
+  test("is null outside a repository, or when the directory is gone", async () => {
+    expect(
+      await locate(answering(failed(128, "fatal: not a git repository")), "/tmp/a.ts"),
+    ).toBeNull();
+    expect(await locate(answering(new Error("ENOENT")), "/gone/a.ts")).toBeNull();
   });
 });
 

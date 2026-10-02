@@ -60,7 +60,11 @@ type Repo = { readonly clock: MockClock; readonly toasts: string[]; readonly rea
 
 function stubRepo(
   on: On,
-  { isRepo = true, files = new Map([[`${ROOT}/TODO.md`, ["- list item from TODO.md\n"]]]) } = {},
+  {
+    isRepo = true,
+    files = new Map([[`${ROOT}/TODO.md`, ["- list item from TODO.md\n"]]]),
+    grepGate = Promise.resolve(),
+  } = {},
 ): Repo {
   const clock = mock.clock(on, { now: NOW });
   const toasts: string[] = [];
@@ -90,10 +94,18 @@ function stubRepo(
     if (!isRepo) return run("", 128, "fatal: not a git repository");
 
     switch (e.argv[1]) {
-      case "rev-parse":
-        return run(`${ROOT}\n`);
+      case "rev-parse": {
+        const prefix = (e.init?.cwd ?? ROOT).slice(ROOT.length + 1);
+
+        return run(
+          e.argv.includes("--show-prefix")
+            ? `${ROOT}\n${prefix === "" ? "" : `${prefix}/`}\n`
+            : `${ROOT}\n`,
+        );
+      }
+
       case "grep":
-        return run(GREP);
+        return grepGate.then(() => run(GREP));
       case "config":
         return run(`${ME}\n`);
       case "remote":
@@ -106,6 +118,8 @@ function stubRepo(
 
   return { clock, toasts, reads };
 }
+
+const doNothing = (): void => undefined;
 
 async function texts(ui: { findAll: (query: { type: string }) => Promise<{ text: string }[]> }) {
   return (await ui.findAll({ type: "Text" })).map((element) => element.text);
@@ -147,15 +161,40 @@ test("the desktop app draws the same band", async ($, on) => {
 });
 
 test("an interactive session start shows the band without holding the session", async ($, on) => {
-  const { clock } = stubRepo(on);
+  let releaseGrep = doNothing;
+
+  const grepGate = new Promise<void>((resolve) => {
+    releaseGrep = resolve;
+  });
+
+  const { clock } = stubRepo(on, { grepGate });
 
   on("session.start", () => ({ cwd: ROOT }));
+  // A session.start that awaited the scan would never resolve here: git grep is held until after it.
   await $.session.start({ surface: "terminal", isInteractive: true, cwd: ROOT });
-  await clock.settle();
   const ui = await $.ui.mount(BAND);
 
+  expect(await ui.find({ type: "Text", text: "todos" })).toBeUndefined();
+  releaseGrep();
+  await clock.settle();
   expect(await ui.find({ type: "Text", text: "todos" })).toBeDefined();
 });
+
+test(
+  "after /clear the band comes back with mine_only",
+  { options: { mine_only: true } },
+  async ($, on) => {
+    const { clock } = stubRepo(on);
+
+    on("classic.SessionStart", () => ({}));
+    await $.classic.SessionStart({ source: "clear" });
+    await clock.settle();
+    const shown = await texts(await $.ui.mount(BAND));
+
+    expect(shown).toContain("· 2 of 3 yours");
+    expect(shown).not.toContain("FIXME older comment");
+  },
+);
 
 test(
   "show_on_start off keeps the band closed until /todos",
@@ -241,6 +280,24 @@ test("an edit that adds a TODO comment raises a toast", async ($, on) => {
   });
 
   expect(toasts).toEqual(["New TODO at src/c.ts:2: added by Claude"]);
+});
+
+test("an edit that fails raises no toast", async ($, on) => {
+  const path = `${ROOT}/src/c.ts`;
+
+  const { toasts } = stubRepo(on, {
+    files: new Map([[path, ["code();\n", "code();\n"]]]),
+  });
+
+  on("tool.call", () => ({ result: "String to replace not found in file.", isError: true }));
+  await $.tool.call({
+    tool: "Edit",
+    file_path: path,
+    old_string: "missing",
+    new_string: "// TODO: never written",
+  });
+
+  expect(toasts).toEqual([]);
 });
 
 test("an edit without a marker reads nothing", async ($, on) => {

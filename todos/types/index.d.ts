@@ -12,12 +12,15 @@ export type Todo = {
   readonly authorEmail: string | null;
 };
 
+/** What the band keeps of a scan: the counts, and only as many TODOs as it can show, since $.state caps a value's size. */
 export type TodoScan = {
   readonly scannedAt: number;
   readonly root: string;
-  readonly userEmail: string | null;
   readonly issueBase: string | null;
+  readonly total: number;
+  readonly mineTotal: number;
   readonly todos: readonly Todo[];
+  readonly mineTodos: readonly Todo[];
 };
 
 declare module "claude-code" {

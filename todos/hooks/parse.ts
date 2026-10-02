@@ -49,7 +49,12 @@ const LIST_ITEM = /^[-*] (?:\[ \] )?(.*)$/u;
 
 const DONE_ITEM = /^[-*] \[[xX]\] /u;
 
-const COMMENT_CLOSER = /\s*(?:\*\/|-->)\s*$/u;
+const COMMENT_END = /\*\/|-->/u;
+
+const LINE_BREAK = /\r?\n/u;
+
+// The engine refuses a whole band whose text holds a control character or passes 10,000 characters.
+const MAX_TEXT = 200;
 
 const NEVER = /(?!)/u;
 
@@ -63,29 +68,45 @@ const escapeRegExp = (text: string): string =>
 
 /**
  * A marker counts only as the first word of a comment: after `//`, `/*`, `#`, `--`, `<!--` or `;`
- * that starts the line or follows a space, or after the `*` that continues a block comment.
+ * that starts the line or follows a space, a bracket, `;` or `,`, or after the `*` that continues a block comment.
  */
 export function commentPattern(markers: readonly string[]): RegExp {
   if (markers.length === 0) return NEVER;
   const alternatives = markers.map((marker) => escapeRegExp(marker)).join("|");
 
   return new RegExp(
-    String.raw`(?:^\s*\*+|(?:^|[\s({[])(?:\/\/+|\/\*+|#+|--+|<!--|;+))[\s!]*(${alternatives})\b(?:\(([^)]*)\))?:?\s*(.*)$`,
+    String.raw`(?:^\s*\*+|(?:^|[\s(){}[\];,])(?:\/\/+|\/\*+|#+|--+|<!--|;+))[\s!]*(${alternatives})\b(?:\(([^)]*)\))?:?\s*(.*)$`,
     "u",
   );
 }
 
+const isControl = (character: string): boolean => {
+  const code = character.codePointAt(0) ?? 0;
+
+  return code < 0x20 || (code >= 0x7f && code < 0xa0);
+};
+
+export function stripControl(text: string): string {
+  return [...text.replaceAll("\t", " ")].filter((character) => !isControl(character)).join("");
+}
+
+export function cleanText(text: string): string {
+  const plain = stripControl(text).trim();
+
+  return plain.length > MAX_TEXT ? `${plain.slice(0, MAX_TEXT - 1)}…` : plain;
+}
+
 export function commentTodo(text: string, pattern: RegExp): CommentTodo | null {
-  const match = pattern.exec(text);
+  const match = pattern.exec(text.endsWith("\r") ? text.slice(0, -1) : text);
   const marker = match?.[1];
 
   if (match === null || marker === undefined) return null;
-  const tag = match[2]?.trim() ?? "";
+  const tag = cleanText(match[2] ?? "");
 
   return {
     marker,
     tag: tag === "" ? null : tag,
-    text: (match[3] ?? "").replace(COMMENT_CLOSER, "").trim(),
+    text: cleanText((match[3] ?? "").split(COMMENT_END)[0] ?? ""),
   };
 }
 
@@ -105,9 +126,10 @@ export function parseGrep(stdout: string, markers: readonly string[]): GrepHit[]
 
 /** Top-level `- ` or `* ` items, unchecked boxes included and checked ones left out; the title stops at its first `:` or `;` past ten characters. */
 export function parseList(text: string): ListItem[] {
-  return text.split("\n").flatMap((row, index) => {
+  return text.split(LINE_BREAK).flatMap((row, index) => {
     if (DONE_ITEM.test(row)) return [];
-    const body = LIST_ITEM.exec(row)?.[1]?.replaceAll("`", "").trim();
+    const item = LIST_ITEM.exec(row)?.[1];
+    const body = item === undefined ? undefined : cleanText(item.replaceAll("`", ""));
 
     if (body === undefined || body === "") return [];
     const cut = body.search(/[:;]/u);
@@ -174,7 +196,7 @@ export function formatAge(ms: number): string {
 }
 
 export function sourceLabel(todo: Todo): string {
-  return todo.source === "list" ? todo.path : `${todo.path}:${todo.line}`;
+  return stripControl(todo.source === "list" ? todo.path : `${todo.path}:${todo.line}`);
 }
 
 /** Keeps the end of a path, where the file name and line are. */
@@ -231,7 +253,7 @@ function todosOfText(path: string, text: string, pattern: RegExp): AddedTodo[] {
     return parseList(text).map((item) => ({ ...item, marker: "TODO", tag: null }));
   }
 
-  return text.split("\n").flatMap((row, index) => {
+  return text.split(LINE_BREAK).flatMap((row, index) => {
     const found = commentTodo(row, pattern);
 
     return found === null ? [] : [{ ...found, line: index + 1 }];

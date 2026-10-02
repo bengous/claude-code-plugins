@@ -44,6 +44,12 @@ Each TODO is dated with `git blame`: the time its line was authored. The newest 
 
 When Claude edits a file with `Edit` or `Write` and adds a TODO, a toast names it: `New FIXME at deploy.sh:4: rotate the deploy key`.
 
+## Limits
+
+- A string that reads like a comment counts: `x = '  # TODO: later'` is listed.
+- Every `git blame` runs once per file that holds a TODO, six at a time, so a repository with hundreds of such files takes seconds before the band opens. Each edit that adds a TODO scans again.
+- A title or comment longer than 200 characters is cut, and control characters are dropped.
+
 ## Settings
 
 Claude Code asks for them when you enable the plugin; they are also rows in `/config`.

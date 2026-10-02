@@ -15,7 +15,7 @@ import {
   shortenStart,
   sourceLabel,
 } from "./parse.ts";
-import { type Host, repoRoot, type ScanResult, scanRepo } from "./scan.ts";
+import { type Host, locate, repoRoot, type ScanResult, scanRepo } from "./scan.ts";
 
 const NO_SCAN: TodoScan | null = null;
 
@@ -67,12 +67,37 @@ function hostOf($: EngineInterface): Host {
   };
 }
 
+function kept(scan: ScanResult, rows: number): TodoScan {
+  const mine = scan.todos.filter((todo) => isMine(todo, scan.userEmail));
+
+  return {
+    scannedAt: scan.scannedAt,
+    root: scan.root,
+    issueBase: scan.issueBase,
+    total: scan.todos.length,
+    mineTotal: mine.length,
+    todos: scan.todos.slice(0, rows),
+    mineTodos: mine.slice(0, rows),
+  };
+}
+
+function countText(scan: TodoScan, mineOnly: boolean): string {
+  if (scan.total === 0) return "No TODOs in this repository.";
+  const counted = `${scan.total} ${scan.total === 1 ? "TODO" : "TODOs"} above the prompt`;
+
+  return mineOnly ? `${counted}, ${scan.mineTotal} of them yours.` : `${counted}.`;
+}
+
+// Scans overlap when an edit lands during one: only the latest to start writes the band.
+let latestScan = 0;
+
 async function refresh(
   $: EngineInterface,
-  cwd: string,
   settings: Settings,
+  cwd: string,
   reveal: boolean,
-): Promise<ScanResult | null> {
+): Promise<TodoScan | null> {
+  const generation = ++latestScan;
   const host = hostOf($);
   const root = await repoRoot(host, cwd);
 
@@ -84,47 +109,30 @@ async function refresh(
     $.ui.toast(`${failure}${others.length > 0 ? ` (+${others.length} more)` : ""}`);
   }
 
-  await update($, scanState, () => ({
-    scannedAt: scan.scannedAt,
-    root: scan.root,
-    userEmail: scan.userEmail,
-    issueBase: scan.issueBase,
-    todos: scan.todos,
-  }));
+  const state = kept(scan, settings.rows);
 
-  if (reveal) await update($, isVisible, () => scan.todos.length > 0);
+  if (generation === latestScan) await update($, scanState, () => state);
 
-  return scan;
+  if (reveal) await update($, isVisible, () => state.total > 0);
+
+  return state;
 }
 
 async function refreshOrToast(
   $: EngineInterface,
-  cwd: string,
   settings: Settings,
+  cwd: string,
   reveal: boolean,
 ): Promise<void> {
   try {
-    await refresh($, cwd, settings, reveal);
+    await refresh($, settings, cwd, reveal);
   } catch (error) {
     $.ui.toast(messageOf(error instanceof Error ? error : String(error)));
   }
 }
 
-function countText(scan: ScanResult, mineOnly: boolean): string {
-  const total = scan.todos.length;
-
-  if (total === 0) return "No TODOs in this repository.";
-  const counted = `${total} ${total === 1 ? "TODO" : "TODOs"} above the prompt`;
-
-  if (!mineOnly) return `${counted}.`;
-  const yours = scan.todos.filter((todo) => isMine(todo, scan.userEmail)).length;
-
-  return `${counted}, ${yours} of them yours.`;
-}
-
 export const register: Register = (on, options) => {
   const settings = settingsOf(options);
-
   on("session.start", async ($, e, next) => {
     try {
       await $.command.register({
@@ -140,7 +148,15 @@ export const register: Register = (on, options) => {
     await update($, isMineOnly, () => settings.mineOnly);
 
     // Not awaited: Claude Code holds the first prompt until session.start returns, and a scan blames every file it finds.
-    if (e.isInteractive) void refreshOrToast($, e.cwd, settings, settings.showOnStart);
+    if (e.isInteractive) void refreshOrToast($, settings, e.cwd, settings.showOnStart);
+
+    return next(e);
+  });
+
+  // /clear, /resume and /branch reset $.state, and session.start does not fire again.
+  on("classic.SessionStart", { source: ["clear", "resume", "fork"] }, async ($, e, next) => {
+    await update($, isMineOnly, () => settings.mineOnly);
+    void refreshOrToast($, settings, e.cwd, settings.showOnStart);
 
     return next(e);
   });
@@ -153,7 +169,7 @@ export const register: Register = (on, options) => {
 
   on("command.run", { command: COMMAND }, async ($) => {
     try {
-      const scan = await refresh($, await $.session.cwd(), settings, true);
+      const scan = await refresh($, settings, await $.session.cwd(), true);
 
       if (scan === null) return { text: "Not inside a git repository." };
 
@@ -166,31 +182,32 @@ export const register: Register = (on, options) => {
   on("tool.call", { tool: ["Edit", "Write"] }, async ($, e, next) => {
     if (e.tool !== "Edit" && e.tool !== "Write") return next(e);
     const written = e.tool === "Write" ? e.content : e.new_string;
-    const isList = e.file_path.endsWith(`/${LIST_FILE}`);
 
-    if (!isList && !settings.markers.some((marker) => written.includes(marker))) return next(e);
-    const scan = await read($, scanState);
-    const root = scan?.root ?? (await repoRoot(hostOf($), await $.session.cwd()));
+    const name = e.file_path.slice(
+      Math.max(e.file_path.lastIndexOf("/"), e.file_path.lastIndexOf("\\")) + 1,
+    );
 
-    if (root === null || !e.file_path.startsWith(`${root}/`)) return next(e);
-    const path = e.file_path.slice(root.length + 1);
+    if (name !== LIST_FILE && !settings.markers.some((marker) => written.includes(marker)))
+      return next(e);
+    const located = await locate(hostOf($), e.file_path);
 
-    if (!isScannedPath(path)) return next(e);
+    if (located === null || !isScannedPath(located.path)) return next(e);
     const before = (await $.fs.exists(e.file_path)) ? await $.fs.read(e.file_path) : "";
     const result = await next(e);
 
     if ("deny" in result || result.isError === true) return result;
-    const added = addedTodos(path, before, await $.fs.read(e.file_path), settings.markers);
+    const added = addedTodos(located.path, before, await $.fs.read(e.file_path), settings.markers);
     const [first, ...others] = added;
 
     if (first !== undefined) {
-      const where = path === LIST_FILE ? path : `${path}:${first.line}`;
+      const where = located.path === LIST_FILE ? located.path : `${located.path}:${first.line}`;
 
       $.ui.toast(
         `New ${first.marker} at ${where}: ${first.text === "" ? "(no description)" : first.text}${others.length > 0 ? ` (+${others.length} more)` : ""}`,
       );
 
-      if (scan !== null) void refreshOrToast($, root, settings, false);
+      if ((await read($, scanState))?.root === located.root)
+        void refreshOrToast($, settings, located.root, false);
     }
 
     return result;
@@ -199,21 +216,14 @@ export const register: Register = (on, options) => {
   on("ui.render", { component: "AbovePrompt" }, async ($, e, next) => {
     const scan = await read($, scanState);
 
-    if (
-      e.props.hasSurvey ||
-      scan === null ||
-      scan.todos.length === 0 ||
-      !(await read($, isVisible))
-    ) {
+    if (e.props.hasSurvey || scan === null || scan.total === 0 || !(await read($, isVisible))) {
       return next(e);
     }
 
     const { Box, Button, Link, Text } = $.ui.resolve(e);
     const mineOnly = await read($, isMineOnly);
-
-    const listed = mineOnly
-      ? scan.todos.filter((todo) => isMine(todo, scan.userEmail))
-      : scan.todos;
+    const listed = mineOnly ? scan.mineTodos : scan.todos;
+    const listedTotal = mineOnly ? scan.mineTotal : scan.total;
 
     const shown = listed.slice(
       0,
@@ -225,11 +235,8 @@ export const register: Register = (on, options) => {
     const ages = shown.map((todo) => formatAge(scan.scannedAt - todo.authoredAt));
     const labelWidth = Math.max(0, ...labels.map((label) => label.length));
     const ageWidth = Math.max(0, ...ages.map((age) => age.length));
-    const hiddenCount = listed.length - shown.length;
-
-    const count = mineOnly
-      ? `${listed.length} of ${scan.todos.length} yours`
-      : `${scan.todos.length}`;
+    const hiddenCount = listedTotal - shown.length;
+    const count = mineOnly ? `${scan.mineTotal} of ${scan.total} yours` : `${scan.total}`;
 
     const footer = [
       hiddenCount > 0 ? `+${hiddenCount} more` : "",
@@ -303,16 +310,12 @@ export const register: Register = (on, options) => {
           gap: 1,
           children: [
             Text({ dimColor: true, children: footer }),
-            ...(scan.userEmail === null && !mineOnly
-              ? []
-              : [
-                  Button({
-                    key: "mine",
-                    label: mineOnly ? "All" : "Mine",
-                    dimColor: true,
-                    onPress: () => update($, isMineOnly, (value) => !value),
-                  }),
-                ]),
+            Button({
+              key: "mine",
+              label: mineOnly ? "All" : "Mine",
+              dimColor: true,
+              onPress: () => update($, isMineOnly, (value) => !value),
+            }),
             Button({
               key: "hide",
               label: "Hide",

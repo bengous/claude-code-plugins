@@ -1,4 +1,4 @@
-import type { Todo, TodoScan } from "../types/index.d.ts";
+import type { Todo } from "../types/index.d.ts";
 import {
   githubWebUrl,
   type GrepHit,
@@ -19,13 +19,28 @@ type Blamed =
   | { readonly isOk: true; readonly origins: Map<number, Origin> }
   | { readonly isOk: false; readonly error: string };
 
-export type ScanResult = TodoScan & { readonly failures: readonly string[] };
+export type ScanResult = {
+  readonly scannedAt: number;
+  readonly root: string;
+  readonly userEmail: string | null;
+  readonly issueBase: string | null;
+  readonly todos: readonly Todo[];
+  readonly failures: readonly string[];
+};
 
 export type RunResult = {
   readonly exitCode: number;
   readonly stdout: string;
   readonly stderr: string;
+  readonly isStdoutTruncated: boolean;
 };
+
+type Grepped = { readonly hits: readonly GrepHit[]; readonly isTruncated: boolean };
+
+export type Located = { readonly root: string; readonly path: string };
+
+// An untracked file, or a repository with no commit yet, has no history: its lines count as uncommitted.
+const NO_HISTORY = /no such path|no such ref/u;
 
 /** What a scan needs from the machine; the hooks module builds it from `$`, which cannot cross an import. */
 export type Host = {
@@ -40,12 +55,32 @@ export async function repoRoot(host: Host, cwd: string): Promise<string | null> 
   return run.exitCode === 0 ? run.stdout.trim() : null;
 }
 
+/**
+ * Where an edited file sits, as git names it: asked from the file's own directory, so a symlinked
+ * path or a Windows path with backslashes still lands on the repository-relative path.
+ */
+export async function locate(host: Host, filePath: string): Promise<Located | null> {
+  const slash = Math.max(filePath.lastIndexOf("/"), filePath.lastIndexOf("\\"));
+
+  if (slash < 0) return null;
+
+  const run = await host
+    .run(["git", "rev-parse", "--show-toplevel", "--show-prefix"], filePath.slice(0, slash) || "/")
+    .catch(() => null);
+
+  const [root, prefix] = run?.exitCode === 0 ? run.stdout.split("\n") : [];
+
+  if (root === undefined || root === "" || prefix === undefined) return null;
+
+  return { root, path: `${prefix}${filePath.slice(slash + 1)}` };
+}
+
 async function grepComments(
   host: Host,
   root: string,
   markers: readonly string[],
-): Promise<GrepHit[]> {
-  if (markers.length === 0) return [];
+): Promise<Grepped> {
+  if (markers.length === 0) return { hits: [], isTruncated: false };
 
   const run = await host.run(
     [
@@ -54,6 +89,8 @@ async function grepComments(
       // A configured submodule.recurse makes git refuse --untracked.
       "--no-recurse-submodules",
       "--untracked",
+      // color.ui=always would wrap each marker in escape codes.
+      "--no-color",
       "-z",
       "-n",
       "-I",
@@ -61,16 +98,16 @@ async function grepComments(
       ...markers.flatMap((marker) => ["-e", marker]),
       "--",
       ".",
-      ...SKIPPED_EXTENSIONS.map((extension) => `:(exclude)*.${extension}`),
+      ...SKIPPED_EXTENSIONS.map((extension) => `:(exclude,icase)*.${extension}`),
     ],
     root,
   );
 
-  if (run.exitCode === GREP_NO_MATCH) return [];
+  if (run.exitCode === GREP_NO_MATCH) return { hits: [], isTruncated: false };
 
   if (run.exitCode !== 0) throw new Error(`git grep failed: ${run.stderr.trim()}`);
 
-  return parseGrep(run.stdout, markers);
+  return { hits: parseGrep(run.stdout, markers), isTruncated: run.isStdoutTruncated };
 }
 
 async function blame(
@@ -80,12 +117,20 @@ async function blame(
   lines: readonly number[] | null,
 ): Promise<Blamed> {
   const ranges = lines === null ? [] : lines.flatMap((line) => ["-L", `${line},${line}`]);
-  const run = await host.run(["git", "blame", "--line-porcelain", ...ranges, "--", path], root);
+  let run: RunResult;
+
+  try {
+    run = await host.run(["git", "blame", "--line-porcelain", ...ranges, "--", path], root);
+  } catch (error) {
+    return {
+      isOk: false,
+      error: `git blame ${path}: ${error instanceof Error ? error.message : String(error)}`,
+    };
+  }
 
   if (run.exitCode === 0) return { isOk: true, origins: parseBlame(run.stdout) };
 
-  // An untracked file has no history: every line in it counts as uncommitted.
-  if (run.stderr.includes("no such path")) return { isOk: true, origins: new Map() };
+  if (NO_HISTORY.test(run.stderr)) return { isOk: true, origins: new Map() };
 
   return { isOk: false, error: `git blame ${path}: ${run.stderr.trim()}` };
 }
@@ -131,7 +176,7 @@ export async function scanRepo(
   markers: readonly string[],
   scannedAt: number,
 ): Promise<ScanResult> {
-  const [hits, listText, userEmail, remote] = await Promise.all([
+  const [{ hits, isTruncated }, listText, userEmail, remote] = await Promise.all([
     grepComments(host, root, markers),
     readList(host, root),
     gitValue(host, root, ["config", "user.email"]),
@@ -155,7 +200,7 @@ export async function scanRepo(
   );
 
   const originsByPath = new Map<string, Map<number, Origin>>();
-  const failures: string[] = [];
+  const failures: string[] = isTruncated ? ["git grep printed over 4 MiB: the list is cut"] : [];
   jobs.forEach((job, index) => {
     const result = blamed[index];
 

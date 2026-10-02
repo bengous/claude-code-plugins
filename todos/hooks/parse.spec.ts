@@ -54,6 +54,14 @@ describe("commentTodo", () => {
     ["; TODO: tail call", { marker: "TODO", tag: null, text: "tail call" }],
     ["//! TODO crate docs", { marker: "TODO", tag: null, text: "crate docs" }],
     ["x = 1  # TODO", { marker: "TODO", tag: null, text: "" }],
+    ["// TODO: windows line\r", { marker: "TODO", tag: null, text: "windows line" }],
+    ["/* TODO: fix */ int x = 1;", { marker: "TODO", tag: null, text: "fix" }],
+    ["foo();// TODO: glued", { marker: "TODO", tag: null, text: "glued" }],
+    ["}// TODO", { marker: "TODO", tag: null, text: "" }],
+    [
+      "# TODO: bell\u0007 and\tescape\u001B",
+      { marker: "TODO", tag: null, text: "bell and escape" },
+    ],
   ])("reads %s", (line, expected) => {
     expect(commentTodo(line, pattern)).toEqual(expected);
   });
@@ -67,6 +75,17 @@ describe("commentTodo", () => {
     'const label = "# TODO";',
   ])("ignores %s", (line) => {
     expect(commentTodo(line, pattern)).toBeNull();
+  });
+
+  test("drops what follows a closed comment, a minified line included", () => {
+    expect(commentTodo(`/* TODO */ ${"x".repeat(12_000)}`, pattern)?.text).toBe("");
+  });
+
+  test("caps a long comment at 200 characters", () => {
+    const found = commentTodo(`// TODO ${"x".repeat(12_000)}`, pattern);
+
+    expect(found?.text).toHaveLength(200);
+    expect(found?.text.endsWith("…")).toBe(true);
   });
 
   test("takes the markers it is given", () => {
@@ -96,6 +115,13 @@ describe("parseGrep", () => {
 });
 
 describe("parseList", () => {
+  test("reads a list with CRLF line endings", () => {
+    expect(parseList("- crlf list item\r\n- second\r\n")).toEqual([
+      { line: 1, text: "crlf list item" },
+      { line: 2, text: "second" },
+    ]);
+  });
+
   test("reads top-level items, unchecked boxes, and cuts long titles at the first colon", () => {
     const text = [
       "# Follow-ups",
@@ -190,6 +216,10 @@ describe("labels", () => {
     );
   });
 
+  test("a label drops control characters", () => {
+    expect(sourceLabel(todo({ path: "odd\u001Bname.ts", line: 3 }))).toBe("oddname.ts:3");
+  });
+
   test("shortenStart keeps the end of a long path", () => {
     expect(shortenStart("machines/vps/nixos/network.nix:2", 16)).toBe("…s/network.nix:2");
     expect(shortenStart("a.ts:1", 16)).toBe("a.ts:1");
@@ -261,6 +291,12 @@ describe("addedTodos", () => {
     expect(addedTodos("a.sh", "# TODO: x", "# TODO: x\n# TODO: x", DEFAULT_MARKERS)).toHaveLength(
       1,
     );
+  });
+
+  test("reads CRLF files", () => {
+    expect(
+      addedTodos("a.ts", "// TODO: a\r\n", "// TODO: a\r\n// TODO: b\r\n", DEFAULT_MARKERS),
+    ).toEqual([{ marker: "TODO", tag: null, text: "b", line: 2 }]);
   });
 
   test("reads TODO.md as a list", () => {
