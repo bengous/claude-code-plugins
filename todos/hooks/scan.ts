@@ -16,6 +16,9 @@ import {
 
 const DEFAULT_BLAME_CONCURRENCY = 6;
 
+// Measured on openai/codex with 16 CPUs: 12 blames at once took 964 ms, 16 took 834 ms, and more gained nothing.
+const MAX_BLAME_CONCURRENCY = 16;
+
 const GREP_NO_MATCH = 1;
 
 type Blamed =
@@ -176,7 +179,9 @@ async function blameConcurrency(host: Host, root: string): Promise<number> {
   const run = await host.run(["getconf", "_NPROCESSORS_ONLN"], root).catch(() => null);
   const count = run?.exitCode === 0 ? Number.parseInt(run.stdout, 10) : Number.NaN;
 
-  return Number.isInteger(count) && count > 0 ? count : DEFAULT_BLAME_CONCURRENCY;
+  return Number.isInteger(count) && count > 0
+    ? Math.min(count, MAX_BLAME_CONCURRENCY)
+    : DEFAULT_BLAME_CONCURRENCY;
 }
 
 /** One line of git output, or null when git exits non-zero: an unset `user.email`, no `origin` remote. */

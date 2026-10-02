@@ -53,7 +53,7 @@ When Claude edits a file with `Edit` or `Write` and adds a TODO, a toast names i
 ## Limits
 
 - A string is recognized within one line only: a `# TODO` inside a multi-line string, such as a Python `"""` block, is listed.
-- Every `git blame` runs once per file that holds a TODO, as many at a time as the machine has CPUs (six on Windows, where `getconf` is missing), so the band of a repository with about a hundred such files opens after close to a second on a 16-CPU machine. Each edit that adds a TODO scans again.
+- Every `git blame` runs once per file that holds a TODO, as many at a time as the machine has CPUs, sixteen at most (six on Windows, where `getconf` is missing), so the band of a repository with about a hundred such files opens after close to a second on a 16-CPU machine. Each edit that adds a TODO scans again.
 - A title or comment longer than 200 characters is cut, and control characters are dropped.
 
 ## Settings

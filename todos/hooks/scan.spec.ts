@@ -260,6 +260,10 @@ describe("blame concurrency", () => {
     expect(await peakBlames(ok("16\n"))).toBe(16);
   });
 
+  test("runs at most sixteen at once on a larger machine", async () => {
+    expect(await peakBlames(ok("128\n"))).toBe(16);
+  });
+
   test("runs six at once where getconf is missing or fails", async () => {
     expect(await peakBlames(new Error("Executable not found in $PATH: getconf"))).toBe(6);
     expect(await peakBlames(failed(1, "getconf: Invalid argument"))).toBe(6);
