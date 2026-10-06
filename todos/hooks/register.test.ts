@@ -290,6 +290,47 @@ test("the wheel scrolls the list under its header", { options: { rows: 2 } }, as
   expect(await texts(ui)).toContain("newer comment");
 });
 
+test("the arrows page the list, each on its digit", { options: { rows: 2 } }, async ($, on) => {
+  stubRepo(on);
+  await $.command.run(TODOS);
+  const ui = await $.ui.mount(BAND);
+
+  expect(await ui.find({ type: "Button", key: "up" })).toBeUndefined();
+  expect((await ui.find({ type: "Button", key: "down" }))?.props).toMatchObject({
+    label: "↓ 1 more",
+    hotkey: "9",
+  });
+  await ui.press({ key: "down" });
+  const shown = await texts(ui);
+
+  expect(shown).toContain("FIXME older comment");
+  expect(shown).not.toContain("newer comment");
+  expect(await ui.find({ type: "Button", key: "down" })).toBeUndefined();
+  expect((await ui.find({ type: "Button", key: "up" }))?.props).toMatchObject({
+    label: "↑ 1 more",
+    hotkey: "8",
+  });
+  await ui.press({ key: "up" });
+  expect(await texts(ui)).toContain("newer comment");
+});
+
+test("a list that fits draws no arrows", async ($, on) => {
+  stubRepo(on);
+  await $.command.run(TODOS);
+  const ui = await $.ui.mount(BAND);
+
+  expect(await ui.find({ type: "Button", key: "down" })).toBeUndefined();
+});
+
+test("a short terminal gives a row of the list to the arrows", async ($, on) => {
+  stubRepo(on);
+  await $.command.run(TODOS);
+  const ui = await $.ui.mount({ ...BAND, props: { ...BAND.props, maxRows: 6 } });
+
+  expect((await texts(ui)).some((text) => text.startsWith("1–1 of 3"))).toBe(true);
+  expect(await ui.find({ type: "Button", key: "down" })).toBeDefined();
+});
+
 test("a list that fits leaves the wheel to the engine", async ($, on) => {
   stubRepo(on);
   const passed = engineScrolls(on);

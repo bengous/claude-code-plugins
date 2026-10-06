@@ -50,6 +50,13 @@ const SOURCE_SHARE = 0.35;
 // The band's border and its header and footer rows.
 const BAND_CHROME_ROWS = 4;
 
+const PAGER_ROWS = 1;
+
+// A bare digit typed into an empty prompt presses a band Button: the list pages without the band's focus.
+const PAGE_UP_HOTKEY = "8";
+
+const PAGE_DOWN_HOTKEY = "9";
+
 // The band's top border and its header.
 const LIST_FIRST_ROW = 2;
 
@@ -313,10 +320,15 @@ export const register: Register = (on, options) => {
     const listed = mineOnly ? scan.mineTodos : scan.todos;
     const listedTotal = mineOnly ? scan.mineTotal : scan.total;
 
-    const windowRows = Math.max(1, Math.min(settings.rows, e.props.maxRows - BAND_CHROME_ROWS));
+    const fitRows = (chromeRows: number) =>
+      Math.max(1, Math.min(settings.rows, e.props.maxRows - chromeRows));
+
+    const isPaged = listed.length > fitRows(BAND_CHROME_ROWS);
+    const windowRows = fitRows(isPaged ? BAND_CHROME_ROWS + PAGER_ROWS : BAND_CHROME_ROWS);
     drawnRows = windowRows;
     const start = windowStart(await read($, windowOffset), listed.length, windowRows);
     const shown = listed.slice(start, start + windowRows);
+    const below = listed.length - start - shown.length;
     const picked = await read($, pickedIds);
 
     const labelLimit = Math.max(MIN_SOURCE_WIDTH, Math.floor(e.props.bodyColumns * SOURCE_SHARE));
@@ -360,6 +372,38 @@ export const register: Register = (on, options) => {
       update($, pickedIds, (ids) =>
         ids.includes(id) ? ids.filter((other) => other !== id) : [...ids, id],
       );
+
+    const pageTo = (offset: number) =>
+      update($, windowOffset, () => windowStart(offset, listed.length, windowRows));
+
+    // Each arrow keeps its own end of the row, so a second click lands on the arrow the first one hit.
+    const pager = isPaged
+      ? [
+          Box({
+            justifyContent: "space-between",
+            children: [
+              start > 0
+                ? Button({
+                    key: "up",
+                    label: `↑ ${start} more`,
+                    hotkey: PAGE_UP_HOTKEY,
+                    plain: true,
+                    onPress: () => pageTo(start - windowRows),
+                  })
+                : Box({}),
+              below > 0
+                ? Button({
+                    key: "down",
+                    label: `↓ ${below} more`,
+                    hotkey: PAGE_DOWN_HOTKEY,
+                    plain: true,
+                    onPress: () => pageTo(start + windowRows),
+                  })
+                : Box({}),
+            ],
+          }),
+        ]
+      : [];
 
     const rows = shown.map((todo, index) =>
       Box({
@@ -410,6 +454,7 @@ export const register: Register = (on, options) => {
         ...(rows.length > 0
           ? rows
           : [Text({ dimColor: true, children: "None of these TODOs is yours." })]),
+        ...pager,
         Box({
           gap: 1,
           children: [
