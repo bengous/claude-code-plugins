@@ -163,6 +163,10 @@ function windowStart(offset: number, count: number, windowRows: number): number 
   return Math.max(0, Math.min(offset, count - windowRows));
 }
 
+function pagedOffset(offset: number, by: number, count: number, windowRows: number): number {
+  return windowStart(windowStart(offset, count, windowRows) + by, count, windowRows);
+}
+
 async function showClaude($: EngineInterface): Promise<void> {
   const scan = await read($, scanState);
 
@@ -195,6 +199,7 @@ export const register: Register = (on, options) => {
   const settings = settingsOf(options);
   // A scroll event's bodyRows is not the band's maxRows, so the scroll hook clamps to the window the band last drew.
   let drawnRows = settings.rows;
+  let isPagerDrawn = false;
 
   on("session.start", async ($, e, next) => {
     try {
@@ -286,17 +291,20 @@ export const register: Register = (on, options) => {
     if (
       e.pointer !== undefined &&
       e.contentRows <= e.bodyRows &&
-      (e.pointer.row < LIST_FIRST_ROW || e.pointer.row >= LIST_FIRST_ROW + drawnRows)
+      (e.pointer.row < LIST_FIRST_ROW ||
+        e.pointer.row >= LIST_FIRST_ROW + drawnRows + (isPagerDrawn ? PAGER_ROWS : 0))
     )
       return next(e);
     const scan = await read($, scanState);
 
     if (scan === null) return next(e);
     const count = ((await read($, isMineOnly)) ? scan.mineTodos : scan.todos).length;
-    const from = windowStart(await read($, windowOffset), count, drawnRows);
+    const offset = await read($, windowOffset);
+    const from = windowStart(offset, count, drawnRows);
 
-    const to = windowStart(
-      from + Math.sign(e.by) * Math.min(Math.abs(e.by), drawnRows),
+    const to = pagedOffset(
+      offset,
+      Math.sign(e.by) * Math.min(Math.abs(e.by), drawnRows),
       count,
       drawnRows,
     );
@@ -323,9 +331,11 @@ export const register: Register = (on, options) => {
     const fitRows = (chromeRows: number) =>
       Math.max(1, Math.min(settings.rows, e.props.maxRows - chromeRows));
 
-    const isPaged = listed.length > fitRows(BAND_CHROME_ROWS);
+    const hasPagerRoom = e.props.maxRows - BAND_CHROME_ROWS - PAGER_ROWS >= 1;
+    const isPaged = hasPagerRoom && listed.length > fitRows(BAND_CHROME_ROWS);
     const windowRows = fitRows(isPaged ? BAND_CHROME_ROWS + PAGER_ROWS : BAND_CHROME_ROWS);
     drawnRows = windowRows;
+    isPagerDrawn = isPaged;
     const start = windowStart(await read($, windowOffset), listed.length, windowRows);
     const shown = listed.slice(start, start + windowRows);
     const below = listed.length - start - shown.length;
@@ -373,33 +383,32 @@ export const register: Register = (on, options) => {
         ids.includes(id) ? ids.filter((other) => other !== id) : [...ids, id],
       );
 
-    const pageTo = (offset: number) =>
-      update($, windowOffset, () => windowStart(offset, listed.length, windowRows));
+    const pageBy = (by: number) =>
+      update($, windowOffset, (offset) => pagedOffset(offset, by, listed.length, windowRows));
 
-    // Each arrow keeps its own end of the row, so a second click lands on the arrow the first one hit.
+    // An arrow at its end stays drawn, dim: unarmed, its digit would land in the prompt and block the other.
+    // Each keeps its own end of the row, so a second click lands on the arrow the first one hit.
     const pager = isPaged
       ? [
           Box({
             justifyContent: "space-between",
             children: [
-              start > 0
-                ? Button({
-                    key: "up",
-                    label: `↑ ${start} more`,
-                    hotkey: PAGE_UP_HOTKEY,
-                    plain: true,
-                    onPress: () => pageTo(start - windowRows),
-                  })
-                : Box({}),
-              below > 0
-                ? Button({
-                    key: "down",
-                    label: `↓ ${below} more`,
-                    hotkey: PAGE_DOWN_HOTKEY,
-                    plain: true,
-                    onPress: () => pageTo(start + windowRows),
-                  })
-                : Box({}),
+              Button({
+                key: "up",
+                label: `↑ ${start} more`,
+                hotkey: PAGE_UP_HOTKEY,
+                plain: true,
+                dimColor: start === 0,
+                onPress: () => pageBy(-windowRows),
+              }),
+              Button({
+                key: "down",
+                label: `↓ ${below} more`,
+                hotkey: PAGE_DOWN_HOTKEY,
+                plain: true,
+                dimColor: below === 0,
+                onPress: () => pageBy(windowRows),
+              }),
             ],
           }),
         ]

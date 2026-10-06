@@ -58,6 +58,7 @@ When Claude edits a file with `Edit` or `Write` and adds a TODO, a toast names i
 - Every `git blame` runs once per file that holds a TODO, as many at a time as the machine has CPUs, sixteen at most (six on Windows, where `getconf` is missing), so the band of a repository with about a hundred such files opens after close to a second on a 16-CPU machine. Each edit that adds a TODO scans again.
 - A title or comment longer than 200 characters is cut, and control characters are dropped.
 - The list scrolls through the 500 newest TODOs, and as many of yours; the footer counts the others as `+N more`.
+- While the arrows show, an `8` or `9` typed alone into an empty prompt, then a pause, pages the list: it does not start your message.
 - A pick names a TODO by its line: a scan that moves the line, after an edit or `/todos`, drops the pick.
 
 ## Settings

@@ -295,7 +295,6 @@ test("the arrows page the list, each on its digit", { options: { rows: 2 } }, as
   await $.command.run(TODOS);
   const ui = await $.ui.mount(BAND);
 
-  expect(await ui.find({ type: "Button", key: "up" })).toBeUndefined();
   expect((await ui.find({ type: "Button", key: "down" }))?.props).toMatchObject({
     label: "↓ 1 more",
     hotkey: "9",
@@ -305,7 +304,6 @@ test("the arrows page the list, each on its digit", { options: { rows: 2 } }, as
 
   expect(shown).toContain("FIXME older comment");
   expect(shown).not.toContain("newer comment");
-  expect(await ui.find({ type: "Button", key: "down" })).toBeUndefined();
   expect((await ui.find({ type: "Button", key: "up" }))?.props).toMatchObject({
     label: "↑ 1 more",
     hotkey: "8",
@@ -314,11 +312,39 @@ test("the arrows page the list, each on its digit", { options: { rows: 2 } }, as
   expect(await texts(ui)).toContain("newer comment");
 });
 
+test(
+  "an arrow at its end stays armed, so its digit never reaches the prompt",
+  { options: { rows: 2 } },
+  async ($, on) => {
+    stubRepo(on);
+    await $.command.run(TODOS);
+    const ui = await $.ui.mount(BAND);
+
+    expect((await ui.find({ type: "Button", key: "up" }))?.props).toMatchObject({
+      label: "↑ 0 more",
+      hotkey: "8",
+      dimColor: true,
+    });
+    await ui.press({ key: "up" });
+    expect((await texts(ui)).some((text) => text.startsWith("1–2 of 3"))).toBe(true);
+  },
+);
+
+test("two presses before a redraw both land", { options: { rows: 1 } }, async ($, on) => {
+  stubRepo(on);
+  await $.command.run(TODOS);
+  const ui = await $.ui.mount(BAND);
+
+  await Promise.all([ui.press({ key: "down" }), ui.press({ key: "down" })]);
+  expect((await texts(ui)).some((text) => text.startsWith("3–3 of 3"))).toBe(true);
+});
+
 test("a list that fits draws no arrows", async ($, on) => {
   stubRepo(on);
   await $.command.run(TODOS);
   const ui = await $.ui.mount(BAND);
 
+  expect(await ui.find({ type: "Button", key: "up" })).toBeUndefined();
   expect(await ui.find({ type: "Button", key: "down" })).toBeUndefined();
 });
 
@@ -329,6 +355,27 @@ test("a short terminal gives a row of the list to the arrows", async ($, on) => 
 
   expect((await texts(ui)).some((text) => text.startsWith("1–1 of 3"))).toBe(true);
   expect(await ui.find({ type: "Button", key: "down" })).toBeDefined();
+});
+
+test("a terminal with no row to spare draws no arrows", async ($, on) => {
+  stubRepo(on);
+  await $.command.run(TODOS);
+  const ui = await $.ui.mount({ ...BAND, props: { ...BAND.props, maxRows: 5 } });
+
+  expect((await texts(ui)).some((text) => text.startsWith("1–1 of 3"))).toBe(true);
+  expect(await ui.find({ type: "Button", key: "down" })).toBeUndefined();
+});
+
+test("the wheel over the arrows scrolls the list", { options: { rows: 2 } }, async ($, on) => {
+  stubRepo(on);
+  const passed = engineScrolls(on);
+
+  await $.command.run(TODOS);
+  const ui = await $.ui.mount(BAND);
+
+  await $.ui.scroll({ ...WHEEL, offset: 1, by: 1, pointer: { row: 4, column: 3 } });
+  expect(passed).toEqual([]);
+  expect(await texts(ui)).not.toContain("newer comment");
 });
 
 test("a list that fits leaves the wheel to the engine", async ($, on) => {
@@ -419,7 +466,7 @@ test("a tick off the list leaves it to the engine", { options: { rows: 2 } }, as
   await $.command.run(TODOS);
   const ui = await $.ui.mount(BAND);
 
-  await $.ui.scroll({ ...WHEEL, offset: 1, by: 1, pointer: { row: 4, column: 3 } });
+  await $.ui.scroll({ ...WHEEL, offset: 1, by: 1, pointer: { row: 5, column: 3 } });
   expect(passed).toEqual([1]);
   expect(await texts(ui)).toContain("newer comment");
   await $.ui.scroll({ ...WHEEL, offset: 1, by: 1, pointer: { row: 3, column: 3 } });
