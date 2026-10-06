@@ -44,6 +44,7 @@ const NOT_E2E_PATHS = [
   "vellum/hooks/**",
   "vellum/skills/**",
   "vellum/agents/**",
+  "vellum/types/**",
   "vellum/.claude/**",
   "vellum/*.md",
   "**/*.spec.ts",
