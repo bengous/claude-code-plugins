@@ -19,6 +19,7 @@ import {
   openSync,
   readdirSync,
   readFileSync,
+  realpathSync,
   renameSync,
   statSync,
   writeFileSync,
@@ -698,19 +699,24 @@ function stopFoundGroup(pgid: number, ownGroup: number): string | null {
   return killGroup(pgid);
 }
 
+const shellQuote = (text: string): string => `'${text.replaceAll("'", "'\\''")}'`;
+
 // With the supervisor dead no codex can start for this turn any more, and every codex
 // command line names the turn's own -o file (buildCodexArgs): it identifies codex's group.
 function stopCodexByTurnFile(turnFile: string): string {
+  const codexOutput = `-o ${turnFile}`;
   const listing = listProcesses();
 
   if ("error" in listing) {
-    return `: codex may still be running, and codex-run could not list processes to find it (${listing.error}). Find it with \`ps -A -ww -o pgid,args | grep -F -- '${turnFile}'\`: a line that runs codex, not your search, starts with codex's process group. Stop codex and the commands it started with \`kill -KILL -- -<that group>\`.`;
+    return `: codex may still be running, and codex-run could not list processes to find it (${listing.error}). Find it with \`ps -A -ww -o pgid,args | grep -F -- ${shellQuote(codexOutput)}\`: a line that runs codex, not your search, starts with codex's process group. Stop codex and the commands it started with \`kill -KILL -- -<that group>\`.`;
   }
 
   const groups = [
     ...new Set(
       listing.processes
-        .filter((entry) => entry.pid !== process.pid && ` ${entry.args} `.includes(` ${turnFile} `))
+        .filter(
+          (entry) => entry.pid !== process.pid && ` ${entry.args} `.includes(` ${codexOutput} `),
+        )
         .map((entry) => entry.pgid),
     ),
   ];
@@ -727,8 +733,7 @@ function stopCodexByTurnFile(turnFile: string): string {
 }
 
 // A dead supervisor leaves codex unwatched: stop it before declaring the turn over.
-function stopUnwatchedCodex(turnDir: string): string {
-  const lost = "the supervisor exited without writing a result";
+function stopUnwatchedCodex(turnDir: string, lost: string): string {
   const pidPath = join(turnDir, "codex.pid");
   const codex = readPidFile(pidPath);
 
@@ -756,8 +761,15 @@ function envelope(runDir: string): Envelope {
   let result = readResult(turnDir);
   const supervisor = readPid(turnDir);
 
-  if (result === null && supervisor.state === "valid" && !isAlive(supervisor.pid)) {
-    const error = stopUnwatchedCodex(turnDir);
+  const lost =
+    supervisor.state === "invalid"
+      ? `${join(turnDir, "supervisor.pid")} holds no valid pid, so codex-run treats the supervisor as gone`
+      : supervisor.state === "valid" && !isAlive(supervisor.pid)
+        ? "the supervisor exited without writing a result"
+        : null;
+
+  if (result === null && lost !== null) {
+    const error = stopUnwatchedCodex(turnDir, lost);
 
     result = readResult(turnDir) ?? {
       status: "failed",
@@ -771,7 +783,6 @@ function envelope(runDir: string): Envelope {
   }
 
   const spec = readSpec(turnDir);
-  const supervisorUnknown = result === null && supervisor.state === "invalid";
 
   return {
     run_dir: runDir,
@@ -785,9 +796,7 @@ function envelope(runDir: string): Envelope {
     add_dirs: run.add_dirs,
     codex_version: run.codex_version,
     codex_exit: result?.codex_exit ?? null,
-    error: supervisorUnknown
-      ? `${join(turnDir, "supervisor.pid")} holds no valid pid: codex-run cannot tell whether the turn's supervisor still runs, and cancel cannot signal it. wait still returns the turn's result once the supervisor writes it.`
-      : (result?.error ?? null),
+    error: result?.error ?? null,
     blocked: result?.blocked ?? [],
     final_message_file: join(turnDir, "final.md"),
   };
@@ -1029,7 +1038,9 @@ function runDirArg(positionals: string[]): string {
     throw new UsageError(`no run directory at ${absolute}`);
   }
 
-  return absolute;
+  // Codex's command line carries the run directory as start spelled it, and status finds
+  // codex by it: one spelling for every command.
+  return realpathSync(absolute);
 }
 
 function commandNew(args: string[]): number {

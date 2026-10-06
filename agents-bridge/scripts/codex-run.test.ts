@@ -8,6 +8,7 @@ import {
   mkdtempSync,
   readFileSync,
   rmSync,
+  symlinkSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -206,7 +207,7 @@ function deadTurn(h: Harness, files: Record<string, string>): string {
 const BEFORE_CODEX_PID = "after it began starting codex and before it recorded codex's pid";
 
 const codexMayRun = (turnDir: string, why: string): string =>
-  `the supervisor exited without writing a result, ${BEFORE_CODEX_PID}: codex may still be running, and codex-run could not list processes to find it (${why}). Find it with \`ps -A -ww -o pgid,args | grep -F -- '${join(turnDir, "codex-final.txt")}'\`: a line that runs codex, not your search, starts with codex's process group. Stop codex and the commands it started with \`kill -KILL -- -<that group>\`.`;
+  `the supervisor exited without writing a result, ${BEFORE_CODEX_PID}: codex may still be running, and codex-run could not list processes to find it (${why}). Find it with \`ps -A -ww -o pgid,args | grep -F -- '-o ${join(turnDir, "codex-final.txt")}'\`: a line that runs codex, not your search, starts with codex's process group. Stop codex and the commands it started with \`kill -KILL -- -<that group>\`.`;
 
 const baseRun = {
   cwd: "/repo",
@@ -693,19 +694,60 @@ describe("codex-run CLI", () => {
   });
 
   test.each(["", "0", "1", "-1", "abc", "4294967296"])(
-    "a supervisor.pid holding %p keeps the turn running and says the supervisor is unknown",
+    "a supervisor.pid holding %p ends the turn as failed instead of leaving it running forever",
     async (text) => {
       const h = harness();
-      const turnDir = deadTurn(h, { "supervisor.pid": text });
+      const turnDir = deadTurn(h, { "supervisor.pid": text, "events.jsonl": "" });
       const out = await cli(h, ["status", h.runDir]);
 
       expect(out.code).toBe(0);
-      expect(out.envelope.status).toBe("running");
+      expect(out.envelope.status).toBe("failed");
       expect(out.envelope.error).toBe(
-        `${join(turnDir, "supervisor.pid")} holds no valid pid: codex-run cannot tell whether the turn's supervisor still runs, and cancel cannot signal it. wait still returns the turn's result once the supervisor writes it.`,
+        `${join(turnDir, "supervisor.pid")} holds no valid pid, so codex-run treats the supervisor as gone, ${BEFORE_CODEX_PID}; no codex process for this turn was running`,
       );
     },
   );
+
+  test("a process that only names the turn file, without codex's -o, is left alone", async () => {
+    const h = harness();
+    const turnDir = deadTurn(h, { "events.jsonl": "" });
+
+    const reader = Bun.spawn(["sh", "-c", "sleep 30; :", "sh", join(turnDir, "codex-final.txt")], {
+      detached: true,
+    });
+
+    try {
+      const out = await cli(h, ["status", h.runDir]);
+
+      expect(out.envelope.error).toBe(
+        `the supervisor exited without writing a result, ${BEFORE_CODEX_PID}; no codex process for this turn was running`,
+      );
+      expect(reader.exitCode).toBeNull();
+    } finally {
+      reader.kill("SIGKILL");
+    }
+  });
+
+  test("status finds codex through another spelling of the run directory", async () => {
+    const h = harness({ FAKE_CODEX_MODE: "sleep", FAKE_CODEX_SLEEP: "30" });
+    const link = `${h.runDir}-link`;
+    const turnDir = join(h.runDir, "turn-1");
+    const supervisorPid = join(turnDir, "supervisor.pid");
+
+    symlinkSync(h.runDir, link);
+    await cli(h, ["start", link, "--prompt-file", h.prompt, "--wait", "0"]);
+    expect(
+      await waitUntil(() => existsSync(join(turnDir, "ready")) && existsSync(`${h.log}.pid`)),
+    ).toBe(true);
+    process.kill(Number(readFileSync(supervisorPid, "utf8")), "SIGKILL");
+    expect(await waitUntil(() => !alive(supervisorPid))).toBe(true);
+    rmSync(join(turnDir, "codex.pid"));
+
+    const out = await cli(h, ["status", h.runDir]);
+
+    expect(out.envelope.error).toContain("by its turn file and stopped it");
+    expect(await waitUntil(() => !alive(`${h.log}.pid`))).toBe(true);
+  });
 
   test("an unknown model or effort is a usage error that lists the catalog", async () => {
     const h = harness();
