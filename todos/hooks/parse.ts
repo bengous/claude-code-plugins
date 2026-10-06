@@ -1,4 +1,4 @@
-import type { Todo } from "../types/index.d.ts";
+import type { Todo, TodoScan } from "../types/index.d.ts";
 
 export const DEFAULT_MARKERS: readonly string[] = ["TODO", "FIXME", "HACK"];
 
@@ -267,6 +267,28 @@ export function displayText(todo: Todo): string {
   const text = todo.text === "" ? "(no description)" : todo.text;
 
   return todo.source === "comment" && todo.marker !== "TODO" ? `${todo.marker} ${text}` : text;
+}
+
+/** The line is part of it: a rescan that moves a TODO drops it from the picked ones. */
+export function todoId(todo: Todo): string {
+  return `${todo.source}:${todo.path}:${todo.line}:${todo.marker}:${todo.text}`;
+}
+
+/** The picked TODOs in the band's order, each once, whether the full list or Mine holds it. */
+export function pickedTodos(scan: TodoScan, ids: readonly string[]): Todo[] {
+  const byId = new Map([...scan.todos, ...scan.mineTodos].map((todo) => [todoId(todo), todo]));
+
+  return [...byId.values()].filter((todo) => ids.includes(todoId(todo)));
+}
+
+/** What Show Claude puts in the prompt box: where each TODO is, and no verb that asks for a fix. */
+export function promptText(todos: readonly Todo[]): string {
+  const items = todos.map(
+    (todo) =>
+      `- ${stripControl(todo.path)}:${todo.line}: ${displayText(todo)}${todo.tag === null ? "" : ` (${todo.tag})`}`,
+  );
+
+  return ["Read these TODOs:", ...items, ""].join("\n");
 }
 
 /** The markers setting: words separated by commas or spaces, each kept once. */

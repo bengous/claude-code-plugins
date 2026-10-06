@@ -1,7 +1,7 @@
 {
   "name": "todos",
-  "version": "1.1.0",
-  "description": "Shows the repository's TODOs in a band above the prompt, newest first: TODO.md items and TODO/FIXME/HACK code comments dated with git blame, a Mine filter, issue links, and a toast when an edit adds one",
+  "version": "1.2.0",
+  "description": "Shows the repository's TODOs in a scrolling band above the prompt, newest first: TODO.md items and TODO/FIXME/HACK code comments dated with git blame, a Mine filter, issue links, picks put in the prompt for Claude, and a toast when an edit adds one",
   "author": {
     "name": "Augustin BENGOLEA",
     "email": "bengous@protonmail.com"
@@ -21,7 +21,7 @@
     "rows": {
       "type": "number",
       "title": "Rows",
-      "description": "How many TODOs the band lists at most; it shows fewer in a short terminal.",
+      "description": "How many TODOs the band shows at once, the rest a scroll away; it shows fewer in a short terminal.",
       "default": 8,
       "min": 1,
       "max": 30

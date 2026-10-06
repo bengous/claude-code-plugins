@@ -40,6 +40,14 @@ const BAND = {
   },
 } as const;
 
+const WHEEL = {
+  component: "AbovePrompt",
+  requestId: "band",
+  bodyRows: 19,
+  contentRows: 6,
+  origin: { kind: "person" },
+} as const;
+
 function porcelain(line: number, authoredAt: number, email: string): string {
   return [
     `${SHA} ${line} ${line} 1`,
@@ -65,6 +73,7 @@ function stubRepo(
     files = new Map([[`${ROOT}/TODO.md`, ["- list item from TODO.md\n"]]]),
     grepGate = Promise.resolve(),
     excludedPaths = new Set<string>(),
+    draft = "",
   } = {},
 ): Repo {
   const clock = mock.clock(on, { now: NOW });
@@ -79,6 +88,7 @@ function stubRepo(
 
   on("command.register", (_$, e) => ({ value: { command: e.name } }));
   on("session.cwd", () => ({ value: ROOT }));
+  on("prompt.read", () => ({ value: { text: draft, cursor: draft.length } }));
   on("fs.exists", (_$, e) => ({ value: files.has(e.path) }));
   on("fs.read", (_$, e) => {
     reads.push(e.path);
@@ -220,13 +230,120 @@ test(
   },
 );
 
-test("rows caps the list and counts the rest", { options: { rows: 2 } }, async ($, on) => {
+test(
+  "rows sets the list's window and says where it stands",
+  { options: { rows: 2 } },
+  async ($, on) => {
+    stubRepo(on);
+    await $.command.run(TODOS);
+    const shown = await texts(await $.ui.mount(BAND));
+
+    expect(shown).not.toContain("FIXME older comment");
+    expect(shown.some((text) => text.startsWith("1–2 of 3"))).toBe(true);
+  },
+);
+
+test("the wheel scrolls the list under its header", { options: { rows: 2 } }, async ($, on) => {
   stubRepo(on);
   await $.command.run(TODOS);
-  const shown = await texts(await $.ui.mount(BAND));
+  const ui = await $.ui.mount(BAND);
 
-  expect(shown).not.toContain("FIXME older comment");
-  expect(shown.some((text) => text.startsWith("+1 more"))).toBe(true);
+  await $.ui.scroll({ ...WHEEL, offset: 1, by: 1 });
+  const shown = await texts(ui);
+
+  expect(shown).toContain("todos");
+  expect(shown).toContain("FIXME older comment");
+  expect(shown).not.toContain("newer comment");
+  expect(shown.some((text) => text.startsWith("2–3 of 3"))).toBe(true);
+  await $.ui.scroll({ ...WHEEL, offset: 0, by: -5 });
+  expect(await texts(ui)).toContain("newer comment");
+});
+
+test("a list that fits leaves the wheel to the engine", async ($, on) => {
+  stubRepo(on);
+  const passed: number[] = [];
+
+  on("ui.scroll", (_$, e) => {
+    passed.push(e.by);
+
+    return {};
+  });
+  await $.command.run(TODOS);
+  await $.ui.mount(BAND);
+  await $.ui.scroll({ ...WHEEL, offset: 1, by: 1 });
+
+  expect(passed).toEqual([1]);
+});
+
+test("Show Claude puts the picked TODOs in the prompt box", async ($, on) => {
+  stubRepo(on);
+  const fills: string[] = [];
+
+  on("prompt.fill", (_$, e) => {
+    fills.push(e.text);
+
+    return { isFilled: true };
+  });
+  await $.command.run(TODOS);
+  const ui = await $.ui.mount(BAND);
+
+  expect(await ui.find({ type: "Button", key: "show" })).toBeUndefined();
+  await ui.press({ key: "pick-0" });
+  await ui.press({ key: "pick-2" });
+  expect(await ui.find({ type: "Button", key: "pick-0", text: "●" })).toBeDefined();
+  expect(await ui.find({ type: "Button", key: "pick-1", text: "○" })).toBeDefined();
+  expect((await texts(ui)).some((text) => text.includes("2 selected"))).toBe(true);
+  await ui.press({ key: "show" });
+
+  expect(fills).toEqual([
+    "Read these TODOs:\n- src/a.ts:10: newer comment (#12)\n- src/b.sh:3: FIXME older comment\n",
+  ]);
+  expect(await ui.find({ type: "Button", key: "show" })).toBeUndefined();
+});
+
+test("Show Claude starts the TODOs on a line of their own", async ($, on) => {
+  stubRepo(on, { draft: "look at" });
+  const fills: string[] = [];
+
+  on("prompt.fill", (_$, e) => {
+    fills.push(e.text);
+
+    return { isFilled: true };
+  });
+  await $.command.run(TODOS);
+  const ui = await $.ui.mount(BAND);
+
+  await ui.press({ key: "pick-1" });
+  await ui.press({ key: "show" });
+
+  expect(fills).toEqual(["\nRead these TODOs:\n- TODO.md:1: list item from TODO.md\n"]);
+});
+
+test("a pick pressed twice is dropped, and Clear drops them all", async ($, on) => {
+  stubRepo(on);
+  await $.command.run(TODOS);
+  const ui = await $.ui.mount(BAND);
+
+  await ui.press({ key: "pick-0" });
+  await ui.press({ key: "pick-0" });
+  expect(await ui.find({ type: "Button", key: "show" })).toBeUndefined();
+  await ui.press({ key: "pick-1" });
+  await ui.press({ key: "clear" });
+  expect(await ui.find({ type: "Button", key: "pick-1", text: "○" })).toBeDefined();
+});
+
+test("a prompt box that refuses the TODOs keeps them picked", async ($, on) => {
+  const { toasts } = stubRepo(on);
+
+  on("prompt.fill", () => ({ isFilled: false }));
+  await $.command.run(TODOS);
+  const ui = await $.ui.mount(BAND);
+
+  await ui.press({ key: "pick-0" });
+  await ui.press({ key: "show" });
+
+  expect(toasts).toEqual(["The prompt box did not take the TODOs."]);
+  expect(await ui.find({ type: "Button", key: "show" })).toBeDefined();
 });
 
 test("markers sets which comment words count", { options: { markers: "FIXME" } }, async ($, on) => {

@@ -12,8 +12,11 @@ import {
   issueNumber,
   LIST_FILE,
   parseMarkers,
+  pickedTodos,
+  promptText,
   shortenStart,
   sourceLabel,
+  todoId,
 } from "./parse.ts";
 import { type Host, isExcludedPath, locate, repoRoot, type ScanResult, scanRepo } from "./scan.ts";
 
@@ -25,11 +28,20 @@ const isVisible = atom({ plugin: "todos", key: "visible" } as const, false);
 
 const isMineOnly = atom({ plugin: "todos", key: "mineOnly" } as const, false);
 
+const windowOffset = atom({ plugin: "todos", key: "offset" } as const, 0);
+
+const NOTHING_PICKED: readonly string[] = [];
+
+const pickedIds = atom({ plugin: "todos", key: "picked" } as const, NOTHING_PICKED);
+
 const COMMAND = "todos";
 
 const GIT_TIMEOUT_MS = 20_000;
 
 const DEFAULT_ROWS = 8;
+
+// $.state refuses a value over 4,194,304 characters, and a TODO takes a few hundred.
+const KEPT_TODOS = 500;
 
 const MIN_SOURCE_WIDTH = 16;
 
@@ -67,7 +79,7 @@ function hostOf($: EngineInterface): Host {
   };
 }
 
-function kept(scan: ScanResult, rows: number): TodoScan {
+function kept(scan: ScanResult): TodoScan {
   const mine = scan.todos.filter((todo) => isMine(todo, scan.userEmail));
 
   return {
@@ -76,8 +88,8 @@ function kept(scan: ScanResult, rows: number): TodoScan {
     issueBase: scan.issueBase,
     total: scan.todos.length,
     mineTotal: mine.length,
-    todos: scan.todos.slice(0, rows),
-    mineTodos: mine.slice(0, rows),
+    todos: scan.todos.slice(0, KEPT_TODOS),
+    mineTodos: mine.slice(0, KEPT_TODOS),
   };
 }
 
@@ -109,11 +121,17 @@ async function refresh(
     $.ui.toast(`${failure}${others.length > 0 ? ` (+${others.length} more)` : ""}`);
   }
 
-  const state = kept(scan, settings.rows);
+  const state = kept(scan);
 
-  if (generation === latestScan) await update($, scanState, () => state);
+  if (generation === latestScan) {
+    await update($, scanState, () => state);
+    await update($, pickedIds, (ids) => pickedTodos(state, ids).map((todo) => todoId(todo)));
+  }
 
-  if (reveal) await update($, isVisible, () => state.total > 0);
+  if (reveal) {
+    await update($, windowOffset, () => 0);
+    await update($, isVisible, () => state.total > 0);
+  }
 
   return state;
 }
@@ -131,8 +149,39 @@ async function refreshOrToast(
   }
 }
 
+function windowStart(offset: number, count: number, windowRows: number): number {
+  return Math.max(0, Math.min(offset, count - windowRows));
+}
+
+async function showClaude($: EngineInterface): Promise<void> {
+  const scan = await read($, scanState);
+
+  if (scan === null) return;
+  const box = await $.prompt.read();
+  const before = box.text.slice(0, box.cursor);
+
+  // oxlint-disable-next-line unicorn/no-array-fill-with-reference-type -- $.prompt.fill writes the prompt box; it is no Array.prototype.fill
+  const filled = await $.prompt.fill({
+    text: `${before === "" || before.endsWith("\n") ? "" : "\n"}${promptText(pickedTodos(scan, await read($, pickedIds)))}`,
+    mode: "insert",
+  });
+
+  if (!filled.isFilled) {
+    $.ui.toast(
+      `The prompt box did not take the TODOs${filled.refusal === undefined ? "" : ` (${filled.refusal})`}.`,
+    );
+
+    return;
+  }
+
+  await update($, pickedIds, () => NOTHING_PICKED);
+}
+
 export const register: Register = (on, options) => {
   const settings = settingsOf(options);
+  // The scroll hook clamps to the window the band last drew: only a drawing knows maxRows.
+  let drawnRows = settings.rows;
+
   on("session.start", async ($, e, next) => {
     try {
       await $.command.register({
@@ -216,6 +265,27 @@ export const register: Register = (on, options) => {
     return result;
   });
 
+  on("ui.scroll", { component: "AbovePrompt" }, async ($, e, next) => {
+    // A band taller than its window is the engine's to scroll, along with what other mods drew.
+    if (e.origin.kind !== "person" || e.contentRows > e.bodyRows) return next(e);
+    const scan = await read($, scanState);
+
+    if (scan === null || !(await read($, isVisible))) return next(e);
+    const count = ((await read($, isMineOnly)) ? scan.mineTodos : scan.todos).length;
+    const from = windowStart(await read($, windowOffset), count, drawnRows);
+
+    const to = windowStart(
+      from + Math.sign(e.by) * Math.min(Math.abs(e.by), drawnRows),
+      count,
+      drawnRows,
+    );
+
+    if (to === from) return next(e);
+    await update($, windowOffset, () => to);
+
+    return {};
+  });
+
   on("ui.render", { component: "AbovePrompt" }, async ($, e, next) => {
     const scan = await read($, scanState);
 
@@ -228,23 +298,28 @@ export const register: Register = (on, options) => {
     const listed = mineOnly ? scan.mineTodos : scan.todos;
     const listedTotal = mineOnly ? scan.mineTotal : scan.total;
 
-    const shown = listed.slice(
-      0,
-      Math.max(1, Math.min(settings.rows, e.props.maxRows - BAND_CHROME_ROWS)),
-    );
+    const windowRows = Math.max(1, Math.min(settings.rows, e.props.maxRows - BAND_CHROME_ROWS));
+    drawnRows = windowRows;
+    const start = windowStart(await read($, windowOffset), listed.length, windowRows);
+    const shown = listed.slice(start, start + windowRows);
+    const picked = await read($, pickedIds);
 
     const labelLimit = Math.max(MIN_SOURCE_WIDTH, Math.floor(e.props.bodyColumns * SOURCE_SHARE));
-    const labels = shown.map((todo) => shortenStart(sourceLabel(todo), labelLimit));
-    const ages = shown.map((todo) => formatAge(scan.scannedAt - todo.authoredAt));
+    // Measured over the whole list, so the columns hold still while it scrolls.
+    const labels = listed.map((todo) => shortenStart(sourceLabel(todo), labelLimit));
+    const ages = listed.map((todo) => formatAge(scan.scannedAt - todo.authoredAt));
     const labelWidth = Math.max(0, ...labels.map((label) => label.length));
     const ageWidth = Math.max(0, ...ages.map((age) => age.length));
-    const hiddenCount = listedTotal - shown.length;
+    const unkeptCount = listedTotal - listed.length;
     const count = mineOnly ? `${scan.mineTotal} of ${scan.total} yours` : `${scan.total}`;
 
     const footer = [
-      hiddenCount > 0 ? `+${hiddenCount} more` : "",
-      "hides on your next message",
-      `/${COMMAND} reopens`,
+      listed.length > shown.length
+        ? `${start + 1}–${start + shown.length} of ${listed.length}`
+        : "",
+      unkeptCount > 0 ? `+${unkeptCount} more` : "",
+      picked.length > 0 ? `${picked.length} selected` : "hides on your next message",
+      picked.length > 0 ? "" : `/${COMMAND} reopens`,
     ]
       .filter((part) => part !== "")
       .join(" · ");
@@ -266,16 +341,27 @@ export const register: Register = (on, options) => {
       ];
     };
 
+    const togglePicked = (id: string) =>
+      update($, pickedIds, (ids) =>
+        ids.includes(id) ? ids.filter((other) => other !== id) : [...ids, id],
+      );
+
     const rows = shown.map((todo, index) =>
       Box({
-        key: `todo-${index}`,
+        key: `todo-${start + index}`,
         gap: 1,
         children: [
-          Text({ color: "cyan", children: String(index + 1).padStart(2) }),
+          Button({
+            key: `pick-${start + index}`,
+            label: picked.includes(todoId(todo)) ? "●" : "○",
+            plain: true,
+            dimColor: !picked.includes(todoId(todo)),
+            onPress: () => togglePicked(todoId(todo)),
+          }),
           Box({
             width: labelWidth,
             flexShrink: 0,
-            children: [Text({ dimColor: true, children: labels[index] ?? "" })],
+            children: [Text({ dimColor: true, children: labels[start + index] ?? "" })],
           }),
           Box({
             flexGrow: 1,
@@ -287,7 +373,7 @@ export const register: Register = (on, options) => {
           Box({
             width: ageWidth,
             flexShrink: 0,
-            children: [Text({ dimColor: true, children: ages[index] ?? "" })],
+            children: [Text({ dimColor: true, children: ages[start + index] ?? "" })],
           }),
         ],
       }),
@@ -313,11 +399,30 @@ export const register: Register = (on, options) => {
           gap: 1,
           children: [
             Text({ dimColor: true, children: footer }),
+            ...(picked.length > 0
+              ? [
+                  Button({
+                    key: "show",
+                    label: "Show Claude",
+                    variant: "primary",
+                    onPress: () => showClaude($),
+                  }),
+                  Button({
+                    key: "clear",
+                    label: "Clear",
+                    dimColor: true,
+                    onPress: () => update($, pickedIds, () => NOTHING_PICKED),
+                  }),
+                ]
+              : []),
             Button({
               key: "mine",
               label: mineOnly ? "All" : "Mine",
               dimColor: true,
-              onPress: () => update($, isMineOnly, (value) => !value),
+              onPress: async () => {
+                await update($, isMineOnly, (value) => !value);
+                await update($, windowOffset, () => 0);
+              },
             }),
             Button({
               key: "hide",

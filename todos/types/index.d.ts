@@ -12,7 +12,7 @@ export type Todo = {
   readonly authorEmail: string | null;
 };
 
-/** What the band keeps of a scan: the counts, and only as many TODOs as it can show, since $.state caps a value's size. */
+/** What the band keeps of a scan: the counts, and only as many TODOs as it scrolls through, since $.state caps a value's size. */
 export type TodoScan = {
   readonly scannedAt: number;
   readonly root: string;
@@ -25,6 +25,12 @@ export type TodoScan = {
 
 declare module "claude-code" {
   interface PluginState {
-    todos: { scan: TodoScan | null; visible: boolean; mineOnly: boolean };
+    todos: {
+      scan: TodoScan | null;
+      visible: boolean;
+      mineOnly: boolean;
+      offset: number;
+      picked: readonly string[];
+    };
   }
 }

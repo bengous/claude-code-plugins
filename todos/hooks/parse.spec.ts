@@ -18,9 +18,12 @@ import {
   parseGrep,
   parseList,
   parseMarkers,
+  pickedTodos,
+  promptText,
   shortenStart,
   sortNewestFirst,
   sourceLabel,
+  todoId,
 } from "./parse.ts";
 
 const pattern = commentPattern(DEFAULT_MARKERS);
@@ -353,5 +356,43 @@ describe("addedTodos", () => {
 
   test("finds nothing without markers", () => {
     expect(addedTodos("a.ts", "", "// TODO: x", [])).toEqual([]);
+  });
+});
+
+describe("picking", () => {
+  const newer = todo({ path: "src/a.ts", line: 10, tag: "#12", text: "newer" });
+  const listed = todo({ source: "list", path: "TODO.md", line: 3, text: "list item" });
+  const fixme = todo({ path: "src/b.sh", line: 3, marker: "FIXME", text: "older" });
+
+  const scan = {
+    scannedAt: 0,
+    root: "/repo",
+    issueBase: null,
+    total: 3,
+    mineTotal: 1,
+    todos: [newer, listed],
+    mineTodos: [fixme],
+  };
+
+  test("pickedTodos keeps the band's order, each once, from the full list and Mine", () => {
+    const ids = [fixme, newer, newer, todo({ line: 99 })].map((picked) => todoId(picked));
+
+    expect(pickedTodos(scan, ids)).toEqual([newer, fixme]);
+  });
+
+  test("a TODO that moved to another line is another one", () => {
+    expect(todoId(newer)).not.toBe(todoId({ ...newer, line: 11 }));
+  });
+
+  test("promptText names each TODO by its path and line, its tag last", () => {
+    expect(promptText([newer, listed, fixme])).toBe(
+      [
+        "Read these TODOs:",
+        "- src/a.ts:10: newer (#12)",
+        "- TODO.md:3: list item",
+        "- src/b.sh:3: FIXME older",
+        "",
+      ].join("\n"),
+    );
   });
 });

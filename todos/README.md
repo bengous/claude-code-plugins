@@ -4,13 +4,13 @@ A Claude Code mod that lists the repository's TODOs in a band above the prompt, 
 
 ```text
 ╭────────────────────────────────────────────────────────────────────────────────────────────────[-]
-│ todos · 5                                                                                       │
-│  1 src/new.ts:2 cache the answer                                                       #9 today │
-│  2 TODO.md      Write the README before the release                                       11d   │
-│  3 TODO.md      Add a CI job for the plugin tests                                         11d   │
-│  4 deploy.sh:3  move secrets to the vault                                              #7 11d   │
-│  5 src/old.ts:2 FIXME handles CRLF badly                                                  1y    │
-│ hides on your next message · /todos reopens [ Mine ] [ Hide ]                                   │
+│ todos · 12                                                                                      │
+│ ○ src/new.ts:2 cache the answer                                                        #9 today │
+│ ● TODO.md      Write the README before the release                                        11d   │
+│ ○ TODO.md      Add a CI job for the plugin tests                                          11d   │
+│ ● deploy.sh:3  move secrets to the vault                                               #7 11d   │
+│ ○ src/old.ts:2 FIXME handles CRLF badly                                                   1y    │
+│ 1–5 of 12 · 2 selected [ Show Claude ] [ Clear ] [ Mine ] [ Hide ]                              │
 ╰─────────────────────────────────────────────────────────────────────────────────────────────────╯
 ```
 
@@ -44,6 +44,8 @@ Each TODO is dated with `git blame`: the time its line was authored. The newest 
 
 - It opens when an interactive session starts in a git repository that has TODOs. The scan runs after the session starts, so it never holds your first prompt.
 - It hides on your next message, or on **Hide**. `/todos` scans again and reopens it.
+- It lists `rows` TODOs at a time under a header and a footer that stay put. PgUp and PgDn scroll the list once the band is focused (ctrl+x tab or a click), and so does the wheel where Claude Code reads the mouse. The footer says which rows show, `1–5 of 12`.
+- The `○` before a TODO picks it: click it, or Tab to it and press Enter. **Show Claude** puts the picked TODOs in the prompt box at the cursor, under `Read these TODOs:`, one `- path:line: text` per TODO, and gives the keys back to the prompt, where you write what Claude should do with them before you send. **Clear** drops the picks.
 - **Mine** keeps the TODOs whose git author is your `user.email`, uncommitted lines included. **All** shows every one again.
 - `TODO(#42)` links to issue 42 when `origin` is on GitHub.
 - It keeps what other mods draw in the band below its own list.
@@ -55,6 +57,8 @@ When Claude edits a file with `Edit` or `Write` and adds a TODO, a toast names i
 - A string is recognized within one line only: a `# TODO` inside a multi-line string, such as a Python `"""` block, is listed.
 - Every `git blame` runs once per file that holds a TODO, as many at a time as the machine has CPUs, sixteen at most (six on Windows, where `getconf` is missing), so the band of a repository with about a hundred such files opens after close to a second on a 16-CPU machine. Each edit that adds a TODO scans again.
 - A title or comment longer than 200 characters is cut, and control characters are dropped.
+- The list scrolls through the 500 newest TODOs, and as many of yours; the footer counts the others as `+N more`.
+- A pick names a TODO by its line: a scan that moves the line, after an edit or `/todos`, drops the pick.
 
 ## Settings
 
@@ -63,7 +67,7 @@ Claude Code asks for them when you enable the plugin; they are also rows in `/co
 | Setting | Default | What it does |
 |---|---|---|
 | `show_on_start` | `true` | Open the band when a session starts. `/todos` opens it either way. |
-| `rows` | `8` | How many TODOs the band lists at most; it shows fewer in a short terminal. |
+| `rows` | `8` | How many TODOs the band shows at once, the rest a scroll away; it shows fewer in a short terminal. |
 | `markers` | `TODO,FIXME,HACK` | The comment words that mark a TODO, separated by commas. |
 | `mine_only` | `false` | Start each session with **Mine** on. |
 
