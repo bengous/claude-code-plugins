@@ -164,6 +164,10 @@ describe("isBranchMutatingCommand allows non-mutations", () => {
     "git -C /tmp/foo status",
     "git -c commit.gpgsign=false status",
     "git -c rebase.autoStash=true pull",
+    "git -C /tmp/foo merge-base HEAD dev",
+    "git merge-tree HEAD dev",
+    "git commit-graph verify",
+    "git commit-tree HEAD^{tree} -m x",
     "ls -la",
     "bun test",
   ];

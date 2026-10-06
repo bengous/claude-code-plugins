@@ -34,7 +34,7 @@ const WORD = String.raw`(?:"(?:[^"\\]|\\.)*"|'[^']*'|[^\s;&"'])+`;
 const OPTION_WITH_ARGUMENT = String.raw`(?:-[Cc]|--(?:git-dir|work-tree|namespace|config-env|attr-source))`;
 
 const BRANCH_MUTATION = new RegExp(
-  String.raw`git((?:\s+(?:${OPTION_WITH_ARGUMENT}\s+${WORD}|(?!${OPTION_WITH_ARGUMENT}\s)-${WORD}))*)\s+(?:commit|push|merge|rebase)\b`,
+  String.raw`git((?:\s+(?:${OPTION_WITH_ARGUMENT}\s+${WORD}|(?!${OPTION_WITH_ARGUMENT}\s)-${WORD}))*)\s+(?:commit|push|merge|rebase)(?=$|[\s;&|)])`,
   "gu",
 );
 
@@ -123,6 +123,11 @@ export function isBranchMutatingCommand(cmd: string): boolean {
 
 export { parseHookInput };
 
+// FIXME: two regex readings of the command, stripped for detection and raw for
+// targets, disagree, and neither expands `~`, `$VAR` or `$(…)`: a target or a
+// `cd` the hook cannot resolve passes. One shell parse (shfmt --to-json, as
+// scripts/check-frozen-facts.ts reads shell) that fails closed on what it
+// cannot resolve, shared with guard-git-push.ts, would close them together.
 if (import.meta.main) {
   if (process.env["MAIN_BYPASS"] === "1") process.exit(HOOK_EXIT.ALLOW);
 
