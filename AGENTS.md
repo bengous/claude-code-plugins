@@ -55,7 +55,7 @@ Carried by the commands above:
 
 Carried by nobody, so hold them by hand:
 
-- Plugins are self-contained. No import crosses a plugin boundary, or reaches into `scripts/` or `.claude/`. Today every relative import stays inside its own top-level directory.
+- Plugins are self-contained. No import crosses a plugin boundary, or reaches into `scripts/` or `.claude/`. Today every relative import of a plugin stays inside its own top-level directory.
 - Ship sources, never compiled binaries. `bun` is the runtime.
 - Docs name symbols, sections and paths, never line numbers or version numbers: both drift at the next regeneration or release.
 - Keep documentation entry points as task indexes. Put each procedure or reference in its owning page and link to it; do not import the whole tree.
@@ -71,6 +71,7 @@ Carried by nobody, so hold them by hand:
 
 - `archive/` - retired plugins, not in the marketplace.
 - `tools/oxlint/anti-slop/` - vendored lint plugin. Do not edit; re-run the upstream installer (see its README).
+- `tools/oxlint/local/` - the repo's own lint plugin, edited here; registered beside anti-slop in `oxlint.config.ts`.
 
 ## Branching
 

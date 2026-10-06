@@ -9,7 +9,10 @@ export default defineConfig({
     // Written by Claude Code, regenerated at each update (regenerate-plugin-types.ts).
     "vellum/types/**",
   ],
-  jsPlugins: [{ name: "anti-slop", specifier: "./tools/oxlint/anti-slop/index.ts" }],
+  jsPlugins: [
+    { name: "anti-slop", specifier: "./tools/oxlint/anti-slop/index.ts" },
+    { name: "local", specifier: "./tools/oxlint/local/index.ts" },
+  ],
   categories: {
     correctness: "error",
     suspicious: "error",
@@ -71,6 +74,9 @@ export default defineConfig({
     "anti-slop/no-widen-then-assert": "error",
     "anti-slop/require-readable-spacing": "error",
     "anti-slop/require-safety-comment-for-type-assertion": "error",
+
+    // Off until the docs and comments it reports are rewritten.
+    "local/no-frozen-facts": "off",
   },
   overrides: [
     {

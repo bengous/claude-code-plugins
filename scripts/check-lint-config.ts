@@ -53,6 +53,7 @@ const REQUIRED_CATEGORIES = ["correctness", "suspicious", "pedantic"] as const;
 
 const REQUIRED_JS_PLUGINS: JsPluginEntry[] = [
   { name: "anti-slop", specifier: "./tools/oxlint/anti-slop/index.ts" },
+  { name: "local", specifier: "./tools/oxlint/local/index.ts" },
 ];
 
 const ALLOWED_IGNORE_PATTERNS = new Set([

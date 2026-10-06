@@ -28,7 +28,10 @@ const repoRoot = join(import.meta.dir, "..");
 
 const GOOD_CATEGORIES = { correctness: "error", suspicious: "error", pedantic: "error" };
 
-const GOOD_PLUGINS = [{ name: "anti-slop", specifier: "./tools/oxlint/anti-slop/index.ts" }];
+const GOOD_PLUGINS = [
+  { name: "anti-slop", specifier: "./tools/oxlint/anti-slop/index.ts" },
+  { name: "local", specifier: "./tools/oxlint/local/index.ts" },
+];
 
 const GOOD_PATTERNS = ["archive/**", "node_modules/**"];
 
