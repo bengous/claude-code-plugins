@@ -178,6 +178,7 @@ if (import.meta.main) {
 
   if (push.kind === "not-push") process.exit(HOOK_EXIT.ALLOW);
 
+  // TODO: a global option between `git` and `push` (`-C <path>`, `-c k=v`, `--no-pager`) hides the push from parsePush.
   const effectiveCwd = extractCdTarget(cmd) ?? process.cwd();
 
   if (isForeignRepo(effectiveCwd)) process.exit(HOOK_EXIT.ALLOW);

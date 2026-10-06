@@ -29,15 +29,22 @@ import { HOOK_EXIT, parseHookInput, stripStringLiterals } from "./hook-io.ts";
 
 const PROTECTED_BRANCHES = ["main", "master"] as const;
 
-const BRANCH_MUTATION_PATTERNS: ReadonlyArray<RegExp> = [
-  /git\s+commit\b/u,
-  /git\s+push\b/u,
-  /git\s+merge\b/u,
-  /git\s+rebase\b/u,
-];
+const WORD = String.raw`(?:"(?:[^"\\]|\\.)*"|'[^']*'|[^\s;&"'])+`;
 
-export function getCurrentBranch(cwd: string = process.cwd()): string | null {
-  const result = Bun.spawnSync(["git", "symbolic-ref", "--short", "HEAD"], {
+const OPTION_WITH_ARGUMENT = String.raw`(?:-[Cc]|--(?:git-dir|work-tree|namespace|config-env|attr-source))`;
+
+const BRANCH_MUTATION = new RegExp(
+  String.raw`git((?:\s+(?:${OPTION_WITH_ARGUMENT}\s+${WORD}|(?!${OPTION_WITH_ARGUMENT}\s)-${WORD}))*)\s+(?:commit|push|merge|rebase)\b`,
+  "gu",
+);
+
+const GLOBAL_OPTION = new RegExp(String.raw`(${OPTION_WITH_ARGUMENT})\s+(${WORD})|-${WORD}`, "gu");
+
+export function getCurrentBranch(
+  cwd: string = process.cwd(),
+  gitOptions: ReadonlyArray<string> = [],
+): string | null {
+  const result = Bun.spawnSync(["git", ...gitOptions, "symbolic-ref", "--short", "HEAD"], {
     cwd,
     stdout: "pipe",
     stderr: "pipe",
@@ -50,12 +57,14 @@ export function getCurrentBranch(cwd: string = process.cwd()): string | null {
 
 // The common git dir, not the toplevel: every linked worktree of a repo shares
 // it, so a worktree on a protected branch stays guarded.
-export function getRepoIdentity(cwd: string): string | null {
-  const result = Bun.spawnSync(["git", "rev-parse", "--path-format=absolute", "--git-common-dir"], {
-    cwd,
-    stdout: "pipe",
-    stderr: "pipe",
-  });
+export function getRepoIdentity(
+  cwd: string,
+  gitOptions: ReadonlyArray<string> = [],
+): string | null {
+  const result = Bun.spawnSync(
+    ["git", ...gitOptions, "rev-parse", "--path-format=absolute", "--git-common-dir"],
+    { cwd, stdout: "pipe", stderr: "pipe" },
+  );
 
   if (result.exitCode !== 0) return null;
 
@@ -65,14 +74,17 @@ export function getRepoIdentity(cwd: string): string | null {
 // The guarded repo is the one this file lives in: the file does not move,
 // while CLAUDE_PROJECT_DIR and the shell cwd both drift. Other repos have
 // their own conventions and aren't ours to police.
-export function isForeignRepo(cwd: string): boolean {
+export function isForeignRepo(cwd: string, gitOptions: ReadonlyArray<string> = []): boolean {
   const ownIdentity = getRepoIdentity(import.meta.dir);
-  const targetIdentity = getRepoIdentity(cwd);
+  const targetIdentity = getRepoIdentity(cwd, gitOptions);
 
   return ownIdentity !== null && targetIdentity !== null && ownIdentity !== targetIdentity;
 }
 
-// TODO: `git -C <path> commit` is not read; the hook's cwd decides for it.
+function unquote(word: string): string {
+  return word.replaceAll(/"((?:[^"\\]|\\.)*)"|'([^']*)'/gu, "$1$2");
+}
+
 // Extract the target directory of a leading `cd <path> &&` (or `;`) clause.
 // Returns null if no leading cd is present. Quoted paths are unquoted.
 export function extractCdTarget(cmd: string): string | null {
@@ -81,11 +93,24 @@ export function extractCdTarget(cmd: string): string | null {
 
   if (raw === undefined) return null;
 
-  if ((raw.startsWith('"') && raw.endsWith('"')) || (raw.startsWith("'") && raw.endsWith("'"))) {
-    return raw.slice(1, -1);
-  }
+  return unquote(raw);
+}
 
-  return raw;
+// Per branch-mutating git invocation, the `-C` and `--git-dir` options that
+// locate its repository, unquoted and in order: replayed to git, they resolve
+// as the invocation will, relative paths and chained `-C` included.
+export function branchMutations(cmd: string): ReadonlyArray<ReadonlyArray<string>> {
+  return [...cmd.matchAll(BRANCH_MUTATION)].map(([, globalOptions = ""]) =>
+    [...globalOptions.matchAll(GLOBAL_OPTION)].flatMap(([option, name, value = ""]) => {
+      if (name === "-C" || name === "--git-dir") return [name, unquote(value)];
+
+      if (option.startsWith("--git-dir=")) {
+        return ["--git-dir", unquote(option.slice("--git-dir=".length))];
+      }
+
+      return [];
+    }),
+  );
 }
 
 export function isProtectedBranch(branch: string): boolean {
@@ -93,13 +118,7 @@ export function isProtectedBranch(branch: string): boolean {
 }
 
 export function isBranchMutatingCommand(cmd: string): boolean {
-  const sanitized = stripStringLiterals(cmd);
-
-  for (const pattern of BRANCH_MUTATION_PATTERNS) {
-    if (pattern.test(sanitized)) return true;
-  }
-
-  return false;
+  return branchMutations(stripStringLiterals(cmd)).length > 0;
 }
 
 export { parseHookInput };
@@ -114,15 +133,15 @@ if (import.meta.main) {
 
   if (!isBranchMutatingCommand(cmd)) process.exit(HOOK_EXIT.ALLOW);
 
-  const effectiveCwd = extractCdTarget(cmd) ?? process.cwd();
+  const cwd = extractCdTarget(cmd) ?? process.cwd();
 
-  if (isForeignRepo(effectiveCwd)) process.exit(HOOK_EXIT.ALLOW);
+  for (const gitOptions of branchMutations(cmd)) {
+    const branch = isForeignRepo(cwd, gitOptions) ? null : getCurrentBranch(cwd, gitOptions);
 
-  const branch = getCurrentBranch(effectiveCwd);
-
-  if (!branch || !isProtectedBranch(branch)) process.exit(HOOK_EXIT.ALLOW);
-
-  console.error(`BLOCKED: '${branch}' is a protected branch.`);
-  console.error("Work on 'dev'; only the human fast-forwards 'main': docs/repo-ops.md.");
-  process.exit(HOOK_EXIT.BLOCK);
+    if (branch && isProtectedBranch(branch)) {
+      console.error(`BLOCKED: '${branch}' is a protected branch.`);
+      console.error("Work on 'dev'; only the human fast-forwards 'main': docs/repo-ops.md.");
+      process.exit(HOOK_EXIT.BLOCK);
+    }
+  }
 }

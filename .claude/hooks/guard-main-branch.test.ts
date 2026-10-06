@@ -1,9 +1,10 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, dirname, join } from "node:path";
 
 import {
+  branchMutations,
   extractCdTarget,
   isBranchMutatingCommand,
   isProtectedBranch,
@@ -66,6 +67,58 @@ describe("extractCdTarget", () => {
   });
 });
 
+// -- branchMutations ---------------------------------------------------------
+
+describe("branchMutations", () => {
+  test("a mutation without options locates nothing", () => {
+    expect(branchMutations("git commit -m 'x'")).toEqual([[]]);
+  });
+
+  test("keeps every -C in order, for git to chain", () => {
+    expect(branchMutations("git -C /tmp/foo -C sub rebase dev")).toEqual([
+      ["-C", "/tmp/foo", "-C", "sub"],
+    ]);
+  });
+
+  test("unquotes a double-quoted -C path", () => {
+    expect(branchMutations('git -C "/tmp/my dir" commit')).toEqual([["-C", "/tmp/my dir"]]);
+  });
+
+  test("unquotes a single-quoted -C path", () => {
+    expect(branchMutations("git -C '/tmp/foo' merge dev")).toEqual([["-C", "/tmp/foo"]]);
+  });
+
+  test("skips global options that do not locate the repository", () => {
+    expect(branchMutations("git -c user.name=x --no-pager -C /tmp/foo -p push")).toEqual([
+      ["-C", "/tmp/foo"],
+    ]);
+  });
+
+  test("keeps --git-dir in both spellings and skips --work-tree", () => {
+    expect(branchMutations("git --git-dir=/tmp/g --work-tree /tmp/w commit")).toEqual([
+      ["--git-dir", "/tmp/g"],
+    ]);
+    expect(branchMutations("git --git-dir '/tmp/g' --work-tree=/tmp/w commit")).toEqual([
+      ["--git-dir", "/tmp/g"],
+    ]);
+  });
+
+  test("lists every mutation of the command", () => {
+    expect(branchMutations("git -C /tmp/foo commit -m 'x' && git push")).toEqual([
+      ["-C", "/tmp/foo"],
+      [],
+    ]);
+  });
+
+  test("ignores a git invocation that does not mutate a branch", () => {
+    expect(branchMutations("git -C /tmp/foo add . && git commit")).toEqual([[]]);
+  });
+
+  test("an option value that names a subcommand is no subcommand", () => {
+    expect(branchMutations("git -c commit.gpgsign=false status")).toEqual([]);
+  });
+});
+
 // -- isBranchMutatingCommand: blocked ----------------------------------------
 
 describe("isBranchMutatingCommand blocks mutations", () => {
@@ -77,6 +130,15 @@ describe("isBranchMutatingCommand blocks mutations", () => {
     "git merge dev",
     "git rebase dev",
     "git  commit -m 'test'",
+    "git -C /tmp/foo commit -m 'test'",
+    'git -C "/tmp/my dir" push',
+    "git -C /tmp/foo -C sub merge dev",
+    "git -c user.name=x commit -m 'test'",
+    "git --no-pager commit",
+    "git -p push",
+    "git -C /tmp/foo -c k=v commit",
+    "git --git-dir=/tmp/foo/.git commit",
+    "git --git-dir /tmp/foo/.git --work-tree /tmp/foo rebase dev",
   ];
 
   for (const cmd of blocked) {
@@ -99,6 +161,9 @@ describe("isBranchMutatingCommand allows non-mutations", () => {
     "git stash",
     "git show HEAD",
     "git remote -v",
+    "git -C /tmp/foo status",
+    "git -c commit.gpgsign=false status",
+    "git -c rebase.autoStash=true pull",
     "ls -la",
     "bun test",
   ];
@@ -401,11 +466,12 @@ describe("own repo", () => {
     Bun.spawnSync(["rm", "-rf", fixture, worktree]);
   });
 
-  async function runCopiedHook(command: string) {
+  async function runCopiedHook(command: string, cwd: string = import.meta.dir) {
     const proc = Bun.spawn(["bun", copiedHook], {
       stdin: new Blob([JSON.stringify({ tool_input: { command } })]),
       stdout: "pipe",
       stderr: "pipe",
+      cwd,
       env: { ...process.env, CLAUDE_PROJECT_DIR: "" },
     });
 
@@ -418,5 +484,63 @@ describe("own repo", () => {
 
   test("blocks a commit on master from a linked worktree", async () => {
     expect(await runCopiedHook(`cd ${worktree} && git commit -m 'x'`)).toBe(HOOK_EXIT.BLOCK);
+  });
+
+  test("blocks a commit aimed at main by an absolute -C from another repo", async () => {
+    expect(await runCopiedHook(`git -C ${fixture} commit -m 'x'`)).toBe(HOOK_EXIT.BLOCK);
+  });
+
+  test("blocks a commit aimed at main by a -C relative to a leading cd", async () => {
+    const command = `cd ${dirname(fixture)} && git -C ${basename(fixture)} commit -m 'x'`;
+    expect(await runCopiedHook(command)).toBe(HOOK_EXIT.BLOCK);
+  });
+
+  test("blocks a commit aimed at master by a quoted -C", async () => {
+    expect(await runCopiedHook(`git -C "${worktree}" commit -m 'x'`)).toBe(HOOK_EXIT.BLOCK);
+  });
+
+  test("allows a commit aimed at another repo by -C from a main checkout", async () => {
+    const exitCode = await runCopiedHook(`git -C ${import.meta.dir} commit -m 'x'`, fixture);
+    expect(exitCode).toBe(HOOK_EXIT.ALLOW);
+  });
+
+  test("blocks a commit aimed at main by chained relative -C options", async () => {
+    const command = `git -C ${dirname(fixture)} -C ${basename(fixture)} commit -m 'x'`;
+    expect(await runCopiedHook(command)).toBe(HOOK_EXIT.BLOCK);
+  });
+
+  test("blocks a commit on main behind -c", async () => {
+    const exitCode = await runCopiedHook("git -c user.name=x commit -m 'x'", fixture);
+    expect(exitCode).toBe(HOOK_EXIT.BLOCK);
+  });
+
+  test("blocks a commit on main behind --no-pager", async () => {
+    const exitCode = await runCopiedHook("git --no-pager commit -m 'x'", fixture);
+    expect(exitCode).toBe(HOOK_EXIT.BLOCK);
+  });
+
+  test("blocks a commit aimed at main by -C followed by -c", async () => {
+    const command = `git -C ${fixture} -c user.name=x commit -m 'x'`;
+    expect(await runCopiedHook(command)).toBe(HOOK_EXIT.BLOCK);
+  });
+
+  test("blocks a commit on main after another one aimed at another repo", async () => {
+    const command = `git -C ${import.meta.dir} commit -m 'x' && git commit -m 'y'`;
+    expect(await runCopiedHook(command, fixture)).toBe(HOOK_EXIT.BLOCK);
+  });
+
+  test("blocks a commit aimed at main by --git-dir from another repo", async () => {
+    const command = `git --git-dir=${fixture}/.git commit -m 'x'`;
+    expect(await runCopiedHook(command)).toBe(HOOK_EXIT.BLOCK);
+  });
+
+  test("allows a commit aimed at another repo by --git-dir from a main checkout", async () => {
+    const command = `git --git-dir ${import.meta.dir}/../../.git commit -m 'x'`;
+    expect(await runCopiedHook(command, fixture)).toBe(HOOK_EXIT.ALLOW);
+  });
+
+  test("blocks a commit on main whose --work-tree points elsewhere", async () => {
+    const command = `git --work-tree=${import.meta.dir} commit -m 'x'`;
+    expect(await runCopiedHook(command, fixture)).toBe(HOOK_EXIT.BLOCK);
   });
 });
