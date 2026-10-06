@@ -72,3 +72,6 @@ docs/superpowers/specs/
 # External reference repos (submodules tracked, ignore stray zips)
 *.zip
 .external/
+
+# Personal task list, read from disk by the todos plugin
+/TODO.md
