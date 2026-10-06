@@ -108,6 +108,12 @@ type CallerSchema = { text: string; contract: AnswerContract };
 
 type FinalMessage = { text: string; blocked: BlockedItem[] } | { error: string };
 
+type PidFile = { state: "missing" } | { state: "invalid" } | { state: "valid"; pid: number };
+
+type ProcessEntry = { pid: number; pgid: number; args: string };
+
+type ProcessListing = { processes: ProcessEntry[]; ownGroup: number } | { error: string };
+
 class UsageError extends Error {}
 
 // ---------------------------------------------------------------------------
@@ -156,6 +162,10 @@ const DEFAULT_DEADLINE_SECONDS = 7200;
 const INTERRUPT_GRACE_MS = 30_000;
 
 const POLL_MS = 500;
+
+const PID_T_MAX = 2 ** 31 - 1;
+
+const PS_MAX_BUFFER = 64 * 1024 * 1024;
 
 const KIND_PATTERN = /^[a-z][a-z0-9-]*$/u;
 
@@ -541,11 +551,56 @@ function isAlive(pid: number): boolean {
   }
 }
 
-function readPidFile(path: string): number | null {
-  return existsSync(path) ? Number(readFileSync(path, "utf8").trim()) : null;
+// killGroup(0) would signal codex-run's own process group and killGroup(1) every
+// process the user owns; pid 1 is init, never a process codex-run started.
+const isSignallable = (pid: number): boolean =>
+  Number.isInteger(pid) && pid > 1 && pid <= PID_T_MAX;
+
+function readPidFile(path: string): PidFile {
+  if (!existsSync(path)) return { state: "missing" };
+
+  const text = readFileSync(path, "utf8").trim();
+  const pid = Number(text);
+
+  return /^[1-9]\d*$/u.test(text) && isSignallable(pid)
+    ? { state: "valid", pid }
+    : { state: "invalid" };
 }
 
-const readPid = (turnDir: string): number | null => readPidFile(join(turnDir, "supervisor.pid"));
+function listProcesses(): ProcessListing {
+  const result = spawnSync("ps", ["-A", "-ww", "-o", "pid=", "-o", "pgid=", "-o", "args="], {
+    encoding: "utf8",
+    maxBuffer: PS_MAX_BUFFER,
+  });
+
+  if (result.error !== undefined) return { error: `cannot run ps: ${result.error.message}` };
+
+  if (result.status !== 0) return { error: `ps exited ${result.status}: ${result.stderr.trim()}` };
+
+  const processes: ProcessEntry[] = [];
+
+  for (const line of result.stdout.split("\n")) {
+    if (line.trim() === "") continue;
+
+    const match = /^\s*(\d+)\s+(\d+)(?:\s+(.*))?$/u.exec(line);
+
+    if (match === null) {
+      return {
+        error: `ps printed a line that is not a pid, a process group and a command: ${line}`,
+      };
+    }
+
+    processes.push({ pid: Number(match[1]), pgid: Number(match[2]), args: match[3] ?? "" });
+  }
+
+  const own = processes.find((entry) => entry.pid === process.pid);
+
+  if (own === undefined) return { error: "ps did not list codex-run itself" };
+
+  return { processes, ownGroup: own.pgid };
+}
+
+const readPid = (turnDir: string): PidFile => readPidFile(join(turnDir, "supervisor.pid"));
 
 // Returns why the group could not be stopped; a group already gone (ESRCH) is success.
 function killGroup(pid: number): string | null {
@@ -635,24 +690,80 @@ function gitDirs(cwd: string): string[] {
 // Envelope
 // ---------------------------------------------------------------------------
 
+function stopFoundGroup(pgid: number, ownGroup: number): string | null {
+  if (pgid === ownGroup) return `process group ${pgid} is codex-run's own`;
+
+  if (!isSignallable(pgid)) return `process group ${pgid} is not a valid pid`;
+
+  return killGroup(pgid);
+}
+
+// With the supervisor dead no codex can start for this turn any more, and every codex
+// command line names the turn's own -o file (buildCodexArgs): it identifies codex's group.
+function stopCodexByTurnFile(turnFile: string): string {
+  const listing = listProcesses();
+
+  if ("error" in listing) {
+    return `: codex may still be running, and codex-run could not list processes to find it (${listing.error}). Find it with \`ps -A -ww -o pgid,args | grep -F -- '${turnFile}'\`: a line that runs codex, not your search, starts with codex's process group. Stop codex and the commands it started with \`kill -KILL -- -<that group>\`.`;
+  }
+
+  const groups = [
+    ...new Set(
+      listing.processes
+        .filter((entry) => entry.pid !== process.pid && ` ${entry.args} `.includes(` ${turnFile} `))
+        .map((entry) => entry.pgid),
+    ),
+  ];
+
+  if (groups.length === 0) return "; no codex process for this turn was running";
+
+  const failures = groups.flatMap((pgid) => stopFoundGroup(pgid, listing.ownGroup) ?? []);
+
+  const found = `codex-run found codex's process group${groups.length === 1 ? "" : "s"} ${groups.join(", ")} by its turn file`;
+
+  return failures.length === 0
+    ? `; ${found} and stopped it`
+    : `; ${found}, but ${failures.join("; ")}: codex may still be running`;
+}
+
+// A dead supervisor leaves codex unwatched: stop it before declaring the turn over.
+function stopUnwatchedCodex(turnDir: string): string {
+  const lost = "the supervisor exited without writing a result";
+  const pidPath = join(turnDir, "codex.pid");
+  const codex = readPidFile(pidPath);
+
+  if (codex.state === "valid") {
+    const stopError = killGroup(codex.pid);
+
+    return stopError === null ? lost : `${lost}; ${stopError}`;
+  }
+
+  // The supervisor opens events.jsonl right before it spawns codex.
+  if (codex.state === "missing" && !existsSync(join(turnDir, "events.jsonl"))) return lost;
+
+  const cause =
+    codex.state === "missing"
+      ? "after it began starting codex and before it recorded codex's pid"
+      : `and ${pidPath} holds no valid pid`;
+
+  return `${lost}, ${cause}${stopCodexByTurnFile(join(turnDir, "codex-final.txt"))}`;
+}
+
 function envelope(runDir: string): Envelope {
   const run = readRun(runDir);
   const turn = latestTurn(runDir);
   const turnDir = turnDirOf(runDir, turn);
   let result = readResult(turnDir);
-  const pid = readPid(turnDir);
+  const supervisor = readPid(turnDir);
 
-  if (result === null && pid !== null && !isAlive(pid)) {
-    const codexPid = readPidFile(join(turnDir, "codex.pid"));
-
-    // A dead supervisor leaves codex unwatched: stop it before declaring the turn over.
-    const stopError = codexPid === null ? null : killGroup(codexPid);
+  if (result === null && supervisor.state === "valid" && !isAlive(supervisor.pid)) {
+    const error = stopUnwatchedCodex(turnDir);
 
     result = readResult(turnDir) ?? {
       status: "failed",
       codex_exit: null,
       thread_id: null,
-      error: `the supervisor exited without writing a result${stopError === null ? "" : `; ${stopError}`}`,
+      error,
       blocked: [],
       ended_at: new Date().toISOString(),
     };
@@ -660,6 +771,7 @@ function envelope(runDir: string): Envelope {
   }
 
   const spec = readSpec(turnDir);
+  const supervisorUnknown = result === null && supervisor.state === "invalid";
 
   return {
     run_dir: runDir,
@@ -673,7 +785,9 @@ function envelope(runDir: string): Envelope {
     add_dirs: run.add_dirs,
     codex_version: run.codex_version,
     codex_exit: result?.codex_exit ?? null,
-    error: result?.error ?? null,
+    error: supervisorUnknown
+      ? `${join(turnDir, "supervisor.pid")} holds no valid pid: codex-run cannot tell whether the turn's supervisor still runs, and cancel cannot signal it. wait still returns the turn's result once the supervisor writes it.`
+      : (result?.error ?? null),
     blocked: result?.blocked ?? [],
     final_message_file: join(turnDir, "final.md"),
   };
@@ -1088,12 +1202,14 @@ function commandWait(args: string[]): Promise<number> {
 function commandCancel(args: string[]): Promise<number> {
   const runDir = runDirArg(args);
   const turnDir = turnDirOf(runDir, latestTurn(runDir));
-  const pid = readPid(turnDir);
+  const supervisor = readPid(turnDir);
 
   if (envelope(runDir).status === "running") {
     writeFileSync(join(turnDir, "cancel-request"), "");
 
-    if (pid !== null && existsSync(join(turnDir, "ready"))) process.kill(pid, "SIGINT");
+    if (supervisor.state === "valid" && existsSync(join(turnDir, "ready"))) {
+      process.kill(supervisor.pid, "SIGINT");
+    }
   }
 
   return waitAndReport(runDir, INTERRUPT_GRACE_MS / 1000 + 15);

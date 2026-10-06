@@ -1,7 +1,15 @@
 /* oxlint-disable anti-slop/no-unsafe-dictionary-type, anti-slop/require-safety-comment-for-type-assertion -- this harness asserts on the JSON that codex-run.ts prints and writes: closed types would assert the schema instead of the behaviour, and a wrong shape has to fail an assertion rather than the compiler. */
 
 import { afterEach, describe, expect, test } from "bun:test";
-import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -153,6 +161,8 @@ async function cli(h: Harness, args: string[], env: Record<string, string> = {})
     env: { ...h.env, ...env },
     stdout: "pipe",
     stderr: "pipe",
+    // Its own process group: a command that signals its own group must not reach the runner.
+    detached: true,
   });
 
   const [stdout, stderr, code] = await Promise.all([
@@ -178,6 +188,25 @@ function codexCalls(h: Harness): { args: string[]; stdin: string; cwd: string; p
     .filter((line) => line !== "")
     .map((line) => JSON.parse(line));
 }
+
+// A turn whose supervisor is dead, written by hand to stop at a chosen point of its start.
+function deadTurn(h: Harness, files: Record<string, string>): string {
+  const turnDir = join(h.runDir, "turn-1");
+
+  mkdirSync(turnDir);
+  writeFileSync(join(h.runDir, "run.json"), JSON.stringify({ cwd: h.root, mode: "read-only" }));
+  writeFileSync(join(turnDir, "turn.json"), JSON.stringify({ turn: 1, deadline_seconds: 60 }));
+  writeFileSync(join(turnDir, "supervisor.pid"), `${Bun.spawnSync(["true"]).pid}\n`);
+
+  for (const [name, text] of Object.entries(files)) writeFileSync(join(turnDir, name), text);
+
+  return turnDir;
+}
+
+const BEFORE_CODEX_PID = "after it began starting codex and before it recorded codex's pid";
+
+const codexMayRun = (turnDir: string, why: string): string =>
+  `the supervisor exited without writing a result, ${BEFORE_CODEX_PID}: codex may still be running, and codex-run could not list processes to find it (${why}). Find it with \`ps -A -ww -o pgid,args | grep -F -- '${join(turnDir, "codex-final.txt")}'\`: a line that runs codex, not your search, starts with codex's process group. Stop codex and the commands it started with \`kill -KILL -- -<that group>\`.`;
 
 const baseRun = {
   cwd: "/repo",
@@ -562,6 +591,121 @@ describe("codex-run CLI", () => {
     expect(out.envelope.error).toBe("the supervisor exited without writing a result");
     expect(await waitUntil(() => !alive(`${h.log}.pid`))).toBe(true);
   });
+
+  test("a supervisor killed before it records codex's pid leaves a codex that status finds by its turn file and stops", async () => {
+    const h = harness({ FAKE_CODEX_MODE: "sleep", FAKE_CODEX_SLEEP: "30" });
+    const turnDir = join(h.runDir, "turn-1");
+    const supervisorPid = join(turnDir, "supervisor.pid");
+
+    await cli(h, ["start", h.runDir, "--prompt-file", h.prompt, "--wait", "0"]);
+    expect(
+      await waitUntil(() => existsSync(join(turnDir, "ready")) && existsSync(`${h.log}.pid`)),
+    ).toBe(true);
+    process.kill(Number(readFileSync(supervisorPid, "utf8")), "SIGKILL");
+    expect(await waitUntil(() => !alive(supervisorPid))).toBe(true);
+    rmSync(join(turnDir, "codex.pid"));
+    rmSync(join(turnDir, "ready"));
+
+    const codexPid = Number(readFileSync(`${h.log}.pid`, "utf8"));
+    const out = await cli(h, ["status", h.runDir]);
+
+    expect(out.code).toBe(0);
+    expect(out.envelope.status).toBe("failed");
+    expect(out.envelope.error).toBe(
+      `the supervisor exited without writing a result, ${BEFORE_CODEX_PID}; codex-run found codex's process group ${codexPid} by its turn file and stopped it`,
+    );
+    expect(await waitUntil(() => !alive(`${h.log}.pid`))).toBe(true);
+  });
+
+  test("a turn whose codex is gone before its pid was recorded says nothing was running", async () => {
+    const h = harness();
+
+    deadTurn(h, { "events.jsonl": "" });
+
+    const out = await cli(h, ["status", h.runDir]);
+
+    expect(out.envelope.status).toBe("failed");
+    expect(out.envelope.error).toBe(
+      `the supervisor exited without writing a result, ${BEFORE_CODEX_PID}; no codex process for this turn was running`,
+    );
+  });
+
+  // "1" is tested through supervisor.pid only: a parser that let it through here would
+  // `kill -9 -1`, every process of the user running the tests.
+  test.each(["", "0", "-1", "abc", "4294967296"])(
+    "a dead supervisor's codex.pid holding %p is no pid, and status searches for codex instead",
+    async (text) => {
+      const h = harness();
+      const turnDir = deadTurn(h, { "events.jsonl": "", "codex.pid": text });
+      const out = await cli(h, ["status", h.runDir]);
+
+      expect(out.code).toBe(0);
+      expect(out.envelope.status).toBe("failed");
+      expect(out.envelope.error).toBe(
+        `the supervisor exited without writing a result, and ${join(turnDir, "codex.pid")} holds no valid pid; no codex process for this turn was running`,
+      );
+    },
+  );
+
+  test.each([
+    ["fails", 'echo "ps: no listing" >&2\nexit 1', "ps exited 1: ps: no listing"],
+    [
+      "prints no process table",
+      'echo "not a table"',
+      "ps printed a line that is not a pid, a process group and a command: not a table",
+    ],
+    [
+      "leaves codex-run out",
+      'echo "  999999  999999 sleep 60"',
+      "ps did not list codex-run itself",
+    ],
+  ])(
+    "a process listing that %s leaves codex to Claude, with the commands that find and stop it",
+    async (_, script, why) => {
+      const h = harness();
+      const bin = join(h.root, "bin");
+
+      mkdirSync(bin);
+      writeFileSync(join(bin, "ps"), `#!/bin/sh\n${script}\n`);
+      chmodSync(join(bin, "ps"), 0o755);
+
+      const turnDir = deadTurn(h, { "events.jsonl": "" });
+
+      const out = await cli(h, ["status", h.runDir], {
+        PATH: `${bin}:${process.env.PATH ?? ""}`,
+      });
+
+      expect(out.code).toBe(0);
+      expect(out.envelope.status).toBe("failed");
+      expect(out.envelope.error).toBe(codexMayRun(turnDir, why));
+    },
+  );
+
+  test("a supervisor dead before it starts codex is a failed turn with nothing left running", async () => {
+    const h = harness();
+
+    deadTurn(h, {});
+
+    const out = await cli(h, ["status", h.runDir]);
+
+    expect(out.envelope.status).toBe("failed");
+    expect(out.envelope.error).toBe("the supervisor exited without writing a result");
+  });
+
+  test.each(["", "0", "1", "-1", "abc", "4294967296"])(
+    "a supervisor.pid holding %p keeps the turn running and says the supervisor is unknown",
+    async (text) => {
+      const h = harness();
+      const turnDir = deadTurn(h, { "supervisor.pid": text });
+      const out = await cli(h, ["status", h.runDir]);
+
+      expect(out.code).toBe(0);
+      expect(out.envelope.status).toBe("running");
+      expect(out.envelope.error).toBe(
+        `${join(turnDir, "supervisor.pid")} holds no valid pid: codex-run cannot tell whether the turn's supervisor still runs, and cancel cannot signal it. wait still returns the turn's result once the supervisor writes it.`,
+      );
+    },
+  );
 
   test("an unknown model or effort is a usage error that lists the catalog", async () => {
     const h = harness();
