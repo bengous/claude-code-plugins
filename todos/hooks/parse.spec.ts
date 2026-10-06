@@ -384,8 +384,15 @@ describe("picking", () => {
     expect(todoId(newer)).not.toBe(todoId({ ...newer, line: 11 }));
   });
 
+  test("a colon in a path or a text makes no two TODOs one", () => {
+    const left = todo({ path: "a", line: 5, text: "x:1:TODO:y" });
+    const right = todo({ path: "a:5:TODO:x", line: 1, text: "y" });
+
+    expect(todoId(left)).not.toBe(todoId(right));
+  });
+
   test("promptText names each TODO by its path and line, its tag last", () => {
-    expect(promptText([newer, listed, fixme])).toBe(
+    expect(promptText([newer, listed, fixme], null)).toBe(
       [
         "Read these TODOs:",
         "- src/a.ts:10: newer (#12)",
@@ -394,5 +401,9 @@ describe("picking", () => {
         "",
       ].join("\n"),
     );
+  });
+
+  test("promptText puts the paths under the root it is given", () => {
+    expect(promptText([listed], "/repo")).toBe("Read these TODOs:\n- /repo/TODO.md:3: list item\n");
   });
 });

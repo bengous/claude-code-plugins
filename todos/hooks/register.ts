@@ -50,6 +50,9 @@ const SOURCE_SHARE = 0.35;
 // The band's border and its header and footer rows.
 const BAND_CHROME_ROWS = 4;
 
+// The band's top border and its header.
+const LIST_FIRST_ROW = 2;
+
 type Settings = {
   readonly showOnStart: boolean;
   readonly rows: number;
@@ -61,7 +64,7 @@ type Settings = {
 function settingsOf(options: PluginOptions): Settings {
   return {
     showOnStart: options.show_on_start !== false,
-    rows: Number(options.rows ?? DEFAULT_ROWS),
+    rows: Math.floor(Number(options.rows ?? DEFAULT_ROWS)),
     markers: parseMarkers(String(options.markers ?? DEFAULT_MARKERS.join(","))),
     mineOnly: options.mine_only === true,
   };
@@ -157,12 +160,16 @@ async function showClaude($: EngineInterface): Promise<void> {
   const scan = await read($, scanState);
 
   if (scan === null) return;
+  const todos = pickedTodos(scan, await read($, pickedIds));
+
+  if (todos.length === 0) return;
+  const root = (await $.session.cwd()) === scan.root ? null : scan.root;
   const box = await $.prompt.read();
   const before = box.text.slice(0, box.cursor);
 
   // oxlint-disable-next-line unicorn/no-array-fill-with-reference-type -- $.prompt.fill writes the prompt box; it is no Array.prototype.fill
   const filled = await $.prompt.fill({
-    text: `${before === "" || before.endsWith("\n") ? "" : "\n"}${promptText(pickedTodos(scan, await read($, pickedIds)))}`,
+    text: `${before === "" || before.endsWith("\n") ? "" : "\n"}${promptText(todos, root)}`,
     mode: "insert",
   });
 
@@ -179,7 +186,7 @@ async function showClaude($: EngineInterface): Promise<void> {
 
 export const register: Register = (on, options) => {
   const settings = settingsOf(options);
-  // The scroll hook clamps to the window the band last drew: only a drawing knows maxRows.
+  // A scroll event's bodyRows is not the band's maxRows, so the scroll hook clamps to the window the band last drew.
   let drawnRows = settings.rows;
 
   on("session.start", async ($, e, next) => {
@@ -266,11 +273,18 @@ export const register: Register = (on, options) => {
   });
 
   on("ui.scroll", { component: "AbovePrompt" }, async ($, e, next) => {
-    // A band taller than its window is the engine's to scroll, along with what other mods drew.
-    if (e.origin.kind !== "person" || e.contentRows > e.bodyRows) return next(e);
+    if (e.origin.kind !== "person" || !(await read($, isVisible))) return next(e);
+
+    // Only in a band that fits its window is the pointer's row the tree's row.
+    if (
+      e.pointer !== undefined &&
+      e.contentRows <= e.bodyRows &&
+      (e.pointer.row < LIST_FIRST_ROW || e.pointer.row >= LIST_FIRST_ROW + drawnRows)
+    )
+      return next(e);
     const scan = await read($, scanState);
 
-    if (scan === null || !(await read($, isVisible))) return next(e);
+    if (scan === null) return next(e);
     const count = ((await read($, isMineOnly)) ? scan.mineTodos : scan.todos).length;
     const from = windowStart(await read($, windowOffset), count, drawnRows);
 
@@ -280,6 +294,7 @@ export const register: Register = (on, options) => {
       drawnRows,
     );
 
+    // At its edge the list hands the move on: the engine scrolls a band taller than its window.
     if (to === from) return next(e);
     await update($, windowOffset, () => to);
 
@@ -348,11 +363,11 @@ export const register: Register = (on, options) => {
 
     const rows = shown.map((todo, index) =>
       Box({
-        key: `todo-${start + index}`,
+        key: `todo:${todoId(todo)}`,
         gap: 1,
         children: [
           Button({
-            key: `pick-${start + index}`,
+            key: `pick:${todoId(todo)}`,
             label: picked.includes(todoId(todo)) ? "●" : "○",
             plain: true,
             dimColor: !picked.includes(todoId(todo)),
@@ -398,37 +413,48 @@ export const register: Register = (on, options) => {
         Box({
           gap: 1,
           children: [
-            Text({ dimColor: true, children: footer }),
-            ...(picked.length > 0
-              ? [
-                  Button({
-                    key: "show",
-                    label: "Show Claude",
-                    variant: "primary",
-                    onPress: () => showClaude($),
-                  }),
-                  Button({
-                    key: "clear",
-                    label: "Clear",
-                    dimColor: true,
-                    onPress: () => update($, pickedIds, () => NOTHING_PICKED),
-                  }),
-                ]
-              : []),
-            Button({
-              key: "mine",
-              label: mineOnly ? "All" : "Mine",
-              dimColor: true,
-              onPress: async () => {
-                await update($, isMineOnly, (value) => !value);
-                await update($, windowOffset, () => 0);
-              },
+            Box({
+              flexGrow: 1,
+              flexShrink: 1,
+              minWidth: 0,
+              children: [Text({ dimColor: true, wrap: "truncate-end", children: footer })],
             }),
-            Button({
-              key: "hide",
-              label: "Hide",
-              dimColor: true,
-              onPress: () => update($, isVisible, () => false),
+            Box({
+              flexShrink: 0,
+              gap: 1,
+              children: [
+                ...(picked.length > 0
+                  ? [
+                      Button({
+                        key: "show",
+                        label: "Show Claude",
+                        variant: "primary",
+                        onPress: () => showClaude($),
+                      }),
+                      Button({
+                        key: "clear",
+                        label: "Clear",
+                        dimColor: true,
+                        onPress: () => update($, pickedIds, () => NOTHING_PICKED),
+                      }),
+                    ]
+                  : []),
+                Button({
+                  key: "mine",
+                  label: mineOnly ? "All" : "Mine",
+                  dimColor: true,
+                  onPress: async () => {
+                    await update($, isMineOnly, (value) => !value);
+                    await update($, windowOffset, () => 0);
+                  },
+                }),
+                Button({
+                  key: "hide",
+                  label: "Hide",
+                  dimColor: true,
+                  onPress: () => update($, isVisible, () => false),
+                }),
+              ],
             }),
           ],
         }),
