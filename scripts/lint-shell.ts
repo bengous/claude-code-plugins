@@ -7,27 +7,15 @@
  * paths it checks only those, after applying the same exclusions.
  */
 
+import { isShellScript } from "./lib/shell-scripts.ts";
 import { workingTreeFiles } from "./lib/working-tree-files.ts";
 
 const SHFMT_FLAGS = ["-i", "2", "-ci"] as const;
 
 const EXCLUDED_PREFIXES = ["archive/"] as const;
 
-const SHEBANG_RE = /^#!.*\b(?:ba|z|k|da)?sh\b/u;
-
 function isExcluded(path: string): boolean {
   return EXCLUDED_PREFIXES.some((prefix) => path.startsWith(prefix));
-}
-
-/** A file is a shell script if it ends in .sh or opens with a shell shebang. */
-async function isShellScript(path: string): Promise<boolean> {
-  if (path.endsWith(".sh")) return true;
-  const file = Bun.file(path);
-
-  if (!(await file.exists())) return false;
-  const head = await file.slice(0, 128).text();
-
-  return SHEBANG_RE.test(head.split("\n", 1)[0] ?? "");
 }
 
 async function shellTargets(candidates: string[]): Promise<string[]> {

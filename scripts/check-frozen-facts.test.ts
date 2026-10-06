@@ -9,14 +9,14 @@ async function facts(path: string, contents: string): Promise<string[]> {
 }
 
 describe("isCandidate", () => {
-  test("accepts Markdown, shell and extensionless files", () => {
-    for (const path of ["docs/a.md", "a.sh", "scripts/publish-live"]) {
+  test("accepts Markdown and any file a shell shebang can open, whatever its name", () => {
+    for (const path of ["docs/a.md", "a.sh", "scripts/publish-live", "hook.bash", "x.zsh"]) {
       expect(isCandidate(path)).toBe(true);
     }
   });
 
-  test("leaves scripts to the lint rule, and rejects the other extensions", () => {
-    for (const path of ["a.ts", "a.tsx", "a.js", "a.json", "a.yml", "a.png"]) {
+  test("leaves scripts to the lint rule", () => {
+    for (const path of ["a.ts", "a.tsx", "a.js", "a.mjs", "a.cjs"]) {
       expect(isCandidate(path)).toBe(false);
     }
   });

@@ -9,11 +9,10 @@
  * those.
  */
 
-import { basename } from "node:path";
-
 import { $ } from "bun";
 
 import { frozenFactsIn } from "../tools/oxlint/local/shared/frozen-facts.ts";
+import { isShellScript, SHELL_SHEBANG_RE } from "./lib/shell-scripts.ts";
 import { workingTreeFiles } from "./lib/working-tree-files.ts";
 
 const EXCLUDED_PREFIXES = [
@@ -32,8 +31,8 @@ const ALLOWLIST = [
   /^scripts\/__tests__\/fixtures\//u,
 ] as const;
 
-// lint-shell.ts's own test, so both gates read the same scripts.
-const SHELL_SHEBANG_RE = /^#!.*\b(?:ba|z|k|da)?sh\b/u;
+// Their comments are the `local/no-frozen-facts` lint rule's.
+const SCRIPT_EXTENSION_RE = /\.(?:ts|tsx|js|mjs|cjs)$/u;
 
 export interface Hit {
   path: string;
@@ -57,7 +56,12 @@ export function isCandidate(path: string): boolean {
 
   if (ALLOWLIST.some((pattern) => pattern.test(path))) return false;
 
-  return path.endsWith(".md") || path.endsWith(".sh") || !basename(path).includes(".");
+  return !SCRIPT_EXTENSION_RE.test(path);
+}
+
+/** Markdown, or a shell script by lint-shell.ts's own test. */
+async function isRead(path: string): Promise<boolean> {
+  return isCandidate(path) && (path.endsWith(".md") || (await isShellScript(path)));
 }
 
 export async function findFrozenFacts(path: string, contents: string): Promise<Hit[]> {
@@ -121,15 +125,11 @@ function collectShellComments(node: ShellJson, into: Fragment[]): void {
 if (import.meta.main) {
   const requested = process.argv.slice(2);
   const listed = requested.length > 0 ? requested : await workingTreeFiles();
-  const candidates = listed.filter((path) => isCandidate(path));
-
   const hits: Hit[] = [];
 
-  for (const path of candidates) {
-    const file = Bun.file(path);
-
-    if (!(await file.exists())) continue;
-    hits.push(...(await findFrozenFacts(path, await file.text())));
+  for (const path of listed) {
+    if (!(await isRead(path))) continue;
+    hits.push(...(await findFrozenFacts(path, await Bun.file(path).text())));
   }
 
   if (hits.length > 0) {
