@@ -90,6 +90,18 @@ function alive(pidFile: string): boolean {
   }
 }
 
+async function waitUntil(condition: () => boolean, ms = 3000): Promise<boolean> {
+  const deadline = Date.now() + ms;
+
+  while (!condition()) {
+    if (Date.now() >= deadline) return false;
+
+    await Bun.sleep(20);
+  }
+
+  return true;
+}
+
 type Harness = {
   root: string;
   runDir: string;
@@ -532,18 +544,23 @@ describe("codex-run CLI", () => {
   test("a supervisor that dies is reported as a failed turn, and status exits 0", async () => {
     const h = harness({ FAKE_CODEX_MODE: "sleep", FAKE_CODEX_SLEEP: "30" });
 
+    const turnDir = join(h.runDir, "turn-1");
+    const supervisorPid = join(turnDir, "supervisor.pid");
+
+    const codexRecorded = (): boolean =>
+      existsSync(join(turnDir, "ready")) && existsSync(`${h.log}.pid`);
+
     await cli(h, ["start", h.runDir, "--prompt-file", h.prompt, "--wait", "0"]);
-    process.kill(
-      Number(readFileSync(join(h.runDir, "turn-1", "supervisor.pid"), "utf8")),
-      "SIGKILL",
-    );
-    await Bun.sleep(200);
+    expect(await waitUntil(codexRecorded)).toBe(true);
+    process.kill(Number(readFileSync(supervisorPid, "utf8")), "SIGKILL");
+    expect(await waitUntil(() => !alive(supervisorPid))).toBe(true);
+
     const out = await cli(h, ["status", h.runDir]);
 
     expect(out.code).toBe(0);
     expect(out.envelope.status).toBe("failed");
     expect(out.envelope.error).toBe("the supervisor exited without writing a result");
-    expect(alive(`${h.log}.pid`)).toBe(false);
+    expect(await waitUntil(() => !alive(`${h.log}.pid`))).toBe(true);
   });
 
   test("an unknown model or effort is a usage error that lists the catalog", async () => {
