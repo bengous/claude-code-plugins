@@ -403,6 +403,10 @@ declare module 'claude-code' {
       /** The type of edit to make (replace, insert, delete). Defaults to replace. */
       edit_mode?: "replace" | "insert" | "delete"
     }
+    OfferChromeSetup: {
+      /** A short phrase naming what the task needs the user's own browser for. */
+      reason?: string
+    }
     Poll: {}
     Projects: {
       method: "project_info" | "project_read" | "project_search" | "project_write" | "project_delete" | "project_memory_list" | "project_memory_read"
@@ -679,6 +683,8 @@ declare module 'claude-code' {
       url: string
       /** The prompt to run on the fetched content */
       prompt: string
+      /** Character position in the page text to start reading from. Use it to read on through a page too long for one call, with the value the previous result gave. */
+      offset?: number
     }
     WebSearch: {
       /** The search query to use */
@@ -1340,6 +1346,11 @@ declare module 'claude-code' {
           documents: number
           max_documents: number
         }
+        embedded?: {
+          strings: number
+          kb: number
+        }
+        warnings?: string[]
       } | {
         op: "batch"
         committed: boolean
@@ -1355,6 +1366,11 @@ declare module 'claude-code' {
           documents: number
           max_documents: number
         }
+        embedded?: {
+          strings: number
+          kb: number
+        }
+        warnings?: string[]
         fallback?: "sequential"
       }
     } | {
@@ -2102,6 +2118,11 @@ declare module 'claude-code' {
           documents: number
           max_documents: number
         }
+        embedded?: {
+          strings: number
+          kb: number
+        }
+        warnings?: string[]
       } | {
         op: "batch"
         committed: boolean
@@ -2117,6 +2138,11 @@ declare module 'claude-code' {
           documents: number
           max_documents: number
         }
+        embedded?: {
+          strings: number
+          kb: number
+        }
+        warnings?: string[]
         fallback?: "sequential"
       }
     } | {
@@ -2864,6 +2890,11 @@ declare module 'claude-code' {
           documents: number
           max_documents: number
         }
+        embedded?: {
+          strings: number
+          kb: number
+        }
+        warnings?: string[]
       } | {
         op: "batch"
         committed: boolean
@@ -2879,6 +2910,11 @@ declare module 'claude-code' {
           documents: number
           max_documents: number
         }
+        embedded?: {
+          strings: number
+          kb: number
+        }
+        warnings?: string[]
         fallback?: "sequential"
       }
     } | {
@@ -3626,6 +3662,11 @@ declare module 'claude-code' {
           documents: number
           max_documents: number
         }
+        embedded?: {
+          strings: number
+          kb: number
+        }
+        warnings?: string[]
       } | {
         op: "batch"
         committed: boolean
@@ -3641,6 +3682,11 @@ declare module 'claude-code' {
           documents: number
           max_documents: number
         }
+        embedded?: {
+          strings: number
+          kb: number
+        }
+        warnings?: string[]
         fallback?: "sequential"
       }
     } | {
@@ -4361,6 +4407,9 @@ declare module 'claude-code' {
       /** The updated notebook content after modification */
       updated_file: string
     }
+    OfferChromeSetup: {
+      outcome: "connected" | "not_now" | "no_attempt_yet"
+    }
     Poll: {
       /** Rendered event envelopes, or "(no pending events)" */
       content: string
@@ -4905,7 +4954,6 @@ declare module 'claude-code' {
       needsAuth: string[]
       disabled: string[]
       unconfigured?: string[]
-      replRouted?: boolean
       unknown: string[]
     }
     WebFetch: {
