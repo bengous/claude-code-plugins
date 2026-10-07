@@ -2,6 +2,10 @@
 
 What each version of vellum changed for the person using it, newest first.
 
+## 0.17.3 - 2026-10-07
+
+Internal changes only: tests, docs or refactoring.
+
 ## 0.17.2 - 2026-10-07
 
 ### Fixed
