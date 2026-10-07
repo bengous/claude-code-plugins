@@ -47,8 +47,8 @@
     },
     {
       "name": "github-flow",
-      "description": "GitHub lifecycle through gh: agent-ready issues, review-ready PRs with attached images and video, issue and PR triage, CI-gated linear merge, commit-push-PR in one step, stacked PRs with gh stack, and an issue-to-PR loop whose worker agents land their own PR",
-      "version": "2.0.0",
+      "description": "GitHub lifecycle through gh: agent-ready issues, review-ready PRs that show the change in diagrams, images and video, issue and PR triage, CI-gated linear merge, commit-push-PR in one step, stacked PRs with gh stack, and an issue-to-PR loop whose worker agents land their own PR",
+      "version": "2.1.0",
       "author": {
         "name": "Augustin BENGOLEA",
         "email": "bengous@protonmail.com"

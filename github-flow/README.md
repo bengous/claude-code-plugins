@@ -7,7 +7,7 @@ GitHub lifecycle for Claude Code through `gh`: agent-ready issues, review-ready 
 | Skill | Invocation | What it does |
 |-------|------------|--------------|
 | `issue` | `/github-flow:issue [--dry-run] [number] <request>` | Writes or rewrites an issue as a prompt for another agent: Problem, Evidence, Hints, Done when, Out of scope. |
-| `pr` | `/github-flow:pr [--dry-run] [image.png#alt ...] [notes]` | Pushes the branch and opens or updates its PR with a body sized to the diff; images go up through `gh --attach`. |
+| `pr` | `/github-flow:pr [--dry-run] [image.png#alt ...] [notes]` | Pushes the branch and opens or updates its PR with a body that shows the change first: a diagram, a tree diff, a table or screenshots; images go up through `gh --attach`. |
 | `triage` | `/github-flow:triage [--dry-run] [number\|url]` | Verifies an issue or PR against the current code, gives a one-word verdict with proof, then closes or comments as the verdict fixes; valid work is reported, not implemented. Manual. |
 | `await-merge` | `/github-flow:await-merge [--dry-run] [--rebase] [pr]` | Watches the checks, merges by squash (`--rebase` for atomic commits, never a merge commit), fast-forwards the local base branch. |
 | `commit-push-pr` | `/github-flow:commit-push-pr [issue] [images] [notes]` | Chains `git:commit` then `github-flow:pr`. |
@@ -23,14 +23,20 @@ No skill asks before it publishes, closes or merges: an orchestrating agent has 
 
 ### PR shape
 
-The body is a review brief for another agent. Its sections grow with the diff:
+Agents review the PR first; the body is for the human who opens it afterwards. It shows the change, then says only what a picture cannot:
 
-| Size | Threshold | Sections |
-|---|---|---|
-| standard | otherwise | Why, What, Ask, Checks, Left open |
-| large | ≥ 10 files, ≥ 300 lines, or a shared module | Why, Files that matter, The code that matters, Ask, Checks, Left open |
+```markdown
+Closes #N.
+<two lines: the problem, what the change does>
+## Before / After   the views: a diagram, a tree diff, a shaped diff, a table, screenshots
+## Ask              what the reviewer decides, what the author could not run
+## Checks           commands with their numbers; added tests as Test | Mutant | Seen failing
+## Left open        limits, what was not measured, views left out, diagrams not seen rendered
+```
 
-`Closes #N.` opens the body when the branch or a commit names an issue. A visual change carries a Before/After pair in Why: the agent captures both states with the session's browser tool when none is given, and `gh pr create --attach './before.png#alt'` uploads them; the alt text names what the reader sees. Ask tells the reviewer what to decide and what the author could not run. Checks list what ran with its numbers, never a check that did not run. The body ends with `<!-- opened_by: <session id> -->`, joined by `<!-- updated_by: <session id> -->` on an update, so the session behind a PR is found with `claude --resume <id>` whether or not it had a plan; inside a subagent the id is the parent session's.
+The view follows the kind of change: a `flowchart TB` for an architecture or a data model, a `sequenceDiagram` for behaviour over time, a tree diff for moved directories, pseudocode as a diff for logic, a call tree for runtime control flow, a component tree for UI structure, screenshots for what a user sees. A standard change gets one view, a large one (≥ 10 files, ≥ 300 lines, or a shared module) three at most. `scripts/tree-diff.ts origin/<base>` prints the tree diff: a directory moved, added or deleted whole is one line. `skills/pr/references/` holds a worked example of each view and the Mermaid traps measured on GitHub; a body with a diagram is checked in a browser that can open the PR, and without one *Left open* says so. The menu of views and some of its wording come from Dex Horthy's `show-me` and Matt Pocock's `pr`, both MIT: `skills/pr/CREDITS.md`.
+
+A visual change carries a Before/After pair: the agent captures both states with the session's browser tool when none is given, and `gh pr create --attach './before.png#alt'` uploads them; the alt text names what the reader sees. The body ends with `<!-- opened_by: <session id> -->`, joined by `<!-- updated_by: <session id> -->` on an update, so the session behind a PR is found with `claude --resume <id>` whether or not it had a plan; inside a subagent the id is the parent session's.
 
 ### Issue shape
 
