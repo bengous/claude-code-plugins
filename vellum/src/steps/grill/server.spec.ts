@@ -775,8 +775,10 @@ describe("names from outside", () => {
     });
   });
 
-  // In this process, with no server: Windows refuses to rename a folder a watcher holds, and
-  // whether the server's watcher holds it yet is a race.
+  // In this process, with no server and no channel opened: Windows refuses to rename a folder
+  // while a file under it is open, and there `Bun.write` resolves before it closes the file, so
+  // `openChannel` can leave `.review/channel.id` open; whether the server's watcher holds the
+  // folder yet is a race too.
   test("with the plan's directory gone the routes refuse, they do not fail", async () => {
     const dir = mkdtempSync(join(tmpdir(), "vellum-grill-"));
     mkdirSync(join(dir, WIP, ".review"), { recursive: true });
@@ -790,7 +792,6 @@ describe("names from outside", () => {
       extensions: serverExtensions,
     });
 
-    await review.openChannel();
     const routes = serverExtension(server).routes?.(review.context);
     renameSync(join(dir, WIP), join(dir, "plans/2026-09-17/elsewhere"));
     const ask = new Request("http://grill/", { method: "POST", body: '{"q":[["T","A?","R"]]}' });
