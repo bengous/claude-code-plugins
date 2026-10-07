@@ -1,4 +1,4 @@
-// Written by Claude Code 2.1.291.
+// Written by Claude Code 2.1.292.
 // Claude Code function hooks: the plugin API's TypeScript declarations.
 //
 // EARLY ACCESS: this surface may change between releases without notice.
@@ -252,16 +252,21 @@ declare module 'claude-code' {
 
   /**
    * The input of `agent.spawn`: what the Agent tool decided about the agent
-   * it is about to start, a teammate included, before its model is resolved.
+   * it is about to start, a teammate included, before its model is resolved;
+   * also raised for each agent a workflow script's `agent()` starts.
    *
    * A hook rewrites content (prompt, description, subagentType, model,
-   * background, cwd), read back as the tool's parameters. Pinned: tool_use_id,
-   * name, fork, isTeammate, parentModel, permissionMode, parentAgentId, provider.
+   * background, cwd), read back as the tool's parameters; a workflow agent's
+   * content is not rewritable (see `workflow`). Pinned: tool_use_id,
+   * name, fork, isTeammate, workflow, parentModel, permissionMode,
+   * parentAgentId, provider.
    */
   export type AgentSpawnInput = {
       /**
-       * The Agent tool call this spawn belongs to (for `$.ui.notice`). Pinned:
-       * the spawn's identity.
+       * The Agent tool call this spawn belongs to (for `$.ui.notice`); for a
+       * workflow agent, the Workflow tool call that started its run, shared by
+       * all of the run's agents and possibly empty on a resumed or
+       * server-launched run. Pinned: the spawn's identity.
        */
       tool_use_id: string;
       /**
@@ -337,6 +342,35 @@ declare module 'claude-code' {
        */
       isTeammate?: true;
       /**
+       * Present when a workflow script's `agent()` starts the agent, absent for
+       * any other. A hook can only refuse it: a change to its content
+       * is ignored, and the plugin's failure line says so once. Pinned: the
+       * spawn's identity.
+       *
+       * `next` settles with the first attempt's `agentId`; a stalled agent's
+       * retry is not raised again. An agent started with `isolation: 'remote'`
+       * (internal builds only) runs in a cloud session: no `turn.complete`, loop
+       * event or `$.agent.list()` row carries its `agentId`. On a run that keeps
+       * its script out of SDK events (Code Review's, say), `prompt` is a fixed
+       * placeholder.
+       */
+      workflow?: {
+          /**
+           * The run's id, which starts `wf_` (empty only outside a real run). A
+           * child `workflow()`'s agents carry their parent run's, and a resume
+           * keeps it; a Workflow call that starts a fresh run gets a new id.
+           */
+          runId: string;
+          /**
+           * This agent's place among the run's `agent()` calls, from 1. Agents
+           * replayed from the run's journal count but are not raised. It restarts
+           * whenever the run's script starts over (a new run, a resume or a
+           * background hand-off of the same `runId`), while a v2 call that reopens
+           * a run keeps counting, so a cap across resumes or runs keeps its own count.
+           */
+          agentIndex: number;
+      };
+      /**
        * Given by the call (`Agent({ name })`, addressable by SendMessage);
        * undefined when unnamed. Pinned: the address the parent routes by.
        *
@@ -374,7 +408,8 @@ declare module 'claude-code' {
        * The started subagent's id: the same string its loop's `tool.call`
        * events carry as `agentId` and `$.agent.list()` lists it by.
        *
-       * Set by core; a hook that answers without `next` started none.
+       * A workflow's remote agent has no local loop, so nothing else carries
+       * it. Set by core; a hook that answers without `next` started none.
        */
       agentId?: string;
       /**
@@ -390,6 +425,10 @@ declare module 'claude-code' {
       /**
        * Refuses the spawn, so nothing starts; the model sees the text as the
        * Agent tool's error.
+       *
+       * Returned after a `next(e)` was answered it fails the hook: its
+       * `.catch` is asked (a deny from it fails too), or it is skipped by
+       * name and its last `next` stands.
        */
       deny: string;
       model?: undefined;
@@ -1117,8 +1156,8 @@ declare module 'claude-code' {
    * hook's `($, e, next)`, run afresh when it throws, misreturns or overruns.
    *
    * `next` carries `error` and `called` (Caught) and is replay-safe; a return
-   * within the grace is the hook's result, `undefined` the hook absent. On a
-   * streaming event the handler is a generator too, continuing the stream.
+   * within the grace is the hook's result, `undefined` the hook absent. Asked
+   * for `re-entry`, its own `$` calls reject. On a streaming event, a generator.
    */
   export type CatchHandler<F> = F extends ($: infer D, e: infer E, next: infer N) => infer R ? [R] extends [AsyncGenerator<unknown, unknown, unknown>] ? ($: D, e: E, next: N & Caught) => R : ($: D, e: E, next: N & Caught) => R | undefined | Promise<Awaited<R> | undefined> : never;
 
@@ -2021,8 +2060,9 @@ declare module 'claude-code' {
    * What a `config.set` hook returns and what `next(e)` resolves to:
    * `{ value }` once written, or `{ deny: reason }`, the row left as it was.
    *
-   * The menu shows a deny's reason beside the row; a plugin's `$.config.set`
-   * resolves with it.
+   * The menu shows a deny's reason; `$.config.set` resolves with it. A deny
+   * after a `next(e)` was answered fails the hook: its `.catch` is asked (a
+   * deny from it fails too), or it is skipped by name and its last `next` stands.
    */
   export type ConfigSetResult = {
       value: ConfigValue;
@@ -4009,7 +4049,9 @@ declare module 'claude-code' {
       'agent.offer': AgentOfferInput;
       /**
        * Fires when the Agent tool is about to start a subagent, everything
-       * decided and its model not yet resolved.
+       * decided and its model not yet resolved, and when a workflow script's
+       * `agent()` is about to start one (`e.workflow`): only a deny applies
+       * there.
        *
        * `next(e)` resolves to `{ model }`. Return it, `next({ ...e, model })`,
        * `{ model }` of your own (an alias resolves like the tool's parameter), or
@@ -4067,6 +4109,18 @@ declare module 'claude-code' {
        * on("prompt.edit", ($, e) => ({ text: e.text, cursor: e.cursor }))
        */
       'prompt.edit': PromptEditInput;
+      /**
+       * Fires as the person types in the main prompt box, for the token at the
+       * cursor; `next(e)` resolves to `{ suggestions }`, rows for the typeahead.
+       *
+       * Nothing waits on it: the engine's own rows draw first and these join
+       * beneath them, unhighlighted, for the word still being typed. Taking one
+       * writes its `text` over the token. Only while a plugin hooks it.
+       *
+       * @example
+       * on("prompt.autocomplete", () => ({ suggestions: [{ text: "#123" }] }))
+       */
+      'prompt.autocomplete': PromptAutocompleteInput;
       /**
        * Fires once per named section of the system prompt, when the engine
        * assembles it; `next(e)` resolves to `{ text }` as core computed it.
@@ -4148,6 +4202,8 @@ declare module 'claude-code' {
        * with `next`, or return `{ text }` without it to answer in its place; one
        * after `next` replaces a printed output, not a panel or prompt it opened.
        *
+       * @remarks A guard that fails is skipped and the command runs, so give it
+       *   `.catch(($, e, next) => next.called ? next(e) : { text: "no" })`.
        * @example
        * on("command.run", { command: "hello" }, () => ({ text: "hello" }))
        */
@@ -4488,6 +4544,10 @@ declare module 'claude-code' {
        * `{ text, cursor }`, the box the editor shows next.
        */
       'prompt.edit': PromptEditResult;
+      /**
+       * `{ suggestions }`, the rows the plugins add to the typeahead.
+       */
+      'prompt.autocomplete': PromptAutocompleteResult;
       /**
        * `{ text }` (null leaves the section out).
        */
@@ -5041,10 +5101,25 @@ declare module 'claude-code' {
    *
    * `throw`: it threw, returned what the site refuses, or its hooks worker
    * ended under it, `message` saying what; `timeout`: it outran its budget,
-   * `message` then what its last `next()` rejected with, if it did.
+   * `message` then what its last `next()` rejected with. `re-entry`: no fault.
    */
   export type HookFailure = {
-      readonly kind: 'throw' | 'timeout';
+      /**
+       * `re-entry`: the hook was not run, the event being raised beneath a call
+       * of its own by another hook or a noun; no hook runs under its own frame.
+       *
+       * The handler then answers in its place, `called` false: its own `$`
+       * calls reject, and `next` runs beneath on the argument as raised.
+       */
+      readonly kind: 'throw' | 'timeout' | 're-entry';
+      /**
+       * For `re-entry`: absent when the event rose beneath the hook's own call
+       * with no noun between; `'lent'` when a noun beneath it, or its work, did.
+       *
+       * The hook has judged no re-entry: a guard runs its own check on each,
+       * and the cause tells them apart where its answer differs.
+       */
+      readonly cause?: 'lent';
       /**
        * What was thrown or why the worker ended, or for a timeout what the last
        * `next()` rejected with; absent for a timeout with nothing rejected.
@@ -5976,6 +6051,71 @@ declare module 'claude-code' {
   export type ModelApiError = ClassicHookInputs['StopFailure']['error'];
 
   /**
+   * What a hook on `model.complete` reads as `e`: the request with its text as
+   * strings, as it always was, and the caller's blocks beside them.
+   *
+   * A hook written when `prompt` was only ever a string reads what it read. A
+   * caller's list of blocks arrives joined in `prompt` (or `system`) and, as
+   * given, in `promptBlocks` (or `systemBlocks`), where its cache marks are.
+   *
+   * @example
+   * on("model.complete", ($, e, next) => (BAD.test(e.prompt) ? NO : next(e)))
+   */
+  export type ModelCompleteInput = {
+      /**
+       * Which model answers, as the request named it (ModelCompleteRequest).
+       */
+      model: string;
+      /**
+       * The one user message, as text: a string as the caller gave it, or the
+       * texts of its blocks joined in order with nothing between them.
+       *
+       * It is what the model is sent: a hook that passes another string down
+       * has rewritten the prompt, whatever `promptBlocks` still says.
+       */
+      prompt: string;
+      /**
+       * What precedes the completion as its system prompt, as text joined as
+       * `prompt` is; absent when the caller gave none.
+       *
+       * Passing `null` or `false` down sends none.
+       */
+      system?: string;
+      /**
+       * The caller's blocks of `prompt`, as given, when it gave a list: where
+       * the cache marks are. Absent for a string.
+       *
+       * They place marks and change no text. The leading blocks whose texts,
+       * joined, still open `prompt` are sent as they stand, marks kept; what is
+       * left of `prompt` follows unmarked, so a rewritten opening keeps no mark.
+       *
+       * @remarks A hook that strips or adds a `cache` here and leaves the texts
+       *   is taken at its word; one that rewrites both keeps them in step.
+       * @example
+       * next({ ...e, prompt: e.prompt + NOTE }) // the marks ahead of NOTE hold
+       */
+      promptBlocks?: readonly ModelTextBlock[];
+      /**
+       * The caller's blocks of `system`, read against `system` exactly as
+       * `promptBlocks` is against `prompt`. Absent for a string or none.
+       */
+      systemBlocks?: readonly ModelTextBlock[];
+      /**
+       * The reply's token cap, as the request gave it.
+       */
+      maxTokens?: number;
+      /**
+       * How hard the model thinks about it, as the request gave it.
+       */
+      effort?: ModelEffort;
+      /**
+       * How long the whole call may take, in milliseconds, as the request gave
+       * it.
+       */
+      timeoutMs?: number;
+  };
+
+  /**
    * Options of `$.model.complete`: what is no part of the request, so no hook
    * on `model.complete` reads it on `e`.
    */
@@ -6004,18 +6144,27 @@ declare module 'claude-code' {
        */
       model: string;
       /**
-       * The one user message.
+       * The one user message: a string, or blocks of text sent in order
+       * (ModelTextBlock), any of which may be marked for the prompt cache.
        *
        * The result always says what happened: the reply's text and usage when
        * the model answered, else a `reason` (an API error with its status, a
        * reply with no text, or the call cut short).
+       *
+       * @remarks Marks go uncounted: one too many is the API's own `api-error`
+       *   (status 400). A hook reads the text joined (ModelCompleteInput).
+       * @example
+       * await $.model.complete({ model, prompt: [{ text: RULES, cache: true }] })
        */
-      prompt: string;
+      prompt: string | readonly ModelTextBlock[];
       /**
        * Precedes the completion as its system prompt, after the CLI's identity
-       * block. Default none.
+       * block: a string, or blocks of text as `prompt` takes. Default none.
+       *
+       * @remarks On Bedrock, Vertex, Foundry or behind a gateway, text marked here
+       *   is found again only while `prompt` opens the same: mark it there.
        */
-      system?: string;
+      system?: string | readonly ModelTextBlock[];
       /**
        * The reply's token cap: any positive integer up to what one reply can
        * hold, the model's own output limit or 64000, whichever is lower.
@@ -6194,6 +6343,36 @@ declare module 'claude-code' {
        * if (!r.isAnswered && r.reason === "nothing-to-fork") return next(e)
        */
       reason: 'nothing-to-fork';
+  };
+
+  /**
+   * One block of text in a `$.model.complete` request's `prompt` or `system`:
+   * sent as written, in the order given, and markable for the prompt cache.
+   *
+   * Put the text every call repeats first and mark its last block (`cache`);
+   * whatever follows the last mark is paid for whole on every call.
+   *
+   * @example
+   * const prompt = [{ text: RULES, cache: true }, { text: diff }]
+   */
+  export type ModelTextBlock = {
+      /**
+       * The block's text, sent as written; an empty one is the API's to
+       * refuse, as an `api-error` of status 400.
+       */
+      text: string;
+      /**
+       * Keeps the request up to and including this block in the prompt cache; a
+       * call within five minutes that opens with the same text reads it there.
+       *
+       * The result's `usage` shows it: `cache_creation_input_tokens` when the
+       * call wrote, `cache_read_input_tokens` when it read. Both zero, nothing
+       * was cached: text under the model's minimum, or caching switched off.
+       *
+       * @remarks On Bedrock, Vertex, Foundry or behind a gateway the text is found
+       *   again only while `prompt` opens the same way: put the fixed text first.
+       */
+      cache?: true;
   };
 
   /**
@@ -6615,10 +6794,12 @@ declare module 'claude-code' {
    */
   export type OpEventOf = {
       /**
-       * The argument of `$.model.complete(request, { signal })`; the signal does
-       * not cross, it aborts the call.
+       * The argument of `$.model.complete(request, { signal })`, its text as
+       * strings and its blocks beside them (ModelCompleteInput).
+       *
+       * The signal does not cross, it aborts the call.
        */
-      'model.complete': ModelCompleteRequest;
+      'model.complete': ModelCompleteInput;
       /**
        * The argument of `$.model.classify(text, labels, options)`.
        */
@@ -6882,7 +7063,8 @@ declare module 'claude-code' {
        * the value, the condition, and `previous`, what stood there (the host's).
        *
        * A hook above rewrites `value` with `next({ ...e, value })`; the
-       * reference is identity, pinned. Raised by the value's owner alone.
+       * reference is identity, pinned. Raised by the value's owner alone. A
+       * `{ deny }` after `next(e)` was answered, a `.catch`'s too, fails the hook.
        */
       'state.set': StateSetEvent;
       /**
@@ -6939,6 +7121,9 @@ declare module 'claude-code' {
       /**
        * The argument of `$.env.set(name, value)`; `name` is identity, pinned,
        * and no `value` unsets.
+       *
+       * A `{ deny }` after `next(e)` was answered, a `.catch`'s too, fails the
+       * hook: deny in its place.
        */
       'env.set': {
           name: string;
@@ -7979,6 +8164,75 @@ declare module 'claude-code' {
   };
 
   /**
+   * The input of `prompt.autocomplete`: the prompt box as the person left it
+   * and the token at its cursor, which a taken suggestion replaces.
+   *
+   * All four are pinned, facts of the box: a rewrite that changes one is
+   * refused, one left out is kept. Offsets count UTF-16 code units.
+   */
+  export type PromptAutocompleteInput = {
+      /**
+       * The whole draft in the prompt box.
+       */
+      text: string;
+      /**
+       * Where the person's caret stands in `text`, 0 to `text.length`.
+       */
+      cursor: number;
+      /**
+       * The run of characters that are not whitespace and that ends at the
+       * cursor: `text.slice(start, cursor)`, never empty.
+       *
+       * What a matcher names to answer one lead character only.
+       *
+       * @example
+       * on("prompt.autocomplete", { token: /^#/ }, hook)
+       */
+      token: string;
+      /**
+       * Where `token` begins in `text`.
+       */
+      start: number;
+  };
+
+  /**
+   * What a `prompt.autocomplete` hook returns and what `next(e)` resolves to:
+   * the rows the plugins add to the typeahead for the token.
+   */
+  export type PromptAutocompleteResult = {
+      /**
+       * The rows, in the order drawn beneath the engine's own; from core, none.
+       *
+       * A hook puts its rows before or after what `next(e)` gave; the engine's
+       * own rows are not on this event and stay where they were drawn.
+       *
+       * @example
+       * return { suggestions: [...(await next(e)).suggestions, mine] }
+       */
+      suggestions: readonly PromptAutocompleteSuggestion[];
+  };
+
+  /**
+   * One row a `prompt.autocomplete` hook adds to the prompt box's typeahead:
+   * what taking it writes, what the row shows, and a dim line beside it.
+   */
+  export type PromptAutocompleteSuggestion = {
+      /**
+       * What taking the row writes in place of the token, the cursor after it;
+       * never empty. The box's new token is then asked again.
+       */
+      text: string;
+      /**
+       * What the row shows, on one line; the `text` when absent.
+       */
+      label?: string;
+      /**
+       * The dim line drawn beside the label, cut to the row by the surface.
+       */
+      description?: string;
+  };
+
+  /**
    * The person's prompt box as it stands: the draft and where the cursor is in
    * it; what `$.prompt.read()` resolves and `$.prompt.fill` hands back.
    *
@@ -8997,8 +9251,8 @@ declare module 'claude-code' {
    * register() returned and one on `engine.create`, whose hook has no budget
    * and whose failure is the load's.
    *
-   * @remarks A guard judges before it calls `next` and carries one, or what
-   *   it judges goes on when it fails: refuse where `next` was not called.
+   * @remarks A guard carries one and refuses where `next` was not called, or
+   *   what it judges goes on when it fails or is asked beneath its own frame.
    * @example
    * on(...).catch(($, e, next) => next.called ? next(e) : { deny: "no" })
    */
@@ -9008,7 +9262,8 @@ declare module 'claude-code' {
        * answer within the grace stands as the hook's result for the dispatch.
        *
        * The budget is HookBudget's `ms` and the grace its `catchMs`, both on
-       * the clock that stops while the code waits on `next` or `$`.
+       * the clock that stops while the code waits on `next` or `$`. It is also
+       * asked, in the hook's place, where re-entry does not run the hook.
        *
        * @remarks `claude plugin validate` lists each gating hook with or
        *   without one.
@@ -11604,7 +11859,7 @@ declare module 'claude-code' {
    */
   type SpeakRequest = SpeakOptions & {
       /**
-       * What to say, as plain text, of at most 4096 characters.
+       * What to say, as plain text: its first 4096 characters are spoken.
        */
       text: string;
   };
@@ -12524,6 +12779,9 @@ declare module 'claude-code' {
       /**
        * `allow` runs the tool; `ask` puts it to the mode's decider; `deny`
        * refuses it, the reason the model's error.
+       *
+       * For a tool that requires the person (a question put to them, a plan to
+       * approve) a hook only tightens: its `allow` does not dismiss the dialog.
        */
       decision: ToolCheckDecision;
       /**
@@ -13535,6 +13793,9 @@ declare module 'claude-code' {
        * A hook kept the ring (no `next`); the site is not this plugin's, does
        * not hold the keyboard, or another plugin's element holds it; no element
        * of `plugin` is drawn under `element`; another move landed first.
+       *
+       * @remarks A `{ deny }` after `next(e)` was answered, a `.catch`'s too,
+       *   fails the hook, and its last `next` stands: deny in its place.
        */
       deny?: string;
   };
@@ -13976,6 +14237,9 @@ declare module 'claude-code' {
        * A hook kept the window (no `next`); the target is not this plugin's;
        * another move landed first (`the window moved meanwhile`); a transcript
        * row is not the person's ask (`not person-initiated`) or none scrolls.
+       *
+       * @remarks A `{ deny }` after `next(e)` was answered, a `.catch`'s too,
+       *   fails the hook, and its last `next` stands: deny in its place.
        */
       deny?: string;
   };
@@ -14704,6 +14968,10 @@ declare module 'claude-code/testing' {
   /**
    * The checks on a value (`expect(received)`), and with them the matchers
    * that stand inside an expected value (`expect.any(Number)`).
+   *
+   * A check that fails throws. In a hook the test registered with `on` the
+   * engine skips the hook as it skips any that throws, and the test fails all
+   * the same, with the check's message and the hook's event.
    */
   export type Expect = Expecting & Matching;
 
@@ -15451,7 +15719,8 @@ declare module 'claude-code/testing' {
    * beneath every plugin; beneath them the bottom hook throws, naming its event.
    *
    * The plugins load at the test's first call on `$`, so a test registers its
-   * hooks before it, as a module registers its own in `register()`.
+   * hooks before it, as a module registers its own in `register()`. A check
+   * that fails in one of them, or an answer its site refuses, fails the test.
    */
   export type TestBody = ($: Engine, on: On) => unknown;
 
