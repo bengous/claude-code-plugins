@@ -2,6 +2,12 @@
 
 What each version of vellum changed for the person using it, newest first.
 
+## 0.17.2 - 2026-10-07
+
+### Fixed
+
+- The lock refuses a plan path that names a network share (`//host/share/...`) before asking where it lands. On Windows, such a path could pass as a file of a local project while the write went to the share.
+
 ## 0.17.1 - 2026-10-02
 
 ### Changed
