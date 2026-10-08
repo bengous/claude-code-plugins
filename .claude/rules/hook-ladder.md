@@ -99,11 +99,12 @@ Known ceilings:
   as the checkout's change since its merge-base with `origin/dev` reaches,
   whoever made it. Red work of another session in the same checkout blocks
   this session once per verdict.
-- `regenerate-plugin-types.ts` checks the checkout of the project's
-  repository around the SessionStart `cwd`, climbing out of any other
-  repository nested in it, else the project: `CLAUDE_PROJECT_DIR` stays the
-  launching checkout by design, and `cwd` is the one field that follows
-  EnterWorktree.
+- `claude-code-types.ts` reads the refs of the project's repository around
+  the SessionStart `cwd`, climbing out of any other repository nested in it,
+  else the project: `CLAUDE_PROJECT_DIR` stays the launching checkout by
+  design, and `cwd` is the one field that follows EnterWorktree. It reads
+  local refs only, so a stale `origin/dev` starts a run that its own fetch
+  ends as `skipped`.
 - Skipping the background-task check for a subagent assumes no other listed
   task edits that subagent's checkout. That holds for an isolated subagent: it
   has its own worktree, and a nested one gets another. A non-isolated subagent
