@@ -1,16 +1,9 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import {
-  chmodSync,
-  existsSync,
-  mkdirSync,
-  mkdtempSync,
-  readFileSync,
-  rmSync,
-  writeFileSync,
-} from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { join } from "node:path";
 
+import { stubbedEnv, write } from "./claude-code-types.fixture.ts";
 import {
   headerVersion,
   installedVersion,
@@ -18,7 +11,6 @@ import {
   type Outcome,
   promptFor,
   ROLLING_BRANCH,
-  RUN_GUARD,
   TOOLS_TYPES_PATH,
   TYPES_PATH,
 } from "./claude-code-types.ts";
@@ -89,87 +81,6 @@ describe("promptFor", () => {
   });
 });
 
-// Stands in for `claude` as measured on 2.1.287: a run that loads a mod with
-// --plugin-dir writes the mod's types into its .claude-plugin/types/, then,
-// given no prompt, stops on it. The tool types follow the environment and the
-// account, so the stub writes other tools for a login variable or a config
-// that is not empty. A run given --permission-mode is the agent: it records
-// its prompt and writes the body where the prompt says; each control file
-// under stub/ adds or changes one move.
-const CLAUDE_STUB = `#!/usr/bin/env bash
-set -euo pipefail
-stub="$(dirname "$0")/../stub"
-version="$(cat "$stub/version")"
-if [[ $1 == --version ]]; then
-  echo "\${${RUN_GUARD}:-unset}" >>"$stub/version-guards"
-  echo "$version (Claude Code)"
-  exit 0
-fi
-if [[ " $* " == *" --plugin-dir "* ]]; then
-  echo "$*" >>"$stub/types-runs"
-  echo "$PWD" >>"$stub/types-cwds"
-  if [[ -f $stub/types-silent ]]; then
-    echo "stub: mods off" >&2
-    echo "stub: wrote nothing"
-    exit 1
-  fi
-  mod=""
-  while [[ $# -gt 0 ]]; do
-    case $1 in
-      --plugin-dir) mod="$2"; shift 2 ;;
-      *) shift ;;
-    esac
-  done
-  tools="// tools $version"
-  if [[ -n \${ANTHROPIC_API_KEY:-}\${CLAUDE_CODE_OAUTH_TOKEN:-} || -z \${CLAUDE_CONFIG_DIR:-} || -n "$(ls -A "$CLAUDE_CONFIG_DIR")" ]]; then
-    tools="// tools of this account and environment"
-  fi
-  types="$mod/.claude-plugin/types"
-  mkdir -p "$types/claude-code" "$types/claude-code-tools" "$types/claude-code-mcp"
-  echo "// Written by Claude Code $version." >"$types/claude-code/index.d.ts"
-  echo "$tools" >"$types/claude-code-tools/index.d.ts"
-  echo "// mcp" >"$types/claude-code-mcp/index.d.ts"
-  echo "Error: Input must be provided either through stdin or as a prompt argument when using --print" >&2
-  exit 1
-fi
-printf '%s' "\${!#}" >"$stub/agent-prompt"
-echo "$PWD \${${RUN_GUARD}:-unset} \${*:1:$#-1}" >>"$stub/agent-runs"
-if [[ -f $stub/agent-exit ]]; then exit "$(cat "$stub/agent-exit")"; fi
-if [[ -f $stub/agent-commits-types ]]; then
-  git -c core.hooksPath=/dev/null commit -qm "chore(vellum): types from Claude Code $version"
-fi
-if [[ -f $stub/agent-e2e ]]; then
-  mkdir -p vellum/src
-  echo "export {};" >vellum/src/page.ts
-  git add -A
-  git commit -qm "feat(vellum): a page"
-fi
-if [[ -f $stub/agent-dirty ]]; then echo stray >stray.txt; fi
-if [[ -f $stub/agent-switches ]]; then git switch -qc elsewhere; fi
-body="$(grep -oP 'pull request body to \`\\K[^\`]+' "$stub/agent-prompt")"
-echo "the body" >"$body"
-`;
-
-const GH_STUB = `#!/usr/bin/env bash
-set -euo pipefail
-stub="$(dirname "$0")/../stub"
-echo "$*" >>"$stub/gh-calls"
-case "$1 $2" in
-  "pr list") if [[ -f $stub/gh-open ]]; then cat "$stub/gh-open"; else echo "[]"; fi ;;
-  "pr create") echo "https://github.com/o/r/pull/7" ;;
-esac
-`;
-
-const NOTIFY_STUB = `#!/usr/bin/env bash
-echo "$*" >>"$(dirname "$0")/../stub/notify-calls"
-`;
-
-// The script runs under the real bun (process.execPath); only the installs it
-// starts by name reach this stub.
-const BUN_STUB = `#!/usr/bin/env bash
-echo "$PWD $*" >>"$(dirname "$0")/../stub/bun-calls"
-`;
-
 let root = "";
 
 let project = "";
@@ -185,11 +96,6 @@ const recorded = (name: string) => (existsSync(stub(name)) ? readFileSync(stub(n
 const state = (name: string) => join(project, ".git", "claude-code-types", name);
 
 const worktree = () => `${project}.wt/claude-code-types`;
-
-function write(path: string, content: string) {
-  mkdirSync(dirname(path), { recursive: true });
-  writeFileSync(path, content);
-}
 
 function git(cwd: string, ...args: string[]): string {
   const result = Bun.spawnSync(["git", ...args], { cwd, env, stdout: "pipe", stderr: "pipe" });
@@ -262,33 +168,7 @@ beforeEach(() => {
   project = join(root, "project");
   origin = join(root, "origin.git");
 
-  write(
-    join(root, "gitconfig"),
-    "[user]\n\tname = t\n\temail = t@t\n[commit]\n\tgpgsign = false\n[init]\n\tdefaultBranch = dev\n",
-  );
-
-  env = {
-    ...Object.fromEntries(
-      Object.entries(process.env).filter(
-        ([name]) => !name.startsWith("GIT_") && name !== RUN_GUARD,
-      ),
-    ),
-    HOME: root,
-    PATH: `${join(root, "bin")}:${process.env["PATH"] ?? ""}`,
-    GIT_CONFIG_GLOBAL: join(root, "gitconfig"),
-    GIT_CONFIG_NOSYSTEM: "1",
-  };
-
-  for (const [name, content] of [
-    ["claude", CLAUDE_STUB],
-    ["gh", GH_STUB],
-    ["notify-send", NOTIFY_STUB],
-    ["bun", BUN_STUB],
-  ] as const) {
-    write(join(root, "bin", name), content);
-    chmodSync(join(root, "bin", name), 0o755);
-  }
-
+  env = stubbedEnv(root);
   write(stub("version"), "2.1.294");
 
   git(root, "init", "-q", "--bare", origin);
@@ -383,7 +263,7 @@ describe("run", () => {
     expect(recorded("agent-prompt")).toContain("The script committed them as");
     expect(recorded("agent-prompt")).not.toContain("{{");
     expect(recorded("notify-calls")).toContain("pull request opened");
-    expect(readFileSync(state("attempted"), "utf8")).toBe("2.1.294");
+    expect(readFileSync(state("settled"), "utf8")).toBe("2.1.294");
     expect(existsSync(worktree())).toBe(false);
     expect(existsSync(state("run.lock"))).toBe(false);
   });
@@ -488,7 +368,7 @@ describe("run", () => {
     expect(code).toBe(0);
     expect(stderr).toContain("a live run holds");
     expect(existsSync(state("outcome.json"))).toBe(false);
-    expect(recorded("version-guards")).toBe("");
+    expect(recorded("gh-calls")).toBe("");
   });
 
   test("takes over the lock of a dead run", () => {
@@ -535,7 +415,7 @@ describe("run", () => {
     expect(recorded("gh-calls")).toContain("pr edit https://github.com/o/r/pull/7 --add-label e2e");
   });
 
-  test("fails at agent when claude -p fails, keeps the worktree, and records the version as attempted", () => {
+  test("fails at agent when claude -p fails, keeps the worktree, and settles the version", () => {
     write(stub("agent-exit"), "3");
 
     runScript();
@@ -550,7 +430,7 @@ describe("run", () => {
     });
     expect(recorded("notify-calls")).toContain("-u critical");
     expect(recorded("notify-calls")).toContain("rerun by hand");
-    expect(readFileSync(state("attempted"), "utf8")).toBe("2.1.294");
+    expect(readFileSync(state("settled"), "utf8")).toBe("2.1.294");
   });
 
   test("fails at verify when the agent leaves a change uncommitted", () => {
@@ -570,6 +450,26 @@ describe("run", () => {
 
     expect(outcome()).toMatchObject({ kind: "failed", step: "verify" });
     expect(failureReason()).toBe("the agent left HEAD on refs/heads/elsewhere");
+  });
+
+  test("settles nothing and notifies nobody when it fails before the agent, so the next session retries", () => {
+    write(stub("types-silent"), "");
+
+    runScript();
+
+    expect(outcome()).toMatchObject({ kind: "failed", step: "regenerate", to: "2.1.294" });
+    expect(existsSync(state("settled"))).toBe(false);
+    expect(recorded("notify-calls")).toBe("");
+    expect(recorded("agent-runs")).toBe("");
+  });
+
+  test("names the ref whose header is not the generated one", () => {
+    landOnDev((clone) => write(join(clone, TYPES_PATH), "// hand-written\n"));
+
+    runScript();
+
+    expect(outcome()).toMatchObject({ kind: "failed", step: "fetch" });
+    expect(failureReason()).toStartWith(`origin/dev: ${TYPES_PATH}: expected`);
   });
 
   test("fails at push when the remote refuses the branch", () => {

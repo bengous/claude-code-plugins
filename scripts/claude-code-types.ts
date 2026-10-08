@@ -15,8 +15,9 @@
  * headless Claude that judges the update's impact on the hooks modules and
  * commits what the update calls for, then pushes the branch and opens or
  * updates its pull request to `dev`. Its lock, log, last outcome and the
- * version it last attempted live in `<git common dir>/claude-code-types/`,
- * where the hook reads them at session start.
+ * version it last settled live in `<git common dir>/claude-code-types/`,
+ * where the hook reads them at session start: the run alone decides whether
+ * a version needs work, after its fetch.
  *
  * Claude Code writes a mod's types into its `.claude-plugin/types/` as it
  * loads it with `--plugin-dir`. `regenerate` loads an empty mod from a temp
@@ -31,6 +32,7 @@ import {
   mkdirSync,
   openSync,
   readFileSync,
+  renameSync,
   rmSync,
   writeFileSync,
   writeSync,
@@ -102,28 +104,36 @@ export type Outcome =
   | ({ kind: "skipped" } & Versions)
   | {
       kind: "failed";
-      to: string | null;
+      to: string;
       step: Step;
       reason: string;
       log: string;
       worktree: string | null;
     };
 
-/** `boot` tells a lock left by a run before a reboot from one whose pid came back; null off Linux. */
+/**
+ * The run that holds the lock, and the version it works for. `boot` tells a
+ * lock left before a reboot from one whose pid came back; null off Linux.
+ */
 export interface Lock {
   pid: number;
   startedAt: string;
   boot: string | null;
+  version: string;
 }
 
 export interface StatePaths {
   dir: string;
   lock: string;
   outcome: string;
-  attempted: string;
+  settled: string;
   log: string;
+  spawnLog: string;
   body: string;
 }
+
+/** From the agent on, a failure has spent the run's cost: retrying it at every session would spend it again. */
+const SETTLING_STEPS: ReadonlySet<Step> = new Set(["agent", "verify", "push", "pr"]);
 
 interface Result {
   code: number;
@@ -174,10 +184,16 @@ export function statePaths(commonDir: string): StatePaths {
     dir,
     lock: join(dir, "run.lock"),
     outcome: join(dir, "outcome.json"),
-    attempted: join(dir, "attempted"),
+    settled: join(dir, "settled"),
     log: join(dir, "run.log"),
+    spawnLog: join(dir, "spawn.log"),
     body: join(dir, "pr-body.md"),
   };
+}
+
+/** True when no session start runs the outcome's version again: published, nothing to do, or failed once costly. */
+export function settles(outcome: Outcome): boolean {
+  return outcome.kind !== "failed" || SETTLING_STEPS.has(outcome.step);
 }
 
 export function outcomeLine(outcome: Outcome): string {
@@ -187,7 +203,7 @@ export function outcomeLine(outcome: Outcome): string {
     case "skipped":
       return `Claude Code types ${outcome.installed}: ${BASE} carries ${outcome.devHeader}, ${ROLLING_BRANCH} ${outcome.rollingHeader ?? "has no open pull request"}; nothing to do.`;
     case "failed":
-      return `Claude Code types${outcome.to === null ? "" : ` ${outcome.to}`}: the run failed at ${outcome.step}: ${outcome.reason} (log: ${outcome.log}${outcome.worktree === null ? "" : `, worktree: ${outcome.worktree}`}). No session retries it; rerun by hand: bun ./scripts/claude-code-types.ts run`;
+      return `Claude Code types ${outcome.to}: the run failed at ${outcome.step}: ${outcome.reason} (log: ${outcome.log}${outcome.worktree === null ? "" : `, worktree: ${outcome.worktree}`}). ${settles(outcome) ? "No session retries it; rerun by hand: bun ./scripts/claude-code-types.ts run" : "The next session start retries it."}`;
   }
 }
 
@@ -258,15 +274,21 @@ export function refHeader(cwd: string, ref: string): string | null {
 
   if (command(["git", "cat-file", "-e", object], cwd).code !== 0) return null;
 
-  return headerVersion(git(cwd, "show", object).split(/\r?\n/u, 1)[0] ?? "");
+  try {
+    return headerVersion(git(cwd, "show", object).split(/\r?\n/u, 1)[0] ?? "");
+  } catch (error) {
+    throw new Error(`${ref}: ${error instanceof Error ? error.message : String(error)}`, {
+      cause: error,
+    });
+  }
 }
 
 function fileHeader(root: string): string {
   return headerVersion(readFileSync(join(root, TYPES_PATH), "utf8").split(/\r?\n/u, 1)[0] ?? "");
 }
 
-/** The version the last run reached an end for, which no session start retries. */
-export function attemptedVersion(file: string): string | null {
+/** The version the last settling run ended for, which no session start runs again. */
+export function settledVersion(file: string): string | null {
   return existsSync(file) ? readFileSync(file, "utf8").trim() : null;
 }
 
@@ -307,8 +329,8 @@ export function liveLock(file: string): Lock | null {
   }
 }
 
-/** Takes the lock, or answers false while a live run holds it. */
-function takeLock(file: string): boolean {
+/** Takes the lock for `version`, or answers false while a live run holds it. */
+function takeLock(file: string, version: string): boolean {
   const left = existsSync(file);
 
   if (liveLock(file) !== null) return false;
@@ -319,7 +341,14 @@ function takeLock(file: string): boolean {
 
   // A hard link appears whole or not at all, so a reader never parses a half-written lock.
   const draft = `${file}.${process.pid}`;
-  const lock: Lock = { pid: process.pid, startedAt: new Date().toISOString(), boot: bootId() };
+
+  const lock: Lock = {
+    pid: process.pid,
+    startedAt: new Date().toISOString(),
+    boot: bootId(),
+    version,
+  };
+
   writeFileSync(draft, JSON.stringify(lock));
 
   try {
@@ -580,19 +609,27 @@ function publish(worktree: string, open: OpenPullRequest | null, to: string, bod
   return url;
 }
 
-interface Run {
-  cwd: string;
-  worktree: string;
-  state: StatePaths;
-  log: number;
-  enter: (step: Step) => void;
-  reach: (version: string) => void;
+/** Where a run stands, read by its failure: the step it was in, and its worktree once named. */
+interface Progress {
+  step: Step;
+  worktree: string | null;
 }
 
-async function pipeline({ cwd, worktree, state, log, enter, reach }: Run): Promise<Outcome> {
+interface Run {
+  cwd: string;
+  installed: string;
+  state: StatePaths;
+  log: number;
+  progress: Progress;
+}
+
+async function pipeline({ cwd, installed, state, log, progress }: Run): Promise<Outcome> {
+  const enter = (step: Step) => {
+    progress.step = step;
+    writeSync(log, `== ${step}\n`);
+  };
+
   enter("fetch");
-  const installed = installedVersion(command(["claude", "--version"], cwd).out);
-  reach(installed);
   git(cwd, "fetch", "--quiet", "--prune", "origin");
   const devHeader = refHeader(cwd, BASE);
 
@@ -604,6 +641,8 @@ async function pipeline({ cwd, worktree, state, log, enter, reach }: Run): Promi
   if (!needsRun(versions)) return { kind: "skipped", ...versions };
 
   enter("worktree");
+  const worktree = await worktreePath(cwd);
+  progress.worktree = worktree;
   const dropped = await prepareWorktree(cwd, worktree, rollingHeader !== null);
 
   enter("install");
@@ -681,9 +720,10 @@ function notify(outcome: Outcome, log: number): void {
 
 async function runPipeline(cwd: string): Promise<void> {
   const state = statePaths(commonDirOf(cwd));
+  const installed = installedVersion(command(["claude", "--version"], cwd).out);
   mkdirSync(state.dir, { recursive: true });
 
-  if (!takeLock(state.lock)) {
+  if (!takeLock(state.lock, installed)) {
     console.error(`claude-code-types: a live run holds ${state.lock}`);
 
     return;
@@ -692,39 +732,32 @@ async function runPipeline(cwd: string): Promise<void> {
   writeFileSync(state.log, "");
   // Append mode, so the lines of the children that share this descriptor follow each other.
   const log = openSync(state.log, "a");
-  const worktree = await worktreePath(cwd);
-  let step: Step = "fetch";
-  let target: string | null = null;
+  const progress: Progress = { step: "fetch", worktree: null };
   let outcome: Outcome;
 
-  const enter = (next: Step) => {
-    step = next;
-    writeSync(log, `== ${next}\n`);
-  };
-
-  const reach = (version: string) => {
-    target = version;
-  };
-
   try {
-    outcome = await pipeline({ cwd, worktree, state, log, enter, reach });
+    outcome = await pipeline({ cwd, installed, state, log, progress });
   } catch (error) {
     outcome = {
       kind: "failed",
-      to: target,
-      step,
+      to: installed,
+      step: progress.step,
       reason: error instanceof Error ? error.message : String(error),
       log: state.log,
-      worktree: existsSync(worktree) ? worktree : null,
+      worktree:
+        progress.worktree !== null && existsSync(progress.worktree) ? progress.worktree : null,
     };
   }
 
   writeSync(log, `${outcomeLine(outcome)}\n`);
-  writeFileSync(state.outcome, JSON.stringify(outcome));
+  // Renamed into place, so the hook never reads a half-written outcome.
+  const draft = `${state.outcome}.${process.pid}`;
+  writeFileSync(draft, JSON.stringify(outcome));
+  renameSync(draft, state.outcome);
 
-  if (target !== null) writeFileSync(state.attempted, target);
+  if (settles(outcome)) writeFileSync(state.settled, installed);
 
-  if (outcome.kind !== "skipped") notify(outcome, log);
+  if (settles(outcome) && outcome.kind !== "skipped") notify(outcome, log);
   closeSync(log);
   rmSync(state.lock, { force: true });
 }
