@@ -28,7 +28,6 @@
 import {
   closeSync,
   existsSync,
-  linkSync,
   mkdirSync,
   openSync,
   readFileSync,
@@ -44,6 +43,7 @@ import { join } from "node:path";
 import { $ } from "bun";
 
 import { isE2ePath } from "./check-e2e-green.ts";
+import { tryLock, unlock } from "./lib/flock.ts";
 import { hooksModulePlugins } from "./lib/hooks-modules.ts";
 import { pluginDirAt, readWorktrees } from "./lib/plugin-sources.ts";
 
@@ -65,7 +65,9 @@ const HEADER_PATTERN = /^\/\/ Written by Claude Code (\S+)\.$/u;
 
 const VERSION_PATTERN = /^(\S+) \(Claude Code\)$/u;
 
-const BOOT_ID = "/proc/sys/kernel/random/boot_id";
+const LOCK_TRIES = 10;
+
+const LOCK_PAUSE_MS = 100;
 
 const REPORT_LINES = 60;
 
@@ -111,20 +113,20 @@ export type Outcome =
       worktree: string | null;
     };
 
-/**
- * The run that holds the lock, and the version it works for. `boot` tells a
- * lock left before a reboot from one whose pid came back; null off Linux.
- */
-export interface Lock {
+/** The run that holds the lock, and the version it works for: what a session start shows of it. */
+export interface Holder {
   pid: number;
   startedAt: string;
-  boot: string | null;
   version: string;
 }
+
+/** A run holds the lock; its holder is null for the instant between its lock and its holder file. */
+export type RunState = { kind: "idle" } | { kind: "running"; holder: Holder | null };
 
 export interface StatePaths {
   dir: string;
   lock: string;
+  holder: string;
   outcome: string;
   settled: string;
   log: string;
@@ -183,6 +185,7 @@ export function statePaths(commonDir: string): StatePaths {
   return {
     dir,
     lock: join(dir, "run.lock"),
+    holder: join(dir, "holder.json"),
     outcome: join(dir, "outcome.json"),
     settled: join(dir, "settled"),
     log: join(dir, "run.log"),
@@ -216,14 +219,6 @@ export function promptFor(template: string, values: Readonly<Record<string, stri
 
     return value;
   });
-}
-
-function isErrnoException(cause: unknown): cause is NodeJS.ErrnoException {
-  return cause instanceof Error && "code" in cause;
-}
-
-function errnoOf(cause: unknown): string | undefined {
-  return isErrnoException(cause) ? cause.code : undefined;
 }
 
 /** A command's result; a binary missing from PATH answers 127, as a shell does. */
@@ -292,75 +287,63 @@ export function settledVersion(file: string): string | null {
   return existsSync(file) ? readFileSync(file, "utf8").trim() : null;
 }
 
-function bootId(): string | null {
-  try {
-    return readFileSync(BOOT_ID, "utf8").trim();
-  } catch (error) {
-    if (errnoOf(error) === "ENOENT") return null;
-    throw error;
-  }
-}
-
-/** The lock's holder while its process lives; null when there is none, it died, or the machine rebooted since. */
-export function liveLock(file: string): Lock | null {
-  let lock: Lock;
-
-  try {
-    // SAFETY: only takeLock writes this file, whole, through a hard link.
-    lock = JSON.parse(readFileSync(file, "utf8")) as Lock;
-  } catch (error) {
-    if (errnoOf(error) === "ENOENT") return null;
-    throw error;
-  }
-
-  if (lock.boot !== null && lock.boot !== bootId()) return null;
-
-  try {
-    process.kill(lock.pid, 0);
-
-    return lock;
-  } catch (error) {
-    const code = errnoOf(error);
-
-    if (code === "ESRCH") return null;
-
-    if (code === "EPERM") return lock;
-    throw error;
-  }
-}
-
-/** Takes the lock for `version`, or answers false while a live run holds it. */
-function takeLock(file: string, version: string): boolean {
-  const left = existsSync(file);
-
-  if (liveLock(file) !== null) return false;
-
-  // Only a dead run's lock is removed: removing an absent one could take the
-  // lock a run started at the same moment just linked.
-  if (left) rmSync(file, { force: true });
-
-  // A hard link appears whole or not at all, so a reader never parses a half-written lock.
+/** Writes `content` beside `file`, then renames it into place, so a reader never meets it half-written. */
+function writeWhole(file: string, content: string): void {
   const draft = `${file}.${process.pid}`;
+  writeFileSync(draft, content);
+  renameSync(draft, file);
+}
 
-  const lock: Lock = {
-    pid: process.pid,
-    startedAt: new Date().toISOString(),
-    boot: bootId(),
-    version,
-  };
-
-  writeFileSync(draft, JSON.stringify(lock));
+/**
+ * Whether a run holds the lock: a shared lock taken for an instant tells,
+ * the kernel answering for the holder, alive or not.
+ */
+export function runState(state: StatePaths): RunState {
+  if (!existsSync(state.lock)) return { kind: "idle" };
+  const fd = openSync(state.lock, "r");
 
   try {
-    linkSync(draft, file);
+    if (tryLock(fd, "shared")) {
+      unlock(fd);
 
-    return true;
-  } catch (error) {
-    if (errnoOf(error) === "EEXIST") return false;
-    throw error;
+      return { kind: "idle" };
+    }
+
+    // SAFETY: only takeRunLock writes this file, whole, from a Holder.
+    const holder = existsSync(state.holder)
+      ? (JSON.parse(readFileSync(state.holder, "utf8")) as Holder)
+      : null;
+
+    return { kind: "running", holder };
   } finally {
-    rmSync(draft, { force: true });
+    closeSync(fd);
   }
+}
+
+/**
+ * Takes the run's lock for `version`: the descriptor the run keeps open until
+ * it exits, null while another run holds the lock. The file itself is never
+ * removed: a run that opened it before the removal and one that created it
+ * after would each hold a lock of their own.
+ */
+function takeRunLock(state: StatePaths, version: string): number | null {
+  const fd = openSync(state.lock, "a");
+
+  // A session start's check holds the lock shared for an instant.
+  for (let tries = 1; !tryLock(fd, "exclusive"); tries++) {
+    if (tries === LOCK_TRIES) {
+      closeSync(fd);
+
+      return null;
+    }
+
+    Bun.sleepSync(LOCK_PAUSE_MS);
+  }
+
+  const holder: Holder = { pid: process.pid, startedAt: new Date().toISOString(), version };
+  writeWhole(state.holder, JSON.stringify(holder));
+
+  return fd;
 }
 
 export async function regenerate(root: string): Promise<void> {
@@ -722,8 +705,9 @@ async function runPipeline(cwd: string): Promise<void> {
   const state = statePaths(commonDirOf(cwd));
   const installed = installedVersion(command(["claude", "--version"], cwd).out);
   mkdirSync(state.dir, { recursive: true });
+  const lock = takeRunLock(state, installed);
 
-  if (!takeLock(state.lock, installed)) {
+  if (lock === null) {
     console.error(`claude-code-types: a live run holds ${state.lock}`);
 
     return;
@@ -750,16 +734,14 @@ async function runPipeline(cwd: string): Promise<void> {
   }
 
   writeSync(log, `${outcomeLine(outcome)}\n`);
-  // Renamed into place, so the hook never reads a half-written outcome.
-  const draft = `${state.outcome}.${process.pid}`;
-  writeFileSync(draft, JSON.stringify(outcome));
-  renameSync(draft, state.outcome);
+  writeWhole(state.outcome, JSON.stringify(outcome));
 
   if (settles(outcome)) writeFileSync(state.settled, installed);
 
   if (settles(outcome) && outcome.kind !== "skipped") notify(outcome, log);
   closeSync(log);
-  rmSync(state.lock, { force: true });
+  rmSync(state.holder, { force: true });
+  closeSync(lock);
 }
 
 if (import.meta.main) {

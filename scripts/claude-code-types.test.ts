@@ -11,9 +11,12 @@ import {
   type Outcome,
   promptFor,
   ROLLING_BRANCH,
+  runState,
+  statePaths,
   TOOLS_TYPES_PATH,
   TYPES_PATH,
 } from "./claude-code-types.ts";
+import { holdLock } from "./lib/flock.fixture.ts";
 
 const SCRIPT = join(import.meta.dir, "claude-code-types.ts");
 
@@ -127,6 +130,24 @@ function runScript(action = "run") {
     stdout: result.stdout.toString(),
     stderr: result.stderr.toString(),
   };
+}
+
+/** The script run beside the test, for a test that does something while it works. */
+async function runScriptAsync() {
+  const proc = Bun.spawn([process.execPath, SCRIPT, "run"], {
+    cwd: project,
+    env,
+    stdout: "pipe",
+    stderr: "pipe",
+  });
+
+  const [stdout, stderr, code] = await Promise.all([
+    new Response(proc.stdout).text(),
+    new Response(proc.stderr).text(),
+    proc.exited,
+  ]);
+
+  return { code, stdout, stderr };
 }
 
 function outcome(): Outcome {
@@ -265,7 +286,8 @@ describe("run", () => {
     expect(recorded("notify-calls")).toContain("pull request opened");
     expect(readFileSync(state("settled"), "utf8")).toBe("2.1.294");
     expect(existsSync(worktree())).toBe(false);
-    expect(existsSync(state("run.lock"))).toBe(false);
+    expect(runState(statePaths(join(project, ".git")))).toEqual({ kind: "idle" });
+    expect(existsSync(state("holder.json"))).toBe(false);
   });
 
   test("rebases the live rolling branch onto origin/dev, keeps its commits, and updates its open pull request", () => {
@@ -360,36 +382,63 @@ describe("run", () => {
     expect(recorded("agent-runs")).toBe("");
   });
 
-  test("leaves a live run alone", () => {
-    write(state("run.lock"), JSON.stringify({ pid: process.pid, startedAt: "now", boot: null }));
+  test("leaves alone a run that holds the lock", async () => {
+    write(state("run.lock"), "");
+    const held = await holdLock(state("run.lock"));
 
-    const { code, stderr } = runScript();
+    try {
+      const { code, stderr } = await runScriptAsync();
 
-    expect(code).toBe(0);
-    expect(stderr).toContain("a live run holds");
-    expect(existsSync(state("outcome.json"))).toBe(false);
-    expect(recorded("gh-calls")).toBe("");
+      expect(code).toBe(0);
+      expect(stderr).toContain("a live run holds");
+      expect(existsSync(state("outcome.json"))).toBe(false);
+      expect(recorded("gh-calls")).toBe("");
+    } finally {
+      await held.release();
+    }
   });
 
-  test("takes over the lock of a dead run", () => {
-    const dead = Bun.spawnSync(["true"]).pid;
-    write(state("run.lock"), JSON.stringify({ pid: dead, startedAt: "then", boot: null }));
+  test("takes the lock a dead run left, its holder file with it", () => {
+    write(state("run.lock"), "");
+    write(state("holder.json"), JSON.stringify({ pid: 1, startedAt: "then", version: "2.1.293" }));
 
     runScript();
 
     expect(outcome()).toMatchObject({ kind: "pr" });
-    expect(existsSync(state("run.lock"))).toBe(false);
+    expect(existsSync(state("holder.json"))).toBe(false);
+    expect(runState(statePaths(join(project, ".git")))).toEqual({ kind: "idle" });
   });
 
-  test("takes over a lock from before a reboot, whose pid a live process has since", () => {
-    write(
-      state("run.lock"),
-      JSON.stringify({ pid: process.pid, startedAt: "then", boot: "an earlier boot" }),
-    );
+  test("lets one of two runs started together over a dead run's lock work, and the other leave", async () => {
+    write(state("run.lock"), "");
+    write(state("holder.json"), JSON.stringify({ pid: 1, startedAt: "then", version: "2.1.293" }));
+    write(stub("agent-sleep"), "2");
 
-    runScript();
+    const runs = await Promise.all([runScriptAsync(), runScriptAsync()]);
 
+    expect(
+      recorded("agent-runs")
+        .split("\n")
+        .filter((line) => line !== ""),
+    ).toHaveLength(1);
+    expect(runs.filter((run) => run.stderr.includes("a live run holds"))).toHaveLength(1);
     expect(outcome()).toMatchObject({ kind: "pr" });
+  });
+
+  test("names the running holder while it works, from another process", async () => {
+    write(stub("agent-sleep"), "2");
+    const run = runScriptAsync();
+
+    let seen = runState(statePaths(join(project, ".git")));
+
+    for (let tries = 0; tries < 100 && (seen.kind === "idle" || seen.holder === null); tries++) {
+      await Bun.sleep(20);
+      seen = runState(statePaths(join(project, ".git")));
+    }
+
+    await run;
+
+    expect(seen).toMatchObject({ kind: "running", holder: { version: "2.1.294" } });
   });
 
   test("skips, without a notification, when the fetch shows origin/dev already carries the installed types", () => {

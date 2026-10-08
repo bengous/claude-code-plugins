@@ -49,6 +49,7 @@ fi
 printf '%s' "\${!#}" >"$stub/agent-prompt"
 echo "$PWD \${${RUN_GUARD}:-unset} \${*:1:$#-1}" >>"$stub/agent-runs"
 if [[ -f $stub/agent-exit ]]; then exit "$(cat "$stub/agent-exit")"; fi
+if [[ -f $stub/agent-sleep ]]; then sleep "$(cat "$stub/agent-sleep")"; fi
 if [[ -f $stub/agent-commits-types ]]; then
   git -c core.hooksPath=/dev/null commit -qm "chore(vellum): types from Claude Code $version"
 fi
