@@ -30,14 +30,20 @@ echo "stub: wrote nothing" >&2
 exit 1
 `;
 
-// The started run notifies the desktop and could reach GitHub: both stay in the fixture.
+// The started run notifies the desktop, installs and reaches GitHub: all three
+// stay in the fixture. gh lists no open pull request and refuses the rest.
 const NOTIFY_STUB = `#!/usr/bin/env bash
 echo "$*" >>"$(dirname "$0")/../stub/notify-calls"
 `;
 
 const GH_STUB = `#!/usr/bin/env bash
-echo "stub: no gh in this test" >&2
+if [[ "$1 $2" == "pr list" ]]; then echo "[]"; exit 0; fi
+echo "stub: no gh $1 $2 in this test" >&2
 exit 1
+`;
+
+const BUN_STUB = `#!/usr/bin/env bash
+exit 0
 `;
 
 let root = "";
@@ -115,6 +121,7 @@ beforeEach(() => {
     ["claude", CLAUDE_STUB],
     ["notify-send", NOTIFY_STUB],
     ["gh", GH_STUB],
+    ["bun", BUN_STUB],
   ] as const) {
     write(join(root, "bin", name), content);
     chmodSync(join(root, "bin", name), 0o755);
@@ -200,7 +207,7 @@ describe("claude-code-types hook", () => {
     landTypes("// Written by Claude Code 2.1.292.");
     write(
       state("run.lock"),
-      JSON.stringify({ pid: process.pid, startedAt: "2026-10-08T10:00:00Z" }),
+      JSON.stringify({ pid: process.pid, startedAt: "2026-10-08T10:00:00Z", boot: null }),
     );
 
     const { stdout } = await runHook("2.1.294");
@@ -210,6 +217,16 @@ describe("claude-code-types hook", () => {
         `Claude Code types 2.1.294: a run is going since 2026-10-08T10:00:00Z, pid ${process.pid}, log: ${state("run.log")}`,
       ),
     );
+    expect(guards()).toBe("unset\n");
+  });
+
+  test("does not start again a version whose last run ended, failed included", async () => {
+    landTypes("// Written by Claude Code 2.1.292.");
+    write(state("attempted"), "2.1.294");
+
+    const { stdout } = await runHook("2.1.294");
+
+    expect(stdout).toBe("");
     expect(guards()).toBe("unset\n");
   });
 

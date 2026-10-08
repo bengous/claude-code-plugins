@@ -3,7 +3,8 @@
 /**
  * SessionStart hook — starts `scripts/claude-code-types.ts run` detached when
  * the installed Claude Code is newer than the plugin API types `origin/dev`
- * and the rolling branch carry, and shows the last run's outcome once.
+ * and the rolling branch carry and no run ended for it yet, and shows the
+ * last run's outcome once.
  *
  * It reads local refs only, never the network, and never writes into the
  * checkout. Its one output is a `systemMessage`, which the user reads and the
@@ -18,6 +19,7 @@ import { join } from "node:path";
 import { $ } from "bun";
 
 import {
+  attemptedVersion,
   BASE,
   commonDirOf,
   installedVersion,
@@ -63,6 +65,10 @@ async function sessionLines(rawInput: string): Promise<string[]> {
   if (!needsRun({ installed, devHeader, rollingHeader: refHeader(root, ROLLING_REMOTE) })) {
     return lines;
   }
+
+  // A run that ended, failed included, is not started again for the same
+  // version: its outcome already told the user how to rerun it by hand.
+  if (attemptedVersion(state.attempted) === installed) return lines;
 
   const holder = liveLock(state.lock);
 

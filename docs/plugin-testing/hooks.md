@@ -61,16 +61,20 @@ under the [loader rules](hook-runtime.md#module-loader).
   request, never in a developer's checkout. At session start
   `.claude/hooks/claude-code-types.ts` compares the installed version with
   the headers on `origin/dev` and on the rolling branch
-  `chore/claude-code-types`; a newer build starts
+  `chore/claude-code-types`; a newer build no run ended for yet starts
   `bun ./scripts/claude-code-types.ts run` detached. In
   `<main worktree>.wt/claude-code-types` the run rebases the branch onto
-  `origin/dev`, regenerates the types and hands the worktree to a headless
-  Claude (`scripts/claude-code-types.prompt.md`) that judges the update's
-  impact on each hooks module and commits what it calls for; the run then
-  pushes the branch and opens or updates its pull request, which the human
-  lands. The hook's one output is a `systemMessage`, outside the model's
-  context: the run's start, then its outcome at the next session start, read
-  with the run's lock and log from `<git common dir>/claude-code-types/`.
+  `origin/dev` while its pull request is open, and otherwise starts it again
+  from `origin/dev`. It installs the dependencies, regenerates and commits
+  the types, and hands the worktree to a headless Claude
+  (`scripts/claude-code-types.prompt.md`) that judges the update's impact on
+  each hooks module and commits what it calls for; the run then pushes the
+  branch and opens or updates its pull request, which the human lands. A
+  failed run is not started again for the same version: its outcome names
+  the log, the kept worktree and the command that reruns it. The hook's one
+  output is a `systemMessage`, outside the model's context: the run's start,
+  then its outcome at the next session start, read with the run's lock, log
+  and last attempted version from `<git common dir>/claude-code-types/`.
 
 - Mods load by default. Where they are off (`--bare`, `--safe-mode`,
   `disableAllHooks`, an organization's policy) the module never loads and
