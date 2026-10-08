@@ -8,13 +8,15 @@
  *   bun ./scripts/claude-code-types.ts regenerate   # rewrite the two files in this checkout from the installed build
  *
  * `run` works in its own worktree, `<main worktree>.wt/claude-code-types`, on
- * the rolling branch `chore/claude-code-types`: it rebases the branch onto
- * `origin/dev`, regenerates the types, hands the worktree to a headless Claude
- * that judges the update's impact on the hooks modules and commits what the
- * update calls for, then pushes the branch and opens or updates its pull
- * request to `dev`. Its lock, log and last outcome live in
- * `<git common dir>/claude-code-types/`, where the hook reads the outcome at
- * the next session start.
+ * the rolling branch `chore/claude-code-types`. The branch is live while its
+ * pull request is open: the run then rebases it onto `origin/dev`, and
+ * otherwise starts it again from `origin/dev`. The run installs the
+ * dependencies, regenerates and commits the types, hands the worktree to a
+ * headless Claude that judges the update's impact on the hooks modules and
+ * commits what the update calls for, then pushes the branch and opens or
+ * updates its pull request to `dev`. Its lock, log, last outcome and the
+ * version it last attempted live in `<git common dir>/claude-code-types/`,
+ * where the hook reads them at session start.
  *
  * Claude Code writes a mod's types into its `.claude-plugin/types/` as it
  * loads it with `--plugin-dir`. `regenerate` loads an empty mod from a temp
@@ -41,6 +43,7 @@ import { $ } from "bun";
 
 import { isE2ePath } from "./check-e2e-green.ts";
 import { hooksModulePlugins } from "./lib/hooks-modules.ts";
+import { pluginDirAt, readWorktrees } from "./lib/plugin-sources.ts";
 
 export const TYPES_PATH = "vellum/types/claude-code.d.ts";
 
@@ -60,6 +63,10 @@ const HEADER_PATTERN = /^\/\/ Written by Claude Code (\S+)\.$/u;
 
 const VERSION_PATTERN = /^(\S+) \(Claude Code\)$/u;
 
+const BOOT_ID = "/proc/sys/kernel/random/boot_id";
+
+const REPORT_LINES = 60;
+
 const EMPTY_MOD = {
   ".claude-plugin/plugin.json": JSON.stringify({ name: "plugin-types", version: "0.0.0" }),
   "hooks/hooks.json": JSON.stringify({ modules: ["./register.js"] }),
@@ -68,8 +75,22 @@ const EMPTY_MOD = {
 
 const INHERITED_VARIABLES = ["PATH", "HOME"];
 
-export type Step = "fetch" | "worktree" | "regenerate" | "agent" | "verify" | "push" | "pr";
+const INSTALLS = [
+  ["bun", "install", "--frozen-lockfile"],
+  ["bun", "install", "--cwd", "vellum", "--frozen-lockfile"],
+] as const;
 
+export type Step =
+  | "fetch"
+  | "worktree"
+  | "install"
+  | "regenerate"
+  | "agent"
+  | "verify"
+  | "push"
+  | "pr";
+
+/** The installed build, the trunk's types and the live rolling branch's, null when no pull request is open. */
 export interface Versions {
   installed: string;
   devHeader: string;
@@ -79,17 +100,27 @@ export interface Versions {
 export type Outcome =
   | { kind: "pr"; url: string; from: string; to: string; created: boolean }
   | ({ kind: "skipped" } & Versions)
-  | { kind: "failed"; step: Step; reason: string; log: string; worktree: string | null };
+  | {
+      kind: "failed";
+      to: string | null;
+      step: Step;
+      reason: string;
+      log: string;
+      worktree: string | null;
+    };
 
+/** `boot` tells a lock left by a run before a reboot from one whose pid came back; null off Linux. */
 export interface Lock {
   pid: number;
   startedAt: string;
+  boot: string | null;
 }
 
 export interface StatePaths {
   dir: string;
   lock: string;
   outcome: string;
+  attempted: string;
   log: string;
   body: string;
 }
@@ -143,6 +174,7 @@ export function statePaths(commonDir: string): StatePaths {
     dir,
     lock: join(dir, "run.lock"),
     outcome: join(dir, "outcome.json"),
+    attempted: join(dir, "attempted"),
     log: join(dir, "run.log"),
     body: join(dir, "pr-body.md"),
   };
@@ -153,9 +185,9 @@ export function outcomeLine(outcome: Outcome): string {
     case "pr":
       return `Claude Code types ${outcome.from} → ${outcome.to}: pull request ${outcome.created ? "opened" : "updated"}, ${outcome.url}`;
     case "skipped":
-      return `Claude Code types ${outcome.installed}: ${BASE} carries ${outcome.devHeader}, ${ROLLING_BRANCH} ${outcome.rollingHeader ?? "is absent"}; nothing to do.`;
+      return `Claude Code types ${outcome.installed}: ${BASE} carries ${outcome.devHeader}, ${ROLLING_BRANCH} ${outcome.rollingHeader ?? "has no open pull request"}; nothing to do.`;
     case "failed":
-      return `Claude Code types: the run failed at ${outcome.step}: ${outcome.reason} (log: ${outcome.log}${outcome.worktree === null ? "" : `, worktree: ${outcome.worktree}`})`;
+      return `Claude Code types${outcome.to === null ? "" : ` ${outcome.to}`}: the run failed at ${outcome.step}: ${outcome.reason} (log: ${outcome.log}${outcome.worktree === null ? "" : `, worktree: ${outcome.worktree}`}). No session retries it; rerun by hand: bun ./scripts/claude-code-types.ts run`;
   }
 }
 
@@ -170,10 +202,32 @@ export function promptFor(template: string, values: Readonly<Record<string, stri
   });
 }
 
-function command(args: readonly string[], cwd: string): Result {
-  const result = Bun.spawnSync([...args], { cwd, stdin: "ignore", stdout: "pipe", stderr: "pipe" });
+function isErrnoException(cause: unknown): cause is NodeJS.ErrnoException {
+  return cause instanceof Error && "code" in cause;
+}
 
-  return { code: result.exitCode, out: result.stdout.toString(), err: result.stderr.toString() };
+function errnoOf(cause: unknown): string | undefined {
+  return isErrnoException(cause) ? cause.code : undefined;
+}
+
+/** A command's result; a binary missing from PATH answers 127, as a shell does. */
+function command(args: readonly string[], cwd: string): Result {
+  try {
+    const result = Bun.spawnSync([...args], {
+      cwd,
+      stdin: "ignore",
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+
+    return { code: result.exitCode, out: result.stdout.toString(), err: result.stderr.toString() };
+  } catch (error) {
+    return {
+      code: 127,
+      out: "",
+      err: `${args[0]}: ${error instanceof Error ? error.message : String(error)}`,
+    };
+  }
 }
 
 function git(cwd: string, ...args: string[]): string {
@@ -211,15 +265,21 @@ function fileHeader(root: string): string {
   return headerVersion(readFileSync(join(root, TYPES_PATH), "utf8").split(/\r?\n/u, 1)[0] ?? "");
 }
 
-function isErrnoException(cause: unknown): cause is NodeJS.ErrnoException {
-  return cause instanceof Error && "code" in cause;
+/** The version the last run reached an end for, which no session start retries. */
+export function attemptedVersion(file: string): string | null {
+  return existsSync(file) ? readFileSync(file, "utf8").trim() : null;
 }
 
-function errnoOf(cause: unknown): string | undefined {
-  return isErrnoException(cause) ? cause.code : undefined;
+function bootId(): string | null {
+  try {
+    return readFileSync(BOOT_ID, "utf8").trim();
+  } catch (error) {
+    if (errnoOf(error) === "ENOENT") return null;
+    throw error;
+  }
 }
 
-/** The lock's holder while its process lives; null when there is none or it died. */
+/** The lock's holder while its process lives; null when there is none, it died, or the machine rebooted since. */
 export function liveLock(file: string): Lock | null {
   let lock: Lock;
 
@@ -230,6 +290,8 @@ export function liveLock(file: string): Lock | null {
     if (errnoOf(error) === "ENOENT") return null;
     throw error;
   }
+
+  if (lock.boot !== null && lock.boot !== bootId()) return null;
 
   try {
     process.kill(lock.pid, 0);
@@ -247,12 +309,18 @@ export function liveLock(file: string): Lock | null {
 
 /** Takes the lock, or answers false while a live run holds it. */
 function takeLock(file: string): boolean {
+  const left = existsSync(file);
+
   if (liveLock(file) !== null) return false;
-  rmSync(file, { force: true });
+
+  // Only a dead run's lock is removed: removing an absent one could take the
+  // lock a run started at the same moment just linked.
+  if (left) rmSync(file, { force: true });
 
   // A hard link appears whole or not at all, so a reader never parses a half-written lock.
   const draft = `${file}.${process.pid}`;
-  writeFileSync(draft, JSON.stringify({ pid: process.pid, startedAt: new Date().toISOString() }));
+  const lock: Lock = { pid: process.pid, startedAt: new Date().toISOString(), boot: bootId() };
+  writeFileSync(draft, JSON.stringify(lock));
 
   try {
     linkSync(draft, file);
@@ -318,57 +386,77 @@ export async function regenerate(root: string): Promise<void> {
   }
 }
 
-/** Each worktree's path and the branch it has checked out; the main worktree comes first. */
-function worktrees(cwd: string): { path: string; branch: string | null }[] {
-  return git(cwd, "worktree", "list", "--porcelain")
-    .split("\n\n")
-    .filter((record) => record !== "")
-    .map((record) => {
-      const fields = record.split("\n");
+async function worktreesOf(cwd: string) {
+  const root = pluginDirAt(cwd);
 
-      return {
-        path: fields.find((field) => field.startsWith("worktree "))?.slice(9) ?? "",
-        branch: fields.find((field) => field.startsWith("branch "))?.slice(7) ?? null,
-      };
-    });
+  if (root === null) throw new Error(`${cwd} is no directory`);
+
+  return await readWorktrees(root);
 }
 
-/** Recreates the worktree on the rolling branch; returns the files a failed rebase conflicted on. */
-function prepareWorktree(cwd: string, path: string, rollingExists: boolean): readonly string[] {
-  const trees = worktrees(cwd);
+async function worktreePath(cwd: string): Promise<string> {
+  return `${(await worktreesOf(cwd)).main}.wt/claude-code-types`;
+}
 
-  const holder = trees.find(
-    (tree) => tree.branch === `refs/heads/${ROLLING_BRANCH}` && tree.path !== path,
-  );
+/**
+ * Recreates the worktree on the rolling branch: the live branch rebased onto
+ * the trunk, else the trunk. Answers the live branch's commits when they would
+ * not rebase, the worktree then starting again from the trunk.
+ */
+async function prepareWorktree(cwd: string, path: string, live: boolean): Promise<string> {
+  const { checkouts } = await worktreesOf(cwd);
+  const holder = checkouts.find((tree) => tree.branch === ROLLING_BRANCH && tree.dir !== path);
 
   if (holder !== undefined) {
     throw new Error(
-      `${ROLLING_BRANCH} is checked out in ${holder.path}; the run needs it in ${path}`,
+      `${ROLLING_BRANCH} is checked out in ${holder.dir}; the run needs it in ${path}`,
     );
   }
 
-  if (trees.some((tree) => tree.path === path)) git(cwd, "worktree", "remove", "--force", path);
+  if (checkouts.some((tree) => tree.dir === path)) git(cwd, "worktree", "remove", "--force", path);
   git(cwd, "worktree", "prune");
 
   if (existsSync(path)) throw new Error(`${path} exists and is no worktree of this repository`);
-  const start = rollingExists ? ROLLING_REMOTE : BASE;
-  git(cwd, "worktree", "add", "--quiet", "-B", ROLLING_BRANCH, path, start);
+  git(cwd, "worktree", "add", "--quiet", "-B", ROLLING_BRANCH, path, live ? ROLLING_REMOTE : BASE);
 
-  if (!rollingExists) return [];
+  if (!live || command(["git", "rebase", "--quiet", BASE], path).code === 0) return "";
 
-  const rebase = command(["git", "rebase", "--quiet", BASE], path);
-
-  if (rebase.code === 0) return [];
-
-  const conflicted = git(path, "diff", "--name-only", "--diff-filter=U")
-    .split("\n")
-    .filter((file) => file !== "");
-
+  const dropped = git(path, "log", "--format=%h %s", `${BASE}..${ROLLING_REMOTE}`);
   git(path, "rebase", "--abort");
+  git(path, "reset", "--quiet", "--hard", BASE);
 
-  if (conflicted.length === 0) throw new Error(`git rebase ${BASE}: ${rebase.err.trim()}`);
+  return dropped;
+}
 
-  return conflicted;
+async function install(worktree: string, log: number): Promise<void> {
+  for (const args of INSTALLS) {
+    const code = await logged(args, worktree, log);
+
+    if (code !== 0) throw new Error(`${args.join(" ")} exited ${code}`);
+  }
+}
+
+/** Commits the regenerated types; answers what the agent is told of that commit. */
+function commitTypes(worktree: string, to: string, log: number): string {
+  const message = `chore(vellum): types from Claude Code ${to}`;
+  git(worktree, "add", TYPES_PATH, TOOLS_TYPES_PATH);
+  const commit = command(["git", "commit", "--quiet", "-m", message], worktree);
+  const report = `${commit.out}${commit.err}`;
+  writeSync(log, report);
+
+  if (commit.code === 0) {
+    return `The script committed them as \`${git(worktree, "log", "-1", "--format=%h %s")}\`.`;
+  }
+
+  return [
+    `The script staged them, and the pre-commit refused their commit \`${message}\`: the update broke something. The end of its report:`,
+    "",
+    "<pre-commit>",
+    report.trimEnd().split("\n").slice(-REPORT_LINES).join("\n"),
+    "</pre-commit>",
+    "",
+    "Fix the break, then commit the fix with the types under that message.",
+  ].join("\n");
 }
 
 function openPullRequest(cwd: string): OpenPullRequest | null {
@@ -402,16 +490,23 @@ function previousNote(open: OpenPullRequest | null): string {
   ].join("\n");
 }
 
-function rebaseNote(conflicted: readonly string[], to: string): string {
-  if (conflicted.length === 0) return "";
+function droppedNote(dropped: string): string {
+  if (dropped === "") return "";
 
   return [
-    `The script could not rebase the branch onto ${BASE}: the rebase stopped on conflicts in ${conflicted.join(", ")}, and it aborted it, so the types are not regenerated yet.`,
-    `Rebase the branch onto ${BASE} first, resolving those conflicts, then run \`bun ./scripts/claude-code-types.ts regenerate\`, which writes the types of Claude Code ${to} into this worktree.`,
+    `The branch's earlier commits did not rebase onto ${BASE} without conflicts, so the worktree starts again from ${BASE}. They stay on \`${ROLLING_REMOTE}\` until the script pushes; bring back with \`git cherry-pick\` what still holds:`,
+    "",
+    dropped,
   ].join("\n");
 }
 
 function verify(worktree: string, to: string, body: string): void {
+  const branch = command(["git", "symbolic-ref", "--quiet", "HEAD"], worktree).out.trim();
+
+  if (branch !== `refs/heads/${ROLLING_BRANCH}`) {
+    throw new Error(`the agent left HEAD on ${branch === "" ? "no branch" : branch}`);
+  }
+
   const dirty = git(worktree, "status", "--porcelain");
 
   if (dirty !== "") {
@@ -478,8 +573,9 @@ function publish(worktree: string, open: OpenPullRequest | null, to: string, bod
 
   const changed = git(worktree, "diff", "--name-only", `${BASE}...HEAD`).split("\n");
 
-  if (changed.some((path) => isE2ePath(path)))
+  if (changed.some((path) => isE2ePath(path))) {
     gh(worktree, "pr", "edit", url, "--add-label", "e2e");
+  }
 
   return url;
 }
@@ -490,33 +586,38 @@ interface Run {
   state: StatePaths;
   log: number;
   enter: (step: Step) => void;
+  reach: (version: string) => void;
 }
 
-async function pipeline({ cwd, worktree, state, log, enter }: Run): Promise<Outcome> {
+async function pipeline({ cwd, worktree, state, log, enter, reach }: Run): Promise<Outcome> {
   enter("fetch");
   const installed = installedVersion(command(["claude", "--version"], cwd).out);
-  git(cwd, "fetch", "--quiet", "origin");
+  reach(installed);
+  git(cwd, "fetch", "--quiet", "--prune", "origin");
   const devHeader = refHeader(cwd, BASE);
 
   if (devHeader === null) throw new Error(`${BASE} carries no ${TYPES_PATH}`);
-  const versions = { installed, devHeader, rollingHeader: refHeader(cwd, ROLLING_REMOTE) };
+  const open = openPullRequest(cwd);
+  const rollingHeader = open === null ? null : refHeader(cwd, ROLLING_REMOTE);
+  const versions = { installed, devHeader, rollingHeader };
 
   if (!needsRun(versions)) return { kind: "skipped", ...versions };
 
   enter("worktree");
-  const conflicted = prepareWorktree(cwd, worktree, versions.rollingHeader !== null);
+  const dropped = await prepareWorktree(cwd, worktree, rollingHeader !== null);
 
-  if (conflicted.length === 0) {
-    enter("regenerate");
-    await regenerate(worktree);
-    const written = fileHeader(worktree);
+  enter("install");
+  await install(worktree, log);
 
-    if (written !== installed)
-      throw new Error(`claude wrote the types of ${written}, not ${installed}`);
+  enter("regenerate");
+  await regenerate(worktree);
+  const written = fileHeader(worktree);
+
+  if (written !== installed) {
+    throw new Error(`claude wrote the types of ${written}, not ${installed}`);
   }
 
-  enter("pr");
-  const open = openPullRequest(worktree);
+  const types = commitTypes(worktree, installed, log);
 
   enter("agent");
   rmSync(state.body, { force: true });
@@ -527,7 +628,8 @@ async function pipeline({ cwd, worktree, state, log, enter }: Run): Promise<Outc
     worktree,
     modules: (await hooksModulePlugins(worktree)).join(", "),
     body: state.body,
-    rebase: rebaseNote(conflicted, installed),
+    types,
+    dropped: droppedNote(dropped),
     previous: previousNote(open),
   });
 
@@ -560,14 +662,6 @@ async function pipeline({ cwd, worktree, state, log, enter }: Run): Promise<Outc
   return { kind: "pr", url, from: devHeader, to: installed, created: open === null };
 }
 
-function worktreePath(cwd: string): string {
-  const main = worktrees(cwd)[0];
-
-  if (main === undefined) throw new Error("git worktree list printed no worktree");
-
-  return `${main.path}.wt/claude-code-types`;
-}
-
 function notify(outcome: Outcome, log: number): void {
   const result = command(
     [
@@ -598,8 +692,9 @@ async function runPipeline(cwd: string): Promise<void> {
   writeFileSync(state.log, "");
   // Append mode, so the lines of the children that share this descriptor follow each other.
   const log = openSync(state.log, "a");
-  const worktree = worktreePath(cwd);
+  const worktree = await worktreePath(cwd);
   let step: Step = "fetch";
+  let target: string | null = null;
   let outcome: Outcome;
 
   const enter = (next: Step) => {
@@ -607,11 +702,16 @@ async function runPipeline(cwd: string): Promise<void> {
     writeSync(log, `== ${next}\n`);
   };
 
+  const reach = (version: string) => {
+    target = version;
+  };
+
   try {
-    outcome = await pipeline({ cwd, worktree, state, log, enter });
+    outcome = await pipeline({ cwd, worktree, state, log, enter, reach });
   } catch (error) {
     outcome = {
       kind: "failed",
+      to: target,
       step,
       reason: error instanceof Error ? error.message : String(error),
       log: state.log,
@@ -621,6 +721,8 @@ async function runPipeline(cwd: string): Promise<void> {
 
   writeSync(log, `${outcomeLine(outcome)}\n`);
   writeFileSync(state.outcome, JSON.stringify(outcome));
+
+  if (target !== null) writeFileSync(state.attempted, target);
 
   if (outcome.kind !== "skipped") notify(outcome, log);
   closeSync(log);

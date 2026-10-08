@@ -94,8 +94,8 @@ describe("promptFor", () => {
 // given no prompt, stops on it. The tool types follow the environment and the
 // account, so the stub writes other tools for a login variable or a config
 // that is not empty. A run given --permission-mode is the agent: it records
-// its prompt, commits what the worktree holds and writes the body where the
-// prompt says, each control file under stub/ changing one of those moves.
+// its prompt and writes the body where the prompt says; each control file
+// under stub/ adds or changes one move.
 const CLAUDE_STUB = `#!/usr/bin/env bash
 set -euo pipefail
 stub="$(dirname "$0")/../stub"
@@ -135,8 +135,9 @@ fi
 printf '%s' "\${!#}" >"$stub/agent-prompt"
 echo "$PWD \${${RUN_GUARD}:-unset} \${*:1:$#-1}" >>"$stub/agent-runs"
 if [[ -f $stub/agent-exit ]]; then exit "$(cat "$stub/agent-exit")"; fi
-git add -A
-git commit -qm "chore(vellum): types from Claude Code $version"
+if [[ -f $stub/agent-commits-types ]]; then
+  git -c core.hooksPath=/dev/null commit -qm "chore(vellum): types from Claude Code $version"
+fi
 if [[ -f $stub/agent-e2e ]]; then
   mkdir -p vellum/src
   echo "export {};" >vellum/src/page.ts
@@ -144,6 +145,7 @@ if [[ -f $stub/agent-e2e ]]; then
   git commit -qm "feat(vellum): a page"
 fi
 if [[ -f $stub/agent-dirty ]]; then echo stray >stray.txt; fi
+if [[ -f $stub/agent-switches ]]; then git switch -qc elsewhere; fi
 body="$(grep -oP 'pull request body to \`\\K[^\`]+' "$stub/agent-prompt")"
 echo "the body" >"$body"
 `;
@@ -160,6 +162,12 @@ esac
 
 const NOTIFY_STUB = `#!/usr/bin/env bash
 echo "$*" >>"$(dirname "$0")/../stub/notify-calls"
+`;
+
+// The script runs under the real bun (process.execPath); only the installs it
+// starts by name reach this stub.
+const BUN_STUB = `#!/usr/bin/env bash
+echo "$PWD $*" >>"$(dirname "$0")/../stub/bun-calls"
 `;
 
 let root = "";
@@ -275,6 +283,7 @@ beforeEach(() => {
     ["claude", CLAUDE_STUB],
     ["gh", GH_STUB],
     ["notify-send", NOTIFY_STUB],
+    ["bun", BUN_STUB],
   ] as const) {
     write(join(root, "bin", name), content);
     chmodSync(join(root, "bin", name), 0o755);
@@ -336,8 +345,12 @@ describe("regenerate", () => {
   });
 });
 
+const OPEN_PR = JSON.stringify([
+  { number: 5, url: "https://github.com/o/r/pull/5", body: "old body" },
+]);
+
 describe("run", () => {
-  test("opens the pull request of a new rolling branch, then removes its worktree", () => {
+  test("installs, commits the types, opens the pull request of a new rolling branch, then removes its worktree", () => {
     const { code } = runScript();
 
     expect(code).toBe(0);
@@ -348,8 +361,18 @@ describe("run", () => {
       to: "2.1.294",
       created: true,
     });
+    expect(git(project, "log", "-1", "--format=%s", `origin/${ROLLING_BRANCH}`)).toBe(
+      "chore(vellum): types from Claude Code 2.1.294",
+    );
     expect(git(project, "show", `origin/${ROLLING_BRANCH}:${TYPES_PATH}`)).toStartWith(
       "// Written by Claude Code 2.1.294.",
+    );
+    expect(recorded("bun-calls")).toBe(
+      [
+        `${worktree()} install --frozen-lockfile`,
+        `${worktree()} install --cwd vellum --frozen-lockfile`,
+        "",
+      ].join("\n"),
     );
     expect(recorded("gh-calls")).toContain(
       `pr create --base dev --head ${ROLLING_BRANCH} --title chore(vellum): types from Claude Code 2.1.294 --body-file ${state("pr-body.md")}`,
@@ -357,23 +380,21 @@ describe("run", () => {
     expect(recorded("gh-calls")).not.toContain("--add-label");
     expect(recorded("agent-runs")).toBe(`${worktree()} 1 -p --model opus --permission-mode auto\n`);
     expect(recorded("agent-prompt")).toContain("hooks modules (vellum, todos)");
-    expect(recorded("agent-prompt")).toContain("from 2.1.292");
+    expect(recorded("agent-prompt")).toContain("The script committed them as");
     expect(recorded("agent-prompt")).not.toContain("{{");
     expect(recorded("notify-calls")).toContain("pull request opened");
+    expect(readFileSync(state("attempted"), "utf8")).toBe("2.1.294");
     expect(existsSync(worktree())).toBe(false);
     expect(existsSync(state("run.lock"))).toBe(false);
   });
 
-  test("rebases the rolling branch onto origin/dev, keeps its commits, and updates its open pull request", () => {
+  test("rebases the live rolling branch onto origin/dev, keeps its commits, and updates its open pull request", () => {
     pushRolling("2.1.293", (clone) => {
       write(join(clone, "notes.txt"), "kept\n");
       commitAll(clone, "a commit of the branch");
     });
     landOnDev((clone) => write(join(clone, "README.md"), "dev moved\n"));
-    write(
-      stub("gh-open"),
-      JSON.stringify([{ number: 5, url: "https://github.com/o/r/pull/5", body: "old body" }]),
-    );
+    write(stub("gh-open"), OPEN_PR);
 
     const { code } = runScript();
 
@@ -391,18 +412,61 @@ describe("run", () => {
     expect(recorded("agent-prompt")).toContain("<previous-body>\nold body\n</previous-body>");
   });
 
-  test("hands a rebase that conflicts to the agent, without regenerating", () => {
+  test("starts again from origin/dev when the rolling branch has no open pull request, as after a squash or a closed one", () => {
+    pushRolling("2.1.293", (clone) => {
+      write(join(clone, "notes.txt"), "landed already\n");
+      commitAll(clone, "a commit of the branch");
+    });
+
+    runScript();
+
+    expect(outcome()).toMatchObject({ kind: "pr", created: true });
+    expect(git(project, "ls-tree", "--name-only", `origin/${ROLLING_BRANCH}`)).not.toContain(
+      "notes.txt",
+    );
+  });
+
+  test("starts again from origin/dev when the live branch does not rebase, and names its commits to the agent", () => {
     pushRolling("2.1.293", (clone) => {
       write(join(clone, "README.md"), "the branch\n");
       commitAll(clone, "the branch edits the README");
     });
     landOnDev((clone) => write(join(clone, "README.md"), "dev\n"));
+    write(stub("gh-open"), OPEN_PR);
 
     runScript();
 
-    expect(recorded("agent-prompt")).toContain("conflicts in README.md");
-    expect(recorded("types-runs")).toBe("");
-    expect(outcome()).toMatchObject({ kind: "failed", step: "agent", worktree: worktree() });
+    expect(recorded("agent-prompt")).toContain("did not rebase onto origin/dev");
+    expect(recorded("agent-prompt")).toMatch(/[0-9a-f]+ the branch edits the README/u);
+    expect(outcome()).toMatchObject({ kind: "pr", created: false });
+    expect(git(project, "show", `origin/${ROLLING_BRANCH}:README.md`)).toBe("dev");
+    expect(git(project, "show", `origin/${ROLLING_BRANCH}:${TYPES_PATH}`)).toStartWith(
+      "// Written by Claude Code 2.1.294.",
+    );
+  });
+
+  test("hands a types commit the pre-commit refuses to the agent, with the hook's report", () => {
+    write(
+      join(project, ".git/hooks/pre-commit"),
+      "#!/usr/bin/env bash\necho 'typecheck: ToolSpec has no member isDeferred' >&2\nexit 1\n",
+    );
+    chmodSync(join(project, ".git/hooks/pre-commit"), 0o755);
+    write(stub("agent-commits-types"), "");
+
+    runScript();
+
+    expect(recorded("agent-prompt")).toContain("the pre-commit refused their commit");
+    expect(recorded("agent-prompt")).toContain("typecheck: ToolSpec has no member isDeferred");
+    expect(outcome()).toMatchObject({ kind: "pr" });
+  });
+
+  test("pushes after the rolling branch was deleted on GitHub since the last fetch", () => {
+    pushRolling("2.1.293", () => {});
+    git(join(root, "rolling-clone"), "push", "-q", "origin", "--delete", ROLLING_BRANCH);
+
+    runScript();
+
+    expect(outcome()).toMatchObject({ kind: "pr", created: true });
   });
 
   test("refuses a rolling branch checked out in another worktree", () => {
@@ -417,7 +481,7 @@ describe("run", () => {
   });
 
   test("leaves a live run alone", () => {
-    write(state("run.lock"), JSON.stringify({ pid: process.pid, startedAt: "now" }));
+    write(state("run.lock"), JSON.stringify({ pid: process.pid, startedAt: "now", boot: null }));
 
     const { code, stderr } = runScript();
 
@@ -429,12 +493,23 @@ describe("run", () => {
 
   test("takes over the lock of a dead run", () => {
     const dead = Bun.spawnSync(["true"]).pid;
-    write(state("run.lock"), JSON.stringify({ pid: dead, startedAt: "then" }));
+    write(state("run.lock"), JSON.stringify({ pid: dead, startedAt: "then", boot: null }));
 
     runScript();
 
     expect(outcome()).toMatchObject({ kind: "pr" });
     expect(existsSync(state("run.lock"))).toBe(false);
+  });
+
+  test("takes over a lock from before a reboot, whose pid a live process has since", () => {
+    write(
+      state("run.lock"),
+      JSON.stringify({ pid: process.pid, startedAt: "then", boot: "an earlier boot" }),
+    );
+
+    runScript();
+
+    expect(outcome()).toMatchObject({ kind: "pr" });
   });
 
   test("skips, without a notification, when the fetch shows origin/dev already carries the installed types", () => {
@@ -460,19 +535,22 @@ describe("run", () => {
     expect(recorded("gh-calls")).toContain("pr edit https://github.com/o/r/pull/7 --add-label e2e");
   });
 
-  test("fails at agent when claude -p fails, and keeps the worktree", () => {
+  test("fails at agent when claude -p fails, keeps the worktree, and records the version as attempted", () => {
     write(stub("agent-exit"), "3");
 
     runScript();
 
     expect(outcome()).toEqual({
       kind: "failed",
+      to: "2.1.294",
       step: "agent",
       reason: "claude -p exited 3",
       log: state("run.log"),
       worktree: worktree(),
     });
     expect(recorded("notify-calls")).toContain("-u critical");
+    expect(recorded("notify-calls")).toContain("rerun by hand");
+    expect(readFileSync(state("attempted"), "utf8")).toBe("2.1.294");
   });
 
   test("fails at verify when the agent leaves a change uncommitted", () => {
@@ -483,6 +561,15 @@ describe("run", () => {
     expect(outcome()).toMatchObject({ kind: "failed", step: "verify" });
     expect(failureReason()).toContain("stray.txt");
     expect(recorded("gh-calls")).not.toContain("pr create");
+  });
+
+  test("fails at verify when the agent leaves HEAD off the rolling branch", () => {
+    write(stub("agent-switches"), "");
+
+    runScript();
+
+    expect(outcome()).toMatchObject({ kind: "failed", step: "verify" });
+    expect(failureReason()).toBe("the agent left HEAD on refs/heads/elsewhere");
   });
 
   test("fails at push when the remote refuses the branch", () => {
