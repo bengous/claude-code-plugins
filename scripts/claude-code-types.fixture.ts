@@ -48,6 +48,7 @@ if [[ " $* " == *" --plugin-dir "* ]]; then
 fi
 printf '%s' "\${!#}" >"$stub/agent-prompt"
 echo "$PWD \${${RUN_GUARD}:-unset} \${*:1:$#-1}" >>"$stub/agent-runs"
+echo "$$" >>"$stub/agent-pids"
 if [[ -f $stub/agent-exit ]]; then exit "$(cat "$stub/agent-exit")"; fi
 if [[ -f $stub/agent-sleep ]]; then sleep "$(cat "$stub/agent-sleep")"; fi
 if [[ -f $stub/agent-commits-types ]]; then

@@ -40,7 +40,7 @@ import { copyFile, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { $ } from "bun";
+import { $, type Subprocess } from "bun";
 
 import { isE2ePath } from "./check-e2e-green.ts";
 import { tryLock, unlock } from "./lib/flock.ts";
@@ -71,6 +71,10 @@ const LOCK_PAUSE_MS = 100;
 
 const REPORT_LINES = 60;
 
+// git's words when gpg cannot sign ("error: gpg failed to sign the data:");
+// probeSigning catches every format before the first commit.
+const SIGNING_FAILED = /gpg failed to sign the data/u;
+
 const EMPTY_MOD = {
   ".claude-plugin/plugin.json": JSON.stringify({ name: "plugin-types", version: "0.0.0" }),
   "hooks/hooks.json": JSON.stringify({ modules: ["./register.js"] }),
@@ -86,6 +90,7 @@ const INSTALLS = [
 
 export type Step =
   | "fetch"
+  | "sign"
   | "worktree"
   | "install"
   | "regenerate"
@@ -111,6 +116,14 @@ export type Outcome =
       reason: string;
       log: string;
       worktree: string | null;
+    }
+  | {
+      kind: "stopped";
+      to: string;
+      step: Step;
+      signal: string;
+      log: string;
+      worktree: string | null;
     };
 
 /** The run that holds the lock, and the version it works for: what a session start shows of it. */
@@ -129,7 +142,6 @@ export interface StatePaths {
   holder: string;
   outcome: string;
   settled: string;
-  log: string;
   spawnLog: string;
   body: string;
 }
@@ -188,15 +200,31 @@ export function statePaths(commonDir: string): StatePaths {
     holder: join(dir, "holder.json"),
     outcome: join(dir, "outcome.json"),
     settled: join(dir, "settled"),
-    log: join(dir, "run.log"),
     spawnLog: join(dir, "spawn.log"),
     body: join(dir, "pr-body.md"),
   };
 }
 
-/** True when no session start runs the outcome's version again: published, nothing to do, or failed once costly. */
+/** One log per version: a run for the next version leaves the last one's log alone. */
+export function logPath(state: StatePaths, version: string): string {
+  return join(state.dir, `${version}.log`);
+}
+
+/**
+ * True when no session start runs the outcome's version again: published,
+ * nothing to do, stopped by hand, or failed once costly.
+ */
 export function settles(outcome: Outcome): boolean {
   return outcome.kind !== "failed" || SETTLING_STEPS.has(outcome.step);
+}
+
+function rerunHint(worktree: string | null): string {
+  const keep =
+    worktree === null
+      ? ""
+      : `keep what you need from ${worktree}, which the run refuses to recreate while it holds work, then `;
+
+  return `No session retries it; ${keep}rerun from the main checkout:${worktree === null ? "" : ` git worktree remove --force ${worktree} &&`} bun ./scripts/claude-code-types.ts run`;
 }
 
 export function outcomeLine(outcome: Outcome): string {
@@ -206,7 +234,9 @@ export function outcomeLine(outcome: Outcome): string {
     case "skipped":
       return `Claude Code types ${outcome.installed}: ${BASE} carries ${outcome.devHeader}, ${ROLLING_BRANCH} ${outcome.rollingHeader ?? "has no open pull request"}; nothing to do.`;
     case "failed":
-      return `Claude Code types ${outcome.to}: the run failed at ${outcome.step}: ${outcome.reason} (log: ${outcome.log}${outcome.worktree === null ? "" : `, worktree: ${outcome.worktree}`}). ${settles(outcome) ? "No session retries it; rerun by hand: bun ./scripts/claude-code-types.ts run" : "The next session start retries it."}`;
+      return `Claude Code types ${outcome.to}: the run failed at ${outcome.step}: ${outcome.reason} (log: ${outcome.log}). ${settles(outcome) ? rerunHint(outcome.worktree) : "The next session start retries it."}`;
+    case "stopped":
+      return `Claude Code types ${outcome.to}: the run was stopped by ${outcome.signal} at ${outcome.step} (log: ${outcome.log}). ${rerunHint(outcome.worktree)}`;
   }
 }
 
@@ -425,24 +455,115 @@ async function prepareWorktree(cwd: string, path: string, live: boolean): Promis
     );
   }
 
-  if (checkouts.some((tree) => tree.dir === path)) git(cwd, "worktree", "remove", "--force", path);
+  if (checkouts.some((tree) => tree.dir === path)) {
+    const work = heldWork(path);
+
+    if (work !== null) {
+      throw new Error(
+        `${path} holds ${work}; keep what you need, then git worktree remove --force ${path}`,
+      );
+    }
+
+    git(cwd, "worktree", "remove", "--force", path);
+  }
+
   git(cwd, "worktree", "prune");
 
   if (existsSync(path)) throw new Error(`${path} exists and is no worktree of this repository`);
   git(cwd, "worktree", "add", "--quiet", "-B", ROLLING_BRANCH, path, live ? ROLLING_REMOTE : BASE);
 
-  if (!live || command(["git", "rebase", "--quiet", BASE], path).code === 0) return "";
+  if (!live) return "";
+  const rebase = command(["git", "rebase", "--quiet", BASE], path);
+
+  if (rebase.code === 0) return "";
 
   const dropped = git(path, "log", "--format=%h %s", `${BASE}..${ROLLING_REMOTE}`);
   git(path, "rebase", "--abort");
+
+  if (SIGNING_FAILED.test(`${rebase.out}${rebase.err}`)) {
+    throw new Error(`git could not sign the rebased commits: ${lastLine(rebase)}`);
+  }
+
   git(path, "reset", "--quiet", "--hard", BASE);
 
   return dropped;
 }
 
-async function install(worktree: string, log: number): Promise<void> {
+/** What a worktree holds that its remote does not: changes, or commits pushed nowhere; null when nothing. */
+function heldWork(path: string): string | null {
+  const changes = git(path, "status", "--porcelain");
+
+  if (changes !== "") return `uncommitted changes (${changes.split("\n").length})`;
+  const unpushed = git(path, "rev-list", "--count", "HEAD", "--not", "--remotes=origin");
+
+  return unpushed === "0" ? null : `${unpushed} commits pushed nowhere`;
+}
+
+function lastLine({ out, err }: Result): string {
+  return (
+    `${out}${err}`
+      .trimEnd()
+      .split("\n")
+      .findLast((line) => line.trim() !== "") ?? ""
+  );
+}
+
+/**
+ * Fails fast when commits cannot be signed: a locked key would otherwise fail
+ * the types commit as a pre-commit refusal, and every commit of the agent
+ * after it. The probe signs nothing it keeps, and never asks for a
+ * passphrase: a detached run has nobody to type it.
+ */
+function probeSigning(cwd: string): void {
+  if (command(["git", "config", "--bool", "commit.gpgsign"], cwd).out.trim() !== "true") return;
+  const config = (key: string) => command(["git", "config", key], cwd).out.trim();
+  const format = config("gpg.format") || "openpgp";
+
+  const probe =
+    format === "openpgp"
+      ? spawnProbe(cwd, [
+          config("gpg.program") || "gpg",
+          "--batch",
+          "--pinentry-mode",
+          "error",
+          ...(config("user.signingkey") === "" ? [] : ["--local-user", config("user.signingkey")]),
+          "--sign",
+          "--output",
+          "/dev/null",
+        ])
+      : command(
+          [
+            "git",
+            "commit-tree",
+            "-S",
+            "-m",
+            "signing probe",
+            git(cwd, "hash-object", "-t", "tree", "/dev/null"),
+          ],
+          cwd,
+        );
+
+  if (probe.code !== 0) {
+    throw new Error(
+      `commits cannot be signed (${lastLine(probe)}): unlock the ${format} key, for instance by signing a commit by hand, and the next session start retries`,
+    );
+  }
+}
+
+function spawnProbe(cwd: string, args: readonly string[]): Result {
+  const result = Bun.spawnSync([...args], {
+    cwd,
+    stdin: new TextEncoder().encode("signing probe\n"),
+    stdout: "pipe",
+    stderr: "pipe",
+  });
+
+  return { code: result.exitCode, out: result.stdout.toString(), err: result.stderr.toString() };
+}
+
+async function install(worktree: string, run: { log: number; progress: Progress }): Promise<void> {
   for (const args of INSTALLS) {
-    const code = await logged(args, worktree, log);
+    const code = await logged(args, worktree, run);
 
     if (code !== 0) throw new Error(`${args.join(" ")} exited ${code}`);
   }
@@ -455,6 +576,10 @@ function commitTypes(worktree: string, to: string, log: number): string {
   const commit = command(["git", "commit", "--quiet", "-m", message], worktree);
   const report = `${commit.out}${commit.err}`;
   writeSync(log, report);
+
+  if (commit.code !== 0 && SIGNING_FAILED.test(report)) {
+    throw new Error(`git could not sign the types commit: ${lastLine(commit)}`);
+  }
 
   if (commit.code === 0) {
     return `The script committed them as \`${git(worktree, "log", "-1", "--format=%h %s")}\`.`;
@@ -540,20 +665,39 @@ function verify(worktree: string, to: string, body: string): void {
   }
 }
 
+/**
+ * Where a run stands, read when it ends: the step it was in, the worktree it
+ * made, the signal that asked it to stop, and the child that signal reaches.
+ */
+interface Progress {
+  step: Step;
+  worktree: string | null;
+  signal: NodeJS.Signals | null;
+  child: Subprocess | null;
+}
+
 /** Runs a command with its output appended to the log; answers its exit code. */
 async function logged(
   args: readonly string[],
   cwd: string,
-  log: number,
+  run: { log: number; progress: Progress },
   env: Record<string, string> = {},
 ): Promise<number> {
-  return await Bun.spawn([...args], {
+  const child = Bun.spawn([...args], {
     cwd,
     env: { ...process.env, ...env },
     stdin: "ignore",
-    stdout: log,
-    stderr: log,
-  }).exited;
+    stdout: run.log,
+    stderr: run.log,
+  });
+
+  run.progress.child = child;
+
+  try {
+    return await child.exited;
+  } finally {
+    run.progress.child = null;
+  }
 }
 
 /** Opens the pull request, or updates the open one; answers its URL. */
@@ -592,12 +736,6 @@ function publish(worktree: string, open: OpenPullRequest | null, to: string, bod
   return url;
 }
 
-/** Where a run stands, read by its failure: the step it was in, and its worktree once named. */
-interface Progress {
-  step: Step;
-  worktree: string | null;
-}
-
 interface Run {
   cwd: string;
   installed: string;
@@ -606,8 +744,11 @@ interface Run {
   progress: Progress;
 }
 
-async function pipeline({ cwd, installed, state, log, progress }: Run): Promise<Outcome> {
+async function pipeline(run: Run): Promise<Outcome> {
+  const { cwd, installed, state, log, progress } = run;
+
   const enter = (step: Step) => {
+    if (progress.signal !== null) throw new Error(`stopped by ${progress.signal}`);
     progress.step = step;
     writeSync(log, `== ${step}\n`);
   };
@@ -617,19 +758,27 @@ async function pipeline({ cwd, installed, state, log, progress }: Run): Promise<
   const devHeader = refHeader(cwd, BASE);
 
   if (devHeader === null) throw new Error(`${BASE} carries no ${TYPES_PATH}`);
+
+  if (!needsRun({ installed, devHeader, rollingHeader: null })) {
+    return { kind: "skipped", installed, devHeader, rollingHeader: null };
+  }
+
   const open = openPullRequest(cwd);
   const rollingHeader = open === null ? null : refHeader(cwd, ROLLING_REMOTE);
   const versions = { installed, devHeader, rollingHeader };
 
   if (!needsRun(versions)) return { kind: "skipped", ...versions };
 
+  enter("sign");
+  probeSigning(cwd);
+
   enter("worktree");
   const worktree = await worktreePath(cwd);
-  progress.worktree = worktree;
   const dropped = await prepareWorktree(cwd, worktree, rollingHeader !== null);
+  progress.worktree = worktree;
 
   enter("install");
-  await install(worktree, log);
+  await install(worktree, run);
 
   enter("regenerate");
   await regenerate(worktree);
@@ -658,7 +807,7 @@ async function pipeline({ cwd, installed, state, log, progress }: Run): Promise<
   const agent = await logged(
     ["claude", "-p", "--model", "opus", "--permission-mode", "auto", prompt],
     worktree,
-    log,
+    run,
     { [RUN_GUARD]: "1" },
   );
 
@@ -672,7 +821,7 @@ async function pipeline({ cwd, installed, state, log, progress }: Run): Promise<
   const pushed = await logged(
     ["git", "push", "--force-with-lease", "origin", ROLLING_BRANCH],
     worktree,
-    log,
+    run,
   );
 
   if (pushed !== 0) throw new Error(`git push exited ${pushed}; the pre-push report is in the log`);
@@ -701,7 +850,41 @@ function notify(outcome: Outcome, log: number): void {
   if (result.code !== 0) writeSync(log, `notify-send exited ${result.code}: ${result.err}\n`);
 }
 
-async function runPipeline(cwd: string): Promise<void> {
+/** The outcome of a run that threw `reason`: stopped when a signal asked it to, else failed. */
+function endOf(reason: string, run: Run, logFile: string): Outcome {
+  const { progress } = run;
+
+  const worktree =
+    progress.worktree !== null && existsSync(progress.worktree) ? progress.worktree : null;
+
+  if (progress.signal !== null) {
+    return {
+      kind: "stopped",
+      to: run.installed,
+      step: progress.step,
+      signal: progress.signal,
+      log: logFile,
+      worktree,
+    };
+  }
+
+  return {
+    kind: "failed",
+    to: run.installed,
+    step: progress.step,
+    reason,
+    log: logFile,
+    worktree,
+  };
+}
+
+const STOP_SIGNALS: readonly NodeJS.Signals[] = ["SIGTERM", "SIGINT", "SIGHUP"];
+
+async function runPipeline(start: string): Promise<void> {
+  // Every step runs from the main checkout: a run started inside a worktree it
+  // recreates would lose its own working directory.
+  const cwd = (await worktreesOf(start)).main;
+  process.chdir(cwd);
   const state = statePaths(commonDirOf(cwd));
   const installed = installedVersion(command(["claude", "--version"], cwd).out);
   mkdirSync(state.dir, { recursive: true });
@@ -713,24 +896,34 @@ async function runPipeline(cwd: string): Promise<void> {
     return;
   }
 
-  writeFileSync(state.log, "");
+  const logFile = logPath(state, installed);
+  writeFileSync(logFile, "");
   // Append mode, so the lines of the children that share this descriptor follow each other.
-  const log = openSync(state.log, "a");
-  const progress: Progress = { step: "fetch", worktree: null };
+  const log = openSync(logFile, "a");
+  const progress: Progress = { step: "fetch", worktree: null, signal: null, child: null };
+  const run: Run = { cwd, installed, state, log, progress };
+
+  // The run stops where it stands and ends as stopped; its child, the agent
+  // above all, stops with it instead of working on alone.
+  const stop = (signal: NodeJS.Signals) => {
+    progress.signal ??= signal;
+    progress.child?.kill("SIGTERM");
+  };
+
+  for (const signal of STOP_SIGNALS) process.on(signal, stop);
   let outcome: Outcome;
 
   try {
-    outcome = await pipeline({ cwd, installed, state, log, progress });
+    outcome = await pipeline(run);
   } catch (error) {
-    outcome = {
-      kind: "failed",
-      to: installed,
-      step: progress.step,
-      reason: error instanceof Error ? error.message : String(error),
-      log: state.log,
-      worktree:
-        progress.worktree !== null && existsSync(progress.worktree) ? progress.worktree : null,
-    };
+    outcome = endOf(error instanceof Error ? error.message : String(error), run, logFile);
+  }
+
+  // What a run made before its costly steps is its own to throw away, so the
+  // retry the next session start makes finds no worktree holding work.
+  if (outcome.kind === "failed" && !settles(outcome) && outcome.worktree !== null) {
+    git(cwd, "worktree", "remove", "--force", outcome.worktree);
+    outcome = { ...outcome, worktree: null };
   }
 
   writeSync(log, `${outcomeLine(outcome)}\n`);
@@ -738,7 +931,10 @@ async function runPipeline(cwd: string): Promise<void> {
 
   if (settles(outcome)) writeFileSync(state.settled, installed);
 
-  if (settles(outcome) && outcome.kind !== "skipped") notify(outcome, log);
+  if (outcome.kind === "pr" || (outcome.kind === "failed" && settles(outcome))) {
+    notify(outcome, log);
+  }
+
   closeSync(log);
   rmSync(state.holder, { force: true });
   closeSync(lock);

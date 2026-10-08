@@ -117,9 +117,9 @@ function setHeader(cwd: string, version: string) {
   write(join(cwd, TYPES_PATH), `// Written by Claude Code ${version}.\n// declarations\n`);
 }
 
-function runScript(action = "run") {
+function runScript(action = "run", cwd = project) {
   const result = Bun.spawnSync([process.execPath, SCRIPT, action], {
-    cwd: project,
+    cwd,
     env,
     stdout: "pipe",
     stderr: "pipe",
@@ -453,6 +453,7 @@ describe("run", () => {
       rollingHeader: null,
     });
     expect(recorded("notify-calls")).toBe("");
+    expect(recorded("gh-calls")).toBe("");
     expect(existsSync(worktree())).toBe(false);
   });
 
@@ -474,11 +475,11 @@ describe("run", () => {
       to: "2.1.294",
       step: "agent",
       reason: "claude -p exited 3",
-      log: state("run.log"),
+      log: state("2.1.294.log"),
       worktree: worktree(),
     });
     expect(recorded("notify-calls")).toContain("-u critical");
-    expect(recorded("notify-calls")).toContain("rerun by hand");
+    expect(recorded("notify-calls")).toContain("rerun from the main checkout");
     expect(readFileSync(state("settled"), "utf8")).toBe("2.1.294");
   });
 
@@ -506,10 +507,99 @@ describe("run", () => {
 
     runScript();
 
-    expect(outcome()).toMatchObject({ kind: "failed", step: "regenerate", to: "2.1.294" });
+    expect(outcome()).toMatchObject({
+      kind: "failed",
+      step: "regenerate",
+      to: "2.1.294",
+      worktree: null,
+    });
     expect(existsSync(state("settled"))).toBe(false);
+    expect(existsSync(worktree())).toBe(false);
     expect(recorded("notify-calls")).toBe("");
     expect(recorded("agent-runs")).toBe("");
+  });
+
+  test("fails at sign, before any worktree, when the key cannot sign without a passphrase", () => {
+    write(
+      join(root, "bin", "gpg-locked"),
+      `#!/usr/bin/env bash\necho "$*" >>"${stub("gpg-calls")}"\necho "gpg: signing failed: No pinentry" >&2\nexit 2\n`,
+    );
+    chmodSync(join(root, "bin", "gpg-locked"), 0o755);
+    git(project, "config", "commit.gpgsign", "true");
+    git(project, "config", "gpg.program", join(root, "bin", "gpg-locked"));
+    git(project, "config", "user.signingkey", "ABCD1234");
+
+    runScript();
+
+    expect(outcome()).toMatchObject({ kind: "failed", step: "sign", worktree: null });
+    expect(failureReason()).toContain("gpg: signing failed: No pinentry");
+    expect(recorded("gpg-calls")).toBe(
+      "--batch --pinentry-mode error --local-user ABCD1234 --sign --output /dev/null\n",
+    );
+    expect(existsSync(worktree())).toBe(false);
+    expect(existsSync(state("settled"))).toBe(false);
+  });
+
+  test("fails at regenerate, without the agent, when git cannot sign the types commit", () => {
+    write(
+      join(project, ".git/hooks/pre-commit"),
+      "#!/usr/bin/env bash\necho 'error: gpg failed to sign the data:' >&2\nexit 1\n",
+    );
+    chmodSync(join(project, ".git/hooks/pre-commit"), 0o755);
+
+    runScript();
+
+    expect(outcome()).toMatchObject({ kind: "failed", step: "regenerate", worktree: null });
+    expect(failureReason()).toStartWith("git could not sign the types commit");
+    expect(recorded("agent-runs")).toBe("");
+  });
+
+  test("refuses to recreate a worktree that holds work, and leaves it as it is", () => {
+    write(stub("agent-dirty"), "");
+    runScript();
+    rmSync(stub("agent-dirty"));
+
+    runScript();
+
+    expect(outcome()).toMatchObject({ kind: "failed", step: "worktree" });
+    expect(failureReason()).toContain("holds uncommitted changes");
+    expect(readFileSync(join(worktree(), "stray.txt"), "utf8")).toBe("stray\n");
+  });
+
+  test("runs from the main checkout when started inside the worktree it recreates", () => {
+    git(project, "worktree", "add", "-q", "-B", ROLLING_BRANCH, worktree(), "origin/dev");
+
+    const { code } = runScript("run", worktree());
+
+    expect(code).toBe(0);
+    expect(outcome()).toMatchObject({ kind: "pr", created: true });
+  });
+
+  test("stops with its agent on SIGTERM, keeps the worktree and settles the version", async () => {
+    write(stub("agent-sleep"), "5");
+    const run = runScriptAsync();
+
+    for (let tries = 0; tries < 150 && recorded("agent-pids") === ""; tries++) await Bun.sleep(20);
+    const holder = runState(statePaths(join(project, ".git")));
+
+    if (holder.kind !== "running" || holder.holder === null)
+      throw new Error("no run holds the lock");
+    const asked = Date.now();
+    process.kill(holder.holder.pid, "SIGTERM");
+    await run;
+
+    // The agent sleeps 5 s: a run that waited for it instead of stopping it would take that long.
+    expect(Date.now() - asked).toBeLessThan(3000);
+
+    expect(outcome()).toMatchObject({
+      kind: "stopped",
+      step: "agent",
+      signal: "SIGTERM",
+      worktree: worktree(),
+    });
+    expect(readFileSync(state("settled"), "utf8")).toBe("2.1.294");
+    expect(recorded("notify-calls")).toBe("");
+    expect(() => process.kill(Number(recorded("agent-pids").trim()), 0)).toThrow();
   });
 
   test("names the ref whose header is not the generated one", () => {
@@ -528,6 +618,6 @@ describe("run", () => {
     runScript();
 
     expect(outcome()).toMatchObject({ kind: "failed", step: "push" });
-    expect(readFileSync(state("run.log"), "utf8")).toContain("refused");
+    expect(readFileSync(state("2.1.294.log"), "utf8")).toContain("refused");
   });
 });
