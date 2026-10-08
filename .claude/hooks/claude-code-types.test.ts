@@ -30,6 +30,16 @@ echo "stub: wrote nothing" >&2
 exit 1
 `;
 
+// The started run notifies the desktop and could reach GitHub: both stay in the fixture.
+const NOTIFY_STUB = `#!/usr/bin/env bash
+echo "$*" >>"$(dirname "$0")/../stub/notify-calls"
+`;
+
+const GH_STUB = `#!/usr/bin/env bash
+echo "stub: no gh in this test" >&2
+exit 1
+`;
+
 let root = "";
 
 let project = "";
@@ -76,10 +86,15 @@ async function runHook(installed: string, cwd = project, extra: NodeJS.ProcessEn
   return { exitCode, stdout, stderr, firstErrorLine: stderr.split("\n", 1)[0] ?? "" };
 }
 
-/** The outcome the started run writes, once it is there. */
+/**
+ * The outcome of the started run, once the run is over. The run writes the
+ * outcome before it notifies and frees its lock only after, so waiting for the
+ * lock keeps the fixture, its notify-send stub included, until the end.
+ */
 async function runOutcome(): Promise<Outcome> {
-  for (let tries = 0; tries < 100 && !existsSync(state("outcome.json")); tries++)
-    await Bun.sleep(100);
+  const over = () => existsSync(state("outcome.json")) && !existsSync(state("run.lock"));
+
+  for (let tries = 0; tries < 100 && !over(); tries++) await Bun.sleep(100);
 
   // SAFETY: the pipeline writes this file from an Outcome.
   return JSON.parse(readFileSync(state("outcome.json"), "utf8")) as Outcome;
@@ -95,8 +110,15 @@ beforeEach(() => {
     join(root, "gitconfig"),
     "[user]\n\tname = t\n\temail = t@t\n[commit]\n\tgpgsign = false\n",
   );
-  write(join(root, "bin", "claude"), CLAUDE_STUB);
-  chmodSync(join(root, "bin", "claude"), 0o755);
+
+  for (const [name, content] of [
+    ["claude", CLAUDE_STUB],
+    ["notify-send", NOTIFY_STUB],
+    ["gh", GH_STUB],
+  ] as const) {
+    write(join(root, "bin", name), content);
+    chmodSync(join(root, "bin", name), 0o755);
+  }
 
   env = {
     ...Object.fromEntries(
@@ -141,6 +163,9 @@ describe("claude-code-types hook", () => {
     );
     expect(await runOutcome()).toMatchObject({ kind: "failed", step: "regenerate" });
     expect(guards()).toBe("unset\n1\n");
+    expect(readFileSync(join(root, "stub", "notify-calls"), "utf8")).toContain(
+      "the run failed at regenerate",
+    );
   });
 
   test("returns at once in a session the run started", async () => {
