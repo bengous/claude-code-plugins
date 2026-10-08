@@ -17,8 +17,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bun \"$CLAUDE_PROJECT_DIR/.claude/hooks/regenerate-plugin-types.ts\"",
-            "timeout": 30,
+            "command": "bun \"$CLAUDE_PROJECT_DIR/.claude/hooks/claude-code-types.ts\"",
+            "timeout": 10,
             "statusMessage": "Checking vellum's plugin types..."
           },
           {

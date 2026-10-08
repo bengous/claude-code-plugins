@@ -84,7 +84,7 @@ claude plugin validate vellum   # what the hooks module hooks and calls
 command claude --permission-mode default --plugin-dir vellum   # a live session from source
 bun vellum/src/runtime/server/cli.ts serve --session <id> --project <dir> --workdir plans/<date>/wip-<sid8>/   # the server alone, for page work; the trailing slash is required; `--port <n> --token <t> --existing` revives one where it was
 bun vellum/src/runtime/server/preview.ts <dir holding plan.md> [--minutes <n>] [--port <n>]   # the same page on any directory, working or final: it prints the URL and serves a copy it takes away on the way out
-bun .claude/hooks/regenerate-plugin-types.ts <<< '{}'               # what a session does at start: on a checkout on dev whose types/ another Claude Code wrote, regenerate them from the installed one; elsewhere, report the drift
+bun ./scripts/claude-code-types.ts regenerate                       # types/ from the installed Claude Code, in this checkout; a session start instead rolls them into the chore/claude-code-types pull request (docs/plugin-testing/hooks.md)
 ```
 
 Every command runs from the repository root; lint, types and format are the repository's
