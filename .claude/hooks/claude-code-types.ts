@@ -30,10 +30,10 @@ import { $ } from "bun";
 import {
   commonDirOf,
   installedVersion,
-  liveLock,
   type Outcome,
   outcomeLine,
   RUN_GUARD,
+  runState,
   settledVersion,
   type StatePaths,
   statePaths,
@@ -87,10 +87,14 @@ function runEnv(): NodeJS.ProcessEnv {
 
 /** The line about the run going or started now; null when the installed version is settled. */
 async function launchLine(root: string, state: StatePaths): Promise<string | null> {
-  const holder = liveLock(state.lock);
+  const run = runState(state);
 
-  if (holder !== null) {
-    return `Claude Code types ${holder.version}: a run is going since ${holder.startedAt}, pid ${holder.pid}, log: ${state.log}`;
+  if (run.kind === "running") {
+    const { holder } = run;
+
+    return holder === null
+      ? `Claude Code types: a run is starting, log: ${state.log}`
+      : `Claude Code types ${holder.version}: a run is going since ${holder.startedAt}, pid ${holder.pid}, log: ${state.log}`;
   }
 
   const installed = installedVersion(await $`claude --version`.text());

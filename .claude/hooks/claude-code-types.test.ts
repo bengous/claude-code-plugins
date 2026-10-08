@@ -12,7 +12,14 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { stubbedEnv, write } from "../../scripts/claude-code-types.fixture.ts";
-import { liveLock, type Outcome, RUN_GUARD, TYPES_PATH } from "../../scripts/claude-code-types.ts";
+import {
+  type Outcome,
+  RUN_GUARD,
+  runState,
+  statePaths,
+  TYPES_PATH,
+} from "../../scripts/claude-code-types.ts";
+import { holdLock } from "../../scripts/lib/flock.fixture.ts";
 
 const HOOK = join(import.meta.dir, "claude-code-types.ts");
 
@@ -35,6 +42,8 @@ let project = "";
 let env: NodeJS.ProcessEnv = {};
 
 const state = (name: string) => join(project, ".git", "claude-code-types", name);
+
+const paths = () => statePaths(join(project, ".git"));
 
 const recorded = (name: string) => {
   const file = join(root, "stub", name);
@@ -70,7 +79,7 @@ async function runHook(installed: string, cwd = project, extra: NodeJS.ProcessEn
 }
 
 /** True once a run the hook started has ended: it frees its lock after its outcome and its notification. */
-const runOver = () => existsSync(state("outcome.json")) && liveLock(state("run.lock")) === null;
+const runOver = () => existsSync(state("outcome.json")) && runState(paths()).kind === "idle";
 
 /** The outcome of the run the hook started, once that run is over. */
 async function runOutcome(): Promise<Outcome> {
@@ -107,17 +116,12 @@ beforeEach(() => {
 
 afterEach(async () => {
   const fixture = root;
-  const lock = state("run.lock");
+  const watched = paths();
 
-  // A run a failed test started still writes into the fixture; a lock this
-  // process holds is a test's stand-in, never released.
-  const running = () => {
-    const holder = liveLock(lock);
-
-    return holder !== null && holder.pid !== process.pid;
-  };
-
-  for (let tries = 0; tries < 40 && running(); tries++) await Bun.sleep(100);
+  // A run a failed test started still writes into the fixture.
+  for (let tries = 0; tries < 40 && runState(watched).kind === "running"; tries++) {
+    await Bun.sleep(100);
+  }
 
   rmSync(fixture, { recursive: true, force: true });
 });
@@ -170,25 +174,36 @@ describe("claude-code-types hook", () => {
 
   test("names the live run and the version it works for, settled or not", async () => {
     write(state("settled"), "2.1.294");
+    write(state("run.lock"), "");
+    const held = await holdLock(state("run.lock"));
 
     write(
-      state("run.lock"),
-      JSON.stringify({
-        pid: process.pid,
-        startedAt: "2026-10-08T10:00:00Z",
-        boot: null,
-        version: "2.1.293",
-      }),
+      state("holder.json"),
+      JSON.stringify({ pid: held.pid, startedAt: "2026-10-08T10:00:00Z", version: "2.1.293" }),
     );
+
+    try {
+      const { stdout } = await runHook("2.1.294");
+
+      expect(stdout.trim()).toBe(
+        message(
+          `Claude Code types 2.1.293: a run is going since 2026-10-08T10:00:00Z, pid ${held.pid}, log: ${state("run.log")}`,
+        ),
+      );
+      expect(recorded("version-guards")).toBe("");
+    } finally {
+      await held.release();
+    }
+  });
+
+  test("starts no run over a lock a dead run left, beyond its stale holder file", async () => {
+    write(state("settled"), "2.1.294");
+    write(state("run.lock"), "");
+    write(state("holder.json"), JSON.stringify({ pid: 1, startedAt: "then", version: "2.1.293" }));
 
     const { stdout } = await runHook("2.1.294");
 
-    expect(stdout.trim()).toBe(
-      message(
-        `Claude Code types 2.1.293: a run is going since 2026-10-08T10:00:00Z, pid ${process.pid}, log: ${state("run.log")}`,
-      ),
-    );
-    expect(recorded("version-guards")).toBe("");
+    expect(stdout).toBe("");
   });
 
   test("shows the last outcome once", async () => {
