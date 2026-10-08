@@ -1,35 +1,41 @@
 #!/usr/bin/env bun
 
 /**
- * SessionStart hook — starts `scripts/claude-code-types.ts run` detached when
- * the installed Claude Code is newer than the plugin API types `origin/dev`
- * and the rolling branch carry and no run ended for it yet, and shows the
- * last run's outcome once.
+ * SessionStart hook — shows the last outcome of `scripts/claude-code-types.ts
+ * run` once, and starts the run detached when the installed Claude Code is a
+ * version no run settled yet and no run is going.
  *
- * It reads local refs only, never the network, and never writes into the
- * checkout. Its one output is a `systemMessage`, which the user reads and the
- * model does not. The run sets RUN_GUARD for the sessions it starts, whose
- * SessionStart returns here at once.
+ * The run alone decides, after its fetch, whether a version needs work: the
+ * hook reads no ref, only the run's state in `<git common dir>/
+ * claude-code-types/`, and never writes into the checkout. Its one output is a
+ * `systemMessage`, which the user reads and the model does not. The run sets
+ * RUN_GUARD for the sessions it starts, whose SessionStart returns here at
+ * once.
  */
 
 import { spawn } from "node:child_process";
-import { existsSync, readFileSync, rmSync } from "node:fs";
+import {
+  appendFileSync,
+  closeSync,
+  mkdirSync,
+  openSync,
+  readFileSync,
+  renameSync,
+  rmSync,
+} from "node:fs";
 import { join } from "node:path";
 
 import { $ } from "bun";
 
 import {
-  attemptedVersion,
-  BASE,
   commonDirOf,
   installedVersion,
   liveLock,
-  needsRun,
   type Outcome,
   outcomeLine,
-  refHeader,
-  ROLLING_REMOTE,
   RUN_GUARD,
+  settledVersion,
+  type StatePaths,
   statePaths,
 } from "../../scripts/claude-code-types.ts";
 import { checkoutRoot } from "./checkout.ts";
@@ -37,13 +43,81 @@ import { HOOK_EXIT } from "./hook-io.ts";
 
 const SCRIPT = join(import.meta.dir, "../../scripts/claude-code-types.ts");
 
-function takeOutcome(file: string): Outcome | null {
-  if (!existsSync(file)) return null;
-  const text = readFileSync(file, "utf8");
-  rmSync(file, { force: true });
+// A Claude Code session hands its children its identity (CLAUDECODE,
+// CLAUDE_CODE_SESSION_ID, CLAUDE_CODE_CHILD_SESSION, its messaging socket) and
+// its settings' env. The run's own `claude -p` reads the settings again, so
+// none of them goes along, and the run behaves alike started here or by hand.
+const SESSION_VARIABLE = /^CLAUDE/u;
 
-  // SAFETY: only the pipeline writes this file, from an Outcome.
-  return JSON.parse(text) as Outcome;
+const KEPT_VARIABLES: ReadonlySet<string> = new Set(["CLAUDE_CONFIG_DIR"]);
+
+function isErrnoException(cause: unknown): cause is NodeJS.ErrnoException {
+  return cause instanceof Error && "code" in cause;
+}
+
+/** The outcome, taken by one session alone: renamed first, so a second session finds none. */
+function takeOutcome(file: string): Outcome | null {
+  const taken = `${file}.${process.pid}`;
+
+  try {
+    renameSync(file, taken);
+  } catch (error) {
+    if (isErrnoException(error) && error.code === "ENOENT") return null;
+    throw error;
+  }
+
+  try {
+    // SAFETY: only the pipeline writes this file, renamed into place whole, from an Outcome.
+    return JSON.parse(readFileSync(taken, "utf8")) as Outcome;
+  } finally {
+    rmSync(taken, { force: true });
+  }
+}
+
+function runEnv(): NodeJS.ProcessEnv {
+  return {
+    ...Object.fromEntries(
+      Object.entries(process.env).filter(
+        ([name]) => !SESSION_VARIABLE.test(name) || KEPT_VARIABLES.has(name),
+      ),
+    ),
+    [RUN_GUARD]: "1",
+  };
+}
+
+/** The line about the run going or started now; null when the installed version is settled. */
+async function launchLine(root: string, state: StatePaths): Promise<string | null> {
+  const holder = liveLock(state.lock);
+
+  if (holder !== null) {
+    return `Claude Code types ${holder.version}: a run is going since ${holder.startedAt}, pid ${holder.pid}, log: ${state.log}`;
+  }
+
+  const installed = installedVersion(await $`claude --version`.text());
+
+  if (settledVersion(state.settled) === installed) return null;
+
+  // What the run writes before it opens its own log, a crash included.
+  mkdirSync(state.dir, { recursive: true });
+  const spawnLog = openSync(state.spawnLog, "a");
+
+  try {
+    const child = spawn(process.execPath, [SCRIPT, "run"], {
+      cwd: root,
+      detached: true,
+      stdio: ["ignore", spawnLog, spawnLog],
+      env: runEnv(),
+    });
+
+    child.on("error", (error) => {
+      appendFileSync(state.spawnLog, `the run did not start: ${error.message}\n`);
+    });
+    child.unref();
+  } finally {
+    closeSync(spawnLog);
+  }
+
+  return `Claude Code types ${installed}: checking in the background, log: ${state.log}`;
 }
 
 /** The lines for the user; empty when there is nothing to say. */
@@ -57,39 +131,19 @@ async function sessionLines(rawInput: string): Promise<string[]> {
   const state = statePaths(commonDirOf(root));
   const outcome = takeOutcome(state.outcome);
   const lines = outcome === null ? [] : [outcomeLine(outcome)];
-  const devHeader = refHeader(root, BASE);
 
-  if (devHeader === null) return lines;
-  const installed = installedVersion(await $`claude --version`.text());
+  // The outcome is taken already: a failure past this point is one more line,
+  // never the outcome's loss.
+  try {
+    const launched = await launchLine(root, state);
 
-  if (!needsRun({ installed, devHeader, rollingHeader: refHeader(root, ROLLING_REMOTE) })) {
-    return lines;
-  }
-
-  // A run that ended, failed included, is not started again for the same
-  // version: its outcome already told the user how to rerun it by hand.
-  if (attemptedVersion(state.attempted) === installed) return lines;
-
-  const holder = liveLock(state.lock);
-
-  if (holder !== null) {
+    return launched === null ? lines : [...lines, launched];
+  } catch (error) {
     return [
       ...lines,
-      `Claude Code types ${installed}: a run is going since ${holder.startedAt}, pid ${holder.pid}, log: ${state.log}`,
+      `Claude Code types: the session check failed: ${error instanceof Error ? error.message : String(error)}`,
     ];
   }
-
-  spawn(process.execPath, [SCRIPT, "run"], {
-    cwd: root,
-    detached: true,
-    stdio: "ignore",
-    env: { ...process.env, [RUN_GUARD]: "1" },
-  }).unref();
-
-  return [
-    ...lines,
-    `Claude Code types ${devHeader} → ${installed}: checking in the background, log: ${state.log}`,
-  ];
 }
 
 if (import.meta.main) {
