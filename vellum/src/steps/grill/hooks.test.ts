@@ -1,3 +1,4 @@
+import type { PromptOrigin, SessionAppendInput } from "claude-code";
 import { describe, expect, test, tier } from "claude-code/testing";
 
 import {
@@ -30,6 +31,23 @@ const TURN = { text: "Reviewer: x", turnId: "t1" };
 const TYPED_TURN = { text: "and the weather?", turnId: "t2" };
 
 const TYPED_ANSWERED = { ...TURN_ANSWERED, turnId: "t2" };
+
+/** A relay's text as the engine frames a plugin's prompt, in its row and in the turn it starts. */
+const RELAY = "The vellum plugin sent a message:\nReviewer: x";
+
+const RELAY_TURN = { text: RELAY, turnId: "t1" };
+
+const VELLUM: PromptOrigin = { kind: "plugin", name: "vellum" };
+
+/** The row the engine keeps for a prompt just before the turn it starts. */
+function promptRow(uuid: string, origin: PromptOrigin): SessionAppendInput {
+  return {
+    message: { type: "user", role: "user", content: [{ type: "text", text: RELAY }] },
+    door: "prompt",
+    origin,
+    uuid,
+  };
+}
 
 const Q = [["Tool names", "Prefix the tools with the extension's id?", "Yes."]];
 
@@ -483,6 +501,49 @@ describe("what the transcript hears of the session", () => {
     await $.turn.complete(TURN_OF_AGENT);
 
     expect(grill.posted).toEqual([]);
+  });
+
+  test("a turn vellum's relayed prompt started is the grill's own", async ($, on) => {
+    const grill = grillRoutes(() => NO_GRILL);
+    world(on, grill);
+    on("turn.complete", (_, e) => ({ text: e.answer }));
+    await $.skill.prompt(START_PROMPT);
+    await $.session.append(promptRow("u1", VELLUM));
+    await $.turn.start(RELAY_TURN);
+    await $.turn.complete(TURN_ANSWERED);
+
+    expect(grill.posted).toEqual([
+      ["answer", JSON.stringify({ text: "done", reason: "answer", own: true, asked: false })],
+    ]);
+  });
+
+  test("a turn another plugin's prompt started is not", async ($, on) => {
+    const grill = grillRoutes(() => NO_GRILL);
+    world(on, grill);
+    on("turn.complete", (_, e) => ({ text: e.answer }));
+    await $.skill.prompt(START_PROMPT);
+    await $.session.append(promptRow("u1", { kind: "plugin", name: "todos" }));
+    await $.turn.start(RELAY_TURN);
+    await $.turn.complete(TURN_ANSWERED);
+
+    expect(grill.posted).toEqual([
+      ["answer", JSON.stringify({ text: "done", reason: "answer", own: false, asked: false })],
+    ]);
+  });
+
+  test("a subagent's prompt row between vellum's and its turn leaves the turn the grill's own", async ($, on) => {
+    const grill = grillRoutes(() => NO_GRILL);
+    world(on, grill);
+    on("turn.complete", (_, e) => ({ text: e.answer }));
+    await $.skill.prompt(START_PROMPT);
+    await $.session.append(promptRow("u1", VELLUM));
+    await $.session.append({ ...promptRow("u2", { kind: "composer" }), agentId: "a1" });
+    await $.turn.start(RELAY_TURN);
+    await $.turn.complete(TURN_ANSWERED);
+
+    expect(grill.posted).toEqual([
+      ["answer", JSON.stringify({ text: "done", reason: "answer", own: true, asked: false })],
+    ]);
   });
 });
 

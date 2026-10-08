@@ -109,10 +109,13 @@ under the [loader rules](hook-runtime.md#module-loader).
   cannot be raised from a test.
 
 - The kit keeps no conversation: a prompt submitted raises no
-  `session.append`, and a test cannot raise one either. A test's hook that
-  answers without `next` is skipped (`returned an answer without next`), and
-  nothing beneath answers (`no implementation for session.append`). A hook on
-  `session.append` is checked in a live session.
+  `session.append`. A test raises one with its own `$.session.append`, the
+  row's `door`, `origin` and `agentId` as it writes them, and the kit keeps
+  the row beneath every hook, looking for no loop, so a row that names a
+  subagent passes too (`vellum/src/steps/grill/hooks.test.ts`); `mock.session`
+  reads the kept rows back. A module's own `$.session.append` is kept with
+  `door: "note"`, the plugin as `origin` and a fresh `uuid`. The rows the
+  engine keeps around a turn are checked in a live session.
 
 - The kit starts no subagent. Nothing answers beneath `agent.spawn`, and a
   fixture hook that answers `{ model, agentId }` without `next` reaches the
