@@ -64,16 +64,19 @@ under the [loader rules](hook-runtime.md#module-loader).
   no run settled yet, unless a run is going. The run decides after its fetch:
   nothing to do when `origin/dev`, or the rolling branch
   `chore/claude-code-types` while its pull request is open, carries the
-  installed types or newer. Otherwise, in `<main worktree>.wt/claude-code-types`,
-  it rebases the live branch onto `origin/dev` or starts it again from there,
+  installed types or newer. Otherwise it probes the signing key without a
+  passphrase prompt, then, in `<main worktree>.wt/claude-code-types`, it
+  rebases the live branch onto `origin/dev` or starts it again from there,
   installs the dependencies, regenerates and commits the types, and hands the
   worktree to a headless Claude (`scripts/claude-code-types.prompt.md`) that
   judges the update's impact on each hooks module and commits what it calls
   for; the run then pushes the branch and opens or updates its pull request,
   which the human lands. A version settles once the run publishes, finds
-  nothing to do, or fails from the agent on; such a failure names the log, the
-  kept worktree and the command that reruns it, while an earlier one is
-  retried at the next session start. The hook's one output is a
+  nothing to do, is stopped (`kill <pid>`, which stops its agent with it), or
+  fails from the agent on; such an end names the log, the kept worktree and
+  the command that reruns it, and the run refuses to recreate a worktree that
+  holds work. An earlier failure removes its worktree and is retried at the
+  next session start. The hook's one output is a
   `systemMessage`, outside the model's context: the run's start, then its
   outcome at the next session start, read with the run's lock, log and
   settled version from `<git common dir>/claude-code-types/`.

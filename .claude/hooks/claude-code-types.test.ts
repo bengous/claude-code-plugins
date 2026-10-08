@@ -28,10 +28,11 @@ const HOOK = join(import.meta.dir, "claude-code-types.ts");
 // 5 s on a loaded machine, so the tests that start one say how long they wait.
 const STARTS_A_RUN = { timeout: 20_000 };
 
-// Records whether a call to claude came with the session's CLAUDECODE, then
+// Records whether a call to claude came with the session's CLAUDECODE and with
+// the user's own CLAUDE_CODE_OAUTH_TOKEN, then
 // hands over to the fixture's stub.
 const SESSION_RECORDER = `#!/usr/bin/env bash
-echo "\${CLAUDECODE:-unset}" >>"$(dirname "$0")/../stub/sessions"
+echo "\${CLAUDECODE:-unset} \${CLAUDE_CODE_OAUTH_TOKEN:-unset}" >>"$(dirname "$0")/../stub/sessions"
 exec "$(dirname "$0")/claude-stub" "$@"
 `;
 
@@ -101,7 +102,12 @@ function landTypes(header: string) {
 beforeEach(() => {
   root = mkdtempSync(join(tmpdir(), "claude-code-types-hook-"));
   project = join(root, "project");
-  env = { ...stubbedEnv(root), CLAUDE_PROJECT_DIR: project, CLAUDECODE: "1" };
+  env = {
+    ...stubbedEnv(root),
+    CLAUDE_PROJECT_DIR: project,
+    CLAUDECODE: "1",
+    CLAUDE_CODE_OAUTH_TOKEN: "token",
+  };
   renameSync(join(root, "bin", "claude"), join(root, "bin", "claude-stub"));
   write(join(root, "bin", "claude"), SESSION_RECORDER);
   chmodSync(join(root, "bin", "claude"), 0o755);
@@ -128,17 +134,19 @@ afterEach(async () => {
 
 describe("claude-code-types hook", () => {
   test(
-    "starts the run detached, under its guard and without the session's variables, and says so in a systemMessage alone",
+    "starts the run detached, under its guard, without the session's identity but with the user's variables, and says so in a systemMessage alone",
     async () => {
       const { exitCode, stdout } = await runHook("2.1.294");
 
       expect(exitCode).toBe(0);
       expect(stdout.trim()).toBe(
-        message(`Claude Code types 2.1.294: checking in the background, log: ${state("run.log")}`),
+        message(
+          `Claude Code types 2.1.294: checking in the background, log: ${state("2.1.294.log")}`,
+        ),
       );
       expect(await runOutcome()).toMatchObject({ kind: "failed", step: "regenerate" });
       expect(recorded("version-guards")).toBe("unset\n1\n");
-      expect(recorded("sessions")).toBe("1\nunset\nunset\n");
+      expect(recorded("sessions")).toBe("1 token\nunset token\nunset unset\n");
       expect(recorded("notify-calls")).toBe("");
     },
     STARTS_A_RUN,
@@ -187,7 +195,7 @@ describe("claude-code-types hook", () => {
 
       expect(stdout.trim()).toBe(
         message(
-          `Claude Code types 2.1.293: a run is going since 2026-10-08T10:00:00Z, pid ${held.pid}, log: ${state("run.log")}`,
+          `Claude Code types 2.1.293: a run is going since 2026-10-08T10:00:00Z, pid ${held.pid}, log: ${state("2.1.293.log")}; kill ${held.pid} stops it and its agent`,
         ),
       );
       expect(recorded("version-guards")).toBe("");
@@ -268,7 +276,7 @@ describe("claude-code-types hook", () => {
 
       const { stdout } = await runHook("2.1.294", join(linked, "sub"));
 
-      expect(stdout).toContain(`log: ${state("run.log")}`);
+      expect(stdout).toContain(`log: ${state("2.1.294.log")}`);
       expect(await runOutcome()).toMatchObject({ kind: "failed" });
     },
     STARTS_A_RUN,
@@ -283,7 +291,7 @@ describe("claude-code-types hook", () => {
 
       const { stdout } = await runHook("2.1.294", join(nested, "sub"));
 
-      expect(stdout).toContain(`log: ${state("run.log")}`);
+      expect(stdout).toContain(`log: ${state("2.1.294.log")}`);
       expect(await runOutcome()).toMatchObject({ kind: "failed" });
     },
     STARTS_A_RUN,
@@ -298,7 +306,7 @@ describe("claude-code-types hook", () => {
 
       const { stdout } = await runHook("2.1.294", unrelated);
 
-      expect(stdout).toContain(`log: ${state("run.log")}`);
+      expect(stdout).toContain(`log: ${state("2.1.294.log")}`);
       expect(await runOutcome()).toMatchObject({ kind: "failed" });
     },
     STARTS_A_RUN,

@@ -30,6 +30,7 @@ import { $ } from "bun";
 import {
   commonDirOf,
   installedVersion,
+  logPath,
   type Outcome,
   outcomeLine,
   RUN_GUARD,
@@ -43,13 +44,24 @@ import { HOOK_EXIT } from "./hook-io.ts";
 
 const SCRIPT = join(import.meta.dir, "../../scripts/claude-code-types.ts");
 
-// A Claude Code session hands its children its identity (CLAUDECODE,
-// CLAUDE_CODE_SESSION_ID, CLAUDE_CODE_CHILD_SESSION, its messaging socket) and
-// its settings' env. The run's own `claude -p` reads the settings again, so
-// none of them goes along, and the run behaves alike started here or by hand.
-const SESSION_VARIABLE = /^CLAUDE/u;
-
-const KEPT_VARIABLES: ReadonlySet<string> = new Set(["CLAUDE_CONFIG_DIR"]);
+// The identity a Claude Code session hands its children, as a hook's
+// environment lists it: the run is no child of this session, and its own
+// `claude -p` would otherwise take itself for a nested one. Everything else
+// goes along, the user's own CLAUDE_* settings and login included.
+const SESSION_IDENTITY: ReadonlySet<string> = new Set([
+  "CLAUDECODE",
+  "CLAUDE_CODE_BRIDGE_SESSION_ID",
+  "CLAUDE_CODE_CHILD_SESSION",
+  "CLAUDE_CODE_ENTRYPOINT",
+  "CLAUDE_CODE_EXECPATH",
+  "CLAUDE_CODE_MESSAGING_SOCKET",
+  "CLAUDE_CODE_MESSAGING_TOKEN",
+  "CLAUDE_CODE_SESSION_ATTENDED",
+  "CLAUDE_CODE_SESSION_ID",
+  "CLAUDE_EFFORT",
+  "CLAUDE_PID",
+  "CLAUDE_PROJECT_DIR",
+]);
 
 function isErrnoException(cause: unknown): cause is NodeJS.ErrnoException {
   return cause instanceof Error && "code" in cause;
@@ -77,9 +89,7 @@ function takeOutcome(file: string): Outcome | null {
 function runEnv(): NodeJS.ProcessEnv {
   return {
     ...Object.fromEntries(
-      Object.entries(process.env).filter(
-        ([name]) => !SESSION_VARIABLE.test(name) || KEPT_VARIABLES.has(name),
-      ),
+      Object.entries(process.env).filter(([name]) => !SESSION_IDENTITY.has(name)),
     ),
     [RUN_GUARD]: "1",
   };
@@ -93,8 +103,8 @@ async function launchLine(root: string, state: StatePaths): Promise<string | nul
     const { holder } = run;
 
     return holder === null
-      ? `Claude Code types: a run is starting, log: ${state.log}`
-      : `Claude Code types ${holder.version}: a run is going since ${holder.startedAt}, pid ${holder.pid}, log: ${state.log}`;
+      ? `Claude Code types: a run is starting, in ${state.dir}`
+      : `Claude Code types ${holder.version}: a run is going since ${holder.startedAt}, pid ${holder.pid}, log: ${logPath(state, holder.version)}; kill ${holder.pid} stops it and its agent`;
   }
 
   const installed = installedVersion(await $`claude --version`.text());
@@ -121,7 +131,7 @@ async function launchLine(root: string, state: StatePaths): Promise<string | nul
     closeSync(spawnLog);
   }
 
-  return `Claude Code types ${installed}: checking in the background, log: ${state.log}`;
+  return `Claude Code types ${installed}: checking in the background, log: ${logPath(state, installed)}`;
 }
 
 /** The lines for the user; empty when there is nothing to say. */
