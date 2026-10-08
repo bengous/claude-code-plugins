@@ -859,6 +859,8 @@ declare module 'claude-code' {
       prompt: string
       worktreePath?: string
       worktreeBranch?: string
+      /** @internal False when the calling agent cannot continue this agent with a follow-up message (it holds no messaging tool); absent means it can. */
+      canContinueAgent?: boolean
     } | {
       status: "async_launched"
       isAsync?: true
@@ -876,6 +878,8 @@ declare module 'claude-code' {
       outputFile: string
       /** Whether the calling agent has Read/Bash tools to check progress */
       canReadOutputFile?: boolean
+      /** @internal False when the calling agent cannot continue this agent with a follow-up message (it holds no messaging tool); absent means it can. */
+      canContinueAgent?: boolean
       /** @internal True when this unisolated write-capable agent was launched into a working directory where another one is already running and a worktree could have been made here (drives a model-facing note; not a stable consumer field) */
       sharesCwd?: boolean
     } | {
@@ -1143,6 +1147,12 @@ declare module 'claude-code' {
         }[]
         types_more?: boolean
         dashboard_type?: {
+          title: string
+          type_url: string
+          description?: string
+          tier?: string
+        }
+        motion_type?: {
           title: string
           type_url: string
           description?: string
@@ -1946,6 +1956,12 @@ declare module 'claude-code' {
           description?: string
           tier?: string
         }
+        motion_type?: {
+          title: string
+          type_url: string
+          description?: string
+          tier?: string
+        }
         types_unavailable?: boolean
         types_ruled?: boolean
         types_ambiguous?: boolean
@@ -2744,6 +2760,12 @@ declare module 'claude-code' {
           description?: string
           tier?: string
         }
+        motion_type?: {
+          title: string
+          type_url: string
+          description?: string
+          tier?: string
+        }
         types_unavailable?: boolean
         types_ruled?: boolean
         types_ambiguous?: boolean
@@ -3537,6 +3559,12 @@ declare module 'claude-code' {
         }[]
         types_more?: boolean
         dashboard_type?: {
+          title: string
+          type_url: string
+          description?: string
+          tier?: string
+        }
+        motion_type?: {
           title: string
           type_url: string
           description?: string
