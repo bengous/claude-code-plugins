@@ -31,13 +31,21 @@ jobs:
         with:
           fetch-depth: 0 # full history needed for the drift guard
 
+      # The hooks module's kit needs the engine its types were written by. An exact version,
+      # unlike `latest`, is neither left where the action's cache first resolved it nor held
+      # back by mise's minimum release age, so a types update is tested on its own engine.
+      - name: Pin Claude Code to the version the types were written by
+        run: |
+          version=$(sed -n '1s|^// Written by Claude Code \([^ ]*\)\.$|\1|p' vellum/types/claude-code.d.ts)
+          if [ -z "$version" ]; then
+            echo '::error::vellum/types/claude-code.d.ts: expected "// Written by Claude Code <version>." on line 1.'
+            exit 1
+          fi
+          echo "MISE_CLAUDE_VERSION=$version" >> "$GITHUB_ENV"
+          echo "Claude Code $version"
+
       - name: Set up tools (bun, lefthook, shellcheck, shfmt via mise)
         uses: jdx/mise-action@v4
-
-      # The action caches installs under the hash of mise.toml, so `latest` stays where it
-      # was first resolved; the hooks module's kit needs the engine its types were written by.
-      - name: Refresh Claude Code past the cached `latest`
-        run: mise upgrade claude && claude --version
 
       - name: Install script dependencies
         run: bun install --frozen-lockfile
@@ -158,13 +166,21 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v5
 
+      - name: Pin Claude Code to the version the types were written by
+        shell: bash
+        run: |
+          version=$(sed -n '1s|^// Written by Claude Code \([^ ]*\)\.$|\1|p' vellum/types/claude-code.d.ts)
+          if [ -z "$version" ]; then
+            echo '::error::vellum/types/claude-code.d.ts: expected "// Written by Claude Code <version>." on line 1.'
+            exit 1
+          fi
+          echo "MISE_CLAUDE_VERSION=$version" >> "$GITHUB_ENV"
+          echo "Claude Code $version"
+
       - name: Set up tools (bun, claude via mise)
         uses: jdx/mise-action@v4
         with:
           install_args: bun claude
-
-      - name: Refresh Claude Code past the cached `latest`
-        run: mise upgrade claude && claude --version
 
       - name: Install script dependencies
         run: bun install --frozen-lockfile

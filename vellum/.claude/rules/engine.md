@@ -289,8 +289,8 @@ loop. `/vellum:start` enters it, Approve in the page or `/vellum:stop` leaves it
 - Every miss of `turn.ts` falls on one side, a turn whose text is written nowhere: two rows
   before one turn when either is not vellum's, a row whose turn never came (a blocked prompt),
   a turn whose text does not hold the last row's, and a reload between the row and its turn.
-  It is one note and never a registry. The kit raises no `session.append`, so a relay's turn is
-  held by `turn.test.ts` and checked in a live session (`tests.md`).
+  It is one note and never a registry. `turn.test.ts` holds it, the grill's kit tests the hook
+  that notes the rows, and a live session the row the engine keeps for a relay (`tests.md`).
 - A text enters Claude's context only when Claude does something different because of it.
   Anything else goes to the band, `$.ui.log` or the page. A prompt names its object and
   repeats nothing Claude wrote or already read, and every relay keeps the plugin's origin: the

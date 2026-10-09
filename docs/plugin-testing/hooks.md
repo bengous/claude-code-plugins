@@ -52,10 +52,34 @@ under the [loader rules](hook-runtime.md#module-loader).
   prompt writes it too, then stops on the missing prompt before any model
   call. `claude-code-tools` follows the account's features and environment
   variables such as `CLAUDE_CODE_FORK_SUBAGENT`, so
-  `.claude/hooks/regenerate-plugin-types.ts` runs it with an empty
+  `bun ./scripts/claude-code-types.ts regenerate` runs it with an empty
   `CLAUDE_CONFIG_DIR` and only `PATH` and `HOME`, and copies `claude-code`
   and `claude-code-tools` back; `claude-code-mcp` describes the developer's
   own servers.
+
+- vellum's copy, `vellum/types/`, follows the installed build through a pull
+  request, never in a developer's checkout. At session start
+  `.claude/hooks/claude-code-types.ts` starts
+  `bun ./scripts/claude-code-types.ts run` detached for an installed version
+  no run settled yet, unless a run is going. The run decides after its fetch:
+  nothing to do when `origin/dev`, or the rolling branch
+  `chore/claude-code-types` while its pull request is open, carries the
+  installed types or newer. Otherwise it probes the signing key without a
+  passphrase prompt, then, in `<main worktree>.wt/claude-code-types`, it
+  rebases the live branch onto `origin/dev` or starts it again from there,
+  installs the dependencies, regenerates and commits the types, and hands the
+  worktree to a headless Claude (`scripts/claude-code-types.prompt.md`) that
+  judges the update's impact on each hooks module and commits what it calls
+  for; the run then pushes the branch and opens or updates its pull request,
+  which the human lands. A version settles once the run publishes, finds
+  nothing to do, is stopped (`kill <pid>`, which stops its agent with it), or
+  fails from the agent on; such an end names the log, the kept worktree and
+  the command that reruns it, and the run refuses to recreate a worktree that
+  holds work. An earlier failure removes its worktree and is retried at the
+  next session start. The hook's one output is a
+  `systemMessage`, outside the model's context: the run's start, then its
+  outcome at the next session start, read with the run's lock, log and
+  settled version from `<git common dir>/claude-code-types/`.
 
 - Mods load by default. Where they are off (`--bare`, `--safe-mode`,
   `disableAllHooks`, an organization's policy) the module never loads and
@@ -85,10 +109,13 @@ under the [loader rules](hook-runtime.md#module-loader).
   cannot be raised from a test.
 
 - The kit keeps no conversation: a prompt submitted raises no
-  `session.append`, and a test cannot raise one either. A test's hook that
-  answers without `next` is skipped (`returned an answer without next`), and
-  nothing beneath answers (`no implementation for session.append`). A hook on
-  `session.append` is checked in a live session.
+  `session.append`. A test raises one with its own `$.session.append`, the
+  row's `door`, `origin` and `agentId` as it writes them, and the kit keeps
+  the row beneath every hook, looking for no loop, so a row that names a
+  subagent passes too (`vellum/src/steps/grill/hooks.test.ts`); `mock.session`
+  reads the kept rows back. A module's own `$.session.append` is kept with
+  `door: "note"`, the plugin as `origin` and a fresh `uuid`. The rows the
+  engine keeps around a turn are checked in a live session.
 
 - The kit starts no subagent. Nothing answers beneath `agent.spawn`, and a
   fixture hook that answers `{ model, agentId }` without `next` reaches the
