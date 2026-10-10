@@ -9,7 +9,7 @@
     "e2e:install": "bun x --bun playwright install chromium"
   },
   "dependencies": {
-    "@preact/signals": "2.11.2",
+    "@preact/signals": "2.11.3",
     "diff": "9.0.0",
     "mermaid": "12.0.0",
     "preact": "10.29.8",
