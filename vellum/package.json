@@ -21,6 +21,6 @@
   },
   "devDependencies": {
     "@playwright/test": "1.64.0",
-    "axe-core": "4.13.0"
+    "axe-core": "4.14.0"
   }
 }
