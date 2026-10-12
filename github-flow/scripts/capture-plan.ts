@@ -45,10 +45,13 @@ if (import.meta.main) {
     await Bun.write(file, content);
 
     // The harness re-injects its own copy into a fresh-context session; tagging it
-    // is what carries the planning session's id across that handoff.
+    // is what carries the planning session's id across that handoff. stamp-plan.ts
+    // tags it as it is written, so this write only catches a plan written without it.
     const harness = await harnessPlanFile(home, plan);
 
-    if (harness !== null) await Bun.write(harness, content);
+    if (harness !== null && (await Bun.file(harness).text()) !== content) {
+      await Bun.write(harness, content);
+    }
 
     const cwd = payload.cwd ?? process.cwd();
     const pr = await openPr(cwd);

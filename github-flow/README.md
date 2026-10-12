@@ -90,22 +90,23 @@ claude -p "/github-flow:shift" --permission-mode auto --max-turns 200 --max-budg
 
 ## Plans on pull requests
 
-Two hooks carry the plan of a session to the pull request that session creates, so the plan is read where the diff is reviewed instead of in a file nobody opens.
+Three hooks carry the plan of a session to the pull request that session creates, so the plan is read where the diff is reviewed instead of in a file nobody opens.
 
 | Hook | Event | What it does |
 |---|---|---|
-| `scripts/capture-plan.ts` | `PreToolUse` on `ExitPlanMode` | Writes the plan to `~/.claude/plans/by-session/<session_id>[/<agent_id>].md`, tags the harness's own plan file with the session id, then refreshes the comment when the checkout already has a PR. |
+| `scripts/stamp-plan.ts` | `PreToolUse` on `Write` | On a Write of the harness's own plan file, `~/.claude/plans/<slug>.md`, puts the session line at the top of the content before the file is written. |
+| `scripts/capture-plan.ts` | `PreToolUse` on `ExitPlanMode` | Writes the plan to `~/.claude/plans/by-session/<session_id>[/<agent_id>].md`, tags the harness's own plan file with the session id when it is not tagged yet, then refreshes the comment when the checkout already has a PR. |
 | `scripts/attach-plan.ts` | `PostToolUse` on `Bash` | On a `gh pr create` whose output carries a `<host>/<owner>/<repo>/pull/<n>` URL, posts the session's own plan, or the plan of the session named by a marker in its transcript, on that PR of that repository. |
 
 The key is the identity the session already has when the plan is approved: `session_id`, plus `agent_id` when the plan is approved inside a subagent. The branch is not asked for, so the worktree that does not exist yet, the `worktree-<n>` branch renamed later, and a `cd <other-checkout> && gh pr create` all change nothing; the repository comes from the PR URL, not from the session cwd, so `cd ../other-repo && gh pr create` posts on the other repository's PR. A session with no plan of its own and no planning marker in its transcript gets no comment. A dispatched `issue-worker` is such a session: it never approved a plan, so its PR carries one only when the plan text in its prompt kept the `<!-- session_id: <id> -->` line, which the transcript scan then finds.
 
-The plan file opens with `<!-- session_id: <id> -->`, which the comment carries next to the marker and GitHub renders as nothing, so the session that wrote the plan is found at `~/.claude/projects/<project>/<id>.jsonl` and resumed with `claude --resume <id>`. Capture writes that same line into the harness's plan file, the one re-injected by "Accept and start in a new session (fresh context)": the fresh session reads the marker in its own transcript and its PR carries the plan, with `<!-- executed_by: <id> -->` under the session line naming the session that created the PR.
+The plan file opens with `<!-- session_id: <id> -->`, which the comment carries next to the marker and GitHub renders as nothing, so the session that wrote the plan is found at `~/.claude/projects/<project>/<id>.jsonl` and resumed with `claude --resume <id>`. The harness's plan file carries that same line: `stamp-plan.ts` adds it to the Write through `updatedInput`, so the file never changes behind the agent and Claude Code has no changed-file note to send it, and capture writes it only into a plan file written without it. That file is the one re-injected by "Accept and start in a new session (fresh context)": the fresh session reads the marker in its own transcript and its PR carries the plan, with `<!-- executed_by: <id> -->` under the session line naming the session that created the PR.
 
 The comment opens with the marker `<!-- plan -->`, followed by a `<details><summary>Plan</summary>` block. A new plan in the same session edits that comment instead of adding one: the hook lists the PR's comments and matches the first of yours whose body starts with the marker. One PR, one plan comment, whatever the number of revisions.
 
 `PreToolUse`, not `PostToolUse`: the plan dialog's "Yes, clear context" options ([`showClearContextOnPlanAccept`](https://code.claude.com/docs/en/settings-reference#showclearcontextonplanaccept)) resolve the `ExitPlanMode` call as a denial, and `PostToolUse` runs only after a tool succeeds, so a plan approved that way would never be captured. The trade is that the plan is written before the answer: a rejected plan leaves its file behind until the next approval in that session overwrites it, and in a checkout that already has a PR, it reaches the comment.
 
-Neither hook blocks. Both exit 0 on every path and report a failure on stderr, which `claude --debug` shows.
+No hook blocks. Each exits 0 on every path and reports a failure on stderr, which `claude --debug` shows.
 
 ## Requirements
 

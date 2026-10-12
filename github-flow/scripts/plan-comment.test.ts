@@ -3,6 +3,7 @@ import { mkdtempSync, rmSync, utimesSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+import type { HookPayload } from "./plan-comment.ts";
 import {
   buildBody,
   carriedPlan,
@@ -15,6 +16,7 @@ import {
   planText,
   prFrom,
   sessionMarkers,
+  stampedPlanWrite,
   withSessionLine,
 } from "./plan-comment.ts";
 
@@ -298,6 +300,53 @@ describe("withSessionLine", () => {
     expect(withSessionLine(withSessionLine("# Plan", "A"), "B")).toBe(
       "<!-- session_id: B -->\n# Plan\n",
     );
+  });
+});
+
+/** The payload of a Write of `content` to `file_path` in session `session_id`. */
+function planWrite(file_path: string, content: string, session_id?: string): HookPayload {
+  return session_id === undefined
+    ? { tool_input: { file_path, content } }
+    : { session_id, tool_input: { file_path, content } };
+}
+
+describe("stampedPlanWrite", () => {
+  const plan = "/h/.claude/plans/slug.md";
+
+  test("a Write of a plan file gets the session line", () => {
+    expect(stampedPlanWrite(planWrite(plan, "# Plan\n", "A"), "/h")).toEqual({
+      file_path: plan,
+      content: "<!-- session_id: A -->\n# Plan\n",
+    });
+  });
+
+  test("a plan already stamped by this session is left alone", () => {
+    const stamped = "<!-- session_id: A -->\n# Plan\n";
+
+    expect(stampedPlanWrite(planWrite(plan, stamped, "A"), "/h")).toBeNull();
+  });
+
+  test("a plan stamped by another session is stamped again with this one", () => {
+    const other = "<!-- session_id: B -->\n# Plan\n";
+
+    expect(stampedPlanWrite(planWrite(plan, other, "A"), "/h")?.content).toBe(
+      "<!-- session_id: A -->\n# Plan\n",
+    );
+  });
+
+  test("a Write outside the plans directory, or below it, is left alone", () => {
+    for (const file of [
+      "/h/.claude/plans/by-session/A.md",
+      "/h/notes/slug.md",
+      "/h/.claude/plans/slug.txt",
+    ]) {
+      expect(stampedPlanWrite(planWrite(file, "# Plan\n", "A"), "/h")).toBeNull();
+    }
+  });
+
+  test("a missing session id, or one that is not a safe path segment, is left alone", () => {
+    expect(stampedPlanWrite(planWrite(plan, "# Plan\n", "a b"), "/h")).toBeNull();
+    expect(stampedPlanWrite(planWrite(plan, "# Plan\n"), "/h")).toBeNull();
   });
 });
 

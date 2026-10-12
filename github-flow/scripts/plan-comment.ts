@@ -1,6 +1,6 @@
 import { readdir, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 
 import { $ } from "bun";
 
@@ -20,12 +20,19 @@ const SAFE_ID = /^[a-zA-Z0-9_-]+$/u;
 
 const QUOTED_PLAN_HEADER = /<!-- plan -->(?:\\r|\\n|\s)*<!-- session_id: [^\s>]+ -->/gu;
 
+export interface ToolInput {
+  command?: string;
+  plan?: string;
+  file_path?: string;
+  content?: string;
+}
+
 export interface HookPayload {
   cwd?: string;
   session_id?: string;
   agent_id?: string;
   transcript_path?: string;
-  tool_input?: { command?: string; plan?: string };
+  tool_input?: ToolInput;
   tool_response?: { plan?: string };
 }
 
@@ -96,6 +103,25 @@ export function withSessionLine(plan: string, sessionId: string | undefined): st
   const body = plain.endsWith("\n") ? plain : `${plain}\n`;
 
   return tagged ? `<!-- session_id: ${sessionId} -->\n${body}` : body;
+}
+
+/**
+ * The Write input that stamps the session line on the harness's own plan file
+ * (`~/.claude/plans/<slug>.md`) as the plan is written, or null when the Write
+ * targets another file or its content already opens with that line.
+ */
+export function stampedPlanWrite(payload: HookPayload, home: string): ToolInput | null {
+  const { session_id: session, tool_input: input } = payload;
+  const file = input?.file_path;
+
+  if (session === undefined || !SAFE_ID.test(session) || input?.content === undefined) return null;
+
+  if (file === undefined || !file.endsWith(".md")) return null;
+
+  if (dirname(resolve(file)) !== join(home, ".claude", "plans")) return null;
+  const content = withSessionLine(input.content, session);
+
+  return content === input.content ? null : { ...input, content };
 }
 
 /** `executedBy` adds `<!-- executed_by: … -->` under the session line when it names another session. */
