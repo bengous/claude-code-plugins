@@ -27,7 +27,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
         with:
           fetch-depth: 0 # full history needed for the drift guard
 
@@ -133,7 +133,7 @@ jobs:
       units: ${{ steps.scope.outputs.units }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
         with:
           fetch-depth: 0 # the merge-base with the pull request's base
 
@@ -164,7 +164,7 @@ jobs:
     runs-on: windows-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
 
       - name: Pin Claude Code to the version the types were written by
         shell: bash
@@ -213,7 +213,7 @@ jobs:
         window: [light-1440, dark-1440, light-1024, light-1280, light-1920]
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
 
       - name: Set up tools (bun via mise)
         uses: jdx/mise-action@v4
@@ -248,7 +248,7 @@ jobs:
     runs-on: windows-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
 
       - name: Set up tools (bun via mise)
         uses: jdx/mise-action@v4
