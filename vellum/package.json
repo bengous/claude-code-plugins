@@ -12,7 +12,7 @@
     "@preact/signals": "2.11.3",
     "diff": "9.0.0",
     "mermaid": "12.1.0",
-    "preact": "10.29.8",
+    "preact": "11.0.1",
     "rehype-highlight": "7.0.2",
     "remark-gfm": "4.0.1",
     "remark-parse": "11.0.0",
