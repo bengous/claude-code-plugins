@@ -44,7 +44,7 @@ src/runtime/hooks/          the hooks module: register.ts spells `$`, the rest t
         │ HTTP, token header, down; the server's stdout, up
 src/runtime/server/         the server: cli.ts `serve`, preview.ts the page alone on any directory, queue.ts the
                             queue and the step, effects.ts, http/ routes and serve, every IO, slice.ts
-src/runtime/page/           the Preact page
+src/runtime/page/           the React page
 src/runtime/protocol.ts     what crosses HTTP, the server's stdout and a part's boundary; JSON
 src/runtime/extension.ts    what a part's page and server halves fill (a hooks half: runtime/hooks/extension.ts), and
                             the runtimes' own representation of a part, which the registries make from them
@@ -121,4 +121,4 @@ For engine observations, read its linked runtime reference and `plans/2026-09-15
 
 - `types/claude-code.d.ts` and `types/claude-code-tools.d.ts` are Claude Code's own, copied from the `.claude-plugin/types/` it writes, never edited; `vellum/types/**` is ignored by the linters.
 - `package.json` + `bun.lock` carry every runtime dependency; a new one goes through the ladder in the repository's `AGENTS.md` first.
-- The plugin stands alone: installed, it is a copy of this folder with no repository around it. `tsconfig.json` here names Preact as the JSX runtime, and without it the installed page answers 500. `src/standalone.spec.ts` serves the page from a copy under the temp directory; what the page needs to build lives in this folder, never in a parent.
+- The plugin stands alone: installed, it is a copy of this folder with no repository around it. `tsconfig.json` here names React as the JSX runtime, and without it the installed page answers 500. `src/standalone.spec.ts` serves the page from a copy under the temp directory; what the page needs to build lives in this folder, never in a parent.

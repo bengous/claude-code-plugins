@@ -157,6 +157,9 @@ function short(path: string): string {
   return path.slice(ROOT.length + 1);
 }
 
+/** A module of the page's libraries, bare or by a subpath: `react`, `react-dom/client`, `zustand/vanilla`. */
+const PAGE_LIBRARY = /^(?:react|react-dom|zustand)(?:\/|$)/u;
+
 /** The two scripts a browser runs for what they do at module scope, the page's and the mockup frame's: one more is a decision to take. */
 const BROWSER_ENTRIES = ["src/runtime/page/app.tsx", "src/formats/html/frame.ts"];
 
@@ -289,21 +292,21 @@ describe("dependency direction", () => {
     expect(reaching).toEqual([]);
   });
 
-  test("the server and the hooks module load no page: no Preact, no component, the review's included", () => {
+  test("the server and the hooks module load no page: no React, no Zustand, no component, the review's included", () => {
     const entries = ["src/runtime/server/cli.ts", "src/runtime/hooks/register.ts"];
 
     const loaded = entries.flatMap((entry) =>
       loadedBy(`${ROOT}/${entry}`)
-        .filter((file) => file.startsWith("preact") || file.endsWith(".tsx"))
+        .filter((file) => PAGE_LIBRARY.test(file) || file.endsWith(".tsx"))
         .map((file) => `${entry} loads ${file.startsWith(`${ROOT}/`) ? short(file) : file}`),
     );
 
     expect(loaded).toEqual([]);
   });
 
-  test("the mockup's frame script loads no Preact and no page store: it runs in the model's document", () => {
+  test("the mockup's frame script loads no React, no Zustand and no page store: it runs in the model's document", () => {
     const loaded = loadedBy(`${SRC}/formats/html/frame.ts`)
-      .filter((file) => file.startsWith("preact") || file.startsWith(`${RUNTIME}/page/`))
+      .filter((file) => PAGE_LIBRARY.test(file) || file.startsWith(`${RUNTIME}/page/`))
       .map((file) => (file.startsWith(`${ROOT}/`) ? short(file) : file));
 
     expect(loaded).toEqual([]);

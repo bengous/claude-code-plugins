@@ -50,7 +50,7 @@ jobs:
       - name: Install script dependencies
         run: bun install --frozen-lockfile
 
-      # The vellum plugin carries its own runtime dependencies (preact, remark),
+      # The vellum plugin carries its own runtime dependencies (react, zustand, remark),
       # installed the way Claude Code installs them at the plugin's cache.
       - name: Install vellum dependencies
         run: bun install --cwd vellum --frozen-lockfile --ignore-scripts

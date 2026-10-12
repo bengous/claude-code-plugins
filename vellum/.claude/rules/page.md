@@ -12,8 +12,8 @@ paths:
 
 # The page and its renderers
 
-`src/runtime/page/` is the Preact page: `api.ts` the client (token, routes, SSE), `state.ts` the store of
-signals, `workflow.ts` its reader of the workflow, `kit.tsx` the components every other `.tsx` draws with, `*.tsx` the rest of them,
+`src/runtime/page/` is the React page: `api.ts` the client (token, routes, SSE), `state.ts` the Zustand store, its
+selectors and its actions, `workflow.ts` its reader of the workflow, `kit.tsx` the components every other `.tsx` draws with, `*.tsx` the rest of them,
 `style.css` and `fonts/` the design system, `highlights.ts` the text selection's paint,
 `labels.ts` what the page names, a document, a place, a quote, purely, so it is tested without
 the store. The review's own page files live in `src/review/`: `comments.tsx` the comments
@@ -34,14 +34,14 @@ no build step, so what the page imports costs nothing at `cli start`.
 - A button, badge, chip, tag, banner, popover, dialog, chevron, gear, handle or switch is drawn through
   `kit.tsx`, never through one of its classes spelled at the call; `kit.tsx` is in `PAGE_SURFACE`,
   so an extension draws with the same eleven. A `Chip` is a button; what shows a label and takes no click is a `Tag`.
-  `ButtonProps` takes a `class`, joined to the kit's own, for a state the kit
+  `ButtonProps` takes a `className`, joined to the kit's own, for a state the kit
   has no prop for (`step-later` in `proposal/window.tsx`): there a kit class spelled at the call compiles,
   and only a reader refuses it. A `Chip`'s state the kit has no `tone` for rides on a `data-`
   attribute its extension's CSS reads under the extension's prefix (`data-state` in
   `.grill-chips`), and says it in words in its `title`, since a colour says nothing to a screen
   reader. A token consumed outside CSS (Mermaid's `themeVariables`, the frame's overlay) parses
   neither `color-mix()` nor the `oklab()` the browser serializes once computed: it goes through
-  `srgb()`, which yields sRGB, and the consumer redraws on the `dark` signal of `state.ts`.
+  `srgb()`, which yields sRGB, and the consumer redraws on `dark` of `state.ts`.
 - A commented block carries a fillet in the sheet's margin: `markdown/marked.ts` chooses,
   purely, the innermost block of each commented line, and `page.tsx` toggles `marked` on it.
 - The screen names nothing of the server's: `labels.ts` says `Plan v2` for the version's file,
@@ -70,7 +70,7 @@ no build step, so what the page imports costs nothing at `cli start`.
   loads its own state again at every change.
 - The body is panes, left to right in the order `panesOf` of `panes.ts` gives, purely: the
   document pane (`Panes`, where the rail's choice and `split` show) and each extension's `panel`
-  while its `shown()` holds. The order is data, `PANE_ORDER`, written nowhere else until settings
+  while its `useShown()` holds. The order is data, `PANE_ORDER`, written nowhere else until settings
   exist; a shown panel it omits comes after, right of the documents. A panel draws its own
   element and width. The gutters go by place, never by pane: the rail's handle sits left of the
   first pane and the comments' right of the last, whichever pane is there (`guttersOf`, pure).
@@ -80,8 +80,8 @@ no build step, so what the page imports costs nothing at `cli start`.
 - A renderer that declares `comments: false` draws a document that takes no comment, as a
   grill's transcript, read-only since the grill's panel is where it is answered: `app.tsx` then
   draws no switch and no comments panel, unless the plan shows beside it. The unsent comments
-  stay in the signals, and the bar keeps their count.
-- Both side panels fold, each on a signal of `state.ts`: the comments panel on `commentsOpen`,
+  stay in the store, and the bar keeps their count.
+- Both side panels fold, each on a field of `state.ts`: the comments panel on `commentsOpen`,
   the document rail on `railOpen`. `comments.tsx` and `doc-list.tsx` put `folded` on their panel
   and draw its control, `CommentsHandle` and `RailHandle`, both through the kit's `Handle`, which
   `app.tsx` places on the panel's edge inside `.body`. The comments panel's CSS takes its width
@@ -127,8 +127,8 @@ no build step, so what the page imports costs nothing at `cli start`.
   modules: `state.ts` keeps the documents, the comments, the draft, the Send and the stream, and
   reads none of it; `workflow.ts` holds what holds the review, the pill and what is refused now,
   the approval and Record, the edit a hold keeps, and the column of the core's notices, which reads
-  both. Its signals and actions are built over a store (`workflowOf`): the page runs one over its
-  own, `state.spec.ts` one over each store `createStore` builds for a test (`freshFlow`), which a
+  both. Its store and actions are built over the page's (`workflowOf`): the page runs one over its
+  own, `state.spec.ts` one over each store `createPage` builds for a test (`freshFlow`), which a
   module-level one would never see. `workflow.ts` is not in `PAGE_SURFACE`: an extension reads the hold off
   `review.workflow` of `state.ts`.
 - `held` of `workflow.ts` is what holds the review, or `null`, in the holder's words (the grill's
@@ -165,7 +165,7 @@ no build step, so what the page imports costs nothing at `cli start`.
 - What the page says of its state is derived, in `notices.ts`, pure and held by
   `notices.spec.ts`: `noticesOf` the column under the bar, `statusOf` the pill and what it opens
   on, `decisionsOf` the three buttons of the core, greyed or not and why, the reason in each
-  `title`. Nothing writes a sentence into a signal: a request that fails is a `Failure` of its
+  `title`. Nothing writes a sentence into the store: a request that fails is a `Failure` of its
   operation, through `fail` of `state.ts`, one per operation, with the one way on its refusal
   offers when it offers one, and the next success of that operation removes it
   (`succeed`); the stale editor derives from `editing` and the version, so its notice leaves
@@ -197,18 +197,18 @@ no build step, so what the page imports costs nothing at `cli start`.
   `start`: `Comments` draws `commentsOpen` at that render and `start` runs in an effect after it,
   so under 900px the panel would paint open, then fold through its width transition
   (`shell.e2e.ts` holds that call, `src/boundaries.spec.ts` the rest).
-- `start` is the page's one way in, and its order is the rule: the saved draft into the signals,
+- `start` is the page's one way in, and its order is the rule: the saved draft into the store,
   then the first load, then the saving effects, then the event stream. A `writeDraft` asked
   while `start` runs, End grill being drawn before the review loads, waits for all of it
   (`firstLoad`): until then a `flushDraft` still `null` does not mean a draft that could not be
   read. Nothing may `PUT` a draft before the restore, or every reload replaces the file with the
-  page's empty state. After it, each change of the comments, the edit or the choices is one write, sent in order; signals that change
-  together change in one `batch`; a change of `typed` is written once the typing pauses
+  page's empty state. After it, each change of the comments, the edit or the choices is one write, sent in order; fields that change
+  together change in one `setState`, the patches composed; a change of `typed` is written once the typing pauses
   (`TYPED_WRITE_MS`), and a write of the comments, the edit or the choices meanwhile carries it.
   Every write goes with `keepalive` while the page's keepalive writes in flight leave room for
   its body, `KEEPALIVE_BYTES` together, the Fetch standard's limit, and without it beyond: a
   plain request waiting for a socket dies with the page. `draftWriter` of `api.ts` counts them,
-  one writer per store, which `createStore` makes. When the page is hidden (`visibilitychange`) or closed (`pagehide`) while a write
+  one writer per store, which `createPage` makes. When the page is hidden (`visibilitychange`) or closed (`pagehide`) while a write
   waits, a typing pausing or a write queued behind another, the draft shown is written within the
   event, which the page may not outlive, and the older writes still queued never start: the
   first of the two events takes it, the second finds nothing. A failure there shows nothing, the
@@ -304,7 +304,7 @@ no build step, so what the page imports costs nothing at `cli start`.
   alone: a failure leaves the note where it was typed.
 - There is one Send, `send` of `state.ts`, which answers what it did with the edit (`Sent`), and
   which the bar calls through `send` of `workflow.ts`, keeper of the edit a hold left: the bar's `Send (n)`, whose `n` counts the comments,
-  the choices a Send takes (`sendableChoices`), the edit as 1, and each extension's share (`PageExtension.send`, `SendShare`: the grill's
+  the choices a Send takes (`sendableChoices`), the edit as 1, and each extension's share (`PageExtension.useSend`, `SendShare`: the grill's
   questions answered), which `app.tsx` hands the bar; and a card's Send now, which sends that
   comment or that choice alone and leaves the round, greyed on a comment on the plan while an edit
   waits. The click is a snapshot (`Outgoing`). The server sends from the draft it keeps, so `send` writes the draft first (`writeDraft`, which reads the draft again
@@ -344,7 +344,7 @@ no build step, so what the page imports costs nothing at `cli start`.
   which takes a string only; `Number(match[1])` compiles on the `undefined` that
   `noUncheckedIndexedAccess` had just named, and answers `NaN`.
 - A `mermaid` block reaches the page as an empty `figure` carrying its lines and its source, and
-  Mermaid fills it after the mount: the figure is the one place a renderer writes DOM that Preact
+  Mermaid fills it after the mount: the figure is the one place a renderer writes DOM that React
   does not own, and `data-source` is both what a comment on it quotes and what a late render
   checks before it writes. Its comment boxes the figure, since the SVG holds no text to highlight.
   Mermaid measures each diagram in a box it appends to `body`: the page itself never scrolls

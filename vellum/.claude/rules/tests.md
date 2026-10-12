@@ -79,9 +79,9 @@ paths:
   internal call.
 - The page's ports are the browser's globals it reads: `fetch`, `EventSource`, `location`,
   `window.matchMedia`. A suite puts a fake there for one test and takes it away after (`port` in
-  `runtime/page/state.spec.ts`); `api.ts` is never mocked. The store is built by `createStore` of
+  `runtime/page/state.spec.ts`); `api.ts` is never mocked. The store is built by `createPage` of
   `state.ts`, and a suite that drives it takes a new one for each test (`freshStore`, same file),
-  so no signal, and no saving effect `start` leaves behind, reaches another test or another suite;
+  so no state, and no saving subscription `start` leaves behind, reaches another test or another suite;
   the page runs the one the module builds.
 - The kit starts no subagent: a spawn that succeeds, with its `agentId`, is checked in a live
   session, and the kit covers the rest of a launch ([Hook tests](../../../docs/plugin-testing/hooks.md)).
