@@ -37,6 +37,27 @@
     },
     {
       "files": [
+        "vellum/src/**/*.tsx"
+      ],
+      "plugins": [
+        "react"
+      ],
+      "rules": {
+        "react/checked-requires-onchange-or-readonly": "off",
+        "react/exhaustive-deps": "off",
+        "react/exhaustive-effect-dependencies": "off",
+        "react/immutability": "off",
+        "react/memo-dependencies": "off",
+        "react/no-unescaped-entities": "off",
+        "react/no-unstable-nested-components": "off",
+        "react/react-in-jsx-scope": "off",
+        "react/refs": "off",
+        "react/rules-of-hooks": "error",
+        "react/set-state-in-effect": "off"
+      }
+    },
+    {
+      "files": [
         "vellum/src/**/*.spec.ts",
         "vellum/src/**/*.test.ts",
         "vellum/src/**/fixtures/**"

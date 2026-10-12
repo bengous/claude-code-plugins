@@ -3,7 +3,7 @@
  * review through `contract.ts`, as types, and takes a value from this file, or the composer every
  * renderer opens from `composer.tsx`, the one other file of the surface (`REVIEW_SURFACE` in
  * `src/boundaries.spec.ts`): the mockup's frame script loads this file, and the composer would
- * bring the page's store and Preact into it.
+ * bring the page's store and React into it.
  */
 
 export {

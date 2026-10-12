@@ -24,7 +24,7 @@ export type Json =
 export type Listen = "prompted" | "answered" | "agentAnswered" | "staged" | "closing";
 
 /** The places of the page a page half may fill; `runtime/extension.ts` types what each holds. */
-export type PageSlot = "renderers" | "send" | "actions" | "notices" | "panel";
+export type PageSlot = "renderers" | "useSend" | "actions" | "notices" | "panel";
 
 export type GetRoute = `GET ${string}`;
 

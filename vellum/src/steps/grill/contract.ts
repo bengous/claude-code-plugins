@@ -143,7 +143,7 @@ export const SLICE = defineSlice({
   opened: payload<{ readonly subject: string }>(),
   /** What its part of the bar's Send carries to its reaction: the reply typed on the open transcript. */
   sends: payload<Typing>(),
-  page: ["renderers", "notices", "send", "panel"],
+  page: ["renderers", "notices", "useSend", "panel"],
 });
 
 export type GrillPlugs = PlugsOf<typeof SLICE>;

@@ -81,7 +81,7 @@ const readsProposal: Guard<Carried<ProposalEvents, "pause">> = (_w, input) =>
   // @ts-expect-error -- `pause` carries `id` alone.
   input.proposal === "";
 
-const shown = (): boolean => true;
+const useShown = (): boolean => true;
 
 const answering = (): Promise<ToolAnswer> => Promise.resolve({ result: "" });
 
@@ -328,7 +328,7 @@ describe("every event has its transition, every page slot its component (5)", ()
 
   test("a page slot filled and not declared does not compile: a panel would open beside the documents", () => {
     // @ts-expect-error -- the plugs declare `actions` and `notices` alone.
-    const half: PageHalf<ProposalPlugs> = { ...page, panel: { shown, component: () => null } };
+    const half: PageHalf<ProposalPlugs> = { ...page, panel: { useShown, component: () => null } };
 
     expect(half.panel).toBeDefined();
   });

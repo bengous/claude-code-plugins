@@ -4,7 +4,7 @@ import type { Pane, ShownPanel } from "./panes.ts";
 import { DOCS_PANE, guttersOf, PANE_ORDER, panesOf } from "./panes.ts";
 
 function shown(id: string): ShownPanel {
-  return { id, panel: { shown: () => true, component: () => null } };
+  return { id, panel: { useShown: () => true, component: () => null } };
 }
 
 const GRILL = shown("grill");

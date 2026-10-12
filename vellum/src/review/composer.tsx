@@ -1,10 +1,11 @@
-import { useEffect, useLayoutEffect, useRef, useState } from "preact/hooks";
+import type { JSX } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 
 import { Button, Chip, Popover } from "../runtime/page/kit.tsx";
 import { quoteOf, whereOf } from "../runtime/page/labels.ts";
 import type { Rect } from "../runtime/page/place.ts";
 import { placeNear } from "../runtime/page/place.ts";
-import { setTyped, typed } from "../runtime/page/state.ts";
+import { pageStore, setTyped, usePage } from "../runtime/page/state.ts";
 import type { ProjectPath } from "../workshop/paths.ts";
 import type { ElementRef, Mark, Passage, QuickLabel } from "./feedback.ts";
 import { QUICK_LABELS } from "./feedback.ts";
@@ -55,8 +56,8 @@ const UNMEASURED = { width: 300, height: 0 };
  * The text lives in the draft: a composer unmounted under it gives it to the next one on the
  * same document, and a send or a Cancel is what clears it.
  */
-export function Composer(props: ComposerProps): preact.JSX.Element {
-  const body = typed.value.composer[props.doc] ?? "";
+export function Composer(props: ComposerProps): JSX.Element {
+  const body = usePage((s) => s.typed.composer[props.doc] ?? "");
   const [size, setSize] = useState(UNMEASURED);
   const box = useRef<HTMLDivElement>(null);
   const textarea = useRef<HTMLTextAreaElement>(null);
@@ -64,13 +65,13 @@ export function Composer(props: ComposerProps): preact.JSX.Element {
   const text = body.trim();
 
   const forget = (): void => {
-    const { [props.doc]: _gone, ...rest } = typed.value.composer;
+    const { [props.doc]: _gone, ...rest } = pageStore.getState().typed.composer;
     setTyped({ composer: rest });
   };
 
   const setBody = (value: string): void => {
     if (value === "") forget();
-    else setTyped({ composer: { ...typed.value.composer, [props.doc]: value } });
+    else setTyped({ composer: { ...pageStore.getState().typed.composer, [props.doc]: value } });
   };
 
   const submit = (mark: Mark): void => {
@@ -120,18 +121,18 @@ export function Composer(props: ComposerProps): preact.JSX.Element {
         const { quote, mono, where } = shown(pick);
 
         return (
-          <div class={mono ? "quote code" : "quote"} key={pick.key}>
-            “{quote}” · <span class="where">{where}</span>
+          <div className={mono ? "quote code" : "quote"} key={pick.key}>
+            “{quote}” · <span className="where">{where}</span>
           </div>
         );
       })}
-      <div class="labels">
+      <div className="labels">
         {LABELS.map((label) => (
           <Chip key={label} disabled={text !== ""} onClick={() => submit({ kind: "label", label })}>
             {QUICK_LABELS[label].name}
           </Chip>
         ))}
-        <span class="spacer" />
+        <span className="spacer" />
         <Chip tone="del" disabled={text !== ""} onClick={() => submit({ kind: "delete" })}>
           Delete this
         </Chip>
@@ -140,12 +141,12 @@ export function Composer(props: ComposerProps): preact.JSX.Element {
         rows={3}
         aria-label="Comment"
         placeholder="Comment"
-        autofocus
+        data-autofocus=""
         ref={textarea}
         value={body}
         onInput={(event) => setBody(event.currentTarget.value)}
       />
-      <div class="row">
+      <div className="row">
         <Button size="sm" onClick={cancel}>
           Cancel
         </Button>

@@ -86,6 +86,27 @@ export default defineConfig({
       rules: { "max-lines": ["error", { max: 500 }] },
     },
     {
+      // The page's components: a hook after an early return or inside a branch is a crash in
+      // production the moment the count changes, and neither tsgo nor the categories see it. The
+      // plugin's other rules the categories would turn on are off: each would rewrite a handler
+      // the page keeps on purpose (`onInput` on a controlled field, `onClick` on a radio).
+      files: ["vellum/src/**/*.tsx"],
+      plugins: ["react"],
+      rules: {
+        "react/rules-of-hooks": "error",
+        "react/react-in-jsx-scope": "off",
+        "react/exhaustive-deps": "off",
+        "react/exhaustive-effect-dependencies": "off",
+        "react/memo-dependencies": "off",
+        "react/set-state-in-effect": "off",
+        "react/immutability": "off",
+        "react/refs": "off",
+        "react/checked-requires-onchange-or-readonly": "off",
+        "react/no-unescaped-entities": "off",
+        "react/no-unstable-nested-components": "off",
+      },
+    },
+    {
       // A suite grows with the behaviours it holds, one per test: its size says nothing of its notions.
       files: ["vellum/src/**/*.spec.ts", "vellum/src/**/*.test.ts", "vellum/src/**/fixtures/**"],
       rules: { "max-lines": "off" },

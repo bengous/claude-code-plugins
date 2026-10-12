@@ -1,5 +1,5 @@
-import type { JSX } from "preact";
-import { useEffect, useState } from "preact/hooks";
+import type { JSX } from "react";
+import { useEffect, useState } from "react";
 
 import type { VellumBuild } from "../../protocol.ts";
 import type { Fetched } from "../api.ts";
@@ -22,7 +22,7 @@ export function AboutVellum(): JSX.Element {
   if (build !== null && !build.ok) {
     return (
       <SettingsGroup title="Build">
-        <p class="settings-error">
+        <p className="settings-error">
           <code>{build.reason ?? `HTTP ${build.status}`}</code>
         </p>
       </SettingsGroup>

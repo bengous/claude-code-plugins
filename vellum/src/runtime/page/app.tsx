@@ -1,6 +1,6 @@
-import { batch } from "@preact/signals";
-import { render } from "preact";
-import { useEffect, useRef } from "preact/hooks";
+import type { JSX } from "react";
+import { useEffect, useRef } from "react";
+import { createRoot } from "react-dom/client";
 
 import { lineAtTop } from "../../review/caret.ts";
 import { Comments, CommentsHandle } from "../../review/comments.tsx";
@@ -13,24 +13,20 @@ import { DocList, RailHandle } from "./doc-list.tsx";
 import { pathLabel } from "./labels.ts";
 import { DOCS_PANE, guttersOf, PANE_ORDER, panesOf } from "./panes.ts";
 import { pageExtensions } from "./slices.ts";
+import type { Page } from "./state.ts";
 import {
   addAnnotation,
-  annotations,
-  commentsOpen,
-  commentsSnap,
-  currentDoc,
-  edited,
-  editing,
   flipCommentSwitch,
-  holding,
+  foldCommentsForPanel,
   openEditor,
-  planChanges,
-  planDoc,
+  pageStore,
   readWindow,
-  review,
-  showChanges,
-  split,
+  selectCurrentDoc,
+  selectPlanChanges,
+  selectPlanDoc,
+  setHolding,
   start,
+  usePage,
 } from "./state.ts";
 import { switchShown, Tools } from "./tools.tsx";
 
@@ -41,69 +37,81 @@ function rendererOf(doc: DocRef): Renderer | undefined {
 }
 
 /** Whether the document shown is beside the plan, drawn on its own or split. */
-function besidePlan(): boolean {
-  const doc = currentDoc.value;
+function besidePlan(s: Page): boolean {
+  const doc = selectCurrentDoc(s);
+  const plan = selectPlanDoc(s);
 
-  return split.value && planDoc.value !== null && doc?.path !== planDoc.value.path;
+  return s.split && plan !== null && doc?.path !== plan.path;
 }
 
 /** Whether what is on screen takes comments: the document's renderer says, and the plan beside it always does. */
-function takesComments(): boolean {
-  const doc = currentDoc.value;
+function takesComments(s: Page): boolean {
+  const doc = selectCurrentDoc(s);
 
-  return doc === null || besidePlan() || rendererOf(doc)?.comments !== false;
+  return doc === null || besidePlan(s) || rendererOf(doc)?.comments !== false;
 }
 
 /** What the general box comments: the document shown, or the plan when the one beside it takes no comment. */
-function commented(): GroupedDoc | null {
-  const doc = currentDoc.value;
+function commented(s: Page): GroupedDoc | null {
+  const doc = selectCurrentDoc(s);
 
-  return doc !== null && besidePlan() && rendererOf(doc)?.comments === false ? planDoc.value : doc;
+  return doc !== null && besidePlan(s) && rendererOf(doc)?.comments === false
+    ? selectPlanDoc(s)
+    : doc;
 }
 
-function Doc(props: { readonly doc: DocRef }): preact.JSX.Element {
+function Doc(props: { readonly doc: DocRef }): JSX.Element {
   const { doc } = props;
-  const isPlan = doc.path === planDoc.value?.path;
+  const isPlan = usePage((s) => doc.path === selectPlanDoc(s)?.path);
+  const annotations = usePage((s) => s.annotations);
+  const edited = usePage((s) => s.edited);
+  const showChanges = usePage((s) => s.showChanges);
+  const planChanges = usePage(selectPlanChanges);
   const renderer = rendererOf(doc);
 
-  if (renderer === undefined) return <div class="waiting">No renderer for {doc.mediaType}</div>;
+  if (renderer === undefined) {
+    return <div className="waiting">No renderer for {doc.mediaType}</div>;
+  }
+
   const Component = renderer.component;
 
   return (
-    <div class="pane" key={doc.path}>
+    <div className="pane" key={doc.path}>
       <Component
         doc={doc}
-        annotations={annotations.value.filter((a) => a.doc === doc.path)}
+        annotations={annotations.filter((a) => a.doc === doc.path)}
         annotate={addAnnotation}
-        source={isPlan ? (edited.value?.text ?? null) : null}
-        changes={showChanges.value && isPlan ? planChanges.value : null}
+        source={isPlan ? (edited?.text ?? null) : null}
+        changes={showChanges && isPlan ? planChanges : null}
       />
     </div>
   );
 }
 
-function Panes(): preact.JSX.Element {
-  const plan = planDoc.value;
-  const doc = currentDoc.value;
+function Panes(): JSX.Element {
+  const plan = usePage(selectPlanDoc);
+  const doc = usePage(selectCurrentDoc);
   const panes = useRef<HTMLDivElement>(null);
-  const session = editing.value;
+  const session = usePage((s) => s.editing);
+  const view = usePage((s) => s.review);
+  const edited = usePage((s) => s.edited);
+  const split = usePage((s) => s.split);
+  const comments = usePage(takesComments);
   const beside = plan !== null && doc !== null && doc.path !== plan.path;
 
-  const view = review.value;
-
   const head = doc !== null && (
-    <div class="doc-head">
-      <span class="path" title={doc.path}>
+    <div className="doc-head">
+      <span className="path" title={doc.path}>
         {view === null ? doc.path : pathLabel(doc, view)}
       </span>
-      {edited.value !== null && !beside && <span class="edited">edited, not sent</span>}
+      {edited !== null && !beside && <span className="edited">edited, not sent</span>}
     </div>
   );
 
   // Before the empty state: an open editor keeps its Cancel whatever the document list became.
   if (session !== null) {
     return (
-      <main id="doc" class="docs" tabIndex={-1}>
+      <main id="doc" className="docs" tabIndex={-1}>
         {head}
         <Editor session={session} />
       </main>
@@ -112,8 +120,10 @@ function Panes(): preact.JSX.Element {
 
   if (doc === null) {
     return (
-      <main id="doc" class="docs" tabIndex={-1}>
-        <div class="waiting">Nothing to show yet. The working directory's files appear here.</div>
+      <main id="doc" className="docs" tabIndex={-1}>
+        <div className="waiting">
+          Nothing to show yet. The working directory's files appear here.
+        </div>
       </main>
     );
   }
@@ -121,11 +131,11 @@ function Panes(): preact.JSX.Element {
   const startEdit = (): void => openEditor(panes.current === null ? 1 : lineAtTop(panes.current));
 
   return (
-    <main id="doc" class="docs" tabIndex={-1}>
+    <main id="doc" className="docs" tabIndex={-1}>
       {head}
-      <Tools onEdit={startEdit} comments={takesComments()} />
-      <div class="panes" ref={panes}>
-        {beside && split.value && plan !== null && <Doc doc={plan} />}
+      <Tools onEdit={startEdit} comments={comments} />
+      <div className="panes" ref={panes}>
+        {beside && split && plan !== null && <Doc doc={plan} />}
         <Doc doc={doc} />
       </div>
     </main>
@@ -134,7 +144,7 @@ function Panes(): preact.JSX.Element {
 
 const actions = pageExtensions.flatMap((extension) => extension.actions ?? []);
 
-const shares = pageExtensions.flatMap(({ send }) => (send === undefined ? [] : [send]));
+const shares = pageExtensions.flatMap(({ useSend }) => (useSend === undefined ? [] : [useSend]));
 
 const extraNotices = pageExtensions.flatMap((extension) => extension.notices ?? []);
 
@@ -142,22 +152,17 @@ const panels = pageExtensions.flatMap(({ id, panel }) =>
   panel === undefined ? [] : [{ id, panel }],
 );
 
-function App(): preact.JSX.Element {
-  const panes = panesOf(
-    PANE_ORDER,
-    panels.filter(({ panel }) => panel.shown()),
-  );
-
+function App(): JSX.Element {
+  // oxlint-disable-next-line react/rules-of-hooks -- `panels` is the registry, fixed at load: the hooks are called in one order at every render.
+  const shownPanels = panels.filter(({ panel: { useShown } }) => useShown());
+  const comments = usePage(takesComments);
+  const commentedDoc = usePage(commented);
+  const panes = panesOf(PANE_ORDER, shownPanels);
   const panelShown = panes.some((pane) => pane.kind === "panel");
 
   // Four columns do not fit a laptop: a panel appearing takes the comments' room, their handle kept.
   useEffect(() => {
-    if (!panelShown) return;
-
-    batch(() => {
-      commentsOpen.value = false;
-      commentsSnap.value = true;
-    });
+    if (panelShown) foldCommentsForPanel();
   }, [panelShown]);
 
   useEffect(() => {
@@ -165,15 +170,17 @@ function App(): preact.JSX.Element {
 
     // A pointer event carries the modifiers too: a Control pressed before a focus change sends no key event after it.
     const held = (event: KeyboardEvent | PointerEvent): void => {
-      holding.value = event.ctrlKey || event.metaKey;
+      setHolding(event.ctrlKey || event.metaKey);
     };
 
     const flip = (event: KeyboardEvent): void => {
-      if (isSwitchKey(keyPressOf(event)) && switchShown(takesComments())) flipCommentSwitch();
+      const s = pageStore.getState();
+
+      if (isSwitchKey(keyPressOf(event)) && switchShown(takesComments(s), s)) flipCommentSwitch();
     };
 
     const release = (): void => {
-      holding.value = false;
+      setHolding(false);
     };
 
     document.addEventListener("keydown", held);
@@ -192,13 +199,13 @@ function App(): preact.JSX.Element {
   }, []);
 
   return (
-    <div class="app">
-      <a class="skip" href="#doc">
+    <div className="app">
+      <a className="skip" href="#doc">
         Skip to document
       </a>
       <DecisionBar actions={actions} shares={shares} />
       <Notices extensions={extraNotices} />
-      <div class="body">
+      <div className="body">
         <DocList />
         <RailHandle />
         {panes.map((pane, index) => {
@@ -208,15 +215,15 @@ function App(): preact.JSX.Element {
           return (
             <div
               key={pane.kind === "docs" ? DOCS_PANE : pane.id}
-              class={`slot${gutters.start ? " gutter-start" : ""}${gutters.end ? " gutter-end" : ""}`}
+              className={`slot${gutters.start ? " gutter-start" : ""}${gutters.end ? " gutter-end" : ""}`}
             >
               <Component />
             </div>
           );
         })}
-        {takesComments() && (
+        {comments && (
           <>
-            <Comments doc={commented()} />
+            <Comments doc={commentedDoc} />
             <CommentsHandle />
           </>
         )}
@@ -229,5 +236,5 @@ const root = document.querySelector("#root");
 
 if (root !== null) {
   readWindow();
-  render(<App />, root);
+  createRoot(root).render(<App />);
 }

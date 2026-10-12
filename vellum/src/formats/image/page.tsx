@@ -1,16 +1,17 @@
-import { useState } from "preact/hooks";
+import type { JSX } from "react";
+import { useState } from "react";
 
 import type { PageHalf, RendererProps } from "../../runtime/extension.ts";
 import { docUrl } from "../../runtime/page/api.ts";
 import type { ImagePlugs } from "./contract.ts";
 
 /** Fitted to the pane, or at its real size on a click, back on the next; one that fits already takes no click. */
-function ImageDoc(props: RendererProps): preact.JSX.Element {
+function ImageDoc(props: RendererProps): JSX.Element {
   const [real, setReal] = useState(false);
   const [zoomable, setZoomable] = useState(false);
 
   return (
-    <div class={zoomable ? (real ? "image real" : "image fit") : "image"}>
+    <div className={zoomable ? (real ? "image real" : "image fit") : "image"}>
       <img
         alt={props.doc.path}
         src={docUrl(props.doc)}

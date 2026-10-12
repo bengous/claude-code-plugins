@@ -1,8 +1,8 @@
-/* oxlint-disable anti-slop/require-safety-comment-for-type-assertion -- fixtures are branded ProjectPath literals and Preact vnodes read as records; the brand is the parser's to grant, and nothing here parses. */
+/* oxlint-disable anti-slop/require-safety-comment-for-type-assertion -- fixtures are branded ProjectPath literals and React elements read as records; the brand is the parser's to grant, and nothing here parses. */
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
-import type { ComponentChildren, VNode } from "preact";
-import { isValidElement, toChildArray } from "preact";
+import type { ReactElement, ReactNode } from "react";
+import { Children, isValidElement } from "react";
 
 import type { GroupedDoc } from "../../runtime/protocol.ts";
 import { toTree } from "./tree.ts";
@@ -23,17 +23,17 @@ const SHEET: Sheet = {
 
 /** The props a drawn node is read for. */
 type Props = {
-  readonly class?: string;
+  readonly className?: string;
   readonly src?: string;
   readonly "data-path"?: string;
-  readonly children?: ComponentChildren;
+  readonly children?: ReactNode;
 };
 
-type Drawn = VNode<Props>;
+type Drawn = ReactElement<Props>;
 
-/** Every vnode under `nodes`, depth first, whose tag is `tag`. */
-function drawn(nodes: ComponentChildren, tag: string): Drawn[] {
-  return toChildArray(nodes).flatMap((node) => {
+/** Every element under `nodes`, depth first, whose tag is `tag`. */
+function drawn(nodes: ReactNode, tag: string): Drawn[] {
+  return Children.toArray(nodes).flatMap((node) => {
     if (!isValidElement(node)) return [];
     const one = node as Drawn;
     const below = drawn(one.props.children, tag);
@@ -42,7 +42,7 @@ function drawn(nodes: ComponentChildren, tag: string): Drawn[] {
   });
 }
 
-function draw(markdown: string, sheet: Sheet = SHEET): ComponentChildren {
+function draw(markdown: string, sheet: Sheet = SHEET): ReactNode {
   return toVNodes(toTree(markdown).children, sheet);
 }
 
@@ -105,11 +105,19 @@ describe("what a name reaches", () => {
   });
 });
 
+describe("a block's lines", () => {
+  test("ride in `data-lines`, the attribute every reader of the page parses", () => {
+    const [paragraph] = drawn(draw("One.\n\nTwo.\n"), "p");
+
+    expect(paragraph?.props).toMatchObject({ "data-lines": "1-1" });
+  });
+});
+
 describe("a table", () => {
   test("is drawn in a box of its own that scrolls", () => {
     const [box] = drawn(draw("| a | b |\n|---|---|\n| 1 | 2 |\n"), "div");
 
-    expect(box?.props.class).toBe("scroll-x");
+    expect(box?.props.className).toBe("scroll-x");
     expect(drawn([box], "table")).toHaveLength(1);
   });
 });

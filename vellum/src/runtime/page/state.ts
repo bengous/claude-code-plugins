@@ -1,4 +1,6 @@
-import { batch, computed, effect, signal } from "@preact/signals";
+import { useStore } from "zustand";
+import type { StoreApi } from "zustand/vanilla";
+import { createStore } from "zustand/vanilla";
 
 import type {
   Annotation,
@@ -26,7 +28,7 @@ import {
 import type { ProjectPath, Version } from "../../workshop/paths.ts";
 import { sameBuild } from "../../workshop/vellum-build.ts";
 import type { SendShare } from "../extension.ts";
-import type { GroupedDoc, ReviewView, VellumBuild } from "../protocol.ts";
+import type { GroupedDoc, ReviewView, VellumBuild, WorkflowView } from "../protocol.ts";
 import { takesComments } from "../protocol.ts";
 import {
   draftWriter,
@@ -91,58 +93,179 @@ export type Outgoing = {
   readonly takeDefaults: readonly string[];
 };
 
-/**
- * The page's store: every signal and every action over them, built fresh by each call, so a suite
- * gets a store of its own with no module imported again. The page runs one, below.
- */
-export function createStore() {
-  const review = signal<ReviewView | null>(null);
-
+/** The page's state, one object: every field a component reads, and nothing derived. */
+export type Page = {
+  readonly review: ReviewView | null;
   /** The comments not sent yet: a send clears them, and nothing Claude does may. */
-  const annotations = signal<readonly Annotation[]>([]);
-
+  readonly annotations: readonly Annotation[];
   /**
    * The options chosen in mockups and not sent yet: `choose` and `unchoose` change them, a Send
    * takes out what it sent, an approval clears them, and the saved draft restores them.
    */
-  const choices = signal<Choices>({});
-
+  readonly choices: Choices;
   /**
    * The choices whose option its mockup no longer holds, as the mockup's frame last read it, at its
    * load and at each change of its choices: page memory, never the draft's.
    */
-  const absent = signal<readonly ChoiceRef[]>([]);
-
-  /** What the frame of `doc` reads now replaces what it read before. */
-  function setAbsent(doc: ProjectPath, found: readonly Omit<ChoiceRef, "doc">[]): void {
-    absent.value = [
-      ...absent.value.filter((ref) => ref.doc !== doc),
-      ...found.map(({ decision, option }) => ({ doc, decision, option })),
-    ];
-  }
-
-  function isAbsent(choice: ChoiceRef): boolean {
-    return absent.value.some(
-      (ref) =>
-        ref.doc === choice.doc && ref.decision === choice.decision && ref.option === choice.option,
-    );
-  }
-
-  /** The choices a Send takes: every one whose mockup still holds its option, as far as the page read it. */
-  const sendableChoices = computed(() =>
-    choicesIn(choices.value).filter((choice) => !isAbsent(choice)),
-  );
-
+  readonly absent: readonly ChoiceRef[];
   /** What is typed and not submitted, saved with the draft; `setTyped` is its one writer. */
-  const typed = signal<Typed>(EMPTY_TYPED);
+  readonly typed: Typed;
+  /** The document shown; `null` is the plan. */
+  readonly current: ProjectPath | null;
+  readonly split: boolean;
+  /**
+   * Whether the comments panel takes its width: open when the window is wide, folded when narrow,
+   * read again at every load, by `readWindow`.
+   */
+  readonly commentsOpen: boolean;
+  /**
+   * The comments' last fold was the layout's, not the reviewer's: it is drawn at once. A panel is
+   * known only once its extension loaded, after the first render, and a slide then reads as the
+   * page jumping. The handle clears it, so the reviewer's own folds slide.
+   */
+  readonly commentsSnap: boolean;
+  /** Whether the document rail takes its width: open at every load, whatever the window's width. */
+  readonly railOpen: boolean;
+  /** Whether the page draws its dark theme: what resolves tokens outside CSS redraws at each change. */
+  readonly dark: boolean;
+  /** The reviewer's switch: off at every load. */
+  readonly commentSwitch: boolean;
+  /** Ctrl or Meta held down: a drag or a click adds to the set instead of replacing it. */
+  readonly holding: boolean;
+  /** The reviewer's own text of the plan, not sent yet: the next decision records it as the next version. */
+  readonly edited: Edit | null;
+  readonly editing: EditSession | null;
+  /**
+   * The source line to come back to once the editor closes: the plan's renderer scrolls to its
+   * block and clears it, and Edit takes the focus; `null` the rest of the time.
+   */
+  readonly resume: number | null;
+  /** "Changes since" is off at every load: the reviewer reads the plan itself first. */
+  readonly showChanges: boolean;
+  /** The requests that failed, one per operation: `fail` replaces the operation's entry, `succeed` removes it. */
+  readonly failures: readonly Failure[];
+  /**
+   * What the last Delete of a card can undo, for `UNDO_MS`; `null` past that, once undone, and
+   * after a decision, Done or Discard edit, which the comment it holds was made before.
+   */
+  readonly undo: { readonly label: string; readonly run: () => void } | null;
+  /**
+   * The card the reviewer is on, by its annotation's id: hovered or focused, the plan's renderer
+   * highlights its passage; clicked (`reveal`), it scrolls to it as well. `null` off any card.
+   */
+  readonly focused: { readonly id: string; readonly reveal: boolean } | null;
+  readonly connection: "up" | "down";
+  /** How long ago the stream failed, as far as the notice cares: `0`, then past the hint's delay; `null` while it is up. */
+  readonly downFor: number | null;
+  /**
+   * A write out to the review that takes from the draft, a Send or End grill: every way to either
+   * waits, so nothing is sent twice. A Send stays out until the page has read again what it left.
+   */
+  readonly sending: boolean;
+};
 
-  function setTyped(patch: Partial<Typed>): void {
-    typed.value = { ...typed.value, ...patch };
+const INITIAL: Page = {
+  review: null,
+  annotations: [],
+  choices: {},
+  absent: [],
+  typed: EMPTY_TYPED,
+  current: null,
+  split: false,
+  commentsOpen: true,
+  commentsSnap: false,
+  railOpen: true,
+  dark: false,
+  commentSwitch: false,
+  holding: false,
+  edited: null,
+  editing: null,
+  resume: null,
+  showChanges: false,
+  failures: [],
+  undo: null,
+  focused: null,
+  connection: "up",
+  downFor: null,
+  sending: false,
+};
+
+/** Writes `partial` unless every field it names already holds that value: an equal write wakes nobody. */
+export function patchStore<S extends object>(store: StoreApi<S>, partial: Partial<S>): void {
+  const state = store.getState();
+  let changed = false;
+
+  for (const key in partial) {
+    if (Object.hasOwn(partial, key) && !Object.is(partial[key], state[key])) changed = true;
   }
 
-  /** What a Send would throw: every typed text, named by where it is on screen, but the grill's answers, which leave with it. */
-  const strayTyped = computed<Unsent>(() => {
-    const { general, composer, editor } = typed.value;
+  if (changed) store.setState(partial);
+}
+
+/**
+ * A one-entry cache over one or several states: `compute` runs again only when an input changed
+ * by reference, so a render and a handler read the same object while the inputs stand.
+ */
+export function memoized<A extends readonly unknown[], I extends unknown[], R>(
+  inputs: (...states: A) => I,
+  compute: (...input: I) => R,
+): (...states: A) => R {
+  let last: { readonly input: I; readonly result: R } | null = null;
+
+  return (...states) => {
+    const input = inputs(...states);
+
+    if (
+      last !== null &&
+      last.input.length === input.length &&
+      last.input.every((one, index) => Object.is(one, input[index]))
+    ) {
+      return last.result;
+    }
+
+    const result = compute(...input);
+    last = { input, result };
+
+    return result;
+  };
+}
+
+type Patch = (s: Page) => Partial<Page>;
+
+/** One patch of several, each seeing the state the ones before it made. */
+function compose(...patches: readonly Patch[]): Patch {
+  return (s) => {
+    const merged: Partial<Page> = {};
+    let seen = s;
+
+    for (const patch of patches) {
+      const part = patch(seen);
+      Object.assign(merged, part);
+      seen = { ...seen, ...part };
+    }
+
+    return merged;
+  };
+}
+
+/** Whether `choice` is one of `absent`, the choices whose option the mockup no longer holds. */
+export function isAbsent(absent: readonly ChoiceRef[], choice: ChoiceRef): boolean {
+  return absent.some(
+    (ref) =>
+      ref.doc === choice.doc && ref.decision === choice.decision && ref.option === choice.option,
+  );
+}
+
+/** The choices a Send takes: every one whose mockup still holds its option, as far as the page read it. */
+export const selectSendableChoices = memoized(
+  (s: Page): [Choices, readonly ChoiceRef[]] => [s.choices, s.absent],
+  (choices, absent) => choicesIn(choices).filter((choice) => !isAbsent(absent, choice)),
+);
+
+/** What a Send would throw: every typed text, named by where it is on screen, but the grill's answers, which leave with it. */
+export const selectStrayTyped = memoized(
+  (s: Page): [Typed] => [s.typed],
+  ({ general, composer, editor }): Unsent => {
     const found: { readonly where: string; readonly text: string }[] = [];
 
     if (general.trim() !== "") found.push({ where: "the general box", text: general });
@@ -154,13 +277,16 @@ export function createStore() {
     if (editor !== null) found.push({ where: "the editor", text: editor.text });
 
     return found;
-  });
+  },
+);
 
-  /** What an approval would throw: every typed text, the grill's answers included. */
-  const unsentTyped = computed<Unsent>(() => {
-    const found = [...strayTyped.value];
+/** What an approval would throw: every typed text, the grill's answers included. */
+export const selectUnsentTyped = memoized(
+  (s: Page): [Unsent, Typed["grill"]] => [selectStrayTyped(s), s.typed.grill],
+  (stray, grill): Unsent => {
+    const found = [...stray];
 
-    for (const [path, entry] of Object.entries(typed.value.grill)) {
+    for (const [path, entry] of Object.entries(grill)) {
       const texts = [...Object.values(entry.answers), entry.note].filter((t) => t.trim() !== "");
 
       if (texts.length > 0) {
@@ -173,178 +299,233 @@ export function createStore() {
     }
 
     return found;
-  });
+  },
+);
 
-  /** The document shown; `null` is the plan. */
-  const current = signal<ProjectPath | null>(null);
+export const selectPlanDoc = memoized(
+  (s: Page): [ProjectPath | null] => [s.review?.plan?.doc ?? null],
+  // A version's file never changes: its path is the whole key.
+  (doc): GroupedDoc | null =>
+    doc === null ? null : { path: doc, mediaType: "text/markdown", modified: 0, group: "plan" },
+);
 
-  const split = signal(false);
+/** The plan's text as shown: the reviewer's unsent edit of it, else the version's. */
+export function selectPlanText(s: Page): string | null {
+  return s.edited?.text ?? s.review?.plan?.text ?? null;
+}
 
-  /**
-   * Whether the comments panel takes its width: open when the window is wide, folded when narrow,
-   * read again at every load, by `readWindow`.
-   */
-  const commentsOpen = signal(true);
+export function selectPreviousText(s: Page): string | null {
+  return s.review?.plan?.previous?.text ?? null;
+}
 
-  /**
-   * The comments' last fold was the layout's, not the reviewer's: it is drawn at once. A panel is
-   * known only once its extension loaded, after the first render, and a slide then reads as the
-   * page jumping. The handle clears it, so the reviewer's own folds slide.
-   */
-  const commentsSnap = signal(false);
+/**
+ * The plan, or the reviewer's edit of it, against the version before; `null` at v1. Computed
+ * from the two texts, not from `review`: every workspace event loads a new view, and the same
+ * texts keep the same diff.
+ */
+export const selectPlanChanges = memoized(
+  (s: Page): [string | null, string | null] => [selectPlanText(s), selectPreviousText(s)],
+  (text, previous): LineDiff | null =>
+    text === null || previous === null ? null : lineDiff(previous, text),
+);
 
-  /** Whether the document rail takes its width: open at every load, whatever the window's width. */
-  const railOpen = signal(true);
+const NO_DOCS: readonly GroupedDoc[] = [];
 
-  /** Whether the page draws its dark theme: what resolves tokens outside CSS redraws at each change. */
-  const dark = signal(false);
+export const selectDocs = memoized(
+  (s: Page): [GroupedDoc | null, readonly GroupedDoc[]] => [
+    selectPlanDoc(s),
+    s.review?.docs ?? NO_DOCS,
+  ],
+  (plan, listed): readonly GroupedDoc[] => (plan === null ? listed : [plan, ...listed]),
+);
 
-  /** The reviewer's switch: off at every load. */
-  const commentSwitch = signal(false);
+/** The selected document, or, once a version or an approval took it off the list, the plan or the first one. */
+export const selectCurrentDoc = memoized(
+  (s: Page): [readonly GroupedDoc[], ProjectPath | null, GroupedDoc | null] => [
+    selectDocs(s),
+    s.current,
+    selectPlanDoc(s),
+  ],
+  (list, current, plan): GroupedDoc | null =>
+    list.find((doc) => doc.path === current) ?? plan ?? list[0] ?? null,
+);
 
-  /** Ctrl or Meta held down: a drag or a click adds to the set instead of replacing it. */
-  const holding = signal(false);
+/** Comments are taken on a plan under review and while drafting; an approved one locks the page. */
+export function selectLocked(s: Page): boolean {
+  const workspace = s.review?.workspace;
 
-  /** The reviewer's own text of the plan, not sent yet: the next decision records it as the next version. */
-  const edited = signal<Edit | null>(null);
+  return workspace === undefined || !takesComments(workspace);
+}
 
-  const editing = signal<EditSession | null>(null);
+/** Whether a renderer starts a comment now: the switch is on and the page takes comments. */
+export function selectCommenting(s: Page): boolean {
+  return s.commentSwitch && !selectLocked(s);
+}
 
-  /**
-   * The source line to come back to once the editor closes: the plan's renderer scrolls to its
-   * block and clears it, and Edit takes the focus; `null` the rest of the time.
-   */
-  const resume = signal<number | null>(null);
+/** The comments Discard edit takes whole, as its confirmation counts them before the click. */
+export function selectGoneOnDiscard(s: Page): number {
+  const edit = s.edited;
+  const plan = s.review?.plan ?? null;
 
-  /** "Changes since" is off at every load: the reviewer reads the plan itself first. */
-  const showChanges = signal(false);
+  return edit === null || plan === null
+    ? 0
+    : goneWithEdit(s.annotations, plan.doc, { version: plan.text, edit: edit.text });
+}
 
-  /** The requests that failed, one per operation: `fail` replaces the operation's entry, `succeed` removes it. */
-  const failures = signal<readonly Failure[]>([]);
+export function selectWorkflow(s: Page): WorkflowView | null {
+  return s.review?.workflow ?? null;
+}
+
+/** What holds the review, in the holder's words; `null` when nothing does. */
+export function selectHeld(s: Page): string | null {
+  return s.review?.workflow.held ?? null;
+}
+
+const REFUSED: Readonly<Record<SendRefused | "empty" | "unreadable", string>> = {
+  approved: "Not sent: the plan is approved.",
+  changed:
+    "Not sent: the saved draft no longer holds what you sent, changed in another tab. Reload the page.",
+  edit: "Not sent: a comment on the plan goes with your edit. Send them together with Send.",
+  empty: "Not sent: nothing to send. Your comments are kept.",
+  stale: "Not sent: your edit is of a version no longer under review. Your comments are kept.",
+  unreadable: "Not sent: the saved draft cannot be read. Your comments are kept in this tab.",
+};
+
+/** A refusal in the page's words for the Send's rows it knows, in the row's own words for any other. */
+function refusedText(refusal: Exclude<SendRefusal, { reason: "unanswered" }>): string {
+  if (refusal.reason !== "refused") return REFUSED[refusal.reason];
+  const known = Object.entries(REFUSED).find(([code]) => code === refusal.rule);
+
+  return known?.[1] ?? `Not sent: ${refusal.text}.`;
+}
+
+/** How long a deleted card can be undone from the notice. */
+const UNDO_MS = 8_000;
+
+/** How long a typing pauses before the draft is written: a continuous typing is one write. */
+const TYPED_WRITE_MS = 300;
+
+function draftOf(s: Page): Draft {
+  return { annotations: s.annotations, edit: s.edited, choices: s.choices, typed: s.typed };
+}
+
+/** The patches the actions compose: each reads the state the ones before it made. */
+const patches = {
+  fail:
+    (op: Failure["op"], text: string, action?: Failure["action"]): Patch =>
+    (s) => {
+      const failure: Failure = action === undefined ? { op, text } : { op, text, action };
+
+      return { failures: [...s.failures.filter((one) => one.op !== op), failure] };
+    },
+  succeed:
+    (op: Failure["op"]): Patch =>
+    (s) =>
+      s.failures.some((failure) => failure.op === op)
+        ? { failures: s.failures.filter((failure) => failure.op !== op) }
+        : {},
+  setTyped:
+    (patch: Partial<Typed>): Patch =>
+    (s) => ({ typed: { ...s.typed, ...patch } }),
+  clearUndo: (s: Page): Partial<Page> => (s.undo === null ? {} : { undo: null }),
+  /** What a load makes of the unsent edit: kept, cleared because it landed, or dropped with a banner. */
+  settleEdit:
+    (view: ReviewView): Patch =>
+    (s) => {
+      const edit = s.edited;
+      const { workspace, plan } = view;
+
+      if (edit === null) return {};
+
+      const fate = editOnLoad(
+        edit,
+        workspace.kind === "drafting" || plan === null
+          ? null
+          : { version: workspace.version, text: plan.text },
+      );
+
+      if (fate === "pending") return {};
+
+      if (fate === "stale") {
+        return {
+          edited: null,
+          ...patches.fail(
+            "edit",
+            `Your unsent edit of v${edit.version} was dropped: another version of the plan arrived. Your comments are kept.`,
+          )(s),
+        };
+      }
+
+      // Landed: the loaded version is the edit, and the comments' lines were shifted to its text already.
+      return { edited: null, annotations: landedAnnotations(s.annotations, workspace.dir, edit) };
+    },
+  /** The editor's typing goes with the version it was typed on: no Edit opens on another one. */
+  settleEditorTyping:
+    (view: ReviewView): Patch =>
+    (s) => {
+      const { editor } = s.typed;
+      const { workspace } = view;
+
+      if (editor === null) return {};
+
+      if (workspace.kind === "inReview" && workspace.version === editor.version) return {};
+
+      return patches.setTyped({ editor: null })(s);
+    },
+};
+
+/**
+ * The page's store and every action over it, built fresh by each call, so a suite gets a store of
+ * its own with no module imported again. The page runs one, below; the selectors above read any.
+ */
+export function createPage() {
+  const store = createStore<Page>(() => INITIAL);
+
+  /** The one writer: a patch over the state now, written unless it changes nothing. */
+  function apply(patch: Patch): void {
+    patchStore(store, patch(store.getState()));
+  }
+
+  /** What the frame of `doc` reads now replaces what it read before. */
+  function setAbsent(doc: ProjectPath, found: readonly Omit<ChoiceRef, "doc">[]): void {
+    apply((s) => ({
+      absent: [
+        ...s.absent.filter((ref) => ref.doc !== doc),
+        ...found.map(({ decision, option }) => ({ doc, decision, option })),
+      ],
+    }));
+  }
+
+  function setTyped(patch: Partial<Typed>): void {
+    apply(patches.setTyped(patch));
+  }
 
   function fail(op: Failure["op"], text: string, action?: Failure["action"]): void {
-    const failure: Failure = action === undefined ? { op, text } : { op, text, action };
-    failures.value = [...failures.value.filter((one) => one.op !== op), failure];
+    apply(patches.fail(op, text, action));
   }
 
   function succeed(op: Failure["op"]): void {
-    if (failures.value.some((failure) => failure.op === op)) {
-      failures.value = failures.value.filter((failure) => failure.op !== op);
-    }
+    apply(patches.succeed(op));
   }
-
-  /**
-   * What the last Delete of a card can undo, for `UNDO_MS`; `null` past that, once undone, and
-   * after a decision, Done or Discard edit, which the comment it holds was made before.
-   */
-  const undo = signal<{ readonly label: string; readonly run: () => void } | null>(null);
 
   let undoTimer: ReturnType<typeof setTimeout> | null = null;
 
-  function clearUndo(): void {
+  function stopUndoTimer(): void {
     if (undoTimer !== null) clearTimeout(undoTimer);
     undoTimer = null;
-
-    if (undo.peek() !== null) undo.value = null;
   }
 
-  /**
-   * The card the reviewer is on, by its annotation's id: hovered or focused, the plan's renderer
-   * highlights its passage; clicked (`reveal`), it scrolls to it as well. `null` off any card.
-   */
-  const focused = signal<{ readonly id: string; readonly reveal: boolean } | null>(null);
-
-  const connection = signal<"up" | "down">("up");
-
-  /** When the stream first failed. */
-  const downAt = signal<number | null>(null);
-
-  /** How long ago the stream failed, as far as the notice cares: `0`, then past the hint's delay; `null` while it is up. */
-  const downFor = signal<number | null>(null);
-
-  const planDoc = computed<GroupedDoc | null>(() => {
-    const plan = review.value?.plan;
-
-    // A version's file never changes: its path is the whole key.
-    return plan === null || plan === undefined
-      ? null
-      : { path: plan.doc, mediaType: "text/markdown", modified: 0, group: "plan" };
-  });
-
-  /** The plan's text as shown: the reviewer's unsent edit of it, else the version's. */
-  const planText = computed(() => edited.value?.text ?? review.value?.plan?.text ?? null);
-
-  const previousText = computed(() => review.value?.plan?.previous?.text ?? null);
-
-  /**
-   * The plan, or the reviewer's edit of it, against the version before; `null` at v1. Computed
-   * from the two texts, not from `review`: every workspace event loads a new view, and the same
-   * texts keep the same diff.
-   */
-  const planChanges = computed<LineDiff | null>(() =>
-    planText.value === null || previousText.value === null
-      ? null
-      : lineDiff(previousText.value, planText.value),
-  );
-
-  const docs = computed<readonly GroupedDoc[]>(() => {
-    const plan = planDoc.value;
-    const listed = review.value?.docs ?? [];
-
-    return plan === null ? listed : [plan, ...listed];
-  });
-
-  /** The selected document, or, once a version or an approval took it off the list, the plan or the first one. */
-  const currentDoc = computed<GroupedDoc | null>(() => {
-    const list = docs.value;
-
-    return list.find((doc) => doc.path === current.value) ?? planDoc.value ?? list[0] ?? null;
-  });
-
-  /** Comments are taken on a plan under review and while drafting; an approved one locks the page. */
-  const locked = computed(() => {
-    const workspace = review.value?.workspace;
-
-    return workspace === undefined || !takesComments(workspace);
-  });
-
-  /** Whether a renderer starts a comment now: the switch is on and the page takes comments. */
-  const commenting = computed(() => commentSwitch.value && !locked.value);
+  function clearUndo(): void {
+    stopUndoTimer();
+    apply(patches.clearUndo);
+  }
 
   /** The switch clicked or `C` pressed; a locked page keeps its switch as it is. */
   function flipCommentSwitch(): void {
-    if (locked.value) return;
-    commentSwitch.value = !commentSwitch.value;
-  }
+    const s = store.getState();
 
-  /** What a load makes of the unsent edit: kept, cleared because it landed, or dropped with a banner. */
-  function settleEdit(view: ReviewView): void {
-    const edit = edited.value;
-    const { workspace, plan } = view;
-
-    if (edit === null) return;
-
-    const fate = editOnLoad(
-      edit,
-      workspace.kind === "drafting" || plan === null
-        ? null
-        : { version: workspace.version, text: plan.text },
-    );
-
-    if (fate === "pending") return;
-    edited.value = null;
-
-    if (fate === "stale") {
-      fail(
-        "edit",
-        `Your unsent edit of v${edit.version} was dropped: another version of the plan arrived. Your comments are kept.`,
-      );
-
-      return;
-    }
-
-    // Landed: the loaded version is the edit, and the comments' lines were shifted to its text already.
-    annotations.value = landedAnnotations(annotations.value, workspace.dir, edit);
+    if (selectLocked(s)) return;
+    apply(() => ({ commentSwitch: !s.commentSwitch }));
   }
 
   async function loadReview(): Promise<void> {
@@ -361,35 +542,27 @@ export function createStore() {
       return;
     }
 
-    batch(() => {
-      succeed("review");
-      review.value = fetched.value;
-      settleEdit(fetched.value);
-      settleEditorTyping(fetched.value);
-    });
-  }
-
-  /** The editor's typing goes with the version it was typed on: no Edit opens on another one. */
-  function settleEditorTyping(view: ReviewView): void {
-    const { editor } = typed.peek();
-    const { workspace } = view;
-
-    if (editor === null) return;
-
-    if (workspace.kind === "inReview" && workspace.version === editor.version) return;
-    setTyped({ editor: null });
+    apply(
+      compose(
+        patches.succeed("review"),
+        () => ({ review: fetched.value }),
+        patches.settleEdit(fetched.value),
+        patches.settleEditorTyping(fetched.value),
+      ),
+    );
   }
 
   /** Clears what an approval took: the comments, the edit, the choices, what is typed. */
   function clearDraft(): void {
-    batch(() => {
-      annotations.value = [];
-      edited.value = null;
-      choices.value = {};
-      typed.value = EMPTY_TYPED;
-      clearUndo();
-      succeed("decision");
-    });
+    stopUndoTimer();
+
+    apply(
+      compose(
+        () => ({ annotations: [], edited: null, choices: {}, typed: EMPTY_TYPED }),
+        patches.clearUndo,
+        patches.succeed("decision"),
+      ),
+    );
   }
 
   /** Posts the decision, clears what an approval took once the server took it, then reads the review again. */
@@ -422,21 +595,15 @@ export function createStore() {
     return decided;
   }
 
-  /**
-   * A write out to the review that takes from the draft, a Send or End grill: every way to either
-   * waits, so nothing is sent twice. A Send stays out until the page has read again what it left.
-   */
-  const sending = signal(false);
-
   /** Runs `work` as the one write out; `null`, running nothing, while another is. */
   async function outOnce<T>(work: () => Promise<T>): Promise<T | null> {
-    if (sending.peek()) return null;
-    sending.value = true;
+    if (store.getState().sending) return null;
+    apply(() => ({ sending: true }));
 
     try {
       return await work();
     } finally {
-      sending.value = false;
+      apply(() => ({ sending: false }));
     }
   }
 
@@ -479,24 +646,6 @@ export function createStore() {
     succeed("draft");
 
     return await startSaving()();
-  }
-
-  const REFUSED: Readonly<Record<SendRefused | "empty" | "unreadable", string>> = {
-    approved: "Not sent: the plan is approved.",
-    changed:
-      "Not sent: the saved draft no longer holds what you sent, changed in another tab. Reload the page.",
-    edit: "Not sent: a comment on the plan goes with your edit. Send them together with Send.",
-    empty: "Not sent: nothing to send. Your comments are kept.",
-    stale: "Not sent: your edit is of a version no longer under review. Your comments are kept.",
-    unreadable: "Not sent: the saved draft cannot be read. Your comments are kept in this tab.",
-  };
-
-  /** A refusal in the page's words for the Send's rows it knows, in the row's own words for any other. */
-  function refusedText(refusal: Exclude<SendRefusal, { reason: "unanswered" }>): string {
-    if (refusal.reason !== "refused") return REFUSED[refusal.reason];
-    const known = Object.entries(REFUSED).find(([code]) => code === refusal.rule);
-
-    return known?.[1] ?? `Not sent: ${refusal.text}.`;
   }
 
   /**
@@ -573,24 +722,29 @@ export function createStore() {
     const taken = new Set(out.annotations.filter((id) => !kept.has(id)));
     const sentEdit = editKept === null ? out.edit : null;
 
-    batch(() => {
-      annotations.value = annotations.value.filter(({ id }) => !taken.has(id));
-      choices.value = withoutChoices(choices.value, out.choices);
-
-      if (sentEdit !== null && edited.peek()?.version === sentEdit.version) edited.value = null;
-      succeed("decision");
-    });
+    apply(
+      compose(
+        (s) => ({
+          annotations: s.annotations.filter(({ id }) => !taken.has(id)),
+          choices: withoutChoices(s.choices, out.choices),
+        }),
+        (s) =>
+          sentEdit !== null && s.edited?.version === sentEdit.version ? { edited: null } : {},
+        patches.succeed("decision"),
+      ),
+    );
 
     return { kind: "sent", editKept: editKept?.reason ?? null };
   }
 
   /** Edit: the editor opens on the version under review, on the unsent edit of it when there is one. */
   function openEditor(line: number): void {
-    const view = review.value;
+    const { review: view, edited } = store.getState();
 
     if (view?.workspace.kind !== "inReview" || view.plan === null) return;
     const { version } = view.workspace;
-    editing.value = { version, base: edited.value?.text ?? view.plan.text, line };
+    const base = edited?.text ?? view.plan.text;
+    apply(() => ({ editing: { version, base, line } }));
   }
 
   /**
@@ -601,68 +755,61 @@ export function createStore() {
    */
   function finishEdit(session: EditSession, text: string): void {
     const { version, base } = session;
-    const view = review.value;
+    const view = store.getState().review;
 
     if (view === null || view.plan === null || view.workspace.kind === "drafting") return;
 
     if (view.workspace.kind !== "inReview" || view.workspace.version !== version) return;
 
     const { doc, text: reviewed } = view.plan;
+    stopUndoTimer();
 
-    batch(() => {
-      annotations.value = shiftAnnotations(annotations.value, doc, {
-        version: reviewed,
-        base,
-        text,
-      });
-      edited.value = text === reviewed ? null : { version, text };
-      clearUndo();
-      succeed("edit");
-    });
+    apply(
+      compose(
+        (s) => ({
+          annotations: shiftAnnotations(s.annotations, doc, { version: reviewed, base, text }),
+          edited: text === reviewed ? null : { version, text },
+        }),
+        patches.clearUndo,
+        patches.succeed("edit"),
+      ),
+    );
   }
 
   /** Done and Cancel both end here: the editor closes, and the plan comes back at `atLine`. */
   function closeEditor(atLine: number): void {
-    batch(() => {
-      editing.value = null;
-      resume.value = atLine;
-    });
+    apply(() => ({ editing: null, resume: atLine }));
   }
-
-  /** The comments Discard edit takes whole, as its confirmation counts them before the click. */
-  const goneOnDiscard = computed(() => {
-    const edit = edited.value;
-    const plan = review.value?.plan ?? null;
-
-    return edit === null || plan === null
-      ? 0
-      : goneWithEdit(annotations.value, plan.doc, { version: plan.text, edit: edit.text });
-  });
 
   /**
    * Discard edit, the reverse of Done: the version's text again, the comments back on its lines,
    * but for those on a line only the edit held, which go with it.
    */
   function discardEdit(): void {
-    const edit = edited.value;
-    const plan = review.value?.plan ?? null;
+    const { edited: edit, review: view } = store.getState();
+    const plan = view?.plan ?? null;
 
     if (edit === null || plan === null) return;
+    stopUndoTimer();
 
-    batch(() => {
-      annotations.value = unshiftAnnotations(annotations.value, plan.doc, {
-        version: plan.text,
-        edit: edit.text,
-      });
-      edited.value = null;
-      clearUndo();
-    });
+    apply(
+      compose(
+        (s) => ({
+          annotations: unshiftAnnotations(s.annotations, plan.doc, {
+            version: plan.text,
+            edit: edit.text,
+          }),
+          edited: null,
+        }),
+        patches.clearUndo,
+      ),
+    );
   }
 
   /** The one way a comment enters the page, as `select` is for navigation: a locked page takes none. */
   function addAnnotation(annotation: Omit<Annotation, "id">): void {
-    if (locked.value) return;
-    annotations.value = [...annotations.value, { ...annotation, id: crypto.randomUUID() }];
+    if (selectLocked(store.getState())) return;
+    apply((s) => ({ annotations: [...s.annotations, { ...annotation, id: crypto.randomUUID() }] }));
   }
 
   /**
@@ -670,21 +817,20 @@ export function createStore() {
    * chosen, chosen again, withdraws it; a locked page takes none.
    */
   function choose(doc: ProjectPath, decision: DecisionKey, choice: Choice): void {
-    if (locked.value) return;
+    if (selectLocked(store.getState())) return;
 
-    choices.value =
-      choices.value[doc]?.[decision]?.option === choice.option
-        ? withoutChoices(choices.value, [{ doc, decision, option: choice.option }])
-        : { ...choices.value, [doc]: { ...choices.value[doc], [decision]: choice } };
+    apply((s) => ({
+      choices:
+        s.choices[doc]?.[decision]?.option === choice.option
+          ? withoutChoices(s.choices, [{ doc, decision, option: choice.option }])
+          : { ...s.choices, [doc]: { ...s.choices[doc], [decision]: choice } },
+    }));
   }
 
   /** A choice card's Delete: the choice leaves the draft, its mark the mockup. */
   function unchoose(named: ChoiceRef): void {
-    choices.value = withoutChoices(choices.value, [named]);
+    apply((s) => ({ choices: withoutChoices(s.choices, [named]) }));
   }
-
-  /** How long a deleted card can be undone from the notice. */
-  const UNDO_MS = 8_000;
 
   /**
    * Delete on a card: at once, and undone from the notice for a while; a second Delete replaces
@@ -692,38 +838,91 @@ export function createStore() {
    * `addAnnotation` takes none.
    */
   function removeAnnotation(id: string): void {
-    const index = annotations.value.findIndex((annotation) => annotation.id === id);
-    const gone = annotations.value[index];
+    const { annotations } = store.getState();
+    const index = annotations.findIndex((annotation) => annotation.id === id);
+    const gone = annotations[index];
 
     if (gone === undefined) return;
-    annotations.value = annotations.value.filter((annotation) => annotation.id !== id);
-    clearUndo();
+    stopUndoTimer();
     undoTimer = setTimeout(clearUndo, UNDO_MS);
 
-    undo.value = {
-      label: "Undo",
-      run: () => {
-        batch(() => {
-          clearUndo();
+    const run = (): void => {
+      stopUndoTimer();
 
-          if (!locked.peek()) annotations.value = annotations.value.toSpliced(index, 0, gone);
-        });
-      },
+      apply(
+        compose(patches.clearUndo, (s) =>
+          selectLocked(s) ? {} : { annotations: s.annotations.toSpliced(index, 0, gone) },
+        ),
+      );
     };
+
+    apply(
+      compose(
+        (s) => ({ annotations: s.annotations.filter((annotation) => annotation.id !== id) }),
+        () => ({ undo: { label: "Undo", run } }),
+      ),
+    );
   }
 
   /** A card's Edit: the mark changes, the place stays. */
   function updateAnnotation(id: string, mark: Mark): void {
-    annotations.value = annotations.value.map((annotation) =>
-      annotation.id === id ? { ...annotation, mark } : annotation,
-    );
+    apply((s) => ({
+      annotations: s.annotations.map((annotation) =>
+        annotation.id === id ? { ...annotation, mark } : annotation,
+      ),
+    }));
   }
 
   function select(path: ProjectPath): void {
-    if (editing.value !== null) return;
-    current.value = path;
+    if (store.getState().editing !== null) return;
 
-    if (path === planDoc.value?.path) split.value = false;
+    apply(
+      compose(
+        () => ({ current: path }),
+        (s) => (path === selectPlanDoc(s)?.path ? { split: false } : {}),
+      ),
+    );
+  }
+
+  function toggleSplit(): void {
+    apply((s) => ({ split: !s.split }));
+  }
+
+  function toggleShowChanges(): void {
+    apply((s) => ({ showChanges: !s.showChanges }));
+  }
+
+  function toggleRail(): void {
+    apply((s) => ({ railOpen: !s.railOpen }));
+  }
+
+  /** The comments handle: the reviewer's own fold, which slides. */
+  function toggleComments(): void {
+    apply((s) => ({ commentsSnap: false, commentsOpen: !s.commentsOpen }));
+  }
+
+  /** A panel appearing takes the comments' room, at once: the layout's fold, not the reviewer's. */
+  function foldCommentsForPanel(): void {
+    apply(() => ({ commentsOpen: false, commentsSnap: true }));
+  }
+
+  function setHolding(held: boolean): void {
+    apply(() => ({ holding: held }));
+  }
+
+  /** A card the pointer or the focus is on; clicked (`reveal`), the renderer scrolls to its passage too. */
+  function focusCard(id: string, reveal: boolean): void {
+    apply(() => ({ focused: { id, reveal } }));
+  }
+
+  /** The pointer or the focus leaving a card: another card taken meanwhile keeps the focus. */
+  function blurCard(id: string): void {
+    apply((s) => (s.focused?.id === id ? { focused: null } : {}));
+  }
+
+  /** The plan's renderer scrolled to the line the editor closed on. */
+  function clearResume(): void {
+    apply(() => ({ resume: null }));
   }
 
   const putDraft = draftWriter();
@@ -760,26 +959,18 @@ export function createStore() {
   function readWindow(): void {
     const darkScheme = window.matchMedia("(prefers-color-scheme: dark)");
 
-    batch(() => {
-      commentsOpen.value = !window.matchMedia("(max-width: 900px)").matches;
-      dark.value = darkScheme.matches;
-    });
+    apply(() => ({
+      commentsOpen: !window.matchMedia("(max-width: 900px)").matches,
+      dark: darkScheme.matches,
+    }));
 
     darkScheme.addEventListener("change", (event) => {
-      dark.value = event.matches;
+      apply(() => ({ dark: event.matches }));
     });
   }
 
-  /** How long a typing pauses before the draft is written: a continuous typing is one write. */
-  const TYPED_WRITE_MS = 300;
-
   function draftShown(): Draft {
-    return {
-      annotations: annotations.peek(),
-      edit: edited.peek(),
-      choices: choices.peek(),
-      typed: typed.peek(),
-    };
+    return draftOf(store.getState());
   }
 
   /**
@@ -791,7 +982,7 @@ export function createStore() {
   function startSaving(): () => Promise<boolean> {
     let saving = Promise.resolve(true);
     let pending: ReturnType<typeof setTimeout> | null = null;
-    let written = typed.peek();
+    let written = store.getState().typed;
     let queued = 0;
     let started = 0;
 
@@ -825,18 +1016,24 @@ export function createStore() {
 
     flushDraft = flush;
 
-    effect(() => {
-      write({
-        annotations: annotations.value,
-        edit: edited.value,
-        choices: choices.value,
-        typed: typed.peek(),
-      });
+    // The draft as it stands, then at every change of the comments, the edit or the choices.
+    write(draftShown());
+
+    store.subscribe((s, prev) => {
+      if (
+        s.annotations === prev.annotations &&
+        s.edited === prev.edited &&
+        s.choices === prev.choices
+      ) {
+        return;
+      }
+
+      write(draftOf(s));
     });
 
     // A typing is written once it pauses; a comment or an edit written meanwhile carries it.
-    effect(() => {
-      if (typed.value === written) return;
+    store.subscribe((s, prev) => {
+      if (s.typed === prev.typed || s.typed === written) return;
 
       if (pending !== null) clearTimeout(pending);
 
@@ -890,18 +1087,21 @@ export function createStore() {
     return started.then(() => {});
   }
 
+  /** When the stream first failed. */
+  let downAt: number | null = null;
+
   async function startInOrder(): Promise<void> {
     const saved = await fetchDraft();
 
     const draft = saved.ok ? saved.value : null;
 
     if (draft !== null) {
-      batch(() => {
-        annotations.value = draft.annotations;
-        edited.value = draft.edit;
-        choices.value = draft.choices;
-        typed.value = draft.typed;
-      });
+      apply(() => ({
+        annotations: draft.annotations,
+        edited: draft.edit,
+        choices: draft.choices,
+        typed: draft.typed,
+      }));
     }
 
     await loadReview();
@@ -918,25 +1118,23 @@ export function createStore() {
     subscribe(
       () => void loadReview(),
       () => {
-        connection.value = "down";
+        if (downAt !== null) {
+          apply(() => ({ connection: "down" }));
 
-        if (downAt.peek() !== null) return;
+          return;
+        }
+
         const at = Date.now();
-        batch(() => {
-          downAt.value = at;
-          downFor.value = 0;
-        });
+        downAt = at;
+        apply(() => ({ connection: "down", downFor: 0 }));
 
         setTimeout(() => {
-          if (downAt.peek() === at) downFor.value = Date.now() - at;
+          if (downAt === at) apply(() => ({ downFor: Date.now() - at }));
         }, NEW_LINK_HINT_MS);
       },
       () => {
-        batch(() => {
-          connection.value = "up";
-          downAt.value = null;
-          downFor.value = null;
-        });
+        downAt = null;
+        apply(() => ({ connection: "up", downFor: null }));
 
         reloadOnAnotherBuild().catch(() => {
           // The stream's next open reads the build again: see `reloadOnAnotherBuild`.
@@ -946,53 +1144,19 @@ export function createStore() {
   }
 
   return {
-    review,
-    annotations,
-    choices,
-    absent,
+    store,
     setAbsent,
-    isAbsent,
-    sendableChoices,
-    typed,
     setTyped,
-    strayTyped,
-    unsentTyped,
-    current,
-    split,
-    commentsOpen,
-    commentsSnap,
-    railOpen,
-    dark,
-    commentSwitch,
-    holding,
-    edited,
-    editing,
-    resume,
-    showChanges,
-    failures,
     fail,
     succeed,
-    undo,
-    focused,
-    connection,
-    downFor,
-    planDoc,
-    planText,
-    planChanges,
-    docs,
-    currentDoc,
-    locked,
-    commenting,
     flipCommentSwitch,
     decide,
-    sending,
     outOnce,
     writeDraft,
     send,
     openEditor,
     finishEdit,
     closeEditor,
-    goneOnDiscard,
     discardEdit,
     addAnnotation,
     choose,
@@ -1000,64 +1164,40 @@ export function createStore() {
     removeAnnotation,
     updateAnnotation,
     select,
+    toggleSplit,
+    toggleShowChanges,
+    toggleRail,
+    toggleComments,
+    foldCommentsForPanel,
+    setHolding,
+    focusCard,
+    blurCard,
+    clearResume,
     readWindow,
     start,
   };
 }
 
-export type Store = ReturnType<typeof createStore>;
+export type PageModule = ReturnType<typeof createPage>;
 
-/** The page's one store, which every component reads by name. */
-const page = createStore();
+/** The page's one store, which every component reads through `usePage` and every action writes. */
+export const pageModule = createPage();
+
+export const pageStore: StoreApi<Page> = pageModule.store;
 
 export const {
-  review,
-  annotations,
-  choices,
-  absent,
   setAbsent,
-  isAbsent,
-  sendableChoices,
-  typed,
   setTyped,
-  strayTyped,
-  unsentTyped,
-  current,
-  split,
-  commentsOpen,
-  commentsSnap,
-  railOpen,
-  dark,
-  commentSwitch,
-  holding,
-  edited,
-  editing,
-  resume,
-  showChanges,
-  failures,
   fail,
   succeed,
-  undo,
-  focused,
-  connection,
-  downFor,
-  planDoc,
-  planText,
-  planChanges,
-  docs,
-  currentDoc,
-  locked,
-  commenting,
   flipCommentSwitch,
   decide,
-  sending,
   outOnce,
   writeDraft,
   send,
   openEditor,
   finishEdit,
   closeEditor,
-  goneOnDiscard,
   discardEdit,
   addAnnotation,
   choose,
@@ -1065,6 +1205,20 @@ export const {
   removeAnnotation,
   updateAnnotation,
   select,
+  toggleSplit,
+  toggleShowChanges,
+  toggleRail,
+  toggleComments,
+  foldCommentsForPanel,
+  setHolding,
+  focusCard,
+  blurCard,
+  clearResume,
   readWindow,
   start,
-} = page;
+} = pageModule;
+
+/** A component's read of the page's store: `pick` a field or a `selectX`, and the component redraws when its value changes. */
+export function usePage<T>(pick: (s: Page) => T): T {
+  return useStore(pageStore, pick);
+}

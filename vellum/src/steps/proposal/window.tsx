@@ -1,8 +1,10 @@
-import { signal } from "@preact/signals";
-import { useEffect } from "preact/hooks";
+import type { JSX } from "react";
+import { useEffect } from "react";
+import { useStore } from "zustand";
+import { createStore } from "zustand/vanilla";
 
 import { Button, Dialog, dialogUp, popoverUp, Tag } from "../../runtime/page/kit.tsx";
-import { editing } from "../../runtime/page/state.ts";
+import { pageStore, patchStore } from "../../runtime/page/state.ts";
 import type { DeclinePick, OtherKind, OtherPick, Pick } from "./choice.ts";
 import { answerOf, DECLINE, NO_PICK, oneLine, OWN_GRILL } from "./choice.ts";
 import type { StepAnswer } from "./contract.ts";
@@ -10,19 +12,33 @@ import { detailOf, FIELD_HINTS, KIND_LABELS, NOTE_HINT } from "./labels.ts";
 import type { Asking, WindowState } from "./modal.ts";
 import { answerFailed, answering, askingOn, dotOf, modalOf, pendingOf, putOff } from "./modal.ts";
 
-const asking = signal<Asking>({ kind: "auto" });
-
 /**
  * The pick made on a proposal, by its id, `null` for the blank window, and the last step of the
  * reviewer's own and the last note typed there: Esc keeps them for the next opening, and a move
  * picked meanwhile does not throw the typing away.
  */
-const picked = signal<{
+type Picked = {
   readonly id: string | null;
   readonly pick: Pick;
   readonly other: OtherPick;
   readonly decline: DeclinePick;
-} | null>(null);
+};
+
+/** The window's own state: whether it asks, and what was picked in it. */
+type WindowPage = {
+  readonly asking: Asking;
+  readonly picked: Picked | null;
+};
+
+const windowStore = createStore<WindowPage>(() => ({ asking: { kind: "auto" }, picked: null }));
+
+function useWindow<T>(pick: (s: WindowPage) => T): T {
+  return useStore(windowStore, pick);
+}
+
+function setAsking(asking: Asking): void {
+  patchStore(windowStore, { asking });
+}
 
 const OTHER_KINDS: readonly OtherKind[] = ["grill", "mockup", "prototype", "plan", "own"];
 
@@ -31,7 +47,7 @@ function quiet(): boolean {
   const active = document.activeElement;
   const typing = active instanceof HTMLInputElement || active instanceof HTMLTextAreaElement;
 
-  return editing.peek() === null && !popoverUp() && !dialogUp() && !typing;
+  return pageStore.getState().editing === null && !popoverUp() && !dialogUp() && !typing;
 }
 
 /** What a proposal nobody waits on says: the pick is not lost, it reaches Claude another way. */
@@ -44,8 +60,9 @@ const PAUSED = "Paused · Claude stopped waiting; your pick reaches it as a mess
 export function NextStepButton(props: {
   readonly state: WindowState | null;
   readonly why: string | null;
-}): preact.JSX.Element {
-  const waiting = dotOf(props.state, asking.value);
+}): JSX.Element {
+  const asking = useWindow((s) => s.asking);
+  const waiting = dotOf(props.state, asking);
   const paused = waiting !== null && props.state?.paused === true;
   const told = paused ? PAUSED : "Claude proposes the next step";
 
@@ -53,11 +70,11 @@ export function NextStepButton(props: {
     <>
       <Button
         variant="grill"
-        class={waiting === null ? undefined : "proposal-later"}
+        className={waiting === null ? undefined : "proposal-later"}
         disabled={props.why !== null}
         title={props.why ?? (waiting === null ? undefined : told)}
         onClick={() => {
-          asking.value = { kind: "asked", on: pendingOf(props.state) };
+          setAsking({ kind: "asked", on: pendingOf(props.state) });
         }}
       >
         Next step
@@ -81,21 +98,23 @@ export type WindowProps = {
  * page, nothing picked until the reviewer picks, the move Claude recommends marked, never checked.
  * A proposal that lands on a typing is put off before it opens, onto the button's dot.
  */
-export function StepWindow(props: WindowProps): preact.JSX.Element | null {
+export function StepWindow(props: WindowProps): JSX.Element | null {
   const { state, why } = props;
   const landed = pendingOf(state)?.id ?? null;
+  const asking = useWindow((s) => s.asking);
+  const picked = useWindow((s) => s.picked);
 
   useEffect(() => {
-    asking.value = askingOn(state, asking.peek(), quiet());
+    setAsking(askingOn(state, windowStore.getState().asking, quiet()));
   }, [state?.held, landed]);
 
-  const modal = modalOf(state, asking.value, props.approved);
+  const modal = modalOf(state, asking, props.approved);
 
   if (modal.kind === "hidden") return null;
   const pending = modal.kind === "proposal" ? modal.pending : null;
   const id = pending?.id ?? null;
   const moves = pending?.proposal.moves ?? [];
-  const kept = picked.value?.id === id ? picked.value : null;
+  const kept = picked?.id === id ? picked : null;
   const pick = kept?.pick ?? (id === null ? OWN_GRILL : NO_PICK);
   const own = kept?.other ?? OWN_GRILL;
   const declined = kept?.decline ?? DECLINE;
@@ -103,25 +122,27 @@ export function StepWindow(props: WindowProps): preact.JSX.Element | null {
   const title = id === null ? "Next step" : "Claude proposes the next step";
 
   const choose = (next: Pick): void => {
-    picked.value = {
-      id,
-      pick: next,
-      other: next.kind === "other" ? next : own,
-      decline: next.kind === "decline" ? next : declined,
-    };
+    windowStore.setState({
+      picked: {
+        id,
+        pick: next,
+        other: next.kind === "other" ? next : own,
+        decline: next.kind === "decline" ? next : declined,
+      },
+    });
   };
 
   const later = (): void => {
-    asking.value = putOff(state);
+    setAsking(putOff(state));
   };
 
   const send = (): void => {
     if (why !== null || answer === null) return;
-    asking.value = answering(state, id);
+    setAsking(answering(state, id));
 
     void props.onAnswer(id, answer).then((settled) => {
-      if (settled) picked.value = null;
-      else if (id !== null) asking.value = answerFailed(asking.peek(), id);
+      if (settled) windowStore.setState({ picked: null });
+      else if (id !== null) setAsking(answerFailed(windowStore.getState().asking, id));
     });
   };
 
@@ -131,7 +152,7 @@ export function StepWindow(props: WindowProps): preact.JSX.Element | null {
   return (
     <Dialog
       label={title}
-      class="proposal-dialog"
+      className="proposal-dialog"
       onCancel={later}
       below={
         <>
@@ -139,53 +160,53 @@ export function StepWindow(props: WindowProps): preact.JSX.Element | null {
         </>
       }
     >
-      <h2 class="proposal-who">{title}</h2>
-      {pending !== null && state?.paused === true && <p class="proposal-who">{PAUSED}</p>}
-      {pending !== null && <p class="proposal-why">{pending.proposal.reason}</p>}
+      <h2 className="proposal-who">{title}</h2>
+      {pending !== null && state?.paused === true && <p className="proposal-who">{PAUSED}</p>}
+      {pending !== null && <p className="proposal-why">{pending.proposal.reason}</p>}
       {pending !== null && (
-        <div class="proposal-moves" role="radiogroup" aria-label="Next step">
+        <div className="proposal-moves" role="radiogroup" aria-label="Next step">
           {moves.map((move, index) => {
             const recommended = index === pending.proposal.recommended;
 
             return (
-              <label class="proposal-move" key={index}>
+              <label className="proposal-move" key={index}>
                 <input
                   type="radio"
                   name="proposal-move"
                   checked={pick.kind === "move" && pick.index === index}
                   onChange={() => choose({ kind: "move", index })}
                 />
-                <span class="kind">{KIND_LABELS[move.kind]}</span>
-                {recommended && <span class="proposal-rec">Recommended</span>}
-                <span class="what">{detailOf(move)}</span>
+                <span className="kind">{KIND_LABELS[move.kind]}</span>
+                {recommended && <span className="proposal-rec">Recommended</span>}
+                <span className="what">{detailOf(move)}</span>
                 {move.kind === "grill" && move.choices.length > 0 && (
-                  <span class="choices">{move.choices.join(" · ")}</span>
+                  <span className="choices">{move.choices.join(" · ")}</span>
                 )}
               </label>
             );
           })}
-          <label class="proposal-move">
+          <label className="proposal-move">
             <input
               type="radio"
               name="proposal-move"
               checked={other !== null}
               onChange={() => choose(own)}
             />
-            <span class="kind">Something else…</span>
+            <span className="kind">Something else…</span>
           </label>
-          <label class="proposal-move">
+          <label className="proposal-move">
             <input
               type="radio"
               name="proposal-move"
               checked={declining !== null}
               onChange={() => choose(declined)}
             />
-            <span class="kind">None of these</span>
+            <span className="kind">None of these</span>
           </label>
         </div>
       )}
       {other !== null && (
-        <div class="proposal-other">
+        <div className="proposal-other">
           <select
             aria-label="Kind of step"
             value={other.other}
@@ -202,7 +223,7 @@ export function StepWindow(props: WindowProps): preact.JSX.Element | null {
           </select>
           {other.other !== "plan" && (
             <textarea
-              class="proposal-text"
+              className="proposal-text"
               rows={other.other === "own" ? 3 : 1}
               aria-label={FIELD_HINTS[other.other]}
               placeholder={FIELD_HINTS[other.other]}
@@ -221,9 +242,9 @@ export function StepWindow(props: WindowProps): preact.JSX.Element | null {
         </div>
       )}
       {declining !== null && (
-        <div class="proposal-note">
+        <div className="proposal-note">
           <textarea
-            class="proposal-text"
+            className="proposal-text"
             rows={3}
             aria-label={NOTE_HINT}
             placeholder={NOTE_HINT}
@@ -237,11 +258,11 @@ export function StepWindow(props: WindowProps): preact.JSX.Element | null {
           />
         </div>
       )}
-      <div class="row">
+      <div className="row">
         <Button onClick={later}>{id === null ? "Cancel" : "Later"}</Button>
         <Button
           variant="grill"
-          class="lit"
+          className="lit"
           disabled={why !== null || answer === null}
           title={why ?? undefined}
           onClick={send}

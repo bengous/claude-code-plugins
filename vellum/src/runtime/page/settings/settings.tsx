@@ -1,5 +1,5 @@
-import type { JSX } from "preact";
-import { useState } from "preact/hooks";
+import type { JSX } from "react";
+import { useState } from "react";
 
 import { Button, Dialog } from "../kit.tsx";
 import type { SettingsSection } from "./sections.ts";
@@ -45,15 +45,15 @@ export function Settings(props: { readonly onClose: () => void }): JSX.Element {
   );
 
   return (
-    <Dialog label="Settings" class="settings" onCancel={props.onClose}>
-      <div class="settings-head">
+    <Dialog label="Settings" className="settings" onCancel={props.onClose}>
+      <div className="settings-head">
         <h2>Settings</h2>
         <Button size="sm" onClick={props.onClose}>
           Close
         </Button>
       </div>
-      <div class="settings-body">
-        <nav class="settings-nav" aria-label="Settings sections">
+      <div className="settings-body">
+        <nav className="settings-nav" aria-label="Settings sections">
           {groups.map((group) => (
             <div key={group.title}>
               <h3>{group.title}</h3>
@@ -64,7 +64,7 @@ export function Settings(props: { readonly onClose: () => void }): JSX.Element {
           {pinned.map((section) => entry(section))}
         </nav>
         {open !== undefined && (
-          <section class="settings-panel" aria-labelledby={`settings-${open.id}`}>
+          <section className="settings-panel" aria-labelledby={`settings-${open.id}`}>
             <h3 id={`settings-${open.id}`}>{open.label}</h3>
             <open.Body />
           </section>

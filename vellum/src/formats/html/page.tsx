@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState } from "preact/hooks";
+import type { JSX } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { Composer } from "../../review/composer.tsx";
 import type { ElementRef } from "../../review/contract.ts";
@@ -9,13 +10,12 @@ import { srgb } from "../../runtime/page/kit.tsx";
 import type { Rect } from "../../runtime/page/place.ts";
 import { windowOf } from "../../runtime/page/place.ts";
 import {
-  choices,
   choose,
-  commenting,
-  dark,
   flipCommentSwitch,
-  holding,
+  pageStore,
+  selectCommenting,
   setAbsent,
+  usePage,
 } from "../../runtime/page/state.ts";
 import type { HtmlPlugs } from "./contract.ts";
 import type { Chosen, CommentedPlace, FrameTheme, PageToFrame, PickBox } from "./messages.ts";
@@ -55,19 +55,20 @@ function themeOf(): FrameTheme {
   };
 }
 
-function HtmlDoc(props: RendererProps): preact.JSX.Element {
+function HtmlDoc(props: RendererProps): JSX.Element {
   const frame = useRef<HTMLIFrameElement>(null);
   const [draft, setDraft] = useState<Draft | null>(null);
   const [frameHolding, setFrameHolding] = useState(false);
-  const on = commenting.value;
-  const held = holding.value;
-  const night = dark.value;
+  const on = usePage(selectCommenting);
+  const held = usePage((s) => s.holding);
+  const night = usePage((s) => s.dark);
+  const choices = usePage((s) => s.choices);
 
   const places: readonly CommentedPlace[] = props.annotations.flatMap((annotation) =>
     annotation.anchor.kind === "element" ? annotation.anchor.elements : [],
   );
 
-  const chosen: readonly Chosen[] = choicesIn(choices.value)
+  const chosen: readonly Chosen[] = choicesIn(choices)
     .filter(({ doc }) => doc === props.doc.path)
     .map(({ decision, option }) => ({ decision, option }));
 
@@ -107,14 +108,14 @@ function HtmlDoc(props: RendererProps): preact.JSX.Element {
 
       if (message.type === "vellum:switch") flipCommentSwitch();
 
-      if (message.type === "vellum:choose" && !commenting.value) {
+      if (message.type === "vellum:choose" && !selectCommenting(pageStore.getState())) {
         const { decision, option, label, description } = message;
         choose(props.doc.path, decision, { option, label, description });
       }
 
       if (message.type === "vellum:absent") setAbsent(props.doc.path, message.choices);
 
-      if (message.type === "vellum:pick" && commenting.value) {
+      if (message.type === "vellum:pick" && selectCommenting(pageStore.getState())) {
         const [first, ...rest] = message.elements;
 
         setDraft(first === undefined ? null : { elements: [first, ...rest], box: message.box });

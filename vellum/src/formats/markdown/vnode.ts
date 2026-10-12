@@ -1,6 +1,6 @@
 import type { Element as HastElement, RootContent } from "hast";
-import type { ComponentChild } from "preact";
-import { h } from "preact";
+import type { CSSProperties, ReactNode } from "react";
+import { createElement } from "react";
 
 import { fileUrl } from "../../runtime/page/api.ts";
 import type { GroupedDoc } from "../../runtime/protocol.ts";
@@ -12,7 +12,7 @@ import type { PlanTarget } from "./links.ts";
 import { linkedDoc } from "./links.ts";
 
 /**
- * The hast of `tree.ts` as Preact nodes, by hand: the JSX runtime adapters type against a
+ * The hast of `tree.ts` as React nodes, by hand: the JSX runtime adapters type against a
  * global JSX namespace this page does not own. What the sheet is drawn with: the changes to
  * mark, and the documents a link, an image or a name in backticks may reach.
  */
@@ -76,17 +76,17 @@ function textOf(node: RootContent): string {
  * figure keeps its source: with no text node it takes no selection and no quote search finds it.
  * Before a code block or a figure it takes the block's width.
  */
-export function removedBlock(run: RemovedRun, wide = false): ComponentChild {
-  return h(
+export function removedBlock(run: RemovedRun, wide = false): ReactNode {
+  return createElement(
     "details",
-    { key: `removed-${run.before}`, class: wide ? "removed wide" : "removed" },
-    h("summary", { "data-label": removedLabel(run.lines.length) }),
-    h("div", { "data-source": run.lines.join("\n") }),
+    { key: `removed-${run.before}`, className: wide ? "removed wide" : "removed" },
+    createElement("summary", { "data-label": removedLabel(run.lines.length) }),
+    createElement("div", { "data-source": run.lines.join("\n") }),
   );
 }
 
 /** What is drawn before `node`: its removed runs, as a row of their own before a row. */
-function removedBefore(node: HastElement, runs: readonly RemovedRun[]): ComponentChild[] {
+function removedBefore(node: HastElement, runs: readonly RemovedRun[]): ReactNode[] {
   if (runs.length === 0) return [];
 
   if (node.tagName !== "tr") {
@@ -98,10 +98,10 @@ function removedBefore(node: HastElement, runs: readonly RemovedRun[]): Componen
   const cells = node.children.filter((child) => child.type === "element").length;
 
   return [
-    h(
+    createElement(
       "tr",
-      { key: `removed-row-${runs[0]?.before ?? 0}`, class: "removed-row" },
-      h("td", { colSpan: cells }, ...runs.map((run) => removedBlock(run))),
+      { key: `removed-row-${runs[0]?.before ?? 0}`, className: "removed-row" },
+      createElement("td", { colSpan: cells }, ...runs.map((run) => removedBlock(run))),
     ),
   ];
 }
@@ -110,7 +110,7 @@ export function toVNodes(
   nodes: readonly RootContent[],
   sheet: Sheet,
   parent: HastElement | null = null,
-): ComponentChild[] {
+): ReactNode[] {
   return nodes.flatMap((node, index) => [
     ...(node.type === "element"
       ? removedBefore(node, sheet.changes?.removedBefore.get(node) ?? [])
@@ -120,9 +120,14 @@ export function toVNodes(
 }
 
 /** The bands over a code block's added lines, placed by CSS from the line's index. */
-function addedLineBands(lines: readonly number[]): ComponentChild[] {
+function addedLineBands(lines: readonly number[]): ReactNode[] {
   return lines.map((line) =>
-    h("span", { key: `line-${line}`, class: "line-added", style: `--line: ${line}` }),
+    createElement("span", {
+      key: `line-${line}`,
+      className: "line-added",
+      // SAFETY: a custom property is a `style` key React writes as it is; `CSSProperties` names none.
+      style: { "--line": line } as CSSProperties,
+    }),
   );
 }
 
@@ -168,7 +173,7 @@ export function toVNode(
   key: number,
   sheet: Sheet,
   parent: HastElement | null = null,
-): ComponentChild {
+): ReactNode {
   if (node.type === "text") return node.value;
 
   if (node.type !== "element") return null;
@@ -176,9 +181,9 @@ export function toVNode(
   const added = sheet.changes?.marked.has(node) === true;
 
   if (source !== null) {
-    return h("figure", {
+    return createElement("figure", {
       key,
-      class: added ? "mermaid added" : "mermaid",
+      className: added ? "mermaid added" : "mermaid",
       "data-lines": String(node.properties.dataLines),
       "data-source": source,
     });
@@ -217,16 +222,18 @@ export function toVNode(
   const first = node.children[0];
   const checkbox = first?.type === "element" && first.tagName === "input" ? 1 : 0;
 
-  const drawn = h(
+  const drawn = createElement(
     node.tagName,
-    { key, ...extra, ...given, ...named, class: classOf(node, added) },
+    { key, ...extra, ...given, ...named, className: classOf(node, added) },
     ...children.slice(0, checkbox),
     ...inside,
     ...children.slice(checkbox),
     ...bands,
   );
 
-  if (node.tagName === "table") return h("div", { key, class: "scroll-x" }, drawn);
+  if (node.tagName === "table") {
+    return createElement("div", { key, className: "scroll-x" }, drawn);
+  }
 
   // Inside a link already, a second one would nest two anchors.
   const linked =
@@ -236,7 +243,7 @@ export function toVNode(
 
   return linked === null
     ? drawn
-    : h(
+    : createElement(
         "a",
         { key, target: "_blank", rel: "noopener", href: fileUrl(linked), "data-path": linked },
         drawn,

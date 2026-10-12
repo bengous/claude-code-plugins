@@ -1,14 +1,14 @@
-import type { ComponentChildren, JSX } from "preact";
+import type { JSX, ReactNode } from "react";
 
 /** What a section is made of: a titled block of rows. */
 export function SettingsGroup(props: {
   readonly title: string;
-  readonly children: ComponentChildren;
+  readonly children: ReactNode;
 }): JSX.Element {
   return (
-    <div class="settings-group">
+    <div className="settings-group">
       <h4>{props.title}</h4>
-      <div class="settings-rows">{props.children}</div>
+      <div className="settings-rows">{props.children}</div>
     </div>
   );
 }
@@ -17,15 +17,15 @@ export function SettingsGroup(props: {
 export function SettingsRow(props: {
   readonly label: string;
   readonly description?: string;
-  readonly children: ComponentChildren;
+  readonly children: ReactNode;
 }): JSX.Element {
   return (
-    <div class="srow">
+    <div className="srow">
       <div>
-        <div class="srow-label">{props.label}</div>
-        {props.description !== undefined && <div class="srow-desc">{props.description}</div>}
+        <div className="srow-label">{props.label}</div>
+        {props.description !== undefined && <div className="srow-desc">{props.description}</div>}
       </div>
-      <div class="srow-control">{props.children}</div>
+      <div className="srow-control">{props.children}</div>
     </div>
   );
 }

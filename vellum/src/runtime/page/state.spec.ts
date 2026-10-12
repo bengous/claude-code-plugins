@@ -14,21 +14,38 @@ import { lineDiff } from "../../review/diff.ts";
 import { choicesIn, EMPTY_TYPED, refOf } from "../../review/review.ts";
 import type { SendShare } from "../extension.ts";
 import type { DocGroup, GroupedDoc, ReviewView, VellumBuild, WorkflowView } from "../protocol.ts";
-import type { Store } from "./state.ts";
-import { createStore } from "./state.ts";
-import type { WorkflowStore } from "./workflow.ts";
+import type { PageModule } from "./state.ts";
+import {
+  createPage,
+  selectCommenting,
+  selectCurrentDoc,
+  selectDocs,
+  selectLocked,
+  selectPlanChanges,
+  selectPlanDoc,
+  selectStrayTyped,
+  selectUnsentTyped,
+} from "./state.ts";
+import type { WorkflowModule } from "./workflow.ts";
 import { workflowOf } from "./workflow.ts";
 
-/** A store of its own for each test: no signal, and no saving effect `start` leaves behind, reaches another. */
-function freshStore(): Store {
-  return createStore();
+/** A store of its own for each test: no state, and no saving subscription `start` leaves behind, reaches another. */
+function freshStore(): PageModule {
+  return createPage();
 }
 
-/** A store of its own and the workflow read over it, whose `send` is the bar's and `notices` the column. */
-function freshFlow(): Store & WorkflowStore {
-  const store = freshStore();
+type Flow = PageModule & WorkflowModule;
 
-  return { ...store, ...workflowOf(store) };
+/** A store of its own and the workflow read over it, whose `send` is the bar's and `selectNotices` the column. */
+function freshFlow(): Flow {
+  const module = freshStore();
+
+  return { ...module, ...workflowOf(module) };
+}
+
+/** The column as the flow derives it now, off both stores. */
+function noticed(flow: Flow) {
+  return flow.selectNotices(flow.store.getState(), flow.flowStore.getState());
 }
 
 const WIP = "plans/2026-09-15/wip-4c2a9d93/";
@@ -353,37 +370,47 @@ describe("the store of each test", () => {
   test("is its own: what one sets, the next never sees", () => {
     const one = freshStore();
     const other = freshStore();
-    one.split.value = true;
+    one.store.setState({ split: true });
 
-    expect(other.split.value).toBe(false);
-    expect(other.review).not.toBe(one.review);
+    expect(other.store.getState().split).toBe(false);
+    expect(other.store).not.toBe(one.store);
   });
 });
 
 describe("docs", () => {
   test("before the first load the list is empty", () => {
-    const { docs } = freshStore();
+    const { store } = freshStore();
 
-    expect(docs.value).toEqual([]);
+    expect(selectDocs(store.getState())).toEqual([]);
   });
 
   test("while drafting the list is the server's, the working copy at its head as the plan", () => {
-    const { docs, planDoc, review } = freshStore();
+    const { store } = freshStore();
     const listed = [doc(`${WIP}plan.md`, "plan"), doc(`${WIP}mockup.md`, "artifact")];
-    review.value = drafting(listed);
+    store.setState({ review: drafting(listed) });
 
-    expect(planDoc.value).toBeNull();
-    expect(docs.value).toEqual(listed);
-    expect(docs.value[0]?.group).toBe("plan");
+    expect(selectPlanDoc(store.getState())).toBeNull();
+    expect(selectDocs(store.getState())).toEqual(listed);
+    expect(selectDocs(store.getState())[0]?.group).toBe("plan");
   });
 
   test("once a version exists its file heads the list as the plan, before what the server lists", () => {
-    const { docs, planDoc, review } = freshStore();
+    const { store } = freshStore();
     const mockup = doc(`${WIP}mockup.md`, "artifact");
-    review.value = versioned({ version: 2, docs: [mockup] });
+    store.setState({ review: versioned({ version: 2, docs: [mockup] }) });
 
-    expect(planDoc.value).toEqual(doc(`${WIP}.review/v2.md`, "plan"));
-    expect(docs.value).toEqual([doc(`${WIP}.review/v2.md`, "plan"), mockup]);
+    expect(selectPlanDoc(store.getState())).toEqual(doc(`${WIP}.review/v2.md`, "plan"));
+    expect(selectDocs(store.getState())).toEqual([doc(`${WIP}.review/v2.md`, "plan"), mockup]);
+  });
+
+  test("the same inputs give the same list: a render and a handler read one object", () => {
+    const { store } = freshStore();
+    store.setState({ review: versioned({ version: 2 }) });
+    const once = selectDocs(store.getState());
+    store.setState({ split: true });
+
+    expect(selectDocs(store.getState())).toBe(once);
+    expect(selectCurrentDoc(store.getState())).toBe(selectCurrentDoc(store.getState()));
   });
 });
 
@@ -392,43 +419,43 @@ describe("currentDoc", () => {
   const cited = doc("vellum/AGENTS.md", "cited");
 
   test("with nothing selected the plan shows", () => {
-    const { currentDoc, review } = freshStore();
-    review.value = versioned({ version: 1, docs: [mockup, cited] });
+    const { store } = freshStore();
+    store.setState({ review: versioned({ version: 1, docs: [mockup, cited] }) });
 
-    expect(currentDoc.value?.path).toBe(`${WIP}.review/v1.md` as never);
+    expect(selectCurrentDoc(store.getState())?.path).toBe(`${WIP}.review/v1.md` as never);
   });
 
   test("a selected document shows", () => {
-    const { currentDoc, review, select } = freshStore();
-    review.value = versioned({ version: 1, docs: [mockup, cited] });
+    const { store, select } = freshStore();
+    store.setState({ review: versioned({ version: 1, docs: [mockup, cited] }) });
     select(cited.path);
 
-    expect(currentDoc.value).toEqual(cited);
+    expect(selectCurrentDoc(store.getState())).toEqual(cited);
   });
 
   test("a selected version that went stale when the next one landed falls back on the plan", () => {
-    const { currentDoc, review, select } = freshStore();
-    review.value = versioned({ version: 1, docs: [mockup, cited] });
+    const { store, select } = freshStore();
+    store.setState({ review: versioned({ version: 1, docs: [mockup, cited] }) });
     select(`${WIP}.review/v1.md` as never);
-    review.value = versioned({ version: 2, docs: [mockup, cited] });
+    store.setState({ review: versioned({ version: 2, docs: [mockup, cited] }) });
 
-    expect(currentDoc.value?.path).toBe(`${WIP}.review/v2.md` as never);
+    expect(selectCurrentDoc(store.getState())?.path).toBe(`${WIP}.review/v2.md` as never);
   });
 
   test("while drafting a selection that left the list falls back on the first document", () => {
-    const { currentDoc, review, select } = freshStore();
-    review.value = drafting([doc(`${WIP}plan.md`, "plan"), mockup, cited]);
+    const { store, select } = freshStore();
+    store.setState({ review: drafting([doc(`${WIP}plan.md`, "plan"), mockup, cited]) });
     select(mockup.path);
-    review.value = drafting([doc(`${WIP}plan.md`, "plan"), cited]);
+    store.setState({ review: drafting([doc(`${WIP}plan.md`, "plan"), cited]) });
 
-    expect(currentDoc.value?.path).toBe(`${WIP}plan.md` as never);
+    expect(selectCurrentDoc(store.getState())?.path).toBe(`${WIP}plan.md` as never);
   });
 
   test("an empty list shows nothing", () => {
-    const { currentDoc, review } = freshStore();
-    review.value = drafting([]);
+    const { store } = freshStore();
+    store.setState({ review: drafting([]) });
 
-    expect(currentDoc.value).toBeNull();
+    expect(selectCurrentDoc(store.getState())).toBeNull();
   });
 });
 
@@ -436,133 +463,148 @@ describe("select", () => {
   const mockup = doc(`${WIP}mockup.md`, "artifact");
 
   test("on the plan's path clears split", () => {
-    const { current, review, select, split } = freshStore();
-    review.value = versioned({ version: 1, docs: [mockup] });
-    split.value = true;
+    const { store, select } = freshStore();
+    store.setState({ review: versioned({ version: 1, docs: [mockup] }), split: true });
     select(`${WIP}.review/v1.md` as never);
 
-    expect(split.value).toBe(false);
-    expect(current.value).toBe(`${WIP}.review/v1.md` as never);
+    expect(store.getState().split).toBe(false);
+    expect(store.getState().current).toBe(`${WIP}.review/v1.md` as never);
   });
 
   test("on another document keeps split", () => {
-    const { current, review, select, split } = freshStore();
-    review.value = versioned({ version: 1, docs: [mockup] });
-    split.value = true;
+    const { store, select } = freshStore();
+    store.setState({ review: versioned({ version: 1, docs: [mockup] }), split: true });
     select(mockup.path);
 
-    expect(split.value).toBe(true);
-    expect(current.value).toBe(mockup.path);
+    expect(store.getState().split).toBe(true);
+    expect(store.getState().current).toBe(mockup.path);
   });
 
   test("while the editor is open moves nothing", () => {
-    const { current, openEditor, review, select } = freshStore();
-    review.value = versioned({ version: 1, docs: [mockup] });
+    const { store, openEditor, select } = freshStore();
+    store.setState({ review: versioned({ version: 1, docs: [mockup] }) });
     openEditor(1);
     select(mockup.path);
 
-    expect(current.value).toBeNull();
+    expect(store.getState().current).toBeNull();
   });
 });
 
 describe("locked", () => {
   test("before the first load the page is locked", () => {
-    const { locked } = freshStore();
+    const { store } = freshStore();
 
-    expect(locked.value).toBe(true);
+    expect(selectLocked(store.getState())).toBe(true);
   });
 
   test("while drafting it takes comments", () => {
-    const { locked, review } = freshStore();
-    review.value = drafting([]);
+    const { store } = freshStore();
+    store.setState({ review: drafting([]) });
 
-    expect(locked.value).toBe(false);
+    expect(selectLocked(store.getState())).toBe(false);
   });
 
   test.each([
     ["inReview", false],
     ["approved", true],
   ] as const)("a version %s: locked is %p", (kind, expected) => {
-    const { locked, review } = freshStore();
-    review.value = versioned({ version: 1, kind });
+    const { store } = freshStore();
+    store.setState({ review: versioned({ version: 1, kind }) });
 
-    expect(locked.value).toBe(expected);
+    expect(selectLocked(store.getState())).toBe(expected);
   });
 
   test("a locked page takes no comment", () => {
-    const { addAnnotation, annotations, review } = freshStore();
-    review.value = versioned({ version: 1, kind: "approved" });
+    const { addAnnotation, store } = freshStore();
+    store.setState({ review: versioned({ version: 1, kind: "approved" }) });
     addAnnotation(comment("", `${WIP}.review/v1.md`));
 
-    expect(annotations.value).toEqual([]);
+    expect(store.getState().annotations).toEqual([]);
   });
 });
 
 describe("the comment switch", () => {
   test("a fresh store has the switch off, so an open page does not comment", () => {
-    const { commentSwitch, commenting, review } = freshStore();
-    review.value = versioned({ version: 1 });
+    const { store } = freshStore();
+    store.setState({ review: versioned({ version: 1 }) });
 
-    expect(commentSwitch.value).toBe(false);
-    expect(commenting.value).toBe(false);
+    expect(store.getState().commentSwitch).toBe(false);
+    expect(selectCommenting(store.getState())).toBe(false);
   });
 
   test("a locked page does not comment, whatever the switch", () => {
-    const { commentSwitch, commenting, review } = freshStore();
-    review.value = versioned({ version: 1, kind: "approved" });
-    commentSwitch.value = true;
+    const { store } = freshStore();
+    store.setState({ review: versioned({ version: 1, kind: "approved" }), commentSwitch: true });
 
-    expect(commenting.value).toBe(false);
+    expect(selectCommenting(store.getState())).toBe(false);
   });
 
   test("an open page comments once the switch is flipped on", () => {
-    const { commenting, flipCommentSwitch, review } = freshStore();
-    review.value = versioned({ version: 1 });
+    const { store, flipCommentSwitch } = freshStore();
+    store.setState({ review: versioned({ version: 1 }) });
     flipCommentSwitch();
 
-    expect(commenting.value).toBe(true);
+    expect(selectCommenting(store.getState())).toBe(true);
   });
 
   test("a flip on a locked page leaves the switch as it was", () => {
-    const { commentSwitch, flipCommentSwitch, review } = freshStore();
-    review.value = versioned({ version: 1, kind: "approved" });
+    const { store, flipCommentSwitch } = freshStore();
+    store.setState({ review: versioned({ version: 1, kind: "approved" }) });
     flipCommentSwitch();
 
-    expect(commentSwitch.value).toBe(false);
+    expect(store.getState().commentSwitch).toBe(false);
+  });
+});
+
+describe("an equal write", () => {
+  test("wakes nobody: a Ctrl held down is one change, not one per event", () => {
+    const { store, setHolding } = freshStore();
+    const changes: boolean[] = [];
+    store.subscribe((s) => changes.push(s.holding));
+    setHolding(true);
+    setHolding(true);
+    setHolding(false);
+    setHolding(false);
+
+    expect(changes).toEqual([true, false]);
   });
 });
 
 describe("the comments", () => {
   test("a comment joins the others under an id of its own", () => {
-    const { addAnnotation, annotations, review } = freshStore();
-    review.value = versioned({ version: 1 });
-    annotations.value = [comment("first", `${WIP}.review/v1.md`)];
+    const { addAnnotation, store } = freshStore();
+    store.setState({
+      review: versioned({ version: 1 }),
+      annotations: [comment("first", `${WIP}.review/v1.md`)],
+    });
     addAnnotation(comment("the caller's", `${WIP}.review/v1.md`));
 
-    expect(annotations.value.map((annotation) => annotation.mark)).toEqual([
+    expect(store.getState().annotations.map((annotation) => annotation.mark)).toEqual([
       { kind: "comment", body: "first" },
       { kind: "comment", body: "the caller's" },
     ]);
-    expect(annotations.value[1]?.id).toMatch(/^[0-9a-f-]{36}$/u);
+    expect(store.getState().annotations[1]?.id).toMatch(/^[0-9a-f-]{36}$/u);
   });
 
   test("a removed comment leaves the others", () => {
-    const { annotations, removeAnnotation } = freshStore();
-    annotations.value = [comment("kept", `${WIP}plan.md`), comment("gone", `${WIP}plan.md`)];
+    const { store, removeAnnotation } = freshStore();
+    store.setState({
+      annotations: [comment("kept", `${WIP}plan.md`), comment("gone", `${WIP}plan.md`)],
+    });
     removeAnnotation("gone");
 
-    expect(annotations.value.map((annotation) => annotation.id)).toEqual(["kept"]);
+    expect(store.getState().annotations.map((annotation) => annotation.id)).toEqual(["kept"]);
   });
 });
 
 describe("choose", () => {
   test("a choice is one draft write, and another option of the same decision replaces it", async () => {
-    const store = freshStore();
+    const page = freshStore();
     const server = serve({ draft: null, review: versioned({ version: 1 }) });
-    await store.start();
+    await page.start();
     server.puts.length = 0;
-    store.choose(MOCKUP, "layout", chose("d"));
-    store.choose(MOCKUP, "layout", chose("e"));
+    page.choose(MOCKUP, "layout", chose("d"));
+    page.choose(MOCKUP, "layout", chose("e"));
     await settled();
 
     expect(server.puts.map(({ choices }) => choices)).toEqual([
@@ -572,48 +614,48 @@ describe("choose", () => {
   });
 
   test("an approved page takes no choice", async () => {
-    const store = freshStore();
+    const page = freshStore();
     serve({ draft: null, review: versioned({ version: 1, kind: "approved" }) });
-    await store.start();
-    store.choose(MOCKUP, "layout", chose("d"));
+    await page.start();
+    page.choose(MOCKUP, "layout", chose("d"));
 
-    expect(store.choices.value).toEqual({});
+    expect(page.store.getState().choices).toEqual({});
   });
 
   test("the option already chosen, chosen again, withdraws the choice: one draft write", async () => {
-    const store = freshStore();
+    const page = freshStore();
     const choices = { [MOCKUP]: { layout: chose("d"), nav: chose("tabs") } };
     const draft = { annotations: [], edit: null, choices, typed: EMPTY_TYPED };
     const server = serve({ draft, review: versioned({ version: 1 }) });
-    await store.start();
+    await page.start();
     server.puts.length = 0;
-    store.choose(MOCKUP, "layout", chose("d"));
+    page.choose(MOCKUP, "layout", chose("d"));
     await settled();
 
     expect(server.puts.map((put) => put.choices)).toEqual([{ [MOCKUP]: { nav: chose("tabs") } }]);
   });
 
   test("a card's Delete withdraws its choice, and the mockup's last one leaves the draft", async () => {
-    const store = freshStore();
+    const page = freshStore();
     const choices = { [MOCKUP]: { layout: chose("d") } };
     serve({
       draft: { annotations: [], edit: null, choices, typed: EMPTY_TYPED },
       review: versioned({ version: 1 }),
     });
-    await store.start();
-    store.unchoose({ doc: MOCKUP, decision: "layout", option: "d" });
+    await page.start();
+    page.unchoose({ doc: MOCKUP, decision: "layout", option: "d" });
 
-    expect(store.choices.value).toEqual({});
+    expect(page.store.getState().choices).toEqual({});
   });
 });
 
 describe("what is typed", () => {
   test("setTyped is a patch: the rest stays", () => {
-    const { setTyped, typed } = freshStore();
+    const { setTyped, store } = freshStore();
     setTyped({ general: "Overall" });
     setTyped({ editor: { version: 1, text: "mine\n" } as never });
 
-    expect(typed.value).toEqual({
+    expect(store.getState().typed).toEqual({
       ...EMPTY_TYPED,
       general: "Overall",
       editor: edit(1, "mine\n"),
@@ -621,17 +663,19 @@ describe("what is typed", () => {
   });
 
   test("strayTyped is what a Send leaves unsent: the grill's answers leave with it", () => {
-    const { setTyped, strayTyped } = freshStore();
+    const { setTyped, store } = freshStore();
     setTyped({
       general: "Overall",
       grill: { [`${WIP}grill-1.md`]: { answers: { Q2: "The inspector." }, note: "Go." } },
     });
 
-    expect(strayTyped.value).toEqual([{ where: "the general box", text: "Overall" }]);
+    expect(selectStrayTyped(store.getState())).toEqual([
+      { where: "the general box", text: "Overall" },
+    ]);
   });
 
   test("unsentTyped names each place holding a text, and skips the blank ones", () => {
-    const { setTyped, unsentTyped } = freshStore();
+    const { setTyped, store } = freshStore();
     setTyped({
       general: "  ",
       composer: { [`${WIP}mockup.html`]: "Bigger", [`${WIP}plan.md`]: "" },
@@ -642,19 +686,32 @@ describe("what is typed", () => {
       editor: { version: 1, text: "mine\n" } as never,
     });
 
-    expect(unsentTyped.value).toEqual([
+    expect(selectUnsentTyped(store.getState())).toEqual([
       { where: "a comment on mockup.html", text: "Bigger" },
       { where: "the answers in grill-1.md", text: "The inspector." },
       { where: "the editor", text: "mine\n" },
     ]);
   });
 
+  test("the same typing gives the same lists: what the bar compared at the warning still holds", () => {
+    const { setTyped, store } = freshStore();
+    setTyped({ general: "Overall" });
+    const stray = selectStrayTyped(store.getState());
+    const unsent = selectUnsentTyped(store.getState());
+    store.setState({ split: true });
+
+    expect(selectStrayTyped(store.getState())).toBe(stray);
+    expect(selectUnsentTyped(store.getState())).toBe(unsent);
+  });
+
   test("a card's edit changes the mark and keeps the place", () => {
-    const { annotations, updateAnnotation } = freshStore();
-    annotations.value = [onLine("c1", `${WIP}plan.md`, 3), comment("c2", `${WIP}plan.md`)];
+    const { store, updateAnnotation } = freshStore();
+    store.setState({
+      annotations: [onLine("c1", `${WIP}plan.md`, 3), comment("c2", `${WIP}plan.md`)],
+    });
     updateAnnotation("c1", { kind: "comment", body: "fixed" });
 
-    expect(annotations.value).toEqual([
+    expect(store.getState().annotations).toEqual([
       { ...onLine("c1", `${WIP}plan.md`, 3), mark: { kind: "comment", body: "fixed" } },
       comment("c2", `${WIP}plan.md`),
     ]);
@@ -663,100 +720,112 @@ describe("what is typed", () => {
 
 describe("planChanges", () => {
   test("at v1 there is nothing to compare with", () => {
-    const { planChanges, review } = freshStore();
-    review.value = versioned({ version: 1, text: "a\n" });
+    const { store } = freshStore();
+    store.setState({ review: versioned({ version: 1, text: "a\n" }) });
 
-    expect(planChanges.value).toBeNull();
+    expect(selectPlanChanges(store.getState())).toBeNull();
   });
 
   test("a version is compared with the one before, in that direction", () => {
-    const { planChanges, review } = freshStore();
-    review.value = versioned({ version: 2, previous: "a\n", text: "a\nb\n" });
+    const { store } = freshStore();
+    store.setState({ review: versioned({ version: 2, previous: "a\n", text: "a\nb\n" }) });
 
-    expect(planChanges.value).toEqual(lineDiff("a\n", "a\nb\n"));
+    expect(selectPlanChanges(store.getState())).toEqual(lineDiff("a\n", "a\nb\n"));
   });
 
   test("the reviewer's unsent edit is the text compared, not the version's", () => {
-    const { edited, planChanges, review } = freshStore();
-    review.value = versioned({ version: 2, previous: "a\n", text: "a\nb\n" });
-    edited.value = edit(2, "a\nc\nd\n");
+    const { store } = freshStore();
+    store.setState({
+      review: versioned({ version: 2, previous: "a\n", text: "a\nb\n" }),
+      edited: edit(2, "a\nc\nd\n"),
+    });
 
-    expect(planChanges.value).toEqual(lineDiff("a\n", "a\nc\nd\n"));
+    expect(selectPlanChanges(store.getState())).toEqual(lineDiff("a\n", "a\nc\nd\n"));
+  });
+
+  test("the same two texts keep the same diff through a load: the sheet is not drawn again", () => {
+    const { store } = freshStore();
+    store.setState({ review: versioned({ version: 2, previous: "a\n", text: "a\nb\n" }) });
+    const once = selectPlanChanges(store.getState());
+    store.setState({ review: versioned({ version: 2, previous: "a\n", text: "a\nb\n" }) });
+
+    expect(selectPlanChanges(store.getState())).toBe(once);
   });
 });
 
 describe("the editor", () => {
   test("opens on the version under review, at the line asked", () => {
-    const { editing, openEditor, review } = freshStore();
-    review.value = versioned({ version: 2, text: "a\n" });
+    const { store, openEditor } = freshStore();
+    store.setState({ review: versioned({ version: 2, text: "a\n" }) });
     openEditor(7);
 
-    expect(editing.value).toEqual({ version: 2, base: "a\n", line: 7 } as never);
+    expect(store.getState().editing).toEqual({ version: 2, base: "a\n", line: 7 } as never);
   });
 
   test("opens on the unsent edit when there is one", () => {
-    const { edited, editing, openEditor, review } = freshStore();
-    review.value = versioned({ version: 2, text: "a\n" });
-    edited.value = edit(2, "mine\n");
+    const { store, openEditor } = freshStore();
+    store.setState({ review: versioned({ version: 2, text: "a\n" }), edited: edit(2, "mine\n") });
     openEditor(1);
 
-    expect(editing.value?.base).toBe("mine\n");
+    expect(store.getState().editing?.base).toBe("mine\n");
   });
 
   test("stays shut on a version approved", () => {
-    const { editing, openEditor, review } = freshStore();
-    review.value = versioned({ version: 2, text: "a\n", kind: "approved" });
+    const { store, openEditor } = freshStore();
+    store.setState({ review: versioned({ version: 2, text: "a\n", kind: "approved" }) });
     openEditor(1);
 
-    expect(editing.value).toBeNull();
+    expect(store.getState().editing).toBeNull();
   });
 
   test("stays shut while drafting", () => {
-    const { editing, openEditor, review } = freshStore();
-    review.value = drafting([doc(`${WIP}plan.md`, "plan")]);
+    const { store, openEditor } = freshStore();
+    store.setState({ review: drafting([doc(`${WIP}plan.md`, "plan")]) });
     openEditor(1);
 
-    expect(editing.value).toBeNull();
+    expect(store.getState().editing).toBeNull();
   });
 
   test("Done records the typed text with its version, and moves the plan's comments down with their lines; closeEditor closes on a line", () => {
-    const { annotations, closeEditor, edited, editing, finishEdit, openEditor, resume, review } =
-      freshStore();
+    const { store, closeEditor, finishEdit, openEditor } = freshStore();
 
-    review.value = versioned({ version: 2, text: "a\nb\n" });
-    annotations.value = [
-      onLine("c1", `${WIP}.review/v2.md`, 2),
-      onLine("c2", `${WIP}mockup.md`, 2),
-    ];
+    store.setState({
+      review: versioned({ version: 2, text: "a\nb\n" }),
+      annotations: [onLine("c1", `${WIP}.review/v2.md`, 2), onLine("c2", `${WIP}mockup.md`, 2)],
+    });
     openEditor(1);
     finishEdit({ version: 2, base: "a\nb\n", line: 1 } as never, "new\na\nb\n");
-    const recorded = editing.value !== null;
+    const recorded = store.getState().editing !== null;
     closeEditor(2);
 
-    expect(edited.value).toEqual(edit(2, "new\na\nb\n"));
-    expect([recorded, editing.value, resume.value]).toEqual([true, null, 2]);
-    expect(annotations.value).toEqual([
+    expect(store.getState().edited).toEqual(edit(2, "new\na\nb\n"));
+    expect([recorded, store.getState().editing, store.getState().resume]).toEqual([true, null, 2]);
+    expect(store.getState().annotations).toEqual([
       onLine("c1", `${WIP}.review/v2.md`, 3),
       onLine("c2", `${WIP}mockup.md`, 2),
     ]);
   });
 
   test("Done on a second edit shifts from the text the editor opened on, not from the version's", () => {
-    const { annotations, finishEdit, review } = freshStore();
-    review.value = versioned({ version: 2, text: "a\nb\nc\n" });
-    annotations.value = [onLine("c1", `${WIP}.review/v2.md`, 3)];
+    const { store, finishEdit } = freshStore();
+    store.setState({
+      review: versioned({ version: 2, text: "a\nb\nc\n" }),
+      annotations: [onLine("c1", `${WIP}.review/v2.md`, 3)],
+    });
     finishEdit({ version: 2, base: "new\na\nb\nc\n", line: 1 } as never, "new\na\nb\nc\n");
 
-    expect(annotations.value).toEqual([onLine("c1", `${WIP}.review/v2.md`, 3)]);
+    expect(store.getState().annotations).toEqual([onLine("c1", `${WIP}.review/v2.md`, 3)]);
   });
 
   test("Done on a second edit that removes a commented line gives the comment the version's lines", () => {
-    const { annotations, finishEdit, review } = freshStore();
-    review.value = versioned({ version: 2, text: "a\nb\nc\n" });
-    annotations.value = [onLine("c1", `${WIP}.review/v2.md`, 3)];
+    const { store, finishEdit } = freshStore();
+    store.setState({
+      review: versioned({ version: 2, text: "a\nb\nc\n" }),
+      annotations: [onLine("c1", `${WIP}.review/v2.md`, 3)],
+    });
     finishEdit({ version: 2, base: "new\na\nb\nc\n", line: 1 } as never, "new\na\nc\n");
 
-    expect(annotations.value).toEqual([
+    expect(store.getState().annotations).toEqual([
       {
         ...onLine("c1", `${WIP}.review/v2.md`, 2),
         anchor: {
@@ -770,28 +839,31 @@ describe("the editor", () => {
   });
 
   test("Done on the version's own text is no edit", () => {
-    const { edited, finishEdit, review } = freshStore();
-    review.value = versioned({ version: 2, text: "a\n" });
-    edited.value = edit(2, "mine\n");
+    const { store, finishEdit } = freshStore();
+    store.setState({ review: versioned({ version: 2, text: "a\n" }), edited: edit(2, "mine\n") });
     finishEdit({ version: 2, base: "mine\n", line: 1 } as never, "a\n");
 
-    expect(edited.value).toBeNull();
+    expect(store.getState().edited).toBeNull();
   });
 
   test("Discard edit is the reverse of Done: the version's text, the comments back on its lines, a removed one removed no more", () => {
-    const { annotations, discardEdit, edited, finishEdit, review } = freshStore();
-    review.value = versioned({ version: 2, text: "a\nb\nc\n" });
-    annotations.value = [
-      onLine("kept", `${WIP}.review/v2.md`, 3),
-      onLine("gone", `${WIP}.review/v2.md`, 2),
-    ];
+    const { store, discardEdit, finishEdit } = freshStore();
+    store.setState({
+      review: versioned({ version: 2, text: "a\nb\nc\n" }),
+      annotations: [
+        onLine("kept", `${WIP}.review/v2.md`, 3),
+        onLine("gone", `${WIP}.review/v2.md`, 2),
+      ],
+    });
     finishEdit({ version: 2, base: "a\nb\nc\n", line: 1 } as never, "new\na\nc\n");
 
-    const shifted = annotations.value.map((a) => [
-      a.id,
-      a.anchor.kind === "text" ? a.anchor.passages[0].lines[0] : 0,
-      a.anchor.kind === "text" && a.anchor.passages[0].removed,
-    ]);
+    const shifted = store
+      .getState()
+      .annotations.map((a) => [
+        a.id,
+        a.anchor.kind === "text" ? a.anchor.passages[0].lines[0] : 0,
+        a.anchor.kind === "text" && a.anchor.passages[0].removed,
+      ]);
 
     discardEdit();
 
@@ -799,37 +871,39 @@ describe("the editor", () => {
       ["kept", 3, false],
       ["gone", 2, true],
     ]);
-    expect(edited.value).toBeNull();
-    expect(annotations.value).toEqual([
+    expect(store.getState().edited).toBeNull();
+    expect(store.getState().annotations).toEqual([
       onLine("kept", `${WIP}.review/v2.md`, 3),
       onLine("gone", `${WIP}.review/v2.md`, 2),
     ]);
   });
 
   test("Done once another version arrived keeps the editor open, and the notices say why", () => {
-    const { edited, editing, finishEdit, notices, openEditor, review } = freshFlow();
-    review.value = versioned({ version: 1, text: "a\n" });
+    const flow = freshFlow();
+    const { store, finishEdit, openEditor } = flow;
+    store.setState({ review: versioned({ version: 1, text: "a\n" }) });
     openEditor(1);
-    review.value = versioned({ version: 2, text: "b\n" });
+    store.setState({ review: versioned({ version: 2, text: "b\n" }) });
     finishEdit({ version: 1, base: "a\n", line: 1 } as never, "mine\n");
 
-    expect(editing.value).not.toBeNull();
-    expect(edited.value).toBeNull();
-    expect(notices.value.map((notice) => notice.text.join(""))).toEqual([
+    expect(store.getState().editing).not.toBeNull();
+    expect(store.getState().edited).toBeNull();
+    expect(noticed(flow).map((notice) => notice.text.join(""))).toEqual([
       "v2 arrived while you were editing v1. Copy what you need, then Cancel.",
     ]);
   });
 
   test("Done once the version was decided elsewhere keeps the editor open, and the notices say so", () => {
-    const { editing, finishEdit, notices, openEditor, review } = freshFlow();
-    review.value = versioned({ version: 1, text: "a\n" });
+    const flow = freshFlow();
+    const { store, finishEdit, openEditor } = flow;
+    store.setState({ review: versioned({ version: 1, text: "a\n" }) });
     openEditor(1);
-    review.value = versioned({ version: 1, text: "a\n", kind: "approved" });
+    store.setState({ review: versioned({ version: 1, text: "a\n", kind: "approved" }) });
     finishEdit({ version: 1, base: "a\n", line: 1 } as never, "mine\n");
 
-    expect(editing.value).not.toBeNull();
-    expect(notices.value.map(({ key }) => key)).toEqual(["stale-editor", "workspace"]);
-    expect(notices.value[0]?.text).toEqual([
+    expect(store.getState().editing).not.toBeNull();
+    expect(noticed(flow).map(({ key }) => key)).toEqual(["stale-editor", "workspace"]);
+    expect(noticed(flow)[0]?.text).toEqual([
       "v1 is no longer under review. Copy what you need, then Cancel.",
     ]);
   });
@@ -837,9 +911,9 @@ describe("the editor", () => {
 
 describe("a server revived on another build", () => {
   test("reloads the page once its stream opens again: the page's code may call routes the new build no longer has", async () => {
-    const store = freshStore();
+    const page = freshStore();
     const server = serve({ draft: null, review: versioned({ version: 1 }) });
-    await store.start();
+    await page.start();
     server.push("open");
     await settled();
     server.push("error");
@@ -851,9 +925,9 @@ describe("a server revived on another build", () => {
   });
 
   test("leaves the page as it is when the server revived is the same build", async () => {
-    const store = freshStore();
+    const page = freshStore();
     const server = serve({ draft: null, review: versioned({ version: 1 }) });
-    await store.start();
+    await page.start();
     server.push("open");
     await settled();
     server.push("error");
@@ -865,9 +939,9 @@ describe("a server revived on another build", () => {
   });
 
   test("leaves the page as it is when the server cannot read its build", async () => {
-    const store = freshStore();
+    const page = freshStore();
     const server = serve({ draft: null, review: versioned({ version: 1 }) });
-    await store.start();
+    await page.start();
     server.push("open");
     await settled();
     server.answer = { ...server.answer, build: "unreadable" };
@@ -880,7 +954,7 @@ describe("a server revived on another build", () => {
 
 describe("start", () => {
   test("restores the saved draft before anything is written: the first PUT carries it, after both reads and the stream", async () => {
-    const store = freshStore();
+    const page = freshStore();
 
     const saved: Draft = {
       annotations: [comment("c1", `${WIP}.review/v1.md`)],
@@ -890,7 +964,7 @@ describe("start", () => {
     };
 
     const server = serve({ draft: saved, review: versioned({ version: 1 }) });
-    await store.start();
+    await page.start();
     await settled();
 
     expect(server.calls).toEqual([
@@ -900,11 +974,11 @@ describe("start", () => {
       "PUT /api/draft",
     ]);
     expect(server.puts).toEqual([saved]);
-    expect(store.annotations.value).toEqual(saved.annotations);
+    expect(page.store.getState().annotations).toEqual(saved.annotations);
   });
 
   test("nothing is written while the first load is still out", async () => {
-    const store = freshStore();
+    const page = freshStore();
     const loaded = Promise.withResolvers<void>();
 
     const saved: Draft = {
@@ -920,7 +994,7 @@ describe("start", () => {
       load: () => loaded.promise,
     });
 
-    const started = store.start();
+    const started = page.start();
     await settled();
     const whileLoading = [...server.calls];
     loaded.resolve();
@@ -932,7 +1006,7 @@ describe("start", () => {
   });
 
   test("a write asked while the first load is out waits for it, then writes the draft restored", async () => {
-    const store = freshStore();
+    const page = freshStore();
     const loaded = Promise.withResolvers<void>();
     const annotations = [comment("c1", `${WIP}.review/v1.md`)];
     const saved: Draft = { annotations, edit: null, choices: {}, typed: EMPTY_TYPED };
@@ -943,9 +1017,9 @@ describe("start", () => {
       load: () => loaded.promise,
     });
 
-    const started = store.start();
+    const started = page.start();
     await settled();
-    const written = store.writeDraft();
+    const written = page.writeDraft();
     await settled();
     const whileLoading = [...server.calls];
     loaded.resolve();
@@ -959,9 +1033,9 @@ describe("start", () => {
   });
 
   test("with no saved draft the first write is the empty one, still after both reads", async () => {
-    const store = freshStore();
+    const page = freshStore();
     const server = serve({ draft: null, review: versioned({ version: 1 }) });
-    await store.start();
+    await page.start();
     await settled();
 
     expect(server.calls.indexOf("PUT /api/draft")).toBeGreaterThan(
@@ -971,7 +1045,7 @@ describe("start", () => {
   });
 
   test("a restored edit meets the first load: another version arrived, so it is dropped with a banner and the comments stay", async () => {
-    const store = freshStore();
+    const page = freshStore();
     const kept = [comment("c1", `${WIP}.review/v1.md`)];
     serve({
       draft: {
@@ -982,20 +1056,20 @@ describe("start", () => {
       } as never,
       review: versioned({ version: 3 }),
     });
-    await store.start();
+    await page.start();
 
-    expect(store.edited.value).toBeNull();
-    expect(store.failures.value).toEqual([
+    expect(page.store.getState().edited).toBeNull();
+    expect(page.store.getState().failures).toEqual([
       {
         op: "edit",
         text: "Your unsent edit of v1 was dropped: another version of the plan arrived. Your comments are kept.",
       },
     ]);
-    expect(store.annotations.value).toEqual(kept);
+    expect(page.store.getState().annotations).toEqual(kept);
   });
 
   test("a restored editor typing of a version no longer under review is dropped: its field is gone", async () => {
-    const store = freshStore();
+    const page = freshStore();
 
     serve({
       draft: {
@@ -1007,26 +1081,26 @@ describe("start", () => {
       review: versioned({ version: 3 }),
     });
 
-    await store.start();
+    await page.start();
 
-    expect(store.typed.value.editor).toBeNull();
-    expect(store.unsentTyped.value).toEqual([]);
+    expect(page.store.getState().typed.editor).toBeNull();
+    expect(selectUnsentTyped(page.store.getState())).toEqual([]);
   });
 
   test("a restored edit of the version loaded stays pending", async () => {
-    const store = freshStore();
+    const page = freshStore();
     serve({
       draft: { annotations: [], edit: edit(1, "mine\n"), choices: {}, typed: EMPTY_TYPED } as never,
       review: versioned({ version: 1 }),
     });
-    await store.start();
+    await page.start();
 
-    expect(store.edited.value).toEqual(edit(1, "mine\n"));
-    expect(store.failures.value).toEqual([]);
+    expect(page.store.getState().edited).toEqual(edit(1, "mine\n"));
+    expect(page.store.getState().failures).toEqual([]);
   });
 
   test("a restored edit that landed as the next version is cleared, and its comments become that version's", async () => {
-    const store = freshStore();
+    const page = freshStore();
 
     const draft = {
       annotations: [comment("c1", `${WIP}.review/v1.md`)],
@@ -1036,22 +1110,22 @@ describe("start", () => {
     };
 
     serve({ draft: draft as never, review: versioned({ version: 2, text: "mine\n" }) });
-    await store.start();
+    await page.start();
 
-    expect(store.edited.value).toBeNull();
-    expect(store.failures.value).toEqual([]);
-    expect(store.annotations.value).toEqual([comment("c1", `${WIP}.review/v2.md`)]);
+    expect(page.store.getState().edited).toBeNull();
+    expect(page.store.getState().failures).toEqual([]);
+    expect(page.store.getState().annotations).toEqual([comment("c1", `${WIP}.review/v2.md`)]);
   });
 
   test("a draft that cannot be read starts no saving, and says so", async () => {
-    const store = freshStore();
+    const page = freshStore();
     const server = serve({ draft: "unreadable", review: versioned({ version: 1 }) });
-    await store.start();
-    store.addAnnotation(comment("", `${WIP}.review/v1.md`));
+    await page.start();
+    page.addAnnotation(comment("", `${WIP}.review/v1.md`));
     await settled();
 
     expect(server.puts).toEqual([]);
-    expect(store.failures.value).toEqual([
+    expect(page.store.getState().failures).toEqual([
       {
         op: "draft",
         text: "The saved draft could not be read: the server answered 500. Nothing is saved until the page reads it again, at a reload or a Send.",
@@ -1060,7 +1134,7 @@ describe("start", () => {
   });
 
   test("after it each change is one write, and the next waits for the one before", async () => {
-    const store = freshStore();
+    const page = freshStore();
     const held = Promise.withResolvers<void>();
 
     const server = serve({
@@ -1069,9 +1143,9 @@ describe("start", () => {
       put: () => held.promise,
     });
 
-    await store.start();
-    store.addAnnotation(comment("", `${WIP}.review/v1.md`));
-    store.edited.value = edit(1, "mine\n");
+    await page.start();
+    page.addAnnotation(comment("", `${WIP}.review/v1.md`));
+    page.store.setState({ edited: edit(1, "mine\n") });
     await settled();
     const inFlight = server.puts.length;
     held.resolve();
@@ -1086,7 +1160,7 @@ describe("start", () => {
   });
 
   test("an edit that lands is one write: the edit cleared and its comments moved, together", async () => {
-    const store = freshStore();
+    const page = freshStore();
 
     const draft = {
       annotations: [comment("c1", `${WIP}.review/v1.md`)],
@@ -1096,7 +1170,7 @@ describe("start", () => {
     };
 
     const server = serve({ draft, review: versioned({ version: 1 }) });
-    await store.start();
+    await page.start();
     server.answer = { ...server.answer, review: versioned({ version: 2, text: "mine\n" }) };
     server.push("message");
     await settled();
@@ -1113,7 +1187,7 @@ describe("start", () => {
   });
 
   test("Done is one write: the shifted comments and the edit, together", async () => {
-    const store = freshStore();
+    const page = freshStore();
 
     const draft = {
       annotations: [onLine("c1", `${WIP}.review/v1.md`, 1)],
@@ -1123,8 +1197,8 @@ describe("start", () => {
     };
 
     const server = serve({ draft, review: versioned({ version: 1, text: "a\n" }) });
-    await store.start();
-    store.finishEdit({ version: 1, base: "a\n", line: 1 } as never, "new\na\n");
+    await page.start();
+    page.finishEdit({ version: 1, base: "a\n", line: 1 } as never, "new\na\n");
     await settled();
 
     expect(server.puts).toEqual([
@@ -1139,7 +1213,7 @@ describe("start", () => {
   });
 
   test("a decision the server took is one write: no comment and no edit, together", async () => {
-    const store = freshStore();
+    const page = freshStore();
 
     const draft = {
       annotations: [comment("c1", `${WIP}.review/v1.md`)],
@@ -1149,8 +1223,8 @@ describe("start", () => {
     };
 
     const server = serve({ draft, review: versioned({ version: 1 }) });
-    await store.start();
-    await store.decide({ kind: "approve", edit: edit(1, "mine\n"), notes: "" });
+    await page.start();
+    await page.decide({ kind: "approve", edit: edit(1, "mine\n"), notes: "" });
     await settled();
 
     expect(server.puts).toEqual([
@@ -1159,20 +1233,34 @@ describe("start", () => {
     ]);
   });
 
+  test("a load that succeeds after a failed one, with an edit that went stale, is one write and one failure", async () => {
+    const page = freshStore();
+    const server = serve({ draft: null, review: "unreadable" });
+    await page.start();
+    page.store.setState({ edited: edit(1, "mine\n") });
+    await settled();
+    server.answer = { ...server.answer, review: versioned({ version: 3 }) };
+    server.push("message");
+    await settled();
+
+    expect(page.store.getState().failures.map(({ op }) => op)).toEqual(["edit"]);
+    expect(server.puts.map((put) => put.edit?.text ?? null)).toEqual([null, "mine\n", null]);
+  });
+
   test("a draft the server refuses to read says the server's reason, and starts no saving", async () => {
-    const store = freshStore();
+    const page = freshStore();
     const refused = "draft.json was saved by an older version of vellum and cannot be read.";
     const server = serve({ draft: { refused }, review: versioned({ version: 1 }) });
-    await store.start();
-    store.addAnnotation(comment("", `${WIP}.review/v1.md`));
+    await page.start();
+    page.addAnnotation(comment("", `${WIP}.review/v1.md`));
     await settled();
 
     expect(server.puts).toEqual([]);
-    expect(store.failures.value).toEqual([{ op: "draft", text: refused }]);
+    expect(page.store.getState().failures).toEqual([{ op: "draft", text: refused }]);
   });
 
   test("what is typed is restored before the first load, with the comments", async () => {
-    const store = freshStore();
+    const page = freshStore();
     const typed = { ...EMPTY_TYPED, general: "Overall: no." };
 
     const server = serve({
@@ -1180,20 +1268,20 @@ describe("start", () => {
       review: versioned({ version: 1 }),
     });
 
-    await store.start();
+    await page.start();
     await settled();
 
-    expect(store.typed.value).toEqual(typed);
+    expect(page.store.getState().typed).toEqual(typed);
     expect(server.puts).toEqual([{ annotations: [], edit: null, choices: {}, typed }]);
   });
 
   test("a continuous typing is one write, once it pauses", async () => {
-    const store = freshStore();
+    const page = freshStore();
     const server = serve({ draft: null, review: versioned({ version: 1 }) });
-    await store.start();
-    store.setTyped({ general: "O" });
-    store.setTyped({ general: "Ov" });
-    store.setTyped({ general: "Ove" });
+    await page.start();
+    page.setTyped({ general: "O" });
+    page.setTyped({ general: "Ov" });
+    page.setTyped({ general: "Ove" });
     await settled();
     const whileTyping = server.puts.length;
     await Bun.sleep(400);
@@ -1203,11 +1291,11 @@ describe("start", () => {
   });
 
   test("a comment added while a typing pauses carries the typing, in one write", async () => {
-    const store = freshStore();
+    const page = freshStore();
     const server = serve({ draft: null, review: versioned({ version: 1 }) });
-    await store.start();
-    store.setTyped({ general: "Overall" });
-    store.addAnnotation(comment("", `${WIP}.review/v1.md`));
+    await page.start();
+    page.setTyped({ general: "Overall" });
+    page.addAnnotation(comment("", `${WIP}.review/v1.md`));
     await settled();
     await Bun.sleep(400);
 
@@ -1218,7 +1306,7 @@ describe("start", () => {
   });
 
   test("a decision the server took clears what is typed, in the same write", async () => {
-    const store = freshStore();
+    const page = freshStore();
     const typed = { ...EMPTY_TYPED, general: "Overall: no." };
 
     const server = serve({
@@ -1226,11 +1314,11 @@ describe("start", () => {
       review: versioned({ version: 1 }),
     });
 
-    await store.start();
-    await store.decide({ kind: "approve", edit: null, notes: "" });
+    await page.start();
+    await page.decide({ kind: "approve", edit: null, notes: "" });
     await settled();
 
-    expect(store.typed.value).toEqual(EMPTY_TYPED);
+    expect(page.store.getState().typed).toEqual(EMPTY_TYPED);
     expect(server.puts.at(-1)).toEqual({
       annotations: [],
       edit: null,
@@ -1240,27 +1328,27 @@ describe("start", () => {
   });
 
   test("a write that never reaches the server says so, and the next change is still written", async () => {
-    const store = freshStore();
+    const page = freshStore();
     const server = serve({ draft: null, review: versioned({ version: 1 }) });
-    await store.start();
+    await page.start();
     server.answer = { ...server.answer, put: () => Promise.reject(new Error("offline")) };
-    store.addAnnotation(comment("", `${WIP}.review/v1.md`));
+    page.addAnnotation(comment("", `${WIP}.review/v1.md`));
     await settled();
     server.answer = { ...server.answer, put: () => Promise.resolve() };
-    store.addAnnotation(comment("", `${WIP}.review/v1.md`));
+    page.addAnnotation(comment("", `${WIP}.review/v1.md`));
     await settled();
 
-    expect(store.failures.value).toEqual([]);
+    expect(page.store.getState().failures).toEqual([]);
     expect(server.puts.map((put) => put.annotations.length)).toEqual([0, 1, 2]);
   });
 
   test("a write the server refuses names its status", async () => {
-    const store = freshStore();
+    const page = freshStore();
     serve({ draft: null, review: versioned({ version: 1 }), putStatus: 500 });
-    await store.start();
+    await page.start();
     await settled();
 
-    expect(store.failures.value).toEqual([
+    expect(page.store.getState().failures).toEqual([
       {
         op: "draft",
         text: "Your comments are kept in this tab, not saved: the server answered 500.",
@@ -1269,9 +1357,9 @@ describe("start", () => {
   });
 
   test("the event stream opens once the first load is in, on the token's path", async () => {
-    const store = freshStore();
+    const page = freshStore();
     const server = serve({ draft: null, review: versioned({ version: 1 }) });
-    await store.start();
+    await page.start();
 
     const opened = server.calls.indexOf("EventSource /t/tok/events");
     expect(opened).toBeGreaterThan(server.calls.indexOf("GET /api/review"));
@@ -1279,51 +1367,51 @@ describe("start", () => {
   });
 
   test("a workspace event loads the review again", async () => {
-    const store = freshStore();
+    const page = freshStore();
     const server = serve({ draft: null, review: versioned({ version: 1 }) });
-    await store.start();
+    await page.start();
     server.answer = { ...server.answer, review: versioned({ version: 2 }) };
     server.push("message");
     await settled();
 
-    expect(store.planDoc.value?.path).toBe(`${WIP}.review/v2.md` as never);
+    expect(selectPlanDoc(page.store.getState())?.path).toBe(`${WIP}.review/v2.md` as never);
   });
 
   test("a stream that fails says the connection is down, and up once it opens again", async () => {
-    const store = freshStore();
+    const page = freshStore();
     const server = serve({ draft: null, review: versioned({ version: 1 }) });
-    await store.start();
+    await page.start();
     server.push("error");
-    const afterError = store.connection.value;
+    const afterError = page.store.getState().connection;
     server.push("open");
 
-    expect([afterError, store.connection.value]).toEqual(["down", "up"]);
+    expect([afterError, page.store.getState().connection]).toEqual(["down", "up"]);
   });
 
   test("a review that cannot be read reaches the banner", async () => {
-    const store = freshStore();
+    const page = freshStore();
     serve({ draft: null, review: "unreadable" });
-    await store.start();
+    await page.start();
 
-    expect(store.review.value).toBeNull();
-    expect(store.failures.value).toEqual([
+    expect(page.store.getState().review).toBeNull();
+    expect(page.store.getState().failures).toEqual([
       { op: "review", text: "The review could not be loaded: the server answered 500." },
     ]);
   });
 
   test("a version that lands under an open editor says so, over the dropped edit's own banner", async () => {
-    const store = freshFlow();
+    const flow = freshFlow();
     const server = serve({ draft: null, review: versioned({ version: 1, text: "a\n" }) });
-    await store.start();
-    store.edited.value = edit(1, "mine\n");
-    store.openEditor(1);
+    await flow.start();
+    flow.store.setState({ edited: edit(1, "mine\n") });
+    flow.openEditor(1);
     server.answer = { ...server.answer, review: versioned({ version: 3, text: "c\n" }) };
     server.push("message");
     await settled();
 
-    expect(store.edited.value).toBeNull();
-    expect(store.editing.value).not.toBeNull();
-    expect(store.notices.value.map((notice) => [notice.key, notice.text.join("")])).toEqual([
+    expect(flow.store.getState().edited).toBeNull();
+    expect(flow.store.getState().editing).not.toBeNull();
+    expect(noticed(flow).map((notice) => [notice.key, notice.text.join("")])).toEqual([
       [
         "failure:edit",
         "Your unsent edit of v1 was dropped: another version of the plan arrived. Your comments are kept.",
@@ -1335,10 +1423,10 @@ describe("start", () => {
 
 describe("a page hidden or closed", () => {
   test("sends the typing still pausing within the event, with keepalive", async () => {
-    const store = freshStore();
+    const page = freshStore();
     const server = serve({ draft: null, review: versioned({ version: 1 }) });
-    await store.start();
-    store.setTyped({ general: "Which forms?" });
+    await page.start();
+    page.setTyped({ general: "Which forms?" });
     server.leave("visibilitychange");
 
     expect(server.puts.map((put) => put.typed.general)).toEqual(["", "Which forms?"]);
@@ -1346,17 +1434,17 @@ describe("a page hidden or closed", () => {
   });
 
   test("sends it at pagehide as well, the document still visible", async () => {
-    const store = freshStore();
+    const page = freshStore();
     const server = serve({ draft: null, review: versioned({ version: 1 }) });
-    await store.start();
-    store.setTyped({ general: "Which forms?" });
+    await page.start();
+    page.setTyped({ general: "Which forms?" });
     server.leave("pagehide");
 
     expect(server.puts.map((put) => put.typed.general)).toEqual(["", "Which forms?"]);
   });
 
   test("sends a write still queued behind a slow one, within the event", async () => {
-    const store = freshStore();
+    const page = freshStore();
     const held = Promise.withResolvers<void>();
 
     const server = serve({
@@ -1365,15 +1453,15 @@ describe("a page hidden or closed", () => {
       put: () => held.promise,
     });
 
-    await store.start();
-    store.addAnnotation(comment("", `${WIP}.review/v1.md`));
+    await page.start();
+    page.addAnnotation(comment("", `${WIP}.review/v1.md`));
     server.leave("visibilitychange");
 
     expect(server.puts.map((put) => put.annotations.length)).toEqual([0, 1]);
   });
 
   test("never sends the older writes it overtook: the newer draft stays", async () => {
-    const store = freshStore();
+    const page = freshStore();
     const held = Promise.withResolvers<void>();
 
     const server = serve({
@@ -1382,9 +1470,9 @@ describe("a page hidden or closed", () => {
       put: () => held.promise,
     });
 
-    await store.start();
-    store.addAnnotation(comment("", `${WIP}.review/v1.md`));
-    store.setTyped({ general: "Which forms?" });
+    await page.start();
+    page.addAnnotation(comment("", `${WIP}.review/v1.md`));
+    page.setTyped({ general: "Which forms?" });
     server.leave("visibilitychange");
     held.resolve();
     await settled();
@@ -1396,10 +1484,10 @@ describe("a page hidden or closed", () => {
   });
 
   test("with nothing waiting, writes nothing", async () => {
-    const store = freshStore();
+    const page = freshStore();
     const server = serve({ draft: null, review: versioned({ version: 1 }) });
-    await store.start();
-    store.addAnnotation(comment("", `${WIP}.review/v1.md`));
+    await page.start();
+    page.addAnnotation(comment("", `${WIP}.review/v1.md`));
     await settled();
     server.leave("visibilitychange");
     server.leave("pagehide");
@@ -1408,10 +1496,10 @@ describe("a page hidden or closed", () => {
   });
 
   test("hidden then pagehide is one write", async () => {
-    const store = freshStore();
+    const page = freshStore();
     const server = serve({ draft: null, review: versioned({ version: 1 }) });
-    await store.start();
-    store.setTyped({ general: "Which forms?" });
+    await page.start();
+    page.setTyped({ general: "Which forms?" });
     server.leave("visibilitychange");
     server.leave("pagehide");
 
@@ -1419,10 +1507,10 @@ describe("a page hidden or closed", () => {
   });
 
   test("shown again, it sends nothing: the typing waits for its pause", async () => {
-    const store = freshStore();
+    const page = freshStore();
     const server = serve({ draft: null, review: versioned({ version: 1 }) });
-    await store.start();
-    store.setTyped({ general: "Which forms?" });
+    await page.start();
+    page.setTyped({ general: "Which forms?" });
     server.show();
 
     expect(server.puts.map((put) => put.typed.general)).toEqual([""]);
@@ -1431,10 +1519,10 @@ describe("a page hidden or closed", () => {
 
 describe("keepalive", () => {
   test("a draft over 65 536 bytes goes without it, though under 65 536 characters", async () => {
-    const store = freshStore();
+    const page = freshStore();
     const server = serve({ draft: null, review: versioned({ version: 1 }) });
-    await store.start();
-    store.setTyped({ general: "é".repeat(33_000) });
+    await page.start();
+    page.setTyped({ general: "é".repeat(33_000) });
     server.leave("visibilitychange");
 
     expect(server.puts.at(-1)?.typed.general).toHaveLength(33_000);
@@ -1442,28 +1530,28 @@ describe("keepalive", () => {
   });
 
   test("a write in flight takes its share: the next one past 65 536 bytes together goes without it", async () => {
-    const store = freshStore();
+    const page = freshStore();
     const server = serve({ draft: null, review: versioned({ version: 1 }) });
-    await store.start();
+    await page.start();
     server.answer = { ...server.answer, put: () => Promise.withResolvers<void>().promise };
-    store.setTyped({ general: "x".repeat(40_000) });
-    store.addAnnotation(comment("", `${WIP}.review/v1.md`));
+    page.setTyped({ general: "x".repeat(40_000) });
+    page.addAnnotation(comment("", `${WIP}.review/v1.md`));
     await settled();
-    store.setTyped({ general: "y".repeat(40_000) });
+    page.setTyped({ general: "y".repeat(40_000) });
     server.leave("visibilitychange");
 
     expect(server.keepalive).toEqual([true, true, false]);
   });
 
   test("a write answered gives its share back: the next one of the same size keeps it", async () => {
-    const store = freshStore();
+    const page = freshStore();
     const server = serve({ draft: null, review: versioned({ version: 1 }) });
-    await store.start();
-    store.setTyped({ general: "x".repeat(40_000) });
-    store.addAnnotation(comment("a", `${WIP}.review/v1.md`));
+    await page.start();
+    page.setTyped({ general: "x".repeat(40_000) });
+    page.addAnnotation(comment("a", `${WIP}.review/v1.md`));
     await settled();
-    store.setTyped({ general: "y".repeat(40_000) });
-    store.addAnnotation(comment("b", `${WIP}.review/v1.md`));
+    page.setTyped({ general: "y".repeat(40_000) });
+    page.addAnnotation(comment("b", `${WIP}.review/v1.md`));
     await settled();
 
     expect(server.keepalive).toEqual([true, true, true]);
@@ -1474,96 +1562,95 @@ describe("decide", () => {
   const unsent = [comment("c1", `${WIP}.review/v1.md`)];
 
   test("a decision the server took clears the comments and the edit, then loads the review again", async () => {
-    const store = freshStore();
+    const page = freshStore();
     const server = serve({ draft: null, review: versioned({ version: 1 }), decision: 200 });
-    store.annotations.value = unsent;
-    store.edited.value = edit(1, "mine\n");
-    await store.decide({ kind: "approve", edit: null, notes: "" });
+    page.store.setState({ annotations: unsent, edited: edit(1, "mine\n") });
+    await page.decide({ kind: "approve", edit: null, notes: "" });
 
-    expect(store.annotations.value).toEqual([]);
-    expect(store.edited.value).toBeNull();
-    expect(store.failures.value).toEqual([]);
+    expect(page.store.getState().annotations).toEqual([]);
+    expect(page.store.getState().edited).toBeNull();
+    expect(page.store.getState().failures).toEqual([]);
     expect(server.calls).toEqual(["POST /api/decision", "GET /api/review"]);
   });
 
   test("the decision reaches the server as it was taken", async () => {
-    const store = freshStore();
+    const page = freshStore();
     const server = serve({ draft: null, review: versioned({ version: 1 }) });
     const approve: Decision = { kind: "approve", edit: edit(1, "mine\n"), notes: "Go." };
-    await store.decide(approve);
+    await page.decide(approve);
 
     expect(server.decisions).toEqual([approve]);
   });
 
   test("a redirect is a refusal as well: the comments stay, and the status is named", async () => {
-    const store = freshStore();
+    const page = freshStore();
     serve({ draft: null, review: versioned({ version: 1 }), decision: 300 });
-    store.annotations.value = unsent;
-    await store.decide({ kind: "approve", edit: null, notes: "" });
+    page.store.setState({ annotations: unsent });
+    await page.decide({ kind: "approve", edit: null, notes: "" });
 
-    expect(store.annotations.value).toEqual(unsent);
-    expect(store.failures.value).toEqual([
+    expect(page.store.getState().annotations).toEqual(unsent);
+    expect(page.store.getState().failures).toEqual([
       { op: "decision", text: "Not sent: the server answered 300. Your comments are kept." },
     ]);
   });
 
   test("a refusal keeps the comments and answers the row that refused it, for its caller to say", async () => {
-    const store = freshStore();
+    const page = freshStore();
     const reason = "v2 is under review, not v1";
     serve({
       draft: null,
       review: versioned({ version: 2 }),
       refusal: { rule: "approve-stale", reason },
     });
-    store.annotations.value = unsent;
+    page.store.setState({ annotations: unsent });
 
-    expect(await store.decide({ kind: "approve", edit: edit(1, "mine\n"), notes: "" })).toEqual({
+    expect(await page.decide({ kind: "approve", edit: edit(1, "mine\n"), notes: "" })).toEqual({
       kind: "refused",
       rule: "approve-stale",
       reason,
     });
-    expect(store.annotations.value).toEqual(unsent);
-    expect(store.failures.value).toEqual([]);
+    expect(page.store.getState().annotations).toEqual(unsent);
+    expect(page.store.getState().failures).toEqual([]);
   });
 
   test("any other refusal keeps the comments and names the status", async () => {
-    const store = freshStore();
+    const page = freshStore();
     serve({ draft: null, review: versioned({ version: 1 }), decision: 500 });
-    store.annotations.value = unsent;
-    await store.decide({ kind: "approve", edit: null, notes: "" });
+    page.store.setState({ annotations: unsent });
+    await page.decide({ kind: "approve", edit: null, notes: "" });
 
-    expect(store.annotations.value).toEqual(unsent);
-    expect(store.failures.value).toEqual([
+    expect(page.store.getState().annotations).toEqual(unsent);
+    expect(page.store.getState().failures).toEqual([
       { op: "decision", text: "Not sent: the server answered 500. Your comments are kept." },
     ]);
   });
 
   test("a server that does not answer is a failure too, the comments kept, and the decision answers so", async () => {
-    const store = freshStore();
+    const page = freshStore();
     serve({ draft: null, review: versioned({ version: 1 }) });
-    store.annotations.value = unsent;
+    page.store.setState({ annotations: unsent });
     port("fetch", () => Promise.reject(new Error("offline")));
-    const decided = await store.decide({ kind: "approve", edit: null, notes: "" });
+    const decided = await page.decide({ kind: "approve", edit: null, notes: "" });
 
     expect(decided).toEqual({ kind: "failed" });
-    expect(store.annotations.value).toEqual(unsent);
-    expect(store.failures.value.map((failure) => failure.op)).toEqual(["decision"]);
+    expect(page.store.getState().annotations).toEqual(unsent);
+    expect(page.store.getState().failures.map((failure) => failure.op)).toEqual(["decision"]);
   });
 
   test("a decision the server took answers taken, and clears the failure of the one before", async () => {
-    const store = freshStore();
+    const page = freshStore();
     const server = serve({ draft: null, review: versioned({ version: 1 }), decision: 500 });
-    await store.decide({ kind: "approve", edit: null, notes: "" });
+    await page.decide({ kind: "approve", edit: null, notes: "" });
     server.answer = { ...server.answer, decision: 200 };
-    const decided = await store.decide({ kind: "approve", edit: null, notes: "" });
+    const decided = await page.decide({ kind: "approve", edit: null, notes: "" });
 
     expect(decided).toEqual({ kind: "taken" });
-    expect(store.failures.value).toEqual([]);
+    expect(page.store.getState().failures).toEqual([]);
   });
 });
 
-function texts(flow: WorkflowStore): readonly string[] {
-  return flow.notices.value.map((notice) => notice.text.join(""));
+function texts(flow: Flow): readonly string[] {
+  return noticed(flow).map((notice) => notice.text.join(""));
 }
 
 describe("the approval", () => {
@@ -1574,10 +1661,10 @@ describe("the approval", () => {
   test("a version already decided keeps the comments and says so", async () => {
     const flow = freshFlow();
     serve({ draft: null, review: versioned({ version: 1 }), decision: 409 });
-    flow.annotations.value = unsent;
+    flow.store.setState({ annotations: unsent });
 
     expect(await flow.approve(approval)).toEqual({ kind: "refused" });
-    expect(flow.annotations.value).toEqual(unsent);
+    expect(flow.store.getState().annotations).toEqual(unsent);
     expect(texts(flow)).toEqual(["This version was already decided."]);
   });
 
@@ -1589,11 +1676,11 @@ describe("the approval", () => {
       review: versioned({ version: 2 }),
       refusal: { rule: "approve-stale", reason },
     });
-    flow.annotations.value = unsent;
+    flow.store.setState({ annotations: unsent });
     await flow.approve({ ...approval, edit: edit(1, "mine\n") });
 
-    expect(flow.annotations.value).toEqual(unsent);
-    expect(flow.failures.value).toEqual([{ op: "decision", text: reason }]);
+    expect(flow.store.getState().annotations).toEqual(unsent);
+    expect(flow.store.getState().failures).toEqual([{ op: "decision", text: reason }]);
   });
 
   test("plan.md changed since the version offers Record, then approve, which records it, then approves as decided", async () => {
@@ -1606,7 +1693,7 @@ describe("the approval", () => {
     });
 
     await flow.approve(approval);
-    const [notice] = flow.notices.value;
+    const [notice] = noticed(flow);
 
     expect([notice?.text, notice?.action?.label]).toEqual([[DRAFT], "Record, then approve"]);
     server.answer = { draft: null, review: versioned({ version: 2 }), decision: 200 };
@@ -1634,7 +1721,7 @@ describe("the approval", () => {
     });
     await flow.approve({ ...approval, confirmed: held });
 
-    expect(flow.notices.value).toEqual([{ key: "failure:decision", kind: "err", text: [reason] }]);
+    expect(noticed(flow)).toEqual([{ key: "failure:decision", kind: "err", text: [reason] }]);
   });
 
   test("with an edit plan.md changed offers no Record: the version recorded would leave the edit stale", async () => {
@@ -1646,7 +1733,7 @@ describe("the approval", () => {
     });
     await flow.approve({ ...approval, edit: edit(1, "mine\n") });
 
-    expect(flow.notices.value).toEqual([{ key: "failure:decision", kind: "err", text: [DRAFT] }]);
+    expect(noticed(flow)).toEqual([{ key: "failure:decision", kind: "err", text: [DRAFT] }]);
   });
 
   test("a Record refused says its row, and approves nothing", async () => {
@@ -1661,7 +1748,7 @@ describe("the approval", () => {
     });
 
     await flow.approve(approval);
-    flow.notices.value[0]?.action?.run();
+    noticed(flow)[0]?.action?.run();
     await settled();
 
     expect(server.decisions).toEqual([approval]);
@@ -1681,43 +1768,59 @@ describe("the approval", () => {
       kind: "held",
       reason,
     });
-    expect(flow.failures.value).toEqual([]);
+    expect(flow.store.getState().failures).toEqual([]);
+  });
+
+  test("the notices read the same while nothing they read changed: a hover redraws no column", () => {
+    const flow = freshFlow();
+    flow.store.setState({ review: versioned({ version: 1 }) });
+    const once = noticed(flow);
+    flow.focusCard("c1", false);
+    flow.setHolding(true);
+
+    expect(noticed(flow)).toBe(once);
   });
 });
 
 describe("writeDraft", () => {
   test("a draft the first load could not read is read again: with none saved, saving starts and the write goes", async () => {
-    const store = freshStore();
+    const page = freshStore();
     const server = serve({ draft: "unreadable", review: versioned({ version: 1 }) });
-    await store.start();
+    await page.start();
     server.answer = { ...server.answer, draft: null };
-    store.addAnnotation(comment("", `${WIP}.review/v1.md`));
+    page.addAnnotation(comment("", `${WIP}.review/v1.md`));
 
-    expect(await store.writeDraft()).toBe(true);
+    expect(await page.writeDraft()).toBe(true);
     expect(server.puts.at(-1)?.annotations).toHaveLength(1);
   });
 
   test("a saved draft this tab never loaded is not written over: reload to see it", async () => {
-    const store = freshStore();
+    const page = freshStore();
     const saved = { annotations: [comment("s", `${WIP}.review/v1.md`)], edit: null };
     const server = serve({ draft: "unreadable", review: versioned({ version: 1 }) });
-    await store.start();
+    await page.start();
     server.answer = { ...server.answer, draft: { ...saved, choices: {}, typed: EMPTY_TYPED } };
 
-    expect(await store.writeDraft()).toBe(false);
+    expect(await page.writeDraft()).toBe(false);
     expect(server.puts).toEqual([]);
-    expect(store.failures.value.map(({ text }) => text)).toContain(
+    expect(page.store.getState().failures.map(({ text }) => text)).toContain(
       "A saved draft this tab did not load is on the server: reload the page to see it before you send.",
     );
   });
 });
 
 /** The bar's Send of what the page shows: every comment, the edit, and each part. */
-function all(store: Store, parts: readonly SendShare[] = [], takeDefaults: readonly string[] = []) {
-  return store.send({
-    annotations: store.annotations.value.map(({ id }) => id),
-    edit: store.edited.value,
-    choices: choicesIn(store.choices.value).map((choice) => refOf(choice)),
+function all(
+  page: PageModule,
+  parts: readonly SendShare[] = [],
+  takeDefaults: readonly string[] = [],
+) {
+  const s = page.store.getState();
+
+  return page.send({
+    annotations: s.annotations.map(({ id }) => id),
+    edit: s.edited,
+    choices: choicesIn(s.choices).map((choice) => refOf(choice)),
     parts,
     takeDefaults,
   });
@@ -1746,7 +1849,7 @@ describe("send", () => {
   };
 
   test("writes the draft as the page shows it first, then sends what it names, then loads the review", async () => {
-    const store = freshStore();
+    const page = freshStore();
 
     const draft = {
       annotations: [comment("a", plan)],
@@ -1756,9 +1859,9 @@ describe("send", () => {
     };
 
     const server = serve({ draft, review: versioned({ version: 1 }) });
-    await store.start();
+    await page.start();
     server.calls.length = 0;
-    await all(store, [], ["Q2"]);
+    await all(page, [], ["Q2"]);
 
     expect(server.calls.slice(0, 3)).toEqual([
       "PUT /api/draft",
@@ -1771,7 +1874,7 @@ describe("send", () => {
   });
 
   test("takes out of the page what it sent, and leaves what is typed where it is", async () => {
-    const store = freshStore();
+    const page = freshStore();
 
     const draft = {
       annotations: [comment("a", plan)],
@@ -1781,18 +1884,15 @@ describe("send", () => {
     };
 
     serve({ draft, review: versioned({ version: 1 }) });
-    await store.start();
+    await page.start();
 
-    expect(await all(store)).toEqual({ kind: "sent", editKept: null });
-    expect([store.annotations.value, store.edited.value, store.typed.value]).toEqual([
-      [],
-      null,
-      typed,
-    ]);
+    expect(await all(page)).toEqual({ kind: "sent", editKept: null });
+    const s = page.store.getState();
+    expect([s.annotations, s.edited, s.typed]).toEqual([[], null, typed]);
   });
 
   test("an edit the held review left in the draft stays on the page, with the plan's comment, under a notice", async () => {
-    const store = freshFlow();
+    const flow = freshFlow();
     const held = "plan review 1 of v1 is running";
     const other = comment("b", `${WIP}notes.md`);
 
@@ -1806,49 +1906,43 @@ describe("send", () => {
     const editKept = { reason: held, annotations: ["a"] };
     const answer = { file: `${WIP}.review/v1.feedback-1.md`, seq: 1, editKept } as never;
     serve({ draft, review: versioned({ version: 1, held }), send: { status: 200, answer } });
-    await store.start();
+    await flow.start();
 
-    expect(await all(store)).toEqual({ kind: "sent", editKept: held });
-    expect([store.annotations.value, store.edited.value]).toEqual([
+    expect(await all(flow)).toEqual({ kind: "sent", editKept: held });
+    expect([flow.store.getState().annotations, flow.store.getState().edited]).toEqual([
       [comment("a", plan)],
       edit(1, "mine\n"),
     ]);
-    expect(store.notices.value.map((notice) => notice.text.join(""))).toEqual([
-      `Your edit waits: ${held}. Send it again once that ends.`,
-    ]);
+    expect(texts(flow)).toEqual([`Your edit waits: ${held}. Send it again once that ends.`]);
   });
 
   test("an edit alone the held review refused stays on the page, under the same notice", async () => {
-    const store = freshFlow();
+    const flow = freshFlow();
     const held = "grill 1 is open";
     const draft = { annotations: [], edit: edit(1, "mine\n"), choices: {}, typed };
     const refusal = { status: 409, answer: { reason: "refused", rule: "held", text: held } };
     serve({ draft, review: versioned({ version: 1, held }), send: refusal as never });
-    await store.start();
-    await all(store);
+    await flow.start();
+    await all(flow);
 
-    expect(store.edited.value).toEqual(edit(1, "mine\n"));
-    expect(store.notices.value.map((notice) => notice.text.join(""))).toEqual([
-      `Your edit waits: ${held}. Send it again once that ends.`,
-    ]);
+    expect(flow.store.getState().edited).toEqual(edit(1, "mine\n"));
+    expect(texts(flow)).toEqual([`Your edit waits: ${held}. Send it again once that ends.`]);
   });
 
   test("a held refusal the page has not heard of yet says the edit waits, in the server's words", async () => {
-    const store = freshFlow();
+    const flow = freshFlow();
     const held = "plan review 1 of v1 is running";
     const draft = { annotations: [], edit: edit(1, "mine\n"), choices: {}, typed };
     const refusal = { status: 409, answer: { reason: "refused", rule: "held", text: held } };
     serve({ draft, review: versioned({ version: 1 }), send: refusal as never });
-    await store.start();
-    await all(store);
+    await flow.start();
+    await all(flow);
 
-    expect(store.notices.value.map((notice) => notice.text.join(""))).toEqual([
-      `Your edit waits: ${held}. Send it again once that ends.`,
-    ]);
+    expect(texts(flow)).toEqual([`Your edit waits: ${held}. Send it again once that ends.`]);
   });
 
   test("the edit's notice stays through a Send that carries no edit, and leaves with the edit", async () => {
-    const store = freshFlow();
+    const flow = freshFlow();
     const held = "plan review 1 of v1 is running";
 
     const draft = {
@@ -1870,10 +1964,10 @@ describe("send", () => {
       send: { status: 200, answer: answer as never },
     });
 
-    await store.start();
-    await store.send({
+    await flow.start();
+    await flow.send({
       annotations: [],
-      edit: store.edited.value,
+      edit: flow.store.getState().edited,
       choices: [],
       parts: null,
       takeDefaults: [],
@@ -1882,7 +1976,7 @@ describe("send", () => {
       ...server.answer,
       send: { status: 200, answer: { ...answer, editKept: null } as never },
     };
-    await store.send({
+    await flow.send({
       annotations: ["b"],
       edit: null,
       choices: [],
@@ -1891,15 +1985,15 @@ describe("send", () => {
     });
     const waits = `Your edit waits: ${held}. Send it again once that ends.`;
 
-    expect(texts(store)).toContain(waits);
-    store.discardEdit();
-    store.finishEdit({ version: 1 as never, base: "", line: 1 }, "another\n");
+    expect(texts(flow)).toContain(waits);
+    flow.discardEdit();
+    flow.finishEdit({ version: 1 as never, base: "", line: 1 }, "another\n");
 
-    expect(texts(store)).not.toContain(waits);
+    expect(texts(flow)).not.toContain(waits);
   });
 
   test("the edit's notice leaves once a load reads that nothing holds the review, and a hold after it brings none back", async () => {
-    const store = freshFlow();
+    const flow = freshFlow();
     const held = "grill 1 is open";
     const draft = { annotations: [], edit: edit(1, "mine\n"), choices: {}, typed };
     const refusal = { status: 409, answer: { reason: "refused", rule: "held", text: held } };
@@ -1910,8 +2004,8 @@ describe("send", () => {
       send: refusal as never,
     });
 
-    await store.start();
-    await all(store);
+    await flow.start();
+    await all(flow);
 
     const reads = async (view: ReviewView): Promise<void> => {
       server.answer = { ...server.answer, review: view };
@@ -1920,23 +2014,23 @@ describe("send", () => {
     };
 
     await reads(versioned({ version: 1, held }));
-    expect(texts(store)).toEqual([`Your edit waits: ${held}. Send it again once that ends.`]);
+    expect(texts(flow)).toEqual([`Your edit waits: ${held}. Send it again once that ends.`]);
     await reads(versioned({ version: 1 }));
     await reads(versioned({ version: 1, held: "grill 2 is open" }));
 
-    expect(texts(store)).toEqual([]);
+    expect(texts(flow)).toEqual([]);
   });
 
   test("names the choices by their option, and takes out those sent: another option chosen meanwhile stays", async () => {
-    const store = freshStore();
+    const page = freshStore();
     const out = Promise.withResolvers<void>();
     const choices = { [MOCKUP]: { layout: chose("d"), nav: chose("tabs") } };
     const draft = { annotations: [], edit: null, choices, typed: EMPTY_TYPED };
     const server = serve({ draft, review: versioned({ version: 1 }), sending: () => out.promise });
-    await store.start();
-    const sending = all(store);
+    await page.start();
+    const sending = all(page);
     await settled();
-    store.choose(MOCKUP, "layout", chose("e"));
+    page.choose(MOCKUP, "layout", chose("e"));
     out.resolve();
     await sending;
 
@@ -1944,17 +2038,17 @@ describe("send", () => {
       { doc: MOCKUP, decision: "layout", option: "d" },
       { doc: MOCKUP, decision: "nav", option: "tabs" },
     ]);
-    expect(store.choices.value).toEqual({ [MOCKUP]: { layout: chose("e") } });
+    expect(page.store.getState().choices).toEqual({ [MOCKUP]: { layout: chose("e") } });
   });
 
   test("a Send that names no choice leaves the choices as they were, the very same", async () => {
-    const store = freshStore();
+    const page = freshStore();
     const choices = { [MOCKUP]: { layout: chose("d") } };
     const draft = { annotations: [comment("a", plan)], edit: null, choices, typed: EMPTY_TYPED };
     serve({ draft, review: versioned({ version: 1 }) });
-    await store.start();
-    const before = store.choices.value;
-    await store.send({
+    await page.start();
+    const before = page.store.getState().choices;
+    await page.send({
       annotations: ["a"],
       edit: null,
       choices: [],
@@ -1962,11 +2056,11 @@ describe("send", () => {
       takeDefaults: [],
     });
 
-    expect(store.choices.value).toBe(before);
+    expect(page.store.getState().choices).toBe(before);
   });
 
   test("a Send the server cannot read says to reload the page", async () => {
-    const store = freshStore();
+    const page = freshStore();
 
     const draft = {
       annotations: [comment("a", plan)],
@@ -1980,14 +2074,19 @@ describe("send", () => {
       review: versioned({ version: 1 }),
       send: { status: 400, answer: null as never },
     });
-    await store.start();
+    await page.start();
 
-    expect(await all(store)).toEqual({ kind: "failed" });
-    expect(store.failures.value.map(({ text }) => text).join()).toContain("Reload the page");
+    expect(await all(page)).toEqual({ kind: "failed" });
+    expect(
+      page.store
+        .getState()
+        .failures.map(({ text }) => text)
+        .join(),
+    ).toContain("Reload the page");
   });
 
   test("a comment added while the Send is out stays: it was not sent", async () => {
-    const store = freshStore();
+    const page = freshStore();
     const out = Promise.withResolvers<void>();
 
     const draft = {
@@ -1998,36 +2097,36 @@ describe("send", () => {
     };
 
     serve({ draft, review: versioned({ version: 1 }), sending: () => out.promise });
-    await store.start();
-    const sending = all(store);
+    await page.start();
+    const sending = all(page);
     await settled();
-    store.addAnnotation(comment("b", plan));
+    page.addAnnotation(comment("b", plan));
     out.resolve();
     await sending;
 
-    expect(store.annotations.value.map(({ mark }) => mark)).toEqual([
+    expect(page.store.getState().annotations.map(({ mark }) => mark)).toEqual([
       { kind: "comment", body: "b" },
     ]);
   });
 
   test("the Send stays out until each part has read its state again: nothing counts a sent question meanwhile", async () => {
-    const store = freshStore();
+    const page = freshStore();
     const reread = Promise.withResolvers<void>();
     const seen: string[] = [];
     serve({ draft: null, review: versioned({ version: 1 }) });
-    await store.start();
-    const sending = all(store, [sharing(1, seen, reread.promise)]);
+    await page.start();
+    const sending = all(page, [sharing(1, seen, reread.promise)]);
     await settled();
     await settled();
 
-    expect(store.sending.value).toBe(true);
+    expect(page.store.getState().sending).toBe(true);
     reread.resolve();
     await sending;
-    expect([store.sending.value, seen]).toEqual([false, ["sent"]]);
+    expect([page.store.getState().sending, seen]).toEqual([false, ["sent"]]);
   });
 
   test("one write out at a time: a second Send while one is out sends nothing", async () => {
-    const store = freshStore();
+    const page = freshStore();
     const out = Promise.withResolvers<void>();
 
     const draft = {
@@ -2038,18 +2137,18 @@ describe("send", () => {
     };
 
     const server = serve({ draft, review: versioned({ version: 1 }), sending: () => out.promise });
-    await store.start();
-    const first = all(store);
+    await page.start();
+    const first = all(page);
     await settled();
 
-    expect(await all(store)).toEqual({ kind: "failed" });
+    expect(await all(page)).toEqual({ kind: "failed" });
     out.resolve();
     await first;
     expect(server.sends).toHaveLength(1);
   });
 
   test("Send now names its comment alone, and no part: the rest of the draft stays", async () => {
-    const store = freshStore();
+    const page = freshStore();
 
     const draft = {
       annotations: [comment("a", plan), comment("b", plan)],
@@ -2059,8 +2158,8 @@ describe("send", () => {
     };
 
     const server = serve({ draft, review: versioned({ version: 1 }) });
-    await store.start();
-    await store.send({
+    await page.start();
+    await page.send({
       annotations: ["b"],
       edit: null,
       choices: [],
@@ -2071,12 +2170,12 @@ describe("send", () => {
     expect(server.sends).toEqual([
       { annotations: ["b"], edit: null, choices: [], parts: false, takeDefaults: [] },
     ]);
-    expect(store.annotations.value).toEqual([comment("a", plan)]);
-    expect(store.typed.value).toEqual(typed);
+    expect(page.store.getState().annotations).toEqual([comment("a", plan)]);
+    expect(page.store.getState().typed).toEqual(typed);
   });
 
   test("questions no answer takes keep everything, and answer their ids", async () => {
-    const store = freshStore();
+    const page = freshStore();
     const draft = { annotations: [comment("a", plan)], edit: null, choices: {}, typed };
 
     const unanswered = {
@@ -2085,15 +2184,15 @@ describe("send", () => {
     } as const;
 
     serve({ draft, review: versioned({ version: 1 }), send: unanswered });
-    await store.start();
+    await page.start();
 
-    expect(await all(store)).toEqual({ kind: "unanswered", ids: ["Q1", "Q2"] });
-    expect(store.annotations.value).toEqual([comment("a", plan)]);
-    expect(store.failures.value).toEqual([]);
+    expect(await all(page)).toEqual({ kind: "unanswered", ids: ["Q1", "Q2"] });
+    expect(page.store.getState().annotations).toEqual([comment("a", plan)]);
+    expect(page.store.getState().failures).toEqual([]);
   });
 
   test("a refusal keeps the comments and says why", async () => {
-    const store = freshStore();
+    const page = freshStore();
 
     const draft = {
       annotations: [comment("a", plan)],
@@ -2112,11 +2211,11 @@ describe("send", () => {
     } as const;
 
     serve({ draft, review: versioned({ version: 1 }), send: stale });
-    await store.start();
+    await page.start();
 
-    expect(await all(store)).toEqual({ kind: "failed" });
-    expect(store.annotations.value).toEqual([comment("a", plan)]);
-    expect(store.failures.value).toEqual([
+    expect(await all(page)).toEqual({ kind: "failed" });
+    expect(page.store.getState().annotations).toEqual([comment("a", plan)]);
+    expect(page.store.getState().failures).toEqual([
       {
         op: "decision",
         text: "Not sent: your edit is of a version no longer under review. Your comments are kept.",
@@ -2125,81 +2224,89 @@ describe("send", () => {
   });
 
   test("with the draft not saved nothing is sent: the server would send another", async () => {
-    const store = freshStore();
+    const page = freshStore();
     const refused = "draft.json was saved by an older version of vellum and cannot be read.";
     const server = serve({ draft: { refused }, review: versioned({ version: 1 }) });
-    await store.start();
-    store.addAnnotation(comment("", plan));
+    await page.start();
+    page.addAnnotation(comment("", plan));
 
-    expect(await all(store)).toEqual({ kind: "failed" });
+    expect(await all(page)).toEqual({ kind: "failed" });
     expect(server.sends).toEqual([]);
   });
 });
 
 describe("the failures", () => {
   test("one per operation: a repeat replaces, a success removes, the others stay", () => {
-    const { fail, failures, succeed } = freshStore();
+    const { fail, store, succeed } = freshStore();
     fail("load", "first");
     fail("decision", "no");
     fail("load", "second");
     succeed("decision");
 
-    expect(failures.value).toEqual([{ op: "load", text: "second" }]);
+    expect(store.getState().failures).toEqual([{ op: "load", text: "second" }]);
   });
 });
 
 describe("a deleted card", () => {
   test("can be undone from the notice, back at its place, and the notice goes", () => {
-    const { annotations, notices, removeAnnotation, review, undo } = freshFlow();
+    const flow = freshFlow();
+    const { store, removeAnnotation } = flow;
     const [a, b, c] = ["a", "b", "c"].map((id) => comment(id, `${WIP}plan.md`));
-    review.value = drafting([doc(`${WIP}plan.md`, "plan")]);
-    annotations.value = [a, b, c] as never;
+    store.setState({
+      review: drafting([doc(`${WIP}plan.md`, "plan")]),
+      annotations: [a, b, c] as never,
+    });
     removeAnnotation("b");
 
-    expect(annotations.value).toEqual([a, c] as never);
-    expect(notices.value.at(-1)?.key).toBe("undo");
-    undo.value?.run();
-    expect(annotations.value).toEqual([a, b, c] as never);
-    expect(undo.value).toBeNull();
+    expect(store.getState().annotations).toEqual([a, c] as never);
+    expect(noticed(flow).at(-1)?.key).toBe("undo");
+    store.getState().undo?.run();
+    expect(store.getState().annotations).toEqual([a, b, c] as never);
+    expect(store.getState().undo).toBeNull();
   });
 
   test("its undo goes with a decision the server took: a sent comment is not brought back", async () => {
-    const store = freshStore();
+    const page = freshStore();
     serve({ draft: null, review: versioned({ version: 1 }), decision: 200 });
-    store.annotations.value = [comment("a", `${WIP}.review/v1.md`)];
-    store.removeAnnotation("a");
-    await store.decide({ kind: "approve", edit: null, notes: "" });
+    page.store.setState({ annotations: [comment("a", `${WIP}.review/v1.md`)] });
+    page.removeAnnotation("a");
+    await page.decide({ kind: "approve", edit: null, notes: "" });
 
-    expect(store.undo.value).toBeNull();
+    expect(page.store.getState().undo).toBeNull();
   });
 
   test("its undo goes with Done and with Discard edit: the lines it kept are the old text's", () => {
-    const { annotations, discardEdit, edited, finishEdit, removeAnnotation, review, undo } =
-      freshStore();
+    const { store, discardEdit, finishEdit, removeAnnotation } = freshStore();
 
-    review.value = versioned({ version: 1, text: "a\nb\n" });
-    annotations.value = [onLine("a", `${WIP}.review/v1.md`, 2)];
+    store.setState({
+      review: versioned({ version: 1, text: "a\nb\n" }),
+      annotations: [onLine("a", `${WIP}.review/v1.md`, 2)],
+    });
     removeAnnotation("a");
     finishEdit({ version: 1, base: "a\nb\n", line: 1 } as never, "new\na\nb\n");
-    const afterDone = undo.value;
-    edited.value = edit(1, "new\na\nb\n");
-    annotations.value = [onLine("b", `${WIP}.review/v1.md`, 3)];
+    const afterDone = store.getState().undo;
+    store.setState({
+      edited: edit(1, "new\na\nb\n"),
+      annotations: [onLine("b", `${WIP}.review/v1.md`, 3)],
+    });
     removeAnnotation("b");
     discardEdit();
 
-    expect([afterDone, undo.value]).toEqual([null, null]);
+    expect([afterDone, store.getState().undo]).toEqual([null, null]);
   });
 
   test("its undo restores nothing on a page that locked meanwhile", () => {
-    const { annotations, removeAnnotation, review, undo } = freshStore();
-    review.value = versioned({ version: 1 });
-    annotations.value = [comment("a", `${WIP}.review/v1.md`)];
+    const { store, removeAnnotation } = freshStore();
+    store.setState({
+      review: versioned({ version: 1 }),
+      annotations: [comment("a", `${WIP}.review/v1.md`)],
+    });
     removeAnnotation("a");
-    review.value = versioned({ version: 1, kind: "approved" });
-    undo.value?.run();
+    store.setState({ review: versioned({ version: 1, kind: "approved" }) });
+    store.getState().undo?.run();
 
-    expect(annotations.value).toEqual([]);
-    expect(undo.value).toBeNull();
+    expect(store.getState().annotations).toEqual([]);
+    expect(store.getState().undo).toBeNull();
   });
 });
 
@@ -2228,36 +2335,41 @@ describe("readWindow", () => {
   }
 
   test("before it the panel is open and the theme light", () => {
-    const { commentsOpen, dark } = freshStore();
+    const { store } = freshStore();
 
-    expect([commentsOpen.value, dark.value]).toEqual([true, false]);
+    expect([store.getState().commentsOpen, store.getState().dark]).toEqual([true, false]);
   });
 
   test("a window of 900px or less folds the comments panel and leaves the rail open", () => {
-    const { commentsOpen, dark, railOpen, readWindow } = freshStore();
+    const { store, readWindow } = freshStore();
     windowOf(["(max-width: 900px)"]);
     readWindow();
+    const { commentsOpen, railOpen, dark } = store.getState();
 
-    expect([commentsOpen.value, railOpen.value, dark.value]).toEqual([false, true, false]);
+    expect([commentsOpen, railOpen, dark]).toEqual([false, true, false]);
   });
 
   test("a wide window on a dark scheme opens the panel and draws dark", () => {
-    const { commentsOpen, dark, readWindow } = freshStore();
+    const { store, readWindow } = freshStore();
     windowOf(["(prefers-color-scheme: dark)"]);
     readWindow();
 
-    expect([commentsOpen.value, dark.value]).toEqual([true, true]);
+    expect([store.getState().commentsOpen, store.getState().dark]).toEqual([true, true]);
   });
 
   test("the theme follows the scheme at each change, and the panel follows no resize", () => {
-    const { commentsOpen, dark, readWindow } = freshStore();
+    const { store, readWindow } = freshStore();
     const media = windowOf([]);
     readWindow();
     media.change("(prefers-color-scheme: dark)", true);
     media.change("(max-width: 900px)", true);
-    const night = dark.value;
+    const night = store.getState().dark;
     media.change("(prefers-color-scheme: dark)", false);
 
-    expect([night, dark.value, commentsOpen.value]).toEqual([true, false, true]);
+    expect([night, store.getState().dark, store.getState().commentsOpen]).toEqual([
+      true,
+      false,
+      true,
+    ]);
   });
 });

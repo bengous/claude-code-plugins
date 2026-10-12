@@ -73,6 +73,13 @@ test.describe("a grill open", () => {
     await openVellum(page, vellum);
     await expect(page.locator(".grill-band")).toBeVisible();
     await expect(page.locator(".grill-panel .grill-q")).toBeVisible();
+    // The panel scrolls to the round as its blocks land, which races the review's own load: the
+    // bar's buttons landing after the scroll take 15px off the sheet, and the round ends that
+    // much short of the sheet's end. The scroll is taken again once everything landed, so the
+    // capture compares the rendering and not the race's outcome.
+    await page
+      .locator(".grill-round")
+      .evaluate((round) => round.scrollIntoView({ block: "start" }));
 
     await same(page, "grill-real");
   });

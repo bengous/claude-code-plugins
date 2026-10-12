@@ -1,9 +1,10 @@
-import { useEffect, useRef, useState } from "preact/hooks";
+import type { JSX } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { Button, Popover } from "../runtime/page/kit.tsx";
 import { staleEditor } from "../runtime/page/notices.ts";
 import type { EditSession } from "../runtime/page/state.ts";
-import { closeEditor, finishEdit, review, setTyped, typed } from "../runtime/page/state.ts";
+import { closeEditor, finishEdit, pageStore, setTyped, usePage } from "../runtime/page/state.ts";
 import { lineOfOffset, offsetOfLine } from "./caret.ts";
 
 /** The session the editor opened on: nothing in it changes while it is open. */
@@ -18,11 +19,13 @@ export type EditorProps = {
  * editor on the same version; Cancel over a changed text asks first. Both close the editor on
  * the line under the caret, where the plan comes back.
  */
-export function Editor({ session }: EditorProps): preact.JSX.Element {
+export function Editor({ session }: EditorProps): JSX.Element {
   const textarea = useRef<HTMLTextAreaElement>(null);
   const [asking, setAsking] = useState(false);
-  const stale = staleEditor(session, review.value?.workspace ?? null);
-  const kept = typed.peek().editor;
+  const workspace = usePage((s) => s.review?.workspace ?? null);
+  const stale = staleEditor(session, workspace);
+  // Read once, with no subscription: the field is uncontrolled, and the typing it keeps is its own.
+  const kept = pageStore.getState().typed.editor;
   const initial = kept !== null && kept.version === session.version ? kept.text : session.base;
 
   useEffect(() => {
@@ -59,9 +62,9 @@ export function Editor({ session }: EditorProps): preact.JSX.Element {
 
   return (
     <>
-      <div class="tools">
+      <div className="tools">
         <span>Editing the source of v{session.version}</span>
-        <span class="spacer" />
+        <span className="spacer" />
         <Button size="sm" onClick={cancel}>
           Cancel
         </Button>
@@ -77,12 +80,12 @@ export function Editor({ session }: EditorProps): preact.JSX.Element {
         {asking && (
           <Popover
             label="Before leaving the editor"
-            class="pop-bar"
+            className="pop-bar"
             onClose={() => setAsking(false)}
           >
-            <div class="warn-text">What you typed is not kept.</div>
+            <div className="warn-text">What you typed is not kept.</div>
             <div>Cancel throws it away.</div>
-            <div class="row">
+            <div className="row">
               <Button size="sm" onClick={() => setAsking(false)}>
                 Keep editing
               </Button>
@@ -93,11 +96,11 @@ export function Editor({ session }: EditorProps): preact.JSX.Element {
           </Popover>
         )}
       </div>
-      <div class="panes">
-        <div class="editor">
+      <div className="panes">
+        <div className="editor">
           <textarea
             ref={textarea}
-            spellcheck={false}
+            spellCheck={false}
             aria-label="Plan source"
             defaultValue={initial}
             onInput={(event) => {

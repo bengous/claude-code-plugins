@@ -1,35 +1,28 @@
-import { batch } from "@preact/signals";
-import { Fragment } from "preact";
-import { useEffect, useRef, useState } from "preact/hooks";
+import type { JSX } from "react";
+import { Fragment, useEffect, useRef, useState } from "react";
 
 import { Badge, Button, Handle, Tag } from "../runtime/page/kit.tsx";
 import { pathLabel, quoteOf, whereOf } from "../runtime/page/labels.ts";
 import {
   addAnnotation,
-  annotations,
-  choices,
-  commentsOpen,
-  commentsSnap,
-  connection,
-  docs,
-  edited,
-  editing,
-  focused,
+  blurCard,
+  focusCard,
   isAbsent,
-  locked,
   removeAnnotation,
-  review,
+  selectDocs,
+  selectLocked,
   send,
-  sending,
   setTyped,
-  typed,
+  toggleComments,
   unchoose,
   updateAnnotation,
+  usePage,
 } from "../runtime/page/state.ts";
 import { switchShown } from "../runtime/page/tools.tsx";
-import type { GroupedDoc } from "../runtime/protocol.ts";
+import type { GroupedDoc, ReviewView } from "../runtime/protocol.ts";
 import type { Anchor, Annotation, Mark, SentChoice } from "./feedback.ts";
 import { DELETE_SENTENCE, QUICK_LABELS } from "./feedback.ts";
+import type { Choices } from "./review.ts";
 import { choicesIn, refOf } from "./review.ts";
 
 type Quote = {
@@ -76,25 +69,24 @@ function sorted(list: readonly Annotation[], order: readonly GroupedDoc[]): read
 }
 
 /** The choices' cards after the comments', in the documents' order. */
-function sortedChoices(order: readonly GroupedDoc[]): readonly SentChoice[] {
+function sortedChoices(choices: Choices, order: readonly GroupedDoc[]): readonly SentChoice[] {
   const rank = new Map(order.map((doc, index) => [doc.path, index]));
 
-  return choicesIn(choices.value).toSorted(
+  return choicesIn(choices).toSorted(
     (a, b) => (rank.get(a.doc) ?? order.length) - (rank.get(b.doc) ?? order.length),
   );
 }
 
 /** The empty panel names the switch only where `Tools` draws it, and the box only where it takes text. */
-function emptyLine(boxOpen: boolean): string {
+function emptyLine(boxOpen: boolean, switchDrawn: boolean): string {
   if (!boxOpen) return "No comments yet.";
 
-  // `true`: `app.tsx` draws the panel only where what is on screen takes comments.
-  return switchShown(true)
+  return switchDrawn
     ? "No comments yet. Turn on Comment to pick text, or use the box below."
     : "No comments yet. Use the box below.";
 }
 
-function MarkWords(props: { readonly mark: Mark }): preact.JSX.Element {
+function MarkWords(props: { readonly mark: Mark }): JSX.Element {
   const { mark } = props;
 
   if (mark.kind === "comment") return <div>{mark.body}</div>;
@@ -115,13 +107,16 @@ function MarkWords(props: { readonly mark: Mark }): preact.JSX.Element {
  * actions are off, the card readable. Send now sends this comment alone, and leaves the round; a
  * comment on the plan waits for the pending edit, since `Done` moved its lines to the edit's text.
  */
-function CardWords(props: { readonly annotation: Annotation }): preact.JSX.Element {
+function CardWords(props: { readonly annotation: Annotation }): JSX.Element {
   const { annotation } = props;
   const [open, setOpen] = useState(false);
   const [text, setText] = useState("");
   const { mark } = annotation;
-  const off = editing.value !== null;
-  const withEdit = edited.value !== null && annotation.doc === review.value?.plan?.doc;
+  const off = usePage((s) => s.editing !== null);
+  const withEdit = usePage((s) => s.edited !== null && annotation.doc === s.review?.plan?.doc);
+  const locked = usePage(selectLocked);
+  const sending = usePage((s) => s.sending);
+  const down = usePage((s) => s.connection === "down");
 
   const reopen = (body: string): void => {
     setText(body);
@@ -138,8 +133,8 @@ function CardWords(props: { readonly annotation: Annotation }): preact.JSX.Eleme
     return (
       <>
         <MarkWords mark={mark} />
-        {!locked.value && (
-          <div class="actions">
+        {!locked && (
+          <div className="actions">
             {mark.kind === "comment" && (
               <button type="button" disabled={off} onClick={() => reopen(mark.body)}>
                 Edit
@@ -150,7 +145,7 @@ function CardWords(props: { readonly annotation: Annotation }): preact.JSX.Eleme
             </button>
             <button
               type="button"
-              disabled={off || withEdit || sending.value || connection.value === "down"}
+              disabled={off || withEdit || sending || down}
               title={withEdit ? "It goes with your edit: send them together with Send" : undefined}
               onClick={() =>
                 void send({
@@ -175,11 +170,11 @@ function CardWords(props: { readonly annotation: Annotation }): preact.JSX.Eleme
       <textarea
         rows={3}
         aria-label="Comment"
-        autofocus
+        data-autofocus=""
         value={text}
         onInput={(event) => type(event.currentTarget.value)}
       />
-      <div class="actions">
+      <div className="actions">
         <button type="button" disabled={text.trim() === ""} onClick={() => setOpen(false)}>
           Done
         </button>
@@ -189,9 +184,8 @@ function CardWords(props: { readonly annotation: Annotation }): preact.JSX.Eleme
 }
 
 /** What a card calls its document: the listed document's label, or the file's name once it is listed no more. */
-function docLabelOf(path: string): string {
-  const view = review.value;
-  const doc = docs.value.find((one) => one.path === path);
+function docLabelOf(path: string, view: ReviewView | null, docs: readonly GroupedDoc[]): string {
+  const doc = docs.find((one) => one.path === path);
 
   return view === null || doc === undefined
     ? (path.split("/").at(-1) ?? path)
@@ -204,28 +198,33 @@ function docLabelOf(path: string): string {
  * the same Choose does. A choice whose option the mockup no longer holds says so, and only
  * Delete remains: no Send takes it.
  */
-function ChoiceCard(props: { readonly choice: SentChoice }): preact.JSX.Element {
+function ChoiceCard(props: { readonly choice: SentChoice }): JSX.Element {
   const { choice } = props;
   const named = refOf(choice);
-  const gone = isAbsent(choice);
-  const off = editing.value !== null;
+  const gone = usePage((s) => isAbsent(s.absent, choice));
+  const off = usePage((s) => s.editing !== null);
+  const locked = usePage(selectLocked);
+  const sending = usePage((s) => s.sending);
+  const down = usePage((s) => s.connection === "down");
+  const view = usePage((s) => s.review);
+  const docs = usePage(selectDocs);
 
   return (
-    <div class="card choice-card">
-      <div class="where" title={choice.doc}>
-        {docLabelOf(choice.doc)} · {choice.decision}
+    <div className="card choice-card">
+      <div className="where" title={choice.doc}>
+        {docLabelOf(choice.doc, view, docs)} · {choice.decision}
       </div>
       <div>Chosen: “{choice.label}”</div>
       {gone && <Tag>no longer in the mockup</Tag>}
-      {!locked.value && (
-        <div class="actions">
+      {!locked && (
+        <div className="actions">
           <button type="button" disabled={off} onClick={() => unchoose(named)}>
             Delete
           </button>
           {!gone && (
             <button
               type="button"
-              disabled={off || sending.value || connection.value === "down"}
+              disabled={off || sending || down}
               onClick={() =>
                 void send({
                   annotations: [],
@@ -246,20 +245,22 @@ function ChoiceCard(props: { readonly choice: SentChoice }): preact.JSX.Element 
 }
 
 /** A card the pointer or the focus is on names itself to the renderer; a click asks it to scroll there too. */
-function Card(props: { readonly annotation: Annotation }): preact.JSX.Element {
+function Card(props: { readonly annotation: Annotation }): JSX.Element {
   const { annotation } = props;
+  const view = usePage((s) => s.review);
+  const docs = usePage(selectDocs);
 
   const on = (reveal: boolean): void => {
-    focused.value = { id: annotation.id, reveal };
+    focusCard(annotation.id, reveal);
   };
 
   const off = (): void => {
-    if (focused.peek()?.id === annotation.id) focused.value = null;
+    blurCard(annotation.id);
   };
 
   return (
     <div
-      class="card"
+      className="card"
       id={`card-${annotation.id}`}
       onMouseEnter={() => on(false)}
       onMouseLeave={off}
@@ -267,14 +268,18 @@ function Card(props: { readonly annotation: Annotation }): preact.JSX.Element {
       onBlurCapture={off}
       onClick={() => on(true)}
     >
-      <div class="where" title={annotation.doc}>
-        {docLabelOf(annotation.doc)} · {whereOf(annotation.anchor)}
+      <div className="where" title={annotation.doc}>
+        {docLabelOf(annotation.doc, view, docs)} · {whereOf(annotation.anchor)}
       </div>
       {/* The tag stays out of the quote, which stops at three lines and would hide it. */}
       {quotesOf(annotation.anchor).map((quote) => (
         <Fragment key={quote.key}>
           <div
-            class={["quote", annotation.mark.kind === "delete" && "struck", quote.mono && "code"]
+            className={[
+              "quote",
+              annotation.mark.kind === "delete" && "struck",
+              quote.mono && "code",
+            ]
               .filter((name) => name !== false)
               .join(" ")}
           >
@@ -292,22 +297,18 @@ function Card(props: { readonly annotation: Annotation }): preact.JSX.Element {
  * The fold control, on the panel's edge, which it follows. Folded, it is the only trace left of
  * the panel, so it carries the total: neither `Comments` nor the decision bar filters by document.
  */
-export function CommentsHandle(): preact.JSX.Element {
-  const count = annotations.value.length + choicesIn(choices.value).length;
+export function CommentsHandle(): JSX.Element {
+  const count = usePage((s) => s.annotations.length + choicesIn(s.choices).length);
+  const commentsOpen = usePage((s) => s.commentsOpen);
 
   return (
     <Handle
       side="right"
-      open={commentsOpen.value}
+      open={commentsOpen}
       controls="comments"
       name="Comments"
       label={`Comments (${count})`}
-      onToggle={() => {
-        batch(() => {
-          commentsSnap.value = false;
-          commentsOpen.value = !commentsOpen.value;
-        });
-      }}
+      onToggle={toggleComments}
     >
       {count > 0 && <Badge>{count}</Badge>}
     </Handle>
@@ -315,15 +316,24 @@ export function CommentsHandle(): preact.JSX.Element {
 }
 
 /** The panel; `doc` is what the general box comments: the document shown, or the plan beside one that takes none. */
-export function Comments(props: { readonly doc: GroupedDoc | null }): preact.JSX.Element {
-  const draft = typed.value.general;
+export function Comments(props: { readonly doc: GroupedDoc | null }): JSX.Element {
+  const draft = usePage((s) => s.typed.general);
   const { doc } = props;
-  const list = sorted(annotations.value, docs.value);
-  const chosen = sortedChoices(docs.value);
-  const view = review.value;
+  const annotations = usePage((s) => s.annotations);
+  const choices = usePage((s) => s.choices);
+  const docs = usePage(selectDocs);
+  const view = usePage((s) => s.review);
+  const commentsOpen = usePage((s) => s.commentsOpen);
+  const commentsSnap = usePage((s) => s.commentsSnap);
+  const locked = usePage(selectLocked);
+  const editing = usePage((s) => s.editing !== null);
+  // `true`: `app.tsx` draws the panel only where what is on screen takes comments.
+  const switchDrawn = usePage((s) => switchShown(true, s));
+  const list = sorted(annotations, docs);
+  const chosen = sortedChoices(choices, docs);
   const name = doc === null || view === null ? "" : pathLabel(doc, view);
   const known = useRef<ReadonlySet<string> | null>(null);
-  const folded = commentsOpen.value ? "comments" : "comments folded";
+  const folded = commentsOpen ? "comments" : "comments folded";
 
   // A comment added scrolls the list to its card: the reviewer sees it land. Several at once are
   // a load (the draft, after the panel mounted empty), which keeps the list where it is.
@@ -352,16 +362,16 @@ export function Comments(props: { readonly doc: GroupedDoc | null }): preact.JSX
   return (
     <aside
       id="comments"
-      class={commentsSnap.value ? `${folded} snap` : folded}
+      className={commentsSnap ? `${folded} snap` : folded}
       aria-label="Comments"
-      inert={!commentsOpen.value}
+      inert={!commentsOpen}
     >
       <header>
         Comments <span>{list.length + chosen.length}</span>
       </header>
-      <div class="list">
+      <div className="list">
         {list.length + chosen.length === 0 && (
-          <div class="none">{emptyLine(!locked.value && doc !== null)}</div>
+          <div className="none">{emptyLine(!locked && doc !== null, switchDrawn)}</div>
         )}
         {list.map((annotation) => (
           <Card key={annotation.id} annotation={annotation} />
@@ -370,20 +380,20 @@ export function Comments(props: { readonly doc: GroupedDoc | null }): preact.JSX
           <ChoiceCard key={JSON.stringify([choice.doc, choice.decision])} choice={choice} />
         ))}
       </div>
-      <div class="global">
-        <label for="global">Comment on {name}</label>
+      <div className="global">
+        <label htmlFor="global">Comment on {name}</label>
         <textarea
           id="global"
           rows={2}
           placeholder="General feedback on this document"
-          disabled={locked.value || doc === null || editing.value !== null}
+          disabled={locked || doc === null || editing}
           value={draft}
           onInput={(event) => setTyped({ general: event.currentTarget.value })}
         />
-        <div class="row">
+        <div className="row">
           <Button
             size="sm"
-            disabled={locked.value || doc === null || editing.value !== null || draft.trim() === ""}
+            disabled={locked || doc === null || editing || draft.trim() === ""}
             onClick={add}
           >
             Add comment

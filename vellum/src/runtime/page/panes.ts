@@ -9,7 +9,7 @@ export type Pane =
   | { readonly kind: "docs" }
   | { readonly kind: "panel"; readonly id: string; readonly panel: Panel };
 
-/** A panel whose `shown()` holds, under its extension's id. */
+/** A panel whose `useShown()` holds, under its extension's id. */
 export type ShownPanel = { readonly id: string; readonly panel: Panel };
 
 /** Drops duplicates and unknown ids; `docs` exactly once; a shown panel the order omits comes after, in registry order. */

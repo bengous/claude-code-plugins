@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useRef, useState } from "preact/hooks";
+import type { JSX } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import { Composer } from "../../review/composer.tsx";
 import type { Passage } from "../../review/contract.ts";
@@ -17,17 +18,15 @@ import { paint } from "../../runtime/page/highlights.ts";
 import type { Rect } from "../../runtime/page/place.ts";
 import { windowOf } from "../../runtime/page/place.ts";
 import {
-  commenting,
-  dark,
-  docs,
+  clearResume,
   fail,
-  focused,
-  holding,
-  planDoc,
-  resume,
-  review,
+  pageStore,
   select,
+  selectCommenting,
+  selectDocs,
+  selectPlanDoc,
   succeed,
+  usePage,
 } from "../../runtime/page/state.ts";
 import type { DocRef } from "../../runtime/protocol.ts";
 import { changesOf } from "./changes.ts";
@@ -168,12 +167,14 @@ function passageOf(root: HTMLElement, target: Target, range: Range): Passage | n
  * tab. On, a click on a link picks it.
  */
 function onClick(event: MouseEvent): void {
-  if (commenting.value) return;
+  const s = pageStore.getState();
+
+  if (selectCommenting(s)) return;
   const link = event.target instanceof Element ? event.target.closest("a") : null;
   const wanted = link?.dataset.path;
 
   if (wanted === undefined) return;
-  const target = linkedDoc(wanted, docs.value, review.value?.plan ?? null);
+  const target = linkedDoc(wanted, selectDocs(s), s.review?.plan ?? null);
 
   if (target === null) return;
   event.preventDefault();
@@ -201,11 +202,16 @@ async function sourceOf(doc: DocRef): Promise<string | null> {
   return null;
 }
 
-function MarkdownDoc(props: RendererProps): preact.JSX.Element {
+/** Whether the switch is on now, for a handler: the render's value may be a frame old. */
+function commentingNow(): boolean {
+  return selectCommenting(pageStore.getState());
+}
+
+function MarkdownDoc(props: RendererProps): JSX.Element {
   const [text, setText] = useState<string | null>(null);
   const [failed, setFailed] = useState(false);
   const [drafted, setDraft] = useState<Draft | null>(null);
-  const on = commenting.value;
+  const on = usePage(selectCommenting);
   // A switch turned off, or a page that locks, under an open composer closes it: its comment
   // could not be added.
   const draft = on ? drafted : null;
@@ -217,8 +223,12 @@ function MarkdownDoc(props: RendererProps): preact.JSX.Element {
   const dragging = useRef(false);
 
   const shown = props.source ?? text;
-  const listed = docs.value;
-  const plan = review.value?.plan ?? null;
+  const listed = usePage(selectDocs);
+  const plan = usePage((s) => s.review?.plan ?? null);
+  const focus = usePage((s) => s.focused);
+  const night = usePage((s) => s.dark);
+  const isPlan = usePage((s) => props.doc.path === selectPlanDoc(s)?.path);
+  const holding = usePage((s) => s.holding);
   // Every workspace event loads a new view: the sheet is drawn again, its diagrams with it, only
   // when a path a link may reach changed.
   const reachable = [plan?.doc, plan?.workingCopy, ...listed.map((doc) => doc.path)].join("\n");
@@ -295,7 +305,6 @@ function MarkdownDoc(props: RendererProps): preact.JSX.Element {
   }, [props.annotations, draft, content]);
 
   // The card the reviewer is on: its passage stands out, and a click brings it into view.
-  const focus = focused.value;
   // A click scrolls once: the effect runs again at each new list of annotations.
   const revealed = useRef<typeof focus>(null);
 
@@ -323,19 +332,15 @@ function MarkdownDoc(props: RendererProps): preact.JSX.Element {
     };
   }, [focus, props.annotations, content]);
 
-  const night = dark.value;
-
   // Back from the editor: the plan scrolls to the block of the line under the caret, once the
   // diagrams and the images above it have their size, since each one drawn moves what follows.
-  const isPlan = props.doc.path === planDoc.value?.path;
-
   useEffect(() => {
     const root = container.current;
 
     if (root === null) return;
 
     void drawn(root, night).then(() => {
-      const line = resume.peek();
+      const line = pageStore.getState().resume;
 
       if (line === null || content === null || !isPlan) return;
       const blocks = [...root.querySelectorAll<HTMLElement>("[data-lines]")];
@@ -345,7 +350,7 @@ function MarkdownDoc(props: RendererProps): preact.JSX.Element {
       );
 
       const next = blocks.find((block) => linesAt(block)[0] >= line);
-      resume.value = null;
+      clearResume();
       (holder ?? next)?.scrollIntoView({ block: "start" });
     });
   }, [content, night]);
@@ -429,7 +434,7 @@ function MarkdownDoc(props: RendererProps): preact.JSX.Element {
 
   const onMouseUp = (event: MouseEvent): void => {
     const root = container.current;
-    const range = root === null || !commenting.value ? null : dragRange(event);
+    const range = root === null || !commentingNow() ? null : dragRange(event);
     dragging.current = false;
 
     if (root === null || range === null) return;
@@ -450,7 +455,7 @@ function MarkdownDoc(props: RendererProps): preact.JSX.Element {
     const onDocumentMouseUp = (event: MouseEvent): void => {
       if (!dragging.current) return;
       dragging.current = false;
-      const range = commenting.peek() ? dragRange(event) : null;
+      const range = commentingNow() ? dragRange(event) : null;
 
       // A press whose release never came (a link or an image dragged, a context menu) leaves
       // `dragging` set: a selection made elsewhere later is none of the sheet's.
@@ -460,7 +465,7 @@ function MarkdownDoc(props: RendererProps): preact.JSX.Element {
     };
 
     const onKeyUp = (event: KeyboardEvent): void => {
-      const range = event.key === "Shift" && commenting.peek() ? selectedRange() : null;
+      const range = event.key === "Shift" && commentingNow() ? selectedRange() : null;
 
       if (range === null || !root.contains(range.commonAncestorContainer)) return;
       latest.current(root, range, event);
@@ -480,7 +485,7 @@ function MarkdownDoc(props: RendererProps): preact.JSX.Element {
     const root = container.current;
     const block = event.target instanceof HTMLElement ? event.target : null;
 
-    if (root === null || !commenting.value || event.key !== "Enter" || block === null) return;
+    if (root === null || !commentingNow() || event.key !== "Enter" || block === null) return;
 
     if (!block.hasAttribute("tabindex") || block.dataset.lines === undefined) return;
     event.preventDefault();
@@ -496,7 +501,7 @@ function MarkdownDoc(props: RendererProps): preact.JSX.Element {
     const root = container.current;
 
     const target =
-      root !== null && commenting.value && event.buttons === 0 && event.target instanceof Element
+      root !== null && commentingNow() && event.buttons === 0 && event.target instanceof Element
         ? targetAt(root, event.target, event.clientX, event.clientY)
         : null;
 
@@ -514,7 +519,7 @@ function MarkdownDoc(props: RendererProps): preact.JSX.Element {
   const onClickCapture = (event: MouseEvent): void => {
     const root = container.current;
 
-    if (root === null || !commenting.value) return;
+    if (root === null || !commentingNow()) return;
 
     // A removed block's summary keeps its click: `preventDefault` would hold it folded.
     if (event.target instanceof Element && event.target.closest("details.removed") !== null) return;
@@ -537,8 +542,8 @@ function MarkdownDoc(props: RendererProps): preact.JSX.Element {
 
   const waiting = waitingText(content !== null, failed);
 
-  if (waiting !== null) return <div class="waiting">{waiting}</div>;
-  const adding = holding.value && draft !== null;
+  if (waiting !== null) return <div className="waiting">{waiting}</div>;
+  const adding = holding && draft !== null;
   const holder = container.current?.parentElement ?? null;
   const pane = draft === null || holder === null ? null : windowOf(holder);
 
@@ -554,22 +559,22 @@ function MarkdownDoc(props: RendererProps): preact.JSX.Element {
     <>
       <article
         {...{ [SHEET_ATTRIBUTE]: "" }}
-        class={adding ? "plan adding" : "plan"}
+        className={adding ? "plan adding" : "plan"}
         ref={container}
         tabIndex={-1}
-        onMouseUp={onMouseUp}
-        onClick={onClick}
-        onClickCapture={onClickCapture}
-        onKeyDown={onKeyDown}
+        onMouseUp={(event) => onMouseUp(event.nativeEvent)}
+        onClick={(event) => onClick(event.nativeEvent)}
+        onClickCapture={(event) => onClickCapture(event.nativeEvent)}
+        onKeyDown={(event) => onKeyDown(event.nativeEvent)}
         onPointerDown={onPointerDown}
-        onPointerMove={onPointerMove}
+        onPointerMove={(event) => onPointerMove(event.nativeEvent)}
         onPointerLeave={() => setWash(null)}
       >
         {content}
       </article>
       {wash !== null && (
         <div
-          class="wash"
+          className="wash"
           style={{
             top: `${wash.top}px`,
             left: `${wash.left}px`,
@@ -577,7 +582,7 @@ function MarkdownDoc(props: RendererProps): preact.JSX.Element {
             height: `${wash.height}px`,
           }}
         >
-          <span class="wash-label">{wash.target.label}</span>
+          <span className="wash-label">{wash.target.label}</span>
         </div>
       )}
       {draft !== null && pane !== null && (

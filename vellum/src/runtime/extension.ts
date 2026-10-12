@@ -1,4 +1,4 @@
-import type { ComponentType } from "preact";
+import type { ComponentType } from "react";
 
 import type { Annotation, Draft, LineDiff, Typed } from "../review/contract.ts";
 import type { ProjectPath } from "../workshop/paths.ts";
@@ -41,9 +41,10 @@ export type Renderer = {
   readonly component: ComponentType<RendererProps>;
 };
 
-/** A pane the core draws beside the document pane while `shown()` holds; keyed by its extension's id. */
+/** A pane the core draws beside the document pane while `useShown()` holds; keyed by its extension's id. */
 export type Panel = {
-  readonly shown: () => boolean;
+  /** A hook: `App` calls it at every render, in the registry's order, so a change in the extension's own state redraws the panes. */
+  readonly useShown: () => boolean;
   readonly component: ComponentType;
 };
 
@@ -71,8 +72,8 @@ export type SendShare = {
 export type PageExtension = {
   readonly id: string;
   readonly renderers?: readonly Renderer[];
-  /** Its part of the one Send: the bar counts it, and asks about what it would take by default. */
-  readonly send?: () => SendShare;
+  /** Its part of the one Send, a hook the bar calls at every render: the bar counts it, and asks about what it would take by default. */
+  readonly useSend?: () => SendShare;
   /** Drawn in the decision bar, before the decision's own buttons, in registry order. */
   readonly actions?: readonly ComponentType[];
   /** Drawn in the notices column under the bar, in the flow, after the core's own: the grill's proposal, a modal. */

@@ -9,18 +9,21 @@
     "e2e:install": "bun x --bun playwright install chromium"
   },
   "dependencies": {
-    "@preact/signals": "2.11.3",
     "diff": "9.0.0",
     "mermaid": "12.1.0",
-    "preact": "10.29.8",
+    "react": "19.3.0",
+    "react-dom": "19.3.0",
     "rehype-highlight": "7.0.2",
     "remark-gfm": "4.0.1",
     "remark-parse": "11.0.0",
     "remark-rehype": "11.1.2",
-    "unified": "11.0.5"
+    "unified": "11.0.5",
+    "zustand": "5.0.15"
   },
   "devDependencies": {
     "@playwright/test": "1.64.0",
+    "@types/react": "19.3.0",
+    "@types/react-dom": "19.3.0",
     "axe-core": "4.14.0"
   }
 }

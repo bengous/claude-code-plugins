@@ -22,7 +22,7 @@ const PART_GROUPS = ["steps", "formats"];
 
 const LISTENS = ["prompted", "answered", "agentAnswered", "staged", "closing"] as const;
 
-const SLOTS = ["renderers", "send", "actions", "notices", "panel"] as const;
+const SLOTS = ["renderers", "useSend", "actions", "notices", "panel"] as const;
 
 /** Both lists name every listener and every slot, and the workshop every slot the page offers: one more in either fails here. */
 const EVERY: [

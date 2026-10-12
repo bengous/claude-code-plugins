@@ -1,20 +1,23 @@
-import { batch, computed, signal } from "@preact/signals";
-import { useEffect, useRef, useState } from "preact/hooks";
+import type { JSX } from "react";
+import { useEffect, useRef, useState } from "react";
+import { useStore } from "zustand";
+import { createStore } from "zustand/vanilla";
 
 import type { Typed } from "../../review/contract.ts";
 import type { PageHalf, RendererProps, SendShare } from "../../runtime/extension.ts";
 import { extensionRequest } from "../../runtime/page/api.ts";
 import { Banner, Button, Chip } from "../../runtime/page/kit.tsx";
 import {
-  docs,
   fail,
+  memoized,
   outOnce,
-  review,
+  pageStore,
+  patchStore,
   select,
-  sending,
+  selectDocs,
   setTyped,
   succeed,
-  typed,
+  usePage,
   writeDraft,
 } from "../../runtime/page/state.ts";
 import type { ProjectPath } from "../../workshop/paths.ts";
@@ -28,33 +31,51 @@ import type { QuestionBlock, Rounds } from "./rounds.ts";
 const ID = "grill";
 
 /**
- * The server's last word on the grill, loaded again at every workspace event; `null` before the
- * first answer. A refused read keeps it, so the panel stays as the reviewer left it.
- */
-const grill = signal<GrillState | null>(null);
-
-/** What the band and the panel draw: the state kept, and none once approved, since the approval closed the grill. */
-const drawn = computed(() => (review.value?.workspace.kind === "approved" ? null : grill.value));
-
-/**
  * The open grill's blocks, which the band and the panel draw alike, with the write they were read
  * at: a workspace event that did not write the file loads nothing, and any other loads it, a
  * load still out included, since that one may fail. They keep the phase of the state they were
  * loaded for, which the panel draws with them: a phase read before its blocks land would name a
  * round, or take a send away, over blocks that do not show it yet.
  */
-const transcript = signal<{
+type OpenTranscript = {
   readonly path: string;
   readonly write: string;
   readonly blocks: readonly Block[];
   readonly phase: Phase;
-} | null>(null);
+};
 
-/**
- * The grill this page ended with End grill, and how many questions it settled: its notice shows
- * until dismissed or until a new grill opens. `/vellum:stop` and the approval leave none.
- */
-const ended = signal<{ readonly file: ProjectPath; readonly decisions: number } | null>(null);
+/** The part's own state: the server's word on the grill, the open transcript, and the grill this page ended. */
+type GrillPage = {
+  /**
+   * The server's last word on the grill, loaded again at every workspace event; `null` before the
+   * first answer. A refused read keeps it, so the panel stays as the reviewer left it.
+   */
+  readonly grill: GrillState | null;
+  readonly transcript: OpenTranscript | null;
+  /**
+   * The grill this page ended with End grill, and how many questions it settled: its notice shows
+   * until dismissed or until a new grill opens. `/vellum:stop` and the approval leave none.
+   */
+  readonly ended: { readonly file: ProjectPath; readonly decisions: number } | null;
+};
+
+const grillStore = createStore<GrillPage>(() => ({ grill: null, transcript: null, ended: null }));
+
+function useGrill<T>(pick: (s: GrillPage) => T): T {
+  return useStore(grillStore, pick);
+}
+
+/** What the band and the panel draw: the state kept, and none once approved, since the approval closed the grill. */
+function drawnOf(approved: boolean, grill: GrillState | null): GrillState | null {
+  return approved ? null : grill;
+}
+
+function useDrawn(): GrillState | null {
+  const approved = usePage((s) => s.review?.workspace.kind === "approved");
+  const grill = useGrill((s) => s.grill);
+
+  return drawnOf(approved, grill);
+}
 
 /** The write of the open transcript last asked for: an older load that lands after it is dropped. */
 let transcriptAsked: string | null = null;
@@ -66,7 +87,7 @@ function nameOf(path: string): string {
 /** The typing kept for a transcript no grill is open on has no field left: it goes. */
 function forgetClosed(state: GrillState): void {
   const open = state.kind === "open" ? state.file : null;
-  const kept = typed.peek().grill;
+  const kept = pageStore.getState().typed.grill;
   const closed = Object.keys(kept).filter((path) => path !== open);
 
   if (closed.length === 0) return;
@@ -81,39 +102,36 @@ async function loadState(): Promise<void> {
   // SAFETY: the server's own `GrillState`, serialized by `Response.json` in grill/server.ts.
   const state = (await response.json()) as GrillState;
   forgetClosed(state);
+  const { ended } = grillStore.getState();
 
-  batch(() => {
-    grill.value = state;
-
-    if (state.kind === "open" && state.file !== ended.peek()?.file) ended.value = null;
+  patchStore(grillStore, {
+    grill: state,
+    ended: state.kind === "open" && state.file !== ended?.file ? null : ended,
   });
 
   if (state.kind === "open") await loadTranscript(state.file, state.phase);
 }
 
 async function loadTranscript(path: string, phase: Phase): Promise<void> {
-  const write = `${path}@${docs.peek().find((doc) => doc.path === path)?.modified ?? 0}`;
+  const docs = selectDocs(pageStore.getState());
+  const write = `${path}@${docs.find((doc) => doc.path === path)?.modified ?? 0}`;
 
-  if (transcript.peek()?.write === write) return;
+  if (grillStore.getState().transcript?.write === write) return;
   transcriptAsked = write;
   const blocks = await blocksOf(path);
 
   if (blocks !== null && transcriptAsked === write) {
-    transcript.value = { path, write, blocks, phase };
+    grillStore.setState({ transcript: { path, write, blocks, phase } });
   }
 }
 
 /** The blocks of the open transcript at `path`, `null` until they land. */
-function blocksOn(path: string): readonly Block[] | null {
-  const loaded = transcript.value;
-
+function blocksOn(loaded: OpenTranscript | null, path: string): readonly Block[] | null {
   return loaded?.path === path ? loaded.blocks : null;
 }
 
 /** The phase the blocks of `path` were loaded with, `null` until they land. */
-function phaseOn(path: string): Phase | null {
-  const loaded = transcript.value;
-
+function phaseOn(loaded: OpenTranscript | null, path: string): Phase | null {
   return loaded?.path === path ? loaded.phase : null;
 }
 
@@ -175,14 +193,12 @@ async function post<Route extends PostOf<GrillPlugs["server"]>>(
 const NOTHING_TYPED: Typed["grill"][string] = { answers: {}, note: "" };
 
 /**
- * The draft's grill typings: `setTyped` keeps their reference when another field changes, so the
- * band and the panel, reading them here, are not drawn again at each key typed elsewhere.
+ * The reviewer's typing on a transcript, in the draft: it survives the panel and a reload.
+ * `setTyped` keeps the grill's reference when another field changes, so the band and the panel,
+ * reading `typed.grill` alone, are not drawn again at each key typed elsewhere.
  */
-const grillTyped = computed(() => typed.value.grill);
-
-/** The reviewer's typing on a transcript, in the draft: it survives the panel and a reload. */
-function typedOn(path: string): Typed["grill"][string] {
-  return grillTyped.value[path] ?? NOTHING_TYPED;
+function typedOn(grill: Typed["grill"], path: string): Typed["grill"][string] {
+  return grill[path] ?? NOTHING_TYPED;
 }
 
 /**
@@ -191,23 +207,31 @@ function typedOn(path: string): Typed["grill"][string] {
  * it names none, and the server's own count asks in its place. Computed once per change of the
  * blocks or the typing, not at each render of the bar.
  */
-const counted = computed(() => {
-  const state = drawn.value;
+const countedOf = memoized(
+  (
+    state: GrillState | null,
+    transcript: OpenTranscript | null,
+    grill: Typed["grill"],
+  ): [GrillState | null, OpenTranscript | null, Typed["grill"]] => [state, transcript, grill],
+  (state, transcript, grill) => {
+    if (state?.kind !== "open") return null;
+    const own = typedOn(grill, state.file);
+    const { open, waiting } = roundsOf(blocksOn(transcript, state.file) ?? [], own.answers, null);
 
-  if (state?.kind !== "open") return null;
-  const own = typedOn(state.file);
-  const { open, waiting } = roundsOf(blocksOn(state.file) ?? [], own.answers, null);
-
-  return { file: state.file, own, open, waiting };
-});
+    return { file: state.file, own, open, waiting };
+  },
+);
 
 /**
  * The share, snapshotted: once the server took the Send, the grill reads its state and its
  * transcript again, then drops the answers to the questions the Send closed and the note, unless
  * the reviewer changed it since the click.
  */
-function share(): SendShare {
-  const now = counted.value;
+function useSend(): SendShare {
+  const state = useDrawn();
+  const transcript = useGrill((s) => s.transcript);
+  const grill = usePage((s) => s.typed.grill);
+  const now = countedOf(state, transcript, grill);
 
   if (now === null) return { count: 0, unanswered: [], more: false, sent: () => Promise.resolve() };
   const { file, own, open, waiting } = now;
@@ -218,14 +242,13 @@ function share(): SendShare {
     more: own.note.trim() !== "",
     sent: async () => {
       await loadState();
-      const current = typedOn(file);
+      const kept = pageStore.getState().typed.grill;
+      const current = typedOn(kept, file);
       const closed = new Set(open);
       const answers = Object.entries(current.answers).filter(([id]) => !closed.has(id));
       const note = current.note === own.note ? "" : current.note;
 
-      setTyped({
-        grill: { ...typed.peek().grill, [file]: { answers: Object.fromEntries(answers), note } },
-      });
+      setTyped({ grill: { ...kept, [file]: { answers: Object.fromEntries(answers), note } } });
     },
   };
 }
@@ -244,16 +267,13 @@ async function end(path: ProjectPath, blocks: readonly Block[]): Promise<void> {
   }
 
   if (!(await post("POST close", { reason: "page" })).ok) return;
-  const plan = docs.peek().find((doc) => doc.group === "plan");
+  const plan = selectDocs(pageStore.getState()).find((doc) => doc.group === "plan");
 
-  batch(() => {
-    ended.value = {
-      file: path,
-      decisions: blocks.filter((block) => block.kind === "question").length,
-    };
-
-    if (plan !== undefined) select(plan.path);
+  grillStore.setState({
+    ended: { file: path, decisions: blocks.filter((block) => block.kind === "question").length },
   });
+
+  if (plan !== undefined) select(plan.path);
 }
 
 /**
@@ -264,16 +284,17 @@ async function end(path: ProjectPath, blocks: readonly Block[]): Promise<void> {
 function EndGrill(props: {
   readonly file: ProjectPath;
   readonly look: "band" | "primary" | "secondary";
-}): preact.JSX.Element {
+}): JSX.Element {
   const { file, look } = props;
-  const blocks = blocksOn(file);
+  const blocks = useGrill((s) => blocksOn(s.transcript, file));
+  const sending = usePage((s) => s.sending);
 
   return (
     <Button
       size={look === "band" ? "sm" : "md"}
       variant={look === "primary" ? "grill" : "default"}
-      class={look === "primary" ? "lit" : undefined}
-      disabled={blocks === null || sending.value}
+      className={look === "primary" ? "lit" : undefined}
+      disabled={blocks === null || sending}
       title={blocks === null ? "Loading the grill" : undefined}
       onClick={() => {
         if (blocks !== null) void outOnce(() => end(file, blocks));
@@ -285,21 +306,20 @@ function EndGrill(props: {
 }
 
 /** Above the page while a grill is open: its subject, its round, the questions the reviewer has not touched, and End grill. */
-function GrillBand(props: {
-  readonly state: Extract<GrillState, { kind: "open" }>;
-}): preact.JSX.Element {
+function GrillBand(props: { readonly state: Extract<GrillState, { kind: "open" }> }): JSX.Element {
   const { file, subject } = props.state;
-  const blocks = blocksOn(file);
-  const { waiting } = roundsOf(blocks ?? [], typedOn(file).answers, null);
+  const blocks = useGrill((s) => blocksOn(s.transcript, file));
+  const own = usePage((s) => typedOn(s.typed.grill, file));
+  const { waiting } = roundsOf(blocks ?? [], own.answers, null);
   const progress = progressOf(roundNow(blocks ?? []), waiting.length);
 
   return (
-    <div class="grill-band">
-      <span class="subject" title={subject}>
+    <div className="grill-band">
+      <span className="subject" title={subject}>
         Grill · {subject}
       </span>
       {/* The band's one live region, drawn empty with nothing to say: a status added with its text is not read out. */}
-      <span class="count" role="status">
+      <span className="count" role="status">
         {progress}
       </span>
       <EndGrill file={file} look="band" />
@@ -308,10 +328,11 @@ function GrillBand(props: {
 }
 
 /** What End grill leaves, with the way back to the transcript; gone with the approval, which moved it. */
-function EndedNotice(): preact.JSX.Element | null {
-  const notice = ended.value;
+function EndedNotice(): JSX.Element | null {
+  const notice = useGrill((s) => s.ended);
+  const approved = usePage((s) => s.review?.workspace.kind === "approved");
 
-  if (notice === null || review.value?.workspace.kind === "approved") return null;
+  if (notice === null || approved) return null;
 
   return (
     <Banner
@@ -319,7 +340,7 @@ function EndedNotice(): preact.JSX.Element | null {
       action={{
         label: "Dismiss",
         run: () => {
-          ended.value = null;
+          patchStore(grillStore, { ended: null });
         },
       }}
     >
@@ -332,9 +353,9 @@ function EndedNotice(): preact.JSX.Element | null {
 }
 
 /** Read again at every workspace event: the grill a step opened, a round asked, a grill ended. */
-function GrillNotice(): preact.JSX.Element {
-  const view = review.value;
-  const shown = drawn.value;
+function GrillNotice(): JSX.Element {
+  const view = usePage((s) => s.review);
+  const shown = useDrawn();
 
   useEffect(() => {
     void loadState();
@@ -348,40 +369,40 @@ function GrillNotice(): preact.JSX.Element {
   );
 }
 
-function QuestionHead(props: { readonly block: QuestionBlock }): preact.JSX.Element {
+function QuestionHead(props: { readonly block: QuestionBlock }): JSX.Element {
   const { block } = props;
 
   return (
     <>
-      <h4 class="head">
-        <span class="num">{block.id}</span>
-        <span class="topic">{block.title}</span>
+      <h4 className="head">
+        <span className="num">{block.id}</span>
+        <span className="topic">{block.title}</span>
       </h4>
       {/* oxlint-disable-next-line react/no-danger -- the question arrives rendered, by the same `toHtml` of grill/server.ts as the blocks between the cards. */}
-      <div class="ask" dangerouslySetInnerHTML={{ __html: block.ask }} />
+      <div className="ask" dangerouslySetInnerHTML={{ __html: block.ask }} />
     </>
   );
 }
 
 /** A question as the transcript holds it: its recommendation, and its answer once a reply gave one. It takes nothing. */
-function QuestionCard(props: { readonly block: QuestionBlock }): preact.JSX.Element {
+function QuestionCard(props: { readonly block: QuestionBlock }): JSX.Element {
   const { block } = props;
   const answer = answerOf(block.answer);
 
   return (
-    <div class="grill-q">
+    <div className="grill-q">
       <QuestionHead block={block} />
       {block.rec !== "" && (
-        <div class="rec">
-          <span class="label">Recommended</span>
+        <div className="rec">
+          <span className="label">Recommended</span>
           {/* oxlint-disable-next-line react/no-danger -- as the question above: rendered by `toHtml` in grill/server.ts. */}
-          <div class="text" dangerouslySetInnerHTML={{ __html: block.rec }} />
+          <div className="text" dangerouslySetInnerHTML={{ __html: block.rec }} />
         </div>
       )}
       {answer !== null && (
-        <div class={`answer ${block.answer.kind}`}>
-          <span class="label">{answer.label}</span>
-          <span class="text">{answer.text}</span>
+        <div className={`answer ${block.answer.kind}`}>
+          <span className="label">{answer.label}</span>
+          <span className="text">{answer.text}</span>
         </div>
       )}
     </div>
@@ -410,7 +431,7 @@ function choiceOf(typing: string | undefined): Choice {
  * recommendation checked in advance ends up accepted unread. A text of the reviewer's own greys
  * Recommended, so a click never throws the typing.
  */
-function OpenQuestion(props: OpenQuestionProps): preact.JSX.Element {
+function OpenQuestion(props: OpenQuestionProps): JSX.Element {
   const { block, typing } = props;
   const field = useRef<HTMLTextAreaElement>(null);
   const [choice, setChoice] = useState<Choice>(choiceOf(typing));
@@ -435,10 +456,10 @@ function OpenQuestion(props: OpenQuestionProps): preact.JSX.Element {
   // With no recommendation there is nothing to choose: "As recommended." would name none.
   if (block.rec === "") {
     return (
-      <div class="grill-q">
+      <div className="grill-q">
         <QuestionHead block={block} />
-        <div class="grill-choice alone">
-          <label for={`${name}-field`}>Your answer</label>
+        <div className="grill-choice alone">
+          <label htmlFor={`${name}-field`}>Your answer</label>
           {answerField}
         </div>
       </div>
@@ -446,10 +467,10 @@ function OpenQuestion(props: OpenQuestionProps): preact.JSX.Element {
   }
 
   return (
-    <div class="grill-q">
+    <div className="grill-q">
       <QuestionHead block={block} />
-      <div class="grill-choices" role="radiogroup" aria-label={`Answer to ${block.id}`}>
-        <div class="grill-choice">
+      <div className="grill-choices" role="radiogroup" aria-label={`Answer to ${block.id}`}>
+        <div className="grill-choice">
           <input
             type="radio"
             id={`${name}-rec`}
@@ -463,7 +484,7 @@ function OpenQuestion(props: OpenQuestionProps): preact.JSX.Element {
             }}
           />
           <label
-            for={`${name}-rec`}
+            htmlFor={`${name}-rec`}
             title={mine ? "Clear your answer to take the recommendation" : undefined}
           >
             Recommended
@@ -471,11 +492,11 @@ function OpenQuestion(props: OpenQuestionProps): preact.JSX.Element {
           {/* oxlint-disable-next-line react/no-danger -- as the question: rendered by `toHtml` in grill/server.ts. */}
           <div
             id={`${name}-rec-text`}
-            class="text"
+            className="text"
             dangerouslySetInnerHTML={{ __html: block.rec }}
           />
         </div>
-        <div class="grill-choice">
+        <div className="grill-choice">
           <input
             type="radio"
             id={`${name}-own`}
@@ -487,7 +508,7 @@ function OpenQuestion(props: OpenQuestionProps): preact.JSX.Element {
               field.current?.focus();
             }}
           />
-          <label for={`${name}-own`}>Your answer</label>
+          <label htmlFor={`${name}-own`}>Your answer</label>
           {answerField}
         </div>
       </div>
@@ -511,20 +532,20 @@ function useBlocks(path: string, modified: number): readonly Block[] {
 /** The blocks in the file's order; `card` draws a question, or `null` where the questions are drawn apart. */
 function Transcript(props: {
   readonly blocks: readonly Block[];
-  readonly card: (block: QuestionBlock) => preact.JSX.Element | null;
-}): preact.JSX.Element {
+  readonly card: (block: QuestionBlock) => JSX.Element | null;
+}): JSX.Element {
   return (
     <>
       {props.blocks.map((block, index) =>
         block.kind === "opened" ? (
           <div key={index}>
             <h1>Grill: {block.subject}</h1>
-            <p class="grill-when">Started {block.at}</p>
+            <p className="grill-when">Started {block.at}</p>
           </div>
         ) : block.kind === "closed" ? (
           <div key={index}>
             <hr />
-            <p class="grill-when">
+            <p className="grill-when">
               {footerOf(block.reason)} · {block.at}
             </p>
           </div>
@@ -541,12 +562,12 @@ function Transcript(props: {
 }
 
 /** Any `grill-<n>.md`, open or closed, as a document: the panel is the one place a grill is answered. */
-function GrillDoc(props: RendererProps): preact.JSX.Element {
+function GrillDoc(props: RendererProps): JSX.Element {
   const blocks = useBlocks(props.doc.path, props.doc.modified);
 
   return (
-    <div class="grill-doc">
-      <div class="plan">
+    <div className="grill-doc">
+      <div className="plan">
         <Transcript
           blocks={blocks}
           card={(block) => <QuestionCard key={block.id} block={block} />}
@@ -560,17 +581,17 @@ function GrillDoc(props: RendererProps): preact.JSX.Element {
 function RoundView(props: {
   readonly view: Rounds;
   readonly onPick: (id: string) => void;
-  readonly question: (block: QuestionBlock) => preact.JSX.Element;
-}): preact.JSX.Element {
+  readonly question: (block: QuestionBlock) => JSX.Element;
+}): JSX.Element {
   const { view } = props;
   const { current, previous, next } = view;
 
   return (
     <>
-      <div class="grill-chips">
+      <div className="grill-chips">
         {view.rounds.map((round) => (
-          <div key={round.n} class="group">
-            {round.n > 0 && <span class="label">Round {round.n}</span>}
+          <div key={round.n} className="group">
+            {round.n > 0 && <span className="label">Round {round.n}</span>}
             {round.chips.map((chip) => (
               <Chip
                 key={chip.id}
@@ -587,7 +608,7 @@ function RoundView(props: {
       </div>
       {current !== null && props.question(current)}
       {current !== null && (
-        <div class="grill-nav">
+        <div className="grill-nav">
           {previous !== null && (
             <Button
               size="sm"
@@ -597,7 +618,7 @@ function RoundView(props: {
               ‹ {previous}
             </Button>
           )}
-          <span class="spacer" />
+          <span className="spacer" />
           {next !== null && (
             <Button
               size="sm"
@@ -613,14 +634,12 @@ function RoundView(props: {
   );
 }
 
-function OpenGrill(props: {
-  readonly state: Extract<GrillState, { kind: "open" }>;
-}): preact.JSX.Element {
+function OpenGrill(props: { readonly state: Extract<GrillState, { kind: "open" }> }): JSX.Element {
   const { file: path } = props.state;
-  const loaded = blocksOn(path);
-  const phase = phaseOn(path);
+  const loaded = useGrill((s) => blocksOn(s.transcript, path));
+  const phase = useGrill((s) => phaseOn(s.transcript, path));
   const blocks = loaded ?? [];
-  const own = typedOn(path);
+  const own = usePage((s) => typedOn(s.typed.grill, path));
   const [picked, setPicked] = useState<string | null>(null);
   const view = roundsOf(blocks, own.answers, picked);
   /** Add a note clicked on the idle screen, where the note waits behind End grill. */
@@ -631,11 +650,14 @@ function OpenGrill(props: {
 
   const answer = (id: string, text: string): void =>
     setTyped({
-      grill: { ...typed.value.grill, [path]: { ...own, answers: { ...own.answers, [id]: text } } },
+      grill: {
+        ...pageStore.getState().typed.grill,
+        [path]: { ...own, answers: { ...own.answers, [id]: text } },
+      },
     });
 
   const note = (text: string): void =>
-    setTyped({ grill: { ...typed.value.grill, [path]: { ...own, note: text } } });
+    setTyped({ grill: { ...pageStore.getState().typed.grill, [path]: { ...own, note: text } } });
 
   const { open, waiting } = view;
   /** Bumped by All recommended: the question shown is drawn again, its choice read off the draft. */
@@ -647,7 +669,10 @@ function OpenGrill(props: {
     const chosen = Object.fromEntries(untouched.map((id) => [id, AS_RECOMMENDED]));
 
     setTyped({
-      grill: { ...typed.value.grill, [path]: { ...own, answers: { ...own.answers, ...chosen } } },
+      grill: {
+        ...pageStore.getState().typed.grill,
+        [path]: { ...own, answers: { ...own.answers, ...chosen } },
+      },
     });
     setChosenAll((count) => count + 1);
   };
@@ -672,27 +697,27 @@ function OpenGrill(props: {
   }, [noting]);
 
   return (
-    <aside class="grill-panel" aria-label="Grill">
-      <div class="grill-sheet">
-        <div class="plan">
+    <aside className="grill-panel" aria-label="Grill">
+      <div className="grill-sheet">
+        <div className="plan">
           <Transcript blocks={blocks} card={() => null} />
           {/* The panel's one live region, drawn empty while a round waits with Claude: a status added with its text is not read out. */}
-          <div class={`grill-phase ${phase ?? ""}`}>
+          <div className={`grill-phase ${phase ?? ""}`}>
             <p role="status">{phase === null ? "" : phaseText(phase, roundNow(blocks))}</p>
             {phase === "idle" && (
-              <div class="row">
+              <div className="row">
                 <EndGrill file={path} look="primary" />
                 {!footShown && <Button onClick={() => setNoting(true)}>Add a note</Button>}
               </div>
             )}
             {phase === "stopped" && (
-              <div class="row">
+              <div className="row">
                 <EndGrill file={path} look="secondary" />
               </div>
             )}
           </div>
           {view.rounds.length > 0 && (
-            <div class="grill-round" ref={round}>
+            <div className="grill-round" ref={round}>
               <RoundView
                 view={view}
                 onPick={setPicked}
@@ -713,7 +738,7 @@ function OpenGrill(props: {
           )}
         </div>
         {footShown && (
-          <div class="grill-foot">
+          <div className="grill-foot">
             <textarea
               ref={noteField}
               aria-label="Anything else for Claude"
@@ -721,13 +746,13 @@ function OpenGrill(props: {
               value={own.note}
               onInput={(event) => note(event.currentTarget.value)}
             />
-            <p class="note">
+            <p className="note">
               {open.length > 0
                 ? "Your answers and your note leave with Send, in the bar."
                 : "No question is open. A note leaves with Send, in the bar."}
             </p>
             {open.length > 0 && (
-              <div class="row">
+              <div className="row">
                 <Button
                   disabled={loaded === null || waiting.length === 0}
                   title={waiting.length === 0 ? "Every question has an answer" : undefined}
@@ -745,10 +770,14 @@ function OpenGrill(props: {
 }
 
 /** Beside the document pane while a grill is open: its rounds, its fields and its foot. */
-function GrillPanel(): preact.JSX.Element | null {
-  const state = drawn.value;
+function GrillPanel(): JSX.Element | null {
+  const state = useDrawn();
 
   return state?.kind === "open" ? <OpenGrill key={state.file} state={state} /> : null;
+}
+
+function usePanelShown(): boolean {
+  return useDrawn()?.kind === "open";
 }
 
 export const page: PageHalf<GrillPlugs> = {
@@ -761,6 +790,6 @@ export const page: PageHalf<GrillPlugs> = {
     },
   ],
   notices: [GrillNotice],
-  send: share,
-  panel: { shown: () => drawn.value?.kind === "open", component: GrillPanel },
+  useSend,
+  panel: { useShown: usePanelShown, component: GrillPanel },
 };
