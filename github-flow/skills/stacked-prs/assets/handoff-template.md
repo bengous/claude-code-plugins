@@ -42,4 +42,6 @@ is a choice and not an omission.>
    worktree: the orchestrator appends the branch to the top of the stack
    with `gh stack link <n> <branch>` from the main checkout.
 2. <measurements and proofs expected, as a comment on issue #N>
-3. Tick the line in the handoffs README **and** in the local epic.
+3. Tick the line in the local epic, and report your state in the final
+   message: the handoffs README belongs to the orchestrator, which writes
+   that line.

@@ -45,7 +45,7 @@ trunk
 1. One PR per layer, base = the layer below. The CLI sets it; never fix a base by hand with `gh pr edit`.
 2. Branch from the top, never from the trunk nor from the stack base. Two layers cut side by side from the same base conflict on additive files (lockfile, changelog, docs index).
 3. One checkout = one session. `add` changes the current branch; `sync` and `rebase` rewrite the SHAs of the whole stack; `sync --prune` moves the checkout when the current branch is merged. Two sessions on one checkout step on each other; parallel sessions take a worktree.
-4. After every rebase (`sync`, `rebase`, `modify`): green verification gate, then a check of the produced content, not only of the absence of conflicts. Seen in practice: a `rebase --onto` that passed without conflict left a wrong config file, red gate on 60 files, no warning.
+4. After every rebase (`sync`, `rebase`, `modify`): green verification gate, then a check of the produced content, not only of the absence of conflicts: a rebase that reports no conflict can still leave a wrong file behind, and nothing warns about it.
 5. No code of the stack reaches the trunk before the landing. Otherwise the PR turns empty ("No commits between X and Y"): a PR shows the gap between its base and its head, and the code is on both sides.
 6. `Closes #N` fires only on merge into the default branch. After `merge`, check that the issues closed; otherwise close them by hand.
 
@@ -83,7 +83,7 @@ A handoff is one agent session dedicated to one layer, holding only what that se
 
 The script creates the branch and the worktree from the given base, symlinks the orchestration files (what the session writes there comes back to the main checkout), installs the dependencies from the lockfile, and refuses to run without `--base`, from a worktree, without a handoff, or on a branch already taken. Options: `--dir`, `--path`, `--handoff`, `--link` (repeatable), `--install`. The skill does not pre-approve the call: `--install` runs its value through the shell, so the permission rules of the session decide whether it prompts.
 
-Pass `--install ''` only when the verification gate needs no dependencies. A worktree never shares the main checkout's `node_modules`, and the failure is misleading: measured on this repo, `bun run check` in a dependency-less worktree died on `GET https://registry.npmjs.org/tsgo - 404`, not on a missing dependency.
+Pass `--install ''` only when the verification gate needs no dependencies. A worktree never shares the main checkout's `node_modules`, and the failure is misleading: a gate run in a dependency-less worktree can die on a registry error, such as a 404 for a tool it tries to fetch, rather than on a missing dependency.
 
 It prints one JSON object. On `ok: true`, report `worktree`, `linked`, `links_missing` when not empty, then print `launch` and `cleanup` verbatim. On `ok: false`, report `error` and `detail` and stop:
 
