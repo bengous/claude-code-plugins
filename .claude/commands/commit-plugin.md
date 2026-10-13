@@ -75,31 +75,14 @@ jq --arg v "<new-version>" '.version = $v' <plugin-name>/.claude-plugin/plugin.j
 
 ### 6. Stage and Commit
 
+Commit the plugin's changes first, under their own type (`feat(<plugin-name>): ...`, `fix(<plugin-name>): ...`), if they are not committed yet. The bump is a commit of its own:
+
 ```bash
-git add <plugin-name>/
-git status
+git add <plugin-name>/.claude-plugin/plugin.json
+git commit -m "chore(<plugin-name>): <new-version>, <one-line summary of the release>"
 ```
 
-Create commit with format:
-```
-<type>(<plugin-name>): <description>
-
-<body if needed>
-```
-
-Where `<type>` is:
-- `feat` for MINOR bumps (new features)
-- `fix` for PATCH bumps (fixes)
-- `breaking` or `feat!` for MAJOR bumps
-
-Example:
-```bash
-git commit -m "feat(git-tools): add interactive rebase command
-
-- New /rebase command with visual plan
-- Support for commit squashing and reordering
-- Bumps version to 1.12.0"
-```
+When `<plugin-name>/CHANGELOG.md` exists, add a `## <new-version> - <YYYY-MM-DD>` section to it, written for the plugin's users from the commits since the last section, and stage it with `plugin.json` so both land in that one commit: `validate-marketplace` refuses a version its changelog has no section for, and names the `git log` range to read.
 
 ### 7. Report Result
 
