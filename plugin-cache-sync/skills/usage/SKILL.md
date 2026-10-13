@@ -1,6 +1,6 @@
 ---
 name: plugin-cache-sync-usage
-description: Show plugin-cache-sync status and explain sync workflow
+description: Show plugin-cache-sync status and explain the sync workflow. Use when the user asks which installed plugins are stale against their local source, how to make a local plugin edit live in ordinary sessions, or how plugin-cache-sync works.
 allowed-tools:
   - Bash(${CLAUDE_PLUGIN_ROOT}/scripts/plugin-cache-sync *)
   - Bash(echo *)
