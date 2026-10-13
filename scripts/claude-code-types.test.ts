@@ -133,8 +133,8 @@ function runScript(action = "run", cwd = project) {
 }
 
 /** The script run beside the test, for a test that does something while it works. */
-async function runScriptAsync() {
-  const proc = Bun.spawn([process.execPath, SCRIPT, "run"], {
+async function runScriptAsync(action = "run") {
+  const proc = Bun.spawn([process.execPath, SCRIPT, action], {
     cwd: project,
     env,
     stdout: "pipe",
@@ -243,6 +243,33 @@ describe("regenerate", () => {
       "// Written by Claude Code 2.1.292.",
     );
   });
+
+  test("names the signal that killed the session", async () => {
+    write(stub("types-killed"), "");
+
+    const { code, stderr } = await runScriptAsync("regenerate");
+
+    expect(code).toBe(1);
+    expect(stderr.split("\n", 1)[0]).toBe(
+      "claude-code-types: claude --plugin-dir was killed by SIGKILL without writing the mod's types: stub: about to be killed",
+    );
+  });
+
+  test(
+    "kills a session that outlives SIGTERM once the types are written",
+    async () => {
+      write(stub("types-deaf"), "");
+
+      const { code } = await runScriptAsync("regenerate");
+
+      expect(code).toBe(0);
+      expect(readFileSync(join(project, TYPES_PATH), "utf8")).toBe(
+        "// Written by Claude Code 2.1.294.\n",
+      );
+      expect(() => process.kill(Number(recorded("types-pids").trim()), 0)).toThrow();
+    },
+    { timeout: 10_000 },
+  );
 });
 
 const OPEN_PR = JSON.stringify([
@@ -599,6 +626,26 @@ describe("run", () => {
     expect(readFileSync(state("settled"), "utf8")).toBe("2.1.294");
     expect(recorded("notify-calls")).toBe("");
     expect(() => process.kill(Number(recorded("agent-pids").trim()), 0)).toThrow();
+  });
+
+  test("stops with the session a dialog holds at regenerate on SIGTERM", async () => {
+    write(stub("types-held"), "");
+    const run = runScriptAsync();
+
+    for (let tries = 0; tries < 150 && recorded("types-pids") === ""; tries++) await Bun.sleep(20);
+    const holder = runState(statePaths(join(project, ".git")));
+
+    if (holder.kind !== "running" || holder.holder === null)
+      throw new Error("no run holds the lock");
+    const asked = Date.now();
+    process.kill(holder.holder.pid, "SIGTERM");
+    await run;
+
+    // The held session never writes the types: a run that waited for them would take a minute.
+    expect(Date.now() - asked).toBeLessThan(3000);
+
+    expect(outcome()).toMatchObject({ kind: "stopped", step: "regenerate", signal: "SIGTERM" });
+    expect(() => process.kill(Number(recorded("types-pids").trim()), 0)).toThrow();
   });
 
   test("names the ref whose header is not the generated one", () => {

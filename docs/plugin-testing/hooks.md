@@ -54,11 +54,11 @@ under the [loader rules](hook-runtime.md#module-loader).
   `claude-code-tools` follows the account's features and environment
   variables such as `CLAUDE_CODE_FORK_SUBAGENT`, so
   `bun ./scripts/claude-code-types.ts regenerate` starts that session in a
-  pseudo-terminal with only `PATH` and `HOME` and a `CLAUDE_CONFIG_DIR` that
-  holds no login, only the onboarding marked done and the session's folder
-  trusted, stops it once the files are written, and copies `claude-code` and
-  `claude-code-tools` back; `claude-code-mcp` describes the developer's own
-  servers.
+  pseudo-terminal with only `PATH`, `HOME` and `DISABLE_AUTOUPDATER`, and a
+  `CLAUDE_CONFIG_DIR` that holds no login, only the onboarding marked done
+  and the session's folder trusted, stops it once the files are written,
+  and copies `claude-code` and `claude-code-tools` back; `claude-code-mcp`
+  describes the developer's own servers.
 
 - vellum's copy, `vellum/types/`, follows the installed build through a pull
   request, never in a developer's checkout. At session start

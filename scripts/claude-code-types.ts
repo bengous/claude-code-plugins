@@ -19,10 +19,11 @@
  * where the hook reads them at session start: the run alone decides whether
  * a version needs work, after its fetch.
  *
- * Claude Code writes a mod's types into its `.claude-plugin/types/` as it
- * loads it with `--plugin-dir`. `regenerate` loads an empty mod from a temp
- * directory and copies back the core and the tools; the MCP file describes a
- * session's own servers.
+ * An interactive Claude Code session writes a mod's types into its
+ * `.claude-plugin/types/` as it loads it with `--plugin-dir`; a `-p` run does
+ * not. `regenerate` loads an empty mod from a temp directory in such a session
+ * and copies back the core and the tools; the MCP file describes a session's
+ * own servers.
  */
 
 import {
@@ -88,6 +89,8 @@ const TYPES_WAIT_MS = 60_000;
 const TYPES_POLL_MS = 100;
 
 const SCREEN_LINES = 20;
+
+const STOP_GRACE_MS = 2_000;
 
 const INSTALLS = [
   ["bun", "install", "--frozen-lockfile"],
@@ -382,7 +385,37 @@ function takeRunLock(state: StatePaths, version: string): number | null {
   return fd;
 }
 
-export async function regenerate(root: string): Promise<void> {
+/** How the session ended on its own, or null while it runs. */
+function sessionEnd(session: Subprocess): string | null {
+  if (session.exitCode !== null) return `exited ${session.exitCode}`;
+
+  if (session.signalCode !== null) return `was killed by ${session.signalCode}`;
+
+  return null;
+}
+
+/** Stops the session, with SIGKILL when it outlives SIGTERM by the grace. */
+async function stopSession(session: Subprocess): Promise<void> {
+  session.kill("SIGTERM");
+
+  const ended = await Promise.race([
+    session.exited.then(() => true),
+    Bun.sleep(STOP_GRACE_MS).then(() => false),
+  ]);
+
+  if (!ended) {
+    session.kill("SIGKILL");
+    await session.exited;
+  }
+
+  session.terminal?.close();
+}
+
+/**
+ * Rewrites the two files from the installed build; the session it starts is
+ * `progress.child` while it runs, so a run's stop reaches it.
+ */
+export async function regenerate(root: string, progress: Pick<Progress, "child">): Promise<void> {
   const scratch = await realpath(await mkdtemp(join(tmpdir(), "plugin-types-")));
   const mod = join(scratch, "mod");
   const config = join(scratch, "config");
@@ -406,8 +439,9 @@ export async function regenerate(root: string): Promise<void> {
     // config only marks the onboarding done and the scratch directory
     // trusted, so the session reaches its prompt without a login. The tool
     // types follow the environment and the account: that config and only PATH
-    // and HOME make them the build's own. The scratch directory holds no
-    // settings, so the session's own SessionStart reaches no hook.
+    // and HOME make them the build's own. HOME reaches the installed build, so
+    // the session's updater is off. The scratch directory holds no settings,
+    // so the session's own SessionStart reaches no hook.
     await mkdir(config);
 
     await writeFile(
@@ -421,6 +455,7 @@ export async function regenerate(root: string): Promise<void> {
     const env = Object.fromEntries([
       ...Object.entries(process.env).filter(([name]) => INHERITED_VARIABLES.includes(name)),
       ["CLAUDE_CONFIG_DIR", config],
+      ["DISABLE_AUTOUPDATER", "1"],
     ]);
 
     const decoder = new TextDecoder();
@@ -439,14 +474,19 @@ export async function regenerate(root: string): Promise<void> {
 
     const deadline = Date.now() + TYPES_WAIT_MS;
 
-    while (session.exitCode === null && Date.now() < deadline && !(await bothWritten()))
-      await Bun.sleep(TYPES_POLL_MS);
+    let end: string;
 
-    const exitedAlone = session.exitCode;
+    progress.child = session;
 
-    session.kill();
-    await session.exited;
-    session.terminal?.close();
+    try {
+      while (sessionEnd(session) === null && Date.now() < deadline && !(await bothWritten()))
+        await Bun.sleep(TYPES_POLL_MS);
+
+      end = sessionEnd(session) ?? `ran ${TYPES_WAIT_MS / 1000} s`;
+      await stopSession(session);
+    } finally {
+      progress.child = null;
+    }
 
     if (!(await bothWritten())) {
       const output = Bun.stripANSI(screen)
@@ -455,8 +495,6 @@ export async function regenerate(root: string): Promise<void> {
         .filter((line) => line !== "")
         .slice(-SCREEN_LINES)
         .join(" | ");
-
-      const end = exitedAlone === null ? `ran ${TYPES_WAIT_MS / 1000} s` : `exited ${exitedAlone}`;
 
       throw new Error(`claude --plugin-dir ${end} without writing the mod's types: ${output}`);
     }
@@ -821,7 +859,7 @@ async function pipeline(run: Run): Promise<Outcome> {
   await install(worktree, run);
 
   enter("regenerate");
-  await regenerate(worktree);
+  await regenerate(worktree, progress);
   const written = fileHeader(worktree);
 
   if (written !== installed) {
@@ -989,7 +1027,7 @@ if (import.meta.main) {
   } else {
     try {
       if (action === "run") await runPipeline(process.cwd());
-      else await regenerate(git(process.cwd(), "rev-parse", "--show-toplevel"));
+      else await regenerate(git(process.cwd(), "rev-parse", "--show-toplevel"), { child: null });
     } catch (error) {
       console.error(`claude-code-types: ${error instanceof Error ? error.message : String(error)}`);
       process.exitCode = 1;
