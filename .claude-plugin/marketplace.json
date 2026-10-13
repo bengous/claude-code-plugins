@@ -216,7 +216,7 @@
     {
       "name": "software-craft",
       "description": "Opinionated design skills for software excellence: CLI design, system architecture, and more. Skills that push Claude toward intentional, high-quality output instead of generic patterns.",
-      "version": "3.0.1",
+      "version": "3.0.2",
       "author": {
         "name": "Augustin BENGOLEA",
         "email": "bengous@protonmail.com"
