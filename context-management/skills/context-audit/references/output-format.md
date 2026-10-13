@@ -105,7 +105,7 @@ Every proposal with complete detail, grouped by action type. Show confidence lev
 **Recommended additions:** [what is missing, each naming its Phase 3 artefact]
 
 ### Cross-file Findings
-[dead @-import targets, missing AGENTS.md bridge, legacy `.claude.local.md` files,
+[dead @-import targets, AGENTS.md shadowed by a CLAUDE.md, legacy `.claude.local.md` files,
 empty `.claude/rules/`, content duplicated across memory files]
 
 ### Deferred Additions

@@ -53,7 +53,7 @@ The specific version tells Claude something it can't infer. The generic version 
 | Pattern | Why redundant | Keep if... |
 |---------|---------------|------------|
 | "Be concise" | The active output style sets response length | The file sets a length or register the output style does not |
-| "Explain your reasoning" | Verbosity is controlled by harness settings | Never: not controllable from context files |
+| "Explain your reasoning" / "show your thinking" | Reasoning happens in thinking blocks; a standing rule to reproduce it in replies lengthens every answer, and current models may decline it as reasoning extraction | It asks for a short explanation of a decision or a summary of the actions taken |
 | "Ask clarifying questions when uncertain" | Default behavior | Never |
 | "Don't make assumptions" | Default behavior | You have a specific assumption-prone area |
 | "Review code before committing" | System prompt covers this | Never |

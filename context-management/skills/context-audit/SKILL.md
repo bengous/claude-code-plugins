@@ -18,7 +18,7 @@ allowed-tools:
 # Context Audit
 
 <context>
-Context files (CLAUDE.md, AGENTS.md, .claude/rules/) are always-on prompt context. Research baseline: frontier models follow ~150-200 instructions with reasonable consistency; Claude Code's system prompt consumes ~50 slots, leaving ~100-150 for user content. Adherence degrades linearly with instruction count (affecting ALL instructions uniformly), and files that impose unnecessary requirements can reduce task success versus no context file at all. The most effective files are under 100 lines with high directive density.
+Context files (CLAUDE.md, AGENTS.md, .claude/rules/) are always-on prompt context, paid on every session. Claude Code's memory documentation targets under 200 lines per CLAUDE.md because longer files consume more context and reduce adherence, and files that impose unnecessary requirements can reduce task success versus no context file at all. What costs most is not length itself but lines that no longer fit: stale facts, rules that contradict each other, requirements the task does not need, restatements of what the model does unprompted. The directive counts and bands below are heuristics for spotting that pressure, not a measured capacity. The most effective files are short, with high directive density.
 
 Output is concrete fix proposals: exact changes with rationale, budget impact, and confidence. Deterministic checks (file existence, import traversal, symlinks) are labeled separately from heuristic judgment (directive counting, generic-advice detection). The audit prunes and grows in one pass: it removes what costs more than it earns, then proposes additions financed by what the pruning freed.
 </context>
@@ -28,7 +28,7 @@ Output is concrete fix proposals: exact changes with rationale, budget impact, a
 - Label every finding deterministic vs heuristic; use `~N` for heuristic counts, not false precision
 - Never emit a letter grade or an aggregate quality score. A directive count is a measurement and is reported; a grade is a judgment dressed as a number and varies run to run. The health-check table and the budget band carry the summary
 - A file with no findings produces a report with no proposals, and that is a complete result. Never promote a near-threshold observation to a proposal to make a thin report look thorough. The user applies what is proposed, so padding costs them real content
-- CLAUDE.md and AGENTS.md get identical methodology and budget bands, but AGENTS.md enters the always-on budget only when bridged (Phase 1 verifies `@AGENTS.md` or a symlink). Claude Code loads CLAUDE.md, not AGENTS.md
+- CLAUDE.md and AGENTS.md get identical methodology and budget bands, but AGENTS.md enters the always-on budget only when Claude Code reads it (Phase 1 step 5 decides)
 - Use Bash only for read-only verification (confirming a documented command exists in `package.json` or a Makefile); never run build, test, or migration commands on the user's repo
 - Global files (`~/.claude/`) are discovered and counted, never proposed against: a project audit reports the user-scope figure and stops there. Editing cross-project instructions from inside one repo is out of scope
 - Never flag Claude Code native references as stale: slash commands, skill invocations, `${CLAUDE_PLUGIN_ROOT}` paths, `Agent` calls (full list in `references/anti-patterns.md`). Exception: `@file` import syntax is native, but missing import targets are still findings (Phase 1 verifies them)
@@ -39,8 +39,8 @@ Output is concrete fix proposals: exact changes with rationale, budget impact, a
 
 ## Phase 1: Discovery & Load Order (deterministic)
 
-0. `$ARGUMENTS` holds a file path when the user supplied one. In that case audit that file alone: skip the glob in step 1, but still run steps 4 and 5 on it (imports and the AGENTS.md bridge decide what else enters its budget). With no argument, discover everything from step 1, present the list, and ask which files to audit (default: all root-level files).
-1. Glob for `**/CLAUDE.md`, `**/CLAUDE.local.md`, `.claude/CLAUDE.md`, `.claude/rules/**/*.md`, `**/AGENTS.md`, plus `**/.claude.local.md` (legacy check: that leading-dot name is never loaded), and add `~/.claude/CLAUDE.md` and `~/.claude/rules/`. Glob has no exclude parameter: post-filter the results, dropping `node_modules/` and other vendored paths.
+0. `$ARGUMENTS` holds a file path when the user supplied one. In that case audit that file alone: skip the search in step 1, but still run steps 4 and 5 on it (imports and AGENTS.md loading decide what else enters its budget). With no argument, discover everything from step 1, present the list, and ask which files to audit (default: all root-level files).
+1. Find `**/CLAUDE.md`, `**/CLAUDE.local.md`, `.claude/CLAUDE.md`, `.claude/rules/**/*.md`, `**/AGENTS.md`, plus `**/.claude.local.md` (legacy check: that leading-dot name is never loaded), and add `~/.claude/CLAUDE.md` and `~/.claude/rules/`. Leave out `node_modules/` and other vendored paths.
 2. Classify each file against the load order, broadest scope first, so a project instruction lands in context after a user one:
 
 | Scope | Location | Loading | Always-on? |
@@ -56,7 +56,7 @@ Output is concrete fix proposals: exact changes with rationale, budget impact, a
 
 3. Symlinks: `readlink -f` on CLAUDE.md/AGENTS.md. One symlinked to the other → best practice, audit the canonical file only. Both independent → flag duplication risk, compare `md5sum`.
 4. Resolve `@path` imports recursively: relative to the importing file, max 4 hops (catches cycles), skipping code spans and fenced blocks. Verify each target with `test -e`. Imported files are always-on and count against the importer's budget.
-5. AGENTS.md bridge: when a repo keeps its memory in AGENTS.md, verify the bridge exists (a CLAUDE.md containing `@AGENTS.md`, or a symlink) and flag it if missing. An unbridged AGENTS.md is never loaded, so it stays out of the budget.
+5. AGENTS.md loading: with the default **Project instructions** setting, Claude Code reads AGENTS.md directly when no `CLAUDE.md`, `.claude/CLAUDE.md` or `CLAUDE.local.md` sits in the working directory or above it. With one of those present, AGENTS.md loads only through an `@AGENTS.md` import or a symlink. Count a loaded AGENTS.md in the budget; flag one that a CLAUDE.md shadows without importing or linking it, since its content reaches no session.
 6. Present a file inventory table: file, scope, always-on?, imported by, lines.
 
 ## Phase 2: Instruction Budget Scoring (heuristic)
@@ -117,7 +117,7 @@ Using the Phase 3 inventory:
 - Monorepo detected AND no subdirectory context files → recommend per-package context files
 - `@file` imports present → show budget breakdown: root vs imported
 - Section coverage, the value ranking that gates ADD (Phase 6): Commands (build/test/lint) HIGH, Testing HIGH, Gotchas/warnings HIGH, Environment HIGH, Architecture MEDIUM, Key Files MEDIUM, Code style LOW when a linter exists
-- CLAUDE.md and AGENTS.md both present but unsymlinked, or multiple CLAUDE.md files with overlapping content → flag redundancy. A repo with no AGENTS.md at all is not a finding
+- CLAUDE.md and AGENTS.md both present, neither importing nor linking the other, or multiple CLAUDE.md files with overlapping content → flag redundancy. A repo with no AGENTS.md at all is not a finding
 
 ## Phase 6: Generate Proposals
 
@@ -139,7 +139,7 @@ Prioritize: 1) budget recovery (REMOVE/MOVE), 2) correctness (FLAG stale refs), 
 **Always output the report before making any changes.** Three tiers (full templates in `references/output-format.md`):
 
 1. **Executive summary**: always-on budget breakdown vs ~100 recommended, health-check table, top-3 quick wins with projected budget
-2. **Full proposals**: every proposal grouped by action type, with confidence and source phase; per-file Issues and Recommended additions; a Cross-file Findings block (dead `@`-import targets, missing AGENTS.md bridge, legacy `.claude.local.md`, empty `.claude/rules/`, content duplicated across memory files); and Deferred additions when rule 1 held any back
+2. **Full proposals**: every proposal grouped by action type, with confidence and source phase; per-file Issues and Recommended additions; a Cross-file Findings block (dead `@`-import targets, an AGENTS.md shadowed by a CLAUDE.md, legacy `.claude.local.md`, empty `.claude/rules/`, content duplicated across memory files); and Deferred additions when rule 1 held any back
 3. **Action plan**: execution order is removes (HIGH confidence first), moves, rewrites, financed adds, manual-review flags, with projected final budget
 
 ## Phase 8: Apply Changes (with approval)

@@ -24,12 +24,13 @@ What context was missing that would have helped Claude work more effectively?
 
 ## Step 2: Find Memory Files
 
-Use Glob: `**/CLAUDE.md`, `.claude/CLAUDE.md`, `.claude/rules/**/*.md`, `CLAUDE.local.md`. Also check discovered files for `@path` imports pointing to other memory files.
+Find the memory files: `**/CLAUDE.md`, `.claude/CLAUDE.md`, `.claude/rules/**/*.md`, `CLAUDE.local.md`, `**/AGENTS.md`. Also check discovered files for `@path` imports pointing to other memory files.
 
 Decide where each addition belongs:
 - `CLAUDE.md` - Team-shared, always-on (checked into git); nested ones scope to their directory
 - `.claude/rules/<topic>.md` - Team-shared thematic rules; an existing rules file covering the topic wins over CLAUDE.md, and prefer a new one over growing an already-long CLAUDE.md
 - Personal/local only - gitignored `CLAUDE.local.md` (loads alongside CLAUDE.md; append to it if present); for prefs shared across worktrees, a home-dir file imported via `@~/...`. Note: `@path` imports are composition, not privacy: a versioned import target is team-visible.
+- An `AGENTS.md` with no `CLAUDE.md`, `.claude/CLAUDE.md` or `CLAUDE.local.md` in the working directory or above it: Claude Code reads that AGENTS.md directly, and creating any of those three files stops it. Add to the AGENTS.md or a rules file; a new CLAUDE.md starts with `@AGENTS.md`.
 
 ## Step 3: Draft Additions
 
