@@ -2,6 +2,10 @@
 
 What each version of vellum changed for the person using it, newest first.
 
+## 0.17.5 - 2026-10-13
+
+Internal changes only: the review page runs on React and Zustand instead of Preact, and looks and behaves the same.
+
 ## 0.17.4 - 2026-10-08
 
 Internal changes only: tests, docs or refactoring.
