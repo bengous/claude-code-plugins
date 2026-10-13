@@ -3,7 +3,7 @@ name: squash
 description: Squash git commits by pattern, hash list, or the last N, without opening an editor. Use when the user asks to squash, fold, or combine commits, or to collapse fixup and WIP commits.
 argument-hint: --pattern <regex> | --hashes <h1,h2,...> | --range <N> [--dry-run]
 allowed-tools:
-  - Bash("${CLAUDE_PLUGIN_ROOT}/scripts/rebase.ts":*)
+  - Bash(${CLAUDE_PLUGIN_ROOT}/scripts/rebase.ts *)
   - Bash(printf:*)
   - Bash(git log:*)
   - Bash(git rev-parse:*)

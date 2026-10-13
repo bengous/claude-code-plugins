@@ -3,7 +3,7 @@ name: rebase
 description: Interactive rebase of the current branch with a visual plan and reworked commit messages, no editor. Use when the user asks to rebase, rewrite, reorder, reword, or clean up commits, or to continue, skip, or abort a paused rebase.
 argument-hint: <branch|N|X..Y> | continue | skip | abort | status
 allowed-tools:
-  - Bash("${CLAUDE_PLUGIN_ROOT}/scripts/rebase.ts":*)
+  - Bash(${CLAUDE_PLUGIN_ROOT}/scripts/rebase.ts *)
   - Bash(printf:*)
   - Bash(git log:*)
   - Bash(git show:*)
@@ -101,8 +101,8 @@ and confirm it before it is used:
 Read the commit: `git show --stat {hash}` (add `git show {hash}` when the
 subject alone does not say what changed).
 
-Reword — propose 2 or 3 subjects, then ask which one with AskUserQuestion,
-  always with a "Write my own" option:
+Reword — propose 2 or 3 subjects, then ask which one with AskUserQuestion
+  (its free-text answer covers a message the user writes):
     - the original, unchanged
     - a conventional-commit form (type(scope): subject) when the repo's
       history uses one — read `git log --format=%s -20` to check
