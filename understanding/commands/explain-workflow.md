@@ -27,7 +27,7 @@ Determine what kind of target was provided:
 
 **Plugin component** (command, skill, agent, hook):
 - Search for matching `.md` files in commands/, skills/, agents/, hooks/ directories across all plugins
-- Use Glob: `**/commands/$ARGUMENTS.md`, `**/commands/$ARGUMENTS/*.md`, `**/skills/$ARGUMENTS/SKILL.md`, `**/agents/$ARGUMENTS.md`
+- Find files by name: `**/commands/$ARGUMENTS.md`, `**/commands/$ARGUMENTS/*.md`, `**/skills/$ARGUMENTS/SKILL.md`, `**/agents/$ARGUMENTS.md`
 - If target contains `:`, split on `:` as `plugin:component`. The plugin part is the `name` in a `.claude-plugin/plugin.json`, which can differ from its directory (e.g., `claude-orchestration:orc` -> `orchestration/commands/orc.md`)
 
 **File path**:
