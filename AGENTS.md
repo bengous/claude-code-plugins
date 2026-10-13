@@ -28,7 +28,7 @@ bun x oxlint                                           # lint (correctness + sus
 bun x oxfmt '**/*.ts' '**/*.tsx' '**/*.js' '**/*.mjs' '**/*.cjs'  # format; add --check to verify only
 bun ./scripts/lint-shell.ts                            # shellcheck + shfmt; takes paths, else the whole repo
 claude plugin validate vellum   # the hooks module: what it hooks and calls
-claude plugin test vellum       # the hooks module's kit tests, vellum/src/runtime/hooks/*.test.ts
+claude plugin test vellum       # the hooks module's kit tests: `*.test.ts` under vellum/src/runtime/hooks, review and steps/<name>
 bun ./scripts/run-gates.ts                             # CI's `validate` gates, with the kits of the hooks modules the change reaches (`--all`: every kit); installs vellum's dependencies first
 bun ./scripts/affected.ts print                        # what the change reaches since its merge-base with origin/dev; `test` runs those suites
 bun run --cwd vellum e2e                               # vellum's browser suite, CI's `e2e` jobs, one per window; Chromium once per machine: `bun run --cwd vellum e2e:install`
@@ -58,7 +58,7 @@ Carried by nobody, so hold them by hand:
 
 - Plugins are self-contained. No import crosses a plugin boundary, or reaches into `scripts/` or `.claude/`. Today every relative import of a plugin stays inside its own top-level directory.
 - Ship sources, never compiled binaries. `bun` is the runtime.
-- Docs name symbols, sections and paths, never line numbers or version numbers: both drift at the next regeneration or release.
+- Docs name symbols, sections and paths, never line numbers or version numbers: both drift at the next regeneration or release. A measurement keeps its conditions, the tool and its version, the date, the run id: they date it and make it reproducible.
 - Keep documentation entry points as task indexes. Put each procedure or reference in its owning page and link to it; do not import the whole tree.
 
 ## Method
