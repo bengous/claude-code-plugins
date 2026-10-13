@@ -75,3 +75,6 @@ docs/superpowers/specs/
 
 # Personal task list, read from disk by the todos plugin
 /TODO.md
+
+# Personal idea notes, beside TODO.md
+/IDEAS.md
