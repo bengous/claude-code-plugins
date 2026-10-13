@@ -12,10 +12,8 @@ declare module 'claude-code' {
       subagent_type?: string
       /** Optional model override for this agent. Takes precedence over the agent definition's model frontmatter and the configured default subagent model. If omitted, uses the agent definition's model, else the default (inherits from the parent unless a default subagent model is configured). Ignored for subagent_type: "fork" — forks always inherit the parent model. */
       model?: "sonnet" | "opus" | "haiku" | "fable"
-      /** Reasoning effort for this agent. Set this ONLY when the user, or instructions such as CLAUDE.md or a skill, explicitly ask that this agent or delegated work run at a specific effort level, never on your own judgment; otherwise omit it and the agent runs at its usual effort. */
+      /** Reasoning effort for this agent. Set this ONLY when the user, or instructions such as CLAUDE.md or a skill, explicitly ask that this agent or delegated work run at a specific effort level, never on your own judgment; otherwise omit it and the agent runs at its usual effort. Ignored for subagent_type: "fork": a fork runs at your own effort. */
       effort?: "low" | "medium" | "high" | "xhigh" | "max"
-      /** Agents run in the background by default; you will be notified when one completes. Set to false only when your very next action depends on this agent's result and nothing else could usefully happen while it runs — otherwise leave it in the background so the user can hand you other work. */
-      run_in_background?: boolean
       /** Name for the spawned agent. Makes it addressable via SendMessage({to: name}) while running. */
       name?: string
       /** Deprecated; ignored. The session has a single implicit team. */
@@ -188,7 +186,7 @@ declare module 'claude-code' {
       timeout?: number
       /** Clear, concise description of what this command does in active voice. Never use words like "complex" or "risk" in the description - just describe what it does. Say what the command does in plain words: do not echo the command's text, its flags, or file paths - the user reads this description, often without seeing the command. For simple commands (git, npm, standard CLI tools), keep it brief (5-10 words): - ls → "List files in current directory" - git status → "Show working tree status" - npm install → "Install package dependencies" For commands that are harder to parse at a glance (piped commands, obscure flags, etc.), add enough context to clarify what it does: - find . -name "*.tmp" -exec rm {} \; → "Find and delete all .tmp files recursively" - git reset --hard origin/main → "Discard all local changes and match remote main" - curl -s url | jq '.data[]' → "Fetch JSON from URL and extract data array elements" */
       description?: string
-      /** Set to true to run this command in the background. With it, `timeout` limits how long the command may run in the background before it is stopped (default 600000 ms, max 7200000 ms). */
+      /** Set to true to run this command in the background. */
       run_in_background?: boolean
       /** Set this to true to dangerously override sandbox mode and run commands without sandboxing. */
       dangerouslyDisableSandbox?: boolean
@@ -383,7 +381,7 @@ declare module 'claude-code' {
     Monitor: {
       /** Short human-readable description of what you are monitoring (shown in notifications). */
       description: string
-      /** Kill the monitor after this deadline. Default 300000ms. Deadlines above 600000ms are capped to 600000ms. You are notified at expiry and can re-arm. */
+      /** Kill the monitor after this deadline. Default 300000ms. Deadlines above 1800000ms are capped to 1800000ms. You are notified at expiry and can re-arm. */
       timeout_ms: number
       /** Shell command or script. Each stdout line is an event; exit ends the watch. */
       command?: string
@@ -529,6 +527,8 @@ declare module 'claude-code' {
       limit?: number
       /** Page range for PDF files (e.g., "1-5", "3", "10-20"). Only applicable to PDF files. Maximum 20 pages per request. */
       pages?: string
+      /** Set to true to read a text file, or a line range of one, that is over the usual size limits, up to what still fits in your context. Only use this when you genuinely need all of it or the user asked for the whole file; otherwise read it in parts with offset and limit, or search it. */
+      allow_large?: boolean
     }
     ReadMcpResourceDirTool: {
       /** The MCP server name */
@@ -5219,6 +5219,8 @@ declare module 'claude-code' {
           title: string
           /** The URL of the search result */
           url: string
+          /** Page text. PostToolUse hooks get it; tool_use_result does not. */
+          snippet?: string
         }>
       } | string>
       /** Time taken to complete the search operation */
