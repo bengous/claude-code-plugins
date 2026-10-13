@@ -49,13 +49,16 @@ under the [loader rules](hook-runtime.md#module-loader).
   `<plugin>/.claude-plugin/types/` each time it loads the plugin with
   `--plugin-dir`, git-ignored (official docs: `plugins/mods/create` § Get
   type definitions for your version). A `claude -p --plugin-dir` run given no
-  prompt writes it too, then stops on the missing prompt before any model
-  call. `claude-code-tools` follows the account's features and environment
+  prompt loads the plugin but stops on the missing prompt before it writes
+  them; an interactive session writes them, then waits at its prompt.
+  `claude-code-tools` follows the account's features and environment
   variables such as `CLAUDE_CODE_FORK_SUBAGENT`, so
-  `bun ./scripts/claude-code-types.ts regenerate` runs it with an empty
-  `CLAUDE_CONFIG_DIR` and only `PATH` and `HOME`, and copies `claude-code`
-  and `claude-code-tools` back; `claude-code-mcp` describes the developer's
-  own servers.
+  `bun ./scripts/claude-code-types.ts regenerate` starts that session in a
+  pseudo-terminal with only `PATH` and `HOME` and a `CLAUDE_CONFIG_DIR` that
+  holds no login, only the onboarding marked done and the session's folder
+  trusted, stops it once the files are written, and copies `claude-code` and
+  `claude-code-tools` back; `claude-code-mcp` describes the developer's own
+  servers.
 
 - vellum's copy, `vellum/types/`, follows the installed build through a pull
   request, never in a developer's checkout. At session start

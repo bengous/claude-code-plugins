@@ -36,11 +36,11 @@ import {
   writeFileSync,
   writeSync,
 } from "node:fs";
-import { copyFile, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { copyFile, mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { $, type Subprocess } from "bun";
+import type { Subprocess } from "bun";
 
 import { isE2ePath } from "./check-e2e-green.ts";
 import { tryLock, unlock } from "./lib/flock.ts";
@@ -82,6 +82,12 @@ const EMPTY_MOD = {
 } as const;
 
 const INHERITED_VARIABLES = ["PATH", "HOME"];
+
+const TYPES_WAIT_MS = 60_000;
+
+const TYPES_POLL_MS = 100;
+
+const SCREEN_LINES = 20;
 
 const INSTALLS = [
   ["bun", "install", "--frozen-lockfile"],
@@ -377,12 +383,15 @@ function takeRunLock(state: StatePaths, version: string): number | null {
 }
 
 export async function regenerate(root: string): Promise<void> {
-  const scratch = await mkdtemp(join(tmpdir(), "plugin-types-"));
+  const scratch = await realpath(await mkdtemp(join(tmpdir(), "plugin-types-")));
   const mod = join(scratch, "mod");
   const config = join(scratch, "config");
   const written = join(mod, ".claude-plugin", "types");
   const core = join(written, "claude-code", "index.d.ts");
   const tools = join(written, "claude-code-tools", "index.d.ts");
+
+  const bothWritten = async () =>
+    (await Bun.file(core).exists()) && (await Bun.file(tools).exists());
 
   try {
     for (const [path, content] of Object.entries(EMPTY_MOD)) {
@@ -390,35 +399,66 @@ export async function regenerate(root: string): Promise<void> {
       await writeFile(join(mod, path), content);
     }
 
+    // A `-p` run given no prompt loads the mod but stops before it writes the
+    // types, so they come from an interactive session in a terminal of its
+    // own, stopped once both files are there: the engine renames each into
+    // place whole, and a session given no prompt never reaches a model. Its
+    // config only marks the onboarding done and the scratch directory
+    // trusted, so the session reaches its prompt without a login. The tool
+    // types follow the environment and the account: that config and only PATH
+    // and HOME make them the build's own. The scratch directory holds no
+    // settings, so the session's own SessionStart reaches no hook.
     await mkdir(config);
 
-    // Claude Code writes the types before it asks for a prompt, so a run
-    // given none stops there and never reaches a model, whatever the login.
-    // The tool types follow the environment and the account: an empty config
-    // and only PATH and HOME make them the build's own. The scratch directory
-    // holds no settings, so the run's own SessionStart reaches no hook.
+    await writeFile(
+      join(config, ".claude.json"),
+      JSON.stringify({
+        hasCompletedOnboarding: true,
+        projects: { [scratch]: { hasTrustDialogAccepted: true } },
+      }),
+    );
+
     const env = Object.fromEntries([
       ...Object.entries(process.env).filter(([name]) => INHERITED_VARIABLES.includes(name)),
       ["CLAUDE_CONFIG_DIR", config],
     ]);
 
-    const run =
-      await $`claude -p --setting-sources project --no-session-persistence --plugin-dir ${mod} < /dev/null`
-        .cwd(scratch)
-        .env(env)
-        .nothrow()
-        .quiet();
+    const decoder = new TextDecoder();
 
-    if (!(await Bun.file(core).exists()) || !(await Bun.file(tools).exists())) {
-      const output = `${run.stderr.toString()}\n${run.stdout.toString()}`
-        .split(/\r?\n/u)
+    let screen = "";
+
+    const session = Bun.spawn(["claude", "--setting-sources", "project", "--plugin-dir", mod], {
+      cwd: scratch,
+      env,
+      terminal: {
+        data: (_terminal, data) => {
+          screen += decoder.decode(data, { stream: true });
+        },
+      },
+    });
+
+    const deadline = Date.now() + TYPES_WAIT_MS;
+
+    while (session.exitCode === null && Date.now() < deadline && !(await bothWritten()))
+      await Bun.sleep(TYPES_POLL_MS);
+
+    const exitedAlone = session.exitCode;
+
+    session.kill();
+    await session.exited;
+    session.terminal?.close();
+
+    if (!(await bothWritten())) {
+      const output = Bun.stripANSI(screen)
+        .split(/\r\n|\r|\n/u)
         .map((line) => line.trim())
         .filter((line) => line !== "")
+        .slice(-SCREEN_LINES)
         .join(" | ");
 
-      throw new Error(
-        `claude -p --plugin-dir exited ${run.exitCode} without writing the mod's types: ${output}`,
-      );
+      const end = exitedAlone === null ? `ran ${TYPES_WAIT_MS / 1000} s` : `exited ${exitedAlone}`;
+
+      throw new Error(`claude --plugin-dir ${end} without writing the mod's types: ${output}`);
     }
 
     await copyFile(core, join(root, TYPES_PATH));

@@ -3,13 +3,15 @@ import { dirname, join } from "node:path";
 
 import { RUN_GUARD } from "./claude-code-types.ts";
 
-// Stands in for `claude` as measured on 2.1.287: a run that loads a mod with
-// --plugin-dir writes the mod's types into its .claude-plugin/types/, then,
-// given no prompt, stops on it. The tool types follow the environment and the
+// Stands in for `claude` as measured on 2.1.296: an interactive session that
+// loads a mod with --plugin-dir writes the mod's types into its
+// .claude-plugin/types/, then waits at its prompt, once its config marks the
+// onboarding done and its folder trusted; before that, a dialog holds it,
+// which the stub ends at once. The tool types follow the environment and the
 // account, so the stub writes other tools for a login variable or a config
-// that is not empty. A run given --permission-mode is the agent: it records
-// its prompt and writes the body where the prompt says; each control file
-// under stub/ adds or changes one move.
+// holding more than that state. A run given --permission-mode is the agent: it
+// records its prompt and writes the body where the prompt says; each control
+// file under stub/ adds or changes one move.
 const CLAUDE_STUB = `#!/usr/bin/env bash
 set -euo pipefail
 stub="$(dirname "$0")/../stub"
@@ -22,9 +24,15 @@ fi
 if [[ " $* " == *" --plugin-dir "* ]]; then
   echo "$*" >>"$stub/types-runs"
   echo "$PWD" >>"$stub/types-cwds"
+  if [[ -t 0 ]]; then echo terminal; else echo pipe; fi >>"$stub/types-stdins"
   if [[ -f $stub/types-silent ]]; then
     echo "stub: mods off" >&2
     echo "stub: wrote nothing"
+    exit 1
+  fi
+  config_state="$(cat "\${CLAUDE_CONFIG_DIR:-}/.claude.json" 2>/dev/null || true)"
+  if [[ $config_state != *'"hasCompletedOnboarding":true'* || $config_state != *"\\"$PWD\\":{\\"hasTrustDialogAccepted\\":true}"* ]]; then
+    echo "stub: a dialog holds the session"
     exit 1
   fi
   mod=""
@@ -35,16 +43,15 @@ if [[ " $* " == *" --plugin-dir "* ]]; then
     esac
   done
   tools="// tools $version"
-  if [[ -n \${ANTHROPIC_API_KEY:-}\${CLAUDE_CODE_OAUTH_TOKEN:-} || -z \${CLAUDE_CONFIG_DIR:-} || -n "$(ls -A "$CLAUDE_CONFIG_DIR")" ]]; then
+  if [[ -n \${ANTHROPIC_API_KEY:-}\${CLAUDE_CODE_OAUTH_TOKEN:-} || "$(ls -A "$CLAUDE_CONFIG_DIR")" != .claude.json ]]; then
     tools="// tools of this account and environment"
   fi
   types="$mod/.claude-plugin/types"
-  mkdir -p "$types/claude-code" "$types/claude-code-tools" "$types/claude-code-mcp"
-  echo "// Written by Claude Code $version." >"$types/claude-code/index.d.ts"
-  echo "$tools" >"$types/claude-code-tools/index.d.ts"
-  echo "// mcp" >"$types/claude-code-mcp/index.d.ts"
-  echo "Error: Input must be provided either through stdin or as a prompt argument when using --print" >&2
-  exit 1
+  place() { mkdir -p "$types/$1"; echo "$2" >"$types/$1/index.d.ts.tmp"; mv "$types/$1/index.d.ts.tmp" "$types/$1/index.d.ts"; }
+  place claude-code "// Written by Claude Code $version."
+  place claude-code-tools "$tools"
+  place claude-code-mcp "// mcp"
+  exec sleep 600
 fi
 printf '%s' "\${!#}" >"$stub/agent-prompt"
 echo "$PWD \${${RUN_GUARD}:-unset} \${*:1:$#-1}" >>"$stub/agent-runs"

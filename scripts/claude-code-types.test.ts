@@ -225,9 +225,8 @@ describe("regenerate", () => {
       "// Written by Claude Code 2.1.294.\n",
     );
     expect(readFileSync(join(project, TOOLS_TYPES_PATH), "utf8")).toBe("// tools 2.1.294\n");
-    expect(recorded("types-runs")).toMatch(
-      /^-p --setting-sources project --no-session-persistence --plugin-dir \S+\/mod\n$/u,
-    );
+    expect(recorded("types-runs")).toMatch(/^--setting-sources project --plugin-dir \S+\/mod\n$/u);
+    expect(recorded("types-stdins")).toBe("terminal\n");
     expect(recorded("types-cwds")).not.toContain(project);
   });
 
@@ -238,7 +237,7 @@ describe("regenerate", () => {
 
     expect(code).toBe(1);
     expect(stderr.split("\n", 1)[0]).toBe(
-      "claude-code-types: claude -p --plugin-dir exited 1 without writing the mod's types: stub: mods off | stub: wrote nothing",
+      "claude-code-types: claude --plugin-dir exited 1 without writing the mod's types: stub: mods off | stub: wrote nothing",
     );
     expect(readFileSync(join(project, TYPES_PATH), "utf8")).toStartWith(
       "// Written by Claude Code 2.1.292.",
