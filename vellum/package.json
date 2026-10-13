@@ -10,7 +10,7 @@
   },
   "dependencies": {
     "diff": "9.0.0",
-    "mermaid": "12.1.0",
+    "mermaid": "12.2.0",
     "react": "19.3.0",
     "react-dom": "19.3.0",
     "rehype-highlight": "7.0.2",
