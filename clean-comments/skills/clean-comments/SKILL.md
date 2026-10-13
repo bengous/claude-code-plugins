@@ -39,7 +39,7 @@ carry a why or a constraint — those are an asset, not debt.
 
 <constraints>
 - Never remove a why comment or a constraint comment. When uncertain, keep.
-- Audit mode NEVER edits a file. Apply mode only runs on approved items.
+- Audit mode never edits a file. Apply mode only runs on approved items.
 - Never confirm a comment stale without evidence. Report the claim and the
   counter-proof that settles it.
 - Never clean a file slated for rewrite. Signal it; the cleanup would be thrown away.
@@ -55,11 +55,11 @@ carry a why or a constraint — those are an asset, not debt.
   and error rates climb.
 - Hunter count = ceil(total volume / 200k). Most repos need 1 to 3 hunters.
 - At most 4 hunters run concurrently.
-- If the estimate exceeds 4 hunters (~1M tokens in scope): STOP. Show the file count,
+- If the estimate exceeds 4 hunters (~1M tokens in scope): stop. Show the file count,
   the estimated volume, the comment-line total (probe `--count`), and the hunter
   count. Launch nothing before the user explicitly confirms. After confirmation, run
   waves of 4, total announced up front.
-- A hunter NEVER spawns a subagent, and never invokes `claude` through Bash. No
+- A hunter never spawns a subagent, and never invokes `claude` through Bash. No
   exception, including "just to verify".
 - These values are defaults: the user can override them in the prompt, or a repo can
   override the hunter (see Extension points).
