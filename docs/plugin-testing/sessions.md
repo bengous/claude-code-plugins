@@ -18,7 +18,7 @@ plugin's `bun install`. The owner's shell calls it `tp`.
   `dev` it runs. `Esc` on either leaves at `130`, having launched and created nothing.
 - `try-plugin.ts <plugin>` skips the first screen.
 - `try-plugin.ts <plugin>... [-- <claude args>]` skips both screens and reads the
-  checkout it is run from, as the bash launcher did.
+  checkout it is run from.
 - `try-plugin.ts --list` prints one plugin name per line, for shell completion.
 
 A source is a worktree on disk, or a ref carrying commits on that plugin `dev` does not

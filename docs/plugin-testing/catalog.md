@@ -53,15 +53,14 @@ A script crash reaches `claude-plugin-catalog-failure@.service`. Once a fix
 lands, recover with `git -C <catalog> checkout --detach origin/dev`, then
 `systemctl --user start claude-plugin-catalog`.
 
-## Activate after the script lands
+## Activate
 
 The units, activation template and Claude settings live in the dotfiles repo.
-Do not deploy them before the script lands on `dev`: the service executes the
-catalog's copy of the script. The live sequence is:
+The service executes the catalog's copy of the script. The live sequence is:
 
-1. Run `bun scripts/plugin-catalog.ts setup` from this repository after the
-   script lands, then apply only the three units and their activation script
-   from the dotfiles. The script reloads systemd and enables the path unit.
+1. Run `bun scripts/plugin-catalog.ts setup` from this repository, then apply
+   only the three units and their activation script from the dotfiles. The
+   script reloads systemd and enables the path unit.
 2. Verify the path unit is enabled and active, and a fetch advances the
    catalog. Test another reflog write during a pass and the failure unit.
 3. Redirect in place with `claude plugin marketplace add

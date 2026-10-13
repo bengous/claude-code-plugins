@@ -65,11 +65,10 @@
   leads nowhere resolves, with `isLink` and no `realPath`. Measured on Linux
   in a live session: in the kit nothing beneath the plugins answers
   `fs.stat`, and a test answers it with `on("fs.stat", ...)`.
-- Since 2.1.284 the network refusal is decided where a path lands, not on its
+- The network refusal is decided where a path lands, not on its
   spelling: on Linux `//host/share/x.md` reaches the hooks resolved as
   `/host/share/x.md` (POSIX folds `//`), a local path, while `/net/host/share/x.md`
-  (an automount) is refused as above. Up to 2.1.283 any path spelled `//` or
-  `\\` was refused before the hooks. Measured on Linux in the kit on 2.1.282,
+  (an automount) is refused as above. Measured on Linux in the kit on 2.1.282,
   2.1.283 and 2.1.284, and live on 2.1.284. On Windows, 2.1.286 hands
   `//host/share/x.md` to the hooks as `\\host\share\x.md`, the share as written,
   and `//host/` as `D:\host`, on the drive of the engine's directory (in the
@@ -266,11 +265,10 @@ plugins (September 2026), unless a line says otherwise.
   `completed` whose shell still ran was stopped, and listed `killed` after.
   Measured in an interactive session in tmux (`vellum` #170).
 
-- A registered tool's result text is what the model acts on:
-  `Plan vN is under review in the browser. End your turn; the review arrives
-  as a prompt.` ended Opus 5's turn every time. `vellum` now answers the
-  shorter `Plan vN under review. End your turn.`, whose effect on the turn is
-  not measured in a live session yet.
+- A registered tool's result text is what the model acts on. `vellum`'s
+  `submit` answers `Plan vN under review. End your turn.` (`submitResult` in
+  `vellum/src/review/hooks.ts`); whether that text ends the session model's
+  turn is not measured in a live session.
 
 ## Drawing
 
