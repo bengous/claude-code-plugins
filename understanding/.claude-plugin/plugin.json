@@ -1,6 +1,6 @@
 {
   "name": "understanding",
-  "version": "1.1.2",
+  "version": "1.1.3",
   "description": "Understand a topic, a bug, or a Claude Code workflow: minimal explanations, root-cause diagnosis, execution traces",
   "author": {
     "name": "Augustin BENGOLEA",
