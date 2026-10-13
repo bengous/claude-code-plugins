@@ -41,15 +41,15 @@ I need you to create a Personal Access Token in the browser.
 7. Click "Generate token"
 8. **Copy the token** (starts with `github_pat_`)
 
-Paste the token below when ready.
+Tell me when it is copied: I will open a masked box for it, so the token never enters this conversation.
 ```
 
 ### After Manual Step
 
 Always verify the manual action succeeded:
 ```bash
-# After PAT creation - test it works
-gh auth status  # or test API call with new token
+# After PAT creation - the placeholder secret-pane answered, never the token
+curl -fsS -o /dev/null -w '%{http_code}\n' -H 'Authorization: Bearer [secret-pane:PARENT_REPO_PAT:xxxxxxxx]' https://api.github.com/repos/{owner}/{repo}
 
 # After GitHub Pages config
 gh api repos/{owner}/{repo}/pages --jq '.source'

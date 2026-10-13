@@ -206,9 +206,13 @@ Expected: Returns repo name without error. Do not proceed to Phase 3 until all r
     <message>Cannot set secrets. The account gh is logged in as needs admin access to each repository's settings. Run `gh auth status`.</message>
   </abort>
   <ask_user>
-    <condition>PAT not provided</condition>
-    <message>Please create a fine-grained PAT with the specified permissions and provide it.</message>
+    <condition>the box was cancelled</condition>
+    <message>Create the fine-grained PAT with the permissions above, then tell me when it is copied: I will open the masked box again.</message>
   </ask_user>
+  <abort>
+    <condition>no `mcp__secret-pane__request_secret` tool in this session</condition>
+    <message>The token must not enter this conversation. Install secret-pane (`/plugin install secret-pane --marketplace bengous/claude-code-plugins`) and run the skill again, or set the secret yourself in your own terminal: `gh secret set PARENT_REPO_PAT --repo <org>/<repo>` for the parent and each submodule, which prompts for the value, then run the skill again from Phase 4.</message>
+  </abort>
 </escalation>
 
 <checkpoint>
@@ -228,6 +232,8 @@ Expected: Returns repo name without error. Do not proceed to Phase 3 until all r
 </audit>
 
 ## Phase 3: PAT and Secrets Setup
+
+The token reaches GitHub through the secret-pane plugin and never through the chat: its `request_secret` tool opens a masked box the user pastes the token into, and answers a placeholder that becomes the token only inside a Bash command and is hidden again in the output. Check the tool `mcp__secret-pane__request_secret` is in this session before the handoff; without it, abort as the escalation says.
 
 ### Step 1: Create Fine-Grained PAT (Manual - Browser Required)
 
@@ -254,46 +260,34 @@ I need you to create a Personal Access Token in your browser.
 8. **IMPORTANT:** Copy the token immediately (starts with `github_pat_`)
    - You won't be able to see it again!
 
-**Paste the token when ready** (I'll store it securely as a GitHub secret).
+**Tell me when it is copied.** I will open a masked box for it: the token never enters this conversation.
 ```
 
-Wait for user to provide the PAT before proceeding.
+### Step 2: Collect the PAT
 
-### Step 2: Verify PAT Works
+Call `request_secret` with `name` `PARENT_REPO_PAT` and the reason `the submodule sync workflows read it as a repository secret`. The answer carries the placeholder, `[secret-pane:PARENT_REPO_PAT:xxxxxxxx]`: write it as given in every command below. A cancelled box means the token is not ready: ask once more, then stop the phase.
 
-After receiving the PAT, verify it has correct permissions:
+### Step 3: Verify PAT Works
+
+The placeholder is not restored in `gh api`, which can post text off the machine, so the check goes through curl:
 
 ```bash
-# Test PAT can access parent repo
-# Use read -rs to avoid token in shell history
-read -rs PAT && echo
-GH_TOKEN="$PAT" gh api repos/{ORG}/{PARENT_REPO} --jq '.full_name'
+curl -fsS -o /dev/null -w '%{http_code}\n' -H 'Authorization: Bearer [secret-pane:PARENT_REPO_PAT:xxxxxxxx]' https://api.github.com/repos/{ORG}/{PARENT_REPO}
 ```
 
-If this fails, guide user to check token permissions.
+Expected: `200`. A `404` means the token has no access to the parent repo: guide the user to regenerate it with the repository selected.
 
-### Step 3: Set Secrets
+### Step 4: Set Secrets
 
-**Execute in parallel** - set all secrets simultaneously.
+One command per repository, the placeholder on stdin:
 
-**Option A (recommended):** Use interactive prompt - no token in history:
 ```bash
-gh secret set PARENT_REPO_PAT --repo <org>/<parent>
-gh secret set PARENT_REPO_PAT --repo <org>/<submodule-1>
-gh secret set PARENT_REPO_PAT --repo <org>/<submodule-2>
-# Each prompts for the secret value interactively
+printf '%s' '[secret-pane:PARENT_REPO_PAT:xxxxxxxx]' | gh secret set PARENT_REPO_PAT --repo <org>/<parent>
+printf '%s' '[secret-pane:PARENT_REPO_PAT:xxxxxxxx]' | gh secret set PARENT_REPO_PAT --repo <org>/<submodule-1>
+printf '%s' '[secret-pane:PARENT_REPO_PAT:xxxxxxxx]' | gh secret set PARENT_REPO_PAT --repo <org>/<submodule-2>
 ```
 
-**Option B:** If automating with a variable (already captured securely):
-```bash
-# PAT must already be in $PAT variable (from read -rs above)
-printf '%s' "$PAT" | gh secret set PARENT_REPO_PAT --repo <org>/<parent>
-printf '%s' "$PAT" | gh secret set PARENT_REPO_PAT --repo <org>/<submodule-1>
-printf '%s' "$PAT" | gh secret set PARENT_REPO_PAT --repo <org>/<submodule-2>
-unset PAT  # Clear from environment when done
-```
-
-**Security note:** Never type the PAT directly in a command - it will be recorded in shell history. Use `read -rs` to capture it into a variable first, or rely on `gh secret set`'s interactive prompt.
+The placeholder is the only form of the token ever written: the chat, the shell history and the session transcript keep the placeholder, and the real value leaves the session's memory when the session ends.
 
 <verification>
 **Verification:** List secrets for each repo:

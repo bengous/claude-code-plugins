@@ -47,6 +47,7 @@ base directory; `references/phases.md` names it `<skill>`.
 - Git 2.x+
 - Repository with push access
 - Ability to create fine-grained PAT
+- The secret-pane plugin loaded (`/plugin install secret-pane --marketplace bengous/claude-code-plugins`): Phase 3 collects the PAT through its masked box, never through the chat
 
 <workflow>
 ## Workflow
