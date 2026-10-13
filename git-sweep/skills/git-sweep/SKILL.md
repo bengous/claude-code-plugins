@@ -9,8 +9,8 @@ description: >
 disable-model-invocation: true
 argument-hint: "[base-branch]"
 allowed-tools:
-  - Bash("${CLAUDE_PLUGIN_ROOT}/scripts/git-clean-audit.ts":*)
-  - Bash("${CLAUDE_PLUGIN_ROOT}/scripts/git-clean-apply.ts":*)
+  - Bash(${CLAUDE_PLUGIN_ROOT}/scripts/git-clean-audit.ts *)
+  - Bash(${CLAUDE_PLUGIN_ROOT}/scripts/git-clean-apply.ts *)
   - Bash(printf:*)
   - Bash(test:*)
   - Bash(echo:*)
