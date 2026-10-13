@@ -2,6 +2,10 @@
 
 What each version of vellum changed for the person using it, newest first.
 
+## 0.17.7 - 2026-10-13
+
+`/vellum:stop`, run after Claude said one sentence describes the diff and proposed it, is the go-ahead: Claude implements that diff instead of waiting for a second request. Internal changes besides: the developer rules name the page's selectors and the proposal as it is.
+
 ## 0.17.6 - 2026-10-13
 
 Internal changes only: the plugin API types follow Claude Code 2.1.296.
