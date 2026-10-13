@@ -8,7 +8,7 @@ import type { ProposalPlugs } from "../proposal/contract.ts";
 import type { GrillPlugs, Waited } from "./contract.ts";
 import { ASK_TOOL, NO_GRILL_OPEN, parseAsked, parseQuestions, parseWaited } from "./parse.ts";
 
-/** `step`'s tool, the one way to a grill: its name held to the step's contract, since a hooks half loads its own folder alone. */
+/** `proposal`'s tool, the one way to a grill: its name held to the proposal's contract, since a hooks half loads its own folder alone. */
 const PROPOSE_TOOL: `mcp__vellum__${ProposalPlugs["hooks"]["tools"]}` = "mcp__vellum__propose";
 
 const CLOSED_WITHOUT_SEND =

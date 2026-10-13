@@ -11,9 +11,9 @@ import type { EditSession, Outgoing, Page, PageModule, Sent } from "./state.ts";
 import { memoized, pageModule, patchStore, selectHeld, selectWorkflow } from "./state.ts";
 
 /**
- * The page as a reader of the workflow the server sends, `ReviewView.workflow`: what holds the
- * review, the pill and what is refused now, the approval and Record, and the edit a hold keeps in
- * the draft. `state.ts` reads none of it.
+ * The page as a reader of the workflow the server sends, `ReviewView.workflow`: the approval and
+ * Record, the edit a hold keeps in the draft, and the column of notices. What holds the review
+ * and the pill are `selectHeld` and `selectWorkflow` of `state.ts`, which this module reads too.
  */
 
 /**
