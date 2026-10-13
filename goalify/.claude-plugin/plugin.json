@@ -1,6 +1,6 @@
 {
   "name": "goalify",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "Convert rough intent into the smallest useful goal payload to hand to a fresh Claude Code agent (new session, subagent, or /loop). Draft-first by default, or interactive question-first.",
   "author": {
     "name": "Augustin BENGOLEA",
