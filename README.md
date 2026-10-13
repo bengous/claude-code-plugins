@@ -21,7 +21,7 @@ A curated marketplace of Claude Code plugins for development workflow automation
 | [claude-orchestration](orchestration/) | 2.8.2 | Parallel multi-agent orchestration for complex features with Task-based coordination and git-wt --stack worktree isolation |
 | [git](git/) | 1.1.2 | Local history without an editor: commit with an optional issue-closing trailer, interactive rebase, squash by pattern or hash |
 | [github-flow](github-flow/) | 2.2.0 | GitHub lifecycle through gh: agent-ready issues, review-ready PRs that show the change in diagrams, images and video, issue and PR triage, CI-gated linear merge, commit-push-PR in one step, stacked PRs with gh stack, and an issue-to-PR loop whose worker agents land their own PR |
-| [repo-bootstrap](repo-bootstrap/) | 1.0.3 | One-shot repo setup: the dev-trunk/main-release linear model, branches migrated to submodules with GitHub Actions sync |
+| [repo-bootstrap](repo-bootstrap/) | 1.0.4 | One-shot repo setup: the dev-trunk/main-release linear model, branches migrated to submodules with GitHub Actions sync |
 | [code-quality](code-quality/) | 2.0.5 | Code quality and cleanup commands for maintaining clean, maintainable code |
 | [clean-comments](clean-comments/) | 1.1.3 | Audit and clean code comments: protects why/constraint comments, hunts comments that lie |
 | [mermaid-diagrams](mermaid-diagrams/) | 1.0.1 | Create and edit Mermaid diagrams for software engineering work, architectural ideas, and technical documentation |
