@@ -198,21 +198,4 @@ When editing existing diagrams:
 3. Maintain consistent naming conventions
 4. Don't break working syntax to "improve" it
 5. Test after each major change
-
-When creating new diagrams:
-1. Start with a template if appropriate
-2. Build incrementally - test as you go
-3. Add comments explaining the purpose
-4. Use semantic styling (not just decoration)
-5. Consider maintainability
 </editing_tips>
-
-<summary>
-
-- **Start simple** - Add complexity incrementally
-- **Comment well** - Future you will thank you
-- **Test often** - Verify syntax as you build
-- **Use templates** - Don't reinvent the wheel
-- **Consult gotchas** - Avoid common errors
-- **Stay organized** - Group and section your diagrams
-</summary>

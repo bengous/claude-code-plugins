@@ -81,7 +81,7 @@ flowchart LR
 
 ### Newlines and Long Text
 
-**CRITICAL:** Blank lines inside node labels will cause "Unsupported markdown: code" errors!
+A blank line inside a node label breaks rendering with an "Unsupported markdown: code" error. Break lines with `<br>` or `<br/>` instead.
 
 ```mermaid
 %% ❌ BAD - Blank lines break syntax
@@ -95,8 +95,6 @@ flowchart LR
     A["Server Action<br/><br/>createPhotoAction()"]
     B["First line<br>Second line<br>Third line"]
 ```
-
-**Always use `<br>` or `<br/>` for line breaks - NEVER blank lines!**
 
 ### Semicolons
 
