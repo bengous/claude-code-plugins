@@ -52,5 +52,8 @@ recommended option first) instead of free-form one-question-at-a-time prose.
 
 ## Unchanged
 
-Core principle, prompt shape, slug rules, clarification rules, and the quality
-check are carried over with only the helper/`/goal` references removed.
+Core principle, prompt shape, slug rules, and clarification rules are carried
+over with the helper/`/goal` references removed. The original's pre-output
+quality check is not kept as a section: its two rules found nowhere else
+(explicit approval before destructive or outward-facing side effects, observable
+success criteria) live in the Core Principle list.
