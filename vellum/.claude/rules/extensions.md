@@ -9,8 +9,9 @@ paths:
 
 # Extensions
 
-An extension is a folder, `src/steps/<name>/` for a step Vellum follows or `src/formats/<name>/`
-for a format a document is read in, and every one is a slice (`slices.md`): its `contract.ts`
+An extension is a folder, `src/steps/<name>/` for a step Vellum follows or the proposal that
+offers them, `src/formats/<name>/` for a format a document is read in, and every one is a slice
+(`slices.md`): its `contract.ts`
 declares it, and a half per runtime it plugs into fills what the declaration says: `page.tsx`
 a `PageHalf` and `server.ts` a `ServerHalf`, both typed in `src/runtime/extension.ts`, and
 `hooks.ts` a `HooksHalf` (`src/runtime/hooks/extension.ts`).
