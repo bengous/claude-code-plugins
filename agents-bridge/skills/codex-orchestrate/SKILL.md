@@ -33,9 +33,10 @@ These models delegate well themselves: on a heavy slice, allow the prompt to
 hand mechanical sub-parts to a cheaper model, rather than over-slicing on the
 orchestrator's side.
 
-**Context rule (non-negotiable)**: never read a Codex run's full event stream or
-its full diff. Reading = the final message (Codex's summary) + `git diff --stat`
-+ gates. Targeted inspection (grep, partial Read) only when a gate fails or the
+**Context rule**: read a slice through the final message (Codex's summary),
+`git diff --stat` and the gates, not through the run's full event stream or its
+full diff: those land in your context at every slice and crowd out the plan.
+Targeted inspection (grep, partial Read) only when a gate fails or the
 slice has a risk named in advance in its prompt.
 
 ## Pre-flight
