@@ -1,0 +1,13 @@
+{
+  "name": "secret-pane",
+  "version": "0.1.0",
+  "description": "Claude asks for a secret in a masked box and gets a placeholder: the value stays in the session's memory, becomes real only inside a Bash command, is hidden again in its output, and never reaches the transcript or the disk",
+  "author": {
+    "name": "Augustin BENGOLEA",
+    "email": "bengous@protonmail.com"
+  },
+  "homepage": "https://github.com/bengous/claude-code-plugins/tree/main/secret-pane",
+  "repository": "https://github.com/bengous/claude-code-plugins",
+  "license": "MIT",
+  "keywords": ["secret", "token", "credential", "redact", "mod", "function-hooks", "pane"]
+}

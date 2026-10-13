@@ -111,6 +111,15 @@ pre-commit:
       glob:
         - "todos/hooks/*"
       run: claude plugin test todos
+    - name: validate-secret-pane
+      glob:
+        - "secret-pane/hooks/*"
+        - "secret-pane/.claude-plugin/*"
+      run: claude plugin validate secret-pane
+    - name: test-secret-pane
+      glob:
+        - "secret-pane/hooks/*"
+      run: claude plugin test secret-pane
 
 commit-msg:
   jobs:

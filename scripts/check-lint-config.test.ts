@@ -227,7 +227,7 @@ describe("checkKitConditions", () => {
 
 describe("hooksModulePlugins", () => {
   test("finds the catalog's plugins whose hooks.json names modules, and no other", async () => {
-    expect(await hooksModulePlugins(repoRoot)).toEqual(["vellum", "todos"]);
+    expect(await hooksModulePlugins(repoRoot)).toEqual(["vellum", "todos", "secret-pane"]);
   });
 
   test("each one gets a validate and a test gate", () => {

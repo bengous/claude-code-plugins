@@ -108,7 +108,8 @@ under the [loader rules](hook-runtime.md#module-loader).
   `*.test.ts` for the kit's own, beside the module in
   `vellum/src/runtime/hooks/`. `bun test` would pick those up and fail on the
   import, so the repo's `bunfig.toml` ignores `vellum/**/*.test.ts`, as it
-  ignores `todos/**/*.test.ts` and the retired plugins of `archive/**`.
+  ignores `todos/**/*.test.ts`, `secret-pane/**/*.test.ts` and the retired
+  plugins of `archive/**`.
 
 - The kit's `$` has no `classic` noun, so a `classic.PermissionRequest` hook
   cannot be raised from a test.

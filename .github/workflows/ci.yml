@@ -110,6 +110,14 @@ jobs:
         if: contains(fromJSON(steps.scope.outputs.kits), 'todos')
         run: claude plugin test todos
 
+      - name: Validate the secret-pane hooks module
+        if: contains(fromJSON(steps.scope.outputs.kits), 'secret-pane')
+        run: claude plugin validate secret-pane
+
+      - name: Test the secret-pane hooks module
+        if: contains(fromJSON(steps.scope.outputs.kits), 'secret-pane')
+        run: claude plugin test secret-pane
+
       # main is a delayed fast-forward pointer on dev's history: releases move it
       # with `git push origin dev:main`. Fail loudly if main ever leaves that line.
       - name: Guard main as a strict prefix of dev

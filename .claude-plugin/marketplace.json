@@ -454,6 +454,27 @@
         "band"
       ],
       "source": "./todos"
+    },
+    {
+      "name": "secret-pane",
+      "description": "Claude asks for a secret in a masked box and gets a placeholder: the value stays in the session's memory, becomes real only inside a Bash command, is hidden again in its output, and never reaches the transcript or the disk",
+      "version": "0.1.0",
+      "author": {
+        "name": "Augustin BENGOLEA",
+        "email": "bengous@protonmail.com"
+      },
+      "homepage": "https://github.com/bengous/claude-code-plugins",
+      "license": "MIT",
+      "keywords": [
+        "secret",
+        "token",
+        "credential",
+        "redact",
+        "mod",
+        "function-hooks",
+        "pane"
+      ],
+      "source": "./secret-pane"
     }
   ],
   "description": "Personal Claude Code plugins: git workflows, code quality, agent orchestration, and plugin tooling"
