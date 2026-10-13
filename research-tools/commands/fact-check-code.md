@@ -25,7 +25,7 @@ Code claims can be misleading due to outdated knowledge, assumptions, or incompl
 
 ## Process
 
-1. **Search the codebase** - Use Grep and Glob in parallel to find relevant files and patterns
+1. **Search the codebase** - Run several searches in parallel to find relevant files and patterns
 2. **Read and verify** - Examine the actual implementation, not just file names or comments
 3. **Consult external sources** - Use WebSearch/WebFetch if the claim involves library behavior or standards
 4. **Report** - Present findings with specific file references
