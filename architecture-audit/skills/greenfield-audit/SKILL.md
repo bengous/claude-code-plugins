@@ -76,8 +76,8 @@ Allowed sources in this phase:
 
 Forbidden in this phase: internal modules, services, helpers, hooks, stores,
 utilities, or any file whose only role is to implement behavior. Locate them
-with Glob, or with Grep in `files_with_matches` mode, to know they exist. Never
-Grep in content mode on a forbidden file: that reads it.
+by name, or by a search that lists matching file names only, to know they exist.
+Never print matching lines from a forbidden file: that reads it.
 
 Emit five lists as text. Every item cites its source.
 
