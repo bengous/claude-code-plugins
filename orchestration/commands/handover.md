@@ -14,7 +14,7 @@ Generate a self-contained context transfer document that allows a fresh agent to
 
 Parse `$ARGUMENTS` for:
 - **focus-area** (optional): Narrow the handover to a specific topic (e.g., "authentication", "database")
-- **--brief**: Produce a shorter summary (15-25 lines instead of comprehensive)
+- **--brief**: Produce a short summary instead of the comprehensive document
 
 ## Step 1: Ground Truth
 
@@ -35,8 +35,8 @@ Analyze the conversation to capture: the original goal and underlying motivation
 Focus on the WHY behind decisions — a fresh agent can read the code to see WHAT exists, but needs the handover to understand WHY it exists.
 
 <brief>
-If `--brief` flag is present, output a 15-25 line summary using bullet points:
-- Goal (2-3 lines)
+If `--brief` flag is present, output a short summary using bullet points:
+- Goal
 - Key decisions (bullet list)
 - Current state (done / remaining)
 - Immediate next step
@@ -45,7 +45,7 @@ If `--brief` flag is present, output a 15-25 line summary using bullet points:
 <full>
 Otherwise, produce a comprehensive document with these sections. Adapt the format to fit the session — omit sections that have no meaningful content, use tables only when comparing multiple items:
 
-- **Original Goal**: What the session set out to accomplish and the underlying motivation (2-4 sentences)
+- **Original Goal**: What the session set out to accomplish and the underlying motivation
 - **Key Decisions**: Significant choices where alternatives existed, with rationale and what was rejected
 - **Progress**: What was planned, what was completed (with file references like `path/file.ts:123`), what remains
 - **Challenges**: Obstacles that affected the approach and how they were resolved

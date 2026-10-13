@@ -41,7 +41,7 @@ Testing Request:
 - Module: auth
 - Layer: infrastructure
 - Playbook: docs/playbook.md (optional)
-- Coverage Target: 100% (optional)
+- Coverage Target: 85% (optional; otherwise the strategy's target for the layer)
 ```
 
 **From natural invocation:**
@@ -59,13 +59,13 @@ Read(${PLAYBOOK_PATH})
 **Otherwise:** Ask user to choose:
 
 <strategy_options>
-1. Hexagonal Architecture - Domain/Application 100%, skip infra schemas
-2. Clean Architecture - Use cases/Entities 100%, skip frameworks
-3. Layered - Services/Logic 100%, skip DTOs/configs
+1. Hexagonal Architecture - Domain/Application first, skip infra schemas
+2. Clean Architecture - Use cases/Entities first, skip frameworks
+3. Layered - Services/Logic first, skip DTOs/configs
 4. Custom - I'll answer questions about what to test
 </strategy_options>
 
-**If user picks 1-3:** Use template from `skills/layer-testing/templates/`
+**If user picks 1-3:** Use template from `skills/layer-testing/templates/`. Full coverage of the core layers is the ideal; the template sets each layer's target, and the request's coverage target, when given, overrides it.
 
 **If user picks 4:** Ask:
 - Coverage target? (100%/80%/70%)

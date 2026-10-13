@@ -30,7 +30,7 @@ Summarize what was accomplished *after* it — the memory the rewound conversati
 
 If "$ARGUMENTS" is empty, summarize the session's accomplishments so far and remind the user to choose the checkpoint they'll Restore to.
 
-### Shape (5–10 lines, hard ceiling)
+### Shape (a few lines, short enough to copy at a glance)
 
 Capture outcomes, not the journey:
 
@@ -51,7 +51,7 @@ Lead with the copy instruction, then the summary inside a plain fenced block so 
 **Copy the block below before you rewind — it lives in the turns Restore will discard.**
 
 ```
-<5–10 line carry-forward summary, ending with the next-step line>
+<carry-forward summary, ending with the next-step line>
 ```
 
 Then give the user these steps:

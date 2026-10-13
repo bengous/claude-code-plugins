@@ -49,7 +49,7 @@ Testing Request:
 - Module: <MODULE>
 - Layer: <LAYER>
 - Playbook: <PLAYBOOK or "none">
-- Coverage Target: <COVERAGE or "100">%
+- Coverage Target: <COVERAGE>% (when `--coverage` is not given: the strategy's target for the layer)
 ```
 
 Done. The skill handles the rest.

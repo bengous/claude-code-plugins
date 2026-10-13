@@ -223,10 +223,10 @@ If no: Done
 **Template**: `skills/layer-testing/templates/examples/hexagonal-strategy.md`
 
 **Layers**:
-- Core/Domain (90% target)
-- Application (80% target)
-- Infrastructure (70% target)
-- Boundary (20% target)
+- Core/Domain (90-100% target)
+- Application (80-90% target)
+- Infrastructure (60-80% target)
+- Boundary (10-20% target)
 
 **Key patterns**:
 - Result<T,E> type guards

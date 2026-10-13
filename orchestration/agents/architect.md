@@ -93,10 +93,3 @@ Return your architecture proposal in this format:
 - Reference existing code — show how your design fits existing patterns
 - Acknowledge trade-offs — every approach has pros and cons
 </constraints>
-
-<verification>
-Before returning, verify your response:
-- Includes all required sections (Summary, Component Design, File Changes, Data Flow, Integration Points, Trade-offs, Key Decisions)
-- Trade-offs section states both pros AND cons for your approach
-- File paths are specific and actionable (not placeholders like "path/to/file")
-</verification>

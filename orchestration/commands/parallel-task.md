@@ -35,7 +35,7 @@ Leave code changes to the worker agents: this command plans, sets up, dispatches
 
 Spawn N explore agents analyzing different areas.
 
-**Spawn ALL explore agents in a SINGLE message using parallel Agent tool calls:**
+Spawn every explore agent in one message, so they run concurrently:
 
 ```
 Agent 1: subagent_type="Explore", model="sonnet", prompt="Analyze [scope1] for [task]. Report: files to change, patterns to follow, risks."
@@ -57,7 +57,7 @@ Collect reports, identify what to change vs preserve, estimate impact.
 
 Spawn N worker agents with strict scope isolation.
 
-**Spawn ALL worker agents in a SINGLE message using parallel Agent tool calls:**
+Spawn every worker agent in one message, so they run concurrently:
 
 ```
 Agent 1: subagent_type="general-purpose", model="opus", prompt="[Detailed instructions for scope1]"

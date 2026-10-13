@@ -665,8 +665,8 @@ export async function createTestDb() {
 ## Resources
 
 - [Hexagonal Architecture Guide](https://alistair.cockburn.us/hexagonal-architecture/)
-- [Result Type Pattern](./references/result-type-patterns.md)
-- [Quality Gates](./references/quality-gates.md)
+- Result Type Pattern: `skills/layer-testing/references/result-type-patterns.md` in the claude-orchestration plugin
+- Quality Gates: `skills/layer-testing/references/quality-gates.md` in the claude-orchestration plugin
 - [Vitest Documentation](https://vitest.dev/)
 - [PGlite Documentation](https://github.com/electric-sql/pglite)
 
