@@ -35,8 +35,8 @@ if [[ " $* " == *" --plugin-dir "* ]]; then
     echo "stub: about to be killed"
     kill -KILL $$
   fi
-  if [[ -f $stub/types-held ]]; then exec sleep 600; fi
   if [[ -f $stub/types-deaf ]]; then trap '' TERM; fi
+  if [[ -f $stub/types-held ]]; then exec sleep 600; fi
   config_state="$(cat "\${CLAUDE_CONFIG_DIR:-}/.claude.json" 2>/dev/null || true)"
   if [[ $config_state != *'"hasCompletedOnboarding":true'* || $config_state != *"\\"$PWD\\":{\\"hasTrustDialogAccepted\\":true}"* ]]; then
     echo "stub: a dialog holds the session"

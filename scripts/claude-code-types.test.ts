@@ -641,12 +641,35 @@ describe("run", () => {
     process.kill(holder.holder.pid, "SIGTERM");
     await run;
 
-    // The held session never writes the types: a run that waited for them would take a minute.
-    expect(Date.now() - asked).toBeLessThan(3000);
+    // The held session never writes the types: a run that waited for them would take a minute,
+    // and one that kept a timer running after the session's end would take the 2 s grace.
+    expect(Date.now() - asked).toBeLessThan(2000);
 
     expect(outcome()).toMatchObject({ kind: "stopped", step: "regenerate", signal: "SIGTERM" });
     expect(() => process.kill(Number(recorded("types-pids").trim()), 0)).toThrow();
   });
+
+  test("stops at regenerate on SIGTERM though the held session ignores one", async () => {
+    write(stub("types-held"), "");
+    write(stub("types-deaf"), "");
+    const run = runScriptAsync();
+
+    for (let tries = 0; tries < 150 && recorded("types-pids") === ""; tries++) await Bun.sleep(20);
+    const holder = runState(statePaths(join(project, ".git")));
+
+    if (holder.kind !== "running" || holder.holder === null)
+      throw new Error("no run holds the lock");
+    const asked = Date.now();
+    process.kill(holder.holder.pid, "SIGTERM");
+    await run;
+
+    // The stop's SIGTERM ends nothing: a run that waited for the types or the session would
+    // take a minute; one that ends its wait with the stop kills the session after its 2 s grace.
+    expect(Date.now() - asked).toBeLessThan(10_000);
+
+    expect(outcome()).toMatchObject({ kind: "stopped", step: "regenerate", signal: "SIGTERM" });
+    expect(() => process.kill(Number(recorded("types-pids").trim()), 0)).toThrow();
+  }, 15_000);
 
   test("names the ref whose header is not the generated one", () => {
     landOnDev((clone) => write(join(clone, TYPES_PATH), "// hand-written\n"));

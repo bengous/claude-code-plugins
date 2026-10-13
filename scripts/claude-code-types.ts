@@ -398,10 +398,16 @@ function sessionEnd(session: Subprocess): string | null {
 async function stopSession(session: Subprocess): Promise<void> {
   session.kill("SIGTERM");
 
+  let grace: ReturnType<typeof setTimeout> | undefined;
+
   const ended = await Promise.race([
     session.exited.then(() => true),
-    Bun.sleep(STOP_GRACE_MS).then(() => false),
+    new Promise<false>((resolve) => {
+      grace = setTimeout(() => resolve(false), STOP_GRACE_MS);
+    }),
   ]);
+
+  clearTimeout(grace);
 
   if (!ended) {
     session.kill("SIGKILL");
@@ -413,9 +419,13 @@ async function stopSession(session: Subprocess): Promise<void> {
 
 /**
  * Rewrites the two files from the installed build; the session it starts is
- * `progress.child` while it runs, so a run's stop reaches it.
+ * `progress.child` while it runs, so a run's stop reaches it, and the wait
+ * for the files ends with `progress.signal`.
  */
-export async function regenerate(root: string, progress: Pick<Progress, "child">): Promise<void> {
+export async function regenerate(
+  root: string,
+  progress: Pick<Progress, "child" | "signal">,
+): Promise<void> {
   const scratch = await realpath(await mkdtemp(join(tmpdir(), "plugin-types-")));
   const mod = join(scratch, "mod");
   const config = join(scratch, "config");
@@ -479,10 +489,19 @@ export async function regenerate(root: string, progress: Pick<Progress, "child">
     progress.child = session;
 
     try {
-      while (sessionEnd(session) === null && Date.now() < deadline && !(await bothWritten()))
+      while (
+        progress.signal === null &&
+        sessionEnd(session) === null &&
+        Date.now() < deadline &&
+        !(await bothWritten())
+      )
         await Bun.sleep(TYPES_POLL_MS);
 
-      end = sessionEnd(session) ?? `ran ${TYPES_WAIT_MS / 1000} s`;
+      end =
+        sessionEnd(session) ??
+        (progress.signal === null
+          ? `ran ${TYPES_WAIT_MS / 1000} s`
+          : `was stopped by ${progress.signal}`);
       await stopSession(session);
     } finally {
       progress.child = null;
@@ -1027,7 +1046,11 @@ if (import.meta.main) {
   } else {
     try {
       if (action === "run") await runPipeline(process.cwd());
-      else await regenerate(git(process.cwd(), "rev-parse", "--show-toplevel"), { child: null });
+      else
+        await regenerate(git(process.cwd(), "rev-parse", "--show-toplevel"), {
+          child: null,
+          signal: null,
+        });
     } catch (error) {
       console.error(`claude-code-types: ${error instanceof Error ? error.message : String(error)}`);
       process.exitCode = 1;
