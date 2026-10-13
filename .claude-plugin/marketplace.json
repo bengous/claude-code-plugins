@@ -337,7 +337,7 @@
     {
       "name": "context-management",
       "description": "Lifecycle of Claude Code instruction files: audit CLAUDE.md/AGENTS.md/.claude/rules instruction budget, capture session learnings, and resync docs with codebase evolution",
-      "version": "2.0.1",
+      "version": "2.0.2",
       "author": {
         "name": "Augustin BENGOLEA",
         "email": "bengous@protonmail.com"

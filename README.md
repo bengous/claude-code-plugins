@@ -26,7 +26,7 @@ A curated marketplace of Claude Code plugins for development workflow automation
 | [clean-comments](clean-comments/) | 1.1.2 | Audit and clean code comments: protects why/constraint comments, hunts comments that lie |
 | [mermaid-diagrams](mermaid-diagrams/) | 1.0.1 | Create and edit Mermaid diagrams for software engineering work, architectural ideas, and technical documentation |
 | [claude-meta-tools](claude-meta-tools/) | 6.0.0 | Meta tooling for Claude Code: write prompts that prompt better (meta-prompt) |
-| [context-management](context-management/) | 2.0.1 | Lifecycle of Claude Code instruction files: audit CLAUDE.md/AGENTS.md/.claude/rules instruction budget, capture session learnings, and resync docs with codebase evolution |
+| [context-management](context-management/) | 2.0.2 | Lifecycle of Claude Code instruction files: audit CLAUDE.md/AGENTS.md/.claude/rules instruction budget, capture session learnings, and resync docs with codebase evolution |
 | [research-tools](research-tools/) | 1.2.3 | Documentation research through optimal MCP sources and claim verification: research agents, source routing, web and codebase fact-checking |
 | [claude-settings-manager](claude-settings-manager/) | 1.1.3 | Manage Claude Code settings with JSONC support and schema extraction |
 | [git-worktree](git-worktree/) | 1.2.2 | Git worktree helper with stack support for multi-agent orchestration |
