@@ -23,7 +23,7 @@ A curated marketplace of Claude Code plugins for development workflow automation
 | [github-flow](github-flow/) | 2.2.0 | GitHub lifecycle through gh: agent-ready issues, review-ready PRs that show the change in diagrams, images and video, issue and PR triage, CI-gated linear merge, commit-push-PR in one step, stacked PRs with gh stack, and an issue-to-PR loop whose worker agents land their own PR |
 | [repo-bootstrap](repo-bootstrap/) | 1.0.3 | One-shot repo setup: the dev-trunk/main-release linear model, branches migrated to submodules with GitHub Actions sync |
 | [code-quality](code-quality/) | 2.0.4 | Code quality and cleanup commands for maintaining clean, maintainable code |
-| [clean-comments](clean-comments/) | 1.1.2 | Audit and clean code comments: protects why/constraint comments, hunts comments that lie |
+| [clean-comments](clean-comments/) | 1.1.3 | Audit and clean code comments: protects why/constraint comments, hunts comments that lie |
 | [mermaid-diagrams](mermaid-diagrams/) | 1.0.1 | Create and edit Mermaid diagrams for software engineering work, architectural ideas, and technical documentation |
 | [claude-meta-tools](claude-meta-tools/) | 6.0.0 | Meta tooling for Claude Code: write prompts that prompt better (meta-prompt) |
 | [context-management](context-management/) | 2.0.2 | Lifecycle of Claude Code instruction files: audit CLAUDE.md/AGENTS.md/.claude/rules instruction budget, capture session learnings, and resync docs with codebase evolution |
