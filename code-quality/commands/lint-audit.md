@@ -67,61 +67,15 @@ This provides:
 - Invalid examples (what gets flagged)
 - Valid examples (correct patterns)
 
-### Secondary Sources (parallel subagents)
+### Secondary Sources
 
-Spawn these when:
-- Rule is in `nursery` (experimental/controversial)
-- User asks for "best practices" or "modern approach"
-- Biome explanation lacks context on WHY the rule exists
+Research these when the rule is in `nursery` (experimental/controversial), the user asks for "best practices" or a "modern approach", or the Biome explanation lacks context on WHY the rule exists:
 
-**Launch 3 subagents in parallel using Agent calls in a single message:**
+- **ESLint origin**: the ESLint rule name (it may differ from Biome's), its original rationale, its status (recommended/frozen/deprecated), and a link to its docs.
+- **Community sentiment**: whether the rule is controversial, the main arguments for and against it, and notable GitHub issues (airbnb/javascript, biomejs/biome) with their vote counts and links.
+- **Framework practice**: which framework the rule concerns (React, Next.js, ...), what its official docs recommend on the underlying concept (Context7), and links.
 
-<subagents parallel="true">
-<subagent name="eslint-research" type="Explore" model="sonnet">
-Research the ESLint origin of the "$ARGUMENTS" lint rule.
-
-1. WebSearch: "ESLint $ARGUMENTS rule"
-2. Fetch the ESLint docs page if found
-3. Look for the original rationale and any "frozen" or "deprecated" status
-
-Return:
-- ESLint rule name (may differ from Biome name)
-- Original rationale
-- Current status (recommended/frozen/deprecated)
-- Link to docs
-</subagent>
-
-<subagent name="community-sentiment" type="Explore" model="sonnet">
-Research community opinions on the "$ARGUMENTS" lint rule.
-
-1. WebSearch: "$ARGUMENTS rule controversy github"
-2. Look for GitHub issues, especially on airbnb/javascript or biomejs/biome
-3. Find blog posts or discussions showing real-world debate
-
-Return:
-- Is this rule controversial? (yes/no)
-- Main arguments FOR the rule
-- Main arguments AGAINST the rule
-- Notable GitHub issues with vote counts
-- Links to sources
-</subagent>
-
-<subagent name="framework-practices" type="Explore" model="sonnet">
-Research framework best practices related to "$ARGUMENTS".
-
-1. Identify which framework this rule applies to (React, Next.js, etc.)
-2. Use Context7 to fetch official framework docs on the underlying concept
-3. Find what the framework maintainers recommend
-
-Return:
-- Framework: [name]
-- Official recommendation (if any)
-- Code patterns endorsed by framework docs
-- Links to sources
-</subagent>
-</subagents>
-
-**Wait for all 3 to complete, then synthesize findings.**
+Each angle takes a few searches. Delegate them to parallel subagents only when one is wide enough to repay a subagent's overhead.
 
 ## Phase 3: Code Analysis
 
