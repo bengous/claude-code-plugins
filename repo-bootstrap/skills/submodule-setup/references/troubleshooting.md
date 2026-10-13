@@ -128,12 +128,12 @@ git reset --hard <sha-before-submodule-add>
 
 **Solutions:**
 1. Verify PAT hasn't expired: GitHub Settings → Developer settings → Personal access tokens
-2. Regenerate token and update all secrets:
+2. Regenerate the token and update every secret, the token collected through secret-pane's `request_secret` as in Phase 3, never pasted into the chat:
    ```bash
-   # Use interactive prompt (recommended) - no token in shell history
-   gh secret set PARENT_REPO_PAT --repo <org>/<parent-repo>
-   gh secret set PARENT_REPO_PAT --repo <org>/<submodule-repo>
+   printf '%s' '[secret-pane:PARENT_REPO_PAT:xxxxxxxx]' | gh secret set PARENT_REPO_PAT --repo <org>/<parent-repo>
+   printf '%s' '[secret-pane:PARENT_REPO_PAT:xxxxxxxx]' | gh secret set PARENT_REPO_PAT --repo <org>/<submodule-repo>
    ```
+   Without secret-pane, the user runs `gh secret set PARENT_REPO_PAT --repo <org>/<repo>` in their own terminal, which prompts for the value.
 
 ### "Repository not found" in Workflow
 
