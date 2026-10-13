@@ -11,8 +11,8 @@ import type { Rect } from "../../runtime/page/place.ts";
 import { windowOf } from "../../runtime/page/place.ts";
 import {
   choose,
+  commentingNow,
   flipCommentSwitch,
-  pageStore,
   selectCommenting,
   setAbsent,
   usePage,
@@ -108,14 +108,14 @@ function HtmlDoc(props: RendererProps): JSX.Element {
 
       if (message.type === "vellum:switch") flipCommentSwitch();
 
-      if (message.type === "vellum:choose" && !selectCommenting(pageStore.getState())) {
+      if (message.type === "vellum:choose" && !commentingNow()) {
         const { decision, option, label, description } = message;
         choose(props.doc.path, decision, { option, label, description });
       }
 
       if (message.type === "vellum:absent") setAbsent(props.doc.path, message.choices);
 
-      if (message.type === "vellum:pick" && selectCommenting(pageStore.getState())) {
+      if (message.type === "vellum:pick" && commentingNow()) {
         const [first, ...rest] = message.elements;
 
         setDraft(first === undefined ? null : { elements: [first, ...rest], box: message.box });

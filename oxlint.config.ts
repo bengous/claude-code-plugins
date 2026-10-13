@@ -86,11 +86,12 @@ export default defineConfig({
       rules: { "max-lines": ["error", { max: 500 }] },
     },
     {
-      // The page's components: a hook after an early return or inside a branch is a crash in
-      // production the moment the count changes, and neither tsgo nor the categories see it. The
-      // plugin's other rules the categories would turn on are off: each would rewrite a handler
-      // the page keeps on purpose (`onInput` on a controlled field, `onClick` on a radio).
-      files: ["vellum/src/**/*.tsx"],
+      // The page's components and the hooks its modules export (`usePage`, `useNotices`): a hook
+      // after an early return or inside a branch is a crash in production the moment the count
+      // changes, and neither tsgo nor the categories see it. The plugin's other rules the
+      // categories would turn on are off: each would rewrite a handler the page keeps on purpose
+      // (`onInput` on a controlled field, `onClick` on a radio).
+      files: ["vellum/src/**/*.ts", "vellum/src/**/*.tsx"],
       plugins: ["react"],
       rules: {
         "react/rules-of-hooks": "error",
@@ -113,7 +114,7 @@ export default defineConfig({
     },
     {
       // Over the size today, each a cut still to make:
-      // - runtime/page/state.ts: the page's one store; the review's signals and the documents' and
+      // - runtime/page/state.ts: the page's one store; the review's actions and the documents' and
       //   the shell's read each other both ways (loadReview settles the edit, decide loads again).
       // - runtime/server/queue.ts: the queue, the step, the channel, the draft and the view in one class.
       // - runtime/hooks/register.ts: every hook sits where `$` is spelled, which the engine requires

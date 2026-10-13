@@ -19,6 +19,7 @@ import type { Rect } from "../../runtime/page/place.ts";
 import { windowOf } from "../../runtime/page/place.ts";
 import {
   clearResume,
+  commentingNow,
   fail,
   pageStore,
   select,
@@ -200,11 +201,6 @@ async function sourceOf(doc: DocRef): Promise<string | null> {
   }
 
   return null;
-}
-
-/** Whether the switch is on now, for a handler: the render's value may be a frame old. */
-function commentingNow(): boolean {
-  return selectCommenting(pageStore.getState());
 }
 
 function MarkdownDoc(props: RendererProps): JSX.Element {

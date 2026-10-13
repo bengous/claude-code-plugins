@@ -1222,3 +1222,8 @@ export const {
 export function usePage<T>(pick: (s: Page) => T): T {
   return useStore(pageStore, pick);
 }
+
+/** Whether the switch is on now, for a handler: the render's value may be a frame old. */
+export function commentingNow(): boolean {
+  return selectCommenting(pageStore.getState());
+}

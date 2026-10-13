@@ -170,7 +170,6 @@ function CardWords(props: { readonly annotation: Annotation }): JSX.Element {
       <textarea
         rows={3}
         aria-label="Comment"
-        data-autofocus=""
         value={text}
         onInput={(event) => type(event.currentTarget.value)}
       />

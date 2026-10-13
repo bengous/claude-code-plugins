@@ -37,6 +37,7 @@
     },
     {
       "files": [
+        "vellum/src/**/*.ts",
         "vellum/src/**/*.tsx"
       ],
       "plugins": [

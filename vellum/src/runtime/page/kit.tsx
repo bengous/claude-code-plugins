@@ -17,15 +17,13 @@ function classes(...names: readonly (string | false | undefined)[]): string {
   return names.filter((name) => name !== false && name !== undefined && name !== "").join(" ");
 }
 
-/** A `title` given as `undefined` leaves no attribute. */
 export function Button(props: ButtonProps): JSX.Element {
-  const { variant = "default", size = "md", className: extra, title, children, ...rest } = props;
+  const { variant = "default", size = "md", className: extra, children, ...rest } = props;
 
   return (
     <button
       type="button"
       {...rest}
-      {...(title === undefined ? {} : { title })}
       className={classes("btn", variant !== "default" && variant, size === "sm" && "sm", extra)}
     >
       {children}

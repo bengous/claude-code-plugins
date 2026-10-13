@@ -684,8 +684,13 @@ function OpenGrill(props: { readonly state: Extract<GrillState, { kind: "open" }
   useEffect(() => {
     setPicked(null);
 
-    // The reviewer reads at the bottom, under the foot: the round comes into view.
-    if (firstOpen !== null) round.current?.scrollIntoView({ block: "start" });
+    if (firstOpen === null) return;
+
+    // The reviewer reads at the bottom, under the foot: the round comes into view, a frame later,
+    // once the bar's buttons, loaded with the review, have taken their height off the sheet.
+    const frame = requestAnimationFrame(() => round.current?.scrollIntoView({ block: "start" }));
+
+    return () => cancelAnimationFrame(frame);
   }, [firstOpen]);
 
   useEffect(() => {
