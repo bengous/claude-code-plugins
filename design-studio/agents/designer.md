@@ -25,9 +25,7 @@ The frontend-design skill is preloaded into your context. It guides you toward:
 
 ## Sequential Creation
 
-Create designs 1 through 5 in order. When you create design 2, you've already made design 1 - make them visually different. When you create design 3, you've seen 1 and 2 - differentiate further.
-
-This natural awareness is your superpower. You don't need external coordination to make 5 unique designs - you just need to remember what you've already made.
+Create designs 1 through 5 in order, in this one context, so each design can react to the earlier ones. Before starting each later design, list the specific choices the earlier designs already used (background color, type families, headline treatment, section labels, button shape, layout grid) and avoid each of them in the new one: a general "make it different" lets the next design fall back on a default style.
 
 ## For Each Design
 

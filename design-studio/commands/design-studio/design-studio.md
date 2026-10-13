@@ -146,14 +146,11 @@ Create 5 unique redesigns at routes /1, /2, /3, /4, /5.
 
 **Use your frontend-design skill to make these designs exceptional.**
 
-Create them SEQUENTIALLY:
-1. Create design 1, verify it renders, capture screenshot
-2. Create design 2 - you've seen design 1, make it DIFFERENT
-3. Create design 3 - you've seen 1 and 2, differentiate further
-4. Create design 4 - you've seen 1, 2, 3, keep differentiating
-5. Create design 5 - you've seen all 4, make it unique
-
-This context awareness is your superpower. Natural differentiation.
+Create them in order, one at a time, so each design can react to the ones before it.
+Before starting each later design, list the specific choices the earlier designs
+already used (background color, type families, headline treatment, section labels,
+button shape, layout grid) and avoid each of them in the new one: a general "make
+it different" lets the next design fall back on a default style.
 
 ## For Each Design
 1. Edit ./design-studio/src/pages/N.tsx with your design
