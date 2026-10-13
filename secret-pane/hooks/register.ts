@@ -23,17 +23,31 @@ const WAIT_MS = 10 * 60_000;
 /** A hook's own time is capped; a wait spent inside a host call is not counted, so the box is waited for in short sleeps. */
 const POLL = ["sleep", "0.3"] as const;
 
+/** Native Windows has no `sleep` executable; PowerShell's is the one every install carries. */
+const POLL_WINDOWS = [
+  "powershell",
+  "-NoProfile",
+  "-Command",
+  "Start-Sleep -Milliseconds 300",
+] as const;
+
 const PANE_ROWS = 6;
+
+/** The tools whose results a kept value could come back through on this build: a command's output, a file. */
+type Reader = "Bash" | "Read";
 
 const DESCRIPTION = [
   "Asks the user for a secret (an API key, a token, a password) in a masked box beside the transcript, so the value never enters the conversation.",
   "Answers the variable name and a placeholder of the form [secret-pane:NAME:xxxxxxxx].",
-  "A placeholder written in a Bash command becomes the real value when the command runs and is hidden again in the command's output; it stays a placeholder in a command that commits, tags or posts to GitHub (git commit, gh issue, gh pr, gh api), and in every other tool.",
-  "The value lives in this session's memory only: nothing is written to disk, and a new session asks the user again.",
+  "A placeholder written in a Bash command becomes the real value when the command runs; the value is hidden again in every Bash and Read result.",
+  "A command that holds a placeholder is refused when it writes git history or sends anything to GitHub (git commit, git tag, gh api, gh pr; only gh secret takes the value), or runs in the background: split it so the command that needs the value runs alone, in the foreground.",
+  "No other tool restores a placeholder. The value lives in this session's memory only: the mod writes nothing to disk, and a new session asks the user again.",
   "Use it in place of asking the user to paste a secret into the chat.",
 ].join(" ");
 
-const WITHHELD = `${PLUGIN}: could not check this result for the secret it was handed, so the result was withheld. Narrow the command (head, grep) and retry.`;
+const WITHHELD = `${PLUGIN}: could not check this result for a kept value, so the result was withheld. Narrow the call (head, grep, offset) and retry.`;
+
+const NOT_RUN = `${PLUGIN}: could not put the kept value into this command, so it was not run.`;
 
 type Pending = {
   readonly name: string;
@@ -53,16 +67,18 @@ function argument(value: unknown): string {
 }
 /* oxlint-enable anti-slop/no-unknown-parameters, anti-slop/no-runtime-typeof */
 
-type BashAnswer = Exclude<ToolCallResult<"Bash">, { deny: string }>;
+type ReadResult = ToolCallResult<Reader>;
 
-type BashErrored = Extract<ToolCallResult<"Bash">, { isError: true }>;
+type Answer = Exclude<ReadResult, { deny: string }>;
 
-type BashAnswered = Exclude<BashAnswer, BashErrored>;
+type Errored = Extract<ReadResult, { isError: true }>;
 
-/** The tool's answer with the values it was handed hidden again, and without `ref`: core would read its own messages verbatim with it. */
-function hidden(ran: BashAnswer, hide: (text: string) => string): ToolCallResult<"Bash"> {
+type Answered = Exclude<Answer, Errored>;
+
+/** The tool's answer with every kept value hidden, and without `ref`: core would read its own messages verbatim with it. */
+function hidden(ran: Answer, hide: (text: string) => string): ReadResult {
   if (ran.isError === true) {
-    const errored: BashErrored = { isError: true, result: walkStrings(ran.result, hide) };
+    const errored: Errored = { isError: true, result: walkStrings(ran.result, hide) };
 
     if (ran.text !== undefined) errored.text = hide(ran.text);
 
@@ -71,9 +87,9 @@ function hidden(ran: BashAnswer, hide: (text: string) => string): ToolCallResult
     return errored;
   }
 
-  // SAFETY: `walkStrings` keeps a plain value's shape and rewrites its strings alone, and Bash's record is plain data.
-  const result = walkStrings(ran.result, hide) as BashAnswered["result"];
-  const answered: BashAnswered = { result };
+  // SAFETY: `walkStrings` keeps a plain value's shape and rewrites its strings alone, and a tool's record is plain data.
+  const result = walkStrings(ran.result, hide) as Answered["result"];
+  const answered: Answered = { result };
 
   if (ran.context !== undefined) answered.context = ran.context.map(hide);
 
@@ -83,9 +99,34 @@ function hidden(ran: BashAnswer, hide: (text: string) => string): ToolCallResult
 function entered(name: string, tag: string, length: number): string {
   return [
     `The user entered ${name} (${length} characters). The value is kept in this session's memory; you can't see it.`,
-    `Write the placeholder ${tag} in a Bash command: it becomes the real value when the command runs and is hidden again in the output.`,
-    `It is not restored in a command that commits, tags or posts to GitHub, nor in any other tool. A command that reads the value on stdin takes printf '%s' '${tag}' | <command>.`,
+    `Write the placeholder ${tag} in a Bash command: it becomes the real value when the command runs, and the value is hidden again in every result.`,
+    `A command holding the placeholder is refused when it writes git history, sends anything to GitHub (gh secret set alone takes the value), or runs in the background: run the command that needs the value alone, in the foreground. No other tool restores it.`,
+    `A command that reads the value on stdin takes printf '%s' '${tag}' | <command>.`,
   ].join(" ");
+}
+
+/** Why a command holding a placeholder must not run as written, or nothing. */
+function refusal(
+  command: string,
+  isBackground: boolean,
+  handed: readonly string[],
+  tagFor: (value: string) => string | undefined,
+): string | undefined {
+  if (publishes(command)) {
+    return `${PLUGIN}: this command writes git history or sends text to GitHub, so its placeholder was not put in and the command was not run (gh secret set alone takes the value). Run the command that needs the value alone, and the publishing one without it.`;
+  }
+
+  if (isBackground) {
+    return `${PLUGIN}: a background command's output never comes back through ${PLUGIN}, so its placeholder was not put in and the command was not run. Run it in the foreground.`;
+  }
+
+  const active = handed.find((value) => isShellActive(value));
+
+  if (active !== undefined) {
+    return `${PLUGIN}: the value behind ${tagFor(active) ?? "the placeholder"} holds characters the shell reads as code, so it cannot go through a command. Ask the user to enter it where it is needed themselves (gh secret set prompts for it in their own terminal); no tool of this session can carry it.`;
+  }
+
+  return undefined;
 }
 
 type Drawn = Parameters<EngineInterface["ui"]["resolve"]>[0];
@@ -161,9 +202,9 @@ export const register: Register = (on) => {
       };
     }
 
-    if ((await $.session.surfaces()).length === 0) {
+    if (!(await $.session.surfaces()).some((surface) => surface !== "mobile")) {
       return {
-        result: `${PLUGIN} needs an interactive session to collect ${name}: nobody can type into the box here.`,
+        result: `${PLUGIN} needs an interactive session with a terminal or a desktop to collect ${name}: nobody can type into the box here.`,
       };
     }
 
@@ -204,21 +245,25 @@ export const register: Register = (on) => {
       );
     }
 
+    const poll = (await $.env.get("OS")) === "Windows_NT" ? POLL_WINDOWS : POLL;
     const deadline = (await $.clock.now()) + WAIT_MS;
 
-    while (
-      request.answer === undefined &&
-      !next.signal.aborted &&
-      (await $.clock.now()) < deadline
-    ) {
-      await $.process.run(POLL);
+    try {
+      while (
+        request.answer === undefined &&
+        !next.signal.aborted &&
+        (await $.clock.now()) < deadline
+      ) {
+        await $.process.run(poll);
+      }
+    } finally {
+      // An Escape of the call skips the hook with no `.catch`: the box and the slot are released here, whatever ended the wait.
+      if (pending === request) pending = null;
+      await $.ui.close({ id: PANE });
+      $.ui.invalidate("ui.render");
     }
 
     const value = request.answer;
-
-    pending = null;
-    await $.ui.close({ id: PANE });
-    $.ui.invalidate("ui.render");
 
     if (value === undefined) {
       return { result: `${PLUGIN} waited for ${name} and nothing was entered. Nothing was kept.` };
@@ -231,7 +276,6 @@ export const register: Register = (on) => {
 
     return { result: entered(name, tag, value.length) };
   }).catch(($, _e, next) => {
-    pending = null;
     $.ui.log(`${PLUGIN}: request_secret failed: ${next.error.kind}`);
 
     return { result: `${PLUGIN} failed before anything was kept. Nothing was written.` };
@@ -248,37 +292,46 @@ export const register: Register = (on) => {
   );
 
   on("ui.close", (_$, e, next) => {
-    if (e.id === PANE && pending !== null && !pending.isInBand) pending.answer = "";
+    // A close before Enter is a cancel; one after it (the person's Escape in the poll's window, or the hook's own) changes nothing.
+    if (e.id === PANE && pending !== null && !pending.isInBand && pending.answer === undefined) {
+      pending.answer = "";
+    }
 
     return next(e);
   }).catch((_$, e, next) => next(e));
 
-  on("tool.call", { tool: "Bash" }, async ($, e, next) => {
-    if (vault.isEmpty() || publishes(e.command)) return next(e);
-    const { text: command, handed } = vault.restore(e.command);
+  on("tool.call", { tool: ["Bash", "Read"] }, async ($, e, next) => {
+    if (vault.isEmpty()) return next(e);
+    const hide = (text: string) => vault.hide(text);
+    let input = e;
+    let handed: readonly string[] = [];
 
-    if (handed.length === 0) return next(e);
-    const active = handed.find((value) => isShellActive(value));
+    if (e.tool === "Bash") {
+      const restored = vault.restore(e.command);
 
-    if (active !== undefined) {
-      return {
-        deny: `${PLUGIN}: ${vault.hide(active, [active])} holds characters the shell reads as code, so it was not put into Bash. Write it to a file with the Write tool and have the command read the file instead.`,
-      };
+      handed = restored.handed;
+
+      if (handed.length > 0) {
+        const why = refusal(e.command, e.run_in_background === true, handed, vault.tagFor);
+
+        if (why !== undefined) return { deny: why };
+        input = { ...e, command: restored.text };
+      }
     }
 
-    const hide = (text: string) => vault.hide(text, handed);
-    const ran = await next({ ...e, command });
+    const ran = await next(input);
 
     if (ran.deny !== undefined) return { deny: hide(ran.deny) };
-    $.ui.notice(e.tool_use_id, `${PLUGIN}: ${handed.length} value(s) put in and hidden again`);
+
+    if (handed.length > 0) {
+      $.ui.notice(e.tool_use_id, `${PLUGIN}: ${handed.length} value(s) put in and hidden again`);
+    }
 
     return hidden(ran, hide);
   }).catch((_$, e, next) => {
     if (vault.isEmpty()) return next(e);
 
-    return next.called
-      ? { deny: WITHHELD }
-      : { deny: `${PLUGIN}: could not put the secret into this command, so it was not run.` };
+    return { deny: next.called ? WITHHELD : NOT_RUN };
   });
 
   on("prompt.submit", ($, e, next) => {

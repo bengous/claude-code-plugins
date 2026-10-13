@@ -10,9 +10,43 @@ const HIDDEN_MIN_LENGTH = 4;
 /** A restored value goes into Bash as shell source: one holding any of these could run as code. */
 const SHELL_ACTIVE = /[\s$`"'\\;&|<>()*?[\]{}#~]/u;
 
-/** A Bash command that writes text into git history or posts it to GitHub, where a real value cannot be taken back. */
-const PUBLISHES =
-  /\bgit\b(?:[ \t]+-[cC][ \t]+\S+|[ \t]+--?[\w-]+(?:=\S+)?)*[ \t]+(?:commit|tag|notes|send-email)\b|\bgh[ \t]+(?:issue|pr|release|gist|discussion|api|repo[ \t]+(?:create|edit))\b/u;
+/** The git subcommands that write text into history or send it out, where a real value cannot be taken back. */
+const GIT_WRITES = new Set([
+  "commit",
+  "tag",
+  "notes",
+  "send-email",
+  "merge",
+  "revert",
+  "cherry-pick",
+  "am",
+  "stash",
+  "rebase",
+  "format-patch",
+  "request-pull",
+]);
+
+/** The one gh subcommand that takes a value in order to keep it secret. */
+const GH_SINK = "secret";
+
+/** gh's global options that take the next word as their value. */
+const GH_VALUED_OPTIONS = new Set(["-R", "--repo"]);
+
+/** The first word after `gh` that is no option: its subcommand. */
+function ghSubcommand(words: readonly string[]): string | undefined {
+  for (let at = 0; at < words.length; at += 1) {
+    const word = words[at] ?? "";
+
+    if (!word.startsWith("-")) return word;
+
+    if (GH_VALUED_OPTIONS.has(word)) at += 1;
+  }
+
+  return undefined;
+}
+
+/** Where one simple command ends and the next begins: a pipe, a list, a line. */
+const SEGMENT = /\|\|?|&&|;|\n/u;
 
 const WALK_DEPTH = 32;
 
@@ -21,9 +55,11 @@ export type Restored = { readonly text: string; readonly handed: readonly string
 export type Vault = {
   /** The placeholder standing for a value, minted on the first ask and stable after. */
   readonly tagOf: (name: string, value: string, seed: number) => string;
+  /** The placeholder of a kept value, or nothing for a value never kept. */
+  readonly tagFor: (value: string) => string | undefined;
   /** The text with each placeholder replaced by its value, and the values put in. */
   readonly restore: (text: string) => Restored;
-  /** The text with each of the values replaced by its placeholder, longest first. */
+  /** The text with each of the values replaced by its placeholder, longest first; every kept value when none is named. */
   readonly hide: (text: string, values?: readonly string[]) => string;
   readonly isEmpty: () => boolean;
 };
@@ -89,6 +125,7 @@ export function createVault(): Vault {
 
       return { text: restored, handed: [...handed] };
     },
+    tagFor: (value) => tagByValue.get(value),
     hide,
     isEmpty: () => tagByValue.size === 0,
   };
@@ -98,8 +135,22 @@ export function isShellActive(value: string): boolean {
   return SHELL_ACTIVE.test(value);
 }
 
+/**
+ * Whether a command writes text into git history or sends it to GitHub, read
+ * simple command by simple command from the words that follow `git` or `gh`:
+ * any git subcommand of the list, wherever it stands after the options, and
+ * every gh subcommand but the secret sink.
+ */
 export function publishes(command: string): boolean {
-  return PUBLISHES.test(command);
+  return command.split(SEGMENT).some((segment) => {
+    const words = segment.trim().split(/\s+/u);
+    const git = words.indexOf("git");
+    const gh = words.indexOf("gh");
+
+    if (git >= 0 && words.slice(git + 1).some((word) => GIT_WRITES.has(word))) return true;
+
+    return gh >= 0 && ghSubcommand(words.slice(gh + 1)) !== GH_SINK;
+  });
 }
 
 /* oxlint-disable anti-slop/no-unknown-parameters, anti-slop/no-unknown-returns, anti-slop/no-runtime-typeof -- a tool's record is the engine's `unknown`, whatever shape the tool gave it; this walk IS the boundary that reads it, and the caller keeps the engine's own type for the shape it hands back. */

@@ -74,10 +74,29 @@ test("isShellActive flags what the shell would read as code", () => {
 test("publishes names the commands whose text leaves the machine", () => {
   expect(publishes("git commit -m 'x'")).toBe(true);
   expect(publishes("git -C /r tag v1")).toBe(true);
+  expect(publishes("git --work-tree /x commit -m x")).toBe(true);
+  expect(publishes("git merge -m 'x' topic")).toBe(true);
+  expect(publishes("git revert HEAD")).toBe(true);
   expect(publishes("gh pr create --body x")).toBe(true);
   expect(publishes("gh api repos/o/r")).toBe(true);
+  expect(publishes("gh variable set X --body y")).toBe(true);
+  expect(publishes("printf '%s' 'x' | gh secret set PAT --repo o/r && gh api repos/o/r")).toBe(
+    true,
+  );
   expect(publishes("gh secret set PAT --repo o/r")).toBe(false);
+  expect(publishes("printf '%s' 'x' | gh --repo o/r secret set PAT")).toBe(false);
   expect(publishes("git status")).toBe(false);
+  expect(publishes("curl -H 'Authorization: Bearer x' https://api.github.com/repos/o/r")).toBe(
+    false,
+  );
+});
+
+test("tagFor answers the placeholder of a kept value, nothing for another", () => {
+  const vault = createVault();
+  const tag = vault.tagOf("PIN", "123", 7);
+
+  expect(vault.tagFor("123")).toBe(tag);
+  expect(vault.tagFor("124")).toBeUndefined();
 });
 
 test("walkStrings rewrites every string of a plain value and keeps the shape", () => {

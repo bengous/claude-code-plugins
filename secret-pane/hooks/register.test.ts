@@ -62,10 +62,12 @@ type World = {
   readonly toasts: string[];
   readonly registered: { name: string; isDeferred: unknown; description: string }[];
   /** Resolves once the module has opened its box, so a test mounts a drawing the module answers. */
-  readonly opened: Promise<void>;
+  readonly opened: () => Promise<void>;
   /** Lets the box's next poll return, so the module reads what the person did. */
   readonly release: () => void;
   readonly commands: string[];
+  /** The commands as the settings hooks beneath the plugin saw them. */
+  readonly checked: string[];
   readonly prompts: string[];
 };
 
@@ -73,18 +75,26 @@ type WorldOptions = {
   readonly surfaces?: readonly RenderSurface[];
   readonly isPlaced?: boolean;
   readonly bashStdout?: string;
+  readonly fileContent?: string;
 };
 
 function stubWorld(
   on: On,
-  { surfaces = ["terminal"], isPlaced = true, bashStdout = "" }: WorldOptions = {},
+  {
+    surfaces = ["terminal"],
+    isPlaced = true,
+    bashStdout = "",
+    fileContent = "",
+  }: WorldOptions = {},
 ): World {
   mock.clock(on, { now: NOW });
+  mock.env(on, {});
   const toasts: string[] = [];
   const registered: World["registered"] = [];
   const commands: string[] = [];
+  const checked: string[] = [];
   const prompts: string[] = [];
-  const opened = latch();
+  let opened = latch();
   let poll = latch();
 
   on("tool.register", (_$, e) => {
@@ -95,6 +105,7 @@ function stubWorld(
   on("session.surfaces", () => ({ value: surfaces }));
   on("ui.open", () => {
     opened.open();
+    opened = latch();
 
     return {
       value: isPlaced ? { isPlaced: true } : { isPlaced: false, reason: "narrow terminal" },
@@ -119,11 +130,28 @@ function stubWorld(
 
     return { value: ran("") };
   });
+  on("classic.PreToolUse", (_$, e, next) => {
+    if (e.tool === "Bash") checked.push(e.command);
+
+    return next(e);
+  });
   on("tool.call", { tool: "Bash" }, (_$, e) => {
     commands.push(e.command);
 
     return { result: bashRecord(bashStdout) };
   });
+  on("tool.call", { tool: "Read" }, (_$, e) => ({
+    result: {
+      type: "text",
+      file: {
+        filePath: e.file_path,
+        content: fileContent,
+        numLines: 1,
+        startLine: 1,
+        totalLines: 1,
+      },
+    },
+  }));
   on("prompt.submit", (_$, e) => {
     prompts.push(e.text);
 
@@ -133,9 +161,10 @@ function stubWorld(
   return {
     toasts,
     registered,
-    opened: opened.wait,
+    opened: () => opened.wait,
     release: () => poll.open(),
     commands,
+    checked,
     prompts,
   };
 }
@@ -153,13 +182,15 @@ async function started($: Engine, on: On, options: WorldOptions = {}) {
 async function kept($: Engine, world: World, value = PAT) {
   const asking = $.tool.call(ASK);
 
-  await world.opened;
+  await world.opened();
   const ui = await $.ui.mount(PANE);
 
   await ui.input({ key: "secret", text: value, kind: "change" });
   await ui.input({ key: "secret", text: "", kind: "submit" });
   world.release();
   const answer = await asking;
+
+  await ui.unmount();
 
   return { answer, tag: String(answer.result).match(TAG)?.[0] ?? "no tag" };
 }
@@ -177,7 +208,7 @@ test("the box takes the value, Claude gets a placeholder and never the value", a
   const world = await started($, on);
   const asking = $.tool.call(ASK);
 
-  await world.opened;
+  await world.opened();
   const ui = await $.ui.mount(PANE);
 
   expect((await ui.find({ type: "Text", text: /PARENT_REPO_PAT/u }))?.text).toContain(
@@ -201,7 +232,7 @@ test("typing after a paste appends; the field only ever draws dots", async ($, o
   const world = await started($, on);
   const asking = $.tool.call(ASK);
 
-  await world.opened;
+  await world.opened();
   const ui = await $.ui.mount(PANE);
 
   await ui.input({ key: "secret", text: "abc", kind: "change" });
@@ -233,19 +264,56 @@ test("a placeholder in a Bash command becomes the value, and the output hides it
   expect(answer.ref).toBeUndefined();
 });
 
-test("a command that commits or posts to GitHub keeps the placeholder", async ($, on) => {
+test("a kept value printed by a later command is hidden too", async ($, on) => {
+  const world = await started($, on, { bashStdout: `url https://x:${PAT}@github.com/o/r` });
+  const { tag } = await kept($, world);
+  const answer = await $.tool.call({ tool: "Bash", command: "git remote -v" });
+
+  expect(world.commands).toEqual(["git remote -v"]);
+  expect(JSON.stringify(answer.result)).toContain(`https://x:${tag}@github.com/o/r`);
+  expect(JSON.stringify(answer.result)).not.toContain(PAT);
+});
+
+test("a file read that holds a kept value comes back with the placeholder", async ($, on) => {
+  const world = await started($, on, { fileContent: `TOKEN=${PAT}\n` });
+  const { tag } = await kept($, world);
+  const answer = await $.tool.call({ tool: "Read", file_path: "/work/repo/.env" });
+
+  expect(JSON.stringify(answer.result)).toContain(`TOKEN=${tag}`);
+  expect(JSON.stringify(answer.result)).not.toContain(PAT);
+});
+
+test("a command holding the placeholder is refused when it commits or posts to GitHub", async ($, on) => {
+  const world = await started($, on);
+  const { tag } = await kept($, world);
+  const commit = await $.tool.call({ tool: "Bash", command: `git commit -m "key ${tag}"` });
+
+  const posted = await $.tool.call({
+    tool: "Bash",
+    command: `printf '%s' '${tag}' | gh secret set PAT --repo o/r && gh api repos/o/r`,
+  });
+
+  expect(commit.deny).toContain("writes git history or sends text to GitHub");
+  expect(posted.deny).toContain("writes git history or sends text to GitHub");
+  expect(world.commands).toEqual([]);
+  const plain = await $.tool.call({ tool: "Bash", command: "gh api repos/o/r" });
+
+  expect(plain.deny).toBeUndefined();
+  expect(world.commands).toEqual(["gh api repos/o/r"]);
+});
+
+test("a background command holding the placeholder is refused", async ($, on) => {
   const world = await started($, on);
   const { tag } = await kept($, world);
 
-  await $.tool.call({ tool: "Bash", command: `git commit -m "key ${tag}"` });
-  await $.tool.call({
+  const answer = await $.tool.call({
     tool: "Bash",
-    command: `gh api -H "Authorization: Bearer ${tag}" repos/o/r`,
+    command: `printf '%s' '${tag}' | gh secret set PAT --repo o/r`,
+    run_in_background: true,
   });
-  expect(world.commands).toEqual([
-    `git commit -m "key ${tag}"`,
-    `gh api -H "Authorization: Bearer ${tag}" repos/o/r`,
-  ]);
+
+  expect(answer.deny).toContain("background");
+  expect(world.commands).toEqual([]);
 });
 
 test("a value the shell would read as code is refused, never put into Bash", async ($, on) => {
@@ -254,15 +322,50 @@ test("a value the shell would read as code is refused, never put into Bash", asy
   const answer = await $.tool.call({ tool: "Bash", command: `echo '${tag}'` });
 
   expect(answer.deny).toContain("characters the shell reads as code");
+  expect(answer.deny).toContain(tag);
   expect(answer.deny).not.toContain("pa ss");
   expect(world.commands).toEqual([]);
+});
+
+test("a short value is refused by its placeholder, never shown", async ($, on) => {
+  const world = await started($, on);
+  const { tag } = await kept($, world, "a b");
+  const answer = await $.tool.call({ tool: "Bash", command: `echo '${tag}'` });
+
+  expect(answer.deny).toContain(tag);
+  expect(answer.deny).not.toContain("a b");
+});
+
+test("the settings hooks beneath see the command with the value in it", async ($, on) => {
+  const world = await started($, on);
+  const { tag } = await kept($, world);
+
+  await $.tool.call({ tool: "Bash", command: `printf '%s' '${tag}' | gh secret set PAT` });
+  expect(world.checked).toEqual([`printf '%s' '${PAT}' | gh secret set PAT`]);
+});
+
+test("the slot frees after an answer: a second request opens a second box", async ($, on) => {
+  const world = await started($, on);
+  const first = await kept($, world);
+  const again = await kept($, world, "another-value");
+
+  expect(first.tag).toMatch(TAG);
+  expect(again.tag).toMatch(TAG);
+  expect(again.tag).not.toBe(first.tag);
+});
+
+test("a session drawn on a phone alone has no box: the tool says so", async ($, on) => {
+  await started($, on, { surfaces: ["mobile"] });
+  const answer = await $.tool.call(ASK);
+
+  expect(String(answer.result)).toContain("needs an interactive session");
 });
 
 test("a narrow terminal gets the box in the band, where Enter on empty cancels", async ($, on) => {
   const world = await started($, on, { isPlaced: false });
   const asking = $.tool.call(ASK);
 
-  await world.opened;
+  await world.opened();
   const ui = await $.ui.mount(BAND);
 
   expect(
