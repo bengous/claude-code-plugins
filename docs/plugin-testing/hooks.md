@@ -51,8 +51,10 @@ under the [loader rules](hook-runtime.md#module-loader).
   type definitions for your version). A `claude -p --plugin-dir` run given no
   prompt loads the plugin but stops on the missing prompt before it writes
   them; an interactive session writes them, then waits at its prompt.
-  `claude-code-tools` follows the account's features and environment
-  variables such as `CLAUDE_CODE_FORK_SUBAGENT`, so
+  `claude-code-tools` follows the session's mode (a `-p` run's Agent tool
+  takes `run_in_background`, an interactive session's does not), the
+  account's features and environment variables such as
+  `CLAUDE_CODE_FORK_SUBAGENT`, so
   `bun ./scripts/claude-code-types.ts regenerate` starts that session in a
   pseudo-terminal with only `PATH`, `HOME` and `DISABLE_AUTOUPDATER`, and a
   `CLAUDE_CONFIG_DIR` that holds no login, only the onboarding marked done
