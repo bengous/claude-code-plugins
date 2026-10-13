@@ -23,7 +23,7 @@ the text selection; `app.tsx` draws them by name. The renderers are the page hal
 the extensions; what an extension is and how one is added is `extensions.md`, which loads
 with the same files. One bundle is a browser's: `Bun.serve` builds it from
 `src/runtime/page/index.html` at the first request for the page,
-no build step, so what the page imports costs nothing at `cli start`.
+no build step, so what the page imports costs nothing when `cli.ts serve` starts.
 
 - `style.css` is the one place a colour is written: its `:root` and its dark block, which
   redefines every base token but `--paper` and `--outline`, the two surfaces the theme does not own. Every other surface derives with `color-mix()`, and every size
@@ -109,29 +109,29 @@ no build step, so what the page imports costs nothing at `cli start`.
   `"artifact"` (a renderable file of the working directory) or `"cited"` (a file the plan links
   outside it), and the rail filters on that label, never on a path. While `drafting` the working
   copy `plan.md` heads the list as `"plan"`; once a version exists the plan is `review.plan`,
-  which `planDoc` of `state.ts` puts at the head with the same label. A reader finds the plan by
-  that label, as `DocList` does, or by `planDoc`'s path, never by its place in `docs`. Past
+  which `selectPlanDoc` of `state.ts` puts at the head with the same label. A reader finds the plan by
+  that label, as `DocList` does, or by `selectPlanDoc`'s path, never by its place in `docs`. Past
   `drafting` the working copy is on no list, and `review.plan.workingCopy` names it, since the
   server is again the one that knows the two are one document. The choice is `linkedDoc` of
   `markdown/links.ts`, three answers read in order: a listed document named in full, then the
   working copy, which selects the plan, then a listed document the name only ends. So `plan.md`
   selects the plan as it does while `drafting`, and a link the page holds no document for keeps
   the new tab its anchor carries. Comments are taken while `inReview` and while `drafting`, a
-  Send changing neither, so `locked` names the approval alone, and Approve is drawn only where a
-  version exists. `locked`
+  Send changing neither, so `selectLocked` names the approval alone, and Approve is drawn only where a
+  version exists. `selectLocked`
   reads `takesComments`, the domain's predicate the server holds a draft to as well. A renderer
-  never reads `commentSwitch`: it reads `commenting`, false on a locked page, so no composer
+  never reads `commentSwitch`: it reads `selectCommenting`, false on a locked page, so no composer
   opens there, and `addAnnotation` returns when locked, as `select` does while the editor is
   open. A comment nobody can send is a silent loss.
-- The workflow the server sends, `review.workflow`, is read by `workflow.ts` alone among the core's
-  modules: `state.ts` keeps the documents, the comments, the draft, the Send and the stream, and
-  reads none of it; `workflow.ts` holds what holds the review, the pill and what is refused now,
-  the approval and Record, the edit a hold keeps, and the column of the core's notices, which reads
-  both. Its store and actions are built over the page's (`workflowOf`): the page runs one over its
+- The workflow the server sends, `review.workflow`, rides in the review `state.ts` keeps with the
+  documents, the comments, the draft, the Send and the stream, and is read through two selectors of
+  `state.ts`, `selectWorkflow` and `selectHeld`: the bar takes the pill and what is refused now from
+  them (`statusOf`). `workflow.ts` holds the approval and Record, the edit a hold keeps, and the
+  column of the core's notices (`useNotices`), which reads both stores. Its store and actions are built over the page's (`workflowOf`): the page runs one over its
   own, `state.spec.ts` one over each store `createPage` builds for a test (`freshFlow`), which a
   module-level one would never see. `workflow.ts` is not in `PAGE_SURFACE`: an extension reads the hold off
   `review.workflow` of `state.ts`.
-- `held` of `workflow.ts` is what holds the review, or `null`, in the holder's words (the grill's
+- `selectHeld` of `state.ts` is what holds the review, or `null`, in the holder's words (the grill's
   region says `grill 2 is open`, by the transcript's number). The reason is also the hold's
   identity: the approval notes remember the one they warned of, and the approval sends it as
   `confirmed`; a reason that differs on the page brings the warning back, and so does the server's
@@ -161,7 +161,7 @@ no build step, so what the page imports costs nothing at `cli start`.
   changes for none. About Vellum fetches the build at each opening, since a server revived under
   the same tab is another build; the server read it at its own start, and a failure is that
   route's 500, shown in the section, never the server's. A `Dialog` counts itself (`dialogUp` of
-  the kit), and the grill's `quiet` reads it, so a proposal never stacks its modal on another.
+  the kit), and `quiet` in `proposal/window.tsx` reads it, so a proposal never stacks its modal on another.
 - What the page says of its state is derived, in `notices.ts`, pure and held by
   `notices.spec.ts`: `noticesOf` the column under the bar, `statusOf` the pill and what it opens
   on, `decisionsOf` the three buttons of the core, greyed or not and why, the reason in each
@@ -170,7 +170,7 @@ no build step, so what the page imports costs nothing at `cli start`.
   offers when it offers one, and the next success of that operation removes it
   (`succeed`); the stale editor derives from `editing` and the version, so its notice leaves
   with the editor; a card's Delete leaves an `undo` for a while. `app.tsx` draws the column with
-  `Notices`, the core's first (`notices` of `workflow.ts`), then each extension's `notices` components: `proposal`'s window is
+  `Notices`, the core's first (`useNotices` of `workflow.ts`), then each extension's `notices` components: `proposal`'s window is
   one, a `Dialog`, shown while it is mounted, and the grill's band another, drawn while a grill is
   open: the subject, the round, the questions that wait for the reviewer, open and untouched in the draft as the chips count them, and End grill. End grill is one component, `EndGrill` in `grill/page.tsx`, which the panel draws too once Claude's turn ended, with one end in flight for the page. Its
   count alone is `role="status"`, drawn empty with none waiting, so a new count is read out and
@@ -232,7 +232,7 @@ no build step, so what the page imports costs nothing at `cli start`.
   question left untouched; and a text of the reviewer's own greys Recommended, so a click never
   throws the typing. The choice is read off the draft when the question shows, then held by it,
   so a text typed through `As recommended.` stays the reviewer's; All recommended draws the
-  question again to read it. `unsentTyped` names what an approval would throw, `strayTyped` what
+  question again to read it. `selectUnsentTyped` names what an approval would throw, `selectStrayTyped` what
   a Send would, the grill's answers leaving with it; each decision puts the warning first when
   its list is not empty, and one that lands clears it. Cancel of the editor over a changed text
   asks first; End grill writes the draft, and the server ends the grill with what it holds for
@@ -252,7 +252,7 @@ no build step, so what the page imports costs nothing at `cli start`.
   the reviewer's comments: a stale edit is dropped with a notice (a `Failure` of op `edit`),
   never silently, and Done on a version that moved is greyed under the notice `staleEditor`
   derives, the editor open so the typing can be copied.
-- One line diff, computed once: `planChanges` in `state.ts` compares the previous version with
+- One line diff, computed once: `selectPlanChanges` in `state.ts` compares the previous version with
   the text on screen, the bar prints its count, and the plan's renderer marks it while
   "Changes since" is on. On Done `shiftAnnotations` moves the plan's comments through the edit,
   from the three texts of the session (the version's, the one the editor opened on, the one
@@ -273,7 +273,7 @@ no build step, so what the page imports costs nothing at `cli start`.
   reviewer's own and no version held it. Discard edit is `discardEdit` through
   `unshiftAnnotations`, a Done that types the version's text back: a passage over a line only
   the edit holds goes with it, and a comment left with no passage goes whole. Its confirmation
-  counts those comments before the click (`goneOnDiscard`), since Discard edit clears Delete's
+  counts those comments before the click (`selectGoneOnDiscard`), since Discard edit clears Delete's
   undo and no notice after it could bring them back. The editor closes through `closeEditor` alone, Done and Cancel alike, on the line
   under the caret: `resume` carries it, the plan's renderer scrolls to its block once the diagrams are drawn and the images decoded,
   and `Tools` gives the focus back to Edit. While the editor is open the comments panel stays
@@ -297,14 +297,14 @@ no build step, so what the page imports costs nothing at `cli start`.
   refreshes what is on screen may fail in silence, since the next workspace event reads again:
   `loadState` in `grill/page.tsx`, which keeps the state it read last, and the open transcript's
   blocks with it, so the grill's panel and its band stay as the reviewer left them, but for an
-  approved page, where the approval closed the grill (`drawn`); `proposal`'s Next step button and
-  window read none past a refused read (`read` in `proposal/page.tsx`), which puts the window on
+  approved page, where the approval closed the grill (`drawnOf`); `proposal`'s Next step button and
+  window read none past a refused read (`readOf` in `proposal/page.tsx`), which puts the window on
   screen off onto the dot. `approve` of `workflow.ts` answers whether the server took the approval
   (`decide` of `state.ts` posts it and clears the draft), and the notes popover closes on that
   alone: a failure leaves the note where it was typed.
 - There is one Send, `send` of `state.ts`, which answers what it did with the edit (`Sent`), and
   which the bar calls through `send` of `workflow.ts`, keeper of the edit a hold left: the bar's `Send (n)`, whose `n` counts the comments,
-  the choices a Send takes (`sendableChoices`), the edit as 1, and each extension's share (`PageExtension.useSend`, `SendShare`: the grill's
+  the choices a Send takes (`selectSendableChoices`), the edit as 1, and each extension's share (`PageExtension.useSend`, `SendShare`: the grill's
   questions answered), which `app.tsx` hands the bar; and a card's Send now, which sends that
   comment or that choice alone and leaves the round, greyed on a comment on the plan while an edit
   waits. The click is a snapshot (`Outgoing`). The server sends from the draft it keeps, so `send` writes the draft first (`writeDraft`, which reads the draft again
@@ -391,7 +391,7 @@ no build step, so what the page imports costs nothing at `cli start`.
   choice just made. The page posts `vellum:chosen`, the options the draft holds for that mockup,
   at every change and at the frame's load; the frame boxes each one the document still has,
   tagged Chosen, and answers `vellum:absent`, the ones it no longer holds (`absent` of
-  `state.ts`, page memory): their cards say so and keep Delete alone, and `sendableChoices`, what
+  `state.ts`, page memory): their cards say so and keep Delete alone, and `selectSendableChoices`, what
   the bar counts and sends, leaves them out. A mockup's script can post `vellum:choose` as it can
   post `vellum:pick`, the same accepted risk: the choice waits in the draft, its card on screen,
   for the reviewer's Send.

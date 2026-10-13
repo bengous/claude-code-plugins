@@ -8,8 +8,9 @@ browser, and the reviewer's answer reaches Claude as a prompt. `/vellum:stop` le
 
 Four kinds of folder, each with its own job. Only the parts share a form:
 
-- the parts, `src/steps/` and `src/formats/`, a folder each: a step Vellum follows, a format a
-  document is read in. Every one is a slice, read the same way: a `contract.ts` that declares it
+- the parts, `src/steps/` and `src/formats/`, a folder each: a step Vellum follows, or the
+  proposal that offers them; a format a document is read in. Every one is a slice, read the same
+  way: a `contract.ts` that declares it
   (`defineSlice`) and a half per runtime it plugs into (`hooks.ts`, `server.ts`, `page.tsx`); one
   with a part of the workflow adds its pure model, named after the folder, and its `walk.ts`, one
   that parses what it did not produce its `parse.ts`; its helpers and their specs sit beside.
@@ -49,7 +50,7 @@ src/runtime/protocol.ts     what crosses HTTP, the server's stdout and a part's 
 src/runtime/extension.ts    what a part's page and server halves fill (a hooks half: runtime/hooks/extension.ts), and
                             the runtimes' own representation of a part, which the registries make from them
 src/runtime/*/slices.ts     each runtime's registry, the only way it reaches a part
-src/steps/<name>/           a step Vellum follows: grill/, agent-review/, proposal/
+src/steps/<name>/           a step Vellum follows, or the proposal that offers them: grill/, agent-review/, proposal/
 src/formats/<name>/         a format a document is read in: markdown/, html/, image/
 src/proof.ts                the proof of the table, the tests' alone: each part's walk.ts, alone, then in pairs
 scripts/contract-diff.ts    what a reviewer reads of a range before its code, as Markdown for the PR
@@ -71,7 +72,7 @@ and is tested (`extensions.md` names the ones to copy), never a snippet kept in 
 ## Commands
 
 ```bash
-bun install --cwd vellum                                            # once; Claude Code does it at the plugin's cache
+bun install --cwd vellum --frozen-lockfile                          # once; Claude Code does it at the plugin's cache
 bun test vellum                                                     # the server's and the page's `*.spec.ts` suites
 bun test vellum/src/workshop/slug.spec.ts                           # one suite; `-t <pattern>` filters by test name
 bun run --cwd vellum e2e -- kit.e2e.ts --project=light-1024         # one suite, one window, about 10 s: how a lot is worked on, and how a red test is reproduced
@@ -120,5 +121,5 @@ For engine observations, read its linked runtime reference and `plans/2026-09-15
 ## Boundaries
 
 - `types/claude-code.d.ts` and `types/claude-code-tools.d.ts` are Claude Code's own, copied from the `.claude-plugin/types/` it writes, never edited; `vellum/types/**` is ignored by the linters.
-- `package.json` + `bun.lock` carry every runtime dependency; a new one goes through the ladder in the repository's `AGENTS.md` first.
+- `package.json` + `bun.lock` carry every runtime dependency; a new one is a decision to propose first, not a convenience.
 - The plugin stands alone: installed, it is a copy of this folder with no repository around it. `tsconfig.json` here names React as the JSX runtime, and without it the installed page answers 500. `src/standalone.spec.ts` serves the page from a copy under the temp directory; what the page needs to build lives in this folder, never in a parent.
