@@ -61,9 +61,20 @@ let pending: Pending | null = null;
 
 const vault = createVault();
 
-/* oxlint-disable anti-slop/no-unknown-parameters, anti-slop/no-runtime-typeof -- a tool argument is the model's own, `unknown` as the engine hands it; this read IS the boundary. */
+const RUN = "Run it";
+
+const SKIP = "Don't run it";
+
+/* oxlint-disable anti-slop/no-unknown-parameters, anti-slop/no-runtime-typeof -- a tool argument is the model's own, `unknown` as the engine hands it; these reads ARE the boundary. */
 function argument(value: unknown): string {
   return typeof value === "string" ? value.trim() : "";
+}
+
+/** The command a permission check reads for Bash, or nothing where the input is no Bash input. */
+function shellCommand(input: unknown): string | null {
+  if (typeof input !== "object" || input === null || !("command" in input)) return null;
+
+  return typeof input.command === "string" ? input.command : null;
 }
 /* oxlint-enable anti-slop/no-unknown-parameters, anti-slop/no-runtime-typeof */
 
@@ -299,6 +310,43 @@ export const register: Register = (on) => {
 
     return next(e);
   }).catch((_$, e, next) => next(e));
+
+  // The permission is decided on the command as it runs, value in: when the session would ask, the
+  // mod asks instead, the placeholder on show, so no dialog and no "always allow" rule carries the value.
+  on("tool.check", { tool: "Bash" }, async ($, e, next) => {
+    const command = shellCommand(e.input);
+
+    if (command === null || vault.isEmpty()) return next(e);
+    const shown = vault.hide(command);
+
+    if (shown === command) return next(e);
+    const verdict = await next(e);
+
+    if (verdict.decision !== "ask") return verdict;
+
+    const choice = await $.ui
+      .ask(`${PLUGIN}: run this command, the placeholder standing for the kept value?\n${shown}`, [
+        RUN,
+        SKIP,
+      ])
+      .catch(() => SKIP);
+
+    return choice === RUN
+      ? {
+          decision: "allow",
+          reason: `${PLUGIN}: the person approved the command, its placeholder on show`,
+        }
+      : { decision: "deny", reason: `${PLUGIN}: the person refused the command` };
+  }).catch((_$, e, next) => {
+    const command = shellCommand(e.input);
+
+    if (command === null || vault.isEmpty() || vault.hide(command) === command) return next(e);
+
+    return {
+      decision: "deny",
+      reason: `${PLUGIN}: could not put this command to the person, so it is refused`,
+    };
+  });
 
   on("tool.call", { tool: ["Bash", "Read"] }, async ($, e, next) => {
     if (vault.isEmpty()) return next(e);

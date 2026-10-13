@@ -68,14 +68,22 @@ type World = {
   readonly commands: string[];
   /** The commands as the settings hooks beneath the plugin saw them. */
   readonly checked: string[];
+  /** The questions the mod's own dialog put to the person. */
+  readonly asked: string[];
   readonly prompts: string[];
 };
+
+type Verdict = { readonly decision: "allow" | "ask" | "deny"; readonly rule?: string };
 
 type WorldOptions = {
   readonly surfaces?: readonly RenderSurface[];
   readonly isPlaced?: boolean;
   readonly bashStdout?: string;
   readonly fileContent?: string;
+  /** What the session decides for a Bash command beneath the plugin; none, and a check reaches nothing. */
+  readonly verdict?: (command: string) => Verdict;
+  /** What the person answers the mod's own dialog; none, and a dialog reaches nothing. */
+  readonly answer?: () => string;
 };
 
 function stubWorld(
@@ -85,6 +93,8 @@ function stubWorld(
     isPlaced = true,
     bashStdout = "",
     fileContent = "",
+    verdict,
+    answer,
   }: WorldOptions = {},
 ): World {
   mock.clock(on, { now: NOW });
@@ -94,6 +104,23 @@ function stubWorld(
   const commands: string[] = [];
   const checked: string[] = [];
   const prompts: string[] = [];
+  const asked: string[] = [];
+
+  if (verdict !== undefined) {
+    // SAFETY: the tests check Bash alone, whose input is `{ command }`; `String(undefined ?? "")` covers any other.
+    on("tool.check", (_$, e) => verdict(String((e.input as { command?: unknown }).command ?? "")));
+  }
+
+  if (answer !== undefined) {
+    on("tool.call", { tool: "AskUserQuestion" }, (_$, e) => {
+      const question = e.questions[0]?.question ?? "";
+
+      asked.push(question);
+
+      return { result: { questions: e.questions, answers: { [question]: answer() } } };
+    });
+  }
+
   let opened = latch();
   let poll = latch();
 
@@ -165,6 +192,7 @@ function stubWorld(
     release: () => poll.open(),
     commands,
     checked,
+    asked,
     prompts,
   };
 }
@@ -342,6 +370,46 @@ test("the settings hooks beneath see the command with the value in it", async ($
 
   await $.tool.call({ tool: "Bash", command: `printf '%s' '${tag}' | gh secret set PAT` });
   expect(world.checked).toEqual([`printf '%s' '${PAT}' | gh secret set PAT`]);
+});
+
+test("a permission the session would ask for is asked by the mod, the placeholder on show", async ($, on) => {
+  let choice = "Run it";
+
+  const world = await started($, on, {
+    verdict: () => ({ decision: "ask" }),
+    answer: () => choice,
+  });
+
+  const { tag } = await kept($, world);
+  const command = `printf '%s' '${PAT}' | gh secret set PAT`;
+  const allowed = await $.tool.check({ tool: "Bash", input: { command } });
+
+  expect(allowed.decision).toBe("allow");
+  expect(world.asked).toHaveLength(1);
+  expect(world.asked[0]).toContain(`printf '%s' '${tag}' | gh secret set PAT`);
+  expect(world.asked[0]).not.toContain(PAT);
+  choice = "Don't run it";
+  const refused = await $.tool.check({ tool: "Bash", input: { command } });
+
+  expect(refused.decision).toBe("deny");
+  expect(refused.reason).toContain("refused");
+});
+
+test("a verdict the session settles itself passes through; a command with no kept value is not the mod's", async ($, on) => {
+  const world = await started($, on, {
+    verdict: (command) =>
+      command.includes(PAT) ? { decision: "allow", rule: "Bash(printf:*)" } : { decision: "ask" },
+    answer: () => "Run it",
+  });
+
+  await kept($, world);
+  const ruled = await $.tool.check({ tool: "Bash", input: { command: `echo ${PAT}` } });
+
+  expect(ruled).toEqual({ decision: "allow", rule: "Bash(printf:*)" });
+  const plain = await $.tool.check({ tool: "Bash", input: { command: "git status" } });
+
+  expect(plain.decision).toBe("ask");
+  expect(world.asked).toEqual([]);
 });
 
 test("the slot frees after an answer: a second request opens a second box", async ($, on) => {
