@@ -33,8 +33,8 @@ rather than reading everything up front:
 | `references/troubleshooting.md` | A phase fails or a submodule misbehaves |
 | `references/decision-rationale.md` | The user asks why submodules over alternatives |
 
-Templates live in `assets/`, helper scripts in `scripts/`. Resolve both through
-`${CLAUDE_PLUGIN_ROOT}` — never a hardcoded install path.
+Templates live in `assets/`, helper scripts in `scripts/`, both under this skill's
+base directory; `references/phases.md` names it `<skill>`.
 
 ## Prerequisites
 

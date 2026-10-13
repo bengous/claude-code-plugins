@@ -4,6 +4,9 @@ Full phase bodies for `SKILL.md`. Each phase carries its own `<escalation>`,
 `<checkpoint>` and `<audit>` block; the orchestrator reads the phase it is about to run
 rather than the whole file.
 
+Paths: `<skill>` is this skill's base directory, the one the harness printed when
+the skill loaded; this file is `<skill>/references/phases.md`.
+
 <phase name="0" title="Backup Checkpoint">
 
 <escalation>
@@ -13,7 +16,7 @@ rather than the whole file.
   </abort>
   <abort>
     <condition>script not found</condition>
-    <message>Skill not installed correctly. Verify ${CLAUDE_PLUGIN_ROOT}/skills/submodule-setup/ exists.</message>
+    <message>Skill not installed correctly. Verify `<skill>/` exists.</message>
   </abort>
 </escalation>
 
@@ -37,7 +40,7 @@ rather than the whole file.
 **Before any modifications**, create recovery point:
 
 ```bash
-${CLAUDE_PLUGIN_ROOT}/skills/submodule-setup/scripts/create-backup.sh /path/to/parent-repo
+<skill>/scripts/create-backup.sh /path/to/parent-repo
 ```
 
 This script:
@@ -56,7 +59,7 @@ Expected: At least one matching branch. Do not proceed until backup exists.
 <error_recovery>
 **If this fails:**
 - If working tree is dirty: commit or stash changes first
-- If script not found: verify skill installation at `${CLAUDE_PLUGIN_ROOT}/skills/submodule-setup/`
+- If script not found: verify skill installation at `<skill>/`
 </error_recovery>
 
 **Rollback procedure** (if setup fails mid-way):
@@ -103,7 +106,8 @@ See `references/troubleshooting.md` for detailed rollback scenarios.
 
 ## Phase 1: Parameter Collection
 
-Use `AskUserQuestion` tool to collect all parameters in a single call:
+Ask for all parameters in one message. They are free-form values, so ask in plain
+text rather than through `AskUserQuestion`, whose questions take a fixed set of options:
 
 | Parameter | Example | Notes |
 |-----------|---------|-------|
@@ -509,10 +513,10 @@ Use `AskUserQuestion` tool to determine sync model:
 ### Step 2: Parent Repo Workflow
 
 **For Push Model:**
-Use `Read` tool to get template from `${CLAUDE_PLUGIN_ROOT}/skills/submodule-setup/assets/update-submodules-push.yml`.
+Use `Read` tool to get template from `<skill>/assets/update-submodules-push.yml`.
 
 **For Pull Model:**
-Use `Read` tool to get template from `${CLAUDE_PLUGIN_ROOT}/skills/submodule-setup/assets/update-submodules.yml`.
+Use `Read` tool to get template from `<skill>/assets/update-submodules.yml`.
 
 Use `Write` tool to create `.github/workflows/update-submodules.yml`:
 - Replace `%DEFAULT_BRANCH%` with actual branch
@@ -522,7 +526,7 @@ Use `Write` tool to create `.github/workflows/update-submodules.yml`:
 **Execute in parallel** - write all workflow files simultaneously:
 
 For each submodule, use `Write` tool to create `.github/workflows/notify-parent.yml` in the submodule directory:
-- Read template from `${CLAUDE_PLUGIN_ROOT}/skills/submodule-setup/assets/notify-parent.yml`
+- Read template from `<skill>/assets/notify-parent.yml`
 - Replace `%PARENT_REPO%` with `<org>/<parent-repo>`
 - Replace `%DEFAULT_BRANCH%` with actual branch
 - Replace `%TARGET_DIR%` with submodule path in parent repo (e.g., `apps/docs`)
@@ -577,13 +581,13 @@ Expected: Files exist and contain correct branch names.
 Use `Read` tool to get templates, `Write` tool to create scripts, then `Bash` for chmod:
 
 **setup-dev.sh:**
-- Read template from `${CLAUDE_PLUGIN_ROOT}/skills/submodule-setup/scripts/setup-dev.sh`
+- Read template from `<skill>/scripts/setup-dev.sh`
 - Replace `%SUBMODULES%` → actual submodule list (space-separated)
 - Replace `%DEFAULT_BRANCH%` → actual branch
 - Write to `scripts/setup-dev.sh`
 
 **check-nested-repos.sh:**
-- Read template from `${CLAUDE_PLUGIN_ROOT}/skills/submodule-setup/scripts/check-nested-repos.sh`
+- Read template from `<skill>/scripts/check-nested-repos.sh`
 - Replace `%SUBMODULES%` → actual submodule list (space-separated)
 - Write to `scripts/check-nested-repos.sh`
 
@@ -708,7 +712,7 @@ Use `Write` tool to create or update `.claude/settings.local.json`:
 
 Add submodule documentation to project's README.md or CLAUDE.md.
 
-Use `Read` tool to get template from `${CLAUDE_PLUGIN_ROOT}/skills/submodule-setup/assets/README-template.md`.
+Use `Read` tool to get template from `<skill>/assets/README-template.md`.
 Use `Read` tool to get existing README.md content.
 Use `Edit` tool to append submodule section to existing README (do not overwrite).
 
