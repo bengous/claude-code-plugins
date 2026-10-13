@@ -237,7 +237,7 @@ This example demonstrates all seven sections: frontmatter with a "Use when" clau
 
 **Semantic tags**: Use XML-style tags (`<domain_guidelines>`) for each major section. Helps Claude's attention and makes sections navigable.
 
-**Examples over explanation**: A good/bad example pair teaches more than a paragraph of prose. Show, don't tell.
+**Examples with their reason**: A good/bad example pair shows what a guideline means; the sentence beside it says why. Keep both, mark examples as illustrative, and vary them across aspects: the model copies an example's length and surface, so a single pattern repeated everywhere becomes the output's template.
 
 **Specificity**: "Avoid overengineering" is useless. "Don't add a plugin system to a grep replacement" is actionable.
 

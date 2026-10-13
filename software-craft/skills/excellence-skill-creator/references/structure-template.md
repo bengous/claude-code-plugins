@@ -9,7 +9,7 @@ What does the user provide? What will the skill produce? Set expectations.
 ```markdown
 ---
 name: [domain]-design
-description: [One sentence on what it creates]. Use this skill when [trigger conditions]. [What it avoids].
+description: [What it creates]. Use when [the user intents it serves, named as categories]. NOT for: [exclusions].
 ---
 
 This skill guides creation of [domain output] that [quality statement].

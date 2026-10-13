@@ -1,6 +1,6 @@
 ---
 name: iaqi
-description: 'Iteratively improve artifacts via parallel reviewers with anchor-based drift prevention. NOT for: one-shot edits, simple fixes, tasks without measurable quality. USE for: skills, prompts, commands, agents needing iterative refinement with score targets. Triggers: "iterate to 9.0", "quality loop", "IAQI", "reviewer loop", "improve until threshold", "iterative quality".'
+description: 'Intent-Anchored Quality Iteration (IAQI): improve a skill, prompt, command or agent in rounds of parallel reviewer scoring and fixes until it meets a score target, with anchors that keep its original intent from drifting. Use when the user wants an artifact refined iteratively against a measurable quality threshold. NOT for: one-shot edits, simple fixes, tasks without measurable quality.'
 ---
 
 Intent-Anchored Quality Iteration (IAQI) prevents semantic drift during iterative improvement. The problem: each iteration risks optimizing for reviewer preferences rather than original intent. IAQI solves this through anchors—semantic checksums verified after every change.
@@ -200,7 +200,7 @@ Select the appropriate template based on artifact type. Human can customize duri
 | Dimension | Description |
 |-----------|-------------|
 | Clarity | Instructions unambiguous? Followable without guessing? |
-| Trigger Quality | Keywords specific? Activates correctly? NOT-for disambiguation? |
+| Trigger Quality | User intents named as categories in a "Use when" clause? Activates correctly? NOT-for disambiguation? |
 | Anti-Slop Power | Pushes away from generic output? Opinionated? Distinctive? |
 | Structure | Well-organized? Proper semantic tags? Logical flow? |
 | Composability | Integrates with other skills/commands? Handles dependencies? |
@@ -234,7 +234,7 @@ Select the appropriate template based on artifact type. Human can customize duri
 |-----------|-------------|
 | Context Clarity | Stateless awareness explained? Role clear? |
 | Responsibilities | Clear scope? Actionable tasks? Boundaries defined? |
-| Constraints | What NOT to do explicit? Guardrails clear? |
+| Constraints | Boundaries stated with their reason? Prohibitions limited to failures that actually occur? |
 | Return Format | Output structure specified? All required fields documented? |
 | Tool Usage | Correct tools? Appropriate permissions? |
 | Best Practices | Context efficiency? Explicit instructions? |
