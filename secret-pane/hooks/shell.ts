@@ -83,8 +83,8 @@ const GIT_LOCAL = new Set([
 
 const GIT_PUSH_REFUSED = [
   "`git push` sends commits out, so a command naming a placeholder may not run it:",
-  "hand the token to git first, with printf 'protocol=https\\nhost=github.com\\nusername=x-access-token\\npassword=%s\\n' '<placeholder>' | git credential approve,",
-  "or let gh's own login carry the push (gh auth status), then push in a command that names no placeholder",
+  "hand the token to a credential helper that stores it, with printf 'protocol=https\\nhost=github.com\\nusername=x-access-token\\npassword=%s\\n' '<placeholder>' | git credential approve",
+  "(gh's own helper keeps nothing and pushes with gh's login: gh auth status), then push in a command that names no placeholder",
 ].join(" ");
 
 /** git's global options that take the next word as their value. */
@@ -185,8 +185,11 @@ function lex(command: string): Lexed {
   return { kind: "words", commands };
 }
 
+/** The program a word names, its directory and a Windows `.exe` dropped. */
 function basename(word: string): string {
-  return word.slice(word.lastIndexOf("/") + 1);
+  const name = word.slice(word.lastIndexOf("/") + 1);
+
+  return name.toLowerCase().endsWith(".exe") ? name.slice(0, -".exe".length) : name;
 }
 
 /** The first word after the program that is no option, the valued options' values skipped. */
