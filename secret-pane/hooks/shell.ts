@@ -37,23 +37,55 @@ const WRAPPERS = new Set([
   "find",
 ]);
 
-/** The git subcommands that write text into history or send it out, where a value cannot be taken back. */
-const GIT_WRITES = new Set([
-  "commit",
-  "commit-tree",
-  "tag",
-  "notes",
-  "send-email",
-  "merge",
-  "revert",
-  "cherry-pick",
-  "am",
-  "stash",
-  "rebase",
-  "format-patch",
-  "request-pull",
-  "push",
+/**
+ * The git subcommands that can neither write a message into history nor send text out. Any other,
+ * an alias included, may put a value where it cannot be taken back.
+ */
+const GIT_LOCAL = new Set([
+  "status",
+  "diff",
+  "log",
+  "show",
+  "fetch",
+  "pull",
+  "clone",
+  "ls-files",
+  "ls-remote",
+  "ls-tree",
+  "rev-parse",
+  "rev-list",
+  "blame",
+  "grep",
+  "describe",
+  "shortlog",
+  "reflog",
+  "cat-file",
+  "show-ref",
+  "for-each-ref",
+  "branch",
+  "checkout",
+  "switch",
+  "restore",
+  "reset",
+  "add",
+  "rm",
+  "mv",
+  "clean",
+  "init",
+  "remote",
+  "config",
+  "worktree",
+  "credential",
+  "bisect",
+  "help",
+  "version",
 ]);
+
+const GIT_PUSH_REFUSED = [
+  "`git push` sends commits out, so a command naming a placeholder may not run it:",
+  "hand the token to git first, with printf 'protocol=https\\nhost=github.com\\nusername=x-access-token\\npassword=%s\\n' '<placeholder>' | git credential approve,",
+  "or let gh's own login carry the push (gh auth status), then push in a command that names no placeholder",
+].join(" ");
 
 /** git's global options that take the next word as their value. */
 const GIT_VALUED_OPTIONS = new Set([
@@ -180,8 +212,12 @@ function programRefusal(words: readonly Word[]): string | undefined {
 
   if (WRAPPERS.has(name)) return `\`${name}\`, which runs its arguments as another command`;
 
-  if (name === "git" && GIT_WRITES.has(subcommand(rest, GIT_VALUED_OPTIONS) ?? ""))
-    return "a git command that writes history or sends it out";
+  const gitSubcommand = name === "git" ? subcommand(rest, GIT_VALUED_OPTIONS) : undefined;
+
+  if (gitSubcommand === "push") return GIT_PUSH_REFUSED;
+
+  if (gitSubcommand !== undefined && !GIT_LOCAL.has(gitSubcommand))
+    return `\`git ${gitSubcommand}\` may write the value into history or send it out, where it cannot be taken back (an alias counts as unknown): to mention the secret, write its name`;
 
   if (name === "gh" && subcommand(rest, GH_VALUED_OPTIONS) !== GH_SINK)
     return "a gh command that sends text to GitHub (gh secret alone takes the value)";

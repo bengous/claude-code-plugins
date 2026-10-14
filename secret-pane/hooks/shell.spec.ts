@@ -63,6 +63,14 @@ describe("restored", () => {
     expect(shellQuote(value)).toBe(`'pa ss$(id)'\\''x'`);
   });
 
+  test("a token handed to git's credential helper", () => {
+    expect(restoreCommand(`printf '%s' '${TAG}' | git credential approve`, valueOf)).toEqual({
+      kind: "restored",
+      command: `printf '%s' '${PAT}' | git credential approve`,
+      handed: [PAT],
+    });
+  });
+
   test("a command naming no placeholder is untouched", () => {
     expect(restoreCommand("git commit -m 'x' && gh pr create", valueOf)).toEqual({
       kind: "untouched",
@@ -103,12 +111,22 @@ describe("refused", () => {
     expect(refused(`env X=1 printf '%s' '${TAG}'`)).toContain("`env`");
   });
 
-  test("git commands that write history, whatever the options before them", () => {
-    expect(refused(`git commit -m '${TAG}'`)).toContain("git command");
-    expect(refused(`git --work-tree /x commit -m '${TAG}'`)).toContain("git command");
-    expect(refused(`/usr/bin/git -C /r tag -m '${TAG}' v1`)).toContain("git command");
+  test("every git subcommand outside the local ones, whatever the options before it", () => {
+    expect(refused(`git commit -m '${TAG}'`)).toContain("`git commit`");
+    expect(refused(`git --work-tree /x commit -m '${TAG}'`)).toContain("`git commit`");
+    expect(refused(`/usr/bin/git -C /r tag -m '${TAG}' v1`)).toContain("`git tag`");
     expect(refused(`git commit-tree HEAD^{tree} -m '${TAG}'`)).toContain("{");
-    expect(refused(`printf '%s' '${TAG}' | git commit -F -`)).toContain("git command");
+    expect(refused(`printf '%s' '${TAG}' | git commit -F -`)).toContain("`git commit`");
+    expect(refused(`git submodule add '${TAG}'`)).toContain("`git submodule`");
+  });
+
+  test("a git alias, which may stand for any subcommand", () => {
+    expect(refused(`git ci -m '${TAG}'`)).toContain("`git ci`");
+    expect(refused(`git -c alias.x=commit x -m '${TAG}'`)).toContain("`git x`");
+  });
+
+  test("git push, with the way to hand git the token instead", () => {
+    expect(refused(`git push '${TAG}' main`)).toContain("git credential approve");
   });
 
   test("every gh command but secret", () => {

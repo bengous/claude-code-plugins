@@ -21,6 +21,14 @@ describe("tagOf and valueOf", () => {
     expect(vault.tagOf("A", "one-value", 7)).not.toBe(vault.tagOf("B", "another-value", 7));
   });
 
+  test("mintedIn finds a placeholder of this vault in a text, never another one", () => {
+    const vault = createVault();
+    const tag = vault.tagOf("A", "one-value", 7);
+
+    expect(vault.mintedIn(`A=${tag}\n`)).toBe(tag);
+    expect(vault.mintedIn("A=[secret-pane:A:00000000]")).toBeUndefined();
+  });
+
   test("clear forgets every value", () => {
     const vault = createVault();
     const tag = vault.tagOf("A", "one-value", 7);

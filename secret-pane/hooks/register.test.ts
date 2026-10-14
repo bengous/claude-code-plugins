@@ -68,6 +68,8 @@ type World = {
   /** Lets the box's next poll return, so the module reads what the person did. */
   readonly release: () => void;
   readonly commands: string[];
+  /** The files a Write, an Edit or a NotebookEdit reached. */
+  readonly written: string[];
   /** The commands as the settings hooks beneath the plugin saw them. */
   readonly checked: string[];
   /** The questions the mod's own dialog put to the person. */
@@ -105,6 +107,7 @@ function stubWorld(
   const toasts: string[] = [];
   const registered: World["registered"] = [];
   const commands: string[] = [];
+  const written: string[] = [];
   const checked: string[] = [];
   const prompts: World["prompts"] = [];
   const asked: string[] = [];
@@ -182,6 +185,49 @@ function stubWorld(
       },
     },
   }));
+  on("tool.call", { tool: "Write" }, (_$, e) => {
+    written.push(e.file_path);
+
+    return {
+      result: {
+        type: "update",
+        filePath: e.file_path,
+        content: e.content,
+        structuredPatch: [],
+        originalFile: fileContent,
+      },
+    };
+  });
+  on("tool.call", { tool: "Edit" }, (_$, e) => {
+    written.push(e.file_path);
+
+    return {
+      result: {
+        filePath: e.file_path,
+        oldString: e.old_string,
+        newString: e.new_string,
+        originalFile: fileContent,
+        structuredPatch: [],
+        userModified: false,
+        replaceAll: false,
+      },
+    };
+  });
+  on("tool.call", { tool: "NotebookEdit" }, (_$, e) => {
+    written.push(e.notebook_path);
+
+    return {
+      result: {
+        new_source: e.new_source,
+        cell_type: "code",
+        language: "python",
+        edit_mode: "replace",
+        notebook_path: e.notebook_path,
+        original_file: fileContent,
+        updated_file: "",
+      },
+    };
+  });
   on("prompt.submit", (_$, e) => {
     prompts.push({ text: e.text, context: e.context });
 
@@ -194,6 +240,7 @@ function stubWorld(
     opened: () => opened.wait,
     release: () => poll.open(),
     commands,
+    written,
     checked,
     asked,
     prompts,
@@ -358,6 +405,65 @@ test("a file read that holds a kept value comes back with the placeholder", asyn
   expect(JSON.stringify(answer.result)).not.toContain(PAT);
 });
 
+test("a placeholder of this session in a written file is refused, with the Bash way to write it", async ($, on) => {
+  const world = await started($, on);
+  const { tag } = await kept($, world);
+
+  const write = await $.tool.call({
+    tool: "Write",
+    file_path: "/work/repo/.env",
+    content: `PARENT_REPO_PAT=${tag}\n`,
+  });
+
+  const edit = await $.tool.call({
+    tool: "Edit",
+    file_path: "/work/repo/.env",
+    old_string: "PARENT_REPO_PAT=",
+    new_string: `PARENT_REPO_PAT=${tag}`,
+  });
+
+  const cell = await $.tool.call({
+    tool: "NotebookEdit",
+    notebook_path: "/work/repo/a.ipynb",
+    new_source: `token = "${tag}"`,
+  });
+
+  expect(write.deny).toContain(`printf 'PARENT_REPO_PAT=%s\\n' '${tag}' >> .env`);
+  expect(write.deny).toContain("write PARENT_REPO_PAT");
+  expect(edit.deny).toContain("the file was not written");
+  expect(cell.deny).toContain("the file was not written");
+  expect(world.written).toEqual([]);
+});
+
+test("a placeholder this session never minted is written as text, an example", async ($, on) => {
+  const world = await started($, on);
+
+  await kept($, world);
+
+  const answer = await $.tool.call({
+    tool: "Write",
+    file_path: "/work/repo/README.md",
+    content: "Claude gets [secret-pane:PARENT_REPO_PAT:3f9a1c2e].\n",
+  });
+
+  expect(answer.deny).toBeUndefined();
+  expect(world.written).toEqual(["/work/repo/README.md"]);
+});
+
+test("a Write over a file that held a kept value keeps its placeholder in the record", async ($, on) => {
+  const world = await started($, on, { fileContent: `TOKEN=${PAT}\n` });
+  const { tag } = await kept($, world);
+
+  const answer = await $.tool.call({
+    tool: "Write",
+    file_path: "/work/repo/.env",
+    content: "TOKEN=rotated\n",
+  });
+
+  expect(JSON.stringify(answer.result)).toContain(`TOKEN=${tag}`);
+  expect(JSON.stringify(answer.result)).not.toContain(PAT);
+});
+
 test("a row any door appends is hidden before the model reads it", async ($, on) => {
   const world = await started($, on);
   const { tag } = await kept($, world);
@@ -393,7 +499,7 @@ test("a command holding the placeholder is refused when it commits, posts or cha
 
   const quoted = await $.tool.call({ tool: "Bash", command: `curl -H 'Bearer ${tag}' https://a` });
 
-  expect(commit.deny).toContain("git command that writes history");
+  expect(commit.deny).toContain("`git commit` may write the value into history");
   expect(chained.deny).toContain("`&`");
   expect(quoted.deny).toContain("whole single-quoted word");
   expect(world.commands).toEqual([]);

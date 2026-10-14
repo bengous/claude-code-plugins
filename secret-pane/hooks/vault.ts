@@ -14,6 +14,8 @@ export type Vault = {
   readonly tagOf: (name: string, value: string, seed: number) => string;
   /** The value behind a placeholder, or nothing for one this vault never minted. */
   readonly valueOf: (tag: string) => string | undefined;
+  /** The first placeholder this vault minted that the text holds, or nothing. */
+  readonly mintedIn: (text: string) => string | undefined;
   /** The text with every kept value replaced by its placeholder, in one pass. */
   readonly hide: (text: string) => string;
   readonly isEmpty: () => boolean;
@@ -76,6 +78,7 @@ export function createVault(): Vault {
       return tag;
     },
     valueOf: (tag) => valueByTag.get(tag),
+    mintedIn: (text) => [...valueByTag.keys()].find((tag) => text.includes(tag)),
     hide: (text) =>
       tagByValue.size === 0
         ? text

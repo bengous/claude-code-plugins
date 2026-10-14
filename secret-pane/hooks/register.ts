@@ -1,4 +1,4 @@
-import type { EngineInterface, Register, ToolCallResult } from "claude-code";
+import type { EngineInterface, Register, ToolCallInput, ToolCallResult } from "claude-code";
 
 import { restoreCommand } from "./shell.ts";
 import { createVault, entered, mergeTyped, PLUGIN, VARIABLE_NAME, walkStrings } from "./vault.ts";
@@ -27,13 +27,16 @@ const POLL_WINDOWS = [
 const PANE_ROWS = 7;
 
 /** The tools whose stored record can hold a command's output or a file's text. */
-type Reader = "Bash" | "Read" | "Edit" | "NotebookEdit" | "Monitor" | "GetTask" | "LSP";
+type Reader = "Bash" | "Read" | "Write" | "Edit" | "NotebookEdit" | "Monitor" | "GetTask" | "LSP";
+
+/** The tools that write the text the model gave them into a file, a placeholder as text. */
+type FileWrite = Extract<ToolCallInput, { tool: "Write" | "Edit" | "NotebookEdit" }>;
 
 const RESTORE_RULES = [
   "Write the placeholder as a whole single-quoted word, in one command or one pipe of two:",
   "printf '%s' '<placeholder>' | gh secret set NAME --repo org/repo, or curl --oauth2-bearer '<placeholder>' https://...",
   "A command is refused when a placeholder stands anywhere else or is no placeholder of this session; when it holds ; & && || $ ( ) a backtick, a new line or a second pipe;",
-  "when it goes through a wrapper (sh, bash, env, xargs, sudo...), a git command that writes history, or a gh command other than gh secret; and when it runs in the background.",
+  "when it goes through a wrapper (sh, bash, env, xargs, sudo...), git other than a local subcommand (status, diff, log, add, credential...; an alias counts as unknown), or a gh command other than gh secret; and when it runs in the background.",
 ].join(" ");
 
 const DESCRIPTION = [
@@ -49,6 +52,8 @@ const WITHHELD = `${PLUGIN}: could not check this result for a kept value, so th
 const NOT_RUN = `${PLUGIN}: could not put the kept value into this command, so it was not run.`;
 
 const BLOCK_WITHHELD = `[${PLUGIN} withheld this text: the check for a kept value failed]`;
+
+const WRITE_UNCHECKED = `${PLUGIN}: could not check this text for a placeholder of this session, so the file was not written.`;
 
 const RUN = "Run it";
 
@@ -110,6 +115,22 @@ function hidden(ran: Answer, hide: (text: string) => string): ReadResult {
   if (ran.context !== undefined) answered.context = ran.context.map(hide);
 
   return answered;
+}
+
+function fileText(e: FileWrite): string {
+  if (e.tool === "Write") return e.content;
+
+  return e.tool === "Edit" ? e.new_string : e.new_source;
+}
+
+function writeRefused(tag: string): string {
+  const name = tag.slice("[secret-pane:".length, tag.lastIndexOf(":"));
+
+  return [
+    `${PLUGIN}: the file was not written: ${tag} stands for a kept value, and this tool would write the placeholder as text.`,
+    `To put the value in a file, write it from Bash: printf '${name}=%s\\n' '${tag}' >> .env.`,
+    `To mention the secret without its value, write ${name}.`,
+  ].join(" ");
 }
 
 function answerText(name: string, tag: string, length: number): string {
@@ -371,9 +392,18 @@ export const register: Register = (on) => {
     };
   });
 
+  // A placeholder of this session written into a file would stand there as text, where the value was meant.
+  on("tool.call", { tool: ["Write", "Edit", "NotebookEdit"] }, (_$, e, next) => {
+    const tag = vault.mintedIn(fileText(e));
+
+    return tag === undefined ? next(e) : { deny: writeRefused(tag) };
+  }).catch((_$, e, next) =>
+    next.called || !fileText(e).includes("[secret-pane:") ? next(e) : { deny: WRITE_UNCHECKED },
+  );
+
   on(
     "tool.call",
-    { tool: ["Bash", "Read", "Edit", "NotebookEdit", "Monitor", "GetTask", "LSP"] },
+    { tool: ["Bash", "Read", "Write", "Edit", "NotebookEdit", "Monitor", "GetTask", "LSP"] },
     async (_$, e, next) => {
       let input = e;
       let restoredCommand: string | null = null;
