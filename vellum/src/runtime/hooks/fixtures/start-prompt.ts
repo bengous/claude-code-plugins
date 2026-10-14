@@ -1,3 +1,3 @@
-import type { SkillPromptInput } from "claude-code";
+import type { SkillPromptArgs } from "claude-code";
 
-export const START_PROMPT: SkillPromptInput = { skill: "vellum:start", text: "t" };
+export const START_PROMPT: SkillPromptArgs = { skill: "vellum:start", text: "t" };
