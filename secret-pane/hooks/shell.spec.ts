@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import { restoreCommand, shellQuote } from "./shell.ts";
+import { invocations, isLocal, restoreCommand, shellQuote } from "./shell.ts";
 
 const TAG = "[secret-pane:PAT:0a1b2c3d]";
 
@@ -142,5 +142,56 @@ describe("refused", () => {
   test("an assignment in front of the command", () => {
     expect(refused(`GH_TOKEN='${TAG}' gh api r`)).toContain("whole single-quoted word");
     expect(refused(`X=1 printf '%s' '${TAG}'`)).toContain("assignment");
+  });
+});
+
+function argsOf(command: string, program: "git" | "gh" = "git") {
+  return invocations(command, program).map((call) => call.args);
+}
+
+describe("invocations", () => {
+  test("each git word with the words after it, quotes and escapes removed", () => {
+    expect(argsOf(`git commit -m "fix: the thing" && git -C "my dir" status`)).toEqual([
+      ["commit", "-m", "fix: the thing"],
+      ["-C", "my dir", "status"],
+    ]);
+    expect(argsOf(`git commit -m "say \\"hi\\"" | cat`)).toEqual([["commit", "-m", `say "hi"`]]);
+    expect(argsOf("/usr/bin/git log; gh pr list", "gh")).toEqual([["pr", "list"]]);
+  });
+
+  test("inside a quoted command, a substitution or a subshell too", () => {
+    expect(argsOf(`sh -c "git commit -m x"`)).toEqual([["commit", "-m", "x"]]);
+    expect(argsOf("echo `git rev-parse HEAD` $(git log -1)")).toEqual([
+      ["rev-parse", "HEAD"],
+      ["log", "-1"],
+    ]);
+    expect(argsOf("(git commit)")).toEqual([["commit"]]);
+  });
+
+  test("a comment names nothing", () => {
+    expect(argsOf("echo hi # git push")).toEqual([]);
+    expect(argsOf("echo a#b git")).toEqual([[]]);
+  });
+
+  test("the cd targets standing before each, a subshell's kept in it", () => {
+    expect(invocations("cd /a && cd b; git status", "git")).toEqual([
+      { args: ["status"], cds: ["/a", "b"] },
+    ]);
+    expect(invocations("(cd /a && git status) && git log", "git").map((call) => call.cds)).toEqual([
+      ["/a"],
+      [],
+    ]);
+    expect(invocations("cd -P /x && cd && git log", "git")[0]?.cds).toEqual(["/x", "~"]);
+  });
+});
+
+describe("isLocal", () => {
+  test("a local git subcommand or none, and gh secret alone", () => {
+    expect(isLocal("git", ["-C", "/r", "status"])).toBe(true);
+    expect(isLocal("git", ["--version"])).toBe(true);
+    expect(isLocal("git", ["--git-dir=/g", "commit"])).toBe(false);
+    expect(isLocal("git", ["ci"])).toBe(false);
+    expect(isLocal("gh", ["-R", "o/r", "secret", "set", "X"])).toBe(true);
+    expect(isLocal("gh", ["api", "user"])).toBe(false);
   });
 });

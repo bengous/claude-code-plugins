@@ -29,6 +29,15 @@ describe("tagOf and valueOf", () => {
     expect(vault.mintedIn("A=[secret-pane:A:00000000]")).toBeUndefined();
   });
 
+  test("values lists every kept value once", () => {
+    const vault = createVault();
+
+    vault.tagOf("A", "one-value", 7);
+    vault.tagOf("A", "one-value", 8);
+    vault.tagOf("B", "another-value", 7);
+    expect(vault.values()).toEqual(["one-value", "another-value"]);
+  });
+
   test("clear forgets every value", () => {
     const vault = createVault();
     const tag = vault.tagOf("A", "one-value", 7);

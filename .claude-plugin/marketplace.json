@@ -458,7 +458,7 @@
     {
       "name": "secret-pane",
       "description": "Claude asks for a secret in a masked box and gets a placeholder: the value stays in the session's memory, becomes real only inside a Bash command, is hidden again in every Bash and Read result and in the prompt, and never reaches the transcript; the mod writes nothing to disk",
-      "version": "0.1.1",
+      "version": "0.2.0",
       "author": {
         "name": "Augustin BENGOLEA",
         "email": "bengous@protonmail.com"

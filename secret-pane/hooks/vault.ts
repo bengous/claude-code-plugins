@@ -16,6 +16,8 @@ export type Vault = {
   readonly valueOf: (tag: string) => string | undefined;
   /** The first placeholder this vault minted that the text holds, or nothing. */
   readonly mintedIn: (text: string) => string | undefined;
+  /** Every kept value, for a search the mod runs itself. */
+  readonly values: () => readonly string[];
   /** The text with every kept value replaced by its placeholder, in one pass. */
   readonly hide: (text: string) => string;
   readonly isEmpty: () => boolean;
@@ -79,6 +81,7 @@ export function createVault(): Vault {
     },
     valueOf: (tag) => valueByTag.get(tag),
     mintedIn: (text) => [...valueByTag.keys()].find((tag) => text.includes(tag)),
+    values: () => [...tagByValue.keys()],
     hide: (text) =>
       tagByValue.size === 0
         ? text

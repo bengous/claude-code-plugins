@@ -1,5 +1,6 @@
 import type { EngineInterface, Register, ToolCallInput, ToolCallResult } from "claude-code";
 
+import { type Found, type Host, needlesOf, scanChanges, scanTargets } from "./scan.ts";
 import { restoreCommand } from "./shell.ts";
 import { createVault, entered, mergeTyped, PLUGIN, VARIABLE_NAME, walkStrings } from "./vault.ts";
 
@@ -26,6 +27,9 @@ const POLL_WINDOWS = [
 
 const PANE_ROWS = 7;
 
+/** What one `$.fs.read` takes: a larger file rejects. */
+const READ_LIMIT = 4 * 1024 * 1024;
+
 /** The tools whose stored record can hold a command's output or a file's text. */
 type Reader = "Bash" | "Read" | "Write" | "Edit" | "NotebookEdit" | "Monitor" | "GetTask" | "LSP";
 
@@ -49,7 +53,7 @@ const DESCRIPTION = [
 
 const WITHHELD = `${PLUGIN}: could not check this result for a kept value, so the result was withheld. Narrow the call (head, grep, offset) and retry.`;
 
-const NOT_RUN = `${PLUGIN}: could not put the kept value into this command, so it was not run.`;
+const NOT_RUN = `${PLUGIN}: could not check this command against the kept values, so it was not run.`;
 
 const BLOCK_WITHHELD = `[${PLUGIN} withheld this text: the check for a kept value failed]`;
 
@@ -131,6 +135,52 @@ function writeRefused(tag: string): string {
     `To put the value in a file, write it from Bash: printf '${name}=%s\\n' '${tag}' >> .env.`,
     `To mention the secret without its value, write ${name}.`,
   ].join(" ");
+}
+
+function hostOf($: EngineInterface): Host {
+  return {
+    run: (argv, cwd) => $.process.run(argv, cwd === undefined ? {} : { cwd }),
+    read: async (path) => {
+      const stat = await $.fs.stat(path);
+
+      return stat.kind === "file" && stat.size <= READ_LIMIT ? $.fs.read(path) : null;
+    },
+  };
+}
+
+function fixOf({ path, isTracked }: Found): string {
+  return isTracked
+    ? `${path} (tracked: take the value out, or stop tracking the file with git rm --cached ${path})`
+    : `${path} (untracked: add it to .gitignore)`;
+}
+
+/** Why a command that may commit or publish may not run while a change it could carry holds a kept value, or nothing. */
+async function changesRefusal($: EngineInterface, command: string): Promise<string | undefined> {
+  const targets = scanTargets(command, await $.env.get("HOME"));
+
+  if (targets.length === 0) return undefined;
+  const needles = needlesOf(vault.values());
+  const host = hostOf($);
+
+  for (const target of targets) {
+    const checked = `\`${target.label}\` may commit or publish, so the changes it could carry are read for a kept value first`;
+
+    if (target.kind === "unknown") {
+      return `${PLUGIN}: the command was not run: ${checked}, and the mod cannot tell where \`${target.spelling}\` leads: write that directory as a path.`;
+    }
+
+    const scan = await scanChanges(host, target, needles);
+
+    if (scan.kind === "found") {
+      return `${PLUGIN}: the command was not run: \`${target.label}\` may commit or publish, and a kept value stands in ${scan.files.map(fixOf).join(", ")}. Then run it again.`;
+    }
+
+    if (scan.kind === "failed") {
+      return `${PLUGIN}: the command was not run: ${checked}, and that check failed: ${scan.why}. Fix what it names and run it again; a /clear forgets the kept values, and the check with them.`;
+    }
+  }
+
+  return undefined;
 }
 
 function answerText(name: string, tag: string, length: number): string {
@@ -404,7 +454,7 @@ export const register: Register = (on) => {
   on(
     "tool.call",
     { tool: ["Bash", "Read", "Write", "Edit", "NotebookEdit", "Monitor", "GetTask", "LSP"] },
-    async (_$, e, next) => {
+    async ($, e, next) => {
       let input = e;
       let restoredCommand: string | null = null;
 
@@ -418,13 +468,17 @@ export const register: Register = (on) => {
           };
         }
 
-        if (restoration.kind === "restored") {
-          if (e.run_in_background === true) {
-            return {
-              deny: `${PLUGIN}: the command was not run: a background command's output is written to disk and read back past the mod. Run it in the foreground.`,
-            };
-          }
+        if (restoration.kind === "restored" && e.run_in_background === true) {
+          return {
+            deny: `${PLUGIN}: the command was not run: a background command's output is written to disk and read back past the mod. Run it in the foreground.`,
+          };
+        }
 
+        const unsafe = vault.isEmpty() ? undefined : await changesRefusal($, e.command);
+
+        if (unsafe !== undefined) return { deny: vault.hide(unsafe) };
+
+        if (restoration.kind === "restored") {
           restoredCommand = restoration.command;
           asWritten.set(restoredCommand, e.command);
           input = { ...e, command: restoredCommand };

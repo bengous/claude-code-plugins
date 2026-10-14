@@ -197,17 +197,46 @@ function basename(word: string): string {
   return name.endsWith(".exe") ? name.slice(0, -".exe".length) : name;
 }
 
-/** The first word after the program that is no option, the valued options' values skipped. */
-function subcommand(args: readonly string[], valued: ReadonlySet<string>): string | undefined {
+export type Program = "git" | "gh";
+
+export type GlobalOption = { readonly name: string; readonly value: string | undefined };
+
+export type Parsed = {
+  readonly options: readonly GlobalOption[];
+  readonly subcommand: string | undefined;
+};
+
+/** A git or gh invocation's global options, each value the next word or after `=`, then the first word that is none. */
+export function parseInvocation(program: Program, args: readonly string[]): Parsed {
+  const valued = program === "git" ? GIT_VALUED_OPTIONS : GH_VALUED_OPTIONS;
+  const options: GlobalOption[] = [];
+
   for (let at = 0; at < args.length; at += 1) {
     const word = args[at] ?? "";
+    const equals = word.indexOf("=");
 
-    if (!word.startsWith("-")) return word;
+    if (!word.startsWith("-")) return { options, subcommand: word };
 
-    if (valued.has(word)) at += 1;
+    if (word.startsWith("--") && equals > 0) {
+      options.push({ name: word.slice(0, equals), value: word.slice(equals + 1) });
+    } else if (valued.has(word)) {
+      options.push({ name: word, value: args[at + 1] });
+      at += 1;
+    } else {
+      options.push({ name: word, value: undefined });
+    }
   }
 
-  return undefined;
+  return { options, subcommand: undefined };
+}
+
+/** Whether an invocation can neither write a message into history nor send text out: a local git subcommand or none, gh secret. */
+export function isLocal(program: Program, args: readonly string[]): boolean {
+  const { subcommand } = parseInvocation(program, args);
+
+  if (program === "gh") return subcommand === GH_SINK;
+
+  return subcommand === undefined || GIT_LOCAL.has(subcommand);
 }
 
 /** Why one simple command may not carry a value, or nothing. */
@@ -220,17 +249,180 @@ function programRefusal(words: readonly Word[]): string | undefined {
 
   if (WRAPPERS.has(name)) return `\`${name}\`, which runs its arguments as another command`;
 
-  const gitSubcommand = name === "git" ? subcommand(rest, GIT_VALUED_OPTIONS) : undefined;
+  if (name === "git" && !isLocal("git", rest)) {
+    const { subcommand } = parseInvocation("git", rest);
 
-  if (gitSubcommand === "push") return GIT_PUSH_REFUSED;
+    return subcommand === "push"
+      ? GIT_PUSH_REFUSED
+      : `\`git ${subcommand}\` may write the value into history or send it out, where it cannot be taken back (an alias counts as unknown): to mention the secret, write its name`;
+  }
 
-  if (gitSubcommand !== undefined && !GIT_LOCAL.has(gitSubcommand))
-    return `\`git ${gitSubcommand}\` may write the value into history or send it out, where it cannot be taken back (an alias counts as unknown): to mention the secret, write its name`;
-
-  if (name === "gh" && subcommand(rest, GH_VALUED_OPTIONS) !== GH_SINK)
+  if (name === "gh" && !isLocal("gh", rest))
     return "a gh command that sends text to GitHub (gh secret alone takes the value)";
 
   return undefined;
+}
+
+/** Outside quotes, each of these ends a simple command. */
+const COMMAND_ENDS = new Set([";", "&", "|", "(", ")", "<", ">", "`", "\n"]);
+
+/** Inside double quotes, the characters a backslash escapes. */
+const DOUBLE_QUOTED_ESCAPES = new Set(['"', "\\", "$", "`", "\n"]);
+
+type Part =
+  | { readonly kind: "word"; readonly text: string; readonly isQuoted: boolean }
+  | { readonly kind: "end"; readonly char: string };
+
+/**
+ * The command cut into words and the operators that end a simple command, as
+ * the shell would cut it before any expansion: quotes and escapes removed, a
+ * comment dropped. An unclosed quote runs to the end.
+ */
+function parts(command: string): readonly Part[] {
+  const out: Part[] = [];
+  let text = "";
+  let isWord = false;
+  let isQuoted = false;
+  let at = 0;
+
+  const flush = () => {
+    if (isWord) out.push({ kind: "word", text, isQuoted });
+    text = "";
+    isWord = false;
+    isQuoted = false;
+  };
+
+  while (at < command.length) {
+    const char = command[at] ?? "";
+
+    if (char === "\\") {
+      const next = command[at + 1] ?? "";
+
+      // A backslash before a new line joins the two lines.
+      if (next !== "\n") {
+        text += next;
+        isWord = true;
+      }
+
+      at += 2;
+    } else if (char === "'") {
+      const close = command.indexOf("'", at + 1);
+      const end = close < 0 ? command.length : close;
+
+      text += command.slice(at + 1, end);
+      isWord = true;
+      isQuoted = true;
+      at = end + 1;
+    } else if (char === '"') {
+      at += 1;
+
+      while (at < command.length && command[at] !== '"') {
+        const inner = command[at] ?? "";
+        const next = command[at + 1] ?? "";
+
+        if (inner === "\\" && DOUBLE_QUOTED_ESCAPES.has(next)) {
+          text += next === "\n" ? "" : next;
+          at += 2;
+        } else {
+          text += inner;
+          at += 1;
+        }
+      }
+
+      isWord = true;
+      isQuoted = true;
+      at += 1;
+    } else if (char === "#" && !isWord) {
+      const newline = command.indexOf("\n", at);
+
+      at = newline < 0 ? command.length : newline;
+    } else if (char === " " || char === "\t" || char === "\r") {
+      flush();
+      at += 1;
+    } else if (COMMAND_ENDS.has(char)) {
+      flush();
+      out.push({ kind: "end", char });
+      at += 1;
+    } else {
+      text += char;
+      isWord = true;
+      at += 1;
+    }
+  }
+
+  flush();
+
+  return out;
+}
+
+export type Invocation = {
+  /** The words after the program's, to the end of its simple command. */
+  readonly args: readonly string[];
+  /** The targets of the `cd` commands before it that still decide where it runs, in order; none, the session's directory. */
+  readonly cds: readonly string[];
+};
+
+/** The directory a `cd` command goes to, as written: `~` with no argument, `-` for the one before. */
+function cdTarget(words: readonly string[]): string {
+  return words.slice(1).find((word) => word === "-" || !word.startsWith("-")) ?? "~";
+}
+
+function collect(
+  command: string,
+  program: Program,
+  base: readonly string[],
+  found: Invocation[],
+): void {
+  const saved: string[][] = [];
+  let cds = [...base];
+  let words: Extract<Part, { kind: "word" }>[] = [];
+
+  const end = () => {
+    const texts = words.map((word) => word.text);
+
+    if (texts[0] === "cd") cds.push(cdTarget(texts));
+
+    for (const [at, word] of words.entries()) {
+      if (basename(word.text) === program) found.push({ args: texts.slice(at + 1), cds: [...cds] });
+
+      if (word.isQuoted && /[\s;&|()<>`]/u.test(word.text)) collect(word.text, program, cds, found);
+    }
+
+    words = [];
+  };
+
+  for (const part of parts(command)) {
+    if (part.kind === "word") {
+      words.push(part);
+      continue;
+    }
+
+    end();
+
+    if (part.char === "(") {
+      saved.push(cds);
+      cds = [...cds];
+    }
+
+    if (part.char === ")") cds = saved.pop() ?? cds;
+  }
+
+  end();
+}
+
+/**
+ * Each word of the command that names `program`, with the words after it to
+ * the end of its simple command and the `cd` targets standing before it. A
+ * coarse cut on blanks, quotes and operators, no expansion; a quoted span that
+ * holds blanks or operators is read again as a command run from where it
+ * stands, so `sh -c "git commit"` names git too. A subshell's `cd` stays in it.
+ */
+export function invocations(command: string, program: Program): readonly Invocation[] {
+  const found: Invocation[] = [];
+
+  collect(command, program, [], found);
+
+  return found;
 }
 
 /** A value as one single-quoted shell word, whatever it holds. */

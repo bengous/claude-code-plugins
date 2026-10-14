@@ -42,8 +42,13 @@ const BAND = {
   },
 } as const;
 
-function ran(stdout: string, exitCode = 0) {
-  return { exitCode, stdout, stderr: "", isStdoutTruncated: false, isStderrTruncated: false };
+function ran(stdout: string, exitCode = 0, stderr = "") {
+  return { exitCode, stdout, stderr, isStdoutTruncated: false, isStderrTruncated: false };
+}
+
+/** A clean repository at /work/repo: its root, no change, no untracked file. */
+function cleanRepo(args: readonly string[]) {
+  return ran(args.includes("rev-parse") ? "/work/repo\n" : "");
 }
 
 function bashRecord(stdout: string) {
@@ -68,6 +73,8 @@ type World = {
   /** Lets the box's next poll return, so the module reads what the person did. */
   readonly release: () => void;
   readonly commands: string[];
+  /** The git commands the mod ran itself, the scan's. */
+  readonly gitRuns: (readonly string[])[];
   /** The files a Write, an Edit or a NotebookEdit reached. */
   readonly written: string[];
   /** The commands as the settings hooks beneath the plugin saw them. */
@@ -86,6 +93,10 @@ type WorldOptions = {
   readonly fileContent?: string;
   /** What the session decides for a Bash command beneath the plugin; none, and a check reaches nothing. */
   readonly verdict?: (command: string) => Verdict;
+  /** What the mod's own git answers, its arguments after `git`; none, a clean repository. */
+  readonly git?: (args: readonly string[]) => ReturnType<typeof ran>;
+  /** What a `$.fs.read` of the mod finds, by path. */
+  readonly files?: Readonly<Record<string, string>>;
   /** What the person answers the mod's own dialog; none, and a dialog reaches nothing. */
   readonly answer?: () => string;
 };
@@ -98,6 +109,8 @@ function stubWorld(
     bashStdout = "",
     fileContent = "",
     verdict,
+    git = cleanRepo,
+    files = {},
     answer,
   }: WorldOptions = {},
 ): World {
@@ -107,6 +120,7 @@ function stubWorld(
   const toasts: string[] = [];
   const registered: World["registered"] = [];
   const commands: string[] = [];
+  const gitRuns: (readonly string[])[] = [];
   const written: string[] = [];
   const checked: string[] = [];
   const prompts: World["prompts"] = [];
@@ -157,12 +171,22 @@ function stubWorld(
 
     return Box({ key: "engine" });
   });
-  on("process.run", async () => {
+  on("process.run", async (_$, e) => {
+    if (e.argv[0] === "git") {
+      gitRuns.push(e.argv.slice(1));
+
+      return { value: git(e.argv.slice(1)) };
+    }
+
     await poll.wait;
     poll = latch();
 
     return { value: ran("") };
   });
+  on("fs.stat", (_$, e) => ({
+    value: { kind: "file", size: files[e.path]?.length ?? 0, mtimeMs: 0, isLink: false },
+  }));
+  on("fs.read", (_$, e) => ({ value: files[e.path] ?? "" }));
   on("classic.PreToolUse", (_$, e, next) => {
     if (e.tool === "Bash") checked.push(e.command);
 
@@ -240,6 +264,7 @@ function stubWorld(
     opened: () => opened.wait,
     release: () => poll.open(),
     commands,
+    gitRuns,
     written,
     checked,
     asked,
@@ -507,6 +532,56 @@ test("a command holding the placeholder is refused when it commits, posts or cha
 
   expect(plain.deny).toBeUndefined();
   expect(world.commands).toEqual(["gh api repos/o/r"]);
+});
+
+test("a commit is refused while a change it could carry holds a kept value, naming the file", async ($, on) => {
+  const world = await started($, on, {
+    git: (args) => (args.includes("ls-files") ? ran(".env\0") : cleanRepo(args)),
+    files: { "/work/repo/.env": `TOKEN=${PAT}\n` },
+  });
+
+  await kept($, world);
+  const answer = await $.tool.call({ tool: "Bash", command: "git add -A && git commit -m t" });
+
+  expect(answer.deny).toContain("`git commit` may commit or publish");
+  expect(answer.deny).toContain(".env (untracked: add it to .gitignore)");
+  expect(world.commands).toEqual([]);
+});
+
+test("a commit whose changes hold no kept value runs, and a local git runs unscanned", async ($, on) => {
+  const world = await started($, on);
+
+  await kept($, world);
+  await $.tool.call({ tool: "Bash", command: "git status" });
+  expect(world.gitRuns).toEqual([]);
+  const commit = await $.tool.call({ tool: "Bash", command: "git commit -am t" });
+
+  expect(commit.deny).toBeUndefined();
+  expect(world.commands).toEqual(["git status", "git commit -am t"]);
+  expect(world.gitRuns.map((args) => args[0])).toEqual(["rev-parse", "diff", "diff", "ls-files"]);
+});
+
+test("a scan that cannot read the changes refuses the command, saying why", async ($, on) => {
+  const world = await started($, on, {
+    git: (args) =>
+      args.includes("rev-parse") ? ran("", 128, "fatal: not a git repository\n") : cleanRepo(args),
+  });
+
+  await kept($, world);
+  const answer = await $.tool.call({ tool: "Bash", command: "cd /tmp/x && git commit -m t" });
+
+  expect(answer.deny).toContain(
+    "that check failed: git rev-parse --show-toplevel exited 128 in /tmp/x: fatal: not a git repository",
+  );
+  expect(world.commands).toEqual([]);
+});
+
+test("with no value kept, a commit runs unscanned", async ($, on) => {
+  const world = await started($, on);
+
+  await $.tool.call({ tool: "Bash", command: "git commit -am t" });
+  expect(world.gitRuns).toEqual([]);
+  expect(world.commands).toEqual(["git commit -am t"]);
 });
 
 test("a placeholder the session never minted refuses the command", async ($, on) => {
