@@ -7,6 +7,19 @@ export const VARIABLE_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/u;
 /** The shortest value kept: shorter ones would hide ordinary words wherever they turn up. */
 export const MIN_VALUE_LENGTH = 8;
 
+/** The variable name a placeholder carries, `NAME` in `[secret-pane:NAME:xxxxxxxx]`. */
+export function nameOf(tag: string): string {
+  return tag.slice("[secret-pane:".length, tag.lastIndexOf(":"));
+}
+
+/** A value the shell reads as plain text wherever it stands: quoted or not, in a heredoc or a nested shell. */
+const INERT = /^[A-Za-z0-9_][A-Za-z0-9_.:/+=@,-]*$/u;
+
+/** Whether a value goes into a command as it is, wherever its placeholder stands. */
+export function isInert(value: string): boolean {
+  return INERT.test(value);
+}
+
 const WALK_DEPTH = 32;
 
 export type Vault = {

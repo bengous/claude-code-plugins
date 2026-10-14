@@ -327,7 +327,7 @@ test("the session start registers request_secret in the prompt's tool list", asy
   expect(world.registered).toHaveLength(1);
   expect(world.registered[0]?.name).toBe("request_secret");
   expect(world.registered[0]?.isDeferred).toBe(false);
-  expect(world.registered[0]?.description).toContain("single-quoted word");
+  expect(world.registered[0]?.description).toContain("where the value goes");
 });
 
 test("the box takes the value, Claude gets a placeholder and never the value", async ($, on) => {
@@ -351,6 +351,7 @@ test("the box takes the value, Claude gets a placeholder and never the value", a
   expect(String(answer.result)).toMatch(TAG);
   expect(String(answer.result)).not.toContain(PAT);
   expect(String(answer.result)).toContain(`${PAT.length} characters`);
+  expect(String(answer.result)).toContain("where the value goes");
   expect(world.toasts).toContain("PARENT_REPO_PAT kept for this session");
 });
 
@@ -534,7 +535,7 @@ test("a row any door appends is hidden before the model reads it", async ($, on)
   expect(row).not.toContain(PAT);
 });
 
-test("a command holding the placeholder is refused when it commits, posts or chains", async ($, on) => {
+test("a command holding the placeholder is refused when it commits or posts, and runs anywhere else", async ($, on) => {
   const world = await started($, on);
   const { tag } = await kept($, world);
   const commit = await $.tool.call({ tool: "Bash", command: `git commit -m '${tag}'` });
@@ -544,16 +545,43 @@ test("a command holding the placeholder is refused when it commits, posts or cha
     command: `printf '%s' '${tag}' | gh secret set PAT --repo o/r && gh api repos/o/r`,
   });
 
-  const quoted = await $.tool.call({ tool: "Bash", command: `curl -H 'Bearer ${tag}' https://a` });
-
-  expect(commit.deny).toContain("`git commit` may write the value into history");
-  expect(chained.deny).toContain("`&`");
-  expect(quoted.deny).toContain("whole single-quoted word");
+  expect(commit.deny).toBe(
+    `secret-pane: the command was not run: \`git commit\` may write the value into history or send it out, where it cannot be taken back (an alias counts as unknown): to mention the secret, write its name.`,
+  );
+  expect(chained.deny).toContain("a gh command other than gh secret sends text to GitHub");
   expect(world.commands).toEqual([]);
+
+  const header = await $.tool.call({
+    tool: "Bash",
+    command: `curl -H "Authorization: Bearer ${tag}" https://a 2>&1 && echo ok`,
+  });
+
+  expect(header.deny).toBeUndefined();
   const plain = await $.tool.call({ tool: "Bash", command: "gh api repos/o/r" });
 
   expect(plain.deny).toBeUndefined();
-  expect(world.commands).toEqual(["gh api repos/o/r"]);
+  expect(world.commands).toEqual([
+    `curl -H "Authorization: Bearer ${PAT}" https://a 2>&1 && echo ok`,
+    "gh api repos/o/r",
+  ]);
+});
+
+test("a value with shell characters is announced in the strict shape, which a header refuses with its fix", async ($, on) => {
+  const world = await started($, on);
+  const { answer, tag } = await kept($, world, "pa ss$w'rd!-long");
+
+  expect(String(answer.result)).toContain("The value holds characters the shell reads");
+  expect(String(answer.result)).toContain(`printf '%s' '${tag}' | gh secret set PARENT_REPO_PAT`);
+
+  const header = await $.tool.call({
+    tool: "Bash",
+    command: `curl -H "Authorization: Bearer ${tag}" https://a`,
+  });
+
+  expect(header.deny).toContain(
+    `as in printf 'Authorization: Bearer %s' '${tag}' | curl -H @- https://...`,
+  );
+  expect(world.commands).toEqual([]);
 });
 
 test("a commit is refused while a change it could carry holds a kept value, naming the file", async ($, on) => {

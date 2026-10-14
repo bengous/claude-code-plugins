@@ -2,7 +2,16 @@ import type { EngineInterface, Register, ToolCallInput, ToolCallResult } from "c
 
 import { type Found, type Host, needlesOf, scanChanges, scanTargets } from "./scan.ts";
 import { restoreCommand, shellQuote } from "./shell.ts";
-import { createVault, entered, mergeTyped, PLUGIN, VARIABLE_NAME, walkStrings } from "./vault.ts";
+import {
+  createVault,
+  entered,
+  isInert,
+  mergeTyped,
+  nameOf,
+  PLUGIN,
+  VARIABLE_NAME,
+  walkStrings,
+} from "./vault.ts";
 
 export const TOOL = `mcp__${PLUGIN}__request_secret`;
 
@@ -36,18 +45,19 @@ type Reader = "Bash" | "Read" | "Write" | "Edit" | "NotebookEdit" | "Monitor" | 
 /** The tools that write the text the model gave them into a file, a placeholder as text. */
 type FileWrite = Extract<ToolCallInput, { tool: "Write" | "Edit" | "NotebookEdit" }>;
 
-const RESTORE_RULES = [
-  "Write the placeholder as a whole single-quoted word, in one command or one pipe of two:",
-  "printf '%s' '<placeholder>' | gh secret set NAME --repo org/repo, or curl --oauth2-bearer '<placeholder>' https://...",
-  "A command is refused when a placeholder stands anywhere else or is no placeholder of this session; when it holds ; & && || $ ( ) a backtick, a new line or a second pipe;",
-  "when it goes through a wrapper (sh, bash, env, xargs, sudo...), git other than a local subcommand (status, diff, log, add, credential...; an alias counts as unknown), or a gh command other than gh secret; and when it runs in the background.",
-].join(" ");
+const ANYWHERE =
+  'Write the placeholder in a Bash command where the value goes, as you would write the value: curl -H "Authorization: Bearer <placeholder>" https://..., API_KEY=<placeholder> npm test.';
+
+const WHOLE_WORD =
+  "Write the placeholder as a whole single-quoted word, '<placeholder>', in one Bash command or a pipe of two: printf '%s' '<placeholder>' | gh secret set NAME --repo org/repo, curl --oauth2-bearer '<placeholder>' https://...; to build a longer text with it, pipe it, as in printf 'Authorization: Bearer %s' '<placeholder>' | curl -H @- https://...";
 
 const DESCRIPTION = [
   "Asks the user for a secret (an API key, a token, a password) in a masked box beside the transcript, so the value never enters the conversation.",
   "Answers the variable name and a placeholder of the form [secret-pane:NAME:xxxxxxxx], which becomes the real value inside a Bash command; the value is hidden again in everything that comes back.",
-  RESTORE_RULES,
-  "No other tool restores a placeholder. The value lives in this session's memory only: the mod writes nothing to disk, and a new session or /clear asks the user again.",
+  ANYWHERE,
+  "A value holding characters the shell reads (a space, a quote, $...) goes in only as a whole single-quoted word, '<placeholder>', and the answer says which applies.",
+  "A command is refused, with the reason and the fix, when it would put the value where it cannot be taken back (a git subcommand that writes history or sends it out, a gh command other than gh secret, a commit while a change holds the value) or runs in the background.",
+  "No other tool restores a placeholder: Write and Edit refuse one. The value lives in this session's memory only: the mod writes nothing to disk, and a new session or /clear asks the user again.",
   "Use it in place of asking the user to paste a secret into the chat.",
 ].join(" ");
 
@@ -128,7 +138,7 @@ function fileText(e: FileWrite): string {
 }
 
 function writeRefused(tag: string): string {
-  const name = tag.slice("[secret-pane:".length, tag.lastIndexOf(":"));
+  const name = nameOf(tag);
 
   return [
     `${PLUGIN}: the file was not written: ${tag} stands for a kept value, and this tool would write the placeholder as text.`,
@@ -187,11 +197,12 @@ async function changesRefusal($: EngineInterface, command: string): Promise<stri
   return undefined;
 }
 
-function answerText(name: string, tag: string, length: number): string {
-  return [
-    `The user entered ${name} (${length} characters). The value is kept in this session's memory; you can't see it. Its placeholder: ${tag}.`,
-    RESTORE_RULES,
-  ].join(" ");
+function answerText(name: string, tag: string, value: string): string {
+  const kept = `The user entered ${name} (${value.length} characters). The value is kept in this session's memory; you can't see it. Its placeholder: ${tag}.`;
+
+  if (isInert(value)) return `${kept} ${ANYWHERE.replaceAll("<placeholder>", tag)}`;
+
+  return `${kept} The value holds characters the shell reads. ${WHOLE_WORD.replaceAll("<placeholder>", tag).replace("NAME", name)}`;
 }
 
 type Drawn = Parameters<EngineInterface["ui"]["resolve"]>[0];
@@ -382,7 +393,7 @@ export const register: Register = (on) => {
 
     $.ui.toast(`${name} kept for this session`);
 
-    return { result: answerText(name, tag, value.length) };
+    return { result: answerText(name, tag, value) };
   }).catch(($, _e, next) => {
     $.ui.log(`${PLUGIN}: request_secret failed: ${next.error.kind}`);
 
@@ -468,7 +479,7 @@ export const register: Register = (on) => {
 
         if (restoration.kind === "refused") {
           return {
-            deny: `${PLUGIN}: the command was not run: ${restoration.why}. ${RESTORE_RULES}`,
+            deny: `${PLUGIN}: the command was not run: ${restoration.why}${restoration.why.endsWith(".") ? "" : "."}`,
           };
         }
 

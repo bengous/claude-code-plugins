@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import { createVault, entered, mergeTyped, walkStrings } from "./vault.ts";
+import { createVault, entered, isInert, mergeTyped, walkStrings } from "./vault.ts";
 
 const PAT = "github_pat_11AAAAAAA0abcdefghijklmnopqrstuvwxyz";
 
@@ -74,6 +74,37 @@ describe("hide", () => {
 
     expect(vault.hide("xa.b*c(d)ex axbbbcde")).toBe(`x${tag}x axbbbcde`);
   });
+});
+
+test("isInert holds a token's characters, and none the shell reads", () => {
+  expect(isInert(PAT)).toBe(true);
+  expect(isInert("AKIA0123:a/b+c=d@e,f.g-h_i")).toBe(true);
+  expect(isInert("-starts-with-a-dash")).toBe(false);
+
+  for (const char of [
+    " ",
+    "'",
+    '"',
+    "$",
+    "`",
+    "\\",
+    "!",
+    "%",
+    "*",
+    "?",
+    "[",
+    "~",
+    "#",
+    "&",
+    ";",
+    "|",
+    "(",
+    "{",
+    "<",
+    "\n",
+  ]) {
+    expect(isInert(`abcdefgh${char}x`)).toBe(false);
+  }
 });
 
 test("walkStrings rewrites every string of a plain value and keeps the shape", () => {

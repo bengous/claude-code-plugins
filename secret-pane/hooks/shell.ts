@@ -1,13 +1,30 @@
 /**
- * The one shape of Bash command a placeholder may be restored in, and the
- * command with each placeholder replaced by its value, shell-quoted. Anything
- * the lexer below does not read as plain words joined by at most one pipe is
- * refused: an allow-list, since no list of what to refuse covers a shell.
+ * Where a Bash command may carry a kept value, and the command with each
+ * placeholder replaced by it. A value the shell reads as plain text wherever it
+ * stands (`isInert`) goes in as it is, anywhere. Any other goes in shell-quoted,
+ * as a whole single-quoted word in plain words joined by at most one pipe:
+ * anything else the lexer below reads is refused, an allow-list, since no list
+ * of what to refuse covers a shell. Either way no git or gh may write the value
+ * into history or send it out.
  */
+
+import { isInert, nameOf } from "./vault.ts";
 
 const TAG_WORD = /^'(\[secret-pane:[A-Za-z_][A-Za-z0-9_]*:[0-9a-f]{8}\])'$/u;
 
 const TAG_ANYWHERE = /\[secret-pane:[A-Za-z_][A-Za-z0-9_]*:[0-9a-f]{8}\]/u;
+
+const TAGS = new RegExp(TAG_ANYWHERE.source, "gu");
+
+/** A placeholder right after `$`, `${` or `$name:`, where its value would turn into a variable's name or a zsh modifier. */
+const AFTER_DOLLAR = new RegExp(
+  String.raw`\$\{?(?:[A-Za-z_][A-Za-z0-9_]*:)?(?=${TAG_ANYWHERE.source})`,
+  "u",
+);
+
+/** The fix every refusal of the strict shape ends on. */
+const ONE_COMMAND =
+  "with this value, a command naming the placeholder is one command or a pipe of two: run the others in a Bash call of their own";
 
 /** Outside quotes, any of these makes the command something other than words and one pipe. */
 const OPERATORS_REFUSED = new Set([";", "&", "(", ")", "<", "`", "$", "\n", "\\", "{", "}"]);
@@ -87,6 +104,21 @@ const GIT_PUSH_REFUSED = [
   "(gh's own helper keeps nothing and pushes with gh's login: gh auth status), then push in a command that names no placeholder",
 ].join(" ");
 
+const GH_REFUSED = [
+  "a gh command other than gh secret sends text to GitHub, where it cannot be taken back:",
+  "store the value with printf '%s' '<placeholder>' | gh secret set <NAME> --repo org/repo,",
+  "call the API with curl --oauth2-bearer '<placeholder>' https://api.github.com/...,",
+  "and write <NAME> to mention it",
+].join(" ");
+
+const AFTER_DOLLAR_REFUSED =
+  "a placeholder right after `$` (or `${`, `$name:`) would turn its value into a variable's name: write the placeholder without the `$` before it";
+
+const NOT_A_WORD = [
+  "the placeholder stands for a value holding characters the shell reads, so it goes in only as a whole single-quoted word, '<placeholder>':",
+  "to build a longer text with it, pipe it, as in printf 'Authorization: Bearer %s' '<placeholder>' | curl -H @- https://...",
+].join(" ");
+
 /** git's global options that take the next word as their value. */
 const GIT_VALUED_OPTIONS = new Set([
   "-C",
@@ -113,7 +145,7 @@ type Lexed =
 /**
  * Words and pipes, quotes kept in `raw` and removed in `text`. A single-quoted
  * span is literal; a double-quoted one may hold neither `$`, a backtick nor a
- * backslash. Redirections `>` and `>>` stay words: they run nothing.
+ * backslash. Redirections `>`, `>>` and `>&` (`2>&1`) stay words: they run nothing.
  */
 function lex(command: string): Lexed {
   const commands: Word[][] = [[]];
@@ -133,7 +165,7 @@ function lex(command: string): Lexed {
     if (char === "'") {
       const close = command.indexOf("'", at + 1);
 
-      if (close < 0) return { kind: "refused", why: "an unclosed single quote" };
+      if (close < 0) return { kind: "refused", why: "an unclosed single quote: close it" };
       raw += command.slice(at, close + 1);
       text += command.slice(at + 1, close);
       at = close + 1;
@@ -143,11 +175,16 @@ function lex(command: string): Lexed {
     if (char === '"') {
       const close = command.indexOf('"', at + 1);
 
-      if (close < 0) return { kind: "refused", why: "an unclosed double quote" };
+      if (close < 0) return { kind: "refused", why: "an unclosed double quote: close it" };
       const inner = command.slice(at + 1, close);
 
-      if (/[$`\\]/u.test(inner))
-        return { kind: "refused", why: "a double-quoted span the shell expands" };
+      if (/[$`\\]/u.test(inner)) {
+        return {
+          kind: "refused",
+          why: 'a double-quoted span the shell expands ($, a backtick or a backslash inside "..."): with this value, quote that text with single quotes',
+        };
+      }
+
       raw += command.slice(at, close + 1);
       text += inner;
       at = close + 1;
@@ -161,17 +198,24 @@ function lex(command: string): Lexed {
     }
 
     if (char === "|") {
-      if (command[at + 1] === "|") return { kind: "refused", why: "a list (`||`)" };
+      if (command[at + 1] === "|")
+        return { kind: "refused", why: `a list (\`||\`): ${ONE_COMMAND}` };
       flush();
 
-      if (commands.length >= 2) return { kind: "refused", why: "more than one pipe" };
+      if (commands.length >= 2)
+        return { kind: "refused", why: `more than one pipe: ${ONE_COMMAND}` };
       commands.push([]);
       at += 1;
       continue;
     }
 
-    if (OPERATORS_REFUSED.has(char))
-      return { kind: "refused", why: `\`${char === "\n" ? "a new line" : char}\` outside quotes` };
+    if (OPERATORS_REFUSED.has(char) && !(char === "&" && raw.endsWith(">"))) {
+      return {
+        kind: "refused",
+        why: `\`${char === "\n" ? "a new line" : char}\` outside quotes: ${ONE_COMMAND}`,
+      };
+    }
+
     raw += char;
     text += char;
     at += 1;
@@ -180,7 +224,7 @@ function lex(command: string): Lexed {
   flush();
 
   if (commands.some((words) => words.length === 0))
-    return { kind: "refused", why: "an empty command around a pipe" };
+    return { kind: "refused", why: `an empty command around a pipe: ${ONE_COMMAND}` };
 
   return { kind: "words", commands };
 }
@@ -241,28 +285,31 @@ export function isLocal(program: Program, args: readonly string[]): boolean {
   return subcommand === undefined || GIT_LOCAL.has(subcommand);
 }
 
-/** Why one simple command may not carry a value, or nothing. */
+/** Why a git or gh invocation may not run beside a kept value, or nothing. */
+function publishRefusal(program: Program, args: readonly string[]): string | undefined {
+  if (isLocal(program, args)) return undefined;
+
+  if (program === "gh") return GH_REFUSED;
+  const { subcommand } = parseInvocation("git", args);
+
+  return subcommand === "push"
+    ? GIT_PUSH_REFUSED
+    : `\`git ${subcommand}\` may write the value into history or send it out, where it cannot be taken back (an alias counts as unknown): to mention the secret, write its name`;
+}
+
+/** Why one simple command may not carry a value of the strict shape, or nothing. */
 function programRefusal(words: readonly Word[]): string | undefined {
   const [program, ...rest] = words.map((word) => word.text);
   const name = basename(program ?? "");
 
-  if (/^[A-Za-z_][A-Za-z0-9_]*=/u.test(program ?? ""))
-    return "a variable assignment in front of the command";
-
-  if (WRAPPERS.has(name)) return `\`${name}\`, which runs its arguments as another command`;
-
-  if (name === "git" && !isLocal("git", rest)) {
-    const { subcommand } = parseInvocation("git", rest);
-
-    return subcommand === "push"
-      ? GIT_PUSH_REFUSED
-      : `\`git ${subcommand}\` may write the value into history or send it out, where it cannot be taken back (an alias counts as unknown): to mention the secret, write its name`;
+  if (/^[A-Za-z_][A-Za-z0-9_]*=/u.test(program ?? "")) {
+    return "a variable assignment in front of the command: with this value, hand it to the command as an argument or on its standard input";
   }
 
-  if (name === "gh" && !isLocal("gh", rest))
-    return "a gh command that sends text to GitHub (gh secret alone takes the value)";
+  if (WRAPPERS.has(name))
+    return `\`${name}\` runs its arguments as another command: run that command itself`;
 
-  return undefined;
+  return name === "git" || name === "gh" ? publishRefusal(name, rest) : undefined;
 }
 
 /** Outside quotes, each of these ends a simple command. */
@@ -644,20 +691,11 @@ export type Restoration =
   | { readonly kind: "restored"; readonly command: string; readonly handed: readonly string[] }
   | { readonly kind: "refused"; readonly why: string };
 
-/**
- * The command with each placeholder put back, or why it may not be. A command
- * that names no placeholder is untouched. `valueOf` answers a kept value, or
- * nothing for a placeholder this session never minted.
- */
-export function restoreCommand(
-  command: string,
-  valueOf: (tag: string) => string | undefined,
-): Restoration {
-  if (!TAG_ANYWHERE.test(command)) return { kind: "untouched" };
+/** The strict shape: each placeholder a whole single-quoted word, its value shell-quoted, in plain words joined by at most one pipe. */
+function restoreStrict(command: string, values: ReadonlyMap<string, string>): Restoration {
   const lexed = lex(command);
 
   if (lexed.kind === "refused") return { kind: "refused", why: lexed.why };
-  const handed = new Set<string>();
   const out: string[] = [];
 
   for (const words of lexed.commands) {
@@ -665,20 +703,15 @@ export function restoreCommand(
 
     for (const word of words) {
       const tag = TAG_WORD.exec(word.raw)?.[1];
+      const value = tag === undefined ? undefined : values.get(tag);
 
-      if (tag === undefined) {
-        if (TAG_ANYWHERE.test(word.raw))
-          return { kind: "refused", why: "a placeholder that is not a whole single-quoted word" };
-        restored.push(word.raw);
+      if (value !== undefined) {
+        restored.push(shellQuote(value));
         continue;
       }
 
-      const value = valueOf(tag);
-
-      if (value === undefined)
-        return { kind: "refused", why: `${tag} is no placeholder of this session` };
-      handed.add(value);
-      restored.push(shellQuote(value));
+      if (TAG_ANYWHERE.test(word.raw)) return { kind: "refused", why: NOT_A_WORD };
+      restored.push(word.raw);
     }
 
     out.push(restored.join(" "));
@@ -691,5 +724,67 @@ export function restoreCommand(
     if (why !== undefined) return { kind: "refused", why };
   }
 
-  return { kind: "restored", command: out.join(" | "), handed: [...handed] };
+  return { kind: "restored", command: out.join(" | "), handed: [...new Set(values.values())] };
+}
+
+/** A refusal's fix with the command's own placeholder and name in it, ready to run. */
+function refusedWith(why: string, tag: string): Restoration {
+  return {
+    kind: "refused",
+    why: why.replaceAll("<placeholder>", tag).replaceAll("<NAME>", nameOf(tag)),
+  };
+}
+
+/**
+ * The command with each placeholder put back, or why it may not be. A command
+ * that names no placeholder is untouched. `valueOf` answers a kept value, or
+ * nothing for a placeholder this session never minted. Inert values go in as
+ * they are, wherever the placeholder stands, once no git or gh word of the
+ * whole command may write them into history or send them out; a command
+ * holding any other value takes the strict shape.
+ */
+export function restoreCommand(
+  command: string,
+  valueOf: (tag: string) => string | undefined,
+): Restoration {
+  const tags = new Set<string>(command.match(TAGS) ?? []);
+
+  if (tags.size === 0) return { kind: "untouched" };
+  const values = new Map<string, string>();
+
+  for (const tag of tags) {
+    const value = valueOf(tag);
+
+    if (value === undefined) {
+      return {
+        kind: "refused",
+        why: `${tag} is no placeholder of this session: a new session or a /clear forgot its value, ask for it again with request_secret`,
+      };
+    }
+
+    values.set(tag, value);
+  }
+
+  if (AFTER_DOLLAR.test(command)) return { kind: "refused", why: AFTER_DOLLAR_REFUSED };
+  const [first = ""] = tags;
+
+  if (![...values.values()].every((value) => isInert(value))) {
+    const strict = restoreStrict(command, values);
+
+    return strict.kind === "refused" ? refusedWith(strict.why, first) : strict;
+  }
+
+  for (const program of ["git", "gh"] as const) {
+    for (const { args } of invocations(command, program)) {
+      const why = publishRefusal(program, args);
+
+      if (why !== undefined) return refusedWith(why, first);
+    }
+  }
+
+  let restored = command;
+
+  for (const [tag, value] of values) restored = restored.replaceAll(tag, value);
+
+  return { kind: "restored", command: restored, handed: [...new Set(values.values())] };
 }
