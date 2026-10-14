@@ -481,6 +481,7 @@ export const register: Register = (on) => {
   });
 
   on("turn.start", (_, e, next) => {
+    if (e.agentId !== undefined) return next(e);
     turns = state.kind === "live" ? started(turns, e.text, e.turnId) : NO_TURN;
 
     return next(e);
