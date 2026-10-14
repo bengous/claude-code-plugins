@@ -271,7 +271,11 @@ test("typing after a paste appends; the field only ever draws dots", async ($, o
   expect(await ui.find({ type: "Text", text: /4 characters/u })).toBeDefined();
   await ui.input({ key: "secret", text: "", kind: "submit" });
   world.release();
-  expect(String((await asking).result)).toContain("(4 characters)");
+  const answer = String((await asking).result);
+
+  expect(answer).toContain("(4 characters)");
+  await $.tool.call({ tool: "Bash", command: `echo ${answer.match(TAG)?.[0] ?? "no tag"}` });
+  expect(world.commands).toEqual(["echo abcd"]);
 });
 
 test("a placeholder in a Bash command becomes the value, and the output hides it again", async ($, on) => {
