@@ -49,7 +49,7 @@ Tell me when it is copied: I will open a masked box for it, so the token never e
 Always verify the manual action succeeded:
 ```bash
 # After PAT creation - the placeholder secret-pane answered, never the token
-curl -fsS -o /dev/null -w '%{http_code}\n' -H 'Authorization: Bearer [secret-pane:PARENT_REPO_PAT:xxxxxxxx]' https://api.github.com/repos/{owner}/{repo}
+curl -fsS -o /dev/null -w '%{http_code}\n' --oauth2-bearer '[secret-pane:PARENT_REPO_PAT:xxxxxxxx]' https://api.github.com/repos/{owner}/{repo}
 
 # After GitHub Pages config
 gh api repos/{owner}/{repo}/pages --jq '.source'

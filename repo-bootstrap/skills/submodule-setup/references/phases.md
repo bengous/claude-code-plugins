@@ -272,7 +272,7 @@ Call `request_secret` with `name` `PARENT_REPO_PAT` and the reason `the submodul
 A command holding the placeholder is refused when it goes through `gh api`, which can post text off the machine, so the check goes through curl, alone in its command:
 
 ```bash
-curl -fsS -o /dev/null -w '%{http_code}\n' -H 'Authorization: Bearer [secret-pane:PARENT_REPO_PAT:xxxxxxxx]' https://api.github.com/repos/{ORG}/{PARENT_REPO}
+curl -fsS -o /dev/null -w '%{http_code}\n' --oauth2-bearer '[secret-pane:PARENT_REPO_PAT:xxxxxxxx]' https://api.github.com/repos/{ORG}/{PARENT_REPO}
 ```
 
 Expected: `200`. A `404` means the token has no access to the parent repo: guide the user to regenerate it with the repository selected.
