@@ -5,7 +5,7 @@ const TOOL = "mcp__secret-pane__request_secret";
 
 const PLUGIN = "secret-pane";
 
-const NOW = Date.UTC(2026, 9, 13);
+const NOW = Date.UTC(2026, 9, 14);
 
 const PAT = "github_pat_11AAAAAAA0abcdefghijklmnopqrstuvwxyz";
 
@@ -23,7 +23,7 @@ const PANE = {
     isFocused: true,
     bodyColumns: 80,
     placement: "inline",
-    scroll: { offset: 0, bodyRows: 6 },
+    scroll: { offset: 0, bodyRows: 7 },
     view: {},
   },
 } as const;
@@ -58,6 +58,8 @@ function latch(): Latch {
   return { wait: promise, open: resolve };
 }
 
+type Verdict = { readonly decision: "allow" | "ask" | "deny"; readonly rule?: string };
+
 type World = {
   readonly toasts: string[];
   readonly registered: { name: string; isDeferred: unknown; description: string }[];
@@ -70,10 +72,10 @@ type World = {
   readonly checked: string[];
   /** The questions the mod's own dialog put to the person. */
   readonly asked: string[];
-  readonly prompts: string[];
+  readonly prompts: { text: string; context: readonly string[] | undefined }[];
+  /** The rows the session kept, as the plugins answered them. */
+  readonly appended: () => readonly { readonly message: { readonly content: unknown } }[];
 };
-
-type Verdict = { readonly decision: "allow" | "ask" | "deny"; readonly rule?: string };
 
 type WorldOptions = {
   readonly surfaces?: readonly RenderSurface[];
@@ -99,11 +101,12 @@ function stubWorld(
 ): World {
   mock.clock(on, { now: NOW });
   mock.env(on, {});
+  const session = mock.session(on);
   const toasts: string[] = [];
   const registered: World["registered"] = [];
   const commands: string[] = [];
   const checked: string[] = [];
-  const prompts: string[] = [];
+  const prompts: World["prompts"] = [];
   const asked: string[] = [];
 
   if (verdict !== undefined) {
@@ -144,8 +147,8 @@ function stubWorld(
 
     return { value: undefined };
   });
-  on("ui.notice", () => ({ value: undefined }));
   on("ui.log", () => ({ value: undefined }));
+  on("session.end", (_$, e) => ({ sessionId: e.sessionId }));
   on("ui.render", ($, e) => {
     const { Box } = $.ui.resolve(e);
 
@@ -180,7 +183,7 @@ function stubWorld(
     },
   }));
   on("prompt.submit", (_$, e) => {
-    prompts.push(e.text);
+    prompts.push({ text: e.text, context: e.context });
 
     return { text: e.text };
   });
@@ -194,6 +197,7 @@ function stubWorld(
     checked,
     asked,
     prompts,
+    appended: () => session.appended(),
   };
 }
 
@@ -206,7 +210,7 @@ async function started($: Engine, on: On, options: WorldOptions = {}) {
   return world;
 }
 
-/** Claude asks, the person pastes the value in the pane and saves: the tool's answer. */
+/** Claude asks, the person pastes the value in the pane and saves: the tool's answer and the placeholder. */
 async function kept($: Engine, world: World, value = PAT) {
   const asking = $.tool.call(ASK);
 
@@ -229,7 +233,7 @@ test("the session start registers request_secret in the prompt's tool list", asy
   expect(world.registered).toHaveLength(1);
   expect(world.registered[0]?.name).toBe("request_secret");
   expect(world.registered[0]?.isDeferred).toBe(false);
-  expect(world.registered[0]?.description).toContain("placeholder");
+  expect(world.registered[0]?.description).toContain("single-quoted word");
 });
 
 test("the box takes the value, Claude gets a placeholder and never the value", async ($, on) => {
@@ -243,7 +247,7 @@ test("the box takes the value, Claude gets a placeholder and never the value", a
     "Claude is asking for PARENT_REPO_PAT",
   );
   expect(await ui.find({ type: "Text", text: "the sync workflow needs it" })).toBeDefined();
-  await ui.input({ key: "secret", text: PAT, kind: "change" });
+  await ui.input({ key: "secret", text: ` ${PAT} `, kind: "change" });
   expect(await ui.find({ type: "Text", text: /characters/u })).toBeDefined();
   await ui.input({ key: "secret", text: "", kind: "submit" });
   world.release();
@@ -256,26 +260,47 @@ test("the box takes the value, Claude gets a placeholder and never the value", a
   expect(world.toasts).toContain("PARENT_REPO_PAT kept for this session");
 });
 
-test("typing after a paste appends; the field only ever draws dots", async ($, on) => {
+test("typing after a paste appends, and the value kept is the one typed", async ($, on) => {
   const world = await started($, on);
   const asking = $.tool.call(ASK);
 
   await world.opened();
   const ui = await $.ui.mount(PANE);
 
-  await ui.input({ key: "secret", text: "abc", kind: "change" });
-  await ui.input({ key: "secret", text: "•••d", kind: "change" });
+  await ui.input({ key: "secret", text: "abcdefgh", kind: "change" });
+  await ui.input({ key: "secret", text: "••••••••i", kind: "change" });
   const field = await ui.find({ type: "Input", key: "secret" });
 
-  expect(field?.text).not.toContain("abc");
-  expect(await ui.find({ type: "Text", text: /4 characters/u })).toBeDefined();
+  expect(field?.text).not.toContain("abcdefgh");
+  expect(await ui.find({ type: "Text", text: /9 characters/u })).toBeDefined();
   await ui.input({ key: "secret", text: "", kind: "submit" });
   world.release();
   const answer = String((await asking).result);
 
-  expect(answer).toContain("(4 characters)");
-  await $.tool.call({ tool: "Bash", command: `echo ${answer.match(TAG)?.[0] ?? "no tag"}` });
-  expect(world.commands).toEqual(["echo abcd"]);
+  await $.tool.call({ tool: "Bash", command: `echo '${answer.match(TAG)?.[0] ?? "no tag"}'` });
+  expect(world.commands).toEqual(["echo 'abcdefghi'"]);
+});
+
+test("an edit in the middle empties the field, and a short value is not kept", async ($, on) => {
+  const world = await started($, on);
+  const asking = $.tool.call(ASK);
+
+  await world.opened();
+  const ui = await $.ui.mount(PANE);
+
+  await ui.input({ key: "secret", text: "abcdefgh", kind: "change" });
+  await ui.input({ key: "secret", text: "•••x•••••", kind: "change" });
+  expect(await ui.find({ type: "Text", text: /edit in the middle/u })).toBeDefined();
+  expect(await ui.find({ type: "Text", text: /characters ·/u })).toBeUndefined();
+  await ui.input({ key: "secret", text: "short", kind: "change" });
+  await ui.input({ key: "secret", text: "", kind: "submit" });
+  expect(await ui.find({ type: "Text", text: /at least 8 characters/u })).toBeDefined();
+  await ui.input({ key: "secret", text: "•••••-long-enough", kind: "change" });
+  await ui.input({ key: "secret", text: "", kind: "submit" });
+  world.release();
+  const answer = String((await asking).result);
+
+  expect(answer).toContain("(17 characters)");
 });
 
 test("a placeholder in a Bash command becomes the value, and the output hides it again", async ($, on) => {
@@ -296,6 +321,15 @@ test("a placeholder in a Bash command becomes the value, and the output hides it
   expect(answer.ref).toBeUndefined();
 });
 
+test("a value with shell characters goes into the command quoted", async ($, on) => {
+  const world = await started($, on);
+  const value = "pa ss$(id)'x-long";
+  const { tag } = await kept($, world, value);
+
+  await $.tool.call({ tool: "Bash", command: `printf '%s' '${tag}' | gh secret set X` });
+  expect(world.commands).toEqual([`printf '%s' 'pa ss$(id)'\\''x-long' | gh secret set X`]);
+});
+
 test("a kept value printed by a later command is hidden too", async ($, on) => {
   const world = await started($, on, { bashStdout: `url https://x:${PAT}@github.com/o/r` });
   const { tag } = await kept($, world);
@@ -304,6 +338,15 @@ test("a kept value printed by a later command is hidden too", async ($, on) => {
   expect(world.commands).toEqual(["git remote -v"]);
   expect(JSON.stringify(answer.result)).toContain(`https://x:${tag}@github.com/o/r`);
   expect(JSON.stringify(answer.result)).not.toContain(PAT);
+});
+
+test("a result holding no kept value comes back as it came", async ($, on) => {
+  const world = await started($, on, { bashStdout: "nothing secret here" });
+
+  await kept($, world);
+  const answer = await $.tool.call({ tool: "Bash", command: "echo hi" });
+
+  expect(JSON.stringify(answer.result)).toContain("nothing secret here");
 });
 
 test("a file read that holds a kept value comes back with the placeholder", async ($, on) => {
@@ -315,23 +358,64 @@ test("a file read that holds a kept value comes back with the placeholder", asyn
   expect(JSON.stringify(answer.result)).not.toContain(PAT);
 });
 
-test("a command holding the placeholder is refused when it commits or posts to GitHub", async ($, on) => {
+test("a row any door appends is hidden before the model reads it", async ($, on) => {
   const world = await started($, on);
   const { tag } = await kept($, world);
-  const commit = await $.tool.call({ tool: "Bash", command: `git commit -m "key ${tag}"` });
 
-  const posted = await $.tool.call({
+  await $.session.append({
+    message: {
+      type: "user",
+      content: [
+        { type: "text", text: `a task finished: ${PAT}` },
+        { type: "tool_result", tool_use_id: "t1", content: `stdout ${PAT}` },
+      ],
+    },
+    door: "tool-result",
+    origin: { kind: "tool", tool: "Bash" },
+    uuid: "row-1",
+  });
+  const row = JSON.stringify(world.appended().at(-1)?.message.content);
+
+  expect(row).toContain(`a task finished: ${tag}`);
+  expect(row).toContain(`stdout ${tag}`);
+  expect(row).not.toContain(PAT);
+});
+
+test("a command holding the placeholder is refused when it commits, posts or chains", async ($, on) => {
+  const world = await started($, on);
+  const { tag } = await kept($, world);
+  const commit = await $.tool.call({ tool: "Bash", command: `git commit -m '${tag}'` });
+
+  const chained = await $.tool.call({
     tool: "Bash",
     command: `printf '%s' '${tag}' | gh secret set PAT --repo o/r && gh api repos/o/r`,
   });
 
-  expect(commit.deny).toContain("writes git history or sends text to GitHub");
-  expect(posted.deny).toContain("writes git history or sends text to GitHub");
+  const quoted = await $.tool.call({ tool: "Bash", command: `curl -H 'Bearer ${tag}' https://a` });
+
+  expect(commit.deny).toContain("git command that writes history");
+  expect(chained.deny).toContain("`&`");
+  expect(quoted.deny).toContain("whole single-quoted word");
   expect(world.commands).toEqual([]);
   const plain = await $.tool.call({ tool: "Bash", command: "gh api repos/o/r" });
 
   expect(plain.deny).toBeUndefined();
   expect(world.commands).toEqual(["gh api repos/o/r"]);
+});
+
+test("a placeholder the session never minted refuses the command", async ($, on) => {
+  const world = await started($, on);
+
+  await kept($, world);
+  const stale = "[secret-pane:PARENT_REPO_PAT:00000000]";
+
+  const answer = await $.tool.call({
+    tool: "Bash",
+    command: `printf '%s' '${stale}' | gh secret set PARENT_REPO_PAT --repo o/r`,
+  });
+
+  expect(answer.deny).toContain("no placeholder of this session");
+  expect(world.commands).toEqual([]);
 });
 
 test("a background command holding the placeholder is refused", async ($, on) => {
@@ -348,26 +432,6 @@ test("a background command holding the placeholder is refused", async ($, on) =>
   expect(world.commands).toEqual([]);
 });
 
-test("a value the shell would read as code is refused, never put into Bash", async ($, on) => {
-  const world = await started($, on);
-  const { tag } = await kept($, world, "pa ss$(id)");
-  const answer = await $.tool.call({ tool: "Bash", command: `echo '${tag}'` });
-
-  expect(answer.deny).toContain("characters the shell reads as code");
-  expect(answer.deny).toContain(tag);
-  expect(answer.deny).not.toContain("pa ss");
-  expect(world.commands).toEqual([]);
-});
-
-test("a short value is refused by its placeholder, never shown", async ($, on) => {
-  const world = await started($, on);
-  const { tag } = await kept($, world, "a b");
-  const answer = await $.tool.call({ tool: "Bash", command: `echo '${tag}'` });
-
-  expect(answer.deny).toContain(tag);
-  expect(answer.deny).not.toContain("a b");
-});
-
 test("the settings hooks beneath see the command with the value in it", async ($, on) => {
   const world = await started($, on);
   const { tag } = await kept($, world);
@@ -376,61 +440,42 @@ test("the settings hooks beneath see the command with the value in it", async ($
   expect(world.checked).toEqual([`printf '%s' '${PAT}' | gh secret set PAT`]);
 });
 
-test("a permission the session would ask for is asked by the mod, the placeholder on show", async ($, on) => {
-  let choice = "Run it";
-
+test("a query of a permission is not the mod's: it runs nothing and asks nobody", async ($, on) => {
   const world = await started($, on, {
     verdict: () => ({ decision: "ask" }),
-    answer: () => choice,
-  });
-
-  const { tag } = await kept($, world);
-  const command = `printf '%s' '${PAT}' | gh secret set PAT`;
-  const allowed = await $.tool.check({ tool: "Bash", input: { command } });
-
-  expect(allowed.decision).toBe("allow");
-  expect(world.asked).toHaveLength(1);
-  expect(world.asked[0]).toContain(`printf '%s' '${tag}' | gh secret set PAT`);
-  expect(world.asked[0]).not.toContain(PAT);
-  choice = "Don't run it";
-  const refused = await $.tool.check({ tool: "Bash", input: { command } });
-
-  expect(refused.decision).toBe("deny");
-  expect(refused.reason).toContain("refused");
-});
-
-test("a verdict the session settles itself passes through; a command with no kept value is not the mod's", async ($, on) => {
-  const world = await started($, on, {
-    verdict: (command) =>
-      command.includes(PAT) ? { decision: "allow", rule: "Bash(printf:*)" } : { decision: "ask" },
     answer: () => "Run it",
   });
 
   await kept($, world);
-  const ruled = await $.tool.check({ tool: "Bash", input: { command: `echo ${PAT}` } });
+  const query = await $.tool.check({ tool: "Bash", input: { command: `echo '${PAT}'` } });
 
-  expect(ruled).toEqual({ decision: "allow", rule: "Bash(printf:*)" });
-  const plain = await $.tool.check({ tool: "Bash", input: { command: "git status" } });
-
-  expect(plain.decision).toBe("ask");
+  expect(query.decision).toBe("ask");
   expect(world.asked).toEqual([]);
+});
+
+test("/clear forgets every value: its placeholder then refuses the command", async ($, on) => {
+  const world = await started($, on);
+  const { tag } = await kept($, world);
+
+  await $.session.end({ reason: "clear", sessionId: "s1", resume: { id: "s1" } });
+
+  const answer = await $.tool.call({
+    tool: "Bash",
+    command: `printf '%s' '${tag}' | gh secret set X`,
+  });
+
+  expect(world.commands).toEqual([]);
+  expect(answer.deny ?? "not refused").toContain("no placeholder of this session");
 });
 
 test("the slot frees after an answer: a second request opens a second box", async ($, on) => {
   const world = await started($, on);
   const first = await kept($, world);
-  const again = await kept($, world, "another-value");
+  const again = await kept($, world, "another-long-value");
 
   expect(first.tag).toMatch(TAG);
   expect(again.tag).toMatch(TAG);
   expect(again.tag).not.toBe(first.tag);
-});
-
-test("a session drawn on a phone alone has no box: the tool says so", async ($, on) => {
-  await started($, on, { surfaces: ["mobile"] });
-  const answer = await $.tool.call(ASK);
-
-  expect(String(answer.result)).toContain("needs an interactive session");
 });
 
 test("a narrow terminal gets the box in the band, where Enter on empty cancels", async ($, on) => {
@@ -450,26 +495,32 @@ test("a narrow terminal gets the box in the band, where Enter on empty cancels",
 
   expect(String(answer.result)).toBe("The user cancelled. PARENT_REPO_PAT was not kept.");
   expect(world.toasts.some((text) => text.includes("ctrl+x then tab"))).toBe(true);
-  const bash = await $.tool.call({ tool: "Bash", command: `echo ${PAT}` });
-
-  expect(bash.deny).toBeUndefined();
-  expect(world.commands).toEqual([`echo ${PAT}`]);
 });
 
-test("a kept value pasted into the prompt is swapped for its placeholder", async ($, on) => {
+test("a kept value pasted into the prompt or its context is swapped for its placeholder", async ($, on) => {
   const world = await started($, on);
   const { tag } = await kept($, world);
 
   await $.prompt.submit({
     text: `here is the token: ${PAT}`,
+    context: [`a hook's note: ${PAT}`],
     wait: false,
     origin: { kind: "composer" },
   });
-  expect(world.prompts).toEqual([`here is the token: ${tag}`]);
+  expect(world.prompts).toEqual([
+    { text: `here is the token: ${tag}`, context: [`a hook's note: ${tag}`] },
+  ]);
 });
 
 test("a headless run has nobody to type: the tool says so", async ($, on) => {
   await started($, on, { surfaces: [] });
+  const answer = await $.tool.call(ASK);
+
+  expect(String(answer.result)).toContain("needs an interactive session");
+});
+
+test("a session drawn on a phone alone has no box: the tool says so", async ($, on) => {
+  await started($, on, { surfaces: ["mobile"] });
   const answer = await $.tool.call(ASK);
 
   expect(String(answer.result)).toContain("needs an interactive session");

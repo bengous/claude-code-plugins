@@ -1,14 +1,7 @@
 import type { EngineInterface, Register, ToolCallResult } from "claude-code";
 
-import {
-  createVault,
-  isShellActive,
-  mergeTyped,
-  PLUGIN,
-  publishes,
-  VARIABLE_NAME,
-  walkStrings,
-} from "./vault.ts";
+import { restoreCommand } from "./shell.ts";
+import { createVault, entered, mergeTyped, PLUGIN, VARIABLE_NAME, walkStrings } from "./vault.ts";
 
 export const TOOL = `mcp__${PLUGIN}__request_secret`;
 
@@ -31,17 +24,23 @@ const POLL_WINDOWS = [
   "Start-Sleep -Milliseconds 300",
 ] as const;
 
-const PANE_ROWS = 6;
+const PANE_ROWS = 7;
 
-/** The tools whose results a kept value could come back through on this build: a command's output, a file. */
-type Reader = "Bash" | "Read";
+/** The tools whose stored record can hold a command's output or a file's text. */
+type Reader = "Bash" | "Read" | "Edit" | "NotebookEdit" | "Monitor" | "GetTask" | "LSP";
+
+const RESTORE_RULES = [
+  "Write the placeholder as a whole single-quoted word, in one command or one pipe of two:",
+  "printf '%s' '<placeholder>' | gh secret set NAME --repo org/repo, or curl --oauth2-bearer '<placeholder>' https://...",
+  "A command is refused when a placeholder stands anywhere else or is no placeholder of this session; when it holds ; & && || $ ( ) a backtick, a new line or a second pipe;",
+  "when it goes through a wrapper (sh, bash, env, xargs, sudo...), a git command that writes history, or a gh command other than gh secret; and when it runs in the background.",
+].join(" ");
 
 const DESCRIPTION = [
   "Asks the user for a secret (an API key, a token, a password) in a masked box beside the transcript, so the value never enters the conversation.",
-  "Answers the variable name and a placeholder of the form [secret-pane:NAME:xxxxxxxx].",
-  "A placeholder written in a Bash command becomes the real value when the command runs; the value is hidden again in every Bash and Read result.",
-  "A command that holds a placeholder is refused when it writes git history or sends anything to GitHub (git commit, git tag, gh api, gh pr; only gh secret takes the value), or runs in the background: split it so the command that needs the value runs alone, in the foreground.",
-  "No other tool restores a placeholder. The value lives in this session's memory only: the mod writes nothing to disk, and a new session asks the user again.",
+  "Answers the variable name and a placeholder of the form [secret-pane:NAME:xxxxxxxx], which becomes the real value inside a Bash command; the value is hidden again in everything that comes back.",
+  RESTORE_RULES,
+  "No other tool restores a placeholder. The value lives in this session's memory only: the mod writes nothing to disk, and a new session or /clear asks the user again.",
   "Use it in place of asking the user to paste a secret into the chat.",
 ].join(" ");
 
@@ -49,10 +48,17 @@ const WITHHELD = `${PLUGIN}: could not check this result for a kept value, so th
 
 const NOT_RUN = `${PLUGIN}: could not put the kept value into this command, so it was not run.`;
 
+const BLOCK_WITHHELD = `[${PLUGIN} withheld this text: the check for a kept value failed]`;
+
+const RUN = "Run it";
+
+const SKIP = "Don't run it";
+
 type Pending = {
   readonly name: string;
   readonly reason: string;
   value: string;
+  error: string | null;
   answer: string | undefined;
   isInBand: boolean;
 };
@@ -61,9 +67,8 @@ let pending: Pending | null = null;
 
 const vault = createVault();
 
-const RUN = "Run it";
-
-const SKIP = "Don't run it";
+/** Each command restored for a call in flight, mapped to the command as Claude wrote it. */
+const asWritten = new Map<string, string>();
 
 /* oxlint-disable anti-slop/no-unknown-parameters, anti-slop/no-runtime-typeof -- a tool argument is the model's own, `unknown` as the engine hands it; these reads ARE the boundary. */
 function argument(value: unknown): string {
@@ -107,37 +112,11 @@ function hidden(ran: Answer, hide: (text: string) => string): ReadResult {
   return answered;
 }
 
-function entered(name: string, tag: string, length: number): string {
+function answerText(name: string, tag: string, length: number): string {
   return [
-    `The user entered ${name} (${length} characters). The value is kept in this session's memory; you can't see it.`,
-    `Write the placeholder ${tag} in a Bash command: it becomes the real value when the command runs, and the value is hidden again in every result.`,
-    `A command holding the placeholder is refused when it writes git history, sends anything to GitHub (gh secret set alone takes the value), or runs in the background: run the command that needs the value alone, in the foreground. No other tool restores it.`,
-    `A command that reads the value on stdin takes printf '%s' '${tag}' | <command>.`,
+    `The user entered ${name} (${length} characters). The value is kept in this session's memory; you can't see it. Its placeholder: ${tag}.`,
+    RESTORE_RULES,
   ].join(" ");
-}
-
-/** Why a command holding a placeholder must not run as written, or nothing. */
-function refusal(
-  command: string,
-  isBackground: boolean,
-  handed: readonly string[],
-  tagFor: (value: string) => string | undefined,
-): string | undefined {
-  if (publishes(command)) {
-    return `${PLUGIN}: this command writes git history or sends text to GitHub, so its placeholder was not put in and the command was not run (gh secret set alone takes the value). Run the command that needs the value alone, and the publishing one without it.`;
-  }
-
-  if (isBackground) {
-    return `${PLUGIN}: a background command's output never comes back through ${PLUGIN}, so its placeholder was not put in and the command was not run. Run it in the foreground.`;
-  }
-
-  const active = handed.find((value) => isShellActive(value));
-
-  if (active !== undefined) {
-    return `${PLUGIN}: the value behind ${tagFor(active) ?? "the placeholder"} holds characters the shell reads as code, so it cannot go through a command. Ask the user to enter it where it is needed themselves (gh secret set prompts for it in their own terminal); no tool of this session can carry it.`;
-  }
-
-  return undefined;
 }
 
 type Drawn = Parameters<EngineInterface["ui"]["resolve"]>[0];
@@ -164,13 +143,30 @@ function drawBox($: EngineInterface, e: Typed, p: Pending) {
         submitLabel: "save",
         autoFocus: true,
         onInput: (drawn) => {
-          p.value = mergeTyped(p.value, drawn, DOT);
+          const merged = mergeTyped(p.value, drawn, DOT);
+
+          p.value = merged ?? "";
+          p.error =
+            merged === null
+              ? "an edit in the middle of the field cannot be read: the field was emptied, paste the value again"
+              : null;
           $.ui.invalidate("ui.render");
         },
         onSubmit: () => {
-          p.answer = p.value;
+          if (p.isInBand && p.value.trim() === "") {
+            p.answer = "";
+
+            return;
+          }
+
+          const kept = entered(p.value);
+
+          if (kept.kind === "kept") p.answer = kept.value;
+          else p.error = kept.why;
+          $.ui.invalidate("ui.render");
         },
       }),
+      ...(p.error === null ? [] : [Text({ color: "yellow", children: p.error })]),
       Text({
         dimColor: true,
         children: `${count}Enter saves · ${focusHint} · Claude never sees the value`,
@@ -179,8 +175,28 @@ function drawBox($: EngineInterface, e: Typed, p: Pending) {
   });
 }
 
+/** Every text a row carries the model reads, with each kept value hidden; the row itself when none was. */
+function hiddenContent<B extends { readonly type: string }>(
+  content: readonly B[],
+  hide: (text: string) => string,
+): B[] {
+  return content.map((block) => {
+    if (block.type !== "text" && block.type !== "tool_result") return block;
+
+    // SAFETY: a text block's and a tool_result's content are plain data, and walkStrings keeps their shape.
+    return walkStrings(block, hide) as B;
+  });
+}
+
+function forget(): void {
+  vault.clear();
+  asWritten.clear();
+  pending = null;
+}
+
 export const register: Register = (on) => {
   on("session.start", async ($, e, next) => {
+    forget();
     await $.tool.register({
       name: "request_secret",
       description: DESCRIPTION,
@@ -200,6 +216,13 @@ export const register: Register = (on) => {
       },
       isDeferred: false,
     });
+
+    return next(e);
+  });
+
+  // A /clear ends the conversation with no session.start after it: the values go with it.
+  on("session.end", (_$, e, next) => {
+    forget();
 
     return next(e);
   });
@@ -229,37 +252,36 @@ export const register: Register = (on) => {
       name,
       reason: argument(e.reason),
       value: "",
+      error: null,
       answer: undefined,
       isInBand: false,
     };
 
     pending = request;
 
-    const opened = await $.ui.open({
-      id: PANE,
-      title: PLUGIN,
-      focus: true,
-      closeOnEscape: true,
-      holdToasts: true,
-      rows: PANE_ROWS,
-    });
-
-    if (!opened.isPlaced) {
-      request.isInBand = true;
-      await $.ui.close({ id: PANE });
-      $.ui.invalidate("ui.render");
-      $.ui.toast(
-        `Claude asks for ${name}: press ctrl+x then tab to type it in the box above the prompt`,
-        {
-          timeoutMs: 10_000,
-        },
-      );
-    }
-
-    const poll = (await $.env.get("OS")) === "Windows_NT" ? POLL_WINDOWS : POLL;
-    const deadline = (await $.clock.now()) + WAIT_MS;
-
     try {
+      const opened = await $.ui.open({
+        id: PANE,
+        title: PLUGIN,
+        focus: true,
+        closeOnEscape: true,
+        holdToasts: true,
+        rows: PANE_ROWS,
+      });
+
+      if (!opened.isPlaced) {
+        request.isInBand = true;
+        await $.ui.close({ id: PANE });
+        $.ui.invalidate("ui.render");
+        $.ui.toast(
+          `Claude asks for ${name}: press ctrl+x then tab to type it in the box above the prompt`,
+          { timeoutMs: 10_000 },
+        );
+      }
+
+      const poll = (await $.env.get("OS")) === "Windows_NT" ? POLL_WINDOWS : POLL;
+      const deadline = (await $.clock.now()) + WAIT_MS;
+
       while (
         request.answer === undefined &&
         !next.signal.aborted &&
@@ -268,9 +290,9 @@ export const register: Register = (on) => {
         await $.process.run(poll);
       }
     } finally {
-      // An Escape of the call skips the hook with no `.catch`: the box and the slot are released here, whatever ended the wait.
+      // Whatever ends the wait, an Escape of the call included (it skips the hook with no `.catch`), the slot and the box go.
       if (pending === request) pending = null;
-      await $.ui.close({ id: PANE });
+      await $.ui.close({ id: PANE }).catch(() => {});
       $.ui.invalidate("ui.render");
     }
 
@@ -285,7 +307,7 @@ export const register: Register = (on) => {
 
     $.ui.toast(`${name} kept for this session`);
 
-    return { result: entered(name, tag, value.length) };
+    return { result: answerText(name, tag, value.length) };
   }).catch(($, _e, next) => {
     $.ui.log(`${PLUGIN}: request_secret failed: ${next.error.kind}`);
 
@@ -311,21 +333,22 @@ export const register: Register = (on) => {
     return next(e);
   }).catch((_$, e, next) => next(e));
 
-  // The permission is decided on the command as it runs, value in: when the session would ask, the
-  // mod asks instead, the placeholder on show, so no dialog and no "always allow" rule carries the value.
+  // The permission is decided on the command as it runs, value in. On a real call the mod restored,
+  // an ask is put to the person by the mod, the command as Claude wrote it on show: no dialog and no
+  // "always allow" rule carries the value, and in auto mode the classifier never reads it.
   on("tool.check", { tool: "Bash" }, async ($, e, next) => {
     const command = shellCommand(e.input);
 
-    if (command === null || vault.isEmpty()) return next(e);
-    const shown = vault.hide(command);
+    const written =
+      e.tool_use_id === undefined || command === null ? undefined : asWritten.get(command);
 
-    if (shown === command) return next(e);
+    if (written === undefined) return next(e);
     const verdict = await next(e);
 
     if (verdict.decision !== "ask") return verdict;
 
     const choice = await $.ui
-      .ask(`${PLUGIN}: run this command, the placeholder standing for the kept value?\n${shown}`, [
+      .ask(`${PLUGIN}: run this command? Each placeholder stands for a kept value.\n${written}`, [
         RUN,
         SKIP,
       ])
@@ -340,7 +363,7 @@ export const register: Register = (on) => {
   }).catch((_$, e, next) => {
     const command = shellCommand(e.input);
 
-    if (command === null || vault.isEmpty() || vault.hide(command) === command) return next(e);
+    if (command === null || !asWritten.has(command)) return next(e);
 
     return {
       decision: "deny",
@@ -348,48 +371,108 @@ export const register: Register = (on) => {
     };
   });
 
-  on("tool.call", { tool: ["Bash", "Read"] }, async ($, e, next) => {
-    if (vault.isEmpty()) return next(e);
-    const hide = (text: string) => vault.hide(text);
-    let input = e;
-    let handed: readonly string[] = [];
+  on(
+    "tool.call",
+    { tool: ["Bash", "Read", "Edit", "NotebookEdit", "Monitor", "GetTask", "LSP"] },
+    async (_$, e, next) => {
+      let input = e;
+      let restoredCommand: string | null = null;
 
-    if (e.tool === "Bash") {
-      const restored = vault.restore(e.command);
+      // An empty vault still reads the command: a placeholder of an earlier session would run as text.
+      if (e.tool === "Bash") {
+        const restoration = restoreCommand(e.command, vault.valueOf);
 
-      handed = restored.handed;
+        if (restoration.kind === "refused") {
+          return {
+            deny: `${PLUGIN}: the command was not run: ${restoration.why}. ${RESTORE_RULES}`,
+          };
+        }
 
-      if (handed.length > 0) {
-        const why = refusal(e.command, e.run_in_background === true, handed, vault.tagFor);
+        if (restoration.kind === "restored") {
+          if (e.run_in_background === true) {
+            return {
+              deny: `${PLUGIN}: the command was not run: a background command's output is written to disk and read back past the mod. Run it in the foreground.`,
+            };
+          }
 
-        if (why !== undefined) return { deny: why };
-        input = { ...e, command: restored.text };
+          restoredCommand = restoration.command;
+          asWritten.set(restoredCommand, e.command);
+          input = { ...e, command: restoredCommand };
+        }
       }
-    }
 
-    const ran = await next(input);
+      if (vault.isEmpty()) return next(input);
+      let changed = false;
 
-    if (ran.deny !== undefined) return { deny: hide(ran.deny) };
+      const hide = (text: string) => {
+        const out = vault.hide(text);
 
-    if (handed.length > 0) {
-      $.ui.notice(e.tool_use_id, `${PLUGIN}: ${handed.length} value(s) put in and hidden again`);
-    }
+        if (out !== text) changed = true;
 
-    return hidden(ran, hide);
-  }).catch((_$, e, next) => {
-    if (vault.isEmpty()) return next(e);
+        return out;
+      };
+
+      try {
+        const ran = await next(input);
+
+        if (ran.deny !== undefined) {
+          const deny = hide(ran.deny);
+
+          return changed ? { deny } : ran;
+        }
+
+        const answer = hidden(ran, hide);
+
+        return changed ? answer : ran;
+      } finally {
+        if (restoredCommand !== null) asWritten.delete(restoredCommand);
+      }
+    },
+  ).catch((_$, e, next) => {
+    const carriesTag = e.tool === "Bash" && e.command.includes("[secret-pane:");
+
+    if (vault.isEmpty() && !carriesTag) return next(e);
 
     return { deny: next.called ? WITHHELD : NOT_RUN };
+  });
+
+  // The net under every door a text reaches the model by: a tool's result, a task's notification,
+  // a hook's context, a prompt. Only a row's text blocks and tool_result content may be rewritten.
+  on("session.append", (_$, e, next) => {
+    if (vault.isEmpty()) return next(e);
+    let changed = false;
+
+    const hide = (text: string) => {
+      const out = vault.hide(text);
+
+      if (out !== text) changed = true;
+
+      return out;
+    };
+
+    const content = hiddenContent(e.message.content, hide);
+
+    return changed ? next({ ...e, message: { ...e.message, content } }) : next(e);
+  }).catch((_$, e, next) => {
+    if (next.called || vault.isEmpty()) return next(e);
+
+    const content = hiddenContent(e.message.content, () => BLOCK_WITHHELD);
+
+    return next({ ...e, message: { ...e.message, content } });
   });
 
   on("prompt.submit", ($, e, next) => {
     if (vault.isEmpty()) return next(e);
     const text = vault.hide(e.text);
+    const context = e.context?.map((block) => vault.hide(block));
 
-    if (text === e.text) return next(e);
+    const contextChanged =
+      context !== undefined && context.some((block, at) => block !== e.context?.[at]);
+
+    if (text === e.text && !contextChanged) return next(e);
     $.ui.toast(`${PLUGIN}: hid a kept value from the prompt`);
 
-    return next({ ...e, text });
+    return next(context === undefined ? { ...e, text } : { ...e, text, context });
   }).catch((_$, e, next) => {
     if (next.called || vault.isEmpty()) return next(e);
 

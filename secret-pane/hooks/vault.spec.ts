@@ -1,102 +1,62 @@
 import { describe, expect, test } from "bun:test";
 
-import { createVault, isShellActive, mergeTyped, publishes, walkStrings } from "./vault.ts";
+import { createVault, entered, mergeTyped, walkStrings } from "./vault.ts";
 
 const PAT = "github_pat_11AAAAAAA0abcdefghijklmnopqrstuvwxyz";
 
-describe("tagOf", () => {
+describe("tagOf and valueOf", () => {
   test("mints a placeholder naming the variable, stable for the same value", () => {
     const vault = createVault();
     const tag = vault.tagOf("PARENT_REPO_PAT", PAT, 1_700_000_000_000);
 
     expect(tag).toMatch(/^\[secret-pane:PARENT_REPO_PAT:[0-9a-f]{8}\]$/u);
     expect(vault.tagOf("PARENT_REPO_PAT", PAT, 1_700_000_000_999)).toBe(tag);
-    expect(vault.isEmpty()).toBe(false);
+    expect(vault.valueOf(tag)).toBe(PAT);
+    expect(vault.valueOf("[secret-pane:PARENT_REPO_PAT:00000000]")).toBeUndefined();
   });
 
   test("two values get two placeholders", () => {
     const vault = createVault();
 
-    expect(vault.tagOf("A", "one-value", 7)).not.toBe(vault.tagOf("B", "another", 7));
+    expect(vault.tagOf("A", "one-value", 7)).not.toBe(vault.tagOf("B", "another-value", 7));
   });
-});
 
-describe("restore", () => {
-  test("puts the value in for its placeholder and names what it handed", () => {
+  test("clear forgets every value", () => {
     const vault = createVault();
-    const tag = vault.tagOf("PAT", PAT, 7);
+    const tag = vault.tagOf("A", "one-value", 7);
 
-    expect(vault.restore(`printf '%s' '${tag}' | gh secret set PAT`)).toEqual({
-      text: `printf '%s' '${PAT}' | gh secret set PAT`,
-      handed: [PAT],
-    });
-  });
-
-  test("leaves a placeholder it never minted, and hands nothing", () => {
-    const text = "echo '[secret-pane:PAT:00000000]'";
-
-    expect(createVault().restore(text)).toEqual({ text, handed: [] });
+    vault.clear();
+    expect(vault.isEmpty()).toBe(true);
+    expect(vault.valueOf(tag)).toBeUndefined();
+    expect(vault.hide("one-value")).toBe("one-value");
   });
 });
 
 describe("hide", () => {
-  test("swaps every known value for its placeholder, longest first", () => {
+  test("swaps every kept value for its placeholder, longest first", () => {
     const vault = createVault();
-    const short = vault.tagOf("S", "abcd", 7);
-    const long = vault.tagOf("L", "abcdefgh", 7);
+    const short = vault.tagOf("S", "abcdefgh", 7);
+    const long = vault.tagOf("L", "abcdefgh-ijkl", 7);
 
-    expect(vault.hide("abcdefgh and abcd")).toBe(`${long} and ${short}`);
+    expect(vault.hide("abcdefgh-ijkl and abcdefgh")).toBe(`${long} and ${short}`);
   });
 
-  test("hides only the values asked for", () => {
+  test("never rewrites a placeholder, its own or one already in the text", () => {
     const vault = createVault();
-    const tag = vault.tagOf("A", "first-value", 7);
+    const pat = vault.tagOf("PARENT_REPO_PAT", PAT, 7);
 
-    vault.tagOf("B", "second-value", 7);
-    expect(vault.hide("first-value second-value", ["first-value"])).toBe(`${tag} second-value`);
+    vault.tagOf("WORD", "secret-p", 7);
+    vault.tagOf("NAME", "PARENT_REPO_PAT", 7);
+    expect(vault.hide(`token ${PAT}`)).toBe(`token ${pat}`);
+    expect(vault.hide(`again ${pat}`)).toBe(`again ${pat}`);
   });
 
-  test("leaves a value under four characters as printed", () => {
+  test("a value with regex characters is matched as text", () => {
     const vault = createVault();
+    const tag = vault.tagOf("P", "a.b*c(d)e", 7);
 
-    vault.tagOf("PIN", "123", 7);
-    expect(vault.hide("pin 123")).toBe("pin 123");
+    expect(vault.hide("xa.b*c(d)ex axbbbcde")).toBe(`x${tag}x axbbbcde`);
   });
-});
-
-test("isShellActive flags what the shell would read as code", () => {
-  expect(isShellActive(PAT)).toBe(false);
-  expect(isShellActive("a b")).toBe(true);
-  expect(isShellActive("$(id)")).toBe(true);
-  expect(isShellActive("it's")).toBe(true);
-});
-
-test("publishes names the commands whose text leaves the machine", () => {
-  expect(publishes("git commit -m 'x'")).toBe(true);
-  expect(publishes("git -C /r tag v1")).toBe(true);
-  expect(publishes("git --work-tree /x commit -m x")).toBe(true);
-  expect(publishes("git merge -m 'x' topic")).toBe(true);
-  expect(publishes("git revert HEAD")).toBe(true);
-  expect(publishes("gh pr create --body x")).toBe(true);
-  expect(publishes("gh api repos/o/r")).toBe(true);
-  expect(publishes("gh variable set X --body y")).toBe(true);
-  expect(publishes("printf '%s' 'x' | gh secret set PAT --repo o/r && gh api repos/o/r")).toBe(
-    true,
-  );
-  expect(publishes("gh secret set PAT --repo o/r")).toBe(false);
-  expect(publishes("printf '%s' 'x' | gh --repo o/r secret set PAT")).toBe(false);
-  expect(publishes("git status")).toBe(false);
-  expect(publishes("curl -H 'Authorization: Bearer x' https://api.github.com/repos/o/r")).toBe(
-    false,
-  );
-});
-
-test("tagFor answers the placeholder of a kept value, nothing for another", () => {
-  const vault = createVault();
-  const tag = vault.tagOf("PIN", "123", 7);
-
-  expect(vault.tagFor("123")).toBe(tag);
-  expect(vault.tagFor("124")).toBeUndefined();
 });
 
 test("walkStrings rewrites every string of a plain value and keeps the shape", () => {
@@ -120,5 +80,20 @@ describe("mergeTyped", () => {
 
   test("a clear is an empty value", () => {
     expect(mergeTyped("abcd", "", "•")).toBe("");
+  });
+
+  test("an edit in the middle cannot be read", () => {
+    expect(mergeTyped("abc", "••x•", "•")).toBeNull();
+  });
+});
+
+describe("entered", () => {
+  test("keeps the value trimmed", () => {
+    expect(entered(` ${PAT}\n`)).toEqual({ kind: "kept", value: PAT });
+  });
+
+  test("refuses an empty or short value, saying why", () => {
+    expect(entered("   ")).toMatchObject({ kind: "refused" });
+    expect(entered("1234567")).toMatchObject({ kind: "refused" });
   });
 });
