@@ -91,10 +91,12 @@ export type Scan =
 
 /** A path as the shell would expand its leading `~`, or nothing where the mod cannot tell what it names. */
 function expanded(path: string, home: string | undefined): string | undefined {
-  if (path === "-" || /[$`]/u.test(path)) return undefined;
+  const prefix = /^(?:~|\$HOME|\$\{HOME\})(?=\/|$)/u.exec(path)?.[0];
 
-  if (path === "~" || path.startsWith("~/"))
-    return home === undefined ? undefined : home + path.slice(1);
+  if (prefix !== undefined)
+    return home === undefined ? undefined : expanded(home + path.slice(prefix.length), undefined);
+
+  if (path === "-" || /[$`]/u.test(path)) return undefined;
 
   return path.startsWith("~") ? undefined : path;
 }
@@ -132,7 +134,7 @@ function gitPaths(rest: readonly string[]): readonly string[] {
 }
 
 /** The file a command substitution in an argument prints: `"$(cat body.md)"`, `"$(< body.md)"`. */
-const SUBSTITUTED_FILE = /\$\(\s*(?:cat\s+|<\s*)((?:'[^']*'|"[^"]*"|[^\s)'"])+)\s*\)/gu;
+const SUBSTITUTED_FILE = /\$\(\s*(?:cat\s+|<\s*)((?:'[^']*'|"[^"]*"|[^\s)'"<])+)\s*\)/gu;
 
 function substitutedPaths(args: readonly string[]): readonly string[] {
   return args.flatMap((arg) =>
@@ -183,19 +185,26 @@ function targetOf(
   for (let at = 0; at + 1 < place.length; at += 2)
     if (place[at] === "-C") base = joined(base, place[at + 1] ?? "");
 
-  // `gh gist create .env`: the word after gh's subcommand names its action, the files come after.
-  const handed = program === "gh" ? ghPaths(rest.slice(1)) : gitPaths(rest);
-
-  for (const path of [...handed, ...substitutedPaths(rest)]) {
+  // `gh gist create .env`: the word after gh's subcommand names its action, its words may name files.
+  for (const path of program === "gh" ? ghPaths(rest.slice(1)) : []) {
     const resolved = expanded(path, home);
 
-    if (resolved !== undefined) files.push(joined(program === "git" ? base : dir, resolved));
+    if (resolved !== undefined) files.push(joined(dir, resolved));
   }
 
-  for (const path of inputs) {
+  // These name a file for certain: one the mod cannot tell is a place it cannot check.
+  const named = [
+    ...(program === "git" ? gitPaths(rest) : []).map((path) => ({ path, from: base })),
+    ...substitutedPaths(rest).map((path) => ({ path, from: program === "git" ? base : dir })),
+    ...inputs.map((path) => ({ path, from: dir })),
+  ];
+
+  for (const { path, from } of named) {
     const resolved = expanded(path, home);
 
-    if (resolved !== undefined && !resolved.startsWith("/dev/")) files.push(joined(dir, resolved));
+    if (resolved === undefined) return { kind: "unknown", label, spelling: path };
+
+    if (!resolved.startsWith("/dev/")) files.push(joined(from, resolved));
   }
 
   return { kind: "place", program, label, dir, options: place, files };

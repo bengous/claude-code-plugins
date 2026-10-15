@@ -33,7 +33,7 @@ const AFTER_DOLLAR = new RegExp(
 export const FIXES = {
   file: "printf '<NAME>=%s\\n' '<placeholder>' >> .env",
   header: "printf 'Authorization: Bearer %s' '<placeholder>' | curl -H @- https://...",
-  both: "printf 'Authorization: Bearer %s' '<placeholder>' | curl -H @- -d '<placeholder>' https://...",
+  both: "printf 'Authorization: Bearer %s' '<placeholder>' | curl -H @- -d '<other>' https://...",
   secret: "printf '%s' '<placeholder>' | gh secret set <NAME> --repo org/repo",
   bearer: "curl --oauth2-bearer '<placeholder>' https://api.github.com/...",
   credential:
@@ -738,9 +738,11 @@ function restoreStrict(command: string, values: ReadonlyMap<string, string>): Re
       const stray = TAG_ANYWHERE.exec(word.raw)?.[0];
 
       if (stray !== undefined) {
-        const why = isInert(values.get(stray) ?? "") ? MIXED : NOT_A_WORD;
+        if (!isInert(values.get(stray) ?? ""))
+          return { kind: "refused", why: filled(NOT_A_WORD, stray) };
+        const other = [...values.keys()].find((key) => !isInert(values.get(key) ?? "")) ?? "";
 
-        return { kind: "refused", why: filled(why, stray) };
+        return { kind: "refused", why: filled(MIXED, stray).replaceAll("<other>", other) };
       }
 
       restored.push(word.raw);

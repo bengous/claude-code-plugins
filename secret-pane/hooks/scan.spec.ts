@@ -137,6 +137,15 @@ describe("scanTargets", () => {
     ]);
   });
 
+  test("a file named through $HOME, or one the mod cannot tell", () => {
+    expect(scanTargets(`git commit -m "$(cat "$HOME/notes/msg")"`, HOME)).toEqual([
+      { ...HERE, files: ["/u/me/notes/msg"] },
+    ]);
+    expect(scanTargets(`gh pr create --body "$(cat "$DIR/body.md")"`, HOME)).toEqual([
+      { kind: "unknown", label: "gh pr", spelling: "$DIR/body.md" },
+    ]);
+  });
+
   test("the file a substitution in an argument prints", () => {
     expect(scanTargets(`gh pr create --title x --body "$(cat /tmp/pr-body.md)"`, HOME)).toEqual([
       { ...GH, files: ["x", "/tmp/pr-body.md"] },

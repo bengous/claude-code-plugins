@@ -197,7 +197,7 @@ describe("a fix names the placeholder it is about", () => {
         both,
       ),
     ).toContain(
-      "write each one as a whole single-quoted word, as in printf 'Authorization: Bearer %s'",
+      `write each one as a whole single-quoted word, as in printf 'Authorization: Bearer %s' '${TAG}' | curl -H @- -d '${OTHER}' https://..., or run them in Bash calls of their own`,
     );
   });
 
@@ -219,7 +219,10 @@ describe("a fix names the placeholder it is about", () => {
 test("every fix a refusal names runs, whatever the value holds", () => {
   for (const of of [valueOf, shellyOf]) {
     for (const fix of Object.values(FIXES)) {
-      const command = fix.replaceAll("<placeholder>", TAG).replaceAll("<NAME>", "PAT");
+      const command = fix
+        .replaceAll("<placeholder>", TAG)
+        .replaceAll("<other>", TAG)
+        .replaceAll("<NAME>", "PAT");
 
       expect(restoreCommand(command, of).kind).toBe("restored");
     }
