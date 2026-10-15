@@ -20,7 +20,7 @@ import { clearFailures, guard, resetTurn } from "./loop-guard.ts";
 import { dirtyDigest, headSha, sessionFiles, wholeDirtyTree } from "./scope.ts";
 import type { SessionState } from "./state.ts";
 
-const BUSY_TASK_TYPES = new Set(["subagent", "workflow"]);
+const BUSY_TASK_TYPES = new Set(["subagent", "workflow", "teammate"]);
 
 const BUSY_TASK_STATUSES = new Set(["running", "pending"]);
 

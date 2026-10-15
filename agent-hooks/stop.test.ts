@@ -157,6 +157,19 @@ describe("runStop", () => {
     expect(counter.count()).toBe(0);
   });
 
+  test("skips the lanes while a teammate task runs", async () => {
+    setUp(LINT_CONFIG);
+    await sessionStart();
+    writeRepoFile(temp.repo, "src/new.ts", "BAD\n");
+
+    const output = await stop({
+      background_tasks: [{ id: "t1", type: "teammate", status: "running", description: "work" }],
+    });
+
+    expect(noteOf(output)).toBe("agent-hooks: a teammate task is still running, lanes skipped");
+    expect(counter.count()).toBe(0);
+  });
+
   test("runs the lanes while only a shell task runs", async () => {
     setUp(LINT_CONFIG);
     await sessionStart();
