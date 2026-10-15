@@ -526,6 +526,9 @@ const LITERAL_HEREDOC =
 /** The programs that run the text they are handed as commands: a heredoc on their line is a script. */
 const RUNNERS = new Set(["sh", "bash", "zsh", "dash", "ksh", "fish", "ssh", "eval", "source", "."]);
 
+/** The runners that are shell builtins, which no prefix can run: `sudo git add .` names no shell. */
+const BUILTIN_RUNNERS = new Set(["eval", "source", "."]);
+
 /** The words that may stand before a program and hand it the rest of the command. */
 const PREFIXES = new Set([
   "sudo",
@@ -556,7 +559,9 @@ function isRunOn(line: string): boolean {
 
     const [program = ""] = words;
 
-    return PREFIXES.has(program) ? words.some((word) => RUNNERS.has(word)) : RUNNERS.has(program);
+    return PREFIXES.has(program)
+      ? words.some((word) => RUNNERS.has(word) && !BUILTIN_RUNNERS.has(word))
+      : RUNNERS.has(program);
   });
 }
 

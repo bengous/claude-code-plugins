@@ -570,6 +570,27 @@ test("a commit is refused while a change it could carry holds a kept value, nami
   expect(world.commands).toEqual([]);
 });
 
+test("a tracked file holding a kept value is named with the quoted command that stops tracking it", async ($, on) => {
+  const diff = [
+    "diff --git a/my file.txt b/my file.txt",
+    "+++ b/my file.txt\t",
+    "@@ -0,0 +1 @@",
+    `+${PAT}`,
+    "",
+  ];
+
+  const world = await started($, on, {
+    git: (args) => (args.includes("--cached") ? ran(diff.join("\n")) : cleanRepo(args)),
+  });
+
+  await kept($, world);
+  const answer = await $.tool.call({ tool: "Bash", command: "git commit -m t" });
+
+  expect(answer.deny).toContain(
+    "my file.txt (tracked: take the value out, or stop tracking it with git rm --cached 'my file.txt' and add it to .gitignore)",
+  );
+});
+
 test("a commit whose changes hold no kept value runs, and a local git runs unscanned", async ($, on) => {
   const world = await started($, on);
 
@@ -581,6 +602,9 @@ test("a commit whose changes hold no kept value runs, and a local git runs unsca
   expect(commit.deny).toBeUndefined();
   expect(world.commands).toEqual(["git status", "git commit -am t"]);
   expect(world.gitRuns.map(verbOf)).toEqual(["rev-parse", "diff", "diff", "ls-files"]);
+  expect(world.gitRuns.every((args) => args.join(" ").includes("-c core.fsmonitor=false"))).toBe(
+    true,
+  );
 });
 
 test("a scan that cannot read the changes refuses the command, saying why", async ($, on) => {
