@@ -1,13 +1,12 @@
 import type { EngineInterface, Register, ToolCallInput, ToolCallResult } from "claude-code";
 
 import { type Found, type Host, needlesOf, scanChanges, scanTargets } from "./scan.ts";
-import { restoreCommand, shellQuote } from "./shell.ts";
+import { filled, FIXES, restoreCommand, shellQuote } from "./shell.ts";
 import {
   createVault,
   entered,
   isInert,
   mergeTyped,
-  nameOf,
   PLUGIN,
   VARIABLE_NAME,
   walkStrings,
@@ -48,8 +47,11 @@ type FileWrite = Extract<ToolCallInput, { tool: "Write" | "Edit" | "NotebookEdit
 const ANYWHERE =
   'Write the placeholder in a Bash command where the value goes, as you would write the value: curl -H "Authorization: Bearer <placeholder>" https://..., API_KEY=<placeholder> npm test.';
 
-const WHOLE_WORD =
-  "Write the placeholder as a whole single-quoted word, '<placeholder>', in one Bash command or a pipe of two: printf '%s' '<placeholder>' | gh secret set NAME --repo org/repo, curl --oauth2-bearer '<placeholder>' https://...; to build a longer text with it, pipe it, as in printf 'Authorization: Bearer %s' '<placeholder>' | curl -H @- https://...";
+const WHOLE_WORD = [
+  "Write the placeholder as a whole single-quoted word, '<placeholder>', in one Bash command or a pipe of two:",
+  `${FIXES.secret}, ${FIXES.bearer};`,
+  `to build a longer text with it, pipe it, as in ${FIXES.header}`,
+].join(" ");
 
 const DESCRIPTION = [
   "Asks the user for a secret (an API key, a token, a password) in a masked box beside the transcript, so the value never enters the conversation.",
@@ -138,13 +140,14 @@ function fileText(e: FileWrite): string {
 }
 
 function writeRefused(tag: string): string {
-  const name = nameOf(tag);
-
-  return [
-    `${PLUGIN}: the file was not written: ${tag} stands for a kept value, and this tool would write the placeholder as text.`,
-    `To put the value in a file, write it from Bash: printf '${name}=%s\\n' '${tag}' >> .env.`,
-    `To mention the secret without its value, write ${name}.`,
-  ].join(" ");
+  return filled(
+    [
+      `${PLUGIN}: the file was not written: <placeholder> stands for a kept value, and this tool would write the placeholder as text.`,
+      `To put the value in a file, write it from Bash: ${FIXES.file}.`,
+      "To mention the secret without its value, write <NAME>.",
+    ].join(" "),
+    tag,
+  );
 }
 
 function hostOf($: EngineInterface): Host {
@@ -200,9 +203,9 @@ async function changesRefusal($: EngineInterface, command: string): Promise<stri
 function answerText(name: string, tag: string, value: string): string {
   const kept = `The user entered ${name} (${value.length} characters). The value is kept in this session's memory; you can't see it. Its placeholder: ${tag}.`;
 
-  if (isInert(value)) return `${kept} ${ANYWHERE.replaceAll("<placeholder>", tag)}`;
+  if (isInert(value)) return `${kept} ${filled(ANYWHERE, tag)}`;
 
-  return `${kept} The value holds characters the shell reads. ${WHOLE_WORD.replaceAll("<placeholder>", tag).replace("NAME", name)}`;
+  return `${kept} The value holds characters the shell reads. ${filled(WHOLE_WORD, tag)}`;
 }
 
 type Drawn = Parameters<EngineInterface["ui"]["resolve"]>[0];

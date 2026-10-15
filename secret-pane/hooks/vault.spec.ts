@@ -80,6 +80,7 @@ test("isInert holds a token's characters, and none the shell reads", () => {
   expect(isInert(PAT)).toBe(true);
   expect(isInert("AKIA0123:a/b+c=d@e,f.g-h_i")).toBe(true);
   expect(isInert("-starts-with-a-dash")).toBe(false);
+  expect(isInert("abc:=def-long")).toBe(false);
 
   for (const char of [
     " ",

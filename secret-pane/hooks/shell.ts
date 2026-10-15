@@ -16,11 +16,28 @@ const TAG_ANYWHERE = /\[secret-pane:[A-Za-z_][A-Za-z0-9_]*:[0-9a-f]{8}\]/u;
 
 const TAGS = new RegExp(TAG_ANYWHERE.source, "gu");
 
-/** A placeholder right after `$`, `${` or `$name:`, where its value would turn into a variable's name or a zsh modifier. */
+/**
+ * A placeholder right after `$` or `${` (its value would be a variable's
+ * name), after `$name` (the value would run into the name) or after `$name:`
+ * (a zsh modifier): the brace, the name, the colon, then the placeholder.
+ */
 const AFTER_DOLLAR = new RegExp(
-  String.raw`\$\{?(?:[A-Za-z_][A-Za-z0-9_]*:)?(?=${TAG_ANYWHERE.source})`,
+  String.raw`\$(\{)?(?:([A-Za-z_][A-Za-z0-9_]*)(:)?)?(?=(${TAG_ANYWHERE.source}))`,
   "u",
 );
+
+/**
+ * The commands a refusal names as its fix, `<placeholder>` and `<NAME>` filled
+ * in: each one runs whatever the value holds, which shell.spec.ts holds them to.
+ */
+export const FIXES = {
+  file: "printf '<NAME>=%s\\n' '<placeholder>' >> .env",
+  header: "printf 'Authorization: Bearer %s' '<placeholder>' | curl -H @- https://...",
+  secret: "printf '%s' '<placeholder>' | gh secret set <NAME> --repo org/repo",
+  bearer: "curl --oauth2-bearer '<placeholder>' https://api.github.com/...",
+  credential:
+    "printf 'protocol=https\\nhost=github.com\\nusername=x-access-token\\npassword=%s\\n' '<placeholder>' | git credential approve",
+} as const;
 
 /** The fix every refusal of the strict shape ends on. */
 const ONE_COMMAND =
@@ -100,23 +117,25 @@ const GIT_LOCAL = new Set([
 
 const GIT_PUSH_REFUSED = [
   "`git push` sends commits out, so a command naming a placeholder may not run it:",
-  "hand the token to a credential helper that stores it, with printf 'protocol=https\\nhost=github.com\\nusername=x-access-token\\npassword=%s\\n' '<placeholder>' | git credential approve",
+  `hand the token to a credential helper that stores it, with ${FIXES.credential}`,
   "(gh's own helper keeps nothing and pushes with gh's login: gh auth status), then push in a command that names no placeholder",
 ].join(" ");
 
 const GH_REFUSED = [
   "a gh command other than gh secret sends text to GitHub, where it cannot be taken back:",
-  "store the value with printf '%s' '<placeholder>' | gh secret set <NAME> --repo org/repo,",
-  "call the API with curl --oauth2-bearer '<placeholder>' https://api.github.com/...,",
+  `store the value with ${FIXES.secret},`,
+  `call the API with ${FIXES.bearer},`,
   "and write <NAME> to mention it",
 ].join(" ");
 
-const AFTER_DOLLAR_REFUSED =
-  "a placeholder right after `$` (or `${`, `$name:`) would turn its value into a variable's name: write the placeholder without the `$` before it";
-
 const NOT_A_WORD = [
   "the placeholder stands for a value holding characters the shell reads, so it goes in only as a whole single-quoted word, '<placeholder>':",
-  "to build a longer text with it, pipe it, as in printf 'Authorization: Bearer %s' '<placeholder>' | curl -H @- https://...",
+  `to build a longer text with it, pipe it, as in ${FIXES.header}`,
+].join(" ");
+
+const MIXED = [
+  "<placeholder> could stand anywhere, but this command also names a value holding characters the shell reads,",
+  "which holds every placeholder of the command to the strict shape: run the two in Bash calls of their own",
 ].join(" ");
 
 /** git's global options that take the next word as their value. */
@@ -297,19 +316,18 @@ function publishRefusal(program: Program, args: readonly string[]): string | und
     : `\`git ${subcommand}\` may write the value into history or send it out, where it cannot be taken back (an alias counts as unknown): to mention the secret, write its name`;
 }
 
-/** Why one simple command may not carry a value of the strict shape, or nothing. */
+/** Why one simple command may not carry a value of the strict shape, or nothing; its git and gh are held to the local ones first. */
 function programRefusal(words: readonly Word[]): string | undefined {
-  const [program, ...rest] = words.map((word) => word.text);
-  const name = basename(program ?? "");
+  const [program = ""] = words.map((word) => word.text);
+  const name = basename(program);
 
-  if (/^[A-Za-z_][A-Za-z0-9_]*=/u.test(program ?? "")) {
+  if (/^[A-Za-z_][A-Za-z0-9_]*=/u.test(program)) {
     return "a variable assignment in front of the command: with this value, hand it to the command as an argument or on its standard input";
   }
 
-  if (WRAPPERS.has(name))
-    return `\`${name}\` runs its arguments as another command: run that command itself`;
-
-  return name === "git" || name === "gh" ? publishRefusal(name, rest) : undefined;
+  return WRAPPERS.has(name)
+    ? `\`${name}\` runs its arguments as another command: run that command itself`
+    : undefined;
 }
 
 /** Outside quotes, each of these ends a simple command. */
@@ -691,6 +709,11 @@ export type Restoration =
   | { readonly kind: "restored"; readonly command: string; readonly handed: readonly string[] }
   | { readonly kind: "refused"; readonly why: string };
 
+/** A text with a placeholder's own text and name where it says `<placeholder>` and `<NAME>`: a fix ready to run. */
+export function filled(text: string, tag: string): string {
+  return text.replaceAll("<placeholder>", tag).replaceAll("<NAME>", nameOf(tag));
+}
+
 /** The strict shape: each placeholder a whole single-quoted word, its value shell-quoted, in plain words joined by at most one pipe. */
 function restoreStrict(command: string, values: ReadonlyMap<string, string>): Restoration {
   const lexed = lex(command);
@@ -710,7 +733,14 @@ function restoreStrict(command: string, values: ReadonlyMap<string, string>): Re
         continue;
       }
 
-      if (TAG_ANYWHERE.test(word.raw)) return { kind: "refused", why: NOT_A_WORD };
+      const stray = TAG_ANYWHERE.exec(word.raw)?.[0];
+
+      if (stray !== undefined) {
+        const why = isInert(values.get(stray) ?? "") ? MIXED : NOT_A_WORD;
+
+        return { kind: "refused", why: filled(why, stray) };
+      }
+
       restored.push(word.raw);
     }
 
@@ -727,20 +757,28 @@ function restoreStrict(command: string, values: ReadonlyMap<string, string>): Re
   return { kind: "restored", command: out.join(" | "), handed: [...new Set(values.values())] };
 }
 
-/** A refusal's fix with the command's own placeholder and name in it, ready to run. */
-function refusedWith(why: string, tag: string): Restoration {
-  return {
-    kind: "refused",
-    why: why.replaceAll("<placeholder>", tag).replaceAll("<NAME>", nameOf(tag)),
-  };
+/** Why a placeholder right after a `$` may not stand there, with the fix for its form. */
+function afterDollar(command: string): string | undefined {
+  const match = AFTER_DOLLAR.exec(command);
+
+  if (match === null) return undefined;
+  const [, , name, colon, tag = ""] = match;
+
+  if (name === undefined) {
+    return `a placeholder right after \`$\` or \`\${\` would turn its value into a variable's name: write ${tag} alone, with no \`$\`, \`\${\` or \`}\` around it`;
+  }
+
+  return colon === undefined
+    ? `a placeholder right after \`$${name}\` runs its value into the variable's name: end the name with braces, \`\${${name}}${tag}\``
+    : `a placeholder right after \`$${name}:\` makes its value a zsh modifier: end the name with braces, \`\${${name}}:${tag}\``;
 }
 
 /**
  * The command with each placeholder put back, or why it may not be. A command
  * that names no placeholder is untouched. `valueOf` answers a kept value, or
- * nothing for a placeholder this session never minted. Inert values go in as
- * they are, wherever the placeholder stands, once no git or gh word of the
- * whole command may write them into history or send them out; a command
+ * nothing for a placeholder this session never minted. Once no git or gh word
+ * of the whole command may write a value into history or send it out, inert
+ * values go in as they are, wherever their placeholder stands; a command
  * holding any other value takes the strict shape.
  */
 export function restoreCommand(
@@ -765,22 +803,22 @@ export function restoreCommand(
     values.set(tag, value);
   }
 
-  if (AFTER_DOLLAR.test(command)) return { kind: "refused", why: AFTER_DOLLAR_REFUSED };
-  const [first = ""] = tags;
+  const dollar = afterDollar(command);
 
-  if (![...values.values()].every((value) => isInert(value))) {
-    const strict = restoreStrict(command, values);
-
-    return strict.kind === "refused" ? refusedWith(strict.why, first) : strict;
-  }
+  if (dollar !== undefined) return { kind: "refused", why: dollar };
+  // With one placeholder, a fix names it; with more, which one it means is not the mod's to guess.
+  const [only] = tags.size === 1 ? tags : [];
 
   for (const program of ["git", "gh"] as const) {
     for (const { args } of invocations(command, program)) {
       const why = publishRefusal(program, args);
 
-      if (why !== undefined) return refusedWith(why, first);
+      if (why !== undefined)
+        return { kind: "refused", why: only === undefined ? why : filled(why, only) };
     }
   }
+
+  if (![...values.values()].every((value) => isInert(value))) return restoreStrict(command, values);
 
   let restored = command;
 

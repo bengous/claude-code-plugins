@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import { invocations, isLocal, restoreCommand, shellQuote } from "./shell.ts";
+import { FIXES, invocations, isLocal, restoreCommand, shellQuote } from "./shell.ts";
 
 const TAG = "[secret-pane:PAT:0a1b2c3d]";
 
@@ -130,24 +130,72 @@ describe("an inert value, refused", () => {
     );
   });
 
-  test("right after $, where the value would name a variable", () => {
-    expect(refused(`echo $${TAG}`)).toContain("variable's name");
-    expect(refused(`echo "\${${TAG}}"`)).toContain("variable's name");
-    expect(refused(`echo $HOME:${TAG}`)).toContain("variable's name");
-    expect(restoredOf(`echo "$HOME" ${TAG}`)).toBe(`echo "$HOME" ${PAT}`);
+  test("right after $, each form with its own fix", () => {
+    expect(refused(`echo $${TAG}`)).toContain(`write ${TAG} alone, with no \`$\``);
+    expect(refused(`echo "\${${TAG}}"`)).toContain(`write ${TAG} alone`);
+    expect(refused(`printf '%s\\n' "$PREFIX${TAG}"`)).toContain(`\`\${PREFIX}${TAG}\``);
+    expect(refused(`curl -u "$USER:${TAG}" https://a`)).toContain(`\`\${USER}:${TAG}\``);
+    expect(restoredOf(`echo "$HOME" ${TAG} "\${USER}:${TAG}"`)).toBe(
+      `echo "$HOME" ${PAT} "\${USER}:${PAT}"`,
+    );
+  });
+
+  test("a git reached past a redirection or a wrapper of its pipe", () => {
+    expect(refused(`git >/dev/null commit --allow-empty -m ${TAG}`)).toContain("`git commit`");
+    expect(refused(`printf '%s' ${TAG} | stdbuf -o0 git commit -F -`)).toContain("`git commit`");
+  });
+});
+
+describe("a fix names the placeholder it is about", () => {
+  const OTHER = "[secret-pane:DB_USERNAME:99aa88bb]";
+  const both: ValueOf = (tag) => (tag === TAG ? PAT : tag === OTHER ? SHELLY : undefined);
+
+  test("the command's one placeholder and its name", () => {
+    expect(refused(`printf '%s' ${TAG} | gh variable set PAT`)).toContain(
+      `printf '%s' '${TAG}' | gh secret set PAT --repo org/repo`,
+    );
+  });
+
+  test("none of two, which the mod cannot tell apart", () => {
+    expect(
+      refused(
+        `curl --oauth2-bearer ${TAG} https://a && printf '%s' ${OTHER} | gh variable set X`,
+        both,
+      ),
+    ).toContain("printf '%s' '<placeholder>' | gh secret set <NAME>");
+  });
+
+  test("in the strict shape, the word's own, and why an inert one must wait", () => {
+    expect(
+      refused(
+        `printf '%s' '${OTHER}' | curl -H "Authorization: Bearer ${TAG}" -d @- https://x`,
+        both,
+      ),
+    ).toContain(`${TAG} could stand anywhere, but this command also names a value`);
+    expect(refused(`curl -H "Authorization: Bearer ${OTHER}" https://x`, both)).toContain(
+      `as in printf 'Authorization: Bearer %s' '${OTHER}' | curl -H @- https://...`,
+    );
+  });
+
+  test("a repeated placeholder goes in each time", () => {
+    expect(restoredOf(`echo ${TAG} ${TAG}`)).toBe(`echo ${PAT} ${PAT}`);
+  });
+
+  test("a strict value beside an inert one holds both to the strict shape", () => {
+    expect(restoreCommand(`printf '%s %s' '${TAG}' '${OTHER}'`, both)).toEqual({
+      kind: "restored",
+      command: `printf '%s %s' '${PAT}' ${shellQuote(SHELLY)}`,
+      handed: [PAT, SHELLY],
+    });
   });
 });
 
 test("every fix a refusal names runs, whatever the value holds", () => {
   for (const of of [valueOf, shellyOf]) {
-    for (const fix of [
-      `printf 'Authorization: Bearer %s' '${TAG}' | curl -H @- https://api.github.com/user`,
-      `printf '%s' '${TAG}' | gh secret set NAME --repo org/repo`,
-      `curl --oauth2-bearer '${TAG}' https://api.github.com/user`,
-      `printf 'protocol=https\\nhost=github.com\\nusername=x-access-token\\npassword=%s\\n' '${TAG}' | git credential approve`,
-      `printf 'PAT=%s\\n' '${TAG}' >> .env`,
-    ]) {
-      expect(restoreCommand(fix, of).kind).toBe("restored");
+    for (const fix of Object.values(FIXES)) {
+      const command = fix.replaceAll("<placeholder>", TAG).replaceAll("<NAME>", "PAT");
+
+      expect(restoreCommand(command, of).kind).toBe("restored");
     }
   }
 });
@@ -173,27 +221,32 @@ describe("a value with shell characters takes the strict shape", () => {
   });
 
   test("lists, background, subshells and substitutions", () => {
-    expect(refused(`printf '%s' '${TAG}' | gh secret set X && gh api r`, shellyOf)).toContain(
+    expect(refused(`printf '%s' '${TAG}' | gh secret set X && echo done`, shellyOf)).toContain(
       "`&`",
     );
-    expect(refused(`printf '%s' '${TAG}' | gh secret set X & gh issue create`, shellyOf)).toContain(
+    expect(refused(`printf '%s' '${TAG}' | gh secret set X & echo done`, shellyOf)).toContain(
       "`&`",
     );
-    expect(refused(`printf '%s' '${TAG}'; git commit -m x`, shellyOf)).toContain("`;`");
-    expect(refused(`(git commit -m '${TAG}')`, shellyOf)).toContain("`(`");
-    expect(refused(`echo $(gh issue create --body '${TAG}')`, shellyOf)).toContain("`$`");
+    expect(refused(`printf '%s' '${TAG}'; echo x`, shellyOf)).toContain("`;`");
+    expect(refused(`(echo '${TAG}')`, shellyOf)).toContain("`(`");
+    expect(refused(`echo $(printf '%s' '${TAG}')`, shellyOf)).toContain("`$`");
     expect(refused(`printf '%s' '${TAG}' | tee a | gh secret set X`, shellyOf)).toContain(
       "more than one pipe",
     );
-    expect(refused(`printf '%s' '${TAG}'\ngit commit -m x`, shellyOf)).toContain("new line");
-    expect(refused(`git commit-tree HEAD^{tree} -m '${TAG}'`, shellyOf)).toContain("`{`");
+    expect(refused(`printf '%s' '${TAG}'\necho x`, shellyOf)).toContain("new line");
+    expect(refused(`echo HEAD^{tree} '${TAG}'`, shellyOf)).toContain("`{`");
+    expect(refused(`printf '%s' '${TAG}'; git commit -m x`, shellyOf)).toContain("`git commit`");
   });
 
   test("a wrapper, an assignment, git and gh", () => {
     expect(refused(`sh -c '${TAG}'`, shellyOf)).toContain("`sh`");
     expect(refused(`printf '%s' '${TAG}' | Bash.exe -c x`, shellyOf)).toContain("`bash`");
+    expect(refused(`printf '%s' '${TAG}' | xargs echo`, shellyOf)).toContain("`xargs`");
     expect(refused(`printf '%s' '${TAG}' | xargs gh issue create --body`, shellyOf)).toContain(
-      "`xargs`",
+      "gh command other than gh secret",
+    );
+    expect(refused(`git push https://x:'${TAG}'@github.com/o/r main`, shellyOf)).toContain(
+      "git credential approve",
     );
     expect(refused(`env X=1 printf '%s' '${TAG}'`, shellyOf)).toContain("`env`");
     expect(refused(`X=1 printf '%s' '${TAG}'`, shellyOf)).toContain("assignment");

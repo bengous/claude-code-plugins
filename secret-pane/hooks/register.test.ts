@@ -566,6 +566,25 @@ test("a command holding the placeholder is refused when it commits or posts, and
   ]);
 });
 
+test("the strict shape's answer keeps a placeholder whole when its name holds NAME", async ($, on) => {
+  const world = await started($, on);
+  const asking = $.tool.call({ ...ASK, name: "DB_USERNAME" });
+
+  await world.opened();
+  const ui = await $.ui.mount(PANE);
+
+  await ui.input({ key: "secret", text: "pa ss$w'rd!-long", kind: "change" });
+  await ui.input({ key: "secret", text: "", kind: "submit" });
+  world.release();
+  const answer = String((await asking).result);
+
+  await ui.unmount();
+  const tag = /\[secret-pane:DB_USERNAME:[0-9a-f]{8}\]/u.exec(answer)?.[0] ?? "no tag";
+
+  expect(answer).toContain(`printf '%s' '${tag}' | gh secret set DB_USERNAME --repo org/repo`);
+  expect(answer).not.toContain("DB_USERDB_USERNAME");
+});
+
 test("a value with shell characters is announced in the strict shape, which a header refuses with its fix", async ($, on) => {
   const world = await started($, on);
   const { answer, tag } = await kept($, world, "pa ss$w'rd!-long");

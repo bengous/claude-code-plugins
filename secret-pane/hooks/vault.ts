@@ -15,9 +15,9 @@ export function nameOf(tag: string): string {
 /** A value the shell reads as plain text wherever it stands: quoted or not, in a heredoc or a nested shell. */
 const INERT = /^[A-Za-z0-9_][A-Za-z0-9_.:/+=@,-]*$/u;
 
-/** Whether a value goes into a command as it is, wherever its placeholder stands. */
+/** Whether a value goes into a command as it is, wherever its placeholder stands; zsh expands an `=` after a `:` in an assignment. */
 export function isInert(value: string): boolean {
-  return INERT.test(value);
+  return INERT.test(value) && !value.includes(":=");
 }
 
 const WALK_DEPTH = 32;
