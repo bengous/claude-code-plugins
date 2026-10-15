@@ -2,7 +2,7 @@
 name: shift
 description: "Run one pass of the issue-to-PR loop: triage the open issues, dispatch the ready ones to agents, keep the loop's pull requests green, and return a digest. Use when the user asks to run a shift, to work the backlog on its own, or to run the issue loop."
 argument-hint: "[--max <n>] [--dry-run]"
-allowed-tools: Bash(gh issue:*), Bash(gh pr:*), Bash(gh label:*), Bash(gh api:*), Agent, Skill, Read, Grep, Glob
+allowed-tools: Bash(gh issue:*), Bash(gh pr list:*), Bash(gh pr view:*), Bash(gh pr edit:*), Bash(gh pr comment:*), Bash(gh label:*), Bash(gh api:*), Agent, Skill, Read, Grep, Glob
 ---
 
 # Shift

@@ -3,7 +3,7 @@ name: triage
 description: "Verify an open GitHub issue or PR against the current code and act on the verdict: close or comment with a factual proof, or report work that is still valid. Use when the user asks to triage, verify, check, handle, or clean up an issue, a PR, or the tracker."
 argument-hint: "[--dry-run] [number|url]"
 disable-model-invocation: true
-allowed-tools: Bash(gh issue:*), Bash(gh pr:*), Bash(git log:*), Bash(git show:*), Bash(git diff:*), Read, Grep, Glob
+allowed-tools: Bash(gh issue:*), Bash(gh pr view:*), Bash(gh pr diff:*), Bash(gh pr list:*), Bash(gh pr comment:*), Bash(gh pr close:*), Bash(git log:*), Bash(git show:*), Bash(git diff:*), Read, Grep, Glob
 ---
 
 # Triage
