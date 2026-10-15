@@ -4,7 +4,9 @@ argument-hint: "[PR_REFERENCE]"
 allowed-tools:
   - Edit(./**)
   - Bash(git:*)
-  - Bash(gh:*)
+  - Bash(gh pr view:*)
+  - Bash(gh pr checkout:*)
+  - Bash(gh pr diff:*)
 model: opus
 ---
 
