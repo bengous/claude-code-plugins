@@ -115,8 +115,9 @@
         // its own worktree: its payload carries the `cwd` of that worktree and
         // its own `agent_id`, so its marker and its verdict stay independent of
         // its siblings'. The main session's Stop runs the same gates through
-        // the agent-hooks kit (`.claude/agent-hooks.jsonc`), which skips
-        // subagents.
+        // the agent-hooks kit (`.claude/agent-hooks.jsonc`), which is not
+        // wired on SubagentStop and keys its state on the session, not the
+        // agent.
         "hooks": [
           {
             "type": "command",

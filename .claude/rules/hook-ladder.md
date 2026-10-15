@@ -48,13 +48,12 @@ agent meets any finding left once, at the end of its turn, not on each edit.
   (the files it changed since SessionStart's photo of the tree, any writer,
   `.claude/worktrees/` excluded) is not empty. The kit blocks while the agent
   makes progress on the failing set, at most 3 times in a row, skips plan
-  mode and a running subagent or workflow, and caches a green run by HEAD
-  and dirty tree. Its contract is the plugin's (`agent-hooks/skills/`).
-- The kit gates no subagent: a SubagentStop payload lists the stopping
-  subagent itself as a running background task, which the kit reads as "a
-  subagent is still running", and the kit keys its state on the session, so
-  a second subagent in one checkout inherits the first one's failing set.
-  `stop-gates.ts` gates subagents instead, on SubagentStop only. Each in-repo
+  mode and a running subagent, workflow or teammate, and caches a green run
+  by HEAD and dirty tree. Its contract is the plugin's (`agent-hooks/skills/`).
+- The kit gates no subagent: it is not wired on SubagentStop, and it keys its
+  state on the session, not the agent, so two subagents of one session would
+  share one failing set. `stop-gates.ts` gates subagents instead, on
+  SubagentStop only. Each in-repo
   Edit or Write by a subagent empties the verdict of its marker for the
   checkout that holds the file,
   `os.tmpdir()/claude-code-plugins-stop/<agent_id>.<hash of the checkout>`, a
@@ -107,6 +106,13 @@ Known ceilings:
 - A main session that commits its change before the end of its turn leaves
   an empty scope: a commit adds nothing to it, so the kit runs no lane;
   pre-commit already ran the gates.
+- The kit's green cache keys a lane on HEAD and the dirty tree's digest, not
+  on `origin/dev`: a fetch that moves `origin/dev` with no new commit or edit
+  reuses a green `gates` result although the kits `run-gates.ts` would now
+  reach may differ. pre-push runs them again.
+- The kit's scope excludes `.claude/worktrees/`, so the main session's edits
+  inside an agent worktree are not checked at its Stop. pre-commit and
+  pre-push still check them.
 - The gates run repo-wide, the kits as far as the checkout's change since
   its merge-base with `origin/dev` reaches, whoever made it. Red work of
   another session in the same checkout fails the lane: a session's scope
