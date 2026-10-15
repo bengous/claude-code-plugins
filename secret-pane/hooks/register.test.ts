@@ -611,9 +611,27 @@ test("outside any repository gh runs, unless it is handed a file that holds a ke
 
   expect(api.deny).toBeUndefined();
   expect(gist.deny).toContain(
-    "/tmp/x/.env (handed to gh: leave it out, or take the value out of it)",
+    "/tmp/x/.env (read by the command: leave it out, or take the value out of it)",
   );
   expect(world.commands).toEqual(["gh api user"]);
+});
+
+test("a message or body file that holds a kept value refuses the commit or the pull request", async ($, on) => {
+  const world = await started($, on, {
+    files: { "/tmp/msg": `Uses ${PAT}\n`, "/tmp/pr-body.md": `## Summary\nSets ${PAT}\n` },
+  });
+
+  await kept($, world);
+  const commit = await $.tool.call({ tool: "Bash", command: "git commit -F /tmp/msg" });
+
+  const pr = await $.tool.call({
+    tool: "Bash",
+    command: "gh pr create --title 'Sync secret' --body-file /tmp/pr-body.md",
+  });
+
+  expect(commit.deny).toContain("/tmp/msg (read by the command");
+  expect(pr.deny).toContain("/tmp/pr-body.md (read by the command");
+  expect(world.commands).toEqual([]);
 });
 
 test("an untracked directory or a file over a read's limit is skipped, and the commit runs", async ($, on) => {

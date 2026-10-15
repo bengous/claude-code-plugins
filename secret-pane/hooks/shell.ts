@@ -266,7 +266,30 @@ function programRefusal(words: readonly Word[]): string | undefined {
 }
 
 /** Outside quotes, each of these ends a simple command. */
-const COMMAND_ENDS = new Set([";", "&", "|", "(", ")", "<", ">", "`", "\n"]);
+const COMMAND_ENDS = new Set([";", "&", "|", "(", ")", "`", "\n"]);
+
+const REDIRECTION = /^(?:<<<|<<-?|<>|<&|>>|>\||>&|<|>)/u;
+
+/**
+ * Where a redirection starting at `at` ends, and whether a target word
+ * follows it: none after a here-string, whose word a command reads, nor
+ * after a duplicated descriptor (`2>&1`, `>&-`).
+ */
+type Redirection = { readonly end: number; readonly hasTarget: boolean };
+
+function redirection(command: string, at: number): Redirection {
+  const operator = REDIRECTION.exec(command.slice(at))?.[0] ?? ">";
+  const end = at + operator.length;
+
+  const descriptor = operator.endsWith("&")
+    ? (/^[0-9]*-?/u.exec(command.slice(end))?.[0] ?? "")
+    : "";
+
+  if (operator === "<<<" || descriptor !== "")
+    return { end: end + descriptor.length, hasTarget: false };
+
+  return { end, hasTarget: command[end] !== "(" };
+}
 
 /** Inside double quotes, the characters a backslash escapes. */
 const DOUBLE_QUOTED_ESCAPES = new Set(['"', "\\", "$", "`", "\n"]);
@@ -278,17 +301,19 @@ type Part =
 /**
  * The command cut into words and the operators that end a simple command, as
  * the shell would cut it before any expansion: quotes and escapes removed, a
- * comment dropped. An unclosed quote runs to the end.
+ * comment and a redirection's target dropped. An unclosed quote runs to the end.
  */
 function parts(command: string): readonly Part[] {
   const out: Part[] = [];
   let text = "";
   let isWord = false;
   let isQuoted = false;
+  let isTargetNext = false;
   let at = 0;
 
   const flush = () => {
-    if (isWord) out.push({ kind: "word", text, isQuoted });
+    if (isWord && isTargetNext) isTargetNext = false;
+    else if (isWord) out.push({ kind: "word", text, isQuoted });
     text = "";
     isWord = false;
     isQuoted = false;
@@ -341,8 +366,22 @@ function parts(command: string): readonly Part[] {
     } else if (char === " " || char === "\t" || char === "\r") {
       flush();
       at += 1;
+    } else if (char === "<" || char === ">") {
+      // A redirection stays in its command, wherever it stands (`git >/dev/null commit`): the number before it and its target are no words of it.
+      if (isWord && !isQuoted && /^\d+$/u.test(text)) {
+        text = "";
+        isWord = false;
+      } else {
+        flush();
+      }
+
+      const { end, hasTarget } = redirection(command, at);
+
+      isTargetNext = hasTarget;
+      at = end;
     } else if (COMMAND_ENDS.has(char)) {
       flush();
+      isTargetNext = false;
       out.push({ kind: "end", char });
       at += 1;
     } else {

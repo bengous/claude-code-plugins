@@ -151,7 +151,7 @@ function hostOf($: EngineInterface): Host {
 
 function fixOf({ path, where }: Found): string {
   if (where === "handed")
-    return `${path} (handed to gh: leave it out, or take the value out of it)`;
+    return `${path} (read by the command: leave it out, or take the value out of it)`;
 
   return where === "tracked"
     ? `${path} (tracked: take the value out, or stop tracking it with git rm --cached ${shellQuote(path)} and add it to .gitignore)`

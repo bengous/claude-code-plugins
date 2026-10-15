@@ -137,6 +137,14 @@ describe("scanTargets", () => {
     ]);
   });
 
+  test("the file a git command reads its message from", () => {
+    expect(scanTargets("git commit -F /tmp/msg", HOME)).toEqual([{ ...HERE, files: ["/tmp/msg"] }]);
+    expect(scanTargets("cd /r && git tag -a v1 --file=notes.txt", HOME)).toEqual([
+      { ...HERE, label: "git tag", dir: "/r", files: ["/r/notes.txt"] },
+    ]);
+    expect(scanTargets("git commit -F - <<'EOF'\nmsg\nEOF", HOME)).toEqual([HERE]);
+  });
+
   test("a command run over ssh runs on another machine, and the first command names its place", () => {
     expect(scanTargets(`ssh vps "cd /srv/app && git stash && git pull"`, HOME)).toEqual([]);
     expect(scanTargets(`git commit -m "fix: git resolves aliases"`, HOME)).toEqual([HERE]);
@@ -146,6 +154,11 @@ describe("scanTargets", () => {
     expect(scanTargets("GIT_DIR=/g GIT_WORK_TREE=~/w git commit -m x", HOME)).toEqual([
       { ...HERE, options: ["--git-dir", "/g", "--work-tree", "/u/me/w"] },
     ]);
+  });
+
+  test("a redirection between git and its subcommand hides nothing", () => {
+    expect(scanTargets("git >/dev/null commit --allow-empty -m x", HOME)).toEqual([HERE]);
+    expect(scanTargets("git </dev/null commit -m x 2>&1", HOME)).toEqual([HERE]);
   });
 
   test("the files a gh command is handed, where it stands", () => {

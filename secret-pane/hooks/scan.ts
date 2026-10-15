@@ -73,12 +73,12 @@ export type ScanTarget =
       readonly dir: string | undefined;
       /** The `-C`, `--git-dir` and `--work-tree` the command gives git, handed to every git the scan runs. */
       readonly options: readonly string[];
-      /** The paths a gh command's arguments may name, which it would read and send. */
+      /** The files the command is handed to read and send: gh's arguments, git's message file. */
       readonly files: readonly string[];
     }
   | { readonly kind: "unknown"; readonly label: string; readonly spelling: string };
 
-/** Where a kept value was found: a change git holds, a file git would add, a file gh is handed. */
+/** Where a kept value was found: a change git holds, a file git would add, a file the command is handed. */
 export type Found = {
   readonly path: string;
   readonly where: "tracked" | "untracked" | "handed";
@@ -113,6 +113,21 @@ function ghPaths(args: readonly string[]): readonly string[] {
       : value.replace(/^@/u, "");
 
     return path === "" || path.startsWith("-") ? [] : [path];
+  });
+}
+
+/** The file a git command reads its message from: `-F file`, `-Ffile`, `--file file`, `--file=file`; `-` is its standard input. */
+function gitPaths(rest: readonly string[]): readonly string[] {
+  return rest.flatMap((word, at) => {
+    const next = rest[at + 1];
+
+    if ((word === "-F" || word === "--file") && next !== undefined)
+      return next === "-" ? [] : [next];
+
+    if (word.startsWith("--file="))
+      return word === "--file=-" ? [] : [word.slice("--file=".length)];
+
+    return /^-F[^-]/u.test(word) ? [word.slice(2)] : [];
   });
 }
 
@@ -154,8 +169,8 @@ function targetOf(
 
   const files: string[] = [];
 
-  // `gh gist create .env`: the word after the subcommand names its action, the files come after.
-  for (const path of program === "gh" ? ghPaths(rest.slice(1)) : []) {
+  // `gh gist create .env`: the word after gh's subcommand names its action, the files come after.
+  for (const path of program === "gh" ? ghPaths(rest.slice(1)) : gitPaths(rest)) {
     const resolved = expanded(path, home);
 
     if (resolved !== undefined) files.push(joined(dir, resolved));
