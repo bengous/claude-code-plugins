@@ -175,6 +175,14 @@ describe("scanTargets", () => {
       ),
     ).toEqual([HERE]);
     expect(scanTargets(`sudo bash <<'EOF'\ngit commit -am x\nEOF`, HOME)).toEqual([HERE]);
+    expect(scanTargets(`sudo -u deploy bash <<'EOF'\ngit commit -am x\nEOF`, HOME)).toEqual([HERE]);
+    expect(scanTargets(`timeout 60 bash <<'EOF'\ngit commit -am x\nEOF`, HOME)).toEqual([HERE]);
+    expect(scanTargets(`bash <<'EOF' # deploy\ncd /b && git commit -am x\nEOF`, HOME)).toEqual([
+      { ...HERE, dir: "/b" },
+    ]);
+    expect(scanTargets(`ssh vps <<'EOF' && git push\ncd /srv/app && git stash\nEOF`, HOME)).toEqual(
+      [{ ...HERE, label: "git push" }],
+    );
   });
 
   test("the files a command's standard input reads", () => {

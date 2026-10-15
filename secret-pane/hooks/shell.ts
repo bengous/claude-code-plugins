@@ -521,7 +521,7 @@ function collect(
  * body text no shell expands; never the `<<` of a here-string's `<<<`.
  */
 const LITERAL_HEREDOC =
-  /(?<!<)<<(?!<)(-?)[ \t]*(?:'([^'\n]+)'|"([^"\n]+)"|\\([^\s;&|<>()]+))[^\n]*\n/gu;
+  /(?<!<)(<<(?!<)(-?)[ \t]*(?:'([^'\n]+)'|"([^"\n]+)"|\\([^\s;&|<>()]+)))[^\n]*\n/gu;
 
 /** The programs that run the text they are handed as commands: a heredoc on their line is a script. */
 const RUNNERS = new Set(["sh", "bash", "zsh", "dash", "ksh", "fish", "ssh", "eval", "source", "."]);
@@ -533,6 +533,7 @@ const PREFIXES = new Set([
   "env",
   "nohup",
   "time",
+  "timeout",
   "command",
   "exec",
   "nice",
@@ -540,21 +541,22 @@ const PREFIXES = new Set([
   "ionice",
 ]);
 
-/** Whether a simple command of the line runs a heredoc's text: its program, past keywords, prefixes and assignments, is a shell. */
+/**
+ * Whether a simple command of the line runs a heredoc's text: its program,
+ * past keywords and assignments, is a shell; or a prefix whose words, an
+ * option's value among them (`sudo -u deploy bash`), name one.
+ */
 function isRunOn(line: string): boolean {
   return line.split(/[;&|()`]|\$\(/u).some((segment) => {
-    const program = segment
+    const words = segment
       .trim()
       .split(/\s+/u)
-      .find(
-        (word) =>
-          !LEADING.has(word) &&
-          !PREFIXES.has(basename(word)) &&
-          !word.startsWith("-") &&
-          !/^[A-Za-z_][A-Za-z0-9_]*=/u.test(word),
-      );
+      .map((word) => basename(word.replaceAll(/["']/gu, "")))
+      .filter((word) => !LEADING.has(word) && !/^[A-Za-z_][A-Za-z0-9_]*=/u.test(word));
 
-    return RUNNERS.has(basename((program ?? "").replaceAll(/["']/gu, "")));
+    const [program = ""] = words;
+
+    return PREFIXES.has(program) ? words.some((word) => RUNNERS.has(word)) : RUNNERS.has(program);
   });
 }
 
@@ -563,7 +565,7 @@ function isRunOn(line: string): boolean {
  * message of `git commit -m "$(cat <<'EOF' ... EOF)"` first among them: text
  * that never runs, which would read as commands. A body a shell on the
  * heredoc's own line runs (`bash <<'EOF'`, `cat <<'EOF' | sh`, `ssh host
- * <<'EOF'`) becomes that line's last argument, quoted, so it is read as the
+ * <<'EOF'`) becomes an argument right after its `<<'EOF'`, quoted, so it is read as the
  * command it is, on this machine or another.
  */
 function withoutLiteralBodies(command: string): string {
@@ -577,8 +579,10 @@ function withoutLiteralBodies(command: string): string {
     const lineStart = command.lastIndexOf("\n", start) + 1;
     const lineEnd = start + match[0].length;
     const isRun = isRunOn(command.slice(lineStart, lineEnd));
-    const delimiter = match[2] ?? match[3] ?? match[4] ?? "";
-    const stripsTabs = match[1] === "-";
+    const delimiter = match[3] ?? match[4] ?? match[5] ?? "";
+    const stripsTabs = match[2] === "-";
+    // The body goes right after its own `<<'EOF'`, in the command the heredoc feeds, before any comment.
+    const tokenEnd = start + (match[1]?.length ?? 0);
     let close = lineEnd;
     let isClosed = false;
 
@@ -600,7 +604,7 @@ function withoutLiteralBodies(command: string): string {
     }
 
     out += isRun
-      ? `${command.slice(at, lineEnd - 1)} ${shellQuote(body.join("\n"))}\n`
+      ? `${command.slice(at, tokenEnd)} ${shellQuote(body.join("\n"))}${command.slice(tokenEnd, lineEnd)}`
       : command.slice(at, lineEnd);
     at = isClosed ? close : command.length;
   }
