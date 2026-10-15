@@ -169,6 +169,11 @@
       "Bash(gh issue view *)",
       "Bash(gh issue list *)",
 
+      // Landing a reviewed branch on dev: the script pushes only a feature/ or
+      // fix/ branch and its fast-forward to dev, refuses before any push unless
+      // its PR is open against dev and green, and the pre-push gates still run.
+      "Bash(bun ./scripts/land.ts *)",
+
       // Node.js ecosystem
       "Bash(npm:*)",
       "Bash(pnpm:*)",

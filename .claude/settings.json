@@ -108,6 +108,7 @@
       "Bash(gh pr diff *)",
       "Bash(gh issue view *)",
       "Bash(gh issue list *)",
+      "Bash(bun ./scripts/land.ts *)",
       "Bash(npm:*)",
       "Bash(pnpm:*)",
       "Bash(npx:*)",
