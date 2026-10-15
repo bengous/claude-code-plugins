@@ -156,9 +156,49 @@ describe("scanTargets", () => {
     ]);
   });
 
+  test("a here-string is no heredoc: the lines after it are still read", () => {
+    expect(
+      scanTargets(
+        `version=$(jq -r .version <<<'{"version":"1.2.3"}')\ncd B && git add -A && git commit -qm "v$version"`,
+        HOME,
+      ),
+    ).toEqual([{ ...HERE, dir: "B" }]);
+  });
+
+  test("a heredoc ssh runs is read as remote, and `git add .` runs no heredoc", () => {
+    expect(scanTargets(`ssh vps <<'EOF'\ncd /srv/app && git stash\nEOF`, HOME)).toEqual([]);
+    expect(scanTargets("ssh vps git push", HOME)).toEqual([]);
+    expect(
+      scanTargets(
+        `git add . && git commit -m "$(cat <<'EOF'\nfix: git -C --hard. x\nEOF\n)"`,
+        HOME,
+      ),
+    ).toEqual([HERE]);
+    expect(scanTargets(`sudo bash <<'EOF'\ngit commit -am x\nEOF`, HOME)).toEqual([HERE]);
+  });
+
+  test("the files a command's standard input reads", () => {
+    expect(scanTargets("gh gist create < .env", HOME)).toEqual([
+      { ...GH, label: "gh gist", files: [".env"] },
+    ]);
+    expect(scanTargets("cat .env | gh gist create -", HOME)).toEqual([
+      { ...GH, label: "gh gist", files: [".env"] },
+    ]);
+    expect(scanTargets("git commit --allow-empty -F - < msg 2>/dev/null", HOME)).toEqual([
+      { ...HERE, files: ["msg"] },
+    ]);
+  });
+
+  test("git reads its message file from where -C puts it", () => {
+    expect(scanTargets("git -C /r commit -F msg.txt", HOME)).toEqual([
+      { ...HERE, options: ["-C", "/r"], files: ["/r/msg.txt"] },
+    ]);
+  });
+
   test("a redirection between git and its subcommand hides nothing", () => {
     expect(scanTargets("git >/dev/null commit --allow-empty -m x", HOME)).toEqual([HERE]);
     expect(scanTargets("git </dev/null commit -m x 2>&1", HOME)).toEqual([HERE]);
+    expect(scanTargets("git &>/dev/null commit -am x", HOME)).toEqual([HERE]);
   });
 
   test("the files a gh command is handed, where it stands", () => {
@@ -324,6 +364,18 @@ describe("scanChanges", () => {
     expect(await scanChanges(fakeHost({ root: OUTSIDE }, files).host, target, [PAT])).toEqual(
       found,
     );
+  });
+
+  test("a handed file that is there but cannot be read fails the scan", async () => {
+    const denied: Host = {
+      ...fakeHost().host,
+      read: () => Promise.reject(new Error("denied by a hook")),
+    };
+
+    expect(await scanChanges(denied, { ...GH, files: [".env"] }, [PAT])).toEqual({
+      kind: "failed",
+      why: ".env could not be read: denied by a hook",
+    });
   });
 
   test("a file a read cannot take whole is skipped, a read that fails fails the scan", async () => {

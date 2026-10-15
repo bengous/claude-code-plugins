@@ -194,7 +194,7 @@ describe("invocations", () => {
 
   test("the cd targets standing before each, a subshell's kept in it", () => {
     expect(invocations("cd /a && cd b; GIT_DIR=/g git status", "git")).toEqual([
-      { isRemote: false, before: ["GIT_DIR=/g"], args: ["status"], cds: ["/a", "b"] },
+      { isRemote: false, before: ["GIT_DIR=/g"], args: ["status"], inputs: [], cds: ["/a", "b"] },
     ]);
     expect(invocations("(cd /a && git status) && git log", "git").map((call) => call.cds)).toEqual([
       ["/a"],

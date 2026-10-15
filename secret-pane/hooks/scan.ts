@@ -133,7 +133,7 @@ function gitPaths(rest: readonly string[]): readonly string[] {
 
 function targetOf(
   program: Program,
-  { before, args, cds }: Invocation,
+  { before, args, inputs, cds }: Invocation,
   home: string | undefined,
 ): ScanTarget {
   const { options, subcommand, rest } = parseInvocation(program, args);
@@ -168,12 +168,23 @@ function targetOf(
   }
 
   const files: string[] = [];
+  // git reads a relative file from where its `-C` puts it.
+  let base = dir;
+
+  for (let at = 0; at + 1 < place.length; at += 2)
+    if (place[at] === "-C") base = joined(base, place[at + 1] ?? "");
 
   // `gh gist create .env`: the word after gh's subcommand names its action, the files come after.
   for (const path of program === "gh" ? ghPaths(rest.slice(1)) : gitPaths(rest)) {
     const resolved = expanded(path, home);
 
-    if (resolved !== undefined) files.push(joined(dir, resolved));
+    if (resolved !== undefined) files.push(joined(program === "git" ? base : dir, resolved));
+  }
+
+  for (const path of inputs) {
+    const resolved = expanded(path, home);
+
+    if (resolved !== undefined && !resolved.startsWith("/dev/")) files.push(joined(dir, resolved));
   }
 
   return { kind: "place", program, label, dir, options: place, files };
@@ -435,8 +446,16 @@ export async function scanChanges(
   const files = new Map<string, Found>();
 
   for (const path of target.files) {
-    // Most of a gh command's words are no path: one that names no file a read takes is no file gh sends.
-    const text = await host.read(path).catch(() => null);
+    let text: string | null;
+
+    // Most of a gh command's words are no path: one that names nothing is no file gh sends.
+    try {
+      text = (await host.exists(path)) ? await host.read(path) : null;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+
+      return { kind: "failed", why: `${path} could not be read: ${message}` };
+    }
 
     if (text !== null && needles.some((needle) => text.includes(needle)))
       files.set(path, { path, where: "handed" });

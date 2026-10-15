@@ -268,14 +268,15 @@ function programRefusal(words: readonly Word[]): string | undefined {
 /** Outside quotes, each of these ends a simple command. */
 const COMMAND_ENDS = new Set([";", "&", "|", "(", ")", "`", "\n"]);
 
-const REDIRECTION = /^(?:<<<|<<-?|<>|<&|>>|>\||>&|<|>)/u;
+const REDIRECTION = /^(?:&>>|&>|<<<|<<-?|<>|<&|>>|>\||>&|<|>)/u;
 
 /**
- * Where a redirection starting at `at` ends, and whether a target word
- * follows it: none after a here-string, whose word a command reads, nor
- * after a duplicated descriptor (`2>&1`, `>&-`).
+ * Where a redirection starting at `at` ends, whether a target word follows
+ * it, and whether that target is a file the command reads (`< .env`). No
+ * target after a here-string, whose word a command reads, nor after a
+ * duplicated descriptor (`2>&1`, `>&-`).
  */
-type Redirection = { readonly end: number; readonly hasTarget: boolean };
+type Redirection = { readonly end: number; readonly hasTarget: boolean; readonly isInput: boolean };
 
 function redirection(command: string, at: number): Redirection {
   const operator = REDIRECTION.exec(command.slice(at))?.[0] ?? ">";
@@ -286,9 +287,9 @@ function redirection(command: string, at: number): Redirection {
     : "";
 
   if (operator === "<<<" || descriptor !== "")
-    return { end: end + descriptor.length, hasTarget: false };
+    return { end: end + descriptor.length, hasTarget: false, isInput: false };
 
-  return { end, hasTarget: command[end] !== "(" };
+  return { end, hasTarget: command[end] !== "(", isInput: operator === "<" };
 }
 
 /** Inside double quotes, the characters a backslash escapes. */
@@ -296,6 +297,7 @@ const DOUBLE_QUOTED_ESCAPES = new Set(['"', "\\", "$", "`", "\n"]);
 
 type Part =
   | { readonly kind: "word"; readonly text: string; readonly isQuoted: boolean }
+  | { readonly kind: "input"; readonly text: string }
   | { readonly kind: "end"; readonly char: string };
 
 /**
@@ -309,11 +311,14 @@ function parts(command: string): readonly Part[] {
   let isWord = false;
   let isQuoted = false;
   let isTargetNext = false;
+  let isInputNext = false;
   let at = 0;
 
   const flush = () => {
-    if (isWord && isTargetNext) isTargetNext = false;
-    else if (isWord) out.push({ kind: "word", text, isQuoted });
+    if (isWord && isTargetNext && isInputNext) out.push({ kind: "input", text });
+    else if (isWord && !isTargetNext) out.push({ kind: "word", text, isQuoted });
+
+    if (isWord) isTargetNext = false;
     text = "";
     isWord = false;
     isQuoted = false;
@@ -366,7 +371,7 @@ function parts(command: string): readonly Part[] {
     } else if (char === " " || char === "\t" || char === "\r") {
       flush();
       at += 1;
-    } else if (char === "<" || char === ">") {
+    } else if (char === "<" || char === ">" || (char === "&" && command[at + 1] === ">")) {
       // A redirection stays in its command, wherever it stands (`git >/dev/null commit`): the number before it and its target are no words of it.
       if (isWord && !isQuoted && /^\d+$/u.test(text)) {
         text = "";
@@ -375,9 +380,10 @@ function parts(command: string): readonly Part[] {
         flush();
       }
 
-      const { end, hasTarget } = redirection(command, at);
+      const { end, hasTarget, isInput } = redirection(command, at);
 
       isTargetNext = hasTarget;
+      isInputNext = isInput;
       at = end;
     } else if (COMMAND_ENDS.has(char)) {
       flush();
@@ -403,6 +409,8 @@ export type Invocation = {
   readonly before: readonly string[];
   /** The words after the program's, to the end of its simple command. */
   readonly args: readonly string[];
+  /** The files its standard input reads: a `<` redirection, or a `cat` piped into it. */
+  readonly inputs: readonly string[];
   /** The targets of the `cd` commands before it that still decide where it runs, in order; none, the session's directory. */
   readonly cds: readonly string[];
 };
@@ -435,21 +443,27 @@ function collect(
   const saved: string[][] = [];
   let cds = [...base];
   let words: Extract<Part, { kind: "word" }>[] = [];
+  let inputs: string[] = [];
+  let piped: readonly string[] = [];
   let isInBackticks = false;
 
-  const end = () => {
+  /** Ends a simple command, and answers the files whose text it prints, for a pipe after it. */
+  const end = (): readonly string[] => {
     const texts = words.map((word) => word.text);
     const target = placeChange(texts);
-    const runsElsewhere = basename(texts.find((text) => !LEADING.has(text)) ?? "") === "ssh";
+    const first = texts.find((text) => !LEADING.has(text)) ?? "";
+    const runsElsewhere = basename(first) === "ssh";
+    const read = [...inputs, ...piped];
 
     if (target !== undefined) cds.push(target);
 
     for (const [at, word] of words.entries()) {
       if (basename(word.text) === program) {
         found.push({
-          isRemote,
+          isRemote: isRemote || runsElsewhere,
           before: texts.slice(0, at),
           args: texts.slice(at + 1),
+          inputs: read,
           cds: [...cds],
         });
       }
@@ -458,7 +472,18 @@ function collect(
         collect(word.text, program, cds, isRemote || runsElsewhere, found);
     }
 
+    const printed =
+      basename(first) === "cat"
+        ? [
+            ...texts.slice(texts.indexOf(first) + 1).filter((text) => !text.startsWith("-")),
+            ...read,
+          ]
+        : [];
+
     words = [];
+    inputs = [];
+
+    return printed;
   };
 
   for (const part of parts(command)) {
@@ -467,7 +492,14 @@ function collect(
       continue;
     }
 
-    end();
+    if (part.kind === "input") {
+      inputs.push(part.text);
+      continue;
+    }
+
+    const printed = end();
+
+    piped = part.char === "|" ? printed : [];
     const opens = part.char === "(" || (part.char === "`" && !isInBackticks);
     const closes = part.char === ")" || (part.char === "`" && isInBackticks);
 
@@ -484,17 +516,55 @@ function collect(
   end();
 }
 
-/** A heredoc whose delimiter is quoted (`<<'EOF'`, `<<"EOF"`, `<<\EOF`): its body is text no shell expands. */
-const LITERAL_HEREDOC = /<<(-?)[ \t]*(?:'([^'\n]+)'|"([^"\n]+)"|\\([^\s;&|<>()]+))[^\n]*\n/gu;
+/**
+ * A heredoc whose delimiter is quoted (`<<'EOF'`, `<<"EOF"`, `<<\EOF`), its
+ * body text no shell expands; never the `<<` of a here-string's `<<<`.
+ */
+const LITERAL_HEREDOC =
+  /(?<!<)<<(?!<)(-?)[ \t]*(?:'([^'\n]+)'|"([^"\n]+)"|\\([^\s;&|<>()]+))[^\n]*\n/gu;
 
 /** The programs that run the text they are handed as commands: a heredoc on their line is a script. */
 const RUNNERS = new Set(["sh", "bash", "zsh", "dash", "ksh", "fish", "ssh", "eval", "source", "."]);
 
+/** The words that may stand before a program and hand it the rest of the command. */
+const PREFIXES = new Set([
+  "sudo",
+  "doas",
+  "env",
+  "nohup",
+  "time",
+  "command",
+  "exec",
+  "nice",
+  "stdbuf",
+  "ionice",
+]);
+
+/** Whether a simple command of the line runs a heredoc's text: its program, past keywords, prefixes and assignments, is a shell. */
+function isRunOn(line: string): boolean {
+  return line.split(/[;&|()`]|\$\(/u).some((segment) => {
+    const program = segment
+      .trim()
+      .split(/\s+/u)
+      .find(
+        (word) =>
+          !LEADING.has(word) &&
+          !PREFIXES.has(basename(word)) &&
+          !word.startsWith("-") &&
+          !/^[A-Za-z_][A-Za-z0-9_]*=/u.test(word),
+      );
+
+    return RUNNERS.has(basename((program ?? "").replaceAll(/["']/gu, "")));
+  });
+}
+
 /**
  * The command with the body of each literal heredoc taken out, the commit
  * message of `git commit -m "$(cat <<'EOF' ... EOF)"` first among them: text
- * that never runs, which would read as commands. A body handed to a shell on
- * the heredoc's own line (`bash <<'EOF'`, `cat <<'EOF' | sh`) runs, and stays.
+ * that never runs, which would read as commands. A body a shell on the
+ * heredoc's own line runs (`bash <<'EOF'`, `cat <<'EOF' | sh`, `ssh host
+ * <<'EOF'`) becomes that line's last argument, quoted, so it is read as the
+ * command it is, on this machine or another.
  */
 function withoutLiteralBodies(command: string): string {
   let out = "";
@@ -506,29 +576,32 @@ function withoutLiteralBodies(command: string): string {
     if (start < at) continue;
     const lineStart = command.lastIndexOf("\n", start) + 1;
     const lineEnd = start + match[0].length;
-    const line = command.slice(lineStart, lineEnd);
-    const isRun = line.split(/[\s;&|()`"']+/u).some((word) => RUNNERS.has(basename(word)));
-
-    if (isRun) continue;
+    const isRun = isRunOn(command.slice(lineStart, lineEnd));
     const delimiter = match[2] ?? match[3] ?? match[4] ?? "";
     const stripsTabs = match[1] === "-";
     let close = lineEnd;
     let isClosed = false;
 
+    const body: string[] = [];
+
     while (close < command.length) {
       const next = command.indexOf("\n", close);
       const end = next < 0 ? command.length : next;
-      const body = command.slice(close, end);
+      const line = command.slice(close, end);
 
       close = next < 0 ? command.length : next + 1;
 
-      if ((stripsTabs ? body.replace(/^\t+/u, "") : body) === delimiter) {
+      if ((stripsTabs ? line.replace(/^\t+/u, "") : line) === delimiter) {
         isClosed = true;
         break;
       }
+
+      body.push(line);
     }
 
-    out += command.slice(at, lineEnd);
+    out += isRun
+      ? `${command.slice(at, lineEnd - 1)} ${shellQuote(body.join("\n"))}\n`
+      : command.slice(at, lineEnd);
     at = isClosed ? close : command.length;
   }
 
