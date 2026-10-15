@@ -41,7 +41,7 @@ A curated marketplace of Claude Code plugins for development workflow automation
 | [vellum](vellum/) | 0.17.7 | Plan at the frontiers and review the plan in the browser: decisions and interfaces before mechanics, vertical slices each closed by a check. /vellum:start opens a planning mode of its own: Claude writes the plan and its mockups and grills the reviewer on the open choices; the reviewer comments, edits or approves in a page, and the answer reaches Claude as a prompt. |
 | [todos](todos/) | 1.3.0 | Shows the repository's TODOs in a scrolling band above the prompt, newest first: TODO.md items and TODO/FIXME/HACK code comments dated with git blame, a Mine filter, issue links, picks put in the prompt for Claude, and a toast when an edit adds one |
 | [secret-pane](secret-pane/) | 0.3.0 | Claude asks for a secret in a masked box and gets a placeholder: the value stays in the session's memory, becomes real only inside a Bash command, is hidden again in every Bash and Read result and in the prompt, and never reaches the transcript; the mod writes nothing to disk |
-| [agent-hooks](agent-hooks/) | 1.0.0 | Quality hooks for Claude Code and Codex that a repository opts into with one config file: fixers run on the text before each write, and Stop lanes check only the files the session changed, with a green cache and a loop guard that lets a stuck turn end |
+| [agent-hooks](agent-hooks/) | 1.0.1 | Quality hooks for Claude Code and Codex that a repository opts into with one config file: fixers run on the text before each write, and Stop lanes check only the files the session changed, with a green cache and a loop guard that lets a stuck turn end |
 
 See each plugin's README for detailed documentation and usage.
 
