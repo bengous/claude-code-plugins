@@ -5,12 +5,19 @@ import path from "node:path";
 import type { Config, Fixer, Lane } from "./config.ts";
 import { ConfigError, configPath, expandCommand, loadConfig } from "./config.ts";
 import { resolveProgram } from "./exec.ts";
-import { isRecord, recordField } from "./json.ts";
+import { isRecord, parseJsonc, recordField } from "./json.ts";
 import { findRoot, takePhoto } from "./scope.ts";
 import { latestStateForRoot } from "./state.ts";
 import { runVerify } from "./verify.ts";
 
 export const CODEX_SYSTEM_CONFIG = "/etc/codex/config.toml";
+
+const PLUGIN_ID_PREFIX = "agent-hooks@";
+
+/** A hook command of the kit, called as `agent-hooks <hook>` or `bun ".../agent-hooks.ts" <hook>`. */
+const KIT_HOOK = /agent-hooks(?:\.ts)?["']?\s+(?:stop|pre-edit|post-edit|session-start)\b/u;
+
+const KIT_STOP_HOOK = /agent-hooks(?:\.ts)?["']?\s+stop\b/u;
 
 export type DoctorOptions = {
   readonly cwd: string;
@@ -56,8 +63,8 @@ export async function runDoctor(options: DoctorOptions): Promise<number> {
       .filter((fixer) => !config.preEdit.fixers.includes(fixer))
       .map((fixer) => checkFixer(fixer, root)),
     ...config.stop.lanes.map((lane) => checkLane(lane, root)),
-    checkWiring("claude", path.join(home, ".claude", "settings.json")),
-    checkWiring("codex", CODEX_SYSTEM_CONFIG),
+    claudeWiring(path.join(home, ".claude", "settings.json")),
+    codexWiring([CODEX_SYSTEM_CONFIG, path.join(home, ".codex", "config.toml")]),
   ];
 
   for (const check of checks) {
@@ -150,19 +157,63 @@ function hasPackageScript(root: string, script: string): boolean {
   }
 }
 
-function checkWiring(harness: "claude" | "codex", file: string): Check {
-  try {
-    const wired = readFileSync(file, "utf8").includes("agent-hooks stop");
+/**
+ * Claude Code runs the kit from the enabled plugin's `hooks/hooks.json`, or from a hook in the user settings; both
+ * at once run every hook twice. A WARN never fails the doctor.
+ */
+export function claudeWiring(settingsFile: string): Check {
+  let text: string;
+  let settings: unknown;
 
+  try {
+    text = readFileSync(settingsFile, "utf8");
+    settings = parseJsonc(text);
+  } catch {
+    return { ok: true, line: `WARN    claude wiring: ${settingsFile} unreadable` };
+  }
+
+  const plugins = isRecord(settings) ? (recordField(settings, "enabledPlugins") ?? {}) : {};
+
+  const plugin = Object.entries(plugins).find(
+    ([id, enabled]) => id.startsWith(PLUGIN_ID_PREFIX) && enabled === true,
+  )?.[0];
+
+  const settingsHook = KIT_HOOK.test(text);
+
+  if (plugin !== undefined && settingsHook) {
     return {
       ok: true,
-      line: wired
-        ? `ok      ${harness} wiring: ${file}`
-        : `WARN    ${harness} wiring: ${file} has no agent-hooks stop hook`,
+      line: `WARN    claude wiring: plugin ${plugin} and a hook in ${settingsFile} both run the kit, so each hook runs twice: remove the one in ${settingsFile}`,
     };
-  } catch {
-    return { ok: true, line: `WARN    ${harness} wiring: ${file} unreadable` };
   }
+
+  if (plugin !== undefined) {
+    return { ok: true, line: `ok      claude wiring: plugin ${plugin}` };
+  }
+
+  if (KIT_STOP_HOOK.test(text)) {
+    return { ok: true, line: `ok      claude wiring: ${settingsFile}` };
+  }
+
+  return {
+    ok: true,
+    line: `WARN    claude wiring: no agent-hooks Stop hook: enable the agent-hooks plugin`,
+  };
+}
+
+/** Codex reads its hooks from the system and the user config; the kit's Stop hook belongs in one of them. */
+export function codexWiring(files: readonly string[]): Check {
+  const wired = files.filter((file) => {
+    try {
+      return KIT_STOP_HOOK.test(readFileSync(file, "utf8"));
+    } catch {
+      return false;
+    }
+  });
+
+  return wired.length === 0
+    ? { ok: true, line: `WARN    codex wiring: no agent-hooks stop hook in ${files.join(" or ")}` }
+    : { ok: true, line: `ok      codex wiring: ${wired.join(", ")}` };
 }
 
 const SKIPPED_DIRS = new Set(["node_modules", "target", ".git"]);
