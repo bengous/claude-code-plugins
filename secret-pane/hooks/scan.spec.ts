@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { existsSync } from "node:fs";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -72,13 +73,11 @@ function fakeHost(
 
   const host: Host = {
     run: (argv) => {
-      const args = argv.slice(argv.indexOf("git") + 1);
+      if (argv.includes("rev-parse")) return Promise.resolve(answers.root ?? ok("/work/repo\n"));
 
-      if (args[0] === "rev-parse") return Promise.resolve(answers.root ?? ok("/work/repo\n"));
-
-      if (args[0] === "diff")
+      if (argv.includes("diff"))
         return Promise.resolve(
-          (args[1] === "--cached" ? answers.staged : answers.unstaged) ?? ok(""),
+          (argv.includes("--cached") ? answers.staged : answers.unstaged) ?? ok(""),
         );
 
       return Promise.resolve(answers.untracked ?? ok(""));
@@ -88,6 +87,7 @@ function fakeHost(
 
       return Promise.resolve(files[path] ?? null);
     },
+    exists: () => Promise.resolve(true),
   };
 
   return { host, reads };
@@ -135,6 +135,11 @@ describe("scanTargets", () => {
     expect(scanTargets("pushd B && popd && git commit", HOME)).toEqual([
       { kind: "unknown", label: "git commit", spelling: "cd -" },
     ]);
+  });
+
+  test("a command run over ssh runs on another machine, and the first command names its place", () => {
+    expect(scanTargets(`ssh vps "cd /srv/app && git stash && git pull"`, HOME)).toEqual([]);
+    expect(scanTargets(`git commit -m "fix: git resolves aliases"`, HOME)).toEqual([HERE]);
   });
 
   test("the place git's variables name in front of it", () => {
@@ -213,6 +218,16 @@ describe("addedHits", () => {
       "notes.md",
     ]);
   });
+});
+
+test("addedHits names a file as it is, git's quotes and trailing tab undone", () => {
+  const added = (header: string) =>
+    ["diff --git a/x b/x", header, "@@ -0,0 +1 @@", `+${PAT}`, ""].join("\n");
+
+  expect(addedHits(added("+++ b/my file.txt\t"), [PAT])).toEqual(["my file.txt"]);
+  expect(addedHits(added(String.raw`+++ "b/\303\251t\303\251 \"q\".txt"`), [PAT])).toEqual([
+    `été "q".txt`,
+  ]);
 });
 
 describe("scanChanges", () => {
@@ -335,15 +350,52 @@ async function git(cwd: string, ...args: string[]): Promise<RunResult> {
   };
 }
 
+/** A host on the real machine, git out of reach of its configuration. */
+function realHost(repo: string): Host {
+  return {
+    run: (argv, cwd) => git(cwd ?? repo, ...argv.slice(1)),
+    read: (path) => Bun.file(path).text(),
+    exists: (path) => Promise.resolve(existsSync(path)),
+  };
+}
+
 describe("scanChanges on a real repository", () => {
+  test("from a subdirectory, whatever the repository's diff and color settings", async () => {
+    const repo = await mkdtemp(join(tmpdir(), "secret-pane-scan-"));
+
+    try {
+      await git(repo, "init", "-q");
+      await git(repo, "config", "user.email", "t@example.com");
+      await git(repo, "config", "user.name", "t");
+      await git(repo, "config", "diff.relative", "true");
+      await git(repo, "config", "color.ui", "always");
+      await mkdir(join(repo, "sub"));
+      await writeFile(join(repo, "README.md"), "hello\n");
+      await writeFile(join(repo, "sub", "a.txt"), "a\n");
+      await git(repo, "add", "-A");
+      await git(repo, "commit", "-qm", "init");
+      await writeFile(join(repo, ".env"), `TOKEN=${PAT}\n`);
+      await writeFile(join(repo, "README.md"), `hello\ntoken ${PAT}\n`);
+
+      expect(await scanChanges(realHost(repo), { ...HERE, dir: join(repo, "sub") }, [PAT])).toEqual(
+        {
+          kind: "found",
+          files: [
+            { path: "README.md", where: "tracked" },
+            { path: ".env", where: "untracked" },
+          ],
+        },
+      );
+    } finally {
+      await rm(repo, { recursive: true, force: true });
+    }
+  });
+
   test("a value committed before is no change, a value about to be committed is", async () => {
     const repo = await mkdtemp(join(tmpdir(), "secret-pane-scan-"));
 
     try {
-      const host: Host = {
-        run: (argv, cwd) => git(cwd ?? repo, ...argv.slice(1)),
-        read: (path) => Bun.file(path).text(),
-      };
+      const host = realHost(repo);
 
       await git(repo, "init", "-q");
       await git(repo, "config", "user.email", "t@example.com");

@@ -358,6 +358,8 @@ function parts(command: string): readonly Part[] {
 }
 
 export type Invocation = {
+  /** Found in the command an `ssh` hands its host: it runs on another machine. */
+  readonly isRemote: boolean;
   /** The words before the program's in its simple command: assignments such as `GIT_DIR=...`, a wrapper. */
   readonly before: readonly string[];
   /** The words after the program's, to the end of its simple command. */
@@ -388,6 +390,7 @@ function collect(
   command: string,
   program: Program,
   base: readonly string[],
+  isRemote: boolean,
   found: Invocation[],
 ): void {
   const saved: string[][] = [];
@@ -398,15 +401,22 @@ function collect(
   const end = () => {
     const texts = words.map((word) => word.text);
     const target = placeChange(texts);
+    const runsElsewhere = basename(texts.find((text) => !LEADING.has(text)) ?? "") === "ssh";
 
     if (target !== undefined) cds.push(target);
 
     for (const [at, word] of words.entries()) {
       if (basename(word.text) === program) {
-        found.push({ before: texts.slice(0, at), args: texts.slice(at + 1), cds: [...cds] });
+        found.push({
+          isRemote,
+          before: texts.slice(0, at),
+          args: texts.slice(at + 1),
+          cds: [...cds],
+        });
       }
 
-      if (word.isQuoted && /[\s;&|()<>`]/u.test(word.text)) collect(word.text, program, cds, found);
+      if (word.isQuoted && /[\s;&|()<>`]/u.test(word.text))
+        collect(word.text, program, cds, isRemote || runsElsewhere, found);
     }
 
     words = [];
@@ -498,7 +508,7 @@ function withoutLiteralBodies(command: string): string {
 export function invocations(command: string, program: Program): readonly Invocation[] {
   const found: Invocation[] = [];
 
-  collect(withoutLiteralBodies(command), program, [], found);
+  collect(withoutLiteralBodies(command), program, [], false, found);
 
   return found;
 }

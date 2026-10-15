@@ -1,4 +1,4 @@
-import type { On, RenderSurface } from "claude-code";
+import type { FsStat, On, RenderSurface } from "claude-code";
 import { type Engine, expect, mock, test } from "claude-code/testing";
 
 const TOOL = "mcp__secret-pane__request_secret";
@@ -44,6 +44,11 @@ const BAND = {
 
 function ran(stdout: string, exitCode = 0, stderr = "") {
   return { exitCode, stdout, stderr, isStdoutTruncated: false, isStderrTruncated: false };
+}
+
+/** The git subcommand of the mod's own run, past its `-c` settings and their values. */
+function verbOf(args: readonly string[]): string | undefined {
+  return args.find((arg) => !arg.startsWith("-") && !arg.includes("="));
 }
 
 /** A clean repository at /work/repo: its root, no change, no untracked file. */
@@ -97,6 +102,10 @@ type WorldOptions = {
   readonly git?: (args: readonly string[]) => ReturnType<typeof ran>;
   /** What a `$.fs.read` of the mod finds, by path. */
   readonly files?: Readonly<Record<string, string>>;
+  /** What a `$.fs.stat` answers for a path that is no small regular file, which a read of it rejects. */
+  readonly stats?: Readonly<Record<string, FsStat>>;
+  /** The paths `$.fs.exists` answers false for. */
+  readonly missing?: readonly string[];
   /** What the person answers the mod's own dialog; none, and a dialog reaches nothing. */
   readonly answer?: () => string;
 };
@@ -111,6 +120,8 @@ function stubWorld(
     verdict,
     git = cleanRepo,
     files = {},
+    stats = {},
+    missing = [],
     answer,
   }: WorldOptions = {},
 ): World {
@@ -125,6 +136,7 @@ function stubWorld(
   const checked: string[] = [];
   const prompts: World["prompts"] = [];
   const asked: string[] = [];
+  const unreadable = Object.keys(stats);
 
   if (verdict !== undefined) {
     // SAFETY: the tests check Bash alone, whose input is `{ command }`; `String(undefined ?? "")` covers any other.
@@ -184,9 +196,19 @@ function stubWorld(
     return { value: ran("") };
   });
   on("fs.stat", (_$, e) => ({
-    value: { kind: "file", size: files[e.path]?.length ?? 0, mtimeMs: 0, isLink: false },
+    value: stats[e.path] ?? {
+      kind: "file",
+      size: files[e.path]?.length ?? 0,
+      mtimeMs: 0,
+      isLink: false,
+    },
   }));
-  on("fs.read", (_$, e) => ({ value: files[e.path] ?? "" }));
+  on("fs.read", (_$, e) => {
+    if (unreadable.includes(e.path)) throw new Error(`${e.path}: EISDIR or over 4 MiB`);
+
+    return { value: files[e.path] ?? "" };
+  });
+  on("fs.exists", (_$, e) => ({ value: !missing.includes(e.path) }));
   on("classic.PreToolUse", (_$, e, next) => {
     if (e.tool === "Bash") checked.push(e.command);
 
@@ -558,7 +580,7 @@ test("a commit whose changes hold no kept value runs, and a local git runs unsca
 
   expect(commit.deny).toBeUndefined();
   expect(world.commands).toEqual(["git status", "git commit -am t"]);
-  expect(world.gitRuns.map((args) => args[0])).toEqual(["rev-parse", "diff", "diff", "ls-files"]);
+  expect(world.gitRuns.map(verbOf)).toEqual(["rev-parse", "diff", "diff", "ls-files"]);
 });
 
 test("a scan that cannot read the changes refuses the command, saying why", async ($, on) => {
@@ -592,6 +614,36 @@ test("outside any repository gh runs, unless it is handed a file that holds a ke
     "/tmp/x/.env (handed to gh: leave it out, or take the value out of it)",
   );
   expect(world.commands).toEqual(["gh api user"]);
+});
+
+test("an untracked directory or a file over a read's limit is skipped, and the commit runs", async ($, on) => {
+  const directory: FsStat = { kind: "dir", size: 0, mtimeMs: 0, isLink: false };
+  const large: FsStat = { kind: "file", size: 5 * 1024 * 1024, mtimeMs: 0, isLink: false };
+
+  const world = await started($, on, {
+    git: (args) => (args.includes("ls-files") ? ran("sub/\0big.bin\0") : cleanRepo(args)),
+    stats: { "/work/repo/sub/": directory, "/work/repo/big.bin": large },
+  });
+
+  await kept($, world);
+  const commit = await $.tool.call({ tool: "Bash", command: "git commit -am t" });
+
+  expect(commit.deny).toBeUndefined();
+  expect(world.commands).toEqual(["git commit -am t"]);
+});
+
+test("a commit in a directory the same command makes is refused, saying to make it first", async ($, on) => {
+  const world = await started($, on, { missing: ["/tmp/new"] });
+
+  await kept($, world);
+
+  const answer = await $.tool.call({
+    tool: "Bash",
+    command: "mkdir /tmp/new && cd /tmp/new && git init && git commit --allow-empty -m x",
+  });
+
+  expect(answer.deny).toContain("/tmp/new does not exist yet: run the command that makes it");
+  expect(world.commands).toEqual([]);
 });
 
 test("with no value kept, a commit runs unscanned", async ($, on) => {

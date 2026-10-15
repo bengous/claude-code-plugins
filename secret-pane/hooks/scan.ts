@@ -27,9 +27,23 @@ const DIFF_FLAGS = [
   "--no-color",
   "--no-ext-diff",
   "--no-textconv",
-  "--no-relative",
   "--src-prefix=a/",
   "--dst-prefix=b/",
+];
+
+/**
+ * Settings every git of the scan runs with, whatever the repository says: no
+ * fsmonitor program, file names as they are, a diff of the whole tree from a
+ * subdirectory. `-c diff.relative=false` and not `--no-relative`: a git older
+ * than the option ignores an unknown setting, where it refuses the flag.
+ */
+const SETTINGS = [
+  "-c",
+  "core.fsmonitor=false",
+  "-c",
+  "core.quotePath=false",
+  "-c",
+  "diff.relative=false",
 ];
 
 export type RunResult = {
@@ -45,6 +59,8 @@ export type Host = {
   readonly run: (argv: readonly string[], cwd: string | undefined) => Promise<RunResult>;
   /** A file's text, or null for what a read cannot take whole: no regular file, or one over 4 MiB. */
   readonly read: (path: string) => Promise<string | null>;
+  /** Whether a path is there, relative to the session's directory or absolute. */
+  readonly exists: (path: string) => Promise<boolean>;
 };
 
 export type ScanTarget =
@@ -150,25 +166,25 @@ function targetOf(
 
 /**
  * Each place a git or gh command of the command may commit or publish from:
- * a git subcommand outside the local ones, any gh but gh secret. A git with no
- * subcommand prints its help, and gives none.
+ * a git subcommand outside the local ones, any gh subcommand but gh secret,
+ * the first one named for a place. A git or gh with no subcommand prints its
+ * help, and one run over ssh runs on another machine: neither gives one.
  */
 export function scanTargets(command: string, home: string | undefined): readonly ScanTarget[] {
   const targets = new Map<string, ScanTarget>();
 
   for (const program of ["git", "gh"] as const) {
     for (const call of invocations(command, program)) {
-      if (isLocal(program, call.args)) continue;
+      if (call.isRemote || isLocal(program, call.args)) continue;
       const target = targetOf(program, call, home);
 
-      targets.set(
-        JSON.stringify(
-          target.kind === "place"
-            ? [target.program, target.dir, target.options, target.files]
-            : target,
-        ),
-        target,
+      const key = JSON.stringify(
+        target.kind === "place"
+          ? [target.program, target.dir, target.options, target.files]
+          : target,
       );
+
+      if (!targets.has(key)) targets.set(key, target);
     }
   }
 
@@ -187,9 +203,40 @@ export function needlesOf(values: readonly string[]): readonly string[] {
 }
 
 /** The path of a `+++` header line, quotes git puts around an unusual name kept off. */
+/** The bytes git writes as a letter after a backslash in a quoted file name. */
+const NAMED_ESCAPES = new Map([
+  ["t", 9],
+  ["n", 10],
+  ['"', 34],
+  ["\\", 92],
+]);
+
+/** git's C quoting of an unusual file name undone: `\"`, `\\`, `\t`, `\n` and octal bytes. */
+function unquoted(quoted: string): string {
+  const bytes: number[] = [];
+
+  for (let at = 0; at < quoted.length; at += 1) {
+    const char = quoted[at] ?? "";
+    const octal = /^[0-7]{3}/u.exec(quoted.slice(at + 1))?.[0];
+
+    if (char === "\\" && octal !== undefined) {
+      bytes.push(Number.parseInt(octal, 8));
+      at += octal.length;
+    } else if (char === "\\" && NAMED_ESCAPES.has(quoted[at + 1] ?? "")) {
+      bytes.push(NAMED_ESCAPES.get(quoted[at + 1] ?? "") ?? 0);
+      at += 1;
+    } else {
+      bytes.push(...new TextEncoder().encode(char));
+    }
+  }
+
+  return new TextDecoder().decode(new Uint8Array(bytes));
+}
+
+/** The path of a `+++` header line: git's quotes undone, and the tab it puts after a name holding a space dropped. */
 function headerPath(line: string): string {
-  const path = line.slice("+++ ".length);
-  const bare = path.startsWith('"') && path.endsWith('"') ? path.slice(1, -1) : path;
+  const path = line.slice("+++ ".length).replace(/\t$/u, "");
+  const bare = path.startsWith('"') && path.endsWith('"') ? unquoted(path.slice(1, -1)) : path;
 
   return bare.startsWith("b/") ? bare.slice("b/".length) : bare;
 }
@@ -244,12 +291,38 @@ async function repositoryHits(
 ): Promise<Hits> {
   const where = target.dir ?? "the working directory";
 
+  if (target.dir !== undefined) {
+    let isThere: boolean;
+
+    try {
+      isThere = await host.exists(target.dir);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+
+      return {
+        kind: "failed",
+        why: `${target.dir} could not be looked up: ${message}`,
+        isOutside: false,
+      };
+    }
+
+    if (!isThere) {
+      return {
+        kind: "failed",
+        why: `${target.dir} does not exist yet: run the command that makes it in a Bash call of its own first`,
+        isOutside: false,
+      };
+    }
+  }
+
   const git = async (args: readonly string[]): Promise<Ran> => {
     const shown = `git ${args.join(" ")}`;
     let ran: RunResult;
 
+    // FIXME: a repository's own clean filter (`filter.<driver>.clean` in its .git/config) runs on `git diff`,
+    // before the person is asked about the command; git has no setting that turns every filter off.
     try {
-      ran = await host.run(["git", ...target.options, ...args], target.dir);
+      ran = await host.run(["git", ...SETTINGS, ...target.options, ...args], target.dir);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
 

@@ -1,7 +1,7 @@
 import type { EngineInterface, Register, ToolCallInput, ToolCallResult } from "claude-code";
 
 import { type Found, type Host, needlesOf, scanChanges, scanTargets } from "./scan.ts";
-import { restoreCommand } from "./shell.ts";
+import { restoreCommand, shellQuote } from "./shell.ts";
 import { createVault, entered, mergeTyped, PLUGIN, VARIABLE_NAME, walkStrings } from "./vault.ts";
 
 export const TOOL = `mcp__${PLUGIN}__request_secret`;
@@ -145,6 +145,7 @@ function hostOf($: EngineInterface): Host {
 
       return stat.kind === "file" && stat.size <= READ_LIMIT ? $.fs.read(path) : null;
     },
+    exists: (path) => $.fs.exists(path),
   };
 }
 
@@ -153,7 +154,7 @@ function fixOf({ path, where }: Found): string {
     return `${path} (handed to gh: leave it out, or take the value out of it)`;
 
   return where === "tracked"
-    ? `${path} (tracked: take the value out, or stop tracking the file with git rm --cached ${path})`
+    ? `${path} (tracked: take the value out, or stop tracking it with git rm --cached ${shellQuote(path)} and add it to .gitignore)`
     : `${path} (untracked: add it to .gitignore)`;
 }
 
