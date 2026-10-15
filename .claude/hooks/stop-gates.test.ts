@@ -11,6 +11,8 @@ const SESSION_ID = "0244f1e4-d3aa-44b3-8919-3fe7b1e82701";
 // Shape measured on Claude Code 2.1.270: 16 hex characters.
 const AGENT_ID = "ae64aaf2fc71fc3bd";
 
+const OTHER_AGENT_ID = "b1c2d3e4f5a6b7c8d";
+
 function gateRuns(dir: string): number {
   const runs = join(dir, "gates-runs");
 
@@ -30,55 +32,35 @@ describe("parseStopInput", () => {
 
 describe("skipsGates", () => {
   test("skips in plan mode", () => {
-    expect(skipsGates({ permission_mode: "plan", background_tasks: [] })).toBe(true);
+    expect(skipsGates({ agent_id: AGENT_ID, permission_mode: "plan" })).toBe(true);
   });
 
-  test("skips while a subagent, a workflow or a teammate runs in the background", () => {
-    for (const type of ["subagent", "workflow", "teammate"]) {
-      expect(skipsGates({ permission_mode: "default", background_tasks: [{ type }] })).toBe(true);
-    }
-  });
-
-  test("runs beside background tasks that do not edit", () => {
-    const tasks = [{ type: "shell" }, { type: "monitor" }];
-
-    expect(skipsGates({ permission_mode: "default", background_tasks: tasks })).toBe(false);
-  });
-
-  test("runs when the payload lists no background task", () => {
-    expect(skipsGates({ permission_mode: "acceptEdits" })).toBe(false);
-  });
-
-  // A SubagentStop payload lists the stopping subagent itself as a running
-  // background task, so the parent's rule would skip every subagent.
-  test("runs for a subagent beside the background tasks of its parent session", () => {
-    const tasks = [{ type: "subagent" }, { type: "teammate" }];
-
-    expect(skipsGates({ agent_id: AGENT_ID, background_tasks: tasks })).toBe(false);
+  test("runs in every other mode", () => {
+    expect(skipsGates({ agent_id: AGENT_ID, permission_mode: "acceptEdits" })).toBe(false);
+    expect(skipsGates({ agent_id: AGENT_ID })).toBe(false);
   });
 });
 
 describe("agentOf", () => {
-  test("names the agent when the payload carries one, the session otherwise", () => {
-    expect(agentOf({ session_id: SESSION_ID, agent_id: AGENT_ID })).toBe(AGENT_ID);
-    expect(agentOf({ session_id: SESSION_ID })).toBe(SESSION_ID);
+  test("names the subagent the payload carries, and no one for the main session", () => {
+    expect(agentOf({ agent_id: AGENT_ID })).toBe(AGENT_ID);
     expect(agentOf({})).toBeNull();
   });
 
   test("refuses an id that is not a single path segment", () => {
     for (const id of ["", "..", "../etc", "a/b", "a b", "a.b"]) {
-      expect(agentOf({ session_id: id })).toBeNull();
+      expect(agentOf({ agent_id: id })).toBeNull();
     }
   });
 });
 
 describe("markerPath", () => {
   test("names one file per agent and checkout under the temp directory", () => {
-    const project = markerPath(SESSION_ID, "/repo");
+    const project = markerPath(AGENT_ID, "/repo");
 
-    expect(project).toStartWith(join(tmpdir(), "claude-code-plugins-stop", `${SESSION_ID}.`));
-    expect(markerPath(SESSION_ID, "/repo/.claude/worktrees/w")).not.toBe(project);
-    expect(markerPath(AGENT_ID, "/repo")).not.toBe(project);
+    expect(project).toStartWith(join(tmpdir(), "claude-code-plugins-stop", `${AGENT_ID}.`));
+    expect(markerPath(AGENT_ID, "/repo/.claude/worktrees/w")).not.toBe(project);
+    expect(markerPath(OTHER_AGENT_ID, "/repo")).not.toBe(project);
   });
 });
 
@@ -112,10 +94,10 @@ describe("hook subprocess", () => {
     rmSync(tempRoot, { recursive: true, force: true });
   });
 
-  const markerFile = (checkout: string, id: string = SESSION_ID) =>
+  const markerFile = (checkout: string, id: string = AGENT_ID) =>
     join(tempRoot, "claude-code-plugins-stop", basename(markerPath(id, checkout)));
 
-  const verdictOf = (checkout: string, id: string = SESSION_ID) =>
+  const verdictOf = (checkout: string, id: string = AGENT_ID) =>
     // SAFETY: setMarker and the hook write every marker as a Marker.
     (JSON.parse(readFileSync(markerFile(checkout, id), "utf8")) as { verdict: string }).verdict;
 
@@ -129,13 +111,25 @@ describe("hook subprocess", () => {
     return worktree;
   }
 
-  function setMarker(checkout: string, verdict: string, id: string = SESSION_ID) {
+  function setMarker(checkout: string, verdict: string, id: string = AGENT_ID) {
     mkdirSync(join(tempRoot, "claude-code-plugins-stop"), { recursive: true });
     writeFileSync(markerFile(checkout, id), JSON.stringify({ checkout, verdict }));
   }
 
-  async function runHook(payload: StopInput & { cwd?: string; stop_hook_active?: boolean } = {}) {
-    const input = { session_id: SESSION_ID, permission_mode: "default", background_tasks: [] };
+  // A SubagentStop payload: the parent's session_id, the subagent's agent_id,
+  // and the subagent itself among the running background tasks. A null agent
+  // stands for the main session's Stop, whose payload carries no agent_id.
+  async function runHook(
+    payload: StopInput & { cwd?: string; stop_hook_active?: boolean } = {},
+    agent: string | null = AGENT_ID,
+  ) {
+    const main = {
+      session_id: SESSION_ID,
+      permission_mode: "default",
+      background_tasks: [{ type: "subagent", status: "running" }],
+    };
+
+    const input = agent === null ? main : { ...main, agent_id: agent };
 
     const proc = Bun.spawn([process.execPath, HOOK], {
       stdin: new Blob([JSON.stringify({ ...input, ...payload })]),
@@ -153,7 +147,7 @@ describe("hook subprocess", () => {
     return { exitCode, stdout, stderr };
   }
 
-  test("ends the turn without running the gates when the session made no edit", async () => {
+  test("ends the turn without running the gates when the subagent made no edit", async () => {
     setGates(projectDir, 1, RED_LINT);
 
     const { exitCode } = await runHook();
@@ -162,8 +156,19 @@ describe("hook subprocess", () => {
     expect(gateRuns(projectDir)).toBe(0);
   });
 
+  // The main session's Stop belongs to the agent-hooks kit.
+  test("ends a payload without an agent_id without running the gates", async () => {
+    setMarker(projectDir, "", SESSION_ID);
+    setGates(projectDir, 1, RED_LINT);
+
+    const { exitCode } = await runHook({}, null);
+
+    expect(exitCode).toBe(0);
+    expect(gateRuns(projectDir)).toBe(0);
+  });
+
   // The cwd follows a `cd` into another repository, here one nested in the
-  // project; the marker still names the worktree the session edited.
+  // project; the marker still names the worktree the subagent edited.
   test("gates the checkout the marker names, wherever the cwd sits", async () => {
     const worktree = await makeWorktree();
     const nested = join(projectDir, "plans");
@@ -181,7 +186,7 @@ describe("hook subprocess", () => {
     expect(gateRuns(projectDir)).toBe(0);
   });
 
-  test("gates every checkout the session edited, and blocks on the red one", async () => {
+  test("gates every checkout the subagent edited, and blocks on the red one", async () => {
     const worktree = await makeWorktree();
     setMarker(projectDir, "");
     setMarker(worktree, "");
@@ -206,8 +211,8 @@ describe("hook subprocess", () => {
     expect(existsSync(markerFile(gone))).toBe(false);
   });
 
-  test("deletes the marker once the gates are green", async () => {
-    setMarker(projectDir, "");
+  test("releases the subagent and deletes the marker once the gates are green", async () => {
+    setMarker(projectDir, "Red gates: lint-ts");
     setGates(projectDir, 0, "");
 
     const { exitCode } = await runHook();
@@ -251,83 +256,27 @@ describe("hook subprocess", () => {
     expect(verdictOf(projectDir)).toBe("Red gates: fmt");
   });
 
-  // The four below replay a worktree-isolated subagent: its payload carries the
-  // parent's session_id and its own agent_id.
-  const asSubagent = { agent_id: AGENT_ID, background_tasks: [{ type: "subagent" }] };
-
-  test("blocks a worktree-isolated subagent on a red gate in its own worktree", async () => {
+  test("keeps the markers of two subagents of one session independent", async () => {
     const worktree = await makeWorktree();
-    setMarker(worktree, "", AGENT_ID);
-    setGates(worktree, 1, RED_LINT);
-    setGates(projectDir, 0, "");
-
-    const { exitCode, stderr } = await runHook(asSubagent);
-
-    expect(exitCode).toBe(2);
-    expect(stderr).toContain("lint-ts: bun x oxlint");
-    expect(gateRuns(worktree)).toBe(1);
-    expect(gateRuns(projectDir)).toBe(0);
-    expect(verdictOf(worktree, AGENT_ID)).toBe("Red gates: lint-ts");
-  });
-
-  test("releases the subagent once its worktree is green", async () => {
-    const worktree = await makeWorktree();
-    setMarker(worktree, "Red gates: lint-ts", AGENT_ID);
-    setGates(worktree, 0, "");
-
-    const { exitCode } = await runHook(asSubagent);
-
-    expect(exitCode).toBe(0);
-    expect(existsSync(markerFile(worktree, AGENT_ID))).toBe(false);
-  });
-
-  test("releases the subagent on an unchanged verdict with no edit since", async () => {
-    const worktree = await makeWorktree();
-    setMarker(worktree, "Red gates: lint-ts", AGENT_ID);
-    setGates(worktree, 1, RED_LINT);
-
-    const { exitCode, stdout } = await runHook(asSubagent);
-
-    expect(exitCode).toBe(0);
-    expect(JSON.parse(stdout)).toEqual({
-      systemMessage: expect.stringContaining("Red gates: lint-ts"),
-    });
-  });
-
-  test("keeps the subagent's marker and the parent session's independent", async () => {
-    const worktree = await makeWorktree();
-    setMarker(projectDir, "Red gates: fmt");
-    setMarker(worktree, "Red gates: lint-ts", AGENT_ID);
+    setMarker(projectDir, "Red gates: fmt", OTHER_AGENT_ID);
+    setMarker(worktree, "Red gates: lint-ts");
     setGates(worktree, 0, "");
     setGates(projectDir, 0, "");
 
-    const green = await runHook(asSubagent);
+    const green = await runHook();
 
     expect(green.exitCode).toBe(0);
-    expect(verdictOf(projectDir)).toBe("Red gates: fmt");
-
-    setMarker(worktree, "Red gates: lint-ts", AGENT_ID);
-
-    const parent = await runHook();
-
-    expect(parent.exitCode).toBe(0);
-    expect(existsSync(markerFile(projectDir))).toBe(false);
-    expect(verdictOf(worktree, AGENT_ID)).toBe("Red gates: lint-ts");
+    expect(existsSync(markerFile(worktree))).toBe(false);
+    expect(verdictOf(projectDir, OTHER_AGENT_ID)).toBe("Red gates: fmt");
   });
 
-  test("keeps the marker and skips the gates in plan mode and beside a background subagent", async () => {
+  test("keeps the marker and skips the gates in plan mode", async () => {
     setMarker(projectDir, "");
     setGates(projectDir, 1, RED_LINT);
 
-    for (const payload of [
-      { permission_mode: "plan" },
-      { background_tasks: [{ type: "subagent" }] },
-    ]) {
-      const { exitCode } = await runHook(payload);
+    const { exitCode } = await runHook({ permission_mode: "plan" });
 
-      expect(exitCode).toBe(0);
-    }
-
+    expect(exitCode).toBe(0);
     expect(gateRuns(projectDir)).toBe(0);
     expect(verdictOf(projectDir)).toBe("");
   });

@@ -68,17 +68,6 @@
         ]
       }
     ],
-    "Stop": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "bun \"$CLAUDE_PROJECT_DIR/.claude/hooks/stop-gates.ts\"",
-            "timeout": 120
-          }
-        ]
-      }
-    ],
     "SubagentStop": [
       {
         "hooks": [

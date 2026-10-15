@@ -1,13 +1,16 @@
 #!/usr/bin/env bun
 
 /**
- * Stop and SubagentStop hook — runs the CI gates at the end of a turn that
+ * SubagentStop hook — runs the CI gates at the end of a subagent's turn that
  * edited the repo, a hooks module's kit only when the checkout's change since
  * its merge-base with `origin/dev` reaches it (`scripts/affected.ts`), and
- * blocks the stop while one is red.
+ * blocks the stop while one is red. The main session's Stop belongs to the
+ * agent-hooks kit (`.claude/agent-hooks.jsonc`), which skips every subagent:
+ * a SubagentStop payload lists the stopping subagent as a running background
+ * task, and the kit keys its state on the session, not the agent.
  *
- * `format-on-edit.ts` marks each checkout of the project's repository an
- * agent edits, the project or one of its worktrees, with an empty verdict.
+ * `format-on-edit.ts` marks each checkout of the project's repository a
+ * subagent edits, the project or one of its worktrees, with an empty verdict.
  * The gates run in each marked checkout. A green run deletes its marker. A
  * red run writes its verdict, the first line of the `scripts/run-gates.ts`
  * report, into the marker and blocks. A later stop with no edit in between
@@ -18,9 +21,7 @@
  * other repository, and `CLAUDE_PROJECT_DIR` stays the launching checkout by
  * design.
  *
- * Skipped in plan mode, where a block loops through ExitPlanMode, and while a
- * subagent, workflow or teammate runs in the background: it may still be
- * editing.
+ * Skipped in plan mode, where a block loops through ExitPlanMode.
  */
 
 import { existsSync } from "node:fs";
@@ -36,7 +37,6 @@ export interface StopInput {
   session_id?: string;
   agent_id?: string;
   permission_mode?: string;
-  background_tasks?: { type?: string }[];
 }
 
 export interface Marker {
@@ -45,8 +45,6 @@ export interface Marker {
 }
 
 const GATES_COMMAND = ["bun", "./scripts/run-gates.ts"];
-
-const EDITING_TASK_TYPES = new Set(["subagent", "workflow", "teammate"]);
 
 const MARKER_DIR = join(tmpdir(), "claude-code-plugins-stop");
 
@@ -61,14 +59,13 @@ export function parseStopInput(raw: string): StopInput | null {
 }
 
 /**
- * The agent the payload belongs to, or null for an id that is not a single,
- * safe path segment. A subagent's hook input carries the parent's
- * `session_id` and its own `agent_id`, so keying on `agent_id` first keeps
- * the two markers independent: a green subagent run leaves the parent's
- * mark, and a parent verdict does not release a subagent.
+ * The subagent the payload belongs to, or null for the main session or an id
+ * that is not a single, safe path segment. A subagent's hook input carries
+ * the parent's `session_id` and its own `agent_id`, so keying on `agent_id`
+ * keeps two subagents of one session independent.
  */
-export function agentOf(input: { session_id?: string; agent_id?: string }): string | null {
-  const id = input.agent_id ?? input.session_id;
+export function agentOf(input: { agent_id?: string }): string | null {
+  const id = input.agent_id;
 
   return id !== undefined && /^[\w-]+$/u.test(id) ? id : null;
 }
@@ -81,10 +78,7 @@ async function writeMarker(path: string, marker: Marker): Promise<void> {
   await Bun.write(path, JSON.stringify(marker));
 }
 
-export async function markEdit(
-  input: { session_id?: string; agent_id?: string },
-  checkout: string,
-): Promise<void> {
+export async function markEdit(input: { agent_id?: string }, checkout: string): Promise<void> {
   const agent = agentOf(input);
 
   if (agent !== null) await writeMarker(markerPath(agent, checkout), { checkout, verdict: "" });
@@ -108,14 +102,7 @@ async function markersOf(agent: string): Promise<{ path: string; marker: Marker 
 }
 
 export function skipsGates(input: StopInput): boolean {
-  if (input.permission_mode === "plan") return true;
-
-  // `background_tasks` is scoped to the parent session and lists the stopping
-  // subagent itself (measured on 2.1.270), so at SubagentStop it names tasks
-  // of other checkouts, never editors of this agent's checkout.
-  if (input.agent_id !== undefined) return false;
-
-  return (input.background_tasks ?? []).some((task) => EDITING_TASK_TYPES.has(task.type ?? ""));
+  return input.permission_mode === "plan";
 }
 
 if (import.meta.main) {

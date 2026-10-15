@@ -147,6 +147,10 @@ function fixedContext(name: string) {
 describe("hook subprocess", () => {
   const HOOK = join(import.meta.dir, "format-on-edit.ts");
   const SESSION_ID = "format-on-edit-test";
+
+  // A subagent's payload carries the parent's session_id and its own agent_id.
+  const AGENT_ID = "ae64aaf2fc71fc3bd";
+  const AS_SUBAGENT = { agent_id: AGENT_ID };
   const MIS_INDENTED = "if true; then\necho hi\nfi\n";
   const FORMATTED = "if true; then\n  echo hi\nfi\n";
 
@@ -194,19 +198,29 @@ describe("hook subprocess", () => {
     return { exitCode, stdout };
   }
 
-  const markerFile = (checkout: string = projectDir, id: string = SESSION_ID) =>
+  const markerFile = (checkout: string = projectDir, id: string = AGENT_ID) =>
     join(tempRoot, "claude-code-plugins-stop", basename(markerPath(id, checkout)));
 
   test("marks the editing subagent, not the parent session its payload names", async () => {
-    const agentId = "ae64aaf2fc71fc3bd";
     const script = join(projectDir, "a.sh");
     writeFileSync(script, FORMATTED);
 
-    const { exitCode } = await runHook(script, {}, { agent_id: agentId });
+    const { exitCode } = await runHook(script, {}, AS_SUBAGENT);
 
     expect(exitCode).toBe(0);
-    expect(existsSync(markerFile(projectDir, agentId))).toBe(true);
-    expect(existsSync(markerFile())).toBe(false);
+    expect(existsSync(markerFile())).toBe(true);
+    expect(existsSync(markerFile(projectDir, SESSION_ID))).toBe(false);
+  });
+
+  // The main session's Stop belongs to the agent-hooks kit, which reads no marker.
+  test("leaves an edit of the main session unmarked", async () => {
+    const script = join(projectDir, "a.sh");
+    writeFileSync(script, FORMATTED);
+
+    const { exitCode } = await runHook(script);
+
+    expect(exitCode).toBe(0);
+    expect(existsSync(join(tempRoot, "claude-code-plugins-stop"))).toBe(false);
   });
 
   test("returns a reformat as its unified diff, even under an external diff tool", async () => {
@@ -216,7 +230,11 @@ describe("hook subprocess", () => {
     writeFileSync(externalDiff, "#!/bin/sh\necho EXTERNAL\n");
     chmodSync(externalDiff, 0o755);
 
-    const { exitCode, stdout } = await runHook(script, { GIT_EXTERNAL_DIFF: externalDiff });
+    const { exitCode, stdout } = await runHook(
+      script,
+      { GIT_EXTERNAL_DIFF: externalDiff },
+      AS_SUBAGENT,
+    );
 
     expect(exitCode).toBe(0);
 
@@ -236,12 +254,12 @@ describe("hook subprocess", () => {
     });
   });
 
-  test("stays silent on a formatted executable file and still marks the session", async () => {
+  test("stays silent on a formatted executable file and still marks the subagent", async () => {
     const script = join(projectDir, "a.sh");
     writeFileSync(script, FORMATTED);
     chmodSync(script, 0o755);
 
-    const { exitCode, stdout } = await runHook(script);
+    const { exitCode, stdout } = await runHook(script, {}, AS_SUBAGENT);
 
     expect(exitCode).toBe(0);
     expect(stdout).toBe("");
@@ -286,7 +304,7 @@ describe("hook subprocess", () => {
   });
 
   test("ignores a file outside the project", async () => {
-    const { exitCode, stdout } = await runHook("/elsewhere/a.sh");
+    const { exitCode, stdout } = await runHook("/elsewhere/a.sh", {}, AS_SUBAGENT);
 
     expect(exitCode).toBe(0);
     expect(stdout).toBe("");
@@ -311,6 +329,7 @@ describe("hook subprocess", () => {
       const { exitCode, stdout } = await runHook(
         script,
         Object.fromEntries(Object.entries(env).map(([name, dir]) => [name, join(projectDir, dir)])),
+        AS_SUBAGENT,
       );
 
       expect(exitCode).toBe(0);
@@ -382,7 +401,7 @@ describe("hook subprocess", () => {
       const file = join(root, "a.ts");
       writeFileSync(file, CONSECUTIVE_IFS);
 
-      const { exitCode, stdout } = await runHook(file);
+      const { exitCode, stdout } = await runHook(file, {}, AS_SUBAGENT);
 
       expect(exitCode).toBe(0);
       expect(JSON.parse(stdout)).toEqual(fixedContext(join(checkout, "a.ts")));

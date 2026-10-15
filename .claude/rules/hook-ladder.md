@@ -2,6 +2,7 @@
 paths:
   - ".claude/hooks/**"
   - ".claude/__settings.jsonc"
+  - ".claude/agent-hooks.jsonc"
   - "lefthook.yml"
   - ".lefthook/**"
   - "scripts/run-gates.ts"
@@ -41,26 +42,34 @@ agent meets any finding left once, at the end of its turn, not on each edit.
 - Per-edit cost, measured on 2026-09-14 with hyperfine on `stop-gates.ts`
   (124 lines, clean), oxlint 1.82.0, oxfmt 0.67.0, 16 threads: 309 ms, the
   same in an agent worktree. Formatting alone took 58 ms.
-- Each in-repo Edit or Write empties the verdict of the editing agent's
-  marker for the checkout that holds the file,
-  `os.tmpdir()/claude-code-plugins-stop/<agent_id ?? session_id>.<hash of the
-  checkout>`, a JSON `{ checkout, verdict }`. The same hook (`stop-gates.ts`)
-  runs on Stop and on SubagentStop and runs `scripts/run-gates.ts` in each
-  checkout the agent marked, never where its `cwd` sits: a `cd` into
-  `plans/` must not gate the launching checkout in place of the worktree
-  the agent edited. Green deletes the marker, and so does a checkout removed
-  since. Red writes the verdict, the report's `Red gates:` line, into the
-  marker and blocks, `stop_hook_active` or not. A stop with no edit since
-  that block ends the turn on the same verdict, with a `systemMessage` note;
-  a changed verdict blocks again. Plan mode skips both events; a background
-  subagent, workflow or teammate skips Stop only. Claude Code ends a turn
-  after 8 consecutive blocks.
+- The main session's Stop is the agent-hooks kit's (`agent-hooks/`, wired by
+  its plugin or the machine's global hooks): `.claude/agent-hooks.jsonc` gives
+  it one `project` lane, `scripts/run-gates.ts`, run when the session's scope
+  (the files it changed since SessionStart's photo of the tree, any writer,
+  `.claude/worktrees/` excluded) is not empty. The kit blocks while the agent
+  makes progress on the failing set, at most 3 times in a row, skips plan
+  mode and a running subagent or workflow, and caches a green run by HEAD
+  and dirty tree. Its contract is the plugin's (`agent-hooks/skills/`).
+- The kit gates no subagent: a SubagentStop payload lists the stopping
+  subagent itself as a running background task, which the kit reads as "a
+  subagent is still running", and the kit keys its state on the session, so
+  a second subagent in one checkout inherits the first one's failing set.
+  `stop-gates.ts` gates subagents instead, on SubagentStop only. Each in-repo
+  Edit or Write by a subagent empties the verdict of its marker for the
+  checkout that holds the file,
+  `os.tmpdir()/claude-code-plugins-stop/<agent_id>.<hash of the checkout>`, a
+  JSON `{ checkout, verdict }`; the main session's edits set none. The hook
+  runs `scripts/run-gates.ts` in each checkout the subagent marked, never
+  where its `cwd` sits: a `cd` into `plans/` must not gate the launching
+  checkout in place of the worktree the subagent edited. Green deletes the
+  marker, and so does a checkout removed since. Red writes the verdict, the
+  report's `Red gates:` line, into the marker and blocks, `stop_hook_active`
+  or not. A stop with no edit since that block ends the turn on the same
+  verdict, with a `systemMessage` note; a changed verdict blocks again. Plan
+  mode skips it. Claude Code ends a turn after 8 consecutive blocks.
 - A subagent's payload carries the parent's `session_id` and its own
   `agent_id` (16 hex characters on 2.1.270), so keying the marker on
-  `agent_id` first keeps the two independent: a green subagent run leaves the
-  parent's mark, a parent verdict does not release a subagent. A SubagentStop
-  payload lists the stopping subagent itself in `background_tasks`, which is
-  why that skip does not apply there.
+  `agent_id` keeps two subagents of one session independent.
 - A new gate is one `EXPECTED_COMMANDS` entry in
   `scripts/check-lint-config.ts`. `lint-config` then demands its pre-commit job
   and its CI step; Stop and pre-push run it through `run-gates.ts`. A hooks
@@ -93,12 +102,15 @@ Known ceilings:
   oxfmt pass can create a finding: both wait for Stop.
 - A diff over 10,000 characters reaches the agent as a file path and a
   preview: Claude Code caps hook output there.
-- A write through Bash alone sets no marker, so that turn skips Stop;
-  pre-commit and pre-push still check.
-- The gates run repo-wide in each checkout the agent edited, the kits as far
-  as the checkout's change since its merge-base with `origin/dev` reaches,
-  whoever made it. Red work of another session in the same checkout blocks
-  this session once per verdict.
+- A subagent's write through Bash alone sets no marker, so its turn skips
+  SubagentStop; pre-commit and pre-push still check.
+- A main session that commits its change before the end of its turn leaves
+  an empty scope: a commit adds nothing to it, so the kit runs no lane;
+  pre-commit already ran the gates.
+- The gates run repo-wide, the kits as far as the checkout's change since
+  its merge-base with `origin/dev` reaches, whoever made it. Red work of
+  another session in the same checkout fails the lane: a session's scope
+  holds another writer's files there too.
 - `claude-code-types.ts` keeps its state in the checkout of the project's
   repository around the SessionStart `cwd`, climbing out of any other
   repository nested in it, else the project: `CLAUDE_PROJECT_DIR` stays the

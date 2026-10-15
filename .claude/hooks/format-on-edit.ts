@@ -3,7 +3,7 @@
 /**
  * PostToolUse hook for Edit|Write — applies oxlint's safe fixes and formats
  * the edited file with oxfmt, or formats it with shfmt, and marks its
- * checkout for `stop-gates.ts`. Never blocks: a finding without a fixer, types
+ * checkout for `stop-gates.ts` when a subagent made the edit. Never blocks: a finding without a fixer, types
  * and the other gates wait for the end of the turn. A file of another
  * repository, such as the private `plans/` nested in the project or one a
  * symlink in it points to, is no edit of this one: left as written, unmarked.
