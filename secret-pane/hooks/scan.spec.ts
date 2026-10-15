@@ -9,6 +9,7 @@ import {
   MAX_UNTRACKED,
   needlesOf,
   type RunResult,
+  type Scan,
   scanChanges,
   type ScanTarget,
   scanTargets,
@@ -20,9 +21,20 @@ const PAT = "github_pat_11AAAAAAA0abcdefghijklmnopqrstuvwxyz";
 
 const HERE: Extract<ScanTarget, { kind: "place" }> = {
   kind: "place",
+  program: "git",
   label: "git commit",
   dir: undefined,
   options: [],
+  files: [],
+};
+
+const GH: Extract<ScanTarget, { kind: "place" }> = { ...HERE, program: "gh", label: "gh pr" };
+
+const OUTSIDE: RunResult = {
+  exitCode: 128,
+  stdout: "",
+  stderr: "fatal: not a git repository (or any of the parent directories): .git\n",
+  isStdoutTruncated: false,
 };
 
 const ok = (stdout: string, isStdoutTruncated = false): RunResult => ({
@@ -46,7 +58,7 @@ function diffOf(path: string, ...added: string[]): string {
 
 type Fake = { readonly host: Host; readonly reads: string[] };
 
-/** A clean repository at /work/repo unless an answer says otherwise; `files` are what a read finds. */
+/** A clean repository at /work/repo unless an answer says otherwise; `files` are what a read finds, any other path no file. */
 function fakeHost(
   answers: {
     readonly staged?: RunResult;
@@ -74,7 +86,7 @@ function fakeHost(
     read: (path) => {
       reads.push(path);
 
-      return Promise.resolve(files[path] ?? "");
+      return Promise.resolve(files[path] ?? null);
     },
   };
 
@@ -84,9 +96,7 @@ function fakeHost(
 describe("scanTargets", () => {
   test("a git subcommand outside the local ones, and any gh but gh secret", () => {
     expect(scanTargets("git commit -am x", HOME)).toEqual([HERE]);
-    expect(scanTargets("gh pr create --fill", HOME)).toEqual([
-      { kind: "place", label: "gh pr", dir: undefined, options: [] },
-    ]);
+    expect(scanTargets("gh pr create --fill", HOME)).toEqual([GH]);
     expect(scanTargets("gh stack add -Am wip b", HOME)).toHaveLength(1);
     expect(scanTargets(`sh -c "git commit -m x"`, HOME)).toEqual([HERE]);
   });
@@ -97,6 +107,7 @@ describe("scanTargets", () => {
     expect(scanTargets("printf '%s' x | gh secret set X", HOME)).toEqual([]);
     expect(scanTargets("printf '%s' x | git credential approve", HOME)).toEqual([]);
     expect(scanTargets("ls -la", HOME)).toEqual([]);
+    expect(scanTargets("which gh && gh --version", HOME)).toEqual([]);
   });
 
   test("the cd commands before git, composed, and its place options", () => {
@@ -111,8 +122,45 @@ describe("scanTargets", () => {
     expect(scanTargets(`cd "my dir" && git commit`, HOME)).toEqual([{ ...HERE, dir: "my dir" }]);
   });
 
-  test("a subshell's cd stays in it, a nested shell's starts where it stands", () => {
+  test("a cd after a keyword or a brace, and a pushd, count too", () => {
+    expect(scanTargets("if cd B; then git add -A && git commit -qm x; fi", HOME)).toEqual([
+      { ...HERE, dir: "B" },
+    ]);
+    expect(scanTargets("{ cd B && git commit -qm x; } 2>&1", HOME)).toEqual([
+      { ...HERE, dir: "B" },
+    ]);
+    expect(scanTargets("pushd B >/dev/null && git commit -am x", HOME)).toEqual([
+      { ...HERE, dir: "B" },
+    ]);
+    expect(scanTargets("pushd B && popd && git commit", HOME)).toEqual([
+      { kind: "unknown", label: "git commit", spelling: "cd -" },
+    ]);
+  });
+
+  test("the place git's variables name in front of it", () => {
+    expect(scanTargets("GIT_DIR=/g GIT_WORK_TREE=~/w git commit -m x", HOME)).toEqual([
+      { ...HERE, options: ["--git-dir", "/g", "--work-tree", "/u/me/w"] },
+    ]);
+  });
+
+  test("the files a gh command is handed, where it stands", () => {
+    expect(scanTargets("gh gist create .env", HOME)).toEqual([
+      { ...GH, label: "gh gist", files: [".env"] },
+    ]);
+    expect(scanTargets("cd /r && gh release upload v1 a.env", HOME)).toEqual([
+      { ...GH, label: "gh release", dir: "/r", files: ["/r/v1", "/r/a.env"] },
+    ]);
+    expect(scanTargets("gh issue create --body-file=/tmp/log -t x", HOME)).toEqual([
+      { ...GH, label: "gh issue", files: ["/tmp/log", "x"] },
+    ]);
+    expect(scanTargets("gh api repos/o/r -F body=@notes.md", HOME)).toEqual([
+      { ...GH, label: "gh api", files: ["notes.md"] },
+    ]);
+  });
+
+  test("a subshell's or a substitution's cd stays in it, a nested shell's starts where it stands", () => {
     expect(scanTargets("(cd /a && git status); git commit", HOME)).toEqual([HERE]);
+    expect(scanTargets("echo `cd /x; pwd` && git commit -am x", HOME)).toEqual([HERE]);
     expect(scanTargets(`cd /a; sh -c "cd b && git commit"`, HOME)).toEqual([
       { ...HERE, dir: "/a/b" },
     ]);
@@ -181,8 +229,8 @@ describe("scanChanges", () => {
     expect(await scanChanges(host, HERE, [PAT])).toEqual({
       kind: "found",
       files: [
-        { path: "config.ts", isTracked: true },
-        { path: ".env", isTracked: false },
+        { path: "config.ts", where: "tracked" },
+        { path: ".env", where: "untracked" },
       ],
     });
     expect(reads).toEqual(["/work/repo/.env", "/work/repo/notes.txt"]);
@@ -230,6 +278,24 @@ describe("scanChanges", () => {
       why: expect.stringContaining(`${MAX_UNTRACKED + 1} untracked files`),
     });
     expect(crowded.reads).toEqual([]);
+  });
+
+  test("gh outside any repository carries no change, git there fails the scan", async () => {
+    const { host } = fakeHost({ root: OUTSIDE });
+
+    expect(await scanChanges(host, GH, [PAT])).toEqual({ kind: "clean" });
+    expect(await scanChanges(host, HERE, [PAT])).toMatchObject({ kind: "failed" });
+  });
+
+  test("a file gh is handed holds the value, inside a repository or out of one", async () => {
+    const files = { "/tmp/.env": `TOKEN=${PAT}\n` };
+    const target = { ...GH, label: "gh gist", files: ["create", "/tmp/.env"] };
+    const found: Scan = { kind: "found", files: [{ path: "/tmp/.env", where: "handed" }] };
+
+    expect(await scanChanges(fakeHost({}, files).host, target, [PAT])).toEqual(found);
+    expect(await scanChanges(fakeHost({ root: OUTSIDE }, files).host, target, [PAT])).toEqual(
+      found,
+    );
   });
 
   test("a file a read cannot take whole is skipped, a read that fails fails the scan", async () => {
@@ -291,18 +357,26 @@ describe("scanChanges on a real repository", () => {
       await writeFile(join(repo, ".env"), `TOKEN=${PAT}\n`);
       expect(await scanChanges(host, { ...HERE, options: ["-C", repo] }, [PAT])).toEqual({
         kind: "found",
-        files: [{ path: ".env", isTracked: false }],
+        files: [{ path: ".env", where: "untracked" }],
       });
 
       await git(repo, "add", ".env");
       expect(await scanChanges(host, HERE, [PAT])).toEqual({
         kind: "found",
-        files: [{ path: ".env", isTracked: true }],
+        files: [{ path: ".env", where: "tracked" }],
       });
 
       await git(repo, "rm", "-q", "--cached", ".env");
       await writeFile(join(repo, ".gitignore"), ".env\n");
       expect(await scanChanges(host, HERE, [PAT])).toEqual({ kind: "clean" });
+
+      await git(repo, "add", ".gitignore");
+      await git(repo, "commit", "-qm", "ignore");
+      await writeFile(join(repo, ".gitignore"), `.env\n# ${PAT}\n`);
+      expect(await scanChanges(host, HERE, [PAT])).toEqual({
+        kind: "found",
+        files: [{ path: ".gitignore", where: "tracked" }],
+      });
     } finally {
       await rm(repo, { recursive: true, force: true });
     }

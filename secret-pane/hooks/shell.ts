@@ -204,6 +204,8 @@ export type GlobalOption = { readonly name: string; readonly value: string | und
 export type Parsed = {
   readonly options: readonly GlobalOption[];
   readonly subcommand: string | undefined;
+  /** The words after the subcommand. */
+  readonly rest: readonly string[];
 };
 
 /** A git or gh invocation's global options, each value the next word or after `=`, then the first word that is none. */
@@ -215,7 +217,7 @@ export function parseInvocation(program: Program, args: readonly string[]): Pars
     const word = args[at] ?? "";
     const equals = word.indexOf("=");
 
-    if (!word.startsWith("-")) return { options, subcommand: word };
+    if (!word.startsWith("-")) return { options, subcommand: word, rest: args.slice(at + 1) };
 
     if (word.startsWith("--") && equals > 0) {
       options.push({ name: word.slice(0, equals), value: word.slice(equals + 1) });
@@ -227,14 +229,14 @@ export function parseInvocation(program: Program, args: readonly string[]): Pars
     }
   }
 
-  return { options, subcommand: undefined };
+  return { options, subcommand: undefined, rest: [] };
 }
 
-/** Whether an invocation can neither write a message into history nor send text out: a local git subcommand or none, gh secret. */
+/** Whether an invocation can neither write a message into history nor send text out: a local git subcommand, gh secret, or none. */
 export function isLocal(program: Program, args: readonly string[]): boolean {
   const { subcommand } = parseInvocation(program, args);
 
-  if (program === "gh") return subcommand === GH_SINK;
+  if (program === "gh") return subcommand === undefined || subcommand === GH_SINK;
 
   return subcommand === undefined || GIT_LOCAL.has(subcommand);
 }
@@ -356,15 +358,30 @@ function parts(command: string): readonly Part[] {
 }
 
 export type Invocation = {
+  /** The words before the program's in its simple command: assignments such as `GIT_DIR=...`, a wrapper. */
+  readonly before: readonly string[];
   /** The words after the program's, to the end of its simple command. */
   readonly args: readonly string[];
   /** The targets of the `cd` commands before it that still decide where it runs, in order; none, the session's directory. */
   readonly cds: readonly string[];
 };
 
-/** The directory a `cd` command goes to, as written: `~` with no argument, `-` for the one before. */
-function cdTarget(words: readonly string[]): string {
-  return words.slice(1).find((word) => word === "-" || !word.startsWith("-")) ?? "~";
+/** The words that may open a simple command and leave the rest of it the command it is. */
+const LEADING = new Set(["if", "then", "else", "elif", "do", "while", "until", "!", "{", "time"]);
+
+/**
+ * Where a `cd` or `pushd` goes, as written: `~` with no argument, `-` for the
+ * directory before, which `popd` goes back to too; nothing for any other command.
+ */
+function placeChange(texts: readonly string[]): string | undefined {
+  const start = texts.findIndex((text) => !LEADING.has(text));
+  const [program = "", ...rest] = start < 0 ? [] : texts.slice(start);
+
+  if (program === "popd") return "-";
+
+  if (program !== "cd" && program !== "pushd") return undefined;
+
+  return rest.find((word) => word === "-" || !word.startsWith("-")) ?? "~";
 }
 
 function collect(
@@ -376,14 +393,18 @@ function collect(
   const saved: string[][] = [];
   let cds = [...base];
   let words: Extract<Part, { kind: "word" }>[] = [];
+  let isInBackticks = false;
 
   const end = () => {
     const texts = words.map((word) => word.text);
+    const target = placeChange(texts);
 
-    if (texts[0] === "cd") cds.push(cdTarget(texts));
+    if (target !== undefined) cds.push(target);
 
     for (const [at, word] of words.entries()) {
-      if (basename(word.text) === program) found.push({ args: texts.slice(at + 1), cds: [...cds] });
+      if (basename(word.text) === program) {
+        found.push({ before: texts.slice(0, at), args: texts.slice(at + 1), cds: [...cds] });
+      }
 
       if (word.isQuoted && /[\s;&|()<>`]/u.test(word.text)) collect(word.text, program, cds, found);
     }
@@ -398,16 +419,71 @@ function collect(
     }
 
     end();
+    const opens = part.char === "(" || (part.char === "`" && !isInBackticks);
+    const closes = part.char === ")" || (part.char === "`" && isInBackticks);
 
-    if (part.char === "(") {
+    if (part.char === "`") isInBackticks = !isInBackticks;
+
+    if (opens) {
       saved.push(cds);
       cds = [...cds];
     }
 
-    if (part.char === ")") cds = saved.pop() ?? cds;
+    if (closes) cds = saved.pop() ?? cds;
   }
 
   end();
+}
+
+/** A heredoc whose delimiter is quoted (`<<'EOF'`, `<<"EOF"`, `<<\EOF`): its body is text no shell expands. */
+const LITERAL_HEREDOC = /<<(-?)[ \t]*(?:'([^'\n]+)'|"([^"\n]+)"|\\([^\s;&|<>()]+))[^\n]*\n/gu;
+
+/** The programs that run the text they are handed as commands: a heredoc on their line is a script. */
+const RUNNERS = new Set(["sh", "bash", "zsh", "dash", "ksh", "fish", "ssh", "eval", "source", "."]);
+
+/**
+ * The command with the body of each literal heredoc taken out, the commit
+ * message of `git commit -m "$(cat <<'EOF' ... EOF)"` first among them: text
+ * that never runs, which would read as commands. A body handed to a shell on
+ * the heredoc's own line (`bash <<'EOF'`, `cat <<'EOF' | sh`) runs, and stays.
+ */
+function withoutLiteralBodies(command: string): string {
+  let out = "";
+  let at = 0;
+
+  for (const match of command.matchAll(LITERAL_HEREDOC)) {
+    const start = match.index;
+
+    if (start < at) continue;
+    const lineStart = command.lastIndexOf("\n", start) + 1;
+    const lineEnd = start + match[0].length;
+    const line = command.slice(lineStart, lineEnd);
+    const isRun = line.split(/[\s;&|()`"']+/u).some((word) => RUNNERS.has(basename(word)));
+
+    if (isRun) continue;
+    const delimiter = match[2] ?? match[3] ?? match[4] ?? "";
+    const stripsTabs = match[1] === "-";
+    let close = lineEnd;
+    let isClosed = false;
+
+    while (close < command.length) {
+      const next = command.indexOf("\n", close);
+      const end = next < 0 ? command.length : next;
+      const body = command.slice(close, end);
+
+      close = next < 0 ? command.length : next + 1;
+
+      if ((stripsTabs ? body.replace(/^\t+/u, "") : body) === delimiter) {
+        isClosed = true;
+        break;
+      }
+    }
+
+    out += command.slice(at, lineEnd);
+    at = isClosed ? close : command.length;
+  }
+
+  return out + command.slice(at);
 }
 
 /**
@@ -415,12 +491,14 @@ function collect(
  * the end of its simple command and the `cd` targets standing before it. A
  * coarse cut on blanks, quotes and operators, no expansion; a quoted span that
  * holds blanks or operators is read again as a command run from where it
- * stands, so `sh -c "git commit"` names git too. A subshell's `cd` stays in it.
+ * stands, so `sh -c "git commit"` names git too, and a literal heredoc's body
+ * is no command. A `cd` or `pushd` counts after a keyword or a brace too; a
+ * subshell's or a substitution's stays in it.
  */
 export function invocations(command: string, program: Program): readonly Invocation[] {
   const found: Invocation[] = [];
 
-  collect(command, program, [], found);
+  collect(withoutLiteralBodies(command), program, [], found);
 
   return found;
 }

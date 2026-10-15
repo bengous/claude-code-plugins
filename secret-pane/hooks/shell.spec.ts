@@ -168,14 +168,33 @@ describe("invocations", () => {
     expect(argsOf("(git commit)")).toEqual([["commit"]]);
   });
 
+  test("a literal heredoc's body names nothing, unless a shell on its line runs it", () => {
+    expect(
+      argsOf(
+        `git add -A && git commit -m "$(cat <<'EOF'\nfix: run \`cd ~/p && git push\` then "hi\nEOF\n)"`,
+      ),
+    ).toEqual([
+      ["add", "-A"],
+      ["commit", "-m", "$(cat <<'EOF'\n)"],
+    ]);
+    expect(argsOf("git commit -F- <<'EOF'\nmsg git push\nEOF\ngit status")).toEqual([
+      ["commit", "-F-"],
+      ["status"],
+    ]);
+    expect(argsOf("cat <<-'END'\n\tgit push\n\tEND\ngit log")).toEqual([["log"]]);
+    expect(argsOf("bash <<'EOF'\ngit commit -am x\nEOF")).toEqual([["commit", "-am", "x"]]);
+    expect(argsOf("cat <<'EOF' | sh\ngit commit -am x\nEOF")).toEqual([["commit", "-am", "x"]]);
+    expect(argsOf("cat <<EOF\n$(git commit -am x)\nEOF")).toEqual([["commit", "-am", "x"]]);
+  });
+
   test("a comment names nothing", () => {
     expect(argsOf("echo hi # git push")).toEqual([]);
     expect(argsOf("echo a#b git")).toEqual([[]]);
   });
 
   test("the cd targets standing before each, a subshell's kept in it", () => {
-    expect(invocations("cd /a && cd b; git status", "git")).toEqual([
-      { args: ["status"], cds: ["/a", "b"] },
+    expect(invocations("cd /a && cd b; GIT_DIR=/g git status", "git")).toEqual([
+      { before: ["GIT_DIR=/g"], args: ["status"], cds: ["/a", "b"] },
     ]);
     expect(invocations("(cd /a && git status) && git log", "git").map((call) => call.cds)).toEqual([
       ["/a"],
@@ -193,5 +212,6 @@ describe("isLocal", () => {
     expect(isLocal("git", ["ci"])).toBe(false);
     expect(isLocal("gh", ["-R", "o/r", "secret", "set", "X"])).toBe(true);
     expect(isLocal("gh", ["api", "user"])).toBe(false);
+    expect(isLocal("gh", ["--version"])).toBe(true);
   });
 });

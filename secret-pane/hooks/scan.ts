@@ -5,7 +5,7 @@
  * git prints the changes, and the mod searches them.
  */
 
-import { invocations, isLocal, parseInvocation, type Program } from "./shell.ts";
+import { type Invocation, invocations, isLocal, parseInvocation, type Program } from "./shell.ts";
 
 /** The shortest line of a value searched for: shorter lines would match ordinary text. */
 const MIN_NEEDLE_LENGTH = 8;
@@ -15,6 +15,12 @@ export const MAX_UNTRACKED = 1000;
 
 /** The global options of git that decide which repository and working tree a command acts on. */
 const PLACE_OPTIONS = new Set(["-C", "--git-dir", "--work-tree"]);
+
+/** The variables that set the same, as `GIT_DIR=... git commit` writes them. */
+const PLACE_VARIABLES = new Map([
+  ["GIT_DIR", "--git-dir"],
+  ["GIT_WORK_TREE", "--work-tree"],
+]);
 
 const DIFF_FLAGS = [
   "-U0",
@@ -44,16 +50,23 @@ export type Host = {
 export type ScanTarget =
   | {
       readonly kind: "place";
+      readonly program: Program;
       /** The command as a person names it, `git commit`, `gh pr`. */
       readonly label: string;
       /** Where the command runs, relative to the session's directory or absolute; none, that directory. */
       readonly dir: string | undefined;
       /** The `-C`, `--git-dir` and `--work-tree` the command gives git, handed to every git the scan runs. */
       readonly options: readonly string[];
+      /** The paths a gh command's arguments may name, which it would read and send. */
+      readonly files: readonly string[];
     }
   | { readonly kind: "unknown"; readonly label: string; readonly spelling: string };
 
-export type Found = { readonly path: string; readonly isTracked: boolean };
+/** Where a kept value was found: a change git holds, a file git would add, a file gh is handed. */
+export type Found = {
+  readonly path: string;
+  readonly where: "tracked" | "untracked" | "handed";
+};
 
 export type Scan =
   | { readonly kind: "clean" }
@@ -70,13 +83,29 @@ function expanded(path: string, home: string | undefined): string | undefined {
   return path.startsWith("~") ? undefined : path;
 }
 
+function joined(dir: string | undefined, path: string): string {
+  return dir === undefined || path.startsWith("/") ? path : `${dir}/${path}`;
+}
+
+/** Each argument of a gh command that may name a file it reads: `@file`, `name=@file` and `--option=file` included. */
+function ghPaths(args: readonly string[]): readonly string[] {
+  return args.flatMap((arg) => {
+    const value = arg.startsWith("--") && arg.includes("=") ? arg.slice(arg.indexOf("=") + 1) : arg;
+
+    const path = value.includes("=@")
+      ? value.slice(value.indexOf("=@") + 2)
+      : value.replace(/^@/u, "");
+
+    return path === "" || path.startsWith("-") ? [] : [path];
+  });
+}
+
 function targetOf(
   program: Program,
-  args: readonly string[],
-  cds: readonly string[],
+  { before, args, cds }: Invocation,
   home: string | undefined,
 ): ScanTarget {
-  const { options, subcommand } = parseInvocation(program, args);
+  const { options, subcommand, rest } = parseInvocation(program, args);
   const label = subcommand === undefined ? program : `${program} ${subcommand}`;
   let dir: string | undefined;
 
@@ -84,12 +113,22 @@ function targetOf(
     const path = expanded(cd, home);
 
     if (path === undefined) return { kind: "unknown", label, spelling: `cd ${cd}` };
-    dir = dir === undefined || path.startsWith("/") ? path : `${dir}/${path}`;
+    dir = joined(dir, path);
   }
+
+  // The variables git reads for its place, in front of the command, come before the options that override them.
+  const assigned = before.flatMap((word) => {
+    const [name = "", ...value] = word.split("=");
+    const option = PLACE_VARIABLES.get(name);
+
+    return option === undefined || value.length === 0
+      ? []
+      : [{ name: option, value: value.join("=") }];
+  });
 
   const place: string[] = [];
 
-  for (const { name, value } of program === "git" ? options : []) {
+  for (const { name, value } of program === "git" ? [...assigned, ...options] : []) {
     if (!PLACE_OPTIONS.has(name)) continue;
     const path = value === undefined ? undefined : expanded(value, home);
 
@@ -97,7 +136,16 @@ function targetOf(
     place.push(name, path);
   }
 
-  return { kind: "place", label, dir, options: place };
+  const files: string[] = [];
+
+  // `gh gist create .env`: the word after the subcommand names its action, the files come after.
+  for (const path of program === "gh" ? ghPaths(rest.slice(1)) : []) {
+    const resolved = expanded(path, home);
+
+    if (resolved !== undefined) files.push(joined(dir, resolved));
+  }
+
+  return { kind: "place", program, label, dir, options: place, files };
 }
 
 /**
@@ -109,12 +157,16 @@ export function scanTargets(command: string, home: string | undefined): readonly
   const targets = new Map<string, ScanTarget>();
 
   for (const program of ["git", "gh"] as const) {
-    for (const { args, cds } of invocations(command, program)) {
-      if (isLocal(program, args)) continue;
-      const target = targetOf(program, args, cds, home);
+    for (const call of invocations(command, program)) {
+      if (isLocal(program, call.args)) continue;
+      const target = targetOf(program, call, home);
 
       targets.set(
-        JSON.stringify(target.kind === "place" ? [target.dir, target.options] : target),
+        JSON.stringify(
+          target.kind === "place"
+            ? [target.program, target.dir, target.options, target.files]
+            : target,
+        ),
         target,
       );
     }
@@ -173,17 +225,23 @@ function firstLine(text: string): string {
   return text.trim().split("\n")[0] ?? "";
 }
 
+/** git's word for a place that is no repository at all. */
+const OUTSIDE = /not a git repository/u;
+
 type Ran =
   | { readonly kind: "ran"; readonly stdout: string }
-  | { readonly kind: "failed"; readonly why: string };
+  | { readonly kind: "failed"; readonly why: string; readonly isOutside: boolean };
 
-/** The changes a command at `target` could carry, read for a needle; failed whenever they could not all be read. */
-export async function scanChanges(
+type Hits =
+  | { readonly kind: "read"; readonly files: readonly Found[] }
+  | { readonly kind: "failed"; readonly why: string; readonly isOutside: boolean };
+
+/** The changes of the repository at `target`, read for a needle: the lines the index and the working tree add, the untracked files. */
+async function repositoryHits(
   host: Host,
   target: Extract<ScanTarget, { kind: "place" }>,
   needles: readonly string[],
-): Promise<Scan> {
-  if (needles.length === 0) return { kind: "clean" };
+): Promise<Hits> {
   const where = target.dir ?? "the working directory";
 
   const git = async (args: readonly string[]): Promise<Ran> => {
@@ -195,18 +253,27 @@ export async function scanChanges(
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
 
-      return { kind: "failed", why: `${shown} did not run in ${where}: ${message}` };
+      return {
+        kind: "failed",
+        why: `${shown} did not run in ${where}: ${message}`,
+        isOutside: false,
+      };
     }
 
     if (ran.exitCode !== 0) {
       return {
         kind: "failed",
         why: `${shown} exited ${ran.exitCode} in ${where}: ${firstLine(ran.stderr)}`,
+        isOutside: OUTSIDE.test(ran.stderr),
       };
     }
 
     return ran.isStdoutTruncated
-      ? { kind: "failed", why: `${shown} printed more than the 4 MiB the check reads` }
+      ? {
+          kind: "failed",
+          why: `${shown} printed more than the 4 MiB the check reads`,
+          isOutside: false,
+        }
       : { kind: "ran", stdout: ran.stdout };
   };
 
@@ -236,17 +303,14 @@ export async function scanChanges(
     return {
       kind: "failed",
       why: `${untracked.length} untracked files, more than the ${MAX_UNTRACKED} the check reads: add what is never committed to .gitignore`,
+      isOutside: false,
     };
   }
 
-  const files = new Map<string, Found>();
-
-  for (const path of [
+  const files: Found[] = [
     ...addedHits(staged.stdout, needles),
     ...addedHits(unstaged.stdout, needles),
-  ]) {
-    files.set(path, { path, isTracked: true });
-  }
+  ].map((path) => ({ path, where: "tracked" }));
 
   const top = root.stdout.trim();
 
@@ -258,12 +322,44 @@ export async function scanChanges(
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
 
-      return { kind: "failed", why: `${path} could not be read: ${message}` };
+      return { kind: "failed", why: `${path} could not be read: ${message}`, isOutside: false };
     }
 
     if (text !== null && needles.some((needle) => text.includes(needle)))
-      files.set(path, { path, isTracked: false });
+      files.push({ path, where: "untracked" });
   }
+
+  return { kind: "read", files };
+}
+
+/**
+ * What a command at `target` could carry, read for a needle: the files a gh
+ * command is handed, and the changes of the repository. Failed whenever the
+ * changes could not all be read, but for gh outside any repository, which
+ * carries none.
+ */
+export async function scanChanges(
+  host: Host,
+  target: Extract<ScanTarget, { kind: "place" }>,
+  needles: readonly string[],
+): Promise<Scan> {
+  if (needles.length === 0) return { kind: "clean" };
+  const files = new Map<string, Found>();
+
+  for (const path of target.files) {
+    // Most of a gh command's words are no path: one that names no file a read takes is no file gh sends.
+    const text = await host.read(path).catch(() => null);
+
+    if (text !== null && needles.some((needle) => text.includes(needle)))
+      files.set(path, { path, where: "handed" });
+  }
+
+  const hits = await repositoryHits(host, target, needles);
+
+  if (hits.kind === "failed" && !(target.program === "gh" && hits.isOutside))
+    return { kind: "failed", why: hits.why };
+
+  for (const found of hits.kind === "read" ? hits.files : []) files.set(found.path, found);
 
   return files.size === 0 ? { kind: "clean" } : { kind: "found", files: [...files.values()] };
 }
