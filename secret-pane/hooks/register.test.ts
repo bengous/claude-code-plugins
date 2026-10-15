@@ -546,7 +546,7 @@ test("a command holding the placeholder is refused when it commits or posts, and
   });
 
   expect(commit.deny).toBe(
-    `secret-pane: the command was not run: \`git commit\` may write the value into history or send it out, where it cannot be taken back (an alias counts as unknown): to mention the secret, write its name.`,
+    `secret-pane: the command was not run: \`git commit\` may write the value into history or send it out, where it cannot be taken back (an alias counts as unknown): to mention the secret, write its name, or run that git in a Bash call of its own that names no placeholder.`,
   );
   expect(chained.deny).toContain("a gh command other than gh secret sends text to GitHub");
   expect(world.commands).toEqual([]);
@@ -700,8 +700,11 @@ test("a message or body file that holds a kept value refuses the commit or the p
     command: "gh pr create --title 'Sync secret' --body-file /tmp/pr-body.md",
   });
 
+  const printed = await $.tool.call({ tool: "Bash", command: 'git commit -m "$(cat /tmp/msg)"' });
+
   expect(commit.deny).toContain("/tmp/msg (read by the command");
   expect(pr.deny).toContain("/tmp/pr-body.md (read by the command");
+  expect(printed.deny).toContain("/tmp/msg (read by the command");
   expect(world.commands).toEqual([]);
 });
 

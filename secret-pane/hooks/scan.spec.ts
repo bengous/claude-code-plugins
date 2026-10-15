@@ -137,6 +137,18 @@ describe("scanTargets", () => {
     ]);
   });
 
+  test("the file a substitution in an argument prints", () => {
+    expect(scanTargets(`gh pr create --title x --body "$(cat /tmp/pr-body.md)"`, HOME)).toEqual([
+      { ...GH, files: ["x", "/tmp/pr-body.md"] },
+    ]);
+    expect(scanTargets(`git commit -m "$(cat '/tmp/my msg')"`, HOME)).toEqual([
+      { ...HERE, files: ["/tmp/my msg"] },
+    ]);
+    expect(scanTargets(`git commit -m "$(< notes.md)"`, HOME)).toEqual([
+      { ...HERE, files: ["notes.md"] },
+    ]);
+  });
+
   test("the file a git command reads its message from", () => {
     expect(scanTargets("git commit -F /tmp/msg", HOME)).toEqual([{ ...HERE, files: ["/tmp/msg"] }]);
     expect(scanTargets("cd /r && git tag -a v1 --file=notes.txt", HOME)).toEqual([

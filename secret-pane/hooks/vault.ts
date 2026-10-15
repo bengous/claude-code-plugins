@@ -12,7 +12,7 @@ export function nameOf(tag: string): string {
   return tag.slice("[secret-pane:".length, tag.lastIndexOf(":"));
 }
 
-/** A value the shell reads as plain text wherever it stands: quoted or not, in a heredoc or a nested shell. */
+/** A value the shell reads as plain text: quoted or not, in a heredoc, after `=`, in a nested shell. */
 const INERT = /^[A-Za-z0-9_][A-Za-z0-9_.:/+=@,-]*$/u;
 
 /** Whether a value goes into a command as it is, wherever its placeholder stands; zsh expands an `=` after a `:` in an assignment. */

@@ -73,7 +73,7 @@ export type ScanTarget =
       readonly dir: string | undefined;
       /** The `-C`, `--git-dir` and `--work-tree` the command gives git, handed to every git the scan runs. */
       readonly options: readonly string[];
-      /** The files the command is handed to read and send: gh's arguments, git's message file. */
+      /** The files the command is handed to read and send: gh's arguments, git's message file, a file a substitution prints. */
       readonly files: readonly string[];
     }
   | { readonly kind: "unknown"; readonly label: string; readonly spelling: string };
@@ -112,7 +112,7 @@ function ghPaths(args: readonly string[]): readonly string[] {
       ? value.slice(value.indexOf("=@") + 2)
       : value.replace(/^@/u, "");
 
-    return path === "" || path.startsWith("-") ? [] : [path];
+    return path === "" || path.startsWith("-") || /\$\(|`/u.test(path) ? [] : [path];
   });
 }
 
@@ -129,6 +129,15 @@ function gitPaths(rest: readonly string[]): readonly string[] {
 
     return /^-F[^-]/u.test(word) ? [word.slice(2)] : [];
   });
+}
+
+/** The file a command substitution in an argument prints: `"$(cat body.md)"`, `"$(< body.md)"`. */
+const SUBSTITUTED_FILE = /\$\(\s*(?:cat\s+|<\s*)((?:'[^']*'|"[^"]*"|[^\s)'"])+)\s*\)/gu;
+
+function substitutedPaths(args: readonly string[]): readonly string[] {
+  return args.flatMap((arg) =>
+    [...arg.matchAll(SUBSTITUTED_FILE)].map((match) => (match[1] ?? "").replaceAll(/['"]/gu, "")),
+  );
 }
 
 function targetOf(
@@ -175,7 +184,9 @@ function targetOf(
     if (place[at] === "-C") base = joined(base, place[at + 1] ?? "");
 
   // `gh gist create .env`: the word after gh's subcommand names its action, the files come after.
-  for (const path of program === "gh" ? ghPaths(rest.slice(1)) : gitPaths(rest)) {
+  const handed = program === "gh" ? ghPaths(rest.slice(1)) : gitPaths(rest);
+
+  for (const path of [...handed, ...substitutedPaths(rest)]) {
     const resolved = expanded(path, home);
 
     if (resolved !== undefined) files.push(joined(program === "git" ? base : dir, resolved));

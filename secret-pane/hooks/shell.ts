@@ -33,6 +33,7 @@ const AFTER_DOLLAR = new RegExp(
 export const FIXES = {
   file: "printf '<NAME>=%s\\n' '<placeholder>' >> .env",
   header: "printf 'Authorization: Bearer %s' '<placeholder>' | curl -H @- https://...",
+  both: "printf 'Authorization: Bearer %s' '<placeholder>' | curl -H @- -d '<placeholder>' https://...",
   secret: "printf '%s' '<placeholder>' | gh secret set <NAME> --repo org/repo",
   bearer: "curl --oauth2-bearer '<placeholder>' https://api.github.com/...",
   credential:
@@ -125,7 +126,7 @@ const GH_REFUSED = [
   "a gh command other than gh secret sends text to GitHub, where it cannot be taken back:",
   `store the value with ${FIXES.secret},`,
   `call the API with ${FIXES.bearer},`,
-  "and write <NAME> to mention it",
+  "write <NAME> to mention it, or run that gh in a Bash call of its own that names no placeholder",
 ].join(" ");
 
 const NOT_A_WORD = [
@@ -135,7 +136,8 @@ const NOT_A_WORD = [
 
 const MIXED = [
   "<placeholder> could stand anywhere, but this command also names a value holding characters the shell reads,",
-  "which holds every placeholder of the command to the strict shape: run the two in Bash calls of their own",
+  "which holds every placeholder of the command to the strict shape: write each one as a whole single-quoted word,",
+  `as in ${FIXES.both}, or run them in Bash calls of their own`,
 ].join(" ");
 
 /** git's global options that take the next word as their value. */
@@ -313,7 +315,7 @@ function publishRefusal(program: Program, args: readonly string[]): string | und
 
   return subcommand === "push"
     ? GIT_PUSH_REFUSED
-    : `\`git ${subcommand}\` may write the value into history or send it out, where it cannot be taken back (an alias counts as unknown): to mention the secret, write its name`;
+    : `\`git ${subcommand}\` may write the value into history or send it out, where it cannot be taken back (an alias counts as unknown): to mention the secret, write its name, or run that git in a Bash call of its own that names no placeholder`;
 }
 
 /** Why one simple command may not carry a value of the strict shape, or nothing; its git and gh are held to the local ones first. */
@@ -803,9 +805,6 @@ export function restoreCommand(
     values.set(tag, value);
   }
 
-  const dollar = afterDollar(command);
-
-  if (dollar !== undefined) return { kind: "refused", why: dollar };
   // With one placeholder, a fix names it; with more, which one it means is not the mod's to guess.
   const [only] = tags.size === 1 ? tags : [];
 
@@ -819,7 +818,10 @@ export function restoreCommand(
   }
 
   if (![...values.values()].every((value) => isInert(value))) return restoreStrict(command, values);
+  // The strict shape's lexer refuses every `$` with its own fix; an inert value goes in raw, where a `$` before it acts on it.
+  const dollar = afterDollar(command);
 
+  if (dollar !== undefined) return { kind: "refused", why: dollar };
   let restored = command;
 
   for (const [tag, value] of values) restored = restored.replaceAll(tag, value);

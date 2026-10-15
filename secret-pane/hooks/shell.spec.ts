@@ -181,6 +181,32 @@ describe("a fix names the placeholder it is about", () => {
     expect(restoredOf(`echo ${TAG} ${TAG}`)).toBe(`echo ${PAT} ${PAT}`);
   });
 
+  test("a list with a git or gh the value need not reach is told to run it on its own", () => {
+    expect(
+      refused(`printf '%s' ${TAG} | gh secret set PAT --repo o/r && gh workflow run sync.yml`),
+    ).toContain("or run that gh in a Bash call of its own that names no placeholder");
+    expect(refused(`printf '%s' '${TAG}'; git commit -m x`)).toContain(
+      "or run that git in a Bash call of its own that names no placeholder",
+    );
+  });
+
+  test("an inert placeholder held to the strict shape learns the form that fits both", () => {
+    expect(
+      refused(
+        `printf '%s' '${OTHER}' | curl -H "Authorization: Bearer ${TAG}" -d @- https://x`,
+        both,
+      ),
+    ).toContain(
+      "write each one as a whole single-quoted word, as in printf 'Authorization: Bearer %s'",
+    );
+  });
+
+  test("a $ before a strict value's placeholder gets the strict shape's own fix", () => {
+    expect(refused(`curl -u "$USER:${OTHER}" https://x`, both)).toContain(
+      "a double-quoted span the shell expands",
+    );
+  });
+
   test("a strict value beside an inert one holds both to the strict shape", () => {
     expect(restoreCommand(`printf '%s %s' '${TAG}' '${OTHER}'`, both)).toEqual({
       kind: "restored",
