@@ -1,0 +1,15 @@
+{
+  "session_id": "2978b1bd-02a4-4906-b123-0124dd282cf8",
+  "transcript_path": "/fixture/user/.claude/projects/-home-user-Work-repo/2978b1bd-02a4-4906-b123-0124dd282cf8.jsonl",
+  "cwd": "/fixture/user/Work/repo",
+  "prompt_id": "6687236f-5120-42cd-9985-88641e4f8676",
+  "permission_mode": "acceptEdits",
+  "effort": {
+    "level": "xhigh"
+  },
+  "hook_event_name": "Stop",
+  "stop_hook_active": false,
+  "last_assistant_message": "L'agent n'a rien ex\u00e9cut\u00e9 et n'a pas r\u00e9pondu \u00ab slept \u00bb. Dans la consigne, la comm",
+  "background_tasks": [],
+  "session_crons": []
+}

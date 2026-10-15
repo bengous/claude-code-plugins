@@ -1,0 +1,9 @@
+// A lane whose binary exists nowhere: what `agent-hooks doctor --config` reports as MISSING.
+{
+  "presets": ["ts"],
+  "stop": {
+    "lanes": {
+      "nope": { "on": "**/*", "takes": "project", "run": "no-such-tool-for-doctor" },
+    },
+  },
+}

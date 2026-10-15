@@ -1,0 +1,28 @@
+{
+  "pre-edit": {
+    "exclude": ["**/node_modules/**", "**/dist/**"],
+    "fixers": {
+      "oxlint": {
+        "on": "**/*.{ts,tsx,js,jsx,mjs,cjs}",
+        "file": "oxlint -c {root}/oxlint.config.ts --fix --quiet {file}",
+        "loop": true,
+      },
+      "prettier": {
+        "on": "**/*.{ts,tsx,js,jsx,mjs,cjs,css,scss,md,json,jsonc,yml,yaml,html}",
+        "stdin": "prettier --stdin-filepath {path}",
+      },
+    },
+  },
+  "stop": {
+    "lanes": {
+      "lint": {
+        "on": "**/*.{ts,tsx,js,jsx,mjs,cjs}",
+        "takes": "files",
+        "run": "oxlint -c {root}/oxlint.config.ts --format=unix {files}",
+        "timeout": 60,
+      },
+      "typecheck": { "on": "**/*.{ts,tsx}", "takes": "project", "run": "bun run typecheck", "timeout": 120 },
+      "test": { "on": "**/*.{ts,tsx}", "takes": "project", "run": "bun run test", "timeout": 60 },
+    },
+  },
+}

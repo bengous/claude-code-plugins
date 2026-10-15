@@ -1,0 +1,7 @@
+{
+  "session_id": "2f97b680-b170-49d4-abf1-38065de55b2b",
+  "transcript_path": "/fixture/user/.claude/projects/-home-user-Work-repo/2f97b680-b170-49d4-abf1-38065de55b2b.jsonl",
+  "cwd": "/fixture/user/Work/repo",
+  "hook_event_name": "SessionStart",
+  "source": "clear"
+}

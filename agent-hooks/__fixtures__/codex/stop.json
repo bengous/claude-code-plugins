@@ -1,0 +1,11 @@
+{
+  "session_id": "01a13185-e80c-7be1-802e-f00d31225ac3",
+  "turn_id": "01a13185-ea7c-79b2-b61c-15692fc9d1f9",
+  "transcript_path": "/fixture/user/.claude/projects/-home-user-Work-repo/01a13185-e80c-7be1-802e-f00d31225ac3.jsonl",
+  "cwd": "/fixture/user/Work/repo",
+  "hook_event_name": "Stop",
+  "model": "gpt-6.1-sol",
+  "permission_mode": "bypassPermissions",
+  "stop_hook_active": false,
+  "last_assistant_message": "done"
+}

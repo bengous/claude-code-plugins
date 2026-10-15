@@ -1,0 +1,103 @@
+import { existsSync } from "node:fs";
+import path from "node:path";
+
+import type { Config } from "./config.ts";
+import { isExcluded } from "./config.ts";
+import type { Runner } from "./exec.ts";
+import { deadlineIn, run } from "./exec.ts";
+import type { LaneResult } from "./lanes.ts";
+import { isFailure, runFixers, runLanes, sequential } from "./lanes.ts";
+import { dirtyDigest, headSha, sessionFiles, wholeDirtyTree } from "./scope.ts";
+import { latestStateForRoot } from "./state.ts";
+
+export type VerifyOptions = {
+  readonly root: string;
+  readonly config: Config;
+  readonly all: boolean;
+  readonly files: readonly string[];
+  readonly runner?: Runner;
+  readonly print?: (line: string) => void;
+};
+
+export type VerifyReport = {
+  readonly scope: readonly string[];
+  readonly results: readonly LaneResult[];
+  readonly exitCode: number;
+};
+
+const NO_DEADLINE_MS = 60 * 60 * 1000;
+
+/** The Stop lanes on demand, without the green cache or the hook deadline; the state is read, never written. */
+export async function runVerify(options: VerifyOptions): Promise<VerifyReport> {
+  const print = options.print ?? console.log;
+  const runner = options.runner ?? run;
+  const scope = verifyScope(options);
+
+  if (scope === null) {
+    print(`agent-hooks: git status failed in ${options.root}`);
+
+    return { scope: [], results: [], exitCode: 1 };
+  }
+
+  print(`scope: ${scope.length === 0 ? "(empty)" : scope.join(" ")}`);
+  const fixOptions = { root: options.root, runner, deadline: deadlineIn(NO_DEADLINE_MS) };
+
+  const fixable = scope.filter(
+    (relativePath) => !isExcluded(options.config.preEdit.exclude, relativePath),
+  );
+
+  await sequential(fixable, async (relativePath: string) => {
+    await runFixers(
+      options.config.stop.fixers,
+      { relativePath, file: path.join(options.root, relativePath) },
+      fixOptions,
+    );
+  });
+
+  const results = await runLanes(options.config.stop.lanes, scope, {
+    ...fixOptions,
+    green: null,
+    head: headSha(options.root),
+    digest: dirtyDigest(options.root),
+  });
+
+  for (const result of results) {
+    print(describe(result));
+  }
+
+  const blocked = results.some((result) => isFailure(result) && result.lane.verdict === "block");
+
+  return { scope, results, exitCode: blocked ? 1 : 0 };
+}
+
+function verifyScope(options: VerifyOptions): string[] | null {
+  if (options.files.length > 0) {
+    return options.files
+      .map((file) => path.relative(options.root, path.resolve(options.root, file)))
+      .filter((relativePath) => existsSync(path.join(options.root, relativePath)))
+      .toSorted();
+  }
+
+  if (options.all) {
+    return wholeDirtyTree(options.root);
+  }
+
+  const photo = latestStateForRoot(options.root)?.photo ?? null;
+
+  return photo === null ? wholeDirtyTree(options.root) : sessionFiles(options.root, photo);
+}
+
+export function describe(result: LaneResult): string {
+  const name = result.pkg === "." ? result.lane.name : `${result.lane.name} [${result.pkg}]`;
+  const timing = result.ms > 0 ? ` (${result.ms} ms)` : "";
+  const headline = `${name}: ${result.run}${timing}`;
+
+  return result.output === "" ? headline : `${headline}\n${indent(result.output)}`;
+}
+
+function indent(text: string): string {
+  return text
+    .split("\n")
+    .map((line) => `  ${line}`)
+    .join("\n");
+}

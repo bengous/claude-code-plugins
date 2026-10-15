@@ -1,0 +1,40 @@
+{
+  "description": "Fixers before each write and Stop lanes on the session scope, in every repository that holds .claude/agent-hooks.jsonc",
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bun \"${CLAUDE_PLUGIN_ROOT}/agent-hooks.ts\" session-start",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bun \"${CLAUDE_PLUGIN_ROOT}/agent-hooks.ts\" pre-edit",
+            "timeout": 30
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bun \"${CLAUDE_PLUGIN_ROOT}/agent-hooks.ts\" stop",
+            "timeout": 240,
+            "statusMessage": "agent-hooks: lanes on the session scope"
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -1,0 +1,422 @@
+/* oxlint-disable anti-slop/no-unsafe-dictionary-type -- this harness builds hook payloads and reads hook outputs as JSON: a closed type would assert the schema instead of the behaviour, and a wrong shape has to fail an assertion rather than the compiler. */
+import type { Mock } from "bun:test";
+import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
+import { existsSync, readFileSync } from "node:fs";
+
+import { CONFIG_RELATIVE_PATH } from "./config.ts";
+import type { Runner } from "./exec.ts";
+import { run } from "./exec.ts";
+import type { Handler, HookKind, Input, Verdict } from "./hook.ts";
+import { ALLOW, encode, parseInput, runHook, searchStart } from "./hook.ts";
+import { isRecord, stringField } from "./json.ts";
+import { statePath } from "./state.ts";
+import { runStop } from "./stop.ts";
+import type { TempRepo } from "./test-support.ts";
+import {
+  createTempRepo,
+  fakeTool,
+  fixtureNames,
+  readFixture,
+  removeTempRepo,
+  scrubGitEnv,
+  writeConfig,
+} from "./test-support.ts";
+
+const INVALID_CONFIG = '{ "stop": { "lanes": { "x": {} } } }';
+
+const VALID_CONFIG =
+  '{ "stop": { "lanes": { "lint": { "on": "**/*.ts", "takes": "files", "run": "checker {files}" } } } }';
+
+type StopPayload = {
+  readonly session_id: string;
+  readonly cwd: string;
+  readonly prompt_id: string;
+};
+
+type CountingRunner = { readonly runner: Runner; readonly count: () => number };
+
+function countingRunner(): CountingRunner {
+  let calls = 0;
+
+  return {
+    runner: (argv, options) => {
+      calls += 1;
+
+      return run(argv, options);
+    },
+    count: () => calls,
+  };
+}
+
+function inputOf(payload: Record<string, unknown>): Input {
+  const input = parseInput(payload);
+
+  if (input === null) {
+    throw new Error(`payload ${JSON.stringify(payload)} has no session_id`);
+  }
+
+  return input;
+}
+
+function parsed(line: string | null): Record<string, unknown> {
+  if (line === null) {
+    throw new Error("expected a hook output, got none");
+  }
+
+  const value: unknown = JSON.parse(line);
+
+  if (!isRecord(value)) {
+    throw new Error(`hook output ${line} is not an object`);
+  }
+
+  return value;
+}
+
+const crash: Handler = () => Promise.reject(new Error("boom"));
+
+const allow: Handler = () => Promise.resolve(ALLOW);
+
+const slow: Handler = async () => {
+  await Bun.sleep(5000);
+
+  return ALLOW;
+};
+
+beforeEach(() => {
+  scrubGitEnv();
+});
+
+describe("parseInput", () => {
+  for (const harness of ["claude", "codex"] as const) {
+    for (const name of fixtureNames(harness)) {
+      test(`reads ${harness}/${name}`, () => {
+        const fixture = readFixture(harness, name);
+        const input = parseInput(fixture);
+
+        expect(input).not.toBeNull();
+        expect(input?.sessionId).toBe(stringField(fixture, "session_id") ?? "");
+        expect(input?.cwd).toBe(stringField(fixture, "cwd") ?? "");
+        expect(input?.promptId).toEqual(
+          stringField(fixture, "prompt_id") ?? stringField(fixture, "turn_id"),
+        );
+      });
+    }
+  }
+
+  test("takes the prompt id from turn_id under Codex", () => {
+    for (const name of ["stop", "post-edit-apply-patch"]) {
+      const fixture = readFixture("codex", name);
+
+      expect(inputOf(fixture).promptId).toBe(stringField(fixture, "turn_id") ?? "");
+    }
+  });
+
+  test("takes the prompt id from prompt_id at a Claude Stop", () => {
+    for (const name of ["stop", "stop-active", "stop-background"]) {
+      const fixture = readFixture("claude", name);
+
+      expect(inputOf(fixture).promptId).toBe(stringField(fixture, "prompt_id") ?? "");
+    }
+  });
+
+  test("reads the running subagent of stop-background", () => {
+    const tasks = inputOf(readFixture("claude", "stop-background")).backgroundTasks;
+
+    expect(tasks).toHaveLength(1);
+    expect(tasks[0]?.type).toBe("subagent");
+    expect(tasks[0]?.status).toBe("running");
+  });
+
+  test("reads stop_hook_active of stop-active", () => {
+    expect(inputOf(readFixture("claude", "stop-active")).stopHookActive).toBe(true);
+    expect(inputOf(readFixture("claude", "stop")).stopHookActive).toBe(false);
+  });
+
+  test("returns null without a session_id", () => {
+    expect(parseInput({ cwd: "/repo" })).toBeNull();
+    expect(parseInput({ session_id: "", cwd: "/repo" })).toBeNull();
+  });
+
+  test("drops the background tasks that miss a field", () => {
+    const input = inputOf({
+      session_id: "s1",
+      background_tasks: [
+        { id: "a", type: "subagent", status: "running", description: "full" },
+        { id: "b", type: "subagent", status: "running" },
+        { type: "shell", status: "running", description: "no id" },
+        "not an object",
+      ],
+    });
+
+    expect(input.backgroundTasks.map((task) => task.id)).toEqual(["a"]);
+  });
+});
+
+describe("searchStart", () => {
+  test("starts an edit hook at the directory of an absolute file_path", () => {
+    const input = inputOf({
+      session_id: "s1",
+      cwd: "/repo",
+      tool_input: { file_path: "/other/dir/file.ts" },
+    });
+
+    expect(searchStart("pre-edit", input)).toBe("/other/dir");
+    expect(searchStart("post-edit", input)).toBe("/other/dir");
+  });
+
+  test("resolves a relative file_path against cwd", () => {
+    const input = inputOf({
+      session_id: "s1",
+      cwd: "/repo",
+      tool_input: { file_path: "src/file.ts" },
+    });
+
+    expect(searchStart("pre-edit", input)).toBe("/repo/src");
+    expect(searchStart("post-edit", input)).toBe("/repo/src");
+  });
+
+  test("starts a Stop and a session start at cwd", () => {
+    const input = inputOf({
+      session_id: "s1",
+      cwd: "/repo",
+      tool_input: { file_path: "/other/dir/file.ts" },
+    });
+
+    expect(searchStart("stop", input)).toBe("/repo");
+    expect(searchStart("session-start", input)).toBe("/repo");
+  });
+
+  test("starts an edit hook without file_path at cwd", () => {
+    expect(
+      searchStart("post-edit", inputOf({ session_id: "s1", cwd: "/repo", tool_input: {} })),
+    ).toBe("/repo");
+  });
+
+  test("returns null without cwd", () => {
+    expect(searchStart("stop", inputOf({ session_id: "s1" }))).toBeNull();
+    expect(searchStart("pre-edit", inputOf({ session_id: "s1", tool_input: {} }))).toBeNull();
+  });
+});
+
+describe("encode", () => {
+  const text = 'say "hi"\nnext';
+  const textJson = JSON.stringify(text);
+  const note: Verdict = { kind: "note", text };
+  const context: Verdict = { kind: "context", text };
+  const block: Verdict = { kind: "block", reason: text };
+
+  const rewrite: Verdict = {
+    kind: "rewrite",
+    updatedInput: { file_path: "/r/a.ts", content: "x" },
+    text,
+  };
+
+  const editHooks: readonly HookKind[] = ["session-start", "pre-edit", "post-edit"];
+
+  test("allow", () => {
+    for (const hook of [...editHooks, "stop"] as const) {
+      expect(encode(ALLOW, "claude", hook)).toBeNull();
+    }
+
+    for (const hook of editHooks) {
+      expect(encode(ALLOW, "codex", hook)).toBeNull();
+    }
+
+    expect(encode(ALLOW, "codex", "stop")).toBe('{"continue":true}');
+  });
+
+  test("note", () => {
+    for (const hook of [...editHooks, "stop"] as const) {
+      expect(encode(note, "claude", hook)).toBe(`{"systemMessage":${textJson}}`);
+    }
+
+    for (const hook of editHooks) {
+      expect(encode(note, "codex", hook)).toBe(`{"systemMessage":${textJson}}`);
+    }
+
+    expect(encode(note, "codex", "stop")).toBe(`{"continue":true,"systemMessage":${textJson}}`);
+  });
+
+  test("context", () => {
+    for (const harness of ["claude", "codex"] as const) {
+      expect(encode(context, harness, "pre-edit")).toBe(
+        `{"hookSpecificOutput":{"hookEventName":"PreToolUse","additionalContext":${textJson}}}`,
+      );
+      expect(encode(context, harness, "post-edit")).toBe(
+        `{"hookSpecificOutput":{"hookEventName":"PostToolUse","additionalContext":${textJson}}}`,
+      );
+    }
+  });
+
+  test("block", () => {
+    for (const harness of ["claude", "codex"] as const) {
+      for (const hook of [...editHooks, "stop"] as const) {
+        expect(encode(block, harness, hook)).toBe(`{"decision":"block","reason":${textJson}}`);
+      }
+    }
+  });
+
+  test("rewrite", () => {
+    expect(encode(rewrite, "claude", "pre-edit")).toBe(
+      `{"hookSpecificOutput":{"hookEventName":"PreToolUse","updatedInput":{"file_path":"/r/a.ts","content":"x"}},"systemMessage":${textJson}}`,
+    );
+
+    for (const hook of [...editHooks, "stop"] as const) {
+      expect(encode(rewrite, "codex", hook)).toBeNull();
+    }
+  });
+});
+
+describe("runHook", () => {
+  let temp: TempRepo;
+  let errors: Mock<typeof console.error>;
+
+  beforeEach(() => {
+    temp = createTempRepo("agent-hooks-hook-");
+    errors = spyOn(console, "error").mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    errors.mockRestore();
+    removeTempRepo(temp);
+  });
+
+  const payload = (): StopPayload => ({ session_id: "s1", cwd: temp.repo, prompt_id: "p1" });
+
+  test("returns null and reports an empty payload", async () => {
+    expect(
+      await runHook({ hook: "stop", harness: "claude", payload: null, handler: allow }),
+    ).toBeNull();
+    expect(errors).toHaveBeenCalled();
+  });
+
+  test("returns null for a payload without session_id", async () => {
+    const output = await runHook({
+      hook: "stop",
+      harness: "claude",
+      payload: { cwd: temp.repo },
+      handler: allow,
+    });
+
+    expect(output).toBeNull();
+    expect(errors).toHaveBeenCalled();
+  });
+
+  test("does nothing in a root without a config", async () => {
+    const counter = countingRunner();
+
+    const output = await runHook({
+      hook: "stop",
+      harness: "claude",
+      payload: payload(),
+      handler: runStop,
+      runner: counter.runner,
+    });
+
+    expect(output).toBeNull();
+    expect(counter.count()).toBe(0);
+    expect(existsSync(statePath("s1", temp.repo))).toBe(false);
+  });
+
+  test("blocks a Stop on an invalid config, then lets the same failure through", async () => {
+    writeConfig(temp.repo, INVALID_CONFIG);
+
+    const first = parsed(
+      await runHook({ hook: "stop", harness: "claude", payload: payload(), handler: runStop }),
+    );
+
+    expect(first["decision"]).toBe("block");
+    expect(stringField(first, "reason")).toContain('missing "on"');
+
+    const second = parsed(
+      await runHook({ hook: "stop", harness: "claude", payload: payload(), handler: runStop }),
+    );
+
+    expect(second["decision"]).toBeUndefined();
+    expect(stringField(second, "systemMessage")).toContain('missing "on"');
+  });
+
+  test("notes an invalid config at pre-edit", async () => {
+    writeConfig(temp.repo, INVALID_CONFIG);
+
+    const output = parsed(
+      await runHook({ hook: "pre-edit", harness: "claude", payload: payload(), handler: allow }),
+    );
+
+    expect(Object.keys(output)).toEqual(["systemMessage"]);
+    expect(stringField(output, "systemMessage")).toContain('missing "on"');
+    expect(stringField(output, "systemMessage")).toContain(CONFIG_RELATIVE_PATH);
+  });
+
+  test("blocks a Stop when the handler crashes", async () => {
+    writeConfig(temp.repo, VALID_CONFIG);
+
+    const output = parsed(
+      await runHook({ hook: "stop", harness: "claude", payload: payload(), handler: crash }),
+    );
+
+    expect(output["decision"]).toBe("block");
+    expect(stringField(output, "reason")?.startsWith("agent-hooks crashed:")).toBe(true);
+  });
+
+  test.each(["pre-edit", "post-edit"] as const)(
+    "allows %s when the handler crashes and reports it on stderr",
+    async (hook) => {
+      writeConfig(temp.repo, VALID_CONFIG);
+
+      expect(
+        await runHook({ hook, harness: "claude", payload: payload(), handler: crash }),
+      ).toBeNull();
+      expect(errors).toHaveBeenCalledWith("agent-hooks crashed: boom");
+    },
+  );
+
+  test("a handler that runs past the deadline yields the failure verdict before the harness timeout", async () => {
+    writeConfig(temp.repo, VALID_CONFIG);
+    const started = Date.now();
+
+    const output = parsed(
+      await runHook({
+        hook: "stop",
+        harness: "claude",
+        payload: payload(),
+        handler: slow,
+        deadlineMs: 300,
+      }),
+    );
+
+    expect(Date.now() - started).toBeLessThan(2000);
+    expect(output["decision"]).toBe("block");
+    expect(stringField(output, "reason")).toContain("stop ran past its 300 ms deadline");
+  });
+
+  test("allows a session start when the handler crashes", async () => {
+    writeConfig(temp.repo, VALID_CONFIG);
+
+    expect(
+      await runHook({
+        hook: "session-start",
+        harness: "claude",
+        payload: payload(),
+        handler: crash,
+      }),
+    ).toBeNull();
+  });
+
+  test("saves the state of the session", async () => {
+    writeConfig(temp.repo, VALID_CONFIG);
+    fakeTool(temp.repo, "checker", "exit 0");
+
+    expect(
+      await runHook({ hook: "stop", harness: "claude", payload: payload(), handler: allow }),
+    ).toBeNull();
+
+    const file = statePath("s1", temp.repo);
+
+    expect(existsSync(file)).toBe(true);
+
+    const state: unknown = JSON.parse(readFileSync(file, "utf8"));
+
+    expect(isRecord(state) ? state["sessionId"] : undefined).toBe("s1");
+  });
+});

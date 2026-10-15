@@ -1,0 +1,15 @@
+{
+  "session_id": "01a13185-e80c-7be1-802e-f00d31225ac3",
+  "turn_id": "01a13185-ea7c-79b2-b61c-15692fc9d1f9",
+  "transcript_path": "/fixture/user/.claude/projects/-home-user-Work-repo/01a13185-e80c-7be1-802e-f00d31225ac3.jsonl",
+  "cwd": "/fixture/user/Work/repo",
+  "hook_event_name": "PostToolUse",
+  "model": "gpt-6.1-sol",
+  "permission_mode": "bypassPermissions",
+  "tool_name": "apply_patch",
+  "tool_input": {
+    "command": "*** Begin Patch\n*** Add File: /fixture/user/Work/repo/capture/codex-sample.md\n+# Codex sample\n+hello\n*** End Patch"
+  },
+  "tool_response": "Exit code: 0\nWall time: 0 seconds\nOutput:\nSuccess. Updated the following files:\nA /fixture/user/Work/repo/capture/codex-sample.md\n",
+  "tool_use_id": "exec-40235d43-ab9d-493d-b557-33331640be0c"
+}

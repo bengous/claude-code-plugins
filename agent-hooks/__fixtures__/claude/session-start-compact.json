@@ -1,0 +1,9 @@
+{
+  "session_id": "0de8eb61-e489-4f1f-9225-31a84778a2bc",
+  "transcript_path": "/fixture/user/.claude/projects/-home-user-Work-repo/0de8eb61-e489-4f1f-9225-31a84778a2bc.jsonl",
+  "cwd": "/fixture/user/Work/repo",
+  "prompt_id": "b1e4f60a-364a-4ace-a653-8eee8c2da52b",
+  "hook_event_name": "SessionStart",
+  "source": "compact",
+  "model": "claude-opus-5-5"
+}

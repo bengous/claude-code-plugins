@@ -1,0 +1,15 @@
+{
+  "session_id": "6d47358d-f5b0-4de1-97b4-5953baf3dbe2",
+  "transcript_path": "/fixture/user/.claude/projects/-home-user-Work-repo/6d47358d-f5b0-4de1-97b4-5953baf3dbe2.jsonl",
+  "cwd": "/fixture/user/Work/repo",
+  "prompt_id": "d0de5868-9a2a-47b4-b530-2c730dc31ef5",
+  "permission_mode": "auto",
+  "effort": {
+    "level": "xhigh"
+  },
+  "hook_event_name": "Stop",
+  "stop_hook_active": true,
+  "last_assistant_message": "done",
+  "background_tasks": [],
+  "session_crons": []
+}

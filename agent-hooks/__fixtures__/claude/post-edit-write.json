@@ -1,0 +1,26 @@
+{
+  "session_id": "68c99dc9-e0df-4cc2-90af-75aaf7b5b69c",
+  "transcript_path": "/fixture/user/.claude/projects/-home-user-Work-repo/68c99dc9-e0df-4cc2-90af-75aaf7b5b69c.jsonl",
+  "cwd": "/fixture/user/Work/repo",
+  "scratchpad_dir": "/tmp/claude-1000/-home-user-Work-repo/68c99dc9-e0df-4cc2-90af-75aaf7b5b69c/scratchpad",
+  "permission_mode": "auto",
+  "effort": {
+    "level": "xhigh"
+  },
+  "hook_event_name": "PostToolUse",
+  "tool_name": "Write",
+  "tool_input": {
+    "file_path": "/tmp/claude-1000/-home-user-Work-repo/68c99dc9-e0df-4cc2-90af-75aaf7b5b69c/scratchpad/stream1.jsonl",
+    "content": "{\"type\":\"user\",\"message\":{\"role\":\"user\",\"content\":\"Use the Write tool to create /fixture/user/Work/repo/capture/sample.md with exactly this content: `# Sample\\n\\nhello\\n`. Then use the Edit tool on that same file to replace `hello` with `hello world`. Then reply with the single word done.\"}}\n{\"type\":\"user\",\"message\":{\"role\":\"user\",\"content\":\"/compact\"}}\n{\"type\":\"user\",\"message\":{\"role\":\"user\",\"content\":\"Use the Edit tool to replace `world` with `there` in /fixture/user/Work/repo/capture/sample.md. Reply with the single word done.\"}}\n{\"type\":\"user\",\"message\":{\"role\":\"user\",\"content\":\"/clear\"}}\n{\"type\":\"user\",\"message\":{\"role\":\"user\",\"content\":\"Reply with the single word pong.\"}}\n"
+  },
+  "tool_response": {
+    "type": "create",
+    "filePath": "/tmp/claude-1000/-home-user-Work-repo/68c99dc9-e0df-4cc2-90af-75aaf7b5b69c/scratchpad/stream1.jsonl",
+    "content": "{\"type\":\"user\",\"message\":{\"role\":\"user\",\"content\":\"Use the Write tool to create /fixture/user/Work/repo/capture/sample.md with exactly this content: `# Sample\\n\\nhello\\n`. Then use the Edit tool on that same file to replace `hello` with `hello world`. Then reply with the single word done.\"}}\n{\"type\":\"user\",\"message\":{\"role\":\"user\",\"content\":\"/compact\"}}\n{\"type\":\"user\",\"message\":{\"role\":\"user\",\"content\":\"Use the Edit tool to replace `world` with `there` in /fixture/user/Work/repo/capture/sample.md. Reply with the single word done.\"}}\n{\"type\":\"user\",\"message\":{\"role\":\"user\",\"content\":\"/clear\"}}\n{\"type\":\"user\",\"message\":{\"role\":\"user\",\"content\":\"Reply with the single word pong.\"}}\n",
+    "structuredPatch": [],
+    "originalFile": null,
+    "userModified": false
+  },
+  "tool_use_id": "toolu_01Auvm5emWruX8DQBdUyNYj7",
+  "duration_ms": 17
+}

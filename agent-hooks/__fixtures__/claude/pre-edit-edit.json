@@ -1,0 +1,19 @@
+{
+  "session_id": "0de8eb61-e489-4f1f-9225-31a84778a2bc",
+  "transcript_path": "/fixture/user/.claude/projects/-home-user-Work-repo/0de8eb61-e489-4f1f-9225-31a84778a2bc.jsonl",
+  "cwd": "/fixture/user/Work/repo",
+  "prompt_id": "8606124f-a5db-4db6-aafc-50ff595e5e7e",
+  "permission_mode": "acceptEdits",
+  "effort": {
+    "level": "xhigh"
+  },
+  "hook_event_name": "PreToolUse",
+  "tool_name": "Edit",
+  "tool_input": {
+    "file_path": "/fixture/user/Work/repo/capture/sample.md",
+    "old_string": "hello",
+    "new_string": "hello world",
+    "replace_all": false
+  },
+  "tool_use_id": "toolu_01Pms5tseggViBEXvbrJQxXG"
+}

@@ -1,0 +1,23 @@
+{
+  "session_id": "2978b1bd-02a4-4906-b123-0124dd282cf8",
+  "transcript_path": "/fixture/user/.claude/projects/-home-user-Work-repo/2978b1bd-02a4-4906-b123-0124dd282cf8.jsonl",
+  "cwd": "/fixture/user/Work/repo",
+  "prompt_id": "e0f6c0d0-30e2-4eaf-b934-2bc3c2f331b8",
+  "permission_mode": "acceptEdits",
+  "effort": {
+    "level": "xhigh"
+  },
+  "hook_event_name": "Stop",
+  "stop_hook_active": false,
+  "last_assistant_message": "launched",
+  "background_tasks": [
+    {
+      "id": "a634c47d4001820bc",
+      "type": "subagent",
+      "status": "running",
+      "description": "Run bash command then reply",
+      "agent_type": "general-purpose"
+    }
+  ],
+  "session_crons": []
+}

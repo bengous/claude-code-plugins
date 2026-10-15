@@ -1,0 +1,17 @@
+{
+  "pre-edit": {
+    "fixers": {
+      "shfmt": { "on": "**/*.sh", "stdin": "shfmt -i 2 -ci" },
+    },
+  },
+  "stop": {
+    "lanes": {
+      "shellcheck": {
+        "on": "**/*.sh",
+        "takes": "files",
+        "run": "shellcheck --severity=style --enable=all --format=gcc {files}",
+        "timeout": 60,
+      },
+    },
+  },
+}

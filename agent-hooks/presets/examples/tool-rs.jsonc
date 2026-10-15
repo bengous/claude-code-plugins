@@ -1,0 +1,15 @@
+// A single Rust crate: a newer edition for rustfmt, a shorter loop, tests that inform without blocking.
+{
+  "presets": ["rust"],
+  "pre-edit": {
+    "fixers": {
+      "rustfmt": { "stdin": "rustfmt --edition 2024" },
+    },
+  },
+  "stop": {
+    "cap": 2,
+    "lanes": {
+      "cargo-test": { "verdict": "note" },
+    },
+  },
+}

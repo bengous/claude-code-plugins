@@ -1,0 +1,11 @@
+{
+  "session_id": "0de8eb61-e489-4f1f-9225-31a84778a2bc",
+  "transcript_path": "/fixture/user/.claude/projects/-home-user-Work-repo/0de8eb61-e489-4f1f-9225-31a84778a2bc.jsonl",
+  "cwd": "/fixture/user/Work/repo",
+  "hook_event_name": "SessionStart",
+  "source": "resume",
+  "seconds_since_last_response": 54,
+  "context_tokens": 5029,
+  "prompt_cache_likely_expired": true,
+  "estimated_cache_write_usd": 0.0402
+}
