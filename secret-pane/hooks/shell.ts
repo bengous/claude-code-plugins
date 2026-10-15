@@ -185,11 +185,16 @@ function lex(command: string): Lexed {
   return { kind: "words", commands };
 }
 
-/** The program a word names, its directory and a Windows `.exe` dropped. */
+/**
+ * The program a word names, as Windows and macOS find it: its directory, by
+ * either slash, and a `.exe` dropped, the case folded (`Git.EXE` runs git).
+ */
 function basename(word: string): string {
-  const name = word.slice(word.lastIndexOf("/") + 1);
+  const name = word
+    .slice(Math.max(word.lastIndexOf("/"), word.lastIndexOf("\\")) + 1)
+    .toLowerCase();
 
-  return name.toLowerCase().endsWith(".exe") ? name.slice(0, -".exe".length) : name;
+  return name.endsWith(".exe") ? name.slice(0, -".exe".length) : name;
 }
 
 /** The first word after the program that is no option, the valued options' values skipped. */

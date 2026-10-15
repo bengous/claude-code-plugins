@@ -119,6 +119,9 @@ describe("refused", () => {
     expect(refused(`printf '%s' '${TAG}' | git commit -F -`)).toContain("`git commit`");
     expect(refused(`git submodule add '${TAG}'`)).toContain("`git submodule`");
     expect(refused(`git.exe commit -m '${TAG}'`)).toContain("`git commit`");
+    expect(refused(`Git.EXE commit -m '${TAG}'`)).toContain("`git commit`");
+    expect(refused(`'C:\\Git\\bin\\git.exe' commit -m '${TAG}'`)).toContain("`git commit`");
+    expect(refused(`printf '%s' '${TAG}' | Bash.exe -c x`)).toContain("`bash`");
   });
 
   test("a git alias, which may stand for any subcommand", () => {
