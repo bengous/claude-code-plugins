@@ -183,7 +183,7 @@ async function changesRefusal($: EngineInterface, command: string): Promise<stri
     const checked = `\`${target.label}\` may commit or publish, so the changes it could carry are read for a kept value first`;
 
     if (target.kind === "unknown") {
-      return `${PLUGIN}: the command was not run: ${checked}, and the mod cannot tell where \`${target.spelling}\` leads: write that directory as a path.`;
+      return `${PLUGIN}: the command was not run: ${checked}, and the mod cannot tell where \`${target.spelling}\` leads: write that directory or file as a path.`;
     }
 
     const scan = await scanChanges(host, target, needles);
