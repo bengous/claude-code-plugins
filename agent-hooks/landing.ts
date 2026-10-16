@@ -670,14 +670,13 @@ export function latestChecks(checks: readonly Check[]): Check[] {
 }
 
 /**
- * Why `gh pr merge` on `pr` is refused in a repository with a landing profile; null when it may run. With `auto`,
- * GitHub merges once the checks pass, so a check still running, or none reported yet, waits instead of refusing.
+ * Why `gh pr merge` on `pr` is refused in a repository with a landing profile; null when it may run. `--auto` changes
+ * nothing: gh merges a pull request GitHub already deems mergeable at once, whatever its checks.
  */
 export function profiledMergeRefusal(
   pr: PullRequestFacts,
   landing: LandingProfile,
   landScript: boolean,
-  auto = false,
 ): string | null {
   const name = `#${pr.number}`;
   const checks = latestChecks(pr.checks);
@@ -691,12 +690,12 @@ export function profiledMergeRefusal(
     );
   }
 
-  if (checks.length === 0 && !auto) {
+  if (checks.length === 0) {
     return `agent-hooks: no check reported on ${name}'s head yet: wait for its run (gh pr checks ${pr.number} --watch), then merge.`;
   }
 
-  if (red.length > 0 || (running.length > 0 && !auto)) {
-    const states = [...red, ...(auto ? [] : running)].map(
+  if (red.length > 0 || running.length > 0) {
+    const states = [...red, ...running].map(
       (check) => `${check.name} ${check.state.toLowerCase()}`,
     );
 

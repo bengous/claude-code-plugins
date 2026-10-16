@@ -248,14 +248,7 @@ async function judgeGh(
   }
 
   if (profile.kind === "profiled") {
-    return refusal(
-      profiledMergeRefusal(
-        pr.value,
-        profile.landing,
-        profile.landScript,
-        command.flags.has("--auto"),
-      ),
-    );
+    return refusal(profiledMergeRefusal(pr.value, profile.landing, profile.landScript));
   }
 
   const slug = slugOfPullRequest(pr.value.url);

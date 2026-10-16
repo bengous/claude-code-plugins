@@ -559,14 +559,24 @@ describe("pre-bash refuses every door it cannot resolve, naming the explicit for
     },
   );
 
-  test("lets gh pr merge --auto wait for running checks, and refuses it into the release", async () => {
+  test("refuses gh pr merge --auto like any merge: gh merges a mergeable pull request at once", async () => {
     const running = GREEN_CHECKS.map((check) => ({ ...check, state: "IN_PROGRESS" }));
     fakeGh({ pr: GREEN_PR, checks: running });
-    expect((await preBash("gh pr merge 7 --auto --squash", repo)).stdout).toBe("");
-    expect((await preBash("gh pr merge 7 --squash", repo)).decision).toBe("deny");
+    expect((await preBash("gh pr merge 7 --auto --squash", repo)).reason).toContain(
+      "checks not green on #7: validate in_progress, ci/legacy in_progress. Wait for the running ones (gh pr checks 7 --watch)",
+    );
 
-    fakeGh({ pr: { ...GREEN_PR, baseRefName: "main" }, checks: running });
-    expect((await preBash("gh pr merge 7 --auto", repo)).decision).toBe("deny");
+    fakeGh({ pr: GREEN_PR });
+    writeFileSync(
+      path.join(temp.bin, "gh"),
+      FAKE_GH.replace(
+        '"pr checks") file="$FAKE_GH_DIR/checks.json" ;;',
+        `"pr checks") echo "no checks reported on the 'feature/x' branch" >&2; exit 1 ;;`,
+      ),
+    );
+    expect((await preBash("gh pr merge 7 --auto", repo)).reason).toContain(
+      "no check reported on #7's head yet: wait for its run (gh pr checks 7 --watch)",
+    );
   });
 });
 

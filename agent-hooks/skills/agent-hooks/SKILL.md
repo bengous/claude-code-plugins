@@ -134,7 +134,8 @@ What the model bounds and the kit does not try to cross:
   `"profile": { "landing": { "trunk": "dev", "release": "main" } }`, never read from a preset, and read
   alone: an error elsewhere in the file leaves it in force. A resolved door is then refused when it
   pushes to `release` (a deletion, `--all` and `--mirror` included), force-pushes or deletes `trunk`,
-  merges into `release`, merges with a check red, or running or none reported without `--auto`, or a
+  merges into `release`, merges with a check red, running or none reported (`--auto` included: gh merges a mergeable pull
+  request at once), or a
   pull request that is not mergeable, or runs `gh release create` or `scripts/release` (its
   `--dry-run` passes). The checks are the newest run per name, workflow and event, as `gh pr checks`
   keeps them. A push without refspec goes where `@{push}` says, the current branch when git cannot

@@ -652,24 +652,6 @@ describe("profiledMergeRefusal", () => {
     );
   });
 
-  test("with --auto, lets running checks and no check yet wait for green", () => {
-    const running = [check("validate", "IN_PROGRESS", "1")];
-
-    expect(profiledMergeRefusal(pr({ checks: running }), LANDING, true, true)).toBeNull();
-    expect(profiledMergeRefusal(pr({ checks: [] }), LANDING, true, true)).toBeNull();
-    expect(
-      profiledMergeRefusal(
-        pr({ checks: [check("validate", "FAILURE", "1")] }),
-        LANDING,
-        true,
-        true,
-      ),
-    ).toContain("checks not green on #7: validate failure");
-    expect(profiledMergeRefusal(pr({ baseRefName: "main" }), LANDING, true, true)).toContain(
-      "#7 merges into 'main', the release",
-    );
-  });
-
   test("refuses a pull request that is not mergeable", () => {
     expect(profiledMergeRefusal(pr({ mergeable: "CONFLICTING" }), LANDING, true)).toContain(
       "#7 is not mergeable (conflicting)",
