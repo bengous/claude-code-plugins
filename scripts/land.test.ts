@@ -23,6 +23,8 @@ let other = "";
 
 let prFile = "";
 
+let checksFile = "";
+
 const saved = new Map<string, string | undefined>();
 
 function git(cwd: string, ...args: string[]): string {
@@ -58,7 +60,13 @@ function commit(cwd: string, file: string, message: string): string {
 }
 
 function green(name = "validate (scoped)"): Check {
-  return { name, startedAt: "2026-10-15T10:00:00Z", state: "SUCCESS" };
+  return {
+    name,
+    startedAt: "2026-10-15T10:00:00Z",
+    state: "SUCCESS",
+    workflow: "CI",
+    event: "pull_request",
+  };
 }
 
 function pullRequest(overrides: Partial<PullRequest> = {}): PullRequest {
@@ -72,8 +80,14 @@ function pullRequest(overrides: Partial<PullRequest> = {}): PullRequest {
   };
 }
 
+/** What gh prints: the pull request to `gh pr view`, its checks to `gh pr checks`, an error when it has none. */
 function serve(pr: PullRequest) {
-  writeFileSync(prFile, JSON.stringify(pr));
+  const { checks, ...view } = pr;
+
+  writeFileSync(prFile, JSON.stringify(view));
+  rmSync(checksFile, { force: true });
+
+  if (checks.length > 0) writeFileSync(checksFile, JSON.stringify(checks));
 }
 
 function moveDev(): string {
@@ -109,8 +123,19 @@ beforeEach(() => {
   const bin = join(root, "bin");
 
   prFile = join(root, "pr.json");
+  checksFile = join(root, "checks.json");
   mkdirSync(bin);
-  writeFileSync(join(bin, "gh"), `#!/bin/sh\ncat "${prFile}"\n`);
+  writeFileSync(
+    join(bin, "gh"),
+    [
+      "#!/bin/sh",
+      'if [ "$2" != checks ]; then cat "' + prFile + '"; exit; fi',
+      'if [ -f "' + checksFile + '" ]; then cat "' + checksFile + '"; exit; fi',
+      "echo \"no checks reported on the 'feature/x' branch\" >&2",
+      "exit 1",
+      "",
+    ].join("\n"),
+  );
   chmodSync(join(bin, "gh"), 0o755);
   setEnv("PATH", `${bin}:${process.env["PATH"] ?? ""}`);
 });
@@ -160,6 +185,16 @@ describe("land", () => {
     ["a red check", { checks: [{ ...green(), state: "FAILURE" }] }, "not green"],
     ["a check still running", { checks: [{ ...green(), state: "IN_PROGRESS" }] }, "still running"],
     ["no check yet", { checks: [] }, "no check reported"],
+    [
+      "a failed pull_request run beside a newer skipped push run of the same job",
+      {
+        checks: [
+          { ...green(), state: "FAILURE" },
+          { ...green(), state: "SKIPPED", event: "push", startedAt: "2026-10-15T11:00:00Z" },
+        ],
+      },
+      "validate (scoped) failure",
+    ],
     ["a base other than dev", { baseRefName: "feature/base" }, "gh stack"],
     ["a closed pull request", { state: "MERGED" }, "not open"],
     ["a head the pull request does not have", { headRefOid: "0".repeat(40) }, "push it"],
@@ -252,10 +287,33 @@ describe("checkoutOf", () => {
 
 describe("latestChecks", () => {
   test("keeps the newest attempt of each check", () => {
-    const failed = { name: "e2e", startedAt: "2026-10-15T10:00:00Z", state: "FAILURE" };
-    const rerun = { name: "e2e", startedAt: "2026-10-15T11:00:00Z", state: "SUCCESS" };
+    const failed = { ...green("e2e"), state: "FAILURE" };
+    const rerun = { ...green("e2e"), startedAt: "2026-10-15T11:00:00Z" };
 
     expect(latestChecks([rerun, failed, green()])).toEqual([rerun, green()]);
+  });
+
+  test("keeps a run of each workflow and event, as gh pr checks does", () => {
+    const failed = { ...green("e2e"), state: "FAILURE" };
+
+    const skippedPush = {
+      ...failed,
+      state: "SKIPPED",
+      event: "push",
+      startedAt: "2026-10-15T11:00:00Z",
+    };
+
+    const otherWorkflow = {
+      ...green("e2e"),
+      workflow: "Nightly",
+      startedAt: "2026-10-15T12:00:00Z",
+    };
+
+    expect(latestChecks([failed, skippedPush, otherWorkflow])).toEqual([
+      failed,
+      skippedPush,
+      otherWorkflow,
+    ]);
   });
 });
 

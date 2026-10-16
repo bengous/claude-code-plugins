@@ -34,13 +34,15 @@ const PENDING = new Set(["QUEUED", "IN_PROGRESS", "PENDING", "WAITING", "REQUEST
 
 const MOVED = /\[rejected\][^\n]*\((?:fetch first|non-fast-forward)\)/u;
 
-/** Each check as its name, its start, and its conclusion or, while it runs, its status. */
-const PULL_REQUEST_JQ = `{number, state, baseRefName, headRefOid, checks: [(.statusCheckRollup // [])[] | {name: (.name // .context), startedAt: (.startedAt // .createdAt // ""), state: (if .__typename == "CheckRun" then (if .status == "COMPLETED" then .conclusion else .status end) else .state end)}]}`;
+const NO_CHECKS = /^no (?:required )?checks reported/u;
 
+/** One check as `gh pr checks --json` prints it: a commit status has no workflow and no event. */
 export interface Check {
   readonly name: string;
   readonly startedAt: string;
   readonly state: string;
+  readonly workflow: string;
+  readonly event: string;
 }
 
 export interface PullRequest {
@@ -97,14 +99,18 @@ export function checkoutOf(porcelain: string, branch: string): string | null {
   return null;
 }
 
-/** The newest check of each name: a re-run supersedes the attempt before it, as in `gh pr checks`. */
+/**
+ * The newest run of each check: a re-run supersedes the attempt before it, while a run of the same name from another
+ * workflow or another event stays, as `eliminateDuplicates` keys them in gh's `pkg/cmd/pr/checks/aggregate.go`.
+ */
 export function latestChecks(checks: readonly Check[]): readonly Check[] {
   const newest = new Map<string, Check>();
 
   for (const check of checks) {
-    const kept = newest.get(check.name);
+    const key = `${check.name}/${check.workflow}/${check.event}`;
+    const kept = newest.get(key);
 
-    if (kept === undefined || check.startedAt > kept.startedAt) newest.set(check.name, check);
+    if (kept === undefined || check.startedAt > kept.startedAt) newest.set(key, check);
   }
 
   return [...newest.values()];
@@ -161,30 +167,36 @@ type PullRequestRead =
   | { readonly kind: "read"; readonly pr: PullRequest }
   | { readonly kind: "unreadable"; readonly why: string };
 
+/**
+ * The pull request from `gh pr view`, its checks from `gh pr checks`: only that read carries each run's event, and
+ * its "no checks reported" means none yet.
+ */
 function readPullRequest(branch: string, checkout: string): PullRequestRead {
   const view = run(
-    [
-      "gh",
-      "pr",
-      "view",
-      branch,
-      "--json",
-      "number,state,baseRefName,headRefOid,statusCheckRollup",
-      "--jq",
-      PULL_REQUEST_JQ,
-    ],
+    ["gh", "pr", "view", branch, "--json", "number,state,baseRefName,headRefOid"],
     checkout,
   );
 
   if (!view.ok)
     return { kind: "unreadable", why: `no pull request read for ${branch}: ${view.err}` };
 
-  try {
-    // SAFETY: the jq above prints exactly the fields of PullRequest, null where GitHub left one out,
-    // and a pull request with a field missing can only fail to read as open, against dev and green.
-    const pr: PullRequest = JSON.parse(view.out);
+  const listed = run(
+    ["gh", "pr", "checks", branch, "--json", "name,state,workflow,event,startedAt"],
+    checkout,
+  );
 
-    return { kind: "read", pr };
+  if (!listed.ok && !NO_CHECKS.test(listed.err)) {
+    return { kind: "unreadable", why: `no checks read for ${branch}: ${listed.err}` };
+  }
+
+  try {
+    // SAFETY: gh prints exactly the fields asked for, and a pull request with a field missing can only fail to read
+    // as open, against dev and green.
+    const pr: Omit<PullRequest, "checks"> = JSON.parse(view.out);
+    // SAFETY: gh pr checks prints one object per check with the fields asked for.
+    const checks: readonly Check[] = listed.ok ? JSON.parse(listed.out) : [];
+
+    return { kind: "read", pr: { ...pr, checks } };
   } catch {
     return { kind: "unreadable", why: `gh printed no pull request for ${branch}: ${view.out}` };
   }
