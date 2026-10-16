@@ -29,14 +29,14 @@ describe("placeholder", () => {
   test("a placeholder in prose is a finding on its line", () => {
     expect(checks("# Plan\n\n- Storage: TBD after the spike")).toEqual(["placeholder@3"]);
     expect(checks("# Plan\n\nThe target is to be determined.")).toEqual(["placeholder@3"]);
-    expect(checks("# Plan\n\nPick one ??? later.")).toEqual(["placeholder@3"]);
+    expect(checks("# Plan\n\nPick one: ???")).toEqual(["placeholder@3"]);
     expect(checks("# Plan\n\nEither one, decide at implementation.")).toEqual(["placeholder@3"]);
   });
 
   test("French placeholders match after a space, where an ASCII \\b would not", () => {
     expect(checks("# Plan\n\nLe format à décider.")).toEqual(["placeholder@3"]);
     expect(checks("# Plan\n\nLe nom reste à définir.")).toEqual(["placeholder@3"]);
-    expect(checks("# Plan\n\nOn verra : décider plus tard.")).toEqual(["placeholder@3"]);
+    expect(checks("# Plan\n\nOn verra : décider à l'implémentation.")).toEqual(["placeholder@3"]);
   });
 
   test("a fence nested in a list item is code too, its lines no heading", () => {
@@ -82,6 +82,15 @@ describe("placeholder", () => {
     expect(checks("# Plan\n\nWhere the logs go: to be decided separately.")).toEqual([]);
     expect(checks("# Plan\n\n> À décider hors de ce plan : le dossier d'archive.")).toEqual([]);
     expect(checks("Les « restes à trancher » du grill, tranchés ici :")).toEqual([]);
+  });
+
+  test("a choice deferred to a later phase or milestone is no placeholder; a bare one is", () => {
+    expect(checks("- Accessibilité clavier : à trancher plus tard (jalon M4).")).toEqual([]);
+    expect(checks("- Distribution du lecteur (à trancher en phase 2).")).toEqual([]);
+    expect(checks("- Cache: to be decided in the next phase, once the API is measured.")).toEqual(
+      [],
+    );
+    expect(checks("- Distribution du lecteur : à trancher.")).toEqual(["placeholder@1"]);
   });
 
   test("a heading names a section, it holds no placeholder", () => {

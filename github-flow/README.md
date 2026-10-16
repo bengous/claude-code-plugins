@@ -114,7 +114,7 @@ Only the lint blocks, and it is one hook with the capture, so the plan it denies
 
 | Check | Finding |
 |---|---|
-| `placeholder` | A line of prose leaves a choice open: `TBD`, `TBC`, `???`, "to be decided", "decide at implementation", "à décider", "à trancher", "reste à définir". A line that hands the choice out of the plan ("out of scope", "separately", "hors de ce plan") or says it is settled is not one. |
+| `placeholder` | A line of prose leaves a choice open: `TBD`, `TBC`, `???`, "to be decided", "decide at implementation", "à décider", "à trancher", "reste à définir". A line that hands the choice out of the plan ("out of scope", "separately", "hors de ce plan"), defers it to a later phase or milestone ("plus tard", "en phase 2", "jalon M4"), or says it is settled is not one: a phased plan details only its current phase. |
 | `open-question` | An item under an "Open questions" heading names no option taken: no "I would", "default", "recommended", "je prendrais"... A section written in paragraphs counts as one question, and "None." as none. |
 
 Code spans, fences and HTML comments are not read. `bun scripts/plan-lint.ts <plan.md>...` prints the same findings as `<file>:<line>: <check>: <message>` and exits 1 when there is one, 2 on a file it cannot read, so a plan written outside plan mode, a `vellum` plan included, is checked the same way.

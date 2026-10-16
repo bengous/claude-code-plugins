@@ -35,13 +35,21 @@ const PLACEHOLDERS: readonly RegExp[] = [
   /\?{3,}/u,
   /\bto be (?:decided|determined|defined)\b/iu,
   /(?<!\p{L})(?:(?:reste|restent) )?à (?:décider|définir|trancher|déterminer|préciser)\b/iu,
-  /\bdecided? (?:later|at implementation|during implementation|when implementing)\b/iu,
-  /\bdécider? (?:plus tard|à l'implémentation|pendant l'implémentation)\b/iu,
+  /\bdecided? (?:at implementation|during implementation|when implementing)\b/iu,
+  /\bdécider? (?:à l'implémentation|pendant l'implémentation)\b/iu,
 ];
 
 /** A choice the plan hands to another piece of work is no hole in this one. */
 const OUT_OF_PLAN =
   /out of (?:scope|this plan)|separately|hors (?:de ce plan|périmètre|scope)|séparément/iu;
+
+/** A choice deferred to a later phase or milestone: a phased plan details only its current phase. */
+const LATER: readonly RegExp[] = [
+  /(?<!\p{L})(?:plus tard|later)(?!\p{L})/iu,
+  /(?<!\p{L})(?:en|in|at|during|pendant|au|à la|for|pour la|pour le) (?:phase|tranche|slice|stage|étape|jalon|milestone|lot) [\w.-]+/iu,
+  /(?<!\p{L})(?:jalon|milestone) [A-Z]?\d+(?!\p{L})/iu,
+  /(?<!\p{L})(?:(?:next|following) (?:phase|slice|stage|milestone|step)|(?:prochaine?|suivante?) (?:phase|tranche|étape|jalon)|(?:phase|tranche|étape|jalon) (?:suivante?|ultérieure?))(?!\p{L})/iu,
+];
 
 const OPEN_QUESTIONS =
   /^(?:\d+[.)]?\s*)?(?:open questions?|questions? (?:ouvertes?|restantes?|en suspens)|unresolved questions?|questions? still open|points? (?:ouverts?|à trancher|en suspens)|à trancher)\b/iu;
@@ -134,7 +142,13 @@ function scan(text: string): ProseLine[] {
 
 function placeholders(lines: readonly ProseLine[]): Finding[] {
   return lines.flatMap(({ line, prose, heading }) => {
-    if (heading !== null || OUT_OF_PLAN.test(prose) || SETTLED_HERE.test(prose)) return [];
+    const skipped =
+      heading !== null ||
+      OUT_OF_PLAN.test(prose) ||
+      SETTLED_HERE.test(prose) ||
+      LATER.some((pattern) => pattern.test(prose));
+
+    if (skipped) return [];
 
     const found = PLACEHOLDERS.map((pattern) => pattern.exec(prose)?.[0]).find(
       (match) => match !== undefined,
