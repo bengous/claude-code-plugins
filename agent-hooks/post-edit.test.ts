@@ -67,6 +67,7 @@ function contextOf(repo: string, payload: Record<string, unknown>): HookContext 
     root: repo,
     config: loadConfig(repo),
     state: freshState("s1", repo),
+    roots: new Map([[repo, null]]),
     deadline: deadlineIn(20_000),
     runner: run,
   };

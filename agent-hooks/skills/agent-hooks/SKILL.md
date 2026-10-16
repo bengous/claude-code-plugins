@@ -54,7 +54,8 @@ Exit 1 means at least one `MISSING` or a failing lane.
 
 - The Stop checks every root the session photographed, its SessionStart's and each one its first Edit
   or Write there photographed, and the root around its cwd, each with its own config; a report from
-  several roots names each. A root without a photo is checked over its whole dirty tree.
+  several roots names each. A root without a photo is checked over its whole dirty tree. A file belongs
+  to its nearest root: an outer root leaves a nested root of the same Stop the files that root checks.
 - The Stop blocks only while the agent makes progress on the failing set (at most `stop.cap` times in
   a row, default 3); otherwise it lets the turn end with a `systemMessage` that starts with
   `agent-hooks:`. Nothing to fix in the kit when that message shows: the agent stopped progressing.

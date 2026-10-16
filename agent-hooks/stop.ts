@@ -17,9 +17,11 @@ import {
   sequential,
 } from "./lanes.ts";
 import { clearFailures, guard, resetTurn } from "./loop-guard.ts";
+import type { DirtyTree } from "./scope.ts";
 import {
   dirtyDigest,
   dirtyTree,
+  findRoot,
   headSha,
   onDisk,
   rehashed,
@@ -76,7 +78,11 @@ export async function runStop(context: HookContext): Promise<Verdict> {
     );
   }
 
-  const scope = state.photo === null ? wholeDirtyTree(tree) : sessionFiles(tree, state.photo);
+  const scope = ownedFiles(
+    context,
+    tree,
+    state.photo === null ? wholeDirtyTree(tree) : sessionFiles(tree, state.photo),
+  );
 
   if (scope.length === 0) {
     clearFailures(state);
@@ -130,6 +136,36 @@ export async function runStop(context: HookContext): Promise<Verdict> {
   }
 
   return withNotes(verdict, notes);
+}
+
+/**
+ * The scope files this root owns. A file under a nested root of the same Stop belongs to that one, the nearest root,
+ * when its own scope holds the file: it has no photo, so it checks its whole dirty tree, or its photo holds another
+ * content. Otherwise this root keeps the file, so no file goes unchecked.
+ */
+function ownedFiles(context: HookContext, tree: DirtyTree, scope: readonly string[]): string[] {
+  const { root, roots } = context;
+
+  if (roots.size < 2) {
+    return [...scope];
+  }
+
+  const owners = new Map<string, string | null>();
+
+  return scope.filter((relativePath) => {
+    const absolute = path.join(root, relativePath);
+    const dir = path.dirname(absolute);
+    const owner = owners.has(dir) ? (owners.get(dir) ?? null) : findRoot(dir);
+    owners.set(dir, owner);
+
+    if (owner === null || owner === root || !roots.has(owner)) {
+      return true;
+    }
+
+    const photo = roots.get(owner) ?? null;
+
+    return photo !== null && photo.files[path.relative(owner, absolute)] === tree.get(relativePath);
+  });
 }
 
 async function fixScope(

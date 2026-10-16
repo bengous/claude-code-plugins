@@ -11,7 +11,7 @@ import { OUTPUT_GRACE_MS, deadlineIn, run } from "./exec.ts";
 import { booleanField, isRecord, recordField, stringField } from "./json.ts";
 import { CRASH_LANE, guard } from "./loop-guard.ts";
 import { findRoot } from "./scope.ts";
-import type { SessionState } from "./state.ts";
+import type { Photo, SessionState } from "./state.ts";
 import { freshState, loadState, saveState, statesOf } from "./state.ts";
 
 export const HARNESSES = ["claude", "codex"] as const;
@@ -69,6 +69,8 @@ export type HookContext = {
   readonly root: string;
   readonly config: Config;
   readonly state: SessionState;
+  /** Every root this hook runs for, with its photo: a Stop's, so a root leaves to a nested one the files it checks. */
+  readonly roots: ReadonlyMap<string, Photo | null>;
   readonly deadline: Deadline;
   readonly runner: Runner;
 };
@@ -189,7 +191,11 @@ export async function runHook(options: RunHookOptions): Promise<string | null> {
     return null;
   }
 
-  const verdicts = await Promise.all(states.map((state) => runAt(options, input, state, now)));
+  const roots = new Map(states.map((state) => [state.root, state.photo]));
+
+  const verdicts = await Promise.all(
+    states.map((state) => runAt(options, input, state, roots, now)),
+  );
 
   return encode(merged(verdicts), harness, hook);
 }
@@ -246,10 +252,11 @@ async function runAt(
   options: RunHookOptions,
   input: Input,
   state: SessionState,
+  roots: ReadonlyMap<string, Photo | null>,
   now: number,
 ): Promise<RootVerdict> {
   const hadPhoto = state.photo !== null;
-  const verdict = await verdictOf(options, input, state.root, state, now);
+  const verdict = await verdictOf(options, input, state, roots, now);
 
   // An edit hook changes the state only when pre-edit photographs a root that had no photo: that alone decides its
   // save. A Stop or a session start always saves, which refreshes the state's age.
@@ -309,10 +316,11 @@ function persist(state: SessionState, now: number): void {
 async function verdictOf(
   options: RunHookOptions,
   input: Input,
-  root: string,
   state: SessionState,
+  roots: ReadonlyMap<string, Photo | null>,
   now: number,
 ): Promise<Verdict> {
+  const { root } = state;
   const { hook, handler } = options;
   const deadlineMs = options.deadlineMs ?? DEADLINES_MS[hook];
   // The fixers and lanes stop SETTLE_MS before the hook's own deadline, so a killed lane reports its timeout and the
@@ -341,6 +349,7 @@ async function verdictOf(
     root,
     config,
     state,
+    roots,
     deadline,
     runner: options.runner ?? run,
   };

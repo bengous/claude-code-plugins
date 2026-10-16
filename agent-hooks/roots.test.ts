@@ -99,7 +99,7 @@ describe("the roots a Stop checks", () => {
     writeRepoFile(path.dirname(file), path.basename(file), content);
   }
 
-  test("a nested root the session edited is checked with its own lanes", async () => {
+  function nestedRepo(): TempRepo {
     const outer = repo({
       [CONFIG_RELATIVE_PATH]: laneConfig("outercheck"),
       [`packages/x/${CONFIG_RELATIVE_PATH}`]: laneConfig("innercheck"),
@@ -107,12 +107,32 @@ describe("the roots a Stop checks", () => {
 
     fakeTool(outer.repo, "outercheck", checker("OUTERBAD"));
     fakeTool(path.join(outer.repo, "packages/x"), "innercheck", checker("INNERBAD"));
+
+    return outer;
+  }
+
+  test("a nested root the session edited is checked with its own lanes, and the outer lanes leave its files alone", async () => {
+    const outer = nestedRepo();
     await hook("session-start", runSessionStart, { cwd: outer.repo });
 
-    await write(outer.repo, path.join(outer.repo, "packages/x/src/a.ts"), "INNERBAD\n");
+    // Content both lanes would refuse: only the owner's may run on it.
+    await write(outer.repo, path.join(outer.repo, "packages/x/src/a.ts"), "INNERBAD OUTERBAD\n");
+
+    const reason = reasonOf(await hook("stop", runStop, { cwd: outer.repo, prompt_id: "p1" }));
+
+    expect(reason).toContain("### innercheck");
+    expect(reason).not.toContain("### outercheck");
+  });
+
+  test("a file of a nested root no lane of its own checks stays with the outer root", async () => {
+    const outer = nestedRepo();
+    await hook("session-start", runSessionStart, { cwd: outer.repo });
+
+    // Bash takes no photo: the nested root is no root of this Stop, so the outer lanes keep its file.
+    writeRepoFile(outer.repo, "packages/x/src/b.ts", "OUTERBAD\n");
 
     expect(reasonOf(await hook("stop", runStop, { cwd: outer.repo, prompt_id: "p1" }))).toContain(
-      "### innercheck",
+      "### outercheck",
     );
   });
 
