@@ -8,8 +8,8 @@
  *   bun ./scripts/mutation.ts run             Stryker on the changed lines; a survivor exits 1
  *   bun ./scripts/mutation.ts github-output   `mutate=true` when a listed module has a changed line
  *
- * The change is the working tree against its merge-base with the base: `--base <ref>`, else a pull
- * request's base in GitHub Actions, else `origin/dev`. Stryker is imported only once a changed line
+ * The change is the working tree against its merge-base with the base `affected.ts` resolves, and
+ * `origin/dev` on an Actions run that resolves none. Stryker is imported only once a changed line
  * asks for it, so CI installs it only then.
  */
 
@@ -20,7 +20,7 @@ import type { Stryker } from "@stryker-mutator/core";
 import { $ } from "bun";
 
 import config from "../stryker.config.ts";
-import { type Env, pullRequestBase } from "./affected.ts";
+import { baseOf, DEFAULT_BASE, type Env, mergeBaseWith } from "./affected.ts";
 
 export interface LineRange {
   readonly file: string;
@@ -34,8 +34,6 @@ export type Mutant = Pick<
   MutantResult,
   "fileName" | "location" | "mutatorName" | "replacement" | "status"
 >;
-
-const DEFAULT_BASE = "origin/dev";
 
 const COMMANDS = ["run", "github-output"] as const;
 
@@ -116,22 +114,14 @@ export async function changedLines(
   base?: string,
   env: Env = process.env,
 ): Promise<LineRange[]> {
-  const ref =
-    base ??
-    (env.GITHUB_EVENT_NAME === "pull_request"
-      ? await pullRequestBase(env.GITHUB_EVENT_PATH)
-      : DEFAULT_BASE);
+  const resolved = baseOf(base, env);
+  const ref = resolved.kind === "ref" ? resolved.ref : DEFAULT_BASE;
+  const mergeBase = await mergeBaseWith(repoRoot, ref);
 
-  const found = await $`git merge-base HEAD ${ref}`.cwd(repoRoot).nothrow().quiet();
-
-  if (found.exitCode !== 0) {
-    throw new Error(`no merge-base with ${ref}: ${found.stderr.toString().trim()}`);
-  }
-
-  const mergeBase = found.stdout.toString().trim();
+  if (mergeBase.kind === "none") throw new Error(mergeBase.reason);
 
   const diff =
-    await $`git diff -U0 --no-color --no-ext-diff --no-renames --src-prefix=a/ --dst-prefix=b/ ${mergeBase} -- ${modules}`
+    await $`git diff -U0 --no-color --no-ext-diff --no-renames --src-prefix=a/ --dst-prefix=b/ ${mergeBase.sha} -- ${modules}`
       .cwd(repoRoot)
       .quiet()
       .text();

@@ -153,13 +153,18 @@ describe("currentScope", () => {
     expect(scope.kind === "all" && scope.reason).toStartWith("no merge-base with origin/nowhere");
   });
 
-  test("a pull request run takes its base from the event's payload", async () => {
-    const base = git("rev-parse", "dev");
+  test("a pull request run measures from its merge commit's first parent, not the event's base", async () => {
+    const stale = git("rev-parse", "dev");
     write("todos/scan.ts", "committed\n");
     commit("Change todos");
-    // Under .git/, where neither the diff nor the untracked listing looks.
+    git("switch", "-q", "dev");
+    write("vellum/serve.ts", "landed on dev since\n");
+    commit("Land on dev");
+    // The checkout of a pull request's run: the merge of its head into the base's tip.
+    git("switch", "-q", "--detach", "dev");
+    git("merge", "-q", "--no-ff", "-m", "Merge feature", "feature");
     const event = join(root, ".git", "event.json");
-    writeFileSync(event, JSON.stringify({ pull_request: { base: { sha: base } } }));
+    writeFileSync(event, JSON.stringify({ pull_request: { base: { sha: stale } } }));
 
     const env = {
       GITHUB_ACTIONS: "true",

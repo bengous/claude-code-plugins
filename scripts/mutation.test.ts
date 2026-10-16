@@ -268,14 +268,28 @@ describe("changedLines", () => {
     expect(await changedLines(root, ["a/listed.ts"], "dev", NO_ACTIONS)).toEqual([]);
   });
 
-  test("a pull request run takes its base from the event's payload", async () => {
-    const base = git("rev-parse", "dev");
-    write("a/listed.ts", "ONE\ntwo\nthree\n");
-    commit("Change a line");
-    // Under .git/, where the diff does not look.
+  test("a pull request run measures from its merge commit's first parent, not the event's base", async () => {
+    write("a/listed.ts", "one\ntwo\nthree\nfour\nfive\n");
+    commit("Five lines");
+    const stale = git("rev-parse", "HEAD");
+    git("switch", "-q", "-C", "dev");
+    git("switch", "-q", "-c", "pr");
+    write("a/listed.ts", "ONE\ntwo\nthree\nfour\nfive\n");
+    commit("The pull request's line");
+    git("switch", "-q", "dev");
+    write("a/listed.ts", "one\ntwo\nthree\nfour\nFIVE\n");
+    commit("A line landed on dev since");
+    // The checkout of a pull request's run: the merge of its head into the base's tip.
+    git("switch", "-q", "--detach", "dev");
+    git("merge", "-q", "--no-ff", "-m", "Merge pr", "pr");
     const event = join(root, ".git", "event.json");
-    writeFileSync(event, JSON.stringify({ pull_request: { base: { sha: base } } }));
-    const env = { GITHUB_EVENT_NAME: "pull_request", GITHUB_EVENT_PATH: event };
+    writeFileSync(event, JSON.stringify({ pull_request: { base: { sha: stale } } }));
+
+    const env = {
+      GITHUB_ACTIONS: "true",
+      GITHUB_EVENT_NAME: "pull_request",
+      GITHUB_EVENT_PATH: event,
+    };
 
     expect(await changedLines(root, ["a/listed.ts"], undefined, env)).toEqual([
       { file: "a/listed.ts", start: 1, end: 1 },

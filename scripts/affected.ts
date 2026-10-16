@@ -11,8 +11,9 @@
  *   bun ./scripts/affected.ts github-output   `all`, `units` and `kits`, appended to `$GITHUB_OUTPUT`
  *   bun ./scripts/affected.ts print           the scope, as JSON
  *
- * The base is `--base <ref>`, else a pull request's base in GitHub Actions,
- * else `origin/dev`. Any other Actions event runs everything.
+ * The base is `--base <ref>`, else, in a pull request's run, the first parent
+ * of the merge commit it checks out, else `origin/dev`. Any other Actions
+ * event runs everything.
  */
 
 import { appendFile } from "node:fs/promises";
@@ -37,13 +38,23 @@ export type Scope =
 
 export type Env = Readonly<Record<string, string | undefined>>;
 
-type Base =
+export type Base =
   | { readonly kind: "ref"; readonly ref: string }
   | { readonly kind: "all"; readonly reason: string };
 
+export type MergeBase =
+  | { readonly kind: "found"; readonly sha: string }
+  | { readonly kind: "none"; readonly reason: string };
+
 const HOOKS_UNIT: Unit = ".claude/hooks";
 
-const DEFAULT_BASE = "origin/dev";
+export const DEFAULT_BASE = "origin/dev";
+
+/**
+ * A pull request's run checks out the merge of its head into the base's tip, its first parent. The
+ * event's `pull_request.base.sha` can be older, and would count the commits landed since as its own.
+ */
+const PULL_REQUEST_BASE = "HEAD^1";
 
 const GATES_ONLY = ["docs/", ".claude-plugin/", ".claude/rules/"];
 
@@ -83,26 +94,10 @@ export function scopeOf(paths: readonly string[]): Scope {
   return { kind: "units", units: [...units].toSorted() };
 }
 
-interface PullRequestEvent {
-  pull_request?: { base?: { sha?: string } };
-}
-
-export async function pullRequestBase(eventPath: string | undefined): Promise<string> {
-  if (eventPath === undefined) throw new Error("GITHUB_EVENT_PATH is unset on a pull_request run");
-  const event: PullRequestEvent = await Bun.file(eventPath).json();
-  const sha = event.pull_request?.base?.sha;
-
-  if (sha === undefined) throw new Error(`${eventPath} names no pull_request.base.sha`);
-
-  return sha;
-}
-
-async function baseOf(explicit: string | undefined, env: Env): Promise<Base> {
+export function baseOf(explicit: string | undefined, env: Env): Base {
   if (explicit !== undefined) return { kind: "ref", ref: explicit };
 
-  if (env.GITHUB_EVENT_NAME === "pull_request") {
-    return { kind: "ref", ref: await pullRequestBase(env.GITHUB_EVENT_PATH) };
-  }
+  if (env.GITHUB_EVENT_NAME === "pull_request") return { kind: "ref", ref: PULL_REQUEST_BASE };
 
   if (env.GITHUB_ACTIONS === "true") {
     return {
@@ -114,6 +109,16 @@ async function baseOf(explicit: string | undefined, env: Env): Promise<Base> {
   return { kind: "ref", ref: DEFAULT_BASE };
 }
 
+/** HEAD's merge-base with `ref`, the commit a change is measured from. */
+export async function mergeBaseWith(repoRoot: string, ref: string): Promise<MergeBase> {
+  const found = await $`git merge-base HEAD ${ref}`.cwd(repoRoot).nothrow().quiet();
+
+  if (found.exitCode === 0) return { kind: "found", sha: found.stdout.toString().trim() };
+  const why = found.stderr.toString().trim();
+
+  return { kind: "none", reason: `no merge-base with ${ref}${why === "" ? "" : `: ${why}`}` };
+}
+
 function nulSeparated(text: string): string[] {
   return text.split("\0").filter((path) => path !== "");
 }
@@ -123,21 +128,13 @@ export async function currentScope(
   base?: string,
   env: Env = process.env,
 ): Promise<Scope> {
-  const resolved = await baseOf(base, env);
+  const resolved = baseOf(base, env);
 
   if (resolved.kind === "all") return resolved;
-  const mergeBase = await $`git merge-base HEAD ${resolved.ref}`.cwd(repoRoot).nothrow().quiet();
+  const mergeBase = await mergeBaseWith(repoRoot, resolved.ref);
 
-  if (mergeBase.exitCode !== 0) {
-    const why = mergeBase.stderr.toString().trim();
-
-    return {
-      kind: "all",
-      reason: `no merge-base with ${resolved.ref}${why === "" ? "" : `: ${why}`}`,
-    };
-  }
-
-  const since = mergeBase.stdout.toString().trim();
+  if (mergeBase.kind === "none") return { kind: "all", reason: mergeBase.reason };
+  const since = mergeBase.sha;
 
   const changed = await $`git diff --name-only --no-renames -z ${since}`
     .cwd(repoRoot)
