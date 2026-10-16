@@ -1,7 +1,7 @@
 /* oxlint-disable anti-slop/no-unsafe-dictionary-type -- this harness builds hook payloads and reads hook outputs as JSON: a closed type would assert the schema instead of the behaviour, and a wrong shape has to fail an assertion rather than the compiler. */
 import type { Mock } from "bun:test";
 import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
-import { symlinkSync } from "node:fs";
+import { existsSync, symlinkSync } from "node:fs";
 import path from "node:path";
 
 import { CONFIG_RELATIVE_PATH } from "./config.ts";
@@ -10,6 +10,7 @@ import { runHook } from "./hook.ts";
 import { isRecord, stringField } from "./json.ts";
 import { runPostEdit, runPreEdit } from "./pre-edit.ts";
 import { runSessionStart } from "./session-start.ts";
+import { statePath } from "./state.ts";
 import { runStop } from "./stop.ts";
 import type { TempRepo } from "./test-support.ts";
 import {
@@ -342,5 +343,27 @@ describe("the roots a Stop checks", () => {
 
     expect(reason).toContain("src/old.ts:1:1: BAD");
     expect(reason).not.toContain(`${other.repo}:`);
+  });
+
+  test("with no root around the cwd, SessionStart photographs nothing and a nested root waits for its first edit", async () => {
+    const top = repo({ [`packages/x/${CONFIG_RELATIVE_PATH}`]: laneConfig("innercheck") });
+    fakeTool(path.join(top.repo, "packages/x"), "innercheck", checker("INNERBAD"));
+
+    expect(await hook(SESSION_START, { cwd: top.repo })).toBeNull();
+    expect(existsSync(statePath("s1", top.repo))).toBeFalse();
+
+    // Bash alone under the nested root, with no root around the cwd: the kit's ceiling, unchecked.
+    writeRepoFile(top.repo, "packages/x/src/a.ts", "INNERBAD\n");
+
+    expect(await hook(STOP, { cwd: top.repo, prompt_id: "p1" })).toBeNull();
+
+    // The first Edit under the nested root photographs the checkout: what changes from there is checked.
+    await write(top.repo, path.join(top.repo, "packages/x/src/b.ts"), "fine\n");
+    writeRepoFile(top.repo, "packages/x/src/b.ts", "INNERBAD\n");
+
+    const reason = reasonOf(await hook(STOP, { cwd: top.repo, prompt_id: "p1" }));
+
+    expect(reason).toContain("src/b.ts:1:1: INNERBAD");
+    expect(reason).not.toContain("src/a.ts");
   });
 });

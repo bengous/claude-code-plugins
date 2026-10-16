@@ -47,6 +47,8 @@ script, or disable the lane. For the wiring:
   gates the main session only; enable the plugin, which wires both, and remove those hooks.
 - `WARN codex wiring`: the Codex config calls no `agent-hooks stop --harness codex`; only a user who
   runs Codex needs it.
+- `MISSING checkout: ... is outside git`: the root lies in no git work tree, so the kit photographs
+  nothing and the Stop checks nothing there, silently; the doctor is the one place that says so.
 
 Exit 1 means at least one `MISSING` or a failing lane.
 
@@ -55,12 +57,15 @@ Exit 1 means at least one `MISSING` or a failing lane.
 The Stop measures checkouts (git work trees); roots only check. Each fact has one owner:
 
 - Photo: one per agent and checkout, the dirty tree when the agent first reached it. Taken at
-  SessionStart for the checkout around the cwd; at the first Edit or Write (Claude) or the first
-  `apply_patch` (Codex, whose hook runs after the write, so the patched files count as changed) for any
-  other checkout. `resume` and `compact` keep it.
+  SessionStart for the checkout around the cwd, when a root encloses the cwd; at the first Edit or
+  Write (Claude) or the first `apply_patch` (Codex, whose hook runs after the write, so the patched
+  files count as changed; a patch spanning several checkouts photographs each) for any other
+  checkout. `resume` and `compact` keep it. Paths are read with their symlinks resolved, as git names
+  them.
 - Changed files: in each photographed checkout, the dirty files whose content differs from the photo.
   For the main session only, the checkout around its cwd counts without a photo, over its whole dirty
-  tree (Bash and a Codex patch photograph nothing); the Stop says so in a note.
+  tree (Bash and a Codex patch photograph nothing); the Stop says so in a note. A checkout left without
+  a photo is measured only while the cwd stands in it.
 - Owner: each changed file goes to its nearest root holding `.claude/agent-hooks.jsonc`, the rule
   pre-edit uses, computed once over every changed file. The roots owning at least one file run their
   fixers and lanes on their own files, each under its own config; a nested root's file never reaches
@@ -87,3 +92,21 @@ The Stop measures checkouts (git work trees); roots only check. Each fact has on
   it until the next SessionStart, which removes the untracked directories of that exact name, holding no
   tracked file, older than the pre-edit deadline. A path that merely starts with `.agent-hooks-` is the
   repository's own.
+
+## Ceilings
+
+What the model bounds and the kit does not try to cross:
+
+- The photo bounds what is measured, not who wrote it. Concurrent agents in one checkout see each
+  other's changes since their own photo: a subagent can block on a sibling's file, and its Stop fixers
+  rewrite it.
+- With no root around the cwd, SessionStart photographs nothing, as without a config, and a nested
+  root gets its photo at the first Edit, Write or `apply_patch` under it. Bash-only writes under a
+  nested root, with no root around the cwd, go unchecked.
+- A state file of another version reads as absent, and the kit carries no compatibility code: after a
+  change of the state's version, the running sessions lose their photos. The cwd's checkout is then
+  measured over its whole dirty tree at the next Stop, where dirt that predates the session can block
+  once per failing set, and the other checkouts go unchecked until an edit there photographs them
+  again; the changes made before the change of version are not measured.
+- A root outside git has no checkout: nothing is photographed and nothing is checked there. `doctor`
+  says so; the Stop does not.
