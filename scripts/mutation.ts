@@ -2,10 +2,12 @@
 
 /**
  * Mutation testing on the lines a change alters, in the modules `stryker.config.ts` lists: Stryker
- * mutates those lines alone, the `.test.ts` beside each module must kill every mutant, and each
- * survivor is named with its file, line, mutator and replacement.
+ * mutates each changed module whole, in a pass of its own against the `.test.ts` beside it alone,
+ * and a survivor whose lines meet a changed line fails, named with its file, line, mutator and
+ * replacement. A whole module, since Stryker keeps a mutant only when its whole node lies inside a
+ * line range: a block or a condition that spans past a changed line would go untested.
  *
- *   bun ./scripts/mutation.ts run             Stryker on the changed lines; a survivor exits 1
+ *   bun ./scripts/mutation.ts run             Stryker on each changed module; a survivor on a changed line exits 1
  *   bun ./scripts/mutation.ts github-output   `mutate=true` when a listed module has a changed line
  *
  * The change is the working tree against its merge-base with the base `affected.ts` resolves; on
@@ -14,7 +16,7 @@
  */
 
 import { appendFile, chmod, stat } from "node:fs/promises";
-import { join, relative } from "node:path";
+import { join } from "node:path";
 
 import type { Stryker } from "@stryker-mutator/core";
 import { $ } from "bun";
@@ -68,9 +70,13 @@ export function changedRanges(diff: string): LineRange[] {
   return ranges;
 }
 
-/** Stryker's `--mutate` spelling of a range: `file:start-end`. */
-export function mutateSpec(range: LineRange): string {
+export function rangeLabel(range: LineRange): string {
   return `${range.file}:${range.start}-${range.end}`;
+}
+
+/** The modules the ranges fall in, each once, in the order they first appear. */
+export function modulesOf(ranges: readonly LineRange[]): string[] {
+  return [...new Set(ranges.map((range) => range.file))];
 }
 
 export function testFileOf(module: string): string {
@@ -94,6 +100,35 @@ export function describeSurvivor(file: string, source: string, mutant: Mutant): 
       : `${(lines[start.line - 1] ?? "").slice(start.column - 1)}…`;
 
   return `${file}:${start.line}:${start.column} ${mutant.status} ${mutant.mutatorName}: ${oneLine(original)} => ${oneLine(mutant.replacement)}`;
+}
+
+/** The undetected mutants whose lines meet one of the ranges, in source order. */
+export function onChangedLines(results: readonly Mutant[], ranges: readonly LineRange[]): Mutant[] {
+  return undetected(results).filter(({ location }) =>
+    ranges.some((range) => location.start.line <= range.end && location.end.line >= range.start),
+  );
+}
+
+export interface ModuleVerdict {
+  readonly survivors: readonly string[];
+  readonly summary: string;
+}
+
+/** A pass's verdict on one module: each survivor on its changed lines, then a count of the rest. */
+export function moduleVerdict(
+  module: string,
+  source: string,
+  results: readonly Mutant[],
+  ranges: readonly LineRange[],
+): ModuleVerdict {
+  const tested = results.filter((result) => result.status !== "Ignored");
+  const changed = onChangedLines(results, ranges);
+  const elsewhere = undetected(results).length - changed.length;
+
+  return {
+    survivors: changed.map((mutant) => describeSurvivor(module, source, mutant)),
+    summary: `mutation: ${module}: ${tested.length} mutant(s) tested, ${changed.length} undetected on the changed lines, ${elsewhere} elsewhere, outside this change`,
+  };
 }
 
 /** The mutants no test detected, in source order. */
@@ -154,34 +189,28 @@ export function githubOutput(ranges: readonly LineRange[]): string {
   return `mutate=${ranges.length > 0}\n`;
 }
 
-/** What a run adds to `stryker.config.ts`: the ranges, and one `bun test` over their modules' tests. */
-export function runOptions(ranges: readonly LineRange[]) {
-  const tests = [...new Set(ranges.map((range) => `./${testFileOf(range.file)}`))];
-
+/**
+ * What a pass adds to `stryker.config.ts`: one module, whole, and its own `.test.ts` alone, so a
+ * flaky suite of another module never kills its mutants.
+ */
+export function runOptions(module: string) {
   return {
-    mutate: ranges.map((range) => mutateSpec(range)),
-    commandRunner: { command: `bun test ${tests.join(" ")}` },
+    mutate: [module],
+    commandRunner: { command: `bun test ./${testFileOf(module)}` },
   };
 }
 
-async function mutate(repoRoot: string, ranges: readonly LineRange[]): Promise<MutantResult[]> {
-  const files = [...new Set(ranges.map((range) => range.file))];
-
-  const modes = await Promise.all(
-    files.map(async (file) => ({ file, mode: (await stat(join(repoRoot, file))).mode })),
-  );
-
+async function mutate(repoRoot: string, module: string): Promise<MutantResult[]> {
+  const { mode } = await stat(join(repoRoot, module));
   const { Stryker: Runner } = await import("@stryker-mutator/core");
-  // Stryker reads the modules and runs the command from the working directory.
+  // Stryker reads the module and runs the command from the working directory.
   process.chdir(repoRoot);
 
-  const runner = new Runner({ ...config, ...runOptions(ranges) });
-
   try {
-    return await runner.runMutationTest();
+    return await new Runner({ ...config, ...runOptions(module) }).runMutationTest();
   } finally {
-    // In-place mode writes the originals back without their mode, executable bit included.
-    await Promise.all(modes.map(({ file, mode }) => chmod(join(repoRoot, file), mode)));
+    // In-place mode writes the original back without its mode, executable bit included.
+    await chmod(join(repoRoot, module), mode);
   }
 }
 
@@ -221,20 +250,26 @@ if (import.meta.main) {
     process.exit(0);
   }
 
-  console.error(`mutation: ${ranges.map((range) => mutateSpec(range)).join(", ")}`);
+  console.error(`mutation: changed ${ranges.map((range) => rangeLabel(range)).join(", ")}`);
 
   if (args.command === "run") {
-    const results = await mutate(repoRoot, ranges);
-    const survivors = undetected(results);
+    let survived = 0;
 
-    for (const mutant of survivors) {
-      const file = relative(repoRoot, mutant.fileName);
-      console.error(describeSurvivor(file, await Bun.file(join(repoRoot, file)).text(), mutant));
+    for (const module of modulesOf(ranges)) {
+      const source = await Bun.file(join(repoRoot, module)).text();
+      const results = await mutate(repoRoot, module);
+
+      const verdict = moduleVerdict(
+        module,
+        source,
+        results,
+        ranges.filter((range) => range.file === module),
+      );
+
+      for (const line of [...verdict.survivors, verdict.summary]) console.error(line);
+      survived += verdict.survivors.length;
     }
 
-    console.error(
-      `mutation: ${results.length} mutant(s) on the changed lines, ${survivors.length} undetected`,
-    );
-    process.exit(survivors.length === 0 ? 0 : 1);
+    process.exit(survived === 0 ? 0 : 1);
   }
 }

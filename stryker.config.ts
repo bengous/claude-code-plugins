@@ -3,8 +3,8 @@ import type { Stryker } from "@stryker-mutator/core";
 type StrykerOptions = ConstructorParameters<typeof Stryker>[0];
 
 /**
- * Read by `scripts/mutation.ts`, which mutates only the lines a change alters in the `mutate`
- * modules, each against the `.test.ts` beside it. A module joins once a run of it kills by assertion
+ * Read by `scripts/mutation.ts`, which mutates each `mutate` module a change alters, whole and
+ * against the `.test.ts` beside it alone, and fails on a survivor on a changed line. A module joins once a run of it kills by assertion
  * alone: a git fixture under Stryker's parallel runs can kill a mutant by timing out. Issue #323
  * splits the pure tests of `scripts/changelog.ts` and `scripts/land.ts` from their fixtures.
  */

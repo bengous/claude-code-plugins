@@ -11,9 +11,12 @@ import {
   changedRanges,
   describeSurvivor,
   githubOutput,
+  moduleVerdict,
+  modulesOf,
   type Mutant,
-  mutateSpec,
+  onChangedLines,
   parseArgs,
+  rangeLabel,
   runOptions,
   testFileOf,
   undetected,
@@ -85,10 +88,20 @@ describe("changedRanges", () => {
   });
 });
 
-test("a range in Stryker's --mutate spelling", () => {
-  expect(mutateSpec({ file: "agent-hooks/config.ts", start: 8, end: 9 })).toBe(
+test("a range reads file:start-end", () => {
+  expect(rangeLabel({ file: "agent-hooks/config.ts", start: 8, end: 9 })).toBe(
     "agent-hooks/config.ts:8-9",
   );
+});
+
+test("the modules the ranges fall in, each once, in order", () => {
+  expect(
+    modulesOf([
+      { file: "b.ts", start: 1, end: 1 },
+      { file: "a.ts", start: 3, end: 4 },
+      { file: "b.ts", start: 9, end: 9 },
+    ]),
+  ).toEqual(["b.ts", "a.ts"]);
 });
 
 test("CI's output says whether there is a line to mutate", () => {
@@ -96,16 +109,10 @@ test("CI's output says whether there is a line to mutate", () => {
   expect(githubOutput([])).toBe("mutate=false\n");
 });
 
-test("a run mutates every range, against each module's tests once", () => {
-  expect(
-    runOptions([
-      { file: "scripts/changelog.ts", start: 3, end: 4 },
-      { file: "scripts/changelog.ts", start: 9, end: 9 },
-      { file: "agent-hooks/config.ts", start: 1, end: 2 },
-    ]),
-  ).toEqual({
-    mutate: ["scripts/changelog.ts:3-4", "scripts/changelog.ts:9-9", "agent-hooks/config.ts:1-2"],
-    commandRunner: { command: "bun test ./scripts/changelog.test.ts ./agent-hooks/config.test.ts" },
+test("a pass mutates one module whole, against its own tests alone", () => {
+  expect(runOptions("agent-hooks/config.ts")).toEqual({
+    mutate: ["agent-hooks/config.ts"],
+    commandRunner: { command: "bun test ./agent-hooks/config.test.ts" },
   });
 });
 
@@ -216,6 +223,79 @@ describe("undetected", () => {
   });
 });
 
+describe("onChangedLines", () => {
+  const at = (start: number, end: number, status: Mutant["status"] = "Survived"): Mutant =>
+    mutant({
+      location: { start: { line: start, column: 1 }, end: { line: end, column: 2 } },
+      status,
+    });
+
+  test("keeps an undetected mutant that meets a changed line, one spanning past it included", () => {
+    const changed = [{ file: "agent-hooks/config.ts", start: 15, end: 15 }];
+
+    const kept = onChangedLines(
+      [at(10, 20), at(15, 15), at(14, 14), at(16, 30), at(15, 15, "Killed")],
+      changed,
+    );
+
+    expect(kept.map(({ location }) => `${location.start.line}-${location.end.line}`)).toEqual([
+      "10-20",
+      "15-15",
+    ]);
+  });
+
+  test("keeps one that meets any of several ranges", () => {
+    const changed = [
+      { file: "agent-hooks/config.ts", start: 3, end: 3 },
+      { file: "agent-hooks/config.ts", start: 9, end: 9 },
+    ];
+
+    expect(onChangedLines([at(3, 3), at(9, 9), at(6, 6)], changed)).toHaveLength(2);
+  });
+
+  test("keeps one that touches a range at either edge", () => {
+    const changed = [{ file: "agent-hooks/config.ts", start: 5, end: 7 }];
+
+    expect(onChangedLines([at(1, 5), at(7, 9), at(1, 4), at(8, 9)], changed)).toHaveLength(2);
+  });
+});
+
+describe("moduleVerdict", () => {
+  const source = ["const a = 1;", "if (a > 0) {", "  run();", "}", "const b = a + 1;"].join("\n");
+  const changed = [{ file: "x/mod.ts", start: 2, end: 2 }];
+
+  const results = [
+    mutant({
+      fileName: "/repo/x/mod.ts",
+      location: { start: { line: 2, column: 5 }, end: { line: 2, column: 10 } },
+      mutatorName: "EqualityOperator",
+      replacement: "a >= 0",
+    }),
+    mutant({
+      fileName: "/repo/x/mod.ts",
+      location: { start: { line: 5, column: 11 }, end: { line: 5, column: 16 } },
+      mutatorName: "ArithmeticOperator",
+      replacement: "a - 1",
+    }),
+    mutant({ status: "Killed" }),
+    mutant({ status: "Ignored", mutatorName: "StringLiteral" }),
+  ];
+
+  test("names each survivor on a changed line, and counts the others apart", () => {
+    expect(moduleVerdict("x/mod.ts", source, results, changed)).toEqual({
+      survivors: ["x/mod.ts:2:5 Survived EqualityOperator: a > 0 => a >= 0"],
+      summary:
+        "mutation: x/mod.ts: 3 mutant(s) tested, 1 undetected on the changed lines, 1 elsewhere, outside this change",
+    });
+  });
+
+  test("has no survivor when only lines outside the change keep one", () => {
+    const elsewhere = [{ file: "x/mod.ts", start: 3, end: 3 }];
+
+    expect(moduleVerdict("x/mod.ts", source, results, elsewhere).survivors).toEqual([]);
+  });
+});
+
 describe("changedLines", () => {
   let root = "";
 
@@ -309,6 +389,19 @@ describe("changedLines", () => {
     expect(await changedLines(root, ["a/listed.ts"], undefined, env)).toEqual([
       { file: "a/listed.ts", start: 2, end: 2 },
     ]);
+  });
+
+  test("a push run without the commit it moved from fails, saying what is missing", async () => {
+    const push = { GITHUB_ACTIONS: "true", GITHUB_EVENT_NAME: "push" };
+    const event = join(root, ".git", "event.json");
+    writeFileSync(event, JSON.stringify({ after: git("rev-parse", "HEAD") }));
+
+    await expect(changedLines(root, ["a/listed.ts"], undefined, push)).rejects.toThrow(
+      "GITHUB_EVENT_PATH is unset on a push run",
+    );
+    await expect(
+      changedLines(root, ["a/listed.ts"], undefined, { ...push, GITHUB_EVENT_PATH: event }),
+    ).rejects.toThrow(`${event} names no before`);
   });
 
   test("outside a pull request or a push the base is origin/dev", async () => {
