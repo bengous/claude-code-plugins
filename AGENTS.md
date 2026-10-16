@@ -39,7 +39,7 @@ bun ./scripts/claude-code-types.ts run                 # vellum's Claude Code ty
 
 `vellum/` carries `package.json` + `bun.lock`: `bun install --cwd vellum --frozen-lockfile` before its tests or its server, as Claude Code does at the plugin's cache.
 
-Everything above but the browser suite, the mutation run and the types pipeline also runs in `pre-push` and CI, the suites and kits scoped to what the change reaches (`scripts/affected.ts`) in `pre-push` and on a pull request, everything on a push or a dispatch; `pre-commit` runs all of it except `bun test`. The mutation run is CI's `mutation` job, on a pull request or a dispatch, in no hook ([Mutation testing](docs/repo-ops/checks.md#mutation-testing)). The browser suite runs in CI on request only, the `e2e` label on a PR or `workflow_dispatch`, and on demand locally, in no hook. Job list, order, and argument differences: [Local checks and CI](docs/repo-ops/checks.md).
+Everything above but the browser suite, the mutation run and the types pipeline also runs in `pre-push` and CI, the suites and kits scoped to what the change reaches (`scripts/affected.ts`) in `pre-push` and on a pull request, everything on a push or a dispatch; `pre-commit` runs all of it except `bun test`. The mutation run is CI's `mutation` job, on a pull request, a push to `dev` or a dispatch, in no hook ([Mutation testing](docs/repo-ops/checks.md#mutation-testing)). The browser suite runs in CI on request only, the `e2e` label on a PR or `workflow_dispatch`, and on demand locally, in no hook. Job list, order, and argument differences: [Local checks and CI](docs/repo-ops/checks.md).
 
 ## Code Standards
 

@@ -8,8 +8,8 @@
  *   bun ./scripts/mutation.ts run             Stryker on the changed lines; a survivor exits 1
  *   bun ./scripts/mutation.ts github-output   `mutate=true` when a listed module has a changed line
  *
- * The change is the working tree against its merge-base with the base `affected.ts` resolves, and
- * `origin/dev` on an Actions run that resolves none. Stryker is imported only once a changed line
+ * The change is the working tree against its merge-base with the base `affected.ts` resolves; on
+ * an Actions push, the commit the push moved the branch from; on any other Actions run, `origin/dev`. Stryker is imported only once a changed line
  * asks for it, so CI installs it only then.
  */
 
@@ -108,14 +108,34 @@ export function undetected(results: readonly Mutant[]): Mutant[] {
     );
 }
 
+interface PushEvent {
+  before?: string;
+}
+
+async function pushedFrom(eventPath: string | undefined): Promise<string> {
+  if (eventPath === undefined) throw new Error("GITHUB_EVENT_PATH is unset on a push run");
+  const event: PushEvent = await Bun.file(eventPath).json();
+
+  if (event.before === undefined) throw new Error(`${eventPath} names no before`);
+
+  return event.before;
+}
+
+async function baseRefOf(base: string | undefined, env: Env): Promise<string> {
+  const resolved = baseOf(base, env);
+
+  if (resolved.kind === "ref") return resolved.ref;
+
+  return env.GITHUB_EVENT_NAME === "push" ? await pushedFrom(env.GITHUB_EVENT_PATH) : DEFAULT_BASE;
+}
+
 export async function changedLines(
   repoRoot: string,
   modules: readonly string[],
   base?: string,
   env: Env = process.env,
 ): Promise<LineRange[]> {
-  const resolved = baseOf(base, env);
-  const ref = resolved.kind === "ref" ? resolved.ref : DEFAULT_BASE;
+  const ref = await baseRefOf(base, env);
   const mergeBase = await mergeBaseWith(repoRoot, ref);
 
   if (mergeBase.kind === "none") throw new Error(mergeBase.reason);

@@ -3,6 +3,8 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 
+import { parse } from "yaml";
+
 import config from "../stryker.config.ts";
 import {
   changedLines,
@@ -296,10 +298,27 @@ describe("changedLines", () => {
     ]);
   });
 
-  test("outside a pull request the base is origin/dev", async () => {
-    await expect(changedLines(root, ["a/listed.ts"], undefined, NO_ACTIONS)).rejects.toThrow(
-      "no merge-base with origin/dev",
-    );
+  test("a push run measures from the commit the push moved the branch from", async () => {
+    const before = git("rev-parse", "HEAD");
+    write("a/listed.ts", "one\nTWO\nthree\n");
+    commit("The pushed line");
+    const event = join(root, ".git", "event.json");
+    writeFileSync(event, JSON.stringify({ before, after: git("rev-parse", "HEAD") }));
+    const env = { GITHUB_ACTIONS: "true", GITHUB_EVENT_NAME: "push", GITHUB_EVENT_PATH: event };
+
+    expect(await changedLines(root, ["a/listed.ts"], undefined, env)).toEqual([
+      { file: "a/listed.ts", start: 2, end: 2 },
+    ]);
+  });
+
+  test("outside a pull request or a push the base is origin/dev", async () => {
+    const dispatch = { GITHUB_ACTIONS: "true", GITHUB_EVENT_NAME: "workflow_dispatch" };
+
+    for (const env of [NO_ACTIONS, dispatch]) {
+      await expect(changedLines(root, ["a/listed.ts"], undefined, env)).rejects.toThrow(
+        "no merge-base with origin/dev",
+      );
+    }
   });
 
   test("a base it cannot find fails, naming it and quoting git", async () => {
@@ -307,4 +326,17 @@ describe("changedLines", () => {
       /^no merge-base with origin\/nowhere: fatal: [^\n]+$/u,
     );
   });
+});
+
+interface Workflow {
+  jobs: Record<string, { if?: string }>;
+}
+
+test("ci.yml mutation-tests every event but a push to main, which releases a tested dev", async () => {
+  const source = await Bun.file(join(import.meta.dir, "../.github/workflows/ci.yml")).text();
+  const { jobs }: Workflow = parse(source);
+
+  expect(jobs["mutation"]?.if).toBe(
+    "github.event_name != 'push' || github.ref == 'refs/heads/dev'",
+  );
 });
