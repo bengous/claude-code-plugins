@@ -36,13 +36,6 @@
   ],
 
   // ─────────────────────────────────────────────────────────────────────────
-  // Permissions
-  // ─────────────────────────────────────────────────────────────────────────
-  //
-  // Philosophy: Auto-allow safe read/exploration commands, explicitly deny
-  // anything that could leak secrets or cause damage.
-  //
-  // ─────────────────────────────────────────────────────────────────────────
   // Hooks - SessionStart checks
   // ─────────────────────────────────────────────────────────────────────────
   "hooks": {
@@ -116,26 +109,28 @@
   // Permissions
   // ─────────────────────────────────────────────────────────────────────────
   //
-  // Philosophy: Auto-allow safe read/exploration commands, explicitly deny
-  // anything that could leak secrets or cause damage.
+  // Sorted by reversibility: allow what stays on this machine or git undoes,
+  // ask before what git cannot undo, deny secrets and system damage. The
+  // one-way doors of a push (main, a force push to dev, a release) are refused
+  // by a PreToolUse hook, not by a rule here.
   //
   "permissions": {
-    // Commands that run without confirmation
+    // Reversible and local: run without confirmation
     "allow": [
-      // System exploration (read-only)
+      // Reads of the tree
       "Bash(tree:*)",
       "Bash(ls:*)",
       "Bash(cat:*)",
       "Bash(find:*)",
       "Bash(grep:*)",
 
-      // Package manager queries (Arch Linux)
+      // Reads of the system's packages (Arch Linux)
       "Bash(pacman -Q:*)",   // Query installed packages
       "Bash(pacman -Ss:*)",  // Search repos
       "Bash(pacman -Si:*)",  // Package info
       "Bash(pacman -Ql:*)",  // List package files
 
-      // GitHub reads
+      // Reads of GitHub
       "Bash(gh pr view *)",
       "Bash(gh pr list *)",
       "Bash(gh pr checks *)",
@@ -143,34 +138,35 @@
       "Bash(gh issue view *)",
       "Bash(gh issue list *)",
 
-      // Landing a reviewed branch on dev: the script pushes only a feature/ or
-      // fix/ branch and its fast-forward to dev, refuses before any push unless
-      // its PR is open against dev and green, and the pre-push gates still run.
-      "Bash(bun ./scripts/land.ts *)",
+      // Reads of the web, for documentation
+      "WebSearch",
+      "WebFetch(domain:github.com)",
+      "WebFetch(domain:code.claude.com)",
+      "WebFetch(domain:www.npmjs.com)",
 
-      // Node.js ecosystem
-      "Bash(npm:*)",
-      "Bash(pnpm:*)",
-      "Bash(npx:*)",
-      "Bash(pnpx:*)",
-      "Bash(node:*)",
-
-      // File operations (review changes in git)
+      // Edits of the tree, which git shows and undoes
       "Bash(mkdir:*)",
       "Bash(mv:*)",
       "Bash(cp:*)",
       "Bash(chmod:*)",
       "Bash(sed:*)",
-      "Bash(curl:*)",
 
-      // Web access for documentation
-      "WebSearch",
-      "WebFetch(domain:github.com)",
-      "WebFetch(domain:code.claude.com)",
-      "WebFetch(domain:www.npmjs.com)"
+      // Landing a reviewed branch on dev: the script pushes only a feature/ or
+      // fix/ branch and its fast-forward to dev, refuses before any push unless
+      // its PR is open against dev and green, and the pre-push gates still run.
+      "Bash(bun ./scripts/land.ts *)",
+
+      // Blankets that also reach past this machine (a publish, an install, a
+      // POST): kept as they are until a measured use narrows them.
+      "Bash(npm:*)",
+      "Bash(pnpm:*)",
+      "Bash(npx:*)",
+      "Bash(pnpx:*)",
+      "Bash(node:*)",
+      "Bash(curl:*)"
     ],
 
-    // Commands that require confirmation
+    // What git cannot undo: ask first
     "ask": [
       "Bash(pacman -S:*)",   // Install packages
       "Bash(pacman -U:*)",   // Install local packages
