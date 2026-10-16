@@ -81,6 +81,8 @@ Carried by nobody, so hold them by hand:
 
 `dev` is the working trunk; `main` is the release channel consumers install from, moved only by the human, by fast-forward. History is linear everywhere: no merge commits, server-enforced. `origin/dev` is the source of truth; every local `dev` is a cache that goes stale each time someone else lands.
 
+Claude Code's built-in "Commit or push only when the user asks" does not hold here: agents commit and push to `dev` (inline lane) and to their own `feature/`|`fix/` branches without asking, and land a reviewed branch with `bun ./scripts/land.ts <branch>`; `main` is the human's release, and a hook refuses every agent push to it.
+
 Two lanes; the agent judges by scope, the user can override:
 
 - Inline — one concern, small diff: commit directly on `dev`. A commit that touches the e2e paths (listed in `scripts/check-e2e-green.ts`) goes through a branch instead: the pre-push hook lets it reach `dev` only once its SHA has a green `e2e` run, and that run needs a pushed branch.
