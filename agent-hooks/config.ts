@@ -167,6 +167,16 @@ export function loadConfig(root: string, configFile = configPath(root)): Config 
   return finalize(mergeDocuments(documents), repo.file);
 }
 
+/**
+ * The profile of the repo file alone: an error elsewhere in the file (a lane, a preset) leaves it readable. Throws a
+ * ConfigError when the file does not parse or its profile is invalid.
+ */
+export function loadProfile(root: string, configFile = configPath(root)): Profile {
+  const record = parseDocument(configFile);
+
+  return readProfile(child({ file: configFile, record, keyPath: "" }, "profile"));
+}
+
 function collectPreset(
   name: string,
   documents: RawDocument[],

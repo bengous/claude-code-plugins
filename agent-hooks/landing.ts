@@ -431,6 +431,11 @@ export function publicMergeRefusal(
   );
 }
 
+/** Why a door is refused in a repository whose profile cannot be read: the doors it would guard are unknown. */
+export function unreadableProfileRefusal(error: string, command: string): string {
+  return `${error}. The landing guard cannot read this repository's profile.landing, so it refuses ${command} until the file is fixed.`;
+}
+
 /** Why a release command is refused in a repository with a landing profile. */
 export function releaseRefusal(command: string, landing: LandingProfile): string {
   return (

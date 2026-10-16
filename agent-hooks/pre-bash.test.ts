@@ -322,15 +322,41 @@ describe("pre-bash in a repository with profile.landing", () => {
     );
   });
 
-  test("an invalid config falls back to the default with a note", async () => {
+  test("keeps profile.landing when another part of the config is invalid", async () => {
+    const landing = '"profile": { "landing": { "trunk": "dev", "release": "main" } }';
+
+    writeRepoFile(
+      repo,
+      CONFIG_RELATIVE_PATH,
+      `{ ${landing}, "stop": { "lanes": { "typo": {} } } }`,
+    );
+    expect((await preBash("git push origin main", repo)).reason).toContain(
+      "a push to 'main' moves the release",
+    );
+
+    writeRepoFile(repo, CONFIG_RELATIVE_PATH, `{ ${landing}, "presets": ["no-such-preset"] }`);
+    expect((await preBash("git push --force origin dev", repo)).decision).toBe("deny");
+    expect((await preBash("git push origin feature/x", repo)).stdout).toBe("");
+  });
+
+  test("an invalid profile refuses every door, naming the error", async () => {
     writeRepoFile(repo, CONFIG_RELATIVE_PATH, '{ "profile": { "landing": { "trunk": "dev" } } }');
-    fakeGh({ repo: { visibility: "PRIVATE", defaultBranchRef: { name: "main" } } });
 
-    const output = await preBash("git push origin main", repo);
+    const push = await preBash("git push origin feature/x", repo);
 
-    expect(output.decision).toBeUndefined();
-    expect(output.note).toContain("profile.landing.release: expected a branch name");
-    expect(output.note).toContain("the landing guard applied its default");
+    expect(push.reason).toBe(
+      `agent-hooks: ${path.join(repo, CONFIG_RELATIVE_PATH)}: profile.landing.release: expected a branch name. The landing guard cannot read this repository's profile.landing, so it refuses git push until the file is fixed.`,
+    );
+    expect((await preBash("gh pr merge 7", repo)).reason).toContain("so it refuses gh pr merge");
+    expect((await preBash("bun ./scripts/release.ts", repo)).decision).toBe("deny");
+    expect((await preBash("git push --dry-run origin main", repo)).stdout).toBe("");
+    expect((await preBash("git status", repo)).stdout).toBe("");
+  });
+
+  test("a config file that does not parse refuses every door", async () => {
+    writeRepoFile(repo, CONFIG_RELATIVE_PATH, "{ not jsonc");
+
+    expect((await preBash("git push origin feature/x", repo)).reason).toContain("invalid JSONC");
   });
 });
 

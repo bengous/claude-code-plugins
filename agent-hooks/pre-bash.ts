@@ -2,7 +2,7 @@ import { existsSync } from "node:fs";
 import path from "node:path";
 
 import type { LandingProfile } from "./config.ts";
-import { ConfigError, configPath, loadConfig } from "./config.ts";
+import { ConfigError, configPath, loadProfile } from "./config.ts";
 import { githubSlugOf, pullRequestOf, repoFactsOf, slugOfPullRequest } from "./github.ts";
 import { isRecord, recordField, stringField } from "./json.ts";
 import type { GhCommand, GitCommand, ReleaseScript } from "./landing.ts";
@@ -17,6 +17,7 @@ import {
   releaseRefusal,
   releaseScriptOf,
   resolveTargets,
+  unreadableProfileRefusal,
 } from "./landing.ts";
 import type { Invocation } from "./shell.ts";
 import { invocationsOf } from "./shell.ts";
@@ -31,7 +32,11 @@ const ALLOW: GuardVerdict = { kind: "allow" };
 
 type ProfileRead =
   | { readonly kind: "profiled"; readonly landing: LandingProfile; readonly landScript: boolean }
-  | { readonly kind: "default"; readonly note: string | null };
+  | { readonly kind: "default" }
+  /** A config file whose profile cannot be read: the guard refuses every door there. */
+  | { readonly kind: "unreadable"; readonly error: string };
+
+const DEFAULT: ProfileRead = { kind: "default" };
 
 type GuardContext = { readonly sessionId: string; readonly now: number };
 
@@ -67,14 +72,14 @@ function rootOf(cwd: string, location: readonly string[]): string | null {
 
 function profileOf(root: string): ProfileRead {
   if (!existsSync(configPath(root))) {
-    return { kind: "default", note: null };
+    return DEFAULT;
   }
 
   try {
-    const { landing } = loadConfig(root).profile;
+    const { landing } = loadProfile(root);
 
     return landing === null
-      ? { kind: "default", note: null }
+      ? DEFAULT
       : {
           kind: "profiled",
           landing,
@@ -82,19 +87,11 @@ function profileOf(root: string): ProfileRead {
         };
   } catch (error) {
     if (error instanceof ConfigError) {
-      return { kind: "default", note: `${error.message}: the landing guard applied its default` };
+      return { kind: "unreadable", error: error.message };
     }
 
     throw error;
   }
-}
-
-function withNote(verdict: GuardVerdict, note: string | null): GuardVerdict {
-  if (note === null || verdict.kind === "deny") {
-    return verdict;
-  }
-
-  return { kind: "note", text: verdict.kind === "note" ? `${note}\n${verdict.text}` : note };
 }
 
 function refusal(reason: string | null): GuardVerdict {
@@ -127,6 +124,10 @@ function remoteUrl(cwd: string, location: readonly string[], remote: string): st
   );
 }
 
+function note(text: string): GuardVerdict {
+  return { kind: "note", text };
+}
+
 async function judgePush(
   cwd: string,
   command: GitCommand,
@@ -148,6 +149,10 @@ async function judgePush(
 
   const profile = profileOf(root);
 
+  if (profile.kind === "unreadable") {
+    return refusal(unreadableProfileRefusal(profile.error, "git push"));
+  }
+
   if (profile.kind === "profiled") {
     return refusal(profiledPushRefusal(targets, profile.landing, profile.landScript));
   }
@@ -161,22 +166,16 @@ async function judgePush(
   const slug = url === null ? null : githubSlugOf(url);
 
   if (slug === null) {
-    return withNote(ALLOW, profile.note);
+    return ALLOW;
   }
 
   const facts = await repoFactsOf(slug, context.sessionId, cwd, context.now);
 
-  if (facts.kind === "failed") {
-    return withNote(
-      {
-        kind: "note",
-        text: `agent-hooks: could not read whether ${slug} is public (${facts.why}): the push went unchecked`,
-      },
-      profile.note,
-    );
-  }
-
-  return withNote(refusal(publicPushRefusal(targets, facts.value, slug)), profile.note);
+  return facts.kind === "failed"
+    ? note(
+        `agent-hooks: could not read whether ${slug} is public (${facts.why}): the push went unchecked`,
+      )
+    : refusal(publicPushRefusal(targets, facts.value, slug));
 }
 
 async function judgeGh(
@@ -185,23 +184,22 @@ async function judgeGh(
   context: GuardContext,
 ): Promise<GuardVerdict> {
   const root = command.repo === null ? rootOf(cwd, []) : null;
-  const profile: ProfileRead = root === null ? { kind: "default", note: null } : profileOf(root);
+  const profile = root === null ? DEFAULT : profileOf(root);
+  const name = command.kind === "release-create" ? "gh release create" : "gh pr merge";
+
+  if (profile.kind === "unreadable") {
+    return refusal(unreadableProfileRefusal(profile.error, name));
+  }
 
   if (command.kind === "release-create") {
-    return profile.kind === "profiled"
-      ? refusal(releaseRefusal("gh release create", profile.landing))
-      : withNote(ALLOW, profile.note);
+    return profile.kind === "profiled" ? refusal(releaseRefusal(name, profile.landing)) : ALLOW;
   }
 
   const pr = await pullRequestOf(cwd, command.selector, command.repo);
 
   if (pr.kind === "failed") {
-    return withNote(
-      {
-        kind: "note",
-        text: `agent-hooks: could not read the pull request gh pr merge names (${pr.why}): the merge went unchecked`,
-      },
-      profile.kind === "default" ? profile.note : null,
+    return note(
+      `agent-hooks: could not read the pull request gh pr merge names (${pr.why}): the merge went unchecked`,
     );
   }
 
@@ -212,31 +210,40 @@ async function judgeGh(
   const slug = slugOfPullRequest(pr.value.url);
 
   if (slug === null) {
-    return withNote(ALLOW, profile.note);
+    return ALLOW;
   }
 
   const facts = await repoFactsOf(slug, context.sessionId, cwd, context.now);
 
-  if (facts.kind === "failed") {
-    return withNote(
-      {
-        kind: "note",
-        text: `agent-hooks: could not read whether ${slug} is public (${facts.why}): the merge went unchecked`,
-      },
-      profile.note,
-    );
-  }
-
-  return withNote(refusal(publicMergeRefusal(pr.value, facts.value, slug)), profile.note);
+  return facts.kind === "failed"
+    ? note(
+        `agent-hooks: could not read whether ${slug} is public (${facts.why}): the merge went unchecked`,
+      )
+    : refusal(publicMergeRefusal(pr.value, facts.value, slug));
 }
 
 function judgeReleaseScript(cwd: string, release: ReleaseScript): GuardVerdict {
   const root = rootOf(path.dirname(path.resolve(cwd, release.script)), []);
-  const profile: ProfileRead = root === null ? { kind: "default", note: null } : profileOf(root);
+  const profile = root === null ? DEFAULT : profileOf(root);
 
-  return profile.kind === "profiled"
-    ? refusal(releaseRefusal(release.script, profile.landing))
-    : withNote(ALLOW, profile.note);
+  switch (profile.kind) {
+    case "unreadable": {
+      return refusal(unreadableProfileRefusal(profile.error, release.script));
+    }
+
+    case "profiled": {
+      return refusal(releaseRefusal(release.script, profile.landing));
+    }
+
+    case "default": {
+      return ALLOW;
+    }
+
+    default: {
+      const unreachable: never = profile;
+      throw new Error(`unhandled profile: ${JSON.stringify(unreachable)}`);
+    }
+  }
 }
 
 function judge(invocation: Invocation, context: GuardContext): Promise<GuardVerdict> {

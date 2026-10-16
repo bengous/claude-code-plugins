@@ -11,6 +11,7 @@ import {
   expandCommand,
   isExcluded,
   loadConfig,
+  loadProfile,
   matchesFilter,
   pkgOf,
   splitCommand,
@@ -438,6 +439,25 @@ describe("loadConfig profile", () => {
       configErrorOf(`{ "profile": { "landing": { "trunk": "main", "release": "main" } } }`).message,
     ).toBe(
       `agent-hooks: ${configPath(temp.repo)}: profile.landing: trunk and release name one branch`,
+    );
+  });
+});
+
+describe("loadProfile", () => {
+  test("reads the profile without validating the rest of the file", () => {
+    writeConfig(
+      temp.repo,
+      `{ "presets": ["no-such-preset"], "profile": { "landing": { "trunk": "dev", "release": "main" } } }`,
+    );
+
+    expect(loadProfile(temp.repo)).toEqual({ landing: { trunk: "dev", release: "main" } });
+  });
+
+  test("reports an invalid profile", () => {
+    writeConfig(temp.repo, `{ "profile": { "landing": { "trunk": "dev" } } }`);
+
+    expect(() => loadProfile(temp.repo)).toThrow(
+      `agent-hooks: ${configPath(temp.repo)}: profile.landing.release: expected a branch name`,
     );
   });
 });
