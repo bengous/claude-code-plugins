@@ -182,9 +182,23 @@ export async function runHook(options: RunHookOptions): Promise<string | null> {
 
   const now = options.now ?? Date.now();
   const state = loadState(input.sessionId, root, now);
+  const loaded = JSON.stringify(state);
   const verdict = await verdictOf(options, input, root, state, now);
 
-  // The verdict is the hook's answer: a state that cannot be written costs the next Stop its memory, not this one.
+  // An edit hook runs before every write and seldom changes the state; a Stop or a session start refreshes its age.
+  if (!isEditHook(hook) || JSON.stringify(state) !== loaded) {
+    persist(state, now);
+  }
+
+  return encode(verdict, harness, hook);
+}
+
+function isEditHook(hook: HookKind): boolean {
+  return hook === "pre-edit" || hook === "post-edit";
+}
+
+/** The verdict is the hook's answer: a state that cannot be written costs the next Stop its memory, not this one. */
+function persist(state: SessionState, now: number): void {
   try {
     saveState(state, now);
   } catch (error) {
@@ -192,8 +206,6 @@ export async function runHook(options: RunHookOptions): Promise<string | null> {
       `agent-hooks: state not saved: ${error instanceof Error ? error.message : String(error)}`,
     );
   }
-
-  return encode(verdict, harness, hook);
 }
 
 async function verdictOf(

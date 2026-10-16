@@ -6,7 +6,16 @@ import type { Runner } from "./exec.ts";
 import { deadlineIn, run } from "./exec.ts";
 import type { LaneResult } from "./lanes.ts";
 import { isFailure, runFixers, runLanes, sequential } from "./lanes.ts";
-import { dirtyDigest, headSha, onDisk, sessionFiles, wholeDirtyTree } from "./scope.ts";
+import type { DirtyTree } from "./scope.ts";
+import {
+  dirtyDigest,
+  dirtyTree,
+  headSha,
+  onDisk,
+  rehashed,
+  sessionFiles,
+  wholeDirtyTree,
+} from "./scope.ts";
 import { latestStateForRoot } from "./state.ts";
 
 export type VerifyOptions = {
@@ -42,14 +51,15 @@ export async function runVerify(options: VerifyOptions): Promise<VerifyReport> {
     return { scope: [], results: [], exitCode: 1 };
   }
 
-  const scope = verifyScope(options);
+  const tree = dirtyTree(options.root);
 
-  if (scope === null) {
+  if (tree === null) {
     print(`agent-hooks: git status failed in ${options.root}`);
 
     return { scope: [], results: [], exitCode: 1 };
   }
 
+  const scope = verifyScope(options, tree);
   print(`scope: ${scope.length === 0 ? "(empty)" : scope.join(" ")}`);
   const fixOptions = { root: options.root, runner, deadline: deadlineIn(NO_DEADLINE_MS) };
 
@@ -69,7 +79,7 @@ export async function runVerify(options: VerifyOptions): Promise<VerifyReport> {
     ...fixOptions,
     green: null,
     head: headSha(options.root),
-    digest: dirtyDigest(options.root),
+    digest: dirtyDigest(rehashed(tree, options.root, fixable)),
     exclude: options.config.preEdit.exclude,
   });
 
@@ -91,19 +101,19 @@ function rootRelative(options: VerifyOptions, file: string): string | null {
     : relative;
 }
 
-function verifyScope(options: VerifyOptions): string[] | null {
+function verifyScope(options: VerifyOptions, tree: DirtyTree): string[] {
   // A named file gone from disk stays in the scope, as a deleted file does at Stop: a project lane still runs.
   if (options.files.length > 0) {
     return options.files.flatMap((file) => rootRelative(options, file) ?? []).toSorted();
   }
 
   if (options.all) {
-    return wholeDirtyTree(options.root);
+    return wholeDirtyTree(tree);
   }
 
   const photo = latestStateForRoot(options.root)?.photo ?? null;
 
-  return photo === null ? wholeDirtyTree(options.root) : sessionFiles(options.root, photo);
+  return photo === null ? wholeDirtyTree(tree) : sessionFiles(tree, photo);
 }
 
 export function describe(result: LaneResult): string {

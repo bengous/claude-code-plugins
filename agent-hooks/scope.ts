@@ -137,48 +137,57 @@ export function sha256(value: string): string {
   return createHash("sha256").update(value).digest("hex");
 }
 
-export function takePhoto(root: string, now = Date.now()): Photo | null {
+/** The dirty paths of a checkout, each to the hash of its content: one `git status` and one read of each file. */
+export type DirtyTree = ReadonlyMap<string, string>;
+
+export function dirtyTree(root: string): DirtyTree | null {
   const paths = dirtyPaths(root);
 
   if (paths === null) {
     return null;
   }
 
-  const files: Record<string, string> = {};
+  return new Map(
+    paths.map((relativePath) => [relativePath, hashFile(path.join(root, relativePath))]),
+  );
+}
 
-  for (const relativePath of paths) {
-    files[relativePath] = hashFile(path.join(root, relativePath));
+/** The tree with `files` read again from disk: what the Stop fixers left, without another `git status`. */
+export function rehashed(tree: DirtyTree, root: string, files: readonly string[]): DirtyTree {
+  const next = new Map(tree);
+
+  for (const relativePath of files) {
+    next.set(relativePath, hashFile(path.join(root, relativePath)));
   }
 
-  return { head: headSha(root), files, takenAt: now };
+  return next;
+}
+
+export function takePhoto(root: string, now = Date.now()): Photo | null {
+  const tree = dirtyTree(root);
+
+  return tree === null
+    ? null
+    : { head: headSha(root), files: Object.fromEntries(tree), takenAt: now };
 }
 
 /**
  * The dirty paths whose content differs from the photo, sorted, minus the worktrees. A file the session deleted
  * stays in: a `project` lane must run on a deletion, and a `files` lane or a fixer takes only the files on disk.
  */
-export function sessionFiles(root: string, photo: Photo): string[] | null {
-  const paths = dirtyPaths(root);
-
-  if (paths === null) {
-    return null;
-  }
-
-  return [...new Set(paths)]
-    .filter((relativePath) => !relativePath.startsWith(WORKTREES_PREFIX))
-    .filter((relativePath) => photo.files[relativePath] !== hashFile(path.join(root, relativePath)))
+export function sessionFiles(tree: DirtyTree, photo: Photo): string[] {
+  return [...tree]
+    .flatMap(([relativePath, hash]) =>
+      !relativePath.startsWith(WORKTREES_PREFIX) && photo.files[relativePath] !== hash
+        ? [relativePath]
+        : [],
+    )
     .toSorted();
 }
 
 /** Every dirty path, sorted, minus the worktrees; deleted files included, as in `sessionFiles`. */
-export function wholeDirtyTree(root: string): string[] | null {
-  const paths = dirtyPaths(root);
-
-  if (paths === null) {
-    return null;
-  }
-
-  return [...new Set(paths)]
+export function wholeDirtyTree(tree: DirtyTree): string[] {
+  return [...tree.keys()]
     .filter((relativePath) => !relativePath.startsWith(WORKTREES_PREFIX))
     .toSorted();
 }
@@ -189,13 +198,11 @@ export function onDisk(root: string, scope: readonly string[]): string[] {
 }
 
 /** One line per dirty path with its content hash: the part of the green key that tracks the uncommitted tree. */
-export function dirtyDigest(root: string): string {
-  const paths = dirtyPaths(root) ?? [];
-
+export function dirtyDigest(tree: DirtyTree): string {
   return sha256(
-    [...new Set(paths)]
+    [...tree.keys()]
       .toSorted()
-      .map((relativePath) => `${relativePath}:${hashFile(path.join(root, relativePath))}`)
+      .map((relativePath) => `${relativePath}:${tree.get(relativePath) ?? DELETED}`)
       .join("\n"),
   );
 }

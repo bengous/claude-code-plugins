@@ -17,7 +17,15 @@ import {
   sequential,
 } from "./lanes.ts";
 import { clearFailures, guard, resetTurn } from "./loop-guard.ts";
-import { dirtyDigest, headSha, onDisk, sessionFiles, wholeDirtyTree } from "./scope.ts";
+import {
+  dirtyDigest,
+  dirtyTree,
+  headSha,
+  onDisk,
+  rehashed,
+  sessionFiles,
+  wholeDirtyTree,
+} from "./scope.ts";
 import type { SessionState } from "./state.ts";
 
 const BUSY_TASK_TYPES = new Set(["subagent", "workflow", "teammate"]);
@@ -45,7 +53,6 @@ export async function runStop(context: HookContext): Promise<Verdict> {
 
   resetTurn(state, input.promptId);
   const notes: string[] = [];
-  let scope: string[] | null;
 
   if (state.photo === null) {
     notes.push("agent-hooks: no photo for this root, checking the whole dirty tree");
@@ -54,18 +61,18 @@ export async function runStop(context: HookContext): Promise<Verdict> {
     if (input.stopHookActive) {
       return withNotes(ALLOW, notes);
     }
-
-    scope = wholeDirtyTree(root);
-  } else {
-    scope = sessionFiles(root, state.photo);
   }
 
-  if (scope === null) {
+  const tree = dirtyTree(root);
+
+  if (tree === null) {
     return withNotes(
       { kind: "note", text: `agent-hooks: git status failed in ${root}, lanes skipped` },
       notes,
     );
   }
+
+  const scope = state.photo === null ? wholeDirtyTree(tree) : sessionFiles(tree, state.photo);
 
   if (scope.length === 0) {
     clearFailures(state);
@@ -73,19 +80,18 @@ export async function runStop(context: HookContext): Promise<Verdict> {
     return withNotes(ALLOW, notes);
   }
 
-  await fixScope(
-    config.stop.fixers,
-    onDisk(root, scope).filter((relativePath) => !isExcluded(config.preEdit.exclude, relativePath)),
-    context,
+  const fixable = onDisk(root, scope).filter(
+    (relativePath) => !isExcluded(config.preEdit.exclude, relativePath),
   );
 
+  await fixScope(config.stop.fixers, fixable, context);
   const started = Date.now();
 
   const results = await runLanes(config.stop.lanes, scope, {
     ...context,
     green: state.green,
     head: headSha(root),
-    digest: dirtyDigest(root),
+    digest: dirtyDigest(rehashed(tree, root, fixable)),
     exclude: config.preEdit.exclude,
   });
 

@@ -7,13 +7,16 @@ import { CONFIG_RELATIVE_PATH } from "./config.ts";
 import {
   DELETED,
   dirtyDigest,
+  dirtyTree,
   findRoot,
   parseGitStatus,
+  rehashed,
   sessionFiles,
   sha256,
   takePhoto,
   wholeDirtyTree,
 } from "./scope.ts";
+import type { DirtyTree } from "./scope.ts";
 import type { TempRepo } from "./test-support.ts";
 import {
   createTempRepo,
@@ -60,6 +63,16 @@ function plainDir(): string {
 
 function remove(repo: string, name: string): void {
   rmSync(path.join(repo, name));
+}
+
+function treeOf(repo: string): DirtyTree {
+  const tree = dirtyTree(repo);
+
+  if (tree === null) {
+    throw new Error("dirtyTree returned null");
+  }
+
+  return tree;
 }
 
 function photoOf(repo: string): NonNullable<ReturnType<typeof takePhoto>> {
@@ -188,7 +201,7 @@ describe("sessionFiles", () => {
     writeRepoFile(repo, "a.txt", "a2\n");
     writeRepoFile(repo, "c.txt", "c\n");
 
-    expect(sessionFiles(repo, photo)).toEqual(["a.txt", "c.txt"]);
+    expect(sessionFiles(treeOf(repo), photo)).toEqual(["a.txt", "c.txt"]);
   });
 
   test("a file already dirty at the photo and untouched since is not in scope", () => {
@@ -197,7 +210,7 @@ describe("sessionFiles", () => {
     writeRepoFile(repo, "c.txt", "c\n");
     const photo = photoOf(repo);
 
-    expect(sessionFiles(repo, photo)).toEqual([]);
+    expect(sessionFiles(treeOf(repo), photo)).toEqual([]);
   });
 
   test("a file dirty at the photo, then committed, is not in scope", () => {
@@ -206,7 +219,7 @@ describe("sessionFiles", () => {
     const photo = photoOf(repo);
     git(repo, "commit", "-qam", "commit a");
 
-    expect(sessionFiles(repo, photo)).toEqual([]);
+    expect(sessionFiles(treeOf(repo), photo)).toEqual([]);
   });
 
   test("a file modified at the photo, then modified again, is in scope", () => {
@@ -215,7 +228,7 @@ describe("sessionFiles", () => {
     const photo = photoOf(repo);
     writeRepoFile(repo, "a.txt", "a3\n");
 
-    expect(sessionFiles(repo, photo)).toEqual(["a.txt"]);
+    expect(sessionFiles(treeOf(repo), photo)).toEqual(["a.txt"]);
   });
 
   test("a tracked file deleted after the photo is in scope; an untracked one is gone from git", () => {
@@ -226,7 +239,7 @@ describe("sessionFiles", () => {
     remove(repo, "a.txt");
     remove(repo, "c.txt");
 
-    expect(sessionFiles(repo, photo)).toEqual(["a.txt"]);
+    expect(sessionFiles(treeOf(repo), photo)).toEqual(["a.txt"]);
   });
 
   test("a file deleted before the photo and still deleted is not in scope", () => {
@@ -234,7 +247,7 @@ describe("sessionFiles", () => {
     remove(repo, "a.txt");
     const photo = photoOf(repo);
 
-    expect(sessionFiles(repo, photo)).toEqual([]);
+    expect(sessionFiles(treeOf(repo), photo)).toEqual([]);
   });
 
   test("a file renamed after the photo puts both paths in scope", () => {
@@ -242,7 +255,7 @@ describe("sessionFiles", () => {
     const photo = photoOf(repo);
     git(repo, "mv", "a.txt", "renamed.txt");
 
-    expect(sessionFiles(repo, photo)).toEqual(["a.txt", "renamed.txt"]);
+    expect(sessionFiles(treeOf(repo), photo)).toEqual(["a.txt", "renamed.txt"]);
   });
 
   test("a file under .claude/worktrees/x/ created after the photo is not in scope", () => {
@@ -250,7 +263,7 @@ describe("sessionFiles", () => {
     const photo = photoOf(repo);
     writeRepoFile(repo, ".claude/worktrees/x/f.txt", "f\n");
 
-    expect(sessionFiles(repo, photo)).toEqual([]);
+    expect(sessionFiles(treeOf(repo), photo)).toEqual([]);
   });
 
   test("a photo taken on a clean tree, then two new files: both, sorted", () => {
@@ -259,7 +272,7 @@ describe("sessionFiles", () => {
     writeRepoFile(repo, "z.txt", "z\n");
     writeRepoFile(repo, "dir/m.txt", "m\n");
 
-    expect(sessionFiles(repo, photo)).toEqual(["dir/m.txt", "z.txt"]);
+    expect(sessionFiles(treeOf(repo), photo)).toEqual(["dir/m.txt", "z.txt"]);
   });
 
   test("a file whose content is restored to the photo's content is not in scope", () => {
@@ -269,7 +282,7 @@ describe("sessionFiles", () => {
     writeRepoFile(repo, "a.txt", "a3\n");
     writeRepoFile(repo, "a.txt", "a2\n");
 
-    expect(sessionFiles(repo, photo)).toEqual([]);
+    expect(sessionFiles(treeOf(repo), photo)).toEqual([]);
   });
 
   test("an ignored file is never in scope", () => {
@@ -278,13 +291,31 @@ describe("sessionFiles", () => {
     writeRepoFile(repo, "debug.log", "noise\n");
     writeRepoFile(repo, "dir/other.log", "noise\n");
 
-    expect(sessionFiles(repo, photo)).toEqual([]);
+    expect(sessionFiles(treeOf(repo), photo)).toEqual([]);
+  });
+});
+
+describe("dirtyTree and rehashed", () => {
+  test("null when git status fails (not a git repo)", () => {
+    expect(dirtyTree(plainDir())).toBeNull();
   });
 
-  test("null when git status fails (not a git repo)", () => {
-    const photo = photoOf(repoWith());
+  test("hashes each dirty path once, and rehashes only the files named", () => {
+    const repo = repoWith();
+    writeRepoFile(repo, "a.txt", "a2\n");
+    writeRepoFile(repo, "c.txt", "c\n");
+    const tree = treeOf(repo);
 
-    expect(sessionFiles(plainDir(), photo)).toBeNull();
+    expect(Object.fromEntries(tree)).toEqual({ "a.txt": sha256("a2\n"), "c.txt": sha256("c\n") });
+
+    writeRepoFile(repo, "a.txt", "a3\n");
+    writeRepoFile(repo, "c.txt", "c2\n");
+
+    expect(Object.fromEntries(rehashed(tree, repo, ["a.txt"]))).toEqual({
+      "a.txt": sha256("a3\n"),
+      "c.txt": sha256("c\n"),
+    });
+    expect(Object.fromEntries(tree)["a.txt"]).toBe(sha256("a2\n"));
   });
 });
 
@@ -296,7 +327,7 @@ describe("wholeDirtyTree", () => {
     remove(repo, "b.txt");
     writeRepoFile(repo, ".claude/worktrees/x/f.txt", "f\n");
 
-    expect(wholeDirtyTree(repo)).toEqual(["a.txt", "b.txt", "c.txt"]);
+    expect(wholeDirtyTree(treeOf(repo))).toEqual(["a.txt", "b.txt", "c.txt"]);
   });
 
   test("leaves out the scratch copy of a pre-edit running at that moment", () => {
@@ -304,11 +335,7 @@ describe("wholeDirtyTree", () => {
     writeRepoFile(repo, "src/.agent-hooks-x1/a.ts", "scratch\n");
     writeRepoFile(repo, "src/real.ts", "real\n");
 
-    expect(wholeDirtyTree(repo)).toEqual(["src/real.ts"]);
-  });
-
-  test("null outside a git repo", () => {
-    expect(wholeDirtyTree(plainDir())).toBeNull();
+    expect(wholeDirtyTree(treeOf(repo))).toEqual(["src/real.ts"]);
   });
 });
 
@@ -317,23 +344,23 @@ describe("dirtyDigest", () => {
     const repo = repoWith();
     writeRepoFile(repo, "a.txt", "a2\n");
 
-    expect(dirtyDigest(repo)).toBe(dirtyDigest(repo));
+    expect(dirtyDigest(treeOf(repo))).toBe(dirtyDigest(treeOf(repo)));
   });
 
   test("a modified file changes the digest", () => {
     const repo = repoWith();
     writeRepoFile(repo, "a.txt", "a2\n");
-    const before = dirtyDigest(repo);
+    const before = dirtyDigest(treeOf(repo));
     writeRepoFile(repo, "a.txt", "a3\n");
 
-    expect(dirtyDigest(repo)).not.toBe(before);
+    expect(dirtyDigest(treeOf(repo))).not.toBe(before);
   });
 
   test("a new untracked file changes the digest", () => {
     const repo = repoWith();
-    const before = dirtyDigest(repo);
+    const before = dirtyDigest(treeOf(repo));
     writeRepoFile(repo, "c.txt", "c\n");
 
-    expect(dirtyDigest(repo)).not.toBe(before);
+    expect(dirtyDigest(treeOf(repo))).not.toBe(before);
   });
 });

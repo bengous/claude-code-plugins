@@ -1,7 +1,7 @@
 /* oxlint-disable anti-slop/no-unsafe-dictionary-type -- this harness builds hook payloads and reads hook outputs as JSON: a closed type would assert the schema instead of the behaviour, and a wrong shape has to fail an assertion rather than the compiler. */
 import type { Mock } from "bun:test";
 import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
-import { existsSync, rmSync } from "node:fs";
+import { chmodSync, existsSync, readFileSync, rmSync } from "node:fs";
 import path from "node:path";
 
 import { CONFIG_RELATIVE_PATH } from "./config.ts";
@@ -492,6 +492,44 @@ describe("runStop", () => {
 
     expect(await stop()).toBeNull();
     expect(state().lastRun?.lanes).toEqual({ lint: "skipped", build: "ok" });
+  });
+
+  test("one Stop reads the dirty tree with a single git status", async () => {
+    setUp(
+      JSON.stringify({
+        stop: {
+          fixers: { strip: { on: "**/*.ts", file: "stripper {file}" } },
+          lanes: { lint: { on: "**/*.ts", takes: "files", run: "checker {files}" } },
+        },
+      }),
+    );
+    fakeTool(temp.repo, "stripper", "sed -i 's/BAD/GOOD/' \"$1\"");
+    await sessionStart();
+    writeRepoFile(temp.repo, "src/new.ts", "BAD\n");
+
+    const realGit = Bun.which("git") ?? "git";
+    const log = path.join(temp.dir, "git.log");
+    writeRepoFile(temp.bin, "git", `#!/bin/sh\necho "$1" >> "${log}"\nexec "${realGit}" "$@"\n`);
+    chmodSync(path.join(temp.bin, "git"), 0o755);
+    const savedPath = process.env["PATH"];
+    process.env["PATH"] = `${temp.bin}:${savedPath ?? ""}`;
+
+    try {
+      expect(await stop()).toBeNull();
+    } finally {
+      process.env["PATH"] = savedPath;
+    }
+
+    const statuses = readFileSync(log, "utf8")
+      .split("\n")
+      .filter((line) => line === "status");
+
+    expect(statuses).toHaveLength(1);
+    expect(state().lastRun?.lanes).toEqual({ lint: "ok" });
+
+    // The digest of the green key is the tree the fixers left: the next Stop on it hits the cache.
+    expect(await stop()).toBeNull();
+    expect(state().lastRun?.lanes).toEqual({ lint: "green" });
   });
 
   test("answers Codex with continue and takes turn_id as the prompt id", async () => {

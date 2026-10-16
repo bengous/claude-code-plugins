@@ -422,6 +422,15 @@ describe("runHook", () => {
     expect(errors).toHaveBeenCalledWith(expect.stringContaining("agent-hooks: state not saved:"));
   });
 
+  test("an edit hook that changes nothing writes no state", async () => {
+    writeConfig(temp.repo, VALID_CONFIG);
+
+    expect(
+      await runHook({ hook: "pre-edit", harness: "claude", payload: payload(), handler: allow }),
+    ).toBeNull();
+    expect(existsSync(statePath("s1", temp.repo))).toBe(false);
+  });
+
   test("saves the state of the session", async () => {
     writeConfig(temp.repo, VALID_CONFIG);
     fakeTool(temp.repo, "checker", "exit 0");
