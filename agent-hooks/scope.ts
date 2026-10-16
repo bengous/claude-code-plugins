@@ -9,6 +9,9 @@ export const WORKTREES_PREFIX = ".claude/worktrees/";
 
 export const DELETED = "deleted";
 
+/** The directory pre-edit writes its scratch copy into, beside the real file, for the time its fixers run. */
+export const SCRATCH_PREFIX = ".agent-hooks-";
+
 /** The nearest ancestor of `start` (itself included) that holds `.claude/agent-hooks.jsonc`. */
 export function findRoot(start: string): string | null {
   let dir = path.resolve(start);
@@ -45,8 +48,9 @@ export function headSha(root: string): string | null {
 }
 
 /**
- * The dirty and untracked paths of the checkout, relative to `root`, in git's order. `-uall` lists every file of a
- * new directory instead of the directory alone. `null` when git fails or prints an entry the parser cannot read.
+ * The dirty and untracked paths of the checkout, relative to `root`, in git's order, minus the scratch copies a
+ * concurrent pre-edit holds. `-uall` lists every file of a new directory instead of the directory alone. `null`
+ * when git fails or prints an entry the parser cannot read.
  */
 export function dirtyPaths(root: string): string[] | null {
   const output = git(root, ["status", "--porcelain=v1", "-z", "-uall"]);
@@ -62,7 +66,10 @@ export function dirtyPaths(root: string): string[] | null {
     return null;
   }
 
-  return relativeToRoot(parsed, toplevel, root);
+  return relativeToRoot(parsed, toplevel, root).filter(
+    (relativePath) =>
+      !relativePath.split("/").some((segment) => segment.startsWith(SCRATCH_PREFIX)),
+  );
 }
 
 function relativeToRoot(paths: readonly string[], toplevel: string, root: string): string[] {

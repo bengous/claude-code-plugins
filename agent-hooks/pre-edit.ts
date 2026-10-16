@@ -1,5 +1,4 @@
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
 import path from "node:path";
 
 import { isExcluded } from "./config.ts";
@@ -8,6 +7,7 @@ import { ALLOW } from "./hook.ts";
 import { stringField } from "./json.ts";
 import type { FixTarget } from "./lanes.ts";
 import { runFixers, sequential } from "./lanes.ts";
+import { SCRATCH_PREFIX } from "./scope.ts";
 
 const APPLY_PATCH_PREFIXES = [
   "*** Add File: ",
@@ -45,7 +45,11 @@ export async function runPreEdit(context: HookContext): Promise<Verdict> {
     return ALLOW;
   }
 
-  const scratchDir = mkdtempSync(path.join(tmpdir(), "agent-hooks-"));
+  // Beside the real file, so a fixer finds the config and matches the overrides and ignores the real file would.
+  const scratchDir = mkdtempSync(
+    path.join(nearestDirectory(path.dirname(absolute)), SCRATCH_PREFIX),
+  );
+
   const scratch = path.join(scratchDir, path.basename(absolute));
 
   try {
@@ -180,6 +184,11 @@ export function extractApplyPatchPaths(patch: string): string[] {
   }
 
   return [...paths];
+}
+
+/** `dir`, or its nearest ancestor on disk: where a file of a directory the tool will create finds its config. */
+function nearestDirectory(dir: string): string {
+  return existsSync(dir) ? dir : nearestDirectory(path.dirname(dir));
 }
 
 /** The path relative to the root, or null for a file outside it. */

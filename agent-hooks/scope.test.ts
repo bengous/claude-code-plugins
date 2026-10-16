@@ -299,6 +299,14 @@ describe("wholeDirtyTree", () => {
     expect(wholeDirtyTree(repo)).toEqual(["a.txt", "b.txt", "c.txt"]);
   });
 
+  test("leaves out the scratch copy of a pre-edit running at that moment", () => {
+    const repo = repoWith();
+    writeRepoFile(repo, "src/.agent-hooks-x1/a.ts", "scratch\n");
+    writeRepoFile(repo, "src/real.ts", "real\n");
+
+    expect(wholeDirtyTree(repo)).toEqual(["src/real.ts"]);
+  });
+
   test("null outside a git repo", () => {
     expect(wholeDirtyTree(plainDir())).toBeNull();
   });

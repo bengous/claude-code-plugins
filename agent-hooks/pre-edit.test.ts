@@ -123,6 +123,9 @@ describe("Write", () => {
     });
     expect(leftover).toEqual([]);
     expect(existsSync(path.join(repo, "src/a.ts"))).toBeFalse();
+    expect(readdirSync(repo, { recursive: true, encoding: "utf8" })).not.toContainEqual(
+      expect.stringContaining(".agent-hooks-"),
+    );
   });
 
   test("keeps the tool input fields of the real payload", async () => {
@@ -482,6 +485,53 @@ describe("fixers", () => {
     } finally {
       stderr.mockRestore();
     }
+  });
+
+  describe("a fixer that finds its config from the file's path", () => {
+    // Walks up from the file it is given, as oxlint finds a nested config and matches an override by path.
+    const NEAREST_CONFIG_FIXER = [
+      'dir=$(dirname "$1")',
+      'while [ "$dir" != "/" ]; do',
+      '  if [ -f "$dir/.fixrc" ]; then sed -i "s/BAD/GOOD/" "$1"; exit 0; fi',
+      '  dir=$(dirname "$dir")',
+      "done",
+    ].join("\n");
+
+    function nestedConfigRepo(): TempRepo {
+      const temp = repoWith(
+        `{ "pre-edit": { "fixers": { "nearest": { "on": "**/*.ts", "file": "nearest {file}" } } } }`,
+        { "src/.fixrc": "on\n" },
+      );
+
+      fakeTool(temp.repo, "nearest", NEAREST_CONFIG_FIXER);
+
+      return temp;
+    }
+
+    test("sees the config of the file's own directory", async () => {
+      const { repo } = nestedConfigRepo();
+
+      const verdict = await runPreEdit(
+        toolContext(repo, "Write", { file_path: path.join(repo, "src/a.ts"), content: "BAD\n" }),
+      );
+
+      expect(verdict).toMatchObject({ kind: "rewrite", updatedInput: { content: "GOOD\n" } });
+      expect(readdirSync(path.join(repo, "src")).toSorted()).toEqual([".fixrc"]);
+    });
+
+    test("sees it for a file in a directory that does not exist yet", async () => {
+      const { repo } = nestedConfigRepo();
+
+      const verdict = await runPreEdit(
+        toolContext(repo, "Write", {
+          file_path: path.join(repo, "src/new/deep/a.ts"),
+          content: "BAD\n",
+        }),
+      );
+
+      expect(verdict).toMatchObject({ kind: "rewrite", updatedInput: { content: "GOOD\n" } });
+      expect(existsSync(path.join(repo, "src/new"))).toBeFalse();
+    });
   });
 
   test("fixers run with the root as cwd", async () => {
