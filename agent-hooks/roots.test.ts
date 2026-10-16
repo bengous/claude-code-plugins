@@ -132,16 +132,20 @@ describe("the roots a Stop checks", () => {
     expect(reason).toContain("src/b.ts:1:1: BAD");
   });
 
-  test("a Stop from a root the session never photographed checks the roots it did, not that one's whole tree", async () => {
+  test("a Stop checks its cwd's root too, over its whole dirty tree when the session never photographed it", async () => {
     const home = repo({ [CONFIG_RELATIVE_PATH]: laneConfig("checker") });
     const other = repo({ [CONFIG_RELATIVE_PATH]: laneConfig("checker"), "src/old.ts": "ok\n" });
     shareStateDir(home);
     fakeTool(home.repo, "checker", checker("BAD"));
     fakeTool(other.repo, "checker", checker("BAD"));
-    // Another session's red work, there before this session started.
-    writeRepoFile(other.repo, "src/old.ts", "BAD\n");
     await hook("session-start", runSessionStart, { cwd: home.repo });
+    // A change no Edit or Write photographed: Bash, or a Codex patch.
+    writeRepoFile(other.repo, "src/old.ts", "BAD\n");
 
-    expect(await hook("stop", runStop, { cwd: other.repo, prompt_id: "p1" })).toBeNull();
+    const reason = reasonOf(await hook("stop", runStop, { cwd: other.repo, prompt_id: "p1" }));
+
+    expect(reason).toContain(`${other.repo}:`);
+    expect(reason).toContain("src/old.ts:1:1: BAD");
+    expect(reason).toContain("no photo for this root, checking the whole dirty tree");
   });
 });

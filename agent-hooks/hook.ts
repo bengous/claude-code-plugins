@@ -198,19 +198,21 @@ function rootAt(start: string | null): string[] {
 
 /**
  * The roots a Stop checks: each one the session photographed, at its SessionStart or its first edit there, wherever
- * its cwd has moved since. A main session that photographed none falls back on the root around its cwd, whose whole
- * dirty tree it then checks; a subagent that photographed none edited nothing, and its Stop checks nothing.
+ * its cwd has moved since, and the root around its cwd, checked over its whole dirty tree when it has no photo:
+ * Bash and a Codex patch photograph nothing, and checking too much beats missing a root. A subagent checks only the
+ * roots it photographed: over a shared checkout's whole tree, one that edited nothing would block on its parent's
+ * work.
  */
 function stopRoots(input: Input, start: string | null): string[] {
   const photographed = photographedRoots(stateKey(input)).filter((root) =>
     existsSync(configPath(root)),
   );
 
-  if (photographed.length > 0) {
+  if (input.agentId !== undefined) {
     return photographed;
   }
 
-  return input.agentId === undefined ? rootAt(start) : [];
+  return [...new Set([...photographed, ...rootAt(start)])].toSorted();
 }
 
 /**
