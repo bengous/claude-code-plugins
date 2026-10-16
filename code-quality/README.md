@@ -26,6 +26,15 @@ repo-wide audits.
 Verify no behavioral regressions after implementation: spawns parallel subagents for
 semantic diff review while the test suite runs. Moved here from claude-meta-tools in 1.5.0.
 
+### correct
+
+Turn a mistake that must not recur into a control that fails on it. The skill tries
+architecture, types, a lint whose error names the fix, a test, then a hook, and writes an
+instruction only for a judgment call; each control is proven red on the past error and keeps
+it as a fixture. The idea comes from the `correct` skill of
+[pstack](https://github.com/cursor/plugins/tree/main/pstack) (MIT, Lauren Tan), rewritten
+for oxlint, strict TypeScript, Bun tests and Claude Code hooks.
+
 ## Philosophy
 
 Good code should be self-documenting. Comments should only exist when:
