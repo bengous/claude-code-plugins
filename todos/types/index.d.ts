@@ -28,7 +28,10 @@ export type Todo = Dated &
 
 export type Finding = Extract<Todo, { readonly source: "finding" }>;
 
-/** What the band keeps of a scan: the counts, and only as many TODOs as it scrolls through, since $.state caps a value's size. */
+/**
+ * What the band keeps of a scan: the counts, and only as many TODOs as it scrolls through, since $.state caps a value's size.
+ * The findings are apart: `total` and `mineTotal` count the TODOs alone, and a record rereads the findings without the rest.
+ */
 export type TodoScan = {
   readonly scannedAt: number;
   readonly root: string;

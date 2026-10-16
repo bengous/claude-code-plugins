@@ -50,6 +50,7 @@ function fakeHost(answers: {
   remote?: RunResult;
   cpus?: RunResult | Error;
   findings?: Record<string, string>;
+  gone?: readonly string[];
 }): Fake {
   const calls: (readonly string[])[] = [];
 
@@ -78,17 +79,24 @@ function fakeHost(answers: {
         answers.blame?.[argv.at(-1) ?? ""] ?? failed(128, "fatal: unexpected blame"),
       );
     },
-    exists: (path) =>
-      Promise.resolve(
-        path === BUFFER ? answers.findings !== undefined : answers.list !== undefined,
-      ),
-    read: (path) =>
-      Promise.resolve(
-        path.startsWith(`${BUFFER}/`)
-          ? (answers.findings?.[path.slice(BUFFER.length + 1)] ?? "")
-          : (answers.list ?? ""),
-      ),
-    listFiles: () => Promise.resolve(Object.keys(answers.findings ?? {})),
+    exists: (path) => {
+      if (path === BUFFER) return Promise.resolve(answers.findings !== undefined);
+
+      if (path.startsWith(`${BUFFER}/`))
+        return Promise.resolve(path.slice(BUFFER.length + 1) in (answers.findings ?? {}));
+
+      return Promise.resolve(answers.list !== undefined);
+    },
+    read: (path) => {
+      if (!path.startsWith(`${BUFFER}/`)) return Promise.resolve(answers.list ?? "");
+      const text = answers.findings?.[path.slice(BUFFER.length + 1)];
+
+      return text === undefined
+        ? Promise.reject(new Error(`ENOENT: ${path}`))
+        : Promise.resolve(text);
+    },
+    listFiles: () =>
+      Promise.resolve([...Object.keys(answers.findings ?? {}), ...(answers.gone ?? [])]),
   };
 
   return { host, calls };
@@ -252,7 +260,7 @@ function record(why: string, kind: string, recordedAt: number): string {
 }
 
 describe("findings", () => {
-  test("reads the buffer from the git common directory, among the TODOs by date", async () => {
+  test("reads the buffer from the git common directory, apart from the TODOs, newest first", async () => {
     const { host, calls } = fakeHost({
       grep: ok("src/b.sh\u00003\u0000# FIXME: old comment\n"),
       blame: { "src/b.sh": ok(porcelain(3, NOW - 400 * DAY)) },
@@ -267,12 +275,13 @@ describe("findings", () => {
     const scan = await scanRepo(host, ROOT, ["FIXME"], NOW);
 
     expect(scan.failures).toEqual([]);
-    expect(scan.todos.map((item) => [item.source, item.marker, item.text])).toEqual([
-      ["finding", "FINDING", "retries forever"],
-      ["finding", "SECURITY", "prints the token"],
-      ["comment", "FIXME", "old comment"],
+    expect(scan.todos.map((item) => [item.source, item.text])).toEqual([
+      ["comment", "old comment"],
     ]);
-    expect(scan.findings.map((finding) => finding.id)).toEqual(["a1b2c3d4", "9f8e7d6c"]);
+    expect(scan.findings.map((finding) => [finding.id, finding.marker])).toEqual([
+      ["a1b2c3d4", "FINDING"],
+      ["9f8e7d6c", "SECURITY"],
+    ]);
     expect(calls).toContainEqual([
       "git",
       "rev-parse",
@@ -293,6 +302,19 @@ describe("findings", () => {
     const scan = await scanRepo(host, ROOT, ["TODO"], NOW);
 
     expect(scan.failures).toEqual([`finding ${BUFFER}/0badc0de.json: \`why\` is empty`]);
+    expect(scan.findings.map((finding) => finding.id)).toEqual(["a1b2c3d4"]);
+  });
+
+  test("skips a finding closed between the listing and its read", async () => {
+    const { host } = fakeHost({
+      grep: failed(1, ""),
+      findings: { "a1b2c3d4.json": record("retries forever", "finding", NOW) },
+      gone: ["0badc0de.json"],
+    });
+
+    const scan = await scanRepo(host, ROOT, ["TODO"], NOW);
+
+    expect(scan.failures).toEqual([]);
     expect(scan.findings.map((finding) => finding.id)).toEqual(["a1b2c3d4"]);
   });
 

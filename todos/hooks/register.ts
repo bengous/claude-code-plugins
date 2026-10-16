@@ -11,6 +11,7 @@ import {
   isMine,
   isScannedPath,
   issueNumber,
+  listedTodos,
   LIST_FILE,
   parseMarkers,
   pickedTodos,
@@ -20,7 +21,15 @@ import {
   sourceLabel,
   todoId,
 } from "./parse.ts";
-import { type Host, isExcludedPath, locate, repoRoot, type ScanResult, scanRepo } from "./scan.ts";
+import {
+  type Host,
+  isExcludedPath,
+  locate,
+  readFindings,
+  repoRoot,
+  type ScanResult,
+  scanRepo,
+} from "./scan.ts";
 
 const NO_SCAN: TodoScan | null = null;
 
@@ -109,7 +118,7 @@ function kept(scan: ScanResult): TodoScan {
 }
 
 function countText(scan: TodoScan, mineOnly: boolean): string {
-  if (scan.total === 0) return "No TODOs in this repository.";
+  if (scan.total === 0 && scan.findings.length === 0) return "No TODOs in this repository.";
   const counted = `${scan.total} ${scan.total === 1 ? "TODO" : "TODOs"} above the prompt`;
   const mine = mineOnly ? `, ${scan.mineTotal} of them yours` : "";
 
@@ -171,7 +180,7 @@ async function refresh(
 
   if (reveal) {
     await update($, windowOffset, () => 0);
-    await update($, isVisible, () => state.total > 0);
+    await update($, isVisible, () => state.total > 0 || state.findings.length > 0);
   }
 
   return state;
@@ -190,19 +199,27 @@ async function refreshOrToast(
   }
 }
 
-async function announceNewFindings(
-  $: EngineInterface,
-  settings: Settings,
-  scan: TodoScan,
-): Promise<void> {
+/**
+ * After a record or a close, the buffer alone is read again: the TODOs did not change, and the scan's own
+ * failures were toasted when it ran. A broken record stays for the next scan to report.
+ */
+async function announceNewFindings($: EngineInterface, scan: TodoScan): Promise<void> {
   const known = new Set(scan.findings.map((finding) => finding.id));
 
   try {
-    const state = await refresh($, settings, scan.root, false);
+    const { findings } = await readFindings(hostOf($), scan.root);
+    const stored = findings.slice(0, KEPT_TODOS);
 
-    const toast = newFindingToast(
-      (state?.findings ?? []).filter((finding) => !known.has(finding.id)),
+    await update($, scanState, (state) =>
+      state?.root === scan.root ? { ...state, findings: stored } : state,
     );
+
+    const state = await read($, scanState);
+
+    if (state !== null)
+      await update($, pickedIds, (ids) => pickedTodos(state, ids).map((todo) => todoId(todo)));
+
+    const toast = newFindingToast(findings.filter((finding) => !known.has(finding.id)));
 
     if (toast !== "") $.ui.toast(toast);
   } catch (error) {
@@ -372,7 +389,7 @@ export const register: Register = (on, options) => {
 
     if ("deny" in result || result.isError === true || scan === null) return result;
     // Not awaited, as after an edit: the rescan blames every file that holds a TODO.
-    void announceNewFindings($, settings, scan);
+    void announceNewFindings($, scan);
 
     return result;
   });
@@ -391,7 +408,7 @@ export const register: Register = (on, options) => {
     const scan = await read($, scanState);
 
     if (scan === null) return next(e);
-    const count = ((await read($, isMineOnly)) ? scan.mineTodos : scan.todos).length;
+    const count = listedTodos(scan, await read($, isMineOnly)).length;
     const offset = await read($, windowOffset);
     const from = windowStart(offset, count, drawnRows);
 
@@ -412,14 +429,19 @@ export const register: Register = (on, options) => {
   on("ui.render", { component: "AbovePrompt" }, async ($, e, next) => {
     const scan = await read($, scanState);
 
-    if (e.props.hasSurvey || scan === null || scan.total === 0 || !(await read($, isVisible))) {
+    if (
+      e.props.hasSurvey ||
+      scan === null ||
+      (scan.total === 0 && scan.findings.length === 0) ||
+      !(await read($, isVisible))
+    ) {
       return next(e);
     }
 
     const { Box, Button, Link, Text } = $.ui.resolve(e);
     const mineOnly = await read($, isMineOnly);
-    const listed = mineOnly ? scan.mineTodos : scan.todos;
-    const listedTotal = mineOnly ? scan.mineTotal : scan.total;
+    const listed = listedTodos(scan, mineOnly);
+    const listedTotal = (mineOnly ? scan.mineTotal : scan.total) + scan.findings.length;
 
     const fitRows = (chromeRows: number) =>
       Math.max(1, Math.min(settings.rows, e.props.maxRows - chromeRows));

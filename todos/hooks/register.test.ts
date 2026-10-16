@@ -76,7 +76,12 @@ function run(stdout: string, exitCode = 0, stderr = "") {
   };
 }
 
-type Repo = { readonly clock: MockClock; readonly toasts: string[]; readonly reads: string[] };
+type Repo = {
+  readonly clock: MockClock;
+  readonly toasts: string[];
+  readonly reads: string[];
+  readonly gitCommands: string[];
+};
 
 function stubRepo(
   on: On,
@@ -88,11 +93,13 @@ function stubRepo(
     draft = "",
     cwd = ROOT,
     findings = new Map<string, string>(),
+    isBlameBroken = false,
   } = {},
 ): Repo {
   const clock = mock.clock(on, { now: NOW });
   const toasts: string[] = [];
   const reads: string[] = [];
+  const gitCommands: string[] = [];
 
   const blamed = new Map([
     ["src/a.ts", porcelain(10, NOW - DAY, ME)],
@@ -130,6 +137,7 @@ function stubRepo(
   });
   on("process.run", (_$, e) => {
     if (!isRepo) return run("", 128, "fatal: not a git repository");
+    gitCommands.push(e.argv[1] ?? "");
 
     switch (e.argv[1]) {
       case "rev-parse": {
@@ -156,12 +164,14 @@ function stubRepo(
       }
 
       default:
-        return run(blamed.get(e.argv.at(-1) ?? "") ?? "");
+        return isBlameBroken
+          ? run("", 128, "fatal: bad revision")
+          : run(blamed.get(e.argv.at(-1) ?? "") ?? "");
     }
   });
   on("ui.render", () => ({ type: "Text", props: {}, children: [OTHER_MOD] }));
 
-  return { clock, toasts, reads };
+  return { clock, toasts, reads, gitCommands };
 }
 
 const doNothing = (): void => undefined;
@@ -769,9 +779,11 @@ test("findings from the buffer join the band, a security one in red", async ($, 
   stubRepo(on, { findings: FINDINGS() });
   const answer = await $.command.run(TODOS);
 
-  expect(answer.text).toBe("5 TODOs above the prompt; 2 findings to review.");
+  expect(answer.text).toBe("3 TODOs above the prompt; 2 findings to review.");
   const ui = await $.ui.mount(BAND);
   const shown = await texts(ui);
+
+  expect(shown).toContain("· 3");
 
   expect(shown).toContain("· 2 findings");
   expect(shown).toContain("· 1 security");
@@ -859,4 +871,27 @@ test("a plain todos-finding call runs unasked, unless a rule denies it", async (
   expect(await decide("todos-finding src/a.ts 'x' && rm -rf src")).toBe("ask");
   expect(await decide('todos-finding src/a.ts "$(cat ~/.netrc)"')).toBe("ask");
   expect(await decide("todos-finding src/a.ts 'x'", "deny")).toBe("deny");
+});
+
+test("a recorded finding rereads the buffer alone, and toasts no older failure again", async ($, on) => {
+  const findings = new Map<string, string>();
+  const { clock, toasts, gitCommands } = stubRepo(on, { findings, isBlameBroken: true });
+
+  on("tool.call", { tool: "Bash" }, () => {
+    findings.set("a1b2c3d4.json", finding("retries forever", "finding", NOW));
+
+    return { result: { stdout: "Recorded finding a1b2c3d4", stderr: "", interrupted: false } };
+  });
+  await $.command.run(TODOS);
+  expect(toasts).toEqual(["git blame src/a.ts: fatal: bad revision (+2 more)"]);
+  gitCommands.length = 0;
+  await $.tool.call({ tool: "Bash", command: "todos-finding src/a.ts:4 'retries forever'" });
+  await clock.settle();
+
+  expect(gitCommands).toEqual(["rev-parse"]);
+  expect(toasts).toEqual([
+    "git blame src/a.ts: fatal: bad revision (+2 more)",
+    "New finding at src/a.ts:4: retries forever",
+  ]);
+  expect(await texts(await $.ui.mount(BAND))).toContain("FINDING retries forever");
 });

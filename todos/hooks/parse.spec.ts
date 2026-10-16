@@ -448,6 +448,21 @@ describe("findings", () => {
     expect(sourceLabel(security)).toBe("deploy.sh");
   });
 
+  test("a picked finding is found among the findings, which no TODO list holds", () => {
+    const scan = {
+      scannedAt: 0,
+      root: "/repo",
+      issueBase: null,
+      total: 0,
+      mineTotal: 0,
+      todos: [],
+      mineTodos: [],
+      findings: [plain, security],
+    };
+
+    expect(pickedTodos(scan, [todoId(security)])).toEqual([security]);
+  });
+
   test("a finding keeps its id when its text or line changes", () => {
     expect(todoId(plain)).toBe(todoId({ ...plain, line: 40, text: "edited" }));
   });

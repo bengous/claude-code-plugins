@@ -49,7 +49,7 @@ todos-finding --security deploy.sh 'prints the deploy key to the log'
 - The path is any file or directory of the repository, relative to the shell's directory or absolute, with `:<line>` when the finding is about one line. The words after it say why.
 - Each finding is one file, `<id>.json`, under `todos/findings/` in the repository's git common directory, `.git/todos/findings/` in a plain clone: every worktree of the repository records into the same buffer, and no commit carries it. It holds the path from the repository's root, the line or `null`, why, `finding` or `security`, and when it was recorded.
 - The band lets a plain call run without a permission prompt: `todos-finding` alone, its arguments plain words or quoted strings, with nothing a shell expands or chains (`$`, a backtick or a backslash in double quotes, `;`, `&&`, `|`, a redirect). Any other command goes to your permission rules as usual, and a rule that denies the call still denies it.
-- The band lists the findings among the TODOs by the time they were recorded, `FINDING why`, or `SECURITY why` in bold red, and counts them in its header, the security ones in red. A toast names each new one: `New SECURITY finding at deploy.sh: prints the deploy key to the log`. Mine counts them as yours.
+- The band lists the findings among the TODOs by the time they were recorded, `FINDING why`, or `SECURITY why` in bold red, and counts them in its header apart from the TODOs, the security ones in red: `todos · 3 · 2 findings · 1 security`. After a `todos-finding` call the band reads the buffer again, not the TODOs, and a toast names each new finding: `New SECURITY finding at deploy.sh: prints the deploy key to the log`. Mine counts them as yours.
 - **Review findings** puts every finding in the prompt box, security first, each with its id and date, under a line that asks Claude to recommend an issue, a fix or a dismissal for each, carry out what you choose, and close each handled one with `todos-finding --close <id>`. A finding stays in the buffer until it is closed.
 
 ## Order and age
@@ -73,7 +73,7 @@ When Claude edits a file with `Edit` or `Write` and adds a TODO, a toast names i
 - A string is recognized within one line only: a `# TODO` inside a multi-line string, such as a Python `"""` block, is listed.
 - Every `git blame` runs once per file that holds a TODO, as many at a time as the machine has CPUs, sixteen at most (six on Windows, where `getconf` is missing), so the band of a repository with about a hundred such files opens after close to a second on a 16-CPU machine. Each edit that adds a TODO scans again.
 - A title or comment longer than 200 characters is cut, and control characters are dropped.
-- The list scrolls through the 500 newest TODOs, and as many of yours; the footer counts the others as `+N more`.
+- The list scrolls through the 500 newest TODOs, as many of yours, and the 500 newest findings; the footer counts the others as `+N more`.
 - While the arrows show, an `8` or `9` typed alone into an empty prompt, then a pause, pages the list: it does not start your message.
 - A pick names a TODO by its line: a scan that moves the line, after an edit or `/todos`, drops the pick. A finding keeps its pick until it is closed.
 - A finding names a path as the repository had it when it was recorded; a later commit that moves or deletes the file leaves the finding as it was.

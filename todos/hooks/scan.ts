@@ -196,21 +196,25 @@ async function gitValue(host: Host, root: string, args: readonly string[]): Prom
   return run.exitCode === 0 && value !== "" ? value : null;
 }
 
-type Buffered = { readonly findings: readonly Finding[]; readonly failures: readonly string[] };
+export type Buffered = {
+  readonly findings: readonly Finding[];
+  readonly failures: readonly string[];
+};
 
-/** The findings `todos-finding` recorded, from the git common directory every worktree of the repository shares. */
-async function readFindings(host: Host, root: string): Promise<Buffered> {
+type Read =
+  | { readonly kind: "read"; readonly finding: Finding }
+  | { readonly kind: "gone" }
+  | { readonly kind: "broken"; readonly error: string };
+
+/** The findings `todos-finding` recorded, from the git common directory every worktree of the repository shares, newest first. */
+export async function readFindings(host: Host, root: string): Promise<Buffered> {
   const common = await gitValue(host, root, [
     "rev-parse",
     "--path-format=absolute",
     "--git-common-dir",
   ]);
 
-  if (common === null)
-    return {
-      findings: [],
-      failures: ["git rev-parse --git-common-dir failed: no finding is read"],
-    };
+  if (common === null) throw new Error(`git rev-parse --git-common-dir failed in ${root}`);
   const directory = `${common}/${FINDINGS_DIR}`;
 
   if (!(await host.exists(directory))) return { findings: [], failures: [] };
@@ -222,25 +226,38 @@ async function readFindings(host: Host, root: string): Promise<Buffered> {
   });
 
   const read = await Promise.all(
-    ids.map(async (id) => {
+    ids.map(async (id): Promise<Read> => {
+      const path = `${directory}/${id}.json`;
+
       try {
-        return {
-          isOk: true,
-          finding: findingOf(id, parseRecord(await host.read(`${directory}/${id}.json`))),
-        } as const;
+        return { kind: "read", finding: findingOf(id, parseRecord(await host.read(path))) };
       } catch (error) {
+        // A finding closed between the listing and its read is gone, not broken.
+        if (!(await host.exists(path))) return { kind: "gone" };
+
         return {
-          isOk: false,
-          error: `finding ${directory}/${id}.json: ${error instanceof Error ? error.message : String(error)}`,
-        } as const;
+          kind: "broken",
+          error: `finding ${path}: ${error instanceof Error ? error.message : String(error)}`,
+        };
       }
     }),
   );
 
   return {
-    findings: read.flatMap((result) => (result.isOk ? [result.finding] : [])),
-    failures: read.flatMap((result) => (result.isOk ? [] : [result.error])),
+    findings: read
+      .flatMap((result) => (result.kind === "read" ? [result.finding] : []))
+      .toSorted((a, b) => b.authoredAt - a.authoredAt),
+    failures: read.flatMap((result) => (result.kind === "broken" ? [result.error] : [])),
   };
+}
+
+/** In a scan, a buffer git cannot locate is one failure among the others: the TODOs still show. */
+async function readFindingsOrFailure(host: Host, root: string): Promise<Buffered> {
+  try {
+    return await readFindings(host, root);
+  } catch (error) {
+    return { findings: [], failures: [error instanceof Error ? error.message : String(error)] };
+  }
 }
 
 async function readList(host: Host, root: string): Promise<string | null> {
@@ -259,7 +276,7 @@ export async function scanRepo(
     await Promise.all([
       grepComments(host, root, markers),
       readList(host, root),
-      readFindings(host, root),
+      readFindingsOrFailure(host, root),
       gitValue(host, root, ["config", "user.email"]),
       gitValue(host, root, ["remote", "get-url", "origin"]),
       blameConcurrency(host, root),
@@ -311,7 +328,6 @@ export async function scanRepo(
       ...originOf(LIST_FILE, item.line),
     })),
     ...hits.map((hit): Todo => ({ source: "comment", ...hit, ...originOf(hit.path, hit.line) })),
-    ...buffered.findings,
   ];
 
   return {
@@ -320,7 +336,7 @@ export async function scanRepo(
     userEmail,
     issueBase: remote === null ? null : githubWebUrl(remote),
     todos: sortNewestFirst(todos),
-    findings: buffered.findings.toSorted((a, b) => b.authoredAt - a.authoredAt),
+    findings: buffered.findings,
     failures,
   };
 }

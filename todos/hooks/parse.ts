@@ -281,8 +281,15 @@ export function todoId(todo: Todo): string {
     : JSON.stringify([todo.source, todo.path, todo.line, todo.marker, todo.text]);
 }
 
+/** The band's list: the TODOs, all or only yours, and the findings, which are always yours, newest first. */
+export function listedTodos(scan: TodoScan, isMineOnly: boolean): Todo[] {
+  return sortNewestFirst([...(isMineOnly ? scan.mineTodos : scan.todos), ...scan.findings]);
+}
+
 export function pickedTodos(scan: TodoScan, ids: readonly string[]): Todo[] {
-  const byId = new Map([...scan.todos, ...scan.mineTodos].map((todo) => [todoId(todo), todo]));
+  const byId = new Map(
+    [...scan.todos, ...scan.mineTodos, ...scan.findings].map((todo) => [todoId(todo), todo]),
+  );
 
   return [...byId.values()].filter((todo) => ids.includes(todoId(todo)));
 }
