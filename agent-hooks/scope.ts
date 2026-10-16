@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, statSync } from "node:fs";
 import path from "node:path";
 
 import { CONFIG_RELATIVE_PATH } from "./config.ts";
@@ -48,11 +48,11 @@ export function headSha(root: string): string | null {
 }
 
 /**
- * The dirty and untracked paths of the checkout, relative to `root`, in git's order, minus the scratch copies a
- * concurrent pre-edit holds. `-uall` lists every file of a new directory instead of the directory alone. `null`
- * when git fails or prints an entry the parser cannot read.
+ * The dirty and untracked paths of the checkout, relative to `root`, in git's order, scratch copies included.
+ * `-uall` lists every file of a new directory instead of the directory alone. `null` when git fails or prints an
+ * entry the parser cannot read.
  */
-export function dirtyPaths(root: string): string[] | null {
+function statusPaths(root: string): string[] | null {
   const output = git(root, ["status", "--porcelain=v1", "-z", "-uall"]);
   const toplevel = git(root, ["rev-parse", "--show-toplevel"])?.trim();
 
@@ -62,14 +62,40 @@ export function dirtyPaths(root: string): string[] | null {
 
   const parsed = parseGitStatus(output);
 
-  if (parsed === null) {
-    return null;
-  }
+  return parsed === null ? null : relativeToRoot(parsed, toplevel, root);
+}
 
-  return relativeToRoot(parsed, toplevel, root).filter(
-    (relativePath) =>
-      !relativePath.split("/").some((segment) => segment.startsWith(SCRATCH_PREFIX)),
+/** The dirty and untracked paths of the checkout, minus the scratch copies a concurrent pre-edit holds. */
+export function dirtyPaths(root: string): string[] | null {
+  return statusPaths(root)?.filter((relativePath) => scratchDirOf(relativePath) === null) ?? null;
+}
+
+/** The pre-edit scratch directory a path lies in, or null for a path of the checkout's own. */
+function scratchDirOf(relativePath: string): string | null {
+  const segments = relativePath.split("/");
+  const index = segments.findIndex((segment) => segment.startsWith(SCRATCH_PREFIX));
+
+  return index === -1 ? null : segments.slice(0, index + 1).join("/");
+}
+
+/**
+ * The scratch directories git lists as untracked whose last change is older than `olderThanMs`: a pre-edit's
+ * own lives at most its deadline, so an older one was left by a pre-edit killed while its fixers ran.
+ */
+export function staleScratchDirs(root: string, olderThanMs: number, now = Date.now()): string[] {
+  const dirs = new Set(
+    (statusPaths(root) ?? []).flatMap((relativePath) => scratchDirOf(relativePath) ?? []),
   );
+
+  return [...dirs]
+    .filter((dir) => {
+      try {
+        return statSync(path.join(root, dir)).mtimeMs < now - olderThanMs;
+      } catch {
+        return false;
+      }
+    })
+    .toSorted();
 }
 
 function relativeToRoot(paths: readonly string[], toplevel: string, root: string): string[] {

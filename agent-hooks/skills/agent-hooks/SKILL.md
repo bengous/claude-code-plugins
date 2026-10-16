@@ -65,3 +65,7 @@ Exit 1 means at least one `MISSING` or a failing lane.
   let through. The main session's Stop waits while a subagent, workflow or teammate still runs.
 - State: `~/.local/state/agent-hooks/<session>__<root hash>.json`, `<session>.<agent>__<root hash>.json`
   for a subagent (`lastRun.lanes`, green keys, loop counters), pruned after 7 days.
+- Pre-edit fixes a copy of the new content in `.agent-hooks-XXXX/` beside the file, so the fixers find
+  the config and the overrides of the real path. The kit's own scope never counts that copy, but another
+  tool watching the tree can see it while the fixers run, and a pre-edit killed past its deadline leaves
+  it until the next SessionStart, which removes the ones older than the pre-edit deadline.
