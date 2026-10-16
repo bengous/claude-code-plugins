@@ -6,6 +6,7 @@ import {
   readFileSync,
   readdirSync,
   renameSync,
+  statSync,
   unlinkSync,
   writeFileSync,
 } from "node:fs";
@@ -227,10 +228,11 @@ export function saveState(state: SessionState, now = Date.now()): void {
 }
 
 /**
- * Removes every state file whose `updatedAt` is older than the TTL, and the temporary file of a save cut short;
- * unreadable files count as old.
+ * Removes every state file whose `updatedAt` is older than the TTL, unreadable files counting as old, and every
+ * temporary file older than `staleTemporaryMs`, dated by its mtime and never parsed: a save writes and renames its
+ * own within one hook, so a younger one may be a save under way, half written.
  */
-export function pruneStates(now = Date.now()): void {
+export function pruneStates(staleTemporaryMs: number, now = Date.now()): void {
   let files: string[];
 
   try {
@@ -240,19 +242,27 @@ export function pruneStates(now = Date.now()): void {
   }
 
   for (const file of files) {
-    if (!file.endsWith(".json") && !file.endsWith(TEMPORARY_SUFFIX)) {
-      continue;
-    }
-
     const filePath = path.join(stateDir(), file);
 
-    if (now - updatedAtOf(filePath) > STATE_TTL_MS) {
+    const stale = file.endsWith(TEMPORARY_SUFFIX)
+      ? now - modifiedAt(filePath) > staleTemporaryMs
+      : file.endsWith(".json") && now - updatedAtOf(filePath) > STATE_TTL_MS;
+
+    if (stale) {
       try {
         unlinkSync(filePath);
       } catch {
         // A file removed by a concurrent session is not an error.
       }
     }
+  }
+}
+
+function modifiedAt(filePath: string): number {
+  try {
+    return statSync(filePath).mtimeMs;
+  } catch {
+    return Number.POSITIVE_INFINITY;
   }
 }
 

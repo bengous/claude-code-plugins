@@ -25,7 +25,7 @@ export function runSessionStart(context: HookContext): Promise<Verdict> {
     rmSync(path.join(context.root, dir), { recursive: true, force: true });
   }
 
-  pruneStates();
+  pruneStates(Math.max(...Object.values(DEADLINES_MS)));
 
   return Promise.resolve(ALLOW);
 }

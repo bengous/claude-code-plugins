@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
-import { existsSync, mkdirSync, readdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, utimesSync, writeFileSync } from "node:fs";
 import path from "node:path";
 
 import { sha256 } from "./scope.ts";
@@ -23,6 +23,9 @@ import { createTempRepo, removeTempRepo, scrubGitEnv } from "./test-support.ts";
 const ENV_NAMES = ["AGENT_HOOKS_STATE_DIR", "XDG_STATE_HOME", "HOME"] as const;
 
 const DAY_MS = 24 * 60 * 60 * 1000;
+
+/** The longest hook deadline, as SessionStart passes it. */
+const STALE_TEMPORARY_MS = 200_000;
 
 let temp: TempRepo;
 
@@ -237,32 +240,40 @@ describe("pruneStates", () => {
     writeFileSync(path.join(temp.stateDir, "broken.json"), "{garbage");
     writeFileSync(path.join(temp.stateDir, "notes.txt"), "keep me");
 
-    pruneStates(now);
+    pruneStates(STALE_TEMPORARY_MS, now);
 
     expect(stateFiles()).toEqual(
       [path.basename(statePath("recent", temp.repo)), "notes.txt"].toSorted(),
     );
   });
 
-  test("removes the temporary file a save cut short left behind, once past the TTL", () => {
-    const now = 100 * DAY_MS;
+  test("keeps a temporary file younger than the longest hook deadline, even half written", () => {
+    mkdirSync(temp.stateDir, { recursive: true });
+    const live = `${statePath("live", temp.repo)}.4243.uuid.tmp`;
+    writeFileSync(live, '{"version":1,"sessionId":"li');
+
+    pruneStates(STALE_TEMPORARY_MS);
+
+    expect(existsSync(live)).toBe(true);
+  });
+
+  test("removes a temporary file older than the longest hook deadline, whatever it holds", () => {
     mkdirSync(temp.stateDir, { recursive: true });
     const leftover = `${statePath("crashed", temp.repo)}.4242.uuid.tmp`;
-    writeFileSync(leftover, JSON.stringify(freshState("crashed", temp.repo, now - 8 * DAY_MS)));
-    const fresh = `${statePath("live", temp.repo)}.4243.uuid.tmp`;
-    writeFileSync(fresh, JSON.stringify(freshState("live", temp.repo, now - DAY_MS)));
+    writeFileSync(leftover, JSON.stringify(freshState("crashed", temp.repo)));
+    const before = new Date(Date.now() - 2 * STALE_TEMPORARY_MS);
+    utimesSync(leftover, before, before);
 
-    pruneStates(now);
+    pruneStates(STALE_TEMPORARY_MS);
 
     expect(existsSync(leftover)).toBe(false);
-    expect(existsSync(fresh)).toBe(true);
   });
 
   test("keeps a file exactly at the TTL", () => {
     const now = 100 * DAY_MS;
     saveState(freshState("edge", temp.repo), now - STATE_TTL_MS);
 
-    pruneStates(now);
+    pruneStates(STALE_TEMPORARY_MS, now);
 
     expect(existsSync(statePath("edge", temp.repo))).toBe(true);
   });
@@ -270,7 +281,7 @@ describe("pruneStates", () => {
   test("a missing state dir is not an error", () => {
     expect(existsSync(temp.stateDir)).toBe(false);
     expect(() => {
-      pruneStates();
+      pruneStates(STALE_TEMPORARY_MS);
     }).not.toThrow();
   });
 });
