@@ -89,7 +89,7 @@
     {
       "name": "code-quality",
       "description": "Code quality and cleanup commands for maintaining clean, maintainable code",
-      "version": "2.0.6",
+      "version": "2.1.0",
       "author": {
         "name": "Augustin BENGOLEA",
         "email": "bengous@protonmail.com"
