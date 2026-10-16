@@ -47,11 +47,33 @@ describe("changedRanges", () => {
     ]);
   });
 
+  test("an added line that reads as a file header stays in its hunk's file", () => {
+    const diff = [
+      "diff --git a/agent-hooks/config.ts b/agent-hooks/config.ts",
+      "--- a/agent-hooks/config.ts",
+      "+++ b/agent-hooks/config.ts",
+      "@@ -3 +3,2 @@",
+      "--- a/removed.ts",
+      "+++ b/added.ts",
+      "+// the line above was added as `++ b/added.ts`",
+      "@@ -9 +10 @@",
+      "+later",
+    ].join("\n");
+
+    expect(changedRanges(diff)).toEqual([
+      { file: "agent-hooks/config.ts", start: 3, end: 4 },
+      { file: "agent-hooks/config.ts", start: 10, end: 10 },
+    ]);
+  });
+
   test("a hunk that only deletes, or a deleted file, leaves no line to mutate", () => {
     const diff = [
+      "diff --git a/scripts/changelog.ts b/scripts/changelog.ts",
       "--- a/scripts/changelog.ts",
       "+++ b/scripts/changelog.ts",
       "@@ -10,2 +9,0 @@",
+      "diff --git a/agent-hooks/config.ts b/agent-hooks/config.ts",
+      "deleted file mode 100644",
       "--- a/agent-hooks/config.ts",
       "+++ /dev/null",
       "@@ -1,3 +0,0 @@",
