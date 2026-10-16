@@ -253,6 +253,23 @@ describe("agent-hooks CLI", () => {
     expect(result.stdout).not.toContain("lint:");
   });
 
+  test("verify refuses a named file that is neither on disk nor a deletion git knows", async () => {
+    const result = await cli(["verify", "src/typo.ts"], options());
+
+    expect(result.code).toBe(1);
+    expect(result.stdout).toContain("agent-hooks: no such file: src/typo.ts");
+    expect(result.stdout).not.toContain("scope:");
+  });
+
+  test("verify keeps a tracked file deleted in the tree in its scope", async () => {
+    rmSync(path.join(temp.repo, "src/old.ts"));
+
+    const result = await cli(["verify", "src/old.ts"], options());
+
+    expect(result.code).toBe(0);
+    expect(result.stdout).toContain("scope: src/old.ts\n");
+  });
+
   test("doctor exits 0 when every tool resolves", async () => {
     const result = await cli(["doctor"], options());
 

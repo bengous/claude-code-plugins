@@ -1,3 +1,4 @@
+import { existsSync } from "node:fs";
 import path from "node:path";
 
 import type { Config } from "./config.ts";
@@ -8,6 +9,7 @@ import type { LaneResult } from "./lanes.ts";
 import { isFailure, runFixers, runLanes, sequential } from "./lanes.ts";
 import type { DirtyTree } from "./scope.ts";
 import {
+  DELETED,
   dirtyDigest,
   dirtyTree,
   headSha,
@@ -59,6 +61,25 @@ export async function runVerify(options: VerifyOptions): Promise<VerifyReport> {
     return { scope: [], results: [], exitCode: 1 };
   }
 
+  // A named file must be on disk or a deletion git knows: anything else is a typo, not an empty check.
+  const unknown = options.files.filter((file) => {
+    const relativePath = rootRelative(options, file);
+
+    return (
+      relativePath !== null &&
+      !existsSync(path.join(options.root, relativePath)) &&
+      tree.get(relativePath) !== DELETED
+    );
+  });
+
+  if (unknown.length > 0) {
+    for (const file of unknown) {
+      print(`agent-hooks: no such file: ${file}`);
+    }
+
+    return { scope: [], results: [], exitCode: 1 };
+  }
+
   const scope = verifyScope(options, tree);
   print(`scope: ${scope.length === 0 ? "(empty)" : scope.join(" ")}`);
   const fixOptions = { root: options.root, runner, deadline: deadlineIn(NO_DEADLINE_MS) };
@@ -102,7 +123,7 @@ function rootRelative(options: VerifyOptions, file: string): string | null {
 }
 
 function verifyScope(options: VerifyOptions, tree: DirtyTree): string[] {
-  // A named file gone from disk stays in the scope, as a deleted file does at Stop: a project lane still runs.
+  // A named file git knows as deleted stays in the scope, as at Stop: a project lane still runs on it.
   if (options.files.length > 0) {
     return options.files.flatMap((file) => rootRelative(options, file) ?? []).toSorted();
   }
