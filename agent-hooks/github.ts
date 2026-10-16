@@ -1,12 +1,12 @@
 /* oxlint-disable anti-slop/no-runtime-typeof, anti-slop/no-unsafe-dictionary-type, anti-slop/no-unknown-parameters -- this module IS the parser of what `gh` prints and of the cache file read back from disk: each reader narrows one field of a JSON record, and a value of another shape reads as a failed lookup or no cache. */
-import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import path from "node:path";
 
 import type { Deadline } from "./exec.ts";
 import { outputOf, run, succeeded } from "./exec.ts";
 import { isRecord, recordField, stringField } from "./json.ts";
 import type { Check, PullRequestFacts, RepoFacts } from "./landing.ts";
-import { stateDir } from "./state.ts";
+import { stateDir, writeAtomically } from "./state.ts";
 
 export type Lookup<T> =
   | { readonly kind: "found"; readonly value: T }
@@ -70,13 +70,6 @@ function readCache(file: string, now: number): Cache {
   }
 
   return { updatedAt: now, repos: {} };
-}
-
-function writeCache(file: string, cache: Cache): void {
-  const temporary = `${file}.${process.pid}.tmp`;
-  mkdirSync(path.dirname(file), { recursive: true });
-  writeFileSync(temporary, JSON.stringify(cache));
-  renameSync(temporary, file);
 }
 
 function repoFactsFrom(record: Record<string, unknown>): RepoFacts | null {
@@ -150,7 +143,13 @@ export async function repoFactsOf(
 
   const facts = { visibility, defaultBranch };
   cache.repos[slug] = facts;
-  writeCache(file, cache);
+
+  try {
+    writeAtomically(file, JSON.stringify(cache));
+  } catch (error) {
+    // The cache only saves a lookup: a state dir that cannot be written leaves the verdict as it is.
+    console.error(`agent-hooks: ${file}: cache not written: ${String(error)}`);
+  }
 
   return { kind: "found", value: facts };
 }

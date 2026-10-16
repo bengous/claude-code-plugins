@@ -244,16 +244,19 @@ function isStringArrayRecord(value: unknown): value is Record<string, readonly s
 }
 
 /**
- * Writes the state through a temporary file and a rename, so a reader never sees a half-written file. Each write
- * has its own temporary name: two hooks of one session save at once, and a shared name lets one rename the other's.
+ * Writes `text` through a temporary file and a rename, so a reader never sees a half-written file. Each write has its
+ * own temporary name: two hooks writing one file at once must not rename each other's.
  */
-export function saveState(state: SessionState, now = Date.now()): void {
-  const file = statePath(state.sessionId, state.checkout);
+export function writeAtomically(file: string, text: string): void {
   const temporary = `${file}.${process.pid}.${randomUUID()}${TEMPORARY_SUFFIX}`;
-  state.updatedAt = now;
   mkdirSync(path.dirname(file), { recursive: true });
-  writeFileSync(temporary, JSON.stringify(state));
+  writeFileSync(temporary, text);
   renameSync(temporary, file);
+}
+
+export function saveState(state: SessionState, now = Date.now()): void {
+  state.updatedAt = now;
+  writeAtomically(statePath(state.sessionId, state.checkout), JSON.stringify(state));
 }
 
 /**

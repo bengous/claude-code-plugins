@@ -89,6 +89,17 @@ describe("claudeWiring", () => {
     );
   });
 
+  test("a pre-bash hook in project settings beside the plugin counts as a second wiring", () => {
+    const project = settings(
+      "project.json",
+      hook("PreToolUse", 'bun "/cache/agent-hooks/1.2.0/agent-hooks.ts" pre-bash'),
+    );
+
+    expect(claudeWiring([user({ enabledPlugins: { [PLUGIN]: true } }), project]).line).toStartWith(
+      `WARN    claude wiring: plugin ${PLUGIN} and a hook in ${project}`,
+    );
+  });
+
   test("a Stop and a SubagentStop hook in settings, without the plugin, are the wiring", () => {
     const target = user({
       hooks: {

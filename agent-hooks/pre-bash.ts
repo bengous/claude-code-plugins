@@ -28,6 +28,7 @@ import {
   resolveTargets,
   unreadableProfileRefusal,
 } from "./landing.ts";
+import { git as runGit } from "./scope.ts";
 import type { Invocation } from "./shell.ts";
 import { invocationsOf } from "./shell.ts";
 
@@ -66,15 +67,7 @@ export type PreBashOptions = {
 };
 
 function git(cwd: string, location: readonly string[], args: readonly string[]): string | null {
-  // Without an explicit env Bun.spawnSync reuses the process's original environ and ignores the GIT_* scrub of tests.
-  const proc = Bun.spawnSync(["git", ...location, ...args], {
-    cwd,
-    env: process.env,
-    stdout: "pipe",
-    stderr: "pipe",
-  });
-
-  return proc.exitCode === 0 ? proc.stdout.toString().trim() : null;
+  return runGit(cwd, [...location, ...args])?.trim() ?? null;
 }
 
 /**

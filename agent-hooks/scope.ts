@@ -85,7 +85,7 @@ function isDirectory(absolute: string): boolean {
   }
 }
 
-function git(cwd: string, args: readonly string[]): string | null {
+export function git(cwd: string, args: readonly string[]): string | null {
   // Without an explicit env Bun.spawnSync reuses the process's original environ and ignores the GIT_* scrub of tests.
   const proc = Bun.spawnSync(["git", ...args], {
     cwd,
