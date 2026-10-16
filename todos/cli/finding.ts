@@ -48,6 +48,11 @@ function repoOf(cwd: string): Repo {
   return { top: realpathSync(top), buffer: join(commonDir, FINDINGS_DIR) };
 }
 
+/** Whether a path relative to the repository's root stays under it: `..env` does, `../x` does not. */
+function isInside(fromRoot: string): boolean {
+  return fromRoot !== ".." && !fromRoot.startsWith(`..${sep}`) && !isAbsolute(fromRoot);
+}
+
 function newId(): string {
   return Array.from(crypto.getRandomValues(new Uint8Array(4)), (byte) =>
     byte.toString(16).padStart(2, "0"),
@@ -71,8 +76,7 @@ function record(args: readonly string[], cwd: string, now: Date): string {
   const repo = repoOf(cwd);
   const inside = relative(repo.top, realpathSync(absolute));
 
-  if (inside.startsWith("..") || isAbsolute(inside))
-    throw new Error(`${rawPath} is outside the repository at ${repo.top}`);
+  if (!isInside(inside)) throw new Error(`${rawPath} is outside the repository at ${repo.top}`);
   const path = inside === "" ? "." : inside.split(sep).join("/");
   const id = newId();
   const staged = join(repo.buffer, `.${id}.tmp`);

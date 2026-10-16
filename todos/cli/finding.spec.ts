@@ -97,6 +97,13 @@ describe("recording", () => {
     ).toEqual([["src/a.ts", null, "security", "prints the token"]]);
   });
 
+  test("takes a name that starts with two dots for a path inside", () => {
+    writeFileSync(join(repo, "..env"), "TOKEN=x\n");
+
+    expect(run(["..env", "a token in a dotfile"], repo, NOW).exitCode).toBe(0);
+    expect(recorded().map(({ record }) => record.path)).toEqual(["..env"]);
+  });
+
   test("records from a linked worktree into the repository's one buffer", () => {
     const worktree = join(base, "worktree");
 
