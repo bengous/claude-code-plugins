@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import { githubSlugOf, slugOfPullRequest } from "./github.ts";
+import { githubSlugOf, slugOfPullRequest, slugOfRepoOption } from "./github.ts";
 import type { PullRequestFacts, PushTarget, RepoFacts } from "./landing.ts";
 import {
   CURRENT_BRANCH,
@@ -556,6 +556,13 @@ describe("githubSlugOf", () => {
     expect(githubSlugOf("/srv/git/repo.git")).toBeNull();
     expect(githubSlugOf("../other")).toBeNull();
     expect(githubSlugOf("file:///srv/repo")).toBeNull();
+  });
+
+  test("a --repo value gives its repository", () => {
+    expect(slugOfRepoOption("o/n")).toBe("github.com/o/n");
+    expect(slugOfRepoOption("ghe.example.com/o/n")).toBe("ghe.example.com/o/n");
+    expect(slugOfRepoOption("https://github.com/o/n.git")).toBe("github.com/o/n");
+    expect(slugOfRepoOption("n")).toBeNull();
   });
 
   test("a pull request URL gives its repository", () => {

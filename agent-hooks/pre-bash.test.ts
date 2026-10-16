@@ -304,13 +304,26 @@ describe("pre-bash in a repository with profile.landing", () => {
     expect((await preBash("gh pr merge 7", repo)).reason).toContain("not mergeable (conflicting)");
   });
 
-  test("judges gh pr merge --repo by the default rule: the profile is the cwd's", async () => {
+  test("applies the profile to gh pr merge --repo naming the cwd's own repository", async () => {
+    fakeGh({ pr: { ...GREEN_PR, baseRefName: "main" } });
+
+    for (const option of ["--repo o/n", "--repo=github.com/o/n", "-R https://github.com/O/N.git"]) {
+      expect((await preBash(`gh pr merge 7 ${option}`, repo)).reason).toContain(
+        "#7 merges into 'main', the release",
+      );
+    }
+
+    expect((await preBash("gh release create v1 -R o/n", repo)).decision).toBe("deny");
+  });
+
+  test("judges gh pr merge --repo naming another repository by the default rule", async () => {
     fakeGh({
       repo: { visibility: "PUBLIC", defaultBranchRef: { name: "main" } },
       pr: { ...GREEN_PR, mergeable: "CONFLICTING" },
     });
 
-    expect((await preBash("gh pr merge --repo=o/n 7", repo)).stdout).toBe("");
+    expect((await preBash("gh pr merge --repo=other/repo 7", repo)).stdout).toBe("");
+    expect((await preBash("gh release create v1 -R other/repo", repo)).stdout).toBe("");
   });
 
   test("lets gh pr merge through with a note when the pull request cannot be read", async () => {

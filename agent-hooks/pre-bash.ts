@@ -3,7 +3,13 @@ import path from "node:path";
 
 import type { LandingProfile } from "./config.ts";
 import { ConfigError, configPath, loadProfile } from "./config.ts";
-import { githubSlugOf, pullRequestOf, repoFactsOf, slugOfPullRequest } from "./github.ts";
+import {
+  githubSlugOf,
+  pullRequestOf,
+  repoFactsOf,
+  slugOfPullRequest,
+  slugOfRepoOption,
+} from "./github.ts";
 import { isRecord, recordField, stringField } from "./json.ts";
 import type { GhCommand, GitCommand, ReleaseScript } from "./landing.ts";
 import {
@@ -178,13 +184,23 @@ async function judgePush(
     : refusal(publicPushRefusal(targets, facts.value, slug));
 }
 
+/** Whether `gh --repo <repo>` names the repository the origin remote of `cwd` points to. */
+function isOriginOf(cwd: string, repo: string): boolean {
+  const origin = remoteUrl(cwd, [], "origin");
+  const originSlug = origin === null ? null : githubSlugOf(origin);
+  const named = slugOfRepoOption(repo);
+
+  return originSlug !== null && named?.toLowerCase() === originSlug.toLowerCase();
+}
+
 async function judgeGh(
   cwd: string,
   command: GhCommand,
   context: GuardContext,
 ): Promise<GuardVerdict> {
-  const root = command.repo === null ? rootOf(cwd, []) : null;
-  const profile = root === null ? DEFAULT : profileOf(root);
+  const root = rootOf(cwd, []);
+  const own = command.repo === null || isOriginOf(cwd, command.repo);
+  const profile = root === null || !own ? DEFAULT : profileOf(root);
   const name = command.kind === "release-create" ? "gh release create" : "gh pr merge";
 
   if (profile.kind === "unreadable") {

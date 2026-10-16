@@ -27,6 +27,17 @@ export function githubSlugOf(url: string): string | null {
   return match === null ? null : `${match[1]}/${match[2]}/${match[3]}`;
 }
 
+/** `host/owner/name` of what `gh --repo` takes: `owner/name`, `host/owner/name` or a URL. */
+export function slugOfRepoOption(value: string): string | null {
+  if (value.includes("://") || value.includes("@")) {
+    return githubSlugOf(value);
+  }
+
+  const parts = value.split("/");
+
+  return parts.length === 2 ? `github.com/${value}` : parts.length === 3 ? value : null;
+}
+
 /** `host/owner/name` of a pull request URL. */
 export function slugOfPullRequest(url: string): string | null {
   const match = /^https?:\/\/([\w.-]+)\/([\w.-]+)\/([\w.-]+)\/pull\/\d+/u.exec(url);
