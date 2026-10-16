@@ -45,7 +45,13 @@ const OUT_OF_PLAN =
 const OPEN_QUESTIONS =
   /^(?:\d+[.)]?\s*)?(?:open questions?|questions? (?:ouvertes?|restantes?|en suspens)|unresolved questions?|questions? still open|points? (?:ouverts?|à trancher|en suspens)|à trancher)\b/iu;
 
-const SETTLED = /tranch[ée]s|answered|réponses?|resolved|résolu|settled|closed|ferm[ée]es?/iu;
+/** A heading that marks its questions answered, the word after a comma, a bracket, a colon or a dash. */
+const SETTLED_HEADING =
+  /[,(:—–-]\s*(?:all |toutes )?(?:answered|resolved|settled|closed|résolues?|tranchées?|répondues?|fermées?)(?!\p{L})/iu;
+
+/** A line that says its choice is settled in the plan itself. */
+const SETTLED_HERE =
+  /(?<!\p{L})(?:tranch(?:é|ée|és|ées)|settled|decided|answered|resolved|résolu(?:e|s|es)?)\s+(?:ici|here|below|ci-dessous|plus bas|in this plan|dans ce plan)(?!\p{L})/iu;
 
 /** Words that state the option the author would take; one match settles a question. */
 const STATED_OPTION: readonly RegExp[] = [
@@ -122,7 +128,7 @@ function scan(text: string): ProseLine[] {
 
 function placeholders(lines: readonly ProseLine[]): Finding[] {
   return lines.flatMap(({ line, prose }) => {
-    if (OUT_OF_PLAN.test(prose) || SETTLED.test(prose)) return [];
+    if (OUT_OF_PLAN.test(prose) || SETTLED_HERE.test(prose)) return [];
 
     const found = PLACEHOLDERS.map((pattern) => pattern.exec(prose)?.[0]).find(
       (match) => match !== undefined,
@@ -170,7 +176,11 @@ function questions(section: readonly ProseLine[]): { line: number; text: string 
 
 function openQuestions(lines: readonly ProseLine[]): Finding[] {
   return lines.flatMap(({ heading }, start) => {
-    if (heading === null || !OPEN_QUESTIONS.test(heading.title) || SETTLED.test(heading.title)) {
+    if (
+      heading === null ||
+      !OPEN_QUESTIONS.test(heading.title) ||
+      SETTLED_HEADING.test(heading.title)
+    ) {
       return [];
     }
 

@@ -67,7 +67,13 @@ describe("placeholder", () => {
   test("a choice handed out of the plan, or settled on the same line, is no placeholder", () => {
     expect(checks("# Plan\n\nWhere the logs go: to be decided separately.")).toEqual([]);
     expect(checks("# Plan\n\n> À décider hors de ce plan : le dossier d'archive.")).toEqual([]);
-    expect(checks("## Les « restes à trancher » du grill, tranchés ici")).toEqual([]);
+    expect(checks("Les « restes à trancher » du grill, tranchés ici :")).toEqual([]);
+  });
+
+  test("a word that only sounds settled leaves the placeholder standing", () => {
+    expect(checks("Storage: TBD for the closed tickets.")).toEqual(["placeholder@1"]);
+    expect(checks("- Format de la réponse : à définir")).toEqual(["placeholder@1"]);
+    expect(checks("Les tranches restent à définir.")).toEqual(["placeholder@1"]);
   });
 
   test("TODO and FIXME name the work to log, not a hole in the plan", () => {
@@ -129,6 +135,14 @@ describe("open-question", () => {
     expect(checks("## Open questions\n\nNone.\n")).toEqual([]);
     expect(checks("## Questions ouvertes\n\nAucune pour ce plan.\n")).toEqual([]);
     expect(checks("## Open questions, answered\n\n- Port?\n")).toEqual([]);
+    expect(checks("## Questions ouvertes (tranchées)\n\n- Port ?\n")).toEqual([]);
+  });
+
+  test("a heading that only mentions a settled word stays a questions heading", () => {
+    expect(checks("## Questions ouvertes sur les tranches\n\n- Port ?\n")).toEqual([
+      "open-question@3",
+    ]);
+    expect(checks("## Open questions on resolved bugs\n\n- Port?\n")).toEqual(["open-question@3"]);
   });
 
   test("a subsection belongs to its section, the next sibling heading ends it", () => {
