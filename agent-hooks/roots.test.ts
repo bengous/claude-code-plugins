@@ -14,6 +14,7 @@ import type { TempRepo } from "./test-support.ts";
 import {
   createTempRepo,
   fakeTool,
+  readRepoFile,
   removeTempRepo,
   scrubGitEnv,
   writeRepoFile,
@@ -270,5 +271,47 @@ describe("the roots a Stop checks", () => {
     writeRepoFile(other.repo, "src/old.ts", "BAD\n");
 
     expect(await hook(STOP, { cwd: home.repo, prompt_id: "p1" })).toBeNull();
+  });
+
+  test("an apply_patch spanning two checkouts photographs each, the fixers under each file's root", async () => {
+    const home = repo({ [CONFIG_RELATIVE_PATH]: laneConfig("checker"), "src/h.ts": "ok\n" });
+
+    const other = repo({
+      [CONFIG_RELATIVE_PATH]: JSON.stringify({
+        "pre-edit": { fixers: { mark: { on: "**/*.ts", file: "marker {file}" } } },
+        stop: { lanes: { checker: { on: "**/*.ts", takes: "files", run: "checker {files}" } } },
+      }),
+      "src/o.ts": "ok\n",
+    });
+
+    shareStateDir(home);
+    fakeTool(home.repo, "checker", checker("BAD"));
+    fakeTool(other.repo, "checker", checker("BAD"));
+    fakeTool(other.repo, "marker", 'echo "// marked" >> "$1"');
+    await hook(SESSION_START, { cwd: home.repo }, "codex");
+    writeRepoFile(home.repo, "src/h.ts", "BAD\n");
+    writeRepoFile(other.repo, "src/o.ts", "BAD\n");
+
+    const patch = [
+      "*** Begin Patch",
+      `*** Update File: ${path.join(home.repo, "src/h.ts")}`,
+      `*** Update File: ${path.join(other.repo, "src/o.ts")}`,
+      "*** End Patch",
+    ].join("\n");
+
+    await hook(
+      POST_EDIT,
+      { cwd: home.repo, tool_name: "apply_patch", tool_input: { command: patch } },
+      "codex",
+    );
+
+    expect(readRepoFile(other.repo, "src/o.ts")).toBe("BAD\n// marked\n");
+    expect(readRepoFile(home.repo, "src/h.ts")).toBe("BAD\n");
+
+    const reason = reasonOf(await hook(STOP, { cwd: home.repo, turn_id: "t1" }, "codex"));
+
+    expect(reason).toContain("src/h.ts:1:1: BAD");
+    expect(reason).toContain(`${other.repo}:`);
+    expect(reason).toContain("src/o.ts:1:1: BAD");
   });
 });

@@ -164,28 +164,29 @@ function isBackgroundTask(value: unknown): value is BackgroundTaskSummary {
 }
 
 /**
- * Where the root search starts: the edited file's directory for the edit hooks, the first patched file's for a
- * Codex `apply_patch`, the payload's cwd otherwise.
+ * Where the root searches start: the edited file's directory for the edit hooks, each patched file's for a Codex
+ * `apply_patch`, the payload's cwd otherwise.
  */
-export function searchStart(hook: HookKind, input: Input): string | null {
-  if (hook === "pre-edit" || hook === "post-edit") {
-    const edited = editedPath(input);
+export function searchStarts(hook: HookKind, input: Input): string[] {
+  const edited = hook === "pre-edit" || hook === "post-edit" ? editedPaths(input) : [];
 
-    if (edited !== undefined) {
-      return path.dirname(path.resolve(input.cwd ?? process.cwd(), edited));
-    }
+  if (edited.length === 0) {
+    return input.cwd === undefined ? [] : [input.cwd];
   }
 
-  return input.cwd ?? null;
+  return [
+    ...new Set(edited.map((file) => path.dirname(path.resolve(input.cwd ?? process.cwd(), file)))),
+  ];
 }
 
-function editedPath(input: Input): string | undefined {
+function editedPaths(input: Input): string[] {
+  const filePath = stringField(input.toolInput, "file_path");
   const command = stringField(input.toolInput, "command");
 
-  return (
-    stringField(input.toolInput, "file_path") ??
-    (command === undefined ? undefined : extractApplyPatchPaths(command)[0])
-  );
+  return [
+    ...(filePath === undefined ? [] : [filePath]),
+    ...(command === undefined ? [] : extractApplyPatchPaths(command)),
+  ];
 }
 
 /**
@@ -305,26 +306,88 @@ function cwdCheckout(input: Input): string | null {
   return root === null ? null : (checkoutOf(input.cwd ?? root) ?? root);
 }
 
-/** A root hook: the root around its file or cwd, the state of the checkout there, saved when it photographed. */
+/**
+ * A root hook: the root around its file or cwd, with the agent's state in the checkout there; a Codex patch spanning
+ * several roots runs once per root, the states shared per checkout. A state is saved when it photographed.
+ */
 async function runRootHook(options: RootRun, input: Input, now: number): Promise<Verdict | null> {
-  const start = searchStart(options.hook, input);
-  const root = start === null ? null : findRoot(start);
+  const pairs = rootPairs(options.hook, input);
 
-  if (root === null || start === null) {
+  if (pairs.length === 0) {
     return null;
   }
 
-  const state = loadState(stateKey(input), checkoutOf(start) ?? root, now);
-  const hadPhoto = state.photo !== null;
-  const verdict = await rootVerdict(options, input, root, state, now);
+  const states = new Map<string, SessionState>();
+  const hadPhoto = new Map<string, boolean>();
 
-  // An edit hook changes the state only when it photographs a checkout that had no photo: that alone decides its
-  // save. A session start always saves, which refreshes the state's age.
-  if (options.hook === "session-start" || (!hadPhoto && state.photo !== null)) {
-    persist(state, now);
+  for (const { checkout } of pairs) {
+    if (!states.has(checkout)) {
+      const state = loadState(stateKey(input), checkout, now);
+      states.set(checkout, state);
+      hadPhoto.set(checkout, state.photo !== null);
+    }
   }
 
-  return verdict;
+  const verdicts = await Promise.all(
+    pairs.map(({ root, checkout }) => {
+      const state = states.get(checkout);
+
+      if (state === undefined) {
+        throw new Error(`no state loaded for ${checkout}`);
+      }
+
+      return rootVerdict(options, input, root, state, now);
+    }),
+  );
+
+  // An edit hook changes a state only when it photographs a checkout that had no photo: that alone decides its
+  // save. A session start always saves, which refreshes the state's age.
+  for (const [checkout, state] of states) {
+    if (
+      options.hook === "session-start" ||
+      (hadPhoto.get(checkout) === false && state.photo !== null)
+    ) {
+      persist(state, now);
+    }
+  }
+
+  return mergedRootVerdicts(verdicts);
+}
+
+type RootPair = { readonly root: string; readonly checkout: string };
+
+/** Each root a root hook runs at, with the checkout around its start; a root outside git is its own checkout. */
+function rootPairs(hook: RootHookKind, input: Input): RootPair[] {
+  const pairs = new Map<string, RootPair>();
+
+  for (const start of searchStarts(hook, input)) {
+    const root = findRoot(start);
+
+    if (root !== null) {
+      const checkout = checkoutOf(start) ?? root;
+      pairs.set(`${root}\u0000${checkout}`, { root, checkout });
+    }
+  }
+
+  return [...pairs.values()];
+}
+
+/**
+ * One verdict for a root hook: the only root's as it is; over several roots, their contexts and notes as one
+ * `additionalContext`, since a Codex patch is the one hook that reaches several roots and it never rewrites.
+ */
+function mergedRootVerdicts(verdicts: readonly Verdict[]): Verdict {
+  const [only] = verdicts;
+
+  if (only !== undefined && verdicts.length === 1) {
+    return only;
+  }
+
+  const texts = verdicts.flatMap((verdict) =>
+    verdict.kind === "context" || verdict.kind === "note" ? [verdict.text] : [],
+  );
+
+  return texts.length === 0 ? ALLOW : { kind: "context", text: texts.join("\n\n") };
 }
 
 /** The verdict is the hook's answer: a state that cannot be written costs the next Stop its memory, not this one. */

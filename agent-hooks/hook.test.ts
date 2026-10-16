@@ -9,7 +9,7 @@ import { CONFIG_RELATIVE_PATH } from "./config.ts";
 import type { Runner } from "./exec.ts";
 import { run } from "./exec.ts";
 import type { HookKind, Input, StopHandler, Verdict } from "./hook.ts";
-import { ALLOW, encode, parseInput, runHook, searchStart } from "./hook.ts";
+import { ALLOW, encode, parseInput, runHook, searchStarts } from "./hook.ts";
 import { isRecord, stringField } from "./json.ts";
 import { runSessionStart } from "./session-start.ts";
 import { statePath } from "./state.ts";
@@ -159,7 +159,7 @@ describe("parseInput", () => {
   });
 });
 
-describe("searchStart", () => {
+describe("searchStarts", () => {
   test("starts an edit hook at the directory of an absolute file_path", () => {
     const input = inputOf({
       session_id: "s1",
@@ -167,8 +167,8 @@ describe("searchStart", () => {
       tool_input: { file_path: "/other/dir/file.ts" },
     });
 
-    expect(searchStart("pre-edit", input)).toBe("/other/dir");
-    expect(searchStart("post-edit", input)).toBe("/other/dir");
+    expect(searchStarts("pre-edit", input)).toEqual(["/other/dir"]);
+    expect(searchStarts("post-edit", input)).toEqual(["/other/dir"]);
   });
 
   test("resolves a relative file_path against cwd", () => {
@@ -178,8 +178,8 @@ describe("searchStart", () => {
       tool_input: { file_path: "src/file.ts" },
     });
 
-    expect(searchStart("pre-edit", input)).toBe("/repo/src");
-    expect(searchStart("post-edit", input)).toBe("/repo/src");
+    expect(searchStarts("pre-edit", input)).toEqual(["/repo/src"]);
+    expect(searchStarts("post-edit", input)).toEqual(["/repo/src"]);
   });
 
   test("starts a Stop and a session start at cwd", () => {
@@ -189,32 +189,32 @@ describe("searchStart", () => {
       tool_input: { file_path: "/other/dir/file.ts" },
     });
 
-    expect(searchStart("stop", input)).toBe("/repo");
-    expect(searchStart("session-start", input)).toBe("/repo");
+    expect(searchStarts("stop", input)).toEqual(["/repo"]);
+    expect(searchStarts("session-start", input)).toEqual(["/repo"]);
   });
 
-  test("starts a post-edit of an apply_patch at the directory of its first patched file", () => {
+  test("starts a post-edit of an apply_patch at the directory of each patched file, once each", () => {
     const input = inputOf({
       session_id: "s1",
       cwd: "/repo",
       tool_input: {
         command:
-          "*** Begin Patch\n*** Update File: /other/src/a.ts\n*** Add File: b.ts\n*** End Patch",
+          "*** Begin Patch\n*** Update File: /other/src/a.ts\n*** Add File: b.ts\n*** Delete File: c.ts\n*** End Patch",
       },
     });
 
-    expect(searchStart("post-edit", input)).toBe("/other/src");
+    expect(searchStarts("post-edit", input)).toEqual(["/other/src", "/repo"]);
   });
 
   test("starts an edit hook without file_path at cwd", () => {
     expect(
-      searchStart("post-edit", inputOf({ session_id: "s1", cwd: "/repo", tool_input: {} })),
-    ).toBe("/repo");
+      searchStarts("post-edit", inputOf({ session_id: "s1", cwd: "/repo", tool_input: {} })),
+    ).toEqual(["/repo"]);
   });
 
-  test("returns null without cwd", () => {
-    expect(searchStart("stop", inputOf({ session_id: "s1" }))).toBeNull();
-    expect(searchStart("pre-edit", inputOf({ session_id: "s1", tool_input: {} }))).toBeNull();
+  test("starts nowhere without cwd", () => {
+    expect(searchStarts("stop", inputOf({ session_id: "s1" }))).toEqual([]);
+    expect(searchStarts("pre-edit", inputOf({ session_id: "s1", tool_input: {} }))).toEqual([]);
   });
 });
 
