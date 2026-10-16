@@ -117,7 +117,9 @@ loop. `/vellum:start` enters it, Approve in the page or `/vellum:stop` leaves it
   and vellum never touches it. `become` applies it, the one writer of `state`: `1` while the
   next state holds a pinned session, unset as the last one leaves, nothing otherwise. A launch
   that fails never reaches `live`, so it never sets it; a value that cannot be read is nobody's,
-  so vellum sets it, and a revival keeps the pin the mode holds, whatever the record says. The
+  so vellum sets it, and a revival keeps the pin the mode holds, whatever the record says. A
+  write the engine holds (`{ deny }`: an organization's settings own the variable) or that
+  fails is logged, and the mode goes on with the variable as it was. The
   project is `$.session.root()` at the way in (`Host.root`), where the variable sends every
   command back, and the server is spawned with `cwd: project`: the default, the session's
   directory, follows every `cd` Claude runs.

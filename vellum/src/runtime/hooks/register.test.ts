@@ -1381,6 +1381,16 @@ describe("every shell command starts at the project's root while the mode holds"
     expect(seen.env.has(PIN)).toBe(false);
   });
 
+  test("a write the engine holds is logged, not taken for done", async ($, on) => {
+    const seen = world(on);
+    seen.holdEnv = "the organization's settings own it";
+    await $.skill.prompt(START_PROMPT);
+
+    expect(seen.logs).toContain(
+      "the project's working directory was not pinned: the organization's settings own it",
+    );
+  });
+
   test("a variable that cannot be read leaves the reload whole: the lock holds", async ($, on) => {
     const seen = world(on, { stored: storedSession(SERVER, CWD, WORKDIR, null, false) });
     seen.refuseEnv = "no env here";
