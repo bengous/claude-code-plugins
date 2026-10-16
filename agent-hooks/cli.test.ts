@@ -322,6 +322,24 @@ describe("agent-hooks CLI", () => {
     expect(result.code).toBe(1);
     expect(result.stdout).toContain("MISSING lane nope: no-such-tool-for-doctor");
   });
+
+  test("doctor says once that a root outside git is checked by nothing", async () => {
+    const outside = mkdtempSync(path.join(tmpdir(), "agent-hooks-cli-outside-git-"));
+
+    try {
+      writeConfig(outside, CONFIG);
+      fakeTool(outside, "checker", BAD_CHECKER);
+      fakeTool(outside, "docs-checker", "exit 0");
+
+      const result = await cli(["doctor"], { cwd: outside, stateDir: temp.stateDir });
+
+      expect(result.code).toBe(1);
+      expect(result.stdout).toContain(`MISSING checkout: ${outside} is outside git`);
+      expect(result.stdout).not.toContain("git status failed");
+    } finally {
+      rmSync(outside, { recursive: true, force: true });
+    }
+  });
 });
 
 describe("agent-hooks init --print", () => {

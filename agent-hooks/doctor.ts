@@ -77,7 +77,17 @@ export async function runDoctor(options: DoctorOptions): Promise<number> {
     print(check.line);
   }
 
-  const checkout = checkoutOf(root) ?? root;
+  const checkout = checkoutOf(root);
+
+  if (checkout === null) {
+    print(
+      `MISSING checkout: ${root} is outside git, so the kit photographs nothing and the Stop checks nothing here`,
+    );
+
+    return 1;
+  }
+
+  print(`ok      checkout: ${checkout}`);
   const started = Date.now();
   const photo = takePhoto(checkout);
   print(

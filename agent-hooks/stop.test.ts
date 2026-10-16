@@ -1,7 +1,8 @@
 /* oxlint-disable anti-slop/no-unsafe-dictionary-type -- this harness builds hook payloads and reads hook outputs as JSON: a closed type would assert the schema instead of the behaviour, and a wrong shape has to fail an assertion rather than the compiler. */
 import type { Mock } from "bun:test";
 import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
-import { chmodSync, existsSync, readFileSync, rmSync } from "node:fs";
+import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
 import path from "node:path";
 
 import { CONFIG_RELATIVE_PATH } from "./config.ts";
@@ -198,6 +199,21 @@ describe("runStop", () => {
     expect(reason).toContain(
       `agent-hooks: no photo of ${temp.repo}, checking its whole dirty tree`,
     );
+  });
+
+  test("a root outside git is checked by nothing, and the Stop says nothing about it", async () => {
+    setUp(LINT_CONFIG);
+    const outside = mkdtempSync(path.join(tmpdir(), "agent-hooks-outside-git-"));
+
+    try {
+      writeRepoFile(outside, CONFIG_RELATIVE_PATH, LINT_CONFIG);
+      writeRepoFile(outside, "src/new.ts", "BAD\n");
+
+      expect(await stop({ cwd: outside })).toBeNull();
+      expect(counter.count()).toBe(0);
+    } finally {
+      rmSync(outside, { recursive: true, force: true });
+    }
   });
 
   test("a checkout without a photo blocks once per failing set, whatever stop_hook_active says", async () => {

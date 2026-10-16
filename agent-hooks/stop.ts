@@ -97,9 +97,8 @@ export async function runStop(context: StopContext): Promise<Verdict> {
     resetTurn(state, input.promptId);
     const tree = dirtyTree(state.checkout);
 
+    // A root outside git has nothing to measure; doctor says so once, the Stop stays silent.
     if (tree === null) {
-      notes.push(`agent-hooks: git status failed in ${state.checkout}, lanes skipped`);
-
       continue;
     }
 
