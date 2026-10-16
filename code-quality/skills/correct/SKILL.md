@@ -75,10 +75,8 @@ A control never seen red is a draft.
 ## 4. Wire it once and delete what it replaces
 
 - One command, locally and in CI, wired once. A lint rule or a type joins a gate that already runs.
-  A new command goes into the repo's single list of gates where it has one (in
-  bengous/claude-code-plugins, one `EXPECTED_COMMANDS` entry in `scripts/check-lint-config.ts`, whose
-  `lint-config` gate then names the pre-commit job and CI step to add); an agent-hooks `stop.lanes`
-  entry only where no such list exists. A lane is wiring, not a rung, and gates the main session only.
+  A new command goes into the repo's single list of gates, where its docs say a gate is added; a
+  hooks-kit lane only where the repo has no such list. A lane is wiring, not a rung.
 - An exception goes on the line above the offending one with its reason
   (`// oxlint-disable-next-line <rule> -- <reason>`), never as a rule turned off for a file.
 - Delete what the control now enforces, the instruction that said it first.
