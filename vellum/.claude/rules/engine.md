@@ -117,7 +117,9 @@ loop. `/vellum:start` enters it, Approve in the page or `/vellum:stop` leaves it
   and vellum never touches it. `become` applies it, the one writer of `state`: `1` while the
   next state holds a pinned session, unset as the last one leaves, nothing otherwise. A launch
   that fails never reaches `live`, so it never sets it; a value that cannot be read is nobody's,
-  so vellum sets it, and a revival keeps the pin the mode holds, whatever the record says. The
+  so vellum sets it, and a revival keeps the pin the mode holds, whatever the record says. A
+  write the engine holds (`{ deny }`: an organization's settings own the variable) or that
+  fails is logged, and the mode goes on with the variable as it was. The
   project is `$.session.root()` at the way in (`Host.root`), where the variable sends every
   command back, and the server is spawned with `cwd: project`: the default, the session's
   directory, follows every `cd` Claude runs.
@@ -259,8 +261,10 @@ loop. `/vellum:start` enters it, Approve in the page or `/vellum:stop` leaves it
   it already reads: `submit` denies with the server's reason, and the turn's end says nothing.
   Every refusal of a vellum tool carries its row's reason as the server words it (A8), as it
   comes, unless its slice adds the way on (the grill's names the tool that proposes one).
-- `turn.start` carries no origin (`TurnStartInput` is a text and a turn id), so whose turn it
-  is comes from the prompt's row, through `turn.ts`: a `session.append` hook on
+- `turn.start` carries no origin (`TurnStartInput` is a text, a turn id and, in a subagent's or
+  a teammate's run, its `agentId`), so whose turn it is comes from the prompt's row, through
+  `turn.ts`. The engine raises a subagent's turns too, inside the main loop's, so the hook
+  passes one with an `agentId` on untouched, as the row hook does: a `session.append` hook on
   `door: "prompt"` notes each main-loop prompt row, its first text block (`rowText` in
   `parse.ts`) and whether the plugin `vellum` relayed it, which the engine keeps just before
   the turn that prompt starts; `turn.start` takes the note, and the turn is vellum's own when

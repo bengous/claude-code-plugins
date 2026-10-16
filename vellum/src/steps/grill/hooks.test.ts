@@ -545,6 +545,21 @@ describe("what the transcript hears of the session", () => {
       ["answer", JSON.stringify({ text: "done", reason: "answer", own: true, asked: false })],
     ]);
   });
+
+  test("a subagent's turn started inside vellum's leaves that turn the grill's own", async ($, on) => {
+    const grill = grillRoutes(() => NO_GRILL);
+    world(on, grill);
+    on("turn.complete", (_, e) => ({ text: e.answer }));
+    await $.skill.prompt(START_PROMPT);
+    await $.session.append(promptRow("u1", VELLUM));
+    await $.turn.start(RELAY_TURN);
+    await $.turn.start({ text: "explore", turnId: "t9", agentId: "a1" });
+    await $.turn.complete(TURN_ANSWERED);
+
+    expect(grill.posted).toEqual([
+      ["answer", JSON.stringify({ text: "done", reason: "answer", own: true, asked: false })],
+    ]);
+  });
 });
 
 describe("AskUserQuestion", () => {

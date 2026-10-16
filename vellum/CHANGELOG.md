@@ -2,6 +2,15 @@
 
 What each version of vellum changed for the person using it, newest first.
 
+## 0.17.8 - 2026-10-14
+
+### Fixed
+
+- From Claude Code 2.1.299 on, a subagent Claude starts while answering the reviewer (an Explore search, say) no longer drops that answer from the grill's transcript: Claude Code now announces a subagent's turns to the plugin too, and vellum took the subagent's turn for Claude's own.
+- From Claude Code 2.1.301 on, when a session's organization settings keep vellum from returning every shell command to the project's root, vellum's log says so instead of staying silent.
+
+Internal changes besides: the plugin API types follow Claude Code 2.1.301, and a developer rule names the proposal beside the steps.
+
 ## 0.17.7 - 2026-10-13
 
 `/vellum:stop`, run after Claude said one sentence describes the diff and proposed it, is the go-ahead: Claude implements that diff instead of waiting for a second request. Internal changes besides: the developer rules name the page's selectors and the proposal as it is.

@@ -31,6 +31,8 @@ export type World = {
   root: string;
   /** The reason `$.env.get` fails, while set. */
   refuseEnv: string | undefined;
+  /** While set, the engine holds every `$.env.set`: the call resolves `{ deny }` with it and writes nothing. */
+  holdEnv: string | undefined;
   refuseCwd: string | undefined;
   refuseStore: string | undefined;
   readonly clock: MockClock;
@@ -73,6 +75,7 @@ export function world(on: On, options: WorldOptions = {}): World {
     cwd: CWD,
     root: CWD,
     refuseEnv: undefined,
+    holdEnv: undefined,
     refuseCwd: undefined,
     refuseStore: undefined,
     clock: mock.clock(on),
@@ -110,12 +113,13 @@ export function world(on: On, options: WorldOptions = {}): World {
   on("session.root", () => ({ value: built.root }));
 
   on("env.set", (_, e) => {
+    if (built.holdEnv !== undefined) return { value: { deny: built.holdEnv } };
     built.envWrites.push({ name: e.name, value: e.value });
 
     if (e.value === undefined) built.env.delete(e.name);
     else built.env.set(e.name, e.value);
 
-    return { value: undefined };
+    return { value: {} };
   });
 
   on("tool.register", (_, e) => {

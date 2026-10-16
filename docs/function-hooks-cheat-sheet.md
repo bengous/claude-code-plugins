@@ -126,7 +126,7 @@ A sub-event row stands for `<parent>.<sub>` (for example `tool.describe`, `sessi
 | ↳ `fill` · `suggest` | yes | text written into the box · the dim proposal after a turn; rewrite or refuse |
 | ↳ `context` | no | per-turn injected context |
 | ↳ `section` | no | a system-prompt section |
-| `turn.start` | no | `{ turnId, text }` · before the turn |
+| `turn.start` | no | `{ turnId, text, agentId? }` · before the turn, main loop's or a subagent's |
 | ↳ `step` | yes | one model request, streamed: `async function*` hook, `yield* next({ ...e, model, effort })` |
 | ↳ `complete` | no | `{ text }` · usage · after the turn |
 | `session.start` | no | `{ cwd, … }` once per session |
