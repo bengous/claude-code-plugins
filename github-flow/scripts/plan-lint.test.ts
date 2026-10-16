@@ -117,6 +117,18 @@ describe("open-question", () => {
     expect(checks(plan)).toEqual([]);
   });
 
+  test("the question's own words take no option", () => {
+    const plan = [
+      "## Open questions",
+      "",
+      "- Faut-il choisir A ou B ?",
+      "- Which default port should the server use?",
+      "- Il faudra choisir entre A et B.",
+    ].join("\n");
+
+    expect(checks(plan)).toEqual(["open-question@3", "open-question@4", "open-question@5"]);
+  });
+
   test("a section written in paragraphs is one question, settled anywhere in it", () => {
     const settled = [
       "## Open questions",

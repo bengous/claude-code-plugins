@@ -58,7 +58,7 @@ const STATED_OPTION: readonly RegExp[] = [
   /recommend|propos|default|\bassum|\blean|\blikely\b|\bfallback\b|\bchosen\b|\bchallenge/iu,
   /\bmy (?:option|pick|choice)\b|\boption (?:I|taken)\b|\bI(?:['’]d| would)\b/iu,
   /\bI(?:['’]ll| will) (?:take|pick|go|choose|keep|use)\b|\bdecision\s*:/iu,
-  /recommand|défaut|\bsuppos|\bretenu|\bchoisi|\bcontest|\brepli\b|\bprobablement\b|plutôt(?!\p{L})/iu,
+  /recommand|défaut|\bsuppos|\bretenu|\bchoisi(?:e|s|es)?(?!\p{L})|\bcontest|\brepli\b|\bprobablement\b|plutôt(?!\p{L})/iu,
   /\bmon (?:choix|option)\b|\boption (?:prise|que je)\b|\bdécision\s*:|\bchoix\s*:/iu,
   /\bje (?:prendrais|partirais|garderais|laisserais|choisirais|pars|retiens|garde|choisis)\b/iu,
   /→|⇒/u,
@@ -174,6 +174,13 @@ function questions(section: readonly ProseLine[]): { line: number; text: string 
   return found;
 }
 
+/** The option is read outside the question's own sentences: "Which default …?" takes none. */
+function takesOption(text: string): boolean {
+  const answer = text.replaceAll(/[^.?!]*\?/gu, "");
+
+  return STATED_OPTION.some((pattern) => pattern.test(answer));
+}
+
 function openQuestions(lines: readonly ProseLine[]): Finding[] {
   return lines.flatMap(({ heading }, start) => {
     if (
@@ -188,7 +195,7 @@ function openQuestions(lines: readonly ProseLine[]): Finding[] {
     const end = rest.findIndex((l) => l.heading !== null && l.heading.level <= heading.level);
 
     return questions(end === -1 ? rest : rest.slice(0, end))
-      .filter(({ text }) => !STATED_OPTION.some((pattern) => pattern.test(text)))
+      .filter(({ text }) => !takesOption(text))
       .map(({ line }) => ({
         check: "open-question" as const,
         line,
