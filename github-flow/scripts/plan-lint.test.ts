@@ -39,6 +39,12 @@ describe("placeholder", () => {
     expect(checks("# Plan\n\nOn verra : décider plus tard.")).toEqual(["placeholder@3"]);
   });
 
+  test("a comment marker inside a code span opens no comment", () => {
+    expect(checks("# Plan\n\nThe page opens a comment with `<!--`.\n\nStorage: TBD.")).toEqual([
+      "placeholder@5",
+    ]);
+  });
+
   test("code, a fence and an HTML comment are not prose", () => {
     const plan = [
       "# Plan",

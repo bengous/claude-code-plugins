@@ -18,7 +18,7 @@ export interface Finding {
 
 interface ProseLine {
   line: number;
-  /** The line without code spans, link targets and HTML comments; empty inside a fence. */
+  /** The line without code spans, then HTML comments and link targets; empty inside a fence. */
   prose: string;
   heading: { level: number; title: string } | null;
 }
@@ -89,7 +89,7 @@ function scan(text: string): ProseLine[] {
       continue;
     }
 
-    let prose = raw;
+    let prose = raw.replaceAll(/(`+)[^`]*?\1/gu, "");
 
     if (inComment) {
       const end = prose.indexOf("-->");
@@ -105,7 +105,7 @@ function scan(text: string): ProseLine[] {
       inComment = true;
     }
 
-    prose = prose.replaceAll(/(`+)[^`]*?\1/gu, "").replaceAll(/\]\([^)]*\)/gu, "]");
+    prose = prose.replaceAll(/\]\([^)]*\)/gu, "]");
     const heading = HEADING.exec(prose);
     const level = heading?.[1]?.length;
     const title = heading?.[2]?.replaceAll(/[*_]/gu, "").trim();
