@@ -89,20 +89,35 @@ describe("claudeWiring", () => {
     );
   });
 
-  test("a Stop hook in settings, without the plugin, is the wiring", () => {
-    const target = user(hook("Stop", "~/.local/bin/agent-hooks stop"));
+  test("a Stop and a SubagentStop hook in settings, without the plugin, are the wiring", () => {
+    const target = user({
+      hooks: {
+        Stop: [{ hooks: [{ type: "command", command: "~/.local/bin/agent-hooks stop" }] }],
+        SubagentStop: [{ hooks: [{ type: "command", command: "~/.local/bin/agent-hooks stop" }] }],
+      },
+    });
 
     expect(claudeWiring([target]).line).toBe(`ok      claude wiring: ${target}`);
   });
 
+  test("a settings wiring without SubagentStop warns that subagents go unchecked", () => {
+    const target = user(hook("Stop", "~/.local/bin/agent-hooks stop"));
+
+    expect(claudeWiring([target]).line).toBe(
+      `WARN    claude wiring: ${target} wires the Stop but no SubagentStop, so subagents go unchecked: enable the agent-hooks plugin, which wires both`,
+    );
+  });
+
   // JSON escapes the quotes around the entry; the check reads the parsed command.
-  test("a Stop hook calling the entry between escaped quotes is the wiring", () => {
+  test("a Stop hook calling the entry between escaped quotes is read as the kit's", () => {
     const target = file(
       "user.json",
       '{ "hooks": { "Stop": [{ "hooks": [{ "type": "command", "command": "bun \\"/cache/agent-hooks/1.0.1/agent-hooks.ts\\" stop" }] }] } }',
     );
 
-    expect(claudeWiring([target]).line).toBe(`ok      claude wiring: ${target}`);
+    expect(claudeWiring([target]).line).toStartWith(
+      `WARN    claude wiring: ${target} wires the Stop but no SubagentStop`,
+    );
   });
 
   test("a permission rule that names the hook is no hook", () => {

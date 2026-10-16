@@ -171,6 +171,8 @@ type SettingsRead =
       readonly kind: "read";
       readonly plugins: ReadonlyMap<string, boolean>;
       readonly kitHooks: readonly string[];
+      /** A kit `stop` hook declared under SubagentStop: the subagents' Stop. */
+      readonly subagentStop: boolean;
     };
 
 /** Reads a Claude Code settings file (JSON) or a Codex config (TOML); both shape hooks as `hooks[event][].hooks[]`. */
@@ -200,17 +202,25 @@ function readSettings(file: string, format: "json" | "toml"): SettingsRead {
     }
   }
 
-  const kitHooks = Object.values(recordField(document, "hooks") ?? {})
-    .flatMap((groups) => (Array.isArray(groups) ? groups : []))
-    .flatMap((group) => (isRecord(group) && Array.isArray(group["hooks"]) ? group["hooks"] : []))
-    .flatMap((hook) => {
-      const command = isRecord(hook) ? stringField(hook, "command") : undefined;
-      const kitHook = command === undefined ? undefined : KIT_COMMAND.exec(command)?.[1];
+  const declared = Object.entries(recordField(document, "hooks") ?? {}).flatMap(([event, groups]) =>
+    (Array.isArray(groups) ? groups : [])
+      .flatMap((group) => (isRecord(group) && Array.isArray(group["hooks"]) ? group["hooks"] : []))
+      .flatMap((hook) => {
+        const command = isRecord(hook) ? stringField(hook, "command") : undefined;
+        const kitHook = command === undefined ? undefined : KIT_COMMAND.exec(command)?.[1];
 
-      return kitHook === undefined ? [] : [kitHook];
-    });
+        return kitHook === undefined ? [] : [{ event, kitHook }];
+      }),
+  );
 
-  return { kind: "read", plugins, kitHooks };
+  return {
+    kind: "read",
+    plugins,
+    kitHooks: declared.map(({ kitHook }) => kitHook),
+    subagentStop: declared.some(
+      ({ event, kitHook }) => event === "SubagentStop" && kitHook === "stop",
+    ),
+  };
 }
 
 /**
@@ -222,6 +232,7 @@ export function claudeWiring(files: readonly string[]): Check {
   const plugins = new Map<string, boolean>();
   const hookFiles: string[] = [];
   const stopFiles: string[] = [];
+  let subagentStop = false;
 
   for (const file of files) {
     const read = readSettings(file, "json");
@@ -245,6 +256,8 @@ export function claudeWiring(files: readonly string[]): Check {
     if (read.kitHooks.includes("stop")) {
       stopFiles.push(file);
     }
+
+    subagentStop ||= read.subagentStop;
   }
 
   const plugin = [...plugins].find(
@@ -260,6 +273,13 @@ export function claudeWiring(files: readonly string[]): Check {
 
   if (plugin !== undefined) {
     return { ok: true, line: `ok      claude wiring: plugin ${plugin}` };
+  }
+
+  if (stopFiles.length > 0 && !subagentStop) {
+    return {
+      ok: true,
+      line: `WARN    claude wiring: ${stopFiles.join(", ")} wires the Stop but no SubagentStop, so subagents go unchecked: enable the agent-hooks plugin, which wires both`,
+    };
   }
 
   if (stopFiles.length > 0) {

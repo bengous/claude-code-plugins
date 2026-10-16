@@ -43,6 +43,8 @@ script, or disable the lane. For the wiring:
   hooks to a settings file.
 - `WARN claude wiring: plugin ... and a hook in ...`: both run the kit; remove the hook from that
   settings file.
+- `WARN claude wiring: ... wires the Stop but no SubagentStop`: the kit runs from a settings file that
+  gates the main session only; enable the plugin, which wires both, and remove those hooks.
 - `WARN codex wiring`: the Codex config calls no `agent-hooks stop --harness codex`; only a user who
   runs Codex needs it.
 
