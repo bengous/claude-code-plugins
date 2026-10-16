@@ -46,25 +46,35 @@ const UNDETECTED = new Set(["Survived", "NoCoverage"]);
 /**
  * The lines each file gains or rewrites in a `git diff -U0` whose new side is prefixed `b/`. A file's
  * header runs from its `diff --git` line to its first hunk: past it, `+++ b/…` is an added line. A
- * deleted file's new side is `/dev/null`, and its hunks add no line.
+ * hunk that only deletes changes the two lines on either side of the cut. A deleted file's new side
+ * is `/dev/null`: its hunks change no line.
  */
 export function changedRanges(diff: string): LineRange[] {
   const ranges: LineRange[] = [];
-  let file = "";
+  let file: string | null = null;
   let inHeader = false;
 
   for (const line of diff.split("\n")) {
-    if (line.startsWith("diff --git ")) inHeader = true;
+    if (line.startsWith("diff --git ")) {
+      inHeader = true;
+      file = null;
+    }
 
     if (inHeader && line.startsWith("+++ b/")) file = line.slice("+++ b/".length);
     const hunk = /^@@ -\S+ \+(\d+)(?:,(\d+))? @@/u.exec(line);
 
     if (hunk === null) continue;
     inHeader = false;
+
+    if (file === null) continue;
     const start = Number(hunk[1]);
     const count = hunk[2] === undefined ? 1 : Number(hunk[2]);
 
-    if (count > 0) ranges.push({ file, start, end: start + count - 1 });
+    ranges.push(
+      count === 0
+        ? { file, start: Math.max(start, 1), end: start + 1 }
+        : { file, start, end: start + count - 1 },
+    );
   }
 
   return ranges;

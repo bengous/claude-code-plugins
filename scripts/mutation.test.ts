@@ -80,20 +80,41 @@ describe("changedRanges", () => {
     ]);
   });
 
-  test("a hunk that only deletes, or a deleted file, leaves no line to mutate", () => {
+  test("a hunk that only deletes changes the lines on either side of where it cut", () => {
     const diff = [
-      "diff --git a/scripts/changelog.ts b/scripts/changelog.ts",
-      "--- a/scripts/changelog.ts",
-      "+++ b/scripts/changelog.ts",
-      "@@ -10,2 +9,0 @@",
       "diff --git a/agent-hooks/config.ts b/agent-hooks/config.ts",
-      "deleted file mode 100644",
       "--- a/agent-hooks/config.ts",
-      "+++ /dev/null",
-      "@@ -1,3 +0,0 @@",
+      "+++ b/agent-hooks/config.ts",
+      "@@ -1,2 +0,0 @@",
+      "-gone",
+      "-gone",
+      "@@ -10,2 +9,0 @@",
+      "-gone",
+      "-gone",
     ].join("\n");
 
-    expect(changedRanges(diff)).toEqual([]);
+    expect(changedRanges(diff)).toEqual([
+      { file: "agent-hooks/config.ts", start: 1, end: 1 },
+      { file: "agent-hooks/config.ts", start: 9, end: 10 },
+    ]);
+  });
+
+  test("a deleted file leaves no line, not even in the file before it", () => {
+    const diff = [
+      "diff --git a/agent-hooks/config.ts b/agent-hooks/config.ts",
+      "--- a/agent-hooks/config.ts",
+      "+++ b/agent-hooks/config.ts",
+      "@@ -3 +3 @@",
+      "+kept",
+      "diff --git a/agent-hooks/config.test.ts b/agent-hooks/config.test.ts",
+      "deleted file mode 100644",
+      "--- a/agent-hooks/config.test.ts",
+      "+++ /dev/null",
+      "@@ -1,3 +0,0 @@",
+      "-gone",
+    ].join("\n");
+
+    expect(changedRanges(diff)).toEqual([{ file: "agent-hooks/config.ts", start: 3, end: 3 }]);
   });
 });
 
