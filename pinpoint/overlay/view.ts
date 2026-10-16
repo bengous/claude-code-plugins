@@ -123,10 +123,6 @@ function place(node: HTMLElement, box: Box): void {
   node.style.height = `${box.height}px`;
 }
 
-const COMPOSER_WIDTH = 340;
-
-const COMPOSER_HEIGHT = 190;
-
 const GAP = 8;
 
 /** The viewport's top-left corner of a box the overlay places. */
@@ -140,24 +136,24 @@ function within(start: number, size: number, limit: number): number {
 }
 
 /**
- * Where the composer opens: beside `near`, right then left, so the elements above and below stay
- * in reach of a Ctrl+click; else below, else above. Always inside the viewport.
+ * Where a composer of `size` opens: beside `near`, right then left, so the elements above and
+ * below stay in reach of a Ctrl+click; else below, else above. Always inside the viewport.
  */
-export function composerSpot(near: Box, viewport: Size): Spot {
-  const clampX = (x: number): number => within(x, COMPOSER_WIDTH, viewport.width);
-  const clampY = (y: number): number => within(y, COMPOSER_HEIGHT, viewport.height);
+export function composerSpot(near: Box, size: Size, viewport: Size): Spot {
+  const clampX = (x: number): number => within(x, size.width, viewport.width);
+  const clampY = (y: number): number => within(y, size.height, viewport.height);
 
   const right = near.x + near.width + GAP;
-  const left = near.x - COMPOSER_WIDTH - GAP;
+  const left = near.x - size.width - GAP;
 
-  if (right + COMPOSER_WIDTH + GAP <= viewport.width) return { x: right, y: clampY(near.y) };
+  if (right + size.width + GAP <= viewport.width) return { x: right, y: clampY(near.y) };
 
   if (left >= GAP) return { x: left, y: clampY(near.y) };
   const below = near.y + near.height + GAP;
 
-  return below + COMPOSER_HEIGHT <= viewport.height
+  return below + size.height <= viewport.height
     ? { x: clampX(near.x), y: below }
-    : { x: clampX(near.x), y: clampY(near.y - COMPOSER_HEIGHT - GAP) };
+    : { x: clampX(near.x), y: clampY(near.y - size.height - GAP) };
 }
 
 /** Where a pinned composer of `size` opens: its pinned spot, moved so all of it stays in the viewport. */
@@ -220,8 +216,10 @@ export function createView(labels: readonly string[], handlers: Handlers): View 
     composer.style.top = `${spot.y}px`;
   };
 
-  const inView = (spot: Spot): Spot =>
-    pinnedSpot(spot, { width: composer.offsetWidth, height: composer.offsetHeight }, windowSize());
+  /** The composer as drawn: its height follows how many rows the labels wrap to. */
+  const composerSize = (): Size => ({ width: composer.offsetWidth, height: composer.offsetHeight });
+
+  const inView = (spot: Spot): Spot => pinnedSpot(spot, composerSize(), windowSize());
 
   /** Where the pointer holds the composer from its corner, and where it moved it; `null` with no drag. */
   let drag: { readonly grab: Spot; readonly at: Spot | null } | null = null;
@@ -343,7 +341,9 @@ export function createView(labels: readonly string[], handlers: Handlers): View 
         root.append(composer);
       }
 
-      moveComposer(pinned === null ? composerSpot(near, windowSize()) : inView(pinned));
+      moveComposer(
+        pinned === null ? composerSpot(near, composerSize(), windowSize()) : inView(pinned),
+      );
       note.focus();
 
       return note;

@@ -62,28 +62,37 @@ test("pinnedSpot: a spot from a bigger window, or off the edges, moves back insi
   });
 });
 
-test("composerSpot: beside the target, right then left, inside the viewport", () => {
-  const viewport = { width: 1000, height: 800 };
+const VIEWPORT = { width: 1000, height: 800 };
 
-  expect(composerSpot({ x: 100, y: 100, width: 50, height: 20 }, viewport)).toEqual({
+const COMPOSER = { width: 340, height: 190 };
+
+test("composerSpot: beside the target, right then left, inside the viewport", () => {
+  expect(composerSpot({ x: 100, y: 100, width: 50, height: 20 }, COMPOSER, VIEWPORT)).toEqual({
     x: 158,
     y: 100,
   });
-  expect(composerSpot({ x: 900, y: 700, width: 50, height: 20 }, viewport)).toEqual({
+  expect(composerSpot({ x: 900, y: 700, width: 50, height: 20 }, COMPOSER, VIEWPORT)).toEqual({
     x: 552,
     y: 602,
   });
 });
 
 test("composerSpot: a target as wide as the viewport gets it below, else above", () => {
-  const viewport = { width: 1000, height: 800 };
-
-  expect(composerSpot({ x: 0, y: 100, width: 1000, height: 20 }, viewport)).toEqual({
+  expect(composerSpot({ x: 0, y: 100, width: 1000, height: 20 }, COMPOSER, VIEWPORT)).toEqual({
     x: 8,
     y: 128,
   });
-  expect(composerSpot({ x: 0, y: 700, width: 1000, height: 40 }, viewport)).toEqual({
+  expect(composerSpot({ x: 0, y: 700, width: 1000, height: 40 }, COMPOSER, VIEWPORT)).toEqual({
     x: 8,
     y: 502,
+  });
+});
+
+test("composerSpot: a taller composer, its labels on two rows, still ends inside the viewport", () => {
+  const tall = { width: 340, height: 230 };
+
+  expect(composerSpot({ x: 200, y: 674, width: 56, height: 15 }, tall, VIEWPORT)).toEqual({
+    x: 264,
+    y: 562,
   });
 });
