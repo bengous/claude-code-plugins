@@ -123,6 +123,19 @@ function defaultRemote(cwd: string, location: readonly string[], branch: string 
   return "origin";
 }
 
+/** The remote branch `@{push}` names, `refs/remotes/<remote>/<branch>` read back to `<branch>`; null when unresolved. */
+function pushBranch(cwd: string, location: readonly string[]): string | null {
+  const ref = git(cwd, location, ["rev-parse", "--symbolic-full-name", "@{push}"]);
+  const remotes = git(cwd, location, ["remote"])?.split("\n") ?? [];
+
+  const remote = remotes
+    .filter((name) => name !== "" && ref?.startsWith(`refs/remotes/${name}/`) === true)
+    .toSorted((left, right) => right.length - left.length)
+    .at(0);
+
+  return ref === null || remote === undefined ? null : ref.slice(`refs/remotes/${remote}/`.length);
+}
+
 function remoteUrl(cwd: string, location: readonly string[], remote: string): string | null {
   return (
     git(cwd, location, ["remote", "get-url", "--push", remote]) ??
@@ -147,7 +160,11 @@ async function judgePush(
   }
 
   const branch = git(cwd, command.location, ["symbolic-ref", "--quiet", "--short", "HEAD"]);
-  const targets = resolveTargets(push.targets, branch);
+
+  const targets = resolveTargets(push.targets, {
+    current: branch,
+    push: pushBranch(cwd, command.location),
+  });
 
   if (targets.length === 0) {
     return ALLOW;

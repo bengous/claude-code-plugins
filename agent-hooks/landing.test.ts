@@ -5,6 +5,7 @@ import type { Check, PullRequestFacts, PushTarget, RepoFacts } from "./landing.t
 import {
   CURRENT_BRANCH,
   EVERY_BRANCH,
+  PUSH_DESTINATION,
   ghCommandOf,
   gitCommandOf,
   latestChecks,
@@ -39,7 +40,11 @@ function isPush(command: string): boolean {
 }
 
 function pushVerdict(command: string, currentBranch: string | null = null): string | null {
-  return profiledPushRefusal(resolveTargets(targetsOf(command), currentBranch), LANDING, true);
+  return profiledPushRefusal(
+    resolveTargets(targetsOf(command), { current: currentBranch, push: null }),
+    LANDING,
+    true,
+  );
 }
 
 function check(name: string, state: string, startedAt: string): Check {
@@ -153,8 +158,8 @@ describe("pushOf reads the destinations", () => {
   });
 
   test("a remote alone or no argument pushes the current branch", () => {
-    expect(targetsOf("git push origin")).toEqual([plain(CURRENT_BRANCH)]);
-    expect(targetsOf("git push")).toEqual([plain(CURRENT_BRANCH)]);
+    expect(targetsOf("git push origin")).toEqual([plain(PUSH_DESTINATION)]);
+    expect(targetsOf("git push")).toEqual([plain(PUSH_DESTINATION)]);
   });
 
   test("HEAD and @ alone name the current branch", () => {
@@ -337,6 +342,31 @@ describe("profiledPushRefusal resolves a push without refspec against the curren
 
   test("a bare push with no branch checked out is allowed", () => {
     expect(pushVerdict("git push", null)).toBeNull();
+  });
+});
+
+describe("resolveTargets", () => {
+  const branches = { current: "x", push: "main" };
+
+  test("a push without refspec goes where @{push} names", () => {
+    expect(resolveTargets([plain(PUSH_DESTINATION)], branches)).toEqual([plain("main")]);
+  });
+
+  test("without @{push}, a push without refspec reads as the current branch", () => {
+    expect(resolveTargets([plain(PUSH_DESTINATION)], { current: "x", push: null })).toEqual([
+      plain("x"),
+    ]);
+  });
+
+  test("HEAD reaches the current branch and @{push}", () => {
+    expect(resolveTargets([plain(CURRENT_BRANCH)], branches)).toEqual([plain("x"), plain("main")]);
+    expect(resolveTargets([plain(CURRENT_BRANCH)], { current: "x", push: "x" })).toEqual([
+      plain("x"),
+    ]);
+  });
+
+  test("no branch checked out leaves no target", () => {
+    expect(resolveTargets([plain(CURRENT_BRANCH)], { current: null, push: null })).toEqual([]);
   });
 });
 

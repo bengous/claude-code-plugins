@@ -12,8 +12,18 @@ export type GitCommand = {
 /** A target that names every branch: `--all`, `--mirror`, or a refspec with a `*`. */
 export const EVERY_BRANCH = "*";
 
-/** A target that names the branch checked out where the push runs: no refspec, or `HEAD` alone. */
+/** A target that names the branch checked out where the push runs: `HEAD` or `@` alone. */
 export const CURRENT_BRANCH = "HEAD";
+
+/** A target a push without refspec updates: where `@{push}` points, per push.default and remote.<r>.push. */
+export const PUSH_DESTINATION = "@{push}";
+
+/** The branches a push without an explicit destination can reach, read from git where it runs. */
+export type Branches = {
+  readonly current: string | null;
+  /** The remote branch `@{push}` names; null when git cannot resolve it. */
+  readonly push: string | null;
+};
 
 export type PushTarget = {
   readonly ref: string;
@@ -190,7 +200,7 @@ export function pushOf(args: readonly string[]): Push | null {
   if (every) {
     targets.push({ ref: EVERY_BRANCH, forced: force, deleted: false });
   } else if (refspecs.length === 0 && !tagsOnly) {
-    targets.push({ ref: CURRENT_BRANCH, forced: force, deleted: deletes });
+    targets.push({ ref: PUSH_DESTINATION, forced: force, deleted: deletes });
   }
 
   return { remote, targets };
@@ -295,17 +305,21 @@ export function releaseScriptOf(argv: readonly string[], cwd: string): ReleaseSc
   return { script, dryRun: argv.slice(argv.indexOf(script) + 1).includes("--dry-run") };
 }
 
-/** The targets with the current branch put in for `HEAD`; a `HEAD` target is dropped when no branch is checked out. */
-export function resolveTargets(
-  targets: readonly PushTarget[],
-  currentBranch: string | null,
-): PushTarget[] {
+/**
+ * The targets with branch names put in: a push without refspec reaches `@{push}`, or the current branch when git
+ * cannot resolve it (a push from the release, or a forced one from the trunk, stays refused); `HEAD` reaches the
+ * current branch and `@{push}`, since remote.<r>.push can map it elsewhere. No branch checked out leaves no target.
+ */
+export function resolveTargets(targets: readonly PushTarget[], branches: Branches): PushTarget[] {
   return targets.flatMap((target) => {
-    if (target.ref !== CURRENT_BRANCH) {
-      return [target];
-    }
+    const refs =
+      target.ref === PUSH_DESTINATION
+        ? [branches.push ?? branches.current]
+        : target.ref === CURRENT_BRANCH
+          ? [branches.current, branches.push]
+          : [target.ref];
 
-    return currentBranch === null ? [] : [{ ...target, ref: currentBranch }];
+    return [...new Set(refs)].flatMap((ref) => (ref === null ? [] : [{ ...target, ref }]));
   });
 }
 

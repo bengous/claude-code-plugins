@@ -192,6 +192,34 @@ describe("pre-bash in a repository with profile.landing", () => {
     expect((await preBash("git push", repo)).decision).toBe("deny");
   });
 
+  test("refuses a bare push that @{push} sends to the release from another branch", async () => {
+    git(repo, "update-ref", "refs/remotes/origin/main", "HEAD");
+    git(repo, "checkout", "-q", "-b", "x");
+    git(repo, "branch", "-q", "--set-upstream-to=origin/main");
+    git(repo, "config", "push.default", "upstream");
+
+    expect((await preBash("git push", repo)).reason).toContain(
+      "a push to 'main' moves the release",
+    );
+    expect((await preBash("git push origin HEAD", repo)).decision).toBe("deny");
+  });
+
+  test("refuses a bare push that remote.origin.push maps to the release", async () => {
+    git(repo, "update-ref", "refs/remotes/origin/main", "HEAD");
+    git(repo, "checkout", "-q", "dev");
+    git(repo, "config", "remote.origin.push", "refs/heads/dev:refs/heads/main");
+
+    expect((await preBash("git push", repo)).decision).toBe("deny");
+  });
+
+  test("allows a bare push of a feature branch to its own upstream", async () => {
+    git(repo, "checkout", "-q", "-b", "feature/x");
+    git(repo, "update-ref", "refs/remotes/origin/feature/x", "HEAD");
+    git(repo, "branch", "-q", "--set-upstream-to=origin/feature/x");
+
+    expect((await preBash("git push --force-with-lease", repo)).stdout).toBe("");
+  });
+
   test("allows a commit whose message names a push to the release", async () => {
     expect((await preBash("git commit -m 'git push origin main'", repo)).stdout).toBe("");
   });
