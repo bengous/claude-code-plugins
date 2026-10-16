@@ -47,6 +47,7 @@ function buffer(): string {
 function recorded(): { readonly id: string; readonly record: ReturnType<typeof parseRecord> }[] {
   return readdirSync(buffer())
     .filter((name) => name.endsWith(".json"))
+    .toSorted()
     .map((name) => ({
       id: name.slice(0, -".json".length),
       record: parseRecord(readFileSync(join(buffer(), name), "utf8")),
@@ -95,6 +96,29 @@ describe("recording", () => {
     expect(
       recorded().map(({ record }) => [record.path, record.line, record.kind, record.why]),
     ).toEqual([["src/a.ts", null, "security", "prints the token"]]);
+  });
+
+  test("never overwrites a finding whose id comes up again", () => {
+    const ids = ["a1b2c3d4", "a1b2c3d4", "9f8e7d6c"];
+    const next = () => ids.shift() ?? "ffffffff";
+
+    run(["src/a.ts", "first"], repo, NOW, next);
+    const second = run(["src/a.ts", "second"], repo, NOW, next);
+
+    expect(second.stdout).toContain("Recorded finding 9f8e7d6c");
+    expect(recorded().map(({ id, record }) => [id, record.why])).toEqual([
+      ["9f8e7d6c", "second"],
+      ["a1b2c3d4", "first"],
+    ]);
+  });
+
+  test("gives up when every id it draws is taken", () => {
+    run(["src/a.ts", "first"], repo, NOW, () => "a1b2c3d4");
+    const outcome = run(["src/a.ts", "second"], repo, NOW, () => "a1b2c3d4");
+
+    expect(outcome.exitCode).toBe(1);
+    expect(outcome.stderr).toContain("no free finding id");
+    expect(recorded().map(({ record }) => record.why)).toEqual(["first"]);
   });
 
   test("takes a name that starts with two dots for a path inside", () => {

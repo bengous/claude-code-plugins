@@ -1,11 +1,4 @@
-import {
-  existsSync,
-  mkdirSync,
-  realpathSync,
-  renameSync,
-  unlinkSync,
-  writeFileSync,
-} from "node:fs";
+import { existsSync, linkSync, mkdirSync, realpathSync, unlinkSync, writeFileSync } from "node:fs";
 import { isAbsolute, join, relative, resolve, sep } from "node:path";
 
 import {
@@ -34,6 +27,14 @@ class UsageError extends Error {}
 
 const ENOENT = "ENOENT";
 
+const EEXIST = "EEXIST";
+
+const ID_DRAWS = 5;
+
+function hasCode(error: Error, code: string): boolean {
+  return "code" in error && error.code === code;
+}
+
 function repoOf(cwd: string): Repo {
   const revParse = Bun.spawnSync(
     ["git", "rev-parse", "--path-format=absolute", "--show-toplevel", "--git-common-dir"],
@@ -53,13 +54,35 @@ function isInside(fromRoot: string): boolean {
   return fromRoot !== ".." && !fromRoot.startsWith(`..${sep}`) && !isAbsolute(fromRoot);
 }
 
-function newId(): string {
+export function randomId(): string {
   return Array.from(crypto.getRandomValues(new Uint8Array(4)), (byte) =>
     byte.toString(16).padStart(2, "0"),
   ).join("");
 }
 
-function record(args: readonly string[], cwd: string, now: Date): string {
+/** Writes the record aside, then links it under a free id: a link shows the band the file whole, and refuses a name another finding holds. */
+function place(buffer: string, text: string, nextId: () => string): string {
+  for (let draw = 0; draw < ID_DRAWS; draw += 1) {
+    const id = nextId();
+    const staged = join(buffer, `.${id}.${process.pid}.tmp`);
+
+    writeFileSync(staged, text);
+
+    try {
+      linkSync(staged, join(buffer, `${id}.json`));
+
+      return id;
+    } catch (error) {
+      if (!(error instanceof Error && hasCode(error, EEXIST))) throw error;
+    } finally {
+      unlinkSync(staged);
+    }
+  }
+
+  throw new Error(`no free finding id in ${buffer} after ${ID_DRAWS} draws`);
+}
+
+function record(args: readonly string[], cwd: string, now: Date, nextId: () => string): string {
   const [first, ...rest] = args;
   const kind: FindingKind = first === "--security" ? "security" : "finding";
   const [target, ...words] = kind === "security" ? rest : args;
@@ -78,13 +101,15 @@ function record(args: readonly string[], cwd: string, now: Date): string {
 
   if (!isInside(inside)) throw new Error(`${rawPath} is outside the repository at ${repo.top}`);
   const path = inside === "" ? "." : inside.split(sep).join("/");
-  const id = newId();
-  const staged = join(repo.buffer, `.${id}.tmp`);
 
   mkdirSync(repo.buffer, { recursive: true });
-  // Renamed into place whole, so the band never reads half a finding.
-  writeFileSync(staged, formatRecord({ path, line, why, kind, recordedAt: now.toISOString() }));
-  renameSync(staged, join(repo.buffer, `${id}.json`));
+
+  const id = place(
+    repo.buffer,
+    formatRecord({ path, line, why, kind, recordedAt: now.toISOString() }),
+    nextId,
+  );
+
   const where = line === null ? path : `${path}:${line}`;
 
   return `Recorded ${kind === "security" ? "security finding" : "finding"} ${id} at ${where}. The user reviews findings in batch: carry on with your task.\n`;
@@ -105,7 +130,7 @@ function close(ids: readonly string[], cwd: string): Outcome {
       unlinkSync(join(buffer, `${id}.json`));
       closed.push(id);
     } catch (error) {
-      if (!(error instanceof Error && "code" in error && error.code === ENOENT)) throw error;
+      if (!(error instanceof Error && hasCode(error, ENOENT))) throw error;
       missing.push(id);
     }
   }
@@ -117,7 +142,12 @@ function close(ids: readonly string[], cwd: string): Outcome {
   };
 }
 
-export function run(args: readonly string[], cwd: string, now: Date): Outcome {
+export function run(
+  args: readonly string[],
+  cwd: string,
+  now: Date,
+  nextId: () => string = randomId,
+): Outcome {
   const [first, ...rest] = args;
 
   try {
@@ -130,7 +160,7 @@ export function run(args: readonly string[], cwd: string, now: Date): Outcome {
     if (first.startsWith("-") && first !== "--security")
       throw new UsageError(`unknown option ${first}`);
 
-    return { exitCode: 0, stdout: record(args, cwd, now), stderr: "" };
+    return { exitCode: 0, stdout: record(args, cwd, now, nextId), stderr: "" };
   } catch (error) {
     if (error instanceof UsageError)
       return { exitCode: 2, stdout: "", stderr: `${COMMAND}: ${error.message}\n${USAGE}` };
