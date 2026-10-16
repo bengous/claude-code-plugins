@@ -191,11 +191,18 @@ export const register: Register = (on) => {
     if (pinned(next) !== pinned(was)) {
       const value = pinned(next) ? "1" : undefined;
 
-      host.setProjectCwdFlag(value).catch((cause: unknown) => {
+      const unmoved = (why: string) => {
         host.log(
-          `the project's working directory was not ${value === undefined ? "released" : "pinned"}: ${String(cause)}`,
+          `the project's working directory was not ${value === undefined ? "released" : "pinned"}: ${why}`,
         );
-      });
+      };
+
+      host.setProjectCwdFlag(value).then(
+        ({ deny }) => {
+          if (deny !== undefined) unmoved(deny);
+        },
+        (cause: unknown) => unmoved(String(cause)),
+      );
     }
 
     if (was.kind === "live" && (next.kind !== "live" || next.live !== was.live)) {
