@@ -115,7 +115,7 @@ export function world(on: On, options: WorldOptions = {}): World {
     if (e.value === undefined) built.env.delete(e.name);
     else built.env.set(e.name, e.value);
 
-    return { value: undefined };
+    return { value: {} };
   });
 
   on("tool.register", (_, e) => {

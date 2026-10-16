@@ -2,6 +2,7 @@ import type {
   AgentInfo,
   AgentSpawnArgs,
   AgentSpawnResult,
+  EventResult,
   FsStat,
   HookStream,
   HttpInit,
@@ -88,5 +89,5 @@ export type Host = {
   projectCwdFlag: () => Promise<string | undefined>;
 
   /** `$.env.set("CLAUDE_BASH_MAINTAIN_PROJECT_WORKING_DIR", value)`; `undefined` unsets it. */
-  setProjectCwdFlag: (value: string | undefined) => Promise<void>;
+  setProjectCwdFlag: (value: string | undefined) => Promise<EventResult<"env.set">>;
 };
