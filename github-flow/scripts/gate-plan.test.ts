@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdtempSync, readdirSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -51,7 +51,7 @@ describe("verdict", () => {
 });
 
 describe("planDigest", () => {
-  test("ignores the session line capture-plan.ts may add between two calls", () => {
+  test("ignores the session line the plan file may gain between two calls", () => {
     expect(planDigest(`<!-- session_id: abc -->\n${FAULTY}`)).toBe(planDigest(FAULTY));
   });
 
@@ -112,6 +112,26 @@ describe("hook", () => {
     expect(submit(tmp, CLEAN)).toEqual({ stdout: "", exitCode: 0 });
     expect(readdirSync(join(tmp, ".claude", "plans", "lint"))).toEqual([]);
     expect(JSON.parse(submit(tmp, FAULTY).stdout)).toHaveProperty("hookSpecificOutput");
+  });
+
+  test("a plan the lint denies is not captured; the plan it lets through is", () => {
+    const tmp = makeTmp();
+    const stored = join(tmp, ".claude", "plans", "by-session", "s1.md");
+    const payload = JSON.stringify({ session_id: "s1", cwd: tmp, tool_input: { plan: FAULTY } });
+
+    expect(JSON.parse(run(tmp, payload).stdout)).toHaveProperty("hookSpecificOutput");
+    expect(existsSync(stored)).toBe(false);
+
+    expect(run(tmp, payload)).toEqual({ stdout: "", exitCode: 0 });
+    expect(readFileSync(stored, "utf8")).toBe(`<!-- session_id: s1 -->\n${FAULTY}`);
+  });
+
+  test("ExitPlanMode runs one hook, so no capture runs beside a denial", async () => {
+    const config = await Bun.file(join(import.meta.dir, "..", "hooks", "hooks.json")).text();
+    const commands = config.match(/scripts\/[\w-]+\.ts/gu) ?? [];
+
+    expect(commands).toContain("scripts/gate-plan.ts");
+    expect(commands).not.toContain("scripts/capture-plan.ts");
   });
 
   test("malformed input, no plan or no session lets the call through", () => {
