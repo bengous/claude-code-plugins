@@ -7,14 +7,9 @@ import { ALLOW } from "./hook.ts";
 import { stringField } from "./json.ts";
 import type { FixTarget } from "./lanes.ts";
 import { runFixers, sequential } from "./lanes.ts";
-import { SCRATCH_PREFIX, takePhoto, underRoot } from "./scope.ts";
-
-const APPLY_PATCH_PREFIXES = [
-  "*** Add File: ",
-  "*** Update File: ",
-  "*** Delete File: ",
-  "*** Move to: ",
-];
+import { extractApplyPatchPaths } from "./patch.ts";
+import { SCRATCH_PREFIX, nearestDirectory, takePhoto, underRoot } from "./scope.ts";
+import type { Photo } from "./state.ts";
 
 type PendingWrite =
   | { readonly kind: "write"; readonly content: string }
@@ -23,8 +18,8 @@ type PendingWrite =
 /**
  * Claude Code's edit hook, before the tool runs: hands the tool the content the fixers would leave, so the file is
  * written once and the agent has no rewrite to re-read. It never blocks: on any failure the tool runs as asked.
- * The first edit of a root the session has no photo of photographs it first: the tree before that write is the
- * session's baseline there, and the Stop checks that root too.
+ * The first edit in a checkout the agent has no photo of photographs it first: the tree before that write is the
+ * agent's baseline there, and the Stop measures that checkout too.
  */
 export async function runPreEdit(context: HookContext): Promise<Verdict> {
   const { input, root, config, state } = context;
@@ -41,7 +36,7 @@ export async function runPreEdit(context: HookContext): Promise<Verdict> {
     return ALLOW;
   }
 
-  state.photo ??= takePhoto(root);
+  state.photo ??= takePhoto(state.checkout);
 
   if (isExcluded(config.preEdit.exclude, relativePath)) {
     return ALLOW;
@@ -150,19 +145,24 @@ function pendingWrite(
   return { kind: "edit", content: parts.join(newString), current };
 }
 
-/** Codex's edit hook, after `apply_patch` ran: fixes and formats the files the patch touched, on disk. */
+/**
+ * Codex's edit hook, after `apply_patch` ran: fixes and formats the files the patch touched, on disk. The first
+ * patch in a checkout the agent has no photo of photographs it, the patched files left out: the hook runs after the
+ * write, so the photo would otherwise hold them as the baseline.
+ */
 export async function runPostEdit(context: HookContext): Promise<Verdict> {
-  const { input, root, config } = context;
+  const { input, root, config, state } = context;
   const command = stringField(input.toolInput, "command");
   const filePath = stringField(input.toolInput, "file_path");
 
   const candidates = [
     ...(command === undefined ? [] : extractApplyPatchPaths(command)),
     ...(filePath === undefined ? [] : [filePath]),
-  ];
+  ].map((candidate) => path.resolve(input.cwd ?? root, candidate));
 
-  const targets = candidates.flatMap((candidate): FixTarget[] => {
-    const absolute = path.resolve(input.cwd ?? root, candidate);
+  state.photo ??= photoWithout(state.checkout, candidates);
+
+  const targets = candidates.flatMap((absolute): FixTarget[] => {
     const relativePath = underRoot(root, absolute);
 
     return relativePath === null ||
@@ -180,21 +180,20 @@ export async function runPostEdit(context: HookContext): Promise<Verdict> {
   return failures.length === 0 ? ALLOW : { kind: "context", text: failures.join("\n\n") };
 }
 
-export function extractApplyPatchPaths(patch: string): string[] {
-  const paths = new Set<string>();
+/** The checkout's photo with `patched` left out of it, so the files a patch already wrote count as changed. */
+function photoWithout(checkout: string, patched: readonly string[]): Photo | null {
+  const photo = takePhoto(checkout);
 
-  for (const line of patch.split(/\r?\n/u)) {
-    for (const prefix of APPLY_PATCH_PREFIXES) {
-      if (line.startsWith(prefix)) {
-        paths.add(line.slice(prefix.length).trim());
-      }
-    }
+  if (photo === null) {
+    return null;
   }
 
-  return [...paths];
-}
+  const left = new Set(patched.flatMap((absolute) => underRoot(checkout, absolute) ?? []));
 
-/** `dir`, or its nearest ancestor on disk: where a file of a directory the tool will create finds its config. */
-function nearestDirectory(dir: string): string {
-  return existsSync(dir) ? dir : nearestDirectory(path.dirname(dir));
+  return {
+    ...photo,
+    files: Object.fromEntries(
+      Object.entries(photo.files).filter(([relativePath]) => !left.has(relativePath)),
+    ),
+  };
 }

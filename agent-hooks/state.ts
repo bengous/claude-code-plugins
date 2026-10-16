@@ -18,16 +18,17 @@ import { sha256 } from "./scope.ts";
 
 export const STATE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 
-export const STATE_VERSION = 1;
+export const STATE_VERSION = 2;
 
 const TEMPORARY_SUFFIX = ".tmp";
 
 /** Joins a session id and an agent id into a subagent's own state key, `<session>.<agent>`. */
 export const AGENT_SEPARATOR = ".";
 
+/** A checkout's baseline: its dirty tree when the agent first reached it. */
 export type Photo = {
   readonly head: string | null;
-  /** Repo-relative path to the sha256 of its content, or "deleted" when the path is gone from disk. */
+  /** Checkout-relative path to the sha256 of its content, or "deleted" when the path is gone from disk. */
   readonly files: Record<string, string>;
   readonly takenAt: number;
 };
@@ -40,19 +41,29 @@ export type LastRun = {
   readonly lanes: Record<string, LaneRun>;
 };
 
+/** What one root of the checkout keeps between Stops. */
+export type RootRecord = {
+  /** "lane@pkg" to the green key of its last successful run. */
+  green: Record<string, string>;
+  lastRun: LastRun | null;
+};
+
+/**
+ * The state of one agent in one checkout: its photo, its brake, and the record of each root the Stop ran there.
+ * The agent is the session, or one of its subagents under its own key.
+ */
 export type SessionState = {
   readonly version: typeof STATE_VERSION;
   /** The session id, or `<session>.<agent>` for the own state of one of its subagents. */
   readonly sessionId: string;
-  readonly root: string;
+  readonly checkout: string;
   photo: Photo | null;
-  /** "lane@pkg" to the green key of its last successful run. */
-  green: Record<string, string>;
-  /** Lane to the files that failed at the last Stop. */
+  /** `rootName` of each root the Stop ran in this checkout to its record. */
+  roots: Record<string, RootRecord>;
+  /** Root-qualified lane to the files that failed at the last Stop. */
   lastFailing: Record<string, readonly string[]> | null;
   /** "lane\u0000file" to the number of diagnostic lines at the last Stop. */
   lastDiagnostics: Record<string, number> | null;
-  lastRun: LastRun | null;
   blocksInTurn: number;
   promptId: string | null;
   updatedAt: number;
@@ -75,53 +86,62 @@ export function stateDir(): string {
   return path.join(base, "agent-hooks");
 }
 
-export function rootKey(root: string): string {
-  return sha256(path.resolve(root)).slice(0, 16);
+export function checkoutKey(checkout: string): string {
+  return sha256(path.resolve(checkout)).slice(0, 16);
 }
 
-export function statePath(sessionId: string, root: string): string {
-  return path.join(stateDir(), `${sanitize(sessionId)}__${rootKey(root)}.json`);
+export function statePath(sessionId: string, checkout: string): string {
+  return path.join(stateDir(), `${sanitize(sessionId)}__${checkoutKey(checkout)}.json`);
 }
 
-export function freshState(sessionId: string, root: string, now = Date.now()): SessionState {
+export function freshState(sessionId: string, checkout: string, now = Date.now()): SessionState {
   return {
     version: STATE_VERSION,
     sessionId,
-    root: path.resolve(root),
+    checkout: path.resolve(checkout),
     photo: null,
-    green: {},
+    roots: {},
     lastFailing: null,
     lastDiagnostics: null,
-    lastRun: null,
     blocksInTurn: 0,
     promptId: null,
     updatedAt: now,
   };
 }
 
-/** The saved state of the session for this root, or a fresh one; a corrupt file is replaced and reported once. */
-export function loadState(sessionId: string, root: string, now = Date.now()): SessionState {
-  const file = statePath(sessionId, root);
+/** A root's name in the state of its checkout: its path relative to the checkout, `.` for the checkout itself. */
+export function rootName(checkout: string, root: string): string {
+  return path.relative(path.resolve(checkout), path.resolve(root)) || ".";
+}
+
+/** The record of `root` in the state of its checkout, empty until a Stop ran its lanes. */
+export function rootRecord(state: SessionState, root: string): RootRecord {
+  return (state.roots[rootName(state.checkout, root)] ??= { green: {}, lastRun: null });
+}
+
+/** The saved state of the agent in this checkout, or a fresh one; a corrupt file is replaced and reported once. */
+export function loadState(sessionId: string, checkout: string, now = Date.now()): SessionState {
+  const file = statePath(sessionId, checkout);
   let text: string;
 
   try {
     text = readFileSync(file, "utf8");
   } catch {
-    return freshState(sessionId, root, now);
+    return freshState(sessionId, checkout, now);
   }
 
-  const parsed = parseState(text, sessionId, root);
+  const parsed = parseState(text, sessionId, checkout);
 
   if (parsed === null) {
     console.error(`agent-hooks: ${file}: unreadable state, starting fresh`);
 
-    return freshState(sessionId, root, now);
+    return freshState(sessionId, checkout, now);
   }
 
   return parsed;
 }
 
-function parseState(text: string, sessionId: string, root: string): SessionState | null {
+function parseState(text: string, sessionId: string, checkout: string): SessionState | null {
   let value: unknown;
 
   try {
@@ -130,36 +150,34 @@ function parseState(text: string, sessionId: string, root: string): SessionState
     return null;
   }
 
-  return isRecord(value) ? stateOf(value, sessionId, root) : null;
+  return isRecord(value) ? stateOf(value, sessionId, checkout) : null;
 }
 
 function stateOf(
   value: Readonly<Record<string, unknown>>,
   sessionId: string,
-  root: string,
+  checkout: string,
 ): SessionState | null {
   if (
     value["version"] !== STATE_VERSION ||
     typeof value["blocksInTurn"] !== "number" ||
-    typeof value["updatedAt"] !== "number" ||
-    !isRecord(value["green"])
+    typeof value["updatedAt"] !== "number"
   ) {
     return null;
   }
 
   const photo = value["photo"];
+  const roots = value["roots"];
   const promptId = value["promptId"];
   const lastFailing = value["lastFailing"];
   const lastDiagnostics = value["lastDiagnostics"];
-  const lastRun = value["lastRun"];
 
   if (
     !(photo === null || isPhoto(photo)) ||
+    !isRootRecords(roots) ||
     !(promptId === null || typeof promptId === "string") ||
     !(lastFailing === null || isStringArrayRecord(lastFailing)) ||
-    !(lastDiagnostics === null || isNumberRecord(lastDiagnostics)) ||
-    !(lastRun === null || isLastRun(lastRun)) ||
-    !isStringRecord(value["green"])
+    !(lastDiagnostics === null || isNumberRecord(lastDiagnostics))
   ) {
     return null;
   }
@@ -167,16 +185,27 @@ function stateOf(
   return {
     version: STATE_VERSION,
     sessionId,
-    root: path.resolve(root),
+    checkout: path.resolve(checkout),
     photo,
-    green: value["green"],
+    roots,
     lastFailing,
     lastDiagnostics,
-    lastRun,
     blocksInTurn: value["blocksInTurn"],
     promptId,
     updatedAt: value["updatedAt"],
   };
+}
+
+function isRootRecords(value: unknown): value is Record<string, RootRecord> {
+  return (
+    isRecord(value) &&
+    Object.values(value).every(
+      (record) =>
+        isRecord(record) &&
+        isStringRecord(record["green"]) &&
+        (record["lastRun"] === null || isLastRun(record["lastRun"])),
+    )
+  );
 }
 
 function isPhoto(value: unknown): value is Photo {
@@ -219,7 +248,7 @@ function isStringArrayRecord(value: unknown): value is Record<string, readonly s
  * has its own temporary name: two hooks of one session save at once, and a shared name lets one rename the other's.
  */
 export function saveState(state: SessionState, now = Date.now()): void {
-  const file = statePath(state.sessionId, state.root);
+  const file = statePath(state.sessionId, state.checkout);
   const temporary = `${file}.${process.pid}.${randomUUID()}${TEMPORARY_SUFFIX}`;
   state.updatedAt = now;
   mkdirSync(path.dirname(file), { recursive: true });
@@ -276,7 +305,10 @@ function updatedAtOf(filePath: string): number {
   }
 }
 
-/** Every saved state of this session, one per root, sorted by root, each file read once: a Stop picks its roots there. */
+/**
+ * Every saved state of this agent, one per checkout, sorted by checkout, each file read once: the checkouts a Stop
+ * measures.
+ */
 export function statesOf(sessionId: string): SessionState[] {
   const prefix = `${sanitize(sessionId)}__`;
   let files: string[];
@@ -299,22 +331,26 @@ export function statesOf(sessionId: string): SessionState[] {
         return [];
       }
 
-      const root = isRecord(value) ? value["root"] : undefined;
+      const checkout = isRecord(value) ? value["checkout"] : undefined;
 
       const state =
-        isRecord(value) && typeof root === "string" ? stateOf(value, sessionId, root) : null;
+        isRecord(value) && typeof checkout === "string"
+          ? stateOf(value, sessionId, checkout)
+          : null;
 
       return state === null ? [] : [state];
     })
-    .toSorted((left, right) => (left.root < right.root ? -1 : Number(left.root > right.root)));
+    .toSorted((left, right) =>
+      left.checkout < right.checkout ? -1 : Number(left.checkout > right.checkout),
+    );
 }
 
 /**
- * The most recent main-session state file of this root: what `doctor` shows as the last Stop and `verify` takes its
- * scope from. A subagent's state, `<session>.<agent>`, holds that subagent's photo only.
+ * The most recent main-session state of this checkout: what `doctor` shows as a root's last Stop and `verify` takes
+ * its scope from. A subagent's state, `<session>.<agent>`, holds that subagent's photo only.
  */
-export function latestStateForRoot(root: string): SessionState | null {
-  const suffix = `__${rootKey(root)}.json`;
+export function latestStateForCheckout(checkout: string): SessionState | null {
+  const suffix = `__${checkoutKey(checkout)}.json`;
   let files: string[];
 
   try {
@@ -328,7 +364,12 @@ export function latestStateForRoot(root: string): SessionState | null {
   const states = files.flatMap((file) => {
     try {
       const sessionId = file.slice(0, -suffix.length);
-      const parsed = parseState(readFileSync(path.join(stateDir(), file), "utf8"), sessionId, root);
+
+      const parsed = parseState(
+        readFileSync(path.join(stateDir(), file), "utf8"),
+        sessionId,
+        checkout,
+      );
 
       return parsed === null ? [] : [parsed];
     } catch {

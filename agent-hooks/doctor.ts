@@ -6,8 +6,8 @@ import type { Config, Fixer, Lane } from "./config.ts";
 import { ConfigError, configPath, expandCommand, loadConfig } from "./config.ts";
 import { resolveProgram } from "./exec.ts";
 import { isRecord, parseJsonc, recordField, stringField } from "./json.ts";
-import { findRoot, takePhoto } from "./scope.ts";
-import { latestStateForRoot } from "./state.ts";
+import { checkoutOf, findRoot, takePhoto } from "./scope.ts";
+import { latestStateForCheckout, rootRecord } from "./state.ts";
 import { runVerify } from "./verify.ts";
 
 export const CODEX_SYSTEM_CONFIG = "/etc/codex/config.toml";
@@ -77,14 +77,16 @@ export async function runDoctor(options: DoctorOptions): Promise<number> {
     print(check.line);
   }
 
+  const checkout = checkoutOf(root) ?? root;
   const started = Date.now();
-  const photo = takePhoto(root);
+  const photo = takePhoto(checkout);
   print(
     photo === null
       ? "photo: git status failed"
       : `photo: ${Object.keys(photo.files).length} dirty files in ${Date.now() - started} ms`,
   );
-  const lastRun = latestStateForRoot(root)?.lastRun ?? null;
+  const latest = latestStateForCheckout(checkout);
+  const lastRun = latest === null ? null : rootRecord(latest, root).lastRun;
   print(
     lastRun === null
       ? "last stop: none"

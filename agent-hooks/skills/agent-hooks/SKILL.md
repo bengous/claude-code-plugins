@@ -52,21 +52,38 @@ Exit 1 means at least one `MISSING` or a failing lane.
 
 ## Reading a Stop
 
-- The Stop checks every root the session photographed, its SessionStart's and each one its first Edit
-  or Write there photographed, and the root around its cwd, each with its own config; a report from
-  several roots names each. A root without a photo is checked over its whole dirty tree. A file belongs
-  to its nearest root: an outer root leaves a nested root of the same Stop the files that root checks.
-- The Stop blocks only while the agent makes progress on the failing set (at most `stop.cap` times in
-  a row, default 3); otherwise it lets the turn end with a `systemMessage` that starts with
-  `agent-hooks:`. Nothing to fix in the kit when that message shows: the agent stopped progressing.
+The Stop measures checkouts (git work trees); roots only check. Each fact has one owner:
+
+- Photo: one per agent and checkout, the dirty tree when the agent first reached it. Taken at
+  SessionStart for the checkout around the cwd; at the first Edit or Write (Claude) or the first
+  `apply_patch` (Codex, whose hook runs after the write, so the patched files count as changed) for any
+  other checkout. `resume` and `compact` keep it.
+- Changed files: in each photographed checkout, the dirty files whose content differs from the photo.
+  For the main session only, the checkout around its cwd counts without a photo, over its whole dirty
+  tree (Bash and a Codex patch photograph nothing); the Stop says so in a note.
+- Owner: each changed file goes to its nearest root holding `.claude/agent-hooks.jsonc`, the rule
+  pre-edit uses, computed once over every changed file. The roots owning at least one file run their
+  fixers and lanes on their own files, each under its own config; a nested root's file never reaches
+  the outer root's lanes. A report names its root unless that root is the one around the cwd.
+- Brake: one per agent and checkout. It blocks while the agent makes progress on the checkout's
+  failing set (a changed set, or fewer diagnostic lines on the same set), at most `stop.cap` times in a
+  row (default 3; the smallest cap of the failing roots); otherwise it lets the turn end with a
+  `systemMessage` that starts with `agent-hooks:`. A checkout without a photo blocks once per failing
+  set. Nothing to fix in the kit when that message shows: the agent stopped progressing.
+- Verdict: the Stop blocks if any brake blocks.
 - `${CLAUDE_PLUGIN_ROOT}/agent-hooks.ts verify [--all] [files...]` runs the lanes now, without the green
-  cache, and prints one line per lane. `--all` takes the whole dirty tree instead of the session scope.
-- A subagent's SubagentStop is checked the same way, on its own state: the files changed since its
-  first Edit or Write, under its own failing set and block counter. A subagent that edited nothing is
-  let through. The main session's Stop waits while a subagent, workflow or teammate still runs.
-- State: `~/.local/state/agent-hooks/<session>__<root hash>.json`, `<session>.<agent>__<root hash>.json`
-  for a subagent (`lastRun.lanes`, green keys, loop counters), pruned after 7 days.
-- Pre-edit fixes a copy of the new content in `.agent-hooks-XXXX/` beside the file, so the fixers find
+  cache, and prints one line per lane, on the files this root owns among those the last main session
+  changed in the checkout. `--all` takes the whole dirty tree instead; named files run as named.
+- A subagent's SubagentStop is measured the same way on its own states: the checkouts its own Edits or
+  Writes photographed, under its own brake. Its cwd's checkout is not added, so a subagent that edited
+  nothing is let through. The main session's Stop waits while a subagent, workflow or teammate still
+  runs.
+- State: `~/.local/state/agent-hooks/<agent>__<checkout hash>.json`, `<agent>` the session id or
+  `<session>.<agent id>` for a subagent: the photo, the brake, and per root its green keys and
+  `lastRun.lanes`; pruned after 7 days.
+- Pre-edit fixes a copy of the new content in `.agent-hooks-XXXXXX/` beside the file, so the fixers find
   the config and the overrides of the real path. The kit's own scope never counts that copy, but another
   tool watching the tree can see it while the fixers run, and a pre-edit killed past its deadline leaves
-  it until the next SessionStart, which removes the ones older than the pre-edit deadline.
+  it until the next SessionStart, which removes the untracked directories of that exact name, holding no
+  tracked file, older than the pre-edit deadline. A path that merely starts with `.agent-hooks-` is the
+  repository's own.

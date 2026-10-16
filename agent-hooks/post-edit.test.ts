@@ -8,7 +8,8 @@ import { deadlineIn, run } from "./exec.ts";
 import type { HookContext } from "./hook.ts";
 import { ALLOW, parseInput } from "./hook.ts";
 import { recordField, stringField } from "./json.ts";
-import { extractApplyPatchPaths, runPostEdit } from "./pre-edit.ts";
+import { extractApplyPatchPaths } from "./patch.ts";
+import { runPostEdit } from "./pre-edit.ts";
 import { freshState } from "./state.ts";
 import type { TempRepo } from "./test-support.ts";
 import {
@@ -67,7 +68,6 @@ function contextOf(repo: string, payload: Record<string, unknown>): HookContext 
     root: repo,
     config: loadConfig(repo),
     state: freshState("s1", repo),
-    roots: new Map([[repo, null]]),
     deadline: deadlineIn(20_000),
     runner: run,
   };

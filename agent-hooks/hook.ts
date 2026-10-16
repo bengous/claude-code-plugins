@@ -5,13 +5,14 @@ import path from "node:path";
 import type { BackgroundTaskSummary } from "@anthropic-ai/claude-agent-sdk";
 
 import type { Config } from "./config.ts";
-import { ConfigError, DEFAULT_CAP, configPath, loadConfig } from "./config.ts";
+import { ConfigError, DEFAULT_CAP, loadConfig } from "./config.ts";
 import type { Deadline, Runner } from "./exec.ts";
 import { OUTPUT_GRACE_MS, deadlineIn, run } from "./exec.ts";
-import { booleanField, isRecord, recordField, stringField } from "./json.ts";
+import { isRecord, recordField, stringField } from "./json.ts";
 import { CRASH_LANE, guard } from "./loop-guard.ts";
-import { findRoot } from "./scope.ts";
-import type { Photo, SessionState } from "./state.ts";
+import { extractApplyPatchPaths } from "./patch.ts";
+import { checkoutOf, findRoot } from "./scope.ts";
+import type { SessionState } from "./state.ts";
 import { AGENT_SEPARATOR, freshState, loadState, saveState, statesOf } from "./state.ts";
 
 export const HARNESSES = ["claude", "codex"] as const;
@@ -21,6 +22,9 @@ export type Harness = (typeof HARNESSES)[number];
 export const HOOK_KINDS = ["session-start", "pre-edit", "post-edit", "stop"] as const;
 
 export type HookKind = (typeof HOOK_KINDS)[number];
+
+/** The hooks that run at one root, the one around their file or cwd; the Stop runs over every checkout instead. */
+export type RootHookKind = Exclude<HookKind, "stop">;
 
 export const DEADLINES_MS: Readonly<Record<HookKind, number>> = {
   "session-start": 4000,
@@ -56,32 +60,48 @@ export type Input = {
   /** `prompt_id` under Claude Code, `turn_id` under Codex. */
   readonly promptId: string | undefined;
   readonly permissionMode: string | undefined;
-  readonly stopHookActive: boolean;
   readonly backgroundTasks: readonly BackgroundTaskSummary[];
   readonly toolName: string | undefined;
   readonly toolInput: Record<string, unknown>;
 };
 
+/** What a root hook runs with: its root's config and the agent's state in the checkout around its file or cwd. */
 export type HookContext = {
-  readonly hook: HookKind;
+  readonly hook: RootHookKind;
   readonly harness: Harness;
   readonly input: Input;
   readonly root: string;
   readonly config: Config;
   readonly state: SessionState;
-  /** Every root this hook runs for, with its photo: a Stop's, so a root leaves to a nested one the files it checks. */
-  readonly roots: ReadonlyMap<string, Photo | null>;
+  readonly deadline: Deadline;
+  readonly runner: Runner;
+};
+
+/** What a Stop runs with: the agent's state in each checkout it measures. */
+export type StopContext = {
+  readonly harness: Harness;
+  readonly input: Input;
+  /**
+   * Each checkout the agent photographed, and for the main session the one around its cwd, photographed or not.
+   * A checkout without a photo is measured over its whole dirty tree.
+   */
+  readonly checkouts: readonly SessionState[];
   readonly deadline: Deadline;
   readonly runner: Runner;
 };
 
 export type Handler = (context: HookContext) => Promise<Verdict>;
 
-export type RunHookOptions = {
-  readonly hook: HookKind;
+export type StopHandler = (context: StopContext) => Promise<Verdict>;
+
+/** A hook with its handler: the Stop's reads every checkout, a root hook's reads one root. */
+export type HookRun =
+  | { readonly hook: "stop"; readonly handler: StopHandler }
+  | { readonly hook: RootHookKind; readonly handler: Handler };
+
+export type RunHookOptions = HookRun & {
   readonly harness: Harness;
   readonly payload: unknown;
-  readonly handler: Handler;
   readonly runner?: Runner;
   readonly now?: number;
   /** Overrides DEADLINES_MS for the tests. */
@@ -127,7 +147,6 @@ export function parseInput(payload: Record<string, unknown>): Input | null {
     cwd: stringField(payload, "cwd"),
     promptId: stringField(payload, "prompt_id") ?? stringField(payload, "turn_id"),
     permissionMode: stringField(payload, "permission_mode"),
-    stopHookActive: booleanField(payload, "stop_hook_active") ?? false,
     backgroundTasks: Array.isArray(tasks) ? tasks.filter((task) => isBackgroundTask(task)) : [],
     toolName: stringField(payload, "tool_name"),
     toolInput: recordField(payload, "tool_input") ?? {},
@@ -144,26 +163,38 @@ function isBackgroundTask(value: unknown): value is BackgroundTaskSummary {
   );
 }
 
-/** Where the root search starts: the edited file's directory for the edit hooks, the payload's cwd otherwise. */
+/**
+ * Where the root search starts: the edited file's directory for the edit hooks, the first patched file's for a
+ * Codex `apply_patch`, the payload's cwd otherwise.
+ */
 export function searchStart(hook: HookKind, input: Input): string | null {
   if (hook === "pre-edit" || hook === "post-edit") {
-    const filePath = stringField(input.toolInput, "file_path");
+    const edited = editedPath(input);
 
-    if (filePath !== undefined) {
-      return path.dirname(path.resolve(input.cwd ?? process.cwd(), filePath));
+    if (edited !== undefined) {
+      return path.dirname(path.resolve(input.cwd ?? process.cwd(), edited));
     }
   }
 
   return input.cwd ?? null;
 }
 
+function editedPath(input: Input): string | undefined {
+  const command = stringField(input.toolInput, "command");
+
+  return (
+    stringField(input.toolInput, "file_path") ??
+    (command === undefined ? undefined : extractApplyPatchPaths(command)[0])
+  );
+}
+
 /**
- * The envelope every hook runs in: reads the payload, finds the roots, loads the config and the state of each,
- * runs the handler under a deadline, saves the state and encodes the verdicts for the harness. Returns the line to
- * print, or null for no output. Never throws: a crash is a verdict too.
+ * The envelope every hook runs in: reads the payload, finds what the hook measures, runs the handler under a
+ * deadline, saves the state and encodes the verdict for the harness. Returns the line to print, or null for no
+ * output. Never throws: a crash is a verdict too.
  */
 export async function runHook(options: RunHookOptions): Promise<string | null> {
-  const { hook, harness, payload } = options;
+  const { harness, payload } = options;
 
   if (!isRecord(payload)) {
     console.error("agent-hooks: empty or invalid payload on stdin");
@@ -179,63 +210,14 @@ export async function runHook(options: RunHookOptions): Promise<string | null> {
     return null;
   }
 
-  const start = searchStart(hook, input);
   const now = options.now ?? Date.now();
 
-  const states =
-    hook === "stop"
-      ? stopStates(input, start, now)
-      : rootAt(start).map((root) => loadState(stateKey(input), root, now));
+  const verdict =
+    options.hook === "stop"
+      ? await runStopHook(options, input, now)
+      : await runRootHook(options, input, now);
 
-  if (states.length === 0) {
-    return null;
-  }
-
-  const roots = new Map(states.map((state) => [state.root, state.photo]));
-
-  const verdicts = await Promise.all(
-    states.map((state) => runAt(options, input, state, roots, now)),
-  );
-
-  return encode(merged(verdicts), harness, hook);
-}
-
-function rootAt(start: string | null): string[] {
-  const root = start === null ? null : findRoot(start);
-
-  return root === null ? [] : [root];
-}
-
-/**
- * The roots a Stop checks: each one the session photographed, at its SessionStart or its first edit there, wherever
- * its cwd has moved since, and the root around its cwd, checked over its whole dirty tree when it has no photo:
- * Bash and a Codex patch photograph nothing, and checking too much beats missing a root. A subagent checks only the
- * roots it photographed: over a shared checkout's whole tree, one that edited nothing would block on its parent's
- * work.
- */
-function stopStates(input: Input, start: string | null, now: number): SessionState[] {
-  const key = stateKey(input);
-  const saved = statesOf(key);
-
-  const photographed = saved.filter(
-    (state) => state.photo !== null && existsSync(configPath(state.root)),
-  );
-
-  const [cwdRoot] = rootAt(start);
-
-  if (
-    input.agentId !== undefined ||
-    cwdRoot === undefined ||
-    photographed.some((state) => state.root === cwdRoot)
-  ) {
-    return photographed;
-  }
-
-  const cwdState = saved.find((state) => state.root === cwdRoot) ?? freshState(key, cwdRoot, now);
-
-  return [...photographed, cwdState].toSorted((left, right) =>
-    left.root < right.root ? -1 : Number(left.root > right.root),
-  );
+  return verdict === null ? null : encode(verdict, harness, options.hook);
 }
 
 /**
@@ -248,60 +230,97 @@ export function stateKey(input: Input): string {
     : `${input.sessionId}${AGENT_SEPARATOR}${input.agentId}`;
 }
 
-type RootVerdict = { readonly root: string; readonly verdict: Verdict };
+type StopRun = RunHookOptions & { readonly hook: "stop" };
 
-async function runAt(
-  options: RunHookOptions,
-  input: Input,
-  state: SessionState,
-  roots: ReadonlyMap<string, Photo | null>,
-  now: number,
-): Promise<RootVerdict> {
-  const hadPhoto = state.photo !== null;
-  const verdict = await verdictOf(options, input, state, roots, now);
+type RootRun = RunHookOptions & { readonly hook: RootHookKind };
 
-  // An edit hook changes the state only when pre-edit photographs a root that had no photo: that alone decides its
-  // save. A Stop or a session start always saves, which refreshes the state's age.
-  if (!isEditHook(options.hook) || (!hadPhoto && state.photo !== null)) {
+/** A Stop: every checkout's state read once, the handler over all of them, every state saved. */
+async function runStopHook(options: StopRun, input: Input, now: number): Promise<Verdict | null> {
+  const checkouts = stopStates(input, now);
+
+  if (checkouts.length === 0) {
+    return null;
+  }
+
+  const deadlineMs = options.deadlineMs ?? DEADLINES_MS.stop;
+  let verdict: Verdict;
+
+  try {
+    verdict = await raced("stop", deadlineMs, now, (deadline) =>
+      options.handler({
+        harness: options.harness,
+        input,
+        checkouts,
+        deadline,
+        runner: options.runner ?? run,
+      }),
+    );
+  } catch (error) {
+    // A kit failure blocks under the brake of the checkout around the cwd, so a crash never ends the turn silently.
+    const message = `agent-hooks crashed: ${error instanceof Error ? error.message : String(error)}`;
+    const braked = checkouts.find((state) => state.checkout === cwdCheckout(input)) ?? checkouts[0];
+
+    verdict =
+      braked === undefined
+        ? ALLOW
+        : guard(braked, { [CRASH_LANE]: [message] }, {}, DEFAULT_CAP, message);
+  }
+
+  for (const state of checkouts) {
     persist(state, now);
   }
 
-  return { root: state.root, verdict };
+  return verdict;
 }
 
-/** One root's verdict as it is; several roots name theirs, and one block among them blocks. */
-function merged(verdicts: readonly RootVerdict[]): Verdict {
-  const [only] = verdicts;
+/**
+ * The checkouts a Stop measures: each one the agent photographed, wherever its cwd has moved since, and for the main
+ * session the checkout around its cwd when no photo covers it, measured over its whole dirty tree: Bash and a Codex
+ * patch photograph nothing, and checking too much beats missing a change. A subagent keeps to what it photographed:
+ * over a shared checkout's whole tree, one that edited nothing would block on its parent's work. A checkout gone
+ * from disk is left out.
+ */
+function stopStates(input: Input, now: number): SessionState[] {
+  const key = stateKey(input);
+  const saved = statesOf(key).filter((state) => existsSync(state.checkout));
+  const checkout = input.agentId === undefined ? cwdCheckout(input) : null;
 
-  if (only !== undefined && verdicts.length === 1) {
-    return only.verdict;
+  if (checkout === null || saved.some((state) => state.checkout === checkout)) {
+    return saved;
   }
 
-  const texts = verdicts.flatMap(({ root, verdict }) => {
-    switch (verdict.kind) {
-      case "block": {
-        return [`${root}:\n${verdict.reason}`];
-      }
-
-      case "note": {
-        return [`${root}:\n${verdict.text}`];
-      }
-
-      default: {
-        return [];
-      }
-    }
-  });
-
-  if (verdicts.some(({ verdict }) => verdict.kind === "block")) {
-    return { kind: "block", reason: texts.join("\n\n") };
-  }
-
-  return texts.length === 0 ? ALLOW : { kind: "note", text: texts.join("\n\n") };
+  return [...saved, freshState(key, checkout, now)].toSorted((left, right) =>
+    left.checkout < right.checkout ? -1 : Number(left.checkout > right.checkout),
+  );
 }
 
-function isEditHook(hook: HookKind): boolean {
-  return hook === "pre-edit" || hook === "post-edit";
+/** The checkout around the payload's cwd, when that cwd lies under a root; a root outside git is its own checkout. */
+function cwdCheckout(input: Input): string | null {
+  const root = input.cwd === undefined ? null : findRoot(input.cwd);
+
+  return root === null ? null : (checkoutOf(input.cwd ?? root) ?? root);
+}
+
+/** A root hook: the root around its file or cwd, the state of the checkout there, saved when it photographed. */
+async function runRootHook(options: RootRun, input: Input, now: number): Promise<Verdict | null> {
+  const start = searchStart(options.hook, input);
+  const root = start === null ? null : findRoot(start);
+
+  if (root === null || start === null) {
+    return null;
+  }
+
+  const state = loadState(stateKey(input), checkoutOf(start) ?? root, now);
+  const hadPhoto = state.photo !== null;
+  const verdict = await rootVerdict(options, input, root, state, now);
+
+  // An edit hook changes the state only when it photographs a checkout that had no photo: that alone decides its
+  // save. A session start always saves, which refreshes the state's age.
+  if (options.hook === "session-start" || (!hadPhoto && state.photo !== null)) {
+    persist(state, now);
+  }
+
+  return verdict;
 }
 
 /** The verdict is the hook's answer: a state that cannot be written costs the next Stop its memory, not this one. */
@@ -315,57 +334,64 @@ function persist(state: SessionState, now: number): void {
   }
 }
 
-async function verdictOf(
-  options: RunHookOptions,
+/**
+ * A root hook never blocks: an invalid config is a note the user must act on, a plain allow at session start; a
+ * crash is reported on stderr and lets the tool run as asked.
+ */
+async function rootVerdict(
+  options: RootRun,
   input: Input,
+  root: string,
   state: SessionState,
-  roots: ReadonlyMap<string, Photo | null>,
   now: number,
 ): Promise<Verdict> {
-  const { root } = state;
   const { hook, handler } = options;
   const deadlineMs = options.deadlineMs ?? DEADLINES_MS[hook];
-  // The fixers and lanes stop SETTLE_MS before the hook's own deadline, so a killed lane reports its timeout and the
-  // run is recorded before `pastDeadline` would replace the whole verdict.
-  const deadline = deadlineIn(Math.max(0, deadlineMs - SETTLE_MS), now);
   let config: Config;
 
   try {
     config = loadConfig(root);
   } catch (error) {
     const message = error instanceof ConfigError ? error.message : `agent-hooks: ${String(error)}`;
+    console.error(message);
 
-    return failureVerdict(
-      hook,
-      state,
-      message,
-      DEFAULT_CAP,
-      hook === "session-start" ? ALLOW : { kind: "note", text: message },
-    );
+    return hook === "session-start" ? ALLOW : { kind: "note", text: message };
   }
-
-  const context: HookContext = {
-    hook,
-    harness: options.harness,
-    input,
-    root,
-    config,
-    state,
-    roots,
-    deadline,
-    runner: options.runner ?? run,
-  };
 
   try {
-    return await Promise.race([
-      handler(context),
-      pastDeadline(hook, deadlineMs, deadlineIn(deadlineMs, now)),
-    ]);
+    return await raced(hook, deadlineMs, now, (deadline) =>
+      handler({
+        hook,
+        harness: options.harness,
+        input,
+        root,
+        config,
+        state,
+        deadline,
+        runner: options.runner ?? run,
+      }),
+    );
   } catch (error) {
-    const message = `agent-hooks crashed: ${error instanceof Error ? error.message : String(error)}`;
+    console.error(`agent-hooks crashed: ${error instanceof Error ? error.message : String(error)}`);
 
-    return failureVerdict(hook, state, message, config.stop.cap, ALLOW);
+    return ALLOW;
   }
+}
+
+/**
+ * Runs the handler against the hook's deadline. The fixers and lanes stop SETTLE_MS before it, so a killed lane
+ * reports its timeout and the run is recorded before `pastDeadline` would replace the whole verdict.
+ */
+function raced(
+  hook: HookKind,
+  deadlineMs: number,
+  now: number,
+  handler: (deadline: Deadline) => Promise<Verdict>,
+): Promise<Verdict> {
+  return Promise.race([
+    handler(deadlineIn(Math.max(0, deadlineMs - SETTLE_MS), now)),
+    pastDeadline(hook, deadlineMs, deadlineIn(deadlineMs, now)),
+  ]);
 }
 
 /** A failure verdict at the deadline, so the harness never cuts a hook that has nothing to say. */
@@ -377,26 +403,6 @@ async function pastDeadline(
   await Bun.sleep(deadline.remaining());
 
   throw new Error(`${hook} ran past its ${deadlineMs} ms deadline`);
-}
-
-/**
- * A Stop turns a kit failure into a block under the loop guard; an edit or a session start is never blocked and
- * gets `otherwise`: a note for an invalid config the user must fix, a plain allow for a crash.
- */
-function failureVerdict(
-  hook: HookKind,
-  state: SessionState,
-  message: string,
-  cap: number,
-  otherwise: Verdict,
-): Verdict {
-  if (hook === "stop") {
-    return guard(state, { [CRASH_LANE]: [message] }, {}, cap, message);
-  }
-
-  console.error(message);
-
-  return otherwise;
 }
 
 /** The wire shape of a verdict. Key order is part of the contract: the tests pin the bytes. */

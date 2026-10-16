@@ -5,7 +5,7 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 
 import { CONFIG_RELATIVE_PATH } from "./config.ts";
-import type { Handler, HookKind } from "./hook.ts";
+import type { HookRun } from "./hook.ts";
 import { runHook } from "./hook.ts";
 import { isRecord, stringField } from "./json.ts";
 import { runPreEdit } from "./pre-edit.ts";
@@ -29,17 +29,14 @@ const BAD_CHECKER =
 
 const HOOKS_JSON = path.join(import.meta.dir, "hooks", "hooks.json");
 
-function hook(
-  kind: HookKind,
-  handler: Handler,
-  payload: Record<string, unknown>,
-): Promise<string | null> {
-  return runHook({
-    hook: kind,
-    harness: "claude",
-    payload: { session_id: "s1", ...payload },
-    handler,
-  });
+const SESSION_START: HookRun = { hook: "session-start", handler: runSessionStart };
+
+const PRE_EDIT: HookRun = { hook: "pre-edit", handler: runPreEdit };
+
+const STOP: HookRun = { hook: "stop", handler: runStop };
+
+function hook(run: HookRun, payload: Record<string, unknown>): Promise<string | null> {
+  return runHook({ ...run, harness: "claude", payload: { session_id: "s1", ...payload } });
 }
 
 function decisionOf(line: string | null): string {
@@ -73,7 +70,7 @@ describe("a subagent's Stop", () => {
 
   /** The Edit or Write of a subagent: its pre-edit, then the write the tool makes. */
   async function edit(agentId: string, name: string, content: string): Promise<void> {
-    await hook("pre-edit", runPreEdit, {
+    await hook(PRE_EDIT, {
       agent_id: agentId,
       cwd: temp.repo,
       tool_name: "Write",
@@ -84,7 +81,7 @@ describe("a subagent's Stop", () => {
 
   /** A SubagentStop payload: the stopping subagent is itself listed, running, in background_tasks. */
   function subagentStop(agentId: string): Promise<string | null> {
-    return hook("stop", runStop, {
+    return hook(STOP, {
       agent_id: agentId,
       agent_type: "general-purpose",
       hook_event_name: "SubagentStop",
@@ -97,7 +94,7 @@ describe("a subagent's Stop", () => {
   }
 
   test("checks the files the subagent changed, although it lists itself as running", async () => {
-    await hook("session-start", runSessionStart, { cwd: temp.repo });
+    await hook(SESSION_START, { cwd: temp.repo });
     await edit("a1", "src/a.ts", "BAD\n");
 
     const output = await subagentStop("a1");
@@ -107,7 +104,7 @@ describe("a subagent's Stop", () => {
   });
 
   test("two subagents of one session keep their own failing set", async () => {
-    await hook("session-start", runSessionStart, { cwd: temp.repo });
+    await hook(SESSION_START, { cwd: temp.repo });
     await edit("a1", "src/a.ts", "fine\n");
     await edit("a2", "src/b.ts", "fine\n");
     writeRepoFile(temp.repo, "src/a.ts", "BAD\n");
@@ -117,18 +114,18 @@ describe("a subagent's Stop", () => {
   });
 
   test("lets through a subagent that edited nothing, whatever the checkout holds", async () => {
-    await hook("session-start", runSessionStart, { cwd: temp.repo });
+    await hook(SESSION_START, { cwd: temp.repo });
     writeRepoFile(temp.repo, "src/main.ts", "BAD\n");
 
     expect(await subagentStop("a3")).toBeNull();
   });
 
   test("leaves the main session's own state to the main session", async () => {
-    await hook("session-start", runSessionStart, { cwd: temp.repo });
+    await hook(SESSION_START, { cwd: temp.repo });
     await edit("a1", "src/a.ts", "BAD\n");
     await subagentStop("a1");
 
-    const main = await hook("stop", runStop, { cwd: temp.repo, prompt_id: "p1" });
+    const main = await hook(STOP, { cwd: temp.repo, prompt_id: "p1" });
 
     expect(decisionOf(main)).toBe("block");
   });

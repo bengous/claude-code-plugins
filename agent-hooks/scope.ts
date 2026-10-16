@@ -51,10 +51,25 @@ export function findRoot(start: string): string | null {
   }
 }
 
-function git(root: string, args: readonly string[]): string | null {
+/**
+ * The checkout (git work tree) that holds `start`, or null outside any. The search begins at the nearest directory
+ * on disk: an edit may create the file's directory.
+ */
+export function checkoutOf(start: string): string | null {
+  const toplevel = git(nearestDirectory(start), ["rev-parse", "--show-toplevel"]);
+
+  return toplevel === null ? null : path.resolve(toplevel.trim());
+}
+
+/** `dir`, or its nearest ancestor on disk. */
+export function nearestDirectory(dir: string): string {
+  return existsSync(dir) ? dir : nearestDirectory(path.dirname(dir));
+}
+
+function git(cwd: string, args: readonly string[]): string | null {
   // Without an explicit env Bun.spawnSync reuses the process's original environ and ignores the GIT_* scrub of tests.
   const proc = Bun.spawnSync(["git", ...args], {
-    cwd: root,
+    cwd,
     env: process.env,
     stdout: "pipe",
     stderr: "pipe",
@@ -63,35 +78,28 @@ function git(root: string, args: readonly string[]): string | null {
   return proc.exitCode === 0 ? proc.stdout.toString() : null;
 }
 
-export function headSha(root: string): string | null {
-  return git(root, ["rev-parse", "--verify", "HEAD"])?.trim() ?? null;
+export function headSha(checkout: string): string | null {
+  return git(checkout, ["rev-parse", "--verify", "HEAD"])?.trim() ?? null;
 }
 
-/** One record of `git status --porcelain`: its two status letters and its path. */
+/** One record of `git status --porcelain`: its two status letters and its path, relative to the checkout. */
 export type StatusEntry = { readonly status: string; readonly path: string };
 
 /**
- * The dirty and untracked entries of the checkout, their paths relative to `root`, in git's order, scratch copies
- * included. `-uall` lists every file of a new directory instead of the directory alone. `null` when git fails or
- * prints an entry the parser cannot read.
+ * The dirty and untracked entries of the checkout, in git's order, scratch copies included. `-uall` lists every
+ * file of a new directory instead of the directory alone. `null` when git fails or prints an entry the parser
+ * cannot read.
  */
-function statusEntries(root: string): StatusEntry[] | null {
-  const output = git(root, ["status", "--porcelain=v1", "-z", "-uall"]);
-  const toplevel = git(root, ["rev-parse", "--show-toplevel"])?.trim();
+function statusEntries(checkout: string): StatusEntry[] | null {
+  const output = git(checkout, ["status", "--porcelain=v1", "-z", "-uall"]);
 
-  if (output === null || toplevel === undefined) {
-    return null;
-  }
-
-  const parsed = parseGitStatus(output);
-
-  return parsed === null ? null : relativeToRoot(parsed, toplevel, root);
+  return output === null ? null : parseGitStatus(output);
 }
 
 /** The dirty and untracked paths of the checkout, minus the scratch copies a concurrent pre-edit holds. */
-export function dirtyPaths(root: string): string[] | null {
+export function dirtyPaths(checkout: string): string[] | null {
   return (
-    statusEntries(root)
+    statusEntries(checkout)
       ?.map((entry) => entry.path)
       .filter((relativePath) => scratchDirOf(relativePath) === null) ?? null
   );
@@ -110,16 +118,20 @@ function scratchDirOf(relativePath: string): string | null {
  * them, holding no tracked file, and last changed more than `olderThanMs` ago, a pre-edit's own living at most its
  * deadline.
  */
-export function staleScratchDirs(root: string, olderThanMs: number, now = Date.now()): string[] {
+export function staleScratchDirs(
+  checkout: string,
+  olderThanMs: number,
+  now = Date.now(),
+): string[] {
   const dirs = new Set(
-    (statusEntries(root) ?? []).flatMap((entry) =>
+    (statusEntries(checkout) ?? []).flatMap((entry) =>
       entry.status === UNTRACKED ? (scratchDirOf(entry.path) ?? []) : [],
     ),
   );
 
   return [...dirs]
-    .filter((dir) => isStaleDirectory(path.join(root, dir), olderThanMs, now))
-    .filter((dir) => git(root, ["ls-files", "--", dir])?.trim() === "")
+    .filter((dir) => isStaleDirectory(path.join(checkout, dir), olderThanMs, now))
+    .filter((dir) => git(checkout, ["ls-files", "--", dir])?.trim() === "")
     .toSorted();
 }
 
@@ -131,24 +143,6 @@ function isStaleDirectory(absolute: string, olderThanMs: number, now: number): b
   } catch {
     return false;
   }
-}
-
-function relativeToRoot(
-  entries: readonly StatusEntry[],
-  toplevel: string,
-  root: string,
-): StatusEntry[] {
-  const resolvedRoot = path.resolve(root);
-
-  if (path.resolve(toplevel) === resolvedRoot) {
-    return [...entries];
-  }
-
-  return entries.flatMap((entry) => {
-    const relativePath = underRoot(resolvedRoot, path.join(toplevel, entry.path));
-
-    return relativePath === null ? [] : [{ status: entry.status, path: relativePath }];
-  });
 }
 
 export function parseGitStatus(output: string): StatusEntry[] | null {
@@ -205,35 +199,50 @@ export function sha256(value: string): string {
 /** The dirty paths of a checkout, each to the hash of its content: one `git status` and one read of each file. */
 export type DirtyTree = ReadonlyMap<string, string>;
 
-export function dirtyTree(root: string): DirtyTree | null {
-  const paths = dirtyPaths(root);
+export function dirtyTree(checkout: string): DirtyTree | null {
+  const paths = dirtyPaths(checkout);
 
   if (paths === null) {
     return null;
   }
 
   return new Map(
-    paths.map((relativePath) => [relativePath, hashFile(path.join(root, relativePath))]),
+    paths.map((relativePath) => [relativePath, hashFile(path.join(checkout, relativePath))]),
   );
 }
 
 /** The tree with `files` read again from disk: what the Stop fixers left, without another `git status`. */
-export function rehashed(tree: DirtyTree, root: string, files: readonly string[]): DirtyTree {
+export function rehashed(tree: DirtyTree, base: string, files: readonly string[]): DirtyTree {
   const next = new Map(tree);
 
   for (const relativePath of files) {
-    next.set(relativePath, hashFile(path.join(root, relativePath)));
+    next.set(relativePath, hashFile(path.join(base, relativePath)));
   }
 
   return next;
 }
 
-export function takePhoto(root: string, now = Date.now()): Photo | null {
-  const tree = dirtyTree(root);
+/** The part of a checkout's tree under `root`, its paths relative to the root: what a root's green key digests. */
+export function rootView(tree: DirtyTree, checkout: string, root: string): DirtyTree {
+  if (path.resolve(checkout) === path.resolve(root)) {
+    return tree;
+  }
+
+  return new Map(
+    [...tree].flatMap(([relativePath, hash]) => {
+      const underThisRoot = underRoot(root, path.join(checkout, relativePath));
+
+      return underThisRoot === null ? [] : [[underThisRoot, hash] as const];
+    }),
+  );
+}
+
+export function takePhoto(checkout: string, now = Date.now()): Photo | null {
+  const tree = dirtyTree(checkout);
 
   return tree === null
     ? null
-    : { head: headSha(root), files: Object.fromEntries(tree), takenAt: now };
+    : { head: headSha(checkout), files: Object.fromEntries(tree), takenAt: now };
 }
 
 /**
@@ -255,6 +264,32 @@ export function wholeDirtyTree(tree: DirtyTree): string[] {
   return [...tree.keys()]
     .filter((relativePath) => !relativePath.startsWith(WORKTREES_PREFIX))
     .toSorted();
+}
+
+/**
+ * Each changed file of a checkout to the root that checks it, the nearest holding `.claude/agent-hooks.jsonc`, as
+ * pre-edit finds it: root to its files, relative to the root and sorted. A file no root holds is left out. One
+ * lookup per directory.
+ */
+export function ownedByRoot(
+  checkout: string,
+  files: readonly string[],
+): ReadonlyMap<string, readonly string[]> {
+  const owners = new Map<string, string | null>();
+  const owned = new Map<string, string[]>();
+
+  for (const relativePath of files) {
+    const absolute = path.join(checkout, relativePath);
+    const dir = path.dirname(absolute);
+    const owner = owners.has(dir) ? (owners.get(dir) ?? null) : findRoot(dir);
+    owners.set(dir, owner);
+
+    if (owner !== null) {
+      owned.set(owner, [...(owned.get(owner) ?? []), path.relative(owner, absolute)]);
+    }
+  }
+
+  return new Map([...owned].map(([root, paths]) => [root, paths.toSorted()]));
 }
 
 /** The scope files still on disk: what a fixer can rewrite. */

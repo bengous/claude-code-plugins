@@ -8,7 +8,7 @@ import path from "node:path";
 import { CONFIG_RELATIVE_PATH } from "./config.ts";
 import type { Runner } from "./exec.ts";
 import { run } from "./exec.ts";
-import type { Handler, HookKind, Input, Verdict } from "./hook.ts";
+import type { HookKind, Input, StopHandler, Verdict } from "./hook.ts";
 import { ALLOW, encode, parseInput, runHook, searchStart } from "./hook.ts";
 import { isRecord, stringField } from "./json.ts";
 import { runSessionStart } from "./session-start.ts";
@@ -75,17 +75,20 @@ function parsed(line: string | null): Record<string, unknown> {
   return value;
 }
 
-const crash: Handler = () => Promise.reject(new Error("boom"));
+/** Handlers that read no context fit a root hook and the Stop alike. */
+const crash = (): Promise<Verdict> => Promise.reject(new Error("boom"));
 
-const allow: Handler = () => Promise.resolve(ALLOW);
+const allow = (): Promise<Verdict> => Promise.resolve(ALLOW);
 
-const blocking: Handler = (context) => {
-  context.state.blocksInTurn = 1;
+const blocking: StopHandler = (context) => {
+  for (const state of context.checkouts) {
+    state.blocksInTurn = 1;
+  }
 
   return Promise.resolve({ kind: "block", reason: "red" });
 };
 
-const slow: Handler = async () => {
+const slow = async (): Promise<Verdict> => {
   await Bun.sleep(5000);
 
   return ALLOW;
@@ -134,11 +137,6 @@ describe("parseInput", () => {
     expect(tasks).toHaveLength(1);
     expect(tasks[0]?.type).toBe("subagent");
     expect(tasks[0]?.status).toBe("running");
-  });
-
-  test("reads stop_hook_active of stop-active", () => {
-    expect(inputOf(readFixture("claude", "stop-active")).stopHookActive).toBe(true);
-    expect(inputOf(readFixture("claude", "stop")).stopHookActive).toBe(false);
   });
 
   test("returns null without a session_id", () => {
@@ -193,6 +191,19 @@ describe("searchStart", () => {
 
     expect(searchStart("stop", input)).toBe("/repo");
     expect(searchStart("session-start", input)).toBe("/repo");
+  });
+
+  test("starts a post-edit of an apply_patch at the directory of its first patched file", () => {
+    const input = inputOf({
+      session_id: "s1",
+      cwd: "/repo",
+      tool_input: {
+        command:
+          "*** Begin Patch\n*** Update File: /other/src/a.ts\n*** Add File: b.ts\n*** End Patch",
+      },
+    });
+
+    expect(searchStart("post-edit", input)).toBe("/other/src");
   });
 
   test("starts an edit hook without file_path at cwd", () => {

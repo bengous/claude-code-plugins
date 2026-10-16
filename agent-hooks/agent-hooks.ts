@@ -3,7 +3,7 @@ import { parseArgs } from "node:util";
 
 import { ConfigError, loadConfig } from "./config.ts";
 import { initConfig, runDoctor } from "./doctor.ts";
-import type { Handler, HookKind } from "./hook.ts";
+import type { HookKind, HookRun } from "./hook.ts";
 import { isHarness, isHookKind, readPayload, runHook } from "./hook.ts";
 import { runPostEdit, runPreEdit } from "./pre-edit.ts";
 import { findRoot } from "./scope.ts";
@@ -19,12 +19,30 @@ const USAGE = [
   "  agent-hooks init --print",
 ].join("\n");
 
-const HANDLERS: Readonly<Record<HookKind, Handler>> = {
-  "session-start": runSessionStart,
-  "pre-edit": runPreEdit,
-  "post-edit": runPostEdit,
-  stop: runStop,
-};
+function hookRun(hook: HookKind): HookRun {
+  switch (hook) {
+    case "session-start": {
+      return { hook, handler: runSessionStart };
+    }
+
+    case "pre-edit": {
+      return { hook, handler: runPreEdit };
+    }
+
+    case "post-edit": {
+      return { hook, handler: runPostEdit };
+    }
+
+    case "stop": {
+      return { hook, handler: runStop };
+    }
+
+    default: {
+      const unreachable: never = hook;
+      throw new Error(`unhandled hook: ${String(unreachable)}`);
+    }
+  }
+}
 
 async function main(argv: readonly string[]): Promise<number> {
   const { values, positionals } = parseArgs({
@@ -48,10 +66,9 @@ async function main(argv: readonly string[]): Promise<number> {
     }
 
     const output = await runHook({
-      hook: command,
+      ...hookRun(command),
       harness: values.harness,
       payload: await readPayload(),
-      handler: HANDLERS[command],
     });
 
     if (output !== null) {

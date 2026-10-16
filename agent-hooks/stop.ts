@@ -1,8 +1,8 @@
 import path from "node:path";
 
-import type { Fixer } from "./config.ts";
-import { isExcluded } from "./config.ts";
-import type { HookContext, Verdict } from "./hook.ts";
+import type { Config, Fixer } from "./config.ts";
+import { ConfigError, DEFAULT_CAP, isExcluded, loadConfig } from "./config.ts";
+import type { StopContext, Verdict } from "./hook.ts";
 import { ALLOW } from "./hook.ts";
 import type { FixOptions, LaneResult } from "./lanes.ts";
 import {
@@ -16,7 +16,8 @@ import {
   runLanes,
   sequential,
 } from "./lanes.ts";
-import { clearFailures, guard, resetTurn } from "./loop-guard.ts";
+import type { Diagnostics, Failing } from "./loop-guard.ts";
+import { CRASH_LANE, clearFailures, guard, renamedLanes, resetTurn } from "./loop-guard.ts";
 import type { DirtyTree } from "./scope.ts";
 import {
   dirtyDigest,
@@ -24,19 +25,51 @@ import {
   findRoot,
   headSha,
   onDisk,
+  ownedByRoot,
   rehashed,
+  rootView,
   sessionFiles,
   wholeDirtyTree,
 } from "./scope.ts";
-import type { SessionState } from "./state.ts";
+import type { RootRecord, SessionState } from "./state.ts";
+import { rootName, rootRecord } from "./state.ts";
 
 const BUSY_TASK_TYPES = new Set(["subagent", "workflow", "teammate"]);
 
 const BUSY_TASK_STATUSES = new Set(["running", "pending"]);
 
-/** The Stop gate: fixers then lanes on the session scope, a block only while the agent makes progress. */
-export async function runStop(context: HookContext): Promise<Verdict> {
-  const { input, state, config, root } = context;
+/** One checkout of the Stop: the agent's state there, its dirty tree, and the files the agent changed. */
+type Measured = {
+  readonly state: SessionState;
+  readonly tree: DirtyTree;
+  readonly changed: readonly string[];
+};
+
+/** One root's run: the checkout it reads and the changed files it owns there, relative to the root. */
+type RootJob = {
+  readonly root: string;
+  readonly checkout: Measured;
+  readonly files: readonly string[];
+};
+
+/** What one root's run leaves for its checkout's brake: its failing set, its cap, and its reports. */
+type RootOutcome = {
+  readonly state: SessionState;
+  readonly cap: number;
+  readonly failing: Failing;
+  readonly diagnostics: Diagnostics;
+  readonly block: string | null;
+  readonly note: string | null;
+};
+
+/**
+ * The Stop gate. Each checkout the Stop measures yields the files the agent changed there: those differing from its
+ * photo, or its whole dirty tree without one. Each changed file goes to the nearest root holding the config, and
+ * the roots owning at least one file run their fixers and lanes on their own files. One brake per checkout blocks
+ * while the agent makes progress on its failing set; the Stop blocks if any brake does.
+ */
+export async function runStop(context: StopContext): Promise<Verdict> {
+  const { input, checkouts } = context;
 
   if (input.permissionMode === "plan") {
     return ALLOW;
@@ -57,115 +90,155 @@ export async function runStop(context: HookContext): Promise<Verdict> {
     };
   }
 
-  resetTurn(state, input.promptId);
   const notes: string[] = [];
+  const measured: Measured[] = [];
 
-  if (state.photo === null) {
-    notes.push("agent-hooks: no photo for this root, checking the whole dirty tree");
+  for (const state of checkouts) {
+    resetTurn(state, input.promptId);
+    const tree = dirtyTree(state.checkout);
 
-    // Without a photo there is no previous verdict to measure progress against: the one-shot flag is the only brake.
-    if (input.stopHookActive) {
-      return withNotes(ALLOW, notes);
+    if (tree === null) {
+      notes.push(`agent-hooks: git status failed in ${state.checkout}, lanes skipped`);
+
+      continue;
     }
+
+    if (state.photo === null) {
+      notes.push(`agent-hooks: no photo of ${state.checkout}, checking its whole dirty tree`);
+    }
+
+    measured.push({
+      state,
+      tree,
+      changed: state.photo === null ? wholeDirtyTree(tree) : sessionFiles(tree, state.photo),
+    });
   }
 
-  const tree = dirtyTree(root);
-
-  if (tree === null) {
-    return withNotes(
-      { kind: "note", text: `agent-hooks: git status failed in ${root}, lanes skipped` },
-      notes,
-    );
-  }
-
-  const scope = ownedFiles(
-    context,
-    tree,
-    state.photo === null ? wholeDirtyTree(tree) : sessionFiles(tree, state.photo),
+  const jobs = measured.flatMap((checkout) =>
+    [...ownedByRoot(checkout.state.checkout, checkout.changed)].map(([root, files]): RootJob => ({
+      root,
+      checkout,
+      files,
+    })),
   );
 
-  if (scope.length === 0) {
-    clearFailures(state);
+  // A report names its root unless that root is the one around the cwd: the reader stands there already.
+  const cwdRoot = input.cwd === undefined ? null : findRoot(input.cwd);
+  const outcomes = await Promise.all(jobs.map((job) => runRoot(job, context, cwdRoot)));
 
-    return withNotes(ALLOW, notes);
+  const verdicts = measured.map((checkout) =>
+    brake(
+      checkout.state,
+      outcomes.filter((outcome) => outcome.state === checkout.state),
+      notes,
+    ),
+  );
+
+  return merged(verdicts, notes);
+}
+
+/** One root's fixers and lanes on the files it owns, its green keys and last run kept in its checkout's state. */
+async function runRoot(
+  job: RootJob,
+  context: StopContext,
+  cwdRoot: string | null,
+): Promise<RootOutcome> {
+  const { root, files } = job;
+  const { state, tree } = job.checkout;
+  const name = rootName(state.checkout, root);
+  const label = (text: string): string => (root === cwdRoot ? text : `${root}:\n${text}`);
+  let config: Config;
+
+  try {
+    config = loadConfig(root);
+  } catch (error) {
+    const message = error instanceof ConfigError ? error.message : `agent-hooks: ${String(error)}`;
+
+    return {
+      state,
+      cap: DEFAULT_CAP,
+      ...renamedLanes({ [CRASH_LANE]: [message] }, {}, (lane) => path.join(name, lane)),
+      block: label(message),
+      note: null,
+    };
   }
 
-  const fixable = onDisk(root, scope).filter(
+  const fixable = onDisk(root, files).filter(
     (relativePath) => !isExcluded(config.preEdit.exclude, relativePath),
   );
 
-  await fixScope(config.stop.fixers, fixable, context);
+  const fixOptions: FixOptions = { root, runner: context.runner, deadline: context.deadline };
+  await fixScope(config.stop.fixers, fixable, fixOptions);
   const started = Date.now();
+  const record = rootRecord(state, root);
 
-  const results = await runLanes(config.stop.lanes, scope, {
-    ...context,
-    green: state.green,
-    head: headSha(root),
-    digest: dirtyDigest(rehashed(tree, root, fixable)),
+  const results = await runLanes(config.stop.lanes, files, {
+    ...fixOptions,
+    green: record.green,
+    head: headSha(state.checkout),
+    digest: dirtyDigest(rehashed(rootView(tree, state.checkout, root), root, fixable)),
     exclude: config.preEdit.exclude,
   });
 
-  recordRun(state, results, started);
+  recordRun(record, results, started);
   const failures = results.filter((result) => isFailure(result));
   const noted = failures.filter((result) => result.lane.verdict === "note");
   const blocking = failures.filter((result) => result.lane.verdict === "block");
+  const { failing, diagnostics } = failingOf(blocking);
 
-  if (noted.length > 0) {
-    notes.push(formatReport(noted, "note"));
-  }
+  return {
+    state,
+    cap: config.stop.cap,
+    // A lane is named by its root, `packages/x/lint`, so one brake tells two roots' lanes apart.
+    ...renamedLanes(failing, diagnostics, (lane) => path.join(name, lane)),
+    block: blocking.length === 0 ? null : label(formatReport(blocking, "block")),
+    note: noted.length === 0 ? null : label(formatReport(noted, "note")),
+  };
+}
+
+/**
+ * The brake of one checkout, over the failures of every root that ran there: a block while the agent makes progress,
+ * at most the smallest cap of the failing roots in a row; a checkout without a photo blocks once per failing set.
+ */
+function brake(state: SessionState, outcomes: readonly RootOutcome[], notes: string[]): Verdict {
+  notes.push(...outcomes.flatMap((outcome) => outcome.note ?? []));
+  const blocking = outcomes.filter((outcome) => outcome.block !== null);
 
   if (blocking.length === 0) {
     clearFailures(state);
 
-    return withNotes(ALLOW, notes);
+    return ALLOW;
   }
 
-  const { failing, diagnostics } = failingOf(blocking);
-
-  const verdict = guard(
+  return guard(
     state,
-    failing,
-    diagnostics,
-    config.stop.cap,
-    formatReport(blocking, "block"),
+    Object.assign({}, ...blocking.map((outcome) => outcome.failing)),
+    Object.assign({}, ...blocking.map((outcome) => outcome.diagnostics)),
+    Math.min(...blocking.map((outcome) => outcome.cap)),
+    blocking.flatMap((outcome) => outcome.block ?? []).join("\n\n"),
+    state.photo === null ? "once-per-set" : "progress",
   );
-
-  // The guard may let the turn end with the same report: the instruction belongs to an actual block only.
-  if (verdict.kind === "block") {
-    return withNotes({ kind: "block", reason: `${verdict.reason}\n\n${FIX_INSTRUCTION}` }, notes);
-  }
-
-  return withNotes(verdict, notes);
 }
 
-/**
- * The scope files this root owns. A file under a nested root of the same Stop belongs to that one, the nearest root,
- * when its own scope holds the file: it has no photo, so it checks its whole dirty tree, or its photo holds another
- * content. Otherwise this root keeps the file, so no file goes unchecked.
- */
-function ownedFiles(context: HookContext, tree: DirtyTree, scope: readonly string[]): string[] {
-  const { root, roots } = context;
+/** One verdict for the Stop: a block if any brake blocks, with the instruction once; else the notes, if any. */
+function merged(verdicts: readonly Verdict[], notes: readonly string[]): Verdict {
+  const blocks = verdicts.flatMap((verdict) => (verdict.kind === "block" ? [verdict.reason] : []));
 
-  if (roots.size < 2) {
-    return [...scope];
+  const texts = [
+    ...verdicts.flatMap((verdict) => (verdict.kind === "note" ? [verdict.text] : [])),
+    ...notes,
+  ];
+
+  if (blocks.length > 0) {
+    const reason = `${blocks.join("\n\n")}\n\n${FIX_INSTRUCTION}`;
+
+    return {
+      kind: "block",
+      reason: texts.length === 0 ? reason : `${reason}\n${texts.join("\n")}`,
+    };
   }
 
-  const owners = new Map<string, string | null>();
-
-  return scope.filter((relativePath) => {
-    const absolute = path.join(root, relativePath);
-    const dir = path.dirname(absolute);
-    const owner = owners.has(dir) ? (owners.get(dir) ?? null) : findRoot(dir);
-    owners.set(dir, owner);
-
-    if (owner === null || owner === root || !roots.has(owner)) {
-      return true;
-    }
-
-    const photo = roots.get(owner) ?? null;
-
-    return photo !== null && photo.files[path.relative(owner, absolute)] === tree.get(relativePath);
-  });
+  return texts.length === 0 ? ALLOW : { kind: "note", text: texts.join("\n") };
 }
 
 async function fixScope(
@@ -190,45 +263,13 @@ async function fixScope(
   });
 }
 
-function recordRun(state: SessionState, results: readonly LaneResult[], started: number): void {
-  state.lastRun = { at: started, ms: Date.now() - started, lanes: laneRuns(results) };
+function recordRun(record: RootRecord, results: readonly LaneResult[], started: number): void {
+  record.lastRun = { at: started, ms: Date.now() - started, lanes: laneRuns(results) };
 
   // Only green results are cached: a red lane always re-runs, the agent is expected to be fixing it.
   for (const result of results) {
     if (result.run === "ok" && result.key !== null) {
-      state.green[greenSlot(result.lane.name, result.pkg)] = result.key;
-    }
-  }
-}
-
-function withNotes(verdict: Verdict, notes: readonly string[]): Verdict {
-  if (notes.length === 0) {
-    return verdict;
-  }
-
-  const text = notes.join("\n");
-
-  switch (verdict.kind) {
-    case "allow": {
-      return { kind: "note", text };
-    }
-
-    case "note": {
-      return { kind: "note", text: `${verdict.text}\n${text}` };
-    }
-
-    case "block": {
-      return { kind: "block", reason: `${verdict.reason}\n${text}` };
-    }
-
-    case "context":
-    case "rewrite": {
-      return verdict;
-    }
-
-    default: {
-      const unreachable: never = verdict;
-      throw new Error(`unhandled verdict: ${JSON.stringify(unreachable)}`);
+      record.green[greenSlot(result.lane.name, result.pkg)] = result.key;
     }
   }
 }

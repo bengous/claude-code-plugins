@@ -9,12 +9,6 @@ export function stringField(record: Record<string, unknown>, key: string): strin
   return typeof value === "string" ? value : undefined;
 }
 
-export function booleanField(record: Record<string, unknown>, key: string): boolean | undefined {
-  const value = record[key];
-
-  return typeof value === "boolean" ? value : undefined;
-}
-
 export function recordField(
   record: Record<string, unknown>,
   key: string,

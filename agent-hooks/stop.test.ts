@@ -11,8 +11,8 @@ import type { Harness } from "./hook.ts";
 import { runHook } from "./hook.ts";
 import { isRecord, stringField } from "./json.ts";
 import { runSessionStart } from "./session-start.ts";
-import type { SessionState } from "./state.ts";
-import { loadState } from "./state.ts";
+import type { RootRecord, SessionState } from "./state.ts";
+import { loadState, rootRecord } from "./state.ts";
 import { runStop } from "./stop.ts";
 import type { TempRepo } from "./test-support.ts";
 import {
@@ -124,6 +124,11 @@ describe("runStop", () => {
     return loadState(SESSION, temp.repo);
   }
 
+  /** The repo is its own checkout: what the Stop kept of the root's lanes. */
+  function record(): RootRecord {
+    return rootRecord(state(), temp.repo);
+  }
+
   beforeEach(() => {
     scrubGitEnv();
     counter = countingRunner();
@@ -190,19 +195,23 @@ describe("runStop", () => {
     const reason = reasonOf(await stop());
 
     expect(reason).toContain("src/old.ts");
-    expect(reason).toContain("agent-hooks: no photo for this root, checking the whole dirty tree");
+    expect(reason).toContain(
+      `agent-hooks: no photo of ${temp.repo}, checking its whole dirty tree`,
+    );
   });
 
-  test("only notes the missing photo when stop_hook_active is set", async () => {
+  test("a checkout without a photo blocks once per failing set, whatever stop_hook_active says", async () => {
     setUp(LINT_CONFIG, { "src/old.ts": "ok\n" });
     writeRepoFile(temp.repo, "src/old.ts", "BAD\n");
 
-    const output = await stop({ stop_hook_active: true });
+    expect(reasonOf(await stop({ stop_hook_active: true }))).toContain("src/old.ts");
+    expect(noteOf(await stop({ stop_hook_active: true }))).toContain("same failures");
 
-    expect(noteOf(output)).toBe(
-      "agent-hooks: no photo for this root, checking the whole dirty tree",
-    );
-    expect(counter.count()).toBe(0);
+    writeRepoFile(temp.repo, "src/other.ts", "BAD\n");
+
+    expect(reasonOf(await stop({ stop_hook_active: true }))).toContain("src/other.ts");
+    expect(noteOf(await stop())).toContain("same failures");
+    expect(state().blocksInTurn).toBe(2);
   });
 
   test("blocks, notes the same failures, allows once fixed, then hits the green cache", async () => {
@@ -218,7 +227,7 @@ describe("runStop", () => {
     expect(reason).toContain("Fix the errors above before stopping.");
     expect(state().lastFailing).toEqual({ lint: ["src/new.ts"] });
     expect(state().blocksInTurn).toBe(1);
-    expect(state().lastRun?.lanes).toEqual({ lint: "fail" });
+    expect(record().lastRun?.lanes).toEqual({ lint: "fail" });
 
     const repeated = noteOf(await stop());
 
@@ -231,13 +240,13 @@ describe("runStop", () => {
     expect(await stop()).toBeNull();
     expect(state().lastFailing).toBeNull();
     expect(state().blocksInTurn).toBe(0);
-    expect(state().lastRun?.lanes).toEqual({ lint: "ok" });
-    expect(state().green["lint@."]).toBeString();
+    expect(record().lastRun?.lanes).toEqual({ lint: "ok" });
+    expect(record().green["lint@."]).toBeString();
 
     const spawnsBefore = counter.count();
 
     expect(await stop()).toBeNull();
-    expect(state().lastRun?.lanes).toEqual({ lint: "green" });
+    expect(record().lastRun?.lanes).toEqual({ lint: "green" });
     expect(counter.count()).toBe(spawnsBefore);
   });
 
@@ -308,7 +317,7 @@ describe("runStop", () => {
       rmSync(path.join(temp.repo, "src/util.ts"));
 
       expect(reasonOf(await stop())).toContain("cannot find ./util");
-      expect(state().lastRun?.lanes).toEqual({ types: "fail", lint: "skipped" });
+      expect(record().lastRun?.lanes).toEqual({ types: "fail", lint: "skipped" });
       expect(existsSync(fixed)).toBeFalse();
     });
 
@@ -336,7 +345,7 @@ describe("runStop", () => {
     writeRepoFile(temp.repo, "notes.md", "changed in the session\n");
 
     expect(await stop()).toBeNull();
-    expect(state().lastRun?.lanes).toEqual({ lint: "skipped" });
+    expect(record().lastRun?.lanes).toEqual({ lint: "skipped" });
     expect(counter.count()).toBe(0);
   });
 
@@ -368,8 +377,8 @@ describe("runStop", () => {
 
     expect(reason).toContain("slow timed out after");
     expect(reason).not.toContain("ran past its");
-    expect(state().lastRun?.lanes).toEqual({ slow: "timeout", lint: "ok" });
-    expect(state().green["lint@."]).toBeString();
+    expect(record().lastRun?.lanes).toEqual({ slow: "timeout", lint: "ok" });
+    expect(record().green["lint@."]).toBeString();
   });
 
   test("blocks on a lane whose binary is missing", async () => {
@@ -384,7 +393,7 @@ describe("runStop", () => {
     writeRepoFile(temp.repo, "src/new.ts", "fine\n");
 
     expect(reasonOf(await stop())).toContain("command not found");
-    expect(state().lastRun?.lanes).toEqual({ gone: "missing" });
+    expect(record().lastRun?.lanes).toEqual({ gone: "missing" });
   });
 
   test("a failing note lane passes with its output as a note", async () => {
@@ -407,7 +416,7 @@ describe("runStop", () => {
     expect(note).toContain("src/new.ts:1:1: bad");
     expect(note).not.toContain("Fix the errors above before stopping.");
     expect(state().lastFailing).toBeNull();
-    expect(state().lastRun?.lanes).toEqual({ lint: "fail" });
+    expect(record().lastRun?.lanes).toEqual({ lint: "fail" });
   });
 
   test("names each failing package of a pkg lane", async () => {
@@ -447,7 +456,7 @@ describe("runStop", () => {
 
     expect(await stop()).toBeNull();
     expect(readRepoFile(temp.repo, "src/new.ts")).toBe("GOOD\n");
-    expect(state().lastRun?.lanes).toEqual({ lint: "ok" });
+    expect(record().lastRun?.lanes).toEqual({ lint: "ok" });
   });
 
   test("leaves a file of pre-edit.exclude alone at Stop, fixers included", async () => {
@@ -491,7 +500,7 @@ describe("runStop", () => {
     writeRepoFile(temp.repo, "dist/bundle.js", "BAD\n");
 
     expect(await stop()).toBeNull();
-    expect(state().lastRun?.lanes).toEqual({ lint: "skipped", build: "ok" });
+    expect(record().lastRun?.lanes).toEqual({ lint: "skipped", build: "ok" });
   });
 
   test("one Stop reads the dirty tree with a single git status", async () => {
@@ -525,11 +534,11 @@ describe("runStop", () => {
       .filter((line) => line === "status");
 
     expect(statuses).toHaveLength(1);
-    expect(state().lastRun?.lanes).toEqual({ lint: "ok" });
+    expect(record().lastRun?.lanes).toEqual({ lint: "ok" });
 
     // The digest of the green key is the tree the fixers left: the next Stop on it hits the cache.
     expect(await stop()).toBeNull();
-    expect(state().lastRun?.lanes).toEqual({ lint: "green" });
+    expect(record().lastRun?.lanes).toEqual({ lint: "green" });
   });
 
   test("answers Codex with continue and takes turn_id as the prompt id", async () => {

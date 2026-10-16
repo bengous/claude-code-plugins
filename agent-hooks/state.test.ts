@@ -7,11 +7,13 @@ import type { SessionState } from "./state.ts";
 import {
   STATE_TTL_MS,
   STATE_VERSION,
+  checkoutKey,
   freshState,
-  latestStateForRoot,
+  latestStateForCheckout,
   loadState,
   pruneStates,
-  rootKey,
+  rootName,
+  rootRecord,
   saveState,
   stateDir,
   statePath,
@@ -51,14 +53,19 @@ afterEach(() => {
   removeTempRepo(temp);
 });
 
-function fullState(sessionId: string, root: string): SessionState {
+function fullState(sessionId: string, checkout: string): SessionState {
   return {
-    ...freshState(sessionId, root, 1),
+    ...freshState(sessionId, checkout, 1),
     photo: { head: "abc123", files: { "a.ts": sha256("a"), "b.ts": "deleted" }, takenAt: 42 },
-    green: { "lint@/r": "key-1" },
-    lastFailing: { lint: ["a.ts", "b.ts"] },
+    roots: {
+      ".": {
+        green: { "lint@.": "key-1" },
+        lastRun: { at: 100, ms: 250, lanes: { lint: "fail", test: "green" } },
+      },
+      "packages/x": { green: {}, lastRun: null },
+    },
+    lastFailing: { lint: ["a.ts"], "packages/x/lint": ["src/b.ts"] },
     lastDiagnostics: { "lint\u0000a.ts": 3 },
-    lastRun: { at: 100, ms: 250, lanes: { lint: "fail", test: "green" } },
     blocksInTurn: 2,
     promptId: "prompt-7",
   };
@@ -74,11 +81,11 @@ describe("stateDir and statePath", () => {
 
     expect(path.dirname(file)).toBe(temp.stateDir);
     expect(path.basename(file)).toMatch(/^a_b_c__[0-9a-f]{16}\.json$/u);
-    expect(path.basename(file)).toBe(`a_b_c__${rootKey(temp.repo)}.json`);
+    expect(path.basename(file)).toBe(`a_b_c__${checkoutKey(temp.repo)}.json`);
   });
 
-  test("rootKey resolves the root first", () => {
-    expect(rootKey(`${temp.repo}/sub/..`)).toBe(rootKey(temp.repo));
+  test("checkoutKey resolves the checkout first", () => {
+    expect(checkoutKey(`${temp.repo}/sub/..`)).toBe(checkoutKey(temp.repo));
   });
 
   test("AGENT_HOOKS_STATE_DIR wins, then XDG_STATE_HOME, then ~/.local/state", () => {
@@ -196,12 +203,42 @@ describe("loadState and saveState", () => {
       );
 
       expect(loadState("s", temp.repo, 9)).toEqual(freshState("s", temp.repo, 9));
+
+      writeFileSync(
+        statePath("s", temp.repo),
+        JSON.stringify({
+          ...fullState("s", temp.repo),
+          roots: { ".": { green: { "lint@.": 1 }, lastRun: null } },
+        }),
+      );
+
+      expect(loadState("s", temp.repo, 9)).toEqual(freshState("s", temp.repo, 9));
     } finally {
       errors.mockRestore();
     }
   });
 
-  test("two roots for one session give two files", () => {
+  test("rootName is the root's path from the checkout, `.` for the checkout itself", () => {
+    expect(rootName(temp.repo, temp.repo)).toBe(".");
+    expect(rootName(temp.repo, path.join(temp.repo, "packages", "x"))).toBe(
+      path.join("packages", "x"),
+    );
+    expect(rootName(path.join(temp.repo, "sub"), temp.repo)).toBe("..");
+  });
+
+  test("rootRecord creates an empty record once, then returns the same", () => {
+    const state = freshState("s", temp.repo);
+    const record = rootRecord(state, path.join(temp.repo, "packages", "x"));
+
+    expect(record).toEqual({ green: {}, lastRun: null });
+
+    record.green["lint@."] = "key-1";
+
+    expect(rootRecord(state, path.join(temp.repo, "packages", "x"))).toBe(record);
+    expect(Object.keys(state.roots)).toEqual([path.join("packages", "x")]);
+  });
+
+  test("two checkouts for one agent give two files", () => {
     const other = path.join(temp.dir, "other");
     saveState(freshState("s", temp.repo));
     saveState(fullState("s", other));
@@ -213,7 +250,7 @@ describe("loadState and saveState", () => {
 });
 
 describe("statesOf", () => {
-  test("reads every state of this session, sorted by root, and no other session's", () => {
+  test("reads every state of this agent, sorted by checkout, and no other session's", () => {
     const photo = { head: null, files: {}, takenAt: 1 };
     saveState({ ...freshState("s", "/r/b"), photo });
     saveState({ ...freshState("s", "/r/a"), photo });
@@ -223,7 +260,7 @@ describe("statesOf", () => {
 
     const states = statesOf("s");
 
-    expect(states.map((state) => state.root)).toEqual(["/r/a", "/r/b", "/r/c"]);
+    expect(states.map((state) => state.checkout)).toEqual(["/r/a", "/r/b", "/r/c"]);
     expect(states.map((state) => state.photo !== null)).toEqual([true, true, false]);
   });
 
@@ -286,15 +323,15 @@ describe("pruneStates", () => {
   });
 });
 
-describe("latestStateForRoot", () => {
-  test("returns the most recently updated state of that root", () => {
+describe("latestStateForCheckout", () => {
+  test("returns the most recently updated state of that checkout", () => {
     const other = path.join(temp.dir, "other");
     saveState(freshState("a", temp.repo), 100);
     saveState(freshState("b", temp.repo), 300);
     saveState(freshState("c", temp.repo), 200);
     saveState(freshState("d", other), 900);
 
-    const latest = latestStateForRoot(temp.repo);
+    const latest = latestStateForCheckout(temp.repo);
 
     expect(latest?.sessionId).toBe("b");
     expect(latest?.updatedAt).toBe(300);
@@ -304,21 +341,21 @@ describe("latestStateForRoot", () => {
     saveState(freshState("main", temp.repo), 100);
     saveState(freshState("main.agent1", temp.repo), 500);
 
-    expect(latestStateForRoot(temp.repo)?.sessionId).toBe("main");
+    expect(latestStateForCheckout(temp.repo)?.sessionId).toBe("main");
   });
 
-  test("skips an unreadable file of that root", () => {
+  test("skips an unreadable file of that checkout", () => {
     saveState(freshState("a", temp.repo), 100);
     writeFileSync(statePath("z", temp.repo), "{garbage");
 
-    expect(latestStateForRoot(temp.repo)?.sessionId).toBe("a");
+    expect(latestStateForCheckout(temp.repo)?.sessionId).toBe("a");
   });
 
-  test("null when the root has no state", () => {
-    expect(latestStateForRoot(temp.repo)).toBeNull();
+  test("null when the checkout has no state", () => {
+    expect(latestStateForCheckout(temp.repo)).toBeNull();
 
     saveState(freshState("d", path.join(temp.dir, "other")));
 
-    expect(latestStateForRoot(temp.repo)).toBeNull();
+    expect(latestStateForCheckout(temp.repo)).toBeNull();
   });
 });

@@ -10,16 +10,19 @@ import { isFailure, runFixers, runLanes, sequential } from "./lanes.ts";
 import type { DirtyTree } from "./scope.ts";
 import {
   DELETED,
+  checkoutOf,
   dirtyDigest,
   dirtyTree,
   headSha,
   onDisk,
+  ownedByRoot,
   rehashed,
+  rootView,
   sessionFiles,
   underRoot,
   wholeDirtyTree,
 } from "./scope.ts";
-import { latestStateForRoot } from "./state.ts";
+import { latestStateForCheckout } from "./state.ts";
 
 export type VerifyOptions = {
   readonly root: string;
@@ -40,7 +43,11 @@ export type VerifyReport = {
 
 const NO_DEADLINE_MS = 60 * 60 * 1000;
 
-/** The Stop lanes on demand, without the green cache or the hook deadline; the state is read, never written. */
+/**
+ * The Stop lanes on demand, without the green cache or the hook deadline; the state is read, never written. The
+ * scope is the Stop's for this root: the files it owns among those the last main session changed in the checkout,
+ * or among the whole dirty tree, or the files named.
+ */
 export async function runVerify(options: VerifyOptions): Promise<VerifyReport> {
   const print = options.print ?? console.log;
   const runner = options.runner ?? run;
@@ -54,23 +61,20 @@ export async function runVerify(options: VerifyOptions): Promise<VerifyReport> {
     return { scope: [], results: [], exitCode: 1 };
   }
 
-  const tree = dirtyTree(options.root);
+  const checkout = checkoutOf(options.root) ?? options.root;
+  const tree = dirtyTree(checkout);
 
   if (tree === null) {
-    print(`agent-hooks: git status failed in ${options.root}`);
+    print(`agent-hooks: git status failed in ${checkout}`);
 
     return { scope: [], results: [], exitCode: 1 };
   }
 
   // A named file must be on disk or a deletion git knows: anything else is a typo, not an empty check.
   const unknown = options.files.filter((file) => {
-    const relativePath = rootRelative(options, file);
+    const absolute = path.resolve(options.cwd, file);
 
-    return (
-      relativePath !== null &&
-      !existsSync(path.join(options.root, relativePath)) &&
-      tree.get(relativePath) !== DELETED
-    );
+    return !existsSync(absolute) && tree.get(underRoot(checkout, absolute) ?? "") !== DELETED;
   });
 
   if (unknown.length > 0) {
@@ -81,7 +85,7 @@ export async function runVerify(options: VerifyOptions): Promise<VerifyReport> {
     return { scope: [], results: [], exitCode: 1 };
   }
 
-  const scope = verifyScope(options, tree);
+  const scope = verifyScope(options, checkout, tree);
   print(`scope: ${scope.length === 0 ? "(empty)" : scope.join(" ")}`);
   const fixOptions = { root: options.root, runner, deadline: deadlineIn(NO_DEADLINE_MS) };
 
@@ -100,8 +104,8 @@ export async function runVerify(options: VerifyOptions): Promise<VerifyReport> {
   const results = await runLanes(options.config.stop.lanes, scope, {
     ...fixOptions,
     green: null,
-    head: headSha(options.root),
-    digest: dirtyDigest(rehashed(tree, options.root, fixable)),
+    head: headSha(checkout),
+    digest: dirtyDigest(rehashed(rootView(tree, checkout, options.root), options.root, fixable)),
     exclude: options.config.preEdit.exclude,
   });
 
@@ -119,19 +123,16 @@ function rootRelative(options: VerifyOptions, file: string): string | null {
   return underRoot(options.root, path.resolve(options.cwd, file));
 }
 
-function verifyScope(options: VerifyOptions, tree: DirtyTree): string[] {
+function verifyScope(options: VerifyOptions, checkout: string, tree: DirtyTree): string[] {
   // A named file git knows as deleted stays in the scope, as at Stop: a project lane still runs on it.
   if (options.files.length > 0) {
     return options.files.flatMap((file) => rootRelative(options, file) ?? []).toSorted();
   }
 
-  if (options.all) {
-    return wholeDirtyTree(tree);
-  }
+  const photo = options.all ? null : (latestStateForCheckout(checkout)?.photo ?? null);
+  const changed = photo === null ? wholeDirtyTree(tree) : sessionFiles(tree, photo);
 
-  const photo = latestStateForRoot(options.root)?.photo ?? null;
-
-  return photo === null ? wholeDirtyTree(tree) : sessionFiles(tree, photo);
+  return [...(ownedByRoot(checkout, changed).get(options.root) ?? [])];
 }
 
 export function describe(result: LaneResult): string {

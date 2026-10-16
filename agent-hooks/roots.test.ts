@@ -4,10 +4,10 @@ import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
 import path from "node:path";
 
 import { CONFIG_RELATIVE_PATH } from "./config.ts";
-import type { Handler, HookKind } from "./hook.ts";
+import type { Harness, HookRun } from "./hook.ts";
 import { runHook } from "./hook.ts";
 import { isRecord, stringField } from "./json.ts";
-import { runPreEdit } from "./pre-edit.ts";
+import { runPostEdit, runPreEdit } from "./pre-edit.ts";
 import { runSessionStart } from "./session-start.ts";
 import { runStop } from "./stop.ts";
 import type { TempRepo } from "./test-support.ts";
@@ -49,17 +49,20 @@ function shareStateDir(temp: TempRepo): void {
   process.env["AGENT_HOOKS_STATE_DIR"] = temp.stateDir;
 }
 
+const SESSION_START: HookRun = { hook: "session-start", handler: runSessionStart };
+
+const PRE_EDIT: HookRun = { hook: "pre-edit", handler: runPreEdit };
+
+const POST_EDIT: HookRun = { hook: "post-edit", handler: runPostEdit };
+
+const STOP: HookRun = { hook: "stop", handler: runStop };
+
 function hook(
-  kind: HookKind,
-  handler: Handler,
+  run: HookRun,
   payload: Record<string, unknown>,
+  harness: Harness = "claude",
 ): Promise<string | null> {
-  return runHook({
-    hook: kind,
-    harness: "claude",
-    payload: { session_id: "s1", ...payload },
-    handler,
-  });
+  return runHook({ ...run, harness, payload: { session_id: "s1", ...payload } });
 }
 
 describe("the roots a Stop checks", () => {
@@ -91,7 +94,7 @@ describe("the roots a Stop checks", () => {
   }
 
   async function write(cwd: string, file: string, content: string): Promise<void> {
-    await hook("pre-edit", runPreEdit, {
+    await hook(PRE_EDIT, {
       cwd,
       tool_name: "Write",
       tool_input: { file_path: file, content },
@@ -113,27 +116,111 @@ describe("the roots a Stop checks", () => {
 
   test("a nested root the session edited is checked with its own lanes, and the outer lanes leave its files alone", async () => {
     const outer = nestedRepo();
-    await hook("session-start", runSessionStart, { cwd: outer.repo });
+    await hook(SESSION_START, { cwd: outer.repo });
 
     // Content both lanes would refuse: only the owner's may run on it.
     await write(outer.repo, path.join(outer.repo, "packages/x/src/a.ts"), "INNERBAD OUTERBAD\n");
 
-    const reason = reasonOf(await hook("stop", runStop, { cwd: outer.repo, prompt_id: "p1" }));
+    const reason = reasonOf(await hook(STOP, { cwd: outer.repo, prompt_id: "p1" }));
 
     expect(reason).toContain("### innercheck");
     expect(reason).not.toContain("### outercheck");
   });
 
-  test("a file of a nested root no lane of its own checks stays with the outer root", async () => {
+  test("a file Bash wrote in a nested root is checked by that root alone, no photo of its own needed", async () => {
     const outer = nestedRepo();
-    await hook("session-start", runSessionStart, { cwd: outer.repo });
+    await hook(SESSION_START, { cwd: outer.repo });
+    writeRepoFile(outer.repo, "packages/x/src/b.ts", "INNERBAD OUTERBAD\n");
 
-    // Bash takes no photo: the nested root is no root of this Stop, so the outer lanes keep its file.
-    writeRepoFile(outer.repo, "packages/x/src/b.ts", "OUTERBAD\n");
+    const reason = reasonOf(await hook(STOP, { cwd: outer.repo, prompt_id: "p1" }));
 
-    expect(reasonOf(await hook("stop", runStop, { cwd: outer.repo, prompt_id: "p1" }))).toContain(
+    expect(reason).toContain("### innercheck");
+    expect(reason).not.toContain("### outercheck");
+  });
+
+  test("a file broken after a first block is checked by the nested root around the cwd", async () => {
+    const outer = nestedRepo();
+    await hook(SESSION_START, { cwd: outer.repo });
+    writeRepoFile(outer.repo, "src/r.ts", "OUTERBAD\n");
+
+    expect(reasonOf(await hook(STOP, { cwd: outer.repo, prompt_id: "p1" }))).toContain(
       "### outercheck",
     );
+
+    // The agent fixes the outer file, then Bash, with the cwd moved into the nested root, writes a bad file there:
+    // the second Stop of the turn carries stop_hook_active, which must brake nothing by itself.
+    writeRepoFile(outer.repo, "src/r.ts", "fine\n");
+    writeRepoFile(outer.repo, "packages/x/src/a.ts", "INNERBAD\n");
+
+    const reason = reasonOf(
+      await hook(STOP, {
+        cwd: path.join(outer.repo, "packages/x"),
+        prompt_id: "p1",
+        stop_hook_active: true,
+      }),
+    );
+
+    expect(reason).toContain("### innercheck");
+    expect(reason).toContain("src/a.ts:1:1: INNERBAD");
+  });
+
+  test("a dirt the session's photo covers never blocks, wherever the cwd stands at Stop", async () => {
+    const outer = nestedRepo();
+    writeRepoFile(outer.repo, "packages/x/src/wip.ts", "INNERBAD OUTERBAD\n");
+    await hook(SESSION_START, { cwd: outer.repo });
+    await write(outer.repo, path.join(outer.repo, "src/r.ts"), "fine\n");
+
+    expect(
+      await hook(STOP, { cwd: path.join(outer.repo, "packages/x"), prompt_id: "p1" }),
+    ).toBeNull();
+  });
+
+  test("with three nested roots, a file is checked by its nearest root alone", async () => {
+    const outer = nestedRepo();
+    const sub = path.join(outer.repo, "packages/x/sub");
+    writeRepoFile(sub, CONFIG_RELATIVE_PATH, laneConfig("subcheck"));
+    fakeTool(sub, "subcheck", checker("SUBBAD"));
+    await hook(SESSION_START, { cwd: outer.repo });
+    await write(outer.repo, path.join(outer.repo, "packages/x/src/a.ts"), "fine\n");
+
+    // Bash writes a file every checker would refuse: only the nearest root's may see it.
+    writeRepoFile(outer.repo, "packages/x/sub/src/m.ts", "SUBBAD INNERBAD OUTERBAD\n");
+
+    const reason = reasonOf(await hook(STOP, { cwd: outer.repo, prompt_id: "p1" }));
+
+    expect(reason).toContain("### subcheck");
+    expect(reason).toContain("src/m.ts:1:1: SUBBAD");
+    expect(reason).not.toContain("### innercheck");
+    expect(reason).not.toContain("### outercheck");
+  });
+
+  test("the first apply_patch of a checkout photographs it with the patched files as changed", async () => {
+    const home = repo({ [CONFIG_RELATIVE_PATH]: laneConfig("checker") });
+    const other = repo({ [CONFIG_RELATIVE_PATH]: laneConfig("checker"), "src/old.ts": "ok\n" });
+    shareStateDir(home);
+    fakeTool(other.repo, "checker", checker("BAD"));
+    writeRepoFile(other.repo, "src/wip.ts", "BAD\n");
+    await hook(SESSION_START, { cwd: home.repo }, "codex");
+
+    // Codex's hook runs after the patch: the file already holds its new content when the photo is taken.
+    const patched = path.join(other.repo, "src/old.ts");
+    writeRepoFile(other.repo, "src/old.ts", "BAD\n");
+    await hook(
+      POST_EDIT,
+      {
+        cwd: home.repo,
+        tool_name: "apply_patch",
+        tool_input: {
+          command: `*** Begin Patch\n*** Update File: ${patched}\n@@\n-ok\n+BAD\n*** End Patch`,
+        },
+      },
+      "codex",
+    );
+
+    const reason = reasonOf(await hook(STOP, { cwd: home.repo, turn_id: "t1" }, "codex"));
+
+    expect(reason).toContain("src/old.ts:1:1: BAD");
+    expect(reason).not.toContain("src/wip.ts");
   });
 
   test("a root the session edited from another root's cwd is checked at Stop", async () => {
@@ -142,11 +229,11 @@ describe("the roots a Stop checks", () => {
     shareStateDir(home);
     fakeTool(home.repo, "checker", checker("BAD"));
     fakeTool(other.repo, "checker", checker("BAD"));
-    await hook("session-start", runSessionStart, { cwd: home.repo });
+    await hook(SESSION_START, { cwd: home.repo });
 
     await write(home.repo, path.join(other.repo, "src/b.ts"), "BAD\n");
 
-    const reason = reasonOf(await hook("stop", runStop, { cwd: home.repo, prompt_id: "p1" }));
+    const reason = reasonOf(await hook(STOP, { cwd: home.repo, prompt_id: "p1" }));
 
     expect(reason).toContain(`${other.repo}:`);
     expect(reason).toContain("src/b.ts:1:1: BAD");
@@ -158,14 +245,13 @@ describe("the roots a Stop checks", () => {
     shareStateDir(home);
     fakeTool(home.repo, "checker", checker("BAD"));
     fakeTool(other.repo, "checker", checker("BAD"));
-    await hook("session-start", runSessionStart, { cwd: home.repo });
+    await hook(SESSION_START, { cwd: home.repo });
     // A change no Edit or Write photographed: Bash, or a Codex patch.
     writeRepoFile(other.repo, "src/old.ts", "BAD\n");
 
-    const reason = reasonOf(await hook("stop", runStop, { cwd: other.repo, prompt_id: "p1" }));
+    const reason = reasonOf(await hook(STOP, { cwd: other.repo, prompt_id: "p1" }));
 
-    expect(reason).toContain(`${other.repo}:`);
     expect(reason).toContain("src/old.ts:1:1: BAD");
-    expect(reason).toContain("no photo for this root, checking the whole dirty tree");
+    expect(reason).toContain(`no photo of ${other.repo}, checking its whole dirty tree`);
   });
 });
