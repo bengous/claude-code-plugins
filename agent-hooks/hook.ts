@@ -11,7 +11,7 @@ import { OUTPUT_GRACE_MS, deadlineIn, run } from "./exec.ts";
 import { isRecord, recordField, stringField } from "./json.ts";
 import { CRASH_LANE, guard } from "./loop-guard.ts";
 import { extractApplyPatchPaths } from "./patch.ts";
-import { checkoutOf, findRoot } from "./scope.ts";
+import { checkoutOf, findRoot, realPathOf } from "./scope.ts";
 import type { SessionState } from "./state.ts";
 import { AGENT_SEPARATOR, freshState, loadState, saveState, statesOf } from "./state.ts";
 
@@ -56,6 +56,7 @@ export type Input = {
   readonly sessionId: string;
   /** Set only when the hook fires inside a subagent, its tool calls and its SubagentStop alike. */
   readonly agentId: string | undefined;
+  /** The payload's cwd with its symlinks resolved: the path git would name. */
   readonly cwd: string | undefined;
   /** `prompt_id` under Claude Code, `turn_id` under Codex. */
   readonly promptId: string | undefined;
@@ -140,11 +141,12 @@ export function parseInput(payload: Record<string, unknown>): Input | null {
   }
 
   const tasks = payload["background_tasks"];
+  const cwd = stringField(payload, "cwd");
 
   return {
     sessionId,
     agentId: stringField(payload, "agent_id"),
-    cwd: stringField(payload, "cwd"),
+    cwd: cwd === undefined ? undefined : realPathOf(cwd),
     promptId: stringField(payload, "prompt_id") ?? stringField(payload, "turn_id"),
     permissionMode: stringField(payload, "permission_mode"),
     backgroundTasks: Array.isArray(tasks) ? tasks.filter((task) => isBackgroundTask(task)) : [],
@@ -164,8 +166,8 @@ function isBackgroundTask(value: unknown): value is BackgroundTaskSummary {
 }
 
 /**
- * Where the root searches start: the edited file's directory for the edit hooks, each patched file's for a Codex
- * `apply_patch`, the payload's cwd otherwise.
+ * Where the root searches start, symlinks resolved: the edited file's directory for the edit hooks, each patched
+ * file's for a Codex `apply_patch`, the payload's cwd otherwise.
  */
 export function searchStarts(hook: HookKind, input: Input): string[] {
   const edited = hook === "pre-edit" || hook === "post-edit" ? editedPaths(input) : [];
@@ -175,7 +177,11 @@ export function searchStarts(hook: HookKind, input: Input): string[] {
   }
 
   return [
-    ...new Set(edited.map((file) => path.dirname(path.resolve(input.cwd ?? process.cwd(), file)))),
+    ...new Set(
+      edited.map((file) =>
+        realPathOf(path.dirname(path.resolve(input.cwd ?? process.cwd(), file))),
+      ),
+    ),
   ];
 }
 

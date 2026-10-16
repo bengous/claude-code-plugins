@@ -16,6 +16,7 @@ import {
   headSha,
   onDisk,
   ownedByRoot,
+  realPathOf,
   rehashed,
   rootView,
   sessionFiles,
@@ -72,7 +73,7 @@ export async function runVerify(options: VerifyOptions): Promise<VerifyReport> {
 
   // A named file must be on disk or a deletion git knows: anything else is a typo, not an empty check.
   const unknown = options.files.filter((file) => {
-    const absolute = path.resolve(options.cwd, file);
+    const absolute = realPathOf(path.resolve(options.cwd, file));
 
     return !existsSync(absolute) && tree.get(underRoot(checkout, absolute) ?? "") !== DELETED;
   });
@@ -120,7 +121,7 @@ export async function runVerify(options: VerifyOptions): Promise<VerifyReport> {
 
 /** The file, named from the caller's directory, as a path under the root; null when it lies outside. */
 function rootRelative(options: VerifyOptions, file: string): string | null {
-  return underRoot(options.root, path.resolve(options.cwd, file));
+  return underRoot(options.root, realPathOf(path.resolve(options.cwd, file)));
 }
 
 function verifyScope(options: VerifyOptions, checkout: string, tree: DirtyTree): string[] {

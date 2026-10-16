@@ -8,7 +8,7 @@ import { stringField } from "./json.ts";
 import type { FixTarget } from "./lanes.ts";
 import { runFixers, sequential } from "./lanes.ts";
 import { extractApplyPatchPaths } from "./patch.ts";
-import { SCRATCH_PREFIX, nearestDirectory, takePhoto, underRoot } from "./scope.ts";
+import { SCRATCH_PREFIX, nearestDirectory, realPathOf, takePhoto, underRoot } from "./scope.ts";
 import type { Photo } from "./state.ts";
 
 type PendingWrite =
@@ -29,7 +29,7 @@ export async function runPreEdit(context: HookContext): Promise<Verdict> {
     return ALLOW;
   }
 
-  const absolute = path.resolve(input.cwd ?? root, filePath);
+  const absolute = realPathOf(path.resolve(input.cwd ?? root, filePath));
   const relativePath = underRoot(root, absolute);
 
   if (relativePath === null) {
@@ -158,7 +158,7 @@ export async function runPostEdit(context: HookContext): Promise<Verdict> {
   const candidates = [
     ...(command === undefined ? [] : extractApplyPatchPaths(command)),
     ...(filePath === undefined ? [] : [filePath]),
-  ].map((candidate) => path.resolve(input.cwd ?? root, candidate));
+  ].map((candidate) => realPathOf(path.resolve(input.cwd ?? root, candidate)));
 
   state.photo ??= photoWithout(state.checkout, candidates);
 

@@ -6,7 +6,7 @@ import { initConfig, runDoctor } from "./doctor.ts";
 import type { HookKind, HookRun } from "./hook.ts";
 import { isHarness, isHookKind, readPayload, runHook } from "./hook.ts";
 import { runPostEdit, runPreEdit } from "./pre-edit.ts";
-import { findRoot } from "./scope.ts";
+import { findRoot, realPathOf } from "./scope.ts";
 import { runSessionStart } from "./session-start.ts";
 import { runStop } from "./stop.ts";
 import { runVerify } from "./verify.ts";
@@ -84,9 +84,11 @@ async function main(argv: readonly string[]): Promise<number> {
     }
 
     case "doctor": {
+      const cwd = realPathOf(process.cwd());
+
       return values.config === undefined
-        ? runDoctor({ cwd: process.cwd() })
-        : runDoctor({ cwd: process.cwd(), configFile: values.config });
+        ? runDoctor({ cwd })
+        : runDoctor({ cwd, configFile: values.config });
     }
 
     case "init": {
@@ -102,10 +104,11 @@ async function main(argv: readonly string[]): Promise<number> {
 }
 
 async function verify(all: boolean, files: readonly string[]): Promise<number> {
-  const root = findRoot(process.cwd());
+  const cwd = realPathOf(process.cwd());
+  const root = findRoot(cwd);
 
   if (root === null) {
-    console.error(`agent-hooks: no .claude/agent-hooks.jsonc above ${process.cwd()}`);
+    console.error(`agent-hooks: no .claude/agent-hooks.jsonc above ${cwd}`);
 
     return 1;
   }
@@ -113,7 +116,7 @@ async function verify(all: boolean, files: readonly string[]): Promise<number> {
   try {
     const report = await runVerify({
       root,
-      cwd: process.cwd(),
+      cwd,
       config: loadConfig(root),
       all,
       files,

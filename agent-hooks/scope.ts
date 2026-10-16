@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { existsSync, readFileSync, statSync } from "node:fs";
+import { existsSync, readFileSync, realpathSync, statSync } from "node:fs";
 import path from "node:path";
 
 import { CONFIG_RELATIVE_PATH } from "./config.ts";
@@ -64,6 +64,25 @@ export function checkoutOf(start: string): string | null {
 /** `dir`, or its nearest ancestor on disk. */
 export function nearestDirectory(dir: string): string {
   return existsSync(dir) ? dir : nearestDirectory(path.dirname(dir));
+}
+
+/**
+ * `target` as an absolute path with the symlinks of its directories resolved, so a path from a payload names the
+ * file git names. A file's own link is kept, as git keeps it; the part of the path not yet on disk is kept as given.
+ */
+export function realPathOf(target: string): string {
+  const resolved = path.resolve(target);
+  const existing = nearestDirectory(isDirectory(resolved) ? resolved : path.dirname(resolved));
+
+  return path.join(realpathSync.native(existing), path.relative(existing, resolved));
+}
+
+function isDirectory(absolute: string): boolean {
+  try {
+    return statSync(absolute).isDirectory();
+  } catch {
+    return false;
+  }
 }
 
 function git(cwd: string, args: readonly string[]): string | null {

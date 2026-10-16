@@ -1,6 +1,7 @@
 /* oxlint-disable anti-slop/no-unsafe-dictionary-type -- this harness builds hook payloads and reads hook outputs as JSON: a closed type would assert the schema instead of the behaviour, and a wrong shape has to fail an assertion rather than the compiler. */
 import type { Mock } from "bun:test";
 import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
+import { symlinkSync } from "node:fs";
 import path from "node:path";
 
 import { CONFIG_RELATIVE_PATH } from "./config.ts";
@@ -313,5 +314,33 @@ describe("the roots a Stop checks", () => {
     expect(reason).toContain("src/h.ts:1:1: BAD");
     expect(reason).toContain(`${other.repo}:`);
     expect(reason).toContain("src/o.ts:1:1: BAD");
+  });
+
+  test("a path through a symlink names the file git names: a patch through it is checked, the cwd root unlabelled", async () => {
+    const home = repo({ [CONFIG_RELATIVE_PATH]: laneConfig("checker") });
+    const other = repo({ [CONFIG_RELATIVE_PATH]: laneConfig("checker"), "src/old.ts": "ok\n" });
+    shareStateDir(home);
+    fakeTool(other.repo, "checker", checker("BAD"));
+    const link = path.join(other.dir, "link");
+    symlinkSync(other.repo, link);
+    await hook(SESSION_START, { cwd: home.repo }, "codex");
+    writeRepoFile(other.repo, "src/old.ts", "BAD\n");
+
+    await hook(
+      POST_EDIT,
+      {
+        cwd: home.repo,
+        tool_name: "apply_patch",
+        tool_input: {
+          command: `*** Begin Patch\n*** Update File: ${path.join(link, "src/old.ts")}\n*** End Patch`,
+        },
+      },
+      "codex",
+    );
+
+    const reason = reasonOf(await hook(STOP, { cwd: link, turn_id: "t1" }, "codex"));
+
+    expect(reason).toContain("src/old.ts:1:1: BAD");
+    expect(reason).not.toContain(`${other.repo}:`);
   });
 });
