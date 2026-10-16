@@ -254,4 +254,21 @@ describe("the roots a Stop checks", () => {
     expect(reason).toContain("src/old.ts:1:1: BAD");
     expect(reason).toContain(`no photo of ${other.repo}, checking its whole dirty tree`);
   });
+
+  test("a former cwd checkout without a photo is left alone once the cwd moved away", async () => {
+    const home = repo({ [CONFIG_RELATIVE_PATH]: laneConfig("checker") });
+    const other = repo({ [CONFIG_RELATIVE_PATH]: laneConfig("checker"), "src/old.ts": "ok\n" });
+    shareStateDir(home);
+    fakeTool(home.repo, "checker", checker("BAD"));
+    fakeTool(other.repo, "checker", checker("BAD"));
+    await hook(SESSION_START, { cwd: home.repo });
+
+    // A Stop from a checkout never photographed saves its state without a photo.
+    expect(await hook(STOP, { cwd: other.repo, prompt_id: "p1" })).toContain("no photo of");
+
+    // Another session breaks a file there while this session's cwd is back home: not this agent's change.
+    writeRepoFile(other.repo, "src/old.ts", "BAD\n");
+
+    expect(await hook(STOP, { cwd: home.repo, prompt_id: "p1" })).toBeNull();
+  });
 });

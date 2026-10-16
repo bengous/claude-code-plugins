@@ -276,20 +276,24 @@ async function runStopHook(options: StopRun, input: Input, now: number): Promise
 /**
  * The checkouts a Stop measures: each one the agent photographed, wherever its cwd has moved since, and for the main
  * session the checkout around its cwd when no photo covers it, measured over its whole dirty tree: Bash and a Codex
- * patch photograph nothing, and checking too much beats missing a change. A subagent keeps to what it photographed:
- * over a shared checkout's whole tree, one that edited nothing would block on its parent's work. A checkout gone
- * from disk is left out.
+ * patch photograph nothing, and checking too much beats missing a change. A state without a photo belongs to a
+ * former cwd and is left alone once the cwd moved away: the whole tree there is other sessions' work. A subagent
+ * keeps to what it photographed: over a shared checkout's whole tree, one that edited nothing would block on its
+ * parent's work. A checkout gone from disk is left out.
  */
 function stopStates(input: Input, now: number): SessionState[] {
   const key = stateKey(input);
-  const saved = statesOf(key).filter((state) => existsSync(state.checkout));
   const checkout = input.agentId === undefined ? cwdCheckout(input) : null;
 
-  if (checkout === null || saved.some((state) => state.checkout === checkout)) {
-    return saved;
+  const measured = statesOf(key).filter(
+    (state) => existsSync(state.checkout) && (state.photo !== null || state.checkout === checkout),
+  );
+
+  if (checkout === null || measured.some((state) => state.checkout === checkout)) {
+    return measured;
   }
 
-  return [...saved, freshState(key, checkout, now)].toSorted((left, right) =>
+  return [...measured, freshState(key, checkout, now)].toSorted((left, right) =>
     left.checkout < right.checkout ? -1 : Number(left.checkout > right.checkout),
   );
 }
