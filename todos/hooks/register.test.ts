@@ -94,6 +94,7 @@ function stubRepo(
     cwd = ROOT,
     findings = new Map<string, string>(),
     isBlameBroken = false,
+    listGate = Promise.resolve(),
   } = {},
 ): Repo {
   const clock = mock.clock(on, { now: NOW });
@@ -113,15 +114,17 @@ function stubRepo(
   on("fs.exists", (_$, e) => ({
     value: e.path === BUFFER ? findings.size > 0 : files.has(e.path),
   }));
-  on("fs.list", () => ({
-    value: [...findings.keys()].map((name) => ({
-      name,
-      kind: "file" as const,
-      size: 0,
-      mtimeMs: 0,
-      isLink: false,
+  on("fs.list", () =>
+    listGate.then(() => ({
+      value: [...findings.keys()].map((name) => ({
+        name,
+        kind: "file" as const,
+        size: 0,
+        mtimeMs: 0,
+        isLink: false,
+      })),
     })),
-  }));
+  );
   on("fs.read", (_$, e) => {
     if (e.path.startsWith(`${BUFFER}/`))
       return { value: findings.get(e.path.slice(BUFFER.length + 1)) ?? "" };
@@ -894,4 +897,53 @@ test("a recorded finding rereads the buffer alone, and toasts no older failure a
     "New finding at src/a.ts:4: retries forever",
   ]);
   expect(await texts(await $.ui.mount(BAND))).toContain("FINDING retries forever");
+});
+
+test("a todos-finding call that fails still rereads the buffer", async ($, on) => {
+  const findings = FINDINGS();
+  const { clock } = stubRepo(on, { findings });
+
+  on("tool.call", { tool: "Bash" }, () => {
+    findings.delete("a1b2c3d4.json");
+
+    return { result: "todos-finding: no finding 0badc0de in the buffer", isError: true };
+  });
+  await $.command.run(TODOS);
+  await $.tool.call({ tool: "Bash", command: "todos-finding --close a1b2c3d4 0badc0de" });
+  await clock.settle();
+  const shown = await texts(await $.ui.mount(BAND));
+
+  expect(shown).not.toContain("FINDING retries forever");
+  expect(shown).toContain("SECURITY prints the token");
+});
+
+test("two calls at once announce each new finding once", async ($, on) => {
+  const findings = new Map<string, string>();
+  let openList = doNothing;
+
+  const listGate = new Promise<void>((resolve) => {
+    openList = resolve;
+  });
+
+  const { clock, toasts } = stubRepo(on, { findings, listGate });
+  let recorded = 0;
+
+  on("tool.call", { tool: "Bash" }, () => {
+    recorded += 1;
+    findings.set(
+      `0000000${recorded}.json`,
+      finding(`finding ${recorded}`, "finding", NOW + recorded),
+    );
+
+    return { result: { stdout: "Recorded", stderr: "", interrupted: false } };
+  });
+  await $.command.run(TODOS);
+  await Promise.all([
+    $.tool.call({ tool: "Bash", command: "todos-finding src/a.ts:4 'finding 1'" }),
+    $.tool.call({ tool: "Bash", command: "todos-finding src/a.ts:4 'finding 2'" }),
+  ]);
+  openList();
+  await clock.settle();
+
+  expect(toasts).toEqual(["New finding at src/a.ts:4: finding 2 (+1 more)"]);
 });

@@ -203,11 +203,22 @@ async function refreshOrToast(
  * After a record or a close, the buffer alone is read again: the TODOs did not change, and the scan's own
  * failures were toasted when it ran. A broken record stays for the next scan to report.
  */
-async function announceNewFindings($: EngineInterface, scan: TodoScan): Promise<void> {
+async function announceNewFindings(
+  $: EngineInterface,
+  scan: TodoScan,
+  announced: Set<string>,
+): Promise<void> {
   const known = new Set(scan.findings.map((finding) => finding.id));
 
   try {
     const { findings } = await readFindings(hostOf($), scan.root);
+
+    // Taken and marked with no await between: of two calls whose rereads both see a new finding, one announces it.
+    const added = findings.filter(
+      (finding) => !known.has(finding.id) && !announced.has(finding.id),
+    );
+
+    for (const finding of added) announced.add(finding.id);
     const stored = findings.slice(0, KEPT_TODOS);
 
     await update($, scanState, (state) =>
@@ -219,7 +230,7 @@ async function announceNewFindings($: EngineInterface, scan: TodoScan): Promise<
     if (state !== null)
       await update($, pickedIds, (ids) => pickedTodos(state, ids).map((todo) => todoId(todo)));
 
-    const toast = newFindingToast(findings.filter((finding) => !known.has(finding.id)));
+    const toast = newFindingToast(added);
 
     if (toast !== "") $.ui.toast(toast);
   } catch (error) {
@@ -284,6 +295,7 @@ export const register: Register = (on, options) => {
   // A scroll event's bodyRows is not the band's maxRows, so the scroll hook clamps to the window the band last drew.
   let drawnRows = settings.rows;
   let isPagerDrawn = false;
+  const announcedFindings = new Set<string>();
 
   on("session.start", async ($, e, next) => {
     try {
@@ -387,9 +399,10 @@ export const register: Register = (on, options) => {
     const result = await next(e);
     const scan = await read($, scanState);
 
-    if ("deny" in result || result.isError === true || scan === null) return result;
-    // Not awaited, as after an edit: the rescan blames every file that holds a TODO.
-    void announceNewFindings($, scan);
+    // A failed call may still have changed the buffer: `--close a b` closes a when b is unknown.
+    if ("deny" in result || scan === null) return result;
+    // Not awaited: the call's result goes back to Claude without waiting on the band.
+    void announceNewFindings($, scan, announcedFindings);
 
     return result;
   });
