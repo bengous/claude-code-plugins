@@ -1,19 +1,32 @@
 import { describe, expect, test } from "bun:test";
-import path from "node:path";
 
-import { invocationsOf, unwrap } from "./shell.ts";
+import type { Word } from "./shell.ts";
+import { commandsOf, parseLine, unwrap } from "./shell.ts";
 
 const CWD = "/work/repo";
 
 function argvs(script: string): string[][] {
-  return invocationsOf(script, CWD).map((invocation) => [...invocation.argv]);
+  return commandsOf(parseLine(script)).map((command) => command.words.map((word) => word.text));
 }
 
-function cwds(script: string): string[] {
-  return invocationsOf(script, CWD).map((invocation) => invocation.cwd);
+/** The words of the line's own commands, not those of its substitutions. */
+function words(script: string): Word[] {
+  return commandsOf(parseLine(script))
+    .filter((command) => !command.substitution)
+    .flatMap((command) => command.words);
 }
 
-describe("invocationsOf splits a line into simple commands", () => {
+/** The parts of an unwrapped command these cases read. */
+type Peeled = { readonly argv: string[]; readonly cwd: string; readonly opaque: string | null };
+
+function unwrapped(script: string): Peeled {
+  const [command] = commandsOf(parseLine(script));
+  const result = unwrap(command?.words ?? [], CWD);
+
+  return { argv: result.argv.map((word) => word.text), cwd: result.cwd, opaque: result.opaque };
+}
+
+describe("parseLine splits a line into simple commands", () => {
   test("on &&, ||, ;, |, & and newlines", () => {
     expect(argvs("a 1 && b 2 || c; d | e & f\ng")).toEqual([
       ["a", "1"],
@@ -26,26 +39,23 @@ describe("invocationsOf splits a line into simple commands", () => {
     ]);
   });
 
-  test("a push inside a compound command", () => {
-    expect(
-      argvs("git fetch origin && git rebase origin/dev && git push origin feature/x:dev"),
-    ).toEqual([
-      ["git", "fetch", "origin"],
-      ["git", "rebase", "origin/dev"],
-      ["git", "push", "origin", "feature/x:dev"],
+  test("marks a command a pipe feeds", () => {
+    expect(commandsOf(parseLine("a | b || c")).map((command) => command.piped)).toEqual([
+      false,
+      true,
+      false,
     ]);
   });
 
-  test("keeps a quoted word whole and unquoted", () => {
-    expect(argvs(`git commit -m "fix: git push origin main" -m 'x; y'`)).toEqual([
+  test("keeps a quoted word whole, its quotes removed, its quoted span recorded", () => {
+    const script = `git commit -m "fix: git push origin main" -m 'x; y'`;
+    const message = words(script)[3];
+
+    expect(argvs(script)).toEqual([
       ["git", "commit", "-m", "fix: git push origin main", "-m", "x; y"],
     ]);
-  });
-
-  test("an echo of a push runs no push", () => {
-    expect(argvs('echo "git push origin dev:main"')).toEqual([
-      ["echo", "git push origin dev:main"],
-    ]);
+    expect(message?.quoted).toEqual([{ start: 14, end: 41 }]);
+    expect(message?.expands).toBe(false);
   });
 
   test("reads escapes inside double quotes and outside quotes", () => {
@@ -60,73 +70,71 @@ describe("invocationsOf splits a line into simple commands", () => {
     expect(argvs("git push \\\n  origin main")).toEqual([["git", "push", "origin", "main"]]);
   });
 
-  test("drops a comment", () => {
+  test("records a comment as inert", () => {
+    const line = parseLine("git status # git push origin main\ngit log");
+
     expect(argvs("git status # git push origin main\ngit log")).toEqual([
       ["git", "status"],
       ["git", "log"],
     ]);
+    expect(line.inert).toEqual([{ start: 11, end: 33 }]);
   });
 
   test("keeps a # inside a word", () => {
     expect(argvs("echo a#b")).toEqual([["echo", "a#b"]]);
   });
 
-  test("skips a heredoc body", () => {
+  test("records a heredoc body on the command that reads it", () => {
     const script = "git commit -F - <<'EOF'\ngit push origin main\nEOF\ngit log";
+    const [commit] = commandsOf(parseLine(script));
 
     expect(argvs(script)).toEqual([
       ["git", "commit", "-F", "-"],
       ["git", "log"],
     ]);
+    expect(commit?.heredocs).toEqual([{ start: 24, end: 45 }]);
   });
 
-  test("skips a <<- heredoc body whose delimiter is indented with tabs", () => {
+  test("reads a <<- heredoc whose delimiter is indented with tabs", () => {
     expect(argvs("cat <<-EOF\n\tgit push origin main\n\tEOF\nnext")).toEqual([["cat"], ["next"]]);
   });
 
-  test("drops redirections and the words they name", () => {
+  test("drops redirections, recording the words they name as inert", () => {
     expect(argvs("git push origin main 2>&1 > out.log < in.txt &> all.log")).toEqual([
       ["git", "push", "origin", "main"],
     ]);
+    expect(parseLine("git log > push.log").inert).toEqual([{ start: 10, end: 18 }]);
   });
 
-  test("drops a here-string", () => {
-    expect(argvs("cat <<< 'git push origin main'")).toEqual([["cat"]]);
+  test("keeps a here-string as a word of its command", () => {
+    expect(argvs("cat <<< 'git push origin main'")).toEqual([["cat", "git push origin main"]]);
   });
 
-  test("reads an unquoted command substitution as a command, run before its own", () => {
+  test("marks a word Bash expands", () => {
+    expect(words(`a $B "$C" '$D' \\$E x$(f) "$(g)" \`h\``).map((word) => word.expands)).toEqual([
+      false,
+      true,
+      true,
+      false,
+      false,
+      true,
+      true,
+      true,
+    ]);
+  });
+
+  test("puts the home directory in a leading ~, and leaves ~user to expansion", () => {
+    const [home, user] = words("~/x ~other/y");
+
+    expect(home?.text).toBe(`${process.env["HOME"] ?? ""}/x`);
+    expect(user?.expands).toBe(true);
+  });
+
+  test("reads a substitution as a command run before its own", () => {
     expect(argvs("echo $(git push origin main)")).toEqual([
       ["git", "push", "origin", "main"],
       ["echo", "$(git push origin main)"],
     ]);
-  });
-
-  test("reads backticks as a command", () => {
-    expect(argvs("echo `git push origin main` done")).toEqual([
-      ["git", "push", "origin", "main"],
-      ["echo", "`git push origin main`", "done"],
-    ]);
-  });
-
-  test("reads a process substitution as a command", () => {
-    expect(argvs("diff <(git show a) b")).toEqual([
-      ["git", "show", "a"],
-      ["diff", "<(git show a)", "b"],
-    ]);
-  });
-
-  test("reads the script of bash -c, sh -c and bash -lc", () => {
-    expect(argvs(`bash -c "git push origin main"`)).toEqual([["git", "push", "origin", "main"]]);
-    expect(argvs(`sh -c 'cd /x && git push'`)).toEqual([["git", "push"]]);
-    expect(argvs(`bash -lc "git push origin dev"`)).toEqual([["git", "push", "origin", "dev"]]);
-  });
-
-  test("keeps a shell that runs a script file", () => {
-    expect(argvs("bash scripts/release.sh")).toEqual([["bash", "scripts/release.sh"]]);
-  });
-
-  test("reads the words of eval", () => {
-    expect(argvs(`eval "git push origin main"`)).toEqual([["git", "push", "origin", "main"]]);
   });
 
   test("reads a substitution inside double quotes, its heredoc holding a quote", () => {
@@ -142,29 +150,41 @@ describe("invocationsOf splits a line into simple commands", () => {
   test("a quote inside a substitution inside double quotes does not close the word", () => {
     expect(argvs(`x="$(printf '%s"' a)"; git push --force origin dev`)).toEqual([
       ["printf", '%s"', "a"],
+      ["x=$(printf '%s\"' a)"],
       ["git", "push", "--force", "origin", "dev"],
     ]);
   });
 
-  test("reads backticks inside double quotes", () => {
+  test("reads backticks, inside double quotes too", () => {
     expect(argvs('echo "a `git push origin main` b"')).toEqual([
       ["git", "push", "origin", "main"],
       ["echo", "a `git push origin main` b"],
     ]);
   });
 
-  test("reads nested substitutions", () => {
-    expect(argvs('echo "$(echo "$(git push origin main)")"')).toEqual([
-      ["git", "push", "origin", "main"],
-      ["echo", "$(git push origin main)"],
-      ["echo", '$(echo "$(git push origin main)")'],
+  test("reads a process substitution as a command", () => {
+    expect(argvs("diff <(git show a) b")).toEqual([
+      ["git", "show", "a"],
+      ["diff", "<(git show a)", "b"],
     ]);
   });
 
-  test("an escaped $( inside double quotes is text", () => {
-    expect(argvs(String.raw`echo "\$(git push origin main)"`)).toEqual([
-      ["echo", "$(git push origin main)"],
+  test("groups a subshell and a substitution between open and close", () => {
+    expect(parseLine("(cd /x) && echo $(y)").items.map((item) => item.kind)).toEqual([
+      "open",
+      "command",
+      "close",
+      "open",
+      "command",
+      "close",
+      "command",
     ]);
+  });
+
+  test("notices a shell function definition", () => {
+    expect(parseLine("f() { git push; }; f").definesFunction).toBe(true);
+    expect(parseLine("function f { git push; }").definesFunction).toBe(true);
+    expect(parseLine('git commit -m "f() { }"').definesFunction).toBe(false);
   });
 
   test("an empty line runs nothing", () => {
@@ -173,132 +193,57 @@ describe("invocationsOf splits a line into simple commands", () => {
 });
 
 describe("unwrap", () => {
-  const words = (line: readonly string[]): string[] => unwrap(line, CWD).argv;
+  test("drops assignments before the program, keeping them apart", () => {
+    const [command] = commandsOf(parseLine("GIT_DIR=/x A=1 git push"));
+    const result = unwrap(command?.words ?? [], CWD);
 
-  test("drops assignments before the program", () => {
-    expect(words(["GIT_DIR=/x", "A=1", "git", "push"])).toEqual(["git", "push"]);
+    expect(result.argv.map((word) => word.text)).toEqual(["git", "push"]);
+    expect(result.assignments.map((word) => word.text)).toEqual(["GIT_DIR=/x", "A=1"]);
   });
 
   test("drops reserved words and wrappers", () => {
-    expect(words(["if", "!", "command", "git", "push"])).toEqual(["git", "push"]);
-    expect(words(["then", "exec", "-a", "name", "git", "push"])).toEqual(["git", "push"]);
-    expect(words(["time", "-p", "nohup", "git", "push"])).toEqual(["git", "push"]);
+    expect(unwrapped("if ! command git push").argv).toEqual(["git", "push"]);
+    expect(unwrapped("exec -a name git push").argv).toEqual(["git", "push"]);
+    expect(unwrapped("time -p nohup git push").argv).toEqual(["git", "push"]);
+    expect(unwrapped("/usr/bin/time -f %e git push").argv).toEqual(["git", "push"]);
   });
 
-  test("drops env with its options and assignments", () => {
-    expect(words(["env", "-u", "HOME", "--unset=PATH", "-uX", "-i", "A=1", "git", "push"])).toEqual(
-      ["git", "push"],
-    );
+  test("drops env with its options; -C and --chdir move the command", () => {
+    expect(unwrapped("env -u HOME --unset=PATH -i A=1 git push").argv).toEqual(["git", "push"]);
+    expect(unwrapped("env -C /tmp/x git push").cwd).toBe("/tmp/x");
+    expect(unwrapped("env --chdir=sub git push").cwd).toBe("/work/repo/sub");
   });
 
-  test("env -C and --chdir move the command", () => {
-    expect(unwrap(["env", "-C", "/tmp/x", "git", "push"], CWD)).toEqual({
-      argv: ["git", "push"],
-      cwd: "/tmp/x",
-    });
-    expect(unwrap(["env", "--chdir=sub", "git", "push"], CWD).cwd).toBe("/work/repo/sub");
-    expect(unwrap(["env", "-Csub", "git", "push"], CWD).cwd).toBe("/work/repo/sub");
+  test("env -S, xargs and flock -c hide the command until it runs", () => {
+    expect(unwrapped("env -S 'git push origin main'").opaque).toBe("env -S");
+    expect(unwrapped("xargs -n 1 git push origin").opaque).toBe("xargs");
+    expect(unwrapped("flock /tmp/l -c 'git push'").opaque).toBe("flock -c");
   });
 
-  test("env -S splits its string into the command", () => {
-    expect(words(["env", "-S", "git push origin main"])).toEqual(["git", "push", "origin", "main"]);
-    expect(words(["env", "--split-string=git push", "origin"])).toEqual(["git", "push", "origin"]);
+  test("drops nice, timeout, sudo, flock and their operands", () => {
+    expect(unwrapped("nice -n 10 git push").argv).toEqual(["git", "push"]);
+    expect(unwrapped("timeout -k 5 10 git push").argv).toEqual(["git", "push"]);
+    expect(unwrapped("sudo -u root -E -- git push").argv).toEqual(["git", "push"]);
+    expect(unwrapped("sudo -D /tmp/x git push").cwd).toBe("/tmp/x");
+    expect(unwrapped("flock -w 60 /tmp/lock git push").argv).toEqual(["git", "push"]);
   });
 
-  test("drops nice with its adjustment", () => {
-    expect(words(["nice", "-n", "10", "git", "push"])).toEqual(["git", "push"]);
-    expect(words(["nice", "-10", "git", "push"])).toEqual(["git", "push"]);
-    expect(words(["nice", "--adjustment=5", "git", "push"])).toEqual(["git", "push"]);
-  });
-
-  test("drops timeout with its options and duration", () => {
-    expect(words(["timeout", "-s", "KILL", "10", "git", "push"])).toEqual(["git", "push"]);
-  });
-
-  test("drops xargs with its options", () => {
-    expect(words(["xargs", "-I", "{}", "-n", "1", "-0", "git", "push", "origin", "{}"])).toEqual([
+  test("reads systemd-run only when its command stays here", () => {
+    expect(unwrapped("systemd-run --user --scope -q -p MemoryMax=8G -- git push").argv).toEqual([
       "git",
       "push",
-      "origin",
-      "{}",
     ]);
+    expect(unwrapped("systemd-run --user git push").opaque).toStartWith("systemd-run without");
   });
 
-  test("drops sudo with its options; -D moves the command", () => {
-    expect(words(["sudo", "-u", "root", "-E", "--", "git", "push"])).toEqual(["git", "push"]);
-    expect(unwrap(["sudo", "-D", "/tmp/x", "git", "push"], CWD).cwd).toBe("/tmp/x");
-    expect(words(["sudo", "A=1", "git", "push"])).toEqual(["git", "push"]);
+  test("reads mise exec up to its --", () => {
+    expect(unwrapped("mise exec node@24 -- git push").argv).toEqual(["git", "push"]);
+    expect(unwrapped("mise run release").argv).toEqual(["mise", "run", "release"]);
   });
 
   test("command -v runs nothing", () => {
-    expect(words(["command", "-v", "git"])).toEqual([]);
-  });
+    const [command] = commandsOf(parseLine("command -v git"));
 
-  test("an assignment alone is no command", () => {
-    expect(words(["A=1"])).toEqual([]);
-  });
-});
-
-describe("invocationsOf follows cd", () => {
-  test("an absolute cd moves the commands after it", () => {
-    expect(cwds("cd /tmp/foo && git push; git log")).toEqual(["/tmp/foo", "/tmp/foo"]);
-  });
-
-  test("a relative cd resolves against the directory before it", () => {
-    expect(cwds("cd sub && cd ../../other && git push")).toEqual(["/work/other"]);
-  });
-
-  test("a quoted cd target", () => {
-    expect(cwds('cd "/tmp/my dir" && git push')).toEqual(["/tmp/my dir"]);
-    expect(cwds("cd '/tmp/foo' && git commit")).toEqual(["/tmp/foo"]);
-  });
-
-  test("a cd before ;", () => {
-    expect(cwds("cd /tmp/foo; git commit")).toEqual(["/tmp/foo"]);
-  });
-
-  test("leading whitespace", () => {
-    expect(cwds("  cd /tmp && git commit")).toEqual(["/tmp"]);
-  });
-
-  test("no cd keeps the cwd", () => {
-    expect(cwds("git commit -m 'test'")).toEqual([CWD]);
-  });
-
-  test("a cd after the command does not move it", () => {
-    expect(cwds("git commit && cd /tmp")).toEqual([CWD]);
-  });
-
-  test("cd ~ and cd alone go home", () => {
-    const home = process.env["HOME"] ?? "";
-
-    expect(cwds("cd ~/x && git push")).toEqual([path.join(home, "x")]);
-    expect(cwds("cd && git push")).toEqual([home]);
-  });
-
-  test("a target it cannot resolve leaves the directory where it was", () => {
-    expect(cwds('cd "$REPO" && git push')).toEqual([CWD]);
-    expect(cwds("cd $(git rev-parse --show-toplevel) && git push")).toEqual([CWD, CWD]);
-    expect(cwds("cd ~other && git push")).toEqual([CWD]);
-    expect(cwds("cd - && git push")).toEqual([CWD]);
-  });
-
-  test("a subshell's cd stays inside it", () => {
-    expect(cwds("(cd /tmp/a && git push) && git push")).toEqual(["/tmp/a", CWD]);
-  });
-
-  test("a substitution runs in the directory before its command's cd", () => {
-    expect(cwds('cd /tmp/a && cd "$(git rev-parse --show-toplevel)" && git push')).toEqual([
-      "/tmp/a",
-      "/tmp/a",
-    ]);
-  });
-
-  test("env -C moves its command only", () => {
-    expect(cwds("env -C /tmp/a git push && git push")).toEqual(["/tmp/a", CWD]);
-  });
-
-  test("a bash -c script starts in the directory of the bash", () => {
-    expect(cwds(`cd /tmp/a && bash -c "git push"`)).toEqual(["/tmp/a"]);
+    expect(unwrap(command?.words ?? [], CWD).runsNothing).toBe(true);
   });
 });

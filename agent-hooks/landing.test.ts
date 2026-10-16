@@ -8,6 +8,8 @@ import {
   PUSH_DESTINATION,
   ghCommandOf,
   gitCommandOf,
+  isPrMerge,
+  isReleaseCreate,
   latestChecks,
   packageScriptOf,
   profiledMergeRefusal,
@@ -18,16 +20,23 @@ import {
   releaseScriptOf,
   resolveTargets,
 } from "./landing.ts";
-import { invocationsOf } from "./shell.ts";
+import { commandsOf, parseLine, unwrap } from "./shell.ts";
 
 const LANDING = { trunk: "dev", release: "main" } as const;
 
 const PUBLIC: RepoFacts = { visibility: "PUBLIC", defaultBranch: "main" };
 
-/** The push targets of a command line, as the hook reads them: every `git push` it runs, `HEAD` left unresolved. */
+/** The argv of each simple command of a line, once its wrappers are peeled. */
+function argvsOf(command: string): string[][] {
+  return commandsOf(parseLine(command)).map((parsed) =>
+    unwrap(parsed.words, "/repo").argv.map((word) => word.text),
+  );
+}
+
+/** The push targets of a command line: every `git push` it runs, `HEAD` left unresolved. */
 function targetsOf(command: string): PushTarget[] {
-  return invocationsOf(command, "/repo").flatMap((invocation) => {
-    const git = gitCommandOf(invocation.argv);
+  return argvsOf(command).flatMap((argv) => {
+    const git = gitCommandOf(argv);
     const push = git?.subcommand === "push" ? pushOf(git.args) : null;
 
     return push === null ? [] : push.targets;
@@ -35,9 +44,7 @@ function targetsOf(command: string): PushTarget[] {
 }
 
 function isPush(command: string): boolean {
-  return invocationsOf(command, "/repo").some(
-    (invocation) => gitCommandOf(invocation.argv)?.subcommand === "push",
-  );
+  return argvsOf(command).some((argv) => gitCommandOf(argv)?.subcommand === "push");
 }
 
 function pushVerdict(command: string, currentBranch: string | null = null): string | null {
@@ -71,7 +78,9 @@ describe("gitCommandOf", () => {
   test("a git invocation without options locates nothing", () => {
     expect(gitCommandOf(["git", "commit", "-m", "x"])).toEqual({
       location: [],
+      inlineAliases: [],
       subcommand: "commit",
+      index: 1,
       args: ["-m", "x"],
     });
   });
@@ -88,7 +97,19 @@ describe("gitCommandOf", () => {
   test("skips the global options that do not locate the repository", () => {
     expect(
       gitCommandOf(["git", "-c", "user.name=x", "--no-pager", "-C", "/tmp/foo", "-p", "push"]),
-    ).toEqual({ location: ["-C", "/tmp/foo"], subcommand: "push", args: [] });
+    ).toEqual({
+      location: ["-C", "/tmp/foo"],
+      inlineAliases: [],
+      subcommand: "push",
+      index: 7,
+      args: [],
+    });
+  });
+
+  test("reads the aliases a -c option defines", () => {
+    expect(gitCommandOf(["git", "-c", "alias.p=push", "p", "origin"])?.inlineAliases).toEqual([
+      "p",
+    ]);
   });
 
   test("keeps --git-dir and --work-tree in both spellings", () => {
@@ -275,7 +296,6 @@ describe("profiledPushRefusal refuses a push to the release", () => {
     "git push origin :main",
     "git push --all origin",
     "git push --mirror origin",
-    'bash -c "git push origin dev:main"',
     "git -C /tmp/x push origin main",
   ];
 
@@ -424,51 +444,82 @@ describe("publicPushRefusal", () => {
   });
 });
 
+/** What the guard reads of a gh invocation: its subcommand, its positionals, its repository, the doors it opens. */
+type GhReading = {
+  readonly group: string | null;
+  readonly action: string | null;
+  readonly positionals: readonly string[];
+  readonly repo: string | null;
+  readonly merge: boolean;
+  readonly release: boolean;
+};
+
+function readGh(argv: readonly string[]): GhReading | null {
+  const gh = ghCommandOf(argv);
+
+  return gh === null
+    ? null
+    : {
+        group: gh.group,
+        action: gh.action,
+        positionals: gh.positionals,
+        repo: gh.repo,
+        merge: isPrMerge(gh),
+        release: isReleaseCreate(gh),
+      };
+}
+
 describe("ghCommandOf", () => {
   test("gh pr merge with a selector and options", () => {
-    expect(ghCommandOf(["gh", "pr", "merge", "12", "--squash", "-b", "body text"])).toEqual({
-      kind: "pr-merge",
-      selector: "12",
+    expect(readGh(["gh", "pr", "merge", "12", "--squash", "-b", "body text"])).toEqual({
+      group: "pr",
+      action: "merge",
+      positionals: ["12"],
       repo: null,
+      merge: true,
+      release: false,
     });
   });
 
   test("gh pr merge with a value option before the selector", () => {
-    expect(ghCommandOf(["gh", "pr", "merge", "--subject", "s", "feature/x"])).toEqual({
-      kind: "pr-merge",
-      selector: "feature/x",
-      repo: null,
+    expect(readGh(["gh", "pr", "merge", "--subject", "s", "feature/x"])).toMatchObject({
+      positionals: ["feature/x"],
+      merge: true,
     });
   });
 
-  test("gh pr merge without a selector, with --repo in both spellings", () => {
-    expect(ghCommandOf(["gh", "pr", "merge", "-R", "o/n"])).toEqual({
-      kind: "pr-merge",
-      selector: null,
+  test("reads --repo wherever it stands, in every spelling", () => {
+    expect(readGh(["gh", "pr", "merge", "-R", "o/n"])).toMatchObject({ repo: "o/n", merge: true });
+    expect(readGh(["gh", "pr", "merge", "--repo=o/n", "3"])).toMatchObject({
       repo: "o/n",
+      positionals: ["3"],
     });
-    expect(ghCommandOf(["gh", "pr", "merge", "--repo=o/n", "3"])).toEqual({
-      kind: "pr-merge",
-      selector: "3",
+    expect(readGh(["gh", "-R", "o/n", "pr", "merge", "7"])).toMatchObject({
       repo: "o/n",
+      merge: true,
+    });
+    expect(readGh(["gh", "pr", "-R", "o/n", "merge", "7"])).toMatchObject({
+      repo: "o/n",
+      merge: true,
     });
   });
 
-  test("gh pr merge --disable-auto merges nothing", () => {
-    expect(ghCommandOf(["gh", "pr", "merge", "12", "--disable-auto"])).toBeNull();
+  test("reads --auto, and --disable-auto merges nothing", () => {
+    expect(ghCommandOf(["gh", "pr", "merge", "12", "--auto"])?.flags.has("--auto")).toBe(true);
+    expect(readGh(["gh", "pr", "merge", "12", "--disable-auto"])).toMatchObject({ merge: false });
   });
 
   test("gh release create", () => {
-    expect(ghCommandOf(["gh", "release", "create", "v1", "--notes", "x"])).toEqual({
-      kind: "release-create",
-      repo: null,
+    expect(readGh(["gh", "release", "create", "v1", "--notes", "x"])).toMatchObject({
+      release: true,
+      merge: false,
     });
   });
 
-  test("other gh commands are none", () => {
-    expect(ghCommandOf(["gh", "pr", "view", "12"])).toBeNull();
-    expect(ghCommandOf(["gh", "release", "view", "v1"])).toBeNull();
-    expect(ghCommandOf(["git", "pr", "merge"])).toBeNull();
+  test("other gh commands open no door, and other programs are none", () => {
+    expect(readGh(["gh", "pr", "view", "12"])).toMatchObject({ merge: false, release: false });
+    expect(readGh(["gh", "release", "view", "v1"])).toMatchObject({ release: false });
+    expect(readGh(["git", "pr", "merge"])).toBeNull();
   });
 });
 
@@ -598,6 +649,24 @@ describe("profiledMergeRefusal", () => {
   test("refuses a head with no check yet", () => {
     expect(profiledMergeRefusal(pr({ checks: [] }), LANDING, true)).toContain(
       "no check reported on #7's head yet",
+    );
+  });
+
+  test("with --auto, lets running checks and no check yet wait for green", () => {
+    const running = [check("validate", "IN_PROGRESS", "1")];
+
+    expect(profiledMergeRefusal(pr({ checks: running }), LANDING, true, true)).toBeNull();
+    expect(profiledMergeRefusal(pr({ checks: [] }), LANDING, true, true)).toBeNull();
+    expect(
+      profiledMergeRefusal(
+        pr({ checks: [check("validate", "FAILURE", "1")] }),
+        LANDING,
+        true,
+        true,
+      ),
+    ).toContain("checks not green on #7: validate failure");
+    expect(profiledMergeRefusal(pr({ baseRefName: "main" }), LANDING, true, true)).toContain(
+      "#7 merges into 'main', the release",
     );
   });
 

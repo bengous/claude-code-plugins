@@ -480,6 +480,142 @@ describe("pre-bash in a repository with profile.landing", () => {
   });
 });
 
+const UNRESOLVED_PUSH =
+  "Run the push alone, from the repository, with literal names: git push origin <branch>.";
+
+const UNRESOLVED_MERGE =
+  "Run it alone, from the repository, with a literal number: gh pr merge <number>";
+
+const UNRESOLVED_RELEASE =
+  "The release is the human's; its plan runs alone, from the repository: bun ./scripts/release.ts --dry-run.";
+
+const RELEASE_PUSH = "a push to 'main' moves the release, and the release is the human's";
+
+const RELEASE_SCRIPT = "publishes 'main', and the release is the human's";
+
+const HEREDOC_COMMIT = `git commit -m "$(cat <<'EOF'\nfix(x): don't (break) it\nEOF\n)"`;
+
+describe("pre-bash refuses every door it cannot resolve, naming the explicit form", () => {
+  let repo = "";
+
+  beforeEach(() => {
+    repo = makeRepo(
+      "probe",
+      {
+        [CONFIG_RELATIVE_PATH]: PROFILE,
+        "scripts/release.ts": "",
+        "package.json": JSON.stringify({
+          scripts: { release: "bun ./scripts/release.ts", rel2: "npm run release" },
+        }),
+      },
+      "git@github.com:o/n.git",
+    );
+    git(repo, "checkout", "-q", "dev");
+  });
+
+  test.each([
+    ["git checkout -q main && git push", UNRESOLVED_PUSH],
+    ["git checkout -q main && git push origin HEAD", UNRESOLVED_PUSH],
+    ['git push origin "$(git branch --show-current)"', UNRESOLVED_PUSH],
+    ['git push -u origin "$(git branch --show-current)"', UNRESOLVED_PUSH],
+    ["git push origin $(git rev-parse --abbrev-ref HEAD)", UNRESOLVED_PUSH],
+    ['B=main; git push origin "$B"', RELEASE_PUSH],
+    [`${HEREDOC_COMMIT} && git push origin main`, RELEASE_PUSH],
+    ["stdbuf -oL git push origin main", UNRESOLVED_PUSH],
+    ["setsid git push origin main", UNRESOLVED_PUSH],
+    ["bash <<'X'\ngit push origin main\nX", UNRESOLVED_PUSH],
+    ["bun ./scripts/release", RELEASE_SCRIPT],
+    ["bun run release", RELEASE_SCRIPT],
+    ["npm run rel2", RELEASE_SCRIPT],
+    ["npx tsx scripts/release.ts", UNRESOLVED_RELEASE],
+    ["bunx tsx scripts/release.ts", UNRESOLVED_RELEASE],
+    ["bun x tsx scripts/release.ts", UNRESOLVED_RELEASE],
+    ["gh api -X PUT repos/o/n/pulls/7/merge", UNRESOLVED_MERGE],
+    ['gh pr merge "$PR" --squash', UNRESOLVED_MERGE],
+    ["git -c alias.p=push p origin main", UNRESOLVED_PUSH],
+    ["function f { git push origin main; }; f", UNRESOLVED_PUSH],
+    ["command -p git push origin main", RELEASE_PUSH],
+    ["env -i PATH=/usr/bin git push origin main", RELEASE_PUSH],
+    ["sudo -E -H git push origin main", RELEASE_PUSH],
+    ["nice -n5 git push origin main", RELEASE_PUSH],
+    ["timeout -k 5 10 git push origin main", RELEASE_PUSH],
+    ["time git push origin main", RELEASE_PUSH],
+    ["watch -n1 git push origin main", UNRESOLVED_PUSH],
+    ["cd /nonexistent-dir-xyz 2>/dev/null; git push origin main", UNRESOLVED_PUSH],
+    ["git worktree add -q ../wt2 main && cd ../wt2 && git push origin HEAD", UNRESOLVED_PUSH],
+  ])("refuses %j", async (command, expected) => {
+    const output = await preBash(command, repo);
+
+    expect(output.decision).toBe("deny");
+    expect(output.reason).toContain(expected);
+  });
+
+  test.each([["gh -R o/n pr merge 7 --squash"], ["gh pr -R o/n merge 7 --squash"]])(
+    "refuses %j into the release, -R read wherever it stands",
+    async (command) => {
+      fakeGh({ pr: { ...GREEN_PR, baseRefName: "main" }, checks: GREEN_CHECKS });
+
+      expect((await preBash(command, repo)).reason).toContain("#7 merges into 'main', the release");
+    },
+  );
+
+  test("lets gh pr merge --auto wait for running checks, and refuses it into the release", async () => {
+    const running = GREEN_CHECKS.map((check) => ({ ...check, state: "IN_PROGRESS" }));
+    fakeGh({ pr: GREEN_PR, checks: running });
+    expect((await preBash("gh pr merge 7 --auto --squash", repo)).stdout).toBe("");
+    expect((await preBash("gh pr merge 7 --squash", repo)).decision).toBe("deny");
+
+    fakeGh({ pr: { ...GREEN_PR, baseRefName: "main" }, checks: running });
+    expect((await preBash("gh pr merge 7 --auto", repo)).decision).toBe("deny");
+  });
+});
+
+describe("pre-bash lets the forms an agent ordinarily writes through", () => {
+  let repo = "";
+
+  beforeEach(() => {
+    repo = makeRepo(
+      "everyday",
+      { [CONFIG_RELATIVE_PATH]: PROFILE, "scripts/release.ts": "" },
+      "git@github.com:o/n.git",
+    );
+    git(repo, "checkout", "-q", "-b", "feature/x");
+    git(repo, "update-ref", "refs/remotes/origin/feature/x", "HEAD");
+    git(repo, "branch", "-q", "--set-upstream-to=origin/feature/x");
+  });
+
+  test.each([
+    "git push origin feature/x",
+    "git push",
+    "git push -u origin HEAD",
+    "git push origin dev",
+    "git fetch origin && git rebase origin/dev && git push --force-with-lease origin feature/x",
+    `git add -A && ${HEREDOC_COMMIT} && git push -u origin feature/x`,
+    "git checkout -b feature/y && git push -u origin feature/y",
+    "git log --grep=push --oneline && git stash push -m wip",
+    'rg -n "git push" . ; echo "then git push"',
+    "cat scripts/release.ts && bun x oxlint scripts/release.ts && bun ./scripts/release.ts --dry-run",
+    "python3 - <<'EOF'\nprint(open('x').read().replace('git push', 'git push -u'))\nEOF",
+    "systemd-run --user --scope -q -p MemoryMax=8G -- git push origin feature/x",
+    "flock /tmp/agent-hooks-lock sh -c 'git push origin feature/x'",
+    'GIT_SSH_COMMAND="ssh -v" git push origin feature/x',
+    "git config push.default && git worktree remove ../gone; git push origin feature/x",
+    "gh pr view 7 --json mergeable,mergeStateStatus",
+  ])("allows %j", async (command) => {
+    expect((await preBash(command, repo)).stdout).toBe("");
+  });
+
+  test("allows a push from another directory through cd, -C or a variable the line assigns", async () => {
+    expect((await preBash(`cd ${repo} && git push origin feature/x`, temp.dir)).stdout).toBe("");
+    expect(
+      (await preBash(`wt=${repo} && git -C "$wt" push origin feature/x`, temp.dir)).stdout,
+    ).toBe("");
+    expect((await preBash(`S=${repo}; cd $S; git push origin feature/x`, temp.dir)).stdout).toBe(
+      "",
+    );
+  });
+});
+
 describe("pre-bash in a repository without a profile", () => {
   let repo = "";
 

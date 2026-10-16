@@ -5,7 +5,11 @@ import type { LandingProfile } from "./config.ts";
 /** A git invocation: the global options that locate its repository, in order, then its subcommand. */
 export type GitCommand = {
   readonly location: readonly string[];
+  /** The aliases its `-c alias.<name>=…` options define. */
+  readonly inlineAliases: readonly string[];
   readonly subcommand: string;
+  /** Where the subcommand stands in argv. */
+  readonly index: number;
   readonly args: readonly string[];
 };
 
@@ -33,9 +37,14 @@ export type PushTarget = {
 
 export type Push = { readonly remote: string | null; readonly targets: readonly PushTarget[] };
 
-export type GhCommand =
-  | { readonly kind: "pr-merge"; readonly selector: string | null; readonly repo: string | null }
-  | { readonly kind: "release-create"; readonly repo: string | null };
+/** A `gh` invocation: its subcommand group and action, its positionals after them, and `--repo` wherever it stands. */
+export type GhCommand = {
+  readonly group: string | null;
+  readonly action: string | null;
+  readonly positionals: readonly string[];
+  readonly repo: string | null;
+  readonly flags: ReadonlySet<string>;
+};
 
 /** A run of a release script: the word that names it, its absolute path, and whether it is a dry run. */
 export type ReleaseScript = {
@@ -271,7 +280,7 @@ const RUNNERS: ReadonlyMap<string, Runner> = new Map<string, Runner>([
 
 const FILE_LIKE = /\/|\.(?:[cm]?[jt]sx?|sh)$/u;
 
-type ScriptRun =
+export type ScriptRun =
   | {
       readonly kind: "file";
       readonly script: string;
@@ -280,7 +289,7 @@ type ScriptRun =
     }
   | { readonly kind: "package-script"; readonly script: PackageScript };
 
-const RELEASE_SCRIPT = /\/scripts\/release\.[A-Za-z]+$/u;
+const RELEASE_SCRIPT = /\/scripts\/release(?:\.[A-Za-z]+)?$/u;
 
 const GREEN = new Set(["SUCCESS", "SKIPPED", "NEUTRAL"]);
 
@@ -303,25 +312,33 @@ export function gitCommandOf(argv: readonly string[]): GitCommand | null {
   }
 
   const location: string[] = [];
+  const inlineAliases: string[] = [];
 
   for (let index = 0; index < rest.length; index += 1) {
     const word = rest[index] ?? "";
 
     if (!word.startsWith("-")) {
-      return { location, subcommand: word, args: rest.slice(index + 1) };
+      return {
+        location,
+        inlineAliases,
+        subcommand: word,
+        index: index + 1,
+        args: rest.slice(index + 1),
+      };
     }
 
     const [name, attached] = splitOption(word);
+    const value = attached ?? (GIT_VALUE_OPTIONS.has(name) ? rest[index + 1] : undefined);
+    index += attached === undefined && GIT_VALUE_OPTIONS.has(name) ? 1 : 0;
 
-    if (attached === undefined && GIT_VALUE_OPTIONS.has(name)) {
-      index += 1;
-      const value = rest[index];
+    if (value !== undefined && GIT_LOCATING_OPTIONS.has(name)) {
+      location.push(name, value);
+    }
 
-      if (value !== undefined && GIT_LOCATING_OPTIONS.has(name)) {
-        location.push(name, value);
-      }
-    } else if (attached !== undefined && GIT_LOCATING_OPTIONS.has(name)) {
-      location.push(name, attached);
+    const alias = name === "-c" ? /^alias\.([^=]+)=/u.exec(value ?? "")?.[1] : undefined;
+
+    if (alias !== undefined) {
+      inlineAliases.push(alias);
     }
   }
 
@@ -438,16 +455,16 @@ function branchOf(destination: string): string | null {
   return name.includes("*") ? EVERY_BRANCH : name;
 }
 
-/** The `gh` subcommand of a one-way door: `gh pr merge` and `gh release create`; null for any other. */
+/** The `gh` invocation `argv` runs, `-R`/`--repo` read wherever it stands; null for any other program. */
 export function ghCommandOf(argv: readonly string[]): GhCommand | null {
-  const [program, group, action, ...rest] = argv;
+  const [program, ...rest] = argv;
 
   if (program === undefined || path.basename(program) !== "gh") {
     return null;
   }
 
   let repo: string | null = null;
-  let disablesAuto = false;
+  const flags = new Set<string>();
   const positionals: string[] = [];
 
   for (let index = 0; index < rest.length; index += 1) {
@@ -457,27 +474,38 @@ export function ghCommandOf(argv: readonly string[]): GhCommand | null {
     if (name === "-R" || name === "--repo") {
       repo = attached ?? rest[index + 1] ?? null;
       index += attached === undefined ? 1 : 0;
-    } else if (name === "--disable-auto") {
-      disablesAuto = true;
+    } else if (word.startsWith("-R") && word.length > 2) {
+      repo = word.slice(2);
     } else if (attached === undefined && GH_MERGE_VALUE_OPTIONS.has(name)) {
       index += 1;
-    } else if (!word.startsWith("-")) {
+    } else if (word.startsWith("-")) {
+      flags.add(name);
+    } else {
       positionals.push(word);
     }
   }
 
-  if (group === "pr" && action === "merge" && !disablesAuto) {
-    return { kind: "pr-merge", selector: positionals[0] ?? null, repo };
-  }
+  const [group = null, action = null, ...rest2] = positionals;
 
-  return group === "release" && action === "create" ? { kind: "release-create", repo } : null;
+  return { group, action, positionals: rest2, repo, flags };
+}
+
+/** A `gh pr merge` that merges now or once its checks pass; `--disable-auto` merges nothing. */
+export function isPrMerge(command: GhCommand): boolean {
+  return (
+    command.group === "pr" && command.action === "merge" && !command.flags.has("--disable-auto")
+  );
+}
+
+export function isReleaseCreate(command: GhCommand): boolean {
+  return command.group === "release" && command.action === "create";
 }
 
 /**
  * What `argv` runs from `cwd`: a file, directly or through a runtime, or a `package.json` script through a package
  * manager (`bun run x`, `npm run x -- args`, `pnpm x`); null for a use that runs nothing (`node --check`, `bun build`).
  */
-function scriptRunOf(argv: readonly string[], cwd: string): ScriptRun | null {
+export function scriptRunOf(argv: readonly string[], cwd: string): ScriptRun | null {
   const [program, ...rest] = argv;
   const runner = program === undefined ? undefined : RUNNERS.get(path.basename(program));
 
@@ -641,11 +669,15 @@ export function latestChecks(checks: readonly Check[]): Check[] {
   return [...newest.values()];
 }
 
-/** Why `gh pr merge` on `pr` is refused in a repository with a landing profile; null when it may run. */
+/**
+ * Why `gh pr merge` on `pr` is refused in a repository with a landing profile; null when it may run. With `auto`,
+ * GitHub merges once the checks pass, so a check still running, or none reported yet, waits instead of refusing.
+ */
 export function profiledMergeRefusal(
   pr: PullRequestFacts,
   landing: LandingProfile,
   landScript: boolean,
+  auto = false,
 ): string | null {
   const name = `#${pr.number}`;
   const checks = latestChecks(pr.checks);
@@ -659,12 +691,12 @@ export function profiledMergeRefusal(
     );
   }
 
-  if (checks.length === 0) {
+  if (checks.length === 0 && !auto) {
     return `agent-hooks: no check reported on ${name}'s head yet: wait for its run (gh pr checks ${pr.number} --watch), then merge.`;
   }
 
-  if (red.length > 0 || running.length > 0) {
-    const states = [...red, ...running].map(
+  if (red.length > 0 || (running.length > 0 && !auto)) {
+    const states = [...red, ...(auto ? [] : running)].map(
       (check) => `${check.name} ${check.state.toLowerCase()}`,
     );
 
@@ -703,6 +735,35 @@ export function publicMergeRefusal(
 /** Why a door is refused in a repository whose profile cannot be read: the doors it would guard are unknown. */
 export function unreadableProfileRefusal(error: string, command: string): string {
   return `${error}. The landing guard cannot read this repository's profile.landing, so it refuses ${command} until the file is fixed.`;
+}
+
+/** The door a mention of the line names: a push, a merge, a release command, or a package script that opens one. */
+export type DoorKind = "push" | "merge" | "release" | "script";
+
+const UNRESOLVED_SUBJECT: Readonly<Record<DoorKind, string>> = {
+  push: "a git push",
+  merge: "a gh pr merge",
+  release: "a release command",
+  script: "a package script that opens a door",
+};
+
+const EXPLICIT_FORM: Readonly<Record<DoorKind, string>> = {
+  push: "Run the push alone, from the repository, with literal names: git push origin <branch>",
+  merge:
+    "Run it alone, from the repository, with a literal number: gh pr merge <number> (or gh pr merge <number> --repo <owner>/<name>)",
+  release:
+    "The release is the human's; its plan runs alone, from the repository: bun ./scripts/release.ts --dry-run",
+  script: "Run the script's commands themselves, one at a time, with literal names",
+};
+
+/** Why a door the guard cannot resolve is refused, with the explicit form that it can. */
+export function unresolvedRefusal(kind: DoorKind, why: string): string {
+  return `agent-hooks: the guard cannot resolve ${UNRESOLVED_SUBJECT[kind]} in this command: ${why}. ${EXPLICIT_FORM[kind]}.`;
+}
+
+/** Whether `name` is a runtime or a package manager the guard reads the options of. */
+export function isRunner(name: string): boolean {
+  return RUNNERS.has(name);
 }
 
 /** Why a release command is refused in a repository with a landing profile. */

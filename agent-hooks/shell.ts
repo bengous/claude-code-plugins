@@ -1,38 +1,82 @@
 import { homedir } from "node:os";
 import path from "node:path";
 
-/** One simple command of a Bash tool call: its words, quotes removed, and the directory it runs in. */
-export type Invocation = { readonly cwd: string; readonly argv: readonly string[] };
+/** A stretch of the line, from `start` included to `end` excluded. */
+export type Span = { readonly start: number; readonly end: number };
 
-type Token =
-  | { readonly kind: "word"; readonly text: string }
-  | { readonly kind: "separator" }
+/** A word of a command: its text with the quotes removed, where it stands in the line, and what Bash does to it. */
+export type Word = {
+  readonly text: string;
+  readonly start: number;
+  readonly end: number;
+  /** The quoted parts of its source, single, double or ANSI-C: text Bash hands over as data. */
+  readonly quoted: readonly Span[];
+  /** Bash expands part of it when the command runs: `$NAME`, `${…}`, `$(…)`, backticks. */
+  readonly expands: boolean;
+};
+
+/** A simple command as written: its words, the heredoc bodies it reads, how it is wired. */
+export type Command = {
+  readonly words: readonly Word[];
+  readonly heredocs: readonly Span[];
+  /** Joined to the command before it by a pipe: it reads that command's output. */
+  readonly piped: boolean;
+  /** Inside `$(…)`, backticks or `<(…)`. */
+  readonly substitution: boolean;
+};
+
+export type Item =
+  | { readonly kind: "command"; readonly command: Command }
   | { readonly kind: "open" }
   | { readonly kind: "close" };
 
-const SEPARATOR: Token = { kind: "separator" };
+/**
+ * A Bash line, read without running it: its simple commands in the order Bash runs them, a substitution before the
+ * command it belongs to, and each subshell or substitution between an `open` and a `close`.
+ */
+export type Line = {
+  readonly items: readonly Item[];
+  /** Comments and redirection targets: text Bash never runs. */
+  readonly inert: readonly Span[];
+  readonly definesFunction: boolean;
+};
 
-const OPEN: Token = { kind: "open" };
-
-const CLOSE: Token = { kind: "close" };
+/** The command a simple command runs once its assignments, reserved words and known wrappers are peeled. */
+export type Unwrapped = {
+  readonly argv: readonly Word[];
+  readonly assignments: readonly Word[];
+  readonly wrappers: readonly string[];
+  readonly cwd: string;
+  /** A wrapper that hides the command's words until it runs: `xargs` appends its input, `env -S` splits a string. */
+  readonly opaque: string | null;
+  readonly runsNothing: boolean;
+};
 
 const ASSIGNMENT = /^[A-Za-z_]\w*=/u;
 
 const KEYWORDS = new Set(["!", "{", "}", "if", "then", "else", "elif", "do", "while", "until"]);
 
-const SHELLS = new Set(["bash", "sh", "zsh", "dash"]);
+const EXPANSION = /^\$[\w{@*#?$!-]/u;
 
-/** A program that runs the command after its own options: what those options take, and which ones move or replace it. */
+/** A program that runs the command after its own options: what those options take, and which ones move or hide it. */
 type Wrapper = {
   /** Options that take a value, as the next word or attached (`-uNAME`, `--unset=NAME`). */
   readonly values?: ReadonlySet<string>;
   readonly chdir?: ReadonlySet<string>;
-  /** Options whose value is the command line itself, split on whitespace (`env -S`). */
-  readonly split?: ReadonlySet<string>;
+  /** Options that hide the command until it runs (`env -S` splits a string into it). */
+  readonly hides?: ReadonlySet<string>;
   /** Options with which the wrapper runs nothing (`command -v`). */
   readonly runsNothing?: ReadonlySet<string>;
   /** Words after the options before the command (`timeout`'s duration). */
   readonly operands?: number;
+  /** Options that may follow the operands and hide the command (`flock <file> -c '…'`). */
+  readonly trailing?: ReadonlySet<string>;
+  /** The wrapper appends words it reads at run time (`xargs`). */
+  readonly appends?: boolean;
+  /** Its options run until a `--`, which starts the command (`mise exec node@24 -- git push`). */
+  readonly untilSeparator?: boolean;
+  /** Options one of which must be present for the command to run where the line runs (`systemd-run --scope`). */
+  readonly staysHere?: ReadonlySet<string>;
 };
 
 const WRAPPERS: ReadonlyMap<string, Wrapper> = new Map<string, Wrapper>([
@@ -40,13 +84,46 @@ const WRAPPERS: ReadonlyMap<string, Wrapper> = new Map<string, Wrapper>([
   ["exec", { values: new Set(["-a"]) }],
   ["nohup", {}],
   ["builtin", {}],
-  ["time", {}],
+  ["time", { values: new Set(["-f", "--format", "-o", "--output"]) }],
+  [
+    "flock",
+    {
+      values: new Set(["-w", "--timeout", "-E", "--conflict-exit-code"]),
+      hides: new Set(["-c", "--command"]),
+      trailing: new Set(["-c", "--command"]),
+      operands: 1,
+    },
+  ],
+  [
+    "systemd-run",
+    {
+      values: new Set([
+        "-p",
+        "--property",
+        "-u",
+        "--unit",
+        "--slice",
+        "-E",
+        "--setenv",
+        "--working-directory",
+        "-M",
+        "--machine",
+        "--description",
+        "--uid",
+        "--gid",
+        "--nice",
+      ]),
+      chdir: new Set(["--working-directory"]),
+      staysHere: new Set(["--scope", "--same-dir", "-d", "--working-directory"]),
+    },
+  ],
+  ["mise", { untilSeparator: true }],
   [
     "env",
     {
       values: new Set(["-u", "--unset", "-C", "--chdir", "-S", "--split-string"]),
       chdir: new Set(["-C", "--chdir"]),
-      split: new Set(["-S", "--split-string"]),
+      hides: new Set(["-S", "--split-string"]),
     },
   ],
   ["nice", { values: new Set(["-n", "--adjustment"]) }],
@@ -71,6 +148,7 @@ const WRAPPERS: ReadonlyMap<string, Wrapper> = new Map<string, Wrapper>([
         "--delimiter",
         "--arg-file",
       ]),
+      appends: true,
     },
   ],
   [
@@ -103,14 +181,30 @@ const WRAPPERS: ReadonlyMap<string, Wrapper> = new Map<string, Wrapper>([
   ],
 ]);
 
-type Heredoc = { readonly delimiter: string; readonly stripTabs: boolean };
+type Builder = {
+  words: Word[];
+  heredocs: Span[];
+  piped: boolean;
+  substitution: boolean;
+};
 
 type Redirection = { readonly end: number; readonly dropsWord: boolean };
 
-type Scan = { readonly tokens: Token[]; readonly end: number };
+type PendingHeredoc = {
+  readonly delimiter: string;
+  readonly stripTabs: boolean;
+  readonly owner: Builder;
+};
 
-/** The command a simple command runs and the directory it runs in. */
-type Unwrapped = { readonly argv: string[]; readonly cwd: string };
+type WordState = { text: string; start: number; quoted: Span[]; expands: boolean };
+
+type Scan = { readonly items: Item[]; readonly end: number };
+
+type Scanner = {
+  readonly script: string;
+  readonly inert: Span[];
+  definesFunction: boolean;
+};
 
 type OptionRead = {
   readonly name: string;
@@ -118,82 +212,102 @@ type OptionRead = {
   readonly width: number;
 };
 
+function builder(substitution: boolean): Builder {
+  return { words: [], heredocs: [], piped: false, substitution };
+}
+
 /**
- * Reads a shell line as Bash splits it into simple commands, from `start`: quotes, escapes, line continuations,
- * comments, heredoc bodies and redirections are consumed, `&&`, `||`, `;`, `|`, `&` and newlines separate commands,
- * and a subshell opens a group. A command substitution, `$(…)`, backticks or `<(…)`, quoted or not, is read as a
- * group placed before the command it belongs to, which Bash runs first; the word keeps its source text. With
- * `closer`, the scan ends at the parenthesis that closes the substitution it reads. No expansion runs: `$VAR` and
- * `~user` stay text.
+ * Scans from `start`; with `closer`, the scan ends at the character that closes the substitution it reads (the
+ * matching `)`, or the next unescaped backtick).
  */
-function scan(script: string, start: number, closer: ")" | null): Scan {
-  const tokens: Token[] = [];
-  const heredocs: Heredoc[] = [];
-  let word: string | null = null;
+function scan(scanner: Scanner, start: number, closer: ")" | "`" | null): Scan {
+  const { script } = scanner;
+  const items: Item[] = [];
+  const heredocs: PendingHeredoc[] = [];
+  let current = builder(closer !== null);
+  let word: WordState | null = null;
   let dropNextWord = false;
   let commandStart = 0;
   let depth = 0;
   let index = start;
 
-  const endWord = (): void => {
+  // The closures below assign `word`: read it through this function, where TypeScript does not narrow it.
+  const pendingWord = (): WordState | null => word;
+
+  const wordAt = (at: number): WordState => {
+    word ??= { text: "", start: at, quoted: [], expands: false };
+
+    return word;
+  };
+
+  const endWord = (at: number): void => {
     if (word !== null) {
       if (dropNextWord) {
+        scanner.inert.push({ start: word.start, end: at });
         dropNextWord = false;
       } else {
-        tokens.push({ kind: "word", text: word });
+        const text = withHome(script, word);
+        current.words.push({ ...word, text, end: at });
       }
     }
 
     word = null;
   };
 
-  const separate = (token: Token): void => {
-    endWord();
-    tokens.push(token);
-    commandStart = tokens.length;
+  const flush = (at: number, piped: boolean): void => {
+    endWord(at);
+
+    if (current.words.length > 0 || current.heredocs.length > 0) {
+      if (current.words[0]?.text === "function") {
+        scanner.definesFunction = true;
+      }
+
+      items.push({ kind: "command", command: current });
+    }
+
+    current = builder(closer !== null);
+    current.piped = piped;
+    commandStart = items.length;
   };
 
   /** Reads the substitution at `at` into a group before the current command; returns the index after it. */
-  const substitution = (at: number): number => {
-    let inner: readonly Token[];
-    let end: number;
+  const substitution = (at: number, opener: number): number => {
+    const isBacktick = script[at] === "`";
+    const nested = scan(scanner, at + opener, isBacktick ? "`" : ")");
+    items.splice(commandStart, 0, { kind: "open" }, ...nested.items, { kind: "close" });
+    commandStart += nested.items.length + 2;
+    const state = wordAt(at);
+    state.text += script.slice(at, nested.end + 1);
+    state.expands ||= script[at] !== "<" && script[at] !== ">";
 
-    if (script[at] === "`") {
-      end = backtickEnd(script, at + 1);
-      inner = scan(script.slice(at + 1, end).replaceAll(/\\([\\`$])/gu, "$1"), 0, null).tokens;
-    } else {
-      const nested = scan(script, at + 2, ")");
-      inner = nested.tokens;
-      end = nested.end;
-    }
-
-    tokens.splice(commandStart, 0, OPEN, ...inner, CLOSE);
-    commandStart += inner.length + 2;
-    word = (word ?? "") + script.slice(at, end + 1);
-
-    return end + 1;
+    return nested.end + 1;
   };
 
   const doubleQuoted = (from: number): number => {
-    let at = from;
-    word ??= "";
+    const state = wordAt(from);
+    let at = from + 1;
 
     while (at < script.length && script[at] !== '"') {
       const char = script[at] ?? "";
       const next = script[at + 1] ?? "";
 
       if (char === "\\" && (next === '"' || next === "\\" || next === "$" || next === "`")) {
-        word += next;
+        state.text += next;
         at += 2;
       } else if (char === "\\" && next === "\n") {
         at += 2;
-      } else if ((char === "$" && next === "(") || char === "`") {
-        at = substitution(at);
+      } else if (char === "$" && next === "(") {
+        at = substitution(at, 2);
+      } else if (char === "`") {
+        at = substitution(at, 1);
       } else {
-        word += char;
+        state.expands ||= EXPANSION.test(script.slice(at, at + 2));
+        state.text += char;
         at += 1;
       }
     }
+
+    state.quoted.push({ start: from, end: at + 1 });
 
     return at + 1;
   };
@@ -202,81 +316,113 @@ function scan(script: string, start: number, closer: ")" | null): Scan {
     const char = script[index] ?? "";
     const next = script[index + 1] ?? "";
 
-    if (closer !== null && char === closer && depth === 0) {
-      endWord();
+    if (closer === "`" && char === "`") {
+      flush(index, false);
 
-      return { tokens, end: index };
+      return { items, end: index };
+    }
+
+    if (closer === ")" && char === ")" && depth === 0) {
+      flush(index, false);
+
+      return { items, end: index };
     }
 
     if (char === "\\") {
       if (next !== "\n") {
-        word = (word ?? "") + next;
+        wordAt(index).text += next;
       }
 
       index += 2;
     } else if (char === "'") {
       const end = closing(script, index + 1, "'");
-      word = (word ?? "") + script.slice(index + 1, end);
+      const state = wordAt(index);
+      state.text += script.slice(index + 1, end);
+      state.quoted.push({ start: index, end: end + 1 });
       index = end + 1;
     } else if (char === "$" && next === "'") {
       const [text, end] = ansiQuoted(script, index + 2);
-      word = (word ?? "") + text;
+      const state = wordAt(index);
+      state.text += text;
+      state.quoted.push({ start: index, end: end + 1 });
       index = end + 1;
     } else if (char === '"') {
-      index = doubleQuoted(index + 1);
-    } else if (
-      char === "`" ||
-      (char === "$" && next === "(") ||
-      ((char === "<" || char === ">") && next === "(")
-    ) {
-      index = substitution(index);
-    } else if (char === "#" && word === null) {
-      index = lineEnd(script, index);
+      index = doubleQuoted(index);
+    } else if (char === "$" && next === "(") {
+      index = substitution(index, 2);
+    } else if (char === "`") {
+      index = substitution(index, 1);
+    } else if ((char === "<" || char === ">") && next === "(") {
+      index = substitution(index, 2);
+    } else if (char === "#" && pendingWord() === null) {
+      const end = lineEnd(script, index);
+      scanner.inert.push({ start: index, end });
+      index = end;
     } else if (char === "\n") {
-      separate(SEPARATOR);
+      flush(index, false);
       index = skipHeredocs(script, index + 1, heredocs.splice(0));
     } else if (char === " " || char === "\t" || char === "\r") {
-      endWord();
+      endWord(index);
       index += 1;
     } else if (char === "<" || char === ">" || (char === "&" && next === ">")) {
-      if (word !== null && /^\d+$/u.test(word)) {
+      const fd = pendingWord();
+
+      if (fd !== null && /^\d+$/u.test(fd.text)) {
         word = null;
       }
 
-      endWord();
-      const operator = redirection(script, index, heredocs);
+      endWord(index);
+      const operator = redirection(script, index, heredocs, current);
       index = operator.end;
       dropNextWord = operator.dropsWord;
     } else if (char === "(") {
-      separate(OPEN);
+      const named = current.words.length + (pendingWord() === null ? 0 : 1) === 1;
+
+      if (named && /^\s*\)/u.test(script.slice(index + 1))) {
+        scanner.definesFunction = true;
+      }
+
+      flush(index, false);
+      items.push({ kind: "open" });
+      commandStart = items.length;
       depth += 1;
       index += 1;
     } else if (char === ")") {
-      separate(CLOSE);
+      flush(index, false);
+      items.push({ kind: "close" });
+      commandStart = items.length;
       depth = Math.max(0, depth - 1);
       index += 1;
+    } else if (char === "|" && next !== "|") {
+      flush(index, true);
+      index += next === "&" ? 2 : 1;
     } else if (char === ";" || char === "|" || char === "&") {
-      separate(SEPARATOR);
-      index += 1;
+      flush(index, false);
+      index += (char === "|" || char === "&") && next === char ? 2 : 1;
     } else {
-      word = (word ?? "") + char;
+      const state = wordAt(index);
+      state.expands ||= EXPANSION.test(script.slice(index, index + 2));
+      state.text += char;
       index += 1;
     }
   }
 
-  endWord();
+  flush(script.length, false);
 
-  return { tokens, end: script.length };
+  return { items, end: script.length };
 }
 
-function backtickEnd(script: string, start: number): number {
-  let index = start;
+/** An unquoted leading `~` or `~/` is the home directory, as Bash expands it; `~user` is left to `expands`. */
+function withHome(script: string, word: WordState): string {
+  if (script[word.start] !== "~" || !/^~(?:\/|$)/u.test(word.text)) {
+    if (script[word.start] === "~") {
+      word.expands = true;
+    }
 
-  while (index < script.length && script[index] !== "`") {
-    index += script[index] === "\\" ? 2 : 1;
+    return word.text;
   }
 
-  return Math.min(index, script.length);
+  return (process.env["HOME"] ?? homedir()) + word.text.slice(1);
 }
 
 function closing(script: string, start: number, quote: string): number {
@@ -308,14 +454,19 @@ function lineEnd(script: string, start: number): number {
 }
 
 /**
- * Consumes one redirection operator from `start`. A heredoc's delimiter is read here and its body skipped at the next
- * newline; every other redirection names a word, which the caller drops.
+ * Consumes one redirection operator from `start`. A heredoc's delimiter is read here and its body, skipped at the
+ * next newline, is recorded on `owner`; every other redirection names a word, which the caller drops.
  */
-function redirection(script: string, start: number, heredocs: Heredoc[]): Redirection {
+function redirection(
+  script: string,
+  start: number,
+  heredocs: PendingHeredoc[],
+  owner: Builder,
+): Redirection {
   let index = start;
 
   if (script.startsWith("<<<", index)) {
-    return { end: index + 3, dropsWord: true };
+    return { end: index + 3, dropsWord: false };
   }
 
   if (script.startsWith("<<", index)) {
@@ -339,7 +490,7 @@ function redirection(script: string, start: number, heredocs: Heredoc[]): Redire
       index += 1;
     }
 
-    heredocs.push({ delimiter, stripTabs });
+    heredocs.push({ delimiter, stripTabs, owner });
 
     return { end: index, dropsWord: false };
   }
@@ -353,22 +504,47 @@ function redirection(script: string, start: number, heredocs: Heredoc[]): Redire
   return { end: index, dropsWord: true };
 }
 
-function skipHeredocs(script: string, start: number, heredocs: readonly Heredoc[]): number {
+function skipHeredocs(script: string, start: number, heredocs: readonly PendingHeredoc[]): number {
   let index = start;
 
   for (const heredoc of heredocs) {
+    const bodyStart = index;
+    let bodyEnd = script.length;
+
     while (index < script.length) {
       const end = lineEnd(script, index);
       const line = script.slice(index, end);
-      index = end + 1;
 
       if ((heredoc.stripTabs ? line.replace(/^\t+/u, "") : line) === heredoc.delimiter) {
+        bodyEnd = index;
+        index = end + 1;
         break;
       }
+
+      index = end + 1;
     }
+
+    heredoc.owner.heredocs.push({ start: bodyStart, end: Math.min(bodyEnd, script.length) });
   }
 
   return index;
+}
+
+/** Reads `script` as Bash splits it, without running anything: no expansion, no file read. */
+export function parseLine(script: string): Line {
+  const scanner: Scanner = { script, inert: [], definesFunction: false };
+  const { items } = scan(scanner, 0, null);
+
+  return { items, inert: scanner.inert, definesFunction: scanner.definesFunction };
+}
+
+/** The commands of a line, in the order Bash runs them. */
+export function commandsOf(line: Line): Command[] {
+  return line.items.flatMap((item) => (item.kind === "command" ? [item.command] : []));
+}
+
+function separatorAfter(words: readonly Word[], from: number): number {
+  return words.findIndex((candidate, at) => at >= from && candidate.text === "--");
 }
 
 function optionOf(
@@ -394,36 +570,72 @@ function optionOf(
 }
 
 /**
- * The command a simple command runs once its assignments, reserved words and wrappers (`env`, `sudo`, `xargs`,
- * `nice`, `timeout`, `time`, …) are dropped, and the directory it runs in: `env -C` and `sudo -D` move it.
+ * The command a simple command runs once its assignments, reserved words and wrappers (`env`, `sudo`, `nice`,
+ * `timeout`, `time`, `nohup`, `command`, `exec`, `xargs`) are peeled, and the directory it runs in: `env -C` and
+ * `sudo -D` move it.
  */
-export function unwrap(line: readonly string[], cwd: string): Unwrapped {
-  let words = [...line];
+export function unwrap(words: readonly Word[], cwd: string): Unwrapped {
+  const assignments: Word[] = [];
+  const wrappers: string[] = [];
   let dir = cwd;
+  let opaque: string | null = null;
   let index = 0;
 
   for (;;) {
     const word = words[index];
-    const wrapper = word === undefined ? undefined : WRAPPERS.get(word);
 
     if (word === undefined) {
-      return { argv: [], cwd: dir };
+      return { argv: [], assignments, wrappers, cwd: dir, opaque, runsNothing: false };
     }
 
-    if (ASSIGNMENT.test(word) || KEYWORDS.has(word)) {
+    const program = path.basename(word.text);
+    const subcommand = words[index + 1]?.text ?? "";
+
+    // mise wraps a command only as `mise exec … --` or `mise x … --`; its other subcommands are its own.
+    const wrapper =
+      program === "mise" && !["exec", "x"].includes(subcommand) ? undefined : WRAPPERS.get(program);
+
+    if (ASSIGNMENT.test(word.text)) {
+      assignments.push(word);
+      index += 1;
+      continue;
+    }
+
+    if (KEYWORDS.has(word.text)) {
       index += 1;
       continue;
     }
 
     if (wrapper === undefined) {
-      return { argv: words.slice(index), cwd: dir };
+      return {
+        argv: words.slice(index),
+        assignments,
+        wrappers,
+        cwd: dir,
+        opaque,
+        runsNothing: false,
+      };
     }
 
+    wrappers.push(program);
+    opaque = wrapper.appends === true ? word.text : opaque;
     index += 1;
-    let split = false;
 
-    while (!split && words[index]?.startsWith("-") === true && words[index] !== "-") {
-      const option = words[index] ?? "";
+    if (wrapper.untilSeparator === true) {
+      const separator = separatorAfter(words, index);
+
+      if (separator === -1) {
+        return { argv: [], assignments, wrappers, cwd: dir, opaque, runsNothing: true };
+      }
+
+      index = separator + 1;
+      continue;
+    }
+
+    let stays = wrapper.staysHere === undefined;
+
+    while (words[index]?.text.startsWith("-") === true && words[index]?.text !== "-") {
+      const option = words[index]?.text ?? "";
 
       if (option === "--") {
         index += 1;
@@ -431,12 +643,12 @@ export function unwrap(line: readonly string[], cwd: string): Unwrapped {
       }
 
       if (wrapper.runsNothing?.has(option) === true) {
-        return { argv: [], cwd: dir };
+        return { argv: [], assignments, wrappers, cwd: dir, opaque, runsNothing: true };
       }
 
       const { name, value, width } = optionOf(
         option,
-        words[index + 1],
+        words[index + 1]?.text,
         wrapper.values ?? new Set(),
       );
 
@@ -444,106 +656,22 @@ export function unwrap(line: readonly string[], cwd: string): Unwrapped {
         dir = path.resolve(dir, value);
       }
 
-      if (value !== undefined && wrapper.split?.has(name) === true) {
-        words = [...value.split(/\s+/u).filter(Boolean), ...words.slice(index + width)];
-        index = 0;
-        split = true;
-      } else {
-        index += width;
+      if (wrapper.hides?.has(name) === true) {
+        opaque = `${word.text} ${name}`;
       }
+
+      stays ||= wrapper.staysHere?.has(name) === true;
+      index += width;
     }
 
-    index += split ? 0 : (wrapper.operands ?? 0);
-  }
-}
-
-/**
- * Every simple command `script` runs, each with the directory it runs in: a `cd` moves the commands after it, a
- * subshell's `cd` stays inside it, and `bash -c` or `eval` scripts are read in turn. A `cd` to a target this reading
- * cannot resolve (`$VAR`, `~user`, `-`) leaves the directory where it was.
- */
-export function invocationsOf(script: string, cwd: string): Invocation[] {
-  const invocations: Invocation[] = [];
-  const stack: string[] = [];
-  let dir = cwd;
-  let words: string[] = [];
-
-  const flush = (): void => {
-    const { argv, cwd: commandDir } = unwrap(words, dir);
-    words = [];
-    const [program, ...args] = argv;
-
-    if (program === undefined) {
-      return;
+    if (!stays) {
+      opaque = `${word.text} without ${[...(wrapper.staysHere ?? [])].join(" or ")}`;
     }
 
-    const name = path.basename(program);
-    const inner = SHELLS.has(name) ? shellScript(args) : null;
+    index += wrapper.operands ?? 0;
 
-    if (name === "cd" || name === "pushd") {
-      dir = changeDir(commandDir, args);
-    } else if (inner !== null) {
-      invocations.push(...invocationsOf(inner, commandDir));
-    } else if (name === "eval") {
-      invocations.push(...invocationsOf(args.join(" "), commandDir));
-    } else {
-      invocations.push({ cwd: commandDir, argv });
-    }
-  };
-
-  for (const token of scan(script, 0, null).tokens) {
-    switch (token.kind) {
-      case "word": {
-        words.push(token.text);
-        break;
-      }
-
-      case "separator": {
-        flush();
-        break;
-      }
-
-      case "open": {
-        flush();
-        stack.push(dir);
-        break;
-      }
-
-      case "close": {
-        flush();
-        dir = stack.pop() ?? dir;
-        break;
-      }
-
-      default: {
-        const unreachable: never = token;
-        throw new Error(`unhandled token: ${JSON.stringify(unreachable)}`);
-      }
+    if (wrapper.trailing?.has(words[index]?.text ?? "") === true) {
+      opaque = `${word.text} ${words[index]?.text ?? ""}`;
     }
   }
-
-  flush();
-
-  return invocations;
-}
-
-function changeDir(dir: string, args: readonly string[]): string {
-  const target = args.find((arg) => !arg.startsWith("-") || arg === "-");
-  const home = process.env["HOME"] ?? homedir();
-
-  if (target === undefined) {
-    return home;
-  }
-
-  if (target === "-" || /[$`]/u.test(target) || /^~[^/]/u.test(target)) {
-    return dir;
-  }
-
-  return path.resolve(dir, target.startsWith("~") ? path.join(home, target.slice(1)) : target);
-}
-
-function shellScript(args: readonly string[]): string | null {
-  const flag = args.findIndex((arg) => /^-[A-Za-z]*c[A-Za-z]*$/u.test(arg));
-
-  return flag === -1 ? null : (args[flag + 1] ?? null);
 }

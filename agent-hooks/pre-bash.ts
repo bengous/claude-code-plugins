@@ -15,22 +15,20 @@ import {
 import { isRecord, recordField, stringField } from "./json.ts";
 import type { GhCommand, GitCommand, PackageScript, ReleaseScript } from "./landing.ts";
 import {
-  ghCommandOf,
-  gitCommandOf,
-  packageScriptOf,
+  isReleaseCreate,
   profiledMergeRefusal,
   profiledPushRefusal,
   publicMergeRefusal,
   publicPushRefusal,
   pushOf,
   releaseRefusal,
-  releaseScriptOf,
   resolveTargets,
   unreadableProfileRefusal,
+  unresolvedRefusal,
 } from "./landing.ts";
+import type { Door, Vocabulary } from "./mentions.ts";
+import { assess, findMentions, mentionsGit, mentionsPackageManager } from "./mentions.ts";
 import { git as runGit } from "./scope.ts";
-import type { Invocation } from "./shell.ts";
-import { invocationsOf } from "./shell.ts";
 
 export type GuardVerdict =
   | { readonly kind: "allow" }
@@ -230,17 +228,18 @@ async function judgeGh(
   const root = rootOf(cwd, []);
   const own = command.repo === null || isOriginOf(cwd, command.repo);
   const profile = root === null || !own ? DEFAULT : profileOf(root);
-  const name = command.kind === "release-create" ? "gh release create" : "gh pr merge";
+  const name = isReleaseCreate(command) ? "gh release create" : "gh pr merge";
 
   if (profile.kind === "unreadable") {
     return refusal(unreadableProfileRefusal(profile.error, name));
   }
 
-  if (command.kind === "release-create") {
+  if (isReleaseCreate(command)) {
     return profile.kind === "profiled" ? refusal(releaseRefusal(name, profile.landing)) : ALLOW;
   }
 
-  const pr = await pullRequestOf(cwd, command.selector, command.repo, context.deadline);
+  const selector = command.positionals[0] ?? null;
+  const pr = await pullRequestOf(cwd, selector, command.repo, context.deadline);
 
   if (pr.kind === "failed") {
     return note(
@@ -249,7 +248,14 @@ async function judgeGh(
   }
 
   if (profile.kind === "profiled") {
-    return refusal(profiledMergeRefusal(pr.value, profile.landing, profile.landScript));
+    return refusal(
+      profiledMergeRefusal(
+        pr.value,
+        profile.landing,
+        profile.landScript,
+        command.flags.has("--auto"),
+      ),
+    );
   }
 
   const slug = slugOfPullRequest(pr.value.url);
@@ -327,19 +333,9 @@ function manifestOf(dir: string): Manifest | null {
   }
 }
 
-/** The commands a package script runs, with its pre and post scripts, each read as the guard reads a Bash call. */
-function judgePackageScript(
-  script: PackageScript,
-  context: GuardContext,
-  depth: number,
-): Promise<GuardVerdict> {
-  const manifest = manifestOf(script.cwd);
-
-  if (manifest === null || depth >= MAX_SCRIPT_DEPTH) {
-    return Promise.resolve(ALLOW);
-  }
-
-  const commands = [`pre${script.name}`, script.name, `post${script.name}`].flatMap((name) => {
+/** The commands a package script runs, with its pre and post scripts, in the order a package manager runs them. */
+function scriptCommands(script: PackageScript, manifest: Manifest): string[] {
+  return [`pre${script.name}`, script.name, `post${script.name}`].flatMap((name) => {
     const command = manifest.scripts.get(name);
 
     if (command === undefined) {
@@ -348,38 +344,143 @@ function judgePackageScript(
 
     return [name === script.name ? [command, ...script.args].join(" ") : command];
   });
-
-  return Promise.all(
-    commands
-      .flatMap((command) => invocationsOf(command, manifest.dir))
-      .map((invocation) => judge(invocation, context, depth + 1)),
-  ).then(combine);
 }
 
-function judge(invocation: Invocation, context: GuardContext, depth = 0): Promise<GuardVerdict> {
-  const gitCommand = gitCommandOf(invocation.argv);
+/** The git aliases, read from git's own config at `cwd`, whose expansion pushes: `push`, or a `!` command that does. */
+function doorAliases(cwd: string): Set<string> {
+  const listing = existsSync(cwd) ? git(cwd, [], ["config", "--get-regexp", "^alias\\."]) : null;
+  const doors = new Set<string>();
 
-  if (gitCommand !== null) {
-    return gitCommand.subcommand === "push"
-      ? judgePush(invocation.cwd, gitCommand, context)
-      : Promise.resolve(ALLOW);
+  const none: Vocabulary = {
+    gitAliases: new Set(),
+    doorScripts: new Set(),
+    releaseDoors: true,
+    releaseScriptAt: () => true,
+  };
+
+  for (const line of listing?.split("\n") ?? []) {
+    const match = /^alias\.(\S+)\s+(.*)$/u.exec(line);
+    const [, name, value = ""] = match ?? [];
+    const expansion = value.startsWith("!") ? value.slice(1) : `git ${value}`;
+
+    if (name !== undefined && findMentions(expansion, none).length > 0) {
+      doors.add(name);
+    }
   }
 
-  const ghCommand = ghCommandOf(invocation.argv);
+  return doors;
+}
 
-  if (ghCommand !== null) {
-    return judgeGh(invocation.cwd, ghCommand, context);
+/** The package scripts of the manifest around `cwd` that open a door, directly or through another such script. */
+function doorScriptsOf(
+  cwd: string,
+  gitAliases: ReadonlySet<string>,
+  releaseDoors: boolean,
+  releaseScriptAt: (dir: string) => boolean,
+): Set<string> {
+  const manifest = manifestOf(cwd);
+  const doors = new Set<string>();
+
+  for (let changed = manifest !== null; changed;) {
+    changed = false;
+
+    for (const [name, command] of manifest?.scripts ?? []) {
+      const vocabulary = { gitAliases, doorScripts: doors, releaseDoors, releaseScriptAt };
+
+      if (!doors.has(name) && findMentions(command, vocabulary).length > 0) {
+        doors.add(name);
+        changed = true;
+      }
+    }
   }
 
-  const packageScript = packageScriptOf(invocation.argv, invocation.cwd);
+  return doors;
+}
 
-  if (packageScript !== null) {
-    return judgePackageScript(packageScript, context, depth);
+/** Whether the repository around `dir` has a profile, or one the guard cannot read, which guards its doors too. */
+function profiledAt(dir: string): boolean {
+  const root = existsSync(dir) ? rootOf(dir, []) : null;
+
+  return root !== null && profileOf(root).kind !== "default";
+}
+
+function vocabularyOf(command: string, cwd: string): Vocabulary {
+  const scripts = mentionsPackageManager(command);
+  const releaseDoors = command.includes("release") && profiledAt(cwd);
+  const gitAliases = mentionsGit(command) ? doorAliases(cwd) : new Set<string>();
+  const known = new Map<string, boolean>();
+
+  const releaseScriptAt = (dir: string): boolean => {
+    const cached = known.get(dir) ?? profiledAt(dir);
+    known.set(dir, cached);
+
+    return cached;
+  };
+
+  return {
+    gitAliases,
+    releaseDoors,
+    releaseScriptAt,
+    doorScripts: scripts
+      ? doorScriptsOf(cwd, gitAliases, releaseDoors, releaseScriptAt)
+      : new Set(),
+  };
+}
+
+function judgeDoor(door: Door, context: GuardContext, depth: number): Promise<GuardVerdict> {
+  switch (door.kind) {
+    case "push": {
+      return judgePush(door.cwd, door.git, context);
+    }
+
+    case "merge":
+    case "release-create": {
+      return judgeGh(door.cwd, door.gh, context);
+    }
+
+    case "release-script": {
+      return Promise.resolve(judgeReleaseScript(door.release));
+    }
+
+    case "script": {
+      const manifest = manifestOf(door.script.cwd);
+
+      if (manifest === null || depth >= MAX_SCRIPT_DEPTH) {
+        return Promise.resolve(ALLOW);
+      }
+
+      return Promise.all(
+        scriptCommands(door.script, manifest).map((command) =>
+          judgeLine(command, manifest.dir, context, depth + 1),
+        ),
+      ).then(combine);
+    }
+
+    default: {
+      const unreachable: never = door;
+      throw new Error(`unhandled door: ${JSON.stringify(unreachable)}`);
+    }
+  }
+}
+
+/**
+ * Judges one Bash line: a door mention the guard cannot resolve is refused with the explicit form it can; each
+ * resolved door is judged by the profile of its repository, or the public default.
+ */
+async function judgeLine(
+  command: string,
+  cwd: string,
+  context: GuardContext,
+  depth: number,
+): Promise<GuardVerdict> {
+  const { doors, unresolved } = assess(command, cwd, vocabularyOf(command, cwd));
+  const first = unresolved[0];
+
+  if (first !== undefined) {
+    return refusal(unresolvedRefusal(first.kind, first.why));
   }
 
-  const release = releaseScriptOf(invocation.argv, invocation.cwd);
-
-  return Promise.resolve(release === null || release.dryRun ? ALLOW : judgeReleaseScript(release));
+  return combine(await Promise.all(doors.map((door) => judgeDoor(door, context, depth))));
 }
 
 /** The first refusal among the verdicts, else their notes joined, else an allow. */
@@ -447,18 +548,16 @@ export async function runPreBash(
   const cwd = stringField(payload, "cwd") ?? process.cwd();
 
   try {
-    const judged = Promise.all(
-      invocationsOf(command, cwd).map((invocation) => judge(invocation, context)),
-    );
-
-    const verdicts = await Promise.race([judged, pastDeadline(deadline)]);
+    const verdict = await Promise.race([
+      judgeLine(command, cwd, context, 0),
+      pastDeadline(deadline),
+    ]);
 
     return encodeGuard(
-      verdicts === null
-        ? note(
-            `agent-hooks: pre-bash ran past its ${deadlineMs} ms deadline: the command went unchecked`,
-          )
-        : combine(verdicts),
+      verdict ??
+        note(
+          `agent-hooks: pre-bash ran past its ${deadlineMs} ms deadline: the command went unchecked`,
+        ),
     );
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
