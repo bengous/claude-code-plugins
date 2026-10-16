@@ -12,7 +12,7 @@ import { booleanField, isRecord, recordField, stringField } from "./json.ts";
 import { CRASH_LANE, guard } from "./loop-guard.ts";
 import { findRoot } from "./scope.ts";
 import type { SessionState } from "./state.ts";
-import { loadState, photographedRoots, saveState } from "./state.ts";
+import { freshState, loadState, saveState, statesOf } from "./state.ts";
 
 export const HARNESSES = ["claude", "codex"] as const;
 
@@ -178,14 +178,18 @@ export async function runHook(options: RunHookOptions): Promise<string | null> {
   }
 
   const start = searchStart(hook, input);
-  const roots = hook === "stop" ? stopRoots(input, start) : rootAt(start);
+  const now = options.now ?? Date.now();
 
-  if (roots.length === 0) {
+  const states =
+    hook === "stop"
+      ? stopStates(input, start, now)
+      : rootAt(start).map((root) => loadState(stateKey(input), root, now));
+
+  if (states.length === 0) {
     return null;
   }
 
-  const now = options.now ?? Date.now();
-  const verdicts = await Promise.all(roots.map((root) => runAt(options, input, root, now)));
+  const verdicts = await Promise.all(states.map((state) => runAt(options, input, state, now)));
 
   return encode(merged(verdicts), harness, hook);
 }
@@ -203,16 +207,29 @@ function rootAt(start: string | null): string[] {
  * roots it photographed: over a shared checkout's whole tree, one that edited nothing would block on its parent's
  * work.
  */
-function stopRoots(input: Input, start: string | null): string[] {
-  const photographed = photographedRoots(stateKey(input)).filter((root) =>
-    existsSync(configPath(root)),
+function stopStates(input: Input, start: string | null, now: number): SessionState[] {
+  const key = stateKey(input);
+  const saved = statesOf(key);
+
+  const photographed = saved.filter(
+    (state) => state.photo !== null && existsSync(configPath(state.root)),
   );
 
-  if (input.agentId !== undefined) {
+  const [cwdRoot] = rootAt(start);
+
+  if (
+    input.agentId !== undefined ||
+    cwdRoot === undefined ||
+    photographed.some((state) => state.root === cwdRoot)
+  ) {
     return photographed;
   }
 
-  return [...new Set([...photographed, ...rootAt(start)])].toSorted();
+  const cwdState = saved.find((state) => state.root === cwdRoot) ?? freshState(key, cwdRoot, now);
+
+  return [...photographed, cwdState].toSorted((left, right) =>
+    left.root < right.root ? -1 : Number(left.root > right.root),
+  );
 }
 
 /**
@@ -228,19 +245,19 @@ type RootVerdict = { readonly root: string; readonly verdict: Verdict };
 async function runAt(
   options: RunHookOptions,
   input: Input,
-  root: string,
+  state: SessionState,
   now: number,
 ): Promise<RootVerdict> {
-  const state = loadState(stateKey(input), root, now);
-  const loaded = JSON.stringify(state);
-  const verdict = await verdictOf(options, input, root, state, now);
+  const hadPhoto = state.photo !== null;
+  const verdict = await verdictOf(options, input, state.root, state, now);
 
-  // An edit hook runs before every write and seldom changes the state; a Stop or a session start refreshes its age.
-  if (!isEditHook(options.hook) || JSON.stringify(state) !== loaded) {
+  // An edit hook changes the state only when pre-edit photographs a root that had no photo: that alone decides its
+  // save. A Stop or a session start always saves, which refreshes the state's age.
+  if (!isEditHook(options.hook) || (!hadPhoto && state.photo !== null)) {
     persist(state, now);
   }
 
-  return { root, verdict };
+  return { root: state.root, verdict };
 }
 
 /** One root's verdict as it is; several roots name theirs, and one block among them blocks. */

@@ -1,5 +1,6 @@
+/* oxlint-disable anti-slop/no-runtime-typeof, anti-slop/no-unsafe-dictionary-type -- these checks parse the state files read back from disk: `parseState`, `stateOf` and their guards are the boundary, and a file of another shape reads as no state. */
+
 import { randomUUID } from "node:crypto";
-/* oxlint-disable anti-slop/no-runtime-typeof -- these checks parse the state file read back from disk: `parseState` and its guards are the boundary, and a file of another shape reads as no state. */
 import {
   mkdirSync,
   readFileSync,
@@ -125,8 +126,15 @@ function parseState(text: string, sessionId: string, root: string): SessionState
     return null;
   }
 
+  return isRecord(value) ? stateOf(value, sessionId, root) : null;
+}
+
+function stateOf(
+  value: Readonly<Record<string, unknown>>,
+  sessionId: string,
+  root: string,
+): SessionState | null {
   if (
-    !isRecord(value) ||
     value["version"] !== STATE_VERSION ||
     typeof value["blocksInTurn"] !== "number" ||
     typeof value["updatedAt"] !== "number" ||
@@ -255,8 +263,8 @@ function updatedAtOf(filePath: string): number {
   }
 }
 
-/** The roots this session holds a photo for, sorted: its SessionStart's, and each one its first edit there took. */
-export function photographedRoots(sessionId: string): string[] {
+/** Every saved state of this session, one per root, sorted by root, each file read once: a Stop picks its roots there. */
+export function statesOf(sessionId: string): SessionState[] {
   const prefix = `${sanitize(sessionId)}__`;
   let files: string[];
 
@@ -270,17 +278,22 @@ export function photographedRoots(sessionId: string): string[] {
 
   return files
     .flatMap((file) => {
-      try {
-        const value: unknown = JSON.parse(readFileSync(path.join(stateDir(), file), "utf8"));
+      let value: unknown;
 
-        return isRecord(value) && typeof value["root"] === "string" && isPhoto(value["photo"])
-          ? [value["root"]]
-          : [];
+      try {
+        value = JSON.parse(readFileSync(path.join(stateDir(), file), "utf8"));
       } catch {
         return [];
       }
+
+      const root = isRecord(value) ? value["root"] : undefined;
+
+      const state =
+        isRecord(value) && typeof root === "string" ? stateOf(value, sessionId, root) : null;
+
+      return state === null ? [] : [state];
     })
-    .toSorted();
+    .toSorted((left, right) => (left.root < right.root ? -1 : Number(left.root > right.root)));
 }
 
 /** The most recent state file of this root, whatever its session: what `doctor` reads to show the last Stop. */

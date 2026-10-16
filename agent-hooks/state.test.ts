@@ -10,12 +10,12 @@ import {
   freshState,
   latestStateForRoot,
   loadState,
-  photographedRoots,
   pruneStates,
   rootKey,
   saveState,
   stateDir,
   statePath,
+  statesOf,
 } from "./state.ts";
 import type { TempRepo } from "./test-support.ts";
 import { createTempRepo, removeTempRepo, scrubGitEnv } from "./test-support.ts";
@@ -209,19 +209,23 @@ describe("loadState and saveState", () => {
   });
 });
 
-describe("photographedRoots", () => {
-  test("lists, sorted, the roots of this session whose state holds a photo", () => {
+describe("statesOf", () => {
+  test("reads every state of this session, sorted by root, and no other session's", () => {
     const photo = { head: null, files: {}, takenAt: 1 };
     saveState({ ...freshState("s", "/r/b"), photo });
     saveState({ ...freshState("s", "/r/a"), photo });
     saveState(freshState("s", "/r/c"));
     saveState({ ...freshState("other", "/r/d"), photo });
+    saveState({ ...freshState("s.agent1", "/r/e"), photo });
 
-    expect(photographedRoots("s")).toEqual(["/r/a", "/r/b"]);
+    const states = statesOf("s");
+
+    expect(states.map((state) => state.root)).toEqual(["/r/a", "/r/b", "/r/c"]);
+    expect(states.map((state) => state.photo !== null)).toEqual([true, true, false]);
   });
 
   test("none without a state dir", () => {
-    expect(photographedRoots("s")).toEqual([]);
+    expect(statesOf("s")).toEqual([]);
   });
 });
 

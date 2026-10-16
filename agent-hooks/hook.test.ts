@@ -1,6 +1,7 @@
 /* oxlint-disable anti-slop/no-unsafe-dictionary-type -- this harness builds hook payloads and reads hook outputs as JSON: a closed type would assert the schema instead of the behaviour, and a wrong shape has to fail an assertion rather than the compiler. */
 import type { Mock } from "bun:test";
 import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
+import * as fs from "node:fs";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 
@@ -10,6 +11,7 @@ import { run } from "./exec.ts";
 import type { Handler, HookKind, Input, Verdict } from "./hook.ts";
 import { ALLOW, encode, parseInput, runHook, searchStart } from "./hook.ts";
 import { isRecord, stringField } from "./json.ts";
+import { runSessionStart } from "./session-start.ts";
 import { statePath } from "./state.ts";
 import { runStop } from "./stop.ts";
 import type { TempRepo } from "./test-support.ts";
@@ -420,6 +422,48 @@ describe("runHook", () => {
       await runHook({ hook: "stop", harness: "claude", payload: payload(), handler: blocking }),
     ).toBe('{"decision":"block","reason":"red"}');
     expect(errors).toHaveBeenCalledWith(expect.stringContaining("agent-hooks: state not saved:"));
+  });
+
+  test("a Stop reads each state file once", async () => {
+    writeConfig(temp.repo, VALID_CONFIG);
+    await runHook({
+      hook: "session-start",
+      harness: "claude",
+      payload: payload(),
+      handler: runSessionStart,
+    });
+    const reads = spyOn(fs, "readFileSync");
+
+    try {
+      await runHook({ hook: "stop", harness: "claude", payload: payload(), handler: allow });
+
+      expect(reads.mock.calls.filter(([file]) => file === statePath("s1", temp.repo))).toHaveLength(
+        1,
+      );
+    } finally {
+      reads.mockRestore();
+    }
+  });
+
+  test("an edit hook serializes no state it does not save", async () => {
+    writeConfig(temp.repo, VALID_CONFIG);
+    await runHook({
+      hook: "session-start",
+      harness: "claude",
+      payload: payload(),
+      handler: runSessionStart,
+    });
+    const serialized = spyOn(JSON, "stringify");
+
+    try {
+      await runHook({ hook: "pre-edit", harness: "claude", payload: payload(), handler: allow });
+
+      expect(
+        serialized.mock.calls.filter(([value]) => isRecord(value) && "photo" in value),
+      ).toEqual([]);
+    } finally {
+      serialized.mockRestore();
+    }
   });
 
   test("an edit hook that changes nothing writes no state", async () => {
