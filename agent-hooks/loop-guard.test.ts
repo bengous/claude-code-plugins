@@ -85,6 +85,31 @@ describe("guard", () => {
   });
 });
 
+describe("guard across turns", () => {
+  test("a new turn on the same failing set only notes: a red the agent cannot fix must not cost every turn", () => {
+    const failing = { lint: ["a.ts"] };
+    const diagnostics = { [diagnosticKey("lint", "a.ts")]: 4 };
+
+    resetTurn(state, "p1");
+    expect(guard(state, failing, diagnostics, CAP, "r").kind).toBe("block");
+
+    resetTurn(state, "p2");
+
+    expect(noteText(guard(state, failing, diagnostics, CAP, "r"))).toStartWith(
+      "agent-hooks: same failures as the previous Stop",
+    );
+    expect(state.blocksInTurn).toBe(0);
+  });
+
+  test("a new turn whose failing set changed blocks again", () => {
+    resetTurn(state, "p1");
+    guard(state, { lint: ["a.ts"] }, {}, CAP, "r");
+    resetTurn(state, "p2");
+
+    expect(guard(state, { lint: ["b.ts"] }, {}, CAP, "r").kind).toBe("block");
+  });
+});
+
 describe("resetTurn", () => {
   test("a new prompt id resets the block counter", () => {
     state.blocksInTurn = 2;

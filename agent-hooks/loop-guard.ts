@@ -13,7 +13,11 @@ export function diagnosticKey(lane: string, file: string): string {
   return `${lane}\u0000${file}`;
 }
 
-/** A new prompt starts a new turn: the consecutive-block counter restarts. */
+/**
+ * A new prompt starts a new turn: the consecutive-block counter restarts. The failing set and its diagnostics stay:
+ * a set the agent left red in one turn only notes in the next, until it changes, so a red the agent cannot fix
+ * never costs every turn its blocks.
+ */
 export function resetTurn(state: SessionState, promptId: string | undefined): void {
   if (promptId !== undefined && promptId !== state.promptId) {
     state.blocksInTurn = 0;
