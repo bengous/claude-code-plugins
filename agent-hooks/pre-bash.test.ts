@@ -540,6 +540,14 @@ describe("pre-bash refuses every door it cannot resolve, naming the explicit for
     ["timeout -k 5 10 git push origin main", RELEASE_PUSH],
     ["time git push origin main", RELEASE_PUSH],
     ["watch -n1 git push origin main", UNRESOLVED_PUSH],
+    ["flock /tmp/land.lock -c 'git push origin main'", UNRESOLVED_PUSH],
+    ["flock -c 'git push origin main' /tmp/land.lock", UNRESOLVED_PUSH],
+    ["echo main | xargs -I{} sh -c 'git push origin {}'", UNRESOLVED_PUSH],
+    ["echo dev | xargs -I% bash -c 'git push --force origin %'", UNRESOLVED_PUSH],
+    [
+      "git branch -r --merged origin/dev | sed 's#origin/##' | xargs -I{} sh -c 'git push origin --delete {}'",
+      UNRESOLVED_PUSH,
+    ],
     ["cd /nonexistent-dir-xyz 2>/dev/null; git push origin main", UNRESOLVED_PUSH],
     ["git worktree add -q ../wt2 main && cd ../wt2 && git push origin HEAD", UNRESOLVED_PUSH],
   ])("refuses %j", async (command, expected) => {

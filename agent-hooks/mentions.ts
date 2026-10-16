@@ -1238,6 +1238,10 @@ function classify(
     return INERT;
   }
 
+  if (view.unwrapped.opaque !== null) {
+    return unresolved(mention.kind, `${view.unwrapped.opaque} hides its words until it runs`);
+  }
+
   const start = found.word.start;
 
   const word =
