@@ -1,10 +1,16 @@
 {
-  "description": "Captures the plan of a branch and attaches it to the pull request that lands it",
+  "description": "Lints a plan before it is approved, captures it, and attaches it to the pull request that lands it",
   "hooks": {
     "PreToolUse": [
       {
         "matcher": "ExitPlanMode",
         "hooks": [
+          {
+            "type": "command",
+            "command": "bun \"${CLAUDE_PLUGIN_ROOT}/scripts/gate-plan.ts\"",
+            "timeout": 10,
+            "statusMessage": "Linting the plan..."
+          },
           {
             "type": "command",
             "command": "bun \"${CLAUDE_PLUGIN_ROOT}/scripts/capture-plan.ts\"",

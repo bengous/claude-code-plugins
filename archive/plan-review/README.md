@@ -32,7 +32,8 @@ exist, and failed open on any spawn or parse error. The Python hook asked a diff
 globbed `.claude/plans/*.md`, took the most recently modified file, and demanded a `## Plan Review
 Status` section reading `APPROVED` before it would let the plan through. Two gates on one tool call
 is one too many, and the TypeScript one covered the real usage. That hook and its agent were removed
-from the repo on 2026-08-23; nothing gates `ExitPlanMode` today.
+from the repo on 2026-08-23. The `ExitPlanMode` gate is now github-flow's plan lint
+(`github-flow/scripts/gate-plan.ts`), which runs deterministic checks and spawns no agent.
 
 **Last Python in the tree.** The repo standardises on TypeScript and shell. Retiring this
 plugin removes `preuse-exitplanmode.py`, the only remaining `.py` file outside `archive/` and

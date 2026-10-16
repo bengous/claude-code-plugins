@@ -104,9 +104,34 @@ The plan file opens with `<!-- session_id: <id> -->`, which the comment carries 
 
 The comment opens with the marker `<!-- plan -->`, followed by a `<details><summary>Plan</summary>` block. A new plan in the same session edits that comment instead of adding one: the hook lists the PR's comments and matches the first of yours whose body starts with the marker. One PR, one plan comment, whatever the number of revisions.
 
-`PreToolUse`, not `PostToolUse`: the plan dialog's "Yes, clear context" options ([`showClearContextOnPlanAccept`](https://code.claude.com/docs/en/settings-reference#showclearcontextonplanaccept)) resolve the `ExitPlanMode` call as a denial, and `PostToolUse` runs only after a tool succeeds, so a plan approved that way would never be captured. The trade is that the plan is written before the answer: a rejected plan leaves its file behind until the next approval in that session overwrites it, and in a checkout that already has a PR, it reaches the comment.
+`PreToolUse`, not `PostToolUse`: the plan dialog's "Yes, clear context" options ([`showClearContextOnPlanAccept`](https://code.claude.com/docs/en/settings-reference#showclearcontextonplanaccept)) resolve the `ExitPlanMode` call as a denial, and `PostToolUse` runs only after a tool succeeds, so a plan approved that way would never be captured. The trade is that the plan is written before the answer: a rejected plan, or one the plan lint denies, leaves its file behind until the next approval in that session overwrites it, and in a checkout that already has a PR, it reaches the comment.
 
-No hook blocks. Each exits 0 on every path and reports a failure on stderr, which `claude --debug` shows.
+None of these three blocks. Each exits 0 on every path and reports a failure on stderr, which `claude --debug` shows.
+
+## Plan lint
+
+`scripts/gate-plan.ts`, a `PreToolUse` hook on `ExitPlanMode`, denies a plan that `scripts/plan-lint.ts` finds fault with, and Claude reads the findings as the reason. The checks are the part of a plan review a script can decide, with no model call:
+
+| Check | Finding |
+|---|---|
+| `placeholder` | A line of prose leaves a choice open: `TBD`, `TBC`, `???`, "to be decided", "decide at implementation", "à décider", "à trancher", "reste à définir". A line that hands the choice out of the plan ("out of scope", "separately", "hors de ce plan") or says it is settled is not one. |
+| `open-question` | An item under an "Open questions" heading names no option taken: no "I would", "default", "recommended", "je prendrais"... A section written in paragraphs counts as one question, and "None." as none. |
+
+Code spans, fences and HTML comments are not read. `bun scripts/plan-lint.ts <plan.md>...` prints the same findings as `<file>:<line>: <check>: <message>` and exits 1 when there is one, so a plan written outside plan mode, a `vellum` plan included, is checked the same way.
+
+Plan mode answers a denied `ExitPlanMode` with another call, so each plan is denied once. The hook keeps the digest of the last plan it denied, per session and agent, in `github-flow-plan-lint/` under the system temp directory; the same plan submitted again, the session line aside, goes on to the user's approval in silence. The user already has the findings: the transcript shows the denial just above the plan dialog, which renders neither a hook's `systemMessage` nor an `ask` reason (CLI 2.1.301, tried live). The deny tells Claude so: revise the plan, or resubmit it unchanged when a finding is wrong. A wrong finding costs one call, and a plan that comes back clean clears the digest. Any failure lets the plan through.
+
+Left out, for refusing good plans as often as bad ones. Measured on 2026-10-17 over the owner's transcripts: 975 distinct plans submitted to `ExitPlanMode`, 530 approved and 247 sent back with a note, hit rate on each:
+
+| Candidate | Approved | Sent back | Why it went |
+|---|---|---|---|
+| `TODO`, `FIXME`, `XXX` as placeholders | 4.5% | 2.4% | The hits name work to log ("log it as TODO"), not a hole in the plan. |
+| A step or slice heading with no check under it | 10.6% | 13.0% | Most plans close on one Verification section instead. |
+| No check anywhere in the plan | 0.9% | 0% | Every hit is a throwaway plan of six lines. |
+| Backticked names equal up to case and separators | 11.7% | 19.8% | `.x` and `x`, `runId` and `run_id`: a selector and its class, a JSON key and its field. |
+| One file name under two paths | 17.2% | 23.9% | `index.ts` and `SKILL.md` live in many folders. |
+
+The kept checks hit 0.9% of the approved plans and 3.6% of those sent back.
 
 ## Requirements
 
