@@ -180,7 +180,15 @@ export async function runHook(options: RunHookOptions): Promise<string | null> {
   const now = options.now ?? Date.now();
   const state = loadState(input.sessionId, root, now);
   const verdict = await verdictOf(options, input, root, state, now);
-  saveState(state, now);
+
+  // The verdict is the hook's answer: a state that cannot be written costs the next Stop its memory, not this one.
+  try {
+    saveState(state, now);
+  } catch (error) {
+    console.error(
+      `agent-hooks: state not saved: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
 
   return encode(verdict, harness, hook);
 }

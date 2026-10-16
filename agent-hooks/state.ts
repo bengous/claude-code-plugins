@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 /* oxlint-disable anti-slop/no-runtime-typeof -- these checks parse the state file read back from disk: `parseState` and its guards are the boundary, and a file of another shape reads as no state. */
 import {
   mkdirSync,
@@ -16,6 +17,8 @@ import { sha256 } from "./scope.ts";
 export const STATE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 
 export const STATE_VERSION = 1;
+
+const TEMPORARY_SUFFIX = ".tmp";
 
 export type Photo = {
   readonly head: string | null;
@@ -198,17 +201,23 @@ function isStringArrayRecord(value: unknown): value is Record<string, readonly s
   );
 }
 
-/** Writes the state through a temporary file and a rename, so a reader never sees a half-written file. */
+/**
+ * Writes the state through a temporary file and a rename, so a reader never sees a half-written file. Each write
+ * has its own temporary name: two hooks of one session save at once, and a shared name lets one rename the other's.
+ */
 export function saveState(state: SessionState, now = Date.now()): void {
   const file = statePath(state.sessionId, state.root);
-  const temporary = `${file}.tmp`;
+  const temporary = `${file}.${process.pid}.${randomUUID()}${TEMPORARY_SUFFIX}`;
   state.updatedAt = now;
   mkdirSync(path.dirname(file), { recursive: true });
   writeFileSync(temporary, JSON.stringify(state));
   renameSync(temporary, file);
 }
 
-/** Removes every state file whose `updatedAt` is older than the TTL; unreadable files count as old. */
+/**
+ * Removes every state file whose `updatedAt` is older than the TTL, and the temporary file of a save cut short;
+ * unreadable files count as old.
+ */
 export function pruneStates(now = Date.now()): void {
   let files: string[];
 
@@ -219,7 +228,7 @@ export function pruneStates(now = Date.now()): void {
   }
 
   for (const file of files) {
-    if (!file.endsWith(".json")) {
+    if (!file.endsWith(".json") && !file.endsWith(TEMPORARY_SUFFIX)) {
       continue;
     }
 

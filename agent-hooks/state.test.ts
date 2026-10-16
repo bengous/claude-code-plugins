@@ -123,6 +123,30 @@ describe("loadState and saveState", () => {
     expect(stateFiles()).toEqual([path.basename(statePath("s", temp.repo))]);
   });
 
+  test("concurrent saves of one state, from several processes, all succeed", async () => {
+    const script = path.join(temp.dir, "saver.ts");
+    const stateModule = JSON.stringify(path.join(import.meta.dir, "state.ts"));
+    writeFileSync(
+      script,
+      `import { freshState, saveState } from ${stateModule};\n` +
+        `for (let round = 0; round < 300; round += 1) saveState(freshState("s1", ${JSON.stringify(temp.repo)}));\n`,
+    );
+
+    const savers = Array.from({ length: 4 }, () =>
+      Bun.spawn([process.execPath, script], {
+        env: { ...process.env, AGENT_HOOKS_STATE_DIR: temp.stateDir },
+        stdout: "ignore",
+        stderr: "pipe",
+      }),
+    );
+
+    const codes = await Promise.all(savers.map((saver) => saver.exited));
+
+    expect(codes).toEqual([0, 0, 0, 0]);
+    expect(loadState("s1", temp.repo).sessionId).toBe("s1");
+    expect(readdirSync(temp.stateDir).filter((file) => file.endsWith(".tmp"))).toEqual([]);
+  });
+
   test("a corrupt file gives a fresh state and one error line", () => {
     const errors = spyOn(console, "error").mockImplementation(() => {});
 
@@ -197,6 +221,20 @@ describe("pruneStates", () => {
     expect(stateFiles()).toEqual(
       [path.basename(statePath("recent", temp.repo)), "notes.txt"].toSorted(),
     );
+  });
+
+  test("removes the temporary file a save cut short left behind, once past the TTL", () => {
+    const now = 100 * DAY_MS;
+    mkdirSync(temp.stateDir, { recursive: true });
+    const leftover = `${statePath("crashed", temp.repo)}.4242.uuid.tmp`;
+    writeFileSync(leftover, JSON.stringify(freshState("crashed", temp.repo, now - 8 * DAY_MS)));
+    const fresh = `${statePath("live", temp.repo)}.4243.uuid.tmp`;
+    writeFileSync(fresh, JSON.stringify(freshState("live", temp.repo, now - DAY_MS)));
+
+    pruneStates(now);
+
+    expect(existsSync(leftover)).toBe(false);
+    expect(existsSync(fresh)).toBe(true);
   });
 
   test("keeps a file exactly at the TTL", () => {

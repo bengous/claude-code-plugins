@@ -1,7 +1,8 @@
 /* oxlint-disable anti-slop/no-unsafe-dictionary-type -- this harness builds hook payloads and reads hook outputs as JSON: a closed type would assert the schema instead of the behaviour, and a wrong shape has to fail an assertion rather than the compiler. */
 import type { Mock } from "bun:test";
 import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import path from "node:path";
 
 import { CONFIG_RELATIVE_PATH } from "./config.ts";
 import type { Runner } from "./exec.ts";
@@ -75,6 +76,12 @@ function parsed(line: string | null): Record<string, unknown> {
 const crash: Handler = () => Promise.reject(new Error("boom"));
 
 const allow: Handler = () => Promise.resolve(ALLOW);
+
+const blocking: Handler = (context) => {
+  context.state.blocksInTurn = 1;
+
+  return Promise.resolve({ kind: "block", reason: "red" });
+};
 
 const slow: Handler = async () => {
   await Bun.sleep(5000);
@@ -401,6 +408,18 @@ describe("runHook", () => {
         handler: crash,
       }),
     ).toBeNull();
+  });
+
+  test("returns the verdict and reports the failure when the state cannot be saved", async () => {
+    writeConfig(temp.repo, VALID_CONFIG);
+    const notADirectory = path.join(temp.dir, "not-a-directory");
+    writeFileSync(notADirectory, "");
+    process.env["AGENT_HOOKS_STATE_DIR"] = path.join(notADirectory, "state");
+
+    expect(
+      await runHook({ hook: "stop", harness: "claude", payload: payload(), handler: blocking }),
+    ).toBe('{"decision":"block","reason":"red"}');
+    expect(errors).toHaveBeenCalledWith(expect.stringContaining("agent-hooks: state not saved:"));
   });
 
   test("saves the state of the session", async () => {
