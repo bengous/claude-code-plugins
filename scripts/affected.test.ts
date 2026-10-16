@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 
 import {
+  baseOf,
   classify,
   currentScope,
   githubOutput,
@@ -175,12 +176,57 @@ describe("currentScope", () => {
     expect(await currentScope(root, undefined, env)).toEqual({ kind: "units", units: ["todos"] });
   });
 
-  test("any other Actions run checks everything", async () => {
-    const env = { GITHUB_ACTIONS: "true", GITHUB_EVENT_NAME: "push" };
+  test("a push run checks everything, whatever it pushed", async () => {
+    const event = join(root, ".git", "event.json");
+    writeFileSync(event, JSON.stringify({ before: git("rev-parse", "HEAD") }));
+    const env = { GITHUB_ACTIONS: "true", GITHUB_EVENT_NAME: "push", GITHUB_EVENT_PATH: event };
 
     expect(await currentScope(root, undefined, env)).toEqual({
       kind: "all",
       reason: "a push run checks everything",
+    });
+  });
+
+  test("any other Actions run checks everything", async () => {
+    const env = { GITHUB_ACTIONS: "true", GITHUB_EVENT_NAME: "workflow_dispatch" };
+
+    expect(await currentScope(root, undefined, env)).toEqual({
+      kind: "all",
+      reason: "a workflow_dispatch run checks everything",
+    });
+  });
+});
+
+describe("baseOf", () => {
+  test("a push run's base is the commit the push moved the branch from", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "affected-event-"));
+    const event = join(dir, "event.json");
+    writeFileSync(event, JSON.stringify({ before: "0123abc", after: "4567def" }));
+    const env = { GITHUB_ACTIONS: "true", GITHUB_EVENT_NAME: "push", GITHUB_EVENT_PATH: event };
+
+    expect(await baseOf(undefined, env)).toEqual({ kind: "push", before: "0123abc" });
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  test("a push run without its event's before fails, saying what is missing", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "affected-event-"));
+    const event = join(dir, "event.json");
+    writeFileSync(event, JSON.stringify({ after: "4567def" }));
+    const push = { GITHUB_ACTIONS: "true", GITHUB_EVENT_NAME: "push" };
+
+    await expect(baseOf(undefined, push)).rejects.toThrow(
+      "GITHUB_EVENT_PATH is unset on a push run",
+    );
+    await expect(baseOf(undefined, { ...push, GITHUB_EVENT_PATH: event })).rejects.toThrow(
+      `${event} names no before`,
+    );
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  test("an explicit base wins over any event", async () => {
+    expect(await baseOf("HEAD~3", { GITHUB_ACTIONS: "true", GITHUB_EVENT_NAME: "push" })).toEqual({
+      kind: "ref",
+      ref: "HEAD~3",
     });
   });
 });
@@ -194,7 +240,7 @@ test("github-output appends its lines to $GITHUB_OUTPUT, the kits read off the c
     env: {
       ...process.env,
       GITHUB_ACTIONS: "true",
-      GITHUB_EVENT_NAME: "push",
+      GITHUB_EVENT_NAME: "workflow_dispatch",
       GITHUB_OUTPUT: output,
     },
     stdout: "pipe",

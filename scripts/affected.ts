@@ -40,6 +40,7 @@ export type Env = Readonly<Record<string, string | undefined>>;
 
 export type Base =
   | { readonly kind: "ref"; readonly ref: string }
+  | { readonly kind: "push"; readonly before: string }
   | { readonly kind: "all"; readonly reason: string };
 
 export type MergeBase =
@@ -94,10 +95,26 @@ export function scopeOf(paths: readonly string[]): Scope {
   return { kind: "units", units: [...units].toSorted() };
 }
 
-export function baseOf(explicit: string | undefined, env: Env): Base {
+interface PushEvent {
+  before?: string;
+}
+
+/** The ref a change is measured from; a push run's is the commit the push moved the branch from. */
+export async function baseOf(explicit: string | undefined, env: Env): Promise<Base> {
   if (explicit !== undefined) return { kind: "ref", ref: explicit };
 
   if (env.GITHUB_EVENT_NAME === "pull_request") return { kind: "ref", ref: PULL_REQUEST_BASE };
+
+  if (env.GITHUB_EVENT_NAME === "push") {
+    const eventPath = env.GITHUB_EVENT_PATH;
+
+    if (eventPath === undefined) throw new Error("GITHUB_EVENT_PATH is unset on a push run");
+    const event: PushEvent = await Bun.file(eventPath).json();
+
+    if (event.before === undefined) throw new Error(`${eventPath} names no before`);
+
+    return { kind: "push", before: event.before };
+  }
 
   if (env.GITHUB_ACTIONS === "true") {
     return {
@@ -128,9 +145,11 @@ export async function currentScope(
   base?: string,
   env: Env = process.env,
 ): Promise<Scope> {
-  const resolved = baseOf(base, env);
+  const resolved = await baseOf(base, env);
 
   if (resolved.kind === "all") return resolved;
+
+  if (resolved.kind === "push") return { kind: "all", reason: "a push run checks everything" };
   const mergeBase = await mergeBaseWith(repoRoot, resolved.ref);
 
   if (mergeBase.kind === "none") return { kind: "all", reason: mergeBase.reason };

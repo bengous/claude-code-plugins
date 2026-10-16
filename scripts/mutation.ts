@@ -22,7 +22,7 @@ import type { Stryker } from "@stryker-mutator/core";
 import { $ } from "bun";
 
 import config from "../stryker.config.ts";
-import { baseOf, DEFAULT_BASE, type Env, mergeBaseWith } from "./affected.ts";
+import { type Base, baseOf, DEFAULT_BASE, type Env, mergeBaseWith } from "./affected.ts";
 
 export interface LineRange {
   readonly file: string;
@@ -143,25 +143,16 @@ export function undetected(results: readonly Mutant[]): Mutant[] {
     );
 }
 
-interface PushEvent {
-  before?: string;
-}
-
-async function pushedFrom(eventPath: string | undefined): Promise<string> {
-  if (eventPath === undefined) throw new Error("GITHUB_EVENT_PATH is unset on a push run");
-  const event: PushEvent = await Bun.file(eventPath).json();
-
-  if (event.before === undefined) throw new Error(`${eventPath} names no before`);
-
-  return event.before;
-}
-
-async function baseRefOf(base: string | undefined, env: Env): Promise<string> {
-  const resolved = baseOf(base, env);
-
-  if (resolved.kind === "ref") return resolved.ref;
-
-  return env.GITHUB_EVENT_NAME === "push" ? await pushedFrom(env.GITHUB_EVENT_PATH) : DEFAULT_BASE;
+/** A base as a ref; an Actions run that measures from nowhere in particular measures from `origin/dev`. */
+function refOf(base: Base): string {
+  switch (base.kind) {
+    case "ref":
+      return base.ref;
+    case "push":
+      return base.before;
+    case "all":
+      return DEFAULT_BASE;
+  }
 }
 
 export async function changedLines(
@@ -170,7 +161,7 @@ export async function changedLines(
   base?: string,
   env: Env = process.env,
 ): Promise<LineRange[]> {
-  const ref = await baseRefOf(base, env);
+  const ref = refOf(await baseOf(base, env));
   const mergeBase = await mergeBaseWith(repoRoot, ref);
 
   if (mergeBase.kind === "none") throw new Error(mergeBase.reason);
