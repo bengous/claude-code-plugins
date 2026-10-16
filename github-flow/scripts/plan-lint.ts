@@ -65,7 +65,12 @@ const STATED_OPTION: readonly RegExp[] = [
   /→|⇒/u,
 ];
 
-const NONE = /^\W*(?:none|aucune?|nothing|rien|n\/a)\b/iu;
+/** A section that says it holds no question, not a question that opens on "Nothing" or "Rien". */
+const NONE: readonly RegExp[] = [
+  /^\W*(?:none|aucune?|n\/a)(?:\s*(?:[.,;:!—–-]|$)|\s+(?:pour|for|à part|apart|besides|yet|so far)(?!\p{L}))/iu,
+  /^\W*(?:no|aucune?) (?:open )?(?:questions?|points?)(?!\p{L})/iu,
+  /^\W*(?:rien à (?:trancher|décider)|nothing (?:open|left|to decide))(?!\p{L})/iu,
+];
 
 const LIST_ITEM = /^(\s*)(?:[-*+]|\d+[.)])\s/u;
 
@@ -156,7 +161,7 @@ function questions(section: readonly ProseLine[]): { line: number; text: string 
   const content = section.filter(({ prose }) => prose.trim().length > 0);
   const first = content[0];
 
-  if (first === undefined || NONE.test(first.prose)) return [];
+  if (first === undefined || NONE.some((pattern) => pattern.test(first.prose))) return [];
   const base = LIST_ITEM.exec(first.prose)?.[1]?.length;
 
   if (base === undefined) {

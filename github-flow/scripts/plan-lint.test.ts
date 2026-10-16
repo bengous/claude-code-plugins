@@ -168,6 +168,18 @@ describe("open-question", () => {
     expect(checks("## Questions ouvertes (tranchées)\n\n- Port ?\n")).toEqual([]);
   });
 
+  test("a section says it holds no question in so many words", () => {
+    expect(checks("## Open questions\n\nNo open questions.\n")).toEqual([]);
+    expect(checks("## Questions ouvertes\n\nAucun point ouvert.\n")).toEqual([]);
+    expect(checks("## Questions ouvertes\n\nAucune, à part la décision 1.\n")).toEqual([]);
+    expect(
+      checks("## Open questions\n\n- Nothing in the docs says whether the port is fixed?"),
+    ).toEqual(["open-question@3"]);
+    expect(checks("## Questions ouvertes\n\nRien n'indique si le port est fixe ?")).toEqual([
+      "open-question@3",
+    ]);
+  });
+
   test("a heading that only mentions a settled word stays a questions heading", () => {
     expect(checks("## Questions ouvertes sur les tranches\n\n- Port ?\n")).toEqual([
       "open-question@3",
