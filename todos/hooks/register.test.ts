@@ -857,13 +857,21 @@ test("a recorded finding raises a toast and joins the band", async ($, on) => {
   expect(await texts(await $.ui.mount(BAND))).toContain("SECURITY prints the token");
 });
 
-test("a plain todos-finding call runs unasked, unless a rule denies it", async ($, on) => {
+type Verdict = {
+  readonly decision: "allow" | "ask" | "deny";
+  readonly rule?: string;
+  readonly hook?: string;
+};
+
+const MODE_ASK: Verdict = { decision: "ask" };
+
+test("a plain todos-finding call runs where only the mode would ask", async ($, on) => {
   stubRepo(on);
-  let engine: "ask" | "deny" = "ask";
+  let engine = MODE_ASK;
 
-  on("tool.check", () => ({ decision: engine }));
+  on("tool.check", () => engine);
 
-  const decide = async (command: string, verdict: "ask" | "deny" = "ask") => {
+  const decide = async (command: string, verdict = MODE_ASK) => {
     engine = verdict;
 
     return (await $.tool.check({ tool: "Bash", input: { command } })).decision;
@@ -873,7 +881,24 @@ test("a plain todos-finding call runs unasked, unless a rule denies it", async (
   expect(await decide("todos-finding --close a1b2c3d4")).toBe("allow");
   expect(await decide("todos-finding src/a.ts 'x' && rm -rf src")).toBe("ask");
   expect(await decide('todos-finding src/a.ts "$(cat ~/.netrc)"')).toBe("ask");
-  expect(await decide("todos-finding src/a.ts 'x'", "deny")).toBe("deny");
+});
+
+test("a rule or a hook keeps its say over a todos-finding call", async ($, on) => {
+  stubRepo(on);
+  let engine = MODE_ASK;
+
+  on("tool.check", () => engine);
+
+  const decide = async (verdict: Verdict) => {
+    engine = verdict;
+
+    return (await $.tool.check({ tool: "Bash", input: { command: "todos-finding src/a.ts 'x'" } }))
+      .decision;
+  };
+
+  expect(await decide({ decision: "ask", rule: "Bash(todos-finding:*)" })).toBe("ask");
+  expect(await decide({ decision: "ask", hook: "PreToolUse" })).toBe("ask");
+  expect(await decide({ decision: "deny", rule: "Bash(todos-finding:*)" })).toBe("deny");
 });
 
 test("a recorded finding rereads the buffer alone, and toasts no older failure again", async ($, on) => {
