@@ -12,7 +12,7 @@ import { booleanField, isRecord, recordField, stringField } from "./json.ts";
 import { CRASH_LANE, guard } from "./loop-guard.ts";
 import { findRoot } from "./scope.ts";
 import type { Photo, SessionState } from "./state.ts";
-import { freshState, loadState, saveState, statesOf } from "./state.ts";
+import { AGENT_SEPARATOR, freshState, loadState, saveState, statesOf } from "./state.ts";
 
 export const HARNESSES = ["claude", "codex"] as const;
 
@@ -243,7 +243,9 @@ function stopStates(input: Input, start: string | null, now: number): SessionSta
  * subagents of one session keep their own photo, failing set and block counter.
  */
 export function stateKey(input: Input): string {
-  return input.agentId === undefined ? input.sessionId : `${input.sessionId}.${input.agentId}`;
+  return input.agentId === undefined
+    ? input.sessionId
+    : `${input.sessionId}${AGENT_SEPARATOR}${input.agentId}`;
 }
 
 type RootVerdict = { readonly root: string; readonly verdict: Verdict };

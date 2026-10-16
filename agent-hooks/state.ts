@@ -21,6 +21,9 @@ export const STATE_VERSION = 1;
 
 const TEMPORARY_SUFFIX = ".tmp";
 
+/** Joins a session id and an agent id into a subagent's own state key, `<session>.<agent>`. */
+export const AGENT_SEPARATOR = ".";
+
 export type Photo = {
   readonly head: string | null;
   /** Repo-relative path to the sha256 of its content, or "deleted" when the path is gone from disk. */
@@ -296,13 +299,18 @@ export function statesOf(sessionId: string): SessionState[] {
     .toSorted((left, right) => (left.root < right.root ? -1 : Number(left.root > right.root)));
 }
 
-/** The most recent state file of this root, whatever its session: what `doctor` reads to show the last Stop. */
+/**
+ * The most recent main-session state file of this root: what `doctor` shows as the last Stop and `verify` takes its
+ * scope from. A subagent's state, `<session>.<agent>`, holds that subagent's photo only.
+ */
 export function latestStateForRoot(root: string): SessionState | null {
   const suffix = `__${rootKey(root)}.json`;
   let files: string[];
 
   try {
-    files = readdirSync(stateDir()).filter((file) => file.endsWith(suffix));
+    files = readdirSync(stateDir()).filter(
+      (file) => file.endsWith(suffix) && !file.slice(0, -suffix.length).includes(AGENT_SEPARATOR),
+    );
   } catch {
     return null;
   }

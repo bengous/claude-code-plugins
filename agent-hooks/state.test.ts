@@ -289,6 +289,13 @@ describe("latestStateForRoot", () => {
     expect(latest?.updatedAt).toBe(300);
   });
 
+  test("reads only the main sessions' states, never a subagent's", () => {
+    saveState(freshState("main", temp.repo), 100);
+    saveState(freshState("main.agent1", temp.repo), 500);
+
+    expect(latestStateForRoot(temp.repo)?.sessionId).toBe("main");
+  });
+
   test("skips an unreadable file of that root", () => {
     saveState(freshState("a", temp.repo), 100);
     writeFileSync(statePath("z", temp.repo), "{garbage");
