@@ -1,0 +1,236 @@
+import type { BatchAccepted, PageEvent, ServerLine } from "../shared/wire.ts";
+import { buildOverlay, writeViteModule } from "./build.ts";
+import { pruneEntries, sessionFiles } from "./files.ts";
+import { parseBatchRequest, parseDelivery } from "./parse.ts";
+import { batchText } from "./text.ts";
+
+/** When the server gives up: `expire` runs once no heartbeat came for `graceMs`. */
+export type Watchdog = {
+  readonly graceMs: number;
+  readonly periodMs: number;
+  readonly expire: () => void;
+};
+
+export type ServeOptions = {
+  /** Where the server's files live: `~/.claude/pinpoint` outside the tests. */
+  readonly dir: string;
+  readonly session: string;
+  /** The directory of the Claude Code session, which the registry entry names. */
+  readonly root: string;
+  /** `0` for any; a port taken meanwhile binds another one, under a new token. */
+  readonly port: number;
+  readonly token: string | undefined;
+  /** Hears `ready` once the server listens, then each batch, in order. */
+  readonly announce: (line: ServerLine) => void;
+  /** `POST api/close` once the session's directory is removed: the process ends. */
+  readonly closed: () => void;
+  readonly watchdog: Watchdog;
+};
+
+export type Started = {
+  readonly port: number;
+  readonly token: string;
+  /** Stops the server and its timers; for tests, which share one process. */
+  readonly stop: () => void;
+};
+
+const KEEPALIVE_MS = 25_000;
+
+/** A page of the user's own machine: a browser sets `Origin`, which no page can forge. */
+const LOOPBACK = /^https?:\/\/(?:localhost|127\.0\.0\.1|\[::1\])(?::\d+)?$/u;
+
+function isPortTaken(cause: unknown): boolean {
+  return cause instanceof Error && "code" in cause && cause.code === "EADDRINUSE";
+}
+
+function corsHeaders(origin: string | null): Record<string, string> {
+  return origin === null
+    ? {}
+    : {
+        "access-control-allow-origin": origin,
+        "access-control-allow-methods": "GET, POST",
+        "access-control-allow-headers": "content-type",
+        "access-control-allow-private-network": "true",
+        vary: "Origin",
+      };
+}
+
+type Bound = { readonly server: Bun.Server<undefined>; readonly token: string };
+
+export async function startServer(options: ServeOptions): Promise<Started> {
+  const files = sessionFiles(options.dir, options.session);
+  await pruneEntries(options.dir);
+  const [overlay] = await Promise.all([buildOverlay(), writeViteModule(options.dir)]);
+
+  const streams = new Set<ReadableStreamDefaultController<string>>();
+
+  const tell = (event: PageEvent): void => {
+    for (const stream of streams) stream.enqueue(`data: ${JSON.stringify(event)}\n\n`);
+  };
+
+  let lastHeartbeat = Date.now();
+
+  const routes = async (
+    path: string,
+    request: Request,
+    origin: string | null,
+  ): Promise<Response> => {
+    const cors = corsHeaders(origin);
+
+    if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: cors });
+
+    if (request.method === "GET" && path === "overlay.js") {
+      return new Response(overlay, {
+        headers: { "content-type": "text/javascript; charset=utf-8", "cache-control": "no-store" },
+      });
+    }
+
+    if (request.method === "GET" && path === "api/events") {
+      let own: ReadableStreamDefaultController<string> | null = null;
+
+      const body = new ReadableStream<string>({
+        start: (controller) => {
+          own = controller;
+          streams.add(controller);
+          controller.enqueue(": open\n\n");
+        },
+        cancel: () => {
+          if (own !== null) streams.delete(own);
+        },
+      });
+
+      return new Response(body, {
+        headers: { ...cors, "content-type": "text/event-stream", "cache-control": "no-store" },
+      });
+    }
+
+    if (request.method === "POST" && path === "api/batch") {
+      const batch = parseBatchRequest(await request.json().catch(() => null));
+
+      if (batch === null) return new Response("not a batch", { status: 400, headers: cors });
+      const seq = await files.nextSeq();
+      const text = batchText(seq, batch.selections);
+      await files.keepPending({ seq, text });
+      options.announce({ type: "batch", seq, text });
+      const accepted: BatchAccepted = { seq };
+
+      return Response.json(accepted, { status: 202, headers: cors });
+    }
+
+    // The module's own routes: it sends no `Origin`, and a page never has a reason to call them.
+    if (origin !== null) return new Response("not found", { status: 404, headers: cors });
+
+    if (request.method === "POST" && path === "api/delivery") {
+      const delivery = parseDelivery(await request.json().catch(() => null));
+
+      if (delivery === null) return new Response("not a delivery", { status: 400 });
+      await files.dropPending(delivery.seq);
+      tell(
+        delivery.outcome === "delivered"
+          ? { type: "delivered", seq: delivery.seq }
+          : { type: "dropped", seq: delivery.seq, reason: delivery.reason },
+      );
+
+      return new Response(null, { status: 204 });
+    }
+
+    if (request.method === "POST" && path === "api/heartbeat") {
+      lastHeartbeat = Date.now();
+
+      return new Response(null, { status: 204 });
+    }
+
+    if (request.method === "POST" && path === "api/close") {
+      await files.removeAll();
+      setTimeout(options.closed, 0);
+
+      return new Response(null, { status: 204 });
+    }
+
+    return new Response("not found", { status: 404 });
+  };
+
+  const bind = (port: number, token: string): Bun.Server<undefined> =>
+    Bun.serve({
+      hostname: "127.0.0.1",
+      port,
+      // Bun sets SO_REUSEPORT by default with `development: false`: a second server, of this
+      // process or another, would share a kept port instead of failing over to a new one.
+      reusePort: false,
+      idleTimeout: 0,
+      development: false,
+      fetch: async (request) => {
+        const origin = request.headers.get("origin");
+
+        if (origin !== null && !LOOPBACK.test(origin)) {
+          return new Response("pinpoint answers pages of this machine only", { status: 403 });
+        }
+
+        const { pathname } = new URL(request.url);
+        const prefix = `/t/${token}/`;
+
+        return pathname.startsWith(prefix)
+          ? await routes(pathname.slice(prefix.length), request, origin)
+          : new Response("not found", { status: 404 });
+      },
+      error: (cause) => {
+        console.error(`pinpoint: a request failed: ${cause.message}`);
+
+        return new Response(cause.message, { status: 500 });
+      },
+    });
+
+  const bound = ((): Bound => {
+    const token = options.token ?? crypto.randomUUID();
+
+    try {
+      return { server: bind(options.port, token), token };
+    } catch (cause) {
+      if (!isPortTaken(cause)) throw cause;
+
+      // The overlay's URL carries the token, so whoever took the port would read it from every
+      // page that loads again: the kept token goes with the kept port.
+      const fresh = crypto.randomUUID();
+
+      return { server: bind(0, fresh), token: fresh };
+    }
+  })();
+
+  const port = Number(bound.server.port);
+  const { token } = bound;
+
+  await files.writeEntry({
+    version: 1,
+    session: options.session,
+    root: options.root,
+    port,
+    token,
+    pid: process.pid,
+    started: Date.now(),
+  });
+
+  options.announce({ type: "ready", port, token });
+
+  // A batch the last server took and no module handed to the session: told again, in order.
+  for (const pending of await files.pending()) options.announce({ type: "batch", ...pending });
+
+  const keepalive = setInterval(() => {
+    for (const stream of streams) stream.enqueue(": keepalive\n\n");
+  }, KEEPALIVE_MS);
+
+  const watchdog = setInterval(() => {
+    if (Date.now() - lastHeartbeat > options.watchdog.graceMs) options.watchdog.expire();
+  }, options.watchdog.periodMs);
+
+  return {
+    port,
+    token,
+    stop: () => {
+      clearInterval(keepalive);
+      clearInterval(watchdog);
+
+      for (const stream of streams) stream.close();
+      void bound.server.stop(true);
+    },
+  };
+}

@@ -1,0 +1,4 @@
+{
+  "description": "Starts one pinpoint server per session on /pinpoint:start, which an app's dev pages load the overlay from; hands each batch the user sends to the session as a prompt, in order, and tells the server it went in; revives a server that died on its port and token; ends it on /pinpoint:stop; carries it over a /clear",
+  "modules": ["./register.ts"]
+}
