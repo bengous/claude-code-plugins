@@ -3,7 +3,7 @@ import { mkdtempSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { planDigest, statePath, verdict } from "./gate-plan.ts";
+import { lintStatePath, planDigest, verdict } from "./gate-plan.ts";
 import { lintPlan } from "./plan-lint.ts";
 
 const FAULTY = "# Plan\n\n- Storage: TBD\n";
@@ -54,17 +54,21 @@ describe("planDigest", () => {
   test("ignores the session line capture-plan.ts may add between two calls", () => {
     expect(planDigest(`<!-- session_id: abc -->\n${FAULTY}`)).toBe(planDigest(FAULTY));
   });
+
+  test("ignores the blank lines around the plan, as harnessPlanFile does", () => {
+    expect(planDigest(`\n${FAULTY}\n\n`)).toBe(planDigest(FAULTY));
+  });
 });
 
-describe("statePath", () => {
-  test("one file per session, and per agent inside it", () => {
-    expect(statePath("/s", "abc")).toBe("/s/abc");
-    expect(statePath("/s", "abc", "a1")).toBe("/s/abc.a1");
+describe("lintStatePath", () => {
+  test("lives in the user's own ~/.claude, one file per session and per agent", () => {
+    expect(lintStatePath("/h", "abc")).toBe("/h/.claude/plans/lint/abc.sha256");
+    expect(lintStatePath("/h", "abc", "a1")).toBe("/h/.claude/plans/lint/abc/a1.sha256");
   });
 
   test("an id that is no file name yields null", () => {
-    expect(statePath("/s", "../x")).toBeNull();
-    expect(statePath("/s", "abc", "a/b")).toBeNull();
+    expect(lintStatePath("/h", "../x")).toBeNull();
+    expect(lintStatePath("/h", "abc", "a/b")).toBeNull();
   });
 });
 
@@ -74,7 +78,7 @@ describe("hook", () => {
   function run(tmp: string, stdin: string) {
     const result = Bun.spawnSync(["bun", hook], {
       stdin: Buffer.from(stdin),
-      env: { ...process.env, TMPDIR: tmp },
+      env: { ...process.env, HOME: tmp },
     });
 
     return { stdout: result.stdout.toString(), exitCode: result.exitCode };
@@ -106,7 +110,7 @@ describe("hook", () => {
     submit(tmp, FAULTY);
 
     expect(submit(tmp, CLEAN)).toEqual({ stdout: "", exitCode: 0 });
-    expect(readdirSync(join(tmp, "github-flow-plan-lint"))).toEqual([]);
+    expect(readdirSync(join(tmp, ".claude", "plans", "lint"))).toEqual([]);
     expect(JSON.parse(submit(tmp, FAULTY).stdout)).toHaveProperty("hookSpecificOutput");
   });
 

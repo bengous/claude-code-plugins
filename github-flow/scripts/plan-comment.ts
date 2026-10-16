@@ -16,7 +16,7 @@ const SESSION_LINE = /^<!-- session_id: [^\s>]+ -->\n?/u;
 
 const SESSION_MARKER = /<!-- session_id: ([^\s>]+) -->/gu;
 
-const SAFE_ID = /^[a-zA-Z0-9_-]+$/u;
+export const SAFE_ID = /^[a-zA-Z0-9_-]+$/u;
 
 const QUOTED_PLAN_HEADER = /<!-- plan -->(?:\\r|\\n|\s)*<!-- session_id: [^\s>]+ -->/gu;
 

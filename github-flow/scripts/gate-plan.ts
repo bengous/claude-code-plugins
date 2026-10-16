@@ -14,20 +14,18 @@
 
 import { createHash } from "node:crypto";
 import { mkdir, rm } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { homedir } from "node:os";
+import { dirname, join } from "node:path";
 
-import { parsePayload, planText, stripSessionLine } from "./plan-comment.ts";
+import { parsePayload, planText, SAFE_ID, stripSessionLine } from "./plan-comment.ts";
 import type { Finding } from "./plan-lint.ts";
 import { formatFindings, lintPlan } from "./plan-lint.ts";
-
-const SAFE_ID = /^[\w-]+$/u;
 
 export type Verdict = { kind: "pass" } | { kind: "waive" } | { kind: "deny"; reason: string };
 
 /** The session line is left out: capture-plan.ts may add it to the plan file between two calls. */
 export function planDigest(plan: string): string {
-  return createHash("sha256").update(stripSessionLine(plan)).digest("hex");
+  return createHash("sha256").update(stripSessionLine(plan).trim()).digest("hex");
 }
 
 export function verdict(
@@ -49,11 +47,17 @@ export function verdict(
   };
 }
 
-/** `<tmpdir>/github-flow-plan-lint/<session>[.<agent>]`, or null for an id that is no file name. */
-export function statePath(dir: string, session: string, agent?: string): string | null {
+/**
+ * `~/.claude/plans/lint/<session>[/<agent>].sha256`, beside the by-session store
+ * and as private as it, or null for an id that is no file name.
+ */
+export function lintStatePath(home: string, session: string, agent?: string): string | null {
   if (!SAFE_ID.test(session) || (agent !== undefined && !SAFE_ID.test(agent))) return null;
+  const dir = join(home, ".claude", "plans", "lint");
 
-  return join(dir, agent === undefined ? session : `${session}.${agent}`);
+  return agent === undefined
+    ? join(dir, `${session}.sha256`)
+    : join(dir, session, `${agent}.sha256`);
 }
 
 if (import.meta.main) {
@@ -64,8 +68,7 @@ if (import.meta.main) {
 
     if (plan === null || session === undefined) process.exit(0);
 
-    const dir = join(tmpdir(), "github-flow-plan-lint");
-    const state = statePath(dir, session, payload?.agent_id);
+    const state = lintStatePath(homedir(), session, payload?.agent_id);
 
     if (state === null) process.exit(0);
 
@@ -77,7 +80,7 @@ if (import.meta.main) {
     if (result.kind === "pass") {
       await rm(state, { force: true });
     } else if (result.kind === "deny") {
-      await mkdir(dir, { recursive: true });
+      await mkdir(dirname(state), { recursive: true });
       await Bun.write(state, digest);
       console.log(
         JSON.stringify({
