@@ -530,7 +530,6 @@ describe("pre-bash refuses every door it cannot resolve, naming the explicit for
     ["npx tsx scripts/release.ts", UNRESOLVED_RELEASE],
     ["bunx tsx scripts/release.ts", UNRESOLVED_RELEASE],
     ["bun x tsx scripts/release.ts", UNRESOLVED_RELEASE],
-    ["gh api -X PUT repos/o/n/pulls/7/merge", UNRESOLVED_MERGE],
     ['gh pr merge "$PR" --squash', UNRESOLVED_MERGE],
     ["git -c alias.p=push p origin main", UNRESOLVED_PUSH],
     ["function f { git push origin main; }; f", UNRESOLVED_PUSH],
@@ -577,6 +576,87 @@ describe("pre-bash refuses every door it cannot resolve, naming the explicit for
     expect((await preBash("gh pr merge 7 --auto", repo)).reason).toContain(
       "no check reported on #7's head yet: wait for its run (gh pr checks 7 --watch)",
     );
+  });
+});
+
+describe("pre-bash judges the doors gh api opens", () => {
+  let repo = "";
+
+  beforeEach(() => {
+    repo = makeRepo("api", { [CONFIG_RELATIVE_PATH]: PROFILE }, "git@github.com:o/n.git");
+  });
+
+  test("judges the merge endpoint like gh pr merge", async () => {
+    fakeGh({ pr: GREEN_PR, checks: GREEN_CHECKS });
+    expect(
+      (await preBash("gh api -X PUT repos/o/n/pulls/7/merge -f merge_method=squash", repo)).stdout,
+    ).toBe("");
+
+    fakeGh({ pr: { ...GREEN_PR, baseRefName: "main" }, checks: GREEN_CHECKS });
+    expect((await preBash("gh api -X PUT repos/o/n/pulls/7/merge", repo)).reason).toContain(
+      "#7 merges into 'main', the release",
+    );
+    expect(
+      (await preBash("gh api --method PUT repos/{owner}/{repo}/pulls/7/merge", repo)).reason,
+    ).toContain("#7 merges into 'main', the release");
+    expect((await preBash("gh api repos/o/n/pulls/7/merge", repo)).stdout).toBe("");
+  });
+
+  test("judges a ref update, a deletion or a merge of branches like the push it is", async () => {
+    expect(
+      (
+        await preBash(
+          "gh api -X PATCH repos/o/n/git/refs/heads/main -f sha=abc -F force=true",
+          repo,
+        )
+      ).reason,
+    ).toContain(RELEASE_PUSH);
+    expect((await preBash("gh api -X DELETE repos/o/n/git/refs/heads/dev", repo)).reason).toContain(
+      "never targets 'dev'",
+    );
+    expect(
+      (await preBash("gh api -X PATCH repos/o/n/git/refs/heads/dev -f sha=abc", repo)).stdout,
+    ).toBe("");
+    expect(
+      (await preBash("gh api repos/o/n/merges -f base=main -f head=dev", repo)).reason,
+    ).toContain(RELEASE_PUSH);
+    expect((await preBash("gh api repos/o/n/git/refs/heads/main", repo)).stdout).toBe("");
+  });
+
+  test("refuses a GraphQL mutation that merges or moves a ref, and an endpoint known at run time", async () => {
+    const merge = await preBash(
+      "gh api graphql -f query='mutation { mergePullRequest(input: {pullRequestId: \"PR_x\"}) { clientMutationId } }'",
+      repo,
+    );
+
+    expect(merge.reason).toContain(UNRESOLVED_MERGE);
+    expect(
+      (
+        await preBash(
+          "gh api graphql -f query='mutation { mergeBranch(input: {}) { clientMutationId } }'",
+          repo,
+        )
+      ).decision,
+    ).toBe("deny");
+    expect(
+      (
+        await preBash(
+          "gh api graphql -f query='mutation { updateRef(input: {}) { clientMutationId } }'",
+          repo,
+        )
+      ).reason,
+    ).toContain(UNRESOLVED_PUSH);
+    expect((await preBash('gh api -X PUT "repos/o/n/pulls/$N/merge"', repo)).reason).toContain(
+      UNRESOLVED_MERGE,
+    );
+    expect(
+      (
+        await preBash(
+          'gh api graphql -f query=\'query { repository(owner: "o", name: "n") { mergeCommitAllowed } }\'',
+          repo,
+        )
+      ).stdout,
+    ).toBe("");
   });
 });
 

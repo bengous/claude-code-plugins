@@ -94,6 +94,13 @@ describe("assess accounts for each mention", () => {
     }
   });
 
+  test("a gh api call that merges or moves a branch ref is a door; a read is not", () => {
+    expect(doorKinds("gh api -X PUT repos/o/n/pulls/7/merge")).toEqual(["merge"]);
+    expect(doorKinds("gh api -X DELETE repos/o/n/git/refs/heads/dev")).toEqual(["api-ref"]);
+    expect(doorKinds("gh api repos/o/n/merges -f base=main -f head=dev")).toEqual(["api-ref"]);
+    expect(read("gh api repos/o/n/pulls/7/merge")).toEqual({ doors: [], unresolved: [] });
+  });
+
   test("a door invocation with literal words is a door", () => {
     expect(doorKinds("git push origin feature/x")).toEqual(["push"]);
     expect(doorKinds("git add -A && git commit -m 'x' && git push -u origin HEAD")).toEqual([
@@ -164,9 +171,9 @@ describe("assess accounts for each mention", () => {
     expect(whys("git p origin main", { ...PLAIN, gitAliases: new Set(["p"]) })).toEqual([
       "it runs through the git alias p",
     ]);
-    expect(whys("gh api -X PUT repos/o/n/pulls/7/merge")).toEqual([
-      "it calls the merge endpoint through gh api",
-    ]);
+    expect(
+      whys("gh api graphql -f query='mutation { mergePullRequest(input: {}) { x } }'"),
+    ).toEqual(["a GraphQL mutation names its target by node id"]);
     expect(
       whys("python3 - <<'EOF'\nimport subprocess\nsubprocess.run(['git', 'push'])\nEOF"),
     ).toEqual(["its heredoc feeds python3"]);

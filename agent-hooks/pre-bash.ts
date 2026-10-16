@@ -13,7 +13,7 @@ import {
   slugOfRepoOption,
 } from "./github.ts";
 import { isRecord, recordField, stringField } from "./json.ts";
-import type { GhCommand, GitCommand, PackageScript, ReleaseScript } from "./landing.ts";
+import type { GhCommand, GitCommand, PackageScript, PushTarget, ReleaseScript } from "./landing.ts";
 import {
   isReleaseCreate,
   profiledMergeRefusal,
@@ -266,6 +266,43 @@ async function judgeGh(
     : refusal(publicMergeRefusal(pr.value, facts.value, slug));
 }
 
+/** A ref `gh api` moves, judged as the push it is: by the profile when it names the cwd's repository. */
+async function judgeApiRef(
+  cwd: string,
+  targets: readonly PushTarget[],
+  repo: string | null,
+  context: GuardContext,
+): Promise<GuardVerdict> {
+  const root = rootOf(cwd, []);
+  const own = repo === null || isOriginOf(cwd, repo);
+  const profile = root === null || !own ? DEFAULT : profileOf(root);
+
+  if (profile.kind === "unreadable") {
+    return refusal(unreadableProfileRefusal(profile.error, "gh api"));
+  }
+
+  if (profile.kind === "profiled") {
+    return refusal(profiledPushRefusal(targets, profile.landing, profile.landScript));
+  }
+
+  const origin = remoteUrl(cwd, [], "origin");
+
+  const slug =
+    repo === null ? (origin === null ? null : githubSlugOf(origin)) : slugOfRepoOption(repo);
+
+  if (slug === null) {
+    return ALLOW;
+  }
+
+  const facts = await repoFactsOf(slug, context.sessionId, cwd, context.deadline, context.now);
+
+  return facts.kind === "failed"
+    ? note(
+        `agent-hooks: could not read whether ${slug} is public (${facts.why}): the gh api call went unchecked`,
+      )
+    : refusal(publicPushRefusal(targets, facts.value, slug));
+}
+
 function judgeReleaseScript(release: ReleaseScript): GuardVerdict {
   const root = rootOf(path.dirname(release.path), []);
   const profile = root === null ? DEFAULT : profileOf(root);
@@ -433,6 +470,10 @@ function judgeDoor(door: Door, context: GuardContext, depth: number): Promise<Gu
 
     case "release-script": {
       return Promise.resolve(judgeReleaseScript(door.release));
+    }
+
+    case "api-ref": {
+      return judgeApiRef(door.cwd, door.targets, door.repo, context);
     }
 
     case "script": {

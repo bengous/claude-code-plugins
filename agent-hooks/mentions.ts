@@ -2,7 +2,14 @@ import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import path from "node:path";
 
-import type { DoorKind, GhCommand, GitCommand, PackageScript, ReleaseScript } from "./landing.ts";
+import type {
+  DoorKind,
+  GhCommand,
+  GitCommand,
+  PackageScript,
+  PushTarget,
+  ReleaseScript,
+} from "./landing.ts";
 import {
   CURRENT_BRANCH,
   PUSH_DESTINATION,
@@ -41,6 +48,13 @@ export type Door =
   | { readonly kind: "merge"; readonly gh: GhCommand; readonly cwd: string }
   | { readonly kind: "release-create"; readonly gh: GhCommand; readonly cwd: string }
   | { readonly kind: "release-script"; readonly release: ReleaseScript }
+  /** A ref `gh api` moves: `git/refs` updated or deleted, `merges` into a base; `repo` null for the cwd's. */
+  | {
+      readonly kind: "api-ref";
+      readonly targets: readonly PushTarget[];
+      readonly repo: string | null;
+      readonly cwd: string;
+    }
   | { readonly kind: "script"; readonly script: PackageScript };
 
 /** A door mention the guard cannot account for, and why. */
@@ -98,6 +112,13 @@ const PUSH = /(?<![\w.-])push(?![\w-])/gu;
 const MERGE = /(?<![\w.-])merges?(?![\w-])/gu;
 
 const RELEASE = /(?<![\w.-])release(?![\w-])/gu;
+
+const GRAPHQL_MERGE =
+  /(?<![\w.-])(?:mergePullRequest|mergeBranch|enablePullRequestAutoMerge)(?![\w-])/gu;
+
+const GRAPHQL_REF = /(?<![\w.-])(?:updateRefs?|deleteRef|createRef)(?![\w-])/gu;
+
+const GIT_REFS = /(?<![\w.-])git\/refs(?![\w-])/gu;
 
 const RELEASE_PATH = /(?<![\w-])scripts\/release(?:\.[A-Za-z]+)?(?![\w.-])/gu;
 
@@ -323,6 +344,9 @@ export function findMentions(script: string, vocabulary: Vocabulary): Mention[] 
       needs: GIT,
     })),
     { kind: "merge", pattern: MERGE, needs: GH },
+    { kind: "merge", pattern: GRAPHQL_MERGE, needs: GH },
+    { kind: "push", pattern: GRAPHQL_REF, needs: GH },
+    { kind: "push", pattern: GIT_REFS, needs: GH },
     ...(vocabulary.releaseDoors ? [{ kind: "release", pattern: RELEASE, needs: GH } as const] : []),
     { kind: "release", pattern: RELEASE_PATH, needs: null },
     ...[...vocabulary.doorScripts].map((name): Rule => ({
@@ -777,25 +801,155 @@ const GH_API_VALUE_OPTIONS = new Set([
   "--preview",
 ]);
 
-/** The endpoint word of `gh api`: its first positional, past the options and their values. */
-function apiEndpoint(argv: readonly Word[]): Word | undefined {
+/** What a `gh api` call sends: its method, its endpoint, its fields, and whether its body comes from a file. */
+type ApiCall = {
+  readonly method: Word | null;
+  readonly endpoint: Word | null;
+  readonly fields: ReadonlyMap<string, Word>;
+  readonly bodyFromFile: boolean;
+};
+
+function apiCallOf(argv: readonly Word[]): ApiCall {
   const api = argv.findIndex((word) => word.text === "api");
+  const fields = new Map<string, Word>();
+  let method: Word | null = null;
+  let endpoint: Word | null = null;
+  let bodyFromFile = false;
 
   if (api === -1) {
-    return undefined;
+    return { method, endpoint, fields, bodyFromFile };
   }
 
   for (let index = api + 1; index < argv.length; index += 1) {
-    const text = argv[index]?.text ?? "";
+    const word = argv[index];
+    const text = word?.text ?? "";
+    const [name = "", attached] = text.split(/=(.*)/su);
+    const value = attached === undefined ? argv[index + 1] : word;
 
-    if (GH_API_VALUE_OPTIONS.has(text)) {
+    if (word === undefined) {
+      continue;
+    }
+
+    if (GH_API_VALUE_OPTIONS.has(name) && attached === undefined) {
       index += 1;
-    } else if (!text.startsWith("-")) {
-      return argv[index];
+    }
+
+    if (name === "-X" || name === "--method") {
+      method = value === undefined ? null : { ...value, text: attached ?? value.text };
+    } else if (["-f", "--raw-field", "-F", "--field"].includes(name) && value !== undefined) {
+      const field = attached ?? value.text;
+      const equals = field.indexOf("=");
+      fields.set(field.slice(0, equals), { ...value, text: field.slice(equals + 1) });
+      bodyFromFile ||=
+        (name === "-F" || name === "--field") && field.slice(equals + 1).startsWith("@");
+    } else if (name === "--input") {
+      bodyFromFile = true;
+    } else if (!text.startsWith("-") && endpoint === null) {
+      endpoint = word;
     }
   }
 
-  return undefined;
+  return { method, endpoint, fields, bodyFromFile };
+}
+
+const PULL_MERGE = /^repos\/([^/]+)\/([^/]+)\/pulls\/(\d+)\/merge$/u;
+
+const BRANCH_MERGES = /^repos\/([^/]+)\/([^/]+)\/merges$/u;
+
+const BRANCH_REF = /^repos\/([^/]+)\/([^/]+)\/git\/refs\/heads\/(.+)$/u;
+
+const NEW_REF = /^repos\/([^/]+)\/([^/]+)\/git\/refs$/u;
+
+/** `owner/name` of an endpoint, null for gh's `{owner}/{repo}`, which names the cwd's repository. */
+function apiRepo(owner: string, name: string): string | null {
+  return owner === "{owner}" && name === "{repo}" ? null : `${owner}/${name}`;
+}
+
+/** The door a `gh api` call opens: the merge endpoint, a branch ref moved or deleted, a GraphQL mutation. */
+function apiDoor(view: View, cwd: string): Classification | null {
+  const call = apiCallOf(view.unwrapped.argv);
+  const endpoint = (call.endpoint?.text ?? "").replace(/^\//u, "").replace(/\?.*$/u, "");
+
+  const method = (
+    call.method?.text ?? (call.fields.size > 0 || call.bodyFromFile ? "POST" : "GET")
+  ).toUpperCase();
+
+  const decisive = [call.endpoint, call.method, ...call.fields.values()].filter(
+    (word) => word !== null,
+  );
+
+  const pull = PULL_MERGE.exec(endpoint);
+  const merges = BRANCH_MERGES.exec(endpoint);
+  const ref = BRANCH_REF.exec(endpoint);
+  const created = NEW_REF.exec(endpoint);
+
+  if (call.endpoint?.expands === true) {
+    return unresolved("merge", `${quote(call.endpoint.text)} is known only at run time`);
+  }
+
+  if (endpoint === "graphql") {
+    const query = call.fields.get("query")?.text ?? "";
+    const merging = new RegExp(GRAPHQL_MERGE.source, "u").test(query);
+
+    return merging || new RegExp(GRAPHQL_REF.source, "u").test(query)
+      ? unresolved(merging ? "merge" : "push", "a GraphQL mutation names its target by node id")
+      : null;
+  }
+
+  const target = (repo: string | null, targets: PushTarget[]): Classification => {
+    const why = call.bodyFromFile
+      ? "its body comes from a file"
+      : blocker(view, { directory: repo === null, branch: false }, decisive);
+
+    return why === null
+      ? { kind: "door", door: { kind: "api-ref", targets, repo, cwd } }
+      : unresolved("push", why);
+  };
+
+  if (pull !== null && method === "PUT") {
+    const repo = apiRepo(pull[1] ?? "", pull[2] ?? "");
+    const why = blocker(view, { directory: repo === null, branch: false }, decisive);
+
+    const gh: GhCommand = {
+      group: "pr",
+      action: "merge",
+      positionals: [pull[3] ?? ""],
+      repo,
+      flags: new Set(),
+    };
+
+    return why === null
+      ? { kind: "door", door: { kind: "merge", gh, cwd } }
+      : unresolved("merge", why);
+  }
+
+  if (merges !== null && method === "POST") {
+    const base = call.fields.get("base")?.text ?? "";
+
+    return target(apiRepo(merges[1] ?? "", merges[2] ?? ""), [
+      { ref: base, forced: false, deleted: false },
+    ]);
+  }
+
+  if (ref !== null && (method === "PATCH" || method === "DELETE")) {
+    return target(apiRepo(ref[1] ?? "", ref[2] ?? ""), [
+      {
+        ref: ref[3] ?? "",
+        forced: call.fields.get("force")?.text === "true",
+        deleted: method === "DELETE",
+      },
+    ]);
+  }
+
+  if (created !== null && method === "POST") {
+    const name = (call.fields.get("ref")?.text ?? "").replace(/^refs\/heads\//u, "");
+
+    return target(apiRepo(created[1] ?? "", created[2] ?? ""), [
+      { ref: name, forced: false, deleted: false },
+    ]);
+  }
+
+  return null;
 }
 
 /** The door `command` opens, resolved or not; null when it opens none. */
@@ -853,6 +1007,10 @@ function doorOf(view: View, vocabulary: Vocabulary, world: World): Classificatio
     return why === null
       ? { kind: "door", door: { kind: "merge", gh, cwd } }
       : unresolved("merge", why);
+  }
+
+  if (gh?.group === "api") {
+    return apiDoor(view, cwd);
   }
 
   if (gh !== null && isReleaseCreate(gh) && vocabulary.releaseDoors) {
@@ -962,12 +1120,6 @@ function roleOf(mention: Mention, word: Word, view: View): Classification {
   }
 
   if (gh !== null) {
-    const endpoint = gh.group === "api" ? apiEndpoint(unwrapped.argv) : undefined;
-
-    if (endpoint === word && mention.kind === "merge") {
-      return unresolved("merge", "it calls the merge endpoint through gh api");
-    }
-
     return gh.group === "alias" ? unresolved(mention.kind, "it defines a gh alias") : INERT;
   }
 
