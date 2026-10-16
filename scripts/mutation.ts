@@ -15,7 +15,7 @@
  * asks for it, so CI installs it only then.
  */
 
-import { appendFile, chmod, stat } from "node:fs/promises";
+import { appendFile } from "node:fs/promises";
 import { join } from "node:path";
 
 import type { Stryker } from "@stryker-mutator/core";
@@ -200,18 +200,12 @@ export function runOptions(module: string) {
   };
 }
 
-async function mutate(repoRoot: string, module: string): Promise<MutantResult[]> {
-  const { mode } = await stat(join(repoRoot, module));
+export async function mutate(repoRoot: string, module: string): Promise<MutantResult[]> {
   const { Stryker: Runner } = await import("@stryker-mutator/core");
-  // Stryker reads the module and runs the command from the working directory.
+  // Stryker copies the working directory into its sandbox, and mutates the copy.
   process.chdir(repoRoot);
 
-  try {
-    return await new Runner({ ...config, ...runOptions(module) }).runMutationTest();
-  } finally {
-    // In-place mode writes the original back without its mode, executable bit included.
-    await chmod(join(repoRoot, module), mode);
-  }
+  return new Runner({ ...config, ...runOptions(module) }).runMutationTest();
 }
 
 type Args = { readonly command: Command; readonly base: string | undefined };

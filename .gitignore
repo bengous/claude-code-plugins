@@ -79,5 +79,5 @@ docs/superpowers/specs/
 # Personal idea notes, beside TODO.md
 /IDEAS.md
 
-# Stryker's working directory, which holds the originals while it mutates them in place
+# Stryker's sandbox, the copy of the repository it mutates
 .stryker-tmp/

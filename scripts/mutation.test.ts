@@ -1,5 +1,14 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import {
+  chmodSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 
@@ -432,4 +441,88 @@ test("ci.yml mutation-tests every event but a push to main, which releases a tes
   expect(jobs["mutation"]?.if).toBe(
     "github.event_name != 'push' || github.ref == 'refs/heads/dev'",
   );
+});
+
+describe("a pass leaves the checkout as it found it", () => {
+  const MUTATION = join(import.meta.dir, "mutation.ts");
+  let root = "";
+
+  /** Every file's bytes and mode, Stryker's own directory aside. */
+  function snapshot() {
+    const files = new Map<string, string>();
+
+    for (const entry of readdirSync(root, { recursive: true, withFileTypes: true })) {
+      const path = join(entry.parentPath, entry.name);
+
+      if (!entry.isFile() || path.includes(".stryker-tmp")) continue;
+      const hash = new Bun.CryptoHasher("sha256").update(readFileSync(path)).digest("hex");
+      files.set(path.slice(root.length + 1), `${hash} ${statSync(path).mode.toString(8)}`);
+    }
+
+    return files;
+  }
+
+  function spawnPass(): Bun.Subprocess<"ignore", "pipe", "pipe"> {
+    return Bun.spawn(
+      [
+        process.execPath,
+        "-e",
+        `await (await import(${JSON.stringify(MUTATION)})).mutate(${JSON.stringify(root)}, "mod.ts");`,
+      ],
+      { stdin: "ignore", stdout: "pipe", stderr: "pipe" },
+    );
+  }
+
+  beforeEach(() => {
+    root = mkdtempSync(join(tmpdir(), "mutation-pass-"));
+    writeFileSync(
+      join(root, "mod.ts"),
+      "export function positive(n: number): boolean {\n  return n > 0;\n}\n",
+    );
+    chmodSync(join(root, "mod.ts"), 0o755);
+
+    writeFileSync(
+      join(root, "mod.test.ts"),
+      [
+        'import { expect, test } from "bun:test";',
+        'import { positive } from "./mod.ts";',
+        'test("positive", async () => {',
+        "  await Bun.sleep(200);",
+        "  expect(positive(1)).toBe(true);",
+        "  expect(positive(0)).toBe(false);",
+        "});",
+      ].join("\n"),
+    );
+  });
+
+  afterEach(() => rmSync(root, { recursive: true, force: true }));
+
+  test("a pass that ends leaves every byte and mode as they were", async () => {
+    const before = snapshot();
+    const pass = spawnPass();
+    await new Response(pass.stdout).text();
+
+    expect(before.size).toBe(2);
+    expect(await pass.exited).toBe(0);
+    expect(snapshot()).toEqual(before);
+  }, 60_000);
+
+  test("a pass killed while its mutants run leaves every byte and mode as they were", async () => {
+    const before = snapshot();
+    const pass = spawnPass();
+    const decoder = new TextDecoder();
+    let output = "";
+
+    for await (const chunk of pass.stdout) {
+      output += decoder.decode(chunk);
+
+      if (output.includes("Starting initial test run")) break;
+    }
+
+    pass.kill(9);
+    await pass.exited;
+
+    expect(before.size).toBe(2);
+    expect(snapshot()).toEqual(before);
+  }, 60_000);
 });
