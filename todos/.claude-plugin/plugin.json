@@ -1,7 +1,7 @@
 {
   "name": "todos",
-  "version": "1.3.0",
-  "description": "Shows the repository's TODOs in a scrolling band above the prompt, newest first: TODO.md items and TODO/FIXME/HACK code comments dated with git blame, a Mine filter, issue links, picks put in the prompt for Claude, and a toast when an edit adds one",
+  "version": "1.4.0",
+  "description": "Shows the repository's TODOs in a scrolling band above the prompt, newest first: TODO.md items, TODO/FIXME/HACK code comments dated with git blame, and the findings agents record with todos-finding for a batch review; a Mine filter, issue links, picks put in the prompt for Claude, and a toast when one is added",
   "author": {
     "name": "Augustin BENGOLEA",
     "email": "bengous@protonmail.com"
@@ -9,7 +9,7 @@
   "homepage": "https://github.com/bengous/claude-code-plugins/tree/main/todos",
   "repository": "https://github.com/bengous/claude-code-plugins",
   "license": "MIT",
-  "keywords": ["todo", "fixme", "git-blame", "mod", "function-hooks", "band"],
+  "keywords": ["todo", "fixme", "findings", "git-blame", "mod", "function-hooks", "band"],
   "types": "./types/index.d.ts",
   "userConfig": {
     "show_on_start": {
