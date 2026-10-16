@@ -52,12 +52,12 @@ That bash boundary binds new code. Scripts already over it move when an issue re
 
 Carried by the commands above:
 
-- Extensions are mandatory: `.ts`, `.tsx`, `.sh`. `tsgo`, `oxlint`, `oxfmt` and `check-lint-disables.ts` select files by extension, so a Bun script named without `.ts` is checked by nothing. `lint-shell.ts` also matches a shell shebang, so bash survives an extensionless name.
 - One root `tsconfig.json` covers every tracked `.ts` outside `archive/` and the vendored linter: `strict`, plus `noUncheckedIndexedAccess` and `exactOptionalPropertyTypes`. It is the one the typecheck gate reads. A plugin that compiles code where it is installed carries its own beside its `package.json`, with no `extends`: an installed plugin is a copy of its folder, and the root's file does not come along. `vellum/tsconfig.json` is the one today, since Bun's bundler reads the JSX runtime in the `tsconfig.json` nearest the page's sources; `scripts/typecheck-coverage.test.ts` holds its compiler options equal to the root's. The root's wildcards skip every directory whose name starts with a dot, so `.claude/` is included by name, and `.claude/worktrees/` excluded, or the check takes whole copies of the repository. A new dot directory that holds TypeScript gets its own `include` entry: `scripts/typecheck-coverage.test.ts` fails, naming the files, while a tracked one is left out. `oxlint`, `oxfmt` and `check-lint-disables.ts` walk dot directories by themselves.
 - Every lint suppression says why on its own line: `// oxlint-disable-next-line <rule> -- <reason>`. `check-lint-disables.ts` rejects the bare form, `oxlint-` and `eslint-` spellings alike.
 
 Carried by nobody, so hold them by hand:
 
+- Extensions are mandatory: `.ts`, `.tsx`, `.sh`. `tsgo`, `oxlint`, `oxfmt` and `check-lint-disables.ts` select files by extension, so a Bun script named without `.ts` is checked by nothing. `lint-shell.ts` also matches a shell shebang, so bash survives an extensionless name.
 - Plugins are self-contained. No import crosses a plugin boundary, or reaches into `scripts/` or `.claude/`. Today every relative import of a plugin stays inside its own top-level directory.
 - Ship sources, never compiled binaries. `bun` is the runtime.
 - Docs name symbols, sections and paths, never line numbers or version numbers: both drift at the next regeneration or release. A measurement keeps its conditions, the tool and its version, the date, the run id: they date it and make it reproducible.

@@ -34,7 +34,7 @@ pre-commit:
         - ".claude/rules/*.md"
       run: bun ./scripts/validate-frontmatter.ts
 
-    # The six gates below run over the whole repo, not the staged subset: each
+    # The seven gates below run over the whole repo, not the staged subset: each
     # takes well under a second, and CI then replays the exact same commands.
     - name: lint-config
       glob:
@@ -86,6 +86,10 @@ pre-commit:
         - "*.mjs"
         - "*.cjs"
       run: bun ./scripts/check-lint-disables.ts
+    # No glob: a control renamed or deleted anywhere breaks the entry of
+    # .claude/rule-registry.ts that names it.
+    - name: rule-registry
+      run: bun ./scripts/check-rule-registry.ts
     # The engine reads the hooks module's source and reports what it hooks and
     # calls.
     - name: validate-vellum

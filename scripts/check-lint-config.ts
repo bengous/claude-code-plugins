@@ -111,6 +111,12 @@ export const EXPECTED_COMMANDS: CommandPair[] = [
     difference: null,
   },
   {
+    gate: "rule-registry",
+    lefthook: "bun ./scripts/check-rule-registry.ts",
+    ci: "bun ./scripts/check-rule-registry.ts",
+    difference: null,
+  },
+  {
     gate: "validate-marketplace",
     lefthook: "./scripts/validate-marketplace.ts",
     ci: "bun ./scripts/validate-marketplace.ts",

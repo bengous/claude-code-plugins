@@ -66,7 +66,7 @@ jobs:
       - name: Run test suites
         run: bun ./scripts/affected.ts test
 
-      # The six gates below are the same commands the pre-commit jobs run, so a
+      # The seven gates below are the same commands the pre-commit jobs run, so a
       # `--no-verify` commit gets the identical verdict here.
       - name: Check lint configuration
         run: bun ./scripts/check-lint-config.ts
@@ -85,6 +85,9 @@ jobs:
 
       - name: Refuse unjustified lint suppressions
         run: bun ./scripts/check-lint-disables.ts
+
+      - name: Check that each rule names its control
+        run: bun ./scripts/check-rule-registry.ts
 
       # Replays the local pre-commit checks server-side, so a `--no-verify`
       # commit can't slip a version desync or bad frontmatter past review.
