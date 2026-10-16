@@ -70,6 +70,10 @@ describe("placeholder", () => {
     expect(checks("Les « restes à trancher » du grill, tranchés ici :")).toEqual([]);
   });
 
+  test("a heading names a section, it holds no placeholder", () => {
+    expect(checks("## Points à trancher\n\n- Port ? Je prendrais 8080.")).toEqual([]);
+  });
+
   test("a word that only sounds settled leaves the placeholder standing", () => {
     expect(checks("Storage: TBD for the closed tickets.")).toEqual(["placeholder@1"]);
     expect(checks("- Format de la réponse : à définir")).toEqual(["placeholder@1"]);

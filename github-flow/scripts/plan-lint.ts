@@ -127,8 +127,8 @@ function scan(text: string): ProseLine[] {
 }
 
 function placeholders(lines: readonly ProseLine[]): Finding[] {
-  return lines.flatMap(({ line, prose }) => {
-    if (OUT_OF_PLAN.test(prose) || SETTLED_HERE.test(prose)) return [];
+  return lines.flatMap(({ line, prose, heading }) => {
+    if (heading !== null || OUT_OF_PLAN.test(prose) || SETTLED_HERE.test(prose)) return [];
 
     const found = PLACEHOLDERS.map((pattern) => pattern.exec(prose)?.[0]).find(
       (match) => match !== undefined,
