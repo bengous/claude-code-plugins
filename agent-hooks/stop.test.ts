@@ -340,6 +340,38 @@ describe("runStop", () => {
     expect(counter.count()).toBe(0);
   });
 
+  test("a lane that outlives the hook deadline ends as a lane timeout, and the others keep their result", async () => {
+    setUp(
+      JSON.stringify({
+        stop: {
+          lanes: {
+            slow: { on: "**/*.ts", takes: "project", run: "sleeper", timeout: 60 },
+            lint: { on: "**/*.ts", takes: "files", run: "checker {files}" },
+          },
+        },
+      }),
+    );
+    fakeTool(temp.repo, "sleeper", "sleep 30");
+    await sessionStart();
+    writeRepoFile(temp.repo, "src/new.ts", "fine\n");
+
+    const output = await runHook({
+      hook: "stop",
+      harness: "claude",
+      payload: fixtureIn("claude", "stop", temp.repo, SESSION),
+      handler: runStop,
+      runner: counter.runner,
+      deadlineMs: 4000,
+    });
+
+    const reason = reasonOf(output);
+
+    expect(reason).toContain("slow timed out after");
+    expect(reason).not.toContain("ran past its");
+    expect(state().lastRun?.lanes).toEqual({ slow: "timeout", lint: "ok" });
+    expect(state().green["lint@."]).toBeString();
+  });
+
   test("blocks on a lane whose binary is missing", async () => {
     setUp(
       JSON.stringify({

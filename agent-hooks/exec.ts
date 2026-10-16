@@ -72,7 +72,7 @@ export async function run(argv: Argv, options: RunOptions): Promise<RunResult> {
     : { kind: "exited", code, stdout, stderr };
 }
 
-const OUTPUT_GRACE_MS = 1000;
+export const OUTPUT_GRACE_MS = 1000;
 
 async function abandonedOutput(): Promise<null> {
   await Bun.sleep(OUTPUT_GRACE_MS);

@@ -6,7 +6,7 @@ import type { BackgroundTaskSummary } from "@anthropic-ai/claude-agent-sdk";
 import type { Config } from "./config.ts";
 import { ConfigError, DEFAULT_CAP, loadConfig } from "./config.ts";
 import type { Deadline, Runner } from "./exec.ts";
-import { deadlineIn, run } from "./exec.ts";
+import { OUTPUT_GRACE_MS, deadlineIn, run } from "./exec.ts";
 import { booleanField, isRecord, recordField, stringField } from "./json.ts";
 import { CRASH_LANE, guard } from "./loop-guard.ts";
 import { findRoot } from "./scope.ts";
@@ -27,6 +27,9 @@ export const DEADLINES_MS: Readonly<Record<HookKind, number>> = {
   "post-edit": 50_000,
   stop: 200_000,
 };
+
+/** A killed command's output grace, then the time to blame, record and encode the run. */
+const SETTLE_MS = OUTPUT_GRACE_MS + 500;
 
 export type Verdict =
   | { readonly kind: "allow" }
@@ -202,7 +205,9 @@ async function verdictOf(
 ): Promise<Verdict> {
   const { hook, handler } = options;
   const deadlineMs = options.deadlineMs ?? DEADLINES_MS[hook];
-  const deadline = deadlineIn(deadlineMs, now);
+  // The fixers and lanes stop SETTLE_MS before the hook's own deadline, so a killed lane reports its timeout and the
+  // run is recorded before `pastDeadline` would replace the whole verdict.
+  const deadline = deadlineIn(Math.max(0, deadlineMs - SETTLE_MS), now);
   let config: Config;
 
   try {
@@ -231,7 +236,10 @@ async function verdictOf(
   };
 
   try {
-    return await Promise.race([handler(context), pastDeadline(hook, deadlineMs, deadline)]);
+    return await Promise.race([
+      handler(context),
+      pastDeadline(hook, deadlineMs, deadlineIn(deadlineMs, now)),
+    ]);
   } catch (error) {
     const message = `agent-hooks crashed: ${error instanceof Error ? error.message : String(error)}`;
 
