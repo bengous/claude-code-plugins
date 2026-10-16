@@ -218,7 +218,7 @@ describe("sessionFiles", () => {
     expect(sessionFiles(repo, photo)).toEqual(["a.txt"]);
   });
 
-  test("a file of the photo deleted from disk is not in scope", () => {
+  test("a tracked file deleted after the photo is in scope; an untracked one is gone from git", () => {
     const repo = repoWith();
     writeRepoFile(repo, "a.txt", "a2\n");
     writeRepoFile(repo, "c.txt", "c\n");
@@ -226,15 +226,23 @@ describe("sessionFiles", () => {
     remove(repo, "a.txt");
     remove(repo, "c.txt");
 
+    expect(sessionFiles(repo, photo)).toEqual(["a.txt"]);
+  });
+
+  test("a file deleted before the photo and still deleted is not in scope", () => {
+    const repo = repoWith();
+    remove(repo, "a.txt");
+    const photo = photoOf(repo);
+
     expect(sessionFiles(repo, photo)).toEqual([]);
   });
 
-  test("a file renamed after the photo puts the new path in scope, not the old one", () => {
+  test("a file renamed after the photo puts both paths in scope", () => {
     const repo = repoWith();
     const photo = photoOf(repo);
     git(repo, "mv", "a.txt", "renamed.txt");
 
-    expect(sessionFiles(repo, photo)).toEqual(["renamed.txt"]);
+    expect(sessionFiles(repo, photo)).toEqual(["a.txt", "renamed.txt"]);
   });
 
   test("a file under .claude/worktrees/x/ created after the photo is not in scope", () => {
@@ -281,14 +289,14 @@ describe("sessionFiles", () => {
 });
 
 describe("wholeDirtyTree", () => {
-  test("every dirty path minus the worktrees and the deleted files", () => {
+  test("every dirty path minus the worktrees, the deleted files included", () => {
     const repo = repoWith();
     writeRepoFile(repo, "a.txt", "a2\n");
     writeRepoFile(repo, "c.txt", "c\n");
     remove(repo, "b.txt");
     writeRepoFile(repo, ".claude/worktrees/x/f.txt", "f\n");
 
-    expect(wholeDirtyTree(repo)).toEqual(["a.txt", "c.txt"]);
+    expect(wholeDirtyTree(repo)).toEqual(["a.txt", "b.txt", "c.txt"]);
   });
 
   test("null outside a git repo", () => {

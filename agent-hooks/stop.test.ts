@@ -1,7 +1,7 @@
 /* oxlint-disable anti-slop/no-unsafe-dictionary-type -- this harness builds hook payloads and reads hook outputs as JSON: a closed type would assert the schema instead of the behaviour, and a wrong shape has to fail an assertion rather than the compiler. */
 import type { Mock } from "bun:test";
 import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
-import { rmSync } from "node:fs";
+import { existsSync, rmSync } from "node:fs";
 import path from "node:path";
 
 import { CONFIG_RELATIVE_PATH } from "./config.ts";
@@ -280,6 +280,53 @@ describe("runStop", () => {
     expect(counter.count()).toBe(spawnsBefore);
     expect(state().lastFailing).toBeNull();
     expect(state().blocksInTurn).toBe(0);
+  });
+
+  describe("a session whose only change deletes a file", () => {
+    const DELETION_CONFIG = JSON.stringify({
+      stop: {
+        fixers: { touch: { on: "**/*.ts", file: "toucher {file}" } },
+        lanes: {
+          types: { on: "**/*.ts", takes: "project", run: "typechecker" },
+          lint: { on: "**/*.ts", takes: "files", run: "checker {files}" },
+        },
+      },
+    });
+
+    function setUpDeletion(): string {
+      setUp(DELETION_CONFIG, { "src/util.ts": "export const util = 1;\n" });
+      fakeTool(temp.repo, "typechecker", 'echo "src/main.ts:1:1: cannot find ./util"; exit 1');
+      const fixed = path.join(temp.dir, "fixed.log");
+      fakeTool(temp.repo, "toucher", `echo "$1" >> "${fixed}"`);
+
+      return fixed;
+    }
+
+    test("runs the project lanes, and no files lane or fixer on the deleted file", async () => {
+      const fixed = setUpDeletion();
+      await sessionStart();
+      rmSync(path.join(temp.repo, "src/util.ts"));
+
+      expect(reasonOf(await stop())).toContain("cannot find ./util");
+      expect(state().lastRun?.lanes).toEqual({ types: "fail", lint: "skipped" });
+      expect(existsSync(fixed)).toBeFalse();
+    });
+
+    test("runs the project lanes without a photo too", async () => {
+      setUpDeletion();
+      rmSync(path.join(temp.repo, "src/util.ts"));
+
+      expect(reasonOf(await stop())).toContain("cannot find ./util");
+    });
+
+    test("leaves out a file deleted before the photo", async () => {
+      setUpDeletion();
+      rmSync(path.join(temp.repo, "src/util.ts"));
+      await sessionStart();
+
+      expect(await stop()).toBeNull();
+      expect(counter.count()).toBe(0);
+    });
   });
 
   test("leaves out a file dirty before the photo and untouched since", async () => {

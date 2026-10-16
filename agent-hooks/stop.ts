@@ -17,7 +17,7 @@ import {
   sequential,
 } from "./lanes.ts";
 import { clearFailures, guard, resetTurn } from "./loop-guard.ts";
-import { dirtyDigest, headSha, sessionFiles, wholeDirtyTree } from "./scope.ts";
+import { dirtyDigest, headSha, onDisk, sessionFiles, wholeDirtyTree } from "./scope.ts";
 import type { SessionState } from "./state.ts";
 
 const BUSY_TASK_TYPES = new Set(["subagent", "workflow", "teammate"]);
@@ -75,7 +75,7 @@ export async function runStop(context: HookContext): Promise<Verdict> {
 
   await fixScope(
     config.stop.fixers,
-    scope.filter((relativePath) => !isExcluded(config.preEdit.exclude, relativePath)),
+    onDisk(root, scope).filter((relativePath) => !isExcluded(config.preEdit.exclude, relativePath)),
     context,
   );
 

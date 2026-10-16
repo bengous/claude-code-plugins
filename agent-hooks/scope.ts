@@ -146,7 +146,10 @@ export function takePhoto(root: string, now = Date.now()): Photo | null {
   return { head: headSha(root), files, takenAt: now };
 }
 
-/** The dirty paths whose content differs from the photo, sorted, minus the worktrees and the files gone from disk. */
+/**
+ * The dirty paths whose content differs from the photo, sorted, minus the worktrees. A file the session deleted
+ * stays in: a `project` lane must run on a deletion, and a `files` lane or a fixer takes only the files on disk.
+ */
 export function sessionFiles(root: string, photo: Photo): string[] | null {
   const paths = dirtyPaths(root);
 
@@ -156,14 +159,11 @@ export function sessionFiles(root: string, photo: Photo): string[] | null {
 
   return [...new Set(paths)]
     .filter((relativePath) => !relativePath.startsWith(WORKTREES_PREFIX))
-    .filter((relativePath) => {
-      const hash = hashFile(path.join(root, relativePath));
-
-      return hash !== DELETED && photo.files[relativePath] !== hash;
-    })
+    .filter((relativePath) => photo.files[relativePath] !== hashFile(path.join(root, relativePath)))
     .toSorted();
 }
 
+/** Every dirty path, sorted, minus the worktrees; deleted files included, as in `sessionFiles`. */
 export function wholeDirtyTree(root: string): string[] | null {
   const paths = dirtyPaths(root);
 
@@ -173,8 +173,12 @@ export function wholeDirtyTree(root: string): string[] | null {
 
   return [...new Set(paths)]
     .filter((relativePath) => !relativePath.startsWith(WORKTREES_PREFIX))
-    .filter((relativePath) => existsSync(path.join(root, relativePath)))
     .toSorted();
+}
+
+/** The scope files still on disk: what a fixer can rewrite. */
+export function onDisk(root: string, scope: readonly string[]): string[] {
+  return scope.filter((relativePath) => existsSync(path.join(root, relativePath)));
 }
 
 /** One line per dirty path with its content hash: the part of the green key that tracks the uncommitted tree. */

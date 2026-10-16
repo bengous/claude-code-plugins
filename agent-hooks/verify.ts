@@ -7,7 +7,7 @@ import type { Runner } from "./exec.ts";
 import { deadlineIn, run } from "./exec.ts";
 import type { LaneResult } from "./lanes.ts";
 import { isFailure, runFixers, runLanes, sequential } from "./lanes.ts";
-import { dirtyDigest, headSha, sessionFiles, wholeDirtyTree } from "./scope.ts";
+import { dirtyDigest, headSha, onDisk, sessionFiles, wholeDirtyTree } from "./scope.ts";
 import { latestStateForRoot } from "./state.ts";
 
 export type VerifyOptions = {
@@ -42,7 +42,7 @@ export async function runVerify(options: VerifyOptions): Promise<VerifyReport> {
   print(`scope: ${scope.length === 0 ? "(empty)" : scope.join(" ")}`);
   const fixOptions = { root: options.root, runner, deadline: deadlineIn(NO_DEADLINE_MS) };
 
-  const fixable = scope.filter(
+  const fixable = onDisk(options.root, scope).filter(
     (relativePath) => !isExcluded(options.config.preEdit.exclude, relativePath),
   );
 
