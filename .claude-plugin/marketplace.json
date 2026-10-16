@@ -479,7 +479,7 @@
     {
       "name": "agent-hooks",
       "description": "Quality hooks for Claude Code and Codex that a repository opts into with one config file: fixers run on the text before each write, and Stop lanes check only the files the session changed, with a green cache and a loop guard that lets a stuck turn end",
-      "version": "1.0.1",
+      "version": "1.1.0",
       "author": {
         "name": "Augustin BENGOLEA",
         "email": "bengous@protonmail.com"
