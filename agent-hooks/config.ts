@@ -41,7 +41,13 @@ export type Fixer = {
   readonly disabled: boolean;
 };
 
+/** The branches a repository lands on: agents push to `trunk`, the human moves `release`. */
+export type LandingProfile = { readonly trunk: string; readonly release: string };
+
+export type Profile = { readonly landing: LandingProfile | null };
+
 export type Config = {
+  readonly profile: Profile;
   readonly preEdit: { readonly exclude: readonly string[]; readonly fixers: readonly Fixer[] };
   readonly stop: {
     readonly cap: number;
@@ -96,6 +102,7 @@ type RawStopFixers = "pre-edit" | "none" | Map<string, RawFixer>;
 type RawDocument = {
   readonly file: string;
   readonly presets: readonly string[];
+  readonly profile: Profile;
   readonly preEdit: { exclude: string[]; fixers: Map<string, RawFixer> };
   readonly stop: { cap?: number; fixers?: RawStopFixers; lanes: Map<string, RawLane> };
 };
@@ -108,9 +115,13 @@ type Reader = {
   readonly keyPath: string;
 };
 
-const DOCUMENT_KEYS = new Set(["presets", "extends", "pre-edit", "stop"]);
+const DOCUMENT_KEYS = new Set(["presets", "extends", "profile", "pre-edit", "stop"]);
 
 const PRESET_NAME = /^[a-z0-9-]+$/u;
+
+const PROFILE_KEYS = new Set(["landing"]);
+
+const LANDING_KEYS = new Set(["trunk", "release"]);
 
 const PRE_EDIT_KEYS = new Set(["exclude", "fixers"]);
 
@@ -205,6 +216,7 @@ function readDocument(file: string, kind: DocumentKind): RawDocument {
   return {
     file,
     presets: stringArray(root, presetsKey) ?? [],
+    profile: readProfile(child(root, "profile")),
     preEdit: readPreEdit(child(root, "pre-edit")),
     stop: readStop(child(root, "stop")),
   };
@@ -332,6 +344,35 @@ function oneOf<T extends string>(reader: Reader, key: string, values: readonly T
   }
 
   return found;
+}
+
+function readProfile(reader: Reader): Profile {
+  rejectUnknownKeys(reader, PROFILE_KEYS);
+
+  if (reader.record["landing"] === undefined) {
+    return { landing: null };
+  }
+
+  const landing = child(reader, "landing");
+  rejectUnknownKeys(landing, LANDING_KEYS);
+  const trunk = branch(landing, "trunk");
+  const release = branch(landing, "release");
+
+  if (trunk === release) {
+    throw new ConfigError(reader.file, landing.keyPath, "trunk and release name one branch");
+  }
+
+  return { landing: { trunk, release } };
+}
+
+function branch(reader: Reader, key: string): string {
+  const value = string(reader, key);
+
+  if (value === undefined || !/^[^\s:~^?*[\\]+$/u.test(value)) {
+    throw new ConfigError(reader.file, keyPathOf(reader, key), "expected a branch name");
+  }
+
+  return value;
 }
 
 function readPreEdit(reader: Reader): RawDocument["preEdit"] {
@@ -475,6 +516,8 @@ function mergeDocuments(documents: readonly RawDocument[]): RawDocument {
   const merged: RawDocument = {
     file: documents.at(-1)?.file ?? "",
     presets: [],
+    // The repo file comes last: a profile describes the repository, never a preset's language.
+    profile: documents.at(-1)?.profile ?? { landing: null },
     preEdit: { exclude: [], fixers: new Map() },
     stop: { lanes: new Map() },
   };
@@ -522,6 +565,7 @@ function finalize(raw: RawDocument, file: string): Config {
   const preEditFixers = finalizeFixers(raw.preEdit.fixers, file, "pre-edit.fixers");
 
   return {
+    profile: raw.profile,
     preEdit: { exclude: raw.preEdit.exclude, fixers: preEditFixers },
     stop: {
       cap: raw.stop.cap ?? DEFAULT_CAP,

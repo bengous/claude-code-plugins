@@ -391,6 +391,57 @@ describe("loadConfig errors", () => {
   });
 });
 
+describe("loadConfig profile", () => {
+  test("no profile reads as no landing", () => {
+    expect(load("{}").profile).toEqual({ landing: null });
+  });
+
+  test("reads profile.landing", () => {
+    expect(
+      load(`{ "profile": { "landing": { "trunk": "dev", "release": "main" } } }`).profile,
+    ).toEqual({ landing: { trunk: "dev", release: "main" } });
+  });
+
+  test("takes the profile of the repo file over its presets", () => {
+    const config = load(
+      `{ "presets": ["ts"], "profile": { "landing": { "trunk": "develop", "release": "master" } } }`,
+    );
+
+    expect(config.profile.landing).toEqual({ trunk: "develop", release: "master" });
+  });
+
+  test("an unknown key in profile or in landing", () => {
+    expectConfigError(`{ "profile": { "nope": 1 } }`, "profile.nope");
+    expectConfigError(
+      `{ "profile": { "landing": { "trunk": "dev", "release": "main", "nope": 1 } } }`,
+      "profile.landing.nope",
+    );
+  });
+
+  test("a landing without its release, or with a value that names no branch", () => {
+    expectConfigError(
+      `{ "profile": { "landing": { "trunk": "dev" } } }`,
+      "profile.landing.release",
+    );
+    expectConfigError(
+      `{ "profile": { "landing": { "trunk": "dev", "release": "a b" } } }`,
+      "profile.landing.release",
+    );
+    expectConfigError(
+      `{ "profile": { "landing": { "trunk": 1, "release": "main" } } }`,
+      "profile.landing.trunk",
+    );
+  });
+
+  test("a trunk that is the release", () => {
+    expect(
+      configErrorOf(`{ "profile": { "landing": { "trunk": "main", "release": "main" } } }`).message,
+    ).toBe(
+      `agent-hooks: ${configPath(temp.repo)}: profile.landing: trunk and release name one branch`,
+    );
+  });
+});
+
 describe("splitCommand", () => {
   test("splits on spaces", () => {
     expect(splitCommand("  a  b\tc ")).toEqual(["a", "b", "c"]);

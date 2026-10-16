@@ -1,6 +1,6 @@
 ---
 name: agent-hooks
-description: Set up or check the agent-hooks kit in a repository (the session-scoped fixers and Stop lanes this plugin wires). Use when the user asks to add hooks to a repo, to init agent hooks, to run the hooks doctor, or when a Stop hook misbehaves (blocks on the wrong files, never blocks, names a missing tool).
+description: Set up or check the agent-hooks kit in a repository (the session-scoped fixers and Stop lanes this plugin wires, and its landing guard on Bash). Use when the user asks to add hooks to a repo, to init agent hooks, to run the hooks doctor, to declare how a repository lands, when a Stop hook misbehaves (blocks on the wrong files, never blocks, names a missing tool), or when the landing guard refuses a push, a merge or a release.
 argument-hint: "[init|doctor]"
 allowed-tools: Bash(${CLAUDE_PLUGIN_ROOT}/agent-hooks.ts *), Read(~/.claude/plugins/cache/*/agent-hooks/*/presets/**)
 ---
@@ -11,7 +11,7 @@ The kit is this plugin, run as `${CLAUDE_PLUGIN_ROOT}/agent-hooks.ts`. Its `hook
 Claude Code wherever the plugin is enabled. Codex has no plugin: its own hook config calls the same
 entry with `--harness codex`, through `~/.local/bin/agent-hooks`, a symlink to the entry in a checkout
 that does not move with the plugin's version. A repository opts in with one file,
-`.claude/agent-hooks.jsonc`; without it the kit does nothing. Never copy kit code into a repository and
+`.claude/agent-hooks.jsonc`; without it the kit runs only its landing guard. Never copy kit code into a repository and
 never redeclare its hooks in a `.claude/settings.json` or `.codex/config.toml`: a hook declared at two
 levels runs twice.
 
@@ -110,3 +110,28 @@ What the model bounds and the kit does not try to cross:
   again; the changes made before the change of version are not measured.
 - A root outside git has no checkout: nothing is photographed and nothing is checked there. `doctor`
   says so; the Stop does not.
+
+## Landing guard
+
+- `pre-bash`, a PreToolUse hook on Bash, runs in every repository, with or without
+  `.claude/agent-hooks.jsonc`. It reads each simple command of the call as Bash splits it (quotes,
+  heredocs, `cd`, a subshell, `bash -c`, `eval`) and judges each `git push`, `gh pr merge`,
+  `gh release create` and run of a `scripts/release.<ext>` in the repository it acts on, `git -C`,
+  `--git-dir` and linked worktrees included.
+- A repository whose agents land on their own declares its branches in its own file:
+  `"profile": { "landing": { "trunk": "dev", "release": "main" } }`, never read from a preset. The
+  guard then refuses a push to `release` (a deletion, `--all` and `--mirror` included), a force push or
+  a deletion of `trunk`, a `gh pr merge` into `release`, with a check not green or none reported yet, or
+  not mergeable, `gh release create`, and `scripts/release.<ext>` (its `--dry-run` passes). Each
+  refusal names the way through: push to `trunk`, or `bun ./scripts/land.ts <branch>` when the
+  repository has that script.
+- Without a profile, it refuses a push or a `gh pr merge` to the default branch of a public repository.
+  The visibility and the default branch come from `gh repo view`, read once per repository and session
+  into `~/.local/state/agent-hooks/github__<session>.json`. A lookup that fails lets the command through
+  with a `systemMessage` that starts with `agent-hooks:`; so does an invalid config file, judged by this
+  default. A remote that names no `host/owner/name` (a local path) is not checked.
+- The profile read is the one of the repository around the command's directory: `gh pr merge --repo`
+  and `gh release create --repo` take the default.
+- Not read: a git alias, a variable or a substitution in a refspec or a `cd` target (the `cd` leaves the
+  directory where it was), a `$(…)` inside double quotes, a script fed on stdin, `gh api`. The Codex
+  wiring calls no `pre-bash`.

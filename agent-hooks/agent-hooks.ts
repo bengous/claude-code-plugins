@@ -5,6 +5,7 @@ import { ConfigError, loadConfig } from "./config.ts";
 import { initConfig, runDoctor } from "./doctor.ts";
 import type { HookKind, HookRun } from "./hook.ts";
 import { isHarness, isHookKind, readPayload, runHook } from "./hook.ts";
+import { runPreBash } from "./pre-bash.ts";
 import { runPostEdit, runPreEdit } from "./pre-edit.ts";
 import { findRoot, realPathOf } from "./scope.ts";
 import { runSessionStart } from "./session-start.ts";
@@ -14,6 +15,7 @@ import { runVerify } from "./verify.ts";
 const USAGE = [
   "usage:",
   "  agent-hooks <session-start|pre-edit|post-edit|stop> [--harness claude|codex]   (payload on stdin)",
+  "  agent-hooks pre-bash   (Claude Code PreToolUse Bash payload on stdin)",
   "  agent-hooks verify [--all] [files...]",
   "  agent-hooks doctor [--config <file>]",
   "  agent-hooks init --print",
@@ -79,6 +81,16 @@ async function main(argv: readonly string[]): Promise<number> {
   }
 
   switch (command) {
+    case "pre-bash": {
+      const output = await runPreBash(await readPayload());
+
+      if (output !== null) {
+        await Bun.write(Bun.stdout, `${output}\n`);
+      }
+
+      return 0;
+    }
+
     case "verify": {
       return verify(values.all, rest);
     }
