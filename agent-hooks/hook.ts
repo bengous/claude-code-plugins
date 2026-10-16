@@ -1,17 +1,18 @@
 /* oxlint-disable anti-slop/no-runtime-typeof, anti-slop/no-unsafe-dictionary-type, anti-slop/no-unknown-returns -- this module is the hook payload's boundary: the harness's JSON arrives on stdin, `parseInput` turns it into `Input`, and only `tool_input`, the harness's per-tool shape, travels on as a record to be handed back as `updatedInput`. */
+import { existsSync } from "node:fs";
 import path from "node:path";
 
 import type { BackgroundTaskSummary } from "@anthropic-ai/claude-agent-sdk";
 
 import type { Config } from "./config.ts";
-import { ConfigError, DEFAULT_CAP, loadConfig } from "./config.ts";
+import { ConfigError, DEFAULT_CAP, configPath, loadConfig } from "./config.ts";
 import type { Deadline, Runner } from "./exec.ts";
 import { OUTPUT_GRACE_MS, deadlineIn, run } from "./exec.ts";
 import { booleanField, isRecord, recordField, stringField } from "./json.ts";
 import { CRASH_LANE, guard } from "./loop-guard.ts";
 import { findRoot } from "./scope.ts";
 import type { SessionState } from "./state.ts";
-import { loadState, saveState } from "./state.ts";
+import { loadState, photographedRoots, saveState } from "./state.ts";
 
 export const HARNESSES = ["claude", "codex"] as const;
 
@@ -152,9 +153,9 @@ export function searchStart(hook: HookKind, input: Input): string | null {
 }
 
 /**
- * The envelope every hook runs in: reads the payload, finds the root, loads the config and the state, runs the
- * handler under a deadline, encodes the verdict for the harness and saves the state. Returns the line to print, or
- * null for no output. Never throws: a crash is a verdict too.
+ * The envelope every hook runs in: reads the payload, finds the roots, loads the config and the state of each,
+ * runs the handler under a deadline, saves the state and encodes the verdicts for the harness. Returns the line to
+ * print, or null for no output. Never throws: a crash is a verdict too.
  */
 export async function runHook(options: RunHookOptions): Promise<string | null> {
   const { hook, harness, payload } = options;
@@ -174,23 +175,86 @@ export async function runHook(options: RunHookOptions): Promise<string | null> {
   }
 
   const start = searchStart(hook, input);
-  const root = start === null ? null : findRoot(start);
+  const roots = hook === "stop" ? stopRoots(input, start) : rootAt(start);
 
-  if (root === null) {
+  if (roots.length === 0) {
     return null;
   }
 
   const now = options.now ?? Date.now();
+  const verdicts = await Promise.all(roots.map((root) => runAt(options, input, root, now)));
+
+  return encode(merged(verdicts), harness, hook);
+}
+
+function rootAt(start: string | null): string[] {
+  const root = start === null ? null : findRoot(start);
+
+  return root === null ? [] : [root];
+}
+
+/**
+ * The roots a Stop checks: each one the session photographed, at its SessionStart or its first edit there, wherever
+ * its cwd has moved since. A session that photographed none falls back on the root around its cwd, whose whole
+ * dirty tree it then checks.
+ */
+function stopRoots(input: Input, start: string | null): string[] {
+  const photographed = photographedRoots(input.sessionId).filter((root) =>
+    existsSync(configPath(root)),
+  );
+
+  return photographed.length > 0 ? photographed : rootAt(start);
+}
+
+type RootVerdict = { readonly root: string; readonly verdict: Verdict };
+
+async function runAt(
+  options: RunHookOptions,
+  input: Input,
+  root: string,
+  now: number,
+): Promise<RootVerdict> {
   const state = loadState(input.sessionId, root, now);
   const loaded = JSON.stringify(state);
   const verdict = await verdictOf(options, input, root, state, now);
 
   // An edit hook runs before every write and seldom changes the state; a Stop or a session start refreshes its age.
-  if (!isEditHook(hook) || JSON.stringify(state) !== loaded) {
+  if (!isEditHook(options.hook) || JSON.stringify(state) !== loaded) {
     persist(state, now);
   }
 
-  return encode(verdict, harness, hook);
+  return { root, verdict };
+}
+
+/** One root's verdict as it is; several roots name theirs, and one block among them blocks. */
+function merged(verdicts: readonly RootVerdict[]): Verdict {
+  const [only] = verdicts;
+
+  if (only !== undefined && verdicts.length === 1) {
+    return only.verdict;
+  }
+
+  const texts = verdicts.flatMap(({ root, verdict }) => {
+    switch (verdict.kind) {
+      case "block": {
+        return [`${root}:\n${verdict.reason}`];
+      }
+
+      case "note": {
+        return [`${root}:\n${verdict.text}`];
+      }
+
+      default: {
+        return [];
+      }
+    }
+  });
+
+  if (verdicts.some(({ verdict }) => verdict.kind === "block")) {
+    return { kind: "block", reason: texts.join("\n\n") };
+  }
+
+  return texts.length === 0 ? ALLOW : { kind: "note", text: texts.join("\n\n") };
 }
 
 function isEditHook(hook: HookKind): boolean {

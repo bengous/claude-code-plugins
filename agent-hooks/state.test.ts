@@ -10,6 +10,7 @@ import {
   freshState,
   latestStateForRoot,
   loadState,
+  photographedRoots,
   pruneStates,
   rootKey,
   saveState,
@@ -205,6 +206,22 @@ describe("loadState and saveState", () => {
     expect(stateFiles()).toHaveLength(2);
     expect(loadState("s", temp.repo).photo).toBeNull();
     expect(loadState("s", other).photo).not.toBeNull();
+  });
+});
+
+describe("photographedRoots", () => {
+  test("lists, sorted, the roots of this session whose state holds a photo", () => {
+    const photo = { head: null, files: {}, takenAt: 1 };
+    saveState({ ...freshState("s", "/r/b"), photo });
+    saveState({ ...freshState("s", "/r/a"), photo });
+    saveState(freshState("s", "/r/c"));
+    saveState({ ...freshState("other", "/r/d"), photo });
+
+    expect(photographedRoots("s")).toEqual(["/r/a", "/r/b"]);
+  });
+
+  test("none without a state dir", () => {
+    expect(photographedRoots("s")).toEqual([]);
   });
 });
 

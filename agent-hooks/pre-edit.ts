@@ -7,7 +7,7 @@ import { ALLOW } from "./hook.ts";
 import { stringField } from "./json.ts";
 import type { FixTarget } from "./lanes.ts";
 import { runFixers, sequential } from "./lanes.ts";
-import { SCRATCH_PREFIX } from "./scope.ts";
+import { SCRATCH_PREFIX, takePhoto } from "./scope.ts";
 
 const APPLY_PATCH_PREFIXES = [
   "*** Add File: ",
@@ -23,9 +23,11 @@ type PendingWrite =
 /**
  * Claude Code's edit hook, before the tool runs: hands the tool the content the fixers would leave, so the file is
  * written once and the agent has no rewrite to re-read. It never blocks: on any failure the tool runs as asked.
+ * The first edit of a root the session has no photo of photographs it first: the tree before that write is the
+ * session's baseline there, and the Stop checks that root too.
  */
 export async function runPreEdit(context: HookContext): Promise<Verdict> {
-  const { input, root, config } = context;
+  const { input, root, config, state } = context;
   const filePath = stringField(input.toolInput, "file_path");
 
   if (filePath === undefined) {
@@ -35,7 +37,13 @@ export async function runPreEdit(context: HookContext): Promise<Verdict> {
   const absolute = path.resolve(input.cwd ?? root, filePath);
   const relativePath = relativeTo(root, absolute);
 
-  if (relativePath === null || isExcluded(config.preEdit.exclude, relativePath)) {
+  if (relativePath === null) {
+    return ALLOW;
+  }
+
+  state.photo ??= takePhoto(root);
+
+  if (isExcluded(config.preEdit.exclude, relativePath)) {
     return ALLOW;
   }
 

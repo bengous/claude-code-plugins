@@ -254,6 +254,34 @@ function updatedAtOf(filePath: string): number {
   }
 }
 
+/** The roots this session holds a photo for, sorted: its SessionStart's, and each one its first edit there took. */
+export function photographedRoots(sessionId: string): string[] {
+  const prefix = `${sanitize(sessionId)}__`;
+  let files: string[];
+
+  try {
+    files = readdirSync(stateDir()).filter(
+      (file) => file.startsWith(prefix) && file.endsWith(".json"),
+    );
+  } catch {
+    return [];
+  }
+
+  return files
+    .flatMap((file) => {
+      try {
+        const value: unknown = JSON.parse(readFileSync(path.join(stateDir(), file), "utf8"));
+
+        return isRecord(value) && typeof value["root"] === "string" && isPhoto(value["photo"])
+          ? [value["root"]]
+          : [];
+      } catch {
+        return [];
+      }
+    })
+    .toSorted();
+}
+
 /** The most recent state file of this root, whatever its session: what `doctor` reads to show the last Stop. */
 export function latestStateForRoot(root: string): SessionState | null {
   const suffix = `__${rootKey(root)}.json`;
