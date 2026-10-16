@@ -4,20 +4,22 @@ type StrykerOptions = ConstructorParameters<typeof Stryker>[0];
 
 /**
  * Read by `scripts/mutation.ts`, which mutates only the lines a change alters in the `mutate`
- * modules, each against the `.test.ts` beside it. A module joins once those tests are pure: a
- * git fixture under Stryker's parallel runs gives false kills.
+ * modules, each against the `.test.ts` beside it. A module joins once a run of it kills by assertion
+ * alone: a git fixture under Stryker's parallel runs can kill a mutant by timing out. Issue #323
+ * splits the pure tests of `scripts/changelog.ts` and `scripts/land.ts` from their fixtures.
  */
 export default {
-  mutate: ["agent-hooks/config.ts", "scripts/changelog.ts"],
+  mutate: ["agent-hooks/config.ts"],
   testRunner: "command",
   coverageAnalysis: "off",
   mutator: { excludedMutations: ["StringLiteral"] },
   reporters: ["clear-text"],
   clearTextReporter: { reportMutants: false, reportTests: false },
-  // A missing file skips Stryker's tsconfig rewrite, which calls the
-  // `ts.parseConfigFileTextToJson` TypeScript 7 no longer has.
+  // A missing file skips Stryker's tsconfig rewrite, which calls `ts.parseConfigFileTextToJson`,
+  // an API the installed TypeScript lacks.
   tsconfigFile: "stryker-skips-the-tsconfig-rewrite.json",
-  // `scripts/changelog.test.ts` reads the repository's history, which a sandbox copy lacks.
+  // For tests that read the repository's history, as `scripts/changelog.test.ts`'s do: a sandbox
+  // copy has none.
   inPlace: true,
   // Bun runs TypeScript unchecked; `true` would rewrite every TypeScript file in place.
   disableTypeChecks: false,
