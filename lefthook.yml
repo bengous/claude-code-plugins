@@ -120,6 +120,17 @@ pre-commit:
       glob:
         - "secret-pane/hooks/*"
       run: claude plugin test secret-pane
+    - name: validate-pinpoint
+      glob:
+        - "pinpoint/hooks/*"
+        - "pinpoint/shared/*"
+        - "pinpoint/.claude-plugin/*"
+      run: claude plugin validate pinpoint
+    - name: test-pinpoint
+      glob:
+        - "pinpoint/hooks/*"
+        - "pinpoint/shared/*"
+      run: claude plugin test pinpoint
 
 commit-msg:
   jobs:
