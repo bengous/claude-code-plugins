@@ -140,8 +140,8 @@ export function decide(push: PushCommand, currentBranch: string | null): Verdict
           return {
             kind: "deny",
             reason:
-              "pushing to 'main' is the human's release step (git push origin dev:main). " +
-              "Agents land on 'dev'; procedures: docs/repo-ops.md.",
+              "pushing to 'main' is the human's release step (bun ./scripts/release.ts). " +
+              "Agents land on 'dev' with `bun ./scripts/land.ts <branch>`; procedures: docs/repo-ops.md.",
           };
         }
 
@@ -150,8 +150,7 @@ export function decide(push: PushCommand, currentBranch: string | null): Verdict
             kind: "deny",
             reason:
               "force pushes never target 'dev': every local dev is a cache of the shared trunk. " +
-              "Land with `git fetch origin && git rebase origin/dev && git push origin <branch>:dev`; " +
-              "procedures: docs/repo-ops.md.",
+              "Land with `bun ./scripts/land.ts <branch>`; procedures: docs/repo-ops.md.",
           };
         }
       }

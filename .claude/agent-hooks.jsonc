@@ -1,6 +1,9 @@
 // The Stop and each subagent's SubagentStop run the repo's gates, scoped as in pre-push. No fixer: formatting
 // stays with the PostToolUse hook `.claude/hooks/format-on-edit.ts`.
 {
+  // Agents push to dev and land on it with scripts/land.ts; main is the human's release. The kit's pre-bash hook
+  // refuses the one-way doors this derives.
+  "profile": { "landing": { "trunk": "dev", "release": "main" } },
   "stop": {
     "lanes": {
       "gates": { "on": "**", "takes": "project", "run": "bun ./scripts/run-gates.ts", "timeout": 180 },
