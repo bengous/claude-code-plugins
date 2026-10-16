@@ -96,8 +96,9 @@
     "PostToolUse": [
       {
         // Applies oxlint's safe fixes to the file just written and formats it
-        // (oxfmt, shfmt), hands the diff back to the agent and marks the
-        // editing subagent for the SubagentStop gates. Never blocks.
+        // (oxfmt, shfmt), and hands the diff back to the agent. Never blocks.
+        // The Stop and SubagentStop gates are the agent-hooks plugin's
+        // (`.claude/agent-hooks.jsonc`).
         "matcher": "Edit|Write",
         "hooks": [
           {
@@ -105,23 +106,6 @@
             "command": "bun \"$CLAUDE_PROJECT_DIR/.claude/hooks/format-on-edit.ts\"",
             "timeout": 30,
             "statusMessage": "Formatting..."
-          }
-        ]
-      }
-    ],
-    "SubagentStop": [
-      {
-        // The CI gates once a subagent's turn that edited the repo ends, in
-        // its own worktree: its payload carries the `cwd` of that worktree and
-        // its own `agent_id`, so its marker and its verdict stay independent of
-        // its siblings'. The main session's Stop runs the same gates through
-        // the agent-hooks kit (`.claude/agent-hooks.jsonc`), whose plugin also
-        // gates each subagent at SubagentStop, on the subagent's own state.
-        "hooks": [
-          {
-            "type": "command",
-            "command": "bun \"$CLAUDE_PROJECT_DIR/.claude/hooks/stop-gates.ts\"",
-            "timeout": 120
           }
         ]
       }

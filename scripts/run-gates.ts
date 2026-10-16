@@ -6,9 +6,6 @@
  * (`affected.ts`); `--all` runs every kit. Silent when all pass; otherwise
  * prints a `Red gates: <names>` line, then each failing gate with its output,
  * and exits 1.
- *
- * That first line is the verdict `.claude/hooks/stop-gates.ts` compares from
- * one Stop to the next: changing its shape changes both files.
  */
 
 import { join } from "node:path";

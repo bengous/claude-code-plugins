@@ -1,24 +1,21 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import {
   chmodSync,
-  existsSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
-  realpathSync,
   rmSync,
   symlinkSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { basename, dirname, join } from "node:path";
+import { dirname, join } from "node:path";
 
 import { $ } from "bun";
 
 import { diffHunks, parseHookInput, rewritersFor, toRepoRelative } from "./format-on-edit.ts";
 import type { Rewriter } from "./format-on-edit.ts";
 import { commit, git } from "./git-fixture.ts";
-import { markerPath } from "./stop-gates.ts";
 
 describe("parseHookInput", () => {
   test("returns null on invalid JSON", () => {
@@ -148,9 +145,6 @@ describe("hook subprocess", () => {
   const HOOK = join(import.meta.dir, "format-on-edit.ts");
   const SESSION_ID = "format-on-edit-test";
 
-  // A subagent's payload carries the parent's session_id and its own agent_id.
-  const AGENT_ID = "ae64aaf2fc71fc3bd";
-  const AS_SUBAGENT = { agent_id: AGENT_ID };
   const MIS_INDENTED = "if true; then\necho hi\nfi\n";
   const FORMATTED = "if true; then\n  echo hi\nfi\n";
 
@@ -167,14 +161,10 @@ describe("hook subprocess", () => {
     rmSync(tempRoot, { recursive: true, force: true });
   });
 
-  async function runHook(
-    filePath: string,
-    env: Record<string, string> = {},
-    payload: { agent_id?: string } = {},
-  ) {
+  async function runHook(filePath: string, env: Record<string, string> = {}) {
     const proc = Bun.spawn([process.execPath, HOOK], {
       stdin: new Blob([
-        JSON.stringify({ session_id: SESSION_ID, ...payload, tool_input: { file_path: filePath } }),
+        JSON.stringify({ session_id: SESSION_ID, tool_input: { file_path: filePath } }),
       ]),
       stdout: "pipe",
       stderr: "pipe",
@@ -198,31 +188,6 @@ describe("hook subprocess", () => {
     return { exitCode, stdout };
   }
 
-  const markerFile = (checkout: string = projectDir, id: string = AGENT_ID) =>
-    join(tempRoot, "claude-code-plugins-stop", basename(markerPath(id, checkout)));
-
-  test("marks the editing subagent, not the parent session its payload names", async () => {
-    const script = join(projectDir, "a.sh");
-    writeFileSync(script, FORMATTED);
-
-    const { exitCode } = await runHook(script, {}, AS_SUBAGENT);
-
-    expect(exitCode).toBe(0);
-    expect(existsSync(markerFile())).toBe(true);
-    expect(existsSync(markerFile(projectDir, SESSION_ID))).toBe(false);
-  });
-
-  // The main session's Stop belongs to the agent-hooks kit, which reads no marker.
-  test("leaves an edit of the main session unmarked", async () => {
-    const script = join(projectDir, "a.sh");
-    writeFileSync(script, FORMATTED);
-
-    const { exitCode } = await runHook(script);
-
-    expect(exitCode).toBe(0);
-    expect(existsSync(join(tempRoot, "claude-code-plugins-stop"))).toBe(false);
-  });
-
   test("returns a reformat as its unified diff, even under an external diff tool", async () => {
     const script = join(projectDir, "a.sh");
     const externalDiff = join(tempRoot, "external-diff.sh");
@@ -230,11 +195,7 @@ describe("hook subprocess", () => {
     writeFileSync(externalDiff, "#!/bin/sh\necho EXTERNAL\n");
     chmodSync(externalDiff, 0o755);
 
-    const { exitCode, stdout } = await runHook(
-      script,
-      { GIT_EXTERNAL_DIFF: externalDiff },
-      AS_SUBAGENT,
-    );
+    const { exitCode, stdout } = await runHook(script, { GIT_EXTERNAL_DIFF: externalDiff });
 
     expect(exitCode).toBe(0);
 
@@ -248,22 +209,17 @@ describe("hook subprocess", () => {
     });
 
     expect(readFileSync(script, "utf8")).toBe(FORMATTED);
-    expect(JSON.parse(readFileSync(markerFile(), "utf8"))).toEqual({
-      checkout: projectDir,
-      verdict: "",
-    });
   });
 
-  test("stays silent on a formatted executable file and still marks the subagent", async () => {
+  test("stays silent on a formatted executable file", async () => {
     const script = join(projectDir, "a.sh");
     writeFileSync(script, FORMATTED);
     chmodSync(script, 0o755);
 
-    const { exitCode, stdout } = await runHook(script, {}, AS_SUBAGENT);
+    const { exitCode, stdout } = await runHook(script);
 
     expect(exitCode).toBe(0);
     expect(stdout).toBe("");
-    expect(existsSync(markerFile())).toBe(true);
   });
 
   // shfmt and Bun's shell reword these errors between releases. The hook owns
@@ -304,11 +260,10 @@ describe("hook subprocess", () => {
   });
 
   test("ignores a file outside the project", async () => {
-    const { exitCode, stdout } = await runHook("/elsewhere/a.sh", {}, AS_SUBAGENT);
+    const { exitCode, stdout } = await runHook("/elsewhere/a.sh");
 
     expect(exitCode).toBe(0);
     expect(stdout).toBe("");
-    expect(existsSync(markerFile())).toBe(false);
   });
 
   // A git hook up the process tree exports GIT_DIR, which would root every
@@ -317,7 +272,7 @@ describe("hook subprocess", () => {
     ["", {}],
     [" under an exported GIT_DIR", { GIT_DIR: ".git" }],
   ])(
-    "leaves a file of another repository nested in the project alone, unmarked%s",
+    "leaves a file of another repository nested in the project alone%s",
     async (_, env: Record<string, string>) => {
       await git(["init", "-q"], projectDir);
       const nested = join(projectDir, "plans");
@@ -329,13 +284,11 @@ describe("hook subprocess", () => {
       const { exitCode, stdout } = await runHook(
         script,
         Object.fromEntries(Object.entries(env).map(([name, dir]) => [name, join(projectDir, dir)])),
-        AS_SUBAGENT,
       );
 
       expect(exitCode).toBe(0);
       expect(stdout).toBe("");
       expect(readFileSync(script, "utf8")).toBe(MIS_INDENTED);
-      expect(existsSync(join(tempRoot, "claude-code-plugins-stop"))).toBe(false);
     },
   );
 
@@ -401,12 +354,11 @@ describe("hook subprocess", () => {
       const file = join(root, "a.ts");
       writeFileSync(file, CONSECUTIVE_IFS);
 
-      const { exitCode, stdout } = await runHook(file, {}, AS_SUBAGENT);
+      const { exitCode, stdout } = await runHook(file);
 
       expect(exitCode).toBe(0);
       expect(JSON.parse(stdout)).toEqual(fixedContext(join(checkout, "a.ts")));
       expect(readFileSync(file, "utf8")).toBe(FIXED);
-      expect(existsSync(markerFile(realpathSync(root)))).toBe(true);
     });
 
     test("follows a symlinked project dir to the checkout", async () => {

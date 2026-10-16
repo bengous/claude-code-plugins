@@ -38,38 +38,22 @@ agent meets any finding left once, at the end of its turn, not on each edit.
   loads that worktree's `oxlint.config.ts` as a nested config and fails on
   the second `anti-slop` registration (#84). A file of another repository,
   the private `plans/` nested in the project or one a symlink in it points
-  to, is neither rewritten nor marked.
+  to, is not rewritten.
 - Per-edit cost, measured on 2026-09-14 with hyperfine on `stop-gates.ts`
   (124 lines, clean), oxlint 1.82.0, oxfmt 0.67.0, 16 threads: 309 ms, the
   same in an agent worktree. Formatting alone took 58 ms.
-- The main session's Stop is the agent-hooks kit's (`agent-hooks/`, wired by
-  its plugin or the machine's global hooks): `.claude/agent-hooks.jsonc` gives
-  it one `project` lane, `scripts/run-gates.ts`, run when the session's scope
-  (the files it changed since SessionStart's photo of the tree, any writer,
-  `.claude/worktrees/` excluded) is not empty. The kit blocks while the agent
-  makes progress on the failing set, at most 3 times in a row, skips plan
-  mode and a running subagent, workflow or teammate, and caches a green run
-  by HEAD and dirty tree. Its contract is the plugin's (`agent-hooks/skills/`).
-- Where the agent-hooks plugin is enabled, its SubagentStop hook gates each
-  subagent on the subagent's own state, keyed `<session>.<agent_id>`: the
-  files changed since its first Edit or Write. The machine's global hooks wire
-  no SubagentStop. `stop-gates.ts` also gates subagents, on SubagentStop
-  only, so with the plugin enabled both run. Each in-repo
-  Edit or Write by a subagent empties the verdict of its marker for the
-  checkout that holds the file,
-  `os.tmpdir()/claude-code-plugins-stop/<agent_id>.<hash of the checkout>`, a
-  JSON `{ checkout, verdict }`; the main session's edits set none. The hook
-  runs `scripts/run-gates.ts` in each checkout the subagent marked, never
-  where its `cwd` sits: a `cd` into `plans/` must not gate the launching
-  checkout in place of the worktree the subagent edited. Green deletes the
-  marker, and so does a checkout removed since. Red writes the verdict, the
-  report's `Red gates:` line, into the marker and blocks, `stop_hook_active`
-  or not. A stop with no edit since that block ends the turn on the same
-  verdict, with a `systemMessage` note; a changed verdict blocks again. Plan
-  mode skips it. Claude Code ends a turn after 8 consecutive blocks.
-- A subagent's payload carries the parent's `session_id` and its own
-  `agent_id` (16 hex characters on 2.1.270), so keying the marker on
-  `agent_id` keeps two subagents of one session independent.
+- The Stop and each subagent's SubagentStop are the agent-hooks kit's
+  (`agent-hooks/`, wired by its plugin; the machine's global hooks wire the
+  Stop only): `.claude/agent-hooks.jsonc` gives it one `project` lane,
+  `scripts/run-gates.ts`, run when the scope is not empty. The main session's
+  scope is the files changed since SessionStart's photo of the tree; a
+  subagent's, those changed since its first Edit or Write, on its own state
+  keyed `<session>.<agent_id>`; any writer, `.claude/worktrees/` excluded.
+  Each root the session or the subagent photographed is checked, wherever its
+  `cwd` went. The kit blocks while the agent makes progress on the failing
+  set, at most 3 times in a row, skips plan mode, skips the main session's
+  Stop while a subagent, workflow or teammate runs, and caches a green run by
+  HEAD and dirty tree. Its contract is the plugin's (`agent-hooks/skills/`).
 - A new gate is one `EXPECTED_COMMANDS` entry in
   `scripts/check-lint-config.ts`. `lint-config` then demands its pre-commit job
   and its CI step; Stop and pre-push run it through `run-gates.ts`. A hooks
@@ -102,8 +86,9 @@ Known ceilings:
   oxfmt pass can create a finding: both wait for Stop.
 - A diff over 10,000 characters reaches the agent as a file path and a
   preview: Claude Code caps hook output there.
-- A subagent's write through Bash alone sets no marker, so its turn skips
-  SubagentStop; pre-commit and pre-push still check.
+- A subagent that changes files through Bash alone, before any Edit or
+  Write, has no photo, so its SubagentStop checks nothing; pre-commit and
+  pre-push still check.
 - A main session that commits its change before the end of its turn leaves
   an empty scope: a commit adds nothing to it, so the kit runs no lane;
   pre-commit already ran the gates.
@@ -125,14 +110,12 @@ Known ceilings:
   EnterWorktree. It reads no ref: each installed version starts one run,
   whose fetch decides, and a version the trunk already carries ends as
   `skipped`.
-- Skipping the background-task check for a subagent assumes no other listed
-  task edits that subagent's checkout. That holds for an isolated subagent: it
-  has its own worktree, and a nested one gets another. A non-isolated subagent
-  shares its checkout with its parent, its siblings and any nested agent, so
-  a half-done edit of theirs can turn its gates red; the unchanged-verdict
-  release caps that at one block per verdict. A non-isolated subagent
-  released that way leaves its red in the parent's checkout without a parent
-  block; pre-commit and pre-push still catch it.
+- A non-isolated subagent shares its checkout with its parent and its
+  siblings: its scope holds their changes made since its first edit, so a
+  half-done edit of theirs can turn its lane red. The loop guard lets the
+  same failing set through once the subagent stops progressing on it; a red
+  left that way reaches the parent's Stop, and pre-commit and pre-push still
+  catch it.
 - pre-push's gates and tests check the working tree, not the pushed commits.
   Only the release guard, on a push to `main`, and the e2e gate, on a push to
   `dev`, read the pushed commits.

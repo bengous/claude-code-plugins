@@ -2,11 +2,11 @@
 
 /**
  * PostToolUse hook for Edit|Write — applies oxlint's safe fixes and formats
- * the edited file with oxfmt, or formats it with shfmt, and marks its
- * checkout for `stop-gates.ts` when a subagent made the edit. Never blocks: a finding without a fixer, types
- * and the other gates wait for the end of the turn. A file of another
- * repository, such as the private `plans/` nested in the project or one a
- * symlink in it points to, is no edit of this one: left as written, unmarked.
+ * the edited file with oxfmt, or formats it with shfmt. Never blocks: a
+ * finding without a fixer, types and the other gates wait for the end of the
+ * turn. A file of another repository, such as the private `plans/` nested in
+ * the project or one a symlink in it points to, is no edit of this one: left
+ * as written.
  *
  * A rewrite reaches the agent as its diff in `additionalContext`. Claude Code
  * renders a Write or Edit result from the file path alone, so this is the one
@@ -22,11 +22,9 @@ import { $ } from "bun";
 
 import { placeOf } from "./checkout.ts";
 import { HOOK_EXIT } from "./hook-io.ts";
-import { markEdit } from "./stop-gates.ts";
 
 export interface HookInput {
   session_id?: string;
-  agent_id?: string;
   tool_input?: {
     file_path?: string;
   };
@@ -137,8 +135,6 @@ if (import.meta.main) {
   if (place.kind === "other-repository") process.exit(HOOK_EXIT.ALLOW);
 
   const checkout = place.kind === "checkout" ? place.root : projectDir;
-
-  if (input !== null) await markEdit(input, checkout);
 
   if (!(await Bun.file(projectPath).exists())) process.exit(HOOK_EXIT.ALLOW);
 

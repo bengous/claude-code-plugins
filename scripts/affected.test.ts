@@ -20,7 +20,7 @@ const NO_ACTIONS = {};
 describe("classify", () => {
   const rows: [string, PathClass][] = [
     ["archive/claude-orchestration/old.test.ts", { kind: "none" }],
-    [".claude/hooks/stop-gates.ts", { kind: "unit", unit: ".claude/hooks" }],
+    [".claude/hooks/guard-git-push.ts", { kind: "unit", unit: ".claude/hooks" }],
     ["README.md", { kind: "gates" }],
     ["docs/repo-ops/checks.md", { kind: "gates" }],
     [".claude-plugin/marketplace.json", { kind: "gates" }],
