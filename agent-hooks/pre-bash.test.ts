@@ -186,6 +186,18 @@ describe("pre-bash in a repository with profile.landing", () => {
     expect((await preBash("git commit -m 'git push origin main'", repo)).stdout).toBe("");
   });
 
+  test("refuses a force push after a heredoc commit message that holds a quote", async () => {
+    const command = `git commit -m "$(cat <<'EOF'\nfix the 5" screen\nEOF\n)" && git push --force origin dev`;
+
+    expect((await preBash(command, repo)).decision).toBe("deny");
+  });
+
+  test("refuses a push behind env -C, sudo or xargs", async () => {
+    expect((await preBash(`env -C ${repo} git push origin main`, temp.dir)).decision).toBe("deny");
+    expect((await preBash("sudo -u me git push origin main", repo)).decision).toBe("deny");
+    expect((await preBash("echo x | xargs -n 1 git push origin main", repo)).decision).toBe("deny");
+  });
+
   test("refuses a push to the release hidden in bash -c", async () => {
     expect((await preBash(`echo ok && bash -c "git push origin HEAD:main"`, repo)).decision).toBe(
       "deny",
