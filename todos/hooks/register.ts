@@ -246,7 +246,6 @@ function pagedOffset(offset: number, by: number, count: number, windowRows: numb
   return windowStart(windowStart(offset, count, windowRows) + by, count, windowRows);
 }
 
-/** Paths are the repository's: a session started elsewhere gets them under the root. */
 async function promptRoot($: EngineInterface, scan: TodoScan): Promise<string | null> {
   return (await $.session.cwd()) === scan.root ? null : scan.root;
 }

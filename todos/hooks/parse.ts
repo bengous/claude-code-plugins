@@ -294,10 +294,6 @@ export function pickedTodos(scan: TodoScan, ids: readonly string[]): Todo[] {
   return [...byId.values()].filter((todo) => ids.includes(todoId(todo)));
 }
 
-/**
- * What Show Claude puts in the prompt box: where each TODO is, and no verb that asks for a fix.
- * Paths are the repository's: a session started elsewhere gets them under `root`.
- */
 function promptItem(todo: Todo, root: string | null): string {
   const where = `${root === null ? "" : `${root}/`}${stripControl(location(todo))}`;
 
@@ -311,6 +307,10 @@ function promptItem(todo: Todo, root: string | null): string {
   return `- ${where}: ${displayText(todo)}${note}`;
 }
 
+/**
+ * What Show Claude puts in the prompt box: where each TODO is, and no verb that asks for a fix.
+ * Paths are the repository's: a session started elsewhere gets them under `root`.
+ */
 export function promptText(todos: readonly Todo[], root: string | null): string {
   return ["Read these TODOs:", ...todos.map((todo) => promptItem(todo, root)), ""].join("\n");
 }
