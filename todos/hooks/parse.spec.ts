@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import type { Todo } from "../types/index.d.ts";
+import type { Finding, Todo } from "../types/index.d.ts";
 import {
   addedTodos,
   ATTRIBUTE_PATHSPECS,
@@ -18,8 +18,10 @@ import {
   parseGrep,
   parseList,
   parseMarkers,
+  findingOf,
   pickedTodos,
   promptText,
+  reviewText,
   shortenStart,
   sortNewestFirst,
   sourceLabel,
@@ -30,7 +32,7 @@ const pattern = commentPattern(DEFAULT_MARKERS);
 
 const DAY = 86_400_000;
 
-function todo(fields: Partial<Todo>): Todo {
+function todo(fields: Partial<Exclude<Todo, Finding>>): Todo {
   return {
     source: "comment",
     path: "src/a.ts",
@@ -372,6 +374,7 @@ describe("picking", () => {
     mineTotal: 1,
     todos: [newer, listed],
     mineTodos: [fixme],
+    findings: [],
   };
 
   test("pickedTodos keeps the band's order, each once, from the full list and Mine", () => {
@@ -405,5 +408,64 @@ describe("picking", () => {
 
   test("promptText puts the paths under the root it is given", () => {
     expect(promptText([listed], "/repo")).toBe("Read these TODOs:\n- /repo/TODO.md:3: list item\n");
+  });
+});
+
+describe("findings", () => {
+  const recordedAt = "2026-10-16T09:30:00.000Z";
+
+  const plain = findingOf("a1b2c3d4", {
+    path: "src/a.ts",
+    line: 12,
+    why: "retries\nforever",
+    kind: "finding",
+    recordedAt,
+  });
+
+  const security = findingOf("9f8e7d6c", {
+    path: "deploy.sh",
+    line: null,
+    why: "prints the token",
+    kind: "security",
+    recordedAt,
+  });
+
+  test("findingOf dates a finding to its record and counts it as nobody's commit", () => {
+    expect(plain).toMatchObject({
+      source: "finding",
+      marker: "FINDING",
+      text: "retries forever",
+      authoredAt: Date.parse(recordedAt),
+      commit: null,
+      authorEmail: null,
+    });
+    expect(isMine(plain, "me@example.com")).toBe(true);
+  });
+
+  test("a finding reads with its marker, and a whole-file one by its path alone", () => {
+    expect(displayText(security)).toBe("SECURITY prints the token");
+    expect(sourceLabel(plain)).toBe("src/a.ts:12");
+    expect(sourceLabel(security)).toBe("deploy.sh");
+  });
+
+  test("a finding keeps its id when its text or line changes", () => {
+    expect(todoId(plain)).toBe(todoId({ ...plain, line: 40, text: "edited" }));
+  });
+
+  test("promptText names a finding's id and date", () => {
+    expect(promptText([plain], null)).toBe(
+      "Read these TODOs:\n- src/a.ts:12: FINDING retries forever (finding a1b2c3d4, 2026-10-16)\n",
+    );
+  });
+
+  test("reviewText puts security first and says how a handled finding leaves", () => {
+    expect(reviewText([plain, security], "/repo")).toBe(
+      [
+        "Review these findings with me: recommend an issue, a fix or a dismissal for each, then carry out what I choose and close each handled one with `todos-finding --close <id>`.",
+        "- /repo/deploy.sh: SECURITY prints the token (finding 9f8e7d6c, 2026-10-16)",
+        "- /repo/src/a.ts:12: FINDING retries forever (finding a1b2c3d4, 2026-10-16)",
+        "",
+      ].join("\n"),
+    );
   });
 });

@@ -1,7 +1,8 @@
 import type { EngineInterface, PluginOptions, Register } from "claude-code";
 import { atom, read, update } from "claude-code";
 
-import type { TodoScan } from "../types/index.d.ts";
+import type { Finding, Todo, TodoScan } from "../types/index.d.ts";
+import { COMMAND as FINDING_COMMAND, isPlainFindingCommand } from "./findings.ts";
 import {
   addedTodos,
   DEFAULT_MARKERS,
@@ -14,6 +15,7 @@ import {
   parseMarkers,
   pickedTodos,
   promptText,
+  reviewText,
   shortenStart,
   sourceLabel,
   todoId,
@@ -86,6 +88,8 @@ function hostOf($: EngineInterface): Host {
     run: (argv, cwd) => $.process.run(argv, { cwd, timeoutMs: GIT_TIMEOUT_MS }),
     exists: (path) => $.fs.exists(path),
     read: (path) => $.fs.read(path),
+    listFiles: async (directory) =>
+      (await $.fs.list(directory)).flatMap((entry) => (entry.kind === "file" ? [entry.name] : [])),
   };
 }
 
@@ -100,15 +104,42 @@ function kept(scan: ScanResult): TodoScan {
     mineTotal: mine.length,
     todos: scan.todos.slice(0, KEPT_TODOS),
     mineTodos: mine.slice(0, KEPT_TODOS),
+    findings: scan.findings.slice(0, KEPT_TODOS),
   };
 }
 
 function countText(scan: TodoScan, mineOnly: boolean): string {
   if (scan.total === 0) return "No TODOs in this repository.";
   const counted = `${scan.total} ${scan.total === 1 ? "TODO" : "TODOs"} above the prompt`;
+  const mine = mineOnly ? `, ${scan.mineTotal} of them yours` : "";
 
-  return mineOnly ? `${counted}, ${scan.mineTotal} of them yours.` : `${counted}.`;
+  const count = scan.findings.length;
+
+  const findings =
+    count === 0 ? "" : `; ${count} ${count === 1 ? "finding" : "findings"} to review`;
+
+  return `${counted}${mine}${findings}.`;
 }
+
+function newFindingToast(added: readonly Finding[]): string {
+  const [first, ...others] = added;
+
+  if (first === undefined) return "";
+
+  return `New ${first.marker === "SECURITY" ? "SECURITY finding" : "finding"} at ${sourceLabel(first)}: ${first.text}${others.length > 0 ? ` (+${others.length} more)` : ""}`;
+}
+
+/* oxlint-disable anti-slop/no-unknown-parameters, anti-slop/no-runtime-typeof -- a permission check hands the tool's input as `unknown`: this read IS the boundary. */
+/** The command a permission check reads for Bash; null for any other input. */
+function shellCommand(input: unknown): string | null {
+  return typeof input === "object" &&
+    input !== null &&
+    "command" in input &&
+    typeof input.command === "string"
+    ? input.command
+    : null;
+}
+/* oxlint-enable anti-slop/no-unknown-parameters, anti-slop/no-runtime-typeof */
 
 // Scans overlap when an edit lands during one: only the latest to start writes the band.
 let latestScan = 0;
@@ -159,12 +190,57 @@ async function refreshOrToast(
   }
 }
 
+async function announceNewFindings(
+  $: EngineInterface,
+  settings: Settings,
+  scan: TodoScan,
+): Promise<void> {
+  const known = new Set(scan.findings.map((finding) => finding.id));
+
+  try {
+    const state = await refresh($, settings, scan.root, false);
+
+    const toast = newFindingToast(
+      (state?.findings ?? []).filter((finding) => !known.has(finding.id)),
+    );
+
+    if (toast !== "") $.ui.toast(toast);
+  } catch (error) {
+    $.ui.toast(messageOf(error instanceof Error ? error : String(error)));
+  }
+}
+
 function windowStart(offset: number, count: number, windowRows: number): number {
   return Math.max(0, Math.min(offset, count - windowRows));
 }
 
 function pagedOffset(offset: number, by: number, count: number, windowRows: number): number {
   return windowStart(windowStart(offset, count, windowRows) + by, count, windowRows);
+}
+
+/** Paths are the repository's: a session started elsewhere gets them under the root. */
+async function promptRoot($: EngineInterface, scan: TodoScan): Promise<string | null> {
+  return (await $.session.cwd()) === scan.root ? null : scan.root;
+}
+
+/** Puts `text` in the prompt box at the cursor, on a line of its own; false when the box refuses it. */
+async function fillPrompt($: EngineInterface, text: string, what: string): Promise<boolean> {
+  const box = await $.prompt.read();
+  const before = box.text.slice(0, box.cursor);
+
+  // oxlint-disable-next-line unicorn/no-array-fill-with-reference-type -- $.prompt.fill writes the prompt box; it is no Array.prototype.fill
+  const filled = await $.prompt.fill({
+    text: `${before === "" || before.endsWith("\n") ? "" : "\n"}${text}`,
+    mode: "insert",
+  });
+
+  if (!filled.isFilled) {
+    $.ui.toast(
+      `The prompt box did not take the ${what}${filled.refusal === undefined ? "" : ` (${filled.refusal})`}.`,
+    );
+  }
+
+  return filled.isFilled;
 }
 
 async function showClaude($: EngineInterface): Promise<void> {
@@ -174,25 +250,16 @@ async function showClaude($: EngineInterface): Promise<void> {
   const todos = pickedTodos(scan, await read($, pickedIds));
 
   if (todos.length === 0) return;
-  const root = (await $.session.cwd()) === scan.root ? null : scan.root;
-  const box = await $.prompt.read();
-  const before = box.text.slice(0, box.cursor);
 
-  // oxlint-disable-next-line unicorn/no-array-fill-with-reference-type -- $.prompt.fill writes the prompt box; it is no Array.prototype.fill
-  const filled = await $.prompt.fill({
-    text: `${before === "" || before.endsWith("\n") ? "" : "\n"}${promptText(todos, root)}`,
-    mode: "insert",
-  });
+  if (await fillPrompt($, promptText(todos, await promptRoot($, scan)), "TODOs"))
+    await update($, pickedIds, () => NOTHING_PICKED);
+}
 
-  if (!filled.isFilled) {
-    $.ui.toast(
-      `The prompt box did not take the TODOs${filled.refusal === undefined ? "" : ` (${filled.refusal})`}.`,
-    );
+async function reviewFindings($: EngineInterface): Promise<void> {
+  const scan = await read($, scanState);
 
-    return;
-  }
-
-  await update($, pickedIds, () => NOTHING_PICKED);
+  if (scan === null || scan.findings.length === 0) return;
+  await fillPrompt($, reviewText(scan.findings, await promptRoot($, scan)), "findings");
 }
 
 export const register: Register = (on, options) => {
@@ -284,6 +351,32 @@ export const register: Register = (on, options) => {
     return result;
   });
 
+  // A finding goes to the buffer, not to the person: a plain todos-finding call runs without a prompt.
+  on("tool.check", { tool: "Bash" }, async ($, e, next) => {
+    const verdict = await next(e);
+    const command = shellCommand(e.input);
+
+    if (verdict.decision !== "ask" || command === null || !isPlainFindingCommand(command))
+      return verdict;
+
+    return {
+      decision: "allow",
+      reason: `todos: ${FINDING_COMMAND} writes only the repository's findings buffer`,
+    };
+  });
+
+  on("tool.call", { tool: "Bash" }, async ($, e, next) => {
+    if (e.tool !== "Bash" || !e.command.includes(FINDING_COMMAND)) return next(e);
+    const result = await next(e);
+    const scan = await read($, scanState);
+
+    if ("deny" in result || result.isError === true || scan === null) return result;
+    // Not awaited, as after an edit: the rescan blames every file that holds a TODO.
+    void announceNewFindings($, settings, scan);
+
+    return result;
+  });
+
   on("ui.scroll", { component: "AbovePrompt" }, async ($, e, next) => {
     if (e.origin.kind !== "person" || !(await read($, isVisible))) return next(e);
 
@@ -349,6 +442,8 @@ export const register: Register = (on, options) => {
     const ageWidth = Math.max(0, ...ages.map((age) => age.length));
     const unkeptCount = listedTotal - listed.length;
     const count = mineOnly ? `${scan.mineTotal} of ${scan.total} yours` : `${scan.total}`;
+    const findingCount = scan.findings.length;
+    const securityCount = scan.findings.filter((finding) => finding.marker === "SECURITY").length;
 
     const footer = [
       listed.length > shown.length
@@ -376,6 +471,14 @@ export const register: Register = (on, options) => {
           ],
         }),
       ];
+    };
+
+    const rowText = (todo: Todo) => {
+      const children = displayText(todo);
+
+      return todo.source === "finding" && todo.marker === "SECURITY"
+        ? Text({ wrap: "truncate-end", color: "red", bold: true, children })
+        : Text({ wrap: "truncate-end", children });
     };
 
     const togglePicked = (id: string) =>
@@ -435,7 +538,7 @@ export const register: Register = (on, options) => {
             flexGrow: 1,
             flexShrink: 1,
             minWidth: 0,
-            children: [Text({ wrap: "truncate-end", children: displayText(todo) })],
+            children: [rowText(todo)],
           }),
           ...issueOf(todo.tag),
           Box({
@@ -458,6 +561,17 @@ export const register: Register = (on, options) => {
           children: [
             Text({ bold: true, color: "cyan", children: "todos" }),
             Text({ dimColor: true, children: `· ${count}` }),
+            ...(findingCount > 0
+              ? [
+                  Text({
+                    dimColor: true,
+                    children: `· ${findingCount} ${findingCount === 1 ? "finding" : "findings"}`,
+                  }),
+                ]
+              : []),
+            ...(securityCount > 0
+              ? [Text({ bold: true, color: "red", children: `· ${securityCount} security` })]
+              : []),
           ],
         }),
         ...(rows.length > 0
@@ -490,6 +604,15 @@ export const register: Register = (on, options) => {
                         label: "Clear",
                         dimColor: true,
                         onPress: () => update($, pickedIds, () => NOTHING_PICKED),
+                      }),
+                    ]
+                  : []),
+                ...(findingCount > 0
+                  ? [
+                      Button({
+                        key: "review",
+                        label: "Review findings",
+                        onPress: () => reviewFindings($),
                       }),
                     ]
                   : []),

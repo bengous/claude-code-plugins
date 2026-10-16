@@ -1,4 +1,5 @@
-import type { Todo, TodoScan } from "../types/index.d.ts";
+import type { Finding, Todo, TodoScan } from "../types/index.d.ts";
+import { COMMAND as FINDING_COMMAND, type FindingRecord } from "./findings.ts";
 
 export const DEFAULT_MARKERS: readonly string[] = ["TODO", "FIXME", "HACK"];
 
@@ -228,15 +229,15 @@ export function parseBlame(porcelain: string): Map<number, Origin> {
   return origins;
 }
 
-const sourceRank = (todo: Todo): number => (todo.source === "list" ? 0 : 1);
+const SOURCE_RANK = { list: 0, comment: 1, finding: 2 } as const;
 
 export function sortNewestFirst(todos: readonly Todo[]): Todo[] {
   return todos.toSorted(
     (a, b) =>
       b.authoredAt - a.authoredAt ||
-      sourceRank(a) - sourceRank(b) ||
+      SOURCE_RANK[a.source] - SOURCE_RANK[b.source] ||
       a.path.localeCompare(b.path) ||
-      a.line - b.line,
+      (a.line ?? 0) - (b.line ?? 0),
   );
 }
 
@@ -254,8 +255,12 @@ export function formatAge(ms: number): string {
   return `${Math.floor(days / 365)}y`;
 }
 
+function location(todo: Todo): string {
+  return todo.line === null ? todo.path : `${todo.path}:${todo.line}`;
+}
+
 export function sourceLabel(todo: Todo): string {
-  return stripControl(todo.source === "list" ? todo.path : `${todo.path}:${todo.line}`);
+  return stripControl(todo.source === "list" ? todo.path : location(todo));
 }
 
 /** Keeps the end of a path, where the file name and line are. */
@@ -266,12 +271,14 @@ export function shortenStart(text: string, width: number): string {
 export function displayText(todo: Todo): string {
   const text = todo.text === "" ? "(no description)" : todo.text;
 
-  return todo.source === "comment" && todo.marker !== "TODO" ? `${todo.marker} ${text}` : text;
+  return todo.source === "list" || todo.marker === "TODO" ? text : `${todo.marker} ${text}`;
 }
 
-/** The line is part of it: a rescan that moves a TODO drops it from the picked ones. */
+/** The line is part of a TODO's: a rescan that moves one drops it from the picked ones. A finding keeps its buffer id. */
 export function todoId(todo: Todo): string {
-  return JSON.stringify([todo.source, todo.path, todo.line, todo.marker, todo.text]);
+  return todo.source === "finding"
+    ? JSON.stringify([todo.source, todo.id])
+    : JSON.stringify([todo.source, todo.path, todo.line, todo.marker, todo.text]);
 }
 
 export function pickedTodos(scan: TodoScan, ids: readonly string[]): Todo[] {
@@ -284,13 +291,34 @@ export function pickedTodos(scan: TodoScan, ids: readonly string[]): Todo[] {
  * What Show Claude puts in the prompt box: where each TODO is, and no verb that asks for a fix.
  * Paths are the repository's: a session started elsewhere gets them under `root`.
  */
+function promptItem(todo: Todo, root: string | null): string {
+  const where = `${root === null ? "" : `${root}/`}${stripControl(location(todo))}`;
+
+  const note =
+    todo.source === "finding"
+      ? ` (finding ${todo.id}, ${new Date(todo.authoredAt).toISOString().slice(0, 10)})`
+      : todo.tag === null
+        ? ""
+        : ` (${todo.tag})`;
+
+  return `- ${where}: ${displayText(todo)}${note}`;
+}
+
 export function promptText(todos: readonly Todo[], root: string | null): string {
-  const items = todos.map(
-    (todo) =>
-      `- ${root === null ? "" : `${root}/`}${stripControl(todo.path)}:${todo.line}: ${displayText(todo)}${todo.tag === null ? "" : ` (${todo.tag})`}`,
+  return ["Read these TODOs:", ...todos.map((todo) => promptItem(todo, root)), ""].join("\n");
+}
+
+/** What Review findings puts in the prompt box: the batch, security first, and how a handled finding leaves the buffer. */
+export function reviewText(findings: readonly Finding[], root: string | null): string {
+  const ordered = findings.toSorted(
+    (a, b) => Number(b.marker === "SECURITY") - Number(a.marker === "SECURITY"),
   );
 
-  return ["Read these TODOs:", ...items, ""].join("\n");
+  return [
+    `Review these findings with me: recommend an issue, a fix or a dismissal for each, then carry out what I choose and close each handled one with \`${FINDING_COMMAND} --close <id>\`.`,
+    ...ordered.map((finding) => promptItem(finding, root)),
+    "",
+  ].join("\n");
 }
 
 /** The markers setting: words separated by commas or spaces, each kept once. */
@@ -381,4 +409,19 @@ export function addedTodos(
 
     return false;
   });
+}
+
+export function findingOf(id: string, record: FindingRecord): Finding {
+  return {
+    source: "finding",
+    id,
+    path: record.path,
+    line: record.line,
+    marker: record.kind === "security" ? "SECURITY" : "FINDING",
+    tag: null,
+    text: cleanText(record.why.replaceAll(/\s+/gu, " ")),
+    authoredAt: Date.parse(record.recordedAt),
+    commit: null,
+    authorEmail: null,
+  };
 }

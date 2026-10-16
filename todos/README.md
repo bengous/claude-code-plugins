@@ -1,6 +1,6 @@
 # todos
 
-A Claude Code mod that lists the repository's TODOs in a band above the prompt, newest first, so the open work is in front of you when a session starts.
+A Claude Code mod that lists the repository's TODOs in a band above the prompt, newest first, so the open work is in front of you when a session starts. It also keeps a buffer of findings: what an agent noticed outside its task, recorded with one command for you to review in batch.
 
 ```text
 ╭────────────────────────────────────────────────────────────────────────────────────────────────[-]
@@ -36,6 +36,22 @@ It also skips the paths your `.gitattributes` marks `-todos`, and those it marks
 archive/** -todos
 ```
 
+## Findings
+
+An agent that meets a problem unrelated to its task records it, instead of interrupting you or leaving a TODO comment in the code:
+
+```bash
+todos-finding src/auth.ts:40 'compares the token with =='
+todos-finding --security deploy.sh 'prints the deploy key to the log'
+```
+
+- Claude Code puts the plugin's `bin/` on the Bash tool's `PATH`, so `todos-finding` runs as a bare command, in a subagent too. Outside Claude Code, run `bin/todos-finding` by its path.
+- The path is any file or directory of the repository, relative to the shell's directory or absolute, with `:<line>` when the finding is about one line. The words after it say why.
+- Each finding is one file, `<id>.json`, under `todos/findings/` in the repository's git common directory, `.git/todos/findings/` in a plain clone: every worktree of the repository records into the same buffer, and no commit carries it. It holds the path from the repository's root, the line or `null`, why, `finding` or `security`, and when it was recorded.
+- The band lets a plain call run without a permission prompt: `todos-finding` alone, its arguments plain words or quoted strings, with nothing a shell expands or chains (`$`, a backtick or a backslash in double quotes, `;`, `&&`, `|`, a redirect). Any other command goes to your permission rules as usual, and a rule that denies the call still denies it.
+- The band lists the findings among the TODOs by the time they were recorded, `FINDING why`, or `SECURITY why` in bold red, and counts them in its header, the security ones in red. A toast names each new one: `New SECURITY finding at deploy.sh: prints the deploy key to the log`. Mine counts them as yours.
+- **Review findings** puts every finding in the prompt box, security first, each with its id and date, under a line that asks Claude to recommend an issue, a fix or a dismissal for each, carry out what you choose, and close each handled one with `todos-finding --close <id>`. A finding stays in the buffer until it is closed.
+
 ## Order and age
 
 Each TODO is dated with `git blame`: the time its line was authored. The newest comes first. A line not committed yet, or in an untracked file, dates to the scan and reads `today`.
@@ -45,7 +61,7 @@ Each TODO is dated with `git blame`: the time its line was authored. The newest 
 - It opens when an interactive session starts in a git repository that has TODOs. The scan runs after the session starts, so it never holds your first prompt.
 - It hides on your next message, or on **Hide**. `/todos` scans again and reopens it.
 - It lists `rows` TODOs at a time under a header and a footer that stay put. A longer list gets a row of arrows under it, `8: ↑ 3 more` at the left and `9: ↓ 4 more` at the right: type the digit alone into an empty prompt and pause, or click the arrow, and the list moves by a page. PgUp and PgDn scroll it too once the band is focused (ctrl+x tab or a click), Home and End by a page as well, and so does the wheel over the list where Claude Code reads the mouse. At either end of the list a scroll moves the band itself, when it is taller than its room. The footer says which rows show, `1–5 of 12`.
-- The `○` before a TODO picks it: click it, or Tab to it and press Enter. **Show Claude** puts the picked TODOs in the prompt box at the cursor, under `Read these TODOs:`, one `- path:line: text` per TODO (the path from the repository's root, absolute when the session started in another directory), and gives the keys back to the prompt, where you write what Claude should do with them before you send. **Clear** drops the picks.
+- The `○` before a TODO picks it: click it, or Tab to it and press Enter. **Show Claude** puts the picked TODOs in the prompt box at the cursor, under `Read these TODOs:`, one `- path:line: text` per TODO (the path from the repository's root, absolute when the session started in another directory; a finding with its id and date), and gives the keys back to the prompt, where you write what Claude should do with them before you send. **Clear** drops the picks.
 - **Mine** keeps the TODOs whose git author is your `user.email`, uncommitted lines included. **All** shows every one again.
 - `TODO(#42)` links to issue 42 when `origin` is on GitHub.
 - It keeps what other mods draw in the band below its own list.
@@ -59,7 +75,9 @@ When Claude edits a file with `Edit` or `Write` and adds a TODO, a toast names i
 - A title or comment longer than 200 characters is cut, and control characters are dropped.
 - The list scrolls through the 500 newest TODOs, and as many of yours; the footer counts the others as `+N more`.
 - While the arrows show, an `8` or `9` typed alone into an empty prompt, then a pause, pages the list: it does not start your message.
-- A pick names a TODO by its line: a scan that moves the line, after an edit or `/todos`, drops the pick.
+- A pick names a TODO by its line: a scan that moves the line, after an edit or `/todos`, drops the pick. A finding keeps its pick until it is closed.
+- A finding names a path as the repository had it when it was recorded; a later commit that moves or deletes the file leaves the finding as it was.
+- claude.ai and Cowork do not install a plugin that has a top-level `bin/` directory.
 
 ## Settings
 
@@ -79,4 +97,7 @@ Claude Code asks for them when you enable the plugin; they are also rows in `/co
 | `hooks/register.ts` | The hooks: session start, prompt, `/todos`, the edit toast, the band |
 | `hooks/scan.ts` | The scan: `git grep`, `TODO.md`, `git blame`, through a host the hooks build from `$` |
 | `hooks/parse.ts` | Pure parsing and formatting, covered by `bun test` |
+| `hooks/findings.ts` | The findings buffer's place and record format, shared by the band and the command |
+| `bin/todos-finding` | The command on the Bash tool's `PATH`; it runs `cli/finding.ts` with `bun` |
+| `cli/finding.ts` | Records a finding and closes one, covered by `bun test` in a scratch repository |
 | `hooks/register.test.ts` | Tests for `claude plugin test`, run in Claude Code's own test kit |

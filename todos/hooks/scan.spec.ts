@@ -8,6 +8,10 @@ const NOW = Date.UTC(2026, 9, 2);
 
 const DAY = 86_400_000;
 
+const COMMON = `${ROOT}/.git`;
+
+const BUFFER = `${COMMON}/todos/findings`;
+
 const ok = (stdout: string, isStdoutTruncated = false): RunResult => ({
   exitCode: 0,
   stdout,
@@ -45,6 +49,7 @@ function fakeHost(answers: {
   email?: RunResult;
   remote?: RunResult;
   cpus?: RunResult | Error;
+  findings?: Record<string, string>;
 }): Fake {
   const calls: (readonly string[])[] = [];
 
@@ -57,6 +62,8 @@ function fakeHost(answers: {
           ? Promise.reject(answers.cpus)
           : Promise.resolve(answers.cpus ?? failed(1, ""));
       }
+
+      if (argv.includes("--git-common-dir")) return Promise.resolve(ok(`${COMMON}\n`));
 
       if (argv[1] === "rev-parse") return Promise.resolve(ok(`${ROOT}\n`));
 
@@ -71,8 +78,17 @@ function fakeHost(answers: {
         answers.blame?.[argv.at(-1) ?? ""] ?? failed(128, "fatal: unexpected blame"),
       );
     },
-    exists: () => Promise.resolve(answers.list !== undefined),
-    read: () => Promise.resolve(answers.list ?? ""),
+    exists: (path) =>
+      Promise.resolve(
+        path === BUFFER ? answers.findings !== undefined : answers.list !== undefined,
+      ),
+    read: (path) =>
+      Promise.resolve(
+        path.startsWith(`${BUFFER}/`)
+          ? (answers.findings?.[path.slice(BUFFER.length + 1)] ?? "")
+          : (answers.list ?? ""),
+      ),
+    listFiles: () => Promise.resolve(Object.keys(answers.findings ?? {})),
   };
 
   return { host, calls };
@@ -225,6 +241,69 @@ describe("scanRepo", () => {
   });
 });
 
+function record(why: string, kind: string, recordedAt: number): string {
+  return JSON.stringify({
+    path: "src/a.ts",
+    line: 3,
+    why,
+    kind,
+    recordedAt: new Date(recordedAt).toISOString(),
+  });
+}
+
+describe("findings", () => {
+  test("reads the buffer from the git common directory, among the TODOs by date", async () => {
+    const { host, calls } = fakeHost({
+      grep: ok("src/b.sh\u00003\u0000# FIXME: old comment\n"),
+      blame: { "src/b.sh": ok(porcelain(3, NOW - 400 * DAY)) },
+      findings: {
+        "a1b2c3d4.json": record("retries forever", "finding", NOW - DAY),
+        "9f8e7d6c.json": record("prints the token", "security", NOW - 2 * DAY),
+        ".0badc0de.tmp": "half a fin",
+        "notes.txt": "not a finding",
+      },
+    });
+
+    const scan = await scanRepo(host, ROOT, ["FIXME"], NOW);
+
+    expect(scan.failures).toEqual([]);
+    expect(scan.todos.map((item) => [item.source, item.marker, item.text])).toEqual([
+      ["finding", "FINDING", "retries forever"],
+      ["finding", "SECURITY", "prints the token"],
+      ["comment", "FIXME", "old comment"],
+    ]);
+    expect(scan.findings.map((finding) => finding.id)).toEqual(["a1b2c3d4", "9f8e7d6c"]);
+    expect(calls).toContainEqual([
+      "git",
+      "rev-parse",
+      "--path-format=absolute",
+      "--git-common-dir",
+    ]);
+  });
+
+  test("reports a finding it cannot read and keeps the others", async () => {
+    const { host } = fakeHost({
+      grep: failed(1, ""),
+      findings: {
+        "a1b2c3d4.json": record("retries forever", "finding", NOW),
+        "0badc0de.json": record("", "finding", NOW),
+      },
+    });
+
+    const scan = await scanRepo(host, ROOT, ["TODO"], NOW);
+
+    expect(scan.failures).toEqual([`finding ${BUFFER}/0badc0de.json: \`why\` is empty`]);
+    expect(scan.findings.map((finding) => finding.id)).toEqual(["a1b2c3d4"]);
+  });
+
+  test("reads no buffer where none was recorded", async () => {
+    const { host } = fakeHost({ grep: failed(1, "") });
+    const scan = await scanRepo(host, ROOT, ["TODO"], NOW);
+
+    expect([scan.todos, scan.findings, scan.failures]).toEqual([[], [], []]);
+  });
+});
+
 describe("blame concurrency", () => {
   const files = Array.from({ length: 20 }, (_, index) => `f${index}.ts`);
 
@@ -315,6 +394,7 @@ function answering(answer: RunResult | Error): Host & { cwds: string[] } {
     },
     exists: () => Promise.resolve(true),
     read: () => Promise.resolve(""),
+    listFiles: () => Promise.resolve([]),
   };
 }
 
@@ -391,6 +471,7 @@ describe("repoRoot", () => {
       run: () => Promise.resolve(failed(128, "fatal: not a git repository")),
       exists: () => Promise.resolve(false),
       read: () => Promise.resolve(""),
+      listFiles: () => Promise.resolve([]),
     };
 
     expect(await repoRoot(host, "/tmp")).toBeNull();

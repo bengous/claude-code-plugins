@@ -13,6 +13,18 @@ const ME = "me@example.com";
 
 const OTHER_MOD = "drawn by another mod";
 
+const BUFFER = `${ROOT}/.git/todos/findings`;
+
+function finding(why: string, kind: "finding" | "security", recordedAt: number): string {
+  return JSON.stringify({
+    path: "src/a.ts",
+    line: kind === "security" ? null : 4,
+    why,
+    kind,
+    recordedAt: new Date(recordedAt).toISOString(),
+  });
+}
+
 const GREP = [
   "src/a.ts\u000010\u0000  // TODO(#12): newer comment",
   "src/b.sh\u00003\u0000# FIXME: older comment",
@@ -75,6 +87,7 @@ function stubRepo(
     excludedPaths = new Set<string>(),
     draft = "",
     cwd = ROOT,
+    findings = new Map<string, string>(),
   } = {},
 ): Repo {
   const clock = mock.clock(on, { now: NOW });
@@ -90,8 +103,21 @@ function stubRepo(
   on("command.register", (_$, e) => ({ value: { command: e.name } }));
   on("session.cwd", () => ({ value: cwd }));
   on("prompt.read", () => ({ value: { text: draft, cursor: draft.length } }));
-  on("fs.exists", (_$, e) => ({ value: files.has(e.path) }));
+  on("fs.exists", (_$, e) => ({
+    value: e.path === BUFFER ? findings.size > 0 : files.has(e.path),
+  }));
+  on("fs.list", () => ({
+    value: [...findings.keys()].map((name) => ({
+      name,
+      kind: "file" as const,
+      size: 0,
+      mtimeMs: 0,
+      isLink: false,
+    })),
+  }));
   on("fs.read", (_$, e) => {
+    if (e.path.startsWith(`${BUFFER}/`))
+      return { value: findings.get(e.path.slice(BUFFER.length + 1)) ?? "" };
     reads.push(e.path);
     const versions = files.get(e.path) ?? [""];
 
@@ -107,6 +133,7 @@ function stubRepo(
 
     switch (e.argv[1]) {
       case "rev-parse": {
+        if (e.argv.includes("--git-common-dir")) return run(`${ROOT}/.git\n`);
         const prefix = (e.init?.cwd ?? ROOT).slice(ROOT.length + 1);
 
         return run(
@@ -730,4 +757,106 @@ test("/todos outside a git repository says so", async ($, on) => {
   const answer = await $.command.run(TODOS);
 
   expect(answer.text).toBe("Not inside a git repository.");
+});
+
+const FINDINGS = (): Map<string, string> =>
+  new Map([
+    ["a1b2c3d4.json", finding("retries forever", "finding", NOW - 2 * DAY)],
+    ["9f8e7d6c.json", finding("prints the token", "security", NOW - 3 * DAY)],
+  ]);
+
+test("findings from the buffer join the band, a security one in red", async ($, on) => {
+  stubRepo(on, { findings: FINDINGS() });
+  const answer = await $.command.run(TODOS);
+
+  expect(answer.text).toBe("5 TODOs above the prompt; 2 findings to review.");
+  const ui = await $.ui.mount(BAND);
+  const shown = await texts(ui);
+
+  expect(shown).toContain("· 2 findings");
+  expect(shown).toContain("· 1 security");
+  expect(shown).toContain("FINDING retries forever");
+  expect(shown).toContain("src/a.ts:4");
+  expect(shown).toContain("2d");
+  expect((await ui.find({ type: "Text", text: "SECURITY prints the token" }))?.props).toMatchObject(
+    {
+      color: "red",
+      bold: true,
+    },
+  );
+  expect(
+    (await ui.find({ type: "Text", text: "FINDING retries forever" }))?.props,
+  ).not.toHaveProperty("color");
+});
+
+test("Review findings puts the whole buffer in the prompt box, security first", async ($, on) => {
+  stubRepo(on, { findings: FINDINGS() });
+  const fills: string[] = [];
+
+  on("prompt.fill", (_$, e) => {
+    fills.push(e.text);
+
+    return { isFilled: true };
+  });
+  await $.command.run(TODOS);
+  const ui = await $.ui.mount(BAND);
+
+  await ui.press({ key: "review" });
+
+  expect(fills).toEqual([
+    [
+      "Review these findings with me: recommend an issue, a fix or a dismissal for each, then carry out what I choose and close each handled one with `todos-finding --close <id>`.",
+      "- src/a.ts: SECURITY prints the token (finding 9f8e7d6c, 2026-09-29)",
+      "- src/a.ts:4: FINDING retries forever (finding a1b2c3d4, 2026-09-30)",
+      "",
+    ].join("\n"),
+  ]);
+});
+
+test("a band without findings has no Review button", async ($, on) => {
+  stubRepo(on);
+  await $.command.run(TODOS);
+
+  expect(await (await $.ui.mount(BAND)).find({ type: "Button", key: "review" })).toBeUndefined();
+});
+
+test("a recorded finding raises a toast and joins the band", async ($, on) => {
+  const findings = new Map<string, string>();
+  const { clock, toasts } = stubRepo(on, { findings });
+
+  on("tool.call", { tool: "Bash" }, () => {
+    findings.set("9f8e7d6c.json", finding("prints the token", "security", NOW));
+
+    return {
+      result: { stdout: "Recorded security finding 9f8e7d6c", stderr: "", interrupted: false },
+    };
+  });
+  await $.command.run(TODOS);
+  await $.tool.call({
+    tool: "Bash",
+    command: "todos-finding --security src/a.ts 'prints the token'",
+  });
+  await clock.settle();
+
+  expect(toasts).toEqual(["New SECURITY finding at src/a.ts: prints the token"]);
+  expect(await texts(await $.ui.mount(BAND))).toContain("SECURITY prints the token");
+});
+
+test("a plain todos-finding call runs unasked, unless a rule denies it", async ($, on) => {
+  stubRepo(on);
+  let engine: "ask" | "deny" = "ask";
+
+  on("tool.check", () => ({ decision: engine }));
+
+  const decide = async (command: string, verdict: "ask" | "deny" = "ask") => {
+    engine = verdict;
+
+    return (await $.tool.check({ tool: "Bash", input: { command } })).decision;
+  };
+
+  expect(await decide("todos-finding src/a.ts:4 'retries forever'")).toBe("allow");
+  expect(await decide("todos-finding --close a1b2c3d4")).toBe("allow");
+  expect(await decide("todos-finding src/a.ts 'x' && rm -rf src")).toBe("ask");
+  expect(await decide('todos-finding src/a.ts "$(cat ~/.netrc)"')).toBe("ask");
+  expect(await decide("todos-finding src/a.ts 'x'", "deny")).toBe("deny");
 });

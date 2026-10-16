@@ -1,7 +1,9 @@
-import type { Todo } from "../types/index.d.ts";
+import type { Finding, Todo } from "../types/index.d.ts";
+import { findingIdOf, FINDINGS_DIR, parseRecord } from "./findings.ts";
 import {
   ATTRIBUTE_PATHSPECS,
   EXCLUDING_ATTRIBUTE_NAMES,
+  findingOf,
   githubWebUrl,
   type GrepHit,
   isExcludedByAttributes,
@@ -31,6 +33,7 @@ export type ScanResult = {
   readonly userEmail: string | null;
   readonly issueBase: string | null;
   readonly todos: readonly Todo[];
+  readonly findings: readonly Finding[];
   readonly failures: readonly string[];
 };
 
@@ -53,6 +56,7 @@ export type Host = {
   readonly run: (argv: readonly string[], cwd: string) => Promise<RunResult>;
   readonly exists: (path: string) => Promise<boolean>;
   readonly read: (path: string) => Promise<string>;
+  readonly listFiles: (directory: string) => Promise<readonly string[]>;
 };
 
 export async function repoRoot(host: Host, cwd: string): Promise<string | null> {
@@ -192,6 +196,53 @@ async function gitValue(host: Host, root: string, args: readonly string[]): Prom
   return run.exitCode === 0 && value !== "" ? value : null;
 }
 
+type Buffered = { readonly findings: readonly Finding[]; readonly failures: readonly string[] };
+
+/** The findings `todos-finding` recorded, from the git common directory every worktree of the repository shares. */
+async function readFindings(host: Host, root: string): Promise<Buffered> {
+  const common = await gitValue(host, root, [
+    "rev-parse",
+    "--path-format=absolute",
+    "--git-common-dir",
+  ]);
+
+  if (common === null)
+    return {
+      findings: [],
+      failures: ["git rev-parse --git-common-dir failed: no finding is read"],
+    };
+  const directory = `${common}/${FINDINGS_DIR}`;
+
+  if (!(await host.exists(directory))) return { findings: [], failures: [] };
+
+  const ids = (await host.listFiles(directory)).flatMap((name) => {
+    const id = findingIdOf(name);
+
+    return id === null ? [] : [id];
+  });
+
+  const read = await Promise.all(
+    ids.map(async (id) => {
+      try {
+        return {
+          isOk: true,
+          finding: findingOf(id, parseRecord(await host.read(`${directory}/${id}.json`))),
+        } as const;
+      } catch (error) {
+        return {
+          isOk: false,
+          error: `finding ${directory}/${id}.json: ${error instanceof Error ? error.message : String(error)}`,
+        } as const;
+      }
+    }),
+  );
+
+  return {
+    findings: read.flatMap((result) => (result.isOk ? [result.finding] : [])),
+    failures: read.flatMap((result) => (result.isOk ? [] : [result.error])),
+  };
+}
+
 async function readList(host: Host, root: string): Promise<string | null> {
   const path = `${root}/${LIST_FILE}`;
 
@@ -204,13 +255,15 @@ export async function scanRepo(
   markers: readonly string[],
   scannedAt: number,
 ): Promise<ScanResult> {
-  const [{ hits, isTruncated }, listText, userEmail, remote, concurrency] = await Promise.all([
-    grepComments(host, root, markers),
-    readList(host, root),
-    gitValue(host, root, ["config", "user.email"]),
-    gitValue(host, root, ["remote", "get-url", "origin"]),
-    blameConcurrency(host, root),
-  ]);
+  const [{ hits, isTruncated }, listText, buffered, userEmail, remote, concurrency] =
+    await Promise.all([
+      grepComments(host, root, markers),
+      readList(host, root),
+      readFindings(host, root),
+      gitValue(host, root, ["config", "user.email"]),
+      gitValue(host, root, ["remote", "get-url", "origin"]),
+      blameConcurrency(host, root),
+    ]);
 
   const listItems = listText === null ? [] : parseList(listText);
 
@@ -227,7 +280,12 @@ export async function scanRepo(
   const blamed = await mapPool(jobs, concurrency, (job) => blame(host, root, job.path, job.lines));
 
   const originsByPath = new Map<string, Map<number, Origin>>();
-  const failures: string[] = isTruncated ? ["git grep printed over 4 MiB: the list is cut"] : [];
+
+  const failures: string[] = [
+    ...(isTruncated ? ["git grep printed over 4 MiB: the list is cut"] : []),
+    ...buffered.failures,
+  ];
+
   jobs.forEach((job, index) => {
     const result = blamed[index];
 
@@ -253,6 +311,7 @@ export async function scanRepo(
       ...originOf(LIST_FILE, item.line),
     })),
     ...hits.map((hit): Todo => ({ source: "comment", ...hit, ...originOf(hit.path, hit.line) })),
+    ...buffered.findings,
   ];
 
   return {
@@ -261,6 +320,7 @@ export async function scanRepo(
     userEmail,
     issueBase: remote === null ? null : githubWebUrl(remote),
     todos: sortNewestFirst(todos),
+    findings: buffered.findings.toSorted((a, b) => b.authoredAt - a.authoredAt),
     failures,
   };
 }
