@@ -345,3 +345,28 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           PR: ${{ github.event.pull_request.number }}
+
+  # While `dev`'s head is red, one open issue labelled `red-dev` says so (`scripts/red-dev.ts`):
+  # a red push run opens it or comments on it, a green one closes it. It needs every other job,
+  # which `scripts/red-dev.test.ts` holds, so it reads the whole run's verdict.
+  red-dev:
+    needs: [validate, scope, win32, mutation, e2e-window, e2e-win32, e2e, unlabel]
+    if: ${{ !cancelled() && github.event_name == 'push' && github.ref == 'refs/heads/dev' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up tools (bun via mise)
+        uses: jdx/mise-action@v5
+        with:
+          install_args: bun
+
+      - name: Open, comment on or close the red-dev issue
+        run: bun ./scripts/red-dev.ts
+        env:
+          GH_TOKEN: ${{ github.token }}
+          NEEDS: ${{ toJSON(needs) }}
