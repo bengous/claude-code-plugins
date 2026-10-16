@@ -25,6 +25,13 @@ describe("parseTarget", () => {
   ])("%s", (raw, target) => {
     expect(parseTarget(raw)).toEqual(target);
   });
+
+  test("refuses line 0, as a record does", () => {
+    expect(() => parseTarget("src/a.ts:0")).toThrow("src/a.ts:0: lines start at 1");
+    expect(() => parseRecord(formatRecord({ ...RECORD, line: 0 }))).toThrow(
+      "`line` is neither null nor a line number",
+    );
+  });
 });
 
 describe("records", () => {

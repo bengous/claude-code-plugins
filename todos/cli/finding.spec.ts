@@ -107,6 +107,7 @@ describe("recording", () => {
 
   test.each([
     [["src/missing.ts", "why"], 1, "src/missing.ts: no such file or directory"],
+    [["src/a.ts:0", "why"], 1, "src/a.ts:0: lines start at 1"],
     [["../", "why"], 1, "../ is outside the repository"],
     [["src/a.ts"], 2, "say why it matters, after the path"],
     [[], 2, "record a finding, or close one"],

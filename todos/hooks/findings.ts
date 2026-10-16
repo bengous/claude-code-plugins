@@ -28,6 +28,11 @@ export type FindingRecord = {
 
 export type Target = { readonly path: string; readonly line: number | null };
 
+/** The one rule for a line, at the command and in a record: a whole number from 1. */
+function isLineNumber(value: unknown): value is number {
+  return Number.isInteger(value) && Number(value) > 0;
+}
+
 export function findingIdOf(fileName: string): string | null {
   return FINDING_FILE.exec(fileName)?.[1] ?? null;
 }
@@ -37,8 +42,11 @@ export function parseTarget(raw: string): Target {
   const match = TARGET_LINE.exec(raw);
 
   if (match?.[1] === undefined) return { path: raw, line: null };
+  const line = Number(match[2]);
 
-  return { path: match[1], line: Number(match[2]) };
+  if (!isLineNumber(line)) throw new Error(`${raw}: lines start at 1`);
+
+  return { path: match[1], line };
 }
 
 export function formatRecord(record: FindingRecord): string {
@@ -60,7 +68,7 @@ export function parseRecord(text: string): FindingRecord {
 
   if (typeof path !== "string" || path === "") throw new Error("`path` is not a path");
 
-  if (line !== null && !(typeof line === "number" && Number.isInteger(line) && line > 0))
+  if (line !== null && !isLineNumber(line))
     throw new Error("`line` is neither null nor a line number");
 
   if (typeof why !== "string" || why.trim() === "") throw new Error("`why` is empty");
