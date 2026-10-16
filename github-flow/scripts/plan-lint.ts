@@ -239,7 +239,18 @@ if (import.meta.main) {
   let found = 0;
 
   for (const file of files) {
-    const findings = lintPlan(await Bun.file(file).text());
+    let text: string;
+
+    try {
+      text = await Bun.file(file).text();
+    } catch (error) {
+      console.error(
+        `plan-lint: cannot read ${file}: ${error instanceof Error ? error.message : String(error)}`,
+      );
+      process.exit(2);
+    }
+
+    const findings = lintPlan(text);
     found += findings.length;
 
     if (findings.length > 0) console.log(formatFindings(findings, file));

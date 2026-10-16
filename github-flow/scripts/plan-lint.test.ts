@@ -236,4 +236,12 @@ describe("CLI", () => {
   test("no file is a usage error", () => {
     expect(Bun.spawnSync(["bun", cli]).exitCode).toBe(2);
   });
+
+  test("a file it cannot read exits 2, never 1, which means findings", () => {
+    const missing = join(planFile(""), "..", "missing.md");
+    const run = Bun.spawnSync(["bun", cli, missing]);
+
+    expect(run.exitCode).toBe(2);
+    expect(run.stderr.toString()).toStartWith(`plan-lint: cannot read ${missing}: `);
+  });
 });
