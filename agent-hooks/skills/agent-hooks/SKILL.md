@@ -114,24 +114,29 @@ What the model bounds and the kit does not try to cross:
 ## Landing guard
 
 - `pre-bash`, a PreToolUse hook on Bash, runs in every repository, with or without
-  `.claude/agent-hooks.jsonc`. It reads each simple command of the call as Bash splits it (quotes,
-  heredocs, `cd`, a subshell, `bash -c`, `eval`) and judges each `git push`, `gh pr merge`,
-  `gh release create` and run of a `scripts/release.<ext>` in the repository it acts on, `git -C`,
-  `--git-dir` and linked worktrees included.
+  `.claude/agent-hooks.jsonc`. It reads each simple command of the call as Bash splits it: quotes,
+  heredocs, `cd`, subshells, `$(…)` and backticks quoted or not, `bash -c`, `eval`, and wrappers
+  (`env -C`, `sudo -D`, `xargs`, `nice`, `timeout`, `time`). It judges each `git push`, `gh pr merge`,
+  `gh release create`, run of a `scripts/release.<ext>` (through a runtime's options, or a
+  `package.json` script with its pre and post scripts), in the repository it acts on: `git -C`,
+  `--git-dir` and linked worktrees included. A push without refspec goes where `@{push}` says, the
+  current branch when git cannot tell. The commands of one call are judged together, within 25 s.
 - A repository whose agents land on their own declares its branches in its own file:
-  `"profile": { "landing": { "trunk": "dev", "release": "main" } }`, never read from a preset. The
-  guard then refuses a push to `release` (a deletion, `--all` and `--mirror` included), a force push or
-  a deletion of `trunk`, a `gh pr merge` into `release`, with a check not green or none reported yet, or
-  not mergeable, `gh release create`, and `scripts/release.<ext>` (its `--dry-run` passes). Each
-  refusal names the way through: push to `trunk`, or `bun ./scripts/land.ts <branch>` when the
-  repository has that script.
+  `"profile": { "landing": { "trunk": "dev", "release": "main" } }`, never read from a preset, and read
+  alone: an error elsewhere in the file leaves it in force. The guard then refuses a push to `release`
+  (a deletion, `--all` and `--mirror` included), a force push or a deletion of `trunk`, a `gh pr merge`
+  into `release`, with a check not green or none reported yet, or not mergeable, `gh release create`,
+  and `scripts/release.<ext>` (its `--dry-run` passes). The checks are the newest run per name,
+  workflow and event, as `gh pr checks` keeps them. Each refusal names the way through: push to
+  `trunk`, or `bun ./scripts/land.ts <branch>` when the repository has that script. A file that does
+  not parse, or an invalid profile, refuses every one of these commands, naming the error.
 - Without a profile, it refuses a push or a `gh pr merge` to the default branch of a public repository.
   The visibility and the default branch come from `gh repo view`, read once per repository and session
-  into `~/.local/state/agent-hooks/github__<session>.json`. A lookup that fails lets the command through
-  with a `systemMessage` that starts with `agent-hooks:`; so does an invalid config file, judged by this
-  default. A remote that names no `host/owner/name` (a local path) is not checked.
-- The profile read is the one of the repository around the command's directory: `gh pr merge --repo`
-  and `gh release create --repo` take the default.
+  into `~/.local/state/agent-hooks/github__<session>.json`. A lookup that fails, or a call past its
+  deadline, lets the command through with a `systemMessage` that starts with `agent-hooks:`. A remote
+  that names no `host/owner/name` (a local path) is not checked.
+- The profile read is the one of the repository around the command's directory; `gh --repo` keeps it
+  when it names that repository's `origin`, and takes the default otherwise.
 - Not read: a git alias, a variable or a substitution in a refspec or a `cd` target (the `cd` leaves the
-  directory where it was), a `$(…)` inside double quotes, a script fed on stdin, `gh api`. The Codex
-  wiring calls no `pre-bash`.
+  directory where it was), what `xargs` appends, a script fed on stdin, `gh api`. The Codex wiring calls
+  no `pre-bash`.
