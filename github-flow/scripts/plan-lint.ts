@@ -23,7 +23,8 @@ interface ProseLine {
   heading: { level: number; title: string } | null;
 }
 
-const FENCE = /^ {0,3}(`{3,}|~{3,})/u;
+// Any indent: a fence nested in a list item sits four spaces in or more.
+const FENCE = /^\s*(`{3,}|~{3,})/u;
 
 const HEADING = /^ {0,3}(#{1,6})\s+(.*?)(?:\s+#+)?\s*$/u;
 

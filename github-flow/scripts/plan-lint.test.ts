@@ -39,6 +39,20 @@ describe("placeholder", () => {
     expect(checks("# Plan\n\nOn verra : décider plus tard.")).toEqual(["placeholder@3"]);
   });
 
+  test("a fence nested in a list item is code too, its lines no heading", () => {
+    const plan = [
+      "1. Run:",
+      "",
+      "    ```sh",
+      "    echo TBD",
+      "  ## Open questions",
+      "  - Port?",
+      "    ```",
+    ].join("\n");
+
+    expect(checks(plan)).toEqual([]);
+  });
+
   test("a comment marker inside a code span opens no comment", () => {
     expect(checks("# Plan\n\nThe page opens a comment with `<!--`.\n\nStorage: TBD.")).toEqual([
       "placeholder@5",
