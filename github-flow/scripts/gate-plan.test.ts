@@ -75,17 +75,21 @@ describe("lintStatePath", () => {
 describe("hook", () => {
   const hook = join(import.meta.dir, "gate-plan.ts");
 
+  // The hook captures every plan it lets through, and the capture posts on the PR
+  // of the checkout it runs in: it runs in the temp dir, which is no repository,
+  // with no GitHub credentials.
   function run(tmp: string, stdin: string) {
     const result = Bun.spawnSync(["bun", hook], {
+      cwd: tmp,
       stdin: Buffer.from(stdin),
-      env: { ...process.env, HOME: tmp },
+      env: { ...process.env, HOME: tmp, GH_CONFIG_DIR: tmp, GH_TOKEN: "", GITHUB_TOKEN: "" },
     });
 
     return { stdout: result.stdout.toString(), exitCode: result.exitCode };
   }
 
   function submit(tmp: string, plan: string) {
-    return run(tmp, JSON.stringify({ session_id: "s1", tool_input: { plan } }));
+    return run(tmp, JSON.stringify({ session_id: "s1", cwd: tmp, tool_input: { plan } }));
   }
 
   test("denies a faulty plan once, then lets the same plan through every time", () => {
