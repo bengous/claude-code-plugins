@@ -3,6 +3,8 @@ import path from "node:path";
 
 import type { LandingProfile } from "./config.ts";
 import { ConfigError, configPath, loadProfile } from "./config.ts";
+import type { Deadline } from "./exec.ts";
+import { deadlineIn } from "./exec.ts";
 import {
   githubSlugOf,
   pullRequestOf,
@@ -44,7 +46,20 @@ type ProfileRead =
 
 const DEFAULT: ProfileRead = { kind: "default" };
 
-type GuardContext = { readonly sessionId: string; readonly now: number };
+/** Below the 30 s timeout `hooks/hooks.json` gives pre-bash, so the hook answers before Claude Code cuts it. */
+export const PRE_BASH_DEADLINE_MS = 25_000;
+
+type GuardContext = {
+  readonly sessionId: string;
+  readonly now: number;
+  readonly deadline: Deadline;
+};
+
+export type PreBashOptions = {
+  readonly now?: number;
+  /** Overrides PRE_BASH_DEADLINE_MS for the tests. */
+  readonly deadlineMs?: number;
+};
 
 function git(cwd: string, location: readonly string[], args: readonly string[]): string | null {
   // Without an explicit env Bun.spawnSync reuses the process's original environ and ignores the GIT_* scrub of tests.
@@ -192,7 +207,7 @@ async function judgePush(
     return ALLOW;
   }
 
-  const facts = await repoFactsOf(slug, context.sessionId, cwd, context.now);
+  const facts = await repoFactsOf(slug, context.sessionId, cwd, context.deadline, context.now);
 
   return facts.kind === "failed"
     ? note(
@@ -228,7 +243,7 @@ async function judgeGh(
     return profile.kind === "profiled" ? refusal(releaseRefusal(name, profile.landing)) : ALLOW;
   }
 
-  const pr = await pullRequestOf(cwd, command.selector, command.repo);
+  const pr = await pullRequestOf(cwd, command.selector, command.repo, context.deadline);
 
   if (pr.kind === "failed") {
     return note(
@@ -246,7 +261,7 @@ async function judgeGh(
     return ALLOW;
   }
 
-  const facts = await repoFactsOf(slug, context.sessionId, cwd, context.now);
+  const facts = await repoFactsOf(slug, context.sessionId, cwd, context.deadline, context.now);
 
   return facts.kind === "failed"
     ? note(
@@ -347,8 +362,11 @@ export function encodeGuard(verdict: GuardVerdict): string | null {
  * `profile.landing` derives, or, without one, a push or a merge to the default branch of a public repository.
  * Returns the line to print, or null. Never throws: a crash lets the command through with a note.
  */
-// oxlint-disable-next-line anti-slop/no-unknown-parameters -- the hook payload arrives as parsed JSON from stdin; this function is where it is narrowed.
-export async function runPreBash(payload: unknown, now = Date.now()): Promise<string | null> {
+export async function runPreBash(
+  // oxlint-disable-next-line anti-slop/no-unknown-parameters -- the hook payload arrives as parsed JSON from stdin; this function is where it is narrowed.
+  payload: unknown,
+  options: PreBashOptions = {},
+): Promise<string | null> {
   const toolInput = isRecord(payload) ? recordField(payload, "tool_input") : undefined;
   const command = toolInput === undefined ? undefined : stringField(toolInput, "command");
 
@@ -356,23 +374,37 @@ export async function runPreBash(payload: unknown, now = Date.now()): Promise<st
     return null;
   }
 
-  const context = { sessionId: stringField(payload, "session_id") ?? "", now };
+  const now = options.now ?? Date.now();
+  const deadlineMs = options.deadlineMs ?? PRE_BASH_DEADLINE_MS;
+  const deadline = deadlineIn(deadlineMs, now);
+  const context = { sessionId: stringField(payload, "session_id") ?? "", now, deadline };
   const cwd = stringField(payload, "cwd") ?? process.cwd();
 
   try {
-    const verdicts: GuardVerdict[] = [];
+    const judged = Promise.all(
+      invocationsOf(command, cwd).map((invocation) => judge(invocation, context)),
+    );
 
-    for (const invocation of invocationsOf(command, cwd)) {
-      verdicts.push(await judge(invocation, context));
-    }
+    const verdicts = await Promise.race([judged, pastDeadline(deadline)]);
 
-    return encodeGuard(combine(verdicts));
+    return encodeGuard(
+      verdicts === null
+        ? note(
+            `agent-hooks: pre-bash ran past its ${deadlineMs} ms deadline: the command went unchecked`,
+          )
+        : combine(verdicts),
+    );
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
 
-    return encodeGuard({
-      kind: "note",
-      text: `agent-hooks: pre-bash crashed (${message}): the command went unchecked`,
-    });
+    return encodeGuard(
+      note(`agent-hooks: pre-bash crashed (${message}): the command went unchecked`),
+    );
   }
+}
+
+async function pastDeadline(deadline: Deadline): Promise<null> {
+  await Bun.sleep(deadline.remaining());
+
+  return null;
 }

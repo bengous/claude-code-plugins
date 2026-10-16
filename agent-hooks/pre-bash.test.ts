@@ -6,6 +6,7 @@ import path from "node:path";
 import { CONFIG_RELATIVE_PATH } from "./config.ts";
 import { cachePath } from "./github.ts";
 import { isRecord, recordField, stringField } from "./json.ts";
+import { runPreBash } from "./pre-bash.ts";
 import type { TempRepo } from "./test-support.ts";
 import { createTempRepo, git, removeTempRepo, scrubGitEnv, writeRepoFile } from "./test-support.ts";
 
@@ -527,6 +528,69 @@ describe("pre-bash in a repository without a profile", () => {
 
     expect((await preBash("gh release create v1", repo)).stdout).toBe("");
     expect((await preBash("bun ./scripts/release.ts", repo)).stdout).toBe("");
+  });
+});
+
+describe("pre-bash under its deadline", () => {
+  let repo = "";
+
+  beforeEach(() => {
+    repo = makeRepo("plain", {}, "https://github.com/o/n.git");
+  });
+
+  test("judges the commands of one call at once", async () => {
+    // Each pr view waits until the other one has started: run one after the other, both time out.
+    const gh = `#!/bin/sh
+case "$1 $2 $3" in
+  "pr view 7"|"pr view 8")
+    touch "$FAKE_GH_DIR/started-$3"
+    other=$([ "$3" = 7 ] && echo 8 || echo 7)
+    for _ in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do
+      [ -f "$FAKE_GH_DIR/started-$other" ] && { cat "$FAKE_GH_DIR/pr.json"; exit 0; }
+      sleep 0.1
+    done
+    echo "the other pr view never started" >&2; exit 1 ;;
+  "pr checks"*) cat "$FAKE_GH_DIR/checks.json" ;;
+  "repo view"*) cat "$FAKE_GH_DIR/repo.json" ;;
+esac
+`;
+
+    fakeGh({
+      repo: { visibility: "PUBLIC", defaultBranchRef: { name: "main" } },
+      pr: GREEN_PR,
+      checks: GREEN_CHECKS,
+    });
+    writeFileSync(path.join(temp.bin, "gh"), gh);
+
+    expect((await preBash("gh pr merge 7; gh pr merge 8", repo)).stdout).toBe("");
+  });
+
+  test("lets the command through with a note past its deadline", async () => {
+    writeFileSync(path.join(temp.bin, "gh"), "#!/bin/sh\nsleep 5\n");
+    chmodSync(path.join(temp.bin, "gh"), 0o755);
+    const saved = process.env["PATH"];
+    process.env["PATH"] = `${temp.bin}:${saved ?? ""}`;
+
+    try {
+      const started = Date.now();
+
+      const payload = {
+        session_id: SESSION,
+        cwd: repo,
+        tool_name: "Bash",
+        tool_input: { command: "git push origin main" },
+      };
+
+      expect(await runPreBash(payload, { deadlineMs: 300 })).toBe(
+        JSON.stringify({
+          systemMessage:
+            "agent-hooks: pre-bash ran past its 300 ms deadline: the command went unchecked",
+        }),
+      );
+      expect(Date.now() - started).toBeLessThan(3000);
+    } finally {
+      process.env["PATH"] = saved;
+    }
   });
 });
 

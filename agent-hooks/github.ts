@@ -2,6 +2,7 @@
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import path from "node:path";
 
+import type { Deadline } from "./exec.ts";
 import { outputOf, run, succeeded } from "./exec.ts";
 import { isRecord, recordField, stringField } from "./json.ts";
 import type { Check, PullRequestFacts, RepoFacts } from "./landing.ts";
@@ -87,8 +88,13 @@ function repoFactsFrom(record: Record<string, unknown>): RepoFacts | null {
     : { visibility, defaultBranch };
 }
 
-async function gh(args: readonly string[], cwd: string): Promise<Lookup<unknown>> {
-  const result = await run(["gh", ...args], { cwd, timeoutMs: GH_TIMEOUT_MS });
+async function gh(
+  args: readonly string[],
+  cwd: string,
+  deadline: Deadline,
+): Promise<Lookup<unknown>> {
+  const timeoutMs = Math.min(GH_TIMEOUT_MS, deadline.remaining());
+  const result = await run(["gh", ...args], { cwd, timeoutMs });
 
   if (!succeeded(result)) {
     const why = outputOf(result).split("\n")[0] ?? "";
@@ -113,6 +119,7 @@ export async function repoFactsOf(
   slug: string,
   sessionId: string,
   cwd: string,
+  deadline: Deadline,
   now = Date.now(),
 ): Promise<Lookup<RepoFacts>> {
   const file = cachePath(sessionId);
@@ -123,7 +130,11 @@ export async function repoFactsOf(
     return { kind: "found", value: cached };
   }
 
-  const lookup = await gh(["repo", "view", slug, "--json", "visibility,defaultBranchRef"], cwd);
+  const lookup = await gh(
+    ["repo", "view", slug, "--json", "visibility,defaultBranchRef"],
+    cwd,
+    deadline,
+  );
 
   if (lookup.kind === "failed") {
     return lookup;
@@ -154,6 +165,7 @@ export async function pullRequestOf(
   cwd: string,
   selector: string | null,
   repo: string | null,
+  deadline: Deadline,
 ): Promise<Lookup<PullRequestFacts>> {
   const target = [
     ...(selector === null ? [] : [selector]),
@@ -161,8 +173,8 @@ export async function pullRequestOf(
   ];
 
   const [view, listed] = await Promise.all([
-    gh(["pr", "view", ...target, "--json", "number,url,baseRefName,mergeable"], cwd),
-    gh(["pr", "checks", ...target, "--json", "name,state,workflow,event,startedAt"], cwd),
+    gh(["pr", "view", ...target, "--json", "number,url,baseRefName,mergeable"], cwd, deadline),
+    gh(["pr", "checks", ...target, "--json", "name,state,workflow,event,startedAt"], cwd, deadline),
   ]);
 
   if (view.kind === "failed") {
