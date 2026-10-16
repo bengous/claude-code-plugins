@@ -1,13 +1,13 @@
 #!/usr/bin/env bun
 
 /**
- * CI's `red-dev` job, after a push run on `dev`: while `dev`'s head is red, one open issue
- * labelled `red-dev` says so. A red run opens it, naming the run and its red jobs, or comments
- * on the open one; a green run closes it. A run on a commit `dev` has moved past does nothing,
- * since the newer push's run reports, so runs that end out of order leave no stale issue.
+ * CI's `red-dev` job, after a push run on `dev`: while `dev` is red, one open issue labelled
+ * `red-dev` says so. A red run opens it, naming the run and its red jobs, or comments on the open
+ * one, unless `dev` has moved past its commit to a head with a green run already; only a green
+ * run of `dev`'s head closes it, so runs that end out of order leave no stale verdict.
  *
  * Reads `NEEDS`, the workflow's `toJSON(needs)`, and `GITHUB_REPOSITORY`, `GITHUB_SHA`,
- * `GITHUB_SERVER_URL`, `GITHUB_RUN_ID`; calls `gh` with the job's token.
+ * `GITHUB_SERVER_URL`, `GITHUB_RUN_ID`, `GITHUB_WORKFLOW_REF`; calls `gh` with the job's token.
  */
 
 import type { Env } from "./affected.ts";
@@ -25,6 +25,11 @@ export interface Run {
   readonly sha: string;
   readonly url: string;
 }
+
+/** `dev`'s head against the run's commit: the same, or newer, with or without a green run. */
+export type Head =
+  | { readonly kind: "this" }
+  | { readonly kind: "newer"; readonly sha: string; readonly green: boolean };
 
 export type Action =
   | { readonly kind: "open"; readonly body: string }
@@ -60,12 +65,27 @@ export function verdictOf(results: ReadonlyMap<string, string>): Verdict {
     : { kind: "unsettled", jobs: other.map(([job, result]) => `${job} ${result}`) };
 }
 
-export function plan(verdict: Verdict, openIssues: readonly number[], run: Run): Action {
+export function plan(
+  verdict: Verdict,
+  head: Head,
+  openIssues: readonly number[],
+  run: Run,
+): Action {
   const [newest] = openIssues;
 
   switch (verdict.kind) {
     case "red": {
-      const body = `CI's push run on \`dev\` failed at ${run.sha}: ${run.url}\n\nRed jobs: ${verdict.jobs.map((job) => `\`${job}\``).join(", ")}.`;
+      if (head.kind === "newer" && head.green) {
+        return {
+          kind: "none",
+          reason: `dev's head ${head.sha} has a green run already, after this red one at ${run.sha}`,
+        };
+      }
+
+      const since =
+        head.kind === "newer" ? `\n\ndev is at ${head.sha} since, with no green run yet.` : "";
+
+      const body = `CI's push run on \`dev\` failed at ${run.sha}: ${run.url}\n\nRed jobs: ${verdict.jobs.map((job) => `\`${job}\``).join(", ")}.${since}`;
 
       return newest === undefined
         ? { kind: "open", body }
@@ -73,6 +93,13 @@ export function plan(verdict: Verdict, openIssues: readonly number[], run: Run):
     }
 
     case "green":
+      if (head.kind !== "this") {
+        return {
+          kind: "none",
+          reason: `dev has moved past ${run.sha} to ${head.sha}: only a green run of the head closes the issue`,
+        };
+      }
+
       return openIssues.length === 0
         ? { kind: "none", reason: `dev is green at ${run.sha}, and no ${LABEL} issue is open` }
         : {
@@ -97,6 +124,31 @@ function required(env: Env, name: string): string {
   return value;
 }
 
+/** The workflow file a run's `GITHUB_WORKFLOW_REF` names: `ci.yml` in `o/r/.github/workflows/ci.yml@ref`. */
+export function workflowFileOf(workflowRef: string): string {
+  const file = /\/\.github\/workflows\/([^@/]+)@/u.exec(workflowRef)?.[1];
+
+  if (file === undefined)
+    throw new Error(`GITHUB_WORKFLOW_REF names no workflow file: ${workflowRef}`);
+
+  return file;
+}
+
+async function headOf(gh: Gh, repo: string, workflow: string, sha: string): Promise<Head> {
+  const head = (await gh(["api", `repos/${repo}/commits/dev`, "--jq", ".sha"])).trim();
+
+  if (head === sha) return { kind: "this" };
+
+  const greenRuns = await gh([
+    "api",
+    `repos/${repo}/actions/workflows/${workflow}/runs?head_sha=${head}&event=push&status=success&per_page=1`,
+    "--jq",
+    ".total_count",
+  ]);
+
+  return { kind: "newer", sha: head, green: Number(greenRuns) > 0 };
+}
+
 /** Reads the run, settles what to do, does it with `gh`, and says what it did. */
 export async function report(env: Env, gh: Gh): Promise<string> {
   const repo = required(env, "GITHUB_REPOSITORY");
@@ -108,9 +160,8 @@ export async function report(env: Env, gh: Gh): Promise<string> {
   };
 
   const verdict = verdictOf(parseNeeds(required(env, "NEEDS")));
-  const head = (await gh(["api", `repos/${repo}/commits/dev`, "--jq", ".sha"])).trim();
-
-  if (head !== sha) return `dev has moved past ${sha} to ${head}: that push's run reports`;
+  const workflow = workflowFileOf(required(env, "GITHUB_WORKFLOW_REF"));
+  const head = await headOf(gh, repo, workflow, sha);
 
   const listed: { number: number }[] = JSON.parse(
     await gh([
@@ -129,6 +180,7 @@ export async function report(env: Env, gh: Gh): Promise<string> {
 
   const action = plan(
     verdict,
+    head,
     listed.map((issue) => issue.number).toSorted((a, b) => b - a),
     run,
   );
