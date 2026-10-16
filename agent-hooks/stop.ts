@@ -86,6 +86,7 @@ export async function runStop(context: HookContext): Promise<Verdict> {
     green: state.green,
     head: headSha(root),
     digest: dirtyDigest(root),
+    exclude: config.preEdit.exclude,
   });
 
   recordRun(state, results, started);

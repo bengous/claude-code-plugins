@@ -2,7 +2,7 @@ import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 
 import type { Fixer, Lane, LaneVerdict } from "./config.ts";
-import { expandCommand, matchesFilter, pkgOf } from "./config.ts";
+import { expandCommand, isExcluded, matchesFilter, pkgOf } from "./config.ts";
 import type { Argv, Deadline, RunOptions, RunResult, Runner } from "./exec.ts";
 import { formatFailure, outputOf, resolveProgram, succeeded, tail } from "./exec.ts";
 import type { Diagnostics, Failing } from "./loop-guard.ts";
@@ -52,6 +52,8 @@ export type LaneOptions = FixOptions & {
   readonly green: Readonly<Record<string, string>> | null;
   readonly head: string | null;
   readonly digest: string;
+  /** `pre-edit.exclude`: generated or vendored files, never handed to a `files` lane. */
+  readonly exclude: readonly string[];
 };
 
 export function greenKey(
@@ -212,12 +214,23 @@ export async function sequential<T>(
   await sequential(rest, action);
 }
 
-/** The scope files a lane takes: `on` minus `exclude`, and for a `files` lane only those still on disk. */
-export function selectFiles(lane: Lane, scope: readonly string[], root: string): string[] {
+/**
+ * The scope files a lane takes: `on` minus `exclude`, and for a `files` lane only those still on disk and outside
+ * `preEditExclude`. A `project` lane keeps the generated and vendored files: a change there can still break it.
+ */
+export function selectFiles(
+  lane: Lane,
+  scope: readonly string[],
+  root: string,
+  preEditExclude: readonly string[] = [],
+): string[] {
   const selected = scope.filter((relativePath) => matchesFilter(lane, relativePath));
 
   return lane.takes === "files"
-    ? selected.filter((relativePath) => existsSync(path.join(root, relativePath)))
+    ? selected.filter(
+        (relativePath) =>
+          existsSync(path.join(root, relativePath)) && !isExcluded(preEditExclude, relativePath),
+      )
     : selected;
 }
 
@@ -245,7 +258,7 @@ export function runLanes(
   const jobs = lanes
     .filter((lane) => !lane.disabled)
     .flatMap((lane): Array<Promise<LaneResult>> => {
-      const selected = selectFiles(lane, scope, options.root);
+      const selected = selectFiles(lane, scope, options.root, options.exclude);
 
       if (selected.length === 0) {
         return [Promise.resolve(skipped(lane))];

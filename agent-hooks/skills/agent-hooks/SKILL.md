@@ -24,7 +24,8 @@ levels runs twice.
 2. Read the presets it names under `${CLAUDE_PLUGIN_ROOT}/presets/` and say in two lines what
    runs before each write (fixers) and at Stop (lanes). Adjust with the user: a lane to disable
    (`"<lane>": { "disabled": true }`), a timeout, a `verdict: "note"` for a lane that must inform without
-   blocking, `pre-edit.exclude` globs for generated or vendored trees.
+   blocking, `pre-edit.exclude` globs for generated or vendored trees (never fixed, never handed to a
+   `files` lane; a `project` lane still runs when they change).
 3. Ask for the user's agreement, then write `.claude/agent-hooks.jsonc` (the kit never writes it).
 4. Run `${CLAUDE_PLUGIN_ROOT}/agent-hooks.ts doctor` and fix every `MISSING` line (a tool absent from
    `node_modules/.bin` and PATH, a `bun run <script>` with no such script) before the first turn.

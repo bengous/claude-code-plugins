@@ -70,6 +70,7 @@ export async function runVerify(options: VerifyOptions): Promise<VerifyReport> {
     green: null,
     head: headSha(options.root),
     digest: dirtyDigest(options.root),
+    exclude: options.config.preEdit.exclude,
   });
 
   for (const result of results) {

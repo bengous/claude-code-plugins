@@ -88,6 +88,7 @@ function optionsFor(root: string, overrides: Partial<LaneOptions> = {}): LaneOpt
     green: null,
     head: "head1",
     digest: "digest1",
+    exclude: [],
     ...overrides,
   };
 }
@@ -136,6 +137,16 @@ function lines(file: string): string[] {
 const RECORDER = 'log="$1"; shift; echo "$PWD $*" >> "$log"';
 
 describe("selectFiles", () => {
+  test("a files lane drops a file of pre-edit.exclude, a project lane keeps it", () => {
+    const repo = tempRepo({ "dist/bundle.js": "x\n", "src/a.js": "x\n" });
+    const scope = ["dist/bundle.js", "src/a.js"];
+    const files = laneOf({ name: "lint", on: "**/*.js", takes: "files" });
+    const project = laneOf({ name: "build", on: "**/*.js", takes: "project" });
+
+    expect(selectFiles(files, scope, repo, ["dist/**"])).toEqual(["src/a.js"]);
+    expect(selectFiles(project, scope, repo, ["dist/**"])).toEqual(scope);
+  });
+
   test("keeps the paths `on` matches minus `exclude`", () => {
     const repo = tempRepo({ "src/a.ts": "", "src/a.test.ts": "", "README.md": "" });
     const lane = laneOf({ name: "lint", on: "**/*.ts", exclude: ["**/*.test.ts"] });

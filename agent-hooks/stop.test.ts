@@ -473,6 +473,27 @@ describe("runStop", () => {
     expect(readRepoFile(temp.repo, "src/new.ts")).toBe("GOOD\n");
   });
 
+  test("keeps a file of pre-edit.exclude from the files lanes, and lets a project lane run on it", async () => {
+    setUp(
+      JSON.stringify({
+        "pre-edit": { exclude: ["dist/**"] },
+        stop: {
+          lanes: {
+            lint: { on: "**/*.js", takes: "files", run: "checker {files}" },
+            build: { on: "**/*.js", takes: "project", run: "builder" },
+          },
+        },
+      }),
+      { "dist/bundle.js": "ok\n" },
+    );
+    fakeTool(temp.repo, "builder", "exit 0");
+    await sessionStart();
+    writeRepoFile(temp.repo, "dist/bundle.js", "BAD\n");
+
+    expect(await stop()).toBeNull();
+    expect(state().lastRun?.lanes).toEqual({ lint: "skipped", build: "ok" });
+  });
+
   test("answers Codex with continue and takes turn_id as the prompt id", async () => {
     setUp(LINT_CONFIG);
     const sessionPayload = fixtureIn("codex", "session-start", temp.repo, SESSION);
