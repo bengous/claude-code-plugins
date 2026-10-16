@@ -20,6 +20,7 @@ echo "$*" >> "$FAKE_GH_DIR/calls.log"
 case "$1 $2" in
   "repo view") file="$FAKE_GH_DIR/repo.json" ;;
   "pr view") file="$FAKE_GH_DIR/pr.json" ;;
+  "pr checks") file="$FAKE_GH_DIR/checks.json" ;;
   *) exit 2 ;;
 esac
 if [ -f "$file" ]; then cat "$file"; else echo "error connecting to api.github.com" >&2; exit 1; fi
@@ -30,17 +31,18 @@ const GREEN_PR = {
   url: "https://github.com/o/n/pull/7",
   baseRefName: "dev",
   mergeable: "MERGEABLE",
-  statusCheckRollup: [
-    {
-      __typename: "CheckRun",
-      name: "validate",
-      status: "COMPLETED",
-      conclusion: "SUCCESS",
-      startedAt: "2026-01-01T00:00:00Z",
-    },
-    { __typename: "StatusContext", context: "ci/legacy", state: "SUCCESS", startedAt: "" },
-  ],
 };
+
+const GREEN_CHECKS = [
+  {
+    name: "validate",
+    state: "SUCCESS",
+    workflow: "CI",
+    event: "pull_request",
+    startedAt: "2026-01-01T00:00:00Z",
+  },
+  { name: "ci/legacy", state: "SUCCESS", workflow: "", event: "", startedAt: "" },
+];
 
 type Output = {
   readonly code: number;
@@ -70,7 +72,11 @@ function makeRepo(name: string, files: Readonly<Record<string, string>>, origin:
   return repo;
 }
 
-function fakeGh(responses: { readonly repo?: unknown; readonly pr?: unknown }): void {
+function fakeGh(responses: {
+  readonly repo?: unknown;
+  readonly pr?: unknown;
+  readonly checks?: unknown;
+}): void {
   const file = path.join(temp.bin, "gh");
   writeFileSync(file, FAKE_GH);
   chmodSync(file, 0o755);
@@ -81,6 +87,10 @@ function fakeGh(responses: { readonly repo?: unknown; readonly pr?: unknown }): 
 
   if (responses.pr !== undefined) {
     writeFileSync(path.join(temp.bin, "pr.json"), JSON.stringify(responses.pr));
+  }
+
+  if (responses.checks !== undefined) {
+    writeFileSync(path.join(temp.bin, "checks.json"), JSON.stringify(responses.checks));
   }
 }
 
@@ -282,30 +292,63 @@ describe("pre-bash in a repository with profile.landing", () => {
   });
 
   test("allows gh pr merge of a green, mergeable pull request into the trunk", async () => {
-    fakeGh({ pr: GREEN_PR });
+    fakeGh({ pr: GREEN_PR, checks: GREEN_CHECKS });
 
     expect((await preBash("gh pr merge 7 --squash", repo)).stdout).toBe("");
-    expect(ghCalls()).toEqual([
-      "pr view 7 --json number,url,baseRefName,mergeable,statusCheckRollup",
+    expect(ghCalls().toSorted()).toEqual([
+      "pr checks 7 --json name,state,workflow,event,startedAt",
+      "pr view 7 --json number,url,baseRefName,mergeable",
     ]);
   });
 
+  test("refuses gh pr merge when a pull_request run failed beside a newer skipped push run", async () => {
+    const failed = { ...GREEN_CHECKS[0], state: "FAILURE" };
+
+    const skippedPush = {
+      ...failed,
+      state: "SKIPPED",
+      event: "push",
+      startedAt: "2026-01-02T00:00:00Z",
+    };
+
+    fakeGh({ pr: GREEN_PR, checks: [failed, skippedPush] });
+
+    expect((await preBash("gh pr merge 7", repo)).reason).toContain(
+      "checks not green on #7: validate failure",
+    );
+  });
+
+  test("refuses gh pr merge with no check reported yet", async () => {
+    fakeGh({ pr: GREEN_PR });
+    writeFileSync(
+      path.join(temp.bin, "gh"),
+      FAKE_GH.replace(
+        '"pr checks") file="$FAKE_GH_DIR/checks.json" ;;',
+        `"pr checks") echo "no checks reported on the 'feature/x' branch" >&2; exit 1 ;;`,
+      ),
+    );
+
+    expect((await preBash("gh pr merge 7", repo)).reason).toContain(
+      "no check reported on #7's head yet",
+    );
+  });
+
   test("refuses gh pr merge into the release, with red checks or not mergeable", async () => {
-    fakeGh({ pr: { ...GREEN_PR, baseRefName: "main" } });
+    fakeGh({ pr: { ...GREEN_PR, baseRefName: "main" }, checks: GREEN_CHECKS });
     expect((await preBash("gh pr merge 7", repo)).reason).toContain("#7 merges into 'main'");
 
-    const red = GREEN_PR.statusCheckRollup.map((check) => ({ ...check, conclusion: "FAILURE" }));
-    fakeGh({ pr: { ...GREEN_PR, statusCheckRollup: red } });
+    const red = GREEN_CHECKS.map((check) => ({ ...check, state: "FAILURE" }));
+    fakeGh({ pr: GREEN_PR, checks: red });
     expect((await preBash("gh pr merge 7", repo)).reason).toContain(
       "checks not green on #7: validate failure",
     );
 
-    fakeGh({ pr: { ...GREEN_PR, mergeable: "CONFLICTING" } });
+    fakeGh({ pr: { ...GREEN_PR, mergeable: "CONFLICTING" }, checks: GREEN_CHECKS });
     expect((await preBash("gh pr merge 7", repo)).reason).toContain("not mergeable (conflicting)");
   });
 
   test("applies the profile to gh pr merge --repo naming the cwd's own repository", async () => {
-    fakeGh({ pr: { ...GREEN_PR, baseRefName: "main" } });
+    fakeGh({ pr: { ...GREEN_PR, baseRefName: "main" }, checks: GREEN_CHECKS });
 
     for (const option of ["--repo o/n", "--repo=github.com/o/n", "-R https://github.com/O/N.git"]) {
       expect((await preBash(`gh pr merge 7 ${option}`, repo)).reason).toContain(
@@ -320,6 +363,7 @@ describe("pre-bash in a repository with profile.landing", () => {
     fakeGh({
       repo: { visibility: "PUBLIC", defaultBranchRef: { name: "main" } },
       pr: { ...GREEN_PR, mergeable: "CONFLICTING" },
+      checks: GREEN_CHECKS,
     });
 
     expect((await preBash("gh pr merge --repo=other/repo 7", repo)).stdout).toBe("");
@@ -442,6 +486,7 @@ describe("pre-bash in a repository without a profile", () => {
     fakeGh({
       repo: { visibility: "PUBLIC", defaultBranchRef: { name: "main" } },
       pr: { ...GREEN_PR, baseRefName: "main" },
+      checks: GREEN_CHECKS,
     });
 
     expect((await preBash("gh pr merge 7", repo)).reason).toContain(

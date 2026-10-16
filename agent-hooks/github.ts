@@ -144,34 +144,40 @@ export async function repoFactsOf(
   return { kind: "found", value: facts };
 }
 
-/** The pull request `gh pr merge` would merge, read with the same selector and `--repo`, never cached. */
+const NO_CHECKS = /^no (?:required )?checks reported/u;
+
+/**
+ * The pull request `gh pr merge` would merge, read with the same selector and `--repo`, never cached. Its checks come
+ * from `gh pr checks`, the one read that carries each run's event; "no checks reported" reads as none.
+ */
 export async function pullRequestOf(
   cwd: string,
   selector: string | null,
   repo: string | null,
 ): Promise<Lookup<PullRequestFacts>> {
-  const lookup = await gh(
-    [
-      "pr",
-      "view",
-      ...(selector === null ? [] : [selector]),
-      ...(repo === null ? [] : ["--repo", repo]),
-      "--json",
-      "number,url,baseRefName,mergeable,statusCheckRollup",
-    ],
-    cwd,
-  );
+  const target = [
+    ...(selector === null ? [] : [selector]),
+    ...(repo === null ? [] : ["--repo", repo]),
+  ];
 
-  if (lookup.kind === "failed") {
-    return lookup;
+  const [view, listed] = await Promise.all([
+    gh(["pr", "view", ...target, "--json", "number,url,baseRefName,mergeable"], cwd),
+    gh(["pr", "checks", ...target, "--json", "name,state,workflow,event,startedAt"], cwd),
+  ]);
+
+  if (view.kind === "failed") {
+    return view;
   }
 
-  const record = isRecord(lookup.value) ? lookup.value : {};
+  if (listed.kind === "failed" && !NO_CHECKS.test(listed.why)) {
+    return listed;
+  }
+
+  const record = isRecord(view.value) ? view.value : {};
   const number = record["number"];
   const url = stringField(record, "url");
   const baseRefName = stringField(record, "baseRefName");
   const mergeable = stringField(record, "mergeable");
-  const rollup = record["statusCheckRollup"];
 
   if (
     typeof number !== "number" ||
@@ -182,27 +188,37 @@ export async function pullRequestOf(
     return { kind: "failed", why: "gh pr view printed no number, url, base or mergeable state" };
   }
 
-  const checks = Array.isArray(rollup) ? rollup.flatMap((entry) => checkOf(entry)) : [];
+  const entries = listed.kind === "found" && Array.isArray(listed.value) ? listed.value : [];
 
-  return { kind: "found", value: { number, url, baseRefName, mergeable, checks } };
+  return {
+    kind: "found",
+    value: {
+      number,
+      url,
+      baseRefName,
+      mergeable,
+      checks: entries.flatMap((entry) => checkOf(entry)),
+    },
+  };
 }
 
-/** A check run reads its conclusion once completed, its status before; a commit status reads its state. */
 function checkOf(entry: unknown): Check[] {
   if (!isRecord(entry)) {
     return [];
   }
 
-  const name = stringField(entry, "name") ?? stringField(entry, "context");
-  const startedAt = stringField(entry, "startedAt") ?? stringField(entry, "createdAt") ?? "";
-  const status = stringField(entry, "status");
+  const name = stringField(entry, "name");
+  const state = stringField(entry, "state");
 
-  const state =
-    stringField(entry, "__typename") === "CheckRun"
-      ? status === "COMPLETED"
-        ? stringField(entry, "conclusion")
-        : status
-      : stringField(entry, "state");
-
-  return name === undefined || state === undefined ? [] : [{ name, state, startedAt }];
+  return name === undefined || state === undefined
+    ? []
+    : [
+        {
+          name,
+          state,
+          startedAt: stringField(entry, "startedAt") ?? "",
+          workflow: stringField(entry, "workflow") ?? "",
+          event: stringField(entry, "event") ?? "",
+        },
+      ];
 }

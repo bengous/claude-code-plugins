@@ -31,7 +31,14 @@ export type ReleaseScript = { readonly script: string; readonly dryRun: boolean 
 
 export type RepoFacts = { readonly visibility: string; readonly defaultBranch: string };
 
-export type Check = { readonly name: string; readonly state: string; readonly startedAt: string };
+/** One check as `gh pr checks --json` prints it: a commit status has no workflow and no event. */
+export type Check = {
+  readonly name: string;
+  readonly state: string;
+  readonly startedAt: string;
+  readonly workflow: string;
+  readonly event: string;
+};
 
 export type PullRequestFacts = {
   readonly number: number;
@@ -357,15 +364,19 @@ export function publicPushRefusal(
   );
 }
 
-/** The newest check of each name: a re-run supersedes the attempt before it, as in `gh pr checks`. */
+/**
+ * The newest run of each check: a re-run supersedes the attempt before it, while a run of the same name from another
+ * workflow or another event stays, as `eliminateDuplicates` keys them in gh's `pkg/cmd/pr/checks/aggregate.go`.
+ */
 export function latestChecks(checks: readonly Check[]): Check[] {
   const newest = new Map<string, Check>();
 
   for (const check of checks) {
-    const kept = newest.get(check.name);
+    const key = `${check.name}/${check.workflow}/${check.event}`;
+    const kept = newest.get(key);
 
     if (kept === undefined || check.startedAt > kept.startedAt) {
-      newest.set(check.name, check);
+      newest.set(key, check);
     }
   }
 

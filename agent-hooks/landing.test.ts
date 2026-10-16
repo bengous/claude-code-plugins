@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
 import { githubSlugOf, slugOfPullRequest, slugOfRepoOption } from "./github.ts";
-import type { PullRequestFacts, PushTarget, RepoFacts } from "./landing.ts";
+import type { Check, PullRequestFacts, PushTarget, RepoFacts } from "./landing.ts";
 import {
   CURRENT_BRANCH,
   EVERY_BRANCH,
@@ -42,6 +42,10 @@ function pushVerdict(command: string, currentBranch: string | null = null): stri
   return profiledPushRefusal(resolveTargets(targetsOf(command), currentBranch), LANDING, true);
 }
 
+function check(name: string, state: string, startedAt: string): Check {
+  return { name, state, startedAt, workflow: "CI", event: "pull_request" };
+}
+
 function plain(ref: string): PushTarget {
   return { ref, forced: false, deleted: false };
 }
@@ -52,7 +56,7 @@ function pr(overrides: Partial<PullRequestFacts> = {}): PullRequestFacts {
     url: "https://github.com/o/n/pull/7",
     baseRefName: "dev",
     mergeable: "MERGEABLE",
-    checks: [{ name: "validate", state: "SUCCESS", startedAt: "2026-01-01T00:00:00Z" }],
+    checks: [check("validate", "SUCCESS", "2026-01-01T00:00:00Z")],
     ...overrides,
   };
 }
@@ -482,9 +486,9 @@ describe("profiledMergeRefusal", () => {
 
   test("refuses red and running checks, naming each", () => {
     const checks = [
-      { name: "validate", state: "FAILURE", startedAt: "1" },
-      { name: "e2e", state: "IN_PROGRESS", startedAt: "1" },
-      { name: "scope", state: "SKIPPED", startedAt: "1" },
+      check("validate", "FAILURE", "1"),
+      check("e2e", "IN_PROGRESS", "1"),
+      check("scope", "SKIPPED", "1"),
     ];
 
     expect(profiledMergeRefusal(pr({ checks }), LANDING, true)).toBe(
@@ -494,12 +498,29 @@ describe("profiledMergeRefusal", () => {
 
   test("reads the newest run of each check", () => {
     const checks = [
-      { name: "validate", state: "FAILURE", startedAt: "2026-01-01T00:00:00Z" },
-      { name: "validate", state: "SUCCESS", startedAt: "2026-01-02T00:00:00Z" },
+      check("validate", "FAILURE", "2026-01-01T00:00:00Z"),
+      check("validate", "SUCCESS", "2026-01-02T00:00:00Z"),
     ];
 
     expect(latestChecks(checks)).toEqual(checks.slice(1));
     expect(profiledMergeRefusal(pr({ checks }), LANDING, true)).toBeNull();
+  });
+
+  test("keeps a run of each workflow and event, as gh pr checks does", () => {
+    const failedPullRequest = check("e2e", "FAILURE", "2026-01-01T00:00:00Z");
+    const skippedPush = { ...check("e2e", "SKIPPED", "2026-01-02T00:00:00Z"), event: "push" };
+
+    const otherWorkflow = {
+      ...check("e2e", "SUCCESS", "2026-01-03T00:00:00Z"),
+      workflow: "Nightly",
+    };
+
+    const checks = [failedPullRequest, skippedPush, otherWorkflow];
+
+    expect(latestChecks(checks)).toEqual(checks);
+    expect(profiledMergeRefusal(pr({ checks }), LANDING, true)).toContain(
+      "checks not green on #7: e2e failure",
+    );
   });
 
   test("refuses a head with no check yet", () => {
