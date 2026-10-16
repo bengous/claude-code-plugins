@@ -133,17 +133,20 @@ describe("underRoot", () => {
 });
 
 describe("parseGitStatus", () => {
-  test("keeps modified, untracked and both paths of a rename, skips ignored", () => {
+  test("keeps modified, untracked and both paths of a rename with their status, skips ignored", () => {
     expect(parseGitStatus(" M a\0?? b\0R  new\0old\0!! ignored\0")).toEqual([
-      "a",
-      "b",
-      "new",
-      "old",
+      { status: " M", path: "a" },
+      { status: "??", path: "b" },
+      { status: "R ", path: "new" },
+      { status: "R ", path: "old" },
     ]);
   });
 
   test("keeps both paths of a copy", () => {
-    expect(parseGitStatus("C  copy\0source\0")).toEqual(["copy", "source"]);
+    expect(parseGitStatus("C  copy\0source\0")).toEqual([
+      { status: "C ", path: "copy" },
+      { status: "C ", path: "source" },
+    ]);
   });
 
   test("an empty output has no paths", () => {
@@ -349,10 +352,23 @@ describe("wholeDirtyTree", () => {
 
   test("leaves out the scratch copy of a pre-edit running at that moment", () => {
     const repo = repoWith();
-    writeRepoFile(repo, "src/.agent-hooks-x1/a.ts", "scratch\n");
+    writeRepoFile(repo, "src/.agent-hooks-Ab12cD/a.ts", "scratch\n");
     writeRepoFile(repo, "src/real.ts", "real\n");
 
     expect(wholeDirtyTree(treeOf(repo))).toEqual(["src/real.ts"]);
+  });
+
+  test("a path whose name merely starts with the scratch prefix is the checkout's own", () => {
+    const repo = repoWith();
+    writeRepoFile(repo, "src/.agent-hooks-data/a.ts", "data\n");
+    writeRepoFile(repo, "src/.agent-hooks-x1/b.ts", "short\n");
+    writeRepoFile(repo, ".claude/.agent-hooks-backup.jsonc", "{}\n");
+
+    expect(wholeDirtyTree(treeOf(repo))).toEqual([
+      ".claude/.agent-hooks-backup.jsonc",
+      "src/.agent-hooks-data/a.ts",
+      "src/.agent-hooks-x1/b.ts",
+    ]);
   });
 });
 

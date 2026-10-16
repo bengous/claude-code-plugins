@@ -12,6 +12,11 @@ export const DELETED = "deleted";
 /** The directory pre-edit writes its scratch copy into, beside the real file, for the time its fixers run. */
 export const SCRATCH_PREFIX = ".agent-hooks-";
 
+/** A scratch directory's name: the prefix and the six characters `mkdtemp` appends, nothing else. */
+const SCRATCH_NAME = /^\.agent-hooks-[0-9A-Za-z]{6}$/u;
+
+const UNTRACKED = "??";
+
 /**
  * `absolute` as a path relative to `root`, or null for the root itself and for a path outside it. `..` counts only
  * as a whole segment: `..config.ts` lies inside the root.
@@ -62,12 +67,15 @@ export function headSha(root: string): string | null {
   return git(root, ["rev-parse", "--verify", "HEAD"])?.trim() ?? null;
 }
 
+/** One record of `git status --porcelain`: its two status letters and its path. */
+export type StatusEntry = { readonly status: string; readonly path: string };
+
 /**
- * The dirty and untracked paths of the checkout, relative to `root`, in git's order, scratch copies included.
- * `-uall` lists every file of a new directory instead of the directory alone. `null` when git fails or prints an
- * entry the parser cannot read.
+ * The dirty and untracked entries of the checkout, their paths relative to `root`, in git's order, scratch copies
+ * included. `-uall` lists every file of a new directory instead of the directory alone. `null` when git fails or
+ * prints an entry the parser cannot read.
  */
-function statusPaths(root: string): string[] | null {
+function statusEntries(root: string): StatusEntry[] | null {
   const output = git(root, ["status", "--porcelain=v1", "-z", "-uall"]);
   const toplevel = git(root, ["rev-parse", "--show-toplevel"])?.trim();
 
@@ -82,50 +90,70 @@ function statusPaths(root: string): string[] | null {
 
 /** The dirty and untracked paths of the checkout, minus the scratch copies a concurrent pre-edit holds. */
 export function dirtyPaths(root: string): string[] | null {
-  return statusPaths(root)?.filter((relativePath) => scratchDirOf(relativePath) === null) ?? null;
+  return (
+    statusEntries(root)
+      ?.map((entry) => entry.path)
+      .filter((relativePath) => scratchDirOf(relativePath) === null) ?? null
+  );
 }
 
 /** The pre-edit scratch directory a path lies in, or null for a path of the checkout's own. */
 function scratchDirOf(relativePath: string): string | null {
   const segments = relativePath.split("/");
-  const index = segments.findIndex((segment) => segment.startsWith(SCRATCH_PREFIX));
+  const index = segments.findIndex((segment) => SCRATCH_NAME.test(segment));
 
   return index === -1 ? null : segments.slice(0, index + 1).join("/");
 }
 
 /**
- * The scratch directories git lists as untracked whose last change is older than `olderThanMs`: a pre-edit's
- * own lives at most its deadline, so an older one was left by a pre-edit killed while its fixers ran.
+ * The scratch directories a pre-edit killed while its fixers ran left behind: untracked, named as `mkdtemp` names
+ * them, holding no tracked file, and last changed more than `olderThanMs` ago, a pre-edit's own living at most its
+ * deadline.
  */
 export function staleScratchDirs(root: string, olderThanMs: number, now = Date.now()): string[] {
   const dirs = new Set(
-    (statusPaths(root) ?? []).flatMap((relativePath) => scratchDirOf(relativePath) ?? []),
+    (statusEntries(root) ?? []).flatMap((entry) =>
+      entry.status === UNTRACKED ? (scratchDirOf(entry.path) ?? []) : [],
+    ),
   );
 
   return [...dirs]
-    .filter((dir) => {
-      try {
-        return statSync(path.join(root, dir)).mtimeMs < now - olderThanMs;
-      } catch {
-        return false;
-      }
-    })
+    .filter((dir) => isStaleDirectory(path.join(root, dir), olderThanMs, now))
+    .filter((dir) => git(root, ["ls-files", "--", dir])?.trim() === "")
     .toSorted();
 }
 
-function relativeToRoot(paths: readonly string[], toplevel: string, root: string): string[] {
+function isStaleDirectory(absolute: string, olderThanMs: number, now: number): boolean {
+  try {
+    const stats = statSync(absolute);
+
+    return stats.isDirectory() && stats.mtimeMs < now - olderThanMs;
+  } catch {
+    return false;
+  }
+}
+
+function relativeToRoot(
+  entries: readonly StatusEntry[],
+  toplevel: string,
+  root: string,
+): StatusEntry[] {
   const resolvedRoot = path.resolve(root);
 
   if (path.resolve(toplevel) === resolvedRoot) {
-    return [...paths];
+    return [...entries];
   }
 
-  return paths.flatMap((entry) => underRoot(resolvedRoot, path.join(toplevel, entry)) ?? []);
+  return entries.flatMap((entry) => {
+    const relativePath = underRoot(resolvedRoot, path.join(toplevel, entry.path));
+
+    return relativePath === null ? [] : [{ status: entry.status, path: relativePath }];
+  });
 }
 
-export function parseGitStatus(output: string): string[] | null {
+export function parseGitStatus(output: string): StatusEntry[] | null {
   const entries = output.split("\0");
-  const paths: string[] = [];
+  const parsed: StatusEntry[] = [];
 
   for (let index = 0; index < entries.length; index += 1) {
     const entry = entries[index];
@@ -144,7 +172,7 @@ export function parseGitStatus(output: string): string[] | null {
       continue;
     }
 
-    paths.push(entry.slice(3));
+    parsed.push({ status, path: entry.slice(3) });
 
     // A rename or a copy prints the source path in the next NUL record.
     if (status.includes("R") || status.includes("C")) {
@@ -155,11 +183,11 @@ export function parseGitStatus(output: string): string[] | null {
         return null;
       }
 
-      paths.push(original);
+      parsed.push({ status, path: original });
     }
   }
 
-  return paths;
+  return parsed;
 }
 
 export function hashFile(absolutePath: string): string {
