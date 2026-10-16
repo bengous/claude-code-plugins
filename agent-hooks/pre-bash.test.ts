@@ -314,6 +314,40 @@ describe("pre-bash in a repository with profile.landing", () => {
     expect((await preBash("bun ./scripts/release.ts --dry-run", repo)).stdout).toBe("");
   });
 
+  test("refuses a package.json script that runs the release script, and allows its dry run", async () => {
+    writeRepoFile(
+      repo,
+      "package.json",
+      JSON.stringify({
+        scripts: {
+          release: "bun ./scripts/release.ts",
+          plan: "bun ./scripts/release.ts --dry-run",
+          ship: "git push origin dev:main",
+          loop: "npm run loop",
+        },
+      }),
+    );
+
+    expect((await preBash("bun run release", repo)).reason).toContain(
+      "./scripts/release.ts publishes 'main'",
+    );
+    expect((await preBash("npm run release", repo)).decision).toBe("deny");
+    expect((await preBash("pnpm release", repo)).decision).toBe("deny");
+    expect((await preBash("bun run ship", repo)).decision).toBe("deny");
+    expect((await preBash("bun run plan", repo)).stdout).toBe("");
+    expect((await preBash("npm run loop", repo)).stdout).toBe("");
+    expect((await preBash("npm run release -- --dry-run", repo)).stdout).toBe("");
+    expect((await preBash("bun run --cwd .. release", path.join(repo, "scripts"))).decision).toBe(
+      "deny",
+    );
+  });
+
+  test("refuses the release script behind a runner option, not a use that runs nothing", async () => {
+    expect((await preBash(`bun --cwd ${repo} scripts/release.ts`, temp.dir)).decision).toBe("deny");
+    expect((await preBash("node --check scripts/release.ts", repo)).stdout).toBe("");
+    expect((await preBash("bun build scripts/release.ts", repo)).stdout).toBe("");
+  });
+
   test("refuses gh release create", async () => {
     expect((await preBash("gh release create v1 --notes x", repo)).reason).toContain(
       "gh release create publishes 'main'",

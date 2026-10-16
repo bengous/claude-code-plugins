@@ -9,6 +9,7 @@ import {
   ghCommandOf,
   gitCommandOf,
   latestChecks,
+  packageScriptOf,
   profiledMergeRefusal,
   profiledPushRefusal,
   publicMergeRefusal,
@@ -475,10 +476,12 @@ describe("releaseScriptOf", () => {
   test("through a runtime or directly", () => {
     expect(releaseScriptOf(["bun", "./scripts/release.ts"], "/r")).toEqual({
       script: "./scripts/release.ts",
+      path: "/r/scripts/release.ts",
       dryRun: false,
     });
     expect(releaseScriptOf(["bun", "run", "scripts/release.ts", "abc123"], "/r")).toEqual({
       script: "scripts/release.ts",
+      path: "/r/scripts/release.ts",
       dryRun: false,
     });
     expect(releaseScriptOf(["./scripts/release.ts"], "/r")?.script).toBe("./scripts/release.ts");
@@ -496,10 +499,49 @@ describe("releaseScriptOf", () => {
     expect(releaseScriptOf(["bun", "./scripts/release.ts", "--dry-run"], "/r")?.dryRun).toBe(true);
   });
 
+  test("skips a runner option and its value, and follows --cwd", () => {
+    expect(releaseScriptOf(["bun", "--cwd", "sub", "scripts/release.ts"], "/r")?.path).toBe(
+      "/r/sub/scripts/release.ts",
+    );
+    expect(releaseScriptOf(["node", "-r", "./setup.js", "scripts/release.ts"], "/r")?.path).toBe(
+      "/r/scripts/release.ts",
+    );
+    expect(
+      releaseScriptOf(["bun", "--env-file=.env", "run", "scripts/release.ts"], "/r"),
+    ).not.toBeNull();
+  });
+
+  test("a use that runs nothing is none", () => {
+    expect(releaseScriptOf(["node", "--check", "scripts/release.ts"], "/r")).toBeNull();
+    expect(releaseScriptOf(["bun", "build", "scripts/release.ts"], "/r")).toBeNull();
+    expect(releaseScriptOf(["bash", "-n", "scripts/release.sh"], "/r")).toBeNull();
+    expect(releaseScriptOf(["deno", "check", "scripts/release.ts"], "/r")).toBeNull();
+  });
+
   test("another script is none", () => {
     expect(releaseScriptOf(["bun", "./scripts/land.ts", "feature/x"], "/r")).toBeNull();
     expect(releaseScriptOf(["bun", "test", "scripts/release.test.ts"], "/r")).toBeNull();
     expect(releaseScriptOf(["cat", "scripts/release.ts"], "/r")).toBeNull();
+  });
+});
+
+describe("packageScriptOf", () => {
+  test("a run of a package.json script, its arguments and its directory", () => {
+    expect(packageScriptOf(["bun", "run", "release", "x"], "/r")).toEqual({
+      name: "release",
+      cwd: "/r",
+      args: ["x"],
+    });
+    expect(packageScriptOf(["npm", "run", "release", "--", "--dry-run"], "/r")?.args).toEqual([
+      "--dry-run",
+    ]);
+    expect(packageScriptOf(["pnpm", "-C", "sub", "release"], "/r")?.cwd).toBe("/r/sub");
+    expect(packageScriptOf(["yarn", "release"], "/r")?.name).toBe("release");
+  });
+
+  test("a file is no package script", () => {
+    expect(packageScriptOf(["bun", "run", "scripts/release.ts"], "/r")).toBeNull();
+    expect(packageScriptOf(["node", "release"], "/r")).toBeNull();
   });
 });
 

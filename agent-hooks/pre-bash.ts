@@ -1,4 +1,4 @@
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 
 import type { LandingProfile } from "./config.ts";
@@ -13,10 +13,11 @@ import {
   slugOfRepoOption,
 } from "./github.ts";
 import { isRecord, recordField, stringField } from "./json.ts";
-import type { GhCommand, GitCommand, ReleaseScript } from "./landing.ts";
+import type { GhCommand, GitCommand, PackageScript, ReleaseScript } from "./landing.ts";
 import {
   ghCommandOf,
   gitCommandOf,
+  packageScriptOf,
   profiledMergeRefusal,
   profiledPushRefusal,
   publicMergeRefusal,
@@ -48,6 +49,9 @@ const DEFAULT: ProfileRead = { kind: "default" };
 
 /** Below the 30 s timeout `hooks/hooks.json` gives pre-bash, so the hook answers before Claude Code cuts it. */
 export const PRE_BASH_DEADLINE_MS = 25_000;
+
+/** How deep a package script that runs another one is read: past it, a loop of scripts stops being followed. */
+const MAX_SCRIPT_DEPTH = 4;
 
 type GuardContext = {
   readonly sessionId: string;
@@ -270,8 +274,8 @@ async function judgeGh(
     : refusal(publicMergeRefusal(pr.value, facts.value, slug));
 }
 
-function judgeReleaseScript(cwd: string, release: ReleaseScript): GuardVerdict {
-  const root = rootOf(path.dirname(path.resolve(cwd, release.script)), []);
+function judgeReleaseScript(release: ReleaseScript): GuardVerdict {
+  const root = rootOf(path.dirname(release.path), []);
   const profile = root === null ? DEFAULT : profileOf(root);
 
   switch (profile.kind) {
@@ -294,7 +298,72 @@ function judgeReleaseScript(cwd: string, release: ReleaseScript): GuardVerdict {
   }
 }
 
-function judge(invocation: Invocation, context: GuardContext): Promise<GuardVerdict> {
+type Manifest = { readonly dir: string; readonly scripts: ReadonlyMap<string, string> };
+
+/** The nearest `package.json` from `dir` up and its scripts, as a package manager finds it; no scripts when it does not parse. */
+function manifestOf(dir: string): Manifest | null {
+  for (let current = dir; ; current = path.dirname(current)) {
+    const file = path.join(current, "package.json");
+
+    if (existsSync(file)) {
+      let parsed: unknown;
+
+      try {
+        parsed = JSON.parse(readFileSync(file, "utf8"));
+      } catch {
+        return { dir: current, scripts: new Map() };
+      }
+
+      const scripts = (isRecord(parsed) ? recordField(parsed, "scripts") : undefined) ?? {};
+
+      return {
+        dir: current,
+        scripts: new Map(
+          Object.keys(scripts).flatMap((name) => {
+            const command = stringField(scripts, name);
+
+            return command === undefined ? [] : [[name, command] as const];
+          }),
+        ),
+      };
+    }
+
+    if (path.dirname(current) === current) {
+      return null;
+    }
+  }
+}
+
+/** The commands a package script runs, with its pre and post scripts, each read as the guard reads a Bash call. */
+function judgePackageScript(
+  script: PackageScript,
+  context: GuardContext,
+  depth: number,
+): Promise<GuardVerdict> {
+  const manifest = manifestOf(script.cwd);
+
+  if (manifest === null || depth >= MAX_SCRIPT_DEPTH) {
+    return Promise.resolve(ALLOW);
+  }
+
+  const commands = [`pre${script.name}`, script.name, `post${script.name}`].flatMap((name) => {
+    const command = manifest.scripts.get(name);
+
+    if (command === undefined) {
+      return [];
+    }
+
+    return [name === script.name ? [command, ...script.args].join(" ") : command];
+  });
+
+  return Promise.all(
+    commands
+      .flatMap((command) => invocationsOf(command, manifest.dir))
+      .map((invocation) => judge(invocation, context, depth + 1)),
+  ).then(combine);
+}
+
+function judge(invocation: Invocation, context: GuardContext, depth = 0): Promise<GuardVerdict> {
   const gitCommand = gitCommandOf(invocation.argv);
 
   if (gitCommand !== null) {
@@ -309,11 +378,15 @@ function judge(invocation: Invocation, context: GuardContext): Promise<GuardVerd
     return judgeGh(invocation.cwd, ghCommand, context);
   }
 
+  const packageScript = packageScriptOf(invocation.argv, invocation.cwd);
+
+  if (packageScript !== null) {
+    return judgePackageScript(packageScript, context, depth);
+  }
+
   const release = releaseScriptOf(invocation.argv, invocation.cwd);
 
-  return Promise.resolve(
-    release === null || release.dryRun ? ALLOW : judgeReleaseScript(invocation.cwd, release),
-  );
+  return Promise.resolve(release === null || release.dryRun ? ALLOW : judgeReleaseScript(release));
 }
 
 /** The first refusal among the verdicts, else their notes joined, else an allow. */

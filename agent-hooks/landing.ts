@@ -37,7 +37,19 @@ export type GhCommand =
   | { readonly kind: "pr-merge"; readonly selector: string | null; readonly repo: string | null }
   | { readonly kind: "release-create"; readonly repo: string | null };
 
-export type ReleaseScript = { readonly script: string; readonly dryRun: boolean };
+/** A run of a release script: the word that names it, its absolute path, and whether it is a dry run. */
+export type ReleaseScript = {
+  readonly script: string;
+  readonly path: string;
+  readonly dryRun: boolean;
+};
+
+/** A run of a `package.json` script: its name, the directory the package manager starts from, its extra arguments. */
+export type PackageScript = {
+  readonly name: string;
+  readonly cwd: string;
+  readonly args: readonly string[];
+};
 
 export type RepoFacts = { readonly visibility: string; readonly defaultBranch: string };
 
@@ -89,7 +101,184 @@ const GH_MERGE_VALUE_OPTIONS = new Set([
   "--author-email",
 ]);
 
-const RUNNERS = new Set(["bun", "node", "deno", "tsx", "bash", "sh", "zsh"]);
+/** How a runtime or a package manager names what it runs, read from its own options and subcommands. */
+type Runner = {
+  /** Options that take a value, as the next word or attached (`--cwd=x`). */
+  readonly values: ReadonlySet<string>;
+  readonly chdir: ReadonlySet<string>;
+  /** Options with which it runs no script: a syntax check, an inline program. */
+  readonly runsNothing: ReadonlySet<string>;
+  /** Subcommands whose next positional is what it runs. */
+  readonly run: ReadonlySet<string>;
+  /** Subcommands that run no script of the repository. */
+  readonly ignored: ReadonlySet<string>;
+  readonly files: boolean;
+  readonly packageScripts: boolean;
+};
+
+const NODE_LIKE: Runner = {
+  values: new Set([
+    "-r",
+    "--require",
+    "--import",
+    "--loader",
+    "--experimental-loader",
+    "--env-file",
+    "--input-type",
+    "-C",
+    "--conditions",
+    "--title",
+  ]),
+  chdir: new Set(),
+  runsNothing: new Set(["-c", "--check", "-e", "--eval", "-p", "--print"]),
+  run: new Set(["watch"]),
+  ignored: new Set(),
+  files: true,
+  packageScripts: false,
+};
+
+const SHELL_RUNNER: Runner = {
+  values: new Set(["-o", "-O", "+O", "--rcfile", "--init-file"]),
+  chdir: new Set(),
+  runsNothing: new Set(["-n"]),
+  run: new Set(),
+  ignored: new Set(),
+  files: true,
+  packageScripts: false,
+};
+
+const RUNNERS: ReadonlyMap<string, Runner> = new Map<string, Runner>([
+  [
+    "bun",
+    {
+      values: new Set([
+        "--cwd",
+        "-c",
+        "--config",
+        "--env-file",
+        "-r",
+        "--preload",
+        "--tsconfig-override",
+        "-d",
+        "--define",
+        "-l",
+        "--loader",
+        "--port",
+        "--main-fields",
+        "--conditions",
+        "-F",
+        "--filter",
+        "--elide-lines",
+        "--shell",
+      ]),
+      chdir: new Set(["--cwd"]),
+      runsNothing: new Set(["-e", "--eval", "-p", "--print"]),
+      run: new Set(["run"]),
+      ignored: new Set([
+        "build",
+        "test",
+        "install",
+        "i",
+        "add",
+        "a",
+        "remove",
+        "rm",
+        "update",
+        "outdated",
+        "link",
+        "unlink",
+        "pm",
+        "init",
+        "create",
+        "upgrade",
+        "publish",
+        "patch",
+        "audit",
+        "info",
+        "why",
+        "x",
+      ]),
+      files: true,
+      packageScripts: true,
+    },
+  ],
+  ["node", NODE_LIKE],
+  ["tsx", NODE_LIKE],
+  [
+    "deno",
+    {
+      values: new Set(["-c", "--config", "--import-map", "--cert", "--location", "--lock"]),
+      chdir: new Set(),
+      runsNothing: new Set(),
+      run: new Set(["run"]),
+      ignored: new Set([
+        "check",
+        "fmt",
+        "lint",
+        "compile",
+        "test",
+        "bench",
+        "info",
+        "doc",
+        "cache",
+        "install",
+        "bundle",
+      ]),
+      files: true,
+      packageScripts: false,
+    },
+  ],
+  ["bash", SHELL_RUNNER],
+  ["sh", SHELL_RUNNER],
+  ["zsh", SHELL_RUNNER],
+  [
+    "npm",
+    {
+      values: new Set(["--prefix", "-w", "--workspace"]),
+      chdir: new Set(["--prefix"]),
+      runsNothing: new Set(),
+      run: new Set(["run", "run-script", "rum", "urn"]),
+      ignored: new Set(),
+      files: false,
+      packageScripts: true,
+    },
+  ],
+  [
+    "pnpm",
+    {
+      values: new Set(["-C", "--dir", "-F", "--filter"]),
+      chdir: new Set(["-C", "--dir"]),
+      runsNothing: new Set(),
+      run: new Set(["run"]),
+      ignored: new Set(),
+      files: false,
+      packageScripts: true,
+    },
+  ],
+  [
+    "yarn",
+    {
+      values: new Set(["--cwd"]),
+      chdir: new Set(["--cwd"]),
+      runsNothing: new Set(),
+      run: new Set(["run"]),
+      ignored: new Set(),
+      files: false,
+      packageScripts: true,
+    },
+  ],
+]);
+
+const FILE_LIKE = /\/|\.(?:[cm]?[jt]sx?|sh)$/u;
+
+type ScriptRun =
+  | {
+      readonly kind: "file";
+      readonly script: string;
+      readonly path: string;
+      readonly args: readonly string[];
+    }
+  | { readonly kind: "package-script"; readonly script: PackageScript };
 
 const RELEASE_SCRIPT = /\/scripts\/release\.[A-Za-z]+$/u;
 
@@ -284,25 +473,80 @@ export function ghCommandOf(argv: readonly string[]): GhCommand | null {
   return group === "release" && action === "create" ? { kind: "release-create", repo } : null;
 }
 
+/**
+ * What `argv` runs from `cwd`: a file, directly or through a runtime, or a `package.json` script through a package
+ * manager (`bun run x`, `npm run x -- args`, `pnpm x`); null for a use that runs nothing (`node --check`, `bun build`).
+ */
+function scriptRunOf(argv: readonly string[], cwd: string): ScriptRun | null {
+  const [program, ...rest] = argv;
+  const runner = program === undefined ? undefined : RUNNERS.get(path.basename(program));
+
+  if (program === undefined || runner === undefined) {
+    return program !== undefined && program.includes("/")
+      ? { kind: "file", script: program, path: path.resolve(cwd, program), args: rest }
+      : null;
+  }
+
+  let dir = cwd;
+  let index = 0;
+  let subcommand: string | null = null;
+
+  for (; index < rest.length; index += 1) {
+    const word = rest[index] ?? "";
+    const [name, attached] = splitOption(word);
+
+    if (runner.runsNothing.has(name)) {
+      return null;
+    }
+
+    if (!word.startsWith("-") && subcommand === null && runner.run.has(word)) {
+      subcommand = word;
+    } else if (!word.startsWith("-")) {
+      break;
+    } else if (runner.values.has(name)) {
+      const value = attached ?? rest[index + 1];
+      index += attached === undefined ? 1 : 0;
+      dir = value !== undefined && runner.chdir.has(name) ? path.resolve(dir, value) : dir;
+    }
+  }
+
+  const target = rest[index];
+  const after = rest.slice(index + 1);
+
+  if (target === undefined || (subcommand === null && runner.ignored.has(target))) {
+    return null;
+  }
+
+  if (FILE_LIKE.test(target)) {
+    return runner.files
+      ? { kind: "file", script: target, path: path.resolve(dir, target), args: after }
+      : null;
+  }
+
+  const separator = after.indexOf("--");
+
+  const args =
+    path.basename(program) === "npm" && separator !== -1 ? after.slice(separator + 1) : after;
+
+  return runner.packageScripts
+    ? { kind: "package-script", script: { name: target, cwd: dir, args } }
+    : null;
+}
+
 /** A run of a repository's `scripts/release.<ext>` from `cwd`, directly or through a runtime such as `bun`. */
 export function releaseScriptOf(argv: readonly string[], cwd: string): ReleaseScript | null {
-  const [program, ...rest] = argv;
+  const run = scriptRunOf(argv, cwd);
 
-  if (program === undefined) {
-    return null;
-  }
+  return run?.kind === "file" && RELEASE_SCRIPT.test(run.path)
+    ? { script: run.script, path: run.path, dryRun: run.args.includes("--dry-run") }
+    : null;
+}
 
-  const words = RUNNERS.has(path.basename(program))
-    ? rest.filter((word) => !word.startsWith("-"))
-    : [program];
+/** A run of a `package.json` script, whose commands the guard reads in turn. */
+export function packageScriptOf(argv: readonly string[], cwd: string): PackageScript | null {
+  const run = scriptRunOf(argv, cwd);
 
-  const script = words[0] === "run" ? words[1] : words[0];
-
-  if (script === undefined || !RELEASE_SCRIPT.test(path.resolve(cwd, script))) {
-    return null;
-  }
-
-  return { script, dryRun: argv.slice(argv.indexOf(script) + 1).includes("--dry-run") };
+  return run?.kind === "package-script" ? run.script : null;
 }
 
 /**
