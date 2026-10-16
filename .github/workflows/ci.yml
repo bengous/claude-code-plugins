@@ -202,6 +202,35 @@ jobs:
       - name: Test the vellum hooks module
         run: claude plugin test vellum
 
+  # Mutation testing on the lines the change alters in the modules `stryker.config.ts` lists
+  # (`scripts/mutation.ts`): a pull request's against its base, a dispatch's against `origin/dev`.
+  # A survivor fails it, named. With no such line it passes before installing anything.
+  mutation:
+    if: github.event_name != 'push'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0 # the merge-base with the base
+
+      - name: Set up tools (bun via mise)
+        uses: jdx/mise-action@v5
+        with:
+          install_args: bun
+
+      - name: Scope the mutants to the changed lines
+        id: scope
+        run: bun ./scripts/mutation.ts github-output
+
+      - name: Install script dependencies
+        if: steps.scope.outputs.mutate == 'true'
+        run: bun install --frozen-lockfile
+
+      - name: Mutation-test the changed lines
+        if: steps.scope.outputs.mutate == 'true'
+        run: bun ./scripts/mutation.ts run
+
   # Vellum's browser suite, `vellum/e2e/*.e2e.ts`: a job per window of `WINDOWS` in
   # `vellum/e2e/playwright.config.ts`, since it wants a Chromium and takes seconds per file.
   # `scripts/e2e-windows.test.ts` holds the list equal to the config's. `check-e2e-green.ts`

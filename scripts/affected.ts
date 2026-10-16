@@ -87,7 +87,7 @@ interface PullRequestEvent {
   pull_request?: { base?: { sha?: string } };
 }
 
-async function pullRequestBase(eventPath: string | undefined): Promise<string> {
+export async function pullRequestBase(eventPath: string | undefined): Promise<string> {
   if (eventPath === undefined) throw new Error("GITHUB_EVENT_PATH is unset on a pull_request run");
   const event: PullRequestEvent = await Bun.file(eventPath).json();
   const sha = event.pull_request?.base?.sha;
