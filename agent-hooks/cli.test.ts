@@ -232,6 +232,27 @@ describe("agent-hooks CLI", () => {
     expect(result.stdout).toMatch(/^lint: ok/mu);
   });
 
+  test("verify <file> from a subdirectory takes the file from that directory", async () => {
+    writeRepoFile(temp.repo, "src/new.ts", "BAD\n");
+
+    const result = await cli(["verify", "new.ts"], {
+      cwd: path.join(temp.repo, "src"),
+      stateDir: temp.stateDir,
+    });
+
+    expect(result.code).toBe(1);
+    expect(result.stdout).toContain("scope: src/new.ts\n");
+    expect(result.stdout).toMatch(/^lint: fail/mu);
+  });
+
+  test("verify refuses a file outside the root and runs nothing", async () => {
+    const result = await cli(["verify", "../elsewhere.ts"], options());
+
+    expect(result.code).toBe(1);
+    expect(result.stdout).toContain(`agent-hooks: ../elsewhere.ts is outside ${temp.repo}`);
+    expect(result.stdout).not.toContain("lint:");
+  });
+
   test("doctor exits 0 when every tool resolves", async () => {
     const result = await cli(["doctor"], options());
 

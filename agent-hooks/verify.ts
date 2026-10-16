@@ -1,4 +1,3 @@
-import { existsSync } from "node:fs";
 import path from "node:path";
 
 import type { Config } from "./config.ts";
@@ -12,6 +11,8 @@ import { latestStateForRoot } from "./state.ts";
 
 export type VerifyOptions = {
   readonly root: string;
+  /** The directory the `files` are relative to: the caller's working directory. */
+  readonly cwd: string;
   readonly config: Config;
   readonly all: boolean;
   readonly files: readonly string[];
@@ -31,6 +32,16 @@ const NO_DEADLINE_MS = 60 * 60 * 1000;
 export async function runVerify(options: VerifyOptions): Promise<VerifyReport> {
   const print = options.print ?? console.log;
   const runner = options.runner ?? run;
+  const outside = options.files.filter((file) => rootRelative(options, file) === null);
+
+  if (outside.length > 0) {
+    for (const file of outside) {
+      print(`agent-hooks: ${file} is outside ${options.root}`);
+    }
+
+    return { scope: [], results: [], exitCode: 1 };
+  }
+
   const scope = verifyScope(options);
 
   if (scope === null) {
@@ -70,12 +81,19 @@ export async function runVerify(options: VerifyOptions): Promise<VerifyReport> {
   return { scope, results, exitCode: blocked ? 1 : 0 };
 }
 
+/** The file, named from the caller's directory, as a path under the root; null when it lies outside. */
+function rootRelative(options: VerifyOptions, file: string): string | null {
+  const relative = path.relative(path.resolve(options.root), path.resolve(options.cwd, file));
+
+  return relative === "" || relative.startsWith("..") || path.isAbsolute(relative)
+    ? null
+    : relative;
+}
+
 function verifyScope(options: VerifyOptions): string[] | null {
+  // A named file gone from disk stays in the scope, as a deleted file does at Stop: a project lane still runs.
   if (options.files.length > 0) {
-    return options.files
-      .map((file) => path.relative(options.root, path.resolve(options.root, file)))
-      .filter((relativePath) => existsSync(path.join(options.root, relativePath)))
-      .toSorted();
+    return options.files.flatMap((file) => rootRelative(options, file) ?? []).toSorted();
   }
 
   if (options.all) {

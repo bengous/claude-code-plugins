@@ -91,7 +91,7 @@ export async function runDoctor(options: DoctorOptions): Promise<number> {
       : `last stop: ${lastRun.ms} ms ${JSON.stringify(lastRun.lanes)}`,
   );
   print("verify:");
-  const report = await runVerify({ root, config, all: false, files: [], print });
+  const report = await runVerify({ root, cwd: root, config, all: false, files: [], print });
 
   return checks.some((check) => !check.ok) || report.exitCode !== 0 ? 1 : 0;
 }

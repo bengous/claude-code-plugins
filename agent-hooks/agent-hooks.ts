@@ -94,7 +94,13 @@ async function verify(all: boolean, files: readonly string[]): Promise<number> {
   }
 
   try {
-    const report = await runVerify({ root, config: loadConfig(root), all, files });
+    const report = await runVerify({
+      root,
+      cwd: process.cwd(),
+      config: loadConfig(root),
+      all,
+      files,
+    });
 
     return report.exitCode;
   } catch (error) {
