@@ -7,7 +7,7 @@ import { ALLOW } from "./hook.ts";
 import { stringField } from "./json.ts";
 import type { FixTarget } from "./lanes.ts";
 import { runFixers, sequential } from "./lanes.ts";
-import { SCRATCH_PREFIX, takePhoto } from "./scope.ts";
+import { SCRATCH_PREFIX, takePhoto, underRoot } from "./scope.ts";
 
 const APPLY_PATCH_PREFIXES = [
   "*** Add File: ",
@@ -35,7 +35,7 @@ export async function runPreEdit(context: HookContext): Promise<Verdict> {
   }
 
   const absolute = path.resolve(input.cwd ?? root, filePath);
-  const relativePath = relativeTo(root, absolute);
+  const relativePath = underRoot(root, absolute);
 
   if (relativePath === null) {
     return ALLOW;
@@ -163,7 +163,7 @@ export async function runPostEdit(context: HookContext): Promise<Verdict> {
 
   const targets = candidates.flatMap((candidate): FixTarget[] => {
     const absolute = path.resolve(input.cwd ?? root, candidate);
-    const relativePath = relativeTo(root, absolute);
+    const relativePath = underRoot(root, absolute);
 
     return relativePath === null ||
       isExcluded(config.preEdit.exclude, relativePath) ||
@@ -197,13 +197,4 @@ export function extractApplyPatchPaths(patch: string): string[] {
 /** `dir`, or its nearest ancestor on disk: where a file of a directory the tool will create finds its config. */
 function nearestDirectory(dir: string): string {
   return existsSync(dir) ? dir : nearestDirectory(path.dirname(dir));
-}
-
-/** The path relative to the root, or null for a file outside it. */
-export function relativeTo(root: string, absolute: string): string | null {
-  const relative = path.relative(path.resolve(root), absolute);
-
-  return relative === "" || relative.startsWith("..") || path.isAbsolute(relative)
-    ? null
-    : relative;
 }

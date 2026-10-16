@@ -12,6 +12,21 @@ export const DELETED = "deleted";
 /** The directory pre-edit writes its scratch copy into, beside the real file, for the time its fixers run. */
 export const SCRATCH_PREFIX = ".agent-hooks-";
 
+/**
+ * `absolute` as a path relative to `root`, or null for the root itself and for a path outside it. `..` counts only
+ * as a whole segment: `..config.ts` lies inside the root.
+ */
+export function underRoot(root: string, absolute: string): string | null {
+  const relative = path.relative(path.resolve(root), path.resolve(absolute));
+
+  return relative === "" ||
+    relative === ".." ||
+    relative.startsWith(`..${path.sep}`) ||
+    path.isAbsolute(relative)
+    ? null
+    : relative;
+}
+
 /** The nearest ancestor of `start` (itself included) that holds `.claude/agent-hooks.jsonc`. */
 export function findRoot(start: string): string | null {
   let dir = path.resolve(start);
@@ -105,11 +120,7 @@ function relativeToRoot(paths: readonly string[], toplevel: string, root: string
     return [...paths];
   }
 
-  return paths.flatMap((entry) => {
-    const relative = path.relative(resolvedRoot, path.join(toplevel, entry));
-
-    return relative.startsWith("..") || path.isAbsolute(relative) ? [] : [relative];
-  });
+  return paths.flatMap((entry) => underRoot(resolvedRoot, path.join(toplevel, entry)) ?? []);
 }
 
 export function parseGitStatus(output: string): string[] | null {

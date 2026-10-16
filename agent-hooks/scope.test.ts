@@ -14,6 +14,7 @@ import {
   sessionFiles,
   sha256,
   takePhoto,
+  underRoot,
   wholeDirtyTree,
 } from "./scope.ts";
 import type { DirtyTree } from "./scope.ts";
@@ -112,6 +113,22 @@ describe("findRoot", () => {
     mkdirSync(nested, { recursive: true });
 
     expect(findRoot(nested)).toBeNull();
+  });
+});
+
+describe("underRoot", () => {
+  test("reads `..` as a whole segment", () => {
+    expect(underRoot("/repo", "/repo/..config.ts")).toBe("..config.ts");
+    expect(underRoot("/repo", "/repo/src/a.ts")).toBe(path.join("src", "a.ts"));
+    expect(underRoot("/repo", "/repo/src/../..x")).toBe("..x");
+  });
+
+  test("is null for the root itself and for every path outside it", () => {
+    expect(underRoot("/repo", "/repo")).toBeNull();
+    expect(underRoot("/repo", "/")).toBeNull();
+    expect(underRoot("/repo", "/repo-other/a.ts")).toBeNull();
+    expect(underRoot("/repo", "/elsewhere/a.ts")).toBeNull();
+    expect(underRoot("/repo/sub", "/repo/a.ts")).toBeNull();
   });
 });
 

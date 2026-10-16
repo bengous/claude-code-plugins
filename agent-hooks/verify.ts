@@ -16,6 +16,7 @@ import {
   onDisk,
   rehashed,
   sessionFiles,
+  underRoot,
   wholeDirtyTree,
 } from "./scope.ts";
 import { latestStateForRoot } from "./state.ts";
@@ -115,11 +116,7 @@ export async function runVerify(options: VerifyOptions): Promise<VerifyReport> {
 
 /** The file, named from the caller's directory, as a path under the root; null when it lies outside. */
 function rootRelative(options: VerifyOptions, file: string): string | null {
-  const relative = path.relative(path.resolve(options.root), path.resolve(options.cwd, file));
-
-  return relative === "" || relative.startsWith("..") || path.isAbsolute(relative)
-    ? null
-    : relative;
+  return underRoot(options.root, path.resolve(options.cwd, file));
 }
 
 function verifyScope(options: VerifyOptions, tree: DirtyTree): string[] {

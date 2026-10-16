@@ -589,6 +589,19 @@ describe("skips", () => {
     expect(verdict).toEqual(ALLOW);
   });
 
+  test("a file whose name starts with two dots is inside the root and fixed", async () => {
+    const { repo } = repoWith(QUOTES_CONFIG);
+
+    const verdict = await runPreEdit(
+      toolContext(repo, "Write", {
+        file_path: path.join(repo, "..config.ts"),
+        content: "let a = 'x';\n",
+      }),
+    );
+
+    expect(verdict).toMatchObject({ kind: "rewrite", updatedInput: { content: 'let a = "x";\n' } });
+  });
+
   test("a tool other than Edit and Write is allowed", async () => {
     const { repo } = repoWith(QUOTES_CONFIG, { "a.ts": "let a = 1;\n" });
     writeRepoFile(repo, "b.ts", "let b = 'x';\n");

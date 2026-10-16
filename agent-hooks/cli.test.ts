@@ -253,6 +253,15 @@ describe("agent-hooks CLI", () => {
     expect(result.stdout).not.toContain("lint:");
   });
 
+  test("verify takes a file whose name starts with two dots as a file of the root", async () => {
+    writeRepoFile(temp.repo, "..config.ts", "BAD\n");
+
+    const result = await cli(["verify", "..config.ts"], options());
+
+    expect(result.stdout).toContain("scope: ..config.ts\n");
+    expect(result.stdout).toMatch(/^lint: fail/mu);
+  });
+
   test("verify refuses a named file that is neither on disk nor a deletion git knows", async () => {
     const result = await cli(["verify", "src/typo.ts"], options());
 
