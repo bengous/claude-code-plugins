@@ -50,10 +50,11 @@ agent meets any finding left once, at the end of its turn, not on each edit.
   makes progress on the failing set, at most 3 times in a row, skips plan
   mode and a running subagent, workflow or teammate, and caches a green run
   by HEAD and dirty tree. Its contract is the plugin's (`agent-hooks/skills/`).
-- The kit gates no subagent: it is not wired on SubagentStop, and it keys its
-  state on the session, not the agent, so two subagents of one session would
-  share one failing set. `stop-gates.ts` gates subagents instead, on
-  SubagentStop only. Each in-repo
+- Where the agent-hooks plugin is enabled, its SubagentStop hook gates each
+  subagent on the subagent's own state, keyed `<session>.<agent_id>`: the
+  files changed since its first Edit or Write. The machine's global hooks wire
+  no SubagentStop. `stop-gates.ts` also gates subagents, on SubagentStop
+  only, so with the plugin enabled both run. Each in-repo
   Edit or Write by a subagent empties the verdict of its marker for the
   checkout that holds the file,
   `os.tmpdir()/claude-code-plugins-stop/<agent_id>.<hash of the checkout>`, a

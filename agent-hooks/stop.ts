@@ -40,9 +40,13 @@ export async function runStop(context: HookContext): Promise<Verdict> {
     return ALLOW;
   }
 
-  const busy = input.backgroundTasks.find(
-    (task) => BUSY_TASK_TYPES.has(task.type) && BUSY_TASK_STATUSES.has(task.status),
-  );
+  // A SubagentStop lists the stopping subagent itself among the running tasks: only the main session waits on them.
+  const busy =
+    input.agentId === undefined
+      ? input.backgroundTasks.find(
+          (task) => BUSY_TASK_TYPES.has(task.type) && BUSY_TASK_STATUSES.has(task.status),
+        )
+      : undefined;
 
   if (busy !== undefined) {
     return {

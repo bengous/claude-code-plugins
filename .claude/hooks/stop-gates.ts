@@ -5,9 +5,9 @@
  * edited the repo, a hooks module's kit only when the checkout's change since
  * its merge-base with `origin/dev` reaches it (`scripts/affected.ts`), and
  * blocks the stop while one is red. The main session's Stop belongs to the
- * agent-hooks kit (`.claude/agent-hooks.jsonc`), which gates no subagent: it
- * is not wired on SubagentStop, and it keys its state on the session, not the
- * agent, so two subagents of one session would share one failing set.
+ * agent-hooks kit (`.claude/agent-hooks.jsonc`); where its plugin is enabled,
+ * it gates each subagent at SubagentStop too, on the subagent's own state,
+ * and this hook runs beside it.
  *
  * `format-on-edit.ts` marks each checkout of the project's repository a
  * subagent edits, the project or one of its worktrees, with an empty verdict.

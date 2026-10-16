@@ -50,6 +50,8 @@ export const ALLOW: Verdict = { kind: "allow" };
 /** The fields of a hook payload the kit reads, checked by hand: `tool_input` is `unknown` in the SDK. */
 export type Input = {
   readonly sessionId: string;
+  /** Set only when the hook fires inside a subagent, its tool calls and its SubagentStop alike. */
+  readonly agentId: string | undefined;
   readonly cwd: string | undefined;
   /** `prompt_id` under Claude Code, `turn_id` under Codex. */
   readonly promptId: string | undefined;
@@ -119,6 +121,7 @@ export function parseInput(payload: Record<string, unknown>): Input | null {
 
   return {
     sessionId,
+    agentId: stringField(payload, "agent_id"),
     cwd: stringField(payload, "cwd"),
     promptId: stringField(payload, "prompt_id") ?? stringField(payload, "turn_id"),
     permissionMode: stringField(payload, "permission_mode"),
@@ -195,15 +198,27 @@ function rootAt(start: string | null): string[] {
 
 /**
  * The roots a Stop checks: each one the session photographed, at its SessionStart or its first edit there, wherever
- * its cwd has moved since. A session that photographed none falls back on the root around its cwd, whose whole
- * dirty tree it then checks.
+ * its cwd has moved since. A main session that photographed none falls back on the root around its cwd, whose whole
+ * dirty tree it then checks; a subagent that photographed none edited nothing, and its Stop checks nothing.
  */
 function stopRoots(input: Input, start: string | null): string[] {
-  const photographed = photographedRoots(input.sessionId).filter((root) =>
+  const photographed = photographedRoots(stateKey(input)).filter((root) =>
     existsSync(configPath(root)),
   );
 
-  return photographed.length > 0 ? photographed : rootAt(start);
+  if (photographed.length > 0) {
+    return photographed;
+  }
+
+  return input.agentId === undefined ? rootAt(start) : [];
+}
+
+/**
+ * The name of the state a hook reads and writes: the session's, or for a subagent its own under the session, so two
+ * subagents of one session keep their own photo, failing set and block counter.
+ */
+export function stateKey(input: Input): string {
+  return input.agentId === undefined ? input.sessionId : `${input.sessionId}.${input.agentId}`;
 }
 
 type RootVerdict = { readonly root: string; readonly verdict: Verdict };
@@ -214,7 +229,7 @@ async function runAt(
   root: string,
   now: number,
 ): Promise<RootVerdict> {
-  const state = loadState(input.sessionId, root, now);
+  const state = loadState(stateKey(input), root, now);
   const loaded = JSON.stringify(state);
   const verdict = await verdictOf(options, input, root, state, now);
 

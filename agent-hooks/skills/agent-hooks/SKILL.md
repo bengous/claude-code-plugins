@@ -58,7 +58,8 @@ Exit 1 means at least one `MISSING` or a failing lane.
   `agent-hooks:`. Nothing to fix in the kit when that message shows: the agent stopped progressing.
 - `${CLAUDE_PLUGIN_ROOT}/agent-hooks.ts verify [--all] [files...]` runs the lanes now, without the green
   cache, and prints one line per lane. `--all` takes the whole dirty tree instead of the session scope.
-- The kit gates the main session's Stop only: it is not wired on SubagentStop, and a subagent's Stop
-  is not checked.
-- State: `~/.local/state/agent-hooks/<session>__<root hash>.json` (`lastRun.lanes`, green keys, loop
-  counters), pruned after 7 days.
+- A subagent's SubagentStop is checked the same way, on its own state: the files changed since its
+  first Edit or Write, under its own failing set and block counter. A subagent that edited nothing is
+  let through. The main session's Stop waits while a subagent, workflow or teammate still runs.
+- State: `~/.local/state/agent-hooks/<session>__<root hash>.json`, `<session>.<agent>__<root hash>.json`
+  for a subagent (`lastRun.lanes`, green keys, loop counters), pruned after 7 days.

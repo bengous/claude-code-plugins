@@ -37,6 +37,7 @@ export type LastRun = {
 
 export type SessionState = {
   readonly version: typeof STATE_VERSION;
+  /** The session id, or `<session>.<agent>` for the own state of one of its subagents. */
   readonly sessionId: string;
   readonly root: string;
   photo: Photo | null;
