@@ -5,10 +5,12 @@ import path from "node:path";
 import { CONFIG_RELATIVE_PATH } from "./config.ts";
 import { DEADLINES_MS, runHook } from "./hook.ts";
 import { runSessionEnd, runSessionStart } from "./session-start.ts";
-import { beat, beatPath, freshState, loadState, saveState } from "./state.ts";
+import { freshState, loadState, saveState } from "./state.ts";
 import type { TempRepo } from "./test-support.ts";
 import {
+  beatAgo,
   createTempRepo,
+  MINUTE_MS,
   readRepoFile,
   removeTempRepo,
   scrubGitEnv,
@@ -89,15 +91,6 @@ describe("runSessionStart", () => {
     expect(existsSync(stale)).toBeFalse();
   });
 });
-
-const MINUTE_MS = 60_000;
-
-/** The heartbeat of agent `key` in `dir`, last refreshed `ageMs` ago. */
-function beatAgo(key: string, dir: string, ageMs: number): void {
-  beat(key, dir);
-  const at = new Date(Date.now() - ageMs);
-  utimesSync(beatPath(key, dir), at, at);
-}
 
 function worktreeNote(dir: string): string {
   return JSON.stringify({

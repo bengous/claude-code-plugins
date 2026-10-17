@@ -1,5 +1,6 @@
 /* oxlint-disable anti-slop/no-unsafe-dictionary-type -- this harness builds hook payloads and reads hook outputs as JSON: a closed type would assert the schema instead of the behaviour, and a wrong shape has to fail an assertion rather than the compiler. */
-import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
+import * as fs from "node:fs";
 import { chmodSync, existsSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import path from "node:path";
 
@@ -931,6 +932,29 @@ esac
     writeFileSync(path.join(temp.bin, "gh"), gh);
 
     expect((await preBash("gh pr merge 7; gh pr merge 8", repo)).stdout).toBe("");
+  });
+
+  test("lets the command through with a note when its payload cannot be read", async () => {
+    const resolve = spyOn(fs.realpathSync, "native").mockImplementation(() => {
+      throw new Error("EACCES");
+    });
+
+    try {
+      const payload = {
+        session_id: SESSION,
+        cwd: repo,
+        tool_name: "Bash",
+        tool_input: { command: "git push origin main" },
+      };
+
+      expect(await runPreBash(payload)).toBe(
+        JSON.stringify({
+          systemMessage: "agent-hooks: pre-bash crashed (EACCES): the command went unchecked",
+        }),
+      );
+    } finally {
+      resolve.mockRestore();
+    }
   });
 
   test("lets the command through with a note past its deadline", async () => {
