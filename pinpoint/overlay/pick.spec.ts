@@ -5,9 +5,13 @@ import {
   covers,
   labelOf,
   outermost,
+  pageBox,
+  type PointerInput,
+  pressAfter,
   selectorOf,
   type Step,
   targetIndex,
+  viewportBox,
 } from "./pick.ts";
 
 function step(tag: string, more: Partial<Step> = {}): Step {
@@ -77,4 +81,54 @@ test("outermost drops a node held by another one of the list, at any depth", () 
     "main",
     "aside",
   ]);
+});
+
+test("pageBox adds the scroll at the pick, viewportBox takes off the scroll now", () => {
+  const seen = { x: 300, y: 350, width: 200, height: 60 };
+  const onPage = pageBox(seen, { x: 0, y: 800 });
+
+  expect(onPage).toEqual({ x: 300, y: 1150, width: 200, height: 60 });
+  expect(viewportBox(onPage, { x: 0, y: 300 })).toEqual({ x: 300, y: 850, width: 200, height: 60 });
+  expect(viewportBox(onPage, { x: 0, y: 800 })).toEqual(seen);
+});
+
+describe("pressAfter", () => {
+  const outside: Omit<PointerInput, "type"> = {
+    inside: false,
+    button: 0,
+    x: 10,
+    y: 20,
+    adding: false,
+  };
+
+  const press = { x: 10, y: 20, adding: false };
+
+  test("the main button down outside the overlay starts a press; inside it, or another button, does not", () => {
+    expect(pressAfter(null, { ...outside, type: "pointerdown" })).toEqual({ press, picks: null });
+    expect(pressAfter(null, { ...outside, type: "pointerdown", inside: true }).press).toBeNull();
+    expect(pressAfter(null, { ...outside, type: "pointerdown", button: 2 }).press).toBeNull();
+  });
+
+  test("a move keeps the press, over the overlay too", () => {
+    expect(pressAfter(press, { ...outside, type: "pointermove" })).toEqual({ press, picks: null });
+    expect(pressAfter(press, { ...outside, type: "pointermove", inside: true })).toEqual({
+      press,
+      picks: null,
+    });
+  });
+
+  test("a release outside the overlay ends the press and picks from it", () => {
+    expect(pressAfter(press, { ...outside, type: "pointerup", x: 90 })).toEqual({
+      press: null,
+      picks: press,
+    });
+  });
+
+  test("a release over the overlay, or a cancel anywhere, ends the press and picks nothing", () => {
+    const ended = { press: null, picks: null };
+
+    expect(pressAfter(press, { ...outside, type: "pointerup", inside: true })).toEqual(ended);
+    expect(pressAfter(press, { ...outside, type: "pointercancel" })).toEqual(ended);
+    expect(pressAfter(press, { ...outside, type: "pointercancel", inside: true })).toEqual(ended);
+  });
 });

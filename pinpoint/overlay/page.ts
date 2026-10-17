@@ -1,6 +1,15 @@
 import type { Box, ElementInfo, PageInfo } from "../shared/wire.ts";
 import { cut, descriptionOf, TEXT_LIMIT, textOf } from "./describe.ts";
-import { covers, labelOf, outermost, selectorOf, type Step, targetIndex } from "./pick.ts";
+import {
+  covers,
+  labelOf,
+  outermost,
+  pageBox,
+  type Scroll,
+  selectorOf,
+  type Step,
+  targetIndex,
+} from "./pick.ts";
 import { keptStyles } from "./styles.ts";
 
 /** What the overlay reads off the app's page: elements, their boxes, the page, the app's context. */
@@ -15,10 +24,15 @@ declare global {
 /** A zone names this many elements at most, the outermost first in the document's order. */
 const ZONE_ELEMENTS = 12;
 
+/** Where the viewport draws `element`. */
 export function boxOf(element: Element): Box {
   const { x, y, width, height } = element.getBoundingClientRect();
 
   return { x, y, width, height };
+}
+
+export function scrollOf(): Scroll {
+  return { x: window.scrollX, y: window.scrollY };
 }
 
 function stepOf(element: Element): Step {
@@ -65,7 +79,7 @@ export function infoOf(element: Element): ElementInfo {
     selector: selectorOf(chainOf(element)),
     ...description,
     text: cut(textOf(element), TEXT_LIMIT),
-    box: boxOf(element),
+    box: pageBox(boxOf(element), scrollOf()),
     styles: keptStyles((property) => computed.getPropertyValue(property)),
   };
 }
@@ -102,8 +116,8 @@ function meets(zone: Box, box: Box): boolean {
 }
 
 /**
- * The outermost elements a zone covers, the overlay's own left out: at least half of the
- * element's box, or of what it draws, lies in the zone.
+ * The outermost elements a zone of the viewport covers, the overlay's own left out: at least half
+ * of the element's box, or of what it draws, lies in the zone.
  */
 export function zoneElements(zone: Box, host: Element): Element[] {
   const covered = [...document.body.querySelectorAll("*")].filter((element) => {

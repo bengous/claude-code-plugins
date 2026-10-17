@@ -57,7 +57,7 @@ describe("batchText", () => {
   test("says each selection, its label and note first, the page's lines under it", () => {
     expect(batchText(3, [ONE])).toBe(
       [
-        "pinpoint batch 3: 1 selection the user made in their running app. Under each label and note, the lines are what the page reported.",
+        "pinpoint batch 3: 1 selection the user made in their running app. Under each label and note, the lines are what the page reported; boxes are in page pixels, from the top-left corner of the document.",
         "",
         "1. [Too small] Must read from afar.",
         "   And keep its color.",

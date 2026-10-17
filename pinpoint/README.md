@@ -23,15 +23,17 @@ Point at your running app and talk to Claude. In your app's dev build, an overla
 
    ```ts
    import { homedir } from "node:os";
+   import { join } from "node:path";
+   import { pathToFileURL } from "node:url";
 
-   const { pinpoint } = await import(`${homedir()}/.claude/pinpoint/vite.mjs`).catch(() => ({
-     pinpoint: () => [],
-   }));
+   const { pinpoint } = await import(
+     pathToFileURL(join(homedir(), ".claude/pinpoint/vite.mjs")).href
+   ).catch(() => ({ pinpoint: () => [] }));
 
    export default defineConfig({ plugins: [/* yours */, pinpoint()] });
    ```
 
-   The server writes `~/.claude/pinpoint/vite.mjs` at each start, so the path stays the same across updates. Without it the `catch` loads nothing, and a build never runs the plugin (`apply: "serve"`).
+   The server writes `~/.claude/pinpoint/vite.mjs` at each start, so the path stays the same across updates. Without it the `catch` loads nothing, and a build never runs the plugin (`apply: "serve"`). The import takes a `file://` URL because an ESM import of a bare Windows path (`C:\...`) fails, and the `catch` would hide it.
 3. Reload the page and press **Alt+P**.
 
 The app's dev pages load the overlay of the newest session whose directory holds the app's root. A page loaded with no session running says in the console how to start one.
@@ -43,7 +45,7 @@ The app's dev pages load the overlay of the newest session whose directory holds
 - **Ctrl+click** or **Ctrl+drag** (⌘ on a Mac) adds to the selection being written. While Ctrl is held, the composer and the panel fade and let the click through.
 - The composer offers the quick labels and a note. A **label** puts the selection in the batch at once, with the note typed so far. **Enter** puts it there with the note; **Shift+Enter** breaks the line; **Esc** drops it, and a second Esc turns pointing off.
 - The composer opens beside what was picked. **Drag its top row** to move it out of the way: it stays pinned there, and every next composer of the tab opens at that place, across reloads, kept inside the window. **Unpin** in the composer forgets the place and opens it beside each pick again.
-- **Ctrl+Enter**, or **Send (n)** in the panel, sends the whole batch; **Send** on a card sends that selection alone, **Remove** drops it. Hovering a card shows where its targets were.
+- **Send (n)** in the panel sends the whole batch, and so does **Ctrl+Enter** while pointing; with pointing off, Ctrl+Enter is the app's. **Send** on a card sends that selection alone, **Remove** drops it. Hovering a card shows where its targets were.
 - The panel's status line says where the last batch is: sent, delivered to the session, not delivered (its selections come back to the batch), not sent (the server does not answer; nothing leaves the batch), or unknown to the server (it keeps what became of the last hundred batches only). Each tab hears only of the batches it sent. The dot before the panel's name says whether the server answered the tab's last question.
 - The batch, and the batches still waiting, survive a reload of the page in the same tab: a reloaded page says the last one waiting, then what became of it. So does pointing: a page reloaded while it is on comes back with it on.
 
@@ -55,7 +57,7 @@ The app's dev pages load the overlay of the newest session whose directory holds
 ## What a batch says
 
 ```
-pinpoint batch 3: 2 selections the user made in their running app. Under each label and note, the lines are what the page reported.
+pinpoint batch 3: 2 selections the user made in their running app. Under each label and note, the lines are what the page reported; boxes are in page pixels, from the top-left corner of the document.
 
 1. [Too small] Must read from afar.
    page: http://localhost:5173/settings · "Settings" · viewport 1440 × 900 · scroll 0, 120
@@ -72,7 +74,7 @@ pinpoint batch 3: 2 selections the user made in their running app. Under each la
        ...
 ```
 
-Boxes are CSS pixels of the viewport at the pick. The page and the app context repeat only when they change. Claude Code shows the prompt as "Prompt from the pinpoint plugin" and hands it to Claude as "The pinpoint plugin sent a message:", a message to address (measured in a live session on Claude Code 2.1.301, Linux, 2026-10-16).
+Boxes are in page pixels, from the top-left corner of the document, each measured at its pick: a scroll between two picks, or before the selection goes in the batch, moves none of them. The page line's scroll is where the user stood when the selection went in the batch. The page and the app context repeat only when they change. Claude Code shows the prompt as "Prompt from the pinpoint plugin" and hands it to Claude as "The pinpoint plugin sent a message:", a message to address (measured in a live session on Claude Code 2.1.301, Linux, 2026-10-16).
 
 ## How it works
 

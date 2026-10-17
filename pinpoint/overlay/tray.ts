@@ -1,4 +1,5 @@
-import type { Outcome, Selection, Target } from "../shared/wire.ts";
+import type { Box, Outcome, Selection, Target } from "../shared/wire.ts";
+import { type Scroll, viewportBox } from "./pick.ts";
 
 /**
  * The batch the user builds and what became of the ones sent: a pure model, which the view draws
@@ -120,6 +121,18 @@ export function statusText(status: Status): string {
     case "failed":
       return `Not sent: ${status.reason}. The selections stay here.`;
   }
+}
+
+/** The panel's send button: Ctrl+Enter sends only while pointing, and is the app's otherwise. */
+export function sendText(count: number, pointing: boolean): string {
+  return `Send (${count})${pointing ? " · Ctrl+Enter" : ""}`;
+}
+
+/** Where the viewport draws a selection's targets, the page scrolled by `scroll`: each element's box, each zone's own. */
+export function previewOf(selection: Selection, scroll: Scroll): Box[] {
+  return selection.targets.map((target) =>
+    viewportBox(target.kind === "element" ? target.element.box : target.box, scroll),
+  );
 }
 
 /** The last step of a selector, which names the element on screen. */

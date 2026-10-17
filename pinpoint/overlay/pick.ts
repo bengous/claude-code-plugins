@@ -56,6 +56,58 @@ export function targetIndex(tags: readonly string[]): number | null {
   return index === -1 ? null : index;
 }
 
+/** How far the page is scrolled, in CSS pixels. */
+export type Scroll = { readonly x: number; readonly y: number };
+
+/** A box the viewport draws, in page pixels: from the document's top-left corner, the page scrolled by `scroll`. */
+export function pageBox(box: Box, scroll: Scroll): Box {
+  return { ...box, x: box.x + scroll.x, y: box.y + scroll.y };
+}
+
+/** Where the viewport draws a box in page pixels, the page scrolled by `scroll`. */
+export function viewportBox(box: Box, scroll: Scroll): Box {
+  return { ...box, x: box.x - scroll.x, y: box.y - scroll.y };
+}
+
+/** The main button pressed while pointing: where, and whether Ctrl (⌘) adds to the selection. */
+export type Press = { readonly x: number; readonly y: number; readonly adding: boolean };
+
+/** A pointer event while pointing, as a press reads it; `inside`: over the overlay's panel or composer. */
+export type PointerInput = {
+  readonly type: string;
+  readonly inside: boolean;
+  readonly button: number;
+  readonly x: number;
+  readonly y: number;
+  readonly adding: boolean;
+};
+
+/** The press after a pointer event, and the press that event picks from, `null` for none. */
+export type PressStep = { readonly press: Press | null; readonly picks: Press | null };
+
+/**
+ * What a pointer event does to the press: the main button down outside the overlay starts one; a
+ * release or a cancel anywhere ends it, and only a release outside the overlay picks.
+ */
+export function pressAfter(press: Press | null, input: PointerInput): PressStep {
+  switch (input.type) {
+    case "pointerdown":
+      return {
+        press:
+          input.inside || input.button !== 0
+            ? press
+            : { x: input.x, y: input.y, adding: input.adding },
+        picks: null,
+      };
+    case "pointerup":
+      return { press: null, picks: input.inside ? null : press };
+    case "pointercancel":
+      return { press: null, picks: null };
+    default:
+      return { press, picks: null };
+  }
+}
+
 export function boxBetween(
   a: { readonly x: number; readonly y: number },
   b: { readonly x: number; readonly y: number },

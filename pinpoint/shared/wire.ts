@@ -4,7 +4,10 @@
  * the server (HTTP), and the server to the Vite plugin (the registry file).
  */
 
-/** A box in CSS pixels of the viewport, as `getBoundingClientRect` read it at the pick. */
+/**
+ * A box in CSS pixels. Every box a selection carries is in page pixels, from the top-left corner
+ * of the document: measured at its pick, the viewport's box plus the scroll then.
+ */
 export type Box = {
   readonly x: number;
   readonly y: number;
