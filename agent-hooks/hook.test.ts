@@ -265,6 +265,9 @@ describe("encode", () => {
       expect(encode(context, harness, "post-edit")).toBe(
         `{"hookSpecificOutput":{"hookEventName":"PostToolUse","additionalContext":${textJson}}}`,
       );
+      expect(encode(context, harness, "session-start")).toBe(
+        `{"hookSpecificOutput":{"hookEventName":"SessionStart","additionalContext":${textJson}}}`,
+      );
     }
   });
 

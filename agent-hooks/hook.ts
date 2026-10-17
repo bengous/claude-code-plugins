@@ -33,6 +33,14 @@ export const DEADLINES_MS: Readonly<Record<HookKind, number>> = {
   stop: 200_000,
 };
 
+/** The event name a hook's `hookSpecificOutput` carries, under Claude Code and Codex alike. */
+const HOOK_EVENTS: Readonly<Record<HookKind, string>> = {
+  "session-start": "SessionStart",
+  "pre-edit": "PreToolUse",
+  "post-edit": "PostToolUse",
+  stop: "Stop",
+};
+
 /** A killed command's output grace, then the time to blame, record and encode the run. */
 const SETTLE_MS = OUTPUT_GRACE_MS + 500;
 
@@ -492,10 +500,8 @@ export function encode(verdict: Verdict, harness: Harness, hook: HookKind): stri
     }
 
     case "context": {
-      const hookEventName = hook === "pre-edit" ? "PreToolUse" : "PostToolUse";
-
       return JSON.stringify({
-        hookSpecificOutput: { hookEventName, additionalContext: verdict.text },
+        hookSpecificOutput: { hookEventName: HOOK_EVENTS[hook], additionalContext: verdict.text },
       });
     }
 

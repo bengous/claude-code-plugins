@@ -353,24 +353,49 @@ export function statesOf(sessionId: string): SessionState[] {
  * its scope from. A subagent's state, `<session>.<agent>`, holds that subagent's photo only.
  */
 export function latestStateForCheckout(checkout: string): SessionState | null {
+  return (
+    statesOfCheckout(checkout)
+      .filter((state) => !state.sessionId.includes(AGENT_SEPARATOR))
+      .toSorted((left, right) => right.updatedAt - left.updatedAt)
+      .at(0) ?? null
+  );
+}
+
+/**
+ * The states of this checkout saved at `since` or later by the agents of other sessions, subagents included: what
+ * tells a session starting there that another works in it too.
+ */
+export function othersInCheckout(
+  checkout: string,
+  sessionId: string,
+  since: number,
+): SessionState[] {
+  const own = sanitize(sessionId);
+
+  return statesOfCheckout(checkout).filter(
+    (state) =>
+      state.sessionId !== own &&
+      !state.sessionId.startsWith(`${own}${AGENT_SEPARATOR}`) &&
+      state.updatedAt >= since,
+  );
+}
+
+/** Every readable state of this checkout, each named by the key of its file. */
+function statesOfCheckout(checkout: string): SessionState[] {
   const suffix = `__${checkoutKey(checkout)}.json`;
   let files: string[];
 
   try {
-    files = readdirSync(stateDir()).filter(
-      (file) => file.endsWith(suffix) && !file.slice(0, -suffix.length).includes(AGENT_SEPARATOR),
-    );
+    files = readdirSync(stateDir()).filter((file) => file.endsWith(suffix));
   } catch {
-    return null;
+    return [];
   }
 
-  const states = files.flatMap((file) => {
+  return files.flatMap((file) => {
     try {
-      const sessionId = file.slice(0, -suffix.length);
-
       const parsed = parseState(
         readFileSync(path.join(stateDir(), file), "utf8"),
-        sessionId,
+        file.slice(0, -suffix.length),
         checkout,
       );
 
@@ -379,8 +404,6 @@ export function latestStateForCheckout(checkout: string): SessionState | null {
       return [];
     }
   });
-
-  return states.toSorted((left, right) => right.updatedAt - left.updatedAt).at(0) ?? null;
 }
 
 function sanitize(value: string): string {

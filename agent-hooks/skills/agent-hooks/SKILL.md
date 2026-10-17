@@ -1,6 +1,6 @@
 ---
 name: agent-hooks
-description: Set up or check the agent-hooks kit in a repository (the session-scoped fixers and Stop lanes this plugin wires, and its landing guard on Bash). Use when the user asks to add hooks to a repo, to init agent hooks, to run the hooks doctor, to declare how a repository lands, when a Stop hook misbehaves (blocks on the wrong files, never blocks, names a missing tool), or when the landing guard refuses a push, a merge or a release.
+description: Set up or check the agent-hooks kit in a repository (the session-scoped fixers and Stop lanes this plugin wires, and its landing guard on Bash). Use when the user asks to add hooks to a repo, to init agent hooks, to run the hooks doctor, to declare how a repository lands or whether its tasks take their own worktrees, when a Stop hook misbehaves (blocks on the wrong files, never blocks, names a missing tool), or when the landing guard refuses a push, a merge or a release.
 argument-hint: "[init|doctor]"
 allowed-tools: Bash(${CLAUDE_PLUGIN_ROOT}/agent-hooks.ts *), Read(~/.claude/plugins/cache/*/agent-hooks/*/presets/**)
 ---
@@ -56,6 +56,19 @@ script, or disable the lane. For the wiring:
   nothing and the Stop checks nothing there, silently; the doctor is the one place that says so.
 
 Exit 1 means at least one `MISSING` or a failing lane.
+
+## Worktrees
+
+`"profile": { "worktree": "per-task" }` says each task takes a worktree of its own; `"shared"`, the default,
+says the agents share the checkout. Like `landing`, it is read from the repo file only; an invalid value
+invalidates the profile, and the landing guard refuses every door until it is fixed. Under `per-task`, SessionStart adds one line of `additionalContext` naming the
+checkout around the cwd when another session's state of that checkout (its subagents' included, never the
+session's own) was saved in the last 30 minutes, and tells the agent to work in a worktree of its own
+(EnterWorktree, or `git worktree add`). It never blocks. A session saves that state at SessionStart, at each
+Stop and at an edit that photographs; 88% of the gaps between two Stops of one session ran under 30 minutes
+(145 gaps over 25 sessions in roots holding the config, local transcripts, the 7 days to 2026-10-17). So a
+session in one turn longer than 30 minutes reads as gone, and one that ended less than 30 minutes ago, a
+`/clear` included, reads as live.
 
 ## Reading a Stop
 

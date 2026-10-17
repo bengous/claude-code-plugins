@@ -394,21 +394,25 @@ describe("loadConfig errors", () => {
 });
 
 describe("loadConfig profile", () => {
-  test("no profile reads as no landing and no review", () => {
-    expect(load("{}").profile).toEqual({ landing: null, review: null });
+  test("no profile reads as no landing, no review and a shared checkout", () => {
+    expect(load("{}").profile).toEqual({ landing: null, review: null, worktree: "shared" });
   });
 
   test("reads profile.landing", () => {
     expect(
       load(`{ "profile": { "landing": { "trunk": "dev", "release": "main" } } }`).profile,
-    ).toEqual({ landing: { trunk: "dev", release: "main" }, review: null });
+    ).toEqual({ landing: { trunk: "dev", release: "main" }, review: null, worktree: "shared" });
   });
 
   test("reads profile.review", () => {
     expect(
       load(`{ "profile": { "review": { "risky": ["scripts/land.ts", ".github/workflows/**"] } } }`)
         .profile,
-    ).toEqual({ landing: null, review: { risky: ["scripts/land.ts", ".github/workflows/**"] } });
+    ).toEqual({
+      landing: null,
+      review: { risky: ["scripts/land.ts", ".github/workflows/**"] },
+      worktree: "shared",
+    });
   });
 
   test("a review without its risky globs, or with globs that are not strings", () => {
@@ -429,6 +433,27 @@ describe("loadConfig profile", () => {
         `agent-hooks: ${configPath(temp.repo)}: profile.review.risky: "${glob}" starts with ${glob.startsWith(".") ? "./" : "/"}; a glob is relative to the repository root`,
       );
     }
+  });
+
+  test("reads profile.worktree, beside a landing or alone", () => {
+    expect(load(`{ "profile": { "worktree": "per-task" } }`).profile).toEqual({
+      landing: null,
+      review: null,
+      worktree: "per-task",
+    });
+    expect(load(`{ "profile": { "worktree": "shared" } }`).profile.worktree).toBe("shared");
+    expect(
+      load(
+        `{ "profile": { "worktree": "per-task", "landing": { "trunk": "dev", "release": "main" } } }`,
+      ).profile,
+    ).toEqual({ landing: { trunk: "dev", release: "main" }, review: null, worktree: "per-task" });
+  });
+
+  test("a worktree that is neither per-task nor shared", () => {
+    expect(configErrorOf(`{ "profile": { "worktree": "each" } }`).message).toBe(
+      `agent-hooks: ${configPath(temp.repo)}: profile.worktree: expected per-task|shared`,
+    );
+    expectConfigError(`{ "profile": { "worktree": true } }`, "profile.worktree");
   });
 
   test("takes the profile of the repo file over its presets", () => {
@@ -481,6 +506,7 @@ describe("loadProfile", () => {
     expect(loadProfile(temp.repo)).toEqual({
       landing: { trunk: "dev", release: "main" },
       review: null,
+      worktree: "shared",
     });
   });
 
@@ -490,7 +516,7 @@ describe("loadProfile", () => {
         "dev:agent-hooks.jsonc",
         `{ "stop": 1, "profile": { "review": { "risky": ["a"] } } }`,
       ),
-    ).toEqual({ landing: null, review: { risky: ["a"] } });
+    ).toEqual({ landing: null, review: { risky: ["a"] }, worktree: "shared" });
     expect(() => parseProfile("dev:agent-hooks.jsonc", "{")).toThrow(
       "agent-hooks: dev:agent-hooks.jsonc: invalid JSONC: ",
     );
