@@ -191,11 +191,12 @@ export function loadLanding(root: string, configFile = configPath(root)): Landin
 }
 
 /**
- * `profile.review` alone, from `text`, the repo file as `file` names it (a path, or a commit's `<rev>:<path>`).
- * Throws a ConfigError naming the key when the text does not parse or its review is invalid.
+ * The whole profile in `text`, the repo file as `file` names it (a path, or a commit's `<rev>:<path>`), an unknown
+ * key included: for a reader that runs the same revision's kit, where an unknown key can only be a typo. Throws a
+ * ConfigError naming the key when the text does not parse or its profile is invalid.
  */
-export function parseReview(file: string, text: string): ReviewProfile | null {
-  return readReview(profileIn(file, text));
+export function parseProfile(file: string, text: string): Profile {
+  return readProfile(profileIn(file, text));
 }
 
 function profileIn(file: string, text: string): Reader {
