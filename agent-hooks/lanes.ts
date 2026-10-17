@@ -463,7 +463,7 @@ function worse(left: LaneRun, right: LaneRun): LaneRun {
 
 export const FIX_INSTRUCTION = "Fix the errors above before stopping.";
 
-const REPORT_HEADERS: Readonly<Record<LaneVerdict, string>> = {
+export const REPORT_HEADERS: Readonly<Record<LaneVerdict, string>> = {
   block: "Stop validation failed:",
   note: "Stop notes, no block:",
 };
