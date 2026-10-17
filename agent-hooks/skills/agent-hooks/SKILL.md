@@ -1,7 +1,7 @@
 ---
 name: agent-hooks
-description: Set up or check the agent-hooks kit in a repository (the session-scoped fixers and Stop lanes this plugin wires, and its landing guard on Bash). Use when the user asks to add hooks to a repo, to init agent hooks, to run the hooks doctor, to declare how a repository lands or whether its tasks take their own worktrees, when a Stop hook misbehaves (blocks on the wrong files, never blocks, names a missing tool), or when the landing guard refuses a push, a merge or a release.
-argument-hint: "[init|doctor]"
+description: Set up or check the agent-hooks kit in a repository (the session-scoped fixers and Stop lanes this plugin wires, and its landing guard on Bash). Use when the user asks to add hooks to a repo, to init agent hooks, to run the hooks doctor, to declare how a repository lands or whether its tasks take their own worktrees, to measure what the hooks inject into the context (noise), when a Stop hook misbehaves (blocks on the wrong files, never blocks, names a missing tool), or when the landing guard refuses a push, a merge or a release.
+argument-hint: "[init|doctor|noise]"
 allowed-tools: Bash(${CLAUDE_PLUGIN_ROOT}/agent-hooks.ts *), Read(~/.claude/plugins/cache/*/agent-hooks/*/presets/**)
 ---
 
@@ -56,6 +56,27 @@ script, or disable the lane. For the wiring:
   nothing and the Stop checks nothing there, silently; the doctor is the one place that says so.
 
 Exit 1 means at least one `MISSING` or a failing lane.
+
+## noise
+
+`${CLAUDE_PLUGIN_ROOT}/agent-hooks.ts noise [--days N]` (default 7) reports what the kit's hooks put in front
+of the agent and the user, from the Claude Code transcripts under `$CLAUDE_CONFIG_DIR/projects` (default
+`~/.claude/projects`), each subagent's included, written in the window. A transcript counts when one of its
+cwds lies under a root holding `.claude/agent-hooks.jsonc`, looked up now: a removed worktree counts for
+the root above it. It prints aggregates only, never a line of a transcript:
+
+- per hook event and channel, the count and characters of `additionalContext` and block reasons, which
+  reach the agent's context, and of `systemMessage`, which Claude Code shows the user;
+- the kit's Stops and SubagentStops that passed, blocked, were cancelled or errored;
+- per lane, the reports that carried a `### <lane>` section and its characters; the header, the
+  instruction and the kit's own lines go to `(no lane)`.
+
+Each output is read once, from the record that names the hook: its stdout in `hook_success`, a Stop block in
+`hook_blocking_error`, a pre-bash refusal in the tool result Claude Code replaced, which starts
+`PreToolUse:<tool> hook error: agent-hooks:`. The kit is known by a command running one of its subcommands or
+by a `statusMessage` of `hooks/hooks.json`, which Claude Code records in place of the command. The
+`hook_system_message` and `hook_additional_context` records repeat a stdout without naming its hook and are
+not read. Codex transcripts are not read.
 
 ## Worktrees
 

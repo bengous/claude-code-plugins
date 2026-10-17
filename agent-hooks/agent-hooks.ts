@@ -1,10 +1,13 @@
 #!/usr/bin/env bun
+import { homedir } from "node:os";
+import path from "node:path";
 import { parseArgs } from "node:util";
 
 import { ConfigError, loadConfig } from "./config.ts";
 import { initConfig, runDoctor } from "./doctor.ts";
 import type { HookKind, HookRun } from "./hook.ts";
 import { isHarness, isHookKind, readPayload, runHook } from "./hook.ts";
+import { formatNoise, measureNoise } from "./noise.ts";
 import { runPreBash } from "./pre-bash.ts";
 import { runPostEdit, runPreEdit } from "./pre-edit.ts";
 import { findRoot, realPathOf } from "./scope.ts";
@@ -19,7 +22,10 @@ const USAGE = [
   "  agent-hooks verify [--all] [files...]",
   "  agent-hooks doctor [--config <file>]",
   "  agent-hooks init --print",
+  "  agent-hooks noise [--days N]",
 ].join("\n");
+
+const DEFAULT_NOISE_DAYS = 7;
 
 function hookRun(hook: HookKind): HookRun {
   switch (hook) {
@@ -54,6 +60,7 @@ async function main(argv: readonly string[]): Promise<number> {
       all: { type: "boolean", default: false },
       print: { type: "boolean", default: false },
       config: { type: "string" },
+      days: { type: "string" },
     },
     allowPositionals: true,
   });
@@ -107,6 +114,10 @@ async function main(argv: readonly string[]): Promise<number> {
       return init(values.print);
     }
 
+    case "noise": {
+      return noise(values.days);
+    }
+
     default: {
       console.error(USAGE);
 
@@ -150,6 +161,32 @@ function init(print: boolean): number {
   }
 
   process.stdout.write(initConfig(process.cwd()));
+
+  return 0;
+}
+
+function noise(days: string | undefined): number {
+  if (days !== undefined && !/^[1-9]\d*$/u.test(days)) {
+    console.error(`agent-hooks: --days expects a positive whole number, not "${days}"`);
+
+    return 2;
+  }
+
+  const configDir = process.env["CLAUDE_CONFIG_DIR"];
+
+  const projectsDir = path.join(
+    configDir !== undefined && configDir !== ""
+      ? configDir
+      : path.join(process.env["HOME"] ?? homedir(), ".claude"),
+    "projects",
+  );
+
+  const report = measureNoise({
+    projectsDir,
+    days: days === undefined ? DEFAULT_NOISE_DAYS : Number(days),
+  });
+
+  process.stdout.write(formatNoise(report));
 
   return 0;
 }
