@@ -103,9 +103,12 @@ own) beat there in the last 15 minutes, and tells the agent to work in a worktre
 session or subagent ran under 15 minutes (67,849 gaps over 1,185 transcripts in roots holding the config,
 local transcripts, the 30 days to 2026-10-17; p95 2.1 min, p99 11.9 min). So a session that leaves a
 checkout ages out there in 15 minutes, a live session idle longer reads as gone, and a session that ended
-without its SessionEnd (a crash, a kill) reads as live for up to 15 minutes. The SessionStart payload names
-no session that `/clear` replaced, so the new session relies on the replaced one's SessionEnd having run
-first; that order is not measured.
+without its SessionEnd (a crash, a kill) reads as live for up to 15 minutes. SessionEnd hooks share Claude
+Code's 1.5-second budget, which a plugin's own `timeout` does not raise
+([SessionEnd](https://code.claude.com/docs/en/hooks#sessionend)); `session-end` ran in 98 to 118 ms over 200
+beats (10 runs, bun 1.4.3, Linux, 2026-10-17). The SessionStart payload names no session that `/clear`
+replaced, so the new session relies on the replaced one's SessionEnd having run first; that order is not
+measured, and a SessionEnd that ran late or not at all costs one needless worktree line, never a block.
 
 ## Reading a Stop
 
