@@ -44,7 +44,13 @@ export type Fixer = {
 /** The branches a repository lands on: agents push to `trunk`, the human moves `release`. */
 export type LandingProfile = { readonly trunk: string; readonly release: string };
 
-export type Profile = { readonly landing: LandingProfile | null };
+/** The paths a change lands through only with a clean review verdict for exactly that change. */
+export type ReviewProfile = { readonly risky: readonly string[] };
+
+export type Profile = {
+  readonly landing: LandingProfile | null;
+  readonly review: ReviewProfile | null;
+};
 
 export type Config = {
   readonly profile: Profile;
@@ -119,9 +125,11 @@ const DOCUMENT_KEYS = new Set(["presets", "extends", "profile", "pre-edit", "sto
 
 const PRESET_NAME = /^[a-z0-9-]+$/u;
 
-const PROFILE_KEYS = new Set(["landing"]);
+const PROFILE_KEYS = new Set(["landing", "review"]);
 
 const LANDING_KEYS = new Set(["trunk", "release"]);
+
+const REVIEW_KEYS = new Set(["risky"]);
 
 const PRE_EDIT_KEYS = new Set(["exclude", "fixers"]);
 
@@ -172,9 +180,14 @@ export function loadConfig(root: string, configFile = configPath(root)): Config 
  * ConfigError when the file does not parse or its profile is invalid.
  */
 export function loadProfile(root: string, configFile = configPath(root)): Profile {
-  const record = parseDocument(configFile);
+  return parseProfile(configFile, readText(configFile));
+}
 
-  return readProfile(child({ file: configFile, record, keyPath: "" }, "profile"));
+/** The profile in `text`, the repo file as `file` names it (a path, or a commit's `<rev>:<path>`). */
+export function parseProfile(file: string, text: string): Profile {
+  const record = parseRecord(file, text);
+
+  return readProfile(child({ file, record, keyPath: "" }, "profile"));
 }
 
 function collectPreset(
@@ -233,10 +246,12 @@ function readDocument(file: string, kind: DocumentKind): RawDocument {
 }
 
 function parseDocument(file: string): Record<string, unknown> {
-  let text: string;
+  return parseRecord(file, readText(file));
+}
 
+function readText(file: string): string {
   try {
-    text = readFileSync(file, "utf8");
+    return readFileSync(file, "utf8");
   } catch (error) {
     throw new ConfigError(
       file,
@@ -244,7 +259,9 @@ function parseDocument(file: string): Record<string, unknown> {
       `cannot read: ${error instanceof Error ? error.message : String(error)}`,
     );
   }
+}
 
+function parseRecord(file: string, text: string): Record<string, unknown> {
   let parsed: unknown;
 
   try {
@@ -359,20 +376,40 @@ function oneOf<T extends string>(reader: Reader, key: string, values: readonly T
 function readProfile(reader: Reader): Profile {
   rejectUnknownKeys(reader, PROFILE_KEYS);
 
-  if (reader.record["landing"] === undefined) {
-    return { landing: null };
+  return { landing: readLanding(reader), review: readReview(reader) };
+}
+
+function readLanding(profile: Reader): LandingProfile | null {
+  if (profile.record["landing"] === undefined) {
+    return null;
   }
 
-  const landing = child(reader, "landing");
+  const landing = child(profile, "landing");
   rejectUnknownKeys(landing, LANDING_KEYS);
   const trunk = branch(landing, "trunk");
   const release = branch(landing, "release");
 
   if (trunk === release) {
-    throw new ConfigError(reader.file, landing.keyPath, "trunk and release name one branch");
+    throw new ConfigError(profile.file, landing.keyPath, "trunk and release name one branch");
   }
 
-  return { landing: { trunk, release } };
+  return { trunk, release };
+}
+
+function readReview(profile: Reader): ReviewProfile | null {
+  if (profile.record["review"] === undefined) {
+    return null;
+  }
+
+  const review = child(profile, "review");
+  rejectUnknownKeys(review, REVIEW_KEYS);
+  const risky = stringArray(review, "risky");
+
+  if (risky === undefined || risky.length === 0) {
+    throw new ConfigError(review.file, keyPathOf(review, "risky"), "expected a list of globs");
+  }
+
+  return { risky };
 }
 
 function branch(reader: Reader, key: string): string {

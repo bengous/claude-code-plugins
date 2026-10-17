@@ -147,6 +147,9 @@ What the model bounds and the kit does not try to cross:
   names the way through: push to `trunk`, or `bun ./scripts/land.ts <branch>` when the repository has
   that script. A file that does not parse, or an invalid profile, refuses every door there, naming the
   error.
+- `"profile": { "review": { "risky": ["<glob>", …] } }` names the paths whose change lands only with a
+  clean review verdict for that exact change. The kit validates the list and enforces nothing with it:
+  the repository's own land script reads it.
 - Without a profile, a resolved push, ref move or merge to the default branch of a public repository is
   refused. The visibility and the default branch come from `gh repo view`, read once per repository and
   session into `~/.local/state/agent-hooks/github__<session>.json`. A lookup that fails, a call past

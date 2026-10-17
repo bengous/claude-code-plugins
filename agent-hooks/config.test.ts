@@ -13,6 +13,7 @@ import {
   loadConfig,
   loadProfile,
   matchesFilter,
+  parseProfile,
   pkgOf,
   splitCommand,
 } from "./config.ts";
@@ -393,14 +394,31 @@ describe("loadConfig errors", () => {
 });
 
 describe("loadConfig profile", () => {
-  test("no profile reads as no landing", () => {
-    expect(load("{}").profile).toEqual({ landing: null });
+  test("no profile reads as no landing and no review", () => {
+    expect(load("{}").profile).toEqual({ landing: null, review: null });
   });
 
   test("reads profile.landing", () => {
     expect(
       load(`{ "profile": { "landing": { "trunk": "dev", "release": "main" } } }`).profile,
-    ).toEqual({ landing: { trunk: "dev", release: "main" } });
+    ).toEqual({ landing: { trunk: "dev", release: "main" }, review: null });
+  });
+
+  test("reads profile.review", () => {
+    expect(
+      load(`{ "profile": { "review": { "risky": ["scripts/land.ts", ".github/workflows/**"] } } }`)
+        .profile,
+    ).toEqual({ landing: null, review: { risky: ["scripts/land.ts", ".github/workflows/**"] } });
+  });
+
+  test("a review without its risky globs, or with globs that are not strings", () => {
+    expectConfigError(`{ "profile": { "review": {} } }`, "profile.review.risky");
+    expectConfigError(`{ "profile": { "review": { "risky": [] } } }`, "profile.review.risky");
+    expectConfigError(`{ "profile": { "review": { "risky": [1] } } }`, "profile.review.risky");
+    expectConfigError(
+      `{ "profile": { "review": { "risky": ["a"], "nope": 1 } } }`,
+      "profile.review.nope",
+    );
   });
 
   test("takes the profile of the repo file over its presets", () => {
@@ -450,7 +468,22 @@ describe("loadProfile", () => {
       `{ "presets": ["no-such-preset"], "profile": { "landing": { "trunk": "dev", "release": "main" } } }`,
     );
 
-    expect(loadProfile(temp.repo)).toEqual({ landing: { trunk: "dev", release: "main" } });
+    expect(loadProfile(temp.repo)).toEqual({
+      landing: { trunk: "dev", release: "main" },
+      review: null,
+    });
+  });
+
+  test("reads the profile of a text, as a commit holds the file, naming that file in an error", () => {
+    expect(
+      parseProfile(
+        "dev:agent-hooks.jsonc",
+        `{ "stop": 1, "profile": { "review": { "risky": ["a"] } } }`,
+      ),
+    ).toEqual({ landing: null, review: { risky: ["a"] } });
+    expect(() => parseProfile("dev:agent-hooks.jsonc", "{")).toThrow(
+      "agent-hooks: dev:agent-hooks.jsonc: invalid JSONC: ",
+    );
   });
 
   test("reports an invalid profile", () => {
