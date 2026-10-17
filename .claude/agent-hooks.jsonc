@@ -2,8 +2,29 @@
 // stays with the PostToolUse hook `.claude/hooks/format-on-edit.ts`.
 {
   // Agents push to dev and land on it with scripts/land.ts; main is the human's release. The kit's pre-bash hook
-  // refuses the one-way doors this derives.
-  "profile": { "landing": { "trunk": "dev", "release": "main" } },
+  // refuses the one-way doors this derives. scripts/land.ts lands a change to a `risky` path only with a clean
+  // review verdict for its patch (scripts/review-verdict.ts), reading this list from origin/dev: the paths that
+  // move what lands, releases or guards, this file and the gate's own scripts included.
+  "profile": {
+    "landing": { "trunk": "dev", "release": "main" },
+    "review": {
+      "risky": [
+        "scripts/land.ts",
+        "scripts/release.ts",
+        "scripts/review-verdict.ts",
+        "scripts/lib/run.ts",
+        ".github/workflows/**",
+        "lefthook.yml",
+        ".lefthook/**",
+        ".claude/__settings.jsonc",
+        ".claude/agent-hooks.jsonc",
+        "agent-hooks/pre-bash.ts",
+        "agent-hooks/landing.ts",
+        "agent-hooks/shell.ts",
+        "agent-hooks/mentions.ts",
+      ],
+    },
+  },
   "stop": {
     "lanes": {
       "gates": { "on": "**", "takes": "project", "run": "bun ./scripts/run-gates.ts", "timeout": 180 },
