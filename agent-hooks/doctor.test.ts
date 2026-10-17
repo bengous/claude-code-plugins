@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
-import { claudeWiring, codexWiring } from "./doctor.ts";
+import { claudeWiring, codexWiring, reviewGlobs } from "./doctor.ts";
 
 const PLUGIN = "agent-hooks@bengous-plugins";
 
@@ -178,6 +178,26 @@ describe("claudeWiring", () => {
 
   test("every check is a WARN at worst, never a failure", () => {
     expect(claudeWiring([file("broken.json", "{")]).ok).toBe(true);
+  });
+});
+
+describe("reviewGlobs", () => {
+  test("warns on each risky glob that matches no tracked file, never failing", () => {
+    const checks = reviewGlobs({ risky: ["scripts/land.ts", "ci/**", ".lefthook/**"] }, [
+      "scripts/land.ts",
+      ".lefthook/pre-push/gates.sh",
+    ]);
+
+    expect(checks).toEqual([
+      { ok: true, line: "WARN    review: risky glob ci/** matches no tracked file" },
+    ]);
+  });
+
+  test("says so in one line when every glob matches, and nothing without a review", () => {
+    expect(reviewGlobs({ risky: ["a.ts"] }, ["a.ts"])).toEqual([
+      { ok: true, line: "ok      review: 1 risky glob, each matching a tracked file" },
+    ]);
+    expect(reviewGlobs(null, ["a.ts"])).toEqual([]);
   });
 });
 

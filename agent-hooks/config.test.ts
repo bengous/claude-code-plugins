@@ -421,6 +421,16 @@ describe("loadConfig profile", () => {
     );
   });
 
+  test("a risky glob that starts with ./ or /, which no path git names can match", () => {
+    for (const glob of ["./scripts/land.ts", "/scripts/land.ts"]) {
+      expect(
+        configErrorOf(`{ "profile": { "review": { "risky": ["a", "${glob}"] } } }`).message,
+      ).toBe(
+        `agent-hooks: ${configPath(temp.repo)}: profile.review.risky: "${glob}" starts with ${glob.startsWith(".") ? "./" : "/"}; a glob is relative to the repository root`,
+      );
+    }
+  });
+
   test("takes the profile of the repo file over its presets", () => {
     const config = load(
       `{ "presets": ["ts"], "profile": { "landing": { "trunk": "develop", "release": "master" } } }`,

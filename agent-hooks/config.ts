@@ -7,6 +7,9 @@ import { isRecord, isStringArray, parseJsonc } from "./json.ts";
 
 export const CONFIG_RELATIVE_PATH = path.join(".claude", "agent-hooks.jsonc");
 
+/** The repo file as git names it in a tree: `/`-separated on every platform. */
+export const CONFIG_GIT_PATH = path.posix.join(".claude", "agent-hooks.jsonc");
+
 export const PRESETS_DIR = path.join(import.meta.dir, "presets");
 
 export const DEFAULT_CAP = 3;
@@ -405,8 +408,22 @@ function readReview(profile: Reader): ReviewProfile | null {
   rejectUnknownKeys(review, REVIEW_KEYS);
   const risky = stringArray(review, "risky");
 
+  const keyPath = keyPathOf(review, "risky");
+
   if (risky === undefined || risky.length === 0) {
-    throw new ConfigError(review.file, keyPathOf(review, "risky"), "expected a list of globs");
+    throw new ConfigError(review.file, keyPath, "expected a list of globs");
+  }
+
+  for (const glob of risky) {
+    const anchor = ["./", "/"].find((prefix) => glob.startsWith(prefix));
+
+    if (anchor !== undefined) {
+      throw new ConfigError(
+        review.file,
+        keyPath,
+        `"${glob}" starts with ${anchor}; a glob is relative to the repository root`,
+      );
+    }
   }
 
   return { risky };

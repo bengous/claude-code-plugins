@@ -154,7 +154,9 @@ What the model bounds and the kit does not try to cross:
   error.
 - `"profile": { "review": { "risky": ["<glob>", …] } }` names the paths whose change lands only with a
   clean review verdict for that exact change. The kit validates the list and enforces nothing with it:
-  the repository's own land script reads it.
+  the repository's own land script reads it. A glob is relative to the repository root, as git names a
+  path, so one that starts with `./` or `/` is refused; `doctor` warns on a glob that matches no tracked
+  file (`WARN    review: risky glob …`), which guards nothing.
 - Without a profile, a resolved push, ref move or merge to the default branch of a public repository is
   refused. The visibility and the default branch come from `gh repo view`, read once per repository and
   session into `~/.local/state/agent-hooks/github__<session>.json`. A lookup that fails, a call past
