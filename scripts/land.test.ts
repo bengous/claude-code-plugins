@@ -58,9 +58,11 @@ function git(cwd: string, ...args: string[]): string {
   return result.stdout.toString().trim();
 }
 
-function setEnv(name: string, value: string) {
+function setEnv(name: string, value: string | undefined) {
   if (!saved.has(name)) saved.set(name, process.env[name]);
-  process.env[name] = value;
+
+  if (value === undefined) delete process.env[name];
+  else process.env[name] = value;
 }
 
 function clone(name: string): string {
@@ -561,6 +563,9 @@ describe("land, a branch that touches a risky path", () => {
     serve(pullRequest());
 
     const before = git(origin, "rev-parse", "dev");
+
+    // A landing's pre-push runs this suite with LAND_DEV_COPY set: inherited, it would skip the dev copy under test.
+    setEnv("LAND_DEV_COPY", undefined);
 
     const cli = Bun.spawnSync([process.execPath, script, "feature/x"], {
       cwd: work,
