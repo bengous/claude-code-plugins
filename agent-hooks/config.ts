@@ -50,9 +50,13 @@ export type LandingProfile = { readonly trunk: string; readonly release: string 
 /** The paths a change lands through only with a clean review verdict for exactly that change. */
 export type ReviewProfile = { readonly risky: readonly string[] };
 
+/** Whether the agents of a repository share its checkout, or each task takes a worktree of its own. */
+export type WorktreeMode = "per-task" | "shared";
+
 export type Profile = {
   readonly landing: LandingProfile | null;
   readonly review: ReviewProfile | null;
+  readonly worktree: WorktreeMode;
 };
 
 export type Config = {
@@ -128,7 +132,7 @@ const DOCUMENT_KEYS = new Set(["presets", "extends", "profile", "pre-edit", "sto
 
 const PRESET_NAME = /^[a-z0-9-]+$/u;
 
-const PROFILE_KEYS = new Set(["landing", "review"]);
+const PROFILE_KEYS = new Set(["landing", "review", "worktree"]);
 
 const LANDING_KEYS = new Set(["trunk", "release"]);
 
@@ -379,7 +383,11 @@ function oneOf<T extends string>(reader: Reader, key: string, values: readonly T
 function readProfile(reader: Reader): Profile {
   rejectUnknownKeys(reader, PROFILE_KEYS);
 
-  return { landing: readLanding(reader), review: readReview(reader) };
+  return {
+    landing: readLanding(reader),
+    review: readReview(reader),
+    worktree: oneOf(reader, "worktree", ["per-task", "shared"]) ?? "shared",
+  };
 }
 
 function readLanding(profile: Reader): LandingProfile | null {
