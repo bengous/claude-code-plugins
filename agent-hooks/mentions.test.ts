@@ -7,10 +7,12 @@ const CWD = "/work/repo";
 
 const PLAIN: Vocabulary = {
   gitAliases: new Set(),
-  doorScripts: new Set(),
-  releaseDoors: true,
-  releaseScriptAt: () => true,
+  doorScriptNames: new Set(),
+  doorScriptsAt: () => new Set(),
+  profiledAt: () => true,
 };
+
+const UNPROFILED: Vocabulary = { ...PLAIN, profiledAt: () => false };
 
 /** Every directory exists: these cases read the line, not the disk. */
 function read(command: string, vocabulary: Vocabulary = PLAIN): Assessment {
@@ -52,7 +54,11 @@ describe("findMentions", () => {
   });
 
   test("a git alias that pushes and a package script that opens a door are mentions", () => {
-    const vocabulary = { ...PLAIN, gitAliases: new Set(["p"]), doorScripts: new Set(["ship"]) };
+    const vocabulary = {
+      ...PLAIN,
+      gitAliases: new Set(["p"]),
+      doorScriptNames: new Set(["ship"]),
+    };
 
     expect(findMentions("git p origin main", vocabulary).map((mention) => mention.kind)).toEqual([
       "push",
@@ -62,11 +68,9 @@ describe("findMentions", () => {
     ]);
   });
 
-  test("gh release and its keyword wait for a landing profile; the release path does not", () => {
-    const unprofiled = { ...PLAIN, releaseDoors: false };
-
-    expect(findMentions("gh release create v1", unprofiled)).toEqual([]);
-    expect(findMentions("bun scripts/release.ts", unprofiled)).toHaveLength(1);
+  test("gh release and the release path are mentions in any repository", () => {
+    expect(findMentions("gh release create v1", UNPROFILED)).toHaveLength(1);
+    expect(findMentions("bun scripts/release.ts", UNPROFILED)).toHaveLength(1);
   });
 });
 
@@ -185,10 +189,30 @@ describe("assess accounts for each mention", () => {
     ]);
   });
 
-  test("a release script mention outside a profiled repository is no door", () => {
-    const unprofiled = { ...PLAIN, releaseDoors: false, releaseScriptAt: (): boolean => false };
+  test("a release command outside a profiled repository is no door", () => {
+    for (const command of [
+      "npx tsx scripts/release.ts",
+      "bun ./scripts/release.ts",
+      "gh release create v1",
+    ]) {
+      expect(read(command, UNPROFILED)).toEqual({ doors: [], unresolved: [] });
+    }
+  });
 
-    expect(read("npx tsx scripts/release.ts", unprofiled)).toEqual({ doors: [], unresolved: [] });
-    expect(read("bun ./scripts/release.ts", unprofiled)).toEqual({ doors: [], unresolved: [] });
+  test("a package script is a door where its manifest says so, and unresolved where the guard is lost", () => {
+    const vocabulary: Vocabulary = {
+      ...PLAIN,
+      doorScriptNames: new Set(["release"]),
+      doorScriptsAt: (dir) => new Set(dir === CWD ? ["release"] : []),
+    };
+
+    expect(doorKinds("bun run release", vocabulary)).toEqual(["script"]);
+    expect(read("cd /elsewhere && bun run release", vocabulary)).toEqual({
+      doors: [],
+      unresolved: [],
+    });
+    expect(whys('cd "$X" && bun run release', vocabulary)).toEqual([
+      "an earlier cd $X leaves its directory unknown",
+    ]);
   });
 });

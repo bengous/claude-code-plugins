@@ -376,24 +376,24 @@ function scriptCommands(script: PackageScript, manifest: Manifest): string[] {
   });
 }
 
+const NO_VOCABULARY: Vocabulary = {
+  gitAliases: new Set(),
+  doorScriptNames: new Set(),
+  doorScriptsAt: () => new Set(),
+  profiledAt: () => true,
+};
+
 /** The git aliases, read from git's own config at `cwd`, whose expansion pushes: `push`, or a `!` command that does. */
 function doorAliases(cwd: string): Set<string> {
   const listing = existsSync(cwd) ? git(cwd, [], ["config", "--get-regexp", "^alias\\."]) : null;
   const doors = new Set<string>();
-
-  const none: Vocabulary = {
-    gitAliases: new Set(),
-    doorScripts: new Set(),
-    releaseDoors: true,
-    releaseScriptAt: () => true,
-  };
 
   for (const line of listing?.split("\n") ?? []) {
     const match = /^alias\.(\S+)\s+(.*)$/u.exec(line);
     const [, name, value = ""] = match ?? [];
     const expansion = value.startsWith("!") ? value.slice(1) : `git ${value}`;
 
-    if (name !== undefined && findMentions(expansion, none).length > 0) {
+    if (name !== undefined && findMentions(expansion, NO_VOCABULARY).length > 0) {
       doors.add(name);
     }
   }
@@ -401,21 +401,15 @@ function doorAliases(cwd: string): Set<string> {
   return doors;
 }
 
-/** The package scripts of the manifest around `cwd` that open a door, directly or through another such script. */
-function doorScriptsOf(
-  cwd: string,
-  gitAliases: ReadonlySet<string>,
-  releaseDoors: boolean,
-  releaseScriptAt: (dir: string) => boolean,
-): Set<string> {
-  const manifest = manifestOf(cwd);
+/** The scripts of `manifest` that open a door, directly or through another such script. */
+function doorScriptsIn(manifest: Manifest, gitAliases: ReadonlySet<string>): Set<string> {
   const doors = new Set<string>();
 
-  for (let changed = manifest !== null; changed;) {
+  for (let changed = true; changed;) {
     changed = false;
 
-    for (const [name, command] of manifest?.scripts ?? []) {
-      const vocabulary = { gitAliases, doorScripts: doors, releaseDoors, releaseScriptAt };
+    for (const [name, command] of manifest.scripts) {
+      const vocabulary = { ...NO_VOCABULARY, gitAliases, doorScriptNames: doors };
 
       if (!doors.has(name) && findMentions(command, vocabulary).length > 0) {
         doors.add(name);
@@ -434,27 +428,59 @@ function profiledAt(dir: string): boolean {
   return root !== null && profileOf(root).kind !== "default";
 }
 
+const DIRECTORY_WORD =
+  /(?:^|[\s;&|(])(?:cd|pushd|--cwd|--prefix|--dir|-C)[\s=]+("[^"]*"|'[^']*'|[^\s;&|)]+)/gu;
+
+/** The directories a line can reach: `cwd`, the targets of its `cd`, `--cwd`, `--prefix` and `-C`, and their parents. */
+function reachableDirs(command: string, cwd: string): string[] {
+  const named = [...command.matchAll(DIRECTORY_WORD)].map((match) =>
+    path.resolve(cwd, (match[1] ?? "").replaceAll(/^["']|["']$/gu, "")),
+  );
+
+  return [...new Set([cwd, ...named].flatMap((dir) => ancestorsOf(dir)))];
+}
+
+function ancestorsOf(dir: string): string[] {
+  const parent = path.dirname(dir);
+
+  return parent === dir ? [dir] : [dir, ...ancestorsOf(parent)];
+}
+
+/** `read` once per directory: a line asks the same directory for each of its mentions. */
+function memoized<T>(read: (dir: string) => T): (dir: string) => T {
+  const known = new Map<string, T>();
+
+  return (dir) => {
+    const cached = known.get(dir);
+
+    if (cached !== undefined) {
+      return cached;
+    }
+
+    const value = read(dir);
+    known.set(dir, value);
+
+    return value;
+  };
+}
+
 function vocabularyOf(command: string, cwd: string): Vocabulary {
-  const scripts = mentionsPackageManager(command);
-  const releaseDoors = command.includes("release") && profiledAt(cwd);
   const gitAliases = mentionsGit(command) ? doorAliases(cwd) : new Set<string>();
-  const known = new Map<string, boolean>();
 
-  const releaseScriptAt = (dir: string): boolean => {
-    const cached = known.get(dir) ?? profiledAt(dir);
-    known.set(dir, cached);
+  const scriptsOfManifest = memoized((dir) => {
+    const manifest = manifestOf(dir);
 
-    return cached;
-  };
+    return manifest === null ? new Set<string>() : doorScriptsIn(manifest, gitAliases);
+  });
 
-  return {
-    gitAliases,
-    releaseDoors,
-    releaseScriptAt,
-    doorScripts: scripts
-      ? doorScriptsOf(cwd, gitAliases, releaseDoors, releaseScriptAt)
-      : new Set(),
-  };
+  const doorScriptsAt = (dir: string): ReadonlySet<string> =>
+    scriptsOfManifest(manifestOf(dir)?.dir ?? dir);
+
+  const doorScriptNames = mentionsPackageManager(command)
+    ? new Set(reachableDirs(command, cwd).flatMap((dir) => [...doorScriptsAt(dir)]))
+    : new Set<string>();
+
+  return { gitAliases, doorScriptNames, doorScriptsAt, profiledAt: memoized(profiledAt) };
 }
 
 function judgeDoor(door: Door, context: GuardContext, depth: number): Promise<GuardVerdict> {

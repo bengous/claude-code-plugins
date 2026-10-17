@@ -32,14 +32,18 @@ export type Mention = {
   readonly end: number;
 };
 
-/** What the guard knows before it reads a line: the git aliases that push, the package scripts that open a door. */
+/**
+ * What the guard knows of the repositories a line can reach: the git aliases that push, the package scripts that
+ * open a door, the profiles. Detection reads the names; a door is decided where the walk reached.
+ */
 export type Vocabulary = {
   readonly gitAliases: ReadonlySet<string>;
-  readonly doorScripts: ReadonlySet<string>;
-  /** The repository has a landing profile: `gh release create` is a door there. */
-  readonly releaseDoors: boolean;
-  /** Whether the repository around `dir` has a landing profile, where its release script is a door. */
-  readonly releaseScriptAt: (dir: string) => boolean;
+  /** The door scripts of every manifest the line can reach: what detection looks for after a package manager. */
+  readonly doorScriptNames: ReadonlySet<string>;
+  /** The door scripts of the manifest a package manager finds from `dir`. */
+  readonly doorScriptsAt: (dir: string) => ReadonlySet<string>;
+  /** Whether the repository around `dir` has a landing profile, or one the guard cannot read: its release doors. */
+  readonly profiledAt: (dir: string) => boolean;
 };
 
 /** A door invocation the guard resolved: literal words, a known directory, no state change before it. */
@@ -379,9 +383,9 @@ export function findMentions(script: string, vocabulary: Vocabulary): Mention[] 
     { kind: "merge", pattern: GRAPHQL_MERGE, needs: GH },
     { kind: "push", pattern: GRAPHQL_REF, needs: GH },
     { kind: "push", pattern: GIT_REFS, needs: GH },
-    ...(vocabulary.releaseDoors ? [{ kind: "release", pattern: RELEASE, needs: GH } as const] : []),
+    { kind: "release", pattern: RELEASE, needs: GH },
     { kind: "release", pattern: RELEASE_PATH, needs: null },
-    ...[...vocabulary.doorScripts].map((name): Rule => ({
+    ...[...vocabulary.doorScriptNames].map((name): Rule => ({
       kind: "script",
       pattern: wordPattern(name),
       needs: PACKAGE_MANAGER,
@@ -1045,7 +1049,14 @@ function doorOf(view: View, vocabulary: Vocabulary, world: World): Classificatio
     return apiDoor(view, cwd);
   }
 
-  if (gh !== null && isReleaseCreate(gh) && vocabulary.releaseDoors) {
+  if (gh !== null && isReleaseCreate(gh) && gh.repo === null && view.cwd === null) {
+    return unresolved(
+      "release",
+      `an earlier ${quote(view.lost ?? "cd")} leaves its directory unknown`,
+    );
+  }
+
+  if (gh !== null && isReleaseCreate(gh) && vocabulary.profiledAt(cwd)) {
     const why = blocker(
       view,
       { directory: gh.repo === null, branch: false },
@@ -1059,7 +1070,19 @@ function doorOf(view: View, vocabulary: Vocabulary, world: World): Classificatio
 
   const release = releaseScriptOf(argv, cwd);
 
-  if (release !== null && vocabulary.releaseScriptAt(path.dirname(release.path))) {
+  if (
+    release !== null &&
+    !release.dryRun &&
+    view.cwd === null &&
+    !path.isAbsolute(release.script)
+  ) {
+    return unresolved(
+      "release",
+      `an earlier ${quote(view.lost ?? "cd")} leaves its directory unknown`,
+    );
+  }
+
+  if (release !== null && vocabulary.profiledAt(path.dirname(release.path))) {
     if (release.dryRun) {
       return null;
     }
@@ -1077,7 +1100,14 @@ function doorOf(view: View, vocabulary: Vocabulary, world: World): Classificatio
 
   const script = packageScriptOf(argv, cwd);
 
-  if (script !== null && vocabulary.doorScripts.has(script.name)) {
+  if (script !== null && view.cwd === null && vocabulary.doorScriptNames.has(script.name)) {
+    return unresolved(
+      "script",
+      `an earlier ${quote(view.lost ?? "cd")} leaves its directory unknown`,
+    );
+  }
+
+  if (script !== null && vocabulary.doorScriptsAt(script.cwd).has(script.name)) {
     const named = unwrapped.argv.findIndex((word) => word.text === script.name);
 
     const why = blocker(
@@ -1119,10 +1149,11 @@ function argumentRole(
 ): Classification {
   const role = roleOf(mention, word, view);
 
-  // A release script is a door only where the repository has a landing profile.
+  // A release command is a door only where the repository has a landing profile; an unknown directory may have one.
   return role.kind === "unresolved" &&
     mention.kind === "release" &&
-    !vocabulary.releaseScriptAt(view.cwd ?? view.unwrapped.cwd)
+    view.cwd !== null &&
+    !vocabulary.profiledAt(view.cwd)
     ? INERT
     : role;
 }

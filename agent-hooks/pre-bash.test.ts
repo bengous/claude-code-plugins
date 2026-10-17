@@ -348,6 +348,45 @@ describe("pre-bash in a repository with profile.landing", () => {
     expect((await preBash("bun build scripts/release.ts", repo)).stdout).toBe("");
   });
 
+  test("reads the profile and the package scripts where the command runs, not where the hook starts", async () => {
+    writeRepoFile(
+      repo,
+      "package.json",
+      JSON.stringify({ scripts: { release: "bun ./scripts/release.ts" } }),
+    );
+    writeRepoFile(repo, "sub/package.json", JSON.stringify({ scripts: { t: "bun test" } }));
+    const sub = path.join(repo, "sub");
+    const outside = makeRepo("outside", {}, "/srv/git/outside.git");
+
+    expect((await preBash("cd .. && bun run release", sub)).reason).toContain(RELEASE_SCRIPT);
+    expect((await preBash("bun --cwd .. run release", sub)).reason).toContain(RELEASE_SCRIPT);
+    expect(
+      (await preBash(`cd ${repo} && gh release create v1.0.0 --generate-notes`, outside)).reason,
+    ).toContain("gh release create publishes 'main'");
+    expect((await preBash(`cd ${repo} && bun run release`, outside)).reason).toContain(
+      RELEASE_SCRIPT,
+    );
+    expect((await preBash("bun run t", sub)).stdout).toBe("");
+  });
+
+  test("refuses a release command whose directory the guard cannot follow", async () => {
+    writeRepoFile(
+      repo,
+      "package.json",
+      JSON.stringify({ scripts: { release: "bun ./scripts/release.ts" } }),
+    );
+
+    expect((await preBash('cd "$X" && gh release create v1', repo)).reason).toContain(
+      "The release is the human's",
+    );
+    expect((await preBash('cd "$X" && bun run release', repo)).decision).toBe("deny");
+    expect((await preBash('cd "$X" && bun ./scripts/release.ts', repo)).decision).toBe("deny");
+
+    const outside = makeRepo("unprofiled", {}, "/srv/git/unprofiled.git");
+
+    expect((await preBash('cd "$X" && gh release create v1', outside)).decision).toBe("deny");
+  });
+
   test("refuses gh release create", async () => {
     expect((await preBash("gh release create v1 --notes x", repo)).reason).toContain(
       "gh release create publishes 'main'",
