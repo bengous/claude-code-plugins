@@ -274,9 +274,13 @@ type Repository<Commits extends readonly Files[]> = {
   readonly shas: { readonly [Index in keyof Commits]: string };
 };
 
-/** Runs `git` in `root`, `input` on its stdin, and answers its stdout trimmed. */
+/**
+ * Runs `git` in `root`, `input` on its stdin, and answers its stdout trimmed. `core.autocrlf` is
+ * off whatever the machine's config says, a Windows install's may turn it on: the checkout holds
+ * the blobs' bytes.
+ */
 function git(root: string, args: readonly string[], input = ""): string {
-  const run = Bun.spawnSync(["git", ...args], {
+  const run = Bun.spawnSync(["git", "-c", "core.autocrlf=false", ...args], {
     cwd: root,
     stdin: new TextEncoder().encode(input),
     stdout: "pipe",
