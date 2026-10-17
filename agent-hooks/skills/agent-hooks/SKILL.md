@@ -114,41 +114,52 @@ What the model bounds and the kit does not try to cross:
 ## Landing guard
 
 - `pre-bash`, a PreToolUse hook on Bash, runs in every repository, with or without
-  `.claude/agent-hooks.jsonc`. It first reads the raw text for a door: `push` after `git` or a git alias
-  that pushes, `merge` after `gh` (`gh api …/merge` included), `release` after `gh` and a
-  `scripts/release` path (with or without extension), a `package.json` script that runs one of them.
-  No mention, the command passes unparsed.
-- Each mention is then accounted for. Inert: text inside a quoted argument or a heredoc body of a command
-  that does not run it (a commit message, `echo`, `rg`, an interpreter heredoc that calls no process
-  API), an argument of a command that only reads it (`git log`, `cat`, `oxlint`). A door: an invocation
-  whose decisive words are literal at hook time, the variables the line assigns a literal included, run
-  where the guard can follow (`cd` to an existing directory, `git -C`, `env -C`, `sudo`, `nice`,
-  `timeout`, `time`, `flock`, `systemd-run --scope`, `mise exec --`, a literal `bash -c '…'`), with no
-  earlier change in the same line to what it reads (`git checkout`, `git switch`, `git worktree add`,
-  `git remote add`, a config write, a `cd` the guard cannot follow). Anything else is unresolved: a
-  word known only at run time, a wrapper the guard does not read (`stdbuf`, `watch`, `npx tsx`), a
-  shell fed a heredoc or a pipe, `eval`, a shell function, a git alias. An unresolved mention is
-  refused, naming the explicit form to use: `git push origin <branch>` alone from the repository,
-  `gh pr merge <number>`, or, for a release, `bun ./scripts/release.ts --dry-run`.
+  `.claude/agent-hooks.jsonc`. It first reads the raw text, line continuations joined, for a door:
+  `push` after `git` or a git alias that pushes, `merge` after `gh`, `gh api` on `git/refs` or a merge
+  endpoint, a GraphQL `mergePullRequest`, `mergeBranch`, `updateRef` or `deleteRef`, `release` after
+  `gh`, a `scripts/release` path (with or without extension), a `package.json` script that runs one of
+  them in a manifest the line can reach. No mention, the command passes unparsed.
+- Each mention is then accounted for. Inert: text inside a quoted argument or a heredoc body of a
+  command that does not run it (a commit message, `echo`, `rg`, an interpreter heredoc that calls no
+  process API), an argument of a command that only reads it (`git log`, `cat`, `oxlint`). A door: an
+  invocation whose deciding words are literal at hook time, the variables the line assigns a literal
+  once, unconditionally, included, run where the guard can follow (`cd` to an existing directory,
+  `git -C`, `env -C`, `sudo`, `nice`, `timeout`, `time`, `flock <lock> <command>`,
+  `systemd-run --scope`, `mise exec --`, a literal `bash -c '…'`), with no earlier change in the same
+  line to what it reads (`git checkout`, `git switch`, `git rebase <upstream> <branch>`,
+  `git worktree add`, `git remote add`, a config write, a `cd` the guard cannot follow). Anything else
+  is unresolved: a word known only at run time, a wrapper that hides its command (`xargs`, `env -S`,
+  `flock -c`) or that the guard does not read (`stdbuf`, `watch`, `npx tsx`), a shell fed a heredoc
+  or a pipe, an unquoted heredoc that runs `$(…)`, interpreter code that starts a process, `eval`, a
+  shell function, a git alias or a `git -c` that moves the push, a GraphQL mutation. An unresolved
+  mention is refused, naming the explicit form to use: `git push origin <branch>` alone from the
+  repository, `gh pr merge <number>`, or, for a release, `bun ./scripts/release.ts --dry-run`.
 - A repository whose agents land on their own declares its branches in its own file:
   `"profile": { "landing": { "trunk": "dev", "release": "main" } }`, never read from a preset, and read
   alone: an error elsewhere in the file leaves it in force. A resolved door is then refused when it
   pushes to `release` (a deletion, `--all` and `--mirror` included), force-pushes or deletes `trunk`,
-  merges into `release`, merges with a check red, running or none reported (`--auto` included: gh merges a mergeable pull
-  request at once), or a
-  pull request that is not mergeable, or runs `gh release create` or `scripts/release` (its
-  `--dry-run` passes). The checks are the newest run per name, workflow and event, as `gh pr checks`
-  keeps them. A push without refspec goes where `@{push}` says, the current branch when git cannot
-  tell. Each refusal names the way through: push to `trunk`, or `bun ./scripts/land.ts <branch>` when
-  the repository has that script. A file that does not parse, or an invalid profile, refuses every door
-  there, naming the error.
-- Without a profile, a resolved push or `gh pr merge` to the default branch of a public repository is
+  merges into `release`, merges with a check red, running or none reported (`--auto` included: gh
+  merges a mergeable pull request at once), merges a pull request that is not mergeable, or runs
+  `gh release create` or `scripts/release` (its `--dry-run` passes). `gh api` is judged as what it
+  does: `PUT pulls/<n>/merge` as `gh pr merge <n>`, a ref update, deletion or `merges` call as a push.
+  The checks are the newest run per name, workflow and event, as `gh pr checks` keeps them. A push
+  without refspec goes where `@{push}` says, the current branch when git cannot tell. Each refusal
+  names the way through: push to `trunk`, or `bun ./scripts/land.ts <branch>` when the repository has
+  that script. A file that does not parse, or an invalid profile, refuses every door there, naming the
+  error.
+- Without a profile, a resolved push, ref move or merge to the default branch of a public repository is
   refused. The visibility and the default branch come from `gh repo view`, read once per repository and
   session into `~/.local/state/agent-hooks/github__<session>.json`. A lookup that fails, a call past
   its 25 s deadline, or a crash lets the command through with a `systemMessage` that starts with
   `agent-hooks:`. A remote that names no `host/owner/name` (a local path) is not checked.
-- The profile read is the one of the repository the door acts on; `gh --repo` keeps the cwd's when it
-  names that repository's `origin`, and takes the default otherwise. A release script is a door only in
-  a repository with a profile.
-- Not read: a package script reached after a `cd` into another package, a gh alias, an interpreter
-  file that pushes. The Codex wiring calls no `pre-bash`.
+- The profile and the package scripts are read where the walk reached (after `cd`, `--cwd`, `-C`); a
+  release command or a door script whose directory the guard cannot follow is unresolved. `gh --repo`
+  and a `gh api` endpoint keep the cwd's profile when they name its `origin`, and take the default
+  otherwise. A release command is a door only in a repository with a profile.
+- Known ceilings, let through, each counted in the local transcripts (74,687 Bash calls): a release
+  script named from its own directory (`cd scripts && bun release.ts`, 0), a wrapper the guard does not
+  know around a quoted command (`chronic sh -c '…'`, `direnv exec . bash -c '…'`, 0), a heredoc fed to
+  `ssh` (1), a script written then run (`cat > x.sh <<EOF … git push … EOF; bash x.sh`, 1), git's
+  dashed `git-push` (0), a keyword split by quotes (`git pu''sh`, 0), a GitHub API client other than
+  `gh` (`curl …/merge`, 0), a package script reached in a manifest no `cd`, `--cwd` or `-C` of the line
+  names, a gh alias. The Codex wiring calls no `pre-bash`.
