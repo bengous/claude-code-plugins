@@ -10,7 +10,10 @@
  * checkout holding it, tracked changes there, a local head that is not its
  * pull request's head, a pull request not open against `dev`, a check not
  * green on that head. Then, in the checkout holding the branch: fetch,
- * rebase on `origin/dev`, install the lockfile when the rebase changed it,
+ * rebase on `origin/dev`, refuse a rebased branch that touches a path of
+ * `origin/dev`'s `profile.review.risky` without a clean review verdict for
+ * its patch on the pull request (`scripts/review-verdict.ts`), install the
+ * lockfile when the rebase changed it,
  * push the branch with a lease on the head last pushed, push it to `dev`. A `dev` push rejected because `origin/dev` moved
  * starts over from the fetch, three attempts at most. A rebase that makes a
  * new commit on a branch touching the e2e paths stops after the branch push:
@@ -18,11 +21,16 @@
  * runs the gates and the e2e gate on every push, as for a push by hand.
  */
 
+import { CONFIG_RELATIVE_PATH, ConfigError, parseProfile } from "../agent-hooks/config.ts";
 import { isE2ePath } from "./check-e2e-green.ts";
+import { type Comment, patchIdOf, recordCommand, verdictsOf } from "./review-verdict.ts";
 
 const REMOTE = "origin";
 
 const DEV = "dev";
+
+/** Read from `origin/dev`, not the checkout: a branch cannot loosen the rule it lands under. */
+const PROFILE = `${REMOTE}/${DEV}:${CONFIG_RELATIVE_PATH}`;
 
 const LANDABLE = /^(?:feature|fix)\/[\w./-]+$/u;
 
@@ -53,6 +61,7 @@ export interface PullRequest {
   readonly baseRefName: string;
   readonly headRefOid: string;
   readonly checks: readonly Check[];
+  readonly comments: readonly Comment[];
 }
 
 export type Landing =
@@ -156,13 +165,77 @@ export function movedOn(pushError: string): boolean {
   return MOVED.test(pushError);
 }
 
-function touchesE2e(checkout: string): boolean {
+/** The paths the rebased branch changes on `origin/dev`, a rename as both its sides. */
+function changedPaths(checkout: string): readonly string[] {
   const diff = run(
     ["git", "diff", "--name-only", "--no-renames", "-z", `${REMOTE}/${DEV}`, "HEAD"],
     checkout,
   );
 
-  return diff.out.split("\0").some((path) => path !== "" && isE2ePath(path));
+  return diff.out.split("\0").filter((path) => path !== "");
+}
+
+function touchesE2e(checkout: string): boolean {
+  return changedPaths(checkout).some((path) => isE2ePath(path));
+}
+
+type RiskyRead =
+  | { readonly kind: "read"; readonly risky: readonly string[] }
+  | { readonly kind: "unreadable"; readonly why: string };
+
+function riskyGlobs(checkout: string): RiskyRead {
+  if (!run(["git", "cat-file", "-e", PROFILE], checkout).ok) return { kind: "read", risky: [] };
+
+  const shown = run(["git", "show", PROFILE], checkout);
+
+  if (!shown.ok) return { kind: "unreadable", why: `git show ${PROFILE}: ${shown.err}` };
+
+  try {
+    return { kind: "read", risky: parseProfile(PROFILE, shown.out).review?.risky ?? [] };
+  } catch (error) {
+    if (error instanceof ConfigError) return { kind: "unreadable", why: error.message };
+
+    throw error;
+  }
+}
+
+/**
+ * Why the branch, `reviewed` on its pull request and `rebased` on `origin/dev` here, may not land without another
+ * review; null when it touches no risky path or a clean verdict holds its patch.
+ */
+function reviewRefusal(
+  branch: string,
+  pr: PullRequest,
+  checkout: string,
+  reviewed: string,
+  rebased: string,
+): string | null {
+  const globs = riskyGlobs(checkout);
+
+  if (globs.kind === "unreadable") return globs.why;
+
+  const touched = changedPaths(checkout).filter((path) =>
+    globs.risky.some((glob) => new Bun.Glob(glob).match(path)),
+  );
+
+  if (touched.length === 0) return null;
+
+  const base = `${REMOTE}/${DEV}`;
+  const landing = patchIdOf(checkout, base, rebased);
+
+  if (landing.kind === "failed") return landing.why;
+
+  const verdicts = verdictsOf(pr.comments);
+
+  if (verdicts.has(landing.id)) return null;
+
+  const before = patchIdOf(checkout, base, reviewed);
+
+  if (before.kind === "read" && verdicts.has(before.id)) {
+    return `the rebase on ${base} changed the diff of ${branch} since its review (patch-id ${short(before.id)} reviewed, ${short(landing.id)} now): rebase it, push it, review it again, then ${recordCommand(branch)}, and land again`;
+  }
+
+  return `${branch} touches risky paths (${touched.join(", ")}) and #${pr.number} carries no clean review verdict for its change, patch-id ${short(landing.id)}: review it, and once no finding is open, ${recordCommand(branch)}; then land again`;
 }
 
 type PullRequestRead =
@@ -175,7 +248,7 @@ type PullRequestRead =
  */
 function readPullRequest(branch: string, checkout: string): PullRequestRead {
   const view = run(
-    ["gh", "pr", "view", branch, "--json", "number,state,baseRefName,headRefOid"],
+    ["gh", "pr", "view", branch, "--json", "number,state,baseRefName,headRefOid,comments"],
     checkout,
   );
 
@@ -260,6 +333,14 @@ export function land(branch: string, cwd: string): Landing {
 
     if (rebased === null)
       return refused(`git rev-parse HEAD failed in ${checkout} after the rebase`);
+
+    const review = reviewRefusal(branch, pr, checkout, reviewed, rebased);
+
+    if (review !== null) {
+      run(["git", "reset", "--quiet", "--hard", pushed], checkout);
+
+      return refused(review);
+    }
 
     // The pre-push gates run against the checkout's node_modules: a rebase that brings in
     // another lockfile must install it first, or the gates read the old dependencies.
