@@ -6,14 +6,20 @@
  *
  *   bun ./scripts/land.ts <feature/...|fix/...>
  *
+ * Runs `origin/dev`'s copy of itself: after a fetch, `scripts/` and
+ * `agent-hooks/` as `origin/dev` holds them are extracted to a temporary
+ * directory and run there, so a branch that edits the landing lands under
+ * the rule already on `dev`.
+ *
  * Refused before any push: a branch outside `feature/` and `fix/`, no
  * checkout holding it, tracked changes there, a local head that is not its
  * pull request's head, a pull request not open against `dev`, a check not
  * green on that head. Then, in the checkout holding the branch: fetch,
  * rebase on `origin/dev`, refuse a rebased branch that touches a path of
  * `origin/dev`'s `profile.review.risky` without a clean review verdict for
- * its patch on the pull request (`scripts/review-verdict.ts`), install the
- * lockfile when the rebase changed it,
+ * its patch on the pull request (`scripts/review-verdict.ts`); while that
+ * profile does not read, every path is risky. Then install the lockfile when
+ * the rebase changed it,
  * push the branch with a lease on the head last pushed, push it to `dev`. A `dev` push rejected because `origin/dev` moved
  * starts over from the fetch, three attempts at most. A rebase that makes a
  * new commit on a branch touching the e2e paths stops after the branch push:
@@ -21,16 +27,29 @@
  * runs the gates and the e2e gate on every push, as for a push by hand.
  */
 
-import { CONFIG_RELATIVE_PATH, ConfigError, parseProfile } from "../agent-hooks/config.ts";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
+import { CONFIG_GIT_PATH, ConfigError, parseProfile } from "../agent-hooks/config.ts";
 import { isE2ePath } from "./check-e2e-green.ts";
-import { type Comment, patchIdOf, recordCommand, verdictsOf } from "./review-verdict.ts";
+import { run } from "./lib/run.ts";
+import {
+  BASE,
+  type Comment,
+  DEV,
+  REMOTE,
+  patchIdOf,
+  recordCommand,
+  short,
+  verdictsOf,
+} from "./review-verdict.ts";
 
-const REMOTE = "origin";
+/** Set in the environment of `origin/dev`'s copy, which runs the landing itself. */
+const DEV_COPY = "LAND_DEV_COPY";
 
-const DEV = "dev";
-
-/** Read from `origin/dev`, not the checkout: a branch cannot loosen the rule it lands under. */
-const PROFILE = `${REMOTE}/${DEV}:${CONFIG_RELATIVE_PATH}`;
+/** The directories `origin/dev`'s copy needs: this script, its imports, the profile's parser. */
+const DEV_COPY_PATHS = ["scripts", "agent-hooks"];
 
 const LANDABLE = /^(?:feature|fix)\/[\w./-]+$/u;
 
@@ -68,22 +87,6 @@ export type Landing =
   | { readonly kind: "landed"; readonly dev: string; readonly pr: number }
   | { readonly kind: "refused"; readonly why: string };
 
-interface Run {
-  readonly ok: boolean;
-  readonly out: string;
-  readonly err: string;
-}
-
-function run(cmd: readonly string[], cwd: string): Run {
-  const result = Bun.spawnSync([...cmd], { cwd, env: process.env, stdout: "pipe", stderr: "pipe" });
-
-  return {
-    ok: result.exitCode === 0,
-    out: result.stdout.toString().trim(),
-    err: result.stderr.toString().trim(),
-  };
-}
-
 function refused(why: string): Landing {
   return { kind: "refused", why };
 }
@@ -92,10 +95,6 @@ function headOf(checkout: string): string | null {
   const head = run(["git", "rev-parse", "HEAD"], checkout);
 
   return head.ok && head.out !== "" ? head.out : null;
-}
-
-function short(commit: string): string {
-  return commit.slice(0, 8);
 }
 
 /** The checkout that holds `branch`, read from `git worktree list --porcelain`. */
@@ -165,33 +164,47 @@ export function movedOn(pushError: string): boolean {
   return MOVED.test(pushError);
 }
 
-/** The paths the rebased branch changes on `origin/dev`, a rename as both its sides. */
-function changedPaths(checkout: string): readonly string[] {
-  const diff = run(
-    ["git", "diff", "--name-only", "--no-renames", "-z", `${REMOTE}/${DEV}`, "HEAD"],
-    checkout,
-  );
+export type PathsRead =
+  | { readonly kind: "read"; readonly paths: readonly string[] }
+  | { readonly kind: "failed"; readonly why: string };
 
-  return diff.out.split("\0").filter((path) => path !== "");
+/** The paths HEAD changes on `base`, a rename as both its sides. */
+export function changedPaths(checkout: string, base: string): PathsRead {
+  const diff = run(["git", "diff", "--name-only", "--no-renames", "-z", base, "HEAD"], checkout);
+
+  if (!diff.ok) return { kind: "failed", why: `git diff ${base} HEAD: ${diff.err}` };
+
+  return { kind: "read", paths: diff.out.split("\0").filter((path) => path !== "") };
 }
 
-function touchesE2e(checkout: string): boolean {
-  return changedPaths(checkout).some((path) => isE2ePath(path));
+/** The profile file in `rev`, as `git show` names it. */
+export function profileSpec(rev: string): string {
+  return `${rev}:${CONFIG_GIT_PATH}`;
 }
 
-type RiskyRead =
+export type RiskyRead =
   | { readonly kind: "read"; readonly risky: readonly string[] }
   | { readonly kind: "unreadable"; readonly why: string };
 
-function riskyGlobs(checkout: string): RiskyRead {
-  if (!run(["git", "cat-file", "-e", PROFILE], checkout).ok) return { kind: "read", risky: [] };
+/** The risky globs of the profile in `rev`: none only when `rev` holds no profile file or no review in it. */
+export function riskyOf(checkout: string, rev: string): RiskyRead {
+  const spec = profileSpec(rev);
 
-  const shown = run(["git", "show", PROFILE], checkout);
+  const listed = run(
+    ["git", "ls-tree", "--full-tree", "--name-only", rev, "--", CONFIG_GIT_PATH],
+    checkout,
+  );
 
-  if (!shown.ok) return { kind: "unreadable", why: `git show ${PROFILE}: ${shown.err}` };
+  if (!listed.ok) return { kind: "unreadable", why: `git ls-tree ${rev}: ${listed.err}` };
+
+  if (listed.out === "") return { kind: "read", risky: [] };
+
+  const shown = run(["git", "show", spec], checkout);
+
+  if (!shown.ok) return { kind: "unreadable", why: `git show ${spec}: ${shown.err}` };
 
   try {
-    return { kind: "read", risky: parseProfile(PROFILE, shown.out).review?.risky ?? [] };
+    return { kind: "read", risky: parseProfile(spec, shown.out).review?.risky ?? [] };
   } catch (error) {
     if (error instanceof ConfigError) return { kind: "unreadable", why: error.message };
 
@@ -200,28 +213,27 @@ function riskyGlobs(checkout: string): RiskyRead {
 }
 
 /**
- * Why the branch, `reviewed` on its pull request and `rebased` on `origin/dev` here, may not land without another
- * review; null when it touches no risky path or a clean verdict holds its patch.
+ * Why the branch, `reviewed` on its pull request and `rebased` on `origin/dev` here, changing `paths`, may not land
+ * without another review; null when it touches no risky path or a clean verdict holds its patch. Read from
+ * `origin/dev`, never the checkout, so a branch cannot loosen the rule it lands under; while that profile does not
+ * read, every path is risky, and a verdict still lands the branch that repairs it.
  */
 function reviewRefusal(
   branch: string,
   pr: PullRequest,
   checkout: string,
-  reviewed: string,
-  rebased: string,
+  { reviewed, rebased, paths }: { reviewed: string; rebased: string; paths: readonly string[] },
 ): string | null {
-  const globs = riskyGlobs(checkout);
+  const profile = riskyOf(checkout, BASE);
 
-  if (globs.kind === "unreadable") return globs.why;
-
-  const touched = changedPaths(checkout).filter((path) =>
-    globs.risky.some((glob) => new Bun.Glob(glob).match(path)),
-  );
+  const touched =
+    profile.kind === "unreadable"
+      ? paths
+      : paths.filter((path) => profile.risky.some((glob) => new Bun.Glob(glob).match(path)));
 
   if (touched.length === 0) return null;
 
-  const base = `${REMOTE}/${DEV}`;
-  const landing = patchIdOf(checkout, base, rebased);
+  const landing = patchIdOf(checkout, BASE, rebased);
 
   if (landing.kind === "failed") return landing.why;
 
@@ -229,13 +241,18 @@ function reviewRefusal(
 
   if (verdicts.has(landing.id)) return null;
 
-  const before = patchIdOf(checkout, base, reviewed);
+  const before = patchIdOf(checkout, BASE, reviewed);
 
   if (before.kind === "read" && verdicts.has(before.id)) {
-    return `the rebase on ${base} changed the diff of ${branch} since its review (patch-id ${short(before.id)} reviewed, ${short(landing.id)} now): rebase it, push it, review it again, then ${recordCommand(branch)}, and land again`;
+    return `the rebase on ${BASE} changed the diff of ${branch} since its review (patch-id ${short(before.id)} reviewed, ${short(landing.id)} now): rebase it, push it, review it again, then ${recordCommand(branch, "<the head you reviewed>")}, and land again`;
   }
 
-  return `${branch} touches risky paths (${touched.join(", ")}) and #${pr.number} carries no clean review verdict for its change, patch-id ${short(landing.id)}: review it, and once no finding is open, ${recordCommand(branch)}; then land again`;
+  const risky =
+    profile.kind === "unreadable"
+      ? `${profile.why}; until it reads, every path counts as risky, and ${branch} changes ${touched.join(", ")}`
+      : `${branch} touches risky paths (${touched.join(", ")})`;
+
+  return `${risky}; #${pr.number} carries no clean review verdict for its change, patch-id ${short(landing.id)}: review ${short(reviewed)}, and once no finding is open, ${recordCommand(branch, reviewed)}; then land again`;
 }
 
 type PullRequestRead =
@@ -319,13 +336,13 @@ export function land(branch: string, cwd: string): Landing {
 
     if (!fetched.ok) return refused(`git fetch: ${fetched.err}`);
 
-    const rebase = run(["git", "rebase", "--quiet", `${REMOTE}/${DEV}`], checkout);
+    const rebase = run(["git", "rebase", "--quiet", BASE], checkout);
 
     if (!rebase.ok) {
       run(["git", "rebase", "--abort"], checkout);
 
       return refused(
-        `${branch} does not rebase cleanly on ${REMOTE}/${DEV}: rebase it by hand, push, then land\n${rebase.err}`,
+        `${branch} does not rebase cleanly on ${BASE}: rebase it by hand, push, then land\n${rebase.err}`,
       );
     }
 
@@ -334,7 +351,16 @@ export function land(branch: string, cwd: string): Landing {
     if (rebased === null)
       return refused(`git rev-parse HEAD failed in ${checkout} after the rebase`);
 
-    const review = reviewRefusal(branch, pr, checkout, reviewed, rebased);
+    const changed = changedPaths(checkout, BASE);
+
+    if (changed.kind === "failed") {
+      run(["git", "reset", "--quiet", "--hard", pushed], checkout);
+
+      return refused(changed.why);
+    }
+
+    const { paths } = changed;
+    const review = reviewRefusal(branch, pr, checkout, { reviewed, rebased, paths });
 
     if (review !== null) {
       run(["git", "reset", "--quiet", "--hard", pushed], checkout);
@@ -362,7 +388,7 @@ export function land(branch: string, cwd: string): Landing {
           : `its node_modules may be half-installed: run bun install --frozen-lockfile in ${checkout}`;
 
         return refused(
-          `bun install --frozen-lockfile failed after the rebase on ${REMOTE}/${DEV}; ${branch} is back at ${short(pushed)}, ${modules}:\n${install.err}`,
+          `bun install --frozen-lockfile failed after the rebase on ${BASE}; ${branch} is back at ${short(pushed)}, ${modules}:\n${install.err}`,
         );
       }
     }
@@ -382,7 +408,7 @@ export function land(branch: string, cwd: string): Landing {
 
     pushed = rebased;
 
-    if (rebased !== pr.headRefOid && touchesE2e(checkout)) {
+    if (rebased !== pr.headRefOid && paths.some((path) => isE2ePath(path))) {
       return refused(
         `${branch} touches the e2e paths and the rebase made ${short(rebased)}, which needs its own e2e run: pushed it; now gh pr edit ${branch} --add-label e2e, wait for the run (docs/repo-ops/git.md), then land again`,
       );
@@ -399,7 +425,41 @@ export function land(branch: string, cwd: string): Landing {
     }
   }
 
-  return refused(`${REMOTE}/${DEV} moved during each of ${ATTEMPTS} attempts: land again`);
+  return refused(`${BASE} moved during each of ${ATTEMPTS} attempts: land again`);
+}
+
+type DevCopyRun =
+  | { readonly kind: "ran"; readonly exitCode: number }
+  | { readonly kind: "failed"; readonly why: string };
+
+/** Runs `origin/dev`'s copy of this script on `branch` from `cwd`, extracted to a temporary directory. */
+function runDevCopy(branch: string, cwd: string): DevCopyRun {
+  const fetched = run(["git", "fetch", "--quiet", REMOTE], cwd);
+
+  if (!fetched.ok) return { kind: "failed", why: `git fetch: ${fetched.err}` };
+
+  const copy = mkdtempSync(join(tmpdir(), "land-dev-"));
+
+  try {
+    const archive = join(copy, "dev.tar");
+    const archived = run(["git", "archive", `--output=${archive}`, BASE, ...DEV_COPY_PATHS], cwd);
+
+    if (!archived.ok) return { kind: "failed", why: `git archive ${BASE}: ${archived.err}` };
+
+    const extracted = run(["tar", "-x", "-f", archive, "-C", copy], cwd);
+
+    if (!extracted.ok) return { kind: "failed", why: `tar -x ${archive}: ${extracted.err}` };
+
+    const landed = Bun.spawnSync([process.execPath, join(copy, "scripts", "land.ts"), branch], {
+      cwd,
+      env: { ...process.env, [DEV_COPY]: "1" },
+      stdio: ["inherit", "inherit", "inherit"],
+    });
+
+    return { kind: "ran", exitCode: landed.exitCode ?? 1 };
+  } finally {
+    rmSync(copy, { recursive: true, force: true });
+  }
 }
 
 if (import.meta.main) {
@@ -409,6 +469,15 @@ if (import.meta.main) {
   if (branch === undefined || args.length > 1) {
     console.error("Usage: bun ./scripts/land.ts <feature/...|fix/...>");
     process.exit(2);
+  }
+
+  if (process.env[DEV_COPY] === undefined) {
+    const devCopy = runDevCopy(branch, process.cwd());
+
+    if (devCopy.kind === "ran") process.exit(devCopy.exitCode);
+
+    console.error(`land: ${BASE}'s copy of land.ts did not run: ${devCopy.why}`);
+    process.exit(1);
   }
 
   const landing = land(branch, process.cwd());

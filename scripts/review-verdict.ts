@@ -5,18 +5,26 @@
  * branch that touches a path of `profile.review.risky` (`.claude/agent-hooks.jsonc`)
  * only when its pull request carries one for its patch (docs/repo-ops/git.md).
  *
- *   bun ./scripts/review-verdict.ts record <branch>
+ *   bun ./scripts/review-verdict.ts record <branch> --sha <reviewed head>
  *
- * Posts on the branch's pull request a comment whose first line is
- * `<!-- review: clean patch-id=<id> -->`, the `git patch-id --stable` of the
- * diff from the head's merge-base with `origin/dev` to the head. A rebase that
- * leaves that diff as it was keeps the verdict; a commit after the review does
- * not, nor a rebase that changes the lines around a hunk.
+ * Refused unless `<reviewed head>` is the pull request's head, so a push after
+ * the review gets no verdict. Posts on the pull request a comment whose first
+ * line is `<!-- review: clean patch-id=<id> -->`, the `git patch-id --verbatim`
+ * of the diff from the head's merge-base with `origin/dev` to the head:
+ * whitespace counts, line numbers do not. A rebase that leaves that diff as it
+ * was keeps the verdict; a commit after the review does not, nor a rebase that
+ * changes the lines around a hunk.
  */
 
-const REMOTE = "origin";
+import { parseArgs } from "node:util";
 
-export const BASE = `${REMOTE}/dev`;
+import { run } from "./lib/run.ts";
+
+export const REMOTE = "origin";
+
+export const DEV = "dev";
+
+export const BASE = `${REMOTE}/${DEV}`;
 
 const VERDICT = /^<!-- review: clean patch-id=([0-9a-f]{40}) -->$/u;
 
@@ -37,29 +45,7 @@ export type Recording =
   | { readonly kind: "recorded"; readonly pr: number; readonly patchId: string }
   | { readonly kind: "refused"; readonly why: string };
 
-interface Run {
-  readonly ok: boolean;
-  readonly out: string;
-  readonly err: string;
-}
-
-function run(cmd: readonly string[], cwd: string, stdin?: string): Run {
-  const result = Bun.spawnSync([...cmd], {
-    cwd,
-    env: process.env,
-    stdin: stdin === undefined ? "ignore" : Buffer.from(stdin),
-    stdout: "pipe",
-    stderr: "pipe",
-  });
-
-  return {
-    ok: result.exitCode === 0,
-    out: result.stdout.toString().trim(),
-    err: result.stderr.toString().trim(),
-  };
-}
-
-function short(commit: string): string {
+export function short(commit: string): string {
   return commit.slice(0, 8);
 }
 
@@ -67,8 +53,9 @@ export function verdictLine(patchId: string): string {
   return `<!-- review: clean patch-id=${patchId} -->`;
 }
 
-export function recordCommand(branch: string): string {
-  return `bun ./scripts/review-verdict.ts record ${branch}`;
+/** The command that records a verdict for `branch` reviewed at `sha`, a commit or a placeholder for one. */
+export function recordCommand(branch: string, sha: string): string {
+  return `bun ./scripts/review-verdict.ts record ${branch} --sha ${sha}`;
 }
 
 /** The patch-ids clean review verdicts were posted for, by someone who can push. */
@@ -94,39 +81,22 @@ export function patchIdOf(cwd: string, base: string, head: string): PatchId {
   }
 
   // Plumbing, not `git diff`: the user's diff config (color, renames, textconv, prefixes) cannot change the patch.
-  const diff = Bun.spawnSync(["git", "diff-tree", "-p", "--binary", mergeBase.out, head], {
-    cwd,
-    env: process.env,
-    stdout: "pipe",
-    stderr: "pipe",
-  });
+  const diff = run(["git", "diff-tree", "-p", "--binary", mergeBase.out, head], cwd);
 
-  if (diff.exitCode !== 0) {
-    return {
-      kind: "failed",
-      why: `git diff-tree ${short(head)}: ${diff.stderr.toString().trim()}`,
-    };
-  }
+  if (!diff.ok) return { kind: "failed", why: `git diff-tree ${short(head)}: ${diff.err}` };
 
-  const patchId = Bun.spawnSync(["git", "patch-id", "--stable"], {
-    cwd,
-    env: process.env,
-    stdin: diff.stdout,
-    stdout: "pipe",
-    stderr: "pipe",
-  });
+  const patchId = run(["git", "patch-id", "--verbatim"], cwd, diff.raw);
+  const [id = ""] = patchId.out.split(" ");
 
-  const [id = ""] = patchId.stdout.toString().split(" ");
-
-  if (patchId.exitCode !== 0 || id === "") {
+  if (!patchId.ok || id === "") {
     return { kind: "failed", why: `${short(head)} changes nothing since ${base}` };
   }
 
   return { kind: "read", id };
 }
 
-/** Posts on `branch`'s pull request the clean review verdict for the patch of its head. */
-export function record(branch: string, cwd: string): Recording {
+/** Posts on `branch`'s pull request the clean review verdict for its head, refused unless that head is `sha`. */
+export function record(branch: string, sha: string, cwd: string): Recording {
   const view = run(["gh", "pr", "view", branch, "--json", "number,headRefOid"], cwd);
 
   if (!view.ok) return { kind: "refused", why: `no pull request read for ${branch}: ${view.err}` };
@@ -144,6 +114,15 @@ export function record(branch: string, cwd: string): Recording {
 
   if (!fetched.ok) return { kind: "refused", why: `git fetch: ${fetched.err}` };
 
+  const reviewed = run(["git", "rev-parse", "--verify", "--quiet", `${sha}^{commit}`], cwd);
+
+  if (!reviewed.ok || reviewed.out !== pr.headRefOid) {
+    return {
+      kind: "refused",
+      why: `the head of #${pr.number} is ${short(pr.headRefOid)}, not ${short(sha)}: review that head, then record it`,
+    };
+  }
+
   const patchId = patchIdOf(cwd, BASE, pr.headRefOid);
 
   if (patchId.kind === "failed") return { kind: "refused", why: patchId.why };
@@ -154,7 +133,11 @@ export function record(branch: string, cwd: string): Recording {
     "",
   ].join("\n");
 
-  const posted = run(["gh", "pr", "comment", String(pr.number), "--body-file", "-"], cwd, body);
+  const posted = run(
+    ["gh", "pr", "comment", String(pr.number), "--body-file", "-"],
+    cwd,
+    Buffer.from(body),
+  );
 
   if (!posted.ok) return { kind: "refused", why: `gh pr comment ${pr.number}: ${posted.err}` };
 
@@ -162,15 +145,25 @@ export function record(branch: string, cwd: string): Recording {
 }
 
 if (import.meta.main) {
-  const args = process.argv.slice(2);
-  const [command, branch] = args;
+  const usage = "Usage: bun ./scripts/review-verdict.ts record <branch> --sha <reviewed head>";
+  let parsed;
 
-  if (command !== "record" || branch === undefined || args.length > 2) {
-    console.error("Usage: bun ./scripts/review-verdict.ts record <branch>");
+  try {
+    parsed = parseArgs({ options: { sha: { type: "string" } }, allowPositionals: true });
+  } catch {
+    console.error(usage);
     process.exit(2);
   }
 
-  const recording = record(branch, process.cwd());
+  const [command, branch, ...rest] = parsed.positionals;
+  const { sha } = parsed.values;
+
+  if (command !== "record" || branch === undefined || sha === undefined || rest.length > 0) {
+    console.error(usage);
+    process.exit(2);
+  }
+
+  const recording = record(branch, sha, process.cwd());
 
   if (recording.kind === "recorded") {
     console.log(

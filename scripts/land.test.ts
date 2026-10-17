@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import {
   chmodSync,
+  cpSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
@@ -13,12 +14,15 @@ import { dirname, join } from "node:path";
 
 import {
   type Check,
+  changedPaths,
   checkoutOf,
   land,
   latestChecks,
   movedOn,
+  profileSpec,
   type PullRequest,
   refusalOf,
+  riskyOf,
 } from "./land.ts";
 import { type Comment, record } from "./review-verdict.ts";
 
@@ -358,41 +362,47 @@ function lines(changed: number, text: string): string {
     .concat("\n");
 }
 
+const RISKY_PROFILE = '{ "profile": { "review": { "risky": ["risky/**", "scripts/**"] } } }\n';
+
+/** The comment `review-verdict.ts record` posted, as the owner's. */
+function posted(): Comment {
+  return { body: readFileSync(commentFile, "utf8"), authorAssociation: "OWNER" };
+}
+
+function branchHead(): string {
+  return git(work, "rev-parse", "HEAD");
+}
+
+function recordVerdict(): Comment {
+  serve(pullRequest());
+  expect(record("feature/x", branchHead(), work).kind).toBe("recorded");
+
+  return posted();
+}
+
+function pushBranch() {
+  git(work, "push", "--quiet", "--force", "origin", "feature/x");
+}
+
+/** Commits `content` at `file` on dev, then rebases the branch on it. */
+function onDev(file: string, message: string, content: string) {
+  commit(other, file, message, content);
+  git(other, "push", "--quiet", "origin", "dev");
+  git(work, "fetch", "--quiet", "origin");
+  git(work, "rebase", "--quiet", "origin/dev");
+}
+
 describe("land, a branch that touches a risky path", () => {
-  const RECORD = "bun ./scripts/review-verdict.ts record feature/x";
-
-  /** The comment `review-verdict.ts record` posted, as the owner's. */
-  function posted(): Comment {
-    return { body: readFileSync(commentFile, "utf8"), authorAssociation: "OWNER" };
-  }
-
-  function recordVerdict(): Comment {
-    serve(pullRequest());
-    expect(record("feature/x", work).kind).toBe("recorded");
-
-    return posted();
-  }
-
-  function pushBranch() {
-    git(work, "push", "--quiet", "--force", "origin", "feature/x");
-  }
+  const RECORD = "bun ./scripts/review-verdict.ts record feature/x --sha";
 
   beforeEach(() => {
-    commit(
-      other,
-      ".claude/agent-hooks.jsonc",
-      "review profile",
-      '{ "profile": { "review": { "risky": ["risky/**"] } } }\n',
-    );
-    git(other, "push", "--quiet", "origin", "dev");
-    git(work, "fetch", "--quiet", "origin");
-    git(work, "rebase", "--quiet", "origin/dev");
+    onDev(".claude/agent-hooks.jsonc", "review profile", RISKY_PROFILE);
     commit(work, "risky/a.ts", "risky");
     pushBranch();
   });
 
   test("refuses without a review verdict, naming the paths and the command that records one", () => {
-    const reviewed = git(work, "rev-parse", "HEAD");
+    const reviewed = branchHead();
     const before = git(origin, "rev-parse", "dev");
 
     serve(pullRequest());
@@ -400,20 +410,20 @@ describe("land, a branch that touches a risky path", () => {
     const landing = land("feature/x", work);
 
     expect(why(landing)).toContain("risky/a.ts");
-    expect(why(landing)).toContain(RECORD);
+    expect(why(landing)).toContain(`${RECORD} ${reviewed}`);
     expect(git(origin, "rev-parse", "dev")).toBe(before);
     expect(git(origin, "rev-parse", "feature/x")).toBe(reviewed);
-    expect(git(work, "rev-parse", "HEAD")).toBe(reviewed);
+    expect(branchHead()).toBe(reviewed);
   });
 
-  test("records the patch-id that git diff piped to git patch-id --stable gives", () => {
+  test("records the patch-id that git diff piped to git patch-id --verbatim gives", () => {
     serve(pullRequest());
 
-    const recording = record("feature/x", work);
+    const recording = record("feature/x", branchHead(), work);
     const mergeBase = git(work, "merge-base", "origin/dev", "HEAD");
 
     const pipe = Bun.spawnSync(
-      ["sh", "-c", `git diff ${mergeBase}..HEAD | git patch-id --stable`],
+      ["sh", "-c", `git diff ${mergeBase}..HEAD | git patch-id --verbatim`],
       { cwd: work, stdout: "pipe" },
     );
 
@@ -453,19 +463,26 @@ describe("land, a branch that touches a risky path", () => {
     const landing = land("feature/x", work);
 
     expect(why(landing)).toContain("no clean review verdict");
-    expect(why(landing)).toContain(RECORD);
+    expect(why(landing)).toContain(`${RECORD} ${branchHead()}`);
+  });
+
+  test("refuses a verdict recorded before a change of whitespace alone", () => {
+    const verdict = recordVerdict();
+
+    commit(work, "risky/a.ts", "indent after the review", "  risky\n");
+    pushBranch();
+    serve(pullRequest({ comments: [verdict] }));
+
+    expect(why(land("feature/x", work))).toContain("no clean review verdict");
   });
 
   test("refuses a verdict a rebase broke by changing the patch's context, naming the rebase", () => {
-    commit(other, "risky/b.ts", "ten lines", lines(-1, ""));
-    git(other, "push", "--quiet", "origin", "dev");
-    git(work, "fetch", "--quiet", "origin");
-    git(work, "rebase", "--quiet", "origin/dev");
+    onDev("risky/b.ts", "ten lines", lines(-1, ""));
     commit(work, "risky/b.ts", "change line 6", lines(6, "reviewed"));
     pushBranch();
 
     const verdict = recordVerdict();
-    const reviewed = git(work, "rev-parse", "HEAD");
+    const reviewed = branchHead();
 
     commit(other, "risky/b.ts", "change line 3 on dev", lines(3, "context"));
     git(other, "push", "--quiet", "origin", "dev");
@@ -475,7 +492,7 @@ describe("land, a branch that touches a risky path", () => {
 
     expect(why(landing)).toContain("the rebase on origin/dev changed");
     expect(why(landing)).toContain(RECORD);
-    expect(git(work, "rev-parse", "HEAD")).toBe(reviewed);
+    expect(branchHead()).toBe(reviewed);
   });
 
   test("counts no verdict posted by someone without write access", () => {
@@ -494,24 +511,116 @@ describe("land, a branch that touches a risky path", () => {
     expect(land("feature/x", work).kind).toBe("landed");
   });
 
-  test("refuses a profile on dev that does not parse, naming it", () => {
-    commit(other, ".claude/agent-hooks.jsonc", "broken profile", "{\n");
-    git(other, "push", "--quiet", "origin", "dev");
+  test("counts every changed path as risky while dev's profile does not parse, and says so", () => {
+    onDev(".claude/agent-hooks.jsonc", "broken profile", "{\n");
+    git(work, "reset", "--quiet", "--hard", "HEAD~1");
+    pushBranch();
     serve(pullRequest());
 
-    expect(why(land("feature/x", work))).toContain("origin/dev:.claude/agent-hooks.jsonc");
+    const landing = land("feature/x", work);
+
+    expect(why(landing)).toContain("origin/dev:.claude/agent-hooks.jsonc");
+    expect(why(landing)).toContain("every path counts as risky");
+    expect(why(landing)).toContain("b.txt");
+  });
+
+  test("lands the branch that fixes dev's unreadable profile once it has a verdict", () => {
+    onDev(".claude/agent-hooks.jsonc", "broken profile", "{\n");
+    commit(work, ".claude/agent-hooks.jsonc", "fix the profile", RISKY_PROFILE);
+    pushBranch();
+
+    const verdict = recordVerdict();
+
+    serve(pullRequest({ comments: [verdict] }));
+
+    expect(land("feature/x", work).kind).toBe("landed");
+  });
+
+  test("runs origin/dev's copy of the gate, so a branch whose land.ts skips it is still refused", () => {
+    for (const dir of ["scripts", "agent-hooks"]) {
+      cpSync(join(import.meta.dir, "..", dir), join(other, dir), { recursive: true });
+    }
+
+    git(other, "add", "scripts", "agent-hooks");
+    git(other, "commit", "--quiet", "-m", "the scripts");
+    git(other, "push", "--quiet", "origin", "dev");
+    git(work, "fetch", "--quiet", "origin");
+    git(work, "rebase", "--quiet", "origin/dev");
+
+    const script = join(work, "scripts", "land.ts");
+    const gated = readFileSync(script, "utf8");
+
+    const skipped = gated.replace(
+      "const review = reviewRefusal(",
+      "const review = null && reviewRefusal(",
+    );
+
+    expect(skipped).not.toBe(gated);
+    commit(work, "scripts/land.ts", "skip the gate", skipped);
+    pushBranch();
+    serve(pullRequest());
+
+    const before = git(origin, "rev-parse", "dev");
+
+    const cli = Bun.spawnSync([process.execPath, script, "feature/x"], {
+      cwd: work,
+      env: process.env,
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+
+    expect(cli.stderr.toString()).toContain("no clean review verdict");
+    expect(cli.exitCode).toBe(1);
+    expect(git(origin, "rev-parse", "dev")).toBe(before);
   });
 });
 
 describe("record", () => {
   test("refuses a pull request whose head adds nothing to origin/dev", () => {
-    serve(pullRequest({ headRefOid: git(work, "rev-parse", "origin/dev") }));
+    const base = git(work, "rev-parse", "origin/dev");
 
-    expect(record("feature/x", work)).toEqual({
+    serve(pullRequest({ headRefOid: base }));
+
+    expect(record("feature/x", base, work)).toEqual({
       kind: "refused",
       why: expect.stringContaining("changes nothing"),
     });
     expect(existsSync(commentFile)).toBe(false);
+  });
+
+  test("refuses a reviewed sha that is not the pull request's head, posting nothing", () => {
+    const reviewed = branchHead();
+
+    commit(work, "b.txt", "pushed after the review");
+    pushBranch();
+    serve(pullRequest());
+
+    expect(record("feature/x", reviewed, work)).toEqual({
+      kind: "refused",
+      why: expect.stringContaining(`not ${reviewed.slice(0, 8)}`),
+    });
+    expect(existsSync(commentFile)).toBe(false);
+  });
+});
+
+describe("riskyOf", () => {
+  test("reads no risky path from a revision without the profile file", () => {
+    expect(riskyOf(work, "origin/dev")).toEqual({ kind: "read", risky: [] });
+  });
+
+  test("reads a revision it cannot resolve as unreadable, never as no profile", () => {
+    expect(riskyOf(work, "origin/nowhere").kind).toBe("unreadable");
+  });
+
+  test("names the profile file as git does, with forward slashes", () => {
+    expect(profileSpec("origin/dev")).toBe("origin/dev:.claude/agent-hooks.jsonc");
+  });
+});
+
+describe("changedPaths", () => {
+  test("fails on a diff git cannot compute, never reads it as no change", () => {
+    expect(changedPaths(work, "origin/nowhere").kind).toBe("failed");
+    expect(changedPaths(work, "origin/dev")).toEqual({ kind: "read", paths: ["b.txt"] });
   });
 });
 
