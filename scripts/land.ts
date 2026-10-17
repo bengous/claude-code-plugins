@@ -4,18 +4,18 @@
  * Land a reviewed branch on `dev`: the "Land a branch" procedure of
  * `docs/repo-ops/git.md` as one command an agent runs without a prompt.
  *
- *   bun ./scripts/land.ts <feature/...|fix/...>
+ *   bun ./scripts/land.ts <feature/...|fix/...|renovate/...|chore/claude-code-types>
  *
  * Runs `origin/dev`'s copy of itself: after a fetch, `scripts/` and
  * `agent-hooks/` as `origin/dev` holds them are extracted to a temporary
  * directory and run there, so a branch that edits the landing lands under
  * the rule already on `dev`.
  *
- * Refused before any push: a branch outside `feature/` and `fix/`, no
- * checkout holding it, tracked changes there, a local head that is not its
- * pull request's head, a pull request not open against `dev`, a check not
- * green on that head. Then, in the checkout holding the branch: fetch,
- * rebase on `origin/dev`, refuse a rebased branch that touches a path of
+ * Refused before any push: a branch outside `feature/`, `fix/`, `renovate/`
+ * and `chore/claude-code-types`, no checkout holding it, tracked changes
+ * there, a local head that is not its pull request's head, a pull request not
+ * open against `dev`, a check not green on that head. Then, in the checkout
+ * holding the branch: fetch, rebase on `origin/dev`, refuse a rebased branch that touches a path of
  * `origin/dev`'s `profile.review.risky` without a clean review verdict for
  * its patch on the pull request (`scripts/review-verdict.ts`); while that
  * profile does not read, every path is risky. Then install the lockfile when
@@ -33,6 +33,7 @@ import { join } from "node:path";
 
 import { CONFIG_GIT_PATH, ConfigError, parseProfile } from "../agent-hooks/config.ts";
 import { isE2ePath } from "./check-e2e-green.ts";
+import { ROLLING_BRANCH } from "./claude-code-types.ts";
 import { run } from "./lib/run.ts";
 import {
   BASE,
@@ -51,7 +52,9 @@ const DEV_COPY = "LAND_DEV_COPY";
 /** The directories `origin/dev`'s copy needs: this script, its imports, the profile's parser. */
 const DEV_COPY_PATHS = ["scripts", "agent-hooks"];
 
-const LANDABLE = /^(?:feature|fix)\/[\w./-]+$/u;
+const LANDABLE = /^(?:feature|fix|renovate)\/[\w./-]+$/u;
+
+const LANDABLE_NAMES = `feature/, fix/ or renovate/ branch, or ${ROLLING_BRANCH}`;
 
 const ATTEMPTS = 3;
 
@@ -295,8 +298,8 @@ function readPullRequest(branch: string, checkout: string): PullRequestRead {
 }
 
 export function land(branch: string, cwd: string): Landing {
-  if (!LANDABLE.test(branch)) {
-    return refused(`${branch} is not a feature/ or fix/ branch: only those land on ${DEV}`);
+  if (!LANDABLE.test(branch) && branch !== ROLLING_BRANCH) {
+    return refused(`${branch} is not a ${LANDABLE_NAMES}: only those land on ${DEV}`);
   }
 
   const worktrees = run(["git", "worktree", "list", "--porcelain"], cwd);
@@ -467,7 +470,9 @@ if (import.meta.main) {
   const [branch] = args;
 
   if (branch === undefined || args.length > 1) {
-    console.error("Usage: bun ./scripts/land.ts <feature/...|fix/...>");
+    console.error(
+      `Usage: bun ./scripts/land.ts <feature/...|fix/...|renovate/...|${ROLLING_BRANCH}>`,
+    );
     process.exit(2);
   }
 
