@@ -63,8 +63,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bun \"${CLAUDE_PLUGIN_ROOT}/agent-hooks.ts\" session-end",
-            "timeout": 2
+            "command": "bun \"${CLAUDE_PLUGIN_ROOT}/agent-hooks.ts\" session-end"
           }
         ]
       }
