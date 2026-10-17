@@ -308,9 +308,41 @@ function isConfigRead(git: GitCommand): boolean {
   );
 }
 
-/** Interpreter code that references a process API can run a command; other code only computes. */
-const PROCESS_API =
-  /\b(?:subprocess|os\.system|os\.popen|os\.exec\w*|os\.spawn\w*|pty\.spawn|child_process|execSync|execFileSync|spawnSync|Bun\.spawn\w*|Bun\.\$|Deno\.Command|Deno\.run|IO\.popen|Open3)\b|\b(?:system|exec|popen)\s*\(/u;
+/**
+ * Interpreter code that references a process API can run a command; other code only computes. A JavaScript
+ * template literal is a string, unless a `$` tag (Bun's shell) runs it; Perl, Ruby and PHP backticks run one.
+ */
+const PROCESS_API: ReadonlyMap<string, RegExp> = new Map([
+  [
+    "python",
+    /\b(?:subprocess|os\.system|os\.popen|os\.exec\w*|os\.spawn\w*|pty\.spawn|commands\.getoutput)\b/u,
+  ],
+  [
+    "javascript",
+    /\b(?:child_process|execSync|execFileSync|spawnSync|Deno\.Command|Deno\.run)\b|Bun\.spawn|Bun\.\$|\$`/u,
+  ],
+  [
+    "scripting",
+    /`|\b(?:system|exec|popen|qx|IO\.popen|Open3|spawn|shell_exec|passthru|proc_open)\b|%x[{([]/u,
+  ],
+]);
+
+const LANGUAGE: ReadonlyMap<string, string> = new Map([
+  ["python", "python"],
+  ["python3", "python"],
+  ["node", "javascript"],
+  ["bun", "javascript"],
+  ["deno", "javascript"],
+  ["perl", "scripting"],
+  ["ruby", "scripting"],
+  ["php", "scripting"],
+]);
+
+function startsProcesses(program: string, code: string): boolean {
+  const pattern = PROCESS_API.get(LANGUAGE.get(program) ?? "");
+
+  return pattern === undefined || pattern.test(code);
+}
 
 function wordPattern(word: string): RegExp {
   return new RegExp(
@@ -1128,7 +1160,7 @@ function roleOf(mention: Mention, word: Word, view: View): Classification {
   }
 
   if (INTERPRETERS.has(program) && argv.some((arg) => INLINE_CODE.has(arg))) {
-    return PROCESS_API.test(word.text)
+    return startsProcesses(program, word.text)
       ? unresolved(mention.kind, `it runs as ${program} code that starts processes`)
       : INERT;
   }
@@ -1198,7 +1230,7 @@ function classify(
       const runner = stdinRunner(view.unwrapped);
       const code = script.slice(body.start, body.end);
 
-      if (runner === null || (INTERPRETERS.has(runner) && !PROCESS_API.test(code))) {
+      if (runner === null || (INTERPRETERS.has(runner) && !startsProcesses(runner, code))) {
         return INERT;
       }
 
