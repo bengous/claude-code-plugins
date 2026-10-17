@@ -1,6 +1,6 @@
 {
   "name": "agent-hooks",
-  "version": "1.2.0",
+  "version": "1.3.0",
   "description": "Quality hooks for Claude Code and Codex that a repository opts into with one config file: fixers run on the text before each write, and Stop lanes check only the files the session changed, with a green cache and a loop guard that lets a stuck turn end; in every repository, a landing guard on Bash refuses the one-way doors of a push, a merge or a release",
   "author": {
     "name": "Augustin BENGOLEA",
