@@ -1,5 +1,13 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 
@@ -24,6 +32,8 @@ let other = "";
 let prFile = "";
 
 let checksFile = "";
+
+let bunLog = "";
 
 const saved = new Map<string, string | undefined>();
 
@@ -137,8 +147,26 @@ beforeEach(() => {
     ].join("\n"),
   );
   chmodSync(join(bin, "gh"), 0o755);
+  bunLog = join(root, "bun.log");
+  writeFileSync(
+    join(bin, "bun"),
+    ["#!/bin/sh", `echo "$PWD $*" >> "${bunLog}"`, 'exit "${FAKE_BUN_EXIT:-0}"', ""].join("\n"),
+  );
+  chmodSync(join(bin, "bun"), 0o755);
   setEnv("PATH", `${bin}:${process.env["PATH"] ?? ""}`);
 });
+
+function bunCalls(): string {
+  return existsSync(bunLog) ? readFileSync(bunLog, "utf8").trim() : "";
+}
+
+function moveDevLockfile(): string {
+  const moved = commit(other, "package.json", '{"name":"fixture","devDependencies":{}}');
+
+  git(other, "push", "--quiet", "origin", "dev");
+
+  return moved;
+}
 
 afterEach(() => {
   for (const [name, value] of saved) {
@@ -163,6 +191,37 @@ describe("land", () => {
     expect(git(origin, "rev-parse", "dev")).toBe(head);
     expect(git(origin, "rev-parse", "feature/x")).toBe(head);
     expect(git(work, "rev-parse", "HEAD~1")).toBe(moved);
+  });
+
+  test("installs nothing when the rebase brings in no lockfile change", () => {
+    moveDev();
+    serve(pullRequest());
+
+    expect(land("feature/x", work).kind).toBe("landed");
+    expect(bunCalls()).toBe("");
+  });
+
+  test("installs the rebased lockfile before the pre-push gates read node_modules", () => {
+    moveDevLockfile();
+    serve(pullRequest());
+
+    expect(land("feature/x", work).kind).toBe("landed");
+    expect(bunCalls()).toBe(`${work} install --frozen-lockfile`);
+  });
+
+  test("refuses, back at the reviewed head, when the install fails", () => {
+    const reviewed = git(work, "rev-parse", "HEAD");
+    const moved = moveDevLockfile();
+
+    serve(pullRequest());
+    setEnv("FAKE_BUN_EXIT", "1");
+
+    const landing = land("feature/x", work);
+
+    expect(why(landing)).toContain("bun install --frozen-lockfile failed");
+    expect(git(work, "rev-parse", "HEAD")).toBe(reviewed);
+    expect(git(origin, "rev-parse", "dev")).toBe(moved);
+    expect(git(origin, "rev-parse", "feature/x")).toBe(reviewed);
   });
 
   test("finds the checkout holding the branch from another checkout", () => {

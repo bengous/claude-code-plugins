@@ -10,8 +10,8 @@
  * checkout holding it, tracked changes there, a local head that is not its
  * pull request's head, a pull request not open against `dev`, a check not
  * green on that head. Then, in the checkout holding the branch: fetch,
- * rebase on `origin/dev`, push the branch with a lease on the head last
- * pushed, push it to `dev`. A `dev` push rejected because `origin/dev` moved
+ * rebase on `origin/dev`, install the lockfile when the rebase changed it,
+ * push the branch with a lease on the head last pushed, push it to `dev`. A `dev` push rejected because `origin/dev` moved
  * starts over from the fetch, three attempts at most. A rebase that makes a
  * new commit on a branch touching the e2e paths stops after the branch push:
  * that commit needs its own e2e run before `dev` takes it. The pre-push hook
@@ -27,6 +27,8 @@ const DEV = "dev";
 const LANDABLE = /^(?:feature|fix)\/[\w./-]+$/u;
 
 const ATTEMPTS = 3;
+
+const LOCKFILES = ["package.json", "bun.lock"];
 
 const GREEN = new Set(["SUCCESS", "SKIPPED", "NEUTRAL"]);
 
@@ -258,6 +260,25 @@ export function land(branch: string, cwd: string): Landing {
 
     if (rebased === null)
       return refused(`git rev-parse HEAD failed in ${checkout} after the rebase`);
+
+    // The pre-push gates run against the checkout's node_modules: a rebase that brings in
+    // another lockfile must install it first, or the gates read the old dependencies.
+    const lockChanged = !run(
+      ["git", "diff", "--quiet", pushed, rebased, "--", ...LOCKFILES],
+      checkout,
+    ).ok;
+
+    if (lockChanged) {
+      const install = run(["bun", "install", "--frozen-lockfile"], checkout);
+
+      if (!install.ok) {
+        run(["git", "reset", "--quiet", "--hard", pushed], checkout);
+
+        return refused(
+          `bun install --frozen-lockfile failed after the rebase on ${REMOTE}/${DEV}; ${branch} is back at ${short(pushed)}:\n${install.err}`,
+        );
+      }
+    }
 
     const branchPush = run(
       ["git", "push", "--quiet", `--force-with-lease=${branch}:${pushed}`, REMOTE, branch],
