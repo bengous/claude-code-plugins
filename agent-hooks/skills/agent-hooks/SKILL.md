@@ -15,6 +15,11 @@ that does not move with the plugin's version. A repository opts in with one file
 never redeclare its hooks in a `.claude/settings.json` or `.codex/config.toml`: a hook declared at two
 levels runs twice.
 
+A key the kit adds lands in two steps: first the kit's version that reads it, then the repository's
+file, once the plugin installed where the repository's agents run is at that version (a catalog that
+installs on landing, after it has). An older kit refuses the unknown key: its Stop fails on the file
+and, for a key under `profile`, its landing guard refuses every door in a checkout holding it.
+
 ## init
 
 1. From the repo root, run `${CLAUDE_PLUGIN_ROOT}/agent-hooks.ts init --print` and show the JSONC it
