@@ -76,7 +76,10 @@ under the [loader rules](hook-runtime.md#module-loader).
   worktree to a headless Claude (`scripts/claude-code-types.prompt.md`) that
   judges the update's impact on each hooks module and commits what it calls
   for; the run then pushes the branch and opens or updates its pull request,
-  which the human lands. A version settles once the run publishes, finds
+  which lands as any reviewed branch does,
+  `bun ./scripts/land.ts chore/claude-code-types` from a checkout holding it
+  ([Git](../repo-ops/git.md)). Remove that checkout once landed: the run
+  refuses to start while another checkout holds the branch. A version settles once the run publishes, finds
   nothing to do, is stopped (`kill <pid>`, which stops its agent with it), or
   fails from the agent on; such an end names the log, the kept worktree and
   the command that reruns it, and the run refuses to recreate a worktree that

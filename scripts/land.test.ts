@@ -341,11 +341,26 @@ describe("land", () => {
     expect(why(land("feature/x", work))).toContain("gh printed no pull request");
   });
 
-  test("refuses a branch outside feature/ and fix/, dev and main included", () => {
-    for (const branch of ["dev", "main", "chore/x"]) {
-      expect(land(branch, work).kind).toBe("refused");
+  test("refuses a branch outside the landable names, dev and main included", () => {
+    for (const branch of ["dev", "main", "chore/x", "chore/claude-code-types-2", "renovate"]) {
+      expect(land(branch, work)).toEqual({
+        kind: "refused",
+        why: `${branch} is not a feature/, fix/ or renovate/ branch, or chore/claude-code-types: only those land on dev`,
+      });
     }
   });
+
+  test.each(["renovate/react-monorepo", "chore/claude-code-types"])(
+    "lands the bot branch %s",
+    (branch) => {
+      git(work, "branch", "--quiet", "-m", branch);
+      git(work, "push", "--quiet", "origin", branch);
+      serve(pullRequest());
+
+      expect(land(branch, work).kind).toBe("landed");
+      expect(git(origin, "rev-parse", "dev")).toBe(git(work, "rev-parse", "HEAD"));
+    },
+  );
 
   test("refuses a branch no checkout holds", () => {
     expect(land("fix/nowhere", work)).toEqual({
