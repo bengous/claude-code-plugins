@@ -409,8 +409,30 @@ export function beat(key: string, checkout: string): void {
  * `sessionId` and its own subagents left out.
  */
 export function liveOthers(checkout: string, sessionId: string, since: number): string[] {
-  const suffix = `__${checkoutKey(checkout)}${BEAT_SUFFIX}`;
-  const own = sanitize(sessionId);
+  const here = checkoutKey(checkout);
+
+  return beatFiles().flatMap(({ file, key, checkout: beatCheckout }) =>
+    beatCheckout !== here || isOfSession(key, sessionId) || !beatSince(file, since) ? [] : [key],
+  );
+}
+
+/** Removes the beats of a session that ended and of its subagents, in every checkout. */
+export function endBeats(sessionId: string): void {
+  for (const { file, key } of beatFiles()) {
+    if (isOfSession(key, sessionId)) {
+      try {
+        unlinkSync(path.join(stateDir(), file));
+      } catch {
+        // A file removed by a concurrent session is not an error.
+      }
+    }
+  }
+}
+
+type BeatFile = { readonly file: string; readonly key: string; readonly checkout: string };
+
+/** The beats in the state dir, each with the agent key and the checkout key its name holds; none without the dir. */
+function beatFiles(): BeatFile[] {
   let files: string[];
 
   try {
@@ -420,38 +442,27 @@ export function liveOthers(checkout: string, sessionId: string, since: number): 
   }
 
   return files.flatMap((file) => {
-    const key = file.endsWith(suffix) ? file.slice(0, -suffix.length) : null;
+    const name = file.endsWith(BEAT_SUFFIX) ? file.slice(0, -BEAT_SUFFIX.length) : "";
+    const split = name.lastIndexOf("__");
 
-    return key === null ||
-      key === own ||
-      key.startsWith(`${own}${AGENT_SEPARATOR}`) ||
-      modifiedAt(path.join(stateDir(), file)) < since
+    return split === -1
       ? []
-      : [key];
+      : [{ file, key: name.slice(0, split), checkout: name.slice(split + "__".length) }];
   });
 }
 
-/** Removes the beats of a session that ended and of its subagents, in every checkout. */
-export function endBeats(sessionId: string): void {
+function isOfSession(key: string, sessionId: string): boolean {
   const own = sanitize(sessionId);
-  let files: string[];
 
+  return key === own || key.startsWith(`${own}${AGENT_SEPARATOR}`);
+}
+
+/** Whether the beat was refreshed at `since` or later: one removed since the dir was listed is not live. */
+function beatSince(file: string, since: number): boolean {
   try {
-    files = readdirSync(stateDir());
+    return statSync(path.join(stateDir(), file)).mtimeMs >= since;
   } catch {
-    return;
-  }
-
-  for (const file of files) {
-    const key = file.endsWith(BEAT_SUFFIX) ? file.slice(0, file.lastIndexOf("__")) : null;
-
-    if (key === own || key?.startsWith(`${own}${AGENT_SEPARATOR}`) === true) {
-      try {
-        unlinkSync(path.join(stateDir(), file));
-      } catch {
-        // A file removed by a concurrent session is not an error.
-      }
-    }
+    return false;
   }
 }
 

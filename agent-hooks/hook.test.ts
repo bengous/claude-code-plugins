@@ -9,7 +9,7 @@ import { CONFIG_RELATIVE_PATH } from "./config.ts";
 import type { Runner } from "./exec.ts";
 import { run } from "./exec.ts";
 import type { HookKind, Input, StopHandler, Verdict } from "./hook.ts";
-import { ALLOW, encode, parseInput, runHook, searchStarts } from "./hook.ts";
+import { ALLOW, encode, heartbeat, parseInput, runHook, searchStarts } from "./hook.ts";
 import { isRecord, stringField } from "./json.ts";
 import { runSessionStart } from "./session-start.ts";
 import { beatPath, statePath } from "./state.ts";
@@ -392,6 +392,25 @@ describe("runHook", () => {
     });
 
     expect(existsSync(beatPath("s-none", temp.repo))).toBeFalse();
+  });
+
+  test("a heartbeat that cannot find its checkout reports it and throws nothing", () => {
+    writeConfig(temp.repo, VALID_CONFIG);
+    const input = parseInput(payload());
+
+    const spawn = spyOn(Bun, "spawnSync").mockImplementation(() => {
+      throw new Error('Executable not found in $PATH: "git"');
+    });
+
+    try {
+      expect(input).not.toBeNull();
+      expect(() => input !== null && heartbeat(input)).not.toThrow();
+    } finally {
+      spawn.mockRestore();
+    }
+
+    expect(errors.mock.calls.flat().join("\n")).toContain("agent-hooks: heartbeat not saved: ");
+    expect(existsSync(beatPath("s1", temp.repo))).toBeFalse();
   });
 
   test("notes an invalid config at session start", async () => {

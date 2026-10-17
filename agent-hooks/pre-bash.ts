@@ -595,26 +595,27 @@ export async function runPreBash(
   payload: unknown,
   options: PreBashOptions = {},
 ): Promise<string | null> {
-  const input = isRecord(payload) ? parseInput(payload) : null;
-
-  if (input !== null) {
-    heartbeat(input);
-  }
-
-  const toolInput = isRecord(payload) ? recordField(payload, "tool_input") : undefined;
-  const command = toolInput === undefined ? undefined : stringField(toolInput, "command");
-
-  if (!isRecord(payload) || command === undefined) {
-    return null;
-  }
-
   const now = options.now ?? Date.now();
   const deadlineMs = options.deadlineMs ?? PRE_BASH_DEADLINE_MS;
   const deadline = deadlineIn(deadlineMs, now);
-  const context = { sessionId: stringField(payload, "session_id") ?? "", now, deadline };
-  const cwd = stringField(payload, "cwd") ?? process.cwd();
 
   try {
+    const input = isRecord(payload) ? parseInput(payload) : null;
+
+    if (input !== null) {
+      heartbeat(input);
+    }
+
+    const toolInput = isRecord(payload) ? recordField(payload, "tool_input") : undefined;
+    const command = toolInput === undefined ? undefined : stringField(toolInput, "command");
+
+    if (!isRecord(payload) || command === undefined) {
+      return null;
+    }
+
+    const context = { sessionId: stringField(payload, "session_id") ?? "", now, deadline };
+    const cwd = stringField(payload, "cwd") ?? process.cwd();
+
     const verdict = await Promise.race([
       judgeLine(command, cwd, context, 0),
       pastDeadline(deadline),

@@ -25,7 +25,7 @@ import {
   statesOf,
 } from "./state.ts";
 import type { TempRepo } from "./test-support.ts";
-import { createTempRepo, removeTempRepo, scrubGitEnv } from "./test-support.ts";
+import { beatAgo, createTempRepo, MINUTE_MS, removeTempRepo, scrubGitEnv } from "./test-support.ts";
 
 const ENV_NAMES = ["AGENT_HOOKS_STATE_DIR", "XDG_STATE_HOME", "HOME"] as const;
 
@@ -384,14 +384,6 @@ describe("latestStateForCheckout", () => {
   });
 });
 
-const MINUTE_MS = 60_000;
-
-function beatAgo(key: string, checkout: string, ageMs: number): void {
-  beat(key, checkout);
-  const at = new Date(Date.now() - ageMs);
-  utimesSync(beatPath(key, checkout), at, at);
-}
-
 describe("heartbeats", () => {
   test("a beat is a file per agent and checkout, its mtime the last hook the agent ran there", () => {
     const before = Date.now() - 1000;
@@ -401,6 +393,29 @@ describe("heartbeats", () => {
       `s1.a1__${checkoutKey(temp.repo)}.beat`,
     );
     expect(statSync(beatPath("s1.a1", temp.repo)).mtimeMs).toBeGreaterThan(before);
+  });
+
+  test("a beat on an agent's old beat moves its mtime to now", () => {
+    beatAgo("s1", temp.repo, 60 * MINUTE_MS);
+    const before = Date.now() - 1000;
+
+    beat("s1", temp.repo);
+
+    expect(statSync(beatPath("s1", temp.repo)).mtimeMs).toBeGreaterThan(before);
+  });
+
+  test("liveOthers counts a beat removed after the state dir was listed as not live", () => {
+    beatAgo("s2", temp.repo, MINUTE_MS);
+    const vanished = path.basename(beatPath("s3", temp.repo));
+    const listed = readdirSync(temp.stateDir);
+    // SAFETY: liveOthers calls readdirSync with a path alone, whose overload returns string[].
+    const list = spyOn(fs, "readdirSync").mockReturnValue([...listed, vanished] as never);
+
+    try {
+      expect(liveOthers(temp.repo, "s1", Date.now() - 10 * MINUTE_MS)).toEqual(["s2"]);
+    } finally {
+      list.mockRestore();
+    }
   });
 
   test("liveOthers: the agents of other sessions that beat in this checkout since `since`", () => {

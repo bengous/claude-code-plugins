@@ -251,17 +251,15 @@ export function stateKey(input: Input): string {
 
 /**
  * Marks the agent live in the checkout around its cwd, when a root encloses it: every kit hook beats, so a session
- * that stops calling them there ages out. A beat that cannot be written is reported and costs nothing else.
+ * that stops calling them there ages out. A beat that cannot be placed or written is reported and costs nothing else.
  */
 export function heartbeat(input: Input): void {
-  const checkout = cwdCheckout(input);
-
-  if (checkout === null) {
-    return;
-  }
-
   try {
-    beat(stateKey(input), checkout);
+    const checkout = cwdCheckout(input);
+
+    if (checkout !== null) {
+      beat(stateKey(input), checkout);
+    }
   } catch (error) {
     console.error(
       `agent-hooks: heartbeat not saved: ${error instanceof Error ? error.message : String(error)}`,
