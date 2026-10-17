@@ -18,7 +18,8 @@ levels runs twice.
 A key the kit adds lands in two steps: first the kit's version that reads it, then the repository's
 file, once the plugin installed where the repository's agents run is at that version (a catalog that
 installs on landing, after it has). An older kit refuses the unknown key: its Stop fails on the file
-and, for a key under `profile`, its landing guard refuses every door in a checkout holding it.
+and, for a key under `profile`, a kit before 1.4.0 also refuses every door in a checkout holding it, its
+landing guard reading the whole profile; from 1.4.0 the guard reads `profile.landing` alone.
 
 ## init
 
@@ -81,15 +82,24 @@ not read. Codex transcripts are not read.
 ## Worktrees
 
 `"profile": { "worktree": "per-task" }` says each task takes a worktree of its own; `"shared"`, the default,
-says the agents share the checkout. Like `landing`, it is read from the repo file only; an invalid value
-invalidates the profile, and the landing guard refuses every door until it is fixed. Under `per-task`, SessionStart adds one line of `additionalContext` naming the
-checkout around the cwd when another session's state of that checkout (its subagents' included, never the
-session's own) was saved in the last 30 minutes, and tells the agent to work in a worktree of its own
-(EnterWorktree, or `git worktree add`). It never blocks. A session saves that state at SessionStart, at each
-Stop and at an edit that photographs; 88% of the gaps between two Stops of one session ran under 30 minutes
-(145 gaps over 25 sessions in roots holding the config, local transcripts, the 7 days to 2026-10-17). So a
-session in one turn longer than 30 minutes reads as gone, and one that ended less than 30 minutes ago, a
-`/clear` included, reads as live.
+says the agents share the checkout. Like `landing`, it is read from the repo file only. An invalid value is
+a note to the user at SessionStart and an error of the config at the Stop and in `doctor`; the landing
+guard, which reads `profile.landing` alone, is not affected.
+
+Every kit hook (SessionStart, pre-edit, pre-bash, Stop, SubagentStop) beats for its agent in the checkout
+around its cwd, when a root encloses it: it refreshes the mtime of
+`~/.local/state/agent-hooks/<agent>__<checkout hash>.beat`. SessionEnd, `/clear` included, removes the beats
+of the session and its subagents. Under `per-task`, a SessionStart whose source is `startup` or `clear`
+(never `resume`, `compact` or `fork`: a session mid-task is not told to move) adds one line of
+`additionalContext` naming its checkout when another session (its subagents included, never this session's
+own) beat there in the last 15 minutes, and tells the agent to work in a worktree of its own
+(EnterWorktree, or `git worktree add`). It never blocks. 99.2% of the gaps between two hook runs of one
+session or subagent ran under 15 minutes (67,849 gaps over 1,185 transcripts in roots holding the config,
+local transcripts, the 30 days to 2026-10-17; p95 2.1 min, p99 11.9 min). So a session that leaves a
+checkout ages out there in 15 minutes, a live session idle longer reads as gone, and a session that ended
+without its SessionEnd (a crash, a kill) reads as live for up to 15 minutes. The SessionStart payload names
+no session that `/clear` replaced, so the new session relies on the replaced one's SessionEnd having run
+first; that order is not measured.
 
 ## Reading a Stop
 
@@ -124,7 +134,7 @@ The Stop measures checkouts (git work trees); roots only check. Each fact has on
   runs.
 - State: `~/.local/state/agent-hooks/<agent>__<checkout hash>.json`, `<agent>` the session id or
   `<session>.<agent id>` for a subagent: the photo, the brake, and per root its green keys and
-  `lastRun.lanes`; pruned after 7 days.
+  `lastRun.lanes`; pruned after 7 days, as the agent's `.beat` beside it (see Worktrees).
 - Pre-edit fixes a copy of the new content in `.agent-hooks-XXXXXX/` beside the file, so the fixers find
   the config and the overrides of the real path. The kit's own scope never counts that copy, but another
   tool watching the tree can see it while the fixers run, and a pre-edit killed past its deadline leaves
@@ -184,7 +194,7 @@ What the model bounds and the kit does not try to cross:
   The checks are the newest run per name, workflow and event, as `gh pr checks` keeps them. A push
   without refspec goes where `@{push}` says, the current branch when git cannot tell. Each refusal
   names the way through: push to `trunk`, or `bun ./scripts/land.ts <branch>` when the repository has
-  that script. A file that does not parse, or an invalid profile, refuses every door there, naming the
+  that script. A file that does not parse, or an invalid `profile.landing`, refuses every door there, naming the
   error.
 - `"profile": { "review": { "risky": ["<glob>", …] } }` names the paths whose change lands only with a
   clean review verdict for that exact change. The kit validates the list and enforces nothing with it:
