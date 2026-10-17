@@ -14,13 +14,13 @@ import { boxBetween } from "./pick.ts";
 import {
   accepted,
   add,
-  delivered,
-  dropped,
   EMPTY,
   failed,
   type Item,
   remove,
+  restored,
   sending,
+  settle,
   summaryOf,
   type Tray,
 } from "./tray.ts";
@@ -34,6 +34,12 @@ import { createView, type Spot } from "./view.ts";
 
 /** A press that moves less than this is a click. */
 const DRAG = 5;
+
+/** How often a tab asks what became of the batches it sent, while one is not settled. */
+const ASK_MS = 1_000;
+
+/** How often a visible tab with no batch waiting asks anyway, so its connection dot stays true. */
+const IDLE_ASK_MS = 10_000;
 
 /** The app sees none of these while picking is on: a pick is not a click on the app. */
 const BLOCKED = ["mousedown", "mouseup", "mousemove", "click", "dblclick", "auxclick"];
@@ -93,9 +99,7 @@ function start(script: HTMLScriptElement): void {
       const raw = sessionStorage.getItem(storeKey);
 
       // SAFETY: this overlay wrote the value, `persist` below, under a key that names its server.
-      return raw === null
-        ? EMPTY
-        : { ...EMPTY, ...(JSON.parse(raw) as Pick<Tray, "items" | "sent">) };
+      return raw === null ? EMPTY : restored(JSON.parse(raw) as Pick<Tray, "items" | "sent">);
     } catch {
       return EMPTY;
     }
@@ -175,18 +179,38 @@ function start(script: HTMLScriptElement): void {
     view.marks(draft, preview);
   }
 
-  const channel = channelOf(base, {
-    event: (event) =>
-      update(
-        event.type === "delivered"
-          ? delivered(tray, event.seq)
-          : dropped(tray, event.seq, event.reason),
-      ),
-    connected: (up) => {
-      connected = up;
-      render();
-    },
-  });
+  const channel = channelOf(base);
+  let asking = false;
+  let nextAsk: ReturnType<typeof setTimeout> | undefined;
+
+  /** Asks what became of the batches this tab sent and are not settled yet; the answer, or none, sets the dot. */
+  async function ask(): Promise<void> {
+    clearTimeout(nextAsk);
+    asking = true;
+
+    try {
+      const outcomes = await channel.outcomes(tray.sent.map((one) => one.seq));
+      const next = (outcomes ?? []).reduce((from, outcome) => settle(from, outcome), tray);
+      const up = outcomes !== null;
+
+      if (next !== tray || up !== connected) {
+        connected = up;
+        update(next);
+      }
+    } finally {
+      asking = false;
+      askLater();
+    }
+  }
+
+  function askLater(): void {
+    if (asking) return;
+    clearTimeout(nextAsk);
+
+    if (tray.sent.length > 0) nextAsk = setTimeout(() => void ask(), ASK_MS);
+    else if (document.visibilityState === "visible")
+      nextAsk = setTimeout(() => void ask(), IDLE_ASK_MS);
+  }
 
   function showComposer(): void {
     if (mode.kind !== "on" || mode.draft === null) return;
@@ -257,7 +281,10 @@ function start(script: HTMLScriptElement): void {
     update(sending(tray, items.length));
 
     channel.send(items.map((item) => item.selection)).then(
-      (seq) => update(accepted(tray, ids, seq)),
+      (seq) => {
+        update(accepted(tray, ids, seq));
+        askLater();
+      },
       (cause: unknown) =>
         update(failed(tray, cause instanceof Error ? cause.message : String(cause))),
     );
@@ -395,10 +422,15 @@ function start(script: HTMLScriptElement): void {
     { passive: true },
   );
 
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "visible" && !asking) void ask();
+  });
+
   const cursor = document.createElement("style");
   cursor.textContent = `html.${PICKING}, html.${PICKING} * { cursor: crosshair !important; }`;
   document.head.append(cursor);
   setOn(wasOn);
+  void ask();
 }
 
 const script = document.currentScript;

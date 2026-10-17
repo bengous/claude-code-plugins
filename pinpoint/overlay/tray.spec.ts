@@ -4,12 +4,12 @@ import type { Selection } from "../shared/wire.ts";
 import {
   accepted,
   add,
-  delivered,
-  dropped,
   EMPTY,
   failed,
   remove,
+  restored,
   sending,
+  settle,
   statusText,
   summaryOf,
 } from "./tray.ts";
@@ -69,7 +69,7 @@ describe("the batch", () => {
   });
 
   test("a delivery of the last batch says so", () => {
-    const tray = delivered(accepted(add(EMPTY, A), ["a"], 3), 3);
+    const tray = settle(accepted(add(EMPTY, A), ["a"], 3), { seq: 3, outcome: "delivered" });
 
     expect(tray.status).toEqual({ kind: "delivered", seq: 3, count: 1 });
     expect(tray.sent).toEqual([]);
@@ -78,14 +78,56 @@ describe("the batch", () => {
   test("a delivery of an older batch leaves the status of the last one", () => {
     const tray = accepted(accepted(add(add(EMPTY, A), B), ["a"], 3), ["b"], 4);
 
-    expect(delivered(tray, 3).status).toEqual({ kind: "sent", seq: 4, count: 1 });
+    expect(settle(tray, { seq: 3, outcome: "delivered" }).status).toEqual({
+      kind: "sent",
+      seq: 4,
+      count: 1,
+    });
   });
 
   test("a batch the session dropped comes back to the head of the batch", () => {
-    const tray = dropped(add(accepted(add(EMPTY, A), ["a"], 3), B), 3, "refused");
+    const tray = settle(add(accepted(add(EMPTY, A), ["a"], 3), B), {
+      seq: 3,
+      outcome: "dropped",
+      reason: "refused",
+    });
 
     expect(tray.items).toEqual([A, B]);
+    expect(tray.sent).toEqual([]);
     expect(statusText(tray.status)).toContain("Batch 3 was not delivered: refused.");
+  });
+
+  test("a batch the server no longer knows leaves the sent ones, said once", () => {
+    const tray = settle(accepted(add(EMPTY, A), ["a"], 3), { seq: 3, outcome: "unknown" });
+
+    expect(tray.sent).toEqual([]);
+    expect(tray.items).toEqual([]);
+    expect(statusText(tray.status)).toBe("Batch 3: the server no longer knows what became of it.");
+  });
+
+  test("a reloaded tray says its last batch still waiting", () => {
+    const kept = accepted(accepted(add(add(EMPTY, A), B), ["a"], 3), ["b"], 4);
+
+    expect(restored({ items: [], sent: kept.sent }).status).toEqual({
+      kind: "sent",
+      seq: 4,
+      count: 1,
+    });
+    expect(restored({ items: [A], sent: [] })).toEqual({ ...EMPTY, items: [A] });
+  });
+
+  test("a batch still pending changes nothing", () => {
+    const tray = accepted(add(EMPTY, A), ["a"], 3);
+
+    expect(settle(tray, { seq: 3, outcome: "pending" })).toBe(tray);
+  });
+
+  test("an outcome of a batch this tab did not send changes nothing", () => {
+    const tray = add(accepted(add(EMPTY, A), ["a"], 3), B);
+
+    expect(settle(tray, { seq: 4, outcome: "delivered" })).toBe(tray);
+    expect(settle(tray, { seq: 4, outcome: "dropped", reason: "refused" })).toBe(tray);
+    expect(settle(tray, { seq: 4, outcome: "unknown" })).toBe(tray);
   });
 });
 

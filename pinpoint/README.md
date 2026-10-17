@@ -44,7 +44,8 @@ The app's dev pages load the overlay of the newest session whose directory holds
 - The composer offers the quick labels and a note. A **label** puts the selection in the batch at once, with the note typed so far. **Enter** puts it there with the note; **Shift+Enter** breaks the line; **Esc** drops it, and a second Esc turns pointing off.
 - The composer opens beside what was picked. **Drag its top row** to move it out of the way: it stays pinned there, and every next composer of the tab opens at that place, across reloads, kept inside the window. **Unpin** in the composer forgets the place and opens it beside each pick again.
 - **Ctrl+Enter**, or **Send (n)** in the panel, sends the whole batch; **Send** on a card sends that selection alone, **Remove** drops it. Hovering a card shows where its targets were.
-- The panel's status line says where the last batch is: sent, delivered to the session, not delivered (its selections come back to the batch), or not sent (the server does not answer; nothing leaves the batch). The batch survives a reload of the page in the same tab. So does pointing: a page reloaded while it is on comes back with it on.
+- The panel's status line says where the last batch is: sent, delivered to the session, not delivered (its selections come back to the batch), not sent (the server does not answer; nothing leaves the batch), or unknown to the server (it keeps what became of the last hundred batches only). Each tab hears only of the batches it sent. The dot before the panel's name says whether the server answered the tab's last question.
+- The batch, and the batches still waiting, survive a reload of the page in the same tab: a reloaded page says the last one waiting, then what became of it. So does pointing: a page reloaded while it is on comes back with it on.
 
 ## Configure
 
@@ -76,19 +77,21 @@ Boxes are CSS pixels of the viewport at the pick. The page and the app context r
 ## How it works
 
 ```
-app page (Vite dev) ──overlay.js, POST api/batch, events──▶ pinpoint server (Bun, 127.0.0.1, one per session)
-                                                                  │ stdout: one JSON line per batch
-                                                                  ▼
-                                               hooks module ──$.prompt.submit──▶ the session
-                                                                  │ POST api/delivery
-                                                                  ▼
-                                                     the page's status line: delivered
+app page (Vite dev)
+   │ overlay.js, POST api/batch         ▲ GET api/outcomes: pending, delivered, dropped, unknown
+   ▼                                    │
+pinpoint server (Bun, 127.0.0.1, one per session)
+   │ stdout: one JSON line per batch    ▲ POST api/delivery: delivered or dropped
+   ▼                                    │
+hooks module ──$.prompt.submit──▶ the session
 ```
 
-- `/pinpoint:start` spawns `server/cli.ts serve` as a child of the hooks module, on a free port with a fresh token, and keeps both in the plugin's store. A server that ends on its own, or whose output can no longer be read, comes back on the same port and token, so the page reconnects; three ends within a minute make it lost and the status line says so. A reload of the module starts the stored server again. `/clear` carries it over to the new session id.
+- `/pinpoint:start` spawns `server/cli.ts serve` as a child of the hooks module, on a free port with a fresh token, and keeps both in the plugin's store. A server that ends on its own, or whose output stops being readable, comes back on the same port and token, so the app's pages reach it again where they loaded it from; three ends within a minute make it lost and the status line says so. A reload of the module starts the stored server again. `/clear` carries it over to the new session id.
 - The module holds one state: `idle`, `starting`, `live`, `stopping` or `lost`. A way in while the server starts or stops starts no second one. `/pinpoint:stop` enters `stopping` before anything else, so the end it causes revives nothing; it closes the server, which removes its files, or runs `cli.ts clean` when no server is left to close (lost, still starting, or not answering), then forgets the record. After each wait (a prompt entering, a store write, a server starting) the module goes on only while the state is still the one it started from, so a stop meanwhile leaves no record behind and starts no server.
 - The server writes `~/.claude/pinpoint/sessions/<session>.json` (port, token, root, pid), which the Vite plugin reads at each page to inject `<script src="http://127.0.0.1:<port>/t/<token>/overlay.js">`. Every route sits behind the token in the path; a request whose `Origin` is not a page of this machine (`localhost`, `127.0.0.1`, `[::1]`) is refused, and the module's own routes refuse any page.
-- A batch is numbered and kept on disk until the module reports it went in, so a server started again tells the session what it still holds. What the session was handed belongs to its tenure, from the start or the restore after a reload to the stop, carried across every server a revival replaces: the last batch handed over, which a batch told again does not pass, and one queue that relays the batches of all its servers one after the other, never in the loop that reads a server.
+- A batch is numbered and kept on disk until the module reports it went in, so a server started again tells the session what it still holds. Batches are numbered, kept and written to stdout one at a time, so their lines come in the order of their numbers.
+- What the module reports of the last hundred batches stays on disk too, across a server started again. A page asks `GET api/outcomes` after the batches its tab sent and not yet settled, every second while one waits, then forgets each one settled; with none waiting, a visible page asks after nothing every ten seconds, which keeps its dot true. A batch the server answers `unknown` for is said once and asked after no more. No page holds a connection open, so a browser's few connections per host stay free for the overlay and the batches of every tab.
+- What the session was handed belongs to its tenure, from the start or the restore after a reload to the stop, carried across every server a revival replaces: the last batch handed over, which a batch told again does not pass, and one queue that relays the batches of all its servers one after the other, never in the loop that reads a server.
 - The server exits after a minute without the module's heartbeat: a `claude` killed hard sends no signal.
 
 ### What it hooks
@@ -132,7 +135,7 @@ claude plugin validate pinpoint    # what the module hooks and calls
 command claude --plugin-dir pinpoint   # a live session from source
 ```
 
-The overlay is plain TypeScript in a shadow root, no framework: `overlay/main.ts` is the controller, `describe.ts` and `pick.ts` what an element is (adapted from vellum's `src/formats/html/`), `view.ts` what it draws, `tray.ts` the batch as a pure model. `shared/wire.ts` types everything that crosses a process boundary.
+The overlay is plain TypeScript in a shadow root, no framework: `overlay/main.ts` is the controller, `describe.ts` and `pick.ts` what an element is (adapted from vellum's `src/formats/html/`), `view.ts` what it draws, `tray.ts` the batch as a pure model. `shared/wire.ts` types everything that crosses a process boundary; `shared/registry.ts` reads a registry entry for the server and the Vite plugin alike.
 
 ## License
 
