@@ -1,21 +1,25 @@
 #!/usr/bin/env bun
 
 /**
- * Mutation testing on the lines a change alters, in the modules `stryker.config.ts` lists: Stryker
- * mutates each changed module whole, in a pass of its own against the `.test.ts` beside it alone,
- * and a survivor whose lines meet a changed line fails, named with its file, line, mutator and
- * replacement. A whole module, since Stryker keeps a mutant only when its whole node lies inside a
- * line range: a block or a condition that spans past a changed line would go untested.
+ * Mutation testing on what a change alters in the modules `stryker.config.ts` lists, or in the
+ * `.test.ts` beside each: Stryker mutates each such module whole, in a pass of its own against
+ * that `.test.ts` alone. A survivor whose lines meet a changed line of the module fails. When the
+ * `.test.ts` changed, a second pass runs the module and its tests as they were at the base, and a
+ * mutant they killed that survives now fails too: the tests were weakened. Each failure is named
+ * with its file, line, mutator and replacement. A whole module, since Stryker keeps a mutant only
+ * when its whole node lies inside a line range: a block or a condition that spans past a changed
+ * line would go untested.
  *
- *   bun ./scripts/mutation.ts run             Stryker on each changed module; a survivor on a changed line exits 1
- *   bun ./scripts/mutation.ts github-output   `mutate=true` when a listed module has a changed line
+ *   bun ./scripts/mutation.ts run             Stryker on each module the change reaches; a failure exits 1
+ *   bun ./scripts/mutation.ts github-output   `mutate=true` when the change reaches a listed module
  *
- * The change is the working tree against its merge-base with the base `affected.ts` resolves; on
- * an Actions push, the commit the push moved the branch from; on any other Actions run, `origin/dev`. Stryker is imported only once a changed line
- * asks for it, so CI installs it only then.
+ * The change is the working tree against its merge-base with the base `affected.ts` resolves, or
+ * `origin/dev` on an Actions run that resolves none. Stryker is imported only once the change
+ * reaches a listed module, so CI installs it only then.
  */
 
-import { appendFile } from "node:fs/promises";
+import { appendFile, mkdtemp, rm, symlink } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import type { Stryker } from "@stryker-mutator/core";
@@ -28,6 +32,20 @@ export interface LineRange {
   readonly file: string;
   readonly start: number;
   readonly end: number;
+}
+
+/** A hunk of `git diff -U0`: `@@ -oldStart,oldCount +newStart,newCount @@` in `file`. */
+export interface Hunk {
+  readonly file: string;
+  readonly oldStart: number;
+  readonly oldCount: number;
+  readonly newStart: number;
+  readonly newCount: number;
+}
+
+export interface Change {
+  readonly since: string;
+  readonly hunks: readonly Hunk[];
 }
 
 type MutantResult = Awaited<ReturnType<Stryker["runMutationTest"]>>[number];
@@ -43,14 +61,15 @@ type Command = (typeof COMMANDS)[number];
 
 const UNDETECTED = new Set(["Survived", "NoCoverage"]);
 
+const DETECTED = new Set(["Killed", "Timeout"]);
+
 /**
- * The lines each file gains or rewrites in a `git diff -U0` whose new side is prefixed `b/`. A file's
- * header runs from its `diff --git` line to its first hunk: past it, `+++ b/…` is an added line. A
- * hunk that only deletes changes the two lines on either side of the cut. A deleted file's new side
- * is `/dev/null`: its hunks change no line.
+ * The hunks of a `git diff -U0` whose new side is prefixed `b/`. A file's header runs from its
+ * `diff --git` line to its first hunk: past it, `+++ b/…` is an added line. A deleted file's new
+ * side is `/dev/null`: its hunks are dropped.
  */
-export function changedRanges(diff: string): LineRange[] {
-  const ranges: LineRange[] = [];
+export function hunksOf(diff: string): Hunk[] {
+  const hunks: Hunk[] = [];
   let file: string | null = null;
   let inHeader = false;
 
@@ -61,32 +80,64 @@ export function changedRanges(diff: string): LineRange[] {
     }
 
     if (inHeader && line.startsWith("+++ b/")) file = line.slice("+++ b/".length);
-    const hunk = /^@@ -\S+ \+(\d+)(?:,(\d+))? @@/u.exec(line);
+    const header = /^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/u.exec(line);
 
-    if (hunk === null) continue;
+    if (header === null) continue;
     inHeader = false;
 
     if (file === null) continue;
-    const start = Number(hunk[1]);
-    const count = hunk[2] === undefined ? 1 : Number(hunk[2]);
 
-    ranges.push(
-      count === 0
-        ? { file, start: Math.max(start, 1), end: start + 1 }
-        : { file, start, end: start + count - 1 },
-    );
+    hunks.push({
+      file,
+      oldStart: Number(header[1]),
+      oldCount: header[2] === undefined ? 1 : Number(header[2]),
+      newStart: Number(header[3]),
+      newCount: header[4] === undefined ? 1 : Number(header[4]),
+    });
   }
 
-  return ranges;
+  return hunks;
+}
+
+/** The lines a hunk changes: those it adds or rewrites, or for a deletion the two around its cut. */
+export function rangeOf(hunk: Hunk): LineRange {
+  return hunk.newCount === 0
+    ? { file: hunk.file, start: Math.max(hunk.newStart, 1), end: hunk.newStart + 1 }
+    : { file: hunk.file, start: hunk.newStart, end: hunk.newStart + hunk.newCount - 1 };
+}
+
+export function changedRanges(diff: string): LineRange[] {
+  return hunksOf(diff).map((hunk) => rangeOf(hunk));
+}
+
+/** Where a line the change left alone sat at the base; `null` for a line the change wrote. */
+export function baseLineOf(line: number, hunks: readonly Hunk[]): number | null {
+  let shift = 0;
+
+  for (const hunk of hunks) {
+    const lastNew = hunk.newStart + hunk.newCount - 1;
+
+    if (hunk.newCount > 0 && line >= hunk.newStart && line <= lastNew) return null;
+
+    if ((hunk.newCount > 0 ? lastNew : hunk.newStart) < line)
+      shift += hunk.newCount - hunk.oldCount;
+  }
+
+  return line - shift;
 }
 
 export function rangeLabel(range: LineRange): string {
   return `${range.file}:${range.start}-${range.end}`;
 }
 
-/** The modules the ranges fall in, each once, in the order they first appear. */
-export function modulesOf(ranges: readonly LineRange[]): string[] {
-  return [...new Set(ranges.map((range) => range.file))];
+/** The listed modules the hunks reach, through their own lines or their `.test.ts`, each once. */
+export function modulesOf(hunks: readonly Hunk[], listed: readonly string[]): string[] {
+  const reached = hunks.flatMap(
+    (hunk) =>
+      listed.find((module) => module === hunk.file || testFileOf(module) === hunk.file) ?? [],
+  );
+
+  return [...new Set(reached)];
 }
 
 export function testFileOf(module: string): string {
@@ -112,32 +163,73 @@ export function describeSurvivor(file: string, source: string, mutant: Mutant): 
   return `${file}:${start.line}:${start.column} ${mutant.status} ${mutant.mutatorName}: ${oneLine(original)} => ${oneLine(mutant.replacement)}`;
 }
 
-/** The undetected mutants whose lines meet one of the ranges, in source order. */
-export function onChangedLines(results: readonly Mutant[], ranges: readonly LineRange[]): Mutant[] {
-  return undetected(results).filter(({ location }) =>
-    ranges.some((range) => location.start.line <= range.end && location.end.line >= range.start),
-  );
+function meets(mutant: Mutant, ranges: readonly LineRange[]): boolean {
+  const { start, end } = mutant.location;
+
+  return ranges.some((range) => start.line <= range.end && end.line >= range.start);
+}
+
+/** A mutant's identity at the base: its mutator, its replacement, and where it sat there. */
+function baseKeyOf(mutant: Mutant, hunks: readonly Hunk[]): string | null {
+  const { start, end } = mutant.location;
+  const startLine = baseLineOf(start.line, hunks);
+  const endLine = baseLineOf(end.line, hunks);
+
+  if (startLine === null || endLine === null) return null;
+
+  return `${mutant.mutatorName}|${mutant.replacement}|${startLine}:${start.column}-${endLine}:${end.column}`;
 }
 
 export interface ModuleVerdict {
-  readonly survivors: readonly string[];
+  readonly failures: readonly string[];
   readonly summary: string;
 }
 
-/** A pass's verdict on one module: each survivor on its changed lines, then a count of the rest. */
-export function moduleVerdict(
-  module: string,
-  source: string,
-  results: readonly Mutant[],
-  ranges: readonly LineRange[],
-): ModuleVerdict {
-  const tested = results.filter((result) => result.status !== "Ignored");
-  const changed = onChangedLines(results, ranges);
-  const elsewhere = undetected(results).length - changed.length;
+export interface ModulePasses {
+  readonly module: string;
+  /** The module's source at the head, where `head`'s locations point. */
+  readonly source: string;
+  readonly head: readonly Mutant[];
+  /** The pass over the module and its tests at the base, run when the tests changed. */
+  readonly base: readonly Mutant[] | null;
+  /** The module's own hunks. */
+  readonly hunks: readonly Hunk[];
+}
+
+/**
+ * One module's verdict: each undetected mutant on a changed line, then each one the base's tests
+ * killed, matched by the line it sat on there; the summary counts the others apart.
+ */
+export function moduleVerdict(passes: ModulePasses): ModuleVerdict {
+  const { module, source, head, base, hunks } = passes;
+  const tested = head.filter((result) => result.status !== "Ignored");
+  const missed = undetected(head);
+  const ranges = hunks.map((hunk) => rangeOf(hunk));
+  const onChanged = missed.filter((mutant) => meets(mutant, ranges));
+
+  const killedAtBase = new Set(
+    (base ?? [])
+      .filter((mutant) => DETECTED.has(mutant.status))
+      .map((mutant) => baseKeyOf(mutant, [])),
+  );
+
+  const weakened = missed.filter(
+    (mutant) => !onChanged.includes(mutant) && killedAtBase.has(baseKeyOf(mutant, hunks)),
+  );
+
+  const elsewhere = missed.length - onChanged.length - weakened.length;
+
+  const weakenedClause =
+    base === null ? "" : `, ${weakened.length} killed at the base and undetected now`;
 
   return {
-    survivors: changed.map((mutant) => describeSurvivor(module, source, mutant)),
-    summary: `mutation: ${module}: ${tested.length} mutant(s) tested, ${changed.length} undetected on the changed lines, ${elsewhere} elsewhere, outside this change`,
+    failures: [
+      ...onChanged.map((mutant) => describeSurvivor(module, source, mutant)),
+      ...weakened.map(
+        (mutant) => `${describeSurvivor(module, source, mutant)} (killed at the base)`,
+      ),
+    ],
+    summary: `mutation: ${module}: ${tested.length} mutant(s) tested, ${onChanged.length} undetected on the changed lines${weakenedClause}, ${elsewhere} elsewhere, outside this change`,
   };
 }
 
@@ -165,29 +257,39 @@ function refOf(base: Base): string {
   }
 }
 
-export async function changedLines(
+/** The hunks of the listed modules and their `.test.ts` since the merge-base with the base. */
+export async function changeSince(
   repoRoot: string,
   modules: readonly string[],
   base?: string,
   env: Env = process.env,
-): Promise<LineRange[]> {
+): Promise<Change> {
   const ref = refOf(await baseOf(base, env));
   const mergeBase = await mergeBaseWith(repoRoot, ref);
 
   if (mergeBase.kind === "none") throw new Error(mergeBase.reason);
+  const paths = modules.flatMap((module) => [module, testFileOf(module)]);
 
   const diff =
-    await $`git diff -U0 --no-color --no-ext-diff --no-renames --src-prefix=a/ --dst-prefix=b/ ${mergeBase.sha} -- ${modules}`
+    await $`git diff -U0 --no-color --no-ext-diff --no-renames --src-prefix=a/ --dst-prefix=b/ ${mergeBase.sha} -- ${paths}`
       .cwd(repoRoot)
       .quiet()
       .text();
 
-  return changedRanges(diff);
+  return { since: mergeBase.sha, hunks: hunksOf(diff) };
+}
+
+/** The tree at `sha`, written to a directory of its own, which the caller removes. */
+export async function snapshotAt(repoRoot: string, sha: string): Promise<string> {
+  const dir = await mkdtemp(join(tmpdir(), "mutation-base-"));
+  await $`git archive --format=tar ${sha} | tar -x -C ${dir}`.cwd(repoRoot).quiet();
+
+  return dir;
 }
 
 /** The `$GITHUB_OUTPUT` line that tells CI whether to install Stryker and run it. */
-export function githubOutput(ranges: readonly LineRange[]): string {
-  return `mutate=${ranges.length > 0}\n`;
+export function githubOutput(hunks: readonly Hunk[]): string {
+  return `mutate=${hunks.length > 0}\n`;
 }
 
 /**
@@ -207,6 +309,33 @@ export async function mutate(repoRoot: string, module: string): Promise<MutantRe
   process.chdir(repoRoot);
 
   return new Runner({ ...config, ...runOptions(module) }).runMutationTest();
+}
+
+async function existsAt(repoRoot: string, sha: string, path: string): Promise<boolean> {
+  return (await $`git cat-file -e ${sha}:${path}`.cwd(repoRoot).nothrow().quiet()).exitCode === 0;
+}
+
+/** The pass over the module and its tests as they were at `sha`; `null` when either was missing. */
+async function mutateAt(
+  repoRoot: string,
+  sha: string,
+  module: string,
+): Promise<MutantResult[] | null> {
+  const present = await Promise.all(
+    [module, testFileOf(module)].map((path) => existsAt(repoRoot, sha, path)),
+  );
+
+  if (present.includes(false)) return null;
+  const dir = await snapshotAt(repoRoot, sha);
+
+  try {
+    await symlink(join(repoRoot, "node_modules"), join(dir, "node_modules"), "dir");
+
+    return await mutate(dir, module);
+  } finally {
+    process.chdir(repoRoot);
+    await rm(dir, { recursive: true, force: true });
+  }
 }
 
 type Args = { readonly command: Command; readonly base: string | undefined };
@@ -231,40 +360,51 @@ if (import.meta.main) {
     process.exit(2);
   }
 
-  const ranges = await changedLines(repoRoot, config.mutate, args.base);
+  const change = await changeSince(repoRoot, config.mutate, args.base);
 
   if (args.command === "github-output") {
     const outputPath = process.env.GITHUB_OUTPUT;
 
     if (outputPath === undefined) throw new Error("GITHUB_OUTPUT is unset");
-    await appendFile(outputPath, githubOutput(ranges));
+    await appendFile(outputPath, githubOutput(change.hunks));
   }
 
-  if (ranges.length === 0) {
-    console.error(`mutation: no changed line in ${config.mutate.join(", ")}`);
+  if (change.hunks.length === 0) {
+    console.error(`mutation: no change in ${config.mutate.join(", ")} or their tests`);
     process.exit(0);
   }
 
-  console.error(`mutation: changed ${ranges.map((range) => rangeLabel(range)).join(", ")}`);
+  console.error(
+    `mutation: changed ${change.hunks.map((hunk) => rangeLabel(rangeOf(hunk))).join(", ")}`,
+  );
 
   if (args.command === "run") {
-    let survived = 0;
+    let failed = 0;
 
-    for (const module of modulesOf(ranges)) {
+    for (const module of modulesOf(change.hunks, config.mutate)) {
+      const testsChanged = change.hunks.some((hunk) => hunk.file === testFileOf(module));
       const source = await Bun.file(join(repoRoot, module)).text();
-      const results = await mutate(repoRoot, module);
+      const head = await mutate(repoRoot, module);
+      const base = testsChanged ? await mutateAt(repoRoot, change.since, module) : null;
 
-      const verdict = moduleVerdict(
+      if (testsChanged && base === null) {
+        console.error(
+          `mutation: ${module}: no base pass, it or its tests did not exist at ${change.since}`,
+        );
+      }
+
+      const verdict = moduleVerdict({
         module,
         source,
-        results,
-        ranges.filter((range) => range.file === module),
-      );
+        head,
+        base,
+        hunks: change.hunks.filter((hunk) => hunk.file === module),
+      });
 
-      for (const line of [...verdict.survivors, verdict.summary]) console.error(line);
-      survived += verdict.survivors.length;
+      for (const line of [...verdict.failures, verdict.summary]) console.error(line);
+      failed += verdict.failures.length;
     }
 
-    process.exit(survived === 0 ? 0 : 1);
+    process.exit(failed === 0 ? 0 : 1);
   }
 }

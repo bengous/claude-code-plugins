@@ -16,17 +16,22 @@ import { parse } from "yaml";
 
 import config from "../stryker.config.ts";
 import {
-  changedLines,
+  baseLineOf,
   changedRanges,
+  changeSince,
   describeSurvivor,
   githubOutput,
+  type Hunk,
+  hunksOf,
+  type LineRange,
   moduleVerdict,
   modulesOf,
   type Mutant,
-  onChangedLines,
   parseArgs,
   rangeLabel,
+  rangeOf,
   runOptions,
+  snapshotAt,
   testFileOf,
   undetected,
 } from "./mutation.ts";
@@ -124,18 +129,65 @@ test("a range reads file:start-end", () => {
   );
 });
 
-test("the modules the ranges fall in, each once, in order", () => {
+const hunk = (
+  file: string,
+  oldStart: number,
+  oldCount: number,
+  newStart: number,
+  newCount: number,
+): Hunk => ({
+  file,
+  oldStart,
+  oldCount,
+  newStart,
+  newCount,
+});
+
+test("a hunk keeps both sides of its header", () => {
+  const diff = [
+    "diff --git a/f.ts b/f.ts",
+    "--- a/f.ts",
+    "+++ b/f.ts",
+    "@@ -3 +3,2 @@ l2",
+    "-l3",
+    "+NEW3a",
+    "+NEW3b",
+    "@@ -10,2 +10,0 @@ l9",
+    "-l10",
+    "-l11",
+  ].join("\n");
+
+  expect(hunksOf(diff)).toEqual([hunk("f.ts", 3, 1, 3, 2), hunk("f.ts", 10, 2, 10, 0)]);
+});
+
+test("a line the change left alone has its line at the base; a changed one has none", () => {
+  // l1..l12 became l1 l2 NEW3a NEW3b l4..l9 l12: line 3 rewritten as two, lines 10 and 11 deleted.
+  const hunks = [hunk("f.ts", 3, 1, 3, 2), hunk("f.ts", 10, 2, 10, 0)];
+
+  expect([1, 2, 3, 4, 5, 10, 11].map((line) => baseLineOf(line, hunks))).toEqual([
+    1,
+    2,
+    null,
+    null,
+    4,
+    9,
+    12,
+  ]);
+});
+
+test("the listed modules a change reaches through their own lines or their tests, each once", () => {
+  const listed = ["a.ts", "b.ts", "c.ts"];
+
   expect(
-    modulesOf([
-      { file: "b.ts", start: 1, end: 1 },
-      { file: "a.ts", start: 3, end: 4 },
-      { file: "b.ts", start: 9, end: 9 },
-    ]),
+    modulesOf(
+      [hunk("b.test.ts", 1, 1, 1, 1), hunk("a.ts", 3, 0, 4, 1), hunk("b.ts", 9, 1, 9, 1)],
+      listed,
+    ),
   ).toEqual(["b.ts", "a.ts"]);
 });
 
-test("CI's output says whether there is a line to mutate", () => {
-  expect(githubOutput([{ file: "a.ts", start: 1, end: 1 }])).toBe("mutate=true\n");
+test("CI's output says whether a listed module or its tests changed", () => {
+  expect(githubOutput([hunk("a.test.ts", 1, 1, 1, 1)])).toBe("mutate=true\n");
   expect(githubOutput([])).toBe("mutate=false\n");
 });
 
@@ -253,46 +305,42 @@ describe("undetected", () => {
   });
 });
 
-describe("onChangedLines", () => {
+describe("the changed lines a survivor meets", () => {
+  const source = Array.from({ length: 30 }, (_, index) => `line ${index + 1};`).join("\n");
+
   const at = (start: number, end: number, status: Mutant["status"] = "Survived"): Mutant =>
     mutant({
       location: { start: { line: start, column: 1 }, end: { line: end, column: 2 } },
       status,
     });
 
-  test("keeps an undetected mutant that meets a changed line, one spanning past it included", () => {
-    const changed = [{ file: "agent-hooks/config.ts", start: 15, end: 15 }];
+  const failing = (head: readonly Mutant[], hunks: readonly Hunk[]): number =>
+    moduleVerdict({ module: "x/mod.ts", source, head, base: null, hunks }).failures.length;
 
-    const kept = onChangedLines(
-      [at(10, 20), at(15, 15), at(14, 14), at(16, 30), at(15, 15, "Killed")],
-      changed,
-    );
+  test("one spanning past a changed line meets it; a killed one never fails", () => {
+    const changed = [hunk("x/mod.ts", 15, 1, 15, 1)];
 
-    expect(kept.map(({ location }) => `${location.start.line}-${location.end.line}`)).toEqual([
-      "10-20",
-      "15-15",
-    ]);
+    expect(
+      failing([at(10, 20), at(15, 15), at(14, 14), at(16, 30), at(15, 15, "Killed")], changed),
+    ).toBe(2);
   });
 
-  test("keeps one that meets any of several ranges", () => {
-    const changed = [
-      { file: "agent-hooks/config.ts", start: 3, end: 3 },
-      { file: "agent-hooks/config.ts", start: 9, end: 9 },
-    ];
+  test("any of several ranges counts", () => {
+    const changed = [hunk("x/mod.ts", 3, 1, 3, 1), hunk("x/mod.ts", 9, 1, 9, 1)];
 
-    expect(onChangedLines([at(3, 3), at(9, 9), at(6, 6)], changed)).toHaveLength(2);
+    expect(failing([at(3, 3), at(9, 9), at(6, 6)], changed)).toBe(2);
   });
 
-  test("keeps one that touches a range at either edge", () => {
-    const changed = [{ file: "agent-hooks/config.ts", start: 5, end: 7 }];
+  test("a range's either edge counts", () => {
+    const changed = [hunk("x/mod.ts", 5, 3, 5, 3)];
 
-    expect(onChangedLines([at(1, 5), at(7, 9), at(1, 4), at(8, 9)], changed)).toHaveLength(2);
+    expect(failing([at(1, 5), at(7, 9), at(1, 4), at(8, 9)], changed)).toBe(2);
   });
 });
 
 describe("moduleVerdict", () => {
   const source = ["const a = 1;", "if (a > 0) {", "  run();", "}", "const b = a + 1;"].join("\n");
-  const changed = [{ file: "x/mod.ts", start: 2, end: 2 }];
+  const changed = [hunk("x/mod.ts", 2, 1, 2, 1)];
 
   const results = [
     mutant({
@@ -312,21 +360,76 @@ describe("moduleVerdict", () => {
   ];
 
   test("names each survivor on a changed line, and counts the others apart", () => {
-    expect(moduleVerdict("x/mod.ts", source, results, changed)).toEqual({
-      survivors: ["x/mod.ts:2:5 Survived EqualityOperator: a > 0 => a >= 0"],
+    expect(
+      moduleVerdict({ module: "x/mod.ts", source, head: results, base: null, hunks: changed }),
+    ).toEqual({
+      failures: ["x/mod.ts:2:5 Survived EqualityOperator: a > 0 => a >= 0"],
       summary:
         "mutation: x/mod.ts: 3 mutant(s) tested, 1 undetected on the changed lines, 1 elsewhere, outside this change",
     });
   });
 
-  test("has no survivor when only lines outside the change keep one", () => {
-    const elsewhere = [{ file: "x/mod.ts", start: 3, end: 3 }];
+  test("has no failure when only lines outside the change keep a survivor", () => {
+    const elsewhere = [hunk("x/mod.ts", 3, 1, 3, 1)];
 
-    expect(moduleVerdict("x/mod.ts", source, results, elsewhere).survivors).toEqual([]);
+    expect(
+      moduleVerdict({ module: "x/mod.ts", source, head: results, base: null, hunks: elsewhere })
+        .failures,
+    ).toEqual([]);
+  });
+
+  test("with the tests changed, fails on a mutant the base's tests killed and the head's do not", () => {
+    // The tests alone changed: the source, so every mutant, is the same at the base.
+    const atBase = results.map((found) => ({ ...found, status: "Killed" as const }));
+
+    expect(
+      moduleVerdict({ module: "x/mod.ts", source, head: results, base: atBase, hunks: [] }),
+    ).toEqual({
+      failures: [
+        "x/mod.ts:2:5 Survived EqualityOperator: a > 0 => a >= 0 (killed at the base)",
+        "x/mod.ts:5:11 Survived ArithmeticOperator: a + 1 => a - 1 (killed at the base)",
+      ],
+      summary:
+        "mutation: x/mod.ts: 3 mutant(s) tested, 0 undetected on the changed lines, 2 killed at the base and undetected now, 0 elsewhere, outside this change",
+    });
+  });
+
+  test("matches a mutant to its base by the line it had there, and counts it once", () => {
+    // One line inserted above line 5 at the head: its mutant sat on line 4 at the base.
+    const inserted = [hunk("x/mod.ts", 1, 0, 2, 1)];
+
+    const atBase = [
+      mutant({
+        fileName: "/base/x/mod.ts",
+        location: { start: { line: 4, column: 11 }, end: { line: 4, column: 16 } },
+        mutatorName: "ArithmeticOperator",
+        replacement: "a - 1",
+        status: "Killed",
+      }),
+      mutant({
+        fileName: "/base/x/mod.ts",
+        location: { start: { line: 5, column: 11 }, end: { line: 5, column: 16 } },
+        mutatorName: "ArithmeticOperator",
+        replacement: "a - 1",
+        status: "Survived",
+      }),
+    ];
+
+    expect(
+      moduleVerdict({ module: "x/mod.ts", source, head: results, base: atBase, hunks: inserted })
+        .failures,
+    ).toEqual([
+      "x/mod.ts:2:5 Survived EqualityOperator: a > 0 => a >= 0",
+      "x/mod.ts:5:11 Survived ArithmeticOperator: a + 1 => a - 1 (killed at the base)",
+    ]);
   });
 });
 
-describe("changedLines", () => {
+async function linesSince(...args: Parameters<typeof changeSince>): Promise<LineRange[]> {
+  return (await changeSince(...args)).hunks.map((found) => rangeOf(found));
+}
+
+describe("changeSince", () => {
   let root = "";
 
   function write(path: string, content: string): void {
@@ -368,16 +471,37 @@ describe("changedLines", () => {
     write("a/listed.ts", "one\nTWO\nthree\nfour\n");
     write("b/unlisted.ts", "changed\n");
 
-    expect(await changedLines(root, ["a/listed.ts"], "dev", NO_ACTIONS)).toEqual([
+    expect(await linesSince(root, ["a/listed.ts"], "dev", NO_ACTIONS)).toEqual([
       { file: "a/listed.ts", start: 2, end: 2 },
       { file: "a/listed.ts", start: 4, end: 4 },
     ]);
   });
 
+  test("a listed module's tests count, and the base is the merge-base", async () => {
+    const since = git("rev-parse", "HEAD");
+    write("a/listed.test.ts", "test\n");
+    commit("Its tests");
+
+    expect(await changeSince(root, ["a/listed.ts"], "dev", NO_ACTIONS)).toEqual({
+      since,
+      hunks: [hunk("a/listed.test.ts", 0, 0, 1, 1)],
+    });
+  });
+
+  test("the tree at a commit, in a directory of its own", async () => {
+    const at = git("rev-parse", "HEAD");
+    write("a/listed.ts", "changed since\n");
+    commit("Later");
+    const dir = await snapshotAt(root, at);
+
+    expect(readFileSync(join(dir, "a/listed.ts"), "utf8")).toBe("one\ntwo\nthree\n");
+    rmSync(dir, { recursive: true, force: true });
+  });
+
   test("none when the listed modules are untouched", async () => {
     write("b/unlisted.ts", "changed\n");
 
-    expect(await changedLines(root, ["a/listed.ts"], "dev", NO_ACTIONS)).toEqual([]);
+    expect(await linesSince(root, ["a/listed.ts"], "dev", NO_ACTIONS)).toEqual([]);
   });
 
   test("a pull request run measures from its merge commit's first parent, not the event's base", async () => {
@@ -403,7 +527,7 @@ describe("changedLines", () => {
       GITHUB_EVENT_PATH: event,
     };
 
-    expect(await changedLines(root, ["a/listed.ts"], undefined, env)).toEqual([
+    expect(await linesSince(root, ["a/listed.ts"], undefined, env)).toEqual([
       { file: "a/listed.ts", start: 1, end: 1 },
     ]);
   });
@@ -416,7 +540,7 @@ describe("changedLines", () => {
     writeFileSync(event, JSON.stringify({ before, after: git("rev-parse", "HEAD") }));
     const env = { GITHUB_ACTIONS: "true", GITHUB_EVENT_NAME: "push", GITHUB_EVENT_PATH: event };
 
-    expect(await changedLines(root, ["a/listed.ts"], undefined, env)).toEqual([
+    expect(await linesSince(root, ["a/listed.ts"], undefined, env)).toEqual([
       { file: "a/listed.ts", start: 2, end: 2 },
     ]);
   });
@@ -426,11 +550,11 @@ describe("changedLines", () => {
     const event = join(root, ".git", "event.json");
     writeFileSync(event, JSON.stringify({ after: git("rev-parse", "HEAD") }));
 
-    await expect(changedLines(root, ["a/listed.ts"], undefined, push)).rejects.toThrow(
+    await expect(linesSince(root, ["a/listed.ts"], undefined, push)).rejects.toThrow(
       "GITHUB_EVENT_PATH is unset on a push run",
     );
     await expect(
-      changedLines(root, ["a/listed.ts"], undefined, { ...push, GITHUB_EVENT_PATH: event }),
+      linesSince(root, ["a/listed.ts"], undefined, { ...push, GITHUB_EVENT_PATH: event }),
     ).rejects.toThrow(`${event} names no before`);
   });
 
@@ -438,14 +562,14 @@ describe("changedLines", () => {
     const dispatch = { GITHUB_ACTIONS: "true", GITHUB_EVENT_NAME: "workflow_dispatch" };
 
     for (const env of [NO_ACTIONS, dispatch]) {
-      await expect(changedLines(root, ["a/listed.ts"], undefined, env)).rejects.toThrow(
+      await expect(linesSince(root, ["a/listed.ts"], undefined, env)).rejects.toThrow(
         "no merge-base with origin/dev",
       );
     }
   });
 
   test("a base it cannot find fails, naming it and quoting git", async () => {
-    await expect(changedLines(root, ["a/listed.ts"], "origin/nowhere", NO_ACTIONS)).rejects.toThrow(
+    await expect(linesSince(root, ["a/listed.ts"], "origin/nowhere", NO_ACTIONS)).rejects.toThrow(
       /^no merge-base with origin\/nowhere: fatal: [^\n]+$/u,
     );
   });

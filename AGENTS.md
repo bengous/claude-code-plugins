@@ -31,7 +31,7 @@ claude plugin validate vellum   # the hooks module: what it hooks and calls
 claude plugin test vellum       # the hooks module's kit tests: `*.test.ts` under vellum/src/runtime/hooks, review and steps/<name>
 bun ./scripts/run-gates.ts                             # CI's `validate` gates, with the kits of the hooks modules the change reaches (`--all`: every kit); installs vellum's dependencies first
 bun ./scripts/affected.ts print                        # what the change reaches since its merge-base with origin/dev; `test` runs those suites
-bun ./scripts/mutation.ts run                          # CI's `mutation` job: Stryker on each module stryker.config.ts lists that changed since origin/dev; a survivor on a changed line fails
+bun ./scripts/mutation.ts run                          # CI's `mutation` job: Stryker on each module stryker.config.ts lists whose source or tests changed since origin/dev; a survivor on a changed line, or one its old tests killed, fails
 bun ./scripts/land.ts <branch>                         # land a reviewed feature/ or fix/ branch on dev once its PR is green (docs/repo-ops/git.md)
 bun run --cwd vellum e2e                               # vellum's browser suite, CI's `e2e` jobs, one per window; Chromium once per machine: `bun run --cwd vellum e2e:install`
 bun ./scripts/claude-code-types.ts run                 # vellum's Claude Code types into the chore/claude-code-types PR, judged by a headless agent; a session start runs it detached (docs/plugin-testing/hooks.md)
