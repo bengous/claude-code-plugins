@@ -95,11 +95,65 @@ function git(cwd: string, args: readonly string[]): string {
 /** A file's text at a revision; `""` when the revision holds none. */
 type TextAt = (revision: string, path: string) => string;
 
-/** The text of every change at `base` and at `head`, read by one `git cat-file --batch`. */
-function textsAt(cwd: string, base: string, head: string, changes: readonly FileChange[]): TextAt {
-  const names = [
-    ...new Set(changes.flatMap(({ from, to }) => [`${base}:${from}`, `${head}:${to}`])),
-  ];
+/** A path of the repository as the plugin's root reads it. */
+function pluginPath(plugin: string, path: string): string {
+  return relative(plugin, path).replaceAll("\\", "/");
+}
+
+/**
+ * The `<revision>:<path>` names of the texts the sections read: a source file, a test or a text
+ * Claude reads, at `base` unless the range adds it, at `head` unless the range deletes it.
+ */
+export function objectsRead(
+  changes: readonly FileChange[],
+  base: string,
+  head: string,
+  plugin: string,
+): string[] {
+  return changes
+    .filter(({ to }) => SOURCE_FILE.test(to) || READ_TEXT.test(pluginPath(plugin, to)))
+    .flatMap(({ status, from, to }) => [
+      ...(status === "A" ? [] : [`${base}:${from}`]),
+      ...(status === "D" ? [] : [`${head}:${to}`]),
+    ]);
+}
+
+/**
+ * Each text `git cat-file --batch` printed for `names`, asked in that order: a name it reports
+ * missing has none, and any header but a blob's throws, so no misread shifts the texts after it.
+ */
+export function batchTexts(names: readonly string[], output: Buffer): Map<string, string> {
+  const texts = new Map<string, string>();
+  let at = 0;
+
+  for (const name of names) {
+    const end = output.indexOf("\n", at);
+    const header = output.toString("utf8", at, end);
+    at = end + 1;
+
+    if (header === `${name} missing`) continue;
+    const [, type, size] = /^[0-9a-f]{40,64} (\S+) (\d+)$/u.exec(header) ?? [];
+
+    if (type !== "blob" || size === undefined) {
+      throw new Error(`git cat-file --batch answered "${header}" for ${name}, not a file's text`);
+    }
+
+    texts.set(name, output.toString("utf8", at, at + Number(size)));
+    at += Number(size) + 1;
+  }
+
+  return texts;
+}
+
+/** The text of every file the sections read, at `base` and at `head`, by one `git cat-file --batch`. */
+function textsAt(
+  cwd: string,
+  base: string,
+  head: string,
+  changes: readonly FileChange[],
+  plugin: string,
+): TextAt {
+  const names = objectsRead(changes, base, head, plugin);
 
   const run = Bun.spawnSync(["git", "cat-file", "--batch"], {
     cwd,
@@ -112,19 +166,7 @@ function textsAt(cwd: string, base: string, head: string, changes: readonly File
     throw new Error(`git cat-file --batch failed: ${run.stderr.toString().trim()}`);
   }
 
-  const texts = new Map<string, string>();
-  let at = 0;
-
-  for (const name of names) {
-    const end = run.stdout.indexOf("\n", at);
-    const header = run.stdout.toString("utf8", at, end);
-    at = end + 1;
-
-    if (header.endsWith(" missing")) continue;
-    const size = Number(header.split(" ")[2]);
-    texts.set(name, run.stdout.toString("utf8", at, at + size));
-    at += size + 1;
-  }
+  const texts = batchTexts(names, run.stdout);
 
   return (revision, path) => texts.get(`${revision}:${path}`) ?? "";
 }
@@ -973,17 +1015,25 @@ function section(title: string, body: readonly string[], none: string): string[]
 
 /** The report for `range` on the plugin at `pluginRoot`; the suites run at the range's head unless `suites` is false. */
 export function contractDiff(range: string, pluginRoot: string, suites = true): string {
-  const [base = "", head = "HEAD"] = range.includes("..") ? range.split("..") : [range];
+  const [named = "", headNamed = "HEAD"] = range.includes("..") ? range.split("..") : [range];
 
-  const [top = "", prefix = ""] = git(pluginRoot, ["rev-parse", "--show-toplevel", "--show-prefix"])
+  // Each end as the commit it names: a short SHA a tree's also begins with is ambiguous to `git
+  // diff` and to a `<revision>:<path>`, not to `^{commit}`, which looks among commits alone.
+  const [top = "", prefix = "", base = "", head = ""] = git(pluginRoot, [
+    "rev-parse",
+    "--show-toplevel",
+    "--show-prefix",
+    `${named}^{commit}`,
+    `${headNamed}^{commit}`,
+  ])
     .split("\n")
     .map((line) => line.trim());
 
   const plugin = prefix.replace(/\/$/u, "") || ".";
   const changes = changesIn(top, base, head, plugin);
-  const textAt = textsAt(top, base, head, changes);
+  const textAt = textsAt(top, base, head, changes, plugin);
 
-  const inPlugin = (path: string): string => relative(plugin, path).replaceAll("\\", "/");
+  const inPlugin = (path: string): string => pluginPath(plugin, path);
 
   const moveOnly = ({ status, from, to }: FileChange): boolean =>
     status !== "A" && status !== "D" && onlyCommentsMoved(textAt(base, from), textAt(head, to));

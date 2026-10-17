@@ -4,10 +4,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import {
+  batchTexts,
   caseChanges,
   contractDiff,
   functionChanges,
   functionsOf,
+  objectsRead,
   titleChanges,
   titlesOf,
   wordChanges,
@@ -216,6 +218,53 @@ describe("functionChanges", () => {
   });
 });
 
+describe("objectsRead", () => {
+  test("names the texts the sections read alone, and only the sides a change has", () => {
+    const changes = [
+      { status: "M", from: "plug/src/a.ts", to: "plug/src/a.ts" },
+      { status: "M", from: "plug/bun.lock", to: "plug/bun.lock" },
+      { status: "A", from: "plug/e2e/shot.png", to: "plug/e2e/shot.png" },
+      { status: "A", from: "plug/skills/start/SKILL.md", to: "plug/skills/start/SKILL.md" },
+      { status: "D", from: "plug/src/gone.spec.ts", to: "plug/src/gone.spec.ts" },
+    ] as const;
+
+    expect(objectsRead(changes, "b", "h", "plug")).toEqual([
+      "b:plug/src/a.ts",
+      "h:plug/src/a.ts",
+      "h:plug/skills/start/SKILL.md",
+      "b:plug/src/gone.spec.ts",
+    ]);
+  });
+});
+
+describe("batchTexts", () => {
+  const SHA = "f".repeat(40);
+  const blob = (text: string): string => `${SHA} blob ${Buffer.byteLength(text)}\n${text}\n`;
+
+  test("reads each blob by its size in bytes; a name git reports missing has no text", () => {
+    const output = Buffer.from(`${blob("é\nline")}b:gone.ts missing\n${blob("two")}`);
+
+    expect(batchTexts(["b:a.ts", "b:gone.ts", "h:a.ts"], output)).toEqual(
+      new Map([
+        ["b:a.ts", "é\nline"],
+        ["h:a.ts", "two"],
+      ]),
+    );
+  });
+
+  test("an ambiguous name throws, never shifting the texts after it", () => {
+    const output = Buffer.from(`b:a.ts ambiguous\n${blob("two")}`);
+
+    expect(() => batchTexts(["b:a.ts", "h:a.ts"], output)).toThrow("b:a.ts ambiguous");
+  });
+
+  test("an object that is no blob throws, naming its type", () => {
+    const output = Buffer.from(`${SHA} tree 0\n\n`);
+
+    expect(() => batchTexts(["b:src"], output)).toThrow("tree");
+  });
+});
+
 /** Each file a commit sets, by its path from the repository's root, and its text. */
 type Files = Readonly<Record<string, string>>;
 
@@ -224,6 +273,20 @@ type Repository<Commits extends readonly Files[]> = {
   readonly root: string;
   readonly shas: { readonly [Index in keyof Commits]: string };
 };
+
+/** Runs `git` in `root`, `input` on its stdin, and answers its stdout trimmed. */
+function git(root: string, args: readonly string[], input = ""): string {
+  const run = Bun.spawnSync(["git", ...args], {
+    cwd: root,
+    stdin: new TextEncoder().encode(input),
+    stdout: "pipe",
+    stderr: "pipe",
+  });
+
+  if (run.exitCode !== 0) throw new Error(run.stderr.toString());
+
+  return run.stdout.toString().trim();
+}
 
 /**
  * Holds a plugin at `plug/`, as this repository holds `vellum/`: each commit sets its files over the
@@ -234,19 +297,6 @@ function repository<const Commits extends readonly Files[]>(
   ...commits: Commits
 ): Repository<Commits> {
   const root = mkdtempSync(join(tmpdir(), "contract-diff-"));
-
-  const git = (args: readonly string[], input = ""): string => {
-    const run = Bun.spawnSync(["git", ...args], {
-      cwd: root,
-      stdin: new TextEncoder().encode(input),
-      stdout: "pipe",
-      stderr: "pipe",
-    });
-
-    if (run.exitCode !== 0) throw new Error(run.stderr.toString());
-
-    return run.stdout.toString().trim();
-  };
 
   const stream = commits.flatMap((files, index) => [
     "commit refs/heads/main",
@@ -263,17 +313,38 @@ function repository<const Commits extends readonly Files[]>(
 
   const marks = commits.map((_, index) => `get-mark :${index + 1}`);
 
-  git(["init", "-q", "--initial-branch=main"]);
+  git(root, ["init", "-q", "--initial-branch=main"]);
 
   const shas = git(
+    root,
     ["-c", "fastimport.unpackLimit=0", "fast-import", "--quiet"],
     `${[...stream, ...marks].join("\n")}\n`,
   ).split("\n");
 
-  git(["reset", "-q", "--hard"]);
+  git(root, ["reset", "-q", "--hard"]);
 
   // SAFETY: fast-import answers each `get-mark` with its commit's SHA on a line, in the order asked.
   return { root, shas: shas as Repository<Commits>["shas"] };
+}
+
+/**
+ * Writes into the repository a tree whose SHA begins as `commit`'s does, and answers that shared
+ * prefix: a name git reads as the commit where only a commit fits, ambiguous where a tree fits too.
+ */
+function treeSharingPrefix(root: string, commit: string): string {
+  const prefix = commit.slice(0, 4);
+  const empty = Buffer.from("e69de29bb2d1d6434b8b29ae775ad8c2e48c5391", "hex");
+
+  for (let n = 0; ; n += 1) {
+    const entry = Buffer.concat([Buffer.from(`100644 f${n}\0`), empty]);
+    const tree = Buffer.concat([Buffer.from(`tree ${entry.length}\0`), entry]);
+
+    if (Bun.CryptoHasher.hash("sha1", tree, "hex").startsWith(prefix)) {
+      git(root, ["mktree", "--missing"], `100644 blob ${empty.toString("hex")}\tf${n}\n`);
+
+      return prefix;
+    }
+  }
 }
 
 /** A suite holding one passing test per title. */
@@ -460,5 +531,20 @@ describe("contractDiff", () => {
     expect(report).toContain("## Contracts\n\nNo contract changed.");
     expect(report).toContain("## Rules (`table.spec.ts.snap`)\n\nNo rule changed.");
     expect(report).toContain("- `src/a.ts`: and code outside its functions");
+  }, 15_000);
+
+  test("reads the commit a short base names, though a tree's SHA begins the same", () => {
+    const {
+      root,
+      shas: [base, head],
+    } = repository(
+      { "plug/src/steps/x/contract.ts": 'export const SLICE = { id: "x" };\n' },
+      { "plug/src/steps/x/contract.ts": 'export const SLICE = { id: "y" };\n' },
+    );
+
+    const short = treeSharingPrefix(root, base);
+    const report = contractDiff(`${short}..${head}`, join(root, "plug"), false);
+
+    expect(report).toContain('+export const SLICE = { id: "y" };');
   }, 15_000);
 });
