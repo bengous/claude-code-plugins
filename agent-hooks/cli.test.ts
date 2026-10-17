@@ -6,7 +6,7 @@ import path from "node:path";
 
 import { CONFIG_RELATIVE_PATH } from "./config.ts";
 import { isRecord } from "./json.ts";
-import { statePath } from "./state.ts";
+import { beatPath, statePath } from "./state.ts";
 import type { TempRepo } from "./test-support.ts";
 import {
   createTempRepo,
@@ -144,6 +144,22 @@ describe("agent-hooks CLI", () => {
     expect(result.code).toBe(0);
     expect(result.stdout).toBe("");
     expect(existsSync(statePath("s1", temp.repo))).toBe(true);
+  });
+
+  test("session-end removes the beats session-start left, exits 0 without output", async () => {
+    await hook("session-start", fixtureIn("claude", "session-start-startup", temp.repo));
+
+    expect(existsSync(beatPath("s1", temp.repo))).toBe(true);
+
+    const result = await hook("session-end", {
+      session_id: "s1",
+      cwd: temp.repo,
+      hook_event_name: "SessionEnd",
+      reason: "clear",
+    });
+
+    expect(result).toMatchObject({ code: 0, stdout: "" });
+    expect(existsSync(beatPath("s1", temp.repo))).toBe(false);
   });
 
   test("stop blocks on a file added after the photo", async () => {

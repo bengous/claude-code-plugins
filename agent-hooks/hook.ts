@@ -13,7 +13,7 @@ import { CRASH_LANE, guard } from "./loop-guard.ts";
 import { extractApplyPatchPaths } from "./patch.ts";
 import { checkoutOf, findRoot, realPathOf } from "./scope.ts";
 import type { SessionState } from "./state.ts";
-import { AGENT_SEPARATOR, freshState, loadState, saveState, statesOf } from "./state.ts";
+import { AGENT_SEPARATOR, beat, freshState, loadState, saveState, statesOf } from "./state.ts";
 
 export const HARNESSES = ["claude", "codex"] as const;
 
@@ -31,6 +31,14 @@ export const DEADLINES_MS: Readonly<Record<HookKind, number>> = {
   "pre-edit": 25_000,
   "post-edit": 50_000,
   stop: 200_000,
+};
+
+/** The event name a hook's `hookSpecificOutput` carries, under Claude Code and Codex alike. */
+const HOOK_EVENTS: Readonly<Record<HookKind, string>> = {
+  "session-start": "SessionStart",
+  "pre-edit": "PreToolUse",
+  "post-edit": "PostToolUse",
+  stop: "Stop",
 };
 
 /** A killed command's output grace, then the time to blame, record and encode the run. */
@@ -60,6 +68,8 @@ export type Input = {
   readonly cwd: string | undefined;
   /** `prompt_id` under Claude Code, `turn_id` under Codex. */
   readonly promptId: string | undefined;
+  /** How a session started, at SessionStart: `startup`, `resume`, `clear`, `compact` or `fork`. */
+  readonly source: string | undefined;
   readonly permissionMode: string | undefined;
   readonly backgroundTasks: readonly BackgroundTaskSummary[];
   readonly toolName: string | undefined;
@@ -148,6 +158,7 @@ export function parseInput(payload: Record<string, unknown>): Input | null {
     agentId: stringField(payload, "agent_id"),
     cwd: cwd === undefined ? undefined : realPathOf(cwd),
     promptId: stringField(payload, "prompt_id") ?? stringField(payload, "turn_id"),
+    source: stringField(payload, "source"),
     permissionMode: stringField(payload, "permission_mode"),
     backgroundTasks: Array.isArray(tasks) ? tasks.filter((task) => isBackgroundTask(task)) : [],
     toolName: stringField(payload, "tool_name"),
@@ -218,6 +229,7 @@ export async function runHook(options: RunHookOptions): Promise<string | null> {
   }
 
   const now = options.now ?? Date.now();
+  heartbeat(input);
 
   const verdict =
     options.hook === "stop"
@@ -235,6 +247,24 @@ export function stateKey(input: Input): string {
   return input.agentId === undefined
     ? input.sessionId
     : `${input.sessionId}${AGENT_SEPARATOR}${input.agentId}`;
+}
+
+/**
+ * Marks the agent live in the checkout around its cwd, when a root encloses it: every kit hook beats, so a session
+ * that stops calling them there ages out. A beat that cannot be placed or written is reported and costs nothing else.
+ */
+export function heartbeat(input: Input): void {
+  try {
+    const checkout = cwdCheckout(input);
+
+    if (checkout !== null) {
+      beat(stateKey(input), checkout);
+    }
+  } catch (error) {
+    console.error(
+      `agent-hooks: heartbeat not saved: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
 }
 
 type StopRun = RunHookOptions & { readonly hook: "stop" };
@@ -408,8 +438,8 @@ function persist(state: SessionState, now: number): void {
 }
 
 /**
- * A root hook never blocks: an invalid config is a note the user must act on, a plain allow at session start; a
- * crash is reported on stderr and lets the tool run as asked.
+ * A root hook never blocks: an invalid config is a note the user must act on; a crash is reported on stderr and lets
+ * the tool run as asked.
  */
 async function rootVerdict(
   options: RootRun,
@@ -428,7 +458,7 @@ async function rootVerdict(
     const message = error instanceof ConfigError ? error.message : `agent-hooks: ${String(error)}`;
     console.error(message);
 
-    return hook === "session-start" ? ALLOW : { kind: "note", text: message };
+    return { kind: "note", text: message };
   }
 
   try {
@@ -492,10 +522,8 @@ export function encode(verdict: Verdict, harness: Harness, hook: HookKind): stri
     }
 
     case "context": {
-      const hookEventName = hook === "pre-edit" ? "PreToolUse" : "PostToolUse";
-
       return JSON.stringify({
-        hookSpecificOutput: { hookEventName, additionalContext: verdict.text },
+        hookSpecificOutput: { hookEventName: HOOK_EVENTS[hook], additionalContext: verdict.text },
       });
     }
 

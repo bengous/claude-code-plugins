@@ -9,10 +9,10 @@ import { CONFIG_RELATIVE_PATH } from "./config.ts";
 import type { Runner } from "./exec.ts";
 import { run } from "./exec.ts";
 import type { HookKind, Input, StopHandler, Verdict } from "./hook.ts";
-import { ALLOW, encode, parseInput, runHook, searchStarts } from "./hook.ts";
+import { ALLOW, encode, heartbeat, parseInput, runHook, searchStarts } from "./hook.ts";
 import { isRecord, stringField } from "./json.ts";
 import { runSessionStart } from "./session-start.ts";
-import { statePath } from "./state.ts";
+import { beatPath, statePath } from "./state.ts";
 import { runStop } from "./stop.ts";
 import type { TempRepo } from "./test-support.ts";
 import {
@@ -265,6 +265,9 @@ describe("encode", () => {
       expect(encode(context, harness, "post-edit")).toBe(
         `{"hookSpecificOutput":{"hookEventName":"PostToolUse","additionalContext":${textJson}}}`,
       );
+      expect(encode(context, harness, "session-start")).toBe(
+        `{"hookSpecificOutput":{"hookEventName":"SessionStart","additionalContext":${textJson}}}`,
+      );
     }
   });
 
@@ -354,6 +357,76 @@ describe("runHook", () => {
 
     expect(second["decision"]).toBeUndefined();
     expect(stringField(second, "systemMessage")).toContain('missing "on"');
+  });
+
+  test("every hook beats for its agent in the checkout around its cwd, in a root only", async () => {
+    writeConfig(temp.repo, VALID_CONFIG);
+
+    for (const hook of ["session-start", "pre-edit", "post-edit"] as const) {
+      const key = `s-${hook}`;
+      await runHook({
+        hook,
+        harness: "claude",
+        payload: { ...payload(), session_id: key },
+        handler: allow,
+      });
+
+      expect(existsSync(beatPath(key, temp.repo))).toBeTrue();
+    }
+
+    await runHook({
+      hook: "stop",
+      harness: "claude",
+      payload: { ...payload(), agent_id: "a1" },
+      handler: allow,
+    });
+
+    expect(existsSync(beatPath("s1.a1", temp.repo))).toBeTrue();
+
+    fs.rmSync(path.join(temp.repo, CONFIG_RELATIVE_PATH));
+    await runHook({
+      hook: "pre-edit",
+      harness: "claude",
+      payload: { ...payload(), session_id: "s-none" },
+      handler: allow,
+    });
+
+    expect(existsSync(beatPath("s-none", temp.repo))).toBeFalse();
+  });
+
+  test("a heartbeat that cannot find its checkout reports it and throws nothing", () => {
+    writeConfig(temp.repo, VALID_CONFIG);
+    const input = parseInput(payload());
+
+    const spawn = spyOn(Bun, "spawnSync").mockImplementation(() => {
+      throw new Error('Executable not found in $PATH: "git"');
+    });
+
+    try {
+      expect(input).not.toBeNull();
+      expect(() => input !== null && heartbeat(input)).not.toThrow();
+    } finally {
+      spawn.mockRestore();
+    }
+
+    expect(errors.mock.calls.flat().join("\n")).toContain("agent-hooks: heartbeat not saved: ");
+    expect(existsSync(beatPath("s1", temp.repo))).toBeFalse();
+  });
+
+  test("notes an invalid config at session start", async () => {
+    writeConfig(temp.repo, INVALID_CONFIG);
+
+    const output = parsed(
+      await runHook({
+        hook: "session-start",
+        harness: "claude",
+        payload: payload(),
+        handler: allow,
+      }),
+    );
+
+    expect(Object.keys(output)).toEqual(["systemMessage"]);
+    expect(stringField(output, "systemMessage")).toContain('missing "on"');
   });
 
   test("notes an invalid config at pre-edit", async () => {

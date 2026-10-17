@@ -22,6 +22,8 @@ export const STATE_VERSION = 2;
 
 const TEMPORARY_SUFFIX = ".tmp";
 
+const BEAT_SUFFIX = ".beat";
+
 /** Joins a session id and an agent id into a subagent's own state key, `<session>.<agent>`. */
 export const AGENT_SEPARATOR = ".";
 
@@ -260,9 +262,10 @@ export function saveState(state: SessionState, now = Date.now()): void {
 }
 
 /**
- * Removes every state file whose `updatedAt` is older than the TTL, unreadable files counting as old, and every
- * temporary file older than `staleTemporaryMs`, dated by its mtime and never parsed: a save writes and renames its
- * own within one hook, so a younger one may be a save under way, half written.
+ * Removes every state file whose `updatedAt` is older than the TTL, unreadable files counting as old, every
+ * heartbeat whose mtime is older than the TTL, and every temporary file older than `staleTemporaryMs`, dated by its
+ * mtime and never parsed: a save writes and renames its own within one hook, so a younger one may be a save under
+ * way, half written.
  */
 export function pruneStates(staleTemporaryMs: number, now = Date.now()): void {
   let files: string[];
@@ -276,11 +279,7 @@ export function pruneStates(staleTemporaryMs: number, now = Date.now()): void {
   for (const file of files) {
     const filePath = path.join(stateDir(), file);
 
-    const stale = file.endsWith(TEMPORARY_SUFFIX)
-      ? now - modifiedAt(filePath) > staleTemporaryMs
-      : file.endsWith(".json") && now - updatedAtOf(filePath) > STATE_TTL_MS;
-
-    if (stale) {
+    if (isStale(file, filePath, staleTemporaryMs, now)) {
       try {
         unlinkSync(filePath);
       } catch {
@@ -288,6 +287,18 @@ export function pruneStates(staleTemporaryMs: number, now = Date.now()): void {
       }
     }
   }
+}
+
+function isStale(file: string, filePath: string, staleTemporaryMs: number, now: number): boolean {
+  if (file.endsWith(TEMPORARY_SUFFIX)) {
+    return now - modifiedAt(filePath) > staleTemporaryMs;
+  }
+
+  if (file.endsWith(BEAT_SUFFIX)) {
+    return now - modifiedAt(filePath) > STATE_TTL_MS;
+  }
+
+  return file.endsWith(".json") && now - updatedAtOf(filePath) > STATE_TTL_MS;
 }
 
 function modifiedAt(filePath: string): number {
@@ -381,6 +392,78 @@ export function latestStateForCheckout(checkout: string): SessionState | null {
   });
 
   return states.toSorted((left, right) => right.updatedAt - left.updatedAt).at(0) ?? null;
+}
+
+export function beatPath(key: string, checkout: string): string {
+  return path.join(stateDir(), `${sanitize(key)}__${checkoutKey(checkout)}${BEAT_SUFFIX}`);
+}
+
+/** Marks agent `key` live in the checkout: an empty file whose mtime is the last kit hook the agent ran there. */
+export function beat(key: string, checkout: string): void {
+  mkdirSync(stateDir(), { recursive: true });
+  writeFileSync(beatPath(key, checkout), "");
+}
+
+/**
+ * The keys of the agents of other sessions, subagents included, that beat in this checkout at `since` or later;
+ * `sessionId` and its own subagents left out.
+ */
+export function liveOthers(checkout: string, sessionId: string, since: number): string[] {
+  const here = checkoutKey(checkout);
+
+  return beatFiles().flatMap(({ file, key, checkout: beatCheckout }) =>
+    beatCheckout !== here || isOfSession(key, sessionId) || !beatSince(file, since) ? [] : [key],
+  );
+}
+
+/** Removes the beats of a session that ended and of its subagents, in every checkout. */
+export function endBeats(sessionId: string): void {
+  for (const { file, key } of beatFiles()) {
+    if (isOfSession(key, sessionId)) {
+      try {
+        unlinkSync(path.join(stateDir(), file));
+      } catch {
+        // A file removed by a concurrent session is not an error.
+      }
+    }
+  }
+}
+
+type BeatFile = { readonly file: string; readonly key: string; readonly checkout: string };
+
+/** The beats in the state dir, each with the agent key and the checkout key its name holds; none without the dir. */
+function beatFiles(): BeatFile[] {
+  let files: string[];
+
+  try {
+    files = readdirSync(stateDir());
+  } catch {
+    return [];
+  }
+
+  return files.flatMap((file) => {
+    const name = file.endsWith(BEAT_SUFFIX) ? file.slice(0, -BEAT_SUFFIX.length) : "";
+    const split = name.lastIndexOf("__");
+
+    return split === -1
+      ? []
+      : [{ file, key: name.slice(0, split), checkout: name.slice(split + "__".length) }];
+  });
+}
+
+function isOfSession(key: string, sessionId: string): boolean {
+  const own = sanitize(sessionId);
+
+  return key === own || key.startsWith(`${own}${AGENT_SEPARATOR}`);
+}
+
+/** Whether the beat was refreshed at `since` or later: one removed since the dir was listed is not live. */
+function beatSince(file: string, since: number): boolean {
+  try {
+    return statSync(path.join(stateDir(), file)).mtimeMs >= since;
+  } catch {
+    return false;
+  }
 }
 
 function sanitize(value: string): string {

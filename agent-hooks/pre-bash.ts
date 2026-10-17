@@ -2,7 +2,7 @@ import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 
 import type { LandingProfile } from "./config.ts";
-import { ConfigError, configPath, loadProfile } from "./config.ts";
+import { ConfigError, configPath, loadLanding } from "./config.ts";
 import type { Deadline } from "./exec.ts";
 import { deadlineIn } from "./exec.ts";
 import {
@@ -12,6 +12,7 @@ import {
   slugOfPullRequest,
   slugOfRepoOption,
 } from "./github.ts";
+import { heartbeat, parseInput } from "./hook.ts";
 import { isRecord, recordField, stringField } from "./json.ts";
 import type { GhCommand, GitCommand, PackageScript, PushTarget, ReleaseScript } from "./landing.ts";
 import {
@@ -92,7 +93,7 @@ function profileOf(root: string): ProfileRead {
   }
 
   try {
-    const { landing } = loadProfile(root);
+    const landing = loadLanding(root);
 
     return landing === null
       ? DEFAULT
@@ -594,20 +595,27 @@ export async function runPreBash(
   payload: unknown,
   options: PreBashOptions = {},
 ): Promise<string | null> {
-  const toolInput = isRecord(payload) ? recordField(payload, "tool_input") : undefined;
-  const command = toolInput === undefined ? undefined : stringField(toolInput, "command");
-
-  if (!isRecord(payload) || command === undefined) {
-    return null;
-  }
-
   const now = options.now ?? Date.now();
   const deadlineMs = options.deadlineMs ?? PRE_BASH_DEADLINE_MS;
   const deadline = deadlineIn(deadlineMs, now);
-  const context = { sessionId: stringField(payload, "session_id") ?? "", now, deadline };
-  const cwd = stringField(payload, "cwd") ?? process.cwd();
 
   try {
+    const input = isRecord(payload) ? parseInput(payload) : null;
+
+    if (input !== null) {
+      heartbeat(input);
+    }
+
+    const toolInput = isRecord(payload) ? recordField(payload, "tool_input") : undefined;
+    const command = toolInput === undefined ? undefined : stringField(toolInput, "command");
+
+    if (!isRecord(payload) || command === undefined) {
+      return null;
+    }
+
+    const context = { sessionId: stringField(payload, "session_id") ?? "", now, deadline };
+    const cwd = stringField(payload, "cwd") ?? process.cwd();
+
     const verdict = await Promise.race([
       judgeLine(command, cwd, context, 0),
       pastDeadline(deadline),

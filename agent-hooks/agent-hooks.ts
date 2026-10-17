@@ -1,14 +1,17 @@
 #!/usr/bin/env bun
+import { homedir } from "node:os";
+import path from "node:path";
 import { parseArgs } from "node:util";
 
 import { ConfigError, loadConfig } from "./config.ts";
 import { initConfig, runDoctor } from "./doctor.ts";
 import type { HookKind, HookRun } from "./hook.ts";
 import { isHarness, isHookKind, readPayload, runHook } from "./hook.ts";
+import { formatNoise, measureNoise } from "./noise.ts";
 import { runPreBash } from "./pre-bash.ts";
 import { runPostEdit, runPreEdit } from "./pre-edit.ts";
 import { findRoot, realPathOf } from "./scope.ts";
-import { runSessionStart } from "./session-start.ts";
+import { runSessionEnd, runSessionStart } from "./session-start.ts";
 import { runStop } from "./stop.ts";
 import { runVerify } from "./verify.ts";
 
@@ -16,10 +19,14 @@ const USAGE = [
   "usage:",
   "  agent-hooks <session-start|pre-edit|post-edit|stop> [--harness claude|codex]   (payload on stdin)",
   "  agent-hooks pre-bash   (Claude Code PreToolUse Bash payload on stdin)",
+  "  agent-hooks session-end   (Claude Code SessionEnd payload on stdin)",
   "  agent-hooks verify [--all] [files...]",
   "  agent-hooks doctor [--config <file>]",
   "  agent-hooks init --print",
+  "  agent-hooks noise [--days N]",
 ].join("\n");
+
+const DEFAULT_NOISE_DAYS = 7;
 
 function hookRun(hook: HookKind): HookRun {
   switch (hook) {
@@ -54,6 +61,7 @@ async function main(argv: readonly string[]): Promise<number> {
       all: { type: "boolean", default: false },
       print: { type: "boolean", default: false },
       config: { type: "string" },
+      days: { type: "string" },
     },
     allowPositionals: true,
   });
@@ -91,6 +99,12 @@ async function main(argv: readonly string[]): Promise<number> {
       return 0;
     }
 
+    case "session-end": {
+      runSessionEnd(await readPayload());
+
+      return 0;
+    }
+
     case "verify": {
       return verify(values.all, rest);
     }
@@ -105,6 +119,10 @@ async function main(argv: readonly string[]): Promise<number> {
 
     case "init": {
       return init(values.print);
+    }
+
+    case "noise": {
+      return await noise(values.days);
     }
 
     default: {
@@ -150,6 +168,32 @@ function init(print: boolean): number {
   }
 
   process.stdout.write(initConfig(process.cwd()));
+
+  return 0;
+}
+
+async function noise(days: string | undefined): Promise<number> {
+  if (days !== undefined && !/^[1-9]\d*$/u.test(days)) {
+    console.error(`agent-hooks: --days expects a positive whole number, not "${days}"`);
+
+    return 2;
+  }
+
+  const configDir = process.env["CLAUDE_CONFIG_DIR"];
+
+  const projectsDir = path.join(
+    configDir !== undefined && configDir !== ""
+      ? configDir
+      : path.join(process.env["HOME"] ?? homedir(), ".claude"),
+    "projects",
+  );
+
+  const report = await measureNoise({
+    projectsDir,
+    days: days === undefined ? DEFAULT_NOISE_DAYS : Number(days),
+  });
+
+  process.stdout.write(formatNoise(report));
 
   return 0;
 }

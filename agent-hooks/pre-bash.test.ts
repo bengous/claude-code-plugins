@@ -1,12 +1,14 @@
 /* oxlint-disable anti-slop/no-unsafe-dictionary-type -- this harness builds hook payloads and reads hook outputs as JSON: a closed type would assert the schema instead of the behaviour, and a wrong shape has to fail an assertion rather than the compiler. */
-import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { chmodSync, existsSync, readFileSync, writeFileSync } from "node:fs";
+import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
+import * as fs from "node:fs";
+import { chmodSync, existsSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import path from "node:path";
 
 import { CONFIG_RELATIVE_PATH } from "./config.ts";
 import { cachePath } from "./github.ts";
 import { isRecord, recordField, stringField } from "./json.ts";
 import { runPreBash } from "./pre-bash.ts";
+import { beatPath } from "./state.ts";
 import type { TempRepo } from "./test-support.ts";
 import { createTempRepo, git, removeTempRepo, scrubGitEnv, writeRepoFile } from "./test-support.ts";
 
@@ -498,6 +500,31 @@ describe("pre-bash in a repository with profile.landing", () => {
     expect((await preBash("git push origin feature/x", repo)).stdout).toBe("");
   });
 
+  test("beats for the session in the checkout around its cwd, a command with no door included", async () => {
+    const plain = makeRepo("plain", {}, "git@github.com:o/n.git");
+
+    await preBash("git status", repo);
+    await preBash("git status", plain);
+
+    expect(existsSync(beatPath(SESSION, realpathSync(repo)))).toBeTrue();
+    expect(existsSync(beatPath(SESSION, realpathSync(plain)))).toBeFalse();
+  });
+
+  test("judges the doors from profile.landing alone: another profile key, invalid or unknown, refuses nothing", async () => {
+    for (const other of ['"worktree": "each"', '"review": {}', '"later": 1']) {
+      writeRepoFile(
+        repo,
+        CONFIG_RELATIVE_PATH,
+        `{ "profile": { "landing": { "trunk": "dev", "release": "main" }, ${other} } }`,
+      );
+
+      expect((await preBash("git push origin main", repo)).reason).toContain(
+        "a push to 'main' moves the release",
+      );
+      expect((await preBash("git push origin feature/x", repo)).stdout).toBe("");
+    }
+  });
+
   test("an invalid profile refuses every door, naming the error", async () => {
     writeRepoFile(repo, CONFIG_RELATIVE_PATH, '{ "profile": { "landing": { "trunk": "dev" } } }');
 
@@ -905,6 +932,29 @@ esac
     writeFileSync(path.join(temp.bin, "gh"), gh);
 
     expect((await preBash("gh pr merge 7; gh pr merge 8", repo)).stdout).toBe("");
+  });
+
+  test("lets the command through with a note when its payload cannot be read", async () => {
+    const resolve = spyOn(fs.realpathSync, "native").mockImplementation(() => {
+      throw new Error("EACCES");
+    });
+
+    try {
+      const payload = {
+        session_id: SESSION,
+        cwd: repo,
+        tool_name: "Bash",
+        tool_input: { command: "git push origin main" },
+      };
+
+      expect(await runPreBash(payload)).toBe(
+        JSON.stringify({
+          systemMessage: "agent-hooks: pre-bash crashed (EACCES): the command went unchecked",
+        }),
+      );
+    } finally {
+      resolve.mockRestore();
+    }
   });
 
   test("lets the command through with a note past its deadline", async () => {

@@ -1,7 +1,7 @@
 ---
 name: agent-hooks
-description: Set up or check the agent-hooks kit in a repository (the session-scoped fixers and Stop lanes this plugin wires, and its landing guard on Bash). Use when the user asks to add hooks to a repo, to init agent hooks, to run the hooks doctor, to declare how a repository lands, when a Stop hook misbehaves (blocks on the wrong files, never blocks, names a missing tool), or when the landing guard refuses a push, a merge or a release.
-argument-hint: "[init|doctor]"
+description: Set up or check the agent-hooks kit in a repository (the session-scoped fixers and Stop lanes this plugin wires, and its landing guard on Bash). Use when the user asks to add hooks to a repo, to init agent hooks, to run the hooks doctor, to declare how a repository lands or whether its tasks take their own worktrees, to measure what the hooks inject into the context (noise), when a Stop hook misbehaves (blocks on the wrong files, never blocks, names a missing tool), or when the landing guard refuses a push, a merge or a release.
+argument-hint: "[init|doctor|noise]"
 allowed-tools: Bash(${CLAUDE_PLUGIN_ROOT}/agent-hooks.ts *), Read(~/.claude/plugins/cache/*/agent-hooks/*/presets/**)
 ---
 
@@ -18,7 +18,8 @@ levels runs twice.
 A key the kit adds lands in two steps: first the kit's version that reads it, then the repository's
 file, once the plugin installed where the repository's agents run is at that version (a catalog that
 installs on landing, after it has). An older kit refuses the unknown key: its Stop fails on the file
-and, for a key under `profile`, its landing guard refuses every door in a checkout holding it.
+and, for a key under `profile`, a kit before 1.4.0 also refuses every door in a checkout holding it, its
+landing guard reading the whole profile; from 1.4.0 the guard reads `profile.landing` alone.
 
 ## init
 
@@ -57,6 +58,58 @@ script, or disable the lane. For the wiring:
 
 Exit 1 means at least one `MISSING` or a failing lane.
 
+## noise
+
+`${CLAUDE_PLUGIN_ROOT}/agent-hooks.ts noise [--days N]` (default 7) reports what the kit's hooks put in front
+of the agent and the user, from the Claude Code transcripts under `$CLAUDE_CONFIG_DIR/projects` (default
+`~/.claude/projects`), each subagent's included, written in the window. A transcript counts when one of its
+cwds lies under a root holding `.claude/agent-hooks.jsonc`, looked up now: a removed worktree counts for
+the root above it, and the landing guard's refusals in a repository without that file are not counted. It
+prints aggregates only, never a line of a transcript:
+
+- per hook event and channel, the count and characters of `additionalContext` and block reasons, which
+  reach the agent's context, and of `systemMessage`, which Claude Code shows the user;
+- the kit's Stops and SubagentStops that passed, blocked, were cancelled or errored;
+- per lane, the Stop reports that carried a section of it and its characters, read in the shape the kit
+  writes a report: its header line, then `### <lane>` or `### <lane> [<pkg>]` after a blank line, up to
+  the section's own blank line (the kit drops the blank lines of a lane's output); the header, a nested
+  root's label, the instruction and the kit's own lines outside a section go to `(no lane)`.
+
+Each output is read once, from the one record Claude Code writes for it that names the hook, as measured
+on the local transcripts (Claude Code 2.1, the 30 days to 2026-10-17): a hook's stdout in its
+`hook_success`; a Stop block in its `hook_blocking_error`, with no `hook_success` beside it (27 kit Stop
+blocks of 7 days); a pre-bash refusal in the tool result Claude Code replaced, a string that starts
+`PreToolUse:<tool> hook error: agent-hooks:` (every one of 20 hook denials). A subagent's records are in its
+own transcript only (2,480 hook records over 1,299 subagent transcripts, none in a parent's). The kit is
+known by a command running one of its subcommands or by a `statusMessage` of `hooks/hooks.json`, which
+Claude Code records in place of the command. The `hook_system_message` and `hook_additional_context`
+records repeat a stdout without naming its hook and are not read. Codex transcripts are not read.
+
+## Worktrees
+
+`"profile": { "worktree": "per-task" }` says each task takes a worktree of its own; `"shared"`, the default,
+says the agents share the checkout. Like `landing`, it is read from the repo file only. An invalid value is
+a note to the user at SessionStart and an error of the config at the Stop and in `doctor`; the landing
+guard, which reads `profile.landing` alone, is not affected.
+
+Every kit hook (SessionStart, pre-edit, pre-bash, Stop, SubagentStop) beats for its agent in the checkout
+around its cwd, when a root encloses it: it refreshes the mtime of
+`~/.local/state/agent-hooks/<agent>__<checkout hash>.beat`. SessionEnd, `/clear` included, removes the beats
+of the session and its subagents. Under `per-task`, a SessionStart whose source is `startup` or `clear`
+(never `resume`, `compact` or `fork`: a session mid-task is not told to move) adds one line of
+`additionalContext` naming its checkout when another session (its subagents included, never this session's
+own) beat there in the last 15 minutes, and tells the agent to work in a worktree of its own
+(EnterWorktree, or `git worktree add`). It never blocks. 99.2% of the gaps between two hook runs of one
+session or subagent ran under 15 minutes (67,849 gaps over 1,185 transcripts in roots holding the config,
+local transcripts, the 30 days to 2026-10-17; p95 2.1 min, p99 11.9 min). So a session that leaves a
+checkout ages out there in 15 minutes, a live session idle longer reads as gone, and a session that ended
+without its SessionEnd (a crash, a kill) reads as live for up to 15 minutes. SessionEnd hooks share Claude
+Code's 1.5-second budget, which a plugin's own `timeout` does not raise
+([SessionEnd](https://code.claude.com/docs/en/hooks#sessionend)); `session-end` ran in 98 to 118 ms over 200
+beats (10 runs, bun 1.4.3, Linux, 2026-10-17). The SessionStart payload names no session that `/clear`
+replaced, so the new session relies on the replaced one's SessionEnd having run first; that order is not
+measured, and a SessionEnd that ran late or not at all costs one needless worktree line, never a block.
+
 ## Reading a Stop
 
 The Stop measures checkouts (git work trees); roots only check. Each fact has one owner:
@@ -90,7 +143,7 @@ The Stop measures checkouts (git work trees); roots only check. Each fact has on
   runs.
 - State: `~/.local/state/agent-hooks/<agent>__<checkout hash>.json`, `<agent>` the session id or
   `<session>.<agent id>` for a subagent: the photo, the brake, and per root its green keys and
-  `lastRun.lanes`; pruned after 7 days.
+  `lastRun.lanes`; pruned after 7 days, as the agent's `.beat` beside it (see Worktrees).
 - Pre-edit fixes a copy of the new content in `.agent-hooks-XXXXXX/` beside the file, so the fixers find
   the config and the overrides of the real path. The kit's own scope never counts that copy, but another
   tool watching the tree can see it while the fixers run, and a pre-edit killed past its deadline leaves
@@ -150,7 +203,7 @@ What the model bounds and the kit does not try to cross:
   The checks are the newest run per name, workflow and event, as `gh pr checks` keeps them. A push
   without refspec goes where `@{push}` says, the current branch when git cannot tell. Each refusal
   names the way through: push to `trunk`, or `bun ./scripts/land.ts <branch>` when the repository has
-  that script. A file that does not parse, or an invalid profile, refuses every door there, naming the
+  that script. A file that does not parse, or an invalid `profile.landing`, refuses every door there, naming the
   error.
 - `"profile": { "review": { "risky": ["<glob>", …] } }` names the paths whose change lands only with a
   clean review verdict for that exact change. The kit validates the list and enforces nothing with it:

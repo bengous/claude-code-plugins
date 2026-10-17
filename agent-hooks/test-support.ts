@@ -1,10 +1,19 @@
 /* oxlint-disable anti-slop/no-unsafe-dictionary-type -- this harness builds hook payloads and reads hook outputs as JSON: a closed type would assert the schema instead of the behaviour, and a wrong shape has to fail an assertion rather than the compiler. */
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  chmodSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  utimesSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
 import { CONFIG_RELATIVE_PATH } from "./config.ts";
 import { isRecord } from "./json.ts";
+import { beat, beatPath } from "./state.ts";
 
 export type TempRepo = {
   readonly dir: string;
@@ -19,6 +28,8 @@ const TEST_GIT_IDENTITY = {
   GIT_COMMITTER_NAME: "Test",
   GIT_COMMITTER_EMAIL: "test@example.com",
 } as const;
+
+export const MINUTE_MS = 60_000;
 
 const FIXTURES_DIR = path.join(import.meta.dir, "__fixtures__");
 
@@ -89,6 +100,13 @@ export function writeRepoFile(repo: string, name: string, content: string): void
 
 export function readRepoFile(repo: string, name: string): string {
   return readFileSync(path.join(repo, name), "utf8");
+}
+
+/** The heartbeat of agent `key` in `checkout`, last refreshed `ageMs` ago. */
+export function beatAgo(key: string, checkout: string, ageMs: number): void {
+  beat(key, checkout);
+  const at = new Date(Date.now() - ageMs);
+  utimesSync(beatPath(key, checkout), at, at);
 }
 
 export function writeConfig(repo: string, jsonc: string): void {
