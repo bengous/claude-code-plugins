@@ -274,8 +274,14 @@ export function land(branch: string, cwd: string): Landing {
       if (!install.ok) {
         run(["git", "reset", "--quiet", "--hard", pushed], checkout);
 
+        const restored = run(["bun", "install", "--frozen-lockfile"], checkout).ok;
+
+        const modules = restored
+          ? "its node_modules reinstalled from that head's lockfile"
+          : `its node_modules may be half-installed: run bun install --frozen-lockfile in ${checkout}`;
+
         return refused(
-          `bun install --frozen-lockfile failed after the rebase on ${REMOTE}/${DEV}; ${branch} is back at ${short(pushed)}:\n${install.err}`,
+          `bun install --frozen-lockfile failed after the rebase on ${REMOTE}/${DEV}; ${branch} is back at ${short(pushed)}, ${modules}:\n${install.err}`,
         );
       }
     }

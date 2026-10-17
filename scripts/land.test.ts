@@ -219,6 +219,11 @@ describe("land", () => {
     const landing = land("feature/x", work);
 
     expect(why(landing)).toContain("bun install --frozen-lockfile failed");
+    expect(why(landing)).toContain("node_modules may be half-installed");
+    expect(bunCalls().split("\n")).toEqual([
+      `${work} install --frozen-lockfile`,
+      `${work} install --frozen-lockfile`,
+    ]);
     expect(git(work, "rev-parse", "HEAD")).toBe(reviewed);
     expect(git(origin, "rev-parse", "dev")).toBe(moved);
     expect(git(origin, "rev-parse", "feature/x")).toBe(reviewed);
