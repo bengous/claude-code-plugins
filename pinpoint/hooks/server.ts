@@ -2,6 +2,7 @@ import type {
   HookStream,
   HttpInit,
   HttpResponse,
+  ProcessRunResult,
   ProcessSpawnChunk,
   ProcessSpawnRequest,
   ProcessSpawnResult,
@@ -22,6 +23,8 @@ export type Host = {
   readonly spawn: (
     request: ProcessSpawnRequest,
   ) => HookStream<ProcessSpawnChunk, ProcessSpawnResult>;
+  /** `$.process.run`. */
+  readonly run: (argv: readonly string[]) => Promise<ProcessRunResult>;
   readonly fetch: (url: string, init?: HttpInit) => Promise<HttpResponse>;
   readonly submit: (text: string) => Promise<PromptSubmitResult>;
   readonly after: (ms: number, fn: () => void) => Timer;
@@ -145,6 +148,15 @@ export async function start(
   return null;
 }
 
+/** Asks the server to remove its files and exit; `false` when it did not answer that it would. */
+export async function close(host: Host, address: Address): Promise<boolean> {
+  const response = await host
+    .fetch(`${baseOf(address)}api/close`, { method: "POST" })
+    .catch(() => ({ ok: false }));
+
+  return response.ok;
+}
+
 /** Tells the server what became of a batch, so the page says it; a server that does not hear is logged. */
 export async function tellDelivery(
   host: Host,
@@ -163,4 +175,15 @@ export async function tellDelivery(
     host.log(
       `pinpoint: the server did not take the delivery of batch ${delivery.seq}: ${response.status} ${response.text}`,
     );
+}
+
+/** Removes the files of a session whose server is gone, which no server is left to remove: `cli.ts clean`. */
+export async function clean(host: Host, serverSession: string): Promise<void> {
+  const ran = await host
+    .run(["bun", `${host.pluginRoot}/server/cli.ts`, "clean", "--session", serverSession])
+    .catch((cause: unknown) => ({ exitCode: null, stderr: String(cause) }));
+
+  if (ran.exitCode !== 0) {
+    host.log(`pinpoint: the session's files were not removed: ${ran.stderr.trim()}`);
+  }
 }

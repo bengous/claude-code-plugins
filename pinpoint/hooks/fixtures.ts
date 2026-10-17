@@ -1,4 +1,10 @@
-import type { HttpResponse, On, ProcessSpawnChunk, ProcessSpawnResult } from "claude-code";
+import type {
+  HttpResponse,
+  On,
+  ProcessRunResult,
+  ProcessSpawnChunk,
+  ProcessSpawnResult,
+} from "claude-code";
 import { mock, type MockClock } from "claude-code/testing";
 
 import type { SessionRecord } from "./parse.ts";
@@ -19,6 +25,8 @@ export type Child = {
   /** Writes each line on stdout as JSON, all of them in one piece. */
   readonly write: (...lines: readonly object[]) => void;
   readonly exit: (how: ProcessSpawnResult) => void;
+  /** Breaks its stream: the module's next read of it rejects with `cause`. */
+  readonly fail: (cause: string) => void;
   /** Whether the module ended it: `return()` on its stream, which kills a real child. */
   readonly killed: () => boolean;
 };
@@ -36,9 +44,15 @@ export type World = {
   id: string;
   /** While set, the next prompts are dropped with this reason. */
   drop: string | undefined;
+  /** While set, each prompt waits for it before it enters, as one waits for the session's turn. */
+  turn: Promise<void> | undefined;
+  /** While set, each delete from the store waits for it before it lands. */
+  deleting: Promise<void> | undefined;
   readonly clock: MockClock;
   readonly children: Child[];
   readonly requests: Request[];
+  /** What the module ran to its end, `$.process.run`, each argv. */
+  readonly runs: (readonly string[])[];
   readonly prompts: string[];
   readonly statuses: (string | undefined)[];
   readonly logs: string[];
@@ -51,8 +65,18 @@ export type WorldOptions = {
   readonly stored?: ReadonlyMap<string, SessionRecord>;
 };
 
+type End = { readonly exit: ProcessSpawnResult } | { readonly fail: string };
+
 /** A child's life beside its pieces: how it ended, once it has, and how to wake its stream. */
-type Life = { ended: ProcessSpawnResult | null; killed: boolean; wake: () => void };
+type Life = { end: End | null; killed: boolean; wake: () => void };
+
+const RAN: ProcessRunResult = {
+  exitCode: 0,
+  stdout: "",
+  stderr: "",
+  isStdoutTruncated: false,
+  isStderrTruncated: false,
+};
 
 function reply(status: number): HttpResponse {
   return { status, ok: status < 300, headers: {}, text: "" };
@@ -61,13 +85,18 @@ function reply(status: number): HttpResponse {
 function children(on: On, spawn: Spawn, spawned: Child[]): void {
   on("process.spawn", async function* (_, e, next) {
     const pieces: ProcessSpawnChunk[] = [];
-    const life: Life = { ended: null, killed: false, wake: () => {} };
+    const life: Life = { end: null, killed: false, wake: () => {} };
 
     next.signal.addEventListener("abort", () => {
       life.killed = true;
-      life.ended = { code: null, signal: "SIGTERM" };
+      life.end = { exit: { code: null, signal: "SIGTERM" } };
       life.wake();
     });
+
+    const ended = (end: End): void => {
+      life.end = end;
+      life.wake();
+    };
 
     const child: Child = {
       argv: e.argv,
@@ -78,10 +107,8 @@ function children(on: On, spawn: Spawn, spawned: Child[]): void {
         });
         life.wake();
       },
-      exit: (how) => {
-        life.ended = how;
-        life.wake();
-      },
+      exit: (how) => ended({ exit: how }),
+      fail: (cause) => ended({ fail: cause }),
       killed: () => life.killed,
     };
 
@@ -98,7 +125,12 @@ function children(on: On, spawn: Spawn, spawned: Child[]): void {
         continue;
       }
 
-      if (life.ended !== null) return { value: life.ended };
+      if (life.end !== null) {
+        if ("fail" in life.end) throw new Error(life.end.fail);
+
+        return { value: life.end.exit };
+      }
+
       await new Promise<void>((resolve) => {
         life.wake = resolve;
       });
@@ -110,9 +142,12 @@ export function world(on: On, options: WorldOptions = {}): World {
   const built: World = {
     id: SESSION_ID,
     drop: undefined,
+    turn: undefined,
+    deleting: undefined,
     clock: mock.clock(on),
     children: [],
     requests: [],
+    runs: [],
     prompts: [],
     statuses: [],
     logs: [],
@@ -125,13 +160,24 @@ export function world(on: On, options: WorldOptions = {}): World {
     const { pathname, port } = new URL(e.url);
 
     if (Number(port) !== SERVER.port) return { deny: `ECONNREFUSED ${e.url}` };
-    const prefix = `/t/${SERVER.token}/`;
-    built.requests.push({ path: pathname.slice(prefix.length), body: e.init?.body });
+    const path = pathname.slice(`/t/${SERVER.token}/`.length);
+    built.requests.push({ path, body: e.init?.body });
+
+    // As the real server does: its files removed, it answers, then its process ends.
+    if (path === "api/close") built.children.at(-1)?.exit({ code: 0, signal: null });
 
     return { value: reply(204) };
   });
 
-  on("prompt.submit", (_, e) => {
+  on("process.run", (_, e) => {
+    built.runs.push(e.argv);
+
+    return { value: RAN };
+  });
+
+  on("prompt.submit", async (_, e) => {
+    if (built.turn !== undefined) await built.turn;
+
     if (built.drop !== undefined) return { drop: built.drop };
     built.prompts.push(e.text);
 
@@ -147,7 +193,8 @@ export function world(on: On, options: WorldOptions = {}): World {
     return { value: undefined };
   });
 
-  on("store.delete", (_, e) => {
+  on("store.delete", async (_, e) => {
+    if (built.deleting !== undefined) await built.deleting;
     built.store.delete(e.key);
 
     return { value: undefined };

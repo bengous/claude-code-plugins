@@ -22,12 +22,19 @@ const [command] = positionals;
 
 const { session, root } = values;
 
-if (command !== "serve" || session === undefined || root === undefined) {
-  console.error("usage: cli.ts serve --session <id> --root <dir> [--port <n> --token <t>]");
-  process.exit(2);
+const dir = join(homedir(), PINPOINT_DIR);
+
+if (command === "clean" && session !== undefined) {
+  await sessionFiles(dir, session).removeAll();
+  process.exit(0);
 }
 
-const dir = join(homedir(), PINPOINT_DIR);
+if (command !== "serve" || session === undefined || root === undefined) {
+  console.error(
+    "usage: cli.ts serve --session <id> --root <dir> [--port <n> --token <t>] | cli.ts clean --session <id>",
+  );
+  process.exit(2);
+}
 
 const files = sessionFiles(dir, session);
 
