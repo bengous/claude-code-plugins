@@ -3,7 +3,8 @@ import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
 
 import { reviewServer } from "../../../review/server.ts";
-import type { FinalDir, WipDir } from "../../../workshop/paths.ts";
+import type { FinalDir, ParseResult, WipDir } from "../../../workshop/paths.ts";
+import type { VellumBuild } from "../../../workshop/vellum-build.ts";
 import type { Memory } from "../../../workshop/workspace.ts";
 import { REVIEW_DIR } from "../../../workshop/workspace.ts";
 import type { Route, ServerContext } from "../../extension.ts";
@@ -86,6 +87,19 @@ async function buildFrameScript(): Promise<string> {
   return await output.text();
 }
 
+let pluginReads: Promise<readonly [string, ParseResult<VellumBuild>]> | undefined;
+
+/**
+ * The frame script and the plugin's build, read at the process's first start and kept: a server
+ * serves one plugin for its life, while a suite starts one per test, and each read is a build and
+ * two `git` processes.
+ */
+function readPlugin(): Promise<readonly [string, ParseResult<VellumBuild>]> {
+  pluginReads ??= Promise.all([buildFrameScript(), readVellumBuild(PLUGIN_ROOT)]);
+
+  return pluginReads;
+}
+
 /** Every extension's routes under its own prefix, so no two extensions can claim one path. */
 function extensionRoutes(context: ServerContext): ReadonlyMap<string, Route> {
   return new Map(
@@ -130,10 +144,7 @@ export async function startServer(options: ServeOptions): Promise<Started> {
     await mkdir(join(options.project, options.workdir, REVIEW_DIR), { recursive: true });
   }
 
-  const [frameScript, vellumBuild] = await Promise.all([
-    buildFrameScript(),
-    readVellumBuild(PLUGIN_ROOT),
-  ]);
+  const [frameScript, vellumBuild] = await readPlugin();
 
   const queue = new Queue({
     project: options.project,
