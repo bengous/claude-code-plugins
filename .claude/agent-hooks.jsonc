@@ -4,7 +4,8 @@
   // Agents push to dev and land on it with scripts/land.ts; main is the human's release. The kit's pre-bash hook
   // refuses the one-way doors this derives. scripts/land.ts lands a change to a `risky` path only with a clean
   // review verdict for its patch (scripts/review-verdict.ts), reading this list from origin/dev: the paths that
-  // move what lands, releases or guards, this file and the gate's own scripts included.
+  // move what lands, releases or guards, this file and the gate's own scripts included. Each task takes a worktree
+  // of its own: a session starting in a checkout another session works in is told so.
   "profile": {
     "landing": { "trunk": "dev", "release": "main" },
     "review": {
@@ -24,6 +25,7 @@
         "agent-hooks/mentions.ts",
       ],
     },
+    "worktree": "per-task",
   },
   "stop": {
     "lanes": {
