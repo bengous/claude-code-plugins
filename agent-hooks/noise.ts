@@ -1,6 +1,7 @@
 /* oxlint-disable anti-slop/no-unsafe-dictionary-type -- this module parses Claude Code transcript lines, JSON of an open shape: each record is narrowed field by field through json.ts, and only counts leave it. */
-import { existsSync, readFileSync, statSync } from "node:fs";
+import { createReadStream, existsSync, readFileSync, statSync } from "node:fs";
 import path from "node:path";
+import { createInterface } from "node:readline";
 
 import { CONFIG_RELATIVE_PATH } from "./config.ts";
 import { HOOK_KINDS } from "./hook.ts";
@@ -86,7 +87,7 @@ const DENIAL = /^PreToolUse:\S+ hook error: (agent-hooks: [\s\S]*)$/u;
 
 const LANE_HEADING = /^### (.+?)(?: \[[^\]]*\])?$/u;
 
-const KIT_LINES = new Set([FIX_INSTRUCTION, ...Object.values(REPORT_HEADERS)]);
+const REPORT_HEADER_LINES = new Set(Object.values(REPORT_HEADERS));
 
 const LEGEND =
   "additionalContext and block reasons reach the agent's context; a systemMessage is shown to the user.";
@@ -127,17 +128,22 @@ function statusMessagesOf(value: unknown): string[] {
 }
 
 /**
- * What one transcript recorded of the kit's hooks since `since`. Each output is read once, from the record that names
- * the hook: a hook's stdout in its `hook_success`, a Stop block in its `hook_blocking_error`, a PreToolUse refusal in
- * the tool result it replaced. The `hook_system_message` and `hook_additional_context` records repeat a stdout and
- * name no hook, so they are not read.
+ * What one transcript recorded of the kit's hooks since `since`. Each output is read once, from the one record Claude
+ * Code writes for it and that names the hook: a hook's stdout in its `hook_success`, a Stop block in its
+ * `hook_blocking_error` (a blocking Stop writes no `hook_success`), a PreToolUse refusal in the string tool result it
+ * replaced (no hook record holds it). The `hook_system_message` and `hook_additional_context` records repeat a stdout
+ * and name no hook, so they are not read. A subagent's records are in its own transcript only.
  */
-export function readTranscript(text: string, since: number, kit: KitCommand): TranscriptReading {
+export async function readTranscript(
+  lines: AsyncIterable<string>,
+  since: number,
+  kit: KitCommand,
+): Promise<TranscriptReading> {
   const cwds = new Set<string>();
   const injections: Injection[] = [];
   const stops: StopOutcome[] = [];
 
-  for (const line of text.split("\n")) {
+  for await (const line of lines) {
     const candidate = line.includes(HOOK_MARK) || line.includes(DENIAL_MARK);
 
     if (!candidate && !(cwds.size === 0 && line.includes(CWD_MARK))) {
@@ -230,13 +236,6 @@ function outputsOf(event: string, stdout: string): Injection[] {
 
   const texts: readonly (readonly [Channel, string | undefined])[] = [
     ["additionalContext", stringField(specific, "additionalContext")],
-    ["block", output["decision"] === "block" ? stringField(output, "reason") : undefined],
-    [
-      "block",
-      specific["permissionDecision"] === "deny"
-        ? stringField(specific, "permissionDecisionReason")
-        : undefined,
-    ],
     ["systemMessage", stringField(output, "systemMessage")],
   ];
 
@@ -261,20 +260,31 @@ function denialsOf(value: Record<string, unknown>): Injection[] {
 }
 
 /**
- * The characters of a Stop report per lane: a section runs from its `### <lane>` heading, `[pkg]` dropped, to the next
- * heading or the next line of the kit's own; the rest goes to NO_LANE. The shares sum to the text's length.
+ * The characters of a Stop report per lane, read in the shape `formatReport` writes: a header line, then sections
+ * joined by a blank line, each opening with `### <lane>` or `### <lane> [<pkg>]`. A section runs to the next heading,
+ * the next report's root label or header, or the next line of the kit's own; the rest goes to NO_LANE. The shares
+ * sum to the text's length.
  */
 export function laneShares(text: string): Map<string, number> {
   const shares = new Map<string, number>();
   const lines = text.split("\n");
+  let inReport = false;
   let lane = NO_LANE;
 
   for (const [index, line] of lines.entries()) {
-    const heading = LANE_HEADING.exec(line)?.[1];
+    const heading = inReport && lines[index - 1] === "" ? LANE_HEADING.exec(line)?.[1] : undefined;
 
-    if (heading !== undefined) {
+    if (REPORT_HEADER_LINES.has(line)) {
+      inReport = true;
+      lane = NO_LANE;
+    } else if (heading !== undefined) {
       lane = heading;
-    } else if (KIT_LINES.has(line) || line.startsWith("agent-hooks: ")) {
+    } else if (
+      line === FIX_INSTRUCTION ||
+      line.startsWith("agent-hooks: ") ||
+      REPORT_HEADER_LINES.has(lines[index + 1] ?? "")
+    ) {
+      inReport = false;
       lane = NO_LANE;
     }
 
@@ -288,7 +298,7 @@ export function laneShares(text: string): Map<string, number> {
  * The outputs of the kit's hooks over the transcripts under `projectsDir` written in the last `days`, each
  * subagent's included, kept when one of its cwds lies under a root holding the config.
  */
-export function measureNoise(options: NoiseOptions): NoiseReport {
+export async function measureNoise(options: NoiseOptions): Promise<NoiseReport> {
   const since = (options.now ?? Date.now()) - options.days * DAY_MS;
   const kit = kitCommands();
   const rootOfCwd = new Map<string, string | null>();
@@ -301,7 +311,7 @@ export function measureNoise(options: NoiseOptions): NoiseReport {
   let transcripts = 0;
 
   for (const file of files) {
-    const reading = readTranscript(readFileSync(file, "utf8"), since, kit);
+    const reading = await readTranscript(linesOf(file), since, kit);
 
     const owners = reading.cwds.flatMap((cwd) => {
       const root = rootOfCwd.has(cwd) ? (rootOfCwd.get(cwd) ?? null) : findRoot(cwd);
@@ -352,6 +362,11 @@ export function measureNoise(options: NoiseOptions): NoiseReport {
     ),
     stops,
   };
+}
+
+/** A file's lines, streamed: a transcript runs to a hundred megabytes. */
+function linesOf(file: string): AsyncIterable<string> {
+  return createInterface({ input: createReadStream(file), crlfDelay: Number.POSITIVE_INFINITY });
 }
 
 /** Every `.jsonl` under the projects directory, at any depth, last written at `since` or later. */

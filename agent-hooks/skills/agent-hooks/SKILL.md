@@ -69,15 +69,19 @@ the root above it. It prints aggregates only, never a line of a transcript:
 - per hook event and channel, the count and characters of `additionalContext` and block reasons, which
   reach the agent's context, and of `systemMessage`, which Claude Code shows the user;
 - the kit's Stops and SubagentStops that passed, blocked, were cancelled or errored;
-- per lane, the reports that carried a `### <lane>` section and its characters; the header, the
-  instruction and the kit's own lines go to `(no lane)`.
+- per lane, the Stop reports that carried a section of it and its characters, read in the shape the kit
+  writes a report: its header line, then `### <lane>` or `### <lane> [<pkg>]` after a blank line; the
+  header, a nested root's label, the instruction and the kit's own lines go to `(no lane)`.
 
-Each output is read once, from the record that names the hook: its stdout in `hook_success`, a Stop block in
-`hook_blocking_error`, a pre-bash refusal in the tool result Claude Code replaced, which starts
-`PreToolUse:<tool> hook error: agent-hooks:`. The kit is known by a command running one of its subcommands or
-by a `statusMessage` of `hooks/hooks.json`, which Claude Code records in place of the command. The
-`hook_system_message` and `hook_additional_context` records repeat a stdout without naming its hook and are
-not read. Codex transcripts are not read.
+Each output is read once, from the one record Claude Code writes for it that names the hook, as measured
+on the local transcripts (Claude Code 2.1, the 30 days to 2026-10-17): a hook's stdout in its
+`hook_success`; a Stop block in its `hook_blocking_error`, with no `hook_success` beside it (27 kit Stop
+blocks of 7 days); a pre-bash refusal in the tool result Claude Code replaced, a string that starts
+`PreToolUse:<tool> hook error: agent-hooks:` (every one of 20 hook denials). A subagent's records are in its
+own transcript only (2,480 hook records over 1,299 subagent transcripts, none in a parent's). The kit is
+known by a command running one of its subcommands or by a `statusMessage` of `hooks/hooks.json`, which
+Claude Code records in place of the command. The `hook_system_message` and `hook_additional_context`
+records repeat a stdout without naming its hook and are not read. Codex transcripts are not read.
 
 ## Worktrees
 

@@ -1,5 +1,6 @@
 /* oxlint-disable anti-slop/no-unsafe-dictionary-type -- the fixtures are Claude Code transcript lines, JSON of an open shape written as the harness writes it: a closed type would assert the schema the reader is meant to survive. */
-import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
+import * as fs from "node:fs";
 import { mkdirSync, mkdtempSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -76,12 +77,17 @@ function toolResult(content: string, isError: boolean): string {
   });
 }
 
+/** The lines of a transcript as a file stream yields them. */
+async function* linesOf(lines: readonly string[]): AsyncGenerator<string> {
+  yield* lines;
+}
+
 function prompt(cwd = "/r"): string {
   return entry({ type: "user", message: { role: "user", content: "hello" } }, cwd);
 }
 
 describe("readTranscript", () => {
-  test("reads each output of the kit's hooks once, from its own records, and nothing of other hooks", () => {
+  test("reads each output of the kit's hooks once, from its own records, and nothing of other hooks", async () => {
     const lines = [
       prompt(),
       success(
@@ -134,7 +140,7 @@ describe("readTranscript", () => {
       "",
     ];
 
-    const reading = readTranscript(lines.join("\n"), SINCE, kitCommands());
+    const reading = await readTranscript(linesOf(lines), SINCE, kitCommands());
 
     expect(reading.injections).toEqual([
       {
@@ -152,21 +158,21 @@ describe("readTranscript", () => {
     expect(reading.cwds).toEqual(["/r"]);
   });
 
-  test("a Stop or SubagentStop the harness cancelled or saw fail is neither a block nor a pass", () => {
+  test("a Stop or SubagentStop the harness cancelled or saw fail is neither a block nor a pass", async () => {
     const lines = [
       hookRecord({ type: "hook_cancelled", hookEvent: "Stop", command: KIT_STOP }),
       hookRecord({ type: "hook_non_blocking_error", hookEvent: "SubagentStop", command: KIT_STOP }),
       success("SubagentStop", KIT_STOP, ""),
     ];
 
-    expect(readTranscript(lines.join("\n"), SINCE, kitCommands()).stops).toEqual([
+    expect((await readTranscript(linesOf(lines), SINCE, kitCommands())).stops).toEqual([
       "cancelled",
       "errored",
       "passed",
     ]);
   });
 
-  test("skips the records older than the window, and keeps every cwd the transcript names", () => {
+  test("skips the records older than the window, and keeps every cwd the transcript names", async () => {
     const lines = [
       prompt("/old"),
       hookRecord(
@@ -181,21 +187,21 @@ describe("readTranscript", () => {
       success("Stop", KIT_STOP, "", "/r"),
     ];
 
-    const reading = readTranscript(lines.join("\n"), SINCE, kitCommands());
+    const reading = await readTranscript(linesOf(lines), SINCE, kitCommands());
 
     expect(reading.injections).toEqual([]);
     expect(reading.stops).toEqual(["passed"]);
     expect(reading.cwds).toEqual(["/old", "/r"]);
   });
 
-  test("a line that is not JSON, or a record of another shape, is skipped", () => {
+  test("a line that is not JSON, or a record of another shape, is skipped", async () => {
     const lines = [
       '{"type":"hook_success" truncated',
       hookRecord({ type: "hook_success", hookEvent: "Stop" }),
       success("Stop", KIT_STOP, "{not json"),
     ];
 
-    expect(readTranscript(lines.join("\n"), SINCE, kitCommands())).toEqual({
+    expect(await readTranscript(linesOf(lines), SINCE, kitCommands())).toEqual({
       cwds: ["/r"],
       injections: [],
       stops: ["passed"],
@@ -238,6 +244,52 @@ describe("laneShares", () => {
   });
 });
 
+describe("laneShares, the kit's report format", () => {
+  test("a `### ` line inside a lane's output stays with that lane: a heading follows the header or a blank line", () => {
+    const text = [
+      "Stop validation failed:",
+      "",
+      "### lint",
+      "out",
+      "### not a heading",
+      "",
+      "Fix the errors above before stopping.",
+    ].join("\n");
+
+    expect(laneShares(text).get("lint")).toBe("### lint\nout\n### not a heading\n\n".length);
+    expect(laneShares(text).has("not a heading")).toBeFalse();
+  });
+
+  test("a `### ` line outside a report is no lane", () => {
+    const text = "agent-hooks: 3 blocks in a row, letting the turn end\n\n### lint";
+
+    expect(laneShares(text)).toEqual(new Map([["(no lane)", text.length]]));
+  });
+
+  test("the root label in front of a nested root's report is no lane", () => {
+    const text = [
+      "Stop validation failed:",
+      "",
+      "### lint",
+      "x",
+      "",
+      "/r/packages/a:",
+      "Stop validation failed:",
+      "",
+      "### test",
+      "y",
+    ].join("\n");
+
+    expect(laneShares(text)).toEqual(
+      new Map([
+        ["(no lane)", "Stop validation failed:\n\n".length * 2 + "/r/packages/a:\n".length],
+        ["lint", "### lint\nx\n\n".length],
+        ["test", "### test\ny".length],
+      ]),
+    );
+  });
+});
+
 describe("measureNoise", () => {
   let dir: string;
   let projects: string;
@@ -263,7 +315,7 @@ describe("measureNoise", () => {
     return file;
   }
 
-  test("sums the transcripts whose cwd lies in a root, subagents included, over the window", () => {
+  test("sums the transcripts whose cwd lies in a root, subagents included, over the window", async () => {
     const inRoot = path.join(root, "gone", "worktree");
     transcript("-root/s1.jsonl", [
       prompt(inRoot),
@@ -286,7 +338,7 @@ describe("measureNoise", () => {
     const old = transcript("-root/s3.jsonl", [prompt(root), blocked("Stop", KIT_STOP, "y", root)]);
     utimesSync(old, new Date(NOW - 30 * DAY_MS), new Date(NOW - 30 * DAY_MS));
 
-    expect(measureNoise({ projectsDir: projects, days: 7, now: NOW })).toEqual({
+    expect(await measureNoise({ projectsDir: projects, days: 7, now: NOW })).toEqual({
       days: 7,
       read: 3,
       transcripts: 2,
@@ -309,8 +361,24 @@ describe("measureNoise", () => {
     });
   });
 
-  test("no projects directory reads as no transcript", () => {
-    expect(measureNoise({ projectsDir: path.join(dir, "none"), days: 7, now: NOW }).read).toBe(0);
+  test("streams each transcript: no file is read whole", async () => {
+    const file = transcript("-root/s1.jsonl", [prompt(root), success("Stop", KIT_STOP, "", root)]);
+    const reads = spyOn(fs, "readFileSync");
+
+    try {
+      expect((await measureNoise({ projectsDir: projects, days: 7, now: NOW })).stops.passed).toBe(
+        1,
+      );
+      expect(reads.mock.calls.map(([read]) => read)).not.toContain(file);
+    } finally {
+      reads.mockRestore();
+    }
+  });
+
+  test("no projects directory reads as no transcript", async () => {
+    expect(
+      (await measureNoise({ projectsDir: path.join(dir, "none"), days: 7, now: NOW })).read,
+    ).toBe(0);
   });
 });
 

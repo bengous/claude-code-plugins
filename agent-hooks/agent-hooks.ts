@@ -122,7 +122,7 @@ async function main(argv: readonly string[]): Promise<number> {
     }
 
     case "noise": {
-      return noise(values.days);
+      return await noise(values.days);
     }
 
     default: {
@@ -172,7 +172,7 @@ function init(print: boolean): number {
   return 0;
 }
 
-function noise(days: string | undefined): number {
+async function noise(days: string | undefined): Promise<number> {
   if (days !== undefined && !/^[1-9]\d*$/u.test(days)) {
     console.error(`agent-hooks: --days expects a positive whole number, not "${days}"`);
 
@@ -188,7 +188,7 @@ function noise(days: string | undefined): number {
     "projects",
   );
 
-  const report = measureNoise({
+  const report = await measureNoise({
     projectsDir,
     days: days === undefined ? DEFAULT_NOISE_DAYS : Number(days),
   });
