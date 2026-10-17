@@ -141,6 +141,21 @@ describe("the kept port and token", () => {
   });
 });
 
+describe("what a server reads of the plugin", () => {
+  test("given by the caller, it is what the server answers: the frame script and the build", async () => {
+    const vellumBuild = { ok: false, error: "given" } as const;
+    const plugin = { frameScript: "/* given */", vellumBuild };
+    const started = await startServer({ project: project(), workdir: wipDir(), port: 0, plugin });
+    const headers = { "x-vellum-token": started.token };
+    const frame = await (await fetch(`${started.url}frame.js`)).text();
+    const build = await fetch(new URL("/api/vellum-build", started.url), { headers });
+    started.stop();
+
+    expect(frame).toBe("/* given */");
+    expect(await build.json()).toEqual({ error: "given" });
+  });
+});
+
 describe("a working directory that is gone", () => {
   test("is refused when the server must find it, and not created", async () => {
     const root = mkdtempSync(join(tmpdir(), "vellum-gone-"));

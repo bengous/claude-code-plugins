@@ -12,7 +12,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { EMPTY_TYPED } from "../../review/review.ts";
-import { startServer } from "../../runtime/server/http/serve.ts";
+import { readPlugin, startServer } from "../../runtime/server/http/serve.ts";
 import type { Started } from "../../runtime/server/http/serve.ts";
 import { Queue } from "../../runtime/server/queue.ts";
 import { serverExtension } from "../../runtime/server/slice.ts";
@@ -22,6 +22,8 @@ import type { BodyOf, PostOf } from "../../workshop/plugs.ts";
 import { held } from "../../workshop/workflow.ts";
 import type { Closed, Requested, AgentReviewPlugs, ReviewState } from "./contract.ts";
 import { server } from "./server.ts";
+
+const plugin = await readPlugin();
 
 type Routes = AgentReviewPlugs["server"];
 
@@ -82,7 +84,7 @@ async function serving(dir: string): Promise<Reviewing> {
   const workdir = parseWipDir(WIP);
 
   if (!workdir.ok) throw new Error(workdir.error);
-  const started = await startServer({ project: dir, workdir: workdir.value, port: 0 });
+  const started = await startServer({ project: dir, workdir: workdir.value, port: 0, plugin });
   running.push(started);
   const headers = { "x-vellum-token": started.token, "content-type": "application/json" };
   const base = `http://127.0.0.1:${started.server.port}/api/`;

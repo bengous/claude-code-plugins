@@ -30,6 +30,12 @@ export type Watchdog = {
   readonly now?: () => number;
 };
 
+/** What a server reads of the plugin at its start: the mockups' frame script, and the build installed. */
+export type PluginReads = {
+  readonly frameScript: string;
+  readonly vellumBuild: ParseResult<VellumBuild>;
+};
+
 export type ServeOptions = {
   readonly project: string;
   readonly workdir: WipDir;
@@ -47,6 +53,8 @@ export type ServeOptions = {
   readonly watchdog?: Watchdog;
   /** Hears `ready` once the server listens, then every entry of the channel and every change of the review, in order. */
   readonly announce?: (line: ServerLine) => void;
+  /** Read at the start when not given: a suite that starts a server per test reads them once. */
+  readonly plugin?: PluginReads | undefined;
 };
 
 export class WorkdirGone extends Error {}
@@ -87,17 +95,13 @@ async function buildFrameScript(): Promise<string> {
   return await output.text();
 }
 
-let pluginReads: Promise<readonly [string, ParseResult<VellumBuild>]> | undefined;
+export async function readPlugin(): Promise<PluginReads> {
+  const [frameScript, vellumBuild] = await Promise.all([
+    buildFrameScript(),
+    readVellumBuild(PLUGIN_ROOT),
+  ]);
 
-/**
- * The frame script and the plugin's build, read at the process's first start and kept: a server
- * serves one plugin for its life, while a suite starts one per test, and each read is a build and
- * two `git` processes.
- */
-function readPlugin(): Promise<readonly [string, ParseResult<VellumBuild>]> {
-  pluginReads ??= Promise.all([buildFrameScript(), readVellumBuild(PLUGIN_ROOT)]);
-
-  return pluginReads;
+  return { frameScript, vellumBuild };
 }
 
 /** Every extension's routes under its own prefix, so no two extensions can claim one path. */
@@ -144,7 +148,7 @@ export async function startServer(options: ServeOptions): Promise<Started> {
     await mkdir(join(options.project, options.workdir, REVIEW_DIR), { recursive: true });
   }
 
-  const [frameScript, vellumBuild] = await readPlugin();
+  const { frameScript, vellumBuild } = options.plugin ?? (await readPlugin());
 
   const queue = new Queue({
     project: options.project,
