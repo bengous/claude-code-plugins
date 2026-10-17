@@ -373,7 +373,9 @@ export function createView(labels: readonly string[], handlers: Handlers): View 
       status.hidden = said === "";
       status.classList.toggle(
         "err",
-        tray.status.kind === "failed" || tray.status.kind === "dropped",
+        tray.status.kind === "failed" ||
+          tray.status.kind === "dropped" ||
+          tray.status.kind === "unknown",
       );
 
       list.replaceChildren(

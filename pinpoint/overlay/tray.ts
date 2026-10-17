@@ -1,4 +1,4 @@
-import type { Selection, Target } from "../shared/wire.ts";
+import type { Outcome, Selection, Target } from "../shared/wire.ts";
 
 /**
  * The batch the user builds and what became of the ones sent: a pure model, which the view draws
@@ -14,6 +14,7 @@ export type Status =
   | { readonly kind: "sent"; readonly seq: number; readonly count: number }
   | { readonly kind: "delivered"; readonly seq: number; readonly count: number }
   | { readonly kind: "dropped"; readonly seq: number; readonly reason: string }
+  | { readonly kind: "unknown"; readonly seq: number }
   | { readonly kind: "failed"; readonly reason: string };
 
 /** A batch the server took: kept until the session took it, so a batch dropped comes back. */
@@ -26,6 +27,18 @@ export type Tray = {
 };
 
 export const EMPTY: Tray = { items: [], sent: [], status: { kind: "idle" } };
+
+/** The tray a reloaded page kept: its status says the last batch still waiting, if one is. */
+export function restored(kept: Pick<Tray, "items" | "sent">): Tray {
+  const last = kept.sent.at(-1);
+
+  return {
+    items: kept.items,
+    sent: kept.sent,
+    status:
+      last === undefined ? EMPTY.status : { kind: "sent", seq: last.seq, count: last.items.length },
+  };
+}
 
 export function add(tray: Tray, item: Item): Tray {
   return { ...tray, items: [...tray.items, item] };
@@ -55,27 +68,35 @@ export function failed(tray: Tray, reason: string): Tray {
   return { ...tray, status: { kind: "failed", reason } };
 }
 
-export function delivered(tray: Tray, seq: number): Tray {
+/**
+ * What the server says became of a batch: delivered, said if it is the last one sent; dropped,
+ * its items back at the head of the batch; unknown, said once. A batch this tab did not send, or
+ * one still pending, changes nothing.
+ */
+export function settle(tray: Tray, outcome: Outcome): Tray {
+  const { seq } = outcome;
   const batch = tray.sent.find((one) => one.seq === seq);
-  const count = batch?.items.length ?? 0;
-  const latest = tray.status.kind === "sent" && tray.status.seq === seq;
 
-  return {
-    ...tray,
-    sent: tray.sent.filter((one) => one.seq !== seq),
-    status: latest ? { kind: "delivered", seq, count } : tray.status,
-  };
-}
+  if (batch === undefined || outcome.outcome === "pending") return tray;
+  const sent = tray.sent.filter((one) => one !== batch);
 
-/** The session did not take batch `seq`: its items come back to the head of the batch. */
-export function dropped(tray: Tray, seq: number, reason: string): Tray {
-  const back = tray.sent.find((one) => one.seq === seq)?.items ?? [];
+  switch (outcome.outcome) {
+    case "delivered": {
+      const latest = tray.status.kind === "sent" && tray.status.seq === seq;
+      const count = batch.items.length;
 
-  return {
-    items: [...back, ...tray.items],
-    sent: tray.sent.filter((one) => one.seq !== seq),
-    status: { kind: "dropped", seq, reason },
-  };
+      return { ...tray, sent, status: latest ? { kind: "delivered", seq, count } : tray.status };
+    }
+
+    case "dropped":
+      return {
+        items: [...batch.items, ...tray.items],
+        sent,
+        status: { kind: "dropped", seq, reason: outcome.reason },
+      };
+    case "unknown":
+      return { ...tray, sent, status: { kind: "unknown", seq } };
+  }
 }
 
 function plural(count: number, word: string): string {
@@ -94,6 +115,8 @@ export function statusText(status: Status): string {
       return `Batch ${status.seq} delivered to the session (${plural(status.count, "selection")}).`;
     case "dropped":
       return `Batch ${status.seq} was not delivered: ${status.reason}. Its selections are back in the batch.`;
+    case "unknown":
+      return `Batch ${status.seq}: the server no longer knows what became of it.`;
     case "failed":
       return `Not sent: ${status.reason}. The selections stay here.`;
   }

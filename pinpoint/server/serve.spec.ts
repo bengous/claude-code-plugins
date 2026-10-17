@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { existsSync } from "node:fs";
-import { mkdtemp, readdir, readFile, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -101,6 +101,13 @@ function post(
   return fetch(url(one, path), { method: "POST", headers, body: JSON.stringify(body) });
 }
 
+/** Asks what became of `seqs`, as a page of the app does. */
+function outcomes(one: Running, seqs: readonly (number | string)[]): Promise<Response> {
+  const query = seqs.map((seq) => `seq=${seq}`).join("&");
+
+  return fetch(url(one, `api/outcomes?${query}`), { headers: { origin: APP } });
+}
+
 afterEach(async () => {
   for (const one of running.splice(0)) {
     one.started.stop();
@@ -149,21 +156,62 @@ describe("the server", () => {
     expect(await readdir(join(one.dir, "sessions/s1/pending"))).toEqual(["1.json"]);
   });
 
-  test("a delivery reaches the page's stream and forgets the pending batch", async () => {
+  test("a delivery forgets the pending batch", async () => {
     const one = await serve();
     await post(one, "api/batch", BATCH);
-    const stream = await fetch(url(one, "api/events"), { headers: { origin: APP } });
-    const reader = stream.body?.getReader();
-    await reader?.read();
 
     expect((await post(one, "api/delivery", { seq: 1, outcome: "delivered" }, null)).status).toBe(
       204,
     );
-    const chunk = new TextDecoder().decode((await reader?.read())?.value);
-
-    expect(chunk).toBe(`data: ${JSON.stringify({ type: "delivered", seq: 1 })}\n\n`);
     expect(await readdir(join(one.dir, "sessions/s1/pending"))).toEqual([]);
-    await reader?.cancel();
+  });
+
+  test("the outcomes say what became of each batch asked, in order", async () => {
+    const one = await serve();
+    await Promise.all([1, 2, 3].map(async () => await post(one, "api/batch", BATCH)));
+    await post(one, "api/delivery", { seq: 1, outcome: "delivered" }, null);
+    await post(one, "api/delivery", { seq: 3, outcome: "dropped", reason: "busy" }, null);
+    const response = await outcomes(one, [3, 2, 1, 9]);
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("access-control-allow-origin")).toBe(APP);
+    expect(await response.json()).toEqual([
+      { seq: 3, outcome: "dropped", reason: "busy" },
+      { seq: 2, outcome: "pending" },
+      { seq: 1, outcome: "delivered" },
+      { seq: 9, outcome: "unknown" },
+    ]);
+  });
+
+  test("an outcome reported before the server started again is still told", async () => {
+    const first = await serve();
+    await post(first, "api/batch", BATCH);
+    await post(first, "api/delivery", { seq: 1, outcome: "delivered" }, null);
+    first.started.stop();
+    const second = await serve(first.dir);
+
+    expect(await (await outcomes(second, [1])).json()).toEqual([{ seq: 1, outcome: "delivered" }]);
+  });
+
+  test("the outcomes keep the last hundred batches reported", async () => {
+    const one = await serve();
+
+    for (let seq = 1; seq <= 101; seq += 1) {
+      await post(one, "api/batch", BATCH);
+      await post(one, "api/delivery", { seq, outcome: "delivered" }, null);
+    }
+
+    expect(await (await outcomes(one, [1, 2, 101])).json()).toEqual([
+      { seq: 1, outcome: "unknown" },
+      { seq: 2, outcome: "delivered" },
+      { seq: 101, outcome: "delivered" },
+    ]);
+  });
+
+  test("outcomes asked after nothing answer nothing", async () => {
+    const one = await serve();
+
+    expect(await (await outcomes(one, [])).json()).toEqual([]);
   });
 
   test("a server started again on the same session tells the pending batches again, and numbers on", async () => {
@@ -174,6 +222,48 @@ describe("the server", () => {
 
     expect(second.lines.slice(1)).toEqual([expect.objectContaining({ type: "batch", seq: 1 })]);
     expect(await (await post(second, "api/batch", BATCH)).json()).toEqual({ seq: 2 });
+  });
+
+  test("batches posted at once get consecutive numbers, a pending file and a line each, in order", async () => {
+    const one = await serve();
+
+    const answers = await Promise.all(
+      Array.from({ length: 5 }, async () => await (await post(one, "api/batch", BATCH)).json()),
+    );
+
+    expect(answers).toHaveLength(5);
+    expect(answers).toEqual(expect.arrayContaining([1, 2, 3, 4, 5].map((seq) => ({ seq }))));
+    expect(one.lines.slice(1).map((line) => line.type === "batch" && line.seq)).toEqual([
+      1, 2, 3, 4, 5,
+    ]);
+    expect((await readdir(join(one.dir, "sessions/s1/pending"))).toSorted()).toEqual([
+      "1.json",
+      "2.json",
+      "3.json",
+      "4.json",
+      "5.json",
+    ]);
+  });
+
+  test("an unreadable registry entry is skipped, and left in place", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "pinpoint-"));
+    await mkdir(join(dir, "sessions"));
+    await writeFile(join(dir, "sessions/other.json"), "");
+    await writeFile(join(dir, "sessions/torn.json"), '{"version":1,"pid":');
+    await serve(dir);
+
+    expect(existsSync(join(dir, "sessions/other.json"))).toBe(true);
+    expect(existsSync(join(dir, "sessions/torn.json"))).toBe(true);
+  });
+
+  test("an unreadable pending file is skipped", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "pinpoint-"));
+    await mkdir(join(dir, "sessions/s1/pending"), { recursive: true });
+    await writeFile(join(dir, "sessions/s1/pending/1.json"), JSON.stringify({ seq: 1, text: "a" }));
+    await writeFile(join(dir, "sessions/s1/pending/2.json"), "");
+    const one = await serve(dir);
+
+    expect(one.lines.slice(1)).toEqual([{ type: "batch", seq: 1, text: "a" }]);
   });
 
   test("a kept port still free is bound again under the kept token", async () => {
@@ -226,6 +316,13 @@ describe("what the server refuses", () => {
 
     expect((await post(one, "api/batch", { selections: [] })).status).toBe(400);
     expect((await post(one, "api/batch", { selections: [{ note: "x" }] })).status).toBe(400);
+  });
+
+  test("outcomes asked after what is not a batch number: 400", async () => {
+    const one = await serve();
+
+    expect((await outcomes(one, [1, "x"])).status).toBe(400);
+    expect((await outcomes(one, ["-1"])).status).toBe(400);
   });
 
   test("the module's routes, asked by a page: 404", async () => {

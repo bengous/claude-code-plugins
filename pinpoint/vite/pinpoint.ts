@@ -2,6 +2,7 @@ import { readdirSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { isAbsolute, join, relative } from "node:path";
 
+import { alive, parseEntry } from "../shared/registry.ts";
 import { PINPOINT_DIR, type RegistryEntry } from "../shared/wire.ts";
 
 /**
@@ -30,36 +31,6 @@ type VitePlugin = {
   readonly transformIndexHtml: () => HtmlTag[];
 };
 
-/* oxlint-disable anti-slop/no-runtime-typeof, anti-slop/no-unknown-parameters, anti-slop/no-unsafe-dictionary-type -- the block below IS the boundary parser of the registry, files another process wrote. */
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null;
-}
-
-function parseEntry(value: unknown): RegistryEntry | null {
-  if (!isRecord(value) || value.version !== 1) return null;
-  const { session, root, port, token, pid, started } = value;
-
-  return typeof session === "string" &&
-    typeof root === "string" &&
-    typeof port === "number" &&
-    typeof token === "string" &&
-    typeof pid === "number" &&
-    typeof started === "number"
-    ? { version: 1, session, root, port, token, pid, started }
-    : null;
-}
-/* oxlint-enable anti-slop/no-runtime-typeof, anti-slop/no-unknown-parameters, anti-slop/no-unsafe-dictionary-type */
-
-function alive(pid: number): boolean {
-  try {
-    process.kill(pid, 0);
-
-    return true;
-  } catch (cause) {
-    return cause instanceof Error && "code" in cause && cause.code === "EPERM";
-  }
-}
-
 function holds(root: string, appRoot: string): boolean {
   const path = relative(root, appRoot);
 
@@ -68,9 +39,9 @@ function holds(root: string, appRoot: string): boolean {
 
 function readEntry(file: string): RegistryEntry | null {
   try {
-    return parseEntry(JSON.parse(readFileSync(file, "utf8")));
+    return parseEntry(readFileSync(file, "utf8"));
   } catch {
-    // A file being written, or removed between the listing and the read: not a server to load.
+    // Removed between the listing and the read: not a server to load.
     return null;
   }
 }

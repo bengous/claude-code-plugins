@@ -141,3 +141,10 @@ export function parseDelivery(value: unknown): Delivery | null {
   return outcome === "dropped" && typeof reason === "string" ? { seq, outcome, reason } : null;
 }
 /* oxlint-enable anti-slop/no-runtime-typeof, anti-slop/no-unknown-parameters, anti-slop/no-unsafe-dictionary-type, anti-slop/no-unknown-returns */
+
+const SEQ = /^\d{1,15}$/u;
+
+/** The batch numbers a page asks after, each `seq` of the query; `null` when one is not a number. */
+export function parseSeqs(values: readonly string[]): number[] | null {
+  return values.every((value) => SEQ.test(value)) ? values.map(Number) : null;
+}

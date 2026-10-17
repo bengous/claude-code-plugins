@@ -1,7 +1,7 @@
-import type { BatchAccepted, PageEvent, ServerLine } from "../shared/wire.ts";
+import type { BatchAccepted, Outcome, ServerLine } from "../shared/wire.ts";
 import { buildOverlay, writeViteModule } from "./build.ts";
 import { pruneEntries, sessionFiles } from "./files.ts";
-import { parseBatchRequest, parseDelivery } from "./parse.ts";
+import { parseBatchRequest, parseDelivery, parseSeqs } from "./parse.ts";
 import { batchText } from "./text.ts";
 
 /** When the server gives up: `expire` runs once no heartbeat came for `graceMs`. */
@@ -34,8 +34,6 @@ export type Started = {
   readonly stop: () => void;
 };
 
-const KEEPALIVE_MS = 25_000;
-
 /** A page of the user's own machine: a browser sets `Origin`, which no page can forge. */
 const LOOPBACK = /^https?:\/\/(?:localhost|127\.0\.0\.1|\[::1\])(?::\d+)?$/u;
 
@@ -62,10 +60,18 @@ export async function startServer(options: ServeOptions): Promise<Started> {
   await pruneEntries(options.dir);
   const [overlay] = await Promise.all([buildOverlay(), writeViteModule(options.dir)]);
 
-  const streams = new Set<ReadableStreamDefaultController<string>>();
+  // The session's files change one step at a time, each batch numbered, kept and announced
+  // whole: the module hands batches over in the order of their lines, and only acknowledges a
+  // number at or below the last it handed over. The queue opens once `ready` and the batches the
+  // last server left are told, which the module reads first.
+  const told = Promise.withResolvers<void>();
+  let queue: Promise<unknown> = told.promise;
 
-  const tell = (event: PageEvent): void => {
-    for (const stream of streams) stream.enqueue(`data: ${JSON.stringify(event)}\n\n`);
+  const inTurn = <T>(step: () => Promise<T>): Promise<T> => {
+    const turn = queue.then(step);
+    queue = Promise.allSettled([turn]);
+
+    return turn;
   };
 
   let lastHeartbeat = Date.now();
@@ -85,33 +91,29 @@ export async function startServer(options: ServeOptions): Promise<Started> {
       });
     }
 
-    if (request.method === "GET" && path === "api/events") {
-      let own: ReadableStreamDefaultController<string> | null = null;
+    if (request.method === "GET" && path === "api/outcomes") {
+      const seqs = parseSeqs(new URL(request.url).searchParams.getAll("seq"));
 
-      const body = new ReadableStream<string>({
-        start: (controller) => {
-          own = controller;
-          streams.add(controller);
-          controller.enqueue(": open\n\n");
-        },
-        cancel: () => {
-          if (own !== null) streams.delete(own);
-        },
-      });
+      if (seqs === null) return new Response("not batch numbers", { status: 400, headers: cors });
+      const outcomes: Outcome[] = await files.outcomes(seqs);
 
-      return new Response(body, {
-        headers: { ...cors, "content-type": "text/event-stream", "cache-control": "no-store" },
-      });
+      return Response.json(outcomes, { headers: { ...cors, "cache-control": "no-store" } });
     }
 
     if (request.method === "POST" && path === "api/batch") {
       const batch = parseBatchRequest(await request.json().catch(() => null));
 
       if (batch === null) return new Response("not a batch", { status: 400, headers: cors });
-      const seq = await files.nextSeq();
-      const text = batchText(seq, batch.selections);
-      await files.keepPending({ seq, text });
-      options.announce({ type: "batch", seq, text });
+
+      const seq = await inTurn(async () => {
+        const next = await files.nextSeq();
+        const text = batchText(next, batch.selections);
+        await files.keepPending({ seq: next, text });
+        options.announce({ type: "batch", seq: next, text });
+
+        return next;
+      });
+
       const accepted: BatchAccepted = { seq };
 
       return Response.json(accepted, { status: 202, headers: cors });
@@ -124,12 +126,7 @@ export async function startServer(options: ServeOptions): Promise<Started> {
       const delivery = parseDelivery(await request.json().catch(() => null));
 
       if (delivery === null) return new Response("not a delivery", { status: 400 });
-      await files.dropPending(delivery.seq);
-      tell(
-        delivery.outcome === "delivered"
-          ? { type: "delivered", seq: delivery.seq }
-          : { type: "dropped", seq: delivery.seq, reason: delivery.reason },
-      );
+      await inTurn(() => files.settle(delivery));
 
       return new Response(null, { status: 204 });
     }
@@ -157,7 +154,6 @@ export async function startServer(options: ServeOptions): Promise<Started> {
       // Bun sets SO_REUSEPORT by default with `development: false`: a second server, of this
       // process or another, would share a kept port instead of failing over to a new one.
       reusePort: false,
-      idleTimeout: 0,
       development: false,
       fetch: async (request) => {
         const origin = request.headers.get("origin");
@@ -213,10 +209,7 @@ export async function startServer(options: ServeOptions): Promise<Started> {
 
   // A batch the last server took and no module handed to the session: told again, in order.
   for (const pending of await files.pending()) options.announce({ type: "batch", ...pending });
-
-  const keepalive = setInterval(() => {
-    for (const stream of streams) stream.enqueue(": keepalive\n\n");
-  }, KEEPALIVE_MS);
+  told.resolve();
 
   const watchdog = setInterval(() => {
     if (Date.now() - lastHeartbeat > options.watchdog.graceMs) options.watchdog.expire();
@@ -226,10 +219,7 @@ export async function startServer(options: ServeOptions): Promise<Started> {
     port,
     token,
     stop: () => {
-      clearInterval(keepalive);
       clearInterval(watchdog);
-
-      for (const stream of streams) stream.close();
       void bound.server.stop(true);
     },
   };

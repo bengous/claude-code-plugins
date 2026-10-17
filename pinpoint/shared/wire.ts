@@ -1,7 +1,7 @@
 /**
  * Every value that crosses a process boundary of pinpoint: the page to the server (HTTP), the
- * server to the page (its event stream), the server to the hooks module (its stdout), the module
- * to the server (HTTP), and the server to the Vite plugin (the registry file).
+ * server to the page (its answers), the server to the hooks module (its stdout), the module to
+ * the server (HTTP), and the server to the Vite plugin (the registry file).
  */
 
 /** A box in CSS pixels of the viewport, as `getBoundingClientRect` read it at the pick. */
@@ -55,11 +55,6 @@ export type BatchRequest = { readonly selections: readonly Selection[] };
 /** Its answer, 202: the number the server gave the batch. */
 export type BatchAccepted = { readonly seq: number };
 
-/** What the server tells the page on `GET /t/<token>/api/events`, one per `data:` line. */
-export type PageEvent =
-  | { readonly type: "delivered"; readonly seq: number }
-  | { readonly type: "dropped"; readonly seq: number; readonly reason: string };
-
 /** What the server writes on stdout for the hooks module, one JSON per line, `ready` first. */
 export type ServerLine =
   | { readonly type: "ready"; readonly port: number; readonly token: string }
@@ -69,6 +64,16 @@ export type ServerLine =
 export type Delivery =
   | { readonly seq: number; readonly outcome: "delivered" }
   | { readonly seq: number; readonly outcome: "dropped"; readonly reason: string };
+
+/**
+ * What became of a batch, as `GET /t/<token>/api/outcomes?seq=<n>&seq=<n>` answers it, one per
+ * seq asked, in order: `pending` until the module reports it, then what it reported; `unknown`
+ * for a seq the server holds nothing of, never numbered or settled too long ago.
+ */
+export type Outcome =
+  | { readonly seq: number; readonly outcome: "pending" }
+  | Delivery
+  | { readonly seq: number; readonly outcome: "unknown" };
 
 /** `~/.claude/pinpoint/sessions/<session>.json`, which the Vite plugin reads to find a live server. */
 export type RegistryEntry = {
