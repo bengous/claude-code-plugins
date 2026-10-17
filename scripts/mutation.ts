@@ -287,6 +287,35 @@ export async function snapshotAt(repoRoot: string, sha: string): Promise<string>
   return dir;
 }
 
+export type Gh = (args: readonly string[]) => Promise<string>;
+
+interface CheckRun {
+  readonly conclusion: string | null;
+}
+
+/**
+ * Whether a push's commit already has a green `mutation` check: a branch landed on `dev` as its
+ * pull request tested it carries that run's verdict, and the push need not run it again.
+ */
+export async function testedAlready(env: Env, gh: Gh): Promise<boolean> {
+  if (env.GITHUB_EVENT_NAME !== "push") return false;
+
+  const runs: CheckRun[] = JSON.parse(
+    await gh([
+      "api",
+      `repos/${env.GITHUB_REPOSITORY}/commits/${env.GITHUB_SHA}/check-runs?check_name=mutation`,
+      "--jq",
+      ".check_runs",
+    ]),
+  );
+
+  return runs.some((run) => run.conclusion === "success");
+}
+
+function ghCli(args: readonly string[]): Promise<string> {
+  return $`gh ${args}`.quiet().text();
+}
+
 /** The `$GITHUB_OUTPUT` line that tells CI whether to install Stryker and run it. */
 export function githubOutput(hunks: readonly Hunk[]): string {
   return `mutate=${hunks.length > 0}\n`;
@@ -366,6 +395,13 @@ if (import.meta.main) {
     const outputPath = process.env.GITHUB_OUTPUT;
 
     if (outputPath === undefined) throw new Error("GITHUB_OUTPUT is unset");
+
+    if (await testedAlready(process.env, ghCli)) {
+      console.error(`mutation: ${process.env.GITHUB_SHA} has a green mutation check already`);
+      await appendFile(outputPath, githubOutput([]));
+      process.exit(0);
+    }
+
     await appendFile(outputPath, githubOutput(change.hunks));
   }
 

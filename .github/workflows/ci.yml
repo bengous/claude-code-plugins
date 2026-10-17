@@ -202,14 +202,22 @@ jobs:
       - name: Test the vellum hooks module
         run: claude plugin test vellum
 
-  # Mutation testing on the lines the change alters in the modules `stryker.config.ts` lists
-  # (`scripts/mutation.ts`): a pull request's, a push's to `dev` since its `before`, so an inline
-  # commit is tested and a survivor reaches `red-dev`, a dispatch's since `origin/dev`. A push to
-  # `main` releases a `dev` head already tested. A survivor fails it, named. With no such line it
-  # passes before installing anything.
+  # Mutation testing on what the change alters in the modules `stryker.config.ts` lists or their
+  # tests (`scripts/mutation.ts`): a pull request's, a push's to `dev` since its `before`, so an
+  # inline commit is tested and a survivor turns the push run red, a dispatch's since `origin/dev`.
+  # A label asks for no new verdict, and a push to `main` releases a `dev` head already tested. A
+  # push whose commit has a green `mutation` check from its pull request skips the passes. With
+  # nothing to mutate it passes before installing anything. Skipped, the job's check carries this
+  # `name:` unrendered, never `mutation`: a label's run cannot stand in for the head's verdict.
   mutation:
-    if: github.event_name != 'push' || github.ref == 'refs/heads/dev'
+    name: ${{ github.event.action == 'labeled' && 'mutation, skipped on a label' || 'mutation' }}
+    if: >-
+      github.event.action != 'labeled'
+      && (github.event_name != 'push' || github.ref == 'refs/heads/dev')
     runs-on: ubuntu-latest
+    permissions:
+      checks: read
+      contents: read
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -224,6 +232,8 @@ jobs:
       - name: Scope the mutants to the changed lines
         id: scope
         run: bun ./scripts/mutation.ts github-output
+        env:
+          GH_TOKEN: ${{ github.token }}
 
       - name: Install script dependencies
         if: steps.scope.outputs.mutate == 'true'

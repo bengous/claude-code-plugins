@@ -32,6 +32,7 @@ import {
   rangeOf,
   runOptions,
   snapshotAt,
+  testedAlready,
   testFileOf,
   undetected,
 } from "./mutation.ts";
@@ -576,16 +577,69 @@ describe("changeSince", () => {
 });
 
 interface Workflow {
-  jobs: Record<string, { if?: string }>;
+  jobs: Record<string, { if?: string; name?: string; permissions?: Record<string, string> }>;
 }
 
-test("ci.yml mutation-tests every event but a push to main, which releases a tested dev", async () => {
+test("ci.yml mutation-tests a pull request's opening and pushes, a dispatch and a push to dev, never a label", async () => {
   const source = await Bun.file(join(import.meta.dir, "../.github/workflows/ci.yml")).text();
   const { jobs }: Workflow = parse(source);
+  const job = jobs["mutation"];
 
-  expect(jobs["mutation"]?.if).toBe(
-    "github.event_name != 'push' || github.ref == 'refs/heads/dev'",
+  expect(job?.if).toBe(
+    "github.event.action != 'labeled' && (github.event_name != 'push' || github.ref == 'refs/heads/dev')",
   );
+  // A job its `if:` skips leaves a check named by this expression unrendered, never `mutation`,
+  // so a label's skipped run cannot stand in for the head's verdict in `gh pr checks` or `land.ts`.
+  expect(job?.name).toBe(
+    "${{ github.event.action == 'labeled' && 'mutation, skipped on a label' || 'mutation' }}",
+  );
+  expect(job?.permissions).toEqual({ checks: "read", contents: "read" });
+});
+
+function fakeChecks(runs: { name: string; status: string; conclusion: string | null }[]) {
+  const calls: string[][] = [];
+
+  const gh = (args: readonly string[]): Promise<string> => {
+    calls.push([...args]);
+
+    return Promise.resolve(JSON.stringify(runs));
+  };
+
+  return { gh, calls };
+}
+
+describe("testedAlready", () => {
+  const push = { GITHUB_EVENT_NAME: "push", GITHUB_REPOSITORY: "o/r", GITHUB_SHA: "abc123" };
+
+  test("a push whose commit has a green mutation check, from its pull request, is tested already", async () => {
+    const { gh, calls } = fakeChecks([
+      { name: "mutation", status: "in_progress", conclusion: null },
+      { name: "mutation", status: "completed", conclusion: "success" },
+    ]);
+
+    expect(await testedAlready(push, gh)).toBe(true);
+    expect(calls).toEqual([
+      ["api", "repos/o/r/commits/abc123/check-runs?check_name=mutation", "--jq", ".check_runs"],
+    ]);
+  });
+
+  test("a push whose commit has no green mutation check is not", async () => {
+    const { gh } = fakeChecks([
+      { name: "mutation", status: "completed", conclusion: "failure" },
+      { name: "mutation", status: "in_progress", conclusion: null },
+    ]);
+
+    expect(await testedAlready(push, gh)).toBe(false);
+  });
+
+  test("any other event asks nothing", async () => {
+    const { gh, calls } = fakeChecks([
+      { name: "mutation", status: "completed", conclusion: "success" },
+    ]);
+
+    expect(await testedAlready({ ...push, GITHUB_EVENT_NAME: "pull_request" }, gh)).toBe(false);
+    expect(calls).toEqual([]);
+  });
 });
 
 describe("a pass leaves the checkout as it found it", () => {
