@@ -38,7 +38,13 @@ let bunLog = "";
 const saved = new Map<string, string | undefined>();
 
 function git(cwd: string, ...args: string[]): string {
-  const result = Bun.spawnSync(["git", "-C", cwd, ...args], { stdout: "pipe", stderr: "pipe" });
+  // Bun.spawnSync without `env` reads the environment Bun started with, not process.env's later changes:
+  // without it the fixtures' git ignores GIT_CONFIG_GLOBAL and signs every commit with the user's key.
+  const result = Bun.spawnSync(["git", "-C", cwd, ...args], {
+    env: process.env,
+    stdout: "pipe",
+    stderr: "pipe",
+  });
 
   if (result.exitCode !== 0) throw new Error(result.stderr.toString());
 
