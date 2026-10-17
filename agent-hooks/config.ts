@@ -164,7 +164,7 @@ export function loadConfig(root: string, configFile = configPath(root)): Config 
 
   documents.push(repo);
 
-  return finalize(mergeDocuments(documents), repo.file);
+  return finalize(mergeDocuments(documents, repo), repo.file);
 }
 
 /**
@@ -522,12 +522,12 @@ function readLanes(reader: Reader): Map<string, RawLane> {
   return lanes;
 }
 
-function mergeDocuments(documents: readonly RawDocument[]): RawDocument {
+function mergeDocuments(documents: readonly RawDocument[], repo: RawDocument): RawDocument {
   const merged: RawDocument = {
-    file: documents.at(-1)?.file ?? "",
+    file: repo.file,
     presets: [],
-    // The repo file comes last: a profile describes the repository, never a preset's language.
-    profile: documents.at(-1)?.profile ?? { landing: null },
+    // A profile describes the repository, never a preset's language.
+    profile: repo.profile,
     preEdit: { exclude: [], fixers: new Map() },
     stop: { lanes: new Map() },
   };
