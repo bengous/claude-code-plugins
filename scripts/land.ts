@@ -31,7 +31,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { CONFIG_GIT_PATH, ConfigError, parseReview } from "../agent-hooks/config.ts";
+import { CONFIG_GIT_PATH, ConfigError, parseProfile } from "../agent-hooks/config.ts";
 import { isE2ePath } from "./check-e2e-green.ts";
 import { ROLLING_BRANCH } from "./claude-code-types.ts";
 import { run } from "./lib/run.ts";
@@ -207,7 +207,7 @@ export function riskyOf(checkout: string, rev: string): RiskyRead {
   if (!shown.ok) return { kind: "unreadable", why: `git show ${spec}: ${shown.err}` };
 
   try {
-    return { kind: "read", risky: parseReview(spec, shown.out)?.risky ?? [] };
+    return { kind: "read", risky: parseProfile(spec, shown.out).review?.risky ?? [] };
   } catch (error) {
     if (error instanceof ConfigError) return { kind: "unreadable", why: error.message };
 

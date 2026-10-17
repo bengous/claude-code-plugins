@@ -541,6 +541,23 @@ describe("land, a branch that touches a risky path", () => {
     expect(why(landing)).toContain("b.txt");
   });
 
+  test("counts every changed path as risky while dev's profile holds a misspelled key", () => {
+    onDev(
+      ".claude/agent-hooks.jsonc",
+      "misspelled profile",
+      '{ "profile": { "reveiw": { "risky": ["risky/**"] } } }\n',
+    );
+    git(work, "reset", "--quiet", "--hard", "HEAD~1");
+    pushBranch();
+    serve(pullRequest());
+
+    const landing = land("feature/x", work);
+
+    expect(why(landing)).toContain("profile.reveiw");
+    expect(why(landing)).toContain("every path counts as risky");
+    expect(why(landing)).toContain("b.txt");
+  });
+
   test("lands the branch that fixes dev's unreadable profile once it has a verdict", () => {
     onDev(".claude/agent-hooks.jsonc", "broken profile", "{\n");
     commit(work, ".claude/agent-hooks.jsonc", "fix the profile", RISKY_PROFILE);

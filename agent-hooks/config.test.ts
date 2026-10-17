@@ -13,7 +13,7 @@ import {
   loadConfig,
   loadLanding,
   matchesFilter,
-  parseReview,
+  parseProfile,
   pkgOf,
   splitCommand,
 } from "./config.ts";
@@ -531,26 +531,29 @@ describe("loadLanding", () => {
   });
 });
 
-describe("parseReview", () => {
-  test("reads profile.review alone, from a text as a commit holds the file", () => {
+describe("parseProfile", () => {
+  test("reads the profile of a text as a commit holds the file, the rest of the file unread", () => {
     expect(
-      parseReview(
+      parseProfile(
         "dev:agent-hooks.jsonc",
-        `{ "stop": 1, "profile": { "review": { "risky": ["a"] }, "worktree": "each" } }`,
+        `{ "stop": 1, "profile": { "review": { "risky": ["a"] }, "worktree": "per-task" } }`,
       ),
-    ).toEqual({ risky: ["a"] });
-    expect(
-      parseReview("dev:agent-hooks.jsonc", `{ "profile": { "worktree": "each" } }`),
-    ).toBeNull();
+    ).toEqual({ landing: null, review: { risky: ["a"] }, worktree: "per-task" });
   });
 
-  test("names the file and the key in an error", () => {
-    expect(() => parseReview("dev:agent-hooks.jsonc", "{")).toThrow(
+  test("names the file and the key in an error, an unknown profile key included", () => {
+    expect(() => parseProfile("dev:agent-hooks.jsonc", "{")).toThrow(
       "agent-hooks: dev:agent-hooks.jsonc: invalid JSONC: ",
     );
-    expect(() => parseReview("dev:agent-hooks.jsonc", `{ "profile": { "review": {} } }`)).toThrow(
+    expect(() => parseProfile("dev:agent-hooks.jsonc", `{ "profile": { "review": {} } }`)).toThrow(
       "agent-hooks: dev:agent-hooks.jsonc: profile.review.risky: expected a list of globs",
     );
+    expect(() =>
+      parseProfile("dev:agent-hooks.jsonc", `{ "profile": { "reveiw": { "risky": ["a"] } } }`),
+    ).toThrow("agent-hooks: dev:agent-hooks.jsonc: profile.reveiw: unknown key");
+    expect(() =>
+      parseProfile("dev:agent-hooks.jsonc", `{ "profile": { "worktree": "each" } }`),
+    ).toThrow("agent-hooks: dev:agent-hooks.jsonc: profile.worktree: expected per-task|shared");
   });
 });
 
