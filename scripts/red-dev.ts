@@ -1,13 +1,15 @@
 #!/usr/bin/env bun
 
 /**
- * CI's `red-dev` job, after a push run on `dev`: while `dev` is red, one open issue labelled
- * `red-dev` says so. A red run opens it, naming the run and its red jobs, or comments on the open
- * one, unless `dev` has moved past its commit to a head with a green run already; only a green
- * run of `dev`'s head closes it, so runs that end out of order leave no stale verdict.
+ * The `red-dev` workflow: while `dev`'s head is red in CI, one open issue labelled `red-dev` says
+ * so. Each CI run that completes on `dev` wakes it, but it decides from `dev`'s head alone, read
+ * fresh: the newest completed CI push run of that commit. Red opens the issue, or comments on the
+ * open one, once per commit, which a marker in the text records; green closes it; no completed run
+ * yet changes nothing, since the head's own completion wakes it again. Runs that end out of order
+ * therefore reach the verdict of the head, and the workflow's concurrency group runs one at a time.
  *
- * Reads `NEEDS`, the workflow's `toJSON(needs)`, and `GITHUB_REPOSITORY`, `GITHUB_SHA`,
- * `GITHUB_SERVER_URL`, `GITHUB_RUN_ID`, `GITHUB_WORKFLOW_REF`; calls `gh` with the job's token.
+ * Reads `GITHUB_REPOSITORY` and `CI_WORKFLOW_ID`, the CI workflow's id; calls `gh` with the job's
+ * token.
  */
 
 import type { Env } from "./affected.ts";
@@ -16,20 +18,28 @@ export const LABEL = "red-dev";
 
 const TITLE = "CI is red on dev";
 
-export type Verdict =
-  | { readonly kind: "red"; readonly jobs: readonly string[] }
-  | { readonly kind: "green" }
-  | { readonly kind: "unsettled"; readonly jobs: readonly string[] };
+const RED = new Set(["failure", "timed_out", "startup_failure"]);
 
-export interface Run {
-  readonly sha: string;
+export interface HeadRun {
+  readonly id: number;
   readonly url: string;
+  readonly conclusion: string;
 }
 
-/** `dev`'s head against the run's commit: the same, or newer, with or without a green run. */
-export type Head =
-  | { readonly kind: "this" }
-  | { readonly kind: "newer"; readonly sha: string; readonly green: boolean };
+export interface OpenIssue {
+  readonly number: number;
+  /** Its body, then each comment's. */
+  readonly texts: readonly string[];
+}
+
+/** What red-dev reads of GitHub: dev's head, its newest completed CI push run, the open issues. */
+export interface Observed {
+  readonly head: string;
+  readonly run: HeadRun | null;
+  readonly failedJobs: readonly string[];
+  /** Newest first. */
+  readonly issues: readonly OpenIssue[];
+}
 
 export type Action =
   | { readonly kind: "open"; readonly body: string }
@@ -39,81 +49,44 @@ export type Action =
 
 export type Gh = (args: readonly string[]) => Promise<string>;
 
-const SETTLED_GREEN = new Set(["success", "skipped"]);
-
-interface Need {
-  result: string;
+/** The line a report of `sha` carries, so a commit is never reported twice. */
+export function markerOf(sha: string): string {
+  return `<!-- red-dev:${sha} -->`;
 }
 
-/** The result of each job the workflow's `needs` names, read off `toJSON(needs)`. */
-export function parseNeeds(json: string): ReadonlyMap<string, string> {
-  const needs: Record<string, Need> = JSON.parse(json);
+export function decide(observed: Observed): Action {
+  const { head, run, failedJobs, issues } = observed;
 
-  return new Map(Object.entries(needs).map(([job, need]) => [job, need.result]));
-}
+  if (run === null)
+    return { kind: "none", reason: `dev's head ${head} has no completed CI push run yet` };
 
-/** Red once a job failed; green when every job passed or was skipped; otherwise unsettled. */
-export function verdictOf(results: ReadonlyMap<string, string>): Verdict {
-  const failed = [...results].flatMap(([job, result]) => (result === "failure" ? [job] : []));
-
-  if (failed.length > 0) return { kind: "red", jobs: failed };
-
-  const other = [...results].filter(([, result]) => !SETTLED_GREEN.has(result));
-
-  return other.length === 0
-    ? { kind: "green" }
-    : { kind: "unsettled", jobs: other.map(([job, result]) => `${job} ${result}`) };
-}
-
-export function plan(
-  verdict: Verdict,
-  head: Head,
-  openIssues: readonly number[],
-  run: Run,
-): Action {
-  const [newest] = openIssues;
-
-  switch (verdict.kind) {
-    case "red": {
-      if (head.kind === "newer" && head.green) {
-        return {
-          kind: "none",
-          reason: `dev's head ${head.sha} has a green run already, after this red one at ${run.sha}`,
+  if (run.conclusion === "success") {
+    return issues.length === 0
+      ? { kind: "none", reason: `dev is green at ${head}, and no ${LABEL} issue is open` }
+      : {
+          kind: "close",
+          issues: issues.map((issue) => issue.number),
+          comment: `CI's push run on \`dev\` is green at ${head}: ${run.url}`,
         };
-      }
-
-      const since =
-        head.kind === "newer" ? `\n\ndev is at ${head.sha} since, with no green run yet.` : "";
-
-      const body = `CI's push run on \`dev\` failed at ${run.sha}: ${run.url}\n\nRed jobs: ${verdict.jobs.map((job) => `\`${job}\``).join(", ")}.${since}`;
-
-      return newest === undefined
-        ? { kind: "open", body }
-        : { kind: "comment", issue: newest, body };
-    }
-
-    case "green":
-      if (head.kind !== "this") {
-        return {
-          kind: "none",
-          reason: `dev has moved past ${run.sha} to ${head.sha}: only a green run of the head closes the issue`,
-        };
-      }
-
-      return openIssues.length === 0
-        ? { kind: "none", reason: `dev is green at ${run.sha}, and no ${LABEL} issue is open` }
-        : {
-            kind: "close",
-            issues: openIssues,
-            comment: `CI's push run on \`dev\` is green at ${run.sha}: ${run.url}`,
-          };
-
-    case "unsettled":
-      return {
-        kind: "none",
-        reason: `neither red nor green at ${run.sha}: ${verdict.jobs.join(", ")}`,
-      };
   }
+
+  if (!RED.has(run.conclusion)) {
+    return {
+      kind: "none",
+      reason: `dev's head ${head} ended ${run.conclusion}, neither red nor green`,
+    };
+  }
+
+  if (issues.some((issue) => issue.texts.some((text) => text.includes(markerOf(head))))) {
+    return { kind: "none", reason: `dev's head ${head} is reported already` };
+  }
+
+  const body = `CI's push run on \`dev\` failed at ${head}: ${run.url}\n\nRed jobs: ${failedJobs.map((job) => `\`${job}\``).join(", ")}.\n\n${markerOf(head)}`;
+  const [newest] = issues;
+
+  return newest === undefined
+    ? { kind: "open", body }
+    : { kind: "comment", issue: newest.number, body };
 }
 
 function required(env: Env, name: string): string {
@@ -124,46 +97,55 @@ function required(env: Env, name: string): string {
   return value;
 }
 
-/** The workflow file a run's `GITHUB_WORKFLOW_REF` names: `ci.yml` in `o/r/.github/workflows/ci.yml@ref`. */
-export function workflowFileOf(workflowRef: string): string {
-  const file = /\/\.github\/workflows\/([^@/]+)@/u.exec(workflowRef)?.[1];
-
-  if (file === undefined)
-    throw new Error(`GITHUB_WORKFLOW_REF names no workflow file: ${workflowRef}`);
-
-  return file;
+interface RunJson {
+  id: number;
+  html_url: string;
+  conclusion: string;
 }
 
-async function headOf(gh: Gh, repo: string, workflow: string, sha: string): Promise<Head> {
+interface JobJson {
+  name: string;
+  conclusion: string | null;
+}
+
+interface IssueJson {
+  number: number;
+  body: string;
+  comments: { body: string }[];
+}
+
+async function observe(gh: Gh, repo: string, workflow: string): Promise<Observed> {
   const head = (await gh(["api", `repos/${repo}/commits/dev`, "--jq", ".sha"])).trim();
 
-  if (head === sha) return { kind: "this" };
+  const runs: RunJson[] = JSON.parse(
+    await gh([
+      "api",
+      `repos/${repo}/actions/workflows/${workflow}/runs?head_sha=${head}&event=push&status=completed&per_page=1`,
+      "--jq",
+      ".workflow_runs",
+    ]),
+  );
 
-  const greenRuns = await gh([
-    "api",
-    `repos/${repo}/actions/workflows/${workflow}/runs?head_sha=${head}&event=push&status=success&per_page=1`,
-    "--jq",
-    ".total_count",
-  ]);
+  const [newest] = runs;
 
-  return { kind: "newer", sha: head, green: Number(greenRuns) > 0 };
-}
+  const run =
+    newest === undefined
+      ? null
+      : { id: newest.id, url: newest.html_url, conclusion: newest.conclusion };
 
-/** Reads the run, settles what to do, does it with `gh`, and says what it did. */
-export async function report(env: Env, gh: Gh): Promise<string> {
-  const repo = required(env, "GITHUB_REPOSITORY");
-  const sha = required(env, "GITHUB_SHA");
+  const jobs: JobJson[] =
+    run !== null && RED.has(run.conclusion)
+      ? JSON.parse(
+          await gh([
+            "api",
+            `repos/${repo}/actions/runs/${run.id}/jobs?per_page=100`,
+            "--jq",
+            ".jobs",
+          ]),
+        )
+      : [];
 
-  const run: Run = {
-    sha,
-    url: `${required(env, "GITHUB_SERVER_URL")}/${repo}/actions/runs/${required(env, "GITHUB_RUN_ID")}`,
-  };
-
-  const verdict = verdictOf(parseNeeds(required(env, "NEEDS")));
-  const workflow = workflowFileOf(required(env, "GITHUB_WORKFLOW_REF"));
-  const head = await headOf(gh, repo, workflow, sha);
-
-  const listed: { number: number }[] = JSON.parse(
+  const listed: IssueJson[] = JSON.parse(
     await gh([
       "issue",
       "list",
@@ -174,16 +156,27 @@ export async function report(env: Env, gh: Gh): Promise<string> {
       "--state",
       "open",
       "--json",
-      "number",
+      "number,body,comments",
     ]),
   );
 
-  const action = plan(
-    verdict,
+  return {
     head,
-    listed.map((issue) => issue.number).toSorted((a, b) => b - a),
     run,
-  );
+    failedJobs: jobs.flatMap((job) => (job.conclusion === "failure" ? [job.name] : [])),
+    issues: listed
+      .toSorted((a, b) => b.number - a.number)
+      .map((issue) => ({
+        number: issue.number,
+        texts: [issue.body, ...issue.comments.map((comment) => comment.body)],
+      })),
+  };
+}
+
+/** Reads dev's head, settles what to do, does it with `gh`, and says what it did. */
+export async function report(env: Env, gh: Gh): Promise<string> {
+  const repo = required(env, "GITHUB_REPOSITORY");
+  const action = decide(await observe(gh, repo, required(env, "CI_WORKFLOW_ID")));
 
   switch (action.kind) {
     case "open": {
@@ -240,8 +233,9 @@ async function ghCli(args: readonly string[]): Promise<string> {
     child.exited,
   ]);
 
-  if (code !== 0)
+  if (code !== 0) {
     throw new Error(`gh ${args.slice(0, 2).join(" ")} exited ${code}: ${stderr.trim()}`);
+  }
 
   return stdout;
 }

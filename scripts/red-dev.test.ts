@@ -3,244 +3,250 @@ import { join } from "node:path";
 
 import { parse } from "yaml";
 
-import { type Gh, parseNeeds, plan, report, verdictOf, workflowFileOf } from "./red-dev.ts";
+import { decide, type Gh, markerOf, type Observed, report } from "./red-dev.ts";
 
-const RUN = { sha: "abc123", url: "https://github.com/o/r/actions/runs/7" };
+const RUN_A = { id: 1, url: "https://github.com/o/r/actions/runs/1", conclusion: "failure" };
 
-const THIS = { kind: "this" } as const;
-
-const results = (entries: Record<string, string>): ReadonlyMap<string, string> =>
-  new Map(Object.entries(entries));
-
-describe("parseNeeds", () => {
-  test("reads each job's result off toJSON(needs)", () => {
-    const json = JSON.stringify({
-      validate: { result: "failure", outputs: {} },
-      scope: { result: "skipped", outputs: { all: "" } },
-    });
-
-    expect([...parseNeeds(json)]).toEqual([
-      ["validate", "failure"],
-      ["scope", "skipped"],
-    ]);
-  });
+const observed = (fields: Partial<Observed>): Observed => ({
+  head: "aaa",
+  run: RUN_A,
+  failedJobs: ["validate"],
+  issues: [],
+  ...fields,
 });
 
-describe("verdictOf", () => {
-  test("red, naming each failed job, whatever the others say", () => {
-    expect(
-      verdictOf(results({ validate: "failure", win32: "cancelled", e2e: "skipped", w: "failure" })),
-    ).toEqual({ kind: "red", jobs: ["validate", "w"] });
-  });
-
-  test("green when every job passed or was skipped", () => {
-    expect(verdictOf(results({ validate: "success", e2e: "skipped" }))).toEqual({ kind: "green" });
-  });
-
-  test("unsettled when a job was cancelled and none failed", () => {
-    expect(verdictOf(results({ validate: "success", win32: "cancelled" }))).toEqual({
-      kind: "unsettled",
-      jobs: ["win32 cancelled"],
-    });
-  });
-});
-
-describe("plan", () => {
-  const red = { kind: "red", jobs: ["validate", "win32"] } as const;
-
-  test("a red run with no open issue opens one, naming the run and the red jobs", () => {
-    expect(plan(red, THIS, [], RUN)).toEqual({
+describe("decide", () => {
+  test("a red head with no open issue opens one, its body marked with the head", () => {
+    expect(decide(observed({ failedJobs: ["validate", "win32"] }))).toEqual({
       kind: "open",
-      body: "CI's push run on `dev` failed at abc123: https://github.com/o/r/actions/runs/7\n\nRed jobs: `validate`, `win32`.",
+      body: `CI's push run on \`dev\` failed at aaa: https://github.com/o/r/actions/runs/1\n\nRed jobs: \`validate\`, \`win32\`.\n\n${markerOf("aaa")}`,
     });
   });
 
-  test("a red run comments on the newest open issue", () => {
-    expect(plan(red, THIS, [12, 9], RUN)).toMatchObject({ kind: "comment", issue: 12 });
+  test("a red head comments on the newest open issue, once", () => {
+    const issues = [
+      { number: 12, texts: ["opened", markerOf("zzz")] },
+      { number: 9, texts: ["older"] },
+    ];
+
+    expect(decide(observed({ issues }))).toMatchObject({ kind: "comment", issue: 12 });
+
+    const reported = [{ number: 12, texts: ["opened", markerOf("aaa")] }];
+
+    expect(decide(observed({ issues: reported })).kind).toBe("none");
   });
 
-  test("a green run closes every open issue", () => {
-    expect(plan({ kind: "green" }, THIS, [12, 9], RUN)).toEqual({
+  test("a green head closes every open issue", () => {
+    const green = { ...RUN_A, conclusion: "success" };
+
+    const issues = [
+      { number: 12, texts: [] },
+      { number: 9, texts: [] },
+    ];
+
+    expect(decide(observed({ run: green, issues }))).toEqual({
       kind: "close",
       issues: [12, 9],
-      comment: "CI's push run on `dev` is green at abc123: https://github.com/o/r/actions/runs/7",
+      comment: "CI's push run on `dev` is green at aaa: https://github.com/o/r/actions/runs/1",
     });
   });
 
-  test("a red run dev has moved past reports it, saying where dev is, unless dev's head is green", () => {
-    expect(plan(red, { kind: "newer", sha: "def456", green: false }, [], RUN)).toMatchObject({
-      kind: "open",
-      body: expect.stringContaining("dev is at def456 since, with no green run yet."),
-    });
-    expect(plan(red, { kind: "newer", sha: "def456", green: true }, [12], RUN).kind).toBe("none");
-  });
+  test("a head with no completed run, or one neither red nor green, changes nothing", () => {
+    const issues = [{ number: 12, texts: [] }];
 
-  test("a green run dev has moved past closes nothing", () => {
-    expect(
-      plan({ kind: "green" }, { kind: "newer", sha: "def456", green: true }, [12], RUN).kind,
-    ).toBe("none");
-  });
-
-  test("a green run with no open issue, or an unsettled one, does nothing", () => {
-    expect(plan({ kind: "green" }, THIS, [], RUN).kind).toBe("none");
-    expect(plan({ kind: "unsettled", jobs: ["win32 cancelled"] }, THIS, [12], RUN).kind).toBe(
+    expect(decide(observed({ run: null, issues })).kind).toBe("none");
+    expect(decide(observed({ run: { ...RUN_A, conclusion: "cancelled" }, issues })).kind).toBe(
       "none",
     );
   });
+
+  test("a run that timed out or could not start is red", () => {
+    for (const conclusion of ["timed_out", "startup_failure"]) {
+      expect(decide(observed({ run: { ...RUN_A, conclusion } })).kind).toBe("open");
+    }
+  });
 });
 
-const env = (needs: Record<string, string>) => ({
-  GITHUB_REPOSITORY: "o/r",
-  GITHUB_SHA: "abc123",
-  GITHUB_SERVER_URL: "https://github.com",
-  GITHUB_RUN_ID: "7",
-  GITHUB_WORKFLOW_REF: "o/r/.github/workflows/ci.yml@refs/heads/dev",
-  NEEDS: JSON.stringify(
-    Object.fromEntries(Object.entries(needs).map(([job, result]) => [job, { result }])),
-  ),
-});
-
-function fakeGh(head: string, open: number[], headGreen = false) {
-  const calls: string[][] = [];
-
-  const gh: Gh = (args) => {
-    calls.push([...args]);
-
-    if (args[0] === "api" && args[1] === "repos/o/r/commits/dev") {
-      return Promise.resolve(`${head}\n`);
-    }
-
-    if (args[0] === "api" && args[1]?.startsWith("repos/o/r/actions/workflows/ci.yml/runs?")) {
-      return Promise.resolve(headGreen ? "1\n" : "0\n");
-    }
-
-    if (args[0] === "issue" && args[1] === "list") {
-      return Promise.resolve(JSON.stringify(open.map((number) => ({ number }))));
-    }
-
-    if (args[0] === "issue" && args[1] === "create") {
-      return Promise.resolve("https://github.com/o/r/issues/13\n");
-    }
-
-    return Promise.resolve("");
-  };
-
-  return { gh, calls };
+interface Issue {
+  number: number;
+  open: boolean;
+  body: string;
+  comments: string[];
 }
 
-test("the workflow file a run's GITHUB_WORKFLOW_REF names", () => {
-  expect(workflowFileOf("o/r/.github/workflows/ci.yml@refs/heads/dev")).toBe("ci.yml");
-});
+/** GitHub as red-dev sees it: dev's head, the CI push runs by commit, the issues. */
+function world(head: string) {
+  const issues: Issue[] = [];
 
-describe("report", () => {
-  test("a red run opens the issue under its label, which it creates or keeps", async () => {
-    const { gh, calls } = fakeGh("abc123", []);
+  const state = {
+    head,
+    runs: new Map<string, { id: number; html_url: string; conclusion: string }>(),
+    jobs: new Map<number, { name: string; conclusion: string }[]>(),
+    issues,
+  };
 
-    expect(await report(env({ validate: "failure" }), gh)).toBe(
-      "opened https://github.com/o/r/issues/13",
+  const gh: Gh = (args) => {
+    const [command, sub] = args;
+    const path = sub ?? "";
+
+    if (command === "api" && path === "repos/o/r/commits/dev") {
+      return Promise.resolve(`${state.head}\n`);
+    }
+
+    const runs =
+      /^repos\/o\/r\/actions\/workflows\/77\/runs\?head_sha=(\w+)&event=push&status=completed&per_page=1$/u.exec(
+        path,
+      );
+
+    if (command === "api" && runs !== null) {
+      const run = state.runs.get(runs[1] ?? "");
+
+      return Promise.resolve(JSON.stringify(run === undefined ? [] : [run]));
+    }
+
+    const jobs = /^repos\/o\/r\/actions\/runs\/(\d+)\/jobs\?per_page=100$/u.exec(path);
+
+    if (command === "api" && jobs !== null) {
+      return Promise.resolve(JSON.stringify(state.jobs.get(Number(jobs[1])) ?? []));
+    }
+
+    if (command === "issue" && sub === "list") {
+      const open = state.issues.filter((issue) => issue.open);
+
+      return Promise.resolve(
+        JSON.stringify(
+          open.map(({ number, body, comments }) => ({
+            number,
+            body,
+            comments: comments.map((text) => ({ body: text })),
+          })),
+        ),
+      );
+    }
+
+    if (command === "issue" && sub === "create") {
+      const body = args[args.indexOf("--body") + 1] ?? "";
+      const number = state.issues.length + 1;
+      state.issues.push({ number, open: true, body, comments: [] });
+
+      return Promise.resolve(`https://github.com/o/r/issues/${number}\n`);
+    }
+
+    if (command === "issue" && (sub === "comment" || sub === "close")) {
+      const issue = state.issues.find((found) => found.number === Number(args[2]));
+      const flag = sub === "comment" ? "--body" : "--comment";
+      issue?.comments.push(args[args.indexOf(flag) + 1] ?? "");
+
+      if (sub === "close" && issue !== undefined) issue.open = false;
+
+      return Promise.resolve("");
+    }
+
+    if (command === "label") return Promise.resolve("");
+
+    return Promise.reject(new Error(`unexpected gh ${args.join(" ")}`));
+  };
+
+  const ran = (sha: string, id: number, conclusion: string, failed: string[] = []): void => {
+    state.runs.set(sha, { id, html_url: `https://github.com/o/r/actions/runs/${id}`, conclusion });
+    state.jobs.set(
+      id,
+      failed.map((name) => ({ name, conclusion: "failure" })),
     );
-    expect(calls.map((call) => call.slice(0, 2))).toEqual([
-      ["api", "repos/o/r/commits/dev"],
-      ["issue", "list"],
-      ["label", "create"],
-      ["issue", "create"],
+  };
+
+  return { state, gh, ran };
+}
+
+const ENV = { GITHUB_REPOSITORY: "o/r", CI_WORKFLOW_ID: "77" };
+
+const markersIn = (issue: Issue): string[] =>
+  [issue.body, ...issue.comments].flatMap((text) => text.match(/<!-- red-dev:\w+ -->/gu) ?? []);
+
+describe("report, against a GitHub that moves under it", () => {
+  test("two red completions out of order: one issue, one report per commit", async () => {
+    const { state, gh, ran } = world("aaa");
+    ran("aaa", 1, "failure", ["validate"]);
+    await report(ENV, gh);
+
+    state.head = "bbb";
+    ran("bbb", 2, "failure", ["mutation"]);
+    // bbb's completion wakes red-dev, then aaa's, re-run, late.
+    await report(ENV, gh);
+    await report(ENV, gh);
+
+    expect(state.issues).toHaveLength(1);
+    expect(state.issues[0]?.open).toBe(true);
+    expect(state.issues.flatMap((issue) => markersIn(issue))).toEqual([
+      markerOf("aaa"),
+      markerOf("bbb"),
     ]);
-    expect(calls[3]).toContain("red-dev");
-    expect(calls[3]?.join(" ")).toContain(
-      "failed at abc123: https://github.com/o/r/actions/runs/7",
+    expect(state.issues[0]?.comments[0]).toContain("Red jobs: `mutation`.");
+  });
+
+  test("red then green out of order: the issue closes, and stays closed", async () => {
+    const { state, gh, ran } = world("aaa");
+    ran("aaa", 1, "failure", ["validate"]);
+    await report(ENV, gh);
+
+    state.head = "bbb";
+    ran("bbb", 2, "success");
+    await report(ENV, gh);
+    // aaa's red completion, late.
+    await report(ENV, gh);
+
+    expect(state.issues.map((issue) => issue.open)).toEqual([false]);
+    expect(state.issues[0]?.comments.at(-1)).toBe(
+      "CI's push run on `dev` is green at bbb: https://github.com/o/r/actions/runs/2",
     );
   });
 
-  test("a green run with no open issue says so and writes nothing", async () => {
-    const { gh, calls } = fakeGh("abc123", []);
+  test("a head CI has not completed changes nothing", async () => {
+    const { state, gh, ran } = world("aaa");
+    ran("aaa", 1, "failure", ["validate"]);
+    await report(ENV, gh);
 
-    expect(await report(env({ validate: "success" }), gh)).toBe(
-      "dev is green at abc123, and no red-dev issue is open",
+    state.head = "ccc";
+
+    expect(await report(ENV, gh)).toBe("dev's head ccc has no completed CI push run yet");
+    expect(state.issues.map((issue) => [issue.open, issue.comments.length])).toEqual([[true, 0]]);
+  });
+
+  test("refuses a run whose environment lacks a variable", async () => {
+    const { gh } = world("aaa");
+
+    await expect(report({ GITHUB_REPOSITORY: "o/r" }, gh)).rejects.toThrow(
+      "CI_WORKFLOW_ID is unset",
     );
-    expect(calls).toHaveLength(2);
-  });
-
-  test("refuses a run whose environment lacks a variable, or holds it empty", async () => {
-    const { gh } = fakeGh("abc123", []);
-    const { GITHUB_SHA: _, ...noSha } = env({ validate: "success" });
-
-    await expect(report(noSha, gh)).rejects.toThrow("GITHUB_SHA is unset");
-    await expect(report({ ...noSha, GITHUB_SHA: "" }, gh)).rejects.toThrow("GITHUB_SHA is unset");
-  });
-
-  test("a red run comments on the newest open issue", async () => {
-    const { gh, calls } = fakeGh("abc123", [9, 12]);
-
-    expect(await report(env({ validate: "failure" }), gh)).toBe("commented on #12");
-    expect(calls.at(-1)?.slice(0, 3)).toEqual(["issue", "comment", "12"]);
-  });
-
-  test("a green run closes each open issue", async () => {
-    const { gh, calls } = fakeGh("abc123", [9, 12]);
-
-    expect(await report(env({ validate: "success" }), gh)).toBe("closed #12, #9");
-    expect(calls.slice(2).map((call) => call.slice(0, 3))).toEqual([
-      ["issue", "close", "12"],
-      ["issue", "close", "9"],
-    ]);
-  });
-
-  test("a red run dev has moved past reports while dev's head has no green run", async () => {
-    const { gh, calls } = fakeGh("def456", []);
-
-    expect(await report(env({ validate: "failure" }), gh)).toBe(
-      "opened https://github.com/o/r/issues/13",
-    );
-    expect(calls[1]).toEqual([
-      "api",
-      "repos/o/r/actions/workflows/ci.yml/runs?head_sha=def456&event=push&status=success&per_page=1",
-      "--jq",
-      ".total_count",
-    ]);
-    expect(calls.at(-1)?.join(" ")).toContain("dev is at def456 since, with no green run yet.");
-  });
-
-  test("a red run dev has moved past to a head with a green run touches no issue", async () => {
-    const { gh, calls } = fakeGh("def456", [9], true);
-
-    expect(await report(env({ validate: "failure" }), gh)).toBe(
-      "dev's head def456 has a green run already, after this red one at abc123",
-    );
-    expect(calls.map((call) => call[0])).toEqual(["api", "api", "issue"]);
-  });
-
-  test("a green run dev has moved past closes nothing: only the head's run does", async () => {
-    const { gh, calls } = fakeGh("def456", [9]);
-
-    expect(await report(env({ validate: "success" }), gh)).toBe(
-      "dev has moved past abc123 to def456: only a green run of the head closes the issue",
-    );
-    expect(calls.some((call) => call[1] === "close")).toBe(false);
-  });
-
-  test("refuses a workflow ref it cannot read the workflow file from", async () => {
-    const { gh } = fakeGh("def456", []);
-
-    await expect(
-      report({ ...env({ validate: "failure" }), GITHUB_WORKFLOW_REF: "o/r@refs/heads/dev" }, gh),
-    ).rejects.toThrow("GITHUB_WORKFLOW_REF names no workflow file: o/r@refs/heads/dev");
   });
 });
 
 interface Workflow {
-  jobs: Record<string, { needs?: string[]; if?: string; permissions?: Record<string, string> }>;
+  on?: { workflow_run?: { workflows?: string[]; types?: string[]; branches?: string[] } };
+  concurrency?: { group?: string; "cancel-in-progress"?: boolean };
+  jobs: Record<
+    string,
+    { permissions?: Record<string, string>; steps?: { env?: Record<string, string> }[] }
+  >;
 }
 
-test("ci.yml's red-dev job waits for every other job, on a push to dev alone", async () => {
-  const source = await Bun.file(join(import.meta.dir, "../.github/workflows/ci.yml")).text();
-  const { jobs }: Workflow = parse(source);
-  const job = jobs["red-dev"];
+const workflowAt = async (path: string): Promise<Workflow> =>
+  parse(await Bun.file(join(import.meta.dir, "..", path)).text());
 
-  expect(job?.needs?.toSorted()).toEqual(
-    Object.keys(jobs)
-      .filter((name) => name !== "red-dev")
-      .toSorted(),
-  );
-  expect(job?.if).toContain("github.ref == 'refs/heads/dev'");
-  expect(job?.permissions).toEqual({ actions: "read", contents: "read", issues: "write" });
+test("red-dev.yml wakes on each CI run completed on dev, one run at a time", async () => {
+  const workflow = await workflowAt(".github/workflows/red-dev.yml");
+
+  expect(workflow.on).toEqual({
+    workflow_run: { workflows: ["CI"], types: ["completed"], branches: ["dev"] },
+  });
+  expect(workflow.concurrency).toEqual({ group: "red-dev", "cancel-in-progress": false });
+  expect(workflow.jobs["red-dev"]?.permissions).toEqual({
+    actions: "read",
+    contents: "read",
+    issues: "write",
+  });
+});
+
+test("ci.yml carries no red-dev job", async () => {
+  expect(Object.keys((await workflowAt(".github/workflows/ci.yml")).jobs)).not.toContain("red-dev");
 });
