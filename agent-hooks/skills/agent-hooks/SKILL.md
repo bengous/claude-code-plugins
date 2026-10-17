@@ -64,14 +64,16 @@ Exit 1 means at least one `MISSING` or a failing lane.
 of the agent and the user, from the Claude Code transcripts under `$CLAUDE_CONFIG_DIR/projects` (default
 `~/.claude/projects`), each subagent's included, written in the window. A transcript counts when one of its
 cwds lies under a root holding `.claude/agent-hooks.jsonc`, looked up now: a removed worktree counts for
-the root above it. It prints aggregates only, never a line of a transcript:
+the root above it, and the landing guard's refusals in a repository without that file are not counted. It
+prints aggregates only, never a line of a transcript:
 
 - per hook event and channel, the count and characters of `additionalContext` and block reasons, which
   reach the agent's context, and of `systemMessage`, which Claude Code shows the user;
 - the kit's Stops and SubagentStops that passed, blocked, were cancelled or errored;
 - per lane, the Stop reports that carried a section of it and its characters, read in the shape the kit
-  writes a report: its header line, then `### <lane>` or `### <lane> [<pkg>]` after a blank line; the
-  header, a nested root's label, the instruction and the kit's own lines go to `(no lane)`.
+  writes a report: its header line, then `### <lane>` or `### <lane> [<pkg>]` after a blank line, up to
+  the section's own blank line (the kit drops the blank lines of a lane's output); the header, a nested
+  root's label, the instruction and the kit's own lines outside a section go to `(no lane)`.
 
 Each output is read once, from the one record Claude Code writes for it that names the hook, as measured
 on the local transcripts (Claude Code 2.1, the 30 days to 2026-10-17): a hook's stdout in its

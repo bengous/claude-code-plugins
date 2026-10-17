@@ -97,10 +97,10 @@ const LEGEND =
  * a link to it, or a status message of the plugin's `hooks.json`, which Claude Code records in place of the command.
  */
 export function kitCommands(): KitCommand {
-  const subcommands = [...HOOK_KINDS, "pre-bash"].join("|");
+  const subcommands = [...HOOK_KINDS, "pre-bash", "session-end"].join("|");
 
   const invocation = new RegExp(
-    String.raw`(?:^|[\s/"'])agent-hooks(?:\.ts)?["']?\s+(?:${subcommands})(?=\s|$)`,
+    String.raw`(?:^|[\s/\\"'])agent-hooks(?:\.ts)?["']?\s+(?:${subcommands})(?=\s|$)`,
     "u",
   );
 
@@ -261,9 +261,10 @@ function denialsOf(value: Record<string, unknown>): Injection[] {
 
 /**
  * The characters of a Stop report per lane, read in the shape `formatReport` writes: a header line, then sections
- * joined by a blank line, each opening with `### <lane>` or `### <lane> [<pkg>]`. A section runs to the next heading,
- * the next report's root label or header, or the next line of the kit's own; the rest goes to NO_LANE. The shares
- * sum to the text's length.
+ * joined by a blank line, each opening with `### <lane>` or `### <lane> [<pkg>]`. A lane's output holds no blank line
+ * (`tail` drops them), so a section runs to its blank line, or to the next report's root label or header when notes
+ * are joined line by line; the rest goes to NO_LANE, and the instruction or a line of the kit's own outside a section
+ * ends the report. The shares sum to the text's length.
  */
 export function laneShares(text: string): Map<string, number> {
   const shares = new Map<string, number>();
@@ -277,15 +278,16 @@ export function laneShares(text: string): Map<string, number> {
     if (REPORT_HEADER_LINES.has(line)) {
       inReport = true;
       lane = NO_LANE;
-    } else if (heading !== undefined) {
+    } else if (heading === undefined) {
+      if (lines[index - 1] === "" || REPORT_HEADER_LINES.has(lines[index + 1] ?? "")) {
+        lane = NO_LANE;
+      }
+
+      if (lane === NO_LANE && (line === FIX_INSTRUCTION || line.startsWith("agent-hooks: "))) {
+        inReport = false;
+      }
+    } else {
       lane = heading;
-    } else if (
-      line === FIX_INSTRUCTION ||
-      line.startsWith("agent-hooks: ") ||
-      REPORT_HEADER_LINES.has(lines[index + 1] ?? "")
-    ) {
-      inReport = false;
-      lane = NO_LANE;
     }
 
     shares.set(lane, (shares.get(lane) ?? 0) + line.length + (index < lines.length - 1 ? 1 : 0));
@@ -369,14 +371,21 @@ function linesOf(file: string): AsyncIterable<string> {
   return createInterface({ input: createReadStream(file), crlfDelay: Number.POSITIVE_INFINITY });
 }
 
-/** Every `.jsonl` under the projects directory, at any depth, last written at `since` or later. */
+/**
+ * Every `.jsonl` under the projects directory, at any depth, last written at `since` or later; one removed since the
+ * scan listed it is left out.
+ */
 function transcriptFiles(projectsDir: string, since: number): string[] {
   if (!existsSync(projectsDir)) {
     return [];
   }
 
   return [...new Bun.Glob("**/*.jsonl").scanSync({ cwd: projectsDir, absolute: true })].filter(
-    (file) => statSync(file).mtimeMs >= since,
+    (file) => {
+      const stat = statSync(file, { throwIfNoEntry: false });
+
+      return stat !== undefined && stat.mtimeMs >= since;
+    },
   );
 }
 
@@ -414,7 +423,6 @@ function plural(count: number, noun: string): string {
   return `${count} ${noun}${count === 1 ? "" : "s"}`;
 }
 
-/** Columns two spaces apart, the last two right-aligned: they hold the numbers. */
 function table(header: readonly string[], rows: readonly (readonly string[])[]): string[] {
   const widths = header.map((title, column) =>
     Math.max(title.length, ...rows.map((row) => row[column]?.length ?? 0)),

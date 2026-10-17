@@ -216,6 +216,8 @@ describe("kitCommands", () => {
     expect(kit(KIT_STOP)).toBeTrue();
     expect(kit(KIT_PRE_EDIT)).toBeTrue();
     expect(kit('bun "${CLAUDE_PLUGIN_ROOT}/agent-hooks.ts" pre-bash')).toBeTrue();
+    expect(kit('bun "${CLAUDE_PLUGIN_ROOT}/agent-hooks.ts" session-end')).toBeTrue();
+    expect(kit(String.raw`bun "C:\plugins\agent-hooks\agent-hooks.ts" stop`)).toBeTrue();
     expect(kit("~/.local/bin/agent-hooks stop --harness codex")).toBeTrue();
     expect(
       kit('bun "$CLAUDE_PROJECT_DIR"/scripts/agent-hooks/cli.ts claude guardDestructive'),
@@ -258,6 +260,48 @@ describe("laneShares, the kit's report format", () => {
 
     expect(laneShares(text).get("lint")).toBe("### lint\nout\n### not a heading\n\n".length);
     expect(laneShares(text).has("not a heading")).toBeFalse();
+  });
+
+  test("a lane's output line of the kit's own form stays with the lane, and the later lanes keep theirs", () => {
+    const text = [
+      "Stop validation failed:",
+      "",
+      "### gates",
+      "agent-hooks: heartbeat not saved: EACCES",
+      "1 fail",
+      "",
+      "### docs",
+      "a.md",
+      "",
+      "Fix the errors above before stopping.",
+    ].join("\n");
+
+    expect(laneShares(text)).toEqual(
+      new Map([
+        [
+          "(no lane)",
+          "Stop validation failed:\n\n".length + "Fix the errors above before stopping.".length,
+        ],
+        ["gates", "### gates\nagent-hooks: heartbeat not saved: EACCES\n1 fail\n\n".length],
+        ["docs", "### docs\na.md\n\n".length],
+      ]),
+    );
+  });
+
+  test("a section ends at its blank line: a lane's output holds none", () => {
+    const text = [
+      "Stop validation failed:",
+      "",
+      "### lint",
+      "x",
+      "",
+      "/r/b:",
+      "agent-hooks: /r/b/.claude/agent-hooks.jsonc: stop: unknown key",
+      "",
+      "Fix the errors above before stopping.",
+    ].join("\n");
+
+    expect(laneShares(text).get("lint")).toBe("### lint\nx\n\n".length);
   });
 
   test("a `### ` line outside a report is no lane", () => {
@@ -372,6 +416,28 @@ describe("measureNoise", () => {
       expect(reads.mock.calls.map(([read]) => read)).not.toContain(file);
     } finally {
       reads.mockRestore();
+    }
+  });
+
+  test("skips a transcript removed while the projects directory is scanned", async () => {
+    transcript("-root/s1.jsonl", [prompt(root), success("Stop", KIT_STOP, "", root)]);
+    const removed = transcript("-root/s2.jsonl", [prompt(root)]);
+    const { statSync } = fs;
+
+    // SAFETY: the stand-in forwards its arguments to statSync unchanged, so it returns what each overload does.
+    const stats = spyOn(fs, "statSync").mockImplementation(((
+      file: fs.PathLike,
+      options?: fs.StatSyncOptions,
+    ) => {
+      rmSync(removed, { force: true });
+
+      return statSync(file, options);
+    }) as typeof fs.statSync);
+
+    try {
+      expect((await measureNoise({ projectsDir: projects, days: 7, now: NOW })).read).toBe(1);
+    } finally {
+      stats.mockRestore();
     }
   });
 
