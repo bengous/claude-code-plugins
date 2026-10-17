@@ -34,7 +34,7 @@ const HELD_RETRY_STEP_MS = 100;
 
 const HELD_CODES: ReadonlySet<unknown> = new Set(["EBUSY", "EPERM", "EACCES"]);
 
-function isHeld(cause: unknown): boolean {
+export function isHeld(cause: unknown): boolean {
   return (
     process.platform === "win32" &&
     cause instanceof Error &&

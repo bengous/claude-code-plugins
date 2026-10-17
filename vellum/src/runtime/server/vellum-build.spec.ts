@@ -4,6 +4,7 @@ import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+import { isHeld } from "./fs.ts";
 import { readVellumBuild } from "./vellum-build.ts";
 
 const SHA = "0f9634d417d4307b2b8e3f63829899ea691bdd6e";
@@ -12,14 +13,11 @@ const KEPT = process.env["CLAUDE_CONFIG_DIR"];
 
 const bases: string[] = [];
 
-/** What Windows answers a removal while a process still holds a file of the folder. */
-const HELD = new Set(["EBUSY", "EPERM", "ENOTEMPTY"]);
-
 const REMOVE_ATTEMPTS = 20;
 
 /**
- * Removes the folder, again every 100 ms while Windows says it is held: a `git` the runner killed
- * as the test ran out of time still holds its `.git` a moment after.
+ * Removes the folder, again every 100 ms while Windows says a program holds it (`isHeld`): a `git`
+ * the runner killed as the test ran out of time still held its `.git` (EBUSY, job 117230466676).
  */
 async function remove(path: string): Promise<void> {
   for (let attempt = 1; ; attempt += 1) {
@@ -28,9 +26,7 @@ async function remove(path: string): Promise<void> {
 
       return;
     } catch (cause) {
-      const held = cause instanceof Error && "code" in cause && HELD.has(String(cause.code));
-
-      if (!held || attempt === REMOVE_ATTEMPTS) throw cause;
+      if (!isHeld(cause) || attempt === REMOVE_ATTEMPTS) throw cause;
       await Bun.sleep(100);
     }
   }
@@ -40,7 +36,12 @@ afterEach(async () => {
   if (KEPT === undefined) delete process.env["CLAUDE_CONFIG_DIR"];
   else process.env["CLAUDE_CONFIG_DIR"] = KEPT;
 
-  for (const base of bases.splice(0)) await remove(base);
+  const failures: unknown[] = [];
+
+  for (const base of bases.splice(0))
+    await remove(base).catch((cause: unknown) => failures.push(cause));
+
+  if (failures.length > 0) throw new AggregateError(failures, "a test folder was not removed");
 });
 
 function git(cwd: string, ...args: string[]): string {
