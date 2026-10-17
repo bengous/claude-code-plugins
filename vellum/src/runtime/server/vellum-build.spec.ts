@@ -115,6 +115,7 @@ describe("readVellumBuild", () => {
     expect(!built.ok && built.error).toContain("installed_plugins.json: no entry");
   });
 
+  // It runs `git` in a repository of its own, and process starts are slow on the Windows runner.
   test("a repository around the copy that does not track it gives no commit", async () => {
     const { base, root } = installed(WITHOUT_SHA);
     git(base, "init", "-q");
@@ -132,5 +133,5 @@ describe("readVellumBuild", () => {
     );
 
     expect((await readVellumBuild(root)).ok).toBe(false);
-  });
+  }, 15_000);
 });

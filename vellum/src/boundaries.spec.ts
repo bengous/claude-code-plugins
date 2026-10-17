@@ -326,6 +326,8 @@ describe("dependency direction", () => {
 });
 
 describe("the page without a browser", () => {
+  // A `bun` started to import every module of the page, React's included, took past bun's default
+  // 5 s on a cold Windows runner beside the other suites.
   test("every module of the page, of the review and of the parts imports with no window: a browser read waits for a call", async () => {
     const modules = [
       ...sources("src/runtime/page"),
@@ -334,7 +336,7 @@ describe("the page without a browser", () => {
     ].filter((file) => !BROWSER_ENTRIES.includes(short(file)));
 
     expect(await failingBareImports(modules)).toEqual([]);
-  });
+  }, 20_000);
 });
 
 describe("parts", () => {

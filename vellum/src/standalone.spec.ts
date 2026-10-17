@@ -50,10 +50,11 @@ async function pageServedFrom(plugin: string): Promise<Response> {
 }
 
 describe("the plugin alone", () => {
+  // It copies the plugin, starts `bun` there and builds the page: slow on the Windows runner.
   test("a copy of the folder outside any repository builds and serves its page", async () => {
     const page = await pageServedFrom(pluginCopy());
 
     expect(page.status).toBe(200);
     expect(await page.text()).toContain('<div id="root">');
-  });
+  }, 15_000);
 });
