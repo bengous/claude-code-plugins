@@ -92,7 +92,21 @@ describe("parseLine splits a line into simple commands", () => {
       ["git", "commit", "-F", "-"],
       ["git", "log"],
     ]);
-    expect(commit?.heredocs).toEqual([{ start: 24, end: 45 }]);
+    expect(commit?.heredocs).toEqual([{ start: 24, end: 45, expands: false }]);
+  });
+
+  test("marks the body of a heredoc whose delimiter is not quoted as expanding", () => {
+    const [cat] = commandsOf(parseLine("cat <<EOF\n$(date)\nEOF"));
+
+    expect(cat?.heredocs).toEqual([{ start: 10, end: 18, expands: true }]);
+  });
+
+  test("records how each command is joined, and the list it belongs to", () => {
+    const commands = commandsOf(parseLine("a && b || c | d; e"));
+
+    expect(commands.map((command) => command.join)).toEqual([null, "&&", "||", "|", null]);
+    expect(new Set(commands.slice(0, 4).map((command) => command.list)).size).toBe(1);
+    expect(commands[4]?.list).not.toBe(commands[0]?.list);
   });
 
   test("reads a <<- heredoc whose delimiter is indented with tabs", () => {

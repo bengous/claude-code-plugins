@@ -15,12 +15,21 @@ export type Word = {
   readonly expands: boolean;
 };
 
+/** A heredoc body; with an unquoted delimiter, Bash expands `$…`, `$(…)` and backticks in it. */
+export type Heredoc = Span & { readonly expands: boolean };
+
+/** How a command is joined to the one before it in its list: `&&`, `||`, a pipe, or nothing (the list starts). */
+export type Join = "&&" | "||" | "|" | null;
+
 /** A simple command as written: its words, the heredoc bodies it reads, how it is wired. */
 export type Command = {
   readonly words: readonly Word[];
-  readonly heredocs: readonly Span[];
+  readonly heredocs: readonly Heredoc[];
   /** Joined to the command before it by a pipe: it reads that command's output. */
   readonly piped: boolean;
+  readonly join: Join;
+  /** The list it belongs to: commands up to a `;`, a newline, a `&` or a parenthesis share one. */
+  readonly list: number;
   /** Inside `$(…)`, backticks or `<(…)`. */
   readonly substitution: boolean;
 };
@@ -183,16 +192,25 @@ const WRAPPERS: ReadonlyMap<string, Wrapper> = new Map<string, Wrapper>([
 
 type Builder = {
   words: Word[];
-  heredocs: Span[];
+  heredocs: Heredoc[];
   piped: boolean;
+  join: Join;
+  list: number;
   substitution: boolean;
 };
+
+/** What ends a command: a pipe, `&&`, `||`, or the end of its list. */
+type Link = "pipe" | "and" | "or" | "list";
+
+const JOIN_OF: Readonly<Record<Link, Join>> = { pipe: "|", and: "&&", or: "||", list: null };
 
 type Redirection = { readonly end: number; readonly dropsWord: boolean };
 
 type PendingHeredoc = {
   readonly delimiter: string;
   readonly stripTabs: boolean;
+  /** A quote or a backslash in the delimiter keeps Bash from expanding the body. */
+  readonly quoted: boolean;
   readonly owner: Builder;
 };
 
@@ -204,6 +222,7 @@ type Scanner = {
   readonly script: string;
   readonly inert: Span[];
   definesFunction: boolean;
+  lists: number;
 };
 
 type OptionRead = {
@@ -212,8 +231,8 @@ type OptionRead = {
   readonly width: number;
 };
 
-function builder(substitution: boolean): Builder {
-  return { words: [], heredocs: [], piped: false, substitution };
+function builder(substitution: boolean, list: number): Builder {
+  return { words: [], heredocs: [], piped: false, join: null, list, substitution };
 }
 
 /**
@@ -224,7 +243,8 @@ function scan(scanner: Scanner, start: number, closer: ")" | "`" | null): Scan {
   const { script } = scanner;
   const items: Item[] = [];
   const heredocs: PendingHeredoc[] = [];
-  let current = builder(closer !== null);
+  scanner.lists += 1;
+  let current = builder(closer !== null, scanner.lists);
   let word: WordState | null = null;
   let dropNextWord = false;
   let commandStart = 0;
@@ -254,7 +274,7 @@ function scan(scanner: Scanner, start: number, closer: ")" | "`" | null): Scan {
     word = null;
   };
 
-  const flush = (at: number, piped: boolean): void => {
+  const flush = (at: number, link: Link): void => {
     endWord(at);
 
     if (current.words.length > 0 || current.heredocs.length > 0) {
@@ -265,8 +285,14 @@ function scan(scanner: Scanner, start: number, closer: ")" | "`" | null): Scan {
       items.push({ kind: "command", command: current });
     }
 
-    current = builder(closer !== null);
-    current.piped = piped;
+    if (link === "list") {
+      scanner.lists += 1;
+    }
+
+    const list = link === "list" ? scanner.lists : current.list;
+    current = builder(closer !== null, list);
+    current.piped = link === "pipe";
+    current.join = JOIN_OF[link];
     commandStart = items.length;
   };
 
@@ -317,13 +343,13 @@ function scan(scanner: Scanner, start: number, closer: ")" | "`" | null): Scan {
     const next = script[index + 1] ?? "";
 
     if (closer === "`" && char === "`") {
-      flush(index, false);
+      flush(index, "list");
 
       return { items, end: index };
     }
 
     if (closer === ")" && char === ")" && depth === 0) {
-      flush(index, false);
+      flush(index, "list");
 
       return { items, end: index };
     }
@@ -359,7 +385,7 @@ function scan(scanner: Scanner, start: number, closer: ")" | "`" | null): Scan {
       scanner.inert.push({ start: index, end });
       index = end;
     } else if (char === "\n") {
-      flush(index, false);
+      flush(index, "list");
       index = skipHeredocs(script, index + 1, heredocs.splice(0));
     } else if (char === " " || char === "\t" || char === "\r") {
       endWord(index);
@@ -382,23 +408,24 @@ function scan(scanner: Scanner, start: number, closer: ")" | "`" | null): Scan {
         scanner.definesFunction = true;
       }
 
-      flush(index, false);
+      flush(index, "list");
       items.push({ kind: "open" });
       commandStart = items.length;
       depth += 1;
       index += 1;
     } else if (char === ")") {
-      flush(index, false);
+      flush(index, "list");
       items.push({ kind: "close" });
       commandStart = items.length;
       depth = Math.max(0, depth - 1);
       index += 1;
     } else if (char === "|" && next !== "|") {
-      flush(index, true);
+      flush(index, "pipe");
       index += next === "&" ? 2 : 1;
     } else if (char === ";" || char === "|" || char === "&") {
-      flush(index, false);
-      index += (char === "|" || char === "&") && next === char ? 2 : 1;
+      const doubled = (char === "|" || char === "&") && next === char;
+      flush(index, doubled ? (char === "&" ? "and" : "or") : "list");
+      index += doubled ? 2 : 1;
     } else {
       const state = wordAt(index);
       state.expands ||= EXPANSION.test(script.slice(index, index + 2));
@@ -407,7 +434,7 @@ function scan(scanner: Scanner, start: number, closer: ")" | "`" | null): Scan {
     }
   }
 
-  flush(script.length, false);
+  flush(script.length, "list");
 
   return { items, end: script.length };
 }
@@ -479,18 +506,21 @@ function redirection(
     }
 
     let delimiter = "";
+    let quoted = false;
 
     while (index < script.length && !/[\s;&|<>()]/u.test(script[index] ?? "")) {
       const char = script[index] ?? "";
 
-      if (char !== "'" && char !== '"' && char !== "\\") {
+      if (char === "'" || char === '"' || char === "\\") {
+        quoted = true;
+      } else {
         delimiter += char;
       }
 
       index += 1;
     }
 
-    heredocs.push({ delimiter, stripTabs, owner });
+    heredocs.push({ delimiter, stripTabs, quoted, owner });
 
     return { end: index, dropsWord: false };
   }
@@ -524,7 +554,11 @@ function skipHeredocs(script: string, start: number, heredocs: readonly PendingH
       index = end + 1;
     }
 
-    heredoc.owner.heredocs.push({ start: bodyStart, end: Math.min(bodyEnd, script.length) });
+    heredoc.owner.heredocs.push({
+      start: bodyStart,
+      end: Math.min(bodyEnd, script.length),
+      expands: !heredoc.quoted,
+    });
   }
 
   return index;
@@ -532,7 +566,7 @@ function skipHeredocs(script: string, start: number, heredocs: readonly PendingH
 
 /** Reads `script` as Bash splits it, without running anything: no expansion, no file read. */
 export function parseLine(script: string): Line {
-  const scanner: Scanner = { script, inert: [], definesFunction: false };
+  const scanner: Scanner = { script, inert: [], definesFunction: false, lists: 0 };
   const { items } = scan(scanner, 0, null);
 
   return { items, inert: scanner.inert, definesFunction: scanner.definesFunction };

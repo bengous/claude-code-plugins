@@ -7,6 +7,8 @@ export type GitCommand = {
   readonly location: readonly string[];
   /** The aliases its `-c alias.<name>=…` options define. */
   readonly inlineAliases: readonly string[];
+  /** The configuration keys its `-c` options set. */
+  readonly configs: readonly string[];
   readonly subcommand: string;
   /** Where the subcommand stands in argv. */
   readonly index: number;
@@ -313,6 +315,7 @@ export function gitCommandOf(argv: readonly string[]): GitCommand | null {
 
   const location: string[] = [];
   const inlineAliases: string[] = [];
+  const configs: string[] = [];
 
   for (let index = 0; index < rest.length; index += 1) {
     const word = rest[index] ?? "";
@@ -321,6 +324,7 @@ export function gitCommandOf(argv: readonly string[]): GitCommand | null {
       return {
         location,
         inlineAliases,
+        configs,
         subcommand: word,
         index: index + 1,
         args: rest.slice(index + 1),
@@ -333,6 +337,10 @@ export function gitCommandOf(argv: readonly string[]): GitCommand | null {
 
     if (value !== undefined && GIT_LOCATING_OPTIONS.has(name)) {
       location.push(name, value);
+    }
+
+    if (name === "-c" && value !== undefined) {
+      configs.push(value.split("=")[0] ?? "");
     }
 
     const alias = name === "-c" ? /^alias\.([^=]+)=/u.exec(value ?? "")?.[1] : undefined;

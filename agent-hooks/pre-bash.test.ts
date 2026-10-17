@@ -584,6 +584,17 @@ describe("pre-bash refuses every door it cannot resolve, naming the explicit for
     ["perl -e 'print `git push origin main`'", UNRESOLVED_PUSH],
     ["ruby -e 'system(\"git push origin main\")'", UNRESOLVED_PUSH],
     ["bun - <<'EOF'\nawait Bun.$`git push origin main`;\nEOF", UNRESOLVED_PUSH],
+    ["git -c user.name=bot \\\n  push --force origin dev", "never targets 'dev'"],
+    ['git -C "$(git rev-parse --show-toplevel)" push origin main', UNRESOLVED_PUSH],
+    ['git -c "user.name=$(whoami)" push --force origin dev', UNRESOLVED_PUSH],
+    ['gh -R "$(gh repo view --json nameWithOwner -q .nameWithOwner)" pr merge 7', UNRESOLVED_MERGE],
+    ["git rebase origin/dev main && git push origin HEAD", UNRESOLVED_PUSH],
+    ["cat <<EOF\n$(git push origin main)\nEOF", UNRESOLVED_PUSH],
+    ['B=feature/x; for B in main; do git push origin "$B"; done', UNRESOLVED_PUSH],
+    ['B=feature/x; read -r B <<< main; git push origin "$B"', UNRESOLVED_PUSH],
+    ['B=main; [ -n "$CI" ] && B=feature/x; git push origin "$B"', UNRESOLVED_PUSH],
+    ['[ -n "$CI" ] && B=feature/x; git push origin "$B"', UNRESOLVED_PUSH],
+    ["git -c remote.origin.push=HEAD:refs/heads/main push", UNRESOLVED_PUSH],
     ["flock /tmp/land.lock -c 'git push origin main'", UNRESOLVED_PUSH],
     ["flock -c 'git push origin main' /tmp/land.lock", UNRESOLVED_PUSH],
     ["echo main | xargs -I{} sh -c 'git push origin {}'", UNRESOLVED_PUSH],
@@ -599,6 +610,17 @@ describe("pre-bash refuses every door it cannot resolve, naming the explicit for
 
     expect(output.decision).toBe("deny");
     expect(output.reason).toContain(expected);
+  });
+
+  test("joins a line continuation before it looks for a door", async () => {
+    expect((await preBash(`git -C ${repo} \\\n  push origin main`, temp.dir)).reason).toContain(
+      RELEASE_PUSH,
+    );
+
+    fakeGh({ pr: { ...GREEN_PR, baseRefName: "main" }, checks: GREEN_CHECKS });
+    expect((await preBash("gh pr \\\n  merge 7 --squash", repo)).reason).toContain(
+      "#7 merges into 'main', the release",
+    );
   });
 
   test.each([["gh -R o/n pr merge 7 --squash"], ["gh pr -R o/n merge 7 --squash"]])(
@@ -746,6 +768,13 @@ describe("pre-bash lets the forms an agent ordinarily writes through", () => {
     "gh pr view 7 --json mergeable,mergeStateStatus",
   ])("allows %j", async (command) => {
     expect((await preBash(command, repo)).stdout).toBe("");
+  });
+
+  test("follows a variable assigned once, unconditionally or along an && chain", async () => {
+    expect((await preBash('S=feature/x && git push origin "$S"', repo)).stdout).toBe("");
+    expect(
+      (await preBash(`cd ${repo} && B=feature/x && git push origin "$B"`, temp.dir)).stdout,
+    ).toBe("");
   });
 
   test("allows a push from another directory through cd, -C or a variable the line assigns", async () => {

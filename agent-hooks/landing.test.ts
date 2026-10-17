@@ -79,6 +79,7 @@ describe("gitCommandOf", () => {
     expect(gitCommandOf(["git", "commit", "-m", "x"])).toEqual({
       location: [],
       inlineAliases: [],
+      configs: [],
       subcommand: "commit",
       index: 1,
       args: ["-m", "x"],
@@ -100,6 +101,7 @@ describe("gitCommandOf", () => {
     ).toEqual({
       location: ["-C", "/tmp/foo"],
       inlineAliases: [],
+      configs: ["user.name"],
       subcommand: "push",
       index: 7,
       args: [],

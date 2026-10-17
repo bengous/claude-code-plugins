@@ -23,7 +23,7 @@ import {
   releaseScriptOf,
 } from "./landing.ts";
 import type { Command, Line, Span, Unwrapped, Word } from "./shell.ts";
-import { parseLine, unwrap } from "./shell.ts";
+import { commandsOf, parseLine, unwrap } from "./shell.ts";
 
 /** Where the raw text of a line names a door, before any parsing. */
 export type Mention = {
@@ -103,7 +103,8 @@ type Rule = { readonly kind: DoorKind; readonly pattern: RegExp; readonly needs:
 
 const INERT: Classification = { kind: "inert" };
 
-const BOUNDARY = /[;&|\n()`]/u;
+/** What ends a stretch of the line for detection; parentheses and backticks do not, so `git -C "$(…)" push` is one. */
+const BOUNDARY = /[;&|\n]/u;
 
 const GIT = /(?<![\w.-])git(?![\w.-])/u;
 
@@ -371,7 +372,10 @@ function segmentBefore(script: string, at: number): string {
  * repository has a landing profile, a package script that opens a door after a package manager. Quotes and
  * comments do not hide a mention: the parser decides what each one is.
  */
-export function findMentions(script: string, vocabulary: Vocabulary): Mention[] {
+export function findMentions(raw: string, vocabulary: Vocabulary): Mention[] {
+  // A line continuation joins two lines into one command; two spaces keep every offset where the parser puts it.
+  const script = raw.replaceAll("\\\n", "  ");
+
   const rules: Rule[] = [
     { kind: "push", pattern: PUSH, needs: GIT },
     ...[...vocabulary.gitAliases].map((alias): Rule => ({
@@ -449,8 +453,11 @@ type Scope = {
   dir: string | null;
   lost: string | null;
   chain: Command[];
-  readonly vars: Map<string, string>;
+  readonly vars: Map<string, Binding>;
 };
+
+/** A literal value the line assigned; `list` set when it holds only along the `&&` chain that assigned it. */
+type Binding = { readonly value: string; readonly list: number | null };
 
 const VARIABLE = /\$(?:\{(\w+)\}|(\w+))/gu;
 
@@ -479,26 +486,132 @@ function substituted(word: Word, vars: ReadonlyMap<string, string>, dir: string 
 }
 
 function substitutedAll(words: readonly Word[], scope: Scope): Word[] {
-  return words.map((word) => substituted(word, scope.vars, scope.dir));
+  const values = new Map([...scope.vars].map(([name, binding]) => [name, binding.value]));
+
+  return words.map((word) => substituted(word, values, scope.dir));
+}
+
+/**
+ * Forgets what no longer holds for `command`: a binding of another `&&` chain, or of this one once `||` broke it.
+ * A binding made at the head of its list holds for the rest of the line.
+ */
+function prune(vars: Map<string, Binding>, command: Command): void {
+  for (const [name, binding] of vars) {
+    if (binding.list !== null && (binding.list !== command.list || command.join === "||")) {
+      vars.delete(name);
+    }
+  }
+}
+
+const CONSTRUCT_OPENERS = new Set(["if", "while", "until", "for", "case", "select"]);
+
+const CONSTRUCT_CLOSERS = new Set(["fi", "done", "esac"]);
+
+const READ_VALUE_OPTIONS = new Set(["-p", "-d", "-n", "-N", "-t", "-u", "-i"]);
+
+/**
+ * The variables whose value the line does not fix: assigned more than once, by a loop, `read`, `mapfile`, `printf -v`,
+ * `getopts`, `let` or `${NAME:=…}`, or unset.
+ */
+function unstableNames(line: Line, script: string): Set<string> {
+  const counts = new Map<string, number>();
+  const unstable = new Set<string>();
+
+  const count = (name: string): void => {
+    counts.set(name, (counts.get(name) ?? 0) + 1);
+  };
+
+  for (const command of commandsOf(line)) {
+    const { argv, assignments } = unwrap(command.words, "/");
+    const [program = "", ...args] = texts(argv);
+    const names = args.filter((arg) => !arg.startsWith("-"));
+
+    for (const assignment of argv.length === 0 ? assignments : []) {
+      count(assignment.text.split("=")[0] ?? "");
+    }
+
+    if (DECLARATIONS.has(program) || program === "let") {
+      for (const arg of args.filter((candidate) => candidate.includes("="))) {
+        count(arg.split("=")[0] ?? "");
+      }
+    }
+
+    if (program === "for" || program === "select") {
+      unstable.add(args[0] ?? "");
+    } else if (program === "read") {
+      readTargets(args).forEach((name) => unstable.add(name));
+    } else if (program === "mapfile" || program === "readarray" || program === "unset") {
+      names.forEach((name) => unstable.add(name));
+    } else if (program === "printf" && args.includes("-v")) {
+      unstable.add(args[args.indexOf("-v") + 1] ?? "");
+    } else if (program === "getopts") {
+      unstable.add(args[1] ?? "");
+    }
+  }
+
+  for (const match of script.matchAll(/\$\{(\w+):?=/gu)) {
+    unstable.add(match[1] ?? "");
+  }
+
+  for (const [name, assigned] of counts) {
+    if (assigned > 1) {
+      unstable.add(name);
+    }
+  }
+
+  return unstable;
+}
+
+function readTargets(args: readonly string[]): string[] {
+  const targets: string[] = [];
+
+  for (let index = 0; index < args.length; index += 1) {
+    const arg = args[index] ?? "";
+
+    if (READ_VALUE_OPTIONS.has(arg)) {
+      index += 1;
+    } else if (arg === "-a") {
+      targets.push(args[index + 1] ?? "");
+      index += 1;
+    } else if (!arg.startsWith("-")) {
+      targets.push(arg);
+    }
+  }
+
+  return targets;
 }
 
 function home(): string {
   return process.env["HOME"] ?? homedir();
 }
 
-/** Records the literal assignments of a command that assigns and runs nothing: `S=/tmp/x`, `export S=/tmp/x`. */
-function assign(words: readonly Word[], vars: Map<string, string>, dir: string | null): void {
+/** How sure an assignment is: unconditional for the line, for its `&&` chain only, or not at all. */
+type Certainty = { readonly list: number | null } | null;
+
+/**
+ * Records the literal assignments of a command that assigns and runs nothing (`S=/tmp/x`, `export S=/tmp/x`), as far
+ * as `certainty` allows: an unstable name, or an assignment that may not run, leaves its variable unknown.
+ */
+function assign(
+  words: readonly Word[],
+  vars: Map<string, Binding>,
+  dir: string | null,
+  certainty: Certainty,
+  unstable: ReadonlySet<string>,
+): void {
+  const values = new Map([...vars].map(([name, binding]) => [name, binding.value]));
+
   for (const word of words) {
     const equals = word.text.indexOf("=");
     const name = word.text.slice(0, equals);
 
     if (equals > 0 && /^[A-Za-z_]\w*$/u.test(name)) {
-      const value = substituted({ ...word, text: word.text.slice(equals + 1) }, vars, dir);
+      const value = substituted({ ...word, text: word.text.slice(equals + 1) }, values, dir);
 
-      if (value.expands) {
+      if (value.expands || certainty === null || unstable.has(name)) {
         vars.delete(name);
       } else {
-        vars.set(name, value.text.replace(/^~(?=\/|$)/u, home()));
+        vars.set(name, { value: value.text.replace(/^~(?=\/|$)/u, home()), list: certainty.list });
       }
     }
   }
@@ -577,6 +690,33 @@ function effectOf(unwrapped: Unwrapped, dir: string | null, world: World): Effec
   return gh?.group === "auth" ? { config: ghName } : {};
 }
 
+const REBASE_VALUE_OPTIONS = new Set([
+  "--onto",
+  "-s",
+  "--strategy",
+  "-X",
+  "--strategy-option",
+  "-x",
+  "--exec",
+]);
+
+/** `git rebase <upstream> <branch>` checks out <branch> first: the positionals, past the values of its options. */
+function rebasePositionals(args: readonly string[]): string[] {
+  const positionals: string[] = [];
+
+  for (let index = 0; index < args.length; index += 1) {
+    const arg = args[index] ?? "";
+
+    if (REBASE_VALUE_OPTIONS.has(arg)) {
+      index += 1;
+    } else if (!arg.startsWith("-")) {
+      positionals.push(arg);
+    }
+  }
+
+  return positionals;
+}
+
 function gitEffect(git: GitCommand): Effect {
   const name = `git ${git.subcommand}`;
   const positionals = git.args.filter((arg) => !arg.startsWith("-"));
@@ -594,6 +734,10 @@ function gitEffect(git: GitCommand): Effect {
       return git.args.some((arg) => BRANCH_OPTIONS.has(arg.split("=")[0] ?? ""))
         ? { branch: name }
         : {};
+    }
+
+    case "rebase": {
+      return rebasePositionals(git.args).length >= 2 ? { branch: `${name} … <branch>` } : {};
     }
 
     case "symbolic-ref": {
@@ -632,6 +776,7 @@ function gitEffect(git: GitCommand): Effect {
 /** The state each command of `line` runs in, walked in the order Bash runs them; a subshell's `cd` stays inside it. */
 function viewsOf(
   line: Line,
+  script: string,
   cwd: string,
   world: World,
   options: AssessOptions,
@@ -642,6 +787,8 @@ function viewsOf(
   let scope: Scope = { dir: cwd, lost: null, chain: [], vars: new Map() };
   let branch: string | null = options.branch ?? null;
   let config: string | null = options.config ?? null;
+  let constructs = 0;
+  const unstable = unstableNames(line, script);
 
   for (const item of line.items) {
     if (item.kind === "open") {
@@ -663,15 +810,25 @@ function viewsOf(
     }
 
     scope.chain.push(command);
+    prune(scope.vars, command);
     const words = substitutedAll(command.words, scope);
     const unwrapped = unwrap(words, scope.dir ?? cwd);
     const first = unwrapped.argv[0]?.text ?? "";
+    const keyword = command.words[0]?.text ?? "";
+    constructs = Math.max(0, constructs - (CONSTRUCT_CLOSERS.has(keyword) ? 1 : 0));
+
+    const certainty: Certainty =
+      constructs > 0 || command.join === "||" || command.join === "|"
+        ? null
+        : { list: command.join === "&&" ? command.list : null };
 
     if (unwrapped.argv.length === 0 && unwrapped.wrappers.length === 0) {
-      assign(unwrapped.assignments, scope.vars, scope.dir);
+      assign(unwrapped.assignments, scope.vars, scope.dir, certainty, unstable);
     } else if (DECLARATIONS.has(first)) {
-      assign(unwrapped.argv.slice(1), scope.vars, scope.dir);
+      assign(unwrapped.argv.slice(1), scope.vars, scope.dir, certainty, unstable);
     }
+
+    constructs += CONSTRUCT_OPENERS.has(keyword) ? 1 : 0;
 
     views.set(command, {
       cwd: scope.dir === null ? null : unwrapped.cwd,
@@ -1006,6 +1163,12 @@ function doorOf(view: View, vocabulary: Vocabulary, world: World): Classificatio
       return null;
     }
 
+    const moves = git.configs.find((key) => /^(?:remote|push|branch|url)\./u.test(key));
+
+    if (moves !== undefined) {
+      return unresolved("push", `git -c ${moves} changes where it pushes`);
+    }
+
     const missing = locationsOf(git, cwd).find((dir) => !world.exists(dir));
 
     const absolute =
@@ -1261,6 +1424,10 @@ function classify(
       const runner = stdinRunner(view.unwrapped);
       const code = script.slice(body.start, body.end);
 
+      if (body.expands && /\$\(|`/u.test(code)) {
+        return unresolved(mention.kind, "its heredoc runs $(…) or backticks as the shell reads it");
+      }
+
       if (runner === null || (INTERPRETERS.has(runner) && !startsProcesses(runner, code))) {
         return INERT;
       }
@@ -1364,7 +1531,7 @@ export function assess(
   }
 
   const world: World = { exists: options.exists ?? existsSync };
-  const views = viewsOf(line, cwd, world, options);
+  const views = viewsOf(line, script, cwd, world, options);
   const doors: Door[] = [];
   const found: Unresolved[] = [];
   const nested = new Set<Word>();
