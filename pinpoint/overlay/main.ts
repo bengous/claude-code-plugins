@@ -7,16 +7,18 @@ import {
   elementAt,
   infoOf,
   pageInfo,
+  scrollOf,
   shortLabel,
   zoneElements,
 } from "./page.ts";
-import { boxBetween } from "./pick.ts";
+import { boxBetween, pageBox, type Press, pressAfter, viewportBox } from "./pick.ts";
 import {
   accepted,
   add,
   EMPTY,
   failed,
   type Item,
+  previewOf,
   remove,
   restored,
   sending,
@@ -46,10 +48,8 @@ const BLOCKED = ["mousedown", "mouseup", "mousemove", "click", "dblclick", "auxc
 
 const PICKING = "pinpoint-picking";
 
-type Press = { readonly x: number; readonly y: number; readonly adding: boolean };
-
-/** Where a picked target's box is now: an element is measured again, a zone follows the scroll. */
-type Mark = Element | { readonly box: Box; readonly scrollX: number; readonly scrollY: number };
+/** Where a picked target is drawn: an element is measured again, a zone's box in page pixels follows the scroll. */
+type Mark = Element | Box;
 
 type Picked = { readonly target: Target; readonly mark: Mark };
 
@@ -63,25 +63,7 @@ type Mode =
     };
 
 function markBox(mark: Mark): Box {
-  if (mark instanceof Element) return boxOf(mark);
-  const { box } = mark;
-
-  return {
-    ...box,
-    x: box.x + mark.scrollX - window.scrollX,
-    y: box.y + mark.scrollY - window.scrollY,
-  };
-}
-
-/** A target as the page drew it when it was picked, moved by how far the page scrolled since. */
-function shifted(target: Target, scroll: { readonly x: number; readonly y: number }): Box[] {
-  const move = (box: Box): Box => ({
-    ...box,
-    x: box.x + scroll.x - window.scrollX,
-    y: box.y + scroll.y - window.scrollY,
-  });
-
-  return target.kind === "element" ? [move(target.element.box)] : [move(target.box)];
+  return mark instanceof Element ? boxOf(mark) : viewportBox(mark, scrollOf());
 }
 
 function start(script: HTMLScriptElement): void {
@@ -174,7 +156,7 @@ function start(script: HTMLScriptElement): void {
     const preview =
       item === undefined || item.selection.page.url !== location.href
         ? []
-        : item.selection.targets.flatMap((target) => shifted(target, item.selection.page.scroll));
+        : previewOf(item.selection, scrollOf());
 
     view.marks(draft, preview);
   }
@@ -297,10 +279,8 @@ function start(script: HTMLScriptElement): void {
 
     if (box.width > DRAG || box.height > DRAG) {
       const elements = zoneElements(box, view.host).map((element) => infoOf(element));
-      picked = {
-        target: { kind: "zone", box, elements },
-        mark: { box, scrollX: window.scrollX, scrollY: window.scrollY },
-      };
+      const onPage = pageBox(box, scrollOf());
+      picked = { target: { kind: "zone", box: onPage, elements }, mark: onPage };
     } else {
       const element = elementAt(at.x, at.y, view.host);
 
@@ -315,27 +295,36 @@ function start(script: HTMLScriptElement): void {
   }
 
   function onPointer(event: PointerEvent): void {
-    if (mode.kind === "off" || event.composedPath().includes(view.host)) return;
+    if (mode.kind === "off") return;
+    const at = { x: event.clientX, y: event.clientY };
+    const inside = event.composedPath().includes(view.host);
+
+    const { press, picks } = pressAfter(mode.press, {
+      ...at,
+      type: event.type,
+      inside,
+      button: event.button,
+      adding: event.ctrlKey || event.metaKey,
+    });
+
+    if (mode.press !== null && press === null) view.drag(null);
+    mode = { ...mode, press };
+
+    if (inside) return;
     event.preventDefault();
     event.stopImmediatePropagation();
-    const at = { x: event.clientX, y: event.clientY };
 
     if (event.type === "pointerdown") {
-      if (event.button === 0)
-        mode = { ...mode, press: { ...at, adding: event.ctrlKey || event.metaKey } };
       view.hover(null, "");
     } else if (event.type === "pointermove") {
-      if (mode.press === null) {
+      if (press === null) {
         const under = elementAt(at.x, at.y, view.host);
         view.hover(under === null ? null : boxOf(under), under === null ? "" : shortLabel(under));
       } else {
-        view.drag(boxBetween(mode.press, at));
+        view.drag(boxBetween(press, at));
       }
-    } else if (mode.press !== null) {
-      const { press } = mode;
-      mode = { ...mode, press: null };
-      view.drag(null);
-      pick(press, at);
+    } else if (picks !== null) {
+      pick(picks, at);
     }
   }
 
@@ -395,7 +384,7 @@ function start(script: HTMLScriptElement): void {
     if (inside) event.stopImmediatePropagation();
   }
 
-  for (const type of ["pointerdown", "pointermove", "pointerup"] as const) {
+  for (const type of ["pointerdown", "pointermove", "pointerup", "pointercancel"] as const) {
     window.addEventListener(type, onPointer, { capture: true });
   }
 

@@ -1,5 +1,5 @@
 import type { Box } from "../shared/wire.ts";
-import { statusText, summaryOf, type Tray } from "./tray.ts";
+import { sendText, statusText, summaryOf, type Tray } from "./tray.ts";
 
 /**
  * Everything the overlay draws, in one shadow root so the app's styles never reach it: the
@@ -366,7 +366,7 @@ export function createView(labels: readonly string[], handlers: Handlers): View 
         ? "Connected to the session's server"
         : "The session's server does not answer";
       count.textContent = tray.items.length === 0 ? "" : `${tray.items.length} in batch`;
-      send.textContent = `Send (${tray.items.length}) · Ctrl+Enter`;
+      send.textContent = sendText(tray.items.length, on);
       send.disabled = tray.items.length === 0 || tray.status.kind === "sending";
       const said = statusText(tray.status);
       status.textContent = said;

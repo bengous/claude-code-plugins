@@ -94,7 +94,7 @@ function selectionLines(selection: Selection, index: number, previous: Selection
 export function batchText(seq: number, selections: readonly Selection[]): string {
   const count = selections.length;
 
-  const header = `pinpoint batch ${seq}: ${count} selection${count === 1 ? "" : "s"} the user made in their running app. Under each label and note, the lines are what the page reported.`;
+  const header = `pinpoint batch ${seq}: ${count} selection${count === 1 ? "" : "s"} the user made in their running app. Under each label and note, the lines are what the page reported; boxes are in page pixels, from the top-left corner of the document.`;
 
   const blocks = selections.map((selection, index) =>
     selectionLines(selection, index, index === 0 ? null : (selections[index - 1] ?? null)).join(

@@ -6,9 +6,11 @@ import {
   add,
   EMPTY,
   failed,
+  previewOf,
   remove,
   restored,
   sending,
+  sendText,
   settle,
   statusText,
   summaryOf,
@@ -133,4 +135,32 @@ describe("the batch", () => {
 
 test("summaryOf names each target by its last step, a zone by its size", () => {
   expect(summaryOf(SELECTION.targets)).toBe("img.logo, zone 400 × 100 (0 elements)");
+});
+
+test("sendText names Ctrl+Enter only while pointing: with pointing off it is the app's", () => {
+  expect(sendText(2, true)).toBe("Send (2) · Ctrl+Enter");
+  expect(sendText(2, false)).toBe("Send (2)");
+});
+
+test("previewOf draws each page box where the scroll puts it, whatever the scroll at its pick or at the add", () => {
+  const [logo] = SELECTION.targets;
+
+  if (logo?.kind !== "element") throw new Error("the fixture starts with an element");
+
+  const selection: Selection = {
+    ...SELECTION,
+    targets: [
+      {
+        kind: "element",
+        element: { ...logo.element, box: { x: 100, y: 150, width: 120, height: 40 } },
+      },
+      { kind: "zone", box: { x: 300, y: 1150, width: 200, height: 60 }, elements: [] },
+    ],
+    page: { ...SELECTION.page, scroll: { x: 0, y: 800 } },
+  };
+
+  expect(previewOf(selection, { x: 0, y: 300 })).toEqual([
+    { x: 100, y: -150, width: 120, height: 40 },
+    { x: 300, y: 850, width: 200, height: 60 },
+  ]);
 });
