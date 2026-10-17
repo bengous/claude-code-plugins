@@ -1,4 +1,4 @@
-import type { CommandRunInput, SessionStartInput, SkillPromptInput } from "claude-code";
+import type { CommandRunInput, SessionStartInput, SkillPromptArgs } from "claude-code";
 import { describe, expect, test, tier } from "claude-code/testing";
 
 import { deliveries, READY, ROOT, SERVER, SESSION_ID, world } from "./fixtures.ts";
@@ -6,9 +6,9 @@ import { CRASHES, HEARTBEAT_MS } from "./register.ts";
 
 tier("user");
 
-const START: SkillPromptInput = { skill: "pinpoint:start", text: "t" };
+const START: SkillPromptArgs = { skill: "pinpoint:start", text: "t" };
 
-const STOP: SkillPromptInput = { skill: "pinpoint:stop", text: "t" };
+const STOP: SkillPromptArgs = { skill: "pinpoint:stop", text: "t" };
 
 const SESSION: SessionStartInput = { surface: "terminal", isInteractive: true, cwd: ROOT };
 
