@@ -93,10 +93,40 @@ function git(cwd: string, args: readonly string[]): string {
 }
 
 /** A file's text at a revision; `""` when the revision holds none. */
-function show(cwd: string, revision: string, path: string): string {
-  const run = Bun.spawnSync(["git", "show", `${revision}:${path}`], { cwd, stdout: "pipe" });
+type TextAt = (revision: string, path: string) => string;
 
-  return run.exitCode === 0 ? run.stdout.toString() : "";
+/** The text of every change at `base` and at `head`, read by one `git cat-file --batch`. */
+function textsAt(cwd: string, base: string, head: string, changes: readonly FileChange[]): TextAt {
+  const names = [
+    ...new Set(changes.flatMap(({ from, to }) => [`${base}:${from}`, `${head}:${to}`])),
+  ];
+
+  const run = Bun.spawnSync(["git", "cat-file", "--batch"], {
+    cwd,
+    stdin: new TextEncoder().encode(names.map((name) => `${name}\n`).join("")),
+    stdout: "pipe",
+    stderr: "pipe",
+  });
+
+  if (run.exitCode !== 0) {
+    throw new Error(`git cat-file --batch failed: ${run.stderr.toString().trim()}`);
+  }
+
+  const texts = new Map<string, string>();
+  let at = 0;
+
+  for (const name of names) {
+    const end = run.stdout.indexOf("\n", at);
+    const header = run.stdout.toString("utf8", at, end);
+    at = end + 1;
+
+    if (header.endsWith(" missing")) continue;
+    const size = Number(header.split(" ")[2]);
+    texts.set(name, run.stdout.toString("utf8", at, at + size));
+    at += size + 1;
+  }
+
+  return (revision, path) => texts.get(`${revision}:${path}`) ?? "";
 }
 
 function changesIn(cwd: string, base: string, head: string, plugin: string): FileChange[] {
@@ -944,15 +974,19 @@ function section(title: string, body: readonly string[], none: string): string[]
 /** The report for `range` on the plugin at `pluginRoot`; the suites run at the range's head unless `suites` is false. */
 export function contractDiff(range: string, pluginRoot: string, suites = true): string {
   const [base = "", head = "HEAD"] = range.includes("..") ? range.split("..") : [range];
-  const top = git(pluginRoot, ["rev-parse", "--show-toplevel"]).trim();
-  const plugin = git(pluginRoot, ["rev-parse", "--show-prefix"]).trim().replace(/\/$/u, "") || ".";
+
+  const [top = "", prefix = ""] = git(pluginRoot, ["rev-parse", "--show-toplevel", "--show-prefix"])
+    .split("\n")
+    .map((line) => line.trim());
+
+  const plugin = prefix.replace(/\/$/u, "") || ".";
   const changes = changesIn(top, base, head, plugin);
+  const textAt = textsAt(top, base, head, changes);
+
   const inPlugin = (path: string): string => relative(plugin, path).replaceAll("\\", "/");
 
   const moveOnly = ({ status, from, to }: FileChange): boolean =>
-    status !== "A" &&
-    status !== "D" &&
-    onlyCommentsMoved(show(top, base, from), show(top, head, to));
+    status !== "A" && status !== "D" && onlyCommentsMoved(textAt(base, from), textAt(head, to));
 
   const contractChanges = changes.filter(({ to }) => to.endsWith("/contract.ts"));
   const commentsMoved = contractChanges.filter((change) => moveOnly(change));
@@ -986,15 +1020,15 @@ export function contractDiff(range: string, pluginRoot: string, suites = true): 
       .filter(({ to }) => TEST_FILE.test(to))
       .map(({ status, from, to }) => ({
         file: inPlugin(to),
-        before: status === "A" ? [] : titlesOf(show(top, base, from)),
-        after: status === "D" ? [] : titlesOf(show(top, head, to)),
+        before: status === "A" ? [] : titlesOf(textAt(base, from)),
+        after: status === "D" ? [] : titlesOf(textAt(head, to)),
       })),
   );
 
   const cases = changes
     .filter(({ status, to }) => TEST_FILE.test(to) && status !== "A" && status !== "D")
     .flatMap(({ from, to }) =>
-      caseChanges(show(top, base, from), show(top, head, to)).map((change) => ({
+      caseChanges(textAt(base, from), textAt(head, to)).map((change) => ({
         ...change,
         file: inPlugin(to),
       })),
@@ -1006,8 +1040,8 @@ export function contractDiff(range: string, pluginRoot: string, suites = true): 
       .filter(({ to }) => !to.endsWith("/contract.ts"))
       .map(({ status, from, to }) => ({
         file: inPlugin(to),
-        before: functionsOf(status === "A" ? "" : javascriptOf(from, show(top, base, from))),
-        after: functionsOf(status === "D" ? "" : javascriptOf(to, show(top, head, to))),
+        before: functionsOf(status === "A" ? "" : javascriptOf(from, textAt(base, from))),
+        after: functionsOf(status === "D" ? "" : javascriptOf(to, textAt(head, to))),
       })),
   );
 
@@ -1020,8 +1054,8 @@ export function contractDiff(range: string, pluginRoot: string, suites = true): 
       )
       .map(({ status, from, to }) => ({
         file: inPlugin(to),
-        before: status === "A" ? "" : show(top, base, from),
-        after: status === "D" ? "" : show(top, head, to),
+        before: status === "A" ? "" : textAt(base, from),
+        after: status === "D" ? "" : textAt(head, to),
       })),
   );
 

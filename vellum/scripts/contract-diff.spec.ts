@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, symlinkSync, writeFileSync } from "node:fs";
+import { mkdtempSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { join } from "node:path";
 
 import {
   caseChanges,
@@ -216,43 +216,64 @@ describe("functionChanges", () => {
   });
 });
 
-/** A repository of its own under the temp directory, and a commit of the files given, answering its SHA. */
-type Repository = {
+/** Each file a commit sets, by its path from the repository's root, and its text. */
+type Files = Readonly<Record<string, string>>;
+
+/** A repository of its own under the temp directory, its last commit checked out, and each commit's SHA. */
+type Repository<Commits extends readonly Files[]> = {
   readonly root: string;
-  readonly commit: (files: Record<string, string>) => string;
+  readonly shas: { readonly [Index in keyof Commits]: string };
 };
 
-/** Holds a plugin at `plug/`, as this repository holds `vellum/`. */
-function repository(): Repository {
+/**
+ * Holds a plugin at `plug/`, as this repository holds `vellum/`: each commit sets its files over the
+ * one before. `git fast-import` writes them all, a process for the whole history: a process per
+ * `git` command is what a spec pays most for on Windows.
+ */
+function repository<const Commits extends readonly Files[]>(
+  ...commits: Commits
+): Repository<Commits> {
   const root = mkdtempSync(join(tmpdir(), "contract-diff-"));
 
-  const git = (...args: string[]): string => {
-    const run = Bun.spawnSync(
-      ["git", "-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false", ...args],
-      { cwd: root, stdout: "pipe", stderr: "pipe" },
-    );
+  const git = (args: readonly string[], input = ""): string => {
+    const run = Bun.spawnSync(["git", ...args], {
+      cwd: root,
+      stdin: new TextEncoder().encode(input),
+      stdout: "pipe",
+      stderr: "pipe",
+    });
 
     if (run.exitCode !== 0) throw new Error(run.stderr.toString());
 
     return run.stdout.toString().trim();
   };
 
-  git("init", "-q");
+  const stream = commits.flatMap((files, index) => [
+    "commit refs/heads/main",
+    `mark :${index + 1}`,
+    "committer t <t@t> 0 +0000",
+    "data 4",
+    "step",
+    ...Object.entries(files).flatMap(([path, text]) => [
+      `M 100644 inline ${path}`,
+      `data ${Buffer.byteLength(text)}`,
+      text,
+    ]),
+  ]);
 
-  return {
-    root,
-    commit: (files) => {
-      for (const [path, text] of Object.entries(files)) {
-        mkdirSync(dirname(join(root, path)), { recursive: true });
-        writeFileSync(join(root, path), text);
-      }
+  const marks = commits.map((_, index) => `get-mark :${index + 1}`);
 
-      git("add", "-A");
-      git("commit", "-q", "-m", "step");
+  git(["init", "-q", "--initial-branch=main"]);
 
-      return git("rev-parse", "HEAD");
-    },
-  };
+  const shas = git(
+    ["-c", "fastimport.unpackLimit=0", "fast-import", "--quiet"],
+    `${[...stream, ...marks].join("\n")}\n`,
+  ).split("\n");
+
+  git(["reset", "-q", "--hard"]);
+
+  // SAFETY: fast-import answers each `get-mark` with its commit's SHA on a line, in the order asked.
+  return { root, shas: shas as Repository<Commits>["shas"] };
 }
 
 /** A suite holding one passing test per title. */
@@ -274,21 +295,24 @@ function table(rows: string): string {
 
 describe("contractDiff", () => {
   test("prints the contracts' diff, the rules, the titles, the functions and the suites, in that order", () => {
-    const { root, commit } = repository();
-
-    const base = commit({
-      "plug/src/steps/x/contract.ts": 'export const SLICE = { id: "x" };\n',
-      "plug/src/__snapshots__/table.spec.ts.snap": "ask · owned by x\n  1. x/held · refuses\n",
-      "plug/src/steps/x/x.spec.ts": 'test("asks once", () => {});\n',
-      "plug/src/steps/x/x.ts": "export function ask(n: number) { return n; }\n",
-    });
-
-    const head = commit({
-      "plug/src/steps/x/contract.ts": 'export const SLICE = { id: "x", events: {} };\n',
-      "plug/src/__snapshots__/table.spec.ts.snap": "ask · owned by x\n  1. x/held · refuses 409\n",
-      "plug/src/steps/x/x.spec.ts": 'test("asks once, then waits", () => {});\n',
-      "plug/src/steps/x/x.ts": "export function ask(n: number) { return n + 1; }\n",
-    });
+    const {
+      root,
+      shas: [base, head],
+    } = repository(
+      {
+        "plug/src/steps/x/contract.ts": 'export const SLICE = { id: "x" };\n',
+        "plug/src/__snapshots__/table.spec.ts.snap": "ask · owned by x\n  1. x/held · refuses\n",
+        "plug/src/steps/x/x.spec.ts": 'test("asks once", () => {});\n',
+        "plug/src/steps/x/x.ts": "export function ask(n: number) { return n; }\n",
+      },
+      {
+        "plug/src/steps/x/contract.ts": 'export const SLICE = { id: "x", events: {} };\n',
+        "plug/src/__snapshots__/table.spec.ts.snap":
+          "ask · owned by x\n  1. x/held · refuses 409\n",
+        "plug/src/steps/x/x.spec.ts": 'test("asks once, then waits", () => {});\n',
+        "plug/src/steps/x/x.ts": "export function ask(n: number) { return n + 1; }\n",
+      },
+    );
 
     const report = contractDiff(`${base}..${head}`, join(root, "plug"), false);
 
@@ -308,9 +332,14 @@ describe("contractDiff", () => {
   });
 
   test("finds the plugin in a repository reached by another spelling of its path, a link or a short name", () => {
-    const { root, commit } = repository();
-    const base = commit({ "plug/src/steps/x/contract.ts": 'export const SLICE = { id: "x" };\n' });
-    const head = commit({ "plug/src/steps/x/contract.ts": 'export const SLICE = { id: "y" };\n' });
+    const {
+      root,
+      shas: [base, head],
+    } = repository(
+      { "plug/src/steps/x/contract.ts": 'export const SLICE = { id: "x" };\n' },
+      { "plug/src/steps/x/contract.ts": 'export const SLICE = { id: "y" };\n' },
+    );
+
     const alias = join(mkdtempSync(join(tmpdir(), "contract-diff-alias-")), "repo");
     symlinkSync(root, alias);
 
@@ -320,10 +349,14 @@ describe("contractDiff", () => {
   });
 
   test("runs the boundary and walk suites at the range's head, not on the tree checked out", () => {
-    const { root, commit } = repository();
-    const base = commit({ "plug/src/boundaries.spec.ts": suite(["one"]) });
-    const head = commit({ "plug/src/boundaries.spec.ts": suite(["one", "two"]) });
-    commit({ "plug/src/boundaries.spec.ts": suite(["one", "two", "three"]) });
+    const {
+      root,
+      shas: [base, head],
+    } = repository(
+      { "plug/src/boundaries.spec.ts": suite(["one"]) },
+      { "plug/src/boundaries.spec.ts": suite(["one", "two"]) },
+      { "plug/src/boundaries.spec.ts": suite(["one", "two", "three"]) },
+    );
 
     const report = contractDiff(`${base}..${head}`, join(root, "plug"));
     const short = head.slice(0, 7);
@@ -335,17 +368,19 @@ describe("contractDiff", () => {
   });
 
   test("shows what Claude reads, a tool's description and a skill, word by word, after the contracts", () => {
-    const { root, commit } = repository();
-
-    const base = commit({
-      "plug/src/steps/x/hooks.ts": ask("Ask one round of the grill"),
-      "plug/skills/start/SKILL.md": "Propose the next step, then wait.\n",
-    });
-
-    const head = commit({
-      "plug/src/steps/x/hooks.ts": ask("Ask one round of the grill and wait"),
-      "plug/skills/start/SKILL.md": "Propose the next step, then wait for the pick.\n",
-    });
+    const {
+      root,
+      shas: [base, head],
+    } = repository(
+      {
+        "plug/src/steps/x/hooks.ts": ask("Ask one round of the grill"),
+        "plug/skills/start/SKILL.md": "Propose the next step, then wait.\n",
+      },
+      {
+        "plug/src/steps/x/hooks.ts": ask("Ask one round of the grill and wait"),
+        "plug/skills/start/SKILL.md": "Propose the next step, then wait for the pick.\n",
+      },
+    );
 
     const report = contractDiff(`${base}..${head}`, join(root, "plug"), false);
 
@@ -358,9 +393,13 @@ describe("contractDiff", () => {
   });
 
   test("lists the cases added to a test's table under its title, the title kept", () => {
-    const { root, commit } = repository();
-    const base = commit({ "plug/src/x.spec.ts": table("{ id: null }") });
-    const head = commit({ "plug/src/x.spec.ts": table('{ id: null }, { id: "p1", note: " " }') });
+    const {
+      root,
+      shas: [base, head],
+    } = repository(
+      { "plug/src/x.spec.ts": table("{ id: null }") },
+      { "plug/src/x.spec.ts": table('{ id: null }, { id: "p1", note: " " }') },
+    );
 
     const report = contractDiff(`${base}..${head}`, join(root, "plug"), false);
 
@@ -370,13 +409,15 @@ describe("contractDiff", () => {
   });
 
   test("a contract whose comments only moved shows no diff, and says so", () => {
-    const { root, commit } = repository();
     const code = 'import { a } from "./a.ts";\nexport const SLICE = { id: "x" };\n';
-    const base = commit({ "plug/src/steps/x/contract.ts": `/** The x step. */\n${code}` });
 
-    const head = commit({
-      "plug/src/steps/x/contract.ts": code.replace("\n", "\n\n/** The x step. */\n"),
-    });
+    const {
+      root,
+      shas: [base, head],
+    } = repository(
+      { "plug/src/steps/x/contract.ts": `/** The x step. */\n${code}` },
+      { "plug/src/steps/x/contract.ts": code.replace("\n", "\n\n/** The x step. */\n") },
+    );
 
     const report = contractDiff(`${base}..${head}`, join(root, "plug"), false);
 
@@ -385,9 +426,13 @@ describe("contractDiff", () => {
   });
 
   test("says once, under its title, that a contract declares fields, not their values", () => {
-    const { root, commit } = repository();
-    const base = commit({ "plug/src/a.ts": "export const A = 1;\n" });
-    const head = commit({ "plug/src/a.ts": "export const A = 2;\n" });
+    const {
+      root,
+      shas: [base, head],
+    } = repository(
+      { "plug/src/a.ts": "export const A = 1;\n" },
+      { "plug/src/a.ts": "export const A = 2;\n" },
+    );
 
     const report = contractDiff(`${base}..${head}`, join(root, "plug"), false);
 
@@ -399,9 +444,13 @@ describe("contractDiff", () => {
   });
 
   test("says so when no contract and no rule changed", () => {
-    const { root, commit } = repository();
-    const base = commit({ "plug/src/a.ts": "export const A = 1;\n" });
-    const head = commit({ "plug/src/a.ts": "export const A = 2;\n" });
+    const {
+      root,
+      shas: [base, head],
+    } = repository(
+      { "plug/src/a.ts": "export const A = 1;\n" },
+      { "plug/src/a.ts": "export const A = 2;\n" },
+    );
 
     const report = contractDiff(`${base}..${head}`, join(root, "plug"), false);
 
