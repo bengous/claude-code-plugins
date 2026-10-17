@@ -1,8 +1,17 @@
 import type { EngineInterface, Register, Timer } from "claude-code";
 
-import type { ServerLine } from "../shared/wire.ts";
+import type { Delivery, ServerLine } from "../shared/wire.ts";
 import { parseServerLine, parseSessionRecord, type SessionRecord } from "./parse.ts";
-import { type Address, baseOf, type Child, type Host, start, tellDelivery } from "./server.ts";
+import {
+  type Address,
+  baseOf,
+  type Child,
+  clean,
+  close,
+  type Host,
+  start,
+  tellDelivery,
+} from "./server.ts";
 
 /**
  * The pinpoint mod: `/pinpoint:start` spawns one server per session, which the app's pages load
@@ -25,29 +34,42 @@ const CRASH_WINDOW_MS = 60_000;
 
 type Batch = Extract<ServerLine, { type: "batch" }>;
 
-type Live = {
-  readonly kind: "live";
-  /** The Claude Code session the server serves; a `/clear` moves it to the new id, in place. */
+/**
+ * A session's pinpoint, from `/pinpoint:start` or the restore after a reload to `/pinpoint:stop`,
+ * carried across every server a revival replaces: what was handed over, and the one queue every
+ * relay of its servers goes through, in order.
+ */
+type Tenure = {
+  /** The Claude Code session; a `/clear` or a `/resume` moves it to the new id, in place. */
   sessionId: string;
-  /** Rewritten after each relay, as the store's copy is. */
+  /** The store's copy, rewritten as a server starts and after each relay. */
   record: SessionRecord;
-  readonly child: Child;
-  readonly heartbeat: Timer;
-  /** When the servers of this session ended on their own, for the crash window. */
-  readonly ends: readonly number[];
-  /** The relays, one after the other: the read loop never waits on the session. */
   relays: Promise<void>;
 };
 
-/** A server that could not be revived: its record kept, so `/pinpoint:start` tries again on its port. */
-type Lost = {
-  readonly kind: "lost";
-  readonly sessionId: string;
-  readonly record: SessionRecord;
-  readonly reason: string;
+type Starting = { readonly kind: "starting"; readonly tenure: Tenure };
+
+type Live = {
+  readonly kind: "live";
+  readonly tenure: Tenure;
+  readonly child: Child;
+  readonly heartbeat: Timer;
+  /** When the tenure's servers ended on their own, for the crash window. */
+  readonly ends: readonly number[];
 };
 
-type State = { readonly kind: "idle" } | Live | Lost;
+/** A server that could not be revived: its tenure kept, so `/pinpoint:start` tries again on its port. */
+type Lost = { readonly kind: "lost"; readonly tenure: Tenure; readonly reason: string };
+
+/** `/pinpoint:stop` under way: its tenure dropped, and only that stop leaves it. */
+type Stopping = { readonly kind: "stopping" };
+
+type State = { readonly kind: "idle" } | Starting | Live | Stopping | Lost;
+
+/** The tenure `state` carries: none while idle, nor once a stop dropped it. */
+function tenureOf(state: State): Tenure | null {
+  return state.kind === "idle" || state.kind === "stopping" ? null : state.tenure;
+}
 
 function recordKey(sessionId: string): string {
   return `session:${sessionId}`;
@@ -64,6 +86,21 @@ function startedText(record: SessionRecord): string {
 const NOT_STARTED =
   "pinpoint did not start its server; the transcript's log line says why. Run /pinpoint:start again once it is fixed.";
 
+/** What `/pinpoint:start` says of the state it finds, or finds again once a stop or another way in got there first. */
+function wayInText(state: State): string {
+  switch (state.kind) {
+    case "live":
+      return startedText(state.tenure.record);
+    case "starting":
+      return "pinpoint is starting its server; run /pinpoint:start again in a moment to see where it listens.";
+    case "lost":
+      return NOT_STARTED;
+    case "stopping":
+    case "idle":
+      return "pinpoint was stopped meanwhile; run /pinpoint:start again to start it.";
+  }
+}
+
 /**
  * Binds this dispatch's `$`, the one place it is spelled: the loader follows it only into a
  * function declared at the top of this file. A timer or a read loop keeps the host of the dispatch
@@ -73,6 +110,7 @@ function hostOf($: EngineInterface): Host {
   return {
     pluginRoot: $.plugin.root,
     spawn: (request) => $.process.spawn(request),
+    run: (argv) => $.process.run(argv),
     fetch: (url, init) => $.http.fetch(url, init),
     submit: (text) => $.prompt.submit({ text }),
     after: (ms, fn) => $.clock.after(ms, fn),
@@ -87,25 +125,41 @@ function hostOf($: EngineInterface): Host {
 export const register: Register = (on) => {
   let state: State = { kind: "idle" };
 
-  /** Every write of `state`: leaving a live state ends its server and its heartbeat. */
+  /**
+   * Every write of `state`. Leaving a live state stops its heartbeat and ends its server, but for
+   * `stopping`: the stop closes the server first, and the close removes its files.
+   */
   function become(host: Host, next: State): void {
     const was = state;
     state = next;
 
     if (was.kind === "live" && next !== was) {
       was.heartbeat.cancel();
-      was.child.end();
+
+      if (next.kind !== "stopping") was.child.end();
     }
 
     host.status(next.kind === "lost" ? next.reason : undefined);
   }
 
-  async function relay(host: Host, live: Live, batch: Batch): Promise<void> {
-    const { address } = live.child;
+  /** Whether `state` is still `from`, read through a call: the compiler keeps a narrowing of `state` across an await. */
+  function holds(from: State): boolean {
+    return state === from;
+  }
+
+  /** Tells the tenure's server what became of a batch; with none up, the next one tells the batch again. */
+  async function tell(host: Host, tenure: Tenure, delivery: Delivery): Promise<void> {
+    if (state.kind === "live" && state.tenure === tenure) {
+      await tellDelivery(host, state.child.address, delivery);
+    }
+  }
+
+  async function relay(host: Host, tenure: Tenure, batch: Batch): Promise<void> {
+    if (tenureOf(state) !== tenure) return;
 
     // A server started anew tells again what it holds: a batch already handed over is only acknowledged.
-    if (batch.seq <= live.record.relayed) {
-      await tellDelivery(host, address, { seq: batch.seq, outcome: "delivered" });
+    if (batch.seq <= tenure.record.relayed) {
+      await tell(host, tenure, { seq: batch.seq, outcome: "delivered" });
 
       return;
     }
@@ -114,52 +168,58 @@ export const register: Register = (on) => {
       .submit(batch.text)
       .catch((cause: unknown) => ({ drop: String(cause) }));
 
+    if (tenureOf(state) !== tenure) return;
+
     if (entered.drop !== undefined) {
       host.log(`pinpoint: batch ${batch.seq} did not enter the session: ${entered.drop}`);
-      await tellDelivery(host, address, {
-        seq: batch.seq,
-        outcome: "dropped",
-        reason: entered.drop,
-      });
+      await tell(host, tenure, { seq: batch.seq, outcome: "dropped", reason: entered.drop });
 
       return;
     }
 
-    live.record = { ...live.record, relayed: batch.seq };
-    await host.storeSet(recordKey(live.sessionId), live.record);
-    await tellDelivery(host, address, { seq: batch.seq, outcome: "delivered" });
+    tenure.record = { ...tenure.record, relayed: batch.seq };
+    await host.storeSet(recordKey(tenure.sessionId), tenure.record);
+    await tell(host, tenure, { seq: batch.seq, outcome: "delivered" });
   }
 
-  /** Starts the server for `record`, on its port and token when it has them; `null` when it cannot. */
-  async function launch(
-    host: Host,
-    sessionId: string,
-    record: SessionRecord,
-    ends: readonly number[],
-  ): Promise<Live | null> {
+  /**
+   * Starts the server of `from`'s tenure, on its port and token when it has them, and makes it the
+   * state. A server that does not start leaves `from` as it is, for the caller to say what follows;
+   * a `from` left meanwhile takes nothing, and the server started for it ends.
+   */
+  async function enter(host: Host, from: Starting, ends: readonly number[]): Promise<void> {
+    const { tenure } = from;
+    const { record } = tenure;
+
     const kept: Address | null =
       record.port === 0 ? null : { port: record.port, token: record.token };
 
     const child = await start(host, record.serverSession, record.root, kept);
 
-    if (child === null) return null;
-    const started = { ...record, port: child.address.port, token: child.address.token };
-    await host.storeSet(recordKey(sessionId), started);
+    if (child === null) return;
+
+    if (!holds(from)) {
+      child.end();
+
+      return;
+    }
+
+    tenure.record = { ...tenure.record, port: child.address.port, token: child.address.token };
+    await host.storeSet(recordKey(tenure.sessionId), tenure.record);
+
+    if (!holds(from)) {
+      child.end();
+
+      return;
+    }
 
     // A beat that fails says nothing the read loop does not: a server that died ends its stream.
     const heartbeat = host.repeat(HEARTBEAT_MS, () => {
       void host.fetch(`${baseOf(child.address)}api/heartbeat`, { method: "POST" }).catch(() => {});
     });
 
-    const live: Live = {
-      kind: "live",
-      sessionId,
-      record: started,
-      child,
-      heartbeat,
-      ends,
-      relays: Promise.resolve(),
-    };
+    const live: Live = { kind: "live", tenure, child, heartbeat, ends };
+    become(host, live);
 
     follow(host, live).catch((cause: unknown) => {
       // A reload or the end of a kit test tears the environment down under the loop: its `$`
@@ -170,39 +230,46 @@ export const register: Register = (on) => {
         // Gone with the environment: there is no transcript left to write to.
       }
     });
-
-    return live;
   }
 
   /** What a server that ended on its own leaves: a new one on its port, or `lost` past the crash window. */
-  async function revived(host: Host, live: Live): Promise<State> {
+  async function revive(host: Host, from: Live): Promise<void> {
     const now = await host.now();
-    const ends = [...live.ends.filter((at) => now - at < CRASH_WINDOW_MS), now];
-    const { sessionId, record } = live;
+
+    if (!holds(from)) return;
+    const ends = [...from.ends.filter((at) => now - at < CRASH_WINDOW_MS), now];
+    const { tenure } = from;
 
     if (ends.length >= CRASHES) {
       const reason = `pinpoint: the server ended ${ends.length} times within a minute; run /pinpoint:start to try again`;
+      become(host, { kind: "lost", tenure, reason });
 
-      return { kind: "lost", sessionId, record, reason };
+      return;
     }
 
-    const next = await launch(host, sessionId, record, ends);
-    const reason = "pinpoint: the server ended and did not start again; run /pinpoint:start";
+    const starting: Starting = { kind: "starting", tenure };
+    become(host, starting);
+    await enter(host, starting, ends);
 
-    return next ?? { kind: "lost", sessionId, record, reason };
+    if (holds(starting)) {
+      const reason = "pinpoint: the server ended and did not start again; run /pinpoint:start";
+      become(host, { kind: "lost", tenure, reason });
+    }
   }
 
-  /** Reads the child until it ends, queueing each batch; an end nobody asked for revives the server. */
-  async function follow(host: Host, live: Live): Promise<void> {
+  /** Reads the child until it ends, queueing each batch on the tenure's relays. */
+  async function read(host: Host, live: Live): Promise<void> {
+    const { tenure } = live;
+
     for (;;) {
       const next = await live.child.lines.next();
 
-      if (next.done === true) break;
+      if (next.done === true) return;
       const line = parseServerLine(next.value);
 
       if (line?.type === "batch") {
-        live.relays = live.relays
-          .then(() => relay(host, live, line))
+        tenure.relays = tenure.relays
+          .then(() => relay(host, tenure, line))
           .catch((cause: unknown) => {
             host.log(`pinpoint: batch ${line.seq} was not relayed: ${String(cause)}`);
           });
@@ -212,21 +279,15 @@ export const register: Register = (on) => {
         );
       }
     }
+  }
 
-    if (state !== live) return;
-    const next = await revived(host, live);
+  /** Reads the child to its end, a read that fails being one: an end nobody asked for revives the server. */
+  async function follow(host: Host, live: Live): Promise<void> {
+    await read(host, live).catch((cause: unknown) => {
+      if (holds(live)) host.log(`pinpoint: the server's read loop failed: ${String(cause)}`);
+    });
 
-    // Left meanwhile (`/pinpoint:stop`): the server started for nothing ends.
-    if (state !== live) {
-      if (next.kind === "live") {
-        next.heartbeat.cancel();
-        next.child.end();
-      }
-
-      return;
-    }
-
-    become(host, next);
+    if (holds(live)) await revive(host, live);
   }
 
   // A reload of the module ends its children: the session's record starts the server again.
@@ -234,76 +295,100 @@ export const register: Register = (on) => {
     const result = await next(e);
 
     if (state.kind !== "idle") return result;
+    const from = state;
     const host = hostOf($);
     const sessionId = await $.session.id();
     const record = parseSessionRecord(await $.store.get(recordKey(sessionId)));
 
-    if (record === null) return result;
-    const live = await launch(host, sessionId, record, []);
-    const reason = "pinpoint: the server did not start again after a reload; run /pinpoint:start";
-    become(host, live ?? { kind: "lost", sessionId, record, reason });
+    if (record === null || !holds(from)) return result;
+    const tenure: Tenure = { sessionId, record, relays: Promise.resolve() };
+    const starting: Starting = { kind: "starting", tenure };
+    become(host, starting);
+    await enter(host, starting, []);
+
+    if (holds(starting)) {
+      const reason = "pinpoint: the server did not start again after a reload; run /pinpoint:start";
+      become(host, { kind: "lost", tenure, reason });
+    }
 
     return result;
   });
 
   on("skill.prompt", { skill: START_SKILL }, async ($, e, next) => {
     const result = await next(e);
-
-    if (state.kind === "live") return { text: `${result.text}\n\n${startedText(state.record)}` };
     const host = hostOf($);
-    const sessionId = await $.session.id();
-    const stored = parseSessionRecord(await $.store.get(recordKey(sessionId)));
+    const from = state;
+    const said = (line: string) => ({ text: `${result.text}\n\n${line}` });
 
-    const record = stored ?? {
-      serverSession: sessionId,
-      root: await $.session.root(),
-      port: 0,
-      token: "",
-      relayed: 0,
-    };
+    if (from.kind !== "idle" && from.kind !== "lost") return said(wayInText(from));
+    let tenure: Tenure;
 
-    const live = await launch(host, sessionId, record, []);
+    if (from.kind === "lost") {
+      tenure = from.tenure;
+    } else {
+      const sessionId = await $.session.id();
+      const stored = parseSessionRecord(await $.store.get(recordKey(sessionId)));
 
-    if (live === null) return { text: `${result.text}\n\n${NOT_STARTED}` };
-    become(host, live);
+      const record = stored ?? {
+        serverSession: sessionId,
+        root: await $.session.root(),
+        port: 0,
+        token: "",
+        relayed: 0,
+      };
 
-    return { text: `${result.text}\n\n${startedText(live.record)}` };
+      if (!holds(from)) return said(wayInText(state));
+      tenure = { sessionId, record, relays: Promise.resolve() };
+    }
+
+    const starting: Starting = { kind: "starting", tenure };
+    become(host, starting);
+    await enter(host, starting, []);
+
+    if (!holds(starting)) return said(wayInText(state));
+    become(host, from);
+
+    return said(NOT_STARTED);
   });
 
   on("skill.prompt", { skill: STOP_SKILL }, async ($, e, next) => {
     const result = await next(e);
     const host = hostOf($);
     const was = state;
+    const said = (line: string) => ({ text: `${result.text}\n\n${line}` });
 
-    if (was.kind === "idle") return { text: `${result.text}\n\nNo pinpoint server was running.` };
+    if (was.kind === "idle") return said("No pinpoint server was running.");
+
+    if (was.kind === "stopping") return said("pinpoint is already stopping.");
+    become(host, { kind: "stopping" });
 
     // The server removes its files, pending batches included: stopping is the user's word.
-    if (was.kind === "live") {
-      await host.fetch(`${baseOf(was.child.address)}api/close`, { method: "POST" }).catch(() => {});
-    }
+    const closed = was.kind === "live" && (await close(host, was.child.address));
 
-    await $.store.delete(recordKey(was.sessionId));
+    if (was.kind === "live") was.child.end();
+
+    if (!closed) await clean(host, was.tenure.record.serverSession);
+    await $.store.delete(recordKey(was.tenure.sessionId));
     become(host, { kind: "idle" });
 
-    return {
-      text: `${result.text}\n\npinpoint stopped: its server ended, and the app's overlay disconnects.`,
-    };
+    return said("pinpoint stopped: its server ended, and the app's overlay disconnects.");
   });
 
-  // A `/clear` mints a new session id, and `/resume` may land in another: the server carries over.
+  // A `/clear` mints a new session id, and `/resume` may land in another: the tenure carries over.
   on("command.run", { command: ["clear", "resume"] }, async ($, e, next) => {
     const result = await next(e);
-
-    if (state.kind === "idle") return result;
     const sessionId = await $.session.id();
+    const tenure = tenureOf(state);
 
-    if (sessionId === state.sessionId) return result;
-    await $.store.delete(recordKey(state.sessionId));
-    await $.store.set(recordKey(sessionId), state.record);
+    if (tenure === null || sessionId === tenure.sessionId) return result;
+    const left = tenure.sessionId;
+    tenure.sessionId = sessionId;
+    await $.store.delete(recordKey(left));
 
-    // A live state keeps its identity: its read loop knows it is current by it.
-    if (state.kind === "live") state.sessionId = sessionId;
-    else state = { ...state, sessionId };
+    // A first server not up yet has no record to move: its start writes one under the new id.
+    if (tenureOf(state) === tenure && tenure.record.port !== 0) {
+      await $.store.set(recordKey(sessionId), tenure.record);
+    }
 
     return result;
   });

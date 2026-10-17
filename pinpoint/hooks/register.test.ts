@@ -114,6 +114,27 @@ describe("a batch", () => {
     expect(seen.prompts).toEqual(["four"]);
     expect(deliveries(seen)).toHaveLength(2);
   });
+
+  test("one its server told before it died, told again by the next, enters once and in order", async ($, on) => {
+    const seen = world(on);
+    const turn = Promise.withResolvers<void>();
+    seen.turn = turn.promise;
+    await $.skill.prompt(START);
+    seen.children[0]?.write({ type: "batch", seq: 1, text: "one" });
+    await seen.clock.settle();
+    seen.children[0]?.exit(ENDED);
+    await seen.clock.settle();
+    seen.children[1]?.write(
+      { type: "batch", seq: 1, text: "one" },
+      { type: "batch", seq: 2, text: "two" },
+    );
+    await seen.clock.settle();
+    turn.resolve();
+    await seen.clock.settle();
+
+    expect(seen.prompts).toEqual(["one", "two"]);
+    expect(seen.store.get(KEY)?.relayed).toBe(2);
+  });
 });
 
 describe("the server's life", () => {
@@ -149,6 +170,35 @@ describe("the server's life", () => {
     expect(seen.children[1]?.argv.slice(-4)).toEqual(KEPT);
   });
 
+  test("a read loop that fails is an end like any other: the server comes back", async ($, on) => {
+    const seen = world(on);
+    await $.skill.prompt(START);
+    seen.children[0]?.fail("EPIPE");
+    await seen.clock.settle();
+
+    expect(seen.logs.join("\n")).toContain("the server's read loop failed");
+    expect(seen.children).toHaveLength(2);
+    expect(seen.children[1]?.argv.slice(-4)).toEqual(KEPT);
+  });
+
+  test("a start while the server starts starts no second one", async ($, on) => {
+    const seen = world(on, {
+      stored: new Map([[KEY, RECORD]]),
+      spawn: (child) => {
+        if (seen.children.length > 1) child.write(READY);
+      },
+    });
+
+    const restored = $.session.start(SESSION);
+    await seen.clock.settle();
+    const result = await $.skill.prompt(START);
+    seen.children[0]?.write(READY);
+    await restored;
+
+    expect(seen.children).toHaveLength(1);
+    expect(result.text).toContain("pinpoint is starting");
+  });
+
   test("past the crash window the server is lost, and the status line says so", async ($, on) => {
     const seen = world(on);
     await $.skill.prompt(START);
@@ -164,14 +214,14 @@ describe("the server's life", () => {
 });
 
 describe("/pinpoint:stop", () => {
-  test("closes the server, ends it and forgets the record", async ($, on) => {
+  test("closes the server and forgets the record", async ($, on) => {
     const seen = world(on);
     await $.skill.prompt(START);
     const result = await $.skill.prompt(STOP);
 
     expect(seen.requests.map((request) => request.path)).toContain("api/close");
-    expect(seen.children[0]?.killed()).toBe(true);
     expect(seen.store.size).toBe(0);
+    expect(seen.runs).toEqual([]);
     expect(result.text).toContain("pinpoint stopped");
   });
 
@@ -179,6 +229,74 @@ describe("/pinpoint:stop", () => {
     world(on);
 
     expect((await $.skill.prompt(STOP)).text).toContain("No pinpoint server was running.");
+  });
+
+  test("a server that exits as it closes is not revived, and its record stays forgotten", async ($, on) => {
+    const seen = world(on, {
+      spawn: (child) => {
+        if (seen.children.length === 1) child.write(READY);
+      },
+    });
+
+    await $.skill.prompt(START);
+    const deleting = Promise.withResolvers<void>();
+    seen.deleting = deleting.promise;
+    const stopped = $.skill.prompt(STOP);
+    await seen.clock.settle();
+    deleting.resolve();
+    await stopped;
+    seen.children[1]?.write(READY);
+    await seen.clock.settle();
+
+    expect(seen.store.size).toBe(0);
+    expect(seen.children).toHaveLength(1);
+  });
+
+  test("a batch waiting for its turn as the stop runs writes no record back and tells nobody", async ($, on) => {
+    const seen = world(on);
+    const turn = Promise.withResolvers<void>();
+    seen.turn = turn.promise;
+    await $.skill.prompt(START);
+    seen.children[0]?.write({ type: "batch", seq: 1, text: "one" });
+    await seen.clock.settle();
+    await $.skill.prompt(STOP);
+    turn.resolve();
+    await seen.clock.settle();
+
+    expect(seen.store.size).toBe(0);
+    expect(seen.requests.map((request) => request.path)).toEqual(["api/close"]);
+  });
+
+  test("from a lost server removes the session's files, no server being left to", async ($, on) => {
+    const seen = world(on);
+    await $.skill.prompt(START);
+
+    for (let end = 0; end < CRASHES; end += 1) {
+      seen.children.at(-1)?.exit(ENDED);
+      await seen.clock.settle();
+    }
+
+    const result = await $.skill.prompt(STOP);
+
+    expect(seen.runs).toEqual([
+      ["bun", expect.stringContaining("/server/cli.ts"), "clean", "--session", SESSION_ID],
+    ]);
+    expect(seen.store.size).toBe(0);
+    expect(result.text).toContain("pinpoint stopped");
+  });
+
+  test("while the server starts ends it as it comes up, and removes the session's files", async ($, on) => {
+    const seen = world(on, { stored: new Map([[KEY, RECORD]]), spawn: () => {} });
+    const restored = $.session.start(SESSION);
+    await seen.clock.settle();
+    await $.skill.prompt(STOP);
+    seen.children[0]?.write(READY);
+    await restored;
+
+    expect(seen.children).toHaveLength(1);
+    expect(seen.children[0]?.killed()).toBe(true);
+    expect(seen.runs).toHaveLength(1);
+    expect(seen.store.size).toBe(0);
   });
 });
 

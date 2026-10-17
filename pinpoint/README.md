@@ -85,9 +85,10 @@ app page (Vite dev) ──overlay.js, POST api/batch, events──▶ pinpoint s
                                                      the page's status line: delivered
 ```
 
-- `/pinpoint:start` spawns `server/cli.ts serve` as a child of the hooks module, on a free port with a fresh token, and keeps both in the plugin's store. A server that ends on its own comes back on the same port and token, so the page reconnects; three ends within a minute stop the revivals and the status line says so. A reload of the module starts the stored server again. `/clear` carries it over to the new session id. `/pinpoint:stop` ends it and removes its files.
+- `/pinpoint:start` spawns `server/cli.ts serve` as a child of the hooks module, on a free port with a fresh token, and keeps both in the plugin's store. A server that ends on its own, or whose output can no longer be read, comes back on the same port and token, so the page reconnects; three ends within a minute make it lost and the status line says so. A reload of the module starts the stored server again. `/clear` carries it over to the new session id.
+- The module holds one state: `idle`, `starting`, `live`, `stopping` or `lost`. A way in while the server starts or stops starts no second one. `/pinpoint:stop` enters `stopping` before anything else, so the end it causes revives nothing; it closes the server, which removes its files, or runs `cli.ts clean` when no server is left to close (lost, still starting, or not answering), then forgets the record. After each wait (a prompt entering, a store write, a server starting) the module goes on only while the state is still the one it started from, so a stop meanwhile leaves no record behind and starts no server.
 - The server writes `~/.claude/pinpoint/sessions/<session>.json` (port, token, root, pid), which the Vite plugin reads at each page to inject `<script src="http://127.0.0.1:<port>/t/<token>/overlay.js">`. Every route sits behind the token in the path; a request whose `Origin` is not a page of this machine (`localhost`, `127.0.0.1`, `[::1]`) is refused, and the module's own routes refuse any page.
-- A batch is numbered and kept on disk until the module reports it went in, so a server started again tells the session what it still holds; the module skips what it already handed over. The module relays batches one after the other, never in the loop that reads the server.
+- A batch is numbered and kept on disk until the module reports it went in, so a server started again tells the session what it still holds. What the session was handed belongs to its tenure, from the start or the restore after a reload to the stop, carried across every server a revival replaces: the last batch handed over, which a batch told again does not pass, and one queue that relays the batches of all its servers one after the other, never in the loop that reads a server.
 - The server exits after a minute without the module's heartbeat: a `claude` killed hard sends no signal.
 
 ### What it hooks
@@ -96,7 +97,7 @@ app page (Vite dev) ──overlay.js, POST api/batch, events──▶ pinpoint s
 |---|---|---|
 | `session.start` | | Starts the server the store kept for the session again, after a reload. |
 | `skill.prompt` | `skill=pinpoint:start` | Starts the server, or keeps the one running, and appends where it listens. |
-| `skill.prompt` | `skill=pinpoint:stop` | Closes the server and forgets the session's record. |
+| `skill.prompt` | `skill=pinpoint:stop` | Closes the server, or removes its files when none is left, and forgets the session's record. |
 | `command.run` | `command=clear\|resume` | Moves the record to the new session id, the server kept. |
 
 ### What it calls on `$`
@@ -104,13 +105,14 @@ app page (Vite dev) ──overlay.js, POST api/batch, events──▶ pinpoint s
 | Call | What for |
 |---|---|
 | `$.process.spawn` | The server, read line by line for as long as it runs. |
+| `$.process.run` | `cli.ts clean`, at `/pinpoint:stop` with no server left to close: the session's files. |
 | `$.prompt.submit` | Each batch, once the session is idle, in order. |
 | `$.http.fetch` | The server's heartbeat, each batch's delivery, the close. |
 | `$.store.get`, `$.store.set`, `$.store.delete` | The session's record: root, port, token, last batch relayed. |
 | `$.session.id`, `$.session.root` | Which session the server serves, and the directory apps are found under. |
 | `$.clock.after`, `$.clock.every`, `$.clock.now` | The start's timeout, the heartbeat, the crash window. |
 | `$.ui.status` | The line under the prompt, for a server lost alone. |
-| `$.ui.log` | Errors only: a server that did not start, a batch not relayed, a line the module does not read. |
+| `$.ui.log` | Errors only: a server that did not start or could not be read, a batch not relayed, a line the module does not read, files not removed. |
 
 `claude plugin validate pinpoint` prints both lists from the module's source.
 
