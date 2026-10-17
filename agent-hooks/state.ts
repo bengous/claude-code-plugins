@@ -22,6 +22,8 @@ export const STATE_VERSION = 2;
 
 const TEMPORARY_SUFFIX = ".tmp";
 
+const BEAT_SUFFIX = ".beat";
+
 /** Joins a session id and an agent id into a subagent's own state key, `<session>.<agent>`. */
 export const AGENT_SEPARATOR = ".";
 
@@ -260,9 +262,10 @@ export function saveState(state: SessionState, now = Date.now()): void {
 }
 
 /**
- * Removes every state file whose `updatedAt` is older than the TTL, unreadable files counting as old, and every
- * temporary file older than `staleTemporaryMs`, dated by its mtime and never parsed: a save writes and renames its
- * own within one hook, so a younger one may be a save under way, half written.
+ * Removes every state file whose `updatedAt` is older than the TTL, unreadable files counting as old, every
+ * heartbeat whose mtime is older than the TTL, and every temporary file older than `staleTemporaryMs`, dated by its
+ * mtime and never parsed: a save writes and renames its own within one hook, so a younger one may be a save under
+ * way, half written.
  */
 export function pruneStates(staleTemporaryMs: number, now = Date.now()): void {
   let files: string[];
@@ -276,11 +279,7 @@ export function pruneStates(staleTemporaryMs: number, now = Date.now()): void {
   for (const file of files) {
     const filePath = path.join(stateDir(), file);
 
-    const stale = file.endsWith(TEMPORARY_SUFFIX)
-      ? now - modifiedAt(filePath) > staleTemporaryMs
-      : file.endsWith(".json") && now - updatedAtOf(filePath) > STATE_TTL_MS;
-
-    if (stale) {
+    if (isStale(file, filePath, staleTemporaryMs, now)) {
       try {
         unlinkSync(filePath);
       } catch {
@@ -288,6 +287,18 @@ export function pruneStates(staleTemporaryMs: number, now = Date.now()): void {
       }
     }
   }
+}
+
+function isStale(file: string, filePath: string, staleTemporaryMs: number, now: number): boolean {
+  if (file.endsWith(TEMPORARY_SUFFIX)) {
+    return now - modifiedAt(filePath) > staleTemporaryMs;
+  }
+
+  if (file.endsWith(BEAT_SUFFIX)) {
+    return now - modifiedAt(filePath) > STATE_TTL_MS;
+  }
+
+  return file.endsWith(".json") && now - updatedAtOf(filePath) > STATE_TTL_MS;
 }
 
 function modifiedAt(filePath: string): number {
@@ -353,49 +364,24 @@ export function statesOf(sessionId: string): SessionState[] {
  * its scope from. A subagent's state, `<session>.<agent>`, holds that subagent's photo only.
  */
 export function latestStateForCheckout(checkout: string): SessionState | null {
-  return (
-    statesOfCheckout(checkout)
-      .filter((state) => !state.sessionId.includes(AGENT_SEPARATOR))
-      .toSorted((left, right) => right.updatedAt - left.updatedAt)
-      .at(0) ?? null
-  );
-}
-
-/**
- * The states of this checkout saved at `since` or later by the agents of other sessions, subagents included: what
- * tells a session starting there that another works in it too.
- */
-export function othersInCheckout(
-  checkout: string,
-  sessionId: string,
-  since: number,
-): SessionState[] {
-  const own = sanitize(sessionId);
-
-  return statesOfCheckout(checkout).filter(
-    (state) =>
-      state.sessionId !== own &&
-      !state.sessionId.startsWith(`${own}${AGENT_SEPARATOR}`) &&
-      state.updatedAt >= since,
-  );
-}
-
-/** Every readable state of this checkout, each named by the key of its file. */
-function statesOfCheckout(checkout: string): SessionState[] {
   const suffix = `__${checkoutKey(checkout)}.json`;
   let files: string[];
 
   try {
-    files = readdirSync(stateDir()).filter((file) => file.endsWith(suffix));
+    files = readdirSync(stateDir()).filter(
+      (file) => file.endsWith(suffix) && !file.slice(0, -suffix.length).includes(AGENT_SEPARATOR),
+    );
   } catch {
-    return [];
+    return null;
   }
 
-  return files.flatMap((file) => {
+  const states = files.flatMap((file) => {
     try {
+      const sessionId = file.slice(0, -suffix.length);
+
       const parsed = parseState(
         readFileSync(path.join(stateDir(), file), "utf8"),
-        file.slice(0, -suffix.length),
+        sessionId,
         checkout,
       );
 
@@ -404,6 +390,69 @@ function statesOfCheckout(checkout: string): SessionState[] {
       return [];
     }
   });
+
+  return states.toSorted((left, right) => right.updatedAt - left.updatedAt).at(0) ?? null;
+}
+
+export function beatPath(key: string, checkout: string): string {
+  return path.join(stateDir(), `${sanitize(key)}__${checkoutKey(checkout)}${BEAT_SUFFIX}`);
+}
+
+/** Marks agent `key` live in the checkout: an empty file whose mtime is the last kit hook the agent ran there. */
+export function beat(key: string, checkout: string): void {
+  mkdirSync(stateDir(), { recursive: true });
+  writeFileSync(beatPath(key, checkout), "");
+}
+
+/**
+ * The keys of the agents of other sessions, subagents included, that beat in this checkout at `since` or later;
+ * `sessionId` and its own subagents left out.
+ */
+export function liveOthers(checkout: string, sessionId: string, since: number): string[] {
+  const suffix = `__${checkoutKey(checkout)}${BEAT_SUFFIX}`;
+  const own = sanitize(sessionId);
+  let files: string[];
+
+  try {
+    files = readdirSync(stateDir());
+  } catch {
+    return [];
+  }
+
+  return files.flatMap((file) => {
+    const key = file.endsWith(suffix) ? file.slice(0, -suffix.length) : null;
+
+    return key === null ||
+      key === own ||
+      key.startsWith(`${own}${AGENT_SEPARATOR}`) ||
+      modifiedAt(path.join(stateDir(), file)) < since
+      ? []
+      : [key];
+  });
+}
+
+/** Removes the beats of a session that ended and of its subagents, in every checkout. */
+export function endBeats(sessionId: string): void {
+  const own = sanitize(sessionId);
+  let files: string[];
+
+  try {
+    files = readdirSync(stateDir());
+  } catch {
+    return;
+  }
+
+  for (const file of files) {
+    const key = file.endsWith(BEAT_SUFFIX) ? file.slice(0, file.lastIndexOf("__")) : null;
+
+    if (key === own || key?.startsWith(`${own}${AGENT_SEPARATOR}`) === true) {
+      try {
+        unlinkSync(path.join(stateDir(), file));
+      } catch {
+        // A file removed by a concurrent session is not an error.
+      }
+    }
+  }
 }
 
 function sanitize(value: string): string {

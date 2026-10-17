@@ -183,18 +183,23 @@ export function loadConfig(root: string, configFile = configPath(root)): Config 
 }
 
 /**
- * The profile of the repo file alone: an error elsewhere in the file (a lane, a preset) leaves it readable. Throws a
- * ConfigError when the file does not parse or its profile is invalid.
+ * `profile.landing` of the repo file alone: an error elsewhere in the file, another profile key included, leaves it
+ * readable. Throws a ConfigError naming the key when the file does not parse or its landing is invalid.
  */
-export function loadProfile(root: string, configFile = configPath(root)): Profile {
-  return parseProfile(configFile, readText(configFile));
+export function loadLanding(root: string, configFile = configPath(root)): LandingProfile | null {
+  return readLanding(profileIn(configFile, readText(configFile)));
 }
 
-/** The profile in `text`, the repo file as `file` names it (a path, or a commit's `<rev>:<path>`). */
-export function parseProfile(file: string, text: string): Profile {
-  const record = parseRecord(file, text);
+/**
+ * `profile.review` alone, from `text`, the repo file as `file` names it (a path, or a commit's `<rev>:<path>`).
+ * Throws a ConfigError naming the key when the text does not parse or its review is invalid.
+ */
+export function parseReview(file: string, text: string): ReviewProfile | null {
+  return readReview(profileIn(file, text));
+}
 
-  return readProfile(child({ file, record, keyPath: "" }, "profile"));
+function profileIn(file: string, text: string): Reader {
+  return child({ file, record: parseRecord(file, text), keyPath: "" }, "profile");
 }
 
 function collectPreset(

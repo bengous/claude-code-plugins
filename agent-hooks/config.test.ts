@@ -11,9 +11,9 @@ import {
   expandCommand,
   isExcluded,
   loadConfig,
-  loadProfile,
+  loadLanding,
   matchesFilter,
-  parseProfile,
+  parseReview,
   pkgOf,
   splitCommand,
 } from "./config.ts";
@@ -496,37 +496,60 @@ describe("loadConfig profile", () => {
   });
 });
 
-describe("loadProfile", () => {
-  test("reads the profile without validating the rest of the file", () => {
+describe("loadLanding", () => {
+  test("reads profile.landing alone: the rest of the file, the other profile keys included, may be invalid", () => {
     writeConfig(
       temp.repo,
-      `{ "presets": ["no-such-preset"], "profile": { "landing": { "trunk": "dev", "release": "main" } } }`,
+      `{ "presets": ["no-such-preset"], "profile": { "landing": { "trunk": "dev", "release": "main" }, "worktree": "each", "review": {}, "later": 1 } }`,
     );
 
-    expect(loadProfile(temp.repo)).toEqual({
-      landing: { trunk: "dev", release: "main" },
-      review: null,
-      worktree: "shared",
-    });
+    expect(loadLanding(temp.repo)).toEqual({ trunk: "dev", release: "main" });
   });
 
-  test("reads the profile of a text, as a commit holds the file, naming that file in an error", () => {
-    expect(
-      parseProfile(
-        "dev:agent-hooks.jsonc",
-        `{ "stop": 1, "profile": { "review": { "risky": ["a"] } } }`,
-      ),
-    ).toEqual({ landing: null, review: { risky: ["a"] }, worktree: "shared" });
-    expect(() => parseProfile("dev:agent-hooks.jsonc", "{")).toThrow(
-      "agent-hooks: dev:agent-hooks.jsonc: invalid JSONC: ",
-    );
+  test("no landing reads as null", () => {
+    writeConfig(temp.repo, `{ "profile": { "worktree": "per-task" } }`);
+
+    expect(loadLanding(temp.repo)).toBeNull();
+
+    writeConfig(temp.repo, "{}");
+
+    expect(loadLanding(temp.repo)).toBeNull();
   });
 
-  test("reports an invalid profile", () => {
+  test("reports an invalid landing, naming its key", () => {
     writeConfig(temp.repo, `{ "profile": { "landing": { "trunk": "dev" } } }`);
 
-    expect(() => loadProfile(temp.repo)).toThrow(
+    expect(() => loadLanding(temp.repo)).toThrow(
       `agent-hooks: ${configPath(temp.repo)}: profile.landing.release: expected a branch name`,
+    );
+
+    writeConfig(temp.repo, `{ "profile": 1 }`);
+
+    expect(() => loadLanding(temp.repo)).toThrow(
+      `agent-hooks: ${configPath(temp.repo)}: profile: expected an object`,
+    );
+  });
+});
+
+describe("parseReview", () => {
+  test("reads profile.review alone, from a text as a commit holds the file", () => {
+    expect(
+      parseReview(
+        "dev:agent-hooks.jsonc",
+        `{ "stop": 1, "profile": { "review": { "risky": ["a"] }, "worktree": "each" } }`,
+      ),
+    ).toEqual({ risky: ["a"] });
+    expect(
+      parseReview("dev:agent-hooks.jsonc", `{ "profile": { "worktree": "each" } }`),
+    ).toBeNull();
+  });
+
+  test("names the file and the key in an error", () => {
+    expect(() => parseReview("dev:agent-hooks.jsonc", "{")).toThrow(
+      "agent-hooks: dev:agent-hooks.jsonc: invalid JSONC: ",
+    );
+    expect(() => parseReview("dev:agent-hooks.jsonc", `{ "profile": { "review": {} } }`)).toThrow(
+      "agent-hooks: dev:agent-hooks.jsonc: profile.review.risky: expected a list of globs",
     );
   });
 });

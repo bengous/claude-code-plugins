@@ -11,7 +11,7 @@ import { formatNoise, measureNoise } from "./noise.ts";
 import { runPreBash } from "./pre-bash.ts";
 import { runPostEdit, runPreEdit } from "./pre-edit.ts";
 import { findRoot, realPathOf } from "./scope.ts";
-import { runSessionStart } from "./session-start.ts";
+import { runSessionEnd, runSessionStart } from "./session-start.ts";
 import { runStop } from "./stop.ts";
 import { runVerify } from "./verify.ts";
 
@@ -19,6 +19,7 @@ const USAGE = [
   "usage:",
   "  agent-hooks <session-start|pre-edit|post-edit|stop> [--harness claude|codex]   (payload on stdin)",
   "  agent-hooks pre-bash   (Claude Code PreToolUse Bash payload on stdin)",
+  "  agent-hooks session-end   (Claude Code SessionEnd payload on stdin)",
   "  agent-hooks verify [--all] [files...]",
   "  agent-hooks doctor [--config <file>]",
   "  agent-hooks init --print",
@@ -94,6 +95,12 @@ async function main(argv: readonly string[]): Promise<number> {
       if (output !== null) {
         await Bun.write(Bun.stdout, `${output}\n`);
       }
+
+      return 0;
+    }
+
+    case "session-end": {
+      runSessionEnd(await readPayload());
 
       return 0;
     }
