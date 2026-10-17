@@ -50,7 +50,9 @@ async function pageServedFrom(plugin: string): Promise<Response> {
 }
 
 describe("the plugin alone", () => {
-  // It copies the plugin, starts `bun` there and builds the page: slow on the Windows runner.
+  // It copies the plugin, starts `bun` there and builds the page. On windows-latest, `bun test
+  // --parallel vellum`, bun 1.4.3, 2026-10-17: up to 3.6 s in run 39024451676, 1.3 s at most over
+  // 10 passes of run 39027611581.
   test("a copy of the folder outside any repository builds and serves its page", async () => {
     const page = await pageServedFrom(pluginCopy());
 

@@ -116,7 +116,9 @@ describe("readVellumBuild", () => {
     expect(!built.ok && built.error).toContain("installed_plugins.json: no entry");
   });
 
-  // It runs `git` in a repository of its own, and process starts are slow on the Windows runner.
+  // It runs three `git` commands in a repository of its own. On windows-latest, `bun test
+  // --parallel vellum`, bun 1.4.3: timed out at 5 s in job 117230466676 (2026-10-16), 0.6 s at most
+  // over 10 passes of run 39027611581 (2026-10-17).
   test("a repository around the copy that does not track it gives no commit", async () => {
     const { base, root } = installed(WITHOUT_SHA);
     git(base, "init", "-q");

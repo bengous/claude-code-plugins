@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, setDefaultTimeout, test } from "bun:test";
 import { mkdtempSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -368,10 +368,12 @@ function table(rows: string): string {
   return `test("refuses a bad body", () => {\n  const wrong = [${rows}];\n});\n`;
 }
 
-// Each test below writes a repository and runs `git` some eight times, the suites' one `bun` as
-// well: process starts are slow on the Windows runner, where these tests outran bun's default 5 s
-// beside the other suites.
+// Each test writes a repository and runs `git` seven to nine times, the suites' one a `tar` and a
+// `bun test` besides. On windows-latest, `bun test --parallel vellum`, bun 1.4.3, a job's first
+// pass: up to 2.6 s over 10 passes of run 39027611581, 2026-10-17. 15 s is about six times that.
 describe("contractDiff", () => {
+  setDefaultTimeout(15_000);
+
   test("prints the contracts' diff, the rules, the titles, the functions and the suites, in that order", () => {
     const {
       root,
@@ -407,7 +409,7 @@ describe("contractDiff", () => {
     expect(report).toContain("- asks once\n  → asks once, then waits (`src/steps/x/x.spec.ts`)");
     expect(report).toContain("- `src/steps/x/x.ts`: changed `ask`");
     expect(report).toContain("Not run.");
-  }, 15_000);
+  });
 
   test("finds the plugin in a repository reached by another spelling of its path, a link or a short name", () => {
     const {
@@ -424,7 +426,7 @@ describe("contractDiff", () => {
     const report = contractDiff(`${base}..${head}`, join(alias, "plug"), false);
 
     expect(report).toContain('+export const SLICE = { id: "y" };');
-  }, 15_000);
+  });
 
   test("runs the boundary and walk suites at the range's head, not on the tree checked out", () => {
     const {
@@ -443,7 +445,7 @@ describe("contractDiff", () => {
       `- boundaries (\`src/boundaries.spec.ts\`) at \`${short}\`: green, 2 pass, 0 fail`,
     );
     expect(report).toContain(`- walk: no \`src/workflow.spec.ts\` at \`${short}\``);
-  }, 15_000);
+  });
 
   test("shows what Claude reads, a tool's description and a skill, word by word, after the contracts", () => {
     const {
@@ -468,7 +470,7 @@ describe("contractDiff", () => {
     expect(report).toContain(
       "- `skills/start/SKILL.md`: Propose the next step, then wait{+ for the pick+}.",
     );
-  }, 15_000);
+  });
 
   test("lists the cases added to a test's table under its title, the title kept", () => {
     const {
@@ -484,7 +486,7 @@ describe("contractDiff", () => {
     expect(report).toContain(
       'Cases added, the title kept (1):\n- refuses a bad body (`src/x.spec.ts`):\n  - `{ id: "p1", note: " " }`',
     );
-  }, 15_000);
+  });
 
   test("a contract whose comments only moved shows no diff, and says so", () => {
     const code = 'import { a } from "./a.ts";\nexport const SLICE = { id: "x" };\n';
@@ -501,7 +503,7 @@ describe("contractDiff", () => {
 
     expect(report).toContain("## Contracts\n\nOnly comments moved in `src/steps/x/contract.ts`.");
     expect(report).not.toContain("```diff");
-  }, 15_000);
+  });
 
   test("says once, under its title, that a contract declares fields, not their values", () => {
     const {
@@ -519,7 +521,7 @@ describe("contractDiff", () => {
       "A contract declares fields, not their values: a new value of a declared field (a `move` an event carries) shows in no section below.",
       "",
     ]);
-  }, 15_000);
+  });
 
   test("says so when no contract and no rule changed", () => {
     const {
@@ -535,7 +537,7 @@ describe("contractDiff", () => {
     expect(report).toContain("## Contracts\n\nNo contract changed.");
     expect(report).toContain("## Rules (`table.spec.ts.snap`)\n\nNo rule changed.");
     expect(report).toContain("- `src/a.ts`: and code outside its functions");
-  }, 15_000);
+  });
 
   test("reads the commit a short base names, though a tree's SHA begins the same", () => {
     const {
@@ -550,5 +552,5 @@ describe("contractDiff", () => {
     const report = contractDiff(`${short}..${head}`, join(root, "plug"), false);
 
     expect(report).toContain('+export const SLICE = { id: "y" };');
-  }, 15_000);
+  });
 });
