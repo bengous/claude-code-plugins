@@ -72,8 +72,9 @@ one, say that none is recommended yet.
 ## Output
 
 In the user's language: the sentence with the outcome the request serves; a table, the
-recommended version first, with one row per version (direction, outcome, first step); under
-it, one line per version with what it takes and what checks it; then two or three sentences
-on why the recommendation leads and what the user would have to provide. End with one line
+recommended version first when there is one, with one row per version (direction, outcome,
+first step); under it, one line per version with what it takes and what checks it; then two
+or three sentences on why the recommendation leads, or why none does, and what the user
+would have to provide. End with one line
 telling the user that `/meta-prompt` turns the version they pick into a brief for another
 agent.
