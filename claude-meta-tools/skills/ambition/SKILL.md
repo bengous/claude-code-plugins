@@ -31,10 +31,9 @@ so and suggest working it out first, in an interview session or a few exchanges,
 running `/ambition` on what comes out. The question or the suggestion is then the whole
 response.
 
-Check what the
-request and the conversation name (files, tools, access this session has) so that what each
-version takes is concrete: present, missing or unverified. Past what they name, write
-"unverified" rather than exploring.
+Check what the request and the conversation name (files, tools, access this session has) so
+that what each version takes is concrete: present, missing or unverified. Past what they
+name, write "unverified" rather than exploring.
 
 ## Three directions
 
@@ -83,8 +82,7 @@ one, say that none is recommended yet.
 
 In the user's language: the sentence with the outcome the request serves; a table, the
 recommended version first when there is one, with one row per version (direction, outcome,
-first step); under it, one line per version with what it takes and what checks it; then two
-or three sentences on why the recommendation leads, or why none does, and what the user
-would have to provide. End with one line
-telling the user that `/meta-prompt` turns the version they pick into a brief for another
-agent.
+first step); under it, one line per version with what it takes, what checks it and the guess
+it rests on, if any; then two or three sentences on why the recommendation leads, or why
+none does, and what the user would have to provide. End with one line telling the user that
+`/meta-prompt` turns the version they pick into a brief for another agent.
