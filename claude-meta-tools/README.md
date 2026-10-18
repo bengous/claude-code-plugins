@@ -27,6 +27,23 @@ the whole response; for a subagent, it is the input of the Agent call.
 /meta-prompt            # no arguments: hand off the task discussed in this session
 ```
 
+### `/ambition`
+
+Show higher, deeper or wider versions of a request before it is briefed or started, along
+the three directions of Felix Rieseberg's
+[How to be more ambitious](https://felixrieseberg.com/how-to-be-more-ambitious-a-tutorial-for-humans-with-models/):
+altitude (the goal beyond the goal), depth (the method a field-leading expert would use) and
+range (a field that already solved the hard part). Each version names what it would take,
+marked present, missing or unverified, what would check it outside the model, and a first
+step. It recommends the version with an outside check whose missing pieces the user can
+supply, and changes nothing: the user picks, and `/meta-prompt` briefs the pick. User-invoked
+only, since it widens scope on purpose.
+
+```bash
+/ambition add an index to the orders query
+/ambition               # no arguments: the task discussed in this session
+```
+
 ## License
 
 Apache-2.0
