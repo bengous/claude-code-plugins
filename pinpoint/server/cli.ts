@@ -4,7 +4,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { parseArgs } from "node:util";
 
-import { addressOn, targetOf } from "../shared/target.ts";
+import { targetOf } from "../shared/target.ts";
 import { DEV_PORTS } from "./apps.ts";
 import { openInBrowser } from "./browser.ts";
 import { sessionFiles } from "./files.ts";
@@ -18,7 +18,6 @@ const { values, positionals } = parseArgs({
     port: { type: "string" },
     token: { type: "string" },
     target: { type: "string" },
-    open: { type: "boolean" },
   },
 });
 
@@ -42,7 +41,7 @@ if (
   (values.target !== undefined && target === null)
 ) {
   console.error(
-    "usage: cli.ts serve --session <id> --root <dir> [--port <n> --token <t>] [--target <http(s) url>] [--open] | cli.ts clean --session <id>",
+    "usage: cli.ts serve --session <id> --root <dir> [--port <n> --token <t>] [--target <http(s) url>] | cli.ts clean --session <id>",
   );
   process.exit(2);
 }
@@ -58,12 +57,9 @@ await startServer({
   ports: DEV_PORTS,
   announce: (line) => {
     process.stdout.write(`${JSON.stringify(line)}\n`);
-
-    if (line.type === "ready" && values.open === true) {
-      openInBrowser(addressOn(line.port, line.target === null ? null : new URL(line.target)));
-    }
   },
   closed: () => process.exit(0),
+  open: openInBrowser,
   // The module beats every 15 s: a `claude` killed hard leaves no signal, only this silence.
   watchdog: { graceMs: 60_000, periodMs: 5_000, expire: () => process.exit(0) },
 });

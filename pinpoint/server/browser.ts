@@ -13,8 +13,6 @@ function openerOf(platform: NodeJS.Platform): readonly string[] {
 
 /** Best effort: the session prints the address too, for a host with no opener or no display. */
 export function openInBrowser(url: string): void {
-  // `bun test` starts real servers; without this every run opens a tab.
-  if (process.env.NODE_ENV === "test") return;
   const opener = openerOf(process.platform);
 
   try {

@@ -1,4 +1,4 @@
-import { targetOf } from "../shared/target.ts";
+import { addressOn, targetOf } from "../shared/target.ts";
 import type { BatchAccepted, Outcome, ServerLine } from "../shared/wire.ts";
 import { type Found, pickPage, probe } from "./apps.ts";
 import { buildOverlay } from "./build.ts";
@@ -35,6 +35,8 @@ export type ServeOptions = {
   readonly announce: (line: ServerLine) => void;
   /** `POST api/close` once the session's directory is removed: the process ends. */
   readonly closed: () => void;
+  /** `POST api/open`: the session's address, for the browser; `openInBrowser` outside the tests. */
+  readonly open: (address: string) => void;
   readonly watchdog: Watchdog;
 };
 
@@ -238,6 +240,12 @@ export async function startServer(options: ServeOptions): Promise<Started> {
       return "chosen" in choice
         ? new Response(null, { status: 204 })
         : new Response(choice.refused, { status: 400 });
+    }
+
+    if (request.method === "POST" && path === "api/open") {
+      options.open(addressOn(own, target));
+
+      return new Response(null, { status: 204 });
     }
 
     if (request.method === "POST" && path === "api/delivery") {

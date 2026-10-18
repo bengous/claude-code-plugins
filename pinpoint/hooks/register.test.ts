@@ -165,12 +165,12 @@ describe("/pinpoint:start", () => {
 });
 
 describe("the browser", () => {
-  test("a first start with a person at the session opens it at the address, and says so", async ($, on) => {
+  test("a first start seen at this machine opens it at the address, and says so", async ($, on) => {
     const seen = world(on);
     seen.surfaces = ["terminal"];
     const result = await $.skill.prompt(START);
 
-    expect(seen.children[0]?.argv.at(-1)).toBe("--open");
+    expect(posted(seen, "api/open")).toHaveLength(1);
     expect(result.text).toContain(
       `The browser opens http://localhost:${SERVER.port}/: "Which app?"`,
     );
@@ -179,19 +179,39 @@ describe("the browser", () => {
 
   test("a first start with an app opens it at the app's path", async ($, on) => {
     const seen = world(on);
-    seen.surfaces = ["terminal"];
+    seen.surfaces = ["desktop"];
     const result = await $.skill.prompt(startWith(APP));
 
-    expect(seen.children[0]?.argv.slice(-3)).toEqual(["--target", APP, "--open"]);
+    expect(posted(seen, "api/open")).toHaveLength(1);
     expect(result.text).toContain(`The browser opens http://localhost:${SERVER.port}/admin:`);
   });
 
-  test("a run nobody watches, as -p, opens nothing and gives the address", async ($, on) => {
+  test("a start nobody sees here opens nothing and gives the address: a -p run, a phone", async ($, on) => {
     const seen = world(on);
-    const result = await $.skill.prompt(START);
+    const unseen = await $.skill.prompt(START);
+    await $.skill.prompt(STOP);
+    seen.surfaces = ["mobile"];
+    const remote = await $.skill.prompt(START);
 
-    expect(seen.children[0]?.argv).not.toContain("--open");
-    expect(result.text).toContain(`Open http://localhost:${SERVER.port}/ in the browser`);
+    expect(posted(seen, "api/open")).toEqual([]);
+    expect(unseen.text).toContain(`Open http://localhost:${SERVER.port}/ in the browser`);
+    expect(remote.text).toContain(`Open http://localhost:${SERVER.port}/ in the browser`);
+  });
+
+  test('the server\'s own address refused, it opens "Which app?" and says so', async ($, on) => {
+    const seen = world(on, {
+      spawn: (child) => {
+        child.write(READY);
+      },
+    });
+
+    seen.surfaces = ["terminal"];
+    const result = await $.skill.prompt(startWith(`http://localhost:${SERVER.port}/`));
+
+    expect(posted(seen, "api/open")).toHaveLength(1);
+    expect(result.text).toContain(
+      `The browser opens http://localhost:${SERVER.port}/ to pick the app`,
+    );
   });
 
   test("a start or a switch while live opens nothing: the tab is there", async ($, on) => {
@@ -201,27 +221,22 @@ describe("the browser", () => {
     const again = await $.skill.prompt(START);
     const switched = await $.skill.prompt(startWith(APP));
 
-    expect(seen.children).toHaveLength(1);
-    expect(again.text).toContain(`Open http://localhost:${SERVER.port}/ in the browser`);
+    expect(posted(seen, "api/open")).toHaveLength(1);
+    expect(again.text).toContain(
+      `pinpoint is already live for ${ROOT}.\nIts address stays http://localhost:${SERVER.port}/:`,
+    );
     expect(switched.text).not.toContain("The browser opens");
   });
 
-  test("a server that comes back on its own opens nothing", async ($, on) => {
-    const seen = world(on);
-    seen.surfaces = ["terminal"];
-    await $.skill.prompt(START);
-    seen.children[0]?.exit(ENDED);
-    await seen.clock.settle();
-
-    expect(seen.children[1]?.argv.slice(-4)).toEqual(KEPT);
-  });
-
-  test("a reload opens nothing", async ($, on) => {
+  test("a server that comes back on its own, or after a reload, opens nothing", async ($, on) => {
     const seen = world(on, { stored: new Map([[KEY, RECORD]]) });
     seen.surfaces = ["terminal"];
     await $.session.start(SESSION);
+    seen.children[0]?.exit(ENDED);
+    await seen.clock.settle();
 
-    expect(seen.children[0]?.argv.slice(-4)).toEqual(KEPT);
+    expect(seen.children).toHaveLength(2);
+    expect(posted(seen, "api/open")).toEqual([]);
   });
 
   test("a start after the server was lost opens nothing: its address is the tabs' already", async ($, on) => {
@@ -237,7 +252,18 @@ describe("the browser", () => {
     const result = await $.skill.prompt(START);
 
     expect(seen.children.at(-1)?.argv.slice(-4)).toEqual(KEPT);
+    expect(posted(seen, "api/open")).toHaveLength(1);
     expect(result.text).toContain(`Open http://localhost:${SERVER.port}/ in the browser`);
+  });
+
+  test("a start from a record a gone process left opens it: no tab of this one holds it", async ($, on) => {
+    const seen = world(on, { stored: new Map([[KEY, RECORD]]) });
+    seen.surfaces = ["terminal"];
+    const result = await $.skill.prompt(START);
+
+    expect(seen.children[0]?.argv.slice(-4)).toEqual(KEPT);
+    expect(posted(seen, "api/open")).toHaveLength(1);
+    expect(result.text).toContain(`The browser opens http://localhost:${SERVER.port}/`);
   });
 });
 

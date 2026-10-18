@@ -52,6 +52,8 @@ type Running = {
   readonly lines: ServerLine[];
   readonly dir: string;
   readonly closed: () => boolean;
+  /** Each address the server asked the browser to open. */
+  readonly opened: string[];
 };
 
 const running: Running[] = [];
@@ -64,6 +66,7 @@ async function serve(
 ): Promise<Running> {
   const home = dir ?? (await mkdtemp(join(tmpdir(), "pinpoint-")));
   const lines: ServerLine[] = [];
+  const opened: string[] = [];
   let closed = false;
 
   const started = await startServer({
@@ -78,10 +81,11 @@ async function serve(
     closed: () => {
       closed = true;
     },
+    open: (address) => opened.push(address),
     watchdog: { graceMs: 60_000, periodMs: 60_000, expire: () => {} },
   });
 
-  const one = { started, lines, dir: home, closed: () => closed };
+  const one = { started, lines, dir: home, closed: () => closed, opened };
   running.push(one);
 
   return one;
@@ -1107,4 +1111,28 @@ describe("switching the app", () => {
       expect(await looped.text()).toContain("leads back to this server");
     },
   );
+});
+
+describe("the browser", () => {
+  test("the module's open names the session's address: \"Which app?\", or the app's path once one is served", async () => {
+    const asking = await serve();
+    const serving = await serve(null, null, new URL("http://localhost:5999/admin?tab=1#top"));
+
+    expect((await fetch(url(asking, "api/open"), { method: "POST" })).status).toBe(204);
+    expect((await fetch(url(serving, "api/open"), { method: "POST" })).status).toBe(204);
+    expect(asking.opened).toEqual([`http://localhost:${asking.started.port}/`]);
+    expect(serving.opened).toEqual([`http://localhost:${serving.started.port}/admin?tab=1`]);
+  });
+
+  test("a page cannot open it: the route is the module's", async () => {
+    const one = await serve();
+
+    const asked = await fetch(url(one, "api/open"), {
+      method: "POST",
+      headers: { origin: ownOrigin(one) },
+    });
+
+    expect(asked.status).toBe(404);
+    expect(one.opened).toEqual([]);
+  });
 });
