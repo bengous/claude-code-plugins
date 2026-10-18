@@ -116,6 +116,7 @@ const PAGE = "<!doctype html><html><head><title>App</title></head><body><h1>App<
 type Handshake = {
   readonly path: string;
   readonly protocols: readonly string[];
+  readonly host: string | null;
   readonly cookie: string | null;
 };
 
@@ -155,6 +156,7 @@ function app(): App {
         handshakes.push({
           path: `${pathname}${search}`,
           protocols,
+          host: request.headers.get("host"),
           cookie: request.headers.get("cookie"),
         });
 
@@ -185,6 +187,7 @@ function app(): App {
             "content-type": "application/octet-stream",
             "x-app": "kept",
             "x-host": request.headers.get("host") ?? "",
+            "x-origin": request.headers.get("origin") ?? "",
           },
         });
       }
@@ -488,6 +491,18 @@ describe("what the server refuses", () => {
     expect((await post(one, "api/batch", BATCH, "https://evil.example")).status).toBe(403);
   });
 
+  test("a request to a name other than this machine's, a name rebound to it: 403", async () => {
+    const one = await serve();
+    const asked = (host: string) => fetch(url(one, "overlay.js"), { headers: { host } });
+
+    expect((await asked(`evil.example:${one.started.port}`)).status).toBe(403);
+    expect((await asked("127.0.0.1.evil.example")).status).toBe(403);
+
+    for (const host of ["localhost", "127.0.0.1", "[::1]"]) {
+      expect((await asked(`${host}:${one.started.port}`)).status).toBe(200);
+    }
+  });
+
   test("a body that is not a batch: 400", async () => {
     const one = await serve();
 
@@ -552,9 +567,23 @@ describe("a server with a target app", () => {
     expect(response.status).toBe(201);
     expect(response.headers.get("content-type")).toBe("application/octet-stream");
     expect(response.headers.get("x-app")).toBe("kept");
-    expect(response.headers.get("x-host")).toBe(target.url.host);
     expect(new Uint8Array(await response.arrayBuffer())).toEqual(new Uint8Array([0, 1, 2, 255]));
     expect(target.asked).toEqual(["POST /echo?x=1"]);
+  });
+
+  test("the app sees the Host the page asked, in step with its Origin", async () => {
+    const target = app();
+    const one = await serve(null, null, target.url);
+    const page = `localhost:${one.started.port}`;
+
+    const response = await fetch(`http://127.0.0.1:${one.started.port}/echo`, {
+      method: "POST",
+      headers: { host: page, origin: `http://${page}` },
+      body: "x",
+    });
+
+    expect(response.headers.get("x-host")).toBe(page);
+    expect(response.headers.get("x-origin")).toBe(`http://${page}`);
   });
 
   test("a redirect reaches the page as the app gave it, not followed", async () => {
@@ -597,7 +626,12 @@ describe("a server with a target app", () => {
     page.socket.send(new Uint8Array([0, 255]));
     expect(await page.next()).toEqual(new Uint8Array([0, 255]).buffer);
     expect(target.handshakes).toEqual([
-      { path: "/hmr?token=abc", protocols: ["json", "vite-hmr"], cookie: "sid=1" },
+      {
+        path: "/hmr?token=abc",
+        protocols: ["json", "vite-hmr"],
+        host: `127.0.0.1:${one.started.port}`,
+        cookie: "sid=1",
+      },
     ]);
   });
 
@@ -661,6 +695,23 @@ describe("a server with a target app", () => {
     });
 
     expect(response.status).toBe(403);
+    expect(target.asked).toEqual([]);
+  });
+
+  test("a request to a name other than this machine's is refused before the app is asked: 403", async () => {
+    const target = app();
+    const one = await serve(null, null, target.url);
+    const rebound = { host: `evil.example:${one.started.port}` };
+
+    for (const path of ["/", "/echo"]) {
+      const response = await fetch(`http://127.0.0.1:${one.started.port}${path}`, {
+        headers: rebound,
+      });
+
+      expect(response.status).toBe(403);
+    }
+
+    expect(await connect(one, "/hmr", { headers: rebound }).opened).toBe(false);
     expect(target.asked).toEqual([]);
   });
 

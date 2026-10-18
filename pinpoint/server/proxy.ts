@@ -141,8 +141,10 @@ export async function forward(
   overlay: string,
 ): Promise<Response | undefined> {
   const url = atTarget(request.url, target);
+  // The page's `Host` goes on as it came, a name of this machine the server checked: it stays in
+  // step with the page's `Origin`, which apps compare, and URLs the app builds from it lead back
+  // here.
   const headers = new Headers(request.headers);
-  headers.set("host", url.host);
 
   if (request.headers.get("upgrade")?.toLowerCase() === "websocket") {
     return await relay(request, server, url, headers);

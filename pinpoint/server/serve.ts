@@ -43,6 +43,12 @@ export type Started = {
 /** A page of the user's own machine: a browser sets `Origin`, which no page can forge. */
 const LOOPBACK = /^https?:\/\/(?:localhost|127\.0\.0\.1|\[::1\])(?::\d+)?$/u;
 
+/**
+ * A request to a name of this machine. A name rebound to 127.0.0.1 makes its page same-origin
+ * with the server, so its GETs carry no `Origin`; only the `Host` they name tells them apart.
+ */
+const LOOPBACK_HOST = /^(?:localhost|127\.0\.0\.1|\[::1\])(?::\d+)?$/u;
+
 function isPortTaken(cause: unknown): boolean {
   return cause instanceof Error && "code" in cause && cause.code === "EADDRINUSE";
 }
@@ -162,6 +168,12 @@ export async function startServer(options: ServeOptions): Promise<Started> {
       reusePort: false,
       development: false,
       fetch: async (request, server) => {
+        if (!LOOPBACK_HOST.test(request.headers.get("host") ?? "")) {
+          return new Response("pinpoint answers requests to this machine's names only", {
+            status: 403,
+          });
+        }
+
         const origin = request.headers.get("origin");
 
         if (origin !== null && !LOOPBACK.test(origin)) {
