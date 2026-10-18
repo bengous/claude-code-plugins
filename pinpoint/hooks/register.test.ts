@@ -1,7 +1,16 @@
-import type { CommandRunInput, SessionStartInput, SkillPromptArgs } from "claude-code";
+import type { CommandRunInput, SessionStartInput, Settings, SkillPromptArgs } from "claude-code";
 import { describe, expect, test, tier } from "claude-code/testing";
 
-import { deliveries, posted, READY, ROOT, SERVER, SESSION_ID, world } from "./fixtures.ts";
+import {
+  type Child,
+  deliveries,
+  posted,
+  READY,
+  ROOT,
+  SERVER,
+  SESSION_ID,
+  world,
+} from "./fixtures.ts";
 import { CRASHES, HEARTBEAT_MS } from "./register.ts";
 
 tier("user");
@@ -27,6 +36,14 @@ const ENDED = { code: 1, signal: null } as const;
 
 const KEY = `session:${SESSION_ID}`;
 
+/** What the module passed `child` after `name`, `null` when it passed no `name`. */
+function flag(child: Child | undefined, name: string): string | null {
+  const argv = child?.argv ?? [];
+  const at = argv.indexOf(name);
+
+  return at === -1 ? null : (argv[at + 1] ?? null);
+}
+
 /** `/clear` as the person typed it at the composer. */
 const CLEAR: CommandRunInput = {
   command: "clear",
@@ -51,6 +68,8 @@ describe("/pinpoint:start", () => {
       ROOT,
       "--relayed",
       "0",
+      "--keep-days",
+      "30",
     ]);
     expect(result.text).toContain(`pinpoint is live for ${ROOT}.`);
     expect(result.text).toContain(
@@ -418,13 +437,25 @@ describe("the server's life", () => {
     seen.children[0]?.exit(ENDED);
     await seen.clock.settle();
 
-    const relayed = (child: number) => {
-      const argv = seen.children[child]?.argv ?? [];
+    expect(seen.children.map((child) => flag(child, "--relayed"))).toEqual(["3", "4"]);
+  });
 
-      return argv[argv.indexOf("--relayed") + 1];
+  test("a server sweeps the other sessions after Claude Code's cleanupPeriodDays, 30 unset, and none past a value Claude Code refuses", async ($, on) => {
+    const seen = world(on);
+
+    const keepDays = async (settings: Settings): Promise<string | null> => {
+      seen.settings = settings;
+      await $.skill.prompt(START);
+      await $.skill.prompt(STOP);
+
+      return flag(seen.children.at(-1), "--keep-days");
     };
 
-    expect([relayed(0), relayed(1)]).toEqual(["3", "4"]);
+    expect(await keepDays({})).toBe("30");
+    expect(await keepDays({ cleanupPeriodDays: 7 })).toBe("7");
+    expect(await keepDays({ cleanupPeriodDays: 0 })).toBeNull();
+    expect(await keepDays({ cleanupPeriodDays: 2.5 })).toBeNull();
+    expect(await keepDays({ cleanupPeriodDays: "7" })).toBeNull();
   });
 
   test("the app a page picked is recorded, and the server that comes back serves it", async ($, on) => {

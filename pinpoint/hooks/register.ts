@@ -179,6 +179,7 @@ function hostOf($: EngineInterface): Host {
     repeat: (ms, fn) => $.clock.every(ms, fn),
     now: () => $.clock.now(),
     storeSet: (key, value) => $.store.set(key, value),
+    settings: () => $.settings.read(),
     status: (text) => $.ui.status(text),
     log: (text) => $.ui.log(text),
   };

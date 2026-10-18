@@ -2,7 +2,7 @@ import { addressOn, targetOf } from "../shared/target.ts";
 import type { BatchAccepted, ImageAccepted, Outcome, ServerLine } from "../shared/wire.ts";
 import { type Found, pickPage, probe } from "./apps.ts";
 import { buildOverlay } from "./build.ts";
-import { sessionFiles } from "./files.ts";
+import { sessionFiles, sweepSessions } from "./files.ts";
 import { parseBatchRequest, parseDelivery, parseSeqs, parseTargetRequest } from "./parse.ts";
 import { forward, HOP, type Relay, relays } from "./proxy.ts";
 import { batchText } from "./text.ts";
@@ -22,6 +22,11 @@ export type ServeOptions = {
   readonly root: string;
   /** The last batch the module handed to the session, which every new batch's number passes. */
   readonly relayed: number;
+  /**
+   * How many days another session's files stay once nothing in them changes, Claude Code's
+   * `cleanupPeriodDays`; `null` sweeps none.
+   */
+  readonly keepDays: number | null;
   /** `0` for any; a port taken meanwhile binds another one, under a new token. */
   readonly port: number;
   readonly token: string | undefined;
@@ -85,6 +90,8 @@ const PNG_SIGNATURE = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
 function isPng(bytes: Uint8Array): boolean {
   return PNG_SIGNATURE.every((byte, index) => bytes[index] === byte);
 }
+
+const DAY_MS = 24 * 60 * 60 * 1000;
 
 /** A probe of the dev ports is reused this long: each one asks every app for its `/`. */
 const PROBE_FRESH_MS = 5_000;
@@ -401,6 +408,17 @@ export async function startServer(options: ServeOptions): Promise<Started> {
   const watchdog = setInterval(() => {
     if (Date.now() - lastHeartbeat > options.watchdog.graceMs) options.watchdog.expire();
   }, options.watchdog.periodMs);
+
+  // After `ready`: the module waits for it, not for the sweep.
+  if (options.keepDays !== null) {
+    const failures = await sweepSessions(
+      options.dir,
+      options.session,
+      options.keepDays * DAY_MS,
+    ).catch((cause: unknown) => [String(cause)]);
+
+    for (const failure of failures) console.error(`pinpoint: a session was not swept: ${failure}`);
+  }
 
   return {
     port,

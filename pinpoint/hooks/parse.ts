@@ -1,8 +1,8 @@
 import type { ServerLine } from "../shared/wire.ts";
 
 /**
- * The module's boundary: a line of the server's stdout and a record of `$.store` arrive as text
- * or `unknown`, and are parsed here, once.
+ * The module's boundary: a line of the server's stdout, a record of `$.store` and a key of the
+ * settings arrive as text or `unknown`, and are parsed here, once.
  */
 
 /** What the store keeps per Claude Code session, under `session:<id>`, so a reload starts the server again where it was. */
@@ -98,6 +98,19 @@ export function parseSessionRecord(value: unknown): SessionRecord | null {
     typeof relayed === "number"
     ? { serverSession, root, port, token, target, relayed }
     : null;
+}
+
+/** Claude Code's `cleanupPeriodDays` when no settings set it. */
+const CLEANUP_PERIOD_DEFAULT = 30;
+
+/**
+ * How many days Claude Code keeps a session's data, as the merged settings' `cleanupPeriodDays`
+ * says: `null` for a value it refuses, under which it pauses its own sweep.
+ */
+export function retentionDays(value: unknown): number | null {
+  if (value === undefined) return CLEANUP_PERIOD_DEFAULT;
+
+  return typeof value === "number" && Number.isInteger(value) && value >= 1 ? value : null;
 }
 
 /** What `$.store.get` gave for a session: nothing, a record, or a value that is not one. */

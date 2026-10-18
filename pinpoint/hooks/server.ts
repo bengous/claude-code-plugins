@@ -7,11 +7,12 @@ import type {
   ProcessSpawnRequest,
   ProcessSpawnResult,
   PromptSubmitResult,
+  Settings,
   Timer,
 } from "claude-code";
 
 import type { Delivery, TargetRequest } from "../shared/wire.ts";
-import { parseServerLine, type SessionRecord } from "./parse.ts";
+import { parseServerLine, retentionDays, type SessionRecord } from "./parse.ts";
 
 /**
  * The engine as a hook bound it from its `$`, each member spelled `$.noun.verb(...)` in
@@ -33,6 +34,8 @@ export type Host = {
   /** `$.clock.now()`: milliseconds since the epoch, as the engine's clock reads them. */
   readonly now: () => Promise<number>;
   readonly storeSet: (key: string, value: SessionRecord) => Promise<void>;
+  /** `$.settings.read()`: the settings merged over every source, as the engine runs under them. */
+  readonly settings: () => Promise<Settings>;
   /** The line under the prompt, for a failure alone; `undefined` clears it. */
   readonly status: (text: string | undefined) => void;
   readonly log: (text: string) => void;
@@ -89,10 +92,13 @@ export function baseOf(address: Address): string {
 /**
  * Spawns the server of `record` at its root and reads it up to `ready`, for `START_TIMEOUT_MS` at
  * most: on the port and the token the app's pages already load from once it has them, serving its
- * app, numbering past its last batch relayed. A child that gives no `ready` is ended, and `null`
- * answered with the reason logged.
+ * app, numbering past its last batch relayed, and sweeping the other sessions Claude Code's
+ * retention period has passed. A child that gives no `ready` is ended, and `null` answered with the
+ * reason logged.
  */
 export async function start(host: Host, record: SessionRecord): Promise<Child | null> {
+  const keepDays = retentionDays((await host.settings()).cleanupPeriodDays);
+
   const argv = [
     "bun",
     `${host.pluginRoot}/server/cli.ts`,
@@ -103,6 +109,7 @@ export async function start(host: Host, record: SessionRecord): Promise<Child | 
     record.root,
     "--relayed",
     String(record.relayed),
+    ...(keepDays === null ? [] : ["--keep-days", String(keepDays)]),
     ...(record.port === 0 ? [] : ["--port", String(record.port), "--token", record.token]),
     ...(record.target === null ? [] : ["--target", record.target]),
   ];

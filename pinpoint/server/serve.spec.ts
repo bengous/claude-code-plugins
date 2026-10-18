@@ -1,8 +1,8 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { existsSync } from "node:fs";
-import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, readFile, rm, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 
 import type {
   BatchRequest,
@@ -59,8 +59,8 @@ type Running = {
 
 const running: Running[] = [];
 
-/** What the module passes of the session's tenure: the last batch it handed over. */
-type Tenure = { readonly relayed?: number };
+/** What the module passes a server beside its address, as `cli.ts` takes it. */
+type Given = { readonly relayed?: number; readonly keepDays?: number | null };
 
 async function serve(
   dir: string | null = null,
@@ -68,7 +68,7 @@ async function serve(
   target: URL | null = null,
   ports: readonly number[] = [],
   opener: string | null = null,
-  tenure: Tenure = {},
+  given: Given = {},
 ): Promise<Running> {
   const home = dir ?? (await mkdtemp(join(tmpdir(), "pinpoint-")));
   const lines: ServerLine[] = [];
@@ -79,7 +79,8 @@ async function serve(
     dir: home,
     session: "s1",
     root: "/work/app",
-    relayed: tenure.relayed ?? 0,
+    relayed: given.relayed ?? 0,
+    keepDays: given.keepDays === undefined ? 30 : given.keepDays,
     port: kept?.port ?? 0,
     token: kept?.token,
     target,
@@ -100,6 +101,32 @@ async function serve(
   running.push(one);
 
   return one;
+}
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * Writes another session's files under `dir`, then dates each by the days since it last changed,
+ * as `files` names them; its directories take the oldest.
+ */
+async function session(
+  dir: string,
+  name: string,
+  files: Readonly<Record<string, number>>,
+): Promise<void> {
+  const own = join(dir, "sessions", name);
+
+  for (const file of Object.keys(files)) {
+    await mkdir(dirname(join(own, file)), { recursive: true });
+    await writeFile(join(own, file), "x");
+  }
+
+  const oldest = Math.max(...Object.values(files));
+
+  for (const entry of ["", ...(await readdir(own, { recursive: true }))]) {
+    const when = new Date(Date.now() - (files[entry] ?? oldest) * DAY_MS);
+    await utimes(join(own, entry), when, when);
+  }
 }
 
 function url(one: Running, path: string): string {
@@ -626,6 +653,24 @@ describe("the server", () => {
 
     expect(other.started.port).not.toBe(holder.started.port);
     expect(other.started.token).not.toBe("kept");
+  });
+
+  test("a start removes each other session nothing changed in for longer than the period, and keeps the rest", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "pinpoint-"));
+    await session(dir, "old", { seq: 31, "settled.json": 31, "images/a.png": 31 });
+    await session(dir, "recent", { seq: 40, "images/b.png": 1 });
+    await session(dir, "s1", { seq: 40 });
+    await serve(dir);
+
+    expect((await readdir(join(dir, "sessions"))).toSorted()).toEqual(["recent", "s1"]);
+  });
+
+  test("a start given no period removes nothing", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "pinpoint-"));
+    await session(dir, "old", { seq: 31 });
+    await serve(dir, null, null, [], null, { keepDays: null });
+
+    expect(await readdir(join(dir, "sessions"))).toEqual(["old"]);
   });
 
   test("close removes the session's files and ends the process", async () => {

@@ -16,6 +16,7 @@ const { values, positionals } = parseArgs({
     session: { type: "string" },
     root: { type: "string" },
     relayed: { type: "string" },
+    "keep-days": { type: "string" },
     port: { type: "string" },
     token: { type: "string" },
     target: { type: "string" },
@@ -42,15 +43,18 @@ const target = values.target === undefined ? null : targetOf(values.target);
 
 const relayed = values.relayed === undefined ? 0 : countOf(values.relayed);
 
+const keepDays = values["keep-days"] === undefined ? null : countOf(values["keep-days"]);
+
 if (
   command !== "serve" ||
   session === undefined ||
   root === undefined ||
   relayed === null ||
+  (values["keep-days"] !== undefined && (keepDays === null || keepDays < 1)) ||
   (values.target !== undefined && target === null)
 ) {
   console.error(
-    "usage: cli.ts serve --session <id> --root <dir> [--relayed <n>] [--port <n> --token <t>] [--target <http(s) url>] | cli.ts clean --session <id>",
+    "usage: cli.ts serve --session <id> --root <dir> [--relayed <n>] [--keep-days <n ≥ 1>] [--port <n> --token <t>] [--target <http(s) url>] | cli.ts clean --session <id>",
   );
   process.exit(2);
 }
@@ -61,6 +65,7 @@ await startServer({
   session,
   root,
   relayed,
+  keepDays,
   port: Number(values.port ?? 0),
   token: values.token,
   target,
