@@ -108,6 +108,12 @@ export default defineConfig({
       },
     },
     {
+      // A helper one test uses reads best beside that test, and hoisting it collides names
+      // (two `at` in scripts/mutation.test.ts).
+      files: ["**/*.test.ts", "**/*.spec.ts", "**/*.e2e.ts"],
+      rules: { "unicorn/consistent-function-scoping": "off" },
+    },
+    {
       // A suite grows with the behaviours it holds, one per test: its size says nothing of its notions.
       files: ["vellum/src/**/*.spec.ts", "vellum/src/**/*.test.ts", "vellum/src/**/fixtures/**"],
       rules: { "max-lines": "off" },

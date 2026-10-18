@@ -4,6 +4,8 @@ import { reply } from "../../../runtime/hooks/fixtures/index.ts";
 /** The id the review server gave the proposal, unless a test answers `propose` itself. */
 export const PROPOSED_ID = "3f0c9a1e";
 
+const proposed: Route = () => reply(200, { id: PROPOSED_ID });
+
 export type StepRoutes = {
   readonly routes: Record<string, Route>;
   readonly posted: [name: string, body: string][];
@@ -17,8 +19,6 @@ export type StepRoutes = {
  */
 export function stepRoutes(answers: Readonly<Record<string, Route>> = {}): StepRoutes {
   const posted: [name: string, body: string][] = [];
-
-  const proposed: Route = () => reply(200, { id: PROPOSED_ID });
 
   const post =
     (name: string): Route =>

@@ -59,6 +59,16 @@
     },
     {
       "files": [
+        "**/*.test.ts",
+        "**/*.spec.ts",
+        "**/*.e2e.ts"
+      ],
+      "rules": {
+        "unicorn/consistent-function-scoping": "off"
+      }
+    },
+    {
+      "files": [
         "vellum/src/**/*.spec.ts",
         "vellum/src/**/*.test.ts",
         "vellum/src/**/fixtures/**"

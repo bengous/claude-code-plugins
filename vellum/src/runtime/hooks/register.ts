@@ -115,6 +115,30 @@ function contextOf(host: Host, live: Live, extension: EngineExtension): EngineCo
   return { host, live, api: live.server.extension(extension.id) };
 }
 
+/**
+ * Hands one event to every extension, in registry order. An extension that throws is logged
+ * and the next one runs: no extension may stop the core's own hook, or another extension.
+ */
+async function handed(
+  host: Host,
+  live: Live,
+  event: string,
+  hand: (extension: EngineExtension, context: EngineContext) => Promise<void> | undefined,
+): Promise<void> {
+  for (const extension of engineExtensions) {
+    try {
+      await hand(extension, contextOf(host, live, extension));
+    } catch (cause) {
+      host.log(`${extension.id} failed on ${event}: ${String(cause)}`);
+    }
+  }
+}
+
+/** The extensions end what they started in the session, while the mode is live and its server answers. */
+async function closing(host: Host, live: Live): Promise<void> {
+  await handed(host, live, "closing", (extension, context) => extension.closing?.(context));
+}
+
 /** Whether the state holds a session whose variable vellum set: `live` or `lost`, as the lock reads it. */
 function pinned(state: State): boolean {
   return sessionOf(state)?.pinnedCwd === true;
@@ -128,30 +152,6 @@ export const register: Register = (on) => {
 
   function forgetTurns(): void {
     turns = NO_TURN;
-  }
-
-  /**
-   * Hands one event to every extension, in registry order. An extension that throws is logged
-   * and the next one runs: no extension may stop the core's own hook, or another extension.
-   */
-  async function handed(
-    host: Host,
-    live: Live,
-    event: string,
-    hand: (extension: EngineExtension, context: EngineContext) => Promise<void> | undefined,
-  ): Promise<void> {
-    for (const extension of engineExtensions) {
-      try {
-        await hand(extension, contextOf(host, live, extension));
-      } catch (cause) {
-        host.log(`${extension.id} failed on ${event}: ${String(cause)}`);
-      }
-    }
-  }
-
-  /** The extensions end what they started in the session, while the mode is live and its server answers. */
-  async function closing(host: Host, live: Live): Promise<void> {
-    await handed(host, live, "closing", (extension, context) => extension.closing?.(context));
   }
 
   // What each mode's server last said the band draws, keyed by the mode: a new way in starts with none.
