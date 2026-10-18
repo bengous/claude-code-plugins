@@ -2,6 +2,7 @@ import type { BatchAccepted, Outcome, ServerLine } from "../shared/wire.ts";
 import { buildOverlay, writeViteModule } from "./build.ts";
 import { pruneEntries, sessionFiles } from "./files.ts";
 import { parseBatchRequest, parseDelivery, parseSeqs } from "./parse.ts";
+import { forward, type Relay, relays } from "./proxy.ts";
 import { batchText } from "./text.ts";
 
 /** When the server gives up: `expire` runs once no heartbeat came for `graceMs`. */
@@ -20,6 +21,11 @@ export type ServeOptions = {
   /** `0` for any; a port taken meanwhile binds another one, under a new token. */
   readonly port: number;
   readonly token: string | undefined;
+  /**
+   * The app every request outside the token's routes goes to, its pages given the overlay; only
+   * its origin counts. `null`: those requests are not found.
+   */
+  readonly target: URL | null;
   /** Hears `ready` once the server listens, then each batch, in order. */
   readonly announce: (line: ServerLine) => void;
   /** `POST api/close` once the session's directory is removed: the process ends. */
@@ -53,7 +59,7 @@ function corsHeaders(origin: string | null): Record<string, string> {
       };
 }
 
-type Bound = { readonly server: Bun.Server<undefined>; readonly token: string };
+type Bound = { readonly server: Bun.Server<Relay>; readonly token: string };
 
 export async function startServer(options: ServeOptions): Promise<Started> {
   const files = sessionFiles(options.dir, options.session);
@@ -147,7 +153,7 @@ export async function startServer(options: ServeOptions): Promise<Started> {
     return new Response("not found", { status: 404 });
   };
 
-  const bind = (port: number, token: string): Bun.Server<undefined> =>
+  const bind = (port: number, token: string): Bun.Server<Relay> =>
     Bun.serve({
       hostname: "127.0.0.1",
       port,
@@ -155,7 +161,7 @@ export async function startServer(options: ServeOptions): Promise<Started> {
       // process or another, would share a kept port instead of failing over to a new one.
       reusePort: false,
       development: false,
-      fetch: async (request) => {
+      fetch: async (request, server) => {
         const origin = request.headers.get("origin");
 
         if (origin !== null && !LOOPBACK.test(origin)) {
@@ -165,10 +171,15 @@ export async function startServer(options: ServeOptions): Promise<Started> {
         const { pathname } = new URL(request.url);
         const prefix = `/t/${token}/`;
 
-        return pathname.startsWith(prefix)
-          ? await routes(pathname.slice(prefix.length), request, origin)
-          : new Response("not found", { status: 404 });
+        if (pathname.startsWith(prefix)) {
+          return await routes(pathname.slice(prefix.length), request, origin);
+        }
+
+        return options.target === null
+          ? new Response("not found", { status: 404 })
+          : await forward(request, server, options.target, `${prefix}overlay.js`);
       },
+      websocket: relays,
       error: (cause) => {
         console.error(`pinpoint: a request failed: ${cause.message}`);
 

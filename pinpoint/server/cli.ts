@@ -15,6 +15,7 @@ const { values, positionals } = parseArgs({
     root: { type: "string" },
     port: { type: "string" },
     token: { type: "string" },
+    target: { type: "string" },
   },
 });
 
@@ -29,9 +30,15 @@ if (command === "clean" && session !== undefined) {
   process.exit(0);
 }
 
-if (command !== "serve" || session === undefined || root === undefined) {
+const target = values.target === undefined ? null : URL.parse(values.target);
+
+const badTarget =
+  values.target !== undefined &&
+  (target === null || (target.protocol !== "http:" && target.protocol !== "https:"));
+
+if (command !== "serve" || session === undefined || root === undefined || badTarget) {
   console.error(
-    "usage: cli.ts serve --session <id> --root <dir> [--port <n> --token <t>] | cli.ts clean --session <id>",
+    "usage: cli.ts serve --session <id> --root <dir> [--port <n> --token <t>] [--target <http(s) url>] | cli.ts clean --session <id>",
   );
   process.exit(2);
 }
@@ -54,6 +61,7 @@ await startServer({
   root,
   port: Number(values.port ?? 0),
   token: values.token,
+  target,
   announce: (line) => {
     process.stdout.write(`${JSON.stringify(line)}\n`);
   },
