@@ -199,11 +199,9 @@ export function sessionTitle(root: string): string {
   return `Batches go to the Claude Code session in ${root}`;
 }
 
-export function createView(
-  labels: readonly string[],
-  sessionRoot: string,
-  handlers: Handlers,
-): View {
+const LABELS = ["Misaligned", "Too big", "Too small", "Wrong text", "Remove"];
+
+export function createView(sessionRoot: string, handlers: Handlers): View {
   const host = document.createElement("pinpoint-overlay");
   const shadow = host.attachShadow({ mode: "open" });
   const style = document.createElement("style");
@@ -227,7 +225,7 @@ export function createView(
   grip.append(element("span", "dots"), summary, unpin);
   const chips = element("div", "chips");
 
-  for (const label of labels) {
+  for (const label of LABELS) {
     const chip = element("button", "chip", label);
     chip.type = "button";
     chip.addEventListener("click", () => handlers.label(label));
@@ -244,7 +242,7 @@ export function createView(
     "Enter add · Shift+Enter new line · Ctrl+Enter send all · Esc cancel · Ctrl+click add an element",
   );
 
-  composer.append(grip, ...(labels.length === 0 ? [] : [chips]), note, hint);
+  composer.append(grip, chips, note, hint);
 
   const moveComposer = (spot: Spot): void => {
     composer.style.left = `${spot.x}px`;

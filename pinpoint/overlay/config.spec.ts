@@ -4,7 +4,7 @@ import { baseOf, pinnedFrom, pointingFrom } from "./config.ts";
 import { composerSpot, pinnedSpot } from "./view.ts";
 
 test("baseOf: the server's address for the page, off the overlay's URL", () => {
-  expect(baseOf("http://127.0.0.1:4242/t/tok/overlay.js")).toBe("http://127.0.0.1:4242/t/tok/");
+  expect(baseOf("http://localhost:41237/t/tok/overlay.js")).toBe("http://localhost:41237/t/tok/");
 });
 
 test("pointingFrom: on only when the tab kept on, off when it kept nothing or garbage", () => {

@@ -13,6 +13,7 @@ The lines after this text are pinpoint's. Tell the user what they say in one or 
 - `pinpoint is live for <dir>.` and `Open http://localhost:<port>/… in the browser`: that address is the user's app with the overlay. Before an app is chosen it is "Which app?", a page listing the apps running on this machine and taking any other address; one click there serves that app at the same address. Then Alt+P on the page.
 - `pinpoint now serves <app> at <address>`: `/pinpoint:start <url>` switched the app; the address stays the same, and the tabs open there show the new app once reloaded.
 - `pinpoint did not take`, `kept the app it serves`, `is not an http(s) address`, `did not start its server`: nothing changed; say why, in the line's words.
+- `pinpoint is starting its server` or `pinpoint was stopped meanwhile`: another start or a stop was under way; the user runs `/pinpoint:start` again, as the line says.
 
 An app may set, in dev only, `window.pinpointContext = () => ({ ... })`: what it returns rides with each selection (the route, the state a screen was built from).
 

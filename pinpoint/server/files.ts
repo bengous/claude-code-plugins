@@ -6,10 +6,10 @@ import { parseDelivery } from "./parse.ts";
 
 /**
  * What a server keeps on disk, under `<dir>` (`~/.claude/pinpoint` outside the tests):
- * `sessions/<session>/seq`, the last batch number given; `sessions/<session>/pending/<seq>.json`, each batch not yet
- * handed to the session, so a server started again on the same session tells it again;
- * `sessions/<session>/settled.json`, what the module reported of the last batches, so a page
- * asks after its own across a restart. Each file is written whole under another name, then
+ * `sessions/<session>/seq`, the last batch number given; `sessions/<session>/pending/<seq>.json`,
+ * each batch not yet handed to the session, so a server started again on the same session tells
+ * it again; `sessions/<session>/settled.json`, what the module reported of the last batches, so a
+ * page asks after its own across a restart. Each file is written whole under another name, then
  * renamed: a reader never meets half of one.
  */
 

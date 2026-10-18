@@ -1,6 +1,6 @@
 import type { Box, Selection, Target } from "../shared/wire.ts";
 import { channelOf } from "./channel.ts";
-import { baseOf, DEFAULT_LABELS, pinnedFrom, pointingFrom } from "./config.ts";
+import { baseOf, pinnedFrom, pointingFrom } from "./config.ts";
 import {
   appContext,
   boxOf,
@@ -120,7 +120,7 @@ function start(script: HTMLScriptElement): void {
     }
   };
 
-  const view = createView(DEFAULT_LABELS, PINPOINT_ROOT, {
+  const view = createView(PINPOINT_ROOT, {
     toggle: () => toggle(),
     label: (label) => addDraft(label),
     sendAll: () => send(tray.items.map((item) => item.id)),

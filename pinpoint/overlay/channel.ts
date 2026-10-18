@@ -49,7 +49,7 @@ function parseOutcomes(value: unknown): Outcome[] | null {
 const UNREACHABLE =
   "the pinpoint server does not answer (run /pinpoint:start in Claude Code, then reload the page)";
 
-/** `base` is the server's address for this page, `http://127.0.0.1:<port>/t/<token>/`. */
+/** `base` is the server's address for this page, `<the page's own origin>/t/<token>/`. */
 export function channelOf(base: string): Channel {
   return {
     send: async (selections) => {

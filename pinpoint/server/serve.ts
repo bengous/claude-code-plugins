@@ -47,8 +47,12 @@ export type Started = {
 
 const LOOPBACK_NAME = String.raw`(?:localhost|127\.0\.0\.1|\[::1\])(?::\d+)?`;
 
-/** A page of the user's own machine: a browser sets `Origin`, which no page can forge. */
 const LOOPBACK = new RegExp(String.raw`^https?:\/\/${LOOPBACK_NAME}$`, "u");
+
+/** A page this server serves, at its own port: a browser sets `Origin`, which no page can forge. */
+function isOwnPage(origin: string, port: number): boolean {
+  return LOOPBACK.test(origin) && Number(URL.parse(origin)?.port) === port;
+}
 
 /**
  * A request to a name of this machine. A name rebound to 127.0.0.1 makes its page same-origin
@@ -79,18 +83,6 @@ function locationOf(url: URL): string {
 
 function isPortTaken(cause: unknown): boolean {
   return cause instanceof Error && "code" in cause && cause.code === "EADDRINUSE";
-}
-
-function corsHeaders(origin: string | null): Record<string, string> {
-  return origin === null
-    ? {}
-    : {
-        "access-control-allow-origin": origin,
-        "access-control-allow-methods": "GET, POST",
-        "access-control-allow-headers": "content-type",
-        "access-control-allow-private-network": "true",
-        vary: "Origin",
-      };
 }
 
 type Bound = { readonly server: Bun.Server<Relay>; readonly token: string };
@@ -169,10 +161,6 @@ export async function startServer(options: ServeOptions): Promise<Started> {
     origin: string | null,
     token: string,
   ): Promise<Response> => {
-    const cors = corsHeaders(origin);
-
-    if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: cors });
-
     if (request.method === "GET" && path === "overlay.js") {
       return new Response(overlay, {
         headers: { "content-type": "text/javascript; charset=utf-8", "cache-control": "no-store" },
@@ -182,16 +170,16 @@ export async function startServer(options: ServeOptions): Promise<Started> {
     if (request.method === "GET" && path === "api/outcomes") {
       const seqs = parseSeqs(new URL(request.url).searchParams.getAll("seq"));
 
-      if (seqs === null) return new Response("not batch numbers", { status: 400, headers: cors });
+      if (seqs === null) return new Response("not batch numbers", { status: 400 });
       const outcomes: Outcome[] = await files.outcomes(seqs);
 
-      return Response.json(outcomes, { headers: { ...cors, "cache-control": "no-store" } });
+      return Response.json(outcomes, { headers: { "cache-control": "no-store" } });
     }
 
     if (request.method === "POST" && path === "api/batch") {
       const batch = parseBatchRequest(await request.json().catch(() => null));
 
-      if (batch === null) return new Response("not a batch", { status: 400, headers: cors });
+      if (batch === null) return new Response("not a batch", { status: 400 });
 
       const seq = await inTurn(async () => {
         const next = await files.nextSeq();
@@ -204,13 +192,13 @@ export async function startServer(options: ServeOptions): Promise<Started> {
 
       const accepted: BatchAccepted = { seq };
 
-      return Response.json(accepted, { status: 202, headers: cors });
+      return Response.json(accepted, { status: 202 });
     }
 
     // The "Which app?" form, its own page's alone and only while it asks: once an app is served,
     // the app's own scripts share this origin, and only the module switches it.
     if (request.method === "POST" && path === "pick") {
-      if (origin === null || Number(URL.parse(origin)?.port) !== own) {
+      if (origin === null) {
         return new Response("pinpoint: only its own page picks the app", { status: 403 });
       }
 
@@ -233,7 +221,7 @@ export async function startServer(options: ServeOptions): Promise<Started> {
     }
 
     // The module's own routes: it sends no `Origin`, and a page never has a reason to call them.
-    if (origin !== null) return new Response("not found", { status: 404, headers: cors });
+    if (origin !== null) return new Response("not found", { status: 404 });
 
     if (request.method === "POST" && path === "api/target") {
       const asked = parseTargetRequest(await request.json().catch(() => null));
@@ -305,6 +293,11 @@ export async function startServer(options: ServeOptions): Promise<Started> {
         const prefix = `/t/${token}/`;
 
         if (pathname.startsWith(prefix)) {
+          // The overlay and "Which app?" are this server's own pages, never another origin's.
+          if (origin !== null && !isOwnPage(origin, own)) {
+            return new Response("pinpoint answers its own pages only", { status: 403 });
+          }
+
           return await routes(pathname.slice(prefix.length), request, origin, token);
         }
 
@@ -313,7 +306,7 @@ export async function startServer(options: ServeOptions): Promise<Started> {
         if (target !== null) {
           const overlayUrl = `http://${host}${prefix}overlay.js`;
 
-          return await forward(request, server, { target, overlay: overlayUrl, hop });
+          return await forward(request, server, { target, host, overlay: overlayUrl, hop });
         }
 
         return request.method === "GET" && pathname === "/"

@@ -13,7 +13,8 @@ import type {
 } from "../shared/wire.ts";
 import { type Started, startServer } from "./serve.ts";
 
-const APP = "http://localhost:5173";
+/** A page of another origin on this machine, as an app at its own address would be. */
+const ELSEWHERE = "http://localhost:5173";
 
 const BATCH: BatchRequest = {
   selections: [
@@ -36,7 +37,7 @@ const BATCH: BatchRequest = {
         },
       ],
       page: {
-        url: `${APP}/`,
+        url: "http://localhost:41237/",
         title: "App",
         viewport: { width: 1280, height: 720 },
         scroll: { x: 0, y: 0 },
@@ -98,12 +99,17 @@ type Posted =
   | { readonly selections: readonly Partial<Selection>[] }
   | Readonly<Record<string, never>>;
 
-/** Posts `body` as the app's page would, or as the module does with `origin` null. */
+/** The origin of the pages the server serves, the address the session prints. */
+function ownOrigin(one: Running): string {
+  return `http://localhost:${one.started.port}`;
+}
+
+/** Posts `body` as a page of the server does, or as the module does with `origin` null. */
 function post(
   one: Running,
   path: string,
   body: Posted,
-  origin: string | null = APP,
+  origin: string | null = ownOrigin(one),
 ): Promise<Response> {
   const headers = new Headers({ "content-type": "application/json" });
 
@@ -112,11 +118,18 @@ function post(
   return fetch(url(one, path), { method: "POST", headers, body: JSON.stringify(body) });
 }
 
-/** Asks what became of `seqs`, as a page of the app does. */
-function outcomes(one: Running, seqs: readonly (number | string)[]): Promise<Response> {
+/** Asks what became of `seqs`, as the overlay does: a same-origin GET carries no `Origin`. */
+function outcomes(
+  one: Running,
+  seqs: readonly (number | string)[],
+  origin: string | null = null,
+): Promise<Response> {
   const query = seqs.map((seq) => `seq=${seq}`).join("&");
+  const headers = new Headers();
 
-  return fetch(url(one, `api/outcomes?${query}`), { headers: { origin: APP } });
+  if (origin !== null) headers.set("origin", origin);
+
+  return fetch(url(one, `api/outcomes?${query}`), { headers });
 }
 
 const PAGE = "<!doctype html><html><head><title>App</title></head><body><h1>App</h1></body></html>";
@@ -237,6 +250,22 @@ function app(): App {
 
       if (pathname === "/old") {
         return new Response(null, { status: 302, headers: { location: "/new" } });
+      }
+
+      if (pathname === "/login") {
+        const own = `http://127.0.0.1:${self.port}`;
+
+        return new Response(null, {
+          status: 302,
+          headers: { location: `${own}/dashboard?from=login#top` },
+        });
+      }
+
+      if (pathname === "/away") {
+        return new Response(null, {
+          status: 302,
+          headers: { location: "https://accounts.example/oauth" },
+        });
       }
 
       return new Response("not in the app", { status: 404 });
@@ -397,7 +426,6 @@ describe("the server", () => {
     const response = await post(one, "api/batch", BATCH);
 
     expect(response.status).toBe(202);
-    expect(response.headers.get("access-control-allow-origin")).toBe(APP);
     expect(await response.json()).toEqual({ seq: 1 });
     expect(one.lines[1]).toMatchObject({ type: "batch", seq: 1 });
     expect(one.lines[1]?.type === "batch" && one.lines[1].text).toContain("\n\n1. [Remove]\n");
@@ -422,7 +450,6 @@ describe("the server", () => {
     const response = await outcomes(one, [3, 2, 1, 9]);
 
     expect(response.status).toBe(200);
-    expect(response.headers.get("access-control-allow-origin")).toBe(APP);
     expect(await response.json()).toEqual([
       { seq: 3, outcome: "dropped", reason: "busy" },
       { seq: 2, outcome: "pending" },
@@ -580,17 +607,29 @@ describe("what the server refuses", () => {
     expect((await post(one, "api/delivery", { seq: 1, outcome: "delivered" })).status).toBe(404);
   });
 
-  test("a preflight from the app is answered for its origin", async () => {
+  test("a page of another origin on this machine, the token in hand: 403, preflight included", async () => {
     const one = await serve();
 
-    const response = await fetch(url(one, "api/batch"), {
+    const preflight = await fetch(url(one, "api/batch"), {
       method: "OPTIONS",
-      headers: { origin: APP, "access-control-request-method": "POST" },
+      headers: { origin: ELSEWHERE, "access-control-request-method": "POST" },
     });
 
-    expect(response.status).toBe(204);
-    expect(response.headers.get("access-control-allow-origin")).toBe(APP);
-    expect(response.headers.get("access-control-allow-headers")).toBe("content-type");
+    expect((await outcomes(one, [1], ELSEWHERE)).status).toBe(403);
+    expect((await post(one, "api/batch", BATCH, ELSEWHERE)).status).toBe(403);
+    expect(preflight.status).toBe(403);
+    expect(preflight.headers.get("access-control-allow-origin")).toBeNull();
+    expect(one.lines.filter((line) => line.type === "batch")).toEqual([]);
+  });
+
+  test("its own pages are answered under every name of this machine", async () => {
+    const one = await serve();
+
+    for (const name of ["localhost", "127.0.0.1", "[::1]"]) {
+      const origin = `http://${name}:${one.started.port}`;
+
+      expect((await outcomes(one, [1], origin)).status).toBe(200);
+    }
   });
 });
 
@@ -730,6 +769,23 @@ describe("a server with a target app", () => {
     expect(response.status).toBe(302);
     expect(response.headers.get("location")).toBe("/new");
     expect(target.asked).toEqual(["GET /old"]);
+  });
+
+  test("a redirect to the app's own origin comes back to the Host asked; one elsewhere goes as it came", async () => {
+    const target = app();
+    const one = await serve(null, null, target.url);
+    const host = `localhost:${one.started.port}`;
+
+    const asked = (path: string) =>
+      fetch(`http://127.0.0.1:${one.started.port}${path}`, {
+        headers: { host },
+        redirect: "manual",
+      });
+
+    expect((await asked("/login")).headers.get("location")).toBe(
+      `http://${host}/dashboard?from=login#top`,
+    );
+    expect((await asked("/away")).headers.get("location")).toBe("https://accounts.example/oauth");
   });
 
   test("a path that reads as another host still goes to the app", async () => {
@@ -973,7 +1029,7 @@ describe("a server with no app chosen", () => {
 
     const response = await fetch(url(one, "pick"), {
       method: "POST",
-      headers: { origin: APP },
+      headers: { origin: ELSEWHERE },
       body: new URLSearchParams({ url: target.url.href }),
       redirect: "manual",
     });
@@ -1023,7 +1079,7 @@ describe("switching the app", () => {
     const before = app();
     const one = await serve(null, null, before.url);
 
-    expect((await retarget(one, "http://localhost:1/", APP)).status).toBe(404);
+    expect((await retarget(one, "http://localhost:1/", ownOrigin(one))).status).toBe(404);
   });
 
   test("once an app is served, its pages cannot pick another, even from this origin", async () => {

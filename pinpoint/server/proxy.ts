@@ -165,17 +165,44 @@ export const relays: Bun.WebSocketHandler<Relay> = {
 /** The header a forwarded request carries, so the server knows one that comes back to it. */
 export const HOP = "x-pinpoint-hop";
 
-/** Where a request goes: the app, the overlay's URL for its pages, the server's own `HOP` value. */
-export type Forwarding = { readonly target: URL; readonly overlay: string; readonly hop: string };
+/**
+ * Where a request goes: the app, the page's `Host` the server checked, the overlay's URL for its
+ * pages, the server's own `HOP` value.
+ */
+export type Forwarding = {
+  readonly target: URL;
+  readonly host: string;
+  readonly overlay: string;
+  readonly hop: string;
+};
+
+/**
+ * The answer with a `Location` on the app's own origin, the address it knows itself by, moved to
+ * the same path on the page's `Host`: followed as it came, it would leave the session's address.
+ */
+function redirectedHere(answer: Response, target: URL, host: string): Response {
+  const location = URL.parse(answer.headers.get("location") ?? "");
+
+  if (location === null || location.origin !== target.origin) return answer;
+  const headers = new Headers(answer.headers);
+  headers.set("location", `http://${host}${location.pathname}${location.search}${location.hash}`);
+
+  return new Response(answer.body, {
+    status: answer.status,
+    statusText: answer.statusText,
+    headers,
+  });
+}
 
 /**
  * Sends `request` on to the target. A page comes back with `<script src="<overlay>" defer>` at
- * the end of its body; every other answer, a redirect and a HEAD included, passes as the app gave it.
+ * the end of its body, a redirect to the app's own origin moves to the page's `Host`, and every
+ * other answer, a HEAD included, passes as the app gave it.
  */
 export async function forward(
   request: Request,
   server: Bun.Server<Relay>,
-  { target, overlay, hop }: Forwarding,
+  { target, host, overlay, hop }: Forwarding,
 ): Promise<Response | undefined> {
   // Bun cuts a request after 10 s of silence: an app's first compile, an event stream or a long
   // poll can stay silent longer, and the page leaving ends the request anyway.
@@ -196,17 +223,17 @@ export async function forward(
   headers.set("accept-encoding", "identity");
 
   try {
-    const answer = asRead(
-      await fetch(url, {
-        method: request.method,
-        headers,
-        body: request.body,
-        redirect: "manual",
-        // An `HTTP_PROXY` or `ALL_PROXY` of the environment is for the internet, not this machine.
-        proxy: false,
-        signal: request.signal,
-      }),
-    );
+    const fetched = await fetch(url, {
+      method: request.method,
+      headers,
+      body: request.body,
+      redirect: "manual",
+      // An `HTTP_PROXY` or `ALL_PROXY` of the environment is for the internet, not this machine.
+      proxy: false,
+      signal: request.signal,
+    });
+
+    const answer = redirectedHere(asRead(fetched), target, host);
 
     return request.method !== "HEAD" &&
       (answer.headers.get("content-type") ?? "").includes("text/html")
