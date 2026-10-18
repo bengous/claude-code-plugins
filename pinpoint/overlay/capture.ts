@@ -15,7 +15,7 @@ export function captureZone(box: Box, overlay: Element): Promise<Blob> {
     // A selector, not a predicate: snapdom reuses its clone of the page across captures only
     // when no exclusion runs code (its `exclude` doc).
     exclude: overlay.localName,
-    // "remove" shifted the clip sideways on a Slidev page at 1280 × 720 (snapdom 3.2.0, Chromium):
+    // "remove" shifted the clip sideways on a page at 1280 × 720 (snapdom 3.2.0, Chromium):
     // the overlay stays in the clone, invisible, and the page keeps the layout it had.
     excludeMode: "hide",
     format: "png",
