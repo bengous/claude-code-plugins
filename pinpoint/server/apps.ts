@@ -1,3 +1,5 @@
+import { folderName } from "../shared/folder.ts";
+
 /**
  * The "Which app?" page, served at `/` until an app is chosen: the apps running on this machine,
  * found by probing the usual dev servers' ports, and a field for any other address.
@@ -115,6 +117,7 @@ main { max-width: 34rem; margin: 3rem auto; padding: 0 16px; }
 h1 { font-size: 1.5rem; margin: 0 0 .25rem; }
 p { color: var(--muted); margin: 0 0 1.25rem; }
 .error { color: var(--error); }
+.session strong { color: var(--fg); overflow-wrap: anywhere; }
 ul { list-style: none; padding: 0; margin: 0 0 2rem; display: grid; gap: .5rem; }
 form { margin: 0; }
 .app { width: 100%; text-align: left; padding: .75rem 1rem; border: 1px solid var(--line); border-radius: .5rem; background: var(--card); color: inherit; font: inherit; cursor: pointer; }
@@ -128,11 +131,13 @@ label { display: block; font-weight: 600; margin-bottom: .375rem; }
 `;
 
 /**
- * The page itself: one button per app found, each posting its address to `/t/<token>/pick`, and
- * the field posting there too. `error` says why the last address was refused, `typed` what it was.
+ * The page itself: the session `root` the batches will reach, one button per app found, each
+ * posting its address to `/t/<token>/pick`, and the field posting there too. `error` says why the
+ * last address was refused, `typed` what it was.
  */
 export function pickPage(
   token: string,
+  root: string,
   apps: readonly Found[],
   error: string | null,
   typed: string,
@@ -168,6 +173,7 @@ export function pickPage(
 <main>
 <h1>Which app?</h1>
 <p>Pick the app to point at. This address then serves it, with the pinpoint overlay.</p>
+<p class="session" title="${escaped(root)}">Batches go to the Claude Code session in <strong>${escaped(folderName(root))}</strong>.</p>
 ${error === null ? "" : `<p class="error" role="alert">${escaped(error)}</p>\n`}${found}
 <form method="post" action="${action}">
 <label for="url">Another address</label>

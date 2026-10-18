@@ -89,7 +89,8 @@ export function baseOf(address: Address): string {
 /**
  * Spawns the server at the session's root and reads it up to `ready`, for `START_TIMEOUT_MS` at
  * most; `kept` asks for the port and the token the app's pages already load from, `target` for the
- * app to serve. A child that gives no `ready` is ended, and `null` answered with the reason logged.
+ * app to serve, `open` for the browser opened at the address once it listens. A child that gives
+ * no `ready` is ended, and `null` answered with the reason logged.
  */
 export async function start(
   host: Host,
@@ -97,6 +98,7 @@ export async function start(
   root: string,
   kept: Address | null,
   target: string | null,
+  open: boolean,
 ): Promise<Child | null> {
   const argv = [
     "bun",
@@ -108,6 +110,7 @@ export async function start(
     root,
     ...(kept === null ? [] : ["--port", String(kept.port), "--token", kept.token]),
     ...(target === null ? [] : ["--target", target]),
+    ...(open ? ["--open"] : []),
   ];
 
   const heard = { stderr: "" };

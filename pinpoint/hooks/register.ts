@@ -1,6 +1,6 @@
 import type { EngineInterface, Register, Timer } from "claude-code";
 
-import { targetOf } from "../shared/target.ts";
+import { addressOn, targetOf } from "../shared/target.ts";
 import type { Delivery, ServerLine } from "../shared/wire.ts";
 import {
   argumentsOf,
@@ -84,21 +84,18 @@ function recordKey(sessionId: string): string {
   return `session:${sessionId}`;
 }
 
-/** The session's address for `target`'s path, or for "Which app?" with none. */
-function addressOf(record: SessionRecord, target: URL | null): string {
-  const path = target === null ? "/" : `${target.pathname}${target.search}`;
-
-  return `http://localhost:${record.port}${path}`;
-}
-
-function startedText(record: SessionRecord): string {
+/** What the session hears of its live server; `opened` once the server was asked to open the browser there. */
+function startedText(record: SessionRecord, opened: boolean): string {
   const target = record.target === null ? null : new URL(record.target);
+  const address = addressOn(record.port, target);
+  const where = opened ? `The browser opens ${address}` : `Open ${address} in the browser`;
 
   return [
     `pinpoint is live for ${record.root}.`,
     target === null
-      ? `Open ${addressOf(record, null)} in the browser: "Which app?" lists the apps running on this machine and takes any other address. /pinpoint:start <url> serves one directly.`
-      : `Open ${addressOf(record, target)} in the browser: it serves ${target.origin} with the overlay. /pinpoint:start <url> switches to another app at the same address.`,
+      ? `${where}: "Which app?" lists the apps running on this machine and takes any other address. /pinpoint:start <url> serves one directly.`
+      : `${where}: it serves ${target.origin} with the overlay. /pinpoint:start <url> switches to another app at the same address.`,
+    ...(opened ? ["If no tab comes up, open that address yourself."] : []),
     "Press Alt+P on the page to point.",
   ].join("\n");
 }
@@ -115,11 +112,11 @@ function recordIn(host: Host, stored: Stored): SessionRecord | null {
 }
 
 function switchedText(record: SessionRecord, target: URL): string {
-  return `pinpoint now serves ${target.origin} at ${addressOf(record, target)}; reload the tabs open there.`;
+  return `pinpoint now serves ${target.origin} at ${addressOn(record.port, target)}; reload the tabs open there.`;
 }
 
 function selfText(record: SessionRecord, asked: string): string {
-  return `pinpoint did not take ${asked}: it is this pinpoint server's own address, which would serve itself. Open ${addressOf(record, null)} to pick the app, or run /pinpoint:start with the app's address.`;
+  return `pinpoint did not take ${asked}: it is this pinpoint server's own address, which would serve itself. Open ${addressOn(record.port, null)} to pick the app, or run /pinpoint:start with the app's address.`;
 }
 
 function notAnAddressText(given: string): string {
@@ -133,7 +130,7 @@ const NOT_STARTED =
 function wayInText(state: State): string {
   switch (state.kind) {
     case "live":
-      return startedText(state.tenure.record);
+      return startedText(state.tenure.record, false);
     case "starting":
       return "pinpoint is starting its server; run /pinpoint:start again in a moment to see where it listens.";
     case "lost":
@@ -227,17 +224,30 @@ export const register: Register = (on) => {
 
   /**
    * Starts the server of `from`'s tenure, on its port and token when it has them, and makes it the
-   * state. A server that does not start leaves `from` as it is, for the caller to say what follows;
-   * a `from` left meanwhile takes nothing, and the server started for it ends.
+   * state. `open` opens the browser at a first server's address: one on a kept address has its tabs
+   * already. A server that does not start leaves `from` as it is, for the caller to say what
+   * follows; a `from` left meanwhile takes nothing, and the server started for it ends.
    */
-  async function enter(host: Host, from: Starting, ends: readonly number[]): Promise<void> {
+  async function enter(
+    host: Host,
+    from: Starting,
+    ends: readonly number[],
+    open: boolean,
+  ): Promise<void> {
     const { tenure } = from;
     const { record } = tenure;
 
     const kept: Address | null =
       record.port === 0 ? null : { port: record.port, token: record.token };
 
-    const child = await start(host, record.serverSession, record.root, kept, record.target);
+    const child = await start(
+      host,
+      record.serverSession,
+      record.root,
+      kept,
+      record.target,
+      open && kept === null,
+    );
 
     if (child === null) return;
 
@@ -297,7 +307,7 @@ export const register: Register = (on) => {
 
     const starting: Starting = { kind: "starting", tenure };
     become(host, starting);
-    await enter(host, starting, ends);
+    await enter(host, starting, ends, false);
 
     if (holds(starting)) {
       const reason = "pinpoint: the server ended and did not start again; run /pinpoint:start";
@@ -359,7 +369,7 @@ export const register: Register = (on) => {
     const tenure: Tenure = { sessionId, record, relays: Promise.resolve() };
     const starting: Starting = { kind: "starting", tenure };
     become(host, starting);
-    await enter(host, starting, []);
+    await enter(host, starting, [], false);
 
     if (holds(starting)) {
       const reason = "pinpoint: the server did not start again after a reload; run /pinpoint:start";
@@ -372,6 +382,8 @@ export const register: Register = (on) => {
   on("skill.prompt", { skill: START_SKILL }, async ($, e, next) => {
     const result = await next(e);
     const host = hostOf($);
+    // A `-p` run or the SDK draws on no surface: nobody is there to look at a tab.
+    const seen = (await $.session.surfaces()).length > 0;
     const from = state;
     const said = (line: string) => ({ text: `${result.text}\n\n${line}` });
     const given = argumentsOf(e.text);
@@ -410,15 +422,18 @@ export const register: Register = (on) => {
     }
 
     if (asked !== null) tenure.record = { ...tenure.record, target: asked.href };
+    const opens = seen && tenure.record.port === 0;
     const starting: Starting = { kind: "starting", tenure };
     become(host, starting);
-    await enter(host, starting, []);
+    await enter(host, starting, [], seen);
 
     if (!holds(starting)) {
+      if (state.kind !== "live") return said(wayInText(state));
+
       // The server refuses a `--target` that is its own address, which only its bind could tell.
-      return state.kind === "live" && asked !== null && state.child.target === null
+      return asked !== null && state.child.target === null
         ? said(selfText(state.tenure.record, asked.href))
-        : said(wayInText(state));
+        : said(startedText(state.tenure.record, opens));
     }
 
     become(host, from);

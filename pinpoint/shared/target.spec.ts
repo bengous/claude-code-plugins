@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import { targetOf } from "./target.ts";
+import { addressOn, targetOf } from "./target.ts";
 
 describe("an app's address", () => {
   test.each([
@@ -19,4 +19,13 @@ describe("an app's address", () => {
       expect(targetOf(typed)).toBeNull();
     },
   );
+});
+
+describe("the session's address", () => {
+  test('is "Which app?" with no app, the app\'s path and query once one is served', () => {
+    expect(addressOn(41237, null)).toBe("http://localhost:41237/");
+    expect(addressOn(41237, new URL("http://localhost:5173/admin?tab=1#top"))).toBe(
+      "http://localhost:41237/admin?tab=1",
+    );
+  });
 });

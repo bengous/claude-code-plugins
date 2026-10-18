@@ -18,11 +18,13 @@ Point at your running app and talk to Claude. The session's address serves your 
 
 ## Start
 
-1. In the Claude Code session, run `/pinpoint:start`. It starts the session's server and prints its address, `http://localhost:<port>/`.
-2. Open that address. "Which app?" lists the apps answering HTML on the usual dev ports of this machine (3000 to 3005, 4000, 4173, 4200, 4321, 5000, 5173 to 5179, 6006, 8000, 8080, 8081, 8888, 9000), each by its page's title, and takes any other address. A port that took the connection but did not answer within a second, as a dev server compiling its first page, is listed too, marked so. Click one: the address now serves that app, with the overlay.
+1. In the Claude Code session, run `/pinpoint:start`. It starts the session's server, opens the browser at its address, `http://localhost:<port>/`, and prints the address too, for a machine with no browser to open.
+2. "Which app?" names the session the batches will reach, by its folder, so a start in the wrong session shows before the first batch. It lists the apps answering HTML on the usual dev ports of this machine (3000 to 3005, 4000, 4173, 4200, 4321, 5000, 5173 to 5179, 6006, 8000, 8080, 8081, 8888, 9000), each by its page's title, and takes any other address. A port that took the connection but did not answer within a second, as a dev server compiling its first page, is listed too, marked so. Click one: the address now serves that app, with the overlay.
 3. Press **Alt+P**.
 
 `/pinpoint:start <url>` serves that app at once: a URL, `localhost:3000/admin`, or a port alone. Run it again with another URL to switch apps; the address stays the same, so the open tabs show the new app once reloaded. The app chosen comes back with a server the module revives. The server refuses its own address, which would serve itself.
+
+The browser opens for the session's first server only, at the app's path when a URL was given. A start while the server runs, a switch, and a server that comes back (a revival, a reload, `/clear`, a start after it was lost) open nothing: their address is the one the tabs already hold. A `-p` run, which draws on no surface, opens nothing either.
 
 ## Point
 
@@ -77,7 +79,7 @@ pinpoint server (Bun, 127.0.0.1, one per session) ◀──every other request�
 hooks module ──$.prompt.submit──▶ the session
 ```
 
-- `/pinpoint:start` spawns `server/cli.ts serve` as a child of the hooks module, on a free port with a fresh token, and keeps both in the plugin's store, with the app it serves. A server that ends on its own, or whose output stops being readable, comes back on the same port and token, serving the same app, so the open tabs reach it again; three ends within a minute make it lost and the status line says so. A reload of the module starts the stored server again. `/clear` carries it over to the new session id.
+- `/pinpoint:start` spawns `server/cli.ts serve` as a child of the hooks module, on a free port with a fresh token, and keeps both in the plugin's store, with the app it serves. That first server gets `--open` while somebody sees the session, and opens the browser at its address once it listens (`open` on macOS, `rundll32 url.dll,FileProtocolHandler` on Windows, `xdg-open` elsewhere), detached and best effort. A server that ends on its own, or whose output stops being readable, comes back on the same port and token, serving the same app, so the open tabs reach it again; three ends within a minute make it lost and the status line says so. A reload of the module starts the stored server again. `/clear` carries it over to the new session id.
 - The module holds one state: `idle`, `starting`, `live`, `stopping` or `lost`. A way in while the server starts or stops starts no second one. `/pinpoint:stop` enters `stopping` before anything else, so the end it causes revives nothing; it closes the server, which removes its files, or runs `cli.ts clean` when no server is left to close (lost, still starting, or not answering), then forgets the record. After each wait (a prompt entering, a store write, a server starting) the module goes on only while the state is still the one it started from, so a stop meanwhile leaves no record behind and starts no server.
 - The server's own routes sit behind the token in the path. Until an app is chosen, `/` is the "Which app?" page, which probes the usual dev ports at `localhost` in parallel, for a second at most, keeps those answering HTML with their page's first `<title>`, read up to its end only, and those still silent, and reuses a probe for five seconds. Once an app is chosen, every other request goes to that app's origin: an HTML page comes back with `<script src="http://<host>/t/<token>/overlay.js" defer>` at the end of its body, a redirect to the app's own origin (the address it knows itself by, as a configured base URL) moves to the same path on the session's address, any other answer comes back as the app gave it, and its WebSockets, Vite's hot reload among them, are relayed both ways.
 - The app is the server's to hold. `/pinpoint:start <url>` passes it as `--target` to a server it starts, or posts it to `api/target` of the one running; the "Which app?" page posts its form to `/t/<token>/pick`, which takes a post from that page's own origin only, and only while no app is served: once one is, the app's own scripts share the origin, and only the module switches it. Either way the server checks the address against its own once bound, serves the app from then on, and says so on stdout, which the module records for the next revival. Each request it forwards carries a header only this server knows; one that comes back to it, through an address that names the server under another name (`localhost.`, an IPv4-mapped address, a hosts file alias), is answered 508 instead of forwarded again.
@@ -106,7 +108,8 @@ hooks module ──$.prompt.submit──▶ the session
 | `$.prompt.submit` | Each batch, once the session is idle, in order. |
 | `$.http.fetch` | The server's heartbeat, each batch's delivery, a switch of the app, the close. |
 | `$.store.get`, `$.store.set`, `$.store.delete` | The session's record: root, port, token, the app served, last batch relayed. |
-| `$.session.id`, `$.session.root` | Which session the server serves, and the directory its panel names. |
+| `$.session.id`, `$.session.root` | Which session the server serves, and the directory its panel and "Which app?" name. |
+| `$.session.surfaces` | Whether anybody sees the session: a `-p` run opens no browser. |
 | `$.clock.after`, `$.clock.every`, `$.clock.now` | The start's timeout, the heartbeat, the crash window. |
 | `$.ui.status` | The line under the prompt, for a server lost alone. |
 | `$.ui.log` | Errors only: a server that did not start or could not be read, a batch not relayed, a line the module does not read, a stored record that does not read, files not removed. |

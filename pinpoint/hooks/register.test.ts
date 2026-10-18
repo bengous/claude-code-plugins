@@ -164,6 +164,83 @@ describe("/pinpoint:start", () => {
   });
 });
 
+describe("the browser", () => {
+  test("a first start with a person at the session opens it at the address, and says so", async ($, on) => {
+    const seen = world(on);
+    seen.surfaces = ["terminal"];
+    const result = await $.skill.prompt(START);
+
+    expect(seen.children[0]?.argv.at(-1)).toBe("--open");
+    expect(result.text).toContain(
+      `The browser opens http://localhost:${SERVER.port}/: "Which app?"`,
+    );
+    expect(result.text).toContain("If no tab comes up, open that address yourself.");
+  });
+
+  test("a first start with an app opens it at the app's path", async ($, on) => {
+    const seen = world(on);
+    seen.surfaces = ["terminal"];
+    const result = await $.skill.prompt(startWith(APP));
+
+    expect(seen.children[0]?.argv.slice(-3)).toEqual(["--target", APP, "--open"]);
+    expect(result.text).toContain(`The browser opens http://localhost:${SERVER.port}/admin:`);
+  });
+
+  test("a run nobody watches, as -p, opens nothing and gives the address", async ($, on) => {
+    const seen = world(on);
+    const result = await $.skill.prompt(START);
+
+    expect(seen.children[0]?.argv).not.toContain("--open");
+    expect(result.text).toContain(`Open http://localhost:${SERVER.port}/ in the browser`);
+  });
+
+  test("a start or a switch while live opens nothing: the tab is there", async ($, on) => {
+    const seen = world(on);
+    seen.surfaces = ["terminal"];
+    await $.skill.prompt(START);
+    const again = await $.skill.prompt(START);
+    const switched = await $.skill.prompt(startWith(APP));
+
+    expect(seen.children).toHaveLength(1);
+    expect(again.text).toContain(`Open http://localhost:${SERVER.port}/ in the browser`);
+    expect(switched.text).not.toContain("The browser opens");
+  });
+
+  test("a server that comes back on its own opens nothing", async ($, on) => {
+    const seen = world(on);
+    seen.surfaces = ["terminal"];
+    await $.skill.prompt(START);
+    seen.children[0]?.exit(ENDED);
+    await seen.clock.settle();
+
+    expect(seen.children[1]?.argv.slice(-4)).toEqual(KEPT);
+  });
+
+  test("a reload opens nothing", async ($, on) => {
+    const seen = world(on, { stored: new Map([[KEY, RECORD]]) });
+    seen.surfaces = ["terminal"];
+    await $.session.start(SESSION);
+
+    expect(seen.children[0]?.argv.slice(-4)).toEqual(KEPT);
+  });
+
+  test("a start after the server was lost opens nothing: its address is the tabs' already", async ($, on) => {
+    const seen = world(on);
+    seen.surfaces = ["terminal"];
+    await $.skill.prompt(START);
+
+    for (let end = 0; end < CRASHES; end += 1) {
+      seen.children.at(-1)?.exit(ENDED);
+      await seen.clock.settle();
+    }
+
+    const result = await $.skill.prompt(START);
+
+    expect(seen.children.at(-1)?.argv.slice(-4)).toEqual(KEPT);
+    expect(result.text).toContain(`Open http://localhost:${SERVER.port}/ in the browser`);
+  });
+});
+
 describe("a batch", () => {
   test("is handed to the session as a prompt, then told delivered", async ($, on) => {
     const seen = world(on);

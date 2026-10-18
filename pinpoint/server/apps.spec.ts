@@ -108,9 +108,18 @@ describe("probing", () => {
 });
 
 describe("the page", () => {
+  test("names the session the batches go to by its folder, its whole directory on hover", () => {
+    const page = pickPage("tok", String.raw`C:\Users\u\<b>&shop`, [], null, "");
+
+    expect(page).toContain(
+      '<p class="session" title="C:\\Users\\u\\&lt;b&gt;&amp;shop">Batches go to the Claude Code session in <strong>&lt;b&gt;&amp;shop</strong>.</p>',
+    );
+  });
+
   test("offers each app by its title, or its address with none, and escapes what the app says", () => {
     const page = pickPage(
       "tok",
+      "/work/u/shop",
       [
         { kind: "answered", url: "http://localhost:3000/", title: `<b>"Shop" & co</b>` },
         { kind: "answered", url: "http://localhost:5173/", title: "" },
@@ -131,7 +140,7 @@ describe("the page", () => {
   });
 
   test("with no app found says where it looked, and keeps the field", () => {
-    const page = pickPage("tok", [], `"x" is not an http(s) address.`, "x");
+    const page = pickPage("tok", "/work/u/shop", [], `"x" is not an http(s) address.`, "x");
 
     expect(page).toContain("No app answers on the usual dev ports (3000,");
     expect(page).toContain(

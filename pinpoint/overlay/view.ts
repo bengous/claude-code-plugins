@@ -1,3 +1,4 @@
+import { folderName } from "../shared/folder.ts";
 import type { Box } from "../shared/wire.ts";
 import { sendText, statusText, summaryOf, type Tray } from "./tray.ts";
 
@@ -186,8 +187,7 @@ const graphemes = new Intl.Segmenter(undefined, { granularity: "grapheme" });
 export type Folder = { readonly lead: string; readonly tail: string };
 
 export function folderOf(root: string): Folder {
-  const folder = root.split(/[\\/]/u).findLast((segment) => segment !== "") ?? root;
-  const parts = Array.from(graphemes.segment(folder), (part) => part.segment);
+  const parts = Array.from(graphemes.segment(folderName(root)), (part) => part.segment);
 
   return {
     lead: parts.slice(0, -TAIL_GRAPHEMES).join(""),

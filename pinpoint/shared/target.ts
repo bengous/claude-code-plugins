@@ -15,3 +15,8 @@ export function targetOf(text: string): URL | null {
     ? url
     : null;
 }
+
+/** The session's address on `port`: the app's path once one is served, "Which app?" with none. */
+export function addressOn(port: number, target: URL | null): string {
+  return `http://localhost:${port}${target === null ? "/" : `${target.pathname}${target.search}`}`;
+}

@@ -4,6 +4,7 @@ import type {
   ProcessRunResult,
   ProcessSpawnChunk,
   ProcessSpawnResult,
+  RenderSurface,
 } from "claude-code";
 import { mock, type MockClock } from "claude-code/testing";
 
@@ -54,6 +55,8 @@ export type World = {
   deleting: Promise<void> | undefined;
   /** While set, the server refuses each app `api/target` asks for, in these words. */
   refuse: string | undefined;
+  /** What the session draws on: none, as in a `-p` run, unless a test puts a person there. */
+  surfaces: readonly RenderSurface[];
   readonly clock: MockClock;
   readonly children: Child[];
   readonly requests: Request[];
@@ -154,6 +157,7 @@ export function world(on: On, options: WorldOptions = {}): World {
     turn: undefined,
     deleting: undefined,
     refuse: undefined,
+    surfaces: [],
     clock: mock.clock(on),
     children: [],
     requests: [],
@@ -217,6 +221,7 @@ export function world(on: On, options: WorldOptions = {}): World {
   on("session.start", (_, e) => ({ cwd: e.cwd }));
   on("session.id", () => ({ value: built.id }));
   on("session.root", () => ({ value: ROOT }));
+  on("session.surfaces", () => ({ value: built.surfaces }));
   on("skill.prompt", () => ({ text: "t" }));
   on("command.run", () => ({ text: "" }));
 

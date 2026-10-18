@@ -941,7 +941,7 @@ function site(one: Running): string {
 }
 
 describe("a server with no app chosen", () => {
-  test("asks which app at /, listing each app found by its title and address", async () => {
+  test("asks which app at /, naming the session, listing each app found by its title and address", async () => {
     const target = app();
     const one = await serve(null, null, null, [target.url.port].map(Number));
     const response = await fetch(site(one));
@@ -950,6 +950,7 @@ describe("a server with no app chosen", () => {
     expect(response.status).toBe(200);
     expect(response.headers.get("content-type")).toBe("text/html; charset=utf-8");
     expect(page).toContain("<h1>Which app?</h1>");
+    expect(page).toContain("session in <strong>app</strong>");
     expect(page).toContain(`<span class="name">App</span>`);
     expect(page).toContain(`<span class="address">http://localhost:${target.url.port}/</span>`);
     expect(page).toContain(`action="/t/${one.started.token}/pick"`);

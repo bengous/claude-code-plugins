@@ -148,7 +148,13 @@ export async function startServer(options: ServeOptions): Promise<Started> {
     status: number,
   ): Promise<Response> =>
     new Response(
-      pickPage(token, await appsFound(error === null ? PROBE_FRESH_MS : Infinity), error, typed),
+      pickPage(
+        token,
+        options.root,
+        await appsFound(error === null ? PROBE_FRESH_MS : Infinity),
+        error,
+        typed,
+      ),
       {
         status,
         headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" },
