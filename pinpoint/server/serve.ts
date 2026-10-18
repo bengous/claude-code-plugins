@@ -108,7 +108,7 @@ function isPortTaken(cause: unknown): boolean {
 type Bound = { readonly server: Bun.Server<Relay>; readonly token: string };
 
 export async function startServer(options: ServeOptions): Promise<Started> {
-  const files = sessionFiles(options.dir, options.session, options.relayed);
+  const files = sessionFiles(options.dir, options.session);
   const overlay = await buildOverlay(options.root);
 
   // The session's files change one step at a time, each batch numbered, kept and announced
@@ -124,6 +124,11 @@ export async function startServer(options: ServeOptions): Promise<Started> {
 
     return turn;
   };
+
+  // The highest number the module may have taken: the last it handed over, each batch told again
+  // at this start, then each one numbered since. It only acknowledges a number at or below it, so
+  // a `seq` removed before this server or since must not number a batch at or below it again.
+  let taken = options.relayed;
 
   let lastHeartbeat = Date.now();
 
@@ -208,7 +213,8 @@ export async function startServer(options: ServeOptions): Promise<Started> {
       if (batch === null) return new Response("not a batch", { status: 400 });
 
       const seq = await inTurn(async () => {
-        const next = await files.nextSeq();
+        const next = await files.nextSeq(taken);
+        taken = next;
         const text = batchText(next, batch.selections, files.imagePath);
         await files.keepPending({ seq: next, text });
         options.announce({ type: "batch", seq: next, text });
@@ -302,6 +308,7 @@ export async function startServer(options: ServeOptions): Promise<Started> {
 
     if (request.method === "POST" && path === "api/heartbeat") {
       lastHeartbeat = Date.now();
+      await files.touch();
 
       return new Response(null, { status: 204 });
     }
@@ -401,8 +408,14 @@ export async function startServer(options: ServeOptions): Promise<Started> {
 
   options.announce({ type: "ready", port, token, target: target?.href ?? null });
 
+  await files.touch();
+
   // A batch the last server took and no module handed to the session: told again, in order.
-  for (const pending of await files.pending()) options.announce({ type: "batch", ...pending });
+  for (const pending of await files.pending()) {
+    taken = Math.max(taken, pending.seq);
+    options.announce({ type: "batch", ...pending });
+  }
+
   told.resolve();
 
   const watchdog = setInterval(() => {

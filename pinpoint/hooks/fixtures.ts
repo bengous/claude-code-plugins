@@ -64,6 +64,8 @@ export type World = {
   opening: Promise<void> | undefined;
   /** The settings merged over every source: none set, unless a test sets some. */
   settings: Settings;
+  /** While set, `$.settings.read` is refused, for this reason. */
+  noSettings: string | undefined;
   readonly clock: MockClock;
   readonly children: Child[];
   readonly requests: Request[];
@@ -168,6 +170,7 @@ export function world(on: On, options: WorldOptions = {}): World {
     noOpener: undefined,
     opening: undefined,
     settings: {},
+    noSettings: undefined,
     clock: mock.clock(on),
     children: [],
     requests: [],
@@ -234,7 +237,9 @@ export function world(on: On, options: WorldOptions = {}): World {
     return { value: undefined };
   });
 
-  on("settings.read", () => ({ value: built.settings }));
+  on("settings.read", () =>
+    built.noSettings === undefined ? { value: built.settings } : { deny: built.noSettings },
+  );
   on("session.start", (_, e) => ({ cwd: e.cwd }));
   on("session.id", () => ({ value: built.id }));
   on("session.root", () => ({ value: ROOT }));

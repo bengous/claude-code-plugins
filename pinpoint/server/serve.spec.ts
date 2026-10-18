@@ -1,6 +1,16 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { existsSync } from "node:fs";
-import { mkdir, mkdtemp, readdir, readFile, rm, utimes, writeFile } from "node:fs/promises";
+import {
+  chmod,
+  mkdir,
+  mkdtemp,
+  readdir,
+  readFile,
+  rm,
+  stat,
+  utimes,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 
@@ -605,6 +615,49 @@ describe("the server", () => {
     expect(await (await post(one, "api/batch", BATCH)).json()).toEqual({ seq: 6 });
     await rm(join(one.dir, "sessions"), { recursive: true });
     expect(await (await post(one, "api/batch", BATCH)).json()).toEqual({ seq: 7 });
+  });
+
+  test("a batch is numbered past each batch told again at the start, the files gone since", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "pinpoint-"));
+    await mkdir(join(dir, "sessions/s1/pending"), { recursive: true });
+    await writeFile(join(dir, "sessions/s1/seq"), "6\n");
+
+    for (const seq of [5, 6]) {
+      await writeFile(
+        join(dir, `sessions/s1/pending/${seq}.json`),
+        JSON.stringify({ seq, text: "" }),
+      );
+    }
+
+    const one = await serve(dir, null, null, [], null, { relayed: 4 });
+    await rm(join(dir, "sessions"), { recursive: true });
+
+    expect(await (await post(one, "api/batch", BATCH)).json()).toEqual({ seq: 7 });
+  });
+
+  test("a seq that does not read refuses the batch rather than number it again", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "pinpoint-"));
+    await mkdir(join(dir, "sessions/s1"), { recursive: true });
+    await writeFile(join(dir, "sessions/s1/seq"), "6\n");
+    await chmod(join(dir, "sessions/s1/seq"), 0o000);
+    const one = await serve(dir);
+
+    expect((await post(one, "api/batch", BATCH)).status).toBe(500);
+    expect(one.lines.filter((line) => line.type === "batch")).toEqual([]);
+  });
+
+  test("a server keeps its session out of the sweep while it lives: its start and each heartbeat date it now", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "pinpoint-"));
+    await session(dir, "s1", { seq: 40 });
+    const own = join(dir, "sessions/s1");
+    const fresh = async () => Date.now() - (await stat(own)).mtimeMs < DAY_MS;
+    const one = await serve(dir);
+
+    expect(await fresh()).toBe(true);
+    await session(dir, "s1", { seq: 40 });
+    expect(await fresh()).toBe(false);
+    await fetch(url(one, "api/heartbeat"), { method: "POST" });
+    expect(await fresh()).toBe(true);
   });
 
   test("batches posted at once get consecutive numbers, a pending file and a line each, in order", async () => {

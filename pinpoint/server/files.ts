@@ -1,4 +1,4 @@
-import { lstat, mkdir, readdir, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { lstat, mkdir, readdir, readFile, rename, rm, utimes, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
 import type { Delivery, Outcome } from "../shared/wire.ts";
@@ -11,18 +11,19 @@ import { parseDelivery } from "./parse.ts";
  * it again; `sessions/<session>/settled.json`, what the module reported of the last batches, so a
  * page asks after its own across a restart; `sessions/<session>/images/<id>.png`, each zone's image
  * a page handed over, until the session's directory goes: at `/pinpoint:stop`, or at the start of
- * another session's server once nothing in it changed for Claude Code's retention period. Each file
- * is written whole under another name, then renamed: a reader never meets half of one.
+ * another session's server once nothing in it changed, its own server's heartbeat included, for
+ * Claude Code's retention period. Each file is written whole under another name, then renamed: a
+ * reader never meets half of one.
  */
 
 export type Pending = { readonly seq: number; readonly text: string };
 
 export type SessionFiles = {
   /**
-   * The next batch number, kept across servers of one session and past every one the session may
-   * have taken; the caller asks one at a time.
+   * The next batch number, kept across servers of one session, and past `after`; the caller asks
+   * one at a time.
    */
-  readonly nextSeq: () => Promise<number>;
+  readonly nextSeq: (after: number) => Promise<number>;
   readonly keepPending: (pending: Pending) => Promise<void>;
   /** Keeps what the module reported of a batch, then forgets the batch; the caller settles one at a time. */
   readonly settle: (delivery: Delivery) => Promise<void>;
@@ -34,6 +35,8 @@ export type SessionFiles = {
   readonly keepImage: (png: Uint8Array) => Promise<string>;
   /** Where the image of `id` is kept, an absolute path. */
   readonly imagePath: (id: string) => string;
+  /** Dates the session's directory, when it has one, now: a server alive keeps it out of the sweep. */
+  readonly touch: () => Promise<void>;
   /** The session's directory, for `/pinpoint:stop`. */
   readonly removeAll: () => Promise<void>;
 };
@@ -143,8 +146,7 @@ export async function sweepSessions(
   return failures.flat();
 }
 
-/** `relayed`: the last batch the module handed to the session before this server. */
-export function sessionFiles(dir: string, session: string, relayed: number): SessionFiles {
+export function sessionFiles(dir: string, session: string): SessionFiles {
   const sessions = join(dir, "sessions");
   const own = join(sessions, session);
   const pendingDir = join(own, "pending");
@@ -159,17 +161,18 @@ export function sessionFiles(dir: string, session: string, relayed: number): Ses
   const settled = async (): Promise<Delivery[]> =>
     parseSettled(await readFile(settledFile, "utf8").catch(() => ""));
 
-  // The module only acknowledges a number at or below the last it handed over: a `seq` removed
-  // before this server or since must not number a batch again from 1.
-  let given = relayed;
-
   return {
-    nextSeq: async () => {
+    nextSeq: async (after) => {
       await mkdir(own, { recursive: true });
-      const last = Number.parseInt(await readFile(seqFile, "utf8").catch(() => "0"), 10);
-      const next = Math.max(Number.isNaN(last) ? 0 : last, given) + 1;
+
+      const kept = await readFile(seqFile, "utf8").catch((cause: unknown) => {
+        if (isMissing(cause)) return "0";
+        throw cause;
+      });
+
+      const last = Number.parseInt(kept, 10);
+      const next = Math.max(Number.isNaN(last) ? 0 : last, after) + 1;
       await writeWhole(seqFile, `${next}\n`);
-      given = next;
 
       return next;
     },
@@ -211,6 +214,13 @@ export function sessionFiles(dir: string, session: string, relayed: number): Ses
       return id;
     },
     imagePath,
+    touch: async () => {
+      const now = new Date();
+
+      await utimes(own, now, now).catch((cause: unknown) => {
+        if (!isMissing(cause)) throw cause;
+      });
+    },
     removeAll: () => rm(own, { recursive: true, force: true }),
   };
 }

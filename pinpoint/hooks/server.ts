@@ -97,7 +97,16 @@ export function baseOf(address: Address): string {
  * reason logged.
  */
 export async function start(host: Host, record: SessionRecord): Promise<Child | null> {
-  const keepDays = retentionDays((await host.settings()).cleanupPeriodDays);
+  const keepDays = await host.settings().then(
+    (settings) => retentionDays(settings.cleanupPeriodDays),
+    (cause: unknown) => {
+      host.log(
+        `pinpoint: the settings did not read, so no other session is swept: ${String(cause)}`,
+      );
+
+      return null;
+    },
+  );
 
   const argv = [
     "bun",

@@ -456,6 +456,19 @@ describe("the server's life", () => {
     expect(await keepDays({ cleanupPeriodDays: 0 })).toBeNull();
     expect(await keepDays({ cleanupPeriodDays: 2.5 })).toBeNull();
     expect(await keepDays({ cleanupPeriodDays: "7" })).toBeNull();
+    expect(await keepDays({ cleanupPeriodDays: 1e21 })).toBeNull();
+  });
+
+  test("settings that do not read start the server all the same, sweeping nothing, and say why", async ($, on) => {
+    const seen = world(on);
+    seen.noSettings = "the engine is going away";
+    const result = await $.skill.prompt(START);
+
+    expect(result.text).toContain(`pinpoint is live for ${ROOT}.`);
+    expect(flag(seen.children[0], "--keep-days")).toBeNull();
+    expect(seen.logs).toEqual([
+      expect.stringMatching(/no other session is swept: .*the engine is going away$/u),
+    ]);
   });
 
   test("the app a page picked is recorded, and the server that comes back serves it", async ($, on) => {
@@ -486,6 +499,14 @@ describe("the server's life", () => {
 
   test("a stored record that does not read is said, and brings no server back", async ($, on) => {
     const seen = world(on, { stored: new Map([[KEY, { ...RECORD, target: "not an address" }]]) });
+    await $.session.start(SESSION);
+
+    expect(seen.children).toEqual([]);
+    expect(seen.logs.join("\n")).toContain("the session's stored record does not read");
+  });
+
+  test("a stored record whose last batch is no batch number does not read: no server it would stop", async ($, on) => {
+    const seen = world(on, { stored: new Map([[KEY, { ...RECORD, relayed: -1 }]]) });
     await $.session.start(SESSION);
 
     expect(seen.children).toEqual([]);

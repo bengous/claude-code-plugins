@@ -95,7 +95,9 @@ export function parseSessionRecord(value: unknown): SessionRecord | null {
     typeof port === "number" &&
     typeof token === "string" &&
     (target === null || isAddress(target)) &&
-    typeof relayed === "number"
+    typeof relayed === "number" &&
+    Number.isSafeInteger(relayed) &&
+    relayed >= 0
     ? { serverSession, root, port, token, target, relayed }
     : null;
 }
@@ -110,7 +112,7 @@ const CLEANUP_PERIOD_DEFAULT = 30;
 export function retentionDays(value: unknown): number | null {
   if (value === undefined) return CLEANUP_PERIOD_DEFAULT;
 
-  return typeof value === "number" && Number.isInteger(value) && value >= 1 ? value : null;
+  return typeof value === "number" && Number.isSafeInteger(value) && value >= 1 ? value : null;
 }
 
 /** What `$.store.get` gave for a session: nothing, a record, or a value that is not one. */
