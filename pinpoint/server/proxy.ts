@@ -6,9 +6,12 @@
 
 type Page = Bun.ServerWebSocket<Relay>;
 
+/** Bun's client, events typed by the `DOM` lib, whose `MessageEvent` `Bun.WebSocket` mistypes. */
+type AppSocket = WebSocket & Pick<Bun.WebSocket, "terminate">;
+
 /** A page's WebSocket: the app's side, open before the page's, and what the page hears once it opens. */
 export type Relay = {
-  readonly app: WebSocket;
+  readonly app: AppSocket;
   readonly opened: (page: Page) => void;
 };
 
@@ -22,6 +25,9 @@ const HANDSHAKE = [
   "sec-websocket-protocol",
 ];
 
+/** The encodings Bun's `fetch` decodes by itself, while it keeps their `content-encoding` and length. */
+const DECODED = new Set(["gzip", "deflate", "br", "zstd"]);
+
 /** The request's path and query on the target, set apart so a path such as `//elsewhere/` stays a path. */
 function atTarget(requestUrl: string, target: URL): URL {
   const { pathname, search } = new URL(requestUrl);
@@ -32,12 +38,34 @@ function atTarget(requestUrl: string, target: URL): URL {
   return url;
 }
 
+/** A close code Bun's client accepts (RFC 6455); it throws on any other. */
+function sendable(code: number): boolean {
+  return (
+    (code >= 1000 && code <= 1014 && (code < 1004 || code > 1006)) || (code >= 3000 && code <= 4999)
+  );
+}
+
+/** The answer as Bun read it: a body it decoded no longer carries the app's encoding nor its length. */
+function asRead(answer: Response): Response {
+  if (!DECODED.has(answer.headers.get("content-encoding") ?? "")) return answer;
+  const headers = new Headers(answer.headers);
+  headers.delete("content-encoding");
+  headers.delete("content-length");
+
+  return new Response(answer.body, {
+    status: answer.status,
+    statusText: answer.statusText,
+    headers,
+  });
+}
+
 function withOverlay(page: Response, overlay: string): Response {
   const headers = new Headers(page.headers);
-  // The app's validators name the body without the tag: a page revalidated against them comes back
-  // from the browser's cache with the tag it was stored with, the token of an earlier server.
+  // The page is not the app's: kept or revalidated, it would come back from the browser's cache
+  // with the tag it was stored with, the token of an earlier server.
   headers.delete("etag");
   headers.delete("last-modified");
+  headers.set("cache-control", "no-store");
 
   const rewriter = new HTMLRewriter().on("body", {
     element: (body) => {
@@ -65,8 +93,8 @@ async function relay(
     .filter((protocol) => protocol !== "");
 
   const options: Bun.WebSocketOptions = { protocols, headers: Object.fromEntries(headers) };
-  // @ts-expect-error -- Bun's client takes options, headers among them; the `DOM` lib types subprotocols only.
-  const app: WebSocket = new WebSocket(url, options);
+  // @ts-expect-error -- Bun's client takes options and has `terminate`; the `DOM` lib types neither.
+  const app: AppSocket = new WebSocket(url, options);
   let page: Page | null = null;
   const early: ((open: Page) => void)[] = [];
 
@@ -117,7 +145,6 @@ async function relay(
   return new Response("pinpoint: not a WebSocket handshake", { status: 400 });
 }
 
-/** The page's side of each relay: its messages and its end go to the app. */
 export const relays: Bun.WebSocketHandler<Relay> = {
   open: (page) => {
     page.data.opened(page);
@@ -125,14 +152,19 @@ export const relays: Bun.WebSocketHandler<Relay> = {
   message: (page, message) => {
     page.data.app.send(message);
   },
-  close: (page) => {
-    page.data.app.close();
+  // 1006: the page's connection dropped without a closing handshake, which the app hears as such.
+  close: (page, code, reason) => {
+    const { app } = page.data;
+
+    if (code === 1006) app.terminate();
+    else if (sendable(code)) app.close(code, reason);
+    else app.close();
   },
 };
 
 /**
  * Sends `request` on to `target`. A page comes back with `<script src="<overlay>" defer>` at the
- * end of its body; every other answer, a redirect included, passes as the app gave it.
+ * end of its body; every other answer, a redirect and a HEAD included, passes as the app gave it.
  */
 export async function forward(
   request: Request,
@@ -140,6 +172,10 @@ export async function forward(
   target: URL,
   overlay: string,
 ): Promise<Response | undefined> {
+  // Bun cuts a request after 10 s of silence: an app's first compile, an event stream or a long
+  // poll can stay silent longer, and the page leaving ends the request anyway.
+  server.timeout(request, 0);
+
   const url = atTarget(request.url, target);
   // The page's `Host` goes on as it came, a name of this machine the server checked: it stays in
   // step with the page's `Origin`, which apps compare, and URLs the app builds from it lead back
@@ -150,19 +186,24 @@ export async function forward(
     return await relay(request, server, url, headers);
   }
 
-  // Bun's `fetch` decompresses the body it reads yet keeps the app's `content-encoding`, and asks
-  // for compression unless told otherwise: the browser would fail to read any answer compressed.
+  // Compression buys nothing on this machine, and Bun's `fetch` would undo it before the rewrite.
   headers.set("accept-encoding", "identity");
 
   try {
-    const answer = await fetch(url, {
-      method: request.method,
-      headers,
-      body: request.body,
-      redirect: "manual",
-    });
+    const answer = asRead(
+      await fetch(url, {
+        method: request.method,
+        headers,
+        body: request.body,
+        redirect: "manual",
+        // An `HTTP_PROXY` or `ALL_PROXY` of the environment is for the internet, not this machine.
+        proxy: false,
+        signal: request.signal,
+      }),
+    );
 
-    return (answer.headers.get("content-type") ?? "").includes("text/html")
+    return request.method !== "HEAD" &&
+      (answer.headers.get("content-type") ?? "").includes("text/html")
       ? withOverlay(answer, overlay)
       : answer;
   } catch (cause) {

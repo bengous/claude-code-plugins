@@ -40,14 +40,16 @@ export type Started = {
   readonly stop: () => void;
 };
 
+const LOOPBACK_NAME = String.raw`(?:localhost|127\.0\.0\.1|\[::1\])(?::\d+)?`;
+
 /** A page of the user's own machine: a browser sets `Origin`, which no page can forge. */
-const LOOPBACK = /^https?:\/\/(?:localhost|127\.0\.0\.1|\[::1\])(?::\d+)?$/u;
+const LOOPBACK = new RegExp(String.raw`^https?:\/\/${LOOPBACK_NAME}$`, "u");
 
 /**
  * A request to a name of this machine. A name rebound to 127.0.0.1 makes its page same-origin
  * with the server, so its GETs carry no `Origin`; only the `Host` they name tells them apart.
  */
-const LOOPBACK_HOST = /^(?:localhost|127\.0\.0\.1|\[::1\])(?::\d+)?$/u;
+const LOOPBACK_HOST = new RegExp(`^${LOOPBACK_NAME}$`, "u");
 
 function isPortTaken(cause: unknown): boolean {
   return cause instanceof Error && "code" in cause && cause.code === "EADDRINUSE";
@@ -168,7 +170,9 @@ export async function startServer(options: ServeOptions): Promise<Started> {
       reusePort: false,
       development: false,
       fetch: async (request, server) => {
-        if (!LOOPBACK_HOST.test(request.headers.get("host") ?? "")) {
+        const host = request.headers.get("host") ?? "";
+
+        if (!LOOPBACK_HOST.test(host)) {
           return new Response("pinpoint answers requests to this machine's names only", {
             status: 403,
           });
@@ -187,9 +191,11 @@ export async function startServer(options: ServeOptions): Promise<Started> {
           return await routes(pathname.slice(prefix.length), request, origin);
         }
 
+        // Absolute, off the `Host` checked above: a page's `<base href>` would send a relative
+        // `src` and the token to another host, and the overlay takes its server's address from it.
         return options.target === null
           ? new Response("not found", { status: 404 })
-          : await forward(request, server, options.target, `${prefix}overlay.js`);
+          : await forward(request, server, options.target, `http://${host}${prefix}overlay.js`);
       },
       websocket: relays,
       error: (cause) => {

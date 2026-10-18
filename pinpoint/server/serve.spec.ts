@@ -112,7 +112,8 @@ function outcomes(one: Running, seqs: readonly (number | string)[]): Promise<Res
 
 const PAGE = "<!doctype html><html><head><title>App</title></head><body><h1>App</h1></body></html>";
 
-/** A WebSocket handshake the fake app took. */
+const SCRIPT = "console.log('app')";
+
 type Handshake = {
   readonly path: string;
   readonly protocols: readonly string[];
@@ -120,29 +121,34 @@ type Handshake = {
   readonly cookie: string | null;
 };
 
-/** The fake app behind a server: where it listens, and what reached it. */
 type App = {
   readonly url: URL;
   readonly asked: string[];
   readonly handshakes: Handshake[];
-  readonly ends: number[];
+  /** The code and reason of each page's end, as the app heard it. */
+  readonly ends: (readonly [number, string])[];
+  /** The paths of the requests whose page left before the app answered. */
+  readonly cancelled: string[];
 };
 
 const apps: Bun.Server<undefined>[] = [];
 
 /**
- * A dev server's ways: its page, gzipped when the request accepts it; an echo of what is posted;
- * a redirect; a WebSocket that says hello, echoes, answers under the last subprotocol offered,
- * and ends as told.
+ * A dev server's ways: its page, gzipped when the request accepts it; a page and a script it
+ * gzips whatever the request accepts; an echo of what is posted; a redirect; an answer after 13 s
+ * of silence; one that never comes; a WebSocket that says hello, echoes, answers under the last
+ * subprotocol offered, and ends as told.
  */
 function app(): App {
   const asked: string[] = [];
   const handshakes: Handshake[] = [];
-  const ends: number[] = [];
+  const ends: (readonly [number, string])[] = [];
+  const cancelled: string[] = [];
 
   const server = Bun.serve({
     hostname: "127.0.0.1",
     port: 0,
+    idleTimeout: 0,
     fetch: async (request, self) => {
       const { pathname, search } = new URL(request.url);
       asked.push(`${request.method} ${pathname}${search}`);
@@ -173,11 +179,39 @@ function app(): App {
 
       if (pathname === "/") {
         const gzip = request.headers.get("accept-encoding")?.includes("gzip") === true;
-        const headers = new Headers({ "content-type": "text/html; charset=utf-8", etag: '"page"' });
+
+        const headers = new Headers({
+          "content-type": "text/html; charset=utf-8",
+          etag: '"page"',
+          "cache-control": "max-age=3600",
+        });
 
         if (gzip) headers.set("content-encoding", "gzip");
 
         return new Response(gzip ? Bun.gzipSync(PAGE) : PAGE, { headers });
+      }
+
+      if (pathname === "/gzipped" || pathname === "/gzipped.js") {
+        const page = pathname === "/gzipped";
+
+        return new Response(Bun.gzipSync(page ? PAGE : SCRIPT), {
+          headers: {
+            "content-type": page ? "text/html" : "text/javascript",
+            "content-encoding": "gzip",
+          },
+        });
+      }
+
+      if (pathname === "/slow") {
+        await Bun.sleep(13_000);
+
+        return new Response("at last");
+      }
+
+      if (pathname === "/never") {
+        request.signal.addEventListener("abort", () => cancelled.push(pathname));
+
+        return await new Promise<Response>(() => {});
       }
 
       if (pathname === "/echo") {
@@ -207,15 +241,15 @@ function app(): App {
         else if (message === "end abruptly") socket.terminate();
         else socket.send(message);
       },
-      close: (_socket, code) => {
-        ends.push(code);
+      close: (_socket, code, reason) => {
+        ends.push([code, reason]);
       },
     },
   });
 
   apps.push(server);
 
-  return { url: new URL(`http://127.0.0.1:${server.port}`), asked, handshakes, ends };
+  return { url: new URL(`http://127.0.0.1:${server.port}`), asked, handshakes, ends, cancelled };
 }
 
 /** A page's WebSocket to the server: whether it opened, each message in turn, how it ended. */
@@ -284,6 +318,28 @@ async function raw(one: Running, requestLine: string): Promise<string> {
   });
 
   return await reply.promise;
+}
+
+/** A page's WebSocket that opens, then drops its connection with no closing handshake. */
+async function dropped(one: Running, path: string): Promise<void> {
+  const upgraded = Promise.withResolvers<void>();
+
+  const socket = await Bun.connect({
+    hostname: "127.0.0.1",
+    port: one.started.port,
+    socket: {
+      data: (_socket, chunk) => {
+        if (chunk.toString().startsWith("HTTP/1.1 101")) upgraded.resolve();
+      },
+    },
+  });
+
+  socket.write(
+    `GET ${path} HTTP/1.1\r\nhost: 127.0.0.1\r\nupgrade: websocket\r\nconnection: Upgrade\r\n` +
+      "sec-websocket-version: 13\r\nsec-websocket-key: dGhlIHNhbXBsZSBub25jZQ==\r\n\r\n",
+  );
+  await upgraded.promise;
+  socket.end();
 }
 
 afterEach(async () => {
@@ -539,20 +595,97 @@ describe("what the server refuses", () => {
 });
 
 describe("a server with a target app", () => {
-  test("a page of the app comes with the overlay's tag at the end of its body", async () => {
+  test("a page of the app comes with the overlay's tag, absolute on the Host asked, at the end of its body", async () => {
     const target = app();
     const one = await serve(null, null, target.url);
+    const host = `localhost:${one.started.port}`;
 
     const response = await fetch(`http://127.0.0.1:${one.started.port}/`, {
-      headers: { "accept-encoding": "gzip, br" },
+      headers: { host, "accept-encoding": "gzip, br" },
     });
 
-    const tag = `<script src="/t/${one.started.token}/overlay.js" defer></script>`;
+    const tag = `<script src="http://${host}/t/${one.started.token}/overlay.js" defer></script>`;
 
     expect(response.status).toBe(200);
     expect(response.headers.get("content-type")).toBe("text/html; charset=utf-8");
     expect(response.headers.get("etag")).toBeNull();
+    expect(response.headers.get("cache-control")).toBe("no-store");
     expect(await response.text()).toBe(PAGE.replace("</body>", `${tag}</body>`));
+  });
+
+  test("an app that compresses anyway: its page still gets the tag, its script its bytes", async () => {
+    const target = app();
+    const one = await serve(null, null, target.url);
+    const base = `http://127.0.0.1:${one.started.port}`;
+    const headers = { "accept-encoding": "gzip" };
+    const page = await fetch(`${base}/gzipped`, { headers });
+    const script = await fetch(`${base}/gzipped.js`, { headers });
+
+    expect(page.headers.get("content-encoding")).toBeNull();
+    expect(await page.text()).toContain(`/t/${one.started.token}/overlay.js`);
+    expect(script.headers.get("content-encoding")).toBeNull();
+    expect(await script.text()).toBe(SCRIPT);
+  });
+
+  test("a HEAD on a page passes as the app gave it", async () => {
+    const target = app();
+    const one = await serve(null, null, target.url);
+
+    const direct = await fetch(`${target.url.origin}/`, {
+      method: "HEAD",
+      headers: { "accept-encoding": "identity" },
+    });
+
+    const proxied = await fetch(`http://127.0.0.1:${one.started.port}/`, { method: "HEAD" });
+
+    expect(proxied.status).toBe(200);
+    expect(proxied.headers.get("content-length")).toBe(direct.headers.get("content-length"));
+    expect(proxied.headers.get("etag")).toBe('"page"');
+  });
+
+  test(
+    "an app silent for longer than Bun's idle bound still answers",
+    async () => {
+      const target = app();
+      const one = await serve(null, null, target.url);
+      const response = await fetch(`http://127.0.0.1:${one.started.port}/slow`);
+
+      expect(await response.text()).toBe("at last");
+    },
+    { timeout: 20_000 },
+  );
+
+  test("a page that leaves cancels the app's request", async () => {
+    const target = app();
+    const one = await serve(null, null, target.url);
+    const leaving = new AbortController();
+    const asked = fetch(`http://127.0.0.1:${one.started.port}/never`, { signal: leaving.signal });
+
+    while (target.asked.length === 0) await Bun.sleep(5);
+    leaving.abort();
+    await asked.catch(() => null);
+
+    while (target.cancelled.length === 0) await Bun.sleep(5);
+
+    expect(target.cancelled).toEqual(["/never"]);
+  });
+
+  test("the environment's HTTP proxy is not asked for the app", async () => {
+    const target = app();
+    const one = await serve(null, null, target.url);
+    process.env.HTTP_PROXY = "http://127.0.0.1:9";
+
+    try {
+      const response = await fetch(`http://127.0.0.1:${one.started.port}/echo`, {
+        method: "POST",
+        body: "x",
+        proxy: false,
+      });
+
+      expect(response.status).toBe(201);
+    } finally {
+      delete process.env.HTTP_PROXY;
+    }
   });
 
   test("any other answer passes as the app gave it, and the request's body goes on", async () => {
@@ -650,19 +783,25 @@ describe("a server with a target app", () => {
     expect(abruptEnd.wasClean).toBe(false);
   });
 
-  test("a page that closes its WebSocket closes the app's", async () => {
+  test("the page's end reaches the app as it ended: its code and reason, or no closing handshake", async () => {
     const target = app();
     const one = await serve(null, null, target.url);
     const page = connect(one, "/hmr");
 
     expect(await page.opened).toBe(true);
     expect(target.ends).toEqual([]);
-    page.socket.close();
+    page.socket.close(4002, "bye");
     await page.ended;
 
     while (target.ends.length === 0) await Bun.sleep(5);
+    await dropped(one, "/hmr");
 
-    expect(target.ends).toHaveLength(1);
+    while (target.ends.length < 2) await Bun.sleep(5);
+
+    expect(target.ends).toEqual([
+      [4002, "bye"],
+      [1006, ""],
+    ]);
   });
 
   test("a WebSocket the app refuses never opens for the page", async () => {
