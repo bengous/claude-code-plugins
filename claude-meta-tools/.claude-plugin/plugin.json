@@ -1,7 +1,7 @@
 {
   "name": "claude-meta-tools",
-  "version": "7.0.0",
-  "description": "Meta tooling for Claude Code: write prompts that prompt better (meta-prompt)",
+  "version": "7.1.0",
+  "description": "Meta tooling for Claude Code: write prompts that prompt better (meta-prompt) and aim them higher (ambition)",
   "author": {
     "name": "Augustin BENGOLEA",
     "email": "bengous@protonmail.com"
@@ -12,6 +12,7 @@
   "keywords": [
     "prompt",
     "meta-prompt",
-    "handoff"
+    "handoff",
+    "ambition"
   ]
 }
