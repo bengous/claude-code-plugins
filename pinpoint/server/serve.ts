@@ -213,9 +213,14 @@ export async function startServer(options: ServeOptions): Promise<Started> {
     }
 
     if (request.method === "POST" && path === "api/image") {
-      // The length a page declares is checked first, so a large body is refused before it is read.
-      const declared = Number(request.headers.get("content-length") ?? 0);
-      const bytes = declared > IMAGE_LIMIT ? null : new Uint8Array(await request.arrayBuffer());
+      // The length a page declares is checked first, so a large body is refused before it is
+      // read; a body that declares none (chunked) is refused rather than read to find out.
+      const declared = request.headers.get("content-length");
+
+      if (declared === null) return new Response("pinpoint: length required", { status: 411 });
+
+      const bytes =
+        Number(declared) > IMAGE_LIMIT ? null : new Uint8Array(await request.arrayBuffer());
 
       if (bytes === null || bytes.length > IMAGE_LIMIT) {
         return new Response("pinpoint: image too large", { status: 413 });

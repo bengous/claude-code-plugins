@@ -47,8 +47,11 @@ function elementLines(element: ElementInfo, lead: string): string[] {
   ];
 }
 
+/** The page's reason, on one line: an error's message may wrap, and a line of its own would leave the block. */
 function imageText(image: ZoneImage, imagePath: ImagePath): string {
-  return "id" in image ? `image: ${imagePath(image.id)}` : `image: not taken (${image.failed})`;
+  return "id" in image
+    ? `image: ${imagePath(image.id)}`
+    : `image: not taken (${image.failed.replaceAll(/\s+/gu, " ").trim()})`;
 }
 
 function targetLines(target: Target, imagePath: ImagePath): string[] {

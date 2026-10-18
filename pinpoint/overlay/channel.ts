@@ -96,7 +96,7 @@ export function channelOf(base: string): Channel {
 
       return await post(`${base}api/batch`, "application/json", body, parseSeq, "a batch number");
     },
-    image: async (png) => await post(`${base}api/image`, "image/png", png, parseId, "an image id"),
+    image: (png) => post(`${base}api/image`, "image/png", png, parseId, "an image id"),
     outcomes: async (seqs) => {
       const query = seqs.map((seq) => `seq=${seq}`).join("&");
 

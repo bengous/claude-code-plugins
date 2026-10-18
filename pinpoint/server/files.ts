@@ -12,6 +12,11 @@ import { parseDelivery } from "./parse.ts";
  * page asks after its own across a restart; `sessions/<session>/images/<id>.png`, each zone's image
  * a page handed over, until the session's directory goes. Each file is written whole under another
  * name, then renamed: a reader never meets half of one.
+ *
+ * TODO: only `/pinpoint:stop` removes a session's directory; a session that ends any other way
+ * keeps its images for good, where a batch left a few KB of JSON before. How long the transcript
+ * may still read an image is not known here, so a sweep (an age, or a start that finds no record)
+ * is a policy to decide, not a fix to slip in.
  */
 
 export type Pending = { readonly seq: number; readonly text: string };

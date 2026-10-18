@@ -100,13 +100,17 @@ describe("batchText", () => {
     );
   });
 
-  test("a zone whose image the page could not take says why", () => {
-    const failed = { ...TWO, targets: [{ ...ZONE, image: { failed: "the page has no canvas" } }] };
+  test("a zone whose image the page could not take says why, on one line", () => {
+    const failed = {
+      ...TWO,
+      targets: [{ ...ZONE, image: { failed: "the page has\n  no canvas\n" } }],
+    };
 
     expect(batchText(9, [failed], imagePath)).toContain(
       [
         "   zone: x 950, y 800, 420 × 90, 2 elements in it",
         "     image: not taken (the page has no canvas)",
+        "     - body > main > form.settings > button.save",
       ].join("\n"),
     );
   });

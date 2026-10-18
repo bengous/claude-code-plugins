@@ -1,4 +1,4 @@
-import type { Box, Selection, Target, ZoneImage } from "../shared/wire.ts";
+import type { Box, Target, ZoneImage } from "../shared/wire.ts";
 import { captureZone } from "./capture.ts";
 import { channelOf } from "./channel.ts";
 import { baseOf, pinnedFrom, pointingFrom } from "./config.ts";
@@ -16,16 +16,22 @@ import { boxBetween, pageBox, type Press, pressAfter, viewportBox } from "./pick
 import {
   accepted,
   add,
+  awaits,
   EMPTY,
   failed,
+  givenUp,
+  type HeldTarget,
+  imaged,
   type Item,
   previewOf,
+  ready,
   remove,
   restored,
   sending,
   settle,
   summaryOf,
   type Tray,
+  WAITING,
 } from "./tray.ts";
 import { createView, type Spot } from "./view.ts";
 
@@ -47,6 +53,9 @@ const ASK_MS = 1_000;
 /** How often a visible tab with no batch waiting asks anyway, so its connection dot stays true. */
 const IDLE_ASK_MS = 10_000;
 
+/** How long a send waits for the images still on their way; a zone whose image is not in by then says so. */
+const IMAGE_WAIT_MS = 10_000;
+
 /** The app sees none of these while picking is on: a pick is not a click on the app. */
 const BLOCKED = ["mousedown", "mouseup", "mousemove", "click", "dblclick", "auxclick"];
 
@@ -63,8 +72,8 @@ type Failed = Extract<ZoneImage, { readonly failed: string }>;
 type Shot = { readonly png: Blob } | Failed;
 
 /**
- * A zone's shot is taken at the pick and handed to the server only once the selection goes in the
- * batch: a zone dropped meanwhile leaves nothing on disk.
+ * A zone's shot is taken at the pick and handed to the server only once the selection is in the
+ * batch and still there: a zone dropped meanwhile leaves nothing on disk.
  */
 type Picked =
   | { readonly target: Extract<Target, { readonly kind: "element" }>; readonly mark: Mark }
@@ -74,8 +83,12 @@ type Picked =
       readonly mark: Mark;
     };
 
+function reasonOf(cause: unknown): string {
+  return cause instanceof Error ? cause.message : String(cause);
+}
+
 function failure(cause: unknown): Failed {
-  return { failed: cause instanceof Error ? cause.message : String(cause) };
+  return { failed: reasonOf(cause) };
 }
 
 type Mode =
@@ -147,7 +160,10 @@ function start(script: HTMLScriptElement): void {
     label: (label) => addDraft(label),
     sendAll: () => sendAll(),
     sendOne: (id) => send([id]),
-    remove: (id) => update(remove(tray, id)),
+    remove: (id) => {
+      arriving.delete(id);
+      update(remove(tray, id));
+    },
     preview: (id) => {
       previewed = id;
       drawMarks();
@@ -254,10 +270,10 @@ function start(script: HTMLScriptElement): void {
     setOn(mode.kind === "off");
   }
 
-  /** Settles once every selection put in the batch so far is in it, its zones' images in. */
-  let adding: Promise<void> = Promise.resolve();
+  /** The selections whose zone images are on their way, each settled once they are all in or said failed. */
+  const arriving = new Map<string, Promise<unknown>>();
 
-  /** Puts the selection being written in the batch, once its zones' images are in, in turn. */
+  /** Puts the selection being written in the batch at once; its zones' images follow. */
   function addDraft(label: string | null): void {
     if (mode.kind !== "on" || mode.draft === null) return;
     const note = view.composerNote().trim();
@@ -269,49 +285,97 @@ function start(script: HTMLScriptElement): void {
     }
 
     const { draft } = mode;
-    const page = pageInfo();
-    const context = appContext();
     made += 1;
     const id = `${Date.now().toString(36)}-${made}`;
-    closeDraft();
 
-    adding = adding.then(async () => {
-      const targets = await Promise.all(draft.map((picked) => targetOf(picked)));
-      const selection: Selection = { label, note, targets, page, context };
-      const item: Item = { id, selection };
-      update(add(tray, item));
-    });
+    const targets = draft.map((picked): HeldTarget =>
+      "shot" in picked ? { ...picked.target, image: WAITING } : picked.target,
+    );
+
+    const item: Item = {
+      id,
+      selection: { label, note, targets, page: pageInfo(), context: appContext() },
+    };
+
+    closeDraft();
+    update(add(tray, item));
+
+    const shots = draft.flatMap((picked, index) =>
+      "shot" in picked ? [bring(id, index, picked.shot)] : [],
+    );
+
+    if (shots.length > 0) arriving.set(id, Promise.allSettled(shots));
   }
 
-  async function targetOf(picked: Picked): Promise<Target> {
-    if (!("shot" in picked)) return picked.target;
-    const shot = await picked.shot;
+  /** Hands the shot of target `index` of item `id` to the server once drawn, and puts what came of it on the card. */
+  async function bring(id: string, index: number, shot: Promise<Shot>): Promise<void> {
+    const drawn = await shot;
+
+    // The card was removed, or the send gave its image up: nothing goes to the server.
+    if (!awaits(tray, id, index)) return;
 
     const image: ZoneImage =
-      "png" in shot ? await channel.image(shot.png).then((id) => ({ id }), failure) : shot;
+      "png" in drawn
+        ? await channel.image(drawn.png).then((imageId) => ({ id: imageId }), failure)
+        : drawn;
 
-    return { ...picked.target, image };
+    const next = imaged(tray, id, index, image);
+
+    if (next !== tray) update(next);
   }
 
-  /** Sends the whole batch once the selections on their way in are in it. */
+  /** Settles once the images of `ids` are in, or `IMAGE_WAIT_MS` passed: each still on its way then says so. */
+  async function imagesIn(ids: readonly string[]): Promise<void> {
+    const waits = ids.flatMap((id) => arriving.get(id) ?? []);
+
+    if (waits.length === 0) return;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+
+    const late = new Promise<void>((resolve) => {
+      timer = setTimeout(resolve, IMAGE_WAIT_MS);
+    });
+
+    try {
+      await Promise.race([Promise.all(waits), late]);
+    } finally {
+      clearTimeout(timer);
+    }
+
+    for (const id of ids) arriving.delete(id);
+    const next = givenUp(tray, ids, `not in within ${IMAGE_WAIT_MS / 1000} s of the send`);
+
+    if (next !== tray) update(next);
+  }
+
   function sendAll(): void {
-    void adding.then(() => send(tray.items.map((item) => item.id)));
+    send(tray.items.map((item) => item.id));
   }
 
+  /** Sends the items `ids`, once their images are in; the batch says it is sending meanwhile. */
   function send(ids: readonly string[]): void {
-    const items = tray.items.filter((item) => ids.includes(item.id));
+    const count = tray.items.filter((item) => ids.includes(item.id)).length;
 
-    if (items.length === 0 || tray.status.kind === "sending") return;
-    update(sending(tray, items.length));
+    if (count === 0 || tray.status.kind === "sending") return;
+    update(sending(tray, count));
 
-    channel.send(items.map((item) => item.selection)).then(
-      (seq) => {
-        update(accepted(tray, ids, seq));
-        askLater();
-      },
-      (cause: unknown) =>
-        update(failed(tray, cause instanceof Error ? cause.message : String(cause))),
-    );
+    void imagesIn(ids).then(() => {
+      // A card removed while the images were awaited is not sent.
+      const items = tray.items.filter((item) => ids.includes(item.id));
+
+      if (items.length === 0) {
+        update({ ...tray, status: EMPTY.status });
+
+        return;
+      }
+
+      return channel.send(items.map((item) => ready(item.selection))).then(
+        (seq) => {
+          update(accepted(tray, ids, seq));
+          askLater();
+        },
+        (cause: unknown) => update(failed(tray, reasonOf(cause))),
+      );
+    });
   }
 
   function pick(press: Press, at: { readonly x: number; readonly y: number }): void {

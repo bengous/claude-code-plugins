@@ -679,6 +679,24 @@ describe("what the server refuses", () => {
     expect(existsSync(join(one.dir, "sessions/s1/images"))).toBe(false);
   });
 
+  test("an image whose body declares no length: 411, nothing read", async () => {
+    const one = await serve();
+
+    const chunked = await fetch(url(one, "api/image"), {
+      method: "POST",
+      headers: { "content-type": "image/png", origin: ownOrigin(one) },
+      body: new ReadableStream({
+        start: (controller) => {
+          controller.enqueue(PNG);
+          controller.close();
+        },
+      }),
+    });
+
+    expect(chunked.status).toBe(411);
+    expect(existsSync(join(one.dir, "sessions/s1/images"))).toBe(false);
+  });
+
   test("outcomes asked after what is not a batch number: 400", async () => {
     const one = await serve();
 
