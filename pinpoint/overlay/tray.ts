@@ -140,7 +140,10 @@ function lastStep(selector: string): string {
   return selector.split(" > ").at(-1) ?? selector;
 }
 
-function targetText(target: Target): string {
+/** A target as the composer names it, a zone's image not in yet. */
+type Named = Target | Omit<Extract<Target, { readonly kind: "zone" }>, "image">;
+
+function targetText(target: Named): string {
   if (target.kind === "element") return lastStep(target.element.selector);
   const { width, height } = target.box;
 
@@ -148,6 +151,6 @@ function targetText(target: Target): string {
 }
 
 /** What a card and the composer call a selection: its targets, each by its short name. */
-export function summaryOf(targets: readonly Target[]): string {
+export function summaryOf(targets: readonly Named[]): string {
   return targets.map((target) => targetText(target)).join(", ");
 }

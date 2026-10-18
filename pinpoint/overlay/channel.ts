@@ -5,6 +5,8 @@ import type { BatchRequest, Outcome, Selection } from "../shared/wire.ts";
 export type Channel = {
   /** Posts the batch; answers the number the server gave it, or throws why it did not take it. */
   readonly send: (selections: readonly Selection[]) => Promise<number>;
+  /** Hands a zone's PNG to the server; answers the id it keeps it under, or throws why not. */
+  readonly image: (png: Blob) => Promise<string>;
   /** What became of each batch of `seqs`, in their order; `null` when the server does not answer. */
   readonly outcomes: (seqs: readonly number[]) => Promise<Outcome[] | null>;
 };
@@ -44,6 +46,15 @@ function parseOutcomes(value: unknown): Outcome[] | null {
 
   return outcomes.every((one) => one !== null) ? outcomes : null;
 }
+
+function parseId(value: unknown): string | null {
+  return typeof value === "object" &&
+    value !== null &&
+    "id" in value &&
+    typeof value.id === "string"
+    ? value.id
+    : null;
+}
 /* oxlint-enable anti-slop/no-runtime-typeof, anti-slop/no-unknown-parameters */
 
 const UNREACHABLE =
@@ -71,6 +82,24 @@ export function channelOf(base: string): Channel {
       if (seq === null) throw new Error("the server answered without a batch number");
 
       return seq;
+    },
+    image: async (png) => {
+      const response = await fetch(`${base}api/image`, {
+        method: "POST",
+        headers: { "content-type": "image/png" },
+        body: png,
+        signal: AbortSignal.timeout(SEND_TIMEOUT_MS),
+      }).catch(() => null);
+
+      if (response === null) throw new Error(UNREACHABLE);
+
+      if (!response.ok)
+        throw new Error(`the server answered ${response.status}: ${await response.text()}`);
+      const id = parseId(await response.json());
+
+      if (id === null) throw new Error("the server answered without an image id");
+
+      return id;
     },
     outcomes: async (seqs) => {
       const query = seqs.map((seq) => `seq=${seq}`).join("&");

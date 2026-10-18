@@ -1,4 +1,5 @@
-import type { Box, Selection, Target } from "../shared/wire.ts";
+import type { Box, Selection, Target, ZoneImage } from "../shared/wire.ts";
+import { captureZone } from "./capture.ts";
 import { channelOf } from "./channel.ts";
 import { baseOf, pinnedFrom, pointingFrom } from "./config.ts";
 import {
@@ -54,7 +55,24 @@ const PICKING = "pinpoint-picking";
 /** Where a picked target is drawn: an element is measured again, a zone's box in page pixels follows the scroll. */
 type Mark = Element | Box;
 
-type Picked = { readonly target: Target; readonly mark: Mark };
+type ZoneTarget = Extract<Target, { readonly kind: "zone" }>;
+
+/** A zone's image comes once the page drew it and the server kept it; its target waits for it. */
+type Picked =
+  | { readonly target: Extract<Target, { readonly kind: "element" }>; readonly mark: Mark }
+  | {
+      readonly target: Omit<ZoneTarget, "image">;
+      readonly image: Promise<ZoneImage>;
+      readonly mark: Mark;
+    };
+
+function failure(cause: unknown): ZoneImage {
+  return { failed: cause instanceof Error ? cause.message : String(cause) };
+}
+
+async function targetOf(picked: Picked): Promise<Target> {
+  return "image" in picked ? { ...picked.target, image: await picked.image } : picked.target;
+}
 
 type Mode =
   | { readonly kind: "off" }
@@ -232,31 +250,33 @@ function start(script: HTMLScriptElement): void {
     setOn(mode.kind === "off");
   }
 
-  /** Puts the selection being written in the batch; `false` when it says nothing yet. */
-  function addDraft(label: string | null): boolean {
-    if (mode.kind !== "on" || mode.draft === null) return false;
+  /** Settles once every selection put in the batch so far is in it, its zones' images in. */
+  let adding: Promise<void> = Promise.resolve();
+
+  /** Puts the selection being written in the batch, once its zones' images are in, in turn. */
+  function addDraft(label: string | null): void {
+    if (mode.kind !== "on" || mode.draft === null) return;
     const note = view.composerNote().trim();
 
     if (label === null && note === "") {
       view.shakeComposer();
 
-      return false;
+      return;
     }
 
-    const selection: Selection = {
-      label,
-      note,
-      targets: mode.draft.map((picked) => picked.target),
-      page: pageInfo(),
-      context: appContext(),
-    };
-
+    const { draft } = mode;
+    const page = pageInfo();
+    const context = appContext();
     made += 1;
-    const item: Item = { id: `${Date.now().toString(36)}-${made}`, selection };
+    const id = `${Date.now().toString(36)}-${made}`;
     closeDraft();
-    update(add(tray, item));
 
-    return true;
+    adding = adding.then(async () => {
+      const targets = await Promise.all(draft.map((picked) => targetOf(picked)));
+      const selection: Selection = { label, note, targets, page, context };
+      const item: Item = { id, selection };
+      update(add(tray, item));
+    });
   }
 
   function send(ids: readonly string[]): void {
@@ -283,7 +303,12 @@ function start(script: HTMLScriptElement): void {
     if (box.width > DRAG || box.height > DRAG) {
       const elements = zoneElements(box, view.host).map((element) => infoOf(element));
       const onPage = pageBox(box, scrollOf());
-      picked = { target: { kind: "zone", box: onPage, elements }, mark: onPage };
+
+      const image = captureZone(onPage, view.host)
+        .then(async (png) => await channel.image(png))
+        .then((id): ZoneImage => ({ id }), failure);
+
+      picked = { target: { kind: "zone", box: onPage, elements }, image, mark: onPage };
     } else {
       const element = elementAt(at.x, at.y, view.host);
 
@@ -366,7 +391,7 @@ function start(script: HTMLScriptElement): void {
       stop();
 
       if (mode.draft !== null && view.composerNote().trim() !== "") addDraft(null);
-      send(tray.items.map((item) => item.id));
+      void adding.then(() => send(tray.items.map((item) => item.id)));
 
       return;
     }

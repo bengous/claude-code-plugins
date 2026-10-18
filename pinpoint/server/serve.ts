@@ -1,5 +1,5 @@
 import { addressOn, targetOf } from "../shared/target.ts";
-import type { BatchAccepted, Outcome, ServerLine } from "../shared/wire.ts";
+import type { BatchAccepted, ImageAccepted, Outcome, ServerLine } from "../shared/wire.ts";
 import { type Found, pickPage, probe } from "./apps.ts";
 import { buildOverlay } from "./build.ts";
 import { sessionFiles } from "./files.ts";
@@ -74,6 +74,15 @@ function isOwn(url: URL, port: number): boolean {
 
 /** What became of an address offered as the app: served from now on, or refused and why. */
 type Choice = { readonly chosen: URL } | { readonly refused: string };
+
+/** The largest image a page hands over: a zone of a 4K screen at twice its pixels stays well under. */
+export const IMAGE_LIMIT = 20 * 1024 * 1024;
+
+const PNG_SIGNATURE = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
+
+function isPng(bytes: Uint8Array): boolean {
+  return PNG_SIGNATURE.every((byte, index) => bytes[index] === byte);
+}
 
 /** A probe of the dev ports is reused this long: each one asks every app for its `/`. */
 const PROBE_FRESH_MS = 5_000;
@@ -191,7 +200,7 @@ export async function startServer(options: ServeOptions): Promise<Started> {
 
       const seq = await inTurn(async () => {
         const next = await files.nextSeq();
-        const text = batchText(next, batch.selections);
+        const text = batchText(next, batch.selections, files.imagePath);
         await files.keepPending({ seq: next, text });
         options.announce({ type: "batch", seq: next, text });
 
@@ -201,6 +210,22 @@ export async function startServer(options: ServeOptions): Promise<Started> {
       const accepted: BatchAccepted = { seq };
 
       return Response.json(accepted, { status: 202 });
+    }
+
+    if (request.method === "POST" && path === "api/image") {
+      const bytes = new Uint8Array(await request.arrayBuffer());
+
+      if (bytes.length > IMAGE_LIMIT) {
+        return new Response("pinpoint: image too large", { status: 413 });
+      }
+
+      if (request.headers.get("content-type") !== "image/png" || !isPng(bytes)) {
+        return new Response("not a PNG", { status: 400 });
+      }
+
+      const accepted: ImageAccepted = { id: await files.keepImage(bytes) };
+
+      return Response.json(accepted, { status: 201 });
     }
 
     // The "Which app?" form, its own page's alone and only while it asks: once an app is served,

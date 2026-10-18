@@ -33,7 +33,12 @@ const SELECTION: Selection = {
         styles: [],
       },
     },
-    { kind: "zone", box: { x: 0, y: 0, width: 400.4, height: 99.6 }, elements: [] },
+    {
+      kind: "zone",
+      box: { x: 0, y: 0, width: 400.4, height: 99.6 },
+      elements: [],
+      image: { failed: "no canvas" },
+    },
   ],
   page: {
     url: "http://localhost:5173/",
@@ -154,7 +159,12 @@ test("previewOf draws each page box where the scroll puts it, whatever the scrol
         kind: "element",
         element: { ...logo.element, box: { x: 100, y: 150, width: 120, height: 40 } },
       },
-      { kind: "zone", box: { x: 300, y: 1150, width: 200, height: 60 }, elements: [] },
+      {
+        kind: "zone",
+        box: { x: 300, y: 1150, width: 200, height: 60 },
+        elements: [],
+        image: { failed: "no canvas" },
+      },
     ],
     page: { ...SELECTION.page, scroll: { x: 0, y: 800 } },
   };

@@ -8,7 +8,11 @@ import type {
   Style,
   Target,
   TargetRequest,
+  ZoneImage,
 } from "../shared/wire.ts";
+
+/** The ids the server gives the images it keeps, `crypto.randomUUID()`: never a path. */
+export const IMAGE_ID = /^[\da-f]{8}-[\da-f]{4}-[\da-f]{4}-[\da-f]{4}-[\da-f]{12}$/u;
 
 /**
  * The server's boundary: a request's body arrives as `unknown` and is parsed here, once, field by
@@ -87,11 +91,23 @@ function parseTarget(value: unknown): Target | null {
   if (value.kind === "zone") {
     const box = parseBox(value.box);
     const elements = listOf(value.elements, parseElement);
+    const image = parseZoneImage(value.image);
 
-    return box === null || elements === null ? null : { kind: "zone", box, elements };
+    return box === null || elements === null || image === null
+      ? null
+      : { kind: "zone", box, elements, image };
   }
 
   return null;
+}
+
+function parseZoneImage(value: unknown): ZoneImage | null {
+  if (!isRecord(value)) return null;
+  const { id, failed } = value;
+
+  if (typeof id === "string") return IMAGE_ID.test(id) ? { id } : null;
+
+  return typeof failed === "string" ? { failed } : null;
 }
 
 function parsePage(value: unknown): PageInfo | null {

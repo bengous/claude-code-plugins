@@ -498,8 +498,8 @@
     },
     {
       "name": "pinpoint",
-      "description": "Point at your running app and talk to Claude: the session's address serves the app with an overlay that picks an element by a click or a zone by a drag, takes a quick label or a note, and keeps each selection in a batch you send at once; the batch reaches the session as a prompt, each element described by its selector, role, accessible name, box and styles",
-      "version": "0.3.0",
+      "description": "Point at your running app and talk to Claude: the session's address serves the app with an overlay that picks an element by a click or a zone by a drag, takes a quick label or a note, and keeps each selection in a batch you send at once; the batch reaches the session as a prompt, each element described by its selector, role, accessible name, box and styles, each zone with an image of it",
+      "version": "0.4.0",
       "author": {
         "name": "Augustin BENGOLEA",
         "email": "bengous@protonmail.com"
