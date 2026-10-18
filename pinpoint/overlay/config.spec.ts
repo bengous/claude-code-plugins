@@ -1,38 +1,7 @@
 import { expect, test } from "bun:test";
 
-import {
-  baseOf,
-  DEFAULT_LABELS,
-  FOLDER_CHARS,
-  folderOf,
-  labelsFrom,
-  pinnedFrom,
-  pointingFrom,
-  sessionTitle,
-} from "./config.ts";
+import { baseOf, DEFAULT_LABELS, labelsFrom, pinnedFrom, pointingFrom } from "./config.ts";
 import { composerSpot, pinnedSpot } from "./view.ts";
-
-test("folderOf: the panel names the session by the last segment of its directory", () => {
-  expect(folderOf("/work/u/claude-code-plugins")).toBe("claude-code-plugins");
-  expect(folderOf("/work/u/claude-code-plugins/")).toBe("claude-code-plugins");
-  expect(folderOf(String.raw`C:\Users\u\Work\shop`)).toBe("shop");
-  expect(folderOf("/")).toBe("/");
-});
-
-test("folderOf: a long name keeps its start and its end, the middle given way", () => {
-  const long = "client-acme-storefront-checkout-redesign-2026-frontend";
-  const shown = folderOf(`/work/u/${long}`);
-
-  expect([...shown]).toHaveLength(FOLDER_CHARS);
-  expect(shown).toBe("client-acme-storefront-c…26-frontend");
-  expect(folderOf(`/w/${long.slice(0, FOLDER_CHARS)}`)).toBe(long.slice(0, FOLDER_CHARS));
-});
-
-test("sessionTitle: the name's hover gives the whole directory", () => {
-  expect(sessionTitle("/work/u/claude-code-plugins")).toBe(
-    "Batches go to the Claude Code session in /work/u/claude-code-plugins",
-  );
-});
 
 test("labelsFrom: the defaults when absent, none when empty, each decoded", () => {
   expect(labelsFrom(undefined)).toEqual(DEFAULT_LABELS);

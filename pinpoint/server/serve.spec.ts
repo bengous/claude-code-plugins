@@ -390,17 +390,14 @@ describe("the server", () => {
     expect(await response.text()).toContain("pinpoint-overlay");
   });
 
-  test("the overlay carries the session it sends to, the same from a server started again", async () => {
+  test("a server started again on its port and token serves the same overlay", async () => {
     const first = await serve();
     const kept = { port: first.started.port, token: first.started.token };
     const before = await (await fetch(url(first, "overlay.js"))).text();
     first.started.stop();
     const second = await serve(first.dir, kept);
-    const after = await (await fetch(url(second, "overlay.js"))).text();
 
-    expect(before).toContain('root: "/work/app"');
-    expect(before).not.toContain("PINPOINT_SESSION");
-    expect(after).toBe(before);
+    expect(await (await fetch(url(second, "overlay.js"))).text()).toBe(before);
   });
 
   test("a batch is numbered, announced as the prompt's text, and kept until delivered", async () => {

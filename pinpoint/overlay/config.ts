@@ -33,28 +33,6 @@ export function pinnedFrom(stored: string | null): Spot | null {
   return match === null ? null : { x: Number(match[1]), y: Number(match[2]) };
 }
 
-/** How many characters of the session's folder the panel shows: past it, the middle gives way. */
-export const FOLDER_CHARS = 36;
-
-/**
- * The session's folder, the last segment of its root, as the panel names it. A longer one keeps
- * its start and its end, where names of sibling checkouts usually differ.
- */
-export function folderOf(root: string): string {
-  const folder = root.split(/[\\/]/u).findLast((segment) => segment !== "") ?? root;
-  const chars = [...folder];
-
-  if (chars.length <= FOLDER_CHARS) return folder;
-  const tail = Math.floor((FOLDER_CHARS - 1) / 3);
-
-  return `${chars.slice(0, FOLDER_CHARS - 1 - tail).join("")}…${chars.slice(-tail).join("")}`;
-}
-
-/** What the session's name says on hover: the whole directory. */
-export function sessionTitle(root: string): string {
-  return `Batches go to the Claude Code session in ${root}`;
-}
-
 /** The server's address for the page, `http://127.0.0.1:<port>/t/<token>/`, off the overlay's own URL. */
 export function baseOf(scriptUrl: string): string {
   return scriptUrl.slice(0, scriptUrl.lastIndexOf("/") + 1);

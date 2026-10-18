@@ -99,10 +99,7 @@ export async function startServer(options: ServeOptions): Promise<Started> {
   const files = sessionFiles(options.dir, options.session);
   await pruneEntries(options.dir);
 
-  const [overlay] = await Promise.all([
-    buildOverlay({ root: options.root }),
-    writeViteModule(options.dir),
-  ]);
+  const [overlay] = await Promise.all([buildOverlay(options.root), writeViteModule(options.dir)]);
 
   // The session's files change one step at a time, each batch numbered, kept and announced
   // whole: the module hands batches over in the order of their lines, and only acknowledges a

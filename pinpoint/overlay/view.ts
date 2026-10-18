@@ -1,5 +1,4 @@
 import type { Box } from "../shared/wire.ts";
-import { folderOf, sessionTitle } from "./config.ts";
 import { sendText, statusText, summaryOf, type Tray } from "./tray.ts";
 
 /**
@@ -83,15 +82,19 @@ textarea { font: inherit; color: inherit; background: transparent; border: 1px s
   border-radius: 6px; padding: 6px 8px; min-height: 56px; resize: vertical; width: 100%; }
 .hint { font-size: 11px; color: var(--muted); }
 .panel { position: fixed; right: 16px; bottom: 16px; width: 320px; max-width: calc(100vw - 32px);
-  max-height: 60vh; display: grid; grid-template-rows: auto minmax(0, 1fr) auto; z-index: 2147483647; }
+  max-height: 60vh; display: grid; grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: auto minmax(0, 1fr) auto; z-index: 2147483647; }
 .head { display: flex; flex-wrap: wrap; align-items: center; column-gap: 8px; row-gap: 2px; padding: 8px 10px; }
 .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--err); flex: none; }
 .dot.up { background: var(--ok); }
 .name { font-weight: 600; }
 .count { color: var(--muted); white-space: nowrap; }
-.session { order: 1; flex: 1 0 100%; min-width: 0; padding-left: 16px; font-size: 12px; color: var(--muted);
-  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.session b { font-weight: 600; color: var(--fg); }
+.session { flex: 1 0 100%; display: flex; min-width: 0; padding-left: 16px; font-size: 12px;
+  color: var(--muted); white-space: nowrap; }
+.to { flex: none; white-space: pre; }
+.lead, .tail { font-weight: 600; color: var(--fg); }
+.lead { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.tail { flex: none; }
 .toggle { margin-left: auto; border: 1px solid var(--pick); background: transparent; color: var(--pick); padding: 3px 8px; white-space: nowrap; }
 .toggle.on { background: var(--pick); color: #fff; }
 .list { overflow: auto; display: grid; gap: 6px; padding: 0 10px; }
@@ -172,7 +175,30 @@ function windowSize(): Size {
   return { width: window.innerWidth, height: window.innerHeight };
 }
 
-/** `sessionRoot` is the directory of the session the batches go to, which the panel names. */
+const TAIL_GRAPHEMES = 10;
+
+const graphemes = new Intl.Segmenter(undefined, { granularity: "grapheme" });
+
+/**
+ * The last segment of the session's directory, in two parts: a narrow panel cuts the lead with
+ * an ellipsis and keeps the tail, where the names of sibling checkouts usually differ.
+ */
+export type Folder = { readonly lead: string; readonly tail: string };
+
+export function folderOf(root: string): Folder {
+  const folder = root.split(/[\\/]/u).findLast((segment) => segment !== "") ?? root;
+  const parts = Array.from(graphemes.segment(folder), (part) => part.segment);
+
+  return {
+    lead: parts.slice(0, -TAIL_GRAPHEMES).join(""),
+    tail: parts.slice(-TAIL_GRAPHEMES).join(""),
+  };
+}
+
+export function sessionTitle(root: string): string {
+  return `Batches go to the Claude Code session in ${root}`;
+}
+
 export function createView(
   labels: readonly string[],
   sessionRoot: string,
@@ -268,8 +294,14 @@ export function createView(
   const dot = element("span", "dot");
   const name = element("span", "name", "pinpoint");
   const count = element("span", "count");
-  const session = element("span", "session", "to ");
-  session.append(element("b", "", folderOf(sessionRoot)));
+  const session = element("span", "session");
+  const folder = folderOf(sessionRoot);
+
+  session.append(
+    element("span", "to", "to "),
+    element("span", "lead", folder.lead),
+    element("span", "tail", folder.tail),
+  );
   session.title = sessionTitle(sessionRoot);
   const toggle = element("button", "toggle");
   toggle.type = "button";

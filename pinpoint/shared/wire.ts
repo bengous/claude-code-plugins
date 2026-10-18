@@ -75,15 +75,6 @@ export type ServerLine =
   | { readonly type: "batch"; readonly seq: number; readonly text: string }
   | { readonly type: "target"; readonly target: string };
 
-/**
- * The session a server sends its batches to, which it bakes into the overlay it builds as
- * `PINPOINT_SESSION`: every page that loads the overlay from that server names it.
- */
-export type OverlaySession = {
-  /** The Claude Code session's directory, `--root`. */
-  readonly root: string;
-};
-
 /** `POST /t/<token>/api/target`, the module's alone: the app to serve from now on. */
 export type TargetRequest = { readonly url: string };
 
