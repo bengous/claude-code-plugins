@@ -22,7 +22,16 @@ No arguments: the request is the task discussed in this conversation.
 ## Start from the request
 
 Say in one sentence the outcome the request serves, as the user would recognise it. When the
-conversation does not state that outcome, say the sentence is your reading. Check what the
+conversation implies that outcome without stating it, say the sentence is your reading.
+
+When the request names no outcome someone could observe, stop there: versions built on a
+guess give concrete answers to the wrong question. Ask the user what they want to happen once
+it is done. When one answer will not settle it because the idea itself is still forming, say
+so and suggest working it out first, in an interview session or a few exchanges, then
+running `/ambition` on what comes out. The question or the suggestion is then the whole
+response.
+
+Check what the
 request and the conversation name (files, tools, access this session has) so that what each
 version takes is concrete: present, missing or unverified. Past what they name, write
 "unverified" rather than exploring.
@@ -51,7 +60,8 @@ their methods, not their voice: what a short seller does to research a position,
 one writes.
 
 A direction with no worthwhile version for this request is left out; one that only makes
-the task bigger is not worthwhile.
+the task bigger is not worthwhile. Depth and range rest on guesses too, such as the field the
+expert belongs to or the verb behind the noun: name the guess so the user can correct it.
 
 ## Each version
 
