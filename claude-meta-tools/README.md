@@ -1,7 +1,5 @@
 # Claude Meta-Tools Plugin
 
-v7.0.0
-
 Meta tooling for Claude Code: write prompts that prompt better.
 
 Since 5.0.0 this plugin is prompt-focused. Instruction-file maintenance moved to
