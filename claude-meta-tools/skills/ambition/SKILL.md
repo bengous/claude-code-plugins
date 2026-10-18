@@ -24,8 +24,8 @@ No arguments: the request is the task discussed in this conversation.
 Say in one sentence the outcome the request serves, as the user would recognise it. When the
 conversation implies that outcome without stating it, say the sentence is your reading.
 
-When the request names no outcome someone could observe, stop there: versions built on a
-guess give concrete answers to the wrong question. Ask the user what they want to happen once
+When neither the request nor the conversation yields an outcome someone could observe, even
+implied, stop there: versions built on a guess give concrete answers to the wrong question. Ask the user what they want to happen once
 it is done. When one answer will not settle it because the idea itself is still forming, say
 so and suggest working it out first, in an interview session or a few exchanges, then
 running `/ambition` on what comes out. The question or the suggestion is then the whole
