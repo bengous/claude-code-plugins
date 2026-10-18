@@ -10,7 +10,6 @@ import {
   storedRecord,
 } from "./parse.ts";
 import {
-  type Address,
   baseOf,
   type Child,
   clean,
@@ -252,12 +251,7 @@ export const register: Register = (on) => {
    */
   async function enter(host: Host, from: Starting, ends: readonly number[]): Promise<void> {
     const { tenure } = from;
-    const { record } = tenure;
-
-    const kept: Address | null =
-      record.port === 0 ? null : { port: record.port, token: record.token };
-
-    const child = await start(host, record.serverSession, record.root, kept, record.target);
+    const child = await start(host, tenure.record);
 
     if (child === null) return;
 

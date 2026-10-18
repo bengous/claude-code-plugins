@@ -22,7 +22,10 @@ import { parseDelivery } from "./parse.ts";
 export type Pending = { readonly seq: number; readonly text: string };
 
 export type SessionFiles = {
-  /** The next batch number, kept across servers of one session; the caller asks one at a time. */
+  /**
+   * The next batch number, kept across servers of one session and past every one the session may
+   * have taken; the caller asks one at a time.
+   */
   readonly nextSeq: () => Promise<number>;
   readonly keepPending: (pending: Pending) => Promise<void>;
   /** Keeps what the module reported of a batch, then forgets the batch; the caller settles one at a time. */
@@ -79,7 +82,8 @@ async function writeWhole(file: string, data: string | Uint8Array): Promise<void
   await rename(draft, file);
 }
 
-export function sessionFiles(dir: string, session: string): SessionFiles {
+/** `relayed`: the last batch the module handed to the session before this server. */
+export function sessionFiles(dir: string, session: string, relayed: number): SessionFiles {
   const sessions = join(dir, "sessions");
   const own = join(sessions, session);
   const pendingDir = join(own, "pending");
@@ -94,12 +98,17 @@ export function sessionFiles(dir: string, session: string): SessionFiles {
   const settled = async (): Promise<Delivery[]> =>
     parseSettled(await readFile(settledFile, "utf8").catch(() => ""));
 
+  // The module only acknowledges a number at or below the last it handed over: a `seq` removed
+  // before this server or since must not number a batch again from 1.
+  let given = relayed;
+
   return {
     nextSeq: async () => {
       await mkdir(own, { recursive: true });
       const last = Number.parseInt(await readFile(seqFile, "utf8").catch(() => "0"), 10);
-      const next = (Number.isNaN(last) ? 0 : last) + 1;
+      const next = Math.max(Number.isNaN(last) ? 0 : last, given) + 1;
       await writeWhole(seqFile, `${next}\n`);
+      given = next;
 
       return next;
     },

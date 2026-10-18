@@ -15,6 +15,7 @@ const { values, positionals } = parseArgs({
   options: {
     session: { type: "string" },
     root: { type: "string" },
+    relayed: { type: "string" },
     port: { type: "string" },
     token: { type: "string" },
     target: { type: "string" },
@@ -28,20 +29,28 @@ const { session, root } = values;
 const dir = join(homedir(), ".claude", "pinpoint");
 
 if (command === "clean" && session !== undefined) {
-  await sessionFiles(dir, session).removeAll();
+  await sessionFiles(dir, session, 0).removeAll();
   process.exit(0);
 }
 
+/** A count as typed on the command line, `null` when it is not a whole number. */
+function countOf(text: string): number | null {
+  return /^\d+$/u.test(text) ? Number(text) : null;
+}
+
 const target = values.target === undefined ? null : targetOf(values.target);
+
+const relayed = values.relayed === undefined ? 0 : countOf(values.relayed);
 
 if (
   command !== "serve" ||
   session === undefined ||
   root === undefined ||
+  relayed === null ||
   (values.target !== undefined && target === null)
 ) {
   console.error(
-    "usage: cli.ts serve --session <id> --root <dir> [--port <n> --token <t>] [--target <http(s) url>] | cli.ts clean --session <id>",
+    "usage: cli.ts serve --session <id> --root <dir> [--relayed <n>] [--port <n> --token <t>] [--target <http(s) url>] | cli.ts clean --session <id>",
   );
   process.exit(2);
 }
@@ -51,6 +60,7 @@ await startServer({
   dir,
   session,
   root,
+  relayed,
   port: Number(values.port ?? 0),
   token: values.token,
   target,

@@ -49,6 +49,8 @@ describe("/pinpoint:start", () => {
       SESSION_ID,
       "--root",
       ROOT,
+      "--relayed",
+      "0",
     ]);
     expect(result.text).toContain(`pinpoint is live for ${ROOT}.`);
     expect(result.text).toContain(
@@ -406,6 +408,23 @@ describe("the server's life", () => {
 
     expect(seen.children).toHaveLength(2);
     expect(seen.children[1]?.argv.slice(-4)).toEqual(KEPT);
+  });
+
+  test("a server that comes back is told the last batch handed over, which its numbers pass", async ($, on) => {
+    const seen = world(on, { stored: new Map([[KEY, { ...RECORD, relayed: 3 }]]) });
+    await $.session.start(SESSION);
+    seen.children[0]?.write({ type: "batch", seq: 4, text: "four" });
+    await seen.clock.settle();
+    seen.children[0]?.exit(ENDED);
+    await seen.clock.settle();
+
+    const relayed = (child: number) => {
+      const argv = seen.children[child]?.argv ?? [];
+
+      return argv[argv.indexOf("--relayed") + 1];
+    };
+
+    expect([relayed(0), relayed(1)]).toEqual(["3", "4"]);
   });
 
   test("the app a page picked is recorded, and the server that comes back serves it", async ($, on) => {

@@ -59,12 +59,16 @@ type Running = {
 
 const running: Running[] = [];
 
+/** What the module passes of the session's tenure: the last batch it handed over. */
+type Tenure = { readonly relayed?: number };
+
 async function serve(
   dir: string | null = null,
   kept: { port: number; token: string } | null = null,
   target: URL | null = null,
   ports: readonly number[] = [],
   opener: string | null = null,
+  tenure: Tenure = {},
 ): Promise<Running> {
   const home = dir ?? (await mkdtemp(join(tmpdir(), "pinpoint-")));
   const lines: ServerLine[] = [];
@@ -75,6 +79,7 @@ async function serve(
     dir: home,
     session: "s1",
     root: "/work/app",
+    relayed: tenure.relayed ?? 0,
     port: kept?.port ?? 0,
     token: kept?.token,
     target,
@@ -565,6 +570,14 @@ describe("the server", () => {
 
     expect(second.lines.slice(1)).toEqual([expect.objectContaining({ type: "batch", seq: 1 })]);
     expect(await (await post(second, "api/batch", BATCH)).json()).toEqual({ seq: 2 });
+  });
+
+  test("a batch is numbered past the last the session took, its files gone before the start or since", async () => {
+    const one = await serve(null, null, null, [], null, { relayed: 5 });
+
+    expect(await (await post(one, "api/batch", BATCH)).json()).toEqual({ seq: 6 });
+    await rm(join(one.dir, "sessions"), { recursive: true });
+    expect(await (await post(one, "api/batch", BATCH)).json()).toEqual({ seq: 7 });
   });
 
   test("batches posted at once get consecutive numbers, a pending file and a line each, in order", async () => {

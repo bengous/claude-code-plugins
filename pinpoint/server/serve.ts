@@ -20,6 +20,8 @@ export type ServeOptions = {
   readonly session: string;
   /** The directory of the Claude Code session, which the overlay's panel names. */
   readonly root: string;
+  /** The last batch the module handed to the session, which every new batch's number passes. */
+  readonly relayed: number;
   /** `0` for any; a port taken meanwhile binds another one, under a new token. */
   readonly port: number;
   readonly token: string | undefined;
@@ -99,7 +101,7 @@ function isPortTaken(cause: unknown): boolean {
 type Bound = { readonly server: Bun.Server<Relay>; readonly token: string };
 
 export async function startServer(options: ServeOptions): Promise<Started> {
-  const files = sessionFiles(options.dir, options.session);
+  const files = sessionFiles(options.dir, options.session, options.relayed);
   const overlay = await buildOverlay(options.root);
 
   // The session's files change one step at a time, each batch numbered, kept and announced
