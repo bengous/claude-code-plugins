@@ -9,8 +9,14 @@ import { parseDelivery } from "./parse.ts";
  * `sessions/<session>/seq`, the last batch number given; `sessions/<session>/pending/<seq>.json`,
  * each batch not yet handed to the session, so a server started again on the same session tells
  * it again; `sessions/<session>/settled.json`, what the module reported of the last batches, so a
- * page asks after its own across a restart. Each file is written whole under another name, then
- * renamed: a reader never meets half of one.
+ * page asks after its own across a restart; `sessions/<session>/images/<id>.png`, each zone's image
+ * a page handed over, until the session's directory goes. Each file is written whole under another
+ * name, then renamed: a reader never meets half of one.
+ *
+ * TODO: only `/pinpoint:stop` removes a session's directory; a session that ends any other way
+ * keeps its images for good, where a batch left a few KB of JSON before. How long the transcript
+ * may still read an image is not known here, so a sweep (an age, or a start that finds no record)
+ * is a policy to decide, not a fix to slip in.
  */
 
 export type Pending = { readonly seq: number; readonly text: string };
@@ -25,6 +31,10 @@ export type SessionFiles = {
   readonly pending: () => Promise<Pending[]>;
   /** What became of each batch of `seqs`, in their order. */
   readonly outcomes: (seqs: readonly number[]) => Promise<Outcome[]>;
+  /** Keeps a zone's PNG; answers the id it is kept under. */
+  readonly keepImage: (png: Uint8Array) => Promise<string>;
+  /** Where the image of `id` is kept, an absolute path. */
+  readonly imagePath: (id: string) => string;
   /** The session's directory, for `/pinpoint:stop`. */
   readonly removeAll: () => Promise<void>;
 };
@@ -63,9 +73,9 @@ function parseSettled(text: string): Delivery[] {
   }
 }
 
-async function writeWhole(file: string, text: string): Promise<void> {
+async function writeWhole(file: string, data: string | Uint8Array): Promise<void> {
   const draft = `${file}.tmp`;
-  await writeFile(draft, text);
+  await writeFile(draft, data);
   await rename(draft, file);
 }
 
@@ -75,6 +85,8 @@ export function sessionFiles(dir: string, session: string): SessionFiles {
   const pendingDir = join(own, "pending");
   const seqFile = join(own, "seq");
   const settledFile = join(own, "settled.json");
+  const imagesDir = join(own, "images");
+  const imagePath = (id: string): string => join(imagesDir, `${id}.png`);
 
   const pendingNames = async (): Promise<string[]> =>
     (await readdir(pendingDir).catch(() => [])).filter((name) => PENDING_FILE.test(name));
@@ -121,6 +133,14 @@ export function sessionFiles(dir: string, session: string): SessionFiles {
           : (reported.find((one) => one.seq === seq) ?? { seq, outcome: "unknown" }),
       );
     },
+    keepImage: async (png) => {
+      const id = crypto.randomUUID();
+      await mkdir(imagesDir, { recursive: true });
+      await writeWhole(imagePath(id), png);
+
+      return id;
+    },
+    imagePath,
     removeAll: () => rm(own, { recursive: true, force: true }),
   };
 }

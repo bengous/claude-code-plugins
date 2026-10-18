@@ -29,7 +29,7 @@ bun x oxfmt '**/*.ts' '**/*.tsx' '**/*.js' '**/*.mjs' '**/*.cjs'  # format; add 
 bun ./scripts/lint-shell.ts                            # shellcheck + shfmt; takes paths, else the whole repo
 claude plugin validate vellum   # the hooks module: what it hooks and calls
 claude plugin test vellum       # the hooks module's kit tests: `*.test.ts` under vellum/src/runtime/hooks, review and steps/<name>
-bun ./scripts/run-gates.ts                             # CI's `validate` gates, with the kits of the hooks modules the change reaches (`--all`: every kit); installs vellum's dependencies first
+bun ./scripts/run-gates.ts                             # CI's `validate` gates, with the kits of the hooks modules the change reaches (`--all`: every kit); installs vellum's and pinpoint's dependencies first
 bun ./scripts/affected.ts print                        # what the change reaches since its merge-base with origin/dev; `test` runs those suites
 bun ./scripts/mutation.ts run                          # CI's `mutation` job: Stryker on each module stryker.config.ts lists whose source or tests changed since origin/dev; a survivor on a changed line, or one its old tests killed, fails
 bun ./scripts/land.ts <branch>                         # land a reviewed feature/, fix/, renovate/ or chore/claude-code-types branch on dev once its PR is green (docs/repo-ops/git.md)
@@ -38,7 +38,7 @@ bun run --cwd vellum e2e                               # vellum's browser suite,
 bun ./scripts/claude-code-types.ts run                 # vellum's Claude Code types into the chore/claude-code-types PR, judged by a headless agent; a session start runs it detached (docs/plugin-testing/hooks.md)
 ```
 
-`vellum/` carries `package.json` + `bun.lock`: `bun install --cwd vellum --frozen-lockfile` before its tests or its server, as Claude Code does at the plugin's cache.
+`vellum/` and `pinpoint/` carry `package.json` + `bun.lock`: `bun install --cwd <plugin> --frozen-lockfile` before their tests or their server, as Claude Code does at the plugin's cache.
 
 Everything above but the browser suite, the mutation run and the types pipeline also runs in `pre-push` and CI, the suites and kits scoped to what the change reaches (`scripts/affected.ts`) in `pre-push` and on a pull request, everything on a push or a dispatch; `pre-commit` runs all of it except `bun test`. The mutation run is CI's `mutation` job, on a pull request, a push to `dev` or a dispatch, in no hook ([Mutation testing](docs/repo-ops/checks.md#mutation-testing)). The browser suite runs in CI on request only, the `e2e` label on a PR or `workflow_dispatch`, and on demand locally, in no hook. Job list, order, and argument differences: [Local checks and CI](docs/repo-ops/checks.md).
 

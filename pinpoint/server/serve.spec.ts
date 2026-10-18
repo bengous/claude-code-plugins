@@ -1,17 +1,18 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { existsSync } from "node:fs";
-import { mkdir, mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import type {
   BatchRequest,
   Delivery,
+  ImageAccepted,
   Selection,
   ServerLine,
   TargetRequest,
 } from "../shared/wire.ts";
-import { type Started, startServer } from "./serve.ts";
+import { IMAGE_LIMIT, type Started, startServer } from "./serve.ts";
 
 /** A page of another origin on this machine, as an app at its own address would be. */
 const ELSEWHERE = "http://localhost:5173";
@@ -125,6 +126,41 @@ function post(
   if (origin !== null) headers.set("origin", origin);
 
   return fetch(url(one, path), { method: "POST", headers, body: JSON.stringify(body) });
+}
+
+/** A PNG's signature, then a few bytes: what the server checks of an image. */
+const PNG = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3]);
+
+/** Posts `bytes` as the overlay hands a zone's image over. */
+function postImage(
+  one: Running,
+  bytes: Uint8Array<ArrayBuffer>,
+  type = "image/png",
+  origin: string = ownOrigin(one),
+): Promise<Response> {
+  return fetch(url(one, "api/image"), {
+    method: "POST",
+    headers: { "content-type": type, origin },
+    body: new Blob([bytes]),
+  });
+}
+
+/** `BATCH` with a zone whose image is `image`. */
+function zoneBatch(image: { readonly id: string } | { readonly failed: string }): BatchRequest {
+  const [selection] = BATCH.selections;
+
+  if (selection === undefined) throw new Error("BATCH holds a selection");
+
+  return {
+    selections: [
+      {
+        ...selection,
+        targets: [
+          { kind: "zone", box: { x: 0, y: 0, width: 400, height: 90 }, elements: [], image },
+        ],
+      },
+    ],
+  };
 }
 
 /** Asks what became of `seqs`, as the overlay does: a same-origin GET carries no `Origin`. */
@@ -441,6 +477,29 @@ describe("the server", () => {
     expect(await readdir(join(one.dir, "sessions/s1/pending"))).toEqual(["1.json"]);
   });
 
+  test("an image is kept under the id it answers, and a zone naming it prints where it is", async () => {
+    const one = await serve();
+    const response = await postImage(one, PNG);
+
+    expect(response.status).toBe(201);
+    // SAFETY: a 201 of this route carries an `ImageAccepted`.
+    const { id } = (await response.json()) as ImageAccepted;
+    const kept = join(one.dir, "sessions/s1/images", `${id}.png`);
+    expect(new Uint8Array(await readFile(kept))).toEqual(PNG);
+
+    await post(one, "api/batch", zoneBatch({ id }));
+    expect(one.lines[1]?.type === "batch" && one.lines[1].text).toContain(`\n     image: ${kept}`);
+  });
+
+  test("a zone whose image the page could not take says why", async () => {
+    const one = await serve();
+    await post(one, "api/batch", zoneBatch({ failed: "the server does not answer" }));
+
+    expect(one.lines[1]?.type === "batch" && one.lines[1].text).toContain(
+      "\n     image: not taken (the server does not answer)",
+    );
+  });
+
   test("a delivery forgets the pending batch", async () => {
     const one = await serve();
     await post(one, "api/batch", BATCH);
@@ -600,6 +659,42 @@ describe("what the server refuses", () => {
 
     expect((await post(one, "api/batch", { selections: [] })).status).toBe(400);
     expect((await post(one, "api/batch", { selections: [{ note: "x" }] })).status).toBe(400);
+  });
+
+  test("a zone whose image id is not one the server gives: 400", async () => {
+    const one = await serve();
+
+    expect((await post(one, "api/batch", zoneBatch({ id: "../../seq" }))).status).toBe(400);
+  });
+
+  test("an image that is not a PNG, or past the limit: refused, nothing kept", async () => {
+    const one = await serve();
+    const tooLarge = new Uint8Array(IMAGE_LIMIT + 1);
+    tooLarge.set(PNG);
+
+    expect((await postImage(one, new Uint8Array([1, 2, 3]))).status).toBe(400);
+    expect((await postImage(one, PNG, "image/jpeg")).status).toBe(400);
+    expect((await postImage(one, tooLarge)).status).toBe(413);
+    expect((await postImage(one, PNG, "image/png", ELSEWHERE)).status).toBe(403);
+    expect(existsSync(join(one.dir, "sessions/s1/images"))).toBe(false);
+  });
+
+  test("an image whose body declares no length: 411, nothing read", async () => {
+    const one = await serve();
+
+    const chunked = await fetch(url(one, "api/image"), {
+      method: "POST",
+      headers: { "content-type": "image/png", origin: ownOrigin(one) },
+      body: new ReadableStream({
+        start: (controller) => {
+          controller.enqueue(PNG);
+          controller.close();
+        },
+      }),
+    });
+
+    expect(chunked.status).toBe(411);
+    expect(existsSync(join(one.dir, "sessions/s1/images"))).toBe(false);
   });
 
   test("outcomes asked after what is not a batch number: 400", async () => {

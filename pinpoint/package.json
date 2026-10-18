@@ -1,0 +1,9 @@
+{
+  "name": "pinpoint",
+  "private": true,
+  "type": "module",
+  "description": "Runtime dependency of the pinpoint overlay, bundled by its server",
+  "dependencies": {
+    "@zumer/snapdom": "3.2.0"
+  }
+}

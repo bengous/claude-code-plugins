@@ -33,9 +33,20 @@ export type ElementInfo = {
   readonly styles: readonly Style[];
 };
 
+/**
+ * A zone's image as the page drew it at the pick: the id the server gave the PNG it keeps
+ * (`ImageAccepted`), or why the page could not take or hand it over.
+ */
+export type ZoneImage = { readonly id: string } | { readonly failed: string };
+
 export type Target =
   | { readonly kind: "element"; readonly element: ElementInfo }
-  | { readonly kind: "zone"; readonly box: Box; readonly elements: readonly ElementInfo[] };
+  | {
+      readonly kind: "zone";
+      readonly box: Box;
+      readonly elements: readonly ElementInfo[];
+      readonly image: ZoneImage;
+    };
 
 export type PageInfo = {
   readonly url: string;
@@ -58,6 +69,9 @@ export type BatchRequest = { readonly selections: readonly Selection[] };
 
 /** Its answer, 202: the number the server gave the batch. */
 export type BatchAccepted = { readonly seq: number };
+
+/** The answer to `POST /t/<token>/api/image`, a PNG as the body, 201: the id it is kept under. */
+export type ImageAccepted = { readonly id: string };
 
 /**
  * What the server writes on stdout for the hooks module, one JSON per line, `ready` first.

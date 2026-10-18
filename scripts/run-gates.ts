@@ -50,14 +50,18 @@ if (import.meta.main) {
     process.exit(2);
   }
 
-  const install = await $`bun install --cwd vellum --frozen-lockfile --ignore-scripts`
-    .cwd(repoRoot)
-    .nothrow()
-    .quiet();
+  for (const plugin of ["vellum", "pinpoint"]) {
+    const install = await $`bun install --cwd ${plugin} --frozen-lockfile --ignore-scripts`
+      .cwd(repoRoot)
+      .nothrow()
+      .quiet();
 
-  if (install.exitCode !== 0) {
-    console.error(`vellum dependencies: ${install.stdout.toString()}${install.stderr.toString()}`);
-    process.exit(1);
+    if (install.exitCode !== 0) {
+      console.error(
+        `${plugin} dependencies: ${install.stdout.toString()}${install.stderr.toString()}`,
+      );
+      process.exit(1);
+    }
   }
 
   const scope: Scope =

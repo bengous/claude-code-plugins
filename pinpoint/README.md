@@ -1,6 +1,6 @@
 # pinpoint
 
-Point at your running app and talk to Claude. The session's address serves your app with an overlay that lets you pick an element by a click or a zone by a drag, give it a quick label or a note, and keep it in a batch. You send the batch when you are done, and it reaches the Claude Code session as one prompt, each element described precisely enough to find it in the code: selector, role, accessible name, the heading it sits under, opening tag, text, box and a few computed styles. Claude answers in the terminal; the overlay shows whether each batch went in. No file of your app is touched.
+Point at your running app and talk to Claude. The session's address serves your app with an overlay that lets you pick an element by a click or a zone by a drag, give it a quick label or a note, and keep it in a batch. You send the batch when you are done, and it reaches the Claude Code session as one prompt, each element described precisely enough to find it in the code: selector, role, accessible name, the heading it sits under, opening tag, text, box and a few computed styles, and each zone with an image of it as the page drew it. Claude answers in the terminal; the overlay shows whether each batch went in. No file of your app is touched.
 
 ## Requirements
 
@@ -29,14 +29,14 @@ The browser opens when `/pinpoint:start` starts the session's server, at the app
 ## Point
 
 - **Alt+P** turns pointing on and off. While it is on, the app sees no click: a pick is not a click on the app.
-- A **click** picks an element; inside an SVG, the whole `svg`. A **drag** draws a zone, which takes the outermost elements it covers (half of the element's box, or of what it draws, inside it).
+- A **click** picks an element; inside an SVG, the whole `svg`. A **drag** draws a zone, which takes the outermost elements it covers (half of the element's box, or of what it draws, inside it) and an image of the zone, taken when the drag ends, the overlay left out.
 - **Ctrl+click** or **Ctrl+drag** (⌘ on a Mac) adds to the selection being written. While Ctrl is held, the composer and the panel fade and let the click through.
-- The composer offers the quick labels (`Misaligned`, `Too big`, `Too small`, `Wrong text`, `Remove`) and a note. A **label** puts the selection in the batch at once, with the note typed so far. **Enter** puts it there with the note; **Shift+Enter** breaks the line; **Esc** drops it, and a second Esc turns pointing off.
+- The composer offers the quick labels (`Misaligned`, `Too big`, `Too small`, `Wrong text`, `Remove`) and a note. A **label** puts the selection in the batch at once, with the note typed so far; a zone's image follows, and its card says `image on its way` until it is in. **Enter** puts it there with the note; **Shift+Enter** breaks the line; **Esc** drops it, and a second Esc turns pointing off.
 - The composer opens beside what was picked. **Drag its top row** to move it out of the way: it stays pinned there, and every next composer of the tab opens at that place, across reloads, kept inside the window. **Unpin** in the composer forgets the place and opens it beside each pick again.
-- **Send (n)** in the panel sends the whole batch, and so does **Ctrl+Enter** while pointing; with pointing off, Ctrl+Enter is the app's. **Send** on a card sends that selection alone, **Remove** drops it. Hovering a card shows where its targets were.
+- **Send (n)** in the panel sends the whole batch, and so does **Ctrl+Enter** while pointing, which first puts the selection being written in it; with pointing off, Ctrl+Enter is the app's. **Send** on a card sends that selection alone, **Remove** drops it. A send waits up to ten seconds for the images still on their way; a zone whose image is not in by then says so in the batch instead. Hovering a card shows where its targets were.
 - The panel's status line says where the last batch is: sent, delivered to the session, not delivered (its selections come back to the batch), not sent (the server does not answer; nothing leaves the batch), or unknown to the server (it keeps what became of the last hundred batches only). Each tab hears only of the batches it sent. The dot before the panel's name says whether the server answered the tab's last question.
 - Under the panel's name, `to <folder>` names the Claude Code session the batches go to, the one that started the server, by the last segment of its directory; hovering it shows the whole directory. A name wider than the panel gives way in the middle: its last ten characters stay in view.
-- The batch, and the batches still waiting, survive a reload of the page in the same tab: a reloaded page says the last one waiting, then what became of it. So does pointing: a page reloaded while it is on comes back with it on.
+- The batch, and the batches still waiting, survive a reload of the page in the same tab: a reloaded page says the last one waiting, then what became of it. An image still on its way at the reload went with the page: its zone says so in the batch. So does pointing survive: a page reloaded while it is on comes back with it on.
 
 ## Configure
 
@@ -45,7 +45,7 @@ The browser opens when `/pinpoint:start` starts the session's server, at the app
 ## What a batch says
 
 ```
-pinpoint batch 3: 2 selections the user made in their running app. Under each label and note, the lines are what the page reported; boxes are in page pixels, from the top-left corner of the document.
+pinpoint batch 3: 2 selections the user made in their running app. Under each label and note, the lines are what the page reported; boxes are in page pixels, from the top-left corner of the document; a zone's image is a PNG of the zone as the page drew it.
 
 1. [Too small] Must read from afar.
    page: http://localhost:41237/settings · "Settings" · viewport 1440 × 900 · scroll 0, 120
@@ -58,19 +58,20 @@ pinpoint batch 3: 2 selections the user made in their running app. Under each la
 
 2. [Misaligned]
    zone: x 950, y 800, 420 × 90, 2 elements in it
+     image: ~/.claude/pinpoint/sessions/<session>/images/0d5e2c1a-7b3f-4e8a-9c6d-1f2e3a4b5c6d.png
      - body > main > form.settings > p.hint
        ...
 ```
 
-Boxes are in page pixels, from the top-left corner of the document, each measured at its pick: a scroll between two picks, or before the selection goes in the batch, moves none of them. The page line's scroll is where the user stood when the selection went in the batch, and its URL is the session's address. The page and the app context repeat only when they change. Claude Code shows the prompt as "Prompt from the pinpoint plugin" and hands it to Claude as "The pinpoint plugin sent a message:", a message to address (measured in a live session on Claude Code 2.1.301, Linux, 2026-10-16).
+Boxes are in page pixels, from the top-left corner of the document, each measured at its pick: a scroll between two picks, or before the selection goes in the batch, moves none of them. The page line's scroll is where the user stood when the selection went in the batch, and its URL is the session's address. The page and the app context repeat only when they change. A zone's image is a file Claude reads, at the screen's pixel ratio, cut to the zone; a zone whose image the page could not take or hand over says `image: not taken (<why>)`. Claude Code shows the prompt as "Prompt from the pinpoint plugin" and hands it to Claude as "The pinpoint plugin sent a message:", a message to address (measured in a live session on Claude Code 2.1.301, Linux, 2026-10-16).
 
 ## How it works
 
 ```
 browser tab at http://localhost:<port>/
    │ the app's own requests,            ▲ the app's pages with the overlay's tag, every
-   │ overlay.js, POST api/batch,        │ other answer as the app gave it; its WebSockets
-   │ GET api/outcomes                   │ relayed both ways
+   │ overlay.js, POST api/image,        │ other answer as the app gave it; its WebSockets
+   │ POST api/batch, GET api/outcomes   │ relayed both ways
    ▼                                    │
 pinpoint server (Bun, 127.0.0.1, one per session) ◀──every other request──▶ your app
    │ stdout: one JSON line per batch    ▲ POST api/delivery: delivered or dropped
@@ -85,6 +86,7 @@ hooks module ──$.prompt.submit──▶ the session
 - The app is the server's to hold. `/pinpoint:start <url>` passes it as `--target` to a server it starts, or posts it to `api/target` of the one running; the "Which app?" page posts its form to `/t/<token>/pick`, which takes a post from that page's own origin only, and only while no app is served: once one is, the app's own scripts share the origin, and only the module switches it. Either way the server checks the address against its own once bound, serves the app from then on, and says so on stdout, which the module records for the next revival. Each request it forwards carries a header only this server knows; one that comes back to it, through an address that names the server under another name (`localhost.`, an IPv4-mapped address, a hosts file alias), is answered 508 instead of forwarded again.
 - A request whose `Host` is not a name of this machine (`localhost`, `127.0.0.1`, `[::1]`, any port) is refused, which keeps out a page whose name was rebound to 127.0.0.1, and so is one whose `Origin` is not a page of this machine. The server's own routes take a page's request only from the server's own origin, its port under any of those names: a page of another app on this machine is refused even with the token in hand, and no CORS header is ever sent. The module's own routes refuse any page.
 - The server builds the overlay once at its start with the session's directory written in (`PINPOINT_ROOT`), so every page it serves names the same session with no request of its own.
+- The overlay takes a zone's image with [snapdom](https://github.com/zumerlab/snapdom), which the server bundles into `overlay.js`: when the drag ends, it draws the page's DOM again into a PNG cut to the zone, the overlay hidden, so it asks no permission and reads no screen. The selection goes in the batch at once, its zone's image on its way; the page posts the PNG to `api/image` once drawn, if the card is still there, so a zone dropped before leaves nothing behind, and the server keeps it as `~/.claude/pinpoint/sessions/<session>/images/<id>.png` until `/pinpoint:stop` removes the session's files; the selection carries only the id, since the batch the tab keeps across a reload lives in its `sessionStorage`. A send waits up to ten seconds for the images still on their way, then gives the rest up, each zone saying so.
 - A batch is numbered and kept on disk, under `~/.claude/pinpoint/sessions/<session>/`, until the module reports it went in, so a server started again tells the session what it still holds. Batches are numbered, kept and written to stdout one at a time, so their lines come in the order of their numbers.
 - What the module reports of the last hundred batches stays on disk too, across a server started again. A page asks `GET api/outcomes` after the batches its tab sent and not yet settled, every second while one waits, then forgets each one settled; with none waiting, a visible page asks after nothing every ten seconds, which keeps its dot true. A batch the server answers `unknown` for is said once and asked after no more. No page holds a connection open, so a browser's few connections per host stay free for the app and the batches of every tab.
 - What the session was handed belongs to its tenure, from the start or the restore after a reload to the stop, carried across every server a revival replaces: the last batch handed over, which a batch told again does not pass, and one queue that relays the batches of all its servers one after the other, never in the loop that reads a server.
@@ -121,20 +123,23 @@ hooks module ──$.prompt.submit──▶ the session
 - Your own processes can learn the token: a revived server carries it on its command line, and the plugin's store keeps it. So can any script running in a page the server serves, whose HTML carries it. The token and the `Host` and `Origin` checks keep other sites from reading what the server serves or posting a batch, not your own processes. A batch is framed as the plugin's message, never as your own words.
 - A page whose Content Security Policy allows scripts by nonce, `script-src 'nonce-…' 'strict-dynamic'`, does not run the overlay: its tag carries no nonce. The page's own scripts run, and no panel appears. A policy of `script-src 'self'` lets it run, since the overlay comes from the page's own origin. Measured through the session's address on a page sending each policy as a header, Chromium headless (agent-browser 0.39.1), Linux, 2026-10-18.
 - An absolute URL to the app's own origin inside a page or a script is not rewritten: a link to it leaves the session's address, and the overlay with it, and a `fetch` to it goes to the app directly, under the app's own CORS rules. Only redirects are brought back.
-- An image of a zone is not taken: the selection carries what the DOM says.
+- A zone's image is the DOM drawn again, not the screen: an iframe of another origin, a video frame or a WebGL canvas comes out blank or approximate, and so may a CSS effect snapdom does not reproduce (`backdrop-filter`). An image of the 1280 × 800 screen at pixel ratios 1 and 2, on a page scrolled or not, matched the screen by eye (Chromium headless, agent-browser 0.39.1, Linux, 2026-10-18).
 - "Which app?" finds only the apps on its list of ports, at `localhost`; any other takes its address in the field or after `/pinpoint:start`. A probe asks each app for its `/`, which a dev server may compile on the way.
 - On Claude Code Desktop, a prompt a plugin submits while the session is idle shows only once you type in the session ([anthropics/claude-code#96336](https://github.com/anthropics/claude-code/issues/96336)); the terminal is unaffected.
 
 ## Development
 
 ```bash
+bun install --cwd pinpoint         # snapdom, which the server bundles into the overlay
 bun test pinpoint/                 # server, overlay and shared specs (*.spec.ts)
 claude plugin test pinpoint        # the hooks module in the engine's kit (hooks/*.test.ts)
 claude plugin validate pinpoint    # what the module hooks and calls
 command claude --plugin-dir pinpoint   # a live session from source
 ```
 
-The server is `server/cli.ts` and `serve.ts`, its routes; `proxy.ts` sends the app's requests on and relays its WebSockets, `apps.ts` is "Which app?", `build.ts` bundles the overlay, `files.ts` keeps the session's batches on disk. The overlay is plain TypeScript in a shadow root, no framework: `overlay/main.ts` is the controller, `describe.ts` and `pick.ts` what an element is (adapted from vellum's `src/formats/html/`), `view.ts` what it draws, `tray.ts` the batch as a pure model. `shared/wire.ts` types everything that crosses a process boundary; `shared/target.ts` reads the address of an app.
+Claude Code installs `package.json`'s dependencies at the plugin's cache; under `--plugin-dir` nothing installs, hence the first line.
+
+The server is `server/cli.ts` and `serve.ts`, its routes; `proxy.ts` sends the app's requests on and relays its WebSockets, `apps.ts` is "Which app?", `build.ts` bundles the overlay, `files.ts` keeps the session's batches and images on disk. The overlay is plain TypeScript in a shadow root, no framework: `overlay/main.ts` is the controller, `describe.ts` and `pick.ts` what an element is (adapted from vellum's `src/formats/html/`), `view.ts` what it draws, `capture.ts` a zone's image, `tray.ts` the batch as a pure model. `shared/wire.ts` types everything that crosses a process boundary; `shared/target.ts` reads the address of an app.
 
 ## License
 

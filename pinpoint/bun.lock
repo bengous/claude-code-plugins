@@ -1,0 +1,15 @@
+{
+  "lockfileVersion": 2,
+  "configVersion": 1,
+  "workspaces": {
+    "": {
+      "name": "pinpoint",
+      "dependencies": {
+        "@zumer/snapdom": "3.2.0",
+      },
+    },
+  },
+  "packages": {
+    "@zumer/snapdom": ["@zumer/snapdom@3.2.0", "", {}, "sha512-FVYVoH3XXJdgFfZo6VxEX6DZ5XWNlYypMynOLKKFTa0XEZBMOVSQBVDHO66uIcK9q7yuYMyyAb5/KaMYsHIuxg=="],
+  }
+}

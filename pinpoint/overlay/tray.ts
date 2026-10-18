@@ -1,4 +1,4 @@
-import type { Box, Outcome, Selection, Target } from "../shared/wire.ts";
+import type { Box, Outcome, Selection, Target, ZoneImage } from "../shared/wire.ts";
 import { type Scroll, viewportBox } from "./pick.ts";
 
 /**
@@ -6,7 +6,34 @@ import { type Scroll, viewportBox } from "./pick.ts";
  * and the controller changes through the functions below.
  */
 
-export type Item = { readonly id: string; readonly selection: Selection };
+/** A zone's image on its way: the selection is in the batch, its image not in yet. */
+export type Waiting = { readonly waiting: true };
+
+export const WAITING: Waiting = { waiting: true };
+
+type ZoneTarget = Extract<Target, { readonly kind: "zone" }>;
+
+/** A target as the batch holds it: a zone's image may still be on its way. */
+export type HeldTarget =
+  | Extract<Target, { readonly kind: "element" }>
+  | (Omit<ZoneTarget, "image"> & { readonly image: ZoneImage | Waiting });
+
+/** A selection as the batch holds it; `ready` makes it one the server takes. */
+export type Held = Omit<Selection, "targets"> & { readonly targets: readonly HeldTarget[] };
+
+export type Item = { readonly id: string; readonly selection: Held };
+
+/** What a zone says of its image when the page went before it was in: its capture lives in the page. */
+export const LEFT = "the page was left before the image was in";
+
+/** A target the server takes: an element, or a zone whose image is in or said failed. */
+function isIn(target: HeldTarget): target is Target {
+  return target.kind === "element" || !("waiting" in target.image);
+}
+
+function heldTarget(target: HeldTarget, image: ZoneImage): HeldTarget {
+  return isIn(target) ? target : { ...target, image };
+}
 
 /** Where the last send stands, as the panel's one status line says it. */
 export type Status =
@@ -34,7 +61,7 @@ export function restored(kept: Pick<Tray, "items" | "sent">): Tray {
   const last = kept.sent.at(-1);
 
   return {
-    items: kept.items,
+    items: kept.items.map((item) => withImages(item, { failed: LEFT })),
     sent: kept.sent,
     status:
       last === undefined ? EMPTY.status : { kind: "sent", seq: last.seq, count: last.items.length },
@@ -43,6 +70,64 @@ export function restored(kept: Pick<Tray, "items" | "sent">): Tray {
 
 export function add(tray: Tray, item: Item): Tray {
   return { ...tray, items: [...tray.items, item] };
+}
+
+/** `item` with every image still on its way set to `image`; `item` itself when none was. */
+function withImages(item: Item, image: ZoneImage): Item {
+  const targets = item.selection.targets.map((target) => heldTarget(target, image));
+
+  return targets.every((target, at) => target === item.selection.targets[at])
+    ? item
+    : { ...item, selection: { ...item.selection, targets } };
+}
+
+/** Whether the image of target `index` of item `id` is still on its way. */
+export function awaits(tray: Tray, id: string, index: number): boolean {
+  const target = tray.items.find((item) => item.id === id)?.selection.targets[index];
+
+  return target !== undefined && !isIn(target);
+}
+
+/** The image of target `index` of item `id` came in; the tray as it was when it was not awaited. */
+export function imaged(tray: Tray, id: string, index: number, image: ZoneImage): Tray {
+  if (!awaits(tray, id, index)) return tray;
+
+  return {
+    ...tray,
+    items: tray.items.map((item) =>
+      item.id === id
+        ? {
+            ...item,
+            selection: {
+              ...item.selection,
+              targets: item.selection.targets.map((target, at) =>
+                at === index ? heldTarget(target, image) : target,
+              ),
+            },
+          }
+        : item,
+    ),
+  };
+}
+
+/** The images of `ids` still on their way are given up, each saying `reason`; the tray itself when none was. */
+export function givenUp(tray: Tray, ids: readonly string[], reason: string): Tray {
+  const items = tray.items.map((item) =>
+    ids.includes(item.id) ? withImages(item, { failed: reason }) : item,
+  );
+
+  return items.every((item, at) => item === tray.items[at]) ? tray : { ...tray, items };
+}
+
+/** The selection as the server takes it; one with an image still on its way is not sent. */
+export function ready(held: Held): Selection {
+  const targets = held.targets.filter(isIn);
+
+  if (targets.length !== held.targets.length) {
+    throw new Error("pinpoint: a selection was sent before its image was in");
+  }
+
+  return { ...held, targets };
 }
 
 export function remove(tray: Tray, id: string): Tray {
@@ -129,7 +214,7 @@ export function sendText(count: number, pointing: boolean): string {
 }
 
 /** Where the viewport draws a selection's targets, the page scrolled by `scroll`: each element's box, each zone's own. */
-export function previewOf(selection: Selection, scroll: Scroll): Box[] {
+export function previewOf(selection: Held, scroll: Scroll): Box[] {
   return selection.targets.map((target) =>
     viewportBox(target.kind === "element" ? target.element.box : target.box, scroll),
   );
@@ -140,14 +225,18 @@ function lastStep(selector: string): string {
   return selector.split(" > ").at(-1) ?? selector;
 }
 
-function targetText(target: Target): string {
+/** A target as a card or the composer names it; the composer's zones have no image yet. */
+type Named = HeldTarget | Omit<ZoneTarget, "image">;
+
+function targetText(target: Named): string {
   if (target.kind === "element") return lastStep(target.element.selector);
   const { width, height } = target.box;
+  const image = "image" in target && !isIn(target) ? ", image on its way" : "";
 
-  return `zone ${Math.round(width)} × ${Math.round(height)} (${plural(target.elements.length, "element")})`;
+  return `zone ${Math.round(width)} × ${Math.round(height)} (${plural(target.elements.length, "element")}${image})`;
 }
 
 /** What a card and the composer call a selection: its targets, each by its short name. */
-export function summaryOf(targets: readonly Target[]): string {
+export function summaryOf(targets: readonly Named[]): string {
   return targets.map((target) => targetText(target)).join(", ");
 }

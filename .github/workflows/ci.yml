@@ -55,6 +55,10 @@ jobs:
       - name: Install vellum dependencies
         run: bun install --cwd vellum --frozen-lockfile --ignore-scripts
 
+      # pinpoint's server bundles snapdom into its overlay, so its suites build with it.
+      - name: Install pinpoint dependencies
+        run: bun install --cwd pinpoint --frozen-lockfile --ignore-scripts
+
       # What the change reaches (`scripts/affected.ts`): a pull request's against its base, every
       # suite and kit on any other event. The steps below read `kits`, never interpolate it.
       - name: Scope the suites and kits to the change

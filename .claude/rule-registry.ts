@@ -27,8 +27,8 @@ export const REGISTRY: Registry = {
       quote: "For plugin tests, permissions and the catalog lifecycle,",
       prose: "a pointer to the pages that hold the detail",
     },
-    "1ae0a307": {
-      quote: "`vellum/` carries `package.json` + `bun.lock`: `bun install",
+    b17ce01d: {
+      quote: "`vellum/` and `pinpoint/` carry `package.json` + `bun.lock`:",
       prose: "a bare `bun test` installs nothing; `run-gates.ts` and CI install first",
     },
     "54183a81": {

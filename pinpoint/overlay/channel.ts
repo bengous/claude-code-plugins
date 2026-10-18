@@ -5,6 +5,8 @@ import type { BatchRequest, Outcome, Selection } from "../shared/wire.ts";
 export type Channel = {
   /** Posts the batch; answers the number the server gave it, or throws why it did not take it. */
   readonly send: (selections: readonly Selection[]) => Promise<number>;
+  /** Hands a zone's PNG to the server; answers the id it keeps it under, or throws why not. */
+  readonly image: (png: Blob) => Promise<string>;
   /** What became of each batch of `seqs`, in their order; `null` when the server does not answer. */
   readonly outcomes: (seqs: readonly number[]) => Promise<Outcome[] | null>;
 };
@@ -44,34 +46,57 @@ function parseOutcomes(value: unknown): Outcome[] | null {
 
   return outcomes.every((one) => one !== null) ? outcomes : null;
 }
+
+function parseId(value: unknown): string | null {
+  return typeof value === "object" &&
+    value !== null &&
+    "id" in value &&
+    typeof value.id === "string"
+    ? value.id
+    : null;
+}
 /* oxlint-enable anti-slop/no-runtime-typeof, anti-slop/no-unknown-parameters */
 
 const UNREACHABLE =
   "the pinpoint server does not answer (run /pinpoint:start in Claude Code, then reload the page)";
+
+/** Posts `body` to `url`; answers what the server said, read by `parse`, or throws why it did not take it. */
+async function post<T>(
+  url: string,
+  type: string,
+  body: BodyInit,
+  // oxlint-disable-next-line anti-slop/no-unknown-parameters -- the parser `post` runs on the server's answer, at the fetch.
+  parse: (answer: unknown) => T | null,
+  missing: string,
+): Promise<T> {
+  const response = await fetch(url, {
+    method: "POST",
+    headers: { "content-type": type },
+    body,
+    signal: AbortSignal.timeout(SEND_TIMEOUT_MS),
+  }).catch(() => null);
+
+  if (response === null) throw new Error(UNREACHABLE);
+
+  if (!response.ok)
+    throw new Error(`the server answered ${response.status}: ${await response.text()}`);
+  const answer = parse(await response.json());
+
+  if (answer === null) throw new Error(`the server answered without ${missing}`);
+
+  return answer;
+}
 
 /** `base` is the server's address for this page, `<the page's own origin>/t/<token>/`. */
 export function channelOf(base: string): Channel {
   return {
     send: async (selections) => {
       const request: BatchRequest = { selections };
+      const body = JSON.stringify(request);
 
-      const response = await fetch(`${base}api/batch`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify(request),
-        signal: AbortSignal.timeout(SEND_TIMEOUT_MS),
-      }).catch(() => null);
-
-      if (response === null) throw new Error(UNREACHABLE);
-
-      if (!response.ok)
-        throw new Error(`the server answered ${response.status}: ${await response.text()}`);
-      const seq = parseSeq(await response.json());
-
-      if (seq === null) throw new Error("the server answered without a batch number");
-
-      return seq;
+      return await post(`${base}api/batch`, "application/json", body, parseSeq, "a batch number");
     },
+    image: (png) => post(`${base}api/image`, "image/png", png, parseId, "an image id"),
     outcomes: async (seqs) => {
       const query = seqs.map((seq) => `seq=${seq}`).join("&");
 
