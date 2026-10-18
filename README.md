@@ -25,7 +25,7 @@ A curated marketplace of Claude Code plugins for development workflow automation
 | [code-quality](code-quality/) | 2.1.0 | Code quality and cleanup commands for maintaining clean, maintainable code |
 | [clean-comments](clean-comments/) | 1.1.3 | Audit and clean code comments: protects why/constraint comments, hunts comments that lie |
 | [mermaid-diagrams](mermaid-diagrams/) | 1.0.2 | Create and edit Mermaid diagrams for software engineering work, architectural ideas, and technical documentation |
-| [claude-meta-tools](claude-meta-tools/) | 6.0.0 | Meta tooling for Claude Code: write prompts that prompt better (meta-prompt) |
+| [claude-meta-tools](claude-meta-tools/) | 7.0.0 | Meta tooling for Claude Code: write prompts that prompt better (meta-prompt) |
 | [context-management](context-management/) | 2.0.2 | Lifecycle of Claude Code instruction files: audit CLAUDE.md/AGENTS.md/.claude/rules instruction budget, capture session learnings, and resync docs with codebase evolution |
 | [research-tools](research-tools/) | 1.2.4 | Documentation research through optimal MCP sources and claim verification: research agents, source routing, web and codebase fact-checking |
 | [claude-settings-manager](claude-settings-manager/) | 1.1.3 | Manage Claude Code settings with JSONC support and schema extraction |

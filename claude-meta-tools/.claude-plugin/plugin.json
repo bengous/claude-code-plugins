@@ -1,6 +1,6 @@
 {
   "name": "claude-meta-tools",
-  "version": "6.0.0",
+  "version": "7.0.0",
   "description": "Meta tooling for Claude Code: write prompts that prompt better (meta-prompt)",
   "author": {
     "name": "Augustin BENGOLEA",

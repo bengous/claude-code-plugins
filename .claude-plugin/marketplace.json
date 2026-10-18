@@ -131,7 +131,7 @@
     {
       "name": "claude-meta-tools",
       "description": "Meta tooling for Claude Code: write prompts that prompt better (meta-prompt)",
-      "version": "6.0.0",
+      "version": "7.0.0",
       "author": {
         "name": "Augustin BENGOLEA",
         "email": "bengous@protonmail.com"

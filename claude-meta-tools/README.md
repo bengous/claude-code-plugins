@@ -1,6 +1,6 @@
 # Claude Meta-Tools Plugin
 
-v6.0.0
+v7.0.0
 
 Meta tooling for Claude Code: write prompts that prompt better.
 
@@ -16,11 +16,13 @@ package ships a native binary since Claude Code 2.1.113, so there is no `cli.js`
 
 ### `/meta-prompt`
 
-Turn a rough request — or the preceding conversation — into a clean prompt for another
-agent, carrying the user's intention at the user's level of certainty. Explicit directives
-stay directives, open points stay open for the executor to ask, references are verified
-against the repo and reported as facts. No plan, no model inference, no fence or rationale
-around the output: the response is the prompt.
+Write the prompt another Claude will act on, from a rough request or the preceding
+conversation, carrying the user's intent at the user's level of certainty. Decisions and
+ruled-out options travel with their reasons, open points stay open for the reader to raise,
+references are verified against the repo and pointed to rather than copied, and nothing the
+reader loads by itself is repeated. The prompt is prose in the order the reader uses it,
+with no field labels. For the user to paste, it is the user's own first-person message and
+the whole response; for a subagent, it is the input of the Agent call.
 
 ```bash
 /meta-prompt add rate limiting to the API gateway
