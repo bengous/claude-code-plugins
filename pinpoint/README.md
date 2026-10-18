@@ -24,7 +24,7 @@ Point at your running app and talk to Claude. The session's address serves your 
 
 `/pinpoint:start <url>` serves that app at once: a URL, `localhost:3000/admin`, or a port alone. Run it again with another URL to switch apps; the address stays the same, so the open tabs show the new app once reloaded. The app chosen comes back with a server the module revives. The server refuses its own address, which would serve itself.
 
-The browser opens when `/pinpoint:start` starts the session's server, at the app's path when a URL was given, while somebody sees the session on this machine: a terminal, Claude Code Desktop, VS Code. A start while the server runs, a switch, and a server that comes back (a revival, a reload, `/clear`, a start after it was lost) open nothing: their address is the one the tabs already hold. A `-p` run, which draws on no surface, and a session driven from a phone open nothing either.
+The browser opens when `/pinpoint:start` starts the session's server, at the app's path when a URL was given, while somebody sees the session on this machine: a terminal or Claude Code Desktop. Claude Code for VS Code attaches no surface yet, so it gets the address only. A start while the server runs, a switch, and a server that comes back (a revival, a reload, `/clear`, a start after it was lost) open nothing: their address is the one the tabs already hold. A `-p` run, which draws on no surface, and a session only a phone shows open nothing either; a phone attached beside the terminal, as Remote Control stays, does not stop it. An opener that does not run, as `xdg-open` missing from the `PATH`, leaves the address to open by hand, and the session says so.
 
 ## Point
 
@@ -109,7 +109,7 @@ hooks module ──$.prompt.submit──▶ the session
 | `$.http.fetch` | The server's heartbeat, each batch's delivery, a switch of the app, the browser opened, the close. |
 | `$.store.get`, `$.store.set`, `$.store.delete` | The session's record: root, port, token, the app served, last batch relayed. |
 | `$.session.id`, `$.session.root` | Which session the server serves, and the directory its panel and "Which app?" name. |
-| `$.session.surfaces` | Whether somebody sees the session on this machine: a `-p` run or a phone opens no browser. |
+| `$.session.surfaces` | Whether somebody sees the session on this machine: a `-p` run, or a phone alone, opens no browser. |
 | `$.clock.after`, `$.clock.every`, `$.clock.now` | The start's timeout, the heartbeat, the crash window. |
 | `$.ui.status` | The line under the prompt, for a server lost alone. |
 | `$.ui.log` | Errors only: a server that did not start or could not be read, a batch not relayed, a line the module does not read, a stored record that does not read, files not removed. |

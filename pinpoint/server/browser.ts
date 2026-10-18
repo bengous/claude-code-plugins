@@ -11,13 +11,19 @@ function openerOf(platform: NodeJS.Platform): readonly string[] {
   return ["xdg-open"];
 }
 
-/** Best effort: the session prints the address too, for a host with no opener or no display. */
-export function openInBrowser(url: string): void {
+/**
+ * Hands `url` to the desktop's opener, detached: `null` once it runs, else why it could not, as
+ * an opener missing from the `PATH`. The opener running promises no tab, a host with no display
+ * having none to show.
+ */
+export function openInBrowser(url: string): string | null {
   const opener = openerOf(process.platform);
 
   try {
     Bun.spawn([...opener, url], { stdio: ["ignore", "ignore", "ignore"], detached: true }).unref();
+
+    return null;
   } catch (cause) {
-    console.error(`pinpoint: could not open the browser with ${opener[0]}: ${String(cause)}`);
+    return `could not run ${opener[0]}: ${String(cause)}`;
   }
 }

@@ -1,4 +1,4 @@
-import type { EngineInterface, Register, Timer } from "claude-code";
+import type { EngineInterface, Register, RenderSurface, Timer } from "claude-code";
 
 import { addressOn, targetOf } from "../shared/target.ts";
 import type { Delivery, ServerLine } from "../shared/wire.ts";
@@ -83,9 +83,9 @@ function tenureOf(state: State): Tenure | null {
 
 /**
  * The surfaces drawn on this machine, whose person sees a browser opened here: a phone (`mobile`)
- * is elsewhere, and a `-p` run draws on none.
+ * is elsewhere, a `-p` run draws on none, and Claude Code for VS Code attaches none yet.
  */
-const HERE: ReadonlySet<string> = new Set(["terminal", "desktop", "vscode"]);
+const HERE: ReadonlySet<RenderSurface> = new Set(["terminal", "desktop"]);
 
 function recordKey(sessionId: string): string {
   return `session:${sessionId}`;
@@ -437,12 +437,20 @@ export const register: Register = (on) => {
     if (!holds(starting)) {
       if (state.kind !== "live") return said(wayInText(state));
       const live: Live = state;
-      const here = (await $.session.surfaces()).some((surface) => HERE.has(surface));
-
-      if (!holds(live)) return said(wayInText(state));
 
       // From `lost` the server comes back on its kept address, the one its tabs hold already.
-      const opened = from.kind === "idle" && here && (await openBrowser(host, live.child.address));
+      const opened =
+        from.kind === "idle" &&
+        (await $.session.surfaces()).some((surface) => HERE.has(surface)) &&
+        holds(live) &&
+        (await openBrowser(host, live.child.address));
+
+      // A stop, or an end and a revival, came meanwhile: no tab opened is said of what is left.
+      if (!holds(live)) {
+        return said(
+          state.kind === "live" ? startedText(state.tenure.record, "open") : wayInText(state),
+        );
+      }
 
       // The server refuses a `--target` that is its own address, which only its bind could tell.
       return asked !== null && live.child.target === null

@@ -63,6 +63,7 @@ async function serve(
   kept: { port: number; token: string } | null = null,
   target: URL | null = null,
   ports: readonly number[] = [],
+  opener: string | null = null,
 ): Promise<Running> {
   const home = dir ?? (await mkdtemp(join(tmpdir(), "pinpoint-")));
   const lines: ServerLine[] = [];
@@ -81,7 +82,11 @@ async function serve(
     closed: () => {
       closed = true;
     },
-    open: (address) => opened.push(address),
+    open: (address) => {
+      opened.push(address);
+
+      return opener;
+    },
     watchdog: { graceMs: 60_000, periodMs: 60_000, expire: () => {} },
   });
 
@@ -1122,6 +1127,14 @@ describe("the browser", () => {
     expect((await fetch(url(serving, "api/open"), { method: "POST" })).status).toBe(204);
     expect(asking.opened).toEqual([`http://localhost:${asking.started.port}/`]);
     expect(serving.opened).toEqual([`http://localhost:${serving.started.port}/admin?tab=1`]);
+  });
+
+  test("an opener that does not run answers 502, saying why", async () => {
+    const one = await serve(null, null, null, [], "could not run xdg-open: Executable not found");
+    const asked = await fetch(url(one, "api/open"), { method: "POST" });
+
+    expect(asked.status).toBe(502);
+    expect(await asked.text()).toBe("could not run xdg-open: Executable not found");
   });
 
   test("a page cannot open it: the route is the module's", async () => {

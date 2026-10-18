@@ -35,8 +35,8 @@ export type ServeOptions = {
   readonly announce: (line: ServerLine) => void;
   /** `POST api/close` once the session's directory is removed: the process ends. */
   readonly closed: () => void;
-  /** `POST api/open`: the session's address, for the browser; `openInBrowser` outside the tests. */
-  readonly open: (address: string) => void;
+  /** `POST api/open`: the session's address for the browser, `null` once it is handed over, else why not; `openInBrowser` outside the tests. */
+  readonly open: (address: string) => string | null;
   readonly watchdog: Watchdog;
 };
 
@@ -243,9 +243,11 @@ export async function startServer(options: ServeOptions): Promise<Started> {
     }
 
     if (request.method === "POST" && path === "api/open") {
-      options.open(addressOn(own, target));
+      const failed = options.open(addressOn(own, target));
 
-      return new Response(null, { status: 204 });
+      return failed === null
+        ? new Response(null, { status: 204 })
+        : new Response(failed, { status: 502 });
     }
 
     if (request.method === "POST" && path === "api/delivery") {

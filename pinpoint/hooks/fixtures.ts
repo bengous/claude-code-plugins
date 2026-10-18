@@ -57,6 +57,10 @@ export type World = {
   refuse: string | undefined;
   /** What the session draws on: none, as in a `-p` run, unless a test puts a person there. */
   surfaces: readonly RenderSurface[];
+  /** While set, the server's opener does not run, for this reason. */
+  noOpener: string | undefined;
+  /** While set, the server answers `api/open` only once it settles. */
+  opening: Promise<void> | undefined;
   readonly clock: MockClock;
   readonly children: Child[];
   readonly requests: Request[];
@@ -158,6 +162,8 @@ export function world(on: On, options: WorldOptions = {}): World {
     deleting: undefined,
     refuse: undefined,
     surfaces: [],
+    noOpener: undefined,
+    opening: undefined,
     clock: mock.clock(on),
     children: [],
     requests: [],
@@ -170,7 +176,7 @@ export function world(on: On, options: WorldOptions = {}): World {
 
   children(on, options.spawn ?? STARTS, built.children);
 
-  on("http.fetch", (_, e) => {
+  on("http.fetch", async (_, e) => {
     const { pathname, port } = new URL(e.url);
 
     if (Number(port) !== SERVER.port) return { deny: `ECONNREFUSED ${e.url}` };
@@ -182,6 +188,12 @@ export function world(on: On, options: WorldOptions = {}): World {
 
     if (path === "api/target" && built.refuse !== undefined) {
       return { value: reply(400, built.refuse) };
+    }
+
+    if (path === "api/open" && built.opening !== undefined) await built.opening;
+
+    if (path === "api/open" && built.noOpener !== undefined) {
+      return { value: reply(502, built.noOpener) };
     }
 
     return { value: reply(204) };

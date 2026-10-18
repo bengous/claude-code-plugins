@@ -198,6 +198,42 @@ describe("the browser", () => {
     expect(remote.text).toContain(`Open http://localhost:${SERVER.port}/ in the browser`);
   });
 
+  test("a terminal with a phone attached opens it: Remote Control stays on at the desk", async ($, on) => {
+    const seen = world(on);
+    seen.surfaces = ["terminal", "mobile"];
+    await $.skill.prompt(START);
+
+    expect(posted(seen, "api/open")).toHaveLength(1);
+  });
+
+  test("an opener that does not run leaves the address to open", async ($, on) => {
+    const seen = world(on);
+    seen.surfaces = ["terminal"];
+    seen.noOpener = "could not run xdg-open: Executable not found";
+    const result = await $.skill.prompt(START);
+
+    expect(posted(seen, "api/open")).toHaveLength(1);
+    expect(result.text).toContain(`Open http://localhost:${SERVER.port}/ in the browser`);
+    expect(result.text).not.toContain("The browser opens");
+  });
+
+  test("a stop while the browser opens is what the start says", async ($, on) => {
+    const seen = world(on);
+    seen.surfaces = ["terminal"];
+    const { promise, resolve } = Promise.withResolvers<void>();
+    seen.opening = promise;
+    const starting = $.skill.prompt(START);
+    await seen.clock.settle();
+    const stopped = $.skill.prompt(STOP);
+    await seen.clock.settle();
+    resolve();
+    const result = await starting;
+    await stopped;
+
+    expect(result.text).toContain("pinpoint was stopped meanwhile");
+    expect(result.text).not.toContain("The browser opens");
+  });
+
   test('the server\'s own address refused, it opens "Which app?" and says so', async ($, on) => {
     const seen = world(on, {
       spawn: (child) => {

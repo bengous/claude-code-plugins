@@ -163,22 +163,23 @@ export async function start(
   return null;
 }
 
-/** Asks the server to open the browser at the session's address; `false` when it did not answer that it would. */
-export async function openBrowser(host: Host, address: Address): Promise<boolean> {
+/** Posts to one of the module's routes of the server; `false` when it did not answer that it took it. */
+async function post(host: Host, address: Address, route: string): Promise<boolean> {
   const response = await host
-    .fetch(`${baseOf(address)}api/open`, { method: "POST" })
+    .fetch(`${baseOf(address)}${route}`, { method: "POST" })
     .catch(() => ({ ok: false }));
 
   return response.ok;
 }
 
-/** Asks the server to remove its files and exit; `false` when it did not answer that it would. */
-export async function close(host: Host, address: Address): Promise<boolean> {
-  const response = await host
-    .fetch(`${baseOf(address)}api/close`, { method: "POST" })
-    .catch(() => ({ ok: false }));
+/** Asks the server to open the browser at the session's address; `false` when its opener did not run. */
+export function openBrowser(host: Host, address: Address): Promise<boolean> {
+  return post(host, address, "api/open");
+}
 
-  return response.ok;
+/** Asks the server to remove its files and exit; `false` when it did not answer that it would. */
+export function close(host: Host, address: Address): Promise<boolean> {
+  return post(host, address, "api/close");
 }
 
 /**
