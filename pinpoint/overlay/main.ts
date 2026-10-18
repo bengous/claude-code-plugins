@@ -1,4 +1,4 @@
-import type { Box, Selection, Target } from "../shared/wire.ts";
+import type { Box, OverlaySession, Selection, Target } from "../shared/wire.ts";
 import { channelOf } from "./channel.ts";
 import { baseOf, labelsFrom, pinnedFrom, pointingFrom } from "./config.ts";
 import {
@@ -27,6 +27,9 @@ import {
   type Tray,
 } from "./tray.ts";
 import { createView, type Spot } from "./view.ts";
+
+/** Written in by the server that builds the overlay (`buildOverlay`): the session it sends to. */
+declare const PINPOINT_SESSION: OverlaySession;
 
 /**
  * The overlay's controller, the script the server serves as `overlay.js`: Alt+P turns picking on;
@@ -117,7 +120,7 @@ function start(script: HTMLScriptElement): void {
     }
   };
 
-  const view = createView(labelsFrom(script.dataset.pinpointLabels), {
+  const view = createView(labelsFrom(script.dataset.pinpointLabels), PINPOINT_SESSION.root, {
     toggle: () => toggle(),
     label: (label) => addDraft(label),
     sendAll: () => send(tray.items.map((item) => item.id)),

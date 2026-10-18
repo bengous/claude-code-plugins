@@ -1,4 +1,5 @@
 import type { Box } from "../shared/wire.ts";
+import { folderOf, sessionTitle } from "./config.ts";
 import { sendText, statusText, summaryOf, type Tray } from "./tray.ts";
 
 /**
@@ -81,14 +82,17 @@ button:focus-visible, textarea:focus-visible { outline: 2px solid var(--pick); o
 textarea { font: inherit; color: inherit; background: transparent; border: 1px solid var(--line);
   border-radius: 6px; padding: 6px 8px; min-height: 56px; resize: vertical; width: 100%; }
 .hint { font-size: 11px; color: var(--muted); }
-.panel { position: fixed; right: 16px; bottom: 16px; width: 320px; max-height: 60vh; display: grid;
-  grid-template-rows: auto minmax(0, 1fr) auto; z-index: 2147483647; }
-.head { display: flex; align-items: center; gap: 8px; padding: 8px 10px; }
+.panel { position: fixed; right: 16px; bottom: 16px; width: 320px; max-width: calc(100vw - 32px);
+  max-height: 60vh; display: grid; grid-template-rows: auto minmax(0, 1fr) auto; z-index: 2147483647; }
+.head { display: flex; flex-wrap: wrap; align-items: center; column-gap: 8px; row-gap: 2px; padding: 8px 10px; }
 .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--err); flex: none; }
 .dot.up { background: var(--ok); }
 .name { font-weight: 600; }
-.count { color: var(--muted); }
-.toggle { margin-left: auto; border: 1px solid var(--pick); background: transparent; color: var(--pick); padding: 3px 8px; }
+.count { color: var(--muted); white-space: nowrap; }
+.session { order: 1; flex: 1 0 100%; min-width: 0; padding-left: 16px; font-size: 12px; color: var(--muted);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.session b { font-weight: 600; color: var(--fg); }
+.toggle { margin-left: auto; border: 1px solid var(--pick); background: transparent; color: var(--pick); padding: 3px 8px; white-space: nowrap; }
 .toggle.on { background: var(--pick); color: #fff; }
 .list { overflow: auto; display: grid; gap: 6px; padding: 0 10px; }
 .card { border: 1px solid var(--line); border-radius: 6px; padding: 6px 8px; display: grid; gap: 4px; }
@@ -168,7 +172,12 @@ function windowSize(): Size {
   return { width: window.innerWidth, height: window.innerHeight };
 }
 
-export function createView(labels: readonly string[], handlers: Handlers): View {
+/** `sessionRoot` is the directory of the session the batches go to, which the panel names. */
+export function createView(
+  labels: readonly string[],
+  sessionRoot: string,
+  handlers: Handlers,
+): View {
   const host = document.createElement("pinpoint-overlay");
   const shadow = host.attachShadow({ mode: "open" });
   const style = document.createElement("style");
@@ -259,10 +268,13 @@ export function createView(labels: readonly string[], handlers: Handlers): View 
   const dot = element("span", "dot");
   const name = element("span", "name", "pinpoint");
   const count = element("span", "count");
+  const session = element("span", "session", "to ");
+  session.append(element("b", "", folderOf(sessionRoot)));
+  session.title = sessionTitle(sessionRoot);
   const toggle = element("button", "toggle");
   toggle.type = "button";
   toggle.addEventListener("click", () => handlers.toggle());
-  head.append(dot, name, count, toggle);
+  head.append(dot, name, count, toggle, session);
   const list = element("div", "list");
   const foot = element("div", "foot");
   const status = element("div", "status");
