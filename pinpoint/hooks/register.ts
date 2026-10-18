@@ -2,7 +2,13 @@ import type { EngineInterface, Register, Timer } from "claude-code";
 
 import { targetOf } from "../shared/target.ts";
 import type { Delivery, ServerLine } from "../shared/wire.ts";
-import { argumentsOf, parseServerLine, parseSessionRecord, type SessionRecord } from "./parse.ts";
+import {
+  argumentsOf,
+  parseServerLine,
+  type SessionRecord,
+  type Stored,
+  storedRecord,
+} from "./parse.ts";
 import {
   type Address,
   baseOf,
@@ -95,6 +101,17 @@ function startedText(record: SessionRecord): string {
       : `Open ${addressOf(record, target)} in the browser: it serves ${target.origin} with the overlay. /pinpoint:start <url> switches to another app at the same address.`,
     "Press Alt+P on the page to point. A Vite app whose vite.config.ts uses the plugin at ~/.claude/pinpoint/vite.mjs also loads the overlay at its own address (see the skill).",
   ].join("\n");
+}
+
+/** The record `stored` holds; one that does not read is logged, and the session starts afresh. */
+function recordIn(host: Host, stored: Stored): SessionRecord | null {
+  if (stored.kind === "unreadable") {
+    host.log(
+      `pinpoint: the session's stored record does not read, so no server comes back for it (${stored.value}); run /pinpoint:start to start one`,
+    );
+  }
+
+  return stored.kind === "kept" ? stored.record : null;
 }
 
 function switchedText(record: SessionRecord, target: URL): string {
@@ -336,7 +353,7 @@ export const register: Register = (on) => {
     const from = state;
     const host = hostOf($);
     const sessionId = await $.session.id();
-    const record = parseSessionRecord(await $.store.get(recordKey(sessionId)));
+    const record = recordIn(host, storedRecord(await $.store.get(recordKey(sessionId))));
 
     if (record === null || !holds(from)) return result;
     const tenure: Tenure = { sessionId, record, relays: Promise.resolve() };
@@ -377,7 +394,7 @@ export const register: Register = (on) => {
       tenure = from.tenure;
     } else {
       const sessionId = await $.session.id();
-      const stored = parseSessionRecord(await $.store.get(recordKey(sessionId)));
+      const stored = recordIn(host, storedRecord(await $.store.get(recordKey(sessionId))));
 
       const record = stored ?? {
         serverSession: sessionId,

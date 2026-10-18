@@ -8,6 +8,7 @@ describe("an app's address", () => {
     ["https://app.test/admin?tab=1", "https://app.test/admin?tab=1"],
     ["  localhost:3000/admin ", "http://localhost:3000/admin"],
     ["5173", "http://localhost:5173/"],
+    ["http://localhost:51\n73/admin\n", "http://localhost:5173/admin"],
   ])("%p is %p", (typed, href) => {
     expect(targetOf(typed)?.href).toBe(href);
   });

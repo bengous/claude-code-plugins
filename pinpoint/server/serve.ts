@@ -1,10 +1,10 @@
 import { targetOf } from "../shared/target.ts";
 import type { BatchAccepted, Outcome, ServerLine } from "../shared/wire.ts";
-import { pickPage, probe } from "./apps.ts";
+import { type Found, pickPage, probe } from "./apps.ts";
 import { buildOverlay, writeViteModule } from "./build.ts";
 import { pruneEntries, sessionFiles } from "./files.ts";
 import { parseBatchRequest, parseDelivery, parseSeqs, parseTargetRequest } from "./parse.ts";
-import { forward, type Relay, relays } from "./proxy.ts";
+import { forward, HOP, type Relay, relays } from "./proxy.ts";
 import { batchText } from "./text.ts";
 
 /** When the server gives up: `expire` runs once no heartbeat came for `graceMs`. */
@@ -69,6 +69,14 @@ function isOwn(url: URL, port: number): boolean {
 /** What became of an address offered as the app: served from now on, or refused and why. */
 type Choice = { readonly chosen: URL } | { readonly refused: string };
 
+/** A probe of the dev ports is reused this long: each one asks every app for its `/`. */
+const PROBE_FRESH_MS = 5_000;
+
+/** Where the browser goes once `url` is served: its path on this server, never `//elsewhere`. */
+function locationOf(url: URL): string {
+  return `/${url.pathname.replace(/^\/+/u, "")}${url.search}`;
+}
+
 function isPortTaken(cause: unknown): boolean {
   return cause instanceof Error && "code" in cause && cause.code === "EADDRINUSE";
 }
@@ -113,6 +121,19 @@ export async function startServer(options: ServeOptions): Promise<Started> {
   let own = 0;
   let target: URL | null = null;
 
+  // Rides on every request the server forwards: one that comes back to it named the server under a
+  // name `isOwn` does not know (`localhost.`, an IPv4-mapped address, a hosts file alias).
+  const hop = crypto.randomUUID();
+  let probed: { readonly at: number; readonly apps: Promise<Found[]> } | null = null;
+
+  const appsFound = (maxAgeMs: number): Promise<Found[]> => {
+    if (probed === null || Date.now() - probed.at >= maxAgeMs) {
+      probed = { at: Date.now(), apps: probe(options.ports, own) };
+    }
+
+    return probed.apps;
+  };
+
   const choose = (text: string): Choice => {
     const url = targetOf(text);
 
@@ -128,16 +149,20 @@ export async function startServer(options: ServeOptions): Promise<Started> {
     return { chosen: url };
   };
 
+  // A refusal shows the apps the page it came from showed, whatever their age.
   const picker = async (
     token: string,
     error: string | null,
     typed: string,
     status: number,
   ): Promise<Response> =>
-    new Response(pickPage(token, await probe(options.ports, own), error, typed), {
-      status,
-      headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" },
-    });
+    new Response(
+      pickPage(token, await appsFound(error === null ? PROBE_FRESH_MS : Infinity), error, typed),
+      {
+        status,
+        headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" },
+      },
+    );
 
   const routes = async (
     path: string,
@@ -183,17 +208,28 @@ export async function startServer(options: ServeOptions): Promise<Started> {
       return Response.json(accepted, { status: 202, headers: cors });
     }
 
-    // The "Which app?" form: the address chosen opens at its own path once served.
+    // The "Which app?" form, its own page's alone and only while it asks: once an app is served,
+    // the app's own scripts share this origin, and only the module switches it.
     if (request.method === "POST" && path === "pick") {
+      if (origin === null || Number(URL.parse(origin)?.port) !== own) {
+        return new Response("pinpoint: only its own page picks the app", { status: 403 });
+      }
+
+      if (target !== null) {
+        return new Response(
+          "pinpoint: an app is already served; /pinpoint:start <url> switches it",
+          {
+            status: 409,
+          },
+        );
+      }
+
       const field = (await request.formData().catch(() => null))?.get("url") ?? null;
       const typed = field === null || field instanceof File ? "" : field;
       const choice = choose(typed);
 
       return "chosen" in choice
-        ? new Response(null, {
-            status: 303,
-            headers: { location: `${choice.chosen.pathname}${choice.chosen.search}` },
-          })
+        ? new Response(null, { status: 303, headers: { location: locationOf(choice.chosen) } })
         : await picker(token, choice.refused, typed, 400);
     }
 
@@ -245,6 +281,13 @@ export async function startServer(options: ServeOptions): Promise<Started> {
       reusePort: false,
       development: false,
       fetch: async (request, server) => {
+        if (request.headers.get(HOP) === hop) {
+          return new Response(
+            "pinpoint: the app's address leads back to this server; run /pinpoint:start with the app's own address",
+            { status: 508 },
+          );
+        }
+
         const host = request.headers.get("host") ?? "";
 
         if (!LOOPBACK_HOST.test(host)) {
@@ -269,7 +312,9 @@ export async function startServer(options: ServeOptions): Promise<Started> {
         // Absolute, off the `Host` checked above: a page's `<base href>` would send a relative
         // `src` and the token to another host, and the overlay takes its server's address from it.
         if (target !== null) {
-          return await forward(request, server, target, `http://${host}${prefix}overlay.js`);
+          const overlayUrl = `http://${host}${prefix}overlay.js`;
+
+          return await forward(request, server, { target, overlay: overlayUrl, hop });
         }
 
         return request.method === "GET" && pathname === "/"

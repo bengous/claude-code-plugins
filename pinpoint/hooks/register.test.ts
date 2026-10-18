@@ -67,6 +67,18 @@ describe("/pinpoint:start", () => {
     expect(seen.store.get(KEY)).toEqual({ ...RECORD, target: APP });
   });
 
+  for (const [how, typed] of [
+    ["ending in a newline", `${APP}\n`],
+    ["broken over two lines", "http://localhost:5173/ad\nmin"],
+  ] as const) {
+    test(`an address ${how} is read whole`, async ($, on) => {
+      const seen = world(on);
+      await $.skill.prompt(startWith(typed));
+
+      expect(seen.children[0]?.argv.slice(-2)).toEqual(["--target", APP]);
+    });
+  }
+
   test("a bare port is an app on this machine", async ($, on) => {
     const seen = world(on);
     await $.skill.prompt(startWith("5173"));
@@ -130,7 +142,7 @@ describe("/pinpoint:start", () => {
     const result = await $.skill.prompt(startWith(`http://localhost:${SERVER.port}/`));
 
     expect(result.text).toContain(`pinpoint kept the app it serves: ${seen.refuse}`);
-    expect(seen.store.get(KEY)?.target).toBe("http://localhost:3000/");
+    expect(seen.store.get(KEY)).toEqual({ ...RECORD, target: "http://localhost:3000/" });
   });
 
   test("a start with no address while live keeps the app, and names it", async ($, on) => {
@@ -269,6 +281,26 @@ describe("the server's life", () => {
     await seen.clock.settle();
 
     expect(seen.children[1]?.argv.slice(-6)).toEqual([...KEPT, "--target", APP]);
+  });
+
+  test("a record stored before the module kept an app comes back on its port and token, its last batch not handed over twice", async ($, on) => {
+    const { target: _none, ...before } = RECORD;
+    const seen = world(on, { stored: new Map([[KEY, { ...before, relayed: 3 }]]) });
+    await $.session.start(SESSION);
+
+    expect(seen.children[0]?.argv.slice(-4)).toEqual(KEPT);
+    seen.children[0]?.write({ type: "batch", seq: 3, text: "three" });
+    await seen.clock.settle();
+
+    expect(seen.prompts).toEqual([]);
+  });
+
+  test("a stored record that does not read is said, and brings no server back", async ($, on) => {
+    const seen = world(on, { stored: new Map([[KEY, { ...RECORD, target: "not an address" }]]) });
+    await $.session.start(SESSION);
+
+    expect(seen.children).toEqual([]);
+    expect(seen.logs.join("\n")).toContain("the session's stored record does not read");
   });
 
   test("a reload starts the stored server serving its app again", async ($, on) => {

@@ -63,12 +63,15 @@ export type World = {
   readonly statuses: (string | undefined)[];
   readonly logs: string[];
   /** The plugin's store, keyed `session:<id>`. */
-  readonly store: Map<string, SessionRecord>;
+  readonly store: Map<string, StoredValue>;
 };
+
+/** What the store may hold for a session: a record, or one an earlier version wrote, without `target`. */
+export type StoredValue = SessionRecord | Omit<SessionRecord, "target">;
 
 export type WorldOptions = {
   readonly spawn?: Spawn;
-  readonly stored?: ReadonlyMap<string, SessionRecord>;
+  readonly stored?: ReadonlyMap<string, StoredValue>;
 };
 
 type End = { readonly exit: ProcessSpawnResult } | { readonly fail: string };

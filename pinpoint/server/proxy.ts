@@ -162,15 +162,20 @@ export const relays: Bun.WebSocketHandler<Relay> = {
   },
 };
 
+/** The header a forwarded request carries, so the server knows one that comes back to it. */
+export const HOP = "x-pinpoint-hop";
+
+/** Where a request goes: the app, the overlay's URL for its pages, the server's own `HOP` value. */
+export type Forwarding = { readonly target: URL; readonly overlay: string; readonly hop: string };
+
 /**
- * Sends `request` on to `target`. A page comes back with `<script src="<overlay>" defer>` at the
- * end of its body; every other answer, a redirect and a HEAD included, passes as the app gave it.
+ * Sends `request` on to the target. A page comes back with `<script src="<overlay>" defer>` at
+ * the end of its body; every other answer, a redirect and a HEAD included, passes as the app gave it.
  */
 export async function forward(
   request: Request,
   server: Bun.Server<Relay>,
-  target: URL,
-  overlay: string,
+  { target, overlay, hop }: Forwarding,
 ): Promise<Response | undefined> {
   // Bun cuts a request after 10 s of silence: an app's first compile, an event stream or a long
   // poll can stay silent longer, and the page leaving ends the request anyway.
@@ -181,6 +186,7 @@ export async function forward(
   // step with the page's `Origin`, which apps compare, and URLs the app builds from it lead back
   // here.
   const headers = new Headers(request.headers);
+  headers.set(HOP, hop);
 
   if (request.headers.get("upgrade")?.toLowerCase() === "websocket") {
     return await relay(request, server, url, headers);

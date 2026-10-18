@@ -12,40 +12,77 @@ export const DEV_PORTS: readonly number[] = [
 /** How long a port has to answer with its page: the "Which app?" page waits for the slowest. */
 export const PROBE_MS = 1_000;
 
-/** An app a port answered with: its address, and its page's `<title>`, `""` for none. */
-export type Found = { readonly url: string; readonly title: string };
+/**
+ * An app a port holds: one that answered with a page, its `<title>` `""` for none, or one that
+ * took the connection and had not answered within the probe's time, as a dev server compiling
+ * its first page does.
+ */
+export type Found =
+  | { readonly kind: "answered"; readonly url: string; readonly title: string }
+  | { readonly kind: "waiting"; readonly url: string };
+
+/** The text of the page's first `<title>`: a `<title>` of an inline SVG comes later, in the body. */
+type TitleRead = { text: string; at: "before" | "inside" | "past" };
+
+async function titleOf(page: Response): Promise<string> {
+  const title: TitleRead = { text: "", at: "before" };
+
+  const read = new HTMLRewriter().on("title", {
+    element: (element) => {
+      if (title.at !== "before") return;
+      title.at = "inside";
+
+      element.onEndTag(() => {
+        title.at = "past";
+      });
+    },
+    text: (chunk) => {
+      if (title.at === "inside") title.text += chunk.text;
+    },
+  });
+
+  const reader = read.transform(page).body?.getReader();
+
+  if (reader === undefined) return "";
+
+  try {
+    // Read up to the title's end only: the rest of a page may take long to come.
+    for (;;) {
+      if (title.at === "past" || (await reader.read()).done) break;
+    }
+  } catch {
+    // The probe's time ran out in the body: the title read so far stands.
+  } finally {
+    await reader.cancel().catch(() => {});
+  }
+
+  return title.text.trim();
+}
 
 async function probeOne(port: number, ms: number): Promise<Found | null> {
   const url = `http://localhost:${port}/`;
+  let answer: Response;
 
   try {
-    const answer = await fetch(url, {
+    answer = await fetch(url, {
       headers: { accept: "text/html" },
       proxy: false,
       signal: AbortSignal.timeout(ms),
     });
+  } catch (cause) {
+    // A refused port fails at once; one that took the connection but stayed silent times out.
+    return cause instanceof DOMException && cause.name === "TimeoutError"
+      ? { kind: "waiting", url }
+      : null;
+  }
 
-    if (!(answer.headers.get("content-type") ?? "").includes("text/html")) {
-      await answer.body?.cancel();
+  if (!(answer.headers.get("content-type") ?? "").includes("text/html")) {
+    await answer.body?.cancel();
 
-      return null;
-    }
-
-    let title = "";
-
-    const read = new HTMLRewriter().on("title", {
-      text: (chunk) => {
-        title += chunk.text;
-      },
-    });
-
-    await read.transform(answer).text();
-
-    return { url, title: title.trim() };
-  } catch {
-    // A port that refuses, stays silent past `ms` or breaks off holds no app to offer.
     return null;
   }
+
+  return { kind: "answered", url, title: await titleOf(answer) };
 }
 
 /** The apps answering HTML on `ports` at `localhost`, in the ports' order, `own` left out. */
@@ -102,12 +139,17 @@ export function pickPage(
 ): string {
   const action = `/t/${token}/pick`;
 
-  const listed = apps.map(
-    (app) => `<li><form method="post" action="${action}">
+  const listed = apps.map((app) => {
+    const name = app.kind === "answered" && app.title !== "" ? app.title : new URL(app.url).host;
+
+    const said =
+      app.kind === "waiting" ? " · no answer within a second yet, maybe still starting" : "";
+
+    return `<li><form method="post" action="${action}">
 <input type="hidden" name="url" value="${escaped(app.url)}">
-<button class="app" type="submit"><span class="name">${escaped(app.title === "" ? new URL(app.url).host : app.title)}</span><span class="address">${escaped(app.url)}</span></button>
-</form></li>`,
-  );
+<button class="app" type="submit"><span class="name">${escaped(name)}</span><span class="address">${escaped(app.url)}${said}</span></button>
+</form></li>`;
+  });
 
   const found =
     listed.length === 0

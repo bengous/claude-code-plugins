@@ -958,6 +958,40 @@ describe("a server with no app chosen", () => {
     expect(await refused.text()).toContain('value="ftp://files.example/"');
   });
 
+  test("a path that reads as another host opens on this server, never off it", async () => {
+    const target = app();
+    const one = await serve();
+    const chosen = await pick(one, `http://localhost:${target.url.port}//evil.example/x`);
+
+    expect(chosen.headers.get("location")).toBe("/evil.example/x");
+  });
+
+  test("two pages a few seconds apart and a refusal probe the apps once", async () => {
+    const target = app();
+    const one = await serve(null, null, null, [Number(target.url.port)]);
+    await fetch(site(one));
+    await fetch(site(one));
+    const refused = await pick(one, "ftp://files.example/");
+
+    expect(await refused.text()).toContain(`http://localhost:${target.url.port}/`);
+    expect(target.asked).toEqual(["GET /"]);
+  });
+
+  test("only its own page picks: a page of another origin cannot", async () => {
+    const target = app();
+    const one = await serve();
+
+    const response = await fetch(url(one, "pick"), {
+      method: "POST",
+      headers: { origin: APP },
+      body: new URLSearchParams({ url: target.url.href }),
+      redirect: "manual",
+    });
+
+    expect(response.status).toBe(403);
+    expect(one.lines.filter((line) => line.type === "target")).toEqual([]);
+  });
+
   test("a --target that is the server's own address is refused once bound", async () => {
     const first = await serve();
     const kept = { port: first.started.port, token: first.started.token };
@@ -1001,4 +1035,29 @@ describe("switching the app", () => {
 
     expect((await retarget(one, "http://localhost:1/", APP)).status).toBe(404);
   });
+
+  test("once an app is served, its pages cannot pick another, even from this origin", async () => {
+    const before = app();
+    const one = await serve(null, null, before.url);
+    const refused = await pick(one, "https://evil.example/");
+
+    expect(refused.status).toBe(409);
+    expect(one.lines.filter((line) => line.type === "target")).toEqual([]);
+    await fetch(`${site(one)}old`, { redirect: "manual" });
+
+    expect(before.asked).toEqual(["GET /old"]);
+  });
+
+  test.each(["localhost.", "[::ffff:127.0.0.1]"])(
+    "an app address that is this server under the name %p ends at the first hop: 508",
+    async (name) => {
+      const one = await serve();
+
+      expect((await retarget(one, `http://${name}:${one.started.port}/`)).status).toBe(204);
+      const looped = await fetch(site(one), { signal: AbortSignal.timeout(2_000) });
+
+      expect(looped.status).toBe(508);
+      expect(await looped.text()).toContain("leads back to this server");
+    },
+  );
 });
