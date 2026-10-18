@@ -57,21 +57,25 @@ type Mark = Element | Box;
 
 type ZoneTarget = Extract<Target, { readonly kind: "zone" }>;
 
-/** A zone's image comes once the page drew it and the server kept it; its target waits for it. */
+type Failed = Extract<ZoneImage, { readonly failed: string }>;
+
+/** A zone drawn as the page showed it at the pick, or why it could not be. */
+type Shot = { readonly png: Blob } | Failed;
+
+/**
+ * A zone's shot is taken at the pick and handed to the server only once the selection goes in the
+ * batch: a zone dropped meanwhile leaves nothing on disk.
+ */
 type Picked =
   | { readonly target: Extract<Target, { readonly kind: "element" }>; readonly mark: Mark }
   | {
       readonly target: Omit<ZoneTarget, "image">;
-      readonly image: Promise<ZoneImage>;
+      readonly shot: Promise<Shot>;
       readonly mark: Mark;
     };
 
-function failure(cause: unknown): ZoneImage {
+function failure(cause: unknown): Failed {
   return { failed: cause instanceof Error ? cause.message : String(cause) };
-}
-
-async function targetOf(picked: Picked): Promise<Target> {
-  return "image" in picked ? { ...picked.target, image: await picked.image } : picked.target;
 }
 
 type Mode =
@@ -141,7 +145,7 @@ function start(script: HTMLScriptElement): void {
   const view = createView(PINPOINT_ROOT, {
     toggle: () => toggle(),
     label: (label) => addDraft(label),
-    sendAll: () => send(tray.items.map((item) => item.id)),
+    sendAll: () => sendAll(),
     sendOne: (id) => send([id]),
     remove: (id) => update(remove(tray, id)),
     preview: (id) => {
@@ -272,11 +276,26 @@ function start(script: HTMLScriptElement): void {
     closeDraft();
 
     adding = adding.then(async () => {
-      const targets = await Promise.all(draft.map((picked) => targetOf(picked)));
+      const targets = await Promise.all(draft.map(async (picked) => await targetOf(picked)));
       const selection: Selection = { label, note, targets, page, context };
       const item: Item = { id, selection };
       update(add(tray, item));
     });
+  }
+
+  async function targetOf(picked: Picked): Promise<Target> {
+    if (!("shot" in picked)) return picked.target;
+    const shot = await picked.shot;
+
+    const image: ZoneImage =
+      "png" in shot ? await channel.image(shot.png).then((id) => ({ id }), failure) : shot;
+
+    return { ...picked.target, image };
+  }
+
+  /** Sends the whole batch once the selections on their way in are in it. */
+  function sendAll(): void {
+    void adding.then(() => send(tray.items.map((item) => item.id)));
   }
 
   function send(ids: readonly string[]): void {
@@ -304,11 +323,8 @@ function start(script: HTMLScriptElement): void {
       const elements = zoneElements(box, view.host).map((element) => infoOf(element));
       const onPage = pageBox(box, scrollOf());
 
-      const image = captureZone(onPage, view.host)
-        .then(async (png) => await channel.image(png))
-        .then((id): ZoneImage => ({ id }), failure);
-
-      picked = { target: { kind: "zone", box: onPage, elements }, image, mark: onPage };
+      const shot = captureZone(onPage, view.host).then((png): Shot => ({ png }), failure);
+      picked = { target: { kind: "zone", box: onPage, elements }, shot, mark: onPage };
     } else {
       const element = elementAt(at.x, at.y, view.host);
 
@@ -391,7 +407,7 @@ function start(script: HTMLScriptElement): void {
       stop();
 
       if (mode.draft !== null && view.composerNote().trim() !== "") addDraft(null);
-      void adding.then(() => send(tray.items.map((item) => item.id)));
+      sendAll();
 
       return;
     }

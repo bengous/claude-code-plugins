@@ -60,47 +60,43 @@ function parseId(value: unknown): string | null {
 const UNREACHABLE =
   "the pinpoint server does not answer (run /pinpoint:start in Claude Code, then reload the page)";
 
+/** Posts `body` to `url`; answers what the server said, read by `parse`, or throws why it did not take it. */
+async function post<T>(
+  url: string,
+  type: string,
+  body: BodyInit,
+  // oxlint-disable-next-line anti-slop/no-unknown-parameters -- the parser `post` runs on the server's answer, at the fetch.
+  parse: (answer: unknown) => T | null,
+  missing: string,
+): Promise<T> {
+  const response = await fetch(url, {
+    method: "POST",
+    headers: { "content-type": type },
+    body,
+    signal: AbortSignal.timeout(SEND_TIMEOUT_MS),
+  }).catch(() => null);
+
+  if (response === null) throw new Error(UNREACHABLE);
+
+  if (!response.ok)
+    throw new Error(`the server answered ${response.status}: ${await response.text()}`);
+  const answer = parse(await response.json());
+
+  if (answer === null) throw new Error(`the server answered without ${missing}`);
+
+  return answer;
+}
+
 /** `base` is the server's address for this page, `<the page's own origin>/t/<token>/`. */
 export function channelOf(base: string): Channel {
   return {
     send: async (selections) => {
       const request: BatchRequest = { selections };
+      const body = JSON.stringify(request);
 
-      const response = await fetch(`${base}api/batch`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify(request),
-        signal: AbortSignal.timeout(SEND_TIMEOUT_MS),
-      }).catch(() => null);
-
-      if (response === null) throw new Error(UNREACHABLE);
-
-      if (!response.ok)
-        throw new Error(`the server answered ${response.status}: ${await response.text()}`);
-      const seq = parseSeq(await response.json());
-
-      if (seq === null) throw new Error("the server answered without a batch number");
-
-      return seq;
+      return await post(`${base}api/batch`, "application/json", body, parseSeq, "a batch number");
     },
-    image: async (png) => {
-      const response = await fetch(`${base}api/image`, {
-        method: "POST",
-        headers: { "content-type": "image/png" },
-        body: png,
-        signal: AbortSignal.timeout(SEND_TIMEOUT_MS),
-      }).catch(() => null);
-
-      if (response === null) throw new Error(UNREACHABLE);
-
-      if (!response.ok)
-        throw new Error(`the server answered ${response.status}: ${await response.text()}`);
-      const id = parseId(await response.json());
-
-      if (id === null) throw new Error("the server answered without an image id");
-
-      return id;
-    },
+    image: async (png) => await post(`${base}api/image`, "image/png", png, parseId, "an image id"),
     outcomes: async (seqs) => {
       const query = seqs.map((seq) => `seq=${seq}`).join("&");
 

@@ -75,7 +75,7 @@ function isOwn(url: URL, port: number): boolean {
 /** What became of an address offered as the app: served from now on, or refused and why. */
 type Choice = { readonly chosen: URL } | { readonly refused: string };
 
-/** The largest image a page hands over: a zone of a 4K screen at twice its pixels stays well under. */
+/** The largest image a page hands over; how large a zone's PNG gets is not measured. */
 export const IMAGE_LIMIT = 20 * 1024 * 1024;
 
 const PNG_SIGNATURE = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
@@ -213,9 +213,11 @@ export async function startServer(options: ServeOptions): Promise<Started> {
     }
 
     if (request.method === "POST" && path === "api/image") {
-      const bytes = new Uint8Array(await request.arrayBuffer());
+      // The length a page declares is checked first, so a large body is refused before it is read.
+      const declared = Number(request.headers.get("content-length") ?? 0);
+      const bytes = declared > IMAGE_LIMIT ? null : new Uint8Array(await request.arrayBuffer());
 
-      if (bytes.length > IMAGE_LIMIT) {
+      if (bytes === null || bytes.length > IMAGE_LIMIT) {
         return new Response("pinpoint: image too large", { status: 413 });
       }
 

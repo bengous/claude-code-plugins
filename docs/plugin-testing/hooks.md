@@ -37,7 +37,7 @@ under the [loader rules](hook-runtime.md#module-loader).
 - A plugin with `package.json` + `bun.lock` gets `bun install
   --frozen-lockfile --ignore-scripts` at its cache when installed. Under
   `--plugin-dir` nothing installs: run `bun install --cwd <plugin>` yourself,
-  as `scripts/run-gates.ts` does for `vellum`.
+  as `scripts/run-gates.ts` does for `vellum` and `pinpoint`.
 
 - `claude plugin validate <plugin>` reads
   the module's source and prints what it hooks (`skill.prompt{skill=...}`)
