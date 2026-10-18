@@ -277,6 +277,20 @@ describe("describeSurvivor", () => {
   });
 });
 
+function mutantAt(fileName: string, line: number, column: number): Mutant {
+  return mutant({
+    fileName,
+    location: { start: { line, column }, end: { line, column: column + 1 } },
+  });
+}
+
+function spanning(start: number, end: number, status: Mutant["status"] = "Survived"): Mutant {
+  return mutant({
+    location: { start: { line: start, column: 1 }, end: { line: end, column: 2 } },
+    status,
+  });
+}
+
 describe("undetected", () => {
   test("keeps the survivors and the mutants no test reached", () => {
     const results = (["Killed", "Survived", "Timeout", "NoCoverage", "CompileError"] as const).map(
@@ -287,17 +301,11 @@ describe("undetected", () => {
   });
 
   test("orders them by file, line and column", () => {
-    const at = (fileName: string, line: number, column: number): Mutant =>
-      mutant({
-        fileName,
-        location: { start: { line, column }, end: { line, column: column + 1 } },
-      });
-
     const found = undetected([
-      at("/b.ts", 1, 1),
-      at("/a.ts", 9, 4),
-      at("/a.ts", 9, 2),
-      at("/a.ts", 3, 8),
+      mutantAt("/b.ts", 1, 1),
+      mutantAt("/a.ts", 9, 4),
+      mutantAt("/a.ts", 9, 2),
+      mutantAt("/a.ts", 3, 8),
     ]).map(
       ({ fileName, location }) => `${fileName}:${location.start.line}:${location.start.column}`,
     );
@@ -309,12 +317,6 @@ describe("undetected", () => {
 describe("the changed lines a survivor meets", () => {
   const source = Array.from({ length: 30 }, (_, index) => `line ${index + 1};`).join("\n");
 
-  const at = (start: number, end: number, status: Mutant["status"] = "Survived"): Mutant =>
-    mutant({
-      location: { start: { line: start, column: 1 }, end: { line: end, column: 2 } },
-      status,
-    });
-
   const failing = (head: readonly Mutant[], hunks: readonly Hunk[]): number =>
     moduleVerdict({ module: "x/mod.ts", source, head, base: null, hunks }).failures.length;
 
@@ -322,20 +324,31 @@ describe("the changed lines a survivor meets", () => {
     const changed = [hunk("x/mod.ts", 15, 1, 15, 1)];
 
     expect(
-      failing([at(10, 20), at(15, 15), at(14, 14), at(16, 30), at(15, 15, "Killed")], changed),
+      failing(
+        [
+          spanning(10, 20),
+          spanning(15, 15),
+          spanning(14, 14),
+          spanning(16, 30),
+          spanning(15, 15, "Killed"),
+        ],
+        changed,
+      ),
     ).toBe(2);
   });
 
   test("any of several ranges counts", () => {
     const changed = [hunk("x/mod.ts", 3, 1, 3, 1), hunk("x/mod.ts", 9, 1, 9, 1)];
 
-    expect(failing([at(3, 3), at(9, 9), at(6, 6)], changed)).toBe(2);
+    expect(failing([spanning(3, 3), spanning(9, 9), spanning(6, 6)], changed)).toBe(2);
   });
 
   test("a range's either edge counts", () => {
     const changed = [hunk("x/mod.ts", 5, 3, 5, 3)];
 
-    expect(failing([at(1, 5), at(7, 9), at(1, 4), at(8, 9)], changed)).toBe(2);
+    expect(failing([spanning(1, 5), spanning(7, 9), spanning(1, 4), spanning(8, 9)], changed)).toBe(
+      2,
+    );
   });
 });
 

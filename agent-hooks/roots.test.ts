@@ -68,6 +68,15 @@ function hook(
   return runHook({ ...run, harness, payload: { session_id: "s1", ...payload } });
 }
 
+async function write(cwd: string, file: string, content: string): Promise<void> {
+  await hook(PRE_EDIT, {
+    cwd,
+    tool_name: "Write",
+    tool_input: { file_path: file, content },
+  });
+  writeRepoFile(path.dirname(file), path.basename(file), content);
+}
+
 describe("the roots a Stop checks", () => {
   const temps: TempRepo[] = [];
   let errors: Mock<typeof console.error>;
@@ -94,15 +103,6 @@ describe("the roots a Stop checks", () => {
     temps.push(temp);
 
     return temp;
-  }
-
-  async function write(cwd: string, file: string, content: string): Promise<void> {
-    await hook(PRE_EDIT, {
-      cwd,
-      tool_name: "Write",
-      tool_input: { file_path: file, content },
-    });
-    writeRepoFile(path.dirname(file), path.basename(file), content);
   }
 
   function nestedRepo(): TempRepo {

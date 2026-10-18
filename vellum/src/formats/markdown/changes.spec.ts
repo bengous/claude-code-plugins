@@ -116,13 +116,13 @@ describe("changesOf, the removed runs", () => {
   });
 });
 
-describe("changesOf, the lines of a code block", () => {
-  function addedLines(text: string, diff: LineDiff): string[] {
-    return [...changesOf(toTree(text), diff).addedLines].map(
-      ([element, lines]) => `${named(element)}: ${lines.join(", ")}`,
-    );
-  }
+function addedLines(text: string, diff: LineDiff): string[] {
+  return [...changesOf(toTree(text), diff).addedLines].map(
+    ([element, lines]) => `${named(element)}: ${lines.join(", ")}`,
+  );
+}
 
+describe("changesOf, the lines of a code block", () => {
   test("an added line in a fenced block is named by its index in the block, the fence not counted", () => {
     const text = "```ts\nconst a = 1;\nconst b = 2;\nconst c = 3;\n```\n";
     const diff: LineDiff = [{ kind: "added", after: 3, count: 1 }];

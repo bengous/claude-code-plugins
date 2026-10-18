@@ -19,6 +19,16 @@ const ASKING = blocksOf(GRILL.slice(0, GRILL.lastIndexOf("\n### Reviewer")));
 
 const NOTHING_TYPED = {};
 
+function lastChips(answers: Record<string, string>): readonly Chip[] | undefined {
+  return roundsOf(ASKING, answers, null).rounds.at(-1)?.chips;
+}
+
+function neighbours(picked: string): readonly (string | null)[] {
+  const { previous, next } = roundsOf(SENT, NOTHING_TYPED, picked);
+
+  return [previous, next];
+}
+
 describe("the chips", () => {
   test("of a grill sent: answered or taken by default, by round", () => {
     expect(roundsOf(SENT, NOTHING_TYPED, null).rounds).toEqual([
@@ -49,14 +59,11 @@ describe("the chips", () => {
   });
 
   test("of a round open: waiting, until the draft chooses the recommendation or holds a text", () => {
-    const chips = (answers: Record<string, string>): readonly Chip[] | undefined =>
-      roundsOf(ASKING, answers, null).rounds.at(-1)?.chips;
-
-    expect(chips(NOTHING_TYPED)).toEqual([
+    expect(lastChips(NOTHING_TYPED)).toEqual([
       { id: "Q7", state: "waiting" },
       { id: "Q8", state: "waiting" },
     ]);
-    expect(chips({ Q7: "As recommended.", Q8: " " })).toEqual([
+    expect(lastChips({ Q7: "As recommended.", Q8: " " })).toEqual([
       { id: "Q7", state: "answered" },
       { id: "Q8", state: "waiting" },
     ]);
@@ -78,15 +85,9 @@ describe("the question shown", () => {
   });
 
   test("has its neighbours across rounds, and none past either end", () => {
-    const at = (picked: string): readonly (string | null)[] => {
-      const { previous, next } = roundsOf(SENT, NOTHING_TYPED, picked);
-
-      return [previous, next];
-    };
-
-    expect(at("Q4")).toEqual(["Q3", "Q5"]);
-    expect(at("Q1")).toEqual([null, "Q2"]);
-    expect(at("Q8")).toEqual(["Q7", null]);
+    expect(neighbours("Q4")).toEqual(["Q3", "Q5"]);
+    expect(neighbours("Q1")).toEqual([null, "Q2"]);
+    expect(neighbours("Q8")).toEqual(["Q7", null]);
   });
 });
 

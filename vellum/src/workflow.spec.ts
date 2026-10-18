@@ -414,6 +414,10 @@ function eachOnce(refused: readonly (readonly string[])[]): boolean {
   return new Set(refused.map(([event]) => event)).size === refused.length;
 }
 
+function sentTwice(w: Workflow): Workflow {
+  return play(w, ["send", COMMENTS], ["send", COMMENTS]);
+}
+
 describe("what the page and the band read (§ 5.8)", () => {
   const MOCKUP: Move = { kind: "mockup", screen: "login" };
 
@@ -424,8 +428,6 @@ describe("what the page and the band read (§ 5.8)", () => {
     notes: "",
     dir: "plans/2026-09-26/the-plan/",
   };
-
-  const sentTwice = (w: Workflow): Workflow => play(w, ["send", COMMENTS], ["send", COMMENTS]);
 
   test("the pill without a hold keeps today's words, and says plan.md waits only under one (P1)", () => {
     const pills = [

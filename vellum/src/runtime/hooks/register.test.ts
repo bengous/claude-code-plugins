@@ -27,7 +27,6 @@ import {
   stage,
   START_PROMPT,
   START_TIMEOUT_MS,
-  type Spawn,
   STARTS,
   STOP_PROMPT,
   storedSession,
@@ -1403,8 +1402,10 @@ describe("every shell command starts at the project's root while the mode holds"
   });
 
   test("a revival after a failed relaunch keeps the variable the mode set", async ($, on) => {
-    const spawn: Spawn = (child, run) => (run === 1 ? REFUSED : STARTS(child, run));
-    const seen = world(on, { stored: storedSession(SERVER, CWD, WORKDIR, null, false), spawn });
+    const seen = world(on, {
+      stored: storedSession(SERVER, CWD, WORKDIR, null, false),
+      spawn: (child, run) => (run === 1 ? REFUSED : STARTS(child, run)),
+    });
 
     await $.session.start(SESSION);
     await seen.clock.advance(LOST_RETRY_MS);

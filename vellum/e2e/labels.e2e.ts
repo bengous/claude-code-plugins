@@ -422,17 +422,17 @@ test.describe("a Markdown artifact beside the plan", () => {
   });
 });
 
+async function grilling(page: Page, vellum: Vellum): Promise<void> {
+  await vellum.gate();
+  await vellum.grill.open("The coverage of the page");
+  await vellum.grill.ask(ROUND_1);
+  await openVellum(page, vellum);
+  await page.locator("#rail button", { hasText: "grill-2.md" }).click();
+  await expect(page.locator("#doc .grill-q")).toHaveCount(2);
+}
+
 test.describe("beside the plan", () => {
   test.use({ fixture: "grill-real" });
-
-  async function grilling(page: Page, vellum: Vellum): Promise<void> {
-    await vellum.gate();
-    await vellum.grill.open("The coverage of the page");
-    await vellum.grill.ask(ROUND_1);
-    await openVellum(page, vellum);
-    await page.locator("#rail button", { hasText: "grill-2.md" }).click();
-    await expect(page.locator("#doc .grill-q")).toHaveCount(2);
-  }
 
   test("the general box comments the plan, not the transcript", async ({ page, vellum }) => {
     await grilling(page, vellum);
