@@ -276,7 +276,7 @@ function start(script: HTMLScriptElement): void {
     closeDraft();
 
     adding = adding.then(async () => {
-      const targets = await Promise.all(draft.map(async (picked) => await targetOf(picked)));
+      const targets = await Promise.all(draft.map((picked) => targetOf(picked)));
       const selection: Selection = { label, note, targets, page, context };
       const item: Item = { id, selection };
       update(add(tray, item));
