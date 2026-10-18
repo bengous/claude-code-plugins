@@ -5,7 +5,6 @@ import { join } from "node:path";
 import { parseArgs } from "node:util";
 
 import { targetOf } from "../shared/target.ts";
-import { PINPOINT_DIR } from "../shared/wire.ts";
 import { DEV_PORTS } from "./apps.ts";
 import { sessionFiles } from "./files.ts";
 import { startServer } from "./serve.ts";
@@ -25,7 +24,7 @@ const [command] = positionals;
 
 const { session, root } = values;
 
-const dir = join(homedir(), PINPOINT_DIR);
+const dir = join(homedir(), ".claude", "pinpoint");
 
 if (command === "clean" && session !== undefined) {
   await sessionFiles(dir, session).removeAll();
@@ -46,17 +45,6 @@ if (
   process.exit(2);
 }
 
-const files = sessionFiles(dir, session);
-
-/** Ends the process, its registry entry removed first: the Vite plugin must not point at a dead port. */
-function leave(): void {
-  void files.removeEntry().finally(() => process.exit(0));
-}
-
-process.on("SIGTERM", leave);
-
-process.on("SIGINT", leave);
-
 // The hooks module reads this process's stdout, one `ServerLine` per line: nothing else goes there.
 await startServer({
   dir,
@@ -71,5 +59,5 @@ await startServer({
   },
   closed: () => process.exit(0),
   // The module beats every 15 s: a `claude` killed hard leaves no signal, only this silence.
-  watchdog: { graceMs: 60_000, periodMs: 5_000, expire: leave },
+  watchdog: { graceMs: 60_000, periodMs: 5_000, expire: () => process.exit(0) },
 });

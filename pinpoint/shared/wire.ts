@@ -1,8 +1,8 @@
 /**
  * Every value that crosses a process boundary of pinpoint: the page to the server (HTTP), the
  * server to the page (its answers), the server to the hooks module (its stdout), the module to
- * the server (HTTP), and the server to the Vite plugin (the registry file). The "Which app?" form
- * posts one field, `url`, read by `targetOf` (`target.ts`).
+ * the server (HTTP). The "Which app?" form posts one field, `url`, read by `targetOf`
+ * (`target.ts`).
  */
 
 /**
@@ -92,19 +92,3 @@ export type Outcome =
   | { readonly seq: number; readonly outcome: "pending" }
   | Delivery
   | { readonly seq: number; readonly outcome: "unknown" };
-
-/** `~/.claude/pinpoint/sessions/<session>.json`, which the Vite plugin reads to find a live server. */
-export type RegistryEntry = {
-  readonly version: 1;
-  readonly session: string;
-  /** The directory the Claude Code session runs in: a Vite root at or under it is served. */
-  readonly root: string;
-  readonly port: number;
-  readonly token: string;
-  readonly pid: number;
-  /** Milliseconds since the epoch: the newest live entry wins. */
-  readonly started: number;
-};
-
-/** Where every server's files live, under the user's home. */
-export const PINPOINT_DIR = ".claude/pinpoint";

@@ -99,7 +99,7 @@ function startedText(record: SessionRecord): string {
     target === null
       ? `Open ${addressOf(record, null)} in the browser: "Which app?" lists the apps running on this machine and takes any other address. /pinpoint:start <url> serves one directly.`
       : `Open ${addressOf(record, target)} in the browser: it serves ${target.origin} with the overlay. /pinpoint:start <url> switches to another app at the same address.`,
-    "Press Alt+P on the page to point. A Vite app whose vite.config.ts uses the plugin at ~/.claude/pinpoint/vite.mjs also loads the overlay at its own address (see the skill).",
+    "Press Alt+P on the page to point.",
   ].join("\n");
 }
 

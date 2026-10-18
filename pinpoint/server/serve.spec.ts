@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { existsSync } from "node:fs";
-import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -361,9 +361,8 @@ afterEach(async () => {
 });
 
 describe("the server", () => {
-  test("announces ready, writes its registry entry and the Vite module", async () => {
+  test("announces ready, and writes nothing until a batch comes", async () => {
     const one = await serve();
-    const entry = JSON.parse(await readFile(join(one.dir, "sessions/s1.json"), "utf8"));
 
     expect(one.lines[0]).toEqual({
       type: "ready",
@@ -371,14 +370,7 @@ describe("the server", () => {
       token: one.started.token,
       target: null,
     });
-    expect(entry).toMatchObject({
-      version: 1,
-      session: "s1",
-      root: "/work/app",
-      port: one.started.port,
-      pid: process.pid,
-    });
-    expect(existsSync(join(one.dir, "vite.mjs"))).toBe(true);
+    expect(await readdir(one.dir)).toEqual([]);
   });
 
   test("serves the overlay as a script", async () => {
@@ -501,17 +493,6 @@ describe("the server", () => {
     ]);
   });
 
-  test("an unreadable registry entry is skipped, and left in place", async () => {
-    const dir = await mkdtemp(join(tmpdir(), "pinpoint-"));
-    await mkdir(join(dir, "sessions"));
-    await writeFile(join(dir, "sessions/other.json"), "");
-    await writeFile(join(dir, "sessions/torn.json"), '{"version":1,"pid":');
-    await serve(dir);
-
-    expect(existsSync(join(dir, "sessions/other.json"))).toBe(true);
-    expect(existsSync(join(dir, "sessions/torn.json"))).toBe(true);
-  });
-
   test("an unreadable pending file is skipped", async () => {
     const dir = await mkdtemp(join(tmpdir(), "pinpoint-"));
     await mkdir(join(dir, "sessions/s1/pending"), { recursive: true });
@@ -547,7 +528,6 @@ describe("the server", () => {
     await Bun.sleep(5);
 
     expect(existsSync(join(one.dir, "sessions/s1"))).toBe(false);
-    expect(existsSync(join(one.dir, "sessions/s1.json"))).toBe(false);
     expect(one.closed()).toBe(true);
   });
 });

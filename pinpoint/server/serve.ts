@@ -1,8 +1,8 @@
 import { targetOf } from "../shared/target.ts";
 import type { BatchAccepted, Outcome, ServerLine } from "../shared/wire.ts";
 import { type Found, pickPage, probe } from "./apps.ts";
-import { buildOverlay, writeViteModule } from "./build.ts";
-import { pruneEntries, sessionFiles } from "./files.ts";
+import { buildOverlay } from "./build.ts";
+import { sessionFiles } from "./files.ts";
 import { parseBatchRequest, parseDelivery, parseSeqs, parseTargetRequest } from "./parse.ts";
 import { forward, HOP, type Relay, relays } from "./proxy.ts";
 import { batchText } from "./text.ts";
@@ -18,7 +18,7 @@ export type ServeOptions = {
   /** Where the server's files live: `~/.claude/pinpoint` outside the tests. */
   readonly dir: string;
   readonly session: string;
-  /** The directory of the Claude Code session, which the registry entry names. */
+  /** The directory of the Claude Code session, which the overlay's panel names. */
   readonly root: string;
   /** `0` for any; a port taken meanwhile binds another one, under a new token. */
   readonly port: number;
@@ -97,9 +97,7 @@ type Bound = { readonly server: Bun.Server<Relay>; readonly token: string };
 
 export async function startServer(options: ServeOptions): Promise<Started> {
   const files = sessionFiles(options.dir, options.session);
-  await pruneEntries(options.dir);
-
-  const [overlay] = await Promise.all([buildOverlay(options.root), writeViteModule(options.dir)]);
+  const overlay = await buildOverlay(options.root);
 
   // The session's files change one step at a time, each batch numbered, kept and announced
   // whole: the module hands batches over in the order of their lines, and only acknowledges a
@@ -350,16 +348,6 @@ export async function startServer(options: ServeOptions): Promise<Started> {
   const { token } = bound;
   own = port;
   target = options.target !== null && isOwn(options.target, port) ? null : options.target;
-
-  await files.writeEntry({
-    version: 1,
-    session: options.session,
-    root: options.root,
-    port,
-    token,
-    pid: process.pid,
-    started: Date.now(),
-  });
 
   options.announce({ type: "ready", port, token, target: target?.href ?? null });
 

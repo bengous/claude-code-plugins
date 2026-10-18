@@ -1,6 +1,6 @@
 import type { Spot } from "./view.ts";
 
-/** The labels the composer offers when the app's `pinpoint({ labels })` names none. */
+/** The quick labels the composer offers. */
 export const DEFAULT_LABELS: readonly string[] = [
   "Misaligned",
   "Too big",
@@ -8,16 +8,6 @@ export const DEFAULT_LABELS: readonly string[] = [
   "Wrong text",
   "Remove",
 ];
-
-/**
- * The labels `data-pinpoint-labels` carries, each URI-encoded and joined by commas (the Vite
- * plugin's `overlayTag`); the defaults when the attribute is absent, none when it is empty.
- */
-export function labelsFrom(attribute: string | undefined): readonly string[] {
-  if (attribute === undefined) return DEFAULT_LABELS;
-
-  return attribute === "" ? [] : attribute.split(",").map((label) => decodeURIComponent(label));
-}
 
 /** Whether pointing was on when the page went away, off the mode's kind the tab kept; off for anything else. */
 export function pointingFrom(stored: string | null): boolean {

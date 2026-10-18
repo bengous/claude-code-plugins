@@ -8,29 +8,13 @@ argument-hint: "[app url]"
 
 # Pinpoint
 
-The lines after this text say whether the server started, which app it serves, and the address the user opens in the browser. Tell the user in one or two sentences.
+The lines after this text are pinpoint's. Tell the user what they say in one or two sentences; the app's files need no change, so offer none.
 
-## The app's own Vite address, only if the user asks
+- `pinpoint is live for <dir>.` and `Open http://localhost:<port>/… in the browser`: that address is the user's app with the overlay. Before an app is chosen it is "Which app?", a page listing the apps running on this machine and taking any other address; one click there serves that app at the same address. Then Alt+P on the page.
+- `pinpoint now serves <app> at <address>`: `/pinpoint:start <url>` switched the app; the address stays the same, and the tabs open there show the new app once reloaded.
+- `pinpoint did not take`, `kept the app it serves`, `is not an http(s) address`, `did not start its server`: nothing changed; say why, in the line's words.
 
-The address above needs no change to the app. Only when the user wants the overlay at a Vite app's own dev address instead: read the app's `vite.config.*` (the one at or under the directory named below). If it does not load pinpoint yet, show the user this change and make it once they agree:
-
-```ts
-import { homedir } from "node:os";
-import { join } from "node:path";
-import { pathToFileURL } from "node:url";
-
-const { pinpoint } = await import(
-  pathToFileURL(join(homedir(), ".claude/pinpoint/vite.mjs")).href
-).catch(() => ({ pinpoint: () => [] }));
-
-// in defineConfig: plugins: [...the existing plugins, pinpoint()]
-```
-
-Keep the `file://` URL: an ESM import of a bare Windows path fails, and the `catch` hides it. Merge the three imports with any the config already has from those modules.
-
-`pinpoint({ labels: ["…", "…"] })` replaces the quick labels; `[]` offers none. The app may also set, in dev only, `window.pinpointContext = () => ({ ... })`: what it returns rides with each selection (the route, the state a screen was built from).
-
-Then the user reloads the page and presses Alt+P.
+An app may set, in dev only, `window.pinpointContext = () => ({ ... })`: what it returns rides with each selection (the route, the state a screen was built from).
 
 ## A batch
 

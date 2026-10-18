@@ -1,4 +1,4 @@
 {
-  "description": "Starts one pinpoint server per session on /pinpoint:start, which serves the app named after it with the overlay at its address, or asks which app, and switches the app on /pinpoint:start <url>; hands each batch the user sends to the session as a prompt, in order, and tells the server it went in; revives a server that died on its port and token; ends it on /pinpoint:stop; carries it over a /clear",
+  "description": "Starts one pinpoint server per session on /pinpoint:start, which serves the app named after it with the overlay at its address, or asks which app, and switches the app on /pinpoint:start <url>; hands each batch the user sends to the session as a prompt, in order, and tells the server it went in; revives a server that died on its port and token, serving the same app; ends it on /pinpoint:stop; carries it over a /clear",
   "modules": ["./register.ts"]
 }

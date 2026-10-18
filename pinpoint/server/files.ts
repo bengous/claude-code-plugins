@@ -1,14 +1,12 @@
 import { mkdir, readdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
-import { alive, parseEntry } from "../shared/registry.ts";
-import type { Delivery, Outcome, RegistryEntry } from "../shared/wire.ts";
+import type { Delivery, Outcome } from "../shared/wire.ts";
 import { parseDelivery } from "./parse.ts";
 
 /**
  * What a server keeps on disk, under `<dir>` (`~/.claude/pinpoint` outside the tests):
- * `sessions/<session>.json`, the registry entry the Vite plugin reads; `sessions/<session>/seq`,
- * the last batch number given; `sessions/<session>/pending/<seq>.json`, each batch not yet
+ * `sessions/<session>/seq`, the last batch number given; `sessions/<session>/pending/<seq>.json`, each batch not yet
  * handed to the session, so a server started again on the same session tells it again;
  * `sessions/<session>/settled.json`, what the module reported of the last batches, so a page
  * asks after its own across a restart. Each file is written whole under another name, then
@@ -18,8 +16,6 @@ import { parseDelivery } from "./parse.ts";
 export type Pending = { readonly seq: number; readonly text: string };
 
 export type SessionFiles = {
-  readonly writeEntry: (entry: RegistryEntry) => Promise<void>;
-  readonly removeEntry: () => Promise<void>;
   /** The next batch number, kept across servers of one session; the caller asks one at a time. */
   readonly nextSeq: () => Promise<number>;
   readonly keepPending: (pending: Pending) => Promise<void>;
@@ -29,7 +25,7 @@ export type SessionFiles = {
   readonly pending: () => Promise<Pending[]>;
   /** What became of each batch of `seqs`, in their order. */
   readonly outcomes: (seqs: readonly number[]) => Promise<Outcome[]>;
-  /** The session's directory and entry, for `/pinpoint:stop`. */
+  /** The session's directory, for `/pinpoint:stop`. */
   readonly removeAll: () => Promise<void>;
 };
 
@@ -79,7 +75,6 @@ export function sessionFiles(dir: string, session: string): SessionFiles {
   const pendingDir = join(own, "pending");
   const seqFile = join(own, "seq");
   const settledFile = join(own, "settled.json");
-  const entryFile = join(sessions, `${session}.json`);
 
   const pendingNames = async (): Promise<string[]> =>
     (await readdir(pendingDir).catch(() => [])).filter((name) => PENDING_FILE.test(name));
@@ -88,11 +83,6 @@ export function sessionFiles(dir: string, session: string): SessionFiles {
     parseSettled(await readFile(settledFile, "utf8").catch(() => ""));
 
   return {
-    writeEntry: async (entry) => {
-      await mkdir(sessions, { recursive: true });
-      await writeWhole(entryFile, `${JSON.stringify(entry)}\n`);
-    },
-    removeEntry: () => rm(entryFile, { force: true }),
     nextSeq: async () => {
       await mkdir(own, { recursive: true });
       const last = Number.parseInt(await readFile(seqFile, "utf8").catch(() => "0"), 10);
@@ -131,24 +121,6 @@ export function sessionFiles(dir: string, session: string): SessionFiles {
           : (reported.find((one) => one.seq === seq) ?? { seq, outcome: "unknown" }),
       );
     },
-    removeAll: async () => {
-      await rm(entryFile, { force: true });
-      await rm(own, { recursive: true, force: true });
-    },
+    removeAll: () => rm(own, { recursive: true, force: true }),
   };
-}
-
-/** Removes the registry entries whose server is gone: a `claude` killed hard leaves its entry behind. */
-export async function pruneEntries(dir: string): Promise<void> {
-  const sessions = join(dir, "sessions");
-  const names = (await readdir(sessions).catch(() => [])).filter((name) => name.endsWith(".json"));
-
-  await Promise.all(
-    names.map(async (name) => {
-      const file = join(sessions, name);
-      const entry = parseEntry(await readFile(file, "utf8").catch(() => ""));
-
-      if (entry !== null && !alive(entry.pid)) await rm(file, { force: true });
-    }),
-  );
 }

@@ -1,6 +1,6 @@
 import type { Box, Selection, Target } from "../shared/wire.ts";
 import { channelOf } from "./channel.ts";
-import { baseOf, labelsFrom, pinnedFrom, pointingFrom } from "./config.ts";
+import { baseOf, DEFAULT_LABELS, pinnedFrom, pointingFrom } from "./config.ts";
 import {
   appContext,
   boxOf,
@@ -120,7 +120,7 @@ function start(script: HTMLScriptElement): void {
     }
   };
 
-  const view = createView(labelsFrom(script.dataset.pinpointLabels), PINPOINT_ROOT, {
+  const view = createView(DEFAULT_LABELS, PINPOINT_ROOT, {
     toggle: () => toggle(),
     label: (label) => addDraft(label),
     sendAll: () => send(tray.items.map((item) => item.id)),
@@ -428,7 +428,9 @@ function start(script: HTMLScriptElement): void {
 const script = document.currentScript;
 
 if (!(script instanceof HTMLScriptElement)) {
-  throw new Error("pinpoint: overlay.js runs as a classic <script>, which the Vite plugin injects");
+  throw new Error(
+    "pinpoint: overlay.js runs as the classic <script> the session's server adds to each page",
+  );
 }
 
 // A page that loads the overlay twice (two tags, a dev server's reload) keeps the first one.

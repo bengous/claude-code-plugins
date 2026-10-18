@@ -1,16 +1,7 @@
 import { expect, test } from "bun:test";
 
-import { baseOf, DEFAULT_LABELS, labelsFrom, pinnedFrom, pointingFrom } from "./config.ts";
+import { baseOf, pinnedFrom, pointingFrom } from "./config.ts";
 import { composerSpot, pinnedSpot } from "./view.ts";
-
-test("labelsFrom: the defaults when absent, none when empty, each decoded", () => {
-  expect(labelsFrom(undefined)).toEqual(DEFAULT_LABELS);
-  expect(labelsFrom("")).toEqual([]);
-  expect(labelsFrom("Trop%20gros,%C3%80%20revoir%2C%20vite")).toEqual([
-    "Trop gros",
-    "À revoir, vite",
-  ]);
-});
 
 test("baseOf: the server's address for the page, off the overlay's URL", () => {
   expect(baseOf("http://127.0.0.1:4242/t/tok/overlay.js")).toBe("http://127.0.0.1:4242/t/tok/");

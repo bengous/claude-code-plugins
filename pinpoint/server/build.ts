@@ -1,49 +1,25 @@
-import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
-const PLUGIN_ROOT = join(import.meta.dir, "..");
-
-async function bundle(
-  entry: string,
-  options: Pick<Bun.BuildConfig, "format" | "target" | "define">,
-): Promise<string> {
-  const built = await Bun.build({ entrypoints: [join(PLUGIN_ROOT, entry)], ...options });
-  const output = built.outputs[0];
-
-  if (!built.success || output === undefined) {
-    throw new Error(`pinpoint: building ${entry} failed: ${built.logs.map(String).join("\n")}`);
-  }
-
-  return await output.text();
-}
+const ENTRY = join(import.meta.dir, "..", "overlay", "main.ts");
 
 /**
  * The overlay, built once per server. An IIFE, since a classic `<script>` shares the app's global
- * scope: the default ESM output has no wrapper, and its names would collide with the app's. A
- * classic script also loads cross-origin without CORS, where a module script would need it.
+ * scope: the default ESM output has no wrapper, and its names would collide with the app's.
  * The session's directory is written into it, so a page learns where its batches go with no request.
  */
-export function buildOverlay(root: string): Promise<string> {
-  return bundle("overlay/main.ts", {
+export async function buildOverlay(root: string): Promise<string> {
+  const built = await Bun.build({
+    entrypoints: [ENTRY],
     format: "iife",
     target: "browser",
     define: { PINPOINT_ROOT: JSON.stringify(root) },
   });
-}
 
-/**
- * The Vite plugin, bundled to `<dir>/vite.mjs` at each start: the path an app's `vite.config.ts`
- * imports stays the same across updates of pinpoint, and its code follows the running version.
- */
-export async function writeViteModule(dir: string): Promise<string> {
-  const code = await bundle("vite/pinpoint.ts", { format: "esm", target: "node" });
-  const file = join(dir, "vite.mjs");
-  const current = await readFile(file, "utf8").catch(() => null);
+  const output = built.outputs[0];
 
-  if (current !== code) {
-    await mkdir(dir, { recursive: true });
-    await writeFile(file, code);
+  if (!built.success || output === undefined) {
+    throw new Error(`pinpoint: building the overlay failed: ${built.logs.map(String).join("\n")}`);
   }
 
-  return file;
+  return await output.text();
 }

@@ -1,7 +1,7 @@
 {
   "name": "pinpoint",
-  "version": "0.1.0",
-  "description": "Point at your running app and talk to Claude: an overlay in the dev build picks an element by a click or a zone by a drag, takes a quick label or a note, and keeps each selection in a batch you send at once; the batch reaches the session as a prompt, each element described by its selector, role, accessible name, box and styles",
+  "version": "0.2.0",
+  "description": "Point at your running app and talk to Claude: the session's address serves the app with an overlay that picks an element by a click or a zone by a drag, takes a quick label or a note, and keeps each selection in a batch you send at once; the batch reaches the session as a prompt, each element described by its selector, role, accessible name, box and styles",
   "author": {
     "name": "Augustin BENGOLEA",
     "email": "bengous@protonmail.com"
@@ -9,5 +9,5 @@
   "homepage": "https://github.com/bengous/claude-code-plugins/tree/main/pinpoint",
   "repository": "https://github.com/bengous/claude-code-plugins",
   "license": "MIT",
-  "keywords": ["browser", "overlay", "dev-server", "vite", "feedback", "mod", "function-hooks"]
+  "keywords": ["browser", "overlay", "dev-server", "proxy", "feedback", "mod", "function-hooks"]
 }
