@@ -7,6 +7,7 @@ import type {
   Selection,
   Style,
   Target,
+  TargetRequest,
 } from "../shared/wire.ts";
 
 /**
@@ -139,6 +140,10 @@ export function parseDelivery(value: unknown): Delivery | null {
   if (outcome === "delivered") return { seq, outcome };
 
   return outcome === "dropped" && typeof reason === "string" ? { seq, outcome, reason } : null;
+}
+
+export function parseTargetRequest(value: unknown): TargetRequest | null {
+  return isRecord(value) && typeof value.url === "string" ? { url: value.url } : null;
 }
 /* oxlint-enable anti-slop/no-runtime-typeof, anti-slop/no-unknown-parameters, anti-slop/no-unsafe-dictionary-type, anti-slop/no-unknown-returns */
 

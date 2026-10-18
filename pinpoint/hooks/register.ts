@@ -1,7 +1,8 @@
 import type { EngineInterface, Register, Timer } from "claude-code";
 
+import { targetOf } from "../shared/target.ts";
 import type { Delivery, ServerLine } from "../shared/wire.ts";
-import { parseServerLine, parseSessionRecord, type SessionRecord } from "./parse.ts";
+import { argumentsOf, parseServerLine, parseSessionRecord, type SessionRecord } from "./parse.ts";
 import {
   type Address,
   baseOf,
@@ -10,14 +11,16 @@ import {
   close,
   type Host,
   start,
+  switchTarget,
   tellDelivery,
 } from "./server.ts";
 
 /**
- * The pinpoint mod: `/pinpoint:start` spawns one server per session, which the app's pages load
- * the overlay from; each batch the server prints is handed to the session as a prompt, in order,
- * and the server told it went in. `/pinpoint:stop` ends it. A server that dies comes back on its
- * port and token, so the pages reconnect by themselves.
+ * The pinpoint mod: `/pinpoint:start [url]` spawns one server per session, which serves the app
+ * with the overlay at its address, or asks which app until one is chosen; each batch the server
+ * prints is handed to the session as a prompt, in order, and the server told it went in.
+ * `/pinpoint:start <other url>` switches the app, `/pinpoint:stop` ends it. A server that dies
+ * comes back on its port and token, serving the same app, so the pages reconnect by themselves.
  */
 
 const START_SKILL = "pinpoint:start";
@@ -75,12 +78,35 @@ function recordKey(sessionId: string): string {
   return `session:${sessionId}`;
 }
 
+/** The session's address for `target`'s path, or for "Which app?" with none. */
+function addressOf(record: SessionRecord, target: URL | null): string {
+  const path = target === null ? "/" : `${target.pathname}${target.search}`;
+
+  return `http://localhost:${record.port}${path}`;
+}
+
 function startedText(record: SessionRecord): string {
+  const target = record.target === null ? null : new URL(record.target);
+
   return [
     `pinpoint is live for ${record.root}.`,
-    `Server: http://localhost:${record.port}/ (the overlay loads from it).`,
-    "A Vite app at or under that directory loads the overlay once its vite.config.ts uses the plugin at ~/.claude/pinpoint/vite.mjs (see the skill). Reload the page, then press Alt+P.",
+    target === null
+      ? `Open ${addressOf(record, null)} in the browser: "Which app?" lists the apps running on this machine and takes any other address. /pinpoint:start <url> serves one directly.`
+      : `Open ${addressOf(record, target)} in the browser: it serves ${target.origin} with the overlay. /pinpoint:start <url> switches to another app at the same address.`,
+    "Press Alt+P on the page to point. A Vite app whose vite.config.ts uses the plugin at ~/.claude/pinpoint/vite.mjs also loads the overlay at its own address (see the skill).",
   ].join("\n");
+}
+
+function switchedText(record: SessionRecord, target: URL): string {
+  return `pinpoint now serves ${target.origin} at ${addressOf(record, target)}; reload the tabs open there.`;
+}
+
+function selfText(record: SessionRecord, asked: string): string {
+  return `pinpoint did not take ${asked}: it is this pinpoint server's own address, which would serve itself. Open ${addressOf(record, null)} to pick the app, or run /pinpoint:start with the app's address.`;
+}
+
+function notAnAddressText(given: string): string {
+  return `pinpoint: "${given}" is not an http(s) address, so nothing changed. Run /pinpoint:start <url>, as /pinpoint:start http://localhost:5173/, or /pinpoint:start alone to pick the app in the browser.`;
 }
 
 const NOT_STARTED =
@@ -194,7 +220,7 @@ export const register: Register = (on) => {
     const kept: Address | null =
       record.port === 0 ? null : { port: record.port, token: record.token };
 
-    const child = await start(host, record.serverSession, record.root, kept);
+    const child = await start(host, record.serverSession, record.root, kept, record.target);
 
     if (child === null) return;
 
@@ -204,7 +230,12 @@ export const register: Register = (on) => {
       return;
     }
 
-    tenure.record = { ...tenure.record, port: child.address.port, token: child.address.token };
+    tenure.record = {
+      ...tenure.record,
+      port: child.address.port,
+      token: child.address.token,
+      target: child.target,
+    };
     await host.storeSet(recordKey(tenure.sessionId), tenure.record);
 
     if (!holds(from)) {
@@ -257,7 +288,10 @@ export const register: Register = (on) => {
     }
   }
 
-  /** Reads the child until it ends, queueing each batch on the tenure's relays. */
+  /**
+   * Reads the child until it ends, queueing each batch on the tenure's relays and recording each
+   * app it says it serves, which a revival serves again.
+   */
   async function read(host: Host, live: Live): Promise<void> {
     const { tenure } = live;
 
@@ -273,6 +307,10 @@ export const register: Register = (on) => {
           .catch((cause: unknown) => {
             host.log(`pinpoint: batch ${line.seq} was not relayed: ${String(cause)}`);
           });
+      } else if (line?.type === "target") {
+        if (!holds(live)) continue;
+        tenure.record = { ...tenure.record, target: line.target };
+        await host.storeSet(recordKey(tenure.sessionId), tenure.record);
       } else {
         host.log(
           `pinpoint: the server printed a line the module does not read: ${next.value.slice(0, 200)}`,
@@ -319,6 +357,18 @@ export const register: Register = (on) => {
     const host = hostOf($);
     const from = state;
     const said = (line: string) => ({ text: `${result.text}\n\n${line}` });
+    const given = argumentsOf(e.text);
+    const asked = given === null ? null : targetOf(given);
+
+    if (given !== null && asked === null) return said(notAnAddressText(given));
+
+    if (from.kind === "live" && asked !== null) {
+      const refused = await switchTarget(host, from.child.address, asked.href);
+
+      if (refused !== null) return said(`pinpoint kept the app it serves: ${refused}`);
+
+      return said(switchedText(from.tenure.record, asked));
+    }
 
     if (from.kind !== "idle" && from.kind !== "lost") return said(wayInText(from));
     let tenure: Tenure;
@@ -334,6 +384,7 @@ export const register: Register = (on) => {
         root: await $.session.root(),
         port: 0,
         token: "",
+        target: null,
         relayed: 0,
       };
 
@@ -341,11 +392,18 @@ export const register: Register = (on) => {
       tenure = { sessionId, record, relays: Promise.resolve() };
     }
 
+    if (asked !== null) tenure.record = { ...tenure.record, target: asked.href };
     const starting: Starting = { kind: "starting", tenure };
     become(host, starting);
     await enter(host, starting, []);
 
-    if (!holds(starting)) return said(wayInText(state));
+    if (!holds(starting)) {
+      // The server refuses a `--target` that is its own address, which only its bind could tell.
+      return state.kind === "live" && asked !== null && state.child.target === null
+        ? said(selfText(state.tenure.record, asked.href))
+        : said(wayInText(state));
+    }
+
     become(host, from);
 
     return said(NOT_STARTED);

@@ -206,6 +206,17 @@ plugins (September 2026), unless a line says otherwise.
   `disable-model-invocation: true` so only the person runs it, closed on the
   plugin's own `skill.prompt` hook.
 
+- `skill.prompt` has no field for what the person typed after the skill's
+  name; `text` carries it. With no `$ARGUMENTS` (nor `$1`, nor a named
+  argument) in the file, Claude Code ends the text with `\n\n\nARGUMENTS:
+  <input>` before the hook runs, and with nothing typed adds no such line;
+  with `$ARGUMENTS`, the input stands in the text where the placeholder was.
+  The text also starts with `Base directory for this skill: <dir>`. Measured
+  in `claude -p` with a throwaway module that echoed `e.text` into the
+  transcript, Claude Code 2.1.301, Linux, 2026-10-18; the append is
+  documented at https://code.claude.com/docs/en/skills#pass-arguments-to-skills.
+  `pinpoint`'s `argumentsOf` reads that last line.
+
 - A `tool.call` hook with no matcher breaks worktree isolation, in every
   session where its plugin is enabled, from the module's load. It wraps every
   tool call of every agent, and a subagent spawned with `isolation: worktree`

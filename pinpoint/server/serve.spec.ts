@@ -4,7 +4,13 @@ import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promis
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import type { BatchRequest, Delivery, Selection, ServerLine } from "../shared/wire.ts";
+import type {
+  BatchRequest,
+  Delivery,
+  Selection,
+  ServerLine,
+  TargetRequest,
+} from "../shared/wire.ts";
 import { type Started, startServer } from "./serve.ts";
 
 const APP = "http://localhost:5173";
@@ -53,6 +59,7 @@ async function serve(
   dir: string | null = null,
   kept: { port: number; token: string } | null = null,
   target: URL | null = null,
+  ports: readonly number[] = [],
 ): Promise<Running> {
   const home = dir ?? (await mkdtemp(join(tmpdir(), "pinpoint-")));
   const lines: ServerLine[] = [];
@@ -65,6 +72,7 @@ async function serve(
     port: kept?.port ?? 0,
     token: kept?.token,
     target,
+    ports,
     announce: (line) => lines.push(line),
     closed: () => {
       closed = true;
@@ -86,6 +94,7 @@ function url(one: Running, path: string): string {
 type Posted =
   | BatchRequest
   | Delivery
+  | TargetRequest
   | { readonly selections: readonly Partial<Selection>[] }
   | Readonly<Record<string, never>>;
 
@@ -360,6 +369,7 @@ describe("the server", () => {
       type: "ready",
       port: one.started.port,
       token: one.started.token,
+      target: null,
     });
     expect(entry).toMatchObject({
       version: 1,
@@ -865,11 +875,130 @@ describe("a server with a target app", () => {
   });
 });
 
-describe("a server without a target", () => {
-  test("what lies outside the token's routes is not found, a WebSocket included", async () => {
+/** Posts the "Which app?" form, as the page's own button or field does. */
+function pick(one: Running, typed: string): Promise<Response> {
+  return fetch(url(one, "pick"), {
+    method: "POST",
+    headers: { origin: `http://127.0.0.1:${one.started.port}` },
+    body: new URLSearchParams({ url: typed }),
+    redirect: "manual",
+  });
+}
+
+/** Sets the app as the module does, with no `Origin`, or as a page would. */
+function retarget(one: Running, address: string, origin: string | null = null): Promise<Response> {
+  return post(one, "api/target", { url: address }, origin);
+}
+
+function site(one: Running): string {
+  return `http://127.0.0.1:${one.started.port}/`;
+}
+
+describe("a server with no app chosen", () => {
+  test("asks which app at /, listing each app found by its title and address", async () => {
+    const target = app();
+    const one = await serve(null, null, null, [target.url.port].map(Number));
+    const response = await fetch(site(one));
+    const page = await response.text();
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("content-type")).toBe("text/html; charset=utf-8");
+    expect(page).toContain("<h1>Which app?</h1>");
+    expect(page).toContain(`<span class="name">App</span>`);
+    expect(page).toContain(`<span class="address">http://localhost:${target.url.port}/</span>`);
+    expect(page).toContain(`action="/t/${one.started.token}/pick"`);
+  });
+
+  test("anything but / is not found, a WebSocket included", async () => {
     const one = await serve();
 
-    expect((await fetch(`http://127.0.0.1:${one.started.port}/`)).status).toBe(404);
+    expect((await fetch(`${site(one)}main.js`)).status).toBe(404);
     expect(await connect(one, "/").opened).toBe(false);
+  });
+
+  test("a click on an app makes the address serve it, with the overlay", async () => {
+    const target = app();
+    const one = await serve();
+    const address = `http://localhost:${target.url.port}/`;
+    const chosen = await pick(one, address);
+
+    expect(chosen.status).toBe(303);
+    expect(chosen.headers.get("location")).toBe("/");
+    expect(one.lines.at(-1)).toEqual({ type: "target", target: address });
+    expect(await (await fetch(site(one))).text()).toContain(`/t/${one.started.token}/overlay.js`);
+  });
+
+  test("the field takes an address with no scheme, and opens it at its path", async () => {
+    const target = app();
+    const one = await serve();
+    const chosen = await pick(one, `localhost:${target.url.port}/echo?x=1`);
+
+    expect(chosen.headers.get("location")).toBe("/echo?x=1");
+    expect((await fetch(`${site(one)}echo?x=1`)).status).toBe(201);
+  });
+
+  test("the server's own address is refused, the page saying why", async () => {
+    const one = await serve();
+    const own = `http://localhost:${one.started.port}/`;
+    const refused = await pick(one, own);
+    const page = await refused.text();
+
+    expect(refused.status).toBe(400);
+    expect(page).toContain(`http://localhost:${one.started.port} is this pinpoint server`);
+    expect(page).toContain(`value="${own}"`);
+    expect(one.lines.filter((line) => line.type === "target")).toEqual([]);
+    expect(await (await fetch(site(one))).text()).toContain("Which app?");
+  });
+
+  test("what is not an http(s) address is refused, the page keeping what was typed", async () => {
+    const one = await serve();
+    const refused = await pick(one, "ftp://files.example/");
+
+    expect(refused.status).toBe(400);
+    expect(await refused.text()).toContain('value="ftp://files.example/"');
+  });
+
+  test("a --target that is the server's own address is refused once bound", async () => {
+    const first = await serve();
+    const kept = { port: first.started.port, token: first.started.token };
+    first.started.stop();
+    const second = await serve(first.dir, kept, new URL(`http://127.0.0.1:${kept.port}/`));
+
+    expect(second.lines[0]).toEqual({ type: "ready", ...kept, target: null });
+    expect(await (await fetch(site(second))).text()).toContain("Which app?");
+  });
+});
+
+describe("switching the app", () => {
+  test("the module's switch serves the other app at the same address", async () => {
+    const before = app();
+    const after = app();
+    const one = await serve(null, null, before.url);
+
+    expect(one.lines[0]).toMatchObject({ target: before.url.href });
+    expect((await retarget(one, after.url.href)).status).toBe(204);
+    expect(one.lines.at(-1)).toEqual({ type: "target", target: after.url.href });
+    expect((await fetch(`${site(one)}old`, { redirect: "manual" })).status).toBe(302);
+    expect(before.asked).toEqual([]);
+    expect(after.asked).toEqual(["GET /old"]);
+  });
+
+  test("a switch to the server's own address is refused, the app kept", async () => {
+    const before = app();
+    const one = await serve(null, null, before.url);
+    const refused = await retarget(one, `http://localhost:${one.started.port}/`);
+
+    expect(refused.status).toBe(400);
+    expect(await refused.text()).toContain("is this pinpoint server");
+    await fetch(`${site(one)}old`, { redirect: "manual" });
+
+    expect(before.asked).toEqual(["GET /old"]);
+  });
+
+  test("a page cannot switch the app: the route is the module's", async () => {
+    const before = app();
+    const one = await serve(null, null, before.url);
+
+    expect((await retarget(one, "http://localhost:1/", APP)).status).toBe(404);
   });
 });

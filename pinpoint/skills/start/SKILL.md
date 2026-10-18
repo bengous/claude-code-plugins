@@ -3,15 +3,16 @@ name: start
 description: >
   Start pinpoint for this session: the user points at elements of their running app in the browser, writes a label or a note for each, and sends them as one batch that reaches this session as a prompt. Only the user runs it.
 disable-model-invocation: true
+argument-hint: "[app url]"
 ---
 
 # Pinpoint
 
-The lines after this text say whether the server started and for which directory. Tell the user in one or two sentences.
+The lines after this text say whether the server started, which app it serves, and the address the user opens in the browser. Tell the user in one or two sentences.
 
-## Wire the app, once
+## The app's own Vite address, only if the user asks
 
-The overlay loads in a Vite app's dev server, never in its build. Read the app's `vite.config.*` (the one at or under the directory named below). If it does not load pinpoint yet, show the user this change and make it once they agree:
+The address above needs no change to the app. Only when the user wants the overlay at a Vite app's own dev address instead: read the app's `vite.config.*` (the one at or under the directory named below). If it does not load pinpoint yet, show the user this change and make it once they agree:
 
 ```ts
 import { homedir } from "node:os";

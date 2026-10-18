@@ -1,12 +1,19 @@
 import type { CommandRunInput, SessionStartInput, SkillPromptArgs } from "claude-code";
 import { describe, expect, test, tier } from "claude-code/testing";
 
-import { deliveries, READY, ROOT, SERVER, SESSION_ID, world } from "./fixtures.ts";
+import { deliveries, posted, READY, ROOT, SERVER, SESSION_ID, world } from "./fixtures.ts";
 import { CRASHES, HEARTBEAT_MS } from "./register.ts";
 
 tier("user");
 
 const START: SkillPromptArgs = { skill: "pinpoint:start", text: "t" };
+
+const APP = "http://localhost:5173/admin";
+
+/** `/pinpoint:start <typed>`: with no `$ARGUMENTS` in the skill, Claude Code ends its text so. */
+function startWith(typed: string): SkillPromptArgs {
+  return { skill: "pinpoint:start", text: `t\n\n\nARGUMENTS: ${typed}` };
+}
 
 const STOP: SkillPromptArgs = { skill: "pinpoint:stop", text: "t" };
 
@@ -14,7 +21,7 @@ const SESSION: SessionStartInput = { surface: "terminal", isInteractive: true, c
 
 const KEPT = ["--port", String(SERVER.port), "--token", SERVER.token];
 
-const RECORD = { serverSession: SESSION_ID, root: ROOT, ...SERVER, relayed: 0 };
+const RECORD = { serverSession: SESSION_ID, root: ROOT, ...SERVER, target: null, relayed: 0 };
 
 const ENDED = { code: 1, signal: null } as const;
 
@@ -44,7 +51,50 @@ describe("/pinpoint:start", () => {
       ROOT,
     ]);
     expect(result.text).toContain(`pinpoint is live for ${ROOT}.`);
-    expect(result.text).toContain(`http://localhost:${SERVER.port}/`);
+    expect(result.text).toContain(
+      `Open http://localhost:${SERVER.port}/ in the browser: "Which app?"`,
+    );
+    expect(seen.store.get(KEY)).toEqual(RECORD);
+  });
+
+  test("with an address, the server serves that app, and the address opens it at its path", async ($, on) => {
+    const seen = world(on);
+    const result = await $.skill.prompt(startWith(APP));
+
+    expect(seen.children[0]?.argv.slice(-2)).toEqual(["--target", APP]);
+    expect(result.text).toContain(`Open http://localhost:${SERVER.port}/admin in the browser`);
+    expect(result.text).toContain("it serves http://localhost:5173 with the overlay");
+    expect(seen.store.get(KEY)).toEqual({ ...RECORD, target: APP });
+  });
+
+  test("a bare port is an app on this machine", async ($, on) => {
+    const seen = world(on);
+    await $.skill.prompt(startWith("5173"));
+
+    expect(seen.children[0]?.argv.slice(-2)).toEqual(["--target", "http://localhost:5173/"]);
+  });
+
+  test("what is not an http(s) address starts nothing, and says so", async ($, on) => {
+    const seen = world(on);
+    const result = await $.skill.prompt(startWith("ftp://files.example/"));
+
+    expect(seen.children).toEqual([]);
+    expect(result.text).toContain('"ftp://files.example/" is not an http(s) address');
+  });
+
+  test("the server's own address is refused: it starts asking which app, and says why", async ($, on) => {
+    const seen = world(on, {
+      spawn: (child) => {
+        child.write(READY);
+      },
+    });
+
+    const own = `http://localhost:${SERVER.port}/`;
+    const result = await $.skill.prompt(startWith(own));
+
+    expect(result.text).toContain(
+      `pinpoint did not take ${own}: it is this pinpoint server's own address`,
+    );
     expect(seen.store.get(KEY)).toEqual(RECORD);
   });
 
@@ -54,6 +104,43 @@ describe("/pinpoint:start", () => {
     await $.skill.prompt(START);
 
     expect(seen.children).toHaveLength(1);
+  });
+
+  test("an address while live switches the app, the server and its address kept", async ($, on) => {
+    const seen = world(on);
+    await $.skill.prompt(START);
+    const result = await $.skill.prompt(startWith(APP));
+
+    expect(seen.children).toHaveLength(1);
+    expect(posted(seen, "api/target")).toEqual([JSON.stringify({ url: APP })]);
+    expect(result.text).toContain(
+      `pinpoint now serves http://localhost:5173 at http://localhost:${SERVER.port}/admin`,
+    );
+
+    seen.children[0]?.write({ type: "target", target: APP });
+    await seen.clock.settle();
+
+    expect(seen.store.get(KEY)).toEqual({ ...RECORD, target: APP });
+  });
+
+  test("a switch the server refuses keeps the app, and says why", async ($, on) => {
+    const seen = world(on);
+    await $.skill.prompt(startWith("http://localhost:3000/"));
+    seen.refuse = "http://localhost:4242 is this pinpoint server: name the app's own address.";
+    const result = await $.skill.prompt(startWith(`http://localhost:${SERVER.port}/`));
+
+    expect(result.text).toContain(`pinpoint kept the app it serves: ${seen.refuse}`);
+    expect(seen.store.get(KEY)?.target).toBe("http://localhost:3000/");
+  });
+
+  test("a start with no address while live keeps the app, and names it", async ($, on) => {
+    const seen = world(on);
+    await $.skill.prompt(startWith(APP));
+    const result = await $.skill.prompt(START);
+
+    expect(seen.children).toHaveLength(1);
+    expect(posted(seen, "api/target")).toEqual([]);
+    expect(result.text).toContain("it serves http://localhost:5173 with the overlay");
   });
 
   test("a server that cannot start leaves no record, and says so", async ($, on) => {
@@ -168,6 +255,27 @@ describe("the server's life", () => {
 
     expect(seen.children).toHaveLength(2);
     expect(seen.children[1]?.argv.slice(-4)).toEqual(KEPT);
+  });
+
+  test("the app a page picked is recorded, and the server that comes back serves it", async ($, on) => {
+    const seen = world(on);
+    await $.skill.prompt(START);
+    seen.children[0]?.write({ type: "target", target: APP });
+    await seen.clock.settle();
+
+    expect(seen.store.get(KEY)).toEqual({ ...RECORD, target: APP });
+
+    seen.children[0]?.exit(ENDED);
+    await seen.clock.settle();
+
+    expect(seen.children[1]?.argv.slice(-6)).toEqual([...KEPT, "--target", APP]);
+  });
+
+  test("a reload starts the stored server serving its app again", async ($, on) => {
+    const seen = world(on, { stored: new Map([[KEY, { ...RECORD, target: APP }]]) });
+    await $.session.start(SESSION);
+
+    expect(seen.children[0]?.argv.slice(-6)).toEqual([...KEPT, "--target", APP]);
   });
 
   test("a read loop that fails is an end like any other: the server comes back", async ($, on) => {
@@ -325,5 +433,5 @@ describe("/clear", () => {
 });
 
 test("the ready line the fixtures write is the one the server prints", () => {
-  expect(READY).toEqual({ type: "ready", port: SERVER.port, token: SERVER.token });
+  expect(READY).toEqual({ type: "ready", port: SERVER.port, token: SERVER.token, target: null });
 });

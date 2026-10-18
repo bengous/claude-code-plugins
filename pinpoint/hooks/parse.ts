@@ -12,6 +12,8 @@ export type SessionRecord = {
   readonly root: string;
   readonly port: number;
   readonly token: string;
+  /** The app the server serves, as its `ready` or `target` line last said: a revival serves it again. */
+  readonly target: string | null;
   /** The last batch handed to the session: a server that tells it again is not relayed twice. */
   readonly relayed: number;
 };
@@ -33,10 +35,12 @@ export function parseServerLine(text: string): ServerLine | null {
   if (!isRecord(value)) return null;
 
   if (value.type === "ready") {
-    const { port, token } = value;
+    const { port, token, target } = value;
 
-    return typeof port === "number" && typeof token === "string"
-      ? { type: "ready", port, token }
+    return typeof port === "number" &&
+      typeof token === "string" &&
+      (target === null || typeof target === "string")
+      ? { type: "ready", port, token, target }
       : null;
   }
 
@@ -48,19 +52,38 @@ export function parseServerLine(text: string): ServerLine | null {
       : null;
   }
 
+  if (value.type === "target") {
+    const { target } = value;
+
+    return typeof target === "string" ? { type: "target", target } : null;
+  }
+
   return null;
+}
+
+const ARGUMENTS = /\n\nARGUMENTS: (?<given>.*)$/u;
+
+/**
+ * What the person typed after the skill's name, `null` for nothing: with no `$ARGUMENTS` in its
+ * file, Claude Code ends the skill's text with `ARGUMENTS: <input>`, before `skill.prompt` runs.
+ */
+export function argumentsOf(text: string): string | null {
+  const given = ARGUMENTS.exec(text)?.groups?.given?.trim() ?? "";
+
+  return given === "" ? null : given;
 }
 
 export function parseSessionRecord(value: unknown): SessionRecord | null {
   if (!isRecord(value)) return null;
-  const { serverSession, root, port, token, relayed } = value;
+  const { serverSession, root, port, token, target, relayed } = value;
 
   return typeof serverSession === "string" &&
     typeof root === "string" &&
     typeof port === "number" &&
     typeof token === "string" &&
+    (target === null || typeof target === "string") &&
     typeof relayed === "number"
-    ? { serverSession, root, port, token, relayed }
+    ? { serverSession, root, port, token, target, relayed }
     : null;
 }
 /* oxlint-enable anti-slop/no-runtime-typeof, anti-slop/no-unknown-parameters, anti-slop/no-unsafe-dictionary-type */

@@ -17,7 +17,7 @@ export const ROOT = "/work/app";
 
 export const SERVER = { port: 4242, token: "tok" } as const;
 
-export const READY = { type: "ready", ...SERVER } as const;
+export const READY = { type: "ready", ...SERVER, target: null } as const;
 
 /** A server as the module spawned it: its argv, and the test's hand on what it writes. */
 export type Child = {
@@ -31,11 +31,15 @@ export type Child = {
   readonly killed: () => boolean;
 };
 
-/** What a child does as it starts: by default it writes `ready`; a `deny` is a child that cannot start. */
+/**
+ * What a child does as it starts: by default it writes `ready`, serving the app its `--target`
+ * names; a `deny` is a child that cannot start.
+ */
 type Spawn = (child: Child) => { readonly deny: string } | undefined;
 
 const STARTS: Spawn = (child) => {
-  child.write(READY);
+  const at = child.argv.indexOf("--target");
+  child.write({ ...READY, target: at === -1 ? null : (child.argv[at + 1] ?? null) });
 };
 
 export type Request = { readonly path: string; readonly body: string | undefined };
@@ -48,6 +52,8 @@ export type World = {
   turn: Promise<void> | undefined;
   /** While set, each delete from the store waits for it before it lands. */
   deleting: Promise<void> | undefined;
+  /** While set, the server refuses each app `api/target` asks for, in these words. */
+  refuse: string | undefined;
   readonly clock: MockClock;
   readonly children: Child[];
   readonly requests: Request[];
@@ -78,8 +84,8 @@ const RAN: ProcessRunResult = {
   isStderrTruncated: false,
 };
 
-function reply(status: number): HttpResponse {
-  return { status, ok: status < 300, headers: {}, text: "" };
+function reply(status: number, text = ""): HttpResponse {
+  return { status, ok: status < 300, headers: {}, text };
 }
 
 function children(on: On, spawn: Spawn, spawned: Child[]): void {
@@ -144,6 +150,7 @@ export function world(on: On, options: WorldOptions = {}): World {
     drop: undefined,
     turn: undefined,
     deleting: undefined,
+    refuse: undefined,
     clock: mock.clock(on),
     children: [],
     requests: [],
@@ -165,6 +172,10 @@ export function world(on: On, options: WorldOptions = {}): World {
 
     // As the real server does: its files removed, it answers, then its process ends.
     if (path === "api/close") built.children.at(-1)?.exit({ code: 0, signal: null });
+
+    if (path === "api/target" && built.refuse !== undefined) {
+      return { value: reply(400, built.refuse) };
+    }
 
     return { value: reply(204) };
   });
@@ -221,9 +232,12 @@ export function world(on: On, options: WorldOptions = {}): World {
   return built;
 }
 
+/** What the module posted to `path`, in order. */
+export function posted(seen: World, path: string): (string | undefined)[] {
+  return seen.requests.filter((request) => request.path === path).map((request) => request.body);
+}
+
 /** What the module posted to `api/delivery`, in order. */
 export function deliveries(seen: World): (string | undefined)[] {
-  return seen.requests
-    .filter((request) => request.path === "api/delivery")
-    .map((request) => request.body);
+  return posted(seen, "api/delivery");
 }

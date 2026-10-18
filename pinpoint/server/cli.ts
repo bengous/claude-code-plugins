@@ -4,7 +4,9 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { parseArgs } from "node:util";
 
+import { targetOf } from "../shared/target.ts";
 import { PINPOINT_DIR } from "../shared/wire.ts";
+import { DEV_PORTS } from "./apps.ts";
 import { sessionFiles } from "./files.ts";
 import { startServer } from "./serve.ts";
 
@@ -30,13 +32,14 @@ if (command === "clean" && session !== undefined) {
   process.exit(0);
 }
 
-const target = values.target === undefined ? null : URL.parse(values.target);
+const target = values.target === undefined ? null : targetOf(values.target);
 
-const badTarget =
-  values.target !== undefined &&
-  (target === null || (target.protocol !== "http:" && target.protocol !== "https:"));
-
-if (command !== "serve" || session === undefined || root === undefined || badTarget) {
+if (
+  command !== "serve" ||
+  session === undefined ||
+  root === undefined ||
+  (values.target !== undefined && target === null)
+) {
   console.error(
     "usage: cli.ts serve --session <id> --root <dir> [--port <n> --token <t>] [--target <http(s) url>] | cli.ts clean --session <id>",
   );
@@ -62,6 +65,7 @@ await startServer({
   port: Number(values.port ?? 0),
   token: values.token,
   target,
+  ports: DEV_PORTS,
   announce: (line) => {
     process.stdout.write(`${JSON.stringify(line)}\n`);
   },

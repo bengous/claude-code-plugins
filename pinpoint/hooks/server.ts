@@ -10,7 +10,7 @@ import type {
   Timer,
 } from "claude-code";
 
-import type { Delivery } from "../shared/wire.ts";
+import type { Delivery, TargetRequest } from "../shared/wire.ts";
 import { parseServerLine, type SessionRecord } from "./parse.ts";
 
 /**
@@ -50,10 +50,16 @@ export type Address = { readonly port: number; readonly token: string };
 type Lines = AsyncGenerator<string, ProcessSpawnResult>;
 
 /**
- * A server this module spawned: the rest of its output, and the way to end it. `end` returns the
- * engine's stream, which kills the child even while a read is pending.
+ * A server this module spawned: the app its `ready` said it serves, the rest of its output, and
+ * the way to end it. `end` returns the engine's stream, which kills the child even while a read is
+ * pending.
  */
-export type Child = { readonly address: Address; readonly lines: Lines; readonly end: () => void };
+export type Child = {
+  readonly address: Address;
+  readonly target: string | null;
+  readonly lines: Lines;
+  readonly end: () => void;
+};
 
 /** Cuts the pieces of stdout on `\n` and keeps the tail for the next piece: a piece ends wherever the child's write did. */
 async function* linesOf(
@@ -82,14 +88,15 @@ export function baseOf(address: Address): string {
 
 /**
  * Spawns the server at the session's root and reads it up to `ready`, for `START_TIMEOUT_MS` at
- * most; `kept` asks for the port and the token the app's pages already load from. A child that
- * gives no `ready` is ended, and `null` answered with the reason logged.
+ * most; `kept` asks for the port and the token the app's pages already load from, `target` for the
+ * app to serve. A child that gives no `ready` is ended, and `null` answered with the reason logged.
  */
 export async function start(
   host: Host,
   serverSession: string,
   root: string,
   kept: Address | null,
+  target: string | null,
 ): Promise<Child | null> {
   const argv = [
     "bun",
@@ -100,6 +107,7 @@ export async function start(
     "--root",
     root,
     ...(kept === null ? [] : ["--port", String(kept.port), "--token", kept.token]),
+    ...(target === null ? [] : ["--target", target]),
   ];
 
   const heard = { stderr: "" };
@@ -133,8 +141,15 @@ export async function start(
 
     const ready = parseServerLine(first.value);
 
-    if (ready?.type === "ready")
-      return { address: { port: ready.port, token: ready.token }, lines, end };
+    if (ready?.type === "ready") {
+      return {
+        address: { port: ready.port, token: ready.token },
+        target: ready.target,
+        lines,
+        end,
+      };
+    }
+
     end();
     host.log(
       `pinpoint: the server did not start: its first line is not ready: ${first.value.slice(0, 200)}`,
@@ -155,6 +170,28 @@ export async function close(host: Host, address: Address): Promise<boolean> {
     .catch(() => ({ ok: false }));
 
   return response.ok;
+}
+
+/**
+ * Asks the server to serve `url` from now on: `null` once it does, else why not, in its words
+ * or the fetch's. The server's `target` line follows, which the read loop records.
+ */
+export async function switchTarget(
+  host: Host,
+  address: Address,
+  url: string,
+): Promise<string | null> {
+  const request: TargetRequest = { url };
+
+  const response = await host
+    .fetch(`${baseOf(address)}api/target`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(request),
+    })
+    .catch((cause: unknown) => ({ ok: false, status: 0, text: String(cause) }));
+
+  return response.ok ? null : response.text.trim() || `the server answered ${response.status}`;
 }
 
 /** Tells the server what became of a batch, so the page says it; a server that does not hear is logged. */
