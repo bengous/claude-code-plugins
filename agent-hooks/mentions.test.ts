@@ -27,11 +27,12 @@ function doorKinds(command: string, vocabulary: Vocabulary = PLAIN): string[] {
   return read(command, vocabulary).doors.map((door) => door.kind);
 }
 
+function kinds(command: string): string[] {
+  return findMentions(command, PLAIN).map((mention) => mention.kind);
+}
+
 describe("findMentions", () => {
   test("finds push after git, merge and release after gh, and the release script by path", () => {
-    const kinds = (command: string): string[] =>
-      findMentions(command, PLAIN).map((mention) => mention.kind);
-
     expect(kinds("git push origin main")).toEqual(["push"]);
     expect(kinds("gh pr merge 7")).toEqual(["merge"]);
     expect(kinds("gh api -X PUT repos/o/n/pulls/7/merge")).toEqual(["merge"]);

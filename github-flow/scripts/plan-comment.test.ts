@@ -157,30 +157,30 @@ describe("sessionMarkers", () => {
   });
 });
 
-describe("carriedPlan", () => {
-  /** A home with the stored plans given, and a transcript of one line per content. */
-  async function makeTranscript(
-    stored: Record<string, string>,
-    lines: string[],
-  ): Promise<{ home: string; transcript: string }> {
-    const tmp = makeTmp();
-    const home = join(tmp, "home");
+/** A home with the stored plans given, and a transcript of one line per content. */
+async function makeTranscript(
+  stored: Record<string, string>,
+  lines: string[],
+): Promise<{ home: string; transcript: string }> {
+  const tmp = makeTmp();
+  const home = join(tmp, "home");
 
-    for (const [id, text] of Object.entries(stored)) {
-      await Bun.write(join(home, ".claude", "plans", "by-session", `${id}.md`), text);
-    }
-
-    const transcript = join(tmp, "t.jsonl");
-    await Bun.write(
-      transcript,
-      lines
-        .map((content) => JSON.stringify({ type: "user", message: { role: "user", content } }))
-        .join("\n"),
-    );
-
-    return { home, transcript };
+  for (const [id, text] of Object.entries(stored)) {
+    await Bun.write(join(home, ".claude", "plans", "by-session", `${id}.md`), text);
   }
 
+  const transcript = join(tmp, "t.jsonl");
+  await Bun.write(
+    transcript,
+    lines
+      .map((content) => JSON.stringify({ type: "user", message: { role: "user", content } }))
+      .join("\n"),
+  );
+
+  return { home, transcript };
+}
+
+describe("carriedPlan", () => {
   test("a marker with a stored plan yields that plan", async () => {
     const { home, transcript } = await makeTranscript({ A: "<!-- session_id: A -->\n# Plan\n" }, [
       "go",
@@ -237,18 +237,18 @@ describe("carriedPlan", () => {
   });
 });
 
-describe("harnessPlanFile", () => {
-  /** A home whose `~/.claude/plans/<name>.md` files hold the given content. */
-  async function makeHome(files: Record<string, string>): Promise<string> {
-    const home = join(makeTmp(), "home");
+/** A home whose `~/.claude/plans/<name>.md` files hold the given content. */
+async function makeHome(files: Record<string, string>): Promise<string> {
+  const home = join(makeTmp(), "home");
 
-    for (const [name, text] of Object.entries(files)) {
-      await Bun.write(join(home, ".claude", "plans", name), text);
-    }
-
-    return home;
+  for (const [name, text] of Object.entries(files)) {
+    await Bun.write(join(home, ".claude", "plans", name), text);
   }
 
+  return home;
+}
+
+describe("harnessPlanFile", () => {
   test("the newest file with the same content wins", async () => {
     const home = await makeHome({ "old.md": "# Plan\n", "new.md": "# Plan\n" });
     const old = new Date(Date.now() - 10 * 60 * 1000);
