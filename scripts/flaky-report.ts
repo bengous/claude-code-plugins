@@ -229,16 +229,16 @@ export async function retryBun(argv: readonly string[], exec: Exec, dir: string)
 
   const second = await exec([...options, ...files, ...junitTo(secondReport)]);
 
-  const passed = new Set(
-    (await junitAt(secondReport))
-      .filter((testCase) => testCase.failure === null)
-      .map((testCase) => testCase.id),
-  );
+  const after = await junitAt(secondReport);
+  const reran = new Set(after.map(({ file }) => file));
+  const failing = new Set(after.flatMap(({ id, failure }) => (failure === null ? [] : [id])));
 
   return {
     code: second.code,
-    flakes: failed.flatMap(({ id, failure }) =>
-      passed.has(id) ? [{ id, runner: "bun" as const, firstFailure: failure ?? "" }] : [],
+    flakes: failed.flatMap(({ id, file, failure }) =>
+      reran.has(file) && !failing.has(id)
+        ? [{ id, runner: "bun" as const, firstFailure: failure ?? "" }]
+        : [],
     ),
   };
 }
@@ -448,9 +448,10 @@ function commentOf(occurrence: Occurrence): string {
 
 /**
  * One issue per test: a test with no issue opens one, its first occurrence in the body and any
- * other as a comment; a test with one gets a comment per occurrence not recorded there yet, the
+ * other as a comment; a test with one gets a comment per occurrence no issue of it records yet, the
  * first of them reopening it when it is closed. `issues` comes newest first: a test's newest open
- * issue holds its record, else its newest closed one.
+ * issue takes its comments, else its newest closed one. Two `flaky` jobs that both found no issue
+ * leave two open ones; the older is left as it is.
  */
 export function decide(reports: readonly Report[], issues: readonly KnownIssue[]): Action[] {
   const byTest = new Map<string, Occurrence[]>();
@@ -486,8 +487,11 @@ export function decide(reports: readonly Report[], issues: readonly KnownIssue[]
           ];
     }
 
+    const recorded = (occurrence: Occurrence): boolean =>
+      marked.some(({ texts }) => texts.some((text) => text.includes(recordOf(occurrence))));
+
     return occurrences
-      .filter((occurrence) => !issue.texts.some((text) => text.includes(recordOf(occurrence))))
+      .filter((occurrence) => !recorded(occurrence))
       .map((occurrence, at): Action => ({
         kind: at === 0 && !issue.open ? "reopen" : "comment",
         issue: issue.number,
