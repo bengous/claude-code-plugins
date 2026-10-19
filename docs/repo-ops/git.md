@@ -25,6 +25,28 @@ The human reads a sample of what landed on `dev` each week, not every commit. `b
 - The report, oldest first: SHA, subject, files, lines, and the review of that one commit, `/code-review <sha>^..<sha>` ([Choose what to review](https://code.claude.com/docs/en/code-review-local#choose-what-to-review)). When the commit's pull request body carries the `<!-- opened_by: <session id> -->` line `github-flow:pr` writes, found with `gh pr list --state all --search <sha>`, the report adds `claude --resume <session id>`, then `/hindsight debrief` in it. No such line, no hint; a `gh` that fails is named once under the list.
 - An empty week, or one whose commits are all left out, prints `no commit to sample` and exits 0.
 
+## Friction report
+
+`bun ./scripts/friction-report.ts` counts the frictions of the agent workflow over an ISO week, the last complete one or the one `--week <YYYY-Www>` names, and prints each beside the friction audit's average per 7 days, so a change meant to remove a friction is judged by a number. It runs on the workstation only, where the transcripts and the denial log live. It reads `origin/dev` as it is (`--ref`), so `git fetch origin` first.
+
+- Sources: the Claude Code transcripts of every directory under `~/.claude/projects` whose name holds `claude-code-plugins`, subagents included (`--projects-dir`); the auto-mode denial log `~/.local/state/claude/permission-denied.jsonl`, written by the dotfiles' `PermissionDenied` hook (`--denial-log`); the commits of `origin/dev` by committer date, as the sampled review reads them (`landedIn`); `gh issue list --label flaky`. A transcript event counts in the week its own timestamp falls in, whatever file holds it, and once, by its uuid, when a resumed session copied it into a second file. An old week reads as long as Claude Code keeps its transcripts (`cleanupPeriodDays`).
+- The counters:
+
+  | Counter | What counts |
+  |---|---|
+  | release refusals | A main-session user message, the output of a `!` command or pasted terminal output, holding both the release guard's `Bump each version in its plugin.json` and the remote `bengous/claude-code-plugins`; one per session. A refusal never shown to a session is not seen. |
+  | agent CI waits | A Bash call matching `CI_WAIT`: `gh run watch`, `gh pr checks --watch`, or a loop or a `sleep` around `gh run`, `gh pr` or `gh api`. Its foreground time runs from the call to its result; a background call adds none. |
+  | agent git pushes | A Bash call running `git push`, timed the same way: what the pre-push hooks cost, network included. |
+  | `!` commands typed | A user message opening with `<bash-input>`. Releases: `release-plugins` or `scripts/release.ts`. Destructive git: `branch -D`, `push … --delete`, `--force`, `push origin <ref>:dev`, `gh stack merge`. |
+  | worktree isolation refusals | A tool result flagged as an error whose text says the session or the agent is isolated in the worktree, the command is too complex to verify, or the isolation context was lost. |
+  | classifier denials | A denial log line whose `cwd` holds `claude-code-plugins`, listed by `reason` under the table. |
+  | flaky issues | An issue labelled `flaky` opened in the week, and each comment posted on one in it. No such label, no issue. |
+  | review follow-up commits | A subject holding `review of #`, `review's findings`, `second review` or `answers the review`. |
+  | version bump commits | A subject the sampled review leaves out as a bump, `chore(<scope>): x.y.z` (`VERSION_BUMP`). |
+
+- The baseline, `BASELINE`: the audit's totals from 2026-09-21 to 2026-10-19, both days included, 29 days, counted by hand and divided per 7 days. A counter the audit did not count shows `-`. The script's counters, run over that window on 2026-10-20, found 479 CI waits (8.92 foreground hours), 318 isolation refusals, 15 destructive and 11 release `!` commands, 73 review follow-ups, 64 bumps and 4 release refusals, against the audit's 490 (9.18 h), 329, 17, 11, 74, 64 and 4. Ten of the 11 CI waits apart are events copied into a second transcript, which the script counts once.
+- A counter it cannot read prints `?`, with the reason under the table: a missing denial log, a `gh` that fails. Transcript or log lines that do not parse are left out, and their number goes there too.
+
 ## Why fast-forward
 
 Merge commits on `main` accumulated as an ever-growing ladder `dev` never received, and GitHub's rebase-merge re-creates commits unsigned, which once severed the `main`/`dev` common ancestor. Local rebase plus fast-forward push keeps one linear signed history where `main` is a prefix of `dev` by construction.

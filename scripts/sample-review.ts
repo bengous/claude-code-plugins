@@ -36,7 +36,7 @@ const DAY_MS = 86_400_000;
 
 const WEEK_TEXT = /^(\d{4})-W(\d{2})$/u;
 
-const VERSION_BUMP = /^chore(?:\([^)]*\))?: \d+\.\d+\.\d+(?:[\s,]|$)/u;
+export const VERSION_BUMP = /^chore(?:\([^)]*\))?: \d+\.\d+\.\d+(?:[\s,]|$)/u;
 
 const LOCKFILE = /(?:^|\/)(?:[^/]*\.lock|package-lock\.json|bun\.lockb)$/u;
 
