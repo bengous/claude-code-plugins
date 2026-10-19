@@ -175,6 +175,8 @@ jobs:
   # (`docs/repo-ops/protections.md`), and a pull request's run is named `win32 (scoped)`, a name
   # no ruleset requires. `always()` runs it on a push or a dispatch, where `scope` is skipped. The
   # repository's own tooling (`scripts/`, `.claude/hooks`, the shell linters) is not run here.
+  # Each suite retries what failed once (`scripts/flaky-report.ts`), and the job uploads what passed
+  # on the retry for `flaky`, red or green.
   win32:
     name: ${{ github.event_name == 'pull_request' && 'win32 (scoped)' || 'win32' }}
     needs: scope
@@ -212,10 +214,19 @@ jobs:
         run: bun install --cwd vellum --frozen-lockfile --ignore-scripts
 
       - name: Run vellum's suites
-        run: bun test --parallel vellum
+        run: bun ./scripts/flaky-report.ts retry bun --job win32 -- bun test --parallel vellum
 
       - name: Test the vellum hooks module
-        run: claude plugin test vellum
+        run: bun ./scripts/flaky-report.ts retry kit --job win32 -- claude plugin test vellum
+
+      # A name per attempt: a re-run keeps the first attempt's report beside its own.
+      - name: Upload the flaky report
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: flaky-win32-${{ github.run_attempt }}
+          path: flaky-reports/*.json
+          if-no-files-found: ignore
 
   # Mutation testing on what the change alters in the modules `stryker.config.ts` lists or their
   # tests (`scripts/mutation.ts`): a pull request's, a push's to `dev` since its `before`, so an
@@ -296,8 +307,22 @@ jobs:
 
       # 4 workers, not Playwright's default of half the runner's 4 vCPU: measured faster in #194
       # (`docs/repo-ops/checks.md`, Which suite runs on which trigger).
+      # Under `CI`, Playwright retries a failed test once (`vellum/e2e/playwright.config.ts`).
       - name: Run the browser suite at one window
+        id: suite
         run: bun run --cwd vellum e2e -- --project=${{ matrix.window }} --workers=4
+
+      - name: Record the tests that passed on their retry
+        if: ${{ !cancelled() && steps.suite.outcome != 'skipped' }}
+        run: bun ./scripts/flaky-report.ts playwright --job "e2e (${{ matrix.window }})" vellum/test-results/playwright.json
+
+      - name: Upload the flaky report
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: flaky-e2e-${{ matrix.window }}-${{ github.run_attempt }}
+          path: flaky-reports/*.json
+          if-no-files-found: ignore
 
   # The browser suite on Windows, at one window: the server, the harness and the page on the
   # platform `e2e-window` never runs. Named `e2e (…)` so `check-e2e-green.ts` counts it among the
@@ -329,7 +354,20 @@ jobs:
         run: bun run --cwd vellum e2e:install
 
       - name: Run the browser suite at one window
+        id: suite
         run: bun run --cwd vellum e2e -- --project=light-1440 --workers=4
+
+      - name: Record the tests that passed on their retry
+        if: ${{ !cancelled() && steps.suite.outcome != 'skipped' }}
+        run: bun ./scripts/flaky-report.ts playwright --job "e2e (win32, light-1440)" vellum/test-results/playwright.json
+
+      - name: Upload the flaky report
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: flaky-e2e-win32-${{ github.run_attempt }}
+          path: flaky-reports/*.json
+          if-no-files-found: ignore
 
   # The one check the pre-push gate reads, `scripts/check-e2e-green.ts`: green when every window
   # is, Windows' included. Asked of the same requests as the windows, so a run nobody asked leaves it `skipped`,
@@ -353,6 +391,47 @@ jobs:
         env:
           WINDOWS: ${{ needs.e2e-window.result }}
           WIN32: ${{ needs.e2e-win32.result }}
+
+  # One issue per flaky test, from the reports the suite jobs uploaded (`scripts/flaky-report.ts`):
+  # the one job that writes issues, so the suites' jobs keep the read-only token. It runs once any
+  # of them ran, red or green, but not on a fork's pull request, whose token cannot write issues.
+  # One run at a time, none cancelled: two runs never open two issues for one test.
+  flaky:
+    needs: [win32, e2e-window, e2e-win32]
+    if: >-
+      always()
+      && (needs.win32.result != 'skipped'
+      || needs.e2e-window.result != 'skipped'
+      || needs.e2e-win32.result != 'skipped')
+      && (github.event_name != 'pull_request'
+      || github.event.pull_request.head.repo.full_name == github.repository)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write
+    concurrency:
+      group: flaky
+      cancel-in-progress: false
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up tools (bun via mise)
+        uses: jdx/mise-action@v5
+        with:
+          install_args: bun
+
+      # A folder per artifact, every attempt's: a run already recorded is skipped by its marker.
+      - name: Download the flaky reports
+        uses: actions/download-artifact@v8
+        with:
+          pattern: flaky-*
+          path: flaky-reports
+
+      - name: Open or comment on an issue per flaky test
+        run: bun ./scripts/flaky-report.ts report flaky-reports
+        env:
+          GH_TOKEN: ${{ github.token }}
 
   # The label asks for one run: it comes off as that run starts, so the next request is a new
   # label. A job of its own, so the suite's job keeps a read-only token; a re-run of the same

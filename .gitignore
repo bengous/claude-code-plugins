@@ -13,8 +13,11 @@ node_modules/
 # .claude-plugin/types/. A plugin's own tsconfig.json, vellum's, is tracked, which no ignore pattern affects.
 /*/tsconfig.json
 
-# Playwright's traces of failed e2e tests
+# Playwright's traces of failed e2e tests, and its JSON report under CI
 vellum/test-results/
+
+# The reports scripts/flaky-report.ts writes in CI
+flaky-reports/
 
 # Python
 __pycache__/

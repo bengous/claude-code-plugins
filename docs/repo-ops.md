@@ -9,6 +9,7 @@ choice; these pages own the operational details.
 | Pick the commits of the weekly sampled review | [Git procedures](repo-ops/git.md#sampled-review) |
 | Measure the week's frictions of the agent workflow | [Git procedures](repo-ops/git.md#friction-report) |
 | Diagnose a failed hook or CI job; change validation | [Local checks and CI](repo-ops/checks.md) |
+| Read a `flaky` issue, or a test CI passed on its retry | [Flaky tests](repo-ops/checks.md#flaky-tests) |
 | Diagnose a server rejection or recover a ruleset | [GitHub branch protections](repo-ops/protections.md) |
 | Inspect plugin synchronization after a landing | [Managed catalog](plugin-testing/catalog.md) |
 
