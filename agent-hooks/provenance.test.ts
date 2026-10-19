@@ -302,6 +302,22 @@ describe("classify", () => {
       kind: "answered",
       review: false,
     });
+
+    const verbose: RunResult = {
+      kind: "exited",
+      code: 0,
+      stdout: JSON.stringify([
+        { type: "system", subtype: "init" },
+        { type: "assistant", message: { content: [] } },
+        { type: "result", result: '{"trigger": "review"}' },
+      ]),
+      stderr: "",
+    };
+
+    expect(await classify("facts", deadlineIn(30_000), runner(verbose))).toEqual({
+      kind: "answered",
+      review: true,
+    });
     expect(calls[0]).toEqual([
       "claude",
       "-p",

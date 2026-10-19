@@ -544,11 +544,19 @@ export async function classify(
   }
 }
 
-/** The trigger in `claude -p --output-format json`'s output: its `result` holds Haiku's JSON object. */
+/**
+ * The trigger in `claude -p --output-format json`'s output: its result message, alone or the last of the array the
+ * user's `verbose` setting prints, holds Haiku's JSON object.
+ */
 function triggerIn(stdout: string): string | null {
   try {
     const output: unknown = JSON.parse(stdout);
-    const result = isRecord(output) ? stringField(output, "result") : undefined;
+
+    const message = Array.isArray(output)
+      ? output.findLast((item) => isRecord(item) && item["type"] === "result")
+      : output;
+
+    const result = isRecord(message) ? stringField(message, "result") : undefined;
     const answer: unknown = JSON.parse(/\{[\s\S]*\}/u.exec(result ?? "")?.[0] ?? "null");
 
     return isRecord(answer) ? (stringField(answer, "trigger") ?? null) : null;
