@@ -395,9 +395,11 @@ jobs:
   # One issue per flaky test, from the reports the suite jobs uploaded (`scripts/flaky-report.ts`):
   # the one job that writes issues, so the suites' jobs keep the read-only token. It runs once any
   # of them ran, red or green, but not on a fork's pull request, whose token cannot write issues.
-  # One run at a time, none cancelled: two runs never open two issues for one test.
+  # One run at a time, none cancelled: two runs never open two issues for one test. Bookkeeping,
+  # never a verdict: a red `flaky` leaves the workflow run's conclusion green.
   flaky:
     needs: [win32, e2e-window, e2e-win32]
+    continue-on-error: true
     if: >-
       always()
       && (needs.win32.result != 'skipped'

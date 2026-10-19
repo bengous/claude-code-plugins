@@ -1,14 +1,15 @@
 #!/usr/bin/env bun
 
 /**
- * CI's flaky tests: each test that failed, then passed when CI ran it again, gets one open issue
+ * CI's flaky tests: each test that failed, then passed when CI ran it again, gets one issue
  * labelled `flaky`, found again by the marker `<!-- flaky:<id> -->` in its body, and a comment for
- * each further run where it flakes. The suite jobs write reports, the `flaky` job alone writes issues:
+ * each further run where it flakes, which reopens it when closed. The suite jobs write reports,
+ * the `flaky` job alone writes issues:
  *
  *   retry bun --job <name> -- bun test <paths>    reruns the files whose tests failed, once
  *   retry kit --job <name> -- claude plugin test <plugin>    reruns the kit, once
  *   playwright --job <name> <report.json>    reads the tests Playwright's own retry passed
- *   report <folder>    opens or comments on the issues, from every report under the folder
+ *   report <folder>    opens, reopens or comments on the issues, from every report under the folder
  *
  * The first three write `flaky-reports/<runner>.json` and exit as the suite's last run did. Each
  * report names the run's attempt, and a run already recorded in an issue is never recorded twice,
@@ -388,9 +389,10 @@ export async function readReports(folder: string): Promise<Report[]> {
   return reports;
 }
 
-export interface OpenIssue {
+export interface KnownIssue {
   readonly number: number;
-  /** Its body, then each comment's. */
+  readonly open: boolean;
+  /** Its body, then its comments. */
   readonly texts: readonly string[];
 }
 
@@ -401,6 +403,7 @@ export type Action =
       readonly body: string;
       readonly comments: readonly string[];
     }
+  | { readonly kind: "reopen"; readonly issue: number; readonly body: string }
   | { readonly kind: "comment"; readonly issue: number; readonly body: string };
 
 interface Occurrence extends Flake {
@@ -444,11 +447,12 @@ function commentOf(occurrence: Occurrence): string {
 }
 
 /**
- * One issue per test: a test with no open issue opens one, its first occurrence in the body and
- * any other as a comment; a test with one gets a comment per occurrence not recorded there yet.
- * `issues` comes newest first, and a test with several open issues is recorded in the newest.
+ * One issue per test: a test with no issue opens one, its first occurrence in the body and any
+ * other as a comment; a test with one gets a comment per occurrence not recorded there yet, the
+ * first of them reopening it when it is closed. `issues` comes newest first: a test's newest open
+ * issue holds its record, else its newest closed one.
  */
-export function decide(reports: readonly Report[], issues: readonly OpenIssue[]): Action[] {
+export function decide(reports: readonly Report[], issues: readonly KnownIssue[]): Action[] {
   const byTest = new Map<string, Occurrence[]>();
 
   for (const { job, runUrl, flakes } of reports) {
@@ -464,7 +468,8 @@ export function decide(reports: readonly Report[], issues: readonly OpenIssue[])
   }
 
   return [...byTest].flatMap(([id, occurrences]): Action[] => {
-    const issue = issues.find(({ texts }) => texts.some((text) => text.includes(markerOf(id))));
+    const marked = issues.filter(({ texts }) => texts.some((text) => text.includes(markerOf(id))));
+    const issue = marked.find(({ open }) => open) ?? marked[0];
 
     if (issue === undefined) {
       const [first, ...rest] = occurrences;
@@ -483,17 +488,22 @@ export function decide(reports: readonly Report[], issues: readonly OpenIssue[])
 
     return occurrences
       .filter((occurrence) => !issue.texts.some((text) => text.includes(recordOf(occurrence))))
-      .map((occurrence) => ({ kind: "comment", issue: issue.number, body: commentOf(occurrence) }));
+      .map((occurrence, at): Action => ({
+        kind: at === 0 && !issue.open ? "reopen" : "comment",
+        issue: issue.number,
+        body: commentOf(occurrence),
+      }));
   });
 }
 
 interface IssueJson {
   number: number;
+  state: string;
   body: string;
-  comments: { body: string }[];
 }
 
-async function openIssues(gh: Gh, repo: string): Promise<OpenIssue[]> {
+/** The `flaky` issues, open or closed, whose body marks one of `ids`, each with every comment. */
+async function knownIssues(gh: Gh, repo: string, ids: readonly string[]): Promise<KnownIssue[]> {
   const listed: IssueJson[] = JSON.parse(
     await gh([
       "issue",
@@ -503,20 +513,35 @@ async function openIssues(gh: Gh, repo: string): Promise<OpenIssue[]> {
       "--label",
       LABEL,
       "--state",
-      "open",
+      "all",
       "--limit",
       "1000",
       "--json",
-      "number,body,comments",
+      "number,state,body",
     ]),
   );
 
-  return listed
-    .toSorted((a, b) => b.number - a.number)
-    .map((issue) => ({
-      number: issue.number,
-      texts: [issue.body, ...issue.comments.map((comment) => comment.body)],
-    }));
+  const markers = ids.map((id) => markerOf(id));
+
+  return Promise.all(
+    listed
+      .filter(({ body }) => markers.some((marker) => body.includes(marker)))
+      .toSorted((a, b) => b.number - a.number)
+      .map(async ({ number, state, body }) => ({
+        number,
+        open: state === "OPEN",
+        texts: [
+          body,
+          await gh([
+            "api",
+            "--paginate",
+            `repos/${repo}/issues/${number}/comments?per_page=100`,
+            "--jq",
+            ".[].body",
+          ]),
+        ],
+      })),
+  );
 }
 
 /** Reads every report under `folder`, settles what to record, records it with `gh`, says what it did. */
@@ -526,7 +551,8 @@ export async function report(env: Env, gh: Gh, folder: string): Promise<string[]
 
   if (reports.every(({ flakes }) => flakes.length === 0)) return ["no flaky test in this run"];
 
-  const actions = decide(reports, await openIssues(gh, repo));
+  const ids = [...new Set(reports.flatMap(({ flakes }) => flakes.map(({ id }) => id)))];
+  const actions = decide(reports, await knownIssues(gh, repo, ids));
 
   if (actions.length === 0) return ["every flaky test of this run is recorded already"];
 
@@ -569,6 +595,9 @@ export async function report(env: Env, gh: Gh, folder: string): Promise<string[]
       }
 
       done.push(`opened ${url}`);
+    } else if (action.kind === "reopen") {
+      await gh(["issue", "reopen", String(action.issue), "--repo", repo, "--comment", action.body]);
+      done.push(`reopened #${action.issue}`);
     } else {
       await gh(["issue", "comment", String(action.issue), "--repo", repo, "--body", action.body]);
       done.push(`commented on #${action.issue}`);
