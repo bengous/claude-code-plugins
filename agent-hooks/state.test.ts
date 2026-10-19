@@ -13,12 +13,16 @@ import {
   checkoutKey,
   endBeats,
   freshState,
+  landedMark,
   latestStateForCheckout,
   liveOthers,
+  loadMark,
   loadState,
+  markPath,
   pruneStates,
   rootName,
   rootRecord,
+  saveMark,
   saveState,
   stateDir,
   statePath,
@@ -454,5 +458,52 @@ describe("heartbeats", () => {
         path.basename(statePath("s1", temp.repo)),
       ].toSorted(),
     );
+  });
+});
+
+describe("commit marks", () => {
+  const earlier = { at: 1000, promptId: "p1" };
+  const mark = { at: 2000, promptId: "p2", head: "abc", previous: earlier };
+
+  test("a saved mark reads back; an absent one reads as none, an unreadable one as none, reported", () => {
+    const error = spyOn(console, "error").mockImplementation(() => {});
+
+    try {
+      expect(loadMark("s1", temp.repo)).toBeNull();
+
+      saveMark("s1", temp.repo, mark);
+
+      expect(loadMark("s1", temp.repo)).toEqual(mark);
+
+      writeFileSync(markPath("s1", temp.repo), '{"at":"soon"}');
+
+      expect(loadMark("s1", temp.repo)).toBeNull();
+      expect(error).toHaveBeenCalledTimes(1);
+    } finally {
+      error.mockRestore();
+    }
+  });
+
+  test("a mark whose commit left HEAD where it was gives way to the one before it", () => {
+    expect(landedMark(mark, "def")).toEqual({ at: 2000, promptId: "p2" });
+    expect(landedMark(mark, "abc")).toEqual(earlier);
+    expect(landedMark({ ...mark, previous: null }, "abc")).toBeNull();
+    expect(landedMark({ ...mark, head: null }, null)).toEqual({ at: 2000, promptId: "p2" });
+    expect(landedMark(null, "abc")).toBeNull();
+  });
+
+  test("a mark ages out with the beats", () => {
+    const now = 100 * DAY_MS;
+    saveMark("old", temp.repo, mark);
+    saveMark("recent", temp.repo, mark);
+    const old = new Date(now - 8 * DAY_MS);
+    const recent = new Date(now - 6 * DAY_MS);
+    utimesSync(markPath("old", temp.repo), old, old);
+    utimesSync(markPath("recent", temp.repo), recent, recent);
+
+    pruneStates(STALE_TEMPORARY_MS, now);
+
+    expect(existsSync(markPath("old", temp.repo))).toBe(false);
+    expect(existsSync(markPath("recent", temp.repo))).toBe(true);
   });
 });

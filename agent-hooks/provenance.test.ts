@@ -11,13 +11,12 @@ import {
   CLASSIFIER_PROMPT,
   agentTrailersIn,
   classify,
-  commitFormOf,
+  commitMessageOf,
   factTriggerOf,
   factsOf,
-  messageOf,
   provenanceTrailers,
   readTranscript,
-  sessionValueOf,
+  takesTrailers,
   trailersOf,
   transcriptPathOf,
 } from "./provenance.ts";
@@ -107,6 +106,14 @@ describe("what a transcript says of a review", () => {
     ];
 
     expect(facts(explorer)).not.toContain("[review finished");
+
+    const preview = [
+      record("agent-review-call", [["Review the parser fix", "Build the preview page"]]),
+      record("agent-review-launched"),
+      record("notified-queued"),
+    ];
+
+    expect(facts(preview)).not.toContain("[review finished");
   });
 
   test("a Stop or a SubagentStop that blocked the end of a turn is a fact", () => {
@@ -120,8 +127,8 @@ describe("what a transcript says of a review", () => {
 });
 
 describe("factTriggerOf", () => {
-  test("a message the user typed, or a plan the user approved, since the previous commit is human", () => {
-    for (const message of [record("typed"), record("approved-plan")]) {
+  test("a message the user typed, queued while the agent worked, or a plan the user approved, since the previous commit is human", () => {
+    for (const message of [record("typed"), record("queued-typed"), record("approved-plan")]) {
       const transcript = transcriptOf([...COMMITTED, message, record("say")]);
 
       expect(factTriggerOf(transcript, null, "p-fixture", false)).toBe("human");
@@ -219,37 +226,45 @@ describe("factsOf", () => {
   });
 });
 
-describe("messageOf", () => {
-  test("reads -m, a heredoc and a heredoc inside -m; -F names a file it cannot read", () => {
-    expect(messageOf("git commit -qm 'fix: a'")).toBe("fix: a");
-    expect(messageOf('git commit -m "fix: \\"b\\""')).toBe('fix: \\"b\\"');
-    expect(messageOf("git commit -F - <<'EOF'\nfix: c\n\nbody\nEOF")).toBe("fix: c\n\nbody");
-    expect(messageOf("git commit -m \"$(cat <<'EOF'\nfix: d\nEOF\n)\"")).toBe("fix: d");
-    expect(messageOf("git commit -F msg.txt")).toBeNull();
+describe("commitMessageOf", () => {
+  test.each([
+    [[], null, "new", null, null],
+    [["-qm", "fix: a"], null, "new", "fix: a", null],
+    [["-m", "fix: a", "-m", "body"], null, "new", "fix: a\n\nbody", null],
+    [["--message=fix: a"], null, "new", "fix: a", null],
+    [["-m", "$(cat <<'EOF'\nfix: d\nEOF\n)"], null, "new", "fix: d", null],
+    [["-F", "-"], "fix: c\n\nbody\n", "new", "fix: c\n\nbody", null],
+    [["-F", "msg.txt"], null, "new", null, "msg.txt"],
+    [["-m", "--amend"], null, "new", "--amend", null],
+    [["--fixup", "HEAD~1"], null, "new", null, null],
+    [["--amend", "-m", "fix: b"], null, "amend", "fix: b", null],
+    [["--amend", "-F", "msg.txt"], null, "amend", null, "msg.txt"],
+    [["-am", "fix: b", "--amend"], null, "amend", "fix: b", null],
+    [["--amend", "--no-edit"], null, "kept", null, null],
+    [["--amend"], null, "kept", null, null],
+    [["-C", "HEAD"], null, "kept", null, null],
+    [["--reuse-message=ORIG_HEAD"], null, "kept", null, null],
+    [["--fixup=amend:HEAD"], null, "kept", null, null],
+    [["--dry-run", "-m", "x"], null, "kept", "x", null],
+    [["--porcelain"], null, "kept", null, null],
+    [["-h"], null, "kept", null, null],
+  ] as const)("%j with heredoc %j is %s", (args, heredoc, form, message, file) => {
+    expect(commitMessageOf(args, heredoc)).toEqual({ form, message, file });
   });
 });
 
-describe("commitFormOf", () => {
-  test.each([
-    [[], "new"],
-    [["-qm", "x"], "new"],
-    [["-C", "HEAD"], "new"],
-    [["-m", "--amend"], "new"],
-    [["--amend", "--no-edit"], "kept"],
-    [["--amend"], "kept"],
-    [["--amend", "-C", "HEAD"], "kept"],
-    [["--amend", "-m", "x"], "amend"],
-    [["--amend", "-F", "msg.txt"], "amend"],
-    [["--amend", "--message=x"], "amend"],
-    [["-am", "x", "--amend"], "amend"],
-    [["--dry-run", "-m", "x"], "kept"],
-  ] as const)("%j is %s", (args, form) => {
-    expect(commitFormOf(args)).toBe(form);
+describe("takesTrailers", () => {
+  test("only a git of 2.32 or newer takes --trailer", () => {
+    expect(takesTrailers("git version 2.55.0")).toBe(true);
+    expect(takesTrailers("git version 2.32.0")).toBe(true);
+    expect(takesTrailers("git version 2.30.2")).toBe(false);
+    expect(takesTrailers("git version 2.25.1")).toBe(false);
+    expect(takesTrailers("")).toBe(false);
   });
 });
 
 describe("trailers", () => {
-  test("pins the text inserted after `commit`", () => {
+  test("pins the text inserted after the commit's last argument", () => {
     expect(trailersOf(provenanceTrailers("review", "s1.a2"))).toBe(
       " --trailer 'Agent-Trigger: review' --trailer 'Agent-Session: s1.a2'",
     );
@@ -267,9 +282,7 @@ describe("trailers", () => {
     ]);
   });
 
-  test("names a subagent's session and transcript after its session's", () => {
-    expect(sessionValueOf("s1", undefined)).toBe("s1");
-    expect(sessionValueOf("s1", "a2")).toBe("s1.a2");
+  test("finds a subagent's transcript under its session's", () => {
     expect(transcriptPathOf("/p/s1.jsonl", "s1", undefined)).toBe("/p/s1.jsonl");
     expect(transcriptPathOf("/p/s1.jsonl", "s1", "a2")).toBe("/p/s1/subagents/agent-a2.jsonl");
   });

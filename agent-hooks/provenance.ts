@@ -5,7 +5,7 @@ import path from "node:path";
 
 import type { Deadline, Runner } from "./exec.ts";
 import { isRecord, recordField, stringField } from "./json.ts";
-import { AGENT_SEPARATOR } from "./state.ts";
+import { commitsOf } from "./mentions.ts";
 import type { CommitMark } from "./state.ts";
 
 /** What made the agent commit, as its trailer names it. */
@@ -49,14 +49,12 @@ export const REVIEW_SKILLS: ReadonlySet<string> = new Set([
 const INLINE_REVIEW_COMMAND = /<command-name>\/agents-bridge:adversarial-review<\/command-name>/u;
 
 /** An `Agent` launch whose description says it reviews or audits: a heuristic, for want of a reviewer's type. */
-const REVIEW_AGENT = /review|relecture|\breli[rst]e?\b|\brelis\b|audit/iu;
+const REVIEW_AGENT = /\breview|relecture|\breli[rst]e?\b|\brelis\b|\baudit/iu;
 
 const HUMAN_SOURCES = new Set(["typed", "queued", "suggestion_accepted"]);
 
 /** `auto-continuation` is the plan the user approved, sent back as the turn's prompt. */
 const HUMAN_ORIGINS = new Set(["human", "auto-continuation"]);
-
-const COMMIT_COMMAND = /(?:^|[;&|(]\s*|\s)git(?:\s+-C\s+\S+|\s+-c\s+\S+)*\s+commit\b/u;
 
 /** The transcript of the agent a hook fired in: a subagent's sits under the session's, in `subagents/`. */
 export function transcriptPathOf(
@@ -67,11 +65,6 @@ export function transcriptPathOf(
   return agentId === undefined
     ? transcriptPath
     : path.join(path.dirname(transcriptPath), sessionId, "subagents", `agent-${agentId}.jsonl`);
-}
-
-/** The value of `Agent-Session`: the session id, `<session>.<agent>` for a subagent. */
-export function sessionValueOf(sessionId: string, agentId: string | undefined): string {
-  return agentId === undefined ? sessionId : `${sessionId}${AGENT_SEPARATOR}${agentId}`;
 }
 
 /** Reads the transcript at `file`. Throws when it cannot be read; a line that does not parse is skipped. */
@@ -115,8 +108,8 @@ export function readTranscript(
 
 type Pending = {
   readonly kind: "skill" | "agent" | "commit";
-  readonly what: string;
-  readonly command: string;
+  /** The reviewer it launches, or the subject of the commit it makes. */
+  readonly what: string | null;
 };
 
 /** The facts of a transcript's records, in file order. A subagent's first user message is its brief. */
@@ -149,16 +142,21 @@ export function eventsOf(records: readonly Record<string, unknown>[], subagent: 
         const description = stringField(input, "description") ?? "";
         const command = stringField(input, "command") ?? "";
 
+        const [commit] =
+          name === "Bash"
+            ? commitsOf(command, stringField(record, "cwd") ?? "/", { exists: () => true })
+            : [];
+
         if (name === "Skill" && REVIEW_SKILLS.has(skill)) {
           pending.set(id, {
             kind: "skill",
             what: `Skill ${skill} ${stringField(input, "args") ?? ""}`.trim(),
-            command: "",
           });
         } else if ((name === "Agent" || name === "Task") && REVIEW_AGENT.test(description)) {
-          pending.set(id, { kind: "agent", what: `Agent "${description}"`, command: "" });
-        } else if (name === "Bash" && COMMIT_COMMAND.test(command)) {
-          pending.set(id, { kind: "commit", what: "", command });
+          pending.set(id, { kind: "agent", what: `Agent "${description}"` });
+        } else if (commit !== undefined) {
+          const written = commitMessageOf(commit.git.args, commit.heredoc);
+          pending.set(id, { kind: "commit", what: written.message?.split("\n")[0] ?? null });
         }
       }
 
@@ -183,11 +181,7 @@ export function eventsOf(records: readonly Record<string, unknown>[], subagent: 
 
         if (call.kind === "commit") {
           if (!failed) {
-            events.push({
-              kind: "committed",
-              at,
-              subject: messageOf(call.command)?.split("\n")[0] ?? null,
-            });
+            events.push({ kind: "committed", at, subject: call.what });
           }
         } else if (!failed) {
           const status = stringField(result, "status");
@@ -199,7 +193,7 @@ export function eventsOf(records: readonly Record<string, unknown>[], subagent: 
           if (background && agentId !== undefined) {
             events.push({ kind: "launch", at, id: agentId });
           } else if (call.kind === "skill" || status === "completed") {
-            events.push({ kind: "reviewed", at, what: call.what });
+            events.push({ kind: "reviewed", at, what: call.what ?? "" });
           }
         }
       }
@@ -237,15 +231,19 @@ export function eventsOf(records: readonly Record<string, unknown>[], subagent: 
       continue;
     }
 
-    const notice =
-      type === "attachment" && attachment?.["type"] === "queued_command"
-        ? (stringField(attachment, "prompt") ?? "")
-        : type === "user" && typeof content === "string"
-          ? content
-          : "";
+    const queued = attachment?.["type"] === "queued_command" ? attachment : undefined;
+    const notice = queued === undefined ? content : queued["prompt"];
+    const noticeText = typeof notice === "string" ? notice : "";
 
-    if (notice.includes("<task-notification>")) {
-      events.push(...notificationsOf(notice, at));
+    if ((type === "user" || queued !== undefined) && noticeText.includes("<task-notification>")) {
+      events.push(...notificationsOf(noticeText, at));
+      continue;
+    }
+
+    const queuedOrigin = queued === undefined ? undefined : recordField(queued, "origin");
+
+    if (queuedOrigin !== undefined && stringField(queuedOrigin, "kind") === "human") {
+      events.push({ kind: "human", at, source: "user", text: noticeText });
       continue;
     }
 
@@ -321,18 +319,6 @@ function notificationsOf(notice: string, at: number): Event[] {
 
 function textOf(blocks: readonly Record<string, unknown>[]): string {
   return blocks.map((block) => stringField(block, "text") ?? "").join("\n");
-}
-
-/** The message a `git commit` command writes, as far as its text shows it: a heredoc's body, else `-m`'s value. */
-export function messageOf(command: string): string | null {
-  const heredoc = /<<-?\s*\\?(['"]?)(\w+)\1[^\n]*\n([\s\S]*?)\n\s*\2\s*(?:\n|$)/u.exec(
-    command,
-  )?.[3];
-
-  const quoted = /(?:^|\s)-[a-zA-Z]*m\s*(?:"((?:[^"\\]|\\.)*)"|'([^']*)')/u.exec(command);
-  const message = heredoc ?? quoted?.[1] ?? quoted?.[2];
-
-  return message === undefined || message.startsWith("$(") ? null : message.trim();
 }
 
 /** The position of the last record at or before `time`: where the previous commit stands in the transcript. */
@@ -567,7 +553,7 @@ function triggerIn(stdout: string): string | null {
 
 const TRAILER_KEYS = ["Agent-Trigger", "Agent-Session"] as const;
 
-/** The `--trailer` options inserted after `commit`, each value quoted for Bash. */
+/** The `--trailer` options inserted after the commit's last argument, each value quoted for Bash. */
 export function trailersOf(values: readonly (readonly [string, string])[]): string {
   return values.map(([key, value]) => ` --trailer ${shellQuote(`${key}: ${value}`)}`).join("");
 }
@@ -592,9 +578,22 @@ function shellQuote(value: string): string {
   return `'${value.replaceAll("'", `'\\''`)}'`;
 }
 
-/** How a `git commit` treats its message: a new commit, an amend that writes a new one, or one that keeps it. */
+/**
+ * What a `git commit` does with its message: `new`, a commit with a message of its own; `amend`, an amend that writes
+ * a new one; `kept`, no new message (an amend with `--no-edit`, a message reused with `-C` or `--fixup=amend:`, whose
+ * trailers come along) or no commit at all (`--dry-run`, `--porcelain`, `-h`).
+ */
 export type CommitForm = "new" | "amend" | "kept";
 
+export type CommitMessage = {
+  readonly form: CommitForm;
+  /** The message as written: the `-m` values, or the heredoc `-F -` reads; null when a file holds it, or none shows. */
+  readonly message: string | null;
+  /** The file `-F` names, read where the commit runs. */
+  readonly file: string | null;
+};
+
+/** Options of `git commit` that take a value, as the next word or after `=`. */
 const VALUE_OPTIONS = new Set([
   "-m",
   "--message",
@@ -618,14 +617,34 @@ const VALUE_OPTIONS = new Set([
 /** Short options of `git commit` that take a value, attached or as the next word. */
 const SHORT_VALUE_OPTIONS = new Set(["m", "F", "C", "c", "t"]);
 
-/**
- * The form of a `git commit` from its arguments. An amend keeps its message unless `-m` or `-F` writes a new one;
- * a dry run commits nothing.
- */
-export function commitFormOf(args: readonly string[]): CommitForm {
+const REUSED_MESSAGE = new Set(["-C", "--reuse-message", "-c", "--reedit-message"]);
+
+const NO_COMMIT = new Set(["--dry-run", "--short", "--porcelain", "--long", "--help", "-h"]);
+
+const HEREDOC_BODY = /<<-?\s*\\?(['"]?)(\w+)\1[^\n]*\n([\s\S]*?)\n\s*\2\s*(?:\n|$)/u;
+
+/** What a `git commit` does with its message, from its arguments as Bash hands them over and the heredoc it reads. */
+export function commitMessageOf(args: readonly string[], heredoc: string | null): CommitMessage {
   let amend = false;
-  let message = false;
-  let dryRun = false;
+  let reused = false;
+  let none = false;
+  let file: string | null = null;
+  const messages: string[] = [];
+
+  const take = (name: string, value: string | undefined): void => {
+    if (value === undefined) {
+      return;
+    }
+
+    if (name === "-m" || name === "--message") {
+      messages.push(value);
+    } else if (name === "-F" || name === "--file") {
+      file = value;
+    }
+
+    reused ||=
+      REUSED_MESSAGE.has(name) || (name === "--fixup" && /^(?:amend|reword):/u.test(value));
+  };
 
   for (let index = 0; index < args.length; index += 1) {
     const arg = args[index] ?? "";
@@ -634,24 +653,50 @@ export function commitFormOf(args: readonly string[]): CommitForm {
       break;
     }
 
+    none ||= NO_COMMIT.has(arg.split("=")[0] ?? arg);
+
     if (arg.startsWith("--")) {
-      const name = arg.split("=")[0] ?? arg;
+      const equals = arg.indexOf("=");
+      const name = equals === -1 ? arg : arg.slice(0, equals);
       amend ||= name === "--amend";
-      dryRun ||= name === "--dry-run";
-      message ||= name === "--message" || name === "--file";
-      index += !arg.includes("=") && VALUE_OPTIONS.has(name) ? 1 : 0;
+
+      if (VALUE_OPTIONS.has(name)) {
+        take(name, equals === -1 ? args[index + 1] : arg.slice(equals + 1));
+        index += equals === -1 ? 1 : 0;
+      }
     } else if (arg.startsWith("-") && arg.length > 1) {
-      const letters = arg.slice(1).split("");
-      const valueAt = letters.findIndex((letter) => SHORT_VALUE_OPTIONS.has(letter));
-      const letter = letters[valueAt];
-      message ||= letter === "m" || letter === "F";
-      index += valueAt !== -1 && valueAt === letters.length - 1 ? 1 : 0;
+      const valueAt = arg
+        .slice(1)
+        .split("")
+        .findIndex((letter) => SHORT_VALUE_OPTIONS.has(letter));
+
+      const attached = arg.slice(valueAt + 2);
+
+      if (valueAt !== -1) {
+        take(`-${arg[valueAt + 1] ?? ""}`, attached === "" ? args[index + 1] : attached);
+        index += attached === "" ? 1 : 0;
+      }
     }
   }
 
-  if (dryRun) {
-    return "kept";
-  }
+  const written = messages.flatMap((message) => {
+    const text = message.startsWith("$(") ? HEREDOC_BODY.exec(message)?.[3] : message;
 
-  return amend ? (message ? "amend" : "kept") : "new";
+    return text === undefined ? [] : [text.trim()];
+  });
+
+  const fromStdin: string | null = file === "-" ? (heredoc?.trim() ?? null) : null;
+  const named: string | null = file === "-" ? null : file;
+  const message = written.length > 0 ? written.join("\n\n") : fromStdin;
+  const writes = messages.length > 0 || file !== null;
+  const form: CommitForm = none || reused ? "kept" : amend ? (writes ? "amend" : "kept") : "new";
+
+  return { form, message, file: named };
+}
+
+/** Whether the git that printed `version`, as `git --version` does, takes `--trailer`: 2.32 and newer. */
+export function takesTrailers(version: string): boolean {
+  const [, major = "0", minor = "0"] = /(\d+)\.(\d+)/u.exec(version) ?? [];
+
+  return Number(major) > 2 || (Number(major) === 2 && Number(minor) >= 32);
 }

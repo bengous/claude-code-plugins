@@ -124,7 +124,8 @@ Agent-Session: 6f2c1d0e-…
   Haiku, given the facts below, reads that the commit applies a review's findings (a `/code-review`, an
   `agents-bridge:adversarial-review`, an `Agent` whose description says it reviews or audits, findings a
   user message or a lead agent relays); else `human` when a user message arrived since the agent's previous
-  commit in that checkout (typed, queued, an accepted suggestion, a typed command, an approved plan; for a
+  commit in that checkout (typed, typed while the agent worked, an accepted suggestion, a typed command, an
+  approved plan; for a
   subagent, its brief for its first commit and a lead's `<teammate-message>` after); else `self`. A line
   that makes several commits in one checkout judges the first: the next ones continue its `review`, and are
   `self` otherwise.
@@ -132,26 +133,33 @@ Agent-Session: 6f2c1d0e-…
   `<session>/subagents/agent-<agent_id>.jsonl` for a subagent): user messages, finished reviews (one run in
   the background finishes at its `completed` task notification, never at `killed` or `stopped`; a
   synchronous one at its result), Stop and SubagentStop blocks, the agent's commits and last texts, from the
-  older of its previous commit and the last user message, reaching one turn further back, then the commit's
-  message; 12,000 characters at most.
+  older of its previous commit and the last user message, reaching one turn further back, then the judged
+  commit's own message (its `-m`, the heredoc `-F -` reads, or the file `-F` names when it is already
+  there); 12,000 characters at most.
 - Haiku runs as `claude -p --model haiku`, with no tool, hook, MCP server or saved session, once per
-  checkout a line commits in. Measured on the user's own transcripts (77 hand-labelled commits of two weeks,
+  checkout a line commits in, the checkouts of one line at once. Measured on the user's own transcripts (77 hand-labelled commits of two weeks,
   Claude Code 2.1.301, 2026-10-19): `review` right 22 times in 23, `human` 27 in 29; median 4.6 s, 90th
   percentile 6.5 s, 9.8 s at most, about $0.001 a commit. Rules on the transcript alone were right on
   `review` 4 times in 9: a review is told apart from a coincidence only by reading what the commit does.
   `CLASSIFIER_PROMPT` in `provenance.ts` is the prompt measured.
 - What is rewritten: a `git commit` written as such, in a subshell too, once the landing guard let the line
-  through (its refusal wins, and nothing is rewritten): the `--trailer` options go right after `commit`.
-  An amend that writes a new message (`-m`, `-F`) keeps the `Agent-*` trailers of `HEAD` instead. Left as
-  written: an amend that keeps its message (`--no-edit`, `-C`), `--dry-run`, a commit inside `$(…)` or
-  backticks, behind `xargs` or `env -S`, in a `bash -c '…'`, on a line that defines a function, a commit
-  whose `cd` the walk cannot follow (with a note), `merge`, `cherry-pick`, `revert`, `rebase`, and every
-  other command. The rewrite carries no permission decision: Claude Code judges the rewritten command by its
-  own rules.
-- The previous commit is the last one `pre-bash` saw the agent make in that checkout,
-  `~/.local/state/agent-hooks/<agent>__<checkout hash>.commit`, aged out with the beats. A commit its
-  pre-commit hook then refuses still counts; the first commit an agent makes in a checkout reads its whole
-  transcript as "since the previous commit".
+  through (its refusal wins, and nothing is rewritten). The `--trailer` options go after the commit's last
+  argument, before a `--`, so a permission rule written for the command's start (`Bash(git commit -m:*)`)
+  still matches: the rewrite carries no permission decision, and Claude Code judges the rewritten command by
+  its own rules. An amend that writes a new message (`-m`, `-F`) keeps the `Agent-*` trailers of the commit
+  it replaces: `HEAD`'s, or those of the commit the same line made just before. Left as written: a commit
+  that keeps or reuses a message (`--amend --no-edit`, `-C`, `--fixup=amend:`), whose trailers come along;
+  one that makes no commit (`--dry-run`, `--porcelain`, `-h`); a commit inside `$(…)` or backticks, behind
+  `xargs` or `env -S`, in a `bash -c '…'`, on a line that defines a function; a commit whose `cd` the walk
+  cannot follow and that no absolute `git -C` places (with a note); `merge`, `cherry-pick`, `revert`,
+  `rebase`; every other command. A git older than 2.32 has no `--trailer`: the commit stays as written, with
+  a note.
+- The previous commit is the last one `pre-bash` saw the agent make in that checkout that landed:
+  `~/.local/state/agent-hooks/<agent>__<checkout hash>.commit` keeps when the hook saw it, the HEAD before
+  it and the mark before it, aged out with the beats. When HEAD has not moved by the next commit, that one
+  never landed (refused by its pre-commit hook, denied at the permission prompt), and the mark before it
+  stands again. HEAD moved by something else (another session's commit, a pull) counts as landed. The
+  first commit an agent makes in a checkout reads its whole transcript as "since the previous commit".
 - It never blocks a commit. A transcript it cannot read leaves the commit without trailers; Haiku with no
   answer (no `claude` on PATH, an error, no time left before the hook's deadline) leaves `Agent-Trigger` to
   the facts; each says so in a `systemMessage` that starts with `agent-hooks:`. A commit stamped with

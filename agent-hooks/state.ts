@@ -468,16 +468,23 @@ function beatSince(file: string, since: number): boolean {
   }
 }
 
-/**
- * The last commit pre-bash wrote provenance trailers into, for one agent in one checkout: where the next commit's
- * window opens. Kept beside the state file rather than in it: pre-bash writes it while an edit hook of the same
- * agent may be saving the state.
- */
+/** Where an agent's commit stands in its transcript: the window of its next commit opens there. */
 export type CommitMark = {
-  /** When pre-bash rewrote the commit, in ms since the epoch: a transcript record is before it by its timestamp. */
+  /** When pre-bash saw the commit, in ms since the epoch: a transcript record is before it by its timestamp. */
   readonly at: number;
   /** The prompt that turn answered, null outside a prompt. */
   readonly promptId: string | null;
+};
+
+/**
+ * The last commit pre-bash stamped for one agent in one checkout. Kept beside the state file rather than in it:
+ * pre-bash writes it while an edit hook of the same agent may be saving the state.
+ */
+export type SavedMark = CommitMark & {
+  /** HEAD before the commit: still HEAD at the next one means it never landed (refused, denied, failed). */
+  readonly head: string | null;
+  /** The mark this one replaced, which stands again when this commit never landed. */
+  readonly previous: CommitMark | null;
 };
 
 export function markPath(key: string, checkout: string): string {
@@ -485,7 +492,7 @@ export function markPath(key: string, checkout: string): string {
 }
 
 /** The commit mark of agent `key` in the checkout; none when absent, and none when unreadable, which is reported. */
-export function loadMark(key: string, checkout: string): CommitMark | null {
+export function loadMark(key: string, checkout: string): SavedMark | null {
   const file = markPath(key, checkout);
   let value: unknown;
 
@@ -499,20 +506,46 @@ export function loadMark(key: string, checkout: string): CommitMark | null {
     return null;
   }
 
+  const previous = isRecord(value) ? value["previous"] : undefined;
+
   if (
-    !isRecord(value) ||
-    typeof value["at"] !== "number" ||
-    !(value["promptId"] === null || typeof value["promptId"] === "string")
+    !isMark(value) ||
+    !(value["head"] === null || typeof value["head"] === "string") ||
+    !(previous === null || isMark(previous))
   ) {
     console.error(`agent-hooks: ${file}: unreadable commit mark, ignored`);
 
     return null;
   }
 
-  return { at: value["at"], promptId: value["promptId"] };
+  return {
+    at: value["at"],
+    promptId: value["promptId"],
+    head: value["head"],
+    previous: previous === null ? null : { at: previous["at"], promptId: previous["promptId"] },
+  };
 }
 
-export function saveMark(key: string, checkout: string, mark: CommitMark): void {
+function isMark(value: unknown): value is Record<string, unknown> & CommitMark {
+  return (
+    isRecord(value) &&
+    typeof value["at"] === "number" &&
+    (value["promptId"] === null || typeof value["promptId"] === "string")
+  );
+}
+
+/** The mark the next commit's window opens at: this one, or the one before it when its commit never moved HEAD. */
+export function landedMark(mark: SavedMark | null, head: string | null): CommitMark | null {
+  if (mark === null) {
+    return null;
+  }
+
+  return mark.head !== null && mark.head === head
+    ? mark.previous
+    : { at: mark.at, promptId: mark.promptId };
+}
+
+export function saveMark(key: string, checkout: string, mark: SavedMark): void {
   writeAtomically(markPath(key, checkout), JSON.stringify(mark));
 }
 

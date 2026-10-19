@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, statSync } from "node:fs";
 import path from "node:path";
 
 import type { LandingProfile } from "./config.ts";
@@ -40,18 +40,17 @@ import type { Transcript, Trigger } from "./provenance.ts";
 import {
   agentTrailersIn,
   classify,
-  commitFormOf,
+  commitMessageOf,
   factTriggerOf,
   factsOf,
-  messageOf,
   provenanceTrailers,
   readTranscript,
-  sessionValueOf,
+  takesTrailers,
   trailersOf,
   transcriptPathOf,
 } from "./provenance.ts";
 import { git as runGit } from "./scope.ts";
-import { loadMark, saveMark } from "./state.ts";
+import { landedMark, loadMark, saveMark } from "./state.ts";
 
 export type GuardVerdict =
   | { readonly kind: "allow" }
@@ -118,27 +117,54 @@ function rootOf(cwd: string, location: readonly string[]): string | null {
   return git(cwd, location, ["rev-parse", "--show-toplevel"]);
 }
 
-function profileOf(root: string): ProfileRead {
+/** A profile key of the repo file at `root`: absent with the file or the key, or unreadable, its error named. */
+type KeyRead<T> =
+  | { readonly kind: "read"; readonly value: T }
+  | { readonly kind: "absent" }
+  | { readonly kind: "unreadable"; readonly error: string };
+
+function keyRead<T>(root: string, load: (root: string) => T | null): KeyRead<T> {
   if (!existsSync(configPath(root))) {
-    return DEFAULT;
+    return { kind: "absent" };
   }
 
   try {
-    const landing = loadLanding(root);
+    const value = load(root);
 
-    return landing === null
-      ? DEFAULT
-      : {
-          kind: "profiled",
-          landing,
-          landScript: existsSync(path.join(root, "scripts", "land.ts")),
-        };
+    return value === null ? { kind: "absent" } : { kind: "read", value };
   } catch (error) {
     if (error instanceof ConfigError) {
       return { kind: "unreadable", error: error.message };
     }
 
     throw error;
+  }
+}
+
+function profileOf(root: string): ProfileRead {
+  const read = keyRead(root, loadLanding);
+
+  switch (read.kind) {
+    case "read": {
+      return {
+        kind: "profiled",
+        landing: read.value,
+        landScript: existsSync(path.join(root, "scripts", "land.ts")),
+      };
+    }
+
+    case "absent": {
+      return DEFAULT;
+    }
+
+    case "unreadable": {
+      return { kind: "unreadable", error: read.error };
+    }
+
+    default: {
+      const unreachable: never = read;
+      throw new Error(`unhandled profile read: ${JSON.stringify(unreachable)}`);
+    }
   }
 }
 
@@ -575,140 +601,160 @@ async function judgeLine(
   return combine(await Promise.all(doors.map((door) => judgeDoor(door, context, depth))));
 }
 
-/** What `profile.provenance` asks of the repository a commit runs in. */
-type ProvenanceRead =
-  | { readonly kind: "trailers" }
-  | { readonly kind: "none" }
-  | { readonly kind: "unreadable"; readonly error: string };
+/** Where a commit's trailers go in the line, and the trailers. */
+type Stamp = { readonly offset: number; readonly trailers: Promise<Trailers> };
 
-function provenanceAt(root: string): ProvenanceRead {
-  if (!existsSync(configPath(root))) {
-    return { kind: "none" };
-  }
-
-  try {
-    return loadProvenance(root) === "trailers" ? { kind: "trailers" } : { kind: "none" };
-  } catch (error) {
-    if (error instanceof ConfigError) {
-      return { kind: "unreadable", error: error.message };
-    }
-
-    throw error;
-  }
-}
-
-/** Where a commit's trailers go in the line, and the text inserted there. */
-type Stamp = { readonly offset: number; readonly text: string };
+type Trailers = readonly (readonly [string, string])[];
 
 type Provenance = { readonly command: string; readonly notes: readonly string[] };
 
 type TriggerRead = { readonly trigger: Trigger; readonly note: string | null };
 
+/** What a line stamped so far in one checkout: the trigger of its first new commit, the trailers of its last one. */
+type Stamped = { readonly first: Promise<TriggerRead>; readonly latest: Promise<Trailers> };
+
 /**
- * The line with provenance trailers after each `git commit` it runs as written in a repository whose profile asks
- * for them, and a note for each such commit it could not stamp. A new commit names its trigger and its session, and
- * moves the agent's commit mark in its checkout, once per checkout and line; an amend that writes a new message keeps the `Agent-*` trailers of
- * the commit it replaces; an amend that keeps its message, and a dry run, are left as written.
+ * The line with provenance trailers at the end of each `git commit` it runs as written in a repository whose profile
+ * asks for them, and a note for each such commit it could not stamp. A new commit names its trigger and its
+ * session, and moves the agent's commit mark in its checkout, once per checkout and line; an amend that writes a new
+ * message keeps the `Agent-*` trailers of the commit it replaces; a commit that keeps its message, or makes none, is
+ * left as written.
  */
 async function withProvenance(
   command: string,
   cwd: string,
   input: Input,
+  now: number,
   deadline: Deadline,
   runner: Runner,
 ): Promise<Provenance> {
-  const notes: string[] = [];
+  const notes = new Set<string>();
   const stamps: Stamp[] = [];
-  const triggers = new Map<string, Promise<TriggerRead>>();
+  const checkouts = new Map<string, Stamped>();
+  const session = stateKey(input);
   let transcript: TranscriptRead | null = null;
-
-  const transcriptRead = (): TranscriptRead => {
-    transcript ??= transcriptOf(input);
-
-    return transcript;
-  };
+  let trailersTaken: boolean | null = null;
 
   for (const commit of commitsOf(command, cwd)) {
-    const form = commitFormOf(commit.git.args);
+    const written = commitMessageOf(commit.git.args, commit.heredoc);
+    const dir = commit.cwd ?? (isAbsoluteLocation(commit.git.location) ? "/" : null);
 
-    const root =
-      form === "kept" || commit.cwd === null ? null : rootOf(commit.cwd, commit.git.location);
-
-    const read = root === null ? null : provenanceAt(root);
-
-    const here = commit.cwd === null ? rootOf(cwd, []) : null;
-
-    if (here !== null && provenanceAt(here).kind === "trailers") {
-      notes.push(
-        `agent-hooks: no provenance trailer: an earlier ${commit.lost ?? "cd"} leaves the commit's directory unknown`,
-      );
-    }
-
-    if (root === null || read === null || read.kind === "none") {
+    if (written.form === "kept") {
       continue;
     }
 
-    if (read.kind === "unreadable") {
-      notes.push(`agent-hooks: no provenance trailer: ${read.error}`);
-      continue;
-    }
+    if (dir === null) {
+      const here = rootOf(cwd, []);
 
-    if (form === "amend") {
-      const kept = agentTrailersIn(
-        git(commit.cwd ?? cwd, commit.git.location, [
-          "log",
-          "-1",
-          "--format=%(trailers:only,unfold)",
-        ]) ?? "",
-      );
-
-      if (kept.length > 0) {
-        stamps.push({ offset: commit.offset, text: trailersOf(kept) });
+      if (here !== null && keyRead(here, loadProvenance).kind === "read") {
+        notes.add(
+          `agent-hooks: no provenance trailer: an earlier ${commit.lost ?? "cd"} leaves the commit's directory unknown`,
+        );
       }
 
       continue;
     }
 
-    const source = transcriptRead();
+    const root = rootOf(dir, commit.git.location);
+    const read = root === null ? null : keyRead(root, loadProvenance);
 
-    if (source.kind === "unreadable") {
-      notes.push(`agent-hooks: no provenance trailer: ${source.why}`);
+    if (root === null || read === null || read.kind === "absent") {
       continue;
     }
 
-    const earlier = triggers.get(root);
-
-    const known =
-      earlier?.then(followingOf) ??
-      triggerAt(root, source.transcript, command, input, deadline, runner);
-
-    triggers.set(root, earlier ?? known);
-    const { trigger, note: why } = await known;
-
-    if (why !== null && !notes.includes(why)) {
-      notes.push(why);
+    if (read.kind === "unreadable") {
+      notes.add(`agent-hooks: no provenance trailer: ${read.error}`);
+      continue;
     }
 
-    stamps.push({
-      offset: commit.offset,
-      text: trailersOf(provenanceTrailers(trigger, sessionValueOf(input.sessionId, input.agentId))),
+    trailersTaken ??= takesTrailers(git(dir, [], ["--version"]) ?? "");
+
+    if (!trailersTaken) {
+      notes.add(
+        "agent-hooks: no provenance trailer: this git has no --trailer, which came with 2.32",
+      );
+      continue;
+    }
+
+    const earlier = checkouts.get(root);
+
+    if (written.form === "amend") {
+      const kept =
+        earlier?.latest ??
+        Promise.resolve(
+          agentTrailersIn(
+            git(dir, commit.git.location, ["log", "-1", "--format=%(trailers:only,unfold)"]) ?? "",
+          ),
+        );
+
+      stamps.push({ offset: commit.offset, trailers: kept });
+      continue;
+    }
+
+    transcript ??= transcriptOf(input);
+
+    if (transcript.kind === "unreadable") {
+      notes.add(`agent-hooks: no provenance trailer: ${transcript.why}`);
+      continue;
+    }
+
+    const message = written.message ?? messageFileOf(dir, written.file);
+
+    const first =
+      earlier?.first.then(followingOf) ??
+      triggerAt(root, transcript.transcript, message, input, now, deadline, runner);
+
+    const trailers = first.then((found) => {
+      if (found.note !== null) {
+        notes.add(found.note);
+      }
+
+      return provenanceTrailers(found.trigger, session);
     });
+
+    checkouts.set(root, { first: earlier?.first ?? first, latest: trailers });
+    stamps.push({ offset: commit.offset, trailers });
   }
 
+  const written = await Promise.all(
+    stamps.map(async (stamp) => ({ offset: stamp.offset, text: trailersOf(await stamp.trailers) })),
+  );
+
   return {
-    command: stamps
+    command: written
       .toSorted((left, right) => right.offset - left.offset)
       .reduce(
         (line, stamp) => `${line.slice(0, stamp.offset)}${stamp.text}${line.slice(stamp.offset)}`,
         command,
       ),
-    notes,
+    notes: [...notes],
   };
 }
 
-type TranscriptRead =
-  | { readonly kind: "read"; readonly transcript: Transcript }
-  | { readonly kind: "unreadable"; readonly why: string };
+/** Whether every `-C`, `--git-dir` and `--work-tree` of a git invocation names an absolute path. */
+function isAbsoluteLocation(location: readonly string[]): boolean {
+  const values = location.filter((_, index) => index % 2 === 1);
+
+  return values.length > 0 && values.every((value) => path.isAbsolute(value));
+}
+
+/** The message in the file `-F` names, read where the commit runs; null when it is not there yet or too large. */
+function messageFileOf(dir: string, file: string | null): string | null {
+  const resolved = file === null ? null : path.resolve(dir, file);
+
+  try {
+    return resolved !== null &&
+      existsSync(resolved) &&
+      statSync(resolved).size <= MESSAGE_FILE_BYTES
+      ? readFileSync(resolved, "utf8").trim()
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+/** A message file past this size is not a commit message the classifier needs whole. */
+const MESSAGE_FILE_BYTES = 64 * 1024;
 
 /**
  * The trigger of a commit after the first one a line makes in the same checkout: nothing reached the agent between
@@ -717,6 +763,10 @@ type TranscriptRead =
 function followingOf(first: TriggerRead): TriggerRead {
   return { trigger: first.trigger === "review" ? "review" : "self", note: null };
 }
+
+type TranscriptRead =
+  | { readonly kind: "read"; readonly transcript: Transcript }
+  | { readonly kind: "unreadable"; readonly why: string };
 
 /** The agent's own transcript, or why it cannot be read. */
 function transcriptOf(input: Input): TranscriptRead {
@@ -740,34 +790,33 @@ function transcriptOf(input: Input): TranscriptRead {
 
 /**
  * The trigger of the agent's commit in `checkout`: `review` when Haiku reads in the facts that it applies a review,
- * else what the facts alone say. Moves the agent's commit mark there.
+ * else what the facts alone say since the agent's last commit that landed there. Moves the agent's commit mark there
+ * to the hook's start.
  */
 async function triggerAt(
   checkout: string,
   transcript: Transcript,
-  command: string,
+  message: string | null,
   input: Input,
+  now: number,
   deadline: Deadline,
   runner: Runner,
 ): Promise<TriggerRead> {
   const key = stateKey(input);
   const subagent = input.agentId !== undefined;
-  const mark = loadMark(key, checkout);
+  const head = git(checkout, [], ["rev-parse", "--verify", "--quiet", "HEAD"]);
+  const mark = landedMark(loadMark(key, checkout), head);
   const fact = factTriggerOf(transcript, mark, input.promptId, subagent);
 
-  const answer = await classify(
-    factsOf(transcript, mark, messageOf(command), subagent),
-    deadline,
-    runner,
-  );
-
   try {
-    saveMark(key, checkout, { at: Date.now(), promptId: input.promptId ?? null });
+    saveMark(key, checkout, { at: now, promptId: input.promptId ?? null, head, previous: mark });
   } catch (error) {
     console.error(
       `agent-hooks: commit mark not saved: ${error instanceof Error ? error.message : String(error)}`,
     );
   }
+
+  const answer = await classify(factsOf(transcript, mark, message, subagent), deadline, runner);
 
   return answer.kind === "answered"
     ? { trigger: answer.review ? "review" : fact, note: null }
@@ -872,7 +921,7 @@ export async function runPreBash(
     return encodeGuard(
       stamped(
         verdict,
-        await provenanceOf(command, cwd, input, deadline, options.runner ?? run),
+        await provenanceOf(command, cwd, input, now, deadline, options.runner ?? run),
         toolInput,
       ),
     );
@@ -890,11 +939,12 @@ async function provenanceOf(
   command: string,
   cwd: string,
   input: Input,
+  now: number,
   deadline: Deadline,
   runner: Runner,
 ): Promise<Provenance> {
   try {
-    return await withProvenance(command, cwd, input, deadline, runner);
+    return await withProvenance(command, cwd, input, now, deadline, runner);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
 

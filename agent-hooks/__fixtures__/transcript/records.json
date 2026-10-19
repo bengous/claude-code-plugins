@@ -341,5 +341,21 @@
         "command": "bun \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/stop-validate.ts"
       }
     }
+  },
+  "queued-typed": {
+    "type": "attachment",
+    "timestamp": "2026-10-19T10:00:00.000Z",
+    "isSidechain": false,
+    "attachment": {
+      "type": "queued_command",
+      "prompt": "Apply the three review findings.",
+      "source_uuid": "0474a2c0-3f4b-4b51-a193-b1e6062409ca",
+      "delivery_id": "a6f1222f-cafe-4a15-9d29-122bf54d06a4",
+      "commandMode": "prompt",
+      "origin": {
+        "kind": "human"
+      },
+      "timestamp": "2026-10-02T14:28:16.503Z"
+    }
   }
 }

@@ -1058,6 +1058,11 @@ printf -- '-----BEGIN PGP SIGNATURE-----\\nfake\\n-----END PGP SIGNATURE-----\\n
 
 const TRACED = JSON.stringify({ profile: { provenance: "trailers" } });
 
+/** The facts the fake classifier last received. */
+function classifierFacts(): string {
+  return readFileSync(path.join(temp.bin, "claude.facts"), "utf8");
+}
+
 function stamp(trigger: string, session = SESSION): string {
   return ` --trailer 'Agent-Trigger: ${trigger}' --trailer 'Agent-Session: ${session}'`;
 }
@@ -1086,8 +1091,11 @@ describe("pre-bash writes provenance trailers into an agent's commit", () => {
     return preBash(command, cwd, { transcript_path: transcript, prompt_id: "p-fixture", ...extra });
   }
 
-  /** The commit the agent ran, as its transcript records it once it ran. */
-  const COMMITTED = [record("commit-call"), record("commit-ok")];
+  /** The commit the hook saw lands: HEAD moves, and the transcript records its result. */
+  function landed(): void {
+    git(repo, "-c", "commit.gpgsign=false", "commit", "-q", "--allow-empty", "-m", "landed");
+    said(record("commit-call"), record("commit-ok"));
+  }
 
   beforeEach(() => {
     repo = makeRepo("traced", { [CONFIG_RELATIVE_PATH]: TRACED }, "git@github.com:o/n.git");
@@ -1098,7 +1106,7 @@ describe("pre-bash writes provenance trailers into an agent's commit", () => {
     chmodSync(file, 0o755);
   });
 
-  test("names the trigger and the session right after `commit`, the rest of the tool input kept, in silence", async () => {
+  test("names the trigger and the session after the commit's last argument, the rest of the tool input kept, in silence", async () => {
     said(record("typed"));
     const command = "git commit -qm 'fix: a'";
 
@@ -1107,7 +1115,7 @@ describe("pre-bash writes provenance trailers into an agent's commit", () => {
         hookSpecificOutput: {
           hookEventName: "PreToolUse",
           updatedInput: {
-            command: `git commit${stamp("human")} -qm 'fix: a'`,
+            command: `git commit -qm 'fix: a'${stamp("human")}`,
             description: "test",
           },
         },
@@ -1120,24 +1128,10 @@ describe("pre-bash writes provenance trailers into an agent's commit", () => {
 
     for (let index = 0; index < 3; index += 1) {
       expect((await commit("git commit -qm x")).rewritten).toBe(
-        `git commit${stamp("review")} -qm x`,
+        `git commit -qm x${stamp("review")}`,
       );
-      said(...COMMITTED);
+      landed();
     }
-  });
-
-  test("the commits after the first of one line continue its review, and are the agent's own otherwise", async () => {
-    said(record("typed"), record("typed-review-launch"), record("notified-user"));
-
-    expect((await commit("git commit -qm a && git commit -qm b")).rewritten).toBe(
-      `git commit${stamp("review")} -qm a && git commit${stamp("review")} -qm b`,
-    );
-
-    said(...COMMITTED, record("typed"));
-
-    expect((await commit("git commit -qm c; git commit -qm d; git commit -qm e")).rewritten).toBe(
-      `git commit${stamp("human")} -qm c; git commit${stamp("self")} -qm d; git commit${stamp("self")} -qm e`,
-    );
   });
 
   test("your message then three commits are human, then self, then self", async () => {
@@ -1145,19 +1139,59 @@ describe("pre-bash writes provenance trailers into an agent's commit", () => {
 
     for (const trigger of ["human", "self", "self"]) {
       expect((await commit("git commit -qm x")).rewritten).toBe(
-        `git commit${stamp(trigger)} -qm x`,
+        `git commit -qm x${stamp(trigger)}`,
       );
-      said(...COMMITTED);
+      landed();
     }
   });
 
-  test("the classifier's facts come from the transcript and end with the commit's message", async () => {
-    said(record("typed"), record("say"));
-    await commit("git commit -qm 'fix(parse): read partial dates'");
+  test("a message typed while the agent worked counts as yours", async () => {
+    landed();
+    said(record("queued-typed"));
 
-    expect(readFileSync(path.join(temp.bin, "claude.facts"), "utf8")).toBe(
+    expect((await commit("git commit -qm x")).rewritten).toBe(`git commit -qm x${stamp("human")}`);
+  });
+
+  test("a commit that never landed leaves the window where it was", async () => {
+    said(record("typed"));
+
+    expect((await commit("git commit -qm x")).rewritten).toBe(`git commit -qm x${stamp("human")}`);
+    expect((await commit("git commit -qm 'x, again'")).rewritten).toBe(
+      `git commit -qm 'x, again'${stamp("human")}`,
+    );
+
+    landed();
+
+    expect((await commit("git commit -qm y")).rewritten).toBe(`git commit -qm y${stamp("self")}`);
+  });
+
+  test("the commits after the first of one line continue its review, and are the agent's own otherwise", async () => {
+    said(record("typed"), record("typed-review-launch"), record("notified-user"));
+
+    expect((await commit("git commit -qm a && git commit -qm b")).rewritten).toBe(
+      `git commit -qm a${stamp("review")} && git commit -qm b${stamp("review")}`,
+    );
+
+    landed();
+    said(record("typed"));
+
+    expect((await commit("git commit -qm c; git commit -qm d; git commit -qm e")).rewritten).toBe(
+      `git commit -qm c${stamp("human")}; git commit -qm d${stamp("self")}; git commit -qm e${stamp("self")}`,
+    );
+  });
+
+  test("the classifier reads the transcript's facts and the message of the commit judged", async () => {
+    said(record("typed"), record("say"));
+    await commit("git stash push -m wip && git commit -qm 'fix(parse): read partial dates'");
+
+    expect(classifierFacts()).toBe(
       "[user message] Fix the date parser.\n\n[agent] The parser is fixed; committing.\n\n[THE COMMIT TO CLASSIFY] fix(parse): read partial dates",
     );
+
+    writeRepoFile(repo, "msg.txt", "fix(parse): keep the century\n");
+    await commit("git commit -F msg.txt");
+
+    expect(classifierFacts()).toEndWith("[THE COMMIT TO CLASSIFY] fix(parse): keep the century");
   });
 
   test("stamps every form of a commit written as such", async () => {
@@ -1165,22 +1199,28 @@ describe("pre-bash writes provenance trailers into an agent's commit", () => {
     const outside = temp.dir;
 
     const forms: [string, string, string][] = [
-      ["git commit -F msg.txt", `git commit${here} -F msg.txt`, repo],
+      ["git commit -F msg.txt", `git commit -F msg.txt${here}`, repo],
+      ["git commit -F - <<'EOF'\nfix: a\nEOF", `git commit -F -${here} <<'EOF'\nfix: a\nEOF`, repo],
       [
         "git commit -m \"$(cat <<'EOF'\nfix: a\nEOF\n)\"",
-        `git commit${here} -m "$(cat <<'EOF'\nfix: a\nEOF\n)"`,
+        `git commit -m "$(cat <<'EOF'\nfix: a\nEOF\n)"${here}`,
         repo,
       ],
-      [`git -C ${repo} commit -m x`, `git -C ${repo} commit${here} -m x`, outside],
-      ["git commit -C HEAD", `git commit${here} -C HEAD`, repo],
-      ["GIT_EDITOR=true git commit -m x", `GIT_EDITOR=true git commit${here} -m x`, repo],
-      [`cd ${repo} && git commit -m x`, `cd ${repo} && git commit${here} -m x`, outside],
+      ["git commit -qm x -- a.ts", `git commit -qm x${here} -- a.ts`, repo],
+      [`git -C ${repo} commit -m x`, `git -C ${repo} commit -m x${here}`, outside],
+      ["GIT_EDITOR=true git commit -m x", `GIT_EDITOR=true git commit -m x${here}`, repo],
+      [`cd ${repo} && git commit -m x`, `cd ${repo} && git commit -m x${here}`, outside],
       [
         "git commit -m a && git commit --allow-empty -m b",
-        `git commit${here} -m a && git commit${stamp("self")} --allow-empty -m b`,
+        `git commit -m a${here} && git commit --allow-empty -m b${stamp("self")}`,
         repo,
       ],
-      [`(cd ${repo} && git commit -m x)`, `(cd ${repo} && git commit${here} -m x)`, outside],
+      [`(cd ${repo} && git commit -m x)`, `(cd ${repo} && git commit -m x${here})`, outside],
+      [
+        `cd "$NOWHERE" && git -C ${repo} commit -m x`,
+        `cd "$NOWHERE" && git -C ${repo} commit -m x${here}`,
+        repo,
+      ],
     ];
 
     for (const [command, rewritten, cwd] of forms) {
@@ -1205,15 +1245,19 @@ describe("pre-bash writes provenance trailers into an agent's commit", () => {
     expect(refused.decision).toBe("deny");
     expect(refused.rewritten).toBeUndefined();
     expect((await commit("git commit -qm x && git push origin dev")).rewritten).toBe(
-      `git commit${stamp("human")} -qm x && git push origin dev`,
+      `git commit -qm x${stamp("human")} && git push origin dev`,
     );
   });
 
-  test("leaves as written an amend that keeps its message, a nested or substituted commit, and every other command", async () => {
+  test("leaves as written a commit that keeps or reuses its message, one that makes none, a nested or substituted commit, and every other command", async () => {
     said(record("typed"));
 
     for (const command of [
       "git commit --amend --no-edit",
+      "git commit -C HEAD",
+      "git commit --fixup=amend:HEAD",
+      "git commit --porcelain",
+      'cd "$NOWHERE" && git commit --amend --no-edit',
       "bash -c 'git commit -m x'",
       'echo "$(git commit -m x)"',
       "git merge --no-ff feature",
@@ -1221,6 +1265,8 @@ describe("pre-bash writes provenance trailers into an agent's commit", () => {
     ]) {
       expect((await commit(command)).stdout).toBe("");
     }
+
+    expect(existsSync(path.join(temp.bin, "claude.facts"))).toBe(false);
   });
 
   test("leaves a commit as written in a repository whose profile does not ask for trailers", async () => {
@@ -1232,6 +1278,8 @@ describe("pre-bash writes provenance trailers into an agent's commit", () => {
   });
 
   test("an amend that writes a new message keeps the Agent trailers of the commit it replaces", async () => {
+    const kept = " --trailer 'Agent-Trigger: review' --trailer 'Agent-Session: s-old'";
+
     git(
       repo,
       "-c",
@@ -1248,23 +1296,41 @@ describe("pre-bash writes provenance trailers into an agent's commit", () => {
     );
 
     expect((await commit("git commit --amend -m 'fix: b'")).rewritten).toBe(
-      "git commit --trailer 'Agent-Trigger: review' --trailer 'Agent-Session: s-old' --amend -m 'fix: b'",
+      `git commit --amend -m 'fix: b'${kept}`,
     );
     expect(existsSync(path.join(temp.bin, "claude.facts"))).toBe(false);
+
+    said(record("typed"));
+
+    expect((await commit("git commit -qm c && git commit --amend -m 'c, typo'")).rewritten).toBe(
+      `git commit -qm c${stamp("human")} && git commit --amend -m 'c, typo'${stamp("human")}`,
+    );
   });
 
-  test("a transcript it cannot read costs the commit its trailers, with a note", async () => {
-    const missing = await commit("git commit -m x");
+  test("a transcript it cannot read costs the commit its trailers, with one note", async () => {
+    const missing = await commit("git commit -m a && git commit -m b");
 
     expect(missing.rewritten).toBeUndefined();
     expect(missing.note).toStartWith(
       `agent-hooks: no provenance trailer: the transcript ${transcript} cannot be read (`,
     );
+    expect(missing.note?.split("\n")).toHaveLength(1);
 
     const none = await preBash("git commit -m x", repo);
 
     expect(none.note).toBe(
       "agent-hooks: no provenance trailer: the hook received no transcript_path",
+    );
+  });
+
+  test("a commit whose cd the walk cannot follow says so once, in a repository with the key", async () => {
+    said(record("typed"));
+
+    const lost = await commit('cd "$NOWHERE" && git commit -m a && git commit -m b');
+
+    expect(lost.rewritten).toBeUndefined();
+    expect(lost.note).toBe(
+      "agent-hooks: no provenance trailer: an earlier cd $NOWHERE leaves the commit's directory unknown",
     );
   });
 
@@ -1274,7 +1340,7 @@ describe("pre-bash writes provenance trailers into an agent's commit", () => {
 
     const output = await commit("git commit -qm x");
 
-    expect(output.rewritten).toBe(`git commit${stamp("human")} -qm x`);
+    expect(output.rewritten).toBe(`git commit -qm x${stamp("human")}`);
     expect(output.note).toBe(
       "agent-hooks: the provenance classifier gave no answer (claude -p exited 1 with no trigger): Agent-Trigger comes from the transcript's facts alone",
     );
@@ -1292,7 +1358,7 @@ describe("pre-bash writes provenance trailers into an agent's commit", () => {
           prompt_id: "p-fixture",
         })
       ).rewritten,
-    ).toBe(`git commit${stamp("human", `${SESSION}.a2`)} -qm x`);
+    ).toBe(`git commit -qm x${stamp("human", `${SESSION}.a2`)}`);
   });
 
   test("the rewritten command commits, through a commit-msg hook and a signature, with both trailers", async () => {

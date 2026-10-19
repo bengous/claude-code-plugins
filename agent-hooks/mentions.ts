@@ -1568,14 +1568,19 @@ export function assess(
   return { doors: uniqueDoors(doors), unresolved: found };
 }
 
-/** A `git commit` a line runs as written: where its trailers go, and where it runs. */
+/** A `git commit` a line runs as written: where its trailers go, where it runs, and the heredoc it reads. */
 export type CommitInvocation = {
-  /** The offset in the line right after the `commit` word. */
+  /**
+   * The offset in the line after its last argument before a `--`: options added there keep matching a permission
+   * rule written for the command's start (`Bash(git commit -m:*)`).
+   */
   readonly offset: number;
   /** null once an earlier `cd` leaves the directory unknown. */
   readonly cwd: string | null;
   readonly lost: string | null;
   readonly git: GitCommand;
+  /** The body of the first heredoc the command reads, as written: `-F -` takes its message from it. */
+  readonly heredoc: string | null;
 };
 
 const COMMIT = /(?<![\w.-])commit(?![\w.-])/u;
@@ -1610,11 +1615,27 @@ export function commitsOf(
     }
 
     const git = gitCommandOf(texts(view.unwrapped.argv));
-    const word = git === null ? undefined : view.unwrapped.argv[git.index];
 
-    return git?.subcommand === "commit" && word !== undefined
-      ? [{ offset: word.end, cwd: view.cwd, lost: view.lost, git }]
-      : [];
+    if (git?.subcommand !== "commit") {
+      return [];
+    }
+
+    const words = view.unwrapped.argv.slice(git.index);
+    const separator = words.findIndex((word) => word.text === "--");
+    const last = (separator === -1 ? words : words.slice(0, separator)).at(-1);
+    const [heredoc] = command.heredocs;
+
+    return last === undefined
+      ? []
+      : [
+          {
+            offset: last.end,
+            cwd: view.cwd,
+            lost: view.lost,
+            git,
+            heredoc: heredoc === undefined ? null : script.slice(heredoc.start, heredoc.end),
+          },
+        ];
   });
 }
 
