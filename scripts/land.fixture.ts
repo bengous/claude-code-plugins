@@ -7,11 +7,12 @@ import type { Comment } from "./review-verdict.ts";
 // its heads, kept in a JSON file. The pull request's head is the one the bare
 // origin holds for the branch, shown as soon as a push lands unless `lag`
 // holds the one before for that many reads. A head gets its push run the
-// first time its runs are listed, the e2e label starts one more run on the
-// head shown and takes the label off as it shows, as ci.yml's `unlabel` job
-// does, and a re-run gives a run another attempt. Each listing of a run in
-// progress takes one poll off it; a hidden run sits out that many listings
-// before it shows.
+// first time its runs are listed. Adding the e2e label, when it is not on
+// already, starts one more run on the head shown, which takes the label off
+// as it shows, as ci.yml's `unlabel` job does. A re-run gives a run another
+// attempt, which `rerunLag` listings still show as the attempt before. Each
+// listing of a run in progress takes one poll off it; a hidden run sits out
+// that many listings before it shows.
 
 export type JobEnd = "success" | "failure";
 
@@ -34,6 +35,7 @@ interface FakeRun {
   outcome: Outcome;
   polls: number;
   hidden: number;
+  stale: number;
   unlabels: boolean;
 }
 
@@ -56,6 +58,7 @@ export interface FakeGitHub {
   readonly pushRun: RunSpec | null;
   readonly labelRun: RunSpec;
   readonly rerun: RunSpec;
+  readonly rerunLag: number;
   readonly runs: FakeRun[];
   nextId: number;
   readonly calls: string[];
@@ -88,6 +91,7 @@ export function serveGitHub(
     pushRun: GREEN_PUSH_RUN,
     labelRun: GREEN_E2E_RUN,
     rerun: GREEN_E2E_RUN,
+    rerunLag: 2,
     runs: [],
     nextId: 100,
     calls: [],
@@ -143,6 +147,7 @@ function start(github: FakeGitHub, sha: string, spec: RunSpec, unlabels: boolean
     outcome: { validate: spec.validate, e2e: spec.e2e },
     polls: spec.polls,
     hidden: spec.hidden ?? 0,
+    stale: 0,
     unlabels,
   });
   github.nextId += 1;
@@ -176,8 +181,17 @@ function listRuns(github: FakeGitHub, sha: string): string {
       run.unlabels = false;
     }
 
-    const done = run.polls === 0;
     const url = `https://github.com/o/r/actions/runs/${run.id}`;
+
+    if (run.stale > 0) {
+      lines.push(
+        [run.id, "completed", conclusionOf(run.past.at(-1) ?? run.outcome), url].join("\t"),
+      );
+      run.stale -= 1;
+      continue;
+    }
+
+    const done = run.polls === 0;
 
     lines.push(
       [run.id, done ? "completed" : "in_progress", done ? conclusionOf(run.outcome) : "", url].join(
@@ -199,7 +213,7 @@ function listCheckRuns(github: FakeGitHub, sha: string): string {
 
     const attempts = [
       ...run.past.map((outcome) => ({ outcome, done: true })),
-      { outcome: run.outcome, done: run.polls === 0 },
+      ...(run.stale > 0 ? [] : [{ outcome: run.outcome, done: run.polls === 0 }]),
     ];
 
     for (const [index, { outcome, done }] of attempts.entries()) {
@@ -273,7 +287,9 @@ async function answer(github: FakeGitHub, args: readonly string[]): Promise<stri
     }
 
     if (flag === "--add-label") {
-      if (!github.pr.labels.includes(value)) github.pr.labels.push(value);
+      if (github.pr.labels.includes(value)) return "";
+
+      github.pr.labels.push(value);
 
       if (value === "e2e") start(github, github.shown ?? headOf(github), github.labelRun, true);
 
@@ -289,6 +305,7 @@ async function answer(github: FakeGitHub, args: readonly string[]): Promise<stri
     run.past.push(run.outcome);
     run.outcome = { validate: github.rerun.validate, e2e: github.rerun.e2e };
     run.polls = github.rerun.polls;
+    run.stale = github.rerunLag;
 
     return "";
   }
