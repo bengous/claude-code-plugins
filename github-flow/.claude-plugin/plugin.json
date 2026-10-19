@@ -1,6 +1,6 @@
 {
   "name": "github-flow",
-  "version": "2.3.0",
+  "version": "2.3.1",
   "description": "GitHub lifecycle through gh: agent-ready issues, review-ready PRs that show the change in diagrams, images and video, issue and PR triage, CI-gated linear merge, commit-push-PR in one step, stacked PRs with gh stack, and an issue-to-PR loop whose worker agents land their own PR",
   "author": {
     "name": "Augustin BENGOLEA",
