@@ -36,9 +36,10 @@ plugin loaded with no `--plugin-dir`. Read the state before touching it:
 replaces must already be disabled, and disabling one is the owner's call, not
 the checker's: if it is enabled, stop and say so.
 
-1. Bump `plugin.json` and commit. `pre-commit` writes the version into
-   `marketplace.json` and the README row. Land on `dev` and wait for catalog
-   sync before checking the managed marketplace.
+1. The release bumps each changed plugin's `plugin.json` in a commit on
+   `dev`, where `pre-commit` writes the version into `marketplace.json` and
+   the README row ([Git procedures](../repo-ops/git.md), Release). Wait for
+   catalog sync before checking the managed marketplace.
 2. `claude plugin install <plugin>@<marketplace>`, or `claude plugin update
    <plugin>` when an older version is installed. It answers in seconds, and
    the cache holds every file when it returns.

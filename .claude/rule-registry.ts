@@ -19,9 +19,13 @@ export const REGISTRY: Registry = {
       prose: "which tool fits a task is a judgement",
       covers: "list",
     },
-    "7e1dbe78": {
+    "6a1ce9bb": {
       quote: "New plugin: add its `marketplace.json` entry and its",
       held: ["hook scripts/sync-versions.ts", "gate validate-marketplace"],
+    },
+    "0d420803": {
+      quote: "Agents never bump a version or write a `CHANGELOG.md`",
+      held: ["hook scripts/check-plugin-bumps.ts", "test scripts/release.test.ts"],
     },
     f050d941: {
       quote: "For plugin tests, permissions and the catalog lifecycle,",
