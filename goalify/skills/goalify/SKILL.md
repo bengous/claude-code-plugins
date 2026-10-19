@@ -58,11 +58,19 @@ the task is vague. The proof is the command's own summary line, never an
 echoed exit code (Gotchas).
 
 **Constraints.** What must not change on the way, and what closes the shortest
-path to the end state that is not the work: test files unchanged, no skipped
-test, no lint rule relaxed, no new dependency, the pinned branch. Before writing them, ask
-how the condition could be satisfied without doing the task, and close each
-answer. Approval before anything destructive or outward-facing (push, delete,
-send, install) is a constraint, not a note.
+path to the end state that is not the work. The generic list (test files
+unchanged, no skipped test, no lint rule relaxed, no new dependency, the pinned
+branch) rarely closes the shortcut this task invites: take the proof as
+written and ask what the cheapest action is that would make it print its line.
+One answer applied to every item, a substitute for the tool the task names, a
+generated file written by hand, a declaration checked where the thing should
+be exercised, the hard question left "not measured". Close each in the line, by
+a constraint or by output that shows, beside the summary line, what was done
+item by item: the evaluator cannot otherwise tell the work from the shortcut.
+A fact the task exists to establish is never met by "unknown"; when the
+session cannot measure it, that is the blocker. Approval before anything
+destructive or outward-facing (push, delete, send, install) is a constraint,
+not a note.
 
 **Blocker.** The evaluator returns met, not met, or impossible; a stuck run
 reads as "not met" forever. Write the blocked outcome as a second end state,
@@ -126,4 +134,6 @@ in a new way.
   evaluator weighs every character, fences and labels included.
 - The session's own instructions in the line: a hook asking for a worktree, a
   rule from `CLAUDE.md`, the diagnosis the skill formed while reading. They
-  are worker context; they go in the message before `/goal`.
+  are worker context; they go in the message before `/goal`. A rule that closes
+  a shortcut is not context: only the line reaches the evaluator, so it stays
+  there.

@@ -1,6 +1,56 @@
 {
   "schema": "hillclimb/v2",
+  "current_round": 2,
+  "reps": 2,
+  "best": { "round": 2, "variant": "v2", "score": 0.944 },
+  "goal": {
+    "target": "shortcuts",
+    "direction": "higher",
+    "hold": [
+      "kind_ok",
+      "line_ok",
+      "proof_cmd",
+      "blocker_or",
+      "cap",
+      "end_state",
+      "proof_line",
+      "context_out",
+      "proxy"
+    ]
+  },
+  "approve_each_round": false,
+  "split": "none: 22 cases scored every round, directional",
+  "train_ids": [
+    "scratch-01",
+    "scratch-02",
+    "scratch-03",
+    "scratch-04",
+    "scratch-05",
+    "deps-01",
+    "deps-02",
+    "deps-03",
+    "deps-04",
+    "feat-01",
+    "feat-02",
+    "feat-03",
+    "feat-04",
+    "feat-05",
+    "feat-06",
+    "amb-01",
+    "amb-02",
+    "amb-03",
+    "any-01",
+    "any-02",
+    "any-03",
+    "any-04"
+  ],
+  "budget_usd": 25,
   "metrics": [
+    {
+      "id": "shortcuts",
+      "label": "shortcuts",
+      "kind": "binary"
+    },
     {
       "id": "kind_ok",
       "label": "kind",
@@ -37,11 +87,6 @@
       "kind": "binary"
     },
     {
-      "id": "shortcuts",
-      "label": "shortcuts",
-      "kind": "binary"
-    },
-    {
       "id": "context_out",
       "label": "context out",
       "kind": "binary"
@@ -49,11 +94,6 @@
     {
       "id": "proxy",
       "label": "proxy",
-      "kind": "binary"
-    },
-    {
-      "id": "repo_truth",
-      "label": "repo truth",
       "kind": "binary"
     }
   ],
@@ -82,5 +122,5 @@
     "goalify/evals/grade.ts",
     "goalify/evals/cases.json"
   ],
-  "harness_sha": "a92fa5fbcac70d5dc5c80d8c07e1e74654e2840447051756ac71408da17f847f"
+  "harness_sha": "cb5bcb27228154e8f6543fe19c229aa62711e8e31b19bfb530d63d1441de39ee"
 }
