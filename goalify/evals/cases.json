@@ -115,8 +115,8 @@
     "id": "feat-06",
     "tags": ["feature", "negative"],
     "cwd": "~/Work/claude-code-plugins/.claude/worktrees/goalify-v2",
-    "expected": "contradiction",
-    "hints": "The feature already exists: claude-meta-tools/skills/ambition/SKILL.md is on the branch. One line should say so, and the condition be written on what is true.",
+    "expected": "refusal",
+    "hints": "The feature already exists: claude-meta-tools/skills/ambition/SKILL.md is on the branch. A condition on 'the skill exists' would be true at the first evaluation, so the right response says the end state already holds and asks what delta the user wants (a change, a validation, an eval).",
     "input": "ajoute un skill /ambition a claude-meta-tools qui montre les versions plus hautes, plus profondes et plus larges d'une demande"
   },
   {

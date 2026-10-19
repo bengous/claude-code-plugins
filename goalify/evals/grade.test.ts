@@ -93,8 +93,37 @@ describe("lineScores on a refusal", () => {
     expect(lineScores("No observable end state. Proxies: ...", "refusal")).toEqual({ kind_ok: 1 });
   });
 
-  test("a /goal line is the wrong kind", () => {
-    expect(lineScores(CONDITION, "refusal")).toEqual({ kind_ok: 0 });
+  test("a condition written on a proxy is accepted", () => {
+    expect(
+      lineScores(`No end state as given; the closest proxy:\n${CONDITION}`, "refusal"),
+    ).toEqual({
+      kind_ok: 1,
+    });
+  });
+
+  test("a condition with placeholders to fill in is not", () => {
+    const template =
+      "/goal Each of these defects is fixed: [DEFECT 1], [DEFECT 2]. Stop after 10 turns.";
+
+    expect(lineScores(template, "refusal")).toEqual({ kind_ok: 0 });
+  });
+});
+
+describe("lineScores on a blocker list with dotted tokens", () => {
+  test("a version or a host name inside the parenthesis does not hide the clause", () => {
+    const dotted =
+      "/goal `cargo test` prints `0 failed`. Ou un blocage hors du contrôle de Claude (réseau coupé pour crates.io, un compilateur plus récent que 1.97.0 exigé) est nommé dans la conversation avec sa cause et ce qui a été essayé. Arrêt après 20 tours.";
+
+    expect(lineScores(dotted, "condition").blocker_or).toBe(1);
+  });
+});
+
+describe("lineScores on French clauses", () => {
+  test("'arrêt après N tours' and 'sinon, un blocage … est nommé' count", () => {
+    const french =
+      "/goal `cargo test` affiche `0 failed`. Sinon, un blocage hors du contrôle de Claude est nommé dans la conversation avec sa cause et ce qui a été essayé. Arrêt après 25 tours avec la liste de ce qui reste.";
+
+    expect(lineScores(french, "condition").line_ok).toBe(1);
   });
 });
 

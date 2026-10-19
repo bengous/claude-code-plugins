@@ -27,10 +27,12 @@ const SECTION_LABEL =
 const BACKTICK_COMMAND = /`[^`\n]{2,}`/u;
 
 const BLOCKER_END_STATE =
-  /\b(or|ou)\b[^.]*\b(blocker|blocked|blocage|bloqu\S*)\b[^.]*\b(named|reported|stated|nomm\S*|signal\S*)\b[^.]*\bcause\b/iu;
+  /\b(or|ou|sinon|aussi atteint si|also met if)\b.{0,60}\b(blocker|blocked|blocage|bloqu\S*)\b.{0,400}\b(named|reported|stated|nomm\S*|signal\S*)\b.{0,80}\bcause\b/iu;
 
 const TURN_CAP =
-  /\b(stop|arr[êe]te\S*)\b[^.]*\b\d+\s*(turns?|tours?|minutes?|hours?|heures?|tries|attempts|essais?)\b|\b\d+\s*(turns?|tours?|minutes?|hours?|heures?|tries|attempts|essais?)\b[^.]*\b(stop|arr[êe]te\S*)\b/iu;
+  /\b(stop|arr[êe]t\S*)\b.{0,80}\b\d+\s*(turns?|tours?|minutes?|hours?|heures?|tries|attempts|essais?)\b|\b\d+\s*(turns?|tours?|minutes?|hours?|heures?|tries|attempts|essais?)\b.{0,80}\b(stop|arr[êe]t\S*)\b/iu;
+
+const PLACEHOLDER = /\[[^\]]{3,}\]|<[^>]{3,}>/u;
 
 const CONDITION_LIMIT = 4000;
 
@@ -52,7 +54,11 @@ export function lineScores(output: string, expected: ExpectedKind): LineScores {
   const lines = goalLines(output);
   const line = lines[0];
 
-  if (expected === "refusal") return { kind_ok: score(lines.length === 0) };
+  if (expected === "refusal") {
+    const proxyLine = lines.length === 1 && line !== undefined && !PLACEHOLDER.test(line);
+
+    return { kind_ok: score(lines.length === 0 || proxyLine) };
+  }
 
   if (line === undefined || lines.length !== 1) return { kind_ok: 0 };
   const kindOk = expected === "condition" || textBefore(output, line).length > 0;
@@ -90,7 +96,7 @@ const PROPERTY_QUESTIONS: Record<JudgeProperty, string> = {
   context_out:
     "context_out: the /goal line itself carries no worker-only context (why the task exists, where to start, what was tried, which worktree to use). Such context placed outside the /goal line, as a note the user sends in a separate message, is the intended design and passes.",
   proxy:
-    "proxy: the response says the task has no end state a transcript can show and offers at least one measurable proxy or a Stop hook, without writing a /goal condition.",
+    "proxy: the response says the task as given has no end state a transcript can show (or that its end state is already true), and then either offers a measurable proxy or a Stop hook, writes the /goal condition on that proxy, or asks for the missing delta. A /goal line with placeholders the user must fill in ([...]) fails.",
   repo_truth:
     "repo_truth: one line before the condition states what the repository already holds (the contradiction the case hints describe), and the condition is written on that state.",
 };
