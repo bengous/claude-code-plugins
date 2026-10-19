@@ -433,8 +433,8 @@ describe("decide", () => {
 
   test("a known flake gets a comment on its issue, naming the new run", () => {
     const issues = [
-      { number: 9, texts: ["unrelated"] },
-      { number: 7, texts: [`body ${markerOf(FLAKE.id)}`] },
+      { number: 9, open: true, texts: ["unrelated"] },
+      { number: 7, open: true, texts: [`body ${markerOf(FLAKE.id)}`] },
     ];
 
     expect(decide([reportOf("e2e (light-1440)", RUN_2)], issues)).toEqual([
@@ -459,7 +459,7 @@ describe("decide", () => {
   });
 
   test("the same test from two jobs on a known issue comments once per job", () => {
-    const issues = [{ number: 7, texts: [markerOf(FLAKE.id)] }];
+    const issues = [{ number: 7, open: true, texts: [markerOf(FLAKE.id)] }];
 
     const actions = decide(
       [reportOf("win32", RUN_2), reportOf("e2e (win32, light-1440)", RUN_2)],
@@ -471,11 +471,60 @@ describe("decide", () => {
 
   test("a run already recorded, or reported twice, is recorded once", () => {
     const recorded = [
-      { number: 7, texts: [markerOf(FLAKE.id), recordOf({ job: "win32", runUrl: RUN_1 })] },
+      {
+        number: 7,
+        open: true,
+        texts: [markerOf(FLAKE.id), recordOf({ job: "win32", runUrl: RUN_1 })],
+      },
     ];
 
     expect(decide([reportOf("win32", RUN_1)], recorded)).toEqual([]);
     expect(decide([reportOf("win32", RUN_1), reportOf("win32", RUN_1)], [])).toHaveLength(1);
+  });
+
+  test("a new run of a test whose issue is closed reopens it, then comments for each other job", () => {
+    const closed = [{ number: 7, open: false, texts: [markerOf(FLAKE.id)] }];
+
+    const actions = decide(
+      [reportOf("e2e (light-1440)", RUN_2), reportOf("e2e (dark-1440)", RUN_2)],
+      closed,
+    );
+
+    expect(actions).toEqual([
+      {
+        kind: "reopen",
+        issue: 7,
+        body: expect.stringContaining(recordOf({ job: "e2e (light-1440)", runUrl: RUN_2 })),
+      },
+      {
+        kind: "comment",
+        issue: 7,
+        body: expect.stringContaining(recordOf({ job: "e2e (dark-1440)", runUrl: RUN_2 })),
+      },
+    ]);
+  });
+
+  test("a run a closed issue records already, as a re-run's, leaves it closed", () => {
+    const closed = [
+      {
+        number: 7,
+        open: false,
+        texts: [markerOf(FLAKE.id), recordOf({ job: "win32", runUrl: RUN_1 })],
+      },
+    ];
+
+    expect(decide([reportOf("win32", RUN_1)], closed)).toEqual([]);
+  });
+
+  test("a test with an open and a closed issue is recorded in the open one", () => {
+    const issues = [
+      { number: 9, open: false, texts: [markerOf(FLAKE.id)] },
+      { number: 7, open: true, texts: [markerOf(FLAKE.id)] },
+    ];
+
+    expect(decide([reportOf("win32", RUN_2)], issues)).toEqual([
+      { kind: "comment", issue: 7, body: expect.any(String) },
+    ]);
   });
 
   test("a marker never closes its HTML comment early", () => {
@@ -485,30 +534,47 @@ describe("decide", () => {
 
 interface Issue {
   number: number;
+  open: boolean;
   body: string;
   labels: string[];
   comments: string[];
 }
 
-/** GitHub as the flaky job sees it: its open issues, and the label. */
+/** GitHub as the flaky job sees it: its issues, open or closed, and the label. */
 function world() {
   const issues: Issue[] = [];
   const labels: string[] = [];
+
+  const numbered = (target: string | undefined) =>
+    issues.find((issue) => issue.number === Number((target ?? "").split("/").at(-1)));
 
   const gh: Gh = (args) => {
     const [command, sub] = args;
     const flag = (name: string) => args[args.indexOf(name) + 1] ?? "";
 
-    if (command === "issue" && sub === "list") {
+    if (command === "issue" && sub === "list" && flag("--state") === "all") {
       return Promise.resolve(
         JSON.stringify(
-          issues.flatMap(({ number, body, labels: on, comments }) =>
-            on.includes(flag("--label"))
-              ? [{ number, body, comments: comments.map((text) => ({ body: text })) }]
-              : [],
+          issues.flatMap(({ number, open, body, labels: on }) =>
+            on.includes(flag("--label")) ? [{ number, state: open ? "OPEN" : "CLOSED", body }] : [],
           ),
         ),
       );
+    }
+
+    const comments = /^repos\/o\/r\/issues\/(\d+)\/comments\?per_page=100$/u.exec(args[2] ?? "");
+
+    if (command === "api" && sub === "--paginate" && comments !== null) {
+      return Promise.resolve(numbered(comments[1])?.comments.join("\n") ?? "");
+    }
+
+    if (command === "issue" && sub === "reopen") {
+      const issue = numbered(args[2]);
+      issue?.comments.push(flag("--comment"));
+
+      if (issue !== undefined) issue.open = true;
+
+      return Promise.resolve("");
     }
 
     if (command === "label" && sub === "create") {
@@ -519,14 +585,19 @@ function world() {
 
     if (command === "issue" && sub === "create") {
       const number = issues.length + 1;
-      issues.push({ number, body: flag("--body"), labels: [flag("--label")], comments: [] });
+      issues.push({
+        number,
+        open: true,
+        body: flag("--body"),
+        labels: [flag("--label")],
+        comments: [],
+      });
 
       return Promise.resolve(`https://github.com/o/r/issues/${number}\n`);
     }
 
     if (command === "issue" && sub === "comment") {
-      const target = (args[2] ?? "").split("/").at(-1);
-      issues.find((issue) => issue.number === Number(target))?.comments.push(flag("--body"));
+      numbered(args[2])?.comments.push(flag("--body"));
 
       return Promise.resolve("");
     }
@@ -583,6 +654,25 @@ describe("report, from the reports the jobs uploaded", () => {
       "every flaky test of this run is recorded already",
     ]);
     expect(issues[0]?.comments).toEqual([]);
+  });
+
+  test("a flake of a test whose issue was closed reopens it; a re-run of that run changes nothing", async () => {
+    const { issues, gh } = world();
+    upload("flaky-win32-1", "bun", reportOf("win32", RUN_1));
+    await report({ GITHUB_REPOSITORY: "o/r" }, gh, folder);
+    issues[0]!.open = false;
+
+    rmSync(folder, { recursive: true });
+    upload("flaky-win32-1", "bun", reportOf("win32", RUN_2));
+
+    expect(await report({ GITHUB_REPOSITORY: "o/r" }, gh, folder)).toEqual(["reopened #1"]);
+
+    issues[0]!.open = false;
+
+    expect(await report({ GITHUB_REPOSITORY: "o/r" }, gh, folder)).toEqual([
+      "every flaky test of this run is recorded already",
+    ]);
+    expect(issues.map(({ open, comments }) => [open, comments.length])).toEqual([[false, 1]]);
   });
 
   test("no report folder, as when no job uploaded one, is no flake and calls no gh", async () => {
@@ -691,6 +781,7 @@ interface Job {
   readonly if?: string;
   readonly permissions?: Readonly<Record<string, string>>;
   readonly concurrency?: { readonly group: string; readonly "cancel-in-progress": boolean };
+  readonly "continue-on-error"?: boolean;
   readonly steps: readonly Step[];
 }
 
@@ -730,12 +821,13 @@ describe("ci.yml", () => {
     ]);
   });
 
-  test("the flaky job alone writes issues, one run at a time, from every report of the run", async () => {
+  test("the flaky job alone writes issues, one run at a time, from every report of the run, never failing the run", async () => {
     const flaky = (await ci()).flaky;
 
     expect(flaky?.needs).toEqual(["win32", "e2e-window", "e2e-win32"]);
     expect(flaky?.permissions).toEqual({ contents: "read", issues: "write" });
     expect(flaky?.concurrency).toEqual({ group: "flaky", "cancel-in-progress": false });
+    expect(flaky?.["continue-on-error"]).toBe(true);
     expect(flaky?.if).toContain("always()");
     expect(flaky?.if).toContain(
       "github.event.pull_request.head.repo.full_name == github.repository",
