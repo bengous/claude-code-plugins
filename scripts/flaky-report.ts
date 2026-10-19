@@ -600,7 +600,9 @@ export async function report(env: Env, gh: Gh, folder: string): Promise<string[]
 
       done.push(`opened ${url}`);
     } else if (action.kind === "reopen") {
-      await gh(["issue", "reopen", String(action.issue), "--repo", repo, "--comment", action.body]);
+      // `gh issue reopen --comment` posts nothing when the issue is open already, as another job may have made it.
+      await gh(["issue", "reopen", String(action.issue), "--repo", repo]);
+      await gh(["issue", "comment", String(action.issue), "--repo", repo, "--body", action.body]);
       done.push(`reopened #${action.issue}`);
     } else {
       await gh(["issue", "comment", String(action.issue), "--repo", repo, "--body", action.body]);
