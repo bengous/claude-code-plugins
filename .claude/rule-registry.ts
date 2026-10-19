@@ -31,8 +31,8 @@ export const REGISTRY: Registry = {
       quote: "`vellum/` and `pinpoint/` carry `package.json` + `bun.lock`:",
       prose: "a bare `bun test` installs nothing; `run-gates.ts` and CI install first",
     },
-    "54183a81": {
-      quote: "Everything above but the browser suite, the mutation run and",
+    ea2d40ae: {
+      quote: "Everything above but the browser suite, the mutation run,",
       held: ["gate lint-config", "hook scripts/run-gates.ts", "hook scripts/affected.ts"],
     },
     "9679b29c": { quote: "| Layer | Language | Boundary |", prose: "the table's header" },

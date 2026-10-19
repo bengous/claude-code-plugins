@@ -42,11 +42,16 @@ const USAGE =
 
 const PROJECT = "claude-code-plugins";
 
-const REMOTE = "bengous/claude-code-plugins";
-
 const RELEASE_REFUSAL = "Bump each version in its plugin.json";
 
-const TASK_NOTIFICATION = "<task-notification>";
+const PUSH_FAILED = /failed to push some refs to '[^']*bengous\/claude-code-plugins/u;
+
+const AGENT_MESSAGES = [
+  "<task-notification>",
+  "<teammate-message",
+  "<agent-message",
+  "Another Claude session sent a message:",
+] as const;
 
 const CI_WAIT =
   /gh run watch|gh pr checks[^|;&]*--watch|(?:until|while)[^;]*gh (?:run|pr|api)|gh (?:run|pr|api).{0,300}sleep|sleep.{0,200}gh (?:run|pr|api)/su;
@@ -311,7 +316,7 @@ export function isCiWait(command: string): boolean {
   return CI_WAIT.test(command);
 }
 
-/** A command that runs `git push`, the pre-push hooks with it. */
+/** A command that runs `git push`, among whatever else it chains. */
 export function isGitPush(command: string): boolean {
   return GIT_PUSH.test(command);
 }
@@ -333,11 +338,15 @@ export function isTypedDestructive(command: string): boolean {
 
 /**
  * Release output the human brought into a session, by `!` or by pasting it,
- * in which the pre-push release guard refused a push to this repository.
+ * in which the pre-push release guard refused a push to this repository: the
+ * guard's message beside git's failed push. A message an agent sent the
+ * session does not count, whatever it quotes.
  */
 export function isReleaseRefusal(text: string): boolean {
   return (
-    !text.startsWith(TASK_NOTIFICATION) && text.includes(RELEASE_REFUSAL) && text.includes(REMOTE)
+    !AGENT_MESSAGES.some((prefix) => text.startsWith(prefix)) &&
+    text.includes(RELEASE_REFUSAL) &&
+    PUSH_FAILED.test(text)
   );
 }
 

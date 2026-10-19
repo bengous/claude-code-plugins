@@ -34,9 +34,9 @@ The human reads a sample of what landed on `dev` each week, not every commit. `b
 
   | Counter | What counts |
   |---|---|
-  | release refusals | A main-session user message, the output of a `!` command or pasted terminal output, holding both the release guard's `Bump each version in its plugin.json` and the remote `bengous/claude-code-plugins`; one per session. A refusal never shown to a session is not seen. |
+  | release refusals | A main-session user message, the output of a `!` command or pasted terminal output, holding both the release guard's `Bump each version in its plugin.json` and git's `failed to push some refs to '…bengous/claude-code-plugins…'`; one per session. A message an agent sent the session (`<task-notification>`, `<teammate-message`, `<agent-message`, `Another Claude session sent a message:`) does not count, whatever it quotes. A refusal never shown to a session is not seen. |
   | agent CI waits | A Bash call matching `CI_WAIT`: `gh run watch`, `gh pr checks --watch`, or a loop or a `sleep` around `gh run`, `gh pr` or `gh api`. Its foreground time runs from the call to its result; a background call adds none. |
-  | agent git pushes | A Bash call running `git push`, timed the same way: what the pre-push hooks cost, network included. |
+  | agent git pushes | A Bash call that runs `git push`, timed the same way. The time is the whole call's: the push with its pre-push hooks and network, and whatever else the call chains, a commit and its hooks, tests, a CI wait, a push of another repository. It bounds what the pre-push hooks cost from above. |
   | `!` commands typed | A user message opening with `<bash-input>`. Releases: `release-plugins` or `scripts/release.ts`. Destructive git: `branch -D`, `push … --delete`, `--force`, `push origin <ref>:dev`, `gh stack merge`. |
   | worktree isolation refusals | A tool result flagged as an error whose text says the session or the agent is isolated in the worktree, the command is too complex to verify, or the isolation context was lost. |
   | classifier denials | A denial log line whose `cwd` holds `claude-code-plugins`, listed by `reason` under the table. |

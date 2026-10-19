@@ -1,5 +1,13 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { chmodSync, mkdirSync, mkdtempSync, rmSync, utimesSync, writeFileSync } from "node:fs";
+import {
+  chmodSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  utimesSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 
@@ -48,6 +56,9 @@ const REFUSAL = [
   "Bump each version in its plugin.json before main moves.",
   "error: failed to push some refs to 'github.com:bengous/claude-code-plugins.git'</bash-stderr>",
 ].join("\n");
+
+const TEAMMATE_QUOTE =
+  '<teammate-message teammate_id="s3-impl" summary="S3 PR opened">PR https://github.com/bengous/claude-code-plugins/pull/370 is open: release.ts bumps before it pushes, so the guard\'s "Bump each version in its plugin.json" no longer fires on a release.</teammate-message>';
 
 interface LineOptions {
   readonly uuid?: string;
@@ -289,8 +300,18 @@ describe("isReleaseRefusal", () => {
     ).toBe(false);
   });
 
-  test("not for a subagent's report that quotes one", () => {
-    expect(isReleaseRefusal(`<task-notification>\n<result>${REFUSAL}</result>`)).toBe(false);
+  test("not for a message that names the guard and links a pull request, with no failed push", () => {
+    expect(isReleaseRefusal(TEAMMATE_QUOTE)).toBe(false);
+    expect(isReleaseRefusal(TEAMMATE_QUOTE.replace(/^<teammate-message[^>]*>/u, ""))).toBe(false);
+  });
+
+  test.each([
+    `<task-notification>\n<result>${REFUSAL}</result>`,
+    `<teammate-message teammate_id="s3-impl">${REFUSAL}</teammate-message>`,
+    `<agent-message from="s3-impl">${REFUSAL}</agent-message>`,
+    `Another Claude session sent a message:\n${REFUSAL}`,
+  ])("not for an agent's message that quotes a whole refusal: %p", (text) => {
+    expect(isReleaseRefusal(text)).toBe(false);
   });
 });
 
@@ -387,6 +408,7 @@ describe("countTranscripts", () => {
         saidLine("2026-10-13T10:05:00Z", REFUSAL, { session: "s1" }),
         saidLine("2026-10-14T10:00:00Z", REFUSAL, { session: "s2" }),
         saidLine("2026-10-19T10:00:00Z", REFUSAL, { session: "s3" }),
+        saidLine("2026-10-15T10:00:00Z", TEAMMATE_QUOTE, { session: "s4" }),
         resultLine("x", "2026-10-15T10:00:00Z", REFUSAL, false),
       ),
       W42,
@@ -797,6 +819,7 @@ describe("the script", () => {
         resultLine("a", "2026-10-13T10:30:00Z", "ok", false),
         saidLine("2026-10-14T09:00:00Z", "<bash-input>release-plugins</bash-input>"),
         saidLine("2026-10-14T09:01:00Z", REFUSAL),
+        saidLine("2026-10-14T09:02:00Z", TEAMMATE_QUOTE, { session: "lead" }),
         resultLine(
           "b",
           "2026-10-15T10:00:00Z",
@@ -823,7 +846,10 @@ describe("the script", () => {
     );
 
     fakeGh(
-      `printf '%s\\n' '[{"createdAt":"2026-10-13T08:00:00Z","comments":["2026-10-14T08:00:00Z","2026-10-01T08:00:00Z"]}]'`,
+      [
+        `printf '%s\\n' "$@" > "${join(root, "gh-args")}"`,
+        `printf '%s\\n' '[{"createdAt":"2026-10-13T08:00:00Z","comments":["2026-10-14T08:00:00Z","2026-10-01T08:00:00Z"]}]'`,
+      ].join("\n"),
     );
   });
 
@@ -850,6 +876,17 @@ describe("the script", () => {
     ]) {
       expect(out).toMatch(line);
     }
+  });
+
+  test("asks gh for the flaky issues in every state, closed ones included", () => {
+    expect(run("--week", "2026-W42").code).toBe(0);
+
+    const asked = readFileSync(join(root, "gh-args"), "utf8").trimEnd().split("\n");
+
+    expect(asked.slice(0, 2)).toEqual(["issue", "list"]);
+    expect(asked.join(" ")).toContain("--label flaky");
+    expect(asked.join(" ")).toContain("--state all");
+    expect(asked.join(" ")).toContain("--json createdAt,comments");
   });
 
   test("says so, and reports all the same, when gh cannot be asked", () => {
