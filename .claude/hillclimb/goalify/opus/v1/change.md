@@ -1,0 +1,3 @@
+The hillclimb's v3 SKILL.md (the three additions: Constraints aimed at the proof as written, environment facts and reasons kept out of the line, the "no observable end state" sentence before a proxy line), run on claude-opus-5-5 against the pre-hillclimb SKILL.md (88a08184) on the same model.
+
+A second-model check, not a round: the hillclimb measured its gain on claude-sonnet-5-5 while the user's own sessions run Opus 5.5 or Fable. The question is whether the additions help, are neutral, or hinder a stronger model. 22 cases × 1 rep per variant, noise about ±21 points: this sees a large effect either way, not a small one. The patch is the union of `../sonnet/v2/change.patch` and `../sonnet/v3/change.patch`.

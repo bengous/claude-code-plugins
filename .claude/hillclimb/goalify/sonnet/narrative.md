@@ -31,7 +31,7 @@ Nothing was reverted. v1 was a targeted re-run of three cases, not a round. The 
 
 ## Second-model check
 
-The user's sessions run Opus 5.5 or Fable, not the Sonnet the loop measured on. `.claude/hillclimb/goalify-opus/` runs the pre-hillclimb skill and v3 on claude-opus-5-5, 22 cases × 1 rep each (±21 points). v3 holds or helps on every metric: shortcuts 16/18 → 18/18, context_out 15/18 → 17/18, end_state 17/18 → 18/18, form 18/18 both; and Opus deliberates less with it: 8781 → 4802 output tokens per case, 110 s → 62 s, $12.42 → $9.20 per run. Details in that flow's `narrative.md`.
+The user's sessions run Opus 5.5 or Fable, not the Sonnet the loop measured on. `../opus/` runs the pre-hillclimb skill and v3 on claude-opus-5-5, 22 cases × 1 rep each (±21 points). v3 holds or helps on every metric: shortcuts 16/18 → 18/18, context_out 15/18 → 17/18, end_state 17/18 → 18/18, form 18/18 both; and Opus deliberates less with it: 8781 → 4802 output tokens per case, 110 s → 62 s, $12.42 → $9.20 per run. Details in that flow's `narrative.md`.
 
 ## What to try next
 
