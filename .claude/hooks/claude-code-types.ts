@@ -39,29 +39,11 @@ import {
   type StatePaths,
   statePaths,
 } from "../../scripts/claude-code-types.ts";
+import { withoutSessionIdentity } from "../../scripts/lib/session-env.ts";
 import { checkoutRoot } from "./checkout.ts";
 import { HOOK_EXIT } from "./hook-io.ts";
 
 const SCRIPT = join(import.meta.dir, "../../scripts/claude-code-types.ts");
-
-// The identity a Claude Code session hands its children, as a hook's
-// environment lists it: the run is no child of this session, and its own
-// `claude -p` would otherwise take itself for a nested one. Everything else
-// goes along, the user's own CLAUDE_* settings and login included.
-const SESSION_IDENTITY: ReadonlySet<string> = new Set([
-  "CLAUDECODE",
-  "CLAUDE_CODE_BRIDGE_SESSION_ID",
-  "CLAUDE_CODE_CHILD_SESSION",
-  "CLAUDE_CODE_ENTRYPOINT",
-  "CLAUDE_CODE_EXECPATH",
-  "CLAUDE_CODE_MESSAGING_SOCKET",
-  "CLAUDE_CODE_MESSAGING_TOKEN",
-  "CLAUDE_CODE_SESSION_ATTENDED",
-  "CLAUDE_CODE_SESSION_ID",
-  "CLAUDE_EFFORT",
-  "CLAUDE_PID",
-  "CLAUDE_PROJECT_DIR",
-]);
 
 function isErrnoException(cause: unknown): cause is NodeJS.ErrnoException {
   return cause instanceof Error && "code" in cause;
@@ -87,12 +69,7 @@ function takeOutcome(file: string): Outcome | null {
 }
 
 function runEnv(): NodeJS.ProcessEnv {
-  return {
-    ...Object.fromEntries(
-      Object.entries(process.env).filter(([name]) => !SESSION_IDENTITY.has(name)),
-    ),
-    [RUN_GUARD]: "1",
-  };
+  return { ...withoutSessionIdentity(process.env), [RUN_GUARD]: "1" };
 }
 
 /** The line about the run going or started now; null when the installed version is settled. */
