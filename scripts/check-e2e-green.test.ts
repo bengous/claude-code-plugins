@@ -95,6 +95,7 @@ describe("isE2ePath", () => {
       "vellum/agents/plan-reviewer.md",
       "vellum/types/claude-code.d.ts",
       "vellum/.claude/rules/page.md",
+      "vellum/.claude-plugin/plugin.json",
       "vellum/README.md",
       "vellum/AGENTS.md",
       "vellum/src/runtime/page/app.spec.ts",
