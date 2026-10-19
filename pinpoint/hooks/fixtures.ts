@@ -5,6 +5,7 @@ import type {
   ProcessSpawnChunk,
   ProcessSpawnResult,
   RenderSurface,
+  Settings,
 } from "claude-code";
 import { mock, type MockClock } from "claude-code/testing";
 
@@ -61,6 +62,10 @@ export type World = {
   noOpener: string | undefined;
   /** While set, the server answers `api/open` only once it settles. */
   opening: Promise<void> | undefined;
+  /** The settings merged over every source: none set, unless a test sets some. */
+  settings: Settings;
+  /** While set, `$.settings.read` is refused, for this reason. */
+  noSettings: string | undefined;
   readonly clock: MockClock;
   readonly children: Child[];
   readonly requests: Request[];
@@ -164,6 +169,8 @@ export function world(on: On, options: WorldOptions = {}): World {
     surfaces: [],
     noOpener: undefined,
     opening: undefined,
+    settings: {},
+    noSettings: undefined,
     clock: mock.clock(on),
     children: [],
     requests: [],
@@ -230,6 +237,9 @@ export function world(on: On, options: WorldOptions = {}): World {
     return { value: undefined };
   });
 
+  on("settings.read", () =>
+    built.noSettings === undefined ? { value: built.settings } : { deny: built.noSettings },
+  );
   on("session.start", (_, e) => ({ cwd: e.cwd }));
   on("session.id", () => ({ value: built.id }));
   on("session.root", () => ({ value: ROOT }));

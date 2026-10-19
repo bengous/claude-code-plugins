@@ -2,7 +2,7 @@ import { addressOn, targetOf } from "../shared/target.ts";
 import type { BatchAccepted, ImageAccepted, Outcome, ServerLine } from "../shared/wire.ts";
 import { type Found, pickPage, probe } from "./apps.ts";
 import { buildOverlay } from "./build.ts";
-import { sessionFiles } from "./files.ts";
+import { sessionFiles, sweepSessions } from "./files.ts";
 import { parseBatchRequest, parseDelivery, parseSeqs, parseTargetRequest } from "./parse.ts";
 import { forward, HOP, type Relay, relays } from "./proxy.ts";
 import { batchText } from "./text.ts";
@@ -20,6 +20,13 @@ export type ServeOptions = {
   readonly session: string;
   /** The directory of the Claude Code session, which the overlay's panel names. */
   readonly root: string;
+  /** The last batch the module handed to the session, which every new batch's number passes. */
+  readonly relayed: number;
+  /**
+   * How many days another session's files stay once nothing in them changes, Claude Code's
+   * `cleanupPeriodDays`; `null` sweeps none.
+   */
+  readonly keepDays: number | null;
   /** `0` for any; a port taken meanwhile binds another one, under a new token. */
   readonly port: number;
   readonly token: string | undefined;
@@ -84,6 +91,8 @@ function isPng(bytes: Uint8Array): boolean {
   return PNG_SIGNATURE.every((byte, index) => bytes[index] === byte);
 }
 
+const DAY_MS = 24 * 60 * 60 * 1000;
+
 /** A probe of the dev ports is reused this long: each one asks every app for its `/`. */
 const PROBE_FRESH_MS = 5_000;
 
@@ -115,6 +124,11 @@ export async function startServer(options: ServeOptions): Promise<Started> {
 
     return turn;
   };
+
+  // The highest number the module may have taken: the last it handed over, each batch told again
+  // at this start, then each one numbered since. It only acknowledges a number at or below it, so
+  // a `seq` removed before this server or since must not number a batch at or below it again.
+  let taken = options.relayed;
 
   let lastHeartbeat = Date.now();
 
@@ -199,7 +213,8 @@ export async function startServer(options: ServeOptions): Promise<Started> {
       if (batch === null) return new Response("not a batch", { status: 400 });
 
       const seq = await inTurn(async () => {
-        const next = await files.nextSeq();
+        const next = await files.nextSeq(taken);
+        taken = next;
         const text = batchText(next, batch.selections, files.imagePath);
         await files.keepPending({ seq: next, text });
         options.announce({ type: "batch", seq: next, text });
@@ -293,6 +308,7 @@ export async function startServer(options: ServeOptions): Promise<Started> {
 
     if (request.method === "POST" && path === "api/heartbeat") {
       lastHeartbeat = Date.now();
+      await files.touch();
 
       return new Response(null, { status: 204 });
     }
@@ -392,13 +408,30 @@ export async function startServer(options: ServeOptions): Promise<Started> {
 
   options.announce({ type: "ready", port, token, target: target?.href ?? null });
 
+  await files.touch();
+
   // A batch the last server took and no module handed to the session: told again, in order.
-  for (const pending of await files.pending()) options.announce({ type: "batch", ...pending });
+  for (const pending of await files.pending()) {
+    taken = Math.max(taken, pending.seq);
+    options.announce({ type: "batch", ...pending });
+  }
+
   told.resolve();
 
   const watchdog = setInterval(() => {
     if (Date.now() - lastHeartbeat > options.watchdog.graceMs) options.watchdog.expire();
   }, options.watchdog.periodMs);
+
+  // After `ready`: the module waits for it, not for the sweep.
+  if (options.keepDays !== null) {
+    const failures = await sweepSessions(
+      options.dir,
+      options.session,
+      options.keepDays * DAY_MS,
+    ).catch((cause: unknown) => [String(cause)]);
+
+    for (const failure of failures) console.error(`pinpoint: a session was not swept: ${failure}`);
+  }
 
   return {
     port,

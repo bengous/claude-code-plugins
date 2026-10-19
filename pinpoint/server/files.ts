@@ -1,4 +1,4 @@
-import { mkdir, readdir, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { lstat, mkdir, readdir, readFile, rename, rm, utimes, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
 import type { Delivery, Outcome } from "../shared/wire.ts";
@@ -10,20 +10,20 @@ import { parseDelivery } from "./parse.ts";
  * each batch not yet handed to the session, so a server started again on the same session tells
  * it again; `sessions/<session>/settled.json`, what the module reported of the last batches, so a
  * page asks after its own across a restart; `sessions/<session>/images/<id>.png`, each zone's image
- * a page handed over, until the session's directory goes. Each file is written whole under another
- * name, then renamed: a reader never meets half of one.
- *
- * TODO: only `/pinpoint:stop` removes a session's directory; a session that ends any other way
- * keeps its images for good, where a batch left a few KB of JSON before. How long the transcript
- * may still read an image is not known here, so a sweep (an age, or a start that finds no record)
- * is a policy to decide, not a fix to slip in.
+ * a page handed over, until the session's directory goes: at `/pinpoint:stop`, or at the start of
+ * another session's server once nothing in it changed, its own server's heartbeat included, for
+ * Claude Code's retention period. Each file is written whole under another name, then renamed: a
+ * reader never meets half of one.
  */
 
 export type Pending = { readonly seq: number; readonly text: string };
 
 export type SessionFiles = {
-  /** The next batch number, kept across servers of one session; the caller asks one at a time. */
-  readonly nextSeq: () => Promise<number>;
+  /**
+   * The next batch number, kept across servers of one session, and past `after`; the caller asks
+   * one at a time.
+   */
+  readonly nextSeq: (after: number) => Promise<number>;
   readonly keepPending: (pending: Pending) => Promise<void>;
   /** Keeps what the module reported of a batch, then forgets the batch; the caller settles one at a time. */
   readonly settle: (delivery: Delivery) => Promise<void>;
@@ -35,6 +35,8 @@ export type SessionFiles = {
   readonly keepImage: (png: Uint8Array) => Promise<string>;
   /** Where the image of `id` is kept, an absolute path. */
   readonly imagePath: (id: string) => string;
+  /** Dates the session's directory, when it has one, now: a server alive keeps it out of the sweep. */
+  readonly touch: () => Promise<void>;
   /** The session's directory, for `/pinpoint:stop`. */
   readonly removeAll: () => Promise<void>;
 };
@@ -79,6 +81,71 @@ async function writeWhole(file: string, data: string | Uint8Array): Promise<void
   await rename(draft, file);
 }
 
+function isMissing(cause: unknown): boolean {
+  return cause instanceof Error && "code" in cause && cause.code === "ENOENT";
+}
+
+/**
+ * When anything under `path` last changed: the newest of its files and directories, itself
+ * included. One renamed or removed while it is read changed just now.
+ */
+async function lastChange(path: string): Promise<number> {
+  const names = await readdir(path, { recursive: true }).catch((cause: unknown) => {
+    if (isMissing(cause)) return [];
+    throw cause;
+  });
+
+  const times = await Promise.all(
+    [path, ...names.map((name) => join(path, name))].map((one) =>
+      lstat(one).then(
+        (stats) => stats.mtimeMs,
+        (cause: unknown) => {
+          if (isMissing(cause)) return Infinity;
+          throw cause;
+        },
+      ),
+    ),
+  );
+
+  return times.reduce((newest, time) => Math.max(newest, time));
+}
+
+/**
+ * Removes the directory of every session but `session` that nothing changed in for `keepMs`;
+ * answers why each one that could not be swept was not.
+ */
+export async function sweepSessions(
+  dir: string,
+  session: string,
+  keepMs: number,
+): Promise<string[]> {
+  const sessions = join(dir, "sessions");
+  const cutoff = Date.now() - keepMs;
+
+  const entries = await readdir(sessions, { withFileTypes: true }).catch((cause: unknown) => {
+    if (isMissing(cause)) return [];
+    throw cause;
+  });
+
+  const failures = await Promise.all(
+    entries
+      .filter((entry) => entry.isDirectory() && entry.name !== session)
+      .map(async ({ name }) => {
+        const path = join(sessions, name);
+
+        try {
+          if ((await lastChange(path)) < cutoff) await rm(path, { recursive: true, force: true });
+
+          return [];
+        } catch (cause) {
+          return [`${name}: ${String(cause)}`];
+        }
+      }),
+  );
+
+  return failures.flat();
+}
+
 export function sessionFiles(dir: string, session: string): SessionFiles {
   const sessions = join(dir, "sessions");
   const own = join(sessions, session);
@@ -95,10 +162,16 @@ export function sessionFiles(dir: string, session: string): SessionFiles {
     parseSettled(await readFile(settledFile, "utf8").catch(() => ""));
 
   return {
-    nextSeq: async () => {
+    nextSeq: async (after) => {
       await mkdir(own, { recursive: true });
-      const last = Number.parseInt(await readFile(seqFile, "utf8").catch(() => "0"), 10);
-      const next = (Number.isNaN(last) ? 0 : last) + 1;
+
+      const kept = await readFile(seqFile, "utf8").catch((cause: unknown) => {
+        if (isMissing(cause)) return "0";
+        throw cause;
+      });
+
+      const last = Number.parseInt(kept, 10);
+      const next = Math.max(Number.isNaN(last) ? 0 : last, after) + 1;
       await writeWhole(seqFile, `${next}\n`);
 
       return next;
@@ -141,6 +214,13 @@ export function sessionFiles(dir: string, session: string): SessionFiles {
       return id;
     },
     imagePath,
+    touch: async () => {
+      const now = new Date();
+
+      await utimes(own, now, now).catch((cause: unknown) => {
+        if (!isMissing(cause)) throw cause;
+      });
+    },
     removeAll: () => rm(own, { recursive: true, force: true }),
   };
 }

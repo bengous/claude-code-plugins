@@ -10,7 +10,6 @@ import {
   storedRecord,
 } from "./parse.ts";
 import {
-  type Address,
   baseOf,
   type Child,
   clean,
@@ -180,6 +179,7 @@ function hostOf($: EngineInterface): Host {
     repeat: (ms, fn) => $.clock.every(ms, fn),
     now: () => $.clock.now(),
     storeSet: (key, value) => $.store.set(key, value),
+    settings: () => $.settings.read(),
     status: (text) => $.ui.status(text),
     log: (text) => $.ui.log(text),
   };
@@ -252,12 +252,7 @@ export const register: Register = (on) => {
    */
   async function enter(host: Host, from: Starting, ends: readonly number[]): Promise<void> {
     const { tenure } = from;
-    const { record } = tenure;
-
-    const kept: Address | null =
-      record.port === 0 ? null : { port: record.port, token: record.token };
-
-    const child = await start(host, record.serverSession, record.root, kept, record.target);
+    const child = await start(host, tenure.record);
 
     if (child === null) return;
 

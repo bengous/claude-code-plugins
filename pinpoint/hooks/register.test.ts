@@ -1,7 +1,16 @@
-import type { CommandRunInput, SessionStartInput, SkillPromptArgs } from "claude-code";
+import type { CommandRunInput, SessionStartInput, Settings, SkillPromptArgs } from "claude-code";
 import { describe, expect, test, tier } from "claude-code/testing";
 
-import { deliveries, posted, READY, ROOT, SERVER, SESSION_ID, world } from "./fixtures.ts";
+import {
+  type Child,
+  deliveries,
+  posted,
+  READY,
+  ROOT,
+  SERVER,
+  SESSION_ID,
+  world,
+} from "./fixtures.ts";
 import { CRASHES, HEARTBEAT_MS } from "./register.ts";
 
 tier("user");
@@ -27,6 +36,14 @@ const ENDED = { code: 1, signal: null } as const;
 
 const KEY = `session:${SESSION_ID}`;
 
+/** What the module passed `child` after `name`, `null` when it passed no `name`. */
+function flag(child: Child | undefined, name: string): string | null {
+  const argv = child?.argv ?? [];
+  const at = argv.indexOf(name);
+
+  return at === -1 ? null : (argv[at + 1] ?? null);
+}
+
 /** `/clear` as the person typed it at the composer. */
 const CLEAR: CommandRunInput = {
   command: "clear",
@@ -49,6 +66,10 @@ describe("/pinpoint:start", () => {
       SESSION_ID,
       "--root",
       ROOT,
+      "--relayed",
+      "0",
+      "--keep-days",
+      "30",
     ]);
     expect(result.text).toContain(`pinpoint is live for ${ROOT}.`);
     expect(result.text).toContain(
@@ -408,6 +429,48 @@ describe("the server's life", () => {
     expect(seen.children[1]?.argv.slice(-4)).toEqual(KEPT);
   });
 
+  test("a server that comes back is told the last batch handed over, which its numbers pass", async ($, on) => {
+    const seen = world(on, { stored: new Map([[KEY, { ...RECORD, relayed: 3 }]]) });
+    await $.session.start(SESSION);
+    seen.children[0]?.write({ type: "batch", seq: 4, text: "four" });
+    await seen.clock.settle();
+    seen.children[0]?.exit(ENDED);
+    await seen.clock.settle();
+
+    expect(seen.children.map((child) => flag(child, "--relayed"))).toEqual(["3", "4"]);
+  });
+
+  test("a server sweeps the other sessions after Claude Code's cleanupPeriodDays, 30 unset, and none past a value Claude Code refuses", async ($, on) => {
+    const seen = world(on);
+
+    const keepDays = async (settings: Settings): Promise<string | null> => {
+      seen.settings = settings;
+      await $.skill.prompt(START);
+      await $.skill.prompt(STOP);
+
+      return flag(seen.children.at(-1), "--keep-days");
+    };
+
+    expect(await keepDays({})).toBe("30");
+    expect(await keepDays({ cleanupPeriodDays: 7 })).toBe("7");
+    expect(await keepDays({ cleanupPeriodDays: 0 })).toBeNull();
+    expect(await keepDays({ cleanupPeriodDays: 2.5 })).toBeNull();
+    expect(await keepDays({ cleanupPeriodDays: "7" })).toBeNull();
+    expect(await keepDays({ cleanupPeriodDays: 1e21 })).toBeNull();
+  });
+
+  test("settings that do not read start the server all the same, sweeping nothing, and say why", async ($, on) => {
+    const seen = world(on);
+    seen.noSettings = "the engine is going away";
+    const result = await $.skill.prompt(START);
+
+    expect(result.text).toContain(`pinpoint is live for ${ROOT}.`);
+    expect(flag(seen.children[0], "--keep-days")).toBeNull();
+    expect(seen.logs).toEqual([
+      expect.stringMatching(/no other session is swept: .*the engine is going away$/u),
+    ]);
+  });
+
   test("the app a page picked is recorded, and the server that comes back serves it", async ($, on) => {
     const seen = world(on);
     await $.skill.prompt(START);
@@ -436,6 +499,14 @@ describe("the server's life", () => {
 
   test("a stored record that does not read is said, and brings no server back", async ($, on) => {
     const seen = world(on, { stored: new Map([[KEY, { ...RECORD, target: "not an address" }]]) });
+    await $.session.start(SESSION);
+
+    expect(seen.children).toEqual([]);
+    expect(seen.logs.join("\n")).toContain("the session's stored record does not read");
+  });
+
+  test("a stored record whose last batch is no batch number does not read: no server it would stop", async ($, on) => {
+    const seen = world(on, { stored: new Map([[KEY, { ...RECORD, relayed: -1 }]]) });
     await $.session.start(SESSION);
 
     expect(seen.children).toEqual([]);
