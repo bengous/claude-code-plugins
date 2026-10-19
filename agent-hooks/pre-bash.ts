@@ -2,9 +2,9 @@ import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 
 import type { LandingProfile } from "./config.ts";
-import { ConfigError, configPath, loadLanding } from "./config.ts";
-import type { Deadline } from "./exec.ts";
-import { deadlineIn } from "./exec.ts";
+import { ConfigError, configPath, loadLanding, loadProvenance } from "./config.ts";
+import type { Deadline, Runner } from "./exec.ts";
+import { deadlineIn, run } from "./exec.ts";
 import {
   githubSlugOf,
   pullRequestOf,
@@ -12,7 +12,8 @@ import {
   slugOfPullRequest,
   slugOfRepoOption,
 } from "./github.ts";
-import { heartbeat, parseInput } from "./hook.ts";
+import type { Input } from "./hook.ts";
+import { heartbeat, parseInput, stateKey } from "./hook.ts";
 import { isRecord, recordField, stringField } from "./json.ts";
 import type { GhCommand, GitCommand, PackageScript, PushTarget, ReleaseScript } from "./landing.ts";
 import {
@@ -28,14 +29,42 @@ import {
   unresolvedRefusal,
 } from "./landing.ts";
 import type { Door, Vocabulary } from "./mentions.ts";
-import { assess, findMentions, mentionsGit, mentionsPackageManager } from "./mentions.ts";
+import {
+  assess,
+  commitsOf,
+  findMentions,
+  mentionsGit,
+  mentionsPackageManager,
+} from "./mentions.ts";
+import type { Transcript, Trigger } from "./provenance.ts";
+import {
+  agentTrailersIn,
+  classify,
+  commitFormOf,
+  factTriggerOf,
+  factsOf,
+  messageOf,
+  provenanceTrailers,
+  readTranscript,
+  sessionValueOf,
+  trailersOf,
+  transcriptPathOf,
+} from "./provenance.ts";
 import { git as runGit } from "./scope.ts";
+import { loadMark, saveMark } from "./state.ts";
 
 export type GuardVerdict =
   | { readonly kind: "allow" }
   /** Passes; `systemMessage`, shown to the user. */
   | { readonly kind: "note"; readonly text: string }
-  | { readonly kind: "deny"; readonly reason: string };
+  | { readonly kind: "deny"; readonly reason: string }
+  /** Runs `updatedInput`, the tool input with its command rewritten; `notes`, when any, shown to the user. */
+  | {
+      readonly kind: "rewrite";
+      // oxlint-disable-next-line anti-slop/no-unsafe-dictionary-type -- tool_input is the harness's per-tool shape, handed back whole as updatedInput with only its command changed.
+      readonly updatedInput: Readonly<Record<string, unknown>>;
+      readonly notes: string | null;
+    };
 
 const ALLOW: GuardVerdict = { kind: "allow" };
 
@@ -63,6 +92,8 @@ export type PreBashOptions = {
   readonly now?: number;
   /** Overrides PRE_BASH_DEADLINE_MS for the tests. */
   readonly deadlineMs?: number;
+  /** Runs the provenance classifier; the tests pass a fake. */
+  readonly runner?: Runner;
 };
 
 function git(cwd: string, location: readonly string[], args: readonly string[]): string | null {
@@ -544,6 +575,197 @@ async function judgeLine(
   return combine(await Promise.all(doors.map((door) => judgeDoor(door, context, depth))));
 }
 
+/** What `profile.provenance` asks of the repository a commit runs in. */
+type ProvenanceRead =
+  | { readonly kind: "trailers" }
+  | { readonly kind: "none" }
+  | { readonly kind: "unreadable"; readonly error: string };
+
+function provenanceAt(root: string): ProvenanceRead {
+  if (!existsSync(configPath(root))) {
+    return { kind: "none" };
+  }
+
+  try {
+    return loadProvenance(root) === "trailers" ? { kind: "trailers" } : { kind: "none" };
+  } catch (error) {
+    if (error instanceof ConfigError) {
+      return { kind: "unreadable", error: error.message };
+    }
+
+    throw error;
+  }
+}
+
+/** Where a commit's trailers go in the line, and the text inserted there. */
+type Stamp = { readonly offset: number; readonly text: string };
+
+type Provenance = { readonly command: string; readonly notes: readonly string[] };
+
+type TriggerRead = { readonly trigger: Trigger; readonly note: string | null };
+
+/**
+ * The line with provenance trailers after each `git commit` it runs as written in a repository whose profile asks
+ * for them, and a note for each such commit it could not stamp. A new commit names its trigger and its session, and
+ * moves the agent's commit mark in its checkout; an amend that writes a new message keeps the `Agent-*` trailers of
+ * the commit it replaces; an amend that keeps its message, and a dry run, are left as written.
+ */
+async function withProvenance(
+  command: string,
+  cwd: string,
+  input: Input,
+  deadline: Deadline,
+  runner: Runner,
+): Promise<Provenance> {
+  const notes: string[] = [];
+  const stamps: Stamp[] = [];
+  const triggers = new Map<string, Promise<TriggerRead>>();
+  let transcript: TranscriptRead | null = null;
+
+  const transcriptRead = (): TranscriptRead => {
+    transcript ??= transcriptOf(input);
+
+    return transcript;
+  };
+
+  for (const commit of commitsOf(command, cwd)) {
+    const form = commitFormOf(commit.git.args);
+
+    const root =
+      form === "kept" || commit.cwd === null ? null : rootOf(commit.cwd, commit.git.location);
+
+    const read = root === null ? null : provenanceAt(root);
+
+    const here = commit.cwd === null ? rootOf(cwd, []) : null;
+
+    if (here !== null && provenanceAt(here).kind === "trailers") {
+      notes.push(
+        `agent-hooks: no provenance trailer: an earlier ${commit.lost ?? "cd"} leaves the commit's directory unknown`,
+      );
+    }
+
+    if (root === null || read === null || read.kind === "none") {
+      continue;
+    }
+
+    if (read.kind === "unreadable") {
+      notes.push(`agent-hooks: no provenance trailer: ${read.error}`);
+      continue;
+    }
+
+    if (form === "amend") {
+      const kept = agentTrailersIn(
+        git(commit.cwd ?? cwd, commit.git.location, [
+          "log",
+          "-1",
+          "--format=%(trailers:only,unfold)",
+        ]) ?? "",
+      );
+
+      if (kept.length > 0) {
+        stamps.push({ offset: commit.offset, text: trailersOf(kept) });
+      }
+
+      continue;
+    }
+
+    const source = transcriptRead();
+
+    if (source.kind === "unreadable") {
+      notes.push(`agent-hooks: no provenance trailer: ${source.why}`);
+      continue;
+    }
+
+    const known =
+      triggers.get(root) ?? triggerAt(root, source.transcript, command, input, deadline, runner);
+
+    triggers.set(root, known);
+    const { trigger, note: why } = await known;
+
+    if (why !== null && !notes.includes(why)) {
+      notes.push(why);
+    }
+
+    stamps.push({
+      offset: commit.offset,
+      text: trailersOf(provenanceTrailers(trigger, sessionValueOf(input.sessionId, input.agentId))),
+    });
+  }
+
+  return {
+    command: stamps
+      .toSorted((left, right) => right.offset - left.offset)
+      .reduce(
+        (line, stamp) => `${line.slice(0, stamp.offset)}${stamp.text}${line.slice(stamp.offset)}`,
+        command,
+      ),
+    notes,
+  };
+}
+
+type TranscriptRead =
+  | { readonly kind: "read"; readonly transcript: Transcript }
+  | { readonly kind: "unreadable"; readonly why: string };
+
+/** The agent's own transcript, or why it cannot be read. */
+function transcriptOf(input: Input): TranscriptRead {
+  if (input.transcriptPath === undefined) {
+    return { kind: "unreadable", why: "the hook received no transcript_path" };
+  }
+
+  const file = transcriptPathOf(input.transcriptPath, input.sessionId, input.agentId);
+
+  try {
+    return {
+      kind: "read",
+      transcript: readTranscript(file, input.agentId !== undefined, input.promptId),
+    };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+
+    return { kind: "unreadable", why: `the transcript ${file} cannot be read (${message})` };
+  }
+}
+
+/**
+ * The trigger of the agent's commit in `checkout`: `review` when Haiku reads in the facts that it applies a review,
+ * else what the facts alone say. Moves the agent's commit mark there.
+ */
+async function triggerAt(
+  checkout: string,
+  transcript: Transcript,
+  command: string,
+  input: Input,
+  deadline: Deadline,
+  runner: Runner,
+): Promise<TriggerRead> {
+  const key = stateKey(input);
+  const subagent = input.agentId !== undefined;
+  const mark = loadMark(key, checkout);
+  const fact = factTriggerOf(transcript, mark, input.promptId, subagent);
+
+  const answer = await classify(
+    factsOf(transcript, mark, messageOf(command), subagent),
+    deadline,
+    runner,
+  );
+
+  try {
+    saveMark(key, checkout, { at: Date.now(), promptId: input.promptId ?? null });
+  } catch (error) {
+    console.error(
+      `agent-hooks: commit mark not saved: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
+
+  return answer.kind === "answered"
+    ? { trigger: answer.review ? "review" : fact, note: null }
+    : {
+        trigger: fact,
+        note: `agent-hooks: the provenance classifier gave no answer (${answer.why}): Agent-Trigger comes from the transcript's facts alone`,
+      };
+}
+
 /** The first refusal among the verdicts, else their notes joined, else an allow. */
 export function combine(verdicts: readonly GuardVerdict[]): GuardVerdict {
   const denied = verdicts.find((verdict) => verdict.kind === "deny");
@@ -576,6 +798,16 @@ export function encodeGuard(verdict: GuardVerdict): string | null {
           permissionDecisionReason: verdict.reason,
         },
       });
+    }
+
+    case "rewrite": {
+      const specific = { hookEventName: "PreToolUse", updatedInput: verdict.updatedInput };
+
+      return JSON.stringify(
+        verdict.notes === null
+          ? { hookSpecificOutput: specific }
+          : { hookSpecificOutput: specific, systemMessage: verdict.notes },
+      );
     }
 
     default: {
@@ -616,16 +848,22 @@ export async function runPreBash(
     const context = { sessionId: stringField(payload, "session_id") ?? "", now, deadline };
     const cwd = stringField(payload, "cwd") ?? process.cwd();
 
-    const verdict = await Promise.race([
-      judgeLine(command, cwd, context, 0),
-      pastDeadline(deadline),
-    ]);
+    const verdict =
+      (await Promise.race([judgeLine(command, cwd, context, 0), pastDeadline(deadline)])) ??
+      note(
+        `agent-hooks: pre-bash ran past its ${deadlineMs} ms deadline: the command went unchecked`,
+      );
+
+    if (verdict.kind === "deny" || input === null || toolInput === undefined) {
+      return encodeGuard(verdict);
+    }
 
     return encodeGuard(
-      verdict ??
-        note(
-          `agent-hooks: pre-bash ran past its ${deadlineMs} ms deadline: the command went unchecked`,
-        ),
+      stamped(
+        verdict,
+        await provenanceOf(command, cwd, input, deadline, options.runner ?? run),
+        toolInput,
+      ),
     );
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
@@ -634,6 +872,44 @@ export async function runPreBash(
       note(`agent-hooks: pre-bash crashed (${message}): the command went unchecked`),
     );
   }
+}
+
+/** `withProvenance`, whose crash costs the commit its trailers and never the guard's verdict. */
+async function provenanceOf(
+  command: string,
+  cwd: string,
+  input: Input,
+  deadline: Deadline,
+  runner: Runner,
+): Promise<Provenance> {
+  try {
+    return await withProvenance(command, cwd, input, deadline, runner);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+
+    return { command, notes: [`agent-hooks: provenance crashed (${message}): no trailer`] };
+  }
+}
+
+/** The guard's verdict with the provenance trailers: a rewrite when a commit got some, its notes beside the guard's. */
+function stamped(
+  verdict: GuardVerdict,
+  provenance: Provenance,
+  // oxlint-disable-next-line anti-slop/no-unsafe-dictionary-type -- tool_input is the harness's per-tool shape, handed back whole as updatedInput with only its command changed.
+  toolInput: Readonly<Record<string, unknown>>,
+): GuardVerdict {
+  const notes = [...(verdict.kind === "note" ? [verdict.text] : []), ...provenance.notes];
+  const text = notes.length === 0 ? null : notes.join("\n");
+
+  if (provenance.command !== stringField(toolInput, "command")) {
+    return {
+      kind: "rewrite",
+      updatedInput: { ...toolInput, command: provenance.command },
+      notes: text,
+    };
+  }
+
+  return text === null ? ALLOW : note(text);
 }
 
 async function pastDeadline(deadline: Deadline): Promise<null> {

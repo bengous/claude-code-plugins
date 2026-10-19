@@ -1568,6 +1568,56 @@ export function assess(
   return { doors: uniqueDoors(doors), unresolved: found };
 }
 
+/** A `git commit` a line runs as written: where its trailers go, and where it runs. */
+export type CommitInvocation = {
+  /** The offset in the line right after the `commit` word. */
+  readonly offset: number;
+  /** null once an earlier `cd` leaves the directory unknown. */
+  readonly cwd: string | null;
+  readonly lost: string | null;
+  readonly git: GitCommand;
+};
+
+const COMMIT = /(?<![\w.-])commit(?![\w.-])/u;
+
+/**
+ * Every `git commit` the line runs as written, in a subshell too. A commit inside `$(…)` or backticks, behind a
+ * wrapper that hides its words (`xargs`, `env -S`), in a nested script (`bash -c`) or on a line that defines a
+ * function is not one.
+ */
+export function commitsOf(
+  script: string,
+  cwd: string,
+  options: AssessOptions = {},
+): CommitInvocation[] {
+  if (!GIT.test(script) || !COMMIT.test(script)) {
+    return [];
+  }
+
+  const line = parseLine(script);
+
+  if (line.definesFunction) {
+    return [];
+  }
+
+  const views = viewsOf(line, script, cwd, { exists: options.exists ?? existsSync }, options);
+
+  return commandsOf(line).flatMap((command) => {
+    const view = views.get(command);
+
+    if (command.substitution || view === undefined || view.unwrapped.opaque !== null) {
+      return [];
+    }
+
+    const git = gitCommandOf(texts(view.unwrapped.argv));
+    const word = git === null ? undefined : view.unwrapped.argv[git.index];
+
+    return git?.subcommand === "commit" && word !== undefined
+      ? [{ offset: word.end, cwd: view.cwd, lost: view.lost, git }]
+      : [];
+  });
+}
+
 /** One door per invocation: a command mentioned twice (`git push origin push`) is judged once. */
 function uniqueDoors(doors: readonly Door[]): Door[] {
   const seen = new Set<string>();

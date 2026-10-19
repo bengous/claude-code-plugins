@@ -12,6 +12,7 @@ import {
   isExcluded,
   loadConfig,
   loadLanding,
+  loadProvenance,
   matchesFilter,
   parseProfile,
   pkgOf,
@@ -394,14 +395,24 @@ describe("loadConfig errors", () => {
 });
 
 describe("loadConfig profile", () => {
-  test("no profile reads as no landing, no review and a shared checkout", () => {
-    expect(load("{}").profile).toEqual({ landing: null, review: null, worktree: "shared" });
+  test("no profile reads as no landing, no review, a shared checkout and no provenance", () => {
+    expect(load("{}").profile).toEqual({
+      landing: null,
+      review: null,
+      worktree: "shared",
+      provenance: null,
+    });
   });
 
   test("reads profile.landing", () => {
     expect(
       load(`{ "profile": { "landing": { "trunk": "dev", "release": "main" } } }`).profile,
-    ).toEqual({ landing: { trunk: "dev", release: "main" }, review: null, worktree: "shared" });
+    ).toEqual({
+      landing: { trunk: "dev", release: "main" },
+      review: null,
+      worktree: "shared",
+      provenance: null,
+    });
   });
 
   test("reads profile.review", () => {
@@ -412,6 +423,7 @@ describe("loadConfig profile", () => {
       landing: null,
       review: { risky: ["scripts/land.ts", ".github/workflows/**"] },
       worktree: "shared",
+      provenance: null,
     });
   });
 
@@ -440,13 +452,19 @@ describe("loadConfig profile", () => {
       landing: null,
       review: null,
       worktree: "per-task",
+      provenance: null,
     });
     expect(load(`{ "profile": { "worktree": "shared" } }`).profile.worktree).toBe("shared");
     expect(
       load(
         `{ "profile": { "worktree": "per-task", "landing": { "trunk": "dev", "release": "main" } } }`,
       ).profile,
-    ).toEqual({ landing: { trunk: "dev", release: "main" }, review: null, worktree: "per-task" });
+    ).toEqual({
+      landing: { trunk: "dev", release: "main" },
+      review: null,
+      worktree: "per-task",
+      provenance: null,
+    });
   });
 
   test("a worktree that is neither per-task nor shared", () => {
@@ -454,6 +472,16 @@ describe("loadConfig profile", () => {
       `agent-hooks: ${configPath(temp.repo)}: profile.worktree: expected per-task|shared`,
     );
     expectConfigError(`{ "profile": { "worktree": true } }`, "profile.worktree");
+  });
+
+  test("reads profile.provenance", () => {
+    expect(load(`{ "profile": { "provenance": "trailers" } }`).profile.provenance).toBe("trailers");
+  });
+
+  test("a provenance other than trailers", () => {
+    expect(configErrorOf(`{ "profile": { "provenance": "notes" } }`).message).toBe(
+      `agent-hooks: ${configPath(temp.repo)}: profile.provenance: expected trailers`,
+    );
   });
 
   test("takes the profile of the repo file over its presets", () => {
@@ -492,6 +520,29 @@ describe("loadConfig profile", () => {
       configErrorOf(`{ "profile": { "landing": { "trunk": "main", "release": "main" } } }`).message,
     ).toBe(
       `agent-hooks: ${configPath(temp.repo)}: profile.landing: trunk and release name one branch`,
+    );
+  });
+});
+
+describe("loadProvenance", () => {
+  test("reads profile.provenance alone: the rest of the file may be invalid", () => {
+    writeConfig(
+      temp.repo,
+      `{ "presets": ["no-such-preset"], "profile": { "provenance": "trailers", "worktree": "each" } }`,
+    );
+
+    expect(loadProvenance(temp.repo)).toBe("trailers");
+  });
+
+  test("no provenance reads as null, an invalid one names its key", () => {
+    writeConfig(temp.repo, "{}");
+
+    expect(loadProvenance(temp.repo)).toBeNull();
+
+    writeConfig(temp.repo, `{ "profile": { "provenance": true } }`);
+
+    expect(() => loadProvenance(temp.repo)).toThrow(
+      `agent-hooks: ${configPath(temp.repo)}: profile.provenance: expected trailers`,
     );
   });
 });
@@ -538,7 +589,7 @@ describe("parseProfile", () => {
         "dev:agent-hooks.jsonc",
         `{ "stop": 1, "profile": { "review": { "risky": ["a"] }, "worktree": "per-task" } }`,
       ),
-    ).toEqual({ landing: null, review: { risky: ["a"] }, worktree: "per-task" });
+    ).toEqual({ landing: null, review: { risky: ["a"] }, worktree: "per-task", provenance: null });
   });
 
   test("names the file and the key in an error, an unknown profile key included", () => {

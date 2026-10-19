@@ -74,6 +74,8 @@ export type Input = {
   readonly backgroundTasks: readonly BackgroundTaskSummary[];
   readonly toolName: string | undefined;
   readonly toolInput: Record<string, unknown>;
+  /** The main session's transcript, a subagent's tool calls included. */
+  readonly transcriptPath: string | undefined;
 };
 
 /** What a root hook runs with: its root's config and the agent's state in the checkout around its file or cwd. */
@@ -163,6 +165,7 @@ export function parseInput(payload: Record<string, unknown>): Input | null {
     backgroundTasks: Array.isArray(tasks) ? tasks.filter((task) => isBackgroundTask(task)) : [],
     toolName: stringField(payload, "tool_name"),
     toolInput: recordField(payload, "tool_input") ?? {},
+    transcriptPath: stringField(payload, "transcript_path"),
   };
 }
 

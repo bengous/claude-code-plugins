@@ -1,0 +1,345 @@
+{
+  "typed": {
+    "type": "user",
+    "timestamp": "2026-10-19T10:00:00.000Z",
+    "promptId": "p-fixture",
+    "promptSource": "typed",
+    "origin": {
+      "kind": "human"
+    },
+    "isSidechain": false,
+    "message": {
+      "role": "user",
+      "content": "Fix the date parser."
+    }
+  },
+  "typed-review-launch": {
+    "type": "system",
+    "subtype": "local_command",
+    "timestamp": "2026-10-19T10:00:00.000Z",
+    "isMeta": false,
+    "isSidechain": false,
+    "content": "<local-command-stdout>Running in the background as @code-review</local-command-stdout>\n<forked-skill-launch>{\"agentId\":\"a1typedreview\",\"skillName\":\"code-review\",\"description\":\"/code-review high\"}</forked-skill-launch>"
+  },
+  "notified-user": {
+    "type": "user",
+    "timestamp": "2026-10-19T10:00:00.000Z",
+    "promptId": "p-fixture",
+    "promptSource": "system",
+    "origin": {
+      "kind": "task-notification",
+      "producer": "session-task",
+      "runId": "0muxrnf9a-e58db1dd"
+    },
+    "isSidechain": false,
+    "message": {
+      "role": "user",
+      "content": "<task-notification>\n<task-id>a1typedreview</task-id>\n<output-file>/tmp/fixture/tasks/a1typedreview.output</output-file>\n<status>completed</status>\n<summary>Agent \"/code-review high\" finished</summary>\n<result>3 findings.</result>\n</task-notification>"
+    }
+  },
+  "notified-queued": {
+    "type": "attachment",
+    "timestamp": "2026-10-19T10:00:00.000Z",
+    "isSidechain": false,
+    "attachment": {
+      "type": "queued_command",
+      "prompt": "<task-notification>\n<task-id>a2agentreview</task-id>\n<tool-use-id>toolu_fixture_agent</tool-use-id>\n<output-file>/tmp/fixture/tasks/a2agentreview.output</output-file>\n<status>completed</status>\n<summary>Agent \"Review the parser fix\" finished</summary>\n</task-notification>",
+      "source_uuid": "0474a2c0-3f4b-4b51-a193-b1e6062409ca",
+      "delivery_id": "a6f1222f-cafe-4a15-9d29-122bf54d06a4",
+      "commandMode": "task-notification",
+      "origin": {
+        "kind": "task-notification",
+        "producer": "session-task"
+      },
+      "timestamp": "2026-10-02T14:28:16.503Z",
+      "usage": {
+        "totalTokens": 106688,
+        "toolUses": 27,
+        "durationMs": 178522
+      }
+    }
+  },
+  "killed": {
+    "type": "user",
+    "timestamp": "2026-10-19T10:00:00.000Z",
+    "promptId": "p-fixture",
+    "promptSource": "system",
+    "origin": {
+      "kind": "task-notification",
+      "producer": "session-task",
+      "runId": "0muxx7flk-23eee1ad"
+    },
+    "isSidechain": false,
+    "message": {
+      "role": "user",
+      "content": "<task-notification>\n<task-id>a1typedreview</task-id>\n<output-file>/tmp/fixture/tasks/a1typedreview.output</output-file>\n<status>killed</status>\n<summary>Agent \"/code-review high\" was stopped</summary>\n</task-notification>"
+    }
+  },
+  "skill-review-call": {
+    "type": "assistant",
+    "timestamp": "2026-10-19T10:00:00.000Z",
+    "isSidechain": false,
+    "message": {
+      "role": "assistant",
+      "content": [
+        {
+          "type": "tool_use",
+          "id": "toolu_fixture_skill",
+          "name": "Skill",
+          "input": {
+            "skill": "code-review",
+            "args": "high"
+          }
+        }
+      ]
+    }
+  },
+  "skill-review-forked": {
+    "type": "user",
+    "timestamp": "2026-10-19T10:00:00.000Z",
+    "promptId": "p-fixture",
+    "isSidechain": false,
+    "message": {
+      "role": "user",
+      "content": [
+        {
+          "tool_use_id": "toolu_fixture_skill",
+          "type": "tool_result",
+          "content": "Skill \"code-review\" launched (forked execution, running in the background)."
+        }
+      ]
+    },
+    "toolUseResult": {
+      "success": true,
+      "commandName": "code-review",
+      "status": "forked",
+      "background": true,
+      "agentId": "a3skillreview",
+      "result": "Running in the background as @code-review"
+    }
+  },
+  "skill-review-sync": {
+    "type": "user",
+    "timestamp": "2026-10-19T10:00:00.000Z",
+    "promptId": "p-fixture",
+    "isSidechain": true,
+    "message": {
+      "role": "user",
+      "content": [
+        {
+          "tool_use_id": "toolu_fixture_skill",
+          "type": "tool_result",
+          "content": "Skill \"code-review\" completed (forked execution).\n\nResult:\n3 findings."
+        }
+      ]
+    },
+    "toolUseResult": {
+      "success": true,
+      "commandName": "code-review",
+      "status": "forked",
+      "agentId": "a4syncreview",
+      "result": "3 findings."
+    }
+  },
+  "agent-review-call": {
+    "type": "assistant",
+    "timestamp": "2026-10-19T10:00:00.000Z",
+    "isSidechain": false,
+    "message": {
+      "role": "assistant",
+      "content": [
+        {
+          "type": "tool_use",
+          "id": "toolu_fixture_agent",
+          "name": "Agent",
+          "input": {
+            "description": "Review the parser fix",
+            "prompt": "Review the diff.",
+            "subagent_type": "general-purpose"
+          }
+        }
+      ]
+    }
+  },
+  "agent-review-launched": {
+    "type": "user",
+    "timestamp": "2026-10-19T10:00:00.000Z",
+    "promptId": "p-fixture",
+    "isSidechain": false,
+    "message": {
+      "role": "user",
+      "content": [
+        {
+          "tool_use_id": "toolu_fixture_agent",
+          "type": "tool_result",
+          "content": [
+            {
+              "type": "text",
+              "text": "Async agent launched successfully."
+            }
+          ]
+        }
+      ]
+    },
+    "toolUseResult": {
+      "isAsync": true,
+      "status": "async_launched",
+      "agentId": "a2agentreview",
+      "description": "Review the parser fix"
+    }
+  },
+  "stop-blocked": {
+    "type": "attachment",
+    "timestamp": "2026-10-19T10:00:00.000Z",
+    "isSidechain": false,
+    "attachment": {
+      "type": "hook_blocking_error",
+      "hookName": "Stop",
+      "toolUseID": "fixture-stop",
+      "hookEvent": "Stop",
+      "blockingError": {
+        "blockingError": "Stop validation failed:\nlint: src/parse.ts:3:1: error",
+        "command": "bun \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/stop-validate.ts"
+      }
+    }
+  },
+  "commit-call": {
+    "type": "assistant",
+    "timestamp": "2026-10-19T10:00:00.000Z",
+    "isSidechain": false,
+    "message": {
+      "role": "assistant",
+      "content": [
+        {
+          "type": "tool_use",
+          "id": "toolu_fixture_commit",
+          "name": "Bash",
+          "input": {
+            "command": "git commit -qm 'fix(parse): read partial dates'",
+            "description": "Commit the fix"
+          }
+        }
+      ]
+    }
+  },
+  "commit-ok": {
+    "type": "user",
+    "timestamp": "2026-10-19T10:00:00.000Z",
+    "promptId": "p-fixture",
+    "isSidechain": false,
+    "message": {
+      "role": "user",
+      "content": [
+        {
+          "tool_use_id": "toolu_fixture_commit",
+          "type": "tool_result",
+          "content": "",
+          "is_error": false
+        }
+      ]
+    },
+    "toolUseResult": {
+      "stdout": "",
+      "stderr": "",
+      "interrupted": false,
+      "isImage": false,
+      "noOutputExpected": false
+    }
+  },
+  "commit-failed": {
+    "type": "user",
+    "timestamp": "2026-10-19T10:00:00.000Z",
+    "promptId": "p-fixture",
+    "isSidechain": false,
+    "message": {
+      "role": "user",
+      "content": [
+        {
+          "type": "tool_result",
+          "content": "Exit code 1\nlint failed",
+          "is_error": true,
+          "tool_use_id": "toolu_fixture_commit"
+        }
+      ]
+    },
+    "toolUseResult": "Error: Exit code 1\nlint failed"
+  },
+  "brief": {
+    "type": "user",
+    "timestamp": "2026-10-19T10:00:00.000Z",
+    "promptId": "p-fixture",
+    "isSidechain": true,
+    "message": {
+      "role": "user",
+      "content": "<teammate-message teammate_id=\"team-lead\" summary=\"Step 1\">\nYou fix the date parser. Commit when done.\n</teammate-message>"
+    }
+  },
+  "lead": {
+    "type": "user",
+    "timestamp": "2026-10-19T10:00:00.000Z",
+    "promptId": "p-fixture",
+    "isSidechain": true,
+    "message": {
+      "role": "user",
+      "content": "<teammate-message teammate_id=\"team-lead\" summary=\"Step 2\">\nGo for step 2.\n</teammate-message>"
+    }
+  },
+  "say": {
+    "type": "assistant",
+    "timestamp": "2026-10-19T10:00:00.000Z",
+    "isSidechain": false,
+    "message": {
+      "role": "assistant",
+      "content": [
+        {
+          "type": "text",
+          "text": "The parser is fixed; committing."
+        }
+      ]
+    }
+  },
+  "approved-plan": {
+    "type": "user",
+    "timestamp": "2026-10-19T10:00:00.000Z",
+    "promptId": "p-fixture",
+    "origin": {
+      "kind": "auto-continuation"
+    },
+    "isSidechain": false,
+    "message": {
+      "role": "user",
+      "content": "Implement the following plan:\n\n# Fix the date parser"
+    }
+  },
+  "peer": {
+    "type": "user",
+    "timestamp": "2026-10-19T10:00:00.000Z",
+    "promptId": "p-fixture",
+    "promptSource": "system",
+    "origin": {
+      "kind": "peer",
+      "name": "other-session"
+    },
+    "isMeta": true,
+    "isSidechain": false,
+    "message": {
+      "role": "user",
+      "content": "Another Claude session sent a message:\n<cross-session-message from=\"other-session\">Done.</cross-session-message>"
+    }
+  },
+  "subagent-stop-blocked": {
+    "type": "attachment",
+    "timestamp": "2026-10-19T10:00:00.000Z",
+    "isSidechain": true,
+    "attachment": {
+      "type": "hook_blocking_error",
+      "hookName": "SubagentStop",
+      "toolUseID": "fixture-stop",
+      "hookEvent": "SubagentStop",
+      "blockingError": {
+        "blockingError": "Stop validation failed:\nlint: src/parse.ts:3:1: error",
+        "command": "bun \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/stop-validate.ts"
+      }
+    }
+  }
+}

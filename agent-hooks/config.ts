@@ -53,10 +53,14 @@ export type ReviewProfile = { readonly risky: readonly string[] };
 /** Whether the agents of a repository share its checkout, or each task takes a worktree of its own. */
 export type WorktreeMode = "per-task" | "shared";
 
+/** What an agent's commit records of where it came from: trailers naming its trigger and its session, or nothing. */
+export type ProvenanceMode = "trailers";
+
 export type Profile = {
   readonly landing: LandingProfile | null;
   readonly review: ReviewProfile | null;
   readonly worktree: WorktreeMode;
+  readonly provenance: ProvenanceMode | null;
 };
 
 export type Config = {
@@ -132,7 +136,7 @@ const DOCUMENT_KEYS = new Set(["presets", "extends", "profile", "pre-edit", "sto
 
 const PRESET_NAME = /^[a-z0-9-]+$/u;
 
-const PROFILE_KEYS = new Set(["landing", "review", "worktree"]);
+const PROFILE_KEYS = new Set(["landing", "review", "worktree", "provenance"]);
 
 const LANDING_KEYS = new Set(["trunk", "release"]);
 
@@ -188,6 +192,11 @@ export function loadConfig(root: string, configFile = configPath(root)): Config 
  */
 export function loadLanding(root: string, configFile = configPath(root)): LandingProfile | null {
   return readLanding(profileIn(configFile, readText(configFile)));
+}
+
+/** `profile.provenance` of the repo file alone, read as `loadLanding` reads `profile.landing`. */
+export function loadProvenance(root: string, configFile = configPath(root)): ProvenanceMode | null {
+  return readProvenance(profileIn(configFile, readText(configFile)));
 }
 
 /**
@@ -393,7 +402,12 @@ function readProfile(reader: Reader): Profile {
     landing: readLanding(reader),
     review: readReview(reader),
     worktree: oneOf(reader, "worktree", ["per-task", "shared"]) ?? "shared",
+    provenance: readProvenance(reader),
   };
+}
+
+function readProvenance(profile: Reader): ProvenanceMode | null {
+  return oneOf<ProvenanceMode>(profile, "provenance", ["trailers"]) ?? null;
 }
 
 function readLanding(profile: Reader): LandingProfile | null {

@@ -161,6 +161,58 @@ export function fixtureIn(
   return parsed;
 }
 
+/**
+ * A transcript record of the shape `name`, taken from a real Claude Code transcript with its texts and ids replaced
+ * (`__fixtures__/transcript/records.json`), each `[from, to]` of `replace` applied to its JSON.
+ */
+export function transcriptRecord(
+  name: string,
+  replace: readonly (readonly [string, string])[] = [],
+): Record<string, unknown> {
+  const records: unknown = JSON.parse(
+    readFileSync(path.join(FIXTURES_DIR, "transcript", "records.json"), "utf8"),
+  );
+
+  const record = isRecord(records) ? records[name] : undefined;
+
+  if (!isRecord(record)) {
+    throw new Error(`no transcript record ${name}`);
+  }
+
+  const text = replace.reduce(
+    (json, [from, to]) => json.replaceAll(from, to),
+    JSON.stringify(record),
+  );
+
+  const parsed: unknown = JSON.parse(text);
+
+  if (!isRecord(parsed)) {
+    throw new Error(`transcript record ${name} is not an object`);
+  }
+
+  return parsed;
+}
+
+/** Writes `records` as a transcript, one JSON line each, the nth stamped `start` + n seconds; returns its path. */
+export function writeTranscript(
+  file: string,
+  records: readonly Record<string, unknown>[],
+  start: number,
+): string {
+  mkdirSync(path.dirname(file), { recursive: true });
+
+  writeFileSync(
+    file,
+    records
+      .map((record, index) =>
+        JSON.stringify({ ...record, timestamp: new Date(start + index * 1000).toISOString() }),
+      )
+      .join("\n") + "\n",
+  );
+
+  return file;
+}
+
 export function fixtureNames(harness: "claude" | "codex"): string[] {
   return [...new Bun.Glob("*.json").scanSync(path.join(FIXTURES_DIR, harness))]
     .map((file) => file.slice(0, -".json".length))

@@ -1,6 +1,6 @@
 ---
 name: agent-hooks
-description: Set up or check the agent-hooks kit in a repository (the session-scoped fixers and Stop lanes this plugin wires, and its landing guard on Bash). Use when the user asks to add hooks to a repo, to init agent hooks, to run the hooks doctor, to declare how a repository lands or whether its tasks take their own worktrees, to measure what the hooks inject into the context (noise), when a Stop hook misbehaves (blocks on the wrong files, never blocks, names a missing tool), or when the landing guard refuses a push, a merge or a release.
+description: Set up or check the agent-hooks kit in a repository (the session-scoped fixers and Stop lanes this plugin wires, and its landing guard on Bash). Use when the user asks to add hooks to a repo, to init agent hooks, to run the hooks doctor, to declare how a repository lands, whether its tasks take their own worktrees or whether agent commits record what triggered them (provenance trailers), to measure what the hooks inject into the context (noise), when a Stop hook misbehaves (blocks on the wrong files, never blocks, names a missing tool), or when the landing guard refuses a push, a merge or a release.
 argument-hint: "[init|doctor|noise]"
 allowed-tools: Bash(${CLAUDE_PLUGIN_ROOT}/agent-hooks.ts *), Read(~/.claude/plugins/cache/*/agent-hooks/*/presets/**)
 ---
@@ -109,6 +109,58 @@ Code's 1.5-second budget, which a plugin's own `timeout` does not raise
 beats (10 runs, bun 1.4.3, Linux, 2026-10-17). The SessionStart payload names no session that `/clear`
 replaced, so the new session relies on the replaced one's SessionEnd having run first; that order is not
 measured, and a SessionEnd that ran late or not at all costs one needless worktree line, never a block.
+
+## Provenance
+
+`"profile": { "provenance": "trailers" }`, read from the repo file alone, has `pre-bash` write two trailers
+into each commit an agent runs in that repository:
+
+```
+Agent-Trigger: review
+Agent-Session: 6f2c1d0e-…
+```
+
+- `Agent-Session` is the session id, `<session>.<agent>` for a subagent. `Agent-Trigger` is `review` when
+  Haiku, given the facts below, reads that the commit applies a review's findings (a `/code-review`, an
+  `agents-bridge:adversarial-review`, an `Agent` whose description says it reviews or audits, findings a
+  user message or a lead agent relays); else `human` when a user message arrived since the agent's previous
+  commit in that checkout (typed, queued, an accepted suggestion, a typed command, an approved plan; for a
+  subagent, its brief for its first commit and a lead's `<teammate-message>` after); else `self`.
+- The facts come from the agent's own transcript (`transcript_path`, or
+  `<session>/subagents/agent-<agent_id>.jsonl` for a subagent): user messages, finished reviews (one run in
+  the background finishes at its `completed` task notification, never at `killed` or `stopped`; a
+  synchronous one at its result), Stop and SubagentStop blocks, the agent's commits and last texts, from the
+  older of its previous commit and the last user message, reaching one turn further back, then the commit's
+  message; 12,000 characters at most.
+- Haiku runs as `claude -p --model haiku`, with no tool, hook, MCP server or saved session, once per
+  checkout a line commits in. Measured on the user's own transcripts (77 hand-labelled commits of two weeks,
+  Claude Code 2.1.301, 2026-10-19): `review` right 22 times in 23, `human` 27 in 29; median 4.6 s, 90th
+  percentile 6.5 s, 9.8 s at most, about $0.001 a commit. Rules on the transcript alone were right on
+  `review` 4 times in 9: a review is told apart from a coincidence only by reading what the commit does.
+  `CLASSIFIER_PROMPT` in `provenance.ts` is the prompt measured.
+- What is rewritten: a `git commit` written as such, in a subshell too, once the landing guard let the line
+  through (its refusal wins, and nothing is rewritten): the `--trailer` options go right after `commit`.
+  An amend that writes a new message (`-m`, `-F`) keeps the `Agent-*` trailers of `HEAD` instead. Left as
+  written: an amend that keeps its message (`--no-edit`, `-C`), `--dry-run`, a commit inside `$(…)` or
+  backticks, behind `xargs` or `env -S`, in a `bash -c '…'`, on a line that defines a function, a commit
+  whose `cd` the walk cannot follow (with a note), `merge`, `cherry-pick`, `revert`, `rebase`, and every
+  other command. The rewrite carries no permission decision: Claude Code judges the rewritten command by its
+  own rules.
+- The previous commit is the last one `pre-bash` saw the agent make in that checkout,
+  `~/.local/state/agent-hooks/<agent>__<checkout hash>.commit`, aged out with the beats. A commit its
+  pre-commit hook then refuses still counts; the first commit an agent makes in a checkout reads its whole
+  transcript as "since the previous commit".
+- It never blocks a commit. A transcript it cannot read leaves the commit without trailers; Haiku with no
+  answer (no `claude` on PATH, an error, no time left before the hook's deadline) leaves `Agent-Trigger` to
+  the facts; each says so in a `systemMessage` that starts with `agent-hooks:`. A commit stamped with
+  Haiku's answer is silent.
+- Known ceilings: a review run outside the transcript (a pull request's comments, another session) counts
+  only when a message relays it; a reviewer started as a teammate reports through its mailbox, which the
+  facts do not read; a commit holding work of two triggers gets one. No `stop-hook` value: no labelled
+  commit fixed what a Stop block had reported, and each one the rules proposed (10) was something else.
+- Reading them: `git log --format='%s %(trailers:key=Agent-Trigger,valueonly)'`. A stack squashed by GitHub
+  keeps each commit's lines in the middle of the message, where `%(trailers)` does not look: count the
+  `^Agent-Trigger:` lines there. The key lands after the kit that reads it, as every key does.
 
 ## Reading a Stop
 

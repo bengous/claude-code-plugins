@@ -24,6 +24,8 @@ const TEMPORARY_SUFFIX = ".tmp";
 
 const BEAT_SUFFIX = ".beat";
 
+const MARK_SUFFIX = ".commit";
+
 /** Joins a session id and an agent id into a subagent's own state key, `<session>.<agent>`. */
 export const AGENT_SEPARATOR = ".";
 
@@ -263,9 +265,9 @@ export function saveState(state: SessionState, now = Date.now()): void {
 
 /**
  * Removes every state file whose `updatedAt` is older than the TTL, unreadable files counting as old, every
- * heartbeat whose mtime is older than the TTL, and every temporary file older than `staleTemporaryMs`, dated by its
- * mtime and never parsed: a save writes and renames its own within one hook, so a younger one may be a save under
- * way, half written.
+ * heartbeat and commit mark whose mtime is older than the TTL, and every temporary file older than
+ * `staleTemporaryMs`, dated by its mtime and never parsed: a save writes and renames its own within one hook, so a
+ * younger one may be a save under way, half written.
  */
 export function pruneStates(staleTemporaryMs: number, now = Date.now()): void {
   let files: string[];
@@ -294,7 +296,7 @@ function isStale(file: string, filePath: string, staleTemporaryMs: number, now: 
     return now - modifiedAt(filePath) > staleTemporaryMs;
   }
 
-  if (file.endsWith(BEAT_SUFFIX)) {
+  if (file.endsWith(BEAT_SUFFIX) || file.endsWith(MARK_SUFFIX)) {
     return now - modifiedAt(filePath) > STATE_TTL_MS;
   }
 
@@ -464,6 +466,54 @@ function beatSince(file: string, since: number): boolean {
   } catch {
     return false;
   }
+}
+
+/**
+ * The last commit pre-bash wrote provenance trailers into, for one agent in one checkout: where the next commit's
+ * window opens. Kept beside the state file rather than in it: pre-bash writes it while an edit hook of the same
+ * agent may be saving the state.
+ */
+export type CommitMark = {
+  /** When pre-bash rewrote the commit, in ms since the epoch: a transcript record is before it by its timestamp. */
+  readonly at: number;
+  /** The prompt that turn answered, null outside a prompt. */
+  readonly promptId: string | null;
+};
+
+export function markPath(key: string, checkout: string): string {
+  return path.join(stateDir(), `${sanitize(key)}__${checkoutKey(checkout)}${MARK_SUFFIX}`);
+}
+
+/** The commit mark of agent `key` in the checkout; none when absent, and none when unreadable, which is reported. */
+export function loadMark(key: string, checkout: string): CommitMark | null {
+  const file = markPath(key, checkout);
+  let value: unknown;
+
+  try {
+    value = JSON.parse(readFileSync(file, "utf8"));
+  } catch (error) {
+    if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) {
+      console.error(`agent-hooks: ${file}: unreadable commit mark, ignored`);
+    }
+
+    return null;
+  }
+
+  if (
+    !isRecord(value) ||
+    typeof value["at"] !== "number" ||
+    !(value["promptId"] === null || typeof value["promptId"] === "string")
+  ) {
+    console.error(`agent-hooks: ${file}: unreadable commit mark, ignored`);
+
+    return null;
+  }
+
+  return { at: value["at"], promptId: value["promptId"] };
+}
+
+export function saveMark(key: string, checkout: string, mark: CommitMark): void {
+  writeAtomically(markPath(key, checkout), JSON.stringify(mark));
 }
 
 function sanitize(value: string): string {

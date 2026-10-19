@@ -1,16 +1,32 @@
 /* oxlint-disable anti-slop/no-unsafe-dictionary-type -- this harness builds hook payloads and reads hook outputs as JSON: a closed type would assert the schema instead of the behaviour, and a wrong shape has to fail an assertion rather than the compiler. */
 import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
 import * as fs from "node:fs";
-import { chmodSync, existsSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
+import {
+  appendFileSync,
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  realpathSync,
+  writeFileSync,
+} from "node:fs";
 import path from "node:path";
 
 import { CONFIG_RELATIVE_PATH } from "./config.ts";
 import { cachePath } from "./github.ts";
 import { isRecord, recordField, stringField } from "./json.ts";
-import { runPreBash } from "./pre-bash.ts";
+import type { GuardVerdict } from "./pre-bash.ts";
+import { encodeGuard, runPreBash } from "./pre-bash.ts";
 import { beatPath } from "./state.ts";
 import type { TempRepo } from "./test-support.ts";
-import { createTempRepo, git, removeTempRepo, scrubGitEnv, writeRepoFile } from "./test-support.ts";
+import {
+  createTempRepo,
+  git,
+  removeTempRepo,
+  scrubGitEnv,
+  transcriptRecord as record,
+  writeRepoFile,
+} from "./test-support.ts";
 
 const CLI = path.join(import.meta.dir, "agent-hooks.ts");
 
@@ -53,6 +69,8 @@ type Output = {
   readonly decision: string | undefined;
   readonly reason: string | undefined;
   readonly note: string | undefined;
+  /** The command of `updatedInput`, when the hook rewrote it. */
+  readonly rewritten: string | undefined;
 };
 
 let temp: TempRepo;
@@ -103,13 +121,18 @@ function ghCalls(): string[] {
   return existsSync(log) ? readFileSync(log, "utf8").trim().split("\n") : [];
 }
 
-async function preBash(command: string, cwd: string): Promise<Output> {
+async function preBash(
+  command: string,
+  cwd: string,
+  extra: Readonly<Record<string, unknown>> = {},
+): Promise<Output> {
   const payload = {
     session_id: SESSION,
     cwd,
     hook_event_name: "PreToolUse",
     tool_name: "Bash",
     tool_input: { command, description: "test" },
+    ...extra,
   };
 
   const proc = Bun.spawn([process.execPath, CLI, "pre-bash"], {
@@ -136,6 +159,7 @@ async function preBash(command: string, cwd: string): Promise<Output> {
     decision: stringField(specific, "permissionDecision"),
     reason: stringField(specific, "permissionDecisionReason"),
     note: stringField(output, "systemMessage"),
+    rewritten: stringField(recordField(specific, "updatedInput") ?? {}, "command"),
   };
 }
 
@@ -1005,5 +1029,305 @@ describe("pre-bash outside the doors", () => {
 
     expect(await proc.exited).toBe(0);
     expect(await new Response(proc.stdout).text()).toBe("");
+  });
+});
+
+/**
+ * Haiku's stand-in: answers `review` when the facts it receives show a finished review, `self` otherwise, and keeps
+ * the facts; exits 1 while `claude.fail` exists.
+ */
+const FAKE_CLAUDE = `#!/bin/sh
+for facts; do :; done
+printf '%s' "$facts" > "$FAKE_GH_DIR/claude.facts"
+[ -f "$FAKE_GH_DIR/claude.fail" ] && exit 1
+case "$facts" in
+  *"[review finished"*) trigger=review ;;
+  *) trigger=self ;;
+esac
+cat <<EOF
+{"type":"result","result":"{\\\\"trigger\\\\": \\\\"$trigger\\\\"}"}
+EOF
+`;
+
+/** git's signing program for the tests: signs anything, as gpg reports it on its status fd. */
+const FAKE_GPG = `#!/bin/sh
+cat > /dev/null
+printf '\\n[GNUPG:] SIG_CREATED D 1 8 00 1 FAKE\\n' >&2
+printf -- '-----BEGIN PGP SIGNATURE-----\\nfake\\n-----END PGP SIGNATURE-----\\n'
+`;
+
+const TRACED = JSON.stringify({ profile: { provenance: "trailers" } });
+
+function stamp(trigger: string, session = SESSION): string {
+  return ` --trailer 'Agent-Trigger: ${trigger}' --trailer 'Agent-Session: ${session}'`;
+}
+
+describe("pre-bash writes provenance trailers into an agent's commit", () => {
+  let repo = "";
+  let transcript = "";
+  let records = 0;
+
+  /** Appends records to the session's transcript, each stamped now: after every commit the hook saw before. */
+  function said(...items: Record<string, unknown>[]): void {
+    mkdirSync(path.dirname(transcript), { recursive: true });
+
+    for (const item of items) {
+      records += 1;
+      const timestamp = new Date(Date.now() + records).toISOString();
+      appendFileSync(transcript, `${JSON.stringify({ ...item, timestamp })}\n`);
+    }
+  }
+
+  function commit(
+    command: string,
+    cwd = repo,
+    extra: Record<string, unknown> = {},
+  ): Promise<Output> {
+    return preBash(command, cwd, { transcript_path: transcript, prompt_id: "p-fixture", ...extra });
+  }
+
+  /** The commit the agent ran, as its transcript records it once it ran. */
+  const COMMITTED = [record("commit-call"), record("commit-ok")];
+
+  beforeEach(() => {
+    repo = makeRepo("traced", { [CONFIG_RELATIVE_PATH]: TRACED }, "git@github.com:o/n.git");
+    transcript = path.join(temp.dir, "projects", `${SESSION}.jsonl`);
+    records = 0;
+    const file = path.join(temp.bin, "claude");
+    writeFileSync(file, FAKE_CLAUDE);
+    chmodSync(file, 0o755);
+  });
+
+  test("names the trigger and the session right after `commit`, the rest of the tool input kept, in silence", async () => {
+    said(record("typed"));
+    const command = "git commit -qm 'fix: a'";
+
+    expect((await commit(command)).stdout).toBe(
+      `${JSON.stringify({
+        hookSpecificOutput: {
+          hookEventName: "PreToolUse",
+          updatedInput: {
+            command: `git commit${stamp("human")} -qm 'fix: a'`,
+            description: "test",
+          },
+        },
+      })}\n`,
+    );
+  });
+
+  test("three commits after a review are review, three times", async () => {
+    said(record("typed"), record("typed-review-launch"), record("notified-user"));
+
+    for (let index = 0; index < 3; index += 1) {
+      expect((await commit("git commit -qm x")).rewritten).toBe(
+        `git commit${stamp("review")} -qm x`,
+      );
+      said(...COMMITTED);
+    }
+  });
+
+  test("your message then three commits are human, then self, then self", async () => {
+    said(record("typed"));
+
+    for (const trigger of ["human", "self", "self"]) {
+      expect((await commit("git commit -qm x")).rewritten).toBe(
+        `git commit${stamp(trigger)} -qm x`,
+      );
+      said(...COMMITTED);
+    }
+  });
+
+  test("the classifier's facts come from the transcript and end with the commit's message", async () => {
+    said(record("typed"), record("say"));
+    await commit("git commit -qm 'fix(parse): read partial dates'");
+
+    expect(readFileSync(path.join(temp.bin, "claude.facts"), "utf8")).toBe(
+      "[user message] Fix the date parser.\n\n[agent] The parser is fixed; committing.\n\n[THE COMMIT TO CLASSIFY] fix(parse): read partial dates",
+    );
+  });
+
+  test("stamps every form of a commit written as such", async () => {
+    const here = stamp("human");
+    const outside = temp.dir;
+
+    const forms: [string, string, string][] = [
+      ["git commit -F msg.txt", `git commit${here} -F msg.txt`, repo],
+      [
+        "git commit -m \"$(cat <<'EOF'\nfix: a\nEOF\n)\"",
+        `git commit${here} -m "$(cat <<'EOF'\nfix: a\nEOF\n)"`,
+        repo,
+      ],
+      [`git -C ${repo} commit -m x`, `git -C ${repo} commit${here} -m x`, outside],
+      ["git commit -C HEAD", `git commit${here} -C HEAD`, repo],
+      ["GIT_EDITOR=true git commit -m x", `GIT_EDITOR=true git commit${here} -m x`, repo],
+      [`cd ${repo} && git commit -m x`, `cd ${repo} && git commit${here} -m x`, outside],
+      [
+        "git commit -m a && git commit --allow-empty -m b",
+        `git commit${here} -m a && git commit${here} --allow-empty -m b`,
+        repo,
+      ],
+      [`(cd ${repo} && git commit -m x)`, `(cd ${repo} && git commit${here} -m x)`, outside],
+    ];
+
+    for (const [command, rewritten, cwd] of forms) {
+      said(record("typed"));
+
+      expect((await commit(command, cwd)).rewritten).toBe(rewritten);
+    }
+  });
+
+  test("a refusal of the landing guard in the same line wins, and a push to the trunk passes", async () => {
+    writeRepoFile(
+      repo,
+      CONFIG_RELATIVE_PATH,
+      JSON.stringify({
+        profile: { landing: { trunk: "dev", release: "main" }, provenance: "trailers" },
+      }),
+    );
+    said(record("typed"));
+
+    const refused = await commit("git commit -qm x && git push origin dev:main");
+
+    expect(refused.decision).toBe("deny");
+    expect(refused.rewritten).toBeUndefined();
+    expect((await commit("git commit -qm x && git push origin dev")).rewritten).toBe(
+      `git commit${stamp("human")} -qm x && git push origin dev`,
+    );
+  });
+
+  test("leaves as written an amend that keeps its message, a nested or substituted commit, and every other command", async () => {
+    said(record("typed"));
+
+    for (const command of [
+      "git commit --amend --no-edit",
+      "bash -c 'git commit -m x'",
+      'echo "$(git commit -m x)"',
+      "git merge --no-ff feature",
+      "ls -la",
+    ]) {
+      expect((await commit(command)).stdout).toBe("");
+    }
+  });
+
+  test("leaves a commit as written in a repository whose profile does not ask for trailers", async () => {
+    said(record("typed"));
+    const plain = makeRepo("plain", {}, "git@github.com:o/n.git");
+
+    expect((await commit("git commit -m x", plain)).stdout).toBe("");
+    expect(existsSync(path.join(temp.bin, "claude.facts"))).toBe(false);
+  });
+
+  test("an amend that writes a new message keeps the Agent trailers of the commit it replaces", async () => {
+    git(
+      repo,
+      "-c",
+      "commit.gpgsign=false",
+      "commit",
+      "-q",
+      "--allow-empty",
+      "-m",
+      "fix: a",
+      "--trailer",
+      "Agent-Trigger: review",
+      "--trailer",
+      "Agent-Session: s-old",
+    );
+
+    expect((await commit("git commit --amend -m 'fix: b'")).rewritten).toBe(
+      "git commit --trailer 'Agent-Trigger: review' --trailer 'Agent-Session: s-old' --amend -m 'fix: b'",
+    );
+    expect(existsSync(path.join(temp.bin, "claude.facts"))).toBe(false);
+  });
+
+  test("a transcript it cannot read costs the commit its trailers, with a note", async () => {
+    const missing = await commit("git commit -m x");
+
+    expect(missing.rewritten).toBeUndefined();
+    expect(missing.note).toStartWith(
+      `agent-hooks: no provenance trailer: the transcript ${transcript} cannot be read (`,
+    );
+
+    const none = await preBash("git commit -m x", repo);
+
+    expect(none.note).toBe(
+      "agent-hooks: no provenance trailer: the hook received no transcript_path",
+    );
+  });
+
+  test("a classifier that gives no answer leaves the trigger to the facts, with a note", async () => {
+    said(record("typed"), record("typed-review-launch"), record("notified-user"));
+    writeFileSync(path.join(temp.bin, "claude.fail"), "");
+
+    const output = await commit("git commit -qm x");
+
+    expect(output.rewritten).toBe(`git commit${stamp("human")} -qm x`);
+    expect(output.note).toBe(
+      "agent-hooks: the provenance classifier gave no answer (claude -p exited 1 with no trigger): Agent-Trigger comes from the transcript's facts alone",
+    );
+  });
+
+  test("a subagent's commit reads its own transcript and names its session after the main one", async () => {
+    transcript = path.join(temp.dir, "projects", SESSION, "subagents", "agent-a2.jsonl");
+    said(record("brief"));
+
+    expect(
+      (
+        await preBash("git commit -qm x", repo, {
+          transcript_path: path.join(temp.dir, "projects", `${SESSION}.jsonl`),
+          agent_id: "a2",
+          prompt_id: "p-fixture",
+        })
+      ).rewritten,
+    ).toBe(`git commit${stamp("human", `${SESSION}.a2`)} -qm x`);
+  });
+
+  test("the rewritten command commits, through a commit-msg hook and a signature, with both trailers", async () => {
+    said(record("typed"));
+    const gpg = path.join(temp.bin, "gpg");
+    writeFileSync(gpg, FAKE_GPG);
+    chmodSync(gpg, 0o755);
+    const hook = path.join(repo, ".git", "hooks", "commit-msg");
+    writeFileSync(hook, '#!/bin/sh\ncp "$1" "$(dirname "$0")/../seen-message"\n');
+    chmodSync(hook, 0o755);
+    git(repo, "config", "commit.gpgsign", "true");
+    git(repo, "config", "gpg.program", gpg);
+
+    const rewritten = (await commit("git commit -q --allow-empty -m 'fix: a'")).rewritten ?? "";
+    git(repo, "-c", "alias.run=!sh -c", "run", rewritten);
+
+    expect(git(repo, "log", "-1", "--format=%(trailers)")).toBe(
+      `Agent-Trigger: human\nAgent-Session: ${SESSION}\n\n`,
+    );
+    expect(readFileSync(path.join(repo, ".git", "seen-message"), "utf8")).toContain(
+      "Agent-Trigger: human",
+    );
+    expect(git(repo, "cat-file", "commit", "HEAD")).toContain(
+      "gpgsig -----BEGIN PGP SIGNATURE-----",
+    );
+  });
+});
+
+describe("encodeGuard", () => {
+  const text = 'say "hi"\nnext';
+  const updatedInput = { command: "git commit --trailer 'Agent-Trigger: self' -m x", timeout: 5 };
+
+  test("a rewrite hands back the whole tool input, then the notes when there are any", () => {
+    const silent: GuardVerdict = { kind: "rewrite", updatedInput, notes: null };
+    const noted: GuardVerdict = { kind: "rewrite", updatedInput, notes: text };
+
+    expect(encodeGuard(silent)).toBe(
+      `{"hookSpecificOutput":{"hookEventName":"PreToolUse","updatedInput":${JSON.stringify(updatedInput)}}}`,
+    );
+    expect(encodeGuard(noted)).toBe(
+      `{"hookSpecificOutput":{"hookEventName":"PreToolUse","updatedInput":${JSON.stringify(updatedInput)}},"systemMessage":${JSON.stringify(text)}}`,
+    );
+  });
+
+  test("an allow prints nothing, a note its systemMessage, a refusal the deny shape", () => {
+    expect(encodeGuard({ kind: "allow" })).toBeNull();
+    expect(encodeGuard({ kind: "note", text })).toBe(`{"systemMessage":${JSON.stringify(text)}}`);
+    expect(encodeGuard({ kind: "deny", reason: text })).toBe(
+      `{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":${JSON.stringify(text)}}}`,
+    );
   });
 });
