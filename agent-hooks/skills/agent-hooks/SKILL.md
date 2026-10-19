@@ -125,7 +125,9 @@ Agent-Session: 6f2c1d0e-…
   `agents-bridge:adversarial-review`, an `Agent` whose description says it reviews or audits, findings a
   user message or a lead agent relays); else `human` when a user message arrived since the agent's previous
   commit in that checkout (typed, queued, an accepted suggestion, a typed command, an approved plan; for a
-  subagent, its brief for its first commit and a lead's `<teammate-message>` after); else `self`.
+  subagent, its brief for its first commit and a lead's `<teammate-message>` after); else `self`. A line
+  that makes several commits in one checkout judges the first: the next ones continue its `review`, and are
+  `self` otherwise.
 - The facts come from the agent's own transcript (`transcript_path`, or
   `<session>/subagents/agent-<agent_id>.jsonl` for a subagent): user messages, finished reviews (one run in
   the background finishes at its `completed` task notification, never at `killed` or `stopped`; a

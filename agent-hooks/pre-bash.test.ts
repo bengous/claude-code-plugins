@@ -1126,6 +1126,20 @@ describe("pre-bash writes provenance trailers into an agent's commit", () => {
     }
   });
 
+  test("the commits after the first of one line continue its review, and are the agent's own otherwise", async () => {
+    said(record("typed"), record("typed-review-launch"), record("notified-user"));
+
+    expect((await commit("git commit -qm a && git commit -qm b")).rewritten).toBe(
+      `git commit${stamp("review")} -qm a && git commit${stamp("review")} -qm b`,
+    );
+
+    said(...COMMITTED, record("typed"));
+
+    expect((await commit("git commit -qm c; git commit -qm d; git commit -qm e")).rewritten).toBe(
+      `git commit${stamp("human")} -qm c; git commit${stamp("self")} -qm d; git commit${stamp("self")} -qm e`,
+    );
+  });
+
   test("your message then three commits are human, then self, then self", async () => {
     said(record("typed"));
 
@@ -1163,7 +1177,7 @@ describe("pre-bash writes provenance trailers into an agent's commit", () => {
       [`cd ${repo} && git commit -m x`, `cd ${repo} && git commit${here} -m x`, outside],
       [
         "git commit -m a && git commit --allow-empty -m b",
-        `git commit${here} -m a && git commit${here} --allow-empty -m b`,
+        `git commit${here} -m a && git commit${stamp("self")} --allow-empty -m b`,
         repo,
       ],
       [`(cd ${repo} && git commit -m x)`, `(cd ${repo} && git commit${here} -m x)`, outside],

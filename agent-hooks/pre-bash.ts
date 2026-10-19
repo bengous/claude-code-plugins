@@ -607,7 +607,7 @@ type TriggerRead = { readonly trigger: Trigger; readonly note: string | null };
 /**
  * The line with provenance trailers after each `git commit` it runs as written in a repository whose profile asks
  * for them, and a note for each such commit it could not stamp. A new commit names its trigger and its session, and
- * moves the agent's commit mark in its checkout; an amend that writes a new message keeps the `Agent-*` trailers of
+ * moves the agent's commit mark in its checkout, once per checkout and line; an amend that writes a new message keeps the `Agent-*` trailers of
  * the commit it replaces; an amend that keeps its message, and a dry run, are left as written.
  */
 async function withProvenance(
@@ -676,10 +676,13 @@ async function withProvenance(
       continue;
     }
 
-    const known =
-      triggers.get(root) ?? triggerAt(root, source.transcript, command, input, deadline, runner);
+    const earlier = triggers.get(root);
 
-    triggers.set(root, known);
+    const known =
+      earlier?.then(followingOf) ??
+      triggerAt(root, source.transcript, command, input, deadline, runner);
+
+    triggers.set(root, earlier ?? known);
     const { trigger, note: why } = await known;
 
     if (why !== null && !notes.includes(why)) {
@@ -706,6 +709,14 @@ async function withProvenance(
 type TranscriptRead =
   | { readonly kind: "read"; readonly transcript: Transcript }
   | { readonly kind: "unreadable"; readonly why: string };
+
+/**
+ * The trigger of a commit after the first one a line makes in the same checkout: nothing reached the agent between
+ * them, so it continues the first's review, and is the agent's own otherwise.
+ */
+function followingOf(first: TriggerRead): TriggerRead {
+  return { trigger: first.trigger === "review" ? "review" : "self", note: null };
+}
 
 /** The agent's own transcript, or why it cannot be read. */
 function transcriptOf(input: Input): TranscriptRead {
