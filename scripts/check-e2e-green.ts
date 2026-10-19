@@ -185,7 +185,7 @@ function changedPaths({ local, remote }: PushToDev): readonly string[] {
   return listed.split("\0").filter((path) => path !== "");
 }
 
-function checkRunsOf(commit: string): CheckRuns {
+export function checkRunsOf(commit: string): CheckRuns {
   const result = Bun.spawnSync(
     [
       "gh",
