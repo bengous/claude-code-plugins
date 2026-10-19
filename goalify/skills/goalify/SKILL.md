@@ -51,7 +51,9 @@ the end state, printed in the conversation: "`bun test --parallel` exits 0 and
 its summary shows 0 fail", not "tests pass". Take the command from the
 repository's own checks when it has them (`package.json` scripts, `AGENTS.md`,
 CI config); write the proof clause first and derive the end state from it when
-the task is vague.
+the task is vague. The proof is the command's own summary line, never an
+echoed exit code: `; echo $?` makes the command a compound one that the
+permission check prompts on, and a headless run has nobody to answer.
 
 **Constraints.** What must not change on the way, and what closes the shortest
 path to the end state that is not the work: test files unchanged, no skipped
@@ -61,10 +63,13 @@ answer. Approval before anything destructive or outward-facing (push, delete,
 send, install) is a constraint, not a note.
 
 **Blocker.** The evaluator returns met, not met, or impossible; a stuck run
-reads as "not met" forever. Name the blocker the task can hit (a credential, an
-external service, a decision only the user can take) and make reporting it an
-end state of its own: "or the blocker is named in the conversation with its
-cause and what was tried". Without this clause a blocked run burns turns.
+reads as "not met" forever. Write the blocked outcome as a second end state,
+joined to the first by "or": "or a blocker outside Claude's control (a
+credential, an external service, a permission the session cannot get, a
+decision only the user can take) is named in the conversation with its cause
+and what was tried". An instruction ("if blocked, report it") is not an end
+state: the evaluator reads the report and still answers "not met", and the run
+burns turns repeating it.
 
 **Cap.** A turn or time bound: "or stop after 20 turns and list what remains".
 The evaluator judges it from Claude's own count, so it is soft; it is still the
@@ -73,7 +78,7 @@ only bound the condition carries.
 ## Shape
 
 ```text
-/goal <end state>, shown by <proof>. <constraints>. <blocker>. <cap>.
+/goal <end state>, shown by <proof>, or <blocker> is named with its cause and what was tried. <constraints>. <cap>.
 ```
 
 Plain sentences, no labels, no headings: the whole text is the condition, and
