@@ -12,17 +12,20 @@ import {
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 
+import type { Clock } from "./ci-wait.ts";
+import { type GitHubOverrides, readGitHub, type RunSpec, serveGitHub } from "./land.fixture.ts";
 import {
-  type Check,
   changedPaths,
   checkoutOf,
   land,
-  latestChecks,
+  type Landing,
   movedOn,
   profileSpec,
   type PullRequest,
   refusalOf,
   riskyOf,
+  WAITING,
+  type Waiting,
 } from "./land.ts";
 import { type Comment, record } from "./review-verdict.ts";
 
@@ -34,11 +37,9 @@ let work = "";
 
 let other = "";
 
-let prFile = "";
+let bin = "";
 
-let checksFile = "";
-
-let commentFile = "";
+let githubFile = "";
 
 let bunLog = "";
 
@@ -84,39 +85,44 @@ function commit(cwd: string, file: string, message: string, content = `${message
   return git(cwd, "rev-parse", "HEAD");
 }
 
-function green(name = "validate (scoped)"): Check {
+/** The GitHub `gh` answers from: the pull request of feature/x, its head the one origin holds, its runs green. */
+function serve(overrides: GitHubOverrides = {}) {
+  serveGitHub(bin, githubFile, { origin, branch: "feature/x" }, overrides);
+}
+
+function github() {
+  return readGitHub(githubFile);
+}
+
+/** The gh calls that change GitHub, in their order. */
+function edits(): readonly string[] {
+  return github().calls.filter((call) => call.startsWith("pr edit") || call.startsWith("run "));
+}
+
+function runListings(): number {
+  return github().calls.filter((call) => call.includes("/actions/workflows/ci.yml/runs?")).length;
+}
+
+/** A clock that moves only when land sleeps, `during` run at each sleep: what happens while it waits. */
+function clockOf(during: () => void): Clock {
+  let now = 1_000_000_000;
+
   return {
-    name,
-    startedAt: "2026-10-15T10:00:00Z",
-    state: "SUCCESS",
-    workflow: "CI",
-    event: "pull_request",
+    now: () => now,
+    sleep: (ms) => {
+      now += ms;
+      during();
+
+      return Promise.resolve();
+    },
   };
 }
 
-function pullRequest(overrides: Partial<PullRequest> = {}): PullRequest {
-  return {
-    number: 7,
-    state: "OPEN",
-    baseRefName: "dev",
-    headRefOid: git(work, "rev-parse", "HEAD"),
-    checks: [green()],
-    comments: [],
-    ...overrides,
-  };
-}
-
-/**
- * What gh prints: the pull request to `gh pr view`, its checks to `gh pr checks`, an error when it has none. The body
- * `gh pr comment` reads is kept in `commentFile`.
- */
-function serve(pr: PullRequest) {
-  const { checks, ...view } = pr;
-
-  writeFileSync(prFile, JSON.stringify(view));
-  rmSync(checksFile, { force: true });
-
-  if (checks.length > 0) writeFileSync(checksFile, JSON.stringify(checks));
+function landing(
+  branch = "feature/x",
+  { during = () => {}, ...waiting }: Partial<Waiting> & { during?: () => void } = {},
+): Promise<Landing> {
+  return land(branch, work, { ...WAITING, clock: clockOf(during), ...waiting });
 }
 
 function moveDev(): string {
@@ -127,8 +133,21 @@ function moveDev(): string {
   return moved;
 }
 
-function why(landing: ReturnType<typeof land>): string {
-  return landing.kind === "refused" ? landing.why : "";
+function why(landed: Landing): string {
+  return landed.kind === "refused" ? landed.why : "";
+}
+
+function branchHead(): string {
+  return git(work, "rev-parse", "HEAD");
+}
+
+function pushBranch() {
+  git(work, "push", "--quiet", "--force", "origin", "feature/x");
+}
+
+function touchE2e() {
+  commit(work, "vellum/src/page.ts", "touch an e2e path");
+  pushBranch();
 }
 
 beforeEach(() => {
@@ -149,25 +168,9 @@ beforeEach(() => {
 
   other = clone("other");
 
-  const bin = join(root, "bin");
-
-  prFile = join(root, "pr.json");
-  checksFile = join(root, "checks.json");
-  commentFile = join(root, "comment.md");
+  bin = join(root, "bin");
+  githubFile = join(root, "github.json");
   mkdirSync(bin);
-  writeFileSync(
-    join(bin, "gh"),
-    [
-      "#!/bin/sh",
-      'if [ "$2" = comment ]; then cat > "' + commentFile + '"; exit; fi',
-      'if [ "$2" != checks ]; then cat "' + prFile + '"; exit; fi',
-      'if [ -f "' + checksFile + '" ]; then cat "' + checksFile + '"; exit; fi',
-      "echo \"no checks reported on the 'feature/x' branch\" >&2",
-      "exit 1",
-      "",
-    ].join("\n"),
-  );
-  chmodSync(join(bin, "gh"), 0o755);
   bunLog = join(root, "bun.log");
   writeFileSync(
     join(bin, "bun"),
@@ -199,105 +202,105 @@ afterEach(() => {
   rmSync(root, { recursive: true, force: true });
 });
 
+const RED_E2E: RunSpec = { validate: "success", e2e: "failure", polls: 1 };
+
 describe("land", () => {
-  test("rebases the branch on a dev that moved and pushes it to dev and to its own ref", () => {
+  test("rebases the branch on a dev that moved and pushes it to dev and to its own ref", async () => {
     const moved = moveDev();
 
-    serve(pullRequest());
+    serve();
 
-    const landing = land("feature/x", work);
-    const head = git(work, "rev-parse", "HEAD");
+    const landed = await landing();
+    const head = branchHead();
 
-    expect(landing).toEqual({ kind: "landed", dev: head, pr: 7 });
+    expect(landed).toEqual({ kind: "landed", dev: head, pr: 7 });
     expect(git(origin, "rev-parse", "dev")).toBe(head);
     expect(git(origin, "rev-parse", "feature/x")).toBe(head);
     expect(git(work, "rev-parse", "HEAD~1")).toBe(moved);
   });
 
-  test("installs nothing when the rebase brings in no lockfile change", () => {
+  test("installs nothing when the rebase brings in no lockfile change", async () => {
     moveDev();
-    serve(pullRequest());
+    serve();
 
-    expect(land("feature/x", work).kind).toBe("landed");
+    expect((await landing()).kind).toBe("landed");
     expect(bunCalls()).toBe("");
   });
 
-  test("installs the rebased lockfile before the pre-push gates read node_modules", () => {
+  test("installs the rebased lockfile before the pre-push gates read node_modules", async () => {
     moveDevLockfile();
-    serve(pullRequest());
+    serve();
 
-    expect(land("feature/x", work).kind).toBe("landed");
+    expect((await landing()).kind).toBe("landed");
     expect(bunCalls()).toBe(`${work} install --frozen-lockfile`);
   });
 
-  test("refuses, back at the reviewed head, when the install fails", () => {
-    const reviewed = git(work, "rev-parse", "HEAD");
+  test("refuses, back at the reviewed head, when the install fails", async () => {
+    const reviewed = branchHead();
     const moved = moveDevLockfile();
 
-    serve(pullRequest());
+    serve();
     setEnv("FAKE_BUN_EXIT", "1");
 
-    const landing = land("feature/x", work);
+    const landed = await landing();
 
-    expect(why(landing)).toContain("bun install --frozen-lockfile failed");
-    expect(why(landing)).toContain("node_modules may be half-installed");
+    expect(why(landed)).toContain("bun install --frozen-lockfile failed");
+    expect(why(landed)).toContain("node_modules may be half-installed");
     expect(bunCalls().split("\n")).toEqual([
       `${work} install --frozen-lockfile`,
       `${work} install --frozen-lockfile`,
     ]);
-    expect(git(work, "rev-parse", "HEAD")).toBe(reviewed);
+    expect(branchHead()).toBe(reviewed);
     expect(git(origin, "rev-parse", "dev")).toBe(moved);
     expect(git(origin, "rev-parse", "feature/x")).toBe(reviewed);
   });
 
-  test("finds the checkout holding the branch from another checkout", () => {
+  test("finds the checkout holding the branch from another checkout", async () => {
     git(work, "switch", "--quiet", "dev");
     git(work, "worktree", "add", "--quiet", join(root, "wt"), "feature/x");
-    serve(pullRequest({ headRefOid: git(join(root, "wt"), "rev-parse", "HEAD") }));
+    serve();
 
-    expect(land("feature/x", work).kind).toBe("landed");
+    expect((await landing()).kind).toBe("landed");
     expect(git(origin, "rev-parse", "dev")).toBe(git(join(root, "wt"), "rev-parse", "HEAD"));
   });
 
-  test("lands with an untracked file in the checkout", () => {
-    serve(pullRequest());
+  test("lands with an untracked file in the checkout", async () => {
+    serve();
     writeFileSync(join(work, "scratch.log"), "notes\n");
 
-    expect(land("feature/x", work).kind).toBe("landed");
+    expect((await landing()).kind).toBe("landed");
+  });
+
+  test("waits for the run still going on the head, then lands", async () => {
+    serve({ pushRun: { validate: "success", e2e: "skipped", polls: 3 } });
+
+    expect((await landing()).kind).toBe("landed");
+    expect(runListings()).toBe(4);
   });
 
   test.each([
-    ["a red check", { checks: [{ ...green(), state: "FAILURE" }] }, "not green"],
-    ["a check still running", { checks: [{ ...green(), state: "IN_PROGRESS" }] }, "still running"],
-    ["no check yet", { checks: [] }, "no check reported"],
-    [
-      "a failed pull_request run beside a newer skipped push run of the same job",
-      {
-        checks: [
-          { ...green(), state: "FAILURE" },
-          { ...green(), state: "SKIPPED", event: "push", startedAt: "2026-10-15T11:00:00Z" },
-        ],
-      },
-      "validate (scoped) failure",
-    ],
-    ["a base other than dev", { baseRefName: "feature/base" }, "gh stack"],
-    ["a closed pull request", { state: "MERGED" }, "not open"],
-    ["a head the pull request does not have", { headRefOid: "0".repeat(40) }, "push it"],
-  ] as const)("refuses %s and leaves dev unmoved", (_, overrides, reason) => {
-    const before = git(origin, "rev-parse", "dev");
+    ["a red run", { pushRun: { validate: "failure", e2e: "skipped", polls: 0 } }, "CI is red on"],
+    ["no run on its head", { pushRun: null }, "no ci.yml run showed"],
+    ["a base other than dev", { pr: { baseRefName: "feature/base" } }, "gh stack"],
+    ["a closed pull request", { pr: { state: "MERGED" } }, "not open"],
+    ["a head the pull request does not have", { pinnedHead: "0".repeat(40) }, "push it"],
+  ] satisfies [string, GitHubOverrides, string][])(
+    "refuses %s and leaves dev unmoved",
+    async (_, overrides, reason) => {
+      const before = git(origin, "rev-parse", "dev");
 
-    serve(pullRequest(overrides));
+      serve(overrides);
 
-    const landing = land("feature/x", work);
+      const landed = await landing();
 
-    expect(why(landing)).toContain(reason);
-    expect(git(origin, "rev-parse", "dev")).toBe(before);
-  });
+      expect(why(landed)).toContain(reason);
+      expect(git(origin, "rev-parse", "dev")).toBe(before);
+      expect(edits()).toEqual([]);
+    },
+  );
 
-  test("never overwrites a commit pushed to the branch since the pull request was read", () => {
-    serve(pullRequest());
-
-    const reviewed = git(work, "rev-parse", "HEAD");
+  test("never overwrites a commit pushed to the branch since the pull request was read", async () => {
+    const reviewed = branchHead();
 
     git(other, "fetch", "--quiet", "origin");
     git(other, "switch", "--quiet", "feature/x");
@@ -305,47 +308,85 @@ describe("land", () => {
 
     git(other, "push", "--quiet", "origin", "feature/x");
     moveDev();
+    serve({ pinnedHead: reviewed });
 
-    const landing = land("feature/x", work);
+    const landed = await landing();
 
-    expect(why(landing)).toContain("the push of feature/x was refused");
+    expect(why(landed)).toContain("the push of feature/x was refused");
     expect(git(origin, "rev-parse", "feature/x")).toBe(foreign);
-    expect(git(work, "rev-parse", "HEAD")).toBe(reviewed);
+    expect(branchHead()).toBe(reviewed);
   });
 
-  test("stops after the branch push when a rebase gives an e2e branch a commit its run never saw", () => {
-    commit(work, "vellum/src/page.ts", "touch an e2e path");
-    git(work, "push", "--quiet", "origin", "feature/x");
+  test.each([
+    ["a commit", () => commit(work, "b.txt", "made while land waited")],
+    ["an edit", () => writeFileSync(join(work, "b.txt"), "edited while land waited\n")],
+  ])("refuses %s made in the checkout while CI runs, and leaves it there", async (_, made) => {
+    const reviewed = branchHead();
+    const before = git(origin, "rev-parse", "dev");
+    let once = false;
+
+    serve({ pushRun: { validate: "success", e2e: "skipped", polls: 1 } });
+
+    const landed = await landing("feature/x", {
+      during: () => {
+        if (!once) made();
+
+        once = true;
+      },
+    });
+
+    expect(why(landed)).toMatch(/moved from .* while land ran|has uncommitted changes/u);
+    expect(git(origin, "rev-parse", "dev")).toBe(before);
+    expect(git(origin, "rev-parse", "feature/x")).toBe(reviewed);
+    expect(readFileSync(join(work, "b.txt"), "utf8")).toContain("while land waited");
+  });
+
+  test("resets nothing when an edit lands in the checkout while a refused push's hook runs", async () => {
     const moved = moveDev();
+    const hook = join(work, ".git", "hooks", "pre-push");
 
-    serve(pullRequest());
+    serve();
+    writeFileSync(hook, '#!/bin/sh\necho "edited during the push" >> b.txt\nexit 1\n');
+    chmodSync(hook, 0o755);
 
-    const landing = land("feature/x", work);
+    const landed = await landing();
 
-    expect(why(landing)).toContain("--add-label e2e");
-    expect(git(origin, "rev-parse", "feature/x")).toBe(git(work, "rev-parse", "HEAD"));
-    expect(git(origin, "rev-parse", "dev")).toBe(moved);
+    expect(why(landed)).toContain("the push of feature/x was refused, and");
+    expect(why(landed)).toContain("has uncommitted changes");
+    expect(readFileSync(join(work, "b.txt"), "utf8")).toContain("edited during the push");
+    expect(git(work, "rev-parse", "HEAD~1")).toBe(moved);
   });
 
-  test("refuses tracked changes in the checkout", () => {
-    serve(pullRequest());
+  test("gives up on a run still going once the landing has waited an hour", async () => {
+    serve({ pushRun: { validate: "success", e2e: "skipped", polls: 1_000_000 } });
+
+    const landed = await landing("feature/x", { pollMs: 10 * 60_000 });
+
+    expect(why(landed)).toContain("CI still runs on");
+    expect(why(landed)).toContain("after the 60 min land waits at most");
+    expect(why(landed)).toContain("https://github.com/o/r/actions/runs/100");
+  });
+
+  test("refuses tracked changes in the checkout", async () => {
+    serve();
     writeFileSync(join(work, "b.txt"), "dirty\n");
 
-    expect(land("feature/x", work)).toEqual({
+    expect(await landing()).toEqual({
       kind: "refused",
       why: `${work} has uncommitted changes: commit or drop them, then land`,
     });
   });
 
-  test("refuses output gh did not print as a pull request", () => {
-    writeFileSync(prFile, "not json");
+  test("refuses output gh did not print as a pull request", async () => {
+    serve({ garbage: "not json" });
 
-    expect(why(land("feature/x", work))).toContain("gh printed no pull request");
+    expect(why(await landing())).toContain("gh printed no pull request");
   });
 
-  test("refuses a branch outside the landable names, dev and main included", () => {
+  test("refuses a branch outside the landable names, dev and main included", async () => {
     for (const branch of ["dev", "main", "chore/x", "chore/claude-code-types-2", "renovate"]) {
-      expect(land(branch, work)).toEqual({
+      // oxlint-disable-next-line no-await-in-loop -- one branch name at a time keeps the failure on its name.
+      expect(await landing(branch)).toEqual({
         kind: "refused",
         why: `${branch} is not a feature/, fix/ or renovate/ branch, or chore/claude-code-types: only those land on dev`,
       });
@@ -354,21 +395,117 @@ describe("land", () => {
 
   test.each(["renovate/react-monorepo", "chore/claude-code-types"])(
     "lands the bot branch %s",
-    (branch) => {
+    async (branch) => {
       git(work, "branch", "--quiet", "-m", branch);
       git(work, "push", "--quiet", "origin", branch);
-      serve(pullRequest());
+      serveGitHub(bin, githubFile, { origin, branch });
 
-      expect(land(branch, work).kind).toBe("landed");
-      expect(git(origin, "rev-parse", "dev")).toBe(git(work, "rev-parse", "HEAD"));
+      expect((await landing(branch)).kind).toBe("landed");
+      expect(git(origin, "rev-parse", "dev")).toBe(branchHead());
     },
   );
 
-  test("refuses a branch no checkout holds", () => {
-    expect(land("fix/nowhere", work)).toEqual({
+  test("refuses a branch no checkout holds", async () => {
+    expect(await landing("fix/nowhere")).toEqual({
       kind: "refused",
       why: "no checkout holds fix/nowhere: check it out, then land",
     });
+  });
+});
+
+describe("land, a branch that touches the e2e paths", () => {
+  beforeEach(touchE2e);
+
+  test("asks for an e2e run with the label, waits for it, then lands", async () => {
+    serve();
+
+    expect((await landing()).kind).toBe("landed");
+    expect(edits()).toEqual(["pr edit feature/x --add-label e2e"]);
+    expect(git(origin, "rev-parse", "dev")).toBe(branchHead());
+  });
+
+  test("takes the label off first when it is on, since adding it again starts no run", async () => {
+    serve({ pr: { labels: ["e2e"] } });
+
+    expect((await landing()).kind).toBe("landed");
+    expect(edits()).toEqual([
+      "pr edit feature/x --remove-label e2e",
+      "pr edit feature/x --add-label e2e",
+    ]);
+  });
+
+  test("waits for the label's run, a second run on the head, though the first is green", async () => {
+    serve({ labelRun: { validate: "success", e2e: "success", polls: 1, hidden: 2 } });
+
+    expect((await landing()).kind).toBe("landed");
+    expect(github().runs.map((run) => run.sha)).toEqual([branchHead(), branchHead()]);
+  });
+
+  test("asks for no run when the head has a green e2e already", async () => {
+    serve({ pushRun: { validate: "success", e2e: "success", polls: 0 } });
+
+    expect((await landing()).kind).toBe("landed");
+    expect(edits()).toEqual([]);
+  });
+
+  test("waits for the commit a rebase makes to reach the pull request, then for its own e2e run", async () => {
+    const reviewed = branchHead();
+    const moved = moveDev();
+
+    serve({ lag: 2 });
+
+    const landed = await landing();
+    const head = branchHead();
+
+    expect(landed).toEqual({ kind: "landed", dev: head, pr: 7 });
+    expect(head).not.toBe(reviewed);
+    expect(git(work, "rev-parse", "HEAD~2")).toBe(moved);
+    expect(edits()).toEqual([
+      "pr edit feature/x --add-label e2e",
+      "pr edit feature/x --add-label e2e",
+    ]);
+
+    const e2eRuns = github()
+      .runs.filter((run) => run.outcome.e2e === "success")
+      .map((run) => run.sha);
+
+    expect(e2eRuns).toEqual([reviewed, head]);
+  });
+
+  test("re-runs once a run red in its e2e jobs alone, then lands", async () => {
+    serve({ labelRun: RED_E2E });
+
+    expect((await landing()).kind).toBe("landed");
+    expect(edits()).toEqual(["pr edit feature/x --add-label e2e", "run rerun 101 --failed"]);
+  });
+
+  test("refuses a run still red after its one re-run, naming it, and leaves dev unmoved", async () => {
+    const before = git(origin, "rev-parse", "dev");
+
+    serve({ labelRun: RED_E2E, rerun: RED_E2E });
+
+    const landed = await landing();
+
+    expect(why(landed)).toContain(
+      "https://github.com/o/r/actions/runs/101, red again after the re-run land made",
+    );
+    expect(why(landed)).toContain("gh run rerun <run-id> --failed");
+    expect(edits()).toEqual(["pr edit feature/x --add-label e2e", "run rerun 101 --failed"]);
+    expect(git(origin, "rev-parse", "dev")).toBe(before);
+  });
+
+  test("re-runs a red e2e found on the head instead of adding the label again", async () => {
+    serve({ pushRun: { ...RED_E2E, polls: 0 } });
+
+    expect((await landing()).kind).toBe("landed");
+    expect(edits()).toEqual(["run rerun 100 --failed"]);
+  });
+
+  test("refuses a red run whose red is not the e2e's, with no re-run", async () => {
+    serve({ labelRun: { validate: "failure", e2e: "failure", polls: 1 } });
+
+    expect(why(await landing())).toContain("CI is red on");
+    expect(edits()).toEqual(["pr edit feature/x --add-label e2e"]);
   });
 });
 
@@ -383,22 +520,14 @@ const RISKY_PROFILE = '{ "profile": { "review": { "risky": ["risky/**", "scripts
 
 /** The comment `review-verdict.ts record` posted, as the owner's. */
 function posted(): Comment {
-  return { body: readFileSync(commentFile, "utf8"), authorAssociation: "OWNER" };
-}
-
-function branchHead(): string {
-  return git(work, "rev-parse", "HEAD");
+  return { body: github().comment ?? "", authorAssociation: "OWNER" };
 }
 
 function recordVerdict(): Comment {
-  serve(pullRequest());
+  serve();
   expect(record("feature/x", branchHead(), work).kind).toBe("recorded");
 
   return posted();
-}
-
-function pushBranch() {
-  git(work, "push", "--quiet", "--force", "origin", "feature/x");
 }
 
 /** Commits `content` at `file` on dev, then rebases the branch on it. */
@@ -418,23 +547,23 @@ describe("land, a branch that touches a risky path", () => {
     pushBranch();
   });
 
-  test("refuses without a review verdict, naming the paths and the command that records one", () => {
+  test("refuses without a review verdict, naming the paths and the command that records one", async () => {
     const reviewed = branchHead();
     const before = git(origin, "rev-parse", "dev");
 
-    serve(pullRequest());
+    serve();
 
-    const landing = land("feature/x", work);
+    const landed = await landing();
 
-    expect(why(landing)).toContain("risky/a.ts");
-    expect(why(landing)).toContain(`${RECORD} ${reviewed}`);
+    expect(why(landed)).toContain("risky/a.ts");
+    expect(why(landed)).toContain(`${RECORD} ${reviewed}`);
     expect(git(origin, "rev-parse", "dev")).toBe(before);
     expect(git(origin, "rev-parse", "feature/x")).toBe(reviewed);
     expect(branchHead()).toBe(reviewed);
   });
 
   test("records the patch-id that git diff piped to git patch-id --verbatim gives", () => {
-    serve(pullRequest());
+    serve();
 
     const recording = record("feature/x", branchHead(), work);
     const mergeBase = git(work, "merge-base", "origin/dev", "HEAD");
@@ -451,49 +580,68 @@ describe("land, a branch that touches a risky path", () => {
     expect(posted().body.split("\n")[0]).toBe(`<!-- review: clean patch-id=${patchId} -->`);
   });
 
-  test("lands with the verdict review-verdict.ts records", () => {
+  test("lands with the verdict review-verdict.ts records", async () => {
     const verdict = recordVerdict();
 
-    serve(pullRequest({ comments: [verdict] }));
+    serve({ pr: { comments: [verdict] } });
 
-    expect(land("feature/x", work).kind).toBe("landed");
-    expect(git(origin, "rev-parse", "dev")).toBe(git(work, "rev-parse", "HEAD"));
+    expect((await landing()).kind).toBe("landed");
+    expect(git(origin, "rev-parse", "dev")).toBe(branchHead());
   });
 
-  test("keeps the verdict through a rebase that leaves the patch as it was", () => {
+  test("lands with a verdict posted while it waited for CI", async () => {
+    const verdict = recordVerdict();
+
+    serve({ pushRun: { validate: "success", e2e: "skipped", polls: 1 } });
+
+    const landed = await landing("feature/x", {
+      during: () => {
+        const posting = github();
+
+        writeFileSync(
+          githubFile,
+          JSON.stringify({ ...posting, pr: { ...posting.pr, comments: [verdict] } }),
+        );
+      },
+    });
+
+    expect(landed.kind).toBe("landed");
+  });
+
+  test("keeps the verdict through a rebase that leaves the patch as it was", async () => {
     const verdict = recordVerdict();
     const moved = moveDev();
 
-    serve(pullRequest({ comments: [verdict] }));
+    serve({ pr: { comments: [verdict] } });
 
-    expect(land("feature/x", work).kind).toBe("landed");
+    expect((await landing()).kind).toBe("landed");
     expect(git(work, "rev-parse", "HEAD~2")).toBe(moved);
   });
 
-  test("refuses a verdict recorded before the code changed", () => {
+  test("refuses a verdict recorded before the code changed", async () => {
     const verdict = recordVerdict();
 
     commit(work, "risky/a.ts", "changed after the review");
     pushBranch();
-    serve(pullRequest({ comments: [verdict] }));
+    serve({ pr: { comments: [verdict] } });
 
-    const landing = land("feature/x", work);
+    const landed = await landing();
 
-    expect(why(landing)).toContain("no clean review verdict");
-    expect(why(landing)).toContain(`${RECORD} ${branchHead()}`);
+    expect(why(landed)).toContain("no clean review verdict");
+    expect(why(landed)).toContain(`${RECORD} ${branchHead()}`);
   });
 
-  test("refuses a verdict recorded before a change of whitespace alone", () => {
+  test("refuses a verdict recorded before a change of whitespace alone", async () => {
     const verdict = recordVerdict();
 
     commit(work, "risky/a.ts", "indent after the review", "  risky\n");
     pushBranch();
-    serve(pullRequest({ comments: [verdict] }));
+    serve({ pr: { comments: [verdict] } });
 
-    expect(why(land("feature/x", work))).toContain("no clean review verdict");
+    expect(why(await landing())).toContain("no clean review verdict");
   });
 
-  test("refuses a verdict a rebase broke by changing the patch's context, naming the rebase", () => {
+  test("refuses a verdict a rebase broke by changing the patch's context, naming the rebase", async () => {
     onDev("risky/b.ts", "ten lines", lines(-1, ""));
     commit(work, "risky/b.ts", "change line 6", lines(6, "reviewed"));
     pushBranch();
@@ -503,45 +651,45 @@ describe("land, a branch that touches a risky path", () => {
 
     commit(other, "risky/b.ts", "change line 3 on dev", lines(3, "context"));
     git(other, "push", "--quiet", "origin", "dev");
-    serve(pullRequest({ comments: [verdict] }));
+    serve({ pr: { comments: [verdict] } });
 
-    const landing = land("feature/x", work);
+    const landed = await landing();
 
-    expect(why(landing)).toContain("the rebase on origin/dev changed");
-    expect(why(landing)).toContain(RECORD);
+    expect(why(landed)).toContain("the rebase on origin/dev changed");
+    expect(why(landed)).toContain(RECORD);
     expect(branchHead()).toBe(reviewed);
   });
 
-  test("counts no verdict posted by someone without write access", () => {
+  test("counts no verdict posted by someone without write access", async () => {
     const verdict = recordVerdict();
 
-    serve(pullRequest({ comments: [{ ...verdict, authorAssociation: "NONE" }] }));
+    serve({ pr: { comments: [{ ...verdict, authorAssociation: "NONE" }] } });
 
-    expect(why(land("feature/x", work))).toContain("no clean review verdict");
+    expect(why(await landing())).toContain("no clean review verdict");
   });
 
-  test("lets a branch that touches no risky path land without a verdict", () => {
+  test("lets a branch that touches no risky path land without a verdict", async () => {
     git(work, "reset", "--quiet", "--hard", "HEAD~1");
     pushBranch();
-    serve(pullRequest());
+    serve();
 
-    expect(land("feature/x", work).kind).toBe("landed");
+    expect((await landing()).kind).toBe("landed");
   });
 
-  test("counts every changed path as risky while dev's profile does not parse, and says so", () => {
+  test("counts every changed path as risky while dev's profile does not parse, and says so", async () => {
     onDev(".claude/agent-hooks.jsonc", "broken profile", "{\n");
     git(work, "reset", "--quiet", "--hard", "HEAD~1");
     pushBranch();
-    serve(pullRequest());
+    serve();
 
-    const landing = land("feature/x", work);
+    const landed = await landing();
 
-    expect(why(landing)).toContain("origin/dev:.claude/agent-hooks.jsonc");
-    expect(why(landing)).toContain("every path counts as risky");
-    expect(why(landing)).toContain("b.txt");
+    expect(why(landed)).toContain("origin/dev:.claude/agent-hooks.jsonc");
+    expect(why(landed)).toContain("every path counts as risky");
+    expect(why(landed)).toContain("b.txt");
   });
 
-  test("counts every changed path as risky while dev's profile holds a misspelled key", () => {
+  test("counts every changed path as risky while dev's profile holds a misspelled key", async () => {
     onDev(
       ".claude/agent-hooks.jsonc",
       "misspelled profile",
@@ -549,25 +697,25 @@ describe("land, a branch that touches a risky path", () => {
     );
     git(work, "reset", "--quiet", "--hard", "HEAD~1");
     pushBranch();
-    serve(pullRequest());
+    serve();
 
-    const landing = land("feature/x", work);
+    const landed = await landing();
 
-    expect(why(landing)).toContain("profile.reveiw");
-    expect(why(landing)).toContain("every path counts as risky");
-    expect(why(landing)).toContain("b.txt");
+    expect(why(landed)).toContain("profile.reveiw");
+    expect(why(landed)).toContain("every path counts as risky");
+    expect(why(landed)).toContain("b.txt");
   });
 
-  test("lands the branch that fixes dev's unreadable profile once it has a verdict", () => {
+  test("lands the branch that fixes dev's unreadable profile once it has a verdict", async () => {
     onDev(".claude/agent-hooks.jsonc", "broken profile", "{\n");
     commit(work, ".claude/agent-hooks.jsonc", "fix the profile", RISKY_PROFILE);
     pushBranch();
 
     const verdict = recordVerdict();
 
-    serve(pullRequest({ comments: [verdict] }));
+    serve({ pr: { comments: [verdict] } });
 
-    expect(land("feature/x", work).kind).toBe("landed");
+    expect((await landing()).kind).toBe("landed");
   });
 
   test("runs origin/dev's copy of the gate, so a branch whose land.ts skips it is still refused", () => {
@@ -592,7 +740,7 @@ describe("land, a branch that touches a risky path", () => {
     expect(skipped).not.toBe(gated);
     commit(work, "scripts/land.ts", "skip the gate", skipped);
     pushBranch();
-    serve(pullRequest());
+    serve();
 
     const before = git(origin, "rev-parse", "dev");
 
@@ -616,13 +764,13 @@ describe("record", () => {
   test("refuses a pull request whose head adds nothing to origin/dev", () => {
     const base = git(work, "rev-parse", "origin/dev");
 
-    serve(pullRequest({ headRefOid: base }));
+    serve({ pinnedHead: base });
 
     expect(record("feature/x", base, work)).toEqual({
       kind: "refused",
       why: expect.stringContaining("changes nothing"),
     });
-    expect(existsSync(commentFile)).toBe(false);
+    expect(github().comment).toBeNull();
   });
 
   test("refuses a reviewed sha that is not the pull request's head, posting nothing", () => {
@@ -630,13 +778,13 @@ describe("record", () => {
 
     commit(work, "b.txt", "pushed after the review");
     pushBranch();
-    serve(pullRequest());
+    serve();
 
     expect(record("feature/x", reviewed, work)).toEqual({
       kind: "refused",
       why: expect.stringContaining(`not ${reviewed.slice(0, 8)}`),
     });
-    expect(existsSync(commentFile)).toBe(false);
+    expect(github().comment).toBeNull();
   });
 });
 
@@ -659,6 +807,13 @@ describe("changedPaths", () => {
     expect(changedPaths(work, "origin/nowhere").kind).toBe("failed");
     expect(changedPaths(work, "origin/dev")).toEqual({ kind: "read", paths: ["b.txt"] });
   });
+
+  test("reads the branch's own paths, not those dev took since it forked", () => {
+    moveDev();
+    git(work, "fetch", "--quiet", "origin");
+
+    expect(changedPaths(work, "origin/dev")).toEqual({ kind: "read", paths: ["b.txt"] });
+  });
 });
 
 describe("checkoutOf", () => {
@@ -674,64 +829,23 @@ describe("checkoutOf", () => {
   });
 });
 
-describe("latestChecks", () => {
-  test("keeps the newest attempt of each check", () => {
-    const failed = { ...green("e2e"), state: "FAILURE" };
-    const rerun = { ...green("e2e"), startedAt: "2026-10-15T11:00:00Z" };
-
-    expect(latestChecks([rerun, failed, green()])).toEqual([rerun, green()]);
-  });
-
-  test("keeps a run of each workflow and event, as gh pr checks does", () => {
-    const failed = { ...green("e2e"), state: "FAILURE" };
-
-    const skippedPush = {
-      ...failed,
-      state: "SKIPPED",
-      event: "push",
-      startedAt: "2026-10-15T11:00:00Z",
-    };
-
-    const otherWorkflow = {
-      ...green("e2e"),
-      workflow: "Nightly",
-      startedAt: "2026-10-15T12:00:00Z",
-    };
-
-    expect(latestChecks([failed, skippedPush, otherWorkflow])).toEqual([
-      failed,
-      skippedPush,
-      otherWorkflow,
-    ]);
-  });
-});
-
 describe("refusalOf", () => {
   const open: PullRequest = {
     number: 1,
     state: "OPEN",
     baseRefName: "dev",
     headRefOid: "abc",
-    checks: [green(), { ...green("e2e"), state: "SKIPPED" }],
+    labels: [],
     comments: [],
   };
 
-  test("lets a green, open pull request against dev through", () => {
-    expect(refusalOf("feature/x", open, "abc")).toBeNull();
+  test("lets an open pull request against dev through", () => {
+    expect(refusalOf(open)).toBeNull();
   });
 
-  test("names every red check", () => {
-    const red = {
-      ...open,
-      checks: [
-        { ...green(), state: "FAILURE" },
-        { ...green("win32 (scoped)"), state: "CANCELLED" },
-      ],
-    };
-
-    expect(refusalOf("feature/x", red, "abc")).toBe(
-      "checks not green on #1: validate (scoped) failure, win32 (scoped) cancelled",
-    );
+  test("names a pull request closed or stacked on another branch", () => {
+    expect(refusalOf({ ...open, state: "CLOSED" })).toBe("#1 is closed, not open");
+    expect(refusalOf({ ...open, baseRefName: "feature/base" })).toContain("gh stack");
   });
 });
 
