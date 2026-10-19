@@ -1,3 +1,5 @@
+import { join } from "node:path";
+
 import { defineConfig } from "@playwright/test";
 
 /** The audit's windows: 1440x900 in both themes, then the widths where the page reflows. */
@@ -14,7 +16,18 @@ export default defineConfig({
   testMatch: "**/*.e2e.ts",
   fullyParallel: true,
   forbidOnly: process.env.CI !== undefined,
-  reporter: "list",
+  // `scripts/flaky-report.ts` reads the JSON report for the tests CI's retry passed.
+  retries: process.env.CI === undefined ? 0 : 1,
+  reporter:
+    process.env.CI === undefined
+      ? "list"
+      : [
+          ["list"],
+          [
+            "json",
+            { outputFile: join(import.meta.dirname, "..", "test-results", "playwright.json") },
+          ],
+        ],
   // Scrollbars drawn, as Chrome on Linux draws them: the one thing a fold handle can cover.
   use: {
     browserName: "chromium",
