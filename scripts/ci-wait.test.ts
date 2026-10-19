@@ -7,12 +7,16 @@ import {
   decide,
   type Gh,
   REGISTRATION_MS,
+  type RunConclusion,
+  type RunStatus,
   waitFor,
 } from "./ci-wait.ts";
 
 const TIMEOUT_MS = 60 * 60_000;
 
-function run(id: number, status: string, conclusion: string | null): CiRun {
+const SHA = "405e6c8c5872e99e1dcd3bb10f7cf6c31ecf9713";
+
+function run(id: number, status: RunStatus, conclusion: RunConclusion | null): CiRun {
   return { id, status, conclusion, url: `https://github.com/o/r/actions/runs/${id}` };
 }
 
@@ -84,7 +88,15 @@ describe("decide", () => {
   });
 
   test("a run that ended other than success is red", () => {
-    for (const conclusion of ["cancelled", "timed_out", "skipped", "startup_failure", "neutral"]) {
+    const conclusions: readonly RunConclusion[] = [
+      "cancelled",
+      "timed_out",
+      "skipped",
+      "startup_failure",
+      "neutral",
+    ];
+
+    for (const conclusion of conclusions) {
       expect(
         decide({ runs: [green(1), run(2, "completed", conclusion)], elapsedMs: 0 }, TIMEOUT_MS),
       ).toEqual({ kind: "red", red: [run(2, "completed", conclusion)] });
@@ -99,6 +111,25 @@ describe("decide", () => {
     });
 
     expect(decide({ runs: [], elapsedMs: REGISTRATION_MS }, TIMEOUT_MS)).toEqual({ kind: "none" });
+  });
+
+  test("the runs known before another was started count as none until another shows", () => {
+    const known = [1];
+
+    expect(decide({ runs: [green(1)], known, elapsedMs: 0 }, TIMEOUT_MS)).toEqual({ kind: "wait" });
+
+    expect(decide({ runs: [green(1)], known, elapsedMs: REGISTRATION_MS }, TIMEOUT_MS)).toEqual({
+      kind: "none",
+    });
+
+    expect(
+      decide({ runs: [green(1), run(2, "queued", null)], known, elapsedMs: 0 }, TIMEOUT_MS),
+    ).toEqual({ kind: "wait" });
+
+    expect(decide({ runs: [green(1), green(2)], known, elapsedMs: 0 }, TIMEOUT_MS)).toEqual({
+      kind: "green",
+      runs: [green(1), green(2)],
+    });
   });
 
   test("no run is the verdict at a timeout shorter than the registration window", () => {
@@ -117,9 +148,10 @@ describe("decide", () => {
   });
 });
 
-/** gh's jq output: one compact object per run. */
 const listing = (...runs: readonly CiRun[]): string =>
-  runs.map((listed) => `${JSON.stringify(listed)}\n`).join("");
+  runs
+    .map(({ id, status, conclusion, url }) => `${id}\t${status}\t${conclusion ?? ""}\t${url}\n`)
+    .join("");
 
 /** A gh that answers each call with the next of `outputs`, the last one again once they run out. */
 function scripted(outputs: readonly string[]) {
@@ -156,7 +188,7 @@ describe("ciVerdict", () => {
   test("reads every ci.yml run of the commit and event from the REST listing", async () => {
     const { gh, calls } = scripted([listing(green(1), run(2, "in_progress", null))]);
 
-    expect(await ciVerdict(gh, { sha: "abc", event: "pull_request" })).toEqual({
+    expect(await ciVerdict(gh, { sha: SHA, event: "pull_request" })).toEqual({
       kind: "running",
       running: [run(2, "in_progress", null)],
     });
@@ -165,16 +197,55 @@ describe("ciVerdict", () => {
       [
         "api",
         "--paginate",
-        "repos/{owner}/{repo}/actions/workflows/ci.yml/runs?head_sha=abc&event=pull_request&per_page=100",
+        `repos/{owner}/{repo}/actions/workflows/ci.yml/runs?head_sha=${SHA}&event=pull_request&per_page=100`,
         "--jq",
-        ".workflow_runs[] | {id, status, conclusion, url: .html_url}",
+        '.workflow_runs[] | [.id, .status, .conclusion // "", .html_url] | @tsv',
       ],
     ]);
+  });
+
+  test("reads a commit with only its known runs as one with none", async () => {
+    const { gh } = scripted([listing(green(1))]);
+
+    expect(await ciVerdict(gh, { sha: SHA, event: "push", known: [1] })).toEqual({
+      kind: "none",
+    });
+  });
+
+  test("refuses a short SHA or a ref before asking gh", async () => {
+    const { gh, calls } = scripted([listing(green(1))]);
+
+    for (const sha of ["405e6c8", "refs/heads/dev", SHA.toUpperCase()]) {
+      await expect(ciVerdict(gh, { sha, event: "push" })).rejects.toThrow(
+        `${JSON.stringify(sha)} is not a full commit SHA`,
+      );
+    }
+
+    expect(calls).toEqual([]);
+  });
+
+  test("refuses a line that does not read as a run, naming it", async () => {
+    const lines = [
+      "not a run",
+      "1\tdone\t\thttps://github.com/o/r/actions/runs/1",
+      "1\tcompleted\twon\thttps://github.com/o/r/actions/runs/1",
+      "x\tcompleted\tsuccess\thttps://github.com/o/r/actions/runs/1",
+      "1\tcompleted\tsuccess\t",
+      "1\tcompleted\tsuccess\thttps://github.com/o/r/actions/runs/1\textra",
+    ];
+
+    for (const line of lines) {
+      const { gh } = scripted([`${line}\n`]);
+
+      await expect(ciVerdict(gh, { sha: SHA, event: "push" })).rejects.toThrow(
+        `gh listed a ci.yml run that does not read as one: ${JSON.stringify(line)}`,
+      );
+    }
   });
 });
 
 describe("waitFor", () => {
-  const push = { sha: "abc", event: "push" } as const;
+  const push = { sha: SHA, event: "push" } as const;
 
   test("polls through registration and the run until it decides", async () => {
     const { gh, calls } = scripted(["", listing(run(7, "in_progress", null)), listing(green(7))]);
@@ -189,15 +260,34 @@ describe("waitFor", () => {
     expect(sleeps).toEqual([10_000, 10_000]);
   });
 
-  test("ends on the timeout with the run still going", async () => {
-    const { gh, calls } = scripted([listing(run(7, "in_progress", null))]);
-    const { clock } = fakeClock();
+  test("waits for the label's run beside the green opening run it was told of", async () => {
+    const { gh, calls } = scripted([
+      listing(green(1)),
+      listing(green(1), run(2, "queued", null)),
+      listing(green(1), green(2)),
+    ]);
 
-    expect(await waitFor(gh, push, { timeoutMs: 30_000, pollMs: 10_000 }, clock)).toEqual({
+    const { clock } = fakeClock();
+    const label = { sha: SHA, event: "pull_request", known: [1] } as const;
+
+    expect(await waitFor(gh, label, { timeoutMs: TIMEOUT_MS, pollMs: 10_000 }, clock)).toEqual({
+      kind: "green",
+      runs: [green(1), green(2)],
+    });
+
+    expect(calls).toHaveLength(3);
+  });
+
+  test("ends on the timeout with the run still going, its last sleep cut to the time left", async () => {
+    const { gh, calls } = scripted([listing(run(7, "in_progress", null))]);
+    const { clock, sleeps } = fakeClock();
+
+    expect(await waitFor(gh, push, { timeoutMs: 25_000, pollMs: 10_000 }, clock)).toEqual({
       kind: "timeout",
       running: [run(7, "in_progress", null)],
     });
 
+    expect(sleeps).toEqual([10_000, 10_000, 5000]);
     expect(calls).toHaveLength(4);
   });
 
