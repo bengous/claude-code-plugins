@@ -568,6 +568,7 @@ interface Issue {
 function world() {
   const issues: Issue[] = [];
   const labels: string[] = [];
+  let frozen: readonly Issue[] | null = null;
 
   const numbered = (target: string | undefined) =>
     issues.find((issue) => issue.number === Number((target ?? "").split("/").at(-1)));
@@ -579,7 +580,7 @@ function world() {
     if (command === "issue" && sub === "list" && flag("--state") === "all") {
       return Promise.resolve(
         JSON.stringify(
-          issues.flatMap(({ number, open, body, labels: on }) =>
+          (frozen ?? issues).flatMap(({ number, open, body, labels: on }) =>
             on.includes(flag("--label")) ? [{ number, state: open ? "OPEN" : "CLOSED", body }] : [],
           ),
         ),
@@ -592,11 +593,15 @@ function world() {
       return Promise.resolve(numbered(comments[1])?.comments.join("\n") ?? "");
     }
 
+    // gh's reopenRun returns on an open issue before it posts `--comment` (pkg/cmd/issue/reopen).
     if (command === "issue" && sub === "reopen") {
       const issue = numbered(args[2]);
-      issue?.comments.push(flag("--comment"));
 
-      if (issue !== undefined) issue.open = true;
+      if (issue !== undefined && !issue.open) {
+        if (args.includes("--comment")) issue.comments.push(flag("--comment"));
+
+        issue.open = true;
+      }
 
       return Promise.resolve("");
     }
@@ -629,7 +634,12 @@ function world() {
     return Promise.reject(new Error(`unexpected gh ${args.join(" ")}`));
   };
 
-  return { issues, labels, gh };
+  /** From now on `gh issue list` answers the issues as they are now, as a job listing them before another writes. */
+  const freeze = (): void => {
+    frozen = issues.map((issue) => ({ ...issue }));
+  };
+
+  return { issues, labels, gh, freeze };
 }
 
 const NO_GH: Gh = (args) => Promise.reject(new Error(`unexpected gh ${args.join(" ")}`));
@@ -678,6 +688,28 @@ describe("report, from the reports the jobs uploaded", () => {
       "every flaky test of this run is recorded already",
     ]);
     expect(issues[0]?.comments).toEqual([]);
+  });
+
+  test("two jobs that both list a test's issue as closed both land their record, the second reopen a no-op", async () => {
+    const { issues, gh, freeze } = world();
+    upload("flaky-win32-1", "bun", reportOf("win32", RUN_1));
+    await report({ GITHUB_REPOSITORY: "o/r" }, gh, folder);
+    issues[0]!.open = false;
+    freeze();
+
+    rmSync(folder, { recursive: true });
+    upload("flaky-win32-1", "bun", reportOf("win32", RUN_2));
+    await report({ GITHUB_REPOSITORY: "o/r" }, gh, folder);
+
+    rmSync(folder, { recursive: true });
+    upload("flaky-e2e-light-1440-1", "e2e", reportOf("e2e (light-1440)", RUN_2));
+    await report({ GITHUB_REPOSITORY: "o/r" }, gh, folder);
+
+    expect(issues[0]?.open).toBe(true);
+    expect(issues[0]?.comments).toEqual([
+      expect.stringContaining(recordOf({ job: "win32", runUrl: RUN_2 })),
+      expect.stringContaining(recordOf({ job: "e2e (light-1440)", runUrl: RUN_2 })),
+    ]);
   });
 
   test("a flake of a test whose issue was closed reopens it; a re-run of that run changes nothing", async () => {
