@@ -23,7 +23,7 @@ import {
   releaseScriptOf,
 } from "./landing.ts";
 import type { Command, Line, Span, Unwrapped, Word } from "./shell.ts";
-import { commandsOf, parseLine, unwrap } from "./shell.ts";
+import { commandsOf, parseLine, separatorAfter, unwrap } from "./shell.ts";
 
 /** Where the raw text of a line names a door, before any parsing. */
 export type Mention = {
@@ -1171,9 +1171,7 @@ function doorOf(view: View, vocabulary: Vocabulary, world: World): Classificatio
 
     const missing = locationsOf(git, cwd).find((dir) => !world.exists(dir));
 
-    const absolute =
-      git.location.length > 0 &&
-      git.location.every((value, index) => index % 2 === 0 || path.isAbsolute(value));
+    const absolute = isAbsoluteLocation(git.location);
 
     const why =
       missing === undefined
@@ -1568,8 +1566,18 @@ export function assess(
   return { doors: uniqueDoors(doors), unresolved: found };
 }
 
+/** Whether a git invocation names where it acts by absolute paths alone: `-C`, `--git-dir`, `--work-tree`. */
+export function isAbsoluteLocation(location: readonly string[]): boolean {
+  return (
+    location.length > 0 &&
+    location.every((value, index) => index % 2 === 0 || path.isAbsolute(value))
+  );
+}
+
 /** A `git commit` a line runs as written: where its trailers go, where it runs, and the heredoc it reads. */
 export type CommitInvocation = {
+  /** The offset in the line where the command starts: what the line runs before it ends there. */
+  readonly start: number;
   /**
    * The offset in the line after its last argument before a `--`: options added there keep matching a permission
    * rule written for the command's start (`Bash(git commit -m:*)`).
@@ -1621,7 +1629,7 @@ export function commitsOf(
     }
 
     const words = view.unwrapped.argv.slice(git.index);
-    const separator = words.findIndex((word) => word.text === "--");
+    const separator = separatorAfter(words, 0);
     const last = (separator === -1 ? words : words.slice(0, separator)).at(-1);
     const [heredoc] = command.heredocs;
 
@@ -1629,6 +1637,7 @@ export function commitsOf(
       ? []
       : [
           {
+            start: command.words[0]?.start ?? last.start,
             offset: last.end,
             cwd: view.cwd,
             lost: view.lost,

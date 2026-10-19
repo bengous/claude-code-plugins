@@ -577,7 +577,8 @@ export function commandsOf(line: Line): Command[] {
   return line.items.flatMap((item) => (item.kind === "command" ? [item.command] : []));
 }
 
-function separatorAfter(words: readonly Word[], from: number): number {
+/** The index of the first `--` at or after `from`, -1 when there is none. */
+export function separatorAfter(words: readonly Word[], from: number): number {
   return words.findIndex((candidate, at) => at >= from && candidate.text === "--");
 }
 

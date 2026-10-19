@@ -488,7 +488,8 @@ describe("commit marks", () => {
     expect(landedMark(mark, "def")).toEqual({ at: 2000, promptId: "p2" });
     expect(landedMark(mark, "abc")).toEqual(earlier);
     expect(landedMark({ ...mark, previous: null }, "abc")).toBeNull();
-    expect(landedMark({ ...mark, head: null }, null)).toEqual({ at: 2000, promptId: "p2" });
+    expect(landedMark({ ...mark, head: null }, null)).toEqual(earlier);
+    expect(landedMark({ ...mark, head: null }, "abc")).toEqual({ at: 2000, promptId: "p2" });
     expect(landedMark(null, "abc")).toBeNull();
   });
 

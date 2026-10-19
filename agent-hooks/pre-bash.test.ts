@@ -1192,6 +1192,19 @@ describe("pre-bash writes provenance trailers into an agent's commit", () => {
     await commit("git commit -F msg.txt");
 
     expect(classifierFacts()).toEndWith("[THE COMMIT TO CLASSIFY] fix(parse): keep the century");
+
+    writeRepoFile(repo, "sub/msg.txt", "fix(sub): read where git reads it\n");
+    await commit("git -C sub commit -F msg.txt");
+
+    expect(classifierFacts()).toEndWith(
+      "[THE COMMIT TO CLASSIFY] fix(sub): read where git reads it",
+    );
+
+    await commit("printf 'feat: brand new\\n' > msg.txt && git commit -F msg.txt");
+
+    expect(classifierFacts()).toEndWith(
+      "[THE COMMIT TO CLASSIFY] (message not shown in the command)",
+    );
   });
 
   test("stamps every form of a commit written as such", async () => {
@@ -1207,6 +1220,7 @@ describe("pre-bash writes provenance trailers into an agent's commit", () => {
         repo,
       ],
       ["git commit -qm x -- a.ts", `git commit -qm x${here} -- a.ts`, repo],
+      ["git commit -S0xC0FFEE -m x", `git commit -S0xC0FFEE -m x${here}`, repo],
       [`git -C ${repo} commit -m x`, `git -C ${repo} commit -m x${here}`, outside],
       ["GIT_EDITOR=true git commit -m x", `GIT_EDITOR=true git commit -m x${here}`, repo],
       [`cd ${repo} && git commit -m x`, `cd ${repo} && git commit -m x${here}`, outside],
@@ -1254,6 +1268,7 @@ describe("pre-bash writes provenance trailers into an agent's commit", () => {
 
     for (const command of [
       "git commit --amend --no-edit",
+      "git commit --no-edit",
       "git commit -C HEAD",
       "git commit --fixup=amend:HEAD",
       "git commit --porcelain",

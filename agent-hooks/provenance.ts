@@ -580,8 +580,8 @@ function shellQuote(value: string): string {
 
 /**
  * What a `git commit` does with its message: `new`, a commit with a message of its own; `amend`, an amend that writes
- * a new one; `kept`, no new message (an amend with `--no-edit`, a message reused with `-C` or `--fixup=amend:`, whose
- * trailers come along) or no commit at all (`--dry-run`, `--porcelain`, `-h`).
+ * a new one; `kept`, no new message (`--no-edit`, which keeps an amend's or concludes a merge, a message reused with
+ * `-C` or `--fixup=amend:`, whose trailers come along) or no commit at all (`--dry-run`, `--porcelain`, `-h`).
  */
 export type CommitForm = "new" | "amend" | "kept";
 
@@ -617,6 +617,12 @@ const VALUE_OPTIONS = new Set([
 /** Short options of `git commit` that take a value, attached or as the next word. */
 const SHORT_VALUE_OPTIONS = new Set(["m", "F", "C", "c", "t"]);
 
+/** Short options whose value, optional, can only be attached: the rest of the cluster (`-S<keyid>`, `-u<mode>`). */
+const SHORT_ATTACHED_OPTIONS = new Set(["S", "u"]);
+
+/** The names `-F` takes for the command's stdin, which the heredoc fills. */
+const STDIN = new Set(["-", "/dev/stdin"]);
+
 const REUSED_MESSAGE = new Set(["-C", "--reuse-message", "-c", "--reedit-message"]);
 
 const NO_COMMIT = new Set(["--dry-run", "--short", "--porcelain", "--long", "--help", "-h"]);
@@ -626,6 +632,7 @@ const HEREDOC_BODY = /<<-?\s*\\?(['"]?)(\w+)\1[^\n]*\n([\s\S]*?)\n\s*\2\s*(?:\n|
 /** What a `git commit` does with its message, from its arguments as Bash hands them over and the heredoc it reads. */
 export function commitMessageOf(args: readonly string[], heredoc: string | null): CommitMessage {
   let amend = false;
+  let noEdit = false;
   let reused = false;
   let none = false;
   let file: string | null = null;
@@ -659,22 +666,26 @@ export function commitMessageOf(args: readonly string[], heredoc: string | null)
       const equals = arg.indexOf("=");
       const name = equals === -1 ? arg : arg.slice(0, equals);
       amend ||= name === "--amend";
+      noEdit ||= name === "--no-edit";
 
       if (VALUE_OPTIONS.has(name)) {
         take(name, equals === -1 ? args[index + 1] : arg.slice(equals + 1));
         index += equals === -1 ? 1 : 0;
       }
     } else if (arg.startsWith("-") && arg.length > 1) {
-      const valueAt = arg
-        .slice(1)
-        .split("")
-        .findIndex((letter) => SHORT_VALUE_OPTIONS.has(letter));
+      for (let at = 1; at < arg.length; at += 1) {
+        const letter = arg[at] ?? "";
+        const attached = arg.slice(at + 1);
 
-      const attached = arg.slice(valueAt + 2);
+        if (SHORT_VALUE_OPTIONS.has(letter)) {
+          take(`-${letter}`, attached === "" ? args[index + 1] : attached);
+          index += attached === "" ? 1 : 0;
+          break;
+        }
 
-      if (valueAt !== -1) {
-        take(`-${arg[valueAt + 1] ?? ""}`, attached === "" ? args[index + 1] : attached);
-        index += attached === "" ? 1 : 0;
+        if (SHORT_ATTACHED_OPTIONS.has(letter)) {
+          break;
+        }
       }
     }
   }
@@ -685,11 +696,14 @@ export function commitMessageOf(args: readonly string[], heredoc: string | null)
     return text === undefined ? [] : [text.trim()];
   });
 
-  const fromStdin: string | null = file === "-" ? (heredoc?.trim() ?? null) : null;
-  const named: string | null = file === "-" ? null : file;
+  const stdin = file !== null && STDIN.has(file);
+  const fromStdin: string | null = stdin ? (heredoc?.trim() ?? null) : null;
+  const named: string | null = stdin ? null : file;
   const message = written.length > 0 ? written.join("\n\n") : fromStdin;
   const writes = messages.length > 0 || file !== null;
-  const form: CommitForm = none || reused ? "kept" : amend ? (writes ? "amend" : "kept") : "new";
+
+  const form: CommitForm =
+    none || reused || ((amend || noEdit) && !writes) ? "kept" : amend ? "amend" : "new";
 
   return { form, message, file: named };
 }

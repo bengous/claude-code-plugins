@@ -28,11 +28,12 @@ import {
   unreadableProfileRefusal,
   unresolvedRefusal,
 } from "./landing.ts";
-import type { Door, Vocabulary } from "./mentions.ts";
+import type { CommitInvocation, Door, Vocabulary } from "./mentions.ts";
 import {
   assess,
   commitsOf,
   findMentions,
+  isAbsoluteLocation,
   mentionsGit,
   mentionsPackageManager,
 } from "./mentions.ts";
@@ -698,11 +699,17 @@ async function withProvenance(
       continue;
     }
 
-    const message = written.message ?? messageFileOf(dir, written.file);
-
     const first =
       earlier?.first.then(followingOf) ??
-      triggerAt(root, transcript.transcript, message, input, now, deadline, runner);
+      triggerAt(
+        root,
+        transcript.transcript,
+        written.message ?? messageFileOf(command, commit, dir, written.file, notes),
+        input,
+        now,
+        deadline,
+        runner,
+      );
 
     const trailers = first.then((found) => {
       if (found.note !== null) {
@@ -731,24 +738,42 @@ async function withProvenance(
   };
 }
 
-/** Whether every `-C`, `--git-dir` and `--work-tree` of a git invocation names an absolute path. */
-function isAbsoluteLocation(location: readonly string[]): boolean {
-  const values = location.filter((_, index) => index % 2 === 1);
+/**
+ * The message in the file `-F` names, read where git reads it, after its `-C`. None when the line writes the file
+ * before the commit, which the hook runs ahead of: the file still holds an older message. None when it is not there
+ * or too large, and a note when it cannot be read.
+ */
+function messageFileOf(
+  line: string,
+  commit: CommitInvocation,
+  dir: string,
+  file: string | null,
+  notes: Set<string>,
+): string | null {
+  if (file === null || line.slice(0, commit.start).includes(file)) {
+    return null;
+  }
 
-  return values.length > 0 && values.every((value) => path.isAbsolute(value));
-}
+  const gitDir = commit.git.location.reduce(
+    (current, value, index) =>
+      index % 2 === 1 && commit.git.location[index - 1] === "-C"
+        ? path.resolve(current, value)
+        : current,
+    dir,
+  );
 
-/** The message in the file `-F` names, read where the commit runs; null when it is not there yet or too large. */
-function messageFileOf(dir: string, file: string | null): string | null {
-  const resolved = file === null ? null : path.resolve(dir, file);
+  const resolved = path.resolve(gitDir, file);
 
   try {
-    return resolved !== null &&
-      existsSync(resolved) &&
-      statSync(resolved).size <= MESSAGE_FILE_BYTES
+    return existsSync(resolved) && statSync(resolved).size <= MESSAGE_FILE_BYTES
       ? readFileSync(resolved, "utf8").trim()
       : null;
-  } catch {
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    notes.add(
+      `agent-hooks: the classifier saw no message: ${resolved} cannot be read (${message})`,
+    );
+
     return null;
   }
 }

@@ -134,8 +134,8 @@ Agent-Session: 6f2c1d0e-…
   the background finishes at its `completed` task notification, never at `killed` or `stopped`; a
   synchronous one at its result), Stop and SubagentStop blocks, the agent's commits and last texts, from the
   older of its previous commit and the last user message, reaching one turn further back, then the judged
-  commit's own message (its `-m`, the heredoc `-F -` reads, or the file `-F` names when it is already
-  there); 12,000 characters at most.
+  commit's own message (its `-m`, the heredoc `-F -` reads, or the file `-F` names when the line did not
+  write it first: the hook runs before the line); 12,000 characters at most.
 - Haiku runs as `claude -p --model haiku`, with no tool, hook, MCP server or saved session, once per
   checkout a line commits in, the checkouts of one line at once. Measured on the user's own transcripts (77 hand-labelled commits of two weeks,
   Claude Code 2.1.301, 2026-10-19): `review` right 22 times in 23, `human` 27 in 29; median 4.6 s, 90th
@@ -148,7 +148,8 @@ Agent-Session: 6f2c1d0e-…
   still matches: the rewrite carries no permission decision, and Claude Code judges the rewritten command by
   its own rules. An amend that writes a new message (`-m`, `-F`) keeps the `Agent-*` trailers of the commit
   it replaces: `HEAD`'s, or those of the commit the same line made just before. Left as written: a commit
-  that keeps or reuses a message (`--amend --no-edit`, `-C`, `--fixup=amend:`), whose trailers come along;
+  that keeps or reuses a message (`--no-edit`, which keeps an amend's or concludes a merge, `-C`,
+  `--fixup=amend:`), whose trailers come along;
   one that makes no commit (`--dry-run`, `--porcelain`, `-h`); a commit inside `$(…)` or backticks, behind
   `xargs` or `env -S`, in a `bash -c '…'`, on a line that defines a function; a commit whose `cd` the walk
   cannot follow and that no absolute `git -C` places (with a note); `merge`, `cherry-pick`, `revert`,
@@ -168,7 +169,9 @@ Agent-Session: 6f2c1d0e-…
   only when a message relays it; a reviewer started as a teammate reports through its mailbox, which the
   facts do not read; a commit holding work of two triggers gets one. No `stop-hook` value: no labelled
   commit fixed what a Stop block had reported, and each one the rules proposed (10) was something else.
-- Reading them: `git log --format='%s %(trailers:key=Agent-Trigger,valueonly)'`. A stack squashed by GitHub
+- Reading them: `git log --format='%s %(trailers:key=Agent-Trigger,valueonly)'`. A message that already
+  carried `Agent-*` lines (an amend from `git log --format=%B`, a retry from `COMMIT_EDITMSG`) keeps them
+  beside the new ones, and the last `Agent-Trigger` counts. A stack squashed by GitHub
   keeps each commit's lines in the middle of the message, where `%(trailers)` does not look: count the
   `^Agent-Trigger:` lines there. The key lands after the kit that reads it, as every key does.
 

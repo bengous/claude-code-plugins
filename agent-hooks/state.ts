@@ -481,7 +481,10 @@ export type CommitMark = {
  * pre-bash writes it while an edit hook of the same agent may be saving the state.
  */
 export type SavedMark = CommitMark & {
-  /** HEAD before the commit: still HEAD at the next one means it never landed (refused, denied, failed). */
+  /**
+   * HEAD before the commit, null while the branch has none: still HEAD at the next one means it never landed
+   * (refused, denied, failed).
+   */
   readonly head: string | null;
   /** The mark this one replaced, which stands again when this commit never landed. */
   readonly previous: CommitMark | null;
@@ -540,9 +543,7 @@ export function landedMark(mark: SavedMark | null, head: string | null): CommitM
     return null;
   }
 
-  return mark.head !== null && mark.head === head
-    ? mark.previous
-    : { at: mark.at, promptId: mark.promptId };
+  return mark.head === head ? mark.previous : { at: mark.at, promptId: mark.promptId };
 }
 
 export function saveMark(key: string, checkout: string, mark: SavedMark): void {
