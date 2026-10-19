@@ -116,6 +116,13 @@ describe("lineScores on a blocker list with dotted tokens", () => {
 
     expect(lineScores(dotted, "condition").blocker_or).toBe(1);
   });
+
+  test("'obstacle' names a blocker too", () => {
+    const obstacle =
+      "/goal `bun test` shows 0 fail. Ou un obstacle hors du contrôle de Claude est nommé dans la conversation avec sa cause et ce qui a été essayé. Arrêt après 20 tours.";
+
+    expect(lineScores(obstacle, "condition").blocker_or).toBe(1);
+  });
 });
 
 describe("lineScores on French clauses", () => {

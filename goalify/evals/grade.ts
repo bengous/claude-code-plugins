@@ -27,7 +27,7 @@ const SECTION_LABEL =
 const BACKTICK_COMMAND = /`[^`\n]{2,}`/u;
 
 const BLOCKER_END_STATE =
-  /\b(or|ou|sinon|aussi atteint si|also met if)\b.{0,60}\b(blocker|blocked|blocage|bloqu\S*)\b.{0,400}\b(named|reported|stated|nomm\S*|signal\S*)\b.{0,80}\bcause\b/iu;
+  /\b(or|ou|sinon|aussi atteint si|also met if)\b.{0,60}\b(blocker|blocked|blocage|bloqu\S*|obstacle|emp[êe]chement|impediment)\b.{0,400}\b(named|reported|stated|nomm\S*|signal\S*)\b.{0,80}\bcause\b/iu;
 
 const TURN_CAP =
   /\b(stop|arr[êe]t\S*)\b.{0,80}\b\d+\s*(turns?|tours?|minutes?|hours?|heures?|tries|attempts|essais?)\b|\b\d+\s*(turns?|tours?|minutes?|hours?|heures?|tries|attempts|essais?)\b.{0,80}\b(stop|arr[êe]t\S*)\b/iu;

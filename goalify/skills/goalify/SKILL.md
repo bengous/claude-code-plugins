@@ -101,6 +101,12 @@ condition is written on what is true.
 When the task has no end state a transcript can show (a judgment of taste,
 "production-ready", "cleaner"), say so in one sentence and offer the closest
 measurable proxy or a Stop hook; do not write a condition that cannot resolve.
+A proxy written as a `/goal` line is complete, on defects or measures named
+from the repository; a placeholder the user must fill in is not a condition.
+
+Before answering, read the line once against the shape: the proof command and
+its output line, the "or … is named with its cause" clause, the cap. A short
+task drops one of them as easily as a long one.
 
 ## Gotchas
 
@@ -118,3 +124,6 @@ in a new way.
   a fact, not an effort; write the fact ("the case passes 20 runs").
 - A fenced or labelled condition. The user pastes the line as is, and the
   evaluator weighs every character, fences and labels included.
+- The session's own instructions in the line: a hook asking for a worktree, a
+  rule from `CLAUDE.md`, the diagnosis the skill formed while reading. They
+  are worker context; they go in the message before `/goal`.

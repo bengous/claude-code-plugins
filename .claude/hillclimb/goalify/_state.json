@@ -80,8 +80,7 @@
   "harness_paths": [
     "goalify/evals/flow.ts",
     "goalify/evals/grade.ts",
-    "goalify/evals/cases.json",
-    "goalify/skills/goalify/SKILL.md"
+    "goalify/evals/cases.json"
   ],
-  "harness_sha": "676f5f75a5c1725b37f2cee4a23c07330612eda1df92f4d476a1609dab84c269"
+  "harness_sha": "a92fa5fbcac70d5dc5c80d8c07e1e74654e2840447051756ac71408da17f847f"
 }
