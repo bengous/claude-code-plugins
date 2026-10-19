@@ -1,54 +1,44 @@
 # goalify
 
-Convert rough intent into the smallest useful goal payload to hand to a fresh
-Claude Code agent.
+Turn a rough task into the completion condition a `/goal` evaluator can judge.
 
-**Version:** 1.0.0
-
-Ported from the Codex CLI `goalify` skill. goalify produces goal *text*; it does
-not run the downstream work.
+goalify produces the `/goal` line; it never does the work.
 
 ## Invoke
 
 ```
-/goalify:goalify <rough intent or draft>
+/goalify:goalify <task or draft condition>
 ```
 
 (The short `/goalify` usually resolves too.)
 
 ## Modes
 
-- **Draft-first (default)** — `/goalify <intent>`. Infers reasonable details and
-  asks only when a missing detail materially changes scope, risk, or acceptance
-  criteria.
-- **Interactive (question-first)** — `/goalify interactive <idea>`. Asks one
-  decision at a time (via AskUserQuestion, recommended option first) before
-  writing the goal.
+- **Draft-first (default)** — `/goalify <task>`. Infers each clause and asks
+  only when two readings of the task give two different end states.
+- **Interactive** — `/goalify interactive <task>`. Settles each clause with
+  AskUserQuestion, one at a time, recommended answer first.
 
 ## Output
 
-- **≤ 4000 chars:** the raw goal payload, ready to copy.
-- **> 4000 chars:** written to `.agents/goals/<slug>.md`; the path is printed
-  with how to hand it to a new session, a subagent, or `/loop`.
-
-The payload uses a compact shape:
+One `/goal` line, under 4000 characters, built from five clauses:
 
 ```text
-<objective sentence>
-Context:
-Constraints:
-Success means:
-Validate with:
-Stop when:
-Pause if:
+/goal <end state>, shown by <proof>. <constraints>. <blocker>. <cap>.
 ```
 
-Only the sections that carry real information are included.
+- **End state**: one measurable fact that holds when the work is done
+- **Proof**: the command Claude runs and the output line that shows it
+- **Constraints**: what must not change, and what closes the shortcuts
+- **Blocker**: reporting a blocker is an end state of its own
+- **Cap**: a turn or time bound
 
-## Differences from the Codex original
+Context the worker needs but the evaluator does not goes in a separate message
+to send before `/goal`; goalify says so when there is one.
 
-The `/goal` primitive and the `codex-goal` sudo/immutable-file helper are
-adapted out for the Claude Code permission model. See
+## Why this shape
+
+The `/goal` evaluator judges the condition against the conversation alone. See
 [`skills/goalify/references/design-notes.md`](skills/goalify/references/design-notes.md).
 
 ## Install

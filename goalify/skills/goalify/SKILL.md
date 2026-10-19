@@ -1,133 +1,97 @@
 ---
 name: goalify
 description: >
-  Convert rough coding, product, architecture, audit, review, migration,
-  cleanup, debugging, or orchestration intent into the smallest useful goal
-  payload to hand to a fresh Claude Code agent (a new session, a subagent, or
-  /loop). Invoke with /goalify, or "/goalify interactive" to be questioned one
-  point at a time before the goal is written. Produces goal text only, never the
-  downstream implementation.
+  Turn a rough task into the completion condition a `/goal` evaluator can judge:
+  an end state, the command that proves it, the constraints that close the
+  shortcuts, the blocker that ends the run, the turn cap. Invoke with /goalify
+  <task>, or "/goalify interactive" to settle each clause with a question before
+  the condition is written. Produces the condition only, never the work.
 disable-model-invocation: true
-argument-hint: "[interactive] <rough intent or draft>"
+argument-hint: "[interactive] <task or draft condition>"
 allowed-tools:
   - Read
   - Grep
   - Glob
-  - Write
   - AskUserQuestion
 ---
 
 # Goalify
 
-Convert messy intent into the smallest useful payload to hand to a fresh Claude
-Code agent.
+Write the line the user pastes after `/goal`. Nothing else: no plan, no brief,
+no context dump, and never the task itself.
 
-You are not doing the downstream work. You produce goal text the human can paste
-into a new session, hand to a subagent, or feed to `/loop`, or a local file path
-they can pass along. Do not start, run, pause, resume, or complete the work
-yourself, and do not launch a subagent to execute it.
+A `/goal` condition is read twice. Claude reads it as the directive of the next
+turn. A small evaluator model reads it after every turn, against the
+conversation alone: it runs no command and opens no file, so it can only judge
+what Claude has printed. The condition is written for that second reader. A
+clause the evaluator cannot settle from the transcript is a clause that never
+resolves, and the loop runs until the turn cap or the user kills it.
 
-## Modes
+## Input
 
-Default mode is draft-first. Use it for `/goalify`, `make this a goal`, and
-similar requests. Infer reasonable details and ask only when a missing detail
-materially changes scope, risk, or acceptance criteria.
+**$ARGUMENTS**
 
-Interactive mode is question-first. Use it when the user says
-`/goalify interactive`, `interroge-moi`, `pose les questions une par une`,
-`build this goal with me`, or equivalent. Use the AskUserQuestion tool, one
-decision at a time, and put your recommended option first. If a question can be
-resolved by inspecting the codebase or local docs, inspect instead of asking.
+`interactive` as the first word: settle each clause below with AskUserQuestion,
+one at a time, the recommended answer first; inspect the repository instead of
+asking when it holds the answer. Otherwise infer, and ask only when two readings
+of the task give two different end states.
 
-## Core Principle
+## Five clauses
 
-A goal needs the durable destination, not a runbook.
+**End state.** One measurable fact that holds when the work is done, in the
+present tense: a test result, an exit code, a file count, an empty queue, a
+score at or above a threshold. Not an activity ("migrate the module") but its
+trace ("every call site of `oldApi` is gone and the build passes"), and not an
+order ("make the case pass") but the fact ("the case passes 20 runs"). Several
+facts joined by "and" are one end state; two unrelated ones are two goals, run
+in sequence.
 
-Include only information that changes execution:
+**Proof.** The command Claude runs and the exact line of its output that shows
+the end state, printed in the conversation: "`bun test --parallel` exits 0 and
+its summary shows 0 fail", not "tests pass". Take the command from the
+repository's own checks when it has them (`package.json` scripts, `AGENTS.md`,
+CI config); write the proof clause first and derive the end state from it when
+the task is vague.
 
-- objective
-- relevant context
-- constraints and side-effect boundaries, including explicit approval before
-  any destructive or outward-facing side effect
-- observable success criteria
-- validation or evidence
-- stop condition
-- pause/blocker condition
+**Constraints.** What must not change on the way, and what closes the shortest
+path to the end state that is not the work: test files unchanged, no skipped
+test, no `any`, no new dependency, the pinned branch. Before writing them, ask
+how the condition could be satisfied without doing the task, and close each
+answer. Approval before anything destructive or outward-facing (push, delete,
+send, install) is a constraint, not a note.
 
-Do not include generic role text such as "You are Claude Code". Do not restate
-obvious working-directory or repository facts unless they materially affect the
-goal.
+**Blocker.** The evaluator returns met, not met, or impossible; a stuck run
+reads as "not met" forever. Name the blocker the task can hit (a credential, an
+external service, a decision only the user can take) and make reporting it an
+end state of its own: "or the blocker is named in the conversation with its
+cause and what was tried". Without this clause a blocked run burns turns.
 
-## Prompt Shape
+**Cap.** A turn or time bound: "or stop after 20 turns and list what remains".
+The evaluator judges it from Claude's own count, so it is soft; it is still the
+only bound the condition carries.
 
-Use a compact structure. Put the objective as the first line without an
-`Objective:` label, because the consuming agent reads the first line as the task
-statement. Prefer these labels for later sections when they carry real
-information:
-
-```text
-<objective sentence>
-Context:
-Constraints:
-Success means:
-Validate with:
-Stop when:
-Pause if:
-```
-
-Only include useful sections. For simple goals, fewer sections are better.
-
-## Output Rules
-
-The payload is meant to be handed to a fresh agent, so keep it copy-pasteable.
-
-For payloads at or under 4000 characters, output only the raw goal payload. Do
-not add headings, analysis, notes, context-placement tables, or a separate
-session prompt. Do not start the output with `Objective:`.
-
-For payloads over 4000 characters, write the payload to `.agents/goals/<slug>.md`
-with the Write tool and do not reprint it. Then output only:
+## Shape
 
 ```text
-Wrote: .agents/goals/<slug>.md
-
-Hand it to a fresh agent:
-- new session: paste the file contents as the first message
-- subagent: pass the file contents as the Agent prompt
-- autonomous loop: /loop with the goal
+/goal <end state>, shown by <proof>. <constraints>. <blocker>. <cap>.
 ```
 
-Use the actual relative path. If the target is outside the current working
-directory, use the absolute path. Goal files live under `.agents/goals/` so the
-artifact stays harness-neutral and is not mistaken for tool configuration.
+Plain sentences, no labels, no headings: the whole text is the condition, and
+the evaluator weighs every word of it. Under 4000 characters, the harness
+limit. Context the worker needs but the evaluator does not (why the task
+exists, where to start, what was tried) goes in a separate message the user
+sends before `/goal`; say so when there is such context, and keep it out of
+the condition.
 
-## Slug Rules
+## Output
 
-Generate slugs automatically from the objective:
+The response is the `/goal` line, unfenced and ready to paste, then one blank
+line, then at most two lines: the context message to send first, when one is
+needed, and the goal that should run before this one, when the task splits.
+When the repository contradicts the task (a version already bumped, a file
+already gone), one line before the condition says what was found, and the
+condition is written on what is true.
 
-- lowercase ASCII
-- punctuation and spaces become `-`
-- strict safe pattern: `[a-z0-9][a-z0-9._-]{0,80}`
-- no `.md` suffix in the slug
-- truncate to roughly 60-80 characters
-- if there is a collision, add a short suffix
-
-Ask for a slug only if one cannot be derived.
-
-## Clarification Rules
-
-Extract only what affects the goal payload:
-
-- task type
-- deliverable
-- scope boundaries
-- source-of-truth files or artifacts
-- acceptance criteria
-- validation commands or evidence
-- side-effect permissions
-- manual approval gates
-- stopping condition
-- blockers that should pause the goal
-
-In interactive mode, ask one decision at a time with AskUserQuestion. In default
-mode, ask only for blocking ambiguity.
+When the task has no end state a transcript can show (a judgment of taste,
+"production-ready", "cleaner"), say so in one sentence and offer the closest
+measurable proxy or a Stop hook; do not write a condition that cannot resolve.

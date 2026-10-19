@@ -1,59 +1,44 @@
-# goalify: Codex → Claude Code port notes
+# goalify: design notes
 
-This skill is a port of the Codex CLI `goalify` skill (`agents-skills/goalify`).
-The core behavior is unchanged: turn rough intent into the smallest useful goal
-payload. The harness-specific apparatus was adapted or dropped.
+goalify writes the condition the user pastes after `/goal`. It descends from the
+Codex CLI `goalify` skill (`agents-skills/goalify`), whose output fed Codex's
+own persistent-goal loop. Claude Code's `/goal` is the same kind of consumer,
+and the skill is shaped by how that consumer reads its input.
 
-## What changed
+## The reader is the evaluator
 
-### Consumer: `/goal` → fresh Claude Code agent
+`/goal` wraps a session-scoped prompt-based Stop hook: after each turn a small
+fast model receives the condition and the conversation and returns met, not
+met, or impossible, with a reason (Claude Code docs, "Keep Claude working
+toward a goal", section "How evaluation works"). It runs no command and opens
+no file. Every rule in `SKILL.md` follows from that:
 
-The Codex original produced text to paste after Codex/Pi's built-in `/goal`
-(the RALF persistent-goal loop), and avoided prefixing output with `/goal`
-because those harnesses wrap it with their own objective label.
+- The end state is a fact a transcript can show, not an activity.
+- The proof names the command and the output line, because the evaluator only
+  sees what Claude prints.
+- A blocker is written as an end state of its own, because a stuck run has no
+  verdict of its own and reads as "not met" until the cap.
+- The condition carries a turn cap, the only bound the docs offer short of
+  `/goal clear`.
+- Context the worker needs goes in a message sent before `/goal`, so the
+  evaluator weighs only the condition.
+- The whole text stays under 4000 characters, the harness limit on a condition.
 
-Claude Code has no `/goal` primitive. The payload now targets a generic
-consumer: a new session, a subagent (Agent tool), or `/loop`. The objective is
-still the first line, now because the consuming agent reads the first line as
-the task statement (not to dodge a wrapper label). The "do not prefix with
-`/goal`" rule is gone; the "do not start with `Objective:`" rule is kept.
+## What goalify is not
 
-### Long goals: `codex-goal` helper → plain `Write`
+`/meta-prompt` (claude-meta-tools) writes the brief a fresh agent acts on: the
+user's intent, their decisions with the reasons they gave, the questions they
+left open. A `/goal` condition has no room for an open question, since a clause
+the evaluator cannot settle never resolves. The two compose: the message before
+`/goal` is meta-prompt's; the `/goal` line is goalify's.
 
-The Codex original required `codex-goal`, a Linux helper that wrote long goals to
-`.agents/goals/*.md` and set the inode immutable flag (via a root-owned wrapper +
-`/etc/sudoers.d` rule). Its purpose was to protect the goal file from the
-executing agent under Codex `danger-full-access`.
+## Dropped from the Codex original
 
-That apparatus is intentionally **not** ported:
+The `codex-goal` helper wrote long goals to `.agents/goals/*.md` under an
+immutable inode, set through a sudoers rule, so the executing agent could not
+rewrite its own goal under `danger-full-access`. Claude Code mediates writes
+through permission modes, and a condition in a file is invisible to the
+evaluator anyway, so the helper, the file output and the `Write` tool are gone.
 
-- It installs a sudoers rule and a privileged binary, which is inappropriate to
-  ship in a Claude Code plugin.
-- Claude Code mediates writes through permission modes rather than running a
-  single unconstrained shell, so the "agent silently rewrites its own goal"
-  threat is much weaker.
-
-Long goals are now written with the ordinary `Write` tool to
-`.agents/goals/<slug>.md` (no immutability). The `.agents/goals/` location is
-kept so the artifact stays harness-neutral, matching the original intent. The
-Entry Gate and Helper Contract sections were removed.
-
-### Invocation control: `allow_implicit_invocation: false` → `disable-model-invocation: true`
-
-The Codex `agents/openai.yaml` disabled implicit invocation so the skill would
-not hijack normal implementation/review/planning prompts. The Claude Code
-equivalent is `disable-model-invocation: true` in the SKILL.md frontmatter: only
-the user invokes it (via `/goalify`); Claude will not auto-load it.
-
-### Interactive mode → AskUserQuestion
-
-Question-first mode now uses the AskUserQuestion tool (one decision at a time,
-recommended option first) instead of free-form one-question-at-a-time prose.
-
-## Unchanged
-
-Core principle, prompt shape, slug rules, and clarification rules are carried
-over with the helper/`/goal` references removed. The original's pre-output
-quality check is not kept as a section: its two rules found nowhere else
-(explicit approval before destructive or outward-facing side effects, observable
-success criteria) live in the Core Principle list.
+`allow_implicit_invocation: false` became `disable-model-invocation: true`:
+only the user starts goalify.
