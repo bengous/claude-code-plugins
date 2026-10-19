@@ -1,8 +1,12 @@
 {
   "schema": "hillclimb/v2",
-  "current_round": 2,
+  "current_round": 3,
   "reps": 2,
-  "best": { "round": 2, "variant": "v2", "score": 0.944 },
+  "best": {
+    "round": 3,
+    "variant": "v3",
+    "score": 0.944
+  },
   "goal": {
     "target": "shortcuts",
     "direction": "higher",
@@ -122,5 +126,5 @@
     "goalify/evals/grade.ts",
     "goalify/evals/cases.json"
   ],
-  "harness_sha": "cb5bcb27228154e8f6543fe19c229aa62711e8e31b19bfb530d63d1441de39ee"
+  "harness_sha": "ca4744e009bd11baf8bc0be6a5e1f0e82376a70eae885f9b2269d1bcd0e0c0e4"
 }

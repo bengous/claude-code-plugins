@@ -109,8 +109,10 @@ condition is written on what is true.
 When the task has no end state a transcript can show (a judgment of taste,
 "production-ready", "cleaner"), say so in one sentence and offer the closest
 measurable proxy or a Stop hook; do not write a condition that cannot resolve.
-A proxy written as a `/goal` line is complete, on defects or measures named
-from the repository; a placeholder the user must fill in is not a condition.
+The sentence comes first, before any line: without it the user takes the proxy
+for the task. A proxy written as a `/goal` line is complete, on defects or
+measures named from the repository; a placeholder the user must fill in is
+not a condition.
 
 Before answering, read the line once against the shape: the proof command and
 its output line, the "or … is named with its cause" clause, the cap. A short
@@ -134,6 +136,9 @@ in a new way.
   evaluator weighs every character, fences and labels included.
 - The session's own instructions in the line: a hook asking for a worktree, a
   rule from `CLAUDE.md`, the diagnosis the skill formed while reading. They
-  are worker context; they go in the message before `/goal`. A rule that closes
-  a shortcut is not context: only the line reaches the evaluator, so it stays
-  there.
+  are worker context; they go in the message before `/goal`. So are the facts
+  of this session's environment (a tool missing here, a check that fails for a
+  local reason), the reason a check is left out, and where the worker should
+  look. A rule that closes a shortcut is the one thing that must stay in the
+  line: only the line reaches the evaluator. The line states what holds and
+  what must not change; it explains nothing.
