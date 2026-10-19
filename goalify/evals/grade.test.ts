@@ -138,6 +138,19 @@ describe("lineScores on a blocker list with dotted tokens", () => {
     }
   });
 
+  test("a cause outside Claude's control, and a cap phrased as 'N turns have passed', count", () => {
+    const english =
+      "/goal `bun test` shows 0 fail; or a version that cannot be adopted for a cause outside Claude's control is named in the conversation with its cause and what was tried. Ou bien 25 tours sont passés et ce qui reste est listé.";
+
+    expect(lineScores(english, "condition").line_ok).toBe(1);
+  });
+
+  test("a bare `<m>` in a command is not a placeholder; `[DEFECT 1]` is", () => {
+    const command = "/goal Each duplicate carries `Duplicate of #<m>`. Stop after 10 turns.";
+
+    expect(lineScores(command, "refusal").kind_ok).toBe(1);
+  });
+
   test("'obstacle' names a blocker too", () => {
     const obstacle =
       "/goal `bun test` shows 0 fail. Ou un obstacle hors du contrôle de Claude est nommé dans la conversation avec sa cause et ce qui a été essayé. Arrêt après 20 tours.";

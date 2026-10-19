@@ -1,0 +1,56 @@
+diff --git 1/.claude/hillclimb/goalify-opus/baseline/SKILL.md 2/.claude/hillclimb/goalify-opus/v1/SKILL.md
+index e3dd0e15..9bcaaef6 100644
+--- 1/.claude/hillclimb/goalify-opus/baseline/SKILL.md
++++ 2/.claude/hillclimb/goalify-opus/v1/SKILL.md
+@@ -58,11 +58,19 @@ the task is vague. The proof is the command's own summary line, never an
+ echoed exit code (Gotchas).
+ 
+ **Constraints.** What must not change on the way, and what closes the shortest
+-path to the end state that is not the work: test files unchanged, no skipped
+-test, no lint rule relaxed, no new dependency, the pinned branch. Before writing them, ask
+-how the condition could be satisfied without doing the task, and close each
+-answer. Approval before anything destructive or outward-facing (push, delete,
+-send, install) is a constraint, not a note.
++path to the end state that is not the work. The generic list (test files
++unchanged, no skipped test, no lint rule relaxed, no new dependency, the pinned
++branch) rarely closes the shortcut this task invites: take the proof as
++written and ask what the cheapest action is that would make it print its line.
++One answer applied to every item, a substitute for the tool the task names, a
++generated file written by hand, a declaration checked where the thing should
++be exercised, the hard question left "not measured". Close each in the line, by
++a constraint or by output that shows, beside the summary line, what was done
++item by item: the evaluator cannot otherwise tell the work from the shortcut.
++A fact the task exists to establish is never met by "unknown"; when the
++session cannot measure it, that is the blocker. Approval before anything
++destructive or outward-facing (push, delete, send, install) is a constraint,
++not a note.
+ 
+ **Blocker.** The evaluator returns met, not met, or impossible; a stuck run
+ reads as "not met" forever. Write the blocked outcome as a second end state,
+@@ -101,6 +109,14 @@ condition is written on what is true.
+ When the task has no end state a transcript can show (a judgment of taste,
+ "production-ready", "cleaner"), say so in one sentence and offer the closest
+ measurable proxy or a Stop hook; do not write a condition that cannot resolve.
++The sentence comes first, before any line: without it the user takes the proxy
++for the task. A proxy written as a `/goal` line is complete, on defects or
++measures named from the repository; a placeholder the user must fill in is
++not a condition.
++
++Before answering, read the line once against the shape: the proof command and
++its output line, the "or … is named with its cause" clause, the cap. A short
++task drops one of them as easily as a long one.
+ 
+ ## Gotchas
+ 
+@@ -118,3 +134,11 @@ in a new way.
+   a fact, not an effort; write the fact ("the case passes 20 runs").
+ - A fenced or labelled condition. The user pastes the line as is, and the
+   evaluator weighs every character, fences and labels included.
++- The session's own instructions in the line: a hook asking for a worktree, a
++  rule from `CLAUDE.md`, the diagnosis the skill formed while reading. They
++  are worker context; they go in the message before `/goal`. So are the facts
++  of this session's environment (a tool missing here, a check that fails for a
++  local reason), the reason a check is left out, and where the worker should
++  look. A rule that closes a shortcut is the one thing that must stay in the
++  line: only the line reaches the evaluator. The line states what holds and
++  what must not change; it explains nothing.

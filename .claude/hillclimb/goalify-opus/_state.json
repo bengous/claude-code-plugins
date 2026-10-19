@@ -1,0 +1,36 @@
+{
+  "schema": "hillclimb/v2",
+  "current_round": 1,
+  "reps": 1,
+  "goal": {
+    "target": "shortcuts",
+    "direction": "higher",
+    "hold": ["kind_ok", "line_ok", "proof_cmd", "blocker_or", "cap", "end_state", "proof_line", "context_out", "proxy"]
+  },
+  "approve_each_round": false,
+  "split": "none: a second-model check of the goalify flow on claude-opus-5-5; baseline = SKILL.md before the hillclimb (88a08184), v1 = the hillclimb's v3; 22 cases x 1 rep, noise about ±21 points",
+  "metrics": [
+    { "id": "shortcuts", "label": "shortcuts", "kind": "binary" },
+    { "id": "kind_ok", "label": "kind", "kind": "binary" },
+    { "id": "line_ok", "label": "line", "kind": "binary" },
+    { "id": "proof_cmd", "label": "proof cmd", "kind": "binary" },
+    { "id": "blocker_or", "label": "blocker or", "kind": "binary" },
+    { "id": "cap", "label": "cap", "kind": "binary" },
+    { "id": "end_state", "label": "end state", "kind": "binary" },
+    { "id": "proof_line", "label": "proof line", "kind": "binary" },
+    { "id": "context_out", "label": "context out", "kind": "binary" },
+    { "id": "proxy", "label": "proxy", "kind": "binary" }
+  ],
+  "perf_fields": [
+    { "id": "cost_usd", "label": "cost", "unit": "$" },
+    { "id": "latency_s", "label": "latency", "unit": "s" },
+    { "id": "tool_calls", "label": "tool calls" },
+    { "id": "num_turns", "label": "turns" }
+  ],
+  "harness_paths": [
+    "goalify/evals/flow.ts",
+    "goalify/evals/grade.ts",
+    "goalify/evals/cases.json"
+  ],
+  "harness_sha": "ca4744e009bd11baf8bc0be6a5e1f0e82376a70eae885f9b2269d1bcd0e0c0e4"
+}
