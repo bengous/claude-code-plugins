@@ -100,7 +100,7 @@ export interface Clock {
 
 const WAIT: Decision = { kind: "wait" };
 
-const SYSTEM_CLOCK: Clock = { now: () => Date.now(), sleep: (ms) => Bun.sleep(ms) };
+export const SYSTEM_CLOCK: Clock = { now: () => Date.now(), sleep: (ms) => Bun.sleep(ms) };
 
 function verdictOf(runs: readonly CiRun[], known: readonly number[]): CiVerdict {
   if (runs.every((run) => known.includes(run.id))) return { kind: "none" };
@@ -205,8 +205,10 @@ export async function waitFor(
   return decision;
 }
 
-export async function ghCli(args: readonly string[]): Promise<string> {
+/** `gh` run from `cwd`, whose checkout gives the `{owner}/{repo}` of `gh api`. */
+export async function ghCli(args: readonly string[], cwd = process.cwd()): Promise<string> {
   const child = Bun.spawn(["gh", ...args], {
+    cwd,
     // Either variable makes gh indent and color the JSON its jq prints, which a caller cannot parse.
     env: { ...process.env, CLICOLOR_FORCE: "0", GH_FORCE_TTY: "" },
     stdout: "pipe",
