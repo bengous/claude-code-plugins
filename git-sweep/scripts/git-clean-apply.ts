@@ -78,7 +78,7 @@ function dedupeManifest(m: CleanupManifest): CleanupManifest | { error: string }
 // Execution
 // ---------------------------------------------------------------------------
 
-async function execute(
+export async function execute(
   manifest: CleanupManifest,
 ): Promise<{ result: CleanupResult; remaining: CleanupManifest }> {
   const operations: Operation[] = [];

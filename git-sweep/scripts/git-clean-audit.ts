@@ -101,7 +101,7 @@ type RemoteBranchInfo = RemoteMeta & { proof: Proven };
 
 type KeptBranch = { name: string } & Kept;
 
-type AuditSuccess = {
+export type AuditSuccess = {
   ok: true;
   base: string;
   remote_base: string | null;
@@ -218,7 +218,7 @@ type WorktreeVerdict =
   | Exclude<Triage, { kind: "inspect" }>
   | { kind: "candidate"; candidate: Candidate };
 
-async function inspectWorktree(path: string, branch: string): Promise<WorktreeVerdict> {
+export async function inspectWorktree(path: string, branch: string): Promise<WorktreeVerdict> {
   const held = (reason: BranchHold["reason"], detail: string): WorktreeVerdict => ({
     kind: "held",
     hold: { name: branch, reason, detail },
@@ -530,10 +530,17 @@ async function saveManifest(): Promise<SaveResult> {
 // Main
 // ---------------------------------------------------------------------------
 
-type AuditArgs = { base: string | null; includeRemote: boolean; maxAge: number | null };
+// githubProofs without includeRemote asks GitHub about local branches only:
+// auto-sweep never deletes a remote ref, so it skips the remote scan.
+export type AuditArgs = {
+  base: string | null;
+  includeRemote: boolean;
+  githubProofs: boolean;
+  maxAge: number | null;
+};
 
 function parseArgs(args: string[]): AuditArgs | { error: string } {
-  const parsed: AuditArgs = { base: null, includeRemote: false, maxAge: null };
+  const parsed: AuditArgs = { base: null, includeRemote: false, githubProofs: false, maxAge: null };
 
   for (let i = 0; i < args.length; i++) {
     switch (args[i]) {
@@ -547,6 +554,7 @@ function parseArgs(args: string[]): AuditArgs | { error: string } {
 
       case "--include-remote":
         parsed.includeRemote = true;
+        parsed.githubProofs = true;
         break;
       case "--max-age": {
         const value = args[++i];
@@ -592,7 +600,10 @@ async function chooseBase(
     : { base: resolved };
 }
 
-async function audit(args: AuditArgs, advance: (step: AuditStep) => void): Promise<AuditResult> {
+export async function audit(
+  args: AuditArgs,
+  advance: (step: AuditStep) => void,
+): Promise<AuditResult> {
   const config = await readSweepConfig();
 
   if ("error" in config) return { ok: false, error: config.error, step: "validate" };
@@ -619,7 +630,7 @@ async function audit(args: AuditArgs, advance: (step: AuditStep) => void): Promi
 
   // --include-remote is already the audit's network opt-in; the GitHub proof
   // rides on it rather than adding a second flag.
-  const github = args.includeRemote ? makeGithubProver(base, maxAgeDays) : null;
+  const github = args.githubProofs ? makeGithubProver(base, maxAgeDays) : null;
   const scanInput: ScanInput = { base, protectedBranches, maxAgeDays, github, now: new Date() };
 
   advance("scan-worktrees");

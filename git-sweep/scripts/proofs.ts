@@ -63,10 +63,21 @@ const REVERTS_COMMIT = /This reverts commit ([0-9a-f]{40})/gu;
 
 const OID = /^[0-9a-f]{40}$/u;
 
-async function gh(...args: string[]): Promise<{ stdout: string; exitCode: number }> {
+export async function gh(...args: string[]): Promise<{ stdout: string; exitCode: number }> {
   const { stdout, exitCode } = await $`gh ${args}`.quiet().nothrow();
 
   return { stdout: stdout.toString().trim(), exitCode };
+}
+
+// gh resolves owner/repo from the remote itself, so ssh, https and `insteadOf`
+// rewrites all work with no URL parsing here. The charset of the capture is
+// also what makes the value safe in an API path.
+export async function githubRepo(): Promise<string | null> {
+  const view = await gh("repo", "view", "--json", "nameWithOwner");
+
+  if (view.exitCode !== 0) return null;
+
+  return view.stdout.match(/"nameWithOwner"\s*:\s*"([\w.-]+\/[\w.-]+)"/u)?.[1] ?? null;
 }
 
 /* oxlint-disable anti-slop/no-runtime-typeof -- this IS the boundary parser the rule asks for: it validates the GitHub payloads before any proof reads them, and gh hands them over as text, so there is no earlier place to parse. */
@@ -372,17 +383,9 @@ export function makeGithubProver(base: string, maxAgeDays: number): GithubProver
   const resolveContext = async (): Promise<GithubContext | null> => {
     // Same gate as the remote scan: no origin -> fully local, no network.
     if ((await git("remote", "get-url", "origin")).exitCode !== 0) return null;
+    const repo = await githubRepo();
 
-    // gh resolves owner/repo from the remote itself, so ssh, https and
-    // `insteadOf` rewrites all work with no URL parsing here. The charset of
-    // the capture is also what makes the value safe in an API path.
-    const view = await gh("repo", "view", "--json", "nameWithOwner");
-
-    if (view.exitCode !== 0) return null;
-
-    const repo = view.stdout.match(/"nameWithOwner"\s*:\s*"([\w.-]+\/[\w.-]+)"/u)?.[1];
-
-    if (repo === undefined) return null;
+    if (repo === null) return null;
 
     return { repo, reverted: await revertedPullNumbers(repo, base, maxAgeDays) };
   };

@@ -1,7 +1,7 @@
 {
   "name": "git-sweep",
   "version": "3.4.2",
-  "description": "Interactive git branch and worktree cleanup: proves a branch is contained before proposing it, frees finished worktrees, and reports what it kept and why",
+  "description": "Git branch and worktree cleanup that proves a branch is contained before deleting it and reports what it kept and why: an interactive sweep that asks first, and an unattended one that frees finished agent worktrees and archives abandoned agent branches under refs/archive/",
   "author": {
     "name": "Augustin BENGOLEA",
     "email": "bengous@protonmail.com"
