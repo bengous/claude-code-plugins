@@ -2,29 +2,36 @@
 
 /**
  * Land a reviewed branch on `dev`: the "Land a branch" procedure of
- * `docs/repo-ops/git.md` as one command an agent runs without a prompt.
+ * `docs/repo-ops/git.md` as one command an agent runs once, in the background,
+ * without a prompt. It waits by itself and ends on one verdict line.
  *
  *   bun ./scripts/land.ts <feature/...|fix/...|renovate/...|chore/claude-code-types>
  *
- * Runs `origin/dev`'s copy of itself: after a fetch, `scripts/` and
- * `agent-hooks/` as `origin/dev` holds them are extracted to a temporary
- * directory and run there, so a branch that edits the landing lands under
- * the rule already on `dev`.
+ * Runs `origin/dev`'s copy of itself, on the arguments as given: after a
+ * fetch, `scripts/` and `agent-hooks/` as `origin/dev` holds them are
+ * extracted to a temporary directory and run there, so a branch that edits
+ * the landing lands under the rule already on `dev`.
  *
  * Refused before any push: a branch outside `feature/`, `fix/`, `renovate/`
  * and `chore/claude-code-types`, no checkout holding it, tracked changes
- * there, a local head that is not its pull request's head, a pull request not
- * open against `dev`, a check not green on that head. Then, in the checkout
- * holding the branch: fetch, rebase on `origin/dev`, refuse a rebased branch that touches a path of
+ * there, a pull request not open against `dev`, or whose head is not the
+ * local head within a minute. Then it waits, an hour at most in all, until
+ * every `ci.yml` run of that head is green (`scripts/ci-wait.ts`), a run red
+ * in its e2e jobs alone re-run once. A branch touching the e2e paths whose
+ * head has no green `e2e` check run, the pre-push gate's own predicate, gets
+ * the `e2e` label, taken off first when it is on, and waits for the run it
+ * starts. Then, in the checkout holding the branch, refused before each rebase
+ * and each push unless it is still clean at the head the landing left there:
+ * fetch, rebase on `origin/dev`, refuse a rebased branch that touches a path of
  * `origin/dev`'s `profile.review.risky` without a clean review verdict for
  * its patch on the pull request (`scripts/review-verdict.ts`); while that
  * profile does not read, every path is risky. Then install the lockfile when
- * the rebase changed it,
- * push the branch with a lease on the head last pushed, push it to `dev`. A `dev` push rejected because `origin/dev` moved
- * starts over from the fetch, three attempts at most. A rebase that makes a
- * new commit on a branch touching the e2e paths stops after the branch push:
- * that commit needs its own e2e run before `dev` takes it. The pre-push hook
- * runs the gates and the e2e gate on every push, as for a push by hand.
+ * the rebase changed it, push the branch with a lease on the head last
+ * pushed, push it to `dev`. A rebase that makes a new commit on a branch
+ * touching the e2e paths waits again for that commit's runs and its own e2e
+ * run. A `dev` push rejected because `origin/dev` moved starts over from the
+ * fetch, three attempts at most. The pre-push hook runs the gates and the e2e
+ * gate on every push, as for a push by hand.
  */
 
 import { mkdtempSync, rmSync } from "node:fs";
@@ -32,7 +39,25 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { CONFIG_GIT_PATH, ConfigError, parseProfile } from "../agent-hooks/config.ts";
-import { isE2ePath } from "./check-e2e-green.ts";
+import {
+  type CheckRun,
+  checkRunsOf,
+  isE2eCheck,
+  isE2ePath,
+  refusalFor,
+} from "./check-e2e-green.ts";
+import {
+  type CiOutcome,
+  type CiQuery,
+  type CiRun,
+  type Clock,
+  ciVerdict,
+  type Gh,
+  ghCli,
+  REGISTRATION_MS,
+  SYSTEM_CLOCK,
+  waitFor,
+} from "./ci-wait.ts";
 import { ROLLING_BRANCH } from "./claude-code-types.ts";
 import { run } from "./lib/run.ts";
 import {
@@ -60,29 +85,27 @@ const ATTEMPTS = 3;
 
 const LOCKFILES = ["package.json", "bun.lock"];
 
-const GREEN = new Set(["SUCCESS", "SKIPPED", "NEUTRAL"]);
-
-const PENDING = new Set(["QUEUED", "IN_PROGRESS", "PENDING", "WAITING", "REQUESTED", "EXPECTED"]);
-
 const MOVED = /\[rejected\][^\n]*\((?:fetch first|non-fast-forward)\)/u;
 
-const NO_CHECKS = /^no (?:required )?checks reported/u;
+const E2E_LABEL = "e2e";
 
-/** One check as `gh pr checks --json` prints it: a commit status has no workflow and no event. */
-export interface Check {
-  readonly name: string;
-  readonly startedAt: string;
-  readonly state: string;
-  readonly workflow: string;
-  readonly event: string;
+const GREEN_JOB = new Set(["success", "skipped", "neutral"]);
+
+export interface Waiting {
+  readonly clock: Clock;
+  readonly pollMs: number;
+  /** The whole landing's, every wait in it included. */
+  readonly timeoutMs: number;
 }
+
+export const WAITING: Waiting = { clock: SYSTEM_CLOCK, pollMs: 15_000, timeoutMs: 60 * 60_000 };
 
 export interface PullRequest {
   readonly number: number;
   readonly state: string;
   readonly baseRefName: string;
   readonly headRefOid: string;
-  readonly checks: readonly Check[];
+  readonly labels: readonly { readonly name: string }[];
   readonly comments: readonly Comment[];
 }
 
@@ -90,7 +113,22 @@ export type Landing =
   | { readonly kind: "landed"; readonly dev: string; readonly pr: number }
   | { readonly kind: "refused"; readonly why: string };
 
-function refused(why: string): Landing {
+type Refused = Extract<Landing, { readonly kind: "refused" }>;
+
+type Ready = { readonly kind: "ready"; readonly pr: PullRequest } | Refused;
+
+/** What one landing carries through its waits. */
+interface Lander {
+  readonly branch: string;
+  readonly checkout: string;
+  readonly gh: Gh;
+  readonly waiting: Waiting;
+  readonly deadline: number;
+  /** The runs this landing re-ran, each once at most. */
+  readonly rerun: Set<number>;
+}
+
+function refused(why: string): Refused {
   return { kind: "refused", why };
 }
 
@@ -98,6 +136,34 @@ function headOf(checkout: string): string | null {
   const head = run(["git", "rev-parse", "HEAD"], checkout);
 
   return head.ok && head.out !== "" ? head.out : null;
+}
+
+function dirtyOf(checkout: string): string | null {
+  const status = run(["git", "status", "--porcelain", "--untracked-files=no"], checkout);
+
+  if (!status.ok) return `git status in ${checkout}: ${status.err}`;
+
+  return status.out === ""
+    ? null
+    : `${checkout} has uncommitted changes: commit or drop them, then land`;
+}
+
+/**
+ * Why the checkout no longer holds `head` clean, as this landing left it. A commit or an edit made while it waited
+ * would land unreviewed, so it is refused and left as it is, never reset.
+ */
+function driftFrom(lander: Lander, head: string): string | null {
+  const dirty = dirtyOf(lander.checkout);
+
+  if (dirty !== null) return dirty;
+
+  const now = headOf(lander.checkout);
+
+  if (now === null) return `git rev-parse HEAD failed in ${lander.checkout}`;
+
+  if (now === head) return null;
+
+  return `${lander.branch} moved from ${short(head)} to ${short(now)} in ${lander.checkout} while land ran: push it, have it reviewed, then land again`;
 }
 
 /** The checkout that holds `branch`, read from `git worktree list --porcelain`. */
@@ -112,51 +178,14 @@ export function checkoutOf(porcelain: string, branch: string): string | null {
   return null;
 }
 
-/**
- * The newest run of each check: a re-run supersedes the attempt before it, while a run of the same name from another
- * workflow or another event stays, as `eliminateDuplicates` keys them in gh's `pkg/cmd/pr/checks/aggregate.go`.
- */
-export function latestChecks(checks: readonly Check[]): readonly Check[] {
-  const newest = new Map<string, Check>();
-
-  for (const check of checks) {
-    const key = `${check.name}/${check.workflow}/${check.event}`;
-    const kept = newest.get(key);
-
-    if (kept === undefined || check.startedAt > kept.startedAt) newest.set(key, check);
-  }
-
-  return [...newest.values()];
-}
-
-/** Why `branch`, at `head` here, may not land through `pr`; null when it may. */
-export function refusalOf(branch: string, pr: PullRequest, head: string): string | null {
+/** Why a branch may not land through `pr`, whatever its head and its runs; null when it may. */
+export function refusalOf(pr: PullRequest): string | null {
   const name = `#${pr.number}`;
 
   if (pr.state !== "OPEN") return `${name} is ${pr.state.toLowerCase()}, not open`;
 
   if (pr.baseRefName !== DEV) {
     return `${name} targets ${pr.baseRefName}, not ${DEV}: a stacked layer lands with gh stack (docs/repo-ops/git.md)`;
-  }
-
-  if (pr.headRefOid !== head) {
-    return `${branch} is at ${short(head)} here and ${short(pr.headRefOid)} on ${name}: push it, wait for its checks, then land`;
-  }
-
-  const checks = latestChecks(pr.checks);
-
-  if (checks.length === 0) return `no check reported on ${name}'s head yet: wait for its run`;
-
-  const running = checks.filter((check) => PENDING.has(check.state));
-
-  if (running.length > 0) {
-    return `checks still running on ${name}: ${running.map((check) => check.name).join(", ")}; wait with gh pr checks ${branch} --watch`;
-  }
-
-  const red = checks.filter((check) => !GREEN.has(check.state));
-
-  if (red.length > 0) {
-    return `checks not green on ${name}: ${red.map((check) => `${check.name} ${check.state.toLowerCase()}`).join(", ")}`;
   }
 
   return null;
@@ -171,11 +200,12 @@ export type PathsRead =
   | { readonly kind: "read"; readonly paths: readonly string[] }
   | { readonly kind: "failed"; readonly why: string };
 
-/** The paths HEAD changes on `base`, a rename as both its sides. */
-export function changedPaths(checkout: string, base: string): PathsRead {
-  const diff = run(["git", "diff", "--name-only", "--no-renames", "-z", base, "HEAD"], checkout);
+/** The paths `head` changes since its merge-base with `base`, a rename as both its sides. */
+export function changedPaths(checkout: string, base: string, head = "HEAD"): PathsRead {
+  const range = `${base}...${head}`;
+  const diff = run(["git", "diff", "--name-only", "--no-renames", "-z", range], checkout);
 
-  if (!diff.ok) return { kind: "failed", why: `git diff ${base} HEAD: ${diff.err}` };
+  if (!diff.ok) return { kind: "failed", why: `git diff ${range}: ${diff.err}` };
 
   return { kind: "read", paths: diff.out.split("\0").filter((path) => path !== "") };
 }
@@ -258,46 +288,209 @@ function reviewRefusal(
   return `${risky}; #${pr.number} carries no clean review verdict for its change, patch-id ${short(landing.id)}: review ${short(reviewed)}, and once no finding is open, ${recordCommand(branch, reviewed)}; then land again`;
 }
 
-type PullRequestRead =
-  | { readonly kind: "read"; readonly pr: PullRequest }
-  | { readonly kind: "unreadable"; readonly why: string };
-
-/**
- * The pull request from `gh pr view`, its checks from `gh pr checks`: only that read carries each run's event, and
- * its "no checks reported" means none yet.
- */
-function readPullRequest(branch: string, checkout: string): PullRequestRead {
-  const view = run(
-    ["gh", "pr", "view", branch, "--json", "number,state,baseRefName,headRefOid,comments"],
-    checkout,
-  );
-
-  if (!view.ok)
-    return { kind: "unreadable", why: `no pull request read for ${branch}: ${view.err}` };
-
-  const listed = run(
-    ["gh", "pr", "checks", branch, "--json", "name,state,workflow,event,startedAt"],
-    checkout,
-  );
-
-  if (!listed.ok && !NO_CHECKS.test(listed.err)) {
-    return { kind: "unreadable", why: `no checks read for ${branch}: ${listed.err}` };
-  }
+async function readPullRequest(lander: Lander): Promise<PullRequest> {
+  const out = await lander.gh([
+    "pr",
+    "view",
+    lander.branch,
+    "--json",
+    "number,state,baseRefName,headRefOid,labels,comments",
+  ]);
 
   try {
     // SAFETY: gh prints exactly the fields asked for, and a pull request with a field missing can only fail to read
-    // as open, against dev and green.
-    const pr: Omit<PullRequest, "checks"> = JSON.parse(view.out);
-    // SAFETY: gh pr checks prints one object per check with the fields asked for.
-    const checks: readonly Check[] = listed.ok ? JSON.parse(listed.out) : [];
-
-    return { kind: "read", pr: { ...pr, checks } };
+    // as open, against dev and at the head waited for.
+    return JSON.parse(out);
   } catch {
-    return { kind: "unreadable", why: `gh printed no pull request for ${branch}: ${view.out}` };
+    throw new Error(`gh printed no pull request for ${lander.branch}: ${out.trim()}`);
   }
 }
 
-export function land(branch: string, cwd: string): Landing {
+function remaining(lander: Lander): number {
+  return Math.max(0, lander.deadline - lander.waiting.clock.now());
+}
+
+/** What `read` gives once `done` holds of it, or its last read once a minute, or the landing's time, runs out. */
+async function pollUntil<T>(
+  lander: Lander,
+  read: () => Promise<T>,
+  done: (value: T) => boolean,
+): Promise<T> {
+  const { clock, pollMs } = lander.waiting;
+  const windowMs = Math.min(REGISTRATION_MS, remaining(lander));
+  const start = clock.now();
+  let value = await read();
+
+  while (!done(value) && clock.now() - start < windowMs) {
+    await clock.sleep(Math.min(pollMs, windowMs - (clock.now() - start)));
+    value = await read();
+  }
+
+  return value;
+}
+
+/** The pull request once GitHub shows `sha` as its head: a push takes a moment to reach it. */
+async function pullRequestAt(lander: Lander, sha: string): Promise<Ready> {
+  const pr = await pollUntil(
+    lander,
+    () => readPullRequest(lander),
+    (read) => read.headRefOid === sha || refusalOf(read) !== null,
+  );
+
+  const refusal = refusalOf(pr);
+
+  if (refusal !== null) return refused(refusal);
+
+  if (pr.headRefOid !== sha) {
+    return refused(
+      `${lander.branch} is at ${short(sha)} here and ${short(pr.headRefOid)} on #${pr.number}: push it, then land again`,
+    );
+  }
+
+  return { kind: "ready", pr };
+}
+
+/** The jobs of `run`, at any attempt, that ended neither green nor skipped, read from its commit's check runs. */
+function failedJobs(checks: readonly CheckRun[], ciRun: CiRun): readonly string[] {
+  return checks.flatMap((check) =>
+    check.detailsUrl?.includes(`/actions/runs/${ciRun.id}/job/`) === true &&
+    check.status === "completed" &&
+    !GREEN_JOB.has(check.conclusion ?? "")
+      ? [check.name]
+      : [],
+  );
+}
+
+/** The outcome of the runs `query` reads, each run red in its e2e jobs alone re-run once first. */
+async function settle(lander: Lander, query: CiQuery): Promise<CiOutcome> {
+  const { clock, pollMs } = lander.waiting;
+  const outcome = await waitFor(lander.gh, query, { timeoutMs: remaining(lander), pollMs }, clock);
+
+  if (outcome.kind !== "red") return outcome;
+
+  const checks = checkRunsOf(query.sha, lander.checkout);
+
+  if (checks.kind === "unreadable") return outcome;
+
+  const rerunnable = outcome.red.filter((red) => {
+    const failed = failedJobs(checks.runs, red);
+
+    return (
+      !lander.rerun.has(red.id) && failed.length > 0 && failed.every((name) => isE2eCheck(name))
+    );
+  });
+
+  if (rerunnable.length < outcome.red.length) return outcome;
+
+  await Promise.all(
+    rerunnable.map((red) => lander.gh(["run", "rerun", String(red.id), "--failed"])),
+  );
+
+  const ids = new Set(rerunnable.map((red) => red.id));
+
+  for (const id of ids) lander.rerun.add(id);
+
+  await pollUntil(
+    lander,
+    () => ciVerdict(lander.gh, query),
+    (verdict) => verdict.kind !== "red" || !verdict.red.some((red) => ids.has(red.id)),
+  );
+
+  return settle(lander, query);
+}
+
+function notGreen(
+  lander: Lander,
+  pr: PullRequest,
+  sha: string,
+  outcome: Exclude<CiOutcome, { readonly kind: "green" }>,
+): string {
+  switch (outcome.kind) {
+    case "red": {
+      const runs = outcome.red.map((red) =>
+        lander.rerun.has(red.id) ? `${red.url}, red again after the re-run land made` : red.url,
+      );
+
+      return `CI is red on ${short(sha)}, the head of #${pr.number}: ${runs.join("; ")}. Fix it and push, or re-run a flake with gh run rerun <run-id> --failed; then land again`;
+    }
+
+    case "none":
+      return `no ci.yml run showed on ${short(sha)}, the head of #${pr.number}, within a minute: land again once one runs`;
+
+    case "timeout":
+      return `CI still runs on ${short(sha)}, the head of #${pr.number}, after the ${lander.waiting.timeoutMs / 60_000} min land waits at most: ${outcome.running.map((running) => running.url).join("; ")}; land again`;
+  }
+}
+
+/**
+ * Starts an e2e run on `query.sha` with the label and waits for it, told from the `seen` runs: why it ends without a
+ * green `e2e` check run, or null.
+ */
+async function requestE2e(
+  lander: Lander,
+  query: CiQuery,
+  seen: readonly CiRun[],
+): Promise<string | null> {
+  const pr = await readPullRequest(lander);
+
+  // Adding a label the pull request already carries starts no run.
+  if (pr.labels.some((label) => label.name === E2E_LABEL)) {
+    await lander.gh(["pr", "edit", lander.branch, "--remove-label", E2E_LABEL]);
+  }
+
+  await lander.gh(["pr", "edit", lander.branch, "--add-label", E2E_LABEL]);
+
+  const outcome = await settle(lander, { ...query, known: seen.map((seenRun) => seenRun.id) });
+
+  if (outcome.kind === "none") {
+    return `the ${E2E_LABEL} label added to #${pr.number} started no run on ${short(query.sha)} within a minute: land again`;
+  }
+
+  if (outcome.kind !== "green") return notGreen(lander, pr, query.sha, outcome);
+
+  const after = refusalFor(checkRunsOf(query.sha, lander.checkout));
+
+  return after === null
+    ? null
+    : `the run the ${E2E_LABEL} label started on ${short(query.sha)} ended green, yet ${after.reason}: land again`;
+}
+
+/**
+ * The pull request once every `ci.yml` run of `sha`, its head, is green and, for a branch touching the e2e paths,
+ * one `e2e` check run of it is, as the pre-push gate asks; read again then, with the comments posted meanwhile.
+ */
+async function ready(lander: Lander, sha: string, e2e: boolean): Promise<Ready> {
+  const at = await pullRequestAt(lander, sha);
+
+  if (at.kind === "refused") return at;
+
+  const query: CiQuery = { sha, event: "pull_request" };
+  const outcome = await settle(lander, query);
+
+  if (outcome.kind !== "green") return refused(notGreen(lander, at.pr, sha, outcome));
+
+  if (e2e) {
+    const checks = checkRunsOf(sha, lander.checkout);
+
+    if (checks.kind === "unreadable") {
+      return refused(`gh could not list the check runs of ${short(sha)}: ${checks.error}`);
+    }
+
+    if (refusalFor(checks) !== null) {
+      const requested = await requestE2e(lander, query, outcome.runs);
+
+      if (requested !== null) return refused(requested);
+    }
+  }
+
+  return pullRequestAt(lander, sha);
+}
+
+export async function land(
+  branch: string,
+  cwd: string,
+  waiting: Waiting = WAITING,
+): Promise<Landing> {
   if (!LANDABLE.test(branch) && branch !== ROLLING_BRANCH) {
     return refused(`${branch} is not a ${LANDABLE_NAMES}: only those land on ${DEV}`);
   }
@@ -310,34 +503,55 @@ export function land(branch: string, cwd: string): Landing {
 
   if (checkout === null) return refused(`no checkout holds ${branch}: check it out, then land`);
 
-  const status = run(["git", "status", "--porcelain", "--untracked-files=no"], checkout);
+  const dirty = dirtyOf(checkout);
 
-  if (!status.ok) return refused(`git status in ${checkout}: ${status.err}`);
-
-  if (status.out !== "") {
-    return refused(`${checkout} has uncommitted changes: commit or drop them, then land`);
-  }
+  if (dirty !== null) return refused(dirty);
 
   const reviewed = headOf(checkout);
 
   if (reviewed === null) return refused(`git rev-parse HEAD failed in ${checkout}`);
 
-  const read = readPullRequest(branch, checkout);
+  const touched = changedPaths(checkout, BASE, reviewed);
 
-  if (read.kind === "unreadable") return refused(read.why);
+  if (touched.kind === "failed") return refused(touched.why);
 
-  const { pr } = read;
-  const refusal = refusalOf(branch, pr, reviewed);
-
-  if (refusal !== null) return refused(refusal);
+  const lander: Lander = {
+    branch,
+    checkout,
+    gh: (args) => ghCli(args, checkout),
+    waiting,
+    deadline: waiting.clock.now() + waiting.timeoutMs,
+    rerun: new Set(),
+  };
 
   // The head the remote branch holds: the reviewed one, then each one this run pushed.
   let pushed = reviewed;
+  let e2e = touched.paths.some((path) => isE2ePath(path));
+  // The pull request read once `pushed` was ready; null while `pushed` waits for its runs.
+  let pr: PullRequest | null = null;
 
   for (let attempt = 1; attempt <= ATTEMPTS; attempt += 1) {
+    if (pr === null) {
+      let waited: Ready;
+
+      try {
+        waited = await ready(lander, pushed, e2e);
+      } catch (error) {
+        waited = refused(error instanceof Error ? error.message : String(error));
+      }
+
+      if (waited.kind === "refused") return waited;
+
+      ({ pr } = waited);
+    }
+
     const fetched = run(["git", "fetch", "--quiet", REMOTE], checkout);
 
     if (!fetched.ok) return refused(`git fetch: ${fetched.err}`);
+
+    const beforeRebase = driftFrom(lander, pushed);
+
+    if (beforeRebase !== null) return refused(beforeRebase);
 
     const rebase = run(["git", "rebase", "--quiet", BASE], checkout);
 
@@ -382,6 +596,14 @@ export function land(branch: string, cwd: string): Landing {
       const install = run(["bun", "install", "--frozen-lockfile"], checkout);
 
       if (!install.ok) {
+        const duringInstall = driftFrom(lander, rebased);
+
+        if (duringInstall !== null) {
+          return refused(
+            `bun install --frozen-lockfile failed after the rebase on ${BASE}, and ${duringInstall}:\n${install.err}`,
+          );
+        }
+
         run(["git", "reset", "--quiet", "--hard", pushed], checkout);
 
         const restored = run(["bun", "install", "--frozen-lockfile"], checkout).ok;
@@ -396,12 +618,22 @@ export function land(branch: string, cwd: string): Landing {
       }
     }
 
+    const beforeBranchPush = driftFrom(lander, rebased);
+
+    if (beforeBranchPush !== null) return refused(beforeBranchPush);
+
     const branchPush = run(
       ["git", "push", "--quiet", `--force-with-lease=${branch}:${pushed}`, REMOTE, branch],
       checkout,
     );
 
     if (!branchPush.ok) {
+      const duringPush = driftFrom(lander, rebased);
+
+      if (duringPush !== null) {
+        return refused(`the push of ${branch} was refused, and ${duringPush}:\n${branchPush.err}`);
+      }
+
       run(["git", "reset", "--quiet", "--hard", pushed], checkout);
 
       return refused(
@@ -409,13 +641,19 @@ export function land(branch: string, cwd: string): Landing {
       );
     }
 
-    pushed = rebased;
+    const fresh = rebased !== pushed;
 
-    if (rebased !== pr.headRefOid && paths.some((path) => isE2ePath(path))) {
-      return refused(
-        `${branch} touches the e2e paths and the rebase made ${short(rebased)}, which needs its own e2e run: pushed it; now gh pr edit ${branch} --add-label e2e, wait for the run (docs/repo-ops/git.md), then land again`,
-      );
+    pushed = rebased;
+    e2e = paths.some((path) => isE2ePath(path));
+
+    if (fresh && e2e) {
+      pr = null;
+      continue;
     }
+
+    const beforeDevPush = driftFrom(lander, rebased);
+
+    if (beforeDevPush !== null) return refused(beforeDevPush);
 
     const devPush = run(["git", "push", "--quiet", REMOTE, `${branch}:${DEV}`], checkout);
 
@@ -423,7 +661,7 @@ export function land(branch: string, cwd: string): Landing {
 
     if (!movedOn(devPush.err)) {
       return refused(
-        `pushed ${branch} at ${short(rebased)}, but the push to ${DEV} was refused; once its checks are green, land again:\n${devPush.err}`,
+        `pushed ${branch} at ${short(rebased)}, but the push to ${DEV} was refused; fix what it names, then land again:\n${devPush.err}`,
       );
     }
   }
@@ -435,8 +673,8 @@ type DevCopyRun =
   | { readonly kind: "ran"; readonly exitCode: number }
   | { readonly kind: "failed"; readonly why: string };
 
-/** Runs `origin/dev`'s copy of this script on `branch` from `cwd`, extracted to a temporary directory. */
-function runDevCopy(branch: string, cwd: string): DevCopyRun {
+/** Runs `origin/dev`'s copy of this script on `args` from `cwd`, extracted to a temporary directory. */
+function runDevCopy(args: readonly string[], cwd: string): DevCopyRun {
   const fetched = run(["git", "fetch", "--quiet", REMOTE], cwd);
 
   if (!fetched.ok) return { kind: "failed", why: `git fetch: ${fetched.err}` };
@@ -453,7 +691,7 @@ function runDevCopy(branch: string, cwd: string): DevCopyRun {
 
     if (!extracted.ok) return { kind: "failed", why: `tar -x ${archive}: ${extracted.err}` };
 
-    const landed = Bun.spawnSync([process.execPath, join(copy, "scripts", "land.ts"), branch], {
+    const landed = Bun.spawnSync([process.execPath, join(copy, "scripts", "land.ts"), ...args], {
       cwd,
       env: { ...process.env, [DEV_COPY]: "1" },
       stdio: ["inherit", "inherit", "inherit"],
@@ -467,6 +705,16 @@ function runDevCopy(branch: string, cwd: string): DevCopyRun {
 
 if (import.meta.main) {
   const args = process.argv.slice(2);
+
+  if (process.env[DEV_COPY] === undefined) {
+    const devCopy = runDevCopy(args, process.cwd());
+
+    if (devCopy.kind === "ran") process.exit(devCopy.exitCode);
+
+    console.error(`land: ${BASE}'s copy of land.ts did not run: ${devCopy.why}`);
+    process.exit(1);
+  }
+
   const [branch] = args;
 
   if (branch === undefined || args.length > 1) {
@@ -476,20 +724,12 @@ if (import.meta.main) {
     process.exit(2);
   }
 
-  if (process.env[DEV_COPY] === undefined) {
-    const devCopy = runDevCopy(branch, process.cwd());
-
-    if (devCopy.kind === "ran") process.exit(devCopy.exitCode);
-
-    console.error(`land: ${BASE}'s copy of land.ts did not run: ${devCopy.why}`);
-    process.exit(1);
-  }
-
-  const landing = land(branch, process.cwd());
+  const landing = await land(branch, process.cwd());
 
   if (landing.kind === "landed") {
-    console.log(`landed ${branch} on ${DEV} at ${short(landing.dev)} (#${landing.pr})`);
-    console.log(`its run on ${DEV}: gh run list --branch ${DEV} --event push --limit 1`);
+    console.log(
+      `landed ${branch} on ${DEV} at ${short(landing.dev)} (#${landing.pr}); its run on ${DEV}: gh run list --branch ${DEV} --event push --limit 1`,
+    );
   } else {
     console.error(`land: ${landing.why}`);
     process.exitCode = 1;

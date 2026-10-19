@@ -86,6 +86,10 @@ export function isE2ePath(path: string): boolean {
   return included.some((glob) => glob.match(path)) && !excluded.some((glob) => glob.match(path));
 }
 
+export function isE2eCheck(name: string): boolean {
+  return name === CHECK || WINDOW.test(name);
+}
+
 /** The lines that move `refs/heads/dev` among those git hands a pre-push hook. */
 export function parsePushedRefs(lines: string): readonly PushToDev[] {
   return lines
@@ -131,9 +135,7 @@ export function refusalFor(checkRuns: CheckRuns): Refusal | null {
   const reason = `it has no green ${CHECK} check run (found: ${found === "" ? "none" : found})`;
 
   // `e2e` is created once every window is done: until then, a window's run is the one going.
-  const running = checkRuns.runs.find(
-    (run) => (run.name === CHECK || WINDOW.test(run.name)) && run.status !== "completed",
-  );
+  const running = checkRuns.runs.find((run) => isE2eCheck(run.name) && run.status !== "completed");
 
   if (running !== undefined) {
     return {
@@ -185,7 +187,8 @@ function changedPaths({ local, remote }: PushToDev): readonly string[] {
   return listed.split("\0").filter((path) => path !== "");
 }
 
-function checkRunsOf(commit: string): CheckRuns {
+/** The check runs of `commit`, listed by `gh` from `cwd`, a checkout of this repository. */
+export function checkRunsOf(commit: string, cwd: string): CheckRuns {
   const result = Bun.spawnSync(
     [
       "gh",
@@ -196,6 +199,7 @@ function checkRunsOf(commit: string): CheckRuns {
       ".check_runs[] | {id, name, status, conclusion, detailsUrl: .details_url}",
     ],
     {
+      cwd,
       // Either variable makes gh indent and color its jq results, one line no longer one run.
       env: { ...process.env, CLICOLOR_FORCE: "0", GH_FORCE_TTY: "" },
       stdout: "pipe",
@@ -223,7 +227,7 @@ function refusalOf(push: PushToDev): string | null {
 
   if (first === undefined) return null;
 
-  const refusal = refusalFor(checkRunsOf(push.local));
+  const refusal = refusalFor(checkRunsOf(push.local, process.cwd()));
 
   if (refusal === null) return null;
 

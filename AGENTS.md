@@ -32,7 +32,7 @@ claude plugin test vellum       # the hooks module's kit tests: `*.test.ts` unde
 bun ./scripts/run-gates.ts                             # CI's `validate` gates, with the kits of the hooks modules the change reaches (`--all`: every kit); installs vellum's and pinpoint's dependencies first
 bun ./scripts/affected.ts print                        # what the change reaches since its merge-base with origin/dev; `test` runs those suites
 bun ./scripts/mutation.ts run                          # CI's `mutation` job: Stryker on each module stryker.config.ts lists whose source or tests changed since origin/dev; a survivor on a changed line, or one its old tests killed, fails
-bun ./scripts/land.ts <branch>                         # land a reviewed feature/, fix/, renovate/ or chore/claude-code-types branch on dev once its PR is green (docs/repo-ops/git.md)
+bun ./scripts/land.ts <branch>                         # land a reviewed feature/, fix/, renovate/ or chore/claude-code-types branch on dev; run once in the background, it waits for CI itself (docs/repo-ops/git.md)
 bun ./scripts/sample-review.ts                      # the weekly review: 3 commits landed on origin/dev in the last complete ISO week, each with its /code-review; --week <YYYY-Www>, --count <n> (docs/repo-ops/git.md)
 bun ./scripts/friction-report.ts                       # the weekly frictions of the agent workflow in the last complete ISO week, beside the friction audit's average; local only, it reads the Claude Code transcripts; --week <YYYY-Www> (docs/repo-ops/git.md)
 bun run --cwd vellum e2e                               # vellum's browser suite, CI's `e2e` jobs, one per window; Chromium once per machine: `bun run --cwd vellum e2e:install`
