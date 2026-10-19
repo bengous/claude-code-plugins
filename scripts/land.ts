@@ -18,11 +18,13 @@
  * local head within a minute. Then it waits, an hour at most in all, until
  * every `ci.yml` run of that head is green (`scripts/ci-wait.ts`), a run red
  * in its e2e jobs alone re-run once. A branch touching the e2e paths whose
- * head has no green `e2e` check run, the pre-push gate's own predicate, gets
- * the `e2e` label, taken off first when it is on, and waits for the run it
- * starts. Then, in the checkout holding the branch, refused before each rebase
- * and each push unless it is still clean at the head the landing left there:
- * fetch, rebase on `origin/dev`, refuse a rebased branch that touches a path of
+ * head holds `origin/dev` and has no green `e2e` check run, the pre-push
+ * gate's own predicate, gets the `e2e` label, taken off first when it is on,
+ * and waits for the run it starts; a head that does not hold it is rebased
+ * first, as `dev` would only take a new commit. Then, in the checkout holding
+ * the branch, refused before each rebase and each push unless it is still
+ * clean at the head the landing left there: fetch, rebase on `origin/dev`,
+ * refuse a rebased branch that touches a path of
  * `origin/dev`'s `profile.review.risky` without a clean review verdict for
  * its patch on the pull request (`scripts/review-verdict.ts`); while that
  * profile does not read, every path is risky. Then install the lockfile when
@@ -136,6 +138,12 @@ function headOf(checkout: string): string | null {
   const head = run(["git", "rev-parse", "HEAD"], checkout);
 
   return head.ok && head.out !== "" ? head.out : null;
+}
+
+function fetchOrigin(checkout: string): string | null {
+  const fetched = run(["git", "fetch", "--quiet", REMOTE], checkout);
+
+  return fetched.ok ? null : `git fetch: ${fetched.err}`;
 }
 
 function dirtyOf(checkout: string): string | null {
@@ -532,10 +540,16 @@ export async function land(
 
   for (let attempt = 1; attempt <= ATTEMPTS; attempt += 1) {
     if (pr === null) {
+      const beforeWait = fetchOrigin(checkout);
+
+      if (beforeWait !== null) return refused(beforeWait);
+
+      // dev takes a head that does not hold origin/dev only rebased, a new commit: an e2e run on this one is lost.
+      const based = run(["git", "merge-base", "--is-ancestor", BASE, pushed], checkout).ok;
       let waited: Ready;
 
       try {
-        waited = await ready(lander, pushed, e2e);
+        waited = await ready(lander, pushed, e2e && based);
       } catch (error) {
         waited = refused(error instanceof Error ? error.message : String(error));
       }
@@ -545,9 +559,9 @@ export async function land(
       ({ pr } = waited);
     }
 
-    const fetched = run(["git", "fetch", "--quiet", REMOTE], checkout);
+    const unfetched = fetchOrigin(checkout);
 
-    if (!fetched.ok) return refused(`git fetch: ${fetched.err}`);
+    if (unfetched !== null) return refused(unfetched);
 
     const beforeRebase = driftFrom(lander, pushed);
 

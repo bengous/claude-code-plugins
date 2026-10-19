@@ -174,7 +174,13 @@ beforeEach(() => {
   bunLog = join(root, "bun.log");
   writeFileSync(
     join(bin, "bun"),
-    ["#!/bin/sh", `echo "$PWD $*" >> "${bunLog}"`, 'exit "${FAKE_BUN_EXIT:-0}"', ""].join("\n"),
+    [
+      "#!/bin/sh",
+      `echo "$PWD $*" >> "${bunLog}"`,
+      'if [ -n "$FAKE_BUN_DOES" ]; then sh -c "$FAKE_BUN_DOES"; fi',
+      'exit "${FAKE_BUN_EXIT:-0}"',
+      "",
+    ].join("\n"),
   );
   chmodSync(join(bin, "bun"), 0o755);
   setEnv("PATH", `${bin}:${process.env["PATH"] ?? ""}`);
@@ -341,6 +347,38 @@ describe("land", () => {
     expect(readFileSync(join(work, "b.txt"), "utf8")).toContain("while land waited");
   });
 
+  test("refuses a commit made while the rebased lockfile installs, pushing nothing", async () => {
+    const reviewed = branchHead();
+    const moved = moveDevLockfile();
+
+    serve();
+    setEnv("FAKE_BUN_DOES", "echo sneaky >> b.txt && git commit -qam sneaky");
+
+    const landed = await landing();
+
+    expect(why(landed)).toContain("while land ran");
+    expect(git(origin, "rev-parse", "feature/x")).toBe(reviewed);
+    expect(git(origin, "rev-parse", "dev")).toBe(moved);
+  });
+
+  test("refuses a commit made while the branch push's hook runs, keeping it off dev", async () => {
+    const moved = moveDev();
+    const hook = join(work, ".git", "hooks", "pre-push");
+
+    serve();
+    writeFileSync(
+      hook,
+      "#!/bin/sh\nif [ ! -f .hooked ]; then touch .hooked; echo sneaky >> b.txt; git add b.txt; git commit -q -m sneaky; fi\nexit 0\n",
+    );
+    chmodSync(hook, 0o755);
+
+    const landed = await landing();
+
+    expect(why(landed)).toContain("while land ran");
+    expect(git(origin, "rev-parse", "dev")).toBe(moved);
+    expect(git(work, "log", "-1", "--format=%s")).toBe("sneaky");
+  });
+
   test("resets nothing when an edit lands in the checkout while a refused push's hook runs", async () => {
     const moved = moveDev();
     const hook = join(work, ".git", "hooks", "pre-push");
@@ -448,7 +486,7 @@ describe("land, a branch that touches the e2e paths", () => {
     expect(edits()).toEqual([]);
   });
 
-  test("waits for the commit a rebase makes to reach the pull request, then for its own e2e run", async () => {
+  test("asks for e2e on a head behind dev only once rebased, when the pull request shows that commit", async () => {
     const reviewed = branchHead();
     const moved = moveDev();
 
@@ -460,16 +498,24 @@ describe("land, a branch that touches the e2e paths", () => {
     expect(landed).toEqual({ kind: "landed", dev: head, pr: 7 });
     expect(head).not.toBe(reviewed);
     expect(git(work, "rev-parse", "HEAD~2")).toBe(moved);
-    expect(edits()).toEqual([
-      "pr edit feature/x --add-label e2e",
-      "pr edit feature/x --add-label e2e",
-    ]);
+    expect(edits()).toEqual(["pr edit feature/x --add-label e2e"]);
 
     const e2eRuns = github()
       .runs.filter((run) => run.outcome.e2e === "success")
       .map((run) => run.sha);
 
-    expect(e2eRuns).toEqual([reviewed, head]);
+    expect(e2eRuns).toEqual([head]);
+  });
+
+  test("gives up once the waits add up to an hour", async () => {
+    serve({
+      pushRun: { validate: "success", e2e: "skipped", polls: 5 },
+      labelRun: { validate: "success", e2e: "success", polls: 3 },
+    });
+
+    const landed = await landing("feature/x", { pollMs: 10 * 60_000 });
+
+    expect(why(landed)).toContain("after the 60 min land waits at most");
   });
 
   test("re-runs once a run red in its e2e jobs alone, then lands", async () => {
