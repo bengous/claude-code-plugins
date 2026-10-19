@@ -395,9 +395,10 @@ jobs:
   # One issue per flaky test, from the reports the suite jobs uploaded (`scripts/flaky-report.ts`):
   # the one job that writes issues, so the suites' jobs keep the read-only token. It runs once any
   # of them ran, red or green, but not on a fork's pull request, whose token cannot write issues.
-  # One run at a time, none cancelled: two runs never open two issues for one test. Bookkeeping,
-  # never a verdict: the download and the report continue on error, on the steps rather than the
-  # job, since a job's `continue-on-error` still leaves its own check red, which `land.ts` reads.
+  # Bookkeeping, never a verdict: the download and the report continue on error, on the steps rather
+  # than the job, since a job's `continue-on-error` still leaves its own check red, which `land.ts`
+  # reads. No concurrency group: GitHub cancels a pending job a third one replaces, and a cancelled
+  # check refuses a landing; two jobs racing can at worst open one test's issue twice.
   flaky:
     needs: [win32, e2e-window, e2e-win32]
     if: >-
@@ -411,9 +412,6 @@ jobs:
     permissions:
       contents: read
       issues: write
-    concurrency:
-      group: flaky
-      cancel-in-progress: false
     steps:
       - name: Checkout
         uses: actions/checkout@v7

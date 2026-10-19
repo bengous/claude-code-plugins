@@ -516,6 +516,30 @@ describe("decide", () => {
     expect(decide([reportOf("win32", RUN_1)], closed)).toEqual([]);
   });
 
+  test("a test with two open issues, as a race between two jobs leaves, gets its comment on the newest alone", () => {
+    const issues = [
+      { number: 9, open: true, texts: [markerOf(FLAKE.id)] },
+      { number: 7, open: true, texts: [markerOf(FLAKE.id)] },
+    ];
+
+    expect(decide([reportOf("win32", RUN_2)], issues)).toEqual([
+      { kind: "comment", issue: 9, body: expect.any(String) },
+    ]);
+  });
+
+  test("a run the older of two open issues records is recorded already", () => {
+    const issues = [
+      { number: 9, open: true, texts: [markerOf(FLAKE.id)] },
+      {
+        number: 7,
+        open: true,
+        texts: [markerOf(FLAKE.id), recordOf({ job: "win32", runUrl: RUN_1 })],
+      },
+    ];
+
+    expect(decide([reportOf("win32", RUN_1)], issues)).toEqual([]);
+  });
+
   test("a test with an open and a closed issue is recorded in the open one", () => {
     const issues = [
       { number: 9, open: false, texts: [markerOf(FLAKE.id)] },
@@ -717,13 +741,37 @@ describe("the CLI on a real bun test", () => {
 
   beforeEach(() => {
     dir = mkdtempSync(join(tmpdir(), "flaky-cli-"));
+    mkdirSync(join(dir, "sub"));
+    writeFileSync(join(dir, "package.json"), "{}");
   });
 
   afterEach(() => rmSync(dir, { recursive: true, force: true }));
 
+  const ENV = {
+    ...process.env,
+    GITHUB_SERVER_URL: "https://github.com",
+    GITHUB_REPOSITORY: "o/r",
+    GITHUB_RUN_ID: "1",
+    GITHUB_RUN_ATTEMPT: "1",
+  };
+
+  const retried = async (): Promise<{ code: number; report: Report }> => {
+    const script = join(ROOT, "scripts", "flaky-report.ts");
+    const bun = process.execPath;
+
+    const ran = await $`${bun} ${script} retry bun --job win32 -- ${bun} test ./sub`
+      .cwd(dir)
+      .env(ENV)
+      .quiet()
+      .nothrow();
+
+    return {
+      code: ran.exitCode,
+      report: await Bun.file(join(dir, "flaky-reports", "bun.json")).json(),
+    };
+  };
+
   test("a test that fails once goes green on the retry and is written to the report", async () => {
-    mkdirSync(join(dir, "sub"));
-    writeFileSync(join(dir, "package.json"), "{}");
     writeFileSync(
       join(dir, "sub", "flaky.test.ts"),
       `import { expect, test } from "bun:test";
@@ -738,31 +786,43 @@ test("stable", () => expect(1).toBe(1));
 `,
     );
 
-    const env = {
-      ...process.env,
-      GITHUB_SERVER_URL: "https://github.com",
-      GITHUB_REPOSITORY: "o/r",
-      GITHUB_RUN_ID: "1",
-      GITHUB_RUN_ATTEMPT: "1",
-    };
-
-    const script = join(ROOT, "scripts", "flaky-report.ts");
-    const bun = process.execPath;
-
-    const ran = await $`${bun} ${script} retry bun --job win32 -- ${bun} test ./sub`
-      .cwd(dir)
-      .env(env)
-      .quiet()
-      .nothrow();
-
-    expect(ran.exitCode).toBe(0);
-    expect(await Bun.file(join(dir, "flaky-reports", "bun.json")).json()).toEqual({
-      job: "win32",
-      runUrl: RUN_1,
-      flakes: [
-        { id: "sub/flaky.test.ts > fails once", runner: "bun", firstFailure: expect.any(String) },
-      ],
+    expect(await retried()).toEqual({
+      code: 0,
+      report: {
+        job: "win32",
+        runUrl: RUN_1,
+        flakes: [
+          { id: "sub/flaky.test.ts > fails once", runner: "bun", firstFailure: expect.any(String) },
+        ],
+      },
     });
+  });
+
+  test("an afterAll that throws once is a flake, though the green rerun names no (unnamed) case", async () => {
+    writeFileSync(
+      join(dir, "sub", "hook.test.ts"),
+      `import { afterAll, expect, test } from "bun:test";
+import { existsSync, writeFileSync } from "node:fs";
+const marker = \`\${import.meta.dir}/.marker\`;
+afterAll(() => {
+  const first = !existsSync(marker);
+  writeFileSync(marker, "1");
+  if (first) throw new Error("EBUSY afterAll");
+});
+test("body ok", () => expect(1).toBe(1));
+`,
+    );
+    writeFileSync(
+      join(dir, "sub", "other.test.ts"),
+      `import { expect, test } from "bun:test";
+test("other", () => expect(1).toBe(1));
+`,
+    );
+
+    const { code, report: written } = await retried();
+
+    expect(code).toBe(0);
+    expect(written.flakes.map(({ id }) => id)).toEqual(["sub/hook.test.ts > (unnamed)"]);
   });
 });
 
@@ -835,12 +895,12 @@ describe("ci.yml", () => {
     expect(tolerant?.map((step) => step["continue-on-error"])).toEqual([true, true]);
   });
 
-  test("the flaky job alone writes issues, one run at a time, from every report of the run", async () => {
+  test("the flaky job alone writes issues, from every report of the run, in no concurrency group that could cancel it", async () => {
     const flaky = (await ci()).flaky;
 
     expect(flaky?.needs).toEqual(["win32", "e2e-window", "e2e-win32"]);
     expect(flaky?.permissions).toEqual({ contents: "read", issues: "write" });
-    expect(flaky?.concurrency).toEqual({ group: "flaky", "cancel-in-progress": false });
+    expect(flaky?.concurrency).toBeUndefined();
     expect(flaky?.if).toContain("always()");
     expect(flaky?.if).toContain(
       "github.event.pull_request.head.repo.full_name == github.repository",

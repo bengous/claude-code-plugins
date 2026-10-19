@@ -50,11 +50,11 @@ GitHub runs a `workflow_run` workflow from the default branch, `main`: the workf
 
 ## Flaky tests
 
-CI runs a failed test once more, goes green when that run passes, and keeps one issue labelled `flaky` per test that did so (`scripts/flaky-report.ts`): a flake no longer holds a landing, and each one is still counted.
+CI runs a failed test once more, goes green when that run passes, and keeps one issue labelled `flaky` per test that did so (`scripts/flaky-report.ts`): a flake holds no landing, and each one is counted.
 
 | Suite | The retry | A flake, and its id |
 |---|---|---|
-| `win32`'s `bun test --parallel vellum` | `retry bun`: the first run writes a junit report; on a failure, the files of its failed cases run again (`./<file>` each), and the step exits as that second run does | a case failed in the first report and passed in the second: `<file> > <classname> > <name>`, `(unnamed)` for an `afterAll` that threw |
+| `win32`'s `bun test --parallel vellum` | `retry bun`: the first run writes a junit report; on a failure, the files of its failed cases run again (`./<file>` each), and the step exits as that second run does | a case failed in the first report whose file the second report names, with no failure of that case, so an `afterAll` that threw once, `(unnamed)`, which a green rerun does not list, counts: `<file> > <classname> > <name>` |
 | `win32`'s `claude plugin test vellum` | `retry kit`: on a failure, the whole kit runs again, since it takes no file filter; the step exits as the second run does | a `(fail)` line of the first run, `the file did not load` included, whose file the second run printed with no `(fail)` for it: `kit:<file> > <name>` |
 | the browser suite, in each window and `e2e-win32` | Playwright's own, `retries` 1 under `CI` (`vellum/e2e/playwright.config.ts`), whose JSON reporter writes `vellum/test-results/playwright.json`; `playwright` reads it after the suite, red or green | a test Playwright marks `flaky`: `e2e:<file> > <describes> > <title>`, the window left out, so a test flaky in several windows has one issue |
 
@@ -67,7 +67,7 @@ Each writes `flaky-reports/<runner>.json` (`bun`, `kit`, `e2e`): `{job, runUrl, 
 | Fact | Owner |
 |---|---|
 | a test's issue | the newest open issue labelled `flaky` whose body holds `<!-- flaky:<id> -->`, else the newest closed one |
-| a job's run recorded | a text of that issue, body or comment, holding `<!-- flaky-run:<run URL> <job> -->` |
+| a job's run recorded | a text, body or comment, of any issue holding the test's marker, holding `<!-- flaky-run:<run URL> <job> -->` |
 
 - A flaky test with no issue: the label is created or reset (`gh label create flaky --force`), and the issue opens, titled `Flaky: <id>`, its Problem and Evidence naming the run, the job and the first failure; each other job of the run that saw it adds a comment.
 - A flaky test with an open issue: a comment per job of the run that saw it, never an edit of a counter, so the issue's comments count its flakes.
@@ -76,7 +76,7 @@ Each writes `flaky-reports/<runner>.json` (`bun`, `kit`, `e2e`): `{job, runUrl, 
 
 An issue labelled `flaky` with no marker, as #335, which names a hang across several tests, is never matched: a flake of one of those tests opens its own issue.
 
-Runs queue in the `concurrency` group `flaky`, none cancelled, so two runs never both open an issue for one test. GitHub keeps one pending job per group, so a third run queued behind a pending one replaces it, and the replaced run's flakes go unrecorded. The job lists the `flaky` issues, open and closed, without their comments, since `gh issue list` reads only the first 100 of each (`issueComments` in gh's `api/query_builder.go`), then reads every comment of each issue a flake of the run marks, page by page (`gh api --paginate`). Windows' path separators in junit's `file` and Playwright's are not measured: both are turned forward. `scripts/flaky-report.test.ts` holds the three readers on the spike's outputs, `decide` on a new flake, a known one, none, one test from two windows or jobs, and a closed issue reopened or left closed, `retry bun` on a real `bun test` whose test fails once, and the wiring in `ci.yml`.
+The job has no `concurrency` group: GitHub cancels a pending job of a group that a third one replaces, whatever `cancel-in-progress` says ([Control the concurrency of workflows and jobs](https://docs.github.com/en/actions/how-tos/write-workflows/choose-when-workflows-run/control-workflow-concurrency)), and a `cancelled` `flaky` refuses a landing. Two `flaky` jobs that run at once can both find no issue for a test and open one each: at worst one duplicate, after which every comment goes to the newest open issue and a run either one records counts as recorded. The job lists the `flaky` issues, open and closed, without their comments, since `gh issue list` reads only the first 100 of each (`issueComments` in gh's `api/query_builder.go`), then reads every comment of each issue a flake of the run marks, page by page (`gh api --paginate`). Windows' path separators in junit's `file` and Playwright's are not measured: both are turned forward. `scripts/flaky-report.test.ts` holds the three readers on the spike's outputs, `decide` on a new flake, a known one, none, one test from two windows or jobs, a closed issue reopened or left closed, and two open issues a race left, `retry bun` on a real `bun test` whose test, or whose `afterAll`, fails once, and the wiring in `ci.yml`.
 
 ## Mutation testing
 
