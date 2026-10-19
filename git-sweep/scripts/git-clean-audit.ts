@@ -218,7 +218,7 @@ type WorktreeVerdict =
   | Exclude<Triage, { kind: "inspect" }>
   | { kind: "candidate"; candidate: Candidate };
 
-export async function inspectWorktree(path: string, branch: string): Promise<WorktreeVerdict> {
+async function inspectWorktree(path: string, branch: string): Promise<WorktreeVerdict> {
   const held = (reason: BranchHold["reason"], detail: string): WorktreeVerdict => ({
     kind: "held",
     hold: { name: branch, reason, detail },

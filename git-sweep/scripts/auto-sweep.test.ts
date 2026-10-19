@@ -6,6 +6,7 @@ import { join } from "node:path";
 import {
   CLOSED_PR_GRACE_DAYS,
   isAgentWorktree,
+  isDisposable,
   judgeUnproven,
   NO_PR_IDLE_DAYS,
   parsePullLines,
@@ -82,7 +83,9 @@ async function makeRepo(prefix: string): Promise<string> {
   await git(repo, "init", "--initial-branch=main");
   await git(repo, "config", "user.email", "test@test.com");
   await git(repo, "config", "user.name", "Test");
-  writeFileSync(join(repo, ".gitignore"), "node_modules/\n*.env\n");
+  writeFileSync(join(repo, ".gitignore"), "node_modules/\n*.env\nplans/\n/*/tsconfig.json\n");
+  mkdirSync(join(repo, "pinpoint"));
+  writeFileSync(join(repo, "pinpoint", "README.md"), "a plugin");
   await git(repo, "add", ".");
   await git(repo, "commit", "-m", "initial commit");
   await git(repo, "branch", "dev");
@@ -120,6 +123,35 @@ describe("isAgentWorktree", () => {
     expect(isAgentWorktree("/r/.claude/worktrees/agent-", "/r")).toBe(false);
     expect(isAgentWorktree("/r/.claude/worktrees/agent-a1/nested", "/r")).toBe(false);
     expect(isAgentWorktree("/other/.claude/worktrees/agent-a1", "/r")).toBe(false);
+  });
+});
+
+describe("isDisposable", () => {
+  test("names what a checkout regenerates, nothing else", () => {
+    for (const path of [
+      "node_modules/",
+      "vellum/node_modules/",
+      "scripts/__pycache__/",
+      ".stryker-tmp/",
+      "vellum/test-results/",
+      "flaky-reports/",
+      "pinpoint/tsconfig.json",
+      "todos/.claude-plugin/types/",
+    ]) {
+      expect(isDisposable(path)).toBe(true);
+    }
+
+    for (const path of [
+      "plans/",
+      "local.env",
+      "tsconfig.json",
+      "a/b/tsconfig.json",
+      "node_modules.bak/",
+      ".claude/settings.local.json",
+      "test-results/",
+    ]) {
+      expect(isDisposable(path)).toBe(false);
+    }
   });
 });
 
@@ -227,18 +259,40 @@ describe("auto-sweep", () => {
     await git(repo, "switch", "main");
     await git(repo, "branch", "-f", "dev", "feature/done");
     const agent = await addWorktree(repo, agentPath(repo, "a1"), "feature/agent-done");
-    mkdirSync(join(agent, "node_modules"));
-    writeFileSync(join(agent, "node_modules", "dep.js"), "");
 
     const { exitCode, stdout } = await sweep(repo);
 
     expect(exitCode).toBe(0);
     expect(stdout).toStartWith("auto-sweep against dev");
     expect(stdout).toContain("feature/done (ancestry)");
-    expect(stdout).toContain("ignored dirs removed: node_modules/");
+    expect(stdout).toContain("agent-a1 on feature/agent-done (ancestry)\n");
     expect(await branchExists(repo, "feature/done")).toBe(false);
     expect(await branchExists(repo, "feature/agent-done")).toBe(false);
     expect(existsSync(agent)).toBe(false);
+  });
+
+  test("removes an agent worktree holding only disposable ignored paths, keeps one holding plans/", async () => {
+    const repo = await makeRepo("disposable");
+    const built = await addWorktree(repo, agentPath(repo, "a8"), "feature/built");
+    mkdirSync(join(built, "node_modules"));
+    writeFileSync(join(built, "node_modules", "dep.js"), "");
+    writeFileSync(join(built, "pinpoint", "tsconfig.json"), "{}");
+    const planned = await addWorktree(repo, agentPath(repo, "a9"), "feature/planned");
+    mkdirSync(join(planned, "node_modules"));
+    mkdirSync(join(planned, "plans"));
+    writeFileSync(join(planned, "plans", "only-copy.md"), "the plan");
+
+    const { exitCode, stdout } = await sweep(repo);
+
+    expect(exitCode).toBe(0);
+    expect(stdout).toContain("(ancestry; removes node_modules/, pinpoint/tsconfig.json)");
+    expect(stdout).toContain(
+      "feature/planned: worktree: .claude/worktrees/agent-a9 holds ignored plans/, not known disposable",
+    );
+    expect(existsSync(built)).toBe(false);
+    expect(await branchExists(repo, "feature/built")).toBe(false);
+    expect(existsSync(join(planned, "plans", "only-copy.md"))).toBe(true);
+    expect(await branchExists(repo, "feature/planned")).toBe(true);
   });
 
   test("drops a stale agent registration with its branch, keeps a stale non-agent one", async () => {
@@ -252,7 +306,8 @@ describe("auto-sweep", () => {
 
     expect(exitCode).toBe(0);
     expect(stdout).toContain("agent-a6 on feature/agent-gone (directory gone)");
-    expect(stdout).toContain("feature/other-gone: stale worktree:");
+    expect(stdout).toContain("feature/other-gone: stale worktree");
+    expect(stdout).toContain("is not an agent worktree, not swept");
     expect(await branchExists(repo, "feature/agent-gone")).toBe(false);
     expect(await branchExists(repo, "feature/other-gone")).toBe(true);
     expect(await git(repo, "worktree", "list")).not.toContain("agent-a6");
@@ -284,7 +339,8 @@ describe("auto-sweep", () => {
     expect(stdout).toContain("main: protected");
     expect(stdout).toContain("feature/here: current");
     expect(stdout).toContain("feature/dirty: dirty-worktree");
-    expect(stdout).toContain("holds ignored files (local.env)");
+    expect(stdout).toContain("agent-a3 holds ignored local.env, not known disposable");
+    expect(stdout).toContain("feature/named: named worktree .claude/worktrees/named, not swept");
     expect(stdout).toContain(`worktree-agent-a4: its agent still runs in`);
 
     for (const branch of ["main", "dev", "feature/here", "feature/dirty", "feature/secret"]) {

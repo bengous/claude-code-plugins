@@ -1,4 +1,7 @@
 ---
+# Model-invocable without breaching .claude/rules/skill-commands.md: every
+# deletion has an undo or loses nothing (a proven branch's content is in the
+# base, an archive restores, a worktree loses only regenerated ignored paths).
 name: auto-sweep
 description: >
   Clean leftover local branches and agent worktrees with no prompt: deletes the
@@ -53,11 +56,12 @@ interactive `/git-sweep`'s to judge, with the user.
 | Case | Outcome |
 |------|---------|
 | Branch proven in the base (ancestry, no merge delta, merged PR) | deleted |
-| Clean agent worktree on a proven branch, ignored directories only | removed, branch deleted |
+| Clean agent worktree on a proven branch, its ignored paths all regenerated (`node_modules/`, a plugin's `tsconfig.json`…) | removed, branch deleted |
 | Agent worktree whose directory is gone | registration dropped |
 | Unproven agent branch, PR closed unmerged and last commit both 14+ days old | archived, then deleted with its clean worktree |
 | Unproven agent branch, no PR, last commit 30+ days old | archived, then deleted with its clean worktree |
-| Base, protected, current, locked, dirty, or holding ignored files | kept |
+| Base, protected, current, locked, dirty, or holding any other ignored path (a `plans/`) | kept, the path named |
+| Named worktree `.claude/worktrees/<name>`, or any outside `.claude/worktrees/agent-*` | not swept |
 | Agent branch whose agent still runs (its worktree is locked) | kept |
 | Remote branches and tracking refs | never deleted |
 
