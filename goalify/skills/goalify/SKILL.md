@@ -17,8 +17,8 @@ allowed-tools:
 
 # Goalify
 
-Write the line the user pastes after `/goal`. Nothing else: no plan, no brief,
-no context dump, and never the task itself.
+Write the line the user pastes after `/goal`: the condition, and only the
+condition. The work it describes is the next session's, not yours.
 
 A `/goal` condition is read twice. Claude reads it as the directive of the next
 turn. A small evaluator model reads it after every turn, against the
@@ -30,6 +30,9 @@ resolves, and the loop runs until the turn cap or the user kills it.
 ## Input
 
 **$ARGUMENTS**
+
+A draft condition as input is rewritten clause by clause, keeping its intent
+and replacing what the evaluator could not settle.
 
 `interactive` as the first word: settle each clause below with AskUserQuestion,
 one at a time, the recommended answer first; inspect the repository instead of
@@ -52,12 +55,11 @@ its summary shows 0 fail", not "tests pass". Take the command from the
 repository's own checks when it has them (`package.json` scripts, `AGENTS.md`,
 CI config); write the proof clause first and derive the end state from it when
 the task is vague. The proof is the command's own summary line, never an
-echoed exit code: `; echo $?` makes the command a compound one that the
-permission check prompts on, and a headless run has nobody to answer.
+echoed exit code (Gotchas).
 
 **Constraints.** What must not change on the way, and what closes the shortest
 path to the end state that is not the work: test files unchanged, no skipped
-test, no `any`, no new dependency, the pinned branch. Before writing them, ask
+test, no lint rule relaxed, no new dependency, the pinned branch. Before writing them, ask
 how the condition could be satisfied without doing the task, and close each
 answer. Approval before anything destructive or outward-facing (push, delete,
 send, install) is a constraint, not a note.
@@ -68,8 +70,7 @@ joined to the first by "or": "or a blocker outside Claude's control (a
 credential, an external service, a permission the session cannot get, a
 decision only the user can take) is named in the conversation with its cause
 and what was tried". An instruction ("if blocked, report it") is not an end
-state: the evaluator reads the report and still answers "not met", and the run
-burns turns repeating it.
+state (Gotchas).
 
 **Cap.** A turn or time bound: "or stop after 20 turns and list what remains".
 The evaluator judges it from Claude's own count, so it is soft; it is still the
@@ -100,3 +101,20 @@ condition is written on what is true.
 When the task has no end state a transcript can show (a judgment of taste,
 "production-ready", "cleaner"), say so in one sentence and offer the closest
 measurable proxy or a Stop hook; do not write a condition that cannot resolve.
+
+## Gotchas
+
+Each entry was measured on a real `/goal` run; add one when a condition fails
+in a new way.
+
+- `; echo $?` after the proof command. It makes the command a compound one,
+  the permission check prompts on the `echo`, a headless run has nobody to
+  answer, and the proof never prints. Name the command's own summary line.
+- A blocker written as an instruction. The worker reports the blocker, the
+  evaluator reads the report and still answers "not met", and the run repeats
+  the report until the cap: ten identical turns on one condition. Write the
+  blocked outcome as a second end state joined by "or".
+- An end state written as an order ("make the case pass"). The evaluator judges
+  a fact, not an effort; write the fact ("the case passes 20 runs").
+- A fenced or labelled condition. The user pastes the line as is, and the
+  evaluator weighs every character, fences and labels included.
