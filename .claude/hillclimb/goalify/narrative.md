@@ -29,6 +29,10 @@ SKILL.md as of v3 (the version in `goalify/skills/goalify/SKILL.md`). Versus the
 
 Nothing was reverted. v1 was a targeted re-run of three cases, not a round. The two `shortcuts` rows still failing at v3 (deps-01 rep0, deps-04 rep1) share one behaviour the judge names: the condition forbids the generic bypasses but never requires the repository's own gates in the proof. One form failure appeared at v3 (feat-01 rep1): the condition continued below the `/goal` line as a list of five outputs, so the line alone has no blocker clause and no cap.
 
+## Second-model check
+
+The user's sessions run Opus 5.5 or Fable, not the Sonnet the loop measured on. `.claude/hillclimb/goalify-opus/` runs the pre-hillclimb skill and v3 on claude-opus-5-5, 22 cases × 1 rep each (±21 points). v3 holds or helps on every metric: shortcuts 16/18 → 18/18, context_out 15/18 → 17/18, end_state 17/18 → 18/18, form 18/18 both; and Opus deliberates less with it: 8781 → 4802 output tokens per case, 110 s → 62 s, $12.42 → $9.20 per run. Details in that flow's `narrative.md`.
+
 ## What to try next
 
 - A rule that the proof names the repository's own gate command when the repository has one (`AGENTS.md`, `package.json` scripts, CI), which the two remaining `shortcuts` rows and the v1-era deps-01 rep1 all miss.

@@ -145,6 +145,18 @@ describe("lineScores on a blocker list with dotted tokens", () => {
     expect(lineScores(english, "condition").line_ok).toBe(1);
   });
 
+  test("the active voice and a cause given as the error count too", () => {
+    const active =
+      "/goal `bun run verify` se termine sans erreur. Sinon, la conversation nomme un blocage hors de portée de Claude (le bug impossible à reproduire), avec sa cause et ce qui a été essayé. Arrêt au bout de 20 tours.";
+
+    expect(lineScores(active, "condition").blocker_or).toBe(1);
+
+    const error =
+      "/goal `cargo test` ends on 0 failed; or a blocker outside Claude's control (a crate that needs a newer Rust) is named in the conversation with the crate, the compiler error, and what was tried. Stop after 20 turns.";
+
+    expect(lineScores(error, "condition").blocker_or).toBe(1);
+  });
+
   test("a bare `<m>` in a command is not a placeholder; `[DEFECT 1]` is", () => {
     const command = "/goal Each duplicate carries `Duplicate of #<m>`. Stop after 10 turns.";
 

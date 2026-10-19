@@ -27,7 +27,7 @@ const SECTION_LABEL =
 const BACKTICK_COMMAND = /`[^`\n]{2,}`/u;
 
 const BLOCKER_END_STATE =
-  /\b(blocker|blocked|blocage|bloqu\S*|obstacle|emp[êe]chement|impediment|outside Claude'?s control|hors (du contrôle|de portée) de Claude)\b.{0,400}\b(is|are|est|sont|be|être)\s+(named|reported|stated|nomm\S*|signal\S*)\b.{0,80}\bcause\b|\b(blocker|blocage|obstacle)\b.{0,400},\s*(named|nomm\S*|signal\S*)\b.{0,80}\bcause\b/iu;
+  /\b(blocker|blocked|blocage|bloqu\S*|obstacle|emp[êe]chement|impediment|outside Claude'?s control|hors (du contrôle|de portée) de Claude)\b.{0,400}\b(is|are|est|sont|be|être)\s+(named|reported|stated|nomm\S*|signal\S*)\b.{0,120}\b(cause|what was tried|ce qui a été (tenté|essayé)|error|erreur)\b|\b(blocker|blocage|obstacle)\b.{0,400},\s*(named|nomm\S*|signal\S*)\b.{0,120}\b(cause|what was tried|ce qui a été (tenté|essayé))\b|\b(conversation|transcript)\s+(nomme|names)\s+(un|a)\s+(blocage|blocker|obstacle)\b.{0,400}\b(cause|what was tried|ce qui a été (tenté|essayé))\b/iu;
 
 const TURN_CAP =
   /\b(stop\S*|arr[êe]t\S*)\b.{0,80}\b\d+\s*(turns?|tours?|minutes?|hours?|heures?|tries|attempts|essais?)\b|\b\d+\s*(turns?|tours?|minutes?|hours?|heures?|tries|attempts|essais?)\b.{0,80}\b(stop\S*|arr[êe]t\S*|sont pass\S*|have (passed|elapsed)|elapsed)\b/iu;
