@@ -134,9 +134,9 @@ function scripted(outputs: readonly string[]) {
   return { gh, calls };
 }
 
-/** A clock that moves only when the wait sleeps. */
+/** A clock that moves only when the wait sleeps, started far from zero as a real one is. */
 function fakeClock() {
-  let now = 0;
+  let now = 1_000_000_000;
   const sleeps: number[] = [];
 
   const clock: Clock = {
