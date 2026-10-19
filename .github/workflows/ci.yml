@@ -396,10 +396,10 @@ jobs:
   # the one job that writes issues, so the suites' jobs keep the read-only token. It runs once any
   # of them ran, red or green, but not on a fork's pull request, whose token cannot write issues.
   # One run at a time, none cancelled: two runs never open two issues for one test. Bookkeeping,
-  # never a verdict: a red `flaky` leaves the workflow run's conclusion green.
+  # never a verdict: the download and the report continue on error, on the steps rather than the
+  # job, since a job's `continue-on-error` still leaves its own check red, which `land.ts` reads.
   flaky:
     needs: [win32, e2e-window, e2e-win32]
-    continue-on-error: true
     if: >-
       always()
       && (needs.win32.result != 'skipped'
@@ -425,12 +425,14 @@ jobs:
 
       # A folder per artifact, every attempt's: a run already recorded is skipped by its marker.
       - name: Download the flaky reports
+        continue-on-error: true
         uses: actions/download-artifact@v8
         with:
           pattern: flaky-*
           path: flaky-reports
 
-      - name: Open or comment on an issue per flaky test
+      - name: Open, reopen or comment on an issue per flaky test
+        continue-on-error: true
         run: bun ./scripts/flaky-report.ts report flaky-reports
         env:
           GH_TOKEN: ${{ github.token }}

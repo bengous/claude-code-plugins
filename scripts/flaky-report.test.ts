@@ -774,6 +774,7 @@ interface Step {
   readonly uses?: string;
   readonly with?: Readonly<Record<string, string>>;
   readonly env?: Readonly<Record<string, string>>;
+  readonly "continue-on-error"?: boolean;
 }
 
 interface Job {
@@ -821,13 +822,25 @@ describe("ci.yml", () => {
     ]);
   });
 
-  test("the flaky job alone writes issues, one run at a time, from every report of the run, never failing the run", async () => {
+  test("the flaky job's download and report continue on error, so its own check never turns red", async () => {
+    const flaky = (await ci()).flaky;
+
+    const tolerant = flaky?.steps.filter(
+      (step) =>
+        step.uses?.startsWith("actions/download-artifact@") === true ||
+        step.run?.startsWith("bun ./scripts/flaky-report.ts report") === true,
+    );
+
+    expect(flaky?.["continue-on-error"]).toBeUndefined();
+    expect(tolerant?.map((step) => step["continue-on-error"])).toEqual([true, true]);
+  });
+
+  test("the flaky job alone writes issues, one run at a time, from every report of the run", async () => {
     const flaky = (await ci()).flaky;
 
     expect(flaky?.needs).toEqual(["win32", "e2e-window", "e2e-win32"]);
     expect(flaky?.permissions).toEqual({ contents: "read", issues: "write" });
     expect(flaky?.concurrency).toEqual({ group: "flaky", "cancel-in-progress": false });
-    expect(flaky?.["continue-on-error"]).toBe(true);
     expect(flaky?.if).toContain("always()");
     expect(flaky?.if).toContain(
       "github.event.pull_request.head.repo.full_name == github.repository",
