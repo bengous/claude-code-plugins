@@ -218,15 +218,15 @@ describe("assess accounts for each mention", () => {
   });
 });
 
-describe("commitsOf", () => {
-  /** Each commit as the line with a mark where its trailers go, and the directory it runs in. */
-  function marked(command: string): [string, string | null][] {
-    return commitsOf(command, CWD, { exists: () => true }).map((commit) => [
-      `${command.slice(0, commit.offset)}|${command.slice(commit.offset)}`,
-      commit.cwd,
-    ]);
-  }
+/** Each commit as the line with a mark where its trailers go, and the directory it runs in. */
+function marked(command: string): [string, string | null][] {
+  return commitsOf(command, CWD, { exists: () => true }).map((commit) => [
+    `${command.slice(0, commit.offset)}|${command.slice(commit.offset)}`,
+    commit.cwd,
+  ]);
+}
 
+describe("commitsOf", () => {
   test("finds a git commit as written, its wrappers, assignments and location peeled", () => {
     expect(marked("git commit -m x")).toEqual([["git commit| -m x", CWD]]);
     expect(marked("FOO=1 timeout 60 git -C sub commit -qm x")).toEqual([
