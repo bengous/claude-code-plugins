@@ -2,6 +2,10 @@
 
 What each version of vellum changed for the person using it, newest first.
 
+## 0.17.9 - 2026-10-19
+
+Internal changes only: the code and tests follow oxlint 1.88 and every dependency is pinned.
+
 ## 0.17.8 - 2026-10-14
 
 ### Fixed
