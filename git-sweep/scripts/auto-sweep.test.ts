@@ -371,6 +371,54 @@ describe("auto-sweep", () => {
     expect(await branchExists(repo, "worktree-agent-old")).toBe(true);
   });
 
+  test("a deletion that fails drops the archive ref it wrote", async () => {
+    const repo = await makeRepo("rollback");
+    const abandoned = await addWorktree(repo, agentPath(repo, "a7"), "feature/abandoned");
+    await commitDaysAgo(abandoned, "abandoned.txt", NO_PR_IDLE_DAYS + 10);
+    const realGit = Bun.which("git");
+
+    if (realGit === null) throw new Error("git not found on PATH");
+    const shimDir = makeTmpDir("git-shim");
+
+    writeFileSync(
+      join(shimDir, "git"),
+      `#!/usr/bin/env bash
+if [[ "$1" == "worktree" && "$2" == "remove" ]]; then
+  echo "fatal: simulated failure" >&2
+  exit 128
+fi
+exec ${realGit} "$@"
+`,
+      { mode: 0o755 },
+    );
+
+    const { exitCode, stdout } = await sweep(repo, [], { PATH: `${shimDir}:${process.env.PATH}` });
+
+    expect(exitCode).toBe(1);
+    expect(stdout).toContain("Failed (2):");
+    expect(stdout).not.toContain("Archived");
+    expect(await branchExists(repo, "feature/abandoned")).toBe(true);
+    expect(existsSync(abandoned)).toBe(true);
+    expect(await git(repo, "for-each-ref", "refs/archive/")).toBe("");
+  });
+
+  test("deletes a backup contained by ancestry, keeps one whose commits are not in the base", async () => {
+    const repo = await makeRepo("backup");
+    await git(repo, "branch", "backup/merged", "dev");
+    await git(repo, "switch", "-c", "backup/squashed");
+    await commitDaysAgo(repo, "work.txt", 1);
+    await git(repo, "switch", "dev");
+    await git(repo, "cherry-pick", "backup/squashed");
+    await git(repo, "switch", "main");
+
+    const { stdout } = await sweep(repo);
+
+    expect(stdout).toContain("backup/merged (ancestry)");
+    expect(stdout).toContain("backup/squashed: backup: no-merge-delta");
+    expect(await branchExists(repo, "backup/merged")).toBe(false);
+    expect(await branchExists(repo, "backup/squashed")).toBe(true);
+  });
+
   test("an explicit --base wins over dev", async () => {
     const repo = await makeRepo("base");
     await git(repo, "switch", "-c", "feature/on-main");
