@@ -1,0 +1,87 @@
+{
+  "schema": "hillclimb/v2",
+  "metrics": [
+    {
+      "id": "kind_ok",
+      "label": "kind",
+      "kind": "binary"
+    },
+    {
+      "id": "line_ok",
+      "label": "line",
+      "kind": "binary"
+    },
+    {
+      "id": "proof_cmd",
+      "label": "proof cmd",
+      "kind": "binary"
+    },
+    {
+      "id": "blocker_or",
+      "label": "blocker or",
+      "kind": "binary"
+    },
+    {
+      "id": "cap",
+      "label": "cap",
+      "kind": "binary"
+    },
+    {
+      "id": "end_state",
+      "label": "end state",
+      "kind": "binary"
+    },
+    {
+      "id": "proof_line",
+      "label": "proof line",
+      "kind": "binary"
+    },
+    {
+      "id": "shortcuts",
+      "label": "shortcuts",
+      "kind": "binary"
+    },
+    {
+      "id": "context_out",
+      "label": "context out",
+      "kind": "binary"
+    },
+    {
+      "id": "proxy",
+      "label": "proxy",
+      "kind": "binary"
+    },
+    {
+      "id": "repo_truth",
+      "label": "repo truth",
+      "kind": "binary"
+    }
+  ],
+  "perf_fields": [
+    {
+      "id": "cost_usd",
+      "label": "cost",
+      "unit": "$"
+    },
+    {
+      "id": "latency_s",
+      "label": "latency",
+      "unit": "s"
+    },
+    {
+      "id": "tool_calls",
+      "label": "tool calls"
+    },
+    {
+      "id": "num_turns",
+      "label": "turns"
+    }
+  ],
+  "harness_paths": [
+    "goalify/evals/flow.ts",
+    "goalify/evals/grade.ts",
+    "goalify/evals/cases.json",
+    "goalify/skills/goalify/SKILL.md"
+  ],
+  "harness_sha": "488dd1b7bad71f6beda26c11ae263d9a6d4a9a919a2ea9ce0200353d1d092015"
+}

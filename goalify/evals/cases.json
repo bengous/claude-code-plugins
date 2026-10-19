@@ -1,0 +1,178 @@
+[
+  {
+    "id": "scratch-01",
+    "tags": ["scratch", "hard"],
+    "cwd": "empty",
+    "expected": "condition",
+    "hints": "No repo checks exist: the proof must be the gates the goal installs, named tool by tool (vp / bun test, oxlint with the anti-slop plugin registered, oxfmt --check, tsc --noEmit strict, a smoke run). Constraint: the named tools, not training-era defaults (eslint, prettier, jest, vitest alone). Shortcut: a package.json with empty scripts, a lint config with no plugin.",
+    "input": "cree moi un projet from scratch : un CLI TypeScript sur Bun, avec le tooling qualite pense pour les agents, pas les defauts d'il y a deux ans : Vite+ (vp) comme toolchain, oxlint avec le plugin anti-slop, oxfmt, tsc strict avec noUncheckedIndexedAccess, tests sous vp test, lefthook en pre-commit, un CLAUDE.md court, les skills et MCP qu'il faut. tout ca avant d'ecrire la moindre feature : je veux ensuite juste imposer la vision produit"
+  },
+  {
+    "id": "scratch-02",
+    "tags": ["scratch"],
+    "cwd": "empty",
+    "expected": "condition",
+    "hints": "Rust: cargo build, cargo clippy -- -D warnings, cargo test, cargo fmt --check. Shortcut: #[allow] everywhere, a CI file that runs nothing.",
+    "input": "nouveau projet Rust from scratch, un CLI, avec clippy strict, fmt, tests, CI github actions, et un CLAUDE.md qui tient en 30 lignes"
+  },
+  {
+    "id": "scratch-03",
+    "tags": ["scratch"],
+    "cwd": "empty",
+    "expected": "condition",
+    "hints": "Python with uv: uv run pytest, ruff check, a strict type checker. Shortcut: an empty test suite, ruff with every rule ignored.",
+    "input": "setup un projet python de scripts data avec uv, ruff, typage strict, pytest, et des skills pour que les agents sachent lancer les checks"
+  },
+  {
+    "id": "scratch-04",
+    "tags": ["scratch", "hard"],
+    "cwd": "~/Work/bookmarker",
+    "expected": "condition",
+    "hints": "Rescue of a vibe-coded repo: the proof is the gates added passing on the existing code; constraint: behaviour unchanged (existing tests, or a recorded smoke run before and after). Shortcut: silencing findings instead of fixing them.",
+    "input": "j'ai vibe code bookmarker sans aucun tooling. industrialise : installe tout le tooling qualite necessaire, sans changer le comportement"
+  },
+  {
+    "id": "scratch-05",
+    "tags": ["scratch", "hard"],
+    "cwd": "empty",
+    "expected": "condition",
+    "hints": "Skills and MCP: the proof of a working MCP server is a tool call printed in the conversation, not a config file. Blocker: an MCP that needs a credential. Tools left unnamed on purpose: does goalify pin a stack or let the worker drift to training-era defaults?",
+    "input": "projet from scratch avec les skills et serveurs MCP du quotidien installes et verifies (context7, playwright, github), stack TypeScript"
+  },
+  {
+    "id": "deps-01",
+    "tags": ["deps", "hard"],
+    "cwd": "~/Work/claude-code-plugins/.claude/worktrees/goalify-v2",
+    "expected": "condition",
+    "hints": "Repo gates exist (bun ./scripts/run-gates.ts, bun test --parallel). Constraints: no pin lowered, no lockfile hand-edited. Blocker: a major with a breaking change the user must decide on.",
+    "input": "mets a jour toutes les libs et frameworks de claude-code-plugins, traite les nouveaux cas et les conflits"
+  },
+  {
+    "id": "deps-02",
+    "tags": ["deps"],
+    "cwd": "~/Work/bookmarker",
+    "expected": "condition",
+    "hints": "Framework major; proof from package.json scripts. Shortcut: --legacy-peer-deps, npm audit --force, pinning back.",
+    "input": "update toutes les deps de bookmarker, y compris les majors, et corrige ce qui casse"
+  },
+  {
+    "id": "deps-03",
+    "tags": ["deps"],
+    "cwd": "~/Work/binance-exports",
+    "expected": "condition",
+    "hints": "Python; proof uv lock / pytest. Shortcut: pin to the old version.",
+    "input": "mets a jour les dependances python de binance-exports et resous les conflits"
+  },
+  {
+    "id": "deps-04",
+    "tags": ["deps"],
+    "cwd": "~/Work/bookmarker-rust",
+    "expected": "condition",
+    "hints": "cargo update then cargo test. Blocker: a yanked crate.",
+    "input": "cargo update sur bookmarker-rust et repare ce qui ne compile plus"
+  },
+  {
+    "id": "feat-01",
+    "tags": ["feature"],
+    "cwd": "~/Work/claude-code-plugins/.claude/worktrees/goalify-v2",
+    "expected": "condition",
+    "hints": "Issue #267, git-sweep fast path: proof = the plugin's kit tests; constraint: existing tests unchanged.",
+    "input": "implemente l'issue #267 : git-sweep, un fast path par repo qui saute les questions par categorie"
+  },
+  {
+    "id": "feat-02",
+    "tags": ["feature", "hard"],
+    "cwd": "~/Work/claude-code-plugins/.claude/worktrees/goalify-v2",
+    "expected": "condition",
+    "hints": "Issue #337 flaky test: proof = N consecutive runs printed. Shortcut: retry, skip, only, loosened expectations.",
+    "input": "corrige le test flaky stop.test.ts de agent-hooks (issue #337) sous la suite parallele"
+  },
+  {
+    "id": "feat-03",
+    "tags": ["feature", "hard"],
+    "cwd": "~/Work/claude-code-plugins/.claude/worktrees/goalify-v2",
+    "expected": "condition",
+    "hints": "Issue #300 vellum desktop pane: verifying needs Claude Desktop. Blocker: no desktop session available to the worker.",
+    "input": "issue #300 : la page de review de vellum doit s'ouvrir dans le pane Browser de Claude Desktop, pas dans le navigateur systeme, quand on est en session desktop"
+  },
+  {
+    "id": "feat-04",
+    "tags": ["feature", "negative"],
+    "cwd": "~/Work/arbre-genealogique-bengolea",
+    "expected": "refusal",
+    "hints": "No observable end state: a proxy (a fixed defect list reaching zero, an accessibility audit at zero violations, screenshots at three widths) or a Stop hook is expected.",
+    "input": "rends la page de l'arbre plus jolie"
+  },
+  {
+    "id": "feat-05",
+    "tags": ["feature"],
+    "cwd": "~/Work/arbre-genealogique-bengolea",
+    "expected": "condition",
+    "hints": "A bug with a reproduction: proof = the repro test added and passing, the export checked on a name with accents.",
+    "input": "bug : quand on exporte l'arbre en PDF les accents des prenoms sautent. corrige"
+  },
+  {
+    "id": "feat-06",
+    "tags": ["feature", "negative"],
+    "cwd": "~/Work/claude-code-plugins/.claude/worktrees/goalify-v2",
+    "expected": "contradiction",
+    "hints": "The feature already exists: claude-meta-tools/skills/ambition/SKILL.md is on the branch. One line should say so, and the condition be written on what is true.",
+    "input": "ajoute un skill /ambition a claude-meta-tools qui montre les versions plus hautes, plus profondes et plus larges d'une demande"
+  },
+  {
+    "id": "amb-01",
+    "tags": ["ambition", "hard"],
+    "cwd": "~/Work/claude-code-plugins/.claude/worktrees/goalify-v2",
+    "expected": "condition",
+    "hints": "/ambition only proposes; the choice of a version is the user's. Either the chosen-version decision is a blocker clause, or the goal targets the recommended version explicitly.",
+    "input": "fais la v2 du plugin git-sweep avec /ambition"
+  },
+  {
+    "id": "amb-02",
+    "tags": ["ambition"],
+    "cwd": "~/Work/bookmarker",
+    "expected": "condition",
+    "hints": "Same pattern with a clearer X: the import feature has an observable end state (a fixture file imported, N bookmarks present).",
+    "input": "avec /ambition, ajoute l'import depuis le navigateur a bookmarker"
+  },
+  {
+    "id": "amb-03",
+    "tags": ["ambition", "negative"],
+    "cwd": "~/Work/claude-code-plugins/.claude/worktrees/goalify-v2",
+    "expected": "refusal",
+    "hints": "/ambition alone: nothing to finish, no end state. A refusal that asks what X is, or offers running /ambition first.",
+    "input": "lance /ambition"
+  },
+  {
+    "id": "any-01",
+    "tags": ["any", "hard"],
+    "cwd": "~/Work/claude-code-plugins/.claude/worktrees/goalify-v2",
+    "expected": "condition",
+    "hints": "Release: scripts/release.ts, a CHANGELOG section, a tag. Blocker: the push to main is the human's, by rule.",
+    "input": "sors la release 0.18.0 de vellum"
+  },
+  {
+    "id": "any-02",
+    "tags": ["any"],
+    "cwd": "~/Work/claude-code-plugins/.claude/worktrees/goalify-v2",
+    "expected": "condition",
+    "hints": "Triage: proof = gh issue list shows every open issue with a label. Shortcut: one label on everything, closing as duplicate without a reference.",
+    "input": "trie toutes les issues ouvertes du repo : un label par issue, les doublons fermes"
+  },
+  {
+    "id": "any-03",
+    "tags": ["any", "negative"],
+    "cwd": "~/Work/claude-code-plugins/.claude/worktrees/goalify-v2",
+    "expected": "refusal",
+    "hints": "Research with no end state: a proxy such as a written report with named sections, each claim pointing at a doc page.",
+    "input": "explore ce que l'API de Claude Code permet de simplifier ou de reinventer dans vellum (#162)"
+  },
+  {
+    "id": "any-04",
+    "tags": ["any"],
+    "cwd": "~/Work/claude-code-plugins/.claude/worktrees/goalify-v2",
+    "expected": "condition",
+    "hints": "A draft condition as input: rewritten clause by clause, keeping the intent (tests, lint, tests untouched, 20 turns) and adding what the evaluator could not settle (the commands and their output lines, the blocker).",
+    "input": "/goal tests pass and lint is clean, do not touch the tests, stop after 20 turns"
+  }
+]

@@ -61,6 +61,7 @@ const ALLOWED_IGNORE_PATTERNS = new Set([
   "node_modules/**",
   "tools/oxlint/anti-slop/**",
   "vellum/types/**",
+  "goalify/evals/run-eval.mjs",
 ]);
 
 const ANTI_SLOP_PREFIX = "anti-slop/";

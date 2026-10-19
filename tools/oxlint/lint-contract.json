@@ -8,7 +8,8 @@
     "archive/**",
     "node_modules/**",
     "tools/oxlint/anti-slop/**",
-    "vellum/types/**"
+    "vellum/types/**",
+    "goalify/evals/run-eval.mjs"
   ],
   "jsPlugins": [
     {

@@ -8,6 +8,8 @@ export default defineConfig({
     "tools/oxlint/anti-slop/**",
     // Written by Claude Code, regenerated at each update (scripts/claude-code-types.ts).
     "vellum/types/**",
+    // Vendored from the claude-api skill's eval runner scaffold, upstream owns the style.
+    "goalify/evals/run-eval.mjs",
   ],
   jsPlugins: [
     { name: "anti-slop", specifier: "./tools/oxlint/anti-slop/index.ts" },

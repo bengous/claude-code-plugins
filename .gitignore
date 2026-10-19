@@ -81,3 +81,11 @@ docs/superpowers/specs/
 
 # Stryker's sandbox, the copy of the repository it mutates
 .stryker-tmp/
+
+# goalify eval runs (.claude/hillclimb/<flow>/): derived and bulk output stays out; _state.json, results.jsonl and errors.jsonl are kept
+.claude/hillclimb/**/traces/
+.claude/hillclimb/**/ref/
+.claude/hillclimb/**/report.html
+.claude/hillclimb/**/state.json
+.claude/hillclimb/**/trajectory/
+.claude/hillclimb/**/progress.txt
