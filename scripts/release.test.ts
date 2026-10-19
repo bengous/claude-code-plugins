@@ -621,24 +621,23 @@ describe("a plan", () => {
 
 describe("the command line", () => {
   test.each([
-    [["--dry-run"]],
-    [["--dry-run", "abc123"]],
-    [["abc123", "--dry-run"]],
-    [["--plan", "0123456789ab", "--dry-run"]],
-    [["--dry-run", "a", "b"]],
-    [["--dry-run=1"]],
-    [["--", "--dry-run"]],
-    [["--plan", "0123456789ab"]],
-    [["--plan"]],
-    [["abc123"]],
-    [[]],
-  ])("reads --dry-run where the landing guard does: %p", (args) => {
-    const cli = parseCli(args);
+    [["--dry-run"], "dry-run"],
+    [["--dry-run", "abc123"], "dry-run"],
+    [["abc123", "--dry-run"], "dry-run"],
+    [["--plan", "0123456789ab", "--dry-run"], "usage"],
+    [["--dry-run", "a", "b"], "usage"],
+    [["--", "--dry-run"], "usage"],
+    [["--dry-run=1"], "usage"],
+    [["--plan", "0123456789ab"], "apply"],
+    [["--plan"], "usage"],
+    [["abc123"], "usage"],
+    [[], "usage"],
+  ])("reads --dry-run where the landing guard does: %p is %s", (args, kind) => {
     const guarded = releaseScriptOf(["bun", "./scripts/release.ts", ...args], "/r");
 
-    expect(guarded).not.toBeNull();
-    expect(cli.kind === "apply" && guarded?.dryRun === true).toBe(false);
-    expect(cli.kind === "dry-run" && guarded?.dryRun === false).toBe(false);
+    expect<string>(parseCli(args).kind).toBe(kind);
+    expect(guarded?.dryRun).toBe(args.includes("--dry-run"));
+    expect(kind === "apply" && guarded?.dryRun).toBe(false);
   });
 
   test("applies only a plan named by its digest", () => {
@@ -647,8 +646,6 @@ describe("the command line", () => {
       digest: "0123456789ab",
     });
     expect(parseCli(["abc123", "--dry-run"])).toEqual({ kind: "dry-run", ref: "abc123" });
-    expect(parseCli(["abc123"])).toEqual({ kind: "usage" });
-    expect(parseCli([])).toEqual({ kind: "usage" });
   });
 });
 
