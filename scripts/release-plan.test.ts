@@ -136,7 +136,24 @@ describe("judgementOf", () => {
     [
       "a summary on two lines",
       resultLine({ structured_output: { ...ANSWER, summary: "one\ntwo" } }),
-      "summary spans lines",
+      '"summary" holds the control character U+000A',
+    ],
+    [
+      "a carriage return that hides the start of the summary",
+      resultLine({
+        structured_output: { ...ANSWER, summary: "drops the telemetry\rsmall internal cleanup" },
+      }),
+      '"summary" holds the control character U+000D',
+    ],
+    [
+      "an escape sequence in the reason",
+      resultLine({ structured_output: { ...ANSWER, reason: "fine\u001B[8m hidden" } }),
+      '"reason" holds the control character U+001B',
+    ],
+    [
+      "an escape sequence in the body, where a line break is no control",
+      resultLine({ structured_output: { ...ANSWER, body: "### Added\n\n- A.\u001B[8m hidden" } }),
+      '"body" holds the control character U+001B',
     ],
     [
       "no body when one is asked",

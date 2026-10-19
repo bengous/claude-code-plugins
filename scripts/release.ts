@@ -13,7 +13,8 @@
  * nothing needs a bump. The run applies that plan as it was read: one `chore(<plugin>): x.y.z,
  * <summary>` commit per bump, with its changelog section, made in a temporary worktree where the
  * commit hooks run, pushed to dev, rebased when dev moved by commits the plan does not need to
- * cover; then it waits for that commit's push run of CI to end green, and moves `main` there.
+ * cover and that make no tag the plan did not print; then it waits for that commit's push run of
+ * CI to end green, prints each commit past the plan's target, and moves `main` there.
  * Everything is read and checked before a push: a changelog that does not parse, or a tag that
  * already exists, stops the release with `main` unmoved. The notes are the changelog's sections
  * newer than the version `main` held, written into the annotated tag, and the Release reads them
@@ -96,7 +97,10 @@ export type ReleaseOutcome =
       readonly why: string;
     };
 
-/** What applying a plan ends on: refused with nothing moved, stopped on CI, or the release's own outcome. */
+/**
+ * What applying a plan ends on: refused with nothing moved, stopped on CI, stopped with the bumps on
+ * dev and main unmoved, or the release's own outcome.
+ */
 export type ShipOutcome =
   | { readonly kind: "refused"; readonly why: string }
   | {
@@ -105,6 +109,7 @@ export type ShipOutcome =
       readonly bumped: boolean;
       readonly ci: Exclude<CiOutcome, { readonly kind: "green" }>;
     }
+  | { readonly kind: "after-bumps"; readonly head: CommitId; readonly why: string }
   | ReleaseOutcome;
 
 /** What the command line asks: `--dry-run` anywhere among the arguments, as the landing guard reads it. */
@@ -367,13 +372,57 @@ function movedRefusal(
   return null;
 }
 
-/** Push the bump commits to dev, rebased on it when it moved by commits the plan needs not cover. */
+/** The tags the dry-run printed for `plan`: those of versions set already, and one per bump that keeps a changelog. */
+function printedTags(repo: PluginDir, plan: ReleasePlan): ReadonlySet<TagName> {
+  return new Set([
+    ...plannedTags(repo, plan.shipped, plan.target).map(({ tag }) => tag),
+    ...plan.bumps.flatMap(({ name, to, section }) =>
+      section === null ? [] : [tagNameOf(name, to)],
+    ),
+  ]);
+}
+
+/**
+ * Push the bump commits to dev, rebased first on dev's head whenever it is not their base: a push git
+ * would refuse as non-fast-forward still runs the whole pre-push hook. Refused when dev moved by
+ * commits the plan does not cover, or when the rebased head would make a tag the plan did not print.
+ */
 function pushBumps(repo: PluginDir, tree: PluginDir, plan: ReleasePlan, context: Context): Bumped {
+  const printed = printedTags(repo, plan);
   let base = plan.target;
 
   for (let attempt = 1; attempt <= ATTEMPTS; attempt += 1) {
+    const dev = commitAt(repo, DEFAULT_REF);
+
+    if (dev !== base) {
+      const why = movedRefusal(repo, plan, base, dev);
+
+      if (why !== null) return { kind: "refused", why };
+
+      const rebased = run(["git", "rebase", "--quiet", dev], tree);
+
+      if (!rebased.ok) {
+        run(["git", "rebase", "--abort"], tree);
+
+        return {
+          kind: "refused",
+          why: `the bumps do not rebase on ${DEV}'s ${short(dev)}: run the dry-run again\n${rebased.out}${rebased.err}`,
+        };
+      }
+
+      base = dev;
+    }
+
     const head = commitAt(tree, "HEAD");
     const tags = plannedTags(repo, plan.shipped, head);
+    const unprinted = tags.filter(({ tag }) => !printed.has(tag));
+
+    if (unprinted.length > 0) {
+      return {
+        kind: "refused",
+        why: `${DEV} moved to ${short(base)}, and the release would tag ${unprinted.map(({ tag }) => tag).join(", ")}, which the plan did not print: run the dry-run again`,
+      };
+    }
 
     context.say(`pushing ${short(head)} to ${DEV}; its pre-push hook runs the gates and suites`);
 
@@ -389,24 +438,6 @@ function pushBumps(repo: PluginDir, tree: PluginDir, plan: ReleasePlan, context:
     }
 
     git(repo, ["fetch", "--quiet", REMOTE]);
-
-    const moved = commitAt(repo, DEFAULT_REF);
-    const why = movedRefusal(repo, plan, base, moved);
-
-    if (why !== null) return { kind: "refused", why };
-
-    const rebased = run(["git", "rebase", "--quiet", moved], tree);
-
-    if (!rebased.ok) {
-      run(["git", "rebase", "--abort"], tree);
-
-      return {
-        kind: "refused",
-        why: `the bumps do not rebase on ${DEV}'s ${short(moved)}: run the dry-run again\n${rebased.err}`,
-      };
-    }
-
-    base = moved;
   }
 
   return {
@@ -472,15 +503,46 @@ export async function ship(
 
   if (bumped.kind === "refused") return bumped;
 
-  context.say(`waiting for the push run of CI on ${short(bumped.head)}`);
+  const { head, tags } = bumped;
+  const onDev = plan.bumps.length > 0;
 
-  const ci = await waitFor(context.gh, { sha: bumped.head, event: "push" }, context.limits);
+  context.say(`waiting for the push run of CI on ${short(head)}`);
 
-  if (ci.kind !== "green") {
-    return { kind: "ci-not-green", head: bumped.head, bumped: plan.bumps.length > 0, ci };
+  let ci: CiOutcome;
+
+  try {
+    ci = await waitFor(context.gh, { sha: head, event: "push" }, context.limits);
+  } catch (error) {
+    if (!onDev) throw error;
+
+    const why = error instanceof Error ? error.message : String(error);
+
+    return { kind: "after-bumps", head, why: `waiting for its push run of CI failed: ${why}` };
   }
 
-  return release(repo, bumped.head, bumped.tags);
+  if (ci.kind !== "green") return { kind: "ci-not-green", head, bumped: onDev, ci };
+
+  if (head !== plan.target) {
+    context.say(
+      `main ${short(plan.shipped)} -> ${short(head)}, past the plan's ${short(plan.target)}:`,
+    );
+
+    for (const line of git(repo, ["log", "--reverse", "--format=%h %s", `${plan.target}..${head}`])
+      .split("\n")
+      .filter((commit) => commit !== "")) {
+      context.say(`  ${line}`);
+    }
+  }
+
+  const released = release(repo, head, tags);
+
+  return released.kind === "push-refused" && onDev
+    ? {
+        kind: "after-bumps",
+        head,
+        why: `the push to main was refused, nothing tagged:\n${released.why}`,
+      }
+    : released;
 }
 
 function repositoryAt(cwd: string): PluginDir {
@@ -493,7 +555,7 @@ function repositoryAt(cwd: string): PluginDir {
 }
 
 /** What the command prints, and its exit code. */
-interface Report {
+export interface Report {
   readonly text: string;
   readonly exit: number;
 }
@@ -538,26 +600,35 @@ export function describePlan(plan: ReleasePlan, tags: readonly PlannedTag[]): st
   ].join("\n");
 }
 
+const AGAIN_AFTER_BUMPS =
+  "Next: bun ./scripts/release.ts --dry-run, then --plan <the digest it prints>; its plan finds these bumps made, so it only waits for CI and pushes main";
+
 function describeCi({ head, bumped, ci }: Extract<ShipOutcome, { kind: "ci-not-green" }>): string {
   const where = bumped ? `The bumps are on ${DEV} at ${short(head)}; main` : "main";
-  const after = bumped ? ": its plan has nothing left to bump" : "";
+  const next = bumped ? AGAIN_AFTER_BUMPS : "Then release again";
 
   switch (ci.kind) {
     case "red":
-      return `CI is red on ${short(head)}: ${ci.red.map(({ url }) => url).join(", ")}. ${where} is unmoved. Re-run the red jobs (gh run rerun <run-id> --failed) or land a fix, then run the release again${after}.`;
+      return `CI is red on ${short(head)}: ${ci.red.map(({ url }) => url).join(", ")}. ${where} is unmoved. Re-run the red jobs (gh run rerun <run-id> --failed) or land a fix. ${next}.`;
     case "none":
       return `no push run of CI on ${short(head)}: only a push to ${DEV} starts one. ${where} is unmoved.`;
     case "timeout":
-      return `CI still runs on ${short(head)} after ${CI_LIMITS.timeoutMs / 60_000} min: ${ci.running.map(({ url }) => url).join(", ")}. ${where} is unmoved; run the release again once it ends${after}.`;
+      return `CI still runs on ${short(head)} after ${CI_LIMITS.timeoutMs / 60_000} min: ${ci.running.map(({ url }) => url).join(", ")}. ${where} is unmoved; once it ends: ${next}.`;
   }
 }
 
-function describe(outcome: ShipOutcome): Report {
+/** What the command prints for `outcome`, and its exit code. */
+export function reportOf(outcome: ShipOutcome): Report {
   switch (outcome.kind) {
     case "refused":
       return { text: `nothing pushed: ${outcome.why}`, exit: 1 };
     case "ci-not-green":
       return { text: describeCi(outcome), exit: 1 };
+    case "after-bumps":
+      return {
+        text: `The bumps are on ${DEV} at ${short(outcome.head)}; main is unmoved: ${outcome.why}\n${AGAIN_AFTER_BUMPS}.`,
+        exit: 1,
+      };
     case "released":
       return {
         text:
@@ -628,7 +699,7 @@ if (import.meta.main) {
         say: (line) => console.error(`release: ${line}`),
       });
 
-      const { text, exit } = describe(outcome);
+      const { text, exit } = reportOf(outcome);
 
       console.log(text);
       process.exitCode = exit;

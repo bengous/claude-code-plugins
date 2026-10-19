@@ -5,6 +5,7 @@ import {
   existsSync,
   mkdirSync,
   mkdtempSync,
+  readdirSync,
   readFileSync,
   rmSync,
   writeFileSync,
@@ -25,6 +26,7 @@ import {
   parseCli,
   plannedTags,
   release,
+  reportOf,
   ship,
   type ShipOutcome,
 } from "./release.ts";
@@ -140,8 +142,55 @@ function ciGh(conclusion: "success" | "failure", asked: string[]): Gh {
   };
 }
 
-function context(gh: Gh): Context {
-  return { gh, limits: { timeoutMs: 1000, pollMs: 10 }, say: () => {} };
+function context(gh: Gh, say: (line: string) => void = () => {}): Context {
+  return { gh, limits: { timeoutMs: 1000, pollMs: 10 }, say };
+}
+
+function refuseOnOrigin(ref: string) {
+  const hook = join(origin, "hooks", "pre-receive");
+
+  writeFileSync(
+    hook,
+    `#!/bin/sh\nwhile read -r old new ref; do\n  if [ "$ref" = '${ref}' ]; then echo "$ref refused" >&2; exit 1; fi\ndone\n`,
+  );
+  chmodSync(hook, 0o755);
+}
+
+/** The real lefthook `sync-versions` job and its script, installed in the fixture, with a README table to sync. */
+function installSyncVersions() {
+  const real = parse(readFileSync(join(import.meta.dir, "..", "lefthook.yml"), "utf8"));
+
+  const job = real["pre-commit"].jobs.find(
+    ({ name }: { name: string }) => name === "sync-versions",
+  );
+
+  write("lefthook.yml", stringify({ "pre-commit": { jobs: [job] } }));
+  mkdirSync(join(repo, "scripts", "lib"), { recursive: true });
+  copyFileSync(
+    join(import.meta.dir, "sync-versions.ts"),
+    join(repo, "scripts", "sync-versions.ts"),
+  );
+  chmodSync(join(repo, "scripts", "sync-versions.ts"), 0o755);
+  copyFileSync(
+    join(import.meta.dir, "lib", "marketplace-validation.ts"),
+    join(repo, "scripts", "lib", "marketplace-validation.ts"),
+  );
+  catalog(
+    { name: "vellum", source: "./vellum", version: "0.1.0" },
+    { name: "other", source: "./other", version: "1.0.0" },
+  );
+  write(
+    "README.md",
+    "| Plugin | Version | Description |\n|---|---|---|\n| [vellum](vellum/) | 0.1.0 | Plans. |\n| [other](other/) | 1.0.0 | Other. |\n",
+  );
+
+  const installed = Bun.spawnSync(["lefthook", "install"], {
+    cwd: repo,
+    stdout: "pipe",
+    stderr: "pipe",
+  });
+
+  if (installed.exitCode !== 0) throw new Error(`lefthook install: ${installed.stderr.toString()}`);
 }
 
 async function sealedPlan(target: CommitId): Promise<ReleasePlan> {
@@ -427,8 +476,20 @@ describe("a release with bumps", () => {
       const moved = commit("docs: notes");
 
       pushDev();
+      writeFileSync(
+        join(repo, ".git", "hooks", "pre-push"),
+        `#!/bin/sh\nprintf 'CALL [%s]\\n' "$(cat)" >> '${root}/pre-push.log'\n`,
+      );
+      chmodSync(join(repo, ".git", "hooks", "pre-push"), 0o755);
 
-      const outcome = await ship(repo, plan, context(ciGh("success", [])));
+      const said: string[] = [];
+
+      const outcome = await ship(
+        repo,
+        plan,
+        context(ciGh("success", []), (line) => said.push(line)),
+      );
+
       const head = git(origin, "rev-parse", "refs/heads/dev");
 
       expect(outcome).toHaveProperty("kind", "released");
@@ -438,7 +499,193 @@ describe("a release with bumps", () => {
       );
       expect(git(origin, "rev-parse", "refs/heads/main")).toBe(head);
       expect(git(origin, "rev-parse", "refs/tags/vellum-v0.2.0^{commit}")).toBe(head);
+      expect(said.slice(-3)).toEqual([
+        `main ${plan.shipped.slice(0, 7)} -> ${head.slice(0, 7)}, past the plan's ${target.slice(0, 7)}:`,
+        `  ${moved.slice(0, 7)} docs: notes`,
+        `  ${head.slice(0, 7)} chore(vellum): 0.2.0, the a module`,
+      ]);
+      expect(readFileSync(join(root, "pre-push.log"), "utf8").split("\n").slice(0, 2)).toEqual([
+        `CALL [HEAD ${head} refs/heads/dev ${moved}]`,
+        `CALL [${head} ${head} refs/heads/main ${plan.shipped}]`,
+      ]);
       expect(worktreeCount()).toBe(1);
+    },
+    SLOW,
+  );
+
+  test(
+    "is refused, nothing pushed, when the rebased head would make a tag the plan did not print",
+    async () => {
+      write("vellum/a.ts", "a\n");
+      const target = commit("fix(vellum): a");
+
+      pushDev();
+      answerVellumMinor();
+
+      const plan = await sealedPlan(target);
+
+      catalog(
+        { name: "vellum", source: "./vellum" },
+        { name: "other", source: "./other" },
+        { name: "fresh", source: "./fresh" },
+      );
+      manifest("fresh", "0.1.0");
+      changelog("fresh", "0.1.0");
+      const moved = commit("feat(fresh): a new plugin");
+
+      pushDev();
+
+      const outcome = await ship(repo, plan, context(ciGh("success", [])));
+
+      expect(outcome).toHaveProperty(
+        "why",
+        expect.stringContaining("the release would tag fresh-v0.1.0, which the plan did not print"),
+      );
+      expect(git(origin, "rev-parse", "refs/heads/dev")).toBe(moved);
+      expect(git(origin, "rev-parse", "refs/heads/main")).toBe(plan.shipped);
+      expect(git(origin, "tag", "--list")).toBe("");
+      expect(worktreeCount()).toBe(1);
+    },
+    SLOW,
+  );
+
+  test(
+    "is refused, nothing pushed, when dev was rewritten without the plan's target",
+    async () => {
+      write("vellum/a.ts", "a\n");
+      const target = commit("fix(vellum): a");
+
+      pushDev();
+      answerVellumMinor();
+
+      const plan = await sealedPlan(target);
+
+      git(repo, "reset", "--quiet", "--soft", "HEAD~1");
+      write("notes.md", "notes\n");
+      const rewritten = commit("fix(vellum): a, and notes");
+
+      git(repo, "push", "--quiet", "--force", "origin", "HEAD:refs/heads/dev");
+      git(repo, "fetch", "--quiet", "origin");
+
+      const outcome = await ship(repo, plan, context(ciGh("success", [])));
+
+      expect(outcome).toHaveProperty(
+        "why",
+        expect.stringContaining(
+          `dev's head ${rewritten.slice(0, 7)} does not hold ${target.slice(0, 7)}`,
+        ),
+      );
+      expect(git(origin, "rev-parse", "refs/heads/dev")).toBe(rewritten);
+      expect(git(origin, "rev-parse", "refs/heads/main")).toBe(plan.shipped);
+      expect(worktreeCount()).toBe(1);
+    },
+    SLOW,
+  );
+
+  test(
+    "is refused, nothing pushed, when main moved while the bumps were pushed",
+    async () => {
+      write("vellum/a.ts", "a\n");
+      const target = commit("fix(vellum): a");
+
+      pushDev();
+      answerVellumMinor();
+
+      const plan = await sealedPlan(target);
+      const other = join(root, "other-clone");
+
+      git(root, "clone", "--quiet", "--branch", "dev", origin, other);
+      git(other, "config", "user.email", "o@example.com");
+      git(other, "config", "user.name", "o");
+      git(other, "config", "commit.gpgsign", "false");
+
+      let moved = false;
+
+      const outcome = await ship(
+        repo,
+        plan,
+        context(ciGh("success", []), (line) => {
+          if (moved || !line.startsWith("pushing")) return;
+
+          moved = true;
+          writeFileSync(join(other, "notes.md"), "notes\n");
+          git(other, "add", "-A");
+          git(other, "commit", "-qm", "docs: notes");
+          git(
+            other,
+            "push",
+            "--quiet",
+            "origin",
+            "HEAD:refs/heads/dev",
+            `${target}:refs/heads/main`,
+          );
+        }),
+      );
+
+      expect(outcome).toHaveProperty(
+        "why",
+        expect.stringContaining(`main moved to ${target.slice(0, 7)} meanwhile`),
+      );
+      expect(git(origin, "rev-parse", "refs/heads/main")).toBe(target);
+      expect(git(origin, "log", "-1", "--format=%s", "dev")).toBe("docs: notes");
+      expect(worktreeCount()).toBe(1);
+    },
+    SLOW,
+  );
+
+  test(
+    "says the bumps are on dev, and what comes next, when the wait for CI fails",
+    async () => {
+      write("vellum/a.ts", "a\n");
+      const target = commit("fix(vellum): a");
+
+      pushDev();
+      answerVellumMinor();
+
+      const outcome = await ship(
+        repo,
+        await sealedPlan(target),
+        context(() => Promise.reject(new Error("gh api exited 1: HTTP 502"))),
+      );
+
+      const head = commitAt(repo, "origin/dev");
+
+      expect(outcome).toEqual({
+        kind: "after-bumps",
+        head,
+        why: "waiting for its push run of CI failed: gh api exited 1: HTTP 502",
+      });
+      expect(reportOf(outcome).text).toBe(
+        `The bumps are on dev at ${head.slice(0, 7)}; main is unmoved: waiting for its push run of CI failed: gh api exited 1: HTTP 502\nNext: bun ./scripts/release.ts --dry-run, then --plan <the digest it prints>; its plan finds these bumps made, so it only waits for CI and pushes main.`,
+      );
+      expect(git(origin, "log", "-1", "--format=%s", "dev")).toBe(
+        "chore(vellum): 0.2.0, the a module",
+      );
+      expect(git(origin, "rev-parse", "refs/heads/main")).toBe(shipped());
+    },
+    SLOW,
+  );
+
+  test(
+    "says the bumps are on dev, and what comes next, when the push to main is refused",
+    async () => {
+      write("vellum/a.ts", "a\n");
+      const target = commit("fix(vellum): a");
+
+      pushDev();
+      answerVellumMinor();
+      refuseOnOrigin("refs/heads/main");
+
+      const outcome = await ship(repo, await sealedPlan(target), context(ciGh("success", [])));
+      const head = commitAt(repo, "origin/dev");
+
+      expect(outcome).toHaveProperty("kind", "after-bumps");
+      expect(outcome).toHaveProperty("head", head);
+      expect(reportOf(outcome).text).toContain(
+        `The bumps are on dev at ${head.slice(0, 7)}; main is unmoved: the push to main was refused, nothing tagged:`,
+      );
+      expect(reportOf(outcome).text).toContain("refs/heads/main refused");
+      expect(git(origin, "tag", "--list")).toBe("");
     },
     SLOW,
   );
@@ -653,39 +900,10 @@ describe("the commit hooks", () => {
   test(
     "lefthook's sync-versions puts each bump into the catalog and the README, in the bump's commit",
     async () => {
-      const scripts = join(import.meta.dir);
-      const real = parse(readFileSync(join(scripts, "..", "lefthook.yml"), "utf8"));
-
-      const job = real["pre-commit"].jobs.find(
-        ({ name }: { name: string }) => name === "sync-versions",
-      );
-
-      write("lefthook.yml", stringify({ "pre-commit": { jobs: [job] } }));
-      mkdirSync(join(repo, "scripts", "lib"), { recursive: true });
-      copyFileSync(join(scripts, "sync-versions.ts"), join(repo, "scripts", "sync-versions.ts"));
-      chmodSync(join(repo, "scripts", "sync-versions.ts"), 0o755);
-      copyFileSync(
-        join(scripts, "lib", "marketplace-validation.ts"),
-        join(repo, "scripts", "lib", "marketplace-validation.ts"),
-      );
-      catalog(
-        { name: "vellum", source: "./vellum", version: "0.1.0" },
-        { name: "other", source: "./other", version: "1.0.0" },
-      );
-      write(
-        "README.md",
-        "| Plugin | Version | Description |\n|---|---|---|\n| [vellum](vellum/) | 0.1.0 | Plans. |\n| [other](other/) | 1.0.0 | Other. |\n",
-      );
+      installSyncVersions();
       write("vellum/a.ts", "a\n");
       const target = commit("fix(vellum): a, with the hooks");
 
-      const installed = Bun.spawnSync(["lefthook", "install"], {
-        cwd: repo,
-        stdout: "pipe",
-        stderr: "pipe",
-      });
-
-      expect(installed.stderr.toString()).toBe("");
       pushDev();
       answerVellumMinor();
 
@@ -711,6 +929,43 @@ describe("the commit hooks", () => {
       expect(git(origin, "show", `${head}:README.md`)).toContain(
         "| [vellum](vellum/) | 0.2.0 | Plans. |",
       );
+    },
+    SLOW,
+  );
+
+  test(
+    "a bump that does not rebase on what dev gained is refused, its rebase aborted so git records no conflict",
+    async () => {
+      installSyncVersions();
+      write("vellum/a.ts", "a\n");
+      const target = commit("fix(vellum): a, with the hooks");
+
+      pushDev();
+      answerVellumMinor();
+
+      const plan = await sealedPlan(target);
+
+      write(
+        "README.md",
+        readFileSync(join(repo, "README.md"), "utf8").replace("Plans.", "Plans, read in a page."),
+      );
+      const moved = commit("docs: vellum's row says more");
+
+      pushDev();
+      git(repo, "config", "rerere.enabled", "true");
+
+      const outcome = await ship(repo, plan, context(ciGh("success", [])));
+      const recorded = join(repo, ".git", "rr-cache");
+
+      expect(outcome).toHaveProperty("kind", "refused");
+      expect(outcome).toHaveProperty(
+        "why",
+        expect.stringContaining(`the bumps do not rebase on dev's ${moved.slice(0, 7)}`),
+      );
+      expect(git(origin, "rev-parse", "refs/heads/dev")).toBe(moved);
+      expect(git(origin, "rev-parse", "refs/heads/main")).toBe(plan.shipped);
+      expect(worktreeCount()).toBe(1);
+      expect(existsSync(recorded) ? readdirSync(recorded) : []).toEqual([]);
     },
     SLOW,
   );

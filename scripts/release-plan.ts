@@ -44,6 +44,10 @@ const DIGEST = /^[0-9a-f]{12}$/u;
 
 const TOP_HEADING = /^#{1,2} /mu;
 
+const CONTROL = /\p{Cc}/u;
+
+const CONTROL_BUT_NEWLINE = /(?!\n)\p{Cc}/u;
+
 const PLAN_DIR = "release-plan";
 
 const CLAUDE_TIMEOUT_MS = 120_000;
@@ -274,10 +278,22 @@ function preview(text: string): string {
   return flat.length > 300 ? `${flat.slice(0, 300)}...` : flat;
 }
 
-function filled(text: string | undefined, key: string): string {
+/**
+ * The field trimmed, refused when empty or when it holds a control character `control` matches: the
+ * terminal could then show other text than the commit, the changelog and the tag keep.
+ */
+function filled(text: string | undefined, key: string, control: RegExp): string {
   const trimmed = text?.trim() ?? "";
 
   if (trimmed === "") throw new Error(`Claude's "${key}" is missing or empty`);
+
+  const found = control.exec(trimmed)?.[0];
+
+  if (found !== undefined) {
+    const point = found.codePointAt(0)?.toString(16).toUpperCase().padStart(4, "0");
+
+    throw new Error(`Claude's "${key}" holds the control character U+${point}`);
+  }
 
   return trimmed;
 }
@@ -286,7 +302,7 @@ function filled(text: string | undefined, key: string): string {
  * The judgement in `claude -p --output-format json`'s output: its result message, alone or the last
  * of the array the user's `verbose` setting prints, carries the schema's answer in
  * `structured_output`. Refused, with the reason: an error result, a level outside the three, an
- * empty field, a summary on more than one line.
+ * empty field, a control character (a line break, in the body only, aside).
  */
 export function judgementOf(stdout: string, wantsBody: boolean): Judgement {
   let output: unknown;
@@ -321,17 +337,13 @@ export function judgementOf(stdout: string, wantsBody: boolean): Judgement {
     throw new Error(`Claude's level ${JSON.stringify(answer["level"])} is not one of ${LEVELS}`);
   }
 
-  const summary = filled(stringField(answer, "summary"), "summary");
-
-  if (summary.includes("\n")) throw new Error(`Claude's summary spans lines: ${preview(summary)}`);
-
   const cost = result["total_cost_usd"];
 
   return {
     level,
-    reason: filled(stringField(answer, "reason"), "reason"),
-    summary,
-    body: wantsBody ? filled(stringField(answer, "body"), "body") : null,
+    reason: filled(stringField(answer, "reason"), "reason", CONTROL),
+    summary: filled(stringField(answer, "summary"), "summary", CONTROL),
+    body: wantsBody ? filled(stringField(answer, "body"), "body", CONTROL_BUT_NEWLINE) : null,
     costUsd: Number.isFinite(cost) ? Number(cost) : null,
   };
 }
