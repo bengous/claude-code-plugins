@@ -127,10 +127,10 @@ export const REGISTRY: Registry = {
       quote: "`tools/oxlint/local/` - the repo's own lint plugin, edited",
       held: ["gate lint-config"],
     },
-    "193dda83": {
+    "7ee7b9c5": {
       quote: "`dev` is the working trunk; `main` is the release channel",
       prose:
-        "lefthook's `block-commit-to-main` and the agent-hooks landing guard refuse an agent's commit and push to `main`, but the fast-forward and the linear history are the GitHub rulesets', which no check of this repo reads",
+        "lefthook's `block-commit-to-main` and the agent-hooks landing guard refuse an agent's commit and push to `main`, but the fast-forward, the linear history and the signed commits are the GitHub rulesets', which no check of this repo reads",
     },
     c9751f1c: {
       quote: "Claude Code's built-in \"Commit or push only when the user",

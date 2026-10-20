@@ -84,7 +84,7 @@ Carried by nobody, so hold them by hand:
 
 ## Branching
 
-`dev` is the working trunk; `main` is the release channel consumers install from, moved only by the human, by fast-forward. History is linear everywhere: no merge commits, server-enforced. `origin/dev` is the source of truth; every local `dev` is a cache that goes stale each time someone else lands.
+`dev` is the working trunk; `main` is the release channel consumers install from, moved only by the human, by fast-forward. History is linear everywhere: no merge commits, server-enforced. Every commit carries the user's signature: the remote refuses an unsigned one, so never pass `-c commit.gpgsign=false`. `origin/dev` is the source of truth; every local `dev` is a cache that goes stale each time someone else lands.
 
 Claude Code's built-in "Commit or push only when the user asks" does not hold here: agents commit and push to `dev` (inline lane) and to their own `feature/`|`fix/` branches without asking, and land a reviewed branch with `bun ./scripts/land.ts <branch>`; `main` is the human's release, and a hook refuses every agent push to it.
 
