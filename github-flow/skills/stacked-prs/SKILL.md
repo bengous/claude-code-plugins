@@ -70,7 +70,7 @@ trunk
 | `switching to branch <b>: … already used by worktree` | A `gh stack` command that switches branches (`init`, `add`, `checkout`) cannot take a branch a worktree holds. Remove the worktree first: `git worktree remove --force <path>`, the branch survives. |
 | A failed `gh stack` command that still wrote local tracking | Measured on `init`: the retry says `already exists in a stack` while `view` shows the stack. Read `gh stack view` before retrying; clear with `gh stack unstack --local`. |
 | Merged branches lying around | `gh stack sync --prune`. It deletes the local branches and drops their `origin/…` tracking refs, so `git branch -r` looks clean while the branches are still on GitHub. Delete those on the forge, or turn on the repository's delete-branch-on-merge, which is off by default. |
-| Branch rewritten by another session | `git fetch origin && git reset --hard origin/<that-branch>`. Never `origin/<trunk>`: the stack would vanish. |
+| Branch rewritten by another session | `git fetch origin`, then `git reset --hard origin/<that-branch>`. Never `origin/<trunk>`: the stack would vanish. |
 | Any manual history rewrite | Save the ref first (`backup/<branch>-<sha>`), `--force-with-lease` only. |
 
 ## Parallel sessions: worktrees and handoffs

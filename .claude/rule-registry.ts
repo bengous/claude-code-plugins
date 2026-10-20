@@ -105,6 +105,11 @@ export const REGISTRY: Registry = {
       quote: "One writer per worktree. The lead agent reads only until the",
       prose: "no hook knows which agent owns a worktree",
     },
+    "5216c14b": {
+      quote: "In an agent worktree, a Bash call runs one simple command:",
+      prose:
+        "the guard that refuses is Claude Code's own; no check of this repo reads an agent's commands",
+    },
     "70ce207e": {
       quote: "A step that code can decide is done by the script or the",
       prose:
