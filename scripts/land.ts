@@ -38,9 +38,13 @@
  * reads its pull request merged within a minute and no open pull request is
  * based on it; its local branch and checkout stay, and a remote branch kept
  * is named, with why, on the verdict line of a landing that still succeeded.
- * A refusal that leaves nothing to fix, a failed fetch, a `gh` call that
- * fails while it waits or a `dev` that moved during each attempt, is
- * deferred: the same `land: <why>` line, exit code 3 instead of 1.
+ * A `gh` read that fails on the network or on GitHub (`transientGh`) is read
+ * again until the hour runs out. What leaves nothing for a human to fix is
+ * deferred, the same `land: <why>` line with exit code 3 instead of 1: a
+ * failed fetch, a `gh` call still failing that way, no `ci.yml` run or no
+ * run of the `e2e` label within a minute, a pull request that does not show
+ * within a minute a head origin holds, and a `dev` that moved during each
+ * attempt.
  */
 
 import { mkdtempSync, rmSync } from "node:fs";
@@ -63,8 +67,11 @@ import {
   ciVerdict,
   type Gh,
   ghCli,
+  GhError,
   REGISTRATION_MS,
+  retried,
   SYSTEM_CLOCK,
+  transientGh,
   waitFor,
 } from "./ci-wait.ts";
 import { ROLLING_BRANCH } from "./claude-code-types.ts";
@@ -134,14 +141,18 @@ export type Landing =
   | { readonly kind: "refused"; readonly why: string }
   | { readonly kind: "deferred"; readonly why: string };
 
-/** The exit code of a deferred landing: nothing is left for a human to fix, and the same landing may pass later. */
+export const REFUSED_EXIT = 1;
+
+/** A deferred landing's: nothing is left for a human to fix, and the same landing may pass later. */
 export const DEFERRED_EXIT = 3;
 
 type Refused = Extract<Landing, { readonly kind: "refused" }>;
 
 type Deferred = Extract<Landing, { readonly kind: "deferred" }>;
 
-type Ready = { readonly kind: "ready"; readonly pr: PullRequest } | Refused;
+type NotLanded = Refused | Deferred;
+
+type Ready = { readonly kind: "ready"; readonly pr: PullRequest } | NotLanded;
 
 /** What one landing carries through its waits. */
 interface Lander {
@@ -324,22 +335,47 @@ function reviewRefusal(
   return `${risky}; #${pr.number} carries no clean review verdict for its change, patch-id ${short(landing.id)}: review ${short(reviewed)}, and once no finding is open, ${recordCommand(branch, reviewed)}; then land again`;
 }
 
-async function readPullRequest(lander: Lander): Promise<PullRequest> {
-  const out = await lander.gh([
-    "pr",
-    "view",
-    lander.branch,
-    "--json",
-    "number,state,baseRefName,headRefOid,labels,comments",
-  ]);
+/** What `read` gives once it does not fail transiently, tried again until the landing's time runs out. */
+function readAgain<T>(lander: Lander, read: () => Promise<T>): Promise<T> {
+  const { clock, pollMs } = lander.waiting;
 
-  try {
-    // SAFETY: gh prints exactly the fields asked for, and a pull request with a field missing can only fail to read
-    // as open, against dev and at the head waited for.
-    return JSON.parse(out);
-  } catch {
-    throw new Error(`gh printed no pull request for ${lander.branch}: ${out.trim()}`);
-  }
+  return retried(read, clock, { deadline: lander.deadline, pollMs });
+}
+
+function readPullRequest(lander: Lander): Promise<PullRequest> {
+  return readAgain(lander, async () => {
+    const out = await lander.gh([
+      "pr",
+      "view",
+      lander.branch,
+      "--json",
+      "number,state,baseRefName,headRefOid,labels,comments",
+    ]);
+
+    try {
+      // SAFETY: gh prints exactly the fields asked for, and a pull request with a field missing can only fail to read
+      // as open, against dev and at the head waited for.
+      return JSON.parse(out);
+    } catch {
+      throw new GhError(`gh printed no pull request for ${lander.branch}: ${out.trim()}`, false);
+    }
+  });
+}
+
+/** The check runs of `sha`, read again while gh fails transiently. */
+function checkRunsAt(lander: Lander, sha: string): Promise<readonly CheckRun[]> {
+  return readAgain(lander, () => {
+    const checks = checkRunsOf(sha, lander.checkout);
+
+    if (checks.kind === "unreadable") {
+      throw new GhError(
+        `gh could not list the check runs of ${short(sha)}: ${checks.error}`,
+        transientGh(checks.error),
+      );
+    }
+
+    return Promise.resolve(checks.runs);
+  });
 }
 
 function remaining(lander: Lander): number {
@@ -355,17 +391,30 @@ async function pollUntil<T>(
   const { clock, pollMs } = lander.waiting;
   const windowMs = Math.min(REGISTRATION_MS, remaining(lander));
   const start = clock.now();
-  let value = await read();
+  let value = await readAgain(lander, read);
 
   while (!done(value) && clock.now() - start < windowMs) {
     await clock.sleep(Math.min(pollMs, windowMs - (clock.now() - start)));
-    value = await read();
+    value = await readAgain(lander, read);
   }
 
   return value;
 }
 
-/** The pull request once GitHub shows `sha` as its head: a push takes a moment to reach it. */
+/** Whether `origin` holds `sha` as the branch, as the last fetch or push of this checkout saw it. */
+function onOrigin(lander: Lander, sha: string): boolean {
+  const remote = run(
+    ["git", "rev-parse", `refs/remotes/${REMOTE}/${lander.branch}`],
+    lander.checkout,
+  );
+
+  return remote.ok && remote.out === sha;
+}
+
+/**
+ * The pull request once GitHub shows `sha` as its head: a push takes a moment to reach it. Deferred when origin holds
+ * `sha` and GitHub has not shown it within a minute; refused when origin does not, since only a push gets it there.
+ */
 async function pullRequestAt(lander: Lander, sha: string): Promise<Ready> {
   const pr = await pollUntil(
     lander,
@@ -378,9 +427,13 @@ async function pullRequestAt(lander: Lander, sha: string): Promise<Ready> {
   if (refusal !== null) return refused(refusal);
 
   if (pr.headRefOid !== sha) {
-    return refused(
-      `${lander.branch} is at ${short(sha)} here and ${short(pr.headRefOid)} on #${pr.number}: push it, then land again`,
-    );
+    const where = `${lander.branch} is at ${short(sha)} here and ${short(pr.headRefOid)} on #${pr.number}`;
+
+    return onOrigin(lander, sha)
+      ? deferred(
+          `${where}, though ${REMOTE} holds ${short(sha)}: GitHub has not shown the push within a minute; land again`,
+        )
+      : refused(`${where}: push it, then land again`);
   }
 
   return { kind: "ready", pr };
@@ -404,12 +457,10 @@ async function settle(lander: Lander, query: CiQuery): Promise<CiOutcome> {
 
   if (outcome.kind !== "red") return outcome;
 
-  const checks = checkRunsOf(query.sha, lander.checkout);
-
-  if (checks.kind === "unreadable") return outcome;
+  const checks = await checkRunsAt(lander, query.sha);
 
   const rerunnable = outcome.red.filter((red) => {
-    const failed = failedJobs(checks.runs, red);
+    const failed = failedJobs(checks, red);
 
     return (
       !lander.rerun.has(red.id) && failed.length > 0 && failed.every((name) => isE2eCheck(name))
@@ -440,21 +491,27 @@ function notGreen(
   pr: PullRequest,
   sha: string,
   outcome: Exclude<CiOutcome, { readonly kind: "green" }>,
-): string {
+): NotLanded {
   switch (outcome.kind) {
     case "red": {
       const runs = outcome.red.map((red) =>
         lander.rerun.has(red.id) ? `${red.url}, red again after the re-run land made` : red.url,
       );
 
-      return `CI is red on ${short(sha)}, the head of #${pr.number}: ${runs.join("; ")}. Fix it and push, or re-run a flake with gh run rerun <run-id> --failed; then land again`;
+      return refused(
+        `CI is red on ${short(sha)}, the head of #${pr.number}: ${runs.join("; ")}. Fix it and push, or re-run a flake with gh run rerun <run-id> --failed; then land again`,
+      );
     }
 
     case "none":
-      return `no ci.yml run showed on ${short(sha)}, the head of #${pr.number}, within a minute: land again once one runs`;
+      return deferred(
+        `no ci.yml run showed on ${short(sha)}, the head of #${pr.number}, within a minute: land again once one runs`,
+      );
 
     case "timeout":
-      return `CI still runs on ${short(sha)}, the head of #${pr.number}, after the ${lander.waiting.timeoutMs / 60_000} min land waits at most: ${outcome.running.map((running) => running.url).join("; ")}; land again`;
+      return refused(
+        `CI still runs on ${short(sha)}, the head of #${pr.number}, after the ${lander.waiting.timeoutMs / 60_000} min land waits at most: ${outcome.running.map((running) => running.url).join("; ")}; land again`,
+      );
   }
 }
 
@@ -466,7 +523,7 @@ async function requestE2e(
   lander: Lander,
   query: CiQuery,
   seen: readonly CiRun[],
-): Promise<string | null> {
+): Promise<NotLanded | null> {
   const pr = await readPullRequest(lander);
 
   // Adding a label the pull request already carries starts no run.
@@ -479,16 +536,20 @@ async function requestE2e(
   const outcome = await settle(lander, { ...query, known: seen.map((seenRun) => seenRun.id) });
 
   if (outcome.kind === "none") {
-    return `the ${E2E_LABEL} label added to #${pr.number} started no run on ${short(query.sha)} within a minute: land again`;
+    return deferred(
+      `the ${E2E_LABEL} label added to #${pr.number} started no run on ${short(query.sha)} within a minute: land again`,
+    );
   }
 
   if (outcome.kind !== "green") return notGreen(lander, pr, query.sha, outcome);
 
-  const after = refusalFor(checkRunsOf(query.sha, lander.checkout));
+  const after = refusalFor({ kind: "listed", runs: await checkRunsAt(lander, query.sha) });
 
   return after === null
     ? null
-    : `the run the ${E2E_LABEL} label started on ${short(query.sha)} ended green, yet ${after.reason}: land again`;
+    : refused(
+        `the run the ${E2E_LABEL} label started on ${short(query.sha)} ended green, yet ${after.reason}: land again`,
+      );
 }
 
 /**
@@ -498,25 +559,17 @@ async function requestE2e(
 async function ready(lander: Lander, sha: string, e2e: boolean): Promise<Ready> {
   const at = await pullRequestAt(lander, sha);
 
-  if (at.kind === "refused") return at;
+  if (at.kind !== "ready") return at;
 
   const query: CiQuery = { sha, event: "pull_request" };
   const outcome = await settle(lander, query);
 
-  if (outcome.kind !== "green") return refused(notGreen(lander, at.pr, sha, outcome));
+  if (outcome.kind !== "green") return notGreen(lander, at.pr, sha, outcome);
 
-  if (e2e) {
-    const checks = checkRunsOf(sha, lander.checkout);
+  if (e2e && refusalFor({ kind: "listed", runs: await checkRunsAt(lander, sha) }) !== null) {
+    const requested = await requestE2e(lander, query, outcome.runs);
 
-    if (checks.kind === "unreadable") {
-      return refused(`gh could not list the check runs of ${short(sha)}: ${checks.error}`);
-    }
-
-    if (refusalFor(checks) !== null) {
-      const requested = await requestE2e(lander, query, outcome.runs);
-
-      if (requested !== null) return refused(requested);
-    }
+    if (requested !== null) return requested;
   }
 
   return pullRequestAt(lander, sha);
@@ -535,7 +588,7 @@ async function stateOf(lander: Lander, pr: number): Promise<string> {
 
     return state;
   } catch {
-    throw new Error(`gh printed no state for #${pr}: ${out.trim()}`);
+    throw new GhError(`gh printed no state for #${pr}: ${out.trim()}`, false);
   }
 }
 
@@ -656,12 +709,14 @@ export async function land(
 
       // dev takes a head that does not hold origin/dev only rebased, a new commit: an e2e run on this one is lost.
       const based = run(["git", "merge-base", "--is-ancestor", BASE, pushed], checkout).ok;
-      let waited: Ready | Deferred;
+      let waited: Ready;
 
       try {
         waited = await ready(lander, pushed, e2e && based);
       } catch (error) {
-        waited = deferred(error instanceof Error ? error.message : String(error));
+        const why = error instanceof Error ? error.message : String(error);
+
+        waited = error instanceof GhError && error.transient ? deferred(why) : refused(why);
       }
 
       if (waited.kind !== "ready") return waited;
@@ -800,17 +855,19 @@ export async function land(
   return deferred(`${BASE} moved during each of ${ATTEMPTS} attempts: land again`);
 }
 
+function exitCodeOf(landing: NotLanded): number {
+  return landing.kind === "deferred" ? DEFERRED_EXIT : REFUSED_EXIT;
+}
+
 type DevCopyRun =
   | { readonly kind: "ran"; readonly exitCode: number }
-  | { readonly kind: "failed"; readonly why: string; readonly exitCode: number };
+  | { readonly kind: "failed"; readonly landing: NotLanded };
 
 /** Runs `origin/dev`'s copy of this script on `args` from `cwd`, extracted to a temporary directory. */
 function runDevCopy(args: readonly string[], cwd: string): DevCopyRun {
   const fetched = run(["git", "fetch", "--quiet", REMOTE], cwd);
 
-  if (!fetched.ok) {
-    return { kind: "failed", why: `git fetch: ${fetched.err}`, exitCode: DEFERRED_EXIT };
-  }
+  if (!fetched.ok) return { kind: "failed", landing: deferred(`git fetch: ${fetched.err}`) };
 
   const copy = mkdtempSync(join(tmpdir(), "land-dev-"));
 
@@ -819,13 +876,13 @@ function runDevCopy(args: readonly string[], cwd: string): DevCopyRun {
     const archived = run(["git", "archive", `--output=${archive}`, BASE, ...DEV_COPY_PATHS], cwd);
 
     if (!archived.ok) {
-      return { kind: "failed", why: `git archive ${BASE}: ${archived.err}`, exitCode: 1 };
+      return { kind: "failed", landing: refused(`git archive ${BASE}: ${archived.err}`) };
     }
 
     const extracted = run(["tar", "-x", "-f", archive, "-C", copy], cwd);
 
     if (!extracted.ok) {
-      return { kind: "failed", why: `tar -x ${archive}: ${extracted.err}`, exitCode: 1 };
+      return { kind: "failed", landing: refused(`tar -x ${archive}: ${extracted.err}`) };
     }
 
     const landed = Bun.spawnSync([process.execPath, join(copy, "scripts", "land.ts"), ...args], {
@@ -834,7 +891,7 @@ function runDevCopy(args: readonly string[], cwd: string): DevCopyRun {
       stdio: ["inherit", "inherit", "inherit"],
     });
 
-    return { kind: "ran", exitCode: landed.exitCode ?? 1 };
+    return { kind: "ran", exitCode: landed.exitCode ?? REFUSED_EXIT };
   } finally {
     rmSync(copy, { recursive: true, force: true });
   }
@@ -848,8 +905,8 @@ if (import.meta.main) {
 
     if (devCopy.kind === "ran") process.exit(devCopy.exitCode);
 
-    console.error(`land: ${BASE}'s copy of land.ts did not run: ${devCopy.why}`);
-    process.exit(devCopy.exitCode);
+    console.error(`land: ${BASE}'s copy of land.ts did not run: ${devCopy.landing.why}`);
+    process.exit(exitCodeOf(devCopy.landing));
   }
 
   const [branch] = args;
@@ -874,6 +931,6 @@ if (import.meta.main) {
     );
   } else {
     console.error(`land: ${landing.why}`);
-    process.exitCode = landing.kind === "deferred" ? DEFERRED_EXIT : 1;
+    process.exitCode = exitCodeOf(landing);
   }
 }

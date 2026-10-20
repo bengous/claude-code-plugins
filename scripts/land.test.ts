@@ -230,6 +230,8 @@ afterEach(() => {
 
 const RED_E2E: RunSpec = { validate: "success", e2e: "failure", polls: 1 };
 
+const CHECK_RUNS_CALL = "api --paginate repos/{owner}/{repo}/commits/";
+
 describe("land", () => {
   test("rebases the branch on a dev that moved and pushes it to dev and to its own ref", async () => {
     const moved = moveDev();
@@ -304,12 +306,20 @@ describe("land", () => {
     expect(runListings()).toBe(4);
   });
 
+  test("refuses a head it has not pushed, which only a push gets to the pull request", async () => {
+    serve();
+    commit(work, "d.txt", "not pushed");
+
+    const landed = await landing();
+
+    expect(why(landed)).toContain("push it, then land again");
+    expect(git(origin, "rev-parse", "dev")).not.toBe(branchHead());
+  });
+
   test.each([
     ["a red run", { pushRun: { validate: "failure", e2e: "skipped", polls: 0 } }, "CI is red on"],
-    ["no run on its head", { pushRun: null }, "no ci.yml run showed"],
     ["a base other than dev", { pr: { baseRefName: "feature/base" } }, "gh stack"],
     ["a closed pull request", { pr: { state: "MERGED" } }, "not open"],
-    ["a head the pull request does not have", { pinnedHead: "0".repeat(40) }, "push it"],
   ] satisfies [string, GitHubOverrides, string][])(
     "refuses %s and leaves dev unmoved",
     async (_, overrides, reason) => {
@@ -469,7 +479,6 @@ function breakOrigin() {
   git(work, "remote", "set-url", "origin", join(root, "gone.git"));
 }
 
-/** A pre-push hook in the checkout that moves dev on origin at each push it runs for. */
 function moveDevAtEachPush() {
   const hook = join(work, ".git", "hooks", "pre-push");
 
@@ -520,16 +529,44 @@ describe("land, deferred: nothing is left for a human to fix", () => {
     expect(deferredWhy(landed)).toContain("git fetch:");
   });
 
-  test("defers output gh did not print as a pull request", async () => {
-    serve({ garbage: "not json" });
+  test("reads again a gh that cannot reach GitHub, then lands", async () => {
+    serve({ outages: [{ prefix: "", left: 3 }] });
 
-    expect(deferredWhy(await landing())).toContain("gh printed no pull request");
+    expect((await landing()).kind).toBe("landed");
   });
 
-  test("defers a gh that fails to read the pull request", async () => {
+  test("defers a gh that cannot reach GitHub until the hour runs out", async () => {
+    serve({ outages: [{ prefix: "", left: 1_000_000 }] });
+
+    const landed = await landing("feature/x", { pollMs: 10 * 60_000 });
+
+    expect(deferredWhy(landed)).toContain("error connecting to api.github.com");
+  });
+
+  test("refuses output gh did not print as a pull request", async () => {
+    serve({ garbage: "not json" });
+
+    expect(why(await landing())).toContain("gh printed no pull request");
+  });
+
+  test("refuses a gh that fails for good to read the pull request", async () => {
     serve({ failing: ["pr view"] });
 
-    expect(deferredWhy(await landing())).toContain("gh pr view feature/x exited 1");
+    expect(why(await landing())).toContain("gh pr view feature/x exited 1");
+  });
+
+  test("defers when no ci.yml run shows on the head within a minute", async () => {
+    serve({ pushRun: null });
+
+    expect(deferredWhy(await landing())).toContain("no ci.yml run showed");
+  });
+
+  test("defers when the pull request does not show within a minute the head origin holds", async () => {
+    serve({ pinnedHead: "0".repeat(40) });
+
+    expect(deferredWhy(await landing())).toContain(
+      `though origin holds ${branchHead().slice(0, 8)}: GitHub has not shown the push within a minute`,
+    );
   });
 
   test("defers once dev moved during each of its attempts, the branch pushed rebased", async () => {
@@ -634,6 +671,35 @@ describe("land, a branch that touches the e2e paths", () => {
       .map((run) => run.sha);
 
     expect(e2eRuns).toEqual([head]);
+  });
+
+  test("defers when the pull request does not show within a minute the commit its rebase pushed", async () => {
+    moveDev();
+    serve({ lag: 1_000_000 });
+
+    const landed = await landing();
+
+    expect(deferredWhy(landed)).toContain("GitHub has not shown the push within a minute");
+    expect(git(origin, "rev-parse", "feature/x")).toBe(branchHead());
+  });
+
+  test("defers when the e2e label starts no run within a minute", async () => {
+    serve({ labelRun: { validate: "success", e2e: "success", polls: 1, hidden: 1_000_000 } });
+
+    expect(deferredWhy(await landing())).toContain("the e2e label added to #7 started no run");
+  });
+
+  test("reads again the check runs gh could not list, then re-runs the e2e flake and lands", async () => {
+    serve({ pushRun: { ...RED_E2E, polls: 0 }, outages: [{ prefix: CHECK_RUNS_CALL, left: 2 }] });
+
+    expect((await landing()).kind).toBe("landed");
+    expect(edits()).toEqual(["run rerun 100 --failed"]);
+  });
+
+  test("refuses a red run whose check runs gh cannot list for good, naming gh, not the CI", async () => {
+    serve({ pushRun: { ...RED_E2E, polls: 0 }, failing: [CHECK_RUNS_CALL] });
+
+    expect(why(await landing())).toContain("gh could not list the check runs");
   });
 
   test("gives up once the waits add up to an hour", async () => {

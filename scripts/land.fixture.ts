@@ -15,7 +15,8 @@ import type { Comment } from "./review-verdict.ts";
 // that many listings before it shows. An open pull request whose head origin's
 // dev holds reads merged, once `mergeLag` reads have still shown it open. The
 // `stacked` pull requests are the open ones based on the branch. A call whose
-// arguments start with one of `failing` fails.
+// arguments start with one of `failing` fails; one that starts with an
+// outage's prefix fails as gh does when it cannot reach GitHub, `left` times.
 
 export type JobEnd = "success" | "failure";
 
@@ -55,6 +56,7 @@ export interface FakeGitHub {
   mergeLag: number;
   readonly stacked: readonly number[];
   readonly failing: readonly string[];
+  readonly outages: { readonly prefix: string; left: number }[];
   /** Printed by `gh pr view` in place of the pull request. */
   readonly garbage: string | null;
   /** The head the pull request has, whatever origin holds. */
@@ -93,6 +95,7 @@ export function serveGitHub(
     mergeLag: 0,
     stacked: [],
     failing: [],
+    outages: [],
     garbage: null,
     pinnedHead: null,
     lag: 0,
@@ -352,6 +355,17 @@ if (import.meta.main) {
   const call = args.join(" ");
 
   github.calls.push(call);
+
+  const outage = github.outages.find(({ prefix, left }) => left > 0 && call.startsWith(prefix));
+
+  if (outage !== undefined) {
+    outage.left -= 1;
+    writeFileSync(file, JSON.stringify(github));
+    console.error(
+      "error connecting to api.github.com\ncheck your internet connection or https://githubstatus.com",
+    );
+    process.exit(1);
+  }
 
   const out = github.failing.some((prefix) => call.startsWith(prefix))
     ? null

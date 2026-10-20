@@ -41,6 +41,30 @@ const RUN_CONCLUSIONS = [
 /** A push registers its run within seconds. */
 export const REGISTRATION_MS = 60_000;
 
+/**
+ * What gh prints when the network or GitHub failed rather than the request: "error connecting to <host>" and
+ * "dial tcp …: connect: connection refused" measured with gh 2.102.0 on 2026-10-20, the others Go's and GitHub's
+ * wording, not measured.
+ */
+const TRANSIENT_GH =
+  /error connecting to|connection (?:refused|reset)|no such host|i\/o timeout|TLS handshake timeout|unexpected EOF|HTTP 5\d\d|HTTP 429|rate limit/iu;
+
+/** A gh call that failed or printed what does not read; `transient` when the same call may pass later. */
+export class GhError extends Error {
+  readonly transient: boolean;
+
+  constructor(message: string, transient: boolean) {
+    super(message);
+    this.name = "GhError";
+    this.transient = transient;
+  }
+}
+
+/** Whether what a failed gh call printed names the network or GitHub, not the request. */
+export function transientGh(stderr: string): boolean {
+  return TRANSIENT_GH.test(stderr);
+}
+
 export type Gh = (args: readonly string[]) => Promise<string>;
 
 export type CiEvent = "push" | "pull_request";
@@ -146,8 +170,9 @@ function runOf(line: string): CiRun {
     url === "" ||
     extra.length > 0
   ) {
-    throw new Error(
+    throw new GhError(
       `gh listed a ${WORKFLOW} run that does not read as one: ${JSON.stringify(line)}`,
+      false,
     );
   }
 
@@ -179,6 +204,25 @@ export async function ciVerdict(gh: Gh, query: CiQuery): Promise<CiVerdict> {
   return verdictOf(await runsOf(gh, query), query.known ?? []);
 }
 
+/** What `read` gives once it does not fail transiently, tried again every `pollMs` until `deadline`. */
+export async function retried<T>(
+  read: () => Promise<T>,
+  clock: Clock,
+  { deadline, pollMs }: { readonly deadline: number; readonly pollMs: number },
+): Promise<T> {
+  try {
+    return await read();
+  } catch (error) {
+    const left = deadline - clock.now();
+
+    if (!(error instanceof GhError) || !error.transient || left <= 0) throw error;
+
+    await clock.sleep(Math.min(pollMs, left));
+
+    return retried(read, clock, { deadline, pollMs });
+  }
+}
+
 export async function waitFor(
   gh: Gh,
   query: CiQuery,
@@ -189,7 +233,11 @@ export async function waitFor(
   const known = query.known ?? [];
 
   const read = async () => {
-    const runs = await runsOf(gh, query);
+    const runs = await retried(() => runsOf(gh, query), clock, {
+      deadline: start + timeoutMs,
+      pollMs,
+    });
+
     const elapsedMs = clock.now() - start;
 
     return { decision: decide({ runs, known, elapsedMs }, timeoutMs), elapsedMs };
@@ -222,7 +270,10 @@ export async function ghCli(args: readonly string[], cwd = process.cwd()): Promi
   ]);
 
   if (code !== 0) {
-    throw new Error(`gh ${args.slice(0, 3).join(" ")} exited ${code}: ${stderr.trim()}`);
+    throw new GhError(
+      `gh ${args.slice(0, 3).join(" ")} exited ${code}: ${stderr.trim()}`,
+      transientGh(stderr),
+    );
   }
 
   return stdout;

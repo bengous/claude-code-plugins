@@ -11,11 +11,14 @@ import {
   AGENT_ROUNDS,
   classify,
   combinedVerdict,
+  landVerdict,
   MAJOR_LABEL,
+  openRounds,
   outcomeLine,
   parsePrList,
   prLogPath,
   recordHandled,
+  RENOVATE_EMAIL,
   type RenovatePr,
   reportLines,
   type RiskyPath,
@@ -40,6 +43,7 @@ const pr = (overrides: Partial<RenovatePr> = {}): RenovatePr => ({
   headRefOid: SHA,
   labels: [],
   files: ["package.json", "bun.lock"],
+  authors: [RENOVATE_EMAIL],
   ...overrides,
 });
 
@@ -95,6 +99,15 @@ describe("classify", () => {
     expect(classify(pr(), { kind: "none" }, {}, NOTHING_RISKY).owner).toBe("wait");
   });
 
+  test("owns a green update carrying a commit not Renovate's, the agent's repair", () => {
+    expect(
+      classify(pr({ authors: [RENOVATE_EMAIL, "me@example.com"] }), GREEN, {}, NOTHING_RISKY),
+    ).toEqual({
+      owner: "agent",
+      reasons: ["repaired"],
+    });
+  });
+
   test("leaves a head an earlier run handled, until Renovate pushes another", () => {
     expect(classify(pr(), RED, { "7": [SHA] }, NOTHING_RISKY).owner).toBe("handled");
     expect(classify(pr(), RED, { "7": ["b".repeat(40)] }, NOTHING_RISKY).owner).toBe("agent");
@@ -132,7 +145,7 @@ describe("recordHandled", () => {
 });
 
 describe("parsePrList", () => {
-  test("reads gh's listing, labels and files by name", () => {
+  test("reads gh's listing, labels and files by name, commits by their authors' emails", () => {
     const listed = JSON.stringify([
       {
         number: 7,
@@ -142,6 +155,10 @@ describe("parsePrList", () => {
         headRefOid: SHA,
         labels: [{ name: "major" }],
         files: [{ path: "package.json" }],
+        commits: [
+          { authors: [{ email: RENOVATE_EMAIL, login: "renovate[bot]" }] },
+          { authors: [{ email: RENOVATE_EMAIL }, { email: "me@example.com" }] },
+        ],
       },
     ]);
 
@@ -154,8 +171,28 @@ describe("parsePrList", () => {
         headRefOid: SHA,
         labels: ["major"],
         files: ["package.json"],
+        authors: [RENOVATE_EMAIL, "me@example.com"],
       },
     ]);
+  });
+});
+
+describe("landVerdict", () => {
+  test("takes land.ts's verdict line, not git's lines printed after it", () => {
+    expect(
+      landVerdict(
+        "lefthook output\nland: the push of renovate/x was refused:\nerror: failed to push some refs\n",
+      ),
+    ).toBe("land: the push of renovate/x was refused:");
+    expect(landVerdict("landed renovate/x on dev at abc (#7)\n")).toBe(
+      "landed renovate/x on dev at abc (#7)",
+    );
+  });
+});
+
+describe("openRounds", () => {
+  test("forgets the rounds of the pull requests no longer open", () => {
+    expect(openRounds({ "1": 2, "2": 1 }, [2, 3])).toEqual({ "2": 1 });
   });
 });
 
@@ -268,24 +305,26 @@ esac
 `;
 
 // Stands in for the installs and for land.ts, whose verdicts stub/land-exits gives one per call:
-// 0 lands, red and review refuse, deferred defers, foreign first pushes a commit of someone else's
-// to the branch, and a rebased- prefix first pushes a commit of land.ts's own, as its rebase does.
+// 0 lands, red, review and multiline refuse, deferred defers, foreign first pushes a commit of
+// someone else's to the branch, and a rebased- prefix first pushes a commit of Renovate's
+// authorship, as land.ts's rebase does.
 const BUN_STUB = `#!/usr/bin/env bash
 stub="$(dirname "$0")/../stub"
 echo "$PWD $*" >>"$stub/bun-calls"
 if [[ "$1" == install && -f $stub/install-fails ]]; then exit 1; fi
-if [[ "$1" == ./scripts/land.ts ]]; then
+if [[ "$1" == */scripts/land.ts ]]; then
   exits="$stub/land-exits"
   verdict="$(head -n1 "$exits")"
   sed -i 1d "$exits"
   if [[ "$verdict" == rebased-* ]]; then
-    git commit -q --allow-empty -m "rebased by land.ts"
+    git -c "user.name=renovate[bot]" -c "user.email=${RENOVATE_EMAIL}" commit -q --allow-empty -m "rebased by land.ts"
     git push -q origin "HEAD:refs/heads/$2"
     verdict="\${verdict#rebased-}"
   fi
   case "$verdict" in
     0) echo "landed $2 on dev at abc (#7)"; exit 0 ;;
     deferred) echo "land: origin/dev moved during each of 3 attempts: land again" >&2; exit 3 ;;
+    multiline) printf 'land: the push of %s was refused; it is back at abc:\\nerror: failed to push some refs\\n' "$2" >&2 ;;
     red) echo "land: CI is red on abc, the head of #7: https://ci/9. Fix it and push" >&2 ;;
     review) echo "land: $2 touches risky paths (.github/workflows/ci.yml); #7 carries no clean review verdict" >&2 ;;
     foreign)
@@ -328,6 +367,8 @@ function git(cwd: string, ...args: string[]): string {
   return result.stdout.toString().trim();
 }
 
+const AS_RENOVATE = ["-c", "user.name=renovate[bot]", "-c", `user.email=${RENOVATE_EMAIL}`];
+
 const originHead = () => git(origin, "rev-parse", "refs/heads/renovate/x-1.x");
 
 function runScript(...args: string[]) {
@@ -349,6 +390,10 @@ function runScript(...args: string[]) {
 function listPr(conclusion: string, overrides: Partial<RenovatePr> = {}) {
   const head = originHead();
 
+  const authors = git(origin, "log", "--format=%ae", "dev..refs/heads/renovate/x-1.x")
+    .split("\n")
+    .filter(Boolean);
+
   write(
     stub("prs.json"),
     JSON.stringify([
@@ -360,6 +405,7 @@ function listPr(conclusion: string, overrides: Partial<RenovatePr> = {}) {
         headRefOid: head,
         labels: (overrides.labels ?? []).map((name) => ({ name })),
         files: (overrides.files ?? ["package.json"]).map((path) => ({ path })),
+        commits: authors.map((email) => ({ authors: [{ email }] })),
       },
     ]),
   );
@@ -374,8 +420,17 @@ function renovatePushes() {
   const clone = join(root, "renovate-clone");
   git(root, "clone", "-q", "-b", "renovate/x-1.x", origin, clone);
   write(join(clone, "package.json"), '{"devDependencies":{"x":"1.2.4"}}\n');
-  git(clone, "commit", "-qam", "chore(deps): update dependency x to v1.2.4");
+  git(clone, ...AS_RENOVATE, "commit", "-qam", "chore(deps): update dependency x to v1.2.4");
   git(clone, "push", "-q", "origin", "renovate/x-1.x");
+}
+
+/** Renovate recreating its branch from dev as one commit, as its rebase does. */
+function renovateRecreates() {
+  const clone = join(root, "renovate-recreate");
+  git(root, "clone", "-q", "-b", "dev", origin, clone);
+  write(join(clone, "package.json"), '{"devDependencies":{"x":"1.2.4"}}\n');
+  git(clone, ...AS_RENOVATE, "commit", "-qam", "chore(deps): update dependency x to v1.2.4");
+  git(clone, "push", "-qf", "origin", "HEAD:refs/heads/renovate/x-1.x");
 }
 
 const handled = (): Record<string, string[]> =>
@@ -430,7 +485,7 @@ beforeEach(() => {
   git(project, "push", "-q", "origin", "dev");
   git(project, "switch", "-qc", "renovate/x-1.x");
   write(join(project, "package.json"), '{"devDependencies":{"x":"1.2.3"}}\n');
-  git(project, "commit", "-qam", "chore(deps): update dependency x to v1.2.3");
+  git(project, ...AS_RENOVATE, "commit", "-qam", "chore(deps): update dependency x to v1.2.3");
   git(project, "push", "-q", "origin", "renovate/x-1.x");
   git(project, "switch", "-q", "dev");
   git(project, "branch", "-qD", "renovate/x-1.x");
@@ -455,7 +510,9 @@ describe("renovate-agent run", () => {
 
     expect(git(origin, "log", "-1", "--format=%s", repaired)).toBe("fix: adopt the update");
     expect(git(origin, "rev-parse", `${repaired}^`)).toBe(head);
-    expect(recorded("bun-calls")).toContain(`${worktree()} ./scripts/land.ts renovate/x-1.x`);
+    expect(recorded("bun-calls")).toContain(
+      `${worktree()} ${join(import.meta.dir, "land.ts")} renovate/x-1.x`,
+    );
     expect(existsSync(worktree())).toBe(false);
     expect(handled()).toEqual({ "7": [head, repaired] });
     expect(report()).toEqual([
@@ -523,14 +580,83 @@ describe("renovate-agent run", () => {
     expect(runScript().code).toBe(0);
     expect(handled()).toEqual({});
     expect(report()).toEqual([
-      `Renovate #7 (chore(deps): update dependency x to v1.2.3): land.ts deferred it, land: origin/dev moved during each of 3 attempts: land again (log: ${prLogPath(state(), 7)}; its worktree, ${worktree()}, is kept as it is); the next daily run takes it again`,
+      `Renovate #7 (chore(deps): update dependency x to v1.2.3): land.ts deferred it, land: origin/dev moved during each of 3 attempts: land again (log: ${prLogPath(state(), 7)}); the next daily run takes it again`,
     ]);
+    expect(existsSync(worktree())).toBe(false);
     expect(recorded("notify-calls")).toContain("-u normal");
     expect(recorded("notify-calls")).not.toContain("-u critical");
 
     runScript();
 
     expect(report()[1]).toContain("landed renovate/x-1.x");
+  });
+
+  test("takes a deferred pull request again once Renovate recreated its branch", () => {
+    listPr("success", { labels: ["major"] });
+    write(stub("land-exits"), "deferred\n0\n");
+
+    runScript();
+    renovateRecreates();
+    listPr("success", { labels: ["major"] });
+    runScript();
+
+    expect(report()[1]).toContain("landed renovate/x-1.x");
+    expect(recorded("notify-calls")).not.toContain("-u critical");
+  });
+
+  test("lands a repair whose landing was deferred, though its head is green and no major", () => {
+    listPr("failure");
+    write(stub("land-exits"), "deferred\n0\n");
+
+    runScript();
+    listPr("success");
+
+    expect(runScript("--dry-run").stdout).toBe("#7 renovate/x-1.x: agent (repaired)\n");
+
+    runScript();
+
+    expect(agentRuns()).toBe(1);
+    expect(report()[1]).toContain("landed renovate/x-1.x");
+  });
+
+  test("counts the agent rounds across runs, a deferred landing between them", () => {
+    listPr("failure");
+    write(stub("land-exits"), "deferred\nred\nred\n");
+
+    runScript();
+    listPr("failure");
+    runScript();
+
+    expect(agentRuns()).toBe(AGENT_ROUNDS);
+    expect(report()[1]).toContain(`needs you: CI still red after ${AGENT_ROUNDS} agent rounds`);
+  });
+
+  test("hands a red pull request whose rounds are spent to the human, settling its head", () => {
+    listPr("failure");
+    write(stub("land-exits"), "deferred\ndeferred\n");
+
+    runScript();
+    listPr("failure");
+    runScript();
+
+    const repaired = listPr("failure");
+
+    runScript();
+
+    expect(agentRuns()).toBe(AGENT_ROUNDS);
+    expect(report()[2]).toContain(`needs you: CI still red after ${AGENT_ROUNDS} agent rounds`);
+    expect(handled()).toEqual({ "7": [repaired] });
+  });
+
+  test("reports land.ts's verdict line, not git's lines printed after it", () => {
+    listPr("success", { labels: ["major"] });
+    write(stub("land-exits"), "multiline\n");
+
+    runScript();
+
+    expect(report()[0]).toContain(
+      "needs you: land.ts refused it: land: the push of renovate/x-1.x was refused; it is back at abc:",
+    );
   });
 
   test("leaves free the head land.ts pushed before it deferred", () => {
