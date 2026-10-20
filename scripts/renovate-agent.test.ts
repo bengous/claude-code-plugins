@@ -14,6 +14,7 @@ import {
   MAJOR_LABEL,
   outcomeLine,
   parsePrList,
+  prLogPath,
   recordHandled,
   type RenovatePr,
   reportLines,
@@ -267,7 +268,8 @@ esac
 `;
 
 // Stands in for the installs and for land.ts, whose verdicts stub/land-exits gives one per call:
-// 0 lands, red and review refuse, foreign first pushes a commit of someone else's to the branch.
+// 0 lands, red and review refuse, deferred defers, foreign first pushes a commit of someone else's
+// to the branch, and a rebased- prefix first pushes a commit of land.ts's own, as its rebase does.
 const BUN_STUB = `#!/usr/bin/env bash
 stub="$(dirname "$0")/../stub"
 echo "$PWD $*" >>"$stub/bun-calls"
@@ -276,8 +278,14 @@ if [[ "$1" == ./scripts/land.ts ]]; then
   exits="$stub/land-exits"
   verdict="$(head -n1 "$exits")"
   sed -i 1d "$exits"
+  if [[ "$verdict" == rebased-* ]]; then
+    git commit -q --allow-empty -m "rebased by land.ts"
+    git push -q origin "HEAD:refs/heads/$2"
+    verdict="\${verdict#rebased-}"
+  fi
   case "$verdict" in
     0) echo "landed $2 on dev at abc (#7)"; exit 0 ;;
+    deferred) echo "land: origin/dev moved during each of 3 attempts: land again" >&2; exit 3 ;;
     red) echo "land: CI is red on abc, the head of #7: https://ci/9. Fix it and push" >&2 ;;
     review) echo "land: $2 touches risky paths (.github/workflows/ci.yml); #7 carries no clean review verdict" >&2 ;;
     foreign)
@@ -506,6 +514,57 @@ describe("renovate-agent run", () => {
       "needs you: land.ts refused it: land: renovate/x-1.x touches risky paths",
     );
     expect(handled()).toEqual({ "7": [head] });
+  });
+
+  test("leaves a landing land.ts deferred to the next daily run, settling no head, with a normal notice", () => {
+    listPr("success", { labels: ["major"] });
+    write(stub("land-exits"), "deferred\n0\n");
+
+    expect(runScript().code).toBe(0);
+    expect(handled()).toEqual({});
+    expect(report()).toEqual([
+      `Renovate #7 (chore(deps): update dependency x to v1.2.3): land.ts deferred it, land: origin/dev moved during each of 3 attempts: land again (log: ${prLogPath(state(), 7)}; its worktree, ${worktree()}, is kept as it is); the next daily run takes it again`,
+    ]);
+    expect(recorded("notify-calls")).toContain("-u normal");
+    expect(recorded("notify-calls")).not.toContain("-u critical");
+
+    runScript();
+
+    expect(report()[1]).toContain("landed renovate/x-1.x");
+  });
+
+  test("leaves free the head land.ts pushed before it deferred", () => {
+    const head = listPr("success", { labels: ["major"] });
+    write(stub("land-exits"), "rebased-deferred\n");
+
+    runScript();
+
+    expect(originHead()).not.toBe(head);
+    expect(handled()).toEqual({});
+
+    listPr("success", { labels: ["major"] });
+
+    expect(runScript("--dry-run").stdout).toBe("#7 renovate/x-1.x: agent (major)\n");
+  });
+
+  test("settles none of an agent round's heads when the landing after it is deferred", () => {
+    listPr("failure");
+    write(stub("land-exits"), "deferred\n");
+
+    runScript();
+
+    expect(agentRuns()).toBe(1);
+    expect(handled()).toEqual({});
+  });
+
+  test("settles the listed head and the one land.ts pushed when it refuses for good", () => {
+    const head = listPr("success", { labels: ["major"] });
+    write(stub("land-exits"), "rebased-review\n");
+
+    runScript();
+
+    expect(handled()).toEqual({ "7": [head, originHead()] });
+    expect(report()[0]).toContain("needs you: land.ts refused it");
   });
 
   test("sends a refusal after a repair to the human when it is not a red CI", () => {

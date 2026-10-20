@@ -435,12 +435,6 @@ describe("land", () => {
     });
   });
 
-  test("refuses output gh did not print as a pull request", async () => {
-    serve({ garbage: "not json" });
-
-    expect(why(await landing())).toContain("gh printed no pull request");
-  });
-
   test("refuses a branch outside the landable names, dev and main included", async () => {
     for (const branch of ["dev", "main", "chore/x", "chore/claude-code-types-2", "renovate"]) {
       // oxlint-disable-next-line no-await-in-loop -- one branch name at a time keeps the failure on its name.
@@ -468,6 +462,121 @@ describe("land", () => {
       kind: "refused",
       why: "no checkout holds fix/nowhere: check it out, then land",
     });
+  });
+});
+
+function breakOrigin() {
+  git(work, "remote", "set-url", "origin", join(root, "gone.git"));
+}
+
+/** A pre-push hook in the checkout that moves dev on origin at each push it runs for. */
+function moveDevAtEachPush() {
+  const hook = join(work, ".git", "hooks", "pre-push");
+
+  writeFileSync(
+    hook,
+    [
+      "#!/bin/sh",
+      "unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE",
+      `cd "${other}" || exit 1`,
+      'echo "$$" >> c.txt',
+      "git add c.txt",
+      "git commit -q -m elsewhere",
+      "git push -q origin dev",
+      "",
+    ].join("\n"),
+  );
+  chmodSync(hook, 0o755);
+}
+
+function deferredWhy(landed: Landing): string {
+  return landed.kind === "deferred" ? landed.why : "";
+}
+
+describe("land, deferred: nothing is left for a human to fix", () => {
+  test("defers when the fetch before the wait fails, and leaves dev unmoved", async () => {
+    const before = git(origin, "rev-parse", "dev");
+
+    serve();
+    breakOrigin();
+
+    expect(deferredWhy(await landing())).toContain("git fetch:");
+    expect(git(origin, "rev-parse", "dev")).toBe(before);
+  });
+
+  test("defers when the fetch after the wait fails", async () => {
+    let once = false;
+
+    serve({ pushRun: { validate: "success", e2e: "skipped", polls: 1 } });
+
+    const landed = await landing("feature/x", {
+      during: () => {
+        if (!once) breakOrigin();
+
+        once = true;
+      },
+    });
+
+    expect(deferredWhy(landed)).toContain("git fetch:");
+  });
+
+  test("defers output gh did not print as a pull request", async () => {
+    serve({ garbage: "not json" });
+
+    expect(deferredWhy(await landing())).toContain("gh printed no pull request");
+  });
+
+  test("defers a gh that fails to read the pull request", async () => {
+    serve({ failing: ["pr view"] });
+
+    expect(deferredWhy(await landing())).toContain("gh pr view feature/x exited 1");
+  });
+
+  test("defers once dev moved during each of its attempts, the branch pushed rebased", async () => {
+    serve();
+    moveDevAtEachPush();
+
+    const landed = await landing();
+
+    expect(landed).toEqual({
+      kind: "deferred",
+      why: "origin/dev moved during each of 3 attempts: land again",
+    });
+    expect(git(origin, "rev-parse", "dev")).not.toBe(branchHead());
+    expect(git(origin, "rev-parse", "feature/x")).toBe(branchHead());
+  });
+
+  test("exits 3 on a deferred landing, its verdict line the land: one", () => {
+    serve();
+    breakOrigin();
+    setEnv("LAND_DEV_COPY", "1");
+
+    const cli = Bun.spawnSync([process.execPath, join(import.meta.dir, "land.ts"), "feature/x"], {
+      cwd: work,
+      env: process.env,
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+
+    expect(cli.stderr.toString()).toStartWith("land: git fetch:");
+    expect(cli.exitCode).toBe(3);
+  });
+
+  test("exits 3 when the fetch for origin/dev's copy fails", () => {
+    breakOrigin();
+    setEnv("LAND_DEV_COPY", undefined);
+
+    const cli = Bun.spawnSync([process.execPath, join(import.meta.dir, "land.ts"), "feature/x"], {
+      cwd: work,
+      env: process.env,
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+
+    expect(cli.stderr.toString()).toStartWith(
+      "land: origin/dev's copy of land.ts did not run: git fetch:",
+    );
+    expect(cli.exitCode).toBe(3);
   });
 });
 

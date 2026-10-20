@@ -24,7 +24,9 @@
  * fast-forward under a lease, and runs `scripts/land.ts`, which waits for CI,
  * runs the e2e suite when the branch needs it and lands the branch on `dev`.
  * A landing refused because CI is red goes back to the agent, two agent
- * rounds per pull request in all; any other refusal goes to the human. Each
+ * rounds per pull request in all; a landing land.ts defers (exit 3: nothing
+ * for a human to fix) settles no head, so the next daily run takes it again;
+ * any other refusal goes to the human. Each
  * end, landed or not, is a line the next session start shows and a desktop
  * notice. The lock, the logs, the handled heads and the lines not yet shown
  * live in `<git common dir>/renovate-agent/`.
@@ -44,7 +46,7 @@ import { join } from "node:path";
 import { isE2ePath } from "./check-e2e-green.ts";
 import { type CiVerdict, ciVerdict, ghCli } from "./ci-wait.ts";
 import { RUN_GUARD as TYPES_RUN_GUARD } from "./claude-code-types.ts";
-import { riskyOf } from "./land.ts";
+import { DEFERRED_EXIT, riskyOf } from "./land.ts";
 import {
   type ChildSlot,
   command,
@@ -112,8 +114,8 @@ export type RiskyPath = (path: string) => boolean;
 /**
  * How a pull request ended. `heads` are the heads it settles, which the next
  * runs leave alone: the listed head once a costly step ran (an agent round or
- * a landing), and each head this run pushed; none when it failed before those
- * or was stopped.
+ * a landing land.ts did not defer), and each head this run pushed; none when
+ * it failed before those, was stopped, or land.ts deferred it.
  */
 export type PrOutcome =
   | {
@@ -136,6 +138,13 @@ export type PrOutcome =
       readonly signal: string;
       readonly log: string;
       readonly worktree: string | null;
+    }
+  | {
+      readonly kind: "deferred";
+      readonly pr: RenovatePr;
+      readonly verdict: string;
+      readonly log: string;
+      readonly worktree: string;
     }
   | { readonly kind: "human"; readonly pr: RenovatePr; readonly why: string };
 
@@ -261,6 +270,8 @@ export function outcomeLine(outcome: PrOutcome): string {
       return `${head} needs your review: it ${outcome.why}. ${outcome.pr.url}`;
     case "stopped":
       return `${head}: the run was stopped by ${outcome.signal} (log: ${outcome.log}${keptNote(outcome.worktree)}); the next daily run takes it again`;
+    case "deferred":
+      return `${head}: land.ts deferred it, ${outcome.verdict} (log: ${outcome.log}${keptNote(outcome.worktree)}); the next daily run takes it again`;
     case "failed":
       return `${head} needs you: ${outcome.reason} (log: ${outcome.log}${keptNote(outcome.worktree)}). ${outcome.pr.url}`;
   }
@@ -600,8 +611,6 @@ async function handle(
         await agentRound(run, pr, worktree, why, { log, settled });
       }
 
-      settled.heads.push(pr.headRefOid);
-
       const landing = await streamed(
         ["bun", "./scripts/land.ts", pr.headRefName],
         worktree,
@@ -611,6 +620,12 @@ async function handle(
 
       checkStop(run.progress);
       const verdict = lastNonEmptyLine(landing.output);
+
+      if (landing.code === DEFERRED_EXIT) {
+        return { kind: "deferred", pr, verdict, log: logFile, worktree };
+      }
+
+      settled.heads.push(pr.headRefOid);
       const left = landedOrPushedHead(run, pr, worktree);
 
       if (left !== null) settled.heads.push(left);
@@ -703,6 +718,7 @@ function settledHeads(outcome: PrOutcome): readonly string[] {
     case "human":
       return [outcome.pr.headRefOid];
     case "stopped":
+    case "deferred":
       return [];
   }
 }

@@ -38,6 +38,9 @@
  * reads its pull request merged within a minute and no open pull request is
  * based on it; its local branch and checkout stay, and a remote branch kept
  * is named, with why, on the verdict line of a landing that still succeeded.
+ * A refusal that leaves nothing to fix, a failed fetch, a `gh` call that
+ * fails while it waits or a `dev` that moved during each attempt, is
+ * deferred: the same `land: <why>` line, exit code 3 instead of 1.
  */
 
 import { mkdtempSync, rmSync } from "node:fs";
@@ -128,9 +131,15 @@ export type Landing =
       readonly pr: number;
       readonly remote: RemoteBranch;
     }
-  | { readonly kind: "refused"; readonly why: string };
+  | { readonly kind: "refused"; readonly why: string }
+  | { readonly kind: "deferred"; readonly why: string };
+
+/** The exit code of a deferred landing: nothing is left for a human to fix, and the same landing may pass later. */
+export const DEFERRED_EXIT = 3;
 
 type Refused = Extract<Landing, { readonly kind: "refused" }>;
+
+type Deferred = Extract<Landing, { readonly kind: "deferred" }>;
 
 type Ready = { readonly kind: "ready"; readonly pr: PullRequest } | Refused;
 
@@ -147,6 +156,10 @@ interface Lander {
 
 function refused(why: string): Refused {
   return { kind: "refused", why };
+}
+
+function deferred(why: string): Deferred {
+  return { kind: "deferred", why };
 }
 
 function headOf(checkout: string): string | null {
@@ -639,26 +652,26 @@ export async function land(
     if (pr === null) {
       const beforeWait = fetchOrigin(checkout);
 
-      if (beforeWait !== null) return refused(beforeWait);
+      if (beforeWait !== null) return deferred(beforeWait);
 
       // dev takes a head that does not hold origin/dev only rebased, a new commit: an e2e run on this one is lost.
       const based = run(["git", "merge-base", "--is-ancestor", BASE, pushed], checkout).ok;
-      let waited: Ready;
+      let waited: Ready | Deferred;
 
       try {
         waited = await ready(lander, pushed, e2e && based);
       } catch (error) {
-        waited = refused(error instanceof Error ? error.message : String(error));
+        waited = deferred(error instanceof Error ? error.message : String(error));
       }
 
-      if (waited.kind === "refused") return waited;
+      if (waited.kind !== "ready") return waited;
 
       ({ pr } = waited);
     }
 
     const unfetched = fetchOrigin(checkout);
 
-    if (unfetched !== null) return refused(unfetched);
+    if (unfetched !== null) return deferred(unfetched);
 
     const beforeRebase = driftFrom(lander, pushed);
 
@@ -784,18 +797,20 @@ export async function land(
     }
   }
 
-  return refused(`${BASE} moved during each of ${ATTEMPTS} attempts: land again`);
+  return deferred(`${BASE} moved during each of ${ATTEMPTS} attempts: land again`);
 }
 
 type DevCopyRun =
   | { readonly kind: "ran"; readonly exitCode: number }
-  | { readonly kind: "failed"; readonly why: string };
+  | { readonly kind: "failed"; readonly why: string; readonly exitCode: number };
 
 /** Runs `origin/dev`'s copy of this script on `args` from `cwd`, extracted to a temporary directory. */
 function runDevCopy(args: readonly string[], cwd: string): DevCopyRun {
   const fetched = run(["git", "fetch", "--quiet", REMOTE], cwd);
 
-  if (!fetched.ok) return { kind: "failed", why: `git fetch: ${fetched.err}` };
+  if (!fetched.ok) {
+    return { kind: "failed", why: `git fetch: ${fetched.err}`, exitCode: DEFERRED_EXIT };
+  }
 
   const copy = mkdtempSync(join(tmpdir(), "land-dev-"));
 
@@ -803,11 +818,15 @@ function runDevCopy(args: readonly string[], cwd: string): DevCopyRun {
     const archive = join(copy, "dev.tar");
     const archived = run(["git", "archive", `--output=${archive}`, BASE, ...DEV_COPY_PATHS], cwd);
 
-    if (!archived.ok) return { kind: "failed", why: `git archive ${BASE}: ${archived.err}` };
+    if (!archived.ok) {
+      return { kind: "failed", why: `git archive ${BASE}: ${archived.err}`, exitCode: 1 };
+    }
 
     const extracted = run(["tar", "-x", "-f", archive, "-C", copy], cwd);
 
-    if (!extracted.ok) return { kind: "failed", why: `tar -x ${archive}: ${extracted.err}` };
+    if (!extracted.ok) {
+      return { kind: "failed", why: `tar -x ${archive}: ${extracted.err}`, exitCode: 1 };
+    }
 
     const landed = Bun.spawnSync([process.execPath, join(copy, "scripts", "land.ts"), ...args], {
       cwd,
@@ -830,7 +849,7 @@ if (import.meta.main) {
     if (devCopy.kind === "ran") process.exit(devCopy.exitCode);
 
     console.error(`land: ${BASE}'s copy of land.ts did not run: ${devCopy.why}`);
-    process.exit(1);
+    process.exit(devCopy.exitCode);
   }
 
   const [branch] = args;
@@ -855,6 +874,6 @@ if (import.meta.main) {
     );
   } else {
     console.error(`land: ${landing.why}`);
-    process.exitCode = 1;
+    process.exitCode = landing.kind === "deferred" ? DEFERRED_EXIT : 1;
   }
 }
