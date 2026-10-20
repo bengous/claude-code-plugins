@@ -1,8 +1,17 @@
 import { describe, expect, test } from "bun:test";
 
-import { verdictLine, verdictsOf } from "./review-verdict.ts";
+import { verdictBody, verdictLine, verdictsOf } from "./review-verdict.ts";
 
 const ID = "0123456789abcdef0123456789abcdef01234567";
+
+describe("verdictBody", () => {
+  test("puts the marker verdictsOf reads on the first line, the why under it", () => {
+    const body = verdictBody(ID, "Why it holds.");
+
+    expect(body).toBe(`${verdictLine(ID)}\nWhy it holds.\n`);
+    expect(verdictsOf([{ body, authorAssociation: "OWNER" }])).toEqual(new Set([ID]));
+  });
+});
 
 describe("verdictsOf", () => {
   test("reads the patch-id of a verdict on a comment's first line, GitHub's CRLF included", () => {

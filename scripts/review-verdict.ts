@@ -13,7 +13,9 @@
  * of the diff from the head's merge-base with `origin/dev` to the head:
  * whitespace counts, line numbers do not. A rebase that leaves that diff as it
  * was keeps the verdict; a commit after the review does not, nor a rebase that
- * changes the lines around a hunk.
+ * changes the lines around a hunk. `scripts/renovate-agent.ts` posts the same
+ * marker, with no review, for a Renovate branch whose repair the lint and
+ * format fixers reproduce (`postVerdict`).
  */
 
 import { parseArgs } from "node:util";
@@ -127,21 +129,30 @@ export function record(branch: string, sha: string, cwd: string): Recording {
 
   if (patchId.kind === "failed") return { kind: "refused", why: patchId.why };
 
-  const body = [
-    verdictLine(patchId.id),
-    `A review of ${short(pr.headRefOid)} left no finding open. \`scripts/land.ts\` lands this change while its patch against \`${BASE}\` stays the same.`,
-    "",
-  ].join("\n");
-
-  const posted = run(
-    ["gh", "pr", "comment", String(pr.number), "--body-file", "-"],
+  return postVerdict(
     cwd,
-    Buffer.from(body),
+    pr.number,
+    patchId.id,
+    `A review of ${short(pr.headRefOid)} left no finding open. \`scripts/land.ts\` lands this change while its patch against \`${BASE}\` stays the same.`,
+  );
+}
+
+/** A verdict comment: the marker `verdictsOf` reads on its first line, then why the verdict holds. */
+export function verdictBody(patchId: string, why: string): string {
+  return [verdictLine(patchId), why, ""].join("\n");
+}
+
+/** Posts on pull request `pr` the clean verdict for `patchId`, with `why` it holds. */
+export function postVerdict(cwd: string, pr: number, patchId: string, why: string): Recording {
+  const posted = run(
+    ["gh", "pr", "comment", String(pr), "--body-file", "-"],
+    cwd,
+    Buffer.from(verdictBody(patchId, why)),
   );
 
-  if (!posted.ok) return { kind: "refused", why: `gh pr comment ${pr.number}: ${posted.err}` };
+  if (!posted.ok) return { kind: "refused", why: `gh pr comment ${pr}: ${posted.err}` };
 
-  return { kind: "recorded", pr: pr.number, patchId: patchId.id };
+  return { kind: "recorded", pr, patchId };
 }
 
 if (import.meta.main) {
