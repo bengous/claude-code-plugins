@@ -44,6 +44,8 @@ export type Vocabulary = {
   readonly doorScriptsAt: (dir: string) => ReadonlySet<string>;
   /** Whether the repository around `dir` has a landing profile, or one the guard cannot read: its release doors. */
   readonly profiledAt: (dir: string) => boolean;
+  /** Whether a repository the line can reach declares profile.approvals, or one the guard cannot read: its gated doors. */
+  readonly approvals: boolean;
 };
 
 /** A door invocation the guard resolved: literal words, a known directory, no state change before it. */
@@ -59,7 +61,22 @@ export type Door =
       readonly repo: string | null;
       readonly cwd: string;
     }
-  | { readonly kind: "script"; readonly script: PackageScript };
+  | { readonly kind: "script"; readonly script: PackageScript }
+  /** A workflow dispatched: `workflow` as the command names it (its file, its path, its name or its id). */
+  | {
+      readonly kind: "dispatch";
+      readonly workflow: string;
+      readonly repo: string | null;
+      readonly cwd: string;
+    }
+  /** Labels added to a pull request; `pr` null when the command names none by its number. */
+  | {
+      readonly kind: "label";
+      readonly pr: number | null;
+      readonly labels: readonly string[];
+      readonly repo: string | null;
+      readonly cwd: string;
+    };
 
 /** A door mention the guard cannot account for, and why. */
 export type Unresolved = { readonly kind: DoorKind; readonly why: string };
@@ -126,6 +143,10 @@ const GRAPHQL_REF = /(?<![\w.-])(?:updateRefs?|deleteRef|createRef)(?![\w-])/gu;
 const GIT_REFS = /(?<![\w.-])git\/refs(?![\w-])/gu;
 
 const RELEASE_PATH = /(?<![\w-])scripts\/release(?:\.[A-Za-z]+)?(?![\w.-])/gu;
+
+const DISPATCH = /(?<![\w.-])(?:workflow|dispatches)(?![\w-])/gu;
+
+const LABEL = /(?<![\w.])(?:--add-label|--label|-l|labels|addLabelsToLabelable)(?![\w-])/gu;
 
 /** The variables that move git or gh to another repository, branch or configuration. */
 const GIT_ENV =
@@ -394,6 +415,12 @@ export function findMentions(raw: string, vocabulary: Vocabulary): Mention[] {
       pattern: wordPattern(name),
       needs: PACKAGE_MANAGER,
     })),
+    ...(vocabulary.approvals
+      ? [
+          { kind: "dispatch", pattern: DISPATCH, needs: GH } satisfies Rule,
+          { kind: "label", pattern: LABEL, needs: GH } satisfies Rule,
+        ]
+      : []),
   ];
 
   return rules.flatMap((rule) =>
@@ -409,6 +436,10 @@ export function findMentions(raw: string, vocabulary: Vocabulary): Mention[] {
 
 export function mentionsGit(script: string): boolean {
   return GIT.test(script);
+}
+
+export function mentionsGh(script: string): boolean {
+  return GH.test(script);
 }
 
 export function mentionsPackageManager(script: string): boolean {
@@ -999,18 +1030,21 @@ type ApiCall = {
   readonly method: Word | null;
   readonly endpoint: Word | null;
   readonly fields: ReadonlyMap<string, Word>;
+  /** Every field in order, a repeated one (`-f labels[]=a -f labels[]=b`) included. */
+  readonly entries: readonly (readonly [string, Word])[];
   readonly bodyFromFile: boolean;
 };
 
 function apiCallOf(argv: readonly Word[]): ApiCall {
   const api = argv.findIndex((word) => word.text === "api");
   const fields = new Map<string, Word>();
+  const entries: (readonly [string, Word])[] = [];
   let method: Word | null = null;
   let endpoint: Word | null = null;
   let bodyFromFile = false;
 
   if (api === -1) {
-    return { method, endpoint, fields, bodyFromFile };
+    return { method, endpoint, fields, entries, bodyFromFile };
   }
 
   for (let index = api + 1; index < argv.length; index += 1) {
@@ -1032,7 +1066,9 @@ function apiCallOf(argv: readonly Word[]): ApiCall {
     } else if (["-f", "--raw-field", "-F", "--field"].includes(name) && value !== undefined) {
       const field = attached ?? value.text;
       const equals = field.indexOf("=");
-      fields.set(field.slice(0, equals), { ...value, text: field.slice(equals + 1) });
+      const entry = [field.slice(0, equals), { ...value, text: field.slice(equals + 1) }] as const;
+      fields.set(...entry);
+      entries.push(entry);
       bodyFromFile ||=
         (name === "-F" || name === "--field") && field.slice(equals + 1).startsWith("@");
     } else if (name === "--input") {
@@ -1042,7 +1078,7 @@ function apiCallOf(argv: readonly Word[]): ApiCall {
     }
   }
 
-  return { method, endpoint, fields, bodyFromFile };
+  return { method, endpoint, fields, entries, bodyFromFile };
 }
 
 const PULL_MERGE = /^repos\/([^/]+)\/([^/]+)\/pulls\/(\d+)\/merge$/u;
@@ -1053,13 +1089,22 @@ const BRANCH_REF = /^repos\/([^/]+)\/([^/]+)\/git\/refs\/heads\/(.+)$/u;
 
 const NEW_REF = /^repos\/([^/]+)\/([^/]+)\/git\/refs$/u;
 
+const WORKFLOW_DISPATCH = /^repos\/([^/]+)\/([^/]+)\/actions\/workflows\/([^/]+)\/dispatches$/u;
+
+const ISSUE_LABELS = /^repos\/([^/]+)\/([^/]+)\/issues\/(\d+)\/labels$/u;
+
+const ISSUE = /^repos\/([^/]+)\/([^/]+)\/issues\/(\d+)$/u;
+
 /** `owner/name` of an endpoint, null for gh's `{owner}/{repo}`, which names the cwd's repository. */
 function apiRepo(owner: string, name: string): string | null {
   return owner === "{owner}" && name === "{repo}" ? null : `${owner}/${name}`;
 }
 
-/** The door a `gh api` call opens: the merge endpoint, a branch ref moved or deleted, a GraphQL mutation. */
-function apiDoor(view: View, cwd: string): Classification | null {
+/**
+ * The door a `gh api` call opens: the merge endpoint, a branch ref moved or deleted, a GraphQL mutation; where
+ * `approvals` holds, a workflow dispatch and labels added to an issue or a pull request too.
+ */
+function apiDoor(view: View, cwd: string, approvals: boolean): Classification | null {
   const call = apiCallOf(view.unwrapped.argv);
   const endpoint = (call.endpoint?.text ?? "").replace(/^\//u, "").replace(/\?.*$/u, "");
 
@@ -1083,6 +1128,10 @@ function apiDoor(view: View, cwd: string): Classification | null {
   if (endpoint === "graphql") {
     const query = call.fields.get("query")?.text ?? "";
     const merging = new RegExp(GRAPHQL_MERGE.source, "u").test(query);
+
+    if (approvals && /\baddLabelsToLabelable\b/u.test(query)) {
+      return unresolved("label", "a GraphQL mutation names its target by node id");
+    }
 
     return merging || new RegExp(GRAPHQL_REF.source, "u").test(query)
       ? unresolved(merging ? "merge" : "push", "a GraphQL mutation names its target by node id")
@@ -1132,6 +1181,43 @@ function apiDoor(view: View, cwd: string): Classification | null {
         deleted: method === "DELETE",
       },
     ]);
+  }
+
+  const dispatched = approvals ? WORKFLOW_DISPATCH.exec(endpoint) : null;
+  const labelled = approvals ? (ISSUE_LABELS.exec(endpoint) ?? ISSUE.exec(endpoint)) : null;
+
+  if (dispatched !== null && method === "POST") {
+    const repo = apiRepo(dispatched[1] ?? "", dispatched[2] ?? "");
+    const why = blocker(view, { directory: repo === null, branch: false }, decisive);
+
+    return why === null
+      ? { kind: "door", door: { kind: "dispatch", workflow: dispatched[3] ?? "", repo, cwd } }
+      : unresolved("dispatch", why);
+  }
+
+  if (labelled !== null && method !== "GET" && method !== "DELETE") {
+    const repo = apiRepo(labelled[1] ?? "", labelled[2] ?? "");
+    const labels = call.entries.filter(([name]) => /^labels(?:\[\])?$/u.test(name));
+
+    const why = call.bodyFromFile
+      ? "its body comes from a file"
+      : blocker(view, { directory: repo === null, branch: false }, [
+          ...(call.endpoint === null ? [] : [call.endpoint]),
+          ...labels.map(([, word]) => word),
+        ]);
+
+    return why === null
+      ? {
+          kind: "door",
+          door: {
+            kind: "label",
+            pr: Number(labelled[3]),
+            labels: labels.map(([, word]) => word.text),
+            repo,
+            cwd,
+          },
+        }
+      : unresolved("label", why);
   }
 
   if (created !== null && method === "POST") {
@@ -1207,7 +1293,13 @@ function doorOf(view: View, vocabulary: Vocabulary, world: World): Classificatio
   }
 
   if (gh?.group === "api") {
-    return apiDoor(view, cwd);
+    return apiDoor(view, cwd, vocabulary.approvals);
+  }
+
+  const gated = vocabulary.approvals && gh !== null ? gatedDoorOf(view, gh, cwd) : null;
+
+  if (gated !== null) {
+    return gated;
   }
 
   if (gh !== null && isReleaseCreate(gh) && gh.repo === null && view.cwd === null) {
@@ -1283,6 +1375,139 @@ function doorOf(view: View, vocabulary: Vocabulary, world: World): Classificatio
   }
 
   return null;
+}
+
+/** Options of `gh workflow run`, `gh pr edit|create` and `gh issue edit` that take a value, as the next word. */
+const GATED_VALUE_OPTIONS = new Set([
+  "-f",
+  "--raw-field",
+  "-F",
+  "--field",
+  "-r",
+  "--ref",
+  "-R",
+  "--repo",
+  "-b",
+  "--body",
+  "--body-file",
+  "-t",
+  "--title",
+  "-B",
+  "--base",
+  "-H",
+  "--head",
+  "-a",
+  "--assignee",
+  "--add-assignee",
+  "--remove-assignee",
+  "--remove-label",
+  "-m",
+  "--milestone",
+  "-p",
+  "--project",
+  "--add-project",
+  "--remove-project",
+  "--add-reviewer",
+  "--remove-reviewer",
+  "--reviewer",
+  "-T",
+  "--template",
+  "--recover",
+]);
+
+const LABEL_OPTIONS = new Set(["--add-label", "--label", "-l"]);
+
+/** The number a `gh pr|issue` selector names: digits, `#<n>` or a URL; null for a branch. */
+function numberOf(selector: string): number | null {
+  const digits =
+    /^#?(\d+)$/u.exec(selector)?.[1] ??
+    /\/(?:pull|issues)\/(\d+)(?:[/?#].*)?$/u.exec(selector)?.[1];
+
+  return digits === undefined ? null : Number(digits);
+}
+
+/**
+ * The door a gh command opens where profile.approvals may gate it: `gh workflow run <workflow>`, or labels added by
+ * `gh pr edit`, `gh issue edit` (a pull request is an issue) or `gh pr create`; null for any other.
+ */
+function gatedDoorOf(view: View, gh: GhCommand, cwd: string): Classification | null {
+  const dispatch = gh.group === "workflow" && gh.action === "run";
+  const edits = (gh.group === "pr" || gh.group === "issue") && gh.action === "edit";
+  const creates = gh.group === "pr" && gh.action === "create";
+
+  if (!dispatch && !edits && !creates) {
+    return null;
+  }
+
+  const words = view.unwrapped.argv;
+  const start = words.findIndex((word) => word.text === gh.group) + 2;
+  const positionals: Word[] = [];
+  const labels: Word[] = [];
+  const decisive: Word[] = [];
+
+  for (let index = start; index < words.length; index += 1) {
+    const word = words[index];
+    const text = word?.text ?? "";
+    const [name = "", attached] = text.split(/=(.*)/su);
+
+    if (word === undefined) {
+      continue;
+    }
+
+    const value = attached === undefined ? words[index + 1] : { ...word, text: attached };
+
+    if (LABEL_OPTIONS.has(name) && value !== undefined) {
+      labels.push(value);
+      index += attached === undefined ? 1 : 0;
+    } else if ((name === "-R" || name === "--repo") && value !== undefined) {
+      decisive.push(value);
+      index += attached === undefined ? 1 : 0;
+    } else if (GATED_VALUE_OPTIONS.has(name)) {
+      index += attached === undefined ? 1 : 0;
+    } else if (!text.startsWith("-")) {
+      positionals.push(word);
+    }
+  }
+
+  const [selector] = positionals;
+
+  if (dispatch) {
+    if (selector === undefined) {
+      return null;
+    }
+
+    const why = blocker(view, { directory: gh.repo === null, branch: false }, [
+      ...decisive,
+      selector,
+    ]);
+
+    return why === null
+      ? { kind: "door", door: { kind: "dispatch", workflow: selector.text, repo: gh.repo, cwd } }
+      : unresolved("dispatch", why);
+  }
+
+  if (labels.length === 0) {
+    return null;
+  }
+
+  const why = blocker(view, { directory: gh.repo === null, branch: false }, [
+    ...decisive,
+    ...labels,
+    ...(selector === undefined ? [] : [selector]),
+  ]);
+
+  return why === null
+    ? {
+        kind: "door",
+        door: {
+          kind: "label",
+          pr: creates || selector === undefined ? null : numberOf(selector.text),
+          labels: labels.flatMap((word) => word.text.split(",").map((label) => label.trim())),
+          repo: gh.repo,
+          cwd,
+        },
+      }
+    : unresolved("label", why);
 }
 
 function locationsOf(git: GitCommand, cwd: string): string[] {

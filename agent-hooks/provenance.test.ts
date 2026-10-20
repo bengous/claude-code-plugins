@@ -14,6 +14,7 @@ import {
   commitMessageOf,
   factTriggerOf,
   factsOf,
+  latestTypedText,
   provenanceTrailers,
   readTranscript,
   takesTrailers,
@@ -60,6 +61,35 @@ function facts(
 }
 
 const COMMITTED = [record("commit-call"), record("commit-ok")];
+
+describe("latestTypedText", () => {
+  test("is the human's latest typed message, one queued while the agent worked included", () => {
+    expect(latestTypedText(transcriptOf([record("typed")]))).toBe("Fix the date parser.");
+    expect(latestTypedText(transcriptOf([record("typed"), record("queued-typed")]))).toBe(
+      "Apply the three review findings.",
+    );
+  });
+
+  test("skips what the human did not type: a notification, a peer, an approved plan, a tool result, the agent's own words", () => {
+    const later = [
+      record("notified-user"),
+      record("notified-queued"),
+      record("peer"),
+      record("approved-plan"),
+      ...COMMITTED,
+      record("say"),
+    ];
+
+    expect(latestTypedText(transcriptOf([record("typed"), ...later]))).toBe("Fix the date parser.");
+    expect(latestTypedText(transcriptOf(later))).toBeNull();
+  });
+
+  test("a teammate message read as a main session's is not typed", () => {
+    expect(latestTypedText(transcriptOf([record("typed"), record("lead")]))).toBe(
+      "Fix the date parser.",
+    );
+  });
+});
 
 describe("what a transcript says of a review", () => {
   test("a /code-review the user typed has finished at its completed notification, not at its launch, nor when killed", () => {

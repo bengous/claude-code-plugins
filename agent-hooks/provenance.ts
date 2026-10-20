@@ -16,7 +16,8 @@ type Event =
   | {
       readonly kind: "human";
       readonly at: number;
-      readonly source: "user" | "brief" | "lead";
+      /** `plan`: the plan the user approved, sent back as the turn's prompt; the agent wrote its text. */
+      readonly source: "user" | "plan" | "brief" | "lead";
       readonly text: string;
     }
   | { readonly kind: "launch"; readonly at: number; readonly id: string }
@@ -255,9 +256,12 @@ export function eventsOf(records: readonly Record<string, unknown>[], subagent: 
 
       const origin = recordField(record, "origin");
 
-      const human =
-        HUMAN_SOURCES.has(stringField(record, "promptSource") ?? "") ||
-        HUMAN_ORIGINS.has((origin === undefined ? undefined : stringField(origin, "kind")) ?? "");
+      const originKind = (origin === undefined ? undefined : stringField(origin, "kind")) ?? "";
+
+      const typed =
+        HUMAN_SOURCES.has(stringField(record, "promptSource") ?? "") || originKind === "human";
+
+      const human = typed || HUMAN_ORIGINS.has(originKind);
 
       if (!briefSeen) {
         briefSeen = true;
@@ -265,7 +269,7 @@ export function eventsOf(records: readonly Record<string, unknown>[], subagent: 
       } else if (subagent && text.startsWith("<teammate-message")) {
         events.push({ kind: "human", at, source: "lead", text });
       } else if (human) {
-        events.push({ kind: "human", at, source: "user", text });
+        events.push({ kind: "human", at, source: typed ? "user" : "plan", text });
       }
 
       if (human && INLINE_REVIEW_COMMAND.test(text)) {
@@ -319,6 +323,20 @@ function notificationsOf(notice: string, at: number): Event[] {
 
 function textOf(blocks: readonly Record<string, unknown>[]): string {
   return blocks.map((block) => stringField(block, "text") ?? "").join("\n");
+}
+
+/**
+ * The text of the latest message the human typed in a main session's transcript, one sent while the agent worked
+ * included; null when there is none. A task notification, a peer or teammate message, a tool result and an approved
+ * plan are not typed.
+ */
+export function latestTypedText(transcript: Transcript): string | null {
+  const typed = transcript.events.findLast(
+    (event): event is Extract<Event, { kind: "human" }> =>
+      event.kind === "human" && event.source === "user",
+  );
+
+  return typed?.text ?? null;
 }
 
 /** The position of the last record at or before `time`: where the previous commit stands in the transcript. */

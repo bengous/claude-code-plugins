@@ -241,7 +241,9 @@ What the model bounds and the kit does not try to cross:
   `push` after `git` or a git alias that pushes, `merge` after `gh`, `gh api` on `git/refs` or a merge
   endpoint, a GraphQL `mergePullRequest`, `mergeBranch`, `updateRef` or `deleteRef`, `release` after
   `gh`, a `scripts/release` path (with or without extension), a `package.json` script that runs one of
-  them in a manifest the line can reach. No mention, the command passes unparsed.
+  them in a manifest the line can reach; where a repository the line names (its cwd, a `cd`, `--cwd`,
+  `--prefix` or `-C`) declares `profile.approvals`, also `workflow`, `dispatches`, `--add-label`,
+  `--label`, `-l`, `labels` or `addLabelsToLabelable` after `gh`. No mention, the command passes unparsed.
 - Each mention is then accounted for. Inert: text inside a quoted argument or a heredoc body of a
   command that does not run it (a commit message, `echo`, `rg`, an interpreter heredoc that calls no
   process API), an argument of a command that only reads it (`git log`, `cat`, `oxlint`). A door: an
@@ -270,6 +272,29 @@ What the model bounds and the kit does not try to cross:
   names the way through: push to `trunk`, or `bun ./scripts/land.ts <branch>` when the repository has
   that script. A file that does not parse, or an invalid `profile.landing`, refuses every door there, naming the
   error.
+- `"by": "action"` in `profile.landing` (default `"agent"`) says a server-side action moves `trunk`,
+  fast-forwarding it to the head of a pull request whose run is green. Every push to `trunk` is then
+  refused too, a `gh api` ref update or `merges` call included, and so is `gh pr merge` into `trunk`:
+  the way through is the task branch, pushed, with its pull request open against `trunk`.
+- `"profile": { "approvals": { "workflows": { "<file>.yml": ["<phrase>", …] }, "labels": { "<label>": ["<phrase with {pr}>", …] } } }`,
+  read from the repo file alone like `landing`, names the doors that open only on the human's own
+  words. A dispatch of a listed workflow (`gh workflow run <workflow>`, the workflow named by its file,
+  its `.github/workflows/` path or the `name:` its file declares, or `POST
+  repos/<owner>/<repo>/actions/workflows/<file>/dispatches` through `gh api`) passes only when the
+  human's latest typed message holds one of its phrases. A listed label added to pull request `N`
+  (`gh pr edit N --add-label`, `gh issue edit N --add-label`, `POST` or `PUT
+  repos/<owner>/<repo>/issues/N/labels`, `PATCH repos/<owner>/<repo>/issues/N` with `labels`) passes
+  only when that message holds one of its phrases with `N` in place of `{pr}`; one added with no
+  literal number (`gh pr edit` alone, a branch, `gh pr create --label`) is refused. A phrase matches
+  as whole words, any case, any run of whitespace between them, and nothing reads around it: `pas ok
+  #12` holds `ok #{pr}`. The message is the latest one the human typed in the session's transcript, a
+  message queued while the agent worked included, read from the main transcript in a subagent too; a
+  task notification, a tool result, a peer session's or a teammate's message and an approved plan are
+  not typed, as provenance reads them (`latestTypedText` in `provenance.ts`). A transcript that cannot
+  be read, or does not yet hold the turn's prompt, refuses. A workflow named by its numeric id is
+  refused, since the guard cannot match it to a file. A door that names another repository through
+  `--repo` or its endpoint is left alone, and an invalid `profile.approvals` refuses these doors,
+  naming the error.
 - `"profile": { "review": { "risky": ["<glob>", …] } }` names the paths whose change lands only with a
   clean review verdict for that exact change. The kit validates the list and enforces nothing with it:
   the repository's own land script reads it. A glob is relative to the repository root, as git names a

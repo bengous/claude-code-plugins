@@ -1,6 +1,6 @@
 import path from "node:path";
 
-import type { LandingProfile } from "./config.ts";
+import type { Approval, LandingProfile } from "./config.ts";
 
 /** A git invocation: the global options that locate its repository, in order, then its subcommand. */
 export type GitCommand = {
@@ -613,6 +613,11 @@ function landInstead(landScript: boolean): string {
     : "push a feature branch and open a pull request";
 }
 
+/** The way to the trunk where the landing action moves it: the task branch's pull request. */
+function throughAction(trunk: string): string {
+  return `Push your task branch and open a pull request to '${trunk}': the landing action fast-forwards '${trunk}' to its head once its run is green.`;
+}
+
 /** Why a push in a repository with a landing profile is refused; null when it may run. */
 export function profiledPushRefusal(
   targets: readonly PushTarget[],
@@ -624,8 +629,14 @@ export function profiledPushRefusal(
   if (targets.some((target) => reaches(target, release))) {
     return (
       `agent-hooks: a push to '${release}' moves the release, and the release is the human's. ` +
-      `Commit on '${trunk}' and push it there, or ${landInstead(landScript)}.`
+      (landing.by === "action"
+        ? throughAction(trunk)
+        : `Commit on '${trunk}' and push it there, or ${landInstead(landScript)}.`)
     );
+  }
+
+  if (landing.by === "action" && targets.some((target) => reaches(target, trunk))) {
+    return `agent-hooks: '${trunk}' moves only through the landing action, never by an agent's push. ${throughAction(trunk)}`;
   }
 
   if (targets.some((target) => reaches(target, trunk) && (target.forced || target.deleted))) {
@@ -694,8 +705,15 @@ export function profiledMergeRefusal(
   if (pr.baseRefName === landing.release) {
     return (
       `agent-hooks: ${name} merges into '${landing.release}', the release, and the release is the human's. ` +
-      `Retarget it (gh pr edit ${pr.number} --base ${landing.trunk}), then ${landInstead(landScript)}.`
+      `Retarget it (gh pr edit ${pr.number} --base ${landing.trunk}), then ` +
+      (landing.by === "action"
+        ? `leave it to the landing action, which fast-forwards '${landing.trunk}' once its run is green.`
+        : `${landInstead(landScript)}.`)
     );
+  }
+
+  if (landing.by === "action" && pr.baseRefName === landing.trunk) {
+    return `agent-hooks: ${name} lands on '${landing.trunk}' through the landing action alone, which fast-forwards '${landing.trunk}' to its head once its run is green: leave the merge to it.`;
   }
 
   if (checks.length === 0) {
@@ -740,18 +758,24 @@ export function publicMergeRefusal(
 }
 
 /** Why a door is refused in a repository whose profile cannot be read: the doors it would guard are unknown. */
-export function unreadableProfileRefusal(error: string, command: string): string {
-  return `${error}. The landing guard cannot read this repository's profile.landing, so it refuses ${command} until the file is fixed.`;
+export function unreadableProfileRefusal(
+  error: string,
+  command: string,
+  key: "landing" | "approvals" = "landing",
+): string {
+  return `${error}. The landing guard cannot read this repository's profile.${key}, so it refuses ${command} until the file is fixed.`;
 }
 
 /** The door a mention of the line names: a push, a merge, a release command, or a package script that opens one. */
-export type DoorKind = "push" | "merge" | "release" | "script";
+export type DoorKind = "push" | "merge" | "release" | "script" | "dispatch" | "label";
 
 const UNRESOLVED_SUBJECT: Readonly<Record<DoorKind, string>> = {
   push: "a git push",
   merge: "a gh pr merge",
   release: "a release command",
   script: "a package script that opens a door",
+  dispatch: "a workflow dispatch",
+  label: "a label added to a pull request",
 };
 
 const EXPLICIT_FORM: Readonly<Record<DoorKind, string>> = {
@@ -761,6 +785,10 @@ const EXPLICIT_FORM: Readonly<Record<DoorKind, string>> = {
   release:
     "The release is the human's; its plan runs alone, from the repository: bun ./scripts/release.ts --dry-run",
   script: "Run the script's commands themselves, one at a time, with literal names",
+  dispatch:
+    "Run it alone, from the repository, naming the workflow by its file: gh workflow run <file>.yml",
+  label:
+    "Run it alone, from the repository, with a literal number and label: gh pr edit <number> --add-label <label>",
 };
 
 /** Why a door the guard cannot resolve is refused, with the explicit form that it can. */
@@ -779,4 +807,90 @@ export function releaseRefusal(command: string, landing: LandingProfile): string
     `agent-hooks: ${command} publishes '${landing.release}', and the release is the human's. ` +
     "Say the release is ready and leave it to the human."
   );
+}
+
+/** What the guard read of the human's latest typed message in the session. */
+export type HumanMessage =
+  | { readonly kind: "read"; readonly text: string | null }
+  | { readonly kind: "unreadable"; readonly why: string };
+
+const LETTER_OR_DIGIT = "[\\p{L}\\p{N}_]";
+
+/**
+ * The first of `phrases` that `text` holds as words of its own, any case, any run of whitespace between them, with
+ * `pr` in place of `{pr}`; null when it holds none.
+ */
+export function approvingPhrase(
+  text: string,
+  phrases: readonly string[],
+  pr: number | null,
+): string | null {
+  return (
+    phrases.find((phrase) => {
+      const words = phrase
+        .replaceAll("{pr}", String(pr))
+        .trim()
+        .split(/\s+/u)
+        .map((word) => word.replaceAll(/[.*+?^${}()|[\]\\]/gu, "\\$&"));
+
+      return new RegExp(
+        `(?<!${LETTER_OR_DIGIT})${words.join("\\s+")}(?!${LETTER_OR_DIGIT})`,
+        "iu",
+      ).test(text);
+    }) ?? null
+  );
+}
+
+function quoted(phrases: readonly string[], pr: number | null): string {
+  return phrases.map((phrase) => `"${phrase.replaceAll("{pr}", String(pr))}"`).join(", ");
+}
+
+/** Why the human's message does not count, or null when it holds a phrase. */
+function unapproved(
+  human: HumanMessage,
+  phrases: readonly string[],
+  pr: number | null,
+): string | null {
+  if (human.kind === "unreadable") {
+    return `the guard cannot read the human's latest message (${human.why})`;
+  }
+
+  if (human.text === null) {
+    return "the session holds no message the human typed";
+  }
+
+  return approvingPhrase(human.text, phrases, pr) === null
+    ? `the human's latest message does not say so (it would hold one of ${quoted(phrases, pr)})`
+    : null;
+}
+
+/** Why dispatching `workflow`'s file is refused; null when the human's latest typed message asks for it. */
+export function dispatchRefusal(workflow: Approval, human: HumanMessage): string | null {
+  const why = unapproved(human, workflow.phrases, null);
+
+  return why === null
+    ? null
+    : `agent-hooks: dispatching ${workflow.name} is the human's decision, and ${why}. ` +
+        `Ask the human whether to run it, and dispatch it once their own message says so.`;
+}
+
+/** Why adding `label` to pull request `pr` is refused; null when the human's latest typed message approves that one. */
+export function labelRefusal(
+  label: Approval,
+  pr: number | null,
+  human: HumanMessage,
+): string | null {
+  if (pr === null) {
+    return (
+      `agent-hooks: the label ${label.name} is the human's ok on one pull request, and this command names none by its number. ` +
+      `Ask the human for their ok, then add it with gh pr edit <number> --add-label ${label.name}.`
+    );
+  }
+
+  const why = unapproved(human, label.phrases, pr);
+
+  return why === null
+    ? null
+    : `agent-hooks: the label ${label.name} on #${pr} is the human's ok on that pull request, and ${why}. ` +
+        `Ask the human for their ok on #${pr}, and add the label once their own message gives it.`;
 }

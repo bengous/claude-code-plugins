@@ -44,8 +44,27 @@ export type Fixer = {
   readonly disabled: boolean;
 };
 
-/** The branches a repository lands on: agents push to `trunk`, the human moves `release`. */
-export type LandingProfile = { readonly trunk: string; readonly release: string };
+/** Who moves the trunk: the agents' own pushes, or a server-side action that fast-forwards it to a green pull request. */
+export type LandedBy = "agent" | "action";
+
+/** The branches a repository lands on: `trunk`, moved as `by` says, and `release`, moved by the human. */
+export type LandingProfile = {
+  readonly trunk: string;
+  readonly release: string;
+  readonly by: LandedBy;
+};
+
+/** A door that passes only when the human's latest typed message holds one of its phrases. */
+export type Approval = { readonly name: string; readonly phrases: readonly string[] };
+
+/**
+ * The doors that wait for the human's words: dispatching each workflow, named by its file, and adding each label to a
+ * pull request, whose phrases name it by `{pr}`.
+ */
+export type ApprovalsProfile = {
+  readonly workflows: readonly Approval[];
+  readonly labels: readonly Approval[];
+};
 
 /** The paths a change lands through only with a clean review verdict for exactly that change. */
 export type ReviewProfile = { readonly risky: readonly string[] };
@@ -58,6 +77,7 @@ export type ProvenanceMode = "trailers";
 
 export type Profile = {
   readonly landing: LandingProfile | null;
+  readonly approvals: ApprovalsProfile | null;
   readonly review: ReviewProfile | null;
   readonly worktree: WorktreeMode;
   readonly provenance: ProvenanceMode | null;
@@ -136,9 +156,15 @@ const DOCUMENT_KEYS = new Set(["presets", "extends", "profile", "pre-edit", "sto
 
 const PRESET_NAME = /^[a-z0-9-]+$/u;
 
-const PROFILE_KEYS = new Set(["landing", "review", "worktree", "provenance"]);
+const PROFILE_KEYS = new Set(["landing", "approvals", "review", "worktree", "provenance"]);
 
-const LANDING_KEYS = new Set(["trunk", "release"]);
+const LANDING_KEYS = new Set(["trunk", "release", "by"]);
+
+const APPROVALS_KEYS = new Set(["workflows", "labels"]);
+
+const PR_PLACEHOLDER = "{pr}";
+
+const WORKFLOW_FILE = /^[\w.-]+\.ya?ml$/u;
 
 const REVIEW_KEYS = new Set(["risky"]);
 
@@ -192,6 +218,14 @@ export function loadConfig(root: string, configFile = configPath(root)): Config 
  */
 export function loadLanding(root: string, configFile = configPath(root)): LandingProfile | null {
   return readLanding(profileIn(configFile, readText(configFile)));
+}
+
+/** `profile.approvals` of the repo file alone, read as `loadLanding` reads `profile.landing`. */
+export function loadApprovals(
+  root: string,
+  configFile = configPath(root),
+): ApprovalsProfile | null {
+  return readApprovals(profileIn(configFile, readText(configFile)));
 }
 
 /** `profile.provenance` of the repo file alone, read as `loadLanding` reads `profile.landing`. */
@@ -400,6 +434,7 @@ function readProfile(reader: Reader): Profile {
 
   return {
     landing: readLanding(reader),
+    approvals: readApprovals(reader),
     review: readReview(reader),
     worktree: oneOf(reader, "worktree", ["per-task", "shared"]) ?? "shared",
     provenance: readProvenance(reader),
@@ -424,7 +459,68 @@ function readLanding(profile: Reader): LandingProfile | null {
     throw new ConfigError(profile.file, landing.keyPath, "trunk and release name one branch");
   }
 
-  return { trunk, release };
+  return { trunk, release, by: oneOf<LandedBy>(landing, "by", ["agent", "action"]) ?? "agent" };
+}
+
+function readApprovals(profile: Reader): ApprovalsProfile | null {
+  if (profile.record["approvals"] === undefined) {
+    return null;
+  }
+
+  const approvals = child(profile, "approvals");
+  rejectUnknownKeys(approvals, APPROVALS_KEYS);
+  const workflows = readApprovalTable(child(approvals, "workflows"), "workflow");
+  const labels = readApprovalTable(child(approvals, "labels"), "label");
+
+  if (workflows.length === 0 && labels.length === 0) {
+    throw new ConfigError(profile.file, approvals.keyPath, "expected workflows or labels");
+  }
+
+  return { workflows, labels };
+}
+
+/** A table of names to phrases: a workflow is its file name, and only a label's phrases name the pull request. */
+function readApprovalTable(reader: Reader, kind: "workflow" | "label"): Approval[] {
+  return Object.keys(reader.record).map((name) => {
+    const keyPath = keyPathOf(reader, name);
+    const phrases = reader.record[name];
+
+    if (kind === "workflow" && !WORKFLOW_FILE.test(name)) {
+      throw new ConfigError(reader.file, keyPath, "expected a workflow file name, as release.yml");
+    }
+
+    if (name.trim() === "") {
+      throw new ConfigError(reader.file, keyPath, "expected a label name");
+    }
+
+    if (
+      !isStringArray(phrases) ||
+      phrases.length === 0 ||
+      phrases.some((phrase) => phrase.trim() === "")
+    ) {
+      throw new ConfigError(reader.file, keyPath, "expected a list of phrases");
+    }
+
+    for (const phrase of phrases) {
+      if (kind === "label" && !phrase.includes(PR_PLACEHOLDER)) {
+        throw new ConfigError(
+          reader.file,
+          keyPath,
+          `"${phrase}" names no pull request: write ${PR_PLACEHOLDER} where its number goes`,
+        );
+      }
+
+      if (kind === "workflow" && phrase.includes(PR_PLACEHOLDER)) {
+        throw new ConfigError(
+          reader.file,
+          keyPath,
+          `"${phrase}": ${PR_PLACEHOLDER} names a pull request, which a workflow has none of`,
+        );
+      }
+    }
+
+    return { name, phrases };
+  });
 }
 
 function readReview(profile: Reader): ReviewProfile | null {

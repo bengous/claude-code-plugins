@@ -10,6 +10,7 @@ const PLAIN: Vocabulary = {
   doorScriptNames: new Set(),
   doorScriptsAt: () => new Set(),
   profiledAt: () => true,
+  approvals: false,
 };
 
 const UNPROFILED: Vocabulary = { ...PLAIN, profiledAt: () => false };
@@ -273,5 +274,88 @@ describe("commitsOf", () => {
     expect(marked("git merge --no-ff x && git cherry-pick y && git revert z")).toEqual([]);
     expect(marked("git log --grep commit")).toEqual([]);
     expect(marked("f() { git commit -m a; }; f")).toEqual([]);
+  });
+});
+
+describe("assess where profile.approvals may gate a dispatch or a label", () => {
+  const GATED: Vocabulary = { ...PLAIN, approvals: true };
+
+  test("without it, a dispatch or a label is no mention", () => {
+    for (const command of [
+      "gh workflow run release.yml",
+      "gh pr edit 12 --add-label ok-humain",
+      "gh api -X POST repos/o/n/actions/workflows/release.yml/dispatches -f ref=dev",
+      "gh api repos/o/n/issues/12/labels -f 'labels[]=ok-humain'",
+      'echo x | bash -c "gh workflow run release.yml"',
+    ]) {
+      expect(findMentions(command, PLAIN).filter((m) => m.kind !== "release")).toEqual([]);
+      expect(read(command).unresolved).toEqual([]);
+    }
+  });
+
+  test("reads gh workflow run, its options around the workflow", () => {
+    expect(read("gh workflow run release.yml --ref dev -f version=1.2", GATED).doors).toEqual([
+      { kind: "dispatch", workflow: "release.yml", repo: null, cwd: CWD },
+    ]);
+    expect(read("gh workflow run -r dev -f a=b release -R o/n", GATED).doors).toEqual([
+      { kind: "dispatch", workflow: "release", repo: "o/n", cwd: CWD },
+    ]);
+    expect(read("gh workflow list && gh workflow view release.yml", GATED).doors).toEqual([]);
+  });
+
+  test("reads the labels gh pr edit, gh issue edit and gh pr create add, and the number they name", () => {
+    expect(read("gh pr edit 12 --add-label ok-humain", GATED).doors).toEqual([
+      { kind: "label", pr: 12, labels: ["ok-humain"], repo: null, cwd: CWD },
+    ]);
+    expect(
+      read("gh issue edit https://github.com/o/n/pull/12 --add-label 'bug, ok-humain'", GATED)
+        .doors,
+    ).toEqual([{ kind: "label", pr: 12, labels: ["bug", "ok-humain"], repo: null, cwd: CWD }]);
+    expect(read("gh pr edit --add-label=ok-humain", GATED).doors).toEqual([
+      { kind: "label", pr: null, labels: ["ok-humain"], repo: null, cwd: CWD },
+    ]);
+    expect(read("gh pr create --base dev -t x -b y -l ok-humain", GATED).doors).toEqual([
+      { kind: "label", pr: null, labels: ["ok-humain"], repo: null, cwd: CWD },
+    ]);
+    expect(read("gh pr edit 12 --remove-label ok-humain --title x", GATED).doors).toEqual([]);
+  });
+
+  test("reads the REST forms: a dispatch, labels added to an issue or a pull request", () => {
+    expect(
+      read("gh api -X POST repos/o/n/actions/workflows/release.yml/dispatches -f ref=dev", GATED)
+        .doors,
+    ).toEqual([{ kind: "dispatch", workflow: "release.yml", repo: "o/n", cwd: CWD }]);
+    expect(
+      read(
+        "gh api repos/{owner}/{repo}/issues/12/labels -f 'labels[]=bug' -f 'labels[]=ok-humain'",
+        GATED,
+      ).doors,
+    ).toEqual([{ kind: "label", pr: 12, labels: ["bug", "ok-humain"], repo: null, cwd: CWD }]);
+    expect(
+      read("gh api -X PATCH repos/o/n/issues/12 -f 'labels[]=ok-humain'", GATED).doors,
+    ).toEqual([{ kind: "label", pr: 12, labels: ["ok-humain"], repo: "o/n", cwd: CWD }]);
+    expect(read("gh api repos/o/n/issues/12/labels", GATED).doors).toEqual([]);
+  });
+
+  test("a gated door it cannot read whole is unresolved", () => {
+    expect(read('gh workflow run "$WF"', GATED).unresolved.map((entry) => entry.kind)).toEqual([
+      "dispatch",
+    ]);
+    expect(read('gh pr edit "$N" --add-label ok-humain', GATED).unresolved[0]?.kind).toBe("label");
+    expect(
+      read("gh api repos/o/n/issues/12/labels --input body.json", GATED).unresolved[0]?.why,
+    ).toBe("its body comes from a file");
+    expect(
+      read(
+        "gh api graphql -f query='mutation { addLabelsToLabelable(input: {}) { clientMutationId } }'",
+        GATED,
+      ).unresolved[0]?.kind,
+    ).toBe("label");
+    expect(read("bash -c 'gh workflow run release.yml'", GATED).doors).toEqual([
+      { kind: "dispatch", workflow: "release.yml", repo: null, cwd: CWD },
+    ]);
+    expect(
+      read("echo gh workflow run release.yml | sh", GATED).unresolved.map((entry) => entry.kind),
+    ).toContain("dispatch");
   });
 });

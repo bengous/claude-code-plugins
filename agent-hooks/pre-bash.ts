@@ -1,8 +1,8 @@
 import { existsSync, readFileSync, statSync } from "node:fs";
 import path from "node:path";
 
-import type { LandingProfile } from "./config.ts";
-import { ConfigError, configPath, loadLanding, loadProvenance } from "./config.ts";
+import type { Approval, LandingProfile } from "./config.ts";
+import { ConfigError, configPath, loadApprovals, loadLanding, loadProvenance } from "./config.ts";
 import type { Deadline, Runner } from "./exec.ts";
 import { deadlineIn, run } from "./exec.ts";
 import {
@@ -15,9 +15,18 @@ import {
 import type { Input } from "./hook.ts";
 import { heartbeat, parseInput, stateKey } from "./hook.ts";
 import { isRecord, recordField, stringField } from "./json.ts";
-import type { GhCommand, GitCommand, PackageScript, PushTarget, ReleaseScript } from "./landing.ts";
+import type {
+  GhCommand,
+  GitCommand,
+  HumanMessage,
+  PackageScript,
+  PushTarget,
+  ReleaseScript,
+} from "./landing.ts";
 import {
+  dispatchRefusal,
   isReleaseCreate,
+  labelRefusal,
   profiledMergeRefusal,
   profiledPushRefusal,
   publicMergeRefusal,
@@ -34,6 +43,7 @@ import {
   commitsOf,
   findMentions,
   isAbsoluteLocation,
+  mentionsGh,
   mentionsGit,
   mentionsPackageManager,
 } from "./mentions.ts";
@@ -44,6 +54,7 @@ import {
   commitMessageOf,
   factTriggerOf,
   factsOf,
+  latestTypedText,
   provenanceTrailers,
   readTranscript,
   takesTrailers,
@@ -86,6 +97,8 @@ type GuardContext = {
   readonly sessionId: string;
   readonly now: number;
   readonly deadline: Deadline;
+  /** The human's latest typed message, read from the transcript the first time a gated door asks. */
+  readonly human: () => HumanMessage;
 };
 
 export type PreBashOptions = {
@@ -362,6 +375,92 @@ async function judgeApiRef(
     : refusal(publicPushRefusal(targets, facts.value, slug));
 }
 
+/** The workflow file a dispatch selector names: its file, its path, or the `name:` its file declares at top level. */
+function workflowOf(
+  selector: string,
+  workflows: readonly Approval[],
+  root: string,
+): Approval | undefined {
+  const wanted = selector.toLowerCase();
+
+  return workflows.find((workflow) => {
+    const file = path.join(root, ".github", "workflows", workflow.name);
+
+    const declared = existsSync(file)
+      ? /^name:\s*["']?(.*?)["']?\s*$/mu.exec(readFileSync(file, "utf8"))?.[1]
+      : undefined;
+
+    return [workflow.name, `.github/workflows/${workflow.name}`, declared]
+      .filter((name) => name !== undefined)
+      .some((name) => name.toLowerCase() === wanted);
+  });
+}
+
+/**
+ * A workflow dispatch or a label added, judged by profile.approvals when it names the cwd's repository: a gated one
+ * passes only on the human's latest typed message.
+ */
+function judgeGated(
+  door: Door & { readonly kind: "dispatch" | "label" },
+  context: GuardContext,
+): GuardVerdict {
+  const root = rootOf(door.cwd, []);
+  const own = door.repo === null || isOriginOf(door.cwd, door.repo);
+  const read = root === null || !own ? null : keyRead(root, loadApprovals);
+  const name = door.kind === "dispatch" ? "a workflow dispatch" : "a label";
+
+  if (read?.kind === "unreadable") {
+    return refusal(unreadableProfileRefusal(read.error, name, "approvals"));
+  }
+
+  if (read?.kind !== "read" || root === null) {
+    return ALLOW;
+  }
+
+  if (door.kind === "dispatch") {
+    const workflow = workflowOf(door.workflow, read.value.workflows, root);
+
+    if (workflow === undefined && /^\d+$/u.test(door.workflow) && read.value.workflows.length > 0) {
+      return refusal(
+        `agent-hooks: the guard cannot tell which workflow the id ${door.workflow} names. ` +
+          `Name it by its file: gh workflow run <file>.yml.`,
+      );
+    }
+
+    return workflow === undefined ? ALLOW : refusal(dispatchRefusal(workflow, context.human()));
+  }
+
+  const wanted = new Set(door.labels.map((label) => label.toLowerCase()));
+  const label = read.value.labels.find((entry) => wanted.has(entry.name.toLowerCase()));
+
+  return label === undefined ? ALLOW : refusal(labelRefusal(label, door.pr, context.human()));
+}
+
+/**
+ * The human's latest typed message, read from the session's own transcript, a subagent's included: its lead's and its
+ * own messages are not the human's. Unreadable while the transcript does not hold the turn's prompt yet.
+ */
+function humanOf(input: Input | null): HumanMessage {
+  if (input?.transcriptPath === undefined) {
+    return { kind: "unreadable", why: "the hook received no transcript_path" };
+  }
+
+  try {
+    const transcript = readTranscript(input.transcriptPath, false, input.promptId);
+
+    return input.promptId !== undefined && !transcript.holdsPrompt
+      ? { kind: "unreadable", why: "the transcript does not hold this turn's prompt yet: retry" }
+      : { kind: "read", text: latestTypedText(transcript) };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+
+    return {
+      kind: "unreadable",
+      why: `the transcript ${input.transcriptPath} cannot be read (${message})`,
+    };
+  }
+}
+
 function judgeReleaseScript(release: ReleaseScript): GuardVerdict {
   const root = rootOf(path.dirname(release.path), []);
   const profile = root === null ? DEFAULT : profileOf(root);
@@ -440,10 +539,11 @@ const NO_VOCABULARY: Vocabulary = {
   doorScriptNames: new Set(),
   doorScriptsAt: () => new Set(),
   profiledAt: () => true,
+  approvals: false,
 };
 
 /** The git aliases, read from git's own config at `cwd`, whose expansion pushes: `push`, or a `!` command that does. */
-function doorAliases(cwd: string): Set<string> {
+function doorAliases(cwd: string, approvals: boolean): Set<string> {
   const listing = existsSync(cwd) ? git(cwd, [], ["config", "--get-regexp", "^alias\\."]) : null;
   const doors = new Set<string>();
 
@@ -452,7 +552,7 @@ function doorAliases(cwd: string): Set<string> {
     const [, name, value = ""] = match ?? [];
     const expansion = value.startsWith("!") ? value.slice(1) : `git ${value}`;
 
-    if (name !== undefined && findMentions(expansion, NO_VOCABULARY).length > 0) {
+    if (name !== undefined && findMentions(expansion, { ...NO_VOCABULARY, approvals }).length > 0) {
       doors.add(name);
     }
   }
@@ -461,14 +561,18 @@ function doorAliases(cwd: string): Set<string> {
 }
 
 /** The scripts of `manifest` that open a door, directly or through another such script. */
-function doorScriptsIn(manifest: Manifest, gitAliases: ReadonlySet<string>): Set<string> {
+function doorScriptsIn(
+  manifest: Manifest,
+  gitAliases: ReadonlySet<string>,
+  approvals: boolean,
+): Set<string> {
   const doors = new Set<string>();
 
   for (let changed = true; changed;) {
     changed = false;
 
     for (const [name, command] of manifest.scripts) {
-      const vocabulary = { ...NO_VOCABULARY, gitAliases, doorScriptNames: doors };
+      const vocabulary = { ...NO_VOCABULARY, gitAliases, doorScriptNames: doors, approvals };
 
       if (!doors.has(name) && findMentions(command, vocabulary).length > 0) {
         doors.add(name);
@@ -490,13 +594,25 @@ function profiledAt(dir: string): boolean {
 const DIRECTORY_WORD =
   /(?:^|[\s;&|(])(?:cd|pushd|--cwd|--prefix|--dir|-C)[\s=]+("[^"]*"|'[^']*'|[^\s;&|)]+)/gu;
 
-/** The directories a line can reach: `cwd`, the targets of its `cd`, `--cwd`, `--prefix` and `-C`, and their parents. */
-function reachableDirs(command: string, cwd: string): string[] {
+/** `cwd` and the targets of the line's `cd`, `--cwd`, `--prefix` and `-C`. */
+function namedDirs(command: string, cwd: string): string[] {
   const named = [...command.matchAll(DIRECTORY_WORD)].map((match) =>
     path.resolve(cwd, (match[1] ?? "").replaceAll(/^["']|["']$/gu, "")),
   );
 
-  return [...new Set([cwd, ...named].flatMap((dir) => ancestorsOf(dir)))];
+  return [...new Set([cwd, ...named])];
+}
+
+/** The directories a line can reach: the ones it names, and their parents. */
+function reachableDirs(command: string, cwd: string): string[] {
+  return [...new Set(namedDirs(command, cwd).flatMap((dir) => ancestorsOf(dir)))];
+}
+
+/** Whether the repository around `dir` declares profile.approvals, or a file whose approvals the guard cannot read. */
+function approvalsAt(dir: string): boolean {
+  const root = existsSync(dir) ? rootOf(dir, []) : null;
+
+  return root !== null && keyRead(root, loadApprovals).kind !== "absent";
 }
 
 function ancestorsOf(dir: string): string[] {
@@ -524,12 +640,13 @@ function memoized<T>(read: (dir: string) => T): (dir: string) => T {
 }
 
 function vocabularyOf(command: string, cwd: string): Vocabulary {
-  const gitAliases = mentionsGit(command) ? doorAliases(cwd) : new Set<string>();
+  const approvals = mentionsGh(command) && namedDirs(command, cwd).some((dir) => approvalsAt(dir));
+  const gitAliases = mentionsGit(command) ? doorAliases(cwd, approvals) : new Set<string>();
 
   const scriptsOfManifest = memoized((dir) => {
     const manifest = manifestOf(dir);
 
-    return manifest === null ? new Set<string>() : doorScriptsIn(manifest, gitAliases);
+    return manifest === null ? new Set<string>() : doorScriptsIn(manifest, gitAliases, approvals);
   });
 
   const doorScriptsAt = (dir: string): ReadonlySet<string> =>
@@ -539,7 +656,13 @@ function vocabularyOf(command: string, cwd: string): Vocabulary {
     ? new Set(reachableDirs(command, cwd).flatMap((dir) => [...doorScriptsAt(dir)]))
     : new Set<string>();
 
-  return { gitAliases, doorScriptNames, doorScriptsAt, profiledAt: memoized(profiledAt) };
+  return {
+    gitAliases,
+    doorScriptNames,
+    doorScriptsAt,
+    profiledAt: memoized(profiledAt),
+    approvals,
+  };
 }
 
 function judgeDoor(door: Door, context: GuardContext, depth: number): Promise<GuardVerdict> {
@@ -559,6 +682,11 @@ function judgeDoor(door: Door, context: GuardContext, depth: number): Promise<Gu
 
     case "api-ref": {
       return judgeApiRef(door.cwd, door.targets, door.repo, context);
+    }
+
+    case "dispatch":
+    case "label": {
+      return Promise.resolve(judgeGated(door, context));
     }
 
     case "script": {
@@ -930,7 +1058,19 @@ export async function runPreBash(
       return null;
     }
 
-    const context = { sessionId: stringField(payload, "session_id") ?? "", now, deadline };
+    let human: HumanMessage | null = null;
+
+    const context: GuardContext = {
+      sessionId: stringField(payload, "session_id") ?? "",
+      now,
+      deadline,
+      human: () => {
+        human ??= humanOf(input);
+
+        return human;
+      },
+    };
+
     const cwd = stringField(payload, "cwd") ?? process.cwd();
 
     const verdict =

@@ -10,6 +10,7 @@ import {
   configPath,
   expandCommand,
   isExcluded,
+  loadApprovals,
   loadConfig,
   loadLanding,
   loadProvenance,
@@ -395,9 +396,10 @@ describe("loadConfig errors", () => {
 });
 
 describe("loadConfig profile", () => {
-  test("no profile reads as no landing, no review, a shared checkout and no provenance", () => {
+  test("no profile reads as no landing, no approvals, no review, a shared checkout and no provenance", () => {
     expect(load("{}").profile).toEqual({
       landing: null,
+      approvals: null,
       review: null,
       worktree: "shared",
       provenance: null,
@@ -408,7 +410,8 @@ describe("loadConfig profile", () => {
     expect(
       load(`{ "profile": { "landing": { "trunk": "dev", "release": "main" } } }`).profile,
     ).toEqual({
-      landing: { trunk: "dev", release: "main" },
+      landing: { trunk: "dev", release: "main", by: "agent" },
+      approvals: null,
       review: null,
       worktree: "shared",
       provenance: null,
@@ -421,6 +424,7 @@ describe("loadConfig profile", () => {
         .profile,
     ).toEqual({
       landing: null,
+      approvals: null,
       review: { risky: ["scripts/land.ts", ".github/workflows/**"] },
       worktree: "shared",
       provenance: null,
@@ -450,6 +454,7 @@ describe("loadConfig profile", () => {
   test("reads profile.worktree, beside a landing or alone", () => {
     expect(load(`{ "profile": { "worktree": "per-task" } }`).profile).toEqual({
       landing: null,
+      approvals: null,
       review: null,
       worktree: "per-task",
       provenance: null,
@@ -460,7 +465,8 @@ describe("loadConfig profile", () => {
         `{ "profile": { "worktree": "per-task", "landing": { "trunk": "dev", "release": "main" } } }`,
       ).profile,
     ).toEqual({
-      landing: { trunk: "dev", release: "main" },
+      landing: { trunk: "dev", release: "main", by: "agent" },
+      approvals: null,
       review: null,
       worktree: "per-task",
       provenance: null,
@@ -489,7 +495,7 @@ describe("loadConfig profile", () => {
       `{ "presets": ["ts"], "profile": { "landing": { "trunk": "develop", "release": "master" } } }`,
     );
 
-    expect(config.profile.landing).toEqual({ trunk: "develop", release: "master" });
+    expect(config.profile.landing).toEqual({ trunk: "develop", release: "master", by: "agent" });
   });
 
   test("an unknown key in profile or in landing", () => {
@@ -547,6 +553,102 @@ describe("loadProvenance", () => {
   });
 });
 
+describe("profile.landing.by and profile.approvals", () => {
+  const APPROVALS = `"approvals": {
+    "workflows": { "release.yml": ["on publie", "release"] },
+    "labels": { "ok-humain": ["ok #{pr}", "ok pour la #{pr}"] }
+  }`;
+
+  test("reads who moves the trunk, the agents by default", () => {
+    expect(
+      load(`{ "profile": { "landing": { "trunk": "dev", "release": "main", "by": "action" } } }`)
+        .profile.landing,
+    ).toEqual({ trunk: "dev", release: "main", by: "action" });
+    expect(
+      configErrorOf(
+        `{ "profile": { "landing": { "trunk": "dev", "release": "main", "by": "ci" } } }`,
+      ).message,
+    ).toBe(`agent-hooks: ${configPath(temp.repo)}: profile.landing.by: expected agent|action`);
+  });
+
+  test("reads the workflows and the labels that wait for the human's words", () => {
+    expect(load(`{ "profile": { ${APPROVALS} } }`).profile.approvals).toEqual({
+      workflows: [{ name: "release.yml", phrases: ["on publie", "release"] }],
+      labels: [{ name: "ok-humain", phrases: ["ok #{pr}", "ok pour la #{pr}"] }],
+    });
+    expect(
+      load(`{ "profile": { "approvals": { "labels": { "ok-humain": ["ok #{pr}"] } } } }`).profile
+        .approvals,
+    ).toEqual({ workflows: [], labels: [{ name: "ok-humain", phrases: ["ok #{pr}"] }] });
+    expect(
+      load(`{ "profile": { "approvals": { "workflows": { "release.yaml": ["go"] } } } }`).profile
+        .approvals,
+    ).toEqual({ workflows: [{ name: "release.yaml", phrases: ["go"] }], labels: [] });
+  });
+
+  test("refuses an empty table, a workflow that is no file name, an empty phrase list, an unknown key", () => {
+    expectConfigError(`{ "profile": { "approvals": {} } }`, "profile.approvals");
+    expectConfigError(
+      `{ "profile": { "approvals": { "workflows": { "release": ["go"] } } } }`,
+      "profile.approvals.workflows.release",
+    );
+    expectConfigError(
+      `{ "profile": { "approvals": { "workflows": { "release.yml": [] } } } }`,
+      "profile.approvals.workflows.release.yml",
+    );
+    expectConfigError(
+      `{ "profile": { "approvals": { "workflows": { "release.yml": ["go", " "] } } } }`,
+      "profile.approvals.workflows.release.yml",
+    );
+
+    for (const name of ["ci/release.yml", "release.yml.bak"]) {
+      expectConfigError(
+        `{ "profile": { "approvals": { "workflows": { "${name}": ["go"] } } } }`,
+        `profile.approvals.workflows.${name}`,
+      );
+    }
+
+    expectConfigError(
+      `{ "profile": { "approvals": { "labels": { " ": ["ok #{pr}"] } } } }`,
+      "profile.approvals.labels. ",
+    );
+    expectConfigError(
+      `{ "profile": { "approvals": { "workflows": { "release.yml": "go" } } } }`,
+      "profile.approvals.workflows.release.yml",
+    );
+    expectConfigError(
+      `{ "profile": { "approvals": { "pushes": { "dev": ["go"] } } } }`,
+      "profile.approvals.pushes",
+    );
+  });
+
+  test("a label phrase names its pull request by {pr}, a workflow phrase never", () => {
+    expect(
+      configErrorOf(`{ "profile": { "approvals": { "labels": { "ok-humain": ["ok"] } } } }`)
+        .message,
+    ).toBe(
+      `agent-hooks: ${configPath(temp.repo)}: profile.approvals.labels.ok-humain: "ok" names no pull request: write {pr} where its number goes`,
+    );
+    expectConfigError(
+      `{ "profile": { "approvals": { "workflows": { "release.yml": ["ok #{pr}"] } } } }`,
+      "profile.approvals.workflows.release.yml",
+    );
+  });
+
+  test("loadApprovals reads profile.approvals alone, null without it", () => {
+    writeConfig(
+      temp.repo,
+      `{ "presets": ["no-such-preset"], "profile": { "worktree": "each", ${APPROVALS} } }`,
+    );
+
+    expect(loadApprovals(temp.repo)?.labels.map((label) => label.name)).toEqual(["ok-humain"]);
+
+    writeConfig(temp.repo, `{ "profile": { "landing": { "trunk": "dev", "release": "main" } } }`);
+
+    expect(loadApprovals(temp.repo)).toBeNull();
+  });
+});
+
 describe("loadLanding", () => {
   test("reads profile.landing alone: the rest of the file, the other profile keys included, may be invalid", () => {
     writeConfig(
@@ -554,7 +656,7 @@ describe("loadLanding", () => {
       `{ "presets": ["no-such-preset"], "profile": { "landing": { "trunk": "dev", "release": "main" }, "worktree": "each", "review": {}, "later": 1 } }`,
     );
 
-    expect(loadLanding(temp.repo)).toEqual({ trunk: "dev", release: "main" });
+    expect(loadLanding(temp.repo)).toEqual({ trunk: "dev", release: "main", by: "agent" });
   });
 
   test("no landing reads as null", () => {
@@ -589,7 +691,13 @@ describe("parseProfile", () => {
         "dev:agent-hooks.jsonc",
         `{ "stop": 1, "profile": { "review": { "risky": ["a"] }, "worktree": "per-task" } }`,
       ),
-    ).toEqual({ landing: null, review: { risky: ["a"] }, worktree: "per-task", provenance: null });
+    ).toEqual({
+      landing: null,
+      approvals: null,
+      review: { risky: ["a"] },
+      worktree: "per-task",
+      provenance: null,
+    });
   });
 
   test("names the file and the key in an error, an unknown profile key included", () => {

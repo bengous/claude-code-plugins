@@ -3,6 +3,9 @@ import { describe, expect, test } from "bun:test";
 import { githubSlugOf, slugOfPullRequest, slugOfRepoOption } from "./github.ts";
 import type { Check, PullRequestFacts, PushTarget, RepoFacts } from "./landing.ts";
 import {
+  approvingPhrase,
+  dispatchRefusal,
+  labelRefusal,
   CURRENT_BRANCH,
   EVERY_BRANCH,
   PUSH_DESTINATION,
@@ -22,7 +25,9 @@ import {
 } from "./landing.ts";
 import { commandsOf, parseLine, unwrap } from "./shell.ts";
 
-const LANDING = { trunk: "dev", release: "main" } as const;
+const LANDING = { trunk: "dev", release: "main", by: "agent" } as const;
+
+const BY_ACTION = { ...LANDING, by: "action" } as const;
 
 const PUBLIC: RepoFacts = { visibility: "PUBLIC", defaultBranch: "main" };
 
@@ -412,6 +417,38 @@ describe("profiledPushRefusal names the way to land", () => {
   });
 });
 
+describe("profiledPushRefusal where the landing action moves the trunk", () => {
+  test("refuses every push to the trunk, plain ones included, naming the pull request way", () => {
+    for (const target of [
+      { ref: "dev", forced: false, deleted: false },
+      { ref: "dev", forced: true, deleted: false },
+      { ref: "dev", forced: false, deleted: true },
+    ]) {
+      expect(profiledPushRefusal([target], BY_ACTION, false)).toBe(
+        "agent-hooks: 'dev' moves only through the landing action, never by an agent's push. Push your task branch and open a pull request to 'dev': the landing action fast-forwards 'dev' to its head once its run is green.",
+      );
+    }
+  });
+
+  test("refuses a push to the release without telling to push to the trunk", () => {
+    const reason = profiledPushRefusal(
+      [{ ref: "main", forced: false, deleted: false }],
+      BY_ACTION,
+      true,
+    );
+
+    expect(reason).toContain("the release is the human's. Push your task branch");
+    expect(reason).not.toContain("push it there");
+    expect(reason).not.toContain("land.ts");
+  });
+
+  test("allows a task branch, forced or not", () => {
+    expect(
+      profiledPushRefusal([{ ref: "fix/x", forced: true, deleted: false }], BY_ACTION, false),
+    ).toBeNull();
+  });
+});
+
 describe("publicPushRefusal", () => {
   const main = [{ ref: "main", forced: false, deleted: false }];
 
@@ -660,6 +697,85 @@ describe("profiledMergeRefusal", () => {
     );
     expect(profiledMergeRefusal(pr({ mergeable: "UNKNOWN" }), LANDING, true)).toContain(
       "not mergeable (unknown)",
+    );
+  });
+});
+
+describe("profiledMergeRefusal where the landing action moves the trunk", () => {
+  test("refuses a green merge into the trunk, which the action makes", () => {
+    expect(profiledMergeRefusal(pr(), BY_ACTION, false)).toBe(
+      "agent-hooks: #7 lands on 'dev' through the landing action alone, which fast-forwards 'dev' to its head once its run is green: leave the merge to it.",
+    );
+  });
+
+  test("refuses a merge into the release, naming the action", () => {
+    expect(profiledMergeRefusal(pr({ baseRefName: "main" }), BY_ACTION, true)).toContain(
+      "gh pr edit 7 --base dev), then leave it to the landing action",
+    );
+  });
+});
+
+describe("approvingPhrase", () => {
+  const release = ["on publie", "publie", "release"];
+
+  test("finds a phrase as words of its own, any case, any whitespace", () => {
+    expect(approvingPhrase("Ok, on publie !", release, null)).toBe("on publie");
+    expect(approvingPhrase("ON\n  PUBLIE", release, null)).toBe("on publie");
+    expect(approvingPhrase("go for the Release", release, null)).toBe("release");
+    expect(approvingPhrase("publie la 1.2", release, null)).toBe("publie");
+  });
+
+  test("a phrase inside a longer word is none", () => {
+    expect(approvingPhrase("on publiera demain", release, null)).toBeNull();
+    expect(approvingPhrase("c'est publié", release, null)).toBeNull();
+    expect(approvingPhrase("the releases page", release, null)).toBeNull();
+    expect(approvingPhrase("prerelease", release, null)).toBeNull();
+  });
+
+  test("puts the pull request's number in place of {pr}, which must match whole", () => {
+    const ok = ["ok #{pr}", "ok pour la #{pr}"];
+
+    expect(approvingPhrase("ok #12", ok, 12)).toBe("ok #{pr}");
+    expect(approvingPhrase("OK pour la #12, merci", ok, 12)).toBe("ok pour la #{pr}");
+    expect(approvingPhrase("ok #12", ok, 1)).toBeNull();
+    expect(approvingPhrase("ok #123", ok, 12)).toBeNull();
+    expect(approvingPhrase("ok #12", ok, 123)).toBeNull();
+    expect(approvingPhrase("ok", ok, 12)).toBeNull();
+  });
+
+  test("reads a phrase's characters literally", () => {
+    expect(approvingPhrase("go (v2)", ["go (v2)"], null)).toBe("go (v2)");
+    expect(approvingPhrase("go xv2y", ["go (v2)"], null)).toBeNull();
+  });
+});
+
+describe("dispatchRefusal and labelRefusal", () => {
+  const release = { name: "release.yml", phrases: ["on publie", "release"] };
+  const okHumain = { name: "ok-humain", phrases: ["ok #{pr}", "ok pour la #{pr}"] };
+
+  test("pass on the human's latest message", () => {
+    expect(dispatchRefusal(release, { kind: "read", text: "on publie" })).toBeNull();
+    expect(labelRefusal(okHumain, 12, { kind: "read", text: "ok pour la #12" })).toBeNull();
+  });
+
+  test("refuse a message that does not say so, naming the phrases and the pull request", () => {
+    expect(dispatchRefusal(release, { kind: "read", text: "merci" })).toBe(
+      `agent-hooks: dispatching release.yml is the human's decision, and the human's latest message does not say so (it would hold one of "on publie", "release"). Ask the human whether to run it, and dispatch it once their own message says so.`,
+    );
+    expect(labelRefusal(okHumain, 12, { kind: "read", text: "ok #11" })).toBe(
+      `agent-hooks: the label ok-humain on #12 is the human's ok on that pull request, and the human's latest message does not say so (it would hold one of "ok #12", "ok pour la #12"). Ask the human for their ok on #12, and add the label once their own message gives it.`,
+    );
+  });
+
+  test("refuse a session with no typed message, a transcript that cannot be read, a label with no number", () => {
+    expect(dispatchRefusal(release, { kind: "read", text: null })).toContain(
+      "the session holds no message the human typed",
+    );
+    expect(labelRefusal(okHumain, 12, { kind: "unreadable", why: "no transcript" })).toContain(
+      "the guard cannot read the human's latest message (no transcript)",
+    );
+    expect(labelRefusal(okHumain, null, { kind: "read", text: "ok #12" })).toContain(
+      "this command names none by its number",
     );
   });
 });

@@ -785,6 +785,226 @@ describe("pre-bash judges the doors gh api opens", () => {
   });
 });
 
+const GATED = JSON.stringify({
+  profile: {
+    landing: { trunk: "dev", release: "main", by: "action" },
+    approvals: {
+      workflows: { "release.yml": ["on publie", "publie", "release"] },
+      labels: { "ok-humain": ["ok #{pr}", "ok pour la #{pr}"] },
+    },
+  },
+});
+
+function typed(text: string): Record<string, unknown> {
+  return record("typed", [["Fix the date parser.", text]]);
+}
+
+const GATED_COMMANDS = [
+  "gh workflow run release.yml --ref dev",
+  "gh api -X POST repos/o/n/actions/workflows/release.yml/dispatches -f ref=dev",
+  "gh pr edit 12 --add-label ok-humain",
+  "gh api -X POST repos/o/n/issues/12/labels -f 'labels[]=ok-humain'",
+];
+
+describe("pre-bash where the landing action moves the trunk and the human's words open the gated doors", () => {
+  let repo = "";
+  let transcript = "";
+
+  /** The session's transcript, these records in it, each stamped one second after the one before. */
+  function session(...items: Record<string, unknown>[]): void {
+    mkdirSync(path.dirname(transcript), { recursive: true });
+    writeFileSync(
+      transcript,
+      items
+        .map((item, index) =>
+          JSON.stringify({ ...item, timestamp: new Date(Date.now() + index * 1000).toISOString() }),
+        )
+        .join("\n") + "\n",
+    );
+  }
+
+  function run(command: string, extra: Record<string, unknown> = {}): Promise<Output> {
+    return preBash(command, repo, {
+      transcript_path: transcript,
+      prompt_id: "p-fixture",
+      ...extra,
+    });
+  }
+
+  beforeEach(() => {
+    repo = makeRepo(
+      "gated",
+      {
+        [CONFIG_RELATIVE_PATH]: GATED,
+        ".github/workflows/release.yml": "name: Release\non: workflow_dispatch\n",
+      },
+      "git@github.com:o/n.git",
+    );
+    transcript = path.join(temp.dir, "projects", `${SESSION}.jsonl`);
+  });
+
+  test("refuses a push to the trunk, plain or through gh api, and lets a task branch through", async () => {
+    expect((await run("git push origin dev")).reason).toBe(
+      "agent-hooks: 'dev' moves only through the landing action, never by an agent's push. Push your task branch and open a pull request to 'dev': the landing action fast-forwards 'dev' to its head once its run is green.",
+    );
+    expect((await run("gh api -X PATCH repos/o/n/git/refs/heads/dev -f sha=abc")).reason).toContain(
+      "moves only through the landing action",
+    );
+    expect((await run("git push -u origin fix/x")).stdout).toBe("");
+  });
+
+  test("refuses gh pr merge into the trunk: the action lands it", async () => {
+    fakeGh({ pr: GREEN_PR, checks: GREEN_CHECKS });
+
+    expect((await run("gh pr merge 7 --rebase")).reason).toContain(
+      "#7 lands on 'dev' through the landing action alone",
+    );
+  });
+
+  test("refuses each gated door while the human's latest message does not ask for it", async () => {
+    session(typed("Fix the date parser."));
+
+    const reasons = await Promise.all(
+      GATED_COMMANDS.map(async (command) => (await run(command)).reason),
+    );
+
+    expect(reasons).toEqual([
+      `agent-hooks: dispatching release.yml is the human's decision, and the human's latest message does not say so (it would hold one of "on publie", "publie", "release"). Ask the human whether to run it, and dispatch it once their own message says so.`,
+      expect.stringContaining("dispatching release.yml is the human's decision"),
+      `agent-hooks: the label ok-humain on #12 is the human's ok on that pull request, and the human's latest message does not say so (it would hold one of "ok #12", "ok pour la #12"). Ask the human for their ok on #12, and add the label once their own message gives it.`,
+      expect.stringContaining("the label ok-humain on #12 is the human's ok"),
+    ]);
+  });
+
+  test("lets the dispatch through when the human's latest message asks for a release, in each form", async () => {
+    session(typed("Fix the date parser."), typed("C'est bon, on publie."));
+
+    for (const command of [
+      ...GATED_COMMANDS.slice(0, 2),
+      "gh workflow run Release",
+      "gh workflow run .github/workflows/release.yml",
+    ]) {
+      expect((await run(command)).stdout).toBe("");
+    }
+
+    expect((await run(GATED_COMMANDS[2] ?? "")).decision).toBe("deny");
+  });
+
+  test("lets the label through for the pull request the human's latest message approves, and no other", async () => {
+    session(typed("ok pour la #12"));
+
+    expect((await run("gh pr edit 12 --add-label ok-humain")).stdout).toBe("");
+    expect((await run("gh issue edit 12 --add-label bug,ok-humain")).stdout).toBe("");
+    expect((await run(GATED_COMMANDS[3] ?? "")).stdout).toBe("");
+    expect((await run("gh pr edit 13 --add-label ok-humain")).reason).toContain(
+      "the label ok-humain on #13",
+    );
+    expect((await run("gh pr edit --add-label ok-humain")).reason).toContain(
+      "this command names none by its number",
+    );
+    expect((await run("gh pr create --base dev --label ok-humain")).reason).toContain(
+      "this command names none by its number",
+    );
+  });
+
+  test("an older approval does not count once the human wrote since", async () => {
+    session(typed("on publie"), typed("ok #12"), typed("attends, pas encore"));
+
+    expect((await run(GATED_COMMANDS[0] ?? "")).decision).toBe("deny");
+    expect((await run(GATED_COMMANDS[2] ?? "")).decision).toBe("deny");
+  });
+
+  test("a message from a tool, a task, a peer session, a teammate or an approved plan is no approval", async () => {
+    const words = "on publie, ok #12";
+
+    session(
+      typed("Fix the date parser."),
+      record("notified-user", [["3 findings.", words]]),
+      record("peer", [["Done.", words]]),
+      record("lead", [["Go for step 2.", words]]),
+      record("approved-plan", [["# Fix the date parser", words]]),
+      record("skill-review-forked", [["running in the background", words]]),
+      record("say", [["The parser is fixed; committing.", words]]),
+    );
+
+    for (const command of GATED_COMMANDS) {
+      expect((await run(command)).decision).toBe("deny");
+    }
+  });
+
+  test("a subagent reads the human's messages in its session's transcript", async () => {
+    session(typed("on publie"));
+
+    expect((await run(GATED_COMMANDS[0] ?? "", { agent_id: "a1" })).stdout).toBe("");
+  });
+
+  test("refuses when the transcript cannot tell the human's latest message", async () => {
+    expect((await preBash(GATED_COMMANDS[0] ?? "", repo)).reason).toContain(
+      "the guard cannot read the human's latest message (the hook received no transcript_path)",
+    );
+
+    session(typed("on publie"));
+
+    expect((await run(GATED_COMMANDS[0] ?? "", { prompt_id: "p-later" })).reason).toContain(
+      "the transcript does not hold this turn's prompt yet",
+    );
+  });
+
+  test("leaves another workflow, another label, another repository and the reads alone", async () => {
+    for (const command of [
+      "gh workflow run ci.yml --ref fix/x",
+      "gh pr edit 12 --add-label bug",
+      "gh workflow run release.yml --repo other/repo",
+      "gh pr edit 12 --add-label ok-humain -R other/repo",
+      "gh workflow view release.yml && gh pr view 12 --json labels",
+      "gh api repos/o/n/issues/12/labels",
+    ]) {
+      expect((await run(command)).stdout).toBe("");
+    }
+  });
+
+  test("refuses a workflow named by an id it cannot match to a file", async () => {
+    expect((await run("gh workflow run 4242")).reason).toContain(
+      "the guard cannot tell which workflow the id 4242 names",
+    );
+  });
+
+  test("an invalid profile.approvals refuses the gated doors, naming the error", async () => {
+    writeRepoFile(
+      repo,
+      CONFIG_RELATIVE_PATH,
+      JSON.stringify({ profile: { approvals: { labels: { "ok-humain": ["ok"] } } } }),
+    );
+
+    expect((await run(GATED_COMMANDS[2] ?? "")).reason).toContain(
+      "The landing guard cannot read this repository's profile.approvals, so it refuses a label",
+    );
+  });
+});
+
+describe("pre-bash without the opt-in keys keeps the trunk and the gated doors open", () => {
+  test("with profile.landing alone, or no profile at all", async () => {
+    const profiled = makeRepo(
+      "landing-only",
+      { [CONFIG_RELATIVE_PATH]: PROFILE },
+      "git@github.com:o/n.git",
+    );
+
+    const plain = makeRepo("no-profile", {}, "git@github.com:o/private.git");
+    fakeGh({ repo: { visibility: "PRIVATE", defaultBranchRef: { name: "main" } } });
+
+    for (const repo of [profiled, plain]) {
+      for (const command of [
+        ...GATED_COMMANDS,
+        "git push origin dev",
+        "gh pr create --label ok-humain",
+      ]) {
+        expect((await preBash(command, repo)).stdout).toBe("");
+      }
+    }
+  });
+});
+
 describe("pre-bash lets the forms an agent ordinarily writes through", () => {
   let repo = "";
 
