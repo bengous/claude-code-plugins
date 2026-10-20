@@ -42,7 +42,6 @@ import {
   versionAt,
 } from "./check-plugin-bumps.ts";
 import { type CiOutcome, type Gh, ghCli, type WaitLimits, waitFor } from "./ci-wait.ts";
-import { movedOn } from "./land.ts";
 import { type PluginDir, pluginDirAt } from "./lib/plugin-sources.ts";
 import {
   localDate,
@@ -372,6 +371,15 @@ function movedRefusal(
   return null;
 }
 
+const SAME_PLAN = "the same bun ./scripts/release.ts --plan <digest> applies again";
+
+/** dev's head on the remote, fetched now: whether a refused push met a moved dev is read here, never from git's wording. */
+function devHead(repo: PluginDir): CommitId {
+  git(repo, ["fetch", "--quiet", REMOTE]);
+
+  return commitAt(repo, DEFAULT_REF);
+}
+
 /** The tags the dry-run printed for `plan`: those of versions set already, and one per bump that keeps a changelog. */
 function printedTags(repo: PluginDir, plan: ReleasePlan): ReadonlySet<TagName> {
   return new Set([
@@ -383,17 +391,18 @@ function printedTags(repo: PluginDir, plan: ReleasePlan): ReadonlySet<TagName> {
 }
 
 /**
- * Push the bump commits to dev, rebased first on dev's head whenever it is not their base: a push git
- * would refuse as non-fast-forward still runs the whole pre-push hook. Refused when dev moved by
- * commits the plan does not cover, or when the rebased head would make a tag the plan did not print.
+ * Push the bump commits to dev, rebased first on dev's head, fetched just before, whenever it is not
+ * their base: a push git would refuse as non-fast-forward still runs the whole pre-push hook. A
+ * refused push is tried again when dev moved meanwhile, the pre-push hook's minutes included,
+ * whatever git's message says. Refused when dev moved by commits the plan does not cover, or when
+ * the rebased head would make a tag the plan did not print.
  */
 function pushBumps(repo: PluginDir, tree: PluginDir, plan: ReleasePlan, context: Context): Bumped {
   const printed = printedTags(repo, plan);
   let base = plan.target;
+  let dev = devHead(repo);
 
   for (let attempt = 1; attempt <= ATTEMPTS; attempt += 1) {
-    const dev = commitAt(repo, DEFAULT_REF);
-
     if (dev !== base) {
       const why = movedRefusal(repo, plan, base, dev);
 
@@ -430,19 +439,19 @@ function pushBumps(repo: PluginDir, tree: PluginDir, plan: ReleasePlan, context:
 
     if (pushed.ok) return { kind: "ready", head, tags };
 
-    if (!movedOn(pushed.err)) {
+    dev = devHead(repo);
+
+    if (dev === base) {
       return {
         kind: "refused",
-        why: `the push of the bumps to ${DEV} was refused, nothing moved:\n${pushed.out}${pushed.err}`,
+        why: `the push of the bumps to ${DEV} was refused, nothing moved; once what it names is fixed, ${SAME_PLAN}:\n${pushed.out}${pushed.err}`,
       };
     }
-
-    git(repo, ["fetch", "--quiet", REMOTE]);
   }
 
   return {
     kind: "refused",
-    why: `${DEV} moved during each of ${ATTEMPTS} attempts: run the release again`,
+    why: `${DEV} moved during each of ${ATTEMPTS} attempts; ${SAME_PLAN}`,
   };
 }
 
@@ -567,7 +576,7 @@ function describeBump(bump: PlannedBump): readonly string[] {
   return [
     `${bump.name} ${bump.from} -> ${bump.to}, ${bump.level}${proposed}`,
     `  ${subjectOf(bump)}`,
-    `  why: ${bump.reason}`,
+    `  why: ${bump.reason.replaceAll("\n", "\n       ")}`,
     ...(bump.section === null
       ? []
       : bump.section.split("\n").map((line) => (line === "" ? "" : `    ${line}`))),

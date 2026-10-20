@@ -302,7 +302,7 @@ function filled(text: string | undefined, key: string, control: RegExp): string 
  * The judgement in `claude -p --output-format json`'s output: its result message, alone or the last
  * of the array the user's `verbose` setting prints, carries the schema's answer in
  * `structured_output`. Refused, with the reason: an error result, a level outside the three, an
- * empty field, a control character (a line break, in the body only, aside).
+ * empty field, a control character (a line break in the reason or the body aside).
  */
 export function judgementOf(stdout: string, wantsBody: boolean): Judgement {
   let output: unknown;
@@ -341,7 +341,7 @@ export function judgementOf(stdout: string, wantsBody: boolean): Judgement {
 
   return {
     level,
-    reason: filled(stringField(answer, "reason"), "reason", CONTROL),
+    reason: filled(stringField(answer, "reason"), "reason", CONTROL_BUT_NEWLINE),
     summary: filled(stringField(answer, "summary"), "summary", CONTROL),
     body: wantsBody ? filled(stringField(answer, "body"), "body", CONTROL_BUT_NEWLINE) : null,
     costUsd: Number.isFinite(cost) ? Number(cost) : null,

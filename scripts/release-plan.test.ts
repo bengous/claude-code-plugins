@@ -114,6 +114,12 @@ describe("judgementOf", () => {
     });
   });
 
+  test("keeps a reason on two lines", () => {
+    const stdout = resultLine({ structured_output: { ...ANSWER, reason: "One.\nTwo." } });
+
+    expect(judgementOf(stdout, true).reason).toBe("One.\nTwo.");
+  });
+
   test.each([
     ["not JSON", "Error: --json-schema is not valid JSON", "printed no JSON"],
     ["no result", '[{"type":"system"}]', "no result message"],

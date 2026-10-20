@@ -583,6 +583,81 @@ describe("a release with bumps", () => {
   );
 
   test(
+    "rebases the bumps when dev moved while the pre-push hook ran",
+    async () => {
+      write("vellum/a.ts", "a\n");
+      const target = commit("fix(vellum): a");
+
+      pushDev();
+      answerVellumMinor();
+
+      const plan = await sealedPlan(target);
+      const other = join(root, "other-clone");
+
+      git(root, "clone", "--quiet", "--branch", "dev", origin, other);
+      writeFileSync(
+        join(repo, ".git", "hooks", "pre-push"),
+        [
+          "#!/bin/sh",
+          "cat >/dev/null",
+          `[ -e '${root}/landed' ] && exit 0`,
+          `touch '${root}/landed'`,
+          "unset $(git rev-parse --local-env-vars)",
+          `cd '${other}' || exit 1`,
+          "echo notes > notes.md",
+          "git add -A",
+          "git -c user.email=o@example.com -c user.name=o -c commit.gpgsign=false commit -qm 'docs: an agent landed meanwhile'",
+          "git push -q origin HEAD:refs/heads/dev",
+          "",
+        ].join("\n"),
+      );
+      chmodSync(join(repo, ".git", "hooks", "pre-push"), 0o755);
+
+      const outcome = await ship(repo, plan, context(ciGh("success", [])));
+      const head = git(origin, "rev-parse", "refs/heads/dev");
+
+      expect(outcome).toHaveProperty("kind", "released");
+      expect(git(origin, "log", "--format=%s", `${target}..dev`).split("\n")).toEqual([
+        "chore(vellum): 0.2.0, the a module",
+        "docs: an agent landed meanwhile",
+      ]);
+      expect(git(origin, "rev-parse", "refs/heads/main")).toBe(head);
+      expect(git(origin, "rev-parse", "refs/tags/vellum-v0.2.0^{commit}")).toBe(head);
+      expect(worktreeCount()).toBe(1);
+    },
+    SLOW,
+  );
+
+  test(
+    "is refused with the same plan still good when a pre-push hook refuses the bumps and dev did not move",
+    async () => {
+      write("vellum/a.ts", "a\n");
+      const target = commit("fix(vellum): a");
+
+      pushDev();
+      answerVellumMinor();
+      writeFileSync(
+        join(repo, ".git", "hooks", "pre-push"),
+        "#!/bin/sh\necho a gate is red >&2\nexit 1\n",
+      );
+      chmodSync(join(repo, ".git", "hooks", "pre-push"), 0o755);
+
+      const outcome = await ship(repo, await sealedPlan(target), context(ciGh("success", [])));
+
+      expect(outcome).toHaveProperty("kind", "refused");
+      expect(outcome).toHaveProperty(
+        "why",
+        expect.stringMatching(
+          /^the push of the bumps to dev was refused, nothing moved; once what it names is fixed, the same bun \.\/scripts\/release\.ts --plan <digest> applies again:\na gate is red\n/u,
+        ),
+      );
+      expect(git(origin, "rev-parse", "refs/heads/dev")).toBe(target);
+      expect(worktreeCount()).toBe(1);
+    },
+    SLOW,
+  );
+
+  test(
     "is refused, nothing pushed, when main moved while the bumps were pushed",
     async () => {
       write("vellum/a.ts", "a\n");
