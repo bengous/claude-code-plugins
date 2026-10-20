@@ -61,6 +61,8 @@ export type WorldOptions = {
   channel?: readonly ChannelLineWire[];
   disk?: Entries;
   env?: Readonly<Record<string, string>>;
+  /** The line a mod after vellum draws in the band; none by default. */
+  otherBand?: string;
 };
 
 export function world(on: On, options: WorldOptions = {}): World {
@@ -98,7 +100,7 @@ export function world(on: On, options: WorldOptions = {}): World {
   };
 
   skillText(on);
-  engineBand(on);
+  engineBand(on, options.otherBand);
 
   on("session.start", (_, e) => ({ cwd: e.cwd }));
   on("turn.start", (_, e) => ({ turnId: e.turnId }));

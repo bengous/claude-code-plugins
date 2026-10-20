@@ -15,12 +15,18 @@ const ABOVE_PROMPT = {
   },
 } as const;
 
-/** What the engine draws in the band when no plugin does: nothing of its own, so no text and no link. */
-export function engineBand(on: On): void {
+/**
+ * What the band holds beneath vellum's: the engine's own, nothing, so no text and no link; or,
+ * with `otherMod`, the line a mod after vellum draws there.
+ */
+export function engineBand(on: On, otherMod?: string): void {
   on("ui.render", { component: "AbovePrompt" }, ($, e) => {
-    const { Box } = $.ui.resolve(e);
+    const { Box, Text } = $.ui.resolve(e);
 
-    return Box({ key: "engine" });
+    return Box({
+      key: "engine",
+      children: otherMod === undefined ? [] : [Text({ children: otherMod })],
+    });
   });
 }
 

@@ -327,24 +327,29 @@ export const register: Register = (on) => {
   });
 
   // The mode's one place in the terminal: the status line keeps a failure alone. A survey holds
-  // the band over any plugin, and the person may collapse it.
-  on("ui.render", { component: "AbovePrompt" }, ($, e, next) => {
-    if (band === null || e.props.hasSurvey) return next(e);
+  // the band over any plugin, and the person may collapse it. The band is shared: what the mods
+  // after vellum draw stays beneath its line.
+  on("ui.render", { component: "AbovePrompt" }, async ($, e, next) => {
+    const drawn = band;
+
+    if (drawn === null || e.props.hasSurvey) return next(e);
     const { Box, Text, Link } = $.ui.resolve(e);
     const separator = () => Text({ dimColor: true, children: SEPARATOR });
 
-    return Box({
+    const line = Box({
       flexDirection: "row",
       children: [
         Text({ children: "vellum" }),
-        ...band.segments.flatMap((segment) => [
+        ...drawn.segments.flatMap((segment) => [
           separator(),
           Text({ dimColor: true, children: segment }),
         ]),
         separator(),
-        Link({ href: band.href, label: "Review page ↗" }),
+        Link({ href: drawn.href, label: "Review page ↗" }),
       ],
     });
+
+    return Box({ flexDirection: "column", children: [line, await next(e)] });
   });
 
   on("tool.check", async ($, e, next) => {
