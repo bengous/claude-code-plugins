@@ -10,6 +10,29 @@ const HOOK = join(import.meta.dir, "auto-sweep.ts");
 // The sweep a test starts runs detached, past bun's default 5 s on a loaded machine.
 const STARTS_A_SWEEP = { timeout: 20_000 };
 
+// Unset for the hook, so what the sweep reads is what the hook set.
+const PROMPT_VARIABLES = new Set([
+  "GIT_TERMINAL_PROMPT",
+  "GH_PROMPT_DISABLED",
+  "SSH_ASKPASS_REQUIRE",
+]);
+
+// A git that, on `worktree list`, which the sweep runs and the hook does not,
+// records the prompt variables and the session it runs in, then holds the
+// sweep 3 s.
+const slowGit = (realGit: string, record: string): string => `#!/usr/bin/env bash
+if [[ "$1 $2" == "worktree list" && ! -e "${record}" ]]; then
+  echo "\${GIT_TERMINAL_PROMPT-}|\${GH_PROMPT_DISABLED-}|\${SSH_ASKPASS_REQUIRE-}|$(ps -o sess= -p $$)" >"${record}"
+  sleep 3
+fi
+exec "${realGit}" "$@"
+`;
+
+const sessionOf = (pid: number): string =>
+  Bun.spawnSync(["ps", "-o", "sess=", "-p", String(pid)])
+    .stdout.toString()
+    .trim();
+
 let root = "";
 
 let project = "";
@@ -32,12 +55,12 @@ const branchExists = (name: string): boolean =>
     env,
   }).exitCode === 0;
 
-async function runHook(cwd: string, projectDir = project) {
+async function runHook(cwd: string, projectDir = project, extra: NodeJS.ProcessEnv = {}) {
   const proc = Bun.spawn([process.execPath, HOOK], {
     stdin: new Blob([JSON.stringify({ hook_event_name: "SessionStart", source: "startup", cwd })]),
     stdout: "pipe",
     stderr: "pipe",
-    env: { ...env, CLAUDE_PROJECT_DIR: projectDir },
+    env: { ...env, CLAUDE_PROJECT_DIR: projectDir, ...extra },
   });
 
   const [stdout, stderr, exitCode] = await Promise.all([
@@ -64,7 +87,9 @@ beforeEach(() => {
   root = mkdtempSync(join(tmpdir(), "auto-sweep-hook-"));
   project = join(root, "project");
   env = {
-    ...process.env,
+    ...Object.fromEntries(
+      Object.entries(process.env).filter(([name]) => !PROMPT_VARIABLES.has(name)),
+    ),
     GIT_CONFIG_GLOBAL: "/dev/null",
     GIT_CONFIG_NOSYSTEM: "1",
     GIT_AUTHOR_NAME: "t",
@@ -109,6 +134,34 @@ describe("auto-sweep hook", () => {
       expect(swept).toContain("auto-sweep against dev\n");
       expect(swept).toContain("feature/landed (ancestry)");
       expect(branchExists("feature/landed")).toBe(false);
+    },
+    STARTS_A_SWEEP,
+  );
+
+  test(
+    "returns before the sweep ends, which runs in a session of its own with every prompt off",
+    async () => {
+      const bin = join(root, "bin");
+      const record = join(root, "sweep-env");
+      mkdirSync(bin);
+      writeFileSync(join(bin, "git"), slowGit(Bun.which("git") ?? "git", record), { mode: 0o755 });
+
+      const started = performance.now();
+
+      const { exitCode, stdout } = await runHook(project, project, {
+        PATH: `${bin}:${env["PATH"] ?? ""}`,
+      });
+
+      expect(performance.now() - started).toBeLessThan(2_000);
+      expect(exitCode).toBe(0);
+      expect(stdout).toContain("auto-sweep: sweeping");
+
+      for (let tries = 0; tries < 50 && !existsSync(record); tries++) await Bun.sleep(100);
+      const [terminal, gh, askpass, session] = readFileSync(record, "utf8").trim().split("|");
+
+      expect([terminal, gh, askpass]).toEqual(["0", "1", "never"]);
+      expect(session?.trim()).not.toBe(sessionOf(process.pid));
+      expect(await sweptLog()).toContain("auto-sweep against dev\n");
     },
     STARTS_A_SWEEP,
   );

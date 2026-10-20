@@ -108,7 +108,7 @@ export const REGISTRY: Registry = {
     "660d31af": {
       quote: "In an agent worktree, a Bash call runs one simple command:",
       prose:
-        "the guard that refuses is Claude Code's own; no check of this repo reads an agent's commands",
+        "the guard that refuses is Claude Code's own; this repo's Bash hooks guard pushes, releases and settings writes, not a command's shape",
     },
     "70ce207e": {
       quote: "A step that code can decide is done by the script or the",
