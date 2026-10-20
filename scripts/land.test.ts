@@ -43,6 +43,8 @@ let githubFile = "";
 
 let bunLog = "";
 
+let receivedLog = "";
+
 const saved = new Map<string, string | undefined>();
 
 function git(cwd: string, ...args: string[]): string {
@@ -166,6 +168,10 @@ beforeEach(() => {
   commit(work, "b.txt", "feature");
   git(work, "push", "--quiet", "origin", "feature/x");
 
+  receivedLog = join(root, "received.log");
+  writeFileSync(join(origin, "hooks", "post-receive"), `#!/bin/sh\ncat >> "${receivedLog}"\n`);
+  chmodSync(join(origin, "hooks", "post-receive"), 0o755);
+
   other = clone("other");
 
   bin = join(root, "bin");
@@ -188,6 +194,20 @@ beforeEach(() => {
 
 function bunCalls(): string {
   return existsSync(bunLog) ? readFileSync(bunLog, "utf8").trim() : "";
+}
+
+/** The ref updates origin took since the fixture was set up, each `<ref> <new oid>`, a deletion's oid all zeros. */
+function received(): readonly string[] {
+  if (!existsSync(receivedLog)) return [];
+
+  return readFileSync(receivedLog, "utf8")
+    .trim()
+    .split("\n")
+    .map((line) => {
+      const [, next, ref] = line.split(" ");
+
+      return `${ref} ${next}`;
+    });
 }
 
 function moveDevLockfile(): string {
@@ -219,9 +239,9 @@ describe("land", () => {
     const landed = await landing();
     const head = branchHead();
 
-    expect(landed).toEqual({ kind: "landed", dev: head, pr: 7 });
+    expect(landed).toEqual({ kind: "landed", dev: head, pr: 7, remote: { kind: "deleted" } });
     expect(git(origin, "rev-parse", "dev")).toBe(head);
-    expect(git(origin, "rev-parse", "feature/x")).toBe(head);
+    expect(received()).toContain(`refs/heads/feature/x ${head}`);
     expect(git(work, "rev-parse", "HEAD~1")).toBe(moved);
   });
 
@@ -495,7 +515,7 @@ describe("land, a branch that touches the e2e paths", () => {
     const landed = await landing();
     const head = branchHead();
 
-    expect(landed).toEqual({ kind: "landed", dev: head, pr: 7 });
+    expect(landed).toEqual({ kind: "landed", dev: head, pr: 7, remote: { kind: "deleted" } });
     expect(head).not.toBe(reviewed);
     expect(git(work, "rev-parse", "HEAD~2")).toBe(moved);
     expect(edits()).toEqual(["pr edit feature/x --add-label e2e"]);
@@ -552,6 +572,139 @@ describe("land, a branch that touches the e2e paths", () => {
 
     expect(why(await landing())).toContain("CI is red on");
     expect(edits()).toEqual(["pr edit feature/x --add-label e2e"]);
+  });
+});
+
+const NULL_OID = "0".repeat(40);
+
+function remoteBranch(): string {
+  return git(origin, "branch", "--list", "feature/x");
+}
+
+function stateReads(): number {
+  return github().calls.filter((call) => call === "pr view 7 --json state").length;
+}
+
+/** Lands feature/x on dev, its remote branch kept for a reason holding `reason`. */
+async function landedKeeping(reason: string) {
+  const landed = await landing();
+
+  expect(landed).toEqual({
+    kind: "landed",
+    dev: branchHead(),
+    pr: 7,
+    remote: { kind: "kept", why: expect.stringContaining(reason) },
+  });
+  expect(git(origin, "rev-parse", "dev")).toBe(branchHead());
+}
+
+describe("land, the remote branch once landed", () => {
+  test("deletes it after the push to dev, once GitHub reads the pull request merged", async () => {
+    moveDev();
+    serve({ mergeLag: 2 });
+
+    const landed = await landing();
+    const head = branchHead();
+
+    expect(landed).toEqual({ kind: "landed", dev: head, pr: 7, remote: { kind: "deleted" } });
+    expect(received().slice(-3)).toEqual([
+      `refs/heads/feature/x ${head}`,
+      `refs/heads/dev ${head}`,
+      `refs/heads/feature/x ${NULL_OID}`,
+    ]);
+    expect(stateReads()).toBe(3);
+  });
+
+  test("keeps it while GitHub still reads the pull request open a minute after the push", async () => {
+    serve({ mergeLag: 1_000_000 });
+
+    await landedKeeping(
+      "#7 reads open on GitHub, not merged: deleting feature/x now would close it unmerged",
+    );
+    expect(remoteBranch()).not.toBe("");
+    expect(stateReads()).toBe(5);
+  });
+
+  test("keeps it while a pull request based on it is open", async () => {
+    serve({ stacked: [9, 12] });
+
+    await landedKeeping("#9, #12 open on feature/x would close with it");
+    expect(remoteBranch()).not.toBe("");
+  });
+
+  test("keeps it, the landing landed, when origin refuses the delete", async () => {
+    git(origin, "config", "receive.denyDeletes", "true");
+    serve();
+
+    await landedKeeping("the delete was refused:");
+    expect(remoteBranch()).not.toBe("");
+  });
+
+  test("keeps it, the landing landed, when gh fails once dev took the branch", async () => {
+    serve({ failing: ["pr list"] });
+
+    await landedKeeping("gh pr list --base exited 1");
+    expect(remoteBranch()).not.toBe("");
+  });
+
+  test("keeps a commit pushed to it once it landed", async () => {
+    const reviewed = branchHead();
+    let foreign = "";
+
+    serve({ pinnedHead: reviewed, mergeLag: 1 });
+
+    const landed = await landing("feature/x", {
+      during: () => {
+        if (foreign !== "" || git(origin, "rev-parse", "dev") !== reviewed) return;
+
+        git(other, "fetch", "--quiet", "origin");
+        git(other, "switch", "--quiet", "feature/x");
+        foreign = commit(other, "d.txt", "pushed once it landed");
+        git(other, "push", "--quiet", "origin", "feature/x");
+      },
+    });
+
+    expect(landed).toEqual({
+      kind: "landed",
+      dev: reviewed,
+      pr: 7,
+      remote: { kind: "kept", why: expect.stringContaining("stale info") },
+    });
+    expect(git(origin, "rev-parse", "feature/x")).toBe(foreign);
+  });
+
+  test("leaves the local branch and the checkout holding it as they are", async () => {
+    const tree = join(root, "wt");
+
+    git(work, "switch", "--quiet", "dev");
+    git(work, "worktree", "add", "--quiet", tree, "feature/x");
+    serve();
+
+    const landed = await landing();
+    const head = git(tree, "rev-parse", "HEAD");
+
+    expect(landed).toEqual({ kind: "landed", dev: head, pr: 7, remote: { kind: "deleted" } });
+    expect(remoteBranch()).toBe("");
+    expect(git(tree, "symbolic-ref", "HEAD")).toBe("refs/heads/feature/x");
+    expect(git(work, "rev-parse", "refs/heads/feature/x")).toBe(head);
+    expect(checkoutOf(git(work, "worktree", "list", "--porcelain"), "feature/x")).not.toBeNull();
+  });
+
+  test("names what it did with the remote branch on the verdict line", () => {
+    serve({ stacked: [9] });
+    setEnv("LAND_DEV_COPY", "1");
+
+    const cli = Bun.spawnSync([process.execPath, join(import.meta.dir, "land.ts"), "feature/x"], {
+      cwd: work,
+      env: process.env,
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+
+    expect(cli.stdout.toString()).toBe(
+      `landed feature/x on dev at ${branchHead().slice(0, 8)} (#7); remote branch kept: #9 open on feature/x would close with it; its run on dev: gh run list --branch dev --event push --limit 1\n`,
+    );
+    expect(cli.exitCode).toBe(0);
   });
 });
 

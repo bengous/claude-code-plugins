@@ -33,7 +33,11 @@
  * touching the e2e paths waits again for that commit's runs and its own e2e
  * run. A `dev` push rejected because `origin/dev` moved starts over from the
  * fetch, three attempts at most. The pre-push hook runs the gates and the e2e
- * gate on every push, as for a push by hand.
+ * gate on every push, as for a push by hand. Once on `dev`, the branch is
+ * deleted from origin, under a lease on the head that landed, when GitHub
+ * reads its pull request merged within a minute and no open pull request is
+ * based on it; its local branch and checkout stay, and a remote branch kept
+ * is named, with why, on the verdict line of a landing that still succeeded.
  */
 
 import { mkdtempSync, rmSync } from "node:fs";
@@ -93,6 +97,8 @@ const E2E_LABEL = "e2e";
 
 const GREEN_JOB = new Set(["success", "skipped", "neutral"]);
 
+const PR_NUMBER = /^\d+$/u;
+
 export interface Waiting {
   readonly clock: Clock;
   readonly pollMs: number;
@@ -111,8 +117,17 @@ export interface PullRequest {
   readonly comments: readonly Comment[];
 }
 
+export type RemoteBranch =
+  | { readonly kind: "deleted" }
+  | { readonly kind: "kept"; readonly why: string };
+
 export type Landing =
-  | { readonly kind: "landed"; readonly dev: string; readonly pr: number }
+  | {
+      readonly kind: "landed";
+      readonly dev: string;
+      readonly pr: number;
+      readonly remote: RemoteBranch;
+    }
   | { readonly kind: "refused"; readonly why: string };
 
 type Refused = Extract<Landing, { readonly kind: "refused" }>;
@@ -494,6 +509,88 @@ async function ready(lander: Lander, sha: string, e2e: boolean): Promise<Ready> 
   return pullRequestAt(lander, sha);
 }
 
+function kept(why: string): RemoteBranch {
+  return { kind: "kept", why: why.replaceAll(/\s*\n\s*/gu, " ") };
+}
+
+async function stateOf(lander: Lander, pr: number): Promise<string> {
+  const out = await lander.gh(["pr", "view", String(pr), "--json", "state"]);
+
+  try {
+    // SAFETY: gh prints the field asked for, and a state that does not read as MERGED keeps the branch.
+    const { state }: { readonly state: string } = JSON.parse(out);
+
+    return state;
+  } catch {
+    throw new Error(`gh printed no state for #${pr}: ${out.trim()}`);
+  }
+}
+
+/** The open pull requests based on the branch, each `#<number>`: GitHub closes them when it goes. */
+async function stackedOn(lander: Lander): Promise<readonly string[]> {
+  const out = await lander.gh([
+    "pr",
+    "list",
+    "--base",
+    lander.branch,
+    "--state",
+    "open",
+    "--json",
+    "number",
+    "--jq",
+    ".[].number",
+  ]);
+
+  const numbers = out.split("\n").filter((line) => line !== "");
+  const unread = numbers.find((line) => !PR_NUMBER.test(line));
+
+  if (unread !== undefined) {
+    throw new Error(
+      `gh listed a pull request based on ${lander.branch} that does not read as a number: ${JSON.stringify(unread)}`,
+    );
+  }
+
+  return numbers.map((number) => `#${number}`);
+}
+
+/**
+ * Deletes the branch that landed at `head` through `pr` from origin, the local branch and its checkout left where the
+ * agent works. GitHub sees the push to dev a moment later: deleted before it reads `pr` merged, the branch would leave
+ * `pr` closed, not merged.
+ */
+async function deleteRemote(lander: Lander, pr: number, head: string): Promise<RemoteBranch> {
+  try {
+    const state = await pollUntil(
+      lander,
+      () => stateOf(lander, pr),
+      (read) => read !== "OPEN",
+    );
+
+    if (state !== "MERGED") {
+      return kept(
+        `#${pr} reads ${state.toLowerCase()} on GitHub, not merged: deleting ${lander.branch} now would close it unmerged`,
+      );
+    }
+
+    const stacked = await stackedOn(lander);
+
+    if (stacked.length > 0) {
+      return kept(`${stacked.join(", ")} open on ${lander.branch} would close with it`);
+    }
+  } catch (error) {
+    return kept(error instanceof Error ? error.message : String(error));
+  }
+
+  const ref = `refs/heads/${lander.branch}`;
+
+  const deleted = run(
+    ["git", "push", "--quiet", `--force-with-lease=${ref}:${head}`, REMOTE, "--delete", ref],
+    lander.checkout,
+  );
+
+  return deleted.ok ? { kind: "deleted" } : kept(`the delete was refused: ${deleted.err}`);
+}
+
 export async function land(
   branch: string,
   cwd: string,
@@ -671,7 +768,14 @@ export async function land(
 
     const devPush = run(["git", "push", "--quiet", REMOTE, `${branch}:${DEV}`], checkout);
 
-    if (devPush.ok) return { kind: "landed", dev: rebased, pr: pr.number };
+    if (devPush.ok) {
+      return {
+        kind: "landed",
+        dev: rebased,
+        pr: pr.number,
+        remote: await deleteRemote(lander, pr.number, rebased),
+      };
+    }
 
     if (!movedOn(devPush.err)) {
       return refused(
@@ -741,8 +845,13 @@ if (import.meta.main) {
   const landing = await land(branch, process.cwd());
 
   if (landing.kind === "landed") {
+    const remote =
+      landing.remote.kind === "deleted"
+        ? "remote branch deleted"
+        : `remote branch kept: ${landing.remote.why}`;
+
     console.log(
-      `landed ${branch} on ${DEV} at ${short(landing.dev)} (#${landing.pr}); its run on ${DEV}: gh run list --branch ${DEV} --event push --limit 1`,
+      `landed ${branch} on ${DEV} at ${short(landing.dev)} (#${landing.pr}); ${remote}; its run on ${DEV}: gh run list --branch ${DEV} --event push --limit 1`,
     );
   } else {
     console.error(`land: ${landing.why}`);

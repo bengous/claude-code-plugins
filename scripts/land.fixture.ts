@@ -12,7 +12,10 @@ import type { Comment } from "./review-verdict.ts";
 // as it shows, as ci.yml's `unlabel` job does. A re-run gives a run another
 // attempt, which `rerunLag` listings still show as the attempt before. Each
 // listing of a run in progress takes one poll off it; a hidden run sits out
-// that many listings before it shows.
+// that many listings before it shows. An open pull request whose head origin's
+// dev holds reads merged, once `mergeLag` reads have still shown it open. The
+// `stacked` pull requests are the open ones based on the branch. A call whose
+// arguments start with one of `failing` fails.
 
 export type JobEnd = "success" | "failure";
 
@@ -44,11 +47,14 @@ export interface FakeGitHub {
   readonly branch: string;
   readonly pr: {
     readonly number: number;
-    readonly state: string;
+    state: string;
     readonly baseRefName: string;
     readonly comments: readonly Comment[];
     labels: string[];
   };
+  mergeLag: number;
+  readonly stacked: readonly number[];
+  readonly failing: readonly string[];
   /** Printed by `gh pr view` in place of the pull request. */
   readonly garbage: string | null;
   /** The head the pull request has, whatever origin holds. */
@@ -84,6 +90,9 @@ export function serveGitHub(
     origin,
     branch,
     pr: { number: 7, state: "OPEN", baseRefName: "dev", comments: [], labels: [], ...pr },
+    mergeLag: 0,
+    stacked: [],
+    failing: [],
     garbage: null,
     pinnedHead: null,
     lag: 0,
@@ -137,6 +146,21 @@ function shownHead(github: FakeGitHub): string {
   github.shown = head;
 
   return head;
+}
+
+function stateOf(github: FakeGitHub): string {
+  const { origin, pr } = github;
+
+  const merged =
+    Bun.spawnSync(["git", "-C", origin, "merge-base", "--is-ancestor", headOf(github), "dev"])
+      .exitCode === 0;
+
+  if (pr.state === "OPEN" && merged) {
+    if (github.mergeLag > 0) github.mergeLag -= 1;
+    else pr.state = "MERGED";
+  }
+
+  return pr.state;
 }
 
 function start(github: FakeGitHub, sha: string, spec: RunSpec, unlabels: boolean) {
@@ -264,13 +288,21 @@ async function answer(github: FakeGitHub, args: readonly string[]): Promise<stri
   if (command === "pr" && verb === "view") {
     if (github.garbage !== null) return github.garbage;
 
+    const state = stateOf(github);
     const { labels, ...pr } = github.pr;
 
     return JSON.stringify({
       ...pr,
+      state,
       headRefOid: shownHead(github),
       labels: labels.map((name) => ({ name })),
     });
+  }
+
+  if (command === "pr" && verb === "list") {
+    const base = args[args.indexOf("--base") + 1];
+
+    return base === github.branch ? github.stacked.map((number) => `${number}\n`).join("") : "";
   }
 
   if (command === "pr" && verb === "comment") {
@@ -317,9 +349,13 @@ if (import.meta.main) {
   const [file = "", ...args] = process.argv.slice(2);
   const github = readGitHub(file);
 
-  github.calls.push(args.join(" "));
+  const call = args.join(" ");
 
-  const out = await answer(github, args);
+  github.calls.push(call);
+
+  const out = github.failing.some((prefix) => call.startsWith(prefix))
+    ? null
+    : await answer(github, args);
 
   writeFileSync(file, JSON.stringify(github));
 
