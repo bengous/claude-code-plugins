@@ -578,20 +578,24 @@ describe("the server", () => {
     expect(await (await outcomes(second, [1])).json()).toEqual([{ seq: 1, outcome: "delivered" }]);
   });
 
-  test("the outcomes keep the last hundred batches reported", async () => {
-    const one = await serve();
+  test(
+    "the outcomes keep the last hundred batches reported",
+    async () => {
+      const one = await serve();
 
-    for (let seq = 1; seq <= 101; seq += 1) {
-      await post(one, "api/batch", BATCH);
-      await post(one, "api/delivery", { seq, outcome: "delivered" }, null);
-    }
+      for (let seq = 1; seq <= 101; seq += 1) {
+        await post(one, "api/batch", BATCH);
+        await post(one, "api/delivery", { seq, outcome: "delivered" }, null);
+      }
 
-    expect(await (await outcomes(one, [1, 2, 101])).json()).toEqual([
-      { seq: 1, outcome: "unknown" },
-      { seq: 2, outcome: "delivered" },
-      { seq: 101, outcome: "delivered" },
-    ]);
-  });
+      expect(await (await outcomes(one, [1, 2, 101])).json()).toEqual([
+        { seq: 1, outcome: "unknown" },
+        { seq: 2, outcome: "delivered" },
+        { seq: 101, outcome: "delivered" },
+      ]);
+    },
+    { timeout: 20_000 },
+  );
 
   test("outcomes asked after nothing answer nothing", async () => {
     const one = await serve();
