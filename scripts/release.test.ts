@@ -454,7 +454,14 @@ describe("a release with bumps", () => {
       ]);
 
       const asked: string[] = [];
-      const outcome = await ship(repo, plan, context(ciGh("success", asked)));
+      const said: string[] = [];
+
+      const outcome = await ship(
+        repo,
+        plan,
+        context(ciGh("success", asked), (line) => said.push(line)),
+      );
+
       const head = git(origin, "rev-parse", "refs/heads/dev");
       const vellumBump = git(origin, "rev-parse", "refs/heads/dev~1");
 
@@ -477,6 +484,7 @@ describe("a release with bumps", () => {
       );
       expect(asked).toHaveLength(1);
       expect(asked[0]).toContain(`head_sha=${head}&event=push`);
+      expect(said.filter((line) => line.includes("past the plan's"))).toEqual([]);
       expect(outcome).toHaveProperty("kind", "released");
       expect(worktreeCount()).toBe(1);
     },
@@ -522,10 +530,9 @@ describe("a release with bumps", () => {
       );
       expect(git(origin, "rev-parse", "refs/heads/main")).toBe(head);
       expect(git(origin, "rev-parse", "refs/tags/vellum-v0.2.0^{commit}")).toBe(head);
-      expect(said.slice(-3)).toEqual([
-        `main ${plan.shipped.slice(0, 7)} -> ${head.slice(0, 7)}, past the plan's ${target.slice(0, 7)}:`,
+      expect(said.slice(-2)).toEqual([
+        `main ${plan.shipped.slice(0, 7)} → ${head.slice(0, 7)}, past the plan's ${target.slice(0, 7)} by:`,
         `  ${moved.slice(0, 7)} docs: notes`,
-        `  ${head.slice(0, 7)} chore(vellum): 0.2.0, the a module`,
       ]);
       expect(readFileSync(join(root, "pre-push.log"), "utf8").split("\n").slice(0, 2)).toEqual([
         `CALL [HEAD ${head} refs/heads/dev ${moved}]`,

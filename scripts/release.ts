@@ -15,7 +15,7 @@
  * <summary>` commit per bump, with its changelog section, made in a temporary worktree where the
  * commit hooks run, pushed to dev, rebased when dev moved by commits the plan does not need to
  * cover and that make no tag the plan did not print; then it waits for that commit's push run of
- * CI to end green, prints each commit past the plan's target, and moves `main` there.
+ * CI to end green, prints each commit dev moved by past the plan's target, and moves `main` there.
  * Everything is read and checked before a push: a changelog that does not parse, or a tag that
  * already exists, stops the release with `main` unmoved. The notes are the changelog's sections
  * newer than the version `main` held, written into the annotated tag, and the Release reads them
@@ -541,12 +541,19 @@ export async function ship(
 
   if (ci.kind !== "green") return { kind: "ci-not-green", head, bumped: onDev, ci };
 
-  if (head !== plan.target) {
+  const belowBumps = commitAt(repo, `${head}~${plan.bumps.length}`);
+
+  if (belowBumps !== plan.target) {
     context.say(
-      `main ${short(plan.shipped)} -> ${short(head)}, past the plan's ${short(plan.target)}:`,
+      `main ${short(plan.shipped)} → ${short(head)}, past the plan's ${short(plan.target)} by:`,
     );
 
-    for (const line of git(repo, ["log", "--reverse", "--format=%h %s", `${plan.target}..${head}`])
+    for (const line of git(repo, [
+      "log",
+      "--reverse",
+      "--format=%h %s",
+      `${plan.target}..${belowBumps}`,
+    ])
       .split("\n")
       .filter((commit) => commit !== "")) {
       context.say(`  ${line}`);
