@@ -55,6 +55,18 @@ the numbered steps, each with what checked it. Read-only and user-invoked only.
 /recap why did the push fail?
 ```
 
+### `/didnt-read`
+
+Alias of `/recap steps`: layers 1 and 3. Both commands inject `shared/recap-body.md` with
+`` !`cat` ``, so they never drift apart; the body sits outside `commands/`, where every file
+becomes a command. `cat`, not `sed`: the permission check reads `sed` as an edit and refuses
+it. The `Read(//**/understanding/shared/recap-body.md)` rule lets `cat` reach the plugin
+folder, which lies outside the session's working directory.
+
+```bash
+/didnt-read
+```
+
 ## License
 
 MIT
