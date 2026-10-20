@@ -2,8 +2,8 @@
 
 v1.1.0
 
-Understand a topic, a bug, or a Claude Code workflow: minimal explanations, root-cause
-diagnosis, execution traces.
+Understand a topic, a bug, a Claude Code workflow, or the last reply: minimal explanations,
+root-cause diagnosis, execution traces, layered recaps.
 
 `/explain` and `/troubleshoot` moved from software-craft 1.1.0 (originally claude-meta-tools).
 `/explain-workflow` moved from claude-meta-tools 6.0.0.
@@ -40,6 +40,19 @@ diagram with `file:line` references. Not a concept explanation; use `/explain` f
 ```bash
 /explain-workflow git:commit
 /explain-workflow plans/release-pipeline.md
+```
+
+### `/recap`
+
+Re-explain the last reply from zero, for a user who did not read it, in three layers that
+each stand alone: the decision waiting for the user and what changed in the world; the shape
+of what happened, as one pseudocode, call tree, Mermaid diagram, table or short argument;
+the numbered steps, each with what checked it. Read-only and user-invoked only.
+
+```bash
+/recap
+/recap decisions        # layer 1 only; also: steps, diagram
+/recap why did the push fail?
 ```
 
 ## License
