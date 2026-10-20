@@ -2,6 +2,14 @@
 
 What each version of vellum changed for the person using it, newest first.
 
+## 0.18.0 - 2026-10-20
+
+### Changed
+
+- Only you can start vellum now, by typing `/vellum:start`. Claude no longer starts the review on its own, and it no longer starts one when another agent, a peer session or a subagent asks for a plan review. vellum is a review between a human and an agent, and `/vellum:start` now works the same way `/vellum:stop` already did. The descriptions of the start skill and of the plan-reviewer agent say this, and the README no longer says the skill triggers itself.
+
+Internal changes besides: in CI, a failed end-to-end test is retried once, and a test that passes on its retry is tracked in an issue labelled flaky.
+
 ## 0.17.9 - 2026-10-19
 
 Internal changes only: the code and tests follow oxlint 1.88 and every dependency is pinned.
