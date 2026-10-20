@@ -11,26 +11,30 @@
  * (`renovate.json`). Among the open Renovate pull requests against `dev` whose
  * `ci.yml` runs have concluded, one that touches a path of `origin/dev`'s
  * `profile.review.risky` goes to the human: `land.ts` lands it only with a
- * review verdict, which no unattended agent records. This run owns the others
- * Renovate leaves: a red one, a major (Renovate's `major` label), one whose
- * files touch the e2e paths (`isE2ePath`), and one carrying a commit not
- * Renovate's, the agent's repair. A head this run already handled is left
- * until Renovate pushes another.
+ * review verdict, which no unattended agent records; so does one whose branch
+ * carries a commit neither Renovate's nor the agent's (its `Renovate-Agent`
+ * trailer), read with `git log` after the run's fetch. This run owns the
+ * others Renovate leaves: a red one, a major (Renovate's `major` label), one
+ * whose files touch the e2e paths (`isE2ePath`), and one carrying the agent's
+ * repair. A head this run already handled is left until Renovate pushes
+ * another.
  *
  * Each owned pull request gets its own worktree, `<main worktree>.wt/
  * renovate/<number>`, at the branch's head fetched again, which must still be
  * the listed one, with the dependencies installed. A red one is handed first
  * to a headless Claude (`scripts/renovate-agent.prompt.md`) that commits the
- * repair, signed with the user's key; the run pushes the commits, a
- * fast-forward under a lease, and runs its own `land.ts`, which waits for CI,
- * runs the e2e suite when the branch needs it and lands the branch on `dev`.
- * A landing refused because CI is red goes back to the agent, two agent
- * rounds per pull request in all, counted across runs; a landing land.ts
- * defers (exit 3: nothing for a human to fix) settles no head and drops its
- * worktree, so the next daily run takes it again; any other refusal goes to
- * the human. Each end, landed or not, is a line the next session start shows
- * and a desktop notice. The lock, the logs, the handled heads, the rounds
- * spent and the lines not yet shown live in `<git common dir>/renovate-agent/`.
+ * repair, signed with the user's key and marked with the run's trailer; the
+ * run pushes the commits, a fast-forward under a lease, and runs its own
+ * `land.ts`, which waits for CI, runs the e2e suite when the branch needs it
+ * and lands the branch on `dev`. A landing refused because CI is red goes back
+ * to the agent, two agent rounds per Renovate update (`updateOf`) in all,
+ * across runs. A deferral, land.ts's exit 3 or a step of the run's own failing
+ * on the network (`isTransient`), settles no head and drops the worktree, so
+ * the next daily run takes it again; the third in a row goes to the human, as
+ * any other refusal does. Each end, landed or not, is a line the next session
+ * start shows and a desktop notice. The lock, the logs, the handled heads, the
+ * rounds spent, the deferrals in a row and the lines not yet shown live in
+ * `<git common dir>/renovate-agent/`.
  */
 
 import {
@@ -45,14 +49,13 @@ import {
 import { join } from "node:path";
 
 import { isE2ePath } from "./check-e2e-green.ts";
-import { type CiVerdict, ciVerdict, ghCli } from "./ci-wait.ts";
+import { type CiVerdict, ciVerdict, ghCli, GhError } from "./ci-wait.ts";
 import { RUN_GUARD as TYPES_RUN_GUARD } from "./claude-code-types.ts";
 import { DEFERRED_EXIT, riskyOf } from "./land.ts";
 import {
   type ChildSlot,
   command,
   commonDirOf,
-  gh,
   git,
   heldWork,
   type LockPaths,
@@ -64,6 +67,7 @@ import {
   worktreesOf,
   writeWhole,
 } from "./lib/headless-run.ts";
+import { isTransient, TransientError } from "./lib/transient.ts";
 
 export const MAJOR_LABEL = "major";
 
@@ -82,8 +86,18 @@ const PROMPT = join(import.meta.dir, "renovate-agent.prompt.md");
 
 const NOTICE = "Renovate agent";
 
-/** Agent rounds per pull request, in all: each one answers a red CI. */
+/** Agent rounds per Renovate update, in all, across runs: each one answers a red CI. */
 export const AGENT_ROUNDS = 2;
+
+/** Deferred landings in a row, across runs, after which the update goes to the human. */
+export const DEFERRALS = 3;
+
+/** The trailer the script has the agent put on each of its commits, its value the run's id. */
+export const AGENT_TRAILER = "Renovate-Agent";
+
+const FIELD = "\u001F";
+
+const RECORD = "\u001E";
 
 const CANNOT_REPAIR = /^CANNOT REPAIR:.*$/mu;
 
@@ -105,19 +119,53 @@ export interface RenovatePr {
   readonly headRefOid: string;
   readonly labels: readonly string[];
   readonly files: readonly string[];
-  /** The author emails of its commits. */
-  readonly authors: readonly string[];
+}
+
+/** A commit of the branch on top of `origin/dev`, as `git log` reads it. */
+export interface BranchCommit {
+  readonly sha: string;
+  readonly email: string;
+  /** Its author date and subject: what `git rebase` keeps and Renovate's own rewrite of the branch changes. */
+  readonly identity: string;
+  /** The value of its `Renovate-Agent` trailer, empty when it has none. */
+  readonly agentRun: string;
+}
+
+/** Who wrote a commit: Renovate, this script's agent (its trailer), or anyone else, a human. */
+export type Writer = "renovate" | "agent" | "human";
+
+export function writerOf(commit: BranchCommit): Writer {
+  if (commit.email === RENOVATE_EMAIL) return "renovate";
+
+  return commit.agentRun === "" ? "human" : "agent";
+}
+
+export type BranchRead =
+  | { readonly kind: "read"; readonly commits: readonly BranchCommit[] }
+  | { readonly kind: "unread"; readonly why: string };
+
+/**
+ * The Renovate update a branch carries: its newest commit of Renovate's, by author date and subject, not by SHA, so
+ * that land.ts's rebase keeps it while an update or a rewrite of Renovate's makes another. Null when Renovate wrote
+ * none of the commits.
+ */
+export function updateOf(commits: readonly BranchCommit[]): string | null {
+  return commits.find((commit) => writerOf(commit) === "renovate")?.identity ?? null;
 }
 
 /**
- * `repaired`: a commit not Renovate's, the agent's repair. Renovate stops updating a branch someone else committed
- * to; whether its automerge still takes one is not measured, so land.ts lands it.
+ * `repaired`: a commit of the agent's, which land.ts lands. Renovate stops updating a branch someone else committed
+ * to; whether its automerge still takes one is not measured.
  */
 export type AgentReason = "red" | "major" | "e2e" | "repaired";
 
 export type Classification =
   | { readonly owner: "renovate"; readonly why: string }
-  | { readonly owner: "agent"; readonly reasons: readonly AgentReason[] }
+  | {
+      readonly owner: "agent";
+      readonly reasons: readonly AgentReason[];
+      readonly update: string;
+    }
   | { readonly owner: "human"; readonly why: string }
   | { readonly owner: "wait"; readonly why: string }
   | { readonly owner: "handled"; readonly why: string };
@@ -128,9 +176,10 @@ export type RiskyPath = (path: string) => boolean;
 /**
  * How a pull request ended. `heads` are the heads a landed or failed one
  * settles, which the next runs leave alone: the listed head once an agent
- * round or a landing ran, or once its agent rounds are spent, and each head
- * this run pushed. A stopped or deferred one settles none, not even the heads
- * of an agent round it ran: the next daily run takes the pull request again.
+ * round or a landing ran, once its agent rounds are spent or once its landing
+ * was deferred `DEFERRALS` times in a row, and each head this run pushed. A
+ * stopped or deferred one settles none, not even the heads of an agent round
+ * it ran: the next daily run takes the pull request again.
  */
 export type PrOutcome =
   | {
@@ -168,6 +217,7 @@ export interface StatePaths extends LockPaths {
   readonly day: string;
   readonly handled: string;
   readonly rounds: string;
+  readonly deferrals: string;
   readonly report: string;
   readonly runLog: string;
   readonly spawnLog: string;
@@ -176,8 +226,8 @@ export interface StatePaths extends LockPaths {
 /** The heads this run already handled, per pull request number. */
 export type Handled = Readonly<Record<string, readonly string[]>>;
 
-/** The agent rounds each pull request has had, across runs. */
-export type Rounds = Readonly<Record<string, number>>;
+/** A count per Renovate update (`updateOf`): the agent rounds it had, or its deferrals in a row. */
+export type Counts = Readonly<Record<string, number>>;
 
 export function statePaths(commonDir: string): StatePaths {
   const dir = join(commonDir, "renovate-agent");
@@ -189,6 +239,7 @@ export function statePaths(commonDir: string): StatePaths {
     day: join(dir, "day"),
     handled: join(dir, "handled.json"),
     rounds: join(dir, "rounds.json"),
+    deferrals: join(dir, "deferrals.json"),
     report: join(dir, "report.jsonl"),
     runLog: join(dir, "run.log"),
     spawnLog: join(dir, "spawn.log"),
@@ -224,12 +275,15 @@ export function combinedVerdict(pullRequest: CiVerdict, push: CiVerdict): CiVerd
 }
 
 /**
- * Who lands `pr`, given its `ci.yml` verdict, the heads already handled and
- * the risky paths. Nobody acts before CI concludes: Renovate would not merge a
- * running branch, and `land.ts` refuses a head with no run.
+ * Who lands `pr`, given the commits of its branch, its `ci.yml` verdict, the
+ * heads already handled and the risky paths. A commit neither Renovate's nor
+ * the agent's is a human's change, which nothing unattended lands. Nobody acts
+ * before CI concludes: Renovate would not merge a running branch, and
+ * `land.ts` refuses a head with no run.
  */
 export function classify(
   pr: RenovatePr,
+  branch: BranchRead,
   verdict: CiVerdict,
   handled: Handled,
   isRisky: RiskyPath,
@@ -238,6 +292,23 @@ export function classify(
 
   if ((handled[String(pr.number)] ?? []).includes(pr.headRefOid)) {
     return { owner: "handled", why: `${sha} was handled by an earlier run; waits for a new head` };
+  }
+
+  if (branch.kind === "unread") return { owner: "wait", why: branch.why };
+
+  const human = branch.commits.find((commit) => writerOf(commit) === "human");
+
+  if (human !== undefined) {
+    return {
+      owner: "human",
+      why: `carries ${shortSha(human.sha)}, a commit neither renovate[bot]'s nor the agent's (no ${AGENT_TRAILER} trailer): nothing unattended lands a change nobody reviewed`,
+    };
+  }
+
+  const update = updateOf(branch.commits);
+
+  if (update === null) {
+    return { owner: "human", why: "carries no commit of renovate[bot]'s on top of dev" };
   }
 
   if (verdict.kind === "running") return { owner: "wait", why: `CI still runs on ${sha}` };
@@ -262,9 +333,9 @@ export function classify(
 
   if (pr.files.some((path) => isE2ePath(path))) reasons.push("e2e");
 
-  if (pr.authors.some((author) => author !== RENOVATE_EMAIL)) reasons.push("repaired");
+  if (branch.commits.some((commit) => writerOf(commit) === "agent")) reasons.push("repaired");
 
-  if (reasons.length > 0) return { owner: "agent", reasons };
+  if (reasons.length > 0) return { owner: "agent", reasons, update };
 
   return {
     owner: "renovate",
@@ -293,7 +364,7 @@ export function outcomeLine(outcome: PrOutcome): string {
     case "stopped":
       return `${head}: the run was stopped by ${outcome.signal} (log: ${outcome.log}${keptNote(outcome.worktree)}); the next daily run takes it again`;
     case "deferred":
-      return `${head}: land.ts deferred it, ${outcome.verdict} (log: ${outcome.log}${keptNote(outcome.worktree)}); the next daily run takes it again`;
+      return `${head}: deferred, ${outcome.verdict} (log: ${outcome.log}${keptNote(outcome.worktree)}); the next daily run takes it again`;
     case "failed":
       return `${head} needs you: ${outcome.reason} (log: ${outcome.log}${keptNote(outcome.worktree)}). ${outcome.pr.url}`;
   }
@@ -319,15 +390,39 @@ export function recordHandled(
   );
 }
 
-/** The rounds of the pull requests still open. */
-export function openRounds(rounds: Rounds, open: readonly number[]): Rounds {
+/** The counts of the updates the open pull requests still carry. */
+export function openCounts(counts: Counts, updates: readonly string[]): Counts {
   return Object.fromEntries(
-    open.flatMap((number) => {
-      const spent = rounds[String(number)];
+    updates.flatMap((update) => {
+      const count = counts[update];
 
-      return spent === undefined ? [] : [[String(number), spent]];
+      return count === undefined ? [] : [[update, count]];
     }),
   );
+}
+
+/** The commits of `log`, as `git log --format=COMMIT_FORMAT` printed them. */
+export function parseCommits(log: string): readonly BranchCommit[] {
+  return log
+    .split(RECORD)
+    .map((record) => record.replace(/^\n/u, ""))
+    .filter((record) => record !== "")
+    .map((record) => {
+      const [sha = "", email = "", date = "", subject = "", agentRun = ""] = record.split(FIELD);
+
+      return { sha, email, identity: `${date} ${subject}`, agentRun: agentRun.trim() };
+    });
+}
+
+const COMMIT_FORMAT = `--format=%H${FIELD}%ae${FIELD}%aI${FIELD}%s${FIELD}%(trailers:key=${AGENT_TRAILER},valueonly,separator=%x2C)${RECORD}`;
+
+/** The commits `range` holds, read with `git log` from `cwd`. */
+function commitsIn(cwd: string, range: string): BranchRead {
+  const log = command(["git", "log", COMMIT_FORMAT, range], cwd);
+
+  if (log.code !== 0) return { kind: "unread", why: `git log ${range}: ${log.err.trim()}` };
+
+  return { kind: "read", commits: parseCommits(log.out) };
 }
 
 /** The line land.ts ends on, `landed …` or `land: …`, wherever git's own lines after it fall. */
@@ -343,12 +438,11 @@ interface ListedPr {
   headRefOid: string;
   labels: { name: string }[];
   files: { path: string }[] | null;
-  commits: { authors: { email: string }[] }[];
 }
 
 /** The open Renovate pull requests against `dev`, read with `gh` from `cwd`. */
 export function parsePrList(listed: string): readonly RenovatePr[] {
-  // SAFETY: the shape `--json number,title,url,headRefName,headRefOid,labels,files,commits` asks gh for.
+  // SAFETY: the shape `--json number,title,url,headRefName,headRefOid,labels,files` asks gh for.
   return (JSON.parse(listed) as ListedPr[]).map((pr) => ({
     number: pr.number,
     title: pr.title,
@@ -357,28 +451,44 @@ export function parsePrList(listed: string): readonly RenovatePr[] {
     headRefOid: pr.headRefOid,
     labels: pr.labels.map((label) => label.name),
     files: (pr.files ?? []).map((file) => file.path),
-    authors: [
-      ...new Set(pr.commits.flatMap((commit) => commit.authors.map((author) => author.email))),
-    ],
   }));
+}
+
+// oxlint-disable-next-line anti-slop/no-unknown-parameters -- a catch clause's value is unknown by the language; this function is where it is narrowed.
+function isTransientError(error: unknown): boolean {
+  return error instanceof TransientError || (error instanceof GhError && error.transient);
+}
+
+/** `command`'s output, or the failure it ended on: transient when its output reads as the network's or GitHub's. */
+function checked(args: readonly string[], cwd: string): string {
+  const result = command(args, cwd);
+
+  if (result.code === 0) return result.out;
+
+  const why = `${args.slice(0, 3).join(" ")} exited ${result.code}: ${`${result.err}${result.out}`.trim()}`;
+
+  throw isTransient(`${result.err}${result.out}`) ? new TransientError(why) : new Error(why);
 }
 
 function listPrs(cwd: string): readonly RenovatePr[] {
   return parsePrList(
-    gh(
+    checked(
+      [
+        "gh",
+        "pr",
+        "list",
+        "--author",
+        RENOVATE_AUTHOR,
+        "--base",
+        DEV,
+        "--state",
+        "open",
+        "--limit",
+        "100",
+        "--json",
+        "number,title,url,headRefName,headRefOid,labels,files",
+      ],
       cwd,
-      "pr",
-      "list",
-      "--author",
-      RENOVATE_AUTHOR,
-      "--base",
-      DEV,
-      "--state",
-      "open",
-      "--limit",
-      "100",
-      "--json",
-      "number,title,url,headRefName,headRefOid,labels,files,commits",
     ),
   );
 }
@@ -388,9 +498,19 @@ function readHandled(file: string): Handled {
   return existsSync(file) ? (JSON.parse(readFileSync(file, "utf8")) as Handled) : {};
 }
 
-function readRounds(file: string): Rounds {
-  // SAFETY: only this run writes the file, whole, from a Rounds.
-  return existsSync(file) ? (JSON.parse(readFileSync(file, "utf8")) as Rounds) : {};
+function readCounts(file: string): Counts {
+  // SAFETY: only this run writes the file, whole, from a Counts.
+  return existsSync(file) ? (JSON.parse(readFileSync(file, "utf8")) as Counts) : {};
+}
+
+/** Sets the count of `update` in `file` to what `next` makes of it; answers the new count. */
+function recount(file: string, update: string, next: (count: number) => number): number {
+  const counts = readCounts(file);
+  const count = next(counts[update] ?? 0);
+
+  writeWhole(file, JSON.stringify({ ...counts, [update]: count }));
+
+  return count;
 }
 
 /**
@@ -414,6 +534,8 @@ interface Progress extends ChildSlot {
 }
 
 interface Run {
+  /** The value of the trailer each of its agent's commits carries. */
+  readonly id: string;
   readonly main: string;
   readonly state: StatePaths;
   readonly progress: Progress;
@@ -488,7 +610,7 @@ async function prepareWorktree(run: Run, pr: RenovatePr, path: string): Promise<
   }
 
   const ref = `refs/remotes/origin/${pr.headRefName}`;
-  git(run.main, "fetch", "--quiet", "origin", `+refs/heads/${pr.headRefName}:${ref}`);
+  checked(["git", "fetch", "--quiet", "origin", `+refs/heads/${pr.headRefName}:${ref}`], run.main);
   const fetched = git(run.main, "rev-parse", ref);
 
   if (fetched !== pr.headRefOid) {
@@ -516,7 +638,7 @@ async function prepareWorktree(run: Run, pr: RenovatePr, path: string): Promise<
   git(run.main, "worktree", "add", "--quiet", "-B", pr.headRefName, path, fetched);
 }
 
-function verifyAgentLeft(worktree: string, branch: string, pushed: string): void {
+function verifyAgentLeft(run: Run, worktree: string, branch: string, pushed: string): void {
   const head = command(["git", "symbolic-ref", "--quiet", "HEAD"], worktree).out.trim();
 
   if (head !== `refs/heads/${branch}`) {
@@ -534,6 +656,18 @@ function verifyAgentLeft(worktree: string, branch: string, pushed: string): void
       `the agent rewrote ${shortSha(pushed)}, the head on origin: the run pushes only a fast-forward`,
     );
   }
+
+  const made = commitsIn(worktree, `${pushed}..HEAD`);
+
+  if (made.kind === "unread") throw new Error(made.why);
+
+  const unmarked = made.commits.filter((commit) => commit.agentRun !== run.id);
+
+  if (unmarked.length > 0) {
+    throw new Error(
+      `the agent committed ${unmarked.map((commit) => shortSha(commit.sha)).join(", ")} without the trailer ${AGENT_TRAILER}: ${run.id}; the run pushes none of its commits`,
+    );
+  }
 }
 
 /** What one pull request's handling has settled so far: the heads the next runs leave alone. */
@@ -541,13 +675,16 @@ interface Settled {
   readonly heads: string[];
 }
 
-/** One agent round on `why`, its commits pushed as a fast-forward under a lease. */
+/**
+ * One agent round on `why`, its commits pushed as a fast-forward under a lease. The round counts against `update`'s
+ * budget once the agent has exited on its own: a stop or a crash spends none.
+ */
 async function agentRound(
   run: Run,
   pr: RenovatePr,
   worktree: string,
   why: string,
-  { log, settled }: { log: number; settled: Settled },
+  { log, settled, update }: { log: number; settled: Settled; update: string },
 ): Promise<void> {
   const prompt = promptFor(
     readFileSync(PROMPT, "utf8"),
@@ -558,6 +695,7 @@ async function agentRound(
       title: pr.title,
       url: pr.url,
       why,
+      trailer: `${AGENT_TRAILER}: ${run.id}`,
     },
     PROMPT,
   );
@@ -578,10 +716,14 @@ async function agentRound(
   checkStop(run.progress);
   const cannot = CANNOT_REPAIR.exec(agent.output)?.[0];
 
-  if (cannot !== undefined) throw new Error(`the agent reports ${cannot}`);
+  if (agent.code !== 0 && cannot === undefined) {
+    throw new Error(`claude -p exited ${agent.code}`);
+  }
 
-  if (agent.code !== 0) throw new Error(`claude -p exited ${agent.code}`);
-  verifyAgentLeft(worktree, pr.headRefName, pushed);
+  recount(run.state.rounds, update, (spent) => spent + 1);
+
+  if (cannot !== undefined) throw new Error(`the agent reports ${cannot}`);
+  verifyAgentLeft(run, worktree, pr.headRefName, pushed);
   const head = git(worktree, "rev-parse", "HEAD");
 
   if (head === pushed) throw new Error("the agent committed nothing");
@@ -600,9 +742,11 @@ async function agentRound(
   );
 
   if (push.code !== 0) {
-    throw new Error(
-      `git push exited ${push.code}: ${lastNonEmptyLine(push.output)}; Renovate may have pushed meanwhile`,
-    );
+    const refused = `git push exited ${push.code}: ${lastNonEmptyLine(push.output)}`;
+
+    if (isTransient(push.output)) throw new TransientError(refused);
+
+    throw new Error(`${refused}; Renovate may have pushed meanwhile`);
   }
 
   settled.heads.push(head);
@@ -619,47 +763,99 @@ function landedOrPushedHead(run: Run, pr: RenovatePr, worktree: string): string 
   return remote === local ? local : null;
 }
 
-/** The pull request's end: landed, or why it was not, with its worktree kept. */
+/** Removes the worktree unless it holds work or cannot be read; answers it when kept. Never throws. */
+function dropWorktree(run: Run, worktree: string, log: number): string | null {
+  if (!existsSync(worktree)) return null;
+
+  try {
+    const held = heldWork(worktree);
+
+    if (held === null) {
+      git(run.main, "worktree", "remove", "--force", worktree);
+
+      return null;
+    }
+
+    writeSync(log, `${worktree} kept: it holds ${held}\n`);
+  } catch (error) {
+    writeSync(log, `${worktree} kept: ${error instanceof Error ? error.message : String(error)}\n`);
+  }
+
+  return worktree;
+}
+
+/** The pull request's end: landed, deferred, or why it was not, with its worktree kept. */
 async function handle(
   run: Run,
   pr: RenovatePr,
-  reasons: readonly AgentReason[],
+  { reasons, update }: { reasons: readonly AgentReason[]; update: string },
 ): Promise<PrOutcome> {
   const worktree = `${run.main}.wt/renovate/${pr.number}`;
   const logFile = prLogPath(run.state, pr.number);
   const log = openSync(logFile, "w");
   const settled: Settled = { heads: [] };
+  const spent = () => readCounts(run.state.rounds)[update] ?? 0;
   let made = false;
+
+  /** Deferred to the next daily run, or the human's once deferred `DEFERRALS` times in a row. */
+  const defer = (why: string): PrOutcome => {
+    let left: string | null = null;
+
+    try {
+      left = existsSync(worktree) ? landedOrPushedHead(run, pr, worktree) : null;
+    } catch (error) {
+      writeSync(log, `${error instanceof Error ? error.message : String(error)}\n`);
+    }
+
+    const kept = dropWorktree(run, worktree, log);
+    const deferrals = recount(run.state.deferrals, update, (count) => count + 1);
+
+    if (deferrals < DEFERRALS)
+      return { kind: "deferred", pr, verdict: why, log: logFile, worktree: kept };
+
+    return {
+      kind: "failed",
+      pr,
+      reason: `deferred ${deferrals} times in a row, the last: ${why}`,
+      log: logFile,
+      worktree: kept,
+      heads: unique([pr.headRefOid, ...settled.heads, ...(left === null ? [] : [left])]),
+    };
+  };
 
   try {
     writeSync(log, `#${pr.number} ${pr.headRefName} at ${pr.headRefOid}: ${reasons.join(", ")}\n`);
+
+    let why: string | null = reasons.includes("red")
+      ? `CI is red on ${pr.headRefOid}: \`gh pr checks ${pr.number}\` names the red jobs.`
+      : null;
+
+    if (why !== null && spent() >= AGENT_ROUNDS) {
+      settled.heads.push(pr.headRefOid);
+      throw new Error(`CI still red after ${AGENT_ROUNDS} agent rounds: ${why}`);
+    }
+
     await prepareWorktree(run, pr, worktree);
     made = true;
 
     for (const install of INSTALLS) {
       const installed = await streamed(install, worktree, log, run.progress);
 
-      if (installed.code !== 0) throw new Error(`${install.join(" ")} exited ${installed.code}`);
+      if (installed.code !== 0) {
+        const failed = `${install.join(" ")} exited ${installed.code}`;
+
+        throw isTransient(installed.output) ? new TransientError(failed) : new Error(failed);
+      }
     }
-
-    let why: string | null = reasons.includes("red")
-      ? `CI is red on ${pr.headRefOid}: \`gh pr checks ${pr.number}\` names the red jobs.`
-      : null;
-
-    const key = String(pr.number);
 
     for (;;) {
       if (why !== null) {
-        const rounds = readRounds(run.state.rounds);
-        const spent = rounds[key] ?? 0;
-
-        if (spent >= AGENT_ROUNDS) {
+        if (spent() >= AGENT_ROUNDS) {
           settled.heads.push(pr.headRefOid);
           throw new Error(`CI still red after ${AGENT_ROUNDS} agent rounds: ${why}`);
         }
 
-        writeWhole(run.state.rounds, JSON.stringify({ ...rounds, [key]: spent + 1 }));
-        await agentRound(run, pr, worktree, why, { log, settled });
+        await agentRound(run, pr, worktree, why, { log, settled, update });
       }
 
       // The run's own land.ts, never the branch's: an old branch carries an old one.
@@ -668,21 +864,9 @@ async function handle(
       checkStop(run.progress);
       const verdict = landVerdict(landing.output);
 
-      if (landing.code === DEFERRED_EXIT) {
-        const held = heldWork(worktree);
+      if (landing.code === DEFERRED_EXIT) return defer(verdict);
 
-        if (held === null) git(run.main, "worktree", "remove", "--force", worktree);
-        else writeSync(log, `${worktree} kept: it holds ${held}\n`);
-
-        return {
-          kind: "deferred",
-          pr,
-          verdict,
-          log: logFile,
-          worktree: held === null ? null : worktree,
-        };
-      }
-
+      recount(run.state.deferrals, update, () => 0);
       settled.heads.push(pr.headRefOid);
       const left = landedOrPushedHead(run, pr, worktree);
 
@@ -707,6 +891,8 @@ async function handle(
     if (run.progress.signal !== null) {
       return { kind: "stopped", pr, signal: run.progress.signal, log: logFile, worktree: kept };
     }
+
+    if (isTransientError(error)) return defer(reason);
 
     return {
       kind: "failed",
@@ -736,25 +922,41 @@ function riskyPaths(cwd: string): RiskyPath {
   return (path) => globs.some((glob) => glob.match(path));
 }
 
-function classifyAll(
-  cwd: string,
-  handled: Handled,
-): Promise<readonly { pr: RenovatePr; classification: Classification }[]> {
+interface Classified {
+  readonly pr: RenovatePr;
+  readonly classification: Classification;
+  /** The Renovate update its branch carries, null when unread or when Renovate wrote none of it. */
+  readonly update: string | null;
+}
+
+/** Each open Renovate pull request's owner, its branch read from `origin/dev..<head>` as the last fetch left it. */
+function classifyAll(cwd: string, handled: Handled): Promise<readonly Classified[]> {
   const prs = listPrs(cwd);
   const isRisky = riskyPaths(cwd);
   const ghHere = (args: readonly string[]) => ghCli(args, cwd);
 
   return Promise.all(
-    prs.map(async (pr) => {
-      const [pullRequest, push] = await Promise.all([
-        ciVerdict(ghHere, { sha: pr.headRefOid, event: "pull_request" }),
-        ciVerdict(ghHere, { sha: pr.headRefOid, event: "push" }),
-      ]);
+    prs.map(async (pr): Promise<Classified> => {
+      const branch = commitsIn(cwd, `origin/${DEV}..${pr.headRefOid}`);
+      const update = branch.kind === "read" ? updateOf(branch.commits) : null;
+      let verdict: CiVerdict;
 
-      return {
-        pr,
-        classification: classify(pr, combinedVerdict(pullRequest, push), handled, isRisky),
-      };
+      try {
+        const [pullRequest, push] = await Promise.all([
+          ciVerdict(ghHere, { sha: pr.headRefOid, event: "pull_request" }),
+          ciVerdict(ghHere, { sha: pr.headRefOid, event: "push" }),
+        ]);
+
+        verdict = combinedVerdict(pullRequest, push);
+      } catch (error) {
+        if (!isTransientError(error)) throw error;
+
+        const why = `gh could not read the CI of ${shortSha(pr.headRefOid)}: ${error instanceof Error ? error.message : String(error)}`;
+
+        return { pr, classification: { owner: "wait", why }, update };
+      }
+
+      return { pr, classification: classify(pr, branch, verdict, handled, isRisky), update };
     }),
   );
 }
@@ -787,7 +989,8 @@ async function runAll(start: string): Promise<void> {
   process.chdir(main);
   const state = statePaths(commonDirOf(main));
   mkdirSync(state.dir, { recursive: true });
-  const lock = takeRunLock(state, { pid: process.pid, startedAt: new Date().toISOString() });
+  const startedAt = new Date().toISOString();
+  const lock = takeRunLock(state, { pid: process.pid, startedAt });
 
   if (lock === null) {
     console.error(`renovate-agent: a live run holds ${state.lock}`);
@@ -796,7 +999,13 @@ async function runAll(start: string): Promise<void> {
   }
 
   const log = openSync(state.runLog, "w");
-  const run: Run = { main, state, progress: { child: null, signal: null } };
+
+  const run: Run = {
+    id: `${startedAt} ${process.pid}`,
+    main,
+    state,
+    progress: { child: null, signal: null },
+  };
 
   const stop = (signal: NodeJS.Signals) => {
     run.progress.signal ??= signal;
@@ -806,17 +1015,23 @@ async function runAll(start: string): Promise<void> {
   for (const signal of STOP_SIGNALS) process.on(signal, stop);
 
   try {
-    git(main, "fetch", "--quiet", "--prune", "origin");
+    checked(["git", "fetch", "--quiet", "--prune", "origin"], main);
     const classified = await classifyAll(main, readHandled(state.handled));
     const open = classified.map(({ pr }) => pr.number);
-    writeWhole(state.rounds, JSON.stringify(openRounds(readRounds(state.rounds), open)));
+    const updates = classified.flatMap(({ update }) => (update === null ? [] : [update]));
+
+    for (const file of [state.rounds, state.deferrals]) {
+      writeWhole(file, JSON.stringify(openCounts(readCounts(file), updates)));
+    }
 
     for (const { pr, classification } of classified) {
       writeSync(log, `${classificationLine(pr, classification)}\n`);
     }
 
     const owned = classified.flatMap(({ pr, classification }) =>
-      classification.owner === "agent" ? [{ pr, reasons: classification.reasons }] : [],
+      classification.owner === "agent"
+        ? [{ pr, reasons: classification.reasons, update: classification.update }]
+        : [],
     );
 
     const end = (outcome: PrOutcome) => {
@@ -841,23 +1056,26 @@ async function runAll(start: string): Promise<void> {
 
     if (owned.length > 0) probeSigning(main);
 
-    for (const { pr, reasons } of owned) {
-      const outcome = await handle(run, pr, reasons);
+    for (const { pr, reasons, update } of owned) {
+      const outcome = await handle(run, pr, { reasons, update });
       end(outcome);
 
       if (outcome.kind === "stopped") break;
     }
   } catch (error) {
     const reason = error instanceof Error ? error.message : String(error);
+    const stopped = run.progress.signal !== null;
+    const transient = !stopped && isTransientError(error);
 
-    const line =
-      run.progress.signal === null
-        ? `Renovate agent: the run failed: ${reason} (log: ${state.runLog})`
-        : `Renovate agent: the run was stopped by ${run.progress.signal} (log: ${state.runLog}); the next daily run starts again`;
+    const line = stopped
+      ? `Renovate agent: the run was stopped by ${run.progress.signal} (log: ${state.runLog}); the next daily run starts again`
+      : transient
+        ? `Renovate agent: the run could not reach origin or GitHub: ${reason} (log: ${state.runLog}); the next daily run starts again`
+        : `Renovate agent: the run failed: ${reason} (log: ${state.runLog})`;
 
     writeSync(log, `${line}\n`);
     report(state.report, line);
-    notify(NOTICE, line, run.progress.signal === null, log);
+    notify(NOTICE, line, !stopped && !transient, log);
   } finally {
     closeSync(log);
     closeSync(lock);

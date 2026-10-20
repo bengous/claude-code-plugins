@@ -479,6 +479,11 @@ function breakOrigin() {
   git(work, "remote", "set-url", "origin", join(root, "gone.git"));
 }
 
+/** Points origin at a port nothing listens on: git fails as it does when the network is down. */
+function unreachOrigin() {
+  git(work, "remote", "set-url", "origin", "http://127.0.0.1:9/origin.git");
+}
+
 function moveDevAtEachPush() {
   const hook = join(work, ".git", "hooks", "pre-push");
 
@@ -503,30 +508,66 @@ function deferredWhy(landed: Landing): string {
 }
 
 describe("land, deferred: nothing is left for a human to fix", () => {
-  test("defers when the fetch before the wait fails, and leaves dev unmoved", async () => {
+  test("defers when the fetch before the wait cannot reach origin, and leaves dev unmoved", async () => {
     const before = git(origin, "rev-parse", "dev");
 
     serve();
-    breakOrigin();
+    unreachOrigin();
 
     expect(deferredWhy(await landing())).toContain("git fetch:");
     expect(git(origin, "rev-parse", "dev")).toBe(before);
   });
 
-  test("defers when the fetch after the wait fails", async () => {
+  test("defers when the fetch after the wait cannot reach origin", async () => {
     let once = false;
 
     serve({ pushRun: { validate: "success", e2e: "skipped", polls: 1 } });
 
     const landed = await landing("feature/x", {
       during: () => {
-        if (!once) breakOrigin();
+        if (!once) unreachOrigin();
 
         once = true;
       },
     });
 
     expect(deferredWhy(landed)).toContain("git fetch:");
+  });
+
+  test("refuses a fetch that fails on the request, a remote that is no repository", async () => {
+    serve();
+    breakOrigin();
+
+    expect(why(await landing())).toContain("does not appear to be a git repository");
+  });
+
+  test("refuses a head someone else pushed while it waited, though origin held its own before", async () => {
+    let foreign = "";
+
+    serve({ pushRun: { validate: "success", e2e: "skipped", polls: 1 } });
+
+    const landed = await landing("feature/x", {
+      during: () => {
+        if (foreign !== "") return;
+
+        git(other, "fetch", "--quiet", "origin");
+        git(other, "switch", "--quiet", "feature/x");
+        foreign = commit(other, "d.txt", "pushed while land waited");
+        git(other, "push", "--quiet", "origin", "feature/x");
+      },
+    });
+
+    expect(why(landed)).toContain("push it, then land again");
+  });
+
+  test.each([
+    ["the label it adds", "pr edit feature/x --add-label"],
+    ["the re-run it starts", "run rerun"],
+  ])("makes %s again while gh cannot reach GitHub, then lands", async (_, prefix) => {
+    touchE2e();
+    serve({ labelRun: RED_E2E, outages: [{ prefix, left: 2 }] });
+
+    expect((await landing()).kind).toBe("landed");
   });
 
   test("reads again a gh that cannot reach GitHub, then lands", async () => {
@@ -585,7 +626,7 @@ describe("land, deferred: nothing is left for a human to fix", () => {
 
   test("exits 3 on a deferred landing, its verdict line the land: one", () => {
     serve();
-    breakOrigin();
+    unreachOrigin();
     setEnv("LAND_DEV_COPY", "1");
 
     const cli = Bun.spawnSync([process.execPath, join(import.meta.dir, "land.ts"), "feature/x"], {
@@ -599,8 +640,11 @@ describe("land, deferred: nothing is left for a human to fix", () => {
     expect(cli.exitCode).toBe(3);
   });
 
-  test("exits 3 when the fetch for origin/dev's copy fails", () => {
-    breakOrigin();
+  test.each([
+    ["exits 3 when the fetch for origin/dev's copy cannot reach origin", unreachOrigin, 3],
+    ["exits 1 when the fetch for origin/dev's copy fails on the request", breakOrigin, 1],
+  ])("%s", (_, point, code) => {
+    point();
     setEnv("LAND_DEV_COPY", undefined);
 
     const cli = Bun.spawnSync([process.execPath, join(import.meta.dir, "land.ts"), "feature/x"], {
@@ -613,7 +657,7 @@ describe("land, deferred: nothing is left for a human to fix", () => {
     expect(cli.stderr.toString()).toStartWith(
       "land: origin/dev's copy of land.ts did not run: git fetch:",
     );
-    expect(cli.exitCode).toBe(3);
+    expect(cli.exitCode).toBe(code);
   });
 });
 
@@ -813,6 +857,26 @@ describe("land, the remote branch once landed", () => {
 
     await landedKeeping("the delete was refused:");
     expect(remoteBranch()).not.toBe("");
+  });
+
+  test("keeps it within a minute while gh cannot reach GitHub to read the pull request's state", async () => {
+    serve({ outages: [{ prefix: "pr view 7 --json state", left: 1_000_000 }] });
+
+    await landedKeeping("error connecting to api.github.com");
+    expect(stateReads()).toBeLessThanOrEqual(5);
+  });
+
+  test("lists the pull requests based on it again while gh cannot reach GitHub, then deletes it", async () => {
+    serve({ outages: [{ prefix: "pr list --base", left: 2 }] });
+
+    const landed = await landing();
+
+    expect(landed).toEqual({
+      kind: "landed",
+      dev: branchHead(),
+      pr: 7,
+      remote: { kind: "deleted" },
+    });
   });
 
   test("keeps it, the landing landed, when gh fails once dev took the branch", async () => {

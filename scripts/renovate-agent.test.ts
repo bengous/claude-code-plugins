@@ -9,12 +9,17 @@ import { write } from "./claude-code-types.fixture.ts";
 import { riskyOf } from "./land.ts";
 import {
   AGENT_ROUNDS,
+  AGENT_TRAILER,
+  type BranchCommit,
+  type BranchRead,
   classify,
   combinedVerdict,
+  DEFERRALS,
   landVerdict,
   MAJOR_LABEL,
-  openRounds,
+  openCounts,
   outcomeLine,
+  parseCommits,
   parsePrList,
   prLogPath,
   recordHandled,
@@ -23,6 +28,7 @@ import {
   reportLines,
   type RiskyPath,
   statePaths,
+  updateOf,
 } from "./renovate-agent.ts";
 
 const SCRIPT = join(import.meta.dir, "renovate-agent.ts");
@@ -43,9 +49,19 @@ const pr = (overrides: Partial<RenovatePr> = {}): RenovatePr => ({
   headRefOid: SHA,
   labels: [],
   files: ["package.json", "bun.lock"],
-  authors: [RENOVATE_EMAIL],
   ...overrides,
 });
+
+const RENOVATE_COMMIT: BranchCommit = {
+  sha: "c".repeat(40),
+  email: RENOVATE_EMAIL,
+  identity: "2026-10-20T11:06:14Z chore(deps): update dependency x to v1.2.3",
+  agentRun: "",
+};
+
+const RENOVATE_ONLY: BranchRead = { kind: "read", commits: [RENOVATE_COMMIT] };
+
+const UPDATE = RENOVATE_COMMIT.identity;
 
 const run = { id: 1, status: "completed", url: "https://ci/1" } as const;
 
@@ -58,59 +74,118 @@ const RUNNING: CiVerdict = {
   running: [{ ...run, id: 3, status: "in_progress", conclusion: null }],
 };
 
+const owner = (
+  verdict: CiVerdict,
+  {
+    change = {},
+    branch = RENOVATE_ONLY,
+  }: { change?: Partial<RenovatePr>; branch?: BranchRead } = {},
+) => classify(pr(change), branch, verdict, {}, NOTHING_RISKY);
+
 describe("classify", () => {
   test("leaves a green non-major update off the e2e and risky paths to Renovate", () => {
-    expect(classify(pr(), GREEN, {}, NOTHING_RISKY).owner).toBe("renovate");
+    expect(owner(GREEN).owner).toBe("renovate");
   });
 
-  test("owns a red update", () => {
-    expect(classify(pr(), RED, {}, NOTHING_RISKY)).toEqual({ owner: "agent", reasons: ["red"] });
+  test("owns a red update, naming the Renovate update it carries", () => {
+    expect(owner(RED)).toEqual({ owner: "agent", reasons: ["red"], update: UPDATE });
   });
 
   test("owns a major, read from Renovate's label", () => {
-    expect(classify(pr({ labels: [MAJOR_LABEL] }), GREEN, {}, NOTHING_RISKY)).toEqual({
+    expect(owner(GREEN, { change: { labels: [MAJOR_LABEL] } })).toEqual({
       owner: "agent",
       reasons: ["major"],
+      update: UPDATE,
     });
   });
 
   test("owns an update whose files touch the e2e paths, with every reason that holds", () => {
     expect(
-      classify(
-        pr({ files: ["vellum/package.json"], labels: [MAJOR_LABEL] }),
-        RED,
-        {},
-        NOTHING_RISKY,
-      ),
-    ).toEqual({ owner: "agent", reasons: ["red", "major", "e2e"] });
+      owner(RED, { change: { files: ["vellum/package.json"], labels: [MAJOR_LABEL] } }),
+    ).toEqual({ owner: "agent", reasons: ["red", "major", "e2e"], update: UPDATE });
   });
 
   test("gives an update touching a risky path to the human, red or green", () => {
     for (const verdict of [GREEN, RED]) {
-      expect(classify(pr({ files: [".github/workflows/ci.yml"] }), verdict, {}, isRisky)).toEqual({
+      expect(
+        classify(pr({ files: [".github/workflows/ci.yml"] }), RENOVATE_ONLY, verdict, {}, isRisky),
+      ).toEqual({
         owner: "human",
         why: "touches risky paths (.github/workflows/ci.yml): land.ts lands it only with a human review verdict",
       });
     }
   });
 
-  test("waits while CI runs or has not started, whoever owns the update", () => {
-    expect(classify(pr({ labels: [MAJOR_LABEL] }), RUNNING, {}, NOTHING_RISKY).owner).toBe("wait");
-    expect(classify(pr(), { kind: "none" }, {}, NOTHING_RISKY).owner).toBe("wait");
-  });
-
-  test("owns a green update carrying a commit not Renovate's, the agent's repair", () => {
-    expect(
-      classify(pr({ authors: [RENOVATE_EMAIL, "me@example.com"] }), GREEN, {}, NOTHING_RISKY),
-    ).toEqual({
-      owner: "agent",
-      reasons: ["repaired"],
+  test("waits while CI runs or has not started, or while the branch does not read", () => {
+    expect(owner(RUNNING, { change: { labels: [MAJOR_LABEL] } }).owner).toBe("wait");
+    expect(owner({ kind: "none" }).owner).toBe("wait");
+    expect(owner(RED, { branch: { kind: "unread", why: "not fetched" } })).toEqual({
+      owner: "wait",
+      why: "not fetched",
     });
   });
 
+  test("owns a green update carrying the agent's repair, its trailer's commit", () => {
+    const repair = {
+      ...RENOVATE_COMMIT,
+      sha: "d".repeat(40),
+      email: "me@example.com",
+      agentRun: "r1",
+    };
+
+    expect(owner(GREEN, { branch: { kind: "read", commits: [repair, RENOVATE_COMMIT] } })).toEqual({
+      owner: "agent",
+      reasons: ["repaired"],
+      update: UPDATE,
+    });
+  });
+
+  test("gives the human an update carrying a commit neither Renovate's nor the agent's", () => {
+    const human = { ...RENOVATE_COMMIT, sha: "e".repeat(40), email: "me@example.com" };
+
+    for (const verdict of [GREEN, RED]) {
+      expect(
+        owner(verdict, { branch: { kind: "read", commits: [human, RENOVATE_COMMIT] } }),
+      ).toEqual({
+        owner: "human",
+        why: `carries eeeeeeee, a commit neither renovate[bot]'s nor the agent's (no ${AGENT_TRAILER} trailer): nothing unattended lands a change nobody reviewed`,
+      });
+    }
+  });
+
   test("leaves a head an earlier run handled, until Renovate pushes another", () => {
-    expect(classify(pr(), RED, { "7": [SHA] }, NOTHING_RISKY).owner).toBe("handled");
-    expect(classify(pr(), RED, { "7": ["b".repeat(40)] }, NOTHING_RISKY).owner).toBe("agent");
+    expect(classify(pr(), RENOVATE_ONLY, RED, { "7": [SHA] }, NOTHING_RISKY).owner).toBe("handled");
+    expect(classify(pr(), RENOVATE_ONLY, RED, { "7": ["b".repeat(40)] }, NOTHING_RISKY).owner).toBe(
+      "agent",
+    );
+  });
+});
+
+describe("updateOf", () => {
+  test("is Renovate's newest commit by author date and subject, whatever the agent added on top", () => {
+    const repair = { ...RENOVATE_COMMIT, email: "me@example.com", agentRun: "r1", identity: "x" };
+
+    expect(updateOf([repair, RENOVATE_COMMIT])).toBe(UPDATE);
+    expect(updateOf([repair])).toBeNull();
+  });
+});
+
+describe("parseCommits", () => {
+  test("reads each record git log printed, its trailer's value trimmed", () => {
+    const log = [
+      `${"d".repeat(40)}\u001Fme@example.com\u001F2026-10-20T12:00:00Z\u001Ffix: adopt\u001Fr1\n\u001E`,
+      `\n${"c".repeat(40)}\u001F${RENOVATE_EMAIL}\u001F2026-10-20T11:06:14Z\u001Fchore(deps): update dependency x to v1.2.3\u001F\u001E\n`,
+    ].join("");
+
+    expect(parseCommits(log)).toEqual([
+      {
+        sha: "d".repeat(40),
+        email: "me@example.com",
+        identity: "2026-10-20T12:00:00Z fix: adopt",
+        agentRun: "r1",
+      },
+      RENOVATE_COMMIT,
+    ]);
   });
 });
 
@@ -145,7 +220,7 @@ describe("recordHandled", () => {
 });
 
 describe("parsePrList", () => {
-  test("reads gh's listing, labels and files by name, commits by their authors' emails", () => {
+  test("reads gh's listing, labels and files by name", () => {
     const listed = JSON.stringify([
       {
         number: 7,
@@ -155,10 +230,6 @@ describe("parsePrList", () => {
         headRefOid: SHA,
         labels: [{ name: "major" }],
         files: [{ path: "package.json" }],
-        commits: [
-          { authors: [{ email: RENOVATE_EMAIL, login: "renovate[bot]" }] },
-          { authors: [{ email: RENOVATE_EMAIL }, { email: "me@example.com" }] },
-        ],
       },
     ]);
 
@@ -171,7 +242,6 @@ describe("parsePrList", () => {
         headRefOid: SHA,
         labels: ["major"],
         files: ["package.json"],
-        authors: [RENOVATE_EMAIL, "me@example.com"],
       },
     ]);
   });
@@ -190,9 +260,9 @@ describe("landVerdict", () => {
   });
 });
 
-describe("openRounds", () => {
-  test("forgets the rounds of the pull requests no longer open", () => {
-    expect(openRounds({ "1": 2, "2": 1 }, [2, 3])).toEqual({ "2": 1 });
+describe("openCounts", () => {
+  test("forgets the counts of the updates no open pull request carries", () => {
+    expect(openCounts({ old: 2, live: 1 }, ["live", "new"])).toEqual({ live: 1 });
   });
 });
 
@@ -279,6 +349,7 @@ set -euo pipefail
 stub="$(dirname "$0")/../stub"
 echo "$*" >>"$stub/gh-calls"
 if [[ "$1 $2" == "pr list" ]]; then cat "$stub/prs.json"; exit 0; fi
+if [[ "$1" == api && -f $stub/ci-unreachable ]]; then echo "error connecting to api.github.com" >&2; exit 1; fi
 if [[ "$1" == api && "$*" =~ head_sha=([0-9a-f]+)\\&event=([a-z_]+) ]]; then
   runs="$stub/runs-\${BASH_REMATCH[1]}-\${BASH_REMATCH[2]}"
   if [[ -f $runs ]]; then cat "$runs"; fi
@@ -286,15 +357,22 @@ if [[ "$1" == api && "$*" =~ head_sha=([0-9a-f]+)\\&event=([a-z_]+) ]]; then
 fi
 `;
 
-// The agent: records its prompt, then makes the move stub/agent-mode names.
+// The agent: records its prompt, then makes the move stub/agent-mode names, its commits carrying
+// the trailer the prompt asks for, but for notrailer's.
 const CLAUDE_STUB = `#!/usr/bin/env bash
 set -euo pipefail
 stub="$(dirname "$0")/../stub"
 printf '%s' "\${!#}" >"$stub/agent-prompt"
 echo "$PWD \${CLAUDE_CODE_TYPES_RUN:-unset}" >>"$stub/agent-runs"
+trailer="$(grep -o '${AGENT_TRAILER}: [^\`"]*' "$stub/agent-prompt" | head -n1 || true)"
 case "$(cat "$stub/agent-mode")" in
   commit)
     echo "fix $(wc -l <"$stub/agent-runs")" >>fix.txt
+    git add fix.txt
+    git commit -qm "fix: adopt the update" \${trailer:+--trailer "$trailer"}
+    ;;
+  notrailer)
+    echo "fix" >>fix.txt
     git add fix.txt
     git commit -qm "fix: adopt the update"
     ;;
@@ -304,26 +382,31 @@ case "$(cat "$stub/agent-mode")" in
 esac
 `;
 
-// Stands in for the installs and for land.ts, whose verdicts stub/land-exits gives one per call:
-// 0 lands, red, review and multiline refuse, deferred defers, foreign first pushes a commit of
-// someone else's to the branch, and a rebased- prefix first pushes a commit of Renovate's
-// authorship, as land.ts's rebase does.
+// Stands in for the installs, which fail as stub/install-fails says (network: on the network), and
+// for land.ts, whose verdicts stub/land-exits gives one per call: 0 lands, red, review and
+// multiline refuse, deferred defers, broken defers after breaking the worktree, foreign first
+// pushes a commit of someone else's to the branch, and a rebased- prefix first rebases every commit
+// of the branch on dev and pushes them, as land.ts's rebase does.
 const BUN_STUB = `#!/usr/bin/env bash
 stub="$(dirname "$0")/../stub"
 echo "$PWD $*" >>"$stub/bun-calls"
-if [[ "$1" == install && -f $stub/install-fails ]]; then exit 1; fi
+if [[ "$1" == install && -f $stub/install-fails ]]; then
+  if [[ "$(cat "$stub/install-fails")" == network ]]; then echo "error: ConnectionRefused downloading package manifest x" >&2; fi
+  exit 1
+fi
 if [[ "$1" == */scripts/land.ts ]]; then
   exits="$stub/land-exits"
   verdict="$(head -n1 "$exits")"
   sed -i 1d "$exits"
   if [[ "$verdict" == rebased-* ]]; then
-    git -c "user.name=renovate[bot]" -c "user.email=${RENOVATE_EMAIL}" commit -q --allow-empty -m "rebased by land.ts"
-    git push -q origin "HEAD:refs/heads/$2"
+    git rebase -q --force-rebase origin/dev
+    git push -qf origin "HEAD:refs/heads/$2"
     verdict="\${verdict#rebased-}"
   fi
   case "$verdict" in
     0) echo "landed $2 on dev at abc (#7)"; exit 0 ;;
     deferred) echo "land: origin/dev moved during each of 3 attempts: land again" >&2; exit 3 ;;
+    broken) rm -f .git; echo "land: git fetch: Could not resolve host: github.com" >&2; exit 3 ;;
     multiline) printf 'land: the push of %s was refused; it is back at abc:\\nerror: failed to push some refs\\n' "$2" >&2 ;;
     red) echo "land: CI is red on abc, the head of #7: https://ci/9. Fix it and push" >&2 ;;
     review) echo "land: $2 touches risky paths (.github/workflows/ci.yml); #7 carries no clean review verdict" >&2 ;;
@@ -339,6 +422,17 @@ fi
 
 const NOTIFY_STUB = `#!/usr/bin/env bash
 echo "$*" >>"$(dirname "$0")/../stub/notify-calls"
+`;
+
+// Git itself, but for the fetch of one branch's head while stub/fetch-unreachable exists, which
+// fails as git does when the network is down.
+const GIT_STUB = `#!/usr/bin/env bash
+stub="$(dirname "$0")/../stub"
+if [[ -f $stub/fetch-unreachable && "$*" == *"fetch --quiet origin +refs/heads/"* ]]; then
+  echo "fatal: unable to access 'https://github.com/o/r.git/': Could not resolve host: github.com" >&2
+  exit 128
+fi
+exec ${Bun.which("git") ?? "/usr/bin/git"} "$@"
 `;
 
 let root = "";
@@ -390,10 +484,6 @@ function runScript(...args: string[]) {
 function listPr(conclusion: string, overrides: Partial<RenovatePr> = {}) {
   const head = originHead();
 
-  const authors = git(origin, "log", "--format=%ae", "dev..refs/heads/renovate/x-1.x")
-    .split("\n")
-    .filter(Boolean);
-
   write(
     stub("prs.json"),
     JSON.stringify([
@@ -405,7 +495,6 @@ function listPr(conclusion: string, overrides: Partial<RenovatePr> = {}) {
         headRefOid: head,
         labels: (overrides.labels ?? []).map((name) => ({ name })),
         files: (overrides.files ?? ["package.json"]).map((path) => ({ path })),
-        commits: authors.map((email) => ({ authors: [{ email }] })),
       },
     ]),
   );
@@ -454,6 +543,7 @@ beforeEach(() => {
     ["claude", CLAUDE_STUB],
     ["bun", BUN_STUB],
     ["notify-send", NOTIFY_STUB],
+    ["git", GIT_STUB],
   ] as const) {
     write(join(root, "bin", name), content);
     chmodSync(join(root, "bin", name), 0o755);
@@ -580,7 +670,7 @@ describe("renovate-agent run", () => {
     expect(runScript().code).toBe(0);
     expect(handled()).toEqual({});
     expect(report()).toEqual([
-      `Renovate #7 (chore(deps): update dependency x to v1.2.3): land.ts deferred it, land: origin/dev moved during each of 3 attempts: land again (log: ${prLogPath(state(), 7)}); the next daily run takes it again`,
+      `Renovate #7 (chore(deps): update dependency x to v1.2.3): deferred, land: origin/dev moved during each of 3 attempts: land again (log: ${prLogPath(state(), 7)}); the next daily run takes it again`,
     ]);
     expect(existsSync(worktree())).toBe(false);
     expect(recorded("notify-calls")).toContain("-u normal");
@@ -631,7 +721,7 @@ describe("renovate-agent run", () => {
     expect(report()[1]).toContain(`needs you: CI still red after ${AGENT_ROUNDS} agent rounds`);
   });
 
-  test("hands a red pull request whose rounds are spent to the human, settling its head", () => {
+  test("hands a red update whose rounds are spent to the human before any worktree or install", () => {
     listPr("failure");
     write(stub("land-exits"), "deferred\ndeferred\n");
 
@@ -641,11 +731,173 @@ describe("renovate-agent run", () => {
 
     const repaired = listPr("failure");
 
+    rmSync(stub("bun-calls"));
     runScript();
 
     expect(agentRuns()).toBe(AGENT_ROUNDS);
     expect(report()[2]).toContain(`needs you: CI still red after ${AGENT_ROUNDS} agent rounds`);
+    expect(recorded("bun-calls")).toBe("");
     expect(handled()).toEqual({ "7": [repaired] });
+  });
+
+  test("counts the rounds per Renovate update: Renovate's next one starts with none spent", () => {
+    listPr("failure");
+    write(stub("land-exits"), "red\nred\n");
+
+    runScript();
+    git(project, "worktree", "remove", "--force", worktree());
+    renovateRecreates();
+    listPr("failure");
+    write(stub("land-exits"), "red\nred\n");
+    runScript();
+
+    expect(agentRuns()).toBe(2 * AGENT_ROUNDS);
+  });
+
+  test("keeps an update's rounds through land.ts's rebase of its branch", () => {
+    listPr("failure");
+    write(stub("land-exits"), "rebased-deferred\nred\nred\n");
+
+    runScript();
+    listPr("failure");
+    runScript();
+
+    expect(agentRuns()).toBe(AGENT_ROUNDS);
+  });
+
+  test("spends no round on an agent the run's stop ended", async () => {
+    listPr("failure");
+    write(stub("agent-mode"), "hold");
+
+    const proc = Bun.spawn([process.execPath, SCRIPT, "run"], {
+      cwd: project,
+      env,
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+
+    for (let tries = 0; tries < 100 && agentRuns() === 0; tries++) await Bun.sleep(100);
+    proc.kill("SIGTERM");
+    await proc.exited;
+
+    write(stub("agent-mode"), "commit");
+    write(stub("land-exits"), "red\nred\nred\n");
+    runScript();
+
+    expect(agentRuns()).toBe(1 + AGENT_ROUNDS);
+  });
+
+  test("gives the human an update deferred three times in a row, critically, its head settled", () => {
+    const head = listPr("success", { labels: ["major"] });
+    write(stub("land-exits"), "deferred\ndeferred\ndeferred\n");
+
+    for (let deferral = 1; deferral <= DEFERRALS; deferral++) runScript();
+
+    expect(report()).toHaveLength(DEFERRALS);
+    expect(report()[DEFERRALS - 1]).toContain(
+      `needs you: deferred ${DEFERRALS} times in a row, the last: land: origin/dev moved`,
+    );
+    expect(recorded("notify-calls").trim().split("\n").at(-1)).toContain("-u critical");
+    expect(handled()).toEqual({ "7": [head] });
+  });
+
+  test("pushes none of an agent's commits that lack its trailer, and hands the update to the human", () => {
+    const head = listPr("failure");
+    write(stub("agent-mode"), "notrailer");
+
+    runScript();
+
+    expect(originHead()).toBe(head);
+    expect(report()[0]).toContain(`without the trailer ${AGENT_TRAILER}: `);
+    expect(recorded("bun-calls")).not.toContain("land.ts");
+  });
+
+  test("gives the human a branch carrying a commit neither Renovate's nor the agent's, never landing it", () => {
+    const clone = join(root, "human-clone");
+    git(root, "clone", "-q", "-b", "renovate/x-1.x", origin, clone);
+    write(join(clone, "notes.txt"), "a human's change\n");
+    git(clone, "add", "notes.txt");
+    git(clone, "commit", "-qm", "docs: a human's change");
+    git(clone, "push", "-q", "origin", "renovate/x-1.x");
+    const head = listPr("success", { labels: ["major"] });
+
+    runScript();
+
+    expect(report()[0]).toContain("a commit neither renovate[bot]'s nor the agent's");
+    expect(recorded("bun-calls")).toBe("");
+    expect(handled()).toEqual({ "7": [head] });
+  });
+
+  test("lists the pull requests without gh's commits field, which GitHub refuses past 500,000 nodes", () => {
+    listPr("success");
+
+    runScript();
+
+    const list = recorded("gh-calls")
+      .split("\n")
+      .find((call) => call.startsWith("pr list"));
+
+    expect(list).toContain("--json number,title,url,headRefName,headRefOid,labels,files");
+    expect(list).not.toContain("commits");
+  });
+
+  test("ends the run with a normal notice when its fetch cannot reach origin", () => {
+    listPr("failure");
+    git(project, "remote", "set-url", "origin", "http://127.0.0.1:9/origin.git");
+
+    runScript();
+
+    expect(report()[0]).toContain("the run could not reach origin or GitHub");
+    expect(recorded("notify-calls")).not.toContain("-u critical");
+  });
+
+  test("fails the run critically when its fetch fails on the request", () => {
+    listPr("failure");
+    git(project, "remote", "set-url", "origin", join(root, "gone.git"));
+
+    runScript();
+
+    expect(report()[0]).toContain("Renovate agent: the run failed");
+    expect(recorded("notify-calls")).toContain("-u critical");
+  });
+
+  test("lets a pull request whose CI gh cannot reach wait, the run going on", () => {
+    listPr("failure");
+    write(stub("ci-unreachable"), "");
+
+    expect(runScript("--dry-run").stdout).toContain(
+      "#7 renovate/x-1.x: wait, gh could not read the CI of",
+    );
+
+    runScript();
+
+    expect(report()).toEqual([]);
+    expect(recorded("notify-calls")).toBe("");
+  });
+
+  test.each([
+    ["the fetch of its head cannot reach origin", "fetch-unreachable", ""],
+    ["an install cannot reach the registry", "install-fails", "network"],
+  ])("defers an update when %s", (_, file, content) => {
+    listPr("failure");
+    write(stub(file), content);
+
+    runScript();
+
+    expect(report()[0]).toContain("deferred,");
+    expect(recorded("notify-calls")).not.toContain("-u critical");
+    expect(handled()).toEqual({});
+  });
+
+  test("keeps a deferral a deferral when the worktree it would remove does not read", () => {
+    listPr("success", { labels: ["major"] });
+    write(stub("land-exits"), "broken\n");
+
+    runScript();
+
+    expect(report()[0]).toContain("deferred, land: git fetch: Could not resolve host");
+    expect(recorded("notify-calls")).not.toContain("-u critical");
+    expect(handled()).toEqual({});
   });
 
   test("reports land.ts's verdict line, not git's lines printed after it", () => {

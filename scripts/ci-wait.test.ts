@@ -10,7 +10,6 @@ import {
   REGISTRATION_MS,
   type RunConclusion,
   type RunStatus,
-  transientGh,
   waitFor,
 } from "./ci-wait.ts";
 
@@ -346,21 +345,5 @@ describe("waitFor", () => {
       ),
     ).rejects.toBe(notFound);
     expect(sleeps).toEqual([]);
-  });
-});
-
-describe("transientGh", () => {
-  test("reads gh's network failures as transient, its request failures as not", () => {
-    expect(transientGh("error connecting to api.github.com\ncheck your internet connection")).toBe(
-      true,
-    );
-    expect(
-      transientGh(
-        'Get "https://api.github.com/rate_limit": proxyconnect tcp: dial tcp 127.0.0.1:9: connect: connection refused',
-      ),
-    ).toBe(true);
-    expect(transientGh("gh: Server Error (HTTP 502)")).toBe(true);
-    expect(transientGh("gh: No commit found for SHA: 0000 (HTTP 422)")).toBe(false);
-    expect(transientGh('no pull requests found for branch "no-such-branch-xyz"')).toBe(false);
   });
 });

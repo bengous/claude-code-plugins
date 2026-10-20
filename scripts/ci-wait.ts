@@ -11,6 +11,8 @@
  * `check-e2e-green.ts`, the pre-push hook's own predicate.
  */
 
+import { isTransient } from "./lib/transient.ts";
+
 const WORKFLOW = "ci.yml";
 
 const FULL_SHA = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/u;
@@ -41,14 +43,6 @@ const RUN_CONCLUSIONS = [
 /** A push registers its run within seconds. */
 export const REGISTRATION_MS = 60_000;
 
-/**
- * What gh prints when the network or GitHub failed rather than the request: "error connecting to <host>" and
- * "dial tcp …: connect: connection refused" measured with gh 2.102.0 on 2026-10-20, the others Go's and GitHub's
- * wording, not measured.
- */
-const TRANSIENT_GH =
-  /error connecting to|connection (?:refused|reset)|no such host|i\/o timeout|TLS handshake timeout|unexpected EOF|HTTP 5\d\d|HTTP 429|rate limit/iu;
-
 /** A gh call that failed or printed what does not read; `transient` when the same call may pass later. */
 export class GhError extends Error {
   readonly transient: boolean;
@@ -58,11 +52,6 @@ export class GhError extends Error {
     this.name = "GhError";
     this.transient = transient;
   }
-}
-
-/** Whether what a failed gh call printed names the network or GitHub, not the request. */
-export function transientGh(stderr: string): boolean {
-  return TRANSIENT_GH.test(stderr);
 }
 
 export type Gh = (args: readonly string[]) => Promise<string>;
@@ -272,7 +261,7 @@ export async function ghCli(args: readonly string[], cwd = process.cwd()): Promi
   if (code !== 0) {
     throw new GhError(
       `gh ${args.slice(0, 3).join(" ")} exited ${code}: ${stderr.trim()}`,
-      transientGh(stderr),
+      isTransient(stderr),
     );
   }
 

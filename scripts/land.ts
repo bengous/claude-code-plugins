@@ -15,7 +15,9 @@
  * Refused before any push: a branch outside `feature/`, `fix/`, `renovate/`
  * and `chore/claude-code-types`, no checkout holding it, tracked changes
  * there, a pull request not open against `dev`, or whose head is not the
- * local head within a minute. Then it waits, an hour at most in all, until
+ * local head within a minute while origin holds another (deferred when
+ * origin holds the local head and GitHub has not shown it yet). Then it
+ * waits, an hour at most in all, until
  * every `ci.yml` run of that head is green (`scripts/ci-wait.ts`), a run red
  * in its e2e jobs alone re-run once. A branch touching the e2e paths whose
  * head holds `origin/dev` and has no green `e2e` check run, the pre-push
@@ -38,13 +40,15 @@
  * reads its pull request merged within a minute and no open pull request is
  * based on it; its local branch and checkout stay, and a remote branch kept
  * is named, with why, on the verdict line of a landing that still succeeded.
- * A `gh` read that fails on the network or on GitHub (`transientGh`) is read
- * again until the hour runs out. What leaves nothing for a human to fix is
- * deferred, the same `land: <why>` line with exit code 3 instead of 1: a
- * failed fetch, a `gh` call still failing that way, no `ci.yml` run or no
- * run of the `e2e` label within a minute, a pull request that does not show
- * within a minute a head origin holds, and a `dev` that moved during each
- * attempt.
+ * A `gh` call that fails on the network or on GitHub (`isTransient` in
+ * `lib/transient.ts`), read or write, is made again at each poll: until the
+ * hour runs out, or for a minute within a one-minute poll and around the
+ * branch's delete. Any other failure is a refusal. What leaves nothing for a
+ * human to fix is deferred, the same `land: <why>` line with exit code 3
+ * instead of 1: a fetch that fails on the network, a `gh` call still failing
+ * that way, no `ci.yml` run or no run of the `e2e` label within a minute, a
+ * pull request that does not show within a minute the head origin holds, and
+ * a `dev` that moved during each attempt.
  */
 
 import { mkdtempSync, rmSync } from "node:fs";
@@ -71,11 +75,11 @@ import {
   REGISTRATION_MS,
   retried,
   SYSTEM_CLOCK,
-  transientGh,
   waitFor,
 } from "./ci-wait.ts";
 import { ROLLING_BRANCH } from "./claude-code-types.ts";
 import { run } from "./lib/run.ts";
+import { isTransient } from "./lib/transient.ts";
 import {
   BASE,
   type Comment,
@@ -179,10 +183,15 @@ function headOf(checkout: string): string | null {
   return head.ok && head.out !== "" ? head.out : null;
 }
 
-function fetchOrigin(checkout: string): string | null {
+/** Why a fetch of origin failed: deferred when it failed on the network, refused otherwise; null when it did not. */
+function fetchOrigin(checkout: string): NotLanded | null {
   const fetched = run(["git", "fetch", "--quiet", REMOTE], checkout);
 
-  return fetched.ok ? null : `git fetch: ${fetched.err}`;
+  if (fetched.ok) return null;
+
+  const why = `git fetch: ${fetched.err}`;
+
+  return isTransient(fetched.err) ? deferred(why) : refused(why);
 }
 
 function dirtyOf(checkout: string): string | null {
@@ -335,42 +344,40 @@ function reviewRefusal(
   return `${risky}; #${pr.number} carries no clean review verdict for its change, patch-id ${short(landing.id)}: review ${short(reviewed)}, and once no finding is open, ${recordCommand(branch, reviewed)}; then land again`;
 }
 
-/** What `read` gives once it does not fail transiently, tried again until the landing's time runs out. */
-function readAgain<T>(lander: Lander, read: () => Promise<T>): Promise<T> {
+/** What `call` gives once it does not fail transiently, made again each poll until `deadline`. */
+function again<T>(lander: Lander, call: () => Promise<T>, deadline = lander.deadline): Promise<T> {
   const { clock, pollMs } = lander.waiting;
 
-  return retried(read, clock, { deadline: lander.deadline, pollMs });
+  return retried(call, clock, { deadline, pollMs });
 }
 
-function readPullRequest(lander: Lander): Promise<PullRequest> {
-  return readAgain(lander, async () => {
-    const out = await lander.gh([
-      "pr",
-      "view",
-      lander.branch,
-      "--json",
-      "number,state,baseRefName,headRefOid,labels,comments",
-    ]);
+async function readPullRequest(lander: Lander): Promise<PullRequest> {
+  const out = await lander.gh([
+    "pr",
+    "view",
+    lander.branch,
+    "--json",
+    "number,state,baseRefName,headRefOid,labels,comments",
+  ]);
 
-    try {
-      // SAFETY: gh prints exactly the fields asked for, and a pull request with a field missing can only fail to read
-      // as open, against dev and at the head waited for.
-      return JSON.parse(out);
-    } catch {
-      throw new GhError(`gh printed no pull request for ${lander.branch}: ${out.trim()}`, false);
-    }
-  });
+  try {
+    // SAFETY: gh prints exactly the fields asked for, and a pull request with a field missing can only fail to read
+    // as open, against dev and at the head waited for.
+    return JSON.parse(out);
+  } catch {
+    throw new GhError(`gh printed no pull request for ${lander.branch}: ${out.trim()}`, false);
+  }
 }
 
 /** The check runs of `sha`, read again while gh fails transiently. */
 function checkRunsAt(lander: Lander, sha: string): Promise<readonly CheckRun[]> {
-  return readAgain(lander, () => {
+  return again(lander, () => {
     const checks = checkRunsOf(sha, lander.checkout);
 
     if (checks.kind === "unreadable") {
       throw new GhError(
         `gh could not list the check runs of ${short(sha)}: ${checks.error}`,
-        transientGh(checks.error),
+        isTransient(checks.error),
       );
     }
 
@@ -382,7 +389,10 @@ function remaining(lander: Lander): number {
   return Math.max(0, lander.deadline - lander.waiting.clock.now());
 }
 
-/** What `read` gives once `done` holds of it, or its last read once a minute, or the landing's time, runs out. */
+/**
+ * What `read` gives once `done` holds of it, or its last read once a minute, or the landing's time, runs out; a read
+ * failing transiently is made again within that same minute, never past it.
+ */
 async function pollUntil<T>(
   lander: Lander,
   read: () => Promise<T>,
@@ -391,24 +401,28 @@ async function pollUntil<T>(
   const { clock, pollMs } = lander.waiting;
   const windowMs = Math.min(REGISTRATION_MS, remaining(lander));
   const start = clock.now();
-  let value = await readAgain(lander, read);
+  const end = start + windowMs;
+  let value = await again(lander, read, end);
 
-  while (!done(value) && clock.now() - start < windowMs) {
-    await clock.sleep(Math.min(pollMs, windowMs - (clock.now() - start)));
-    value = await readAgain(lander, read);
+  while (!done(value) && clock.now() < end) {
+    await clock.sleep(Math.min(pollMs, end - clock.now()));
+    value = await again(lander, read, end);
   }
 
   return value;
 }
 
-/** Whether `origin` holds `sha` as the branch, as the last fetch or push of this checkout saw it. */
-function onOrigin(lander: Lander, sha: string): boolean {
-  const remote = run(
-    ["git", "rev-parse", `refs/remotes/${REMOTE}/${lander.branch}`],
-    lander.checkout,
-  );
+/** The head origin holds for the branch, read from origin itself, not from the last fetch. */
+function originHead(lander: Lander): { readonly head: string } | NotLanded {
+  const listed = run(["git", "ls-remote", REMOTE, `refs/heads/${lander.branch}`], lander.checkout);
 
-  return remote.ok && remote.out === sha;
+  if (!listed.ok) {
+    const why = `git ls-remote ${REMOTE}: ${listed.err}`;
+
+    return isTransient(listed.err) ? deferred(why) : refused(why);
+  }
+
+  return { head: listed.out.split("\t")[0] ?? "" };
 }
 
 /**
@@ -428,8 +442,11 @@ async function pullRequestAt(lander: Lander, sha: string): Promise<Ready> {
 
   if (pr.headRefOid !== sha) {
     const where = `${lander.branch} is at ${short(sha)} here and ${short(pr.headRefOid)} on #${pr.number}`;
+    const origin = originHead(lander);
 
-    return onOrigin(lander, sha)
+    if (!("head" in origin)) return origin;
+
+    return origin.head === sha
       ? deferred(
           `${where}, though ${REMOTE} holds ${short(sha)}: GitHub has not shown the push within a minute; land again`,
         )
@@ -470,7 +487,9 @@ async function settle(lander: Lander, query: CiQuery): Promise<CiOutcome> {
   if (rerunnable.length < outcome.red.length) return outcome;
 
   await Promise.all(
-    rerunnable.map((red) => lander.gh(["run", "rerun", String(red.id), "--failed"])),
+    rerunnable.map((red) =>
+      again(lander, () => lander.gh(["run", "rerun", String(red.id), "--failed"])),
+    ),
   );
 
   const ids = new Set(rerunnable.map((red) => red.id));
@@ -524,14 +543,16 @@ async function requestE2e(
   query: CiQuery,
   seen: readonly CiRun[],
 ): Promise<NotLanded | null> {
-  const pr = await readPullRequest(lander);
+  const pr = await again(lander, () => readPullRequest(lander));
 
   // Adding a label the pull request already carries starts no run.
   if (pr.labels.some((label) => label.name === E2E_LABEL)) {
-    await lander.gh(["pr", "edit", lander.branch, "--remove-label", E2E_LABEL]);
+    await again(lander, () =>
+      lander.gh(["pr", "edit", lander.branch, "--remove-label", E2E_LABEL]),
+    );
   }
 
-  await lander.gh(["pr", "edit", lander.branch, "--add-label", E2E_LABEL]);
+  await again(lander, () => lander.gh(["pr", "edit", lander.branch, "--add-label", E2E_LABEL]));
 
   const outcome = await settle(lander, { ...query, known: seen.map((seenRun) => seenRun.id) });
 
@@ -638,7 +659,11 @@ async function deleteRemote(lander: Lander, pr: number, head: string): Promise<R
       );
     }
 
-    const stacked = await stackedOn(lander);
+    const stacked = await again(
+      lander,
+      () => stackedOn(lander),
+      lander.waiting.clock.now() + REGISTRATION_MS,
+    );
 
     if (stacked.length > 0) {
       return kept(`${stacked.join(", ")} open on ${lander.branch} would close with it`);
@@ -705,7 +730,7 @@ export async function land(
     if (pr === null) {
       const beforeWait = fetchOrigin(checkout);
 
-      if (beforeWait !== null) return deferred(beforeWait);
+      if (beforeWait !== null) return beforeWait;
 
       // dev takes a head that does not hold origin/dev only rebased, a new commit: an e2e run on this one is lost.
       const based = run(["git", "merge-base", "--is-ancestor", BASE, pushed], checkout).ok;
@@ -726,7 +751,7 @@ export async function land(
 
     const unfetched = fetchOrigin(checkout);
 
-    if (unfetched !== null) return deferred(unfetched);
+    if (unfetched !== null) return unfetched;
 
     const beforeRebase = driftFrom(lander, pushed);
 
@@ -867,7 +892,11 @@ type DevCopyRun =
 function runDevCopy(args: readonly string[], cwd: string): DevCopyRun {
   const fetched = run(["git", "fetch", "--quiet", REMOTE], cwd);
 
-  if (!fetched.ok) return { kind: "failed", landing: deferred(`git fetch: ${fetched.err}`) };
+  if (!fetched.ok) {
+    const why = `git fetch: ${fetched.err}`;
+
+    return { kind: "failed", landing: isTransient(fetched.err) ? deferred(why) : refused(why) };
+  }
 
   const copy = mkdtempSync(join(tmpdir(), "land-dev-"));
 
