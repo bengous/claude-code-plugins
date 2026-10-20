@@ -55,6 +55,11 @@
           },
           {
             "type": "command",
+            "command": "bun \"$CLAUDE_PROJECT_DIR/.claude/hooks/renovate-agent.ts\"",
+            "timeout": 10
+          },
+          {
+            "type": "command",
             "command": "\"$CLAUDE_PROJECT_DIR/.claude/hooks/setup-check.sh\" --quiet"
           }
         ]

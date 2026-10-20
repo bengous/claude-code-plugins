@@ -2,5 +2,21 @@
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
   "extends": ["config:recommended"],
   "baseBranchPatterns": ["dev"],
-  "rangeStrategy": "pin"
+  "rangeStrategy": "pin",
+  "minimumReleaseAge": "3 days",
+  "automerge": true,
+  "automergeType": "branch",
+  "packageRules": [
+    {
+      "description": "Majors land through scripts/renovate-agent.ts, which reads this label.",
+      "matchUpdateTypes": ["major"],
+      "automerge": false,
+      "addLabels": ["major"]
+    },
+    {
+      "description": "The package files under scripts/check-e2e-green.ts's e2e paths land through scripts/renovate-agent.ts and land.ts, which runs the e2e suite; scripts/renovate-agent.test.ts holds this list to that predicate.",
+      "matchFileNames": ["vellum/**", "mise.toml", ".github/workflows/ci.yml"],
+      "automerge": false
+    }
+  ]
 }

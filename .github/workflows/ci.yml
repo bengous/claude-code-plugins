@@ -6,9 +6,10 @@ on:
     types: [opened, synchronize, reopened, labeled]
   # `main` is included so a ref update that bypasses the PR path still gets
   # validated server-side. Without it, anything landing on main directly runs
-  # no checks at all.
+  # no checks at all. `renovate/**` because Renovate's branch automerge has no pull request: it
+  # fast-forwards `dev` only once it reads green check runs on the branch's own head.
   push:
-    branches: [dev, main]
+    branches: [dev, main, "renovate/**"]
   workflow_dispatch:
 
 permissions:
