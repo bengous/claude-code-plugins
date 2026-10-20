@@ -97,6 +97,8 @@ type GuardContext = {
   readonly sessionId: string;
   readonly now: number;
   readonly deadline: Deadline;
+  /** Where the hook's command runs: a door that names its repository is judged there too, wherever the line went. */
+  readonly cwd: string;
   /** The human's latest typed message, read from the transcript the first time a gated door asks. */
   readonly human: () => HumanMessage;
 };
@@ -387,7 +389,7 @@ function workflowOf(
     const file = path.join(root, ".github", "workflows", workflow.name);
 
     const declared = existsSync(file)
-      ? /^name:\s*["']?(.*?)["']?\s*$/mu.exec(readFileSync(file, "utf8"))?.[1]
+      ? /^name:\s*(["']?)(.*?)\1\s*(?:#.*)?$/mu.exec(readFileSync(file, "utf8"))?.[2]
       : undefined;
 
     return [workflow.name, `.github/workflows/${workflow.name}`, declared]
@@ -404,9 +406,14 @@ function judgeGated(
   door: Door & { readonly kind: "dispatch" | "label" },
   context: GuardContext,
 ): GuardVerdict {
-  const root = rootOf(door.cwd, []);
-  const own = door.repo === null || isOriginOf(door.cwd, door.repo);
-  const read = root === null || !own ? null : keyRead(root, loadApprovals);
+  const { repo } = door;
+
+  const dir = (repo === null ? [door.cwd] : [door.cwd, context.cwd]).find(
+    (candidate) => repo === null || (existsSync(candidate) && isOriginOf(candidate, repo)),
+  );
+
+  const root = dir === undefined ? null : rootOf(dir, []);
+  const read = root === null ? null : keyRead(root, loadApprovals);
   const name = door.kind === "dispatch" ? "a workflow dispatch" : "a label";
 
   if (read?.kind === "unreadable") {
@@ -433,7 +440,7 @@ function judgeGated(
   const wanted = new Set(door.labels.map((label) => label.toLowerCase()));
   const label = read.value.labels.find((entry) => wanted.has(entry.name.toLowerCase()));
 
-  return label === undefined ? ALLOW : refusal(labelRefusal(label, door.pr, context.human()));
+  return label === undefined ? ALLOW : refusal(labelRefusal(label, door.prs, context.human()));
 }
 
 /**
@@ -1062,6 +1069,7 @@ export async function runPreBash(
 
     const context: GuardContext = {
       sessionId: stringField(payload, "session_id") ?? "",
+      cwd: stringField(payload, "cwd") ?? process.cwd(),
       now,
       deadline,
       human: () => {

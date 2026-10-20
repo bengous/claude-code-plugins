@@ -900,10 +900,10 @@ describe("pre-bash where the landing action moves the trunk and the human's word
       "the label ok-humain on #13",
     );
     expect((await run("gh pr edit --add-label ok-humain")).reason).toContain(
-      "this command names none by its number",
+      "this command does not name each it labels by its number",
     );
     expect((await run("gh pr create --base dev --label ok-humain")).reason).toContain(
-      "this command names none by its number",
+      "this command does not name each it labels by its number",
     );
   });
 
@@ -961,6 +961,34 @@ describe("pre-bash where the landing action moves the trunk and the human's word
     ]) {
       expect((await run(command)).stdout).toBe("");
     }
+  });
+
+  test("a review's bypasses stay refused: --repo from outside, several numbers, other label mutations, unread endpoints, a commented name", async () => {
+    session(typed("ok #12"));
+    writeRepoFile(
+      repo,
+      ".github/workflows/release.yml",
+      "name: Release # the release\non: workflow_dispatch\n",
+    );
+
+    for (const command of [
+      "cd /tmp && gh workflow run release.yml --repo o/n",
+      "cd /tmp && gh pr edit 13 --add-label ok-humain -R o/n",
+      "gh issue edit 12 13 --add-label ok-humain",
+      "gh issue edit 12 https://github.com/o/n/pull/13 --add-label ok-humain",
+      `gh api graphql -f query='mutation{updatePullRequest(input:{pullRequestId:"P",labelIds:["L"]}){clientMutationId}}'`,
+      "gh api -X POST repos/o/n/actions/workflows/.github%2Fworkflows%2Frelease.yml/dispatches -f ref=dev",
+      "gh api -X POST repositories/1/actions/workflows/release.yml/dispatches -f ref=dev",
+      "gh api -X POST repositories/1/issues/12/labels -f 'labels[]=ok-humain'",
+      "gh workflow run Release",
+    ]) {
+      expect({ command, decision: (await run(command)).decision }).toStrictEqual({
+        command,
+        decision: "deny",
+      });
+    }
+
+    expect((await run("cd /tmp && gh pr edit 12 --add-label ok-humain -R o/n")).stdout).toBe("");
   });
 
   test("refuses a workflow named by an id it cannot match to a file", async () => {

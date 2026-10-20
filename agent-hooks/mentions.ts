@@ -69,10 +69,10 @@ export type Door =
       readonly repo: string | null;
       readonly cwd: string;
     }
-  /** Labels added to a pull request; `pr` null when the command names none by its number. */
+  /** Labels added to pull requests; `prs` null when the command does not name each by its number. */
   | {
       readonly kind: "label";
-      readonly pr: number | null;
+      readonly prs: readonly number[] | null;
       readonly labels: readonly string[];
       readonly repo: string | null;
       readonly cwd: string;
@@ -146,7 +146,8 @@ const RELEASE_PATH = /(?<![\w-])scripts\/release(?:\.[A-Za-z]+)?(?![\w.-])/gu;
 
 const DISPATCH = /(?<![\w.-])(?:workflow|dispatches)(?![\w-])/gu;
 
-const LABEL = /(?<![\w.])(?:--add-label|--label|-l|labels|addLabelsToLabelable)(?![\w-])/gu;
+const LABEL =
+  /(?<![\w.])(?:--add-label|--label|-l|labels|labelIds|addLabelsToLabelable)(?![\w-])/gu;
 
 /** The variables that move git or gh to another repository, branch or configuration. */
 const GIT_ENV =
@@ -1091,9 +1092,21 @@ const NEW_REF = /^repos\/([^/]+)\/([^/]+)\/git\/refs$/u;
 
 const WORKFLOW_DISPATCH = /^repos\/([^/]+)\/([^/]+)\/actions\/workflows\/([^/]+)\/dispatches$/u;
 
+/** An endpoint that dispatches or labels in a form the guard does not read: by repository id, or another route. */
+const GATED_ENDPOINT = /(?:^repositories\/|\/dispatches$|\/labels$|\/issues\/[^/]+$)/u;
+
 const ISSUE_LABELS = /^repos\/([^/]+)\/([^/]+)\/issues\/(\d+)\/labels$/u;
 
 const ISSUE = /^repos\/([^/]+)\/([^/]+)\/issues\/(\d+)$/u;
+
+/** The file a workflow segment of an endpoint names: its id, its file, or its path URL-encoded. */
+function workflowFile(segment: string): string {
+  try {
+    return path.posix.basename(decodeURIComponent(segment));
+  } catch {
+    return segment;
+  }
+}
 
 /** `owner/name` of an endpoint, null for gh's `{owner}/{repo}`, which names the cwd's repository. */
 function apiRepo(owner: string, name: string): string | null {
@@ -1129,7 +1142,7 @@ function apiDoor(view: View, cwd: string, approvals: boolean): Classification | 
     const query = call.fields.get("query")?.text ?? "";
     const merging = new RegExp(GRAPHQL_MERGE.source, "u").test(query);
 
-    if (approvals && /\baddLabelsToLabelable\b/u.test(query)) {
+    if (approvals && /\b(?:addLabelsToLabelable|labelIds)\b/u.test(query)) {
       return unresolved("label", "a GraphQL mutation names its target by node id");
     }
 
@@ -1191,7 +1204,10 @@ function apiDoor(view: View, cwd: string, approvals: boolean): Classification | 
     const why = blocker(view, { directory: repo === null, branch: false }, decisive);
 
     return why === null
-      ? { kind: "door", door: { kind: "dispatch", workflow: dispatched[3] ?? "", repo, cwd } }
+      ? {
+          kind: "door",
+          door: { kind: "dispatch", workflow: workflowFile(dispatched[3] ?? ""), repo, cwd },
+        }
       : unresolved("dispatch", why);
   }
 
@@ -1211,13 +1227,20 @@ function apiDoor(view: View, cwd: string, approvals: boolean): Classification | 
           kind: "door",
           door: {
             kind: "label",
-            pr: Number(labelled[3]),
+            prs: [Number(labelled[3])],
             labels: labels.map(([, word]) => word.text),
             repo,
             cwd,
           },
         }
       : unresolved("label", why);
+  }
+
+  if (approvals && method !== "GET" && GATED_ENDPOINT.test(endpoint)) {
+    return unresolved(
+      endpoint.endsWith("/dispatches") ? "dispatch" : "label",
+      `the guard does not read the endpoint ${quote(endpoint)}`,
+    );
   }
 
   if (created !== null && method === "POST") {
@@ -1470,6 +1493,7 @@ function gatedDoorOf(view: View, gh: GhCommand, cwd: string): Classification | n
   }
 
   const [selector] = positionals;
+  const numbers = positionals.map((word) => numberOf(word.text));
 
   if (dispatch) {
     if (selector === undefined) {
@@ -1493,7 +1517,7 @@ function gatedDoorOf(view: View, gh: GhCommand, cwd: string): Classification | n
   const why = blocker(view, { directory: gh.repo === null, branch: false }, [
     ...decisive,
     ...labels,
-    ...(selector === undefined ? [] : [selector]),
+    ...positionals,
   ]);
 
   return why === null
@@ -1501,7 +1525,10 @@ function gatedDoorOf(view: View, gh: GhCommand, cwd: string): Classification | n
         kind: "door",
         door: {
           kind: "label",
-          pr: creates || selector === undefined ? null : numberOf(selector.text),
+          prs:
+            creates || numbers.length === 0 || numbers.includes(null)
+              ? null
+              : numbers.filter((number) => number !== null),
           labels: labels.flatMap((word) => word.text.split(",").map((label) => label.trim())),
           repo: gh.repo,
           cwd,

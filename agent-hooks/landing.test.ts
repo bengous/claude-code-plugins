@@ -755,14 +755,14 @@ describe("dispatchRefusal and labelRefusal", () => {
 
   test("pass on the human's latest message", () => {
     expect(dispatchRefusal(release, { kind: "read", text: "on publie" })).toBeNull();
-    expect(labelRefusal(okHumain, 12, { kind: "read", text: "ok pour la #12" })).toBeNull();
+    expect(labelRefusal(okHumain, [12], { kind: "read", text: "ok pour la #12" })).toBeNull();
   });
 
   test("refuse a message that does not say so, naming the phrases and the pull request", () => {
     expect(dispatchRefusal(release, { kind: "read", text: "merci" })).toBe(
       `agent-hooks: dispatching release.yml is the human's decision, and the human's latest message does not say so (it would hold one of "on publie", "release"). Ask the human whether to run it, and dispatch it once their own message says so.`,
     );
-    expect(labelRefusal(okHumain, 12, { kind: "read", text: "ok #11" })).toBe(
+    expect(labelRefusal(okHumain, [12], { kind: "read", text: "ok #11" })).toBe(
       `agent-hooks: the label ok-humain on #12 is the human's ok on that pull request, and the human's latest message does not say so (it would hold one of "ok #12", "ok pour la #12"). Ask the human for their ok on #12, and add the label once their own message gives it.`,
     );
   });
@@ -771,12 +771,16 @@ describe("dispatchRefusal and labelRefusal", () => {
     expect(dispatchRefusal(release, { kind: "read", text: null })).toContain(
       "the session holds no message the human typed",
     );
-    expect(labelRefusal(okHumain, 12, { kind: "unreadable", why: "no transcript" })).toContain(
+    expect(labelRefusal(okHumain, [12], { kind: "unreadable", why: "no transcript" })).toContain(
       "the guard cannot read the human's latest message (no transcript)",
     );
     expect(labelRefusal(okHumain, null, { kind: "read", text: "ok #12" })).toContain(
-      "this command names none by its number",
+      "this command does not name each it labels by its number",
     );
+    expect(labelRefusal(okHumain, [12, 13], { kind: "read", text: "ok #12" })).toContain(
+      "the label ok-humain on #13",
+    );
+    expect(labelRefusal(okHumain, [12, 13], { kind: "read", text: "ok #12, ok #13" })).toBeNull();
   });
 });
 

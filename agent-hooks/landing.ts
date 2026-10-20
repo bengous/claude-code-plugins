@@ -874,19 +874,25 @@ export function dispatchRefusal(workflow: Approval, human: HumanMessage): string
         `Ask the human whether to run it, and dispatch it once their own message says so.`;
 }
 
-/** Why adding `label` to pull request `pr` is refused; null when the human's latest typed message approves that one. */
+/** Why adding `label` to pull requests `prs` is refused; null when the human's latest typed message approves each. */
 export function labelRefusal(
   label: Approval,
-  pr: number | null,
+  prs: readonly number[] | null,
   human: HumanMessage,
 ): string | null {
-  if (pr === null) {
+  if (prs === null) {
     return (
-      `agent-hooks: the label ${label.name} is the human's ok on one pull request, and this command names none by its number. ` +
+      `agent-hooks: the label ${label.name} is the human's ok on one pull request, and this command does not name each it labels by its number. ` +
       `Ask the human for their ok, then add it with gh pr edit <number> --add-label ${label.name}.`
     );
   }
 
+  return (
+    prs.map((pr) => prLabelRefusal(label, pr, human)).find((reason) => reason !== null) ?? null
+  );
+}
+
+function prLabelRefusal(label: Approval, pr: number, human: HumanMessage): string | null {
   const why = unapproved(human, label.phrases, pr);
 
   return why === null

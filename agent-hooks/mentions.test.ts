@@ -305,17 +305,17 @@ describe("assess where profile.approvals may gate a dispatch or a label", () => 
 
   test("reads the labels gh pr edit, gh issue edit and gh pr create add, and the number they name", () => {
     expect(read("gh pr edit 12 --add-label ok-humain", GATED).doors).toEqual([
-      { kind: "label", pr: 12, labels: ["ok-humain"], repo: null, cwd: CWD },
+      { kind: "label", prs: [12], labels: ["ok-humain"], repo: null, cwd: CWD },
     ]);
     expect(
       read("gh issue edit https://github.com/o/n/pull/12 --add-label 'bug, ok-humain'", GATED)
         .doors,
-    ).toEqual([{ kind: "label", pr: 12, labels: ["bug", "ok-humain"], repo: null, cwd: CWD }]);
+    ).toEqual([{ kind: "label", prs: [12], labels: ["bug", "ok-humain"], repo: null, cwd: CWD }]);
     expect(read("gh pr edit --add-label=ok-humain", GATED).doors).toEqual([
-      { kind: "label", pr: null, labels: ["ok-humain"], repo: null, cwd: CWD },
+      { kind: "label", prs: null, labels: ["ok-humain"], repo: null, cwd: CWD },
     ]);
     expect(read("gh pr create --base dev -t x -b y -l ok-humain", GATED).doors).toEqual([
-      { kind: "label", pr: null, labels: ["ok-humain"], repo: null, cwd: CWD },
+      { kind: "label", prs: null, labels: ["ok-humain"], repo: null, cwd: CWD },
     ]);
     expect(read("gh pr edit 12 --remove-label ok-humain --title x", GATED).doors).toEqual([]);
   });
@@ -330,10 +330,10 @@ describe("assess where profile.approvals may gate a dispatch or a label", () => 
         "gh api repos/{owner}/{repo}/issues/12/labels -f 'labels[]=bug' -f 'labels[]=ok-humain'",
         GATED,
       ).doors,
-    ).toEqual([{ kind: "label", pr: 12, labels: ["bug", "ok-humain"], repo: null, cwd: CWD }]);
+    ).toEqual([{ kind: "label", prs: [12], labels: ["bug", "ok-humain"], repo: null, cwd: CWD }]);
     expect(
       read("gh api -X PATCH repos/o/n/issues/12 -f 'labels[]=ok-humain'", GATED).doors,
-    ).toEqual([{ kind: "label", pr: 12, labels: ["ok-humain"], repo: "o/n", cwd: CWD }]);
+    ).toEqual([{ kind: "label", prs: [12], labels: ["ok-humain"], repo: "o/n", cwd: CWD }]);
     expect(read("gh api repos/o/n/issues/12/labels", GATED).doors).toEqual([]);
   });
 
