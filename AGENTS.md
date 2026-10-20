@@ -73,7 +73,7 @@ Carried by nobody, so hold them by hand:
 - A change of behaviour or of a data model, once a first version was delivered, is proposed before it is coded.
 - Two symptom fixes on one feature: stop. Write the model (states, events, one owner per fact) and propose.
 - One writer per worktree. The lead agent reads only until the subagent hands back, and judges the commits, never a guess: messages between agents cross.
-- In an agent worktree, a Bash call runs one simple command: no `&&` or `;` chain, pipe, `$(…)`, heredoc, loop or leading `cd`, and plain `git`, not `git -C`. Claude Code's worktree-isolation guard, which no setting turns off, refuses a command it cannot verify stays inside the worktree. Read, Write, Edit and Grep, or a script file run as one command, do the rest.
+- In an agent worktree, a Bash call runs one simple command: no `&&` or `;` chain, pipe, `$(…)`, heredoc, loop or leading `cd`, and plain `git`, not `git -C`. Claude Code's worktree-isolation guard refuses a command it cannot verify stays inside the worktree. Read, Write, Edit and Grep, or a script file run as one command, do the rest.
 - A step that code can decide is done by the script or the hook, not asked of Claude: an instruction can go unfollowed. A skill, a message or an error tells Claude what to do only when no code can decide it.
 
 ## Non-Obvious Directories
