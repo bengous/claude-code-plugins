@@ -101,6 +101,7 @@ const STOP_GRACE_MS = 2_000;
 const INSTALLS = [
   ["bun", "install", "--frozen-lockfile"],
   ["bun", "install", "--cwd", "vellum", "--frozen-lockfile"],
+  ["bun", "install", "--cwd", "pinpoint", "--frozen-lockfile"],
 ] as const;
 
 export type Step =
