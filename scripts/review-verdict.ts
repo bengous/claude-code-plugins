@@ -13,9 +13,10 @@
  * of the diff from the head's merge-base with `origin/dev` to the head:
  * whitespace counts, line numbers do not. A rebase that leaves that diff as it
  * was keeps the verdict; a commit after the review does not, nor a rebase that
- * changes the lines around a hunk. `scripts/renovate-agent.ts` posts the same
- * marker, with no review, for a Renovate branch whose repair the lint and
- * format fixers reproduce (`postVerdict`).
+ * changes the lines around a hunk. A verdict stands for a review, or
+ * for `scripts/renovate-agent.ts`'s own (`postVerdict`), posted with no review
+ * on a branch of Renovate's commits plus a repair of the lint and format
+ * fixers alone, whose configuration `profile.review.risky` holds.
  */
 
 import { parseArgs } from "node:util";
