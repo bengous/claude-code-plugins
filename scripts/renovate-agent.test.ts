@@ -18,6 +18,7 @@ import {
   fixerVerdict,
   fixerVerdictWhy,
   type FixerVersions,
+  hookRefusedPush,
   MAJOR_LABEL,
   outcomeLine,
   parsePrList,
@@ -277,6 +278,33 @@ describe("fixerFailure", () => {
   });
 });
 
+describe("hookRefusedPush", () => {
+  // The outputs git 2.56.0 prints for each, measured on a local bare remote.
+  test("reads a push that names no rejected ref and no fatal error as the pre-push hook's refusal", () => {
+    expect(hookRefusedPush(1, "gates are red\nerror: failed to push some refs to '/o.git'\n")).toBe(
+      true,
+    );
+  });
+
+  test("reads a stale lease, a rule's rejection or an unreachable remote as a failure", () => {
+    expect(
+      hookRefusedPush(
+        1,
+        "To /o.git\n ! [rejected]        HEAD -> b (stale info)\nerror: failed to push some refs to '/o.git'\n",
+      ),
+    ).toBe(false);
+    expect(
+      hookRefusedPush(1, " ! [remote rejected] HEAD -> b (protected branch hook declined)\n"),
+    ).toBe(false);
+    expect(
+      hookRefusedPush(
+        128,
+        "fatal: '/n.git' does not appear to be a git repository\nfatal: Could not read from remote repository.\n",
+      ),
+    ).toBe(false);
+  });
+});
+
 describe("FMT_GLOBS", () => {
   test("are the globs of package.json's fmt script", () => {
     // SAFETY: the repository's own package.json; a missing script fails the expectation.
@@ -441,7 +469,8 @@ esac
 `;
 
 // Stands in for the installs, the fixers and land.ts. oxlint's fixes append a line to each path
-// stub/fixer-edits lists, then oxlint fails, leaves findings or holds as stub/oxlint-mode says.
+// stub/fixer-edits lists, then oxlint fails, leaves findings, holds or dies holding the index lock
+// as stub/oxlint-mode says; stub/version-mode makes every --version print none.
 // land.ts's verdicts stub/land-exits gives one per call:
 // 0 lands, red and review refuse, foreign first pushes a commit of someone else's to the branch,
 // hold waits on a child of its own, as land.ts waits on origin/dev's copy.
@@ -449,6 +478,7 @@ const BUN_STUB = `#!/usr/bin/env bash
 stub="$(dirname "$0")/../stub"
 echo "$PWD $*" >>"$stub/bun-calls"
 if [[ "$1" == install && -f $stub/install-fails ]]; then exit 1; fi
+if [[ "$3" == --version && -f $stub/version-mode ]]; then echo "error: not found"; exit 0; fi
 if [[ "$1 $2 $3" == "x oxlint --version" ]]; then echo "Version: 9.9.1"; exit 0; fi
 if [[ "$1 $2 $3" == "x oxfmt --version" ]]; then echo "Version: 9.9.2"; exit 0; fi
 if [[ "$1 $2 $3" == "x oxlint --fix" ]]; then
@@ -459,6 +489,7 @@ if [[ "$1 $2 $3" == "x oxlint --fix" ]]; then
     fails) echo "Failed to parse oxlint configuration file."; exit 1 ;;
     findings) exit 1 ;;
     hold) touch "$stub/oxlint-started"; sleep 30 ;;
+    lock) touch "$(git rev-parse --path-format=absolute --git-path index.lock)"; echo "killed"; exit 137 ;;
   esac
   exit 0
 fi
@@ -845,13 +876,106 @@ describe("renovate-agent run", () => {
     expect(runScript("--dry-run").stdout).toBe("#7 renovate/x-1.x: agent (vouched)\n");
   });
 
-  test("drops a fixers' change its pre-commit hook refuses and hands the branch to the agent", () => {
+  test.each([
+    ["pre-commit", "the pre-commit hook refused the commit"],
+    ["pre-push", "the pre-push hook refused the push"],
+  ])(
+    "drops a fixers' change its %s hook refuses and hands the branch to the agent",
+    (hook, dropped) => {
+      const head = listPr("failure");
+      write(stub("fixer-edits"), "scripts/tool.ts\n");
+      write(stub("refuse"), "");
+      const file = join(project, ".git", "hooks", hook);
+      write(file, `#!/usr/bin/env bash\nrm ${stub("refuse")} 2>/dev/null && exit 1\nexit 0\n`);
+      chmodSync(file, 0o755);
+
+      runScript();
+
+      expect(agentRuns()).toBe(1);
+
+      const repaired = originHead();
+
+      expect(git(origin, "log", "-1", "--format=%s", repaired)).toBe("fix: adopt the update");
+      expect(git(origin, "rev-parse", `${repaired}^`)).toBe(head);
+      expect(git(origin, "show", `${repaired}:scripts/tool.ts`)).toBe("export {};");
+      expect(recorded("pr-comment")).toBe("");
+      expect(readFileSync(prLogPath(state(), 7), "utf8")).toContain(
+        `the fixers' change is dropped: ${dropped}`,
+      );
+    },
+  );
+
+  test("runs the pre-commit hook once on the fixers' commit", () => {
+    listPr("failure");
+    write(stub("fixer-edits"), "scripts/tool.ts\n");
+    const hook = join(project, ".git", "hooks", "pre-commit");
+    write(hook, `#!/usr/bin/env bash\necho ran >>${stub("pre-commit-runs")}\n`);
+    chmodSync(hook, 0o755);
+
+    runScript();
+
+    expect(git(origin, "log", "-1", "--format=%s", originHead())).toStartWith("fix(lint):");
+    expect(recorded("pre-commit-runs")).toBe("ran\n");
+  });
+
+  test("fails on a commit gpg cannot sign, and leaves the worktree clean at the listed head", () => {
     const head = listPr("failure");
     write(stub("fixer-edits"), "scripts/tool.ts\n");
-    write(stub("refuse"), "");
-    const hook = join(project, ".git", "hooks", "pre-commit");
-    write(hook, `#!/usr/bin/env bash\nrm ${stub("refuse")} 2>/dev/null && exit 1\nexit 0\n`);
-    chmodSync(hook, 0o755);
+    // Passes signing's probe, which signs with --sign; fails git's own -bsau.
+    const gpg = join(root, "bin", "fake-gpg");
+    write(gpg, '#!/usr/bin/env bash\n[[ " $* " == *" -bsau "* ]] && exit 1\nexit 0\n');
+    chmodSync(gpg, 0o755);
+    git(project, "config", "commit.gpgsign", "true");
+    git(project, "config", "gpg.program", gpg);
+
+    runScript();
+
+    expect(originHead()).toBe(head);
+    expect(agentRuns()).toBe(0);
+    expect(report()[0]).toContain("needs you: git commit:");
+    expect(report()[0]).toContain("gpg failed to sign the data");
+    expect(git(worktree(), "status", "--porcelain")).toBe("");
+    expect(git(worktree(), "rev-parse", "HEAD")).toBe(head);
+  });
+
+  test("reinstalls once the rebase changes a lockfile, then reads the fixers' versions", () => {
+    write(join(project, "bun.lock"), "dev's lockfile\n");
+    git(project, "add", "bun.lock");
+    git(project, "commit", "-qm", "chore: dev's lockfile");
+    git(project, "push", "-q", "origin", "dev");
+    listPr("failure");
+    write(stub("fixer-edits"), "scripts/tool.ts\n");
+
+    runScript();
+
+    const calls = recorded("bun-calls").split("\n");
+    const installs = calls.flatMap((line, at) => (/ install /u.test(line) ? [at] : []));
+    const firstVersion = calls.findIndex((line) => line.endsWith("--version"));
+
+    expect(installs).toHaveLength(6);
+    expect(installs[5]).toBeLessThan(firstVersion);
+    expect(git(origin, "log", "-1", "--format=%s", originHead())).toStartWith("fix(lint):");
+  });
+
+  test("falls back to the agent round, the worktree clean, when a fixer's version does not read", () => {
+    const head = listPr("failure");
+    write(stub("fixer-edits"), "scripts/tool.ts\n");
+    write(stub("version-mode"), "unreadable");
+
+    runScript();
+
+    expect(agentRuns()).toBe(1);
+    expect(git(origin, "rev-parse", `${originHead()}^`)).toBe(head);
+    expect(readFileSync(prLogPath(state(), 7), "utf8")).toContain(
+      "the fixers' round failed: no version in",
+    );
+    expect(report()[0]).toContain("landed renovate/x-1.x");
+  });
+
+  test("clears a stale index lock a killed fixer left, and drops its change", () => {
+    const head = listPr("failure");
+    write(stub("fixer-edits"), "scripts/tool.ts\n");
+    write(stub("oxlint-mode"), "lock");
 
     runScript();
 
@@ -859,30 +983,8 @@ describe("renovate-agent run", () => {
 
     const repaired = originHead();
 
-    expect(git(origin, "log", "-1", "--format=%s", repaired)).toBe("fix: adopt the update");
     expect(git(origin, "rev-parse", `${repaired}^`)).toBe(head);
     expect(git(origin, "show", `${repaired}:scripts/tool.ts`)).toBe("export {};");
-    expect(recorded("pr-comment")).toBe("");
-    expect(readFileSync(prLogPath(state(), 7), "utf8")).toContain(
-      "the fixers' change is dropped: the pre-commit hook exited 1",
-    );
-  });
-
-  test("fails on a push its hook refuses, with the hook's cause, and leaves the worktree clean", () => {
-    const head = listPr("failure");
-    write(stub("fixer-edits"), "scripts/tool.ts\n");
-    const hook = join(project, ".git", "hooks", "pre-push");
-    write(hook, "#!/usr/bin/env bash\necho 'gates are red' >&2\nexit 1\n");
-    chmodSync(hook, 0o755);
-
-    runScript();
-
-    expect(originHead()).toBe(head);
-    expect(agentRuns()).toBe(0);
-    expect(recorded("pr-comment")).toBe("");
-    expect(report()[0]).toContain("needs you: git push exited 1: error: failed to push some refs");
-    expect(git(worktree(), "status", "--porcelain")).toBe("");
-    expect(git(worktree(), "rev-parse", "HEAD")).toBe(head);
   });
 
   test("drops what a failing fixer wrote, commits nothing of it, and hands the branch to the agent", () => {

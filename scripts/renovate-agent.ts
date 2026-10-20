@@ -30,8 +30,9 @@
  * risky paths, and the run then records the verdict `land.ts` reads
  * (`scripts/review-verdict.ts`), saying no review was made: the patch is the
  * update plus a repair anyone reproduces, and any later commit changes it.
- * Otherwise that change goes to the human, unpushed. A fixer's failure or a
- * pre-commit refusal drops the change, and a headless Claude
+ * Otherwise that change goes to the human, unpushed. A fixer's failure, a
+ * hook's refusal or any other error of the round but a signing, lease or
+ * network failure drops the change, and a headless Claude
  * (`scripts/renovate-agent.prompt.md`) commits the repair instead, as when
  * the fixers change nothing. The run pushes each repair under a lease on the
  * head origin holds and runs `scripts/land.ts`, which waits for CI, runs the
@@ -52,6 +53,7 @@ import {
   mkdirSync,
   openSync,
   readFileSync,
+  rmSync,
   writeSync,
 } from "node:fs";
 import { join } from "node:path";
@@ -224,6 +226,11 @@ export function fixerFailure(tool: FixerTool, code: number, output: string): str
   if (code === 0 || (tool === "oxlint" && code === 1 && output.trim() === "")) return null;
 
   return `${tool} exited ${code}: ${lastNonEmptyLine(output)}`;
+}
+
+/** A push the pre-push hook refused: git then names no rejected ref and no fatal error. */
+export function hookRefusedPush(code: number, output: string): boolean {
+  return code === 1 && !/^(?: ! \[|fatal:)/mu.test(output);
 }
 
 function fixersRan(versions: FixerVersions): string {
@@ -789,7 +796,26 @@ type FixerRound =
 type Pushed =
   | { readonly kind: "none" }
   | { readonly kind: "human"; readonly why: string }
-  | { readonly kind: "pushed"; readonly head: string; readonly patchId: string | null };
+  | {
+      readonly kind: "pushed";
+      readonly head: string;
+      readonly patchId: string | null;
+      readonly versions: FixerVersions;
+      readonly base: string;
+    };
+
+/** A failure of the fixers' round that ends the pull request's handling: a signing, a lease or a network failure. */
+class RoundFailure extends Error {}
+
+const LOCKFILE = /(?:^|\/)(?:package\.json|bun\.lock)$/u;
+
+async function installDependencies(run: Run, worktree: string, log: number): Promise<void> {
+  for (const install of INSTALLS) {
+    const installed = await streamed(install, worktree, log, run.progress);
+
+    if (installed.code !== 0) throw new Error(`${install.join(" ")} exited ${installed.code}`);
+  }
+}
 
 async function fixerVersions(run: Run, worktree: string, log: number): Promise<FixerVersions> {
   const read = async (tool: FixerTool) => {
@@ -808,41 +834,62 @@ async function fixerVersions(run: Run, worktree: string, log: number): Promise<F
 }
 
 /**
- * Rebases the branch onto `base`, runs the fixers and commits and pushes what they change, when the run may vouch
- * for it or it needs no verdict. Every other way out, a throw included, leaves the worktree clean at the listed head,
- * so `heldWork` does not stop the next runs.
+ * Rebases the branch onto `origin/dev`, runs the fixers and commits and pushes what they change, when the run may
+ * vouch for it or it needs no verdict. Every other way out leaves the worktree clean at the listed head, its
+ * dependencies the listed head's, so `heldWork` does not stop the next runs. A hook's refusal or any error but a
+ * `RoundFailure` or a stop falls back to the agent round.
  */
 async function commitFixes(
   run: Run,
   pr: RenovatePr,
   worktree: string,
-  { log, versions, base }: { log: number; versions: FixerVersions; base: string },
+  log: number,
 ): Promise<Pushed> {
-  const restore = () => {
+  let reinstalled = false;
+
+  const restore = async () => {
+    rmSync(git(worktree, "rev-parse", "--path-format=absolute", "--git-path", "index.lock"), {
+      force: true,
+    });
     command(["git", "rebase", "--abort"], worktree);
     git(worktree, "reset", "--quiet", "--hard", pr.headRefOid);
     git(worktree, "clean", "--quiet", "-fd");
+
+    if (reinstalled) await installDependencies(run, worktree, log);
   };
 
-  const drop = (why: string): Pushed => {
-    restore();
+  const drop = async (why: string): Promise<Pushed> => {
+    await restore();
     writeSync(log, `the fixers' change is dropped: ${why}; the agent round follows\n`);
 
     return { kind: "none" };
   };
 
   try {
+    git(run.main, "fetch", "--quiet", "origin", `+refs/heads/${DEV}:refs/remotes/${BASE}`);
+    const base = git(worktree, "rev-parse", BASE);
     const rebase = await streamed(["git", "rebase", "--quiet", BASE], worktree, log, run.progress);
 
     checkStop(run.progress);
 
     if (rebase.code !== 0) {
       if (SIGNING_FAILED.test(rebase.output)) {
-        throw new Error(`git rebase ${BASE}: ${lastNonEmptyLine(rebase.output)}`);
+        throw new RoundFailure(`git rebase ${BASE}: ${lastNonEmptyLine(rebase.output)}`);
       }
 
-      return drop(`${pr.headRefName} does not rebase cleanly on ${BASE}`);
+      return await drop(`${pr.headRefName} does not rebase cleanly on ${BASE}`);
     }
+
+    const rebasedLockfiles = git(worktree, "diff", "--name-only", "-z", pr.headRefOid, "HEAD")
+      .split("\0")
+      .some((path) => LOCKFILE.test(path));
+
+    if (rebasedLockfiles) {
+      reinstalled = true;
+      await installDependencies(run, worktree, log);
+    }
+
+    const versions = await fixerVersions(run, worktree, log);
 
     for (const step of FIXER_STEPS) {
       const ran = await streamed(step.args, worktree, log, run.progress);
@@ -850,7 +897,7 @@ async function commitFixes(
       checkStop(run.progress);
       const failure = fixerFailure(step.tool, ran.code, ran.output);
 
-      if (failure !== null) return drop(failure);
+      if (failure !== null) return await drop(failure);
     }
 
     const fixed = git(worktree, "diff", "--name-only", "--no-renames", "-z")
@@ -858,26 +905,20 @@ async function commitFixes(
       .filter((path) => path !== "");
 
     if (fixed.length === 0) {
-      restore();
+      await restore();
 
       return { kind: "none" };
     }
 
-    git(worktree, "add", "--update");
-
-    const hook = await streamed(
-      ["git", "hook", "run", "--ignore-missing", "pre-commit"],
-      worktree,
-      log,
-      run.progress,
-    );
-
-    checkStop(run.progress);
-
-    if (hook.code !== 0) return drop(`the pre-commit hook exited ${hook.code}`);
-
     const commit = await streamed(
-      ["git", "commit", "--quiet", "-m", fixerCommitMessage(versions, pr.headRefOid, base)],
+      [
+        "git",
+        "commit",
+        "--quiet",
+        "--all",
+        "-m",
+        fixerCommitMessage(versions, pr.headRefOid, base),
+      ],
       worktree,
       log,
       run.progress,
@@ -886,7 +927,13 @@ async function commitFixes(
     checkStop(run.progress);
 
     if (commit.code !== 0) {
-      throw new Error(`git commit exited ${commit.code}: ${lastNonEmptyLine(commit.output)}`);
+      if (SIGNING_FAILED.test(commit.output)) {
+        throw new RoundFailure(`git commit: ${commit.output.trim().split("\n").join("; ")}`);
+      }
+
+      return await drop(
+        `the pre-commit hook refused the commit: ${lastNonEmptyLine(commit.output)}`,
+      );
     }
 
     const head = git(worktree, "rev-parse", "HEAD");
@@ -914,7 +961,7 @@ async function commitFixes(
     const verdict = fixerVerdict({ under, renovatePaths, fixed, isRisky: riskyPaths(run.main) });
 
     if (verdict.kind === "human") {
-      restore();
+      await restore();
 
       return verdict;
     }
@@ -932,19 +979,39 @@ async function commitFixes(
     const push = await pushHead(run, pr, worktree, pr.headRefOid, log);
 
     if (push.code !== 0) {
-      throw new Error(`git push exited ${push.code}: ${lastNonEmptyLine(push.output)}`);
+      if (hookRefusedPush(push.code, push.output)) {
+        return await drop(`the pre-push hook refused the push: ${lastNonEmptyLine(push.output)}`);
+      }
+
+      throw new RoundFailure(`git push exited ${push.code}: ${lastNonEmptyLine(push.output)}`);
     }
 
-    return { kind: "pushed", head, patchId };
+    return { kind: "pushed", head, patchId, versions, base };
   } catch (error) {
-    restore();
-    throw error;
+    const reason = error instanceof Error ? error.message : String(error);
+
+    try {
+      await restore();
+    } catch (restoreError) {
+      const restoring = restoreError instanceof Error ? restoreError.message : String(restoreError);
+
+      throw new Error(
+        `${reason}; restoring the worktree to ${short(pr.headRefOid)} failed too: ${restoring}`,
+        { cause: restoreError },
+      );
+    }
+
+    if (error instanceof RoundFailure || run.progress.signal !== null) throw error;
+
+    writeSync(log, `the fixers' round failed: ${reason}; the agent round follows\n`);
+
+    return { kind: "none" };
   }
 }
 
 /**
  * The fixers' round, before the first agent round on a red branch: oxfmt, `oxlint --fix` and oxfmt again at the
- * versions the update installed, on the branch rebased onto `origin/dev`, as CI lints it. A repair touching a risky
+ * versions the update installs, on the branch rebased onto `origin/dev`, as CI lints it. A repair touching a risky
  * path is pushed only when the run vouches for it, with the verdict `land.ts` reads, which says no review was made.
  */
 async function fixerRound(
@@ -953,11 +1020,7 @@ async function fixerRound(
   worktree: string,
   { log, settled }: { log: number; settled: Settled },
 ): Promise<FixerRound> {
-  const versions = await fixerVersions(run, worktree, log);
-
-  git(run.main, "fetch", "--quiet", "origin", `+refs/heads/${DEV}:refs/remotes/${BASE}`);
-  const base = git(worktree, "rev-parse", BASE);
-  const pushed = await commitFixes(run, pr, worktree, { log, versions, base });
+  const pushed = await commitFixes(run, pr, worktree, log);
 
   if (pushed.kind !== "pushed") return pushed;
 
@@ -969,7 +1032,7 @@ async function fixerRound(
     worktree,
     pr.number,
     pushed.patchId,
-    fixerVerdictWhy(versions, pr.headRefOid, base),
+    fixerVerdictWhy(pushed.versions, pr.headRefOid, pushed.base),
   );
 
   if (posted.kind === "refused") throw new Error(posted.why);
@@ -1009,11 +1072,7 @@ async function handle(
     await prepareWorktree(run, pr, worktree);
     made = true;
 
-    for (const install of INSTALLS) {
-      const installed = await streamed(install, worktree, log, run.progress);
-
-      if (installed.code !== 0) throw new Error(`${install.join(" ")} exited ${installed.code}`);
-    }
+    await installDependencies(run, worktree, log);
 
     let why: string | null = reasons.includes("red")
       ? `CI is red on ${pr.headRefOid}: \`gh pr checks ${pr.number}\` names the red jobs.`
