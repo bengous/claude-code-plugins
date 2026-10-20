@@ -32,7 +32,7 @@ A curated marketplace of Claude Code plugins for development workflow automation
 | [git-worktree](git-worktree/) | 1.2.2 | Git worktree helper with stack support for multi-agent orchestration |
 | [agents-bridge](agents-bridge/) | 1.12.2 | Bridge to the OpenAI Codex CLI for cross-model collaboration |
 | [software-craft](software-craft/) | 3.0.2 | Opinionated design skills for software excellence: CLI design, system architecture, and more. Skills that push Claude toward intentional, high-quality output instead of generic patterns. |
-| [understanding](understanding/) | 1.1.3 | Understand a topic, a bug, a Claude Code workflow, or the last reply: minimal explanations, root-cause diagnosis, execution traces, layered recaps |
+| [understanding](understanding/) | 1.2.0 | Understand a topic, a bug, a Claude Code workflow, or the last reply: minimal explanations, root-cause diagnosis, execution traces, layered recaps |
 | [design-studio](design-studio/) | 1.1.3 | Generate 5 unique website redesigns using Theo's pattern: one agent, sequential creation, natural differentiation |
 | [plugin-cache-sync](plugin-cache-sync/) | 2.2.3 | Sync Claude Code plugin cache from local sources |
 | [git-sweep](git-sweep/) | 3.5.0 | Git branch and worktree cleanup that proves a branch is contained before deleting it and reports what it kept and why: an interactive sweep that asks first, and an unattended one that frees finished agent worktrees and archives abandoned agent branches under refs/archive/ |
