@@ -115,7 +115,7 @@ describe("renovate-agent hook", () => {
   test("shows the run's lines once, even on a day it starts nothing", async () => {
     mkdirSync(state().dir, { recursive: true });
     write(state().day, dayOf(new Date()));
-    write(state().report, JSON.stringify(["Renovate #7 (x): landed", "Renovate #8 (y) needs you"]));
+    write(state().report, '"Renovate #7 (x): landed"\n"Renovate #8 (y) needs you"\n');
 
     const { stdout } = await runHook(project);
 

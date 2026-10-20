@@ -1,6 +1,6 @@
 You run unattended, in a worktree made for you: `{{worktree}}`, on Renovate's branch `{{branch}}`, the head of pull request #{{number}} ({{title}}, {{url}}). Nobody answers questions during this run: decide, and write down what you decided and why in your commit messages.
 
-The script that started you lands this branch on `dev` with `bun ./scripts/land.ts {{branch}}` once you exit, and lands it only if its `ci.yml` runs are green. Why it cannot land yet:
+The script that started you lands this branch on `dev` with `bun ./scripts/land.ts {{branch}}` once you exit, and lands it only if its `ci.yml` runs are green. Why CI is red:
 
 {{why}}
 
@@ -11,4 +11,4 @@ Your job: make the change this dependency update calls for, so the branch passes
 3. Leave the gates green: `bun ./scripts/run-gates.ts` and `bun ./scripts/affected.ts test`. Leave nothing uncommitted, and stay on `{{branch}}`. Never bypass the hooks or the signing (`--no-verify`, `--no-gpg-sign`, `-c commit.gpgsign=false`).
 4. If you cannot make it pass, commit nothing that leaves the branch worse, and end with one line that starts with `CANNOT REPAIR:` and says why; the script reports that line to the human.
 
-Do not push, do not run `land.ts`, and do not merge, close or edit the pull request: the script pushes your commits and lands the branch once you exit, after it checks that `HEAD` is `{{branch}}` and the worktree is clean. Everything you write into the repository is in English.
+Never run `scripts/review-verdict.ts` and never post a review verdict: a verdict is a human's review, and nobody reviews this run. Do not push, do not run `land.ts`, and do not merge, close or edit the pull request: the script pushes your commits and lands the branch once you exit, after it checks that `HEAD` is `{{branch}}` and the worktree is clean. Everything you write into the repository is in English.

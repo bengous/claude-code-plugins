@@ -6,31 +6,45 @@
  *   bun ./scripts/renovate-agent.ts run             # the SessionStart hook starts it detached, once a day
  *   bun ./scripts/renovate-agent.ts run --dry-run   # print each open pull request's owner; start nothing
  *
- * Renovate merges a non-major update that touches no e2e path itself, by
- * branch automerge, once CI is green on its branch (`renovate.json`). This run
- * owns the others among the open Renovate pull requests against `dev` whose
- * `ci.yml` runs have concluded: a red one, a major (Renovate's `major` label),
- * and one whose files touch the e2e paths (`isE2ePath`). A head this run
- * already handled is left until Renovate pushes another.
+ * Renovate merges a non-major update that touches no e2e path and no risky
+ * path itself, by branch automerge, once CI is green on its branch
+ * (`renovate.json`). Among the open Renovate pull requests against `dev` whose
+ * `ci.yml` runs have concluded, one that touches a path of `origin/dev`'s
+ * `profile.review.risky` goes to the human: `land.ts` lands it only with a
+ * review verdict, which no unattended agent records. This run owns the others
+ * Renovate leaves: a red one, a major (Renovate's `major` label), and one
+ * whose files touch the e2e paths (`isE2ePath`). A head this run already
+ * handled is left until Renovate pushes another.
  *
  * Each owned pull request gets its own worktree, `<main worktree>.wt/
- * renovate/<number>`, with the dependencies installed. A red one is handed
- * first to a headless Claude (`scripts/renovate-agent.prompt.md`) that commits
- * the repair, signed with the user's key; the run pushes the commits and runs
- * `scripts/land.ts`, which waits for CI, runs the e2e suite when the branch
- * needs it and lands the branch on `dev`. A landing refused gets one more
- * agent round with the refusal, then is reported. Each end, landed or not, is
- * a line the next session start shows and a desktop notice. The lock, the
- * logs, the handled heads and the lines not yet shown live in `<git common
- * dir>/renovate-agent/`.
+ * renovate/<number>`, at the branch's head fetched again, which must still be
+ * the listed one, with the dependencies installed. A red one is handed first
+ * to a headless Claude (`scripts/renovate-agent.prompt.md`) that commits the
+ * repair, signed with the user's key; the run pushes the commits, a
+ * fast-forward under a lease, and runs `scripts/land.ts`, which waits for CI,
+ * runs the e2e suite when the branch needs it and lands the branch on `dev`.
+ * A landing refused because CI is red goes back to the agent, two agent
+ * rounds per pull request in all; any other refusal goes to the human. Each
+ * end, landed or not, is a line the next session start shows and a desktop
+ * notice. The lock, the logs, the handled heads and the lines not yet shown
+ * live in `<git common dir>/renovate-agent/`.
  */
 
-import { closeSync, existsSync, mkdirSync, openSync, readFileSync, writeSync } from "node:fs";
+import {
+  appendFileSync,
+  closeSync,
+  existsSync,
+  mkdirSync,
+  openSync,
+  readFileSync,
+  writeSync,
+} from "node:fs";
 import { join } from "node:path";
 
 import { isE2ePath } from "./check-e2e-green.ts";
 import { type CiVerdict, ciVerdict, ghCli } from "./ci-wait.ts";
 import { RUN_GUARD as TYPES_RUN_GUARD } from "./claude-code-types.ts";
+import { riskyOf } from "./land.ts";
 import {
   type ChildSlot,
   command,
@@ -58,10 +72,13 @@ const PROMPT = join(import.meta.dir, "renovate-agent.prompt.md");
 
 const NOTICE = "Renovate agent";
 
-/** Agent rounds per pull request: the first repair, and one more for a landing refused after it. */
-const AGENT_ROUNDS = 2;
+/** Agent rounds per pull request, in all: each one answers a red CI. */
+export const AGENT_ROUNDS = 2;
 
 const CANNOT_REPAIR = /^CANNOT REPAIR:.*$/mu;
+
+/** land.ts's verdict line when CI is red on the head it waited for (`notGreen`): the one refusal an agent can repair. */
+const RED_REFUSAL = /^land: CI is red on /u;
 
 const INSTALLS = [
   ["bun", "install", "--frozen-lockfile"],
@@ -85,18 +102,42 @@ export type AgentReason = "red" | "major" | "e2e";
 export type Classification =
   | { readonly owner: "renovate"; readonly why: string }
   | { readonly owner: "agent"; readonly reasons: readonly AgentReason[] }
+  | { readonly owner: "human"; readonly why: string }
   | { readonly owner: "wait"; readonly why: string }
   | { readonly owner: "handled"; readonly why: string };
 
+/** Whether a path needs a human review verdict before `land.ts` lands it. */
+export type RiskyPath = (path: string) => boolean;
+
+/**
+ * How a pull request ended. `heads` are the heads it settles, which the next
+ * runs leave alone: the listed head once a costly step ran (an agent round or
+ * a landing), and each head this run pushed; none when it failed before those
+ * or was stopped.
+ */
 export type PrOutcome =
-  | { readonly kind: "landed"; readonly pr: RenovatePr; readonly verdict: string }
+  | {
+      readonly kind: "landed";
+      readonly pr: RenovatePr;
+      readonly verdict: string;
+      readonly heads: readonly string[];
+    }
   | {
       readonly kind: "failed";
       readonly pr: RenovatePr;
       readonly reason: string;
       readonly log: string;
       readonly worktree: string | null;
-    };
+      readonly heads: readonly string[];
+    }
+  | {
+      readonly kind: "stopped";
+      readonly pr: RenovatePr;
+      readonly signal: string;
+      readonly log: string;
+      readonly worktree: string | null;
+    }
+  | { readonly kind: "human"; readonly pr: RenovatePr; readonly why: string };
 
 export interface StatePaths extends LockPaths {
   readonly dir: string;
@@ -119,7 +160,7 @@ export function statePaths(commonDir: string): StatePaths {
     holder: join(dir, "holder.json"),
     day: join(dir, "day"),
     handled: join(dir, "handled.json"),
-    report: join(dir, "report.json"),
+    report: join(dir, "report.jsonl"),
     runLog: join(dir, "run.log"),
     spawnLog: join(dir, "spawn.log"),
   };
@@ -134,11 +175,36 @@ function shortSha(sha: string): string {
 }
 
 /**
- * Who lands `pr`, given its `ci.yml` verdict and the heads already handled.
- * Nobody acts before CI concludes: Renovate would not merge a running branch,
- * and `land.ts` refuses a head with no run.
+ * The verdict of a head's `ci.yml` runs of both events: red when a run of
+ * either is red, running while one of either runs, else the pull request
+ * runs' verdict, the runs `land.ts` waits for. Renovate reads every check run
+ * of the head, a push run's included (`getBranchStatus`).
  */
-export function classify(pr: RenovatePr, verdict: CiVerdict, handled: Handled): Classification {
+export function combinedVerdict(pullRequest: CiVerdict, push: CiVerdict): CiVerdict {
+  const red = [pullRequest, push].flatMap((verdict) => (verdict.kind === "red" ? verdict.red : []));
+
+  if (red.length > 0) return { kind: "red", red };
+
+  const running = [pullRequest, push].flatMap((verdict) =>
+    verdict.kind === "running" ? verdict.running : [],
+  );
+
+  if (running.length > 0) return { kind: "running", running };
+
+  return pullRequest;
+}
+
+/**
+ * Who lands `pr`, given its `ci.yml` verdict, the heads already handled and
+ * the risky paths. Nobody acts before CI concludes: Renovate would not merge a
+ * running branch, and `land.ts` refuses a head with no run.
+ */
+export function classify(
+  pr: RenovatePr,
+  verdict: CiVerdict,
+  handled: Handled,
+  isRisky: RiskyPath,
+): Classification {
   const sha = shortSha(pr.headRefOid);
 
   if ((handled[String(pr.number)] ?? []).includes(pr.headRefOid)) {
@@ -149,6 +215,15 @@ export function classify(pr: RenovatePr, verdict: CiVerdict, handled: Handled): 
 
   if (verdict.kind === "none")
     return { owner: "wait", why: `no ci.yml pull_request run on ${sha}` };
+
+  const risky = pr.files.filter((path) => isRisky(path));
+
+  if (risky.length > 0) {
+    return {
+      owner: "human",
+      why: `touches risky paths (${risky.join(", ")}): land.ts lands it only with a human review verdict`,
+    };
+  }
 
   const reasons: AgentReason[] = [];
 
@@ -179,12 +254,20 @@ export function classificationLine(pr: RenovatePr, classification: Classificatio
 export function outcomeLine(outcome: PrOutcome): string {
   const head = `Renovate #${outcome.pr.number} (${outcome.pr.title})`;
 
-  if (outcome.kind === "landed") return `${head}: ${outcome.verdict}`;
+  switch (outcome.kind) {
+    case "landed":
+      return `${head}: ${outcome.verdict}`;
+    case "human":
+      return `${head} needs your review: it ${outcome.why}. ${outcome.pr.url}`;
+    case "stopped":
+      return `${head}: the run was stopped by ${outcome.signal} (log: ${outcome.log}${keptNote(outcome.worktree)}); the next daily run takes it again`;
+    case "failed":
+      return `${head} needs you: ${outcome.reason} (log: ${outcome.log}${keptNote(outcome.worktree)}). ${outcome.pr.url}`;
+  }
+}
 
-  const kept =
-    outcome.worktree === null ? "" : `; its worktree, ${outcome.worktree}, is kept as it is`;
-
-  return `${head} needs you: ${outcome.reason} (log: ${outcome.log}${kept}). ${outcome.pr.url}`;
+function keptNote(worktree: string | null): string {
+  return worktree === null ? "" : `; its worktree, ${worktree}, is kept as it is`;
 }
 
 /** The pull requests' handled heads plus `added`, restricted to the pull requests still open. */
@@ -252,11 +335,20 @@ function readHandled(file: string): Handled {
   return existsSync(file) ? (JSON.parse(readFileSync(file, "utf8")) as Handled) : {};
 }
 
-/** Adds `lines` to those the next session start shows. */
-function report(file: string, lines: readonly string[]): void {
-  // SAFETY: only this run writes the file, whole, from a string array; the hook takes it whole.
-  const pending = existsSync(file) ? (JSON.parse(readFileSync(file, "utf8")) as string[]) : [];
-  writeWhole(file, JSON.stringify([...pending, ...lines]));
+/**
+ * Adds `line` to those the next session start shows, one JSON string per line:
+ * an append, so a hook that takes the file meanwhile never sees a line twice.
+ */
+function report(file: string, line: string): void {
+  appendFileSync(file, `${JSON.stringify(line)}\n`);
+}
+
+/** The lines of a report file, as `report` wrote them. */
+export function reportLines(content: string): string[] {
+  return content
+    .split("\n")
+    .filter((line) => line !== "")
+    .map((line): string => JSON.parse(line));
 }
 
 interface Progress extends ChildSlot {
@@ -322,7 +414,11 @@ function lastNonEmptyLine(text: string): string {
   );
 }
 
-/** A fresh worktree on the pull request's branch at its remote head. */
+/**
+ * A fresh worktree on the pull request's branch, at its head fetched now: the
+ * run-start fetch may be stale, and a branch Renovate moved since the listing
+ * is a head nobody classified.
+ */
 async function prepareWorktree(run: Run, pr: RenovatePr, path: string): Promise<void> {
   const { checkouts } = await worktreesOf(run.main);
   const holder = checkouts.find((tree) => tree.branch === pr.headRefName && tree.dir !== path);
@@ -330,6 +426,16 @@ async function prepareWorktree(run: Run, pr: RenovatePr, path: string): Promise<
   if (holder !== undefined) {
     throw new Error(
       `${pr.headRefName} is checked out in ${holder.dir}; the run needs it in ${path}`,
+    );
+  }
+
+  const ref = `refs/remotes/origin/${pr.headRefName}`;
+  git(run.main, "fetch", "--quiet", "origin", `+refs/heads/${pr.headRefName}:${ref}`);
+  const fetched = git(run.main, "rev-parse", ref);
+
+  if (fetched !== pr.headRefOid) {
+    throw new Error(
+      `${pr.headRefName} is at ${shortSha(fetched)} on origin, not ${shortSha(pr.headRefOid)} as listed: Renovate moved it; the next run takes the new head`,
     );
   }
 
@@ -349,20 +455,10 @@ async function prepareWorktree(run: Run, pr: RenovatePr, path: string): Promise<
 
   if (existsSync(path)) throw new Error(`${path} exists and is no worktree of this repository`);
   mkdirSync(join(path, ".."), { recursive: true });
-
-  git(
-    run.main,
-    "worktree",
-    "add",
-    "--quiet",
-    "-B",
-    pr.headRefName,
-    path,
-    `origin/${pr.headRefName}`,
-  );
+  git(run.main, "worktree", "add", "--quiet", "-B", pr.headRefName, path, fetched);
 }
 
-function verifyAgentLeft(worktree: string, branch: string): void {
+function verifyAgentLeft(worktree: string, branch: string, pushed: string): void {
   const head = command(["git", "symbolic-ref", "--quiet", "HEAD"], worktree).out.trim();
 
   if (head !== `refs/heads/${branch}`) {
@@ -374,14 +470,26 @@ function verifyAgentLeft(worktree: string, branch: string): void {
   if (dirty !== "") {
     throw new Error(`the agent left changes uncommitted: ${dirty.split("\n").join(", ")}`);
   }
+
+  if (command(["git", "merge-base", "--is-ancestor", pushed, "HEAD"], worktree).code !== 0) {
+    throw new Error(
+      `the agent rewrote ${shortSha(pushed)}, the head on origin: the run pushes only a fast-forward`,
+    );
+  }
 }
 
+/** What one pull request's handling has settled so far: the heads the next runs leave alone. */
+interface Settled {
+  readonly heads: string[];
+}
+
+/** One agent round on `why`, its commits pushed as a fast-forward under a lease. */
 async function agentRound(
   run: Run,
   pr: RenovatePr,
   worktree: string,
   why: string,
-  log: number,
+  { log, settled }: { log: number; settled: Settled },
 ): Promise<void> {
   const prompt = promptFor(
     readFileSync(PROMPT, "utf8"),
@@ -398,6 +506,8 @@ async function agentRound(
 
   const pushed = git(worktree, "rev-parse", "HEAD");
 
+  settled.heads.push(pushed);
+
   // The sessions the agent starts leave the types pipeline alone, as its own do.
   const agent = await streamed(
     ["claude", "-p", "--model", "opus", "--permission-mode", "auto", prompt],
@@ -407,12 +517,13 @@ async function agentRound(
     { [TYPES_RUN_GUARD]: "1" },
   );
 
+  checkStop(run.progress);
   const cannot = CANNOT_REPAIR.exec(agent.output)?.[0];
 
   if (cannot !== undefined) throw new Error(`the agent reports ${cannot}`);
 
   if (agent.code !== 0) throw new Error(`claude -p exited ${agent.code}`);
-  verifyAgentLeft(worktree, pr.headRefName);
+  verifyAgentLeft(worktree, pr.headRefName, pushed);
   const head = git(worktree, "rev-parse", "HEAD");
 
   if (head === pushed) throw new Error("the agent committed nothing");
@@ -435,6 +546,19 @@ async function agentRound(
       `git push exited ${push.code}: ${lastNonEmptyLine(push.output)}; Renovate may have pushed meanwhile`,
     );
   }
+
+  settled.heads.push(head);
+}
+
+/** The branch head land.ts left on origin, when it is the worktree's own: a head this run pushed. */
+function landedOrPushedHead(run: Run, pr: RenovatePr, worktree: string): string | null {
+  const local = git(worktree, "rev-parse", "HEAD");
+
+  const remote = command(["git", "ls-remote", "origin", `refs/heads/${pr.headRefName}`], run.main)
+    .out.split("\t")[0]
+    ?.trim();
+
+  return remote === local ? local : null;
 }
 
 /** The pull request's end: landed, or why it was not, with its worktree kept. */
@@ -446,6 +570,7 @@ async function handle(
   const worktree = `${run.main}.wt/renovate/${pr.number}`;
   const logFile = prLogPath(run.state, pr.number);
   const log = openSync(logFile, "w");
+  const settled: Settled = { heads: [] };
   let made = false;
 
   try {
@@ -468,12 +593,14 @@ async function handle(
     for (;;) {
       if (why !== null) {
         if (rounds === AGENT_ROUNDS) {
-          throw new Error(`still not landed after ${AGENT_ROUNDS} agent rounds: ${why}`);
+          throw new Error(`CI still red after ${AGENT_ROUNDS} agent rounds: ${why}`);
         }
 
         rounds += 1;
-        await agentRound(run, pr, worktree, why, log);
+        await agentRound(run, pr, worktree, why, { log, settled });
       }
+
+      settled.heads.push(pr.headRefOid);
 
       const landing = await streamed(
         ["bun", "./scripts/land.ts", pr.headRefName],
@@ -482,30 +609,58 @@ async function handle(
         run.progress,
       );
 
+      checkStop(run.progress);
       const verdict = lastNonEmptyLine(landing.output);
+      const left = landedOrPushedHead(run, pr, worktree);
+
+      if (left !== null) settled.heads.push(left);
 
       if (landing.code === 0) {
         git(run.main, "worktree", "remove", "--force", worktree);
 
-        return { kind: "landed", pr, verdict };
+        return { kind: "landed", pr, verdict, heads: unique(settled.heads) };
       }
+
+      // Only a red CI is the agent's to repair: a review, a rebase or a timeout is the human's.
+      if (!RED_REFUSAL.test(verdict)) throw new Error(`land.ts refused it: ${verdict}`);
 
       why = `\`bun ./scripts/land.ts ${pr.headRefName}\` refused it: ${verdict}`;
     }
   } catch (error) {
     const reason = error instanceof Error ? error.message : String(error);
     writeSync(log, `${reason}\n`);
+    const kept = made && existsSync(worktree) ? worktree : null;
+
+    if (run.progress.signal !== null) {
+      return { kind: "stopped", pr, signal: run.progress.signal, log: logFile, worktree: kept };
+    }
 
     return {
       kind: "failed",
       pr,
       reason,
       log: logFile,
-      worktree: made && existsSync(worktree) ? worktree : null,
+      worktree: kept,
+      heads: unique(settled.heads),
     };
   } finally {
     closeSync(log);
   }
+}
+
+function unique(heads: readonly string[]): string[] {
+  return [...new Set(heads)];
+}
+
+/** The risky-path predicate of `origin/dev`'s profile, every path while it does not read, as land.ts does. */
+function riskyPaths(cwd: string): RiskyPath {
+  const profile = riskyOf(cwd, "origin/dev");
+
+  if (profile.kind === "unreadable") return () => true;
+
+  const globs = profile.risky.map((glob) => new Bun.Glob(glob));
+
+  return (path) => globs.some((glob) => glob.match(path));
 }
 
 function classifyAll(
@@ -513,16 +668,21 @@ function classifyAll(
   handled: Handled,
 ): Promise<readonly { pr: RenovatePr; classification: Classification }[]> {
   const prs = listPrs(cwd);
+  const isRisky = riskyPaths(cwd);
+  const ghHere = (args: readonly string[]) => ghCli(args, cwd);
 
   return Promise.all(
-    prs.map(async (pr) => ({
-      pr,
-      classification: classify(
+    prs.map(async (pr) => {
+      const [pullRequest, push] = await Promise.all([
+        ciVerdict(ghHere, { sha: pr.headRefOid, event: "pull_request" }),
+        ciVerdict(ghHere, { sha: pr.headRefOid, event: "push" }),
+      ]);
+
+      return {
         pr,
-        await ciVerdict((args) => ghCli(args, cwd), { sha: pr.headRefOid, event: "pull_request" }),
-        handled,
-      ),
-    })),
+        classification: classify(pr, combinedVerdict(pullRequest, push), handled, isRisky),
+      };
+    }),
   );
 }
 
@@ -532,6 +692,18 @@ async function dryRun(start: string): Promise<void> {
 
   for (const { pr, classification } of await classifyAll(main, readHandled(state.handled))) {
     console.log(classificationLine(pr, classification));
+  }
+}
+
+function settledHeads(outcome: PrOutcome): readonly string[] {
+  switch (outcome.kind) {
+    case "landed":
+    case "failed":
+      return outcome.heads;
+    case "human":
+      return [outcome.pr.headRefOid];
+    case "stopped":
+      return [];
   }
 }
 
@@ -561,8 +733,8 @@ async function runAll(start: string): Promise<void> {
 
   try {
     git(main, "fetch", "--quiet", "--prune", "origin");
-    const handled = readHandled(state.handled);
-    const classified = await classifyAll(main, handled);
+    const classified = await classifyAll(main, readHandled(state.handled));
+    const open = classified.map(({ pr }) => pr.number);
 
     for (const { pr, classification } of classified) {
       writeSync(log, `${classificationLine(pr, classification)}\n`);
@@ -572,36 +744,45 @@ async function runAll(start: string): Promise<void> {
       classification.owner === "agent" ? [{ pr, reasons: classification.reasons }] : [],
     );
 
-    if (owned.length > 0) probeSigning(main);
-    const added: Record<string, string[]> = {};
-
-    for (const { pr, reasons } of owned) {
-      const outcome = await handle(run, pr, reasons);
-      const after = command(["git", "ls-remote", "origin", `refs/heads/${pr.headRefName}`], main);
-      const remoteHead = after.out.split("\t")[0] ?? "";
-
-      added[String(pr.number)] = [pr.headRefOid, ...(remoteHead === "" ? [] : [remoteHead])];
+    const end = (outcome: PrOutcome) => {
       const line = outcomeLine(outcome);
       writeSync(log, `${line}\n`);
-      report(state.report, [line]);
-      notify(NOTICE, line, outcome.kind === "failed", log);
+      report(state.report, line);
+      notify(NOTICE, line, outcome.kind === "failed" || outcome.kind === "human", log);
 
       writeWhole(
         state.handled,
         JSON.stringify(
-          recordHandled(
-            readHandled(state.handled),
-            classified.map(({ pr: open }) => open.number),
-            added,
-          ),
+          recordHandled(readHandled(state.handled), open, {
+            [String(outcome.pr.number)]: settledHeads(outcome),
+          }),
         ),
       );
+    };
+
+    for (const { pr, classification } of classified) {
+      if (classification.owner === "human") end({ kind: "human", pr, why: classification.why });
+    }
+
+    if (owned.length > 0) probeSigning(main);
+
+    for (const { pr, reasons } of owned) {
+      const outcome = await handle(run, pr, reasons);
+      end(outcome);
+
+      if (outcome.kind === "stopped") break;
     }
   } catch (error) {
-    const line = `Renovate agent: the run failed: ${error instanceof Error ? error.message : String(error)} (log: ${state.runLog})`;
+    const reason = error instanceof Error ? error.message : String(error);
+
+    const line =
+      run.progress.signal === null
+        ? `Renovate agent: the run failed: ${reason} (log: ${state.runLog})`
+        : `Renovate agent: the run was stopped by ${run.progress.signal} (log: ${state.runLog}); the next daily run starts again`;
+
     writeSync(log, `${line}\n`);
-    report(state.report, [line]);
-    notify(NOTICE, line, true, log);
+    report(state.report, line);
+    notify(NOTICE, line, run.progress.signal === null, log);
   } finally {
     closeSync(log);
     closeSync(lock);

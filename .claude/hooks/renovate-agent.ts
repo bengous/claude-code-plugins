@@ -15,7 +15,7 @@ import { join } from "node:path";
 
 import { runState, takeFile } from "../../scripts/lib/headless-run.ts";
 import { withoutSessionIdentity } from "../../scripts/lib/session-env.ts";
-import { type StatePaths, statePaths } from "../../scripts/renovate-agent.ts";
+import { reportLines, type StatePaths, statePaths } from "../../scripts/renovate-agent.ts";
 import { checkoutRoot } from "./checkout.ts";
 import { HOOK_EXIT } from "./hook-io.ts";
 import { claimToday, mainCommonDir } from "./once-a-day.ts";
@@ -31,8 +31,7 @@ const NO_PROMPT = {
 function takeReport(state: StatePaths): string[] {
   const taken = takeFile(state.report);
 
-  // SAFETY: only the run writes this file, renamed into place whole, from a string array.
-  return taken === null ? [] : (JSON.parse(taken) as string[]);
+  return taken === null ? [] : reportLines(taken);
 }
 
 function startRun(root: string, state: StatePaths): void {
