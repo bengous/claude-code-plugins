@@ -52,6 +52,9 @@ const PLAN_DIR = "release-plan";
 
 const CLAUDE_TIMEOUT_MS = 120_000;
 
+/** Not Sonnet: replayed on past bumps, it missed breaking changes the subjects did not flag. */
+export const JUDGE_MODEL = "opus";
+
 const EXAMPLES = 3;
 
 const SYSTEM_PROMPT = `You prepare one plugin's release in a Claude Code plugin marketplace. From the commits since its last release, judge the semver bump level, write the commit summary and, when the schema asks for one, the CHANGELOG section body.
@@ -111,6 +114,10 @@ export interface Drafted {
   readonly plan: ReleasePlan;
   readonly costUsd: number;
 }
+
+export type JudgeEvent =
+  | { readonly kind: "judging"; readonly plugins: readonly MarketplaceName[] }
+  | { readonly kind: "judged"; readonly plugin: MarketplaceName; readonly ms: number };
 
 export interface Sealed {
   readonly path: string;
@@ -354,7 +361,7 @@ export function claudeArgs(wantsBody: boolean): readonly string[] {
     "claude",
     "-p",
     "--model",
-    "opus",
+    JUDGE_MODEL,
     "--output-format",
     "json",
     "--json-schema",
@@ -490,7 +497,7 @@ export async function planRelease(
   repo: PluginDir,
   range: { readonly shipped: CommitId; readonly target: CommitId; readonly head: CommitId },
   date: IsoDate,
-  onJudge: (plugin: MarketplaceName) => void,
+  onJudge: (event: JudgeEvent) => void,
 ): Promise<Drafted> {
   const { shipped, target, head } = range;
   const changes = changesOf(repo, shipped, target);
@@ -501,6 +508,8 @@ export async function planRelease(
     );
   }
 
+  if (changes.length > 0) onJudge({ kind: "judging", plugins: changes.map(({ name }) => name) });
+
   const judged = await Promise.all(
     changes.map(async (change) => {
       const codeLevel = proposedLevel(
@@ -508,9 +517,12 @@ export async function planRelease(
         change.version,
       );
 
-      onJudge(change.name);
+      const started = performance.now();
+      const judgement = await judge(change, codeLevel);
 
-      return { change, codeLevel, judgement: await judge(change, codeLevel) };
+      onJudge({ kind: "judged", plugin: change.name, ms: performance.now() - started });
+
+      return { change, codeLevel, judgement };
     }),
   );
 

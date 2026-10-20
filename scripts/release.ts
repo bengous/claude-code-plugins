@@ -5,11 +5,12 @@
  * push `main`, then tag each plugin that keeps a `CHANGELOG.md` and shipped a new version, on the
  * commit that set it, and publish its GitHub Release.
  *
- *   bun ./scripts/release.ts --dry-run [<ref>]    # judge the bumps, print and seal the plan
- *   bun ./scripts/release.ts --plan <digest>      # apply the sealed plan whose digest was read
+ *   bun ./scripts/release.ts --dry-run [--json] [<ref>]   # judge the bumps, print and seal the plan
+ *   bun ./scripts/release.ts --plan <digest>              # apply the sealed plan whose digest was read
  *
  * The dry-run judges each bump with Claude (`release-plan.ts`) and writes nothing but the plan,
- * sealed under the git directory; `<ref>` (default: origin/dev) may be an older SHA only when
+ * sealed under the git directory; `--json` prints it as one JSON document, for an agent, in place
+ * of the text a person reads. `<ref>` (default: origin/dev) may be an older SHA only when
  * nothing needs a bump. The run applies that plan as it was read: one `chore(<plugin>): x.y.z,
  * <summary>` commit per bump, with its changelog section, made in a temporary worktree where the
  * commit hooks run, pushed to dev, rebased when dev moved by commits the plan does not need to
@@ -23,7 +24,8 @@
 
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, relative } from "node:path";
+import { styleText } from "node:util";
 
 import {
   CHANGELOG,
@@ -44,11 +46,15 @@ import {
 import { type CiOutcome, type Gh, ghCli, type WaitLimits, waitFor } from "./ci-wait.ts";
 import { type PluginDir, pluginDirAt } from "./lib/plugin-sources.ts";
 import {
+  type JudgeEvent,
+  JUDGE_MODEL,
+  type Level,
   localDate,
   loadPlan,
   type PlannedBump,
   planRelease,
   type ReleasePlan,
+  type Sealed,
   sealPlan,
   withSection,
   withVersion,
@@ -69,9 +75,13 @@ const ATTEMPTS = 3;
 const CI_LIMITS: WaitLimits = { timeoutMs: 30 * 60_000, pollMs: 15_000 };
 
 const USAGE = [
-  "Usage: bun ./scripts/release.ts --dry-run [<ref>]   # judge the bumps, print and seal the plan",
-  "       bun ./scripts/release.ts --plan <digest>     # apply the sealed plan",
+  "Usage: bun ./scripts/release.ts --dry-run [--json] [<ref>]   # judge the bumps, print and seal the plan",
+  "       bun ./scripts/release.ts --plan <digest>              # apply the sealed plan",
 ].join("\n");
+
+const MAX_WIDTH = 100;
+
+const LABEL_WIDTH = 8;
 
 /** An annotated tag's name, `<marketplace name>-v<x.y.z>`. */
 export type TagName = string & { readonly __brand: "TagName" };
@@ -113,7 +123,7 @@ export type ShipOutcome =
 
 /** What the command line asks: `--dry-run` anywhere among the arguments, as the landing guard reads it. */
 export type Cli =
-  | { readonly kind: "dry-run"; readonly ref: string | null }
+  | { readonly kind: "dry-run"; readonly ref: string | null; readonly json: boolean }
   | { readonly kind: "apply"; readonly digest: string }
   | { readonly kind: "usage" };
 
@@ -278,11 +288,11 @@ export function release(
 
 export function parseCli(args: readonly string[]): Cli {
   if (args.includes("--dry-run")) {
-    const [ref, ...extra] = args.filter((arg) => arg !== "--dry-run");
+    const [ref, ...extra] = args.filter((arg) => arg !== "--dry-run" && arg !== "--json");
 
     return extra.length > 0 || ref?.startsWith("-") === true
       ? { kind: "usage" }
-      : { kind: "dry-run", ref: ref ?? null };
+      : { kind: "dry-run", ref: ref ?? null, json: args.includes("--json") };
   }
 
   const [option, digest, ...extra] = args;
@@ -569,42 +579,152 @@ export interface Report {
   readonly exit: number;
 }
 
-function describeBump(bump: PlannedBump): readonly string[] {
-  const proposed =
-    bump.codeLevel === bump.level ? "" : ` (the commit subjects propose ${bump.codeLevel})`;
+type Format = Parameters<typeof styleText>[0];
+
+/** How the text a person reads is drawn: its colours, none off a terminal, and the width it folds at. */
+export interface View {
+  readonly paint: (format: Format, text: string) => string;
+  readonly width: number;
+}
+
+export const PLAIN: View = { paint: (_format, text) => text, width: MAX_WIDTH };
+
+const LEVEL_FORMAT: Readonly<Record<Level, Format>> = {
+  patch: "green",
+  minor: "cyan",
+  major: ["magenta", "bold"],
+};
+
+/** The view of a person's terminal; `FORCE_COLOR` keeps the colours through a wrapper that captures stdout. */
+function terminalView(): View {
+  const columns = process.stdout.isTTY
+    ? process.stdout.columns
+    : process.stderr.isTTY
+      ? process.stderr.columns
+      : MAX_WIDTH;
+
+  return {
+    paint: (format, text) => styleText(format, text, { stream: process.stdout }),
+    width: Math.min(columns, MAX_WIDTH),
+  };
+}
+
+/** `text` folded on spaces at `width`, a line's indentation and list marker carried by the lines it folds into. */
+export function folded(text: string, width: number): readonly string[] {
+  return text.split("\n").flatMap((line) => {
+    const lead = /^\s*(?:[-*] )?/u.exec(line)?.[0] ?? "";
+
+    const words = line
+      .slice(lead.length)
+      .split(" ")
+      .filter((word) => word !== "");
+
+    if (words.length === 0) return [line.trimEnd()];
+
+    const hang = " ".repeat(lead.length);
+    const [first = "", ...rest] = words;
+    const lines: string[] = [];
+    let current = `${lead}${first}`;
+
+    for (const word of rest) {
+      if (current.length + 1 + word.length > width) {
+        lines.push(current);
+        current = `${hang}${word}`;
+      } else {
+        current = `${current} ${word}`;
+      }
+    }
+
+    return [...lines, current];
+  });
+}
+
+function labelled(label: string, value: string, view: View): string {
+  return `${view.paint("dim", label.padEnd(LABEL_WIDTH))}${value}`;
+}
+
+function bumpRows(bumps: readonly PlannedBump[], view: View): readonly string[] {
+  const widest = (key: "name" | "from" | "to") =>
+    Math.max(...bumps.map((bump) => bump[key].length));
+
+  const [name, from, to] = [widest("name"), widest("from"), widest("to")];
+
+  return bumps.map((bump) => {
+    const departs =
+      bump.level === bump.codeLevel
+        ? ""
+        : `  ${view.paint("yellow", `⚠ subjects said ${bump.codeLevel}`)}`;
+
+    return `  ${view.paint("bold", bump.name.padEnd(name))}  ${bump.from.padEnd(from)} → ${view.paint("bold", bump.to.padEnd(to))}  ${view.paint(LEVEL_FORMAT[bump.level], bump.level)}${departs}`;
+  });
+}
+
+/** The bump's commit subject, Claude's reason when its level departs from the subjects', and its changelog section. */
+function bumpDetail(bump: PlannedBump, view: View): readonly string[] {
+  const title = `${bump.name} ${bump.to}`;
+  const rule = view.paint("dim", "─".repeat(Math.max(3, view.width - title.length - 4)));
+
+  const why =
+    bump.level === bump.codeLevel
+      ? []
+      : folded(bump.reason, view.width - 7).map(
+          (line, index) => `${index === 0 ? `  ${view.paint("dim", "why")}  ` : "       "}${line}`,
+        );
+
+  const bar = view.paint("dim", "│");
+
+  const section =
+    bump.section === null
+      ? []
+      : [
+          `  ${view.paint("dim", CHANGELOG)}`,
+          ...folded(bump.section.split("\n").slice(1).join("\n").trim(), view.width - 4).map(
+            (line) => (line === "" ? `  ${bar}` : `  ${bar} ${line}`),
+          ),
+        ];
 
   return [
-    `${bump.name} ${bump.from} -> ${bump.to}, ${bump.level}${proposed}`,
+    "",
+    `${view.paint("dim", "──")} ${view.paint("bold", title)} ${rule}`,
     `  ${subjectOf(bump)}`,
-    `  why: ${bump.reason.replaceAll("\n", "\n       ")}`,
-    ...(bump.section === null
-      ? []
-      : bump.section.split("\n").map((line) => (line === "" ? "" : `    ${line}`))),
+    ...why,
+    ...section,
   ];
 }
 
 /** What applying `plan` would do, for a person to confirm; `tags` are those of versions set already. */
-export function describePlan(plan: ReleasePlan, tags: readonly PlannedTag[]): string {
-  const bumpTags = plan.bumps.flatMap(({ name, to, section }) =>
-    section === null ? [] : [`${tagNameOf(name, to)} on its bump commit`],
-  );
+export function describePlan(
+  plan: ReleasePlan,
+  tags: readonly PlannedTag[],
+  view: View = PLAIN,
+): string {
+  const tagLines = [
+    ...tags.map(({ tag, commit, notes }) => {
+      const sections = notes
+        .split("\n")
+        .filter((line) => line.startsWith("## "))
+        .map((line) => line.slice("## ".length));
 
-  const tagLines = tags.flatMap(({ tag, commit, notes }) => [
-    `${tag} on ${short(commit)}, with the sections:`,
-    ...notes
-      .split("\n")
-      .filter((line) => line.startsWith("## "))
-      .map((line) => `  ${line.slice("## ".length)}`),
-  ]);
+      return `${tag} on ${short(commit)}, with the sections ${sections.join(", ")}`;
+    }),
+    ...plan.bumps.flatMap(({ name, to, section }) =>
+      section === null ? [] : [`${tagNameOf(name, to)} on its bump commit`],
+    ),
+  ];
 
   const tagged =
-    tagLines.length + bumpTags.length === 0
-      ? ["no plugin that keeps a changelog changes version: no tag"]
-      : [...tagLines, ...bumpTags];
+    tagLines.length === 0
+      ? [labelled("Tags", "none: no plugin that keeps a changelog changes version", view)]
+      : tagLines.map((line, index) =>
+          index === 0 ? labelled("Tags", line, view) : `${" ".repeat(LABEL_WIDTH)}${line}`,
+        );
 
   return [
-    `main ${short(plan.shipped)} -> ${short(plan.target)}`,
-    ...(plan.bumps.length === 0 ? ["no plugin to bump"] : plan.bumps.flatMap(describeBump)),
+    `${view.paint("bold", "Release")}  main ${short(plan.shipped)} → ${short(plan.target)}`,
+    "",
+    ...(plan.bumps.length === 0 ? ["  no plugin to bump"] : bumpRows(plan.bumps, view)),
+    ...plan.bumps.flatMap((bump) => bumpDetail(bump, view)),
+    "",
     ...tagged,
   ].join("\n");
 }
@@ -656,7 +776,20 @@ export function reportOf(outcome: ShipOutcome): Report {
   }
 }
 
-async function dryRun(repo: PluginDir, ref: string | null): Promise<string> {
+/** A sealed plan with what the dry-run printed beside it. */
+export interface DryRun {
+  readonly plan: ReleasePlan;
+  /** The tags of versions set already. */
+  readonly tags: readonly PlannedTag[];
+  readonly costUsd: number;
+  readonly sealed: Sealed;
+}
+
+async function dryRun(
+  repo: PluginDir,
+  ref: string | null,
+  onJudge: (event: JudgeEvent) => void,
+): Promise<DryRun> {
   const shipped = commitAt(repo, MAIN);
   const head = commitAt(repo, DEFAULT_REF);
   const target = ref === null ? head : commitAt(repo, ref);
@@ -666,7 +799,7 @@ async function dryRun(repo: PluginDir, ref: string | null): Promise<string> {
     repo,
     { shipped, target, head },
     localDate(new Date()),
-    (plugin) => console.error(`release: judging ${plugin} with claude -p --model opus`),
+    onJudge,
   );
 
   for (const { name, to } of plan.bumps) {
@@ -675,15 +808,67 @@ async function dryRun(repo: PluginDir, ref: string | null): Promise<string> {
     if (tagExists(repo, tag)) throw new Error(`${tag} exists already: a tag is never moved`);
   }
 
-  const sealed = sealPlan(repo, plan);
-  const cost = plan.bumps.length === 0 ? [] : [`claude -p cost: $${costUsd.toFixed(2)}`];
+  return { plan, tags, costUsd, sealed: sealPlan(repo, plan) };
+}
+
+/** The dry-run for a person; its last line, `digest: <12 hex>`, uncoloured, is what release-plugins reads. */
+export function describeDryRun(repo: PluginDir, drafted: DryRun, view: View = PLAIN): string {
+  const { plan, tags, costUsd, sealed } = drafted;
+  const inRepo = relative(repo, sealed.path);
+
+  const cost =
+    plan.bumps.length === 0
+      ? []
+      : [labelled("Cost", `$${costUsd.toFixed(2)} (${JUDGE_MODEL} × ${plan.bumps.length})`, view)];
 
   return [
-    describePlan(plan, tags),
+    describePlan(plan, tags, view),
     ...cost,
-    `plan: ${sealed.path}`,
+    labelled("Plan", inRepo.startsWith("..") ? sealed.path : inRepo, view),
     `digest: ${sealed.digest}`,
   ].join("\n");
+}
+
+/** The dry-run for an agent: the sealed plan, each bump's commit subject and tag, and the tags of versions set already. */
+export function dryRunJson(drafted: DryRun): string {
+  const { plan, tags, costUsd, sealed } = drafted;
+
+  return JSON.stringify(
+    {
+      shipped: plan.shipped,
+      target: plan.target,
+      digest: sealed.digest,
+      plan: sealed.path,
+      model: JUDGE_MODEL,
+      costUsd,
+      bumps: plan.bumps.map((bump) => ({
+        ...bump,
+        subject: subjectOf(bump),
+        tag: bump.section === null ? null : tagNameOf(bump.name, bump.to),
+      })),
+      tags: tags.map(({ name, version, tag, commit, notes }) => ({
+        name,
+        version,
+        tag,
+        commit,
+        notes,
+      })),
+    },
+    null,
+    2,
+  );
+}
+
+function progress(line: string): void {
+  console.error(styleText("dim", `· ${line}`, { stream: process.stderr }));
+}
+
+function judgeProgress(event: JudgeEvent): void {
+  progress(
+    event.kind === "judging"
+      ? `judging ${event.plugins.join(", ")} with ${JUDGE_MODEL}`
+      : `${event.plugin} judged in ${(event.ms / 1000).toFixed(1)} s`,
+  );
 }
 
 if (import.meta.main) {
@@ -700,21 +885,25 @@ if (import.meta.main) {
     git(repo, ["fetch", "--quiet", REMOTE]);
 
     if (cli.kind === "dry-run") {
-      console.log(await dryRun(repo, cli.ref));
+      const drafted = await dryRun(repo, cli.ref, judgeProgress);
+
+      console.log(cli.json ? dryRunJson(drafted) : describeDryRun(repo, drafted, terminalView()));
     } else {
       const outcome = await ship(repo, loadPlan(repo, cli.digest), {
         gh: ghCli,
         limits: CI_LIMITS,
-        say: (line) => console.error(`release: ${line}`),
+        say: progress,
       });
 
       const { text, exit } = reportOf(outcome);
 
-      console.log(text);
+      console.log(styleText(exit === 0 ? "green" : "red", text, { stream: process.stdout }));
       process.exitCode = exit;
     }
   } catch (error) {
-    console.error(`release: ${error instanceof Error ? error.message : String(error)}`);
+    const message = `release: ${error instanceof Error ? error.message : String(error)}`;
+
+    console.error(styleText("red", message, { stream: process.stderr }));
     process.exitCode = 1;
   }
 }

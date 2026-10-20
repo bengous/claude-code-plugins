@@ -16,19 +16,37 @@ import { dirname, join } from "node:path";
 import { parse, stringify } from "yaml";
 
 import { releaseScriptOf } from "../agent-hooks/landing.ts";
-import { type CommitId, commitAt } from "./check-plugin-bumps.ts";
+import { type Semver, semverOf } from "./changelog.ts";
+import {
+  type CommitId,
+  commitAt,
+  type MarketplaceName,
+  type SourceDir,
+} from "./check-plugin-bumps.ts";
 import type { Gh } from "./ci-wait.ts";
 import { type PluginDir, pluginDirAt } from "./lib/plugin-sources.ts";
-import { loadPlan, localDate, planRelease, type ReleasePlan, sealPlan } from "./release-plan.ts";
+import {
+  loadPlan,
+  localDate,
+  type PlannedBump,
+  planRelease,
+  type ReleasePlan,
+  sealPlan,
+} from "./release-plan.ts";
 import {
   type Context,
+  describeDryRun,
   describePlan,
+  type DryRun,
+  dryRunJson,
+  folded,
   parseCli,
   plannedTags,
   release,
   reportOf,
   ship,
   type ShipOutcome,
+  type View,
 } from "./release.ts";
 
 let root = "";
@@ -295,10 +313,10 @@ describe("a release", () => {
     expect(
       describePlan({ shipped: shipped(), target: head, bumps: [] }, tags).split("\n").slice(1),
     ).toEqual([
-      "no plugin to bump",
-      `vellum-v0.2.1 on ${setThree.slice(0, 7)}, with the sections:`,
-      "  0.2.1 - 2026-09-26",
-      "  0.2.0 - 2026-09-26",
+      "",
+      "  no plugin to bump",
+      "",
+      `Tags    vellum-v0.2.1 on ${setThree.slice(0, 7)}, with the sections 0.2.1 - 2026-09-26, 0.2.0 - 2026-09-26`,
     ]);
     expect(release(repo, head, tags)).toEqual({ kind: "released", tags });
     expect(git(repo, "rev-parse", "vellum-v0.2.1^{commit}")).toBe(setThree);
@@ -415,19 +433,24 @@ describe("a release with bumps", () => {
       ]);
       expect(readFileSync(join(root, "claude.log"), "utf8")).toBe("unset\nunset\n");
       expect(describePlan(plan, []).split("\n")).toEqual([
-        `main ${shipped().slice(0, 7)} -> ${target.slice(0, 7)}`,
-        "vellum 0.1.0 -> 0.2.0, minor (the commit subjects propose patch)",
+        `Release  main ${shipped().slice(0, 7)} → ${target.slice(0, 7)}`,
+        "",
+        "  vellum  0.1.0 → 0.2.0  minor  ⚠ subjects said patch",
+        "  other   1.0.0 → 1.0.1  patch  ⚠ subjects said minor",
+        "",
+        `── vellum 0.2.0 ${"─".repeat(84)}`,
         "  chore(vellum): 0.2.0, the a module",
-        "  why: a user sees the a module",
-        "    ## 0.2.0 - 2026-10-20",
+        "  why  a user sees the a module",
+        "  CHANGELOG.md",
+        "  │ ### Added",
+        "  │",
+        "  │ - The a module.",
         "",
-        "    ### Added",
-        "",
-        "    - The a module.",
-        "other 1.0.0 -> 1.0.1, patch (the commit subjects propose minor)",
+        `── other 1.0.1 ${"─".repeat(85)}`,
         "  chore(other): 1.0.1, b fixed",
-        "  why: a fix",
-        "vellum-v0.2.0 on its bump commit",
+        "  why  a fix",
+        "",
+        "Tags    vellum-v0.2.0 on its bump commit",
       ]);
 
       const asked: string[] = [];
@@ -950,6 +973,10 @@ describe("the command line", () => {
     [["--dry-run", "a", "b"], "usage"],
     [["--", "--dry-run"], "usage"],
     [["--dry-run=1"], "usage"],
+    [["--dry-run", "--json"], "dry-run"],
+    [["--json", "abc123", "--dry-run"], "dry-run"],
+    [["--json"], "usage"],
+    [["--plan", "0123456789ab", "--json"], "usage"],
     [["--plan", "0123456789ab"], "apply"],
     [["--plan"], "usage"],
     [["abc123"], "usage"],
@@ -967,7 +994,110 @@ describe("the command line", () => {
       kind: "apply",
       digest: "0123456789ab",
     });
-    expect(parseCli(["abc123", "--dry-run"])).toEqual({ kind: "dry-run", ref: "abc123" });
+    expect(parseCli(["abc123", "--dry-run"])).toEqual({
+      kind: "dry-run",
+      ref: "abc123",
+      json: false,
+    });
+    expect(parseCli(["--dry-run", "--json"])).toEqual({ kind: "dry-run", ref: null, json: true });
+  });
+});
+
+function semver(text: string): Semver {
+  const checked = semverOf(text);
+
+  if (checked === null) throw new Error(`not x.y.z: ${text}`);
+
+  return checked;
+}
+
+function drafted(bumps: readonly PlannedBump[]): DryRun {
+  // SAFETY: the brand states a commit id; this one is a literal of the test.
+  const target = "b".repeat(40) as CommitId;
+
+  return {
+    // SAFETY: as above.
+    plan: { shipped: "a".repeat(40) as CommitId, target, bumps },
+    tags: [],
+    costUsd: 0.034,
+    sealed: {
+      path: join(repo, ".git", "release-plan", `${target}.json`),
+      digest: "0123456789ab",
+    },
+  };
+}
+
+describe("the dry-run's output", () => {
+  const bump: PlannedBump = {
+    // SAFETY: the brand states a catalog name; this one is a literal of the test.
+    name: "vellum" as MarketplaceName,
+    // SAFETY: the brand states a directory below the root; this one is a literal of the test.
+    source: "vellum" as SourceDir,
+    from: semver("0.17.9"),
+    to: semver("0.18.0"),
+    codeLevel: "patch",
+    level: "minor",
+    reason: "breaking under 0.x",
+    summary: "only the human starts it",
+    section: "## 0.18.0 - 2026-10-20\n\n### Changed\n\n- Only you start it.",
+  };
+
+  test("shows Claude's reason only when its level departs from the subjects'", () => {
+    const agreed = describePlan(drafted([{ ...bump, codeLevel: "minor" }]).plan, []);
+    const departed = describePlan(drafted([bump]).plan, []);
+
+    expect(agreed).not.toContain("why");
+    expect(agreed).not.toContain("⚠");
+    expect(departed).toContain("  why  breaking under 0.x");
+    expect(departed).toContain("⚠ subjects said patch");
+  });
+
+  test("ends on the digest line release-plugins reads, uncoloured whatever the view paints", () => {
+    const painted: View = { paint: (_format, text) => `<${text}>`, width: 100 };
+    const lines = describeDryRun(repo, drafted([bump]), painted).split("\n");
+
+    expect(lines.at(-1)).toBe("digest: 0123456789ab");
+    expect(lines.at(-2)).toBe(`<Plan    >.git/release-plan/${"b".repeat(40)}.json`);
+    expect(lines.at(-3)).toBe("<Cost    >$0.03 (opus × 1)");
+  });
+
+  test("names a plan sealed outside the repository, as a worktree's is, by its absolute path", () => {
+    const sealed = { path: "/elsewhere/release-plan/b.json", digest: "0123456789ab" };
+
+    expect(
+      describeDryRun(repo, { ...drafted([bump]), sealed })
+        .split("\n")
+        .at(-2),
+    ).toBe("Plan    /elsewhere/release-plan/b.json");
+  });
+
+  test("gives an agent the plan, each bump's subject and tag, and the digest, as JSON", () => {
+    const run = drafted([bump]);
+
+    expect(JSON.parse(dryRunJson(run))).toEqual({
+      shipped: run.plan.shipped,
+      target: run.plan.target,
+      digest: "0123456789ab",
+      plan: run.sealed.path,
+      model: "opus",
+      costUsd: 0.034,
+      bumps: [
+        {
+          ...bump,
+          subject: "chore(vellum): 0.18.0, only the human starts it",
+          tag: "vellum-v0.18.0",
+        },
+      ],
+      tags: [],
+    });
+  });
+
+  test("folds a long line on spaces, a list item's continuation under its text", () => {
+    expect(folded("- one two three four", 10)).toEqual(["- one two", "  three", "  four"]);
+    expect(folded("aaaa bbbb\n\ncccc", 4)).toEqual(["aaaa", "bbbb", "", "cccc"]);
+    expect(folded("unbreakable-token-longer-than-width", 5)).toEqual([
+      "unbreakable-token-longer-than-width",
+    ]);
   });
 });
 
