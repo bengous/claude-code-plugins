@@ -9,6 +9,7 @@ import { write } from "./claude-code-types.fixture.ts";
 import { riskyOf } from "./land.ts";
 import {
   AGENT_ROUNDS,
+  agentModel,
   classify,
   combinedVerdict,
   MAJOR_LABEL,
@@ -447,6 +448,14 @@ beforeEach(() => {
 
 afterEach(() => {
   rmSync(root, { recursive: true, force: true });
+});
+
+describe("agentModel", () => {
+  test("gives a major update to Opus, every other to Sonnet", () => {
+    expect(agentModel(["red", "major"])).toBe("opus");
+    expect(agentModel(["red"])).toBe("sonnet");
+    expect(agentModel(["red", "e2e"])).toBe("sonnet");
+  });
 });
 
 describe("renovate-agent run", () => {

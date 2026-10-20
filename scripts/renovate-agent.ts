@@ -157,6 +157,11 @@ export type Refusals = Readonly<Record<string, number>>;
 
 export const REFUSALS_BEFORE_HUMAN = 2;
 
+/** Opus for a major update, whose breaking changes the repair has to follow; Sonnet for the rest. */
+export function agentModel(reasons: readonly AgentReason[]): "opus" | "sonnet" {
+  return reasons.includes("major") ? "opus" : "sonnet";
+}
+
 /** The outcome to report and the refusal counts once it is recorded. */
 export interface Counted {
   readonly outcome: PrOutcome;
@@ -565,6 +570,7 @@ async function agentRound(
   pr: RenovatePr,
   worktree: string,
   why: string,
+  reasons: readonly AgentReason[],
   { log, settled }: { log: number; settled: Settled },
 ): Promise<void> {
   const prompt = promptFor(
@@ -586,7 +592,7 @@ async function agentRound(
 
   // The sessions the agent starts leave the types pipeline alone, as its own do.
   const agent = await streamed(
-    ["claude", "-p", "--model", "opus", "--permission-mode", "auto", prompt],
+    ["claude", "-p", "--model", agentModel(reasons), "--permission-mode", "auto", prompt],
     worktree,
     log,
     run.progress,
@@ -673,7 +679,7 @@ async function handle(
         }
 
         rounds += 1;
-        await agentRound(run, pr, worktree, why, { log, settled });
+        await agentRound(run, pr, worktree, why, reasons, { log, settled });
       }
 
       settled.heads.push(pr.headRefOid);
