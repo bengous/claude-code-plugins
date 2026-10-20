@@ -396,9 +396,10 @@ jobs:
   # the one job that writes issues, so the suites' jobs keep the read-only token. It runs once any
   # of them ran, red or green, but not on a fork's pull request, whose token cannot write issues.
   # Bookkeeping, never a verdict: the download and the report continue on error, on the steps rather
-  # than the job, since a job's `continue-on-error` still leaves its own check red, which `land.ts`
-  # reads. No concurrency group: GitHub cancels a pending job a third one replaces, and a cancelled
-  # check refuses a landing; two jobs racing can at worst open one test's issue twice.
+  # than the job, since a job's `continue-on-error` still leaves its own check red, which
+  # `gh pr checks` and the pull request show. No concurrency group: GitHub cancels a pending job a
+  # third one replaces, and a cancelled check refuses a landing; two jobs racing can at worst open
+  # one test's issue twice.
   flaky:
     needs: [win32, e2e-window, e2e-win32]
     if: >-
