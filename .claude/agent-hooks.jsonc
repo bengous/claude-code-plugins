@@ -4,7 +4,8 @@
   // Agents push to dev and land on it with scripts/land.ts; main is the human's release. The kit's pre-bash hook
   // refuses the one-way doors this derives. scripts/land.ts lands a change to a `risky` path only with a clean
   // review verdict for its patch (scripts/review-verdict.ts), reading this list from origin/dev: the paths that
-  // move what lands, releases or guards, this file and the gate's own scripts included. Each task takes a worktree
+  // move what lands, releases or guards, this file and the gate's own scripts included, and the lint and format
+  // configuration whose fixes scripts/renovate-agent.ts vouches for without a review. Each task takes a worktree
   // of its own: a session starting in a checkout another session works in is told so.
   "profile": {
     "landing": { "trunk": "dev", "release": "main" },
@@ -14,6 +15,12 @@
         "scripts/release.ts",
         "scripts/review-verdict.ts",
         "scripts/renovate-agent.ts",
+        "scripts/lib/headless-run.ts",
+        ".claude/hooks/renovate-agent.ts",
+        "oxlint.config.ts",
+        ".oxfmtrc.json",
+        "tools/oxlint/local/**",
+        "tools/oxlint/anti-slop/**",
         "scripts/check-e2e-green.ts",
         "scripts/check-plugin-bumps.ts",
         "scripts/ci-wait.ts",
