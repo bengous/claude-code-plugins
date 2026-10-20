@@ -981,6 +981,9 @@ describe("pre-bash where the landing action moves the trunk and the human's word
       "gh api -X POST repositories/1/actions/workflows/release.yml/dispatches -f ref=dev",
       "gh api -X POST repositories/1/issues/12/labels -f 'labels[]=ok-humain'",
       "gh workflow run Release",
+      "gh api -X POST 'repos/o/n/actions/workflows/release.yml/dispatches#x' -f ref=dev",
+      "gh api -X POST 'repos/o/n/issues/13/labels#x' -f 'labels[]=ok-humain'",
+      "gh api -X PATCH 'repos/o/n/git/refs/heads/dev#x' -f sha=abc",
     ]) {
       expect({ command, decision: (await run(command)).decision }).toStrictEqual({
         command,
@@ -989,6 +992,7 @@ describe("pre-bash where the landing action moves the trunk and the human's word
     }
 
     expect((await run("cd /tmp && gh pr edit 12 --add-label ok-humain -R o/n")).stdout).toBe("");
+    expect((await run("gh api -X POST repos/o/n/labels -f name=bug")).stdout).toBe("");
   });
 
   test("refuses a workflow named by an id it cannot match to a file", async () => {

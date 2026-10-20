@@ -1093,7 +1093,7 @@ const NEW_REF = /^repos\/([^/]+)\/([^/]+)\/git\/refs$/u;
 const WORKFLOW_DISPATCH = /^repos\/([^/]+)\/([^/]+)\/actions\/workflows\/([^/]+)\/dispatches$/u;
 
 /** An endpoint that dispatches or labels in a form the guard does not read: by repository id, or another route. */
-const GATED_ENDPOINT = /(?:^repositories\/|\/dispatches$|\/labels$|\/issues\/[^/]+$)/u;
+const GATED_ENDPOINT = /(?:^repositories\/|\/dispatches$|\/(?:issues|pulls)\/[^/]+(?:\/labels)?$)/u;
 
 const ISSUE_LABELS = /^repos\/([^/]+)\/([^/]+)\/issues\/(\d+)\/labels$/u;
 
@@ -1119,7 +1119,7 @@ function apiRepo(owner: string, name: string): string | null {
  */
 function apiDoor(view: View, cwd: string, approvals: boolean): Classification | null {
   const call = apiCallOf(view.unwrapped.argv);
-  const endpoint = (call.endpoint?.text ?? "").replace(/^\//u, "").replace(/\?.*$/u, "");
+  const endpoint = (call.endpoint?.text ?? "").replace(/^\//u, "").replace(/[?#].*$/u, "");
 
   const method = (
     call.method?.text ?? (call.fields.size > 0 || call.bodyFromFile ? "POST" : "GET")
