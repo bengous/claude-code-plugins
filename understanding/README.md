@@ -55,6 +55,9 @@ the numbered steps, each with what checked it. Read-only and user-invoked only.
 /recap why did the push fail?
 ```
 
+Known gaps: the model sometimes shortens a quoted command or inlines a constant in the diagram.
+Not worth a rule unless it misleads a decision.
+
 ### `/didnt-read`
 
 Alias of `/recap steps`: layers 1 and 3. Both commands inject `shared/recap-body.md` with
