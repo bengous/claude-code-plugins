@@ -5,18 +5,20 @@ import { join } from "node:path";
 
 import { stubbedEnv, write } from "./claude-code-types.fixture.ts";
 import {
+  type Holder,
   headerVersion,
   installedVersion,
   needsRun,
   type Outcome,
-  promptFor,
   ROLLING_BRANCH,
-  runState,
   statePaths,
   TOOLS_TYPES_PATH,
   TYPES_PATH,
 } from "./claude-code-types.ts";
 import { holdLock } from "./lib/flock.fixture.ts";
+import { runState as runStateOf } from "./lib/headless-run.ts";
+
+const runState = (paths: Parameters<typeof runStateOf>[0]) => runStateOf<Holder>(paths);
 
 const SCRIPT = join(import.meta.dir, "claude-code-types.ts");
 
@@ -69,18 +71,6 @@ describe("needsRun", () => {
     expect(needsRun({ installed: "2.1.290", devHeader: "2.1.292", rollingHeader: null })).toBe(
       false,
     );
-  });
-});
-
-describe("promptFor", () => {
-  test("fills each placeholder", () => {
-    expect(promptFor("{{from}} → {{to}}", { from: "2.1.292", to: "2.1.294" })).toBe(
-      "2.1.292 → 2.1.294",
-    );
-  });
-
-  test("refuses a placeholder without a value", () => {
-    expect(() => promptFor("{{from}} {{form}}", { from: "2.1.292" })).toThrow("{{form}}");
   });
 });
 

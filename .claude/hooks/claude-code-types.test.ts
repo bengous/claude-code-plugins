@@ -15,11 +15,11 @@ import { stubbedEnv, write } from "../../scripts/claude-code-types.fixture.ts";
 import {
   type Outcome,
   RUN_GUARD,
-  runState,
   statePaths,
   TYPES_PATH,
 } from "../../scripts/claude-code-types.ts";
 import { holdLock } from "../../scripts/lib/flock.fixture.ts";
+import { runState } from "../../scripts/lib/headless-run.ts";
 
 const HOOK = join(import.meta.dir, "claude-code-types.ts");
 

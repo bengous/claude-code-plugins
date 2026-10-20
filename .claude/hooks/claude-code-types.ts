@@ -14,58 +14,35 @@
  */
 
 import { spawn } from "node:child_process";
-import {
-  appendFileSync,
-  closeSync,
-  mkdirSync,
-  openSync,
-  readFileSync,
-  renameSync,
-  rmSync,
-} from "node:fs";
+import { appendFileSync, closeSync, mkdirSync, openSync } from "node:fs";
 import { join } from "node:path";
 
 import { $ } from "bun";
 
 import {
-  commonDirOf,
+  type Holder,
   installedVersion,
   logPath,
   type Outcome,
   outcomeLine,
   RUN_GUARD,
-  runState,
   settledVersion,
   type StatePaths,
   statePaths,
 } from "../../scripts/claude-code-types.ts";
+import { commonDirOf, runState, takeFile } from "../../scripts/lib/headless-run.ts";
 import { withoutSessionIdentity } from "../../scripts/lib/session-env.ts";
 import { checkoutRoot } from "./checkout.ts";
 import { HOOK_EXIT } from "./hook-io.ts";
 
 const SCRIPT = join(import.meta.dir, "../../scripts/claude-code-types.ts");
 
-function isErrnoException(cause: unknown): cause is NodeJS.ErrnoException {
-  return cause instanceof Error && "code" in cause;
-}
-
-/** The outcome, taken by one session alone: renamed first, so a second session finds none. */
+/** The outcome, taken by one session alone. */
 function takeOutcome(file: string): Outcome | null {
-  const taken = `${file}.${process.pid}`;
+  const taken = takeFile(file);
 
-  try {
-    renameSync(file, taken);
-  } catch (error) {
-    if (isErrnoException(error) && error.code === "ENOENT") return null;
-    throw error;
-  }
-
-  try {
-    // SAFETY: only the pipeline writes this file, renamed into place whole, from an Outcome.
-    return JSON.parse(readFileSync(taken, "utf8")) as Outcome;
-  } finally {
-    rmSync(taken, { force: true });
-  }
+  // SAFETY: only the pipeline writes this file, renamed into place whole, from an Outcome.
+  return taken === null ? null : (JSON.parse(taken) as Outcome);
 }
 
 function runEnv(): NodeJS.ProcessEnv {
@@ -74,7 +51,7 @@ function runEnv(): NodeJS.ProcessEnv {
 
 /** The line about the run going or started now; null when the installed version is settled. */
 async function launchLine(root: string, state: StatePaths): Promise<string | null> {
-  const run = runState(state);
+  const run = runState<Holder>(state);
 
   if (run.kind === "running") {
     const { holder } = run;

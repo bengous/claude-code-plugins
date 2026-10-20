@@ -10,20 +10,12 @@
  */
 
 import { spawn } from "node:child_process";
-import {
-  appendFileSync,
-  closeSync,
-  mkdirSync,
-  openSync,
-  readFileSync,
-  writeFileSync,
-} from "node:fs";
+import { appendFileSync, closeSync, openSync } from "node:fs";
 import { join } from "node:path";
-
-import { $ } from "bun";
 
 import { checkoutRoot } from "./checkout.ts";
 import { HOOK_EXIT } from "./hook-io.ts";
+import { claimToday, mainCommonDir } from "./once-a-day.ts";
 
 const SCRIPT = join(import.meta.dir, "../../git-sweep/scripts/auto-sweep.ts");
 
@@ -41,41 +33,6 @@ export function sweepPaths(commonDir: string): SweepPaths {
   const dir = join(commonDir, "auto-sweep");
 
   return { dir, day: join(dir, "day"), log: join(dir, "sweep.log") };
-}
-
-const pad = (value: number): string => String(value).padStart(2, "0");
-
-/** The local calendar day, `YYYY-MM-DD`. */
-export function dayOf(date: Date): string {
-  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
-}
-
-function isErrnoException(cause: unknown): cause is NodeJS.ErrnoException {
-  return cause instanceof Error && "code" in cause;
-}
-
-function lastDay(file: string): string | null {
-  try {
-    return readFileSync(file, "utf8").trim();
-  } catch (error) {
-    if (isErrnoException(error) && error.code === "ENOENT") return null;
-    throw error;
-  }
-}
-
-/** The common dir when `root` is the main worktree, null in a linked one. */
-async function mainCommonDir(root: string): Promise<string | null> {
-  const [gitDir, commonDir] = (
-    await $`git -C ${root} rev-parse --path-format=absolute --git-dir --git-common-dir`.text()
-  )
-    .trim()
-    .split("\n");
-
-  if (gitDir === undefined || commonDir === undefined) {
-    throw new Error(`git rev-parse in ${root} printed no git dir and common dir`);
-  }
-
-  return gitDir === commonDir ? commonDir : null;
 }
 
 function startSweep(root: string, paths: SweepPaths): void {
@@ -111,12 +68,9 @@ async function sessionLine(rawInput: string): Promise<string | null> {
 
   if (commonDir === null) return null;
   const paths = sweepPaths(commonDir);
-  const today = dayOf(new Date());
 
-  if (lastDay(paths.day) === today) return null;
+  if (!claimToday(paths.day)) return null;
 
-  mkdirSync(paths.dir, { recursive: true });
-  writeFileSync(paths.day, today);
   startSweep(root, paths);
 
   return `auto-sweep: sweeping local branches and agent worktrees against ${BASE} in the background, log: ${paths.log}`;

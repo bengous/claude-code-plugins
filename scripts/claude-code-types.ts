@@ -32,7 +32,6 @@ import {
   mkdirSync,
   openSync,
   readFileSync,
-  renameSync,
   rmSync,
   writeFileSync,
   writeSync,
@@ -44,9 +43,24 @@ import { join } from "node:path";
 import type { Subprocess } from "bun";
 
 import { isE2ePath } from "./check-e2e-green.ts";
-import { tryLock, unlock } from "./lib/flock.ts";
+import {
+  command,
+  commonDirOf,
+  gh,
+  git,
+  heldWork,
+  lastLine,
+  logged,
+  notify,
+  probeSigning,
+  promptFor,
+  SIGNING_FAILED,
+  STOP_SIGNALS,
+  takeRunLock,
+  worktreesOf,
+  writeWhole,
+} from "./lib/headless-run.ts";
 import { hooksModulePlugins } from "./lib/hooks-modules.ts";
-import { pluginDirAt, readWorktrees } from "./lib/plugin-sources.ts";
 
 export const TYPES_PATH = "vellum/types/claude-code.d.ts";
 
@@ -66,15 +80,7 @@ const HEADER_PATTERN = /^\/\/ Written by Claude Code (\S+)\.$/u;
 
 const VERSION_PATTERN = /^(\S+) \(Claude Code\)$/u;
 
-const LOCK_TRIES = 10;
-
-const LOCK_PAUSE_MS = 100;
-
 const REPORT_LINES = 60;
-
-// git's words when gpg cannot sign ("error: gpg failed to sign the data:");
-// probeSigning catches every format before the first commit.
-const SIGNING_FAILED = /gpg failed to sign the data/u;
 
 const EMPTY_MOD = {
   ".claude-plugin/plugin.json": JSON.stringify({ name: "plugin-types", version: "0.0.0" }),
@@ -142,9 +148,6 @@ export interface Holder {
   version: string;
 }
 
-/** A run holds the lock; its holder is null for the instant between its lock and its holder file. */
-export type RunState = { kind: "idle" } | { kind: "running"; holder: Holder | null };
-
 export interface StatePaths {
   dir: string;
   lock: string;
@@ -157,12 +160,6 @@ export interface StatePaths {
 
 /** From the agent on, a failure has spent the run's cost: retrying it at every session would spend it again. */
 const SETTLING_STEPS: ReadonlySet<Step> = new Set(["agent", "verify", "push", "pr"]);
-
-interface Result {
-  code: number;
-  out: string;
-  err: string;
-}
 
 interface OpenPullRequest {
   number: number;
@@ -249,59 +246,6 @@ export function outcomeLine(outcome: Outcome): string {
   }
 }
 
-/** Fills each `{{name}}` of the template; a name without a value is a typo, refused. */
-export function promptFor(template: string, values: Readonly<Record<string, string>>): string {
-  return template.replaceAll(/\{\{(\w+)\}\}/gu, (_, name: string) => {
-    const value = values[name];
-
-    if (value === undefined) throw new Error(`${PROMPT}: no value for {{${name}}}`);
-
-    return value;
-  });
-}
-
-/** A command's result; a binary missing from PATH answers 127, as a shell does. */
-function command(args: readonly string[], cwd: string): Result {
-  try {
-    const result = Bun.spawnSync([...args], {
-      cwd,
-      stdin: "ignore",
-      stdout: "pipe",
-      stderr: "pipe",
-    });
-
-    return { code: result.exitCode, out: result.stdout.toString(), err: result.stderr.toString() };
-  } catch (error) {
-    return {
-      code: 127,
-      out: "",
-      err: `${args[0]}: ${error instanceof Error ? error.message : String(error)}`,
-    };
-  }
-}
-
-function git(cwd: string, ...args: string[]): string {
-  const result = command(["git", ...args], cwd);
-
-  if (result.code !== 0) {
-    throw new Error(`git ${args.join(" ")}: ${`${result.err}${result.out}`.trim()}`);
-  }
-
-  return result.out.trimEnd();
-}
-
-function gh(cwd: string, ...args: string[]): string {
-  const result = command(["gh", ...args], cwd);
-
-  if (result.code !== 0) throw new Error(`gh ${args.join(" ")}: ${result.err.trim()}`);
-
-  return result.out.trim();
-}
-
-export function commonDirOf(cwd: string): string {
-  return git(cwd, "rev-parse", "--path-format=absolute", "--git-common-dir");
-}
-
 /** The version in the types header at `ref`, or null when the ref or the file is not there. */
 export function refHeader(cwd: string, ref: string): string | null {
   const object = `${ref}:${TYPES_PATH}`;
@@ -324,65 +268,6 @@ function fileHeader(root: string): string {
 /** The version the last settling run ended for, which no session start runs again. */
 export function settledVersion(file: string): string | null {
   return existsSync(file) ? readFileSync(file, "utf8").trim() : null;
-}
-
-/** Writes `content` beside `file`, then renames it into place, so a reader never meets it half-written. */
-function writeWhole(file: string, content: string): void {
-  const draft = `${file}.${process.pid}`;
-  writeFileSync(draft, content);
-  renameSync(draft, file);
-}
-
-/**
- * Whether a run holds the lock: a shared lock taken for an instant tells,
- * the kernel answering for the holder, alive or not.
- */
-export function runState(state: StatePaths): RunState {
-  if (!existsSync(state.lock)) return { kind: "idle" };
-  const fd = openSync(state.lock, "r");
-
-  try {
-    if (tryLock(fd, "shared")) {
-      unlock(fd);
-
-      return { kind: "idle" };
-    }
-
-    // SAFETY: only takeRunLock writes this file, whole, from a Holder.
-    const holder = existsSync(state.holder)
-      ? (JSON.parse(readFileSync(state.holder, "utf8")) as Holder)
-      : null;
-
-    return { kind: "running", holder };
-  } finally {
-    closeSync(fd);
-  }
-}
-
-/**
- * Takes the run's lock for `version`: the descriptor the run keeps open until
- * it exits, null while another run holds the lock. The file itself is never
- * removed: a run that opened it before the removal and one that created it
- * after would each hold a lock of their own.
- */
-function takeRunLock(state: StatePaths, version: string): number | null {
-  const fd = openSync(state.lock, "a");
-
-  // A session start's check holds the lock shared for an instant.
-  for (let tries = 1; !tryLock(fd, "exclusive"); tries++) {
-    if (tries === LOCK_TRIES) {
-      closeSync(fd);
-
-      return null;
-    }
-
-    Bun.sleepSync(LOCK_PAUSE_MS);
-  }
-
-  const holder: Holder = { pid: process.pid, startedAt: new Date().toISOString(), version };
-  writeWhole(state.holder, JSON.stringify(holder));
-
-  return fd;
 }
 
 /** How the session ended on its own, or null while it runs. */
@@ -525,14 +410,6 @@ export async function regenerate(
   }
 }
 
-async function worktreesOf(cwd: string) {
-  const root = pluginDirAt(cwd);
-
-  if (root === null) throw new Error(`${cwd} is no directory`);
-
-  return await readWorktrees(root);
-}
-
 async function worktreePath(cwd: string): Promise<string> {
   return `${(await worktreesOf(cwd)).main}.wt/claude-code-types`;
 }
@@ -584,78 +461,6 @@ async function prepareWorktree(cwd: string, path: string, live: boolean): Promis
   git(path, "reset", "--quiet", "--hard", BASE);
 
   return dropped;
-}
-
-/** What a worktree holds that its remote does not: changes, or commits pushed nowhere; null when nothing. */
-function heldWork(path: string): string | null {
-  const changes = git(path, "status", "--porcelain");
-
-  if (changes !== "") return `uncommitted changes (${changes.split("\n").length})`;
-  const unpushed = git(path, "rev-list", "--count", "HEAD", "--not", "--remotes=origin");
-
-  return unpushed === "0" ? null : `${unpushed} commits pushed nowhere`;
-}
-
-function lastLine({ out, err }: Result): string {
-  return (
-    `${out}${err}`
-      .trimEnd()
-      .split("\n")
-      .findLast((line) => line.trim() !== "") ?? ""
-  );
-}
-
-/**
- * Fails fast when commits cannot be signed: a locked key would otherwise fail
- * the types commit as a pre-commit refusal, and every commit of the agent
- * after it. The probe signs nothing it keeps, and never asks for a
- * passphrase: a detached run has nobody to type it.
- */
-function probeSigning(cwd: string): void {
-  if (command(["git", "config", "--bool", "commit.gpgsign"], cwd).out.trim() !== "true") return;
-  const config = (key: string) => command(["git", "config", key], cwd).out.trim();
-  const format = config("gpg.format") || "openpgp";
-
-  const probe =
-    format === "openpgp"
-      ? spawnProbe(cwd, [
-          config("gpg.program") || "gpg",
-          "--batch",
-          "--pinentry-mode",
-          "error",
-          ...(config("user.signingkey") === "" ? [] : ["--local-user", config("user.signingkey")]),
-          "--sign",
-          "--output",
-          "/dev/null",
-        ])
-      : command(
-          [
-            "git",
-            "commit-tree",
-            "-S",
-            "-m",
-            "signing probe",
-            git(cwd, "hash-object", "-t", "tree", "/dev/null"),
-          ],
-          cwd,
-        );
-
-  if (probe.code !== 0) {
-    throw new Error(
-      `commits cannot be signed (${lastLine(probe)}): unlock the ${format} key, for instance by signing a commit by hand, and the next session start retries`,
-    );
-  }
-}
-
-function spawnProbe(cwd: string, args: readonly string[]): Result {
-  const result = Bun.spawnSync([...args], {
-    cwd,
-    stdin: new TextEncoder().encode("signing probe\n"),
-    stdout: "pipe",
-    stderr: "pipe",
-  });
-
-  return { code: result.exitCode, out: result.stdout.toString(), err: result.stderr.toString() };
 }
 
 async function install(worktree: string, run: { log: number; progress: Progress }): Promise<void> {
@@ -773,30 +578,6 @@ interface Progress {
   child: Subprocess | null;
 }
 
-/** Runs a command with its output appended to the log; answers its exit code. */
-async function logged(
-  args: readonly string[],
-  cwd: string,
-  run: { log: number; progress: Progress },
-  env: Record<string, string> = {},
-): Promise<number> {
-  const child = Bun.spawn([...args], {
-    cwd,
-    env: { ...process.env, ...env },
-    stdin: "ignore",
-    stdout: run.log,
-    stderr: run.log,
-  });
-
-  run.progress.child = child;
-
-  try {
-    return await child.exited;
-  } finally {
-    run.progress.child = null;
-  }
-}
-
 /** Opens the pull request, or updates the open one; answers its URL. */
 function publish(worktree: string, open: OpenPullRequest | null, to: string, body: string): string {
   const title = `chore(vellum): types from Claude Code ${to}`;
@@ -890,16 +671,20 @@ async function pipeline(run: Run): Promise<Outcome> {
   enter("agent");
   rmSync(state.body, { force: true });
 
-  const prompt = promptFor(readFileSync(PROMPT, "utf8"), {
-    from: devHeader,
-    to: installed,
-    worktree,
-    modules: (await hooksModulePlugins(worktree)).join(", "),
-    body: state.body,
-    types,
-    dropped: droppedNote(dropped),
-    previous: previousNote(open),
-  });
+  const prompt = promptFor(
+    readFileSync(PROMPT, "utf8"),
+    {
+      from: devHeader,
+      to: installed,
+      worktree,
+      modules: (await hooksModulePlugins(worktree)).join(", "),
+      body: state.body,
+      types,
+      dropped: droppedNote(dropped),
+      previous: previousNote(open),
+    },
+    PROMPT,
+  );
 
   const agent = await logged(
     ["claude", "-p", "--model", "opus", "--permission-mode", "auto", prompt],
@@ -930,23 +715,6 @@ async function pipeline(run: Run): Promise<Outcome> {
   return { kind: "pr", url, from: devHeader, to: installed, created: open === null };
 }
 
-function notify(outcome: Outcome, log: number): void {
-  const result = command(
-    [
-      "notify-send",
-      "-a",
-      "Claude Code types",
-      "-u",
-      outcome.kind === "failed" ? "critical" : "normal",
-      "Claude Code types",
-      outcomeLine(outcome),
-    ],
-    process.cwd(),
-  );
-
-  if (result.code !== 0) writeSync(log, `notify-send exited ${result.code}: ${result.err}\n`);
-}
-
 /** The outcome of a run that threw `reason`: stopped when a signal asked it to, else failed. */
 function endOf(reason: string, run: Run, logFile: string): Outcome {
   const { progress } = run;
@@ -975,8 +743,6 @@ function endOf(reason: string, run: Run, logFile: string): Outcome {
   };
 }
 
-const STOP_SIGNALS: readonly NodeJS.Signals[] = ["SIGTERM", "SIGINT", "SIGHUP"];
-
 async function runPipeline(start: string): Promise<void> {
   // Every step runs from the main checkout: a run started inside a worktree it
   // recreates would lose its own working directory.
@@ -985,7 +751,14 @@ async function runPipeline(start: string): Promise<void> {
   const state = statePaths(commonDirOf(cwd));
   const installed = installedVersion(command(["claude", "--version"], cwd).out);
   mkdirSync(state.dir, { recursive: true });
-  const lock = takeRunLock(state, installed);
+
+  const holder: Holder = {
+    pid: process.pid,
+    startedAt: new Date().toISOString(),
+    version: installed,
+  };
+
+  const lock = takeRunLock(state, holder);
 
   if (lock === null) {
     console.error(`claude-code-types: a live run holds ${state.lock}`);
@@ -1029,7 +802,7 @@ async function runPipeline(start: string): Promise<void> {
   if (settles(outcome)) writeFileSync(state.settled, installed);
 
   if (outcome.kind === "pr" || (outcome.kind === "failed" && settles(outcome))) {
-    notify(outcome, log);
+    notify("Claude Code types", outcomeLine(outcome), outcome.kind === "failed", log);
   }
 
   closeSync(log);

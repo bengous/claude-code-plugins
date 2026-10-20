@@ -3,7 +3,8 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { dayOf, sweepPaths } from "./auto-sweep.ts";
+import { sweepPaths } from "./auto-sweep.ts";
+import { dayOf } from "./once-a-day.ts";
 
 const HOOK = join(import.meta.dir, "auto-sweep.ts");
 
