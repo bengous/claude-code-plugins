@@ -38,7 +38,8 @@ Explain the reply as a system, not as a story. Pick the representation that fits
 - A comparison or a set of options: a table, recommended option first.
 - Plain reasoning: three to five sentences, each one idea.
 
-One representation. Do not add a second one to be safe. Use the same names the code uses.
+One representation. Do not add a second one to be safe: a table or a worked example under the
+pseudocode is a second one. Use the same names the code uses.
 
 ## Layer 3: the steps
 
@@ -53,6 +54,9 @@ End with what is still open: errors left, assumptions the reply made, anything i
 - Write in the user's language, in the active voice, with short sentences. The output style governs
   the prose; this skill governs the order.
 - Each layer stands alone. The user may stop after layer 1.
-- Never invent a decision to fill layer 1. "Nothing waits for you" is a valid layer 1.
-- Never paraphrase an error message, a path or a command. Quote them.
+- Never invent a decision to fill layer 1. It holds the decisions the last reply put to the user,
+  and those its own facts force, such as a blocked step to approve. A risk you spot yourself goes
+  under what is still open. "Nothing waits for you" is a valid layer 1.
+- Never paraphrase an error message, a path or a command. Quote them from the tool calls and their
+  results, not from the reply's account of them.
 - When the last reply was itself wrong or incomplete, say so in layer 1, before the decision.
