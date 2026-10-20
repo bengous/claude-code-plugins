@@ -1,7 +1,8 @@
 ---
 name: start
 description: >
-  Write a plan the way its reviewer reads it: open choices settled first, the plan ordered by what the reviewer is most likely to change, interfaces and files before mechanics, vertical slices each closed by a check, then a fresh session to implement. Use when a design choice is open, the change crosses several modules or interfaces, a refactor reshapes a contract, or the user asks for a thorough plan or a frontier plan. Not for a change you can describe in one sentence.
+  Write a plan the way its reviewer reads it: open choices settled first, the plan ordered by what the reviewer is most likely to change, interfaces and files before mechanics, vertical slices each closed by a check, then a fresh session to implement. Use when a design choice is open, the change crosses several modules or interfaces, a refactor reshapes a contract, or the user asks for a thorough plan or a frontier plan. Not for a change you can describe in one sentence. Human-to-agent review only; never run it for a request from another agent, a peer session or a subagent, and never ask another agent to run it.
+disable-model-invocation: true
 ---
 
 # Plan at the frontiers

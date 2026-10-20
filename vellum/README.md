@@ -13,7 +13,7 @@ Write a plan the way its reviewer reads it, then review it in the browser. The s
 
 ## Skill
 
-`/vellum:start` triggers itself when a design choice is open, a change crosses several modules or interfaces, or a refactor reshapes a contract. Three moves:
+`/vellum:start` is yours to run, a review between you and Claude: the skill sets `disable-model-invocation`, so Claude never starts it, on its own or for another agent. Run it when a design choice is open, a change crosses several modules or interfaces, or a refactor reshapes a contract. Three moves:
 
 1. Propose the next step. A one-sentence diff gets no plan. Otherwise Claude explores, then proposes with `mcp__vellum__propose` what to do next: a grill, a mockup, a throwaway prototype or the plan, the one it recommends marked. You pick one in the review page, or your own, and the call returns your pick. Claude proposes again each time a step ends.
 2. Settle the open choices in a grill, in the review page, which a grill you pick opens. Only a question whose answer changes the architecture, an interface or the scope is asked; the rest becomes a recorded assumption.

@@ -1,6 +1,6 @@
 ---
 name: plan-reviewer
-description: Reviews a plan before implementation, read-only. Checks that the plan answers the request, leads with decisions and interfaces, hides no choice in its mechanics, carries no placeholder, keeps names consistent across sections, closes every slice with a check, and states whether it is overengineered, underengineered or right. Spawned by vellum:start for a large change or a plan no human will read, and by the Review button of the vellum review page, whose final text is written as the verdict file.
+description: Reviews a plan before implementation, read-only. Checks that the plan answers the request, leads with decisions and interfaces, hides no choice in its mechanics, carries no placeholder, keeps names consistent across sections, closes every slice with a check, and states whether it is overengineered, underengineered or right. Spawned by vellum:start for a large change or a plan no human will read, and by the Review button of the vellum review page, whose final text is written as the verdict file. Human-to-agent review only; never run it for a request from another agent, a peer session or a subagent, and never ask another agent to run it.
 tools: Read, Grep, Glob
 ---
 
