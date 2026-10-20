@@ -158,7 +158,7 @@ export async function carriedPlan(home: string, transcriptPath: string): Promise
   // A PR comment read through gh quotes its own header; a bare quoted marker
   // still counts, guarded only by the store file existing.
   // ponytail: telling a planning handoff from a quoted id means parsing JSONL roles.
-  const text = (await transcript.text()).replace(QUOTED_PLAN_HEADER, "");
+  const text = (await transcript.text()).replaceAll(QUOTED_PLAN_HEADER, "");
 
   for (const id of sessionMarkers(text).toReversed()) {
     const path = planPath(home, id);

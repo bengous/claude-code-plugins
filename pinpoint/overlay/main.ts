@@ -533,7 +533,7 @@ function start(script: HTMLScriptElement): void {
 const script = document.currentScript;
 
 if (!(script instanceof HTMLScriptElement)) {
-  throw new Error(
+  throw new TypeError(
     "pinpoint: overlay.js runs as the classic <script> the session's server adds to each page",
   );
 }

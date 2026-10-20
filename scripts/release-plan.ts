@@ -456,7 +456,7 @@ export function withVersion(manifest: string, from: Semver, to: Semver, file: st
 
   if (found !== 1) throw new Error(`${file}: ${found} "version": "${from}" fields, not one`);
 
-  return manifest.replace(field, `$1"${to}"`);
+  return manifest.replaceAll(field, `$1"${to}"`);
 }
 
 /** The section Claude's body makes, refused unless the changelog then parses and holds `to`. */
