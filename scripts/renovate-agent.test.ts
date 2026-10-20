@@ -12,16 +12,24 @@ import {
   agentModel,
   classify,
   combinedVerdict,
+  fixerCommitMessage,
+  fixerVerdict,
+  fixerVerdictWhy,
   MAJOR_LABEL,
   outcomeLine,
   parsePrList,
+  prLogPath,
+  type RanFixer,
   recordHandled,
   REFUSALS_BEFORE_HUMAN,
+  RENOVATE_EMAIL,
   type RenovatePr,
   reportLines,
   type RiskyPath,
   statePaths,
+  versionOf,
 } from "./renovate-agent.ts";
+import { patchIdOf, short, verdictLine, verdictsOf } from "./review-verdict.ts";
 
 const SCRIPT = join(import.meta.dir, "renovate-agent.ts");
 
@@ -160,6 +168,123 @@ describe("parsePrList", () => {
   });
 });
 
+const FIXERS: readonly RanFixer[] = [
+  { name: "oxlint", version: "1.89.0", command: "bun x oxlint --fix" },
+  { name: "oxfmt", version: "0.73.0", command: "bun run fmt" },
+];
+
+const FIXER_SHA = "f".repeat(40);
+
+const renovateCommit = { sha: SHA, author: RENOVATE_EMAIL };
+
+const scriptsRisky: RiskyPath = (path) => path.startsWith("scripts/");
+
+describe("fixerVerdict", () => {
+  const fixed = ["scripts/release-plan.ts", "pinpoint/overlay/main.ts"];
+
+  test("records for a repair touching a risky path on a branch of Renovate's commits and the fixers' alone", () => {
+    expect(
+      fixerVerdict({
+        commits: [
+          { sha: FIXER_SHA, author: "t@t" },
+          renovateCommit,
+          { ...renovateCommit, sha: "b".repeat(40) },
+        ],
+        fixer: FIXER_SHA,
+        fixed,
+        isRisky: scriptsRisky,
+      }),
+    ).toEqual({ kind: "record", risky: ["scripts/release-plan.ts"] });
+  });
+
+  test("records nothing for a repair off the risky paths: land.ts needs no verdict", () => {
+    expect(
+      fixerVerdict({
+        commits: [{ sha: FIXER_SHA, author: "t@t" }, renovateCommit],
+        fixer: FIXER_SHA,
+        fixed,
+        isRisky: NOTHING_RISKY,
+      }).kind,
+    ).toBe("none");
+  });
+
+  test("records nothing when the branch holds a commit that is not Renovate's under the fixers'", () => {
+    const verdict = fixerVerdict({
+      commits: [
+        { sha: FIXER_SHA, author: "t@t" },
+        { sha: "c".repeat(40), author: "t@t" },
+        renovateCommit,
+      ],
+      fixer: FIXER_SHA,
+      fixed,
+      isRisky: scriptsRisky,
+    });
+
+    expect(verdict).toEqual({
+      kind: "none",
+      why: `the branch holds cccccccc by t@t besides Renovate's commits and the fixers' ${short(FIXER_SHA)}`,
+    });
+  });
+
+  test("records nothing when the fixers' commit is not the branch's head, or holds no Renovate commit", () => {
+    expect(
+      fixerVerdict({
+        commits: [
+          { sha: "c".repeat(40), author: "t@t" },
+          { sha: FIXER_SHA, author: "t@t" },
+          renovateCommit,
+        ],
+        fixer: FIXER_SHA,
+        fixed,
+        isRisky: scriptsRisky,
+      }).kind,
+    ).toBe("none");
+
+    expect(
+      fixerVerdict({
+        commits: [{ sha: FIXER_SHA, author: "t@t" }],
+        fixer: FIXER_SHA,
+        fixed,
+        isRisky: scriptsRisky,
+      }).kind,
+    ).toBe("none");
+  });
+});
+
+describe("fixerVerdictWhy", () => {
+  test("says no review was made and names the fixers, their versions and Renovate's head", () => {
+    const why = fixerVerdictWhy(FIXERS, SHA);
+
+    expect(why).toStartWith("No review:");
+    expect(why).toContain("oxlint 1.89.0 (`bun x oxlint --fix`)");
+    expect(why).toContain("oxfmt 0.73.0 (`bun run fmt`)");
+    expect(why).toContain(`Renovate's head ${SHA}`);
+    expect(why).toContain("while its patch against `origin/dev` stays the same");
+  });
+});
+
+describe("fixerCommitMessage", () => {
+  test("names each fixer with its version, its command and the head it ran on", () => {
+    const message = fixerCommitMessage(FIXERS, SHA);
+
+    expect(message.split("\n")[0]).toBe(
+      "fix(lint): apply the fixes of oxlint 1.89.0 and oxfmt 0.73.0",
+    );
+    expect(message).toContain("`bun x oxlint --fix`, then `bun run fmt`");
+    expect(message).toContain(SHA);
+  });
+});
+
+describe("versionOf", () => {
+  test("reads the version a tool's --version prints", () => {
+    expect(versionOf("Version: 1.89.0\n")).toBe("1.89.0");
+  });
+
+  test("throws on an output that names no version", () => {
+    expect(() => versionOf("error: not found\n")).toThrow("no version in");
+  });
+});
+
 describe("outcomeLine", () => {
   test("names the log, the kept worktree and the pull request of a failure", () => {
     expect(
@@ -243,6 +368,7 @@ set -euo pipefail
 stub="$(dirname "$0")/../stub"
 echo "$*" >>"$stub/gh-calls"
 if [[ "$1 $2" == "pr list" ]]; then cat "$stub/prs.json"; exit 0; fi
+if [[ "$1 $2" == "pr comment" ]]; then cat >"$stub/pr-comment"; exit 0; fi
 if [[ "$1" == api && "$*" =~ head_sha=([0-9a-f]+)\\&event=([a-z_]+) ]]; then
   runs="$stub/runs-\${BASH_REMATCH[1]}-\${BASH_REMATCH[2]}"
   if [[ -f $runs ]]; then cat "$runs"; fi
@@ -268,13 +394,20 @@ case "$(cat "$stub/agent-mode")" in
 esac
 `;
 
-// Stands in for the installs and for land.ts, whose verdicts stub/land-exits gives one per call:
+// Stands in for the installs, the fixers and land.ts. oxlint's fixes append a line to each path
+// stub/fixer-edits lists. land.ts's verdicts stub/land-exits gives one per call:
 // 0 lands, red and review refuse, foreign first pushes a commit of someone else's to the branch,
 // hold waits on a child of its own, as land.ts waits on origin/dev's copy.
 const BUN_STUB = `#!/usr/bin/env bash
 stub="$(dirname "$0")/../stub"
 echo "$PWD $*" >>"$stub/bun-calls"
 if [[ "$1" == install && -f $stub/install-fails ]]; then exit 1; fi
+if [[ "$1 $2 $3" == "x oxlint --version" ]]; then echo "Version: 9.9.1"; exit 0; fi
+if [[ "$1 $2 $3" == "x oxfmt --version" ]]; then echo "Version: 9.9.2"; exit 0; fi
+if [[ "$1 $2 $3" == "x oxlint --fix" && -f $stub/fixer-edits ]]; then
+  while read -r path; do echo fixed >>"$path"; done <"$stub/fixer-edits"
+  exit 0
+fi
 if [[ "$1" == ./scripts/land.ts ]]; then
   exits="$stub/land-exits"
   verdict="$(head -n1 "$exits")"
@@ -301,6 +434,8 @@ fi
 const NOTIFY_STUB = `#!/usr/bin/env bash
 echo "$*" >>"$(dirname "$0")/../stub/notify-calls"
 `;
+
+const RISKY_PROFILE = '{ "profile": { "review": { "risky": ["scripts/**"] } } }\n';
 
 let root = "";
 
@@ -435,12 +570,22 @@ beforeEach(() => {
   git(project, "init", "-q", "-b", "dev");
   git(project, "remote", "add", "origin", origin);
   write(join(project, "package.json"), '{"devDependencies":{"x":"1.2.2"}}\n');
+  write(join(project, "scripts", "tool.ts"), "export {};\n");
+  write(join(project, ".claude", "agent-hooks.jsonc"), RISKY_PROFILE);
   git(project, "add", "-A");
   git(project, "commit", "-qm", "initial commit");
   git(project, "push", "-q", "origin", "dev");
   git(project, "switch", "-qc", "renovate/x-1.x");
   write(join(project, "package.json"), '{"devDependencies":{"x":"1.2.3"}}\n');
-  git(project, "commit", "-qam", "chore(deps): update dependency x to v1.2.3");
+
+  git(
+    project,
+    "commit",
+    "-qam",
+    "chore(deps): update dependency x to v1.2.3",
+    `--author=renovate[bot] <${RENOVATE_EMAIL}>`,
+  );
+
   git(project, "push", "-q", "origin", "renovate/x-1.x");
   git(project, "switch", "-q", "dev");
   git(project, "branch", "-qD", "renovate/x-1.x");
@@ -481,6 +626,125 @@ describe("renovate-agent run", () => {
     ]);
     expect(recorded("notify-calls")).toContain("-u normal");
   });
+
+  test("commits the fixers' repair of a red update, records the run's verdict for its risky path, and lands it with no agent", () => {
+    const head = listPr("failure");
+    write(stub("fixer-edits"), "scripts/tool.ts\npackage.json\n");
+
+    expect(runScript().code).toBe(0);
+    expect(agentRuns()).toBe(0);
+
+    const repaired = originHead();
+
+    expect(git(origin, "log", "-1", "--format=%s", repaired)).toBe(
+      "fix(lint): apply the fixes of oxlint 9.9.1 and oxfmt 9.9.2",
+    );
+    expect(git(origin, "rev-parse", `${repaired}^`)).toBe(head);
+    expect(git(origin, "show", `${repaired}:scripts/tool.ts`)).toBe("export {};\nfixed");
+    expect(recorded("bun-calls")).toContain(`${worktree()} run fmt`);
+
+    const patchId = patchIdOf(project, "origin/dev", repaired);
+
+    if (patchId.kind === "failed") throw new Error(patchId.why);
+
+    const comment = recorded("pr-comment");
+
+    expect(comment.split("\n")[0]).toBe(verdictLine(patchId.id));
+    expect(comment).toContain("No review: `scripts/renovate-agent.ts` ran oxlint 9.9.1");
+    expect(comment).toContain(`on Renovate's head ${head}`);
+    expect(recorded("gh-calls")).toContain("pr comment 7 --body-file -");
+    expect(recorded("bun-calls")).toContain(`${worktree()} ./scripts/land.ts renovate/x-1.x`);
+    expect(handled()).toEqual({ "7": [head, repaired] });
+    expect(report()[0]).toContain("landed renovate/x-1.x");
+  });
+
+  test("records no verdict for a fixers' repair off the risky paths", () => {
+    listPr("failure");
+    write(stub("fixer-edits"), "package.json\n");
+
+    runScript();
+
+    expect(agentRuns()).toBe(0);
+    expect(git(origin, "log", "-1", "--format=%s", originHead())).toStartWith("fix(lint):");
+    expect(recorded("pr-comment")).toBe("");
+    expect(report()[0]).toContain("landed renovate/x-1.x");
+  });
+
+  test("records no verdict when the branch holds a commit that is not Renovate's", () => {
+    const clone = join(root, "someone-clone");
+    git(root, "clone", "-q", "-b", "renovate/x-1.x", origin, clone);
+    write(join(clone, "notes.txt"), "a commit of someone's\n");
+    git(clone, "add", "notes.txt");
+    git(clone, "commit", "-qm", "docs: a note");
+    git(clone, "push", "-q", "origin", "renovate/x-1.x");
+    listPr("failure");
+    write(stub("fixer-edits"), "scripts/tool.ts\n");
+
+    runScript();
+
+    expect(git(origin, "log", "-1", "--format=%s", originHead())).toStartWith("fix(lint):");
+    expect(recorded("pr-comment")).toBe("");
+    expect(readFileSync(prLogPath(state(), 7), "utf8")).toContain(
+      "no verdict recorded: the branch holds",
+    );
+  });
+
+  test("gives a fixers' repair CI still finds red to the agent, whose commit the run's verdict does not cover", () => {
+    const head = listPr("failure");
+    write(stub("fixer-edits"), "scripts/tool.ts\n");
+    write(stub("land-exits"), "red\n0\n");
+
+    runScript();
+
+    expect(agentRuns()).toBe(1);
+
+    const repaired = originHead();
+    const fixer = git(origin, "rev-parse", `${repaired}^`);
+
+    expect(git(origin, "rev-parse", `${fixer}^`)).toBe(head);
+
+    const fixerPatch = patchIdOf(project, "origin/dev", fixer);
+    const landingPatch = patchIdOf(project, "origin/dev", repaired);
+
+    if (fixerPatch.kind === "failed") throw new Error(fixerPatch.why);
+
+    if (landingPatch.kind === "failed") throw new Error(landingPatch.why);
+
+    const verdicts = verdictsOf([{ body: recorded("pr-comment"), authorAssociation: "OWNER" }]);
+
+    expect(verdicts).toEqual(new Set([fixerPatch.id]));
+    expect(verdicts.has(landingPatch.id)).toBe(false);
+    expect(handled()).toEqual({ "7": [head, fixer, repaired] });
+  });
+
+  test.each([
+    ["pre-commit", "git commit"],
+    ["pre-push", "git push"],
+  ])(
+    "drops a fixers' change its %s hook refuses and hands the branch to the agent",
+    (hook, step) => {
+      const head = listPr("failure");
+      write(stub("fixer-edits"), "scripts/tool.ts\n");
+      write(stub("refuse"), "");
+      const file = join(project, ".git", "hooks", hook);
+      write(file, `#!/usr/bin/env bash\nrm ${stub("refuse")} 2>/dev/null && exit 1\nexit 0\n`);
+      chmodSync(file, 0o755);
+
+      runScript();
+
+      expect(agentRuns()).toBe(1);
+
+      const repaired = originHead();
+
+      expect(git(origin, "log", "-1", "--format=%s", repaired)).toBe("fix: adopt the update");
+      expect(git(origin, "rev-parse", `${repaired}^`)).toBe(head);
+      expect(git(origin, "show", `${repaired}:scripts/tool.ts`)).toBe("export {};");
+      expect(recorded("pr-comment")).toBe("");
+      expect(readFileSync(prLogPath(state(), 7), "utf8")).toContain(
+        `the fixers' change is dropped, ${step} exited 1`,
+      );
+    },
+  );
 
   test("owns a head red in a push run while its pull request runs are green", () => {
     const head = listPr("success");

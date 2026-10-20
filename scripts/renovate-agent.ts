@@ -18,11 +18,19 @@
  *
  * Each owned pull request gets its own worktree, `<main worktree>.wt/
  * renovate/<number>`, at the branch's head fetched again, which must still be
- * the listed one, with the dependencies installed. A red one is handed first
- * to a headless Claude (`scripts/renovate-agent.prompt.md`) that commits the
- * repair, signed with the user's key; the run pushes the commits, a
- * fast-forward under a lease, and runs `scripts/land.ts`, which waits for CI,
- * runs the e2e suite when the branch needs it and lands the branch on `dev`.
+ * the listed one, with the dependencies installed. On a red one the run first
+ * runs the repository's fixers at the updated versions, `bun x oxlint --fix`
+ * then `bun run fmt`, and commits what they change, signed with the user's
+ * key. When that change touches a risky path and the branch holds Renovate's
+ * commits and that one alone, the run records the verdict `land.ts` reads
+ * (`scripts/review-verdict.ts`), saying no review was made: the patch is the
+ * update plus a repair anyone reproduces by running the fixers again, and any
+ * later commit changes it. A commit or a push the hooks refuse is dropped.
+ * When the fixers changed nothing or were dropped, a headless Claude
+ * (`scripts/renovate-agent.prompt.md`) commits the repair instead. The run
+ * pushes each repair, a fast-forward under a lease, and runs
+ * `scripts/land.ts`, which waits for CI, runs the e2e suite when the branch
+ * needs it and lands the branch on `dev`.
  * A landing refused because CI is red goes back to the agent, two agent
  * rounds per pull request in all; any other refusal is retried by the next
  * daily run, and the second in a row goes to the human. Each
@@ -62,6 +70,7 @@ import {
   worktreesOf,
   writeWhole,
 } from "./lib/headless-run.ts";
+import { BASE, patchIdOf, postVerdict } from "./review-verdict.ts";
 
 export const MAJOR_LABEL = "major";
 
@@ -156,6 +165,113 @@ export type PrOutcome =
 export type Refusals = Readonly<Record<string, number>>;
 
 export const REFUSALS_BEFORE_HUMAN = 2;
+
+/** The author of Renovate's commits, as git records them. */
+export const RENOVATE_EMAIL = "29139614+renovate[bot]@users.noreply.github.com";
+
+interface Fixer {
+  readonly name: string;
+  readonly fix: readonly string[];
+  readonly version: readonly string[];
+}
+
+/** The repository's own fixers: oxlint's safe fixes, then the `fmt` script of `package.json`. */
+const FIXERS: readonly Fixer[] = [
+  {
+    name: "oxlint",
+    fix: ["bun", "x", "oxlint", "--fix"],
+    version: ["bun", "x", "oxlint", "--version"],
+  },
+  { name: "oxfmt", fix: ["bun", "run", "fmt"], version: ["bun", "x", "oxfmt", "--version"] },
+];
+
+/** A fixer as it ran on the branch. */
+export interface RanFixer {
+  readonly name: string;
+  readonly version: string;
+  readonly command: string;
+}
+
+/** A commit of the branch since `origin/dev`, by its author's email. */
+export interface BranchCommit {
+  readonly sha: string;
+  readonly author: string;
+}
+
+export type FixerVerdict =
+  | { readonly kind: "record"; readonly risky: readonly string[] }
+  | { readonly kind: "none"; readonly why: string };
+
+/** The version a tool's `--version` prints. */
+export function versionOf(output: string): string {
+  const version = /\d+\.\d+\.\d+[\w.+-]*/u.exec(output)?.[0];
+
+  if (version === undefined) throw new Error(`no version in ${JSON.stringify(output.trim())}`);
+
+  return version;
+}
+
+export function fixerCommitMessage(fixers: readonly RanFixer[], renovateHead: string): string {
+  const names = fixers.map((fixer) => `${fixer.name} ${fixer.version}`).join(" and ");
+  const commands = fixers.map((fixer) => `\`${fixer.command}\``).join(", then ");
+
+  return `fix(lint): apply the fixes of ${names}\n\n${commands}, run by scripts/renovate-agent.ts on Renovate's head ${renovateHead}, with no agent: this commit is what they changed.`;
+}
+
+/**
+ * Whether the run records a verdict for the fixers' commit `fixer`, given the branch's `commits` since `origin/dev`,
+ * newest first, and the paths the fixers changed: only when they changed a risky path, `fixer` is the head and every
+ * commit under it is Renovate's, so the patch is Renovate's update and a repair anyone can reproduce.
+ */
+export function fixerVerdict({
+  commits,
+  fixer,
+  fixed,
+  isRisky,
+}: {
+  readonly commits: readonly BranchCommit[];
+  readonly fixer: string;
+  readonly fixed: readonly string[];
+  readonly isRisky: RiskyPath;
+}): FixerVerdict {
+  const risky = fixed.filter((path) => isRisky(path));
+
+  if (risky.length === 0) return { kind: "none", why: "the fixers' repair touches no risky path" };
+
+  const [newest, ...below] = commits;
+
+  if (newest?.sha !== fixer) {
+    return {
+      kind: "none",
+      why: `the branch's head is ${newest === undefined ? "no commit" : shortSha(newest.sha)}, not the fixers' ${shortSha(fixer)}`,
+    };
+  }
+
+  const foreign = below.find((commit) => commit.author !== RENOVATE_EMAIL);
+
+  if (foreign !== undefined) {
+    return {
+      kind: "none",
+      why: `the branch holds ${shortSha(foreign.sha)} by ${foreign.author} besides Renovate's commits and the fixers' ${shortSha(fixer)}`,
+    };
+  }
+
+  if (below.length === 0) {
+    return {
+      kind: "none",
+      why: `the branch holds no Renovate commit under the fixers' ${shortSha(fixer)}`,
+    };
+  }
+
+  return { kind: "record", risky };
+}
+
+/** What the run's verdict says under its marker: no review, a repair the named fixers reproduce. */
+export function fixerVerdictWhy(fixers: readonly RanFixer[], renovateHead: string): string {
+  const ran = fixers.map((fixer) => `${fixer.name} ${fixer.version} (\`${fixer.command}\`)`);
+
+  return `No review: \`scripts/renovate-agent.ts\` ran ${ran.join(", then ")} on Renovate's head ${renovateHead} and committed what they changed, a repair anyone reproduces by running them again. \`scripts/land.ts\` lands this change while its patch against \`${BASE}\` stays the same: any other commit changes it, and the branch then waits for a human review.`;
+}
 
 /** Opus for a major update, whose breaking changes the repair has to follow; Sonnet for the rest. */
 export function agentModel(reasons: readonly AgentReason[]): "opus" | "sonnet" {
@@ -610,7 +726,26 @@ async function agentRound(
 
   if (head === pushed) throw new Error("the agent committed nothing");
 
-  const push = await streamed(
+  const push = await pushHead(run, pr, worktree, pushed, log);
+
+  if (push.code !== 0) {
+    throw new Error(
+      `git push exited ${push.code}: ${lastNonEmptyLine(push.output)}; Renovate may have pushed meanwhile`,
+    );
+  }
+
+  settled.heads.push(head);
+}
+
+/** Pushes the worktree's head to the branch as a fast-forward, under a lease on `pushed`, the head origin holds. */
+function pushHead(
+  run: Run,
+  pr: RenovatePr,
+  worktree: string,
+  pushed: string,
+  log: number,
+): Promise<{ code: number; output: string }> {
+  return streamed(
     [
       "git",
       "push",
@@ -622,25 +757,127 @@ async function agentRound(
     log,
     run.progress,
   );
+}
 
-  if (push.code !== 0) {
-    throw new Error(
-      `git push exited ${push.code}: ${lastNonEmptyLine(push.output)}; Renovate may have pushed meanwhile`,
-    );
+/**
+ * The fixers' round, before the first agent round on a red branch: oxlint's safe fixes and oxfmt at the versions the
+ * update installed, their changes committed and pushed as `agentRound` pushes; whether it pushed. When their change
+ * touches a risky path on a branch of Renovate's commits and theirs alone, the run records the verdict `land.ts`
+ * reads, which says no review was made. A commit or a push the hooks refuse is dropped, and the agent round follows.
+ */
+async function fixerRound(
+  run: Run,
+  pr: RenovatePr,
+  worktree: string,
+  { log, settled }: { log: number; settled: Settled },
+): Promise<boolean> {
+  const ran: RanFixer[] = [];
+
+  for (const fixer of FIXERS) {
+    const version = await streamed(fixer.version, worktree, log, run.progress);
+
+    if (version.code !== 0) throw new Error(`${fixer.version.join(" ")} exited ${version.code}`);
+
+    const fix = await streamed(fixer.fix, worktree, log, run.progress);
+
+    if (fix.code !== 0) writeSync(log, `${fixer.fix.join(" ")} exited ${fix.code}\n`);
+
+    ran.push({
+      name: fixer.name,
+      version: versionOf(version.output),
+      command: fixer.fix.join(" "),
+    });
   }
 
-  settled.heads.push(head);
+  checkStop(run.progress);
+
+  const fixed = git(worktree, "diff", "--name-only", "--no-renames", "-z")
+    .split("\0")
+    .filter((path) => path !== "");
+
+  if (fixed.length === 0) return false;
+
+  const drop = (why: string) => {
+    git(worktree, "reset", "--quiet", "--hard", pr.headRefOid);
+    writeSync(log, `the fixers' change is dropped, ${why}; the agent round follows\n`);
+
+    return false;
+  };
+
+  const commit = await streamed(
+    ["git", "commit", "--quiet", "--all", "-m", fixerCommitMessage(ran, pr.headRefOid)],
+    worktree,
+    log,
+    run.progress,
+  );
+
+  checkStop(run.progress);
+
+  if (commit.code !== 0) return drop(`git commit exited ${commit.code}`);
+
+  const head = git(worktree, "rev-parse", "HEAD");
+  const push = await pushHead(run, pr, worktree, pr.headRefOid, log);
+
+  checkStop(run.progress);
+
+  if (push.code !== 0) {
+    const remote = remoteHeadOf(run, pr) ?? "";
+
+    if (remote !== pr.headRefOid) {
+      throw new Error(
+        `git push exited ${push.code}: ${lastNonEmptyLine(push.output)}; origin holds ${remote === "" ? "no head read" : shortSha(remote)} for ${pr.headRefName}, not the listed ${shortSha(pr.headRefOid)}`,
+      );
+    }
+
+    return drop(`git push exited ${push.code}: ${lastNonEmptyLine(push.output)}`);
+  }
+
+  settled.heads.push(pr.headRefOid, head);
+
+  const commits = git(worktree, "log", "--format=%H%x09%ae", `${BASE}..HEAD`)
+    .split("\n")
+    .map((line): BranchCommit => {
+      const [sha = "", author = ""] = line.split("\t");
+
+      return { sha, author };
+    });
+
+  const verdict = fixerVerdict({ commits, fixer: head, fixed, isRisky: riskyPaths(run.main) });
+
+  if (verdict.kind === "none") {
+    writeSync(log, `no verdict recorded: ${verdict.why}\n`);
+
+    return true;
+  }
+
+  const patchId = patchIdOf(worktree, BASE, head);
+
+  if (patchId.kind === "failed") throw new Error(patchId.why);
+
+  const posted = postVerdict(worktree, pr.number, patchId.id, fixerVerdictWhy(ran, pr.headRefOid));
+
+  if (posted.kind === "refused") throw new Error(posted.why);
+
+  writeSync(
+    log,
+    `recorded the fixers' verdict on #${pr.number} for ${verdict.risky.join(", ")}: patch-id ${patchId.id}\n`,
+  );
+
+  return true;
+}
+
+/** The head origin holds for the branch, read now. */
+function remoteHeadOf(run: Run, pr: RenovatePr): string | undefined {
+  return command(["git", "ls-remote", "origin", `refs/heads/${pr.headRefName}`], run.main)
+    .out.split("\t")[0]
+    ?.trim();
 }
 
 /** The branch head land.ts left on origin, when it is the worktree's own: a head this run pushed. */
 function landedOrPushedHead(run: Run, pr: RenovatePr, worktree: string): string | null {
   const local = git(worktree, "rev-parse", "HEAD");
 
-  const remote = command(["git", "ls-remote", "origin", `refs/heads/${pr.headRefName}`], run.main)
-    .out.split("\t")[0]
-    ?.trim();
-
-  return remote === local ? local : null;
+  return remoteHeadOf(run, pr) === local ? local : null;
 }
 
 /** The pull request's end: landed, or why it was not, with its worktree kept. */
@@ -669,6 +906,8 @@ async function handle(
     let why: string | null = reasons.includes("red")
       ? `CI is red on ${pr.headRefOid}: \`gh pr checks ${pr.number}\` names the red jobs.`
       : null;
+
+    if (why !== null && (await fixerRound(run, pr, worktree, { log, settled }))) why = null;
 
     let rounds = 0;
 
