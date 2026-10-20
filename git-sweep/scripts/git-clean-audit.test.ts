@@ -1243,6 +1243,21 @@ describe("git-clean-audit", () => {
     await git(repo, "worktree", "remove", "--force", wtDir);
   });
 
+  test("keeps a worktree with an untracked file when status.showUntrackedFiles is no", async () => {
+    const repo = await makeRepo("wt-untracked-hidden");
+    const wtDir = join(makeTmpDir("wt-untracked-hidden-dir"), "wt");
+
+    await git(repo, "worktree", "add", "-b", "feature/merged", wtDir, "main");
+    writeFileSync(join(wtDir, "notes.md"), "only copy of my notes");
+    await git(repo, "config", "status.showUntrackedFiles", "no");
+
+    const { result } = await runAudit(repo);
+    const categories = result.categories as Record<string, unknown[]>;
+
+    expect(categories.removable_worktrees).toHaveLength(0);
+    expect(keptEntry(result, "feature/merged")?.reason).toBe("dirty-worktree");
+  });
+
   // -------------------------------------------------------------------------
   // Trunk protection, base resolution, sweep.* config
   // -------------------------------------------------------------------------

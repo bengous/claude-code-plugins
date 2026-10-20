@@ -227,7 +227,16 @@ async function inspectWorktree(path: string, branch: string): Promise<WorktreeVe
   // --ignored so the scan also sees what `git worktree remove` would delete
   // without a word: ignored files are untracked, so neither the porcelain
   // status nor git's own refusal counts them as work worth protecting.
-  const status = await git("-C", path, "status", "--porcelain", "--ignored");
+  // --untracked-files=normal because status.showUntrackedFiles=no hides
+  // untracked files from both, and the removal then deletes them too.
+  const status = await git(
+    "-C",
+    path,
+    "status",
+    "--porcelain",
+    "--ignored",
+    "--untracked-files=normal",
+  );
 
   if (status.exitCode !== 0) return held("worktree", `${path} (status unreadable)`);
 

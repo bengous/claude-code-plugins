@@ -45,7 +45,7 @@ What it keeps, each with its reason in the summary:
 
 - the base, the protected branches (main, master, trunk, dev, develop, `sweep.protect`) and the current branch;
 - a worktree with uncommitted or untracked changes, a locked one, and one holding any other ignored path, named in the summary: removal would destroy it for good, and a `plans/` there may be the only copy of a plan;
-- a named worktree, `.claude/worktrees/<name>` without the `agent-` prefix (EnterWorktree's): a live session may stand in one, and nothing locks it. Like any worktree outside `.claude/worktrees/agent-*`, it stays with its branch, listed as not swept;
+- a named worktree, `.claude/worktrees/<name>` without the `agent-` prefix (EnterWorktree's): a live session may stand in one. Like any worktree outside `.claude/worktrees/agent-*`, it stays with its branch, listed as not swept;
 - the branch Claude Code named after a locked agent worktree (`worktree-agent-<id>`), while that agent runs;
 - a backup branch not contained by ancestry, an unproven branch that is not an agent's, and an agent branch with an open or merged pull request, or whose pull requests `gh` cannot read;
 - every remote branch and tracking ref: `/git-sweep` handles those, with the user.

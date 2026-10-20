@@ -111,10 +111,19 @@ const describeKept = (entry: KeptBranch, mainWorktree: string): string =>
     ? entry.reason
     : `${entry.reason}: ${clip(relativeTo(entry.detail, mainWorktree))}`;
 
-type Leftovers = { kind: "disposable"; paths: string[] } | { kind: "kept"; why: string };
+export type Leftovers = { kind: "disposable"; paths: string[] } | { kind: "kept"; why: string };
 
-async function leftoversOf(path: string): Promise<Leftovers> {
-  const status = await git("-C", path, "status", "--porcelain", "--ignored");
+// status.showUntrackedFiles=no would hide an untracked file from this status
+// and from `git worktree remove`'s own check, and the removal would delete it.
+export async function leftoversOf(path: string): Promise<Leftovers> {
+  const status = await git(
+    "-C",
+    path,
+    "status",
+    "--porcelain",
+    "--ignored",
+    "--untracked-files=normal",
+  );
 
   if (status.exitCode !== 0) return { kind: "kept", why: `${path}: git status failed` };
   const lines = status.stdout.split("\n").filter(Boolean);
@@ -271,26 +280,31 @@ export function judgeUnproven(lastCommit: Date, lookup: PullLookup, now: Date): 
   return { archive, why: `no PR, last commit ${idle} day(s) ago${wait}` };
 }
 
-const PULL_JQ = String.raw`.[] | "\(.number) \(.state) \(.closedAt // "-") \(.headRefName)"`;
+const PULL_JQ = String.raw`.[] | "\(.number) \(.state) \(.closedAt // "-") \(.isCrossRepository) \(.headRefName)"`;
 
-const PULL_LINE = /^(\d+) (OPEN|CLOSED|MERGED) (\S+) (\S+)$/u;
+const PULL_LINE = /^(\d+) (OPEN|CLOSED|MERGED) (\S+) (true|false) (\S+)$/u;
 
 const isPullState = (state: string): state is PullState =>
   state === "OPEN" || state === "CLOSED" || state === "MERGED";
 
-// `gh pr list --head` also matches a fork's branch of the same name.
+// `gh pr list --head` matches the bare branch name, a fork's pull request
+// included: headRefName carries no owner, isCrossRepository tells it apart.
 export function parsePullLines(text: string, branch: string): Pull[] | null {
   const pulls: Pull[] = [];
 
   for (const line of text.split("\n").filter(Boolean)) {
-    const [, number = "", state = "", closed = "", head = ""] = PULL_LINE.exec(line) ?? [];
+    const [, number = "", state = "", closed = "", fork = "", head = ""] =
+      PULL_LINE.exec(line) ?? [];
+
     const closedAt = closed === "-" ? null : new Date(closed);
 
     if (!isPullState(state) || (closedAt !== null && Number.isNaN(closedAt.getTime()))) {
       return null;
     }
 
-    if (head === branch) pulls.push({ number: Number(number), state, closedAt });
+    if (fork === "false" && head === branch) {
+      pulls.push({ number: Number(number), state, closedAt });
+    }
   }
 
   return pulls;
@@ -324,7 +338,7 @@ async function pullFinder(): Promise<PullFinder> {
       "--limit",
       "100",
       "--json",
-      "number,state,closedAt,headRefName",
+      "number,state,closedAt,isCrossRepository,headRefName",
       "--jq",
       PULL_JQ,
     );
@@ -519,8 +533,15 @@ async function apply(plan: Plan): Promise<Outcome> {
     else failures.push({ target: `${type} ${target}`, error: error ?? "failed" });
   }
 
+  // A branch gone though this run did not delete it was deleted by another
+  // run, which counted on this ref: it may be the tip's only ref left.
   for (const { name, oid } of archived) {
     if (done.has(opKey("branch-delete", name)) || !written.has(name)) continue;
+
+    if ((await git("rev-parse", "--verify", "--quiet", `refs/heads/${name}`)).exitCode !== 0) {
+      continue;
+    }
+
     const dropped = await git("update-ref", "-d", `${ARCHIVE_REFS}${name}`, oid);
 
     if (dropped.exitCode !== 0) {

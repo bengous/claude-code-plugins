@@ -8,6 +8,7 @@ import {
   isAgentWorktree,
   isDisposable,
   judgeUnproven,
+  leftoversOf,
   NO_PR_IDLE_DAYS,
   parsePullLines,
   type Pull,
@@ -235,7 +236,11 @@ describe("parsePullLines", () => {
   test("keeps the branch's own pull requests, a missing close as null", () => {
     expect(
       parsePullLines(
-        "12 CLOSED 2026-10-01T00:00:00Z feature/x\n13 OPEN - feature/x\n14 MERGED 2026-10-02T00:00:00Z fork/x",
+        [
+          "12 CLOSED 2026-10-01T00:00:00Z false feature/x",
+          "13 OPEN - false feature/x",
+          "14 MERGED 2026-10-02T00:00:00Z false feature/y",
+        ].join("\n"),
         "feature/x",
       ),
     ).toEqual([
@@ -244,9 +249,16 @@ describe("parsePullLines", () => {
     ]);
   });
 
+  test("leaves out a fork's pull request from a branch of the same name", () => {
+    expect(parsePullLines("15 CLOSED 2026-09-01T00:00:00Z true feature/x", "feature/x")).toEqual(
+      [],
+    );
+  });
+
   test("a line it cannot read fails the whole answer", () => {
-    expect(parsePullLines("12 DRAFT - feature/x", "feature/x")).toBeNull();
-    expect(parsePullLines("12 CLOSED yesterday feature/x", "feature/x")).toBeNull();
+    expect(parsePullLines("12 DRAFT - false feature/x", "feature/x")).toBeNull();
+    expect(parsePullLines("12 CLOSED yesterday false feature/x", "feature/x")).toBeNull();
+    expect(parsePullLines("12 CLOSED - feature/x", "feature/x")).toBeNull();
     expect(parsePullLines("", "feature/x")).toEqual([]);
   });
 });
@@ -488,13 +500,15 @@ exec ${realGit} "$@"
     expect(stdout).toContain("feature/on-main (ancestry)");
   });
 
-  test("reads pull requests through gh: a closed one past the grace archives, an open one keeps", async () => {
+  test("reads pull requests through gh: a closed one past the grace archives, an open or a fork's one keeps", async () => {
     const repo = await makeRepo("gh");
     await git(repo, "remote", "add", "origin", makeTmpDir("origin"));
     await git(repo, "switch", "-c", "worktree-agent-closed");
     await commitDaysAgo(repo, "closed.txt", CLOSED_PR_GRACE_DAYS + 6);
     await git(repo, "switch", "-c", "worktree-agent-open", "main");
     await commitDaysAgo(repo, "open.txt", NO_PR_IDLE_DAYS + 10);
+    await git(repo, "switch", "-c", "worktree-agent-forked", "main");
+    await commitDaysAgo(repo, "forked.txt", CLOSED_PR_GRACE_DAYS + 6);
     await git(repo, "switch", "main");
     const closedAt = new Date(Date.now() - (CLOSED_PR_GRACE_DAYS + 5) * DAY_MS).toISOString();
     const shimDir = makeTmpDir("gh-shim");
@@ -504,7 +518,7 @@ exec ${realGit} "$@"
       `#!/usr/bin/env bash
 case "$*" in
   "repo view"*) echo '{"nameWithOwner":"owner/repo"}' ;;
-  *"--state all"*) printf '7 CLOSED ${closedAt} worktree-agent-closed\\n8 OPEN - worktree-agent-open\\n' ;;
+  *"--state all"*isCrossRepository*) printf '7 CLOSED ${closedAt} false worktree-agent-closed\\n8 OPEN - false worktree-agent-open\\n9 CLOSED ${closedAt} true worktree-agent-forked\\n' ;;
   *"--state merged"*|api*) echo '[]' ;;
   *) exit 1 ;;
 esac
@@ -519,7 +533,72 @@ esac
     expect(stdout).toContain(`PR #7 closed unmerged ${CLOSED_PR_GRACE_DAYS + 5} day(s) ago`);
     expect(stdout).toContain("worktree-agent-open: unproven");
     expect(stdout).toContain("PR #8 is open");
+    expect(stdout).toContain(`worktree-agent-forked: unproven`);
+    expect(stdout).toContain(`no PR, last commit ${CLOSED_PR_GRACE_DAYS + 6} day(s) ago`);
     expect(await branchExists(repo, "worktree-agent-closed")).toBe(false);
     expect(await branchExists(repo, "worktree-agent-open")).toBe(true);
+    expect(await branchExists(repo, "worktree-agent-forked")).toBe(true);
+  });
+
+  test("an untracked file keeps its worktree when status.showUntrackedFiles is no", async () => {
+    const repo = await makeRepo("untracked");
+    const agent = await addWorktree(repo, agentPath(repo, "x1"), "feature/agent-done");
+    writeFileSync(join(agent, "notes.md"), "only copy of my notes");
+    await git(repo, "config", "status.showUntrackedFiles", "no");
+
+    const { exitCode, stdout } = await sweep(repo);
+
+    expect(exitCode).toBe(0);
+    expect(stdout).toContain("feature/agent-done: dirty-worktree: .claude/worktrees/agent-x1");
+    expect(existsSync(join(agent, "notes.md"))).toBe(true);
+    expect(await branchExists(repo, "feature/agent-done")).toBe(true);
+  });
+
+  test("leftoversOf sees the untracked file status.showUntrackedFiles=no hides", async () => {
+    const repo = await makeRepo("leftovers");
+    const agent = await addWorktree(repo, agentPath(repo, "x2"), "feature/x2");
+    mkdirSync(join(agent, "node_modules"));
+    writeFileSync(join(agent, "node_modules", "dep.js"), "");
+    writeFileSync(join(agent, "notes.md"), "only copy of my notes");
+    await git(repo, "config", "status.showUntrackedFiles", "no");
+
+    expect(await leftoversOf(agent)).toEqual({
+      kind: "kept",
+      why: `${agent} has uncommitted or untracked changes`,
+    });
+
+    rmSync(join(agent, "notes.md"));
+
+    expect(await leftoversOf(agent)).toEqual({ kind: "disposable", paths: ["node_modules/"] });
+  });
+
+  test("keeps the archive of a branch another run deleted meanwhile", async () => {
+    const repo = await makeRepo("concurrent");
+    await git(repo, "switch", "-c", "worktree-agent-old");
+    await commitDaysAgo(repo, "old.txt", NO_PR_IDLE_DAYS + 10);
+    const oldTip = await git(repo, "rev-parse", "HEAD");
+    await git(repo, "switch", "main");
+    const realGit = Bun.which("git");
+
+    if (realGit === null) throw new Error("git not found on PATH");
+    const shimDir = makeTmpDir("git-shim");
+
+    writeFileSync(
+      join(shimDir, "git"),
+      `#!/usr/bin/env bash
+if [[ "$1" == "branch" && "$2" == "--show-current" ]] && ${realGit} rev-parse --verify --quiet refs/archive/worktree-agent-old >/dev/null; then
+  ${realGit} branch -D worktree-agent-old >/dev/null 2>&1
+fi
+exec ${realGit} "$@"
+`,
+      { mode: 0o755 },
+    );
+
+    const { exitCode, stdout } = await sweep(repo, [], { PATH: `${shimDir}:${process.env.PATH}` });
+
+    expect(exitCode).toBe(1);
+    expect(stdout).toContain("branch-delete worktree-agent-old: branch no longer exists");
+    expect(await branchExists(repo, "worktree-agent-old")).toBe(false);
+    expect(await git(repo, "rev-parse", "refs/archive/worktree-agent-old")).toBe(oldTip);
   });
 });
