@@ -24,7 +24,8 @@
  * fast-forward under a lease, and runs `scripts/land.ts`, which waits for CI,
  * runs the e2e suite when the branch needs it and lands the branch on `dev`.
  * A landing refused because CI is red goes back to the agent, two agent
- * rounds per pull request in all; any other refusal goes to the human. Each
+ * rounds per pull request in all; any other refusal is retried by the next
+ * daily run, and the second in a row goes to the human. Each
  * end, landed or not, is a line the next session start shows and a desktop
  * notice. The lock, the logs, the handled heads and the lines not yet shown
  * live in `<git common dir>/renovate-agent/`.
@@ -131,6 +132,14 @@ export type PrOutcome =
       readonly heads: readonly string[];
     }
   | {
+      readonly kind: "refused";
+      readonly pr: RenovatePr;
+      readonly verdict: string;
+      readonly log: string;
+      readonly worktree: string | null;
+      readonly heads: readonly string[];
+    }
+  | {
       readonly kind: "stopped";
       readonly pr: RenovatePr;
       readonly signal: string;
@@ -139,10 +148,26 @@ export type PrOutcome =
     }
   | { readonly kind: "human"; readonly pr: RenovatePr; readonly why: string };
 
+/**
+ * How many times in a row `land.ts` refused each pull request for a reason
+ * other than a red CI. No refusal text is classified: the first is retried by
+ * the next daily run, the second goes to the human.
+ */
+export type Refusals = Readonly<Record<string, number>>;
+
+export const REFUSALS_BEFORE_HUMAN = 2;
+
+/** The outcome to report and the refusal counts once it is recorded. */
+export interface Counted {
+  readonly outcome: PrOutcome;
+  readonly refusals: Refusals;
+}
+
 export interface StatePaths extends LockPaths {
   readonly dir: string;
   readonly day: string;
   readonly handled: string;
+  readonly refusals: string;
   readonly report: string;
   readonly runLog: string;
   readonly spawnLog: string;
@@ -160,6 +185,7 @@ export function statePaths(commonDir: string): StatePaths {
     holder: join(dir, "holder.json"),
     day: join(dir, "day"),
     handled: join(dir, "handled.json"),
+    refusals: join(dir, "refusals.json"),
     report: join(dir, "report.jsonl"),
     runLog: join(dir, "run.log"),
     spawnLog: join(dir, "spawn.log"),
@@ -259,6 +285,8 @@ export function outcomeLine(outcome: PrOutcome): string {
       return `${head}: ${outcome.verdict}`;
     case "human":
       return `${head} needs your review: it ${outcome.why}. ${outcome.pr.url}`;
+    case "refused":
+      return `${head}: land.ts refused it: ${outcome.verdict} (log: ${outcome.log}${keptNote(outcome.worktree)}); the next daily run tries again, and a second refusal in a row comes to you`;
     case "stopped":
       return `${head}: the run was stopped by ${outcome.signal} (log: ${outcome.log}${keptNote(outcome.worktree)}); the next daily run takes it again`;
     case "failed":
@@ -268,6 +296,47 @@ export function outcomeLine(outcome: PrOutcome): string {
 
 function keptNote(worktree: string | null): string {
   return worktree === null ? "" : `; its worktree, ${worktree}, is kept as it is`;
+}
+
+/**
+ * The outcome to report for `outcome` given the refusals counted so far, and
+ * the counts after it. A refusal below the threshold settles nothing; the one
+ * reaching it fails, settling the heads it names. Any other end clears the count.
+ */
+export function afterRefusals(
+  outcome: PrOutcome,
+  refusals: Refusals,
+  open: readonly number[],
+): Counted {
+  const key = String(outcome.pr.number);
+
+  const kept = Object.fromEntries(
+    Object.entries(refusals).filter(([number]) => open.includes(Number(number)) && number !== key),
+  );
+
+  if (outcome.kind === "stopped") {
+    const count = refusals[key];
+
+    return { outcome, refusals: count === undefined ? kept : { ...kept, [key]: count } };
+  }
+
+  if (outcome.kind !== "refused") return { outcome, refusals: kept };
+
+  const count = (refusals[key] ?? 0) + 1;
+
+  if (count < REFUSALS_BEFORE_HUMAN) return { outcome, refusals: { ...kept, [key]: count } };
+
+  return {
+    outcome: {
+      kind: "failed",
+      pr: outcome.pr,
+      reason: `land.ts refused it ${count} runs in a row, last: ${outcome.verdict}`,
+      log: outcome.log,
+      worktree: outcome.worktree,
+      heads: outcome.heads,
+    },
+    refusals: kept,
+  };
 }
 
 /** The pull requests' handled heads plus `added`, restricted to the pull requests still open. */
@@ -335,6 +404,11 @@ function readHandled(file: string): Handled {
   return existsSync(file) ? (JSON.parse(readFileSync(file, "utf8")) as Handled) : {};
 }
 
+function readRefusals(file: string): Refusals {
+  // SAFETY: only this run writes the file, whole, from a Refusals.
+  return existsSync(file) ? (JSON.parse(readFileSync(file, "utf8")) as Refusals) : {};
+}
+
 /**
  * Adds `line` to those the next session start shows, one JSON string per line:
  * an append, so a hook that takes the file meanwhile never sees a line twice.
@@ -379,6 +453,8 @@ async function streamed(
   const child = Bun.spawn([...args], {
     cwd,
     env: { ...process.env, ...env },
+    // Its own process group, so a stop reaches land.ts's dev copy and the commands it runs.
+    detached: true,
     stdin: "ignore",
     stdout: "pipe",
     stderr: "pipe",
@@ -621,8 +697,17 @@ async function handle(
         return { kind: "landed", pr, verdict, heads: unique(settled.heads) };
       }
 
-      // Only a red CI is the agent's to repair: a review, a rebase or a timeout is the human's.
-      if (!RED_REFUSAL.test(verdict)) throw new Error(`land.ts refused it: ${verdict}`);
+      // Only a red CI is the agent's to repair; any other refusal is retried by the next run, then the human's.
+      if (!RED_REFUSAL.test(verdict)) {
+        return {
+          kind: "refused",
+          pr,
+          verdict,
+          log: logFile,
+          worktree: existsSync(worktree) ? worktree : null,
+          heads: unique(settled.heads),
+        };
+      }
 
       why = `\`bun ./scripts/land.ts ${pr.headRefName}\` refused it: ${verdict}`;
     }
@@ -702,6 +787,7 @@ function settledHeads(outcome: PrOutcome): readonly string[] {
       return outcome.heads;
     case "human":
       return [outcome.pr.headRefOid];
+    case "refused":
     case "stopped":
       return [];
   }
@@ -726,7 +812,17 @@ async function runAll(start: string): Promise<void> {
 
   const stop = (signal: NodeJS.Signals) => {
     run.progress.signal ??= signal;
-    run.progress.child?.kill("SIGTERM");
+    const child = run.progress.child;
+
+    if (child === null) return;
+
+    try {
+      process.kill(-child.pid, "SIGTERM");
+    } catch (error) {
+      // The group may have exited between its last read and this signal.
+      // SAFETY: process.kill throws only a system error, which carries `code`.
+      if ((error as NodeJS.ErrnoException).code !== "ESRCH") throw error;
+    }
   };
 
   for (const signal of STOP_SIGNALS) process.on(signal, stop);
@@ -744,7 +840,10 @@ async function runAll(start: string): Promise<void> {
       classification.owner === "agent" ? [{ pr, reasons: classification.reasons }] : [],
     );
 
-    const end = (outcome: PrOutcome) => {
+    const end = (ended: PrOutcome) => {
+      const counted = afterRefusals(ended, readRefusals(state.refusals), open);
+      writeWhole(state.refusals, JSON.stringify(counted.refusals));
+      const { outcome } = counted;
       const line = outcomeLine(outcome);
       writeSync(log, `${line}\n`);
       report(state.report, line);

@@ -15,6 +15,7 @@ import {
   outcomeLine,
   parsePrList,
   recordHandled,
+  REFUSALS_BEFORE_HUMAN,
   type RenovatePr,
   reportLines,
   type RiskyPath,
@@ -267,7 +268,8 @@ esac
 `;
 
 // Stands in for the installs and for land.ts, whose verdicts stub/land-exits gives one per call:
-// 0 lands, red and review refuse, foreign first pushes a commit of someone else's to the branch.
+// 0 lands, red and review refuse, foreign first pushes a commit of someone else's to the branch,
+// hold waits on a child of its own, as land.ts waits on origin/dev's copy.
 const BUN_STUB = `#!/usr/bin/env bash
 stub="$(dirname "$0")/../stub"
 echo "$PWD $*" >>"$stub/bun-calls"
@@ -284,6 +286,11 @@ if [[ "$1" == ./scripts/land.ts ]]; then
       foreign="$(git commit-tree "HEAD^{tree}" -p HEAD -m "someone else's")"
       git push -qf origin "$foreign:refs/heads/$2"
       echo "land: $2 is at x here and y on #7: push it, then land again" >&2
+      ;;
+    hold)
+      sleep 30 &
+      echo $! >"$stub/land-child"
+      wait
       ;;
   esac
   exit 1
@@ -368,6 +375,16 @@ function renovatePushes() {
   write(join(clone, "package.json"), '{"devDependencies":{"x":"1.2.4"}}\n');
   git(clone, "commit", "-qam", "chore(deps): update dependency x to v1.2.4");
   git(clone, "push", "-q", "origin", "renovate/x-1.x");
+}
+
+function alive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 const handled = (): Record<string, string[]> =>
@@ -495,31 +512,47 @@ describe("renovate-agent run", () => {
     expect(agentRuns()).toBe(AGENT_ROUNDS);
   });
 
-  test("sends a review refusal of land.ts to the human with no agent round", () => {
-    const head = listPr("success", { labels: ["major"] });
+  test("retries a refusal that is not a red CI on the next run, with no agent round and nothing settled", () => {
+    listPr("success", { labels: ["major"] });
     write(stub("land-exits"), "review\n");
 
     runScript();
 
     expect(agentRuns()).toBe(0);
-    expect(report()[0]).toContain(
-      "needs you: land.ts refused it: land: renovate/x-1.x touches risky paths",
-    );
-    expect(handled()).toEqual({ "7": [head] });
+    expect(report()[0]).toContain("land.ts refused it: land: renovate/x-1.x touches risky paths");
+    expect(report()[0]).toContain("the next daily run tries again");
+    expect(handled()).toEqual({});
+    expect(recorded("notify-calls")).toContain("-u normal");
   });
 
-  test("sends a refusal after a repair to the human when it is not a red CI", () => {
+  test("gives the second refusal in a row to the human and settles the head", () => {
+    const head = listPr("success", { labels: ["major"] });
+    write(stub("land-exits"), "review\n");
+    runScript();
+    write(stub("land-exits"), "review\n");
+
+    runScript();
+
+    expect(report()[1]).toContain("needs you: land.ts refused it 2 runs in a row, last: land:");
+    expect(handled()).toEqual({ "7": [head] });
+    expect(recorded("notify-calls")).toContain("-u critical");
+  });
+
+  test("gives no agent round to a refusal after a repair that is not a red CI", () => {
     listPr("failure");
     write(stub("land-exits"), "review\n");
 
     runScript();
 
     expect(agentRuns()).toBe(1);
-    expect(report()[0]).toContain("needs you: land.ts refused it");
+    expect(report()[0]).toContain("land.ts refused it");
+    expect(report()[0]).toContain("the next daily run tries again");
   });
 
   test("records only the heads it pushed, never one someone else pushed meanwhile", () => {
-    const head = listPr("failure");
+    const head = listPr("success", { labels: ["major"] });
+    mkdirSync(state().dir, { recursive: true });
+    write(state().refusals, JSON.stringify({ "7": REFUSALS_BEFORE_HUMAN - 1 }));
     write(stub("land-exits"), "foreign\n");
 
     runScript();
@@ -585,6 +618,31 @@ describe("renovate-agent run", () => {
     expect(report()[0]).toContain("the run was stopped by SIGTERM");
     expect(handled()).toEqual({});
     expect(recorded("bun-calls")).not.toContain("land.ts");
+  });
+
+  test("stops the landing's own children with it", async () => {
+    listPr("success", { labels: ["major"] });
+    write(stub("land-exits"), "hold\n");
+
+    const proc = Bun.spawn([process.execPath, SCRIPT, "run"], {
+      cwd: project,
+      env,
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+
+    for (let tries = 0; tries < 100 && !existsSync(stub("land-child")); tries++) {
+      await Bun.sleep(100);
+    }
+
+    const child = Number(readFileSync(stub("land-child"), "utf8"));
+    proc.kill("SIGTERM");
+    await proc.exited;
+
+    for (let tries = 0; tries < 50 && alive(child); tries++) await Bun.sleep(100);
+
+    expect(alive(child)).toBe(false);
+    expect(report()[0]).toContain("the run was stopped by SIGTERM");
   });
 
   test("reports the agent's own verdict when it cannot repair, and leaves that head alone after", () => {
