@@ -1099,6 +1099,17 @@ describe("the dry-run's output", () => {
       "unbreakable-token-longer-than-width",
     ]);
   });
+
+  test("keeps the text the plan commits: a line that fits, its spacing, and a fenced block as they are", () => {
+    expect(folded("Run `bun  ./x.ts   --flag` now", 100)).toEqual([
+      "Run `bun  ./x.ts   --flag` now",
+    ]);
+    expect(folded("| a  | b  |", 100)).toEqual(["| a  | b  |"]);
+    expect(folded("aa  bb  cc", 7)).toEqual(["aa  bb", "cc"]);
+    expect(
+      folded("```sh\nbun ./scripts/a-long-command.ts --with many flags\n```\nafter it", 10),
+    ).toEqual(["```sh", "bun ./scripts/a-long-command.ts --with many flags", "```", "after it"]);
+  });
 });
 
 describe("the commit hooks", () => {

@@ -605,38 +605,48 @@ function terminalView(): View {
 
   return {
     paint: (format, text) => styleText(format, text, { stream: process.stdout }),
-    width: Math.min(columns, MAX_WIDTH),
+    // A pty with no size reports 0 columns.
+    width: columns > 0 ? Math.min(columns, MAX_WIDTH) : MAX_WIDTH,
   };
 }
 
-/** `text` folded on spaces at `width`, a line's indentation and list marker carried by the lines it folds into. */
+/**
+ * `text` folded at `width` between words, each word keeping the spacing after it, a line's
+ * indentation and list marker carried by the lines it folds into. A line that fits and a fenced
+ * block stay as they are: the person reads the text the plan commits.
+ */
 export function folded(text: string, width: number): readonly string[] {
-  return text.split("\n").flatMap((line) => {
+  const lines: string[] = [];
+  let fenced = false;
+
+  for (const line of text.split("\n")) {
+    const fence = line.trimStart().startsWith("```");
+
+    if (fence) fenced = !fenced;
+
+    if (fence || fenced || line.length <= width) {
+      lines.push(line);
+      continue;
+    }
+
     const lead = /^\s*(?:[-*] )?/u.exec(line)?.[0] ?? "";
-
-    const words = line
-      .slice(lead.length)
-      .split(" ")
-      .filter((word) => word !== "");
-
-    if (words.length === 0) return [line.trimEnd()];
-
     const hang = " ".repeat(lead.length);
-    const [first = "", ...rest] = words;
-    const lines: string[] = [];
+    const [first = "", ...rest] = line.slice(lead.length).split(/(?<=\s)(?=\S)/u);
     let current = `${lead}${first}`;
 
     for (const word of rest) {
-      if (current.length + 1 + word.length > width) {
-        lines.push(current);
+      if (`${current}${word}`.trimEnd().length > width) {
+        lines.push(current.trimEnd());
         current = `${hang}${word}`;
       } else {
-        current = `${current} ${word}`;
+        current = `${current}${word}`;
       }
     }
 
-    return [...lines, current];
-  });
+    lines.push(current.trimEnd());
+  }
+
+  return lines;
 }
 
 function labelled(label: string, value: string, view: View): string {
