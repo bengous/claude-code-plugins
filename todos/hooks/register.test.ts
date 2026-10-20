@@ -861,6 +861,7 @@ type Verdict = {
   readonly decision: "allow" | "ask" | "deny";
   readonly rule?: string;
   readonly hook?: string;
+  readonly decider?: "host" | "person";
 };
 
 const MODE_ASK: Verdict = { decision: "ask" };
@@ -898,6 +899,7 @@ test("a rule or a hook keeps its say over a todos-finding call", async ($, on) =
 
   expect(await decide({ decision: "ask", rule: "Bash(todos-finding:*)" })).toBe("ask");
   expect(await decide({ decision: "ask", hook: "PreToolUse" })).toBe("ask");
+  expect(await decide({ decision: "ask", decider: "person" })).toBe("ask");
   expect(await decide({ decision: "deny", rule: "Bash(todos-finding:*)" })).toBe("deny");
 });
 
