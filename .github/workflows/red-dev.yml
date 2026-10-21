@@ -28,10 +28,10 @@ jobs:
       issues: write
     steps:
       - name: Checkout
-        uses: actions/checkout@v7
+        uses: actions/checkout@v7.0.1
 
       - name: Set up tools (bun via mise)
-        uses: jdx/mise-action@v5
+        uses: jdx/mise-action@v5.2.2
         with:
           install_args: bun
 

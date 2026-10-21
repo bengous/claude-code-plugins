@@ -28,7 +28,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v7
+        uses: actions/checkout@v7.0.1
         with:
           fetch-depth: 0 # full history needed for the drift guard
 
@@ -46,7 +46,7 @@ jobs:
           echo "Claude Code $version"
 
       - name: Set up tools (bun, lefthook, shellcheck, shfmt via mise)
-        uses: jdx/mise-action@v5
+        uses: jdx/mise-action@v5.2.2
 
       - name: Install script dependencies
         run: bun install --frozen-lockfile
@@ -157,12 +157,12 @@ jobs:
       units: ${{ steps.scope.outputs.units }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v7
+        uses: actions/checkout@v7.0.1
         with:
           fetch-depth: 0 # the merge-base with the pull request's base
 
       - name: Set up tools (bun via mise)
-        uses: jdx/mise-action@v5
+        uses: jdx/mise-action@v5.2.2
         with:
           install_args: bun
 
@@ -190,7 +190,7 @@ jobs:
     runs-on: windows-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v7
+        uses: actions/checkout@v7.0.1
 
       - name: Pin Claude Code to the version the types were written by
         shell: bash
@@ -204,7 +204,7 @@ jobs:
           echo "Claude Code $version"
 
       - name: Set up tools (bun, claude via mise)
-        uses: jdx/mise-action@v5
+        uses: jdx/mise-action@v5.2.2
         with:
           install_args: bun claude
 
@@ -223,7 +223,7 @@ jobs:
       # A name per attempt: a re-run keeps the first attempt's report beside its own.
       - name: Upload the flaky report
         if: ${{ !cancelled() }}
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@v7.0.2
         with:
           name: flaky-win32-${{ github.run_attempt }}
           path: flaky-reports/*.json
@@ -247,12 +247,12 @@ jobs:
       contents: read
     steps:
       - name: Checkout
-        uses: actions/checkout@v7
+        uses: actions/checkout@v7.0.1
         with:
           fetch-depth: 0 # the merge-base with the base
 
       - name: Set up tools (bun via mise)
-        uses: jdx/mise-action@v5
+        uses: jdx/mise-action@v5.2.2
         with:
           install_args: bun
 
@@ -289,10 +289,10 @@ jobs:
         window: [light-1440, dark-1440, light-1024, light-1280, light-1920]
     steps:
       - name: Checkout
-        uses: actions/checkout@v7
+        uses: actions/checkout@v7.0.1
 
       - name: Set up tools (bun via mise)
-        uses: jdx/mise-action@v5
+        uses: jdx/mise-action@v5.2.2
 
       - name: Install script dependencies
         run: bun install --frozen-lockfile
@@ -319,7 +319,7 @@ jobs:
 
       - name: Upload the flaky report
         if: ${{ !cancelled() }}
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@v7.0.2
         with:
           name: flaky-e2e-${{ matrix.window }}-${{ github.run_attempt }}
           path: flaky-reports/*.json
@@ -338,10 +338,10 @@ jobs:
     runs-on: windows-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v7
+        uses: actions/checkout@v7.0.1
 
       - name: Set up tools (bun via mise)
-        uses: jdx/mise-action@v5
+        uses: jdx/mise-action@v5.2.2
         with:
           install_args: bun
 
@@ -364,7 +364,7 @@ jobs:
 
       - name: Upload the flaky report
         if: ${{ !cancelled() }}
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@v7.0.2
         with:
           name: flaky-e2e-win32-${{ github.run_attempt }}
           path: flaky-reports/*.json
@@ -416,17 +416,17 @@ jobs:
       issues: write
     steps:
       - name: Checkout
-        uses: actions/checkout@v7
+        uses: actions/checkout@v7.0.1
 
       - name: Set up tools (bun via mise)
-        uses: jdx/mise-action@v5
+        uses: jdx/mise-action@v5.2.2
         with:
           install_args: bun
 
       # A folder per artifact, every attempt's: a run already recorded is skipped by its marker.
       - name: Download the flaky reports
         continue-on-error: true
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@v8.0.2
         with:
           pattern: flaky-*
           path: flaky-reports
