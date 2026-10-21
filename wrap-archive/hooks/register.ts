@@ -1,10 +1,4 @@
-import type {
-  EngineInterface,
-  PromptSubmitInput,
-  Register,
-  ToolCallResult,
-  TurnCompleteInput,
-} from "claude-code";
+import type { EngineInterface, PromptSubmitInput, Register, TurnCompleteInput } from "claude-code";
 import { atom, read, update } from "claude-code";
 
 import type { Phase, RecordedPrompt } from "../types/index.d.ts";
@@ -21,10 +15,6 @@ const isProbedState = atom({ plugin: "wrap-archive", key: "isProbed" } as const,
 
 // The desktop app's session tools, as `$.mcp.call` names their server.
 const APP_SERVER = "ccd_session_mgmt";
-
-const ARCHIVE_TOOL = "mcp__ccd_session_mgmt__archive_session";
-
-const PLUGIN = "wrap-archive";
 
 const JUDGE_MODEL = "haiku";
 
@@ -125,23 +115,23 @@ async function evaluateReporting($: EngineInterface, e: TurnCompleteInput): Prom
   }
 }
 
-function archiveText(result: ToolCallResult): string {
-  if (result.deny !== undefined) return `the archive call was refused: ${result.deny}`;
-
-  return result.text?.trim() || "the session was not archived";
+function contentText(content: readonly { type: string; text?: string }[]): string {
+  return content
+    .flatMap((block) => (block.type === "text" && block.text !== undefined ? [block.text] : []))
+    .join(" ")
+    .trim();
 }
 
 async function archive($: EngineInterface): Promise<void> {
   try {
-    const result = await $.tool.call({
-      tool: ARCHIVE_TOOL,
+    const result = await $.mcp.call(APP_SERVER, "archive_session", {
       session_id: "self",
       reason: "wrap-archive: task finished",
     });
 
     // The app answers before it stops an archived session, so its words show either way, a refusal's too.
     await update($, phaseState, () => "quiet");
-    $.ui.status(`wrap-archive: ${archiveText(result)}`);
+    $.ui.status(`wrap-archive: ${contentText(result.content) || "the session was not archived"}`);
   } catch (error) {
     await update($, phaseState, () => "quiet");
     $.ui.status(`wrap-archive: the archive call failed: ${String(error)}`);
@@ -155,14 +145,6 @@ export const register: Register = (on) => {
 
     return next(e);
   });
-
-  // The press on the band is the person's yes. Without this allow, Auto mode's classifier finds no
-  // request for the call in the transcript and refuses it, and Manual mode asks again with the app's card.
-  on("tool.check", { tool: ARCHIVE_TOOL }, ($, e, next) =>
-    next.origin.plugin === PLUGIN
-      ? { decision: "allow", reason: "the person pressed Archive on the wrap-archive band" }
-      : next(e),
-  );
 
   on("prompt.submit", async ($, e, next) => {
     if (isPersons(e)) {

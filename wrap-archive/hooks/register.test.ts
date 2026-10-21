@@ -11,10 +11,6 @@ const PLUGIN = "wrap-archive";
 
 const SERVER = "ccd_session_mgmt";
 
-const ARCHIVE_TOOL = "mcp__ccd_session_mgmt__archive_session";
-
-const CLASSIFIER = "the auto mode classifier found no request for this call";
-
 const USAGE = {
   input_tokens: 10,
   output_tokens: 1,
@@ -92,15 +88,13 @@ function stubEngine(
     if (e.server !== SERVER || !isReachable)
       return { deny: `no connected MCP tool "${e.tool}" on a server named "${e.server}"` };
 
-    return {
-      value: { content: [{ type: "text", text: '{"sessionId":"local_1"}' }], isError: false },
-    };
-  });
-  on("tool.check", { tool: ARCHIVE_TOOL }, () => ({ decision: "deny", reason: CLASSIFIER }));
-  on("tool.call", { tool: ARCHIVE_TOOL }, (_$, e) => {
-    archived.push(JSON.stringify({ session_id: e.session_id, reason: e.reason }));
+    if (e.tool === "get_session")
+      return {
+        value: { content: [{ type: "text", text: '{"sessionId":"local_1"}' }], isError: false },
+      };
+    archived.push(JSON.stringify(e.args));
 
-    return { result: [{ type: "text", text: archiveText }], text: archiveText };
+    return { value: { content: [{ type: "text", text: archiveText }], isError: false } };
   });
   on("ui.status", (_$, e) => {
     statusCalls.push(e.text);
@@ -164,15 +158,6 @@ test("a person's answered turn judged done draws the band, and Archive archives 
     );
     await prompt($, "reset for the next surface");
   }
-});
-
-test("an archive_session call the mod did not make keeps the permission check's verdict", async ($, on) => {
-  stubEngine(on);
-
-  expect(await $.tool.check({ tool: ARCHIVE_TOOL, input: { session_id: "self" } })).toMatchObject({
-    decision: "deny",
-    reason: CLASSIFIER,
-  });
 });
 
 test("not_done, unexpected text or no answer draw no band; an api-error adds one status line", async ($, on) => {
