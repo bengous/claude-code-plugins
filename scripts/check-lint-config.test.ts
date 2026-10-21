@@ -232,6 +232,7 @@ describe("hooksModulePlugins", () => {
       "todos",
       "secret-pane",
       "pinpoint",
+      "wrap-archive",
     ]);
   });
 
