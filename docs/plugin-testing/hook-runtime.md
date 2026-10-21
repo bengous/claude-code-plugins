@@ -39,7 +39,9 @@
   write the hook meant to refuse goes through on the engine's own verdict.
   `on(...).catch(($, e, next) => ...)` on the registration is how such a hook
   fails closed; `next.error.kind` says `throw` or `timeout`, and
-  `claude plugin validate` lists the hook without saying a handler is there.
+  `claude plugin validate` names each gating hook `with .catch` or
+  `without .catch` (read off `claude plugin validate vellum`, Claude Code
+  2.1.306).
 
 - A `tool.call` hook that throws or overruns falls to the engine: in `default`
   mode it asks the person's permission for the tool, then answers the model

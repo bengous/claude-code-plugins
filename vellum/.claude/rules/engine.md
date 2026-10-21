@@ -70,9 +70,10 @@ loop. `/vellum:start` enters it, Approve in the page or `/vellum:stop` leaves it
   `plan.md`, each region's line in its extension's words, then each event refused now with its
   effect and reason, read off `GET /api/workflow`, which answers where the review lives beside
   the workflow as a reader takes it, `WorkflowAnswer`), each served by a `tool.call` hook that answers
-  without `next`. `state` is read on demand, never joined to a relay (D10). A matcher
-  must be a string literal, or `claude plugin validate` prints the expression instead of the
-  name.
+  without `next` and carries a `.catch`: a hook that throws or overruns answers the deny
+  `toolFailed` words, never the engine's permission prompt. `state` is read on demand, never
+  joined to a relay (D10). A matcher must be a string literal, or `claude plugin validate`
+  prints the expression instead of the name.
 - A hook of vellum's targets vellum's own tools. A hook with no matcher applies to every agent
   of the session, subagents included, from the module's load, whether the mode is live or not.
   An unmatched `tool.call` hook wraps every tool call, and a worktree-isolated agent's shell
@@ -147,8 +148,8 @@ loop. `/vellum:start` enters it, Approve in the page or `/vellum:stop` leaves it
   before or after `next(e)`; while `idle` the hook only passed `next(e)` through, so the
   handler replays it and a failure beneath is not vellum's deny. The lock reads
   `$.fs.stat` for `Edit`, `Write` and `NotebookEdit` alone, and `$.session.cwd()` for a
-  relative path of theirs alone, so a failure there never denies a read. `claude plugin validate` lists the hook but not its handler, so nothing but
-  this rule says the handler is there.
+  relative path of theirs alone, so a failure there never denies a read. `claude plugin validate`
+  names each gating hook `with .catch` or `without .catch`.
 - `/clear` and `/resume` suspend the mode, on `command.run` and after `next(e)`: timers stopped,
   server ended, status cleared, band gone, `session:<id>` kept, so a later `/resume` of that
   session finds its directory and starts a server there.

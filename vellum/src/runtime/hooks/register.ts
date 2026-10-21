@@ -1,4 +1,4 @@
-import type { EngineInterface, Register } from "claude-code";
+import type { EngineInterface, HookFailure, Register, ResultOf } from "claude-code";
 
 import { gateAtTurnEnd, SUBMIT, submitPlan, submitResult } from "../../review/hooks.ts";
 import { type Band, liveBand, lostBand } from "./band.ts";
@@ -69,6 +69,14 @@ const NOT_PLANNING = "no vellum planning in progress; run /vellum:start";
 /** What Claude reads when a call that waited for the reviewer failed: the answer comes all the same. */
 const ANSWER_BY_PROMPT =
   "The reviewer's answer will arrive as a prompt, once they send it. End your turn.";
+
+/**
+ * What Claude reads when the hook serving one of vellum's tools threw or overran: without it the
+ * call falls to the engine's permission prompt, then to "no tool.call hook answered".
+ */
+function toolFailed(tool: string, error: HookFailure): ResultOf["tool.call"] {
+  return { deny: `vellum failed on ${tool} (${error.message ?? error.kind}); retry the call` };
+}
 
 const EXTENSION_TOOLS = engineExtensions.flatMap((extension) =>
   (extension.tools ?? []).map((tool) => ({ extension, tool })),
@@ -380,7 +388,7 @@ export const register: Register = (on) => {
     if (state.kind === "lost") return { deny: UNREACHABLE.error };
 
     return submitResult(await submitPlan(hostOf($), state.live, "record").catch(() => UNREACHABLE));
-  });
+  }).catch((_, e, next) => toolFailed(e.tool, next.error));
 
   // Read on demand, never joined to a relay (D10): the reasons Claude meets arrive with each refusal.
   on("tool.call", { tool: "mcp__vellum__state" }, async () => {
@@ -390,7 +398,7 @@ export const register: Register = (on) => {
     const read = await state.live.server.state().catch(() => UNREACHABLE);
 
     return "error" in read ? { deny: read.error } : { result: stateResult(read) };
-  });
+  }).catch((_, e, next) => toolFailed(e.tool, next.error));
 
   // Matched, never open: an unmatched `tool.call` hook wraps every tool call of every agent in
   // the session, and a worktree-isolated agent's shell loses its working directory inside it.
@@ -463,9 +471,7 @@ export const register: Register = (on) => {
 
     if (!EXTENSION_TOOLS.some(({ tool }) => `mcp__vellum__${tool.name}` === name)) return next(e);
 
-    return {
-      deny: `vellum failed on ${name} (${next.error.message ?? next.error.kind}); retry the call`,
-    };
+    return toolFailed(name, next.error);
   });
 
   // The engine skips this hook for vellum's own relays (`skipped: re-entry`), so an extension

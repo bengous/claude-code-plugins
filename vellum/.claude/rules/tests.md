@@ -95,9 +95,11 @@ paths:
   the engine keeps for a relay is checked in a live session: a reviewer's answer relayed as a
   prompt (a proposal answered through `POST /api/x/proposal/answer` after Escape cut its wait)
   starts a turn `answered` reads as `own`.
-- The kit cannot raise one case: the lock's overrun. `mock.clock` lets a wait held past a
+- The kit cannot raise two cases. The lock's overrun: `mock.clock` lets a wait held past a
   hook's budget go, and a test's own budget is shorter still, so a hook that outruns the
   dispatch is measured in a live session instead ([Hook tests](../../../docs/plugin-testing/hooks.md)).
+  A failure of the `submit` and `state` hooks: each catches the rejection of its server call
+  itself, and nothing else it runs reaches a port, so no test holds their `.catch`.
 - A rule only the type system holds is locked where it is tested: a
   `// @ts-expect-error -- <reason>` line in the suite beside it, on the code that must not
   compile. The typecheck gate reads the suites, and a directive with nothing under it fails
