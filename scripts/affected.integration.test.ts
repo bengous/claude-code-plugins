@@ -324,7 +324,7 @@ test("github-output appends its lines to $GITHUB_OUTPUT, the kits read off the c
 
   expect(result.exitCode).toBe(0);
   expect(readFileSync(output, "utf8")).toBe(
-    'earlier=1\nall=true\nunits=[]\nkits=["vellum","todos","secret-pane","pinpoint","atlas"]\n',
+    'earlier=1\nall=true\nunits=[]\nkits=["vellum","todos","secret-pane","pinpoint","atlas","wrap-archive"]\n',
   );
   rmSync(dir, { recursive: true, force: true });
 });

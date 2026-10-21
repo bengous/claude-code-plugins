@@ -152,6 +152,16 @@ pre-commit:
         - "atlas/hooks/*"
         - "atlas/src/server/wire.ts"
       run: claude plugin test atlas
+    - name: validate-wrap-archive
+      glob:
+        - "wrap-archive/hooks/*"
+        - "wrap-archive/.claude-plugin/*"
+        - "wrap-archive/types/*"
+      run: claude plugin validate wrap-archive
+    - name: test-wrap-archive
+      glob:
+        - "wrap-archive/hooks/*"
+      run: claude plugin test wrap-archive
 
 commit-msg:
   jobs:
