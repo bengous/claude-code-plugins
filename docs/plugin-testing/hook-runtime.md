@@ -40,8 +40,7 @@
   `on(...).catch(($, e, next) => ...)` on the registration is how such a hook
   fails closed; `next.error.kind` says `throw` or `timeout`, and
   `claude plugin validate` names each gating hook `with .catch` or
-  `without .catch` (read off `claude plugin validate vellum`, Claude Code
-  2.1.306).
+  `without .catch` (`Registration` in `vellum/types/claude-code.d.ts`).
 
 - A `tool.call` hook that throws or overruns falls to the engine: in `default`
   mode it asks the person's permission for the tool, then answers the model

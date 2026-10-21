@@ -60,8 +60,8 @@ The plugin installs a hooks module that refuses writes and spawns a process. The
 | `command.run` | `command=clear\|resume` | Suspends the mode after the command ran, when the session id changed: timers stopped, the record kept. |
 | `ui.render` | `component=AbovePrompt` | Draws the band while the mode holds a session; passes while it is idle or a survey holds the band. |
 | `tool.check` | | The lock, and the refusal of a shell command that enters the working directory or names it from the background. Its `.catch` denies whatever the failure, so a hook that throws or overruns cannot open it. |
-| `tool.call` | `tool=mcp__vellum__submit` | Gates the plan and names the version, without running a tool. |
-| `tool.call` | `tool=mcp__vellum__state` | Answers where the session stands, read from the server: the plan's stage and `plan.md`, what holds the review, and what is refused now with each reason. |
+| `tool.call` | `tool=mcp__vellum__submit` | Gates the plan and names the version, without running a tool. Its `.catch` denies a call that failed, naming the failure, never with a permission prompt. |
+| `tool.call` | `tool=mcp__vellum__state` | Answers where the session stands, read from the server: the plan's stage and `plan.md`, what holds the review, and what is refused now with each reason. Its `.catch` denies a call that failed, as `submit`'s does. |
 | `tool.call` | `tool=` each extension's tool and each tool an extension refuses, as `register.ts` lists them | Serves each extension's tool: one that waits for your answer returns it as its result. Refuses, while the mode is live, the tools an extension refuses (the terminal's `AskUserQuestion`: the page is where you answer). Its `.catch` answers a call that failed, never with a permission prompt: one that waited says your answer comes as a prompt. |
 | `prompt.submit` | | While the mode is live, hands a command of the session to the open grill's transcript as an event, Vellum's own relays left out, then passes every prompt on unchanged. |
 | `turn.start` | | Notes whether the turn was started by one of Vellum's own relays, from the origin `prompt.submit` saw. |

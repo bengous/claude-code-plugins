@@ -98,8 +98,9 @@ paths:
 - The kit cannot raise two cases. The lock's overrun: `mock.clock` lets a wait held past a
   hook's budget go, and a test's own budget is shorter still, so a hook that outruns the
   dispatch is measured in a live session instead ([Hook tests](../../../docs/plugin-testing/hooks.md)).
-  A failure of the `submit` and `state` hooks: each catches the rejection of its server call
-  itself, and nothing else it runs reaches a port, so no test holds their `.catch`.
+  A failure of the `submit` and `state` hooks: every port each one reaches lies under its own
+  catch of `submitPlan` or `server.state()`, so no kit test holds what their `.catch` answers;
+  `register.spec.ts` holds that every `tool.call` registration carries one.
 - A rule only the type system holds is locked where it is tested: a
   `// @ts-expect-error -- <reason>` line in the suite beside it, on the code that must not
   compile. The typecheck gate reads the suites, and a directive with nothing under it fails
