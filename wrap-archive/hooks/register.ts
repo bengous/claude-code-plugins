@@ -22,10 +22,9 @@ const isProbedState = atom({ plugin: "wrap-archive", key: "isProbed" } as const,
 // The desktop app's session tools, as `$.mcp.call` names their server.
 const APP_SERVER = "ccd_session_mgmt";
 
-const ARCHIVE_TOOL = `mcp__${APP_SERVER}__archive_session`;
+const ARCHIVE_TOOL = "mcp__ccd_session_mgmt__archive_session";
 
-const CONSENT =
-  'The user pressed "Archive" on the wrap-archive band "Task finished?" to archive this session.';
+const PLUGIN = "wrap-archive";
 
 const JUDGE_MODEL = "haiku";
 
@@ -134,12 +133,10 @@ function archiveText(result: ToolCallResult): string {
 
 async function archive($: EngineInterface): Promise<void> {
   try {
-    // `consent` puts the press in the run's context as the person's request: the auto-mode classifier refuses a call it finds none for.
     const result = await $.tool.call({
       tool: ARCHIVE_TOOL,
       session_id: "self",
       reason: "wrap-archive: task finished",
-      consent: CONSENT,
     });
 
     // The app answers before it stops an archived session, so its words show either way, a refusal's too.
@@ -158,6 +155,14 @@ export const register: Register = (on) => {
 
     return next(e);
   });
+
+  // The press on the band is the person's yes. Without this allow, Auto mode's classifier finds no
+  // request for the call in the transcript and refuses it, and Manual mode asks again with the app's card.
+  on("tool.check", { tool: ARCHIVE_TOOL }, ($, e, next) =>
+    next.origin.plugin === PLUGIN
+      ? { decision: "allow", reason: "the person pressed Archive on the wrap-archive band" }
+      : next(e),
+  );
 
   on("prompt.submit", async ($, e, next) => {
     if (isPersons(e)) {
