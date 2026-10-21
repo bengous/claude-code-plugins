@@ -13,6 +13,8 @@ const SERVER = "ccd_session_mgmt";
 
 const ARCHIVE_TOOL = "mcp__ccd_session_mgmt__archive_session";
 
+const CLASSIFIER = "the auto mode classifier found no request for this call";
+
 const USAGE = {
   input_tokens: 10,
   output_tokens: 1,
@@ -94,10 +96,9 @@ function stubEngine(
       value: { content: [{ type: "text", text: '{"sessionId":"local_1"}' }], isError: false },
     };
   });
+  on("tool.check", { tool: ARCHIVE_TOOL }, () => ({ decision: "deny", reason: CLASSIFIER }));
   on("tool.call", { tool: ARCHIVE_TOOL }, (_$, e) => {
-    archived.push(
-      JSON.stringify({ session_id: e.session_id, reason: e.reason, consent: e.consent }),
-    );
+    archived.push(JSON.stringify({ session_id: e.session_id, reason: e.reason }));
 
     return { result: [{ type: "text", text: archiveText }], text: archiveText };
   });
@@ -145,7 +146,7 @@ async function bandShown($: Engine, surface: (typeof SURFACES)[number] = "deskto
   return (await ui.find({ type: "Button", key: "archive" })) !== undefined;
 }
 
-test("a person's answered turn judged done draws the band, and Archive archives self with the press as consent", async ($, on) => {
+test("a person's answered turn judged done draws the band, and Archive archives self", async ($, on) => {
   const world = stubEngine(on);
 
   for (const [index, surface] of SURFACES.entries()) {
@@ -159,15 +160,19 @@ test("a person's answered turn judged done draws the band, and Archive archives 
     expect(world.judged[index]?.prompt).toContain("Renamed the function and the tests pass.");
     await ui.press({ key: "archive" });
     expect(world.archived[index]).toBe(
-      JSON.stringify({
-        session_id: "self",
-        reason: "wrap-archive: task finished",
-        consent:
-          'The user pressed "Archive" on the wrap-archive band "Task finished?" to archive this session.',
-      }),
+      JSON.stringify({ session_id: "self", reason: "wrap-archive: task finished" }),
     );
     await prompt($, "reset for the next surface");
   }
+});
+
+test("an archive_session call the mod did not make keeps the permission check's verdict", async ($, on) => {
+  stubEngine(on);
+
+  expect(await $.tool.check({ tool: ARCHIVE_TOOL, input: { session_id: "self" } })).toMatchObject({
+    decision: "deny",
+    reason: CLASSIFIER,
+  });
 });
 
 test("not_done, unexpected text or no answer draw no band; an api-error adds one status line", async ($, on) => {
