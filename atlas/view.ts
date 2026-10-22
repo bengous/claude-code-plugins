@@ -53,6 +53,7 @@ export type Ghost = {
   readonly id: string;
   readonly label: string;
   readonly color: string;
+  readonly off: boolean;
   readonly open: number;
   readonly outside: boolean;
   readonly side: Side;
@@ -269,6 +270,7 @@ function ghostsOf(tree: Tree, children: ReadonlySet<string>, arrows: readonly Ar
         id,
         label: node.label,
         color: node.color,
+        off: node.kind === "off",
         open: openIn(tree, id),
         outside: tree.sides.has(id),
         side,

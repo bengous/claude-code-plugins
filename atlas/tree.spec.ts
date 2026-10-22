@@ -121,6 +121,16 @@ describe("treeOf", () => {
       "node a: children is empty; a leaf has no children field",
     ],
     [
+      "a kind on a container",
+      mapOf([card("a", { kind: "off", children: [card("b")] })]),
+      "node a: kind is for a leaf; a container's children carry their own",
+    ],
+    [
+      "side both on an outside container",
+      mapOf([card("a", { outside: true, side: "both", children: [card("b")] })]),
+      'node a: side "both" is for an outside leaf',
+    ],
+    [
       "an outside node below the root",
       mapOf([card("a", { children: [card("b", { outside: true, side: "in" })] })]),
       "node b: only a child of the root is outside",

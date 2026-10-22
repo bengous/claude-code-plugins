@@ -140,16 +140,42 @@ describe("the sample's views", () => {
     expect(arrow(view, "app", "data").ends).toEqual(["app", "data", "catalog", "db", "orders"]);
 
     expect(view.ghosts).toEqual([
-      { id: "clients", label: "Clients", color: "clients", open: 0, outside: true, side: "in" },
+      {
+        id: "clients",
+        label: "Clients",
+        color: "clients",
+        off: false,
+        open: 0,
+        outside: true,
+        side: "in",
+      },
       {
         id: "email",
         label: "Email service",
         color: "external",
+        off: false,
         open: 0,
         outside: true,
         side: "out",
       },
     ]);
+  });
+
+  test("a dormant leaf stays dormant seen as a ghost", () => {
+    const tree = treeOf({
+      root: {
+        title: "T",
+        children: [
+          card("A", {
+            children: [card("A1", { children: [card("x")] }), card("a2", { kind: "off" })],
+          }),
+        ],
+      },
+      links: [{ from: "x", to: "a2", label: "l" }],
+    });
+
+    expect(viewOf(tree, "A1").ghosts.map((g) => [g.id, g.off])).toEqual([["a2", true]]);
+    expect(viewOf(sample, "server").ghosts.map((g) => g.off)).toEqual([false, false]);
   });
 
   test("the application: every leaf a card, its neighbours lifted to the level they share", () => {
