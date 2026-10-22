@@ -139,6 +139,14 @@ jobs:
         if: contains(fromJSON(steps.scope.outputs.kits), 'pinpoint')
         run: claude plugin test pinpoint
 
+      - name: Validate the atlas hooks module
+        if: contains(fromJSON(steps.scope.outputs.kits), 'atlas')
+        run: claude plugin validate atlas
+
+      - name: Test the atlas hooks module
+        if: contains(fromJSON(steps.scope.outputs.kits), 'atlas')
+        run: claude plugin test atlas
+
       # main is a delayed fast-forward pointer on dev's history: releases move it
       # with `git push origin dev:main`. Fail loudly if main ever leaves that line.
       - name: Guard main as a strict prefix of dev

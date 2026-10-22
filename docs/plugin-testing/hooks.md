@@ -112,7 +112,15 @@ under the [loader rules](hook-runtime.md#module-loader).
   `vellum/src/runtime/hooks/`. `bun test` would pick those up and fail on the
   import, so the repo's `bunfig.toml` ignores `vellum/**/*.test.ts`, as it
   ignores `todos/**/*.test.ts`, `secret-pane/**/*.test.ts`,
-  `pinpoint/**/*.test.ts` and the retired plugins of `archive/**`.
+  `pinpoint/**/*.test.ts`, `atlas/**/*.test.ts` and the retired plugins of
+  `archive/**`; `atlas` names its `bun:test` suites `*.spec.ts` too.
+
+- A module's `$.ui.ask` reaches the test as a call of `AskUserQuestion`:
+  `on("tool.call", { tool: "AskUserQuestion" }, ...)` answers it with
+  `{ result: { questions, answers } }`, or refuses it with `{ deny }`, as a
+  `-p` run does. `on("ui.ask", ...)` keeps the module from loading
+  (`"ui.ask" is not an event`). Measured in the kit on Claude Code 2.1.308,
+  Linux, 2026-10-22 (`atlas/hooks/fixtures.ts`).
 
 - The kit's `$` has no `classic` noun, so a `classic.PermissionRequest` hook
   cannot be raised from a test.

@@ -1,5 +1,5 @@
 // The plan's two state machines, pure (no DOM, no clock): engine.ts feeds
-// them events and paints what they return; machine.test.ts runs them.
+// them events and paints what they return; machine.spec.ts runs them.
 //
 // Navigation: where the reader stands (Place). It alone decides the panel,
 // the breadcrumb, the highlights and where the camera goes; there is no free

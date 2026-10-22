@@ -166,6 +166,19 @@ plugins (September 2026), unless a line says otherwise.
   - `claude` killed by SIGKILL with its terminal open leaves the children
     orphaned with no signal: only a heartbeat the child watches, or a change
     of its parent pid, tells it the session is gone.
+  - The end of a `-p` run ends every child (SIGTERM) before `session.end`
+    runs, and the loop sees that end first: a module that revives a child
+    that ended spawns one for nothing there, which the exit then aborts.
+    `atlas` revives no child a SIGTERM ended (`follow` in
+    `atlas/hooks/register.ts`). Measured on Claude Code 2.1.308, Linux,
+    2026-10-22, in the debug log of a `claude -p` stream-json session.
+
+- `$.store` is one JSON file per plugin under `~/.claude/plugins/store/`
+  (`<plugin>_inline-<hash>.json` for a `--plugin-dir` one), shared by every
+  session: a running session's `$.store.get` saw a value another `claude`
+  process set within a second. Measured on Claude Code 2.1.308, Linux,
+  2026-10-22, with two `claude -p` sessions of a probe module, one reading
+  every second, the other writing once.
 
 - Saving a file under `--plugin-dir` prints `<plugin>: reloaded (N hooks: …)`
   and raises `session.start` again for that plugin alone, so a mode kept in

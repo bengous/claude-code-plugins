@@ -135,6 +135,17 @@ pre-commit:
         - "pinpoint/hooks/*"
         - "pinpoint/shared/*"
       run: claude plugin test pinpoint
+    - name: validate-atlas
+      glob:
+        - "atlas/hooks/*"
+        - "atlas/wire.ts"
+        - "atlas/.claude-plugin/*"
+      run: claude plugin validate atlas
+    - name: test-atlas
+      glob:
+        - "atlas/hooks/*"
+        - "atlas/wire.ts"
+      run: claude plugin test atlas
 
 commit-msg:
   jobs:

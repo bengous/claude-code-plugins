@@ -40,6 +40,8 @@ import type { PaletteRule } from "./settings.ts";
 import { paletteRules, settingsOf } from "./settings.ts";
 import { defs, el, esc } from "./svg.ts";
 import { TOKEN_HEADER, TOKEN_META, readThreads } from "./threads.ts";
+import type { Selection } from "./wire.ts";
+import { SELECTION_PATH } from "./wire.ts";
 
 const settings = settingsOf(config);
 
@@ -358,6 +360,43 @@ svg.addEventListener("pointerleave", () => {
   hoverOverview(null);
 });
 
+// serve.ts prints each selection for the agent's session (wire.ts); a page reloaded on a #id
+// posts it again, so a revived server's session hears it too.
+let toldSelection: string | null = null;
+
+function tellSelection(id: string | null): void {
+  if (id === toldSelection) {
+    return;
+  }
+
+  toldSelection = id;
+
+  const selection: Selection =
+    id === null
+      ? { id: null }
+      : {
+          id,
+          label: graph.isZone(id)
+            ? graph.zone(id).title
+            : graph.node(id).label.replaceAll("\n", " "),
+        };
+
+  fetch(SELECTION_PATH, {
+    method: "POST",
+    headers: { "content-type": "application/json", [TOKEN_HEADER]: token },
+    body: JSON.stringify(selection),
+  }).then(
+    async (response) => {
+      if (!response.ok) {
+        console.warn(`${SELECTION_PATH}: ${response.status} ${await response.text()}`);
+      }
+    },
+    (error: unknown) => {
+      console.warn(`${SELECTION_PATH}: ${failure(error)}`);
+    },
+  );
+}
+
 function render(): void {
   renderPanel(settings, graph, panel, place, drawn().ov.avoidError, threads);
   renderOpenList(settings, graph, openButton, openList, threads);
@@ -366,6 +405,7 @@ function render(): void {
   // Keeps #id in the URL so a link reopens the same view.
   const id = place.node ?? place.zone;
   history.replaceState(null, "", id === null ? location.pathname + location.search : `#${id}`);
+  tellSelection(id);
 }
 
 // Every input becomes a navigation event: the place changes, the camera heads

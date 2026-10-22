@@ -1,4 +1,4 @@
-/* oxlint-disable anti-slop/no-runtime-typeof -- isReply IS the boundary parser of what the page posts: there is no earlier place to narrow it. */
+/* oxlint-disable anti-slop/no-runtime-typeof -- isReply and isSelection ARE the boundary parsers of what the page posts: there is no earlier place to narrow it. */
 import type { FSWatcher } from "node:fs";
 import { statSync, watch } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
@@ -8,15 +8,19 @@ import type { BuildArtifact, BunPlugin, Server } from "bun";
 import { coalesced } from "./coalesce.ts";
 import { CONFIG_FILE, MAP_FILE, THREADS_FILE } from "./folder.ts";
 import { TOKEN_HEADER, TOKEN_META } from "./threads.ts";
+import type { Beat, Selection, ServerLine } from "./wire.ts";
+import { HEARTBEAT_GRACE_MS, HEARTBEAT_PATH, SELECTION_PATH } from "./wire.ts";
 
 // Serves the page of one map folder:
-//   bun atlas/serve.ts <map folder> [port]   prints the page's address once it listens; port 0 or
-//                                            none takes a free one
+//   bun atlas/serve.ts <map folder> [port] [--heartbeat]
+//     prints the page's address once it listens; port 0 or none takes a free one; --heartbeat
+//     leaves once no POST /heartbeat came for HEARTBEAT_GRACE_MS (the hooks module beats it)
 // Bun.build bundles the page, atlas:map and atlas:config resolved to the folder's files, and the
 // server answers the outputs from memory. A save in the folder or in the page's sources rebuilds it
 // and, when the page changed, reloads every open tab through a server-sent event. A failed build,
 // or data the engine cannot draw, answers an error page instead, which reloads on the next save.
-// It answers requests to 127.0.0.1 or localhost with its own port only.
+// It answers requests to 127.0.0.1 or localhost with its own port only. Each selection the page
+// posts is printed as one JSON line (wire.ts), which the hooks module reads.
 const DIR = import.meta.dir;
 
 const PAGE = "atlas.html";
@@ -46,9 +50,15 @@ const same = (a: Bundle, b: Bundle): boolean =>
     ? b.kind === "ok" && a.html === b.html
     : b.kind === "error" && a.message === b.message;
 
-const USAGE = "usage: bun serve.ts <map folder> [port]";
+const USAGE = "usage: bun serve.ts <map folder> [port] [--heartbeat]";
 
-const [dirArg, portArg = "0", ...extra] = process.argv.slice(2);
+const HEARTBEAT_FLAG = "--heartbeat";
+
+const WATCH_MS = 5_000;
+
+const args = process.argv.slice(2);
+
+const [dirArg, portArg = "0", ...extra] = args.filter((arg) => arg !== HEARTBEAT_FLAG);
 
 if (dirArg === undefined || extra.length > 0 || !/^\d+$/u.test(portArg)) {
   console.error(USAGE);
@@ -303,20 +313,32 @@ const isOwnOrigin = (origin: string | null): boolean =>
 
 // A browser sends a cross-origin text/plain POST without asking first, so the content type, the
 // Origin and the token are all required: a page elsewhere can set none of them to this server's.
-async function reply(request: Request): Promise<Response> {
+async function fromPage(request: Request, what: string): Promise<Response | { body: unknown }> {
   if (!isOwnOrigin(request.headers.get("origin"))) {
-    return new Response("a reply comes from this server's own page", { status: 403 });
+    return new Response(`${what} comes from this server's own page`, { status: 403 });
   }
 
   if (request.headers.get(TOKEN_HEADER) !== token) {
-    return new Response("a reply carries this server's token: reload the page", { status: 403 });
+    return new Response(`${what} carries this server's token: reload the page`, { status: 403 });
   }
 
   if (!isJson(request.headers.get("content-type"))) {
-    return new Response("a reply is application/json", { status: 415 });
+    return new Response(`${what} is application/json`, { status: 415 });
   }
 
   const body: unknown = await request.json().catch(() => null);
+
+  return { body };
+}
+
+async function reply(request: Request): Promise<Response> {
+  const posted = await fromPage(request, "a reply");
+
+  if (posted instanceof Response) {
+    return posted;
+  }
+
+  const { body } = posted;
 
   if (!isReply(body)) {
     return new Response('expected JSON { "id": <open id>, "text": <reply> }', { status: 400 });
@@ -338,6 +360,58 @@ async function reply(request: Request): Promise<Response> {
   });
 }
 
+const isSelection = (v: unknown): v is Selection =>
+  typeof v === "object" &&
+  v !== null &&
+  "id" in v &&
+  (v.id === null || (typeof v.id === "string" && "label" in v && typeof v.label === "string"));
+
+async function select(request: Request): Promise<Response> {
+  const posted = await fromPage(request, "a selection");
+
+  if (posted instanceof Response) {
+    return posted;
+  }
+
+  if (!isSelection(posted.body)) {
+    return new Response('expected JSON { "id": <node id>, "label": <label> } or { "id": null }', {
+      status: 400,
+    });
+  }
+
+  const line: ServerLine =
+    posted.body.id === null
+      ? { type: "selection", id: null }
+      : { type: "selection", id: posted.body.id, label: posted.body.label };
+
+  console.log(JSON.stringify(line));
+
+  return new Response(null, { status: 204 });
+}
+
+let lastBeat = Date.now();
+
+// The module's beat carries no Origin; a page elsewhere, which would, cannot keep the server up.
+function heartbeat(request: Request): Response {
+  const origin = request.headers.get("origin");
+
+  if (origin !== null && !isOwnOrigin(origin)) {
+    return new Response("a heartbeat comes from the hooks module", { status: 403 });
+  }
+
+  lastBeat = Date.now();
+
+  return Response.json({ folder } satisfies Beat);
+}
+
+if (args.includes(HEARTBEAT_FLAG)) {
+  setInterval(() => {
+    if (Date.now() - lastBeat > HEARTBEAT_GRACE_MS) {
+      process.exit(0);
+    }
+  }, WATCH_MS);
+}
+
 async function threads(): Promise<Response> {
   const file = Bun.file(join(folder, THREADS_FILE));
 
@@ -350,8 +424,15 @@ function route(request: Request, server: Server<undefined>): Response | Promise<
   const { pathname } = new URL(request.url);
   const get = request.method === "GET";
 
-  if (pathname === `/${THREADS_FILE}` && request.method === "POST") {
-    return reply(request);
+  if (request.method === "POST") {
+    switch (pathname) {
+      case `/${THREADS_FILE}`:
+        return reply(request);
+      case `/${SELECTION_PATH}`:
+        return select(request);
+      case `/${HEARTBEAT_PATH}`:
+        return heartbeat(request);
+    }
   }
 
   if (!get) {

@@ -4,6 +4,8 @@ An interactive architecture map on two levels, served by Bun to the browser: an 
 every zone with its bricks, and a detail of every brick and arrow, one zone at a time. ELK lays
 out the boxes in the page, libavoid routes the overview's arrows from WebAssembly, and nothing in
 the data has a position or a size. Open points carry threads between the human and the agent.
+A mod (`hooks/`) serves a map folder's page on `/atlas:board`, hands the human's selection in
+the page to the agent, and gives the agent its tools on the map.
 
 ## Files
 
@@ -33,17 +35,20 @@ settings.ts          the Config with its defaults filled in, refusing what the e
 words.ts             the page's own words in each language a Config picks: the dictionary
 model.ts             the plan the engine draws on two levels (Zone, Brick, Edge, Info)
 adapter.ts           the tree as that plan, refusing a tree the engine cannot draw, a colour
-                     outside the palette among them (adapter.test.ts)
+                     outside the palette among them (adapter.spec.ts)
 graph.ts             graphOf: the plan with the lookups both drawings and the panel share
-threads.ts           open points and threads, pure: who a point waits for (threads.test.ts)
+threads.ts           open points and threads, pure: who a point waits for (threads.spec.ts)
 check.ts             validates a map folder's ids, couplings, nesting, labels, tags against the
                      Config's, open points against its step words, and threads, and reports the
-                     open points (check.test.ts)
+                     open points (check.spec.ts)
 legend.ts            the legend's lines, one per arrow kind or node mark the map uses
                      (legend.spec.ts)
-reply.ts             adds an entry to a thread of a map folder (reply.test.ts)
-machine.ts           the two state machines, navigation and camera, pure (machine.test.ts)
-engine.ts            the page's entry: draws the map it imports, paints the camera, takes input
+reply.ts             adds an entry to a thread of a map folder (reply.spec.ts)
+query.ts             one node of a map folder as JSON: path, children, links, fields, sources
+                     (query.spec.ts)
+machine.ts           the two state machines, navigation and camera, pure (machine.spec.ts)
+engine.ts            the page's entry: draws the map it imports, paints the camera, takes input,
+                     posts the reader's selection to serve.ts
 overview.ts          the overview drawing
 flows.ts             the overview's arrows: the leaves' arrows grouped by the boxes they join
 detail.ts            the detail drawing
@@ -55,10 +60,28 @@ panel.ts             the panel, the breadcrumb and the open points' list
 svg.ts               SVG building blocks shared by both drawings
 atlas.html           the page: its styles and its markup, which hold no word and no colour of a map
 serve.ts             serves one map folder's page, rebuilt and reloaded on save, answers
-                     libavoid.wasm and threads.json, and takes the panel's replies (serve.test.ts)
+                     libavoid.wasm and threads.json, takes the panel's replies, prints the page's
+                     selections, and with --heartbeat leaves a minute after the last beat
+                     (serve.spec.ts)
 coalesce.ts          one run at a time, with at most one waiting: serve.ts's rebuilds
-                     (coalesce.test.ts)
+                     (coalesce.spec.ts)
+wire.ts              what crosses between the page, serve.ts and the mod: routes, a selection,
+                     the server's JSON line
+open.ts              hands an address to the desktop's browser, detached, for the mod (open.spec.ts)
+hooks/               the mod: register.ts spells `$`, server.ts the server's start, beat and the
+                     command lines the tools run, parse.ts the boundary, register.test.ts the kit's
+                     tests over fixtures.ts
+skills/board, stop   /atlas:board [map folder] [draft name] and /atlas:stop, the person's alone
 ```
+
+The mod keeps one server per map folder, whichever session asks. Its store keeps, under
+`map:<folder>`, the port of that folder's live server, under `session:<id>` the folders a session
+shows (a reload attaches them again), and under `selection:<folder>` the page's last selection,
+which every session showing that map adds to its next prompt's context once. The first session to
+ask spawns `serve.ts --heartbeat` and beats it; another joins it and beats it too, and starts its
+own on the same port once it stops answering. A server that crashes comes back on its port, three
+ends within a minute leave the board lost; a SIGTERM from outside, as Claude Code ends its
+children on exit, revives nothing.
 
 `package.json` pins the libraries, elkjs (EPL-2.0) and libavoid-js (LGPL-2.1-or-later,
 github.com/Aksem/libavoid-js), and the checkers tsgo, oxlint and oxfmt, as runtime dependencies.
@@ -77,8 +100,12 @@ bun atlas/cli.ts fmt <map folder>           # format in place the files check fo
 bun atlas/cli.ts reply <map folder> <open id> --as agent "<text>"   # answer an open point; an agent always writes as agent
 bun atlas/cli.ts draft <map folder> <name>  # copy the map's own files into drafts/<name> and print its path
 bun atlas/cli.ts draft <map folder> <name> --adopt   # its data files and threads.json replace the map's, then it is deleted; --drop deletes it
-bun test atlas                              # the engine's suites
+bun test atlas                              # the engine's suites, *.spec.ts
+bun atlas/query.ts <map folder> <node id>   # one node as JSON
 bun atlas/serve.ts <map folder> [port]      # serve the page; it prints its address and reloads on save
+claude plugin validate atlas                # what the mod hooks and calls
+claude plugin test atlas                    # the mod's kit tests, hooks/*.test.ts
+claude --plugin-dir atlas                   # a live session with the mod from source
 ```
 
 The sample map folder is `atlas/fixtures/sample`.
@@ -115,3 +142,6 @@ Each module explains its own where it bites.
   `legend.ts`): a kind the map never uses has no line.
 - Layout runs in the browser only. To script it (a check, a benchmark), run elkjs under Node:
   under Bun its constructor fails.
+- `claude plugin test atlas` runs every `*.test.ts` under `atlas/` in the engine's environment,
+  where a `bun:test` suite fails: the engine's suites are `*.spec.ts`, and the root `bunfig.toml`
+  keeps `bun test` off `atlas/**/*.test.ts`.

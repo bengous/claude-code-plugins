@@ -5,6 +5,8 @@ import { dirname, join } from "node:path";
 
 import { MAP_FILE, THREADS_FILE } from "./folder.ts";
 import { TOKEN_HEADER, TOKEN_META } from "./threads.ts";
+import type { Selection } from "./wire.ts";
+import { HEARTBEAT_PATH, SELECTION_PATH } from "./wire.ts";
 
 const SAMPLE = join(import.meta.dir, "fixtures", "sample");
 
@@ -549,5 +551,84 @@ describe("a reply posted to threads.json", () => {
     expect(JSON.parse(await threads())).toMatchObject({
       "backup-restore-untested": [{ who: "agent" }, { who: "human" }, { who: "human" }],
     });
+  });
+});
+
+// A selection, or one of the shapes the server refuses.
+type Posted = Selection | { readonly id: number } | { readonly id: string };
+
+const select = async (headers: Record<string, string>, body: Posted): Promise<Response> =>
+  await fetch(`${served().base}/${SELECTION_PATH}`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify(body),
+  });
+
+// The lines a rebuild prints are plain text; the module reads the JSON ones.
+const nextServerLine = async (): Promise<string> =>
+  await within(
+    served().log.next((line) => line.startsWith("{")),
+    "selection line",
+  );
+
+describe("a selection posted by the page", () => {
+  test("without the page's origin or token is refused", async () => {
+    const backup = { id: "backup", label: "Nightly backup" };
+
+    expect(
+      (await select({ ...(await own()), origin: "http://elsewhere.example" }, backup)).status,
+    ).toBe(403);
+
+    const { [TOKEN_HEADER]: _, ...untokened } = await own();
+
+    expect((await select(untokened, backup)).status).toBe(403);
+  });
+
+  test("of another shape is refused", async () => {
+    expect((await select(await own(), { id: 7 })).status).toBe(400);
+    expect((await select(await own(), { id: "backup" })).status).toBe(400);
+  });
+
+  test("is printed as one JSON line, and so is a selection cleared", async () => {
+    const backup = await select(await own(), { id: "backup", label: "Nightly backup" });
+
+    expect(backup.status).toBe(204);
+    expect(JSON.parse(await nextServerLine())).toEqual({
+      type: "selection",
+      id: "backup",
+      label: "Nightly backup",
+    });
+
+    expect((await select(await own(), { id: null })).status).toBe(204);
+    expect(JSON.parse(await nextServerLine())).toEqual({ type: "selection", id: null });
+  });
+});
+
+describe("a heartbeat", () => {
+  test("from the hooks module, with no Origin, answers the folder served", async () => {
+    const response = await fetch(`${served().base}/${HEARTBEAT_PATH}`, { method: "POST" });
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ folder: dir });
+  });
+
+  test("from a page elsewhere is refused", async () => {
+    const response = await fetch(`${served().base}/${HEARTBEAT_PATH}`, {
+      method: "POST",
+      headers: { origin: "http://elsewhere.example" },
+    });
+
+    expect(response.status).toBe(403);
+  });
+});
+
+describe("the hooks module's routes, named by another host", () => {
+  test("refuse a selection and a heartbeat: they sit behind the same Host check", async () => {
+    const { base, port } = served();
+    const host = `rebound.example:${port}`;
+    const selected = await select({ ...(await own()), host }, { id: null });
+    const beat = await fetch(`${base}/${HEARTBEAT_PATH}`, { method: "POST", headers: { host } });
+
+    expect([selected.status, beat.status]).toEqual([403, 403]);
   });
 });
