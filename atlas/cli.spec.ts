@@ -36,8 +36,14 @@ afterAll(() => {
 
 type Run = { readonly code: number; readonly stdout: string; readonly stderr: string };
 
+// The suite reads the command line's words, not the colours a parent terminal asks of Bun.
+const ENV = {
+  ...Object.fromEntries(Object.entries(process.env).filter(([key]) => key !== "FORCE_COLOR")),
+  NO_COLOR: "1",
+};
+
 function cli(...args: readonly string[]): Run {
-  const run = Bun.spawnSync([process.execPath, CLI, ...args]);
+  const run = Bun.spawnSync([process.execPath, CLI, ...args], { env: ENV });
 
   return { code: run.exitCode, stdout: run.stdout.toString(), stderr: run.stderr.toString() };
 }
@@ -88,6 +94,20 @@ const snapshot = (dir: string): ReadonlyMap<string, string> =>
 const OK = ["tsgo: ok", "oxlint: ok", "oxfmt: ok", "atlas.d.ts: ok", "tsconfig.json: ok"].join(
   "\n",
 );
+
+// What `check` prints under `<step>: failed`, up to the next step's line. The tools' own lines are
+// matched by the file names they hold only: their layout and colours change with the terminal.
+function failedReport(stdout: string, step: string): string {
+  const heading = `${step}: failed\n`;
+  const start = stdout.indexOf(heading);
+
+  expect(start).not.toBe(-1);
+
+  const rest = stdout.slice(start + heading.length);
+  const next = rest.search(/^[\w.]+: (?:ok|failed)/mu);
+
+  return next === -1 ? rest : rest.slice(0, next);
+}
 
 const isOneLine = (text: string): boolean =>
   text.endsWith("\n") && !text.slice(0, -1).includes("\n");
@@ -158,10 +178,11 @@ describe("check", () => {
     const line = await lineOf(map, "label: 42");
     const run = cli("check", dir);
 
+    const types = failedReport(run.stdout, "tsgo");
+
     expect(run.code).toBe(1);
-    expect(run.stdout).toContain("tsgo: failed\n");
-    expect(run.stdout).toContain(`map.ts(${line},`);
-    expect(run.stdout).toContain("error TS2322");
+    expect(types).toContain(`map.ts(${line},`);
+    expect(types).toContain("TS2322");
     expect(run.stderr).toBe("check: tsgo failed\n");
   });
 
@@ -171,11 +192,15 @@ describe("check", () => {
     await edit(join(dir, "atlas.config.ts"), "palette: {", "palette:   {");
     const run = cli("check", dir);
 
+    const lint = failedReport(run.stdout, "oxlint");
+    const format = failedReport(run.stdout, "oxfmt");
+
     expect(run.code).toBe(1);
-    expect(run.stdout).toContain("oxlint: failed\nmap.ts:3:7:");
-    expect(run.stdout).toContain("no-unused-vars");
-    expect(run.stdout).toContain("oxfmt: failed\n");
-    expect(run.stdout).toContain("atlas.config.ts");
+    expect(lint).toContain("map.ts:3:7");
+    expect(lint).toContain("no-unused-vars");
+    expect(lint).not.toContain("atlas.config.ts");
+    expect(format).toContain("atlas.config.ts");
+    expect(format).not.toContain("map.ts");
     expect(run.stderr).toBe("check: oxlint, oxfmt failed\n");
   });
 
@@ -279,11 +304,12 @@ describe("fmt", () => {
     await edit(drafted, "palette: {", "palette:   {");
     const misformatted = cli("check", dir);
 
+    const format = failedReport(misformatted.stdout, "oxfmt");
+
     expect(misformatted.code).toBe(1);
-    expect(misformatted.stdout).toContain("oxfmt: failed\n");
-    expect(misformatted.stdout).toContain("\natlas.config.ts (");
-    expect(misformatted.stdout).not.toContain("drafts/");
-    expect(misformatted.stdout).toContain(`\n${hint("fmt", dir)}\n`);
+    expect(format).toContain("atlas.config.ts");
+    expect(format).not.toContain("drafts/");
+    expect(format.trimEnd().split("\n").at(-1)).toBe(hint("fmt", dir));
 
     expect(cli("fmt", dir)).toEqual({ code: 0, stdout: `${dir}: formatted\n`, stderr: "" });
     expect(await Bun.file(config).text()).toBe(formatted);
