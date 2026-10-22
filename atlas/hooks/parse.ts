@@ -5,8 +5,13 @@ import type { Beat, Selection, ServerLine } from "../wire.ts";
  * tool's input arrive as text or `unknown`, and are parsed here, once.
  */
 
-/** The live server of a map folder, under `map:<folder>`, whichever session started it. */
-export type MapRecord = { readonly port: number };
+/**
+ * A map folder's server, under `map:<folder>`: the live one and the session that started it, or
+ * the claim of a session starting one, and when it claimed, so a second session waits for it.
+ */
+export type MapRecord =
+  | { readonly kind: "live"; readonly port: number; readonly session: string }
+  | { readonly kind: "claimed"; readonly session: string; readonly at: number };
 
 /** The map folders a Claude Code session shows, under `session:<id>`: a reload attaches them again. */
 export type SessionRecord = { readonly folders: readonly string[] };
@@ -64,7 +69,14 @@ export function readyPort(line: string): number | null {
 }
 
 export function parseMapRecord(value: unknown): MapRecord | null {
-  return isRecord(value) && isPort(value.port) ? { port: value.port } : null;
+  if (!isRecord(value) || typeof value.session !== "string") return null;
+  const { kind, session } = value;
+
+  if (kind === "live") return isPort(value.port) ? { kind, port: value.port, session } : null;
+
+  return kind === "claimed" && typeof value.at === "number" && Number.isFinite(value.at)
+    ? { kind, session, at: value.at }
+    : null;
 }
 
 export function parseSessionRecord(value: unknown): SessionRecord | null {

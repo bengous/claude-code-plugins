@@ -78,6 +78,8 @@ export type World = {
   /** Answers each `$.process.run` but the browser's opener, which succeeds unless `noOpener`. */
   answer: (argv: readonly string[]) => Partial<ProcessRunResult>;
   noOpener: string | undefined;
+  /** Runs after each write of the module's to the store: another session writing right after it. */
+  afterSet: (key: string) => void;
   /** Every atlas server listening, by port: the folder it serves, whoever started it. */
   readonly servers: Map<number, string>;
   nextPort: number;
@@ -261,6 +263,7 @@ export function world(on: On, options: WorldOptions = {}): World {
     pick: null,
     answer: () => ({}),
     noOpener: undefined,
+    afterSet: () => {},
     servers: new Map(),
     nextPort: FIRST_PORT,
     clock: mock.clock(on),
@@ -346,6 +349,7 @@ export function world(on: On, options: WorldOptions = {}): World {
   on("store.set", (_, e) => {
     // SAFETY: the module stores its own records alone, which its parsers read back.
     built.store.set(e.key, e.value as Stored);
+    built.afterSet(e.key);
 
     return { value: undefined };
   });
@@ -399,6 +403,31 @@ export function world(on: On, options: WorldOptions = {}): World {
   });
 
   return built;
+}
+
+const STEP_MS = 50;
+
+/**
+ * Awaits `work` while the clock moves on in steps: a start waits on the clock for its claim to
+ * settle (CLAIM_SETTLE_MS), so a test that awaits one drives the clock until it is done.
+ */
+export async function settled<T>(seen: World, work: Promise<T>): Promise<T> {
+  const progress = { done: false };
+
+  const watched = work.finally(() => {
+    progress.done = true;
+  });
+
+  for (let steps = 0; steps < 200 && !progress.done; steps += 1) {
+    await seen.clock.advance(STEP_MS);
+  }
+
+  return await watched;
+}
+
+/** Moves the clock on by a second, in steps: what a server's end set going (a revival) runs out. */
+export async function drain(seen: World): Promise<void> {
+  for (let steps = 0; steps < 20; steps += 1) await seen.clock.advance(STEP_MS);
 }
 
 /** The serve.ts children still running. */

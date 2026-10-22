@@ -31,6 +31,8 @@ export type Host = {
   readonly repeat: (ms: number, fn: () => void) => Timer;
   /** `$.clock.now()`: milliseconds since the epoch, as the engine's clock reads them. */
   readonly now: () => Promise<number>;
+  readonly sleep: (ms: number) => Promise<void>;
+  readonly sessionId: () => Promise<string>;
   readonly list: (path: string) => Promise<FsEntry[]>;
   /** `$.session.cwd()`: the session's working directory, which follows Claude's `cd`. */
   readonly cwd: () => Promise<string>;

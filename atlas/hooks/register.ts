@@ -19,6 +19,7 @@ import {
   probe,
   runScript,
   SCRIPTS,
+  START_TIMEOUT_MS,
   start,
 } from "./server.ts";
 
@@ -45,6 +46,15 @@ export const HEARTBEAT_MS = 15_000;
 export const CRASHES = 3;
 
 const CRASH_WINDOW_MS = 60_000;
+
+/** How long a claim on a map folder must stand before its session starts the server. */
+export const CLAIM_SETTLE_MS = 300;
+
+/** How often a session reads the claim of another that is starting the server. */
+const CLAIM_POLL_MS = 500;
+
+/** How long another session's claim is waited out: a start that takes longer gave up. */
+export const CLAIM_MS = START_TIMEOUT_MS + 5_000;
 
 /** `$.ui.ask` takes two to four options; past that the skill's text lists the folders. */
 const ASKED_AT_MOST = 4;
@@ -199,6 +209,8 @@ function hostOf($: EngineInterface): Host {
     after: (ms, fn) => $.clock.after(ms, fn),
     repeat: (ms, fn) => $.clock.every(ms, fn),
     now: () => $.clock.now(),
+    sleep: (ms) => $.clock.sleep(ms),
+    sessionId: () => $.session.id(),
     list: (path) => $.fs.list(path),
     cwd: () => $.session.cwd(),
     ask: (question, options) => $.ui.ask(question, options),
@@ -273,12 +285,24 @@ const RUN = "Run it";
 
 const REFUSE = "Refuse";
 
-/** Drops the records of a server this session started and that is gone: its address and its selection. */
+/**
+ * Drops the records of a server this session started and that is gone, its address and its
+ * selection, while the store still names that server: another session may have started its own.
+ */
 async function forget(host: Host, owned: Owned): Promise<void> {
   const record = await host.mapRecord(owned.folder);
+  const me = await host.sessionId();
 
-  if (record?.port === owned.child.port) await host.storeDelete(mapKey(owned.folder));
+  if (record?.kind !== "live" || record.port !== owned.child.port || record.session !== me) return;
+  await host.storeDelete(mapKey(owned.folder));
   await host.storeDelete(selectionKey(owned.folder));
+}
+
+/** Drops this session's claim on `folder`, a start it gave up, so another session need not wait it out. */
+async function release(host: Host, folder: string, me: string): Promise<void> {
+  const record = await host.mapRecord(folder);
+
+  if (record?.kind === "claimed" && record.session === me) await host.storeDelete(mapKey(folder));
 }
 
 export const register: Register = (on) => {
@@ -378,9 +402,50 @@ export const register: Register = (on) => {
   }
 
   /**
-   * Attaches `from`'s folder to a server: the one on `port` when it serves that folder, else a
-   * server of this session's on that port, else on a free one. A board left meanwhile takes
-   * nothing, and a server started for it ends.
+   * Waits until this session may start `folder`'s server: `{ join }` once another session's
+   * server answers for it, else `{ start }` with the port its last server had, once this session's
+   * claim on the folder still stands CLAIM_SETTLE_MS after it was written, so of two sessions that
+   * claim at once one starts it. A claim of another session younger than CLAIM_MS is waited out.
+   */
+  async function claimed(
+    host: Host,
+    from: Starting,
+    me: string,
+    port: number | null,
+  ): Promise<{ readonly join: number } | { readonly start: number | null } | null> {
+    let kept = port;
+
+    for (;;) {
+      const record = await host.mapRecord(from.folder);
+      const known = kept ?? (record?.kind === "live" ? record.port : null);
+
+      if (!holds(from)) return null;
+
+      if (known !== null && (await probe(host, known))?.folder === from.folder) {
+        return { join: known };
+      }
+
+      const now = await host.now();
+
+      if (record?.kind === "claimed" && record.session !== me && now - record.at < CLAIM_MS) {
+        await host.sleep(CLAIM_POLL_MS);
+        kept = null;
+        continue;
+      }
+
+      await host.storeSet(mapKey(from.folder), { kind: "claimed", session: me, at: now });
+      await host.sleep(CLAIM_SETTLE_MS);
+      const after = await host.mapRecord(from.folder);
+
+      if (after?.kind === "claimed" && after.session === me) return { start: known };
+      kept = null;
+    }
+  }
+
+  /**
+   * Attaches `from`'s folder to a server: one that answers for it, whichever session started it,
+   * else this session's own, once its claim stands, on the port the folder's last server had, else
+   * on a free one. A board left meanwhile takes nothing, and a server started for it ends.
    */
   async function attach(
     host: Host,
@@ -389,20 +454,28 @@ export const register: Register = (on) => {
     port: number | null,
   ): Promise<void> {
     const { folder } = from;
-    const kept = port ?? (await host.mapRecord(folder))?.port ?? null;
+    const me = await host.sessionId();
+    const way = await claimed(host, from, me, port);
 
-    if (!holds(from)) return;
-
-    if (kept !== null && (await probe(host, kept))?.folder === folder) {
-      if (holds(from)) join(host, from, kept);
+    if (way === null || !holds(from)) {
+      await release(host, folder, me);
 
       return;
     }
 
+    if ("join" in way) {
+      join(host, from, way.join);
+
+      return;
+    }
+
+    const kept = way.start;
     let started = await start(host, folder, kept ?? 0);
 
     if (started.kind === "failed" && kept !== null) {
       if ((await probe(host, kept))?.folder === folder) {
+        await release(host, folder, me);
+
         if (holds(from)) join(host, from, kept);
 
         return;
@@ -412,6 +485,7 @@ export const register: Register = (on) => {
     }
 
     if (started.kind === "failed") {
+      await release(host, folder, me);
       const reason = `atlas: the server of ${folder} did not start (${started.reason}); run /atlas:board`;
       host.log(reason);
 
@@ -424,11 +498,12 @@ export const register: Register = (on) => {
 
     if (!holds(from)) {
       child.end();
+      await release(host, folder, me);
 
       return;
     }
 
-    await host.storeSet(mapKey(folder), { port: child.port });
+    await host.storeSet(mapKey(folder), { kind: "live", port: child.port, session: me });
 
     if (!holds(from)) {
       child.end();
@@ -468,7 +543,9 @@ export const register: Register = (on) => {
 
     const starting: Starting = { kind: "starting", folder: from.folder };
     become(host, from.folder, starting);
-    await attach(host, starting, ends, portOf(from));
+    // A server this session started comes back on its own port, which its tabs hold; another
+    // session's that ended is looked up again, as a third session may have revived it meanwhile.
+    await attach(host, starting, ends, from.kind === "owned" ? from.child.port : null);
   }
 
   /**
@@ -686,6 +763,13 @@ export const register: Register = (on) => {
     told.clear();
     await remember(hostOf($), sessionId);
     await $.store.delete(sessionKey(left));
+
+    for (const board of boards.values()) {
+      if (board.kind === "owned") {
+        const live = { kind: "live", port: board.child.port, session: sessionId } as const;
+        await $.store.set(mapKey(board.folder), live);
+      }
+    }
 
     return result;
   });

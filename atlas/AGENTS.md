@@ -77,9 +77,14 @@ skills/board, stop   /atlas:board [map folder] [draft name] and /atlas:stop, the
 ```
 
 The mod keeps one server per map folder, whichever session asks. Its store keeps, under
-`map:<folder>`, the port of that folder's live server, under `session:<id>` the folders a session
-shows (a reload attaches them again), and under `selection:<folder>` the page's last selection,
-which every session showing that map adds to its next prompt's context once. The first session to
+`map:<folder>`, that folder's live server, its port and the session that started it, or the claim
+of a session starting one, under `session:<id>` the folders a session shows (a reload attaches
+them again), and under `selection:<folder>` the page's last selection, which every session showing
+that map adds to its next prompt's context once. A session claims the folder before it starts a
+server and starts it only if its claim still stands `CLAIM_SETTLE_MS` later; another session's
+fresh claim is waited out, and a server is forgotten only while the store still names it. That
+`$.store` holds against two sessions writing at once is not measured: one probe saw another
+process's write within a second (`docs/plugin-testing/hook-runtime.md`). The first session to
 ask spawns `serve.ts --heartbeat` with a secret of its own in `$ATLAS_HEARTBEAT`, reads its
 stdout, and beats it with that secret; another session joins it and only probes it, so the server
 never outlives the session that reads it: it leaves once its parent process changes (a `claude`
