@@ -91,6 +91,9 @@ beforeEach(() => {
     ...Object.fromEntries(
       Object.entries(process.env).filter(([name]) => !PROMPT_VARIABLES.has(name)),
     ),
+    // bun test computes dates in UTC without setting TZ, and the hook it spawns would read the
+    // machine's zone: from midnight to the offset, the two days differ.
+    TZ: "UTC",
     GIT_CONFIG_GLOBAL: "/dev/null",
     GIT_CONFIG_NOSYSTEM: "1",
     GIT_AUTHOR_NAME: "t",
