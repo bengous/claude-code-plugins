@@ -166,6 +166,15 @@ let main: Served | undefined;
 
 let original = "";
 
+// The sample's data, a label changed, that takes a second to load: each build loads the data in a
+// fresh process.
+const slowData = (label: string): string =>
+  original
+    .replace("export default", "Bun.sleepSync(1000);\n\nexport default")
+    .replace("Nightly backup", label);
+
+const isBuilt = (line: string): boolean => line.startsWith("atlas: built ");
+
 function served(): Served {
   if (main === undefined) {
     throw new Error("the server did not start");
@@ -287,6 +296,32 @@ describe("serve.ts", () => {
   );
 
   test(
+    "saves during a slow build leave one build waiting behind it",
+    async () => {
+      const { log, events } = served();
+      const from = log.items.length;
+      events.skip();
+      saveAtomically(join(dir, MAP_FILE), slowData("Backup 0"));
+      await Bun.sleep(300);
+
+      for (let i = 1; i <= 4; i += 1) {
+        saveAtomically(join(dir, MAP_FILE), slowData(`Backup ${i}`));
+        await Bun.sleep(150);
+      }
+
+      await reloadedTo((p) => p.script.includes("Backup 4"));
+      // A queue of one build per save would log its next build within this time.
+      await Bun.sleep(1500);
+      const builds = log.items.slice(from).filter((line) => isBuild(line));
+
+      expect(builds).toHaveLength(2);
+
+      await restore();
+    },
+    WAIT_MS * 3,
+  );
+
+  test(
     "a change to threads.json alone builds nothing: the page reads it by itself",
     async () => {
       const { log, events } = served();
@@ -391,6 +426,17 @@ describe("a request that names another host", () => {
     }
   });
 
+  // A rebound page sends its own Origin, which the reply route refuses too: this one carries the
+  // server's, so only the Host check stands between it and the thread.
+  test("is refused a reply, even with this server's Origin and token", async () => {
+    const { port } = served();
+    const before = await threads();
+    const response = await post({ ...(await own()), host: `rebound.example:${port}` });
+
+    expect(response.status).toBe(403);
+    expect(await threads()).toBe(before);
+  });
+
   test("named localhost, with this server's port, is served", async () => {
     const { base, port } = served();
 
@@ -404,7 +450,7 @@ describe("a request that names another host", () => {
 
 describe("a map folder that goes away", () => {
   test(
-    "leaves the server up, answering an error page",
+    "leaves the server up, answering an error page, and is served again once made anew",
     async () => {
       const gone = copyOfSample();
       const other = await serve(gone);
@@ -416,9 +462,21 @@ describe("a map folder that goes away", () => {
         expect(build).toContain("failed");
         expect((await fetch(`${other.base}/plan.fr.html`)).status).toBe(500);
         expect(other.child.exitCode).toBeNull();
+
+        cpSync(SAMPLE, gone, { recursive: true });
+        await within(other.log.next(isBuilt), "build of the folder made anew");
+
+        expect((await fetch(`${other.base}/plan.fr.html`)).status).toBe(200);
+
+        const text = original.replace("Nightly backup", "Weekly backup");
+        saveAtomically(join(gone, MAP_FILE), text);
+        const edit = await within(other.log.next(isBuild), "build of an edit");
+
+        expect(edit).toContain("reload sent");
       } finally {
         other.child.kill();
         await other.child.exited;
+        rmSync(gone, { recursive: true, force: true });
       }
     },
     WAIT_MS * 3,

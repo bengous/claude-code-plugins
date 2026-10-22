@@ -1,4 +1,5 @@
 /* oxlint-disable anti-slop/no-runtime-typeof -- isReply IS the boundary parser of what the page posts: there is no earlier place to narrow it. */
+import type { FSWatcher } from "node:fs";
 import { statSync, watch } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
 
@@ -23,6 +24,9 @@ const PAGE = "plan.fr.html";
 const EVENTS = "/events";
 
 const SETTLE_MS = 50;
+
+// How often a watched folder that went away is looked for again.
+const REARM_MS = 250;
 
 // The package's exports list only its entry point, so the WebAssembly is found beside that entry,
 // never copied into this folder.
@@ -220,15 +224,47 @@ function changed(file: string | null | undefined): void {
   }, SETTLE_MS);
 }
 
-// A directory's watch survives an atomic save, a temporary file renamed over the old one; the
-// page's sources sit at the top of this folder.
-watch(folder, { recursive: true }, (_, file) => {
-  changed(file);
-});
+// A directory's watch survives an atomic save, a temporary file renamed over the old one. It does
+// not survive the directory deleted and made again (a branch switched away and back): it watches
+// the old inode. An event on the directory itself checks its inode, and a new one, or none, closes
+// the watch and opens one on the directory once it is back.
+function keepWatching(dir: string, recursive: boolean): void {
+  let inode = statSync(dir).ino;
+  let watcher: FSWatcher;
 
-watch(DIR, (_, file) => {
-  changed(file);
-});
+  function rearm(): void {
+    const now = statSync(dir, { throwIfNoEntry: false });
+
+    if (now?.isDirectory() !== true) {
+      setTimeout(rearm, REARM_MS);
+
+      return;
+    }
+
+    inode = now.ino;
+    watcher = open();
+    changed(null);
+  }
+
+  function open(): FSWatcher {
+    return watch(dir, { recursive }, (_, file) => {
+      changed(file);
+      const onItself = (file ?? "") === "";
+
+      if (onItself && statSync(dir, { throwIfNoEntry: false })?.ino !== inode) {
+        watcher.close();
+        rearm();
+      }
+    });
+  }
+
+  watcher = open();
+}
+
+// The page's sources sit at the top of this plugin's folder.
+keepWatching(folder, true);
+
+keepWatching(DIR, false);
 
 function page(): Response {
   if (current.kind === "error") {

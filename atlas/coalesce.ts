@@ -2,27 +2,33 @@
 // waiting behind it, which sees everything they asked for. Each request answers the promise of the
 // runs it joined.
 export function coalesced(task: () => Promise<void>): () => Promise<void> {
-  let running: Promise<void> | null = null;
+  let busy = false;
   let again = false;
+  let current = Promise.resolve();
 
+  // `busy` drops in the same step as the last check of `again`: a request in any later microtask
+  // starts a run of its own.
   const run = async (): Promise<void> => {
-    do {
-      again = false;
-      await task();
-    } while (again);
+    try {
+      do {
+        again = false;
+        await task();
+      } while (again);
+    } finally {
+      busy = false;
+    }
   };
 
   return () => {
-    if (running !== null) {
+    if (busy) {
       again = true;
 
-      return running;
+      return current;
     }
 
-    running = run().finally(() => {
-      running = null;
-    });
+    busy = true;
+    current = run();
 
-    return running;
+    return current;
   };
 }

@@ -62,6 +62,53 @@ describe("coalesced", () => {
     await second;
   });
 
+  // The first run asks again `depth` microtasks after its task settled: whatever the depth, the
+  // runs are over or about to check, and that request gets a run of its own.
+  test.each([0, 1, 2, 3, 4, 5, 6, 7, 8])(
+    "a request %i microtasks after a run's task settled still runs",
+    async (depth) => {
+      let runs = 0;
+      let runsBefore = 0;
+      let late: Promise<void> = Promise.resolve();
+
+      const after = (n: number, then: () => void): void => {
+        if (n === 0) {
+          then();
+
+          return;
+        }
+
+        void Promise.resolve().then(() => {
+          after(n - 1, then);
+        });
+      };
+
+      // oxlint-disable-next-line require-await -- an async task that returns its promise unawaited settles at the microtask depth whose window this test covers.
+      const request = coalesced(async () => {
+        runs += 1;
+
+        if (runs === 1) {
+          const settled = Promise.resolve();
+
+          void settled.then(() => {
+            after(depth, () => {
+              runsBefore = runs;
+              late = request();
+            });
+          });
+
+          return settled;
+        }
+      });
+
+      await request();
+      await Bun.sleep(10);
+      await late;
+
+      expect(runs).toBe(runsBefore + 1);
+    },
+  );
+
   test("a run that fails rejects the request, and a later request runs again", async () => {
     let calls = 0;
 
