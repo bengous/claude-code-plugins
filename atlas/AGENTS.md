@@ -113,6 +113,8 @@ hooks/               the mod: register.ts spells `$`, server.ts the server's sta
                      command lines the tools run, parse.ts the boundary, register.test.ts the kit's
                      tests over fixtures.ts
 skills/board, stop   /atlas:board [map folder] [draft name] and /atlas:stop, the person's alone
+skills/init          /atlas:init [map folder], the person's alone: a first map, inventory to verified
+                     parts; branch-brief.md and verify-brief.md are its subagents' prompts
 ```
 
 The mod keeps one server per map folder, whichever session asks. Its store keeps, under
