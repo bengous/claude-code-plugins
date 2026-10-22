@@ -659,10 +659,19 @@ function tellSelection(id: string | null): void {
 }
 
 // What an agent reads of the page in its browser, `window.atlas`, without a screenshot: a getter,
-// so a page script cannot assign it, answering the frozen state of the last render.
+// so a page script cannot assign it, answering the frozen state of the last render and the zoom
+// of the view shown, 1 at its fit, 2 when half its width fills the stage.
 let pageState: PageState = pageStateOf(tree, place);
 
-Object.defineProperty(window, "atlas", { get: () => pageState, enumerable: true });
+const zoomOf = (): number =>
+  cam?.kind === "idle"
+    ? Math.round((imageOf(cam.image.space).vb.w / cam.image.vb.w) * 1000) / 1000
+    : 1;
+
+Object.defineProperty(window, "atlas", {
+  get: () => Object.freeze({ ...pageState, zoom: zoomOf() }),
+  enumerable: true,
+});
 
 // The panel, the breadcrumb and the legend follow the place at once; the drawing, once its view
 // is laid out (settle).

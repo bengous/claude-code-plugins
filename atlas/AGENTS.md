@@ -174,8 +174,8 @@ The sample map folder is `atlas/fixtures/sample`; `atlas/fixtures/deep` goes fiv
   followed.
 - `window.atlas` is what an agent reads of the page without a screenshot (`pageStateOf` in
   `navigation.ts`): the open path, the selected id, the ids the open view draws (boxes, chips,
-  ghosts) and the fragment, frozen and replaced at each move; a getter, so a page script cannot
-  assign it.
+  ghosts) and the fragment, frozen and replaced at each move, with the view's `zoom`, 1 at its
+  fit (`zoomOf` in `engine.ts`); a getter, so a page script cannot assign it.
 - Escape deselects, then goes up one level; so does a click on the empty sheet. A box enters its
   container, a card or a ghost is selected where it stands, a chip jumps to its node.
 - Inside a view, the wheel zooms around the pointer, a drag pans and two fingers pinch, within
