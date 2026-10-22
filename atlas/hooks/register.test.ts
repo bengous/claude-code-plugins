@@ -25,7 +25,7 @@ import {
   type Stored,
   world,
 } from "./fixtures.ts";
-import { CLAIM_MS, CRASHES, HEARTBEAT_MS, QUOTED_AT_MOST } from "./register.ts";
+import { CLAIM_MS, CRASH_WINDOW_MS, CRASHES, HEARTBEAT_MS, QUOTED_AT_MOST } from "./register.ts";
 
 tier("user");
 
@@ -427,6 +427,21 @@ describe("the server's life", () => {
     );
   });
 
+  test("ends spaced wider than the crash window keep the server coming back", async ($, on) => {
+    const seen = world(on);
+    await settled(seen, $.skill.prompt(board("docs/map")));
+
+    for (let end = 0; end < CRASHES; end += 1) {
+      seen.children.at(-1)?.exit(ENDED);
+      await drain(seen);
+      await seen.clock.advance(CRASH_WINDOW_MS + 1_000);
+    }
+
+    expect(seen.children).toHaveLength(CRASHES + 1);
+    expect(running(seen)).toHaveLength(1);
+    expect(seen.statuses.at(-1)).toBeUndefined();
+  });
+
   test("a reload attaches the session's boards again, on their ports", async ($, on) => {
     const seen = world(on, {
       stored: new Map<string, Stored>([
@@ -521,6 +536,23 @@ describe("the end of a board", () => {
     expect(seen.children[0]?.killed()).toBe(false);
     expect(seen.store.has(SESSION_KEY)).toBe(false);
     expect(seen.store.get("session:new-session")).toEqual({ folders: [MAP] });
+  });
+
+  test("a /resume into another session keeps the server, its records under the session resumed", async ($, on) => {
+    const seen = world(on);
+    await settled(seen, $.skill.prompt(board("docs/map")));
+    await $.session.end(ended("resume"));
+    seen.id = "resumed-session";
+    await $.command.run({ ...CLEAR, command: "resume" });
+
+    expect(seen.children[0]?.killed()).toBe(false);
+    expect(seen.store.has(SESSION_KEY)).toBe(false);
+    expect(seen.store.get("session:resumed-session")).toEqual({ folders: [MAP] });
+    expect(seen.store.get(MAP_KEY)).toEqual({
+      kind: "live",
+      port: FIRST_PORT,
+      session: "resumed-session",
+    });
   });
 });
 

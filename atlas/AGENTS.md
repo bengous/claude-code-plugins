@@ -66,6 +66,8 @@ serve.ts             serves one map folder's page, rebuilt and reloaded on save,
                      after the last beat carrying its secret (serve.spec.ts)
 coalesce.ts          one run at a time, with at most one waiting: serve.ts's rebuilds
                      (coalesce.spec.ts)
+standalone.spec.ts   serves the sample from a copy of this folder outside any repository, as an
+                     install does
 wire.ts              what crosses between the page, serve.ts and the mod: routes, a selection,
                      the server's JSON line; bunFlags, which every bun atlas starts takes
 child.bunfig.toml    the empty Bun configuration bunFlags names

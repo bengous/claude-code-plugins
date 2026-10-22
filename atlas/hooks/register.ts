@@ -45,7 +45,7 @@ export const HEARTBEAT_MS = 15_000;
 /** This many ends of a server this session started, within the window, stop its revivals. */
 export const CRASHES = 3;
 
-const CRASH_WINDOW_MS = 60_000;
+export const CRASH_WINDOW_MS = 60_000;
 
 /** How long a claim on a map folder must stand before its session starts the server. */
 export const CLAIM_SETTLE_MS = 300;
