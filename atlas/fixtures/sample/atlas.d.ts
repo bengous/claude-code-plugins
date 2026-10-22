@@ -7,7 +7,7 @@ export type Pair = readonly [string, string];
 /**
  * A fact of the map that stays unsettled, with its discussion in threads.json under the same id.
  * `id` is kebab-case, unique on the whole map, and never changes; `text` describes a state, never
- * a step: check.ts refuses the Config's `stepWords`.
+ * a step: `atlas check` refuses the Config's `stepWords`.
  */
 export type OpenPoint = { readonly id: string; readonly text: string };
 
@@ -31,7 +31,7 @@ export type Panel = {
   readonly extend?: string;
   /** Its non-obvious traps. */
   readonly pitfalls?: readonly string[];
-  /** Extension points, [node id, text]. Any panel shows them; check.ts checks the node ids. */
+  /** Extension points, [node id, text]. Any panel shows them; `atlas check` checks the node ids. */
   readonly seams?: readonly Pair[];
   /** Couplings to know, [node id, text]; shown and checked as `seams` are. */
   readonly traps?: readonly Pair[];
@@ -65,16 +65,16 @@ export type Node = Panel & {
   readonly sub: string;
   /** A key of the Config's palette. */
   readonly color: string;
-  /** The short list at the top of its panel; a node with children's only (check.ts). */
+  /** The short list at the top of its panel; a node with children's only (`atlas check`). */
   readonly brief?: readonly string[];
   /**
    * Ids of the nodes that change when this one is replaced; one side of a coupling lists it. Any
    * node's: a view outlines a coupling lifted to the boxes and ghosts it shows, on either side.
    */
   readonly couples?: readonly string[];
-  /** "off": dormant, drawn dashed. A leaf's only (tree.ts). */
+  /** "off": dormant, drawn dashed. A leaf's only: the page and `atlas check` refuse it elsewhere. */
   readonly kind?: "off";
-  /** Required on an outside node, refused on any other (tree.ts). */
+  /** Required on an outside node, refused on any other. */
   readonly side?: Side;
   /** Outside the system (a client, a third-party service): a child of the root, drawn dashed. */
   readonly outside?: true;
@@ -88,7 +88,7 @@ export type Root = Panel & {
   readonly title: string;
   /**
    * The tour of the panel's ← → buttons; every container depth-first when absent. Given, it lists
-   * every node with children and nothing else (check.ts).
+   * every node with children and nothing else (`atlas check`).
    */
   readonly tour?: readonly string[];
   readonly children: readonly Node[];
@@ -126,7 +126,7 @@ export type Lang = "fr" | "en";
 /**
  * A colour on a light page and on a dark one. Each is a hex colour (#rgb, #rgba, #rrggbb,
  * #rrggbbaa) or rgb(), rgba(), hsl(), hsla(), hwb(), lab(), lch(), oklab() or oklch() with three
- * components and an optional alpha; settings.ts refuses any other value, named colours, var(),
+ * components and an optional alpha; the page and `atlas check` refuse any other value, named colours, var(),
  * color() and color-mix() included, and the page refuses one its browser does not draw.
  */
 export type Swatch = { readonly light: string; readonly dark: string };
@@ -171,6 +171,11 @@ export type Config = {
   readonly stepWords?: readonly RegExp[];
   /** The keys a node's `color` names, each a colour; a key is letters, digits, `-` and `_`. */
   readonly palette: Readonly<Record<string, Swatch>>;
+  /**
+   * The colour of every open-point mark: the badges on the map, the header's button, the panel's
+   * open points and the legend's dot. The page's own, an amber, when absent.
+   */
+  readonly openColor?: Swatch;
   /** "shared" when absent. */
   readonly pins?: Pins;
   /**

@@ -138,6 +138,8 @@ describe("spotsOf", () => {
   });
 });
 
+const SIZE = { w: 40, h: 10 };
+
 describe("labelSpots", () => {
   test("a label avoids the obstacles, the labels placed before it and the other arrows", () => {
     const above: Point[] = [
@@ -146,33 +148,61 @@ describe("labelSpots", () => {
     ];
 
     const routes = [FLAT, FLAT, above];
-
-    const sizes = [
-      { w: 40, h: 10 },
-      { w: 40, h: 10 },
-      { w: 40, h: 10 },
-    ];
-
+    const sizes = [[SIZE], [SIZE], [SIZE]];
     const obstacle: Rect = { x: 120, y: 60, w: 60, h: 30 };
     const [first, second] = labelSpots(routes.slice(0, 2), sizes.slice(0, 2), [obstacle]);
 
-    expect(first).toEqual({ x: 130, y: 103, w: 40, h: 10 });
+    expect(first).toEqual({ spot: { x: 130, y: 103, w: 40, h: 10 }, variant: 0 });
     expect(second).not.toBeNull();
-    expect(hits(second ?? obstacle, first ?? obstacle)).toBe(false);
-    expect(hits(second ?? obstacle, obstacle)).toBe(false);
+    expect(hits(second?.spot ?? obstacle, first?.spot ?? obstacle)).toBe(false);
+    expect(hits(second?.spot ?? obstacle, obstacle)).toBe(false);
 
     const [crowded] = labelSpots(routes, sizes, [obstacle]);
-    expect(crowded).not.toEqual({ x: 130, y: 87, w: 40, h: 10 });
+    expect(crowded?.spot).not.toEqual({ x: 130, y: 87, w: 40, h: 10 });
   });
 
-  test("an arrow without a route or without a label gets no spot", () => {
-    expect(labelSpots([null, FLAT], [{ w: 10, h: 10 }, null], [])).toEqual([null, null]);
+  test("an arrow without a route or without a variant gets no spot", () => {
+    expect(labelSpots([null, FLAT], [[SIZE], []], [])).toEqual([null, null]);
   });
 
-  test("with every spot taken, the first spot is used anyway", () => {
+  test("a shorter variant takes a free spot the fullest one cannot", () => {
+    const walls: Rect[] = [
+      { x: 0, y: 70, w: 110, h: 60 },
+      { x: 190, y: 70, w: 110, h: 60 },
+    ];
+
+    const [spotted] = labelSpots(
+      [FLAT],
+      [
+        [
+          { w: 120, h: 10 },
+          { w: 60, h: 10 },
+        ],
+      ],
+      walls,
+    );
+
+    expect(spotted).toEqual({ spot: { x: 120, y: 87, w: 60, h: 10 }, variant: 1 });
+  });
+
+  test("with no free spot for any variant, the shortest one overlaps the least", () => {
+    const left: Rect = { x: 0, y: 0, w: 160, h: 200 };
+    const rightEdge: Rect = { x: 160, y: 0, w: 140, h: 200 };
+    const [spotted] = labelSpots([FLAT], [[SIZE, { w: 20, h: 10 }]], [left, rightEdge]);
+
+    expect(spotted?.variant).toBe(1);
+    expect(spotted?.spot.w).toBe(20);
+
     const everywhere: Rect = { x: -1000, y: -1000, w: 3000, h: 3000 };
-    const [spot] = labelSpots([FLAT], [{ w: 40, h: 10 }], [everywhere]);
+    const [anywhere] = labelSpots([FLAT], [[SIZE]], [everywhere]);
 
-    expect(spot).toEqual({ x: 130, y: 87, w: 40, h: 10 });
+    expect(anywhere).toEqual({ spot: { x: 130, y: 87, w: 40, h: 10 }, variant: 0 });
+  });
+
+  test("the least overlapping spot wins over the first one", () => {
+    const mostly: Rect = { x: 0, y: 70, w: 250, h: 60 };
+    const [spotted] = labelSpots([FLAT], [[SIZE]], [mostly]);
+
+    expect(spotted?.spot.x).toBeGreaterThan(200);
   });
 });

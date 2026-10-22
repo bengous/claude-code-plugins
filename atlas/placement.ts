@@ -113,9 +113,11 @@ const segmentBox = ([p, q]: [Point, Point]): Rect => ({
 
 const segmentLength = ([p, q]: [Point, Point]): number => Math.hypot(q[0] - p[0], q[1] - p[1]);
 
+const ALONG = [0.5, 0.35, 0.65, 0.2, 0.8];
+
 /**
  * Candidate spots for a label along an arrow, longest segment first: above or below a flat
- * segment, right or left of an upright one, at its middle, then at a third and two thirds.
+ * segment, right or left of an upright one, at its middle, then nearer each end.
  */
 export function spotsOf(pts: readonly Point[], { w, h }: Size): Rect[] {
   const spots: Rect[] = [];
@@ -123,7 +125,7 @@ export function spotsOf(pts: readonly Point[], { w, h }: Size): Rect[] {
   for (const [p, q] of segmentsOf(pts).toSorted((s, t) => segmentLength(t) - segmentLength(s))) {
     const flat = Math.abs(q[1] - p[1]) < 1;
 
-    for (const t of [0.5, 0.3, 0.7]) {
+    for (const t of ALONG) {
       const cx = p[0] + (q[0] - p[0]) * t;
       const cy = p[1] + (q[1] - p[1]) * t;
 
@@ -138,16 +140,25 @@ export function spotsOf(pts: readonly Point[], { w, h }: Size): Rect[] {
   return spots;
 }
 
+const overlap = (a: Rect, b: Rect): number =>
+  Math.max(0, Math.min(a.x + a.w, b.x + b.w) - Math.max(a.x, b.x)) *
+  Math.max(0, Math.min(a.y + a.h, b.y + b.h) - Math.max(a.y, b.y));
+
+/** Where a label landed: its spot, and which of its variants fits there. */
+export type Spotted = { readonly spot: Rect; readonly variant: number };
+
 /**
- * A spot for each label: the first along its arrow that hits no obstacle, no label placed before
- * it and no other arrow; failing that, the first that hits no obstacle and no label; failing that,
- * the first. Null for an arrow without a route or a label.
+ * A spot for each label, given the sizes of its variants from the fullest to the shortest. Each
+ * variant in turn is tried on the arrow's spots: first a spot that hits no obstacle, no label
+ * placed before it and no other arrow, then one that hits no obstacle and no label; failing every
+ * variant, the shortest variant takes the spot that overlaps the obstacles and the placed labels
+ * the least. Null for an arrow without a route or without a variant.
  */
 export function labelSpots(
   routes: ReadonlyArray<readonly Point[] | null>,
-  labels: ReadonlyArray<Size | null>,
+  variants: ReadonlyArray<readonly Size[]>,
   obstacles: readonly Rect[],
-): Array<Rect | null> {
+): Array<Spotted | null> {
   const segBoxes = routes.map((pts) =>
     pts === null ? [] : segmentsOf(pts).map((s) => segmentBox(s)),
   );
@@ -157,26 +168,38 @@ export function labelSpots(
   const free = (s: Rect): boolean =>
     !obstacles.some((o) => hits(s, o)) && !taken.some((o) => hits(s, o));
 
-  return routes.map((pts, i) => {
-    const label = labels[i] ?? null;
+  const crowded = (s: Rect): number =>
+    [...obstacles, ...taken].reduce((sum, o) => sum + overlap(s, o), 0);
 
-    if (pts === null || label === null) {
+  return routes.map((pts, i) => {
+    const sizes = variants[i] ?? [];
+    const shortest = sizes.at(-1);
+
+    if (pts === null || shortest === undefined) {
       return null;
     }
 
-    const spots = spotsOf(pts, label);
     const others = segBoxes.filter((_, j) => j !== i).flat();
 
-    const spot =
-      spots.find((s) => free(s) && !others.some((o) => hits(s, o))) ??
-      spots.find((s) => free(s)) ??
-      spots[0] ??
-      null;
+    const clear = sizes.flatMap((size, variant): Spotted[] => {
+      const spots = spotsOf(pts, size);
 
-    if (spot !== null) {
-      taken.push(spot);
-    }
+      const spot =
+        spots.find((s) => free(s) && !others.some((o) => hits(s, o))) ?? spots.find((s) => free(s));
 
-    return spot;
+      return spot === undefined ? [] : [{ spot, variant }];
+    });
+
+    const [found] = clear;
+
+    const chosen: Spotted =
+      found ??
+      spotsOf(pts, shortest)
+        .map((spot): Spotted => ({ spot, variant: sizes.length - 1 }))
+        .reduce((best, next) => (crowded(next.spot) < crowded(best.spot) ? next : best));
+
+    taken.push(chosen.spot);
+
+    return chosen;
   });
 }

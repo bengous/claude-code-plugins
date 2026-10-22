@@ -19,11 +19,21 @@ describe("settingsOf", () => {
       human: null,
       stepWords: [],
       palette: {},
+      openColor: { light: "#c2410c", dark: "#fb923c" },
       pins: "shared",
       ratio: "screen",
       tags: { names: [], outside: "optional" },
       legend: WORDS.en.legend,
     });
+  });
+
+  test("a Config's open-point colour replaces the page's, and is a colour", () => {
+    const openColor = { light: "#8a5536", dark: "#d79a74" };
+
+    expect(settingsOf({ title: "T", palette: {}, openColor }).openColor).toEqual(openColor);
+    expect(() =>
+      settingsOf({ title: "T", palette: {}, openColor: { light: "amber", dark: "#d79a74" } }),
+    ).toThrow('openColor.light: "amber" is not a colour');
   });
 
   test("a Config's own values replace the defaults, and its language picks the words", () => {
@@ -159,15 +169,19 @@ describe("the Config's values the page writes as CSS", () => {
 });
 
 describe("paletteRules", () => {
-  test("each key becomes a custom property, light on :root, dark under both dark selectors", () => {
-    const rules = paletteRules({
-      app: { light: "#1f6aa8", dark: "#6fb0ea" },
-      data: { light: "#3a5688", dark: "#8fa9de" },
-    });
+  test("each key becomes a custom property, then the open-point colour, light on :root, dark under both dark selectors", () => {
+    const rules = paletteRules(
+      {
+        app: { light: "#1f6aa8", dark: "#6fb0ea" },
+        data: { light: "#3a5688", dark: "#8fa9de" },
+      },
+      { light: "#c2410c", dark: "#fb923c" },
+    );
 
     const dark: ReadonlyArray<readonly [string, string]> = [
       ["--palette-app", "#6fb0ea"],
       ["--palette-data", "#8fa9de"],
+      ["--open", "#fb923c"],
     ];
 
     expect(rules).toEqual([
@@ -177,6 +191,7 @@ describe("paletteRules", () => {
         properties: [
           ["--palette-app", "#1f6aa8"],
           ["--palette-data", "#3a5688"],
+          ["--open", "#c2410c"],
         ],
       },
       {
@@ -192,7 +207,9 @@ describe("paletteRules", () => {
     const { map, config } = await loadFolder(SAMPLE);
 
     const names = new Set(
-      paletteRules(config.palette).flatMap((r) => r.properties.map(([n]) => n)),
+      paletteRules(config.palette, settingsOf(config).openColor).flatMap((r) =>
+        r.properties.map(([n]) => n),
+      ),
     );
 
     const colours = new Set([...treeOf(map).nodes.values()].map((n) => paletteVar(n.color)));

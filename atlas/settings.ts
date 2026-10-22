@@ -15,11 +15,15 @@ export type Settings = {
   readonly human: string | null;
   readonly stepWords: readonly RegExp[];
   readonly palette: Readonly<Record<string, Swatch>>;
+  /** The colour of every open-point mark: the map's badges, the button, the panel, the legend. */
+  readonly openColor: Swatch;
   readonly pins: Pins;
   readonly ratio: "screen" | number;
   readonly tags: Tags;
   readonly legend: Readonly<Record<LegendKey, string>>;
 };
+
+export const OPEN_COLOR: Swatch = { light: "#c2410c", dark: "#fb923c" };
 
 // A palette key is the end of a CSS custom property's name.
 const PALETTE_KEY = /^[\w-]+$/u;
@@ -62,19 +66,23 @@ const COLOR = new RegExp(
 
 const COLOR_FORMS = "#hex, or rgb(), hsl(), hwb(), lab(), lch(), oklab() or oklch()";
 
+function checkSwatch(name: string, swatch: Swatch): void {
+  for (const shade of ["light", "dark"] as const) {
+    if (!COLOR.test(swatch[shade])) {
+      throw new ConfigError(
+        `${name}.${shade}: "${swatch[shade]}" is not a colour: ${COLOR_FORMS}, with three components and an optional alpha`,
+      );
+    }
+  }
+}
+
 function checkPalette(palette: Config["palette"]): void {
   for (const [key, swatch] of Object.entries(palette)) {
     if (!PALETTE_KEY.test(key)) {
       throw new ConfigError(`palette key "${key}": a key is letters, digits, - and _`);
     }
 
-    for (const shade of ["light", "dark"] as const) {
-      if (!COLOR.test(swatch[shade])) {
-        throw new ConfigError(
-          `palette ${key}.${shade}: "${swatch[shade]}" is not a colour: ${COLOR_FORMS}, with three components and an optional alpha`,
-        );
-      }
-    }
+    checkSwatch(`palette ${key}`, swatch);
   }
 }
 
@@ -91,6 +99,8 @@ export function settingsOf(config: Config): Settings {
   }
 
   checkPalette(config.palette);
+  const openColor = config.openColor ?? OPEN_COLOR;
+  checkSwatch("openColor", openColor);
   const ratio = config.overview?.ratio ?? "screen";
 
   if (ratio !== "screen" && !(Number.isFinite(ratio) && ratio > 0)) {
@@ -110,6 +120,7 @@ export function settingsOf(config: Config): Settings {
       (re) => new RegExp(re.source, re.flags.replaceAll(/[gy]/gu, "")),
     ),
     palette: config.palette,
+    openColor,
     pins: config.pins ?? "shared",
     ratio,
     tags: config.tags ?? { names: [], outside: "optional" },
@@ -118,6 +129,9 @@ export function settingsOf(config: Config): Settings {
 }
 
 export const paletteVar = (key: string): string => `--palette-${key}`;
+
+/** The page's own token every open-point mark is coloured with. */
+export const OPEN_VAR = "--open";
 
 // One rule of the page's palette: its custom properties under a selector, inside a media query
 // or not. The page sets each property on its own, so a value cannot reach the next one.
@@ -128,10 +142,16 @@ export type PaletteRule = {
 };
 
 // Light, then dark the way the page's own tokens switch: by the system's scheme unless
-// data-theme says light, or by data-theme="dark".
-export function paletteRules(palette: Readonly<Record<string, Swatch>>): PaletteRule[] {
-  const properties = (shade: keyof Swatch): Array<readonly [string, string]> =>
-    Object.entries(palette).map(([key, swatch]) => [paletteVar(key), swatch[shade]] as const);
+// data-theme says light, or by data-theme="dark". The open-point colour takes the page's own
+// token, so every mark follows it.
+export function paletteRules(
+  palette: Readonly<Record<string, Swatch>>,
+  openColor: Swatch,
+): PaletteRule[] {
+  const properties = (shade: keyof Swatch): Array<readonly [string, string]> => [
+    ...Object.entries(palette).map(([key, swatch]) => [paletteVar(key), swatch[shade]] as const),
+    [OPEN_VAR, openColor[shade]] as const,
+  ];
 
   return [
     { media: null, selector: ":root", properties: properties("light") },

@@ -51,8 +51,8 @@ export const BOX = { title: "box-title", tag: "box-tag", padX: 20, top: 80, bott
 /** A ghost's pill. */
 export const GHOST = { cls: "ghost-t", h: 52, pad: 22 };
 
-/** An arrow's label. */
-export const LABEL = { cls: "flow-label", h: 17, pad: 8 };
+/** An arrow's label: `h` is the height its text renders at, `ascent` from its top to the baseline. */
+export const LABEL = { cls: "flow-label", h: 18, ascent: 14, pad: 8 };
 
 export const subLines = (sub: string): string[] => (sub === "" ? [] : sub.split("\n"));
 

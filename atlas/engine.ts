@@ -3,9 +3,9 @@
 // atlas:map and atlas:config, which serve.ts resolves to the files of a map folder; it holds no
 // content: a new node, link or text belongs in the map's data.
 //
-// One view at a time shares one SVG: the view of the open container (view.ts), drawn on a layer
-// of its own the first time the reader reaches it and kept (draw.ts), laid out again when the
-// drawing area's aspect or the fonts change. Clicks and keys become navigation events
+// One view at a time shares one SVG: the view of the open container (view.ts), laid out on a layer
+// of its own the first time the reader reaches it and kept (draw.ts, stage.ts), laid out again
+// when the drawing area's aspect or the fonts change. Clicks and keys become navigation events
 // (navigation.ts): the place changes, the camera (camera.ts) carries the reader from the box of
 // the child in the parent's view into the child's view and back, cross-fading the two on the way,
 // and the panel follows. There is no free zoom or drag.
@@ -30,6 +30,8 @@ import type { ThreadState } from "./panel.ts";
 import { renderCrumbs, renderOpenList, renderPanel } from "./panel.ts";
 import type { PaletteRule } from "./settings.ts";
 import { paletteRules } from "./settings.ts";
+import type { Priority, Stage, StageEvent } from "./stage.ts";
+import { EMPTY, freshOf, heldOf, nextOf, stage } from "./stage.ts";
 import { defs, el, esc } from "./svg.ts";
 import { TOKEN_HEADER, TOKEN_META, readThreads } from "./threads.ts";
 import { chainOf, holds } from "./tree.ts";
@@ -81,12 +83,15 @@ function styleOf(sheet: CSSStyleSheet, rule: PaletteRule): CSSStyleDeclaration {
 
 // settings.ts keeps a swatch to the shape of a colour; only the browser knows every value it draws.
 function applyPalette(): void {
-  for (const [key, swatch] of Object.entries(settings.palette)) {
+  const swatches = [
+    ...Object.entries(settings.palette).map(([key, swatch]) => [`palette ${key}`, swatch] as const),
+    ["openColor", settings.openColor] as const,
+  ];
+
+  for (const [name, swatch] of swatches) {
     for (const shade of ["light", "dark"] as const) {
       if (!CSS.supports("color", swatch[shade])) {
-        throw new Error(
-          `palette ${key}.${shade}: "${swatch[shade]}" is not a colour this browser draws`,
-        );
+        throw new Error(`${name}.${shade}: "${swatch[shade]}" is not a colour this browser draws`);
       }
     }
   }
@@ -99,7 +104,7 @@ function applyPalette(): void {
     throw new TypeError("palette: a <style> in the document has no sheet");
   }
 
-  for (const rule of paletteRules(settings.palette)) {
+  for (const rule of paletteRules(settings.palette, settings.openColor)) {
     const style = styleOf(sheet, rule);
 
     for (const [name, value] of rule.properties) {
@@ -152,11 +157,7 @@ defs(svg);
 
 const grid = el("rect", { fill: "url(#grid)" }, svg);
 
-const views = new Map<Key, Drawn>();
-
-const pending = new Map<Key, Promise<Drawn>>();
-
-let queue: Promise<unknown> = Promise.resolve();
+let st: Stage<Drawn> = EMPTY;
 
 let place: Place = HOME;
 
@@ -166,13 +167,13 @@ let raf = 0;
 
 let turn = 0;
 
-let generation = 0;
-
 let builtFonts = "";
 
 let builtAspect = 1;
 
 let threads: ThreadState = { kind: "ok", threads: {} };
+
+let panelAvoidError: string | null = null;
 
 // The camera is the SVG viewBox, always at the aspect of the element, so nothing is letterboxed.
 // paint() draws the image the camera returns, frame by frame.
@@ -195,9 +196,9 @@ function fit(r: Rect, pad: number): Rect {
 }
 
 function drawn(key: Key): Drawn {
-  const d = views.get(key);
+  const d = heldOf(st, key);
 
-  if (d === undefined) {
+  if (d === null) {
     throw new Error(`the view of ${key ?? "the root"} is not drawn`);
   }
 
@@ -224,71 +225,98 @@ const packing = (): Packing =>
     ? { kind: "screen", aspect: builtAspect }
     : { kind: "fixed", ratio: settings.ratio };
 
-// The grid rect covers the largest view drawn, with room around it for the camera's fit.
+// The grid rect covers the largest view held, with room around it for the camera's fit.
 function coverGrid(): void {
-  const w = Math.max(...[...views.values()].map((d) => d.size.w));
-  const h = Math.max(...[...views.values()].map((d) => d.size.h));
+  const sizes = [...st.held.values()].map((h) => h.drawn.size);
+  const w = Math.max(0, ...sizes.map((s) => s.w));
+  const h = Math.max(0, ...sizes.map((s) => s.h));
   grid.setAttribute("x", String(-w));
   grid.setAttribute("y", String(-h * 2));
   grid.setAttribute("width", String(w * 3));
   grid.setAttribute("height", String(h * 5));
 }
 
-// Views are laid out one at a time: ELK and libavoid run once per view, in the order asked.
-function ensure(key: Key): Promise<Drawn> {
-  const done = views.get(key);
+// One layout at a time, in the stage's order; each layout's end wakes whoever waits on the stage.
+let landed = Promise.withResolvers<void>();
 
-  if (done !== undefined) {
-    return Promise.resolve(done);
+function dispatch(ev: StageEvent<Drawn>): void {
+  st = stage(st, ev);
+  pump();
+}
+
+function settled(error: unknown): void {
+  const waiters = landed;
+  landed = Promise.withResolvers<void>();
+
+  if (error === null) {
+    waiters.resolve();
+  } else {
+    waiters.reject(error);
+  }
+}
+
+// A view laid out again replaces the layer it had once the new one is painted, so the stage never
+// shows an empty sheet; the camera re-fits a view whose size changed under it.
+function replaced(key: Key, previous: Drawn | null): void {
+  coverGrid();
+
+  if (cam !== null && shown(cam, performance.now()).space === key) {
+    jumpTo(key);
   }
 
-  const started = pending.get(key);
+  previous?.layer.remove();
+}
 
-  if (started !== undefined) {
-    return started;
+function pump(): void {
+  const next = nextOf(st);
+
+  if (next === null) {
+    return;
   }
 
+  const { key } = next;
+  dispatch({ type: "start" });
+  const gen = st.gen;
   const name = key ?? "root";
+  const layer = el("g", { style: "visibility: hidden" }, svg);
+  performance.mark(`atlas:draw ${name}:start`);
 
-  const draw = queue.then(async (): Promise<Drawn> => {
-    const built = generation;
-    const layer = el("g", { style: "visibility: hidden" }, svg);
-    performance.mark(`atlas:draw ${name}:start`);
-    const d = await drawView(viewOf(tree, key), layer, packing(), settings.pins, words, send);
-    performance.measure(`atlas:draw ${name}`, `atlas:draw ${name}:start`);
+  drawView(viewOf(tree, key), layer, packing(), settings.pins, words, send).then(
+    (d) => {
+      performance.measure(`atlas:draw ${name}`, `atlas:draw ${name}:start`);
+      const previous = heldOf(st, key);
+      dispatch({ type: "done", key, gen, drawn: d });
 
-    // A relayout meanwhile dropped every view: this one was laid out for the old fonts or aspect.
-    if (built !== generation) {
+      if (heldOf(st, key) === d) {
+        replaced(key, previous);
+      } else {
+        layer.remove();
+      }
+
+      settled(null);
+    },
+    (error: unknown) => {
       layer.remove();
+      dispatch({ type: "failed" });
+      settled(error);
+    },
+  );
+}
 
-      return ensure(key);
+async function ready(key: Key, priority: Priority): Promise<Drawn> {
+  for (;;) {
+    const d = freshOf(st, key);
+
+    if (d !== null) {
+      return d;
     }
 
-    views.set(key, d);
-    pending.delete(key);
-    coverGrid();
-
-    return d;
-  });
-
-  pending.set(key, draw);
-  queue = draw.catch(() => {});
-
-  return draw;
-}
-
-// The view first, so a deep link shows it at once; then its ancestors, which a move up aligns on.
-async function ensureChain(key: Key): Promise<Drawn> {
-  const d = await ensure(key);
-
-  for (const id of key === null ? [] : chainOf(tree, key).slice(0, -1).toReversed()) {
-    await ensure(id);
+    dispatch({ type: "want", key, priority });
+    await landed.promise;
   }
-
-  await ensure(null);
-
-  return d;
 }
+
+const chainKeys = (key: Key): Key[] => [null, ...(key === null ? [] : chainOf(tree, key))];
 
 const imageOf = (key: Key): Image => {
   const { size } = drawn(key);
@@ -308,32 +336,54 @@ function paintLayer(layer: SVGGElement, op: number, transform: string): void {
   }
 }
 
-// The image's own view is drawn as it is; the other one, through the similarity onto it; the
-// rest hidden, so they take no click and cost no paint.
+// The layers painted last: a frame touches the image's own layers and hides those that left it.
+let painted = new Set<SVGGElement>();
+
 function paint(img: Image): void {
   svg.setAttribute("viewBox", `${img.vb.x} ${img.vb.y} ${img.vb.w} ${img.vb.h}`);
+  const own = drawn(img.space).layer;
+  paintLayer(own, img.op, "");
+  const now = new Set([own]);
 
-  for (const [key, d] of views) {
-    if (key === img.space) {
-      paintLayer(d.layer, img.op, "");
-    } else if (img.other !== null && key === img.other.space) {
-      const s = between(key, img.space);
-      paintLayer(d.layer, img.other.op, `translate(${s.dx},${s.dy}) scale(${s.k})`);
-    } else {
-      paintLayer(d.layer, 0, "");
+  if (img.other !== null) {
+    const s = between(img.other.space, img.space);
+    const other = drawn(img.other.space).layer;
+    paintLayer(other, img.other.op, `translate(${s.dx},${s.dy}) scale(${s.k})`);
+    now.add(other);
+  }
+
+  for (const layer of painted) {
+    if (!now.has(layer)) {
+      paintLayer(layer, 0, "");
     }
   }
+
+  painted = now;
 }
 
+// A move's last frame re-fits the view: the drawing area may have changed size on the way.
 function frame(): void {
+  raf = 0;
+
   if (cam === null) {
     return;
   }
 
   const now = performance.now();
   cam = camera(cam, { type: "tick", now }, between);
-  paint(shown(cam, now));
-  raf = cam.kind === "moving" ? requestAnimationFrame(frame) : 0;
+
+  if (cam.kind === "moving") {
+    paint(shown(cam, now));
+    raf = requestAnimationFrame(frame);
+  } else {
+    jumpTo(cam.image.space);
+  }
+}
+
+function jumpTo(key: Key): void {
+  const image = imageOf(key);
+  cam = { kind: "idle", image };
+  paint(image);
 }
 
 // A move between a view and one of its ancestors is animated; any other, and the first, lands at
@@ -344,30 +394,21 @@ function moveTo(key: Key, from: Key): void {
     (from !== null && holds(tree, key, from)) ||
     (key !== null && holds(tree, from, key));
 
-  const image = imageOf(key);
-
   if (cam === null || !related) {
-    cam = { kind: "idle", image };
-    paint(image);
+    jumpTo(key);
 
     return;
   }
 
   cam = camera(
     cam,
-    { type: "go", to: image, now: performance.now(), dur: reduced ? 0 : DUR },
+    { type: "go", to: imageOf(key), now: performance.now(), dur: reduced ? 0 : DUR },
     between,
   );
 
   if (raf === 0) {
     raf = requestAnimationFrame(frame);
   }
-}
-
-function jumpTo(key: Key): void {
-  const image = imageOf(key);
-  cam = { kind: "idle", image };
-  paint(image);
 }
 
 // Selecting a node lights its arrows and outlines its couplings, lifted to the view's items.
@@ -399,9 +440,9 @@ function highlight(d: Drawn, p: Place): void {
 // Arrows rest faded; hovering a box, a card, a chip or a pill lights the arrows that touch it and
 // fades the others further. The labels of a lit arrow stay readable.
 function hover(target: EventTarget | null): void {
-  const d = views.get(openOf(place));
+  const d = heldOf(st, openOf(place));
 
-  if (d === undefined) {
+  if (d === null) {
     return;
   }
 
@@ -462,7 +503,8 @@ function tellSelection(id: string | null): void {
 // is laid out (settle).
 function render(): void {
   const key = openOf(place);
-  renderPanel(settings, tree, panel, place, views.get(key)?.avoidError ?? null, threads);
+  panelAvoidError = heldOf(st, key)?.avoidError ?? null;
+  renderPanel(settings, tree, panel, place, panelAvoidError, threads);
   renderOpenList(settings, tree, openButton, openList, threads);
   renderCrumbs(settings, tree, crumbs, place);
   renderLegend(key);
@@ -478,6 +520,31 @@ function render(): void {
   tellSelection(place.selected ?? key);
 }
 
+// Renders again, keeping the panel where the reader is and what they were typing.
+function rerender(): void {
+  const top = panel.scrollTop;
+
+  const typed = [...panel.querySelectorAll("form.reply")].flatMap((form) => {
+    const input = form.querySelector("input");
+
+    return form instanceof HTMLFormElement && input !== null && input.value !== ""
+      ? [[form.dataset["open"] ?? "", input.value] as const]
+      : [];
+  });
+
+  render();
+
+  for (const [open, value] of typed) {
+    const input = panel.querySelector(`form.reply[data-open="${CSS.escape(open)}"] input`);
+
+    if (input instanceof HTMLInputElement) {
+      input.value = value;
+    }
+  }
+
+  panel.scrollTop = top;
+}
+
 // The views beside the open one, laid out while the reader looks: its parent, for the way up,
 // then its container children, for the way down.
 function prefetch(key: Key): void {
@@ -487,18 +554,23 @@ function prefetch(key: Key): void {
   ];
 
   for (const k of next) {
-    ensure(k).catch(fail);
+    dispatch({ type: "want", key: k, priority: "later" });
   }
 }
 
+// The navigated view is laid out first; the views along the path to the one shown follow, which a
+// cross-fade aligns on; a later navigation drops this one. The panel, rendered before the view
+// was laid out, is rendered again when the view says what it could not: that libavoid failed.
 async function settle(): Promise<void> {
   const seq = ++turn;
   const from = cam === null ? null : shown(cam, performance.now()).space;
   const key = openOf(place);
-  await ensureChain(key);
+  const d = await ready(key, "now");
 
-  if (from !== key && cam !== null) {
-    await ensureChain(from);
+  if (cam !== null && from !== key) {
+    for (const k of [...chainKeys(key), ...chainKeys(from)]) {
+      await ready(k, "now");
+    }
   }
 
   if (seq !== turn) {
@@ -509,11 +581,10 @@ async function settle(): Promise<void> {
     moveTo(key, from);
   }
 
-  const d = drawn(key);
   highlight(d, place);
 
-  if (d.avoidError !== null) {
-    renderPanel(settings, tree, panel, place, d.avoidError, threads);
+  if (d.avoidError !== panelAvoidError) {
+    rerender();
   }
 
   prefetch(key);
@@ -555,30 +626,9 @@ async function loadThreads(): Promise<ThreadState> {
   }
 }
 
-// Re-renders with new threads, keeping the panel where the reader is and what they were typing.
 function showThreads(next: ThreadState): void {
-  const top = panel.scrollTop;
-
-  const typed = [...panel.querySelectorAll("form.reply")].flatMap((form) => {
-    const input = form.querySelector("input");
-
-    return form instanceof HTMLFormElement && input !== null && input.value !== ""
-      ? [[form.dataset["open"] ?? "", input.value] as const]
-      : [];
-  });
-
   threads = next;
-  render();
-
-  for (const [open, value] of typed) {
-    const input = panel.querySelector(`form.reply[data-open="${CSS.escape(open)}"] input`);
-
-    if (input instanceof HTMLInputElement) {
-      input.value = value;
-    }
-  }
-
-  panel.scrollTop = top;
+  rerender();
 }
 
 async function sendReply(form: HTMLFormElement): Promise<void> {
@@ -628,7 +678,6 @@ addEventListener("focus", () => {
   });
 });
 
-// Clicks and keys only: the camera follows navigation and nothing else.
 document.addEventListener("click", (e) => {
   const b = e.target instanceof Element ? e.target.closest("[data-go]") : null;
 
@@ -689,43 +738,37 @@ document.addEventListener("keydown", (e) => {
   }
 });
 
-// A fragment typed into the address bar moves the reader there; render() writes the fragment with
-// replaceState, which fires no hashchange.
+// render() writes the fragment with replaceState, which fires no hashchange: this is a fragment
+// typed into the address bar.
 addEventListener("hashchange", () => {
   place = placeOfHash(tree, location.hash);
   render();
   settle().catch(fail);
 });
 
-// A click on the empty sheet deselects, then goes up a level.
 svg.addEventListener("click", () => {
   if (place !== navigate(tree, place, { type: "escape" })) {
     send({ type: "escape" });
   }
 });
 
-// Views are laid out from scratch after the fonts settle late, every one of them; and, with the
-// Config's overview ratio "screen", when the aspect of the drawing area moves by more than
-// RELAYOUT (a resized window, the panel hidden or shown), once the resizing settles, the packed
-// ones alone: a layered view does not aim at the screen.
+// The packed views are laid out again when the aspect of the drawing area moves by more than
+// RELAYOUT (a resized window, the panel hidden or shown), once the resizing settles, with the
+// Config's overview ratio "screen"; every view is when the fonts settle late. A move under way
+// ends where it was going.
 const RELAYOUT = { change: 0.15, settleMs: 300 };
 
 let relayoutTimer: ReturnType<typeof setTimeout> | undefined;
 
 function relayout(stale: (d: Drawn) => boolean): void {
-  generation += 1;
-
-  for (const [key, d] of views) {
-    if (stale(d)) {
-      d.layer.remove();
-      views.delete(key);
-    }
+  if (cam?.kind === "moving") {
+    cam = { kind: "idle", image: cam.to };
+    paint(cam.image);
   }
 
-  pending.clear();
+  dispatch({ type: "relayout", stale });
   builtFonts = fontKey();
   builtAspect = aspect();
-  cam = null;
   settle().catch(fail);
 }
 
@@ -742,7 +785,7 @@ function relayoutIfNeeded(): void {
 }
 
 new ResizeObserver(() => {
-  if (cam !== null && cam.kind === "idle") {
+  if (cam?.kind === "idle") {
     jumpTo(cam.image.space);
   }
 
@@ -779,7 +822,6 @@ async function start(): Promise<void> {
   builtFonts = fontKey();
   builtAspect = aspect();
   threads = await loadThreads();
-  // The URL's fragment opens the page on its place, without a move.
   place = placeOfHash(tree, location.hash);
   render();
   await settle();

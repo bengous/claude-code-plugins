@@ -43,15 +43,16 @@ describe("the panel's HTML", () => {
     expect(panel.innerHTML).toContain('data-go="app">↑ Application');
   });
 
-  test("an open container shows its brief and the tour's neighbours", () => {
+  test("an open container shows its brief, the tour's neighbours and the arrows' failure", () => {
     const panel = { innerHTML: "", scrollTop: 0 };
     const place = { path: ["server", "app"], selected: null };
 
-    renderPanel(settingsOf(CONFIG), TREE, panel, place, null, { kind: "ok", threads: {} });
+    renderPanel(settingsOf(CONFIG), TREE, panel, place, "no wasm", { kind: "ok", threads: {} });
 
     expect(panel.innerHTML).toContain('<ul class="brief"><li>pages and routes</li>');
     expect(panel.innerHTML).toContain('data-go="server">← Server');
     expect(panel.innerHTML).toContain('data-go="data">Storage →');
+    expect(panel.innerHTML).toContain("no wasm");
   });
 
   test("the root's view shows the root's fields, the tour and the arrows' failure", () => {

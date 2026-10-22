@@ -14,7 +14,7 @@ export default {
       ["Data", "PostgreSQL"],
       ["Mail", "an outside email service"],
     ],
-    how: "The overview shows the server with its application and its storage, the clients on the left and the email service on the right. A click on a zone or a brick opens the detail: every brick and every arrow, and on the arrow into the email service the tags it carries.",
+    how: "The root's view shows the server with its application and its storage, the clients on the left and the email service on the right. A click on a box enters it: its own view, with every card and every arrow, and on the arrow into the email service the tags it carries.",
     seams: [
       [
         "catalog",

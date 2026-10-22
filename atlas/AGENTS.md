@@ -68,6 +68,8 @@ legend.ts            the legend's lines, one per arrow kind or node mark a view 
 engine.ts            the page's entry: draws the view of the open container the first time the
                      reader reaches it and keeps it, paints the camera, takes input, posts the
                      reader's selection to serve.ts
+stage.ts             the stage, pure: the views held, the one being laid out, those wanted now or
+                     later, and what a relayout keeps or lays out again (stage.spec.ts)
 draw.ts              the renderer of one view: packed (ELK rectpacking, side columns, libavoid)
                      when the view has a container child, layered (ELK layered, labels and tags)
                      when it has leaves alone
@@ -78,7 +80,8 @@ camera.ts            the camera, pure: the view shown and the one it cross-fades
                      through the boxes along their path, any number of levels at once
                      (camera.spec.ts)
 geometry.ts          rects, points and similarities
-layout.ts            runs ELK's layered layout, flat
+layout.ts            runs ELK's layered layout, flat, a ghost held to the first or the last layer
+                     (layout.spec.ts, which runs ELK under Bun)
 avoid.ts             runs libavoid (avoid.spec.ts)
 measure.ts           sizes text: one scale for every view
 panel.ts             the panel, the breadcrumb and the open points' list (panel.spec.ts)
@@ -191,8 +194,10 @@ Each module explains its own where it bites.
   at. Written later, the views pack for another aspect.
 - The legend shows a line only for the arrow kinds and node marks the open view draws
   (`legendKeys` in `legend.ts`): a kind the view never uses has no line.
-- Layout runs in the browser only. To script it (a check, a benchmark), run elkjs under Node:
-  under Bun its constructor fails.
+- ELK's bundle does not start under Bun, where `self` exists: its worker module takes the web
+  worker's branch and exports nothing. `layout.spec.ts` builds the layouter it hands `elkLayered`
+  from `elk-api.js` and that branch; a script that lays a view out outside a browser (a check, a
+  benchmark) does the same, or runs under Node.
 - A map folder's files are code: its `map.ts` and `atlas.config.ts` run in every command on it,
   and a `bunfig.toml` or a `.env` in the folder a bun starts in preloads more. Every bun atlas
   starts, from the mod, `serve.ts` or `cli.ts`, takes `bunFlags` (`wire.ts`) before its script,

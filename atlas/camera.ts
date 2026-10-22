@@ -4,8 +4,8 @@
 // Every view is drawn in its own coordinates, on its own layer. An Image names the view whose
 // coordinates the viewBox is in, and at most one other view, drawn through the similarity between
 // the two (the boxes along their path, Between) so that its frame wraps the first's; the others are
-// hidden. Without this alignment, switching views showed an empty sheet between them. A move
-// started while another runs starts from the image shown at that moment: the screen never jumps.
+// hidden. A move started while another runs starts from the image shown at that moment: the screen
+// never jumps.
 import type { Point, Rect, Similarity } from "./geometry.ts";
 import { IDENTITY, applyRect, center, compose, fitting, invert } from "./geometry.ts";
 

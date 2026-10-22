@@ -9,23 +9,26 @@
 //    Config's overview ratio is "screen", or at the ratio it gives; libavoid routes one arrow per
 //    pair around every item. A view of leaves alone is layered: ELK's layered layout places the
 //    cards and the pills left to right and routes the arrows with their labels and tags.
-// 3. Labels of a packed view take the longest segment of their arrow where the label hits no item,
-//    no other label and no other arrow; failing that, one that hits no item and no label; failing
-//    that, the longest segment. On libavoid's failure (libavoid.wasm unreachable) the view is drawn
-//    without arrows and the panel says why: never block the page.
+// 3. Labels of a packed view take a spot along their arrow where the label hits no item, no other
+//    label and no other arrow, then one that hits no item and no label, the label shortened to its
+//    first part, then to an ellipsis, when the whole does not fit; failing that, the ellipsis
+//    takes the spot that overlaps the least (placement.ts). The drawing's extent covers the labels
+//    and the routes, so the camera frames them. On libavoid's failure (libavoid.wasm unreachable)
+//    the view is drawn without arrows and the panel says why: never block the page.
 import type { ElkNode } from "elkjs/lib/elk.bundled.js";
 import ELK from "elkjs/lib/elk.bundled.js";
 
 import type { Pins, Side } from "./atlas.ts";
 import { routeLinks } from "./avoid.ts";
 import type { Point, Rect, Size } from "./geometry.ts";
-import type { LayoutEdge } from "./layout.ts";
-import { ROOT_COORDS, elkLayered } from "./layout.ts";
+import type { Edge, LayoutEdge } from "./layout.ts";
+import { ROOT_COORDS, edgeOf, elkLayered } from "./layout.ts";
 import {
   BOX,
   CARD,
   CHIP,
   GHOST,
+  LABEL,
   cardSize,
   labelSize,
   subLines,
@@ -34,7 +37,7 @@ import {
   titleWidth,
 } from "./measure.ts";
 import type { PlaceEvent } from "./navigation.ts";
-import type { Block, Cell } from "./placement.ts";
+import type { Block, Cell, Spotted } from "./placement.ts";
 import { OUT, column, copyOf, labelSpots, realId, wrap } from "./placement.ts";
 import { paletteVar } from "./settings.ts";
 import { arrowPath, el, onActivate, openBadge, rounded, text } from "./svg.ts";
@@ -53,7 +56,10 @@ export type Packing =
   | { readonly kind: "screen"; readonly aspect: number }
   | { readonly kind: "fixed"; readonly ratio: number };
 
-/** What render() toggles: the drawn groups of each node, by its id. */
+/**
+ * The drawn groups of each node, by its id: its box, card or chip, and both copies of a ghost
+ * drawn twice. The engine marks them selected or coupled.
+ */
 export type Registry = Map<string, SVGGElement[]>;
 
 export type ArrowEl = {
@@ -85,7 +91,8 @@ type Figure =
   | { readonly kind: "card"; readonly box: LeafBox }
   | { readonly kind: "ghost"; readonly ghost: Ghost };
 
-type Item = Block & { readonly figure: Figure; readonly column: Column };
+/** `edge`: the layer a layered view holds the item to, by the column its arrows give it. */
+type Item = Block & { readonly figure: Figure; readonly column: Column; readonly edge: Edge };
 
 type End = { readonly from: string; readonly to: string };
 
@@ -100,7 +107,9 @@ const RATIO = { min: 0.6, max: 4, passes: 3, settled: 0.05 };
 
 const clampRatio = (r: number): number => Math.min(RATIO.max, Math.max(RATIO.min, r));
 
-function boxItem(box: ContainerBox): Omit<Item, "column"> {
+type Sized = Omit<Item, "column" | "edge">;
+
+function boxItem(box: ContainerBox): Sized {
   const widths = box.chips.map((c) => Math.ceil(textWidth(c.label, CHIP.cls)) + 2 * CHIP.pad);
   const total = widths.reduce((a, w) => a + w + CHIP.gap, 0);
   const headW = titleWidth(box.label, box.sub);
@@ -116,13 +125,13 @@ function boxItem(box: ContainerBox): Omit<Item, "column"> {
   };
 }
 
-const cardItem = (box: LeafBox): Omit<Item, "column"> => ({
+const cardItem = (box: LeafBox): Sized => ({
   id: box.id,
   ...cardSize(box.label, box.sub),
   figure: { kind: "card", box },
 });
 
-const ghostItem = (ghost: Ghost): Omit<Item, "column"> => ({
+const ghostItem = (ghost: Ghost): Sized => ({
   id: ghost.id,
   w: Math.ceil(textWidth(ghost.label, GHOST.cls)) + 2 * GHOST.pad,
   h: GHOST.h,
@@ -132,11 +141,12 @@ const ghostItem = (ghost: Ghost): Omit<Item, "column"> => ({
 function itemsOf(view: View): Item[] {
   const items: Item[] = [];
 
-  const add = (item: Omit<Item, "column">, side: Side | null): void => {
-    if (side === "both") {
-      items.push({ ...item, column: "in" }, { ...item, id: item.id + OUT, column: "out" });
-    } else {
-      items.push({ ...item, column: side });
+  const add = (item: Sized, side: Side | null): void => {
+    const lanes: Column[] = side === "both" ? ["in", "out"] : [side];
+
+    for (const lane of lanes) {
+      const id = side === "both" && lane === "out" ? item.id + OUT : item.id;
+      items.push({ ...item, id, column: lane, edge: edgeOf(lane) });
     }
   };
 
@@ -290,30 +300,86 @@ async function placePacked(
   );
 }
 
-type Laid = Placed & {
+type Laid = {
+  readonly rects: ReadonlyMap<string, Rect>;
+  readonly size: Size;
+  readonly frame: Rect;
   readonly routes: ReadonlyArray<readonly Point[] | null>;
-  readonly labels: ReadonlyArray<Rect | null>;
+  readonly labels: ReadonlyArray<Spotted | null>;
   readonly avoidError: string | null;
 };
 
-const arrowText = (a: Arrow, mode: Mode): string =>
-  mode === "layered" && a.tags.length > 0 ? `${a.label} · ${a.tags.join(", ")}` : a.label;
+const JOINT = " · ";
 
-// An arrow into an item of the left column, or out of one of the right column, is laid out
-// reversed: ELK's layers run left to right, so a pure sink would otherwise land on the right.
+const arrowText = (a: Arrow, mode: Mode): string =>
+  mode === "layered" && a.tags.length > 0 ? `${a.label}${JOINT}${a.tags.join(", ")}` : a.label;
+
+const ELLIPSIS = "…";
+
+/**
+ * The texts an arrow's label may show: the whole, its first part alone, an ellipsis alone. A
+ * shortened label carries the whole as its tooltip.
+ */
+function labelVariants(a: Arrow, mode: Mode): string[] {
+  const whole = arrowText(a, mode);
+  const [first] = whole.split(JOINT);
+
+  return whole === ""
+    ? []
+    : first === undefined || first === whole
+      ? [whole, ELLIPSIS]
+      : [whole, `${first}${ELLIPSIS}`, ELLIPSIS];
+}
+
+// The room an arrow's stroke and its heads take around its points.
+const STROKE = 8;
+
+// The drawing's extent takes the labels and the routes in: every rect moved so it starts at
+// MARGIN on both axes, with MARGIN after it.
+function extended(
+  placed: Placed,
+  routes: ReadonlyArray<readonly Point[] | null>,
+  labels: ReadonlyArray<Spotted | null>,
+  avoidError: string | null,
+): Laid {
+  const all = bounds([
+    ...placed.rects.values(),
+    ...labels.flatMap((l) => (l === null ? [] : [l.spot])),
+    ...routes.flatMap((pts) =>
+      (pts ?? []).map(([x, y]): Rect => ({
+        x: x - STROKE,
+        y: y - STROKE,
+        w: 2 * STROKE,
+        h: 2 * STROKE,
+      })),
+    ),
+  ]);
+
+  const dx = MARGIN - all.x;
+  const dy = MARGIN - all.y;
+  const shift = (r: Rect): Rect => ({ x: r.x + dx, y: r.y + dy, w: r.w, h: r.h });
+
+  return {
+    rects: new Map([...placed.rects].map(([id, r]): [string, Rect] => [id, shift(r)])),
+    size: { w: all.w + 2 * MARGIN, h: all.h + 2 * MARGIN },
+    frame: shift(placed.frame),
+    routes: routes.map((pts) =>
+      pts === null ? null : pts.map(([x, y]): Point => [x + dx, y + dy]),
+    ),
+    labels: labels.map((l) => (l === null ? null : { ...l, spot: shift(l.spot) })),
+    avoidError,
+  };
+}
+
 async function layeredView(
   view: View,
   items: readonly Item[],
   ends: readonly End[],
 ): Promise<Laid> {
-  const columnOf = new Map(items.map((i) => [i.id, i.column]));
-
   const edges = view.arrows.map((a, i): LayoutEdge => ({
     from: ends[i]?.from ?? a.from,
     to: ends[i]?.to ?? a.to,
     label: arrowText(a, "layered"),
-    flip:
-      columnOf.get(ends[i]?.to ?? a.to) === "in" || columnOf.get(ends[i]?.from ?? a.from) === "out",
   }));
 
   const laid = await elkLayered(items, edges, labelSize);
@@ -324,14 +390,20 @@ async function layeredView(
   );
 
   const [dx, dy] = placed.shift;
-  const shift = (r: Rect): Rect => ({ x: r.x + dx, y: r.y + dy, w: r.w, h: r.h });
 
-  return {
-    ...placed,
-    routes: laid.paths.map((p) => p.pts.map(([x, y]): Point => [x + dx, y + dy])),
-    labels: laid.paths.map((p) => (p.label === null ? null : shift(p.label))),
-    avoidError: null,
-  };
+  return extended(
+    placed,
+    laid.paths.map((p) => p.pts.map(([x, y]): Point => [x + dx, y + dy])),
+    laid.paths.map((p) =>
+      p.label === null
+        ? null
+        : {
+            spot: { x: p.label.x + dx, y: p.label.y + dy, w: p.label.w, h: p.label.h },
+            variant: 0,
+          },
+    ),
+    null,
+  );
 }
 
 async function packedView(
@@ -346,19 +418,13 @@ async function packedView(
 
   try {
     const routes = await routeLinks(placed.rects, [], ends, pins);
+    const variants = view.arrows.map((a) => labelVariants(a, "packed").map((t) => labelSize(t)));
 
-    const sizes = view.arrows.map((a) =>
-      a.label === "" ? null : labelSize(arrowText(a, "packed")),
-    );
-
-    return { ...placed, routes, labels: labelSpots(routes, sizes, obstacles), avoidError: null };
+    return extended(placed, routes, labelSpots(routes, variants, obstacles), null);
   } catch (error: unknown) {
-    return {
-      ...placed,
-      routes: view.arrows.map(() => null),
-      labels: view.arrows.map(() => null),
-      avoidError: error instanceof Error ? error.message : String(error),
-    };
+    const none = view.arrows.map(() => null);
+
+    return extended(placed, none, none, error instanceof Error ? error.message : String(error));
   }
 }
 
@@ -410,7 +476,8 @@ function drawBox(
   words: Words,
   pick: Pick,
 ): void {
-  const g = el("g", { class: "box", style: colorStyle(box.color), "data-id": box.id }, frames);
+  const cls = `box${box.column === null ? "" : " outside"}`;
+  const g = el("g", { class: cls, style: colorStyle(box.color), "data-id": box.id }, frames);
   el("rect", { x: r.x, y: r.y, width: r.w, height: r.h, rx: 10, class: "box-bg" }, g);
   text(g, { x: r.x + 16, y: r.y + 31, class: BOX.title }, box.label);
   text(g, { x: r.x + 16, y: r.y + 48, class: BOX.tag }, tagOf(box.sub));
@@ -471,23 +538,37 @@ function drawGhost(layer: SVGGElement, ghost: Ghost, r: Rect, items: Registry, p
   register(items, ghost.id, g);
 }
 
+// A shortened label answers the pointer with the whole text, as a tooltip.
 function drawArrow(
   layer: SVGGElement,
   arrow: Arrow,
   mode: Mode,
   pts: readonly Point[],
-  label: Rect | null,
+  label: Spotted | null,
 ): ArrowEl {
   const g = el("g", { class: `flow ${arrow.kind}`, "pointer-events": "none" }, layer);
   const path = arrowPath(g, rounded(pts, mode === "packed" ? 9 : 7), arrow.kind, arrow.two);
 
   if (label !== null) {
-    const content = arrowText(arrow, mode);
-    text(
+    const variants = labelVariants(arrow, mode);
+    const { spot, variant } = label;
+    const shown = variants[variant] ?? variants[0] ?? "";
+
+    const t = text(
       g,
-      { x: label.x + label.w / 2, y: label.y + 13, class: "flow-label", "text-anchor": "middle" },
-      content,
+      {
+        x: spot.x + spot.w / 2,
+        y: spot.y + LABEL.ascent,
+        class: LABEL.cls,
+        "text-anchor": "middle",
+      },
+      shown,
     );
+
+    if (variant > 0) {
+      t.setAttribute("pointer-events", "auto");
+      el("title", {}, g).textContent = variants[0] ?? shown;
+    }
   }
 
   return { arrow, g, path, marker: path.getAttribute("marker-end") ?? "" };

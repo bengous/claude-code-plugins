@@ -184,18 +184,17 @@ const upNav = (tree: Tree, id: string): string => {
     : `<div class="nav"><button type="button" data-go="${esc(parent)}">↑ ${esc(nodeOf(tree, parent).label)}</button></div>`;
 };
 
-function rootExtra(s: Settings, tree: Tree, avoidError: string | null): string {
+const arrowsMissing = (s: Settings, avoidError: string | null): string =>
+  avoidError === null
+    ? ""
+    : `<h3>${s.words.arrowsMissing}</h3><p class="warn">${s.words.avoidFailed(esc(avoidError))}</p>`;
+
+function rootExtra(s: Settings, tree: Tree): string {
   const chips = tourOf(tree)
     .map((id) => chip(tree, id))
     .join("");
 
-  const zones = chips === "" ? "" : `<h3>${s.words.zones}</h3><div class="chips">${chips}</div>`;
-
-  if (avoidError === null) {
-    return zones;
-  }
-
-  return `${zones}<h3>${s.words.arrowsMissing}</h3><p class="warn">${s.words.avoidFailed(esc(avoidError))}</p>`;
+  return chips === "" ? "" : `<h3>${s.words.zones}</h3><div class="chips">${chips}</div>`;
 }
 
 export function renderPanel(
@@ -221,7 +220,7 @@ export function renderPanel(
         brief: [],
         coupled: [],
         open: undefined,
-        extra: rootExtra(s, tree, avoidError),
+        extra: rootExtra(s, tree) + arrowsMissing(s, avoidError),
       },
       state,
     );
@@ -235,7 +234,7 @@ export function renderPanel(
       brief: node.brief ?? [],
       coupled: couplingsOf(tree, id),
       open: node.open,
-      extra: "",
+      extra: arrowsMissing(s, avoidError),
     };
 
     const nav = place.selected === null ? tourNav(tree, id) : upNav(tree, id);
